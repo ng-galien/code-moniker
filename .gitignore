@@ -8,3 +8,4 @@
 .DS_Store
 TODO.md
 .mcp.json
+.claude/settings.local.json
