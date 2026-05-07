@@ -11,3 +11,10 @@ fn extract_typescript(uri: &str, source: &str, anchor: moniker) -> code_graph {
 	let inner = crate::lang::ts::extract(uri, source, &core_anchor);
 	code_graph::from_core(inner)
 }
+
+#[pg_extern(immutable, parallel_safe)]
+fn extract_rust(uri: &str, source: &str, anchor: moniker) -> code_graph {
+	let core_anchor = anchor.to_core();
+	let inner = crate::lang::rs::extract(uri, source, &core_anchor);
+	code_graph::from_core(inner)
+}

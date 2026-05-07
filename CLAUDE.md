@@ -15,7 +15,7 @@ No work-in-progress archives, no decision memos, no speculative docs. Git log + 
 
 ## Direction
 
-Phases 1–5 of SPEC shipped. Phase 6 partial: btree + hash opclasses on `moniker`, GIN on `moniker[]`, README pattern canonique — all ✓. The remaining Phase 6 work (custom GiST opclass, pgrx ANALYZE quirk, storage/decode perf) converges on a single chantier: replace `#[derive(PostgresType)]` cbor-wrapping with a manual `IntoDatum`/`FromDatum` varlena. Attack it in a focused session with fast install/run cycles to iterate on the FFI; detail in TODO.md (gitignored).
+Phases 1–6 of SPEC shipped. v2 chantier ship: typed canonical URI (`<scheme>+moniker://<project>/<kind>:<name>...`), kind names embedded in bytes (no backend-local registry), seg_count dropped → byte-lex order strictly tree-friendly (`m >= ancestor AND m < ancestor||sentinel` works on plain btree). Custom Datum + GiST opclass shipped. Compact projection (`moniker_compact` / `match_compact`) ships as a one-way display. Next backlog: per-language extractors beyond TS (Java, Python, Rust); benchmarks at corpus 10⁴/10⁶. Detail in TODO.md (gitignored).
 
 ## Comment sobriety
 
@@ -29,25 +29,26 @@ Phases 1–5 of SPEC shipped. Phase 6 partial: btree + hash opclasses on `monike
 src/
   lib.rs              entry, gates pgrx behind pgN features
   core/               pure Rust, no pgrx, testable with cargo test
-    kind_registry.rs  KindId + PunctClass (Path/Type/Term/Method)
     moniker/          owned moniker type + tree-position queries
       mod.rs          Moniker struct, Ord (byte-lex), re-exports
-      encoding.rs     byte layout, EncodingError, LE helpers
+      encoding.rs     v2 byte layout (no seg_count), EncodingError, LE helpers
       view.rs         MonikerView + SegmentIter + is_ancestor_of (byte-prefix fast path)
       builder.rs      MonikerBuilder + from_view + truncate
       query.rs        parent / last_kind on Moniker
-    uri/              SCIP parse / serialize, backtick escaping
+    uri/              typed canonical URI parse / serialize, backtick escaping
       mod.rs          UriError, UriConfig, re-exports
-      parse.rs        from_uri + read_name + read_arity
-      serialize.rs    to_uri + escape helpers
-    code_graph.rs     defs / refs / tree per module
+      parse.rs        from_uri (`<scheme>+moniker://<project>/<kind>:<name>...`)
+      serialize.rs    to_uri + name escape
+    code_graph.rs     defs / refs / tree per module (kinds as byte strings)
   pg/                 pgrx wrappers, gated behind pgN feature
     mod.rs            module declarations + pcm_version smoke
-    registry.rs       process-wide KindRegistry (Mutex), DEFAULT_CONFIG
+    registry.rs       DEFAULT_CONFIG (canonical scheme constant)
     moniker/          moniker SQL type + operators
-      mod.rs          PostgresType + InOutFuncs + `=` + project_of/depth
+      mod.rs          PostgresType + InOutFuncs + manual varlena Datum + `=`
       query.rs        <@ / @> / parent_of / kind_of / path_of / compose_child
       index.rs        btree + hash opclasses
+      gist.rs         GiST opclass (`=`, `@>`, `<@`); page sigs share v2 header
+      compact.rs      moniker_compact + match_compact (display projection)
     code_graph.rs     code_graph SQL type + constructors + accessors
     extract.rs        extract_typescript SQL entry point
   lang/               per-language extractors
@@ -57,7 +58,7 @@ src/
       walker.rs       AST traversal + def emitters (class, method, function)
       canonicalize.rs moniker construction (compute_module_moniker, extend_*)
       refs.rs         refs extraction (imports today; calls/extends to come)
-      kinds.rs        TsKinds: canonical structural kinds + semantic labels
+      kinds.rs        TS kind name byte constants (PATH, CLASS, METHOD, …)
     java/             future
     python/           future
     pgsql/            future
@@ -73,3 +74,9 @@ Tests describe the contract before the implementation. Cycle: red test → minim
 
 - **Pure-Rust** : `cargo test` for `core/` and `lang/`. Tests inline in `#[cfg(test)] mod tests` next to the code under test — standard Rust convention, access to private items without ceremony.
 - **SQL surface** : `pg/` is tested via **pgTAP**, files in `test/sql/*.sql`, runner `./test/run.sh` against the PG17 instance managed by pgrx. No `pgrx-tests` / `#[pg_test]` — SQL is tested in SQL.
+- **Iteration loop** : `cargo check --features pg17 --no-default-features` before `cargo pgrx install` — surfaces FFI errors in seconds; install is the slow last mile. The pgTAP runner recreates the DB but does NOT reinstall the extension; install first.
+- **Visibility for cross-layer constants** : `core/` items consumed by `pg/` need `pub(crate)`, not `pub(super)`. The `core::moniker::encoding` constants (`VERSION`, `HEADER_FIXED_LEN`, `read_u16`, `write_u16`) are the canonical example.
+
+## pgrx 0.18 manual Datum
+
+`moniker` ships its bytes as a raw varlena, not the default cbor wrapper. To keep `#[derive(PostgresType)]` for the SQL DDL emission while replacing the cbor `IntoDatum`/`FromDatum`, use the opt-out attribute `#[bikeshed_postgres_type_manually_impl_from_into_datum]` and provide the five impls manually (`IntoDatum`, `FromDatum`, `BoxRet`, `UnboxDatum`, `ArgAbi`). The macro source at `pgrx-macros-0.18.0/src/lib.rs:902-973` is the canonical reference for the shape — mirror it, swap cbor encode/decode for varlena helpers (`pgrx::set_varsize_4b`, `pgrx::varlena_to_byte_slice`, `pg_sys::pg_detoast_datum_packed`).

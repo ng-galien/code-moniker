@@ -7,6 +7,7 @@
 
 use core::ffi::CStr;
 use core::ptr::addr_of_mut;
+use std::sync::OnceLock;
 
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::datum::{Datum as PgrxDatum, FromDatum, IntoDatum, UnboxDatum};
@@ -121,13 +122,33 @@ pub(super) unsafe fn varlena_to_borrowed_bytes<'a>(datum: pg_sys::Datum) -> &'a 
 	}
 }
 
+/// Cached OID of the `moniker` type within this backend. Looked up
+/// lazily by joining `pg_extension` to find our install namespace, then
+/// schema-qualifying the type name. The plain `rust_regtypein("moniker")`
+/// path raises `type "moniker" does not exist` under restricted
+/// search_path contexts (notably GIN bulk index build).
+static MONIKER_TYPE_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
+
+fn moniker_type_oid() -> pg_sys::Oid {
+	*MONIKER_TYPE_OID.get_or_init(|| unsafe {
+		let ext_name = c"pg_code_moniker".as_ptr();
+		let ext_oid = pg_sys::get_extension_oid(ext_name, false);
+		let nsp_oid = pg_sys::get_extension_schema(ext_oid);
+		let nsp_name = pg_sys::get_namespace_name(nsp_oid);
+		let nsp_str = CStr::from_ptr(nsp_name)
+			.to_str()
+			.expect("namespace name must be UTF-8");
+		::pgrx::wrappers::regtypein(&format!("{nsp_str}.moniker"))
+	})
+}
+
 impl IntoDatum for moniker {
 	fn into_datum(self) -> Option<pg_sys::Datum> {
 		Some(unsafe { palloc_varlena_from_slice(&self.bytes) })
 	}
 
 	fn type_oid() -> pg_sys::Oid {
-		::pgrx::wrappers::rust_regtypein::<Self>()
+		moniker_type_oid()
 	}
 }
 

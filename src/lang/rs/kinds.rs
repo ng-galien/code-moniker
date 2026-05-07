@@ -1,0 +1,14 @@
+//! Rust-specific kind names. Byte string constants embedded directly
+//! in moniker bytes; no registry indirection.
+
+pub(super) const PATH: &[u8] = b"path";
+pub(super) const MODULE: &[u8] = b"module";
+pub(super) const CLASS: &[u8] = b"class";
+pub(super) const ENUM: &[u8] = b"enum";
+pub(super) const INTERFACE: &[u8] = b"interface";
+pub(super) const TYPE_ALIAS: &[u8] = b"type_alias";
+pub(super) const FUNCTION: &[u8] = b"function";
+pub(super) const METHOD: &[u8] = b"method";
+
+pub(super) const IMPORTS_SYMBOL: &[u8] = b"imports_symbol";
+pub(super) const IMPLEMENTS: &[u8] = b"implements";

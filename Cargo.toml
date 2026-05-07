@@ -30,9 +30,9 @@ pgrx  = { version = "0.18", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 
 # Tree-sitter and per-language grammars for the lang/ extractors.
-# Grammars are added one language at a time; only TypeScript for the MVP.
 tree-sitter            = "0.26"
 tree-sitter-typescript = "0.23"
+tree-sitter-rust       = "0.24"
 
 # pgrx-tests added later when in-PG tests (`#[pg_test]`) are introduced.
 # It requires a `pgN` feature and breaks pure-Rust `cargo test` when always-on.
