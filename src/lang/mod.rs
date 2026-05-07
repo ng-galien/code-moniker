@@ -9,6 +9,7 @@
 //! For the MVP only TypeScript is wired in. Java, Python, and others
 //! follow once the TS path is fully validated.
 
+pub mod java;
 pub mod kinds;
 pub mod rs;
 pub mod ts;

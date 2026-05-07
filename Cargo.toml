@@ -33,6 +33,7 @@ serde = { version = "1", features = ["derive"], optional = true }
 tree-sitter            = "0.26"
 tree-sitter-typescript = "0.23"
 tree-sitter-rust       = "0.24"
+tree-sitter-java       = "0.23"
 
 # Manifest parsers for the build/* primitives.
 toml       = "0.8"

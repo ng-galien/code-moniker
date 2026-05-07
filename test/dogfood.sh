@@ -69,6 +69,7 @@ ext_for_lang() {
 	case "$1" in
 		rs) echo "rs" ;;
 		ts) echo "ts tsx js jsx mjs cjs mts cts" ;;
+		java) echo "java" ;;
 		*) echo "" ;;
 	esac
 }
@@ -77,6 +78,7 @@ extract_fn() {
 	case "$1" in
 		rs) echo "extract_rust" ;;
 		ts) echo "extract_typescript" ;;
+		java) echo "extract_java" ;;
 		*) echo "" ;;
 	esac
 }

@@ -1,0 +1,98 @@
+//! Visibility detection and local-scope tracking for Java. Mirrors
+//! the TS `scope` module but uses Java's `modifiers` child node and
+//! defaults to `package` when no access modifier is present.
+
+use std::collections::HashSet;
+
+use tree_sitter::Node;
+
+use crate::core::moniker::Moniker;
+
+use super::kinds;
+use super::walker::Walker;
+
+/// True when `scope` ends in a callable kind segment.
+pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
+	if scope == module {
+		return false;
+	}
+	let Some(last) = scope.as_view().segments().last() else { return false };
+	last.kind == kinds::METHOD || last.kind == kinds::CONSTRUCTOR
+}
+
+/// Read the access modifier from a declaration's `modifiers` child.
+/// Defaults to `package` when no `public`/`protected`/`private` keyword
+/// is present.
+pub(super) fn modifier_visibility(node: Node<'_>) -> &'static [u8] {
+	let mut cursor = node.walk();
+	for child in node.children(&mut cursor) {
+		if child.kind() != "modifiers" {
+			continue;
+		}
+		let mut mc = child.walk();
+		for m in child.children(&mut mc) {
+			match m.kind() {
+				"public" => return kinds::VIS_PUBLIC,
+				"protected" => return kinds::VIS_PROTECTED,
+				"private" => return kinds::VIS_PRIVATE,
+				_ => {}
+			}
+		}
+	}
+	kinds::VIS_PACKAGE
+}
+
+/// Recognise Javadoc-style banner comments shaped like
+/// `/* ===== Title ===== */` or `// ===== Title =====`.
+pub(super) fn section_title<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
+	let raw = node.utf8_text(source).ok()?;
+	let body = raw
+		.strip_prefix("//")
+		.or_else(|| raw.strip_prefix("/*").and_then(|s| s.strip_suffix("*/")))
+		.unwrap_or(raw);
+	let body = body.trim();
+	let stripped = body.trim_matches(|c: char| c == '=' || c == '-' || c.is_whitespace());
+	if stripped.is_empty() {
+		return None;
+	}
+	let starts = body.starts_with("==") || body.starts_with("--");
+	let ends = body.ends_with("==") || body.ends_with("--");
+	(starts && ends).then_some(stripped)
+}
+
+impl<'src> Walker<'src> {
+	pub(super) fn push_local_scope(&self) {
+		self.local_scope.borrow_mut().push(HashSet::new());
+	}
+
+	pub(super) fn pop_local_scope(&self) {
+		self.local_scope.borrow_mut().pop();
+	}
+
+	pub(super) fn record_local(&self, name: &'src [u8]) {
+		if let Some(top) = self.local_scope.borrow_mut().last_mut() {
+			top.insert(name);
+		}
+	}
+
+	pub(super) fn is_local_name(&self, name: &[u8]) -> bool {
+		self.local_scope
+			.borrow()
+			.iter()
+			.any(|frame| frame.contains(name))
+	}
+
+	pub(super) fn name_confidence(&self, name: &[u8]) -> &'static [u8] {
+		if self.is_local_name(name) {
+			kinds::CONF_LOCAL
+		} else {
+			kinds::CONF_NAME_MATCH
+		}
+	}
+
+	/// Look up an `imports` table built at extract time so that calls
+	/// to imported symbols can carry `confidence: imported`.
+	pub(super) fn import_confidence_for(&self, name: &[u8]) -> Option<&'static [u8]> {
+		self.imports.borrow().get(name).copied()
+	}
+}

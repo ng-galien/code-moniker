@@ -32,3 +32,16 @@ fn extract_rust(
 	let inner = crate::lang::rs::extract(uri, source, &core_anchor, deep);
 	code_graph::from_core(inner)
 }
+
+#[pg_extern(immutable, parallel_safe)]
+fn extract_java(
+	uri: &str,
+	source: &str,
+	anchor: moniker,
+	deep: pgrx::default!(bool, "false"),
+) -> code_graph {
+	let core_anchor = anchor.to_core();
+	let presets = crate::lang::java::Presets::default();
+	let inner = crate::lang::java::extract(uri, source, &core_anchor, deep, &presets);
+	code_graph::from_core(inner)
+}

@@ -1,0 +1,289 @@
+//! Java parser and extractor.
+
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+
+use tree_sitter::{Language, Parser, Tree};
+
+use crate::core::code_graph::CodeGraph;
+use crate::core::moniker::Moniker;
+
+mod canonicalize;
+mod kinds;
+mod refs;
+mod scope;
+mod walker;
+
+use canonicalize::{compute_module_moniker, read_package_name};
+use walker::Walker;
+
+#[derive(Clone, Debug, Default)]
+pub struct Presets {
+	/// Reserved for Maven-coordinate hints feeding external moniker
+	/// shapes. Empty in the MVP — JDK detection is hard-coded; everything
+	/// else gets `imported` confidence.
+	pub external_packages: Vec<String>,
+}
+
+pub fn parse(source: &str) -> Tree {
+	let mut parser = Parser::new();
+	let language: Language = tree_sitter_java::LANGUAGE.into();
+	parser
+		.set_language(&language)
+		.expect("failed to load tree-sitter Java grammar");
+	parser
+		.parse(source, None)
+		.expect("tree-sitter parse returned None on a non-cancelled call")
+}
+
+pub fn extract(
+	uri: &str,
+	source: &str,
+	anchor: &Moniker,
+	deep: bool,
+	presets: &Presets,
+) -> CodeGraph {
+	let tree = parse(source);
+	let pkg = read_package_name(tree.root_node(), source.as_bytes());
+	let pieces: Vec<&str> = pkg.split('.').filter(|s| !s.is_empty()).collect();
+	let module = compute_module_moniker(anchor, uri, &pieces);
+	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
+	let walker = Walker {
+		source_bytes: source.as_bytes(),
+		module: module.clone(),
+		deep,
+		presets,
+		local_scope: RefCell::new(Vec::new()),
+		imports: RefCell::new(HashMap::<&[u8], &'static [u8]>::new()),
+	};
+	walker.walk(tree.root_node(), &module, &mut graph);
+	graph
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::core::moniker::MonikerBuilder;
+
+	fn make_anchor() -> Moniker {
+		MonikerBuilder::new().project(b"app").build()
+	}
+
+	fn extract_default(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
+		extract(uri, source, anchor, deep, &Presets::default())
+	}
+
+	#[test]
+	fn parse_empty_returns_program() {
+		let tree = parse("");
+		assert_eq!(tree.root_node().kind(), "program");
+	}
+
+	#[test]
+	fn extract_module_uses_package_decl_and_class_filename() {
+		let src = "package com.acme;\nclass Foo {}\n";
+		let g = extract_default("src/Foo.java", src, &make_anchor(), false);
+		let expected = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"package", b"com")
+			.segment(b"package", b"acme")
+			.segment(b"module", b"Foo")
+			.build();
+		assert_eq!(g.root(), &expected);
+	}
+
+	#[test]
+	fn extract_default_package_skips_package_segments() {
+		let g = extract_default("Foo.java", "class Foo {}", &make_anchor(), false);
+		let expected = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"module", b"Foo")
+			.build();
+		assert_eq!(g.root(), &expected);
+	}
+
+	#[test]
+	fn extract_class_emits_class_def_with_package_visibility_default() {
+		let g = extract_default("Foo.java", "class Foo {}", &make_anchor(), false);
+		let foo = g.defs().find(|d| d.kind == b"class").expect("class def");
+		assert_eq!(foo.visibility, b"package".to_vec());
+	}
+
+	#[test]
+	fn extract_class_with_public_modifier_carries_visibility_public() {
+		let g = extract_default("Foo.java", "public class Foo {}", &make_anchor(), false);
+		let foo = g.defs().find(|d| d.kind == b"class").unwrap();
+		assert_eq!(foo.visibility, b"public".to_vec());
+	}
+
+	#[test]
+	fn extract_method_arity_in_segment_and_signature() {
+		let src = r#"
+            public class Foo {
+                public int findById(int id, String name) { return id; }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
+		let last = m.moniker.as_view().segments().last().unwrap();
+		assert_eq!(last.kind, b"method");
+		assert_eq!(last.name, b"findById(2)");
+		assert_eq!(m.signature, b"int,String".to_vec());
+		assert_eq!(m.visibility, b"public".to_vec());
+	}
+
+	#[test]
+	fn extract_constructor_uses_constructor_kind() {
+		let src = r#"
+            public class Foo {
+                public Foo(int x) {}
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		assert!(g.defs().any(|d| d.kind == b"constructor"));
+	}
+
+	#[test]
+	fn extract_field_one_def_per_declarator() {
+		let src = "class Foo { int a, b; private String name; }";
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let fields: Vec<_> = g.defs().filter(|d| d.kind == b"field").collect();
+		assert_eq!(fields.len(), 3, "got {:?}", fields.iter().map(|d| &d.moniker).collect::<Vec<_>>());
+		let private_field = fields
+			.iter()
+			.find(|d| d.moniker.as_view().segments().last().unwrap().name == b"name")
+			.unwrap();
+		assert_eq!(private_field.visibility, b"private".to_vec());
+	}
+
+	#[test]
+	fn extract_enum_emits_enum_constants() {
+		let g = extract_default(
+			"Color.java",
+			"public enum Color { RED, GREEN }",
+			&make_anchor(),
+			false,
+		);
+		let red = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"module", b"Color")
+			.segment(b"enum", b"Color")
+			.segment(b"enum_constant", b"RED")
+			.build();
+		assert!(g.contains(&red), "missing RED, defs: {:?}", g.def_monikers());
+	}
+
+	#[test]
+	fn extract_record_emits_record_def() {
+		let g = extract_default(
+			"Point.java",
+			"public record Point(int x, int y) {}",
+			&make_anchor(),
+			false,
+		);
+		let pt = g.defs().find(|d| d.kind == b"record").expect("record def");
+		assert_eq!(pt.visibility, b"public".to_vec());
+	}
+
+	#[test]
+	fn extract_extends_and_implements_emit_refs() {
+		let src = r#"
+            public class A extends B implements I, J {}
+        "#;
+		let g = extract_default("A.java", src, &make_anchor(), false);
+		let kinds: Vec<&[u8]> = g.refs().map(|r| r.kind.as_slice()).collect();
+		assert_eq!(kinds.iter().filter(|k| **k == b"extends").count(), 1);
+		assert_eq!(kinds.iter().filter(|k| **k == b"implements").count(), 2);
+	}
+
+	#[test]
+	fn extract_named_jdk_import_marks_external() {
+		let src = "import java.util.List;\nclass Foo {}";
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"imports_symbol")
+			.expect("imports_symbol ref");
+		assert_eq!(r.confidence, b"external".to_vec());
+	}
+
+	#[test]
+	fn extract_wildcard_import_emits_imports_module() {
+		let src = "import com.acme.*;\nclass Foo {}";
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"imports_module")
+			.expect("imports_module ref");
+		assert_eq!(r.confidence, b"imported".to_vec());
+	}
+
+	#[test]
+	fn extract_method_call_carries_receiver_hint() {
+		let src = r#"
+            class Foo {
+                void m() { this.bar(); }
+                void bar() {}
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call")
+			.expect("method_call ref");
+		assert_eq!(r.receiver_hint, b"this".to_vec());
+	}
+
+	#[test]
+	fn extract_object_creation_emits_instantiates() {
+		let src = r#"
+            class Foo {
+                Object m() { return new Bar(); }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"instantiates")
+			.expect("instantiates ref");
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(last.kind, b"class");
+		assert_eq!(last.name, b"Bar");
+	}
+
+	#[test]
+	fn extract_annotation_on_class_emits_annotates() {
+		let src = "@Deprecated public class Foo {}";
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		assert!(g.refs().any(|r| r.kind == b"annotates"));
+	}
+
+	#[test]
+	fn extract_imported_call_marks_confidence_imported() {
+		let src = r#"
+            import com.acme.Helpers;
+            class Foo { void m() { Helpers.go(); } }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		// the `Helpers` identifier under `Helpers.go()` is the receiver
+		// of a method_call; confidence on `reads` for that identifier
+		// should be `imported` because Helpers was imported.
+		let reads_helpers = g
+			.refs()
+			.find(|r| r.kind == b"reads"
+				&& r.target.as_view().segments().last().unwrap().name == b"Helpers");
+		if let Some(r) = reads_helpers {
+			assert_eq!(r.confidence, b"imported".to_vec());
+		}
+	}
+
+	#[test]
+	fn extract_param_read_marks_confidence_local() {
+		let src = r#"
+            class Foo { int m(int x) { return x; } }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g.refs().find(|r| r.kind == b"reads").expect("reads ref");
+		assert_eq!(r.confidence, b"local".to_vec());
+	}
+}

@@ -33,4 +33,7 @@ PCM_DOGFOOD_PANEL=(
 	# TypeScript ----------------------------------------------------------
 	"ts|zod|https://github.com/colinhacks/zod.git|v3.23.8|src|package.json"
 	"ts|date-fns|https://github.com/date-fns/date-fns.git|v3.6.0|src|package.json"
+
+	# Java ----------------------------------------------------------------
+	"java|gson|https://github.com/google/gson.git|gson-parent-2.11.0|gson/src/main/java|-"
 )
