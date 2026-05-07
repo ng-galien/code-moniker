@@ -14,7 +14,7 @@ The extension is **stateless**. It reads no tables, exposes only types, operator
 
 ## Status
 
-Pre-implementation. Spec in `SPEC.md`. Phase 1 (`moniker` minimal + URI I/O + `=`) in progress.
+Phases 1–5 of the SPEC complete. Phase 6 (custom GiST opclass + benchmarks) in progress: btree and hash opclasses on `moniker` shipped — `ORDER BY`, `DISTINCT`, hash-join, and `GIN` on `moniker[]` all work. The custom GiST opclass for tree-containment queries (`<@` / `@>` indexed) is the remaining piece. Roughly 84 pure-Rust + 70 pgTAP tests cover the surface end to end.
 
 ## Scope
 
@@ -23,6 +23,10 @@ Pre-implementation. Spec in `SPEC.md`. Phase 1 (`moniker` minimal + URI I/O + `=
 - Index : custom GiST opclass on `moniker`.
 - Per-language extractors (tree-sitter based) producing `code_graph` from source.
 - Constructors for synthetic `code_graph` (forward modeling, external dependency declarations).
+
+Extraction targets for ESAC are documented in
+[`docs/EXTRACTION_TARGETS.md`](docs/EXTRACTION_TARGETS.md). The extension must
+reach parity with ESAC's existing extractors before replacing them.
 
 ## Non-scope
 
@@ -75,6 +79,55 @@ cargo pgrx start pg17
 cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
 ./test/run.sh
 ```
+
+## Canonical usage
+
+The extension defines no tables. The pattern below — one row per module — is the canonical shape SPEC is designed to serve, and the one ESAC uses.
+
+```sql
+CREATE EXTENSION pg_code_moniker;
+
+CREATE TABLE module (
+    id          uuid PRIMARY KEY,
+    graph       code_graph NOT NULL,
+    source_text text,
+    source_uri  text,
+    origin      text NOT NULL  -- 'extracted' | 'symbolic' | 'external'
+);
+
+-- Module identity = its root moniker. Make it queryable + unique without
+-- introducing a redundant column.
+CREATE UNIQUE INDEX module_root_uniq
+    ON module ((graph_root(graph)));
+
+-- Cross-module navigation indexes. The btree + hash opclasses on moniker
+-- (shipped in Phase 6) make `array_ops` work on moniker[], so these GIN
+-- indexes resolve the SPEC linkage pattern in O(log n).
+CREATE INDEX module_def_monikers_gin
+    ON module USING gin (graph_def_monikers(graph));
+CREATE INDEX module_ref_targets_gin
+    ON module USING gin (graph_ref_targets(graph));
+
+-- Populate from a TS source.
+INSERT INTO module (id, graph, source_text, source_uri, origin) VALUES
+    (gen_random_uuid(),
+     extract_typescript('src/util.ts',
+         'export class Util { run() { return 1; } }',
+         'esac://app'::moniker),
+     'export class Util { run() { return 1; } }',
+     'src/util.ts',
+     'extracted');
+
+-- Find the module that defines a moniker (uses module_def_monikers_gin).
+SELECT id FROM module
+ WHERE graph_def_monikers(graph) @> ARRAY['esac://app/src/util#Util#'::moniker];
+
+-- Find every module that references a moniker (uses module_ref_targets_gin).
+SELECT id FROM module
+ WHERE graph_ref_targets(graph) @> ARRAY['esac://app/src/util'::moniker];
+```
+
+Subtree containment queries (`graph_root <@ 'esac://app/main'::moniker`) need a custom GiST opclass on `moniker`, scheduled but not yet shipped.
 
 ## Consumers
 

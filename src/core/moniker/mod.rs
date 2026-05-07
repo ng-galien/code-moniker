@@ -21,7 +21,13 @@ pub use builder::MonikerBuilder;
 pub use encoding::EncodingError;
 pub use view::{MonikerView, Segment, SegmentIter};
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+/// Owned encoded moniker.
+///
+/// `Ord` is the byte-lexicographic order on the canonical encoding.
+/// At realistic sizes (tens of segments, kind ids and arities both
+/// well below 256) this order coincides with the parent-before-child,
+/// then siblings-by-name tree traversal.
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Moniker {
 	bytes: Vec<u8>,
@@ -103,6 +109,27 @@ mod tests {
 			.build();
 		assert_eq!(a, b);
 		assert_ne!(a, c);
+	}
+
+	#[test]
+	fn ord_places_parent_before_child_at_realistic_sizes() {
+		let parent = MonikerBuilder::new()
+			.project(b"app")
+			.segment(kid(1), b"main")
+			.build();
+		let child = MonikerBuilder::new()
+			.project(b"app")
+			.segment(kid(1), b"main")
+			.segment(kid(2), b"Foo")
+			.build();
+		assert!(parent < child);
+	}
+
+	#[test]
+	fn ord_separates_distinct_projects() {
+		let a = MonikerBuilder::new().project(b"app1").build();
+		let b = MonikerBuilder::new().project(b"app2").build();
+		assert!(a < b);
 	}
 
 	#[test]

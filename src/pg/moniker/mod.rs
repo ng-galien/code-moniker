@@ -13,6 +13,7 @@ use crate::core::moniker::{Moniker as CoreMoniker, MonikerView};
 use crate::core::uri::{from_uri, to_uri};
 use crate::pg::registry::{with_registry, DEFAULT_CONFIG};
 
+mod index;
 mod query;
 
 #[allow(non_camel_case_types)]
@@ -56,6 +57,9 @@ impl InOutFuncs for moniker {
 	}
 }
 
+// `#[hashes]` and `#[merges]` are load-bearing once the hash and btree
+// opclasses (in `index.rs`) are registered: they tell the planner this
+// `=` is usable for hash-join and merge-join with those opclasses.
 #[pg_operator(immutable, parallel_safe)]
 #[opname(=)]
 #[commutator(=)]
