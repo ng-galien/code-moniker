@@ -18,6 +18,7 @@ use crate::core::moniker::{Moniker as CoreMoniker, MonikerView};
 use crate::core::uri::{from_uri, to_uri};
 use crate::pg::registry::DEFAULT_CONFIG;
 
+mod compact;
 mod gist;
 mod index;
 mod query;
