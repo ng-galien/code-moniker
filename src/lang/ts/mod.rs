@@ -7,12 +7,15 @@ use crate::core::moniker::Moniker;
 
 pub mod build;
 mod canonicalize;
+mod imports;
 mod kinds;
 mod refs;
+mod scope;
 mod walker;
 
 use canonicalize::compute_module_moniker;
-use walker::{collect_export_ranges, Walker};
+use scope::collect_export_ranges;
+use walker::Walker;
 
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();

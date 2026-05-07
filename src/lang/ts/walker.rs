@@ -14,6 +14,9 @@ use super::canonicalize::{
 	anonymous_callback_name, callable_arity, extend_method, extend_segment, node_position,
 };
 use super::kinds;
+use super::scope::{
+	class_member_visibility, collect_binding_names, is_callable_scope, section_title,
+};
 
 pub(super) struct Walker<'src> {
 	pub(super) source_bytes: &'src [u8],
@@ -26,72 +29,11 @@ pub(super) struct Walker<'src> {
 	pub(super) export_ranges: Vec<(u32, u32)>,
 	/// Stack of in-scope local names per enclosing callable. Refs
 	/// whose target name matches any frame get `confidence: local`.
-	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
-}
-
-/// Pre-pass: collect every top-level `export_statement` node's byte range.
-pub(super) fn collect_export_ranges(root: Node<'_>) -> Vec<(u32, u32)> {
-	let mut out = Vec::new();
-	let mut cursor = root.walk();
-	for child in root.children(&mut cursor) {
-		if child.kind() == "export_statement" {
-			out.push((child.start_byte() as u32, child.end_byte() as u32));
-		}
-	}
-	out
+	/// Borrows from `source_bytes` so no per-name allocation.
+	pub(super) local_scope: RefCell<Vec<HashSet<&'src [u8]>>>,
 }
 
 impl<'src> Walker<'src> {
-	/// True when `node` lives inside a top-level `export_statement`. Used
-	/// to derive `public` vs `module` visibility for module-scope decls.
-	pub(super) fn is_exported(&self, node: Node<'_>) -> bool {
-		let s = node.start_byte() as u32;
-		self.export_ranges.iter().any(|(a, b)| *a <= s && s < *b)
-	}
-
-	/// Module-scope def visibility: `public` if wrapped by an export,
-	/// `module` otherwise. For class/interface members, callers use
-	/// `member_visibility(node)` instead.
-	pub(super) fn module_visibility(&self, node: Node<'_>) -> &'static [u8] {
-		if self.is_exported(node) {
-			kinds::VIS_PUBLIC
-		} else {
-			kinds::VIS_MODULE
-		}
-	}
-
-	pub(super) fn push_local_scope(&self) {
-		self.local_scope.borrow_mut().push(HashSet::new());
-	}
-
-	pub(super) fn pop_local_scope(&self) {
-		self.local_scope.borrow_mut().pop();
-	}
-
-	pub(super) fn record_local(&self, name: &[u8]) {
-		if let Some(top) = self.local_scope.borrow_mut().last_mut() {
-			top.insert(name.to_vec());
-		}
-	}
-
-	pub(super) fn is_local_name(&self, name: &[u8]) -> bool {
-		self.local_scope
-			.borrow()
-			.iter()
-			.any(|frame| frame.contains(name))
-	}
-
-	/// Confidence bucket for refs whose target is name-keyed: `local` if
-	/// the name binds to a param/local in some enclosing callable scope,
-	/// `name_match` otherwise.
-	pub(super) fn name_confidence(&self, name: &[u8]) -> &'static [u8] {
-		if self.is_local_name(name) {
-			kinds::CONF_LOCAL
-		} else {
-			kinds::CONF_NAME_MATCH
-		}
-	}
-
 	/// Top-level entry. Walks every child of `node` and dispatches it.
 	/// `scope` is the moniker that defs nest under and refs source on.
 	pub(super) fn walk(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
@@ -484,10 +426,8 @@ impl<'src> Walker<'src> {
 			};
 			if emit {
 				let m = extend_segment(scope, kind, name.as_bytes());
-				// Locals carry no visibility — the concept doesn't apply
-				// below the callable boundary.
 				let attrs = DefAttrs {
-					visibility: if inside_callable { b"" } else { module_vis },
+					visibility: if inside_callable { kinds::VIS_NONE } else { module_vis },
 					..DefAttrs::default()
 				};
 				let _ = graph.add_def_attrs(m, kind, scope, Some(node_position(decl)), &attrs);
@@ -538,11 +478,10 @@ impl<'src> Walker<'src> {
 		}
 	}
 
+	/// `record_local` runs unconditionally — confidence tracking has to
+	/// stay accurate even when deep extraction is off.
 	fn emit_param_leaf(&self, pat: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		for name in collect_binding_names(pat, self.source_bytes) {
-			// Record for `confidence: local` regardless of `deep` — the
-			// scope stack always tracks locals so refs source on real
-			// bindings rather than miscategorise them as name_match.
 			self.record_local(name.as_bytes());
 			if self.deep {
 				let m = extend_segment(callable, kinds::PARAM, name.as_bytes());
@@ -561,9 +500,7 @@ impl<'src> Walker<'src> {
 	) {
 		if self.deep && is_callable_scope(scope, &self.module) {
 			let name = anonymous_callback_name(node);
-			// Anonymous callbacks below a callable have no meaningful
-			// visibility — they're resource-scoped like their locals.
-			self.emit_callable(node, node, &name, kinds::FUNCTION, scope, graph, b"");
+			self.emit_callable(node, node, &name, kinds::FUNCTION, scope, graph, kinds::VIS_NONE);
 			return;
 		}
 		if let Some(params) = node.child_by_field_name("parameters") {
@@ -683,78 +620,3 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// Collect leaf identifier names from a binding pattern (`identifier`,
-/// `object_pattern`, `array_pattern`, `rest_pattern`). Empty for `_`-style
-/// untargeted holes.
-fn collect_binding_names(pat: Node<'_>, source: &[u8]) -> Vec<String> {
-	fn rec(node: Node<'_>, source: &[u8], out: &mut Vec<String>) {
-		match node.kind() {
-			"identifier" | "shorthand_property_identifier_pattern" => {
-				if let Ok(s) = node.utf8_text(source) {
-					out.push(s.to_string());
-				}
-			}
-			"object_pattern" | "array_pattern" | "pair_pattern" | "rest_pattern"
-			| "assignment_pattern" => {
-				let mut cursor = node.walk();
-				for c in node.named_children(&mut cursor) {
-					rec(c, source, out);
-				}
-			}
-			_ => {}
-		}
-	}
-	let mut out = Vec::new();
-	rec(pat, source, &mut out);
-	out
-}
-
-/// True when `scope` is the moniker of a callable def — i.e. we're inside
-/// a function/method/constructor body.
-fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
-	if scope == module {
-		return false;
-	}
-	let Some(last) = scope.as_view().segments().last() else { return false };
-	last.kind == kinds::FUNCTION || last.kind == kinds::METHOD || last.kind == kinds::CONSTRUCTOR
-}
-
-/// Class member visibility: explicit modifier when present, `public` by
-/// default (TS class members default to public).
-pub(super) fn class_member_visibility(node: Node<'_>, source: &[u8]) -> &'static [u8] {
-	let mut cursor = node.walk();
-	for c in node.children(&mut cursor) {
-		if c.kind() == "accessibility_modifier" {
-			return match c.utf8_text(source).unwrap_or("") {
-				"private" => kinds::VIS_PRIVATE,
-				"protected" => kinds::VIS_PROTECTED,
-				"public" => kinds::VIS_PUBLIC,
-				_ => kinds::VIS_PUBLIC,
-			};
-		}
-	}
-	kinds::VIS_PUBLIC
-}
-
-/// ESAC TS recognises section comments shaped like
-/// `// ===== Title =====` or `/* === Title === */`. Returns the trimmed
-/// title when the comment matches.
-fn section_title<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
-	let raw = node.utf8_text(source).ok()?;
-	let body = raw
-		.strip_prefix("//")
-		.or_else(|| raw.strip_prefix("/*").and_then(|s| s.strip_suffix("*/")))
-		.unwrap_or(raw);
-	let body = body.trim();
-	let stripped = body.trim_matches(|c: char| c == '=' || c == '-' || c.is_whitespace());
-	if stripped.is_empty() {
-		return None;
-	}
-	let starts = body.starts_with("==") || body.starts_with("--");
-	let ends = body.ends_with("==") || body.ends_with("--");
-	if starts && ends {
-		Some(stripped)
-	} else {
-		None
-	}
-}

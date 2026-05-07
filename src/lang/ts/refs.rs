@@ -11,227 +11,11 @@ use tree_sitter::Node;
 use crate::core::code_graph::{CodeGraph, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-use super::canonicalize::{
-	append_path_segments, callable_segment_name, extend_method, extend_segment,
-	external_pkg_builder, node_position, strip_known_extension,
-};
+use super::canonicalize::{callable_segment_name, extend_method, extend_segment, node_position};
 use super::kinds;
 use super::walker::Walker;
 
 impl<'src> Walker<'src> {
-	// --- imports ---------------------------------------------------------
-
-	pub(super) fn handle_import(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
-		let Some(src_node) = node.child_by_field_name("source") else { return };
-		let raw_spec = unquote_string_literal(src_node, self.source_bytes);
-		if raw_spec.is_empty() {
-			return;
-		}
-		let pos = node_position(node);
-
-		let mut clause: Option<Node<'_>> = None;
-		let mut cursor = node.walk();
-		for c in node.children(&mut cursor) {
-			if c.kind() == "import_clause" {
-				clause = Some(c);
-				break;
-			}
-		}
-
-		let confidence = import_confidence(&raw_spec);
-		let Some(clause) = clause else {
-			let target = self.import_module_target(&raw_spec);
-			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
-			let _ = graph.add_ref_attrs(scope, target, kinds::IMPORTS_MODULE, Some(pos), &attrs);
-			return;
-		};
-
-		let mut cursor = clause.walk();
-		for c in clause.children(&mut cursor) {
-			match c.kind() {
-				"identifier" => {
-					let local_name = self.text_of(c);
-					let target = self.import_symbol_target(&raw_spec, "default");
-					let attrs = RefAttrs {
-						alias: local_name.as_bytes(),
-						confidence,
-						..RefAttrs::default()
-					};
-					let _ = graph.add_ref_attrs(
-						scope,
-						target,
-						kinds::IMPORTS_SYMBOL,
-						Some(pos),
-						&attrs,
-					);
-				}
-				"namespace_import" => {
-					let alias = first_identifier_text(c, self.source_bytes);
-					let target = self.import_module_target(&raw_spec);
-					let attrs = RefAttrs {
-						alias: alias.as_bytes(),
-						confidence,
-						..RefAttrs::default()
-					};
-					let _ = graph.add_ref_attrs(
-						scope,
-						target,
-						kinds::IMPORTS_MODULE,
-						Some(pos),
-						&attrs,
-					);
-				}
-				"named_imports" => {
-					let mut nc = c.walk();
-					for spec in c.children(&mut nc) {
-						if spec.kind() != "import_specifier" {
-							continue;
-						}
-						let name = spec
-							.child_by_field_name("name")
-							.map(|n| self.text_of(n))
-							.unwrap_or("");
-						if name.is_empty() {
-							continue;
-						}
-						let alias = spec
-							.child_by_field_name("alias")
-							.map(|n| self.text_of(n))
-							.unwrap_or("");
-						let target = self.import_symbol_target(&raw_spec, name);
-						let attrs = RefAttrs {
-							alias: alias.as_bytes(),
-							confidence,
-							..RefAttrs::default()
-						};
-						let _ = graph.add_ref_attrs(
-							scope,
-							target,
-							kinds::IMPORTS_SYMBOL,
-							Some(pos),
-							&attrs,
-						);
-					}
-				}
-				_ => {}
-			}
-		}
-	}
-
-	pub(super) fn handle_reexport(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
-		let Some(src_node) = node.child_by_field_name("source") else { return };
-		let raw_spec = unquote_string_literal(src_node, self.source_bytes);
-		if raw_spec.is_empty() {
-			return;
-		}
-		let pos = node_position(node);
-
-		let mut has_star = false;
-		let mut export_clause: Option<Node<'_>> = None;
-		let mut cursor = node.walk();
-		for c in node.children(&mut cursor) {
-			match c.kind() {
-				"*" => has_star = true,
-				"export_clause" => export_clause = Some(c),
-				_ => {}
-			}
-		}
-
-		let confidence = import_confidence(&raw_spec);
-		if has_star {
-			let target = self.import_module_target(&raw_spec);
-			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
-			let _ = graph.add_ref_attrs(scope, target, kinds::REEXPORTS, Some(pos), &attrs);
-			return;
-		}
-
-		let Some(clause) = export_clause else { return };
-		let mut nc = clause.walk();
-		for spec in clause.children(&mut nc) {
-			if spec.kind() != "export_specifier" {
-				continue;
-			}
-			let name = spec
-				.child_by_field_name("name")
-				.map(|n| self.text_of(n))
-				.unwrap_or("");
-			if name.is_empty() {
-				continue;
-			}
-			let alias = spec
-				.child_by_field_name("alias")
-				.map(|n| self.text_of(n))
-				.unwrap_or("");
-			let target = self.import_symbol_target(&raw_spec, name);
-			let attrs = RefAttrs {
-				alias: alias.as_bytes(),
-				confidence,
-				..RefAttrs::default()
-			};
-			let _ = graph.add_ref_attrs(scope, target, kinds::REEXPORTS, Some(pos), &attrs);
-		}
-	}
-
-	/// Build a target for `imports_module` (whole module, namespace import,
-	/// star reexport) and `import 'side-effect'`. Bare specifier ⇒ external,
-	/// relative ⇒ resolved against the importer's directory.
-	fn import_module_target(&self, raw_path: &str) -> Moniker {
-		self.import_target(raw_path, None)
-	}
-
-	fn import_symbol_target(&self, raw_path: &str, name: &str) -> Moniker {
-		self.import_target(raw_path, Some(name))
-	}
-
-	/// Single-pass builder. `symbol` appended as `path:<name>` if Some.
-	fn import_target(&self, raw_path: &str, symbol: Option<&str>) -> Moniker {
-		let mut b = if is_relative_specifier(raw_path) {
-			self.relative_module_builder(raw_path)
-		} else {
-			external_pkg_builder(self.module.as_view().project(), raw_path)
-		};
-		if let Some(sym) = symbol {
-			b.segment(kinds::PATH, sym.as_bytes());
-		}
-		b.build()
-	}
-
-	fn relative_module_builder(&self, raw_path: &str) -> MonikerBuilder {
-		let importer_view = self.module.as_view();
-		let mut b = MonikerBuilder::from_view(importer_view);
-		let mut depth = (importer_view.segment_count() as usize).saturating_sub(1);
-		b.truncate(depth);
-
-		// Normalise the dot-only shorthands to their slash form so the
-		// loop below handles them uniformly.
-		let mut remainder = match raw_path {
-			"." => "./",
-			".." => "../",
-			other => other,
-		};
-		while let Some(rest) = remainder.strip_prefix("./") {
-			remainder = rest;
-		}
-		while let Some(rest) = remainder.strip_prefix("../") {
-			depth = depth.saturating_sub(1);
-			b.truncate(depth);
-			remainder = rest;
-		}
-		let remainder = strip_known_extension(remainder);
-		append_path_segments(&mut b, remainder, kinds::PATH);
-		b
-	}
-
 	// --- calls / new -----------------------------------------------------
 
 	pub(super) fn handle_call(
@@ -308,7 +92,7 @@ impl<'src> Walker<'src> {
 			if let Some(n) = name {
 				if !n.is_empty() {
 					let target = self.instantiates_target(n);
-					let _ = graph.add_ref_attrs(scope, target, kinds::INSTANTIATES, Some(pos), &name_match_attrs());
+					let _ = graph.add_ref_attrs(scope, target, kinds::INSTANTIATES, Some(pos), &NAME_MATCH_ATTRS);
 				}
 			}
 		}
@@ -363,7 +147,7 @@ impl<'src> Walker<'src> {
 			return;
 		}
 		let target = self.instantiates_target(name);
-		let _ = graph.add_ref_attrs(scope, target, kinds::DI_REGISTER, Some(pos), &name_match_attrs());
+		let _ = graph.add_ref_attrs(scope, target, kinds::DI_REGISTER, Some(pos), &NAME_MATCH_ATTRS);
 	}
 
 	// --- class / interface heritage --------------------------------------
@@ -417,7 +201,7 @@ impl<'src> Walker<'src> {
 				continue;
 			}
 			let target = self.heritage_target(name_kind, &name);
-			let _ = graph.add_ref_attrs(scope, target, edge, Some(pos), &name_match_attrs());
+			let _ = graph.add_ref_attrs(scope, target, edge, Some(pos), &NAME_MATCH_ATTRS);
 		}
 	}
 
@@ -437,7 +221,7 @@ impl<'src> Walker<'src> {
 					let name = self.text_of(c);
 					if !name.is_empty() {
 						let target = self.calls_target(name, 0);
-						let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &name_match_attrs());
+						let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &NAME_MATCH_ATTRS);
 					}
 				}
 				"call_expression" => {
@@ -446,7 +230,7 @@ impl<'src> Walker<'src> {
 							let name = self.text_of(fn_node);
 							let arity = call_argument_count(c);
 							let target = self.calls_target(name, arity);
-							let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &name_match_attrs());
+							let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &NAME_MATCH_ATTRS);
 						}
 					}
 					if let Some(args) = c.child_by_field_name("arguments") {
@@ -473,7 +257,7 @@ impl<'src> Walker<'src> {
 					return;
 				}
 				let target = self.heritage_target(kinds::CLASS, name);
-				let _ = graph.add_ref_attrs(scope, target, kinds::USES_TYPE, Some(node_position(node)), &name_match_attrs());
+				let _ = graph.add_ref_attrs(scope, target, kinds::USES_TYPE, Some(node_position(node)), &NAME_MATCH_ATTRS);
 			}
 			"nested_type_identifier" => {
 				if let Some(name) = nested_type_short(node, self.source_bytes) {
@@ -483,7 +267,7 @@ impl<'src> Walker<'src> {
 						target,
 						kinds::USES_TYPE,
 						Some(node_position(node)),
-						&name_match_attrs(),
+						&NAME_MATCH_ATTRS,
 					);
 				}
 			}
@@ -495,7 +279,7 @@ impl<'src> Walker<'src> {
 						target,
 						kinds::USES_TYPE,
 						Some(node_position(node)),
-						&name_match_attrs(),
+						&NAME_MATCH_ATTRS,
 					);
 				}
 				if let Some(args) = node.child_by_field_name("type_arguments") {
@@ -654,49 +438,19 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// True for `./x`, `../x`, and the dot-only shorthands `.` and `..`.
-fn is_relative_specifier(spec: &str) -> bool {
-	spec == "." || spec == ".." || spec.starts_with("./") || spec.starts_with("../")
-}
-
-/// Confidence the consumer should attach to refs derived from this
-/// import/reexport specifier.
-fn import_confidence(spec: &str) -> &'static [u8] {
-	if is_relative_specifier(spec) {
-		kinds::CONF_IMPORTED
-	} else {
-		kinds::CONF_EXTERNAL
-	}
-}
-
 /// Default attrs for refs whose target is name-keyed under the
 /// importing module — calls, instantiates, extends, implements,
 /// annotates, uses_type, reads. Consumer-side resolution upgrades
 /// these to `resolved` once it picks an owning def.
-fn name_match_attrs() -> RefAttrs<'static> {
-	RefAttrs {
-		confidence: kinds::CONF_NAME_MATCH,
-		..RefAttrs::default()
-	}
-}
+const NAME_MATCH_ATTRS: RefAttrs<'static> = RefAttrs {
+	receiver_hint: b"",
+	alias: b"",
+	confidence: kinds::CONF_NAME_MATCH,
+};
 
-/// First identifier text under `node`. Used to read `* as X` namespace
-/// import alias.
-fn first_identifier_text<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
-	let mut cursor = node.walk();
-	for c in node.children(&mut cursor) {
-		if c.kind() == "identifier" {
-			if let Ok(s) = c.utf8_text(source) {
-				return s;
-			}
-		}
-	}
-	""
-}
-
-/// Classify the `object` side of a `member_expression` callee. Empty
-/// slice when the receiver shape isn't one we recognise — caller stores
-/// it in `RefRecord.meta` and an empty value means "no hint".
+/// Receiver shape for a `member_expression` callee. Empty slice if the
+/// receiver isn't one of the recognised forms — caller stores it as
+/// `receiver_hint`, where empty means "no hint".
 fn receiver_hint(member_expr: Node<'_>) -> &'static [u8] {
 	let Some(obj) = member_expr.child_by_field_name("object") else {
 		return b"";
@@ -710,20 +464,6 @@ fn receiver_hint(member_expr: Node<'_>) -> &'static [u8] {
 		"subscript_expression" => b"subscript",
 		_ => b"",
 	}
-}
-
-fn unquote_string_literal<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
-	let mut cursor = node.walk();
-	for c in node.children(&mut cursor) {
-		if c.kind() == "string_fragment" {
-			if let Ok(s) = c.utf8_text(source) {
-				return s;
-			}
-		}
-	}
-	node.utf8_text(source)
-		.unwrap_or("")
-		.trim_matches(|c| c == '"' || c == '\'' || c == '`')
 }
 
 /// Count the named children of a `call_expression`'s `arguments` field.

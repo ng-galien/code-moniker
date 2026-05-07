@@ -34,19 +34,12 @@ pub(super) const SECTION: &[u8] = b"section";
 pub(super) const PARAM: &[u8] = b"param";
 pub(super) const LOCAL: &[u8] = b"local";
 
-// --- visibility -----------------------------------------------------------
+// --- visibility / confidence (shared cross-language vocabulary) ---------
 
-pub(super) const VIS_PUBLIC: &[u8] = b"public";
-pub(super) const VIS_PROTECTED: &[u8] = b"protected";
-pub(super) const VIS_PRIVATE: &[u8] = b"private";
-pub(super) const VIS_MODULE: &[u8] = b"module";
-
-// --- ref confidence -------------------------------------------------------
-
-pub(super) const CONF_EXTERNAL: &[u8] = b"external";
-pub(super) const CONF_IMPORTED: &[u8] = b"imported";
-pub(super) const CONF_NAME_MATCH: &[u8] = b"name_match";
-pub(super) const CONF_LOCAL: &[u8] = b"local";
+pub(super) use crate::lang::kinds::{
+	CONF_EXTERNAL, CONF_IMPORTED, CONF_LOCAL, CONF_NAME_MATCH, VIS_MODULE, VIS_NONE, VIS_PRIVATE,
+	VIS_PROTECTED, VIS_PUBLIC,
+};
 
 // --- ref kinds ------------------------------------------------------------
 

@@ -240,15 +240,15 @@ impl CodeGraph {
 	/// the first time it's accessed after deserialization (when defs are
 	/// present but the cache field defaulted to empty).
 	fn find_def(&self, m: &Moniker) -> Option<usize> {
-		if self.index.borrow().len() != self.defs.len() {
-			let mut idx = self.index.borrow_mut();
+		let mut idx = self.index.borrow_mut();
+		if idx.len() != self.defs.len() {
 			idx.clear();
 			idx.reserve(self.defs.len());
 			for (i, d) in self.defs.iter().enumerate() {
 				idx.insert(d.moniker.clone(), i);
 			}
 		}
-		self.index.borrow().get(m).copied()
+		idx.get(m).copied()
 	}
 }
 

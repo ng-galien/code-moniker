@@ -149,9 +149,5 @@ fn graph_refs(
 }
 
 fn bytes_to_opt_string(b: &[u8]) -> Option<String> {
-	if b.is_empty() {
-		None
-	} else {
-		Some(kind_text(b))
-	}
+	(!b.is_empty()).then(|| kind_text(b))
 }
