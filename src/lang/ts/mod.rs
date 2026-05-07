@@ -1,10 +1,19 @@
 //! TypeScript parser and extractor.
 
-use tree_sitter::{Language, Node, Parser, Tree};
+use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
-use crate::core::kind_registry::{KindId, KindRegistry, PunctClass};
-use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::core::kind_registry::KindRegistry;
+use crate::core::moniker::Moniker;
+
+mod canonicalize;
+mod kinds;
+mod refs;
+mod walker;
+
+use canonicalize::compute_module_moniker;
+use kinds::TsKinds;
+use walker::Walker;
 
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
@@ -36,152 +45,11 @@ pub fn extract(
 	graph
 }
 
-#[derive(Copy, Clone)]
-struct TsKinds {
-	// Canonical structural kinds — used in moniker bytes so URI
-	// roundtrip and `=` equality stay punct-class-stable.
-	path: KindId,
-	type_canon: KindId,
-	method_canon: KindId,
-
-	// Semantic labels — used as `DefRecord.kind` / `RefRecord.kind`
-	// metadata and surfaced as text in the SQL API.
-	class_label: KindId,
-	function_label: KindId,
-	import_label: KindId,
-}
-
-impl TsKinds {
-	fn new(reg: &mut KindRegistry) -> Self {
-		Self {
-			path: reg.intern("path", PunctClass::Path).unwrap(),
-			type_canon: reg.intern("type", PunctClass::Type).unwrap(),
-			method_canon: reg.intern("method", PunctClass::Method).unwrap(),
-			class_label: reg.intern("class", PunctClass::Type).unwrap(),
-			function_label: reg.intern("function", PunctClass::Method).unwrap(),
-			import_label: reg.intern("import", PunctClass::Path).unwrap(),
-		}
-	}
-}
-
-struct Walker<'src> {
-	source_bytes: &'src [u8],
-	kinds: TsKinds,
-	module: Moniker,
-}
-
-impl<'src> Walker<'src> {
-	fn walk(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
-		let mut cursor = node.walk();
-		for child in node.children(&mut cursor) {
-			match child.kind() {
-				"class_declaration" => self.handle_class(child, parent, graph),
-				"function_declaration" => self.handle_function(child, parent, graph),
-				"import_statement" => self.handle_import(child, parent, graph),
-				"export_statement" => self.walk(child, parent, graph),
-				_ => {}
-			}
-		}
-	}
-
-	fn handle_class(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
-		let Some(name) = self.field_text(node, "name") else { return };
-		let class_moniker = extend_segment(parent, self.kinds.type_canon, name.as_bytes());
-		let _ = graph.add_def(
-			class_moniker.clone(),
-			self.kinds.class_label,
-			parent,
-			Some(node_position(node)),
-		);
-		if let Some(body) = node.child_by_field_name("body") {
-			self.walk_class_body(body, &class_moniker, graph);
-		}
-	}
-
-	fn walk_class_body(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
-		let mut cursor = node.walk();
-		for child in node.children(&mut cursor) {
-			if child.kind() == "method_definition" {
-				self.handle_method(child, parent, graph);
-			}
-		}
-	}
-
-	fn handle_method(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
-		let Some(name) = self.field_text(node, "name") else { return };
-		let m = extend_method(parent, self.kinds.method_canon, name.as_bytes(), 0);
-		let _ = graph.add_def(m, self.kinds.method_canon, parent, Some(node_position(node)));
-	}
-
-	fn handle_function(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
-		let Some(name) = self.field_text(node, "name") else { return };
-		let m = extend_method(parent, self.kinds.method_canon, name.as_bytes(), 0);
-		let _ = graph.add_def(m, self.kinds.function_label, parent, Some(node_position(node)));
-	}
-
-	fn handle_import(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
-		let Some(src_node) = node.child_by_field_name("source") else { return };
-		let raw = src_node.utf8_text(self.source_bytes).unwrap_or("");
-		let path = raw.trim_matches(|c| c == '"' || c == '\'');
-		let target = self.build_import_target(path);
-		let _ = graph.add_ref(
-			parent,
-			target,
-			self.kinds.import_label,
-			Some(node_position(node)),
-		);
-	}
-
-	fn build_import_target(&self, path: &str) -> Moniker {
-		let view = self.module.as_view();
-		MonikerBuilder::new()
-			.project(view.project())
-			.segment(self.kinds.path, path.as_bytes())
-			.build()
-	}
-
-	fn field_text(&self, node: Node<'_>, field: &str) -> Option<&'src str> {
-		node.child_by_field_name(field)?
-			.utf8_text(self.source_bytes)
-			.ok()
-	}
-}
-
-fn compute_module_moniker(anchor: &Moniker, uri: &str, path_kind: KindId) -> Moniker {
-	let stem = strip_known_extension(uri);
-	let mut builder = MonikerBuilder::from_view(anchor.as_view());
-	for seg in stem.split('/').filter(|s| !s.is_empty()) {
-		builder.segment(path_kind, seg.as_bytes());
-	}
-	builder.build()
-}
-
-fn strip_known_extension(uri: &str) -> &str {
-	const EXTS: &[&str] = &[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
-	EXTS.iter()
-		.find_map(|ext| uri.strip_suffix(ext))
-		.unwrap_or(uri)
-}
-
-fn extend_segment(parent: &Moniker, kind: KindId, bytes: &[u8]) -> Moniker {
-	let mut b = MonikerBuilder::from_view(parent.as_view());
-	b.segment(kind, bytes);
-	b.build()
-}
-
-fn extend_method(parent: &Moniker, kind: KindId, bytes: &[u8], arity: u16) -> Moniker {
-	let mut b = MonikerBuilder::from_view(parent.as_view());
-	b.method(kind, bytes, arity);
-	b.build()
-}
-
-fn node_position(node: Node<'_>) -> (u32, u32) {
-	(node.start_byte() as u32, node.end_byte() as u32)
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::core::kind_registry::{KindId, PunctClass};
+	use crate::core::moniker::MonikerBuilder;
 
 	fn make_anchor() -> (KindRegistry, Moniker, KindId) {
 		let mut reg = KindRegistry::new();
@@ -311,10 +179,10 @@ mod tests {
 	// --- extract: import statement -> ref -----------------------------
 
 	#[test]
-	fn extract_import_emits_ref_from_module() {
-		let (mut reg, anchor, _) = make_anchor();
+	fn extract_import_resolves_relative_path_against_importer_dir() {
+		let (mut reg, anchor, path) = make_anchor();
 		let graph = extract(
-			"util.ts",
+			"src/util.ts",
 			"import { Bar } from './bar';",
 			&anchor,
 			&mut reg,
@@ -323,15 +191,37 @@ mod tests {
 
 		let r = graph.refs().next().unwrap();
 		let import_kid = reg.intern("import", PunctClass::Path).unwrap();
-		let path_kid = reg.intern("path", PunctClass::Path).unwrap();
 		assert_eq!(r.kind, import_kid, "ref carries the semantic 'import' kind");
 		assert_eq!(r.source, 0, "ref attached to the module root");
 
+		// Importer is at my-app/main/src/util; "./bar" → my-app/main/src/bar.
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
-			.segment(path_kid, b"./bar")
+			.segment(path, b"main")
+			.segment(path, b"src")
+			.segment(path, b"bar")
 			.build();
-		assert_eq!(r.target, target, "import target uses canonical path kind");
+		assert_eq!(r.target, target, "import resolved against importer dir");
+	}
+
+	#[test]
+	fn extract_import_walks_up_with_dotdot() {
+		let (mut reg, anchor, path) = make_anchor();
+		let graph = extract(
+			"src/lib/foo.ts",
+			"import { X } from '../other';",
+			&anchor,
+			&mut reg,
+		);
+		let r = graph.refs().next().unwrap();
+		// Importer is my-app/main/src/lib/foo; "../other" → my-app/main/src/other.
+		let target = MonikerBuilder::new()
+			.project(b"my-app")
+			.segment(path, b"main")
+			.segment(path, b"src")
+			.segment(path, b"other")
+			.build();
+		assert_eq!(r.target, target);
 	}
 
 	#[test]

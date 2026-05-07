@@ -60,8 +60,8 @@ WITH g AS (
 SELECT
 	is(array_length(graph_ref_targets(g), 1), 1,
 		'one import statement produces one ref') AS r6,
-	ok('esac://app/`./util`'::moniker = ANY(graph_ref_targets(g)),
-		'ref target moniker matches the imported path exactly') AS r7
+	ok('esac://app/main/src/util'::moniker = ANY(graph_ref_targets(g)),
+		'relative import resolved against the importer directory') AS r7
 FROM g;
 
 SELECT * FROM finish();
