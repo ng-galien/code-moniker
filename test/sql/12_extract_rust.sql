@@ -6,7 +6,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(9);
+SELECT plan(11);
 
 SELECT has_function('extract_rust'::name,
 	ARRAY['text','text','moniker'],
@@ -82,12 +82,33 @@ WITH g AS (
 SELECT
 	is(array_length(graph_ref_targets(g), 1), 2,
 		'group import emits one ref per leaf') AS r5,
-	ok('esac+moniker://pkg/path:std/path:collections/path:HashMap'::moniker
+	ok('esac+moniker://pkg/external_pkg:std/path:collections/path:HashMap'::moniker
 	     = ANY(graph_ref_targets(g)),
-		'first leaf reaches HashMap') AS r6,
-	ok('esac+moniker://pkg/path:std/path:collections/path:HashSet'::moniker
+		'first leaf reaches HashMap under external_pkg:std') AS r6,
+	ok('esac+moniker://pkg/external_pkg:std/path:collections/path:HashSet'::moniker
 	     = ANY(graph_ref_targets(g)),
-		'second leaf reaches HashSet') AS r7
+		'second leaf reaches HashSet under external_pkg:std') AS r7
+FROM g;
+
+-- Mixed project-local + external in one source: `crate::` resolves
+-- under the project anchor, bare crate names land under external_pkg.
+WITH g AS (
+	SELECT extract_rust(
+		'util.rs',
+		$rs$
+use crate::core::moniker::Moniker;
+use pgrx::prelude::*;
+$rs$,
+		'esac+moniker://pkg'::moniker
+	) AS g
+)
+SELECT
+	ok('esac+moniker://pkg/path:core/path:moniker/path:Moniker'::moniker
+	     = ANY(graph_ref_targets(g)),
+		'crate:: prefix resolves under the project anchor (no external_pkg)') AS r8,
+	ok('esac+moniker://pkg/external_pkg:pgrx/path:prelude'::moniker
+	     = ANY(graph_ref_targets(g)),
+		'bare external crate root marked with external_pkg:') AS r9
 FROM g;
 
 SELECT * FROM finish();

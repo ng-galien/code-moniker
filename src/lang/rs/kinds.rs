@@ -3,6 +3,7 @@
 
 pub(super) const PATH: &[u8] = b"path";
 pub(super) const MODULE: &[u8] = b"module";
+pub(super) const EXTERNAL_PKG: &[u8] = b"external_pkg";
 pub(super) const CLASS: &[u8] = b"class";
 pub(super) const ENUM: &[u8] = b"enum";
 pub(super) const INTERFACE: &[u8] = b"interface";

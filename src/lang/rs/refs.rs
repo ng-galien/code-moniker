@@ -8,6 +8,8 @@
 //! external (std, a crate dep) or project-local — same legacy shape
 //! TS uses for bare imports today.
 
+use std::collections::HashSet;
+
 use tree_sitter::Node;
 
 use crate::core::code_graph::CodeGraph;
@@ -29,7 +31,7 @@ impl<'src> Walker<'src> {
 		let mut leaves: Vec<Vec<String>> = Vec::new();
 		collect_use_leaves(arg, self.source_bytes, &mut Vec::new(), &mut leaves);
 		for path in leaves {
-			let target = build_use_target(&self.module, &path);
+			let target = build_use_target(&self.module, &self.local_mods, &path);
 			let _ = graph.add_ref(parent, target, kinds::IMPORTS_SYMBOL, Some(pos));
 		}
 	}
@@ -145,13 +147,58 @@ fn collect_scoped_path_into(node: Node<'_>, source: &[u8], out: &mut Vec<String>
 	}
 }
 
-fn build_use_target(module: &Moniker, path: &[String]) -> Moniker {
-	// Target is rooted at the importer's project authority — the
-	// extractor cannot resolve external vs project-local without
-	// presets. Same legacy compromise as TS bare imports.
+fn build_use_target(
+	module: &Moniker,
+	local_mods: &HashSet<String>,
+	path: &[String],
+) -> Moniker {
+	// Resolve relative prefixes (crate::, self::, super::) to a
+	// project-local moniker; otherwise tag the import as external by
+	// prefixing the target with `external_pkg:<crate_root>`. A bare
+	// path whose first segment matches a local `mod foo;` resolves as
+	// `self::foo::...` — Rust source convention, not a build-system
+	// concern.
+	if path.is_empty() {
+		return module.clone();
+	}
+	match path[0].as_str() {
+		"crate" => target_under_project(module, &path[1..]),
+		"self" => target_under_module(module, &path[1..], 0),
+		"super" => {
+			let up = path.iter().take_while(|s| s.as_str() == "super").count();
+			target_under_module(module, &path[up..], up)
+		}
+		first if local_mods.contains(first) => target_under_module(module, path, 0),
+		_ => target_external(module, path),
+	}
+}
+
+fn target_under_project(module: &Moniker, rest: &[String]) -> Moniker {
 	let mut b = MonikerBuilder::new();
 	b.project(module.as_view().project());
-	for piece in path {
+	for piece in rest {
+		b.segment(kinds::PATH, piece.as_bytes());
+	}
+	b.build()
+}
+
+fn target_under_module(module: &Moniker, rest: &[String], walk_up: usize) -> Moniker {
+	let view = module.as_view();
+	let depth = view.segment_count() as usize;
+	let new_depth = depth.saturating_sub(walk_up);
+	let mut b = MonikerBuilder::from_view(view);
+	b.truncate(new_depth);
+	for piece in rest {
+		b.segment(kinds::PATH, piece.as_bytes());
+	}
+	b.build()
+}
+
+fn target_external(module: &Moniker, path: &[String]) -> Moniker {
+	let mut b = MonikerBuilder::new();
+	b.project(module.as_view().project());
+	b.segment(kinds::EXTERNAL_PKG, path[0].as_bytes());
+	for piece in &path[1..] {
 		b.segment(kinds::PATH, piece.as_bytes());
 	}
 	b.build()

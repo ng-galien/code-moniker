@@ -16,14 +16,29 @@ echo "== drop+create $DB"
 $PSQL -d postgres -c "DROP DATABASE IF EXISTS $DB;" >/dev/null
 $PSQL -d postgres -c "CREATE DATABASE $DB;" >/dev/null
 
-echo "== install extension + module table"
+echo "== install extension + module + package tables"
 $PSQL -d "$DB" <<SQL >/dev/null
 CREATE EXTENSION pg_code_moniker;
 CREATE TABLE module (
 	source_uri text       PRIMARY KEY,
 	graph      code_graph NOT NULL
 );
+CREATE TABLE package (
+	project     moniker NOT NULL,
+	name        text    NOT NULL,
+	version     text,
+	dep_kind    text    NOT NULL,
+	import_root text    NOT NULL,
+	PRIMARY KEY (project, name, dep_kind)
+);
 SQL
+
+echo "== ingest Cargo.toml into package linkage table"
+$PSQL -d "$DB" -c "
+INSERT INTO package(project, name, version, dep_kind, import_root)
+SELECT 'esac+moniker://pg_code_moniker'::moniker, name, version, dep_kind, import_root
+FROM extract_cargo(pg_read_file('$ROOT/Cargo.toml'));" >/dev/null
+echo "   $($PSQL -d "$DB" -A -t -c "SELECT count(*) FROM package") package rows"
 
 echo "== ingest src/**/*.rs"
 files=$(find "$ROOT/src" -name "*.rs" | sort)

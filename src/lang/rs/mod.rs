@@ -11,7 +11,7 @@ mod refs;
 mod walker;
 
 use canonicalize::compute_module_moniker;
-use walker::Walker;
+use walker::{collect_local_mods, Walker};
 
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
@@ -28,9 +28,11 @@ pub fn extract(uri: &str, source: &str, anchor: &Moniker) -> CodeGraph {
 	let module = compute_module_moniker(anchor, uri);
 	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
 	let tree = parse(source);
+	let local_mods = collect_local_mods(tree.root_node(), source.as_bytes());
 	let walker = Walker {
 		source_bytes: source.as_bytes(),
 		module: module.clone(),
+		local_mods,
 	};
 	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
@@ -184,27 +186,111 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_use_simple_emits_imports_symbol() {
+	fn extract_use_bare_ident_is_external() {
 		let g = extract("util.rs", "use foo;", &make_anchor());
 		assert_eq!(g.ref_count(), 1);
 		let r = g.refs().next().unwrap();
 		assert_eq!(r.kind, b"imports_symbol".to_vec());
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
-			.segment(b"path", b"foo")
+			.segment(b"external_pkg", b"foo")
 			.build();
 		assert_eq!(r.target, target);
 	}
 
 	#[test]
-	fn extract_use_scoped_emits_full_path() {
+	fn extract_use_external_crate_marks_external_pkg() {
 		let g = extract("util.rs", "use std::collections::HashMap;", &make_anchor());
 		let r = g.refs().next().unwrap();
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
-			.segment(b"path", b"std")
+			.segment(b"external_pkg", b"std")
 			.segment(b"path", b"collections")
 			.segment(b"path", b"HashMap")
+			.build();
+		assert_eq!(r.target, target);
+	}
+
+	#[test]
+	fn extract_use_crate_prefix_resolves_project_local() {
+		let g = extract("util.rs", "use crate::core::moniker::Moniker;", &make_anchor());
+		let r = g.refs().next().unwrap();
+		// `crate::` prefix stripped; rest encoded as project-local path.
+		let target = MonikerBuilder::new()
+			.project(b"pg_code_moniker")
+			.segment(b"path", b"core")
+			.segment(b"path", b"moniker")
+			.segment(b"path", b"Moniker")
+			.build();
+		assert_eq!(r.target, target);
+	}
+
+	#[test]
+	fn extract_use_super_walks_up_one_segment() {
+		// Module is anchor + `module:rs` + `module:walker` (we stub a 2-deep file).
+		let anchor = MonikerBuilder::new()
+			.project(b"pg_code_moniker")
+			.segment(b"path", b"src")
+			.segment(b"path", b"lang")
+			.build();
+		let g = extract("rs/walker.rs", "use super::kinds;", &anchor);
+		let r = g.refs().next().unwrap();
+		// `super::` strips one segment from the importer's module
+		// (`module:walker`), then appends `path:kinds`.
+		let target = MonikerBuilder::new()
+			.project(b"pg_code_moniker")
+			.segment(b"path", b"src")
+			.segment(b"path", b"lang")
+			.segment(b"path", b"rs")
+			.segment(b"path", b"kinds")
+			.build();
+		assert_eq!(r.target, target);
+	}
+
+	#[test]
+	fn extract_use_local_mod_resolves_as_self() {
+		// `mod canonicalize;` declared at file root → bare
+		// `use canonicalize::X;` is project-local, not external.
+		let src = r#"
+            mod canonicalize;
+            use canonicalize::compute_module_moniker;
+        "#;
+		let g = extract("util.rs", src, &make_anchor());
+		let r = g.refs().next().unwrap();
+		let target = MonikerBuilder::new()
+			.project(b"pg_code_moniker")
+			.segment(b"module", b"util")
+			.segment(b"path", b"canonicalize")
+			.segment(b"path", b"compute_module_moniker")
+			.build();
+		assert_eq!(
+			r.target, target,
+			"bare path matching a local mod must resolve project-local"
+		);
+	}
+
+	#[test]
+	fn extract_use_unknown_first_segment_stays_external() {
+		// No `mod foo;` at root → `foo::bar` is treated as external.
+		let g = extract("util.rs", "use foo::bar;", &make_anchor());
+		let target = MonikerBuilder::new()
+			.project(b"pg_code_moniker")
+			.segment(b"external_pkg", b"foo")
+			.segment(b"path", b"bar")
+			.build();
+		assert_eq!(g.refs().next().unwrap().target, target);
+	}
+
+	#[test]
+	fn extract_use_self_keeps_module_prefix() {
+		let g = extract("util.rs", "use self::kinds::PATH;", &make_anchor());
+		let r = g.refs().next().unwrap();
+		// `self::` resolves under the importer's module moniker.
+		let target = MonikerBuilder::new()
+			.project(b"pg_code_moniker")
+			.segment(b"module", b"util")
+			.segment(b"path", b"kinds")
+			.segment(b"path", b"PATH")
 			.build();
 		assert_eq!(r.target, target);
 	}
@@ -216,13 +302,13 @@ mod tests {
 		let targets: Vec<_> = g.refs().map(|r| r.target.clone()).collect();
 		let hashmap = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
-			.segment(b"path", b"std")
+			.segment(b"external_pkg", b"std")
 			.segment(b"path", b"collections")
 			.segment(b"path", b"HashMap")
 			.build();
 		let hashset = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
-			.segment(b"path", b"std")
+			.segment(b"external_pkg", b"std")
 			.segment(b"path", b"collections")
 			.segment(b"path", b"HashSet")
 			.build();
@@ -236,13 +322,13 @@ mod tests {
 		assert_eq!(g.ref_count(), 1);
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
-			.segment(b"path", b"pgrx")
+			.segment(b"external_pkg", b"pgrx")
 			.segment(b"path", b"prelude")
 			.build();
 		assert_eq!(
 			g.refs().next().unwrap().target,
 			target,
-			"wildcard parent path must split on ::, not be captured as one literal"
+			"wildcard parent path must split on :: AND mark crate root as external"
 		);
 	}
 
@@ -253,7 +339,7 @@ mod tests {
 		let r = g.refs().next().unwrap();
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
-			.segment(b"path", b"std")
+			.segment(b"external_pkg", b"std")
 			.segment(b"path", b"io")
 			.segment(b"path", b"Result")
 			.build();

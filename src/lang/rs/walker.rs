@@ -2,6 +2,8 @@
 //! item to its def emitter; `impl_item` re-parents members onto the
 //! type being implemented.
 
+use std::collections::HashSet;
+
 use tree_sitter::Node;
 
 use crate::core::code_graph::CodeGraph;
@@ -15,6 +17,30 @@ use super::kinds;
 pub(super) struct Walker<'src> {
 	pub(super) source_bytes: &'src [u8],
 	pub(super) module: Moniker,
+	/// Names of `mod foo;` / `mod foo {}` declared at file root. A bare
+	/// `use foo::X;` where `foo` is in this set resolves as `self::foo::X`
+	/// (project-local) rather than as an external crate. Without this,
+	/// the codebase pattern `mod canonicalize; use canonicalize::X;`
+	/// would mis-tag `canonicalize` as external.
+	pub(super) local_mods: HashSet<String>,
+}
+
+/// Pre-pass: collect names of every `mod_item` at file root. Nested
+/// `mod` declarations are not tracked here — they are scoped to inner
+/// modules and cannot match a top-level `use` argument.
+pub(super) fn collect_local_mods(root: Node<'_>, source: &[u8]) -> HashSet<String> {
+	let mut out = HashSet::new();
+	let mut cursor = root.walk();
+	for child in root.children(&mut cursor) {
+		if child.kind() == "mod_item" {
+			if let Some(name) = child.child_by_field_name("name") {
+				if let Ok(s) = name.utf8_text(source) {
+					out.insert(s.to_string());
+				}
+			}
+		}
+	}
+	out
 }
 
 impl<'src> Walker<'src> {

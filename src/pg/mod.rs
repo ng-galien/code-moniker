@@ -3,6 +3,7 @@
 
 use pgrx::prelude::*;
 
+pub mod build;
 pub mod code_graph;
 pub mod extract;
 pub mod moniker;

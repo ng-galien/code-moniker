@@ -52,3 +52,18 @@ fn compose_child(parent: moniker, kind: &str, name: &str) -> moniker {
 	b.segment(kind.as_bytes(), name.as_bytes());
 	moniker::from_core(b.build())
 }
+
+/// Name of the first `external_pkg:<root>` segment, or NULL when the
+/// moniker is project-local (no segment of kind `external_pkg`).
+/// Joins consumer linkage tables onto extracted refs without scanning
+/// the full segment list per row.
+#[pg_extern(immutable, parallel_safe)]
+fn external_pkg_root(m: moniker) -> Option<String> {
+	m.view()
+		.segments()
+		.find(|s| s.kind == b"external_pkg")
+		.map(|s| {
+			String::from_utf8(s.name.to_vec())
+				.unwrap_or_else(|_| error!("external_pkg root must be UTF-8"))
+		})
+}
