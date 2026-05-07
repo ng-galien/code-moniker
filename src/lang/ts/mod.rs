@@ -243,6 +243,26 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_dot_only_specifier_resolves_relative_not_external() {
+		// `import { z } from ".."` — bare `..` shorthand must resolve to
+		// the importer's parent dir, not be mis-tagged as external_pkg.
+		let g = extract(
+			"src/__tests__/foo.test.ts",
+			"import { z } from \"..\";",
+			&make_anchor(),
+			false,
+		);
+		let r = g.refs().next().unwrap();
+		let target = MonikerBuilder::new()
+			.project(b"my-app")
+			.segment(b"path", b"main")
+			.segment(b"path", b"src")
+			.segment(b"path", b"z")
+			.build();
+		assert_eq!(r.target, target);
+	}
+
+	#[test]
 	fn extract_dotdot_import_walks_up_then_down() {
 		let g = extract(
 			"src/lib/foo.ts",

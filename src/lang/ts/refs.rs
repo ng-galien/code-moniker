@@ -147,7 +147,7 @@ impl<'src> Walker<'src> {
 
 	/// Single-pass builder. `symbol` appended as `path:<name>` if Some.
 	fn import_target(&self, raw_path: &str, symbol: Option<&str>) -> Moniker {
-		let mut b = if raw_path.starts_with("./") || raw_path.starts_with("../") {
+		let mut b = if is_relative_specifier(raw_path) {
 			self.relative_module_builder(raw_path)
 		} else {
 			external_pkg_builder(self.module.as_view().project(), raw_path)
@@ -164,7 +164,13 @@ impl<'src> Walker<'src> {
 		let mut depth = (importer_view.segment_count() as usize).saturating_sub(1);
 		b.truncate(depth);
 
-		let mut remainder = raw_path;
+		// Normalise the dot-only shorthands to their slash form so the
+		// loop below handles them uniformly.
+		let mut remainder = match raw_path {
+			"." => "./",
+			".." => "../",
+			other => other,
+		};
 		while let Some(rest) = remainder.strip_prefix("./") {
 			remainder = rest;
 		}
@@ -570,6 +576,11 @@ impl<'src> Walker<'src> {
 	fn read_target(&self, name: &str) -> Moniker {
 		extend_method(&self.module, kinds::FUNCTION, name.as_bytes(), 0)
 	}
+}
+
+/// True for `./x`, `../x`, and the dot-only shorthands `.` and `..`.
+fn is_relative_specifier(spec: &str) -> bool {
+	spec == "." || spec == ".." || spec.starts_with("./") || spec.starts_with("../")
 }
 
 fn unquote_string_literal<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
