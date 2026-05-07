@@ -9,3 +9,8 @@
 TODO.md
 .mcp.json
 .claude/settings.local.json
+
+# Dogfood corpus: representative open-source projects cloned by
+# test/dogfood.sh for extractor benchmarking. Restorable via the panel
+# in test/dogfood/panel.sh, never committed.
+/dogfood
