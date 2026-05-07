@@ -27,8 +27,9 @@ fn parent_of(m: moniker) -> Option<moniker> {
 #[pg_extern(immutable, parallel_safe)]
 fn kind_of(m: moniker) -> Option<String> {
 	m.view().segments().last().map(|s| {
-		String::from_utf8(s.kind.to_vec())
+		std::str::from_utf8(s.kind)
 			.unwrap_or_else(|_| error!("moniker kind must be UTF-8"))
+			.to_string()
 	})
 }
 
@@ -63,7 +64,8 @@ fn external_pkg_root(m: moniker) -> Option<String> {
 		.segments()
 		.find(|s| s.kind == b"external_pkg")
 		.map(|s| {
-			String::from_utf8(s.name.to_vec())
+			std::str::from_utf8(s.name)
 				.unwrap_or_else(|_| error!("external_pkg root must be UTF-8"))
+				.to_string()
 		})
 }

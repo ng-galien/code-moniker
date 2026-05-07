@@ -1,10 +1,19 @@
-//! Parse `Cargo.toml`.
-//!
-//! Returns one `Dep` per declared dependency plus one for the package
-//! itself (`dep_kind = "package"`). Path/git-only dependencies still
-//! emit a row; their `version` is `None` rather than synthesized.
+//! Parse `Cargo.toml`. One `Dep` per declared dependency plus one for
+//! the package itself (`dep_kind = "package"`). Path/git-only deps
+//! emit a row with `version = None` rather than a synthesized stub.
 
-use super::Dep;
+/// One row produced by the Cargo manifest parser. `import_root` is
+/// the Rust-source identifier form: `tree-sitter` (manifest) →
+/// `tree_sitter` (Rust path). Lets a consumer JOIN the linkage table
+/// against `external_pkg_root(target)` directly without convention-
+/// aware SQL on the consumer side.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Dep {
+	pub name: String,
+	pub version: Option<String>,
+	pub dep_kind: String,
+	pub import_root: String,
+}
 
 #[derive(Debug)]
 pub enum CargoError {
@@ -63,17 +72,10 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, CargoError> {
 	Ok(out)
 }
 
-/// Cargo allows hyphens in package names (`tree-sitter`); Rust source
-/// addresses the crate via an identifier (`tree_sitter`) because `-`
-/// is not legal in identifiers. The conversion is purely syntactic.
-fn rust_import_root(name: &str) -> String {
+pub(crate) fn rust_import_root(name: &str) -> String {
 	name.replace('-', "_")
 }
 
-/// A dependency spec is either `"1.2.3"` or `{ version = "...", ... }`
-/// or `{ path = "...", ... }` or `{ git = "...", ... }`. Pull the
-/// `version` field out of the table form, or treat a bare string as
-/// the version. Path/git deps without a version return `None`.
 fn extract_version(spec: &toml::Value) -> Option<String> {
 	match spec {
 		toml::Value::String(s) => Some(s.clone()),

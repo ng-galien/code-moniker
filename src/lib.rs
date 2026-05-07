@@ -15,7 +15,6 @@
 //! registry + segment-encoded path), URI parse/serialize, equality
 //! operator. Indexable (`<@`, `@>`, `~`, GiST) lands in later phases.
 
-pub mod build;
 pub mod core;
 pub mod lang;
 

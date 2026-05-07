@@ -1,14 +1,8 @@
 //! Refs extraction: `use` declarations → `imports_symbol`,
-//! `impl Trait for Type` → `implements`.
-//!
-//! Use-target monikers are emitted under the importer's project
-//! authority as path-only segments (`std::collections::HashMap` →
-//! `<project>/path:std/path:collections/path:HashMap`). Without a
-//! `presets` parameter the extractor cannot know whether a path is
-//! external (std, a crate dep) or project-local — same legacy shape
-//! TS uses for bare imports today.
-
-use std::collections::HashSet;
+//! `impl Trait for Type` → `implements`. Use-target resolution
+//! distinguishes project-local prefixes (`crate::`, `self::`,
+//! `super::`, or a bare path matching a local `mod foo;`) from
+//! external crates (tagged with `external_pkg:<root>`).
 
 use tree_sitter::Node;
 
@@ -31,8 +25,26 @@ impl<'src> Walker<'src> {
 		let mut leaves: Vec<Vec<String>> = Vec::new();
 		collect_use_leaves(arg, self.source_bytes, &mut Vec::new(), &mut leaves);
 		for path in leaves {
-			let target = build_use_target(&self.module, &self.local_mods, &path);
+			let target = self.build_use_target(&path);
 			let _ = graph.add_ref(parent, target, kinds::IMPORTS_SYMBOL, Some(pos));
+		}
+	}
+
+	fn build_use_target(&self, path: &[String]) -> Moniker {
+		if path.is_empty() {
+			return self.module.clone();
+		}
+		match path[0].as_str() {
+			"crate" => target_under_project(&self.module, &path[1..]),
+			"self" => target_under_module(&self.module, &path[1..], 0),
+			"super" => {
+				let up = path.iter().take_while(|s| s.as_str() == "super").count();
+				target_under_module(&self.module, &path[up..], up)
+			}
+			first if self.local_mods.contains(first) => {
+				target_under_module(&self.module, path, 0)
+			}
+			_ => target_external(&self.module, path),
 		}
 	}
 
@@ -144,32 +156,6 @@ fn collect_scoped_path_into(node: Node<'_>, source: &[u8], out: &mut Vec<String>
 	}
 	if let Ok(s) = node.utf8_text(source) {
 		out.push(s.to_string());
-	}
-}
-
-fn build_use_target(
-	module: &Moniker,
-	local_mods: &HashSet<String>,
-	path: &[String],
-) -> Moniker {
-	// Resolve relative prefixes (crate::, self::, super::) to a
-	// project-local moniker; otherwise tag the import as external by
-	// prefixing the target with `external_pkg:<crate_root>`. A bare
-	// path whose first segment matches a local `mod foo;` resolves as
-	// `self::foo::...` — Rust source convention, not a build-system
-	// concern.
-	if path.is_empty() {
-		return module.clone();
-	}
-	match path[0].as_str() {
-		"crate" => target_under_project(module, &path[1..]),
-		"self" => target_under_module(module, &path[1..], 0),
-		"super" => {
-			let up = path.iter().take_while(|s| s.as_str() == "super").count();
-			target_under_module(module, &path[up..], up)
-		}
-		first if local_mods.contains(first) => target_under_module(module, path, 0),
-		_ => target_external(module, path),
 	}
 }
 

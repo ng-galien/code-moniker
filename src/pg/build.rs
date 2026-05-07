@@ -5,7 +5,7 @@
 use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
 
-use crate::build::cargo;
+use crate::lang::rs::build as cargo;
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_cargo(
