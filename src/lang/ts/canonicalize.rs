@@ -30,29 +30,9 @@ pub(super) fn strip_known_extension(uri: &str) -> &str {
 		.unwrap_or(uri)
 }
 
-pub(super) fn extend_segment(parent: &Moniker, kind: &[u8], name: &[u8]) -> Moniker {
-	let mut b = MonikerBuilder::from_view(parent.as_view());
-	b.segment(kind, name);
-	b.build()
-}
-
-/// Build a callable moniker. Arity 0 → `bar()`, arity N → `bar(N)`.
-/// Disambiguator lives in the segment name; v2 has no separate arity
-/// field.
-pub(super) fn extend_method(parent: &Moniker, kind: &[u8], name: &[u8], arity: u16) -> Moniker {
-	extend_segment(parent, kind, &callable_segment_name(name, arity))
-}
-
-pub(super) fn callable_segment_name(name: &[u8], arity: u16) -> Vec<u8> {
-	let mut full = Vec::with_capacity(name.len() + 6);
-	full.extend_from_slice(name);
-	full.push(b'(');
-	if arity != 0 {
-		full.extend_from_slice(arity.to_string().as_bytes());
-	}
-	full.push(b')');
-	full
-}
+pub(super) use crate::lang::callable::{
+	extend_callable_arity, extend_callable_typed, extend_segment,
+};
 
 pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
 	(node.start_byte() as u32, node.end_byte() as u32)
@@ -65,26 +45,42 @@ pub(super) fn anonymous_callback_name(node: Node<'_>) -> Vec<u8> {
 	format!("__cb_{}_{}", p.row, p.column).into_bytes()
 }
 
-/// Count parameters of a `function`/`method`/`arrow_function`/`function_expression`
-/// node. The `parameter` field shape covers the arrow `x => …` form.
-pub(super) fn callable_arity(node: Node<'_>) -> u16 {
+/// Parameter type list for `function`/`method`/`arrow_function`/`function_expression`.
+/// Each parameter contributes one slot: the `type` field's text when
+/// the source has a type annotation, the `_` placeholder when it
+/// doesn't (untyped JS, inferred TS). Optional and rest markers are
+/// carried inside the slot text (`string?`, `...string[]`).
+/// The `parameter` field on shorthand arrows (`x => …`) is treated
+/// as one untyped slot.
+pub(super) fn callable_param_types<'src>(node: Node<'_>, source: &'src [u8]) -> Vec<&'src str> {
 	if let Some(params) = node.child_by_field_name("parameters") {
+		let mut out = Vec::new();
 		let mut cursor = params.walk();
-		let mut count: u16 = 0;
 		for child in params.named_children(&mut cursor) {
 			match child.kind() {
-				"required_parameter" | "optional_parameter" => count += 1,
-				// rest pattern at the end of a TS formal_parameters list
-				"rest_pattern" => count += 1,
+				"required_parameter" | "optional_parameter" => {
+					out.push(parameter_type_text(child, source));
+				}
+				"rest_pattern" => out.push("_"),
 				_ => {}
 			}
 		}
-		return count;
+		return out;
 	}
 	if node.child_by_field_name("parameter").is_some() {
-		return 1;
+		return vec!["_"];
 	}
-	0
+	Vec::new()
+}
+
+fn parameter_type_text<'src>(param: Node<'_>, source: &'src [u8]) -> &'src str {
+	let Some(annot) = param.child_by_field_name("type") else { return "_" };
+	// `type_annotation` wraps the actual type with a `:` prefix; use
+	// the annotation's first named child for clean text.
+	let inner = annot
+		.named_child(0)
+		.unwrap_or(annot);
+	inner.utf8_text(source).unwrap_or("_").trim()
 }
 
 pub(super) fn external_pkg_builder(project: &[u8], pkg: &str) -> MonikerBuilder {
@@ -149,16 +145,6 @@ mod tests {
 			split_package_specifier("@scope/pkg/sub/path"),
 			("@scope/pkg", "sub/path")
 		);
-	}
-
-	#[test]
-	fn callable_segment_name_arity_zero_drops_number() {
-		assert_eq!(callable_segment_name(b"bar", 0), b"bar()".to_vec());
-	}
-
-	#[test]
-	fn callable_segment_name_keeps_arity_number() {
-		assert_eq!(callable_segment_name(b"bar", 3), b"bar(3)".to_vec());
 	}
 
 	#[test]

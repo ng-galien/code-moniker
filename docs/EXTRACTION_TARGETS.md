@@ -44,8 +44,14 @@ Each definition must carry:
 - `position`: byte range and line range when source-backed.
 - `visibility`: language-specific but normalized to ESAC values (`public`,
   `protected`, `package`, `private`, `module`).
-- `signature`: callable parameter signature or arity when needed for overload
-  disambiguation.
+- `signature`: callable parameter type signature embedded in the moniker
+  segment (`function:bar(int,text)`, `method:findById(String)`). Required
+  for every callable, regardless of language. Same-name same-arity
+  overloads must not collide in the moniker. When a parameter has no
+  declared type in the source (untyped JS, untyped Rust closure, Python
+  without hints), emit the placeholder `_` for that slot. The full type
+  list is also mirrored on `DefRecord.signature` for projection-side
+  filtering.
 - `type metadata`: return type, field type, qualified type name, and resolved
   type monikers when locally determinable.
 
@@ -160,7 +166,10 @@ Definitions:
 - packages as path/context when needed by moniker construction;
 - classes, interfaces, enums, records and annotation types;
 - constructors;
-- methods with parameter signatures for overload disambiguation;
+- methods with full parameter type signature in the moniker
+  (`method:findById(String)`, `method:put(K,V)`); arity alone is not
+  acceptable for Java because overloads with the same arity but
+  different parameter types are routine;
 - fields and constants;
 - enum constants;
 - section comments.
@@ -247,7 +256,10 @@ Definitions:
 - trigger functions;
 - tables as `class`;
 - views as `interface`;
-- overload-disambiguated functions where signatures are available.
+- functions and procedures carry their full parameter type signature
+  in the moniker (`function:bar(int4,text)`); arity alone is not
+  acceptable because PG's same-name same-arity overloads
+  (`min(int)` vs `min(text)`) are routine.
 
 References:
 
@@ -259,7 +271,10 @@ References:
 Resolution metadata:
 
 - schema and function name split;
-- argument/signature data when available;
+- argument types canonicalised: `pg_catalog.<type>` prefix stripped
+  (`int4` rather than `pg_catalog.int4`), array suffix preserved
+  (`name[]`), no display-name normalization (the parser's internal
+  form is the wire format);
 - robust handling of malformed or partial SQL by still emitting the module
   symbol and skipping broken AST sections.
 

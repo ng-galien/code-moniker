@@ -391,7 +391,7 @@ mod tests {
 	// --- callables / fields ---------------------------------------------
 
 	#[test]
-	fn extract_method_arity_encoded_in_segment_name() {
+	fn extract_method_signature_encoded_in_segment_name() {
 		let g = extract(
 			"util.ts",
 			"class Foo { bar(a: number, b: string) {} }",
@@ -403,9 +403,9 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Foo")
-			.segment(b"method", b"bar(2)")
+			.segment(b"method", b"bar(number,string)")
 			.build();
-		assert!(g.contains(&bar), "expected arity-2 segment, defs: {:?}", g.def_monikers());
+		assert!(g.contains(&bar), "expected typed segment, defs: {:?}", g.def_monikers());
 	}
 
 	#[test]
@@ -421,7 +421,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Foo")
-			.segment(b"constructor", b"constructor(1)")
+			.segment(b"constructor", b"constructor(number)")
 			.build();
 		assert!(g.contains(&ctor));
 	}
@@ -468,7 +468,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"path", b"util")
-			.segment(b"function", b"add(2)")
+			.segment(b"function", b"add(number,number)")
 			.build();
 		assert!(
 			g.contains(&add),
@@ -935,21 +935,21 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"path", b"util")
-			.segment(b"function", b"f(2)")
+			.segment(b"function", b"f(number,number)")
 			.segment(b"param", b"a")
 			.build();
 		let pb = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"path", b"util")
-			.segment(b"function", b"f(2)")
+			.segment(b"function", b"f(number,number)")
 			.segment(b"param", b"b")
 			.build();
 		let sum = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"path", b"util")
-			.segment(b"function", b"f(2)")
+			.segment(b"function", b"f(number,number)")
 			.segment(b"local", b"sum")
 			.build();
 		assert!(g.contains(&pa), "missing param a; defs: {:?}", g.def_monikers());

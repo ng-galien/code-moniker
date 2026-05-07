@@ -11,7 +11,7 @@ use crate::core::code_graph::{CodeGraph, DefAttrs};
 use crate::core::moniker::Moniker;
 
 use super::canonicalize::{
-	anonymous_callback_name, callable_arity, extend_method, extend_segment, node_position,
+	anonymous_callback_name, callable_param_types, extend_callable_typed, extend_segment, node_position,
 };
 use super::kinds;
 use super::scope::{
@@ -131,7 +131,8 @@ impl<'src> Walker<'src> {
 			for c in node.children(&mut cursor) {
 				match c.kind() {
 					"function_expression" | "arrow_function" => {
-						let m = extend_method(scope, kinds::FUNCTION, b"default", callable_arity(c));
+						let types = callable_param_types(c, self.source_bytes);
+						let m = extend_callable_typed(scope, kinds::FUNCTION, b"default", &types);
 						let _ = graph.add_def_attrs(
 							m.clone(),
 							kinds::FUNCTION,
@@ -208,10 +209,10 @@ impl<'src> Walker<'src> {
 
 	fn handle_method(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		let arity = callable_arity(node);
+		let types = callable_param_types(node, self.source_bytes);
 		let is_ctor = name == "constructor";
 		let kind: &[u8] = if is_ctor { kinds::CONSTRUCTOR } else { kinds::METHOD };
-		let m = extend_method(parent, kind, name.as_bytes(), arity);
+		let m = extend_callable_typed(parent, kind, name.as_bytes(), &types);
 		let attrs = DefAttrs {
 			visibility: class_member_visibility(node, self.source_bytes),
 			..DefAttrs::default()
@@ -580,8 +581,8 @@ impl<'src> Walker<'src> {
 		graph: &mut CodeGraph,
 		visibility: &[u8],
 	) -> Moniker {
-		let arity = callable_arity(callable_node);
-		let m = extend_method(parent, kind, name, arity);
+		let types = callable_param_types(callable_node, self.source_bytes);
+		let m = extend_callable_typed(parent, kind, name, &types);
 		let attrs = DefAttrs { visibility, ..DefAttrs::default() };
 		let _ = graph.add_def_attrs(
 			m.clone(),

@@ -121,7 +121,7 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_method_arity_in_segment_and_signature() {
+	fn extract_method_signature_in_moniker_and_signature_column() {
 		let src = r#"
             public class Foo {
                 public int findById(int id, String name) { return id; }
@@ -131,7 +131,7 @@ mod tests {
 		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
 		let last = m.moniker.as_view().segments().last().unwrap();
 		assert_eq!(last.kind, b"method");
-		assert_eq!(last.name, b"findById(2)");
+		assert_eq!(last.name, b"findById(int,String)");
 		assert_eq!(m.signature, b"int,String".to_vec());
 		assert_eq!(m.visibility, b"public".to_vec());
 	}

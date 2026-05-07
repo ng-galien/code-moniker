@@ -44,8 +44,8 @@ SELECT
 		'graph contains the module moniker') AS r3,
 	ok(g @> 'esac+moniker://app/path:main/path:src/path:Foo/class:Foo'::moniker,
 		'graph contains the class def') AS r4,
-	ok(g @> 'esac+moniker://app/path:main/path:src/path:Foo/class:Foo/method:bar(2)'::moniker,
-		'method moniker carries arity in segment name') AS r5
+	ok(g @> 'esac+moniker://app/path:main/path:src/path:Foo/class:Foo/method:bar(_,_)'::moniker,
+		'method moniker carries `_` placeholders for unannotated JS params') AS r5
 FROM g;
 
 -- Imports decompose into one ref per named specifier; bare specifiers
@@ -106,9 +106,9 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://app/path:main/path:util/function:f(2)/param:a'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/path:util/function:f(_,_)/param:a'::moniker,
 		'deep=true surfaces parameter defs') AS r12,
-	ok(g @> 'esac+moniker://app/path:main/path:util/function:f(2)/local:sum'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/path:util/function:f(_,_)/local:sum'::moniker,
 		'deep=true surfaces local defs') AS r13
 FROM g;
 

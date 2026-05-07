@@ -28,7 +28,8 @@ SELECT
 		'class def lives under the module') AS r2
 FROM g;
 
--- Method arity in segment + signature column populated.
+-- Full parameter type signature in the moniker segment + mirrored
+-- on the signature column.
 
 WITH g AS (
 	SELECT extract_java(
@@ -38,8 +39,8 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://app/module:Foo/class:Foo/method:bar(2)'::moniker,
-		'method moniker carries arity') AS r3,
+	ok(g @> 'esac+moniker://app/module:Foo/class:Foo/method:bar(int,String)'::moniker,
+		'method moniker carries full parameter type signature') AS r3,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'method'),
 		'int,String',
 		'method signature column lists parameter types') AS r4
@@ -77,7 +78,8 @@ SELECT
 	is((SELECT confidence FROM graph_refs(g)
 	     WHERE kind = 'imports_symbol' AND target::text LIKE '%Helpers%'),
 		'imported',
-		'com.acme.Helpers import marked imported') AS r7;
+		'com.acme.Helpers import marked imported') AS r7
+FROM g;
 
 -- this.bar() carries receiver_hint=this.
 

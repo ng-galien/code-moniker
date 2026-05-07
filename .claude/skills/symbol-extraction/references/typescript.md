@@ -41,9 +41,27 @@ Definitions:
 - section comments (`// ============ section ============` style, or
   whatever ESAC's existing extractor recognizes) → emit `section` defs
 
-Constructors get the `constructor` kind label, not `method`. The structural
-identity is a typed callable segment with arity/signature, for example
-`#constructor:UserService(UserRepository)`.
+Constructors get the `constructor` kind label, not `method`. The
+structural identity is a typed callable segment with the **full
+parameter type signature**, for example
+`/constructor:UserService(UserRepository)`. Same rule for every
+callable kind (`function`, `method`, `constructor`):
+
+- TypeScript with type annotations: emit each parameter's type as
+  written, comma-joined — `function:make(string,number)`.
+- JavaScript or TypeScript without annotations: emit `_` (single
+  underscore) for each unannotated slot — `function:make(_,_)`.
+  Mixed-mode is allowed: `function:make(string,_)`.
+- Optional parameters and rest-spread are part of the slot text
+  (`string?`, `...string[]`).
+- Generic type parameters appear as written, not resolved
+  (`function:map<T,U>(T[],T => U)` → segment name
+  `map(T[],T => U)` — type-parameter list itself stays out of the
+  moniker shape; only value-parameter types are encoded).
+
+The full type list is mirrored on `DefRecord.signature` so the
+consumer can filter without re-parsing the moniker bytes. Arity-only
+monikers are not acceptable.
 
 References:
 

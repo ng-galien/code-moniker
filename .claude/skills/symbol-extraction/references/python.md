@@ -25,9 +25,17 @@ Required:
 
 - `module` (the file)
 - `class_definition` → `class`
-- top-level `function_definition` → `function`
+- top-level `function_definition` → `function` with full parameter
+  type signature in the moniker (`function:make(int,str)`). Read the
+  type from `typed_parameter` / `typed_default_parameter`; for
+  parameters without an annotation, emit `_`
+  (`function:make(int,_)`). The full type list is mirrored on
+  `DefRecord.signature`. Arity-only is not acceptable.
 - `function_definition` inside a `class_definition` body → `method`
-  (containment-derived — the AST node is the same `function_definition`).
+  (containment-derived — the AST node is the same
+  `function_definition`). Same signature rules; the implicit `self`
+  parameter is excluded from the type list because it is not
+  semantically a value argument.
 - section comments (consistent with ESAC's existing Python extractor;
   follow whatever recognizer it uses)
 
@@ -50,12 +58,16 @@ emit the right kind label accordingly.
   alias in metadata.
 - `import_from_statement` → `imports_symbol`. `from X import Y` →
   `imports_symbol` with target module plus typed exported def segment when
-  determinable, for example `.../module:X#function:Y()` or
-  `.../module:X#class:Y`. Grouped imports (`from X import a, b, c`) emit
-  one ref per name. Relative imports (`from .foo import X`,
-  `from ..bar import Y`) keep the leading dots in the import specifier
-  metadata; resolve them against the importer's package the same way TS
-  resolves `./` and `../`.
+  determinable, for example `.../module:X/function:Y()` or
+  `.../module:X/class:Y`. Note the function target uses an empty
+  parens shape because the imported symbol's signature isn't
+  visible at the import site; the consumer matches against the
+  exporting module's def whose moniker carries the full signature,
+  using a name+arity projection. Grouped imports (`from X import
+  a, b, c`) emit one ref per name. Relative imports (`from .foo
+  import X`, `from ..bar import Y`) keep the leading dots in the
+  import specifier metadata; resolve them against the importer's
+  package the same way TS resolves `./` and `../`.
 - plain `call` expression with an identifier callee → `calls`
 - `call` expression with an `attribute` callee → `method_call`. Receiver
   shape retained.

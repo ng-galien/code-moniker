@@ -89,9 +89,9 @@ SELECT ok(
 	'service graph contains UserService class');
 
 SELECT ok(
-	(SELECT graph @> 'esac+moniker://app/path:src/path:service/class:UserService/method:findById(1)'::moniker
+	(SELECT graph @> 'esac+moniker://app/path:src/path:service/class:UserService/method:findById(string)'::moniker
 	   FROM module WHERE id = 'service'),
-	'service graph contains UserService#findById(1) method');
+	'service graph contains UserService#findById(string) method');
 
 -- Cross-module link: service.ts imports point at named symbols anchored
 -- under the imported module's own moniker (resolved relative to the

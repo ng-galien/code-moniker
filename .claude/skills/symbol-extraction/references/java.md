@@ -43,10 +43,16 @@ Required kinds:
   (Term)
 - `record_declaration` → `record` (Java 16+)
 - `annotation_type_declaration` → `annotation_type`
-- `constructor_declaration` → `constructor` with arity in the moniker
-- `method_declaration` → `method`. Arity is **mandatory** for Java —
-  overload disambiguation is the whole point. Compute from
-  `formal_parameters`.
+- `constructor_declaration` → `constructor` with full parameter type
+  signature in the moniker (`constructor:UserService(UserRepository)`)
+- `method_declaration` → `method`. The **full parameter type
+  signature** is mandatory in the moniker, comma-joined inside the
+  segment name (`method:findById(String)`, `method:put(K,V)`). Read
+  the parameter types from `formal_parameter` nodes inside
+  `formal_parameters` (each parameter's `type` field gives the type
+  text — short type names as written in source, including generics
+  and array suffixes). The same string is mirrored on
+  `DefRecord.signature` for projection-side filtering.
 - `field_declaration` → `field` (Term). One def per declarator (`int a, b;`
   is two `field` defs).
 - `enum_constant` for entries inside enum body
@@ -108,8 +114,8 @@ Required kinds:
 
 A Java extractor is acceptable when it can project to ESAC's
 `esac.symbol` / `esac.linkage` shape with no required column lost. In
-practice that means: visibility, signature text, return type text, short
-type name, FQN, and overload-disambiguating arity must all be derivable
-from the `code_graph`. Until `DefRecord` is extended to carry signature /
-visibility, encode arity in the moniker and leave a TODO pointing at the
-record extension.
+practice that means: visibility, full type signature text, return type
+text, short type name, FQN, and overload-disambiguating typed moniker
+must all be derivable from the `code_graph`. The signature is
+load-bearing in the moniker (`method:put(K,V)`) and mirrored on
+`DefRecord.signature` for projection.

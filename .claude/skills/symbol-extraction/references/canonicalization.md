@@ -70,25 +70,43 @@ module moniker.
 Definitions are built by appending one typed segment to the parent:
 
 ```text
-parent#class:Foo
-parent#method:bar(String)
-parent#field:repo
-parent#param:id
-parent#local:result
+parent/class:Foo
+parent/method:bar(String)
+parent/field:repo
+parent/param:id
+parent/local:result
 ```
 
-Use `#` for descriptors inside a module and `/` for path/context segments.
-Do not inline construction in walkers. Keep helpers such as:
+The on-the-wire URI uses `/` as the only segment separator across all
+levels. The `#`-prefixed shape that appears in older docs is purely
+conceptual — the actual `core::uri::serialize` uses `/` everywhere
+and the moniker bytes themselves carry no separator distinction
+(it's a flat list of `(kind, name)` pairs).
+
+Callable segment names embed the **full parameter type signature**:
+
+- `method:findById(String)`
+- `function:bar(int4,text)`
+- `function:make(_,_)` — JS without annotations or untyped Rust
+  closure parameters use `_` placeholder
+- `constructor:UserService(UserRepository)`
+
+The same string is mirrored on `DefRecord.signature` for projection.
+Arity-only segments (`bar(2)`) are forbidden — same-name same-arity
+overloads with different parameter types are routine in every
+supported language and must not collide.
+
+Do not inline construction in walkers. Each language module exposes
+its own helpers such as:
 
 - `compute_module_moniker`
-- `extend_type`
-- `extend_callable`
-- `extend_term`
-- `extend_path`
-
-The current Rust code may still expose transitional helpers named
-`extend_segment` / `extend_method`; use them only if they produce the typed
-canonical bytes or are part of an explicit migration step.
+- `extend_segment` for path/context and term/type segments
+- `extend_callable_typed` for callables with known parameter types
+- `extend_callable_arity` for call sites where types are not statically
+  known (raw_parser at SQL call sites, untyped JS calls). The
+  resulting target moniker carries arity-only and the ref must be
+  emitted with `confidence: unresolved` so consumers project
+  on name+arity to match defs.
 
 ## External Monikers
 

@@ -9,7 +9,7 @@ use tree_sitter::Node;
 use crate::core::code_graph::{CodeGraph, DefAttrs};
 use crate::core::moniker::Moniker;
 
-use super::canonicalize::{extend_callable, extend_segment, node_position};
+use super::canonicalize::{extend_callable_typed, extend_segment, node_position};
 use super::kinds;
 use super::scope::{is_callable_scope, modifier_visibility, section_title};
 
@@ -209,9 +209,9 @@ impl<'src> Walker<'src> {
 		scope: &Moniker,
 		graph: &mut CodeGraph,
 	) {
-		let arity = formal_parameter_count(node);
-		let signature = formal_parameter_signature(node, self.source_bytes);
-		let m = extend_callable(scope, kind, name, arity);
+		let types = formal_parameter_types(node, self.source_bytes);
+		let signature = types.join(",");
+		let m = extend_callable_typed(scope, kind, name, &types);
 		let attrs = DefAttrs {
 			visibility: modifier_visibility(node),
 			signature: signature.as_bytes(),
@@ -472,20 +472,6 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// Count `formal_parameter` (and `spread_parameter`) children of a
-/// callable's `parameters` field.
-pub(super) fn formal_parameter_count(callable: Node<'_>) -> u16 {
-	let Some(params) = callable.child_by_field_name("parameters") else { return 0 };
-	let mut cursor = params.walk();
-	let mut count: u16 = 0;
-	for c in params.named_children(&mut cursor) {
-		if matches!(c.kind(), "formal_parameter" | "spread_parameter") {
-			count += 1;
-		}
-	}
-	count
-}
-
 /// Pre-pass: walk every type declaration (top-level + nested) under
 /// `node` and record `short-name → moniker` so refs to those names
 /// can be tagged `resolved` with a real target.
@@ -521,25 +507,26 @@ pub(super) fn collect_type_table<'src>(
 	}
 }
 
-/// Comma-joined parameter type list. The signature is stored on the
-/// def (`DefRecord.signature`) and is what the consumer projection
-/// uses to disambiguate overloads beyond bare arity.
-pub(super) fn formal_parameter_signature(callable: Node<'_>, source: &[u8]) -> String {
-	let Some(params) = callable.child_by_field_name("parameters") else { return String::new() };
-	let mut out = String::new();
+/// Parameter type list as it appears in source (short type names,
+/// generics and array suffixes preserved). Drives both the typed
+/// callable moniker (`method:bar(int,String)`) and `DefRecord.signature`
+/// for projection-side filtering.
+pub(super) fn formal_parameter_types<'src>(
+	callable: Node<'_>,
+	source: &'src [u8],
+) -> Vec<&'src str> {
+	let Some(params) = callable.child_by_field_name("parameters") else {
+		return Vec::new();
+	};
+	let mut out = Vec::new();
 	let mut cursor = params.walk();
-	let mut first = true;
 	for c in params.named_children(&mut cursor) {
 		if !matches!(c.kind(), "formal_parameter" | "spread_parameter") {
 			continue;
 		}
 		let Some(t) = c.child_by_field_name("type") else { continue };
 		let Ok(text) = t.utf8_text(source) else { continue };
-		if !first {
-			out.push(',');
-		}
-		out.push_str(text.trim());
-		first = false;
+		out.push(text.trim());
 	}
 	out
 }

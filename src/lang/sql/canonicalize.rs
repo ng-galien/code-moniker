@@ -36,13 +36,9 @@ pub(super) fn file_stem(name: &str) -> &str {
 	name
 }
 
-pub(super) fn extend_segment(parent: &Moniker, kind: &[u8], name: &[u8]) -> Moniker {
-	let mut b = MonikerBuilder::from_view(parent.as_view());
-	b.segment(kind, name);
-	b.build()
-}
+pub(super) use crate::lang::callable::{extend_callable_arity, extend_callable_typed, extend_segment};
 
-/// `<parent>#schema:<schema>` when schema is non-empty; passthrough
+/// `parent/schema:<schema>` when schema is non-empty; passthrough
 /// otherwise. SQL identifiers from PG are stored case-folded by the
 /// parser, so we trust the caller to pass them as-is.
 pub(super) fn maybe_schema(parent: &Moniker, schema: &[u8]) -> Moniker {
@@ -51,63 +47,6 @@ pub(super) fn maybe_schema(parent: &Moniker, schema: &[u8]) -> Moniker {
 	} else {
 		extend_segment(parent, kinds::SCHEMA, schema)
 	}
-}
-
-/// Callable moniker for definitions where parameter types are
-/// statically known. PostgreSQL allows same-name same-arity overloads
-/// (`min(int)` vs `min(text)`), so arity alone collides — full types
-/// in the moniker are load-bearing for SQL identity.
-///
-/// Segment name: `name(t1,t2,...)` or `name()` for arity 0.
-pub(super) fn extend_callable_typed(
-	parent: &Moniker,
-	kind: &[u8],
-	name: &[u8],
-	arg_types: &[Vec<u8>],
-) -> Moniker {
-	extend_segment(parent, kind, &callable_segment_typed(name, arg_types))
-}
-
-pub(super) fn callable_segment_typed(name: &[u8], arg_types: &[Vec<u8>]) -> Vec<u8> {
-	let body_len: usize = arg_types.iter().map(|t| t.len() + 1).sum();
-	let mut full = Vec::with_capacity(name.len() + 2 + body_len);
-	full.extend_from_slice(name);
-	full.push(b'(');
-	for (i, t) in arg_types.iter().enumerate() {
-		if i > 0 {
-			full.push(b',');
-		}
-		full.extend_from_slice(t);
-	}
-	full.push(b')');
-	full
-}
-
-/// Callable moniker for call sites where only arity is statically
-/// known (raw_parser does not resolve argument types). The resulting
-/// ref target won't directly match a typed def via `=`; consumers
-/// match through a name-and-arity projection or through best-effort
-/// type inference layered on top.
-///
-/// Segment name: `name()` for arity 0, `name(N)` otherwise.
-pub(super) fn extend_callable_arity(
-	parent: &Moniker,
-	kind: &[u8],
-	name: &[u8],
-	arity: u16,
-) -> Moniker {
-	extend_segment(parent, kind, &callable_segment_arity(name, arity))
-}
-
-pub(super) fn callable_segment_arity(name: &[u8], arity: u16) -> Vec<u8> {
-	let mut full = Vec::with_capacity(name.len() + 6);
-	full.extend_from_slice(name);
-	full.push(b'(');
-	if arity != 0 {
-		full.extend_from_slice(arity.to_string().as_bytes());
-	}
-	full.push(b')');
-	full
 }
 
 #[cfg(test)]
@@ -149,29 +88,6 @@ mod tests {
 		assert_eq!(m, expected);
 	}
 
-	#[test]
-	fn callable_segment_typed_arity_zero_drops_types() {
-		assert_eq!(callable_segment_typed(b"foo", &[]), b"foo()".to_vec());
-	}
-
-	#[test]
-	fn callable_segment_typed_joins_types_with_commas() {
-		let types = vec![b"int4".to_vec(), b"text".to_vec()];
-		assert_eq!(
-			callable_segment_typed(b"foo", &types),
-			b"foo(int4,text)".to_vec()
-		);
-	}
-
-	#[test]
-	fn callable_segment_arity_zero_drops_number() {
-		assert_eq!(callable_segment_arity(b"foo", 0), b"foo()".to_vec());
-	}
-
-	#[test]
-	fn callable_segment_arity_keeps_count() {
-		assert_eq!(callable_segment_arity(b"foo", 2), b"foo(2)".to_vec());
-	}
 
 	#[test]
 	fn maybe_schema_appends_when_present() {

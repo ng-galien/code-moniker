@@ -122,7 +122,7 @@ mod tests {
 		let add = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"module", b"util")
-			.segment(b"function", b"add(2)")
+			.segment(b"function", b"add(i32,i32)")
 			.build();
 		assert!(g.contains(&add), "expected {add:?}, defs: {:?}", g.def_monikers());
 	}
@@ -156,7 +156,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
-			.segment(b"method", b"bar(1)")
+			.segment(b"method", b"bar()")
 			.build();
 		assert!(g.contains(&foo));
 		assert!(g.contains(&bar), "expected {bar:?}, defs: {:?}", g.def_monikers());
@@ -367,18 +367,18 @@ mod tests {
 		let add = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"module", b"util")
-			.segment(b"function", b"add(2)")
+			.segment(b"function", b"add(i32,i32)")
 			.build();
 		let pa = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"module", b"util")
-			.segment(b"function", b"add(2)")
+			.segment(b"function", b"add(i32,i32)")
 			.segment(b"param", b"a")
 			.build();
 		let pb = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"module", b"util")
-			.segment(b"function", b"add(2)")
+			.segment(b"function", b"add(i32,i32)")
 			.segment(b"param", b"b")
 			.build();
 		assert!(g.contains(&add));
@@ -394,14 +394,14 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
-			.segment(b"method", b"bar(2)")
+			.segment(b"method", b"bar(i32)")
 			.segment(b"param", b"self")
 			.build();
 		let bar_x = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
-			.segment(b"method", b"bar(2)")
+			.segment(b"method", b"bar(i32)")
 			.segment(b"param", b"x")
 			.build();
 		assert!(g.contains(&bar_self));
@@ -442,7 +442,7 @@ mod tests {
 		let inner = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"module", b"util")
-			.segment(b"function", b"run(1)")
+			.segment(b"function", b"run(bool)")
 			.segment(b"local", b"inner")
 			.build();
 		assert!(
@@ -460,7 +460,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"module", b"util")
 			.segment(b"function", b"run()")
-			.segment(b"function", b"f(1)")
+			.segment(b"function", b"f(_)")
 			.build();
 		assert!(g.contains(&f), "expected {f:?}, defs: {:?}", g.def_monikers());
 	}

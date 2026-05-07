@@ -6,7 +6,7 @@ use tree_sitter::Node;
 use crate::core::code_graph::{CodeGraph, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-use super::canonicalize::{callable_segment_name, extend_segment, node_position};
+use super::canonicalize::{extend_callable_arity, extend_segment, node_position};
 use super::kinds;
 use super::walker::Walker;
 
@@ -264,10 +264,7 @@ impl<'src> Walker<'src> {
 	// --- target builders -------------------------------------------------
 
 	fn calls_target(&self, name: &str, arity: u16) -> Moniker {
-		let segment_name = callable_segment_name(name.as_bytes(), arity);
-		let mut b = MonikerBuilder::from_view(self.module.as_view());
-		b.segment(kinds::METHOD, &segment_name);
-		b.build()
+		extend_callable_arity(&self.module, kinds::METHOD, name.as_bytes(), arity)
 	}
 
 	fn method_call_target(&self, name: &str, arity: u16) -> Moniker {

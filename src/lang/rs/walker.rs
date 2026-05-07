@@ -10,7 +10,8 @@ use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
 use super::canonicalize::{
-	closure_arity, extend, extend_method, function_arity, impl_type_name, node_position,
+	closure_param_types, extend_callable_typed, extend_segment, function_param_types,
+	impl_type_name, node_position,
 };
 use super::kinds;
 
@@ -71,7 +72,7 @@ impl<'src> Walker<'src> {
 		kind: &[u8],
 	) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		let m = extend(parent, kind, name.as_bytes());
+		let m = extend_segment(parent, kind, name.as_bytes());
 		let _ = graph.add_def(m, kind, parent, Some(node_position(node)));
 	}
 
@@ -83,8 +84,8 @@ impl<'src> Walker<'src> {
 		kind: &[u8],
 	) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		let arity = function_arity(node, self.source_bytes);
-		let m = extend_method(parent, kind, name.as_bytes(), arity);
+		let types = function_param_types(node, self.source_bytes);
+		let m = extend_callable_typed(parent, kind, name.as_bytes(), &types);
 		let _ = graph.add_def(m.clone(), kind, parent, Some(node_position(node)));
 		if !self.deep {
 			return;
@@ -153,7 +154,7 @@ impl<'src> Walker<'src> {
 		anchor: Node<'_>,
 		graph: &mut CodeGraph,
 	) {
-		let m = extend(callable, kind, name);
+		let m = extend_segment(callable, kind, name);
 		let _ = graph.add_def(m, kind, callable, Some(node_position(anchor)));
 	}
 
@@ -198,8 +199,8 @@ impl<'src> Walker<'src> {
 		name: &[u8],
 		graph: &mut CodeGraph,
 	) {
-		let arity = closure_arity(closure);
-		let m = extend_method(callable, kinds::FUNCTION, name, arity);
+		let types = closure_param_types(closure, self.source_bytes);
+		let m = extend_callable_typed(callable, kinds::FUNCTION, name, &types);
 		let _ = graph.add_def(
 			m.clone(),
 			kinds::FUNCTION,
@@ -229,7 +230,7 @@ impl<'src> Walker<'src> {
 		// moniker; the members are still attached even though the type
 		// def itself may live elsewhere — `code_graph @> moniker` will
 		// flag it.
-		let type_moniker = extend(&self.module, kinds::CLASS, type_name.as_bytes());
+		let type_moniker = extend_segment(&self.module, kinds::CLASS, type_name.as_bytes());
 		self.handle_impl_trait_for(node, &type_moniker, graph);
 		let Some(body) = node.child_by_field_name("body") else { return };
 		self.walk_impl_body(body, &type_moniker, graph);

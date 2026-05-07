@@ -92,21 +92,52 @@ esac+moniker://repo/srcset:main/dir:pkg/module:service#class:UserService#method:
 SQL:
 
 ```text
-esac+moniker://repo/srcset:db/schema:esac/module:plan#function:create_plan(uuid,text)
+esac+moniker://repo/srcset:db/dir:schema/module:plan/schema:esac/function:create_plan(uuid,text)
 ```
+
+Schema goes inside the function path (`/schema:esac/`) when the def is
+qualified in source, not as a path-level segment of the module. The
+module segment is purely file-derived. Same shape for tables and views
+(`.../module:plan/schema:esac/class:plan_step`).
 
 ## Signature And Overload Rule
 
-Callables must encode enough signature information in the moniker to avoid
-collisions:
+Callables encode their **full parameter type signature** in the moniker
+segment, regardless of language. Arity-only is **not** acceptable in any
+language: same-name same-arity overloads with different parameter types
+are routine in Java, Rust, SQL/PLpgSQL, and TypeScript/Python with
+overload signatures, and they must produce distinct moniker bytes.
 
-- Java: parameter types are load-bearing.
-- SQL/PLpgSQL: arity is required; parameter types are preferred.
-- TypeScript/Python: arity/signature should be included when the source
-  statically exposes it and collisions are possible.
+Segment shape: `name(t1,t2,...)` or `name()` for arity 0. Examples:
 
-Never disambiguate overloads with a visit-order counter. Use static signature
-data or a deterministic source-position suffix for anonymous callables.
+- `method:findById(String)` — Java
+- `function:bar(int4,text)` — SQL/PL-pgSQL
+- `function:make(i32,String)` — Rust
+- `method:get(K,V)` — Java with generics; the type segment carries the
+  declared type parameter, not the resolved instantiation
+- `function:visit(_,_)` — TypeScript callback with two unannotated params
+
+The placeholder `_` (single underscore) fills slots where the source has
+no declared type:
+
+- TypeScript / JavaScript without type annotations
+- Rust closures with untyped parameters (`|x| x + 1`)
+- Python parameters without type hints
+
+The placeholder collides intentionally — `function:f(_,_)` and
+`function:f(_,_)` are the same identity from the moniker's perspective.
+That's the right behavior: an untyped JS function with two args is
+indistinguishable from another untyped JS function with two args, even
+if they happen to share a name. ESAC's projection layer can layer
+filename/position metadata on top when finer disambiguation is needed.
+
+The full type list is also mirrored on `DefRecord.signature` so the
+consumer can filter on it directly without re-parsing the moniker
+bytes.
+
+Never disambiguate overloads with a visit-order counter. Use static
+signature data or a deterministic source-position suffix for anonymous
+callables (e.g. `__cb_<line>_<col>`).
 
 ## Display Mapping
 

@@ -25,8 +25,14 @@ Every segment has:
 
 - `kind`: durable semantic kind, stored as text in the URI.
 - `name`: segment label inside that kind.
-- optional method/function signature in the name payload, when needed to
-  disambiguate overloads.
+- mandatory parameter type signature in the name payload of every
+  callable segment (`method`, `function`, `constructor`, `operator`):
+  `method:findById(String)`, `function:bar(int4,text)`. Same-name
+  same-arity overloads with different parameter types must produce
+  distinct moniker bytes; arity-only segments are forbidden. The
+  placeholder `_` (single underscore) fills slots where the source
+  has no declared type (untyped JS, Python without hints, untyped
+  Rust closure params).
 
 The base scheme identifies the owning namespace (`esac`, `pcm`). The `+moniker`
 suffix identifies the canonical typed moniker profile. The suffix must not

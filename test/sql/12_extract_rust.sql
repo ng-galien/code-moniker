@@ -44,10 +44,10 @@ $rs$,
 SELECT
 	ok(g @> 'esac+moniker://pkg/module:util/class:Foo'::moniker,
 		'struct emits class def') AS r1,
-	ok(g @> 'esac+moniker://pkg/module:util/class:Foo/method:bar(1)'::moniker,
-		'impl method re-parented onto struct, arity counts &self') AS r2,
-	ok(g @> 'esac+moniker://pkg/module:util/class:Foo/method:baz(2)'::moniker,
-		'second impl method with &self + n') AS r3
+	ok(g @> 'esac+moniker://pkg/module:util/class:Foo/method:bar()'::moniker,
+		'impl method re-parented onto struct; &self is implicit so arity 0 with empty parens') AS r2,
+	ok(g @> 'esac+moniker://pkg/module:util/class:Foo/method:baz(u32)'::moniker,
+		'second impl method with one value parameter (self excluded)') AS r3
 FROM g;
 
 -- impl Trait for Type → implements ref from Type → Trait.

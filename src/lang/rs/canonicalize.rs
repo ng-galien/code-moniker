@@ -30,59 +30,69 @@ pub(super) fn strip_rs_extension(uri: &str) -> &str {
 	uri.strip_suffix(".rs").unwrap_or(uri)
 }
 
-pub(super) fn extend(parent: &Moniker, kind: &[u8], name: &[u8]) -> Moniker {
-	let mut b = MonikerBuilder::from_view(parent.as_view());
-	b.segment(kind, name);
-	b.build()
-}
-
-/// Build a method moniker. Arity 0 → name `bar()`, arity N → `bar(N)`.
-/// Disambiguator lives in the segment name; v2 has no separate arity field.
-pub(super) fn extend_method(parent: &Moniker, kind: &[u8], name: &[u8], arity: u16) -> Moniker {
-	let mut full = Vec::with_capacity(name.len() + 6);
-	full.extend_from_slice(name);
-	full.push(b'(');
-	if arity != 0 {
-		full.extend_from_slice(arity.to_string().as_bytes());
-	}
-	full.push(b')');
-	extend(parent, kind, &full)
-}
+pub(super) use crate::lang::callable::{extend_callable_typed, extend_segment};
 
 pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
 	(node.start_byte() as u32, node.end_byte() as u32)
 }
 
-/// Count parameters of a `function_item` body. Returns 0 when the
-/// function has no `(...)` or it parses as empty. The disambiguator
-/// goes into the method name; static signatures (param types) are a
-/// later concern that requires extending DefRecord.
-pub(super) fn function_arity(node: Node<'_>, source: &[u8]) -> u16 {
+/// Parameter type list for a `function_item`. Each `parameter` node
+/// contributes its `type` field text as written in source (short
+/// names, generics and lifetimes preserved). `self_parameter` is
+/// implicit (excluded from the value-parameter signature, same as
+/// Java's `this`). `variadic_parameter` (FFI `...`) maps to the
+/// literal `...` slot text.
+pub(super) fn function_param_types<'src>(
+	node: Node<'_>,
+	source: &'src [u8],
+) -> Vec<&'src str> {
 	let Some(params) = node.child_by_field_name("parameters") else {
-		return 0;
+		return Vec::new();
 	};
+	let mut out = Vec::new();
 	let mut cursor = params.walk();
-	let mut count: u16 = 0;
 	for child in params.named_children(&mut cursor) {
 		match child.kind() {
-			"parameter" | "self_parameter" | "variadic_parameter" => count += 1,
+			"parameter" => {
+				let t = child
+					.child_by_field_name("type")
+					.and_then(|n| n.utf8_text(source).ok())
+					.unwrap_or("_");
+				out.push(t.trim());
+			}
+			"variadic_parameter" => out.push("..."),
+			"self_parameter" => {} // implicit, excluded
 			_ => {}
 		}
 	}
-	let _ = source;
-	count
+	out
 }
 
-/// Count parameter slots of a `closure_expression`. Each slot is one
-/// pattern position regardless of destructuring depth: `|(a, b)|` is
-/// arity 1, not 2. Closure params are bare patterns (`|x|`) or
-/// `parameter` wrappers (`|x: i32|`).
-pub(super) fn closure_arity(closure: Node<'_>) -> u16 {
+/// Parameter type list for a `closure_expression`. Slot text comes
+/// from the `type` field when the parameter is a `parameter` wrapper
+/// (`|x: i32|`); bare patterns (`|x|`) get the `_` placeholder.
+/// Destructuring patterns count as one slot regardless of depth.
+pub(super) fn closure_param_types<'src>(
+	closure: Node<'_>,
+	source: &'src [u8],
+) -> Vec<&'src str> {
 	let Some(params) = closure.child_by_field_name("parameters") else {
-		return 0;
+		return Vec::new();
 	};
+	let mut out = Vec::new();
 	let mut cursor = params.walk();
-	params.named_children(&mut cursor).count() as u16
+	for child in params.named_children(&mut cursor) {
+		if child.kind() == "parameter" {
+			let t = child
+				.child_by_field_name("type")
+				.and_then(|n| n.utf8_text(source).ok())
+				.unwrap_or("_");
+			out.push(t.trim());
+		} else {
+			out.push("_");
+		}
+	}
+	out
 }
 
 /// Bare type name for a `type` field of an `impl_item`. Strips generic
