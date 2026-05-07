@@ -80,3 +80,13 @@ Tests describe the contract before the implementation. Cycle: red test → minim
 ## pgrx 0.18 manual Datum
 
 `moniker` ships its bytes as a raw varlena, not the default cbor wrapper. To keep `#[derive(PostgresType)]` for the SQL DDL emission while replacing the cbor `IntoDatum`/`FromDatum`, use the opt-out attribute `#[bikeshed_postgres_type_manually_impl_from_into_datum]` and provide the five impls manually (`IntoDatum`, `FromDatum`, `BoxRet`, `UnboxDatum`, `ArgAbi`). The macro source at `pgrx-macros-0.18.0/src/lib.rs:902-973` is the canonical reference for the shape — mirror it, swap cbor encode/decode for varlena helpers (`pgrx::set_varsize_4b`, `pgrx::varlena_to_byte_slice`, `pg_sys::pg_detoast_datum_packed`).
+
+**GIN bulk-build trap.** `rust_regtypein("X")` raises `type "X" does not exist` under restricted search_path (`CREATE INDEX USING gin (fn(graph))` over existing rows). Cache the OID in `OnceLock`, look up via `get_extension_oid` → `get_extension_schema` → `get_namespace_name` → `regtypein("schema.X")`. See `moniker_type_oid` in `src/pg/moniker/mod.rs`.
+
+**Adding a `#[pg_extern]` arg without breaking callers**: wrap the new param in `pgrx::default!(T, "sql_literal")`. Existing SQL callsites stay valid; opt in via named arg (`fn extract_rust(... , deep := true)`).
+
+## tree-sitter-rust gotchas
+
+- Node kinds are `function_item` / `type_item` / `enum_item` / `trait_item` (not `fn_item` / `type_alias_item`).
+- Closure `parameters` field is `closure_parameters`; children are bare patterns (`|x|`) OR `parameter` wrappers (`|x: i32|`). Counting only `kind == "parameter"` undercounts untyped closures.
+- Statement-position `if_expression` / `match_expression` is wrapped in `expression_statement`. A body-walker dropping that kind loses locals nested in `if cond { let x = … }`.

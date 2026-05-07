@@ -28,6 +28,11 @@ Extraction targets for ESAC are documented in
 [`docs/EXTRACTION_TARGETS.md`](docs/EXTRACTION_TARGETS.md). The extension must
 reach parity with ESAC's existing extractors before replacing them.
 
+The target URI/moniker design is documented in
+[`docs/MONIKER_URI.md`](docs/MONIKER_URI.md). Canonical monikers use a typed
+`+moniker` scheme such as `esac+moniker://...`; the base-scheme SCIP-like form
+such as `esac://...` is retained as compact display/compatibility syntax.
+
 ## Non-scope
 
 - No table schemas, no triggers, no application logic.

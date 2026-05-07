@@ -35,7 +35,8 @@ tree-sitter-typescript = "0.23"
 tree-sitter-rust       = "0.24"
 
 # Manifest parsers for the build/* primitives.
-toml = "0.8"
+toml       = "0.8"
+serde_json = "1"
 
 # pgrx-tests added later when in-PG tests (`#[pg_test]`) are introduced.
 # It requires a `pgN` feature and breaks pure-Rust `cargo test` when always-on.

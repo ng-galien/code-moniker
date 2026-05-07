@@ -38,24 +38,34 @@ The srcset is a node at the boundary. Its kind is supplied by the caller. The ex
 
 A node's identity in the canonical tree. Native PostgreSQL type with operators and a custom GiST index.
 
-External representation is a **SCIP-inspired** URI :
+Canonical external representation is a **typed-segment URI** using a `+moniker` scheme profile:
 
 ```
-<scheme><project>/<path-segments>[#<descriptor-chain>]
+<scheme>+moniker://<project>/<kind>:<name>[/<kind>:<name>...][#<kind>:<name>[#<kind>:<name>...]]
 ```
 
-The `<scheme>` prefix is caller-configurable (default `pcm://`); a consumer like ESAC can pass its own (`esac://`). Examples below use the default.
+The base scheme is caller-configurable (default `pcm`, canonical URI `pcm+moniker://`); a consumer like ESAC can use its own (`esac`, canonical URI `esac+moniker://`). The `+moniker` suffix identifies the canonical typed moniker profile, not the final symbol kind. Kinds are carried by each segment.
 
-Each descriptor carries its kind via a punctuation suffix:
+Examples below use the default scheme:
 
-| Punct class | URI shape              | Used for                                     |
-|-------------|------------------------|----------------------------------------------|
-| Path        | `…/<name>`             | srcset, package, directory, file-as-module   |
-| Type        | `<name>#`              | class, interface, enum, type alias           |
-| Term        | `<name>.`              | field, variable, constant                    |
-| Method      | `<name>().` / `<name>(N).` | method, function, constructor             |
+```
+pcm+moniker://my-app/srcset:main/package:com/package:acme/class:Foo
+pcm+moniker://my-app/srcset:main/package:com/package:acme/class:Foo#method:bar()
+pcm+moniker://my-app/srcset:main/package:com/package:acme/class:Foo#method:bar(int,String)
+pcm+moniker://my-app/srcset:main/dir:src/dir:lib/module:util#class:Helper#method:process()
+pcm+moniker://my-app/external_pkg:maven/org.springframework/spring-core/6.1.0
+```
 
-Examples :
+The earlier SCIP-like punctuation form remains useful as a compact display form and compatibility input under the base scheme (`pcm://`, `esac://`):
+
+| Punct class | Display shape              | Used for                                     |
+|-------------|----------------------------|----------------------------------------------|
+| Path        | `…/<name>`                 | srcset, package, directory, file-as-module   |
+| Type        | `<name>#`                  | class, interface, enum, type alias           |
+| Term        | `<name>.`                  | field, variable, constant                    |
+| Method      | `<name>().` / `<name>(N).` | method, function, constructor                |
+
+Display examples:
 
 ```
 pcm://my-app/main/com/acme/Foo                              file-as-module (Java)
@@ -66,9 +76,13 @@ pcm://my-app/src/lib/util.ts#Helper#process().              TS method
 pcm://my-app/maven/org.springframework/spring-core/6.1.0    external (Maven)
 ```
 
-The URI is symbolic only — it identifies the node in the tree. It does not encode disk location.
+The canonical typed `+moniker` form is the durable I/O contract. Compact display form is lossy unless the caller supplies kind defaults, so it must not be the only persisted truth.
 
-Names with reserved characters (`/`, `#`, `.`, `(`, `)`, backtick, whitespace) are wrapped in backticks; literal backticks are doubled.
+The URI is symbolic only — it identifies the node in the tree. It does not encode disk location. Source location remains a sidecar (`source_uri`) on the module row.
+
+Names with reserved characters (`/`, `#`, `:`, `(`, `)`, backtick, whitespace) are wrapped in backticks; literal backticks are doubled.
+
+Detailed URI design and migration rules are documented in `docs/MONIKER_URI.md`.
 
 Operators :
 

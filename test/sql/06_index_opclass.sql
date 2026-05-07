@@ -75,9 +75,12 @@ SELECT is(
 	'lib',
 	'graph_def_monikers @> ARRAY[m] resolves the owning module');
 
+-- Per-symbol imports anchor refs *under* the imported module — the
+-- importer's targets include `path:src/path:lib/path:Lib`, not the bare
+-- module moniker. The GIN-indexable @> still works for an exact target.
 SELECT is(
 	(SELECT array_agg(id ORDER BY id) FROM module
-	  WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/path:src/path:lib'::moniker]),
+	  WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/path:src/path:lib/path:Lib'::moniker]),
 	ARRAY['app']::text[],
 	'graph_ref_targets @> ARRAY[m] finds every importer');
 

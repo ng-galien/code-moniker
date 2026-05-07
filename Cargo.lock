@@ -580,6 +580,7 @@ version = "0.1.0"
 dependencies = [
  "pgrx",
  "serde",
+ "serde_json",
  "toml 0.8.23",
  "tree-sitter",
  "tree-sitter-rust",
