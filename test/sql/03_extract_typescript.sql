@@ -11,8 +11,8 @@ SELECT plan(8);
 -- Surface presence ----------------------------------------------------------
 
 SELECT has_function('extract_typescript'::name,
-	ARRAY['text','text','moniker'],
-	'extract_typescript(text, text, moniker) is exposed');
+	ARRAY['text','text','moniker','boolean'],
+	'extract_typescript(text, text, moniker, boolean) is exposed');
 
 -- Extracting an empty source still produces a graph rooted at the module.
 

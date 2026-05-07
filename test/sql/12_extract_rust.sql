@@ -9,8 +9,8 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 SELECT plan(11);
 
 SELECT has_function('extract_rust'::name,
-	ARRAY['text','text','moniker'],
-	'extract_rust(text, text, moniker) is exposed');
+	ARRAY['text','text','moniker','boolean'],
+	'extract_rust(text, text, moniker, boolean) is exposed');
 
 -- Module root from URI: dir segments as `path:`, basename as `module:`.
 WITH g AS (

@@ -10,6 +10,8 @@ pub(super) const INTERFACE: &[u8] = b"interface";
 pub(super) const TYPE_ALIAS: &[u8] = b"type_alias";
 pub(super) const FUNCTION: &[u8] = b"function";
 pub(super) const METHOD: &[u8] = b"method";
+pub(super) const PARAM: &[u8] = b"param";
+pub(super) const LOCAL: &[u8] = b"local";
 
 pub(super) const IMPORTS_SYMBOL: &[u8] = b"imports_symbol";
 pub(super) const IMPLEMENTS: &[u8] = b"implements";

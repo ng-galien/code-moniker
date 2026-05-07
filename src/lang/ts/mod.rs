@@ -24,7 +24,10 @@ pub fn parse(source: &str) -> Tree {
 		.expect("tree-sitter parse returned None on a non-cancelled call")
 }
 
-pub fn extract(uri: &str, source: &str, anchor: &Moniker) -> CodeGraph {
+pub fn extract(uri: &str, source: &str, anchor: &Moniker, _deep: bool) -> CodeGraph {
+	// `_deep` is part of the cross-extractor surface for parity with
+	// `lang::rs::extract`; the TS walker does not yet implement deep
+	// extraction (params/locals/callbacks).
 	let module = compute_module_moniker(anchor, uri, kinds::PATH);
 	let mut graph = CodeGraph::new(module.clone(), kinds::PATH);
 	let tree = parse(source);
@@ -72,7 +75,7 @@ mod tests {
 	#[test]
 	fn extract_empty_source_yields_module_only_graph() {
 		let anchor = make_anchor();
-		let graph = extract("src/lib/util.ts", "", &anchor);
+		let graph = extract("src/lib/util.ts", "", &anchor, false);
 		assert_eq!(graph.def_count(), 1);
 		assert_eq!(graph.ref_count(), 0);
 
@@ -90,7 +93,7 @@ mod tests {
 	fn extract_strips_each_known_extension() {
 		let anchor = make_anchor();
 		for uri in ["foo.ts", "foo.tsx", "foo.js", "foo.jsx", "foo.mjs", "foo.cjs"] {
-			let g = extract(uri, "", &anchor);
+			let g = extract(uri, "", &anchor, false);
 			let last = g.root().as_view().segments().last().unwrap();
 			assert_eq!(last.name, b"foo", "extension not stripped on {uri}");
 		}
@@ -99,7 +102,7 @@ mod tests {
 	#[test]
 	fn extract_simple_class_emits_class_def() {
 		let anchor = make_anchor();
-		let graph = extract("util.ts", "class Foo {}", &anchor);
+		let graph = extract("util.ts", "class Foo {}", &anchor, false);
 		assert_eq!(graph.def_count(), 2);
 
 		let foo = MonikerBuilder::new()
@@ -114,14 +117,14 @@ mod tests {
 	#[test]
 	fn extract_export_class_descends_into_export_statement() {
 		let anchor = make_anchor();
-		let graph = extract("util.ts", "export class Foo {}", &anchor);
+		let graph = extract("util.ts", "export class Foo {}", &anchor, false);
 		assert_eq!(graph.def_count(), 2);
 	}
 
 	#[test]
 	fn extract_class_with_method_emits_method_def() {
 		let anchor = make_anchor();
-		let graph = extract("util.ts", "class Foo { bar() {} }", &anchor);
+		let graph = extract("util.ts", "class Foo { bar() {} }", &anchor, false);
 		assert_eq!(graph.def_count(), 3);
 
 		let bar = MonikerBuilder::new()
@@ -137,7 +140,7 @@ mod tests {
 	#[test]
 	fn extract_function_declaration_emits_def() {
 		let anchor = make_anchor();
-		let graph = extract("util.ts", "function foo() {}", &anchor);
+		let graph = extract("util.ts", "function foo() {}", &anchor, false);
 		assert_eq!(graph.def_count(), 2);
 
 		let foo = MonikerBuilder::new()
@@ -156,6 +159,7 @@ mod tests {
 			"src/util.ts",
 			"import { Bar } from './bar';",
 			&anchor,
+			false,
 		);
 		assert_eq!(graph.ref_count(), 1);
 
@@ -179,6 +183,7 @@ mod tests {
 			"src/lib/foo.ts",
 			"import { X } from '../other';",
 			&anchor,
+			false,
 		);
 		let r = graph.refs().next().unwrap();
 		let target = MonikerBuilder::new()
@@ -194,7 +199,7 @@ mod tests {
 	fn extract_import_position_covers_statement() {
 		let anchor = make_anchor();
 		let source = "import { Bar } from './bar';";
-		let graph = extract("util.ts", source, &anchor);
+		let graph = extract("util.ts", source, &anchor, false);
 		let r = graph.refs().next().unwrap();
 		let (start, end) = r.position.unwrap();
 		assert_eq!(start, 0);
