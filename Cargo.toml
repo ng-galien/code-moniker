@@ -32,6 +32,9 @@ pgrx = { version = "0.18", optional = true }
 tree-sitter            = "0.26"
 tree-sitter-typescript = "0.23"
 
+# pgrx-tests added later when in-PG tests (`#[pg_test]`) are introduced.
+# It requires a `pgN` feature and breaks pure-Rust `cargo test` when always-on.
+
 # -----------------------------------------------------------------------------
 # Profiles
 # -----------------------------------------------------------------------------

@@ -1,0 +1,5 @@
+# Defer PostgreSQL symbol resolution to runtime when building the cdylib
+# on macOS. Required by pgrx because the extension links against PG
+# symbols that only exist when loaded inside a Postgres backend.
+[target.'cfg(target_os="macos")']
+rustflags = ["-Clink-arg=-undefined", "-Clink-arg=dynamic_lookup"]

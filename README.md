@@ -56,9 +56,24 @@ Full extension (requires [cargo-pgrx](https://github.com/pgcentralfoundation/pgr
 
 ```sh
 cargo install --locked cargo-pgrx
-cargo pgrx init                       # downloads and builds the PG versions you need
-cargo pgrx run pg17                   # builds and loads the extension into a dev PG
-cargo pgrx test pg17                  # runs in-PG integration tests
+cargo pgrx init --pg17 download       # downloads and builds PG17 (one-time, ~15 min)
+cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
+cargo pgrx run pg17                   # interactive psql shell with the extension loaded
+```
+
+SQL-side tests use [pgTAP](https://pgtap.org/). Install once against the pgrx PG17:
+
+```sh
+git clone --depth 1 https://github.com/theory/pgtap.git /tmp/pgtap-build
+PG_CONFIG=$HOME/.pgrx/17.9/pgrx-install/bin/pg_config make -C /tmp/pgtap-build install
+```
+
+Then run the suite (starts pgrx PG17 if needed, drops/recreates a test DB, runs `test/sql/*.sql`):
+
+```sh
+cargo pgrx start pg17
+cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
+./test/run.sh
 ```
 
 ## Consumers

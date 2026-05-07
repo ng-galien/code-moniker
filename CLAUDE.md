@@ -1,22 +1,22 @@
 # CLAUDE.md
 
-`pg_code_moniker` — extension PostgreSQL Rust + pgrx. Types natifs `moniker` et `code_graph` avec algèbre indexée GiST. Pas de tables, pas de triggers, pas d'état persistant — **types + opérateurs + extracteurs par langage**.
+`pg_code_moniker` — PostgreSQL extension in Rust + pgrx. Native `moniker` and `code_graph` types with GiST-indexed algebra. No tables, no triggers, no persistent state — **types + operators + per-language extractors**.
 
-Premier consommateur : ESAC. **La boussole de toute décision : améliorer l'expérience symbolique d'ESAC** (`esac_symbol` find/refs/carriers/families/health/gaps, `esac_outline`), jamais la détériorer. Chaque ligne ajoutée doit être traçable à une opération de cette chorégraphie. Si une feature ne sert pas une de ces actions, elle n'a pas sa place dans l'extension.
+First consumer: ESAC. **The compass for every decision: improve ESAC's symbolic experience** (`esac_symbol` find/refs/carriers/families/health/gaps, `esac_outline`), never degrade it. Every line added must be traceable to one of these operations. If a feature does not serve one of these actions, it does not belong in the extension.
 
 ## Documents
 
 - `README.md` — posture, scope, build/test commands
-- `SPEC.md` — modèle conceptuel (canonical tree, moniker, code_graph, srcset, trois origines), API publique, format URI SCIP, phases d'implémentation
-- `CLAUDE.md` (ce fichier) — règles de codage et état d'avancement
+- `SPEC.md` — conceptual model (canonical tree, moniker, code_graph, srcset, three origins), public API, SCIP URI format, implementation phases
+- `CLAUDE.md` (this file) — coding rules and progress state
 
-Pas d'archive de chantier, pas de mémo de décision, pas de doc spéculatif. Git log + le code + ces trois fichiers sont la source de vérité.
+No work-in-progress archives, no decision memos, no speculative docs. Git log + the code + these three files are the source of truth.
 
-## Sobriété des commentaires
+## Comment sobriety
 
-- **Code** : commentaires minimaux. Pas de narration de ce que le code fait — le nom des items et le flot le disent. Pas de roman dans les `//!` de module : un paragraphe court suffit.
-- **Tests** : c'est la place légitime de la documentation. Une description courte de l'invariant testé est bienvenue. Le nom du test est la spec (`extract_simple_class_emits_class_def`).
-- Pas d'emoji. Pas de framing « smart ». Sobre, technique.
+- **Code**: minimal comments. No narrating what the code does — names and flow already tell that. No essays in module `//!` docstrings: a short paragraph suffices.
+- **Tests**: this is the legitimate place for documentation. A short description of the invariant tested is welcome. The test name is the spec (`extract_simple_class_emits_class_def`).
+- No emoji. No "smart" framing. Sober, technical.
 
 ## Layout
 
@@ -26,12 +26,15 @@ src/
   core/               pure Rust, no pgrx, testable with cargo test
     kind_registry.rs  KindId + PunctClass (Path/Type/Term/Method)
     moniker.rs        bytea encoding + builder + view + iterator
-    uri.rs            SCIP parse / serialize, backtick escaping
+    uri/              SCIP parse / serialize, backtick escaping
+      mod.rs          UriError, UriConfig, re-exports
+      parse.rs        from_uri + read_name + read_arity
+      serialize.rs    to_uri + escape helpers
     code_graph.rs     defs / refs / tree per module
   pg/                 pgrx wrappers, gated behind pgN feature
   lang/               per-language extractors
     mod.rs
-    ts/               cible : un sous-dossier par langage
+    ts/               target: one sub-directory per language
       mod.rs          pub fn parse, pub fn extract
       walker.rs       AST traversal
       canonicalize.rs moniker construction from AST nodes
@@ -40,12 +43,12 @@ src/
     java/             future
     python/           future
     pgsql/            future
+test/sql/             pgTAP test files (run via ./test/run.sh)
 tests/fixtures/<lang>/   source fixtures with expected code_graph snapshots
 ```
 
-Aujourd'hui `lang/ts.rs` est monolithique (~280 lignes) ; à splitter selon ce layout dès qu'il dépasse ~400 lignes. **Pas de fichier > ~600 lignes.** Une responsabilité par fichier, nommée par son suffixe.
+`lang/ts.rs` is currently monolithic (~280 lines); split it per the target layout once it exceeds ~400 lines. **No file > ~600 lines.** One responsibility per file, named by its suffix.
 
 ## TDD
 
-Tests décrivent le contrat avant l'implémentation. Cycle : test rouge → impl minimale → vert → cycle suivant. Tests inline dans `#[cfg(test)] mod tests` à côté du code testé — convention Rust standard, accès aux items privés sans cérémonie. Quand un fichier dépasse le cap, splitter le module de production (sous-fichiers avec leurs propres `mod tests`), pas extraire les tests. `cargo test` pour `core/` et `lang/` (pure Rust, pas de PG) ; `cargo pgrx test pgN` pour la couche `pg/` (en-PG, behind feature `pg_test`).
-
+Tests describe the contract before the implementation. Cycle: red test → minimal impl → green → next cycle. Tests inline in `#[cfg(test)] mod tests` next to the code under test — standard Rust convention, access to private items without ceremony. When a file exceeds the cap, split the production module (subfiles with their own `mod tests`); do not extract the tests. `cargo test` for `core/` and `lang/` (pure Rust, no PG). For the SQL surface exposed by `pg/` we use **pgTAP**: tests in `test/sql/*.sql`, runner `./test/run.sh` which leans on the PG17 instance managed by pgrx. No `pgrx-tests` / `#[pg_test]` — SQL is tested in SQL.
