@@ -6,7 +6,7 @@
 # Format (single string, fields separated by `|`):
 #   lang | project_id | git_url | ref | src_subdir | manifest_path
 #
-# - lang          One of: rs, ts. Drives the extract_<lang> dispatch.
+# - lang          One of: rs, ts, java, sql. Drives the extract_<lang> dispatch.
 # - project_id    Becomes the moniker project segment AND the keyed
 #                 `project` column in the dogfood schema. Stable across
 #                 runs; do not change without resetting the DB.
@@ -36,4 +36,10 @@ PCM_DOGFOOD_PANEL=(
 
 	# Java ----------------------------------------------------------------
 	"java|gson|https://github.com/google/gson.git|gson-parent-2.11.0|gson/src/main/java|-"
+
+	# SQL / PL-pgSQL ------------------------------------------------------
+	# pgTAP is the canonical pure-pgSQL codebase: deep symbol density,
+	# many overloads (`is(int,int,...)`, `is(text,text,...)`), real
+	# call graph between assertion helpers.
+	"sql|pgtap|https://github.com/theory/pgtap.git|v1.3.3|sql|-"
 )

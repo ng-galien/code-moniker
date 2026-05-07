@@ -45,3 +45,20 @@ fn extract_java(
 	let inner = crate::lang::java::extract(uri, source, &core_anchor, deep, &presets);
 	code_graph::from_core(inner)
 }
+
+/// SQL / PL-pgSQL extractor. Drives PG's own `pg_parse_query` for the
+/// DDL surface and (phase 2) `plpgsql_compile_inline` for procedural
+/// bodies. Marked `volatile` because phase 2 reads catalog state for
+/// type resolution; the function itself never writes.
+#[pg_extern]
+fn extract_plpgsql(
+	uri: &str,
+	source: &str,
+	anchor: moniker,
+	deep: pgrx::default!(bool, "false"),
+) -> code_graph {
+	let core_anchor = anchor.to_core();
+	let presets = crate::lang::sql::Presets::default();
+	let inner = crate::lang::sql::extract(uri, source, &core_anchor, deep, &presets);
+	code_graph::from_core(inner)
+}

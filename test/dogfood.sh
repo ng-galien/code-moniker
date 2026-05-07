@@ -70,6 +70,7 @@ ext_for_lang() {
 		rs) echo "rs" ;;
 		ts) echo "ts tsx js jsx mjs cjs mts cts" ;;
 		java) echo "java" ;;
+		sql) echo "sql psql pgsql" ;;
 		*) echo "" ;;
 	esac
 }
@@ -79,6 +80,7 @@ extract_fn() {
 		rs) echo "extract_rust" ;;
 		ts) echo "extract_typescript" ;;
 		java) echo "extract_java" ;;
+		sql) echo "extract_plpgsql" ;;
 		*) echo "" ;;
 	esac
 }
