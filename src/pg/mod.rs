@@ -4,6 +4,7 @@
 use pgrx::prelude::*;
 
 pub mod code_graph;
+pub mod extract;
 pub mod moniker;
 mod registry;
 

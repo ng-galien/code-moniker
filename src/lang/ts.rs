@@ -38,21 +38,28 @@ pub fn extract(
 
 #[derive(Copy, Clone)]
 struct TsKinds {
+	// Canonical structural kinds — used in moniker bytes so URI
+	// roundtrip and `=` equality stay punct-class-stable.
 	path: KindId,
-	class: KindId,
-	function: KindId,
-	method: KindId,
-	import_: KindId,
+	type_canon: KindId,
+	method_canon: KindId,
+
+	// Semantic labels — used as `DefRecord.kind` / `RefRecord.kind`
+	// metadata and surfaced as text in the SQL API.
+	class_label: KindId,
+	function_label: KindId,
+	import_label: KindId,
 }
 
 impl TsKinds {
 	fn new(reg: &mut KindRegistry) -> Self {
 		Self {
 			path: reg.intern("path", PunctClass::Path).unwrap(),
-			class: reg.intern("class", PunctClass::Type).unwrap(),
-			function: reg.intern("function", PunctClass::Method).unwrap(),
-			method: reg.intern("method", PunctClass::Method).unwrap(),
-			import_: reg.intern("import", PunctClass::Path).unwrap(),
+			type_canon: reg.intern("type", PunctClass::Type).unwrap(),
+			method_canon: reg.intern("method", PunctClass::Method).unwrap(),
+			class_label: reg.intern("class", PunctClass::Type).unwrap(),
+			function_label: reg.intern("function", PunctClass::Method).unwrap(),
+			import_label: reg.intern("import", PunctClass::Path).unwrap(),
 		}
 	}
 }
@@ -79,10 +86,10 @@ impl<'src> Walker<'src> {
 
 	fn handle_class(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		let class_moniker = extend_segment(parent, self.kinds.class, name.as_bytes());
+		let class_moniker = extend_segment(parent, self.kinds.type_canon, name.as_bytes());
 		let _ = graph.add_def(
 			class_moniker.clone(),
-			self.kinds.class,
+			self.kinds.class_label,
 			parent,
 			Some(node_position(node)),
 		);
@@ -102,14 +109,14 @@ impl<'src> Walker<'src> {
 
 	fn handle_method(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		let m = extend_method(parent, self.kinds.method, name.as_bytes(), 0);
-		let _ = graph.add_def(m, self.kinds.method, parent, Some(node_position(node)));
+		let m = extend_method(parent, self.kinds.method_canon, name.as_bytes(), 0);
+		let _ = graph.add_def(m, self.kinds.method_canon, parent, Some(node_position(node)));
 	}
 
 	fn handle_function(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		let m = extend_method(parent, self.kinds.function, name.as_bytes(), 0);
-		let _ = graph.add_def(m, self.kinds.function, parent, Some(node_position(node)));
+		let m = extend_method(parent, self.kinds.method_canon, name.as_bytes(), 0);
+		let _ = graph.add_def(m, self.kinds.function_label, parent, Some(node_position(node)));
 	}
 
 	fn handle_import(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
@@ -120,7 +127,7 @@ impl<'src> Walker<'src> {
 		let _ = graph.add_ref(
 			parent,
 			target,
-			self.kinds.import_,
+			self.kinds.import_label,
 			Some(node_position(node)),
 		);
 	}
@@ -129,7 +136,7 @@ impl<'src> Walker<'src> {
 		let view = self.module.as_view();
 		MonikerBuilder::new()
 			.project(view.project())
-			.segment(self.kinds.import_, path.as_bytes())
+			.segment(self.kinds.path, path.as_bytes())
 			.build()
 	}
 
@@ -185,11 +192,6 @@ fn clone_into_builder(m: &Moniker) -> MonikerBuilder {
 fn node_position(node: Node<'_>) -> (u32, u32) {
 	(node.start_byte() as u32, node.end_byte() as u32)
 }
-
-// -----------------------------------------------------------------------------
-// Tests — TDD specs first, implementation tracks the tests.
-// Each test names the behaviour it asserts; no inline narration.
-// -----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -265,12 +267,12 @@ mod tests {
 		let graph = extract("util.ts", "class Foo {}", &anchor, &mut reg);
 		assert_eq!(graph.def_count(), 2);
 
-		let class_kid = reg.intern("class", PunctClass::Type).unwrap();
+		let type_kid = reg.intern("type", PunctClass::Type).unwrap();
 		let foo = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(path, b"main")
 			.segment(path, b"util")
-			.segment(class_kid, b"Foo")
+			.segment(type_kid, b"Foo")
 			.build();
 		assert!(graph.contains(&foo));
 	}
@@ -290,13 +292,13 @@ mod tests {
 		let graph = extract("util.ts", "class Foo { bar() {} }", &anchor, &mut reg);
 		assert_eq!(graph.def_count(), 3);
 
-		let class_kid = reg.intern("class", PunctClass::Type).unwrap();
+		let type_kid = reg.intern("type", PunctClass::Type).unwrap();
 		let method_kid = reg.intern("method", PunctClass::Method).unwrap();
 		let bar = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(path, b"main")
 			.segment(path, b"util")
-			.segment(class_kid, b"Foo")
+			.segment(type_kid, b"Foo")
 			.method(method_kid, b"bar", 0)
 			.build();
 		assert!(graph.contains(&bar));
@@ -310,12 +312,12 @@ mod tests {
 		let graph = extract("util.ts", "function foo() {}", &anchor, &mut reg);
 		assert_eq!(graph.def_count(), 2);
 
-		let function_kid = reg.intern("function", PunctClass::Method).unwrap();
+		let method_kid = reg.intern("method", PunctClass::Method).unwrap();
 		let foo = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(path, b"main")
 			.segment(path, b"util")
-			.method(function_kid, b"foo", 0)
+			.method(method_kid, b"foo", 0)
 			.build();
 		assert!(graph.contains(&foo));
 	}
@@ -335,14 +337,15 @@ mod tests {
 
 		let r = graph.refs().next().unwrap();
 		let import_kid = reg.intern("import", PunctClass::Path).unwrap();
-		assert_eq!(r.kind, import_kid);
-		assert_eq!(r.source, 0); // ref attached to the module root
+		let path_kid = reg.intern("path", PunctClass::Path).unwrap();
+		assert_eq!(r.kind, import_kid, "ref carries the semantic 'import' kind");
+		assert_eq!(r.source, 0, "ref attached to the module root");
 
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
-			.segment(import_kid, b"./bar")
+			.segment(path_kid, b"./bar")
 			.build();
-		assert_eq!(r.target, target);
+		assert_eq!(r.target, target, "import target uses canonical path kind");
 	}
 
 	#[test]

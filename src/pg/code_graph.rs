@@ -17,12 +17,16 @@ pub struct code_graph {
 	inner: CoreGraph,
 }
 
+impl code_graph {
+	pub(super) fn from_core(inner: CoreGraph) -> Self {
+		Self { inner }
+	}
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn graph_create(root: moniker, kind: &str) -> code_graph {
 	let kind_id = intern_kind(kind, punct_for_kind(kind));
-	code_graph {
-		inner: CoreGraph::new(root.to_core(), kind_id),
-	}
+	code_graph::from_core(CoreGraph::new(root.to_core(), kind_id))
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -31,7 +35,7 @@ fn graph_add_def(graph: code_graph, def: moniker, kind: &str, parent: moniker) -
 	let kind_id = intern_kind(kind, punct_for_kind(kind));
 	next.add_def(def.to_core(), kind_id, &parent.to_core(), None)
 		.unwrap_or_else(|e| error!("graph_add_def: {e}"));
-	code_graph { inner: next }
+	code_graph::from_core(next)
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -45,7 +49,7 @@ fn graph_add_ref(
 	let kind_id = intern_kind(kind, punct_for_kind(kind));
 	next.add_ref(&source.to_core(), target.to_core(), kind_id, None)
 		.unwrap_or_else(|e| error!("graph_add_ref: {e}"));
-	code_graph { inner: next }
+	code_graph::from_core(next)
 }
 
 #[pg_extern(immutable, parallel_safe)]
