@@ -1,35 +1,26 @@
-//! URI parse / serialize for [`crate::core::moniker::Moniker`], SCIP-inspired format.
+//! Canonical typed URI parser/serializer for [`crate::core::moniker::Moniker`].
 //!
 //! # Format
 //!
 //! ```text
-//! <scheme><project>(/<path-seg>)*(#<descriptor>)*
+//! <scheme><project>(/<kind>:<name>)*
 //! ```
 //!
-//! The scheme prefix is configurable via [`UriConfig::scheme`]
-//! (default `pcm://`).
+//! The scheme is configurable (default `pcm+moniker://`). Each segment
+//! is `<kind>:<name>` where `kind` is a plain identifier
+//! (`[A-Za-z][A-Za-z0-9_]*`) and `name` is arbitrary text. Method
+//! overload disambiguators live inside `name` (e.g.
+//! `method:findById(String)` or `method:findById(2)`).
 //!
-//! Descriptors carry their kind via a punctuation suffix:
-//!
-//! | Punct class | Suffix              | Example          |
-//! |-------------|---------------------|------------------|
-//! | `Path`      | (separator `/`)     | `…/Foo`          |
-//! | `Type`      | `#`                 | `Foo#`           |
-//! | `Term`      | `.`                 | `field.`         |
-//! | `Method`    | `().` or `(N).`     | `bar().` `bar(2).` |
-//!
-//! The first descriptor (i.e. the first segment that is not Path)
-//! is preceded by a single `#` to mark the path-to-descriptor boundary;
-//! subsequent descriptors are concatenated, since each carries its own
-//! suffix.
+//! There is no `#` in the canonical form: the visual path-vs-descriptor
+//! split lives in the compact projection (`pg/moniker/compact.rs`),
+//! not here. Canonical is round-trippable, lossless, and unambiguous.
 //!
 //! # Escaping
 //!
-//! A segment name with reserved characters (`/`, `#`, `.`, `(`, `)`,
-//! backtick, or whitespace) is wrapped in backticks. A literal backtick
-//! inside such a name is doubled.
-
-use crate::core::kind_registry::KindId;
+//! A `name` containing `/`, backtick, or ASCII whitespace is wrapped in
+//! backticks; a literal backtick inside such a name is doubled. Kinds
+//! never need escaping by construction.
 
 mod parse;
 mod serialize;
@@ -41,12 +32,12 @@ pub use serialize::to_uri;
 pub enum UriError {
 	MissingScheme(String),
 	MissingProject,
-	UnknownKind(KindId),
-	PathAfterDescriptor,
+	EmptySegment(usize),
+	MissingKindSeparator(usize),
+	InvalidKind(String),
 	UnterminatedBacktick(usize),
-	EmptyDescriptor(usize),
-	BadArity(String),
 	NonUtf8Project,
+	NonUtf8Segment,
 }
 
 impl std::fmt::Display for UriError {
@@ -56,42 +47,36 @@ impl std::fmt::Display for UriError {
 				write!(f, "URI does not start with the expected scheme `{expected}`")
 			}
 			Self::MissingProject => write!(f, "URI has no project authority"),
-			Self::UnknownKind(id) => write!(f, "kind id {} is not in the registry", id.as_u16()),
-			Self::PathAfterDescriptor => {
-				write!(f, "path-level segment cannot follow a descriptor")
+			Self::EmptySegment(pos) => write!(f, "empty segment at byte {pos}"),
+			Self::MissingKindSeparator(pos) => {
+				write!(f, "segment at byte {pos} has no `:` between kind and name")
 			}
+			Self::InvalidKind(s) => write!(
+				f,
+				"kind `{s}` is not a plain identifier ([A-Za-z][A-Za-z0-9_]*)"
+			),
 			Self::UnterminatedBacktick(pos) => {
 				write!(f, "unterminated backtick-quoted name at byte {pos}")
 			}
-			Self::EmptyDescriptor(pos) => write!(f, "empty descriptor at byte {pos}"),
-			Self::BadArity(s) => write!(f, "malformed arity disambiguator: {s}"),
 			Self::NonUtf8Project => write!(f, "project authority must be valid UTF-8"),
+			Self::NonUtf8Segment => write!(f, "segment must be valid UTF-8"),
 		}
 	}
 }
 
 impl std::error::Error for UriError {}
 
-/// URI configuration: the scheme prefix and the names of the four
-/// canonical kinds the parser produces. Callers usually instantiate
-/// this once for their project and reuse it.
 #[derive(Copy, Clone, Debug)]
 pub struct UriConfig<'a> {
+	/// Full prefix including the `+moniker://` suffix (e.g.
+	/// `"esac+moniker://"`).
 	pub scheme: &'a str,
-	pub path: &'a str,
-	pub type_: &'a str,
-	pub term: &'a str,
-	pub method: &'a str,
 }
 
 impl Default for UriConfig<'_> {
 	fn default() -> Self {
 		Self {
-			scheme: "pcm://",
-			path: "path",
-			type_: "type",
-			term: "term",
-			method: "method",
+			scheme: "pcm+moniker://",
 		}
 	}
 }
@@ -99,17 +84,11 @@ impl Default for UriConfig<'_> {
 #[cfg(test)]
 mod test_helpers {
 	use super::UriConfig;
-	use crate::core::kind_registry::KindRegistry;
 
 	pub fn default_config() -> UriConfig<'static> {
 		UriConfig {
-			scheme: "esac://",
-			..UriConfig::default()
+			scheme: "esac+moniker://",
 		}
-	}
-
-	pub fn fresh_registry() -> KindRegistry {
-		KindRegistry::new()
 	}
 }
 
@@ -120,26 +99,22 @@ mod tests {
 
 	#[test]
 	fn roundtrip_simple() {
-		let mut reg = fresh_registry();
-		let original = "esac://my-app/main/com/acme#Foo#bar(2).";
-		let m = from_uri(original, &mut reg, &default_config()).unwrap();
-		assert_eq!(to_uri(&m, &reg, &default_config()).unwrap(), original);
+		let original = "esac+moniker://my-app/path:main/path:com/path:acme/class:Foo/method:bar(2)";
+		let m = from_uri(original, &default_config()).unwrap();
+		assert_eq!(to_uri(&m, &default_config()).unwrap(), original);
 	}
 
-	/// Backticks and reserved characters survive a full parse → serialize cycle.
 	#[test]
 	fn roundtrip_with_escapes() {
-		let mut reg = fresh_registry();
-		let original = "esac://app/`util.test.ts`#`weird``name`#";
-		let m = from_uri(original, &mut reg, &default_config()).unwrap();
-		assert_eq!(to_uri(&m, &reg, &default_config()).unwrap(), original);
+		let original = "esac+moniker://app/path:`util/test.ts`/class:`weird``name`";
+		let m = from_uri(original, &default_config()).unwrap();
+		assert_eq!(to_uri(&m, &default_config()).unwrap(), original);
 	}
 
 	#[test]
 	fn roundtrip_project_only() {
-		let mut reg = fresh_registry();
-		let original = "esac://my-app";
-		let m = from_uri(original, &mut reg, &default_config()).unwrap();
-		assert_eq!(to_uri(&m, &reg, &default_config()).unwrap(), original);
+		let original = "esac+moniker://my-app";
+		let m = from_uri(original, &default_config()).unwrap();
+		assert_eq!(to_uri(&m, &default_config()).unwrap(), original);
 	}
 }

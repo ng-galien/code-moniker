@@ -20,11 +20,11 @@ WITH empty AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'',
-		'esac://app/main'::moniker
+		'esac+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
-	is(graph_root(g)::text, 'esac://app/main/util',
+	is(graph_root(g)::text, 'esac+moniker://app/path:main/path:util',
 		'module moniker = anchor + file basename (extension stripped)') AS r1,
 	is(array_length(graph_def_monikers(g), 1), 1,
 		'empty source yields a graph with the module def only') AS r2
@@ -36,15 +36,15 @@ WITH g AS (
 	SELECT extract_typescript(
 		'src/Foo.ts',
 		'export class Foo { bar() { return 1; } }',
-		'esac://app/main'::moniker
+		'esac+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
-	ok(g @> 'esac://app/main/src/Foo'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/path:src/path:Foo'::moniker,
 		'graph contains the module moniker') AS r3,
-	ok(g @> 'esac://app/main/src/Foo#Foo#'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/path:src/path:Foo/class:Foo'::moniker,
 		'graph contains the class def') AS r4,
-	ok(g @> 'esac://app/main/src/Foo#Foo#bar().'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/path:src/path:Foo/class:Foo/method:bar()'::moniker,
 		'graph contains the method def') AS r5
 FROM g;
 
@@ -54,13 +54,13 @@ WITH g AS (
 	SELECT extract_typescript(
 		'src/index.ts',
 		'import { foo } from "./util";',
-		'esac://app/main'::moniker
+		'esac+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
 	is(array_length(graph_ref_targets(g), 1), 1,
 		'one import statement produces one ref') AS r6,
-	ok('esac://app/main/src/util'::moniker = ANY(graph_ref_targets(g)),
+	ok('esac+moniker://app/path:main/path:src/path:util'::moniker = ANY(graph_ref_targets(g)),
 		'relative import resolved against the importer directory') AS r7
 FROM g;
 

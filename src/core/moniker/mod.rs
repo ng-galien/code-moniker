@@ -1,16 +1,11 @@
 //! Moniker — byte-compact native representation of a node identity in
 //! the canonical project tree.
 //!
-//! The format is **SCIP-inspired**: the URI representation
-//! ([`crate::core::uri`]) follows SCIP descriptor conventions
-//! (`Foo#`, `bar().`, `field.`, …) and the binary representation
-//! mirrors that structure as a sequence of `(kind, arity, name)`
-//! segments. See [`encoding`] for the byte layout.
-//!
-//! `arity` is meaningful only for segments whose kind has
-//! [`crate::core::kind_registry::PunctClass::Method`]; it is `0` for the
-//! arity-less form (`bar().`) and `N` for an arity disambiguator
-//! (`bar(N).`). For other punct classes it is required to be `0`.
+//! Each segment is a `(kind, name)` pair where `kind` is a kind name
+//! (e.g. `b"class"`, `b"method"`) embedded in the bytes — no backend-
+//! local registry, no u16 ids; identity is portable across processes.
+//! Method overload disambiguators (arity or signature) live inside
+//! `name` (e.g. `b"findById(2)"`). See [`encoding`] for the byte layout.
 
 mod builder;
 pub(crate) mod encoding;
@@ -24,9 +19,11 @@ pub use view::{MonikerView, Segment, SegmentIter};
 /// Owned encoded moniker.
 ///
 /// `Ord` is the byte-lexicographic order on the canonical encoding.
-/// At realistic sizes (tens of segments, kind ids and arities both
-/// well below 256) this order coincides with the parent-before-child,
-/// then siblings-by-name tree traversal.
+/// In v2 (no fixed-offset seg_count, kind names embedded) the byte
+/// order coincides exactly with tree pre-order: parent < every
+/// descendant < every later sibling. Sub-tree range queries (`m >=
+/// ancestor AND m < subtree_upper(ancestor)`) are well-defined on the
+/// btree opclass.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Moniker {
@@ -39,15 +36,15 @@ impl Moniker {
 		Ok(Self { bytes })
 	}
 
-	/// Internal constructor used by [`MonikerBuilder`] which produces
-	/// canonical bytes by construction; skips the view re-walk.
-	pub(super) fn from_canonical_bytes(bytes: Vec<u8>) -> Self {
+	pub(crate) fn from_canonical_bytes(bytes: Vec<u8>) -> Self {
 		Self { bytes }
 	}
 
 	pub fn as_view(&self) -> MonikerView<'_> {
-		MonikerView::from_bytes(&self.bytes)
-			.expect("Moniker maintains a valid encoding invariant")
+		// SAFETY: every `Moniker` was either built from a validated
+		// `MonikerBuilder` or passed through `Moniker::from_bytes`, both
+		// of which uphold the encoding invariant.
+		unsafe { MonikerView::from_canonical_bytes(&self.bytes) }
 	}
 
 	pub fn as_bytes(&self) -> &[u8] {
@@ -62,30 +59,21 @@ impl Moniker {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::core::kind_registry::KindId;
-
-	fn kid(n: u16) -> KindId {
-		KindId::from_raw(n)
-	}
 
 	#[test]
 	fn roundtrip_canonicality() {
 		let m1 = MonikerBuilder::new()
 			.project(b"my-app")
-			.segment(kid(10), b"main")
-			.segment(kid(20), b"Foo")
-			.method(kid(30), b"bar", 2)
+			.segment(b"module", b"main")
+			.segment(b"class", b"Foo")
+			.segment(b"method", b"bar(2)")
 			.build();
 
 		let v = m1.as_view();
 		let mut b2 = MonikerBuilder::new();
 		b2.project(v.project());
 		for seg in v.segments() {
-			if seg.arity != 0 {
-				b2.method(seg.kind, seg.bytes, seg.arity);
-			} else {
-				b2.segment(seg.kind, seg.bytes);
-			}
+			b2.segment(seg.kind, seg.name);
 		}
 		let m2 = b2.build();
 
@@ -97,30 +85,30 @@ mod tests {
 	fn eq_via_bytes() {
 		let a = MonikerBuilder::new()
 			.project(b"x")
-			.segment(kid(1), b"a")
+			.segment(b"path", b"a")
 			.build();
 		let b = MonikerBuilder::new()
 			.project(b"x")
-			.segment(kid(1), b"a")
+			.segment(b"path", b"a")
 			.build();
 		let c = MonikerBuilder::new()
 			.project(b"x")
-			.segment(kid(1), b"b")
+			.segment(b"path", b"b")
 			.build();
 		assert_eq!(a, b);
 		assert_ne!(a, c);
 	}
 
 	#[test]
-	fn ord_places_parent_before_child_at_realistic_sizes() {
+	fn ord_places_parent_before_child() {
 		let parent = MonikerBuilder::new()
 			.project(b"app")
-			.segment(kid(1), b"main")
+			.segment(b"module", b"main")
 			.build();
 		let child = MonikerBuilder::new()
 			.project(b"app")
-			.segment(kid(1), b"main")
-			.segment(kid(2), b"Foo")
+			.segment(b"module", b"main")
+			.segment(b"class", b"Foo")
 			.build();
 		assert!(parent < child);
 	}
@@ -134,7 +122,7 @@ mod tests {
 
 	#[test]
 	fn from_bytes_roundtrip() {
-		let m = MonikerBuilder::new().project(b"pj").segment(kid(7), b"foo").build();
+		let m = MonikerBuilder::new().project(b"pj").segment(b"path", b"foo").build();
 		let bytes = m.clone().into_bytes();
 		let m2 = Moniker::from_bytes(bytes).unwrap();
 		assert_eq!(m, m2);

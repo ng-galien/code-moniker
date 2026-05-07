@@ -1,14 +1,13 @@
-//! GiST opclass on `moniker`. Inner-page signatures share the canonical
-//! header with leaves: `[version=1][project_len LE][project][seg_count
-//! LE][segments_lcp]`. The segments region of an inner key is the
-//! longest common byte prefix of all leaf segment regions below; it
-//! may end mid-segment, which is fine because we never parse it.
+//! GiST opclass on `moniker`. Inner-page signatures share the v2
+//! canonical header with leaves (`[version][project_len LE][project][segs]`)
+//! but their segments region is the longest common byte prefix of all
+//! leaves below — it may end mid-segment and is never re-parsed.
 //! Cross-project unions degrade to a single-byte sentinel ("wildcard")
-//! that matches everything with recheck. Compress/decompress are
-//! identity. Picksplit sorts entries by their segment-region bytes and
-//! halves them — naive but predictable; penalty is `len(orig_segs) -
-//! lcp(orig_segs, new_segs)` as float4, plus a big constant on
-//! cross-project insertion.
+//! that consistent treats as "always recheck, always match".
+//! Compress/decompress are identity. Picksplit sorts entries by their
+//! segment-region bytes and halves them — naive but predictable;
+//! penalty is `len(orig_segs) - lcp(orig_segs, new_segs)` as float4,
+//! plus a big constant on cross-project insertion.
 
 use core::ffi::c_int;
 
@@ -18,7 +17,7 @@ use pgrx::prelude::*;
 
 use super::moniker;
 use super::{palloc_varlena_from_slice, varlena_to_borrowed_bytes, varlena_to_owned_bytes};
-use crate::core::moniker::encoding::{read_u16, HEADER_FIXED_LEN, VERSION};
+use crate::core::moniker::encoding::{read_u16, write_u16, HEADER_FIXED_LEN, VERSION};
 
 extension_sql!(
 	r#"
@@ -65,27 +64,22 @@ fn parse_sig(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
 		return None;
 	}
 	let project_len = read_u16(bytes, 1) as usize;
-	let segs_off = 3 + project_len + 2;
+	let segs_off = HEADER_FIXED_LEN + project_len;
 	if bytes.len() < segs_off {
 		return None;
 	}
-	Some((&bytes[3..3 + project_len], &bytes[segs_off..]))
+	Some((&bytes[HEADER_FIXED_LEN..segs_off], &bytes[segs_off..]))
 }
 
 fn lcp_len(a: &[u8], b: &[u8]) -> usize {
 	a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count()
 }
 
-/// Build the byte payload of a constrained signature
-/// (`[VERSION][project_len LE][project][0xFFFF][segs]`). The 0xFFFF
-/// seg_count is a debug hint; it's never parsed because inner sigs
-/// don't go through the regular moniker decoder.
 fn sig_bytes(project: &[u8], segs: &[u8]) -> Vec<u8> {
 	let mut buf = Vec::with_capacity(HEADER_FIXED_LEN + project.len() + segs.len());
 	buf.push(VERSION);
-	buf.extend_from_slice(&(project.len() as u16).to_le_bytes());
+	write_u16(&mut buf, project.len() as u16);
 	buf.extend_from_slice(project);
-	buf.extend_from_slice(&[0xFF, 0xFF]);
 	buf.extend_from_slice(segs);
 	buf
 }
@@ -98,10 +92,6 @@ unsafe fn build_wildcard() -> pg_sys::Datum {
 	unsafe { palloc_varlena_from_slice(&[0u8]) }
 }
 
-// ---------------------------------------------------------------------
-// consistent(internal entry, moniker query, smallint strategy,
-//            oid subtype, internal recheck) -> bool
-// ---------------------------------------------------------------------
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_gist_consistent(
 	entry: Internal,
@@ -159,9 +149,6 @@ fn moniker_gist_consistent(
 	}
 }
 
-// ---------------------------------------------------------------------
-// union(internal entryvec, internal sizep) -> moniker
-// ---------------------------------------------------------------------
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_gist_union(entryvec: Internal, sizep: Internal) -> moniker {
 	unsafe {
@@ -220,9 +207,6 @@ fn union_fold(first: Vec<u8>, rest: impl Iterator<Item = Vec<u8>>) -> SigAcc {
 	acc
 }
 
-// ---------------------------------------------------------------------
-// compress / decompress: identity. Return the same entry pointer.
-// ---------------------------------------------------------------------
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_gist_compress(entry: Internal) -> Internal {
 	entry
@@ -233,9 +217,6 @@ fn moniker_gist_decompress(entry: Internal) -> Internal {
 	entry
 }
 
-// ---------------------------------------------------------------------
-// penalty(internal orig, internal new, internal *float result) -> internal
-// ---------------------------------------------------------------------
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_gist_penalty(orig: Internal, new: Internal, result: Internal) -> Internal {
 	unsafe {
@@ -273,9 +254,6 @@ fn moniker_gist_penalty(orig: Internal, new: Internal, result: Internal) -> Inte
 	}
 }
 
-// ---------------------------------------------------------------------
-// picksplit(internal entryvec, internal *GIST_SPLITVEC) -> internal
-// ---------------------------------------------------------------------
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_gist_picksplit(entryvec: Internal, splitvec: Internal) -> Internal {
 	unsafe {
@@ -348,9 +326,6 @@ unsafe fn side_union(mut entries: Vec<Vec<u8>>) -> pg_sys::Datum {
 	}
 }
 
-// ---------------------------------------------------------------------
-// equal(moniker a, moniker b, internal *bool result) -> internal
-// ---------------------------------------------------------------------
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_gist_equal(a: moniker, b: moniker, result: Internal) -> Internal {
 	unsafe {

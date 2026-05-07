@@ -1,24 +1,25 @@
 //! Binary layout constants and shared byte helpers.
 //!
 //! ```text
-//! [version u8 = 1]
+//! [version u8 = 2]
 //! [project_len u16 LE] [project bytes]
-//! [seg_count u16 LE]
-//!   segment[i] := [kind u16 LE] [arity u16 LE] [seg_len u16 LE] [seg bytes]
+//!   segment[i] := [kind_len u16 LE] [kind bytes] [name_len u16 LE] [name bytes]
+//!   (repeated until end of buffer)
 //! ```
 //!
-//! All multi-byte integers are little-endian. The format is canonical
-//! so that monikers logically equal are byte-identical (slice compare
-//! is enough for `=`, GiST, etc.).
+//! All multi-byte integers are little-endian. The format is canonical:
+//! monikers logically equal are byte-identical (slice compare is enough
+//! for `=`, GiST, etc.). The segment list is delimited by EOF (no
+//! seg_count field) so byte-lex order coincides with tree pre-order
+//! traversal: parent < every descendant < every later sibling, no
+//! length-counter at fixed offset to perturb that invariant.
 
 use std::fmt;
 
-pub(crate) const VERSION: u8 = 1;
+pub(crate) const VERSION: u8 = 2;
 pub(crate) const HEADER_FIXED_LEN: usize =
 	1   /* version     */
-	+ 2 /* project_len */
-	+ 2 /* seg_count   */;
-pub(super) const SEG_HEADER_LEN: usize = 2 /* kind */ + 2 /* arity */ + 2 /* seg_len */;
+	+ 2 /* project_len */;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum EncodingError {
@@ -26,7 +27,6 @@ pub enum EncodingError {
 	UnknownVersion(u8),
 	ProjectOverflow,
 	SegmentOverflow,
-	TrailingBytes,
 }
 
 impl fmt::Display for EncodingError {
@@ -36,7 +36,6 @@ impl fmt::Display for EncodingError {
 			Self::UnknownVersion(v) => write!(f, "unknown encoding version: {v}"),
 			Self::ProjectOverflow => write!(f, "project bytes extend past buffer"),
 			Self::SegmentOverflow => write!(f, "segment extends past buffer"),
-			Self::TrailingBytes => write!(f, "trailing bytes after declared segments"),
 		}
 	}
 }
@@ -47,6 +46,6 @@ pub(crate) fn read_u16(buf: &[u8], off: usize) -> u16 {
 	u16::from_le_bytes([buf[off], buf[off + 1]])
 }
 
-pub(super) fn write_u16(buf: &mut Vec<u8>, value: u16) {
+pub(crate) fn write_u16(buf: &mut Vec<u8>, value: u16) {
 	buf.extend_from_slice(&value.to_le_bytes());
 }

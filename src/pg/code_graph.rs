@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::code_graph::CodeGraph as CoreGraph;
 use crate::pg::moniker::moniker;
-use crate::pg::registry::{intern_kind, kind_name, punct_for_kind};
 
 #[allow(non_camel_case_types)]
 #[derive(PostgresType, Serialize, Deserialize, Clone, Debug)]
@@ -25,15 +24,13 @@ impl code_graph {
 
 #[pg_extern(immutable, parallel_safe)]
 fn graph_create(root: moniker, kind: &str) -> code_graph {
-	let kind_id = intern_kind(kind, punct_for_kind(kind));
-	code_graph::from_core(CoreGraph::new(root.to_core(), kind_id))
+	code_graph::from_core(CoreGraph::new(root.to_core(), kind.as_bytes()))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn graph_add_def(graph: code_graph, def: moniker, kind: &str, parent: moniker) -> code_graph {
 	let mut next = graph.inner.clone();
-	let kind_id = intern_kind(kind, punct_for_kind(kind));
-	next.add_def(def.to_core(), kind_id, &parent.to_core(), None)
+	next.add_def(def.to_core(), kind.as_bytes(), &parent.to_core(), None)
 		.unwrap_or_else(|e| error!("graph_add_def: {e}"));
 	code_graph::from_core(next)
 }
@@ -46,8 +43,7 @@ fn graph_add_ref(
 	kind: &str,
 ) -> code_graph {
 	let mut next = graph.inner.clone();
-	let kind_id = intern_kind(kind, punct_for_kind(kind));
-	next.add_ref(&source.to_core(), target.to_core(), kind_id, None)
+	next.add_ref(&source.to_core(), target.to_core(), kind.as_bytes(), None)
 		.unwrap_or_else(|e| error!("graph_add_ref: {e}"));
 	code_graph::from_core(next)
 }
@@ -83,6 +79,12 @@ fn graph_ref_targets(graph: code_graph) -> Vec<moniker> {
 		.collect()
 }
 
+fn kind_text(bytes: &[u8]) -> String {
+	String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| {
+		error!("graph kind tag must be UTF-8");
+	})
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn graph_defs(
 	graph: code_graph,
@@ -90,7 +92,7 @@ fn graph_defs(
 	let rows: Vec<(moniker, String)> = graph
 		.inner
 		.defs()
-		.map(|d| (moniker::from_core(d.moniker.clone()), kind_name(d.kind)))
+		.map(|d| (moniker::from_core(d.moniker.clone()), kind_text(&d.kind)))
 		.collect();
 	TableIterator::new(rows.into_iter())
 }
@@ -117,7 +119,7 @@ fn graph_refs(
 			(
 				moniker::from_core(source_def.moniker.clone()),
 				moniker::from_core(r.target.clone()),
-				kind_name(r.kind),
+				kind_text(&r.kind),
 			)
 		})
 		.collect();

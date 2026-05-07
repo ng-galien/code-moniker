@@ -1,9 +1,9 @@
 //! PostgreSQL type wrapping [`crate::core::moniker::Moniker`].
 //!
-//! Text I/O uses the SCIP URI format. Binary representation is the
-//! canonical encoding from [`crate::core::moniker::encoding`] wrapped
-//! in a standard PG varlena (4-byte header + payload), plugged in via
-//! manual `IntoDatum`/`FromDatum` impls. No CBOR framing.
+//! Text I/O uses the canonical typed URI (`<scheme>+moniker://<project>/<kind>:<name>...`).
+//! Binary representation is the v2 canonical encoding wrapped in a
+//! standard PG varlena (4-byte header + payload), plugged in via manual
+//! `IntoDatum`/`FromDatum` impls. No CBOR framing.
 
 use core::ffi::CStr;
 use core::ptr::addr_of_mut;
@@ -16,7 +16,7 @@ use pgrx::{set_varsize_4b, varlena_to_byte_slice, InOutFuncs, StringInfo};
 
 use crate::core::moniker::{Moniker as CoreMoniker, MonikerView};
 use crate::core::uri::{from_uri, to_uri};
-use crate::pg::registry::{with_registry, DEFAULT_CONFIG};
+use crate::pg::registry::DEFAULT_CONFIG;
 
 mod gist;
 mod index;
@@ -38,11 +38,14 @@ impl moniker {
 	}
 
 	pub(super) fn to_core(&self) -> CoreMoniker {
-		CoreMoniker::from_bytes(self.bytes.clone()).expect("invalid moniker bytes")
+		// Bytes were validated when the Datum was first constructed
+		// (either by moniker_in or by IntoDatum from a builder result).
+		CoreMoniker::from_canonical_bytes(self.bytes.clone())
 	}
 
 	pub(super) fn view(&self) -> MonikerView<'_> {
-		MonikerView::from_bytes(&self.bytes).expect("invalid moniker bytes")
+		// SAFETY: see `to_core`.
+		unsafe { MonikerView::from_canonical_bytes(&self.bytes) }
 	}
 }
 
@@ -51,22 +54,19 @@ impl InOutFuncs for moniker {
 		let s = input
 			.to_str()
 			.unwrap_or_else(|_| error!("moniker text must be valid UTF-8"));
-		let m = with_registry(|reg| from_uri(s, reg, &DEFAULT_CONFIG))
+		let m = from_uri(s, &DEFAULT_CONFIG)
 			.unwrap_or_else(|e| error!("moniker parse error: {e}"));
 		moniker::from_core(m)
 	}
 
 	fn output(&self, buffer: &mut StringInfo) {
 		let m = self.to_core();
-		let s = with_registry(|reg| to_uri(&m, reg, &DEFAULT_CONFIG))
+		let s = to_uri(&m, &DEFAULT_CONFIG)
 			.unwrap_or_else(|e| error!("moniker serialize error: {e}"));
 		buffer.push_str(&s);
 	}
 }
 
-// `#[hashes]` and `#[merges]` are load-bearing once the hash and btree
-// opclasses (in `index.rs`) are registered: they tell the planner this
-// `=` is usable for hash-join and merge-join with those opclasses.
 #[pg_operator(immutable, parallel_safe)]
 #[opname(=)]
 #[commutator(=)]
@@ -86,8 +86,6 @@ fn depth(m: moniker) -> i32 {
 	m.view().segment_count() as i32
 }
 
-/// Allocate a fresh 4-byte-header varlena holding `bytes`. Used by both
-/// `IntoDatum` and the GiST signature builders.
 pub(super) unsafe fn palloc_varlena_from_slice(bytes: &[u8]) -> pg_sys::Datum {
 	let len = bytes.len().saturating_add(pg_sys::VARHDRSZ);
 	assert!(len < (u32::MAX as usize >> 2), "moniker exceeds 1 GiB varlena cap");

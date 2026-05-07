@@ -1,118 +1,81 @@
 use super::{UriConfig, UriError};
-use crate::core::kind_registry::{KindId, KindRegistry, PunctClass};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-/// Parse a URI into a [`Moniker`]. The registry is consulted (and
-/// extended via [`KindRegistry::intern`]) so that each segment's kind
-/// resolves to a stable [`KindId`].
-///
-/// `config.scheme` is the expected URI prefix; the four kind names map
-/// URI punctuation to [`KindId`] entries in the registry.
-pub fn from_uri(
-	uri: &str,
-	registry: &mut KindRegistry,
-	config: &UriConfig<'_>,
-) -> Result<Moniker, UriError> {
+pub fn from_uri(uri: &str, config: &UriConfig<'_>) -> Result<Moniker, UriError> {
 	let rest = uri
 		.strip_prefix(config.scheme)
 		.ok_or_else(|| UriError::MissingScheme(config.scheme.to_string()))?;
 	let bytes = rest.as_bytes();
 
-	// Project authority: bytes from start up to first '/' or '#'.
 	let mut i = 0;
-	while i < bytes.len() && bytes[i] != b'/' && bytes[i] != b'#' {
-		i += 1;
-	}
-	if i == 0 {
+	let (project, project_end) = read_name(bytes, i, |c| c == b'/')?;
+	if project.is_empty() {
 		return Err(UriError::MissingProject);
 	}
-	let project = &bytes[..i];
-	std::str::from_utf8(project).map_err(|_| UriError::NonUtf8Project)?;
+	std::str::from_utf8(&project).map_err(|_| UriError::NonUtf8Project)?;
+	i = project_end;
 
 	let mut builder = MonikerBuilder::new();
-	builder.project(project);
+	builder.project(&project);
 
-	// Path segments — each preceded by '/'. Stops at first '#' or end.
-	while i < bytes.len() && bytes[i] == b'/' {
-		i += 1; // skip '/'
-		let (name, end) = read_name(bytes, i, |c| c == b'/' || c == b'#')?;
-		let kind = intern_kind(registry, config.path, PunctClass::Path)?;
-		builder.segment(kind, &name);
-		i = end;
-	}
-
-	// Descriptor section — starts at '#'.
-	if i < bytes.len() {
-		debug_assert_eq!(bytes[i], b'#');
-		i += 1; // skip the leading '#'
-
-		while i < bytes.len() {
-			let desc_start = i;
-			let (name, end) = read_name(bytes, i, |c| matches!(c, b'#' | b'.' | b'('))?;
-			i = end;
-			if i >= bytes.len() {
-				return Err(UriError::EmptyDescriptor(desc_start));
-			}
-
-			match bytes[i] {
-				b'#' => {
-					let kind = intern_kind(registry, config.type_, PunctClass::Type)?;
-					builder.segment(kind, &name);
-					i += 1;
-				}
-				b'.' => {
-					let kind = intern_kind(registry, config.term, PunctClass::Term)?;
-					builder.segment(kind, &name);
-					i += 1;
-				}
-				b'(' => {
-					i += 1; // skip '('
-					let (arity, paren_end) = read_arity(bytes, i)?;
-					i = paren_end;
-					if i >= bytes.len() || bytes[i] != b')' {
-						return Err(UriError::BadArity(
-							String::from_utf8_lossy(&bytes[desc_start..]).into_owned(),
-						));
-					}
-					i += 1; // skip ')'
-					if i >= bytes.len() || bytes[i] != b'.' {
-						return Err(UriError::BadArity(
-							String::from_utf8_lossy(&bytes[desc_start..]).into_owned(),
-						));
-					}
-					i += 1; // skip '.'
-					let kind = intern_kind(registry, config.method, PunctClass::Method)?;
-					builder.method(kind, &name, arity);
-				}
-				_ => unreachable!("read_name stops on # . or ("),
-			}
+	while i < bytes.len() {
+		debug_assert_eq!(bytes[i], b'/');
+		i += 1;
+		let seg_start = i;
+		let (kind, kind_end) = read_kind(bytes, i, seg_start)?;
+		i = kind_end;
+		if i >= bytes.len() || bytes[i] != b':' {
+			return Err(UriError::MissingKindSeparator(seg_start));
 		}
+		i += 1;
+		let (name, name_end) = read_name(bytes, i, |c| c == b'/')?;
+		if name.is_empty() && kind.is_empty() {
+			return Err(UriError::EmptySegment(seg_start));
+		}
+		std::str::from_utf8(&name).map_err(|_| UriError::NonUtf8Segment)?;
+		builder.segment(&kind, &name);
+		i = name_end;
 	}
 
 	Ok(builder.build())
 }
 
-fn intern_kind(
-	registry: &mut KindRegistry,
-	name: &str,
-	punct: PunctClass,
-) -> Result<KindId, UriError> {
-	registry
-		.intern(name, punct)
-		.ok_or(UriError::UnknownKind(KindId::INVALID))
+fn read_kind(bytes: &[u8], start: usize, seg_start: usize) -> Result<(Vec<u8>, usize), UriError> {
+	let mut i = start;
+	while i < bytes.len() && bytes[i] != b':' && bytes[i] != b'/' {
+		i += 1;
+	}
+	let kind = &bytes[start..i];
+	if kind.is_empty() {
+		return Err(UriError::EmptySegment(seg_start));
+	}
+	if !is_plain_identifier(kind) {
+		return Err(UriError::InvalidKind(
+			String::from_utf8_lossy(kind).into_owned(),
+		));
+	}
+	Ok((kind.to_vec(), i))
 }
 
-/// Read a name from `bytes` starting at `start`, stopping when
-/// `is_terminator(byte)` returns true on an unquoted byte. Returns the
-/// decoded name (backticks unwrapped) and the new cursor position.
+fn is_plain_identifier(bytes: &[u8]) -> bool {
+	if bytes.is_empty() {
+		return false;
+	}
+	let first = bytes[0];
+	if !(first.is_ascii_alphabetic()) {
+		return false;
+	}
+	bytes[1..]
+		.iter()
+		.all(|b| b.is_ascii_alphanumeric() || *b == b'_')
+}
+
 fn read_name(
 	bytes: &[u8],
 	start: usize,
 	is_terminator: impl Fn(u8) -> bool,
 ) -> Result<(Vec<u8>, usize), UriError> {
 	if start < bytes.len() && bytes[start] == b'`' {
-		// Backtick-quoted. Read until a single closing backtick (a
-		// doubled `` is an escape inside).
 		let mut i = start + 1;
 		let mut out = Vec::new();
 		loop {
@@ -142,21 +105,6 @@ fn read_name(
 	}
 }
 
-fn read_arity(bytes: &[u8], start: usize) -> Result<(u16, usize), UriError> {
-	let mut i = start;
-	while i < bytes.len() && bytes[i].is_ascii_digit() {
-		i += 1;
-	}
-	if i == start {
-		// Empty arity — `()` form.
-		return Ok((0, i));
-	}
-	let s = std::str::from_utf8(&bytes[start..i])
-		.map_err(|_| UriError::BadArity(String::from_utf8_lossy(&bytes[start..i]).into_owned()))?;
-	let arity: u16 = s.parse().map_err(|_| UriError::BadArity(s.to_string()))?;
-	Ok((arity, i))
-}
-
 #[cfg(test)]
 mod tests {
 	use super::super::test_helpers::*;
@@ -164,122 +112,107 @@ mod tests {
 
 	#[test]
 	fn from_uri_project_only() {
-		let mut reg = fresh_registry();
-		let m = from_uri("esac://my-app", &mut reg, &default_config()).unwrap();
+		let m = from_uri("esac+moniker://my-app", &default_config()).unwrap();
 		assert_eq!(m.as_view().project(), b"my-app");
 		assert_eq!(m.as_view().segment_count(), 0);
 	}
 
 	#[test]
-	fn from_uri_path_only() {
-		let mut reg = fresh_registry();
+	fn from_uri_path_chain() {
 		let m = from_uri(
-			"esac://my-app/main/com/acme/Foo",
-			&mut reg,
+			"esac+moniker://my-app/path:main/path:com/path:acme/class:Foo",
 			&default_config(),
 		)
 		.unwrap();
 		let v = m.as_view();
-		assert_eq!(v.project(), b"my-app");
 		let segs: Vec<_> = v.segments().collect();
 		assert_eq!(segs.len(), 4);
-		assert_eq!(segs[0].bytes, b"main");
-		assert_eq!(segs[3].bytes, b"Foo");
+		assert_eq!(segs[0].kind, b"path");
+		assert_eq!(segs[0].name, b"main");
+		assert_eq!(segs[3].kind, b"class");
+		assert_eq!(segs[3].name, b"Foo");
 	}
 
 	#[test]
-	fn from_uri_method_with_arity() {
-		let mut reg = fresh_registry();
+	fn from_uri_method_with_arity_in_name() {
 		let m = from_uri(
-			"esac://app/main#Foo#bar(2).",
-			&mut reg,
+			"esac+moniker://app/class:Foo/method:bar(2)",
 			&default_config(),
 		)
 		.unwrap();
 		let segs: Vec<_> = m.as_view().segments().collect();
-		assert_eq!(segs.len(), 3);
-		assert_eq!(segs[0].bytes, b"main");
-		assert_eq!(segs[1].bytes, b"Foo");
-		assert_eq!(segs[2].bytes, b"bar");
-		assert_eq!(segs[2].arity, 2);
+		assert_eq!(segs[1].kind, b"method");
+		assert_eq!(segs[1].name, b"bar(2)");
 	}
 
 	#[test]
-	fn from_uri_method_no_arity() {
-		let mut reg = fresh_registry();
-		let m = from_uri("esac://app#Foo#bar().", &mut reg, &default_config()).unwrap();
-		let segs: Vec<_> = m.as_view().segments().collect();
-		assert_eq!(segs[1].bytes, b"bar");
-		assert_eq!(segs[1].arity, 0);
-	}
-
-	#[test]
-	fn from_uri_chained_types_and_term() {
-		let mut reg = fresh_registry();
+	fn from_uri_typed_signature_in_name() {
 		let m = from_uri(
-			"esac://app#Outer#Inner#field.",
-			&mut reg,
+			"esac+moniker://app/class:UserService/method:findById(String)",
 			&default_config(),
 		)
 		.unwrap();
 		let segs: Vec<_> = m.as_view().segments().collect();
-		assert_eq!(segs.len(), 3);
-		assert_eq!(segs[0].bytes, b"Outer");
-		assert_eq!(segs[1].bytes, b"Inner");
-		assert_eq!(segs[2].bytes, b"field");
+		assert_eq!(segs[1].name, b"findById(String)");
 	}
 
 	#[test]
-	fn from_uri_backtick_escape() {
-		let mut reg = fresh_registry();
+	fn from_uri_backtick_name() {
 		let m = from_uri(
-			"esac://app/`util.test.ts`",
-			&mut reg,
+			"esac+moniker://app/path:`util/test.ts`",
 			&default_config(),
 		)
 		.unwrap();
 		let segs: Vec<_> = m.as_view().segments().collect();
-		assert_eq!(segs[0].bytes, b"util.test.ts");
+		assert_eq!(segs[0].name, b"util/test.ts");
 	}
 
 	#[test]
 	fn from_uri_doubled_backtick() {
-		let mut reg = fresh_registry();
 		let m = from_uri(
-			"esac://app#`weird``name`#",
-			&mut reg,
+			"esac+moniker://app/class:`weird``name`",
 			&default_config(),
 		)
 		.unwrap();
-		assert_eq!(
-			m.as_view().segments().next().unwrap().bytes,
-			b"weird`name"
-		);
+		assert_eq!(m.as_view().segments().next().unwrap().name, b"weird`name");
 	}
 
 	#[test]
 	fn from_uri_rejects_missing_scheme() {
-		let mut reg = fresh_registry();
-		let err = from_uri("http://app", &mut reg, &default_config()).unwrap_err();
+		let err = from_uri("esac://app", &default_config()).unwrap_err();
 		match err {
-			UriError::MissingScheme(expected) => assert_eq!(expected, "esac://"),
+			UriError::MissingScheme(expected) => assert_eq!(expected, "esac+moniker://"),
 			other => panic!("unexpected error: {other:?}"),
 		}
 	}
 
 	#[test]
 	fn from_uri_rejects_missing_project() {
-		let mut reg = fresh_registry();
 		assert_eq!(
-			from_uri("esac:///foo", &mut reg, &default_config()).unwrap_err(),
+			from_uri("esac+moniker:///path:foo", &default_config()).unwrap_err(),
 			UriError::MissingProject
 		);
 	}
 
 	#[test]
+	fn from_uri_rejects_missing_kind_separator() {
+		let err =
+			from_uri("esac+moniker://app/just_a_name", &default_config()).unwrap_err();
+		assert!(matches!(err, UriError::MissingKindSeparator(_)));
+	}
+
+	#[test]
+	fn from_uri_rejects_invalid_kind_starting_with_digit() {
+		let err = from_uri("esac+moniker://app/9bad:name", &default_config()).unwrap_err();
+		assert!(matches!(err, UriError::InvalidKind(_)));
+	}
+
+	#[test]
 	fn from_uri_rejects_unterminated_backtick() {
-		let mut reg = fresh_registry();
-		let r = from_uri("esac://app/`unterminated", &mut reg, &default_config());
+		let r = from_uri(
+			"esac+moniker://app/path:`unterminated",
+			&default_config(),
+		);
 		assert!(matches!(r.unwrap_err(), UriError::UnterminatedBacktick(_)));
 	}
 }

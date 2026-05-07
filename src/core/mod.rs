@@ -12,9 +12,5 @@
 //! - Every public item carries a doc comment describing its contract.
 
 pub mod code_graph;
-pub mod kind_registry;
 pub mod moniker;
 pub mod uri;
-
-// Future modules:
-//   pub mod ops;          -- ergonomic moniker operators (parent_of, depth, ||)

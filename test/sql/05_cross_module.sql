@@ -10,15 +10,10 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(10);
 
--- A consumer-side module table. The extension itself has no schema —
--- this is the canonical usage pattern from SPEC.
 CREATE TEMP TABLE module (
 	id    text       PRIMARY KEY,
 	graph code_graph NOT NULL
 );
--- GIN on moniker[] needs a btree opclass on moniker (ordering, not just `=`).
--- That arrives with the GiST/btree opclass work in Phase 6; until then,
--- queries below scan sequentially. Functionally identical, slower at scale.
 
 INSERT INTO module (id, graph) VALUES
 	('repository',
@@ -35,7 +30,7 @@ export function makeUserRepository() {
 	return new UserRepository();
 }
 $ts$,
-			'esac://app'::moniker)),
+			'esac+moniker://app'::moniker)),
 	('logger',
 		extract_typescript(
 			'src/logger.ts',
@@ -46,7 +41,7 @@ export class ConsoleLogger {
 	warn(msg: string)  { return msg; }
 }
 $ts$,
-			'esac://app'::moniker)),
+			'esac+moniker://app'::moniker)),
 	('service',
 		extract_typescript(
 			'src/service.ts',
@@ -67,18 +62,18 @@ export function bootApp() {
 	return new UserService();
 }
 $ts$,
-			'esac://app'::moniker));
+			'esac+moniker://app'::moniker));
 
 -- Each module's root reflects its on-disk path under the anchor -----------
 
 SELECT is(
 	(SELECT graph_root(graph)::text FROM module WHERE id = 'repository'),
-	'esac://app/src/repository',
+	'esac+moniker://app/path:src/path:repository',
 	'repository module root');
 
 SELECT is(
 	(SELECT graph_root(graph)::text FROM module WHERE id = 'service'),
-	'esac://app/src/service',
+	'esac+moniker://app/path:src/path:service',
 	'service module root');
 
 -- Service exposes its expected defs (root, two top-level + their members) -
@@ -89,12 +84,12 @@ SELECT cmp_ok(
 	'service graph has at least the module + 2 defs + members');
 
 SELECT ok(
-	(SELECT graph @> 'esac://app/src/service#UserService#'::moniker
+	(SELECT graph @> 'esac+moniker://app/path:src/path:service/class:UserService'::moniker
 	   FROM module WHERE id = 'service'),
 	'service graph contains UserService class');
 
 SELECT ok(
-	(SELECT graph @> 'esac://app/src/service#UserService#findById().'::moniker
+	(SELECT graph @> 'esac+moniker://app/path:src/path:service/class:UserService/method:findById()'::moniker
 	   FROM module WHERE id = 'service'),
 	'service graph contains UserService#findById method');
 
@@ -104,27 +99,26 @@ SELECT ok(
 SELECT ok(
 	EXISTS (SELECT 1 FROM module
 	         WHERE id = 'service'
-	           AND 'esac://app/src/repository'::moniker = ANY(graph_ref_targets(graph))),
+	           AND 'esac+moniker://app/path:src/path:repository'::moniker = ANY(graph_ref_targets(graph))),
 	'service ref-targets contains the repository module');
 
 SELECT ok(
 	EXISTS (SELECT 1 FROM module
 	         WHERE id = 'service'
-	           AND 'esac://app/src/logger'::moniker = ANY(graph_ref_targets(graph))),
+	           AND 'esac+moniker://app/path:src/path:logger'::moniker = ANY(graph_ref_targets(graph))),
 	'service ref-targets contains the logger module');
 
 -- JOIN on `code_graph @> moniker`: which module defines a given moniker?
--- The canonical cross-module navigation pattern from SPEC.
 
 SELECT is(
 	(SELECT id FROM module
-	  WHERE graph @> 'esac://app/src/repository#UserRepository#'::moniker),
+	  WHERE graph @> 'esac+moniker://app/path:src/path:repository/class:UserRepository'::moniker),
 	'repository',
 	'graph @> resolves UserRepository to its owning module');
 
 SELECT is(
 	(SELECT id FROM module
-	  WHERE graph @> 'esac://app/src/logger#ConsoleLogger#'::moniker),
+	  WHERE graph @> 'esac+moniker://app/path:src/path:logger/class:ConsoleLogger'::moniker),
 	'logger',
 	'graph @> resolves ConsoleLogger to its owning module');
 
@@ -132,7 +126,7 @@ SELECT is(
 
 SELECT is(
 	(SELECT array_agg(id ORDER BY id) FROM module
-	  WHERE 'esac://app/src/repository'::moniker = ANY(graph_ref_targets(graph))),
+	  WHERE 'esac+moniker://app/path:src/path:repository'::moniker = ANY(graph_ref_targets(graph))),
 	ARRAY['service']::text[],
 	'`= ANY(graph_ref_targets)` finds every importer of the repository module');
 

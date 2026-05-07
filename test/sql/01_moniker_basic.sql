@@ -23,41 +23,41 @@ SELECT has_function('depth'::name, ARRAY['moniker'],
 -- Text I/O roundtrip --------------------------------------------------------
 
 SELECT is(
-	('esac://my-app'::moniker)::text,
-	'esac://my-app',
+	('esac+moniker://my-app'::moniker)::text,
+	'esac+moniker://my-app',
 	'project-only roundtrip');
 
 SELECT is(
-	('esac://my-app/main/com/acme#Foo#bar(2).'::moniker)::text,
-	'esac://my-app/main/com/acme#Foo#bar(2).',
+	('esac+moniker://my-app/path:main/path:com/path:acme/class:Foo/method:bar(2)'::moniker)::text,
+	'esac+moniker://my-app/path:main/path:com/path:acme/class:Foo/method:bar(2)',
 	'full descriptor chain roundtrip');
 
 -- Equality -----------------------------------------------------------------
 
 SELECT ok(
-	'esac://app#Foo#'::moniker = 'esac://app#Foo#'::moniker,
+	'esac+moniker://app/class:Foo'::moniker = 'esac+moniker://app/class:Foo'::moniker,
 	'identical monikers compare equal');
 
 SELECT ok(
-	NOT ('esac://app#Foo#'::moniker = 'esac://app#Bar#'::moniker),
+	NOT ('esac+moniker://app/class:Foo'::moniker = 'esac+moniker://app/class:Bar'::moniker),
 	'different monikers compare unequal');
 
 -- Accessors ----------------------------------------------------------------
 
 SELECT is(
-	project_of('esac://my-app/main/com/acme#Foo#'::moniker),
+	project_of('esac+moniker://my-app/path:main/path:com/path:acme/class:Foo'::moniker),
 	'my-app',
 	'project_of returns the authority');
 
 SELECT is(
-	depth('esac://my-app'::moniker),
+	depth('esac+moniker://my-app'::moniker),
 	0,
 	'depth of project-only moniker is 0');
 
 SELECT is(
-	depth('esac://my-app/main#Foo#bar().'::moniker),
+	depth('esac+moniker://my-app/path:main/class:Foo/method:bar()'::moniker),
 	3,
-	'depth counts every segment regardless of class');
+	'depth counts every segment regardless of kind');
 
 SELECT * FROM finish();
 

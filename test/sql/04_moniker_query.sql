@@ -22,57 +22,57 @@ SELECT has_function('compose_child'::name, ARRAY['moniker','text','text'],
 -- Containment operators ----------------------------------------------------
 
 SELECT ok(
-	'esac://app/main'::moniker @> 'esac://app/main/com/acme'::moniker,
+	'esac+moniker://app/path:main'::moniker @> 'esac+moniker://app/path:main/path:com/path:acme'::moniker,
 	'@> holds when left is a strict prefix of right');
 
 SELECT ok(
-	'esac://app/main/com/acme'::moniker <@ 'esac://app/main'::moniker,
+	'esac+moniker://app/path:main/path:com/path:acme'::moniker <@ 'esac+moniker://app/path:main'::moniker,
 	'<@ is the inverse of @>');
 
 SELECT ok(
-	'esac://app/main'::moniker @> 'esac://app/main'::moniker,
+	'esac+moniker://app/path:main'::moniker @> 'esac+moniker://app/path:main'::moniker,
 	'@> is reflexive (PG containment convention)');
 
 SELECT ok(
-	NOT ('esac://app/main'::moniker @> 'esac://other/main'::moniker),
+	NOT ('esac+moniker://app/path:main'::moniker @> 'esac+moniker://other/path:main'::moniker),
 	'@> requires same project');
 
 SELECT ok(
-	NOT ('esac://app/main/com'::moniker @> 'esac://app/main/edu'::moniker),
+	NOT ('esac+moniker://app/path:main/path:com'::moniker @> 'esac+moniker://app/path:main/path:edu'::moniker),
 	'@> rejects diverging segments');
 
 -- Accessors ----------------------------------------------------------------
 
 SELECT is(
-	parent_of('esac://app/main/com/acme'::moniker)::text,
-	'esac://app/main/com',
+	parent_of('esac+moniker://app/path:main/path:com/path:acme'::moniker)::text,
+	'esac+moniker://app/path:main/path:com',
 	'parent_of drops the last segment');
 
 SELECT ok(
-	parent_of('esac://app'::moniker) IS NULL,
+	parent_of('esac+moniker://app'::moniker) IS NULL,
 	'parent_of returns NULL on a project-only moniker');
 
 SELECT is(
-	kind_of('esac://app/main#Foo#'::moniker),
-	'type',
-	'kind_of returns the canonical kind name of the last segment');
+	kind_of('esac+moniker://app/path:main/class:Foo'::moniker),
+	'class',
+	'kind_of returns the kind name of the last segment');
 
 SELECT is(
-	path_of('esac://app/main/com/acme/Foo'::moniker),
+	path_of('esac+moniker://app/path:main/path:com/path:acme/path:Foo'::moniker),
 	ARRAY['main','com','acme','Foo']::text[],
 	'path_of returns each segment name in order');
 
 -- Composition --------------------------------------------------------------
 
 SELECT is(
-	compose_child('esac://app/main'::moniker, 'com', 'path')::text,
-	'esac://app/main/com',
-	'compose_child appends a path-class segment');
+	compose_child('esac+moniker://app/path:main'::moniker, 'path', 'com')::text,
+	'esac+moniker://app/path:main/path:com',
+	'compose_child appends a typed segment');
 
 SELECT is(
-	compose_child('esac://app/main/com/acme'::moniker, 'Foo', 'class')::text,
-	'esac://app/main/com/acme#Foo#',
-	'compose_child appends a Type-class segment with the right punctuation');
+	compose_child('esac+moniker://app/path:main/path:com/path:acme'::moniker, 'class', 'Foo')::text,
+	'esac+moniker://app/path:main/path:com/path:acme/class:Foo',
+	'compose_child appends a class-kind segment');
 
 SELECT * FROM finish();
 

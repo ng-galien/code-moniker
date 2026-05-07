@@ -1,31 +1,12 @@
-//! TypeScript-specific kind interning.
+//! TypeScript-specific kind names.
+//!
+//! These are the byte strings the extractor embeds in moniker bytes and
+//! attaches to defs/refs. They're a controlled vocabulary — kept here
+//! so future TS-specific kinds (interface, type_alias, enum, …) land in
+//! one place.
 
-use crate::core::kind_registry::{KindId, KindRegistry, PunctClass};
-
-#[derive(Copy, Clone)]
-pub(super) struct TsKinds {
-	// Canonical structural kinds — used in moniker bytes so URI
-	// roundtrip and `=` equality stay punct-class-stable.
-	pub(super) path: KindId,
-	pub(super) type_canon: KindId,
-	pub(super) method_canon: KindId,
-
-	// Semantic labels — used as `DefRecord.kind` / `RefRecord.kind`
-	// metadata and surfaced as text in the SQL API.
-	pub(super) class_label: KindId,
-	pub(super) function_label: KindId,
-	pub(super) import_label: KindId,
-}
-
-impl TsKinds {
-	pub(super) fn new(reg: &mut KindRegistry) -> Self {
-		Self {
-			path: reg.intern("path", PunctClass::Path).unwrap(),
-			type_canon: reg.intern("type", PunctClass::Type).unwrap(),
-			method_canon: reg.intern("method", PunctClass::Method).unwrap(),
-			class_label: reg.intern("class", PunctClass::Type).unwrap(),
-			function_label: reg.intern("function", PunctClass::Method).unwrap(),
-			import_label: reg.intern("import", PunctClass::Path).unwrap(),
-		}
-	}
-}
+pub(super) const PATH: &[u8] = b"path";
+pub(super) const CLASS: &[u8] = b"class";
+pub(super) const METHOD: &[u8] = b"method";
+pub(super) const FUNCTION: &[u8] = b"function";
+pub(super) const IMPORT: &[u8] = b"import";

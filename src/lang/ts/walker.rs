@@ -7,11 +7,10 @@ use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
 use super::canonicalize::{extend_method, extend_segment, node_position};
-use super::kinds::TsKinds;
+use super::kinds;
 
 pub(super) struct Walker<'src> {
 	pub(super) source_bytes: &'src [u8],
-	pub(super) kinds: TsKinds,
 	pub(super) module: Moniker,
 }
 
@@ -31,10 +30,10 @@ impl<'src> Walker<'src> {
 
 	fn handle_class(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		let class_moniker = extend_segment(parent, self.kinds.type_canon, name.as_bytes());
+		let class_moniker = extend_segment(parent, kinds::CLASS, name.as_bytes());
 		let _ = graph.add_def(
 			class_moniker.clone(),
-			self.kinds.class_label,
+			kinds::CLASS,
 			parent,
 			Some(node_position(node)),
 		);
@@ -54,14 +53,14 @@ impl<'src> Walker<'src> {
 
 	fn handle_method(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		let m = extend_method(parent, self.kinds.method_canon, name.as_bytes(), 0);
-		let _ = graph.add_def(m, self.kinds.method_canon, parent, Some(node_position(node)));
+		let m = extend_method(parent, kinds::METHOD, name.as_bytes(), 0);
+		let _ = graph.add_def(m, kinds::METHOD, parent, Some(node_position(node)));
 	}
 
 	fn handle_function(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		let m = extend_method(parent, self.kinds.method_canon, name.as_bytes(), 0);
-		let _ = graph.add_def(m, self.kinds.function_label, parent, Some(node_position(node)));
+		let m = extend_method(parent, kinds::FUNCTION, name.as_bytes(), 0);
+		let _ = graph.add_def(m, kinds::FUNCTION, parent, Some(node_position(node)));
 	}
 
 	pub(super) fn field_text(&self, node: Node<'_>, field: &str) -> Option<&'src str> {
