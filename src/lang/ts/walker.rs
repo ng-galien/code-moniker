@@ -16,6 +16,7 @@ pub(super) struct Walker<'src> {
 	pub(super) source_bytes: &'src [u8],
 	pub(super) module: Moniker,
 	pub(super) deep: bool,
+	pub(super) presets: &'src super::Presets,
 }
 
 impl<'src> Walker<'src> {

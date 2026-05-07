@@ -24,6 +24,11 @@ pub struct RefRecord {
 	pub target: Moniker,
 	pub kind: Vec<u8>,
 	pub position: Option<Position>,
+	/// Free-form receiver/resolution hint owned by the ref kind. For
+	/// `method_call`, this carries the receiver shape (`this`, `super`,
+	/// `identifier`, `member`, `call`, `subscript`). Empty for refs that
+	/// have nothing to attach.
+	pub meta: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -92,12 +97,24 @@ impl CodeGraph {
 		kind: &[u8],
 		position: Option<Position>,
 	) -> Result<(), GraphError> {
+		self.add_ref_with_meta(source, target, kind, position, &[])
+	}
+
+	pub fn add_ref_with_meta(
+		&mut self,
+		source: &Moniker,
+		target: Moniker,
+		kind: &[u8],
+		position: Option<Position>,
+		meta: &[u8],
+	) -> Result<(), GraphError> {
 		let source_idx = self.find_def(source).ok_or(GraphError::SourceNotFound)?;
 		self.refs.push(RefRecord {
 			source: source_idx,
 			target,
 			kind: kind.to_vec(),
 			position,
+			meta: meta.to_vec(),
 		});
 		Ok(())
 	}

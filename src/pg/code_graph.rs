@@ -106,20 +106,27 @@ fn graph_refs(
 		name!(source, moniker),
 		name!(target, moniker),
 		name!(kind, String),
+		name!(meta, Option<String>),
 	),
 > {
 	let defs: Vec<_> = graph.inner.defs().collect();
-	let rows: Vec<(moniker, moniker, String)> = graph
+	let rows: Vec<(moniker, moniker, String, Option<String>)> = graph
 		.inner
 		.refs()
 		.map(|r| {
 			let source_def = defs
 				.get(r.source)
 				.unwrap_or_else(|| error!("ref source index {} out of bounds", r.source));
+			let meta = if r.meta.is_empty() {
+				None
+			} else {
+				Some(kind_text(&r.meta))
+			};
 			(
 				moniker::from_core(source_def.moniker.clone()),
 				moniker::from_core(r.target.clone()),
 				kind_text(&r.kind),
+				meta,
 			)
 		})
 		.collect();

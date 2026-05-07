@@ -211,15 +211,16 @@ impl<'src> Walker<'src> {
 					let name = self.text_of(prop);
 					if !name.is_empty() {
 						let target = self.method_call_target(name, arity);
-						let _ = graph.add_ref(
+						let recv = receiver_hint(fn_node);
+						let _ = graph.add_ref_with_meta(
 							scope,
 							target,
 							kinds::METHOD_CALL,
 							Some(pos),
+							recv,
 						);
 					}
 				}
-				// receiver subtree may contain reads / nested calls
 				if let Some(obj) = fn_node.child_by_field_name("object") {
 					self.dispatch(obj, scope, graph);
 				}
@@ -261,12 +262,25 @@ impl<'src> Walker<'src> {
 	fn maybe_emit_di_register(
 		&self,
 		call: Node<'_>,
-		_callee: Node<'_>,
+		callee: Node<'_>,
 		scope: &Moniker,
 		graph: &mut CodeGraph,
 		pos: (u32, u32),
 	) {
-		// Heuristic: a single named-argument identifier ⇒ DI register.
+		// Heuristic only fires when the callee identifier is in the
+		// caller-supplied preset list (e.g. ['register','bind','provide']).
+		// Without a preset, every `it(name)` and `expect(value)` would
+		// otherwise be tagged as DI registration.
+		let callee_name = self.text_of(callee);
+		if !self
+			.presets
+			.di_register_callees
+			.iter()
+			.any(|p| p == callee_name)
+		{
+			return;
+		}
+
 		let Some(args) = call.child_by_field_name("arguments") else { return };
 		let mut cursor = args.walk();
 		let mut named = 0usize;
@@ -581,6 +595,24 @@ impl<'src> Walker<'src> {
 /// True for `./x`, `../x`, and the dot-only shorthands `.` and `..`.
 fn is_relative_specifier(spec: &str) -> bool {
 	spec == "." || spec == ".." || spec.starts_with("./") || spec.starts_with("../")
+}
+
+/// Classify the `object` side of a `member_expression` callee. Empty
+/// slice when the receiver shape isn't one we recognise — caller stores
+/// it in `RefRecord.meta` and an empty value means "no hint".
+fn receiver_hint(member_expr: Node<'_>) -> &'static [u8] {
+	let Some(obj) = member_expr.child_by_field_name("object") else {
+		return b"";
+	};
+	match obj.kind() {
+		"this" => b"this",
+		"super" => b"super",
+		"identifier" => b"identifier",
+		"call_expression" => b"call",
+		"member_expression" => b"member",
+		"subscript_expression" => b"subscript",
+		_ => b"",
+	}
 }
 
 fn unquote_string_literal<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {

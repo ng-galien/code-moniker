@@ -6,13 +6,13 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(14);
+SELECT plan(16);
 
 -- Surface presence ----------------------------------------------------------
 
 SELECT has_function('extract_typescript'::name,
-	ARRAY['text','text','moniker','boolean'],
-	'extract_typescript(text, text, moniker, boolean) is exposed');
+	ARRAY['text','text','moniker','boolean','text[]'],
+	'extract_typescript(text, text, moniker, boolean, text[]) is exposed');
 
 -- Extracting an empty source still produces a graph rooted at the module.
 
@@ -111,6 +111,46 @@ SELECT
 	ok(g @> 'esac+moniker://app/path:main/path:util/function:f(2)/local:sum'::moniker,
 		'deep=true surfaces local defs') AS r13
 FROM g;
+
+-- Method call receiver hint surfaces in graph_refs.meta.
+
+WITH g AS (
+	SELECT extract_typescript(
+		'util.ts',
+		'class C { m() { this.bar(); } }',
+		'esac+moniker://app/path:main'::moniker
+	) AS g
+)
+SELECT
+	is((SELECT meta FROM graph_refs(g) WHERE kind = 'method_call'),
+		'this',
+		'this.bar() carries meta=this') AS r14
+FROM g;
+
+-- DI register stays silent without a preset.
+
+WITH no_preset AS (
+	SELECT extract_typescript(
+		'util.ts',
+		'register(UserService);',
+		'esac+moniker://app/path:main'::moniker
+	) AS g
+), with_preset AS (
+	SELECT extract_typescript(
+		'util.ts',
+		'register(UserService);',
+		'esac+moniker://app/path:main'::moniker,
+		false,
+		ARRAY['register']::text[]
+	) AS g
+)
+SELECT
+	is((SELECT count(*)::int FROM no_preset, graph_refs(g) WHERE kind = 'di_register'),
+		0,
+		'di_register silent without preset') AS r15,
+	is((SELECT count(*)::int FROM with_preset, graph_refs(g) WHERE kind = 'di_register'),
+		1,
+		'di_register fires when callee is in preset list') AS r16;
 
 SELECT * FROM finish();
 

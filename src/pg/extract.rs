@@ -11,9 +11,13 @@ fn extract_typescript(
 	source: &str,
 	anchor: moniker,
 	deep: pgrx::default!(bool, "false"),
+	di_register_callees: pgrx::default!(Vec<String>, "ARRAY[]::text[]"),
 ) -> code_graph {
 	let core_anchor = anchor.to_core();
-	let inner = crate::lang::ts::extract(uri, source, &core_anchor, deep);
+	let presets = crate::lang::ts::Presets {
+		di_register_callees,
+	};
+	let inner = crate::lang::ts::extract(uri, source, &core_anchor, deep, &presets);
 	code_graph::from_core(inner)
 }
 

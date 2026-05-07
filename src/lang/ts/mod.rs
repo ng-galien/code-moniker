@@ -25,7 +25,24 @@ pub fn parse(source: &str) -> Tree {
 		.expect("tree-sitter parse returned None on a non-cancelled call")
 }
 
-pub fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
+/// Caller-supplied extraction hints. Empty values mean "feature off"
+/// — the extractor should not invent defaults that produce noisy refs.
+#[derive(Clone, Debug, Default)]
+pub struct Presets {
+	/// Bare-identifier callees that should be tagged as `di_register`
+	/// when called with a single identifier argument. Without a preset,
+	/// the heuristic is skipped (it would otherwise fire on `it(name)`,
+	/// `expect(value)`, etc.).
+	pub di_register_callees: Vec<String>,
+}
+
+pub fn extract(
+	uri: &str,
+	source: &str,
+	anchor: &Moniker,
+	deep: bool,
+	presets: &Presets,
+) -> CodeGraph {
 	let module = compute_module_moniker(anchor, uri, kinds::PATH);
 	let mut graph = CodeGraph::new(module.clone(), kinds::PATH);
 	let tree = parse(source);
@@ -33,6 +50,7 @@ pub fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGra
 		source_bytes: source.as_bytes(),
 		module: module.clone(),
 		deep,
+		presets,
 	};
 	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
@@ -42,6 +60,12 @@ pub fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGra
 mod tests {
 	use super::*;
 	use crate::core::moniker::MonikerBuilder;
+
+	/// Test-local wrapper that defaults the presets — keeps the existing
+	/// fixture cases terse. Shadows `super::extract`.
+	fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
+		super::extract(uri, source, anchor, deep, &Presets::default())
+	}
 
 	fn make_anchor() -> Moniker {
 		MonikerBuilder::new()
@@ -464,6 +488,29 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_method_call_carries_receiver_hint() {
+		let cases = [
+			("class C { m() { this.bar(); } }", b"this".as_slice()),
+			("class C { m() { super.bar(); } }", b"super".as_slice()),
+			("obj.bar();", b"identifier".as_slice()),
+			("a.b.bar();", b"member".as_slice()),
+			("foo().bar();", b"call".as_slice()),
+		];
+		for (src, expected) in cases {
+			let g = extract("util.ts", src, &make_anchor(), false);
+			let r = g
+				.refs()
+				.find(|r| r.kind == b"method_call")
+				.unwrap_or_else(|| panic!("no method_call ref for: {src}"));
+			assert_eq!(
+				r.meta.as_slice(),
+				expected,
+				"receiver hint mismatch for {src:?}"
+			);
+		}
+	}
+
+	#[test]
 	fn extract_method_call_emits_method_call_ref() {
 		let g = extract("util.ts", "obj.bar(1, 2);", &make_anchor(), false);
 		let r = g
@@ -644,18 +691,38 @@ mod tests {
 	// --- DI register -----------------------------------------------------
 
 	#[test]
-	fn extract_single_arg_identifier_call_also_emits_di_register() {
-		// Heuristic mirrors ESAC: identifier callee + single named-identifier
-		// argument ⇒ DI registration. Member callees (`container.register`)
-		// don't trigger this heuristic.
+	fn extract_di_register_fires_only_when_callee_in_preset() {
+		let presets = Presets {
+			di_register_callees: vec!["register".into(), "bind".into()],
+		};
+		let g = super::extract(
+			"util.ts",
+			"register(UserService);",
+			&make_anchor(),
+			false,
+			&presets,
+		);
+		assert!(g.refs().any(|r| r.kind == b"di_register"));
+	}
+
+	#[test]
+	fn extract_di_register_silent_without_preset() {
+		// `it(name)`, `expect(value)` etc. were the false-positive source
+		// before presets gated the heuristic. Empty preset ⇒ no di_register.
 		let g = extract("util.ts", "register(UserService);", &make_anchor(), false);
 		assert!(
-			g.refs().any(|r| r.kind == b"di_register"),
-			"expected a di_register ref alongside the calls ref; got {:?}",
-			g.refs()
-				.map(|r| String::from_utf8_lossy(&r.kind).into_owned())
-				.collect::<Vec<_>>()
+			g.refs().all(|r| r.kind != b"di_register"),
+			"di_register must stay silent without a preset",
 		);
+	}
+
+	#[test]
+	fn extract_di_register_skips_non_matching_callee() {
+		let presets = Presets {
+			di_register_callees: vec!["register".into()],
+		};
+		let g = super::extract("util.ts", "expect(value);", &make_anchor(), false, &presets);
+		assert!(g.refs().all(|r| r.kind != b"di_register"));
 	}
 
 	// --- section ---------------------------------------------------------
