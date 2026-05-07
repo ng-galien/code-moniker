@@ -34,6 +34,20 @@ pub(super) const SECTION: &[u8] = b"section";
 pub(super) const PARAM: &[u8] = b"param";
 pub(super) const LOCAL: &[u8] = b"local";
 
+// --- visibility -----------------------------------------------------------
+
+pub(super) const VIS_PUBLIC: &[u8] = b"public";
+pub(super) const VIS_PROTECTED: &[u8] = b"protected";
+pub(super) const VIS_PRIVATE: &[u8] = b"private";
+pub(super) const VIS_MODULE: &[u8] = b"module";
+
+// --- ref confidence -------------------------------------------------------
+
+pub(super) const CONF_EXTERNAL: &[u8] = b"external";
+pub(super) const CONF_IMPORTED: &[u8] = b"imported";
+pub(super) const CONF_NAME_MATCH: &[u8] = b"name_match";
+pub(super) const CONF_LOCAL: &[u8] = b"local";
+
 // --- ref kinds ------------------------------------------------------------
 
 pub(super) const IMPORTS_SYMBOL: &[u8] = b"imports_symbol";

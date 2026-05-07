@@ -12,7 +12,7 @@ mod refs;
 mod walker;
 
 use canonicalize::compute_module_moniker;
-use walker::Walker;
+use walker::{collect_export_ranges, Walker};
 
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
@@ -46,11 +46,13 @@ pub fn extract(
 	let module = compute_module_moniker(anchor, uri, kinds::PATH);
 	let mut graph = CodeGraph::new(module.clone(), kinds::PATH);
 	let tree = parse(source);
+	let export_ranges = collect_export_ranges(tree.root_node());
 	let walker = Walker {
 		source_bytes: source.as_bytes(),
 		module: module.clone(),
 		deep,
 		presets,
+		export_ranges,
 	};
 	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
@@ -488,6 +490,78 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_visibility_module_for_unexported_class() {
+		let g = extract("util.ts", "class Foo {}", &make_anchor(), false);
+		let foo = g.defs().find(|d| d.kind == b"class").unwrap();
+		assert_eq!(foo.visibility, b"module".to_vec());
+	}
+
+	#[test]
+	fn extract_visibility_public_for_exported_class() {
+		let g = extract("util.ts", "export class Foo {}", &make_anchor(), false);
+		let foo = g.defs().find(|d| d.kind == b"class").unwrap();
+		assert_eq!(foo.visibility, b"public".to_vec());
+	}
+
+	#[test]
+	fn extract_visibility_for_class_member_modifiers() {
+		let g = extract(
+			"util.ts",
+			"export class C { public a() {}; protected b() {}; private c() {}; d() {} }",
+			&make_anchor(),
+			false,
+		);
+		let by_name = |n: &[u8]| {
+			g.defs()
+				.find(|d| d.moniker.as_view().segments().last().unwrap().name == n)
+				.unwrap()
+				.visibility
+				.clone()
+		};
+		assert_eq!(by_name(b"a()"), b"public".to_vec());
+		assert_eq!(by_name(b"b()"), b"protected".to_vec());
+		assert_eq!(by_name(b"c()"), b"private".to_vec());
+		assert_eq!(by_name(b"d()"), b"public".to_vec(), "no modifier defaults to public");
+	}
+
+	#[test]
+	fn extract_named_import_alias_recorded() {
+		let g = extract(
+			"util.ts",
+			"import { X as Y } from './foo';",
+			&make_anchor(),
+			false,
+		);
+		let r = g.refs().next().unwrap();
+		assert_eq!(r.alias, b"Y".to_vec());
+	}
+
+	#[test]
+	fn extract_namespace_import_alias_recorded() {
+		let g = extract(
+			"util.ts",
+			"import * as Mod from './foo';",
+			&make_anchor(),
+			false,
+		);
+		let r = g.refs().next().unwrap();
+		assert_eq!(r.alias, b"Mod".to_vec());
+	}
+
+	#[test]
+	fn extract_import_confidence_distinguishes_relative_vs_external() {
+		let g = extract(
+			"util.ts",
+			"import { a } from './local';\nimport { b } from 'react';",
+			&make_anchor(),
+			false,
+		);
+		let confs: Vec<&[u8]> = g.refs().map(|r| r.confidence.as_slice()).collect();
+		assert!(confs.contains(&b"imported".as_slice()));
+		assert!(confs.contains(&b"external".as_slice()));
+	}
+
+	#[test]
 	fn extract_method_call_carries_receiver_hint() {
 		let cases = [
 			("class C { m() { this.bar(); } }", b"this".as_slice()),
@@ -503,7 +577,7 @@ mod tests {
 				.find(|r| r.kind == b"method_call")
 				.unwrap_or_else(|| panic!("no method_call ref for: {src}"));
 			assert_eq!(
-				r.meta.as_slice(),
+				r.receiver_hint.as_slice(),
 				expected,
 				"receiver hint mismatch for {src:?}"
 			);

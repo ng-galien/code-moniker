@@ -4,7 +4,7 @@
 
 use tree_sitter::Node;
 
-use crate::core::code_graph::CodeGraph;
+use crate::core::code_graph::{CodeGraph, DefAttrs};
 use crate::core::moniker::Moniker;
 
 use super::canonicalize::{
@@ -17,9 +17,43 @@ pub(super) struct Walker<'src> {
 	pub(super) module: Moniker,
 	pub(super) deep: bool,
 	pub(super) presets: &'src super::Presets,
+	/// Byte ranges of top-level `export_statement` nodes. Lets module-
+	/// scope def emitters answer "am I exported?" without looking at
+	/// the AST parent.
+	pub(super) export_ranges: Vec<(u32, u32)>,
+}
+
+/// Pre-pass: collect every top-level `export_statement` node's byte range.
+pub(super) fn collect_export_ranges(root: Node<'_>) -> Vec<(u32, u32)> {
+	let mut out = Vec::new();
+	let mut cursor = root.walk();
+	for child in root.children(&mut cursor) {
+		if child.kind() == "export_statement" {
+			out.push((child.start_byte() as u32, child.end_byte() as u32));
+		}
+	}
+	out
 }
 
 impl<'src> Walker<'src> {
+	/// True when `node` lives inside a top-level `export_statement`. Used
+	/// to derive `public` vs `module` visibility for module-scope decls.
+	pub(super) fn is_exported(&self, node: Node<'_>) -> bool {
+		let s = node.start_byte() as u32;
+		self.export_ranges.iter().any(|(a, b)| *a <= s && s < *b)
+	}
+
+	/// Module-scope def visibility: `public` if wrapped by an export,
+	/// `module` otherwise. For class/interface members, callers use
+	/// `member_visibility(node)` instead.
+	pub(super) fn module_visibility(&self, node: Node<'_>) -> &'static [u8] {
+		if self.is_exported(node) {
+			kinds::VIS_PUBLIC
+		} else {
+			kinds::VIS_MODULE
+		}
+	}
+
 	/// Top-level entry. Walks every child of `node` and dispatches it.
 	/// `scope` is the moniker that defs nest under and refs source on.
 	pub(super) fn walk(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
@@ -112,16 +146,18 @@ impl<'src> Walker<'src> {
 			}
 		}
 		if has_default {
+			let public = DefAttrs { visibility: kinds::VIS_PUBLIC };
 			let mut cursor = node.walk();
 			for c in node.children(&mut cursor) {
 				match c.kind() {
 					"function_expression" | "arrow_function" => {
 						let m = extend_method(scope, kinds::FUNCTION, b"default", callable_arity(c));
-						let _ = graph.add_def(
+						let _ = graph.add_def_attrs(
 							m.clone(),
 							kinds::FUNCTION,
 							scope,
 							Some(node_position(c)),
+							&public,
 						);
 						if let Some(body) = c.child_by_field_name("body") {
 							self.walk(body, &m, graph);
@@ -130,8 +166,13 @@ impl<'src> Walker<'src> {
 					}
 					"class" | "class_declaration" => {
 						let m = extend_segment(scope, kinds::CLASS, b"default");
-						let _ =
-							graph.add_def(m.clone(), kinds::CLASS, scope, Some(node_position(c)));
+						let _ = graph.add_def_attrs(
+							m.clone(),
+							kinds::CLASS,
+							scope,
+							Some(node_position(c)),
+							&public,
+						);
 						if let Some(body) = c.child_by_field_name("body") {
 							self.walk_class_body(body, &m, graph);
 						}
@@ -149,7 +190,14 @@ impl<'src> Walker<'src> {
 	fn handle_class(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
 		let m = extend_segment(scope, kinds::CLASS, name.as_bytes());
-		let _ = graph.add_def(m.clone(), kinds::CLASS, scope, Some(node_position(node)));
+		let attrs = DefAttrs { visibility: self.module_visibility(node) };
+		let _ = graph.add_def_attrs(
+			m.clone(),
+			kinds::CLASS,
+			scope,
+			Some(node_position(node)),
+			&attrs,
+		);
 
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
@@ -184,7 +232,16 @@ impl<'src> Walker<'src> {
 		let is_ctor = name == "constructor";
 		let kind: &[u8] = if is_ctor { kinds::CONSTRUCTOR } else { kinds::METHOD };
 		let m = extend_method(parent, kind, name.as_bytes(), arity);
-		let _ = graph.add_def(m.clone(), kind, parent, Some(node_position(node)));
+		let attrs = DefAttrs {
+			visibility: class_member_visibility(node, self.source_bytes),
+		};
+		let _ = graph.add_def_attrs(
+			m.clone(),
+			kind,
+			parent,
+			Some(node_position(node)),
+			&attrs,
+		);
 
 		// decorators on the method itself
 		let mut cursor = node.walk();
@@ -212,7 +269,16 @@ impl<'src> Walker<'src> {
 	fn handle_field(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
 		let m = extend_segment(parent, kinds::FIELD, name.as_bytes());
-		let _ = graph.add_def(m.clone(), kinds::FIELD, parent, Some(node_position(node)));
+		let attrs = DefAttrs {
+			visibility: class_member_visibility(node, self.source_bytes),
+		};
+		let _ = graph.add_def_attrs(
+			m.clone(),
+			kinds::FIELD,
+			parent,
+			Some(node_position(node)),
+			&attrs,
+		);
 
 		// decorators on field
 		let mut cursor = node.walk();
@@ -237,7 +303,14 @@ impl<'src> Walker<'src> {
 	fn handle_interface(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
 		let m = extend_segment(scope, kinds::INTERFACE, name.as_bytes());
-		let _ = graph.add_def(m.clone(), kinds::INTERFACE, scope, Some(node_position(node)));
+		let attrs = DefAttrs { visibility: self.module_visibility(node) };
+		let _ = graph.add_def_attrs(
+			m.clone(),
+			kinds::INTERFACE,
+			scope,
+			Some(node_position(node)),
+			&attrs,
+		);
 
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
@@ -265,7 +338,14 @@ impl<'src> Walker<'src> {
 	fn handle_enum(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
 		let m = extend_segment(scope, kinds::ENUM, name.as_bytes());
-		let _ = graph.add_def(m.clone(), kinds::ENUM, scope, Some(node_position(node)));
+		let attrs = DefAttrs { visibility: self.module_visibility(node) };
+		let _ = graph.add_def_attrs(
+			m.clone(),
+			kinds::ENUM,
+			scope,
+			Some(node_position(node)),
+			&attrs,
+		);
 
 		if let Some(body) = node.child_by_field_name("body") {
 			let mut cursor = body.walk();
@@ -293,7 +373,14 @@ impl<'src> Walker<'src> {
 	fn handle_type_alias(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
 		let m = extend_segment(scope, kinds::TYPE_ALIAS, name.as_bytes());
-		let _ = graph.add_def(m.clone(), kinds::TYPE_ALIAS, scope, Some(node_position(node)));
+		let attrs = DefAttrs { visibility: self.module_visibility(node) };
+		let _ = graph.add_def_attrs(
+			m.clone(),
+			kinds::TYPE_ALIAS,
+			scope,
+			Some(node_position(node)),
+			&attrs,
+		);
 		if let Some(value) = node.child_by_field_name("value") {
 			self.emit_uses_type_recursive(value, &m, graph);
 		}
@@ -303,7 +390,8 @@ impl<'src> Walker<'src> {
 
 	fn handle_function_decl(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
-		self.emit_callable(node, node, name.as_bytes(), kinds::FUNCTION, scope, graph);
+		let vis = self.module_visibility(node);
+		self.emit_callable(node, node, name.as_bytes(), kinds::FUNCTION, scope, graph, vis);
 	}
 
 	fn handle_lexical(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
@@ -331,20 +419,32 @@ impl<'src> Walker<'src> {
 		// Collect identifier-or-pattern names.
 		let names = collect_binding_names(name_node, self.source_bytes);
 
+		let module_vis = self.module_visibility(decl);
 		for name in &names {
 			let (kind, emit) = if inside_callable {
 				(kinds::LOCAL, self.deep)
 			} else if let Some(v) = value.filter(|v| {
 				v.kind() == "arrow_function" || v.kind() == "function_expression"
 			}) {
-				self.emit_callable(v, decl, name.as_bytes(), kinds::FUNCTION, scope, graph);
+				self.emit_callable(
+					v,
+					decl,
+					name.as_bytes(),
+					kinds::FUNCTION,
+					scope,
+					graph,
+					module_vis,
+				);
 				continue;
 			} else {
 				(kinds::CONST, true)
 			};
 			if emit {
 				let m = extend_segment(scope, kind, name.as_bytes());
-				let _ = graph.add_def(m, kind, scope, Some(node_position(decl)));
+				let attrs = DefAttrs {
+					visibility: if inside_callable { kinds::VIS_PRIVATE } else { module_vis },
+				};
+				let _ = graph.add_def_attrs(m, kind, scope, Some(node_position(decl)), &attrs);
 			}
 		}
 
@@ -412,7 +512,15 @@ impl<'src> Walker<'src> {
 	) {
 		if self.deep && is_callable_scope(scope, &self.module) {
 			let name = anonymous_callback_name(node);
-			self.emit_callable(node, node, &name, kinds::FUNCTION, scope, graph);
+			self.emit_callable(
+				node,
+				node,
+				&name,
+				kinds::FUNCTION,
+				scope,
+				graph,
+				kinds::VIS_PRIVATE,
+			);
 			return;
 		}
 		if let Some(params) = node.child_by_field_name("parameters") {
@@ -459,7 +567,15 @@ impl<'src> Walker<'src> {
 					&& (v.kind() == "arrow_function" || v.kind() == "function_expression")
 				{
 					let name = self.text_of(k);
-					self.emit_callable(v, node, name.as_bytes(), kinds::FUNCTION, scope, graph);
+					self.emit_callable(
+						v,
+						node,
+						name.as_bytes(),
+						kinds::FUNCTION,
+						scope,
+						graph,
+						kinds::VIS_PUBLIC,
+					);
 					return;
 				}
 			}
@@ -478,10 +594,18 @@ impl<'src> Walker<'src> {
 		kind: &[u8],
 		parent: &Moniker,
 		graph: &mut CodeGraph,
+		visibility: &[u8],
 	) -> Moniker {
 		let arity = callable_arity(callable_node);
 		let m = extend_method(parent, kind, name, arity);
-		let _ = graph.add_def(m.clone(), kind, parent, Some(node_position(anchor_node)));
+		let attrs = DefAttrs { visibility };
+		let _ = graph.add_def_attrs(
+			m.clone(),
+			kind,
+			parent,
+			Some(node_position(anchor_node)),
+			&attrs,
+		);
 		if let Some(rt) = callable_node.child_by_field_name("return_type") {
 			self.emit_uses_type_recursive(rt, &m, graph);
 		}
@@ -544,6 +668,23 @@ fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	}
 	let Some(last) = scope.as_view().segments().last() else { return false };
 	last.kind == kinds::FUNCTION || last.kind == kinds::METHOD || last.kind == kinds::CONSTRUCTOR
+}
+
+/// Class member visibility: explicit modifier when present, `public` by
+/// default (TS class members default to public).
+pub(super) fn class_member_visibility(node: Node<'_>, source: &[u8]) -> &'static [u8] {
+	let mut cursor = node.walk();
+	for c in node.children(&mut cursor) {
+		if c.kind() == "accessibility_modifier" {
+			return match c.utf8_text(source).unwrap_or("") {
+				"private" => kinds::VIS_PRIVATE,
+				"protected" => kinds::VIS_PROTECTED,
+				"public" => kinds::VIS_PUBLIC,
+				_ => kinds::VIS_PUBLIC,
+			};
+		}
+	}
+	kinds::VIS_PUBLIC
 }
 
 /// ESAC TS recognises section comments shaped like

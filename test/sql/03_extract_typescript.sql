@@ -6,7 +6,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(16);
+SELECT plan(20);
 
 -- Surface presence ----------------------------------------------------------
 
@@ -112,7 +112,7 @@ SELECT
 		'deep=true surfaces local defs') AS r13
 FROM g;
 
--- Method call receiver hint surfaces in graph_refs.meta.
+-- Method call receiver hint surfaces in graph_refs.receiver_hint.
 
 WITH g AS (
 	SELECT extract_typescript(
@@ -122,9 +122,9 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	is((SELECT meta FROM graph_refs(g) WHERE kind = 'method_call'),
+	is((SELECT receiver_hint FROM graph_refs(g) WHERE kind = 'method_call'),
 		'this',
-		'this.bar() carries meta=this') AS r14
+		'this.bar() carries receiver_hint=this') AS r14
 FROM g;
 
 -- DI register stays silent without a preset.
@@ -151,6 +151,57 @@ SELECT
 	is((SELECT count(*)::int FROM with_preset, graph_refs(g) WHERE kind = 'di_register'),
 		1,
 		'di_register fires when callee is in preset list') AS r16;
+
+-- Visibility surfaces in graph_defs.
+
+WITH g AS (
+	SELECT extract_typescript(
+		'util.ts',
+		'export class A {} class B {}',
+		'esac+moniker://app/path:main'::moniker
+	) AS g
+)
+SELECT
+	is((SELECT visibility FROM graph_defs(g) WHERE kind = 'class'
+	     AND moniker = 'esac+moniker://app/path:main/path:util/class:A'::moniker),
+		'public',
+		'exported class is public') AS r17,
+	is((SELECT visibility FROM graph_defs(g) WHERE kind = 'class'
+	     AND moniker = 'esac+moniker://app/path:main/path:util/class:B'::moniker),
+		'module',
+		'unexported class is module-visible') AS r18
+FROM g;
+
+-- Alias surfaces on aliased imports.
+
+WITH g AS (
+	SELECT extract_typescript(
+		'util.ts',
+		'import { X as Y } from "./foo";',
+		'esac+moniker://app/path:main'::moniker
+	) AS g
+)
+SELECT
+	is((SELECT alias FROM graph_refs(g) WHERE kind = 'imports_symbol'),
+		'Y',
+		'import { X as Y } records alias=Y') AS r19
+FROM g;
+
+-- Confidence distinguishes relative vs external imports.
+
+WITH g AS (
+	SELECT extract_typescript(
+		'util.ts',
+		'import a from "./local"; import b from "react";',
+		'esac+moniker://app/path:main'::moniker
+	) AS g
+)
+SELECT
+	is((SELECT array_agg(DISTINCT confidence ORDER BY confidence)
+	    FROM graph_refs(g) WHERE kind = 'imports_symbol'),
+		ARRAY['external','imported']::text[],
+		'imports_symbol gets imported/external confidence based on specifier') AS r20
+FROM g;
 
 SELECT * FROM finish();
 

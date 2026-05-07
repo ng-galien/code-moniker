@@ -88,11 +88,24 @@ fn kind_text(bytes: &[u8]) -> String {
 #[pg_extern(immutable, parallel_safe)]
 fn graph_defs(
 	graph: code_graph,
-) -> TableIterator<'static, (name!(moniker, moniker), name!(kind, String))> {
-	let rows: Vec<(moniker, String)> = graph
+) -> TableIterator<
+	'static,
+	(
+		name!(moniker, moniker),
+		name!(kind, String),
+		name!(visibility, Option<String>),
+	),
+> {
+	let rows: Vec<(moniker, String, Option<String>)> = graph
 		.inner
 		.defs()
-		.map(|d| (moniker::from_core(d.moniker.clone()), kind_text(&d.kind)))
+		.map(|d| {
+			(
+				moniker::from_core(d.moniker.clone()),
+				kind_text(&d.kind),
+				bytes_to_opt_string(&d.visibility),
+			)
+		})
 		.collect();
 	TableIterator::new(rows.into_iter())
 }
@@ -106,29 +119,37 @@ fn graph_refs(
 		name!(source, moniker),
 		name!(target, moniker),
 		name!(kind, String),
-		name!(meta, Option<String>),
+		name!(receiver_hint, Option<String>),
+		name!(alias, Option<String>),
+		name!(confidence, Option<String>),
 	),
 > {
 	let defs: Vec<_> = graph.inner.defs().collect();
-	let rows: Vec<(moniker, moniker, String, Option<String>)> = graph
-		.inner
-		.refs()
-		.map(|r| {
-			let source_def = defs
-				.get(r.source)
-				.unwrap_or_else(|| error!("ref source index {} out of bounds", r.source));
-			let meta = if r.meta.is_empty() {
-				None
-			} else {
-				Some(kind_text(&r.meta))
-			};
-			(
-				moniker::from_core(source_def.moniker.clone()),
-				moniker::from_core(r.target.clone()),
-				kind_text(&r.kind),
-				meta,
-			)
-		})
-		.collect();
+	let rows: Vec<(moniker, moniker, String, Option<String>, Option<String>, Option<String>)> =
+		graph
+			.inner
+			.refs()
+			.map(|r| {
+				let source_def = defs
+					.get(r.source)
+					.unwrap_or_else(|| error!("ref source index {} out of bounds", r.source));
+				(
+					moniker::from_core(source_def.moniker.clone()),
+					moniker::from_core(r.target.clone()),
+					kind_text(&r.kind),
+					bytes_to_opt_string(&r.receiver_hint),
+					bytes_to_opt_string(&r.alias),
+					bytes_to_opt_string(&r.confidence),
+				)
+			})
+			.collect();
 	TableIterator::new(rows.into_iter())
+}
+
+fn bytes_to_opt_string(b: &[u8]) -> Option<String> {
+	if b.is_empty() {
+		None
+	} else {
+		Some(kind_text(b))
+	}
 }

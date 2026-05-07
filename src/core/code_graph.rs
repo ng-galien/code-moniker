@@ -19,6 +19,10 @@ pub struct DefRecord {
 	pub kind: Vec<u8>,
 	pub parent: Option<usize>,
 	pub position: Option<Position>,
+	/// Language-normalised access level: `public`, `protected`,
+	/// `package`, `private`, `module`. Empty when the language does not
+	/// expose the concept for this def (locals, params, sections).
+	pub visibility: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -28,11 +32,31 @@ pub struct RefRecord {
 	pub target: Moniker,
 	pub kind: Vec<u8>,
 	pub position: Option<Position>,
-	/// Free-form receiver/resolution hint owned by the ref kind. For
-	/// `method_call`, this carries the receiver shape (`this`, `super`,
-	/// `identifier`, `member`, `call`, `subscript`). Empty for refs that
-	/// have nothing to attach.
-	pub meta: Vec<u8>,
+	/// Receiver shape for `method_call` refs (`this`, `super`,
+	/// `identifier`, `member`, `call`, `subscript`). Empty otherwise.
+	pub receiver_hint: Vec<u8>,
+	/// Local binding name when the ref imports under a different name
+	/// (`import { X as Y }`, `export { X as Y }`). Empty otherwise.
+	pub alias: Vec<u8>,
+	/// Confidence the consumer projection should attach: `external`,
+	/// `imported`, `name_match`, `local`, `unresolved`. Empty when the
+	/// extractor has nothing to assert.
+	pub confidence: Vec<u8>,
+}
+
+/// Optional def attributes. Defaults are empty, meaning the extractor
+/// has no info to record for this def.
+#[derive(Clone, Debug, Default)]
+pub struct DefAttrs<'a> {
+	pub visibility: &'a [u8],
+}
+
+/// Optional ref attributes. Defaults are empty.
+#[derive(Clone, Debug, Default)]
+pub struct RefAttrs<'a> {
+	pub receiver_hint: &'a [u8],
+	pub alias: &'a [u8],
+	pub confidence: &'a [u8],
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,6 +115,7 @@ impl CodeGraph {
 				kind: root_kind.to_vec(),
 				parent: None,
 				position: None,
+				visibility: Vec::new(),
 			}],
 			refs: Vec::new(),
 			index: RefCell::new(index),
@@ -104,18 +129,29 @@ impl CodeGraph {
 		parent: &Moniker,
 		position: Option<Position>,
 	) -> Result<(), GraphError> {
+		self.add_def_attrs(moniker, kind, parent, position, &DefAttrs::default())
+	}
+
+	pub fn add_def_attrs(
+		&mut self,
+		moniker: Moniker,
+		kind: &[u8],
+		parent: &Moniker,
+		position: Option<Position>,
+		attrs: &DefAttrs<'_>,
+	) -> Result<(), GraphError> {
 		if self.find_def(&moniker).is_some() {
 			return Err(GraphError::DuplicateMoniker);
 		}
 		let parent_idx = self.find_def(parent).ok_or(GraphError::ParentNotFound)?;
 		let new_idx = self.defs.len();
-		// `find_def` above primed the cache, so it always reflects defs.len().
 		self.index.borrow_mut().insert(moniker.clone(), new_idx);
 		self.defs.push(DefRecord {
 			moniker,
 			kind: kind.to_vec(),
 			parent: Some(parent_idx),
 			position,
+			visibility: attrs.visibility.to_vec(),
 		});
 		Ok(())
 	}
@@ -127,16 +163,16 @@ impl CodeGraph {
 		kind: &[u8],
 		position: Option<Position>,
 	) -> Result<(), GraphError> {
-		self.add_ref_with_meta(source, target, kind, position, &[])
+		self.add_ref_attrs(source, target, kind, position, &RefAttrs::default())
 	}
 
-	pub fn add_ref_with_meta(
+	pub fn add_ref_attrs(
 		&mut self,
 		source: &Moniker,
 		target: Moniker,
 		kind: &[u8],
 		position: Option<Position>,
-		meta: &[u8],
+		attrs: &RefAttrs<'_>,
 	) -> Result<(), GraphError> {
 		let source_idx = self.find_def(source).ok_or(GraphError::SourceNotFound)?;
 		self.refs.push(RefRecord {
@@ -144,7 +180,9 @@ impl CodeGraph {
 			target,
 			kind: kind.to_vec(),
 			position,
-			meta: meta.to_vec(),
+			receiver_hint: attrs.receiver_hint.to_vec(),
+			alias: attrs.alias.to_vec(),
+			confidence: attrs.confidence.to_vec(),
 		});
 		Ok(())
 	}
