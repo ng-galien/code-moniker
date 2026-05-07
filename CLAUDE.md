@@ -15,7 +15,7 @@ No work-in-progress archives, no decision memos, no speculative docs. Git log + 
 
 ## Direction
 
-Phases 1–6 of SPEC shipped. v2 chantier ship: typed canonical URI (`<scheme>+moniker://<project>/<kind>:<name>...`), kind names embedded in bytes (no backend-local registry), seg_count dropped → byte-lex order strictly tree-friendly (`m >= ancestor AND m < ancestor||sentinel` works on plain btree). Custom Datum + GiST opclass shipped. Compact projection (`moniker_compact` / `match_compact`) ships as a one-way display. Next backlog: per-language extractors beyond TS (Java, Python, Rust); benchmarks at corpus 10⁴/10⁶. Detail in TODO.md (gitignored).
+Phases 1–6 of SPEC shipped. v2 chantier ship: typed canonical URI (`<scheme>+moniker://<project>/<kind>:<name>...`), kind names embedded in bytes (no backend-local registry), seg_count dropped → byte-lex order strictly tree-friendly (`m >= ancestor AND m < ancestor||sentinel` works on plain btree). Custom Datum + GiST opclass shipped. Compact projection (`moniker_compact` / `match_compact`) ships as a one-way display. CodeGraph carries a moniker→idx HashMap so `find_def` is O(1) at corpus scale. TS, Rust, Java extractors shipped with full metadata (visibility / signature / alias / confidence / receiver_hint / same-file resolution / scope-tracked locals). Manifest parsers shipped for all three (`extract_cargo` / `extract_package_json` / `extract_pom_xml`). Multi-project dogfood panel under `test/dogfood/` for scaling validation. Next backlog: Python (tree-sitter) and SQL/PL-pgSQL (libpg_query). Detail in TODO.md (gitignored).
 
 ## Comment sobriety
 
@@ -27,46 +27,60 @@ Phases 1–6 of SPEC shipped. v2 chantier ship: typed canonical URI (`<scheme>+m
 
 ```
 src/
-  lib.rs              entry, gates pgrx behind pgN features
-  core/               pure Rust, no pgrx, testable with cargo test
-    moniker/          owned moniker type + tree-position queries
-      mod.rs          Moniker struct, Ord (byte-lex), re-exports
-      encoding.rs     v2 byte layout (no seg_count), EncodingError, LE helpers
-      view.rs         MonikerView + SegmentIter + is_ancestor_of (byte-prefix fast path)
-      builder.rs      MonikerBuilder + from_view + truncate
-      query.rs        parent / last_kind on Moniker
-    uri/              typed canonical URI parse / serialize, backtick escaping
-      mod.rs          UriError, UriConfig, re-exports
-      parse.rs        from_uri (`<scheme>+moniker://<project>/<kind>:<name>...`)
-      serialize.rs    to_uri + name escape
-    code_graph.rs     defs / refs / tree per module (kinds as byte strings)
-  pg/                 pgrx wrappers, gated behind pgN feature
-    mod.rs            module declarations + pcm_version smoke
-    registry.rs       DEFAULT_CONFIG (canonical scheme constant)
-    moniker/          moniker SQL type + operators
-      mod.rs          PostgresType + InOutFuncs + manual varlena Datum + `=`
-      query.rs        <@ / @> / parent_of / kind_of / path_of / compose_child
-      index.rs        btree + hash opclasses
-      gist.rs         GiST opclass (`=`, `@>`, `<@`); page sigs share v2 header
-      compact.rs      moniker_compact + match_compact (display projection)
-    code_graph.rs     code_graph SQL type + constructors + accessors
-    extract.rs        extract_typescript SQL entry point
-  lang/               per-language extractors
-    mod.rs
-    ts/               TS extractor (the canonical layout for new langs)
-      mod.rs          pub fn parse, pub fn extract
-      walker.rs       AST traversal + def emitters (class, method, function)
-      canonicalize.rs moniker construction (compute_module_moniker, extend_*)
-      refs.rs         refs extraction (imports today; calls/extends to come)
-      kinds.rs        TS kind name byte constants (PATH, CLASS, METHOD, …)
-    java/             future
-    python/           future
-    pgsql/            future
-test/sql/             pgTAP test files (run via ./test/run.sh)
-tests/fixtures/<lang>/   source fixtures with expected code_graph snapshots
+  lib.rs                entry, gates pgrx behind pgN features
+  core/                 pure Rust, no pgrx, testable with cargo test
+    moniker/            Moniker struct + Ord (byte-lex) + tree-position queries
+                        (mod, encoding, view, builder, query)
+    uri/                typed canonical URI parse / serialize (mod, parse, serialize)
+    code_graph.rs       defs / refs / O(1) moniker→idx index, DefAttrs / RefAttrs
+                        (visibility, signature, alias, confidence, receiver_hint)
+  pg/                   pgrx wrappers, gated behind pgN feature
+    moniker/            moniker SQL type + operators (btree / hash / GiST opclasses,
+                        compact projection)
+    code_graph.rs       code_graph SQL type + accessors (graph_defs / graph_refs
+                        carrying metadata columns)
+    extract.rs          extract_typescript / extract_rust / extract_java SQL entries
+    build.rs            extract_cargo / extract_package_json / extract_pom_xml
+  lang/                 per-language extractors
+    kinds.rs            cross-language vocabulary (VIS_* / CONF_* constants).
+                        New extractors `pub use` from here; never redeclare.
+    ts/                 TypeScript / TSX / JS / JSX
+      mod.rs            pub fn parse, pub fn extract, Presets
+      kinds.rs          TS-specific structural kinds + pub use of shared
+      canonicalize.rs   moniker construction
+      walker.rs         AST dispatch + def emitters
+      refs.rs           non-import ref emitters
+      imports.rs        imports / reexports + target builders
+      scope.rs          local-scope tracking + visibility helpers
+      build.rs          package.json parser
+    rs/                 Rust (mod / kinds / canonicalize / walker / refs / build)
+    java/               Java (mod / kinds / canonicalize / walker / refs / scope /
+                        build for pom.xml)
+test/
+  sql/                  pgTAP test files (run via ./test/run.sh)
+  dogfood.sh            multi-project ingestion runner
+  dogfood/panel.sh      pinned panel of representative open-source projects
+  dogfood/README.md     panel doctrine + spot-check queries
+examples/
+  bench_codegraph.rs    CodeGraph add_def / add_ref scaling bench
+  bench_extract.rs      full extractor on a real file (defaults to zod/types.ts)
 ```
 
 **No file > ~600 lines.** One responsibility per file, named by its suffix. When a file exceeds the cap, split the production module (subfiles with their own `mod tests`); do not extract the tests.
+
+## Extractor extension protocol
+
+A new language under `src/lang/<lang>/` mirrors the `ts/` skeleton:
+
+- `mod.rs` — `pub fn parse`, `pub fn extract(uri, source, anchor, deep, &Presets) -> CodeGraph`, `pub struct Presets` for caller-supplied hints.
+- `kinds.rs` — language-specific structural kinds + `pub(super) use crate::lang::kinds::{VIS_*, CONF_*}` for the shared vocabulary. Never redeclare visibility or confidence values.
+- `canonicalize.rs` — `compute_module_moniker`, `extend_segment`, `extend_callable` with arity-based segment names.
+- `walker.rs` — Walker struct (source bytes, module, deep, presets, scope state, language-specific tables like `imports` / `type_table`) + AST dispatch + def emitters.
+- `refs.rs` — ref emitters per kind. Use `RefAttrs { ..RefAttrs::default() }` shorthand so future fields land without touching every site. Reach for `add_ref_attrs` when emitting confidence / alias / receiver_hint; the bare `add_ref` is for cases where nothing is known.
+- `scope.rs` — local-scope stack (`record_local`, `is_local_name`, `name_confidence`) and language-specific visibility helper. Defaults differ per language — Java is `package`, TS is `public`. Push/pop on each callable so `confidence: local` stays accurate.
+- Optional `imports.rs` (when imports decompose into many specifiers) and `build.rs` (manifest parser yielding `Vec<Dep>` consumed by `src/pg/build.rs::extract_<system>`).
+
+Wire the SQL surface in `src/pg/extract.rs` (`#[pg_extern] fn extract_<lang>(...)`); add a pgTAP file under `test/sql/` and a panel entry to `test/dogfood/panel.sh` for scaling validation.
 
 ## TDD
 
@@ -76,6 +90,22 @@ Tests describe the contract before the implementation. Cycle: red test → minim
 - **SQL surface** : `pg/` is tested via **pgTAP**, files in `test/sql/*.sql`, runner `./test/run.sh` against the PG17 instance managed by pgrx. No `pgrx-tests` / `#[pg_test]` — SQL is tested in SQL.
 - **Iteration loop** : `cargo check --features pg17 --no-default-features` before `cargo pgrx install` — surfaces FFI errors in seconds; install is the slow last mile. The pgTAP runner recreates the DB but does NOT reinstall the extension; install first.
 - **Visibility for cross-layer constants** : `core/` items consumed by `pg/` need `pub(crate)`, not `pub(super)`. The `core::moniker::encoding` constants (`VERSION`, `HEADER_FIXED_LEN`, `read_u16`, `write_u16`) are the canonical example.
+
+## Workflow
+
+Canonical loop after a non-trivial change:
+
+```bash
+cargo check --features pg17 --no-default-features --tests   # FFI/lifetime check, seconds
+cargo test  --features pg17 --no-default-features --lib     # unit tests, sub-second
+cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
+./test/run.sh                                               # pgTAP suite, ~5s
+./test/dogfood.sh --only <project>                          # scaling validation
+```
+
+The dogfood runner clones the panel into `/dogfood/` (gitignored) on first use; subsequent runs reuse the clones unless `--reset` is passed.
+
+Bench at scale via `cargo run --release --example bench_codegraph` (CodeGraph throughput) or `cargo run --release --example bench_extract` (full extractor on a real file).
 
 ## pgrx 0.18 manual Datum
 
