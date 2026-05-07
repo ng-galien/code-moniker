@@ -4,6 +4,10 @@
 //! `b"class"`, `b"call"`) — not by a backend-local registry id, so
 //! graphs are portable.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+
 use crate::core::moniker::Moniker;
 
 pub type Position = (u32, u32);
@@ -50,15 +54,37 @@ impl std::fmt::Display for GraphError {
 
 impl std::error::Error for GraphError {}
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CodeGraph {
 	defs: Vec<DefRecord>,
 	refs: Vec<RefRecord>,
+	/// `moniker → defs[i]` index, kept in sync with `defs`. Skipped on
+	/// (de)serialization and rebuilt lazily; equality and hashing ignore
+	/// it because it's a derived cache.
+	#[cfg_attr(feature = "serde", serde(skip, default))]
+	index: RefCell<HashMap<Moniker, usize>>,
+}
+
+impl PartialEq for CodeGraph {
+	fn eq(&self, other: &Self) -> bool {
+		self.defs == other.defs && self.refs == other.refs
+	}
+}
+
+impl Eq for CodeGraph {}
+
+impl Hash for CodeGraph {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.defs.hash(state);
+		self.refs.hash(state);
+	}
 }
 
 impl CodeGraph {
 	pub fn new(root: Moniker, root_kind: &[u8]) -> Self {
+		let mut index = HashMap::with_capacity(8);
+		index.insert(root.clone(), 0);
 		Self {
 			defs: vec![DefRecord {
 				moniker: root,
@@ -67,6 +93,7 @@ impl CodeGraph {
 				position: None,
 			}],
 			refs: Vec::new(),
+			index: RefCell::new(index),
 		}
 	}
 
@@ -81,6 +108,9 @@ impl CodeGraph {
 			return Err(GraphError::DuplicateMoniker);
 		}
 		let parent_idx = self.find_def(parent).ok_or(GraphError::ParentNotFound)?;
+		let new_idx = self.defs.len();
+		// `find_def` above primed the cache, so it always reflects defs.len().
+		self.index.borrow_mut().insert(moniker.clone(), new_idx);
 		self.defs.push(DefRecord {
 			moniker,
 			kind: kind.to_vec(),
@@ -159,8 +189,19 @@ impl CodeGraph {
 		self.refs.len()
 	}
 
+	/// O(1) average via the moniker → index cache. Cache rebuilds in O(N)
+	/// the first time it's accessed after deserialization (when defs are
+	/// present but the cache field defaulted to empty).
 	fn find_def(&self, m: &Moniker) -> Option<usize> {
-		self.defs.iter().position(|d| &d.moniker == m)
+		if self.index.borrow().len() != self.defs.len() {
+			let mut idx = self.index.borrow_mut();
+			idx.clear();
+			idx.reserve(self.defs.len());
+			for (i, d) in self.defs.iter().enumerate() {
+				idx.insert(d.moniker.clone(), i);
+			}
+		}
+		self.index.borrow().get(m).copied()
 	}
 }
 
@@ -381,5 +422,21 @@ mod tests {
 		g1.hash(&mut h1);
 		g2.hash(&mut h2);
 		assert_eq!(h1.finish(), h2.finish());
+	}
+
+	#[test]
+	fn find_def_self_heals_after_deserialize_like_state() {
+		// Simulate the post-deserialize state where the cache field
+		// defaulted empty but defs is fully populated.
+		let root = mk(b"util");
+		let a = mk(b"a");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(a.clone(), b"class", &root, None).unwrap();
+		// Manually invalidate the cache.
+		g.index.borrow_mut().clear();
+
+		assert!(g.contains(&root));
+		assert!(g.contains(&a));
+		assert_eq!(g.locate(&a), None);
 	}
 }
