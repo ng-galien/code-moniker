@@ -1,0 +1,9 @@
+# Rust build artefacts
+/target
+
+# pgrx run-state (postgres data dirs, configs)
+/.pgrx
+
+# OS
+.DS_Store
+TODO.md

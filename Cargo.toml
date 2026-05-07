@@ -1,0 +1,45 @@
+[package]
+name        = "pg_code_moniker"
+version     = "0.1.0"
+edition     = "2024"
+publish     = false
+description = "Native types and indexed algebra for code symbol identity (moniker) and code graph storage (code_graph)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# -----------------------------------------------------------------------------
+# Features
+# -----------------------------------------------------------------------------
+# default = []  -- core/ compiles and tests without pgrx, no PG required.
+# pgN       -- pulls pgrx in for the SQL surface and the chosen PG major.
+#              Use one at a time: `cargo build --features pg17`.
+# pg_test   -- enables in-PG integration tests via pgrx-tests (added later).
+# -----------------------------------------------------------------------------
+[features]
+default = []
+pg14    = ["dep:pgrx", "pgrx/pg14"]
+pg15    = ["dep:pgrx", "pgrx/pg15"]
+pg16    = ["dep:pgrx", "pgrx/pg16"]
+pg17    = ["dep:pgrx", "pgrx/pg17"]
+pg_test = []
+
+[dependencies]
+pgrx = { version = "0.18", optional = true }
+
+# Tree-sitter and per-language grammars for the lang/ extractors.
+# Grammars are added one language at a time; only TypeScript for the MVP.
+tree-sitter            = "0.26"
+tree-sitter-typescript = "0.23"
+
+# -----------------------------------------------------------------------------
+# Profiles
+# -----------------------------------------------------------------------------
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic        = "unwind"
+opt-level    = 3
+lto          = "fat"
+codegen-units = 1
