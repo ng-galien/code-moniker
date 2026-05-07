@@ -149,7 +149,7 @@ impl<'src> Walker<'src> {
 
 fn compute_module_moniker(anchor: &Moniker, uri: &str, path_kind: KindId) -> Moniker {
 	let stem = strip_known_extension(uri);
-	let mut builder = clone_into_builder(anchor);
+	let mut builder = MonikerBuilder::from_view(anchor.as_view());
 	for seg in stem.split('/').filter(|s| !s.is_empty()) {
 		builder.segment(path_kind, seg.as_bytes());
 	}
@@ -164,29 +164,15 @@ fn strip_known_extension(uri: &str) -> &str {
 }
 
 fn extend_segment(parent: &Moniker, kind: KindId, bytes: &[u8]) -> Moniker {
-	let mut b = clone_into_builder(parent);
+	let mut b = MonikerBuilder::from_view(parent.as_view());
 	b.segment(kind, bytes);
 	b.build()
 }
 
 fn extend_method(parent: &Moniker, kind: KindId, bytes: &[u8], arity: u16) -> Moniker {
-	let mut b = clone_into_builder(parent);
+	let mut b = MonikerBuilder::from_view(parent.as_view());
 	b.method(kind, bytes, arity);
 	b.build()
-}
-
-fn clone_into_builder(m: &Moniker) -> MonikerBuilder {
-	let view = m.as_view();
-	let mut b = MonikerBuilder::new();
-	b.project(view.project());
-	for seg in view.segments() {
-		if seg.arity != 0 {
-			b.method(seg.kind, seg.bytes, seg.arity);
-		} else {
-			b.segment(seg.kind, seg.bytes);
-		}
-	}
-	b
 }
 
 fn node_position(node: Node<'_>) -> (u32, u32) {

@@ -13,6 +13,8 @@ use crate::core::moniker::{Moniker as CoreMoniker, MonikerView};
 use crate::core::uri::{from_uri, to_uri};
 use crate::pg::registry::{with_registry, DEFAULT_CONFIG};
 
+mod query;
+
 #[allow(non_camel_case_types)]
 #[derive(PostgresType, Serialize, Deserialize, Clone, Eq, PartialEq, Hash, Debug)]
 #[inoutfuncs]
