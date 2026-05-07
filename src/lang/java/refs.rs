@@ -123,10 +123,8 @@ impl<'src> Walker<'src> {
 				_ => "",
 			};
 			if !name.is_empty() {
-				let target = extend_segment(&self.module, kinds::CLASS, name.as_bytes());
-				let confidence = self
-					.import_confidence_for(name.as_bytes())
-					.unwrap_or(kinds::CONF_NAME_MATCH);
+				let (target, confidence) =
+					self.resolve_type_target(name.as_bytes(), kinds::CLASS);
 				let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 				let _ = graph.add_ref_attrs(
 					scope,
@@ -169,10 +167,7 @@ impl<'src> Walker<'src> {
 			} else {
 				kinds::CLASS
 			};
-			let target = extend_segment(&self.module, target_kind, name.as_bytes());
-			let confidence = self
-				.import_confidence_for(name.as_bytes())
-				.unwrap_or(kinds::CONF_NAME_MATCH);
+			let (target, confidence) = self.resolve_type_target(name.as_bytes(), target_kind);
 			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 			let _ = graph.add_ref_attrs(scope, target, edge, Some(node_position(child)), &attrs);
 		}
@@ -194,10 +189,8 @@ impl<'src> Walker<'src> {
 		if name.is_empty() {
 			return;
 		}
-		let target = self.calls_target(&name, 0);
-		let confidence = self
-			.import_confidence_for(name.as_bytes())
-			.unwrap_or(kinds::CONF_NAME_MATCH);
+		let (target, confidence) =
+			self.resolve_type_target(name.as_bytes(), kinds::ANNOTATION_TYPE);
 		let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 		let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &attrs);
 		if let Some(args) = node.child_by_field_name("arguments") {
@@ -237,10 +230,7 @@ impl<'src> Walker<'src> {
 		if name.is_empty() {
 			return;
 		}
-		let target = extend_segment(&self.module, kinds::CLASS, name.as_bytes());
-		let confidence = self
-			.import_confidence_for(name.as_bytes())
-			.unwrap_or(kinds::CONF_NAME_MATCH);
+		let (target, confidence) = self.resolve_type_target(name.as_bytes(), kinds::CLASS);
 		let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 		let _ = graph.add_ref_attrs(
 			scope,

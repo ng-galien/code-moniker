@@ -1,8 +1,8 @@
 //! Java-specific kind names.
 
 pub(super) use crate::lang::kinds::{
-	CONF_EXTERNAL, CONF_IMPORTED, CONF_LOCAL, CONF_NAME_MATCH, VIS_PACKAGE, VIS_PRIVATE,
-	VIS_PROTECTED, VIS_PUBLIC,
+	CONF_EXTERNAL, CONF_IMPORTED, CONF_LOCAL, CONF_NAME_MATCH, CONF_RESOLVED, VIS_PACKAGE,
+	VIS_PRIVATE, VIS_PROTECTED, VIS_PUBLIC,
 };
 
 // --- module shape --------------------------------------------------------

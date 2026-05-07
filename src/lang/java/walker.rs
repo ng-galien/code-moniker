@@ -24,6 +24,11 @@ pub(super) struct Walker<'src> {
 	/// java.util.List` puts `List → external`; relative project imports
 	/// put `Foo → imported`.
 	pub(super) imports: RefCell<HashMap<&'src [u8], &'static [u8]>>,
+	/// Short type name → full moniker for every type declared in this
+	/// compilation unit (top-level + nested). Built before the walk so
+	/// extends/implements/instantiates/uses_type/annotates emit
+	/// `confidence: resolved` with a real target when the name matches.
+	pub(super) type_table: HashMap<&'src [u8], Moniker>,
 }
 
 impl<'src> Walker<'src> {
@@ -48,6 +53,9 @@ impl<'src> Walker<'src> {
 			"constructor_declaration" => self.handle_constructor(node, scope, graph),
 			"field_declaration" => self.handle_field(node, scope, graph),
 			"local_variable_declaration" => self.handle_local_variable(node, scope, graph),
+			"catch_formal_parameter" => self.handle_catch_param(node, scope, graph),
+			"enhanced_for_statement" => self.handle_enhanced_for(node, scope, graph),
+			"lambda_expression" => self.handle_lambda(node, scope, graph),
 			"method_invocation" => self.handle_method_invocation(node, scope, graph),
 			"object_creation_expression" => self.handle_object_creation(node, scope, graph),
 			"marker_annotation" | "annotation" => self.handle_annotation(node, scope, graph),
@@ -324,6 +332,117 @@ impl<'src> Walker<'src> {
 		}
 	}
 
+	// --- deep: catch / for-each / lambda --------------------------------
+
+	fn handle_catch_param(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		// `catch (IOException e)` — `e` is a local in the enclosing
+		// callable. The type child also needs a uses_type ref.
+		if let Some(t) = node.child_by_field_name("type") {
+			self.emit_uses_type(t, scope, graph);
+		}
+		let Some(name_node) = node.child_by_field_name("name") else { return };
+		let name = self.text_of(name_node);
+		if name.is_empty() {
+			return;
+		}
+		if is_callable_scope(scope, &self.module) {
+			self.record_local(name.as_bytes());
+			if self.deep {
+				let m = extend_segment(scope, kinds::PARAM, name.as_bytes());
+				let _ = graph.add_def(m, kinds::PARAM, scope, Some(node_position(node)));
+			}
+		}
+	}
+
+	fn handle_enhanced_for(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		// `for (T x : iter) { ... }` — `x` is a local. Type goes through
+		// uses_type; the iter expression and body still need normal walk.
+		if let Some(t) = node.child_by_field_name("type") {
+			self.emit_uses_type(t, scope, graph);
+		}
+		if let Some(name_node) = node.child_by_field_name("name") {
+			let name = self.text_of(name_node);
+			if !name.is_empty() && is_callable_scope(scope, &self.module) {
+				self.record_local(name.as_bytes());
+				if self.deep {
+					let m = extend_segment(scope, kinds::LOCAL, name.as_bytes());
+					let _ = graph.add_def(
+						m,
+						kinds::LOCAL,
+						scope,
+						Some(node_position(name_node)),
+					);
+				}
+			}
+		}
+		if let Some(value) = node.child_by_field_name("value") {
+			self.dispatch(value, scope, graph);
+		}
+		if let Some(body) = node.child_by_field_name("body") {
+			self.walk(body, scope, graph);
+		}
+	}
+
+	fn handle_lambda(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		// `(a, b) -> a + b` / `a -> a` / `(int a) -> a`. Lambdas
+		// introduce a new local frame so the body's references resolve
+		// correctly. The lambda itself is not emitted as a def in the
+		// MVP — its parameters are recorded as locals when the
+		// surrounding scope is a callable.
+		self.push_local_scope();
+		if let Some(params) = node.child_by_field_name("parameters") {
+			match params.kind() {
+				"identifier" => {
+					let name = self.text_of(params);
+					if !name.is_empty() {
+						self.record_local(name.as_bytes());
+						if self.deep && is_callable_scope(scope, &self.module) {
+							let m = extend_segment(scope, kinds::PARAM, name.as_bytes());
+							let _ = graph.add_def(
+								m,
+								kinds::PARAM,
+								scope,
+								Some(node_position(params)),
+							);
+						}
+					}
+				}
+				"inferred_parameters" | "formal_parameters" => {
+					let mut cursor = params.walk();
+					for child in params.named_children(&mut cursor) {
+						let name_node = match child.kind() {
+							"identifier" => Some(child),
+							"formal_parameter" | "spread_parameter" => {
+								child.child_by_field_name("name")
+							}
+							_ => None,
+						};
+						let Some(nn) = name_node else { continue };
+						let name = self.text_of(nn);
+						if name.is_empty() {
+							continue;
+						}
+						self.record_local(name.as_bytes());
+						if self.deep && is_callable_scope(scope, &self.module) {
+							let m = extend_segment(scope, kinds::PARAM, name.as_bytes());
+							let _ = graph.add_def(
+								m,
+								kinds::PARAM,
+								scope,
+								Some(node_position(nn)),
+							);
+						}
+					}
+				}
+				_ => {}
+			}
+		}
+		if let Some(body) = node.child_by_field_name("body") {
+			self.walk(body, scope, graph);
+		}
+		self.pop_local_scope();
+	}
+
 	// --- annotations -----------------------------------------------------
 
 	fn emit_annotations_from(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
@@ -365,6 +484,41 @@ pub(super) fn formal_parameter_count(callable: Node<'_>) -> u16 {
 		}
 	}
 	count
+}
+
+/// Pre-pass: walk every type declaration (top-level + nested) under
+/// `node` and record `short-name → moniker` so refs to those names
+/// can be tagged `resolved` with a real target.
+pub(super) fn collect_type_table<'src>(
+	node: Node<'_>,
+	source: &'src [u8],
+	parent: &Moniker,
+	out: &mut HashMap<&'src [u8], Moniker>,
+) {
+	let mut cursor = node.walk();
+	for child in node.children(&mut cursor) {
+		let kind: Option<&[u8]> = match child.kind() {
+			"class_declaration" => Some(kinds::CLASS),
+			"interface_declaration" => Some(kinds::INTERFACE),
+			"enum_declaration" => Some(kinds::ENUM),
+			"record_declaration" => Some(kinds::RECORD),
+			"annotation_type_declaration" => Some(kinds::ANNOTATION_TYPE),
+			_ => None,
+		};
+		let Some(kind) = kind else {
+			collect_type_table(child, source, parent, out);
+			continue;
+		};
+		let Some(name_node) = child.child_by_field_name("name") else { continue };
+		let Ok(name) = name_node.utf8_text(source) else { continue };
+		let m = extend_segment(parent, kind, name.as_bytes());
+		// First-write-wins: a top-level type shouldn't be shadowed by a
+		// later nested namesake.
+		out.entry(name.as_bytes()).or_insert_with(|| m.clone());
+		if let Some(body) = child.child_by_field_name("body") {
+			collect_type_table(body, source, &m, out);
+		}
+	}
 }
 
 /// Comma-joined parameter type list. The signature is stored on the

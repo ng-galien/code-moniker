@@ -8,6 +8,7 @@ use tree_sitter::{Language, Parser, Tree};
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
+pub mod build;
 mod canonicalize;
 mod kinds;
 mod refs;
@@ -15,7 +16,7 @@ mod scope;
 mod walker;
 
 use canonicalize::{compute_module_moniker, read_package_name};
-use walker::Walker;
+use walker::{collect_type_table, Walker};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
@@ -48,6 +49,8 @@ pub fn extract(
 	let pieces: Vec<&str> = pkg.split('.').filter(|s| !s.is_empty()).collect();
 	let module = compute_module_moniker(anchor, uri, &pieces);
 	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
+	let mut type_table: HashMap<&[u8], Moniker> = HashMap::new();
+	collect_type_table(tree.root_node(), source.as_bytes(), &module, &mut type_table);
 	let walker = Walker {
 		source_bytes: source.as_bytes(),
 		module: module.clone(),
@@ -55,6 +58,7 @@ pub fn extract(
 		presets,
 		local_scope: RefCell::new(Vec::new()),
 		imports: RefCell::new(HashMap::<&[u8], &'static [u8]>::new()),
+		type_table,
 	};
 	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
@@ -275,6 +279,113 @@ mod tests {
 		if let Some(r) = reads_helpers {
 			assert_eq!(r.confidence, b"imported".to_vec());
 		}
+	}
+
+	#[test]
+	fn extract_same_file_type_resolves_with_real_target() {
+		// `Bar` is declared in the same file → uses_type / instantiates
+		// land on the actual `module:Foo/class:Bar` moniker with
+		// confidence=resolved.
+		let src = r#"
+            class Bar {}
+            class Foo {
+                Bar b;
+                Object m() { return new Bar(); }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+
+		let bar_def = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"module", b"Foo")
+			.segment(b"class", b"Bar")
+			.build();
+
+		let uses = g
+			.refs()
+			.find(|r| r.kind == b"uses_type" && r.target == bar_def)
+			.expect("uses_type ref to Bar");
+		assert_eq!(uses.confidence, b"resolved".to_vec());
+
+		let inst = g
+			.refs()
+			.find(|r| r.kind == b"instantiates" && r.target == bar_def)
+			.expect("instantiates ref to Bar");
+		assert_eq!(inst.confidence, b"resolved".to_vec());
+	}
+
+	#[test]
+	fn extract_nested_type_resolves_via_table() {
+		let src = r#"
+            class Outer {
+                static class Inner {}
+                Inner make() { return new Inner(); }
+            }
+        "#;
+		let g = extract_default("Outer.java", src, &make_anchor(), false);
+		let inner = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"module", b"Outer")
+			.segment(b"class", b"Outer")
+			.segment(b"class", b"Inner")
+			.build();
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"instantiates" && r.target == inner)
+			.expect("instantiates Inner");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+	}
+
+	#[test]
+	fn extract_deep_catch_param_emits_local_def() {
+		let src = r#"
+            class Foo {
+                void m() { try {} catch (IOException e) { e.toString(); } }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), true);
+		let e = g
+			.def_monikers()
+			.into_iter()
+			.find(|m| {
+				let last = m.as_view().segments().last().unwrap();
+				last.kind == b"param" && last.name == b"e"
+			});
+		assert!(e.is_some(), "catch param should be emitted as a param def in deep mode");
+	}
+
+	#[test]
+	fn extract_deep_enhanced_for_var_is_local() {
+		let src = r#"
+            class Foo {
+                void m(java.util.List<String> xs) { for (String x : xs) { x.length(); } }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), true);
+		assert!(
+			g.defs().any(|d| d.kind == b"local"
+				&& d.moniker.as_view().segments().last().unwrap().name == b"x"),
+			"enhanced-for var should be a local def"
+		);
+	}
+
+	#[test]
+	fn extract_lambda_param_marks_reads_as_local() {
+		// `(a, b) -> a + b` — refs to a/b inside the body should be
+		// `confidence: local` because the lambda introduces its own
+		// scope frame.
+		let src = r#"
+            class Foo {
+                java.util.function.BinaryOperator<Integer> add = (a, b) -> a + b;
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let read_a = g
+			.refs()
+			.find(|r| r.kind == b"reads"
+				&& r.target.as_view().segments().last().unwrap().name == b"a")
+			.expect("reads a inside lambda");
+		assert_eq!(read_a.confidence, b"local".to_vec());
 	}
 
 	#[test]

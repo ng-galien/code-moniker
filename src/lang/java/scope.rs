@@ -95,4 +95,23 @@ impl<'src> Walker<'src> {
 	pub(super) fn import_confidence_for(&self, name: &[u8]) -> Option<&'static [u8]> {
 		self.imports.borrow().get(name).copied()
 	}
+
+	/// Resolve a type-name reference. Priority order:
+	///   1. type declared in this file → `(real moniker, resolved)`
+	///   2. imported name → `(name-keyed target, imported|external)`
+	///   3. otherwise → `(name-keyed target, name_match)`
+	pub(super) fn resolve_type_target(
+		&self,
+		name: &[u8],
+		fallback_kind: &[u8],
+	) -> (Moniker, &'static [u8]) {
+		if let Some(m) = self.type_table.get(name) {
+			return (m.clone(), kinds::CONF_RESOLVED);
+		}
+		let target = super::canonicalize::extend_segment(&self.module, fallback_kind, name);
+		let confidence = self
+			.import_confidence_for(name)
+			.unwrap_or(kinds::CONF_NAME_MATCH);
+		(target, confidence)
+	}
 }
