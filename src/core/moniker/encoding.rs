@@ -13,8 +13,8 @@
 
 use std::fmt;
 
-pub(super) const VERSION: u8 = 1;
-pub(super) const HEADER_FIXED_LEN: usize =
+pub(crate) const VERSION: u8 = 1;
+pub(crate) const HEADER_FIXED_LEN: usize =
 	1   /* version     */
 	+ 2 /* project_len */
 	+ 2 /* seg_count   */;
@@ -43,7 +43,7 @@ impl fmt::Display for EncodingError {
 
 impl std::error::Error for EncodingError {}
 
-pub(super) fn read_u16(buf: &[u8], off: usize) -> u16 {
+pub(crate) fn read_u16(buf: &[u8], off: usize) -> u16 {
 	u16::from_le_bytes([buf[off], buf[off + 1]])
 }
 

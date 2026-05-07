@@ -13,7 +13,7 @@
 //! (`bar(N).`). For other punct classes it is required to be `0`.
 
 mod builder;
-mod encoding;
+pub(crate) mod encoding;
 mod query;
 mod view;
 
