@@ -29,6 +29,7 @@ pub type Position = (u32, u32);
 
 /// One node of a code graph.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DefRecord {
 	pub moniker: Moniker,
 	pub kind: KindId,
@@ -42,6 +43,7 @@ pub struct DefRecord {
 
 /// One outgoing reference of a code graph.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RefRecord {
 	/// Index of the def from which this ref originates.
 	pub source: usize,
@@ -77,6 +79,7 @@ impl std::error::Error for GraphError {}
 
 /// Internal structure of one module.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CodeGraph {
 	defs: Vec<DefRecord>,
 	refs: Vec<RefRecord>,

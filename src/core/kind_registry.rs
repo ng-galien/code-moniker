@@ -12,7 +12,7 @@
 //! back the registry with a PG table.
 
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// Punctuation class for a kind. Drives SCIP-style URI serialisation:
 ///
@@ -36,6 +36,7 @@ pub enum PunctClass {
 /// `KindId(0)` is reserved as [`KindId::INVALID`]. Real interns start
 /// at id 1. The [`Default`] impl returns `INVALID`.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct KindId(u16);
 
 impl KindId {
@@ -59,14 +60,14 @@ impl KindId {
 
 #[derive(Debug)]
 struct KindEntry {
-	name: Rc<str>,
+	name: Arc<str>,
 	punct: PunctClass,
 }
 
 /// Registry of interned kinds.
 #[derive(Debug, Default)]
 pub struct KindRegistry {
-	by_name: HashMap<Rc<str>, KindId>,
+	by_name: HashMap<Arc<str>, KindId>,
 	entries: Vec<KindEntry>,
 }
 
@@ -91,10 +92,10 @@ impl KindRegistry {
 		if self.entries.len() >= u16::MAX as usize {
 			return None;
 		}
-		let s: Rc<str> = Rc::from(name);
+		let s: Arc<str> = Arc::from(name);
 		let id = KindId((self.entries.len() as u16) + 1);
 		self.entries.push(KindEntry {
-			name: Rc::clone(&s),
+			name: Arc::clone(&s),
 			punct,
 		});
 		self.by_name.insert(s, id);

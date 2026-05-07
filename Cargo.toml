@@ -18,14 +18,16 @@ crate-type = ["cdylib", "rlib"]
 # -----------------------------------------------------------------------------
 [features]
 default = []
-pg14    = ["dep:pgrx", "pgrx/pg14"]
-pg15    = ["dep:pgrx", "pgrx/pg15"]
-pg16    = ["dep:pgrx", "pgrx/pg16"]
-pg17    = ["dep:pgrx", "pgrx/pg17"]
+serde   = ["dep:serde"]
+pg14    = ["dep:pgrx", "pgrx/pg14", "serde"]
+pg15    = ["dep:pgrx", "pgrx/pg15", "serde"]
+pg16    = ["dep:pgrx", "pgrx/pg16", "serde"]
+pg17    = ["dep:pgrx", "pgrx/pg17", "serde"]
 pg_test = []
 
 [dependencies]
-pgrx = { version = "0.18", optional = true }
+pgrx  = { version = "0.18", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
 
 # Tree-sitter and per-language grammars for the lang/ extractors.
 # Grammars are added one language at a time; only TypeScript for the MVP.

@@ -3,6 +3,10 @@
 
 use pgrx::prelude::*;
 
+pub mod code_graph;
+pub mod moniker;
+mod registry;
+
 /// Smoke-test entry point. Returns the crate version as `text`.
 #[pg_extern]
 fn pcm_version() -> &'static str {

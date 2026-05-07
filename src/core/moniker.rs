@@ -77,6 +77,7 @@ pub struct Segment<'a> {
 
 /// Owned encoded moniker. Wraps the canonical byte layout.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Moniker {
 	bytes: Vec<u8>,
 }
