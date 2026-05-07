@@ -13,6 +13,7 @@
 use pgrx::prelude::*;
 
 use super::moniker;
+use crate::pg::registry::DEFAULT_CONFIG;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum PunctClass {
@@ -37,48 +38,78 @@ fn class_for(kind: &[u8]) -> PunctClass {
 	}
 }
 
+/// SCIP-grammar reserved bytes that need backtick-quoting inside a
+/// name. `/` and `#` are segment separators; `.` terminates Term and
+/// Method descriptors; backtick is the escape character. Parens are
+/// not in the set because v2 method names already carry their
+/// `()`/`(N)` disambiguator and SCIP-style display expects them
+/// rendered raw (`#bar().`).
+const RESERVED: &[u8] = b"/#.`";
+
+fn name_needs_escaping(bytes: &[u8]) -> bool {
+	bytes.is_empty()
+		|| bytes
+			.iter()
+			.any(|b| RESERVED.contains(b) || b.is_ascii_whitespace())
+}
+
+fn push_name(out: &mut String, bytes: &[u8]) {
+	let s = std::str::from_utf8(bytes)
+		.unwrap_or_else(|_| error!("moniker name must be UTF-8"));
+	if !name_needs_escaping(bytes) {
+		out.push_str(s);
+		return;
+	}
+	out.push('`');
+	for c in s.chars() {
+		if c == '`' {
+			out.push_str("``");
+		} else {
+			out.push(c);
+		}
+	}
+	out.push('`');
+}
+
+/// Base scheme of the compact form, derived by stripping the
+/// `+moniker://` profile suffix from the canonical scheme.
+fn compact_scheme() -> String {
+	let canonical = DEFAULT_CONFIG.scheme;
+	let base = canonical.strip_suffix("+moniker://").unwrap_or("esac");
+	format!("{base}://")
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_compact(m: moniker) -> String {
 	let view = m.view();
-	let project = std::str::from_utf8(view.project())
-		.unwrap_or_else(|_| error!("moniker project must be UTF-8"));
 	let mut out = String::with_capacity(view.as_bytes().len() + 16);
-	out.push_str("esac://");
-	out.push_str(project);
+	out.push_str(&compact_scheme());
+	push_name(&mut out, view.project());
 
 	let mut in_descriptor = false;
 	for seg in view.segments() {
-		let name = std::str::from_utf8(seg.name)
-			.unwrap_or_else(|_| error!("moniker segment name must be UTF-8"));
 		match class_for(seg.kind) {
 			PunctClass::Path => {
 				out.push('/');
-				out.push_str(name);
+				push_name(&mut out, seg.name);
 			}
 			PunctClass::Type => {
 				if !in_descriptor {
 					out.push('#');
 					in_descriptor = true;
 				}
-				out.push_str(name);
+				push_name(&mut out, seg.name);
 				out.push('#');
 			}
-			PunctClass::Term => {
+			PunctClass::Term | PunctClass::Method => {
+				// v2 method names already carry their `()`/`(N)`
+				// disambiguator, so SCIP-method serialization collapses
+				// onto the same shape as a term: `name.`.
 				if !in_descriptor {
 					out.push('#');
 					in_descriptor = true;
 				}
-				out.push_str(name);
-				out.push('.');
-			}
-			PunctClass::Method => {
-				if !in_descriptor {
-					out.push('#');
-					in_descriptor = true;
-				}
-				// v2 method names already carry their `()` or `(N)` disambiguator
-				// inside the bytes, so just append SCIP's trailing `.`.
-				out.push_str(name);
+				push_name(&mut out, seg.name);
 				out.push('.');
 			}
 		}

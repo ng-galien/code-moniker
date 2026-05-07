@@ -8,7 +8,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(11);
+SELECT plan(13);
 
 -- Surface ------------------------------------------------------------------
 
@@ -51,12 +51,26 @@ SELECT is(
 
 -- Aliasing across kind precision -------------------------------------------
 
--- `class:Foo` and `interface:Foo` collapse to the same compact text,
--- which is the explicit trade-off documented in MONIKER_URI.md.
+-- `class:Foo` and `interface:Foo` collapse to the same compact text;
+-- intentional trade-off, identity belongs to the canonical typed URI.
 SELECT is(
 	moniker_compact('esac+moniker://app/class:Foo'::moniker),
 	moniker_compact('esac+moniker://app/interface:Foo'::moniker),
 	'class and interface alias under compact projection (intentional)');
+
+-- Backtick escape on names containing SCIP-reserved chars. Without
+-- escape, `util/test.ts` would collide with a two-segment path chain
+-- and break match_compact correctness.
+SELECT is(
+	moniker_compact('esac+moniker://app/path:`util/test.ts`'::moniker),
+	'esac://app/`util/test.ts`',
+	'name with `/` is backtick-quoted in the compact form');
+
+SELECT ok(
+	match_compact(
+		'esac+moniker://app/path:`util/test.ts`'::moniker,
+		'esac://app/`util/test.ts`'),
+	'match_compact agrees with moniker_compact on escaped names');
 
 -- match_compact -----------------------------------------------------------
 
