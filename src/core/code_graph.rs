@@ -23,6 +23,12 @@ pub struct DefRecord {
 	/// `package`, `private`, `module`. Empty when the language does not
 	/// expose the concept for this def (locals, params, sections).
 	pub visibility: Vec<u8>,
+	/// Callable signature for languages where arity alone doesn't
+	/// disambiguate overloads (Java parameter types, SQL argument
+	/// types). Format is language-specific and consumer-opaque. Empty
+	/// for non-callables and for languages that encode disambiguation
+	/// in the moniker name (TS arity).
+	pub signature: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -49,6 +55,7 @@ pub struct RefRecord {
 #[derive(Clone, Debug, Default)]
 pub struct DefAttrs<'a> {
 	pub visibility: &'a [u8],
+	pub signature: &'a [u8],
 }
 
 /// Optional ref attributes. Defaults are empty.
@@ -116,6 +123,7 @@ impl CodeGraph {
 				parent: None,
 				position: None,
 				visibility: Vec::new(),
+				signature: Vec::new(),
 			}],
 			refs: Vec::new(),
 			index: RefCell::new(index),
@@ -152,6 +160,7 @@ impl CodeGraph {
 			parent: Some(parent_idx),
 			position,
 			visibility: attrs.visibility.to_vec(),
+			signature: attrs.signature.to_vec(),
 		});
 		Ok(())
 	}

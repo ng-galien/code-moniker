@@ -251,13 +251,11 @@ impl<'src> Walker<'src> {
 			"identifier" => {
 				let name = self.text_of(fn_node);
 				let target = self.calls_target(name, arity);
-				let _ = graph.add_ref_attrs(
-					scope,
-					target,
-					kinds::CALLS,
-					Some(pos),
-					&name_match_attrs(),
-				);
+				let attrs = RefAttrs {
+					confidence: self.name_confidence(name.as_bytes()),
+					..RefAttrs::default()
+				};
+				let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
 				self.maybe_emit_di_register(node, fn_node, scope, graph, pos);
 			}
 			"member_expression" => {
@@ -542,7 +540,11 @@ impl<'src> Walker<'src> {
 			return;
 		}
 		let target = self.read_target(name);
-		let _ = graph.add_ref_attrs(scope, target, kinds::READS, Some(node_position(node)), &name_match_attrs());
+		let attrs = RefAttrs {
+			confidence: self.name_confidence(name.as_bytes()),
+			..RefAttrs::default()
+		};
+		let _ = graph.add_ref_attrs(scope, target, kinds::READS, Some(node_position(node)), &attrs);
 	}
 
 	pub(super) fn handle_member_like(

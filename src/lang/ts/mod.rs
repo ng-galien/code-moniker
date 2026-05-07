@@ -53,6 +53,7 @@ pub fn extract(
 		deep,
 		presets,
 		export_ranges,
+		local_scope: std::cell::RefCell::new(Vec::new()),
 	};
 	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
@@ -546,6 +547,74 @@ mod tests {
 		);
 		let r = g.refs().next().unwrap();
 		assert_eq!(r.alias, b"Mod".to_vec());
+	}
+
+	#[test]
+	fn extract_reads_param_marks_confidence_local() {
+		let g = extract(
+			"util.ts",
+			"function f(x) { return x; }",
+			&make_anchor(),
+			false,
+		);
+		let r = g.refs().find(|r| r.kind == b"reads").expect("reads ref");
+		assert_eq!(r.confidence, b"local".to_vec(), "ref to a param is local");
+	}
+
+	#[test]
+	fn extract_reads_unbound_identifier_marks_name_match() {
+		let g = extract(
+			"util.ts",
+			"function f() { return outsideVar; }",
+			&make_anchor(),
+			false,
+		);
+		let r = g.refs().find(|r| r.kind == b"reads").unwrap();
+		assert_eq!(r.confidence, b"name_match".to_vec());
+	}
+
+	#[test]
+	fn extract_calls_local_function_marks_confidence_local() {
+		let g = extract(
+			"util.ts",
+			"function f() { const helper = () => 1; helper(); }",
+			&make_anchor(),
+			false,
+		);
+		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
+		assert_eq!(
+			r.confidence,
+			b"local".to_vec(),
+			"call into a locally-bound name is local"
+		);
+	}
+
+	#[test]
+	fn extract_local_def_has_no_visibility() {
+		let g = extract(
+			"util.ts",
+			"function f() { let x = 1; }",
+			&make_anchor(),
+			true,
+		);
+		let local = g.defs().find(|d| d.kind == b"local").expect("local def");
+		assert!(
+			local.visibility.is_empty(),
+			"locals must not carry a synthetic visibility, got {:?}",
+			String::from_utf8_lossy(&local.visibility)
+		);
+	}
+
+	#[test]
+	fn extract_param_def_has_no_visibility() {
+		let g = extract(
+			"util.ts",
+			"function f(x) {}",
+			&make_anchor(),
+			true,
+		);
+		let p = g.defs().find(|d| d.kind == b"param").expect("param def");
+		assert!(p.visibility.is_empty());
 	}
 
 	#[test]

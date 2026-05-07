@@ -2,6 +2,9 @@
 //! its def emitter or to the refs module. Scope = innermost enclosing
 //! def; it doubles as `parent` for new defs and as `source` for refs.
 
+use std::cell::RefCell;
+use std::collections::HashSet;
+
 use tree_sitter::Node;
 
 use crate::core::code_graph::{CodeGraph, DefAttrs};
@@ -21,6 +24,9 @@ pub(super) struct Walker<'src> {
 	/// scope def emitters answer "am I exported?" without looking at
 	/// the AST parent.
 	pub(super) export_ranges: Vec<(u32, u32)>,
+	/// Stack of in-scope local names per enclosing callable. Refs
+	/// whose target name matches any frame get `confidence: local`.
+	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 }
 
 /// Pre-pass: collect every top-level `export_statement` node's byte range.
@@ -51,6 +57,38 @@ impl<'src> Walker<'src> {
 			kinds::VIS_PUBLIC
 		} else {
 			kinds::VIS_MODULE
+		}
+	}
+
+	pub(super) fn push_local_scope(&self) {
+		self.local_scope.borrow_mut().push(HashSet::new());
+	}
+
+	pub(super) fn pop_local_scope(&self) {
+		self.local_scope.borrow_mut().pop();
+	}
+
+	pub(super) fn record_local(&self, name: &[u8]) {
+		if let Some(top) = self.local_scope.borrow_mut().last_mut() {
+			top.insert(name.to_vec());
+		}
+	}
+
+	pub(super) fn is_local_name(&self, name: &[u8]) -> bool {
+		self.local_scope
+			.borrow()
+			.iter()
+			.any(|frame| frame.contains(name))
+	}
+
+	/// Confidence bucket for refs whose target is name-keyed: `local` if
+	/// the name binds to a param/local in some enclosing callable scope,
+	/// `name_match` otherwise.
+	pub(super) fn name_confidence(&self, name: &[u8]) -> &'static [u8] {
+		if self.is_local_name(name) {
+			kinds::CONF_LOCAL
+		} else {
+			kinds::CONF_NAME_MATCH
 		}
 	}
 
@@ -146,7 +184,7 @@ impl<'src> Walker<'src> {
 			}
 		}
 		if has_default {
-			let public = DefAttrs { visibility: kinds::VIS_PUBLIC };
+			let public = DefAttrs { visibility: kinds::VIS_PUBLIC, ..DefAttrs::default() };
 			let mut cursor = node.walk();
 			for c in node.children(&mut cursor) {
 				match c.kind() {
@@ -190,7 +228,7 @@ impl<'src> Walker<'src> {
 	fn handle_class(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
 		let m = extend_segment(scope, kinds::CLASS, name.as_bytes());
-		let attrs = DefAttrs { visibility: self.module_visibility(node) };
+		let attrs = DefAttrs { visibility: self.module_visibility(node), ..DefAttrs::default() };
 		let _ = graph.add_def_attrs(
 			m.clone(),
 			kinds::CLASS,
@@ -234,6 +272,7 @@ impl<'src> Walker<'src> {
 		let m = extend_method(parent, kind, name.as_bytes(), arity);
 		let attrs = DefAttrs {
 			visibility: class_member_visibility(node, self.source_bytes),
+			..DefAttrs::default()
 		};
 		let _ = graph.add_def_attrs(
 			m.clone(),
@@ -271,6 +310,7 @@ impl<'src> Walker<'src> {
 		let m = extend_segment(parent, kinds::FIELD, name.as_bytes());
 		let attrs = DefAttrs {
 			visibility: class_member_visibility(node, self.source_bytes),
+			..DefAttrs::default()
 		};
 		let _ = graph.add_def_attrs(
 			m.clone(),
@@ -303,7 +343,7 @@ impl<'src> Walker<'src> {
 	fn handle_interface(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
 		let m = extend_segment(scope, kinds::INTERFACE, name.as_bytes());
-		let attrs = DefAttrs { visibility: self.module_visibility(node) };
+		let attrs = DefAttrs { visibility: self.module_visibility(node), ..DefAttrs::default() };
 		let _ = graph.add_def_attrs(
 			m.clone(),
 			kinds::INTERFACE,
@@ -338,7 +378,7 @@ impl<'src> Walker<'src> {
 	fn handle_enum(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
 		let m = extend_segment(scope, kinds::ENUM, name.as_bytes());
-		let attrs = DefAttrs { visibility: self.module_visibility(node) };
+		let attrs = DefAttrs { visibility: self.module_visibility(node), ..DefAttrs::default() };
 		let _ = graph.add_def_attrs(
 			m.clone(),
 			kinds::ENUM,
@@ -373,7 +413,7 @@ impl<'src> Walker<'src> {
 	fn handle_type_alias(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
 		let m = extend_segment(scope, kinds::TYPE_ALIAS, name.as_bytes());
-		let attrs = DefAttrs { visibility: self.module_visibility(node) };
+		let attrs = DefAttrs { visibility: self.module_visibility(node), ..DefAttrs::default() };
 		let _ = graph.add_def_attrs(
 			m.clone(),
 			kinds::TYPE_ALIAS,
@@ -421,6 +461,9 @@ impl<'src> Walker<'src> {
 
 		let module_vis = self.module_visibility(decl);
 		for name in &names {
+			if inside_callable {
+				self.record_local(name.as_bytes());
+			}
 			let (kind, emit) = if inside_callable {
 				(kinds::LOCAL, self.deep)
 			} else if let Some(v) = value.filter(|v| {
@@ -441,8 +484,11 @@ impl<'src> Walker<'src> {
 			};
 			if emit {
 				let m = extend_segment(scope, kind, name.as_bytes());
+				// Locals carry no visibility — the concept doesn't apply
+				// below the callable boundary.
 				let attrs = DefAttrs {
-					visibility: if inside_callable { kinds::VIS_PRIVATE } else { module_vis },
+					visibility: if inside_callable { b"" } else { module_vis },
+					..DefAttrs::default()
 				};
 				let _ = graph.add_def_attrs(m, kind, scope, Some(node_position(decl)), &attrs);
 			}
@@ -493,12 +539,15 @@ impl<'src> Walker<'src> {
 	}
 
 	fn emit_param_leaf(&self, pat: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
-		if !self.deep {
-			return;
-		}
 		for name in collect_binding_names(pat, self.source_bytes) {
-			let m = extend_segment(callable, kinds::PARAM, name.as_bytes());
-			let _ = graph.add_def(m, kinds::PARAM, callable, Some(node_position(pat)));
+			// Record for `confidence: local` regardless of `deep` — the
+			// scope stack always tracks locals so refs source on real
+			// bindings rather than miscategorise them as name_match.
+			self.record_local(name.as_bytes());
+			if self.deep {
+				let m = extend_segment(callable, kinds::PARAM, name.as_bytes());
+				let _ = graph.add_def(m, kinds::PARAM, callable, Some(node_position(pat)));
+			}
 		}
 	}
 
@@ -512,15 +561,9 @@ impl<'src> Walker<'src> {
 	) {
 		if self.deep && is_callable_scope(scope, &self.module) {
 			let name = anonymous_callback_name(node);
-			self.emit_callable(
-				node,
-				node,
-				&name,
-				kinds::FUNCTION,
-				scope,
-				graph,
-				kinds::VIS_PRIVATE,
-			);
+			// Anonymous callbacks below a callable have no meaningful
+			// visibility — they're resource-scoped like their locals.
+			self.emit_callable(node, node, &name, kinds::FUNCTION, scope, graph, b"");
 			return;
 		}
 		if let Some(params) = node.child_by_field_name("parameters") {
@@ -532,7 +575,7 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_catch_clause(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		if self.deep && is_callable_scope(scope, &self.module) {
+		if is_callable_scope(scope, &self.module) {
 			if let Some(p) = node.child_by_field_name("parameter") {
 				self.emit_param_leaf(p, scope, graph);
 			}
@@ -543,12 +586,16 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_for_in(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		if self.deep && is_callable_scope(scope, &self.module) {
+		if is_callable_scope(scope, &self.module) {
 			let mut cursor = node.walk();
 			for c in node.named_children(&mut cursor) {
 				if c.kind() == "identifier" {
-					let m = extend_segment(scope, kinds::LOCAL, self.text_of(c).as_bytes());
-					let _ = graph.add_def(m, kinds::LOCAL, scope, Some(node_position(c)));
+					let name = self.text_of(c);
+					self.record_local(name.as_bytes());
+					if self.deep {
+						let m = extend_segment(scope, kinds::LOCAL, name.as_bytes());
+						let _ = graph.add_def(m, kinds::LOCAL, scope, Some(node_position(c)));
+					}
 					break;
 				}
 			}
@@ -598,7 +645,7 @@ impl<'src> Walker<'src> {
 	) -> Moniker {
 		let arity = callable_arity(callable_node);
 		let m = extend_method(parent, kind, name, arity);
-		let attrs = DefAttrs { visibility };
+		let attrs = DefAttrs { visibility, ..DefAttrs::default() };
 		let _ = graph.add_def_attrs(
 			m.clone(),
 			kind,
@@ -606,6 +653,7 @@ impl<'src> Walker<'src> {
 			Some(node_position(anchor_node)),
 			&attrs,
 		);
+		self.push_local_scope();
 		if let Some(rt) = callable_node.child_by_field_name("return_type") {
 			self.emit_uses_type_recursive(rt, &m, graph);
 		}
@@ -618,6 +666,7 @@ impl<'src> Walker<'src> {
 		if let Some(body) = callable_node.child_by_field_name("body") {
 			self.walk(body, &m, graph);
 		}
+		self.pop_local_scope();
 		m
 	}
 

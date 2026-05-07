@@ -94,9 +94,10 @@ fn graph_defs(
 		name!(moniker, moniker),
 		name!(kind, String),
 		name!(visibility, Option<String>),
+		name!(signature, Option<String>),
 	),
 > {
-	let rows: Vec<(moniker, String, Option<String>)> = graph
+	let rows: Vec<(moniker, String, Option<String>, Option<String>)> = graph
 		.inner
 		.defs()
 		.map(|d| {
@@ -104,6 +105,7 @@ fn graph_defs(
 				moniker::from_core(d.moniker.clone()),
 				kind_text(&d.kind),
 				bytes_to_opt_string(&d.visibility),
+				bytes_to_opt_string(&d.signature),
 			)
 		})
 		.collect();
