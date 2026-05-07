@@ -25,9 +25,6 @@ pub fn parse(source: &str) -> Tree {
 }
 
 pub fn extract(uri: &str, source: &str, anchor: &Moniker, _deep: bool) -> CodeGraph {
-	// `_deep` is part of the cross-extractor surface for parity with
-	// `lang::rs::extract`; the TS walker does not yet implement deep
-	// extraction (params/locals/callbacks).
 	let module = compute_module_moniker(anchor, uri, kinds::PATH);
 	let mut graph = CodeGraph::new(module.clone(), kinds::PATH);
 	let tree = parse(source);

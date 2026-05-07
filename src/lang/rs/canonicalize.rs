@@ -73,6 +73,18 @@ pub(super) fn function_arity(node: Node<'_>, source: &[u8]) -> u16 {
 	count
 }
 
+/// Count parameter slots of a `closure_expression`. Each slot is one
+/// pattern position regardless of destructuring depth: `|(a, b)|` is
+/// arity 1, not 2. Closure params are bare patterns (`|x|`) or
+/// `parameter` wrappers (`|x: i32|`).
+pub(super) fn closure_arity(closure: Node<'_>) -> u16 {
+	let Some(params) = closure.child_by_field_name("parameters") else {
+		return 0;
+	};
+	let mut cursor = params.walk();
+	params.named_children(&mut cursor).count() as u16
+}
+
 /// Bare type name for a `type` field of an `impl_item`. Strips generic
 /// arguments (`Foo<T>` → `Foo`) and qualified paths (keeps the last
 /// `::`-separated component) so the moniker maps to the in-module type.

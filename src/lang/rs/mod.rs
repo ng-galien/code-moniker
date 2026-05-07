@@ -351,7 +351,7 @@ mod tests {
 	// --- deep extraction (deep=true) -------------------------------------
 
 	#[test]
-	fn deep_off_emits_no_param_or_local_defs() {
+	fn extract_shallow_skips_param_and_local() {
 		let src = "pub fn add(a: i32, b: i32) -> i32 { let sum = a + b; sum }";
 		let g = extract("util.rs", src, &make_anchor(), false);
 		assert!(
@@ -361,7 +361,7 @@ mod tests {
 	}
 
 	#[test]
-	fn deep_emits_params_under_function() {
+	fn extract_deep_emits_params_under_function() {
 		let src = "pub fn add(a: i32, b: i32) -> i32 { a + b }";
 		let g = extract("util.rs", src, &make_anchor(), true);
 		let add = MonikerBuilder::new()
@@ -387,7 +387,7 @@ mod tests {
 	}
 
 	#[test]
-	fn deep_self_parameter_named_self() {
+	fn extract_deep_self_parameter_named_self() {
 		let src = "pub struct Foo; impl Foo { fn bar(&self, x: i32) {} }";
 		let g = extract("util.rs", src, &make_anchor(), true);
 		let bar_self = MonikerBuilder::new()
@@ -409,7 +409,7 @@ mod tests {
 	}
 
 	#[test]
-	fn deep_emits_locals_under_enclosing_function() {
+	fn extract_deep_emits_locals_under_function() {
 		let src = r#"pub fn run() {
             let x = 1;
             let y = 2;
@@ -432,7 +432,7 @@ mod tests {
 	}
 
 	#[test]
-	fn deep_locals_in_nested_block_attach_to_function() {
+	fn extract_deep_locals_in_nested_block_attach_to_function() {
 		// Containment rule: a `let` inside an `if { }` is parented to
 		// the enclosing function, not to the block.
 		let src = r#"pub fn run(flag: bool) {
@@ -453,7 +453,7 @@ mod tests {
 	}
 
 	#[test]
-	fn deep_named_closure_emits_function_def_under_callable() {
+	fn extract_deep_named_closure_emits_function_def() {
 		let src = "pub fn run() { let f = |x| x + 1; }";
 		let g = extract("util.rs", src, &make_anchor(), true);
 		let f = MonikerBuilder::new()
@@ -466,7 +466,7 @@ mod tests {
 	}
 
 	#[test]
-	fn deep_skips_underscore_pattern() {
+	fn extract_deep_skips_underscore_pattern() {
 		let src = "pub fn run(_: i32) { let _ = 1; }";
 		let g = extract("util.rs", src, &make_anchor(), true);
 		assert!(

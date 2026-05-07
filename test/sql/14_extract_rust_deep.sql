@@ -8,7 +8,11 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(8);
+SELECT plan(9);
+
+SELECT has_function('extract_rust'::name,
+	ARRAY['text','text','moniker','boolean'],
+	'extract_rust(4-arg) is exposed');
 
 -- Default deep=false reproduces shallow R-1 behavior --------------------
 

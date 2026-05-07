@@ -12,6 +12,9 @@ fn extract_typescript(
 	anchor: moniker,
 	deep: pgrx::default!(bool, "false"),
 ) -> code_graph {
+	if deep {
+		error!("extract_typescript: deep=true not yet implemented");
+	}
 	let core_anchor = anchor.to_core();
 	let inner = crate::lang::ts::extract(uri, source, &core_anchor, deep);
 	code_graph::from_core(inner)

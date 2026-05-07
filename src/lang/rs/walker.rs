@@ -10,7 +10,7 @@ use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
 use super::canonicalize::{
-	extend, extend_method, function_arity, impl_type_name, node_position,
+	closure_arity, extend, extend_method, function_arity, impl_type_name, node_position,
 };
 use super::kinds;
 
@@ -23,11 +23,6 @@ pub(super) struct Walker<'src> {
 	/// the codebase pattern `mod canonicalize; use canonicalize::X;`
 	/// would mis-tag `canonicalize` as external.
 	pub(super) local_mods: HashSet<String>,
-	/// When `true`, descend into function/method bodies and emit `param`
-	/// + `local` defs scoped under the enclosing callable. Off by default
-	/// since deep extraction multiplies def count by 3-5× and most
-	/// repo-wide queries don't need it. Consumers re-extract on demand
-	/// for file-scoped views.
 	pub(super) deep: bool,
 }
 
@@ -102,12 +97,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	/// Emit one `param` def per identifier-bound parameter. `self`,
-	/// `&self`, `&mut self` collapse to `param:self`. Destructuring
-	/// patterns extract every contained identifier; `_` placeholders
-	/// are silently skipped. The parameters themselves are deep-only
-	/// symbols — only present when `self.deep == true`.
-	///
 	/// Handles both `parameters` (function_item: typed `parameter`
 	/// wrappers) and `closure_parameters` (bare pattern children when
 	/// untyped, e.g. `|x|`).
@@ -115,56 +104,59 @@ impl<'src> Walker<'src> {
 		let mut cursor = params.walk();
 		for child in params.named_children(&mut cursor) {
 			match child.kind() {
-				"self_parameter" => self.emit_param_named(callable, b"self", child, graph),
+				"self_parameter" => {
+					self.emit_pattern_leaf(callable, kinds::PARAM, b"self", child, graph)
+				}
 				"parameter" => {
 					if let Some(pattern) = child.child_by_field_name("pattern") {
-						self.emit_param_pattern(pattern, callable, child, graph);
+						self.emit_pattern_defs(pattern, callable, kinds::PARAM, child, graph);
 					}
 				}
-				_ => {
-					// Closure-style bare pattern (no `parameter` wrapper).
-					self.emit_param_pattern(child, callable, child, graph);
-				}
+				_ => self.emit_pattern_defs(child, callable, kinds::PARAM, child, graph),
 			}
 		}
 	}
 
-	fn emit_param_pattern(
+	/// Walk a destructuring pattern, emitting one def of `kind` per
+	/// identifier reached. `_` is silently skipped. Used for both
+	/// `param` and `local` emission — they share the same pattern
+	/// shapes (tuples, structs, references).
+	fn emit_pattern_defs(
 		&self,
 		pattern: Node<'_>,
 		callable: &Moniker,
-		param_node: Node<'_>,
+		kind: &[u8],
+		anchor: Node<'_>,
 		graph: &mut CodeGraph,
 	) {
 		match pattern.kind() {
 			"identifier" => {
 				if let Ok(name) = pattern.utf8_text(self.source_bytes) {
-					self.emit_param_named(callable, name.as_bytes(), param_node, graph);
+					self.emit_pattern_leaf(callable, kind, name.as_bytes(), anchor, graph);
 				}
 			}
-			"_" => {} // intentionally unbound
+			"_" => {}
 			_ => {
-				// Tuple/struct/reference patterns: walk for inner identifiers.
 				let mut cursor = pattern.walk();
 				for inner in pattern.named_children(&mut cursor) {
-					self.emit_param_pattern(inner, callable, param_node, graph);
+					self.emit_pattern_defs(inner, callable, kind, anchor, graph);
 				}
 			}
 		}
 	}
 
-	fn emit_param_named(
+	fn emit_pattern_leaf(
 		&self,
 		callable: &Moniker,
+		kind: &[u8],
 		name: &[u8],
-		node: Node<'_>,
+		anchor: Node<'_>,
 		graph: &mut CodeGraph,
 	) {
-		let m = extend(callable, kinds::PARAM, name);
-		let _ = graph.add_def(m, kinds::PARAM, callable, Some(node_position(node)));
+		let m = extend(callable, kind, name);
+		let _ = graph.add_def(m, kind, callable, Some(node_position(anchor)));
 	}
 
-	/// Walk a function body emitting `local` defs and named closures.
 	/// Containment rule: every emitted def's parent is `callable`, not
 	/// the syntactic block — locals inside `if cond { let x = … }`
 	/// still attach to the enclosing function.
@@ -173,6 +165,10 @@ impl<'src> Walker<'src> {
 		for child in node.named_children(&mut cursor) {
 			match child.kind() {
 				"let_declaration" => self.handle_let(child, callable, graph),
+				// `expression_statement` wraps standalone control-flow used as a
+				// statement (`if cond { let x = ... }` without a trailing `;`),
+				// so dropping it here would silently lose locals nested in
+				// statement-position blocks.
 				"block" | "if_expression" | "match_expression" | "while_expression"
 				| "for_expression" | "loop_expression" | "match_arm" | "match_block"
 				| "expression_statement" => {
@@ -185,43 +181,11 @@ impl<'src> Walker<'src> {
 
 	fn handle_let(&self, node: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		let Some(pattern) = node.child_by_field_name("pattern") else { return };
-		self.emit_local_pattern(pattern, callable, node, graph);
-		// `let f = |x| ...;` — the binding's value is a closure. Emit a
-		// `function` def alongside the `local`, named after the binding.
-		// Inline (unbound) closures inside expressions are deferred.
+		self.emit_pattern_defs(pattern, callable, kinds::LOCAL, node, graph);
 		if let Some(value) = node.child_by_field_name("value") {
 			if value.kind() == "closure_expression" {
 				if let Some(bind_name) = first_identifier(pattern, self.source_bytes) {
 					self.emit_named_closure(value, callable, bind_name.as_bytes(), graph);
-				}
-			}
-		}
-	}
-
-	fn emit_local_pattern(
-		&self,
-		pattern: Node<'_>,
-		callable: &Moniker,
-		let_node: Node<'_>,
-		graph: &mut CodeGraph,
-	) {
-		match pattern.kind() {
-			"identifier" => {
-				if let Ok(name) = pattern.utf8_text(self.source_bytes) {
-					let m = extend(callable, kinds::LOCAL, name.as_bytes());
-					let _ = graph.add_def(
-						m,
-						kinds::LOCAL,
-						callable,
-						Some(node_position(let_node)),
-					);
-				}
-			}
-			"_" => {}
-			_ => {
-				let mut cursor = pattern.walk();
-				for inner in pattern.named_children(&mut cursor) {
-					self.emit_local_pattern(inner, callable, let_node, graph);
 				}
 			}
 		}
@@ -304,12 +268,3 @@ fn first_identifier<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
 	None
 }
 
-fn closure_arity(closure: Node<'_>) -> u16 {
-	let Some(params) = closure.child_by_field_name("parameters") else {
-		return 0;
-	};
-	let mut cursor = params.walk();
-	// Closure params are bare patterns (`|x|`) or `parameter` wrappers
-	// (`|x: i32|`); both count as one parameter regardless of kind.
-	params.named_children(&mut cursor).count() as u16
-}
