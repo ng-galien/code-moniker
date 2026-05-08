@@ -20,8 +20,8 @@ SELECT ok(
 SELECT ok(
 	bind_match(
 		'esac+moniker://app/lang:python/module:util/function:Y()'::moniker,
-		'esac+moniker://app/lang:python/module:util/function:Y(int,str)'::moniker) = false,
-	'arity-only callable name does not bind_match a typed callable name (last-segment name byte-strict)');
+		'esac+moniker://app/lang:python/module:util/function:Y(int,str)'::moniker),
+	'bare-name refinement applies to python: function:Y() bind_matches function:Y(int,str)');
 
 SELECT ok(
 	NOT bind_match(

@@ -76,6 +76,10 @@ fn last_segment_match(
 	if l_lang.is_some() && l_lang == r_lang {
 		match l_lang.unwrap() {
 			b"sql" => return bare_callable_name(l_name) == bare_callable_name(r_name),
+			b"ts" => return bare_callable_name(l_name) == bare_callable_name(r_name),
+			b"java" => return bare_callable_name(l_name) == bare_callable_name(r_name),
+			b"python" => return bare_callable_name(l_name) == bare_callable_name(r_name),
+			b"rs" => return bare_callable_name(l_name) == bare_callable_name(r_name),
 			_ => {}
 		}
 	}
@@ -322,28 +326,94 @@ mod tests {
 	}
 
 	#[test]
-	fn bind_match_sql_refinement_does_not_apply_to_other_languages() {
+	fn bind_match_ts_typed_def_matches_arity_call() {
 		let typed_def = mk(
 			b"app",
-			&[
-				(b"lang", b"java"),
-				(b"package", b"acme"),
-				(b"class", b"Plan"),
-				(b"method", b"create(int)"),
-			],
+			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo(number)")],
 		);
-		let bare_call = mk(
+		let arity_call = mk(
 			b"app",
-			&[
-				(b"lang", b"java"),
-				(b"package", b"acme"),
-				(b"class", b"Plan"),
-				(b"method", b"create"),
-			],
+			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo(1)")],
 		);
-		assert!(
-			!bare_call.bind_match(&typed_def),
-			"non-SQL languages must keep the byte-strict last-segment-name rule"
+		assert!(typed_def.bind_match(&arity_call));
+		assert!(arity_call.bind_match(&typed_def));
+	}
+
+	#[test]
+	fn bind_match_ts_typed_def_matches_bare_read() {
+		let typed_def = mk(
+			b"app",
+			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo(number,number)")],
 		);
+		let bare_read = mk(
+			b"app",
+			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo()")],
+		);
+		assert!(typed_def.bind_match(&bare_read));
+	}
+
+	#[test]
+	fn bind_match_ts_distinct_bare_names_do_not_match() {
+		let foo = mk(
+			b"app",
+			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo(number)")],
+		);
+		let bar = mk(
+			b"app",
+			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"bar(1)")],
+		);
+		assert!(!foo.bind_match(&bar));
+	}
+
+	#[test]
+	fn bind_match_java_typed_def_matches_arity_call() {
+		let typed_def = mk(
+			b"app",
+			&[(b"lang", b"java"), (b"package", b"acme"), (b"class", b"Plan"), (b"method", b"create(int)")],
+		);
+		let arity_call = mk(
+			b"app",
+			&[(b"lang", b"java"), (b"package", b"acme"), (b"class", b"Plan"), (b"method", b"create(1)")],
+		);
+		assert!(typed_def.bind_match(&arity_call));
+	}
+
+	#[test]
+	fn bind_match_java_typed_def_matches_bare_read() {
+		let typed_def = mk(
+			b"app",
+			&[(b"lang", b"java"), (b"package", b"acme"), (b"class", b"Plan"), (b"method", b"create(int)")],
+		);
+		let bare = mk(
+			b"app",
+			&[(b"lang", b"java"), (b"package", b"acme"), (b"class", b"Plan"), (b"method", b"create")],
+		);
+		assert!(typed_def.bind_match(&bare));
+	}
+
+	#[test]
+	fn bind_match_python_typed_def_matches_arity_call() {
+		let typed_def = mk(
+			b"app",
+			&[(b"lang", b"python"), (b"module", b"m"), (b"function", b"f(int)")],
+		);
+		let arity_call = mk(
+			b"app",
+			&[(b"lang", b"python"), (b"module", b"m"), (b"function", b"f(1)")],
+		);
+		assert!(typed_def.bind_match(&arity_call));
+	}
+
+	#[test]
+	fn bind_match_rust_typed_def_matches_arity_call() {
+		let typed_def = mk(
+			b"app",
+			&[(b"lang", b"rs"), (b"module", b"util"), (b"function", b"add(i32,i32)")],
+		);
+		let arity_call = mk(
+			b"app",
+			&[(b"lang", b"rs"), (b"module", b"util"), (b"function", b"add(2)")],
+		);
+		assert!(typed_def.bind_match(&arity_call));
 	}
 }

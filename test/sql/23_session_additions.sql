@@ -77,11 +77,11 @@ SELECT ok(
 );
 
 SELECT ok(
-	NOT bind_match(
+	bind_match(
 		'esac+moniker://app/lang:java/package:acme/class:Plan/method:create'::moniker,
 		'esac+moniker://app/lang:java/package:acme/class:Plan/method:create(int)'::moniker
 	),
-	'SQL refinement does not leak: Java keeps byte-strict last-segment match'
+	'bare-name refinement applies to java: method:create bind_matches method:create(int)'
 );
 
 
