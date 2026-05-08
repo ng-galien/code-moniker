@@ -13,15 +13,12 @@ enum PunctClass {
 
 fn class_for(kind: &[u8]) -> PunctClass {
 	match kind {
-		b"path" | b"package" | b"srcset" | b"dir" | b"module"
-		| b"workspace_app" | b"external_pkg" => PunctClass::Path,
-		b"class" | b"interface" | b"type_alias" | b"type" | b"enum"
-		| b"struct" | b"trait" | b"record" => PunctClass::Type,
-		b"field" | b"variable" | b"const" | b"constant" | b"property"
-		| b"term" => PunctClass::Term,
-		b"method" | b"function" | b"constructor" | b"ctor" | b"operator" => {
-			PunctClass::Method
-		}
+		b"path" | b"package" | b"srcset" | b"dir" | b"module" | b"workspace_app"
+		| b"external_pkg" => PunctClass::Path,
+		b"class" | b"interface" | b"type_alias" | b"type" | b"enum" | b"struct" | b"trait"
+		| b"record" => PunctClass::Type,
+		b"field" | b"variable" | b"const" | b"constant" | b"property" | b"term" => PunctClass::Term,
+		b"method" | b"function" | b"constructor" | b"ctor" | b"operator" => PunctClass::Method,
 		_ => PunctClass::Term,
 	}
 }
@@ -36,8 +33,7 @@ fn name_needs_escaping(bytes: &[u8]) -> bool {
 }
 
 fn push_name(out: &mut String, bytes: &[u8]) {
-	let s = std::str::from_utf8(bytes)
-		.unwrap_or_else(|_| error!("moniker name must be UTF-8"));
+	let s = std::str::from_utf8(bytes).unwrap_or_else(|_| error!("moniker name must be UTF-8"));
 	if !name_needs_escaping(bytes) {
 		out.push_str(s);
 		return;

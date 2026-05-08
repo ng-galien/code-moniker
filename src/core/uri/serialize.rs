@@ -51,7 +51,10 @@ mod tests {
 	#[test]
 	fn to_uri_project_only() {
 		let m = MonikerBuilder::new().project(b"my-app").build();
-		assert_eq!(to_uri(&m, &default_config()).unwrap(), "esac+moniker://my-app");
+		assert_eq!(
+			to_uri(&m, &default_config()).unwrap(),
+			"esac+moniker://my-app"
+		);
 	}
 
 	#[test]

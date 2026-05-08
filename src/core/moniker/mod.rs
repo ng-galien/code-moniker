@@ -102,7 +102,10 @@ mod tests {
 
 	#[test]
 	fn from_bytes_roundtrip() {
-		let m = MonikerBuilder::new().project(b"pj").segment(b"path", b"foo").build();
+		let m = MonikerBuilder::new()
+			.project(b"pj")
+			.segment(b"path", b"foo")
+			.build();
 		let bytes = m.clone().into_bytes();
 		let m2 = Moniker::from_bytes(bytes).unwrap();
 		assert_eq!(m, m2);

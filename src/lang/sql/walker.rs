@@ -1,4 +1,3 @@
-
 use std::ffi::{CStr, CString};
 
 use pgrx::pg_sys;
@@ -8,15 +7,12 @@ use crate::core::code_graph::{CodeGraph, DefAttrs, Position, RefAttrs};
 use crate::core::moniker::Moniker;
 
 use super::body;
-use super::canonicalize::{extend_callable_arity, extend_callable_typed, extend_segment, maybe_schema};
+use super::canonicalize::{
+	extend_callable_arity, extend_callable_typed, extend_segment, maybe_schema,
+};
 use super::kinds;
 
-pub(super) fn walk_source(
-	source: &str,
-	module: &Moniker,
-	_deep: bool,
-	graph: &mut CodeGraph,
-) {
+pub(super) fn walk_source(source: &str, module: &Moniker, _deep: bool, graph: &mut CodeGraph) {
 	let cstr = match CString::new(source) {
 		Ok(c) => c,
 		Err(_) => return,
@@ -68,7 +64,6 @@ fn dispatch_stmt(raw: &pg_sys::RawStmt, source: &str, module: &Moniker, graph: &
 	}
 }
 
-
 fn emit_create_function(
 	stmt: &pg_sys::CreateFunctionStmt,
 	module: &Moniker,
@@ -90,7 +85,13 @@ fn emit_create_function(
 		..DefAttrs::default()
 	};
 	if graph
-		.add_def_attrs(func_moniker.clone(), kinds::FUNCTION, module, position, &attrs)
+		.add_def_attrs(
+			func_moniker.clone(),
+			kinds::FUNCTION,
+			module,
+			position,
+			&attrs,
+		)
 		.is_err()
 	{
 		return;
@@ -142,12 +143,13 @@ fn return_shape(return_type: *mut pg_sys::TypeName) -> (bool, bool) {
 	if !rt.names.is_null() {
 		let names: pgrx::PgList<pg_sys::String> = unsafe { pgrx::PgList::from_pg(rt.names) };
 		if let Some(last) = names.iter_ptr().last()
-			&& !last.is_null() {
-				let name = cstr_to_bytes(unsafe { (*last).sval });
-				if name.eq_ignore_ascii_case(b"void") {
-					is_void = true;
-				}
+			&& !last.is_null()
+		{
+			let name = cstr_to_bytes(unsafe { (*last).sval });
+			if name.eq_ignore_ascii_case(b"void") {
+				is_void = true;
 			}
+		}
 	}
 	(is_setof, is_void)
 }
@@ -189,7 +191,6 @@ fn emit_view(
 	let moniker = extend_segment(&parent, kinds::VIEW, &name);
 	let _ = graph.add_def(moniker, kinds::VIEW, module, position);
 }
-
 
 struct CallCtx {
 	module: *const Moniker,
@@ -255,7 +256,6 @@ fn emit_call_ref(fc: &pg_sys::FuncCall, ctx: &mut CallCtx) {
 	let _ = graph.add_ref_attrs(source, target, kinds::REF_CALLS, position, &attrs);
 }
 
-
 fn stmt_position(raw: &pg_sys::RawStmt, source_len: usize) -> Option<Position> {
 	let start = raw.stmt_location;
 	if start < 0 {
@@ -293,8 +293,20 @@ fn qualified_name_from_list(list: *mut pg_sys::List) -> Option<(Vec<u8>, Vec<u8>
 	let parts: pgrx::PgList<pg_sys::String> = unsafe { pgrx::PgList::from_pg(list) };
 	let strings: Vec<Vec<u8>> = parts
 		.iter_ptr()
-		.filter_map(|p| if p.is_null() { None } else { Some(unsafe { (*p).sval }) })
-		.filter_map(|cstr| if cstr.is_null() { None } else { Some(cstr_to_bytes(cstr)) })
+		.filter_map(|p| {
+			if p.is_null() {
+				None
+			} else {
+				Some(unsafe { (*p).sval })
+			}
+		})
+		.filter_map(|cstr| {
+			if cstr.is_null() {
+				None
+			} else {
+				Some(cstr_to_bytes(cstr))
+			}
+		})
 		.collect();
 	match strings.len() {
 		0 => None,
@@ -336,9 +348,10 @@ fn function_language_and_body(options: *mut pg_sys::List) -> (Vec<u8>, Vec<u8>) 
 					let list: pgrx::PgList<pg_sys::String> =
 						unsafe { pgrx::PgList::from_pg(opt.arg as *mut pg_sys::List) };
 					if let Some(first) = list.iter_ptr().next()
-						&& !first.is_null() {
-							body = cstr_to_bytes(unsafe { (*first).sval });
-						}
+						&& !first.is_null()
+					{
+						body = cstr_to_bytes(unsafe { (*first).sval });
+					}
 				}
 			}
 			_ => {}

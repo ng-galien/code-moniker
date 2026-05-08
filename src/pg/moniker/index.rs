@@ -44,9 +44,9 @@ const FNV_PRIME: u32 = 0x0100_0193;
 
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_hash(m: moniker) -> i32 {
-	m.as_bytes()
-		.iter()
-		.fold(FNV_OFFSET_BASIS, |h, &b| (h ^ b as u32).wrapping_mul(FNV_PRIME)) as i32
+	m.as_bytes().iter().fold(FNV_OFFSET_BASIS, |h, &b| {
+		(h ^ b as u32).wrapping_mul(FNV_PRIME)
+	}) as i32
 }
 
 extension_sql!(

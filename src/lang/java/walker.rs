@@ -1,4 +1,3 @@
-
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -58,14 +57,12 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if let Some(title) = section_title(node, self.source_bytes) {
 			let m = extend_segment(scope, kinds::SECTION, title.as_bytes());
 			let _ = graph.add_def(m, kinds::SECTION, scope, Some(node_position(node)));
 		}
 	}
-
 
 	fn handle_class(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		self.handle_type_decl(node, scope, graph, kinds::CLASS);
@@ -76,7 +73,9 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_enum(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let Some(name) = self.field_text(node, "name") else { return };
+		let Some(name) = self.field_text(node, "name") else {
+			return;
+		};
 		let m = extend_segment(scope, kinds::ENUM, name.as_bytes());
 		let attrs = DefAttrs {
 			visibility: modifier_visibility(node),
@@ -107,19 +106,15 @@ impl<'src> Walker<'src> {
 		graph: &mut CodeGraph,
 		kind: &[u8],
 	) {
-		let Some(name) = self.field_text(node, "name") else { return };
+		let Some(name) = self.field_text(node, "name") else {
+			return;
+		};
 		let m = extend_segment(scope, kind, name.as_bytes());
 		let attrs = DefAttrs {
 			visibility: modifier_visibility(node),
 			..DefAttrs::default()
 		};
-		let _ = graph.add_def_attrs(
-			m.clone(),
-			kind,
-			scope,
-			Some(node_position(node)),
-			&attrs,
-		);
+		let _ = graph.add_def_attrs(m.clone(), kind, scope, Some(node_position(node)), &attrs);
 
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
@@ -153,7 +148,9 @@ impl<'src> Walker<'src> {
 		}
 		self.emit_annotations_from(enum_node, parent, graph);
 
-		let Some(body) = enum_node.child_by_field_name("body") else { return };
+		let Some(body) = enum_node.child_by_field_name("body") else {
+			return;
+		};
 		let mut cursor = body.walk();
 		for child in body.children(&mut cursor) {
 			match child.kind() {
@@ -175,14 +172,17 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-
 	fn handle_method(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let Some(name) = self.field_text(node, "name") else { return };
+		let Some(name) = self.field_text(node, "name") else {
+			return;
+		};
 		self.emit_callable(node, name.as_bytes(), kinds::METHOD, scope, graph);
 	}
 
 	fn handle_constructor(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let Some(name) = self.field_text(node, "name") else { return };
+		let Some(name) = self.field_text(node, "name") else {
+			return;
+		};
 		self.emit_callable(node, name.as_bytes(), kinds::CONSTRUCTOR, scope, graph);
 	}
 
@@ -202,13 +202,7 @@ impl<'src> Walker<'src> {
 			signature: &signature,
 			..DefAttrs::default()
 		};
-		let _ = graph.add_def_attrs(
-			m.clone(),
-			kind,
-			scope,
-			Some(node_position(node)),
-			&attrs,
-		);
+		let _ = graph.add_def_attrs(m.clone(), kind, scope, Some(node_position(node)), &attrs);
 
 		self.emit_annotations_from(node, &m, graph);
 
@@ -226,18 +220,15 @@ impl<'src> Walker<'src> {
 		self.pop_local_scope();
 	}
 
-	fn handle_parameters(
-		&self,
-		params: Node<'_>,
-		callable: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	fn handle_parameters(&self, params: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = params.walk();
 		for child in params.named_children(&mut cursor) {
 			if !matches!(child.kind(), "formal_parameter" | "spread_parameter") {
 				continue;
 			}
-			let Some(name_node) = child.child_by_field_name("name") else { continue };
+			let Some(name_node) = child.child_by_field_name("name") else {
+				continue;
+			};
 			let name = self.text_of(name_node);
 			self.record_local(name.as_bytes());
 			if self.deep {
@@ -249,7 +240,6 @@ impl<'src> Walker<'src> {
 			}
 		}
 	}
-
 
 	fn handle_field(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let visibility = modifier_visibility(node);
@@ -263,10 +253,15 @@ impl<'src> Walker<'src> {
 			if child.kind() != "variable_declarator" {
 				continue;
 			}
-			let Some(name_node) = child.child_by_field_name("name") else { continue };
+			let Some(name_node) = child.child_by_field_name("name") else {
+				continue;
+			};
 			let name = self.text_of(name_node);
 			let m = extend_segment(parent, kinds::FIELD, name.as_bytes());
-			let attrs = DefAttrs { visibility, ..DefAttrs::default() };
+			let attrs = DefAttrs {
+				visibility,
+				..DefAttrs::default()
+			};
 			let _ = graph.add_def_attrs(
 				m.clone(),
 				kinds::FIELD,
@@ -280,12 +275,7 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	fn handle_local_variable(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	fn handle_local_variable(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if let Some(t) = node.child_by_field_name("type") {
 			self.emit_uses_type(t, scope, graph);
 		}
@@ -295,18 +285,15 @@ impl<'src> Walker<'src> {
 			if child.kind() != "variable_declarator" {
 				continue;
 			}
-			let Some(name_node) = child.child_by_field_name("name") else { continue };
+			let Some(name_node) = child.child_by_field_name("name") else {
+				continue;
+			};
 			let name = self.text_of(name_node);
 			if inside_callable {
 				self.record_local(name.as_bytes());
 				if self.deep {
 					let m = extend_segment(scope, kinds::LOCAL, name.as_bytes());
-					let _ = graph.add_def(
-						m,
-						kinds::LOCAL,
-						scope,
-						Some(node_position(child)),
-					);
+					let _ = graph.add_def(m, kinds::LOCAL, scope, Some(node_position(child)));
 				}
 			}
 			if let Some(value) = child.child_by_field_name("value") {
@@ -315,12 +302,13 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-
 	fn handle_catch_param(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if let Some(t) = node.child_by_field_name("type") {
 			self.emit_uses_type(t, scope, graph);
 		}
-		let Some(name_node) = node.child_by_field_name("name") else { return };
+		let Some(name_node) = node.child_by_field_name("name") else {
+			return;
+		};
 		let name = self.text_of(name_node);
 		if name.is_empty() {
 			return;
@@ -344,12 +332,7 @@ impl<'src> Walker<'src> {
 				self.record_local(name.as_bytes());
 				if self.deep {
 					let m = extend_segment(scope, kinds::LOCAL, name.as_bytes());
-					let _ = graph.add_def(
-						m,
-						kinds::LOCAL,
-						scope,
-						Some(node_position(name_node)),
-					);
+					let _ = graph.add_def(m, kinds::LOCAL, scope, Some(node_position(name_node)));
 				}
 			}
 		}
@@ -371,12 +354,8 @@ impl<'src> Walker<'src> {
 						self.record_local(name.as_bytes());
 						if self.deep {
 							let m = extend_segment(scope, kinds::PARAM, name.as_bytes());
-							let _ = graph.add_def(
-								m,
-								kinds::PARAM,
-								scope,
-								Some(node_position(params)),
-							);
+							let _ =
+								graph.add_def(m, kinds::PARAM, scope, Some(node_position(params)));
 						}
 					}
 				}
@@ -398,12 +377,7 @@ impl<'src> Walker<'src> {
 						self.record_local(name.as_bytes());
 						if self.deep {
 							let m = extend_segment(scope, kinds::PARAM, name.as_bytes());
-							let _ = graph.add_def(
-								m,
-								kinds::PARAM,
-								scope,
-								Some(node_position(nn)),
-							);
+							let _ = graph.add_def(m, kinds::PARAM, scope, Some(node_position(nn)));
 						}
 					}
 				}
@@ -415,7 +389,6 @@ impl<'src> Walker<'src> {
 		}
 		self.pop_local_scope();
 	}
-
 
 	fn emit_annotations_from(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
@@ -430,7 +403,6 @@ impl<'src> Walker<'src> {
 			}
 		}
 	}
-
 
 	pub(super) fn field_text(&self, node: Node<'_>, field: &str) -> Option<&'src str> {
 		node.child_by_field_name(field)?
@@ -463,8 +435,12 @@ pub(super) fn collect_type_table<'src>(
 			collect_type_table(child, source, parent, out);
 			continue;
 		};
-		let Some(name_node) = child.child_by_field_name("name") else { continue };
-		let Ok(name) = name_node.utf8_text(source) else { continue };
+		let Some(name_node) = child.child_by_field_name("name") else {
+			continue;
+		};
+		let Ok(name) = name_node.utf8_text(source) else {
+			continue;
+		};
 		let m = extend_segment(parent, kind, name.as_bytes());
 		out.entry(name.as_bytes()).or_insert_with(|| m.clone());
 		if let Some(body) = child.child_by_field_name("body") {
@@ -483,8 +459,12 @@ pub(super) fn formal_parameter_types(callable: Node<'_>, source: &[u8]) -> Vec<V
 		if !matches!(c.kind(), "formal_parameter" | "spread_parameter") {
 			continue;
 		}
-		let Some(t) = c.child_by_field_name("type") else { continue };
-		let Ok(text) = t.utf8_text(source) else { continue };
+		let Some(t) = c.child_by_field_name("type") else {
+			continue;
+		};
+		let Ok(text) = t.utf8_text(source) else {
+			continue;
+		};
 		out.push(crate::lang::callable::normalize_type_text(text));
 	}
 	out

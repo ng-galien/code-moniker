@@ -1,4 +1,3 @@
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Dep {
 	pub name: String,
@@ -30,7 +29,10 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, PyprojectError> {
 
 	if let Some(project) = value.get("project").and_then(|v| v.as_table()) {
 		if let Some(name) = project.get("name").and_then(|v| v.as_str()) {
-			let version = project.get("version").and_then(|v| v.as_str()).map(str::to_string);
+			let version = project
+				.get("version")
+				.and_then(|v| v.as_str())
+				.map(str::to_string);
 			out.push(Dep {
 				name: name.to_string(),
 				version,
@@ -45,7 +47,10 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, PyprojectError> {
 				}
 			}
 		}
-		if let Some(opt) = project.get("optional-dependencies").and_then(|v| v.as_table()) {
+		if let Some(opt) = project
+			.get("optional-dependencies")
+			.and_then(|v| v.as_table())
+		{
 			for (group, list) in opt {
 				let Some(arr) = list.as_array() else { continue };
 				let kind = format!("optional:{group}");
@@ -64,19 +69,20 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, PyprojectError> {
 		.and_then(|p| p.as_table())
 	{
 		if out.iter().all(|d| d.dep_kind != "package")
-			&& let Some(name) = poetry.get("name").and_then(|v| v.as_str()) {
-				let version = poetry.get("version").and_then(|v| v.as_str()).map(str::to_string);
-				out.push(Dep {
-					name: name.to_string(),
-					version,
-					dep_kind: "package".to_string(),
-					import_root: python_import_root(name),
-				});
-			}
-		for (table_key, kind_label) in [
-			("dependencies", "normal"),
-			("dev-dependencies", "dev"),
-		] {
+			&& let Some(name) = poetry.get("name").and_then(|v| v.as_str())
+		{
+			let version = poetry
+				.get("version")
+				.and_then(|v| v.as_str())
+				.map(str::to_string);
+			out.push(Dep {
+				name: name.to_string(),
+				version,
+				dep_kind: "package".to_string(),
+				import_root: python_import_root(name),
+			});
+		}
+		for (table_key, kind_label) in [("dependencies", "normal"), ("dev-dependencies", "dev")] {
 			let Some(table) = poetry.get(table_key).and_then(|v| v.as_table()) else {
 				continue;
 			};
@@ -193,8 +199,14 @@ mod tests {
             docs = ["sphinx"]
         "#;
 		let deps = parse(src).unwrap();
-		assert!(deps.iter().any(|d| d.name == "pytest" && d.dep_kind == "optional:test"));
-		assert!(deps.iter().any(|d| d.name == "sphinx" && d.dep_kind == "optional:docs"));
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "pytest" && d.dep_kind == "optional:test")
+		);
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "sphinx" && d.dep_kind == "optional:docs")
+		);
 	}
 
 	#[test]
@@ -211,8 +223,14 @@ mod tests {
         "#;
 		let deps = parse(src).unwrap();
 		assert!(!deps.iter().any(|d| d.name == "python"));
-		assert!(deps.iter().any(|d| d.name == "httpx" && d.dep_kind == "normal"));
-		assert!(deps.iter().any(|d| d.name == "pytest" && d.dep_kind == "dev"));
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "httpx" && d.dep_kind == "normal")
+		);
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "pytest" && d.dep_kind == "dev")
+		);
 	}
 
 	#[test]

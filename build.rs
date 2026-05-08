@@ -53,7 +53,12 @@ fn pg_config_for(pg_n: &str) -> String {
 		return p;
 	}
 	if let Ok(home) = env::var("HOME") {
-		let candidate = format!("{}/.pgrx/{}.{}/pgrx-install/bin/pg_config", home, pg_n, minor_for(pg_n));
+		let candidate = format!(
+			"{}/.pgrx/{}.{}/pgrx-install/bin/pg_config",
+			home,
+			pg_n,
+			minor_for(pg_n)
+		);
 		if std::path::Path::new(&candidate).exists() {
 			return candidate;
 		}
@@ -77,7 +82,10 @@ fn run_pg_config(pg_config: &str, arg: &str) -> String {
 		.output()
 		.unwrap_or_else(|e| panic!("failed to invoke {pg_config} {arg}: {e}"));
 	if !out.status.success() {
-		panic!("{pg_config} {arg} failed: {}", String::from_utf8_lossy(&out.stderr));
+		panic!(
+			"{pg_config} {arg} failed: {}",
+			String::from_utf8_lossy(&out.stderr)
+		);
 	}
 	String::from_utf8(out.stdout)
 		.expect("non-utf8 from pg_config")

@@ -1,4 +1,3 @@
-
 use tree_sitter::Node;
 
 use crate::core::moniker::{Moniker, MonikerBuilder};
@@ -61,10 +60,10 @@ pub(super) fn callable_param_types(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>
 }
 
 fn parameter_type_text(param: Node<'_>, source: &[u8]) -> Vec<u8> {
-	let Some(annot) = param.child_by_field_name("type") else { return b"_".to_vec() };
-	let inner = annot
-		.named_child(0)
-		.unwrap_or(annot);
+	let Some(annot) = param.child_by_field_name("type") else {
+		return b"_".to_vec();
+	};
+	let inner = annot.named_child(0).unwrap_or(annot);
 	let text = inner.utf8_text(source).unwrap_or("_");
 	crate::lang::callable::normalize_type_text(text)
 }

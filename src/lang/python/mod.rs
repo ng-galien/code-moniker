@@ -1,4 +1,3 @@
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -15,7 +14,7 @@ mod scope;
 mod walker;
 
 use canonicalize::compute_module_moniker;
-use walker::{collect_type_table, Walker};
+use walker::{Walker, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
@@ -42,7 +41,12 @@ pub fn extract(
 	let module = compute_module_moniker(anchor, uri);
 	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
 	let mut type_table: HashMap<&[u8], Moniker> = HashMap::new();
-	collect_type_table(tree.root_node(), source.as_bytes(), &module, &mut type_table);
+	collect_type_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&mut type_table,
+	);
 	let walker = Walker {
 		source_bytes: source.as_bytes(),
 		module: module.clone(),
@@ -112,7 +116,10 @@ mod tests {
 	fn extract_function_with_typed_params_emits_full_signature() {
 		let src = "def make(x: int, y: str) -> int:\n    return x\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
-		let f = g.defs().find(|d| d.kind == b"function").expect("function def");
+		let f = g
+			.defs()
+			.find(|d| d.kind == b"function")
+			.expect("function def");
 		let last = f.moniker.as_view().segments().last().unwrap();
 		assert_eq!(last.kind, b"function");
 		assert_eq!(last.name, b"make(int,str)");
@@ -123,7 +130,10 @@ mod tests {
 	fn extract_function_with_untyped_params_uses_underscore_placeholder() {
 		let src = "def f(a, b=1):\n    return a\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
-		let f = g.defs().find(|d| d.kind == b"function").expect("function def");
+		let f = g
+			.defs()
+			.find(|d| d.kind == b"function")
+			.expect("function def");
 		let last = f.moniker.as_view().segments().last().unwrap();
 		assert_eq!(last.name, b"f(_,_)");
 		assert_eq!(f.signature, b"_,_".to_vec());
@@ -145,7 +155,10 @@ mod tests {
 		let src = "class Foo:\n    @classmethod\n    def make(cls, x: int) -> 'Foo':\n        return cls()\n";
 		let g = extract_default("foo.py", src, &make_anchor(), false);
 		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
-		assert_eq!(m.moniker.as_view().segments().last().unwrap().name, b"make(int)");
+		assert_eq!(
+			m.moniker.as_view().segments().last().unwrap().name,
+			b"make(int)"
+		);
 	}
 
 	#[test]
@@ -168,7 +181,10 @@ mod tests {
 	fn extract_single_underscore_visibility_is_module() {
 		let src = "def _internal():\n    pass\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
-		let f = g.defs().find(|d| d.kind == b"function").expect("function def");
+		let f = g
+			.defs()
+			.find(|d| d.kind == b"function")
+			.expect("function def");
 		assert_eq!(f.visibility, b"module".to_vec());
 	}
 
@@ -294,7 +310,8 @@ mod tests {
 
 	#[test]
 	fn extract_method_call_carries_receiver_hint_self() {
-		let src = "class Foo:\n    def m(self):\n        self.bar()\n    def bar(self):\n        pass\n";
+		let src =
+			"class Foo:\n    def m(self):\n        self.bar()\n    def bar(self):\n        pass\n";
 		let g = extract_default("foo.py", src, &make_anchor(), false);
 		let r = g
 			.refs()
@@ -312,7 +329,8 @@ mod tests {
 			.find(|r| r.kind == b"method_call")
 			.expect("method_call ref");
 		assert_eq!(
-			r.receiver_hint, b"obj".to_vec(),
+			r.receiver_hint,
+			b"obj".to_vec(),
 			"receiver hint must carry the identifier text for non-self/cls receivers",
 		);
 	}
@@ -323,8 +341,10 @@ mod tests {
 		let g = extract_default("m.py", src, &make_anchor(), false);
 		let r = g
 			.refs()
-			.find(|r| r.kind == b"calls"
-				&& r.target.as_view().segments().last().unwrap().name == b"helper()")
+			.find(|r| {
+				r.kind == b"calls"
+					&& r.target.as_view().segments().last().unwrap().name == b"helper()"
+			})
 			.expect("calls helper");
 		assert_eq!(r.confidence, b"imported".to_vec());
 	}
@@ -335,8 +355,9 @@ mod tests {
 		let g = extract_default("m.py", src, &make_anchor(), true);
 		let r = g
 			.refs()
-			.find(|r| r.kind == b"reads"
-				&& r.target.as_view().segments().last().unwrap().name == b"x")
+			.find(|r| {
+				r.kind == b"reads" && r.target.as_view().segments().last().unwrap().name == b"x"
+			})
 			.expect("reads x");
 		assert_eq!(r.confidence, b"local".to_vec());
 	}
@@ -360,8 +381,10 @@ mod tests {
 		let g = extract_default("m.py", src, &make_anchor(), false);
 		let r = g
 			.refs()
-			.find(|r| r.kind == b"uses_type"
-				&& r.target.as_view().segments().last().unwrap().name == b"int")
+			.find(|r| {
+				r.kind == b"uses_type"
+					&& r.target.as_view().segments().last().unwrap().name == b"int"
+			})
 			.expect("uses_type int");
 		assert!(matches!(
 			r.confidence.as_slice(),

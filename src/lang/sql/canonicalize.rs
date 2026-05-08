@@ -1,4 +1,3 @@
-
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use super::kinds;
@@ -16,7 +15,10 @@ pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 
 pub(super) fn split_uri(uri: &str) -> (Vec<&str>, &str) {
 	let pieces: Vec<&str> = uri.split('/').filter(|s| !s.is_empty()).collect();
-	let (last, dirs) = pieces.split_last().map(|(l, ds)| (*l, ds)).unwrap_or((uri, &[][..]));
+	let (last, dirs) = pieces
+		.split_last()
+		.map(|(l, ds)| (*l, ds))
+		.unwrap_or((uri, &[][..]));
 	(dirs.to_vec(), file_stem(last))
 }
 
@@ -29,7 +31,9 @@ pub(super) fn file_stem(name: &str) -> &str {
 	name
 }
 
-pub(super) use crate::lang::callable::{extend_callable_arity, extend_callable_typed, extend_segment};
+pub(super) use crate::lang::callable::{
+	extend_callable_arity, extend_callable_typed, extend_segment,
+};
 
 pub(super) fn maybe_schema(parent: &Moniker, schema: &[u8]) -> Moniker {
 	if schema.is_empty() {
@@ -79,7 +83,6 @@ mod tests {
 			.build();
 		assert_eq!(m, expected);
 	}
-
 
 	#[test]
 	fn maybe_schema_appends_when_present() {

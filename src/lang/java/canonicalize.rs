@@ -1,4 +1,3 @@
-
 use tree_sitter::Node;
 
 use crate::core::moniker::{Moniker, MonikerBuilder};
@@ -59,5 +58,4 @@ mod tests {
 		assert_eq!(file_stem("Foo.java"), "Foo");
 		assert_eq!(file_stem("Foo"), "Foo");
 	}
-
 }

@@ -298,9 +298,9 @@ fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
 
 fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
 	use crate::core::kinds::{
-		BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE, REF_ANNOTATES, REF_CALLS,
-		REF_DI_REGISTER, REF_EXTENDS, REF_IMPLEMENTS, REF_IMPORTS_MODULE, REF_IMPORTS_SYMBOL,
-		REF_INSTANTIATES, REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE,
+		BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE, REF_ANNOTATES, REF_CALLS, REF_DI_REGISTER,
+		REF_EXTENDS, REF_IMPLEMENTS, REF_IMPORTS_MODULE, REF_IMPORTS_SYMBOL, REF_INSTANTIATES,
+		REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE,
 	};
 	if kind == REF_IMPORTS_SYMBOL || kind == REF_IMPORTS_MODULE || kind == REF_REEXPORTS {
 		return BIND_IMPORT;
@@ -324,7 +324,7 @@ fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
 
 #[cfg(test)]
 pub(crate) fn assert_local_refs_closed(g: &CodeGraph) {
-	use crate::core::uri::{to_uri, UriConfig};
+	use crate::core::uri::{UriConfig, to_uri};
 	let cfg = UriConfig::default();
 	let render = |m: &Moniker| to_uri(m, &cfg).unwrap_or_else(|_| format!("{:?}", m.as_bytes()));
 	let defs: Vec<&Moniker> = g.defs().map(|d| &d.moniker).collect();
@@ -373,7 +373,8 @@ mod tests {
 		let root = mk(b"util");
 		let child = mk(b"util_child");
 		let mut g = CodeGraph::new(root.clone(), b"module");
-		g.add_def(child.clone(), b"class", &root, Some((10, 20))).unwrap();
+		g.add_def(child.clone(), b"class", &root, Some((10, 20)))
+			.unwrap();
 
 		assert_eq!(g.def_count(), 2);
 		assert!(g.contains(&child));
@@ -425,7 +426,8 @@ mod tests {
 		let target = mk(b"external_thing");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(foo.clone(), b"class", &root, None).unwrap();
-		g.add_ref(&foo, target.clone(), b"call", Some((5, 8))).unwrap();
+		g.add_ref(&foo, target.clone(), b"call", Some((5, 8)))
+			.unwrap();
 
 		assert_eq!(g.ref_count(), 1);
 		let r = g.refs().next().unwrap();
@@ -562,7 +564,8 @@ mod tests {
 		let root = mk(b"util");
 		let foo = mk(b"foo");
 		let mut g = CodeGraph::new(root.clone(), b"module");
-		g.add_def(foo.clone(), b"class", &root, Some((1, 2))).unwrap();
+		g.add_def(foo.clone(), b"class", &root, Some((1, 2)))
+			.unwrap();
 		g.add_ref(&foo, mk(b"ext"), b"call", Some((4, 5))).unwrap();
 
 		let clone = g.clone();

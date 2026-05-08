@@ -14,8 +14,7 @@ fn main() {
 		.nth(2)
 		.unwrap_or_else(|| "dogfood/ts/zod/src/types.ts".to_string());
 
-	let source = fs::read_to_string(&path)
-		.unwrap_or_else(|e| panic!("read {path}: {e}"));
+	let source = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
 	let anchor = MonikerBuilder::new().project(b"zod").build();
 	let presets = ts::Presets::default();
 

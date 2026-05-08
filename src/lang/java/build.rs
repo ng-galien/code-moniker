@@ -1,4 +1,3 @@
-
 use roxmltree::{Document, Node};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -87,18 +86,14 @@ fn is_dependency(n: &Node<'_, '_>) -> bool {
 	n.is_element() && n.tag_name().name() == "dependency"
 }
 
-fn direct_child<'a, 'input>(
-	parent: Node<'a, 'input>,
-	name: &str,
-) -> Option<Node<'a, 'input>> {
+fn direct_child<'a, 'input>(parent: Node<'a, 'input>, name: &str) -> Option<Node<'a, 'input>> {
 	parent
 		.children()
 		.find(|c| c.is_element() && c.tag_name().name() == name)
 }
 
 fn direct_child_text<'a>(parent: Node<'a, '_>, name: &str) -> Option<&'a str> {
-	direct_child(parent, name)
-		.and_then(|n| n.text().map(str::trim).filter(|s| !s.is_empty()))
+	direct_child(parent, name).and_then(|n| n.text().map(str::trim).filter(|s| !s.is_empty()))
 }
 
 #[cfg(test)]

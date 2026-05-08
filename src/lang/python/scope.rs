@@ -1,4 +1,3 @@
-
 use std::collections::HashSet;
 
 use crate::core::moniker::Moniker;
@@ -23,12 +22,16 @@ pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	if scope == module {
 		return false;
 	}
-	let Some(last) = scope.as_view().segments().last() else { return false };
+	let Some(last) = scope.as_view().segments().last() else {
+		return false;
+	};
 	last.kind == kinds::FUNCTION || last.kind == kinds::METHOD
 }
 
 pub(super) fn is_class_scope(scope: &Moniker) -> bool {
-	let Some(last) = scope.as_view().segments().last() else { return false };
+	let Some(last) = scope.as_view().segments().last() else {
+		return false;
+	};
 	last.kind == kinds::CLASS
 }
 

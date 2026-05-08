@@ -1,4 +1,3 @@
-
 use tree_sitter::Node;
 
 use crate::core::code_graph::{CodeGraph, RefAttrs};
@@ -11,13 +10,10 @@ use super::kinds;
 use super::walker::Walker;
 
 impl<'src> Walker<'src> {
-	pub(super) fn handle_import(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
-		let Some(src_node) = node.child_by_field_name("source") else { return };
+	pub(super) fn handle_import(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let Some(src_node) = node.child_by_field_name("source") else {
+			return;
+		};
 		let raw_spec = unquote_string_literal(src_node, self.source_bytes);
 		if raw_spec.is_empty() {
 			return;
@@ -36,7 +32,10 @@ impl<'src> Walker<'src> {
 		let confidence = import_confidence(raw_spec);
 		let Some(clause) = clause else {
 			let target = self.import_module_target(raw_spec);
-			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+			let attrs = RefAttrs {
+				confidence,
+				..RefAttrs::default()
+			};
 			let _ = graph.add_ref_attrs(scope, target, kinds::IMPORTS_MODULE, Some(pos), &attrs);
 			return;
 		};
@@ -113,13 +112,10 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	pub(super) fn handle_reexport(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
-		let Some(src_node) = node.child_by_field_name("source") else { return };
+	pub(super) fn handle_reexport(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let Some(src_node) = node.child_by_field_name("source") else {
+			return;
+		};
 		let raw_spec = unquote_string_literal(src_node, self.source_bytes);
 		if raw_spec.is_empty() {
 			return;
@@ -140,7 +136,10 @@ impl<'src> Walker<'src> {
 		let confidence = import_confidence(raw_spec);
 		if has_star {
 			let target = self.import_module_target(raw_spec);
-			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+			let attrs = RefAttrs {
+				confidence,
+				..RefAttrs::default()
+			};
 			let _ = graph.add_ref_attrs(scope, target, kinds::REEXPORTS, Some(pos), &attrs);
 			return;
 		}
@@ -233,9 +232,10 @@ fn first_identifier_text<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 	let mut cursor = node.walk();
 	for c in node.children(&mut cursor) {
 		if c.kind() == "identifier"
-			&& let Ok(s) = c.utf8_text(source) {
-				return s;
-			}
+			&& let Ok(s) = c.utf8_text(source)
+		{
+			return s;
+		}
 	}
 	""
 }
@@ -244,9 +244,10 @@ fn unquote_string_literal<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str
 	let mut cursor = node.walk();
 	for c in node.children(&mut cursor) {
 		if c.kind() == "string_fragment"
-			&& let Ok(s) = c.utf8_text(source) {
-				return s;
-			}
+			&& let Ok(s) = c.utf8_text(source)
+		{
+			return s;
+		}
 	}
 	node.utf8_text(source)
 		.unwrap_or("")

@@ -1,4 +1,3 @@
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Dep {
 	pub name: String,
@@ -33,7 +32,10 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, CargoError> {
 			.get("name")
 			.and_then(|v| v.as_str())
 			.ok_or_else(|| CargoError::Schema("[package].name missing or not a string".into()))?;
-		let version = pkg.get("version").and_then(|v| v.as_str()).map(str::to_string);
+		let version = pkg
+			.get("version")
+			.and_then(|v| v.as_str())
+			.map(str::to_string);
 		out.push(Dep {
 			name: name.to_string(),
 			version,
@@ -71,7 +73,10 @@ pub(crate) fn rust_import_root(name: &str) -> String {
 pub(crate) fn extract_version(spec: &toml::Value) -> Option<String> {
 	match spec {
 		toml::Value::String(s) => Some(s.clone()),
-		toml::Value::Table(t) => t.get("version").and_then(|v| v.as_str()).map(str::to_string),
+		toml::Value::Table(t) => t
+			.get("version")
+			.and_then(|v| v.as_str())
+			.map(str::to_string),
 		_ => None,
 	}
 }
@@ -88,12 +93,15 @@ mod tests {
             version = "0.1.0"
         "#;
 		let deps = parse(toml).unwrap();
-		assert_eq!(deps, vec![Dep {
-			name: "demo".into(),
-			version: Some("0.1.0".into()),
-			dep_kind: "package".into(),
-			import_root: "demo".into(),
-		}]);
+		assert_eq!(
+			deps,
+			vec![Dep {
+				name: "demo".into(),
+				version: Some("0.1.0".into()),
+				dep_kind: "package".into(),
+				import_root: "demo".into(),
+			}]
+		);
 	}
 
 	#[test]
@@ -167,7 +175,10 @@ mod tests {
             cc = "1.0"
         "#;
 		let deps = parse(toml).unwrap();
-		assert!(deps.iter().any(|d| d.name == "criterion" && d.dep_kind == "dev"));
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "criterion" && d.dep_kind == "dev")
+		);
 		assert!(deps.iter().any(|d| d.name == "cc" && d.dep_kind == "build"));
 	}
 

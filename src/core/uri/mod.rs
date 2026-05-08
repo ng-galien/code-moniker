@@ -27,7 +27,10 @@ impl std::fmt::Display for UriError {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::MissingScheme(expected) => {
-				write!(f, "URI does not start with the expected scheme `{expected}`")
+				write!(
+					f,
+					"URI does not start with the expected scheme `{expected}`"
+				)
 			}
 			Self::MissingProject => write!(f, "URI has no project authority"),
 			Self::EmptySegment(pos) => write!(f, "empty segment at byte {pos}"),

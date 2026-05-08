@@ -61,8 +61,14 @@ impl std::error::Error for EncodingError {}
 pub(super) fn encode(graph: &CodeGraph) -> Result<Vec<u8>, EncodingError> {
 	let defs: Vec<&DefRecord> = graph.defs().collect();
 	let refs: Vec<&RefRecord> = graph.refs().collect();
-	let def_count: u32 = defs.len().try_into().map_err(|_| EncodingError::IndexOverflow)?;
-	let ref_count: u32 = refs.len().try_into().map_err(|_| EncodingError::IndexOverflow)?;
+	let def_count: u32 = defs
+		.len()
+		.try_into()
+		.map_err(|_| EncodingError::IndexOverflow)?;
+	let ref_count: u32 = refs
+		.len()
+		.try_into()
+		.map_err(|_| EncodingError::IndexOverflow)?;
 
 	let mut out = Vec::with_capacity(HEADER_LEN + 128 * defs.len() + 64 * refs.len());
 	out.extend_from_slice(&LAYOUT_VERSION.to_le_bytes());
@@ -81,7 +87,10 @@ pub(super) fn encode(graph: &CodeGraph) -> Result<Vec<u8>, EncodingError> {
 	}
 
 	for r in &refs {
-		let source: u32 = r.source.try_into().map_err(|_| EncodingError::IndexOverflow)?;
+		let source: u32 = r
+			.source
+			.try_into()
+			.map_err(|_| EncodingError::IndexOverflow)?;
 		out.extend_from_slice(&source.to_le_bytes());
 		write_moniker(&mut out, &r.target)?;
 		write_short_bytes(&mut out, &r.kind, "ref kind")?;
@@ -107,7 +116,10 @@ pub(super) fn decode_root(buf: &[u8]) -> Result<Moniker, EncodingError> {
 	if def_count == 0 {
 		return Err(EncodingError::Truncated("root def"));
 	}
-	let mut cur = Cursor { buf, off: HEADER_LEN };
+	let mut cur = Cursor {
+		buf,
+		off: HEADER_LEN,
+	};
 	cur.read_moniker()
 }
 
@@ -122,7 +134,10 @@ pub(super) fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 	let def_count = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]) as usize;
 	let ref_count = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]) as usize;
 
-	let mut cur = Cursor { buf, off: HEADER_LEN };
+	let mut cur = Cursor {
+		buf,
+		off: HEADER_LEN,
+	};
 
 	let mut def_records: Vec<DefRecord> = Vec::with_capacity(def_count);
 	for _ in 0..def_count {
@@ -171,13 +186,20 @@ pub(super) fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 
 fn write_moniker(out: &mut Vec<u8>, m: &Moniker) -> Result<(), EncodingError> {
 	let bytes = m.as_bytes();
-	let len: u32 = bytes.len().try_into().map_err(|_| EncodingError::LengthOverflow("moniker"))?;
+	let len: u32 = bytes
+		.len()
+		.try_into()
+		.map_err(|_| EncodingError::LengthOverflow("moniker"))?;
 	out.extend_from_slice(&len.to_le_bytes());
 	out.extend_from_slice(bytes);
 	Ok(())
 }
 
-fn write_short_bytes(out: &mut Vec<u8>, bytes: &[u8], what: &'static str) -> Result<(), EncodingError> {
+fn write_short_bytes(
+	out: &mut Vec<u8>,
+	bytes: &[u8],
+	what: &'static str,
+) -> Result<(), EncodingError> {
 	if bytes.len() > u8::MAX as usize {
 		return Err(EncodingError::LengthOverflow(what));
 	}
@@ -186,8 +208,15 @@ fn write_short_bytes(out: &mut Vec<u8>, bytes: &[u8], what: &'static str) -> Res
 	Ok(())
 }
 
-fn write_medium_bytes(out: &mut Vec<u8>, bytes: &[u8], what: &'static str) -> Result<(), EncodingError> {
-	let len: u16 = bytes.len().try_into().map_err(|_| EncodingError::LengthOverflow(what))?;
+fn write_medium_bytes(
+	out: &mut Vec<u8>,
+	bytes: &[u8],
+	what: &'static str,
+) -> Result<(), EncodingError> {
+	let len: u16 = bytes
+		.len()
+		.try_into()
+		.map_err(|_| EncodingError::LengthOverflow(what))?;
 	out.extend_from_slice(&len.to_le_bytes());
 	out.extend_from_slice(bytes);
 	Ok(())
@@ -276,7 +305,11 @@ impl<'a> Cursor<'a> {
 
 	fn read_opt_idx(&mut self) -> Result<Option<usize>, EncodingError> {
 		let v = self.read_u32("opt idx")?;
-		Ok(if v == NONE_U32 { None } else { Some(v as usize) })
+		Ok(if v == NONE_U32 {
+			None
+		} else {
+			Some(v as usize)
+		})
 	}
 
 	fn read_opt_pos(&mut self) -> Result<Option<Position>, EncodingError> {
@@ -371,14 +404,20 @@ mod tests {
 		let mut bytes = encode(&CodeGraph::new(mk(b"a"), b"module")).unwrap();
 		bytes[0] = 99;
 		bytes[1] = 0;
-		assert!(matches!(decode(&bytes), Err(EncodingError::UnknownVersion(99))));
+		assert!(matches!(
+			decode(&bytes),
+			Err(EncodingError::UnknownVersion(99))
+		));
 	}
 
 	#[test]
 	fn truncated_buffer_errors() {
 		let bytes = encode(&CodeGraph::new(mk(b"a"), b"module")).unwrap();
 		let truncated = &bytes[..bytes.len() - 4];
-		assert!(matches!(decode(truncated), Err(EncodingError::Truncated(_))));
+		assert!(matches!(
+			decode(truncated),
+			Err(EncodingError::Truncated(_))
+		));
 	}
 
 	#[cfg(feature = "serde")]
@@ -396,15 +435,27 @@ mod tests {
 				signature: b"fn(x: i32, y: String) -> Vec<u8>",
 				..DefAttrs::default()
 			};
-			g.add_def_attrs(m.clone(), b"function", &root, Some((10 * i, 10 * i + 8)), &attrs)
-				.unwrap();
+			g.add_def_attrs(
+				m.clone(),
+				b"function",
+				&root,
+				Some((10 * i, 10 * i + 8)),
+				&attrs,
+			)
+			.unwrap();
 			let rattrs = RefAttrs {
 				receiver_hint: b"self",
 				confidence: b"local",
 				..RefAttrs::default()
 			};
-			g.add_ref_attrs(&m, mk(format!("ext_{i}").as_bytes()), b"calls",
-				Some((10 * i + 2, 10 * i + 6)), &rattrs).unwrap();
+			g.add_ref_attrs(
+				&m,
+				mk(format!("ext_{i}").as_bytes()),
+				b"calls",
+				Some((10 * i + 2, 10 * i + 6)),
+				&rattrs,
+			)
+			.unwrap();
 		}
 		let custom = encode(&g).unwrap();
 		let cbor = serde_cbor::to_vec(&g).expect("cbor");

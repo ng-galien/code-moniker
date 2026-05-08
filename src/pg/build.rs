@@ -96,24 +96,44 @@ struct Dep {
 
 impl From<cargo::Dep> for Dep {
 	fn from(d: cargo::Dep) -> Self {
-		Self { name: d.name, version: d.version, dep_kind: d.dep_kind, import_root: d.import_root }
+		Self {
+			name: d.name,
+			version: d.version,
+			dep_kind: d.dep_kind,
+			import_root: d.import_root,
+		}
 	}
 }
 
 impl From<package_json::Dep> for Dep {
 	fn from(d: package_json::Dep) -> Self {
-		Self { name: d.name, version: d.version, dep_kind: d.dep_kind, import_root: d.import_root }
+		Self {
+			name: d.name,
+			version: d.version,
+			dep_kind: d.dep_kind,
+			import_root: d.import_root,
+		}
 	}
 }
 
 impl From<pom_xml::Dep> for Dep {
 	fn from(d: pom_xml::Dep) -> Self {
-		Self { name: d.name, version: d.version, dep_kind: d.dep_kind, import_root: d.import_root }
+		Self {
+			name: d.name,
+			version: d.version,
+			dep_kind: d.dep_kind,
+			import_root: d.import_root,
+		}
 	}
 }
 
 impl From<pyproject::Dep> for Dep {
 	fn from(d: pyproject::Dep) -> Self {
-		Self { name: d.name, version: d.version, dep_kind: d.dep_kind, import_root: d.import_root }
+		Self {
+			name: d.name,
+			version: d.version,
+			dep_kind: d.dep_kind,
+			import_root: d.import_root,
+		}
 	}
 }

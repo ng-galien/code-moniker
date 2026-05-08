@@ -1,4 +1,3 @@
-
 use std::collections::HashSet;
 
 use tree_sitter::Node;
@@ -12,7 +11,9 @@ pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	if scope == module {
 		return false;
 	}
-	let Some(last) = scope.as_view().segments().last() else { return false };
+	let Some(last) = scope.as_view().segments().last() else {
+		return false;
+	};
 	last.kind == kinds::METHOD || last.kind == kinds::CONSTRUCTOR
 }
 

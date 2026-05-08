@@ -158,22 +158,14 @@ mod tests {
 
 	#[test]
 	fn from_uri_backtick_name() {
-		let m = from_uri(
-			"esac+moniker://app/path:`util/test.ts`",
-			&default_config(),
-		)
-		.unwrap();
+		let m = from_uri("esac+moniker://app/path:`util/test.ts`", &default_config()).unwrap();
 		let segs: Vec<_> = m.as_view().segments().collect();
 		assert_eq!(segs[0].name, b"util/test.ts");
 	}
 
 	#[test]
 	fn from_uri_doubled_backtick() {
-		let m = from_uri(
-			"esac+moniker://app/class:`weird``name`",
-			&default_config(),
-		)
-		.unwrap();
+		let m = from_uri("esac+moniker://app/class:`weird``name`", &default_config()).unwrap();
 		assert_eq!(m.as_view().segments().next().unwrap().name, b"weird`name");
 	}
 
@@ -196,8 +188,7 @@ mod tests {
 
 	#[test]
 	fn from_uri_rejects_missing_kind_separator() {
-		let err =
-			from_uri("esac+moniker://app/just_a_name", &default_config()).unwrap_err();
+		let err = from_uri("esac+moniker://app/just_a_name", &default_config()).unwrap_err();
 		assert!(matches!(err, UriError::MissingKindSeparator(_)));
 	}
 
@@ -209,10 +200,7 @@ mod tests {
 
 	#[test]
 	fn from_uri_rejects_unterminated_backtick() {
-		let r = from_uri(
-			"esac+moniker://app/path:`unterminated",
-			&default_config(),
-		);
+		let r = from_uri("esac+moniker://app/path:`unterminated", &default_config());
 		assert!(matches!(r.unwrap_err(), UriError::UnterminatedBacktick(_)));
 	}
 }

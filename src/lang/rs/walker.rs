@@ -1,4 +1,3 @@
-
 use std::collections::HashSet;
 
 use tree_sitter::Node;
@@ -25,9 +24,10 @@ pub(super) fn collect_local_mods(root: Node<'_>, source: &[u8]) -> HashSet<Strin
 	for child in root.children(&mut cursor) {
 		if child.kind() == "mod_item"
 			&& let Some(name) = child.child_by_field_name("name")
-				&& let Ok(s) = name.utf8_text(source) {
-					out.insert(s.to_string());
-				}
+			&& let Ok(s) = name.utf8_text(source)
+		{
+			out.insert(s.to_string());
+		}
 	}
 	out
 }
@@ -40,9 +40,7 @@ impl<'src> Walker<'src> {
 				"struct_item" => self.handle_simple_def(child, parent, graph, kinds::CLASS),
 				"enum_item" => self.handle_simple_def(child, parent, graph, kinds::ENUM),
 				"trait_item" => self.handle_simple_def(child, parent, graph, kinds::INTERFACE),
-				"type_item" => {
-					self.handle_simple_def(child, parent, graph, kinds::TYPE_ALIAS)
-				}
+				"type_item" => self.handle_simple_def(child, parent, graph, kinds::TYPE_ALIAS),
 				"function_item" => self.handle_function(child, parent, graph, kinds::FUNCTION),
 				"impl_item" => self.handle_impl(child, parent, graph),
 				"use_declaration" => self.handle_use(child, parent, graph),
@@ -58,7 +56,9 @@ impl<'src> Walker<'src> {
 		graph: &mut CodeGraph,
 		kind: &[u8],
 	) {
-		let Some(name) = self.field_text(node, "name") else { return };
+		let Some(name) = self.field_text(node, "name") else {
+			return;
+		};
 		let m = extend_segment(parent, kind, name.as_bytes());
 		let _ = graph.add_def(m, kind, parent, Some(node_position(node)));
 	}
@@ -70,7 +70,9 @@ impl<'src> Walker<'src> {
 		graph: &mut CodeGraph,
 		kind: &[u8],
 	) {
-		let Some(name) = self.field_text(node, "name") else { return };
+		let Some(name) = self.field_text(node, "name") else {
+			return;
+		};
 		let types = function_param_types(node, self.source_bytes);
 		let m = extend_callable_typed(parent, kind, name.as_bytes(), &types);
 		let _ = graph.add_def(m.clone(), kind, parent, Some(node_position(node)));
@@ -143,8 +145,14 @@ impl<'src> Walker<'src> {
 		for child in node.named_children(&mut cursor) {
 			match child.kind() {
 				"let_declaration" => self.handle_let(child, callable, graph),
-				"block" | "if_expression" | "match_expression" | "while_expression"
-				| "for_expression" | "loop_expression" | "match_arm" | "match_block"
+				"block"
+				| "if_expression"
+				| "match_expression"
+				| "while_expression"
+				| "for_expression"
+				| "loop_expression"
+				| "match_arm"
+				| "match_block"
 				| "expression_statement" => {
 					self.walk_callable_body(child, callable, graph);
 				}
@@ -154,13 +162,16 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_let(&self, node: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
-		let Some(pattern) = node.child_by_field_name("pattern") else { return };
+		let Some(pattern) = node.child_by_field_name("pattern") else {
+			return;
+		};
 		self.emit_pattern_defs(pattern, callable, kinds::LOCAL, node, graph);
 		if let Some(value) = node.child_by_field_name("value")
 			&& value.kind() == "closure_expression"
-				&& let Some(bind_name) = first_identifier(pattern, self.source_bytes) {
-					self.emit_named_closure(value, callable, bind_name.as_bytes(), graph);
-				}
+			&& let Some(bind_name) = first_identifier(pattern, self.source_bytes)
+		{
+			self.emit_named_closure(value, callable, bind_name.as_bytes(), graph);
+		}
 	}
 
 	fn emit_named_closure(
@@ -187,18 +198,26 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_impl(&self, node: Node<'_>, _parent: &Moniker, graph: &mut CodeGraph) {
-		let Some(type_node) = node.child_by_field_name("type") else { return };
-		let Some(type_name) = impl_type_name(type_node, self.source_bytes) else { return };
+		let Some(type_node) = node.child_by_field_name("type") else {
+			return;
+		};
+		let Some(type_name) = impl_type_name(type_node, self.source_bytes) else {
+			return;
+		};
 		let type_moniker = extend_segment(&self.module, kinds::CLASS, type_name.as_bytes());
 		self.handle_impl_trait_for(node, &type_moniker, graph);
-		let Some(body) = node.child_by_field_name("body") else { return };
+		let Some(body) = node.child_by_field_name("body") else {
+			return;
+		};
 		self.walk_impl_body(body, &type_moniker, graph);
 	}
 
 	fn walk_impl_body(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
-			if child.kind() == "function_item" { self.handle_function(child, parent, graph, kinds::METHOD) }
+			if child.kind() == "function_item" {
+				self.handle_function(child, parent, graph, kinds::METHOD)
+			}
 		}
 	}
 
@@ -221,4 +240,3 @@ fn first_identifier<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
 	}
 	None
 }
-

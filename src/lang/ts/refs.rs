@@ -1,21 +1,16 @@
-
 use tree_sitter::Node;
 
 use crate::core::code_graph::{CodeGraph, RefAttrs};
 use crate::core::moniker::Moniker;
 
-use super::canonicalize::{extend_callable_arity, extend_callable_typed, extend_segment, node_position};
+use super::canonicalize::{
+	extend_callable_arity, extend_callable_typed, extend_segment, node_position,
+};
 use super::kinds;
 use super::walker::Walker;
 
 impl<'src> Walker<'src> {
-
-	pub(super) fn handle_call(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn handle_call(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
 		let arity = call_argument_count(node);
 		let Some(fn_node) = node.child_by_field_name("function") else {
@@ -77,12 +72,7 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	pub(super) fn handle_new(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn handle_new(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
 		if let Some(ctor) = node.child_by_field_name("constructor") {
 			let name = match ctor.kind() {
@@ -93,10 +83,17 @@ impl<'src> Walker<'src> {
 				_ => None,
 			};
 			if let Some(n) = name
-				&& !n.is_empty() {
-					let target = self.instantiates_target(n);
-					let _ = graph.add_ref_attrs(scope, target, kinds::INSTANTIATES, Some(pos), &NAME_MATCH_ATTRS);
-				}
+				&& !n.is_empty()
+			{
+				let target = self.instantiates_target(n);
+				let _ = graph.add_ref_attrs(
+					scope,
+					target,
+					kinds::INSTANTIATES,
+					Some(pos),
+					&NAME_MATCH_ATTRS,
+				);
+			}
 		}
 		self.walk(node, scope, graph);
 	}
@@ -120,7 +117,9 @@ impl<'src> Walker<'src> {
 		{
 			return;
 		}
-		let Some(args) = call.child_by_field_name("arguments") else { return };
+		let Some(args) = call.child_by_field_name("arguments") else {
+			return;
+		};
 		let mut cursor = args.walk();
 		for c in args.children(&mut cursor) {
 			if !c.is_named() {
@@ -170,7 +169,6 @@ impl<'src> Walker<'src> {
 			_ => None,
 		}
 	}
-
 
 	pub(super) fn handle_class_heritage(
 		&self,
@@ -225,13 +223,7 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-
-	pub(super) fn handle_decorator(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn handle_decorator(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
 		let mut cursor = node.walk();
 		for c in node.children(&mut cursor) {
@@ -240,17 +232,30 @@ impl<'src> Walker<'src> {
 					let name = self.text_of(c);
 					if !name.is_empty() {
 						let target = self.calls_target(name, 0);
-						let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &NAME_MATCH_ATTRS);
+						let _ = graph.add_ref_attrs(
+							scope,
+							target,
+							kinds::ANNOTATES,
+							Some(pos),
+							&NAME_MATCH_ATTRS,
+						);
 					}
 				}
 				"call_expression" => {
 					if let Some(fn_node) = c.child_by_field_name("function")
-						&& fn_node.kind() == "identifier" {
-							let name = self.text_of(fn_node);
-							let arity = call_argument_count(c);
-							let target = self.calls_target(name, arity);
-							let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &NAME_MATCH_ATTRS);
-						}
+						&& fn_node.kind() == "identifier"
+					{
+						let name = self.text_of(fn_node);
+						let arity = call_argument_count(c);
+						let target = self.calls_target(name, arity);
+						let _ = graph.add_ref_attrs(
+							scope,
+							target,
+							kinds::ANNOTATES,
+							Some(pos),
+							&NAME_MATCH_ATTRS,
+						);
+					}
 					if let Some(args) = c.child_by_field_name("arguments") {
 						self.walk(args, scope, graph);
 					}
@@ -259,7 +264,6 @@ impl<'src> Walker<'src> {
 			}
 		}
 	}
-
 
 	pub(super) fn emit_uses_type_recursive(
 		&self,
@@ -274,7 +278,13 @@ impl<'src> Walker<'src> {
 					return;
 				}
 				let target = self.heritage_target(kinds::CLASS, name);
-				let _ = graph.add_ref_attrs(scope, target, kinds::USES_TYPE, Some(node_position(node)), &NAME_MATCH_ATTRS);
+				let _ = graph.add_ref_attrs(
+					scope,
+					target,
+					kinds::USES_TYPE,
+					Some(node_position(node)),
+					&NAME_MATCH_ATTRS,
+				);
 			}
 			"nested_type_identifier" => {
 				if let Some(name) = nested_type_short(node, self.source_bytes) {
@@ -312,7 +322,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-
 	pub(super) fn emit_reads_in_children(
 		&self,
 		node: Node<'_>,
@@ -329,12 +338,7 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	pub(super) fn emit_read_at(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn emit_read_at(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let name = self.text_of(node);
 		if name.is_empty() {
 			return;
@@ -351,7 +355,13 @@ impl<'src> Walker<'src> {
 			confidence,
 			..RefAttrs::default()
 		};
-		let _ = graph.add_ref_attrs(scope, target, kinds::READS, Some(node_position(node)), &attrs);
+		let _ = graph.add_ref_attrs(
+			scope,
+			target,
+			kinds::READS,
+			Some(node_position(node)),
+			&attrs,
+		);
 	}
 
 	pub(super) fn handle_member_like(
@@ -386,12 +396,7 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	pub(super) fn handle_unary_like(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn handle_unary_like(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if let Some(arg) = node.child_by_field_name("argument") {
 			if arg.kind() == "identifier" {
 				self.emit_read_at(arg, scope, graph);
@@ -401,12 +406,7 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	pub(super) fn handle_ternary(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn handle_ternary(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		for field in &["condition", "consequence", "alternative"] {
 			if let Some(c) = node.child_by_field_name(field) {
 				if c.kind() == "identifier" {
@@ -425,12 +425,12 @@ impl<'src> Walker<'src> {
 		graph: &mut CodeGraph,
 	) {
 		if let Some(name) = node.child_by_field_name("name")
-			&& name.kind() == "identifier" {
-				self.emit_read_at(name, scope, graph);
-			}
+			&& name.kind() == "identifier"
+		{
+			self.emit_read_at(name, scope, graph);
+		}
 		self.walk(node, scope, graph);
 	}
-
 
 	fn calls_target(&self, name: &str, arity: u16) -> Moniker {
 		extend_callable_arity(&self.module, kinds::FUNCTION, name.as_bytes(), arity)
@@ -449,7 +449,12 @@ impl<'src> Walker<'src> {
 	}
 
 	fn read_target(&self, name: &str) -> Moniker {
-		extend_callable_typed(&self.module, kinds::FUNCTION, name.as_bytes(), &[] as &[&[u8]])
+		extend_callable_typed(
+			&self.module,
+			kinds::FUNCTION,
+			name.as_bytes(),
+			&[] as &[&[u8]],
+		)
 	}
 }
 

@@ -1,4 +1,3 @@
-
 use serde_json::Value;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -28,13 +27,16 @@ impl std::error::Error for PackageJsonError {}
 
 pub fn parse(content: &str) -> Result<Vec<Dep>, PackageJsonError> {
 	let value: Value = serde_json::from_str(content).map_err(PackageJsonError::Parse)?;
-	let obj = value.as_object().ok_or_else(|| {
-		PackageJsonError::Schema("top-level value is not a JSON object".into())
-	})?;
+	let obj = value
+		.as_object()
+		.ok_or_else(|| PackageJsonError::Schema("top-level value is not a JSON object".into()))?;
 	let mut out = Vec::new();
 
 	if let Some(name) = obj.get("name").and_then(Value::as_str) {
-		let version = obj.get("version").and_then(Value::as_str).map(str::to_string);
+		let version = obj
+			.get("version")
+			.and_then(Value::as_str)
+			.map(str::to_string);
 		out.push(Dep {
 			name: name.to_string(),
 			version,
@@ -121,7 +123,10 @@ mod tests {
 			"dependencies": { "tsup": { "version": "8.0.0" } }
 		}"#;
 		let deps = parse(json).unwrap();
-		assert!(deps.iter().any(|d| d.name == "tsup" && d.version.as_deref() == Some("8.0.0")));
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "tsup" && d.version.as_deref() == Some("8.0.0"))
+		);
 	}
 
 	#[test]
@@ -134,9 +139,18 @@ mod tests {
 			"optionalDependencies": { "fsevents": "2.0.0" }
 		}"#;
 		let deps = parse(json).unwrap();
-		assert!(deps.iter().any(|d| d.name == "vitest"   && d.dep_kind == "dev"));
-		assert!(deps.iter().any(|d| d.name == "react"    && d.dep_kind == "peer"));
-		assert!(deps.iter().any(|d| d.name == "fsevents" && d.dep_kind == "optional"));
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "vitest" && d.dep_kind == "dev")
+		);
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "react" && d.dep_kind == "peer")
+		);
+		assert!(
+			deps.iter()
+				.any(|d| d.name == "fsevents" && d.dep_kind == "optional")
+		);
 	}
 
 	#[test]
@@ -153,7 +167,10 @@ mod tests {
 
 	#[test]
 	fn parse_invalid_json_returns_parse_error() {
-		assert!(matches!(parse("{not json"), Err(PackageJsonError::Parse(_))));
+		assert!(matches!(
+			parse("{not json"),
+			Err(PackageJsonError::Parse(_))
+		));
 	}
 
 	#[test]

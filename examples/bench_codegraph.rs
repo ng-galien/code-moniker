@@ -46,7 +46,10 @@ fn main() {
 		(10_000, 100_000),
 	];
 
-	println!("{:>8}  {:>8}  {:>10}  {:>14}", "defs", "refs", "elapsed", "ns/op");
+	println!(
+		"{:>8}  {:>8}  {:>10}  {:>14}",
+		"defs", "refs", "elapsed", "ns/op"
+	);
 	for &(d, r) in scales {
 		let (dc, rc, dt) = run(d, r);
 		let ops = dc + rc;

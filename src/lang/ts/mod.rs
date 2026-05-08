@@ -115,7 +115,9 @@ mod tests {
 	#[test]
 	fn extract_strips_each_known_extension() {
 		let anchor = make_anchor();
-		for uri in ["foo.ts", "foo.tsx", "foo.js", "foo.jsx", "foo.mjs", "foo.cjs"] {
+		for uri in [
+			"foo.ts", "foo.tsx", "foo.js", "foo.jsx", "foo.mjs", "foo.cjs",
+		] {
 			let g = extract(uri, "", &anchor, false);
 			let last = g.root().as_view().segments().last().unwrap();
 			assert_eq!(last.name, b"foo", "extension not stripped on {uri}");
@@ -227,7 +229,12 @@ mod tests {
 
 	#[test]
 	fn extract_namespace_import_emits_imports_module() {
-		let g = extract("util.ts", "import * as M from './foo';", &make_anchor(), false);
+		let g = extract(
+			"util.ts",
+			"import * as M from './foo';",
+			&make_anchor(),
+			false,
+		);
 		let r = g.refs().next().unwrap();
 		assert_eq!(r.kind, b"imports_module".to_vec());
 		let target = MonikerBuilder::new()
@@ -241,7 +248,12 @@ mod tests {
 
 	#[test]
 	fn extract_bare_import_resolves_to_external_pkg() {
-		let g = extract("util.ts", "import { useState } from 'react';", &make_anchor(), false);
+		let g = extract(
+			"util.ts",
+			"import { useState } from 'react';",
+			&make_anchor(),
+			false,
+		);
 		let r = g.refs().next().unwrap();
 		assert_eq!(r.kind, b"imports_symbol".to_vec());
 		let target = MonikerBuilder::new()
@@ -337,7 +349,12 @@ mod tests {
 	}
 	#[test]
 	fn extract_interface_emits_interface_def() {
-		let g = extract("util.ts", "interface Greet { hi(): void; }", &make_anchor(), false);
+		let g = extract(
+			"util.ts",
+			"interface Greet { hi(): void; }",
+			&make_anchor(),
+			false,
+		);
 		let greet = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
@@ -354,12 +371,20 @@ mod tests {
 			.segment(b"interface", b"Greet")
 			.segment(b"method", b"hi()")
 			.build();
-		assert!(g.contains(&hi), "method_signature in interface body must be a method def");
+		assert!(
+			g.contains(&hi),
+			"method_signature in interface body must be a method def"
+		);
 	}
 
 	#[test]
 	fn extract_enum_emits_enum_constants() {
-		let g = extract("util.ts", "enum Color { Red, Green = 1 }", &make_anchor(), false);
+		let g = extract(
+			"util.ts",
+			"enum Color { Red, Green = 1 }",
+			&make_anchor(),
+			false,
+		);
 		let red = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
@@ -368,7 +393,11 @@ mod tests {
 			.segment(b"enum", b"Color")
 			.segment(b"enum_constant", b"Red")
 			.build();
-		assert!(g.contains(&red), "missing Red enum constant; defs: {:?}", g.def_monikers());
+		assert!(
+			g.contains(&red),
+			"missing Red enum constant; defs: {:?}",
+			g.def_monikers()
+		);
 	}
 
 	#[test]
@@ -399,7 +428,11 @@ mod tests {
 			.segment(b"class", b"Foo")
 			.segment(b"method", b"bar(number,string)")
 			.build();
-		assert!(g.contains(&bar), "expected typed segment, defs: {:?}", g.def_monikers());
+		assert!(
+			g.contains(&bar),
+			"expected typed segment, defs: {:?}",
+			g.def_monikers()
+		);
 	}
 
 	#[test]
@@ -521,7 +554,11 @@ mod tests {
 		assert_eq!(by_name(b"a()"), b"public".to_vec());
 		assert_eq!(by_name(b"b()"), b"protected".to_vec());
 		assert_eq!(by_name(b"c()"), b"private".to_vec());
-		assert_eq!(by_name(b"d()"), b"public".to_vec(), "no modifier defaults to public");
+		assert_eq!(
+			by_name(b"d()"),
+			b"public".to_vec(),
+			"no modifier defaults to public"
+		);
 	}
 
 	#[test]
@@ -606,12 +643,7 @@ mod tests {
 
 	#[test]
 	fn extract_param_def_has_no_visibility() {
-		let g = extract(
-			"util.ts",
-			"function f(x) {}",
-			&make_anchor(),
-			true,
-		);
+		let g = extract("util.ts", "function f(x) {}", &make_anchor(), true);
 		let p = g.defs().find(|d| d.kind == b"param").expect("param def");
 		assert!(p.visibility.is_empty());
 	}
@@ -727,13 +759,11 @@ mod tests {
 
 	#[test]
 	fn extract_class_extends_emits_extends_ref() {
-		let g = extract(
-			"util.ts",
-			"class A extends B {}",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().find(|r| r.kind == b"extends").expect("extends ref");
+		let g = extract("util.ts", "class A extends B {}", &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"extends")
+			.expect("extends ref");
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
@@ -746,12 +776,7 @@ mod tests {
 
 	#[test]
 	fn extract_class_implements_emits_implements_ref() {
-		let g = extract(
-			"util.ts",
-			"class A implements I {}",
-			&make_anchor(),
-			false,
-		);
+		let g = extract("util.ts", "class A implements I {}", &make_anchor(), false);
 		let r = g
 			.refs()
 			.find(|r| r.kind == b"implements")
@@ -768,12 +793,7 @@ mod tests {
 
 	#[test]
 	fn extract_decorator_emits_annotates_ref() {
-		let g = extract(
-			"util.ts",
-			"@Injectable class A {}",
-			&make_anchor(),
-			false,
-		);
+		let g = extract("util.ts", "@Injectable class A {}", &make_anchor(), false);
 		let r = g
 			.refs()
 			.find(|r| r.kind == b"annotates")
@@ -790,12 +810,7 @@ mod tests {
 
 	#[test]
 	fn extract_decorator_call_keeps_arity() {
-		let g = extract(
-			"util.ts",
-			"@Bind('x') class A {}",
-			&make_anchor(),
-			false,
-		);
+		let g = extract("util.ts", "@Bind('x') class A {}", &make_anchor(), false);
 		let r = g.refs().find(|r| r.kind == b"annotates").unwrap();
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
@@ -833,7 +848,10 @@ mod tests {
 			.filter(|r| r.kind == b"uses_type")
 			.map(|r| r.target.clone())
 			.collect();
-		assert!(targets.contains(&foo), "missing Foo uses_type; got {targets:?}");
+		assert!(
+			targets.contains(&foo),
+			"missing Foo uses_type; got {targets:?}"
+		);
 		assert!(targets.contains(&bar));
 	}
 
@@ -988,17 +1006,14 @@ mod tests {
 		assert!(
 			g.defs().any(|d| d.kind == b"section"),
 			"expected section def; defs: {:?}",
-			g.defs().map(|d| String::from_utf8_lossy(&d.kind).into_owned()).collect::<Vec<_>>()
+			g.defs()
+				.map(|d| String::from_utf8_lossy(&d.kind).into_owned())
+				.collect::<Vec<_>>()
 		);
 	}
 	#[test]
 	fn extract_export_default_class_named_default() {
-		let g = extract(
-			"util.ts",
-			"export default class {}",
-			&make_anchor(),
-			false,
-		);
+		let g = extract("util.ts", "export default class {}", &make_anchor(), false);
 		let m = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
@@ -1054,7 +1069,11 @@ mod tests {
 			.segment(b"function", b"f(number,number)")
 			.segment(b"local", b"sum")
 			.build();
-		assert!(g.contains(&pa), "missing param a; defs: {:?}", g.def_monikers());
+		assert!(
+			g.contains(&pa),
+			"missing param a; defs: {:?}",
+			g.def_monikers()
+		);
 		assert!(g.contains(&pb));
 		assert!(g.contains(&sum));
 	}

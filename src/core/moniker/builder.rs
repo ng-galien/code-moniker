@@ -1,4 +1,4 @@
-use super::encoding::{write_u16, HEADER_FIXED_LEN, VERSION};
+use super::encoding::{HEADER_FIXED_LEN, VERSION, write_u16};
 use super::{Moniker, MonikerView};
 
 #[derive(Default, Debug)]
@@ -95,8 +95,20 @@ mod tests {
 		let v = m.as_view();
 		assert_eq!(v.segment_count(), 4);
 		let segs: Vec<_> = v.segments().collect();
-		assert_eq!(segs[0], Segment { kind: b"module", name: b"main" });
-		assert_eq!(segs[3], Segment { kind: b"class", name: b"Foo" });
+		assert_eq!(
+			segs[0],
+			Segment {
+				kind: b"module",
+				name: b"main"
+			}
+		);
+		assert_eq!(
+			segs[3],
+			Segment {
+				kind: b"class",
+				name: b"Foo"
+			}
+		);
 	}
 
 	#[test]

@@ -1,4 +1,3 @@
-
 use std::collections::HashSet;
 
 use tree_sitter::Node;
@@ -23,7 +22,9 @@ pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	if scope == module {
 		return false;
 	}
-	let Some(last) = scope.as_view().segments().last() else { return false };
+	let Some(last) = scope.as_view().segments().last() else {
+		return false;
+	};
 	last.kind == kinds::FUNCTION || last.kind == kinds::METHOD || last.kind == kinds::CONSTRUCTOR
 }
 
@@ -57,10 +58,7 @@ pub(super) fn section_title<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a 
 	(starts && ends).then_some(stripped)
 }
 
-pub(super) fn collect_binding_names<'src>(
-	pat: Node<'_>,
-	source: &'src [u8],
-) -> Vec<&'src str> {
+pub(super) fn collect_binding_names<'src>(pat: Node<'_>, source: &'src [u8]) -> Vec<&'src str> {
 	fn rec<'src>(node: Node<'_>, source: &'src [u8], out: &mut Vec<&'src str>) {
 		match node.kind() {
 			"identifier" | "shorthand_property_identifier_pattern" => {

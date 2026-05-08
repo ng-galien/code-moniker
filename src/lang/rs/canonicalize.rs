@@ -1,4 +1,3 @@
-
 use tree_sitter::Node;
 
 use crate::core::moniker::{Moniker, MonikerBuilder};
@@ -9,7 +8,12 @@ pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let stem = strip_rs_extension(uri);
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
 	builder.segment(crate::lang::kinds::LANG, b"rs");
-	crate::lang::callable::append_dir_module_segments(&mut builder, stem, kinds::DIR, kinds::MODULE);
+	crate::lang::callable::append_dir_module_segments(
+		&mut builder,
+		stem,
+		kinds::DIR,
+		kinds::MODULE,
+	);
 	builder.build()
 }
 

@@ -1,4 +1,3 @@
-
 use tree_sitter::Node;
 
 use crate::core::code_graph::{CodeGraph, RefAttrs};
@@ -9,13 +8,7 @@ use super::kinds;
 use super::walker::Walker;
 
 impl<'src> Walker<'src> {
-
-	pub(super) fn handle_import(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn handle_import(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
 		let mut wildcard = false;
 		let mut path_node: Option<Node<'_>> = None;
@@ -38,7 +31,10 @@ impl<'src> Walker<'src> {
 
 		if wildcard {
 			let target = wildcard_target(self.module.as_view().project(), &pieces, confidence);
-			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+			let attrs = RefAttrs {
+				confidence,
+				..RefAttrs::default()
+			};
 			let _ = graph.add_ref_attrs(scope, target, kinds::IMPORTS_MODULE, Some(pos), &attrs);
 			return;
 		}
@@ -49,10 +45,12 @@ impl<'src> Walker<'src> {
 				.insert(last.as_bytes(), confidence);
 		}
 		let target = symbol_target(self.module.as_view().project(), &pieces, confidence);
-		let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+		let attrs = RefAttrs {
+			confidence,
+			..RefAttrs::default()
+		};
 		let _ = graph.add_ref_attrs(scope, target, kinds::IMPORTS_SYMBOL, Some(pos), &attrs);
 	}
-
 
 	pub(super) fn handle_method_invocation(
 		&self,
@@ -81,13 +79,7 @@ impl<'src> Walker<'src> {
 				confidence: kinds::CONF_NAME_MATCH,
 				..RefAttrs::default()
 			};
-			let _ = graph.add_ref_attrs(
-				scope,
-				target,
-				kinds::METHOD_CALL,
-				Some(pos),
-				&attrs,
-			);
+			let _ = graph.add_ref_attrs(scope, target, kinds::METHOD_CALL, Some(pos), &attrs);
 			self.dispatch(obj, scope, graph);
 		} else {
 			let confidence = match self.import_confidence_for(name.as_bytes()) {
@@ -100,7 +92,10 @@ impl<'src> Walker<'src> {
 				} else {
 					self.calls_target(name, arity)
 				};
-				let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+				let attrs = RefAttrs {
+					confidence,
+					..RefAttrs::default()
+				};
 				let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
 			}
 		}
@@ -125,21 +120,16 @@ impl<'src> Walker<'src> {
 				_ => "",
 			};
 			if !name.is_empty() {
-				let (target, confidence) =
-					self.resolve_type_target(name.as_bytes(), kinds::CLASS);
-				let attrs = RefAttrs { confidence, ..RefAttrs::default() };
-				let _ = graph.add_ref_attrs(
-					scope,
-					target,
-					kinds::INSTANTIATES,
-					Some(pos),
-					&attrs,
-				);
+				let (target, confidence) = self.resolve_type_target(name.as_bytes(), kinds::CLASS);
+				let attrs = RefAttrs {
+					confidence,
+					..RefAttrs::default()
+				};
+				let _ = graph.add_ref_attrs(scope, target, kinds::INSTANTIATES, Some(pos), &attrs);
 			}
 		}
 		self.walk(node, scope, graph);
 	}
-
 
 	pub(super) fn emit_heritage_refs(
 		&self,
@@ -169,19 +159,19 @@ impl<'src> Walker<'src> {
 				kinds::CLASS
 			};
 			let (target, confidence) = self.resolve_type_target(name.as_bytes(), target_kind);
-			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+			let attrs = RefAttrs {
+				confidence,
+				..RefAttrs::default()
+			};
 			let _ = graph.add_ref_attrs(scope, target, edge, Some(node_position(child)), &attrs);
 		}
 	}
 
-	pub(super) fn handle_annotation(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn handle_annotation(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
-		let Some(name_node) = node.child_by_field_name("name") else { return };
+		let Some(name_node) = node.child_by_field_name("name") else {
+			return;
+		};
 		let name = match name_node.kind() {
 			"identifier" => self.text_of(name_node).to_string(),
 			"scoped_identifier" => last_identifier(name_node, self.source_bytes).to_string(),
@@ -192,20 +182,17 @@ impl<'src> Walker<'src> {
 		}
 		let (target, confidence) =
 			self.resolve_type_target(name.as_bytes(), kinds::ANNOTATION_TYPE);
-		let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+		let attrs = RefAttrs {
+			confidence,
+			..RefAttrs::default()
+		};
 		let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &attrs);
 		if let Some(args) = node.child_by_field_name("arguments") {
 			self.walk(args, scope, graph);
 		}
 	}
 
-
-	pub(super) fn emit_uses_type(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn emit_uses_type(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let name = match node.kind() {
 			"type_identifier" => self.text_of(node).to_string(),
 			"scoped_type_identifier" => last_identifier(node, self.source_bytes).to_string(),
@@ -231,7 +218,10 @@ impl<'src> Walker<'src> {
 			return;
 		}
 		let (target, confidence) = self.resolve_type_target(name.as_bytes(), kinds::CLASS);
-		let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+		let attrs = RefAttrs {
+			confidence,
+			..RefAttrs::default()
+		};
 		let _ = graph.add_ref_attrs(
 			scope,
 			target,
@@ -241,13 +231,7 @@ impl<'src> Walker<'src> {
 		);
 	}
 
-
-	pub(super) fn handle_identifier(
-		&self,
-		node: Node<'_>,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
+	pub(super) fn handle_identifier(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let name = self.text_of(node);
 		if name.is_empty() {
 			return;
@@ -256,16 +240,26 @@ impl<'src> Walker<'src> {
 			Some(c) => Some(c),
 			None => self.name_confidence(name.as_bytes()),
 		};
-		let Some(confidence) = confidence else { return; };
+		let Some(confidence) = confidence else {
+			return;
+		};
 		let target = if confidence == kinds::CONF_LOCAL {
 			extend_segment(scope, kinds::LOCAL, name.as_bytes())
 		} else {
 			self.read_target(name)
 		};
-		let attrs = RefAttrs { confidence, ..RefAttrs::default() };
-		let _ = graph.add_ref_attrs(scope, target, kinds::READS, Some(node_position(node)), &attrs);
+		let attrs = RefAttrs {
+			confidence,
+			..RefAttrs::default()
+		};
+		let _ = graph.add_ref_attrs(
+			scope,
+			target,
+			kinds::READS,
+			Some(node_position(node)),
+			&attrs,
+		);
 	}
-
 
 	fn calls_target(&self, name: &str, arity: u16) -> Moniker {
 		extend_callable_arity(&self.module, kinds::METHOD, name.as_bytes(), arity)
@@ -281,7 +275,9 @@ impl<'src> Walker<'src> {
 }
 
 fn argument_count(call: Node<'_>) -> u16 {
-	let Some(args) = call.child_by_field_name("arguments") else { return 0 };
+	let Some(args) = call.child_by_field_name("arguments") else {
+		return 0;
+	};
 	let mut cursor = args.walk();
 	let mut count: u16 = 0;
 	for c in args.named_children(&mut cursor) {
@@ -350,7 +346,11 @@ fn symbol_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Moniker 
 		b.segment(crate::lang::kinds::LANG, b"java");
 		let last = pieces.len() - 1;
 		for (i, piece) in pieces.iter().enumerate() {
-			let kind = if i == last { kinds::MODULE } else { kinds::PACKAGE };
+			let kind = if i == last {
+				kinds::MODULE
+			} else {
+				kinds::PACKAGE
+			};
 			b.segment(kind, piece.as_bytes());
 		}
 		b.segment(kinds::PATH, pieces[last].as_bytes());

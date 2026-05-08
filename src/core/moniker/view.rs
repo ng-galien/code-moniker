@@ -1,4 +1,4 @@
-use super::encoding::{read_u16, EncodingError, HEADER_FIXED_LEN, VERSION};
+use super::encoding::{EncodingError, HEADER_FIXED_LEN, VERSION, read_u16};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Segment<'a> {

@@ -1,4 +1,3 @@
-
 use std::ffi::{CStr, CString};
 
 use pgrx::pg_sys;
@@ -48,11 +47,15 @@ pub(super) fn walk_plpgsql_body(
 			is_setof,
 			is_void,
 			param_ptrs.len() as ::core::ffi::c_int,
-			if param_ptrs.is_empty() { std::ptr::null() } else { param_ptrs.as_ptr() },
+			if param_ptrs.is_empty() {
+				std::ptr::null()
+			} else {
+				param_ptrs.as_ptr()
+			},
 		)
 	})
-		.catch_others(|_| std::ptr::null_mut())
-		.execute();
+	.catch_others(|_| std::ptr::null_mut())
+	.execute();
 
 	if func.is_null() {
 		return;
@@ -65,7 +68,12 @@ pub(super) fn walk_plpgsql_body(
 	unsafe { pcm_plpgsql_free(func) };
 }
 
-fn walk_stmt_list(list: *mut pg_sys::List, source_def: &Moniker, module: &Moniker, graph: &mut CodeGraph) {
+fn walk_stmt_list(
+	list: *mut pg_sys::List,
+	source_def: &Moniker,
+	module: &Moniker,
+	graph: &mut CodeGraph,
+) {
 	if list.is_null() {
 		return;
 	}
@@ -101,7 +109,12 @@ fn walk_stmt(
 	use pg_sys::PLpgSQL_stmt_type::*;
 	match cmd {
 		PLPGSQL_STMT_BLOCK => {
-			walk_block(stmt as *mut pg_sys::PLpgSQL_stmt_block, source_def, module, graph);
+			walk_block(
+				stmt as *mut pg_sys::PLpgSQL_stmt_block,
+				source_def,
+				module,
+				graph,
+			);
 		}
 		PLPGSQL_STMT_ASSIGN => {
 			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_assign) };

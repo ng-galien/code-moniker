@@ -75,9 +75,7 @@ impl<'a> super::MonikerView<'a> {
 	}
 
 	pub fn lang_segment(&self) -> Option<&[u8]> {
-		self.segments()
-			.find(|s| s.kind == b"lang")
-			.map(|s| s.name)
+		self.segments().find(|s| s.kind == b"lang").map(|s| s.name)
 	}
 }
 
@@ -193,17 +191,10 @@ mod tests {
 	#[test]
 	fn byte_lex_is_tree_friendly() {
 		let m1 = mk(b"app", &[(b"class", b"Foo")]);
-		let descendant = mk(
-			b"app",
-			&[(b"class", b"Foo"), (b"method", b"bar()")],
-		);
+		let descendant = mk(b"app", &[(b"class", b"Foo"), (b"method", b"bar()")]);
 		let deeper = mk(
 			b"app",
-			&[
-				(b"class", b"Foo"),
-				(b"method", b"bar()"),
-				(b"path", b"x"),
-			],
+			&[(b"class", b"Foo"), (b"method", b"bar()"), (b"path", b"x")],
 		);
 		let sibling = mk(b"app", &[(b"class", b"Zoo")]);
 
@@ -217,7 +208,10 @@ mod tests {
 		let parent = mk(b"app", &[(b"class", b"Foo")]);
 		let child_long = mk(
 			b"app",
-			&[(b"class", b"Foo"), (b"method", b"bar_longer_than_anything()")],
+			&[
+				(b"class", b"Foo"),
+				(b"method", b"bar_longer_than_anything()"),
+			],
 		);
 		let next_sibling = mk(b"app", &[(b"class", b"Zoo")]);
 
@@ -351,11 +345,19 @@ mod tests {
 	fn bind_match_ts_typed_def_matches_arity_call() {
 		let typed_def = mk(
 			b"app",
-			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo(number)")],
+			&[
+				(b"lang", b"ts"),
+				(b"module", b"util"),
+				(b"function", b"foo(number)"),
+			],
 		);
 		let arity_call = mk(
 			b"app",
-			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo(1)")],
+			&[
+				(b"lang", b"ts"),
+				(b"module", b"util"),
+				(b"function", b"foo(1)"),
+			],
 		);
 		assert!(typed_def.bind_match(&arity_call));
 		assert!(arity_call.bind_match(&typed_def));
@@ -365,11 +367,19 @@ mod tests {
 	fn bind_match_ts_typed_def_matches_bare_read() {
 		let typed_def = mk(
 			b"app",
-			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo(number,number)")],
+			&[
+				(b"lang", b"ts"),
+				(b"module", b"util"),
+				(b"function", b"foo(number,number)"),
+			],
 		);
 		let bare_read = mk(
 			b"app",
-			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo()")],
+			&[
+				(b"lang", b"ts"),
+				(b"module", b"util"),
+				(b"function", b"foo()"),
+			],
 		);
 		assert!(typed_def.bind_match(&bare_read));
 	}
@@ -378,11 +388,19 @@ mod tests {
 	fn bind_match_ts_distinct_bare_names_do_not_match() {
 		let foo = mk(
 			b"app",
-			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"foo(number)")],
+			&[
+				(b"lang", b"ts"),
+				(b"module", b"util"),
+				(b"function", b"foo(number)"),
+			],
 		);
 		let bar = mk(
 			b"app",
-			&[(b"lang", b"ts"), (b"module", b"util"), (b"function", b"bar(1)")],
+			&[
+				(b"lang", b"ts"),
+				(b"module", b"util"),
+				(b"function", b"bar(1)"),
+			],
 		);
 		assert!(!foo.bind_match(&bar));
 	}
@@ -391,11 +409,21 @@ mod tests {
 	fn bind_match_java_typed_def_matches_arity_call() {
 		let typed_def = mk(
 			b"app",
-			&[(b"lang", b"java"), (b"package", b"acme"), (b"class", b"Plan"), (b"method", b"create(int)")],
+			&[
+				(b"lang", b"java"),
+				(b"package", b"acme"),
+				(b"class", b"Plan"),
+				(b"method", b"create(int)"),
+			],
 		);
 		let arity_call = mk(
 			b"app",
-			&[(b"lang", b"java"), (b"package", b"acme"), (b"class", b"Plan"), (b"method", b"create(1)")],
+			&[
+				(b"lang", b"java"),
+				(b"package", b"acme"),
+				(b"class", b"Plan"),
+				(b"method", b"create(1)"),
+			],
 		);
 		assert!(typed_def.bind_match(&arity_call));
 	}
@@ -404,11 +432,21 @@ mod tests {
 	fn bind_match_java_typed_def_matches_bare_read() {
 		let typed_def = mk(
 			b"app",
-			&[(b"lang", b"java"), (b"package", b"acme"), (b"class", b"Plan"), (b"method", b"create(int)")],
+			&[
+				(b"lang", b"java"),
+				(b"package", b"acme"),
+				(b"class", b"Plan"),
+				(b"method", b"create(int)"),
+			],
 		);
 		let bare = mk(
 			b"app",
-			&[(b"lang", b"java"), (b"package", b"acme"), (b"class", b"Plan"), (b"method", b"create")],
+			&[
+				(b"lang", b"java"),
+				(b"package", b"acme"),
+				(b"class", b"Plan"),
+				(b"method", b"create"),
+			],
 		);
 		assert!(typed_def.bind_match(&bare));
 	}
@@ -417,11 +455,19 @@ mod tests {
 	fn bind_match_python_typed_def_matches_arity_call() {
 		let typed_def = mk(
 			b"app",
-			&[(b"lang", b"python"), (b"module", b"m"), (b"function", b"f(int)")],
+			&[
+				(b"lang", b"python"),
+				(b"module", b"m"),
+				(b"function", b"f(int)"),
+			],
 		);
 		let arity_call = mk(
 			b"app",
-			&[(b"lang", b"python"), (b"module", b"m"), (b"function", b"f(1)")],
+			&[
+				(b"lang", b"python"),
+				(b"module", b"m"),
+				(b"function", b"f(1)"),
+			],
 		);
 		assert!(typed_def.bind_match(&arity_call));
 	}
@@ -430,11 +476,19 @@ mod tests {
 	fn bind_match_rust_typed_def_matches_arity_call() {
 		let typed_def = mk(
 			b"app",
-			&[(b"lang", b"rs"), (b"module", b"util"), (b"function", b"add(i32,i32)")],
+			&[
+				(b"lang", b"rs"),
+				(b"module", b"util"),
+				(b"function", b"add(i32,i32)"),
+			],
 		);
 		let arity_call = mk(
 			b"app",
-			&[(b"lang", b"rs"), (b"module", b"util"), (b"function", b"add(2)")],
+			&[
+				(b"lang", b"rs"),
+				(b"module", b"util"),
+				(b"function", b"add(2)"),
+			],
 		);
 		assert!(typed_def.bind_match(&arity_call));
 	}

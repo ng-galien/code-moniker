@@ -5,7 +5,7 @@ use pgrx::datum::{Datum as PgrxDatum, FromDatum, IntoDatum, UnboxDatum};
 use pgrx::iter::TableIterator;
 use pgrx::memcxt::PgMemoryContexts;
 use pgrx::prelude::*;
-use pgrx::{default, name, varlena_to_byte_slice, InOutFuncs, StringInfo};
+use pgrx::{InOutFuncs, StringInfo, default, name, varlena_to_byte_slice};
 
 use crate::core::code_graph::{CodeGraph as CoreGraph, Position};
 use crate::pg::moniker::{moniker, palloc_varlena_from_slice, varlena_to_borrowed_bytes};
@@ -44,8 +44,7 @@ enum GraphStorage {
 
 impl code_graph {
 	pub(super) fn from_core(inner: CoreGraph) -> Self {
-		let bytes = encoding::encode(&inner)
-			.unwrap_or_else(|e| error!("code_graph encode: {e}"));
+		let bytes = encoding::encode(&inner).unwrap_or_else(|e| error!("code_graph encode: {e}"));
 		Self {
 			storage: GraphStorage::Owned(bytes),
 		}
@@ -67,8 +66,7 @@ impl code_graph {
 	}
 
 	fn to_core(&self) -> CoreGraph {
-		encoding::decode(self.as_bytes())
-			.unwrap_or_else(|e| error!("code_graph decode: {e}"))
+		encoding::decode(self.as_bytes()).unwrap_or_else(|e| error!("code_graph decode: {e}"))
 	}
 }
 
@@ -141,7 +139,10 @@ impl FromDatum for code_graph {
 }
 
 unsafe impl UnboxDatum for code_graph {
-	type As<'dat> = Self where Self: 'dat;
+	type As<'dat>
+		= Self
+	where
+		Self: 'dat;
 	unsafe fn unbox<'dat>(datum: PgrxDatum<'dat>) -> Self::As<'dat>
 	where
 		Self: 'dat,
@@ -184,8 +185,13 @@ fn graph_add_def(
 	end_byte: default!(Option<i32>, "NULL"),
 ) -> code_graph {
 	let mut next = graph.to_core();
-	next.add_def(def.into_core(), kind.as_bytes(), &parent.to_core(), pos_from_args(start_byte, end_byte))
-		.unwrap_or_else(|e| error!("graph_add_def: {e}"));
+	next.add_def(
+		def.into_core(),
+		kind.as_bytes(),
+		&parent.to_core(),
+		pos_from_args(start_byte, end_byte),
+	)
+	.unwrap_or_else(|e| error!("graph_add_def: {e}"));
 	code_graph::from_core(next)
 }
 
@@ -199,8 +205,13 @@ fn graph_add_ref(
 	end_byte: default!(Option<i32>, "NULL"),
 ) -> code_graph {
 	let mut next = graph.to_core();
-	next.add_ref(&source.to_core(), target.into_core(), kind.as_bytes(), pos_from_args(start_byte, end_byte))
-		.unwrap_or_else(|e| error!("graph_add_ref: {e}"));
+	next.add_ref(
+		&source.to_core(),
+		target.into_core(),
+		kind.as_bytes(),
+		pos_from_args(start_byte, end_byte),
+	)
+	.unwrap_or_else(|e| error!("graph_add_ref: {e}"));
 	code_graph::from_core(next)
 }
 
@@ -222,7 +233,11 @@ fn graph_add_defs(
 		error!("graph_add_defs: arrays must have the same length");
 	}
 	let mut next = graph.to_core();
-	for ((d, k), p) in defs.into_iter().zip(kinds.into_iter()).zip(parents.into_iter()) {
+	for ((d, k), p) in defs
+		.into_iter()
+		.zip(kinds.into_iter())
+		.zip(parents.into_iter())
+	{
 		next.add_def(d.into_core(), k.as_bytes(), &p.to_core(), None)
 			.unwrap_or_else(|e| error!("graph_add_defs: {e}"));
 	}
@@ -240,7 +255,11 @@ fn graph_add_refs(
 		error!("graph_add_refs: arrays must have the same length");
 	}
 	let mut next = graph.to_core();
-	for ((s, t), k) in sources.into_iter().zip(targets.into_iter()).zip(kinds.into_iter()) {
+	for ((s, t), k) in sources
+		.into_iter()
+		.zip(targets.into_iter())
+		.zip(kinds.into_iter())
+	{
 		next.add_ref(&s.to_core(), t.into_core(), k.as_bytes(), None)
 			.unwrap_or_else(|e| error!("graph_add_refs: {e}"));
 	}

@@ -6,7 +6,7 @@ use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::datum::{Datum as PgrxDatum, FromDatum, IntoDatum, UnboxDatum};
 use pgrx::memcxt::PgMemoryContexts;
 use pgrx::prelude::*;
-use pgrx::{set_varsize_4b, varlena_to_byte_slice, InOutFuncs, StringInfo};
+use pgrx::{InOutFuncs, StringInfo, set_varsize_4b, varlena_to_byte_slice};
 
 use crate::core::moniker::{Moniker as CoreMoniker, MonikerView};
 use crate::core::uri::{from_uri, to_uri};
@@ -96,15 +96,14 @@ impl InOutFuncs for moniker {
 		let s = input
 			.to_str()
 			.unwrap_or_else(|_| error!("moniker text must be valid UTF-8"));
-		let m = from_uri(s, &DEFAULT_CONFIG)
-			.unwrap_or_else(|e| error!("moniker parse error: {e}"));
+		let m = from_uri(s, &DEFAULT_CONFIG).unwrap_or_else(|e| error!("moniker parse error: {e}"));
 		moniker::from_core(m)
 	}
 
 	fn output(&self, buffer: &mut StringInfo) {
 		let m = self.to_core();
-		let s = to_uri(&m, &DEFAULT_CONFIG)
-			.unwrap_or_else(|e| error!("moniker serialize error: {e}"));
+		let s =
+			to_uri(&m, &DEFAULT_CONFIG).unwrap_or_else(|e| error!("moniker serialize error: {e}"));
 		buffer.push_str(&s);
 	}
 }
@@ -141,7 +140,10 @@ fn depth(m: moniker) -> i32 {
 
 pub(crate) unsafe fn palloc_varlena_from_slice(bytes: &[u8]) -> pg_sys::Datum {
 	let len = bytes.len().saturating_add(pg_sys::VARHDRSZ);
-	assert!(len < (u32::MAX as usize >> 2), "moniker exceeds 1 GiB varlena cap");
+	assert!(
+		len < (u32::MAX as usize >> 2),
+		"moniker exceeds 1 GiB varlena cap"
+	);
 	unsafe {
 		let varlena = pg_sys::palloc(len) as *mut pg_sys::varlena;
 		let varattrib_4b: *mut _ = &mut varlena
@@ -229,7 +231,10 @@ impl FromDatum for moniker {
 }
 
 unsafe impl UnboxDatum for moniker {
-	type As<'dat> = Self where Self: 'dat;
+	type As<'dat>
+		= Self
+	where
+		Self: 'dat;
 	unsafe fn unbox<'dat>(datum: PgrxDatum<'dat>) -> Self::As<'dat>
 	where
 		Self: 'dat,

@@ -1,4 +1,3 @@
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -15,7 +14,7 @@ mod scope;
 mod walker;
 
 use canonicalize::{compute_module_moniker, read_package_name};
-use walker::{collect_type_table, Walker};
+use walker::{Walker, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
@@ -46,7 +45,12 @@ pub fn extract(
 	let module = compute_module_moniker(anchor, uri, &pieces);
 	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
 	let mut type_table: HashMap<&[u8], Moniker> = HashMap::new();
-	collect_type_table(tree.root_node(), source.as_bytes(), &module, &mut type_table);
+	collect_type_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&mut type_table,
+	);
 	let walker = Walker {
 		source_bytes: source.as_bytes(),
 		module: module.clone(),
@@ -153,7 +157,12 @@ mod tests {
 		let src = "class Foo { int a, b; private String name; }";
 		let g = extract_default("Foo.java", src, &make_anchor(), false);
 		let fields: Vec<_> = g.defs().filter(|d| d.kind == b"field").collect();
-		assert_eq!(fields.len(), 3, "got {:?}", fields.iter().map(|d| &d.moniker).collect::<Vec<_>>());
+		assert_eq!(
+			fields.len(),
+			3,
+			"got {:?}",
+			fields.iter().map(|d| &d.moniker).collect::<Vec<_>>()
+		);
 		let private_field = fields
 			.iter()
 			.find(|d| d.moniker.as_view().segments().last().unwrap().name == b"name")
@@ -176,7 +185,11 @@ mod tests {
 			.segment(b"enum", b"Color")
 			.segment(b"enum_constant", b"RED")
 			.build();
-		assert!(g.contains(&red), "missing RED, defs: {:?}", g.def_monikers());
+		assert!(
+			g.contains(&red),
+			"missing RED, defs: {:?}",
+			g.def_monikers()
+		);
 	}
 
 	#[test]
@@ -253,7 +266,8 @@ mod tests {
 			.find(|r| r.kind == b"method_call")
 			.expect("method_call ref");
 		assert_eq!(
-			r.receiver_hint, b"obj".to_vec(),
+			r.receiver_hint,
+			b"obj".to_vec(),
 			"receiver hint must carry the local identifier text",
 		);
 	}
@@ -289,10 +303,9 @@ mod tests {
             class Foo { void m() { Helpers.go(); } }
         "#;
 		let g = extract_default("Foo.java", src, &make_anchor(), false);
-		let reads_helpers = g
-			.refs()
-			.find(|r| r.kind == b"reads"
-				&& r.target.as_view().segments().last().unwrap().name == b"Helpers");
+		let reads_helpers = g.refs().find(|r| {
+			r.kind == b"reads" && r.target.as_view().segments().last().unwrap().name == b"Helpers"
+		});
 		if let Some(r) = reads_helpers {
 			assert_eq!(r.confidence, b"imported".to_vec());
 		}
@@ -365,7 +378,10 @@ mod tests {
 			let last = m.as_view().segments().last().unwrap();
 			last.kind == b"param" && last.name == b"e"
 		});
-		assert!(e.is_some(), "catch param should be emitted as a param def in deep mode");
+		assert!(
+			e.is_some(),
+			"catch param should be emitted as a param def in deep mode"
+		);
 	}
 
 	#[test]
@@ -393,8 +409,9 @@ mod tests {
 		let g = extract_default("Foo.java", src, &make_anchor(), true);
 		let read_a = g
 			.refs()
-			.find(|r| r.kind == b"reads"
-				&& r.target.as_view().segments().last().unwrap().name == b"a")
+			.find(|r| {
+				r.kind == b"reads" && r.target.as_view().segments().last().unwrap().name == b"a"
+			})
 			.expect("reads a inside lambda");
 		assert_eq!(read_a.confidence, b"local".to_vec());
 	}

@@ -1,4 +1,3 @@
-
 use tree_sitter::Node;
 
 use crate::core::code_graph::CodeGraph;
@@ -9,13 +8,10 @@ use super::kinds;
 use super::walker::Walker;
 
 impl<'src> Walker<'src> {
-	pub(super) fn handle_use(
-		&self,
-		node: Node<'_>,
-		parent: &Moniker,
-		graph: &mut CodeGraph,
-	) {
-		let Some(arg) = node.child_by_field_name("argument") else { return };
+	pub(super) fn handle_use(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
+		let Some(arg) = node.child_by_field_name("argument") else {
+			return;
+		};
 		let pos = node_position(node);
 		let mut leaves: Vec<Vec<String>> = Vec::new();
 		collect_use_leaves(arg, self.source_bytes, &mut Vec::new(), &mut leaves);
@@ -36,9 +32,7 @@ impl<'src> Walker<'src> {
 				let up = path.iter().take_while(|s| s.as_str() == "super").count();
 				target_under_module(&self.module, &path[up..], up)
 			}
-			first if self.local_mods.contains(first) => {
-				target_under_module(&self.module, path, 0)
-			}
+			first if self.local_mods.contains(first) => target_under_module(&self.module, path, 0),
 			_ => target_external(&self.module, path),
 		}
 	}
@@ -49,8 +43,12 @@ impl<'src> Walker<'src> {
 		type_moniker: &Moniker,
 		graph: &mut CodeGraph,
 	) {
-		let Some(trait_node) = impl_node.child_by_field_name("trait") else { return };
-		let Some(trait_name) = impl_type_name(trait_node, self.source_bytes) else { return };
+		let Some(trait_node) = impl_node.child_by_field_name("trait") else {
+			return;
+		};
+		let Some(trait_name) = impl_type_name(trait_node, self.source_bytes) else {
+			return;
+		};
 		let trait_moniker = MonikerBuilder::from_view(self.module.as_view())
 			.segment(kinds::INTERFACE, trait_name.as_bytes())
 			.build();
@@ -131,9 +129,10 @@ fn collect_scoped_path_into(node: Node<'_>, source: &[u8], out: &mut Vec<String>
 			collect_scoped_path_into(path, source, out);
 		}
 		if let Some(name) = node.child_by_field_name("name")
-			&& let Ok(s) = name.utf8_text(source) {
-				out.push(s.to_string());
-			}
+			&& let Ok(s) = name.utf8_text(source)
+		{
+			out.push(s.to_string());
+		}
 		return;
 	}
 	if let Ok(s) = node.utf8_text(source) {

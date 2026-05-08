@@ -1,4 +1,3 @@
-
 use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
@@ -11,7 +10,7 @@ mod refs;
 mod walker;
 
 use canonicalize::compute_module_moniker;
-use walker::{collect_local_mods, Walker};
+use walker::{Walker, collect_local_mods};
 
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
@@ -52,9 +51,7 @@ mod tests {
 	}
 
 	fn make_anchor() -> Moniker {
-		MonikerBuilder::new()
-			.project(b"pg_code_moniker")
-			.build()
+		MonikerBuilder::new().project(b"pg_code_moniker").build()
 	}
 
 	#[test]
@@ -81,7 +78,12 @@ mod tests {
 
 	#[test]
 	fn extract_struct_emits_class_def() {
-		let g = extract("util.rs", "pub struct Foo { x: i32 }", &make_anchor(), false);
+		let g = extract(
+			"util.rs",
+			"pub struct Foo { x: i32 }",
+			&make_anchor(),
+			false,
+		);
 		let foo = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
@@ -93,7 +95,12 @@ mod tests {
 
 	#[test]
 	fn extract_enum_emits_enum_def() {
-		let g = extract("util.rs", "pub enum Color { Red, Green }", &make_anchor(), false);
+		let g = extract(
+			"util.rs",
+			"pub enum Color { Red, Green }",
+			&make_anchor(),
+			false,
+		);
 		let color = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
@@ -105,7 +112,12 @@ mod tests {
 
 	#[test]
 	fn extract_trait_emits_interface_def() {
-		let g = extract("util.rs", "pub trait Greet { fn hi(&self); }", &make_anchor(), false);
+		let g = extract(
+			"util.rs",
+			"pub trait Greet { fn hi(&self); }",
+			&make_anchor(),
+			false,
+		);
 		let greet = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
@@ -129,14 +141,23 @@ mod tests {
 
 	#[test]
 	fn extract_top_level_fn_emits_function_def() {
-		let g = extract("util.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }", &make_anchor(), false);
+		let g = extract(
+			"util.rs",
+			"pub fn add(a: i32, b: i32) -> i32 { a + b }",
+			&make_anchor(),
+			false,
+		);
 		let add = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"add(i32,i32)")
 			.build();
-		assert!(g.contains(&add), "expected {add:?}, defs: {:?}", g.def_monikers());
+		assert!(
+			g.contains(&add),
+			"expected {add:?}, defs: {:?}",
+			g.def_monikers()
+		);
 	}
 
 	#[test]
@@ -174,7 +195,11 @@ mod tests {
 			.segment(b"method", b"bar()")
 			.build();
 		assert!(g.contains(&foo));
-		assert!(g.contains(&bar), "expected {bar:?}, defs: {:?}", g.def_monikers());
+		assert!(
+			g.contains(&bar),
+			"expected {bar:?}, defs: {:?}",
+			g.def_monikers()
+		);
 	}
 
 	#[test]
@@ -199,7 +224,10 @@ mod tests {
 			.segment(b"module", b"util")
 			.segment(b"interface", b"Greet")
 			.build();
-		let r = g.refs().find(|r| r.kind == b"implements".to_vec()).expect("implements ref");
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"implements".to_vec())
+			.expect("implements ref");
 		assert_eq!(g.defs().nth(r.source).unwrap().moniker, foo);
 		assert_eq!(r.target, greet);
 	}
@@ -219,7 +247,12 @@ mod tests {
 
 	#[test]
 	fn extract_use_external_crate_marks_external_pkg() {
-		let g = extract("util.rs", "use std::collections::HashMap;", &make_anchor(), false);
+		let g = extract(
+			"util.rs",
+			"use std::collections::HashMap;",
+			&make_anchor(),
+			false,
+		);
 		let r = g.refs().next().unwrap();
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
@@ -232,7 +265,12 @@ mod tests {
 
 	#[test]
 	fn extract_use_crate_prefix_resolves_project_local() {
-		let g = extract("util.rs", "use crate::core::moniker::Moniker;", &make_anchor(), false);
+		let g = extract(
+			"util.rs",
+			"use crate::core::moniker::Moniker;",
+			&make_anchor(),
+			false,
+		);
 		let r = g.refs().next().unwrap();
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
@@ -312,7 +350,12 @@ mod tests {
 
 	#[test]
 	fn extract_use_list_emits_one_ref_per_leaf() {
-		let g = extract("util.rs", "use std::collections::{HashMap, HashSet};", &make_anchor(), false);
+		let g = extract(
+			"util.rs",
+			"use std::collections::{HashMap, HashSet};",
+			&make_anchor(),
+			false,
+		);
 		assert_eq!(g.ref_count(), 2);
 		let targets: Vec<_> = g.refs().map(|r| r.target.clone()).collect();
 		let hashmap = MonikerBuilder::new()
@@ -349,7 +392,12 @@ mod tests {
 
 	#[test]
 	fn extract_use_alias_drops_alias_keeps_path() {
-		let g = extract("util.rs", "use std::io::Result as IoResult;", &make_anchor(), false);
+		let g = extract(
+			"util.rs",
+			"use std::io::Result as IoResult;",
+			&make_anchor(),
+			false,
+		);
 		assert_eq!(g.ref_count(), 1);
 		let r = g.refs().next().unwrap();
 		let target = MonikerBuilder::new()
@@ -360,7 +408,6 @@ mod tests {
 			.build();
 		assert_eq!(r.target, target);
 	}
-
 
 	#[test]
 	fn extract_shallow_skips_param_and_local() {
@@ -397,7 +444,11 @@ mod tests {
 			.segment(b"param", b"b")
 			.build();
 		assert!(g.contains(&add));
-		assert!(g.contains(&pa), "missing param:a, defs: {:?}", g.def_monikers());
+		assert!(
+			g.contains(&pa),
+			"missing param:a, defs: {:?}",
+			g.def_monikers()
+		);
 		assert!(g.contains(&pb));
 	}
 
@@ -481,7 +532,11 @@ mod tests {
 			.segment(b"function", b"run()")
 			.segment(b"function", b"f(_)")
 			.build();
-		assert!(g.contains(&f), "expected {f:?}, defs: {:?}", g.def_monikers());
+		assert!(
+			g.contains(&f),
+			"expected {f:?}, defs: {:?}",
+			g.def_monikers()
+		);
 	}
 
 	#[test]

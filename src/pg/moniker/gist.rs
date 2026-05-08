@@ -6,7 +6,7 @@ use pgrx::prelude::*;
 
 use super::moniker;
 use super::{palloc_varlena_from_slice, varlena_to_borrowed_bytes};
-use crate::core::moniker::encoding::{read_u16, write_u16, HEADER_FIXED_LEN, VERSION};
+use crate::core::moniker::encoding::{HEADER_FIXED_LEN, VERSION, read_u16, write_u16};
 use crate::core::moniker::query::bare_callable_name;
 
 extension_sql!(
@@ -88,7 +88,10 @@ fn moniker_gist_consistent(
 	recheck: Internal,
 ) -> bool {
 	unsafe {
-		let entry_ptr = entry.unwrap().expect("gist entry is null").cast_mut_ptr::<pg_sys::GISTENTRY>();
+		let entry_ptr = entry
+			.unwrap()
+			.expect("gist entry is null")
+			.cast_mut_ptr::<pg_sys::GISTENTRY>();
 		let entry_ref = &*entry_ptr;
 		let key_bytes = varlena_to_borrowed_bytes(entry_ref.key);
 		let recheck_ptr = recheck
@@ -128,12 +131,10 @@ fn moniker_gist_consistent(
 			match strategy as u32 {
 				STRAT_EQUAL | STRAT_CONTAINS => q_segs.starts_with(k_segs),
 				STRAT_CONTAINED_BY => k_segs.starts_with(q_segs) || q_segs.starts_with(k_segs),
-				STRAT_BIND_MATCH => {
-					match parent_prefix_bytes(q_segs) {
-						Some(qp) => k_segs.starts_with(qp) || qp.starts_with(k_segs),
-						None => false,
-					}
-				}
+				STRAT_BIND_MATCH => match parent_prefix_bytes(q_segs) {
+					Some(qp) => k_segs.starts_with(qp) || qp.starts_with(k_segs),
+					None => false,
+				},
 				_ => false,
 			}
 		}
@@ -196,10 +197,8 @@ fn last_segment_name(seg_bytes: &[u8]) -> Option<&[u8]> {
 	if seg_bytes.len() < name_off {
 		return None;
 	}
-	let name_len = u16::from_le_bytes([
-		seg_bytes[2 + kind_len],
-		seg_bytes[2 + kind_len + 1],
-	]) as usize;
+	let name_len =
+		u16::from_le_bytes([seg_bytes[2 + kind_len], seg_bytes[2 + kind_len + 1]]) as usize;
 	if seg_bytes.len() < name_off + name_len {
 		return None;
 	}
@@ -219,7 +218,10 @@ fn moniker_gist_union(entryvec: Internal, sizep: Internal) -> moniker {
 		assert!(n > 0, "gist union called with empty entryvec");
 
 		let first = varlena_to_borrowed_bytes((*arr).key);
-		let bytes = match union_fold(first, (1..n).map(|i| varlena_to_borrowed_bytes((*arr.add(i)).key))) {
+		let bytes = match union_fold(
+			first,
+			(1..n).map(|i| varlena_to_borrowed_bytes((*arr.add(i)).key)),
+		) {
 			SigAcc::Wildcard => vec![0u8],
 			SigAcc::Constrained { project, segs } => sig_bytes(project, segs),
 		};
@@ -241,7 +243,10 @@ enum SigAcc<'a> {
 fn union_fold<'a>(first: &'a [u8], rest: impl Iterator<Item = &'a [u8]>) -> SigAcc<'a> {
 	let mut acc = match parse_sig(first) {
 		None => return rest.fold(SigAcc::Wildcard, |w, _| w),
-		Some((p, s)) => SigAcc::Constrained { project: p, segs: s },
+		Some((p, s)) => SigAcc::Constrained {
+			project: p,
+			segs: s,
+		},
 	};
 	for cur in rest {
 		acc = match (acc, parse_sig(cur)) {
@@ -251,7 +256,10 @@ fn union_fold<'a>(first: &'a [u8], rest: impl Iterator<Item = &'a [u8]>) -> SigA
 					SigAcc::Wildcard
 				} else {
 					let l = lcp_len(segs, cs);
-					SigAcc::Constrained { project, segs: &segs[..l] }
+					SigAcc::Constrained {
+						project,
+						segs: &segs[..l],
+					}
 				}
 			}
 		};
