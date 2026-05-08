@@ -20,7 +20,7 @@ impl code_graph {
 
 #[pg_extern(immutable, parallel_safe)]
 fn graph_create(root: moniker, kind: &str) -> code_graph {
-	code_graph::from_core(CoreGraph::new(root.to_core(), kind.as_bytes()))
+	code_graph::from_core(CoreGraph::new(root.into_core(), kind.as_bytes()))
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -33,7 +33,7 @@ fn graph_add_def(
 	end_byte: default!(Option<i32>, "NULL"),
 ) -> code_graph {
 	let mut next = graph.inner.clone();
-	next.add_def(def.to_core(), kind.as_bytes(), &parent.to_core(), pos_from_args(start_byte, end_byte))
+	next.add_def(def.into_core(), kind.as_bytes(), &parent.to_core(), pos_from_args(start_byte, end_byte))
 		.unwrap_or_else(|e| error!("graph_add_def: {e}"));
 	code_graph::from_core(next)
 }
@@ -48,7 +48,7 @@ fn graph_add_ref(
 	end_byte: default!(Option<i32>, "NULL"),
 ) -> code_graph {
 	let mut next = graph.inner.clone();
-	next.add_ref(&source.to_core(), target.to_core(), kind.as_bytes(), pos_from_args(start_byte, end_byte))
+	next.add_ref(&source.to_core(), target.into_core(), kind.as_bytes(), pos_from_args(start_byte, end_byte))
 		.unwrap_or_else(|e| error!("graph_add_ref: {e}"));
 	code_graph::from_core(next)
 }
@@ -72,7 +72,7 @@ fn graph_add_defs(
 	}
 	let mut next = graph.inner.clone();
 	for ((d, k), p) in defs.into_iter().zip(kinds.into_iter()).zip(parents.into_iter()) {
-		next.add_def(d.to_core(), k.as_bytes(), &p.to_core(), None)
+		next.add_def(d.into_core(), k.as_bytes(), &p.to_core(), None)
 			.unwrap_or_else(|e| error!("graph_add_defs: {e}"));
 	}
 	code_graph::from_core(next)
@@ -90,7 +90,7 @@ fn graph_add_refs(
 	}
 	let mut next = graph.inner.clone();
 	for ((s, t), k) in sources.into_iter().zip(targets.into_iter()).zip(kinds.into_iter()) {
-		next.add_ref(&s.to_core(), t.to_core(), k.as_bytes(), None)
+		next.add_ref(&s.to_core(), t.into_core(), k.as_bytes(), None)
 			.unwrap_or_else(|e| error!("graph_add_refs: {e}"));
 	}
 	code_graph::from_core(next)

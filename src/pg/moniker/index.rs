@@ -7,7 +7,7 @@ use super::moniker;
 #[commutator(>)]
 #[negator(>=)]
 fn moniker_lt(a: moniker, b: moniker) -> bool {
-	a.bytes < b.bytes
+	a.as_bytes() < b.as_bytes()
 }
 
 #[pg_operator(immutable, parallel_safe)]
@@ -15,7 +15,7 @@ fn moniker_lt(a: moniker, b: moniker) -> bool {
 #[commutator(>=)]
 #[negator(>)]
 fn moniker_le(a: moniker, b: moniker) -> bool {
-	a.bytes <= b.bytes
+	a.as_bytes() <= b.as_bytes()
 }
 
 #[pg_operator(immutable, parallel_safe)]
@@ -23,7 +23,7 @@ fn moniker_le(a: moniker, b: moniker) -> bool {
 #[commutator(<)]
 #[negator(<=)]
 fn moniker_gt(a: moniker, b: moniker) -> bool {
-	a.bytes > b.bytes
+	a.as_bytes() > b.as_bytes()
 }
 
 #[pg_operator(immutable, parallel_safe)]
@@ -31,12 +31,12 @@ fn moniker_gt(a: moniker, b: moniker) -> bool {
 #[commutator(<=)]
 #[negator(<)]
 fn moniker_ge(a: moniker, b: moniker) -> bool {
-	a.bytes >= b.bytes
+	a.as_bytes() >= b.as_bytes()
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_cmp(a: moniker, b: moniker) -> i32 {
-	a.bytes.cmp(&b.bytes) as i32
+	a.as_bytes().cmp(b.as_bytes()) as i32
 }
 
 const FNV_OFFSET_BASIS: u32 = 0x811c_9dc5;
@@ -44,7 +44,7 @@ const FNV_PRIME: u32 = 0x0100_0193;
 
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_hash(m: moniker) -> i32 {
-	m.bytes
+	m.as_bytes()
 		.iter()
 		.fold(FNV_OFFSET_BASIS, |h, &b| (h ^ b as u32).wrapping_mul(FNV_PRIME)) as i32
 }

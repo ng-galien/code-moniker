@@ -18,26 +18,75 @@ mod index;
 mod query;
 
 #[allow(non_camel_case_types)]
-#[derive(PostgresType, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(PostgresType, Debug)]
 #[inoutfuncs]
 #[bikeshed_postgres_type_manually_impl_from_into_datum]
 pub struct moniker {
-	bytes: Vec<u8>,
+	storage: MonikerStorage,
+}
+
+#[derive(Debug)]
+enum MonikerStorage {
+	Owned(Vec<u8>),
+	Borrowed { ptr: *const u8, len: u32 },
 }
 
 impl moniker {
-	pub(super) fn from_core(m: CoreMoniker) -> Self {
+	pub(super) fn from_owned_bytes(bytes: Vec<u8>) -> Self {
 		Self {
-			bytes: m.into_bytes(),
+			storage: MonikerStorage::Owned(bytes),
+		}
+	}
+
+	pub(super) fn from_core(m: CoreMoniker) -> Self {
+		Self::from_owned_bytes(m.into_bytes())
+	}
+
+	pub(super) fn into_core(self) -> CoreMoniker {
+		match self.storage {
+			MonikerStorage::Owned(v) => CoreMoniker::from_canonical_bytes(v),
+			MonikerStorage::Borrowed { ptr, len } => {
+				let bytes = unsafe { core::slice::from_raw_parts(ptr, len as usize) };
+				CoreMoniker::from_canonical_bytes(bytes.to_vec())
+			}
 		}
 	}
 
 	pub(super) fn to_core(&self) -> CoreMoniker {
-		CoreMoniker::from_canonical_bytes(self.bytes.clone())
+		CoreMoniker::from_canonical_bytes(self.as_bytes().to_vec())
 	}
 
 	pub(super) fn view(&self) -> MonikerView<'_> {
-		unsafe { MonikerView::from_canonical_bytes(&self.bytes) }
+		unsafe { MonikerView::from_canonical_bytes(self.as_bytes()) }
+	}
+
+	pub(super) fn as_bytes(&self) -> &[u8] {
+		match self.storage {
+			MonikerStorage::Owned(ref v) => v.as_slice(),
+			MonikerStorage::Borrowed { ptr, len } => unsafe {
+				core::slice::from_raw_parts(ptr, len as usize)
+			},
+		}
+	}
+}
+
+impl Clone for moniker {
+	fn clone(&self) -> Self {
+		Self::from_owned_bytes(self.as_bytes().to_vec())
+	}
+}
+
+impl PartialEq for moniker {
+	fn eq(&self, other: &Self) -> bool {
+		self.as_bytes() == other.as_bytes()
+	}
+}
+
+impl Eq for moniker {}
+
+impl std::hash::Hash for moniker {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.as_bytes().hash(state);
 	}
 }
 
@@ -65,7 +114,7 @@ impl InOutFuncs for moniker {
 #[hashes]
 #[merges]
 fn moniker_eq(a: moniker, b: moniker) -> bool {
-	a.bytes == b.bytes
+	a.as_bytes() == b.as_bytes()
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -109,10 +158,6 @@ pub(super) unsafe fn palloc_varlena_from_slice(bytes: &[u8]) -> pg_sys::Datum {
 	}
 }
 
-pub(super) unsafe fn varlena_to_owned_bytes(datum: pg_sys::Datum) -> Vec<u8> {
-	unsafe { varlena_to_borrowed_bytes(datum).to_vec() }
-}
-
 pub(super) unsafe fn varlena_to_borrowed_bytes<'a>(datum: pg_sys::Datum) -> &'a [u8] {
 	unsafe {
 		let detoasted = pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr());
@@ -137,7 +182,7 @@ fn moniker_type_oid() -> pg_sys::Oid {
 
 impl IntoDatum for moniker {
 	fn into_datum(self) -> Option<pg_sys::Datum> {
-		Some(unsafe { palloc_varlena_from_slice(&self.bytes) })
+		Some(unsafe { palloc_varlena_from_slice(self.as_bytes()) })
 	}
 
 	fn type_oid() -> pg_sys::Oid {
@@ -163,14 +208,20 @@ impl FromDatum for moniker {
 		if is_null || datum.is_null() {
 			return None;
 		}
-		Some(moniker { bytes: unsafe { varlena_to_owned_bytes(datum) } })
+		let bytes = unsafe { varlena_to_borrowed_bytes(datum) };
+		Some(moniker {
+			storage: MonikerStorage::Borrowed {
+				ptr: bytes.as_ptr(),
+				len: bytes.len() as u32,
+			},
+		})
 	}
 
 	unsafe fn from_datum_in_memory_context(
 		mut memory_context: PgMemoryContexts,
 		datum: pg_sys::Datum,
 		is_null: bool,
-		typoid: pg_sys::Oid,
+		_typoid: pg_sys::Oid,
 	) -> Option<Self> {
 		if is_null || datum.is_null() {
 			return None;
@@ -178,11 +229,8 @@ impl FromDatum for moniker {
 		unsafe {
 			memory_context.switch_to(|_| {
 				let copied = pg_sys::pg_detoast_datum_copy(datum.cast_mut_ptr());
-				<Self as FromDatum>::from_polymorphic_datum(
-					pg_sys::Datum::from(copied),
-					false,
-					typoid,
-				)
+				let bytes = varlena_to_byte_slice(copied);
+				Some(moniker::from_owned_bytes(bytes.to_vec()))
 			})
 		}
 	}

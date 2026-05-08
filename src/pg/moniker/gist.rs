@@ -5,8 +5,9 @@ use pgrx::pg_sys;
 use pgrx::prelude::*;
 
 use super::moniker;
-use super::{palloc_varlena_from_slice, varlena_to_borrowed_bytes, varlena_to_owned_bytes};
+use super::{palloc_varlena_from_slice, varlena_to_borrowed_bytes};
 use crate::core::moniker::encoding::{read_u16, write_u16, HEADER_FIXED_LEN, VERSION};
+use crate::core::moniker::query::bare_callable_name;
 
 extension_sql!(
 	r#"
@@ -89,17 +90,17 @@ fn moniker_gist_consistent(
 	unsafe {
 		let entry_ptr = entry.unwrap().expect("gist entry is null").cast_mut_ptr::<pg_sys::GISTENTRY>();
 		let entry_ref = &*entry_ptr;
-		let key_bytes = varlena_to_owned_bytes(entry_ref.key);
+		let key_bytes = varlena_to_borrowed_bytes(entry_ref.key);
 		let recheck_ptr = recheck
 			.unwrap()
 			.expect("gist recheck out-arg is null")
 			.cast_mut_ptr::<bool>();
 
-		let q = parse_sig(&query.bytes).expect("query moniker has canonical header");
+		let q = parse_sig(query.as_bytes()).expect("query moniker has canonical header");
 		let q_project = q.0;
 		let q_segs = q.1;
 
-		let key = parse_sig(&key_bytes);
+		let key = parse_sig(key_bytes);
 		let (k_project, k_segs) = match key {
 			None => {
 				*recheck_ptr = true;
@@ -186,8 +187,6 @@ fn bind_match_segs(left: &[u8], right: &[u8]) -> bool {
 	}
 }
 
-use crate::core::moniker::query::bare_callable_name;
-
 fn last_segment_name(seg_bytes: &[u8]) -> Option<&[u8]> {
 	if seg_bytes.len() < 4 {
 		return None;
@@ -219,10 +218,10 @@ fn moniker_gist_union(entryvec: Internal, sizep: Internal) -> moniker {
 		let arr = vec_ref.vector.as_ptr();
 		assert!(n > 0, "gist union called with empty entryvec");
 
-		let first = varlena_to_owned_bytes((*arr).key);
-		let bytes = match union_fold(first, (1..n).map(|i| varlena_to_owned_bytes((*arr.add(i)).key))) {
+		let first = varlena_to_borrowed_bytes((*arr).key);
+		let bytes = match union_fold(first, (1..n).map(|i| varlena_to_borrowed_bytes((*arr.add(i)).key))) {
 			SigAcc::Wildcard => vec![0u8],
-			SigAcc::Constrained { project, segs } => sig_bytes(&project, &segs),
+			SigAcc::Constrained { project, segs } => sig_bytes(project, segs),
 		};
 
 		if let Some(sz_datum) = sizep.unwrap() {
@@ -230,34 +229,29 @@ fn moniker_gist_union(entryvec: Internal, sizep: Internal) -> moniker {
 			*sz_ptr = (bytes.len() + pg_sys::VARHDRSZ) as c_int;
 		}
 
-		moniker { bytes }
+		moniker::from_owned_bytes(bytes)
 	}
 }
 
-enum SigAcc {
+enum SigAcc<'a> {
 	Wildcard,
-	Constrained { project: Vec<u8>, segs: Vec<u8> },
+	Constrained { project: &'a [u8], segs: &'a [u8] },
 }
 
-fn union_fold(first: Vec<u8>, rest: impl Iterator<Item = Vec<u8>>) -> SigAcc {
-	let mut acc = match parse_sig(&first) {
+fn union_fold<'a>(first: &'a [u8], rest: impl Iterator<Item = &'a [u8]>) -> SigAcc<'a> {
+	let mut acc = match parse_sig(first) {
 		None => return rest.fold(SigAcc::Wildcard, |w, _| w),
-		Some((p, s)) => SigAcc::Constrained {
-			project: p.to_vec(),
-			segs: s.to_vec(),
-		},
+		Some((p, s)) => SigAcc::Constrained { project: p, segs: s },
 	};
 	for cur in rest {
-		acc = match (acc, parse_sig(&cur)) {
+		acc = match (acc, parse_sig(cur)) {
 			(SigAcc::Wildcard, _) | (_, None) => SigAcc::Wildcard,
 			(SigAcc::Constrained { project, segs }, Some((cp, cs))) => {
 				if project != cp {
 					SigAcc::Wildcard
 				} else {
-					let l = lcp_len(&segs, cs);
-					let mut new_segs = segs;
-					new_segs.truncate(l);
-					SigAcc::Constrained { project, segs: new_segs }
+					let l = lcp_len(segs, cs);
+					SigAcc::Constrained { project, segs: &segs[..l] }
 				}
 			}
 		};
@@ -321,14 +315,14 @@ fn moniker_gist_picksplit(entryvec: Internal, splitvec: Internal) -> Internal {
 		let maxoff = (n - 1) as pg_sys::OffsetNumber;
 		let first = pg_sys::FirstOffsetNumber;
 
-		let mut indexed: Vec<(pg_sys::OffsetNumber, Vec<u8>)> = (first..=maxoff)
-			.map(|i| (i, varlena_to_owned_bytes((*arr.add(i as usize)).key)))
+		let mut indexed: Vec<(pg_sys::OffsetNumber, &[u8], &[u8])> = (first..=maxoff)
+			.map(|i| {
+				let bytes = varlena_to_borrowed_bytes((*arr.add(i as usize)).key);
+				let segs = parse_sig(bytes).map(|(_, s)| s).unwrap_or(&[]);
+				(i, bytes, segs)
+			})
 			.collect();
-		indexed.sort_by(|a, b| {
-			let sa = parse_sig(&a.1).map(|(_, s)| s).unwrap_or(&[]);
-			let sb = parse_sig(&b.1).map(|(_, s)| s).unwrap_or(&[]);
-			sa.cmp(sb)
-		});
+		indexed.sort_by(|a, b| a.2.cmp(b.2));
 
 		let total = indexed.len();
 		assert!(total >= 2, "picksplit requires >= 2 entries, got {}", total);
@@ -343,10 +337,10 @@ fn moniker_gist_picksplit(entryvec: Internal, splitvec: Internal) -> Internal {
 		split.spl_nleft = 0;
 		split.spl_nright = 0;
 
-		let mut left_bytes: Vec<Vec<u8>> = Vec::new();
-		let mut right_bytes: Vec<Vec<u8>> = Vec::new();
+		let mut left_bytes: Vec<&[u8]> = Vec::with_capacity(mid);
+		let mut right_bytes: Vec<&[u8]> = Vec::with_capacity(total - mid);
 
-		for (slot, (off, bytes)) in indexed.into_iter().enumerate() {
+		for (slot, (off, bytes, _segs)) in indexed.into_iter().enumerate() {
 			if slot < mid {
 				*split.spl_left.add(split.spl_nleft as usize) = off;
 				split.spl_nleft += 1;
@@ -358,20 +352,19 @@ fn moniker_gist_picksplit(entryvec: Internal, splitvec: Internal) -> Internal {
 			}
 		}
 
-		split.spl_ldatum = side_union(left_bytes);
-		split.spl_rdatum = side_union(right_bytes);
+		split.spl_ldatum = side_union(&left_bytes);
+		split.spl_rdatum = side_union(&right_bytes);
 
 		Internal::from(Some(split_datum))
 	}
 }
 
-unsafe fn side_union(mut entries: Vec<Vec<u8>>) -> pg_sys::Datum {
+unsafe fn side_union(entries: &[&[u8]]) -> pg_sys::Datum {
 	debug_assert!(!entries.is_empty(), "picksplit half cannot be empty");
-	let first = entries.remove(0);
-	let acc = union_fold(first, entries.into_iter());
+	let acc = union_fold(entries[0], entries[1..].iter().copied());
 	match acc {
 		SigAcc::Wildcard => unsafe { build_wildcard() },
-		SigAcc::Constrained { project, segs } => unsafe { build_sig(&project, &segs) },
+		SigAcc::Constrained { project, segs } => unsafe { build_sig(project, segs) },
 	}
 }
 
@@ -380,7 +373,7 @@ fn moniker_gist_equal(a: moniker, b: moniker, result: Internal) -> Internal {
 	unsafe {
 		let result_datum = result.unwrap().expect("gist equal result is null");
 		let result_ptr = result_datum.cast_mut_ptr::<bool>();
-		*result_ptr = a.bytes == b.bytes;
+		*result_ptr = a.as_bytes() == b.as_bytes();
 		Internal::from(Some(result_datum))
 	}
 }
