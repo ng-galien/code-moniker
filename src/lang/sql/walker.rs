@@ -113,8 +113,65 @@ fn emit_create_function(
 	// at top level (or via sql_body, not yet covered).
 	let (lang, body) = function_language_and_body(stmt.options);
 	if lang.eq_ignore_ascii_case(b"plpgsql") && !body.is_empty() {
-		body::walk_plpgsql_body(&body, &func_moniker, module, graph);
+		let (is_setof, is_void) = return_shape(stmt.returnType);
+		let param_names = function_param_names(stmt.parameters);
+		body::walk_plpgsql_body(
+			&body,
+			is_setof,
+			is_void,
+			&param_names,
+			&func_moniker,
+			module,
+			graph,
+		);
 	}
+}
+
+/// Names of every parameter (anonymous → empty). Order matches `$N`
+/// in the body: the i-th entry is the name (or empty) for `$<i+1>`.
+fn function_param_names(params: *mut pg_sys::List) -> Vec<Vec<u8>> {
+	if params.is_null() {
+		return Vec::new();
+	}
+	let list: pgrx::PgList<pg_sys::FunctionParameter> = unsafe { pgrx::PgList::from_pg(params) };
+	list.iter_ptr()
+		.map(|p| {
+			if p.is_null() {
+				return Vec::new();
+			}
+			let fp = unsafe { &*p };
+			if fp.name.is_null() {
+				Vec::new()
+			} else {
+				cstr_to_bytes(fp.name)
+			}
+		})
+		.collect()
+}
+
+/// Read the SETOF flag and detect a `void` return type from the
+/// CreateFunctionStmt's `returnType`. Used to drive the bison
+/// grammar's RETURN-form consistency checks. Procedures (no
+/// returnType at all) are treated as void.
+fn return_shape(return_type: *mut pg_sys::TypeName) -> (bool, bool) {
+	if return_type.is_null() {
+		return (false, true);
+	}
+	let rt = unsafe { &*return_type };
+	let is_setof = rt.setof;
+	let mut is_void = false;
+	if !rt.names.is_null() {
+		let names: pgrx::PgList<pg_sys::String> = unsafe { pgrx::PgList::from_pg(rt.names) };
+		if let Some(last) = names.iter_ptr().last() {
+			if !last.is_null() {
+				let name = cstr_to_bytes(unsafe { (*last).sval });
+				if name.eq_ignore_ascii_case(b"void") {
+					is_void = true;
+				}
+			}
+		}
+	}
+	(is_setof, is_void)
 }
 
 fn emit_create_table(

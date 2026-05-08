@@ -1,25 +1,11 @@
-//! PL/pgSQL function body walker. Drives `plpgsql_compile_inline` to
-//! obtain the procedural AST (`PLpgSQL_function` and its tree of
-//! `PLpgSQL_stmt`), then for every embedded SQL fragment re-parses
-//! through `raw_parser(query, parseMode)` and feeds the resulting
-//! `RawStmt` chain back into the FuncCall walker the top-level pass
-//! already uses.
-//!
-//! Compile_inline performs catalog lookups (type resolution,
-//! %ROWTYPE), so this path violates the strict "no table reads"
-//! contract from CLAUDE.md. The pragmatic compromise: extraction is
-//! deterministic given the catalog state at the time of the call.
-//!
-//! Platform constraint: `plpgsql_compile_inline` is the only public
-//! entry point that compiles a raw body string without executing it,
-//! and on macOS the linker hides it as a local symbol when building
-//! `plpgsql.dylib` — `load_external_function` returns NULL. On Linux
-//! production builds the symbol is exported and body extraction
-//! works. The walker silently no-ops on macOS dev so the rest of the
-//! extractor still ships cleanly.
+//! PL/pgSQL function body walker. Drives the vendored bison parser
+//! (sources under `vendor/plpgsql/`, compiled by `build.rs`) and
+//! emits one `calls` ref per FuncCall found in any embedded SQL
+//! fragment. Each fragment is re-parsed via `raw_parser` and routed
+//! through `walker::collect_calls_in`, the same dispatch the
+//! top-level pass uses.
 
 use std::ffi::{CStr, CString};
-use std::sync::OnceLock;
 
 use pgrx::pg_sys;
 use pgrx::pg_sys::pg_try::PgTryBuilder;
@@ -29,37 +15,32 @@ use crate::core::moniker::Moniker;
 
 use super::walker::collect_calls_in;
 
-/// Dynamically resolved at first use — `plpgsql_compile_inline` lives
-/// in plpgsql.so, which is not part of the flat symbol namespace at
-/// our extension's load time on macOS. `load_external_function` finds
-/// (and dlopens, if needed) the plpgsql library, then returns the
-/// symbol address.
-type CompileInlineFn = unsafe extern "C-unwind" fn(
-	proc_source: *mut ::core::ffi::c_char,
-) -> *mut pg_sys::PLpgSQL_function;
+unsafe extern "C-unwind" {
+	/// Defined in `vendor/plpgsql/pcm_plpgsql_driver.c`. Drives the
+	/// vendored bison parser to compile a body string into a
+	/// `PLpgSQL_function` whose `action` field is the parsed
+	/// `PLpgSQL_stmt_block` tree.
+	///
+	/// `is_setof` / `is_void` mirror the CreateFunctionStmt's return
+	/// type so bison accepts the RETURN forms the source uses.
+	/// `param_names` is an array of length `n_params`: each slot is a
+	/// NUL-terminated parameter name (or NULL/empty for anonymous
+	/// `$N` only). Without these registered the parser raises
+	/// "variable $1 does not exist" on bodies that reference
+	/// parameters.
+	///
+	/// Caller wraps in `PgTryBuilder` to catch syntax errors as
+	/// ereport longjmps. Each non-NULL return must be paired with a
+	/// `pcm_plpgsql_free` call once the AST has been walked.
+	fn pcm_plpgsql_parse_body(
+		body: *const ::core::ffi::c_char,
+		is_setof: bool,
+		is_void: bool,
+		n_params: ::core::ffi::c_int,
+		param_names: *const *const ::core::ffi::c_char,
+	) -> *mut pg_sys::PLpgSQL_function;
 
-static COMPILE_INLINE: OnceLock<Option<CompileInlineFn>> = OnceLock::new();
-
-fn compile_inline_fn() -> Option<CompileInlineFn> {
-	*COMPILE_INLINE.get_or_init(|| {
-		let lib = CString::new("$libdir/plpgsql").ok()?;
-		let func = CString::new("plpgsql_compile_inline").ok()?;
-		let ptr = PgTryBuilder::new(|| unsafe {
-			pg_sys::load_external_function(
-				lib.as_ptr(),
-				func.as_ptr(),
-				false,
-				std::ptr::null_mut(),
-			)
-		})
-		.catch_others(|_| std::ptr::null_mut())
-		.execute();
-		if ptr.is_null() {
-			None
-		} else {
-			Some(unsafe { std::mem::transmute::<*mut ::core::ffi::c_void, CompileInlineFn>(ptr) })
-		}
-	})
+	fn pcm_plpgsql_free(function: *mut pg_sys::PLpgSQL_function);
 }
 
 /// Parse the body of a PL/pgSQL function and emit `calls` refs for
@@ -71,6 +52,9 @@ fn compile_inline_fn() -> Option<CompileInlineFn> {
 /// function.
 pub(super) fn walk_plpgsql_body(
 	body: &[u8],
+	is_setof: bool,
+	is_void: bool,
+	param_names: &[Vec<u8>],
 	source_def: &Moniker,
 	module: &Moniker,
 	graph: &mut CodeGraph,
@@ -80,16 +64,26 @@ pub(super) fn walk_plpgsql_body(
 		Err(_) => return,
 	};
 
-	let compile = match compile_inline_fn() {
-		Some(f) => f,
-		None => return,
-	};
+	// Each named param needs to outlive the FFI call; build CStrings
+	// up-front and a parallel pointer array.
+	let param_cstrs: Vec<CString> = param_names
+		.iter()
+		.map(|n| CString::new(n.as_slice()).unwrap_or_default())
+		.collect();
+	let param_ptrs: Vec<*const ::core::ffi::c_char> =
+		param_cstrs.iter().map(|c| c.as_ptr()).collect();
 
-	// plpgsql_compile_inline performs catalog lookups (type
-	// resolution, RECORD %ROWTYPE) and ereports on malformed bodies;
-	// swallow any errors and skip body extraction for this function
-	// in that case.
-	let func = PgTryBuilder::new(|| unsafe { compile(body_cstr.as_ptr() as *mut _) })
+	// The vendored parser ereports on malformed bodies — swallow
+	// any longjmp and skip body extraction in that case.
+	let func = PgTryBuilder::new(|| unsafe {
+		pcm_plpgsql_parse_body(
+			body_cstr.as_ptr(),
+			is_setof,
+			is_void,
+			param_ptrs.len() as ::core::ffi::c_int,
+			if param_ptrs.is_empty() { std::ptr::null() } else { param_ptrs.as_ptr() },
+		)
+	})
 		.catch_others(|_| std::ptr::null_mut())
 		.execute();
 
@@ -97,12 +91,14 @@ pub(super) fn walk_plpgsql_body(
 		return;
 	}
 
-	let f = unsafe { &*func };
-	if f.action.is_null() {
-		return;
+	let action = unsafe { (*func).action };
+	if !action.is_null() {
+		walk_block(action, source_def, module, graph);
 	}
-
-	walk_block(f.action, source_def, module, graph);
+	// `walk_block` only reads pointers into PG-allocated nodes — it
+	// builds Rust-owned `Moniker` / `Vec<u8>` copies as it goes — so
+	// reclaiming the parser's MemoryContext after the walk is safe.
+	unsafe { pcm_plpgsql_free(func) };
 }
 
 fn walk_stmt_list(list: *mut pg_sys::List, source_def: &Moniker, module: &Moniker, graph: &mut CodeGraph) {
@@ -179,13 +175,13 @@ fn walk_stmt(
 			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_call) };
 			walk_expr(s.expr, source_def, module, graph);
 		}
-		_ => {
-			// CASE / FORI / FORS / FORC / FOREACH / DYNEXECUTE / RAISE /
-			// OPEN / FETCH / CLOSE / GETDIAG / RETURN / RETURN_NEXT /
-			// EXIT / ASSERT / COMMIT / ROLLBACK — skipped in the first
-			// pass. Dynamic SQL (DYNEXECUTE) is opaque by spec; the
-			// rest are follow-ups.
-		}
+		// DYNEXECUTE is opaque by spec (dynamic SQL inside `EXECUTE
+		// format(...)` cannot be parsed without resolving the
+		// format string). Other stmt kinds (RAISE, RETURN*, FOR*,
+		// CASE, OPEN/FETCH/CLOSE, GETDIAG, EXIT, ASSERT, COMMIT,
+		// ROLLBACK) may carry expressions worth walking but are not
+		// reached yet.
+		_ => {}
 	}
 }
 

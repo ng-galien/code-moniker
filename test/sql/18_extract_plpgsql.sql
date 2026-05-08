@@ -6,7 +6,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(16);
+SELECT plan(18);
 
 SELECT has_function('extract_plpgsql'::name,
 	ARRAY['text','text','moniker','boolean'],
@@ -149,13 +149,10 @@ SELECT ok(EXISTS (SELECT 1 FROM graph_refs(g)
 	'unqualified top-level call target omits schema') AS r12
 FROM g;
 
--- Phase 2 (PL/pgSQL body extraction) is Linux-only by platform: the
--- symbol `plpgsql_compile_inline` is hidden as a local symbol on
--- macOS during the build of plpgsql.dylib, so `load_external_function`
--- cannot resolve it and the body walker no-ops silently. The full
--- semantic tests run in the Linux production CI; here we only assert
--- that handing a plpgsql function to the extractor does not crash
--- and still emits the function def itself.
+-- Phase 2: PL/pgSQL body extraction. The bison parser is vendored
+-- under vendor/plpgsql/ and compiled into our .dylib via build.rs,
+-- so this works portably on macOS and Linux without depending on
+-- plpgsql.so's hidden internal symbols.
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -163,13 +160,25 @@ WITH g AS (
 		E'CREATE FUNCTION outer_fn(x int) RETURNS void LANGUAGE plpgsql AS $$\n'
 		|| E'BEGIN\n'
 		|| E'  PERFORM esac.inner_fn(x);\n'
+		|| E'  IF x > 0 THEN\n'
+		|| E'    PERFORM other_fn();\n'
+		|| E'  END IF;\n'
 		|| E'END;\n'
 		|| E'$$;',
 		'esac+moniker://app'::moniker
 	) AS g
 )
-SELECT ok(g @> 'esac+moniker://app/module:foo/function:outer_fn(int4)'::moniker,
-	'plpgsql function def survives even when body extraction is unavailable') AS r14
+SELECT
+	ok(g @> 'esac+moniker://app/module:foo/function:outer_fn(int4)'::moniker,
+		'plpgsql function def is emitted') AS r14,
+	ok(EXISTS (SELECT 1 FROM graph_refs(g) r
+	           WHERE r.kind = 'calls'
+	             AND r.target = 'esac+moniker://app/module:foo/schema:esac/function:inner_fn(1)'::moniker),
+		'PERFORM in plpgsql body emits calls ref to qualified target') AS r15,
+	ok(EXISTS (SELECT 1 FROM graph_refs(g) r
+	           WHERE r.kind = 'calls'
+	             AND r.target = 'esac+moniker://app/module:foo/function:other_fn()'::moniker),
+		'IF branch in plpgsql body picks up nested PERFORM call') AS r16
 FROM g;
 
 -- Empty source: no defs beyond the module root.

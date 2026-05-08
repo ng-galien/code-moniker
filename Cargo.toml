@@ -43,6 +43,9 @@ roxmltree  = "0.20"
 # pgrx-tests added later when in-PG tests (`#[pg_test]`) are introduced.
 # It requires a `pgN` feature and breaks pure-Rust `cargo test` when always-on.
 
+[build-dependencies]
+cc = "1"
+
 # -----------------------------------------------------------------------------
 # Profiles
 # -----------------------------------------------------------------------------

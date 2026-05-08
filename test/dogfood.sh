@@ -160,8 +160,12 @@ ingest_one() {
 	fi
 
 	local files
-	# shellcheck disable=SC2068
-	files=$(find "$src_root" -type f \( ${find_expr[@]} \) | sort)
+	# Quoted expansion + `set -f` so bash does NOT glob the `*.<ext>`
+	# patterns against the calling cwd (a `build.rs` at the repo root
+	# would otherwise collapse `*.rs` to a single filename).
+	set -f
+	files=$(find "$src_root" -type f \( "${find_expr[@]}" \) | sort)
+	set +f
 
 	local count=0
 	local batch_sql
