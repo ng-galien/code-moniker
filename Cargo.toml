@@ -3,6 +3,8 @@ name        = "pg_code_moniker"
 version     = "0.1.0"
 edition     = "2024"
 publish     = false
+license     = "MIT OR Apache-2.0"
+repository  = "https://github.com/ng-galien/pg_code_moniker"
 description = "Native types and indexed algebra for code symbol identity (moniker) and code graph storage (code_graph)"
 
 [lib]

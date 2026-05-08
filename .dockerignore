@@ -1,0 +1,31 @@
+# Build artifacts (4+ GB)
+target/
+debug/
+release/
+
+# Dogfood clones (~30 MB) and panel state
+dogfood/
+test/dogfood/
+
+# Local PG instance state
+.pgrx/
+*.pgc
+
+# VCS / IDE
+.git/
+.github/
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Markdown / docs not needed for build
+*.md
+docs/
+TODO.md
+
+# Examples (compiled separately, not needed for the extension build)
+examples/

@@ -1,8 +1,37 @@
 # pg_code_moniker
 
+[![CI](https://github.com/ng-galien/pg_code_moniker/actions/workflows/ci.yml/badge.svg)](https://github.com/ng-galien/pg_code_moniker/actions/workflows/ci.yml)
+[![License: MIT or Apache 2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![Rust](https://img.shields.io/badge/rust-1.95%2B-orange)](https://www.rust-lang.org)
+[![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
+[![PostgreSQL](https://img.shields.io/badge/postgresql-17-336791)](https://www.postgresql.org)
+
 PostgreSQL extension providing a native type for code symbol identity (`moniker`) and code graph storage (`code_graph`), with an indexed algebra for symbol-level queries.
 
 Implementation: **Rust** via [`pgrx`](https://github.com/pgcentralfoundation/pgrx) 0.18.
+
+## TL;DR
+
+```sql
+CREATE EXTENSION pg_code_moniker;
+
+-- Extract a TypeScript file into a code_graph value.
+SELECT extract_typescript(
+  'src/util.ts',
+  'export class Util { run() { return 1; } }',
+  'pcm+moniker://app'::moniker
+);
+-- => code_graph(defs=2, refs=0)
+
+-- Identity is a first-class type: parse, compare, index, JOIN on it.
+SELECT 'pcm+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker
+    <@ 'pcm+moniker://app/lang:ts'::moniker;
+-- => true (subtree containment, GiST-indexed)
+```
+
+Five extractors (TypeScript, Rust, Java, Python, PL/pgSQL) emit defs and refs with full metadata (visibility, signature, binding, …). Cross-file linkage is a single indexed JOIN on `bind_match`. The extension owns no tables — types, operators, and pure functions only.
+
+→ [Posture](#posture) · [Quickstart with Docker](#quickstart-with-docker) · [Building from source](#building-and-testing) · [`SPEC.md`](SPEC.md)
 
 ## Posture
 
@@ -65,7 +94,32 @@ examples/
   bench_codegraph.rs  CodeGraph add_def / add_ref scaling bench
   bench_extract.rs    full extractor on a real file
 vendor/plpgsql/       vendored PG PL/pgSQL parser sources for libpg_query-style use
+Dockerfile            multi-stage build, lands the extension on postgres:17
 ```
+
+## Quickstart with Docker
+
+The repo ships a multi-stage `Dockerfile` that builds the extension against an apt PostgreSQL 17 install and lands the artifacts on top of the official `postgres:17` image. No local Rust or pgrx setup required:
+
+```sh
+docker build -t pg_code_moniker:dev .
+docker run --rm -e POSTGRES_PASSWORD=pgcm -p 5432:5432 \
+    --name pgcm pg_code_moniker:dev
+```
+
+In another shell:
+
+```sh
+docker exec -it pgcm psql -U postgres -c "CREATE EXTENSION pg_code_moniker;"
+docker exec -it pgcm psql -U postgres -c "
+    SELECT extract_typescript(
+        'src/util.ts',
+        'export class Util { run() { return 1; } }',
+        'pcm+moniker://app'::moniker
+    );"
+```
+
+The build is reproducible and version-pinned (`PG_MAJOR=17`, `PGRX_VERSION=0.18.0`); override either via `--build-arg` if you need a different combination.
 
 ## Building and testing
 
@@ -197,4 +251,11 @@ Any system that needs symbol-level indexing of code (IDE tooling, agentic coding
 
 ## License
 
-TBD.
+Dual-licensed under either of:
+
+- [MIT License](LICENSE-MIT)
+- [Apache License, Version 2.0](LICENSE-APACHE)
+
+at your option. This matches the convention of the surrounding ecosystem (pgrx, tokio, serde).
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project shall be dual-licensed as above, without any additional terms or conditions.
