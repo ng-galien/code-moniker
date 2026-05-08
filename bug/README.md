@@ -14,3 +14,4 @@ contient :
 
 - [001 — ref/def closure (asymétrie name + gate `deep`)](001-ref-def-closure.md) — 2026-05-08
 - [002 — `read_target` / `calls_target` ignorent le scope enclosing](002-ref-target-ignores-scope.md) — 2026-05-08
+- [003 — le format texte du moniker piège les consumers qui le manipulent](003-moniker-text-format-fragile-for-consumers.md) — 2026-05-08
