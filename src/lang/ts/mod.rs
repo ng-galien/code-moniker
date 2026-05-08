@@ -57,10 +57,13 @@ pub fn extract(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::core::code_graph::assert_local_refs_closed;
 	use crate::core::moniker::MonikerBuilder;
 
 	fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
-		super::extract(uri, source, anchor, deep, &Presets::default())
+		let g = super::extract(uri, source, anchor, deep, &Presets::default());
+		assert_local_refs_closed(&g);
+		g
 	}
 
 	fn make_anchor() -> Moniker {
@@ -551,7 +554,7 @@ mod tests {
 			"util.ts",
 			"function f(x) { return x; }",
 			&make_anchor(),
-			false,
+			true,
 		);
 		let r = g.refs().find(|r| r.kind == b"reads").expect("reads ref");
 		assert_eq!(r.confidence, b"local".to_vec(), "ref to a param is local");
@@ -575,7 +578,7 @@ mod tests {
 			"util.ts",
 			"function f() { const helper = () => 1; helper(); }",
 			&make_anchor(),
-			false,
+			true,
 		);
 		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
 		assert_eq!(

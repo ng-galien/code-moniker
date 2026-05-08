@@ -26,9 +26,20 @@ impl<'src> Walker<'src> {
 		match fn_node.kind() {
 			"identifier" => {
 				let name = self.text_of(fn_node);
-				let target = self.calls_target(name, arity);
+				let Some(confidence) = self.name_confidence(name.as_bytes()) else {
+					self.maybe_emit_di_register(node, fn_node, scope, graph, pos);
+					if let Some(args) = node.child_by_field_name("arguments") {
+						self.walk(args, scope, graph);
+					}
+					return;
+				};
+				let target = if self.is_local_name(name.as_bytes()) {
+					extend_segment(scope, kinds::LOCAL, name.as_bytes())
+				} else {
+					self.calls_target(name, arity)
+				};
 				let attrs = RefAttrs {
-					confidence: self.name_confidence(name.as_bytes()),
+					confidence,
 					..RefAttrs::default()
 				};
 				let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
@@ -306,9 +317,16 @@ impl<'src> Walker<'src> {
 		if name.is_empty() {
 			return;
 		}
-		let target = self.read_target(name);
+		let Some(confidence) = self.name_confidence(name.as_bytes()) else {
+			return;
+		};
+		let target = if self.is_local_name(name.as_bytes()) {
+			extend_segment(scope, kinds::LOCAL, name.as_bytes())
+		} else {
+			self.read_target(name)
+		};
 		let attrs = RefAttrs {
-			confidence: self.name_confidence(name.as_bytes()),
+			confidence,
 			..RefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(scope, target, kinds::READS, Some(node_position(node)), &attrs);

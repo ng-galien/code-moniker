@@ -63,6 +63,7 @@ pub fn extract(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::core::code_graph::assert_local_refs_closed;
 	use crate::core::moniker::MonikerBuilder;
 
 	fn make_anchor() -> Moniker {
@@ -70,7 +71,9 @@ mod tests {
 	}
 
 	fn extract_default(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
-		extract(uri, source, anchor, deep, &Presets::default())
+		let g = extract(uri, source, anchor, deep, &Presets::default());
+		assert_local_refs_closed(&g);
+		g
 	}
 
 	#[test]
@@ -369,7 +372,7 @@ mod tests {
                 java.util.function.BinaryOperator<Integer> add = (a, b) -> a + b;
             }
         "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let g = extract_default("Foo.java", src, &make_anchor(), true);
 		let read_a = g
 			.refs()
 			.find(|r| r.kind == b"reads"
@@ -383,7 +386,7 @@ mod tests {
 		let src = r#"
             class Foo { int m(int x) { return x; } }
         "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let g = extract_default("Foo.java", src, &make_anchor(), true);
 		let r = g.refs().find(|r| r.kind == b"reads").expect("reads ref");
 		assert_eq!(r.confidence, b"local".to_vec());
 	}

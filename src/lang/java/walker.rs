@@ -369,7 +369,7 @@ impl<'src> Walker<'src> {
 					let name = self.text_of(params);
 					if !name.is_empty() {
 						self.record_local(name.as_bytes());
-						if self.deep && is_callable_scope(scope, &self.module) {
+						if self.deep {
 							let m = extend_segment(scope, kinds::PARAM, name.as_bytes());
 							let _ = graph.add_def(
 								m,
@@ -396,7 +396,7 @@ impl<'src> Walker<'src> {
 							continue;
 						}
 						self.record_local(name.as_bytes());
-						if self.deep && is_callable_scope(scope, &self.module) {
+						if self.deep {
 							let m = extend_segment(scope, kinds::PARAM, name.as_bytes());
 							let _ = graph.add_def(
 								m,

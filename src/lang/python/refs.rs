@@ -146,23 +146,30 @@ impl<'src> Walker<'src> {
 			"identifier" => {
 				let name = self.text_of(callee);
 				if !name.is_empty() {
-					let target = extend_callable_arity(
-						&self.module,
-						kinds::FUNCTION,
-						name.as_bytes(),
-						arity,
-					);
-					let confidence = self
-						.import_confidence_for(name.as_bytes())
-						.unwrap_or_else(|| self.name_confidence(name.as_bytes()));
-					let attrs = RefAttrs { confidence, ..RefAttrs::default() };
-					let _ = graph.add_ref_attrs(
-						scope,
-						target,
-						kinds::CALLS,
-						Some(pos),
-						&attrs,
-					);
+					let confidence = match self.import_confidence_for(name.as_bytes()) {
+						Some(c) => Some(c),
+						None => self.name_confidence(name.as_bytes()),
+					};
+					if let Some(confidence) = confidence {
+						let target = if self.is_local_name(name.as_bytes()) {
+							extend_segment(scope, kinds::LOCAL, name.as_bytes())
+						} else {
+							extend_callable_arity(
+								&self.module,
+								kinds::FUNCTION,
+								name.as_bytes(),
+								arity,
+							)
+						};
+						let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+						let _ = graph.add_ref_attrs(
+							scope,
+							target,
+							kinds::CALLS,
+							Some(pos),
+							&attrs,
+						);
+					}
 				}
 			}
 			"attribute" => {
@@ -272,10 +279,16 @@ impl<'src> Walker<'src> {
 		if name.is_empty() {
 			return;
 		}
-		let target = extend_segment(&self.module, kinds::FUNCTION, name.as_bytes());
-		let confidence = self
-			.import_confidence_for(name.as_bytes())
-			.unwrap_or_else(|| self.name_confidence(name.as_bytes()));
+		let confidence = match self.import_confidence_for(name.as_bytes()) {
+			Some(c) => Some(c),
+			None => self.name_confidence(name.as_bytes()),
+		};
+		let Some(confidence) = confidence else { return; };
+		let target = if self.is_local_name(name.as_bytes()) {
+			extend_segment(scope, kinds::LOCAL, name.as_bytes())
+		} else {
+			extend_segment(&self.module, kinds::FUNCTION, name.as_bytes())
+		};
 		let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 		let _ = graph.add_ref_attrs(
 			scope,

@@ -69,11 +69,15 @@ impl<'src> Walker<'src> {
 			.any(|frame| frame.contains(name))
 	}
 
-	pub(super) fn name_confidence(&self, name: &[u8]) -> &'static [u8] {
+	pub(super) fn name_confidence(&self, name: &[u8]) -> Option<&'static [u8]> {
 		if self.is_local_name(name) {
-			kinds::CONF_LOCAL
+			if self.deep {
+				Some(kinds::CONF_LOCAL)
+			} else {
+				None
+			}
 		} else {
-			kinds::CONF_NAME_MATCH
+			Some(kinds::CONF_NAME_MATCH)
 		}
 	}
 

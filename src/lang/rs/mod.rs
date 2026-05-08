@@ -42,7 +42,14 @@ pub fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGra
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::core::code_graph::assert_local_refs_closed;
 	use crate::core::moniker::MonikerBuilder;
+
+	fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
+		let g = super::extract(uri, source, anchor, deep);
+		assert_local_refs_closed(&g);
+		g
+	}
 
 	fn make_anchor() -> Moniker {
 		MonikerBuilder::new()

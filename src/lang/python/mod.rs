@@ -58,6 +58,7 @@ pub fn extract(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::core::code_graph::assert_local_refs_closed;
 	use crate::core::moniker::MonikerBuilder;
 
 	fn make_anchor() -> Moniker {
@@ -65,7 +66,9 @@ mod tests {
 	}
 
 	fn extract_default(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
-		extract(uri, source, anchor, deep, &Presets::default())
+		let g = extract(uri, source, anchor, deep, &Presets::default());
+		assert_local_refs_closed(&g);
+		g
 	}
 
 	#[test]
@@ -315,7 +318,7 @@ mod tests {
 	#[test]
 	fn extract_param_read_marks_confidence_local() {
 		let src = "def f(x):\n    return x\n";
-		let g = extract_default("m.py", src, &make_anchor(), false);
+		let g = extract_default("m.py", src, &make_anchor(), true);
 		let r = g
 			.refs()
 			.find(|r| r.kind == b"reads"

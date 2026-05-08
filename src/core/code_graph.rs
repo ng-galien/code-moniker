@@ -309,6 +309,30 @@ fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
 }
 
 #[cfg(test)]
+pub(crate) fn assert_local_refs_closed(g: &CodeGraph) {
+	use crate::core::uri::{to_uri, UriConfig};
+	let cfg = UriConfig::default();
+	let render = |m: &Moniker| to_uri(m, &cfg).unwrap_or_else(|_| format!("{:?}", m.as_bytes()));
+	let defs: Vec<&Moniker> = g.defs().map(|d| &d.moniker).collect();
+	for r in g.refs() {
+		if r.confidence != b"local" {
+			continue;
+		}
+		let resolved = defs.iter().any(|d| d.bind_match(&r.target));
+		assert!(
+			resolved,
+			"DANGLING local ref: target={} kind={}, no def bind_matches.\n  Defs:\n{}",
+			render(&r.target),
+			std::str::from_utf8(&r.kind).unwrap_or("<non-utf8>"),
+			defs.iter()
+				.map(|d| format!("    {}", render(d)))
+				.collect::<Vec<_>>()
+				.join("\n"),
+		);
+	}
+}
+
+#[cfg(test)]
 mod tests {
 	use super::*;
 	use crate::core::moniker::MonikerBuilder;

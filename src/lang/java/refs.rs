@@ -90,12 +90,19 @@ impl<'src> Walker<'src> {
 			);
 			self.dispatch(obj, scope, graph);
 		} else {
-			let target = self.calls_target(name, arity);
-			let confidence = self
-				.import_confidence_for(name.as_bytes())
-				.unwrap_or_else(|| self.name_confidence(name.as_bytes()));
-			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
-			let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
+			let confidence = match self.import_confidence_for(name.as_bytes()) {
+				Some(c) => Some(c),
+				None => self.name_confidence(name.as_bytes()),
+			};
+			if let Some(confidence) = confidence {
+				let target = if self.is_local_name(name.as_bytes()) {
+					extend_segment(scope, kinds::LOCAL, name.as_bytes())
+				} else {
+					self.calls_target(name, arity)
+				};
+				let attrs = RefAttrs { confidence, ..RefAttrs::default() };
+				let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
+			}
 		}
 
 		if let Some(args) = node.child_by_field_name("arguments") {
@@ -245,10 +252,16 @@ impl<'src> Walker<'src> {
 		if name.is_empty() {
 			return;
 		}
-		let target = self.read_target(name);
-		let confidence = self
-			.import_confidence_for(name.as_bytes())
-			.unwrap_or_else(|| self.name_confidence(name.as_bytes()));
+		let confidence = match self.import_confidence_for(name.as_bytes()) {
+			Some(c) => Some(c),
+			None => self.name_confidence(name.as_bytes()),
+		};
+		let Some(confidence) = confidence else { return; };
+		let target = if self.is_local_name(name.as_bytes()) {
+			extend_segment(scope, kinds::LOCAL, name.as_bytes())
+		} else {
+			self.read_target(name)
+		};
 		let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 		let _ = graph.add_ref_attrs(scope, target, kinds::READS, Some(node_position(node)), &attrs);
 	}
