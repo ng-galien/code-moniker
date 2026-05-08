@@ -6,7 +6,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(12);
+SELECT plan(15);
 
 -- Surface presence ---------------------------------------------------------
 
@@ -138,6 +138,69 @@ SELECT is(
 	     AND m_use.id = 'rel_use'),
 	1,
 	'relative import (`from ._models import Response`) resolves via bind_match');
+
+-- TS cross-file: `import { Lib } from "./lib"` ----------------------------
+
+INSERT INTO module VALUES
+	('ts_def', extract_typescript(
+		'src/lib.ts',
+		'export class Lib { go() { return 1; } }',
+		'esac+moniker://app'::moniker)),
+	('ts_use', extract_typescript(
+		'src/app.ts',
+		'import { Lib } from "./lib";',
+		'esac+moniker://app'::moniker));
+
+SELECT is(
+	(SELECT count(*)::int FROM module m_use, LATERAL graph_refs(m_use.graph) r,
+	                          module m_def, LATERAL graph_defs(m_def.graph) d
+	   WHERE r.binding = 'import' AND d.binding = 'export'
+	     AND bind_match(r.target, d.moniker)
+	     AND m_def.id = 'ts_def' AND m_use.id = 'ts_use'),
+	1,
+	'TS relative import resolves via bind_match');
+
+-- Rust cross-file: `use super::kinds;` -----------------------------------
+
+INSERT INTO module VALUES
+	('rs_def', extract_rust(
+		'kinds.rs',
+		E'pub mod kinds_inner {}\n',
+		'esac+moniker://app'::moniker)),
+	('rs_use', extract_rust(
+		'walker.rs',
+		E'use super::kinds;\n',
+		'esac+moniker://app'::moniker));
+
+SELECT is(
+	(SELECT count(*)::int FROM module m_use, LATERAL graph_refs(m_use.graph) r,
+	                          module m_def, LATERAL graph_defs(m_def.graph) d
+	   WHERE r.binding = 'import' AND d.binding = 'export'
+	     AND bind_match(r.target, d.moniker)
+	     AND m_def.id = 'rs_def' AND m_use.id = 'rs_use'),
+	1,
+	'Rust `use super::X` resolves to the sibling module via bind_match');
+
+-- Java cross-file: `import com.acme.Foo;` --------------------------------
+
+INSERT INTO module VALUES
+	('java_def', extract_java(
+		'com/acme/Foo.java',
+		E'package com.acme;\npublic class Foo {}\n',
+		'esac+moniker://app'::moniker)),
+	('java_use', extract_java(
+		'com/acme/App.java',
+		E'package com.acme;\nimport com.acme.Foo;\npublic class App {}\n',
+		'esac+moniker://app'::moniker));
+
+SELECT is(
+	(SELECT count(*)::int FROM module m_use, LATERAL graph_refs(m_use.graph) r,
+	                          module m_def, LATERAL graph_defs(m_def.graph) d
+	   WHERE r.binding = 'import' AND d.binding = 'export'
+	     AND bind_match(r.target, d.moniker)
+	     AND m_def.id = 'java_def' AND m_use.id = 'java_use'),
+	1,
+	'Java named FQN import resolves to the class def via bind_match');
 
 SELECT * FROM finish();
 

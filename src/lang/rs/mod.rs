@@ -228,14 +228,15 @@ mod tests {
 	fn extract_use_crate_prefix_resolves_project_local() {
 		let g = extract("util.rs", "use crate::core::moniker::Moniker;", &make_anchor(), false);
 		let r = g.refs().next().unwrap();
-		// `crate::` prefix stripped; rest encoded as project-local path.
-		// TODO(phase 7 step 3): once target_under_project posts the
-		// lang segment, this expected gains `.segment(b"lang", b"rs")`
-		// so bind_match can resolve to the corresponding def.
+		// `crate::` prefix stripped; rest encoded under lang:rs with
+		// the second-to-last piece as `module:` so bind_match can
+		// resolve `path:Moniker` to the def `struct:Moniker` in the
+		// `module:moniker` file.
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"path", b"core")
-			.segment(b"path", b"moniker")
+			.segment(b"module", b"moniker")
 			.segment(b"path", b"Moniker")
 			.build();
 		assert_eq!(r.target, target);
@@ -251,9 +252,11 @@ mod tests {
 		let g = extract("rs/walker.rs", "use super::kinds;", &anchor, false);
 		let r = g.refs().next().unwrap();
 		// `super::` strips one segment from the importer's module
-		// (`module:walker`), then appends `path:kinds`. The lang
-		// segment posted by compute_module_moniker survives the
-		// truncation because it sits above the module segment.
+		// (`module:walker`), then appends the rest. With a single
+		// trailing piece the leaf lands as `path:kinds`; bind_match
+		// against the corresponding `module:kinds` def still resolves
+		// because parents (project + path:src + path:lang + lang:rs +
+		// path:rs) are byte-equal and last-segment names match.
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"path", b"src")
@@ -268,7 +271,9 @@ mod tests {
 	#[test]
 	fn extract_use_local_mod_resolves_as_self() {
 		// `mod canonicalize;` declared at file root → bare
-		// `use canonicalize::X;` is project-local, not external.
+		// `use canonicalize::X;` is project-local, not external. The
+		// second-to-last piece (`canonicalize`) becomes `module:` so
+		// the symbol's parent matches the def's containing module.
 		let src = r#"
             mod canonicalize;
             use canonicalize::compute_module_moniker;
@@ -279,7 +284,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"path", b"canonicalize")
+			.segment(b"module", b"canonicalize")
 			.segment(b"path", b"compute_module_moniker")
 			.build();
 		assert_eq!(
@@ -304,12 +309,13 @@ mod tests {
 	fn extract_use_self_keeps_module_prefix() {
 		let g = extract("util.rs", "use self::kinds::PATH;", &make_anchor(), false);
 		let r = g.refs().next().unwrap();
-		// `self::` resolves under the importer's module moniker.
+		// `self::` resolves under the importer's module. Second-to-last
+		// piece is the symbol's containing module, last is the symbol.
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"path", b"kinds")
+			.segment(b"module", b"kinds")
 			.segment(b"path", b"PATH")
 			.build();
 		assert_eq!(r.target, target);

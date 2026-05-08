@@ -338,7 +338,26 @@ Three coordinated changes that unlock cross-file linkage:
 2. **`binding` column** on `DefRecord` and `RefRecord`, with extractor logic to tag every produced row per § Binding semantics.
 3. **`bind_match` operator** registered on the moniker GiST opclass, with a recheck function and a strategy number distinct from `=`.
 
-Validation: cross-file linkage queries on the httpx and zod dogfood panels resolve `import` refs to their corresponding `export` defs via `bind_match` JOIN.
+#### Per-language import target shape
+
+For `bind_match` to JOIN an import ref against the corresponding export def, the import target's all-but-last segments must be byte-equal to the def's all-but-last segments. Each extractor lowers its language's import syntax to a target moniker that respects this:
+
+- **TS / JS** — relative imports (`./foo`) inherit the importer's view (already in `lang:ts/`) and walk dirs as `path:`. Bare specifiers (`react`) land in the project regime under `external_pkg:`. No extra wiring needed.
+- **Python** — absolute project-local imports (`from acme.util import X`) build under `lang:python/package:.../module:.../path:X`. Relative imports (`from ._models import Response`) walk up the importer's module chain by `leading_dots-1` package levels and then attach the requested pieces. Stdlib (`json`, `os`, …) keeps the project-regime `external_pkg:` shape.
+- **Rust** — `crate::` builds under `lang:rs/`. The second-to-last piece becomes `module:<name>`, the last piece is `path:<symbol>`. `super::` / `self::` use the importer's view. Re-export chains (`use crate::a::b::c` where `c` is a `pub use` from a deeper module) cannot be resolved locally — the consumer's projection layer follows the chain.
+- **Java** — named imports (`import com.acme.Foo`) build under `lang:java/package:com/package:acme/module:Foo/path:Foo`. The last piece is duplicated as both `module:` (the file) and `path:` (the symbol) so `bind_match` unifies with `module:Foo/class:Foo`. JDK packages (`java.*`, `javax.*`) keep the `external_pkg:` shape.
+- **SQL / PL-pgSQL** — all `calls` refs are tagged `binding=local` (intra-module by language design) and use arity-only callable names like `function:bar(2)`, while defs use typed names like `function:bar(int4,text)`. `bind_match`'s byte-strict last-segment-name rule does not unify these. Cross-file SQL call linkage requires a per-language refinement of `bind_match` (callable bare-name comparison routed via the `lang:sql` segment) — deferred to a follow-up chantier.
+
+Validation: cross-file linkage on the dogfood panel resolves at scale across TS, Java, Python, and Rust:
+
+| project          | lang  | files | resolved links |
+|------------------|-------|-------|----------------|
+| date-fns         | ts    | 1342  | 2115           |
+| gson             | java  | 83    | 286            |
+| httpx            | py    | 24    | 131            |
+| zod              | ts    | 82    | 110            |
+| pg_code_moniker  | rs    | 58    | 19             |
+| pgtap            | sql   | 12    | 0 (deferred)   |
 
 ## Testing
 

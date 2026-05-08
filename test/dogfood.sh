@@ -176,9 +176,19 @@ ingest_one() {
 	while IFS= read -r abs; do
 		[[ -z "$abs" ]] && continue
 		local rel="${abs#$clone_path/}"
-		local rel_escaped="${rel//\'/\'\'}"
+		# Strip src_subdir from the URI passed to the extractor so the
+		# moniker reflects the project's logical structure rather than
+		# its disk layout. `source_uri` keeps the full path for later
+		# lookup. This is what makes Rust `crate::` imports align with
+		# def monikers produced from URIs that started under src/.
+		local logical="$rel"
+		if [[ "$src_subdir" != "." && -n "$src_subdir" ]]; then
+			logical="${rel#${src_subdir}/}"
+		fi
+		local source_escaped="${rel//\'/\'\'}"
+		local logical_escaped="${logical//\'/\'\'}"
 		printf "INSERT INTO module(project, lang, source_uri, graph) VALUES ('%s', '%s', '%s', %s('%s', pg_read_file('%s'), 'esac+moniker://%s'::moniker));\n" \
-			"$project" "$lang" "$rel_escaped" "$extr" "$rel_escaped" "$abs" "$project" \
+			"$project" "$lang" "$source_escaped" "$extr" "$logical_escaped" "$abs" "$project" \
 			>>"$batch_sql"
 		count=$((count + 1))
 	done <<<"$files"

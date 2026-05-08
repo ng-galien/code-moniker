@@ -103,7 +103,7 @@ $rs$,
 	) AS g
 )
 SELECT
-	ok('esac+moniker://pkg/path:core/path:moniker/path:Moniker'::moniker
+	ok('esac+moniker://pkg/lang:rs/path:core/module:moniker/path:Moniker'::moniker
 	     = ANY(graph_ref_targets(g)),
 		'crate:: prefix resolves under the project anchor (no external_pkg)') AS r8,
 	ok('esac+moniker://pkg/external_pkg:pgrx/path:prelude'::moniker

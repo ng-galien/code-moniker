@@ -40,7 +40,7 @@ impl<'src> Walker<'src> {
 		let confidence = external_or_imported(&pieces);
 
 		if wildcard {
-			let target = external_package_target(self.module.as_view().project(), &pieces);
+			let target = wildcard_target(self.module.as_view().project(), &pieces, confidence);
 			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 			let _ = graph.add_ref_attrs(scope, target, kinds::IMPORTS_MODULE, Some(pos), &attrs);
 			return;
@@ -52,7 +52,7 @@ impl<'src> Walker<'src> {
 				.borrow_mut()
 				.insert(last.as_bytes(), confidence);
 		}
-		let target = external_symbol_target(self.module.as_view().project(), &pieces);
+		let target = symbol_target(self.module.as_view().project(), &pieces, confidence);
 		let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 		let _ = graph.add_ref_attrs(scope, target, kinds::IMPORTS_SYMBOL, Some(pos), &attrs);
 	}
@@ -332,6 +332,51 @@ fn generic_type_short<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 	""
 }
 
+/// Wildcard import target (`import com.acme.*`).
+/// - `confidence == imported`: language regime,
+///   `lang:java/package:com/package:acme`. Matches the package's
+///   containment root for `<@`-style queries.
+/// - `confidence == external`: project regime,
+///   `external_pkg:com/path:acme`.
+fn wildcard_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Moniker {
+	if confidence == kinds::CONF_IMPORTED && !pieces.is_empty() {
+		let mut b = MonikerBuilder::new();
+		b.project(project);
+		b.segment(crate::lang::kinds::LANG, b"java");
+		for piece in pieces {
+			b.segment(kinds::PACKAGE, piece.as_bytes());
+		}
+		return b.build();
+	}
+	external_package_target(project, pieces)
+}
+
+/// Named import target (`import com.acme.Foo`).
+/// - `confidence == imported`: language regime,
+///   `lang:java/package:com/package:acme/module:Foo/path:Foo`. The
+///   trailing `path:Foo` lets `bind_match` unify with the class def
+///   `class:Foo` while `module:Foo` matches the file as a parent.
+/// - `confidence == external`: project regime,
+///   `external_pkg:com/path:acme/path:Foo`.
+fn symbol_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Moniker {
+	if confidence == kinds::CONF_IMPORTED && !pieces.is_empty() {
+		let mut b = MonikerBuilder::new();
+		b.project(project);
+		b.segment(crate::lang::kinds::LANG, b"java");
+		let last = pieces.len() - 1;
+		for (i, piece) in pieces.iter().enumerate() {
+			let kind = if i == last { kinds::MODULE } else { kinds::PACKAGE };
+			b.segment(kind, piece.as_bytes());
+		}
+		// Duplicate the symbol name as a `path:` leaf so bind_match
+		// resolves to the class def. The class def carries
+		// `module:Foo/class:Foo`; we mirror with `module:Foo/path:Foo`.
+		b.segment(kinds::PATH, pieces[last].as_bytes());
+		return b.build();
+	}
+	external_package_target(project, pieces)
+}
+
 /// Build an external-package target for an import path. JDK packages
 /// (`java.*`, `javax.*`) and any non-relative dotted path land under
 /// `external_pkg:<head>` with the rest as `path:` segments.
@@ -346,12 +391,6 @@ fn external_package_target(project: &[u8], pieces: &[&str]) -> Moniker {
 		b.segment(kinds::PATH, piece.as_bytes());
 	}
 	b.build()
-}
-
-/// Build a target for `import com.acme.Foo;` — the trailing `Foo` is
-/// the imported symbol; the leading `com.acme` is the external pkg.
-fn external_symbol_target(project: &[u8], pieces: &[&str]) -> Moniker {
-	external_package_target(project, pieces)
 }
 
 /// Heuristic: anything starting with `java.` / `javax.` / `kotlin.` /

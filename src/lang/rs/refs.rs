@@ -162,9 +162,8 @@ fn collect_scoped_path_into(node: Node<'_>, source: &[u8], out: &mut Vec<String>
 fn target_under_project(module: &Moniker, rest: &[String]) -> Moniker {
 	let mut b = MonikerBuilder::new();
 	b.project(module.as_view().project());
-	for piece in rest {
-		b.segment(kinds::PATH, piece.as_bytes());
-	}
+	b.segment(crate::lang::kinds::LANG, b"rs");
+	append_use_pieces(&mut b, rest);
 	b.build()
 }
 
@@ -174,10 +173,34 @@ fn target_under_module(module: &Moniker, rest: &[String], walk_up: usize) -> Mon
 	let new_depth = depth.saturating_sub(walk_up);
 	let mut b = MonikerBuilder::from_view(view);
 	b.truncate(new_depth);
-	for piece in rest {
-		b.segment(kinds::PATH, piece.as_bytes());
-	}
+	append_use_pieces(&mut b, rest);
 	b.build()
+}
+
+/// Append `pieces` of a `use` chain so the LAST piece is the imported
+/// symbol (`path:<name>`) and the SECOND-TO-LAST is its containing
+/// module (`module:<name>`). Earlier pieces are intermediate
+/// directories (`path:<name>`). Single-piece chains land as a single
+/// `path:<name>` — bind_match against the corresponding module's def
+/// (`module:<name>`) still resolves because parents (project + lang)
+/// are byte-equal and the leaf names match.
+fn append_use_pieces(b: &mut MonikerBuilder, pieces: &[String]) {
+	let n = pieces.len();
+	if n == 0 {
+		return;
+	}
+	if n == 1 {
+		b.segment(kinds::PATH, pieces[0].as_bytes());
+		return;
+	}
+	for (i, piece) in pieces.iter().enumerate() {
+		let kind = if i == n - 2 {
+			kinds::MODULE
+		} else {
+			kinds::PATH
+		};
+		b.segment(kind, piece.as_bytes());
+	}
 }
 
 fn target_external(module: &Moniker, path: &[String]) -> Moniker {
