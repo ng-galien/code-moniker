@@ -42,7 +42,7 @@ impl<'a> super::MonikerView<'a> {
 		};
 		loop {
 			match (ls.next(), rs.next()) {
-				(None, None) => return prev_l.name == prev_r.name,
+				(None, None) => return last_segment_match(self, other, prev_l.name, prev_r.name),
 				(Some(_), None) | (None, Some(_)) => return false,
 				(Some(nl), Some(nr)) => {
 					if prev_l != prev_r {
@@ -53,6 +53,39 @@ impl<'a> super::MonikerView<'a> {
 				}
 			}
 		}
+	}
+
+	pub fn lang_segment(&self) -> Option<&[u8]> {
+		self.segments()
+			.find(|s| s.kind == b"lang")
+			.map(|s| s.name)
+	}
+}
+
+fn last_segment_match(
+	left: &super::MonikerView<'_>,
+	right: &super::MonikerView<'_>,
+	l_name: &[u8],
+	r_name: &[u8],
+) -> bool {
+	if l_name == r_name {
+		return true;
+	}
+	let l_lang = left.lang_segment();
+	let r_lang = right.lang_segment();
+	if l_lang.is_some() && l_lang == r_lang {
+		match l_lang.unwrap() {
+			b"sql" => return bare_callable_name(l_name) == bare_callable_name(r_name),
+			_ => {}
+		}
+	}
+	false
+}
+
+pub(crate) fn bare_callable_name(name: &[u8]) -> &[u8] {
+	match name.iter().position(|b| *b == b'(') {
+		Some(i) => &name[..i],
+		None => name,
 	}
 }
 
@@ -220,5 +253,97 @@ mod tests {
 		let l = mk(b"app", &[(b"class", b"Foo")]);
 		let r = mk(b"app", &[(b"class", b"Bar")]);
 		assert!(!l.bind_match(&r));
+	}
+
+	#[test]
+	fn bind_match_sql_arity_call_matches_typed_def() {
+		let typed_def = mk(
+			b"app",
+			&[
+				(b"lang", b"sql"),
+				(b"schema", b"esac"),
+				(b"module", b"plan"),
+				(b"function", b"create_plan(uuid,text)"),
+			],
+		);
+		let arity_call = mk(
+			b"app",
+			&[
+				(b"lang", b"sql"),
+				(b"schema", b"esac"),
+				(b"module", b"plan"),
+				(b"function", b"create_plan(2)"),
+			],
+		);
+		assert!(arity_call.bind_match(&typed_def));
+		assert!(typed_def.bind_match(&arity_call));
+	}
+
+	#[test]
+	fn bind_match_sql_bare_name_matches_typed_def() {
+		let typed_def = mk(
+			b"app",
+			&[
+				(b"lang", b"sql"),
+				(b"module", b"plan"),
+				(b"function", b"create_plan(uuid,text)"),
+			],
+		);
+		let bare_call = mk(
+			b"app",
+			&[
+				(b"lang", b"sql"),
+				(b"module", b"plan"),
+				(b"function", b"create_plan"),
+			],
+		);
+		assert!(bare_call.bind_match(&typed_def));
+	}
+
+	#[test]
+	fn bind_match_sql_different_bare_names_do_not_match() {
+		let a = mk(
+			b"app",
+			&[
+				(b"lang", b"sql"),
+				(b"module", b"plan"),
+				(b"function", b"create_plan(uuid)"),
+			],
+		);
+		let b = mk(
+			b"app",
+			&[
+				(b"lang", b"sql"),
+				(b"module", b"plan"),
+				(b"function", b"drop_plan(uuid)"),
+			],
+		);
+		assert!(!a.bind_match(&b));
+	}
+
+	#[test]
+	fn bind_match_sql_refinement_does_not_apply_to_other_languages() {
+		let typed_def = mk(
+			b"app",
+			&[
+				(b"lang", b"java"),
+				(b"package", b"acme"),
+				(b"class", b"Plan"),
+				(b"method", b"create(int)"),
+			],
+		);
+		let bare_call = mk(
+			b"app",
+			&[
+				(b"lang", b"java"),
+				(b"package", b"acme"),
+				(b"class", b"Plan"),
+				(b"method", b"create"),
+			],
+		);
+		assert!(
+			!bare_call.bind_match(&typed_def),
+			"non-SQL languages must keep the byte-strict last-segment-name rule"
+		);
 	}
 }

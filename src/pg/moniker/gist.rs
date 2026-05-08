@@ -114,7 +114,7 @@ fn moniker_gist_consistent(
 		}
 
 		if entry_ref.leafkey {
-			*recheck_ptr = false;
+			*recheck_ptr = strategy as u32 == STRAT_BIND_MATCH;
 			match strategy as u32 {
 				STRAT_EQUAL => k_segs == q_segs,
 				STRAT_CONTAINS => q_segs.starts_with(k_segs),
@@ -175,8 +175,18 @@ fn bind_match_segs(left: &[u8], right: &[u8]) -> bool {
 	}
 	let l_last = &left[lp.len()..];
 	let r_last = &right[rp.len()..];
-	last_segment_name(l_last) == last_segment_name(r_last)
+	let l_name = last_segment_name(l_last);
+	let r_name = last_segment_name(r_last);
+	if l_name == r_name {
+		return true;
+	}
+	match (l_name, r_name) {
+		(Some(l), Some(r)) => bare_callable_name(l) == bare_callable_name(r),
+		_ => false,
+	}
 }
+
+use crate::core::moniker::query::bare_callable_name;
 
 fn last_segment_name(seg_bytes: &[u8]) -> Option<&[u8]> {
 	if seg_bytes.len() < 4 {

@@ -1,6 +1,6 @@
 mod builder;
 pub(crate) mod encoding;
-mod query;
+pub(crate) mod query;
 mod view;
 
 pub use builder::MonikerBuilder;

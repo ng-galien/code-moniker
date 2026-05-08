@@ -7,6 +7,7 @@ use tree_sitter::{Language, Parser, Tree};
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
+pub mod build;
 mod canonicalize;
 mod kinds;
 mod refs;

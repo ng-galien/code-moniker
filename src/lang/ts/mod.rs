@@ -955,14 +955,15 @@ mod tests {
 			&make_anchor(),
 			true,
 		);
-		let cb = g
-			.def_monikers()
-			.into_iter()
+		let monikers = g.def_monikers();
+		let cb = monikers
+			.iter()
 			.find(|m| {
 				let last = m.as_view().segments().last().unwrap();
 				last.kind == b"function" && last.name.starts_with(b"__cb_")
 			})
-			.expect("anonymous callback def with __cb_ prefix");
+			.expect("anonymous callback def with __cb_ prefix")
+			.clone();
 		let view = cb.as_view();
 		let last = view.segments().last().unwrap();
 		assert_eq!(last.kind, b"function");

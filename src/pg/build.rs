@@ -2,6 +2,7 @@ use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
 
 use crate::lang::java::build as pom_xml;
+use crate::lang::python::build as pyproject;
 use crate::lang::rs::build as cargo;
 use crate::lang::ts::build as package_json;
 
@@ -53,6 +54,22 @@ fn extract_pom_xml(
 	rows_from(deps.into_iter().map(Into::into))
 }
 
+#[pg_extern(immutable, parallel_safe)]
+fn extract_pyproject(
+	content: &str,
+) -> TableIterator<
+	'static,
+	(
+		name!(name, String),
+		name!(version, Option<String>),
+		name!(dep_kind, String),
+		name!(import_root, String),
+	),
+> {
+	let deps = pyproject::parse(content).unwrap_or_else(|e| error!("{e}"));
+	rows_from(deps.into_iter().map(Into::into))
+}
+
 fn rows_from<I: Iterator<Item = Dep>>(
 	deps: I,
 ) -> TableIterator<
@@ -91,6 +108,12 @@ impl From<package_json::Dep> for Dep {
 
 impl From<pom_xml::Dep> for Dep {
 	fn from(d: pom_xml::Dep) -> Self {
+		Self { name: d.name, version: d.version, dep_kind: d.dep_kind, import_root: d.import_root }
+	}
+}
+
+impl From<pyproject::Dep> for Dep {
+	fn from(d: pyproject::Dep) -> Self {
 		Self { name: d.name, version: d.version, dep_kind: d.dep_kind, import_root: d.import_root }
 	}
 }

@@ -13,11 +13,11 @@ SELECT has_function('graph_create'::name, ARRAY['moniker','text'],
 	'graph_create(moniker, text) is exposed');
 
 SELECT has_function('graph_add_def'::name,
-	ARRAY['code_graph','moniker','text','moniker'],
+	ARRAY['code_graph','moniker','text','moniker','integer','integer'],
 	'graph_add_def is exposed');
 
 SELECT has_function('graph_add_ref'::name,
-	ARRAY['code_graph','moniker','moniker','text'],
+	ARRAY['code_graph','moniker','moniker','text','integer','integer'],
 	'graph_add_ref is exposed');
 
 SELECT has_function('graph_root'::name, ARRAY['code_graph'],

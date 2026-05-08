@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use crate::core::moniker::Moniker;
 
@@ -72,6 +73,10 @@ pub struct CodeGraph {
 	refs: Vec<RefRecord>,
 	#[cfg_attr(feature = "serde", serde(skip, default))]
 	index: RefCell<HashMap<Moniker, usize>>,
+	#[cfg_attr(feature = "serde", serde(skip, default))]
+	def_monikers_cache: RefCell<Option<Arc<Vec<Moniker>>>>,
+	#[cfg_attr(feature = "serde", serde(skip, default))]
+	ref_targets_cache: RefCell<Option<Arc<Vec<Moniker>>>>,
 }
 
 impl PartialEq for CodeGraph {
@@ -91,6 +96,7 @@ impl Hash for CodeGraph {
 
 impl CodeGraph {
 	pub fn new(root: Moniker, root_kind: &[u8]) -> Self {
+		use crate::core::kinds::BIND_EXPORT;
 		let mut index = HashMap::with_capacity(8);
 		index.insert(root.clone(), 0);
 		Self {
@@ -101,10 +107,12 @@ impl CodeGraph {
 				position: None,
 				visibility: Vec::new(),
 				signature: Vec::new(),
-				binding: b"export".to_vec(),
+				binding: BIND_EXPORT.to_vec(),
 			}],
 			refs: Vec::new(),
 			index: RefCell::new(index),
+			def_monikers_cache: RefCell::new(None),
+			ref_targets_cache: RefCell::new(None),
 		}
 	}
 
@@ -146,6 +154,7 @@ impl CodeGraph {
 			signature: attrs.signature.to_vec(),
 			binding: binding.to_vec(),
 		});
+		self.def_monikers_cache.borrow_mut().take();
 		Ok(())
 	}
 
@@ -183,6 +192,7 @@ impl CodeGraph {
 			confidence: attrs.confidence.to_vec(),
 			binding: binding.to_vec(),
 		});
+		self.ref_targets_cache.borrow_mut().take();
 		Ok(())
 	}
 
@@ -206,16 +216,26 @@ impl CodeGraph {
 		self.find_def(m).and_then(|i| self.defs[i].position)
 	}
 
-	pub fn def_monikers(&self) -> Vec<Moniker> {
+	pub fn def_monikers(&self) -> Arc<Vec<Moniker>> {
+		if let Some(cached) = self.def_monikers_cache.borrow().as_ref() {
+			return Arc::clone(cached);
+		}
 		let mut v: Vec<Moniker> = self.defs.iter().map(|d| d.moniker.clone()).collect();
 		v.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-		v
+		let arc = Arc::new(v);
+		*self.def_monikers_cache.borrow_mut() = Some(Arc::clone(&arc));
+		arc
 	}
 
-	pub fn ref_targets(&self) -> Vec<Moniker> {
+	pub fn ref_targets(&self) -> Arc<Vec<Moniker>> {
+		if let Some(cached) = self.ref_targets_cache.borrow().as_ref() {
+			return Arc::clone(cached);
+		}
 		let mut v: Vec<Moniker> = self.refs.iter().map(|r| r.target.clone()).collect();
 		v.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-		v
+		let arc = Arc::new(v);
+		*self.ref_targets_cache.borrow_mut() = Some(Arc::clone(&arc));
+		arc
 	}
 
 	pub fn def_count(&self) -> usize {
@@ -241,19 +261,19 @@ impl CodeGraph {
 
 fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
 	use crate::core::kinds::{
-		BIND_EXPORT, BIND_LOCAL, BIND_NONE, VIS_MODULE, VIS_PACKAGE, VIS_PRIVATE,
-		VIS_PROTECTED, VIS_PUBLIC,
+		BIND_EXPORT, BIND_LOCAL, BIND_NONE, KIND_LOCAL, KIND_MODULE, KIND_PARAM, KIND_SECTION,
+		VIS_MODULE, VIS_PACKAGE, VIS_PRIVATE, VIS_PROTECTED, VIS_PUBLIC,
 	};
-	if kind == b"section" {
+	if kind == KIND_SECTION {
 		return BIND_NONE;
 	}
-	if kind == b"local" || kind == b"param" {
+	if kind == KIND_LOCAL || kind == KIND_PARAM {
 		return BIND_LOCAL;
 	}
 	if visibility == VIS_PRIVATE || visibility == VIS_MODULE {
 		return BIND_LOCAL;
 	}
-	if kind == b"module" {
+	if kind == KIND_MODULE {
 		return BIND_EXPORT;
 	}
 	if visibility == VIS_PUBLIC || visibility == VIS_PROTECTED || visibility == VIS_PACKAGE {
@@ -263,14 +283,29 @@ fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
 }
 
 fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
-	use crate::core::kinds::{BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE};
-	match kind {
-		b"imports_symbol" | b"imports_module" | b"reexports" => BIND_IMPORT,
-		b"di_register" => BIND_INJECT,
-		b"calls" | b"method_call" | b"reads" | b"uses_type" | b"instantiates"
-		| b"extends" | b"implements" | b"annotates" => BIND_LOCAL,
-		_ => BIND_NONE,
+	use crate::core::kinds::{
+		BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE, REF_ANNOTATES, REF_CALLS,
+		REF_DI_REGISTER, REF_EXTENDS, REF_IMPLEMENTS, REF_IMPORTS_MODULE, REF_IMPORTS_SYMBOL,
+		REF_INSTANTIATES, REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE,
+	};
+	if kind == REF_IMPORTS_SYMBOL || kind == REF_IMPORTS_MODULE || kind == REF_REEXPORTS {
+		return BIND_IMPORT;
 	}
+	if kind == REF_DI_REGISTER {
+		return BIND_INJECT;
+	}
+	if kind == REF_CALLS
+		|| kind == REF_METHOD_CALL
+		|| kind == REF_READS
+		|| kind == REF_USES_TYPE
+		|| kind == REF_INSTANTIATES
+		|| kind == REF_EXTENDS
+		|| kind == REF_IMPLEMENTS
+		|| kind == REF_ANNOTATES
+	{
+		return BIND_LOCAL;
+	}
+	BIND_NONE
 }
 
 #[cfg(test)]
@@ -433,6 +468,33 @@ mod tests {
 		assert!(monikers.contains(&root));
 		assert!(monikers.contains(&a));
 		assert!(monikers.contains(&b));
+	}
+
+	#[test]
+	fn def_monikers_cache_invalidates_on_add_def() {
+		let root = mk(b"util");
+		let foo = mk(b"foo");
+		let bar = mk(b"bar");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(foo.clone(), b"class", &root, None).unwrap();
+		let first = g.def_monikers();
+		assert_eq!(first.len(), 2);
+		g.add_def(bar.clone(), b"class", &root, None).unwrap();
+		let second = g.def_monikers();
+		assert_eq!(second.len(), 3, "cache must reflect post-add state");
+	}
+
+	#[test]
+	fn ref_targets_cache_invalidates_on_add_ref() {
+		let root = mk(b"util");
+		let foo = mk(b"foo");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(foo.clone(), b"class", &root, None).unwrap();
+		let first = g.ref_targets();
+		assert!(first.is_empty());
+		g.add_ref(&foo, mk(b"ext"), b"call", None).unwrap();
+		let second = g.ref_targets();
+		assert_eq!(second.len(), 1, "cache must reflect post-add state");
 	}
 
 	#[test]

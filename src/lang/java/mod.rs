@@ -339,13 +339,11 @@ mod tests {
             }
         "#;
 		let g = extract_default("Foo.java", src, &make_anchor(), true);
-		let e = g
-			.def_monikers()
-			.into_iter()
-			.find(|m| {
-				let last = m.as_view().segments().last().unwrap();
-				last.kind == b"param" && last.name == b"e"
-			});
+		let monikers = g.def_monikers();
+		let e = monikers.iter().find(|m| {
+			let last = m.as_view().segments().last().unwrap();
+			last.kind == b"param" && last.name == b"e"
+		});
 		assert!(e.is_some(), "catch param should be emitted as a param def in deep mode");
 	}
 

@@ -56,6 +56,16 @@ fn compose_child(parent: moniker, kind: &str, name: &str) -> moniker {
 	moniker::from_core(b.build())
 }
 
+#[pg_operator(immutable, parallel_safe)]
+#[opname(||)]
+fn compose_child_typed(parent: moniker, segment: &str) -> moniker {
+	let (kind, name) = match segment.split_once(':') {
+		Some((k, n)) if !k.is_empty() && !n.is_empty() => (k, n),
+		_ => error!("|| expects RHS in 'kind:name' form, got {segment:?}"),
+	};
+	compose_child(parent, kind, name)
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn external_pkg_root(m: moniker) -> Option<String> {
 	m.view()

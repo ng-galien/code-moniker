@@ -68,7 +68,7 @@ pub(crate) fn rust_import_root(name: &str) -> String {
 	name.replace('-', "_")
 }
 
-fn extract_version(spec: &toml::Value) -> Option<String> {
+pub(crate) fn extract_version(spec: &toml::Value) -> Option<String> {
 	match spec {
 		toml::Value::String(s) => Some(s.clone()),
 		toml::Value::Table(t) => t.get("version").and_then(|v| v.as_str()).map(str::to_string),

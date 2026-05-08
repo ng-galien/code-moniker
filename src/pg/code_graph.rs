@@ -1,5 +1,6 @@
 use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
+use pgrx::{default, name};
 use serde::{Deserialize, Serialize};
 
 use crate::core::code_graph::{CodeGraph as CoreGraph, Position};
@@ -23,9 +24,16 @@ fn graph_create(root: moniker, kind: &str) -> code_graph {
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn graph_add_def(graph: code_graph, def: moniker, kind: &str, parent: moniker) -> code_graph {
+fn graph_add_def(
+	graph: code_graph,
+	def: moniker,
+	kind: &str,
+	parent: moniker,
+	start_byte: default!(Option<i32>, "NULL"),
+	end_byte: default!(Option<i32>, "NULL"),
+) -> code_graph {
 	let mut next = graph.inner.clone();
-	next.add_def(def.to_core(), kind.as_bytes(), &parent.to_core(), None)
+	next.add_def(def.to_core(), kind.as_bytes(), &parent.to_core(), pos_from_args(start_byte, end_byte))
 		.unwrap_or_else(|e| error!("graph_add_def: {e}"));
 	code_graph::from_core(next)
 }
@@ -36,11 +44,68 @@ fn graph_add_ref(
 	source: moniker,
 	target: moniker,
 	kind: &str,
+	start_byte: default!(Option<i32>, "NULL"),
+	end_byte: default!(Option<i32>, "NULL"),
 ) -> code_graph {
 	let mut next = graph.inner.clone();
-	next.add_ref(&source.to_core(), target.to_core(), kind.as_bytes(), None)
+	next.add_ref(&source.to_core(), target.to_core(), kind.as_bytes(), pos_from_args(start_byte, end_byte))
 		.unwrap_or_else(|e| error!("graph_add_ref: {e}"));
 	code_graph::from_core(next)
+}
+
+fn pos_from_args(start: Option<i32>, end: Option<i32>) -> Option<Position> {
+	match (start, end) {
+		(Some(s), Some(e)) if s >= 0 && e >= 0 => Some((s as u32, e as u32)),
+		_ => None,
+	}
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn graph_add_defs(
+	graph: code_graph,
+	defs: Vec<moniker>,
+	kinds: Vec<String>,
+	parents: Vec<moniker>,
+) -> code_graph {
+	if defs.len() != kinds.len() || defs.len() != parents.len() {
+		error!("graph_add_defs: arrays must have the same length");
+	}
+	let mut next = graph.inner.clone();
+	for ((d, k), p) in defs.into_iter().zip(kinds.into_iter()).zip(parents.into_iter()) {
+		next.add_def(d.to_core(), k.as_bytes(), &p.to_core(), None)
+			.unwrap_or_else(|e| error!("graph_add_defs: {e}"));
+	}
+	code_graph::from_core(next)
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn graph_add_refs(
+	graph: code_graph,
+	sources: Vec<moniker>,
+	targets: Vec<moniker>,
+	kinds: Vec<String>,
+) -> code_graph {
+	if sources.len() != targets.len() || sources.len() != kinds.len() {
+		error!("graph_add_refs: arrays must have the same length");
+	}
+	let mut next = graph.inner.clone();
+	for ((s, t), k) in sources.into_iter().zip(targets.into_iter()).zip(kinds.into_iter()) {
+		next.add_ref(&s.to_core(), t.to_core(), k.as_bytes(), None)
+			.unwrap_or_else(|e| error!("graph_add_refs: {e}"));
+	}
+	code_graph::from_core(next)
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn graph_locate(
+	graph: code_graph,
+	m: moniker,
+) -> TableIterator<'static, (name!(start_byte, Option<i32>), name!(end_byte, Option<i32>))> {
+	let row = graph.inner.locate(&m.to_core()).map(|p| {
+		let (s, e) = position_to_i32(Some(p));
+		(s, e)
+	});
+	TableIterator::new(row.into_iter())
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -59,8 +124,8 @@ fn graph_def_monikers(graph: code_graph) -> Vec<moniker> {
 	graph
 		.inner
 		.def_monikers()
-		.into_iter()
-		.map(moniker::from_core)
+		.iter()
+		.map(|m| moniker::from_core(m.clone()))
 		.collect()
 }
 
@@ -69,8 +134,8 @@ fn graph_ref_targets(graph: code_graph) -> Vec<moniker> {
 	graph
 		.inner
 		.ref_targets()
-		.into_iter()
-		.map(moniker::from_core)
+		.iter()
+		.map(|m| moniker::from_core(m.clone()))
 		.collect()
 }
 
