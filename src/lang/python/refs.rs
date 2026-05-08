@@ -464,21 +464,15 @@ fn build_relative_module_target(
 	leading_dots: usize,
 ) -> Moniker {
 	let view = importer.as_view();
-	let segs: Vec<_> = view.segments().collect();
-	// segs[0] = lang:python; the rest are the package chain plus the
-	// importer's `module:` leaf. Compute how many segments to keep.
-	let mut keep = segs.len();
-	if keep > 0 {
-		keep -= 1; // drop the importer's `module:` leaf
-	}
-	// Each extra dot drops one more parent segment (but never below
-	// the lang segment — bottom out at depth 1 so we stay in the
-	// language regime).
-	let to_drop = leading_dots.saturating_sub(1);
-	keep = keep.saturating_sub(to_drop);
+	let depth = view.segment_count() as usize;
+	// Drop the importer's `module:` leaf, then `leading_dots - 1`
+	// further parent package segments. Bottom out at zero — never
+	// reach into the project regime.
+	let keep = depth.saturating_sub(1).saturating_sub(leading_dots.saturating_sub(1));
 	if keep == 0 {
-		// Underflow — no language regime to anchor against. Fall back
-		// to the synthetic project-regime shape.
+		// Underflow: more dots than the importer has parents. Fall
+		// back to a synthetic project-regime shape so the import is
+		// at least diagnosable; bind_match never resolves it.
 		let mut b = MonikerBuilder::new();
 		b.project(view.project());
 		let head = ".".repeat(leading_dots);
@@ -488,11 +482,8 @@ fn build_relative_module_target(
 		}
 		return b.build();
 	}
-	let mut b = MonikerBuilder::new();
-	b.project(view.project());
-	for s in &segs[..keep] {
-		b.segment(s.kind, s.name);
-	}
+	let mut b = MonikerBuilder::from_view(view);
+	b.truncate(keep);
 	if pieces.is_empty() {
 		return b.build();
 	}

@@ -12,5 +12,6 @@
 //! - Every public item carries a doc comment describing its contract.
 
 pub mod code_graph;
+pub mod kinds;
 pub mod moniker;
 pub mod uri;

@@ -281,24 +281,31 @@ impl CodeGraph {
 /// DI-provider annotation (`@Injectable`, `@Service`, `@Bean`) override
 /// by passing `binding: BIND_INJECT` explicitly via `DefAttrs`.
 ///
-/// See SPEC.md § Binding semantics for the rules.
+/// See SPEC.md § Binding semantics for the rules. The structural kind
+/// tokens (`section`, `local`, `param`, `module`) are part of the
+/// extractor-facing contract; visibility tokens come from
+/// [`crate::core::kinds`].
 fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
+	use crate::core::kinds::{
+		BIND_EXPORT, BIND_LOCAL, BIND_NONE, VIS_MODULE, VIS_PACKAGE, VIS_PRIVATE,
+		VIS_PROTECTED, VIS_PUBLIC,
+	};
 	if kind == b"section" {
-		return b"none";
+		return BIND_NONE;
 	}
 	if kind == b"local" || kind == b"param" {
-		return b"local";
+		return BIND_LOCAL;
 	}
-	if visibility == b"private" || visibility == b"module" {
-		return b"local";
+	if visibility == VIS_PRIVATE || visibility == VIS_MODULE {
+		return BIND_LOCAL;
 	}
 	if kind == b"module" {
-		return b"export";
+		return BIND_EXPORT;
 	}
-	if visibility == b"public" || visibility == b"protected" || visibility == b"package" {
-		return b"export";
+	if visibility == VIS_PUBLIC || visibility == VIS_PROTECTED || visibility == VIS_PACKAGE {
+		return BIND_EXPORT;
 	}
-	b"local"
+	BIND_LOCAL
 }
 
 /// Default cross-file binding role for a ref, derived purely from the
@@ -306,12 +313,13 @@ fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
 /// extractors that recognise a constructor-injection pattern can
 /// override by passing `binding: BIND_INJECT` explicitly via `RefAttrs`.
 fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
+	use crate::core::kinds::{BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE};
 	match kind {
-		b"imports_symbol" | b"imports_module" | b"reexports" => b"import",
-		b"di_register" => b"inject",
+		b"imports_symbol" | b"imports_module" | b"reexports" => BIND_IMPORT,
+		b"di_register" => BIND_INJECT,
 		b"calls" | b"method_call" | b"reads" | b"uses_type" | b"instantiates"
-		| b"extends" | b"implements" | b"annotates" => b"local",
-		_ => b"none",
+		| b"extends" | b"implements" | b"annotates" => BIND_LOCAL,
+		_ => BIND_NONE,
 	}
 }
 

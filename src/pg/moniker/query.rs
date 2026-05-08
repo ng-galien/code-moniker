@@ -20,15 +20,16 @@ fn moniker_ancestor_of(a: moniker, b: moniker) -> bool {
 }
 
 /// Cross-file linkage match. See SPEC.md § Operators and the rules
-/// documented on `crate::core::moniker::Moniker::bind_match`. Exposed
-/// both as a function (for explicit calls) and as the `?=` operator
-/// registered in the moniker GiST opclass at strategy number 11.
+/// documented on `crate::core::moniker::MonikerView::bind_match`.
+/// Exposed both as a function (for explicit calls) and as the `?=`
+/// operator registered in the moniker GiST opclass at strategy 11.
+/// Operates on borrowed views to avoid per-row clones at JOIN scale.
 #[pg_operator(immutable, parallel_safe)]
 #[opname(?=)]
 #[restrict(eqsel)]
 #[join(eqjoinsel)]
 fn bind_match(a: moniker, b: moniker) -> bool {
-	a.to_core().bind_match(&b.to_core())
+	a.view().bind_match(&b.view())
 }
 
 #[pg_extern(immutable, parallel_safe)]

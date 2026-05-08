@@ -24,26 +24,33 @@ impl Moniker {
 		self.as_view().segments().last().map(|s| s.kind.to_vec())
 	}
 
-	/// Cross-file linkage match. Returns `true` when:
+	/// Cross-file linkage match. See [`MonikerView::bind_match`] for
+	/// the contract. Forwards through views so the SQL wrapper can
+	/// avoid the `to_core` clone on hot JOIN paths.
+	pub fn bind_match(&self, other: &Moniker) -> bool {
+		self.as_view().bind_match(&other.as_view())
+	}
+}
+
+impl<'a> super::MonikerView<'a> {
+	/// Cross-file linkage match on view bytes. Returns `true` when:
 	/// - both monikers have the same project bytes;
 	/// - both have at least one segment;
 	/// - every segment except the last is byte-equal (kind and name);
 	/// - the last segments have equal `name` bytes (kinds may differ).
 	///
-	/// This solves the problem that an extractor is local and does not
+	/// Solves the problem that an extractor is local and does not
 	/// know the kind of a symbol it imports from another file. The
 	/// import side emits a placeholder last-segment kind (typically
-	/// `path:` or another best-effort kind); the def side emits the
-	/// true kind. Byte-strict `=` would never match those two;
-	/// `bind_match` does. See `SPEC.md` § Operators.
-	pub fn bind_match(&self, other: &Moniker) -> bool {
-		let lv = self.as_view();
-		let rv = other.as_view();
-		if lv.project() != rv.project() {
+	/// `path:`); the def side emits the true kind. Byte-strict `=`
+	/// would never match those two; `bind_match` does. See `SPEC.md`
+	/// § Operators.
+	pub fn bind_match(&self, other: &super::MonikerView<'_>) -> bool {
+		if self.project() != other.project() {
 			return false;
 		}
-		let mut ls = lv.segments();
-		let mut rs = rv.segments();
+		let mut ls = self.segments();
+		let mut rs = other.segments();
 		let mut prev_l = match ls.next() {
 			Some(s) => s,
 			None => return false,

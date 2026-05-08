@@ -260,6 +260,26 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_relative_import_underflow_falls_back_to_external_pkg() {
+		// `from ...foo import bar` from a 1-segment-deep module: the
+		// importer is at `lang:python/module:m`, depth 2. Dropping
+		// the module leaf leaves 1 parent (lang:python); 3 dots
+		// requests 2 further drops, which would walk past the
+		// language regime. The fallback emits a synthetic
+		// `external_pkg:...` shape — diagnosable but never
+		// resolvable via bind_match.
+		let src = "from ...foo import bar\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"imports_symbol")
+			.expect("imports_symbol");
+		let segs: Vec<_> = r.target.as_view().segments().collect();
+		assert_eq!(segs[0].kind, b"external_pkg");
+		assert_eq!(segs[0].name, b"...");
+	}
+
+	#[test]
 	fn extract_decorator_emits_annotates() {
 		let src = "import functools\n@functools.wraps(fn)\ndef g():\n    pass\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);

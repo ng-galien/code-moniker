@@ -84,10 +84,11 @@ fn graph_ref_targets(graph: code_graph) -> Vec<moniker> {
 /// efficiently without scanning the full def array.
 #[pg_extern(immutable, parallel_safe)]
 fn graph_export_monikers(graph: code_graph) -> Vec<moniker> {
+	use crate::core::kinds::{BIND_EXPORT, BIND_INJECT};
 	let mut core: Vec<crate::core::moniker::Moniker> = graph
 		.inner
 		.defs()
-		.filter(|d| d.binding == b"export" || d.binding == b"inject")
+		.filter(|d| d.binding == BIND_EXPORT || d.binding == BIND_INJECT)
 		.map(|d| d.moniker.clone())
 		.collect();
 	core.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
@@ -99,10 +100,11 @@ fn graph_export_monikers(graph: code_graph) -> Vec<moniker> {
 /// `graph_export_monikers` for the cross-file JOIN.
 #[pg_extern(immutable, parallel_safe)]
 fn graph_import_targets(graph: code_graph) -> Vec<moniker> {
+	use crate::core::kinds::{BIND_IMPORT, BIND_INJECT};
 	let mut core: Vec<crate::core::moniker::Moniker> = graph
 		.inner
 		.refs()
-		.filter(|r| r.binding == b"import" || r.binding == b"inject")
+		.filter(|r| r.binding == BIND_IMPORT || r.binding == BIND_INJECT)
 		.map(|r| r.target.clone())
 		.collect();
 	core.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
