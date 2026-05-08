@@ -1,4 +1,5 @@
 pub mod callable;
+pub mod go;
 pub mod java;
 pub mod kinds;
 pub mod python;

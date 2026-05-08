@@ -3,7 +3,7 @@
 #
 # Entry format (fields separated by `|`):
 #   lang | project_id | git_url | ref | src_subdir | manifest_path
-# - lang          rs | ts | java | sql | py
+# - lang          rs | ts | java | sql | py | go
 # - project_id    moniker project segment + DB key; stable across runs
 # - git_url       HTTPS clone URL, or `self` for the local repo
 # - ref           pinned tag/branch/commit; `HEAD` only with `self`
@@ -28,4 +28,7 @@ PCM_DOGFOOD_PANEL=(
 
 	# Python
 	"py|httpx|https://github.com/encode/httpx.git|0.27.2|httpx|-"
+
+	# Go
+	"go|mux|https://github.com/gorilla/mux.git|v1.8.1|.|go.mod"
 )

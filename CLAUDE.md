@@ -15,7 +15,7 @@ No work-in-progress archives, no decision memos, no speculative docs. Git log + 
 
 ## Direction
 
-Phases 1–6 of SPEC shipped. v2 milestone ship: typed canonical URI (`<scheme>+moniker://<project>/<kind>:<name>...`), kind names embedded in bytes (no backend-local registry), seg_count dropped → byte-lex order strictly tree-friendly (`m >= ancestor AND m < ancestor||sentinel` works on plain btree). Custom Datum + GiST opclass shipped. Compact projection (`moniker_compact` / `match_compact`) ships as a one-way display. CodeGraph carries a moniker→idx HashMap so `find_def` is O(1) at corpus scale. TS, Rust, Java, Python (tree-sitter) and SQL/PL-pgSQL (vendored libpg_query) extractors shipped with full metadata (visibility / signature / alias / confidence / receiver_hint / same-file resolution / scope-tracked locals). Manifest parsers shipped for the four with build systems (`extract_cargo` / `extract_package_json` / `extract_pom_xml` / `extract_pyproject`). Multi-project dogfood panel under `test/dogfood/` for scaling validation. Current effort: Phase 7 cross-file linkage (`bind_match` + `binding` column + `lang:` segment). Detail in TODO.md (gitignored).
+Phases 1–6 of SPEC shipped. v2 milestone ship: typed canonical URI (`<scheme>+moniker://<project>/<kind>:<name>...`), kind names embedded in bytes (no backend-local registry), seg_count dropped → byte-lex order strictly tree-friendly (`m >= ancestor AND m < ancestor||sentinel` works on plain btree). Custom Datum + GiST opclass shipped. Compact projection (`moniker_compact` / `match_compact`) ships as a one-way display. CodeGraph carries a moniker→idx HashMap so `find_def` is O(1) at corpus scale. TS, Rust, Java, Python, Go (tree-sitter) and SQL/PL-pgSQL (vendored libpg_query) extractors shipped with full metadata (visibility / signature / alias / confidence / receiver_hint / same-file resolution / scope-tracked locals). Manifest parsers shipped for the five with build systems (`extract_cargo` / `extract_package_json` / `extract_pom_xml` / `extract_pyproject` / `extract_go_mod`). Multi-project dogfood panel under `test/dogfood/` for scaling validation. Current effort: Phase 7 cross-file linkage (`bind_match` + `binding` column + `lang:` segment). Detail in TODO.md (gitignored).
 
 ## Comment sobriety
 
@@ -39,8 +39,10 @@ src/
                         compact projection)
     code_graph.rs       code_graph SQL type + accessors (graph_defs / graph_refs
                         carrying metadata columns)
-    extract.rs          extract_typescript / extract_rust / extract_java SQL entries
-    build.rs            extract_cargo / extract_package_json / extract_pom_xml
+    extract.rs          extract_typescript / extract_rust / extract_java /
+                        extract_python / extract_go / extract_plpgsql SQL entries
+    build.rs            extract_cargo / extract_package_json / extract_pom_xml /
+                        extract_pyproject / extract_go_mod
   lang/                 per-language extractors
     kinds.rs            cross-language vocabulary (VIS_* / CONF_* constants).
                         New extractors `pub use` from here; never redeclare.
@@ -56,6 +58,12 @@ src/
     rs/                 Rust (mod / kinds / canonicalize / walker / refs / build)
     java/               Java (mod / kinds / canonicalize / walker / refs / scope /
                         build for pom.xml)
+    python/             Python (mod / kinds / canonicalize / walker / refs / scope /
+                        build for pyproject.toml)
+    go/                 Go (mod / kinds / canonicalize / walker / refs / scope /
+                        build for go.mod)
+    sql/                PL/pgSQL via vendored libpg_query (mod / kinds /
+                        canonicalize / walker / body / refs / scope)
 test/
   sql/                  pgTAP test files (run via ./test/run.sh)
   dogfood.sh            multi-project ingestion runner

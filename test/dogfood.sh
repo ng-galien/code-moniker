@@ -72,6 +72,7 @@ ext_for_lang() {
 		java) echo "java" ;;
 		sql) echo "sql psql pgsql" ;;
 		py) echo "py pyi" ;;
+		go) echo "go" ;;
 		*) echo "" ;;
 	esac
 }
@@ -83,6 +84,7 @@ extract_fn() {
 		java) echo "extract_java" ;;
 		sql) echo "extract_plpgsql" ;;
 		py) echo "extract_python" ;;
+		go) echo "extract_go" ;;
 		*) echo "" ;;
 	esac
 }
@@ -91,6 +93,7 @@ manifest_fn() {
 	case "$1" in
 		rs) echo "extract_cargo" ;;
 		ts) echo "extract_package_json" ;;
+		go) echo "extract_go_mod" ;;
 		*) echo "" ;;
 	esac
 }

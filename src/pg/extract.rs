@@ -69,3 +69,16 @@ fn extract_python(
 	let inner = crate::lang::python::extract(uri, source, &core_anchor, deep, &presets);
 	code_graph::from_core(inner)
 }
+
+#[pg_extern(immutable, parallel_safe)]
+fn extract_go(
+	uri: &str,
+	source: &str,
+	anchor: moniker,
+	deep: pgrx::default!(bool, "false"),
+) -> code_graph {
+	let core_anchor = anchor.to_core();
+	let presets = crate::lang::go::Presets::default();
+	let inner = crate::lang::go::extract(uri, source, &core_anchor, deep, &presets);
+	code_graph::from_core(inner)
+}
