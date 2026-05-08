@@ -4,7 +4,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(20);
+SELECT plan(23);
 
 
 SELECT has_function('extract_typescript'::name,
@@ -188,6 +188,46 @@ SELECT
 		ARRAY['external','imported']::text[],
 		'imports_symbol gets imported/external confidence based on specifier') AS r20
 FROM g;
+
+
+WITH g AS (
+	SELECT extract_typescript(
+		'explorer.ts',
+		'import { z } from ''zod''; const s = z.string();',
+		'esac+moniker://app/path:main'::moniker
+	) AS g
+)
+SELECT
+	is((SELECT receiver_hint FROM graph_refs(g) WHERE kind = 'method_call'),
+		'z',
+		'identifier-shaped receiver carries the alias text, not the constant tag') AS r21
+FROM g;
+
+
+WITH member_callee AS (
+	SELECT extract_typescript(
+		'util.ts',
+		'container.register(''repo'', makeRepo);',
+		'esac+moniker://app/path:main'::moniker,
+		false,
+		ARRAY['register']::text[]
+	) AS g
+), wrapped_factory AS (
+	SELECT extract_typescript(
+		'util.ts',
+		'register(''repo'', asFunction(makeRepo).singleton());',
+		'esac+moniker://app/path:main'::moniker,
+		false,
+		ARRAY['register']::text[]
+	) AS g
+)
+SELECT
+	cmp_ok((SELECT count(*)::int FROM member_callee, graph_refs(g) WHERE kind = 'di_register'),
+		'>', 0,
+		'container.register(name, factory) emits di_register via member-expression callee') AS r22,
+	cmp_ok((SELECT count(*)::int FROM wrapped_factory, graph_refs(g) WHERE kind = 'di_register'),
+		'>', 0,
+		'register(name, asFunction(make).singleton()) recurses through wrapper + chain to find make') AS r23;
 
 SELECT * FROM finish();
 

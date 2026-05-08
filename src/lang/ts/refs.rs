@@ -27,7 +27,7 @@ impl<'src> Walker<'src> {
 			"identifier" => {
 				let name = self.text_of(fn_node);
 				let Some(confidence) = self.name_confidence(name.as_bytes()) else {
-					self.maybe_emit_di_register(node, fn_node, scope, graph, pos);
+					self.maybe_emit_di_register(node, name, scope, graph, pos);
 					if let Some(args) = node.child_by_field_name("arguments") {
 						self.walk(args, scope, graph);
 					}
@@ -43,7 +43,7 @@ impl<'src> Walker<'src> {
 					..RefAttrs::default()
 				};
 				let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
-				self.maybe_emit_di_register(node, fn_node, scope, graph, pos);
+				self.maybe_emit_di_register(node, name, scope, graph, pos);
 			}
 			"member_expression" => {
 				if let Some(prop) = fn_node.child_by_field_name("property") {
@@ -51,7 +51,7 @@ impl<'src> Walker<'src> {
 					if !name.is_empty() {
 						let target = self.method_call_target(name, arity);
 						let attrs = RefAttrs {
-							receiver_hint: receiver_hint(fn_node),
+							receiver_hint: receiver_hint(fn_node, self.source_bytes),
 							confidence: kinds::CONF_NAME_MATCH,
 							..RefAttrs::default()
 						};
@@ -62,6 +62,7 @@ impl<'src> Walker<'src> {
 							Some(pos),
 							&attrs,
 						);
+						self.maybe_emit_di_register(node, name, scope, graph, pos);
 					}
 				}
 				if let Some(obj) = fn_node.child_by_field_name("object") {
@@ -104,12 +105,11 @@ impl<'src> Walker<'src> {
 	fn maybe_emit_di_register(
 		&self,
 		call: Node<'_>,
-		callee: Node<'_>,
+		callee_name: &str,
 		scope: &Moniker,
 		graph: &mut CodeGraph,
 		pos: (u32, u32),
 	) {
-		let callee_name = self.text_of(callee);
 		if !self
 			.presets
 			.di_register_callees
@@ -118,34 +118,55 @@ impl<'src> Walker<'src> {
 		{
 			return;
 		}
-
 		let Some(args) = call.child_by_field_name("arguments") else { return };
 		let mut cursor = args.walk();
-		let mut named = 0usize;
-		let mut the_id: Option<Node<'_>> = None;
-		let mut reject = false;
 		for c in args.children(&mut cursor) {
 			if !c.is_named() {
 				continue;
 			}
-			named += 1;
-			if c.kind() == "identifier" {
-				the_id = Some(c);
-			} else {
-				reject = true;
-				break;
+			if let Some(name) = self.find_di_factory(c) {
+				let target = self.instantiates_target(name);
+				let _ = graph.add_ref_attrs(
+					scope,
+					target,
+					kinds::DI_REGISTER,
+					Some(pos),
+					&NAME_MATCH_ATTRS,
+				);
 			}
 		}
-		if reject || named != 1 {
-			return;
+	}
+
+	fn find_di_factory(&self, node: Node<'_>) -> Option<&'src str> {
+		match node.kind() {
+			"identifier" => {
+				let name = self.text_of(node);
+				(!name.is_empty()).then_some(name)
+			}
+			"call_expression" => {
+				let fn_node = node.child_by_field_name("function")?;
+				match fn_node.kind() {
+					"member_expression" => fn_node
+						.child_by_field_name("object")
+						.and_then(|obj| self.find_di_factory(obj)),
+					"identifier" => {
+						let inner_args = node.child_by_field_name("arguments")?;
+						let mut cur = inner_args.walk();
+						for c in inner_args.children(&mut cur) {
+							if !c.is_named() {
+								continue;
+							}
+							if let Some(name) = self.find_di_factory(c) {
+								return Some(name);
+							}
+						}
+						None
+					}
+					_ => None,
+				}
+			}
+			_ => None,
 		}
-		let Some(id) = the_id else { return };
-		let name = self.text_of(id);
-		if name.is_empty() {
-			return;
-		}
-		let target = self.instantiates_target(name);
-		let _ = graph.add_ref_attrs(scope, target, kinds::DI_REGISTER, Some(pos), &NAME_MATCH_ATTRS);
 	}
 
 
@@ -439,14 +460,14 @@ const NAME_MATCH_ATTRS: RefAttrs<'static> = RefAttrs {
 	binding: b"",
 };
 
-fn receiver_hint(member_expr: Node<'_>) -> &'static [u8] {
+fn receiver_hint<'a>(member_expr: Node<'_>, source: &'a [u8]) -> &'a [u8] {
 	let Some(obj) = member_expr.child_by_field_name("object") else {
 		return b"";
 	};
 	match obj.kind() {
 		"this" => b"this",
 		"super" => b"super",
-		"identifier" => b"identifier",
+		"identifier" => obj.utf8_text(source).unwrap_or("").as_bytes(),
 		"call_expression" => b"call",
 		"member_expression" => b"member",
 		"subscript_expression" => b"subscript",

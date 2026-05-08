@@ -634,7 +634,7 @@ mod tests {
 		let cases = [
 			("class C { m() { this.bar(); } }", b"this".as_slice()),
 			("class C { m() { super.bar(); } }", b"super".as_slice()),
-			("obj.bar();", b"identifier".as_slice()),
+			("obj.bar();", b"obj".as_slice()),
 			("a.b.bar();", b"member".as_slice()),
 			("foo().bar();", b"call".as_slice()),
 		];
@@ -650,6 +650,25 @@ mod tests {
 				"receiver hint mismatch for {src:?}"
 			);
 		}
+	}
+
+	#[test]
+	fn extract_method_call_receiver_hint_carries_imported_alias() {
+		let g = extract(
+			"explorer.ts",
+			"import { z } from 'zod';\nconst schema = z.string();",
+			&make_anchor(),
+			false,
+		);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call")
+			.expect("method_call ref");
+		assert_eq!(
+			r.receiver_hint.as_slice(),
+			b"z",
+			"receiver hint must carry the alias text so the consumer can join to imports_symbol",
+		);
 	}
 
 	#[test]
@@ -867,6 +886,96 @@ mod tests {
 		};
 		let g = super::extract("util.ts", "expect(value);", &make_anchor(), false, &presets);
 		assert!(g.refs().all(|r| r.kind != b"di_register"));
+	}
+
+	#[test]
+	fn extract_di_register_register_with_name_and_factory() {
+		let presets = Presets {
+			di_register_callees: vec!["register".into()],
+		};
+		let g = super::extract(
+			"util.ts",
+			"register('repoStore', makeRepoStore);",
+			&make_anchor(),
+			false,
+			&presets,
+		);
+		assert!(
+			g.refs().any(|r| r.kind == b"di_register"),
+			"register('name', factory) must emit di_register on the factory identifier",
+		);
+	}
+
+	#[test]
+	fn extract_di_register_member_callee_register() {
+		let presets = Presets {
+			di_register_callees: vec!["register".into()],
+		};
+		let g = super::extract(
+			"util.ts",
+			"container.register('repoStore', makeRepoStore);",
+			&make_anchor(),
+			false,
+			&presets,
+		);
+		assert!(
+			g.refs().any(|r| r.kind == b"di_register"),
+			"container.register(...) must emit di_register when 'register' is in the preset",
+		);
+	}
+
+	#[test]
+	fn extract_di_register_recurses_into_factory_call_argument() {
+		let presets = Presets {
+			di_register_callees: vec!["register".into()],
+		};
+		let g = super::extract(
+			"util.ts",
+			"register('repoStore', asFunction(makeRepoStore));",
+			&make_anchor(),
+			false,
+			&presets,
+		);
+		assert!(
+			g.refs().any(|r| r.kind == b"di_register"),
+			"register('name', asFunction(make)) must recurse to find 'make'",
+		);
+	}
+
+	#[test]
+	fn extract_di_register_recurses_through_chained_call_postfix() {
+		let presets = Presets {
+			di_register_callees: vec!["asFunction".into()],
+		};
+		let g = super::extract(
+			"util.ts",
+			"asFunction(makeRepoStore).singleton();",
+			&make_anchor(),
+			false,
+			&presets,
+		);
+		assert!(
+			g.refs().any(|r| r.kind == b"di_register"),
+			"asFunction(make).singleton() chain must still register the inner 'make'",
+		);
+	}
+
+	#[test]
+	fn extract_di_register_full_awilix_pattern() {
+		let presets = Presets {
+			di_register_callees: vec!["register".into()],
+		};
+		let g = super::extract(
+			"util.ts",
+			"container.register('readResource', asFunction(makeReadResource).singleton());",
+			&make_anchor(),
+			false,
+			&presets,
+		);
+		assert!(
+			g.refs().any(|r| r.kind == b"di_register"),
+			"container.register('name', asFunction(make).singleton()) must emit di_register",
+		);
 	}
 	#[test]
 	fn extract_section_comment_emits_section_def() {

@@ -300,12 +300,12 @@ impl<'src> Walker<'src> {
 	}
 }
 
-fn receiver_hint(obj: Node<'_>, source: &[u8]) -> &'static [u8] {
+fn receiver_hint<'a>(obj: Node<'_>, source: &'a [u8]) -> &'a [u8] {
 	match obj.kind() {
 		"identifier" => match obj.utf8_text(source).unwrap_or("") {
 			"self" => b"self",
 			"cls" => b"cls",
-			_ => b"identifier",
+			other => other.as_bytes(),
 		},
 		"attribute" => b"member",
 		"call" => b"call",

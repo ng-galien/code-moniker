@@ -77,7 +77,7 @@ impl<'src> Walker<'src> {
 		if let Some(obj) = object {
 			let target = self.method_call_target(name, arity);
 			let attrs = RefAttrs {
-				receiver_hint: receiver_hint(obj),
+				receiver_hint: receiver_hint(obj, self.source_bytes),
 				confidence: kinds::CONF_NAME_MATCH,
 				..RefAttrs::default()
 			};
@@ -291,11 +291,11 @@ fn argument_count(call: Node<'_>) -> u16 {
 	count
 }
 
-fn receiver_hint(obj: Node<'_>) -> &'static [u8] {
+fn receiver_hint<'a>(obj: Node<'_>, source: &'a [u8]) -> &'a [u8] {
 	match obj.kind() {
 		"this" => b"this",
 		"super" => b"super",
-		"identifier" => b"identifier",
+		"identifier" => obj.utf8_text(source).unwrap_or("").as_bytes(),
 		"method_invocation" => b"call",
 		"field_access" => b"member",
 		"scoped_identifier" => b"member",

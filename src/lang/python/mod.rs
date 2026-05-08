@@ -304,6 +304,20 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_method_call_receiver_hint_carries_identifier_text() {
+		let src = "def f():\n    obj.bar()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call")
+			.expect("method_call ref");
+		assert_eq!(
+			r.receiver_hint, b"obj".to_vec(),
+			"receiver hint must carry the identifier text for non-self/cls receivers",
+		);
+	}
+
+	#[test]
 	fn extract_call_with_imported_name_marks_imported_confidence() {
 		let src = "from acme import helper\ndef f():\n    helper()\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);

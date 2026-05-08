@@ -241,6 +241,24 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_method_call_receiver_hint_carries_identifier_text() {
+		let src = r#"
+            class Foo {
+                void m() { obj.bar(); }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call")
+			.expect("method_call ref");
+		assert_eq!(
+			r.receiver_hint, b"obj".to_vec(),
+			"receiver hint must carry the local identifier text",
+		);
+	}
+
+	#[test]
 	fn extract_object_creation_emits_instantiates() {
 		let src = r#"
             class Foo {
