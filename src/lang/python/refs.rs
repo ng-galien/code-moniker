@@ -301,15 +301,16 @@ impl<'src> Walker<'src> {
 }
 
 fn receiver_hint<'a>(obj: Node<'_>, source: &'a [u8]) -> &'a [u8] {
+	use crate::lang::kinds::{HINT_CALL, HINT_CLS, HINT_MEMBER, HINT_SELF, HINT_SUBSCRIPT};
 	match obj.kind() {
 		"identifier" => match obj.utf8_text(source).unwrap_or("") {
-			"self" => b"self",
-			"cls" => b"cls",
+			"self" => HINT_SELF,
+			"cls" => HINT_CLS,
 			other => other.as_bytes(),
 		},
-		"attribute" => b"member",
-		"call" => b"call",
-		"subscript" => b"subscript",
+		"attribute" => HINT_MEMBER,
+		"call" => HINT_CALL,
+		"subscript" => HINT_SUBSCRIPT,
 		_ => b"",
 	}
 }

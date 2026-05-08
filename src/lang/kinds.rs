@@ -43,6 +43,14 @@ pub const FIELD: &[u8] = b"field";
 pub const CONST: &[u8] = b"const";
 pub const ENUM_CONSTANT: &[u8] = b"enum_constant";
 
+pub const HINT_THIS: &[u8] = b"this";
+pub const HINT_SUPER: &[u8] = b"super";
+pub const HINT_SELF: &[u8] = b"self";
+pub const HINT_CLS: &[u8] = b"cls";
+pub const HINT_CALL: &[u8] = b"call";
+pub const HINT_MEMBER: &[u8] = b"member";
+pub const HINT_SUBSCRIPT: &[u8] = b"subscript";
+
 pub const CONF_EXTERNAL: &[u8] = b"external";
 pub const CONF_IMPORTED: &[u8] = b"imported";
 pub const CONF_NAME_MATCH: &[u8] = b"name_match";

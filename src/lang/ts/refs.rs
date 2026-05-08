@@ -110,6 +110,9 @@ impl<'src> Walker<'src> {
 		graph: &mut CodeGraph,
 		pos: (u32, u32),
 	) {
+		if self.presets.di_register_callees.is_empty() {
+			return;
+		}
 		if !self
 			.presets
 			.di_register_callees
@@ -461,16 +464,17 @@ const NAME_MATCH_ATTRS: RefAttrs<'static> = RefAttrs {
 };
 
 fn receiver_hint<'a>(member_expr: Node<'_>, source: &'a [u8]) -> &'a [u8] {
+	use crate::lang::kinds::{HINT_CALL, HINT_MEMBER, HINT_SUBSCRIPT, HINT_SUPER, HINT_THIS};
 	let Some(obj) = member_expr.child_by_field_name("object") else {
 		return b"";
 	};
 	match obj.kind() {
-		"this" => b"this",
-		"super" => b"super",
+		"this" => HINT_THIS,
+		"super" => HINT_SUPER,
 		"identifier" => obj.utf8_text(source).unwrap_or("").as_bytes(),
-		"call_expression" => b"call",
-		"member_expression" => b"member",
-		"subscript_expression" => b"subscript",
+		"call_expression" => HINT_CALL,
+		"member_expression" => HINT_MEMBER,
+		"subscript_expression" => HINT_SUBSCRIPT,
 		_ => b"",
 	}
 }

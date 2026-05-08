@@ -292,13 +292,14 @@ fn argument_count(call: Node<'_>) -> u16 {
 }
 
 fn receiver_hint<'a>(obj: Node<'_>, source: &'a [u8]) -> &'a [u8] {
+	use crate::lang::kinds::{HINT_CALL, HINT_MEMBER, HINT_SUPER, HINT_THIS};
 	match obj.kind() {
-		"this" => b"this",
-		"super" => b"super",
+		"this" => HINT_THIS,
+		"super" => HINT_SUPER,
 		"identifier" => obj.utf8_text(source).unwrap_or("").as_bytes(),
-		"method_invocation" => b"call",
-		"field_access" => b"member",
-		"scoped_identifier" => b"member",
+		"method_invocation" => HINT_CALL,
+		"field_access" => HINT_MEMBER,
+		"scoped_identifier" => HINT_MEMBER,
 		_ => b"",
 	}
 }
