@@ -1,6 +1,6 @@
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use tree_sitter::{Language, Parser, Tree};
 
