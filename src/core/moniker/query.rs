@@ -23,6 +23,25 @@ impl Moniker {
 	pub fn bind_match(&self, other: &Moniker) -> bool {
 		self.as_view().bind_match(&other.as_view())
 	}
+
+	pub fn with_bare_last_segment(&self) -> Moniker {
+		let view = self.as_view();
+		let segs: Vec<_> = view.segments().collect();
+		let Some(last) = segs.last() else {
+			return self.clone();
+		};
+		let bare = bare_callable_name(last.name);
+		if bare.len() == last.name.len() {
+			return self.clone();
+		}
+		let mut b = MonikerBuilder::new();
+		b.project(view.project());
+		for s in &segs[..segs.len() - 1] {
+			b.segment(s.kind, s.name);
+		}
+		b.segment(last.kind, bare);
+		b.build()
+	}
 }
 
 impl<'a> super::MonikerView<'a> {
@@ -89,7 +108,7 @@ fn last_segment_match(
 	false
 }
 
-pub(crate) fn bare_callable_name(name: &[u8]) -> &[u8] {
+pub fn bare_callable_name(name: &[u8]) -> &[u8] {
 	match name.iter().position(|b| *b == b'(') {
 		Some(i) => &name[..i],
 		None => name,

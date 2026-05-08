@@ -98,4 +98,30 @@ mod tests {
 		let m = from_uri(original, &default_config()).unwrap();
 		assert_eq!(to_uri(&m, &default_config()).unwrap(), original);
 	}
+
+	#[test]
+	fn roundtrip_typed_callable_names_with_quoting_chars() {
+		// Patterns the TS extractor emits when type annotations carry
+		// reserved chars (space, pipe, slash) — they must round-trip
+		// through to_uri / from_uri unchanged.
+		use crate::core::moniker::MonikerBuilder;
+		let names: &[&[u8]] = &[
+			b"foo(int,String)",
+			b"f((x: number) => string)",
+			b"f(string | null)",
+			b"render(Map<String, List<Item>>)",
+			b"foo with spaces",
+		];
+		for name in names {
+			let m = MonikerBuilder::new()
+				.project(b"app")
+				.segment(b"path", b"x")
+				.segment(b"function", name)
+				.build();
+			let s = to_uri(&m, &default_config()).expect("serialize");
+			let parsed = from_uri(&s, &default_config())
+				.unwrap_or_else(|e| panic!("roundtrip failed on {s:?}: {e}"));
+			assert_eq!(parsed, m, "roundtrip mismatch for {s:?}");
+		}
+	}
 }

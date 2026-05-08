@@ -238,6 +238,30 @@ esac+moniker://repo/srcset:main/lang:ts/dir:`src/generated`/module:`weird:name`
 
 Reserved characters: `/`, `#`, `:`, `(`, `)`, backtick, whitespace.
 
+## Text form is transport, not a manipulation API
+
+The text form returned by `moniker_out(m)` (i.e. `m::text`) is a
+self-describing transport encoding. It is **not** a stable surface
+for consumer regex or string manipulation. Callable name suffixes can
+contain spaces, pipes, slashes, and arrows from type annotations
+(`f((x: number) => string)`, `f(string | null)`); the serializer
+backtick-wraps such names and doubles literal backticks inside them.
+Stripping a `(...)` suffix with a hand-rolled regex is unsafe — it
+can leave backtick quoting unbalanced and break the round-trip.
+
+Consumers should never re-parse `m::text`. The supported surface is:
+
+- `?=` (`bind_match`) — symbol equivalence, dispatched per-language.
+  Use this for cross-file linkage queries instead of derived columns.
+- `bare_callable_name(m moniker) → moniker` — strips the parens-and-
+  after suffix from the last segment's name. Useful when you must
+  materialize a denormalized "stripped" column for indexing.
+- `kind_of(m)`, `path_of(m)`, `parent_of(m)`, `project_of(m)`,
+  `lang_of(m)`, `depth(m)` — typed accessors over the binary form.
+
+If a manipulation you need is missing from this list, request a typed
+accessor rather than reaching for `regexp_replace` on the text form.
+
 ## Binary Encoding Requirement
 
 The binary `moniker` representation must not rely on backend-local

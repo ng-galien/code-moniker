@@ -67,6 +67,11 @@ fn compose_child_typed(parent: moniker, segment: &str) -> moniker {
 }
 
 #[pg_extern(immutable, parallel_safe)]
+fn bare_callable_name(m: moniker) -> moniker {
+	moniker::from_core(m.to_core().with_bare_last_segment())
+}
+
+#[pg_extern(immutable, parallel_safe)]
 fn external_pkg_root(m: moniker) -> Option<String> {
 	m.view()
 		.segments()
