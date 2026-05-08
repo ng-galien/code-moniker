@@ -1,19 +1,4 @@
-/*
- * pcm_plpgsql_driver.c — drive the vendored PL/pgSQL parser to obtain a
- * PLpgSQL_function* from a raw body string, without going through
- * plpgsql_compile_inline (which is hidden as a local symbol on macOS).
- *
- * Mirrors libpg_query's compile_create_function_stmt() but stripped to the
- * minimum needed by extractor: we don't simulate parameters, return type,
- * trigger NEW/OLD records, etc. — only what the bison grammar needs to
- * produce a valid action tree (FOUND magic var must exist; namespace must
- * be initialized; datums vector must be set up).
- *
- * The catalog lookups inside `plpgsql_build_datatype` for built-in types
- * (BOOLOID for FOUND, UNKNOWNOID for parameters) succeed because we run
- * inside the host PG backend that has the catalog loaded — the same
- * pragmatic compromise documented in src/lang/sql/body.rs.
- */
+/* Parse a PL/pgSQL body to PLpgSQL_function* via the vendored parser. */
 
 #include "postgres.h"
 #include "fmgr.h"
@@ -27,25 +12,13 @@
 extern void plpgsql_start_datums(void);
 extern void plpgsql_finish_datums(PLpgSQL_function *function);
 
-/* GUCs normally defined in plpgsql.so's pl_handler.c. We don't vendor
- * pl_handler.c (its call/inline/validator handlers and _PG_init would
- * collide with the loaded plpgsql.so), so define here the ones
- * pl_comp.c references when populating PLpgSQL_function fields.
- * Values don't matter for our parse-only flow but the symbols must
- * resolve at link time. */
+/* GUCs referenced by pl_comp.c; link-time only, values unused. */
 int  plpgsql_variable_conflict   = 0; /* PLPGSQL_RESOLVE_ERROR */
 bool plpgsql_print_strict_params = false;
 int  plpgsql_extra_warnings      = 0;
 int  plpgsql_extra_errors        = 0;
 
-/*
- * Build the namespace entries the bison parser expects for each
- * declared parameter so identifiers like `$1` and named params
- * resolve cleanly inside the body. We don't care about the actual
- * declared types — we never run the body — but the parser refuses
- * pseudo-types (UNKNOWNOID) inside `plpgsql_build_variable`, so use
- * TEXTOID as a concrete placeholder.
- */
+/* Register `$N` and named params as TEXTOID variables for the parser. */
 static void
 register_params(int n_params, const char *const *param_names)
 {
@@ -81,16 +54,7 @@ static PLpgSQL_function *parse_body_impl(
 	int n_params,
 	const char *const *param_names);
 
-/*
- * Public entry point. Wraps the parsing in PG_TRY/PG_CATCH so any
- * ereport() the bison grammar raises (unsupported parameter shapes,
- * malformed body, type-resolution failures inside
- * plpgsql_build_datatype) is caught and turned into a NULL return.
- * The caller (Rust) interprets NULL as "best-effort body extraction
- * skipped for this function" and proceeds to the next def. Pair
- * each non-NULL return with a `pcm_plpgsql_free` call so the
- * function's MemoryContext is reclaimed.
- */
+/* Returns NULL on parse error. Pair each non-NULL with `pcm_plpgsql_free`. */
 PLpgSQL_function *
 pcm_plpgsql_parse_body(
 	const char *body,
@@ -161,12 +125,7 @@ parse_body_impl(
 	plpgsql_DumpExecTree = false;
 	plpgsql_start_datums();
 
-	/* Mirror the source DDL's return shape so the bison grammar
-	 * accepts the RETURN forms the source actually uses. ANYELEMENT
-	 * (a polymorphic placeholder) lets the parser accept `RETURN
-	 * expr` when the function is declared with a real return type
-	 * we haven't bothered resolving — we never run the body, so the
-	 * type only needs to be non-VOID and non-record. */
+	/* ANYELEMENT placeholder satisfies the parser without resolving real types. */
 	function->fn_rettype = is_void ? VOIDOID : ANYELEMENTOID;
 	function->fn_retset = is_setof;
 	function->fn_retistuple = false;
@@ -205,13 +164,7 @@ parse_body_impl(
 	return function;
 }
 
-/*
- * Reclaim the per-function MemoryContext that `parse_body_impl`
- * created in `AllocSetContextCreate(CurrentMemoryContext, ...)`.
- * Without this, every parsed plpgsql function leaks ~few KB into
- * the surrounding extraction call's memory context — accumulates
- * across an ESAC corpus ingest.
- */
+/* Reclaim the per-function MemoryContext allocated by `parse_body_impl`. */
 void
 pcm_plpgsql_free(PLpgSQL_function *function)
 {

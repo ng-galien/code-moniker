@@ -23,9 +23,6 @@
 //! ```
 //!
 //! Sentinel `u32::MAX` encodes `Option::None` for parent / source / position.
-//! No per-record offset table: read paths in `pg::code_graph` already iterate
-//! the full sections; the few O(1) reads (`graph_root`) sit at the head of
-//! the def list and don't need a jump table.
 
 use std::fmt;
 
@@ -387,8 +384,6 @@ mod tests {
 	#[cfg(feature = "serde")]
 	#[test]
 	fn custom_layout_is_smaller_than_cbor() {
-		// Build a graph with a representative shape: a few module defs, a few
-		// classes/methods, a handful of refs with metadata.
 		let root = mk(b"util");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		for i in 0..16 {

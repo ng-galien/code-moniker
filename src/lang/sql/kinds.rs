@@ -1,7 +1,3 @@
-// SQL maps several constructs onto the cross-language moniker kind vocabulary:
-// `CREATE TABLE` -> kind:class, `CREATE VIEW` -> kind:interface,
-// `CREATE PROCEDURE` -> kind:function. The aliases preserve SQL-side semantics
-// in walker code while emitting the canonical moniker bytes.
 pub(super) use crate::lang::kinds::CLASS as TABLE;
 pub(super) use crate::lang::kinds::FUNCTION as PROCEDURE;
 pub(super) use crate::lang::kinds::INTERFACE as VIEW;

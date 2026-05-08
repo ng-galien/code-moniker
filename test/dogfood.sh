@@ -162,9 +162,7 @@ ingest_one() {
 	fi
 
 	local files
-	# Quoted expansion + `set -f` so bash does NOT glob the `*.<ext>`
-	# patterns against the calling cwd (a `build.rs` at the repo root
-	# would otherwise collapse `*.rs` to a single filename).
+	# `set -f` prevents shell glob expansion on the `*.<ext>` patterns.
 	set -f
 	files=$(find "$src_root" -type f \( "${find_expr[@]}" \) | sort)
 	set +f
@@ -176,11 +174,7 @@ ingest_one() {
 	while IFS= read -r abs; do
 		[[ -z "$abs" ]] && continue
 		local rel="${abs#$clone_path/}"
-		# Strip src_subdir from the URI passed to the extractor so the
-		# moniker reflects the project's logical structure rather than
-		# its disk layout. `source_uri` keeps the full path for later
-		# lookup. This is what makes Rust `crate::` imports align with
-		# def monikers produced from URIs that started under src/.
+		# Moniker URI is src_subdir-relative; source_uri keeps the full path.
 		local logical="$rel"
 		if [[ "$src_subdir" != "." && -n "$src_subdir" ]]; then
 			logical="${rel#${src_subdir}/}"

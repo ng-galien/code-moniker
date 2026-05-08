@@ -101,9 +101,6 @@ mod tests {
 
 	#[test]
 	fn roundtrip_typed_callable_names_with_quoting_chars() {
-		// Patterns the TS extractor emits when type annotations carry
-		// reserved chars (space, pipe, slash) — they must round-trip
-		// through to_uri / from_uri unchanged.
 		use crate::core::moniker::MonikerBuilder;
 		let names: &[&[u8]] = &[
 			b"foo(int,String)",
