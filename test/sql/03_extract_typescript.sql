@@ -1,5 +1,3 @@
--- Phase 3: TypeScript extraction. End-to-end: source text in,
--- code_graph out with the right defs and refs.
 
 BEGIN;
 
@@ -8,13 +6,11 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(20);
 
--- Surface presence ----------------------------------------------------------
 
 SELECT has_function('extract_typescript'::name,
 	ARRAY['text','text','moniker','boolean','text[]'],
 	'extract_typescript(text, text, moniker, boolean, text[]) is exposed');
 
--- Extracting an empty source still produces a graph rooted at the module.
 
 WITH empty AS (
 	SELECT extract_typescript(
@@ -30,7 +26,6 @@ SELECT
 		'empty source yields a graph with the module def only') AS r2
 FROM empty;
 
--- Class with a method emits the class and the method as defs.
 
 WITH g AS (
 	SELECT extract_typescript(
@@ -48,8 +43,6 @@ SELECT
 		'method moniker carries `_` placeholders for unannotated JS params') AS r5
 FROM g;
 
--- Imports decompose into one ref per named specifier; bare specifiers
--- become external_pkg targets.
 
 WITH g AS (
 	SELECT extract_typescript(
@@ -77,7 +70,6 @@ SELECT
 		'bare specifier resolves under project + external_pkg') AS r8
 FROM g;
 
--- Class heritage and decorators produce refs.
 
 WITH g AS (
 	SELECT extract_typescript(
@@ -95,7 +87,6 @@ SELECT
 		'decorator emits a function-shaped annotates target') AS r11
 FROM g;
 
--- Deep extraction surfaces params and locals.
 
 WITH g AS (
 	SELECT extract_typescript(
@@ -112,7 +103,6 @@ SELECT
 		'deep=true surfaces local defs') AS r13
 FROM g;
 
--- Method call receiver hint surfaces in graph_refs.receiver_hint.
 
 WITH g AS (
 	SELECT extract_typescript(
@@ -127,7 +117,6 @@ SELECT
 		'this.bar() carries receiver_hint=this') AS r14
 FROM g;
 
--- DI register stays silent without a preset.
 
 WITH no_preset AS (
 	SELECT extract_typescript(
@@ -152,7 +141,6 @@ SELECT
 		1,
 		'di_register fires when callee is in preset list') AS r16;
 
--- Visibility surfaces in graph_defs.
 
 WITH g AS (
 	SELECT extract_typescript(
@@ -172,7 +160,6 @@ SELECT
 		'unexported class is module-visible') AS r18
 FROM g;
 
--- Alias surfaces on aliased imports.
 
 WITH g AS (
 	SELECT extract_typescript(
@@ -187,7 +174,6 @@ SELECT
 		'import { X as Y } records alias=Y') AS r19
 FROM g;
 
--- Confidence distinguishes relative vs external imports.
 
 WITH g AS (
 	SELECT extract_typescript(

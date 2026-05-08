@@ -1,6 +1,3 @@
-//! AST traversal for tree-sitter-typescript: dispatches each node to
-//! its def emitter or to the refs module. Scope = innermost enclosing
-//! def; it doubles as `parent` for new defs and as `source` for refs.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -23,19 +20,11 @@ pub(super) struct Walker<'src> {
 	pub(super) module: Moniker,
 	pub(super) deep: bool,
 	pub(super) presets: &'src super::Presets,
-	/// Byte ranges of top-level `export_statement` nodes. Lets module-
-	/// scope def emitters answer "am I exported?" without looking at
-	/// the AST parent.
 	pub(super) export_ranges: Vec<(u32, u32)>,
-	/// Stack of in-scope local names per enclosing callable. Refs
-	/// whose target name matches any frame get `confidence: local`.
-	/// Borrows from `source_bytes` so no per-name allocation.
 	pub(super) local_scope: RefCell<Vec<HashSet<&'src [u8]>>>,
 }
 
 impl<'src> Walker<'src> {
-	/// Top-level entry. Walks every child of `node` and dispatches it.
-	/// `scope` is the moniker that defs nest under and refs source on.
 	pub(super) fn walk(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
@@ -99,7 +88,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- comments / sections ---------------------------------------------
 
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if let Some(title) = section_title(node, self.source_bytes) {
@@ -108,15 +96,12 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- export_statement ------------------------------------------------
 
 	fn handle_export(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if node.child_by_field_name("source").is_some() {
 			self.handle_reexport(node, scope, graph);
 			return;
 		}
-		// `export default function f() {…}` / `export default class C {…}`:
-		// emit the named decl if present, else a `default` placeholder.
 		let mut cursor = node.walk();
 		let mut has_default = false;
 		for c in node.children(&mut cursor) {
@@ -166,7 +151,6 @@ impl<'src> Walker<'src> {
 		self.walk(node, scope, graph);
 	}
 
-	// --- class -----------------------------------------------------------
 
 	fn handle_class(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
@@ -225,7 +209,6 @@ impl<'src> Walker<'src> {
 			&attrs,
 		);
 
-		// decorators on the method itself
 		let mut cursor = node.walk();
 		for c in node.children(&mut cursor) {
 			if c.kind() == "decorator" {
@@ -233,12 +216,10 @@ impl<'src> Walker<'src> {
 			}
 		}
 
-		// return type → uses_type
 		if let Some(rt) = node.child_by_field_name("return_type") {
 			self.emit_uses_type_recursive(rt, &m, graph);
 		}
 
-		// parameters
 		if let Some(params) = node.child_by_field_name("parameters") {
 			self.handle_parameters(params, &m, graph);
 		}
@@ -263,7 +244,6 @@ impl<'src> Walker<'src> {
 			&attrs,
 		);
 
-		// decorators on field
 		let mut cursor = node.walk();
 		for c in node.children(&mut cursor) {
 			if c.kind() == "decorator" {
@@ -274,14 +254,11 @@ impl<'src> Walker<'src> {
 		if let Some(tp) = node.child_by_field_name("type") {
 			self.emit_uses_type_recursive(tp, &m, graph);
 		}
-		// initializer expression: walk under the field as scope so any
-		// `new Foo()` etc. attribute correctly.
 		if let Some(value) = node.child_by_field_name("value") {
 			self.dispatch(value, &m, graph);
 		}
 	}
 
-	// --- interface / enum / type_alias -----------------------------------
 
 	fn handle_interface(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
@@ -369,7 +346,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- function / lexical-declaration ----------------------------------
 
 	fn handle_function_decl(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
@@ -399,7 +375,6 @@ impl<'src> Walker<'src> {
 		let value = decl.child_by_field_name("value");
 		let type_annot = decl.child_by_field_name("type");
 
-		// Collect identifier-or-pattern names.
 		let names = collect_binding_names(name_node, self.source_bytes);
 
 		let module_vis = self.module_visibility(decl);
@@ -443,7 +418,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- parameters ------------------------------------------------------
 
 	fn handle_parameters(
 		&self,
@@ -463,7 +437,6 @@ impl<'src> Walker<'src> {
 					if let Some(t) = tp {
 						self.emit_uses_type_recursive(t, callable, graph);
 					}
-					// decorators on parameter (TS parameter properties)
 					let mut cc = child.walk();
 					for c in child.children(&mut cc) {
 						if c.kind() == "decorator" {
@@ -479,8 +452,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	/// `record_local` runs unconditionally — confidence tracking has to
-	/// stay accurate even when deep extraction is off.
 	fn emit_param_leaf(&self, pat: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		for name in collect_binding_names(pat, self.source_bytes) {
 			self.record_local(name.as_bytes());
@@ -491,7 +462,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- inline callables, catch, for-in ---------------------------------
 
 	fn handle_inline_callable(
 		&self,
@@ -541,7 +511,6 @@ impl<'src> Walker<'src> {
 		self.walk(node, scope, graph);
 	}
 
-	// --- pair (object literal) -------------------------------------------
 
 	fn handle_pair(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if self.deep && is_callable_scope(scope, &self.module) {
@@ -568,9 +537,6 @@ impl<'src> Walker<'src> {
 		self.walk(node, scope, graph);
 	}
 
-	/// Emit a callable def + its parameters + recurse into its body.
-	/// Shared between `function_declaration`, arrow/function bound to a
-	/// const, anonymous callbacks, and `{ key: () => … }` shorthand.
 	fn emit_callable(
 		&self,
 		callable_node: Node<'_>,
@@ -608,7 +574,6 @@ impl<'src> Walker<'src> {
 		m
 	}
 
-	// --- helpers ---------------------------------------------------------
 
 	pub(super) fn field_text(&self, node: Node<'_>, field: &str) -> Option<&'src str> {
 		node.child_by_field_name(field)?

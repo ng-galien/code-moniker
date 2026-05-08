@@ -1,7 +1,3 @@
--- Deep extraction for Rust: params, locals, named closures emitted
--- when `deep := true`. Off by default (the call-site shape that
--- existing pgTAP tests rely on must keep working) — opt-in via the
--- 4th argument.
 
 BEGIN;
 
@@ -14,7 +10,6 @@ SELECT has_function('extract_rust'::name,
 	ARRAY['text','text','moniker','boolean'],
 	'extract_rust(4-arg) is exposed');
 
--- Default deep=false reproduces shallow R-1 behavior --------------------
 
 WITH g AS (
 	SELECT extract_rust(
@@ -32,7 +27,6 @@ SELECT
 		'shallow extract: no local defs') AS r3
 FROM g;
 
--- deep=true emits params and locals under the function ------------------
 
 WITH g AS (
 	SELECT extract_rust(
@@ -51,7 +45,6 @@ SELECT
 		'deep extract emits local:sum from let-binding') AS r6
 FROM g;
 
--- self parameter on impl methods collapses to param:self ----------------
 
 WITH g AS (
 	SELECT extract_rust(
@@ -66,7 +59,6 @@ SELECT
 		'deep extract emits param:self for &self (self implicit in moniker)') AS r7
 FROM g;
 
--- Named closure (let f = |x| ...) emits a function def under the parent --
 
 WITH g AS (
 	SELECT extract_rust(

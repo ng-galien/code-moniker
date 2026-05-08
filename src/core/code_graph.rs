@@ -1,9 +1,3 @@
-//! `code_graph` — internal structure of a single module.
-//!
-//! Defs and refs are tagged by a kind name (byte string, e.g.
-//! `b"class"`, `b"call"`) — not by a backend-local registry id, so
-//! graphs are portable.
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -19,20 +13,8 @@ pub struct DefRecord {
 	pub kind: Vec<u8>,
 	pub parent: Option<usize>,
 	pub position: Option<Position>,
-	/// Language-normalised access level: `public`, `protected`,
-	/// `package`, `private`, `module`. Empty when the language does not
-	/// expose the concept for this def (locals, params, sections).
 	pub visibility: Vec<u8>,
-	/// Callable signature for languages where arity alone doesn't
-	/// disambiguate overloads (Java parameter types, SQL argument
-	/// types). Format is language-specific and consumer-opaque. Empty
-	/// for non-callables and for languages that encode disambiguation
-	/// in the moniker name (TS arity).
 	pub signature: Vec<u8>,
-	/// Cross-file linkage role: `export` (addressable from other
-	/// modules), `local` (module-scoped), `inject` (DI provider),
-	/// `none` (concept doesn't apply, e.g. sections). Drives
-	/// `bind_match` filtering in consumer JOINs.
 	pub binding: Vec<u8>,
 }
 
@@ -43,25 +25,12 @@ pub struct RefRecord {
 	pub target: Moniker,
 	pub kind: Vec<u8>,
 	pub position: Option<Position>,
-	/// Receiver shape for `method_call` refs (`this`, `super`,
-	/// `identifier`, `member`, `call`, `subscript`). Empty otherwise.
 	pub receiver_hint: Vec<u8>,
-	/// Local binding name when the ref imports under a different name
-	/// (`import { X as Y }`, `export { X as Y }`). Empty otherwise.
 	pub alias: Vec<u8>,
-	/// Confidence the consumer projection should attach: `external`,
-	/// `imported`, `name_match`, `local`, `unresolved`. Empty when the
-	/// extractor has nothing to assert.
 	pub confidence: Vec<u8>,
-	/// Cross-file linkage role: `import` (resolves another module via
-	/// static import), `local` (intra-module ref), `inject` (DI
-	/// container demand), `none` (not a linkage edge). Drives
-	/// `bind_match` filtering in consumer JOINs.
 	pub binding: Vec<u8>,
 }
 
-/// Optional def attributes. Defaults are empty, meaning the extractor
-/// has no info to record for this def.
 #[derive(Clone, Debug, Default)]
 pub struct DefAttrs<'a> {
 	pub visibility: &'a [u8],
@@ -69,7 +38,6 @@ pub struct DefAttrs<'a> {
 	pub binding: &'a [u8],
 }
 
-/// Optional ref attributes. Defaults are empty.
 #[derive(Clone, Debug, Default)]
 pub struct RefAttrs<'a> {
 	pub receiver_hint: &'a [u8],
@@ -102,9 +70,6 @@ impl std::error::Error for GraphError {}
 pub struct CodeGraph {
 	defs: Vec<DefRecord>,
 	refs: Vec<RefRecord>,
-	/// `moniker → defs[i]` index, kept in sync with `defs`. Skipped on
-	/// (de)serialization and rebuilt lazily; equality and hashing ignore
-	/// it because it's a derived cache.
 	#[cfg_attr(feature = "serde", serde(skip, default))]
 	index: RefCell<HashMap<Moniker, usize>>,
 }
@@ -261,9 +226,6 @@ impl CodeGraph {
 		self.refs.len()
 	}
 
-	/// O(1) average via the moniker → index cache. Cache rebuilds in O(N)
-	/// the first time it's accessed after deserialization (when defs are
-	/// present but the cache field defaulted to empty).
 	fn find_def(&self, m: &Moniker) -> Option<usize> {
 		let mut idx = self.index.borrow_mut();
 		if idx.len() != self.defs.len() {
@@ -277,14 +239,6 @@ impl CodeGraph {
 	}
 }
 
-/// Default cross-file binding role for a def. Extractors that detect a
-/// DI-provider annotation (`@Injectable`, `@Service`, `@Bean`) override
-/// by passing `binding: BIND_INJECT` explicitly via `DefAttrs`.
-///
-/// See SPEC.md § Binding semantics for the rules. The structural kind
-/// tokens (`section`, `local`, `param`, `module`) are part of the
-/// extractor-facing contract; visibility tokens come from
-/// [`crate::core::kinds`].
 fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
 	use crate::core::kinds::{
 		BIND_EXPORT, BIND_LOCAL, BIND_NONE, VIS_MODULE, VIS_PACKAGE, VIS_PRIVATE,
@@ -308,10 +262,6 @@ fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
 	BIND_LOCAL
 }
 
-/// Default cross-file binding role for a ref, derived purely from the
-/// ref's structural kind. The DI flavour is keyed on `di_register` —
-/// extractors that recognise a constructor-injection pattern can
-/// override by passing `binding: BIND_INJECT` explicitly via `RefAttrs`.
 fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
 	use crate::core::kinds::{BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE};
 	match kind {
@@ -544,21 +494,16 @@ mod tests {
 
 	#[test]
 	fn find_def_self_heals_after_deserialize_like_state() {
-		// Simulate the post-deserialize state where the cache field
-		// defaulted empty but defs is fully populated.
 		let root = mk(b"util");
 		let a = mk(b"a");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(a.clone(), b"class", &root, None).unwrap();
-		// Manually invalidate the cache.
 		g.index.borrow_mut().clear();
 
 		assert!(g.contains(&root));
 		assert!(g.contains(&a));
 		assert_eq!(g.locate(&a), None);
 	}
-
-	// --- binding default rules -------------------------------------------
 
 	#[test]
 	fn def_binding_section_is_none() {

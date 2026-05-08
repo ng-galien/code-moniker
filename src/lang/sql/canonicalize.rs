@@ -1,16 +1,8 @@
-//! Module-moniker construction and segment extension for SQL/PL-pgSQL.
-//!
-//! Schema names are NOT part of the module moniker. They live inside
-//! function/table/view monikers as a `#schema:<name>` segment so that
-//! `public.foo` and `esac.foo` co-existing in the same file produce
-//! distinct identities.
 
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use super::kinds;
 
-/// Build the file-as-module moniker. Only the path segments coming from
-/// the URI matter. Strips the trailing `.sql`/`.psql`/`.pgsql` extension.
 pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let (dirs, stem) = split_uri(uri);
 	let mut b = MonikerBuilder::from_view(anchor.as_view());
@@ -39,9 +31,6 @@ pub(super) fn file_stem(name: &str) -> &str {
 
 pub(super) use crate::lang::callable::{extend_callable_arity, extend_callable_typed, extend_segment};
 
-/// `parent/schema:<schema>` when schema is non-empty; passthrough
-/// otherwise. SQL identifiers from PG are stored case-folded by the
-/// parser, so we trust the caller to pass them as-is.
 pub(super) fn maybe_schema(parent: &Moniker, schema: &[u8]) -> Moniker {
 	if schema.is_empty() {
 		parent.clone()

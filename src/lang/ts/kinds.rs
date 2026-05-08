@@ -1,47 +1,35 @@
-//! TypeScript-specific kind names.
-//!
-//! Byte string constants embedded directly in moniker bytes and tagged
-//! on defs/refs. Vocabulary mirrors `references/kinds.md`; identity-kind
-//! and label-kind happen to share the same constant when they line up.
 
-// --- path / module segments ----------------------------------------------
 
 pub(super) const PATH: &[u8] = b"path";
 pub(super) const EXTERNAL_PKG: &[u8] = b"external_pkg";
 
-// --- type-like defs -------------------------------------------------------
 
 pub(super) const CLASS: &[u8] = b"class";
 pub(super) const INTERFACE: &[u8] = b"interface";
 pub(super) const ENUM: &[u8] = b"enum";
 pub(super) const TYPE_ALIAS: &[u8] = b"type_alias";
 
-// --- callable defs --------------------------------------------------------
 
 pub(super) const FUNCTION: &[u8] = b"function";
 pub(super) const METHOD: &[u8] = b"method";
 pub(super) const CONSTRUCTOR: &[u8] = b"constructor";
 
-// --- term-like defs -------------------------------------------------------
 
 pub(super) const FIELD: &[u8] = b"field";
 pub(super) const CONST: &[u8] = b"const";
 pub(super) const ENUM_CONSTANT: &[u8] = b"enum_constant";
 
-// --- structural / resource-scoped defs -----------------------------------
 
 pub(super) const SECTION: &[u8] = b"section";
 pub(super) const PARAM: &[u8] = b"param";
 pub(super) const LOCAL: &[u8] = b"local";
 
-// --- visibility / confidence (shared cross-language vocabulary) ---------
 
 pub(super) use crate::lang::kinds::{
 	CONF_EXTERNAL, CONF_IMPORTED, CONF_LOCAL, CONF_NAME_MATCH, VIS_MODULE, VIS_NONE, VIS_PRIVATE,
 	VIS_PROTECTED, VIS_PUBLIC,
 };
 
-// --- ref kinds ------------------------------------------------------------
 
 pub(super) const IMPORTS_SYMBOL: &[u8] = b"imports_symbol";
 pub(super) const IMPORTS_MODULE: &[u8] = b"imports_module";

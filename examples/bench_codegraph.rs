@@ -1,6 +1,3 @@
-//! Bench find_def-bound paths at increasing scale. Hits add_def + add_ref
-//! directly, isolating the moniker→index lookup cost from the parser.
-
 use std::time::Instant;
 
 use pg_code_moniker::core::code_graph::CodeGraph;
@@ -32,7 +29,6 @@ fn run(n_defs: usize, n_refs: usize) -> (usize, usize, std::time::Duration) {
 		let m = def_at(i);
 		g.add_def(m, b"class", &root, None).unwrap();
 	}
-	// refs cycle through defs as their source so find_def hits every entry.
 	for i in 0..n_refs {
 		let src = def_at(i % n_defs.max(1));
 		let target = ref_target(i);

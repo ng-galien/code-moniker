@@ -1,4 +1,3 @@
-//! Java parser and extractor.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -20,9 +19,6 @@ use walker::{collect_type_table, Walker};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
-	/// Reserved for Maven-coordinate hints feeding external moniker
-	/// shapes. Empty in the MVP — JDK detection is hard-coded; everything
-	/// else gets `imported` confidence.
 	pub external_packages: Vec<String>,
 }
 
@@ -272,9 +268,6 @@ mod tests {
             class Foo { void m() { Helpers.go(); } }
         "#;
 		let g = extract_default("Foo.java", src, &make_anchor(), false);
-		// the `Helpers` identifier under `Helpers.go()` is the receiver
-		// of a method_call; confidence on `reads` for that identifier
-		// should be `imported` because Helpers was imported.
 		let reads_helpers = g
 			.refs()
 			.find(|r| r.kind == b"reads"
@@ -286,9 +279,6 @@ mod tests {
 
 	#[test]
 	fn extract_same_file_type_resolves_with_real_target() {
-		// `Bar` is declared in the same file → uses_type / instantiates
-		// land on the actual `module:Foo/class:Bar` moniker with
-		// confidence=resolved.
 		let src = r#"
             class Bar {}
             class Foo {
@@ -376,9 +366,6 @@ mod tests {
 
 	#[test]
 	fn extract_lambda_param_marks_reads_as_local() {
-		// `(a, b) -> a + b` — refs to a/b inside the body should be
-		// `confidence: local` because the lambda introduces its own
-		// scope frame.
 		let src = r#"
             class Foo {
                 java.util.function.BinaryOperator<Integer> add = (a, b) -> a + b;

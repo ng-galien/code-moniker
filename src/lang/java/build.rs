@@ -1,11 +1,3 @@
-//! Parse `pom.xml`. One `Dep` per `<dependency>` plus one for the
-//! project itself (`dep_kind = "package"`).
-//!
-//! Maven dep_kind is taken from `<scope>` when present (compile / test
-//! / runtime / provided / system / import). Defaults to `compile` to
-//! match Maven's effective default. The `import_root` is the
-//! `groupId:artifactId` pair — that's the canonical join key for
-//! external_pkg_root() linkage.
 
 use roxmltree::{Document, Node};
 

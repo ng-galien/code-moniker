@@ -1,6 +1,3 @@
--- Phase 7 step 2: binding column on DefRecord/RefRecord, exposed
--- via graph_defs / graph_refs, and the new linkage helpers
--- graph_export_monikers / graph_import_targets.
 
 BEGIN;
 
@@ -9,7 +6,6 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(12);
 
--- Surface presence ---------------------------------------------------------
 
 SELECT has_function('graph_export_monikers'::name, ARRAY['code_graph'],
 	'graph_export_monikers(code_graph) is exposed');
@@ -17,7 +13,6 @@ SELECT has_function('graph_export_monikers'::name, ARRAY['code_graph'],
 SELECT has_function('graph_import_targets'::name, ARRAY['code_graph'],
 	'graph_import_targets(code_graph) is exposed');
 
--- Def binding: public class is export -------------------------------------
 
 WITH g AS (
 	SELECT extract_python(
@@ -32,7 +27,6 @@ SELECT
 		'public class is binding=export') AS r1
 FROM g;
 
--- Def binding: leading-underscore visibility=module → binding=local -------
 
 WITH g AS (
 	SELECT extract_python(
@@ -47,7 +41,6 @@ SELECT
 		'leading-underscore python function is binding=local') AS r2
 FROM g;
 
--- Def binding: dunder __secret with visibility=private → binding=local ----
 
 WITH g AS (
 	SELECT extract_python(
@@ -62,7 +55,6 @@ SELECT
 		'visibility=private produces binding=local') AS r3
 FROM g;
 
--- Def binding: param def → binding=local regardless of visibility --------
 
 WITH g AS (
 	SELECT extract_python(
@@ -78,7 +70,6 @@ SELECT
 		'param def is binding=local') AS r4
 FROM g;
 
--- Def binding: module root is export --------------------------------------
 
 WITH g AS (
 	SELECT extract_python(
@@ -93,7 +84,6 @@ SELECT
 		'module root is binding=export') AS r5
 FROM g;
 
--- Ref binding: imports_module → binding=import ---------------------------
 
 WITH g AS (
 	SELECT extract_python(
@@ -108,7 +98,6 @@ SELECT
 		'imports_module is binding=import') AS r6
 FROM g;
 
--- Ref binding: calls / method_call → binding=local -----------------------
 
 WITH g AS (
 	SELECT extract_python(
@@ -123,7 +112,6 @@ SELECT
 		'method_call is binding=local') AS r7
 FROM g;
 
--- Ref binding: di_register → binding=inject ------------------------------
 
 WITH g AS (
 	SELECT extract_typescript(
@@ -140,7 +128,6 @@ SELECT
 		'di_register is binding=inject') AS r8
 FROM g;
 
--- graph_export_monikers includes module root + public class --------------
 
 WITH g AS (
 	SELECT extract_python(
@@ -155,7 +142,6 @@ SELECT
 		'graph_export_monikers includes module + Foo + bar') AS r9
 FROM g;
 
--- graph_import_targets includes import-side targets only -----------------
 
 WITH g AS (
 	SELECT extract_python(

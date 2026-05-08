@@ -1,6 +1,3 @@
-//! Import / reexport ref emission. Owns the import-specifier shapes
-//! (named, default, namespace, side-effect, star reexport) and the
-//! relative-vs-external target builders.
 
 use tree_sitter::Node;
 
@@ -175,9 +172,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	/// Build a target for `imports_module` (whole module, namespace
-	/// import, star reexport) and `import 'side-effect'`. Bare specifier
-	/// → external, relative → resolved against the importer's directory.
 	fn import_module_target(&self, raw_path: &str) -> Moniker {
 		self.import_target(raw_path, None)
 	}
@@ -204,8 +198,6 @@ impl<'src> Walker<'src> {
 		let mut depth = (importer_view.segment_count() as usize).saturating_sub(1);
 		b.truncate(depth);
 
-		// Normalise `.` / `..` shorthands so the loop below handles them
-		// uniformly with `./x` / `../x`.
 		let mut remainder = match raw_path {
 			"." => "./",
 			".." => "../",

@@ -1,4 +1,3 @@
--- Python extraction smoke test.
 
 BEGIN;
 
@@ -11,7 +10,6 @@ SELECT has_function('extract_python'::name,
 	ARRAY['text','text','moniker','boolean'],
 	'extract_python(text, text, moniker, boolean) is exposed');
 
--- Module moniker: file path drives package: segments + module:basename.
 
 WITH g AS (
 	SELECT extract_python(
@@ -25,7 +23,6 @@ SELECT is(graph_root(g)::text,
 	'file path drives the module moniker')
 FROM g;
 
--- Top-level def with typed params: full signature in the moniker.
 
 WITH g AS (
 	SELECT extract_python(
@@ -42,7 +39,6 @@ SELECT
 		'function signature column lists parameter types') AS r2
 FROM g;
 
--- Untyped slots collapse to the `_` placeholder.
 
 WITH g AS (
 	SELECT extract_python(
@@ -56,8 +52,6 @@ SELECT
 		'untyped python params collapse to `_` in the signature') AS r3
 FROM g;
 
--- Method def excludes the implicit self from the signature, while
--- still being recorded as a method (containment-derived kind).
 
 WITH g AS (
 	SELECT extract_python(
@@ -71,7 +65,6 @@ SELECT
 		'method moniker excludes self and uses kind=method') AS r4
 FROM g;
 
--- Visibility convention: dunder=public, __x=private, _x=module, else public.
 
 WITH g AS (
 	SELECT extract_python(
@@ -98,7 +91,6 @@ SELECT
 		'plain name is public') AS r7
 FROM g;
 
--- Stdlib import gets confidence=external; project import gets imported.
 
 WITH g AS (
 	SELECT extract_python(
@@ -118,7 +110,6 @@ SELECT
 		'import acme.util marked imported') AS r9
 FROM g;
 
--- Method call on self gets receiver_hint=self.
 
 WITH g AS (
 	SELECT extract_python(

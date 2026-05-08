@@ -1,4 +1,3 @@
--- Smoke test: extension loads, pcm_version returns the crate version.
 
 BEGIN;
 

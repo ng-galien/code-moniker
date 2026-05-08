@@ -1,5 +1,3 @@
--- Rust extractor: end-to-end SQL surface. Source text in,
--- code_graph out with the right defs and refs.
 
 BEGIN;
 
@@ -12,7 +10,6 @@ SELECT has_function('extract_rust'::name,
 	ARRAY['text','text','moniker','boolean'],
 	'extract_rust(text, text, moniker, boolean) is exposed');
 
--- Module root from URI: dir segments as `path:`, basename as `module:`.
 WITH g AS (
 	SELECT extract_rust(
 		'src/core/moniker/view.rs',
@@ -26,8 +23,6 @@ SELECT is(
 	'module moniker = anchor + path:dir + module:basename')
 FROM g;
 
--- Struct + impl block: methods land under class:Foo, not under the
--- impl block itself.
 WITH g AS (
 	SELECT extract_rust(
 		'util.rs',
@@ -50,7 +45,6 @@ SELECT
 		'second impl method with one value parameter (self excluded)') AS r3
 FROM g;
 
--- impl Trait for Type → implements ref from Type → Trait.
 WITH g AS (
 	SELECT extract_rust(
 		'util.rs',
@@ -71,7 +65,6 @@ SELECT
 		'impl Trait for Type emits implements ref Type → Trait') AS r4
 FROM g;
 
--- use std::collections::{HashMap, HashSet}; → two imports_symbol refs.
 WITH g AS (
 	SELECT extract_rust(
 		'util.rs',
@@ -90,8 +83,6 @@ SELECT
 		'second leaf reaches HashSet under external_pkg:std') AS r7
 FROM g;
 
--- Mixed project-local + external in one source: `crate::` resolves
--- under the project anchor, bare crate names land under external_pkg.
 WITH g AS (
 	SELECT extract_rust(
 		'util.rs',

@@ -1,12 +1,3 @@
-//! Moniker — byte-compact native representation of a node identity in
-//! the canonical project tree.
-//!
-//! Each segment is a `(kind, name)` pair where `kind` is a kind name
-//! (e.g. `b"class"`, `b"method"`) embedded in the bytes — no backend-
-//! local registry, no u16 ids; identity is portable across processes.
-//! Method overload disambiguators (arity or signature) live inside
-//! `name` (e.g. `b"findById(2)"`). See [`encoding`] for the byte layout.
-
 mod builder;
 pub(crate) mod encoding;
 mod query;
@@ -16,14 +7,6 @@ pub use builder::MonikerBuilder;
 pub use encoding::EncodingError;
 pub use view::{MonikerView, Segment, SegmentIter};
 
-/// Owned encoded moniker.
-///
-/// `Ord` is the byte-lexicographic order on the canonical encoding.
-/// In v2 (no fixed-offset seg_count, kind names embedded) the byte
-/// order coincides exactly with tree pre-order: parent < every
-/// descendant < every later sibling. Sub-tree range queries (`m >=
-/// ancestor AND m < subtree_upper(ancestor)`) are well-defined on the
-/// btree opclass.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Moniker {
@@ -41,9 +24,6 @@ impl Moniker {
 	}
 
 	pub fn as_view(&self) -> MonikerView<'_> {
-		// SAFETY: every `Moniker` was either built from a validated
-		// `MonikerBuilder` or passed through `Moniker::from_bytes`, both
-		// of which uphold the encoding invariant.
 		unsafe { MonikerView::from_canonical_bytes(&self.bytes) }
 	}
 

@@ -1,8 +1,3 @@
--- Verifies that the SPEC canonical patterns are *index-accessible*:
--- given a GIN index on graph_def_monikers / graph_ref_targets, the
--- planner picks Bitmap Index Scan over Seq Scan when seqscan is off.
--- (At small row counts the planner prefers Seq Scan by cost; this
--- test forces the index path so we exercise it deterministically.)
 
 BEGIN;
 
@@ -30,7 +25,6 @@ INSERT INTO module (id, graph) VALUES
 
 SET LOCAL enable_seqscan = off;
 
--- Helper: run EXPLAIN and check whether the plan mentions a fragment.
 CREATE OR REPLACE FUNCTION plan_uses(qry text, fragment text) RETURNS bool
 	LANGUAGE plpgsql AS $$
 DECLARE
@@ -44,7 +38,6 @@ BEGIN
 	RETURN false;
 END $$;
 
--- Defs: planner picks the GIN index path.
 
 SELECT ok(
 	plan_uses(
@@ -58,7 +51,6 @@ SELECT ok(
 		'Bitmap Index Scan'),
 	'planner emits a Bitmap Index Scan node for the def lookup');
 
--- Refs: same for ref_targets.
 
 SELECT ok(
 	plan_uses(

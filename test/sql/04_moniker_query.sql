@@ -1,5 +1,3 @@
--- Tree-position queries on moniker: containment operators (<@, @>),
--- parent_of / kind_of / path_of accessors, compose_child.
 
 BEGIN;
 
@@ -8,7 +6,6 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(15);
 
--- Surface ------------------------------------------------------------------
 
 SELECT has_function('parent_of'::name, ARRAY['moniker'],
 	'parent_of(moniker) is exposed');
@@ -19,7 +16,6 @@ SELECT has_function('path_of'::name, ARRAY['moniker'],
 SELECT has_function('compose_child'::name, ARRAY['moniker','text','text'],
 	'compose_child(moniker, text, text) is exposed');
 
--- Containment operators ----------------------------------------------------
 
 SELECT ok(
 	'esac+moniker://app/path:main'::moniker @> 'esac+moniker://app/path:main/path:com/path:acme'::moniker,
@@ -41,7 +37,6 @@ SELECT ok(
 	NOT ('esac+moniker://app/path:main/path:com'::moniker @> 'esac+moniker://app/path:main/path:edu'::moniker),
 	'@> rejects diverging segments');
 
--- Accessors ----------------------------------------------------------------
 
 SELECT is(
 	parent_of('esac+moniker://app/path:main/path:com/path:acme'::moniker)::text,
@@ -62,7 +57,6 @@ SELECT is(
 	ARRAY['main','com','acme','Foo']::text[],
 	'path_of returns each segment name in order');
 
--- Composition --------------------------------------------------------------
 
 SELECT is(
 	compose_child('esac+moniker://app/path:main'::moniker, 'path', 'com')::text,

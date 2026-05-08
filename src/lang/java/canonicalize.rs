@@ -1,7 +1,3 @@
-//! Module moniker construction for Java. Driven by the source's
-//! `package_declaration`, with the file basename (sans `.java`) as the
-//! `module:<name>` segment. Falls back to a path-derived shape only
-//! when the package declaration is missing or malformed.
 
 use tree_sitter::Node;
 
@@ -9,9 +5,6 @@ use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use super::kinds;
 
-/// Build the file-as-module moniker. `package_pieces` is the dotted
-/// package split (`com.acme.foo` → `["com", "acme", "foo"]`); empty
-/// for the default package.
 pub(super) fn compute_module_moniker(
 	anchor: &Moniker,
 	uri: &str,
@@ -27,15 +20,11 @@ pub(super) fn compute_module_moniker(
 	b.build()
 }
 
-/// `src/main/java/com/acme/Foo.java` → `Foo`. `Foo.java` → `Foo`.
 pub(super) fn file_stem(uri: &str) -> &str {
 	let after_slash = uri.rsplit('/').next().unwrap_or(uri);
 	after_slash.strip_suffix(".java").unwrap_or(after_slash)
 }
 
-/// Read the `package com.acme.foo;` declaration if present. Returns
-/// the dotted name, e.g. `"com.acme.foo"`. Empty string for the
-/// default package.
 pub(super) fn read_package_name<'src>(root: Node<'_>, source: &'src [u8]) -> &'src str {
 	let mut cursor = root.walk();
 	for child in root.children(&mut cursor) {

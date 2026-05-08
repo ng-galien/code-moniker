@@ -1,10 +1,3 @@
-//! Refs extraction for TypeScript: imports, reexports, calls,
-//! method_call, instantiates, extends/implements, decorators,
-//! uses_type, reads, di_register.
-//!
-//! Targets are name-keyed monikers under the importing module. Cross-
-//! module resolution is the consumer's job — ESAC's projection layer
-//! intersects targets with def monikers across the corpus.
 
 use tree_sitter::Node;
 
@@ -16,7 +9,6 @@ use super::kinds;
 use super::walker::Walker;
 
 impl<'src> Walker<'src> {
-	// --- calls / new -----------------------------------------------------
 
 	pub(super) fn handle_call(
 		&self,
@@ -68,7 +60,6 @@ impl<'src> Walker<'src> {
 			_ => {}
 		}
 
-		// arguments may contain nested calls/reads/etc.
 		if let Some(args) = node.child_by_field_name("arguments") {
 			self.walk(args, scope, graph);
 		}
@@ -107,10 +98,6 @@ impl<'src> Walker<'src> {
 		graph: &mut CodeGraph,
 		pos: (u32, u32),
 	) {
-		// Heuristic only fires when the callee identifier is in the
-		// caller-supplied preset list (e.g. ['register','bind','provide']).
-		// Without a preset, every `it(name)` and `expect(value)` would
-		// otherwise be tagged as DI registration.
 		let callee_name = self.text_of(callee);
 		if !self
 			.presets
@@ -150,7 +137,6 @@ impl<'src> Walker<'src> {
 		let _ = graph.add_ref_attrs(scope, target, kinds::DI_REGISTER, Some(pos), &NAME_MATCH_ATTRS);
 	}
 
-	// --- class / interface heritage --------------------------------------
 
 	pub(super) fn handle_class_heritage(
 		&self,
@@ -205,7 +191,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- decorators ------------------------------------------------------
 
 	pub(super) fn handle_decorator(
 		&self,
@@ -242,7 +227,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- uses_type -------------------------------------------------------
 
 	pub(super) fn emit_uses_type_recursive(
 		&self,
@@ -295,7 +279,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- reads -----------------------------------------------------------
 
 	pub(super) fn emit_reads_in_children(
 		&self,
@@ -409,7 +392,6 @@ impl<'src> Walker<'src> {
 		self.walk(node, scope, graph);
 	}
 
-	// --- target builders -------------------------------------------------
 
 	fn calls_target(&self, name: &str, arity: u16) -> Moniker {
 		extend_callable_arity(&self.module, kinds::FUNCTION, name.as_bytes(), arity)
@@ -432,10 +414,6 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// Default attrs for refs whose target is name-keyed under the
-/// importing module — calls, instantiates, extends, implements,
-/// annotates, uses_type, reads. Consumer-side resolution upgrades
-/// these to `resolved` once it picks an owning def.
 const NAME_MATCH_ATTRS: RefAttrs<'static> = RefAttrs {
 	receiver_hint: b"",
 	alias: b"",
@@ -443,9 +421,6 @@ const NAME_MATCH_ATTRS: RefAttrs<'static> = RefAttrs {
 	binding: b"",
 };
 
-/// Receiver shape for a `member_expression` callee. Empty slice if the
-/// receiver isn't one of the recognised forms — caller stores it as
-/// `receiver_hint`, where empty means "no hint".
 fn receiver_hint(member_expr: Node<'_>) -> &'static [u8] {
 	let Some(obj) = member_expr.child_by_field_name("object") else {
 		return b"";
@@ -461,7 +436,6 @@ fn receiver_hint(member_expr: Node<'_>) -> &'static [u8] {
 	}
 }
 
-/// Count the named children of a `call_expression`'s `arguments` field.
 fn call_argument_count(call: Node<'_>) -> u16 {
 	let Some(args) = call.child_by_field_name("arguments") else {
 		return 0;
@@ -476,10 +450,8 @@ fn call_argument_count(call: Node<'_>) -> u16 {
 	count
 }
 
-/// Short type name from a `generic_type`: drops type arguments.
 fn generic_short(node: Node<'_>, source: &[u8]) -> Option<String> {
 	let inner = node.child_by_field_name("name").or_else(|| {
-		// fall back to first named child with a usable kind
 		let mut cursor = node.walk();
 		node.named_children(&mut cursor).next()
 	})?;
@@ -490,8 +462,6 @@ fn generic_short(node: Node<'_>, source: &[u8]) -> Option<String> {
 	}
 }
 
-/// Short type name from a `nested_type_identifier`: keeps the rightmost
-/// identifier (`Foo.Bar.Baz` → `Baz`).
 fn nested_type_short(node: Node<'_>, source: &[u8]) -> Option<String> {
 	if let Some(name) = node.child_by_field_name("name") {
 		return name.utf8_text(source).ok().map(|s| s.to_string());

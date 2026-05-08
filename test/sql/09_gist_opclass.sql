@@ -1,8 +1,3 @@
--- GiST opclass on `moniker`. Inner-page signatures are the LCP of all
--- leaves below; consistent reduces `=`, `<@`, `@>` to byte-prefix tests.
--- The test asserts both correctness (rows match the no-index baseline)
--- and that the planner picks an Index/Bitmap Index Scan when seqscan
--- is forced off.
 
 BEGIN;
 
@@ -43,7 +38,6 @@ BEGIN
 	RETURN false;
 END $$;
 
--- Strategy 3 (=) ----------------------------------------------------------
 
 SELECT ok(
 	plan_uses(
@@ -63,7 +57,6 @@ SELECT is(
 	ARRAY[2]::int[],
 	'= matches exactly the equal moniker');
 
--- Strategy 8 (@>) : key is ancestor of query --------------------------------
 
 SELECT ok(
 	plan_uses(
@@ -89,7 +82,6 @@ SELECT is(
 	ARRAY[4, 5]::int[],
 	'@> on a different branch picks only that branch');
 
--- Strategy 10 (<@) : key is descendant of query ----------------------------
 
 SELECT ok(
 	plan_uses(

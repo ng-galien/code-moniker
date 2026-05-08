@@ -1,7 +1,3 @@
-//! Visibility convention and local-scope tracking for Python.
-//! Visibility follows the underscore convention: dunder is `public`,
-//! `__x` (without trailing dunder) is `private`, single-underscore is
-//! module-private, everything else is `public`.
 
 use std::collections::HashSet;
 
@@ -10,9 +6,6 @@ use crate::core::moniker::Moniker;
 use super::kinds;
 use super::walker::Walker;
 
-/// Decide a Python def's visibility from its name. Sentinel for
-/// concept-doesn't-apply (locals/params/sections) is the empty bytes;
-/// callers handle those separately.
 pub(super) fn visibility_from_name(name: &[u8]) -> &'static [u8] {
 	if name.len() >= 4 && name.starts_with(b"__") && name.ends_with(b"__") {
 		return kinds::VIS_PUBLIC;
@@ -26,7 +19,6 @@ pub(super) fn visibility_from_name(name: &[u8]) -> &'static [u8] {
 	kinds::VIS_PUBLIC
 }
 
-/// True when `scope` ends in a callable kind segment.
 pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	if scope == module {
 		return false;
@@ -35,13 +27,11 @@ pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	last.kind == kinds::FUNCTION || last.kind == kinds::METHOD
 }
 
-/// True when `scope` ends in a class segment.
 pub(super) fn is_class_scope(scope: &Moniker) -> bool {
 	let Some(last) = scope.as_view().segments().last() else { return false };
 	last.kind == kinds::CLASS
 }
 
-/// Recognise banner comments shaped like `# === Title ===`.
 pub(super) fn section_title<'a>(text: &'a str) -> Option<&'a str> {
 	let body = text.strip_prefix('#').unwrap_or(text).trim();
 	let starts = body.starts_with("==") || body.starts_with("--");

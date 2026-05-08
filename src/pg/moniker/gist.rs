@@ -1,14 +1,3 @@
-//! GiST opclass on `moniker`. Inner-page signatures share the v2
-//! canonical header with leaves (`[version][project_len LE][project][segs]`)
-//! but their segments region is the longest common byte prefix of all
-//! leaves below — it may end mid-segment and is never re-parsed.
-//! Cross-project unions degrade to a single-byte sentinel ("wildcard")
-//! that consistent treats as "always recheck, always match".
-//! Compress/decompress are identity. Picksplit sorts entries by their
-//! segment-region bytes and halves them — naive but predictable;
-//! penalty is `len(orig_segs) - lcp(orig_segs, new_segs)` as float4,
-//! plus a big constant on cross-project insertion.
-
 use core::ffi::c_int;
 
 use pgrx::datum::Internal;
@@ -51,17 +40,11 @@ extension_sql!(
 	]
 );
 
-// Strategy numbers from the OPERATOR lines above. Local consts: PG's
-// global RT* constants happen to use different numbers (RTContains = 7,
-// RTContainedBy = 8) so reusing them would mislead.
 const STRAT_EQUAL: u32 = 3;
 const STRAT_CONTAINS: u32 = 8;
 const STRAT_CONTAINED_BY: u32 = 10;
 const STRAT_BIND_MATCH: u32 = 11;
 
-/// Decoded view of a signature varlena: `Some((project, segs))` for a
-/// canonical-header signature, `None` for the wildcard sentinel
-/// produced by cross-project unions.
 fn parse_sig(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
 	if bytes.len() < HEADER_FIXED_LEN || bytes[0] != VERSION {
 		return None;
@@ -117,7 +100,6 @@ fn moniker_gist_consistent(
 		let q_segs = q.1;
 
 		let key = parse_sig(&key_bytes);
-		// Wildcard inner key: must recheck and accept everything.
 		let (k_project, k_segs) = match key {
 			None => {
 				*recheck_ptr = true;
@@ -126,8 +108,6 @@ fn moniker_gist_consistent(
 			Some(parts) => parts,
 		};
 
-		// Project gate: different project ⇒ no descendant relation possible,
-		// and `=` is also impossible.
 		if k_project != q_project {
 			*recheck_ptr = !entry_ref.leafkey;
 			return false;
@@ -148,15 +128,6 @@ fn moniker_gist_consistent(
 				STRAT_EQUAL | STRAT_CONTAINS => q_segs.starts_with(k_segs),
 				STRAT_CONTAINED_BY => k_segs.starts_with(q_segs) || q_segs.starts_with(k_segs),
 				STRAT_BIND_MATCH => {
-					// At inner pages we know the LCP segs of all leaves
-					// below. A leaf can satisfy bind_match iff its all-
-					// but-last bytes equal q's all-but-last bytes. The
-					// inner LCP is a byte prefix of every leaf below, so
-					// either the LCP is shorter than q's parent-prefix
-					// (LCP must itself be a prefix of q.parent_prefix) or
-					// it's longer (q.parent_prefix must be a prefix of
-					// LCP — leaves' last-segment bytes diverge from LCP
-					// past q.parent_prefix). Otherwise prune.
 					match parent_prefix_bytes(q_segs) {
 						Some(qp) => k_segs.starts_with(qp) || qp.starts_with(k_segs),
 						None => false,
@@ -168,10 +139,6 @@ fn moniker_gist_consistent(
 	}
 }
 
-/// Encoded byte prefix of `segs` that excludes the last segment.
-/// Returns `None` when `segs` has zero segments (no last to exclude).
-/// Each segment in the v2 layout is `[u16 kind_len][kind][u16
-/// name_len][name]`, so this is a left-to-right walk.
 fn parent_prefix_bytes(segs: &[u8]) -> Option<&[u8]> {
 	let mut cursor = 0usize;
 	let mut last_start: Option<usize> = None;
@@ -194,12 +161,6 @@ fn parent_prefix_bytes(segs: &[u8]) -> Option<&[u8]> {
 	last_start.map(|s| &segs[..s])
 }
 
-/// Run `bind_match` semantics on the segment-region byte slices. Both
-/// inputs share the canonical encoding; we walk segments side-by-side
-/// and require:
-/// - same number of segments;
-/// - all-but-last segments byte-equal;
-/// - last segment names equal (kinds may differ).
 fn bind_match_segs(left: &[u8], right: &[u8]) -> bool {
 	let lp = match parent_prefix_bytes(left) {
 		Some(p) => p,
@@ -315,10 +276,6 @@ fn moniker_gist_penalty(orig: Internal, new: Internal, result: Internal) -> Inte
 			.unwrap()
 			.expect("gist penalty new is null")
 			.cast_mut_ptr::<pg_sys::GISTENTRY>();
-		// Borrow the varlena payloads in place: penalty is per-candidate-page
-		// per insert, so the per-call clone in `varlena_to_owned_bytes` would
-		// add up. The borrow is valid for the rest of this frame because both
-		// GISTENTRYs (and their .key Datums) live until the function returns.
 		let orig_bytes = varlena_to_borrowed_bytes(orig_entry.key);
 		let new_bytes = varlena_to_borrowed_bytes(new_entry.key);
 
@@ -351,17 +308,12 @@ fn moniker_gist_picksplit(entryvec: Internal, splitvec: Internal) -> Internal {
 		let vec_ref = &*vec_ptr;
 		let n = vec_ref.n as usize;
 		let arr = vec_ref.vector.as_ptr();
-		// Per gistsplit.c: vector[0] is unused; real entries are at
-		// offsets [1, n-1] (FirstOffsetNumber..=maxoff).
 		let maxoff = (n - 1) as pg_sys::OffsetNumber;
 		let first = pg_sys::FirstOffsetNumber;
 
 		let mut indexed: Vec<(pg_sys::OffsetNumber, Vec<u8>)> = (first..=maxoff)
 			.map(|i| (i, varlena_to_owned_bytes((*arr.add(i as usize)).key)))
 			.collect();
-		// Sort by the segments region so logically-related monikers cluster
-		// together. Wildcards (which have no canonical header) sink to the
-		// front.
 		indexed.sort_by(|a, b| {
 			let sa = parse_sig(&a.1).map(|(_, s)| s).unwrap_or(&[]);
 			let sb = parse_sig(&b.1).map(|(_, s)| s).unwrap_or(&[]);

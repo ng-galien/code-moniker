@@ -1,5 +1,3 @@
--- SQL / PL-pgSQL extraction smoke test (phase 1: DDL via pg_parse_query +
--- top-level call refs via raw_expression_tree_walker).
 
 BEGIN;
 
@@ -12,7 +10,6 @@ SELECT has_function('extract_plpgsql'::name,
 	ARRAY['text','text','moniker','boolean'],
 	'extract_plpgsql(text, text, moniker, boolean) is exposed');
 
--- Module moniker = anchor + dir: segments + module:basename.
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -26,9 +23,6 @@ SELECT is(graph_root(g)::text,
 	'empty source still yields the file-as-module moniker')
 FROM g;
 
--- CREATE FUNCTION public.bar(int, text): full type signature in the
--- moniker so PG's same-name same-arity overloads (min(int) vs min(text))
--- don't collide. Types also mirrored on the `signature` column.
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -45,7 +39,6 @@ SELECT
 		'function signature column lists parameter types') AS r2
 FROM g;
 
--- Unqualified function: no schema segment, arity 0 → empty parens.
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -62,7 +55,6 @@ SELECT
 		'one function def per CREATE FUNCTION') AS r4
 FROM g;
 
--- Same-name same-arity overloads coexist with full-type monikers.
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -77,7 +69,6 @@ SELECT is((SELECT count(*)::int FROM graph_defs(g) WHERE kind = 'function'),
 	'overloads with different types both land in the graph') AS r5
 FROM g;
 
--- CREATE TABLE → kind=class, schema in moniker.
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -94,9 +85,6 @@ SELECT
 		'table def kind is class') AS r7
 FROM g;
 
--- CREATE VIEW → kind=interface; calls inside the SELECT body are
--- emitted as `calls` refs with arity-only target and unresolved
--- confidence (raw_parser cannot infer argument types at a call site).
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -115,7 +103,6 @@ SELECT
 		'CREATE VIEW body emits unresolved calls ref to esac.foo()') AS r9
 FROM g;
 
--- Top-level SELECT call: bar(1, 2) → calls ref with arity 2.
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -134,7 +121,6 @@ SELECT
 		'top-level call confidence is unresolved (types unknown at call site)') AS r11
 FROM g;
 
--- Unqualified top-level call: no schema segment in target.
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -149,10 +135,6 @@ SELECT ok(EXISTS (SELECT 1 FROM graph_refs(g)
 	'unqualified top-level call target omits schema') AS r12
 FROM g;
 
--- Phase 2: PL/pgSQL body extraction. The bison parser is vendored
--- under vendor/plpgsql/ and compiled into our .dylib via build.rs,
--- so this works portably on macOS and Linux without depending on
--- plpgsql.so's hidden internal symbols.
 
 WITH g AS (
 	SELECT extract_plpgsql(
@@ -181,7 +163,6 @@ SELECT
 		'IF branch in plpgsql body picks up nested PERFORM call') AS r16
 FROM g;
 
--- Empty source: no defs beyond the module root.
 
 WITH g AS (
 	SELECT extract_plpgsql(

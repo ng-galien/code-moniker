@@ -1,4 +1,3 @@
--- TS build manifest extraction: extract_package_json.
 
 BEGIN;
 
@@ -51,8 +50,6 @@ SELECT
 		'optional',
 		'optionalDependencies tagged dep_kind=optional') AS r6;
 
--- Linkage demo: a refs subset matched to a pkg table populated from
--- package.json.
 CREATE TEMP TABLE pkg(project moniker, name text, version text);
 INSERT INTO pkg
 	SELECT 'esac+moniker://app'::moniker, name, version

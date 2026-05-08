@@ -1,5 +1,3 @@
--- Storage shape and ANALYZE compatibility for the manual-varlena
--- `moniker` Datum.
 
 BEGIN;
 
@@ -15,10 +13,6 @@ FROM pg_type WHERE typname = 'moniker';
 SELECT is(typstorage, 'x'::"char", 'moniker uses extended storage')
 FROM pg_type WHERE typname = 'moniker';
 
--- Storage size = 4-byte varlena header + canonical v2 payload:
--- 1 version + 2 project_len + |project| + per segment: 2 kind_len + |kind| + 2 name_len + |name|.
--- For `esac+moniker://app/class:Foo`:
---   4 + 1 + 2 + 3 ("app") + (2 + 5 ("class") + 2 + 3 ("Foo")) = 22.
 SELECT is(
 	pg_column_size('esac+moniker://app/class:Foo'::moniker),
 	22,

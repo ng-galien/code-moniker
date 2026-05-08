@@ -1,6 +1,3 @@
-//! Visibility detection and local-scope tracking for Java. Mirrors
-//! the TS `scope` module but uses Java's `modifiers` child node and
-//! defaults to `package` when no access modifier is present.
 
 use std::collections::HashSet;
 
@@ -11,7 +8,6 @@ use crate::core::moniker::Moniker;
 use super::kinds;
 use super::walker::Walker;
 
-/// True when `scope` ends in a callable kind segment.
 pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	if scope == module {
 		return false;
@@ -20,9 +16,6 @@ pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	last.kind == kinds::METHOD || last.kind == kinds::CONSTRUCTOR
 }
 
-/// Read the access modifier from a declaration's `modifiers` child.
-/// Defaults to `package` when no `public`/`protected`/`private` keyword
-/// is present.
 pub(super) fn modifier_visibility(node: Node<'_>) -> &'static [u8] {
 	let mut cursor = node.walk();
 	for child in node.children(&mut cursor) {
@@ -42,8 +35,6 @@ pub(super) fn modifier_visibility(node: Node<'_>) -> &'static [u8] {
 	kinds::VIS_PACKAGE
 }
 
-/// Recognise Javadoc-style banner comments shaped like
-/// `/* ===== Title ===== */` or `// ===== Title =====`.
 pub(super) fn section_title<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
 	let raw = node.utf8_text(source).ok()?;
 	let body = raw
@@ -90,16 +81,10 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	/// Look up an `imports` table built at extract time so that calls
-	/// to imported symbols can carry `confidence: imported`.
 	pub(super) fn import_confidence_for(&self, name: &[u8]) -> Option<&'static [u8]> {
 		self.imports.borrow().get(name).copied()
 	}
 
-	/// Resolve a type-name reference. Priority order:
-	///   1. type declared in this file → `(real moniker, resolved)`
-	///   2. imported name → `(name-keyed target, imported|external)`
-	///   3. otherwise → `(name-keyed target, name_match)`
 	pub(super) fn resolve_type_target(
 		&self,
 		name: &[u8],

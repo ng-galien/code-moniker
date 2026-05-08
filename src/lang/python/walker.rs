@@ -1,5 +1,3 @@
-//! AST traversal for tree-sitter-python: dispatches each node to its
-//! def emitter or to the refs module.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -44,16 +42,12 @@ impl<'src> Walker<'src> {
 			"lambda" => self.handle_lambda(node, scope, graph),
 			"for_statement" => self.handle_for(node, scope, graph),
 			"subscript" => {
-				// `subscript` is only a type expression in annotation
-				// contexts; here we just descend so calls inside a
-				// subscript expression are still emitted.
 				self.walk(node, scope, graph);
 			}
 			_ => self.walk(node, scope, graph),
 		}
 	}
 
-	// --- comments / sections -------------------------------------------------
 
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let text = self.text_of(node);
@@ -62,7 +56,6 @@ impl<'src> Walker<'src> {
 		let _ = graph.add_def(m, kinds::SECTION, scope, Some(node_position(node)));
 	}
 
-	// --- decorated wrapper ---------------------------------------------------
 
 	fn handle_decorated(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let mut decorators: Vec<Node<'_>> = Vec::new();
@@ -86,7 +79,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- class --------------------------------------------------------------
 
 	fn handle_class(
 		&self,
@@ -134,7 +126,7 @@ impl<'src> Walker<'src> {
 					},
 					None => continue,
 				},
-				"keyword_argument" => continue, // metaclass=, etc.
+				"keyword_argument" => continue,
 				_ => continue,
 			};
 			if name.is_empty() {
@@ -155,7 +147,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- function / method --------------------------------------------------
 
 	fn handle_function(
 		&self,
@@ -235,10 +226,8 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- assignment ---------------------------------------------------------
 
 	fn handle_assignment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		// Annotated assignment: type annotation → uses_type.
 		if let Some(t) = node.child_by_field_name("type") {
 			self.emit_uses_type(t, scope, graph);
 		}
@@ -299,7 +288,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- for / lambda -------------------------------------------------------
 
 	fn handle_for(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if is_callable_scope(scope, &self.module) {
@@ -319,7 +307,6 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_lambda(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		// Lambda body refs would otherwise leak out of the surrounding scope.
 		self.push_local_scope();
 		if let Some(params) = node.child_by_field_name("parameters") {
 			let mut cursor = params.walk();
@@ -347,11 +334,8 @@ impl<'src> Walker<'src> {
 		self.pop_local_scope();
 	}
 
-	// --- decorator ----------------------------------------------------------
 
 	fn handle_decorator(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
-		// Decorator child is an expression: identifier, attribute,
-		// or call(callee=identifier|attribute, args=...).
 		let mut cursor = node.walk();
 		for c in node.named_children(&mut cursor) {
 			let (name, name_node) = match c.kind() {
@@ -393,7 +377,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- helpers ------------------------------------------------------------
 
 	pub(super) fn field_text(&self, node: Node<'_>, field: &str) -> Option<&'src str> {
 		node.child_by_field_name(field)?
@@ -406,9 +389,6 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// Pre-pass: collect every top-level + nested `class_definition` short
-/// name → full moniker. Class names declared in the same file resolve
-/// to a real target with `confidence: resolved`.
 pub(super) fn collect_type_table<'src>(
 	node: Node<'_>,
 	source: &'src [u8],
@@ -442,10 +422,6 @@ pub(super) fn collect_type_table<'src>(
 	}
 }
 
-/// Parameter type list for a `function_definition`'s parameters
-/// node. Methods drop the implicit `self`/`cls` slot — it's not a
-/// value argument. Untyped slots collapse to `_` per the
-/// typed-callable convention.
 pub(super) fn collect_param_types(
 	function: Node<'_>,
 	source: &[u8],
@@ -475,8 +451,6 @@ pub(super) fn collect_param_types(
 	types
 }
 
-/// Pull `(name_node, type_node)` out of any kind of formal parameter.
-/// Tree-sitter exposes seven distinct shapes; we handle them all.
 fn parameter_name_and_type<'tree>(
 	param: Node<'tree>,
 ) -> (Option<Node<'tree>>, Option<Node<'tree>>) {
@@ -487,8 +461,6 @@ fn parameter_name_and_type<'tree>(
 			(n, None)
 		}
 		"typed_parameter" => {
-			// type field + first child that's the binding identifier
-			// (or *args / **kwargs splat).
 			let ty = param.child_by_field_name("type");
 			let mut cursor = param.walk();
 			let mut name = None;
@@ -523,7 +495,6 @@ fn parameter_name_and_type<'tree>(
 	}
 }
 
-/// Last identifier text under an `attribute` chain (`a.b.c` → `c`).
 pub(super) fn last_attribute<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 	if let Some(attr) = node.child_by_field_name("attribute") {
 		return attr.utf8_text(source).unwrap_or("");

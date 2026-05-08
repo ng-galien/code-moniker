@@ -1,9 +1,3 @@
-//! PL/pgSQL function body walker. Drives the vendored bison parser
-//! (sources under `vendor/plpgsql/`, compiled by `build.rs`) and
-//! emits one `calls` ref per FuncCall found in any embedded SQL
-//! fragment. Each fragment is re-parsed via `raw_parser` and routed
-//! through `walker::collect_calls_in`, the same dispatch the
-//! top-level pass uses.
 
 use std::ffi::{CStr, CString};
 
@@ -16,22 +10,6 @@ use crate::core::moniker::Moniker;
 use super::walker::collect_calls_in;
 
 unsafe extern "C-unwind" {
-	/// Defined in `vendor/plpgsql/pcm_plpgsql_driver.c`. Drives the
-	/// vendored bison parser to compile a body string into a
-	/// `PLpgSQL_function` whose `action` field is the parsed
-	/// `PLpgSQL_stmt_block` tree.
-	///
-	/// `is_setof` / `is_void` mirror the CreateFunctionStmt's return
-	/// type so bison accepts the RETURN forms the source uses.
-	/// `param_names` is an array of length `n_params`: each slot is a
-	/// NUL-terminated parameter name (or NULL/empty for anonymous
-	/// `$N` only). Without these registered the parser raises
-	/// "variable $1 does not exist" on bodies that reference
-	/// parameters.
-	///
-	/// Caller wraps in `PgTryBuilder` to catch syntax errors as
-	/// ereport longjmps. Each non-NULL return must be paired with a
-	/// `pcm_plpgsql_free` call once the AST has been walked.
 	fn pcm_plpgsql_parse_body(
 		body: *const ::core::ffi::c_char,
 		is_setof: bool,
@@ -43,13 +21,6 @@ unsafe extern "C-unwind" {
 	fn pcm_plpgsql_free(function: *mut pg_sys::PLpgSQL_function);
 }
 
-/// Parse the body of a PL/pgSQL function and emit `calls` refs for
-/// every function call found in any embedded SQL fragment.
-///
-/// `body` is the raw text inside `AS $$ ... $$;`. `source_def` is the
-/// moniker of the surrounding `CREATE FUNCTION` def — refs are
-/// anchored there so consumers attribute calls to their containing
-/// function.
 pub(super) fn walk_plpgsql_body(
 	body: &[u8],
 	is_setof: bool,
@@ -64,8 +35,6 @@ pub(super) fn walk_plpgsql_body(
 		Err(_) => return,
 	};
 
-	// Each named param needs to outlive the FFI call; build CStrings
-	// up-front and a parallel pointer array.
 	let param_cstrs: Vec<CString> = param_names
 		.iter()
 		.map(|n| CString::new(n.as_slice()).unwrap_or_default())
@@ -73,8 +42,6 @@ pub(super) fn walk_plpgsql_body(
 	let param_ptrs: Vec<*const ::core::ffi::c_char> =
 		param_cstrs.iter().map(|c| c.as_ptr()).collect();
 
-	// The vendored parser ereports on malformed bodies — swallow
-	// any longjmp and skip body extraction in that case.
 	let func = PgTryBuilder::new(|| unsafe {
 		pcm_plpgsql_parse_body(
 			body_cstr.as_ptr(),
@@ -95,9 +62,6 @@ pub(super) fn walk_plpgsql_body(
 	if !action.is_null() {
 		walk_block(action, source_def, module, graph);
 	}
-	// `walk_block` only reads pointers into PG-allocated nodes — it
-	// builds Rust-owned `Moniker` / `Vec<u8>` copies as it goes — so
-	// reclaiming the parser's MemoryContext after the walk is safe.
 	unsafe { pcm_plpgsql_free(func) };
 }
 
@@ -175,12 +139,6 @@ fn walk_stmt(
 			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_call) };
 			walk_expr(s.expr, source_def, module, graph);
 		}
-		// DYNEXECUTE is opaque by spec (dynamic SQL inside `EXECUTE
-		// format(...)` cannot be parsed without resolving the
-		// format string). Other stmt kinds (RAISE, RETURN*, FOR*,
-		// CASE, OPEN/FETCH/CLOSE, GETDIAG, EXIT, ASSERT, COMMIT,
-		// ROLLBACK) may carry expressions worth walking but are not
-		// reached yet.
 		_ => {}
 	}
 }

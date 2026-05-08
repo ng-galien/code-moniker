@@ -1,5 +1,3 @@
-//! Tree-position queries on a [`Moniker`].
-
 use super::{Moniker, MonikerBuilder};
 
 impl Moniker {
@@ -18,33 +16,16 @@ impl Moniker {
 		Some(b.build())
 	}
 
-	/// Kind of the last segment, if any. The returned slice borrows from
-	/// the moniker's bytes.
 	pub fn last_kind(&self) -> Option<Vec<u8>> {
 		self.as_view().segments().last().map(|s| s.kind.to_vec())
 	}
 
-	/// Cross-file linkage match. See [`MonikerView::bind_match`] for
-	/// the contract. Forwards through views so the SQL wrapper can
-	/// avoid the `to_core` clone on hot JOIN paths.
 	pub fn bind_match(&self, other: &Moniker) -> bool {
 		self.as_view().bind_match(&other.as_view())
 	}
 }
 
 impl<'a> super::MonikerView<'a> {
-	/// Cross-file linkage match on view bytes. Returns `true` when:
-	/// - both monikers have the same project bytes;
-	/// - both have at least one segment;
-	/// - every segment except the last is byte-equal (kind and name);
-	/// - the last segments have equal `name` bytes (kinds may differ).
-	///
-	/// Solves the problem that an extractor is local and does not
-	/// know the kind of a symbol it imports from another file. The
-	/// import side emits a placeholder last-segment kind (typically
-	/// `path:`); the def side emits the true kind. Byte-strict `=`
-	/// would never match those two; `bind_match` does. See `SPEC.md`
-	/// § Operators.
 	pub fn bind_match(&self, other: &super::MonikerView<'_>) -> bool {
 		if self.project() != other.project() {
 			return false;
@@ -150,8 +131,6 @@ mod tests {
 		assert!(m.last_kind().is_none());
 	}
 
-	/// The crucial v2 invariant: byte-lex order coincides with tree
-	/// pre-order. Parent < every descendant < every later sibling.
 	#[test]
 	fn byte_lex_is_tree_friendly() {
 		let m1 = mk(b"app", &[(b"class", b"Foo")]);
@@ -167,7 +146,6 @@ mod tests {
 				(b"path", b"x"),
 			],
 		);
-		// A different sibling at the same depth, byte-greater than m1.
 		let sibling = mk(b"app", &[(b"class", b"Zoo")]);
 
 		assert!(m1.as_bytes() < descendant.as_bytes());
@@ -175,9 +153,6 @@ mod tests {
 		assert!(deeper.as_bytes() < sibling.as_bytes());
 	}
 
-	/// In v1 the fixed-offset seg_count broke this when a sibling's
-	/// segment was longer than the parent's. The v2 layout dropped
-	/// seg_count, so longer descendants no longer leapfrog.
 	#[test]
 	fn descendant_with_longer_name_stays_inside_parent_range() {
 		let parent = mk(b"app", &[(b"class", b"Foo")]);
@@ -190,8 +165,6 @@ mod tests {
 		assert!(parent.as_bytes() < child_long.as_bytes());
 		assert!(child_long.as_bytes() < next_sibling.as_bytes());
 	}
-
-	// --- bind_match ------------------------------------------------------
 
 	#[test]
 	fn bind_match_equal_monikers_match() {
@@ -216,8 +189,6 @@ mod tests {
 
 	#[test]
 	fn bind_match_rejects_different_lang_segment() {
-		// Cross-language matches are by design impossible: the lang:
-		// segment is part of the all-but-last byte-strict prefix.
 		let l = mk(b"app", &[(b"lang", b"python"), (b"class", b"Foo")]);
 		let r = mk(b"app", &[(b"lang", b"java"), (b"class", b"Foo")]);
 		assert!(!l.bind_match(&r));
@@ -225,8 +196,6 @@ mod tests {
 
 	#[test]
 	fn bind_match_rejects_different_parent_segment_kind() {
-		// Parent segments must be byte-strict equal; only the LAST
-		// segment's kind may differ.
 		let l = mk(b"app", &[(b"package", b"acme"), (b"class", b"Foo")]);
 		let r = mk(b"app", &[(b"path", b"acme"), (b"class", b"Foo")]);
 		assert!(!l.bind_match(&r));
@@ -241,7 +210,6 @@ mod tests {
 
 	#[test]
 	fn bind_match_rejects_project_only_monikers() {
-		// A moniker with no segments has no last segment to match on.
 		let l = mk(b"app", &[]);
 		let r = mk(b"app", &[]);
 		assert!(!l.bind_match(&r));

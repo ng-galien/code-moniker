@@ -1,5 +1,3 @@
--- Phase 7 step 3: bind_match operator + GiST opclass entry +
--- end-to-end cross-file linkage.
 
 BEGIN;
 
@@ -8,12 +6,10 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(15);
 
--- Surface presence ---------------------------------------------------------
 
 SELECT has_function('bind_match'::name, ARRAY['moniker','moniker'],
 	'bind_match(moniker, moniker) is exposed');
 
--- Functional semantics -----------------------------------------------------
 
 SELECT ok(
 	bind_match(
@@ -45,14 +41,12 @@ SELECT ok(
 		'esac+moniker://app/lang:python/module:util/class:Foo/method:bar(int)'::moniker),
 	'different segment counts never match');
 
--- ?= operator surface ------------------------------------------------------
 
 SELECT ok(
 	'esac+moniker://app/lang:ts/path:src/path:lib/path:Lib'::moniker
 		?= 'esac+moniker://app/lang:ts/path:src/path:lib/class:Lib'::moniker,
 	'?= operator routes to bind_match');
 
--- GiST opclass: index supports the new strategy ---------------------------
 
 CREATE TEMP TABLE m_idx (m moniker);
 INSERT INTO m_idx VALUES
@@ -83,11 +77,6 @@ SELECT is(
 	1,
 	'?= via GiST distinguishes helpers/Foo from util/Foo');
 
--- End-to-end cross-file linkage -------------------------------------------
---
--- Two python modules. `m_def` exports `class Foo`. `m_use` imports
--- `from m_def import Foo`. The import-side ref has a placeholder kind
--- on its last segment; bind_match unifies it with the export-side def.
 
 CREATE TEMP TABLE module (
 	id    text       PRIMARY KEY,
@@ -115,8 +104,6 @@ SELECT is(
 	1,
 	'cross-file linkage: 1 bind_match between import ref and export def');
 
--- Relative imports inside a package resolve against the importer's
--- module moniker (no `..` walk over the project root needed here).
 
 INSERT INTO module VALUES
 	('rel_def', extract_python(
@@ -139,7 +126,6 @@ SELECT is(
 	1,
 	'relative import (`from ._models import Response`) resolves via bind_match');
 
--- TS cross-file: `import { Lib } from "./lib"` ----------------------------
 
 INSERT INTO module VALUES
 	('ts_def', extract_typescript(
@@ -160,7 +146,6 @@ SELECT is(
 	1,
 	'TS relative import resolves via bind_match');
 
--- Rust cross-file: `use super::kinds;` -----------------------------------
 
 INSERT INTO module VALUES
 	('rs_def', extract_rust(
@@ -181,7 +166,6 @@ SELECT is(
 	1,
 	'Rust `use super::X` resolves to the sibling module via bind_match');
 
--- Java cross-file: `import com.acme.Foo;` --------------------------------
 
 INSERT INTO module VALUES
 	('java_def', extract_java(

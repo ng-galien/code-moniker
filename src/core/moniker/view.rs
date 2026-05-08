@@ -1,10 +1,5 @@
-//! Read-only borrowed view over an encoded moniker buffer.
-
 use super::encoding::{read_u16, EncodingError, HEADER_FIXED_LEN, VERSION};
 
-/// One segment of a moniker, as observed through a [`MonikerView`].
-/// Both fields are slices into the underlying buffer; valid as long as
-/// the view itself is.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Segment<'a> {
 	pub kind: &'a [u8],
@@ -58,9 +53,6 @@ impl<'a> MonikerView<'a> {
 		})
 	}
 
-	/// Skip the validating segment walk. The caller asserts that the
-	/// buffer is canonical; used by `Moniker::as_view` where the
-	/// invariant is established at construction.
 	pub(crate) unsafe fn from_canonical_bytes(bytes: &'a [u8]) -> Self {
 		debug_assert!(bytes.len() >= HEADER_FIXED_LEN && bytes[0] == VERSION);
 		let project_len = read_u16(bytes, 1) as usize;
@@ -93,12 +85,6 @@ impl<'a> MonikerView<'a> {
 		self.bytes
 	}
 
-	/// True when `self` is `other` itself or a strict prefix of `other`.
-	/// Reflexive, matches PG's `<@` / `@>` containment convention.
-	///
-	/// In v2 encoding, a parent's bytes are a prefix of every descendant's
-	/// bytes once projects match (no fixed-offset seg_count to perturb
-	/// the layout), so containment is one slice prefix test.
 	pub fn is_ancestor_of(&self, other: &MonikerView<'_>) -> bool {
 		if self.project() != other.project() {
 			return false;
@@ -164,11 +150,7 @@ mod tests {
 
 	#[test]
 	fn view_rejects_segment_overflow() {
-		let buf: Vec<u8> = vec![
-			2,         // version
-			0, 0,      // project_len = 0
-			5, 0,      // kind_len = 5 (no bytes follow)
-		];
+		let buf: Vec<u8> = vec![2, 0, 0, 5, 0];
 		assert_eq!(
 			MonikerView::from_bytes(&buf).unwrap_err(),
 			EncodingError::SegmentOverflow

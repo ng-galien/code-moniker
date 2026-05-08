@@ -1,7 +1,3 @@
-//! Query surface for [`moniker`]: containment operators (`<@`, `@>`),
-//! tree-position accessors (`parent_of`, `kind_of`, `path_of`), and
-//! child composition (`compose_child`).
-
 use pgrx::prelude::*;
 
 use super::moniker;
@@ -19,11 +15,6 @@ fn moniker_ancestor_of(a: moniker, b: moniker) -> bool {
 	a.view().is_ancestor_of(&b.view())
 }
 
-/// Cross-file linkage match. See SPEC.md § Operators and the rules
-/// documented on `crate::core::moniker::MonikerView::bind_match`.
-/// Exposed both as a function (for explicit calls) and as the `?=`
-/// operator registered in the moniker GiST opclass at strategy 11.
-/// Operates on borrowed views to avoid per-row clones at JOIN scale.
 #[pg_operator(immutable, parallel_safe)]
 #[opname(?=)]
 #[restrict(eqsel)]
@@ -58,8 +49,6 @@ fn path_of(m: moniker) -> Vec<String> {
 		.collect()
 }
 
-/// SPEC `parent || (kind, name)` exposed as a function — pgrx 0.18
-/// has no row-composite RHS for `||`.
 #[pg_extern(immutable, parallel_safe)]
 fn compose_child(parent: moniker, kind: &str, name: &str) -> moniker {
 	let mut b = MonikerBuilder::from_view(parent.view());
@@ -67,10 +56,6 @@ fn compose_child(parent: moniker, kind: &str, name: &str) -> moniker {
 	moniker::from_core(b.build())
 }
 
-/// Name of the first `external_pkg:<root>` segment, or NULL when the
-/// moniker is project-local (no segment of kind `external_pkg`).
-/// Joins consumer linkage tables onto extracted refs without scanning
-/// the full segment list per row.
 #[pg_extern(immutable, parallel_safe)]
 fn external_pkg_root(m: moniker) -> Option<String> {
 	m.view()

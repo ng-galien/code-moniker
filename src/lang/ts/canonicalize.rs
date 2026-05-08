@@ -1,5 +1,3 @@
-//! Build moniker values from tree-sitter nodes and the importing
-//! module's anchor.
 
 use tree_sitter::Node;
 
@@ -22,7 +20,6 @@ pub(super) fn append_path_segments(b: &mut MonikerBuilder, path: &str, kind: &[u
 }
 
 pub(super) fn strip_known_extension(uri: &str) -> &str {
-	// `.d.ts` is listed first so it wins over `.ts`.
 	const EXTS: &[&str] = &[
 		".d.ts", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts",
 	];
@@ -39,20 +36,11 @@ pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
 	(node.start_byte() as u32, node.end_byte() as u32)
 }
 
-/// Anonymous-callback name keyed on the AST node's start position. Both
-/// row and column are 0-based as exposed by tree-sitter.
 pub(super) fn anonymous_callback_name(node: Node<'_>) -> Vec<u8> {
 	let p = node.start_position();
 	format!("__cb_{}_{}", p.row, p.column).into_bytes()
 }
 
-/// Parameter type list for `function`/`method`/`arrow_function`/`function_expression`.
-/// Each parameter contributes one slot: the `type` field's text when
-/// the source has a type annotation, the `_` placeholder when it
-/// doesn't (untyped JS, inferred TS). Optional and rest markers are
-/// carried inside the slot text (`string?`, `...string[]`).
-/// The `parameter` field on shorthand arrows (`x => …`) is treated
-/// as one untyped slot.
 pub(super) fn callable_param_types<'src>(node: Node<'_>, source: &'src [u8]) -> Vec<&'src str> {
 	if let Some(params) = node.child_by_field_name("parameters") {
 		let mut out = Vec::new();
@@ -76,8 +64,6 @@ pub(super) fn callable_param_types<'src>(node: Node<'_>, source: &'src [u8]) -> 
 
 fn parameter_type_text<'src>(param: Node<'_>, source: &'src [u8]) -> &'src str {
 	let Some(annot) = param.child_by_field_name("type") else { return "_" };
-	// `type_annotation` wraps the actual type with a `:` prefix; use
-	// the annotation's first named child for clean text.
 	let inner = annot
 		.named_child(0)
 		.unwrap_or(annot);
@@ -95,8 +81,6 @@ pub(super) fn external_pkg_builder(project: &[u8], pkg: &str) -> MonikerBuilder 
 	b
 }
 
-/// Split `lodash/fp/get` → (`lodash`, `fp/get`); `@scope/pkg/sub` →
-/// (`@scope/pkg`, `sub`); `react` → (`react`, ``).
 fn split_package_specifier(spec: &str) -> (&str, &str) {
 	if spec.starts_with('@') {
 		let after_scope = &spec[1..];

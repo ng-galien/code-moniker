@@ -1,12 +1,4 @@
-//! Parse `Cargo.toml`. One `Dep` per declared dependency plus one for
-//! the package itself (`dep_kind = "package"`). Path/git-only deps
-//! emit a row with `version = None` rather than a synthesized stub.
 
-/// One row produced by the Cargo manifest parser. `import_root` is
-/// the Rust-source identifier form: `tree-sitter` (manifest) →
-/// `tree_sitter` (Rust path). Lets a consumer JOIN the linkage table
-/// against `external_pkg_root(target)` directly without convention-
-/// aware SQL on the consumer side.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Dep {
 	pub name: String,

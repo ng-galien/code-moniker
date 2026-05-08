@@ -1,10 +1,3 @@
-//! PostgreSQL type wrapping [`crate::core::moniker::Moniker`].
-//!
-//! Text I/O uses the canonical typed URI (`<scheme>+moniker://<project>/<kind>:<name>...`).
-//! Binary representation is the v2 canonical encoding wrapped in a
-//! standard PG varlena (4-byte header + payload), plugged in via manual
-//! `IntoDatum`/`FromDatum` impls. No CBOR framing.
-
 use core::ffi::CStr;
 use core::ptr::addr_of_mut;
 use std::sync::OnceLock;
@@ -40,13 +33,10 @@ impl moniker {
 	}
 
 	pub(super) fn to_core(&self) -> CoreMoniker {
-		// Bytes were validated when the Datum was first constructed
-		// (either by moniker_in or by IntoDatum from a builder result).
 		CoreMoniker::from_canonical_bytes(self.bytes.clone())
 	}
 
 	pub(super) fn view(&self) -> MonikerView<'_> {
-		// SAFETY: see `to_core`.
 		unsafe { MonikerView::from_canonical_bytes(&self.bytes) }
 	}
 }
@@ -83,9 +73,6 @@ fn project_of(m: moniker) -> String {
 	String::from_utf8(m.view().project().to_vec()).expect("project must be UTF-8")
 }
 
-/// `lang:<short>` segment payload (`ts`, `rs`, `java`, `python`,
-/// `sql`). Returns the empty string when the moniker has no `lang:`
-/// segment — externals (`external_pkg:...`) and project-regime nodes.
 #[pg_extern(immutable, parallel_safe)]
 fn lang_of(m: moniker) -> String {
 	let view = m.view();
@@ -126,9 +113,6 @@ pub(super) unsafe fn varlena_to_owned_bytes(datum: pg_sys::Datum) -> Vec<u8> {
 	unsafe { varlena_to_borrowed_bytes(datum).to_vec() }
 }
 
-/// The borrow lives as long as the underlying varlena Datum stays in
-/// scope; callers must keep the source GISTENTRY (or other holder) alive
-/// for the borrow's duration.
 pub(super) unsafe fn varlena_to_borrowed_bytes<'a>(datum: pg_sys::Datum) -> &'a [u8] {
 	unsafe {
 		let detoasted = pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr());
@@ -136,11 +120,6 @@ pub(super) unsafe fn varlena_to_borrowed_bytes<'a>(datum: pg_sys::Datum) -> &'a 
 	}
 }
 
-/// Cached OID of the `moniker` type within this backend. Looked up
-/// lazily by joining `pg_extension` to find our install namespace, then
-/// schema-qualifying the type name. The plain `rust_regtypein("moniker")`
-/// path raises `type "moniker" does not exist` under restricted
-/// search_path contexts (notably GIN bulk index build).
 static MONIKER_TYPE_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
 
 fn moniker_type_oid() -> pg_sys::Oid {

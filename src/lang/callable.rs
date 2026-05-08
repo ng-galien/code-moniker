@@ -1,20 +1,11 @@
-//! Cross-language helpers for building moniker segments. Centralized
-//! so every extractor uses the same wire shape for callable
-//! identities and the same `extend_segment` plumbing.
-
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-/// Append one typed segment to the parent.
 pub(crate) fn extend_segment(parent: &Moniker, kind: &[u8], name: &[u8]) -> Moniker {
 	let mut b = MonikerBuilder::from_view(parent.as_view());
 	b.segment(kind, name);
 	b.build()
 }
 
-/// Build the segment-name bytes for a callable definition with known
-/// parameter types: `name(t1,t2,...)` or `name()` for arity 0. Generic
-/// over the slot type so callers with `Vec<u8>` (SQL via PG parser)
-/// and `&str` (tree-sitter languages) share one implementation.
 pub(crate) fn callable_segment_typed<T: AsRef<[u8]>>(name: &[u8], param_types: &[T]) -> Vec<u8> {
 	let body_len: usize = param_types.iter().map(|t| t.as_ref().len() + 1).sum();
 	let mut full = Vec::with_capacity(name.len() + 2 + body_len);
@@ -25,9 +16,6 @@ pub(crate) fn callable_segment_typed<T: AsRef<[u8]>>(name: &[u8], param_types: &
 	full
 }
 
-/// Concatenate `[a, b, c]` into `a,b,c`. `Vec<u8>` doesn't have a
-/// built-in `.join(",")` against a `str` separator, so consumers
-/// (e.g. the python signature column) call this directly.
 pub(crate) fn join_bytes_with_comma<T: AsRef<[u8]>>(parts: &[T]) -> Vec<u8> {
 	let body_len: usize = parts.iter().map(|p| p.as_ref().len() + 1).sum::<usize>().saturating_sub(1);
 	let mut out = Vec::with_capacity(body_len);
@@ -40,10 +28,6 @@ pub(crate) fn join_bytes_with_comma<T: AsRef<[u8]>>(parts: &[T]) -> Vec<u8> {
 	out
 }
 
-/// Build the segment-name bytes for a call site where only arity is
-/// statically known: `name()` for arity 0, `name(N)` otherwise. Refs
-/// using this shape will not match a typed def via `=`; emit them
-/// with `confidence: unresolved` so consumers project on name+arity.
 pub(crate) fn callable_segment_arity(name: &[u8], arity: u16) -> Vec<u8> {
 	let mut full = Vec::with_capacity(name.len() + 6);
 	full.extend_from_slice(name);

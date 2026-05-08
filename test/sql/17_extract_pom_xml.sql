@@ -1,4 +1,3 @@
--- Maven manifest extraction.
 
 BEGIN;
 
@@ -49,8 +48,6 @@ SELECT
 		'com.google.guava:guava',
 		'import_root = groupId:artifactId for join with external_pkg_root') AS r5;
 
--- Linkage demo: a refs subset matched to a pkg table populated from
--- pom.xml.
 CREATE TEMP TABLE pkg(project moniker, name text, version text);
 INSERT INTO pkg
 	SELECT 'esac+moniker://app'::moniker, name, version

@@ -1,4 +1,3 @@
--- Phase 1: moniker type, equality, accessors.
 
 BEGIN;
 
@@ -7,7 +6,6 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(11);
 
--- Type and operator presence -----------------------------------------------
 
 SELECT has_type('moniker', 'moniker type is exposed');
 
@@ -20,7 +18,6 @@ SELECT has_function('project_of'::name, ARRAY['moniker'],
 SELECT has_function('depth'::name, ARRAY['moniker'],
 	'depth(moniker) is exposed');
 
--- Text I/O roundtrip --------------------------------------------------------
 
 SELECT is(
 	('esac+moniker://my-app'::moniker)::text,
@@ -32,7 +29,6 @@ SELECT is(
 	'esac+moniker://my-app/path:main/path:com/path:acme/class:Foo/method:bar(2)',
 	'full descriptor chain roundtrip');
 
--- Equality -----------------------------------------------------------------
 
 SELECT ok(
 	'esac+moniker://app/class:Foo'::moniker = 'esac+moniker://app/class:Foo'::moniker,
@@ -42,7 +38,6 @@ SELECT ok(
 	NOT ('esac+moniker://app/class:Foo'::moniker = 'esac+moniker://app/class:Bar'::moniker),
 	'different monikers compare unequal');
 
--- Accessors ----------------------------------------------------------------
 
 SELECT is(
 	project_of('esac+moniker://my-app/path:main/path:com/path:acme/class:Foo'::moniker),

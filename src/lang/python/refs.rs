@@ -1,5 +1,3 @@
-//! Refs extraction: imports, calls, method_call (with receiver hint),
-//! type uses, identifier reads.
 
 use tree_sitter::Node;
 
@@ -11,7 +9,6 @@ use super::kinds;
 use super::walker::{last_attribute, Walker};
 
 impl<'src> Walker<'src> {
-	// --- imports ---------------------------------------------------------
 
 	pub(super) fn handle_import(
 		&self,
@@ -136,7 +133,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- calls -----------------------------------------------------------
 
 	pub(super) fn handle_call(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
@@ -207,11 +203,8 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- type uses -------------------------------------------------------
 
 	pub(super) fn emit_uses_type(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		// `type` parents an arbitrary expression; descend until we find
-		// identifiers / attributes / subscripts.
 		match node.kind() {
 			"type" => {
 				let mut cursor = node.walk();
@@ -268,7 +261,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- reads -----------------------------------------------------------
 
 	pub(super) fn handle_identifier(
 		&self,
@@ -295,7 +287,6 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// Receiver shape for an `attribute`-callee call's `object`.
 fn receiver_hint(obj: Node<'_>, source: &[u8]) -> &'static [u8] {
 	match obj.kind() {
 		"identifier" => match obj.utf8_text(source).unwrap_or("") {
@@ -310,7 +301,6 @@ fn receiver_hint(obj: Node<'_>, source: &[u8]) -> &'static [u8] {
 	}
 }
 
-/// Pull `["a","b","c"]` from a `dotted_name` node.
 fn dotted_pieces<'a>(node: Node<'_>, source: &'a [u8]) -> Vec<&'a str> {
 	let mut out = Vec::new();
 	let mut cursor = node.walk();
@@ -324,7 +314,6 @@ fn dotted_pieces<'a>(node: Node<'_>, source: &'a [u8]) -> Vec<&'a str> {
 	out
 }
 
-/// `from .foo.bar import X` → (`["foo", "bar"]`, leading_dots = 1).
 fn relative_import_pieces<'a>(
 	node: Node<'_>,
 	source: &'a [u8],
@@ -348,9 +337,6 @@ fn relative_import_pieces<'a>(
 	(pieces, leading_dots)
 }
 
-/// Build the `(name, alias)` list for a `from X import a, b as c, d`
-/// statement. Slices into `source` so the caller can use the strings
-/// in `'src`-keyed maps without allocating.
 fn collect_from_import_names<'src>(
 	node: Node<'_>,
 	source: &'src [u8],
@@ -386,7 +372,6 @@ fn collect_from_import_names<'src>(
 	out
 }
 
-/// Trailing identifier of a `dotted_name` node, sliced into `source`.
 fn dotted_leaf<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
 	let mut cursor = node.walk();
 	let mut last = "";
@@ -400,20 +385,6 @@ fn dotted_leaf<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
 	last
 }
 
-/// Build a module-target moniker for an import.
-///
-/// Three resolution modes:
-/// - **Absolute project-local** (`confidence == imported`,
-///   `leading_dots == 0`): build under the language regime,
-///   `lang:python/package:<heads>/module:<leaf>`, so `bind_match`
-///   can JOIN against the export-side def.
-/// - **Relative** (`leading_dots > 0`): walk up the importer's module
-///   chain by `leading_dots - 1` package segments, then attach
-///   `pieces` as `package:` ... `module:<leaf>`. Targets are still in
-///   the language regime, so `bind_match` works.
-/// - **External / stdlib** (`confidence == external`): keep the
-///   project-regime `external_pkg:<head>/path:<rest>` shape. There is
-///   no project-side def to match against.
 fn build_module_target(
 	importer: &Moniker,
 	pieces: &[&str],
@@ -440,7 +411,6 @@ fn build_module_target(
 		}
 		return b.build();
 	}
-	// confidence == external (stdlib): project-regime external_pkg.
 	let mut b = MonikerBuilder::new();
 	b.project(project);
 	b.segment(kinds::EXTERNAL_PKG, pieces[0].as_bytes());
@@ -450,14 +420,6 @@ fn build_module_target(
 	b.build()
 }
 
-/// Resolve a relative import against the importer's module moniker.
-/// Python `.` semantics: `from .X import Y` references the current
-/// package; each extra dot walks up one more package level. The
-/// importer's module moniker is shaped
-/// `.../lang:python/<package:>*/module:<leaf>`. We drop the trailing
-/// `module:` segment to land at the importer's current package, then
-/// drop `leading_dots - 1` further package segments, then append the
-/// requested `pieces` as `package:` … `module:<leaf>`.
 fn build_relative_module_target(
 	importer: &Moniker,
 	pieces: &[&str],
@@ -465,14 +427,8 @@ fn build_relative_module_target(
 ) -> Moniker {
 	let view = importer.as_view();
 	let depth = view.segment_count() as usize;
-	// Drop the importer's `module:` leaf, then `leading_dots - 1`
-	// further parent package segments. Bottom out at zero — never
-	// reach into the project regime.
 	let keep = depth.saturating_sub(1).saturating_sub(leading_dots.saturating_sub(1));
 	if keep == 0 {
-		// Underflow: more dots than the importer has parents. Fall
-		// back to a synthetic project-regime shape so the import is
-		// at least diagnosable; bind_match never resolves it.
 		let mut b = MonikerBuilder::new();
 		b.project(view.project());
 		let head = ".".repeat(leading_dots);
@@ -495,12 +451,6 @@ fn build_relative_module_target(
 	b.build()
 }
 
-/// Build a target for `from X import Y`. When the module target lives
-/// in the language regime (project-local import or resolved relative
-/// import), append `path:<name>` — matches the canonical def shape
-/// modulo last-segment kind so `bind_match` resolves it. When
-/// external, append the arity-only callable shape so downstream
-/// projections can match by name+arity.
 fn build_imported_symbol_target(
 	importer: &Moniker,
 	pieces: &[&str],
@@ -528,9 +478,6 @@ fn external_or_imported(pieces: &[&str]) -> &'static [u8] {
 	kinds::CONF_IMPORTED
 }
 
-/// Tiny stdlib head-package list. Anything outside this set lands as
-/// `imported` (consumers may refine via presets / package metadata).
-/// Keep alphabetically sorted for the binary search above.
 const STDLIB_PACKAGES: &[&str] = &[
 	"abc", "argparse", "ast", "asyncio", "base64", "collections",
 	"concurrent", "contextlib", "copy", "csv", "dataclasses", "datetime",

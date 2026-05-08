@@ -1,20 +1,3 @@
-//! pg_code_moniker -- native PostgreSQL types and indexed algebra for
-//! code symbol identity (`moniker`) and code graph storage (`code_graph`).
-//!
-//! # Layout
-//!
-//! - [`core`]  Pure Rust, no pgrx, no PG dependencies. Testable in
-//!             isolation with `cargo test` (no `--features` required).
-//! - [`pg`]    pgrx-backed wrappers exposing the SQL surface. Compiled
-//!             only when a `pgN` feature is selected.
-//! - [`lang`]  Per-language extractors (tree-sitter). Pure Rust, no pgrx.
-//!
-//! # Phase 1 scope
-//!
-//! Type `moniker` minimal: byte-compact internal representation (kind
-//! registry + segment-encoded path), URI parse/serialize, equality
-//! operator. Indexable (`<@`, `@>`, `~`, GiST) lands in later phases.
-
 pub mod core;
 pub mod lang;
 

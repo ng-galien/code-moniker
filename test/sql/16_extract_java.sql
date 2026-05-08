@@ -1,4 +1,3 @@
--- Java extraction smoke test.
 
 BEGIN;
 
@@ -11,7 +10,6 @@ SELECT has_function('extract_java'::name,
 	ARRAY['text','text','moniker','boolean'],
 	'extract_java(text, text, moniker, boolean) is exposed');
 
--- Module moniker = anchor + package: segments + module:basename.
 
 WITH g AS (
 	SELECT extract_java(
@@ -28,8 +26,6 @@ SELECT
 		'class def lives under the module') AS r2
 FROM g;
 
--- Full parameter type signature in the moniker segment + mirrored
--- on the signature column.
 
 WITH g AS (
 	SELECT extract_java(
@@ -46,7 +42,6 @@ SELECT
 		'method signature column lists parameter types') AS r4
 FROM g;
 
--- Visibility default is `package` (not `public` like TS).
 
 WITH g AS (
 	SELECT extract_java(
@@ -61,7 +56,6 @@ SELECT
 		'unmodified Java class is package-visible') AS r5
 FROM g;
 
--- JDK imports get confidence=external; project imports get imported.
 
 WITH g AS (
 	SELECT extract_java(
@@ -81,7 +75,6 @@ SELECT
 		'com.acme.Helpers import marked imported') AS r7
 FROM g;
 
--- this.bar() carries receiver_hint=this.
 
 WITH g AS (
 	SELECT extract_java(

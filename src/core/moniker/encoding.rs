@@ -1,25 +1,14 @@
-//! Binary layout constants and shared byte helpers.
-//!
 //! ```text
 //! [version u8 = 2]
 //! [project_len u16 LE] [project bytes]
 //!   segment[i] := [kind_len u16 LE] [kind bytes] [name_len u16 LE] [name bytes]
 //!   (repeated until end of buffer)
 //! ```
-//!
-//! All multi-byte integers are little-endian. The format is canonical:
-//! monikers logically equal are byte-identical (slice compare is enough
-//! for `=`, GiST, etc.). The segment list is delimited by EOF (no
-//! seg_count field) so byte-lex order coincides with tree pre-order
-//! traversal: parent < every descendant < every later sibling, no
-//! length-counter at fixed offset to perturb that invariant.
 
 use std::fmt;
 
 pub(crate) const VERSION: u8 = 2;
-pub(crate) const HEADER_FIXED_LEN: usize =
-	1   /* version     */
-	+ 2 /* project_len */;
+pub(crate) const HEADER_FIXED_LEN: usize = 1 + 2;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum EncodingError {

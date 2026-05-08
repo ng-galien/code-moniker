@@ -1,26 +1,9 @@
-//! Canonical typed URI parser/serializer for [`crate::core::moniker::Moniker`].
-//!
-//! # Format
-//!
 //! ```text
 //! <scheme><project>(/<kind>:<name>)*
 //! ```
-//!
-//! The scheme is configurable (default `pcm+moniker://`). Each segment
-//! is `<kind>:<name>` where `kind` is a plain identifier
-//! (`[A-Za-z][A-Za-z0-9_]*`) and `name` is arbitrary text. Method
-//! overload disambiguators live inside `name` (e.g.
-//! `method:findById(String)` or `method:findById(2)`).
-//!
-//! There is no `#` in the canonical form: the visual path-vs-descriptor
-//! split lives in the compact projection (`pg/moniker/compact.rs`),
-//! not here. Canonical is round-trippable, lossless, and unambiguous.
-//!
-//! # Escaping
-//!
-//! A `name` containing `/`, backtick, or ASCII whitespace is wrapped in
-//! backticks; a literal backtick inside such a name is doubled. Kinds
-//! never need escaping by construction.
+//! `kind` ∈ `[A-Za-z][A-Za-z0-9_]*`. A `name` containing `/`, backtick,
+//! or ASCII whitespace is backtick-wrapped; a literal backtick inside is
+//! doubled.
 
 mod parse;
 mod serialize;
@@ -68,8 +51,6 @@ impl std::error::Error for UriError {}
 
 #[derive(Copy, Clone, Debug)]
 pub struct UriConfig<'a> {
-	/// Full prefix including the `+moniker://` suffix (e.g.
-	/// `"esac+moniker://"`).
 	pub scheme: &'a str,
 }
 

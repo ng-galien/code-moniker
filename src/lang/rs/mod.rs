@@ -1,4 +1,3 @@
-//! Rust parser and extractor.
 
 use tree_sitter::{Language, Parser, Tree};
 
@@ -228,10 +227,6 @@ mod tests {
 	fn extract_use_crate_prefix_resolves_project_local() {
 		let g = extract("util.rs", "use crate::core::moniker::Moniker;", &make_anchor(), false);
 		let r = g.refs().next().unwrap();
-		// `crate::` prefix stripped; rest encoded under lang:rs with
-		// the second-to-last piece as `module:` so bind_match can
-		// resolve `path:Moniker` to the def `struct:Moniker` in the
-		// `module:moniker` file.
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
@@ -251,12 +246,6 @@ mod tests {
 			.build();
 		let g = extract("rs/walker.rs", "use super::kinds;", &anchor, false);
 		let r = g.refs().next().unwrap();
-		// `super::` strips one segment from the importer's module
-		// (`module:walker`), then appends the rest. With a single
-		// trailing piece the leaf lands as `path:kinds`; bind_match
-		// against the corresponding `module:kinds` def still resolves
-		// because parents (project + path:src + path:lang + lang:rs +
-		// path:rs) are byte-equal and last-segment names match.
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"path", b"src")
@@ -270,10 +259,6 @@ mod tests {
 
 	#[test]
 	fn extract_use_local_mod_resolves_as_self() {
-		// `mod canonicalize;` declared at file root → bare
-		// `use canonicalize::X;` is project-local, not external. The
-		// second-to-last piece (`canonicalize`) becomes `module:` so
-		// the symbol's parent matches the def's containing module.
 		let src = r#"
             mod canonicalize;
             use canonicalize::compute_module_moniker;
@@ -295,7 +280,6 @@ mod tests {
 
 	#[test]
 	fn extract_use_unknown_first_segment_stays_external() {
-		// No `mod foo;` at root → `foo::bar` is treated as external.
 		let g = extract("util.rs", "use foo::bar;", &make_anchor(), false);
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
@@ -309,8 +293,6 @@ mod tests {
 	fn extract_use_self_keeps_module_prefix() {
 		let g = extract("util.rs", "use self::kinds::PATH;", &make_anchor(), false);
 		let r = g.refs().next().unwrap();
-		// `self::` resolves under the importer's module. Second-to-last
-		// piece is the symbol's containing module, last is the symbol.
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
@@ -372,7 +354,6 @@ mod tests {
 		assert_eq!(r.target, target);
 	}
 
-	// --- deep extraction (deep=true) -------------------------------------
 
 	#[test]
 	fn extract_shallow_skips_param_and_local() {
@@ -464,8 +445,6 @@ mod tests {
 
 	#[test]
 	fn extract_deep_locals_in_nested_block_attach_to_function() {
-		// Containment rule: a `let` inside an `if { }` is parented to
-		// the enclosing function, not to the block.
 		let src = r#"pub fn run(flag: bool) {
             if flag { let inner = 1; }
         }"#;

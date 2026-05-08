@@ -1,6 +1,3 @@
--- Build-system manifest extraction primitives + the linkage accessor
--- (`external_pkg_root`) that lets a consumer JOIN extracted refs to a
--- package table.
 
 BEGIN;
 
@@ -9,7 +6,6 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(12);
 
--- Surface presence -------------------------------------------------------
 
 SELECT has_function('extract_cargo'::name, ARRAY['text'],
 	'extract_cargo(text) is exposed');
@@ -17,7 +13,6 @@ SELECT has_function('extract_cargo'::name, ARRAY['text'],
 SELECT has_function('external_pkg_root'::name, ARRAY['moniker'],
 	'external_pkg_root(moniker) is exposed');
 
--- extract_cargo behaviour ------------------------------------------------
 
 WITH parsed AS (
 	SELECT * FROM extract_cargo($t$
@@ -55,7 +50,6 @@ SELECT
 		'tree_sitter',
 		'hyphenated cargo name normalized to underscore import_root') AS r5b;
 
--- external_pkg_root behaviour --------------------------------------------
 
 SELECT is(
 	external_pkg_root('esac+moniker://app/external_pkg:pgrx/path:prelude'::moniker),
@@ -66,7 +60,6 @@ SELECT ok(
 	external_pkg_root('esac+moniker://app/path:src/path:lib'::moniker) IS NULL,
 	'project-local moniker returns NULL');
 
--- Linkage demo: a small `package` table joined to extracted refs.
 CREATE TEMP TABLE pkg(project moniker, name text, version text);
 INSERT INTO pkg VALUES
 	('esac+moniker://app'::moniker, 'pgrx', '0.18'),

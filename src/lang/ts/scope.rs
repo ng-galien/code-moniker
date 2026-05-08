@@ -1,6 +1,3 @@
-//! Visibility detection and local-scope tracking for the TS extractor.
-//! Pulled out of `walker.rs` so the dispatcher stays focused on AST
-//! traversal + def emission.
 
 use std::collections::HashSet;
 
@@ -11,7 +8,6 @@ use crate::core::moniker::Moniker;
 use super::kinds;
 use super::walker::Walker;
 
-/// Pre-pass: collect every top-level `export_statement` node's byte range.
 pub(super) fn collect_export_ranges(root: Node<'_>) -> Vec<(u32, u32)> {
 	let mut out = Vec::new();
 	let mut cursor = root.walk();
@@ -23,8 +19,6 @@ pub(super) fn collect_export_ranges(root: Node<'_>) -> Vec<(u32, u32)> {
 	out
 }
 
-/// True when `scope` is the moniker of a callable def — i.e. we're
-/// inside a function/method/constructor body.
 pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	if scope == module {
 		return false;
@@ -33,8 +27,6 @@ pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	last.kind == kinds::FUNCTION || last.kind == kinds::METHOD || last.kind == kinds::CONSTRUCTOR
 }
 
-/// Class member visibility: explicit modifier when present, `public`
-/// by default (TS class members default to public).
 pub(super) fn class_member_visibility(node: Node<'_>, source: &[u8]) -> &'static [u8] {
 	let mut cursor = node.walk();
 	for c in node.children(&mut cursor) {
@@ -49,7 +41,6 @@ pub(super) fn class_member_visibility(node: Node<'_>, source: &[u8]) -> &'static
 	kinds::VIS_PUBLIC
 }
 
-/// Recognise `// ===== Title =====` and `/* === Title === */` comments.
 pub(super) fn section_title<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
 	let raw = node.utf8_text(source).ok()?;
 	let body = raw
@@ -66,9 +57,6 @@ pub(super) fn section_title<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a 
 	(starts && ends).then_some(stripped)
 }
 
-/// Collect leaf identifier names from a binding pattern (`identifier`,
-/// `object_pattern`, `array_pattern`, `rest_pattern`). Empty for
-/// `_`-style untargeted holes.
 pub(super) fn collect_binding_names<'src>(
 	pat: Node<'_>,
 	source: &'src [u8],
@@ -130,8 +118,6 @@ impl<'src> Walker<'src> {
 			.any(|frame| frame.contains(name))
 	}
 
-	/// Confidence for a name-keyed ref: `local` if the name binds in
-	/// any enclosing callable, `name_match` otherwise.
 	pub(super) fn name_confidence(&self, name: &[u8]) -> &'static [u8] {
 		if self.is_local_name(name) {
 			kinds::CONF_LOCAL

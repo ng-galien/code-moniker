@@ -1,5 +1,3 @@
-//! TypeScript parser and extractor.
-
 use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
@@ -28,14 +26,8 @@ pub fn parse(source: &str) -> Tree {
 		.expect("tree-sitter parse returned None on a non-cancelled call")
 }
 
-/// Caller-supplied extraction hints. Empty values mean "feature off"
-/// — the extractor should not invent defaults that produce noisy refs.
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
-	/// Bare-identifier callees that should be tagged as `di_register`
-	/// when called with a single identifier argument. Without a preset,
-	/// the heuristic is skipped (it would otherwise fire on `it(name)`,
-	/// `expect(value)`, etc.).
 	pub di_register_callees: Vec<String>,
 }
 
@@ -67,8 +59,6 @@ mod tests {
 	use super::*;
 	use crate::core::moniker::MonikerBuilder;
 
-	/// Test-local wrapper that defaults the presets — keeps the existing
-	/// fixture cases terse. Shadows `super::extract`.
 	fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
 		super::extract(uri, source, anchor, deep, &Presets::default())
 	}
@@ -184,9 +174,6 @@ mod tests {
 			.build();
 		assert!(graph.contains(&foo));
 	}
-
-	// --- imports ---------------------------------------------------------
-
 	#[test]
 	fn extract_named_import_emits_imports_symbol_per_specifier() {
 		let g = extract(
@@ -282,8 +269,6 @@ mod tests {
 
 	#[test]
 	fn extract_dot_only_specifier_resolves_relative_not_external() {
-		// `import { z } from ".."` — bare `..` shorthand must resolve to
-		// the importer's parent dir, not be mis-tagged as external_pkg.
 		let g = extract(
 			"src/__tests__/foo.test.ts",
 			"import { z } from \"..\";",
@@ -327,9 +312,6 @@ mod tests {
 		let r = g.refs().next().unwrap();
 		assert_eq!(r.kind, b"imports_module".to_vec());
 	}
-
-	// --- reexports -------------------------------------------------------
-
 	#[test]
 	fn extract_named_reexport_emits_reexports_per_specifier() {
 		let g = extract(
@@ -350,9 +332,6 @@ mod tests {
 		let r = g.refs().next().unwrap();
 		assert_eq!(r.kind, b"reexports".to_vec());
 	}
-
-	// --- type-like defs --------------------------------------------------
-
 	#[test]
 	fn extract_interface_emits_interface_def() {
 		let g = extract("util.ts", "interface Greet { hi(): void; }", &make_anchor(), false);
@@ -401,9 +380,6 @@ mod tests {
 			.build();
 		assert!(g.contains(&id));
 	}
-
-	// --- callables / fields ---------------------------------------------
-
 	#[test]
 	fn extract_method_signature_encoded_in_segment_name() {
 		let g = extract(
@@ -495,9 +471,6 @@ mod tests {
 			g.def_monikers()
 		);
 	}
-
-	// --- ref kinds: calls / new / heritage / decorator -------------------
-
 	#[test]
 	fn extract_top_level_call_emits_calls_ref() {
 		let g = extract("util.ts", "foo(1);", &make_anchor(), false);
@@ -811,9 +784,6 @@ mod tests {
 			.build();
 		assert_eq!(r.target, target);
 	}
-
-	// --- uses_type / reads ----------------------------------------------
-
 	#[test]
 	fn extract_param_type_annotation_emits_uses_type() {
 		let g = extract(
@@ -863,9 +833,6 @@ mod tests {
 			.build();
 		assert_eq!(r.target, target);
 	}
-
-	// --- DI register -----------------------------------------------------
-
 	#[test]
 	fn extract_di_register_fires_only_when_callee_in_preset() {
 		let presets = Presets {
@@ -883,8 +850,6 @@ mod tests {
 
 	#[test]
 	fn extract_di_register_silent_without_preset() {
-		// `it(name)`, `expect(value)` etc. were the false-positive source
-		// before presets gated the heuristic. Empty preset ⇒ no di_register.
 		let g = extract("util.ts", "register(UserService);", &make_anchor(), false);
 		assert!(
 			g.refs().all(|r| r.kind != b"di_register"),
@@ -900,9 +865,6 @@ mod tests {
 		let g = super::extract("util.ts", "expect(value);", &make_anchor(), false, &presets);
 		assert!(g.refs().all(|r| r.kind != b"di_register"));
 	}
-
-	// --- section ---------------------------------------------------------
-
 	#[test]
 	fn extract_section_comment_emits_section_def() {
 		let g = extract(
@@ -917,9 +879,6 @@ mod tests {
 			g.defs().map(|d| String::from_utf8_lossy(&d.kind).into_owned()).collect::<Vec<_>>()
 		);
 	}
-
-	// --- export default --------------------------------------------------
-
 	#[test]
 	fn extract_export_default_class_named_default() {
 		let g = extract(
@@ -937,9 +896,6 @@ mod tests {
 			.build();
 		assert!(g.contains(&m));
 	}
-
-	// --- deep extraction -------------------------------------------------
-
 	#[test]
 	fn extract_shallow_skips_param_and_local() {
 		let g = extract(
@@ -1007,7 +963,6 @@ mod tests {
 				last.kind == b"function" && last.name.starts_with(b"__cb_")
 			})
 			.expect("anonymous callback def with __cb_ prefix");
-		// the cb should have a `param` named `x` underneath
 		let view = cb.as_view();
 		let last = view.segments().last().unwrap();
 		assert_eq!(last.kind, b"function");
@@ -1020,7 +975,6 @@ mod tests {
 
 	#[test]
 	fn extract_position_covers_definition_node() {
-		// Sanity check: positions are real, not (0,0).
 		let g = extract("util.ts", "class Foo {}", &make_anchor(), false);
 		let foo = g.defs().find(|d| d.kind == b"class").unwrap();
 		let (s, e) = foo.position.unwrap();

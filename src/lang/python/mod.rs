@@ -1,4 +1,3 @@
-//! Python parser and extractor.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -206,11 +205,7 @@ mod tests {
 			.filter(|r| r.kind == b"imports_symbol")
 			.map(|r| r.target.as_view().segments().last().unwrap().name)
 			.collect();
-		// Project-local imports land under `lang:python/.../path:<name>`
-		// so `bind_match` can JOIN them against the export-side def.
 		assert_eq!(names, vec![&b"a"[..], &b"b"[..]]);
-		// Last-segment kind is `path:` (placeholder), parent of the
-		// import is the importer-resolved module shape.
 		let segs: Vec<_> = g
 			.refs()
 			.find(|r| r.kind == b"imports_symbol")
@@ -224,7 +219,6 @@ mod tests {
 			kinds,
 			vec![&b"lang"[..], &b"package"[..], &b"module"[..], &b"path"[..]]
 		);
-		// Alias is preserved on the second.
 		let aliased = g
 			.refs()
 			.find(|r| r.kind == b"imports_symbol" && r.alias == b"c")
@@ -234,12 +228,6 @@ mod tests {
 
 	#[test]
 	fn extract_relative_import_resolves_against_importer() {
-		// Importer module: `acme/m.py` → `lang:python/package:acme/module:m`.
-		// `from .util import helper` resolves to the sibling `acme/util`
-		// module's `helper` symbol — i.e. drops the importer's
-		// `module:m`, keeps `package:acme`, then appends `module:util`
-		// and `path:helper` so bind_match unifies it with the def-side
-		// `function:helper(...)`.
 		let src = "from .util import helper\n";
 		let g = extract_default("acme/m.py", src, &make_anchor(), false);
 		let r = g
@@ -261,13 +249,6 @@ mod tests {
 
 	#[test]
 	fn extract_relative_import_underflow_falls_back_to_external_pkg() {
-		// `from ...foo import bar` from a 1-segment-deep module: the
-		// importer is at `lang:python/module:m`, depth 2. Dropping
-		// the module leaf leaves 1 parent (lang:python); 3 dots
-		// requests 2 further drops, which would walk past the
-		// language regime. The fallback emits a synthetic
-		// `external_pkg:...` shape — diagnosable but never
-		// resolvable via bind_match.
 		let src = "from ...foo import bar\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
 		let r = g
@@ -287,8 +268,6 @@ mod tests {
 			.refs()
 			.find(|r| r.kind == b"annotates")
 			.expect("annotates ref");
-		// Target last segment is `class:wraps` (by canonicalization rule
-		// — decorator name resolved as a class kind for the moniker).
 		assert_eq!(
 			ann.target.as_view().segments().last().unwrap().name,
 			b"wraps"
@@ -366,7 +345,6 @@ mod tests {
 			.find(|r| r.kind == b"uses_type"
 				&& r.target.as_view().segments().last().unwrap().name == b"int")
 			.expect("uses_type int");
-		// stdlib int is not in our type_table → name_match is fine.
 		assert!(matches!(
 			r.confidence.as_slice(),
 			b"name_match" | b"resolved"

@@ -1,7 +1,3 @@
-//! SQL primitives for build-system manifest extraction. Consumers
-//! ingest these rows into their own linkage tables; the extension
-//! itself stays stateless.
-
 use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
 

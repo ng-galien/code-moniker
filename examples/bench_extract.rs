@@ -1,7 +1,3 @@
-//! Quick scaling benchmark: extract zod's `types.ts` N times.
-//! Run with `cargo run --release --example bench_extract --features pg17 \
-//! --no-default-features -- <iterations>`.
-
 use std::env;
 use std::fs;
 use std::time::Instant;
@@ -23,7 +19,6 @@ fn main() {
 	let anchor = MonikerBuilder::new().project(b"zod").build();
 	let presets = ts::Presets::default();
 
-	// warm-up
 	let _ = ts::extract("types.ts", &source, &anchor, false, &presets);
 
 	let t0 = Instant::now();

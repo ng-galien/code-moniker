@@ -1,8 +1,3 @@
-//! Refs extraction: `use` declarations → `imports_symbol`,
-//! `impl Trait for Type` → `implements`. Use-target resolution
-//! distinguishes project-local prefixes (`crate::`, `self::`,
-//! `super::`, or a bare path matching a local `mod foo;`) from
-//! external crates (tagged with `external_pkg:<root>`).
 
 use tree_sitter::Node;
 
@@ -68,10 +63,6 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// Walk the `argument` of a `use_declaration` and collect every leaf
-/// import path (one per imported symbol). `path_prefix` is the chain
-/// of identifiers on the way down; each call appends and recurses into
-/// list/scoped variants.
 fn collect_use_leaves(
 	node: Node<'_>,
 	source: &[u8],
@@ -112,18 +103,11 @@ fn collect_use_leaves(
 			}
 		}
 		"use_as_clause" => {
-			// Alias is dropped: DefRecord has nowhere to store it. The
-			// imported name remains the source target.
 			if let Some(path) = node.child_by_field_name("path") {
 				collect_use_leaves(path, source, path_prefix, out);
 			}
 		}
 		"use_wildcard" => {
-			// `a::b::*` — emit the parent path itself as a name-only
-			// imports_symbol; the `*` is information we'd need DefRecord
-			// metadata to preserve. Recurse on the child so a
-			// scoped_identifier (`a::b`) splits into multiple segments
-			// instead of being captured as one literal `a::b` string.
 			let mut leaf = path_prefix.clone();
 			let mut cursor = node.walk();
 			for child in node.named_children(&mut cursor) {
@@ -137,7 +121,6 @@ fn collect_use_leaves(
 	}
 }
 
-/// Linearize a `scoped_identifier` (`a::b::c`) into a flat `Vec<String>`.
 fn collect_scoped_path(node: Node<'_>, source: &[u8], out: &mut Vec<String>) {
 	collect_scoped_path_into(node, source, out);
 }
@@ -177,13 +160,6 @@ fn target_under_module(module: &Moniker, rest: &[String], walk_up: usize) -> Mon
 	b.build()
 }
 
-/// Append `pieces` of a `use` chain so the LAST piece is the imported
-/// symbol (`path:<name>`) and the SECOND-TO-LAST is its containing
-/// module (`module:<name>`). Earlier pieces are intermediate
-/// directories (`path:<name>`). Single-piece chains land as a single
-/// `path:<name>` — bind_match against the corresponding module's def
-/// (`module:<name>`) still resolves because parents (project + lang)
-/// are byte-equal and the leaf names match.
 fn append_use_pieces(b: &mut MonikerBuilder, pieces: &[String]) {
 	let n = pieces.len();
 	if n == 0 {

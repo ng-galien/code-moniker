@@ -1,6 +1,3 @@
-//! AST traversal for tree-sitter-rust. Dispatches each top-level
-//! item to its def emitter; `impl_item` re-parents members onto the
-//! type being implemented.
 
 use std::collections::HashSet;
 
@@ -18,18 +15,10 @@ use super::kinds;
 pub(super) struct Walker<'src> {
 	pub(super) source_bytes: &'src [u8],
 	pub(super) module: Moniker,
-	/// Names of `mod foo;` / `mod foo {}` declared at file root. A bare
-	/// `use foo::X;` where `foo` is in this set resolves as `self::foo::X`
-	/// (project-local) rather than as an external crate. Without this,
-	/// the codebase pattern `mod canonicalize; use canonicalize::X;`
-	/// would mis-tag `canonicalize` as external.
 	pub(super) local_mods: HashSet<String>,
 	pub(super) deep: bool,
 }
 
-/// Pre-pass: collect names of every `mod_item` at file root. Nested
-/// `mod` declarations are not tracked here — they are scoped to inner
-/// modules and cannot match a top-level `use` argument.
 pub(super) fn collect_local_mods(root: Node<'_>, source: &[u8]) -> HashSet<String> {
 	let mut out = HashSet::new();
 	let mut cursor = root.walk();
@@ -98,9 +87,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	/// Handles both `parameters` (function_item: typed `parameter`
-	/// wrappers) and `closure_parameters` (bare pattern children when
-	/// untyped, e.g. `|x|`).
 	fn emit_params(&self, params: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = params.walk();
 		for child in params.named_children(&mut cursor) {
@@ -118,10 +104,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	/// Walk a destructuring pattern, emitting one def of `kind` per
-	/// identifier reached. `_` is silently skipped. Used for both
-	/// `param` and `local` emission — they share the same pattern
-	/// shapes (tuples, structs, references).
 	fn emit_pattern_defs(
 		&self,
 		pattern: Node<'_>,
@@ -158,18 +140,11 @@ impl<'src> Walker<'src> {
 		let _ = graph.add_def(m, kind, callable, Some(node_position(anchor)));
 	}
 
-	/// Containment rule: every emitted def's parent is `callable`, not
-	/// the syntactic block — locals inside `if cond { let x = … }`
-	/// still attach to the enclosing function.
 	fn walk_callable_body(&self, node: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
 		for child in node.named_children(&mut cursor) {
 			match child.kind() {
 				"let_declaration" => self.handle_let(child, callable, graph),
-				// `expression_statement` wraps standalone control-flow used as a
-				// statement (`if cond { let x = ... }` without a trailing `;`),
-				// so dropping it here would silently lose locals nested in
-				// statement-position blocks.
 				"block" | "if_expression" | "match_expression" | "while_expression"
 				| "for_expression" | "loop_expression" | "match_arm" | "match_block"
 				| "expression_statement" => {
@@ -215,21 +190,9 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	/// `impl Foo { fn bar() {} }` re-parents `bar` to `Foo`. The impl
-	/// block itself is NOT a def — it's a scoping mechanism, per the
-	/// canonicalization contract.
-	///
-	/// `impl Trait for Foo { ... }` additionally emits an `implements`
-	/// ref from `Foo` → `Trait` (handled by `handle_impl_trait_for` in
-	/// `refs.rs`).
 	fn handle_impl(&self, node: Node<'_>, _parent: &Moniker, graph: &mut CodeGraph) {
 		let Some(type_node) = node.child_by_field_name("type") else { return };
 		let Some(type_name) = impl_type_name(type_node, self.source_bytes) else { return };
-		// Members of `impl Foo` land under the local `class:Foo` moniker.
-		// If `Foo` is not defined in this module, this synthesizes a
-		// moniker; the members are still attached even though the type
-		// def itself may live elsewhere — `code_graph @> moniker` will
-		// flag it.
 		let type_moniker = extend_segment(&self.module, kinds::CLASS, type_name.as_bytes());
 		self.handle_impl_trait_for(node, &type_moniker, graph);
 		let Some(body) = node.child_by_field_name("body") else { return };
@@ -253,9 +216,6 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// Recursively find the first `identifier` node inside a pattern. Used
-/// to pick a name for a `let f = |...| ...` closure binding when the
-/// pattern destructures.
 fn first_identifier<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
 	if node.kind() == "identifier" {
 		return node.utf8_text(source).ok();

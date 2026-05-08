@@ -1,5 +1,3 @@
-//! AST traversal for tree-sitter-java: dispatches each node to its
-//! def emitter or to the refs module.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -20,14 +18,7 @@ pub(super) struct Walker<'src> {
 	#[allow(dead_code)]
 	pub(super) presets: &'src super::Presets,
 	pub(super) local_scope: RefCell<Vec<HashSet<&'src [u8]>>>,
-	/// Short imported name → consumer-side confidence bucket. `import
-	/// java.util.List` puts `List → external`; relative project imports
-	/// put `Foo → imported`.
 	pub(super) imports: RefCell<HashMap<&'src [u8], &'static [u8]>>,
-	/// Short type name → full moniker for every type declared in this
-	/// compilation unit (top-level + nested). Built before the walk so
-	/// extends/implements/instantiates/uses_type/annotates emit
-	/// `confidence: resolved` with a real target when the name matches.
 	pub(super) type_table: HashMap<&'src [u8], Moniker>,
 }
 
@@ -42,7 +33,7 @@ impl<'src> Walker<'src> {
 	pub(super) fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		match node.kind() {
 			"line_comment" | "block_comment" => self.handle_comment(node, scope, graph),
-			"package_declaration" => {} // handled at extract entry
+			"package_declaration" => {}
 			"import_declaration" => self.handle_import(node, scope, graph),
 			"class_declaration" => self.handle_class(node, scope, graph),
 			"interface_declaration" => self.handle_interface(node, scope, graph),
@@ -67,7 +58,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- comments / sections ---------------------------------------------
 
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if let Some(title) = section_title(node, self.source_bytes) {
@@ -76,7 +66,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- type-like declarations ------------------------------------------
 
 	fn handle_class(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		self.handle_type_decl(node, scope, graph, kinds::CLASS);
@@ -132,7 +121,6 @@ impl<'src> Walker<'src> {
 			&attrs,
 		);
 
-		// heritage refs
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
 			match child.kind() {
@@ -144,7 +132,6 @@ impl<'src> Walker<'src> {
 			}
 		}
 
-		// annotations on the declaration
 		self.emit_annotations_from(node, &m, graph);
 
 		if let Some(body) = node.child_by_field_name("body") {
@@ -158,7 +145,6 @@ impl<'src> Walker<'src> {
 		parent: &Moniker,
 		graph: &mut CodeGraph,
 	) {
-		// annotations + interfaces
 		let mut cursor = enum_node.walk();
 		for child in enum_node.children(&mut cursor) {
 			if child.kind() == "super_interfaces" {
@@ -189,7 +175,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- callables -------------------------------------------------------
 
 	fn handle_method(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else { return };
@@ -227,13 +212,11 @@ impl<'src> Walker<'src> {
 
 		self.emit_annotations_from(node, &m, graph);
 
-		// return type → uses_type
 		if let Some(rt) = node.child_by_field_name("type") {
 			self.emit_uses_type(rt, &m, graph);
 		}
 
 		self.push_local_scope();
-		// parameters: record locals + emit param defs in deep mode
 		if let Some(params) = node.child_by_field_name("parameters") {
 			self.handle_parameters(params, &m, graph);
 		}
@@ -267,7 +250,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- fields / locals -------------------------------------------------
 
 	fn handle_field(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let visibility = modifier_visibility(node);
@@ -333,11 +315,8 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- deep: catch / for-each / lambda --------------------------------
 
 	fn handle_catch_param(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		// `catch (IOException e)` — `e` is a local in the enclosing
-		// callable. The type child also needs a uses_type ref.
 		if let Some(t) = node.child_by_field_name("type") {
 			self.emit_uses_type(t, scope, graph);
 		}
@@ -356,8 +335,6 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_enhanced_for(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		// `for (T x : iter) { ... }` — `x` is a local. Type goes through
-		// uses_type; the iter expression and body still need normal walk.
 		if let Some(t) = node.child_by_field_name("type") {
 			self.emit_uses_type(t, scope, graph);
 		}
@@ -385,11 +362,6 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_lambda(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		// `(a, b) -> a + b` / `a -> a` / `(int a) -> a`. Lambdas
-		// introduce a new local frame so the body's references resolve
-		// correctly. The lambda itself is not emitted as a def in the
-		// MVP — its parameters are recorded as locals when the
-		// surrounding scope is a callable.
 		self.push_local_scope();
 		if let Some(params) = node.child_by_field_name("parameters") {
 			match params.kind() {
@@ -444,7 +416,6 @@ impl<'src> Walker<'src> {
 		self.pop_local_scope();
 	}
 
-	// --- annotations -----------------------------------------------------
 
 	fn emit_annotations_from(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
@@ -460,7 +431,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- helpers ---------------------------------------------------------
 
 	pub(super) fn field_text(&self, node: Node<'_>, field: &str) -> Option<&'src str> {
 		node.child_by_field_name(field)?
@@ -473,9 +443,6 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// Pre-pass: walk every type declaration (top-level + nested) under
-/// `node` and record `short-name → moniker` so refs to those names
-/// can be tagged `resolved` with a real target.
 pub(super) fn collect_type_table<'src>(
 	node: Node<'_>,
 	source: &'src [u8],
@@ -499,8 +466,6 @@ pub(super) fn collect_type_table<'src>(
 		let Some(name_node) = child.child_by_field_name("name") else { continue };
 		let Ok(name) = name_node.utf8_text(source) else { continue };
 		let m = extend_segment(parent, kind, name.as_bytes());
-		// First-write-wins: a top-level type shouldn't be shadowed by a
-		// later nested namesake.
 		out.entry(name.as_bytes()).or_insert_with(|| m.clone());
 		if let Some(body) = child.child_by_field_name("body") {
 			collect_type_table(body, source, &m, out);
@@ -508,10 +473,6 @@ pub(super) fn collect_type_table<'src>(
 	}
 }
 
-/// Parameter type list as it appears in source (short type names,
-/// generics and array suffixes preserved). Drives both the typed
-/// callable moniker (`method:bar(int,String)`) and `DefRecord.signature`
-/// for projection-side filtering.
 pub(super) fn formal_parameter_types<'src>(
 	callable: Node<'_>,
 	source: &'src [u8],

@@ -1,5 +1,3 @@
-//! Build canonical moniker bytes step-by-step.
-
 use super::encoding::{write_u16, HEADER_FIXED_LEN, VERSION};
 use super::{Moniker, MonikerView};
 
@@ -14,7 +12,6 @@ impl MonikerBuilder {
 		Self::default()
 	}
 
-	/// Seed a builder with the project + segments of an existing view.
 	pub fn from_view(view: MonikerView<'_>) -> Self {
 		let mut b = Self::new();
 		b.project(view.project());
@@ -34,9 +31,6 @@ impl MonikerBuilder {
 		self
 	}
 
-	/// Append a segment. `kind` is a kind name (e.g. `b"class"`,
-	/// `b"method"`), `name` is the segment label. Method overload
-	/// disambiguators live inside `name` (e.g. `b"findById(2)"`).
 	pub fn segment(&mut self, kind: &[u8], name: &[u8]) -> &mut Self {
 		self.segments.push((kind.to_vec(), name.to_vec()));
 		self

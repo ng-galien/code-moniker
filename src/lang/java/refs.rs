@@ -1,5 +1,3 @@
-//! Refs extraction: imports, calls, method_call (with receiver hint),
-//! instantiates, extends, implements, annotates, uses_type, reads.
 
 use tree_sitter::Node;
 
@@ -11,7 +9,6 @@ use super::kinds;
 use super::walker::Walker;
 
 impl<'src> Walker<'src> {
-	// --- imports ---------------------------------------------------------
 
 	pub(super) fn handle_import(
 		&self,
@@ -46,7 +43,6 @@ impl<'src> Walker<'src> {
 			return;
 		}
 
-		// Named import: last piece is the symbol; record it for confidence.
 		if let Some(last) = pieces.last().copied() {
 			self.imports
 				.borrow_mut()
@@ -57,7 +53,6 @@ impl<'src> Walker<'src> {
 		let _ = graph.add_ref_attrs(scope, target, kinds::IMPORTS_SYMBOL, Some(pos), &attrs);
 	}
 
-	// --- calls / new -----------------------------------------------------
 
 	pub(super) fn handle_method_invocation(
 		&self,
@@ -138,7 +133,6 @@ impl<'src> Walker<'src> {
 		self.walk(node, scope, graph);
 	}
 
-	// --- heritage / annotations -----------------------------------------
 
 	pub(super) fn emit_heritage_refs(
 		&self,
@@ -198,7 +192,6 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	// --- type uses -------------------------------------------------------
 
 	pub(super) fn emit_uses_type(
 		&self,
@@ -241,7 +234,6 @@ impl<'src> Walker<'src> {
 		);
 	}
 
-	// --- reads -----------------------------------------------------------
 
 	pub(super) fn handle_identifier(
 		&self,
@@ -261,7 +253,6 @@ impl<'src> Walker<'src> {
 		let _ = graph.add_ref_attrs(scope, target, kinds::READS, Some(node_position(node)), &attrs);
 	}
 
-	// --- target builders -------------------------------------------------
 
 	fn calls_target(&self, name: &str, arity: u16) -> Moniker {
 		extend_callable_arity(&self.module, kinds::METHOD, name.as_bytes(), arity)
@@ -276,8 +267,6 @@ impl<'src> Walker<'src> {
 	}
 }
 
-/// Count argument-list children of a `method_invocation` /
-/// `object_creation_expression`'s `arguments` field.
 fn argument_count(call: Node<'_>) -> u16 {
 	let Some(args) = call.child_by_field_name("arguments") else { return 0 };
 	let mut cursor = args.walk();
@@ -289,8 +278,6 @@ fn argument_count(call: Node<'_>) -> u16 {
 	count
 }
 
-/// Receiver shape for a method_invocation's `object`. Mirrors the TS
-/// receiver_hint vocabulary: this/super/identifier/member/call.
 fn receiver_hint(obj: Node<'_>) -> &'static [u8] {
 	match obj.kind() {
 		"this" => b"this",
@@ -303,8 +290,6 @@ fn receiver_hint(obj: Node<'_>) -> &'static [u8] {
 	}
 }
 
-/// Last identifier text under a `scoped_identifier` /
-/// `scoped_type_identifier` (`com.acme.Foo` → `Foo`).
 fn last_identifier<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 	if let Some(name) = node.child_by_field_name("name") {
 		return name.utf8_text(source).unwrap_or("");
@@ -319,7 +304,6 @@ fn last_identifier<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 	last
 }
 
-/// Short type name from a `generic_type` (`List<String>` → `List`).
 fn generic_type_short<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 	let mut cursor = node.walk();
 	for c in node.named_children(&mut cursor) {
@@ -332,12 +316,6 @@ fn generic_type_short<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 	""
 }
 
-/// Wildcard import target (`import com.acme.*`).
-/// - `confidence == imported`: language regime,
-///   `lang:java/package:com/package:acme`. Matches the package's
-///   containment root for `<@`-style queries.
-/// - `confidence == external`: project regime,
-///   `external_pkg:com/path:acme`.
 fn wildcard_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Moniker {
 	if confidence == kinds::CONF_IMPORTED && !pieces.is_empty() {
 		let mut b = MonikerBuilder::new();
@@ -351,13 +329,6 @@ fn wildcard_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Monike
 	external_package_target(project, pieces)
 }
 
-/// Named import target (`import com.acme.Foo`).
-/// - `confidence == imported`: language regime,
-///   `lang:java/package:com/package:acme/module:Foo/path:Foo`. The
-///   trailing `path:Foo` lets `bind_match` unify with the class def
-///   `class:Foo` while `module:Foo` matches the file as a parent.
-/// - `confidence == external`: project regime,
-///   `external_pkg:com/path:acme/path:Foo`.
 fn symbol_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Moniker {
 	if confidence == kinds::CONF_IMPORTED && !pieces.is_empty() {
 		let mut b = MonikerBuilder::new();
@@ -368,18 +339,12 @@ fn symbol_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Moniker 
 			let kind = if i == last { kinds::MODULE } else { kinds::PACKAGE };
 			b.segment(kind, piece.as_bytes());
 		}
-		// Duplicate the symbol name as a `path:` leaf so bind_match
-		// resolves to the class def. The class def carries
-		// `module:Foo/class:Foo`; we mirror with `module:Foo/path:Foo`.
 		b.segment(kinds::PATH, pieces[last].as_bytes());
 		return b.build();
 	}
 	external_package_target(project, pieces)
 }
 
-/// Build an external-package target for an import path. JDK packages
-/// (`java.*`, `javax.*`) and any non-relative dotted path land under
-/// `external_pkg:<head>` with the rest as `path:` segments.
 fn external_package_target(project: &[u8], pieces: &[&str]) -> Moniker {
 	let mut b = MonikerBuilder::new();
 	b.project(project);
@@ -393,10 +358,6 @@ fn external_package_target(project: &[u8], pieces: &[&str]) -> Moniker {
 	b.build()
 }
 
-/// Heuristic: anything starting with `java.` / `javax.` / `kotlin.` /
-/// `sun.` / `com.sun.` is JDK external. Everything else without a `.`
-/// is project-local-but-FQN-unknown so we tag `imported` (the
-/// consumer can refine with a package preset later).
 fn external_or_imported(pieces: &[&str]) -> &'static [u8] {
 	if pieces.is_empty() {
 		return kinds::CONF_IMPORTED;

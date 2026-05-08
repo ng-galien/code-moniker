@@ -1,5 +1,3 @@
-//! Per-language extraction entry points exposed to SQL.
-
 use pgrx::prelude::*;
 
 use crate::pg::code_graph::code_graph;
@@ -46,10 +44,6 @@ fn extract_java(
 	code_graph::from_core(inner)
 }
 
-/// SQL / PL-pgSQL extractor. Drives PG's own `pg_parse_query` for the
-/// DDL surface and (phase 2) `plpgsql_compile_inline` for procedural
-/// bodies. Marked `volatile` because phase 2 reads catalog state for
-/// type resolution; the function itself never writes.
 #[pg_extern]
 fn extract_plpgsql(
 	uri: &str,

@@ -1,7 +1,3 @@
--- Compact SCIP-like projection of a moniker (display-only) and its
--- match predicate. The compact form drops kind precision (interface vs
--- class collapse onto `#name#`) — there is no text → moniker parser
--- for it by design.
 
 BEGIN;
 
@@ -10,14 +6,12 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(13);
 
--- Surface ------------------------------------------------------------------
 
 SELECT has_function('moniker_compact'::name, ARRAY['moniker'],
 	'moniker_compact(moniker) is exposed');
 SELECT has_function('match_compact'::name, ARRAY['moniker','text'],
 	'match_compact(moniker, text) is exposed');
 
--- Projection per kind class ------------------------------------------------
 
 SELECT is(
 	moniker_compact('esac+moniker://my-app'::moniker),
@@ -49,18 +43,12 @@ SELECT is(
 	'esac://app#Foo#count.',
 	'term-class kinds use `#name.`');
 
--- Aliasing across kind precision -------------------------------------------
 
--- `class:Foo` and `interface:Foo` collapse to the same compact text;
--- intentional trade-off, identity belongs to the canonical typed URI.
 SELECT is(
 	moniker_compact('esac+moniker://app/class:Foo'::moniker),
 	moniker_compact('esac+moniker://app/interface:Foo'::moniker),
 	'class and interface alias under compact projection (intentional)');
 
--- Backtick escape on names containing SCIP-reserved chars. Without
--- escape, `util/test.ts` would collide with a two-segment path chain
--- and break match_compact correctness.
 SELECT is(
 	moniker_compact('esac+moniker://app/path:`util/test.ts`'::moniker),
 	'esac://app/`util/test.ts`',
@@ -72,7 +60,6 @@ SELECT ok(
 		'esac://app/`util/test.ts`'),
 	'match_compact agrees with moniker_compact on escaped names');
 
--- match_compact -----------------------------------------------------------
 
 SELECT ok(
 	match_compact('esac+moniker://app/class:Foo'::moniker, 'esac://app#Foo#'),

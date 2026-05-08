@@ -1,5 +1,3 @@
-//! Rust-specific kind names. Byte string constants embedded directly
-//! in moniker bytes; no registry indirection.
 
 pub(super) const PATH: &[u8] = b"path";
 pub(super) const MODULE: &[u8] = b"module";

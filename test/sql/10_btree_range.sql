@@ -1,8 +1,3 @@
--- v2 layout dropped the fixed-offset seg_count, so byte-lex order is
--- now strictly tree-friendly: parent < every descendant < every later
--- sibling. That makes a sub-tree range query (`m >= ancestor AND m <
--- ancestor||sentinel`) well-defined on the plain btree opclass — a
--- cheaper alternative to GiST `<@` for ancestor-bounded scans.
 
 BEGIN;
 
@@ -22,24 +17,16 @@ INSERT INTO m VALUES
 	(6, 'esac+moniker://other/path:foo'),
 	(7, 'esac+moniker://app/path:src/path:lib/class:Other');
 
--- Tree-lex invariant: parent comes before every descendant.
 SELECT ok(
 	'esac+moniker://app/path:src/path:lib'::moniker
 	  < 'esac+moniker://app/path:src/path:lib/class:Lib/method:go()'::moniker,
 	'parent < descendant via byte-lex (v2 tree-friendly)');
 
--- Tree-lex invariant: descendant comes before later sibling. This is
--- the case v1 broke when a sibling's name was longer than the parent's.
 SELECT ok(
 	'esac+moniker://app/path:src/path:lib/class:Lib/method:looooooooooooong()'::moniker
 	  < 'esac+moniker://app/path:src/path:lib/class:Other'::moniker,
 	'long descendant stays inside parent range — does not leapfrog next sibling');
 
--- Sub-tree range scan via btree alone. Sentinel `zzzzz:zzz...` is a
--- moniker textually greater than any plausible kind:name extension —
--- relies on `z` being the largest ASCII identifier character we would
--- ever emit. A future tightening could derive the bound from the
--- ancestor's bytes, but text-only is enough at this layer.
 SELECT is(
 	(SELECT array_agg(id ORDER BY id) FROM m
 	  WHERE mon >= 'esac+moniker://app'::moniker

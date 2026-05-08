@@ -1,11 +1,3 @@
-//! Top-level SQL statement walker. Drives `pg_parse_query` to obtain a
-//! list of `RawStmt`, dispatches each to its emitter. Phase 1: DDL and
-//! top-level call refs. Phase 2 hooks into `plpgsql_compile_inline` for
-//! procedural bodies.
-//!
-//! Errors raised by the parser are caught at the whole-source level
-//! and result in a module-only graph; per-statement isolation comes in
-//! a follow-up once dollar-quote-aware splitting lands.
 
 use std::ffi::{CStr, CString};
 
@@ -68,9 +60,6 @@ fn dispatch_stmt(raw: &pg_sys::RawStmt, source: &str, module: &Moniker, graph: &
 			let stmt = raw.stmt as *const pg_sys::ViewStmt;
 			let view_stmt = unsafe { &*stmt };
 			emit_view(view_stmt, module, position, graph);
-			// raw_expression_tree_walker doesn't accept ViewStmt itself
-			// (it's a DDL statement). The interesting SELECT lives in
-			// `query`, which IS walkable.
 			collect_calls_in(view_stmt.query, module, module, graph);
 		}
 		_ => {
@@ -79,7 +68,6 @@ fn dispatch_stmt(raw: &pg_sys::RawStmt, source: &str, module: &Moniker, graph: &
 	}
 }
 
-// --- def emitters -----------------------------------------------------
 
 fn emit_create_function(
 	stmt: &pg_sys::CreateFunctionStmt,
@@ -108,10 +96,6 @@ fn emit_create_function(
 		return;
 	}
 
-	// Phase 2: descend into the PL/pgSQL body when this is a plpgsql
-	// function. SQL-language bodies, C bindings and stand-alone SQL
-	// functions are skipped — their inner SQL is parsed by raw_parser
-	// at top level (or via sql_body, not yet covered).
 	let (lang, body) = function_language_and_body(stmt.options);
 	if lang.eq_ignore_ascii_case(b"plpgsql") && !body.is_empty() {
 		let (is_setof, is_void) = return_shape(stmt.returnType);
@@ -128,8 +112,6 @@ fn emit_create_function(
 	}
 }
 
-/// Names of every parameter (anonymous → empty). Order matches `$N`
-/// in the body: the i-th entry is the name (or empty) for `$<i+1>`.
 fn function_param_names(params: *mut pg_sys::List) -> Vec<Vec<u8>> {
 	if params.is_null() {
 		return Vec::new();
@@ -150,10 +132,6 @@ fn function_param_names(params: *mut pg_sys::List) -> Vec<Vec<u8>> {
 		.collect()
 }
 
-/// Read the SETOF flag and detect a `void` return type from the
-/// CreateFunctionStmt's `returnType`. Used to drive the bison
-/// grammar's RETURN-form consistency checks. Procedures (no
-/// returnType at all) are treated as void.
 fn return_shape(return_type: *mut pg_sys::TypeName) -> (bool, bool) {
 	if return_type.is_null() {
 		return (false, true);
@@ -213,10 +191,7 @@ fn emit_view(
 	let _ = graph.add_def(moniker, kinds::VIEW, module, position);
 }
 
-// --- call ref collection ----------------------------------------------
 
-/// Scratchpad passed through the C walker callback. Lifetimes are
-/// erased for FFI; we re-borrow on each callback entry.
 struct CallCtx {
 	module: *const Moniker,
 	source: *const Moniker,
@@ -238,9 +213,6 @@ pub(super) fn collect_calls_in(
 		graph: graph as *mut _,
 	};
 	let ctx_ptr = &mut ctx as *mut _ as *mut ::core::ffi::c_void;
-	// raw_expression_tree_walker rejects DDL statement nodes with
-	// "unrecognized node type"; swallow the ereport so one foreign
-	// shape does not abort the whole extraction.
 	let _ = PgTryBuilder::new(|| unsafe {
 		pg_sys::raw_expression_tree_walker_impl(node, Some(walker_cb), ctx_ptr)
 	})
@@ -274,10 +246,6 @@ fn emit_call_ref(fc: &pg_sys::FuncCall, ctx: &mut CallCtx) {
 	let module = unsafe { &*ctx.module };
 	let source = unsafe { &*ctx.source };
 	let parent = maybe_schema(module, &schema);
-	// Raw_parser does not analyse argument types, so we only know
-	// arity at a top-level call site. Defs use typed monikers; this
-	// arity-only target won't match them via `=`. Mark the ref
-	// `unresolved` so consumers know to project on name+arity.
 	let target = extend_callable_arity(&parent, kinds::FUNCTION, &name, arity);
 	let position = func_call_position(fc);
 	let attrs = RefAttrs {
@@ -288,7 +256,6 @@ fn emit_call_ref(fc: &pg_sys::FuncCall, ctx: &mut CallCtx) {
 	let _ = graph.add_ref_attrs(source, target, kinds::REF_CALLS, position, &attrs);
 }
 
-// --- helpers ----------------------------------------------------------
 
 fn stmt_position(raw: &pg_sys::RawStmt, source_len: usize) -> Option<Position> {
 	let start = raw.stmt_location;
@@ -342,9 +309,6 @@ fn qualified_name_from_list(list: *mut pg_sys::List) -> Option<(Vec<u8>, Vec<u8>
 	}
 }
 
-/// CREATE FUNCTION carries the language name and body string as
-/// `DefElem` entries inside `options`. Returns `(language, body)`
-/// where either may be empty when absent.
 fn function_language_and_body(options: *mut pg_sys::List) -> (Vec<u8>, Vec<u8>) {
 	let mut lang = Vec::new();
 	let mut body = Vec::new();
@@ -369,11 +333,6 @@ fn function_language_and_body(options: *mut pg_sys::List) -> (Vec<u8>, Vec<u8>) 
 				}
 			}
 			b"as" => {
-				// `arg` is List of String. For PL/pgSQL there is one
-				// element holding the body source. C-language functions
-				// have two elements (lib path + symbol) — for those the
-				// body is the lib path and we will drop it later via
-				// the language check.
 				if unsafe { (*opt.arg).type_ } == pg_sys::NodeTag::T_List {
 					let list: pgrx::PgList<pg_sys::String> =
 						unsafe { pgrx::PgList::from_pg(opt.arg as *mut pg_sys::List) };
@@ -445,10 +404,6 @@ fn type_name_to_bytes(type_name: *mut pg_sys::TypeName) -> Vec<u8> {
 	strip_pg_catalog(bytes)
 }
 
-/// `pg_catalog.<type>` is the parser's qualified form for built-in type
-/// keywords (`int` → `pg_catalog.int4`). Drop the implicit schema so
-/// monikers stay readable; the unqualified form is still unambiguous
-/// because user types must be qualified or single-segment names.
 fn strip_pg_catalog(bytes: Vec<u8>) -> Vec<u8> {
 	const PREFIX: &[u8] = b"pg_catalog.";
 	if bytes.starts_with(PREFIX) {

@@ -1,8 +1,3 @@
-//! Parse `package.json`. One `Dep` per declared dependency plus one
-//! for the package itself (`dep_kind = "package"`). For npm packages
-//! the import root is the bare specifier as written — including the
-//! `@scope/name` form for scoped packages — so a consumer can JOIN
-//! linkage rows against `external_pkg_root(target)` directly.
 
 use serde_json::Value;
 
@@ -71,10 +66,6 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, PackageJsonError> {
 	Ok(out)
 }
 
-/// npm package names map directly to the import specifier — `react`
-/// stays `react`, `@scope/pkg` stays `@scope/pkg`. This is a no-op for
-/// well-formed names; it's a function to keep parity with the Rust
-/// extractor's `rust_import_root`.
 pub(crate) fn ts_import_root(name: &str) -> String {
 	name.to_string()
 }
@@ -172,8 +163,6 @@ mod tests {
 
 	#[test]
 	fn parse_missing_name_omits_package_row() {
-		// package.json without `name` is unusual but valid for private
-		// monorepo roots; we just don't emit the package row.
 		let json = r#"{
 			"private": true,
 			"dependencies": { "react": "^18.0.0" }

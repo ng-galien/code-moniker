@@ -1,10 +1,3 @@
-//! Build vendored PL/pgSQL parser sources into our extension's .dylib so we
-//! get a portable, deterministic plpgsql parser without depending on
-//! plpgsql.so's internal symbols (which are hidden as local on macOS).
-//!
-//! Only compiles when a pgN feature is selected — pure-Rust builds skip
-//! the C compilation entirely.
-
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
@@ -12,7 +5,7 @@ use std::process::Command;
 fn main() {
 	let pg_n = match select_pg_feature() {
 		Some(v) => v,
-		None => return, // no pgN feature → no plpgsql vendor build
+		None => return,
 	};
 
 	println!("cargo:rerun-if-changed=vendor/plpgsql");
@@ -60,7 +53,6 @@ fn pg_config_for(pg_n: &str) -> String {
 		return p;
 	}
 	if let Ok(home) = env::var("HOME") {
-		// pgrx default install layout
 		let candidate = format!("{}/.pgrx/{}.{}/pgrx-install/bin/pg_config", home, pg_n, minor_for(pg_n));
 		if std::path::Path::new(&candidate).exists() {
 			return candidate;
@@ -69,8 +61,6 @@ fn pg_config_for(pg_n: &str) -> String {
 	"pg_config".to_string()
 }
 
-/// pgrx encodes the minor in the directory name (e.g. 17.9). Default to the
-/// latest known minor; user can override via PG_CONFIG_PG{N}.
 fn minor_for(pg_n: &str) -> &'static str {
 	match pg_n {
 		"17" => "9",

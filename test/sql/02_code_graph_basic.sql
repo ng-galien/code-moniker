@@ -1,4 +1,3 @@
--- Phase 2: code_graph type, constructors, accessors, containment.
 
 BEGIN;
 
@@ -7,7 +6,6 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(13);
 
--- Type and surface presence -------------------------------------------------
 
 SELECT has_type('code_graph', 'code_graph type is exposed');
 
@@ -25,7 +23,6 @@ SELECT has_function('graph_add_ref'::name,
 SELECT has_function('graph_root'::name, ARRAY['code_graph'],
 	'graph_root is exposed');
 
--- Build a small graph in a CTE so we can query against it ------------------
 
 WITH g0 AS (
 	SELECT graph_create('esac+moniker://app/path:main/path:Foo'::moniker, 'module') AS g
@@ -68,7 +65,6 @@ SELECT
 		'graph_ref_targets returns one entry per ref') AS r7
 FROM gref;
 
--- graph_defs setof -----------------------------------------------------------
 
 WITH g AS (
 	SELECT graph_add_def(

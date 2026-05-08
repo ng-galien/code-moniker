@@ -1,6 +1,3 @@
--- Btree and hash opclasses on `moniker`. Unlock ORDER BY, DISTINCT,
--- hash-join, and GIN on `moniker[]` (the SPEC `module_defs_gin` /
--- `module_refs_gin` patterns).
 
 BEGIN;
 
@@ -9,7 +6,6 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(11);
 
--- Ordering operators present -----------------------------------------------
 
 SELECT has_function('moniker_cmp'::name, ARRAY['moniker','moniker'],
 	'moniker_cmp(moniker, moniker) is exposed');
@@ -17,7 +13,6 @@ SELECT has_function('moniker_cmp'::name, ARRAY['moniker','moniker'],
 SELECT has_function('moniker_hash'::name, ARRAY['moniker'],
 	'moniker_hash(moniker) is exposed');
 
--- Btree behavior: total order with parents before children -----------------
 
 SELECT is(
 	(SELECT array_agg(m::text ORDER BY m)
@@ -37,7 +32,6 @@ SELECT ok(
 	NOT ('esac+moniker://app/class:Foo'::moniker > 'esac+moniker://app/class:Foo'::moniker),
 	'reflexive: moniker is not strictly greater than itself');
 
--- Hash behavior: DISTINCT works (hash-aggregate would otherwise fail) ----
 
 SELECT is(
 	(SELECT count(DISTINCT m)::int
@@ -49,7 +43,6 @@ SELECT is(
 	2,
 	'DISTINCT moniker uses the hash opclass');
 
--- GIN array index on moniker[] -------------------------------------------
 
 CREATE TEMP TABLE module (
 	id    text       PRIMARY KEY,
@@ -75,9 +68,6 @@ SELECT is(
 	'lib',
 	'graph_def_monikers @> ARRAY[m] resolves the owning module');
 
--- Per-symbol imports anchor refs *under* the imported module — the
--- importer's targets include `path:src/path:lib/path:Lib`, not the bare
--- module moniker. The GIN-indexable @> still works for an exact target.
 SELECT is(
 	(SELECT array_agg(id ORDER BY id) FROM module
 	  WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/lang:ts/path:src/path:lib/path:Lib'::moniker]),

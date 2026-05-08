@@ -1,18 +1,3 @@
-//! Btree and hash opclasses on `moniker`.
-//!
-//! These unlock standard PG patterns that require an ordering or hash
-//! support function on the type:
-//!
-//! - `ORDER BY moniker`, `array_agg(moniker ORDER BY ...)`
-//! - `DISTINCT`, hash-join, hash-aggregate on a `moniker` column
-//! - `GIN` indexes on `moniker[]` columns (the SPEC `module_defs_gin`
-//!   pattern relies on `array_ops`, which itself needs btree)
-//!
-//! Order is byte-lexicographic on the canonical encoding — see the
-//! note on `core::moniker::Moniker`. Hash is FNV-1a 32-bit on the
-//! same bytes, deterministic across processes (a non-deterministic
-//! seed would silently break hash indexes after restart).
-
 use pgrx::prelude::*;
 
 use super::moniker;
@@ -81,9 +66,6 @@ extension_sql!(
 			FUNCTION 1 moniker_hash(moniker);
 	"#,
 	name = "moniker_opclasses",
-	// Order matters: pgrx emits these SQL entities in sequence, and
-	// `CREATE OPERATOR CLASS` needs the operator/function refs to exist
-	// at SQL execution time.
 	requires = [
 		moniker_eq,
 		moniker_lt,

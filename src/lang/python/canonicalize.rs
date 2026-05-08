@@ -1,6 +1,3 @@
-//! Python module-moniker construction. The URI path under the anchor
-//! is the package chain — there is no in-source `package` declaration
-//! to parse.
 
 use std::path::Path;
 
@@ -21,8 +18,6 @@ pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	b.build()
 }
 
-/// `pkg/sub/foo.py` → (`["pkg", "sub"]`, `"foo"`). `foo.py` → (`[]`,
-/// `"foo"`). `__init__.py` keeps the literal name `__init__`.
 fn split_path<'a>(uri: &'a str) -> (Vec<&'a str>, &'a str) {
 	let after_scheme = uri.split("://").last().unwrap_or(uri);
 	let pieces: Vec<&str> = after_scheme.split('/').filter(|s| !s.is_empty()).collect();
