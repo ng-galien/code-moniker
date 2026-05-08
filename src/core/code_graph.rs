@@ -95,6 +95,20 @@ impl Hash for CodeGraph {
 }
 
 impl CodeGraph {
+	pub(crate) fn from_records(defs: Vec<DefRecord>, refs: Vec<RefRecord>) -> Self {
+		let mut index = HashMap::with_capacity(defs.len());
+		for (i, d) in defs.iter().enumerate() {
+			index.insert(d.moniker.clone(), i);
+		}
+		Self {
+			defs,
+			refs,
+			index: RefCell::new(index),
+			def_monikers_cache: RefCell::new(None),
+			ref_targets_cache: RefCell::new(None),
+		}
+	}
+
 	pub fn new(root: Moniker, root_kind: &[u8]) -> Self {
 		use crate::core::kinds::BIND_EXPORT;
 		let mut index = HashMap::with_capacity(8);

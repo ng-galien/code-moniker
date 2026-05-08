@@ -11,6 +11,7 @@ use pgrx::{set_varsize_4b, varlena_to_byte_slice, InOutFuncs, StringInfo};
 use crate::core::moniker::{Moniker as CoreMoniker, MonikerView};
 use crate::core::uri::{from_uri, to_uri};
 use crate::pg::registry::DEFAULT_CONFIG;
+use crate::pg::util::resolve_type_oid;
 
 mod compact;
 mod gist;
@@ -138,7 +139,7 @@ fn depth(m: moniker) -> i32 {
 	m.view().segment_count() as i32
 }
 
-pub(super) unsafe fn palloc_varlena_from_slice(bytes: &[u8]) -> pg_sys::Datum {
+pub(crate) unsafe fn palloc_varlena_from_slice(bytes: &[u8]) -> pg_sys::Datum {
 	let len = bytes.len().saturating_add(pg_sys::VARHDRSZ);
 	assert!(len < (u32::MAX as usize >> 2), "moniker exceeds 1 GiB varlena cap");
 	unsafe {
@@ -158,7 +159,7 @@ pub(super) unsafe fn palloc_varlena_from_slice(bytes: &[u8]) -> pg_sys::Datum {
 	}
 }
 
-pub(super) unsafe fn varlena_to_borrowed_bytes<'a>(datum: pg_sys::Datum) -> &'a [u8] {
+pub(crate) unsafe fn varlena_to_borrowed_bytes<'a>(datum: pg_sys::Datum) -> &'a [u8] {
 	unsafe {
 		let detoasted = pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr());
 		varlena_to_byte_slice(detoasted)
@@ -168,16 +169,7 @@ pub(super) unsafe fn varlena_to_borrowed_bytes<'a>(datum: pg_sys::Datum) -> &'a 
 static MONIKER_TYPE_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
 
 fn moniker_type_oid() -> pg_sys::Oid {
-	*MONIKER_TYPE_OID.get_or_init(|| unsafe {
-		let ext_name = c"pg_code_moniker".as_ptr();
-		let ext_oid = pg_sys::get_extension_oid(ext_name, false);
-		let nsp_oid = pg_sys::get_extension_schema(ext_oid);
-		let nsp_name = pg_sys::get_namespace_name(nsp_oid);
-		let nsp_str = CStr::from_ptr(nsp_name)
-			.to_str()
-			.expect("namespace name must be UTF-8");
-		::pgrx::wrappers::regtypein(&format!("{nsp_str}.moniker"))
-	})
+	*MONIKER_TYPE_OID.get_or_init(|| resolve_type_oid("moniker"))
 }
 
 impl IntoDatum for moniker {

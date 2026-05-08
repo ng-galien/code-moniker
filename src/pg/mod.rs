@@ -5,6 +5,7 @@ pub mod code_graph;
 pub mod extract;
 pub mod moniker;
 mod registry;
+mod util;
 
 #[pg_extern]
 fn pcm_version() -> &'static str {

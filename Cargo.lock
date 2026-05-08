@@ -582,6 +582,7 @@ dependencies = [
  "pgrx",
  "roxmltree",
  "serde",
+ "serde_cbor",
  "serde_json",
  "toml 0.8.23",
  "tree-sitter",
