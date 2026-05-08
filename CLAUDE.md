@@ -88,6 +88,9 @@ A new language under `src/lang/<lang>/` mirrors the `ts/` skeleton:
 - `scope.rs` — local-scope stack (`record_local`, `is_local_name`, `name_confidence`) and language-specific visibility helper. Defaults differ per language — Java is `package`, TS is `public`. Push/pop on each callable so `confidence: local` stays accurate.
 - Optional `imports.rs` (when imports decompose into many specifiers) and `build.rs` (manifest parser yielding `Vec<Dep>` consumed by `src/pg/build.rs::extract_<system>`).
 
+- **Pre-pass `collect_type_table`** (when methods can precede their receiver type, e.g. Go / Rust impl): emits top-level type defs to the graph AND fills the resolution HashMap. Walker's `handle_type_spec` gates `add_def_attrs` on `scope != module` to skip the duplicate. `DuplicateMoniker` is silently tolerated everywhere via `let _ = graph.add_def(...)`; that is the project convention, not an error.
+- **Triplicated helpers** (`resolve_type_target`, `stdlib_or_imported`, external-package target builders) are deliberately copy-pasted across `java/`, `python/`, `go/`. Do not factor prematurely; they will move to a shared module once cross-file resolution lands.
+
 Wire the SQL surface in `src/pg/extract.rs` (`#[pg_extern] fn extract_<lang>(...)`); add a pgTAP file under `test/sql/` and a panel entry to `test/dogfood/panel.sh` for scaling validation.
 
 ## TDD
@@ -106,10 +109,13 @@ Canonical loop after a non-trivial change:
 ```bash
 cargo check --features pg17 --no-default-features --tests   # FFI/lifetime check, seconds
 cargo test  --features pg17 --no-default-features --lib     # unit tests, sub-second
+cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings
 cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
 ./test/run.sh                                               # pgTAP suite, ~5s
 ./test/dogfood.sh --only <project>                          # scaling validation
 ```
+
+Pre-commit hook runs `cargo fmt -- --check` + `cargo clippy ... -D warnings` on `*.rs` / `Cargo.{toml,lock}` changes. `cargo fmt` will collapse multi-line `let _ = call(args)` that fit on one line; clippy lints (`manual_find`, `manual_let_else`) block the commit. Run clippy proactively before committing.
 
 The dogfood runner clones the panel into `/dogfood/` (gitignored) on first use; subsequent runs reuse the clones unless `--reset` is passed.
 
@@ -128,3 +134,12 @@ Bench at scale via `cargo run --release --example bench_codegraph` (CodeGraph th
 - Node kinds are `function_item` / `type_item` / `enum_item` / `trait_item` (not `fn_item` / `type_alias_item`).
 - Closure `parameters` field is `closure_parameters`; children are bare patterns (`|x|`) OR `parameter` wrappers (`|x: i32|`). Counting only `kind == "parameter"` undercounts untyped closures.
 - Statement-position `if_expression` / `match_expression` is wrapped in `expression_statement`. A body-walker dropping that kind loses locals nested in `if cond { let x = … }`.
+
+## tree-sitter-go gotchas
+
+- `parameter_declaration` carries multiple identifier children sharing one `type` field (`func f(a, b int)`); count names and emit one type slot per name.
+- `method_declaration` field `receiver` is a `parameter_list` with a single `parameter_declaration`; strip `pointer_type` and unwrap `generic_type.type` to recover the receiver type name.
+- `import_spec` has fields `path` (interpreted_string_literal — strip `"`/backticks) and `name` (optional: `package_identifier` alias, or `dot`/`blank_identifier` for `. "fmt"` / `_ "fmt"`).
+- `qualified_type` exposes prefix as field `package` and type as field `name` (not `path`).
+- `composite_literal` has fields `type` and `body` (= `literal_value`); recurse on `generic_type.type` to peel `Foo[T]{}`.
+- `short_var_declaration` / `var_declaration` / `range_clause` use field `left` (identifier OR expression_list); skip `_` blank patterns.
