@@ -66,6 +66,7 @@ mod tests {
 
 		let expected = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"path", b"src")
 			.segment(b"module", b"lib")
 			.build();
@@ -77,6 +78,7 @@ mod tests {
 		let g = extract("util.rs", "pub struct Foo { x: i32 }", &make_anchor(), false);
 		let foo = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.build();
@@ -88,6 +90,7 @@ mod tests {
 		let g = extract("util.rs", "pub enum Color { Red, Green }", &make_anchor(), false);
 		let color = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"enum", b"Color")
 			.build();
@@ -99,6 +102,7 @@ mod tests {
 		let g = extract("util.rs", "pub trait Greet { fn hi(&self); }", &make_anchor(), false);
 		let greet = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"interface", b"Greet")
 			.build();
@@ -110,6 +114,7 @@ mod tests {
 		let g = extract("util.rs", "pub type Id = u64;", &make_anchor(), false);
 		let id = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"type_alias", b"Id")
 			.build();
@@ -121,6 +126,7 @@ mod tests {
 		let g = extract("util.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }", &make_anchor(), false);
 		let add = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"add(i32,i32)")
 			.build();
@@ -132,6 +138,7 @@ mod tests {
 		let g = extract("util.rs", "pub fn boot() {}", &make_anchor(), false);
 		let boot = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"boot()")
 			.build();
@@ -149,11 +156,13 @@ mod tests {
 		let g = extract("util.rs", src, &make_anchor(), false);
 		let foo = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.build();
 		let bar = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"method", b"bar()")
@@ -174,11 +183,13 @@ mod tests {
 		let g = extract("util.rs", src, &make_anchor(), false);
 		let foo = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.build();
 		let greet = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"interface", b"Greet")
 			.build();
@@ -218,6 +229,9 @@ mod tests {
 		let g = extract("util.rs", "use crate::core::moniker::Moniker;", &make_anchor(), false);
 		let r = g.refs().next().unwrap();
 		// `crate::` prefix stripped; rest encoded as project-local path.
+		// TODO(phase 7 step 3): once target_under_project posts the
+		// lang segment, this expected gains `.segment(b"lang", b"rs")`
+		// so bind_match can resolve to the corresponding def.
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"path", b"core")
@@ -229,7 +243,6 @@ mod tests {
 
 	#[test]
 	fn extract_use_super_walks_up_one_segment() {
-		// Module is anchor + `module:rs` + `module:walker` (we stub a 2-deep file).
 		let anchor = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"path", b"src")
@@ -238,11 +251,14 @@ mod tests {
 		let g = extract("rs/walker.rs", "use super::kinds;", &anchor, false);
 		let r = g.refs().next().unwrap();
 		// `super::` strips one segment from the importer's module
-		// (`module:walker`), then appends `path:kinds`.
+		// (`module:walker`), then appends `path:kinds`. The lang
+		// segment posted by compute_module_moniker survives the
+		// truncation because it sits above the module segment.
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"path", b"src")
 			.segment(b"path", b"lang")
+			.segment(b"lang", b"rs")
 			.segment(b"path", b"rs")
 			.segment(b"path", b"kinds")
 			.build();
@@ -261,6 +277,7 @@ mod tests {
 		let r = g.refs().next().unwrap();
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"path", b"canonicalize")
 			.segment(b"path", b"compute_module_moniker")
@@ -290,6 +307,7 @@ mod tests {
 		// `self::` resolves under the importer's module moniker.
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"path", b"kinds")
 			.segment(b"path", b"PATH")
@@ -366,17 +384,20 @@ mod tests {
 		let g = extract("util.rs", src, &make_anchor(), true);
 		let add = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"add(i32,i32)")
 			.build();
 		let pa = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"add(i32,i32)")
 			.segment(b"param", b"a")
 			.build();
 		let pb = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"add(i32,i32)")
 			.segment(b"param", b"b")
@@ -392,6 +413,7 @@ mod tests {
 		let g = extract("util.rs", src, &make_anchor(), true);
 		let bar_self = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"method", b"bar(i32)")
@@ -399,6 +421,7 @@ mod tests {
 			.build();
 		let bar_x = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"method", b"bar(i32)")
@@ -417,12 +440,14 @@ mod tests {
 		let g = extract("util.rs", src, &make_anchor(), true);
 		let lx = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"run()")
 			.segment(b"local", b"x")
 			.build();
 		let ly = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"run()")
 			.segment(b"local", b"y")
@@ -441,6 +466,7 @@ mod tests {
 		let g = extract("util.rs", src, &make_anchor(), true);
 		let inner = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"run(bool)")
 			.segment(b"local", b"inner")
@@ -458,6 +484,7 @@ mod tests {
 		let g = extract("util.rs", src, &make_anchor(), true);
 		let f = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
+			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"function", b"run()")
 			.segment(b"function", b"f(_)")

@@ -111,6 +111,7 @@ mod tests {
 		let expected = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"src")
 			.segment(b"path", b"lib")
 			.segment(b"path", b"util")
@@ -137,6 +138,7 @@ mod tests {
 		let foo = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Foo")
 			.build();
@@ -159,6 +161,7 @@ mod tests {
 		let bar = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"method", b"bar()")
@@ -175,6 +178,7 @@ mod tests {
 		let foo = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"function", b"foo()")
 			.build();
@@ -198,6 +202,7 @@ mod tests {
 		let bar = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"src")
 			.segment(b"path", b"bar")
 			.segment(b"path", b"Bar")
@@ -205,6 +210,7 @@ mod tests {
 		let baz = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"src")
 			.segment(b"path", b"bar")
 			.segment(b"path", b"Baz")
@@ -222,6 +228,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"foo")
 			.segment(b"path", b"default")
 			.build();
@@ -236,6 +243,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"foo")
 			.build();
 		assert_eq!(r.target, target);
@@ -286,6 +294,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"src")
 			.segment(b"path", b"z")
 			.build();
@@ -304,6 +313,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"src")
 			.segment(b"path", b"other")
 			.segment(b"path", b"X")
@@ -349,6 +359,7 @@ mod tests {
 		let greet = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"interface", b"Greet")
 			.build();
@@ -356,6 +367,7 @@ mod tests {
 		let hi = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"interface", b"Greet")
 			.segment(b"method", b"hi()")
@@ -369,6 +381,7 @@ mod tests {
 		let red = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"enum", b"Color")
 			.segment(b"enum_constant", b"Red")
@@ -382,6 +395,7 @@ mod tests {
 		let id = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"type_alias", b"Id")
 			.build();
@@ -401,6 +415,7 @@ mod tests {
 		let bar = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"method", b"bar(number,string)")
@@ -419,6 +434,7 @@ mod tests {
 		let ctor = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"constructor", b"constructor(number)")
@@ -437,6 +453,7 @@ mod tests {
 		let x = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"field", b"x")
@@ -450,6 +467,7 @@ mod tests {
 		let pi = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"const", b"PI")
 			.build();
@@ -467,6 +485,7 @@ mod tests {
 		let add = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"function", b"add(number,number)")
 			.build();
@@ -487,6 +506,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"function", b"foo(1)")
 			.build();
@@ -666,6 +686,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"method", b"bar(2)")
 			.build();
@@ -684,6 +705,7 @@ mod tests {
 		let m_def = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"C")
 			.segment(b"method", b"m()")
@@ -701,6 +723,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Foo")
 			.build();
@@ -719,6 +742,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"B")
 			.build();
@@ -740,6 +764,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"interface", b"I")
 			.build();
@@ -761,6 +786,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"function", b"Injectable()")
 			.build();
@@ -779,6 +805,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"function", b"Bind(1)")
 			.build();
@@ -798,12 +825,14 @@ mod tests {
 		let foo = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Foo")
 			.build();
 		let bar = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"Bar")
 			.build();
@@ -828,6 +857,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"function", b"x()")
 			.build();
@@ -901,6 +931,7 @@ mod tests {
 		let m = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"class", b"default")
 			.build();
@@ -934,6 +965,7 @@ mod tests {
 		let pa = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"function", b"f(number,number)")
 			.segment(b"param", b"a")
@@ -941,6 +973,7 @@ mod tests {
 		let pb = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"function", b"f(number,number)")
 			.segment(b"param", b"b")
@@ -948,6 +981,7 @@ mod tests {
 		let sum = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
 			.segment(b"path", b"util")
 			.segment(b"function", b"f(number,number)")
 			.segment(b"local", b"sum")

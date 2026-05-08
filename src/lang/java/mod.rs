@@ -89,6 +89,7 @@ mod tests {
 		let g = extract_default("src/Foo.java", src, &make_anchor(), false);
 		let expected = MonikerBuilder::new()
 			.project(b"app")
+			.segment(b"lang", b"java")
 			.segment(b"package", b"com")
 			.segment(b"package", b"acme")
 			.segment(b"module", b"Foo")
@@ -101,6 +102,7 @@ mod tests {
 		let g = extract_default("Foo.java", "class Foo {}", &make_anchor(), false);
 		let expected = MonikerBuilder::new()
 			.project(b"app")
+			.segment(b"lang", b"java")
 			.segment(b"module", b"Foo")
 			.build();
 		assert_eq!(g.root(), &expected);
@@ -170,6 +172,7 @@ mod tests {
 		);
 		let red = MonikerBuilder::new()
 			.project(b"app")
+			.segment(b"lang", b"java")
 			.segment(b"module", b"Color")
 			.segment(b"enum", b"Color")
 			.segment(b"enum_constant", b"RED")
@@ -297,6 +300,7 @@ mod tests {
 
 		let bar_def = MonikerBuilder::new()
 			.project(b"app")
+			.segment(b"lang", b"java")
 			.segment(b"module", b"Foo")
 			.segment(b"class", b"Bar")
 			.build();
@@ -325,6 +329,7 @@ mod tests {
 		let g = extract_default("Outer.java", src, &make_anchor(), false);
 		let inner = MonikerBuilder::new()
 			.project(b"app")
+			.segment(b"lang", b"java")
 			.segment(b"module", b"Outer")
 			.segment(b"class", b"Outer")
 			.segment(b"class", b"Inner")

@@ -19,6 +19,7 @@ pub(super) fn compute_module_moniker(
 ) -> Moniker {
 	let class_name = file_stem(uri);
 	let mut b = MonikerBuilder::from_view(anchor.as_view());
+	b.segment(crate::lang::kinds::LANG, b"java");
 	for piece in package_pieces.iter().filter(|s| !s.is_empty()) {
 		b.segment(kinds::PACKAGE, piece.as_bytes());
 	}

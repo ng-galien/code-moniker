@@ -79,6 +79,7 @@ mod tests {
 		let g = extract_default("acme/util/text.py", "", &make_anchor(), false);
 		let expected = MonikerBuilder::new()
 			.project(b"app")
+			.segment(b"lang", b"python")
 			.segment(b"package", b"acme")
 			.segment(b"package", b"util")
 			.segment(b"module", b"text")
@@ -91,6 +92,7 @@ mod tests {
 		let g = extract_default("foo.py", "", &make_anchor(), false);
 		let expected = MonikerBuilder::new()
 			.project(b"app")
+			.segment(b"lang", b"python")
 			.segment(b"module", b"foo")
 			.build();
 		assert_eq!(g.root(), &expected);

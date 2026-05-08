@@ -48,13 +48,13 @@ END $$;
 
 SELECT ok(
 	plan_uses(
-		$$SELECT id FROM module WHERE graph_def_monikers(graph) @> ARRAY['esac+moniker://app/path:src/path:lib/class:Lib'::moniker]$$,
+		$$SELECT id FROM module WHERE graph_def_monikers(graph) @> ARRAY['esac+moniker://app/lang:ts/path:src/path:lib/class:Lib'::moniker]$$,
 		'module_def_monikers_gin'),
 	'graph_def_monikers @> ARRAY[m] uses module_def_monikers_gin');
 
 SELECT ok(
 	plan_uses(
-		$$SELECT id FROM module WHERE graph_def_monikers(graph) @> ARRAY['esac+moniker://app/path:src/path:lib/class:Lib'::moniker]$$,
+		$$SELECT id FROM module WHERE graph_def_monikers(graph) @> ARRAY['esac+moniker://app/lang:ts/path:src/path:lib/class:Lib'::moniker]$$,
 		'Bitmap Index Scan'),
 	'planner emits a Bitmap Index Scan node for the def lookup');
 
@@ -62,13 +62,13 @@ SELECT ok(
 
 SELECT ok(
 	plan_uses(
-		$$SELECT id FROM module WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/path:src/path:lib'::moniker]$$,
+		$$SELECT id FROM module WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/lang:ts/path:src/path:lib'::moniker]$$,
 		'module_ref_targets_gin'),
 	'graph_ref_targets @> ARRAY[m] uses module_ref_targets_gin');
 
 SELECT ok(
 	plan_uses(
-		$$SELECT id FROM module WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/path:src/path:lib'::moniker]$$,
+		$$SELECT id FROM module WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/lang:ts/path:src/path:lib'::moniker]$$,
 		'Bitmap Index Scan'),
 	'planner emits a Bitmap Index Scan node for the ref lookup');
 

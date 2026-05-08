@@ -14,6 +14,7 @@ use super::kinds;
 pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let (dirs, stem) = split_uri(uri);
 	let mut b = MonikerBuilder::from_view(anchor.as_view());
+	b.segment(crate::lang::kinds::LANG, b"sql");
 	for d in dirs {
 		b.segment(b"dir", d.as_bytes());
 	}
@@ -70,6 +71,7 @@ mod tests {
 		let m = compute_module_moniker(&anchor(), "db/functions/plan/create_plan.sql");
 		let expected = MonikerBuilder::new()
 			.project(b"app")
+			.segment(b"lang", b"sql")
 			.segment(b"dir", b"db")
 			.segment(b"dir", b"functions")
 			.segment(b"dir", b"plan")
@@ -83,6 +85,7 @@ mod tests {
 		let m = compute_module_moniker(&anchor(), "create_plan.sql");
 		let expected = MonikerBuilder::new()
 			.project(b"app")
+			.segment(b"lang", b"sql")
 			.segment(b"module", b"create_plan")
 			.build();
 		assert_eq!(m, expected);

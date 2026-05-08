@@ -14,6 +14,7 @@ use super::kinds;
 pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let stem = strip_rs_extension(uri);
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
+	builder.segment(crate::lang::kinds::LANG, b"rs");
 	let pieces: Vec<&str> = stem.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
 	if pieces.is_empty() {
 		return builder.build();

@@ -83,6 +83,20 @@ fn project_of(m: moniker) -> String {
 	String::from_utf8(m.view().project().to_vec()).expect("project must be UTF-8")
 }
 
+/// `lang:<short>` segment payload (`ts`, `rs`, `java`, `python`,
+/// `sql`). Returns the empty string when the moniker has no `lang:`
+/// segment — externals (`external_pkg:...`) and project-regime nodes.
+#[pg_extern(immutable, parallel_safe)]
+fn lang_of(m: moniker) -> String {
+	let view = m.view();
+	for seg in view.segments() {
+		if seg.kind == crate::lang::kinds::LANG {
+			return String::from_utf8(seg.name.to_vec()).expect("lang must be UTF-8");
+		}
+	}
+	String::new()
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn depth(m: moniker) -> i32 {
 	m.view().segment_count() as i32

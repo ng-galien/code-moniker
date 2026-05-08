@@ -4,6 +4,14 @@
 //! consumer-projection vocabulary defined in
 //! `references/kinds.md`.
 
+// --- structural ----------------------------------------------------------
+
+/// First segment of every language regime. Posted by each extractor's
+/// `compute_module_moniker` immediately under the caller's anchor.
+/// Short language names align with the `src/lang/<lang>/` directory
+/// (`ts`, `rs`, `java`, `python`, `sql`).
+pub const LANG: &[u8] = b"lang";
+
 // --- visibility -----------------------------------------------------------
 
 /// Sentinel for "concept does not apply" (locals, params, sections,

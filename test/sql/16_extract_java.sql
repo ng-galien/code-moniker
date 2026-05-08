@@ -22,9 +22,9 @@ WITH g AS (
 )
 SELECT
 	is(graph_root(g)::text,
-		'esac+moniker://app/package:com/package:acme/module:Foo',
+		'esac+moniker://app/lang:java/package:com/package:acme/module:Foo',
 		'package decl drives the module moniker') AS r1,
-	ok(g @> 'esac+moniker://app/package:com/package:acme/module:Foo/class:Foo'::moniker,
+	ok(g @> 'esac+moniker://app/lang:java/package:com/package:acme/module:Foo/class:Foo'::moniker,
 		'class def lives under the module') AS r2
 FROM g;
 
@@ -39,7 +39,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://app/module:Foo/class:Foo/method:bar(int,String)'::moniker,
+	ok(g @> 'esac+moniker://app/lang:java/module:Foo/class:Foo/method:bar(int,String)'::moniker,
 		'method moniker carries full parameter type signature') AS r3,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'method'),
 		'int,String',

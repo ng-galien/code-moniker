@@ -68,12 +68,12 @@ $ts$,
 
 SELECT is(
 	(SELECT graph_root(graph)::text FROM module WHERE id = 'repository'),
-	'esac+moniker://app/path:src/path:repository',
+	'esac+moniker://app/lang:ts/path:src/path:repository',
 	'repository module root');
 
 SELECT is(
 	(SELECT graph_root(graph)::text FROM module WHERE id = 'service'),
-	'esac+moniker://app/path:src/path:service',
+	'esac+moniker://app/lang:ts/path:src/path:service',
 	'service module root');
 
 -- Service exposes its expected defs (root, two top-level + their members) -
@@ -84,12 +84,12 @@ SELECT cmp_ok(
 	'service graph has at least the module + 2 defs + members');
 
 SELECT ok(
-	(SELECT graph @> 'esac+moniker://app/path:src/path:service/class:UserService'::moniker
+	(SELECT graph @> 'esac+moniker://app/lang:ts/path:src/path:service/class:UserService'::moniker
 	   FROM module WHERE id = 'service'),
 	'service graph contains UserService class');
 
 SELECT ok(
-	(SELECT graph @> 'esac+moniker://app/path:src/path:service/class:UserService/method:findById(string)'::moniker
+	(SELECT graph @> 'esac+moniker://app/lang:ts/path:src/path:service/class:UserService/method:findById(string)'::moniker
 	   FROM module WHERE id = 'service'),
 	'service graph contains UserService#findById(string) method');
 
@@ -100,26 +100,26 @@ SELECT ok(
 SELECT ok(
 	EXISTS (SELECT 1 FROM module
 	         WHERE id = 'service'
-	           AND 'esac+moniker://app/path:src/path:repository/path:UserRepository'::moniker = ANY(graph_ref_targets(graph))),
+	           AND 'esac+moniker://app/lang:ts/path:src/path:repository/path:UserRepository'::moniker = ANY(graph_ref_targets(graph))),
 	'service ref-targets contains UserRepository under the repository module');
 
 SELECT ok(
 	EXISTS (SELECT 1 FROM module
 	         WHERE id = 'service'
-	           AND 'esac+moniker://app/path:src/path:logger/path:ConsoleLogger'::moniker = ANY(graph_ref_targets(graph))),
+	           AND 'esac+moniker://app/lang:ts/path:src/path:logger/path:ConsoleLogger'::moniker = ANY(graph_ref_targets(graph))),
 	'service ref-targets contains ConsoleLogger under the logger module');
 
 -- JOIN on `code_graph @> moniker`: which module defines a given moniker?
 
 SELECT is(
 	(SELECT id FROM module
-	  WHERE graph @> 'esac+moniker://app/path:src/path:repository/class:UserRepository'::moniker),
+	  WHERE graph @> 'esac+moniker://app/lang:ts/path:src/path:repository/class:UserRepository'::moniker),
 	'repository',
 	'graph @> resolves UserRepository to its owning module');
 
 SELECT is(
 	(SELECT id FROM module
-	  WHERE graph @> 'esac+moniker://app/path:src/path:logger/class:ConsoleLogger'::moniker),
+	  WHERE graph @> 'esac+moniker://app/lang:ts/path:src/path:logger/class:ConsoleLogger'::moniker),
 	'logger',
 	'graph @> resolves ConsoleLogger to its owning module');
 
@@ -137,7 +137,7 @@ SELECT is(
 	  WHERE EXISTS (
 	    SELECT 1 FROM graph_refs(graph) r
 	    WHERE r.kind IN ('imports_symbol','imports_module','reexports')
-	      AND 'esac+moniker://app/path:src/path:repository'::moniker @> r.target
+	      AND 'esac+moniker://app/lang:ts/path:src/path:repository'::moniker @> r.target
 	  )),
 	ARRAY['service']::text[],
 	'ancestor query on import refs finds every importer of the repository module');

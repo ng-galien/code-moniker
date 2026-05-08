@@ -22,7 +22,7 @@ WITH g AS (
 )
 SELECT is(
 	graph_root(g)::text,
-	'esac+moniker://pg_code_moniker/path:src/path:core/path:moniker/module:view',
+	'esac+moniker://pg_code_moniker/lang:rs/path:src/path:core/path:moniker/module:view',
 	'module moniker = anchor + path:dir + module:basename')
 FROM g;
 
@@ -42,11 +42,11 @@ $rs$,
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://pkg/module:util/class:Foo'::moniker,
+	ok(g @> 'esac+moniker://pkg/lang:rs/module:util/class:Foo'::moniker,
 		'struct emits class def') AS r1,
-	ok(g @> 'esac+moniker://pkg/module:util/class:Foo/method:bar()'::moniker,
+	ok(g @> 'esac+moniker://pkg/lang:rs/module:util/class:Foo/method:bar()'::moniker,
 		'impl method re-parented onto struct; &self is implicit so arity 0 with empty parens') AS r2,
-	ok(g @> 'esac+moniker://pkg/module:util/class:Foo/method:baz(u32)'::moniker,
+	ok(g @> 'esac+moniker://pkg/lang:rs/module:util/class:Foo/method:baz(u32)'::moniker,
 		'second impl method with one value parameter (self excluded)') AS r3
 FROM g;
 
@@ -66,8 +66,8 @@ SELECT
 	ok(EXISTS (
 		SELECT 1 FROM graph_refs(g) r
 		 WHERE r.kind = 'implements'
-		   AND r.source = 'esac+moniker://pkg/module:util/class:Foo'::moniker
-		   AND r.target = 'esac+moniker://pkg/module:util/interface:Greet'::moniker),
+		   AND r.source = 'esac+moniker://pkg/lang:rs/module:util/class:Foo'::moniker
+		   AND r.target = 'esac+moniker://pkg/lang:rs/module:util/interface:Greet'::moniker),
 		'impl Trait for Type emits implements ref Type → Trait') AS r4
 FROM g;
 

@@ -10,6 +10,7 @@ use super::kinds;
 pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str, path_kind: &[u8]) -> Moniker {
 	let stem = strip_known_extension(uri);
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
+	builder.segment(crate::lang::kinds::LANG, b"ts");
 	append_path_segments(&mut builder, stem, path_kind);
 	builder.build()
 }

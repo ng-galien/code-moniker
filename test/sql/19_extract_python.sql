@@ -21,7 +21,7 @@ WITH g AS (
 	) AS g
 )
 SELECT is(graph_root(g)::text,
-	'esac+moniker://app/package:acme/package:util/module:text',
+	'esac+moniker://app/lang:python/package:acme/package:util/module:text',
 	'file path drives the module moniker')
 FROM g;
 
@@ -35,7 +35,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://app/module:m/function:make(int,str)'::moniker,
+	ok(g @> 'esac+moniker://app/lang:python/module:m/function:make(int,str)'::moniker,
 		'function moniker carries full parameter type signature') AS r1,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'function'),
 		'int,str',
@@ -52,7 +52,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://app/module:m/function:f(_,_)'::moniker,
+	ok(g @> 'esac+moniker://app/lang:python/module:m/function:f(_,_)'::moniker,
 		'untyped python params collapse to `_` in the signature') AS r3
 FROM g;
 
@@ -67,7 +67,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://app/module:foo/class:Foo/method:bar(int)'::moniker,
+	ok(g @> 'esac+moniker://app/lang:python/module:foo/class:Foo/method:bar(int)'::moniker,
 		'method moniker excludes self and uses kind=method') AS r4
 FROM g;
 
@@ -83,17 +83,17 @@ WITH g AS (
 SELECT
 	is((SELECT visibility FROM graph_defs(g) d
 	     WHERE kind = 'function' AND
-	           moniker = 'esac+moniker://app/module:m/function:_helper()'::moniker),
+	           moniker = 'esac+moniker://app/lang:python/module:m/function:_helper()'::moniker),
 		'module',
 		'leading-underscore function is module-private') AS r5,
 	is((SELECT visibility FROM graph_defs(g) d
 	     WHERE kind = 'function' AND
-	           moniker = 'esac+moniker://app/module:m/function:__secret()'::moniker),
+	           moniker = 'esac+moniker://app/lang:python/module:m/function:__secret()'::moniker),
 		'private',
 		'double-underscore (no trailing dunder) is private') AS r6,
 	is((SELECT visibility FROM graph_defs(g) d
 	     WHERE kind = 'function' AND
-	           moniker = 'esac+moniker://app/module:m/function:public_fn()'::moniker),
+	           moniker = 'esac+moniker://app/lang:python/module:m/function:public_fn()'::moniker),
 		'public',
 		'plain name is public') AS r7
 FROM g;

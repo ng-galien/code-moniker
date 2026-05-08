@@ -13,6 +13,7 @@ use super::kinds;
 pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let (pkg_pieces, module_name) = split_path(uri);
 	let mut b = MonikerBuilder::from_view(anchor.as_view());
+	b.segment(crate::lang::kinds::LANG, b"python");
 	for piece in pkg_pieces {
 		b.segment(kinds::PACKAGE, piece.as_bytes());
 	}

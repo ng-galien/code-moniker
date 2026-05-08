@@ -32,7 +32,9 @@ The tree has two regimes separated by an event-frontier called the **srcset** :
 | **Project regime** | root | srcset | variable | caller (passed as project preset) |
 | **Language regime** | srcset | leaves | variable | language strategy (in extension) |
 
-The srcset is a node at the boundary. Its kind is supplied by the caller. The extension does not interpret srcsets — it receives the srcset moniker as an anchor and emits all source-derived nodes under it.
+The srcset is the boundary node. Its kind is supplied by the caller (`srcset`, `workspace_app`, etc.). Below it, the **first segment of the language regime is `lang:<short>`**, posted by the extractor (`lang:ts`, `lang:rs`, `lang:java`, `lang:python`, `lang:sql`). The extension does not interpret srcsets — it receives the srcset moniker as an anchor and emits all source-derived nodes under it, prefixed by the language segment.
+
+External nodes (`external_pkg:...`) live entirely in the project regime and have no language segment.
 
 ### The moniker
 
@@ -44,61 +46,56 @@ Canonical external representation is a **typed-segment URI** using a `+moniker` 
 <scheme>+moniker://<project>/<kind>:<name>[/<kind>:<name>...][#<kind>:<name>[#<kind>:<name>...]]
 ```
 
-The base scheme is caller-configurable (default `pcm`, canonical URI `pcm+moniker://`); a consumer like ESAC can use its own (`esac`, canonical URI `esac+moniker://`). The `+moniker` suffix identifies the canonical typed moniker profile, not the final symbol kind. Kinds are carried by each segment.
+The base scheme is caller-configurable (default `pcm`, canonical URI `pcm+moniker://`); a consumer like ESAC uses its own (`esac`, canonical URI `esac+moniker://`). The `+moniker` suffix identifies the canonical typed moniker profile, not the final symbol kind. Kinds are carried by each segment.
 
-Examples below use the default scheme:
+Examples (default scheme):
 
 ```
-pcm+moniker://my-app/srcset:main/package:com/package:acme/class:Foo
-pcm+moniker://my-app/srcset:main/package:com/package:acme/class:Foo#method:bar()
-pcm+moniker://my-app/srcset:main/package:com/package:acme/class:Foo#method:bar(int,String)
-pcm+moniker://my-app/srcset:main/dir:src/dir:lib/module:util#class:Helper#method:process()
+pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo
+pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo#method:bar()
+pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo#method:bar(int,String)
+pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:lib/module:util#class:Helper#method:process()
+pcm+moniker://my-app/srcset:main/lang:python/package:acme/module:util#class:Helper#method:process(int)
+pcm+moniker://my-app/srcset:db/lang:sql/schema:esac/module:plan#function:create_plan(uuid,text)
 pcm+moniker://my-app/external_pkg:maven/org.springframework/spring-core/6.1.0
 ```
 
-The earlier SCIP-like punctuation form remains useful as a compact display form and compatibility input under the base scheme (`pcm://`, `esac://`):
+The earlier SCIP-like punctuation form remains a compact display option under the base scheme (`pcm://`, `esac://`); it is lossy and not a persistence format.
 
-| Punct class | Display shape              | Used for                                     |
-|-------------|----------------------------|----------------------------------------------|
-| Path        | `…/<name>`                 | srcset, package, directory, file-as-module   |
-| Type        | `<name>#`                  | class, interface, enum, type alias           |
-| Term        | `<name>.`                  | field, variable, constant                    |
-| Method      | `<name>().` / `<name>(N).` | method, function, constructor                |
-
-Display examples:
-
-```
-pcm://my-app/main/com/acme/Foo                              file-as-module (Java)
-pcm://my-app/main/com/acme/Foo#Foo#                         type Foo
-pcm://my-app/main/com/acme/Foo#Foo#bar().                   method bar
-pcm://my-app/main/com/acme/Foo#Foo#bar(2).                  overloaded bar, arity 2
-pcm://my-app/src/lib/util.ts#Helper#process().              TS method
-pcm://my-app/maven/org.springframework/spring-core/6.1.0    external (Maven)
-```
-
-The canonical typed `+moniker` form is the durable I/O contract. Compact display form is lossy unless the caller supplies kind defaults, so it must not be the only persisted truth.
+The canonical typed `+moniker` form is the durable I/O contract.
 
 The URI is symbolic only — it identifies the node in the tree. It does not encode disk location. Source location remains a sidecar (`source_uri`) on the module row.
 
 Names with reserved characters (`/`, `#`, `:`, `(`, `)`, backtick, whitespace) are wrapped in backticks; literal backticks are doubled.
 
-Detailed URI design and migration rules are documented in `docs/MONIKER_URI.md`.
+Detailed URI design and segment semantics are documented in `docs/MONIKER_URI.md`.
 
-Operators :
+#### Operators
 
-| Op   | Signature                              | Semantics                                          |
-|------|----------------------------------------|----------------------------------------------------|
-| `=`  | `moniker = moniker → bool`             | Path equality. **The matching primitive.**         |
-| `<@` | `moniker <@ moniker → bool`            | Left is descendant of right.                       |
-| `@>` | `moniker @> moniker → bool`            | Left is ancestor of right.                         |
-| `\|\|` | `moniker \|\| (segment text, kind text) → moniker` | Compose child from parent.            |
-| `~`  | `moniker ~ moniker_pattern → bool`     | Pattern match.                                     |
+| Op            | Signature                                      | Semantics                                                                |
+|---------------|------------------------------------------------|--------------------------------------------------------------------------|
+| `=`           | `moniker = moniker → bool`                     | Byte-strict equality (every segment, including final kind). Total identity. |
+| `bind_match`  | `bind_match(moniker, moniker) → bool`          | Structural matching for cross-file linkage. **The linkage primitive.**   |
+| `<@`          | `moniker <@ moniker → bool`                    | Left is descendant of right.                                             |
+| `@>`          | `moniker @> moniker → bool`                    | Left is ancestor of right.                                               |
+| `\|\|`        | `moniker \|\| (segment text, kind text) → moniker` | Compose child from parent.                                            |
+| `~`           | `moniker ~ moniker_pattern → bool`             | Pattern match.                                                           |
 
-Accessors : `kind_of(moniker) → text`, `project_of(moniker) → text`, `path_of(moniker) → text[]`, `parent_of(moniker) → moniker`, `depth(moniker) → int`.
+`bind_match(left, right)` is true when:
+
+- `left.project` byte-equal to `right.project`;
+- every segment of `left` and `right` except the last is byte-equal (which includes `srcset:` and `lang:` — cross-language matches are by design impossible);
+- the **last** segment compares **name-only**: `left.last.name == right.last.name`. The last segment's `kind` may differ.
+
+`bind_match` solves the problem that an extractor is local and does not know the kind of a symbol it imports from another file. Imports emit a placeholder last-segment kind (typically `path` or a best-effort kind); the exporting module's def carries the true kind. Byte-strict `=` would never match those two; `bind_match` does.
+
+Default last-segment matching is byte-strict on the name. Language-specific refinements (e.g. callable bare-name matching for cases like `function:Y()` × `function:Y(int,str)`) are layered as needed and routed by reading the shared `lang:` segment; the routing surface is reserved, the default strategy is strict.
+
+Accessors : `kind_of(moniker) → text`, `project_of(moniker) → text`, `lang_of(moniker) → text` (returns the `lang:` segment payload, or empty for project-regime monikers), `path_of(moniker) → text[]`, `parent_of(moniker) → moniker`, `depth(moniker) → int`.
 
 I/O functions : `moniker_in(cstring) → moniker`, `moniker_out(moniker) → cstring`. URI parsing and serialization are part of the type's I/O contract.
 
-GiST opclass : custom access method indexing `=`, `<@`, `@>`, `~`.
+GiST opclass : custom access method indexing `=`, `bind_match`, `<@`, `@>`, `~`.
 
 ODR (One Definition Rule) is a property the consumer enforces with `UNIQUE` constraints on columns of type `moniker`. The extension does not police ODR — it provides the type whose equality makes ODR enforceable.
 
@@ -109,30 +106,62 @@ A native type carrying the internal structure of a single module.
 A `code_graph` contains :
 
 - **Tree** : the intra-module containment hierarchy. Root is the module's own moniker. Children are types, members, nested functions, etc. — whatever the language exposes.
-- **Defs** : for each node in the tree, its `(moniker, kind, position)` triplet. `position` is `int4range` over byte offsets in source ; `NULL` when the module has no source text (synthetic / external).
-- **Refs** : outgoing references. Each ref is `(source_moniker, target_moniker, kind, position)`. `source_moniker` is one of the module's own defs ; `target_moniker` may be any moniker in the canonical tree, in any module. `kind` distinguishes the relation (call, import, extends, uses_type, …). `position` is the location of the ref in source ; `NULL` when no source.
+- **Defs** : for each node in the tree, its record carrying `(moniker, kind, parent, position, visibility, signature, binding)`. `position` is `int4range` over byte offsets in source ; `NULL` when the module has no source text (synthetic / external).
+- **Refs** : outgoing references. Each ref carries `(source_moniker, target_moniker, kind, position, receiver_hint, alias, confidence, binding)`. `source_moniker` is one of the module's own defs ; `target_moniker` may be any moniker in the canonical tree, in any module. `kind` distinguishes the relation (call, import, extends, uses_type, …). `position` is the location of the ref in source ; `NULL` when no source.
 
 A `code_graph` is **immutable** as a value. Mutations are performed by constructors that return a new value.
 
-Operators and functions :
+#### Binding semantics
+
+Binding is the row-level qualifier for cross-file linkage. It is **not** in the moniker bytes — it is a column on `DefRecord` and `RefRecord`.
+
+**`DefRecord.binding`** ∈ {`export`, `local`, `none`, `inject`} :
+
+| Value     | When                                                                                                |
+|-----------|-----------------------------------------------------------------------------------------------------|
+| `export`  | Symbol is addressable cross-module. `visibility` ∈ {`public`, `protected`, `package`} and `kind` ∉ {`local`, `param`, `section`}. Modules themselves are `export`. |
+| `local`   | Symbol is module-scoped. `visibility` ∈ {`private`, `module`} or `kind` ∈ {`local`, `param`}.       |
+| `inject`  | Symbol is a DI provider/target (e.g. `@Injectable`, `@Service`, `@Bean`, NestJS providers). Resolved by a container at runtime, not by static `import`. |
+| `none`    | Concept does not apply (`kind=section`).                                                            |
+
+**`RefRecord.binding`** ∈ {`import`, `local`, `none`, `inject`} :
+
+| Value     | When                                                                                                |
+|-----------|-----------------------------------------------------------------------------------------------------|
+| `import`  | Ref points to another module via static import. `kind` ∈ {`imports_symbol`, `imports_module`, `reexports`}. The primary input to `bind_match`. |
+| `local`   | Ref points inside the current module. Resolves via byte-strict `=` against the same module's defs.  |
+| `inject`  | Ref demands a binding via DI container. `kind` = `di_register`, plus constructor params whose annotated type is a known DI service. |
+| `none`    | Ref's nature does not categorize as linkage (unresolved calls, reads of unknown identifiers).       |
+
+For `bind_match` purposes there is **no semantic distinction** between `import` and `inject`. The matching table is binary:
+
+```
+ref.binding ∈ {import, inject}  ×  def.binding ∈ {export, inject}
+```
+
+`inject` is a qualification for downstream traceability (which links go through a DI container vs static import), not a matching axis. Consumers that want to filter DI separately project on `binding`.
+
+#### Operators and functions
 
 | Function | Signature | Semantics |
 |---|---|---|
 | `graph_root` | `code_graph → moniker` | The module's own moniker. |
 | `graph_contains` | `code_graph @> moniker → bool` | Does this graph define this moniker ? |
-| `graph_defs` | `code_graph → setof (moniker, kind text, position int4range)` | Iterate defs. |
-| `graph_refs` | `code_graph → setof (source moniker, target moniker, kind text, position int4range)` | Iterate refs. |
+| `graph_defs` | `code_graph → setof DefRecord` | Iterate defs (moniker, kind, parent, position, visibility, signature, binding). |
+| `graph_refs` | `code_graph → setof RefRecord` | Iterate refs (source, target, kind, position, receiver_hint, alias, confidence, binding). |
 | `graph_locate` | `code_graph, moniker → int4range` | Position of a def in source. NULL if absent or no source. |
 | `graph_def_monikers` | `code_graph → moniker[]` | Index inverse helper : flatten defs to a sortable array. |
 | `graph_ref_targets` | `code_graph → moniker[]` | Index inverse helper : flatten outgoing ref targets. |
+| `graph_export_monikers` | `code_graph → moniker[]` | Defs whose `binding` ∈ {`export`, `inject`}. Linkage-side index helper. |
+| `graph_import_targets` | `code_graph → moniker[]` | Refs whose `binding` ∈ {`import`, `inject`}. Linkage-side index helper. |
 
 Constructors for synthetic graphs :
 
 | Function | Signature | Semantics |
 |---|---|---|
 | `graph_create` | `(root moniker, kind text) → code_graph` | New graph rooted at this moniker. |
-| `graph_add_def` | `(graph code_graph, m moniker, kind text, parent moniker, position int4range) → code_graph` | Add a def. parent must already be in the graph. |
-| `graph_add_ref` | `(graph code_graph, source moniker, target moniker, kind text, position int4range) → code_graph` | Add a ref. source must be a def in the graph. |
+| `graph_add_def` | `(graph code_graph, m moniker, kind text, parent moniker, position int4range, visibility text, signature text, binding text) → code_graph` | Add a def. parent must already be in the graph. |
+| `graph_add_ref` | `(graph code_graph, source moniker, target moniker, kind text, position int4range, receiver_hint text, alias text, confidence text, binding text) → code_graph` | Add a ref. source must be a def in the graph. |
 
 Constructors return a new `code_graph` ; they do not mutate.
 
@@ -148,17 +177,19 @@ Arguments :
 - `uri` — disk path or symbolic identifier of the source. Used by the extractor for diagnostics ; not embedded in produced monikers.
 - `source` — the source text.
 - `anchor` — the srcset moniker under which all extracted defs will be rooted. The extractor never produces monikers above this anchor.
-- `presets` — language-specific configuration (e.g. JVM source root for Java, tsconfig paths for TS, namespace-package mode for Python). Caller-supplied, opaque to the extension's framework.
+- `presets` — language-specific configuration. Caller-supplied, opaque to the extension's framework.
 
 The extractor :
 1. Parses `source` with the language's tree-sitter grammar.
 2. Walks the AST.
-3. Canonicalizes each def and ref into a moniker rooted at `anchor`.
-4. Emits a `code_graph` value.
+3. **Posts the `lang:<short>` segment** as the first segment under `anchor`. Every produced moniker is rooted under `anchor/lang:<short>/...`.
+4. Canonicalises each def and ref into a moniker rooted at `anchor`.
+5. Tags `binding` on every def (`export` / `local` / `inject` / `none`) and every ref (`import` / `local` / `inject` / `none`) per the rules in § Binding semantics.
+6. Emits a `code_graph` value.
 
-Supported languages are introduced one at a time. The MVP target is TypeScript. Java, Python, PL/pgSQL follow.
+Supported languages: TypeScript, Rust, Java, Python, SQL/PL-pgSQL.
 
-The extension is **stateless** : `extract_<lang>` reads only its arguments. It does not look up other modules, does not resolve refs across files. Cross-module resolution is the consumer's responsibility, performed by JOINing on the moniker type's `=` operator.
+The extension is **stateless** : `extract_<lang>` reads only its arguments. It does not look up other modules, does not resolve refs across files. Cross-module resolution is the consumer's responsibility, performed by JOINing on `bind_match` (cross-file) or `=` (intra-file or total identity).
 
 ## Storage and linkage — canonical usage
 
@@ -184,7 +215,7 @@ CREATE TABLE module (
 );
 ```
 
-The module's identity is `graph_root(graph)`. Make it queryable and unique with an expression index — not by introducing a redundant column :
+The module's identity is `graph_root(graph)`. Make it queryable and unique with an expression index :
 
 ```sql
 CREATE UNIQUE INDEX module_root_uniq
@@ -194,48 +225,47 @@ CREATE INDEX module_root_gist
     ON module USING gist ((graph_root(graph)));
 ```
 
-Update is row-replacement : changing a file produces a new `code_graph` and the row is rewritten atomically. No fragmented updates, no partial state.
+Update is row-replacement : changing a file produces a new `code_graph` and the row is rewritten atomically.
 
-### Linkage = JOIN on moniker
+### Linkage = JOIN on bind_match
 
-There is no separate linker phase. Resolving "which module defines this moniker" is a single indexed JOIN, expressed against the graph itself :
-
-```sql
-CREATE INDEX module_def_monikers_gin
-    ON module USING gin (graph_def_monikers(graph));
-
-SELECT m.* FROM module m
-WHERE graph_def_monikers(m.graph) @> ARRAY['pcm://app/main#Foo#bar().'::moniker];
-```
-
-The reverse direction — every module that *references* a given target — is symmetric :
+Cross-file linkage is a single indexed JOIN expressed against the graph itself. Use `bind_match` for the cross-file case (the extractor doesn't know the target's exact kind) and `=` for total identity.
 
 ```sql
-CREATE INDEX module_ref_targets_gin
-    ON module USING gin (graph_ref_targets(graph));
+CREATE INDEX module_export_gin
+    ON module USING gin (graph_export_monikers(graph));
 
-SELECT m.* FROM module m
-WHERE graph_ref_targets(m.graph) @> ARRAY['pcm://app/main#Foo#bar().'::moniker];
+CREATE INDEX module_import_gin
+    ON module USING gin (graph_import_targets(graph));
+
+-- Find every module that exports a binding the current import points to.
+SELECT m_def.id, m_imp.id
+FROM module m_imp,
+     LATERAL graph_refs(m_imp.graph) r,
+     module m_def,
+     LATERAL graph_defs(m_def.graph) d
+WHERE r.binding IN ('import', 'inject')
+  AND d.binding IN ('export', 'inject')
+  AND bind_match(r.target, d.moniker);
 ```
 
-Both reduce to set-membership lookups, O(log n) on the corpus, with no row carrying any moniker as raw column data.
+The index supports `bind_match` via the moniker GiST opclass; lookups remain O(log n) on the corpus.
 
 ### Containment queries
 
 Subtree queries on the canonical project tree leverage the moniker's `<@` / `@>` operators against the graph's root :
 
 ```sql
--- Every module under com.acme
+-- Every module under com.acme (any language)
 SELECT m.* FROM module m
-WHERE graph_root(m.graph) <@ 'pcm://app/main/com/acme'::moniker;
+WHERE graph_root(m.graph) <@ 'pcm+moniker://app/srcset:main'::moniker;
 
--- Every def under Foo
-SELECT m.id, def.moniker FROM module m,
-     LATERAL graph_defs(m.graph) AS def
-WHERE def.moniker <@ 'pcm://app/main/com/acme/Foo'::moniker;
+-- Every module of the Java regime under a srcset
+SELECT m.* FROM module m
+WHERE graph_root(m.graph) <@ 'pcm+moniker://app/srcset:main/lang:java'::moniker;
 ```
 
-Backed by `module_root_gist` and the moniker GiST opclass (Phase 6).
+Backed by `module_root_gist` and the moniker GiST opclass.
 
 ### Linkage table — where moniker columns belong
 
@@ -247,6 +277,8 @@ CREATE TABLE linkage (
     source_moniker moniker    NOT NULL,
     target_moniker moniker    NOT NULL,
     kind           text       NOT NULL,
+    binding        text       NOT NULL,
+    confidence     text       NOT NULL,
     position       int4range
 );
 
@@ -257,12 +289,12 @@ CREATE INDEX linkage_source     ON linkage (source_id);
 Populated from the `module` rows :
 
 ```sql
-INSERT INTO linkage (source_id, source_moniker, target_moniker, kind, position)
-SELECT m.id, r.source, r.target, r.kind, r.position
+INSERT INTO linkage (source_id, source_moniker, target_moniker, kind, binding, confidence, position)
+SELECT m.id, r.source, r.target, r.kind, r.binding, r.confidence, r.position
 FROM module m, LATERAL graph_refs(m.graph) AS r;
 ```
 
-This table is **reconstructible from the `code_graph` rows at any time** ; it is a cache, not the truth. Truth lives in `module.graph`. Triggers can keep `linkage` in sync (delete-then-insert on module update) but they are a consumer concern, not part of the extension.
+This table is **reconstructible from the `code_graph` rows at any time** ; it is a cache, not the truth. Truth lives in `module.graph`.
 
 ### Origins
 
@@ -272,7 +304,7 @@ The same `module` table holds all three origins uniformly. Discriminate by `orig
 - `symbolic` — both NULL ; positions in `graph` are NULL.
 - `external` — both NULL ; `graph` may be minimal.
 
-Promotion (e.g. `symbolic` → `extracted` when a source file appears) is an UPDATE on the row that swaps `graph` and fills `source_*`. The module's `id` is preserved ; the root moniker is the same one it held before, since it is computed from the new graph that was built to match. Inbound refs survive automatically.
+Promotion (e.g. `symbolic` → `extracted` when a source file appears) is an UPDATE on the row that swaps `graph` and fills `source_*`. The module's `id` is preserved.
 
 ## API surface (public)
 
@@ -281,84 +313,41 @@ The SQL surface is generated by pgrx from `#[pg_extern]` and `#[derive(PostgresT
 - **Types** : `moniker`, `moniker_pattern`, `code_graph`.
 - **Operators** :
   - `moniker = moniker → bool`
+  - `bind_match(moniker, moniker) → bool`
   - `moniker <@ moniker → bool`, `moniker @> moniker → bool`
   - `moniker || (segment, kind) → moniker`
   - `moniker ~ moniker_pattern → bool`
   - `code_graph @> moniker → bool`
-- **Accessors** on `moniker` : `kind_of`, `project_of`, `path_of`, `parent_of`, `depth`.
-- **Accessors / iterators** on `code_graph` : `graph_root`, `graph_defs`, `graph_refs`, `graph_locate`, `graph_def_monikers`, `graph_ref_targets`.
+- **Accessors** on `moniker` : `kind_of`, `project_of`, `lang_of`, `path_of`, `parent_of`, `depth`.
+- **Accessors / iterators** on `code_graph` : `graph_root`, `graph_defs`, `graph_refs`, `graph_locate`, `graph_def_monikers`, `graph_ref_targets`, `graph_export_monikers`, `graph_import_targets`.
 - **Constructors** : `graph_create(moniker, kind) → code_graph`, `graph_add_def(...)`, `graph_add_ref(...)`. Immutable: each returns a new `code_graph`.
-- **Per-language extractors** : `extract_typescript(uri, source, anchor, presets) → code_graph`. One per supported language ; added incrementally.
-- **Index** : custom GiST opclass for `moniker` (`=`, `<@`, `@>`, `~`).
+- **Per-language extractors** : `extract_typescript(...)`, `extract_rust(...)`, `extract_java(...)`, `extract_python(...)`, `extract_plpgsql(...)`. One per supported language.
+- **Index** : custom GiST opclass for `moniker` (`=`, `bind_match`, `<@`, `@>`, `~`).
 
 All functions are `IMMUTABLE STRICT PARALLEL SAFE` unless explicitly noted.
 
-## Implementation order
+## Implementation phases
 
-Six phases. Each phase produces a runnable, testable artifact ; subsequent phases extend, do not refactor. Implementation follows TDD : tests describe behaviour before the code that satisfies them.
+Phases 1–6 shipped (typed URI, code_graph, five extractors, GiST opclass, compact projection, dogfood panel). The current chantier is **Phase 7 — `bind_match` + binding metadata + `lang:` segment**.
 
-### Phase 1 — `moniker` type minimal
+### Phase 7 — Cross-file linkage
 
-- The `moniker` type with URI in/out, equality, and the four-class punctuation discipline (Path/Type/Term/Method).
-- Accessors : `kind_of`, `project_of`, `path_of`, `parent_of`, `depth`.
-- Tests : URI roundtrip on representative cases (Java FQN, TS module path, external pkg).
+Three coordinated changes that unlock cross-file linkage:
 
-Out of scope : GiST, containment operators, pattern matching, composition.
+1. **`lang:` segment** posted by every extractor as the first segment under the anchor (`compute_module_moniker` in each `src/lang/<lang>/canonicalize.rs`).
+2. **`binding` column** on `DefRecord` and `RefRecord`, with extractor logic to tag every produced row per § Binding semantics.
+3. **`bind_match` operator** registered on the moniker GiST opclass, with a recheck function and a strategy number distinct from `=`.
 
-Deliverable : `SELECT 'pcm://my-app/main/com/acme/Foo'::moniker = ...` works.
-
-### Phase 2 — `code_graph` type
-
-- The `code_graph` type with `graph_create`, `graph_add_def`, `graph_add_ref` constructors.
-- Accessors : `graph_root`, `graph_defs`, `graph_refs`, `graph_locate`.
-- Containment operator : `code_graph @> moniker`.
-- Helpers : `graph_def_monikers`, `graph_ref_targets`.
-
-Deliverable : a `code_graph` can be constructed in pure SQL via constructors and queried.
-
-### Phase 3 — per-language extractor (TypeScript first)
-
-- Tree-sitter integration ; per-language grammar crate.
-- `extract_typescript(uri, source, anchor, presets)` walks the AST and produces a `code_graph`.
-- Canonicalisation of TS monikers ; refs extraction (imports, calls, type uses, extends/implements).
-- Tests : fixture TS files → expected `code_graph` snapshots.
-
-Out of scope : other languages, advanced TS features (decorators, generics inference) — handled progressively.
-
-Deliverable : `extract_typescript(...)` returns a populated `code_graph`.
-
-### Phase 4 — query the graph via moniker
-
-- `code_graph @> moniker` performance hardening.
-- Compose with `moniker` operators : `graph @> (parent_moniker || ('foo', 'method'))` etc.
-- Pattern matching against the graph's defs.
-- Tests : containment queries on the TS-extracted graphs from phase 3.
-
-Deliverable : graph membership and lookup are fast.
-
-### Phase 5 — prototype linkage between two graphs
-
-- Two TS source files, one with a ref to the other.
-- Demonstrate the link via SQL operators alone (no cross-call resolution in the extractor).
-- Tests : two-graph scenarios for the canonical kinds (call, import, extends).
-
-Deliverable : two-graph linkage works end-to-end via the extension's operators alone.
-
-### Phase 6 — GiST index
-
-- Custom GiST opclass for `moniker` (`=`, `<@`, `@>`, `~`).
-- Benchmarks : equality lookup, containment scan, ref resolution on N-graph corpora.
-
-Deliverable : indexed queries are O(log n) on representative corpora.
+Validation: cross-file linkage queries on the httpx and zod dogfood panels resolve `import` refs to their corresponding `export` defs via `bind_match` JOIN.
 
 ## Testing
 
 Two layers, both run from the same repo:
 
-- **Pure-Rust unit tests** (`cargo test`) — exercise `core/` and `lang/` directly with no PG running. Fast (sub-second), debuggable with regular tools, cannot crash a backend. Cover URI roundtrip, kind interning, builders, operators, extractor canonicalization.
-- **In-PG integration tests** (`cargo pgrx test pgN`, behind the `pg_test` feature) — boot a per-version PG, install the extension, exercise the SQL surface end-to-end. Cover type registration, operator dispatch, index correctness, GiST opclass behaviour. Used sparingly, only for what the pure-Rust layer cannot validate.
+- **Pure-Rust unit tests** (`cargo test`) — exercise `core/` and `lang/` directly with no PG running. Fast (sub-second), debuggable with regular tools, cannot crash a backend. Cover URI roundtrip, builders, operators, extractor canonicalization, binding tag rules.
+- **pgTAP integration tests** (`./test/run.sh`) — boot the pgrx-managed PG17, install the extension, exercise the SQL surface end-to-end. Cover type registration, operator dispatch, index correctness, `bind_match` behaviour against the GiST opclass.
 
-Fixture-based extractor tests live under `tests/fixtures/<lang>/` ; expected `code_graph` outputs are snapshotted as Rust constants. Performance benchmarks use synthetic graphs at 10⁴, 10⁵, 10⁶ defs/refs.
+Fixture-based extractor tests live in `#[cfg(test)] mod tests` next to each extractor. Performance benchmarks use real source files via `examples/bench_*`.
 
 ## Compatibility
 
@@ -373,12 +362,10 @@ These are deferred to implementation, not invariants of the spec.
 
 - Whether `moniker_pattern` is a compiled form or a text-glob.
 - Variadic / array-form constructors (`graph_add_defs(code_graph, def_record[])`) for bulk loading.
-- Persistence and portability of interned kind metadata across PG backends.
-
-These can be revisited without breaking the public API.
+- Per-language refinements of `bind_match`'s last-segment matching (callable bare-name, alias resolution). The default is byte-strict; refinements are layered as concrete cases motivate them.
 
 ## Non-scope
 
-- **Stack-graphs / dynamic resolution.** The extension targets languages where the moniker is locally determinable. If a language with non-determinable scoping must be supported later, stack-graphs is the architectural fallback — a separate design.
-- **Cross-project federation.** Today a moniker is scoped to a project via its authority. Federation between projects (a same external shared between consumers, cross-project refs) is an open question for another framework.
+- **Stack-graphs / dynamic resolution.** The extension targets languages where the moniker is locally determinable.
+- **Cross-project federation.** A moniker is scoped to a project via its authority. Federation between projects is an open question for another framework.
 - **Concurrent collaborative editing of a synthetic `code_graph`.** The model assumes a single writer per value.
