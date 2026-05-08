@@ -14,4 +14,3 @@ contient :
 
 - [001 — ref/def closure (asymétrie name + gate `deep`)](001-ref-def-closure.md) — 2026-05-08
 - [002 — `read_target` / `calls_target` ignorent le scope enclosing](002-ref-target-ignores-scope.md) — 2026-05-08
-- [003 — moniker parse error sur certains fichiers TS avec `deep=true`](003-deep-backtick-parse-error.md) — 2026-05-08
