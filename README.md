@@ -2,66 +2,81 @@
 
 PostgreSQL extension providing a native type for code symbol identity (`moniker`) and code graph storage (`code_graph`), with an indexed algebra for symbol-level queries.
 
-Implementation: **Rust** via [`pgrx`](https://github.com/pgcentralfoundation/pgrx).
+Implementation: **Rust** via [`pgrx`](https://github.com/pgcentralfoundation/pgrx) 0.18.
 
 ## Posture
 
-A program is a strict canonical tree. Each node has a unique identity called a **moniker**. The moniker is a native PostgreSQL type with operators (`=`, `<@`, `@>`, `||`, `~`) and a custom GiST index. The matching of a reference to its definition is a JOIN on `=` — there is no separate linker phase.
+A program is a strict canonical tree. Each node has a unique identity called a **moniker**. The moniker is a native PostgreSQL type with operators (`=`, `bind_match`, `<@`, `@>`, `||`, `~`) and a custom GiST index. Matching a reference to its definition is a JOIN on `bind_match` (cross-file) or `=` (total identity) — there is no separate linker phase.
 
-A program element is stored as a **module** : a `code_graph` value (compact bytea) carrying the internal structure (defs, refs, intra-module tree), optionally co-located with source text.
+A program element is stored as a **module**: a `code_graph` value (compact varlena) carrying the intra-module structure (defs, refs, containment tree), optionally co-located with source text.
 
-The extension is **stateless**. It reads no tables, exposes only types, operators, and pure functions. Storage and querying are PostgreSQL's job.
+The extension is **stateless**. It owns no tables, exposes only types, operators, and pure functions. Storage and querying are PostgreSQL's job.
 
 ## Status
 
-Phases 1–5 of the SPEC complete. Phase 6 (custom GiST opclass + benchmarks) in progress: btree and hash opclasses on `moniker` shipped — `ORDER BY`, `DISTINCT`, hash-join, and `GIN` on `moniker[]` all work. The custom GiST opclass for tree-containment queries (`<@` / `@>` indexed) is the remaining piece. Roughly 84 pure-Rust + 70 pgTAP tests cover the surface end to end.
+Phases 1–6 of `SPEC.md` shipped: typed canonical URI (`<scheme>+moniker://...`), `moniker` and `code_graph` SQL types with custom Datum layout, btree / hash / GiST opclasses, GIN over `moniker[]`, compact projection (`moniker_compact` / `match_compact`), and five extractors:
+
+| extractor             | grammar           | manifest parser            |
+|-----------------------|-------------------|----------------------------|
+| `extract_typescript`  | tree-sitter (TS/TSX/JS/JSX) | `extract_package_json` |
+| `extract_rust`        | tree-sitter       | `extract_cargo`            |
+| `extract_java`        | tree-sitter       | `extract_pom_xml`          |
+| `extract_python`      | tree-sitter       | `extract_pyproject`        |
+| `extract_plpgsql`     | libpg_query (vendored) | —                     |
+
+Each emits defs and refs with full metadata (visibility, signature, alias, confidence, receiver_hint, scope-tracked locals). All take a `deep := false` default; pass `deep := true` for parameter / local extraction.
+
+Phase 7 in flight: `bind_match` operator, the `lang:` segment, and the `binding` column on def / ref records — the three coordinated changes that unlock cross-file linkage.
+
+A multi-project dogfood panel (`test/dogfood/`) validates extractor coverage at scale across zod, date-fns, gson, httpx, pgTAP, clap, bytes, and this repo itself.
 
 ## Scope
 
-- Types : `moniker`, `moniker_pattern`, `code_graph`.
-- Algebra : equality, containment, composition, pattern matching.
-- Index : custom GiST opclass on `moniker`.
-- Per-language extractors (tree-sitter based) producing `code_graph` from source.
-- Constructors for synthetic `code_graph` (forward modeling, external dependency declarations).
+- Types: `moniker`, `moniker_pattern`, `code_graph`.
+- Algebra: equality, structural matching, containment, composition, pattern matching.
+- Indexes: btree / hash / GiST on `moniker`, GIN over `moniker[]`.
+- Per-language extractors producing `code_graph` from source.
+- Constructors for synthetic `code_graph` (forward modeling, declared externals).
 
-Extraction targets for ESAC are documented in
-[`docs/EXTRACTION_TARGETS.md`](docs/EXTRACTION_TARGETS.md). The extension must
-reach parity with ESAC's existing extractors before replacing them.
-
-The target URI/moniker design is documented in
-[`docs/MONIKER_URI.md`](docs/MONIKER_URI.md). Canonical monikers use a typed
-`+moniker` scheme such as `esac+moniker://...`; the base-scheme SCIP-like form
-such as `esac://...` is retained as compact display/compatibility syntax.
+The first consumer is ESAC. Extraction parity targets vs ESAC's existing extractors are in [`docs/EXTRACTION_TARGETS.md`](docs/EXTRACTION_TARGETS.md). The URI design and segment semantics are in [`docs/MONIKER_URI.md`](docs/MONIKER_URI.md).
 
 ## Non-scope
 
 - No table schemas, no triggers, no application logic.
-- No project-level configuration (callers pass it in as arguments).
+- No project-level configuration storage (callers pass anchors and presets as arguments).
 - No cross-project federation.
-- No stack-graph-style dynamic resolution (relies on locally determinable monikers).
+- No stack-graph-style dynamic resolution; relies on locally determinable monikers.
 
 ## Layout
 
 ```
 src/
-  core/     Pure Rust, no pgrx. The type internals (kind registry,
-            moniker encoding, code_graph layout, operators). Testable
-            with `cargo test` -- no PG required.
-  pg/       pgrx wrappers exposing the SQL surface. Built only with a
-            `pgN` feature.
-  lang/     Per-language extractors (tree-sitter). Pure Rust.
+  core/     pure Rust, no pgrx, testable with `cargo test`
+            moniker/, uri/, code_graph.rs
+  pg/      pgrx wrappers exposing the SQL surface (gated by pgN feature)
+            moniker/, code_graph/, extract.rs, build.rs
+  lang/    per-language extractors (tree-sitter + libpg_query for SQL)
+            ts/, rs/, java/, python/, sql/
+test/
+  sql/                pgTAP files (run via ./test/run.sh)
+  dogfood.sh          multi-project ingestion runner
+  dogfood/panel.sh    pinned panel of representative open-source projects
+examples/
+  bench_codegraph.rs  CodeGraph add_def / add_ref scaling bench
+  bench_extract.rs    full extractor on a real file
+vendor/plpgsql/       vendored PG PL/pgSQL parser sources for libpg_query-style use
 ```
 
-## Building & testing
+## Building and testing
 
-Pure-Rust core (no PG required):
+Pure-Rust core and extractors (no PG required):
 
 ```sh
-cargo test            # runs all unit tests in src/core/
-cargo build           # builds the core; pg/ is feature-gated and skipped
+cargo test --features pg17 --no-default-features --lib
+cargo build --features pg17 --no-default-features
 ```
 
-Full extension (requires [cargo-pgrx](https://github.com/pgcentralfoundation/pgrx) and an initialised PG toolchain):
+Full extension (requires [cargo-pgrx](https://github.com/pgcentralfoundation/pgrx) and an initialized PG toolchain):
 
 ```sh
 cargo install --locked cargo-pgrx
@@ -77,7 +92,7 @@ git clone --depth 1 https://github.com/theory/pgtap.git /tmp/pgtap-build
 PG_CONFIG=$HOME/.pgrx/17.9/pgrx-install/bin/pg_config make -C /tmp/pgtap-build install
 ```
 
-Then run the suite (starts pgrx PG17 if needed, drops/recreates a test DB, runs `test/sql/*.sql`):
+Then run the suite (drops/recreates a test DB, runs every `test/sql/*.sql`):
 
 ```sh
 cargo pgrx start pg17
@@ -85,9 +100,46 @@ cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
 ./test/run.sh
 ```
 
+Validate extractors at corpus scale:
+
+```sh
+./test/dogfood.sh                     # full panel
+./test/dogfood.sh --only zod          # one project
+./test/dogfood.sh --reset             # discard caches and re-clone
+```
+
+Benchmarks:
+
+```sh
+cargo run --release --features pg17 --no-default-features --example bench_codegraph
+cargo run --release --features pg17 --no-default-features --example bench_extract
+```
+
+## Development workflow
+
+A pre-commit hook ships under `.githooks/`. Activate once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook runs `cargo fmt --all -- --check` then `cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings` whenever staged changes touch `*.rs` or `Cargo.{toml,lock}`. It is a no-op for documentation-only commits.
+
+Project formatting convention (`rustfmt.toml`): `hard_tabs = true`.
+
+Canonical loop after a non-trivial change:
+
+```sh
+cargo check --features pg17 --no-default-features --tests   # FFI/lifetime check, seconds
+cargo test  --features pg17 --no-default-features --lib     # unit tests, sub-second
+cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
+./test/run.sh                                               # pgTAP suite, ~5s
+./test/dogfood.sh --only <project>                          # scaling validation
+```
+
 ## Canonical usage
 
-The extension defines no tables. The pattern below — one row per module — is the canonical shape SPEC is designed to serve, and the one ESAC uses.
+The extension defines no tables. The shape below — one row per module — is what `SPEC.md` is designed to serve and what ESAC uses.
 
 ```sql
 CREATE EXTENSION pg_code_moniker;
@@ -100,14 +152,15 @@ CREATE TABLE module (
     origin      text NOT NULL  -- 'extracted' | 'symbolic' | 'external'
 );
 
--- Module identity = its root moniker. Make it queryable + unique without
+-- Module identity is its root moniker. Make it queryable + unique without
 -- introducing a redundant column.
 CREATE UNIQUE INDEX module_root_uniq
     ON module ((graph_root(graph)));
 
--- Cross-module navigation indexes. The btree + hash opclasses on moniker
--- (shipped in Phase 6) make `array_ops` work on moniker[], so these GIN
--- indexes resolve the SPEC linkage pattern in O(log n).
+CREATE INDEX module_root_gist
+    ON module USING gist ((graph_root(graph)));
+
+-- Cross-module navigation.
 CREATE INDEX module_def_monikers_gin
     ON module USING gin (graph_def_monikers(graph));
 CREATE INDEX module_ref_targets_gin
@@ -116,23 +169,27 @@ CREATE INDEX module_ref_targets_gin
 -- Populate from a TS source.
 INSERT INTO module (id, graph, source_text, source_uri, origin) VALUES
     (gen_random_uuid(),
-     extract_typescript('src/util.ts',
+     extract_typescript(
+         'src/util.ts',
          'export class Util { run() { return 1; } }',
-         'esac://app'::moniker),
+         'pcm+moniker://app'::moniker
+     ),
      'export class Util { run() { return 1; } }',
      'src/util.ts',
      'extracted');
 
 -- Find the module that defines a moniker (uses module_def_monikers_gin).
 SELECT id FROM module
- WHERE graph_def_monikers(graph) @> ARRAY['esac://app/src/util#Util#'::moniker];
+ WHERE graph_def_monikers(graph)
+       @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker];
 
--- Find every module that references a moniker (uses module_ref_targets_gin).
+-- Inspect every def of a module (kind, visibility, signature, binding, …).
+SELECT * FROM module m, graph_defs(m.graph) WHERE m.id = $1;
+
+-- Subtree containment: every module under a srcset.
 SELECT id FROM module
- WHERE graph_ref_targets(graph) @> ARRAY['esac://app/src/util'::moniker];
+ WHERE graph_root(graph) <@ 'pcm+moniker://app/srcset:main'::moniker;
 ```
-
-Subtree containment queries (`graph_root <@ 'esac://app/main'::moniker`) need a custom GiST opclass on `moniker`, scheduled but not yet shipped.
 
 ## Consumers
 

@@ -328,7 +328,7 @@ All functions are `IMMUTABLE STRICT PARALLEL SAFE` unless explicitly noted.
 
 ## Implementation phases
 
-Phases 1–6 shipped (typed URI, code_graph, five extractors, GiST opclass, compact projection, dogfood panel). The current chantier is **Phase 7 — `bind_match` + binding metadata + `lang:` segment**.
+Phases 1–6 shipped (typed URI, code_graph, five extractors, GiST opclass, compact projection, dogfood panel). The current effort is **Phase 7 — `bind_match` + binding metadata + `lang:` segment**.
 
 ### Phase 7 — Cross-file linkage
 
@@ -346,7 +346,7 @@ For `bind_match` to JOIN an import ref against the corresponding export def, the
 - **Python** — absolute project-local imports (`from acme.util import X`) build under `lang:python/package:.../module:.../path:X`. Relative imports (`from ._models import Response`) walk up the importer's module chain by `leading_dots-1` package levels and then attach the requested pieces. Stdlib (`json`, `os`, …) keeps the project-regime `external_pkg:` shape.
 - **Rust** — `crate::` builds under `lang:rs/`. The second-to-last piece becomes `module:<name>`, the last piece is `path:<symbol>`. `super::` / `self::` use the importer's view. Re-export chains (`use crate::a::b::c` where `c` is a `pub use` from a deeper module) cannot be resolved locally — the consumer's projection layer follows the chain.
 - **Java** — named imports (`import com.acme.Foo`) build under `lang:java/package:com/package:acme/module:Foo/path:Foo`. The last piece is duplicated as both `module:` (the file) and `path:` (the symbol) so `bind_match` unifies with `module:Foo/class:Foo`. JDK packages (`java.*`, `javax.*`) keep the `external_pkg:` shape.
-- **SQL / PL-pgSQL** — all `calls` refs are tagged `binding=local` (intra-module by language design) and use arity-only callable names like `function:bar(2)`, while defs use typed names like `function:bar(int4,text)`. `bind_match`'s byte-strict last-segment-name rule does not unify these. Cross-file SQL call linkage requires a per-language refinement of `bind_match` (callable bare-name comparison routed via the `lang:sql` segment) — deferred to a follow-up chantier.
+- **SQL / PL-pgSQL** — all `calls` refs are tagged `binding=local` (intra-module by language design) and use arity-only callable names like `function:bar(2)`, while defs use typed names like `function:bar(int4,text)`. `bind_match`'s byte-strict last-segment-name rule does not unify these. Cross-file SQL call linkage requires a per-language refinement of `bind_match` (callable bare-name comparison routed via the `lang:sql` segment) — deferred to a follow-up effort.
 
 Validation: cross-file linkage on the dogfood panel resolves at scale across TS, Java, Python, and Rust:
 
