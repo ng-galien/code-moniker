@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# pre-commit: cargo clippy -D warnings on staged Rust changes.
+# Activate once per clone: `git config core.hooksPath .githooks`.
+
+set -euo pipefail
+
+if ! git diff --cached --name-only --diff-filter=ACMR | grep -qE '\.rs$|^Cargo\.(toml|lock)$'; then
+	exit 0
+fi
+
+if ! cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings; then
+	echo "pre-commit: cargo clippy failed (warnings treated as errors)." >&2
+	exit 1
+fi
