@@ -26,6 +26,7 @@ extension_sql!(
 			OPERATOR 3  =,
 			OPERATOR 8  @>,
 			OPERATOR 10 <@,
+			OPERATOR 11 ?=,
 			FUNCTION 1  moniker_gist_consistent(internal, moniker, smallint, oid, internal),
 			FUNCTION 2  moniker_gist_union(internal, internal),
 			FUNCTION 3  moniker_gist_compress(internal),
@@ -39,6 +40,7 @@ extension_sql!(
 		moniker_eq,
 		moniker_ancestor_of,
 		moniker_descendant_of,
+		bind_match,
 		moniker_gist_consistent,
 		moniker_gist_union,
 		moniker_gist_compress,
@@ -55,6 +57,7 @@ extension_sql!(
 const STRAT_EQUAL: u32 = 3;
 const STRAT_CONTAINS: u32 = 8;
 const STRAT_CONTAINED_BY: u32 = 10;
+const STRAT_BIND_MATCH: u32 = 11;
 
 /// Decoded view of a signature varlena: `Some((project, segs))` for a
 /// canonical-header signature, `None` for the wildcard sentinel
@@ -136,6 +139,7 @@ fn moniker_gist_consistent(
 				STRAT_EQUAL => k_segs == q_segs,
 				STRAT_CONTAINS => q_segs.starts_with(k_segs),
 				STRAT_CONTAINED_BY => k_segs.starts_with(q_segs),
+				STRAT_BIND_MATCH => bind_match_segs(k_segs, q_segs),
 				_ => false,
 			}
 		} else {
@@ -143,10 +147,93 @@ fn moniker_gist_consistent(
 			match strategy as u32 {
 				STRAT_EQUAL | STRAT_CONTAINS => q_segs.starts_with(k_segs),
 				STRAT_CONTAINED_BY => k_segs.starts_with(q_segs) || q_segs.starts_with(k_segs),
+				STRAT_BIND_MATCH => {
+					// At inner pages we know the LCP segs of all leaves
+					// below. A leaf can satisfy bind_match iff its all-
+					// but-last bytes equal q's all-but-last bytes. The
+					// inner LCP is a byte prefix of every leaf below, so
+					// either the LCP is shorter than q's parent-prefix
+					// (LCP must itself be a prefix of q.parent_prefix) or
+					// it's longer (q.parent_prefix must be a prefix of
+					// LCP — leaves' last-segment bytes diverge from LCP
+					// past q.parent_prefix). Otherwise prune.
+					match parent_prefix_bytes(q_segs) {
+						Some(qp) => k_segs.starts_with(qp) || qp.starts_with(k_segs),
+						None => false,
+					}
+				}
 				_ => false,
 			}
 		}
 	}
+}
+
+/// Encoded byte prefix of `segs` that excludes the last segment.
+/// Returns `None` when `segs` has zero segments (no last to exclude).
+/// Each segment in the v2 layout is `[u16 kind_len][kind][u16
+/// name_len][name]`, so this is a left-to-right walk.
+fn parent_prefix_bytes(segs: &[u8]) -> Option<&[u8]> {
+	let mut cursor = 0usize;
+	let mut last_start: Option<usize> = None;
+	while cursor < segs.len() {
+		last_start = Some(cursor);
+		if segs.len() < cursor + 2 {
+			return None;
+		}
+		let kind_len = u16::from_le_bytes([segs[cursor], segs[cursor + 1]]) as usize;
+		cursor += 2 + kind_len;
+		if segs.len() < cursor + 2 {
+			return None;
+		}
+		let name_len = u16::from_le_bytes([segs[cursor], segs[cursor + 1]]) as usize;
+		cursor += 2 + name_len;
+		if cursor > segs.len() {
+			return None;
+		}
+	}
+	last_start.map(|s| &segs[..s])
+}
+
+/// Run `bind_match` semantics on the segment-region byte slices. Both
+/// inputs share the canonical encoding; we walk segments side-by-side
+/// and require:
+/// - same number of segments;
+/// - all-but-last segments byte-equal;
+/// - last segment names equal (kinds may differ).
+fn bind_match_segs(left: &[u8], right: &[u8]) -> bool {
+	let lp = match parent_prefix_bytes(left) {
+		Some(p) => p,
+		None => return false,
+	};
+	let rp = match parent_prefix_bytes(right) {
+		Some(p) => p,
+		None => return false,
+	};
+	if lp != rp {
+		return false;
+	}
+	let l_last = &left[lp.len()..];
+	let r_last = &right[rp.len()..];
+	last_segment_name(l_last) == last_segment_name(r_last)
+}
+
+fn last_segment_name(seg_bytes: &[u8]) -> Option<&[u8]> {
+	if seg_bytes.len() < 4 {
+		return None;
+	}
+	let kind_len = u16::from_le_bytes([seg_bytes[0], seg_bytes[1]]) as usize;
+	let name_off = 2 + kind_len + 2;
+	if seg_bytes.len() < name_off {
+		return None;
+	}
+	let name_len = u16::from_le_bytes([
+		seg_bytes[2 + kind_len],
+		seg_bytes[2 + kind_len + 1],
+	]) as usize;
+	if seg_bytes.len() < name_off + name_len {
+		return None;
+	}
+	Some(&seg_bytes[name_off..name_off + name_len])
 }
 
 #[pg_extern(immutable, parallel_safe)]

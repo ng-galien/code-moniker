@@ -23,6 +23,49 @@ impl Moniker {
 	pub fn last_kind(&self) -> Option<Vec<u8>> {
 		self.as_view().segments().last().map(|s| s.kind.to_vec())
 	}
+
+	/// Cross-file linkage match. Returns `true` when:
+	/// - both monikers have the same project bytes;
+	/// - both have at least one segment;
+	/// - every segment except the last is byte-equal (kind and name);
+	/// - the last segments have equal `name` bytes (kinds may differ).
+	///
+	/// This solves the problem that an extractor is local and does not
+	/// know the kind of a symbol it imports from another file. The
+	/// import side emits a placeholder last-segment kind (typically
+	/// `path:` or another best-effort kind); the def side emits the
+	/// true kind. Byte-strict `=` would never match those two;
+	/// `bind_match` does. See `SPEC.md` § Operators.
+	pub fn bind_match(&self, other: &Moniker) -> bool {
+		let lv = self.as_view();
+		let rv = other.as_view();
+		if lv.project() != rv.project() {
+			return false;
+		}
+		let mut ls = lv.segments();
+		let mut rs = rv.segments();
+		let mut prev_l = match ls.next() {
+			Some(s) => s,
+			None => return false,
+		};
+		let mut prev_r = match rs.next() {
+			Some(s) => s,
+			None => return false,
+		};
+		loop {
+			match (ls.next(), rs.next()) {
+				(None, None) => return prev_l.name == prev_r.name,
+				(Some(_), None) | (None, Some(_)) => return false,
+				(Some(nl), Some(nr)) => {
+					if prev_l != prev_r {
+						return false;
+					}
+					prev_l = nl;
+					prev_r = nr;
+				}
+			}
+		}
+	}
 }
 
 #[cfg(test)]
@@ -139,5 +182,68 @@ mod tests {
 
 		assert!(parent.as_bytes() < child_long.as_bytes());
 		assert!(child_long.as_bytes() < next_sibling.as_bytes());
+	}
+
+	// --- bind_match ------------------------------------------------------
+
+	#[test]
+	fn bind_match_equal_monikers_match() {
+		let m = mk(b"app", &[(b"class", b"Foo")]);
+		assert!(m.bind_match(&m));
+	}
+
+	#[test]
+	fn bind_match_path_vs_class_on_last_segment_matches() {
+		let import = mk(b"app", &[(b"module", b"util"), (b"path", b"Foo")]);
+		let def = mk(b"app", &[(b"module", b"util"), (b"class", b"Foo")]);
+		assert!(import.bind_match(&def));
+		assert!(def.bind_match(&import));
+	}
+
+	#[test]
+	fn bind_match_rejects_different_projects() {
+		let l = mk(b"app1", &[(b"class", b"Foo")]);
+		let r = mk(b"app2", &[(b"class", b"Foo")]);
+		assert!(!l.bind_match(&r));
+	}
+
+	#[test]
+	fn bind_match_rejects_different_lang_segment() {
+		// Cross-language matches are by design impossible: the lang:
+		// segment is part of the all-but-last byte-strict prefix.
+		let l = mk(b"app", &[(b"lang", b"python"), (b"class", b"Foo")]);
+		let r = mk(b"app", &[(b"lang", b"java"), (b"class", b"Foo")]);
+		assert!(!l.bind_match(&r));
+	}
+
+	#[test]
+	fn bind_match_rejects_different_parent_segment_kind() {
+		// Parent segments must be byte-strict equal; only the LAST
+		// segment's kind may differ.
+		let l = mk(b"app", &[(b"package", b"acme"), (b"class", b"Foo")]);
+		let r = mk(b"app", &[(b"path", b"acme"), (b"class", b"Foo")]);
+		assert!(!l.bind_match(&r));
+	}
+
+	#[test]
+	fn bind_match_rejects_different_segment_count() {
+		let shallow = mk(b"app", &[(b"class", b"Foo")]);
+		let deep = mk(b"app", &[(b"class", b"Foo"), (b"method", b"bar()")]);
+		assert!(!shallow.bind_match(&deep));
+	}
+
+	#[test]
+	fn bind_match_rejects_project_only_monikers() {
+		// A moniker with no segments has no last segment to match on.
+		let l = mk(b"app", &[]);
+		let r = mk(b"app", &[]);
+		assert!(!l.bind_match(&r));
+	}
+
+	#[test]
+	fn bind_match_rejects_different_last_segment_name() {
+		let l = mk(b"app", &[(b"class", b"Foo")]);
+		let r = mk(b"app", &[(b"class", b"Bar")]);
+		assert!(!l.bind_match(&r));
 	}
 }

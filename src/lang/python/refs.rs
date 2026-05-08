@@ -58,7 +58,7 @@ impl<'src> Walker<'src> {
 			.borrow_mut()
 			.insert(bind.as_bytes(), confidence);
 
-		let target = build_module_target(self.module.as_view().project(), &pieces, 0);
+		let target = build_module_target(&self.module, &pieces, 0, confidence);
 		let attrs = RefAttrs {
 			confidence,
 			alias: alias.as_bytes(),
@@ -94,7 +94,7 @@ impl<'src> Walker<'src> {
 			external_or_imported(&pieces)
 		};
 		let module_target =
-			build_module_target(self.module.as_view().project(), &pieces, leading_dots);
+			build_module_target(&self.module, &pieces, leading_dots, confidence);
 
 		if wildcard {
 			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
@@ -115,10 +115,11 @@ impl<'src> Walker<'src> {
 				.borrow_mut()
 				.insert(bind.as_bytes(), confidence);
 			let target = build_imported_symbol_target(
-				self.module.as_view().project(),
+				&self.module,
 				&pieces,
 				leading_dots,
 				name.as_bytes(),
+				confidence,
 			);
 			let attrs = RefAttrs {
 				confidence,
@@ -399,28 +400,49 @@ fn dotted_leaf<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
 	last
 }
 
-/// Build a module-target moniker for an absolute import (no leading
-/// dots): the head piece is the external pkg, the rest are
-/// `package` segments — except the leaf which lands as `module`.
-/// Relative imports (leading_dots > 0) collapse all pieces under
-/// `external_pkg/path/...` because the importer's anchor isn't
-/// available here.
-fn build_module_target(project: &[u8], pieces: &[&str], leading_dots: usize) -> Moniker {
-	let mut b = MonikerBuilder::new();
-	b.project(project);
+/// Build a module-target moniker for an import.
+///
+/// Three resolution modes:
+/// - **Absolute project-local** (`confidence == imported`,
+///   `leading_dots == 0`): build under the language regime,
+///   `lang:python/package:<heads>/module:<leaf>`, so `bind_match`
+///   can JOIN against the export-side def.
+/// - **Relative** (`leading_dots > 0`): walk up the importer's module
+///   chain by `leading_dots - 1` package segments, then attach
+///   `pieces` as `package:` ... `module:<leaf>`. Targets are still in
+///   the language regime, so `bind_match` works.
+/// - **External / stdlib** (`confidence == external`): keep the
+///   project-regime `external_pkg:<head>/path:<rest>` shape. There is
+///   no project-side def to match against.
+fn build_module_target(
+	importer: &Moniker,
+	pieces: &[&str],
+	leading_dots: usize,
+	confidence: &[u8],
+) -> Moniker {
+	let project = importer.as_view().project();
 	if leading_dots > 0 {
-		// Encode the dots in a synthetic head segment so consumers can
-		// reconstruct the path against the importer.
-		let head = ".".repeat(leading_dots);
-		b.segment(kinds::EXTERNAL_PKG, head.as_bytes());
-		for p in pieces {
-			b.segment(kinds::PATH, p.as_bytes());
+		return build_relative_module_target(importer, pieces, leading_dots);
+	}
+	if pieces.is_empty() {
+		let mut b = MonikerBuilder::new();
+		b.project(project);
+		return b.build();
+	}
+	if confidence == kinds::CONF_IMPORTED {
+		let mut b = MonikerBuilder::new();
+		b.project(project);
+		b.segment(crate::lang::kinds::LANG, b"python");
+		let last = pieces.len() - 1;
+		for (i, p) in pieces.iter().enumerate() {
+			let kind = if i == last { kinds::MODULE } else { kinds::PACKAGE };
+			b.segment(kind, p.as_bytes());
 		}
 		return b.build();
 	}
-	if pieces.is_empty() {
-		return b.build();
-	}
+	// confidence == external (stdlib): project-regime external_pkg.
+	let mut b = MonikerBuilder::new();
+	b.project(project);
 	b.segment(kinds::EXTERNAL_PKG, pieces[0].as_bytes());
 	for p in &pieces[1..] {
 		b.segment(kinds::PATH, p.as_bytes());
@@ -428,19 +450,81 @@ fn build_module_target(project: &[u8], pieces: &[&str], leading_dots: usize) -> 
 	b.build()
 }
 
-/// Build a target for `from X import Y` — module target plus a
-/// `function:Y()` leaf so projections can match the corresponding def
-/// via name+arity.
+/// Resolve a relative import against the importer's module moniker.
+/// Python `.` semantics: `from .X import Y` references the current
+/// package; each extra dot walks up one more package level. The
+/// importer's module moniker is shaped
+/// `.../lang:python/<package:>*/module:<leaf>`. We drop the trailing
+/// `module:` segment to land at the importer's current package, then
+/// drop `leading_dots - 1` further package segments, then append the
+/// requested `pieces` as `package:` … `module:<leaf>`.
+fn build_relative_module_target(
+	importer: &Moniker,
+	pieces: &[&str],
+	leading_dots: usize,
+) -> Moniker {
+	let view = importer.as_view();
+	let segs: Vec<_> = view.segments().collect();
+	// segs[0] = lang:python; the rest are the package chain plus the
+	// importer's `module:` leaf. Compute how many segments to keep.
+	let mut keep = segs.len();
+	if keep > 0 {
+		keep -= 1; // drop the importer's `module:` leaf
+	}
+	// Each extra dot drops one more parent segment (but never below
+	// the lang segment — bottom out at depth 1 so we stay in the
+	// language regime).
+	let to_drop = leading_dots.saturating_sub(1);
+	keep = keep.saturating_sub(to_drop);
+	if keep == 0 {
+		// Underflow — no language regime to anchor against. Fall back
+		// to the synthetic project-regime shape.
+		let mut b = MonikerBuilder::new();
+		b.project(view.project());
+		let head = ".".repeat(leading_dots);
+		b.segment(kinds::EXTERNAL_PKG, head.as_bytes());
+		for p in pieces {
+			b.segment(kinds::PATH, p.as_bytes());
+		}
+		return b.build();
+	}
+	let mut b = MonikerBuilder::new();
+	b.project(view.project());
+	for s in &segs[..keep] {
+		b.segment(s.kind, s.name);
+	}
+	if pieces.is_empty() {
+		return b.build();
+	}
+	let last = pieces.len() - 1;
+	for (i, p) in pieces.iter().enumerate() {
+		let kind = if i == last { kinds::MODULE } else { kinds::PACKAGE };
+		b.segment(kind, p.as_bytes());
+	}
+	b.build()
+}
+
+/// Build a target for `from X import Y`. When the module target lives
+/// in the language regime (project-local import or resolved relative
+/// import), append `path:<name>` — matches the canonical def shape
+/// modulo last-segment kind so `bind_match` resolves it. When
+/// external, append the arity-only callable shape so downstream
+/// projections can match by name+arity.
 fn build_imported_symbol_target(
-	project: &[u8],
+	importer: &Moniker,
 	pieces: &[&str],
 	leading_dots: usize,
 	name: &[u8],
+	confidence: &[u8],
 ) -> Moniker {
-	let module = build_module_target(project, pieces, leading_dots);
-	// Empty arity: arity-only segment shape `name()`. Consumers project
-	// on name+arity; the def carries the typed signature.
-	extend_callable_arity(&module, kinds::FUNCTION, name, 0)
+	let module = build_module_target(importer, pieces, leading_dots, confidence);
+	let language_regime = leading_dots > 0
+		|| (confidence == kinds::CONF_IMPORTED && !pieces.is_empty());
+	if language_regime {
+		extend_segment(&module, kinds::PATH, name)
+	} else {
+		extend_callable_arity(&module, kinds::FUNCTION, name, 0)
+	}
 }
 
 fn external_or_imported(pieces: &[&str]) -> &'static [u8] {

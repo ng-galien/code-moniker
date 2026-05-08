@@ -206,8 +206,24 @@ mod tests {
 			.filter(|r| r.kind == b"imports_symbol")
 			.map(|r| r.target.as_view().segments().last().unwrap().name)
 			.collect();
-		// Both targets are arity-only callable shapes: `a()`, `b()`.
-		assert_eq!(names, vec![&b"a()"[..], &b"b()"[..]]);
+		// Project-local imports land under `lang:python/.../path:<name>`
+		// so `bind_match` can JOIN them against the export-side def.
+		assert_eq!(names, vec![&b"a"[..], &b"b"[..]]);
+		// Last-segment kind is `path:` (placeholder), parent of the
+		// import is the importer-resolved module shape.
+		let segs: Vec<_> = g
+			.refs()
+			.find(|r| r.kind == b"imports_symbol")
+			.unwrap()
+			.target
+			.as_view()
+			.segments()
+			.collect();
+		let kinds: Vec<&[u8]> = segs.iter().map(|s| s.kind).collect();
+		assert_eq!(
+			kinds,
+			vec![&b"lang"[..], &b"package"[..], &b"module"[..], &b"path"[..]]
+		);
 		// Alias is preserved on the second.
 		let aliased = g
 			.refs()
@@ -217,17 +233,30 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_relative_import_preserves_leading_dots() {
+	fn extract_relative_import_resolves_against_importer() {
+		// Importer module: `acme/m.py` → `lang:python/package:acme/module:m`.
+		// `from .util import helper` resolves to the sibling `acme/util`
+		// module's `helper` symbol — i.e. drops the importer's
+		// `module:m`, keeps `package:acme`, then appends `module:util`
+		// and `path:helper` so bind_match unifies it with the def-side
+		// `function:helper(...)`.
 		let src = "from .util import helper\n";
 		let g = extract_default("acme/m.py", src, &make_anchor(), false);
 		let r = g
 			.refs()
 			.find(|r| r.kind == b"imports_symbol")
 			.expect("imports_symbol");
-		// The synthetic head segment `external_pkg:.` carries the dot count.
-		let segs = r.target.as_view().segments().collect::<Vec<_>>();
-		assert_eq!(segs[0].kind, b"external_pkg");
-		assert_eq!(segs[0].name, b".");
+		let segs: Vec<_> = r.target.as_view().segments().collect();
+		let kinds: Vec<&[u8]> = segs.iter().map(|s| s.kind).collect();
+		let names: Vec<&[u8]> = segs.iter().map(|s| s.name).collect();
+		assert_eq!(
+			kinds,
+			vec![&b"lang"[..], &b"package"[..], &b"module"[..], &b"path"[..]]
+		);
+		assert_eq!(
+			names,
+			vec![&b"python"[..], &b"acme"[..], &b"util"[..], &b"helper"[..]]
+		);
 	}
 
 	#[test]
