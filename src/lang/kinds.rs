@@ -49,3 +49,11 @@ pub const CONF_NAME_MATCH: &[u8] = b"name_match";
 pub const CONF_LOCAL: &[u8] = b"local";
 pub const CONF_RESOLVED: &[u8] = b"resolved";
 pub const CONF_UNRESOLVED: &[u8] = b"unresolved";
+
+pub fn name_confidence_for(is_local: bool, deep: bool) -> Option<&'static [u8]> {
+	if is_local {
+		if deep { Some(CONF_LOCAL) } else { None }
+	} else {
+		Some(CONF_NAME_MATCH)
+	}
+}

@@ -33,7 +33,7 @@ impl<'src> Walker<'src> {
 					}
 					return;
 				};
-				let target = if self.is_local_name(name.as_bytes()) {
+				let target = if confidence == kinds::CONF_LOCAL {
 					extend_segment(scope, kinds::LOCAL, name.as_bytes())
 				} else {
 					self.calls_target(name, arity)
@@ -320,7 +320,7 @@ impl<'src> Walker<'src> {
 		let Some(confidence) = self.name_confidence(name.as_bytes()) else {
 			return;
 		};
-		let target = if self.is_local_name(name.as_bytes()) {
+		let target = if confidence == kinds::CONF_LOCAL {
 			extend_segment(scope, kinds::LOCAL, name.as_bytes())
 		} else {
 			self.read_target(name)

@@ -70,15 +70,7 @@ impl<'src> Walker<'src> {
 	}
 
 	pub(super) fn name_confidence(&self, name: &[u8]) -> Option<&'static [u8]> {
-		if self.is_local_name(name) {
-			if self.deep {
-				Some(kinds::CONF_LOCAL)
-			} else {
-				None
-			}
-		} else {
-			Some(kinds::CONF_NAME_MATCH)
-		}
+		crate::lang::kinds::name_confidence_for(self.is_local_name(name), self.deep)
 	}
 
 	pub(super) fn import_confidence_for(&self, name: &[u8]) -> Option<&'static [u8]> {
