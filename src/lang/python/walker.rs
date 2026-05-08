@@ -233,14 +233,13 @@ impl<'src> Walker<'src> {
 		}
 
 		let inside_callable = is_callable_scope(scope, &self.module);
-		if inside_callable {
-			if let Some(left) = node.child_by_field_name("left") {
+		if inside_callable
+			&& let Some(left) = node.child_by_field_name("left") {
 				self.record_local_pattern(left);
 				if self.deep {
 					self.emit_local_pattern(left, scope, graph);
 				}
 			}
-		}
 		if let Some(right) = node.child_by_field_name("right") {
 			self.dispatch(right, scope, graph);
 		}
@@ -290,14 +289,13 @@ impl<'src> Walker<'src> {
 
 
 	fn handle_for(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		if is_callable_scope(scope, &self.module) {
-			if let Some(left) = node.child_by_field_name("left") {
+		if is_callable_scope(scope, &self.module)
+			&& let Some(left) = node.child_by_field_name("left") {
 				self.record_local_pattern(left);
 				if self.deep {
 					self.emit_local_pattern(left, scope, graph);
 				}
 			}
-		}
 		if let Some(right) = node.child_by_field_name("right") {
 			self.dispatch(right, scope, graph);
 		}
@@ -369,11 +367,10 @@ impl<'src> Walker<'src> {
 				Some(node_position(name_node)),
 				&attrs,
 			);
-			if c.kind() == "call" {
-				if let Some(args) = c.child_by_field_name("arguments") {
+			if c.kind() == "call"
+				&& let Some(args) = c.child_by_field_name("arguments") {
 					self.walk(args, parent, graph);
 				}
-			}
 		}
 	}
 
@@ -444,7 +441,7 @@ pub(super) fn collect_param_types(
 		idx += 1;
 		let ty = type_node
 			.and_then(|t| t.utf8_text(source).ok())
-			.map(|s| crate::lang::callable::normalize_type_text(s))
+			.map(crate::lang::callable::normalize_type_text)
 			.unwrap_or_else(|| b"_".to_vec());
 		types.push(ty);
 	}

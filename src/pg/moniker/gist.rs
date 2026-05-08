@@ -326,7 +326,7 @@ fn moniker_gist_picksplit(entryvec: Internal, splitvec: Internal) -> Internal {
 
 		let total = indexed.len();
 		assert!(total >= 2, "picksplit requires >= 2 entries, got {}", total);
-		let mid = (total + 1) / 2;
+		let mid = total.div_ceil(2);
 
 		let split_datum = splitvec.unwrap().expect("gist picksplit splitvec is null");
 		let split = &mut *split_datum.cast_mut_ptr::<pg_sys::GIST_SPLITVEC>();

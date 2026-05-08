@@ -130,11 +130,10 @@ fn collect_scoped_path_into(node: Node<'_>, source: &[u8], out: &mut Vec<String>
 		if let Some(path) = node.child_by_field_name("path") {
 			collect_scoped_path_into(path, source, out);
 		}
-		if let Some(name) = node.child_by_field_name("name") {
-			if let Ok(s) = name.utf8_text(source) {
+		if let Some(name) = node.child_by_field_name("name")
+			&& let Ok(s) = name.utf8_text(source) {
 				out.push(s.to_string());
 			}
-		}
 		return;
 	}
 	if let Ok(s) = node.utf8_text(source) {

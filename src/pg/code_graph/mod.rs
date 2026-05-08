@@ -147,7 +147,11 @@ unsafe impl UnboxDatum for code_graph {
 		Self: 'dat,
 	{
 		unsafe {
-			<Self as FromDatum>::from_datum(::core::mem::transmute(datum), false).unwrap()
+			<Self as FromDatum>::from_datum(
+				::core::mem::transmute::<PgrxDatum<'dat>, pgrx::pg_sys::Datum>(datum),
+				false,
+			)
+			.unwrap()
 		}
 	}
 }
@@ -253,7 +257,7 @@ fn graph_locate(
 		let (s, e) = position_to_i32(Some(p));
 		(s, e)
 	});
-	TableIterator::new(row.into_iter())
+	TableIterator::new(row)
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -322,6 +326,7 @@ fn kind_text(bytes: &[u8]) -> String {
 }
 
 #[pg_extern(immutable, parallel_safe)]
+#[allow(clippy::type_complexity)]
 fn graph_defs(
 	graph: code_graph,
 ) -> TableIterator<
@@ -360,10 +365,11 @@ fn graph_defs(
 			)
 		})
 		.collect();
-	TableIterator::new(rows.into_iter())
+	TableIterator::new(rows)
 }
 
 #[pg_extern(immutable, parallel_safe)]
+#[allow(clippy::type_complexity)]
 fn graph_refs(
 	graph: code_graph,
 ) -> TableIterator<
@@ -412,7 +418,7 @@ fn graph_refs(
 			)
 		})
 		.collect();
-	TableIterator::new(rows.into_iter())
+	TableIterator::new(rows)
 }
 
 fn bytes_to_opt_string(b: &[u8]) -> Option<String> {

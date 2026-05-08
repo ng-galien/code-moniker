@@ -235,7 +235,11 @@ unsafe impl UnboxDatum for moniker {
 		Self: 'dat,
 	{
 		unsafe {
-			<Self as FromDatum>::from_datum(::core::mem::transmute(datum), false).unwrap()
+			<Self as FromDatum>::from_datum(
+				::core::mem::transmute::<PgrxDatum<'dat>, pgrx::pg_sys::Datum>(datum),
+				false,
+			)
+			.unwrap()
 		}
 	}
 }

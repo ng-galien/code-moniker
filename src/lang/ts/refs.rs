@@ -92,12 +92,11 @@ impl<'src> Walker<'src> {
 					.map(|p| self.text_of(p)),
 				_ => None,
 			};
-			if let Some(n) = name {
-				if !n.is_empty() {
+			if let Some(n) = name
+				&& !n.is_empty() {
 					let target = self.instantiates_target(n);
 					let _ = graph.add_ref_attrs(scope, target, kinds::INSTANTIATES, Some(pos), &NAME_MATCH_ATTRS);
 				}
-			}
 		}
 		self.walk(node, scope, graph);
 	}
@@ -245,14 +244,13 @@ impl<'src> Walker<'src> {
 					}
 				}
 				"call_expression" => {
-					if let Some(fn_node) = c.child_by_field_name("function") {
-						if fn_node.kind() == "identifier" {
+					if let Some(fn_node) = c.child_by_field_name("function")
+						&& fn_node.kind() == "identifier" {
 							let name = self.text_of(fn_node);
 							let arity = call_argument_count(c);
 							let target = self.calls_target(name, arity);
 							let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &NAME_MATCH_ATTRS);
 						}
-					}
 					if let Some(args) = c.child_by_field_name("arguments") {
 						self.walk(args, scope, graph);
 					}
@@ -426,11 +424,10 @@ impl<'src> Walker<'src> {
 		scope: &Moniker,
 		graph: &mut CodeGraph,
 	) {
-		if let Some(name) = node.child_by_field_name("name") {
-			if name.kind() == "identifier" {
+		if let Some(name) = node.child_by_field_name("name")
+			&& name.kind() == "identifier" {
 				self.emit_read_at(name, scope, graph);
 			}
-		}
 		self.walk(node, scope, graph);
 	}
 

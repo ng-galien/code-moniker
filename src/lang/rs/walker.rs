@@ -23,13 +23,11 @@ pub(super) fn collect_local_mods(root: Node<'_>, source: &[u8]) -> HashSet<Strin
 	let mut out = HashSet::new();
 	let mut cursor = root.walk();
 	for child in root.children(&mut cursor) {
-		if child.kind() == "mod_item" {
-			if let Some(name) = child.child_by_field_name("name") {
-				if let Ok(s) = name.utf8_text(source) {
+		if child.kind() == "mod_item"
+			&& let Some(name) = child.child_by_field_name("name")
+				&& let Ok(s) = name.utf8_text(source) {
 					out.insert(s.to_string());
 				}
-			}
-		}
 	}
 	out
 }
@@ -158,13 +156,11 @@ impl<'src> Walker<'src> {
 	fn handle_let(&self, node: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		let Some(pattern) = node.child_by_field_name("pattern") else { return };
 		self.emit_pattern_defs(pattern, callable, kinds::LOCAL, node, graph);
-		if let Some(value) = node.child_by_field_name("value") {
-			if value.kind() == "closure_expression" {
-				if let Some(bind_name) = first_identifier(pattern, self.source_bytes) {
+		if let Some(value) = node.child_by_field_name("value")
+			&& value.kind() == "closure_expression"
+				&& let Some(bind_name) = first_identifier(pattern, self.source_bytes) {
 					self.emit_named_closure(value, callable, bind_name.as_bytes(), graph);
 				}
-			}
-		}
 	}
 
 	fn emit_named_closure(
@@ -202,10 +198,7 @@ impl<'src> Walker<'src> {
 	fn walk_impl_body(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
-			match child.kind() {
-				"function_item" => self.handle_function(child, parent, graph, kinds::METHOD),
-				_ => {}
-			}
+			if child.kind() == "function_item" { self.handle_function(child, parent, graph, kinds::METHOD) }
 		}
 	}
 

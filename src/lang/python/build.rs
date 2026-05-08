@@ -63,8 +63,8 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, PyprojectError> {
 		.and_then(|t| t.get("poetry"))
 		.and_then(|p| p.as_table())
 	{
-		if out.iter().all(|d| d.dep_kind != "package") {
-			if let Some(name) = poetry.get("name").and_then(|v| v.as_str()) {
+		if out.iter().all(|d| d.dep_kind != "package")
+			&& let Some(name) = poetry.get("name").and_then(|v| v.as_str()) {
 				let version = poetry.get("version").and_then(|v| v.as_str()).map(str::to_string);
 				out.push(Dep {
 					name: name.to_string(),
@@ -73,7 +73,6 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, PyprojectError> {
 					import_root: python_import_root(name),
 				});
 			}
-		}
 		for (table_key, kind_label) in [
 			("dependencies", "normal"),
 			("dev-dependencies", "dev"),

@@ -319,11 +319,10 @@ fn dotted_pieces<'a>(node: Node<'_>, source: &'a [u8]) -> Vec<&'a str> {
 	let mut out = Vec::new();
 	let mut cursor = node.walk();
 	for c in node.named_children(&mut cursor) {
-		if c.kind() == "identifier" {
-			if let Ok(s) = c.utf8_text(source) {
+		if c.kind() == "identifier"
+			&& let Ok(s) = c.utf8_text(source) {
 				out.push(s);
 			}
-		}
 	}
 	out
 }
@@ -390,11 +389,10 @@ fn dotted_leaf<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
 	let mut cursor = node.walk();
 	let mut last = "";
 	for c in node.named_children(&mut cursor) {
-		if c.kind() == "identifier" {
-			if let Ok(s) = c.utf8_text(source) {
+		if c.kind() == "identifier"
+			&& let Ok(s) = c.utf8_text(source) {
 				last = s;
 			}
-		}
 	}
 	last
 }

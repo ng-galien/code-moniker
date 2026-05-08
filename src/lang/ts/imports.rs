@@ -33,9 +33,9 @@ impl<'src> Walker<'src> {
 			}
 		}
 
-		let confidence = import_confidence(&raw_spec);
+		let confidence = import_confidence(raw_spec);
 		let Some(clause) = clause else {
-			let target = self.import_module_target(&raw_spec);
+			let target = self.import_module_target(raw_spec);
 			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 			let _ = graph.add_ref_attrs(scope, target, kinds::IMPORTS_MODULE, Some(pos), &attrs);
 			return;
@@ -46,7 +46,7 @@ impl<'src> Walker<'src> {
 			match c.kind() {
 				"identifier" => {
 					let local_name = self.text_of(c);
-					let target = self.import_symbol_target(&raw_spec, "default");
+					let target = self.import_symbol_target(raw_spec, "default");
 					let attrs = RefAttrs {
 						alias: local_name.as_bytes(),
 						confidence,
@@ -62,7 +62,7 @@ impl<'src> Walker<'src> {
 				}
 				"namespace_import" => {
 					let alias = first_identifier_text(c, self.source_bytes);
-					let target = self.import_module_target(&raw_spec);
+					let target = self.import_module_target(raw_spec);
 					let attrs = RefAttrs {
 						alias: alias.as_bytes(),
 						confidence,
@@ -93,7 +93,7 @@ impl<'src> Walker<'src> {
 							.child_by_field_name("alias")
 							.map(|n| self.text_of(n))
 							.unwrap_or("");
-						let target = self.import_symbol_target(&raw_spec, name);
+						let target = self.import_symbol_target(raw_spec, name);
 						let attrs = RefAttrs {
 							alias: alias.as_bytes(),
 							confidence,
@@ -137,9 +137,9 @@ impl<'src> Walker<'src> {
 			}
 		}
 
-		let confidence = import_confidence(&raw_spec);
+		let confidence = import_confidence(raw_spec);
 		if has_star {
-			let target = self.import_module_target(&raw_spec);
+			let target = self.import_module_target(raw_spec);
 			let attrs = RefAttrs { confidence, ..RefAttrs::default() };
 			let _ = graph.add_ref_attrs(scope, target, kinds::REEXPORTS, Some(pos), &attrs);
 			return;
@@ -162,7 +162,7 @@ impl<'src> Walker<'src> {
 				.child_by_field_name("alias")
 				.map(|n| self.text_of(n))
 				.unwrap_or("");
-			let target = self.import_symbol_target(&raw_spec, name);
+			let target = self.import_symbol_target(raw_spec, name);
 			let attrs = RefAttrs {
 				alias: alias.as_bytes(),
 				confidence,
@@ -232,11 +232,10 @@ fn import_confidence(spec: &str) -> &'static [u8] {
 fn first_identifier_text<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 	let mut cursor = node.walk();
 	for c in node.children(&mut cursor) {
-		if c.kind() == "identifier" {
-			if let Ok(s) = c.utf8_text(source) {
+		if c.kind() == "identifier"
+			&& let Ok(s) = c.utf8_text(source) {
 				return s;
 			}
-		}
 	}
 	""
 }
@@ -244,11 +243,10 @@ fn first_identifier_text<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 fn unquote_string_literal<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
 	let mut cursor = node.walk();
 	for c in node.children(&mut cursor) {
-		if c.kind() == "string_fragment" {
-			if let Ok(s) = c.utf8_text(source) {
+		if c.kind() == "string_fragment"
+			&& let Ok(s) = c.utf8_text(source) {
 				return s;
 			}
-		}
 	}
 	node.utf8_text(source)
 		.unwrap_or("")

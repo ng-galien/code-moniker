@@ -32,7 +32,7 @@ pub(super) fn is_class_scope(scope: &Moniker) -> bool {
 	last.kind == kinds::CLASS
 }
 
-pub(super) fn section_title<'a>(text: &'a str) -> Option<&'a str> {
+pub(super) fn section_title(text: &str) -> Option<&str> {
 	let body = text.strip_prefix('#').unwrap_or(text).trim();
 	let starts = body.starts_with("==") || body.starts_with("--");
 	let ends = body.ends_with("==") || body.ends_with("--");

@@ -92,9 +92,11 @@ fn last_segment_match(
 	}
 	let l_lang = left.lang_segment();
 	let r_lang = right.lang_segment();
-	if l_lang.is_some() && l_lang == r_lang {
+	if let Some(lang) = l_lang
+		&& l_lang == r_lang
+	{
 		#[allow(clippy::match_same_arms)]
-		match l_lang.unwrap() {
+		match lang {
 			b"sql" => return bare_callable_name(l_name) == bare_callable_name(r_name),
 			b"ts" => return bare_callable_name(l_name) == bare_callable_name(r_name),
 			b"java" => return bare_callable_name(l_name) == bare_callable_name(r_name),

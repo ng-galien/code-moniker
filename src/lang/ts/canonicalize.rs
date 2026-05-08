@@ -81,8 +81,7 @@ pub(super) fn external_pkg_builder(project: &[u8], pkg: &str) -> MonikerBuilder 
 }
 
 fn split_package_specifier(spec: &str) -> (&str, &str) {
-	if spec.starts_with('@') {
-		let after_scope = &spec[1..];
+	if let Some(after_scope) = spec.strip_prefix('@') {
 		let mut parts = after_scope.splitn(3, '/');
 		let scope = parts.next().unwrap_or("");
 		let name = parts.next().unwrap_or("");

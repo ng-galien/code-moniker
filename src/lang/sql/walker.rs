@@ -141,14 +141,13 @@ fn return_shape(return_type: *mut pg_sys::TypeName) -> (bool, bool) {
 	let mut is_void = false;
 	if !rt.names.is_null() {
 		let names: pgrx::PgList<pg_sys::String> = unsafe { pgrx::PgList::from_pg(rt.names) };
-		if let Some(last) = names.iter_ptr().last() {
-			if !last.is_null() {
+		if let Some(last) = names.iter_ptr().last()
+			&& !last.is_null() {
 				let name = cstr_to_bytes(unsafe { (*last).sval });
 				if name.eq_ignore_ascii_case(b"void") {
 					is_void = true;
 				}
 			}
-		}
 	}
 	(is_setof, is_void)
 }
@@ -336,11 +335,10 @@ fn function_language_and_body(options: *mut pg_sys::List) -> (Vec<u8>, Vec<u8>) 
 				if unsafe { (*opt.arg).type_ } == pg_sys::NodeTag::T_List {
 					let list: pgrx::PgList<pg_sys::String> =
 						unsafe { pgrx::PgList::from_pg(opt.arg as *mut pg_sys::List) };
-					if let Some(first) = list.iter_ptr().next() {
-						if !first.is_null() {
+					if let Some(first) = list.iter_ptr().next()
+						&& !first.is_null() {
 							body = cstr_to_bytes(unsafe { (*first).sval });
 						}
-					}
 				}
 			}
 			_ => {}

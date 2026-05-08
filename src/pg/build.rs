@@ -84,7 +84,7 @@ fn rows_from<I: Iterator<Item = Dep>>(
 	let rows = deps
 		.map(|d| (d.name, d.version, d.dep_kind, d.import_root))
 		.collect::<Vec<_>>();
-	TableIterator::new(rows.into_iter())
+	TableIterator::new(rows)
 }
 
 struct Dep {

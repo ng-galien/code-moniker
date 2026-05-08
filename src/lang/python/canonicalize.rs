@@ -18,7 +18,7 @@ pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	b.build()
 }
 
-fn split_path<'a>(uri: &'a str) -> (Vec<&'a str>, &'a str) {
+fn split_path(uri: &str) -> (Vec<&str>, &str) {
 	let after_scheme = uri.split("://").last().unwrap_or(uri);
 	let pieces: Vec<&str> = after_scheme.split('/').filter(|s| !s.is_empty()).collect();
 	if pieces.is_empty() {

@@ -483,11 +483,10 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_catch_clause(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		if is_callable_scope(scope, &self.module) {
-			if let Some(p) = node.child_by_field_name("parameter") {
+		if is_callable_scope(scope, &self.module)
+			&& let Some(p) = node.child_by_field_name("parameter") {
 				self.emit_param_leaf(p, scope, graph);
 			}
-		}
 		if let Some(body) = node.child_by_field_name("body") {
 			self.walk(body, scope, graph);
 		}
@@ -516,8 +515,8 @@ impl<'src> Walker<'src> {
 		if self.deep && is_callable_scope(scope, &self.module) {
 			let key = node.child_by_field_name("key");
 			let value = node.child_by_field_name("value");
-			if let (Some(k), Some(v)) = (key, value) {
-				if k.kind() == "property_identifier"
+			if let (Some(k), Some(v)) = (key, value)
+				&& k.kind() == "property_identifier"
 					&& (v.kind() == "arrow_function" || v.kind() == "function_expression")
 				{
 					let name = self.text_of(k);
@@ -532,11 +531,11 @@ impl<'src> Walker<'src> {
 					);
 					return;
 				}
-			}
 		}
 		self.walk(node, scope, graph);
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	fn emit_callable(
 		&self,
 		callable_node: Node<'_>,
