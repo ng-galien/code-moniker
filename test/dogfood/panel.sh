@@ -42,4 +42,10 @@ PCM_DOGFOOD_PANEL=(
 	# many overloads (`is(int,int,...)`, `is(text,text,...)`), real
 	# call graph between assertion helpers.
 	"sql|pgtap|https://github.com/theory/pgtap.git|v1.3.3|sql|-"
+
+	# Python --------------------------------------------------------------
+	# httpx is the right size: ~50 source files, real class hierarchy
+	# (Client/AsyncClient/_BaseClient), heavy use of typing.Generic and
+	# decorators. Manifest skipped — no extract_pyproject yet.
+	"py|httpx|https://github.com/encode/httpx.git|0.27.2|httpx|-"
 )

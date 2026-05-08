@@ -62,3 +62,16 @@ fn extract_plpgsql(
 	let inner = crate::lang::sql::extract(uri, source, &core_anchor, deep, &presets);
 	code_graph::from_core(inner)
 }
+
+#[pg_extern(immutable, parallel_safe)]
+fn extract_python(
+	uri: &str,
+	source: &str,
+	anchor: moniker,
+	deep: pgrx::default!(bool, "false"),
+) -> code_graph {
+	let core_anchor = anchor.to_core();
+	let presets = crate::lang::python::Presets::default();
+	let inner = crate::lang::python::extract(uri, source, &core_anchor, deep, &presets);
+	code_graph::from_core(inner)
+}

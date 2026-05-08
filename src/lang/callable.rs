@@ -20,14 +20,24 @@ pub(crate) fn callable_segment_typed<T: AsRef<[u8]>>(name: &[u8], param_types: &
 	let mut full = Vec::with_capacity(name.len() + 2 + body_len);
 	full.extend_from_slice(name);
 	full.push(b'(');
-	for (i, t) in param_types.iter().enumerate() {
-		if i > 0 {
-			full.push(b',');
-		}
-		full.extend_from_slice(t.as_ref());
-	}
+	full.extend_from_slice(&join_bytes_with_comma(param_types));
 	full.push(b')');
 	full
+}
+
+/// Concatenate `[a, b, c]` into `a,b,c`. `Vec<u8>` doesn't have a
+/// built-in `.join(",")` against a `str` separator, so consumers
+/// (e.g. the python signature column) call this directly.
+pub(crate) fn join_bytes_with_comma<T: AsRef<[u8]>>(parts: &[T]) -> Vec<u8> {
+	let body_len: usize = parts.iter().map(|p| p.as_ref().len() + 1).sum::<usize>().saturating_sub(1);
+	let mut out = Vec::with_capacity(body_len);
+	for (i, p) in parts.iter().enumerate() {
+		if i > 0 {
+			out.push(b',');
+		}
+		out.extend_from_slice(p.as_ref());
+	}
+	out
 }
 
 /// Build the segment-name bytes for a call site where only arity is

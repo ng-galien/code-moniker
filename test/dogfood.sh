@@ -71,6 +71,7 @@ ext_for_lang() {
 		ts) echo "ts tsx js jsx mjs cjs mts cts" ;;
 		java) echo "java" ;;
 		sql) echo "sql psql pgsql" ;;
+		py) echo "py pyi" ;;
 		*) echo "" ;;
 	esac
 }
@@ -81,6 +82,7 @@ extract_fn() {
 		ts) echo "extract_typescript" ;;
 		java) echo "extract_java" ;;
 		sql) echo "extract_plpgsql" ;;
+		py) echo "extract_python" ;;
 		*) echo "" ;;
 	esac
 }
