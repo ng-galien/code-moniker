@@ -233,11 +233,7 @@ fn graph_add_defs(
 		error!("graph_add_defs: arrays must have the same length");
 	}
 	let mut next = graph.to_core();
-	for ((d, k), p) in defs
-		.into_iter()
-		.zip(kinds.into_iter())
-		.zip(parents.into_iter())
-	{
+	for ((d, k), p) in defs.into_iter().zip(kinds).zip(parents) {
 		next.add_def(d.into_core(), k.as_bytes(), &p.to_core(), None)
 			.unwrap_or_else(|e| error!("graph_add_defs: {e}"));
 	}
@@ -255,11 +251,7 @@ fn graph_add_refs(
 		error!("graph_add_refs: arrays must have the same length");
 	}
 	let mut next = graph.to_core();
-	for ((s, t), k) in sources
-		.into_iter()
-		.zip(targets.into_iter())
-		.zip(kinds.into_iter())
-	{
+	for ((s, t), k) in sources.into_iter().zip(targets).zip(kinds) {
 		next.add_ref(&s.to_core(), t.into_core(), k.as_bytes(), None)
 			.unwrap_or_else(|e| error!("graph_add_refs: {e}"));
 	}

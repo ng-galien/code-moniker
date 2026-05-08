@@ -337,21 +337,17 @@ fn function_language_and_body(options: *mut pg_sys::List) -> (Vec<u8>, Vec<u8>) 
 		}
 		let name = cstr_to_bytes(opt.defname);
 		match name.as_slice() {
-			b"language" => {
-				if unsafe { (*opt.arg).type_ } == pg_sys::NodeTag::T_String {
-					let s = opt.arg as *const pg_sys::String;
-					lang = cstr_to_bytes(unsafe { (*s).sval });
-				}
+			b"language" if unsafe { (*opt.arg).type_ } == pg_sys::NodeTag::T_String => {
+				let s = opt.arg as *const pg_sys::String;
+				lang = cstr_to_bytes(unsafe { (*s).sval });
 			}
-			b"as" => {
-				if unsafe { (*opt.arg).type_ } == pg_sys::NodeTag::T_List {
-					let list: pgrx::PgList<pg_sys::String> =
-						unsafe { pgrx::PgList::from_pg(opt.arg as *mut pg_sys::List) };
-					if let Some(first) = list.iter_ptr().next()
-						&& !first.is_null()
-					{
-						body = cstr_to_bytes(unsafe { (*first).sval });
-					}
+			b"as" if unsafe { (*opt.arg).type_ } == pg_sys::NodeTag::T_List => {
+				let list: pgrx::PgList<pg_sys::String> =
+					unsafe { pgrx::PgList::from_pg(opt.arg as *mut pg_sys::List) };
+				if let Some(first) = list.iter_ptr().next()
+					&& !first.is_null()
+				{
+					body = cstr_to_bytes(unsafe { (*first).sval });
 				}
 			}
 			_ => {}
