@@ -99,6 +99,7 @@ fn emit_create_function(
 	let attrs = DefAttrs {
 		visibility: kinds::VIS_NONE,
 		signature: &signature,
+		..DefAttrs::default()
 	};
 	if graph
 		.add_def_attrs(func_moniker.clone(), kinds::FUNCTION, module, position, &attrs)
@@ -280,9 +281,8 @@ fn emit_call_ref(fc: &pg_sys::FuncCall, ctx: &mut CallCtx) {
 	let target = extend_callable_arity(&parent, kinds::FUNCTION, &name, arity);
 	let position = func_call_position(fc);
 	let attrs = RefAttrs {
-		receiver_hint: b"",
-		alias: b"",
 		confidence: kinds::CONF_UNRESOLVED,
+		..RefAttrs::default()
 	};
 	let graph = unsafe { &mut *ctx.graph };
 	let _ = graph.add_ref_attrs(source, target, kinds::REF_CALLS, position, &attrs);

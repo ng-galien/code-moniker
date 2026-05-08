@@ -29,6 +29,11 @@ pub struct DefRecord {
 	/// for non-callables and for languages that encode disambiguation
 	/// in the moniker name (TS arity).
 	pub signature: Vec<u8>,
+	/// Cross-file linkage role: `export` (addressable from other
+	/// modules), `local` (module-scoped), `inject` (DI provider),
+	/// `none` (concept doesn't apply, e.g. sections). Drives
+	/// `bind_match` filtering in consumer JOINs.
+	pub binding: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -48,6 +53,11 @@ pub struct RefRecord {
 	/// `imported`, `name_match`, `local`, `unresolved`. Empty when the
 	/// extractor has nothing to assert.
 	pub confidence: Vec<u8>,
+	/// Cross-file linkage role: `import` (resolves another module via
+	/// static import), `local` (intra-module ref), `inject` (DI
+	/// container demand), `none` (not a linkage edge). Drives
+	/// `bind_match` filtering in consumer JOINs.
+	pub binding: Vec<u8>,
 }
 
 /// Optional def attributes. Defaults are empty, meaning the extractor
@@ -56,6 +66,7 @@ pub struct RefRecord {
 pub struct DefAttrs<'a> {
 	pub visibility: &'a [u8],
 	pub signature: &'a [u8],
+	pub binding: &'a [u8],
 }
 
 /// Optional ref attributes. Defaults are empty.
@@ -64,6 +75,7 @@ pub struct RefAttrs<'a> {
 	pub receiver_hint: &'a [u8],
 	pub alias: &'a [u8],
 	pub confidence: &'a [u8],
+	pub binding: &'a [u8],
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -124,6 +136,7 @@ impl CodeGraph {
 				position: None,
 				visibility: Vec::new(),
 				signature: Vec::new(),
+				binding: b"export".to_vec(),
 			}],
 			refs: Vec::new(),
 			index: RefCell::new(index),
@@ -154,6 +167,11 @@ impl CodeGraph {
 		let parent_idx = self.find_def(parent).ok_or(GraphError::ParentNotFound)?;
 		let new_idx = self.defs.len();
 		self.index.borrow_mut().insert(moniker.clone(), new_idx);
+		let binding = if attrs.binding.is_empty() {
+			default_def_binding(kind, attrs.visibility)
+		} else {
+			attrs.binding
+		};
 		self.defs.push(DefRecord {
 			moniker,
 			kind: kind.to_vec(),
@@ -161,6 +179,7 @@ impl CodeGraph {
 			position,
 			visibility: attrs.visibility.to_vec(),
 			signature: attrs.signature.to_vec(),
+			binding: binding.to_vec(),
 		});
 		Ok(())
 	}
@@ -184,6 +203,11 @@ impl CodeGraph {
 		attrs: &RefAttrs<'_>,
 	) -> Result<(), GraphError> {
 		let source_idx = self.find_def(source).ok_or(GraphError::SourceNotFound)?;
+		let binding = if attrs.binding.is_empty() {
+			default_ref_binding(kind)
+		} else {
+			attrs.binding
+		};
 		self.refs.push(RefRecord {
 			source: source_idx,
 			target,
@@ -192,6 +216,7 @@ impl CodeGraph {
 			receiver_hint: attrs.receiver_hint.to_vec(),
 			alias: attrs.alias.to_vec(),
 			confidence: attrs.confidence.to_vec(),
+			binding: binding.to_vec(),
 		});
 		Ok(())
 	}
@@ -249,6 +274,44 @@ impl CodeGraph {
 			}
 		}
 		idx.get(m).copied()
+	}
+}
+
+/// Default cross-file binding role for a def. Extractors that detect a
+/// DI-provider annotation (`@Injectable`, `@Service`, `@Bean`) override
+/// by passing `binding: BIND_INJECT` explicitly via `DefAttrs`.
+///
+/// See SPEC.md § Binding semantics for the rules.
+fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
+	if kind == b"section" {
+		return b"none";
+	}
+	if kind == b"local" || kind == b"param" {
+		return b"local";
+	}
+	if visibility == b"private" || visibility == b"module" {
+		return b"local";
+	}
+	if kind == b"module" {
+		return b"export";
+	}
+	if visibility == b"public" || visibility == b"protected" || visibility == b"package" {
+		return b"export";
+	}
+	b"local"
+}
+
+/// Default cross-file binding role for a ref, derived purely from the
+/// ref's structural kind. The DI flavour is keyed on `di_register` —
+/// extractors that recognise a constructor-injection pattern can
+/// override by passing `binding: BIND_INJECT` explicitly via `RefAttrs`.
+fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
+	match kind {
+		b"imports_symbol" | b"imports_module" | b"reexports" => b"import",
+		b"di_register" => b"inject",
+		b"calls" | b"method_call" | b"reads" | b"uses_type" | b"instantiates"
+		| b"extends" | b"implements" | b"annotates" => b"local",
+		_ => b"none",
 	}
 }
 
@@ -485,5 +548,109 @@ mod tests {
 		assert!(g.contains(&root));
 		assert!(g.contains(&a));
 		assert_eq!(g.locate(&a), None);
+	}
+
+	// --- binding default rules -------------------------------------------
+
+	#[test]
+	fn def_binding_section_is_none() {
+		assert_eq!(default_def_binding(b"section", b""), b"none");
+	}
+
+	#[test]
+	fn def_binding_local_kind_is_local_regardless_of_visibility() {
+		assert_eq!(default_def_binding(b"local", b""), b"local");
+		assert_eq!(default_def_binding(b"param", b"public"), b"local");
+	}
+
+	#[test]
+	fn def_binding_private_or_module_visibility_is_local() {
+		assert_eq!(default_def_binding(b"function", b"private"), b"local");
+		assert_eq!(default_def_binding(b"function", b"module"), b"local");
+	}
+
+	#[test]
+	fn def_binding_module_kind_is_export_even_without_visibility() {
+		assert_eq!(default_def_binding(b"module", b""), b"export");
+	}
+
+	#[test]
+	fn def_binding_public_protected_package_is_export() {
+		assert_eq!(default_def_binding(b"class", b"public"), b"export");
+		assert_eq!(default_def_binding(b"method", b"protected"), b"export");
+		assert_eq!(default_def_binding(b"class", b"package"), b"export");
+	}
+
+	#[test]
+	fn def_binding_field_without_visibility_is_local() {
+		assert_eq!(default_def_binding(b"field", b""), b"local");
+	}
+
+	#[test]
+	fn ref_binding_imports_are_import() {
+		assert_eq!(default_ref_binding(b"imports_symbol"), b"import");
+		assert_eq!(default_ref_binding(b"imports_module"), b"import");
+		assert_eq!(default_ref_binding(b"reexports"), b"import");
+	}
+
+	#[test]
+	fn ref_binding_di_register_is_inject() {
+		assert_eq!(default_ref_binding(b"di_register"), b"inject");
+	}
+
+	#[test]
+	fn ref_binding_intra_module_kinds_are_local() {
+		for k in &[
+			b"calls".as_slice(),
+			b"method_call",
+			b"reads",
+			b"uses_type",
+			b"instantiates",
+			b"extends",
+			b"implements",
+			b"annotates",
+		] {
+			assert_eq!(default_ref_binding(k), b"local");
+		}
+	}
+
+	#[test]
+	fn ref_binding_unknown_kind_is_none() {
+		assert_eq!(default_ref_binding(b"weird_kind"), b"none");
+	}
+
+	#[test]
+	fn add_def_attrs_auto_computes_binding_when_attrs_empty() {
+		let root = mk(b"util");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let class_m = MonikerBuilder::from_view(root.as_view())
+			.segment(b"class", b"Foo")
+			.build();
+		let attrs = DefAttrs {
+			visibility: b"public",
+			..DefAttrs::default()
+		};
+		g.add_def_attrs(class_m.clone(), b"class", &root, None, &attrs)
+			.unwrap();
+		let def = g.defs().find(|d| d.moniker == class_m).unwrap();
+		assert_eq!(def.binding, b"export".to_vec());
+	}
+
+	#[test]
+	fn add_def_attrs_respects_explicit_inject_override() {
+		let root = mk(b"util");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let class_m = MonikerBuilder::from_view(root.as_view())
+			.segment(b"class", b"FooService")
+			.build();
+		let attrs = DefAttrs {
+			visibility: b"public",
+			binding: b"inject",
+			..DefAttrs::default()
+		};
+		g.add_def_attrs(class_m.clone(), b"class", &root, None, &attrs)
+			.unwrap();
+		let def = g.defs().find(|d| d.moniker == class_m).unwrap();
+		assert_eq!(def.binding, b"inject".to_vec());
 	}
 }

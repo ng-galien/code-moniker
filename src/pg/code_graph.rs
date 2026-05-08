@@ -79,6 +79,36 @@ fn graph_ref_targets(graph: code_graph) -> Vec<moniker> {
 		.collect()
 }
 
+/// Defs whose `binding` ∈ {`export`, `inject`}. Linkage-side index
+/// helper: a GIN over this expression backs cross-file linkage JOINs
+/// efficiently without scanning the full def array.
+#[pg_extern(immutable, parallel_safe)]
+fn graph_export_monikers(graph: code_graph) -> Vec<moniker> {
+	let mut core: Vec<crate::core::moniker::Moniker> = graph
+		.inner
+		.defs()
+		.filter(|d| d.binding == b"export" || d.binding == b"inject")
+		.map(|d| d.moniker.clone())
+		.collect();
+	core.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+	core.into_iter().map(moniker::from_core).collect()
+}
+
+/// Refs whose `binding` ∈ {`import`, `inject`}, projected to their
+/// target moniker. Linkage-side index helper: pairs with
+/// `graph_export_monikers` for the cross-file JOIN.
+#[pg_extern(immutable, parallel_safe)]
+fn graph_import_targets(graph: code_graph) -> Vec<moniker> {
+	let mut core: Vec<crate::core::moniker::Moniker> = graph
+		.inner
+		.refs()
+		.filter(|r| r.binding == b"import" || r.binding == b"inject")
+		.map(|r| r.target.clone())
+		.collect();
+	core.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+	core.into_iter().map(moniker::from_core).collect()
+}
+
 fn kind_text(bytes: &[u8]) -> String {
 	String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| {
 		error!("graph kind tag must be UTF-8");
@@ -95,9 +125,10 @@ fn graph_defs(
 		name!(kind, String),
 		name!(visibility, Option<String>),
 		name!(signature, Option<String>),
+		name!(binding, Option<String>),
 	),
 > {
-	let rows: Vec<(moniker, String, Option<String>, Option<String>)> = graph
+	let rows: Vec<(moniker, String, Option<String>, Option<String>, Option<String>)> = graph
 		.inner
 		.defs()
 		.map(|d| {
@@ -106,6 +137,7 @@ fn graph_defs(
 				kind_text(&d.kind),
 				bytes_to_opt_string(&d.visibility),
 				bytes_to_opt_string(&d.signature),
+				bytes_to_opt_string(&d.binding),
 			)
 		})
 		.collect();
@@ -124,27 +156,36 @@ fn graph_refs(
 		name!(receiver_hint, Option<String>),
 		name!(alias, Option<String>),
 		name!(confidence, Option<String>),
+		name!(binding, Option<String>),
 	),
 > {
 	let defs: Vec<_> = graph.inner.defs().collect();
-	let rows: Vec<(moniker, moniker, String, Option<String>, Option<String>, Option<String>)> =
-		graph
-			.inner
-			.refs()
-			.map(|r| {
-				let source_def = defs
-					.get(r.source)
-					.unwrap_or_else(|| error!("ref source index {} out of bounds", r.source));
-				(
-					moniker::from_core(source_def.moniker.clone()),
-					moniker::from_core(r.target.clone()),
-					kind_text(&r.kind),
-					bytes_to_opt_string(&r.receiver_hint),
-					bytes_to_opt_string(&r.alias),
-					bytes_to_opt_string(&r.confidence),
-				)
-			})
-			.collect();
+	let rows: Vec<(
+		moniker,
+		moniker,
+		String,
+		Option<String>,
+		Option<String>,
+		Option<String>,
+		Option<String>,
+	)> = graph
+		.inner
+		.refs()
+		.map(|r| {
+			let source_def = defs
+				.get(r.source)
+				.unwrap_or_else(|| error!("ref source index {} out of bounds", r.source));
+			(
+				moniker::from_core(source_def.moniker.clone()),
+				moniker::from_core(r.target.clone()),
+				kind_text(&r.kind),
+				bytes_to_opt_string(&r.receiver_hint),
+				bytes_to_opt_string(&r.alias),
+				bytes_to_opt_string(&r.confidence),
+				bytes_to_opt_string(&r.binding),
+			)
+		})
+		.collect();
 	TableIterator::new(rows.into_iter())
 }
 

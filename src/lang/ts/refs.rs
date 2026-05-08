@@ -440,6 +440,7 @@ const NAME_MATCH_ATTRS: RefAttrs<'static> = RefAttrs {
 	receiver_hint: b"",
 	alias: b"",
 	confidence: kinds::CONF_NAME_MATCH,
+	binding: b"",
 };
 
 /// Receiver shape for a `member_expression` callee. Empty slice if the

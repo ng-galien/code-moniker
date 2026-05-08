@@ -174,6 +174,7 @@ impl<'src> Walker<'src> {
 		let attrs = DefAttrs {
 			visibility: visibility_from_name(name.as_bytes()),
 			signature: signature.as_slice(),
+			..DefAttrs::default()
 		};
 		let _ = graph.add_def_attrs(
 			m.clone(),
