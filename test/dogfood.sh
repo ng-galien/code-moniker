@@ -181,7 +181,7 @@ ingest_one() {
 		fi
 		local source_escaped="${rel//\'/\'\'}"
 		local logical_escaped="${logical//\'/\'\'}"
-		printf "INSERT INTO module(project, lang, source_uri, graph) VALUES ('%s', '%s', '%s', %s('%s', pg_read_file('%s'), 'esac+moniker://%s'::moniker));\n" \
+		printf "INSERT INTO module(project, lang, source_uri, graph) VALUES ('%s', '%s', '%s', %s('%s', pg_read_file('%s'), 'pcm+moniker://%s'::moniker));\n" \
 			"$project" "$lang" "$source_escaped" "$extr" "$logical_escaped" "$abs" "$project" \
 			>>"$batch_sql"
 		count=$((count + 1))

@@ -50,7 +50,7 @@ SELECT
 
 CREATE TEMP TABLE pkg(project moniker, name text, version text);
 INSERT INTO pkg
-	SELECT 'esac+moniker://app'::moniker, name, version
+	SELECT 'pcm+moniker://app'::moniker, name, version
 	FROM extract_pom_xml($x$
 <project>
 	<groupId>com.example</groupId>

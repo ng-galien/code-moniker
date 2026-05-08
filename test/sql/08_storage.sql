@@ -14,14 +14,14 @@ SELECT is(typstorage, 'x'::"char", 'moniker uses extended storage')
 FROM pg_type WHERE typname = 'moniker';
 
 SELECT is(
-	pg_column_size('esac+moniker://app/class:Foo'::moniker),
+	pg_column_size('pcm+moniker://app/class:Foo'::moniker),
 	22,
 	'on-disk size matches `varlena_4b + canonical v2 bytes`'
 );
 
 CREATE TEMP TABLE moniker_analyze_t (m moniker);
 INSERT INTO moniker_analyze_t
-SELECT compose_child('esac+moniker://p'::moniker, 'class', 'C' || g)
+SELECT compose_child('pcm+moniker://p'::moniker, 'class', 'C' || g)
 FROM generate_series(1, 200) g;
 ANALYZE moniker_analyze_t;
 SELECT is(

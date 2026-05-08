@@ -13,47 +13,47 @@ SELECT has_function('bind_match'::name, ARRAY['moniker','moniker'],
 
 SELECT ok(
 	bind_match(
-		'esac+moniker://app/lang:python/module:util/path:Foo'::moniker,
-		'esac+moniker://app/lang:python/module:util/class:Foo'::moniker),
+		'pcm+moniker://app/lang:python/module:util/path:Foo'::moniker,
+		'pcm+moniker://app/lang:python/module:util/class:Foo'::moniker),
 	'path:Foo (import placeholder) bind_matches class:Foo (typed def)');
 
 SELECT ok(
 	bind_match(
-		'esac+moniker://app/lang:python/module:util/function:Y()'::moniker,
-		'esac+moniker://app/lang:python/module:util/function:Y(int,str)'::moniker),
+		'pcm+moniker://app/lang:python/module:util/function:Y()'::moniker,
+		'pcm+moniker://app/lang:python/module:util/function:Y(int,str)'::moniker),
 	'bare-name refinement applies to python: function:Y() bind_matches function:Y(int,str)');
 
 SELECT ok(
 	NOT bind_match(
-		'esac+moniker://app1/lang:python/module:util/path:Foo'::moniker,
-		'esac+moniker://app2/lang:python/module:util/class:Foo'::moniker),
+		'pcm+moniker://app1/lang:python/module:util/path:Foo'::moniker,
+		'pcm+moniker://app2/lang:python/module:util/class:Foo'::moniker),
 	'cross-project bind_match never matches');
 
 SELECT ok(
 	NOT bind_match(
-		'esac+moniker://app/lang:python/module:util/path:Foo'::moniker,
-		'esac+moniker://app/lang:java/module:util/class:Foo'::moniker),
+		'pcm+moniker://app/lang:python/module:util/path:Foo'::moniker,
+		'pcm+moniker://app/lang:java/module:util/class:Foo'::moniker),
 	'cross-language bind_match never matches');
 
 SELECT ok(
 	NOT bind_match(
-		'esac+moniker://app/lang:python/module:util/path:Foo'::moniker,
-		'esac+moniker://app/lang:python/module:util/class:Foo/method:bar(int)'::moniker),
+		'pcm+moniker://app/lang:python/module:util/path:Foo'::moniker,
+		'pcm+moniker://app/lang:python/module:util/class:Foo/method:bar(int)'::moniker),
 	'different segment counts never match');
 
 
 SELECT ok(
-	'esac+moniker://app/lang:ts/dir:src/module:lib/path:Lib'::moniker
-		?= 'esac+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker,
+	'pcm+moniker://app/lang:ts/dir:src/module:lib/path:Lib'::moniker
+		?= 'pcm+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker,
 	'?= operator routes to bind_match');
 
 
 CREATE TEMP TABLE m_idx (m moniker);
 INSERT INTO m_idx VALUES
-	('esac+moniker://app/lang:python/module:util/class:Foo'::moniker),
-	('esac+moniker://app/lang:python/module:util/class:Bar'::moniker),
-	('esac+moniker://app/lang:python/module:helpers/class:Foo'::moniker),
-	('esac+moniker://app/lang:java/module:util/class:Foo'::moniker);
+	('pcm+moniker://app/lang:python/module:util/class:Foo'::moniker),
+	('pcm+moniker://app/lang:python/module:util/class:Bar'::moniker),
+	('pcm+moniker://app/lang:python/module:helpers/class:Foo'::moniker),
+	('pcm+moniker://app/lang:java/module:util/class:Foo'::moniker);
 
 CREATE INDEX m_idx_gist ON m_idx USING gist (m);
 
@@ -61,19 +61,19 @@ SET LOCAL enable_seqscan = off;
 
 SELECT is(
 	(SELECT count(*)::int FROM m_idx
-	  WHERE m ?= 'esac+moniker://app/lang:python/module:util/path:Foo'::moniker),
+	  WHERE m ?= 'pcm+moniker://app/lang:python/module:util/path:Foo'::moniker),
 	1,
 	'?= via GiST returns the single python util Foo def');
 
 SELECT is(
 	(SELECT count(*)::int FROM m_idx
-	  WHERE m ?= 'esac+moniker://app/lang:python/module:util/path:Bar'::moniker),
+	  WHERE m ?= 'pcm+moniker://app/lang:python/module:util/path:Bar'::moniker),
 	1,
 	'?= via GiST returns the single python util Bar def');
 
 SELECT is(
 	(SELECT count(*)::int FROM m_idx
-	  WHERE m ?= 'esac+moniker://app/lang:python/module:helpers/path:Foo'::moniker),
+	  WHERE m ?= 'pcm+moniker://app/lang:python/module:helpers/path:Foo'::moniker),
 	1,
 	'?= via GiST distinguishes helpers/Foo from util/Foo');
 
@@ -87,11 +87,11 @@ INSERT INTO module VALUES
 	('m_def', extract_python(
 		'm_def.py',
 		E'class Foo:\n    pass\n',
-		'esac+moniker://app'::moniker)),
+		'pcm+moniker://app'::moniker)),
 	('m_use', extract_python(
 		'm_use.py',
 		E'from m_def import Foo\n',
-		'esac+moniker://app'::moniker));
+		'pcm+moniker://app'::moniker));
 
 SELECT is(
 	(SELECT count(*)::int FROM module m_use, LATERAL graph_refs(m_use.graph) r,
@@ -109,11 +109,11 @@ INSERT INTO module VALUES
 	('rel_def', extract_python(
 		'acme/_models.py',
 		E'class Response:\n    pass\n',
-		'esac+moniker://app'::moniker)),
+		'pcm+moniker://app'::moniker)),
 	('rel_use', extract_python(
 		'acme/_client.py',
 		E'from ._models import Response\n',
-		'esac+moniker://app'::moniker));
+		'pcm+moniker://app'::moniker));
 
 SELECT is(
 	(SELECT count(*)::int FROM module m_use, LATERAL graph_refs(m_use.graph) r,
@@ -131,11 +131,11 @@ INSERT INTO module VALUES
 	('ts_def', extract_typescript(
 		'src/lib.ts',
 		'export class Lib { go() { return 1; } }',
-		'esac+moniker://app'::moniker)),
+		'pcm+moniker://app'::moniker)),
 	('ts_use', extract_typescript(
 		'src/app.ts',
 		'import { Lib } from "./lib";',
-		'esac+moniker://app'::moniker));
+		'pcm+moniker://app'::moniker));
 
 SELECT is(
 	(SELECT count(*)::int FROM module m_use, LATERAL graph_refs(m_use.graph) r,
@@ -151,11 +151,11 @@ INSERT INTO module VALUES
 	('rs_def', extract_rust(
 		'kinds.rs',
 		E'pub mod kinds_inner {}\n',
-		'esac+moniker://app'::moniker)),
+		'pcm+moniker://app'::moniker)),
 	('rs_use', extract_rust(
 		'walker.rs',
 		E'use super::kinds;\n',
-		'esac+moniker://app'::moniker));
+		'pcm+moniker://app'::moniker));
 
 SELECT is(
 	(SELECT count(*)::int FROM module m_use, LATERAL graph_refs(m_use.graph) r,
@@ -171,11 +171,11 @@ INSERT INTO module VALUES
 	('java_def', extract_java(
 		'com/acme/Foo.java',
 		E'package com.acme;\npublic class Foo {}\n',
-		'esac+moniker://app'::moniker)),
+		'pcm+moniker://app'::moniker)),
 	('java_use', extract_java(
 		'com/acme/App.java',
 		E'package com.acme;\nimport com.acme.Foo;\npublic class App {}\n',
-		'esac+moniker://app'::moniker));
+		'pcm+moniker://app'::moniker));
 
 SELECT is(
 	(SELECT count(*)::int FROM module m_use, LATERAL graph_refs(m_use.graph) r,

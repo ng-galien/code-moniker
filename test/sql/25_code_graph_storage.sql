@@ -41,7 +41,7 @@ WITH src AS (
 	SELECT extract_typescript(
 		'app/src/foo.ts',
 		src.code,
-		'esac+moniker://app'::moniker,
+		'pcm+moniker://app'::moniker,
 		true
 	) AS graph
 	FROM src

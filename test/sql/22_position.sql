@@ -11,7 +11,7 @@ WITH g AS (
 	SELECT extract_typescript(
 		'src/Foo.ts',
 		'export class Foo { bar() {} }',
-		'esac+moniker://app/path:main'::moniker
+		'pcm+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
@@ -32,7 +32,7 @@ WITH g AS (
 	SELECT extract_rust(
 		'src/lib.rs',
 		'pub fn answer() -> i32 { 42 }',
-		'esac+moniker://app/path:main'::moniker
+		'pcm+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
@@ -49,7 +49,7 @@ WITH g AS (
 	SELECT extract_java(
 		'src/Foo.java',
 		'package x; public class Foo { void bar() {} }',
-		'esac+moniker://app/path:main'::moniker
+		'pcm+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
@@ -66,7 +66,7 @@ WITH g AS (
 	SELECT extract_python(
 		'mod.py',
 		E'def f(x):\n    return x\n',
-		'esac+moniker://app/path:main'::moniker
+		'pcm+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
@@ -83,7 +83,7 @@ WITH g AS (
 	SELECT extract_plpgsql(
 		'pkg.sql',
 		'CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;',
-		'esac+moniker://app/path:main'::moniker
+		'pcm+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT

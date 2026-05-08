@@ -19,13 +19,13 @@ CREATE EXTENSION pg_code_moniker;
 SELECT extract_typescript(
   'src/util.ts',
   'export class Util { run() { return 1; } }',
-  'esac+moniker://app'::moniker
+  'pcm+moniker://app'::moniker
 );
 -- => code_graph(defs=3, refs=0)
 
 -- Identity is a first-class type: parse, compare, index, JOIN on it.
-SELECT 'esac+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker
-    <@ 'esac+moniker://app/lang:ts'::moniker;
+SELECT 'pcm+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker
+    <@ 'pcm+moniker://app/lang:ts'::moniker;
 -- => true (subtree containment, GiST-indexed)
 ```
 
@@ -115,7 +115,7 @@ docker exec -it pgcm psql -U postgres -c "
     SELECT extract_typescript(
         'src/util.ts',
         'export class Util { run() { return 1; } }',
-        'esac+moniker://app'::moniker
+        'pcm+moniker://app'::moniker
     );"
 ```
 
@@ -226,7 +226,7 @@ INSERT INTO module (id, graph, source_text, source_uri, origin) VALUES
      extract_typescript(
          'src/util.ts',
          'export class Util { run() { return 1; } }',
-         'esac+moniker://app'::moniker
+         'pcm+moniker://app'::moniker
      ),
      'export class Util { run() { return 1; } }',
      'src/util.ts',
@@ -235,14 +235,14 @@ INSERT INTO module (id, graph, source_text, source_uri, origin) VALUES
 -- Find the module that defines a moniker (uses module_def_monikers_gin).
 SELECT id FROM module
  WHERE graph_def_monikers(graph)
-       @> ARRAY['esac+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker];
+       @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker];
 
 -- Inspect every def of a module (kind, visibility, signature, binding, …).
 SELECT * FROM module m, graph_defs(m.graph) WHERE m.id = $1;
 
 -- Subtree containment: every module under a srcset.
 SELECT id FROM module
- WHERE graph_root(graph) <@ 'esac+moniker://app/srcset:main'::moniker;
+ WHERE graph_root(graph) <@ 'pcm+moniker://app/srcset:main'::moniker;
 ```
 
 ## Consumers

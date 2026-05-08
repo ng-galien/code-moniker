@@ -52,7 +52,7 @@ SELECT
 
 CREATE TEMP TABLE pkg(project moniker, name text, version text);
 INSERT INTO pkg
-	SELECT 'esac+moniker://app'::moniker, name, version
+	SELECT 'pcm+moniker://app'::moniker, name, version
 	FROM extract_package_json($t$
 { "name": "demo", "version": "0.1.0",
   "dependencies": { "react": "^18.0.0", "lodash": "^4.0.0" } }
@@ -64,7 +64,7 @@ WITH g AS (
 		'import React from "react";
 import { get } from "lodash";
 import { local } from "./util";',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 ), refs_with_root AS (
 	SELECT external_pkg_root(t) AS root

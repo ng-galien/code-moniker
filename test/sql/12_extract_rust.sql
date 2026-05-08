@@ -14,12 +14,12 @@ WITH g AS (
 	SELECT extract_rust(
 		'src/core/moniker/view.rs',
 		'',
-		'esac+moniker://pg_code_moniker'::moniker
+		'pcm+moniker://pg_code_moniker'::moniker
 	) AS g
 )
 SELECT is(
 	graph_root(g)::text,
-	'esac+moniker://pg_code_moniker/lang:rs/dir:src/dir:core/dir:moniker/module:view',
+	'pcm+moniker://pg_code_moniker/lang:rs/dir:src/dir:core/dir:moniker/module:view',
 	'module moniker = anchor + path:dir + module:basename')
 FROM g;
 
@@ -33,15 +33,15 @@ impl Foo {
     pub fn baz(&self, n: u32) {}
 }
 $rs$,
-		'esac+moniker://pkg'::moniker
+		'pcm+moniker://pkg'::moniker
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://pkg/lang:rs/module:util/class:Foo'::moniker,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/class:Foo'::moniker,
 		'struct emits class def') AS r1,
-	ok(g @> 'esac+moniker://pkg/lang:rs/module:util/class:Foo/method:bar()'::moniker,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/class:Foo/method:bar()'::moniker,
 		'impl method re-parented onto struct; &self is implicit so arity 0 with empty parens') AS r2,
-	ok(g @> 'esac+moniker://pkg/lang:rs/module:util/class:Foo/method:baz(u32)'::moniker,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/class:Foo/method:baz(u32)'::moniker,
 		'second impl method with one value parameter (self excluded)') AS r3
 FROM g;
 
@@ -53,15 +53,15 @@ pub trait Greet { fn hi(&self); }
 pub struct Foo;
 impl Greet for Foo { fn hi(&self) {} }
 $rs$,
-		'esac+moniker://pkg'::moniker
+		'pcm+moniker://pkg'::moniker
 	) AS g
 )
 SELECT
 	ok(EXISTS (
 		SELECT 1 FROM graph_refs(g) r
 		 WHERE r.kind = 'implements'
-		   AND r.source = 'esac+moniker://pkg/lang:rs/module:util/class:Foo'::moniker
-		   AND r.target = 'esac+moniker://pkg/lang:rs/module:util/interface:Greet'::moniker),
+		   AND r.source = 'pcm+moniker://pkg/lang:rs/module:util/class:Foo'::moniker
+		   AND r.target = 'pcm+moniker://pkg/lang:rs/module:util/interface:Greet'::moniker),
 		'impl Trait for Type emits implements ref Type → Trait') AS r4
 FROM g;
 
@@ -69,16 +69,16 @@ WITH g AS (
 	SELECT extract_rust(
 		'util.rs',
 		'use std::collections::{HashMap, HashSet};',
-		'esac+moniker://pkg'::moniker
+		'pcm+moniker://pkg'::moniker
 	) AS g
 )
 SELECT
 	is(array_length(graph_ref_targets(g), 1), 2,
 		'group import emits one ref per leaf') AS r5,
-	ok('esac+moniker://pkg/external_pkg:std/path:collections/path:HashMap'::moniker
+	ok('pcm+moniker://pkg/external_pkg:std/path:collections/path:HashMap'::moniker
 	     = ANY(graph_ref_targets(g)),
 		'first leaf reaches HashMap under external_pkg:std') AS r6,
-	ok('esac+moniker://pkg/external_pkg:std/path:collections/path:HashSet'::moniker
+	ok('pcm+moniker://pkg/external_pkg:std/path:collections/path:HashSet'::moniker
 	     = ANY(graph_ref_targets(g)),
 		'second leaf reaches HashSet under external_pkg:std') AS r7
 FROM g;
@@ -90,14 +90,14 @@ WITH g AS (
 use crate::core::moniker::Moniker;
 use pgrx::prelude::*;
 $rs$,
-		'esac+moniker://pkg'::moniker
+		'pcm+moniker://pkg'::moniker
 	) AS g
 )
 SELECT
-	ok('esac+moniker://pkg/lang:rs/dir:core/module:moniker/path:Moniker'::moniker
+	ok('pcm+moniker://pkg/lang:rs/dir:core/module:moniker/path:Moniker'::moniker
 	     = ANY(graph_ref_targets(g)),
 		'crate:: prefix resolves under the project anchor (no external_pkg)') AS r8,
-	ok('esac+moniker://pkg/external_pkg:pgrx/path:prelude'::moniker
+	ok('pcm+moniker://pkg/external_pkg:pgrx/path:prelude'::moniker
 	     = ANY(graph_ref_targets(g)),
 		'bare external crate root marked with external_pkg:') AS r9
 FROM g;

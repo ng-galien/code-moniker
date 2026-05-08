@@ -18,10 +18,10 @@ CREATE INDEX module_ref_targets_gin
 INSERT INTO module (id, graph) VALUES
 	('lib', extract_typescript('src/lib.ts',
 		'export class Lib { go() { return 1; } }',
-		'esac+moniker://app'::moniker)),
+		'pcm+moniker://app'::moniker)),
 	('app', extract_typescript('src/app.ts',
 		'import { Lib } from "./lib";',
-		'esac+moniker://app'::moniker));
+		'pcm+moniker://app'::moniker));
 
 SET LOCAL enable_seqscan = off;
 
@@ -41,26 +41,26 @@ END $$;
 
 SELECT ok(
 	plan_uses(
-		$$SELECT id FROM module WHERE graph_def_monikers(graph) @> ARRAY['esac+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker]$$,
+		$$SELECT id FROM module WHERE graph_def_monikers(graph) @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker]$$,
 		'module_def_monikers_gin'),
 	'graph_def_monikers @> ARRAY[m] uses module_def_monikers_gin');
 
 SELECT ok(
 	plan_uses(
-		$$SELECT id FROM module WHERE graph_def_monikers(graph) @> ARRAY['esac+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker]$$,
+		$$SELECT id FROM module WHERE graph_def_monikers(graph) @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker]$$,
 		'Bitmap Index Scan'),
 	'planner emits a Bitmap Index Scan node for the def lookup');
 
 
 SELECT ok(
 	plan_uses(
-		$$SELECT id FROM module WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/lang:ts/dir:src/module:lib'::moniker]$$,
+		$$SELECT id FROM module WHERE graph_ref_targets(graph) @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:lib'::moniker]$$,
 		'module_ref_targets_gin'),
 	'graph_ref_targets @> ARRAY[m] uses module_ref_targets_gin');
 
 SELECT ok(
 	plan_uses(
-		$$SELECT id FROM module WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/lang:ts/dir:src/module:lib'::moniker]$$,
+		$$SELECT id FROM module WHERE graph_ref_targets(graph) @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:lib'::moniker]$$,
 		'Bitmap Index Scan'),
 	'planner emits a Bitmap Index Scan node for the ref lookup');
 

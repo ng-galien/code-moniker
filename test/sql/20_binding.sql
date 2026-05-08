@@ -18,7 +18,7 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'class Foo:\n    pass\n',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -32,7 +32,7 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'def _helper():\n    pass\n',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -46,7 +46,7 @@ WITH g AS (
 	SELECT extract_python(
 		'foo.py',
 		E'class Foo:\n    def __secret(self):\n        pass\n',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -60,7 +60,7 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'def f(x):\n    return x\n',
-		'esac+moniker://app'::moniker,
+		'pcm+moniker://app'::moniker,
 		deep := true
 	) AS g
 )
@@ -75,7 +75,7 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		'',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -89,7 +89,7 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'import json\n',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -103,7 +103,7 @@ WITH g AS (
 	SELECT extract_python(
 		'foo.py',
 		E'class Foo:\n    def m(self):\n        self.bar()\n    def bar(self):\n        pass\n',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -117,7 +117,7 @@ WITH g AS (
 	SELECT extract_typescript(
 		'src/app.ts',
 		E'register(FooImpl);',
-		'esac+moniker://app'::moniker,
+		'pcm+moniker://app'::moniker,
 		deep := false,
 		di_register_callees := ARRAY['register']
 	) AS g
@@ -133,7 +133,7 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'class Foo:\n    pass\n\ndef bar():\n    pass\n',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -147,7 +147,7 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'import json\nimport acme.util\n',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 )
 SELECT

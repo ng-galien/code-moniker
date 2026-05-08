@@ -52,18 +52,18 @@ SELECT
 
 
 SELECT is(
-	external_pkg_root('esac+moniker://app/external_pkg:pgrx/path:prelude'::moniker),
+	external_pkg_root('pcm+moniker://app/external_pkg:pgrx/path:prelude'::moniker),
 	'pgrx',
 	'first external_pkg segment surfaces as the root');
 
 SELECT ok(
-	external_pkg_root('esac+moniker://app/path:src/path:lib'::moniker) IS NULL,
+	external_pkg_root('pcm+moniker://app/path:src/path:lib'::moniker) IS NULL,
 	'project-local moniker returns NULL');
 
 CREATE TEMP TABLE pkg(project moniker, name text, version text);
 INSERT INTO pkg VALUES
-	('esac+moniker://app'::moniker, 'pgrx', '0.18'),
-	('esac+moniker://app'::moniker, 'serde', '1.0');
+	('pcm+moniker://app'::moniker, 'pgrx', '0.18'),
+	('pcm+moniker://app'::moniker, 'serde', '1.0');
 
 WITH g AS (
 	SELECT extract_rust(
@@ -71,7 +71,7 @@ WITH g AS (
 		'use pgrx::prelude::*;
 use serde::Serialize;
 use std::collections::HashMap;',
-		'esac+moniker://app'::moniker
+		'pcm+moniker://app'::moniker
 	) AS g
 ), refs_with_root AS (
 	SELECT external_pkg_root(t) AS root
