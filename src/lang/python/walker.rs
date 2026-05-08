@@ -444,7 +444,7 @@ pub(super) fn collect_param_types(
 		idx += 1;
 		let ty = type_node
 			.and_then(|t| t.utf8_text(source).ok())
-			.map(|s| s.trim().as_bytes().to_vec())
+			.map(|s| crate::lang::callable::normalize_type_text(s))
 			.unwrap_or_else(|| b"_".to_vec());
 		types.push(ty);
 	}

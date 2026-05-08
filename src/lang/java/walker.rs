@@ -195,11 +195,11 @@ impl<'src> Walker<'src> {
 		graph: &mut CodeGraph,
 	) {
 		let types = formal_parameter_types(node, self.source_bytes);
-		let signature = types.join(",");
+		let signature = crate::lang::callable::join_bytes_with_comma(&types);
 		let m = extend_callable_typed(scope, kind, name, &types);
 		let attrs = DefAttrs {
 			visibility: modifier_visibility(node),
-			signature: signature.as_bytes(),
+			signature: &signature,
 			..DefAttrs::default()
 		};
 		let _ = graph.add_def_attrs(
@@ -473,10 +473,7 @@ pub(super) fn collect_type_table<'src>(
 	}
 }
 
-pub(super) fn formal_parameter_types<'src>(
-	callable: Node<'_>,
-	source: &'src [u8],
-) -> Vec<&'src str> {
+pub(super) fn formal_parameter_types(callable: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 	let Some(params) = callable.child_by_field_name("parameters") else {
 		return Vec::new();
 	};
@@ -488,7 +485,7 @@ pub(super) fn formal_parameter_types<'src>(
 		}
 		let Some(t) = c.child_by_field_name("type") else { continue };
 		let Ok(text) = t.utf8_text(source) else { continue };
-		out.push(text.trim());
+		out.push(crate::lang::callable::normalize_type_text(text));
 	}
 	out
 }

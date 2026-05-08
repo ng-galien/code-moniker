@@ -38,8 +38,8 @@ pub fn extract(
 	deep: bool,
 	presets: &Presets,
 ) -> CodeGraph {
-	let module = compute_module_moniker(anchor, uri, kinds::PATH);
-	let mut graph = CodeGraph::new(module.clone(), kinds::PATH);
+	let module = compute_module_moniker(anchor, uri);
+	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
 	let tree = parse(source);
 	let export_ranges = collect_export_ranges(tree.root_node());
 	let walker = Walker {
@@ -102,9 +102,9 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"src")
-			.segment(b"path", b"lib")
-			.segment(b"path", b"util")
+			.segment(b"dir", b"src")
+			.segment(b"dir", b"lib")
+			.segment(b"module", b"util")
 			.build();
 		assert_eq!(graph.root(), &expected);
 	}
@@ -129,7 +129,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.build();
 		assert!(graph.contains(&foo));
@@ -152,7 +152,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"method", b"bar()")
 			.build();
@@ -169,7 +169,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"function", b"foo()")
 			.build();
 		assert!(graph.contains(&foo));
@@ -190,16 +190,16 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"src")
-			.segment(b"path", b"bar")
+			.segment(b"dir", b"src")
+			.segment(b"module", b"bar")
 			.segment(b"path", b"Bar")
 			.build();
 		let baz = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"src")
-			.segment(b"path", b"bar")
+			.segment(b"dir", b"src")
+			.segment(b"module", b"bar")
 			.segment(b"path", b"Baz")
 			.build();
 		let targets: Vec<_> = g.refs().map(|r| r.target.clone()).collect();
@@ -216,7 +216,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"foo")
+			.segment(b"module", b"foo")
 			.segment(b"path", b"default")
 			.build();
 		assert_eq!(r.target, target);
@@ -231,7 +231,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"foo")
+			.segment(b"module", b"foo")
 			.build();
 		assert_eq!(r.target, target);
 	}
@@ -280,7 +280,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"src")
+			.segment(b"dir", b"src")
 			.segment(b"path", b"z")
 			.build();
 		assert_eq!(r.target, target);
@@ -299,8 +299,8 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"src")
-			.segment(b"path", b"other")
+			.segment(b"dir", b"src")
+			.segment(b"module", b"other")
 			.segment(b"path", b"X")
 			.build();
 		assert_eq!(r.target, target);
@@ -339,7 +339,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"interface", b"Greet")
 			.build();
 		assert!(g.contains(&greet));
@@ -347,7 +347,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"interface", b"Greet")
 			.segment(b"method", b"hi()")
 			.build();
@@ -361,7 +361,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"enum", b"Color")
 			.segment(b"enum_constant", b"Red")
 			.build();
@@ -375,7 +375,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"type_alias", b"Id")
 			.build();
 		assert!(g.contains(&id));
@@ -392,7 +392,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"method", b"bar(number,string)")
 			.build();
@@ -411,7 +411,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"constructor", b"constructor(number)")
 			.build();
@@ -430,7 +430,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.segment(b"field", b"x")
 			.build();
@@ -444,7 +444,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"const", b"PI")
 			.build();
 		assert!(g.contains(&pi));
@@ -462,7 +462,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"function", b"add(number,number)")
 			.build();
 		assert!(
@@ -480,7 +480,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"function", b"foo(1)")
 			.build();
 		assert_eq!(r.target, target);
@@ -660,7 +660,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"method", b"bar(2)")
 			.build();
 		assert_eq!(r.target, target);
@@ -679,7 +679,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"C")
 			.segment(b"method", b"m()")
 			.build();
@@ -697,7 +697,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.build();
 		assert_eq!(r.target, target);
@@ -716,7 +716,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"B")
 			.build();
 		assert_eq!(r.target, target);
@@ -738,7 +738,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"interface", b"I")
 			.build();
 		assert_eq!(r.target, target);
@@ -760,7 +760,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"function", b"Injectable()")
 			.build();
 		assert_eq!(r.target, target);
@@ -779,7 +779,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"function", b"Bind(1)")
 			.build();
 		assert_eq!(r.target, target);
@@ -796,14 +796,14 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
 			.build();
 		let bar = MonikerBuilder::new()
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"Bar")
 			.build();
 		let targets: Vec<_> = g
@@ -828,7 +828,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"function", b"x()")
 			.build();
 		assert_eq!(r.target, target);
@@ -891,7 +891,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"class", b"default")
 			.build();
 		assert!(g.contains(&m));
@@ -922,7 +922,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"function", b"f(number,number)")
 			.segment(b"param", b"a")
 			.build();
@@ -930,7 +930,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"function", b"f(number,number)")
 			.segment(b"param", b"b")
 			.build();
@@ -938,7 +938,7 @@ mod tests {
 			.project(b"my-app")
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
-			.segment(b"path", b"util")
+			.segment(b"module", b"util")
 			.segment(b"function", b"f(number,number)")
 			.segment(b"local", b"sum")
 			.build();

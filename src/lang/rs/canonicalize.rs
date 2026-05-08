@@ -9,15 +9,7 @@ pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let stem = strip_rs_extension(uri);
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
 	builder.segment(crate::lang::kinds::LANG, b"rs");
-	let pieces: Vec<&str> = stem.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
-	if pieces.is_empty() {
-		return builder.build();
-	}
-	let last = pieces.len() - 1;
-	for (i, piece) in pieces.iter().enumerate() {
-		let kind = if i == last { kinds::MODULE } else { kinds::PATH };
-		builder.segment(kind, piece.as_bytes());
-	}
+	crate::lang::callable::append_dir_module_segments(&mut builder, stem, kinds::DIR, kinds::MODULE);
 	builder.build()
 }
 
@@ -31,10 +23,7 @@ pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
 	(node.start_byte() as u32, node.end_byte() as u32)
 }
 
-pub(super) fn function_param_types<'src>(
-	node: Node<'_>,
-	source: &'src [u8],
-) -> Vec<&'src str> {
+pub(super) fn function_param_types(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 	let Some(params) = node.child_by_field_name("parameters") else {
 		return Vec::new();
 	};
@@ -47,9 +36,9 @@ pub(super) fn function_param_types<'src>(
 					.child_by_field_name("type")
 					.and_then(|n| n.utf8_text(source).ok())
 					.unwrap_or("_");
-				out.push(t.trim());
+				out.push(crate::lang::callable::normalize_type_text(t));
 			}
-			"variadic_parameter" => out.push("..."),
+			"variadic_parameter" => out.push(b"...".to_vec()),
 			"self_parameter" => {}
 			_ => {}
 		}
@@ -57,10 +46,7 @@ pub(super) fn function_param_types<'src>(
 	out
 }
 
-pub(super) fn closure_param_types<'src>(
-	closure: Node<'_>,
-	source: &'src [u8],
-) -> Vec<&'src str> {
+pub(super) fn closure_param_types(closure: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 	let Some(params) = closure.child_by_field_name("parameters") else {
 		return Vec::new();
 	};
@@ -72,9 +58,9 @@ pub(super) fn closure_param_types<'src>(
 				.child_by_field_name("type")
 				.and_then(|n| n.utf8_text(source).ok())
 				.unwrap_or("_");
-			out.push(t.trim());
+			out.push(crate::lang::callable::normalize_type_text(t));
 		} else {
-			out.push("_");
+			out.push(b"_".to_vec());
 		}
 	}
 	out

@@ -20,7 +20,7 @@ WITH empty AS (
 	) AS g
 )
 SELECT
-	is(graph_root(g)::text, 'esac+moniker://app/path:main/lang:ts/path:util',
+	is(graph_root(g)::text, 'esac+moniker://app/path:main/lang:ts/module:util',
 		'module moniker = anchor + file basename (extension stripped)') AS r1,
 	is(array_length(graph_def_monikers(g), 1), 1,
 		'empty source yields a graph with the module def only') AS r2
@@ -35,11 +35,11 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://app/path:main/lang:ts/path:src/path:Foo'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/lang:ts/dir:src/module:Foo'::moniker,
 		'graph contains the module moniker') AS r3,
-	ok(g @> 'esac+moniker://app/path:main/lang:ts/path:src/path:Foo/class:Foo'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Foo'::moniker,
 		'graph contains the class def') AS r4,
-	ok(g @> 'esac+moniker://app/path:main/lang:ts/path:src/path:Foo/class:Foo/method:bar(_,_)'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Foo/method:bar(_,_)'::moniker,
 		'method moniker carries `_` placeholders for unannotated JS params') AS r5
 FROM g;
 
@@ -54,7 +54,7 @@ WITH g AS (
 SELECT
 	is(array_length(graph_ref_targets(g), 1), 2,
 		'two named specifiers produce two refs') AS r6,
-	ok('esac+moniker://app/path:main/lang:ts/path:src/path:util/path:foo'::moniker = ANY(graph_ref_targets(g)),
+	ok('esac+moniker://app/path:main/lang:ts/dir:src/module:util/path:foo'::moniker = ANY(graph_ref_targets(g)),
 		'imports_symbol target = resolved-module + path:<name>') AS r7
 FROM g;
 
@@ -79,11 +79,11 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok('esac+moniker://app/path:main/lang:ts/path:src/path:Foo/class:Base'::moniker = ANY(graph_ref_targets(g)),
+	ok('esac+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Base'::moniker = ANY(graph_ref_targets(g)),
 		'extends emits a class:<name> target') AS r9,
-	ok('esac+moniker://app/path:main/lang:ts/path:src/path:Foo/interface:I'::moniker = ANY(graph_ref_targets(g)),
+	ok('esac+moniker://app/path:main/lang:ts/dir:src/module:Foo/interface:I'::moniker = ANY(graph_ref_targets(g)),
 		'implements emits an interface:<name> target') AS r10,
-	ok('esac+moniker://app/path:main/lang:ts/path:src/path:Foo/function:Decor()'::moniker = ANY(graph_ref_targets(g)),
+	ok('esac+moniker://app/path:main/lang:ts/dir:src/module:Foo/function:Decor()'::moniker = ANY(graph_ref_targets(g)),
 		'decorator emits a function-shaped annotates target') AS r11
 FROM g;
 
@@ -97,9 +97,9 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'esac+moniker://app/path:main/lang:ts/path:util/function:f(_,_)/param:a'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/lang:ts/module:util/function:f(_,_)/param:a'::moniker,
 		'deep=true surfaces parameter defs') AS r12,
-	ok(g @> 'esac+moniker://app/path:main/lang:ts/path:util/function:f(_,_)/local:sum'::moniker,
+	ok(g @> 'esac+moniker://app/path:main/lang:ts/module:util/function:f(_,_)/local:sum'::moniker,
 		'deep=true surfaces local defs') AS r13
 FROM g;
 
@@ -151,11 +151,11 @@ WITH g AS (
 )
 SELECT
 	is((SELECT visibility FROM graph_defs(g) WHERE kind = 'class'
-	     AND moniker = 'esac+moniker://app/path:main/lang:ts/path:util/class:A'::moniker),
+	     AND moniker = 'esac+moniker://app/path:main/lang:ts/module:util/class:A'::moniker),
 		'public',
 		'exported class is public') AS r17,
 	is((SELECT visibility FROM graph_defs(g) WHERE kind = 'class'
-	     AND moniker = 'esac+moniker://app/path:main/lang:ts/path:util/class:B'::moniker),
+	     AND moniker = 'esac+moniker://app/path:main/lang:ts/module:util/class:B'::moniker),
 		'module',
 		'unexported class is module-visible') AS r18
 FROM g;

@@ -66,7 +66,7 @@ mod tests {
 		let expected = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
-			.segment(b"path", b"src")
+			.segment(b"dir", b"src")
 			.segment(b"module", b"lib")
 			.build();
 		assert_eq!(g.root(), &expected);
@@ -230,7 +230,7 @@ mod tests {
 		let target = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
-			.segment(b"path", b"core")
+			.segment(b"dir", b"core")
 			.segment(b"module", b"moniker")
 			.segment(b"path", b"Moniker")
 			.build();
@@ -251,7 +251,7 @@ mod tests {
 			.segment(b"path", b"src")
 			.segment(b"path", b"lang")
 			.segment(b"lang", b"rs")
-			.segment(b"path", b"rs")
+			.segment(b"dir", b"rs")
 			.segment(b"path", b"kinds")
 			.build();
 		assert_eq!(r.target, target);

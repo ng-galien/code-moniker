@@ -43,8 +43,8 @@ SELECT ok(
 
 
 SELECT ok(
-	'esac+moniker://app/lang:ts/path:src/path:lib/path:Lib'::moniker
-		?= 'esac+moniker://app/lang:ts/path:src/path:lib/class:Lib'::moniker,
+	'esac+moniker://app/lang:ts/dir:src/module:lib/path:Lib'::moniker
+		?= 'esac+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker,
 	'?= operator routes to bind_match');
 
 

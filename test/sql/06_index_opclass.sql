@@ -64,20 +64,20 @@ INSERT INTO module VALUES
 
 SELECT is(
 	(SELECT id FROM module
-	  WHERE graph_def_monikers(graph) @> ARRAY['esac+moniker://app/lang:ts/path:src/path:lib/class:Lib'::moniker]),
+	  WHERE graph_def_monikers(graph) @> ARRAY['esac+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker]),
 	'lib',
 	'graph_def_monikers @> ARRAY[m] resolves the owning module');
 
 SELECT is(
 	(SELECT array_agg(id ORDER BY id) FROM module
-	  WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/lang:ts/path:src/path:lib/path:Lib'::moniker]),
+	  WHERE graph_ref_targets(graph) @> ARRAY['esac+moniker://app/lang:ts/dir:src/module:lib/path:Lib'::moniker]),
 	ARRAY['app']::text[],
 	'graph_ref_targets @> ARRAY[m] finds every importer');
 
 SELECT is(
 	(SELECT array_agg(graph_root(graph)::text ORDER BY graph_root(graph))
 	   FROM module),
-	ARRAY['esac+moniker://app/lang:ts/path:src/path:app', 'esac+moniker://app/lang:ts/path:src/path:lib']::text[],
+	ARRAY['esac+moniker://app/lang:ts/dir:src/module:app', 'esac+moniker://app/lang:ts/dir:src/module:lib']::text[],
 	'ORDER BY on a moniker-returning expression');
 
 SELECT * FROM finish();

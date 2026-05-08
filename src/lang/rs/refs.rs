@@ -172,8 +172,10 @@ fn append_use_pieces(b: &mut MonikerBuilder, pieces: &[String]) {
 	for (i, piece) in pieces.iter().enumerate() {
 		let kind = if i == n - 2 {
 			kinds::MODULE
-		} else {
+		} else if i == n - 1 {
 			kinds::PATH
+		} else {
+			kinds::DIR
 		};
 		b.segment(kind, piece.as_bytes());
 	}

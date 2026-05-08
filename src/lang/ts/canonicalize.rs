@@ -5,18 +5,16 @@ use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use super::kinds;
 
-pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str, path_kind: &[u8]) -> Moniker {
+pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let stem = strip_known_extension(uri);
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
 	builder.segment(crate::lang::kinds::LANG, b"ts");
-	append_path_segments(&mut builder, stem, path_kind);
+	append_module_segments(&mut builder, stem);
 	builder.build()
 }
 
-pub(super) fn append_path_segments(b: &mut MonikerBuilder, path: &str, kind: &[u8]) {
-	for piece in path.split('/').filter(|s| !s.is_empty() && *s != ".") {
-		b.segment(kind, piece.as_bytes());
-	}
+pub(super) fn append_module_segments(b: &mut MonikerBuilder, path: &str) {
+	crate::lang::callable::append_dir_module_segments(b, path, kinds::DIR, kinds::MODULE);
 }
 
 pub(super) fn strip_known_extension(uri: &str) -> &str {
@@ -41,7 +39,7 @@ pub(super) fn anonymous_callback_name(node: Node<'_>) -> Vec<u8> {
 	format!("__cb_{}_{}", p.row, p.column).into_bytes()
 }
 
-pub(super) fn callable_param_types<'src>(node: Node<'_>, source: &'src [u8]) -> Vec<&'src str> {
+pub(super) fn callable_param_types(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 	if let Some(params) = node.child_by_field_name("parameters") {
 		let mut out = Vec::new();
 		let mut cursor = params.walk();
@@ -50,24 +48,25 @@ pub(super) fn callable_param_types<'src>(node: Node<'_>, source: &'src [u8]) -> 
 				"required_parameter" | "optional_parameter" => {
 					out.push(parameter_type_text(child, source));
 				}
-				"rest_pattern" => out.push("_"),
+				"rest_pattern" => out.push(b"_".to_vec()),
 				_ => {}
 			}
 		}
 		return out;
 	}
 	if node.child_by_field_name("parameter").is_some() {
-		return vec!["_"];
+		return vec![b"_".to_vec()];
 	}
 	Vec::new()
 }
 
-fn parameter_type_text<'src>(param: Node<'_>, source: &'src [u8]) -> &'src str {
-	let Some(annot) = param.child_by_field_name("type") else { return "_" };
+fn parameter_type_text(param: Node<'_>, source: &[u8]) -> Vec<u8> {
+	let Some(annot) = param.child_by_field_name("type") else { return b"_".to_vec() };
 	let inner = annot
 		.named_child(0)
 		.unwrap_or(annot);
-	inner.utf8_text(source).unwrap_or("_").trim()
+	let text = inner.utf8_text(source).unwrap_or("_");
+	crate::lang::callable::normalize_type_text(text)
 }
 
 pub(super) fn external_pkg_builder(project: &[u8], pkg: &str) -> MonikerBuilder {

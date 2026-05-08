@@ -5,7 +5,7 @@ use crate::core::code_graph::{CodeGraph, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use super::canonicalize::{
-	append_path_segments, external_pkg_builder, node_position, strip_known_extension,
+	append_module_segments, external_pkg_builder, node_position, strip_known_extension,
 };
 use super::kinds;
 use super::walker::Walker;
@@ -212,7 +212,7 @@ impl<'src> Walker<'src> {
 			remainder = rest;
 		}
 		let remainder = strip_known_extension(remainder);
-		append_path_segments(&mut b, remainder, kinds::PATH);
+		append_module_segments(&mut b, remainder);
 		b
 	}
 }

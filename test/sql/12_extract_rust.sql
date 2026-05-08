@@ -19,7 +19,7 @@ WITH g AS (
 )
 SELECT is(
 	graph_root(g)::text,
-	'esac+moniker://pg_code_moniker/lang:rs/path:src/path:core/path:moniker/module:view',
+	'esac+moniker://pg_code_moniker/lang:rs/dir:src/dir:core/dir:moniker/module:view',
 	'module moniker = anchor + path:dir + module:basename')
 FROM g;
 
@@ -94,7 +94,7 @@ $rs$,
 	) AS g
 )
 SELECT
-	ok('esac+moniker://pkg/lang:rs/path:core/module:moniker/path:Moniker'::moniker
+	ok('esac+moniker://pkg/lang:rs/dir:core/module:moniker/path:Moniker'::moniker
 	     = ANY(graph_ref_targets(g)),
 		'crate:: prefix resolves under the project anchor (no external_pkg)') AS r8,
 	ok('esac+moniker://pkg/external_pkg:pgrx/path:prelude'::moniker
