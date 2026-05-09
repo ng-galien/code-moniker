@@ -21,9 +21,9 @@ WITH g AS (
 SELECT
 	is(array_length(graph_def_monikers(g), 1), 2,
 		'shallow extract: only module + add() (no param/local)') AS r1,
-	ok(NOT (g @> 'pcm+moniker://pkg/lang:rs/module:util/function:add(i32,i32)/param:a'::moniker),
+	ok(NOT (g @> 'pcm+moniker://pkg/lang:rs/module:util/fn:add(i32,i32)/param:a'::moniker),
 		'shallow extract: no param defs') AS r2,
-	ok(NOT (g @> 'pcm+moniker://pkg/lang:rs/module:util/function:add(i32,i32)/local:sum'::moniker),
+	ok(NOT (g @> 'pcm+moniker://pkg/lang:rs/module:util/fn:add(i32,i32)/local:sum'::moniker),
 		'shallow extract: no local defs') AS r3
 FROM g;
 
@@ -37,11 +37,11 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/function:add(i32,i32)/param:a'::moniker,
-		'deep extract emits param:a under function:add(i32,i32)') AS r4,
-	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/function:add(i32,i32)/param:b'::moniker,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/fn:add(i32,i32)/param:a'::moniker,
+		'deep extract emits param:a under fn:add(i32,i32)') AS r4,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/fn:add(i32,i32)/param:b'::moniker,
 		'deep extract emits param:b') AS r5,
-	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/function:add(i32,i32)/local:sum'::moniker,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/fn:add(i32,i32)/local:sum'::moniker,
 		'deep extract emits local:sum from let-binding') AS r6
 FROM g;
 
@@ -55,7 +55,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/class:Foo/method:bar(i32)/param:self'::moniker,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/struct:Foo/method:bar(i32)/param:self'::moniker,
 		'deep extract emits param:self for &self (self implicit in moniker)') AS r7
 FROM g;
 
@@ -69,7 +69,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/function:run()/function:f(_)'::moniker,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/fn:run()/fn:f(_)'::moniker,
 		'deep extract emits named closure with `_` placeholder for untyped param') AS r8
 FROM g;
 

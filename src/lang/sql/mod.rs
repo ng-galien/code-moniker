@@ -27,3 +27,23 @@ pub fn extract(
 	walker::walk_source(source, &module, deep, &mut graph);
 	graph
 }
+
+pub struct Lang;
+
+impl crate::lang::LangExtractor for Lang {
+	type Presets = Presets;
+	const LANG_TAG: &'static str = "sql";
+	const ALLOWED_KINDS: &'static [&'static str] =
+		&["function", "procedure", "view", "table", "schema"];
+	const ALLOWED_VISIBILITIES: &'static [&'static str] = &[];
+
+	fn extract(
+		uri: &str,
+		source: &str,
+		anchor: &Moniker,
+		deep: bool,
+		presets: &Self::Presets,
+	) -> CodeGraph {
+		extract(uri, source, anchor, deep, presets)
+	}
+}

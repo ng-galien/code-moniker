@@ -6,6 +6,7 @@ mod build;
 mod parse;
 mod serialize;
 
+pub use crate::lang::Lang;
 pub use build::build_graph;
 pub use parse::parse_spec;
 pub use serialize::{SerializeError, graph_to_spec};
@@ -26,113 +27,6 @@ pub struct DeclareSpec {
 	pub lang: Lang,
 	pub symbols: Vec<DeclSymbol>,
 	pub edges: Vec<DeclEdge>,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Lang {
-	Ts,
-	Rs,
-	Java,
-	Python,
-	Go,
-	Cs,
-	Sql,
-}
-
-impl Lang {
-	pub fn from_tag(s: &str) -> Option<Self> {
-		match s {
-			"ts" => Some(Self::Ts),
-			"rs" => Some(Self::Rs),
-			"java" => Some(Self::Java),
-			"python" => Some(Self::Python),
-			"go" => Some(Self::Go),
-			"cs" => Some(Self::Cs),
-			"sql" => Some(Self::Sql),
-			_ => None,
-		}
-	}
-
-	pub fn tag(self) -> &'static str {
-		match self {
-			Self::Ts => "ts",
-			Self::Rs => "rs",
-			Self::Java => "java",
-			Self::Python => "python",
-			Self::Go => "go",
-			Self::Cs => "cs",
-			Self::Sql => "sql",
-		}
-	}
-
-	pub fn allowed_kinds(self) -> &'static [&'static str] {
-		match self {
-			Self::Ts => &[
-				"class",
-				"interface",
-				"type",
-				"function",
-				"method",
-				"const",
-				"namespace",
-				"module",
-				"enum",
-			],
-			Self::Rs => &[
-				"struct", "enum", "trait", "impl", "fn", "method", "const", "static", "mod", "type",
-			],
-			Self::Java => &[
-				"class",
-				"interface",
-				"enum",
-				"record",
-				"annotation_type",
-				"method",
-				"constructor",
-				"field",
-			],
-			Self::Python => &["class", "function", "method", "async_function"],
-			Self::Go => &[
-				"type",
-				"struct",
-				"interface",
-				"func",
-				"method",
-				"var",
-				"const",
-			],
-			Self::Cs => &[
-				"class",
-				"interface",
-				"struct",
-				"record",
-				"enum",
-				"delegate",
-				"method",
-				"constructor",
-				"field",
-				"property",
-				"event",
-			],
-			Self::Sql => &["function", "procedure", "view", "table", "schema"],
-		}
-	}
-
-	pub fn allowed_visibilities(self) -> &'static [&'static str] {
-		match self {
-			Self::Ts => &["public", "private", "module"],
-			Self::Rs => &["public", "private", "module"],
-			Self::Java => &["public", "protected", "package", "private"],
-			Self::Python => &["public", "private", "module"],
-			Self::Go => &["public", "module"],
-			Self::Cs => &["public", "protected", "internal", "private"],
-			Self::Sql => &[],
-		}
-	}
-
-	pub fn ignores_visibility(self) -> bool {
-		matches!(self, Self::Sql)
-	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -200,11 +94,11 @@ pub enum DeclareError {
 		reason: String,
 	},
 	KindNotInProfile {
-		lang: Lang,
+		lang: &'static str,
 		kind: String,
 	},
 	VisibilityNotInProfile {
-		lang: Lang,
+		lang: &'static str,
 		visibility: String,
 	},
 	KindMismatchMoniker {
@@ -222,6 +116,10 @@ pub enum DeclareError {
 	UnknownEdgeSource {
 		path: String,
 		from: String,
+	},
+	LangMismatch {
+		expected: &'static str,
+		actual: String,
 	},
 	GraphError(String),
 }
@@ -251,13 +149,11 @@ impl std::fmt::Display for DeclareError {
 			} => write!(f, "{path}: invalid moniker URI `{value}`: {reason}"),
 			KindNotInProfile { lang, kind } => write!(
 				f,
-				"kind `{kind}` is not allowed for lang={} (see profile)",
-				lang.tag()
+				"kind `{kind}` is not allowed for lang={lang} (see profile)"
 			),
 			VisibilityNotInProfile { lang, visibility } => write!(
 				f,
-				"visibility `{visibility}` is not allowed for lang={} (see profile)",
-				lang.tag()
+				"visibility `{visibility}` is not allowed for lang={lang} (see profile)"
 			),
 			KindMismatchMoniker {
 				path,
@@ -277,6 +173,10 @@ impl std::fmt::Display for DeclareError {
 			UnknownEdgeSource { path, from } => {
 				write!(f, "{path}: edge `from` `{from}` is not a declared symbol")
 			}
+			LangMismatch { expected, actual } => write!(
+				f,
+				"spec.lang `{actual}` does not match the typed extractor's `{expected}` (use the dynamic-dispatch entry point if you do not know the language ahead of time)"
+			),
 			GraphError(msg) => write!(f, "graph build error: {msg}"),
 		}
 	}

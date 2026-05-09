@@ -32,9 +32,9 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:go/module:m/function:Add(int,int)'::moniker,
+	ok(g @> 'pcm+moniker://app/lang:go/module:m/func:Add(int,int)'::moniker,
 		'function moniker carries full parameter type signature') AS r1,
-	is((SELECT signature FROM graph_defs(g) WHERE kind = 'function'),
+	is((SELECT signature FROM graph_defs(g) WHERE kind = 'func'),
 		'int,int',
 		'function signature column lists parameter types') AS r2
 FROM g;
@@ -62,13 +62,13 @@ WITH g AS (
 )
 SELECT
 	is((SELECT visibility FROM graph_defs(g) d
-	     WHERE kind = 'function' AND
-	           moniker = 'pcm+moniker://app/lang:go/module:m/function:Hello()'::moniker),
+	     WHERE kind = 'func' AND
+	           moniker = 'pcm+moniker://app/lang:go/module:m/func:Hello()'::moniker),
 		'public',
 		'capitalized name is public') AS r4,
 	is((SELECT visibility FROM graph_defs(g) d
-	     WHERE kind = 'function' AND
-	           moniker = 'pcm+moniker://app/lang:go/module:m/function:helper()'::moniker),
+	     WHERE kind = 'func' AND
+	           moniker = 'pcm+moniker://app/lang:go/module:m/func:helper()'::moniker),
 		'module',
 		'lowercase name is module-private') AS r5
 FROM g;
@@ -101,7 +101,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/external_pkg:net/path:http/function:Get(1)'::moniker IS NOT NULL,
+	ok(g @> 'pcm+moniker://app/external_pkg:net/path:http/func:Get(1)'::moniker IS NOT NULL,
 		'package-qualified call target preserves full import path') AS r8
 FROM g;
 

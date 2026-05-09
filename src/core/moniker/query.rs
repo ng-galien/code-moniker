@@ -100,6 +100,7 @@ fn last_segment_match(
 			b"java" => return bare_callable_name(l_name) == bare_callable_name(r_name),
 			b"python" => return bare_callable_name(l_name) == bare_callable_name(r_name),
 			b"rs" => return bare_callable_name(l_name) == bare_callable_name(r_name),
+			b"go" => return bare_callable_name(l_name) == bare_callable_name(r_name),
 			_ => {}
 		}
 	}

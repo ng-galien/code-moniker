@@ -8,10 +8,22 @@ use crate::core::uri::{UriConfig, to_uri};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SerializeError {
-	RootHasNoLangSegment { root: String },
-	UnknownLangSegment { lang: String },
-	UriRender { reason: String },
-	Utf8 { what: &'static str },
+	RootHasNoLangSegment {
+		root: String,
+	},
+	UnknownLangSegment {
+		lang: String,
+	},
+	LangMismatch {
+		expected: &'static str,
+		actual: String,
+	},
+	UriRender {
+		reason: String,
+	},
+	Utf8 {
+		what: &'static str,
+	},
 }
 
 impl std::fmt::Display for SerializeError {
@@ -24,6 +36,10 @@ impl std::fmt::Display for SerializeError {
 			Self::UnknownLangSegment { lang } => write!(
 				f,
 				"graph root carries `lang:{lang}` which is not a recognised declarative profile"
+			),
+			Self::LangMismatch { expected, actual } => write!(
+				f,
+				"graph root carries `lang:{actual}` which does not match the typed extractor's `{expected}` (use the dynamic-dispatch entry point if you do not know the language ahead of time)"
 			),
 			Self::UriRender { reason } => write!(f, "moniker URI render error: {reason}"),
 			Self::Utf8 { what } => write!(f, "{what} contains non-UTF-8 bytes"),

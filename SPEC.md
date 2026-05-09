@@ -209,6 +209,35 @@ Supported languages: TypeScript, Rust, Java, Python, SQL/PL-pgSQL.
 
 The extension is **stateless** : `extract_<lang>` reads only its arguments. It does not look up other modules, does not resolve refs across files. Cross-module resolution is the consumer's responsibility, performed by JOINing on `bind_match` (cross-file) or `=` (intra-file or total identity).
 
+#### Per-language extractor contract
+
+Every supported language exposes a zero-sized type `Lang` implementing the trait `lang::LangExtractor`. The trait formalises the contract every extractor must satisfy and is the **single source of truth** for what each language is allowed to emit.
+
+```rust
+pub trait LangExtractor {
+    type Presets: Default;
+    const LANG_TAG: &'static str;
+    const ALLOWED_KINDS: &'static [&'static str];
+    const ALLOWED_VISIBILITIES: &'static [&'static str];
+    fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool,
+               presets: &Self::Presets) -> CodeGraph;
+}
+```
+
+The associated function `lang::assert_conformance::<E: LangExtractor>(graph, anchor)` validates a produced graph against the contract. Each extractor's `#[cfg(test)] extract_default` test helper invokes it on every fixture, so the contract is checked at every test run. The invariants enforced are :
+
+1. The graph's root is anchored under `anchor` and its first segment is `lang:<E::LANG_TAG>`.
+2. Every def's `kind` is in `E::ALLOWED_KINDS` or in the universal internal vocabulary (`module`, `local`, `param`, `section`).
+3. Every def's `kind` field byte-equals the kind of its moniker's last segment.
+4. Every def's `visibility` is in `E::ALLOWED_VISIBILITIES` (or empty).
+5. Every def's `origin` is `extracted` (extractors never produce `declared` or `inferred`).
+6. Every ref's `binding` is consistent with its `kind` per § Binding semantics.
+7. Every ref tagged `confidence=local` resolves to a def in the same graph via `bind_match`.
+
+The declarative profile (`code_graph_declare`) consumes the same `ALLOWED_KINDS` / `ALLOWED_VISIBILITIES` constants — the trait is the single source of truth shared between extractor output validation and declarative spec validation.
+
+`docs/declare_schema.json` mirrors these enumerations and must be kept in sync with the trait constants when adding a new kind or visibility.
+
 ### Declarative graphs
 
 A `code_graph` may be authored without source. The declarative constructor `code_graph_declare(spec jsonb) → code_graph` accepts a JSONB specification of symbols and edges and emits a `code_graph` indistinguishable in shape from extractor output. Every produced def carries `origin=declared`.
@@ -258,12 +287,12 @@ The shape is uniform across languages. Per-language profiles in the schema restr
 
 | lang     | accepted `kind` values                                                                              | accepted `visibility` values            |
 |----------|-----------------------------------------------------------------------------------------------------|-----------------------------------------|
-| `ts`     | class, interface, type, function, method, const, namespace, module, enum                            | public, private, module                 |
-| `rs`     | struct, enum, trait, impl, fn, method, const, static, mod, type                                     | public, private, module                 |
-| `java`   | class, interface, enum, record, annotation_type, method, constructor, field                         | public, protected, package, private     |
+| `ts`     | class, interface, type, function, method, const, enum, constructor, field, enum_constant, namespace | public, private, protected, module      |
+| `rs`     | struct, enum, trait, impl, fn, method, const, static, type                                          | public, private, module                 |
+| `java`   | class, interface, enum, record, annotation_type, method, constructor, field, enum_constant          | public, protected, package, private     |
 | `python` | class, function, method, async_function                                                             | public, private, module                 |
 | `go`     | type, struct, interface, func, method, var, const                                                   | public, module                          |
-| `cs`     | class, interface, struct, record, enum, delegate, method, constructor, field, property, event       | public, protected, internal, private    |
+| `cs`     | class, interface, struct, record, enum, delegate, method, constructor, field, property, event       | public, protected, package, private     |
 | `sql`    | function, procedure, view, table, schema                                                            | (visibility ignored)                    |
 
 The visibility vocabulary is **cross-language** : `module` covers package-private (Go), module-internal (Rust), nested-but-not-re-exported (TS, Python). It maps to `VIS_MODULE` in the extractor output, so the round-trip `extract → code_graph_to_spec → code_graph_declare` stays valid for every supported language.

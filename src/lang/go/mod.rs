@@ -60,11 +60,38 @@ pub fn extract(
 	graph
 }
 
+pub struct Lang;
+
+impl crate::lang::LangExtractor for Lang {
+	type Presets = Presets;
+	const LANG_TAG: &'static str = "go";
+	const ALLOWED_KINDS: &'static [&'static str] = &[
+		"type",
+		"struct",
+		"interface",
+		"func",
+		"method",
+		"var",
+		"const",
+	];
+	const ALLOWED_VISIBILITIES: &'static [&'static str] = &["public", "module"];
+
+	fn extract(
+		uri: &str,
+		source: &str,
+		anchor: &Moniker,
+		deep: bool,
+		presets: &Self::Presets,
+	) -> CodeGraph {
+		extract(uri, source, anchor, deep, presets)
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::core::code_graph::assert_local_refs_closed;
 	use crate::core::moniker::MonikerBuilder;
+	use crate::lang::assert_conformance;
 
 	fn make_anchor() -> Moniker {
 		MonikerBuilder::new().project(b"app").build()
@@ -72,7 +99,7 @@ mod tests {
 
 	fn extract_default(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
 		let g = extract(uri, source, anchor, deep, &Presets::default());
-		assert_local_refs_closed(&g);
+		assert_conformance::<super::Lang>(&g, anchor);
 		g
 	}
 
@@ -110,12 +137,9 @@ mod tests {
 	fn extract_function_with_typed_params_emits_full_signature() {
 		let src = "package foo\nfunc Add(a int, b int) int { return a + b }\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let f = g
-			.defs()
-			.find(|d| d.kind == b"function")
-			.expect("function def");
+		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
 		let last = f.moniker.as_view().segments().last().unwrap();
-		assert_eq!(last.kind, b"function");
+		assert_eq!(last.kind, b"func");
 		assert_eq!(last.name, b"Add(int,int)");
 		assert_eq!(f.signature, b"int,int".to_vec());
 	}
@@ -124,10 +148,7 @@ mod tests {
 	fn extract_function_grouped_param_names_repeat_type() {
 		let src = "package foo\nfunc Add(a, b int) int { return a + b }\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let f = g
-			.defs()
-			.find(|d| d.kind == b"function")
-			.expect("function def");
+		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
 		assert_eq!(
 			f.moniker.as_view().segments().last().unwrap().name,
 			b"Add(int,int)",
@@ -139,10 +160,7 @@ mod tests {
 	fn extract_function_no_params_emits_empty_parens() {
 		let src = "package foo\nfunc Boot() {}\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let f = g
-			.defs()
-			.find(|d| d.kind == b"function")
-			.expect("function def");
+		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
 		assert_eq!(
 			f.moniker.as_view().segments().last().unwrap().name,
 			b"Boot()"
@@ -153,10 +171,7 @@ mod tests {
 	fn extract_function_capitalized_name_is_public() {
 		let src = "package foo\nfunc Hello() {}\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let f = g
-			.defs()
-			.find(|d| d.kind == b"function")
-			.expect("function def");
+		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
 		assert_eq!(f.visibility, b"public".to_vec());
 	}
 
@@ -164,10 +179,7 @@ mod tests {
 	fn extract_function_lowercase_name_is_module() {
 		let src = "package foo\nfunc helper() {}\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let f = g
-			.defs()
-			.find(|d| d.kind == b"function")
-			.expect("function def");
+		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
 		assert_eq!(f.visibility, b"module".to_vec());
 	}
 
@@ -175,10 +187,7 @@ mod tests {
 	fn extract_variadic_function_emits_ellipsis_slot() {
 		let src = "package foo\nfunc Printf(args ...int) {}\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let f = g
-			.defs()
-			.find(|d| d.kind == b"function")
-			.expect("function def");
+		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
 		assert_eq!(
 			f.moniker.as_view().segments().last().unwrap().name,
 			b"Printf(...)"
@@ -217,7 +226,7 @@ mod tests {
 		let g = extract_default("foo.go", src, &make_anchor(), false);
 		let t = g
 			.defs()
-			.find(|d| d.kind == b"type_alias")
+			.find(|d| d.kind == b"type")
 			.expect("type_alias def");
 		assert_eq!(
 			t.moniker.as_view().segments().last().unwrap().name,
@@ -231,7 +240,7 @@ mod tests {
 		let g = extract_default("foo.go", src, &make_anchor(), false);
 		let t = g
 			.defs()
-			.find(|d| d.kind == b"type_alias")
+			.find(|d| d.kind == b"type")
 			.expect("type_alias def");
 		assert_eq!(
 			t.moniker.as_view().segments().last().unwrap().name,
@@ -480,10 +489,7 @@ mod tests {
 			.expect("calls http.Get");
 		assert_eq!(r.confidence, b"external".to_vec());
 		let segs: Vec<&[u8]> = r.target.as_view().segments().map(|s| s.kind).collect();
-		assert_eq!(
-			segs,
-			vec![&b"external_pkg"[..], &b"path"[..], &b"function"[..]]
-		);
+		assert_eq!(segs, vec![&b"external_pkg"[..], &b"path"[..], &b"func"[..]]);
 	}
 
 	#[test]
@@ -772,14 +778,14 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"function", b"Run(int,string)")
+			.segment(b"func", b"Run(int,string)")
 			.segment(b"param", b"a")
 			.build();
 		let pb = MonikerBuilder::new()
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"function", b"Run(int,string)")
+			.segment(b"func", b"Run(int,string)")
 			.segment(b"param", b"b")
 			.build();
 		assert!(g.contains(&pa));
@@ -821,7 +827,7 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"function", b"Run()")
+			.segment(b"func", b"Run()")
 			.segment(b"local", b"x")
 			.build();
 		assert!(g.contains(&lx));
@@ -848,7 +854,7 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"function", b"Run()")
+			.segment(b"func", b"Run()")
 			.segment(b"local", b"z")
 			.build();
 		assert!(g.contains(&lz));

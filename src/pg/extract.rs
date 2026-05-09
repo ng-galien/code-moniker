@@ -27,7 +27,8 @@ fn extract_rust(
 	deep: pgrx::default!(bool, "false"),
 ) -> code_graph {
 	let core_anchor = anchor.to_core();
-	let inner = crate::lang::rs::extract(uri, source, &core_anchor, deep);
+	let presets = crate::lang::rs::Presets::default();
+	let inner = crate::lang::rs::extract(uri, source, &core_anchor, deep, &presets);
 	code_graph::from_core(inner)
 }
 

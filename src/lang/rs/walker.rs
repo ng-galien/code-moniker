@@ -37,11 +37,11 @@ impl<'src> Walker<'src> {
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
 			match child.kind() {
-				"struct_item" => self.handle_simple_def(child, parent, graph, kinds::CLASS),
+				"struct_item" => self.handle_simple_def(child, parent, graph, kinds::STRUCT),
 				"enum_item" => self.handle_simple_def(child, parent, graph, kinds::ENUM),
-				"trait_item" => self.handle_simple_def(child, parent, graph, kinds::INTERFACE),
-				"type_item" => self.handle_simple_def(child, parent, graph, kinds::TYPE_ALIAS),
-				"function_item" => self.handle_function(child, parent, graph, kinds::FUNCTION),
+				"trait_item" => self.handle_simple_def(child, parent, graph, kinds::TRAIT),
+				"type_item" => self.handle_simple_def(child, parent, graph, kinds::TYPE),
+				"function_item" => self.handle_function(child, parent, graph, kinds::FN),
 				"impl_item" => self.handle_impl(child, parent, graph),
 				"use_declaration" => self.handle_use(child, parent, graph),
 				_ => {}
@@ -182,13 +182,8 @@ impl<'src> Walker<'src> {
 		graph: &mut CodeGraph,
 	) {
 		let types = closure_param_types(closure, self.source_bytes);
-		let m = extend_callable_typed(callable, kinds::FUNCTION, name, &types);
-		let _ = graph.add_def(
-			m.clone(),
-			kinds::FUNCTION,
-			callable,
-			Some(node_position(closure)),
-		);
+		let m = extend_callable_typed(callable, kinds::FN, name, &types);
+		let _ = graph.add_def(m.clone(), kinds::FN, callable, Some(node_position(closure)));
 		if let Some(params) = closure.child_by_field_name("parameters") {
 			self.emit_params(params, &m, graph);
 		}
@@ -204,7 +199,7 @@ impl<'src> Walker<'src> {
 		let Some(type_name) = impl_type_name(type_node, self.source_bytes) else {
 			return;
 		};
-		let type_moniker = extend_segment(&self.module, kinds::CLASS, type_name.as_bytes());
+		let type_moniker = extend_segment(&self.module, kinds::STRUCT, type_name.as_bytes());
 		self.handle_impl_trait_for(node, &type_moniker, graph);
 		let Some(body) = node.child_by_field_name("body") else {
 			return;

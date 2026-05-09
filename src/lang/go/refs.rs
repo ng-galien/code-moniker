@@ -109,12 +109,8 @@ impl<'src> Walker<'src> {
 			return;
 		}
 		if let Some(entry) = self.import_entry_for(name.as_bytes()) {
-			let target = extend_callable_arity(
-				&entry.module_prefix,
-				kinds::FUNCTION,
-				name.as_bytes(),
-				arity,
-			);
+			let target =
+				extend_callable_arity(&entry.module_prefix, kinds::FUNC, name.as_bytes(), arity);
 			let attrs = RefAttrs {
 				confidence: entry.confidence,
 				..RefAttrs::default()
@@ -128,7 +124,7 @@ impl<'src> Walker<'src> {
 		let target = if conf == kinds::CONF_LOCAL {
 			extend_segment(scope, kinds::LOCAL, name.as_bytes())
 		} else {
-			extend_callable_arity(&self.module, kinds::FUNCTION, name.as_bytes(), arity)
+			extend_callable_arity(&self.module, kinds::FUNC, name.as_bytes(), arity)
 		};
 		let attrs = RefAttrs {
 			confidence: conf,
@@ -162,7 +158,7 @@ impl<'src> Walker<'src> {
 			if let Some(entry) = self.import_entry_for(op_name.as_bytes()) {
 				let target = extend_callable_arity(
 					&entry.module_prefix,
-					kinds::FUNCTION,
+					kinds::FUNC,
 					name.as_bytes(),
 					arity,
 				);

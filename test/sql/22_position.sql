@@ -37,11 +37,11 @@ WITH g AS (
 )
 SELECT
 	ok((SELECT start_byte IS NOT NULL AND end_byte IS NOT NULL
-	    FROM graph_defs(g) WHERE kind = 'function'),
-		'Rust function def has byte range') AS r4,
+	    FROM graph_defs(g) WHERE kind = 'fn'),
+		'Rust fn def has byte range') AS r4,
 	ok((SELECT start_byte < end_byte
-	    FROM graph_defs(g) WHERE kind = 'function'),
-		'Rust function def: start_byte < end_byte') AS r5
+	    FROM graph_defs(g) WHERE kind = 'fn'),
+		'Rust fn def: start_byte < end_byte') AS r5
 FROM g;
 
 

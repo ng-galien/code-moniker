@@ -23,7 +23,16 @@ pub fn parse(source: &str) -> Tree {
 		.expect("tree-sitter parse returned None on a non-cancelled call")
 }
 
-pub fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
+#[derive(Clone, Debug, Default)]
+pub struct Presets {}
+
+pub fn extract(
+	uri: &str,
+	source: &str,
+	anchor: &Moniker,
+	deep: bool,
+	_presets: &Presets,
+) -> CodeGraph {
 	let module = compute_module_moniker(anchor, uri);
 	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
 	let tree = parse(source);
@@ -38,15 +47,36 @@ pub fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGra
 	graph
 }
 
+pub struct Lang;
+
+impl crate::lang::LangExtractor for Lang {
+	type Presets = Presets;
+	const LANG_TAG: &'static str = "rs";
+	const ALLOWED_KINDS: &'static [&'static str] = &[
+		"struct", "enum", "trait", "impl", "fn", "method", "const", "static", "type",
+	];
+	const ALLOWED_VISIBILITIES: &'static [&'static str] = &["public", "private", "module"];
+
+	fn extract(
+		uri: &str,
+		source: &str,
+		anchor: &Moniker,
+		deep: bool,
+		presets: &Self::Presets,
+	) -> CodeGraph {
+		extract(uri, source, anchor, deep, presets)
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::core::code_graph::assert_local_refs_closed;
 	use crate::core::moniker::MonikerBuilder;
+	use crate::lang::assert_conformance;
 
 	fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
-		let g = super::extract(uri, source, anchor, deep);
-		assert_local_refs_closed(&g);
+		let g = super::extract(uri, source, anchor, deep, &Presets::default());
+		assert_conformance::<super::Lang>(&g, anchor);
 		g
 	}
 
@@ -88,7 +118,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.build();
 		assert!(g.contains(&foo));
 	}
@@ -122,7 +152,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"interface", b"Greet")
+			.segment(b"trait", b"Greet")
 			.build();
 		assert!(g.contains(&greet));
 	}
@@ -134,7 +164,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"type_alias", b"Id")
+			.segment(b"type", b"Id")
 			.build();
 		assert!(g.contains(&id));
 	}
@@ -151,7 +181,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"function", b"add(i32,i32)")
+			.segment(b"fn", b"add(i32,i32)")
 			.build();
 		assert!(
 			g.contains(&add),
@@ -167,7 +197,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"function", b"boot()")
+			.segment(b"fn", b"boot()")
 			.build();
 		assert!(g.contains(&boot));
 	}
@@ -185,13 +215,13 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.build();
 		let bar = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.segment(b"method", b"bar()")
 			.build();
 		assert!(g.contains(&foo));
@@ -216,13 +246,13 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.build();
 		let greet = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"interface", b"Greet")
+			.segment(b"trait", b"Greet")
 			.build();
 		let r = g
 			.refs()
@@ -427,20 +457,20 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"function", b"add(i32,i32)")
+			.segment(b"fn", b"add(i32,i32)")
 			.build();
 		let pa = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"function", b"add(i32,i32)")
+			.segment(b"fn", b"add(i32,i32)")
 			.segment(b"param", b"a")
 			.build();
 		let pb = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"function", b"add(i32,i32)")
+			.segment(b"fn", b"add(i32,i32)")
 			.segment(b"param", b"b")
 			.build();
 		assert!(g.contains(&add));
@@ -460,7 +490,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.segment(b"method", b"bar(i32)")
 			.segment(b"param", b"self")
 			.build();
@@ -468,7 +498,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.segment(b"method", b"bar(i32)")
 			.segment(b"param", b"x")
 			.build();
@@ -487,14 +517,14 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"function", b"run()")
+			.segment(b"fn", b"run()")
 			.segment(b"local", b"x")
 			.build();
 		let ly = MonikerBuilder::new()
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"function", b"run()")
+			.segment(b"fn", b"run()")
 			.segment(b"local", b"y")
 			.build();
 		assert!(g.contains(&lx));
@@ -511,7 +541,7 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"function", b"run(bool)")
+			.segment(b"fn", b"run(bool)")
 			.segment(b"local", b"inner")
 			.build();
 		assert!(
@@ -529,8 +559,8 @@ mod tests {
 			.project(b"pg_code_moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"function", b"run()")
-			.segment(b"function", b"f(_)")
+			.segment(b"fn", b"run()")
+			.segment(b"fn", b"f(_)")
 			.build();
 		assert!(
 			g.contains(&f),

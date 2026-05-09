@@ -102,8 +102,8 @@
         "symbols": {
           "items": {
             "properties": {
-              "kind":       { "enum": ["class", "interface", "type", "function", "method", "const", "namespace", "module", "enum"] },
-              "visibility": { "enum": ["public", "private", "module"] }
+              "kind":       { "enum": ["class", "interface", "type", "function", "method", "const", "enum", "constructor", "field", "enum_constant", "namespace"] },
+              "visibility": { "enum": ["public", "private", "protected", "module"] }
             }
           }
         }
@@ -116,7 +116,7 @@
         "symbols": {
           "items": {
             "properties": {
-              "kind":       { "enum": ["struct", "enum", "trait", "impl", "fn", "method", "const", "static", "mod", "type"] },
+              "kind":       { "enum": ["struct", "enum", "trait", "impl", "fn", "method", "const", "static", "type"] },
               "visibility": { "enum": ["public", "private", "module"] }
             }
           }
@@ -130,7 +130,7 @@
         "symbols": {
           "items": {
             "properties": {
-              "kind":       { "enum": ["class", "interface", "enum", "record", "annotation_type", "method", "constructor", "field"] },
+              "kind":       { "enum": ["class", "interface", "enum", "record", "annotation_type", "method", "constructor", "field", "enum_constant"] },
               "visibility": { "enum": ["public", "protected", "package", "private"] }
             }
           }
@@ -167,13 +167,13 @@
     },
 
     "CsProfile": {
-      "description": "C#. Default top-level visibility is `internal`; default member visibility is `private`.",
+      "description": "C#. Default top-level visibility is `internal`; default member visibility is `private`. The wire byte for `internal` is `package` to share the cross-language vocabulary.",
       "properties": {
         "symbols": {
           "items": {
             "properties": {
               "kind":       { "enum": ["class", "interface", "struct", "record", "enum", "delegate", "method", "constructor", "field", "property", "event"] },
-              "visibility": { "enum": ["public", "protected", "internal", "private"] }
+              "visibility": { "enum": ["public", "protected", "package", "private"] }
             }
           }
         }

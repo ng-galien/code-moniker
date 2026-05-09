@@ -54,15 +54,47 @@ pub fn extract(
 	graph
 }
 
+pub struct Lang;
+
+impl crate::lang::LangExtractor for Lang {
+	type Presets = Presets;
+	const LANG_TAG: &'static str = "ts";
+	const ALLOWED_KINDS: &'static [&'static str] = &[
+		"class",
+		"interface",
+		"type",
+		"function",
+		"method",
+		"const",
+		"enum",
+		"constructor",
+		"field",
+		"enum_constant",
+		"namespace",
+	];
+	const ALLOWED_VISIBILITIES: &'static [&'static str] =
+		&["public", "private", "protected", "module"];
+
+	fn extract(
+		uri: &str,
+		source: &str,
+		anchor: &Moniker,
+		deep: bool,
+		presets: &Self::Presets,
+	) -> CodeGraph {
+		extract(uri, source, anchor, deep, presets)
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::core::code_graph::assert_local_refs_closed;
 	use crate::core::moniker::MonikerBuilder;
+	use crate::lang::assert_conformance;
 
 	fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
 		let g = super::extract(uri, source, anchor, deep, &Presets::default());
-		assert_local_refs_closed(&g);
+		assert_conformance::<super::Lang>(&g, anchor);
 		g
 	}
 
@@ -408,7 +440,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"type_alias", b"Id")
+			.segment(b"type", b"Id")
 			.build();
 		assert!(g.contains(&id));
 	}

@@ -94,6 +94,8 @@ A new language under `src/lang/<lang>/` mirrors the `ts/` skeleton:
 - **Pre-pass `collect_type_table`** (when methods can precede their receiver type, e.g. Go / Rust impl): emits top-level type defs to the graph AND fills the resolution HashMap. Walker's `handle_type_spec` gates `add_def_attrs` on `scope != module` to skip the duplicate. `DuplicateMoniker` is silently tolerated everywhere via `let _ = graph.add_def(...)`; that is the project convention, not an error.
 - **Triplicated helpers** (`resolve_type_target`, `stdlib_or_imported`, external-package target builders) are deliberately copy-pasted across `java/`, `python/`, `go/`. Do not factor prematurely; they will move to a shared module once cross-file resolution lands.
 
+Every new extractor MUST also implement the trait `lang::LangExtractor` on a zero-sized `pub struct Lang;` exposed at the top of `src/lang/<lang>/mod.rs`. The trait carries `LANG_TAG`, `ALLOWED_KINDS`, `ALLOWED_VISIBILITIES` (single source of truth, consumed by both extraction and the declarative profile), and forwards `extract` to the existing free function. The `extract_default` test helper invokes `lang::assert_conformance::<Lang>(&g, anchor)` on every fixture — this is the per-language conformance contract, enforced at every test run. Adding a new kind or visibility means updating the trait constants AND the corresponding entry in `docs/declare_schema.json` (no automated sync today).
+
 Wire the SQL surface in `src/pg/extract.rs` (`#[pg_extern] fn extract_<lang>(...)`); add a pgTAP file under `test/sql/` and a panel entry to `test/dogfood/panel.sh` for scaling validation.
 
 ## TDD

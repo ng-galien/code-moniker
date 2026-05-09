@@ -72,7 +72,7 @@ impl<'src> Walker<'src> {
 		let kind = match type_node.kind() {
 			"struct_type" => kinds::STRUCT,
 			"interface_type" => kinds::INTERFACE,
-			_ => kinds::TYPE_ALIAS,
+			_ => kinds::TYPE,
 		};
 		let m = extend_segment(scope, kind, name.as_bytes());
 		if scope != &self.module {
@@ -93,7 +93,7 @@ impl<'src> Walker<'src> {
 		let Some(name) = self.field_text(node, "name") else {
 			return;
 		};
-		let m = extend_segment(scope, kinds::TYPE_ALIAS, name.as_bytes());
+		let m = extend_segment(scope, kinds::TYPE, name.as_bytes());
 		if scope != &self.module {
 			let attrs = DefAttrs {
 				visibility: visibility_from_name(name.as_bytes()),
@@ -101,7 +101,7 @@ impl<'src> Walker<'src> {
 			};
 			let _ = graph.add_def_attrs(
 				m.clone(),
-				kinds::TYPE_ALIAS,
+				kinds::TYPE,
 				scope,
 				Some(node_position(node)),
 				&attrs,
@@ -292,7 +292,7 @@ impl<'src> Walker<'src> {
 		};
 		let types = function_param_types(node, self.source_bytes);
 		let signature = crate::lang::callable::join_bytes_with_comma(&types);
-		let m = extend_callable_typed(scope, kinds::FUNCTION, name.as_bytes(), &types);
+		let m = extend_callable_typed(scope, kinds::FUNC, name.as_bytes(), &types);
 		let attrs = DefAttrs {
 			visibility: visibility_from_name(name.as_bytes()),
 			signature: &signature,
@@ -300,7 +300,7 @@ impl<'src> Walker<'src> {
 		};
 		let _ = graph.add_def_attrs(
 			m.clone(),
-			kinds::FUNCTION,
+			kinds::FUNC,
 			scope,
 			Some(node_position(node)),
 			&attrs,
@@ -345,11 +345,11 @@ pub(super) fn collect_type_table<'src>(
 					let kind = match tspec.child_by_field_name("type").map(|n| n.kind()) {
 						Some("struct_type") => kinds::STRUCT,
 						Some("interface_type") => kinds::INTERFACE,
-						_ => kinds::TYPE_ALIAS,
+						_ => kinds::TYPE,
 					};
 					(kind, tspec.child_by_field_name("name"))
 				}
-				"type_alias" => (kinds::TYPE_ALIAS, tspec.child_by_field_name("name")),
+				"type_alias" => (kinds::TYPE, tspec.child_by_field_name("name")),
 				_ => continue,
 			};
 			let Some(name_node) = name_node else { continue };

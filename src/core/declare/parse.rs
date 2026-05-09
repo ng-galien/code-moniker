@@ -60,7 +60,10 @@ fn parse_symbol(value: &Value, path: &str, lang: Lang) -> Result<DeclSymbol, Dec
 
 	let kind = req_str(obj, path, "kind")?.to_string();
 	if !lang.allowed_kinds().contains(&kind.as_str()) {
-		return Err(DeclareError::KindNotInProfile { lang, kind });
+		return Err(DeclareError::KindNotInProfile {
+			lang: lang.tag(),
+			kind,
+		});
 	}
 
 	let parent_str = req_str(obj, path, "parent")?;
@@ -75,7 +78,7 @@ fn parse_symbol(value: &Value, path: &str, lang: Lang) -> Result<DeclSymbol, Dec
 			})?;
 			if !lang.ignores_visibility() && !lang.allowed_visibilities().contains(&s) {
 				return Err(DeclareError::VisibilityNotInProfile {
-					lang,
+					lang: lang.tag(),
 					visibility: s.to_string(),
 				});
 			}

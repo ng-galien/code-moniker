@@ -50,7 +50,7 @@ impl<'src> Walker<'src> {
 			return;
 		};
 		let trait_moniker = MonikerBuilder::from_view(self.module.as_view())
-			.segment(kinds::INTERFACE, trait_name.as_bytes())
+			.segment(kinds::TRAIT, trait_name.as_bytes())
 			.build();
 		let _ = graph.add_ref(
 			type_moniker,

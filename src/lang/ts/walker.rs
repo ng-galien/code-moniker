@@ -358,14 +358,14 @@ impl<'src> Walker<'src> {
 		let Some(name) = self.field_text(node, "name") else {
 			return;
 		};
-		let m = extend_segment(scope, kinds::TYPE_ALIAS, name.as_bytes());
+		let m = extend_segment(scope, kinds::TYPE, name.as_bytes());
 		let attrs = DefAttrs {
 			visibility: self.module_visibility(node),
 			..DefAttrs::default()
 		};
 		let _ = graph.add_def_attrs(
 			m.clone(),
-			kinds::TYPE_ALIAS,
+			kinds::TYPE,
 			scope,
 			Some(node_position(node)),
 			&attrs,

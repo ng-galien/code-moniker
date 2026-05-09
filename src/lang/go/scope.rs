@@ -19,7 +19,7 @@ pub(super) fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	let Some(last) = scope.as_view().segments().last() else {
 		return false;
 	};
-	last.kind == kinds::FUNCTION || last.kind == kinds::METHOD
+	last.kind == kinds::FUNC || last.kind == kinds::METHOD
 }
 
 impl<'src> Walker<'src> {

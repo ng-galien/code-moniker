@@ -37,11 +37,11 @@ $rs$,
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/class:Foo'::moniker,
-		'struct emits class def') AS r1,
-	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/class:Foo/method:bar()'::moniker,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/struct:Foo'::moniker,
+		'struct emits struct def') AS r1,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/struct:Foo/method:bar()'::moniker,
 		'impl method re-parented onto struct; &self is implicit so arity 0 with empty parens') AS r2,
-	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/class:Foo/method:baz(u32)'::moniker,
+	ok(g @> 'pcm+moniker://pkg/lang:rs/module:util/struct:Foo/method:baz(u32)'::moniker,
 		'second impl method with one value parameter (self excluded)') AS r3
 FROM g;
 
@@ -60,8 +60,8 @@ SELECT
 	ok(EXISTS (
 		SELECT 1 FROM graph_refs(g) r
 		 WHERE r.kind = 'implements'
-		   AND r.source = 'pcm+moniker://pkg/lang:rs/module:util/class:Foo'::moniker
-		   AND r.target = 'pcm+moniker://pkg/lang:rs/module:util/interface:Greet'::moniker),
+		   AND r.source = 'pcm+moniker://pkg/lang:rs/module:util/struct:Foo'::moniker
+		   AND r.target = 'pcm+moniker://pkg/lang:rs/module:util/trait:Greet'::moniker),
 		'impl Trait for Type emits implements ref Type → Trait') AS r4
 FROM g;
 

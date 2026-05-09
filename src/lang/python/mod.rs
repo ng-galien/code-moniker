@@ -59,11 +59,31 @@ pub fn extract(
 	graph
 }
 
+pub struct Lang;
+
+impl crate::lang::LangExtractor for Lang {
+	type Presets = Presets;
+	const LANG_TAG: &'static str = "python";
+	const ALLOWED_KINDS: &'static [&'static str] =
+		&["class", "function", "method", "async_function"];
+	const ALLOWED_VISIBILITIES: &'static [&'static str] = &["public", "private", "module"];
+
+	fn extract(
+		uri: &str,
+		source: &str,
+		anchor: &Moniker,
+		deep: bool,
+		presets: &Self::Presets,
+	) -> CodeGraph {
+		extract(uri, source, anchor, deep, presets)
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::core::code_graph::assert_local_refs_closed;
 	use crate::core::moniker::MonikerBuilder;
+	use crate::lang::assert_conformance;
 
 	fn make_anchor() -> Moniker {
 		MonikerBuilder::new().project(b"app").build()
@@ -71,7 +91,7 @@ mod tests {
 
 	fn extract_default(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
 		let g = extract(uri, source, anchor, deep, &Presets::default());
-		assert_local_refs_closed(&g);
+		assert_conformance::<super::Lang>(&g, anchor);
 		g
 	}
 
