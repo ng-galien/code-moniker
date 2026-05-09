@@ -19,17 +19,21 @@ pub const EXTERNAL_PKG: &[u8] = b"external_pkg";
 pub const PACKAGE: &[u8] = b"package";
 
 pub const CLASS: &[u8] = b"class";
+pub const STRUCT: &[u8] = b"struct";
 pub const INTERFACE: &[u8] = b"interface";
 pub const ENUM: &[u8] = b"enum";
 pub const TYPE_ALIAS: &[u8] = b"type_alias";
 pub const RECORD: &[u8] = b"record";
 pub const ANNOTATION_TYPE: &[u8] = b"annotation_type";
+pub const TABLE: &[u8] = b"table";
+pub const VIEW: &[u8] = b"view";
 
 pub const FUNCTION: &[u8] = b"function";
 pub const METHOD: &[u8] = b"method";
 pub const CONSTRUCTOR: &[u8] = b"constructor";
 
 pub const FIELD: &[u8] = b"field";
+pub const PROPERTY: &[u8] = b"property";
 pub const CONST: &[u8] = b"const";
 pub const ENUM_CONSTANT: &[u8] = b"enum_constant";
 

@@ -70,7 +70,7 @@ impl<'src> Walker<'src> {
 			return;
 		};
 		let kind = match type_node.kind() {
-			"struct_type" => kinds::CLASS,
+			"struct_type" => kinds::STRUCT,
 			"interface_type" => kinds::INTERFACE,
 			_ => kinds::TYPE_ALIAS,
 		};
@@ -122,7 +122,11 @@ impl<'src> Walker<'src> {
 		let Some(receiver_name) = receiver_type_name(receiver, self.source_bytes) else {
 			return;
 		};
-		let owner = extend_segment(&self.module, kinds::CLASS, receiver_name);
+		let owner = self
+			.type_table
+			.get(receiver_name)
+			.cloned()
+			.unwrap_or_else(|| extend_segment(&self.module, kinds::STRUCT, receiver_name));
 		let types = function_param_types(node, self.source_bytes);
 		let signature = crate::lang::callable::join_bytes_with_comma(&types);
 		let m = extend_callable_typed(&owner, kinds::METHOD, name.as_bytes(), &types);
@@ -339,7 +343,7 @@ pub(super) fn collect_type_table<'src>(
 			let (kind, name_node) = match tspec.kind() {
 				"type_spec" => {
 					let kind = match tspec.child_by_field_name("type").map(|n| n.kind()) {
-						Some("struct_type") => kinds::CLASS,
+						Some("struct_type") => kinds::STRUCT,
 						Some("interface_type") => kinds::INTERFACE,
 						_ => kinds::TYPE_ALIAS,
 					};

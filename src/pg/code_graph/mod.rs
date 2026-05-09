@@ -65,7 +65,7 @@ impl code_graph {
 		}
 	}
 
-	fn to_core(&self) -> CoreGraph {
+	pub(super) fn to_core(&self) -> CoreGraph {
 		encoding::decode(self.as_bytes()).unwrap_or_else(|e| error!("code_graph decode: {e}"))
 	}
 }
@@ -348,6 +348,7 @@ fn graph_defs(
 		name!(visibility, Option<String>),
 		name!(signature, Option<String>),
 		name!(binding, Option<String>),
+		name!(origin, Option<String>),
 		name!(start_byte, Option<i32>),
 		name!(end_byte, Option<i32>),
 	),
@@ -356,6 +357,7 @@ fn graph_defs(
 	let rows: Vec<(
 		moniker,
 		String,
+		Option<String>,
 		Option<String>,
 		Option<String>,
 		Option<String>,
@@ -371,6 +373,7 @@ fn graph_defs(
 				bytes_to_opt_string(&d.visibility),
 				bytes_to_opt_string(&d.signature),
 				bytes_to_opt_string(&d.binding),
+				bytes_to_opt_string(&d.origin),
 				start,
 				end,
 			)

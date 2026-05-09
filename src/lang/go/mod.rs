@@ -186,10 +186,10 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_struct_emits_class_def() {
+	fn extract_struct_emits_struct_def() {
 		let src = "package foo\ntype Foo struct { X int }\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let foo = g.defs().find(|d| d.kind == b"class").expect("class def");
+		let foo = g.defs().find(|d| d.kind == b"struct").expect("struct def");
 		assert_eq!(
 			foo.moniker.as_view().segments().last().unwrap().name,
 			b"Foo"
@@ -243,10 +243,8 @@ mod tests {
 	fn extract_grouped_type_decl_emits_each_def() {
 		let src = "package foo\ntype (\n\tFoo struct{}\n\tBar interface{}\n)\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
-		assert!(
-			g.defs().any(|d| d.kind == b"class"
-				&& d.moniker.as_view().segments().last().unwrap().name == b"Foo")
-		);
+		assert!(g.defs().any(|d| d.kind == b"struct"
+			&& d.moniker.as_view().segments().last().unwrap().name == b"Foo"));
 		assert!(g.defs().any(|d| d.kind == b"interface"
 			&& d.moniker.as_view().segments().last().unwrap().name == b"Bar"));
 	}
@@ -255,7 +253,7 @@ mod tests {
 	fn extract_unexported_struct_visibility_is_module() {
 		let src = "package foo\ntype internal struct{}\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let t = g.defs().find(|d| d.kind == b"class").expect("class def");
+		let t = g.defs().find(|d| d.kind == b"struct").expect("struct def");
 		assert_eq!(t.visibility, b"module".to_vec());
 	}
 
@@ -267,7 +265,7 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.segment(b"method", b"Bar(int)")
 			.build();
 		assert!(
@@ -285,7 +283,7 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.segment(b"method", b"Bar()")
 			.build();
 		assert!(g.contains(&bar));
@@ -299,7 +297,7 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.segment(b"method", b"Bar()")
 			.build();
 		assert!(
@@ -687,7 +685,7 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.build();
 		assert_eq!(g.defs().nth(r.source).unwrap().moniker, foo);
 	}
@@ -705,7 +703,7 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"class", b"Derived")
+			.segment(b"struct", b"Derived")
 			.build();
 		assert_eq!(g.defs().nth(r.source).unwrap().moniker, derived);
 	}
@@ -796,7 +794,7 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"class", b"Foo")
+			.segment(b"struct", b"Foo")
 			.segment(b"method", b"Bar(int)")
 			.segment(b"param", b"r")
 			.build();

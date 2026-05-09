@@ -112,13 +112,11 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_struct_emits_class_def() {
+	fn extract_struct_emits_struct_def() {
 		let src = "namespace Foo;\npublic struct Bar {}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
-		assert!(
-			g.defs().any(|d| d.kind == b"class"
-				&& d.moniker.as_view().segments().last().unwrap().name == b"Bar")
-		);
+		assert!(g.defs().any(|d| d.kind == b"struct"
+			&& d.moniker.as_view().segments().last().unwrap().name == b"Bar"));
 	}
 
 	#[test]
@@ -197,7 +195,7 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_constructor_emits_function_def() {
+	fn extract_constructor_emits_constructor_def() {
 		let src = "namespace Foo;\npublic class Bar {\n    public Bar(int x) {}\n}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
 		let ctor = MonikerBuilder::new()
@@ -205,7 +203,7 @@ mod tests {
 			.segment(b"lang", b"cs")
 			.segment(b"module", b"F")
 			.segment(b"class", b"Bar")
-			.segment(b"function", b"Bar(int)")
+			.segment(b"constructor", b"Bar(int)")
 			.build();
 		assert!(
 			g.contains(&ctor),
@@ -238,23 +236,23 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_record_emits_class_plus_primary_constructor() {
+	fn extract_record_emits_record_plus_primary_constructor() {
 		let src = "namespace Foo;\npublic record Person(int Age, string Name);\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let class = MonikerBuilder::new()
+		let record = MonikerBuilder::new()
 			.project(b"app")
 			.segment(b"lang", b"cs")
 			.segment(b"module", b"F")
-			.segment(b"class", b"Person")
+			.segment(b"record", b"Person")
 			.build();
 		let ctor = MonikerBuilder::new()
 			.project(b"app")
 			.segment(b"lang", b"cs")
 			.segment(b"module", b"F")
-			.segment(b"class", b"Person")
-			.segment(b"function", b"Person(int,string)")
+			.segment(b"record", b"Person")
+			.segment(b"constructor", b"Person(int,string)")
 			.build();
-		assert!(g.contains(&class));
+		assert!(g.contains(&record));
 		assert!(
 			g.contains(&ctor),
 			"record primary constructor expected at {ctor:?}; defs: {:?}",
@@ -317,26 +315,25 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_property_emits_field_def() {
+	fn extract_property_emits_property_def() {
 		let src = "namespace Foo;\npublic class Bar {\n    public string Name { get; set; }\n}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
 		let p = g
 			.defs()
 			.find(|d| {
-				d.kind == b"field" && d.moniker.as_view().segments().last().unwrap().name == b"Name"
+				d.kind == b"property"
+					&& d.moniker.as_view().segments().last().unwrap().name == b"Name"
 			})
 			.expect("property def");
 		assert_eq!(p.visibility, b"public".to_vec());
 	}
 
 	#[test]
-	fn extract_expression_bodied_property_emits_field_def() {
+	fn extract_expression_bodied_property_emits_property_def() {
 		let src = "namespace Foo;\npublic class Bar {\n    public int N => 42;\n}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
-		assert!(
-			g.defs().any(|d| d.kind == b"field"
-				&& d.moniker.as_view().segments().last().unwrap().name == b"N")
-		);
+		assert!(g.defs().any(|d| d.kind == b"property"
+			&& d.moniker.as_view().segments().last().unwrap().name == b"N"));
 	}
 
 	#[test]

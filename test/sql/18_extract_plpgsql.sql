@@ -78,11 +78,11 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:sql/module:schema/schema:esac/class:module_t'::moniker,
-		'CREATE TABLE emits a class def under its schema') AS r6,
-	is((SELECT kind::text FROM graph_defs(g) WHERE kind = 'class' LIMIT 1),
-		'class',
-		'table def kind is class') AS r7
+	ok(g @> 'pcm+moniker://app/lang:sql/module:schema/schema:esac/table:module_t'::moniker,
+		'CREATE TABLE emits a table def under its schema') AS r6,
+	is((SELECT kind::text FROM graph_defs(g) WHERE kind = 'table' LIMIT 1),
+		'table',
+		'table def kind is table') AS r7
 FROM g;
 
 
@@ -94,8 +94,8 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:sql/module:schema/interface:v'::moniker,
-		'CREATE VIEW emits an interface def') AS r8,
+	ok(g @> 'pcm+moniker://app/lang:sql/module:schema/view:v'::moniker,
+		'CREATE VIEW emits a view def') AS r8,
 	ok(EXISTS (SELECT 1 FROM graph_refs(g)
 	           WHERE kind = 'calls'
 	             AND target = 'pcm+moniker://app/lang:sql/module:schema/schema:esac/function:foo()'::moniker

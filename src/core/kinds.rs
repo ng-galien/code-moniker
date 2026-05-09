@@ -20,6 +20,7 @@ pub const REF_IMPORTS_SYMBOL: &[u8] = b"imports_symbol";
 pub const REF_IMPORTS_MODULE: &[u8] = b"imports_module";
 pub const REF_REEXPORTS: &[u8] = b"reexports";
 pub const REF_DI_REGISTER: &[u8] = b"di_register";
+pub const REF_DI_REQUIRE: &[u8] = b"di_require";
 pub const REF_CALLS: &[u8] = b"calls";
 pub const REF_METHOD_CALL: &[u8] = b"method_call";
 pub const REF_READS: &[u8] = b"reads";
@@ -28,3 +29,7 @@ pub const REF_INSTANTIATES: &[u8] = b"instantiates";
 pub const REF_EXTENDS: &[u8] = b"extends";
 pub const REF_IMPLEMENTS: &[u8] = b"implements";
 pub const REF_ANNOTATES: &[u8] = b"annotates";
+
+pub const ORIGIN_EXTRACTED: &[u8] = b"extracted";
+pub const ORIGIN_DECLARED: &[u8] = b"declared";
+pub const ORIGIN_INFERRED: &[u8] = b"inferred";

@@ -106,7 +106,7 @@ A native type carrying the internal structure of a single module.
 A `code_graph` contains :
 
 - **Tree** : the intra-module containment hierarchy. Root is the module's own moniker. Children are types, members, nested functions, etc. — whatever the language exposes.
-- **Defs** : for each node in the tree, its record carrying `(moniker, kind, parent, position, visibility, signature, binding)`. `position` is `int4range` over byte offsets in source ; `NULL` when the module has no source text (synthetic / external).
+- **Defs** : for each node in the tree, its record carrying `(moniker, kind, parent, position, visibility, signature, binding, origin)`. `position` is `int4range` over byte offsets in source ; `NULL` when the module has no source text (synthetic / external). `origin` distinguishes how the def was produced (see § Origin semantics).
 - **Refs** : outgoing references. Each ref carries `(source_moniker, target_moniker, kind, position, receiver_hint, alias, confidence, binding)`. `source_moniker` is one of the module's own defs ; `target_moniker` may be any moniker in the canonical tree, in any module. `kind` distinguishes the relation (call, import, extends, uses_type, …). `position` is the location of the ref in source ; `NULL` when no source.
 
 A `code_graph` is **immutable** as a value. Mutations are performed by constructors that return a new value.
@@ -130,7 +130,7 @@ Binding is the row-level qualifier for cross-file linkage. It is **not** in the 
 |-----------|-----------------------------------------------------------------------------------------------------|
 | `import`  | Ref points to another module via static import. `kind` ∈ {`imports_symbol`, `imports_module`, `reexports`}. The primary input to `bind_match`. |
 | `local`   | Ref points inside the current module. Resolves via byte-strict `=` against the same module's defs.  |
-| `inject`  | Ref demands a binding via DI container. `kind` = `di_register`, plus constructor params whose annotated type is a known DI service. |
+| `inject`  | Ref demands a binding via DI container. `kind` ∈ {`di_register`, `di_require`}, plus constructor params whose annotated type is a known DI service. |
 | `none`    | Ref's nature does not categorize as linkage (unresolved calls, reads of unknown identifiers).       |
 
 For `bind_match` purposes there is **no semantic distinction** between `import` and `inject`. The matching table is binary:
@@ -140,6 +140,22 @@ ref.binding ∈ {import, inject}  ×  def.binding ∈ {export, inject}
 ```
 
 `inject` is a qualification for downstream traceability (which links go through a DI container vs static import), not a matching axis. Consumers that want to filter DI separately project on `binding`.
+
+#### Origin semantics
+
+Origin is the row-level qualifier for **how a def came into existence**. It is a column on `DefRecord`, opaque to `bind_match`.
+
+`DefRecord.origin` ∈ {`extracted`, `declared`, `inferred`} :
+
+| Value       | When                                                                                                                                              |
+|-------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `extracted` | Produced by an `extract_<lang>` call from real source. Default for all extractor output. Positions are real.                                       |
+| `declared`  | Produced by `code_graph_declare` from a declarative spec (see § Declarative graphs). The symbol exists at the moniker level only — no implementation. Positions are NULL. |
+| `inferred`  | Produced by analytical projections (e.g. types implied by usage with no source-level def). Reserved for future use.                                |
+
+Origin does **not** participate in `bind_match`. A `declared` def and an `extracted` def with the same moniker resolve identically. When both exist for one moniker (typical when a spec is later implemented), the consumer applies its own precedence — usually `extracted > declared`.
+
+`RefRecord` has no `origin` column. A ref's provenance follows its containing graph's defs.
 
 #### Operators and functions
 
@@ -160,8 +176,10 @@ Constructors for synthetic graphs :
 | Function | Signature | Semantics |
 |---|---|---|
 | `graph_create` | `(root moniker, kind text) → code_graph` | New graph rooted at this moniker. |
-| `graph_add_def` | `(graph code_graph, m moniker, kind text, parent moniker, position int4range, visibility text, signature text, binding text) → code_graph` | Add a def. parent must already be in the graph. |
+| `graph_add_def` | `(graph code_graph, m moniker, kind text, parent moniker, position int4range, visibility text, signature text, binding text, origin text) → code_graph` | Add a def. parent must already be in the graph. `origin` defaults to `extracted` when empty. |
 | `graph_add_ref` | `(graph code_graph, source moniker, target moniker, kind text, position int4range, receiver_hint text, alias text, confidence text, binding text) → code_graph` | Add a ref. source must be a def in the graph. |
+| `code_graph_declare` | `(spec jsonb) → code_graph` | Build a graph from a declarative specification (see § Declarative graphs). All defs marked `origin=declared`. |
+| `code_graph_to_spec` | `(graph code_graph) → jsonb` | Reverse projection: emit the JSONB spec of a graph (lossy on non-canonical ref kinds). The `lang` field is inferred from the root's `lang:` segment. |
 
 Constructors return a new `code_graph` ; they do not mutate.
 
@@ -191,6 +209,162 @@ Supported languages: TypeScript, Rust, Java, Python, SQL/PL-pgSQL.
 
 The extension is **stateless** : `extract_<lang>` reads only its arguments. It does not look up other modules, does not resolve refs across files. Cross-module resolution is the consumer's responsibility, performed by JOINing on `bind_match` (cross-file) or `=` (intra-file or total identity).
 
+### Declarative graphs
+
+A `code_graph` may be authored without source. The declarative constructor `code_graph_declare(spec jsonb) → code_graph` accepts a JSONB specification of symbols and edges and emits a `code_graph` indistinguishable in shape from extractor output. Every produced def carries `origin=declared`.
+
+Use cases :
+- **Forward modeling** — declare a symbol before implementing it ; consumers see it appear in cross-file linkage immediately.
+- **External libraries with no source** — declare the public surface so calls into them resolve via `bind_match`.
+- **Architecture validation** — declare the intended graph and diff against actual extraction.
+
+#### Canonical edge alphabet
+
+Declarative edges use a canonical vocabulary aligned with the three relations carried at the moniker level :
+
+| Edge kind          | Maps to `REF_*` kind | Default binding                                              | Semantics                                  |
+|--------------------|----------------------|--------------------------------------------------------------|--------------------------------------------|
+| `depends_on`       | `imports_module`     | `import`                                                     | Source needs target at load time.          |
+| `calls`            | `calls`              | `local` if `from` and `to` share the `module:` segment, else `none` | Source invokes target at runtime.   |
+| `injects:provide`  | `di_register`        | `inject`                                                     | Source registers target in a DI container. |
+| `injects:require`  | `di_require`         | `inject`                                                     | Source consumes target via DI container.   |
+
+The richer extraction-time vocabulary (`uses_type`, `extends`, `implements`, `reads`, `annotates`, `imports_symbol`, `reexports`, `instantiates`, `method_call`) is **not** accepted by the declarative constructor. Specs operate at the abstraction level of the canonical model.
+
+#### Spec format
+
+A spec is a JSONB document validated against `docs/declare_schema.json` (JSON Schema 2020-12). Top-level shape:
+
+```json
+{
+  "root":    "<MonikerURI of the root module>",
+  "lang":    "ts | rs | java | python | go | cs | sql",
+  "symbols": [
+    { "moniker":    "<MonikerURI>",
+      "kind":       "<lang-specific kind, see profile table>",
+      "parent":     "<MonikerURI of an existing symbol or the root>",
+      "visibility": "<lang-specific visibility, see profile table>",
+      "signature":  "<type-only normalized signature, optional>" }
+  ],
+  "edges":   [
+    { "from": "<MonikerURI of a declared symbol>",
+      "kind": "depends_on | calls | injects:provide | injects:require",
+      "to":   "<MonikerURI, may reference symbols outside this spec>" }
+  ]
+}
+```
+
+The shape is uniform across languages. Per-language profiles in the schema restrict only `kind` and `visibility` enumerations :
+
+| lang     | accepted `kind` values                                                                              | accepted `visibility` values            |
+|----------|-----------------------------------------------------------------------------------------------------|-----------------------------------------|
+| `ts`     | class, interface, type, function, method, const, namespace, module, enum                            | public, private, module                 |
+| `rs`     | struct, enum, trait, impl, fn, method, const, static, mod, type                                     | public, private, module                 |
+| `java`   | class, interface, enum, record, annotation_type, method, constructor, field                         | public, protected, package, private     |
+| `python` | class, function, method, async_function                                                             | public, private, module                 |
+| `go`     | type, struct, interface, func, method, var, const                                                   | public, module                          |
+| `cs`     | class, interface, struct, record, enum, delegate, method, constructor, field, property, event       | public, protected, internal, private    |
+| `sql`    | function, procedure, view, table, schema                                                            | (visibility ignored)                    |
+
+The visibility vocabulary is **cross-language** : `module` covers package-private (Go), module-internal (Rust), nested-but-not-re-exported (TS, Python). It maps to `VIS_MODULE` in the extractor output, so the round-trip `extract → code_graph_to_spec → code_graph_declare` stays valid for every supported language.
+
+#### Validation
+
+At ingest, `code_graph_declare` :
+
+1. Validates `spec` against `docs/declare_schema.json` (structural shape + per-lang enum restrictions).
+2. Parses each `MonikerURI` as a typed moniker.
+3. Checks that `symbols[i].kind` matches the last segment kind of `symbols[i].moniker` (semantic agreement between metadata and moniker bytes).
+4. Checks that `symbols[i].parent` is `root` or another declared symbol.
+5. Rejects duplicate monikers in `symbols`.
+6. Checks that `edges[i].from` references a declared symbol.
+7. Builds the graph and returns it.
+
+`edges[i].to` is **not** required to exist in the spec. The whole point of declarative graphs is to reference symbols that may not exist yet ; `bind_match` resolves at query time against whatever defs are in the corpus.
+
+#### Reverse projection
+
+`code_graph_to_spec(graph) → jsonb` is the inverse of `code_graph_declare`. It walks a `code_graph` and emits a JSONB document in the same shape as the input spec :
+
+- The `lang` field is inferred from the root's `lang:` segment ; if absent, the function errors.
+- Every non-root def becomes a `symbols[i]` entry. `visibility` and `signature` are emitted only when non-empty. Positions and `origin` are dropped (they are not part of the spec format).
+- Refs are filtered to the canonical edge alphabet : `imports_module → depends_on`, `calls → calls`, `di_register → injects:provide`, `di_require → injects:require`. **All other ref kinds are silently dropped** (`uses_type`, `extends`, `implements`, `reads`, `annotates`, `imports_symbol`, `reexports`, `instantiates`, `method_call`).
+
+**Round-trip guarantee** : for any graph `g` produced by `code_graph_declare(s)`, the round-trip `code_graph_declare(code_graph_to_spec(g))` produces a graph equivalent to `g`. The function is lossy on extracted graphs whose refs use non-canonical kinds — by design ; specs operate at a higher abstraction level than extractor output.
+
+#### Examples
+
+Java — declare a service class with a call to an external dep :
+
+```json
+{
+  "root": "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService",
+  "lang": "java",
+  "symbols": [
+    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService",
+      "kind":       "class",
+      "parent":     "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService",
+      "visibility": "public" },
+    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService#method:findByEmail(String)Optional",
+      "kind":       "method",
+      "parent":     "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService",
+      "visibility": "public",
+      "signature":  "findByEmail(String): Optional" }
+  ],
+  "edges": [
+    { "from": "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService#method:findByEmail(String)Optional",
+      "kind": "calls",
+      "to":   "pcm+moniker://my-app/external_pkg:maven/jakarta.persistence/jakarta.persistence-api/EntityManager#method:find(Class,Object)Object" }
+  ]
+}
+```
+
+TypeScript — same shape, restricted enums :
+
+```json
+{
+  "root": "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
+  "lang": "ts",
+  "symbols": [
+    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
+      "kind":       "class",
+      "parent":     "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
+      "visibility": "public" },
+    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService#method:findByEmail(string)Promise",
+      "kind":       "method",
+      "parent":     "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
+      "visibility": "public",
+      "signature":  "findByEmail(string): Promise" }
+  ],
+  "edges": [
+    { "from": "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
+      "kind": "depends_on",
+      "to":   "pcm+moniker://my-app/external_pkg:npm/typeorm/Repository" }
+  ]
+}
+```
+
+Rust — `pub fn` requiring a trait via DI wiring :
+
+```json
+{
+  "root": "pcm+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service",
+  "lang": "rs",
+  "symbols": [
+    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service#fn:create_user(String,String)Result",
+      "kind":       "fn",
+      "parent":     "pcm+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service",
+      "visibility": "public",
+      "signature":  "create_user(String, String): Result" }
+  ],
+  "edges": [
+    { "from": "pcm+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service#fn:create_user(String,String)Result",
+      "kind": "injects:require",
+      "to":   "pcm+moniker://my-app/srcset:main/lang:rs/mod:infra/module:db#trait:UserRepo" }
+  ]
+}
+```
+
 ## Storage and linkage — canonical usage
 
 The extension defines no tables. It provides the types (`moniker`, `code_graph`) and the operators ; the consumer chooses how to persist and index. The pattern below is the **canonical usage** the extension is designed to serve. ESAC implements a richer variant of it.
@@ -203,7 +377,7 @@ A `code_graph` already carries every moniker the module produces : its own root 
 
 ### One row per module
 
-A module's structure is its `code_graph`. Source text is optional (NULL for `symbolic` / `external` origins). The minimal table :
+A module's structure is its `code_graph`. Source text is optional (NULL for `declared` / `external` origins). The minimal table :
 
 ```sql
 CREATE TABLE module (
@@ -211,7 +385,7 @@ CREATE TABLE module (
     graph       code_graph NOT NULL,
     source_text text,
     source_uri  text,
-    origin      text NOT NULL  -- 'extracted' | 'symbolic' | 'external'
+    origin      text NOT NULL  -- 'extracted' | 'declared' | 'external'
 );
 ```
 
@@ -300,11 +474,13 @@ This table is **reconstructible from the `code_graph` rows at any time** ; it is
 
 The same `module` table holds all three origins uniformly. Discriminate by `origin` when needed :
 
-- `extracted` — `source_text` and `source_uri` non-NULL ; positions in `graph` are real.
-- `symbolic` — both NULL ; positions in `graph` are NULL.
+- `extracted` — `source_text` and `source_uri` non-NULL ; positions in `graph` are real ; `graph_defs(graph)` rows have `origin=extracted`.
+- `declared` — both NULL ; positions in `graph` are NULL ; produced by `code_graph_declare` ; `graph_defs(graph)` rows have `origin=declared`.
 - `external` — both NULL ; `graph` may be minimal.
 
-Promotion (e.g. `symbolic` → `extracted` when a source file appears) is an UPDATE on the row that swaps `graph` and fills `source_*`. The module's `id` is preserved.
+Module-level `origin` and def-level `origin` (on `DefRecord`) share the same vocabulary by design.
+
+Promotion (e.g. `declared` → `extracted` when a source file appears) is an UPDATE on the row that swaps `graph` and fills `source_*`. The module's `id` is preserved.
 
 ## API surface (public)
 
@@ -320,7 +496,8 @@ The SQL surface is generated by pgrx from `#[pg_extern]` and `#[derive(PostgresT
   - `code_graph @> moniker → bool`
 - **Accessors** on `moniker` : `kind_of`, `project_of`, `lang_of`, `path_of`, `parent_of`, `depth`.
 - **Accessors / iterators** on `code_graph` : `graph_root`, `graph_defs`, `graph_refs`, `graph_locate`, `graph_def_monikers`, `graph_ref_targets`, `graph_export_monikers`, `graph_import_targets`.
-- **Constructors** : `graph_create(moniker, kind) → code_graph`, `graph_add_def(...)`, `graph_add_ref(...)`. Immutable: each returns a new `code_graph`.
+- **Constructors** : `graph_create(moniker, kind) → code_graph`, `graph_add_def(...)`, `graph_add_ref(...)`, `code_graph_declare(jsonb) → code_graph`. Immutable: each returns a new `code_graph`.
+- **Projection** : `code_graph_to_spec(code_graph) → jsonb`. Inverse of `code_graph_declare`, lossy on non-canonical ref kinds.
 - **Per-language extractors** : `extract_typescript(...)`, `extract_rust(...)`, `extract_java(...)`, `extract_python(...)`, `extract_plpgsql(...)`. One per supported language.
 - **Index** : custom GiST opclass for `moniker` (`=`, `bind_match`, `<@`, `@>`, `~`).
 

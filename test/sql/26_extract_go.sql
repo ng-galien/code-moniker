@@ -48,7 +48,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:go/module:m/class:Foo/method:Bar(int)'::moniker,
+	ok(g @> 'pcm+moniker://app/lang:go/module:m/struct:Foo/method:Bar(int)'::moniker,
 		'method moniker reparented under receiver type, pointer star stripped') AS r3
 FROM g;
 

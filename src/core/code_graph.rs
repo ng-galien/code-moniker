@@ -17,6 +17,7 @@ pub struct DefRecord {
 	pub visibility: Vec<u8>,
 	pub signature: Vec<u8>,
 	pub binding: Vec<u8>,
+	pub origin: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -37,6 +38,7 @@ pub struct DefAttrs<'a> {
 	pub visibility: &'a [u8],
 	pub signature: &'a [u8],
 	pub binding: &'a [u8],
+	pub origin: &'a [u8],
 }
 
 #[derive(Clone, Debug, Default)]
@@ -110,7 +112,7 @@ impl CodeGraph {
 	}
 
 	pub fn new(root: Moniker, root_kind: &[u8]) -> Self {
-		use crate::core::kinds::BIND_EXPORT;
+		use crate::core::kinds::{BIND_EXPORT, ORIGIN_EXTRACTED};
 		let mut index = HashMap::with_capacity(8);
 		index.insert(root.clone(), 0);
 		Self {
@@ -122,6 +124,7 @@ impl CodeGraph {
 				visibility: Vec::new(),
 				signature: Vec::new(),
 				binding: BIND_EXPORT.to_vec(),
+				origin: ORIGIN_EXTRACTED.to_vec(),
 			}],
 			refs: Vec::new(),
 			index: RefCell::new(index),
@@ -148,6 +151,7 @@ impl CodeGraph {
 		position: Option<Position>,
 		attrs: &DefAttrs<'_>,
 	) -> Result<(), GraphError> {
+		use crate::core::kinds::ORIGIN_EXTRACTED;
 		if self.find_def(&moniker).is_some() {
 			return Err(GraphError::DuplicateMoniker);
 		}
@@ -159,6 +163,11 @@ impl CodeGraph {
 		} else {
 			attrs.binding
 		};
+		let origin = if attrs.origin.is_empty() {
+			ORIGIN_EXTRACTED
+		} else {
+			attrs.origin
+		};
 		self.defs.push(DefRecord {
 			moniker,
 			kind: kind.to_vec(),
@@ -167,6 +176,7 @@ impl CodeGraph {
 			visibility: attrs.visibility.to_vec(),
 			signature: attrs.signature.to_vec(),
 			binding: binding.to_vec(),
+			origin: origin.to_vec(),
 		});
 		self.def_monikers_cache.borrow_mut().take();
 		Ok(())
@@ -299,13 +309,13 @@ fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
 fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
 	use crate::core::kinds::{
 		BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE, REF_ANNOTATES, REF_CALLS, REF_DI_REGISTER,
-		REF_EXTENDS, REF_IMPLEMENTS, REF_IMPORTS_MODULE, REF_IMPORTS_SYMBOL, REF_INSTANTIATES,
-		REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE,
+		REF_DI_REQUIRE, REF_EXTENDS, REF_IMPLEMENTS, REF_IMPORTS_MODULE, REF_IMPORTS_SYMBOL,
+		REF_INSTANTIATES, REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE,
 	};
 	if kind == REF_IMPORTS_SYMBOL || kind == REF_IMPORTS_MODULE || kind == REF_REEXPORTS {
 		return BIND_IMPORT;
 	}
-	if kind == REF_DI_REGISTER {
+	if kind == REF_DI_REGISTER || kind == REF_DI_REQUIRE {
 		return BIND_INJECT;
 	}
 	if kind == REF_CALLS
@@ -655,6 +665,11 @@ mod tests {
 	}
 
 	#[test]
+	fn ref_binding_di_require_is_inject() {
+		assert_eq!(default_ref_binding(b"di_require"), b"inject");
+	}
+
+	#[test]
 	fn ref_binding_intra_module_kinds_are_local() {
 		for k in &[
 			b"calls".as_slice(),
@@ -708,5 +723,47 @@ mod tests {
 			.unwrap();
 		let def = g.defs().find(|d| d.moniker == class_m).unwrap();
 		assert_eq!(def.binding, b"inject".to_vec());
+	}
+
+	#[test]
+	fn root_def_origin_defaults_to_extracted() {
+		use crate::core::kinds::ORIGIN_EXTRACTED;
+		let root = mk(b"util");
+		let g = CodeGraph::new(root.clone(), b"module");
+		let root_def = g.defs().next().unwrap();
+		assert_eq!(root_def.origin, ORIGIN_EXTRACTED.to_vec());
+	}
+
+	#[test]
+	fn add_def_attrs_defaults_origin_to_extracted_when_unset() {
+		use crate::core::kinds::ORIGIN_EXTRACTED;
+		let root = mk(b"util");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let class_m = MonikerBuilder::from_view(root.as_view())
+			.segment(b"class", b"Foo")
+			.build();
+		g.add_def_attrs(class_m.clone(), b"class", &root, None, &DefAttrs::default())
+			.unwrap();
+		let def = g.defs().find(|d| d.moniker == class_m).unwrap();
+		assert_eq!(def.origin, ORIGIN_EXTRACTED.to_vec());
+	}
+
+	#[test]
+	fn add_def_attrs_respects_explicit_origin_declared() {
+		use crate::core::kinds::ORIGIN_DECLARED;
+		let root = mk(b"util");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let class_m = MonikerBuilder::from_view(root.as_view())
+			.segment(b"class", b"Foo")
+			.build();
+		let attrs = DefAttrs {
+			visibility: b"public",
+			origin: ORIGIN_DECLARED,
+			..DefAttrs::default()
+		};
+		g.add_def_attrs(class_m.clone(), b"class", &root, None, &attrs)
+			.unwrap();
+		let def = g.defs().find(|d| d.moniker == class_m).unwrap();
+		assert_eq!(def.origin, ORIGIN_DECLARED.to_vec());
 	}
 }

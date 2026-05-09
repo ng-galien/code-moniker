@@ -42,12 +42,11 @@ impl<'src> Walker<'src> {
 				self.walk(node, scope, graph);
 			}
 			"class_declaration" => self.handle_type(node, scope, graph, kinds::CLASS),
-			"struct_declaration" => self.handle_type(node, scope, graph, kinds::CLASS),
+			"struct_declaration" => self.handle_type(node, scope, graph, kinds::STRUCT),
 			"interface_declaration" => self.handle_type(node, scope, graph, kinds::INTERFACE),
 			"enum_declaration" => self.handle_type(node, scope, graph, kinds::ENUM),
-			"record_declaration" | "record_struct_declaration" => {
-				self.handle_record(node, scope, graph);
-			}
+			"record_declaration" => self.handle_record(node, scope, graph, kinds::RECORD),
+			"record_struct_declaration" => self.handle_record(node, scope, graph, kinds::STRUCT),
 			"method_declaration" => self.handle_method(node, scope, graph),
 			"constructor_declaration" => self.handle_constructor(node, scope, graph),
 			"field_declaration" => self.handle_field(node, scope, graph),
@@ -85,11 +84,11 @@ impl<'src> Walker<'src> {
 		}
 	}
 
-	fn handle_record(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_record(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph, kind: &[u8]) {
 		let Some(name) = self.field_text(node, "name") else {
 			return;
 		};
-		let m = extend_segment(scope, kinds::CLASS, name.as_bytes());
+		let m = extend_segment(scope, kind, name.as_bytes());
 		let default_vis = if scope == &self.module {
 			kinds::VIS_PACKAGE
 		} else {
@@ -99,17 +98,11 @@ impl<'src> Walker<'src> {
 			visibility: modifier_visibility(node, default_vis),
 			..DefAttrs::default()
 		};
-		let _ = graph.add_def_attrs(
-			m.clone(),
-			kinds::CLASS,
-			scope,
-			Some(node_position(node)),
-			&attrs,
-		);
+		let _ = graph.add_def_attrs(m.clone(), kind, scope, Some(node_position(node)), &attrs);
 		if let Some(plist) = find_named_child(node, "parameter_list") {
 			let types = parameter_list_types(plist, self.source_bytes);
 			let signature = crate::lang::callable::join_bytes_with_comma(&types);
-			let ctor = extend_callable_typed(&m, kinds::FUNCTION, name.as_bytes(), &types);
+			let ctor = extend_callable_typed(&m, kinds::CONSTRUCTOR, name.as_bytes(), &types);
 			let ctor_attrs = DefAttrs {
 				visibility: kinds::VIS_PUBLIC,
 				signature: &signature,
@@ -117,7 +110,7 @@ impl<'src> Walker<'src> {
 			};
 			let _ = graph.add_def_attrs(
 				ctor,
-				kinds::FUNCTION,
+				kinds::CONSTRUCTOR,
 				&m,
 				Some(node_position(node)),
 				&ctor_attrs,
@@ -139,7 +132,7 @@ impl<'src> Walker<'src> {
 		let Some(name) = self.field_text(node, "name") else {
 			return;
 		};
-		self.emit_callable(node, name.as_bytes(), kinds::FUNCTION, scope, graph);
+		self.emit_callable(node, name.as_bytes(), kinds::CONSTRUCTOR, scope, graph);
 	}
 
 	fn emit_callable(
@@ -223,14 +216,14 @@ impl<'src> Walker<'src> {
 		if let Some(t) = node.child_by_field_name("type") {
 			self.emit_uses_type(t, scope, graph);
 		}
-		let m = extend_segment(scope, kinds::FIELD, name.as_bytes());
+		let m = extend_segment(scope, kinds::PROPERTY, name.as_bytes());
 		let attrs = DefAttrs {
 			visibility,
 			..DefAttrs::default()
 		};
 		let _ = graph.add_def_attrs(
 			m.clone(),
-			kinds::FIELD,
+			kinds::PROPERTY,
 			scope,
 			Some(node_position(node)),
 			&attrs,
@@ -349,10 +342,10 @@ pub(super) fn collect_type_table<'src>(
 	let mut cursor = root.walk();
 	for child in root.children(&mut cursor) {
 		let kind: Option<&[u8]> = match child.kind() {
-			"class_declaration"
-			| "struct_declaration"
-			| "record_declaration"
-			| "record_struct_declaration" => Some(kinds::CLASS),
+			"class_declaration" => Some(kinds::CLASS),
+			"struct_declaration" => Some(kinds::STRUCT),
+			"record_declaration" => Some(kinds::RECORD),
+			"record_struct_declaration" => Some(kinds::STRUCT),
 			"interface_declaration" => Some(kinds::INTERFACE),
 			"enum_declaration" => Some(kinds::ENUM),
 			_ => None,

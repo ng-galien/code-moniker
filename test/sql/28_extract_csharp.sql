@@ -48,10 +48,10 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:cs/module:F/class:Person'::moniker,
-		'record emits class def') AS r3,
-	ok(g @> 'pcm+moniker://app/lang:cs/module:F/class:Person/function:Person(int,string)'::moniker,
-		'record primary constructor synthesised under the class') AS r4
+	ok(g @> 'pcm+moniker://app/lang:cs/module:F/record:Person'::moniker,
+		'record emits record def') AS r3,
+	ok(g @> 'pcm+moniker://app/lang:cs/module:F/record:Person/constructor:Person(int,string)'::moniker,
+		'record primary constructor synthesised under the record') AS r4
 FROM g;
 
 

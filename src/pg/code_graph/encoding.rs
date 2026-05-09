@@ -1,7 +1,7 @@
 //! Binary layout for the `code_graph` SQL type.
 //!
 //! ```text
-//! [u16 version_le=1][u16 reserved=0]
+//! [u16 version_le=2][u16 reserved=0]
 //! [u32 def_count]   [u32 ref_count]
 //! defs section, each def contiguously:
 //!   [u32 moniker_len] [moniker_bytes]
@@ -11,6 +11,7 @@
 //!   [u8  vis_len]     [vis_bytes]
 //!   [u16 sig_len]     [sig_bytes]
 //!   [u8  bind_len]    [bind_bytes]
+//!   [u8  origin_len]  [origin_bytes]
 //! refs section, each ref contiguously:
 //!   [u32 source_idx]
 //!   [u32 target_moniker_len] [target_moniker_bytes]
@@ -29,7 +30,7 @@ use std::fmt;
 use crate::core::code_graph::{CodeGraph, DefRecord, Position, RefRecord};
 use crate::core::moniker::Moniker;
 
-pub(super) const LAYOUT_VERSION: u16 = 1;
+pub(super) const LAYOUT_VERSION: u16 = 2;
 const VERSION_BYTES: usize = 2;
 const RESERVED_BYTES: usize = 2;
 const DEF_COUNT_BYTES: usize = 4;
@@ -84,6 +85,7 @@ pub(super) fn encode(graph: &CodeGraph) -> Result<Vec<u8>, EncodingError> {
 		write_short_bytes(&mut out, &d.visibility, "def visibility")?;
 		write_medium_bytes(&mut out, &d.signature, "def signature")?;
 		write_short_bytes(&mut out, &d.binding, "def binding")?;
+		write_short_bytes(&mut out, &d.origin, "def origin")?;
 	}
 
 	for r in &refs {
@@ -148,6 +150,7 @@ pub(super) fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 		let visibility = cur.read_short_bytes("def visibility")?.to_vec();
 		let signature = cur.read_medium_bytes("def signature")?.to_vec();
 		let binding = cur.read_short_bytes("def binding")?.to_vec();
+		let origin = cur.read_short_bytes("def origin")?.to_vec();
 		def_records.push(DefRecord {
 			moniker,
 			kind,
@@ -156,6 +159,7 @@ pub(super) fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 			visibility,
 			signature,
 			binding,
+			origin,
 		});
 	}
 

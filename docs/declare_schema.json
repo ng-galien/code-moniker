@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pg-code-moniker/declare-spec.schema.json",
+  "title": "code_graph_declare specification",
+  "description": "Declarative specification for code_graph_declare. A spec produces a code_graph indistinguishable in shape from extractor output, with origin=declared on every def. The shape is uniform across languages; per-language profiles restrict only the kind and visibility enumerations.",
+  "type": "object",
+  "required": ["root", "lang", "symbols"],
+  "additionalProperties": false,
+  "properties": {
+    "root": {
+      "$ref": "#/$defs/MonikerURI",
+      "description": "Moniker of the root module of this declarative graph."
+    },
+    "lang": {
+      "type": "string",
+      "enum": ["ts", "rs", "java", "python", "go", "cs", "sql"],
+      "description": "Language tag. Selects the per-language profile that restricts kind and visibility enumerations."
+    },
+    "symbols": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Symbol" },
+      "description": "Symbols declared by this spec. Each becomes a DefRecord with origin=declared."
+    },
+    "edges": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/Edge" },
+      "description": "Edges declared by this spec. Each becomes a RefRecord. Edge alphabet is canonical (depends_on / calls / injects:provide / injects:require)."
+    }
+  },
+
+  "allOf": [
+    { "if": { "properties": { "lang": { "const": "ts"     } }, "required": ["lang"] }, "then": { "$ref": "#/$defs/TsProfile"     } },
+    { "if": { "properties": { "lang": { "const": "rs"     } }, "required": ["lang"] }, "then": { "$ref": "#/$defs/RsProfile"     } },
+    { "if": { "properties": { "lang": { "const": "java"   } }, "required": ["lang"] }, "then": { "$ref": "#/$defs/JavaProfile"   } },
+    { "if": { "properties": { "lang": { "const": "python" } }, "required": ["lang"] }, "then": { "$ref": "#/$defs/PythonProfile" } },
+    { "if": { "properties": { "lang": { "const": "go"     } }, "required": ["lang"] }, "then": { "$ref": "#/$defs/GoProfile"     } },
+    { "if": { "properties": { "lang": { "const": "cs"     } }, "required": ["lang"] }, "then": { "$ref": "#/$defs/CsProfile"     } },
+    { "if": { "properties": { "lang": { "const": "sql"    } }, "required": ["lang"] }, "then": { "$ref": "#/$defs/SqlProfile"    } }
+  ],
+
+  "$defs": {
+    "MonikerURI": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Typed-segment URI of the form <scheme>+moniker://<project>/<kind>:<name>[/<kind>:<name>...][#<kind>:<name>[#<kind>:<name>...]]. See docs/MONIKER_URI.md for the full grammar.",
+      "pattern": "^[a-z][a-z0-9_]*\\+moniker://[^/]+(/.+)?$"
+    },
+
+    "Visibility": {
+      "type": "string",
+      "description": "Superset of all language visibilities. Per-language profiles restrict the accepted subset.",
+      "enum": ["public", "protected", "package", "private", "module", "internal"]
+    },
+
+    "Symbol": {
+      "type": "object",
+      "required": ["moniker", "kind", "parent"],
+      "additionalProperties": false,
+      "properties": {
+        "moniker":    { "$ref": "#/$defs/MonikerURI" },
+        "kind":       {
+          "type": "string",
+          "description": "Structural kind of the symbol. Restricted by the per-language profile. Must agree with the last segment kind of `moniker` (enforced by the constructor, not the schema)."
+        },
+        "parent":     {
+          "$ref": "#/$defs/MonikerURI",
+          "description": "Moniker of the parent symbol. Must be `root` or another symbol declared in this spec."
+        },
+        "visibility": { "$ref": "#/$defs/Visibility" },
+        "signature":  {
+          "type": "string",
+          "description": "Type-only normalized signature, e.g. '(string, number): boolean'. Use '_' to mark a slot with no type annotation. Optional."
+        }
+      }
+    },
+
+    "Edge": {
+      "type": "object",
+      "required": ["from", "kind", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/MonikerURI",
+          "description": "Moniker of the source symbol. Must be a symbol declared in this spec."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["depends_on", "calls", "injects:provide", "injects:require"],
+          "description": "Canonical edge alphabet. Maps to REF_IMPORTS_MODULE / REF_CALLS / REF_DI_REGISTER / REF_DI_REQUIRE at build time."
+        },
+        "to": {
+          "$ref": "#/$defs/MonikerURI",
+          "description": "Moniker of the target symbol. May reference symbols outside this spec (existence is not checked)."
+        }
+      }
+    },
+
+    "TsProfile": {
+      "description": "TypeScript / JavaScript / TSX / JSX. `module` visibility covers symbols exported from a module without being publicly re-exported (e.g. internal helpers).",
+      "properties": {
+        "symbols": {
+          "items": {
+            "properties": {
+              "kind":       { "enum": ["class", "interface", "type", "function", "method", "const", "namespace", "module", "enum"] },
+              "visibility": { "enum": ["public", "private", "module"] }
+            }
+          }
+        }
+      }
+    },
+
+    "RsProfile": {
+      "description": "Rust.",
+      "properties": {
+        "symbols": {
+          "items": {
+            "properties": {
+              "kind":       { "enum": ["struct", "enum", "trait", "impl", "fn", "method", "const", "static", "mod", "type"] },
+              "visibility": { "enum": ["public", "private", "module"] }
+            }
+          }
+        }
+      }
+    },
+
+    "JavaProfile": {
+      "description": "Java. Default top-level visibility is `package`; default member visibility is `private`.",
+      "properties": {
+        "symbols": {
+          "items": {
+            "properties": {
+              "kind":       { "enum": ["class", "interface", "enum", "record", "annotation_type", "method", "constructor", "field"] },
+              "visibility": { "enum": ["public", "protected", "package", "private"] }
+            }
+          }
+        }
+      }
+    },
+
+    "PythonProfile": {
+      "description": "Python. Visibility is conventional (`_`-prefix = private; `module` covers nested-but-exported names).",
+      "properties": {
+        "symbols": {
+          "items": {
+            "properties": {
+              "kind":       { "enum": ["class", "function", "method", "async_function"] },
+              "visibility": { "enum": ["public", "private", "module"] }
+            }
+          }
+        }
+      }
+    },
+
+    "GoProfile": {
+      "description": "Go. Visibility is determined by capitalization (`Foo` = public, `foo` = module-private). Tagged `module` to align with the cross-language vocabulary; functionally equivalent to Go's `package` scope.",
+      "properties": {
+        "symbols": {
+          "items": {
+            "properties": {
+              "kind":       { "enum": ["type", "struct", "interface", "func", "method", "var", "const"] },
+              "visibility": { "enum": ["public", "module"] }
+            }
+          }
+        }
+      }
+    },
+
+    "CsProfile": {
+      "description": "C#. Default top-level visibility is `internal`; default member visibility is `private`.",
+      "properties": {
+        "symbols": {
+          "items": {
+            "properties": {
+              "kind":       { "enum": ["class", "interface", "struct", "record", "enum", "delegate", "method", "constructor", "field", "property", "event"] },
+              "visibility": { "enum": ["public", "protected", "internal", "private"] }
+            }
+          }
+        }
+      }
+    },
+
+    "SqlProfile": {
+      "description": "SQL / PL-pgSQL. Visibility is not a SQL concept and is ignored by the constructor.",
+      "properties": {
+        "symbols": {
+          "items": {
+            "properties": {
+              "kind": { "enum": ["function", "procedure", "view", "table", "schema"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

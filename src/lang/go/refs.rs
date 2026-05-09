@@ -198,7 +198,7 @@ impl<'src> Walker<'src> {
 				if name.is_empty() {
 					return None;
 				}
-				Some(self.resolve_type_target(name.as_bytes(), kinds::CLASS))
+				Some(self.resolve_type_target(name.as_bytes(), kinds::STRUCT))
 			}
 			"qualified_type" => {
 				let pkg = type_node
@@ -212,11 +212,11 @@ impl<'src> Walker<'src> {
 				}
 				if let Some(entry) = self.import_entry_for(pkg.as_bytes()) {
 					Some((
-						extend_segment(&entry.module_prefix, kinds::CLASS, name.as_bytes()),
+						extend_segment(&entry.module_prefix, kinds::STRUCT, name.as_bytes()),
 						entry.confidence,
 					))
 				} else {
-					Some(self.resolve_type_target(name.as_bytes(), kinds::CLASS))
+					Some(self.resolve_type_target(name.as_bytes(), kinds::STRUCT))
 				}
 			}
 			_ => None,
