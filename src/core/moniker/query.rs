@@ -101,6 +101,7 @@ fn last_segment_match(
 			b"python" => return bare_callable_name(l_name) == bare_callable_name(r_name),
 			b"rs" => return bare_callable_name(l_name) == bare_callable_name(r_name),
 			b"go" => return bare_callable_name(l_name) == bare_callable_name(r_name),
+			b"cs" => return bare_callable_name(l_name) == bare_callable_name(r_name),
 			_ => {}
 		}
 	}
@@ -492,5 +493,73 @@ mod tests {
 			],
 		);
 		assert!(typed_def.bind_match(&arity_call));
+	}
+
+	#[test]
+	fn bind_match_csharp_typed_def_matches_arity_call() {
+		let typed_def = mk(
+			b"app",
+			&[
+				(b"lang", b"cs"),
+				(b"namespace", b"Acme"),
+				(b"class", b"Plan"),
+				(b"method", b"Add(int,int)"),
+			],
+		);
+		let arity_call = mk(
+			b"app",
+			&[
+				(b"lang", b"cs"),
+				(b"namespace", b"Acme"),
+				(b"class", b"Plan"),
+				(b"method", b"Add(2)"),
+			],
+		);
+		assert!(typed_def.bind_match(&arity_call));
+		assert!(arity_call.bind_match(&typed_def));
+	}
+
+	#[test]
+	fn bind_match_csharp_typed_constructor_matches_arity_call() {
+		let typed_def = mk(
+			b"app",
+			&[
+				(b"lang", b"cs"),
+				(b"namespace", b"Acme"),
+				(b"class", b"Plan"),
+				(b"constructor", b"Plan(int,string)"),
+			],
+		);
+		let arity_call = mk(
+			b"app",
+			&[
+				(b"lang", b"cs"),
+				(b"namespace", b"Acme"),
+				(b"class", b"Plan"),
+				(b"constructor", b"Plan(2)"),
+			],
+		);
+		assert!(typed_def.bind_match(&arity_call));
+	}
+
+	#[test]
+	fn bind_match_csharp_distinct_bare_names_do_not_match() {
+		let foo = mk(
+			b"app",
+			&[
+				(b"lang", b"cs"),
+				(b"class", b"Plan"),
+				(b"method", b"Add(int)"),
+			],
+		);
+		let bar = mk(
+			b"app",
+			&[
+				(b"lang", b"cs"),
+				(b"class", b"Plan"),
+				(b"method", b"Subtract(1)"),
+			],
+		);
+		assert!(!foo.bind_match(&bar));
 	}
 }
