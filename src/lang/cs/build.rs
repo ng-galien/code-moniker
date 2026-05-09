@@ -73,13 +73,34 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, CsprojError> {
 }
 
 fn project_self_name(root: roxmltree::Node<'_, '_>) -> Option<String> {
-	property_value(root, "AssemblyName").or_else(|| property_value(root, "RootNamespace"))
+	let mut fallback: Option<String> = None;
+	for n in root.descendants() {
+		if !n.is_element() {
+			continue;
+		}
+		match n.tag_name().name() {
+			"AssemblyName" => {
+				if let Some(s) = node_trimmed_text(n) {
+					return Some(s);
+				}
+			}
+			"RootNamespace" if fallback.is_none() => {
+				fallback = node_trimmed_text(n);
+			}
+			_ => {}
+		}
+	}
+	fallback
 }
 
 fn property_value(root: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
 	root.descendants()
 		.find(|n| n.is_element() && n.tag_name().name() == tag)
-		.and_then(|n| n.text())
+		.and_then(node_trimmed_text)
+}
+
+fn node_trimmed_text(n: roxmltree::Node<'_, '_>) -> Option<String> {
+	n.text()
 		.map(|s| s.trim().to_string())
 		.filter(|s| !s.is_empty())
 }

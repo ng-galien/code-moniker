@@ -335,7 +335,6 @@ impl<'src> Walker<'src> {
 			.ok()
 	}
 
-	#[allow(dead_code)]
 	pub(super) fn text_of(&self, node: Node<'_>) -> &'src str {
 		node.utf8_text(self.source_bytes).unwrap_or("")
 	}
@@ -345,7 +344,6 @@ pub(super) fn collect_type_table<'src>(
 	root: Node<'_>,
 	source: &'src [u8],
 	parent: &Moniker,
-	_graph: &mut CodeGraph,
 	out: &mut HashMap<&'src [u8], Moniker>,
 ) {
 	let mut cursor = root.walk();
@@ -372,10 +370,10 @@ pub(super) fn collect_type_table<'src>(
 				.child_by_field_name("body")
 				.or_else(|| find_named_child(child, "declaration_list"))
 			{
-				collect_type_table(body, source, &m, _graph, out);
+				collect_type_table(body, source, &m, out);
 			}
 		} else {
-			collect_type_table(child, source, parent, _graph, out);
+			collect_type_table(child, source, parent, out);
 		}
 	}
 }

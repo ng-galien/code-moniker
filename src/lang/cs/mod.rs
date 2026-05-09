@@ -45,7 +45,6 @@ pub fn extract(
 		tree.root_node(),
 		source.as_bytes(),
 		&module,
-		&mut graph,
 		&mut type_table,
 	);
 	let walker = Walker {

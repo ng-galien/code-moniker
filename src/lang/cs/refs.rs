@@ -29,6 +29,44 @@ impl<'src> Walker<'src> {
 		}
 	}
 
+	fn resolve_type_node(&self, type_node: Node<'_>) -> Option<(Moniker, &'static [u8])> {
+		match type_node.kind() {
+			"identifier" => {
+				let name = self.text_of(type_node);
+				if name.is_empty() {
+					return None;
+				}
+				Some(self.resolve_type_target(name.as_bytes(), kinds::CLASS))
+			}
+			"qualified_name" => {
+				let leaf = qualified_leaf_identifier(type_node)?;
+				let name = self.text_of(leaf);
+				if name.is_empty() {
+					return None;
+				}
+				Some(self.resolve_type_target(name.as_bytes(), kinds::CLASS))
+			}
+			_ => None,
+		}
+	}
+
+	fn emit_resolved_type_ref(
+		&self,
+		type_node: Node<'_>,
+		scope: &Moniker,
+		ref_kind: &[u8],
+		pos: (u32, u32),
+		graph: &mut CodeGraph,
+	) {
+		if let Some((target, confidence)) = self.resolve_type_node(type_node) {
+			let attrs = RefAttrs {
+				confidence,
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(scope, target, ref_kind, Some(pos), &attrs);
+		}
+	}
+
 	fn emit_type_ref(
 		&self,
 		type_node: Node<'_>,
@@ -38,65 +76,27 @@ impl<'src> Walker<'src> {
 	) {
 		match type_node.kind() {
 			"predefined_type" => {}
-			"identifier" => {
-				let name = self.text_of(type_node);
-				if name.is_empty() {
-					return;
-				}
-				let (target, conf) = self.resolve_type_target(name.as_bytes(), kinds::CLASS);
-				let attrs = RefAttrs {
-					confidence: conf,
-					..RefAttrs::default()
-				};
-				let _ = graph.add_ref_attrs(
+			"identifier" | "qualified_name" => {
+				self.emit_resolved_type_ref(
+					type_node,
 					scope,
-					target,
 					ref_kind,
-					Some(node_position(type_node)),
-					&attrs,
+					node_position(type_node),
+					graph,
 				);
-			}
-			"qualified_name" => {
-				if let Some(leaf) = qualified_leaf_identifier(type_node) {
-					let name = self.text_of(leaf);
-					if !name.is_empty() {
-						let (target, conf) =
-							self.resolve_type_target(name.as_bytes(), kinds::CLASS);
-						let attrs = RefAttrs {
-							confidence: conf,
-							..RefAttrs::default()
-						};
-						let _ = graph.add_ref_attrs(
-							scope,
-							target,
-							ref_kind,
-							Some(node_position(type_node)),
-							&attrs,
-						);
-					}
-				}
 			}
 			"generic_name" => {
 				let mut cursor = type_node.walk();
 				for c in type_node.named_children(&mut cursor) {
 					match c.kind() {
 						"identifier" => {
-							let name = self.text_of(c);
-							if !name.is_empty() {
-								let (target, conf) =
-									self.resolve_type_target(name.as_bytes(), kinds::CLASS);
-								let attrs = RefAttrs {
-									confidence: conf,
-									..RefAttrs::default()
-								};
-								let _ = graph.add_ref_attrs(
-									scope,
-									target,
-									ref_kind,
-									Some(node_position(c)),
-									&attrs,
-								);
-							}
+							self.emit_resolved_type_ref(
+								c,
+								scope,
+								ref_kind,
+								node_position(c),
+								graph,
+							);
 						}
 						"type_argument_list" => {
 							let mut ac = c.walk();
@@ -176,28 +176,8 @@ impl<'src> Walker<'src> {
 
 	fn qualified_pieces(&self, node: Node<'_>) -> Vec<&'src str> {
 		let mut out = Vec::new();
-		self.collect_qualified(node, &mut out);
+		collect_qualified(node, self.source_bytes, &mut out);
 		out
-	}
-
-	fn collect_qualified(&self, node: Node<'_>, out: &mut Vec<&'src str>) {
-		match node.kind() {
-			"identifier" => {
-				let s = self.text_of(node);
-				if !s.is_empty() {
-					out.push(s);
-				}
-			}
-			"qualified_name" => {
-				if let Some(q) = node.child_by_field_name("qualifier") {
-					self.collect_qualified(q, out);
-				}
-				if let Some(name) = node.child_by_field_name("name") {
-					self.collect_qualified(name, out);
-				}
-			}
-			_ => {}
-		}
 	}
 
 	pub(super) fn handle_invocation(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
@@ -352,6 +332,27 @@ impl<'src> Walker<'src> {
 		if let Some(args) = node.child_by_field_name("arguments") {
 			self.walk(args, scope, graph);
 		}
+	}
+}
+
+fn collect_qualified<'src>(node: Node<'_>, source: &'src [u8], out: &mut Vec<&'src str>) {
+	match node.kind() {
+		"identifier" => {
+			if let Ok(s) = node.utf8_text(source)
+				&& !s.is_empty()
+			{
+				out.push(s);
+			}
+		}
+		"qualified_name" => {
+			if let Some(q) = node.child_by_field_name("qualifier") {
+				collect_qualified(q, source, out);
+			}
+			if let Some(name) = node.child_by_field_name("name") {
+				collect_qualified(name, source, out);
+			}
+		}
+		_ => {}
 	}
 }
 

@@ -36,24 +36,21 @@ pub(super) fn parameter_types(callable: Node<'_>, source: &[u8]) -> Vec<Vec<u8>>
 
 pub(super) fn parameter_list_types(params: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 	let mut out = Vec::new();
-	let mut cursor = params.walk();
 	let mut has_params_modifier = false;
-	for c in params.children(&mut cursor) {
-		if c.kind() == "params" {
-			has_params_modifier = true;
-		}
-	}
 	let mut cursor = params.walk();
-	for p in params.named_children(&mut cursor) {
-		if p.kind() != "parameter" {
-			continue;
+	for c in params.children(&mut cursor) {
+		match c.kind() {
+			"parameter" => {
+				let ty = c
+					.child_by_field_name("type")
+					.and_then(|t| t.utf8_text(source).ok())
+					.map(crate::lang::callable::normalize_type_text)
+					.unwrap_or_else(|| b"_".to_vec());
+				out.push(ty);
+			}
+			"params" => has_params_modifier = true,
+			_ => {}
 		}
-		let ty = p
-			.child_by_field_name("type")
-			.and_then(|t| t.utf8_text(source).ok())
-			.map(crate::lang::callable::normalize_type_text)
-			.unwrap_or_else(|| b"_".to_vec());
-		out.push(ty);
 	}
 	if has_params_modifier {
 		out.push(b"...".to_vec());
