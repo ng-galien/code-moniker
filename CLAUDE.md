@@ -10,12 +10,14 @@ First consumer: ESAC. **The compass for every decision: improve ESAC's symbolic 
 - `SPEC.md` — conceptual model (canonical tree, moniker, code_graph, srcset, three origins), public API, SCIP URI format, implementation phases
 - `CLAUDE.md` (this file) — coding rules and progress state
 - `docs/EXTRACTION_TARGETS.md` — parity targets vs ESAC's existing extractors (the bar each new language has to clear)
+- `docs/MONIKER_URI.md` — moniker URI grammar (typed-segment form, scheme profile, project regime / language regime)
+- `docs/declare_schema.json` — JSON Schema 2020-12 for `code_graph_declare`. Per-language profiles must stay in sync with `LangExtractor::ALLOWED_KINDS` / `ALLOWED_VISIBILITIES` (enforced by the schema-sync test in `src/lang/mod.rs`).
 
 No work-in-progress archives, no decision memos, no speculative docs. Git log + the code + these files are the source of truth.
 
 ## Direction
 
-Phases 1–6 of SPEC shipped. v2 milestone ship: typed canonical URI (`<scheme>+moniker://<project>/<kind>:<name>...`), kind names embedded in bytes (no backend-local registry), seg_count dropped → byte-lex order strictly tree-friendly (`m >= ancestor AND m < ancestor||sentinel` works on plain btree). Custom Datum + GiST opclass shipped. Compact projection (`moniker_compact` / `match_compact`) ships as a one-way display. CodeGraph carries a moniker→idx HashMap so `find_def` is O(1) at corpus scale. TS, Rust, Java, Python, Go, C# (tree-sitter) and SQL/PL-pgSQL (vendored libpg_query) extractors shipped with full metadata (visibility / signature / alias / confidence / receiver_hint / same-file resolution / scope-tracked locals). Manifest parsers shipped for the six with build systems (`extract_cargo` / `extract_package_json` / `extract_pom_xml` / `extract_pyproject` / `extract_go_mod` / `extract_csproj`). Multi-project dogfood panel under `test/dogfood/` for scaling validation. Current effort: Phase 7 cross-file linkage (`bind_match` + `binding` column + `lang:` segment). Detail in TODO.md (gitignored).
+Phases 1–7 of SPEC shipped. v2 milestone: typed canonical URI (`<scheme>+moniker://<project>/<kind>:<name>...`), kind names embedded in bytes (no backend-local registry), seg_count dropped → byte-lex order strictly tree-friendly (`m >= ancestor AND m < ancestor||sentinel` works on plain btree). Custom Datum + GiST opclass shipped. Compact projection (`moniker_compact` / `match_compact`) ships as a one-way display. CodeGraph carries a moniker→idx HashMap so `find_def` is O(1) at corpus scale. TS, Rust, Java, Python, Go, C# (tree-sitter) and SQL/PL-pgSQL (vendored libpg_query) extractors shipped, all aligned on native kinds (struct/trait/fn/type, func, record/property/constructor, table/view) with full metadata (visibility / signature / alias / confidence / receiver_hint / origin / same-file resolution / scope-tracked locals). Manifest parsers shipped for the six with build systems. Phase 7 cross-file linkage shipped: `bind_match` + `binding` + `origin` columns + `lang:` segment dispatch. **Declarative graphs shipped**: `code_graph_declare(jsonb)` builds a graph from a spec; `code_graph_to_spec(graph)` is the inverse projection (lossy on non-canonical ref kinds). **Per-language extractor contract formalised**: trait `LangExtractor` + `define_languages!` macro + `assert_conformance` runtime check + JSON Schema sync test — adding a language is a one-line edit and any drift breaks the build or a test. Multi-project dogfood panel under `test/dogfood/` for scaling validation. Detail of in-flight work in TODO.md (gitignored).
 
 ## Comment sobriety
 
@@ -45,8 +47,16 @@ src/
     build.rs            extract_cargo / extract_package_json / extract_pom_xml /
                         extract_pyproject / extract_go_mod / extract_csproj
   lang/                 per-language extractors
-    kinds.rs            cross-language vocabulary (VIS_* / CONF_* constants).
-                        New extractors `pub use` from here; never redeclare.
+    kinds.rs            cross-language vocabulary (VIS_* / CONF_* / structural
+                        kind constants). New extractors `pub use` from here;
+                        never redeclare.
+    extractor.rs        `LangExtractor` trait (per-language contract), default
+                        impls for `declare` / `to_spec`, `assert_conformance`
+                        test-only check.
+    mod.rs              `define_languages!` macro: single dispatch table that
+                        generates `Lang` enum + `from_tag` / `tag` /
+                        `allowed_kinds` / `allowed_visibilities` / `Lang::ALL`.
+                        One line per supported language; build fails on omission.
     ts/                 TypeScript / TSX / JS / JSX
       mod.rs            pub fn parse, pub fn extract, Presets
       kinds.rs          TS-specific structural kinds + pub use of shared
