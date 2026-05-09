@@ -29,7 +29,7 @@ SELECT 'pcm+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker
 -- => true (subtree containment, GiST-indexed)
 ```
 
-Five extractors (TypeScript, Rust, Java, Python, PL/pgSQL) emit defs and refs with full metadata (visibility, signature, binding, …). Cross-file linkage is a single indexed JOIN on `bind_match`. The extension owns no tables — types, operators, and pure functions only.
+Seven extractors (TypeScript, Rust, Java, Python, Go, C#, PL/pgSQL) emit defs and refs with full metadata (visibility, signature, binding, …). Cross-file linkage is a single indexed JOIN on `bind_match`. The extension owns no tables — types, operators, and pure functions only.
 
 → [Posture](#posture) · [Quickstart with Docker](#quickstart-with-docker) · [Building from source](#building-and-testing) · [`SPEC.md`](SPEC.md)
 
@@ -43,7 +43,7 @@ The extension is **stateless**. It owns no tables, exposes only types, operators
 
 ## Status
 
-Phases 1–6 of `SPEC.md` shipped: typed canonical URI (`<scheme>+moniker://...`), `moniker` and `code_graph` SQL types with custom Datum layout, btree / hash / GiST opclasses, GIN over `moniker[]`, compact projection (`moniker_compact` / `match_compact`), and seven extractors:
+Phases 1–7 of `SPEC.md` shipped: typed canonical URI (`<scheme>+moniker://...`), `moniker` and `code_graph` SQL types with custom Datum layout, btree / hash / GiST opclasses, GIN over `moniker[]`, compact projection (`moniker_compact` / `match_compact`), cross-file linkage via the `bind_match` operator + `binding` metadata + `lang:` segment, a declarative graph constructor (`code_graph_declare` / `code_graph_to_spec`), and seven extractors:
 
 | extractor             | grammar           | manifest parser            |
 |-----------------------|-------------------|----------------------------|
@@ -56,8 +56,6 @@ Phases 1–6 of `SPEC.md` shipped: typed canonical URI (`<scheme>+moniker://...`
 | `extract_plpgsql`     | libpg_query (vendored) | —                     |
 
 Each emits defs and refs with full metadata (visibility, signature, alias, confidence, receiver_hint, scope-tracked locals). All take a `deep := false` default; pass `deep := true` for parameter / local extraction.
-
-Phase 7 in flight: `bind_match` operator, the `lang:` segment, and the `binding` column on def / ref records — the three coordinated changes that unlock cross-file linkage.
 
 A multi-project dogfood panel (`test/dogfood/`) validates extractor coverage at scale across zod, date-fns, gson, httpx, pgTAP, clap, bytes, gorilla/mux, CommandLineParser, and this repo itself.
 
