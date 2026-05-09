@@ -3,7 +3,7 @@
 #
 # Entry format (fields separated by `|`):
 #   lang | project_id | git_url | ref | src_subdir | manifest_path
-# - lang          rs | ts | java | sql | py | go
+# - lang          rs | ts | java | sql | py | go | cs
 # - project_id    moniker project segment + DB key; stable across runs
 # - git_url       HTTPS clone URL, or `self` for the local repo
 # - ref           pinned tag/branch/commit; `HEAD` only with `self`
@@ -31,4 +31,7 @@ PCM_DOGFOOD_PANEL=(
 
 	# Go
 	"go|mux|https://github.com/gorilla/mux.git|v1.8.1|.|go.mod"
+
+	# C#
+	"cs|commandline|https://github.com/commandlineparser/commandline.git|v2.9.1|src/CommandLine|src/CommandLine/CommandLine.csproj"
 )

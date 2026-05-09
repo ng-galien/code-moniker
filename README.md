@@ -43,7 +43,7 @@ The extension is **stateless**. It owns no tables, exposes only types, operators
 
 ## Status
 
-Phases 1–6 of `SPEC.md` shipped: typed canonical URI (`<scheme>+moniker://...`), `moniker` and `code_graph` SQL types with custom Datum layout, btree / hash / GiST opclasses, GIN over `moniker[]`, compact projection (`moniker_compact` / `match_compact`), and six extractors:
+Phases 1–6 of `SPEC.md` shipped: typed canonical URI (`<scheme>+moniker://...`), `moniker` and `code_graph` SQL types with custom Datum layout, btree / hash / GiST opclasses, GIN over `moniker[]`, compact projection (`moniker_compact` / `match_compact`), and seven extractors:
 
 | extractor             | grammar           | manifest parser            |
 |-----------------------|-------------------|----------------------------|
@@ -52,13 +52,14 @@ Phases 1–6 of `SPEC.md` shipped: typed canonical URI (`<scheme>+moniker://...`
 | `extract_java`        | tree-sitter       | `extract_pom_xml`          |
 | `extract_python`      | tree-sitter       | `extract_pyproject`        |
 | `extract_go`          | tree-sitter       | `extract_go_mod`           |
+| `extract_csharp`      | tree-sitter       | `extract_csproj`           |
 | `extract_plpgsql`     | libpg_query (vendored) | —                     |
 
 Each emits defs and refs with full metadata (visibility, signature, alias, confidence, receiver_hint, scope-tracked locals). All take a `deep := false` default; pass `deep := true` for parameter / local extraction.
 
 Phase 7 in flight: `bind_match` operator, the `lang:` segment, and the `binding` column on def / ref records — the three coordinated changes that unlock cross-file linkage.
 
-A multi-project dogfood panel (`test/dogfood/`) validates extractor coverage at scale across zod, date-fns, gson, httpx, pgTAP, clap, bytes, gorilla/mux, and this repo itself.
+A multi-project dogfood panel (`test/dogfood/`) validates extractor coverage at scale across zod, date-fns, gson, httpx, pgTAP, clap, bytes, gorilla/mux, CommandLineParser, and this repo itself.
 
 ## Scope
 
@@ -86,7 +87,7 @@ src/
   pg/      pgrx wrappers exposing the SQL surface (gated by pgN feature)
             moniker/, code_graph/, extract.rs, build.rs
   lang/    per-language extractors (tree-sitter + libpg_query for SQL)
-            ts/, rs/, java/, python/, go/, sql/
+            ts/, rs/, java/, python/, go/, cs/, sql/
 test/
   sql/                pgTAP files (run via ./test/run.sh)
   dogfood.sh          multi-project ingestion runner

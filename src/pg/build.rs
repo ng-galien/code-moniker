@@ -1,6 +1,7 @@
 use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
 
+use crate::lang::cs::build as csproj;
 use crate::lang::go::build as go_mod;
 use crate::lang::java::build as pom_xml;
 use crate::lang::python::build as pyproject;
@@ -87,6 +88,22 @@ fn extract_go_mod(
 	rows_from(deps.into_iter().map(Into::into))
 }
 
+#[pg_extern(immutable, parallel_safe)]
+fn extract_csproj(
+	content: &str,
+) -> TableIterator<
+	'static,
+	(
+		name!(name, String),
+		name!(version, Option<String>),
+		name!(dep_kind, String),
+		name!(import_root, String),
+	),
+> {
+	let deps = csproj::parse(content).unwrap_or_else(|e| error!("{e}"));
+	rows_from(deps.into_iter().map(Into::into))
+}
+
 fn rows_from<I: Iterator<Item = Dep>>(
 	deps: I,
 ) -> TableIterator<
@@ -157,6 +174,17 @@ impl From<pyproject::Dep> for Dep {
 
 impl From<go_mod::Dep> for Dep {
 	fn from(d: go_mod::Dep) -> Self {
+		Self {
+			name: d.name,
+			version: d.version,
+			dep_kind: d.dep_kind,
+			import_root: d.import_root,
+		}
+	}
+}
+
+impl From<csproj::Dep> for Dep {
+	fn from(d: csproj::Dep) -> Self {
 		Self {
 			name: d.name,
 			version: d.version,

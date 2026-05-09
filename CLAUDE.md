@@ -15,7 +15,7 @@ No work-in-progress archives, no decision memos, no speculative docs. Git log + 
 
 ## Direction
 
-Phases 1–6 of SPEC shipped. v2 milestone ship: typed canonical URI (`<scheme>+moniker://<project>/<kind>:<name>...`), kind names embedded in bytes (no backend-local registry), seg_count dropped → byte-lex order strictly tree-friendly (`m >= ancestor AND m < ancestor||sentinel` works on plain btree). Custom Datum + GiST opclass shipped. Compact projection (`moniker_compact` / `match_compact`) ships as a one-way display. CodeGraph carries a moniker→idx HashMap so `find_def` is O(1) at corpus scale. TS, Rust, Java, Python, Go (tree-sitter) and SQL/PL-pgSQL (vendored libpg_query) extractors shipped with full metadata (visibility / signature / alias / confidence / receiver_hint / same-file resolution / scope-tracked locals). Manifest parsers shipped for the five with build systems (`extract_cargo` / `extract_package_json` / `extract_pom_xml` / `extract_pyproject` / `extract_go_mod`). Multi-project dogfood panel under `test/dogfood/` for scaling validation. Current effort: Phase 7 cross-file linkage (`bind_match` + `binding` column + `lang:` segment). Detail in TODO.md (gitignored).
+Phases 1–6 of SPEC shipped. v2 milestone ship: typed canonical URI (`<scheme>+moniker://<project>/<kind>:<name>...`), kind names embedded in bytes (no backend-local registry), seg_count dropped → byte-lex order strictly tree-friendly (`m >= ancestor AND m < ancestor||sentinel` works on plain btree). Custom Datum + GiST opclass shipped. Compact projection (`moniker_compact` / `match_compact`) ships as a one-way display. CodeGraph carries a moniker→idx HashMap so `find_def` is O(1) at corpus scale. TS, Rust, Java, Python, Go, C# (tree-sitter) and SQL/PL-pgSQL (vendored libpg_query) extractors shipped with full metadata (visibility / signature / alias / confidence / receiver_hint / same-file resolution / scope-tracked locals). Manifest parsers shipped for the six with build systems (`extract_cargo` / `extract_package_json` / `extract_pom_xml` / `extract_pyproject` / `extract_go_mod` / `extract_csproj`). Multi-project dogfood panel under `test/dogfood/` for scaling validation. Current effort: Phase 7 cross-file linkage (`bind_match` + `binding` column + `lang:` segment). Detail in TODO.md (gitignored).
 
 ## Comment sobriety
 
@@ -40,9 +40,10 @@ src/
     code_graph.rs       code_graph SQL type + accessors (graph_defs / graph_refs
                         carrying metadata columns)
     extract.rs          extract_typescript / extract_rust / extract_java /
-                        extract_python / extract_go / extract_plpgsql SQL entries
+                        extract_python / extract_go / extract_csharp /
+                        extract_plpgsql SQL entries
     build.rs            extract_cargo / extract_package_json / extract_pom_xml /
-                        extract_pyproject / extract_go_mod
+                        extract_pyproject / extract_go_mod / extract_csproj
   lang/                 per-language extractors
     kinds.rs            cross-language vocabulary (VIS_* / CONF_* constants).
                         New extractors `pub use` from here; never redeclare.
@@ -62,6 +63,8 @@ src/
                         build for pyproject.toml)
     go/                 Go (mod / kinds / canonicalize / walker / refs / scope /
                         build for go.mod)
+    cs/                 C# (mod / kinds / canonicalize / walker / refs / scope /
+                        build for .csproj)
     sql/                PL/pgSQL via vendored libpg_query (mod / kinds /
                         canonicalize / walker / body / refs / scope)
 test/
@@ -143,3 +146,16 @@ Bench at scale via `cargo run --release --example bench_codegraph` (CodeGraph th
 - `qualified_type` exposes prefix as field `package` and type as field `name` (not `path`).
 - `composite_literal` has fields `type` and `body` (= `literal_value`); recurse on `generic_type.type` to peel `Foo[T]{}`.
 - `short_var_declaration` / `var_declaration` / `range_clause` use field `left` (identifier OR expression_list); skip `_` blank patterns.
+
+## tree-sitter-c-sharp gotchas
+
+- Modifiers are wrapped in singular `modifier` nodes whose child is the keyword node (`public` / `private` / `internal` / `protected`); descend two levels to read visibility.
+- `params object[] args` is flattened into `parameter_list` (no wrapping `parameter` node) — detect the `params` direct child of the parameter_list and emit `...` after the regular `parameter` slots.
+- `record_declaration` does NOT expose field `parameters` or `body`; locate `parameter_list` and `declaration_list` via `named_children` lookup.
+- `using_directive` has no clean field for the imported path: walk children and pick the first `qualified_name`/`identifier` that's not the alias `name` field. `static`, `global`, `dot`/`_` aliases are direct children of the directive.
+- `member_access_expression` fields are `expression` (the receiver) and `name` (the member identifier); chained `foo().bar()` puts an `invocation_expression` in `expression` (use `HINT_CALL`).
+- `attribute_list` is a direct child of the annotated declaration (class / method / property / field); each `attribute` has field `name` (identifier or qualified_name) and optional `attribute_argument_list` via field `arguments`.
+- `local_declaration_statement` reuses `variable_declaration` (field `type` + `variable_declarator` children with field `name`); same shape as `field_declaration`.
+- `foreach_statement` exposes a single iter var via field `left` (identifier, not `expression_list`), with separate fields `type`, `right`, `body`. `implicit_type` covers `var` — emit_uses_type can ignore it via the `predefined_type`/`implicit_type` skip arms.
+- C# does NOT distinguish base class from interfaces in `base_list` syntactically — emit all entries as `EXTENDS`; consumers refine via cross-file resolution against def kinds.
+- Top-level type default visibility is `internal` (= `VIS_PACKAGE`); class member default is `private`. Caller decides via parametrized `modifier_visibility(node, default)`.

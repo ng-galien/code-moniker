@@ -73,6 +73,7 @@ ext_for_lang() {
 		sql) echo "sql psql pgsql" ;;
 		py) echo "py pyi" ;;
 		go) echo "go" ;;
+		cs) echo "cs" ;;
 		*) echo "" ;;
 	esac
 }
@@ -85,6 +86,7 @@ extract_fn() {
 		sql) echo "extract_plpgsql" ;;
 		py) echo "extract_python" ;;
 		go) echo "extract_go" ;;
+		cs) echo "extract_csharp" ;;
 		*) echo "" ;;
 	esac
 }
@@ -94,6 +96,7 @@ manifest_fn() {
 		rs) echo "extract_cargo" ;;
 		ts) echo "extract_package_json" ;;
 		go) echo "extract_go_mod" ;;
+		cs) echo "extract_csproj" ;;
 		*) echo "" ;;
 	esac
 }
