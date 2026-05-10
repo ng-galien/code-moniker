@@ -61,11 +61,9 @@ impl std::fmt::Display for GraphError {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::ParentNotFound => write!(f, "parent moniker not found in graph"),
-			Self::ParentNotAncestor => write!(
-				f,
-				"parent moniker is not the structural ancestor of the def \
-				 (def.parent() != parent)"
-			),
+			Self::ParentNotAncestor => {
+				write!(f, "parent moniker is not an ancestor of the def")
+			}
 			Self::SourceNotFound => write!(f, "ref source moniker not found in graph"),
 			Self::DuplicateMoniker => write!(f, "duplicate moniker in graph defs"),
 		}
@@ -161,14 +159,6 @@ impl CodeGraph {
 		if self.find_def(&moniker).is_some() {
 			return Err(GraphError::DuplicateMoniker);
 		}
-		// Structural sanity check: the def must live under `parent` in the
-		// canonical tree (same project + parent's bytes are a prefix of the
-		// def's bytes). Extractors may collapse intermediate segments (the
-		// SQL extractor parents schema-qualified tables to the module,
-		// skipping the implicit `schema:` segment) so we accept any
-		// ancestor, not just the direct one. The check still rejects
-		// cross-project parents and parents whose path diverges from the
-		// def — graphs that would contradict their own monikers.
 		if !parent.is_ancestor_of(&moniker) {
 			return Err(GraphError::ParentNotAncestor);
 		}
@@ -432,7 +422,6 @@ mod tests {
 		let unrelated = mk_under(&root, b"path", b"sibling");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(unrelated.clone(), b"class", &root, None).unwrap();
-		// child claims `unrelated` as parent but is structured under root.
 		let child = mk_under(&root, b"path", b"orphan");
 		assert_eq!(
 			g.add_def(child, b"class", &unrelated, None).unwrap_err(),

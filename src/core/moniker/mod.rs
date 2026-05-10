@@ -115,10 +115,6 @@ mod tests {
 	use proptest::prelude::*;
 
 	proptest! {
-		// Property: feeding arbitrary bytes to the public parser never
-		// panics. Either it returns Ok (and we sanity-check that a second
-		// round-trip via the validated bytes yields the same Moniker) or
-		// it returns a typed error.
 		#![proptest_config(ProptestConfig {
 			cases: 256,
 			..ProptestConfig::default()
@@ -134,9 +130,6 @@ mod tests {
 			}
 		}
 
-		// Property: the unvalidated view parser shares its validation
-		// logic with Moniker::from_bytes. Asserts both agree on
-		// accept/reject for the same input.
 		#[test]
 		fn moniker_view_and_owned_agree(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
 			let owned = Moniker::from_bytes(bytes.clone()).is_ok();

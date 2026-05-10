@@ -58,12 +58,19 @@ impl moniker {
 	}
 
 	pub(super) fn view(&self) -> MonikerView<'_> {
+		// SAFETY: self.as_bytes() returns the canonical encoding produced
+		// by either MonikerBuilder::build (Owned variant) or
+		// palloc_varlena_from_slice (Borrowed variant); both uphold
+		// MonikerView::from_canonical_bytes' precondition (length ≥
+		// HEADER_FIXED_LEN, version byte at offset 0).
 		unsafe { MonikerView::from_canonical_bytes(self.as_bytes()) }
 	}
 
 	pub(super) fn as_bytes(&self) -> &[u8] {
 		match self.storage {
 			MonikerStorage::Owned(ref v) => v.as_slice(),
+			// SAFETY: identical contract as `into_core` — the borrowed
+			// slice points inside a detoasted varlena that outlives `&self`.
 			MonikerStorage::Borrowed { ptr, len } => unsafe {
 				core::slice::from_raw_parts(ptr, len as usize)
 			},

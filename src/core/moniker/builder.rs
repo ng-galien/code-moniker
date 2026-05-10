@@ -39,13 +39,6 @@ impl MonikerBuilder {
 	}
 
 	pub fn build(&self) -> Moniker {
-		// The on-the-wire encoding stores each component's length as a
-		// u16. A silent `as u16` cast on an oversized component would
-		// truncate the length to its low 16 bits and corrupt the buffer
-		// (the bytes that follow would be reinterpreted as the next
-		// header field). Refuse outright — every realistic identifier
-		// fits comfortably under 64 KB; anything bigger is an upstream
-		// bug or hostile input.
 		assert!(
 			self.project.len() <= MAX_COMPONENT_LEN,
 			"moniker project longer than u16::MAX bytes ({})",

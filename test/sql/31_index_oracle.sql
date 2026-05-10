@@ -1,11 +1,5 @@
--- Oracle test for the index opclasses.
---
--- Each scalar operator on `moniker` (=, <@, @>, ?=) runs through two
--- helpers that set GUCs locally to force the planner into either an
--- indexed scan or a sequential scan, then both results are compared.
--- An index that returns wrong rows or skips matching ones would be
--- silently green under the existing per-operator assertion tests
--- (which only check shape, not equivalence with the ground truth).
+-- Oracle test: each scalar operator on `moniker` (=, <@, @>, ?=)
+-- must return the same rows via the index and via a sequential scan.
 
 BEGIN;
 
@@ -14,11 +8,6 @@ CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
 SELECT plan(22);
 
--- Helper to verify a query is genuinely served by an index under the
--- planner state we put it in. Returns true if the EXPLAIN plan
--- mentions an Index/Bitmap scan; false otherwise. Used by the sanity
--- assertions at the bottom — without it, the oracle would happily
--- compare two seq scans against each other and report green.
 CREATE OR REPLACE FUNCTION oracle_uses_index(qs text) RETURNS boolean AS $$
 DECLARE
 	plan_line text;
@@ -37,14 +26,8 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
--- A diverse-enough corpus that the planner actually picks the
--- requested scan strategy. Two projects to exercise the project
--- boundary, multiple tree depths to exercise <@/@> with prefixes,
--- and typed callables paired with arity-only versions to exercise
--- ?= bare-callable matching.
 CREATE TEMP TABLE oracle_data(m moniker);
 INSERT INTO oracle_data VALUES
-	-- project "app", lang:ts
 	('pcm+moniker://app/lang:ts'),
 	('pcm+moniker://app/lang:ts/dir:src'),
 	('pcm+moniker://app/lang:ts/dir:src/module:util'),
@@ -55,28 +38,21 @@ INSERT INTO oracle_data VALUES
 	('pcm+moniker://app/lang:ts/dir:src/module:util/class:Other'),
 	('pcm+moniker://app/lang:ts/dir:src/module:app'),
 	('pcm+moniker://app/lang:ts/dir:src/module:app/function:main()'),
-	-- project "app", lang:java
 	('pcm+moniker://app/lang:java'),
 	('pcm+moniker://app/lang:java/package:com'),
 	('pcm+moniker://app/lang:java/package:com/package:acme'),
 	('pcm+moniker://app/lang:java/package:com/package:acme/class:User'),
 	('pcm+moniker://app/lang:java/package:com/package:acme/class:User/method:findById(String)'),
 	('pcm+moniker://app/lang:java/package:com/package:acme/class:User/method:findById(1)'),
-	-- project "app", lang:sql
 	('pcm+moniker://app/lang:sql/schema:public/function:create_plan(uuid,text)'),
 	('pcm+moniker://app/lang:sql/schema:public/function:create_plan(2)'),
 	('pcm+moniker://app/lang:sql/schema:public/table:plan'),
-	-- project "other"
 	('pcm+moniker://other/lang:ts/dir:src/module:util/class:Helper'),
 	('pcm+moniker://other/lang:ts/dir:src/module:util/class:Helper/method:run(number)'),
-	-- root-only
 	('pcm+moniker://app'),
 	('pcm+moniker://other');
 
--- Pad the corpus with synthetic rows so the planner has a cost
--- incentive to pick the index even under enable_seqscan = off.
--- Without the padding, postgres treats the seq scan as cheap enough
--- to ignore the off hint on a 20-row table.
+-- Padding so the planner picks the index over a 20-row seq scan.
 INSERT INTO oracle_data
 	SELECT ('pcm+moniker://pad/lang:ts/dir:src/module:m' || g::text)::moniker
 	FROM generate_series(1, 300) g;
@@ -86,12 +62,8 @@ CREATE INDEX oracle_gist  ON oracle_data USING gist  (m);
 
 ANALYZE oracle_data;
 
--- Helpers. SET LOCAL persists for the rest of the transaction, so
--- every helper restores the four scan-related GUCs to its desired
--- target state on entry — otherwise calling oracle_seq before
--- oracle_idx would leave index/bitmap/indexonly off when oracle_idx
--- runs, and the planner would fall back to a (penalised) seq scan
--- silently equating index and seq results.
+-- SET LOCAL persists across the whole transaction, so each helper
+-- pins all four scan GUCs on entry rather than just toggling one.
 CREATE OR REPLACE FUNCTION oracle_seq(qs text) RETURNS moniker[] AS $$
 DECLARE
 	r moniker[];
@@ -119,10 +91,7 @@ END
 $$ LANGUAGE plpgsql;
 
 
--- =========================================================
--- =  (btree)
--- =========================================================
-
+-- = (btree)
 SELECT is(
 	oracle_idx('SELECT m FROM oracle_data WHERE m = ''pcm+moniker://app/lang:ts/dir:src/module:util/class:Helper''::moniker'),
 	oracle_seq('SELECT m FROM oracle_data WHERE m = ''pcm+moniker://app/lang:ts/dir:src/module:util/class:Helper''::moniker'),
@@ -139,10 +108,7 @@ SELECT is(
 	'= : project-only moniker');
 
 
--- =========================================================
--- <@ (descendant — gist)
--- =========================================================
-
+-- <@ (gist)
 SELECT is(
 	oracle_idx('SELECT m FROM oracle_data WHERE m <@ ''pcm+moniker://app/lang:ts''::moniker'),
 	oracle_seq('SELECT m FROM oracle_data WHERE m <@ ''pcm+moniker://app/lang:ts''::moniker'),
@@ -169,10 +135,7 @@ SELECT is(
 	'<@ : empty subtree returns empty');
 
 
--- =========================================================
--- @> (ancestor — gist)
--- =========================================================
-
+-- @> (gist)
 SELECT is(
 	oracle_idx('SELECT m FROM oracle_data WHERE m @> ''pcm+moniker://app/lang:ts/dir:src/module:util/class:Helper/method:run(number)''::moniker'),
 	oracle_seq('SELECT m FROM oracle_data WHERE m @> ''pcm+moniker://app/lang:ts/dir:src/module:util/class:Helper/method:run(number)''::moniker'),
@@ -189,10 +152,7 @@ SELECT is(
 	'@> : ancestor chain in project-other');
 
 
--- =========================================================
--- ?= (bind_match — gist)
--- =========================================================
-
+-- ?= (gist)
 SELECT is(
 	oracle_idx('SELECT m FROM oracle_data WHERE m ?= ''pcm+moniker://app/lang:java/package:com/package:acme/class:User/method:findById(String)''::moniker'),
 	oracle_seq('SELECT m FROM oracle_data WHERE m ?= ''pcm+moniker://app/lang:java/package:com/package:acme/class:User/method:findById(String)''::moniker'),
@@ -224,10 +184,7 @@ SELECT is(
 	'?= : project boundary is honoured by the bind_match arm');
 
 
--- =========================================================
--- Cross-operator combinations (planner picks index for both)
--- =========================================================
-
+-- combined predicates
 SELECT is(
 	oracle_idx($qs$
 		SELECT m FROM oracle_data
@@ -255,13 +212,7 @@ SELECT is(
 	'<@ OR <@ : two-subtree union stays consistent');
 
 
--- =========================================================
--- Sanity: under enable_seqscan = off, the planner must actually pick
--- the index. Otherwise the oracle would silently compare two
--- sequential scans and the equality test would prove nothing about
--- the index correctness.
--- =========================================================
-
+-- sanity: the index must actually be picked under enable_seqscan=off
 SELECT ok(
 	oracle_uses_index('SELECT m FROM oracle_data WHERE m = ''pcm+moniker://app/lang:ts/dir:src/module:util/class:Helper''::moniker'),
 	'sanity: = is served by the btree index');

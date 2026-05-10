@@ -125,9 +125,6 @@ mod tests {
 
 	use proptest::prelude::*;
 
-	// Generator for monikers whose components are all valid UTF-8 and
-	// whose kinds match the URI grammar's plain identifier rule. Names
-	// are unrestricted UTF-8 so the backtick-escape path is exercised.
 	fn arb_moniker() -> impl Strategy<Value = crate::core::moniker::Moniker> {
 		use crate::core::moniker::MonikerBuilder;
 		(
@@ -150,8 +147,6 @@ mod tests {
 			..ProptestConfig::default()
 		})]
 
-		// Property: every moniker the builder accepts can be serialised
-		// with to_uri and parsed back to an equal moniker.
 		#[test]
 		fn to_uri_from_uri_roundtrip(m in arb_moniker()) {
 			let s = to_uri(&m, &default_config()).expect("to_uri must succeed on builder output");

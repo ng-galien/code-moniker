@@ -1,20 +1,5 @@
 #!/usr/bin/env bash
 # Run pgTAP test suite against the pgrx-managed PostgreSQL.
-#
-# Workflow:
-#   1. Ensure the pgrx PG instance is running (`cargo pgrx start pg17`).
-#   2. (Re)install the extension (`cargo pgrx install`).
-#   3. Drop and recreate a fresh test DB.
-#   4. Execute each test/sql/*.sql file with psql, surfacing TAP output.
-#
-# Exit code is non-zero on any of the failure modes pgTAP can surface:
-#   - "not ok …"                     individual test failed
-#   - "# Looks like you planned …"   plan() smaller/larger than run count
-#   - "# Looks like you failed …"    rollup line emitted when ≥1 test failed
-#   - "Dubious"                      prove-harness convention; cheap to also
-#                                    catch in case of nested runners
-# A non-zero psql exit (ON_ERROR_STOP triggered, e.g. an ERROR raised
-# outside any pgtap `throws_*` assertion) is also fatal.
 
 set -euo pipefail
 

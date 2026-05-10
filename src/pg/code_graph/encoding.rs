@@ -488,29 +488,16 @@ mod tests {
 			..ProptestConfig::default()
 		})]
 
-		// Property: arbitrary bytes never panic the code_graph decoder.
-		// decode walks back-references between defs / refs sections; a
-		// missing length check would corrupt-trip the unsafe path. The
-		// test is the safety net.
 		#[test]
 		fn decode_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
 			let _ = decode(&bytes);
 		}
 
-		// Property: decode_root reads only the root header but shares
-		// the same length-checking infrastructure. Cover the truncated
-		// header path explicitly.
 		#[test]
 		fn decode_root_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
 			let _ = decode_root(&bytes);
 		}
 
-		// Property: a buffer produced by encode survives a single
-		// random byte flip without panic. Either decode rejects with
-		// a typed error (the common case) or it returns a graph whose
-		// re-encoding is not necessarily equal — only that no panic
-		// is raised. Catches indexing-out-of-bounds, slice misalign,
-		// and unsafe path bugs.
 		#[test]
 		fn decode_after_single_byte_flip_never_panics(
 			flip_offset in 0usize..512,

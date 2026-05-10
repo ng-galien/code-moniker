@@ -95,12 +95,6 @@ fn read_name(
 				i += 1;
 			}
 		}
-		// The unquoted branch below stops exactly at a terminator or
-		// at end-of-input; the backtick branch must uphold the same
-		// post-condition so the caller's terminator check stays
-		// debug_assert-tight. Anything else (e.g. a stray byte
-		// between the closing backtick and the next `/`) is a parse
-		// error rather than a panic.
 		if i < bytes.len() && !is_terminator(bytes[i]) {
 			return Err(UriError::TrailingAfterBacktick(start));
 		}
@@ -215,10 +209,6 @@ mod tests {
 
 	#[test]
 	fn from_uri_rejects_trailing_data_after_backtick() {
-		// Found by proptest. The backtick-escape branch closes on the
-		// matching backtick but the next byte is `A`, not the `/`
-		// separator the caller expects. Used to panic on a debug_assert;
-		// must surface as a typed error.
 		let r = from_uri("esac+moniker://`x`A", &default_config());
 		assert!(matches!(r.unwrap_err(), UriError::TrailingAfterBacktick(_)));
 	}
@@ -231,25 +221,17 @@ mod tests {
 			..ProptestConfig::default()
 		})]
 
-		// Property: feeding any string at the parser surface never
-		// panics — only typed errors. Tests the entire parser pipeline
-		// (scheme strip, project read, segment loop, backtick handling)
-		// against random UTF-8 input.
 		#[test]
 		fn from_uri_never_panics(input in ".{0,512}") {
 			let _ = from_uri(&input, &default_config());
 		}
 
-		// Property: prefixing the scheme to arbitrary content still
-		// never panics. Stresses the post-scheme parser specifically.
 		#[test]
 		fn from_uri_with_scheme_never_panics(suffix in ".{0,512}") {
 			let s = format!("esac+moniker://{suffix}");
 			let _ = from_uri(&s, &default_config());
 		}
 
-		// Property: random raw bytes (potentially non-UTF8) wrapped as
-		// a String via lossy conversion still never panic the parser.
 		#[test]
 		fn from_uri_lossy_bytes_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
 			let s = String::from_utf8_lossy(&bytes);
