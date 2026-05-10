@@ -1,7 +1,7 @@
 use pgrx::prelude::*;
 
 use super::moniker;
-use crate::pg::registry::DEFAULT_CONFIG;
+use crate::pg::registry::current_scheme_owned;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum PunctClass {
@@ -50,7 +50,7 @@ fn push_name(out: &mut String, bytes: &[u8]) {
 }
 
 fn compact_scheme() -> String {
-	let canonical = DEFAULT_CONFIG.scheme;
+	let canonical = current_scheme_owned();
 	let base = canonical.strip_suffix("+moniker://").unwrap_or("esac");
 	format!("{base}://")
 }

@@ -8,6 +8,11 @@ pub mod moniker;
 mod registry;
 mod util;
 
+#[pg_guard]
+pub extern "C-unwind" fn _PG_init() {
+	registry::init_gucs();
+}
+
 #[pg_extern]
 fn pcm_version() -> &'static str {
 	env!("CARGO_PKG_VERSION")

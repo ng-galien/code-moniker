@@ -40,6 +40,10 @@ suffix identifies the canonical typed moniker profile. The suffix must not
 encode the final kind. A moniker is a heterogeneous path, so
 `esac+class://...` is redundant and fragile.
 
+The full scheme (`<base>+moniker://`) is configured via the Postgres GUC
+`pg_code_moniker.scheme`. Default `pcm+moniker://`. A consumer database sets
+its own once: `ALTER DATABASE esac SET pg_code_moniker.scheme = 'esac+moniker://'`.
+
 ## Project regime / Language regime
 
 A moniker is split by an event-frontier into two regimes:

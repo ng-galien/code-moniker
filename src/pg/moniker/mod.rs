@@ -10,7 +10,7 @@ use pgrx::{InOutFuncs, StringInfo, set_varsize_4b, varlena_to_byte_slice};
 
 use crate::core::moniker::{Moniker as CoreMoniker, MonikerView};
 use crate::core::uri::{from_uri, to_uri};
-use crate::pg::registry::DEFAULT_CONFIG;
+use crate::pg::registry::with_current_config;
 use crate::pg::util::resolve_type_oid;
 
 mod compact;
@@ -103,14 +103,15 @@ impl InOutFuncs for moniker {
 		let s = input
 			.to_str()
 			.unwrap_or_else(|_| error!("moniker text must be valid UTF-8"));
-		let m = from_uri(s, &DEFAULT_CONFIG).unwrap_or_else(|e| error!("moniker parse error: {e}"));
+		let m = with_current_config(|cfg| from_uri(s, cfg))
+			.unwrap_or_else(|e| error!("moniker parse error: {e}"));
 		moniker::from_core(m)
 	}
 
 	fn output(&self, buffer: &mut StringInfo) {
 		let m = self.to_core();
-		let s =
-			to_uri(&m, &DEFAULT_CONFIG).unwrap_or_else(|e| error!("moniker serialize error: {e}"));
+		let s = with_current_config(|cfg| to_uri(&m, cfg))
+			.unwrap_or_else(|e| error!("moniker serialize error: {e}"));
 		buffer.push_str(&s);
 	}
 }

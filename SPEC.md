@@ -46,7 +46,7 @@ Canonical external representation is a **typed-segment URI** using a `+moniker` 
 <scheme>+moniker://<project>/<kind>:<name>[/<kind>:<name>...][#<kind>:<name>[#<kind>:<name>...]]
 ```
 
-The base scheme is caller-configurable (default `pcm`, canonical URI `pcm+moniker://`); a consumer like ESAC uses its own (`esac`, canonical URI `esac+moniker://`). The `+moniker` suffix identifies the canonical typed moniker profile, not the final symbol kind. Kinds are carried by each segment.
+The base scheme is set via the GUC `pg_code_moniker.scheme` (default `pcm+moniker://`). A consumer like ESAC sets it once per database, e.g. `ALTER DATABASE esac SET pg_code_moniker.scheme = 'esac+moniker://'`. The `+moniker` suffix identifies the canonical typed moniker profile, not the final symbol kind. Kinds are carried by each segment. Stored moniker bytes are scheme-independent — only the text I/O (`::text` / `::moniker` casts, `from_uri`, `to_uri`, `moniker_compact`) consults the GUC.
 
 Examples (default scheme):
 
