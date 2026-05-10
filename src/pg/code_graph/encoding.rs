@@ -510,8 +510,6 @@ mod tests {
 		g.add_def(a.clone(), b"class", &root, None).unwrap();
 		g.add_def(b.clone(), b"class", &a, None).unwrap();
 		let mut bytes = encode(&g).unwrap();
-		// Find the parent_idx u32 of the third def (b, parent = 1) and
-		// rewrite it to 99 so it points past the 3 defs.
 		let needle = 1u32.to_le_bytes();
 		let pos = bytes
 			.windows(4)
@@ -532,8 +530,6 @@ mod tests {
 		g.add_def(foo.clone(), b"class", &root, None).unwrap();
 		g.add_ref(&foo, mk(b"ext"), b"call", None).unwrap();
 		let mut bytes = encode(&g).unwrap();
-		// The ref's source u32 (= 1, foo's idx) is at the start of the
-		// refs section. Find and rewrite it to 99.
 		let needle = 1u32.to_le_bytes();
 		let pos = bytes
 			.windows(4)

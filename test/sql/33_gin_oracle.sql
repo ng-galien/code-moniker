@@ -153,7 +153,7 @@ SELECT is(
 	     OR ms @> ARRAY['pcm+moniker://app/lang:java/package:com/package:acme/class:User'::moniker] $q$),
 	'@> OR @> : two-key union');
 
--- array equality (not GIN-served but the result must still match)
+-- =
 SELECT is(
 	oracle_idx_id($q$ SELECT id FROM oracle_arr
 	  WHERE ms = ARRAY['pcm+moniker://app/lang:java/package:com/package:acme/class:User'::moniker] $q$),
@@ -161,7 +161,7 @@ SELECT is(
 	  WHERE ms = ARRAY['pcm+moniker://app/lang:java/package:com/package:acme/class:User'::moniker] $q$),
 	'= : full-array equality');
 
--- sanity: GIN must actually serve the queries
+-- sanity
 SELECT ok(
 	oracle_uses_gin($q$ SELECT id FROM oracle_arr
 	  WHERE ms @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:util/class:Helper'::moniker] $q$),
@@ -172,7 +172,7 @@ SELECT ok(
 	  WHERE ms && ARRAY['pcm+moniker://app/lang:ts/dir:src/module:util/class:Helper'::moniker] $q$),
 	'sanity: && served by GIN');
 
--- on the canonical shape: graph_def_monikers(graph) wrapped in GIN
+-- graph_def_monikers(graph) wrapped in GIN
 CREATE TEMP TABLE oracle_module(id text, graph code_graph);
 INSERT INTO oracle_module VALUES
 	('lib', extract_typescript('src/lib.ts',
