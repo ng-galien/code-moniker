@@ -340,6 +340,12 @@ mod tests {
 			.build()
 	}
 
+	fn mk_under(parent: &Moniker, kind: &[u8], name: &[u8]) -> Moniker {
+		let mut b = MonikerBuilder::from_view(parent.as_view());
+		b.segment(kind, name);
+		b.build()
+	}
+
 	#[test]
 	fn roundtrip_empty_graph() {
 		let g = CodeGraph::new(mk(b"util"), b"module");
@@ -351,7 +357,7 @@ mod tests {
 	#[test]
 	fn roundtrip_with_defs_and_refs() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
+		let foo = mk_under(&root, b"path", b"foo");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		let attrs = DefAttrs {
 			visibility: b"public",
@@ -377,7 +383,7 @@ mod tests {
 	#[test]
 	fn roundtrip_exercises_none_sentinels() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
+		let foo = mk_under(&root, b"path", b"foo");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(foo.clone(), b"function", &root, None).unwrap();
 		g.add_ref(&foo, mk(b"ext"), b"calls", None).unwrap();
@@ -395,7 +401,7 @@ mod tests {
 		let root = mk(b"util");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		for i in 0..8 {
-			let m = mk(format!("c_{i}").as_bytes());
+			let m = mk_under(&root, b"path", format!("c_{i}").as_bytes());
 			g.add_def(m.clone(), b"class", &root, None).unwrap();
 			g.add_ref(&m, mk(b"ext"), b"calls", None).unwrap();
 		}
@@ -430,10 +436,7 @@ mod tests {
 		let root = mk(b"util");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		for i in 0..16 {
-			let m = MonikerBuilder::new()
-				.project(b"app")
-				.segment(b"path", format!("class_{i}").as_bytes())
-				.build();
+			let m = mk_under(&root, b"path", format!("class_{i}").as_bytes());
 			let attrs = DefAttrs {
 				visibility: b"public",
 				signature: b"fn(x: i32, y: String) -> Vec<u8>",

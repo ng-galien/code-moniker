@@ -52,6 +52,7 @@ pub struct RefAttrs<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GraphError {
 	ParentNotFound,
+	ParentNotAncestor,
 	SourceNotFound,
 	DuplicateMoniker,
 }
@@ -60,6 +61,11 @@ impl std::fmt::Display for GraphError {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::ParentNotFound => write!(f, "parent moniker not found in graph"),
+			Self::ParentNotAncestor => write!(
+				f,
+				"parent moniker is not the structural ancestor of the def \
+				 (def.parent() != parent)"
+			),
 			Self::SourceNotFound => write!(f, "ref source moniker not found in graph"),
 			Self::DuplicateMoniker => write!(f, "duplicate moniker in graph defs"),
 		}
@@ -154,6 +160,17 @@ impl CodeGraph {
 		use crate::core::kinds::ORIGIN_EXTRACTED;
 		if self.find_def(&moniker).is_some() {
 			return Err(GraphError::DuplicateMoniker);
+		}
+		// Structural sanity check: the def must live under `parent` in the
+		// canonical tree (same project + parent's bytes are a prefix of the
+		// def's bytes). Extractors may collapse intermediate segments (the
+		// SQL extractor parents schema-qualified tables to the module,
+		// skipping the implicit `schema:` segment) so we accept any
+		// ancestor, not just the direct one. The check still rejects
+		// cross-project parents and parents whose path diverges from the
+		// def — graphs that would contradict their own monikers.
+		if !parent.is_ancestor_of(&moniker) {
+			return Err(GraphError::ParentNotAncestor);
 		}
 		let parent_idx = self.find_def(parent).ok_or(GraphError::ParentNotFound)?;
 		let new_idx = self.defs.len();
@@ -368,6 +385,12 @@ mod tests {
 			.build()
 	}
 
+	fn mk_under(parent: &Moniker, kind: &[u8], name: &[u8]) -> Moniker {
+		let mut b = MonikerBuilder::from_view(parent.as_view());
+		b.segment(kind, name);
+		b.build()
+	}
+
 	#[test]
 	fn new_graph_has_only_root() {
 		let root = mk(b"util");
@@ -381,7 +404,7 @@ mod tests {
 	#[test]
 	fn add_def_attaches_to_existing_parent() {
 		let root = mk(b"util");
-		let child = mk(b"util_child");
+		let child = mk_under(&root, b"path", b"util_child");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(child.clone(), b"class", &root, Some((10, 20)))
 			.unwrap();
@@ -395,11 +418,25 @@ mod tests {
 	fn add_def_unknown_parent_fails() {
 		let root = mk(b"util");
 		let unknown = mk(b"nope");
-		let child = mk(b"child");
+		let child = mk_under(&unknown, b"path", b"child");
 		let mut g = CodeGraph::new(root, b"module");
 		assert_eq!(
 			g.add_def(child, b"class", &unknown, None).unwrap_err(),
 			GraphError::ParentNotFound
+		);
+	}
+
+	#[test]
+	fn add_def_parent_not_ancestor_fails() {
+		let root = mk(b"util");
+		let unrelated = mk_under(&root, b"path", b"sibling");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(unrelated.clone(), b"class", &root, None).unwrap();
+		// child claims `unrelated` as parent but is structured under root.
+		let child = mk_under(&root, b"path", b"orphan");
+		assert_eq!(
+			g.add_def(child, b"class", &unrelated, None).unwrap_err(),
+			GraphError::ParentNotAncestor
 		);
 	}
 
@@ -417,8 +454,8 @@ mod tests {
 	#[test]
 	fn add_def_records_parent_index() {
 		let root = mk(b"util");
-		let a = mk(b"a");
-		let b = mk(b"b");
+		let a = mk_under(&root, b"path", b"a");
+		let b = mk_under(&a, b"path", b"b");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(a.clone(), b"class", &root, None).unwrap();
 		g.add_def(b.clone(), b"class", &a, None).unwrap();
@@ -432,7 +469,7 @@ mod tests {
 	#[test]
 	fn add_ref_records_source_index_and_target() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
+		let foo = mk_under(&root, b"path", b"foo");
 		let target = mk(b"external_thing");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(foo.clone(), b"class", &root, None).unwrap();
@@ -462,7 +499,7 @@ mod tests {
 	#[test]
 	fn ref_target_may_be_outside_graph() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
+		let foo = mk_under(&root, b"path", b"foo");
 		let outside = mk(b"some_external_moniker");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(foo.clone(), b"class", &root, None).unwrap();
@@ -475,7 +512,7 @@ mod tests {
 	#[test]
 	fn contains_distinguishes_existing_and_unknown() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
+		let foo = mk_under(&root, b"path", b"foo");
 		let unknown = mk(b"unknown");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(foo.clone(), b"class", &root, None).unwrap();
@@ -487,7 +524,7 @@ mod tests {
 	#[test]
 	fn locate_returns_none_when_no_position() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
+		let foo = mk_under(&root, b"path", b"foo");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(foo.clone(), b"class", &root, None).unwrap();
 		assert_eq!(g.locate(&foo), None);
@@ -504,8 +541,8 @@ mod tests {
 	#[test]
 	fn def_monikers_returns_all_sorted() {
 		let root = mk(b"a_root");
-		let a = mk(b"c_zzz");
-		let b = mk(b"b_aaa");
+		let a = mk_under(&root, b"path", b"c_zzz");
+		let b = mk_under(&root, b"path", b"b_aaa");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(a.clone(), b"class", &root, None).unwrap();
 		g.add_def(b.clone(), b"class", &root, None).unwrap();
@@ -523,8 +560,8 @@ mod tests {
 	#[test]
 	fn def_monikers_cache_invalidates_on_add_def() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
-		let bar = mk(b"bar");
+		let foo = mk_under(&root, b"path", b"foo");
+		let bar = mk_under(&root, b"path", b"bar");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(foo.clone(), b"class", &root, None).unwrap();
 		let first = g.def_monikers();
@@ -537,7 +574,7 @@ mod tests {
 	#[test]
 	fn ref_targets_cache_invalidates_on_add_ref() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
+		let foo = mk_under(&root, b"path", b"foo");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(foo.clone(), b"class", &root, None).unwrap();
 		let first = g.ref_targets();
@@ -550,8 +587,8 @@ mod tests {
 	#[test]
 	fn ref_targets_collects_all_with_duplicates() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
-		let bar = mk(b"bar");
+		let foo = mk_under(&root, b"path", b"foo");
+		let bar = mk_under(&root, b"path", b"bar");
 		let target_a = mk(b"target_a");
 		let target_b = mk(b"target_b");
 
@@ -572,7 +609,7 @@ mod tests {
 	#[test]
 	fn clone_produces_equal_graph() {
 		let root = mk(b"util");
-		let foo = mk(b"foo");
+		let foo = mk_under(&root, b"path", b"foo");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(foo.clone(), b"class", &root, Some((1, 2)))
 			.unwrap();
@@ -588,7 +625,7 @@ mod tests {
 		use std::hash::{Hash, Hasher};
 
 		let root = mk(b"util");
-		let foo = mk(b"foo");
+		let foo = mk_under(&root, b"path", b"foo");
 		let make = || {
 			let mut g = CodeGraph::new(root.clone(), b"module");
 			g.add_def(foo.clone(), b"class", &root, None).unwrap();
@@ -608,7 +645,7 @@ mod tests {
 	#[test]
 	fn find_def_self_heals_after_deserialize_like_state() {
 		let root = mk(b"util");
-		let a = mk(b"a");
+		let a = mk_under(&root, b"path", b"a");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(a.clone(), b"class", &root, None).unwrap();
 		g.index.borrow_mut().clear();
