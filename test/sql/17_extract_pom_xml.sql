@@ -4,7 +4,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(6);
+SELECT plan(7);
 
 SELECT has_function('extract_pom_xml'::name, ARRAY['text'],
 	'extract_pom_xml(text) is exposed');

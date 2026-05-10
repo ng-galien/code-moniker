@@ -7,7 +7,9 @@
 #   3. Drop and recreate a fresh test DB.
 #   4. Execute each test/sql/*.sql file with psql, surfacing TAP output.
 #
-# Exit code is non-zero on any "not ok" line or psql failure.
+# Exit code is non-zero on any "not ok" line, plan/run mismatch
+# ("# Looks like you planned X tests but ran Y" — pgTAP's silent
+# failure mode), or psql error.
 
 set -euo pipefail
 
@@ -37,6 +39,10 @@ for f in "$TEST_DIR"/*.sql; do
 	fi
 	echo "$output"
 	if grep -qE '^[[:space:]]*not ok' <<<"$output"; then
+		fail=1
+	fi
+	if grep -qE '^# Looks like you planned' <<<"$output"; then
+		echo "# FAIL ${f##*/} (plan/run mismatch)"
 		fail=1
 	fi
 done

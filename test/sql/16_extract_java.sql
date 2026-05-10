@@ -4,7 +4,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
 
-SELECT plan(8);
+SELECT plan(9);
 
 SELECT has_function('extract_java'::name,
 	ARRAY['text','text','moniker','boolean'],
