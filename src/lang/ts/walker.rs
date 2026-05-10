@@ -8,7 +8,7 @@ use crate::core::moniker::Moniker;
 
 use super::canonicalize::{
 	anonymous_callback_name, callable_param_types, extend_callable_typed, extend_segment,
-	node_position,
+	extend_segment_u32, node_position,
 };
 use super::kinds;
 use super::scope::{class_member_visibility, collect_binding_names, is_callable_scope};
@@ -95,8 +95,7 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let id = node.start_byte().to_string();
-		let m = extend_segment(scope, kinds::COMMENT, id.as_bytes());
+		let m = extend_segment_u32(scope, kinds::COMMENT, node.start_byte() as u32);
 		let _ = graph.add_def(m, kinds::COMMENT, scope, Some(node_position(node)));
 	}
 

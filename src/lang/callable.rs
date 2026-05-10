@@ -6,6 +6,26 @@ pub(crate) fn extend_segment(parent: &Moniker, kind: &[u8], name: &[u8]) -> Moni
 	b.build()
 }
 
+pub(crate) fn extend_segment_u32(parent: &Moniker, kind: &[u8], n: u32) -> Moniker {
+	let mut buf = [0u8; 10];
+	extend_segment(parent, kind, decimal_bytes(n as u64, &mut buf))
+}
+
+fn decimal_bytes(n: u64, buf: &mut [u8]) -> &[u8] {
+	if n == 0 {
+		buf[buf.len() - 1] = b'0';
+		return &buf[buf.len() - 1..];
+	}
+	let mut i = buf.len();
+	let mut x = n;
+	while x > 0 {
+		i -= 1;
+		buf[i] = b'0' + (x % 10) as u8;
+		x /= 10;
+	}
+	&buf[i..]
+}
+
 pub(crate) fn append_dir_module_segments(
 	b: &mut MonikerBuilder,
 	path: &str,
@@ -65,7 +85,8 @@ pub(crate) fn callable_segment_arity(name: &[u8], arity: u16) -> Vec<u8> {
 	full.extend_from_slice(name);
 	full.push(b'(');
 	if arity != 0 {
-		full.extend_from_slice(arity.to_string().as_bytes());
+		let mut buf = [0u8; 5];
+		full.extend_from_slice(decimal_bytes(arity as u64, &mut buf));
 	}
 	full.push(b')');
 	full

@@ -6,7 +6,9 @@ use tree_sitter::Node;
 use crate::core::code_graph::{CodeGraph, DefAttrs};
 use crate::core::moniker::Moniker;
 
-use super::canonicalize::{extend_callable_typed, extend_segment, node_position};
+use super::canonicalize::{
+	extend_callable_typed, extend_segment, extend_segment_u32, node_position,
+};
 use super::kinds;
 use super::scope::{is_callable_scope, modifier_visibility};
 
@@ -58,8 +60,7 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let id = node.start_byte().to_string();
-		let m = extend_segment(scope, kinds::COMMENT, id.as_bytes());
+		let m = extend_segment_u32(scope, kinds::COMMENT, node.start_byte() as u32);
 		let _ = graph.add_def(m, kinds::COMMENT, scope, Some(node_position(node)));
 	}
 

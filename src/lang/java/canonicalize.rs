@@ -41,7 +41,7 @@ pub(super) fn read_package_name<'src>(root: Node<'_>, source: &'src [u8]) -> &'s
 }
 
 pub(super) use crate::lang::callable::{
-	extend_callable_arity, extend_callable_typed, extend_segment,
+	extend_callable_arity, extend_callable_typed, extend_segment, extend_segment_u32,
 };
 
 pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
