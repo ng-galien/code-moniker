@@ -1,10 +1,15 @@
 # syntax=docker/dockerfile:1
 
+# Global args, declared before the first FROM so they can be referenced
+# in every stage (including the runtime base image tag).
+ARG PG_MAJOR=17
+ARG PGRX_VERSION=0.18.0
+
 # ---------- builder ----------
 FROM rust:1.95-bookworm AS builder
 
-ARG PG_MAJOR=17
-ARG PGRX_VERSION=0.18.0
+ARG PG_MAJOR
+ARG PGRX_VERSION
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -31,9 +36,9 @@ RUN cargo pgrx package \
         --pg-config /usr/lib/postgresql/${PG_MAJOR}/bin/pg_config
 
 # ---------- runtime ----------
-FROM postgres:17
+FROM postgres:${PG_MAJOR}
 
-ARG PG_MAJOR=17
+ARG PG_MAJOR
 
 COPY --from=builder /src/target/release/pg_code_moniker-pg${PG_MAJOR}/usr/lib/postgresql/${PG_MAJOR}/lib/pg_code_moniker.so \
     /usr/lib/postgresql/${PG_MAJOR}/lib/
