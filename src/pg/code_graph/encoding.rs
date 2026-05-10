@@ -44,6 +44,7 @@ pub enum EncodingError {
 	UnknownVersion(u16),
 	IndexOverflow,
 	LengthOverflow(&'static str),
+	InvalidIndex(&'static str),
 }
 
 impl fmt::Display for EncodingError {
@@ -53,6 +54,9 @@ impl fmt::Display for EncodingError {
 			Self::UnknownVersion(v) => write!(f, "code_graph: unknown encoding version {v}"),
 			Self::IndexOverflow => write!(f, "code_graph: parent or source index overflows u32"),
 			Self::LengthOverflow(what) => write!(f, "code_graph: {what} length overflows its slot"),
+			Self::InvalidIndex(what) => {
+				write!(f, "code_graph: {what} points past the defs section")
+			}
 		}
 	}
 }
@@ -146,6 +150,11 @@ pub(super) fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 		let moniker = cur.read_moniker()?;
 		let kind = cur.read_short_bytes("def kind")?.to_vec();
 		let parent = cur.read_opt_idx()?;
+		if let Some(p) = parent
+			&& p >= def_count
+		{
+			return Err(EncodingError::InvalidIndex("def parent"));
+		}
 		let position = cur.read_opt_pos()?;
 		let visibility = cur.read_short_bytes("def visibility")?.to_vec();
 		let signature = cur.read_medium_bytes("def signature")?.to_vec();
@@ -166,6 +175,9 @@ pub(super) fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 	let mut ref_records: Vec<RefRecord> = Vec::with_capacity(ref_count);
 	for _ in 0..ref_count {
 		let source = cur.read_u32("ref source")? as usize;
+		if source >= def_count {
+			return Err(EncodingError::InvalidIndex("ref source"));
+		}
 		let target = cur.read_moniker()?;
 		let kind = cur.read_short_bytes("ref kind")?.to_vec();
 		let position = cur.read_opt_pos()?;
@@ -427,6 +439,110 @@ mod tests {
 		assert!(matches!(
 			decode(truncated),
 			Err(EncodingError::Truncated(_))
+		));
+	}
+
+	#[test]
+	fn position_just_below_u32_max_round_trips() {
+		let root = mk(b"util");
+		let foo = mk_under(&root, b"path", b"foo");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(
+			foo.clone(),
+			b"class",
+			&root,
+			Some((u32::MAX - 1, u32::MAX - 1)),
+		)
+		.unwrap();
+		let g2 = decode(&encode(&g).unwrap()).unwrap();
+		let foo_def = g2.defs().find(|d| d.moniker == foo).unwrap();
+		assert_eq!(foo_def.position, Some((u32::MAX - 1, u32::MAX - 1)));
+	}
+
+	#[test]
+	fn position_both_at_u32_max_collides_with_none_sentinel() {
+		let root = mk(b"util");
+		let foo = mk_under(&root, b"path", b"foo");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(foo.clone(), b"class", &root, Some((u32::MAX, u32::MAX)))
+			.unwrap();
+		let g2 = decode(&encode(&g).unwrap()).unwrap();
+		let foo_def = g2.defs().find(|d| d.moniker == foo).unwrap();
+		assert_eq!(foo_def.position, None);
+	}
+
+	#[test]
+	fn position_one_at_u32_max_other_zero_round_trips() {
+		let root = mk(b"util");
+		let foo = mk_under(&root, b"path", b"foo");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(foo.clone(), b"class", &root, Some((u32::MAX, 0)))
+			.unwrap();
+		let g2 = decode(&encode(&g).unwrap()).unwrap();
+		let foo_def = g2.defs().find(|d| d.moniker == foo).unwrap();
+		assert_eq!(foo_def.position, Some((u32::MAX, 0)));
+	}
+
+	#[test]
+	fn moniker_with_max_u16_project_round_trips_through_code_graph() {
+		let big = vec![b'a'; u16::MAX as usize];
+		let root = MonikerBuilder::new()
+			.project(&big)
+			.segment(b"path", b"r")
+			.build();
+		let child = MonikerBuilder::new()
+			.project(&big)
+			.segment(b"path", b"r")
+			.segment(b"path", b"c")
+			.build();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(child.clone(), b"class", &root, None).unwrap();
+		let g2 = decode(&encode(&g).unwrap()).unwrap();
+		assert_eq!(g, g2);
+	}
+
+	#[test]
+	fn decode_rejects_parent_index_past_def_count() {
+		let root = mk(b"util");
+		let a = mk_under(&root, b"path", b"a");
+		let b = mk_under(&a, b"path", b"b");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(a.clone(), b"class", &root, None).unwrap();
+		g.add_def(b.clone(), b"class", &a, None).unwrap();
+		let mut bytes = encode(&g).unwrap();
+		// Find the parent_idx u32 of the third def (b, parent = 1) and
+		// rewrite it to 99 so it points past the 3 defs.
+		let needle = 1u32.to_le_bytes();
+		let pos = bytes
+			.windows(4)
+			.rposition(|w| w == needle)
+			.expect("parent idx u32 must be present");
+		bytes[pos..pos + 4].copy_from_slice(&99u32.to_le_bytes());
+		assert!(matches!(
+			decode(&bytes),
+			Err(EncodingError::InvalidIndex("def parent"))
+		));
+	}
+
+	#[test]
+	fn decode_rejects_source_index_past_def_count() {
+		let root = mk(b"util");
+		let foo = mk_under(&root, b"path", b"foo");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(foo.clone(), b"class", &root, None).unwrap();
+		g.add_ref(&foo, mk(b"ext"), b"call", None).unwrap();
+		let mut bytes = encode(&g).unwrap();
+		// The ref's source u32 (= 1, foo's idx) is at the start of the
+		// refs section. Find and rewrite it to 99.
+		let needle = 1u32.to_le_bytes();
+		let pos = bytes
+			.windows(4)
+			.rposition(|w| w == needle)
+			.expect("source idx u32 must be present");
+		bytes[pos..pos + 4].copy_from_slice(&99u32.to_le_bytes());
+		assert!(matches!(
+			decode(&bytes),
+			Err(EncodingError::InvalidIndex(_))
 		));
 	}
 
