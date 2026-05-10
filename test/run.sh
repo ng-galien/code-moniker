@@ -7,9 +7,14 @@
 #   3. Drop and recreate a fresh test DB.
 #   4. Execute each test/sql/*.sql file with psql, surfacing TAP output.
 #
-# Exit code is non-zero on any "not ok" line, plan/run mismatch
-# ("# Looks like you planned X tests but ran Y" — pgTAP's silent
-# failure mode), or psql error.
+# Exit code is non-zero on any of the failure modes pgTAP can surface:
+#   - "not ok …"                     individual test failed
+#   - "# Looks like you planned …"   plan() smaller/larger than run count
+#   - "# Looks like you failed …"    rollup line emitted when ≥1 test failed
+#   - "Dubious"                      prove-harness convention; cheap to also
+#                                    catch in case of nested runners
+# A non-zero psql exit (ON_ERROR_STOP triggered, e.g. an ERROR raised
+# outside any pgtap `throws_*` assertion) is also fatal.
 
 set -euo pipefail
 
@@ -38,11 +43,27 @@ for f in "$TEST_DIR"/*.sql; do
 		continue
 	fi
 	echo "$output"
+	file_fail=0
 	if grep -qE '^[[:space:]]*not ok' <<<"$output"; then
-		fail=1
+		file_fail=1
 	fi
 	if grep -qE '^# Looks like you planned' <<<"$output"; then
 		echo "# FAIL ${f##*/} (plan/run mismatch)"
+		file_fail=1
+	fi
+	if grep -qE '^# Looks like you failed' <<<"$output"; then
+		echo "# FAIL ${f##*/} (failure rollup)"
+		file_fail=1
+	fi
+	if grep -qE '^# Failed test\b' <<<"$output"; then
+		echo "# FAIL ${f##*/} (per-assert failure)"
+		file_fail=1
+	fi
+	if grep -qE '\bDubious\b' <<<"$output"; then
+		echo "# FAIL ${f##*/} (dubious harness state)"
+		file_fail=1
+	fi
+	if [ "$file_fail" -ne 0 ]; then
 		fail=1
 	fi
 done
