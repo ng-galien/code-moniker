@@ -11,9 +11,7 @@ use super::canonicalize::{
 	node_position,
 };
 use super::kinds;
-use super::scope::{
-	class_member_visibility, collect_binding_names, is_callable_scope, section_title,
-};
+use super::scope::{class_member_visibility, collect_binding_names, is_callable_scope};
 
 pub(super) struct Walker<'src> {
 	pub(super) source_bytes: &'src [u8],
@@ -97,10 +95,9 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		if let Some(title) = section_title(node, self.source_bytes) {
-			let m = extend_segment(scope, kinds::SECTION, title.as_bytes());
-			let _ = graph.add_def(m, kinds::SECTION, scope, Some(node_position(node)));
-		}
+		let id = node.start_byte().to_string();
+		let m = extend_segment(scope, kinds::COMMENT, id.as_bytes());
+		let _ = graph.add_def(m, kinds::COMMENT, scope, Some(node_position(node)));
 	}
 
 	fn handle_export(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
@@ -199,6 +196,7 @@ impl<'src> Walker<'src> {
 					self.handle_field(child, parent, graph)
 				}
 				"decorator" => self.handle_decorator(child, parent, graph),
+				"comment" => self.handle_comment(child, parent, graph),
 				_ => {}
 			}
 		}

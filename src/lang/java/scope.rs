@@ -36,22 +36,6 @@ pub(super) fn modifier_visibility(node: Node<'_>) -> &'static [u8] {
 	kinds::VIS_PACKAGE
 }
 
-pub(super) fn section_title<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
-	let raw = node.utf8_text(source).ok()?;
-	let body = raw
-		.strip_prefix("//")
-		.or_else(|| raw.strip_prefix("/*").and_then(|s| s.strip_suffix("*/")))
-		.unwrap_or(raw);
-	let body = body.trim();
-	let stripped = body.trim_matches(|c: char| c == '=' || c == '-' || c.is_whitespace());
-	if stripped.is_empty() {
-		return None;
-	}
-	let starts = body.starts_with("==") || body.starts_with("--");
-	let ends = body.ends_with("==") || body.ends_with("--");
-	(starts && ends).then_some(stripped)
-}
-
 impl<'src> Walker<'src> {
 	pub(super) fn push_local_scope(&self) {
 		self.local_scope.borrow_mut().push(HashSet::new());

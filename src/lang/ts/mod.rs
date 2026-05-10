@@ -1028,20 +1028,23 @@ mod tests {
 		);
 	}
 	#[test]
-	fn extract_section_comment_emits_section_def() {
+	fn extract_comment_emits_comment_def() {
+		let g = extract("util.ts", "// hello\nclass Foo {}", &make_anchor(), false);
+		let comments: Vec<_> = g.defs().filter(|d| d.kind == b"comment").collect();
+		assert_eq!(comments.len(), 1);
+		assert_eq!(comments[0].position, Some((0, 8)));
+	}
+
+	#[test]
+	fn extract_emits_one_comment_def_per_comment_node() {
 		let g = extract(
 			"util.ts",
-			"// ===== Public API =====\nclass Foo {}",
+			"// a\n// b\nclass Foo { /* c */ }",
 			&make_anchor(),
 			false,
 		);
-		assert!(
-			g.defs().any(|d| d.kind == b"section"),
-			"expected section def; defs: {:?}",
-			g.defs()
-				.map(|d| String::from_utf8_lossy(&d.kind).into_owned())
-				.collect::<Vec<_>>()
-		);
+		let comments: Vec<_> = g.defs().filter(|d| d.kind == b"comment").collect();
+		assert_eq!(comments.len(), 3);
 	}
 	#[test]
 	fn extract_export_default_class_named_default() {

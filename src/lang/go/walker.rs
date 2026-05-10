@@ -38,6 +38,7 @@ impl<'src> Walker<'src> {
 	pub(super) fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		match node.kind() {
 			"package_clause" => {}
+			"comment" => self.handle_comment(node, scope, graph),
 			"import_declaration" => self.handle_import(node, scope, graph),
 			"function_declaration" => self.handle_function(node, scope, graph),
 			"method_declaration" => self.handle_method(node, scope, graph),
@@ -49,6 +50,12 @@ impl<'src> Walker<'src> {
 			"range_clause" => self.handle_range_clause(node, scope, graph),
 			_ => self.walk(node, scope, graph),
 		}
+	}
+
+	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let id = node.start_byte().to_string();
+		let m = extend_segment(scope, kinds::COMMENT, id.as_bytes());
+		let _ = graph.add_def(m, kinds::COMMENT, scope, Some(node_position(node)));
 	}
 
 	fn handle_type_declaration(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {

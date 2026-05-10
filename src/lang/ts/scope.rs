@@ -42,22 +42,6 @@ pub(super) fn class_member_visibility(node: Node<'_>, source: &[u8]) -> &'static
 	kinds::VIS_PUBLIC
 }
 
-pub(super) fn section_title<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
-	let raw = node.utf8_text(source).ok()?;
-	let body = raw
-		.strip_prefix("//")
-		.or_else(|| raw.strip_prefix("/*").and_then(|s| s.strip_suffix("*/")))
-		.unwrap_or(raw);
-	let body = body.trim();
-	let stripped = body.trim_matches(|c: char| c == '=' || c == '-' || c.is_whitespace());
-	if stripped.is_empty() {
-		return None;
-	}
-	let starts = body.starts_with("==") || body.starts_with("--");
-	let ends = body.ends_with("==") || body.ends_with("--");
-	(starts && ends).then_some(stripped)
-}
-
 pub(super) fn collect_binding_names<'src>(pat: Node<'_>, source: &'src [u8]) -> Vec<&'src str> {
 	fn rec<'src>(node: Node<'_>, source: &'src [u8], out: &mut Vec<&'src str>) {
 		match node.kind() {

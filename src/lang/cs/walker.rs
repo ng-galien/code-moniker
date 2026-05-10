@@ -41,6 +41,7 @@ impl<'src> Walker<'src> {
 			"namespace_declaration" | "file_scoped_namespace_declaration" => {
 				self.walk(node, scope, graph);
 			}
+			"comment" => self.handle_comment(node, scope, graph),
 			"class_declaration" => self.handle_type(node, scope, graph, kinds::CLASS),
 			"struct_declaration" => self.handle_type(node, scope, graph, kinds::STRUCT),
 			"interface_declaration" => self.handle_type(node, scope, graph, kinds::INTERFACE),
@@ -58,6 +59,12 @@ impl<'src> Walker<'src> {
 			"foreach_statement" => self.handle_foreach(node, scope, graph),
 			_ => self.walk(node, scope, graph),
 		}
+	}
+
+	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let id = node.start_byte().to_string();
+		let m = extend_segment(scope, kinds::COMMENT, id.as_bytes());
+		let _ = graph.add_def(m, kinds::COMMENT, scope, Some(node_position(node)));
 	}
 
 	fn handle_type(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph, kind: &[u8]) {

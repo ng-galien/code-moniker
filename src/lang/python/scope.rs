@@ -35,21 +35,6 @@ pub(super) fn is_class_scope(scope: &Moniker) -> bool {
 	last.kind == kinds::CLASS
 }
 
-pub(super) fn section_title(text: &str) -> Option<&str> {
-	let body = text.strip_prefix('#').unwrap_or(text).trim();
-	let starts = body.starts_with("==") || body.starts_with("--");
-	let ends = body.ends_with("==") || body.ends_with("--");
-	if !(starts && ends) {
-		return None;
-	}
-	let stripped = body.trim_matches(|c: char| c == '=' || c == '-' || c.is_whitespace());
-	if stripped.is_empty() {
-		None
-	} else {
-		Some(stripped)
-	}
-}
-
 impl<'src> Walker<'src> {
 	pub(super) fn push_local_scope(&self) {
 		self.local_scope.borrow_mut().push(HashSet::new());

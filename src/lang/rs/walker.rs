@@ -44,6 +44,7 @@ impl<'src> Walker<'src> {
 				"function_item" => self.handle_function(child, parent, graph, kinds::FN),
 				"impl_item" => self.handle_impl(child, parent, graph),
 				"use_declaration" => self.handle_use(child, parent, graph),
+				"line_comment" | "block_comment" => self.handle_comment(child, parent, graph),
 				_ => {}
 			}
 		}
@@ -145,6 +146,7 @@ impl<'src> Walker<'src> {
 		for child in node.named_children(&mut cursor) {
 			match child.kind() {
 				"let_declaration" => self.handle_let(child, callable, graph),
+				"line_comment" | "block_comment" => self.handle_comment(child, callable, graph),
 				"block"
 				| "if_expression"
 				| "match_expression"
@@ -159,6 +161,12 @@ impl<'src> Walker<'src> {
 				_ => {}
 			}
 		}
+	}
+
+	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let id = node.start_byte().to_string();
+		let m = extend_segment(scope, kinds::COMMENT, id.as_bytes());
+		let _ = graph.add_def(m, kinds::COMMENT, scope, Some(node_position(node)));
 	}
 
 	fn handle_let(&self, node: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
@@ -210,8 +218,10 @@ impl<'src> Walker<'src> {
 	fn walk_impl_body(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
-			if child.kind() == "function_item" {
-				self.handle_function(child, parent, graph, kinds::METHOD)
+			match child.kind() {
+				"function_item" => self.handle_function(child, parent, graph, kinds::METHOD),
+				"line_comment" | "block_comment" => self.handle_comment(child, parent, graph),
+				_ => {}
 			}
 		}
 	}

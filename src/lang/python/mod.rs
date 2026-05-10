@@ -102,6 +102,14 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_emits_comment_def_per_comment_node() {
+		let src = "# a\n# b\nclass Foo: pass\n";
+		let g = extract_default("acme/foo.py", src, &make_anchor(), false);
+		let n = g.defs().filter(|d| d.kind == b"comment").count();
+		assert_eq!(n, 2);
+	}
+
+	#[test]
 	fn extract_module_uses_path_segments() {
 		let g = extract_default("acme/util/text.py", "", &make_anchor(), false);
 		let expected = MonikerBuilder::new()

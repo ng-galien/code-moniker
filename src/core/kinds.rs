@@ -12,7 +12,7 @@ pub const BIND_INJECT: &[u8] = b"inject";
 pub const BIND_NONE: &[u8] = b"none";
 
 pub const KIND_MODULE: &[u8] = b"module";
-pub const KIND_SECTION: &[u8] = b"section";
+pub const KIND_COMMENT: &[u8] = b"comment";
 pub const KIND_LOCAL: &[u8] = b"local";
 pub const KIND_PARAM: &[u8] = b"param";
 

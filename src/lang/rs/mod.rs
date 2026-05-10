@@ -91,6 +91,14 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_emits_comment_def_per_comment_node() {
+		let src = "// a\n/// b\nstruct Foo;\n";
+		let g = extract("src/lib.rs", src, &make_anchor(), false);
+		let n = g.defs().filter(|d| d.kind == b"comment").count();
+		assert_eq!(n, 2);
+	}
+
+	#[test]
 	fn extract_empty_yields_module_only_graph() {
 		let anchor = make_anchor();
 		let g = extract("src/lib.rs", "", &anchor, false);

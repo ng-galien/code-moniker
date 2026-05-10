@@ -8,7 +8,7 @@ use crate::core::moniker::Moniker;
 
 use super::canonicalize::{extend_callable_typed, extend_segment, node_position};
 use super::kinds;
-use super::scope::{is_callable_scope, is_class_scope, section_title, visibility_from_name};
+use super::scope::{is_callable_scope, is_class_scope, visibility_from_name};
 
 pub(super) struct Walker<'src> {
 	pub(super) source_bytes: &'src [u8],
@@ -48,12 +48,9 @@ impl<'src> Walker<'src> {
 	}
 
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let text = self.text_of(node);
-		let Some(title) = section_title(text) else {
-			return;
-		};
-		let m = extend_segment(scope, kinds::SECTION, title.as_bytes());
-		let _ = graph.add_def(m, kinds::SECTION, scope, Some(node_position(node)));
+		let id = node.start_byte().to_string();
+		let m = extend_segment(scope, kinds::COMMENT, id.as_bytes());
+		let _ = graph.add_def(m, kinds::COMMENT, scope, Some(node_position(node)));
 	}
 
 	fn handle_decorated(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {

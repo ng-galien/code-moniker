@@ -102,14 +102,14 @@ mod conformance {
 	use super::LangExtractor;
 	use crate::core::code_graph::{CodeGraph, assert_local_refs_closed};
 	use crate::core::kinds::{
-		BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE, KIND_LOCAL, KIND_MODULE, KIND_PARAM,
-		KIND_SECTION, ORIGIN_EXTRACTED, REF_ANNOTATES, REF_CALLS, REF_DI_REGISTER, REF_DI_REQUIRE,
+		BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE, KIND_COMMENT, KIND_LOCAL, KIND_MODULE,
+		KIND_PARAM, ORIGIN_EXTRACTED, REF_ANNOTATES, REF_CALLS, REF_DI_REGISTER, REF_DI_REQUIRE,
 		REF_EXTENDS, REF_IMPLEMENTS, REF_IMPORTS_MODULE, REF_IMPORTS_SYMBOL, REF_INSTANTIATES,
 		REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE, VIS_NONE,
 	};
 	use crate::core::moniker::Moniker;
 
-	const INTERNAL_KINDS: &[&[u8]] = &[KIND_MODULE, KIND_LOCAL, KIND_PARAM, KIND_SECTION];
+	const INTERNAL_KINDS: &[&[u8]] = &[KIND_MODULE, KIND_LOCAL, KIND_PARAM, KIND_COMMENT];
 
 	pub fn assert_conformance<E: LangExtractor>(graph: &CodeGraph, anchor: &Moniker) {
 		assert_root_under_anchor::<E>(graph, anchor);

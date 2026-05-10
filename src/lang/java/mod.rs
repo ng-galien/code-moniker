@@ -117,6 +117,14 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_emits_comment_def_per_comment_node() {
+		let src = "// a\n/* b */\nclass Foo {}\n";
+		let g = extract_default("src/Foo.java", src, &make_anchor(), false);
+		let n = g.defs().filter(|d| d.kind == b"comment").count();
+		assert_eq!(n, 2);
+	}
+
+	#[test]
 	fn extract_module_uses_package_decl_and_class_filename() {
 		let src = "package com.acme;\nclass Foo {}\n";
 		let g = extract_default("src/Foo.java", src, &make_anchor(), false);

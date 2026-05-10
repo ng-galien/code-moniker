@@ -110,6 +110,14 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_emits_comment_def_per_comment_node() {
+		let src = "package text\n// a\n/* b */\nfunc Foo() {}\n";
+		let g = extract_default("text.go", src, &make_anchor(), false);
+		let n = g.defs().filter(|d| d.kind == b"comment").count();
+		assert_eq!(n, 2);
+	}
+
+	#[test]
 	fn extract_module_uses_path_segments() {
 		let g = extract_default("acme/util/text.go", "package text\n", &make_anchor(), false);
 		let expected = MonikerBuilder::new()

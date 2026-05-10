@@ -292,10 +292,10 @@ impl CodeGraph {
 
 fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
 	use crate::core::kinds::{
-		BIND_EXPORT, BIND_LOCAL, BIND_NONE, KIND_LOCAL, KIND_MODULE, KIND_PARAM, KIND_SECTION,
+		BIND_EXPORT, BIND_LOCAL, BIND_NONE, KIND_COMMENT, KIND_LOCAL, KIND_MODULE, KIND_PARAM,
 		VIS_MODULE, VIS_PACKAGE, VIS_PRIVATE, VIS_PROTECTED, VIS_PUBLIC,
 	};
-	if kind == KIND_SECTION {
+	if kind == KIND_COMMENT {
 		return BIND_NONE;
 	}
 	if kind == KIND_LOCAL || kind == KIND_PARAM {
@@ -645,8 +645,8 @@ mod tests {
 	}
 
 	#[test]
-	fn def_binding_section_is_none() {
-		assert_eq!(default_def_binding(b"section", b""), b"none");
+	fn def_binding_comment_is_none() {
+		assert_eq!(default_def_binding(b"comment", b""), b"none");
 	}
 
 	#[test]
