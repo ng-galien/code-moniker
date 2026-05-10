@@ -101,6 +101,7 @@ impl Hash for CodeGraph {
 }
 
 impl CodeGraph {
+	#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 	pub(crate) fn from_records(defs: Vec<DefRecord>, refs: Vec<RefRecord>) -> Self {
 		let mut index = HashMap::with_capacity(defs.len());
 		for (i, d) in defs.iter().enumerate() {
@@ -237,6 +238,10 @@ impl CodeGraph {
 
 	pub fn defs(&self) -> impl Iterator<Item = &DefRecord> {
 		self.defs.iter()
+	}
+
+	pub fn def_at(&self, i: usize) -> &DefRecord {
+		&self.defs[i]
 	}
 
 	pub fn refs(&self) -> impl Iterator<Item = &RefRecord> {

@@ -316,6 +316,7 @@ mod tests {
 		));
 	}
 
+	#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 	#[test]
 	fn sql_ignores_visibility_field() {
 		let v = json!({

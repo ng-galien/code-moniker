@@ -1,5 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(feature = "cli")]
+pub mod cli;
 pub mod core;
 pub mod lang;
 
