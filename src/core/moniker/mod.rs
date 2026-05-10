@@ -111,4 +111,37 @@ mod tests {
 		assert_eq!(m, m2);
 		assert!(Moniker::from_bytes(vec![99u8; 5]).is_err());
 	}
+
+	use proptest::prelude::*;
+
+	proptest! {
+		// Property: feeding arbitrary bytes to the public parser never
+		// panics. Either it returns Ok (and we sanity-check that a second
+		// round-trip via the validated bytes yields the same Moniker) or
+		// it returns a typed error.
+		#![proptest_config(ProptestConfig {
+			cases: 256,
+			..ProptestConfig::default()
+		})]
+
+		#[test]
+		fn moniker_from_bytes_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
+			if let Ok(m) = Moniker::from_bytes(bytes.clone()) {
+				prop_assert_eq!(m.as_bytes(), bytes.as_slice());
+				let m2 = Moniker::from_bytes(m.as_bytes().to_vec())
+					.expect("validated bytes must re-parse");
+				prop_assert_eq!(m, m2);
+			}
+		}
+
+		// Property: the unvalidated view parser shares its validation
+		// logic with Moniker::from_bytes. Asserts both agree on
+		// accept/reject for the same input.
+		#[test]
+		fn moniker_view_and_owned_agree(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
+			let owned = Moniker::from_bytes(bytes.clone()).is_ok();
+			let view = MonikerView::from_bytes(&bytes).is_ok();
+			prop_assert_eq!(owned, view);
+		}
+	}
 }

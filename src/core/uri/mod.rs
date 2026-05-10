@@ -19,6 +19,7 @@ pub enum UriError {
 	MissingKindSeparator(usize),
 	InvalidKind(String),
 	UnterminatedBacktick(usize),
+	TrailingAfterBacktick(usize),
 	NonUtf8Project,
 	NonUtf8Segment,
 }
@@ -43,6 +44,13 @@ impl std::fmt::Display for UriError {
 			),
 			Self::UnterminatedBacktick(pos) => {
 				write!(f, "unterminated backtick-quoted name at byte {pos}")
+			}
+			Self::TrailingAfterBacktick(pos) => {
+				write!(
+					f,
+					"backtick-quoted name at byte {pos} is followed by data \
+					 other than a `/` separator"
+				)
 			}
 			Self::NonUtf8Project => write!(f, "project authority must be valid UTF-8"),
 			Self::NonUtf8Segment => write!(f, "segment must be valid UTF-8"),
