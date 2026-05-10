@@ -26,7 +26,7 @@ required-features = ["cli"]
 [features]
 default = ["cli"]
 serde   = ["dep:serde"]
-cli     = ["dep:clap", "dep:anyhow", "dep:thiserror", "serde"]
+cli     = ["dep:clap", "dep:anyhow", "dep:thiserror", "dep:regex", "serde"]
 pg14    = ["dep:pgrx", "pgrx/pg14", "serde"]
 pg15    = ["dep:pgrx", "pgrx/pg15", "serde"]
 pg16    = ["dep:pgrx", "pgrx/pg16", "serde"]
@@ -39,6 +39,7 @@ serde     = { version = "1", features = ["derive"], optional = true }
 clap      = { version = "4", features = ["derive"], optional = true }
 anyhow    = { version = "1", optional = true }
 thiserror = { version = "2", optional = true }
+regex     = { version = "1", optional = true }
 
 # Tree-sitter and per-language grammars for the lang/ extractors.
 tree-sitter            = "0.26"

@@ -3,11 +3,11 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use pg_code_moniker::cli::{self, Args};
+use pg_code_moniker::cli::{self, Cli};
 
 fn main() -> ExitCode {
-	let args = match Args::try_parse() {
-		Ok(a) => a,
+	let cli = match Cli::try_parse() {
+		Ok(c) => c,
 		Err(e) => {
 			let _ = e.print();
 			return match e.kind() {
@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 	};
 	let mut stdout = io::stdout().lock();
 	let mut stderr = io::stderr().lock();
-	let exit = cli::run(&args, &mut stdout, &mut stderr);
+	let exit = cli::run(&cli, &mut stdout, &mut stderr);
 	let _ = stdout.flush();
 	let _ = stderr.flush();
 	exit.into()

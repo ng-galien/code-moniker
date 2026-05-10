@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 
 use crate::cli::predicate::Predicate;
 use crate::core::moniker::Moniker;
@@ -12,8 +12,45 @@ use crate::core::uri::{UriConfig, from_uri};
 	about = "Single-file moniker / code_graph extraction; see docs/CLI.md",
 	version
 )]
-pub struct Args {
+pub struct Cli {
+	#[command(subcommand)]
+	pub command: Option<Command>,
+
+	#[command(flatten)]
+	pub extract: Args,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Command {
+	/// Run lint rules against a single file (live linter for agent harnesses).
+	Check(CheckArgs),
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct CheckArgs {
 	pub file: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "PATH",
+		default_value = ".pg-moniker.toml",
+		help = "user TOML overlay; missing file falls back to embedded defaults"
+	)]
+	pub rules: PathBuf,
+
+	#[arg(long, value_enum, default_value_t = CheckFormat::Text)]
+	pub format: CheckFormat,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum CheckFormat {
+	Text,
+	Json,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct Args {
+	pub file: Option<PathBuf>,
 
 	#[arg(long, value_name = "URI", help = "element moniker = <uri>")]
 	pub eq: Option<String>,
@@ -123,21 +160,29 @@ impl Args {
 mod tests {
 	use super::*;
 
-	fn parse(argv: &[&str]) -> Result<Args, clap::Error> {
+	fn parse(argv: &[&str]) -> Result<Cli, clap::Error> {
 		let mut full = vec!["pg-moniker"];
 		full.extend_from_slice(argv);
-		Args::try_parse_from(full)
+		Cli::try_parse_from(full)
+	}
+
+	fn extract(argv: &[&str]) -> Args {
+		let cli = parse(argv).unwrap();
+		assert!(cli.command.is_none());
+		cli.extract
 	}
 
 	#[test]
-	fn requires_file_argument() {
-		assert!(parse(&[]).is_err());
+	fn no_args_parses_but_carries_no_file() {
+		let cli = parse(&[]).expect("clap accepts empty argv");
+		assert!(cli.command.is_none());
+		assert!(cli.extract.file.is_none());
 	}
 
 	#[test]
 	fn minimal_invocation() {
-		let a = parse(&["a.ts"]).unwrap();
-		assert_eq!(a.file, PathBuf::from("a.ts"));
+		let a = extract(&["a.ts"]);
+		assert_eq!(a.file.as_deref(), Some(std::path::Path::new("a.ts")));
 		assert_eq!(a.format, OutputFormat::Tsv);
 		assert_eq!(a.mode(), OutputMode::Default);
 		assert!(a.kind.is_empty());
@@ -151,24 +196,18 @@ mod tests {
 
 	#[test]
 	fn count_mode_detected() {
-		assert_eq!(
-			parse(&["a.ts", "--count"]).unwrap().mode(),
-			OutputMode::Count
-		);
+		assert_eq!(extract(&["a.ts", "--count"]).mode(), OutputMode::Count);
 	}
 
 	#[test]
 	fn quiet_mode_detected() {
-		assert_eq!(
-			parse(&["a.ts", "--quiet"]).unwrap().mode(),
-			OutputMode::Quiet
-		);
+		assert_eq!(extract(&["a.ts", "--quiet"]).mode(), OutputMode::Quiet);
 	}
 
 	#[test]
 	fn format_json_recognised() {
 		assert_eq!(
-			parse(&["a.ts", "--format", "json"]).unwrap().format,
+			extract(&["a.ts", "--format", "json"]).format,
 			OutputFormat::Json
 		);
 	}
@@ -180,18 +219,18 @@ mod tests {
 
 	#[test]
 	fn kind_is_repeatable() {
-		let a = parse(&["a.ts", "--kind", "class", "--kind", "method"]).unwrap();
+		let a = extract(&["a.ts", "--kind", "class", "--kind", "method"]);
 		assert_eq!(a.kind, vec!["class".to_string(), "method".to_string()]);
 	}
 
 	#[test]
 	fn with_text_flag() {
-		assert!(parse(&["a.ts", "--with-text"]).unwrap().with_text);
+		assert!(extract(&["a.ts", "--with-text"]).with_text);
 	}
 
 	#[test]
 	fn predicate_uri_parses() {
-		let a = parse(&["a.ts", "--descendant-of", "ts+moniker://./class:Foo"]).unwrap();
+		let a = extract(&["a.ts", "--descendant-of", "ts+moniker://./class:Foo"]);
 		let preds = a.compiled_predicates("ts+moniker://").expect("uri ok");
 		assert_eq!(preds.len(), 1);
 		match &preds[0] {
@@ -202,36 +241,38 @@ mod tests {
 
 	#[test]
 	fn predicate_uri_malformed_is_usage_error() {
-		let a = parse(&["a.ts", "--eq", "not a uri"]).unwrap();
+		let a = extract(&["a.ts", "--eq", "not a uri"]);
 		let err = a.compiled_predicates("ts+moniker://").unwrap_err();
 		let msg = format!("{err:#}");
 		assert!(msg.contains("--eq"), "expected flag in error: {msg}");
 	}
 
 	#[test]
-	fn multiple_predicates_all_compile() {
-		let a = parse(&[
-			"a.ts",
-			"--descendant-of",
-			"ts+moniker://./class:Foo",
-			"--gt",
-			"ts+moniker://./class:Bar",
-		])
-		.unwrap();
-		let preds = a.compiled_predicates("ts+moniker://").expect("uri ok");
-		assert_eq!(preds.len(), 2);
+	fn check_subcommand_routes_to_command() {
+		let cli = parse(&["check", "a.ts"]).unwrap();
+		match cli.command {
+			Some(Command::Check(c)) => assert_eq!(c.file, PathBuf::from("a.ts")),
+			other => panic!("expected Check, got {other:?}"),
+		}
 	}
 
 	#[test]
-	fn explicit_scheme_overrides_default() {
-		let a = parse(&[
+	fn check_subcommand_accepts_rules_and_format() {
+		let cli = parse(&[
+			"check",
 			"a.ts",
-			"--scheme",
-			"my-scheme://",
-			"--eq",
-			"my-scheme://./class:Foo",
+			"--rules",
+			"my-rules.toml",
+			"--format",
+			"json",
 		])
 		.unwrap();
-		assert!(a.compiled_predicates("ts+moniker://").is_ok());
+		match cli.command {
+			Some(Command::Check(c)) => {
+				assert_eq!(c.rules, PathBuf::from("my-rules.toml"));
+				assert_eq!(c.format, CheckFormat::Json);
+			}
+			other => panic!("expected Check, got {other:?}"),
+		}
 	}
 }

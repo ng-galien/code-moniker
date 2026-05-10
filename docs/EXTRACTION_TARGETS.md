@@ -244,10 +244,10 @@ Non-target:
 
 ### SQL / PL/pgSQL
 
-Status in ESAC: `grammed` dispatch backed by PostgreSQL/libpg_query parsing,
+Status in ESAC: `grammed` dispatch backed by PostgreSQL's own parser,
 not tree-sitter.
 
-Target level: preserve the libpg_query-backed extractor semantics.
+Target level: preserve the PG-parser-backed extractor semantics.
 
 Definitions:
 

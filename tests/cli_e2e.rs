@@ -6,7 +6,7 @@
 use std::io::Write;
 
 use clap::Parser;
-use pg_code_moniker::cli::{self, Args, Exit};
+use pg_code_moniker::cli::{self, Cli, Exit};
 
 const TS_FIXTURE: &str = r#"// header comment
 export class Foo {
@@ -20,10 +20,10 @@ class Bar extends Foo {}
 "#;
 
 fn run_with(argv: Vec<&str>) -> (Exit, String, String) {
-	let args = Args::try_parse_from(argv).expect("parse argv");
+	let cli = Cli::try_parse_from(argv).expect("parse argv");
 	let mut out = Vec::new();
 	let mut err = Vec::new();
-	let exit = cli::run(&args, &mut out, &mut err);
+	let exit = cli::run(&cli, &mut out, &mut err);
 	(
 		exit,
 		String::from_utf8(out).unwrap(),
@@ -198,4 +198,268 @@ fn malformed_predicate_uri_is_usage_error() {
 	]);
 	assert_eq!(exit, Exit::UsageError);
 	assert!(err.contains("--eq"), "{err}");
+}
+
+const TS_BAD_NAMING: &str = "class lower_case_class {}\n";
+
+#[test]
+fn check_clean_file_returns_match() {
+	let dir = write_fixture("a.ts", "class GoodName {}\n");
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(out.is_empty(), "no violations expected: {out}");
+}
+
+#[test]
+fn check_violation_reports_rule_id_and_lines() {
+	let dir = write_fixture("a.ts", TS_BAD_NAMING);
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(out.contains("ts.class.name_pattern"), "{out}");
+	assert!(out.contains("L1-L1"), "{out}");
+}
+
+#[test]
+fn check_json_format_is_structured() {
+	let dir = write_fixture("a.ts", TS_BAD_NAMING);
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	let v: serde_json::Value = serde_json::from_str(&out).expect("json output");
+	assert!(v["file"].as_str().unwrap().ends_with("a.ts"));
+	let arr = v["violations"].as_array().unwrap();
+	assert!(!arr.is_empty());
+	assert_eq!(arr[0]["rule_id"], "ts.class.name_pattern");
+}
+
+#[test]
+fn check_require_doc_comment_flags_undocumented_public_class() {
+	let dir = write_fixture("a.ts", "export class Foo {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[ts.class]
+		require_doc_comment = "public"
+		"#,
+	)
+	.unwrap();
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(out.contains("ts.class.require_doc_comment"), "{out}");
+}
+
+#[test]
+fn check_require_doc_comment_passes_when_docblock_precedes() {
+	let dir = write_fixture("a.ts", "/** doc */\nexport class Foo {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[ts.class]
+		require_doc_comment = "public"
+		"#,
+	)
+	.unwrap();
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}");
+}
+
+#[test]
+fn check_default_preset_flags_helper_function_name() {
+	let dir = write_fixture("a.ts", "function helper() {}\n");
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(
+		out.contains("ts.function.forbid_name_patterns"),
+		"expected forbid_name_patterns violation: {out}"
+	);
+}
+
+#[test]
+fn check_user_overlay_keeps_default_forbid_when_changing_max_lines() {
+	let dir = write_fixture("a.ts", "function helper() {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[ts.function]
+		max_lines = 999
+		"#,
+	)
+	.unwrap();
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(
+		out.contains("ts.function.forbid_name_patterns"),
+		"merge regression — preset forbid_name_patterns lost when max_lines override applied: {out}"
+	);
+}
+
+#[test]
+fn check_unknown_kind_in_user_config_is_a_usage_error() {
+	let dir = write_fixture("a.ts", "class GoodName {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[ts.classs]
+		name_pattern = "x"
+		"#,
+	)
+	.unwrap();
+	let path = dir.path().join("a.ts");
+	let (exit, _, err) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::UsageError);
+	assert!(err.contains("classs"), "{err}");
+}
+
+#[test]
+fn check_invalid_regex_in_user_config_is_a_usage_error() {
+	let dir = write_fixture("a.ts", "class GoodName {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[ts.class]
+		name_pattern = "[unclosed"
+		"#,
+	)
+	.unwrap();
+	let path = dir.path().join("a.ts");
+	let (exit, _, err) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::UsageError);
+	assert!(err.to_lowercase().contains("regex"), "{err}");
+}
+
+#[test]
+fn check_explanation_appears_in_text_and_json() {
+	let dir = write_fixture("a.ts", TS_BAD_NAMING);
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[ts.class]
+		name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+		[ts.class.messages]
+		name_pattern = "Rename `{name}`. See CLAUDE.md §naming."
+		"#,
+	)
+	.unwrap();
+	let path = dir.path().join("a.ts");
+
+	let (exit, out, _) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(
+		out.contains("  → Rename `lower_case_class`. See CLAUDE.md §naming."),
+		"text format missing indented explanation: {out}"
+	);
+
+	let (_, out_json, _) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--format",
+		"json",
+	]);
+	let v: serde_json::Value = serde_json::from_str(&out_json).expect("valid JSON");
+	let arr = v["violations"].as_array().unwrap();
+	let exp = arr[0]["explanation"]
+		.as_str()
+		.expect("json carries explanation");
+	assert!(exp.contains("CLAUDE.md"), "explanation in JSON: {exp}");
+}
+
+#[test]
+fn check_user_overlay_relaxes_default_rule() {
+	let dir = write_fixture("a.ts", TS_BAD_NAMING);
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[ts.class]
+		name_pattern = "^[a-zA-Z_][a-zA-Z0-9_]*$"
+		"#,
+	)
+	.unwrap();
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"pg-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "user override permits the name: {out}");
 }

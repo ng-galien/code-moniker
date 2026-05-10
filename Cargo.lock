@@ -734,6 +734,7 @@ dependencies = [
  "clap",
  "pgrx",
  "proptest",
+ "regex",
  "roxmltree",
  "serde",
  "serde_cbor",

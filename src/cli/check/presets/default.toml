@@ -1,0 +1,242 @@
+# pg-moniker default rule pack — embedded into the binary at build time.
+# Users override per-project via `.pg-moniker.toml` at the repo root.
+#
+# Naming patterns reflect the conventional casing of each language's stdlib
+# and idiomatic style guides. Comment whitelists derive from the directives
+# survey in docs (TS, Rust, Java, Python, Go, C#, SQL).
+
+# ─── TypeScript / JavaScript ──────────────────────────────────────────────
+[ts.class]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[ts.class.messages]
+name_pattern = "Class names must be PascalCase. Rename `{name}` to match `{pattern}`."
+
+[ts.interface]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[ts.type]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[ts.function]
+name_pattern = "^[a-z_][A-Za-z0-9]*$"
+forbid_name_patterns = [
+  "^(helper|helpers|utils|util|manager|temp|tmp)$",
+  "^(handle|handler|process)Data$",
+  "^newFunction\\d*$",
+]
+max_lines    = 60
+
+[ts.function.messages]
+name_pattern         = "Function names use camelCase. Rename `{name}` to match `{pattern}`."
+forbid_name_patterns = "`{name}` is a placeholder name. Pick a verb that describes the actual behaviour."
+max_lines            = "Function `{name}` is {lines} lines, max {limit}. Split it into smaller functions."
+
+[ts.method]
+max_lines = 60
+
+[ts.method.messages]
+max_lines = "Method `{name}` is {lines} lines, max {limit}. Extract a helper or split the method."
+
+[ts.const]
+name_pattern = "^[A-Z_][A-Z0-9_]*|[a-z][A-Za-z0-9]*$"
+
+[ts.comment]
+allow_only_patterns = [
+  '^\s*//\s*@ts-(ignore|expect-error|nocheck|check)\b',
+  '^\s*//\s*eslint-(disable|enable)',
+  '^\s*//\s*prettier-ignore\b',
+  '^\s*///\s*<reference\b',
+  '^\s*/\*\*',
+  '^\s*//\s*pg-moniker:',
+  '^\s*//\s*(TODO|FIXME|HACK|NOTE|XXX|BUG)[: ]',
+  '^\s*//\s*#?region\b',
+  '^\s*//\s*#endregion\b',
+  '^\s*//\s*@generated\b',
+  '^\s*//\s*Code generated\b.*DO NOT EDIT',
+  '^\s*/\*\s*istanbul\s+ignore\b',
+  '^\s*/\*\s*c8\s+ignore\b',
+  '^\s*//#\s*sourceMappingURL=',
+]
+
+[ts.comment.messages]
+allow_only_patterns = """
+Prose comments are forbidden. Replace this comment with one of:
+- a JSDoc block (`/** … */`) on a public symbol
+- a known directive (`@ts-…`, `eslint-…`, `prettier-ignore`, `// pg-moniker: ignore`)
+- a task tag (`TODO:`, `FIXME:`, `HACK:`, `NOTE:`)
+Otherwise delete it; well-named identifiers are the documentation.
+"""
+
+# ─── Rust ─────────────────────────────────────────────────────────────────
+[rust.fn]
+name_pattern = "^[a-z_][a-z0-9_]*$"
+max_lines    = 80
+
+[rust.struct]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[rust.trait]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[rust.type]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[rust.enum]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[rust.const]
+name_pattern = "^[A-Z][A-Z0-9_]*$"
+
+[rust.comment]
+allow_only_patterns = [
+  '^\s*///',
+  '^\s*//!',
+  '^\s*//\s*SAFETY:',
+  '^\s*//\s*INVARIANT:',
+  '^\s*//\s*pg-moniker:',
+  '^\s*//\s*(TODO|FIXME|HACK|NOTE|XXX|BUG|PERF)[: ]',
+  '^\s*//\s*cargo-deps:',
+  '^\s*//\s*LCOV_EXCL_(LINE|START|STOP)\b',
+]
+
+# ─── Java ─────────────────────────────────────────────────────────────────
+[java.class]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[java.interface]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[java.method]
+name_pattern = "^[a-z_][A-Za-z0-9]*$"
+max_lines    = 80
+
+[java.constructor]
+max_lines = 80
+
+[java.field]
+name_pattern = "^[a-z_][A-Za-z0-9]*$"
+
+[java.enum_constant]
+name_pattern = "^[A-Z][A-Z0-9_]*$"
+
+[java.comment]
+allow_only_patterns = [
+  '^\s*/\*\*',
+  '^\s*//\s*CHECKSTYLE[:.]',
+  '^\s*//\s*SUPPRESS\s+CHECKSTYLE\b',
+  '^\s*//\s*NOPMD\b',
+  '^\s*//\s*NOSONAR\b',
+  '^\s*//\s*\$NON-NLS-\d+\$',
+  '^\s*//\s*pg-moniker:',
+  '^\s*//\s*(TODO|FIXME|HACK|NOTE|XXX|BUG)[: ]',
+]
+
+# ─── Python ───────────────────────────────────────────────────────────────
+[python.function]
+name_pattern = "^[a-z_][a-z0-9_]*$"
+max_lines    = 60
+
+[python.class]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[python.method]
+name_pattern = "^[a-z_][a-z0-9_]*$"
+max_lines    = 60
+
+[python.comment]
+allow_only_patterns = [
+  '^#!',
+  '^# -\*- coding[:=]',
+  '^# coding[:=]',
+  '^\s*#\s*type:\s',
+  '^\s*#\s*noqa\b',
+  '^\s*#\s*pylint:',
+  '^\s*#\s*mypy:',
+  '^\s*#\s*pyright:',
+  '^\s*#\s*ruff:',
+  '^\s*#\s*nosec\b',
+  '^\s*#\s*fmt:',
+  '^\s*#\s*isort:',
+  '^\s*#\s*pragma:\s*no\s+(cover|branch)\b',
+  '^\s*#\s*flake8:\s*noqa\b',
+  '^\s*#\s*pg-moniker:',
+  '^\s*#\s*(TODO|FIXME|HACK|NOTE|XXX|BUG)[: ]',
+]
+
+# ─── Go ───────────────────────────────────────────────────────────────────
+[go.func]
+max_lines = 80
+
+[go.type]
+name_pattern = "^[A-Z][a-zA-Z0-9_]*$|^[a-z][a-zA-Z0-9_]*$"
+
+[go.const]
+name_pattern = "^[A-Z][a-zA-Z0-9_]*$|^[a-z][a-zA-Z0-9_]*$"
+
+[go.comment]
+allow_only_patterns = [
+  '^//go:',
+  '^// \+build\b',
+  '^//\s*#cgo\b',
+  '^//nolint\b',
+  '^//lint:',
+  '^//revive:',
+  '^//\s*Deprecated:',
+  '^//\s*BUG\(',
+  '^//\s*pg-moniker:',
+  '^//\s*(TODO|FIXME|HACK|NOTE|XXX)[: ]',
+  '^//\s*[A-Z]',
+]
+
+# ─── C# ───────────────────────────────────────────────────────────────────
+[cs.class]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[cs.interface]
+name_pattern = "^I[A-Z][A-Za-z0-9]*$"
+
+[cs.record]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[cs.method]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+max_lines    = 80
+
+[cs.property]
+name_pattern = "^[A-Z][A-Za-z0-9]*$"
+
+[cs.constructor]
+max_lines = 80
+
+[cs.comment]
+allow_only_patterns = [
+  '^\s*///',
+  '^\s*//\s*ReSharper\s+(disable|restore)\b',
+  '^\s*//\s*pg-moniker:',
+  '^\s*//\s*(TODO|FIXME|HACK|NOTE|XXX|BUG|UNDONE|UnresolvedMergeConflict)[: ]',
+]
+
+# ─── SQL / PL/pgSQL ───────────────────────────────────────────────────────
+[sql.function]
+name_pattern = "^[a-z_][a-z0-9_]*$"
+
+[sql.table]
+name_pattern = "^[a-z_][a-z0-9_]*$"
+
+[sql.view]
+name_pattern = "^[a-z_][a-z0-9_]*$"
+
+[sql.comment]
+allow_only_patterns = [
+  '^\s*--\s*pg-moniker:',
+  '^\s*--\s*noqa\b',
+  '^\s*--changeset\b',
+  '^\s*--rollback\b',
+  '^\s*--liquibase\b',
+  '^\s*--preconditions\b',
+  '^\s*--\s*depends_on:',
+  '^\s*--\s*(Deploy|Verify|Revert)\b',
+  '^\s*/\*\+',
+  '^\s*--\s*(TODO|FIXME|HACK|NOTE|XXX|BUG|WIP|DEPRECATED)[: ]',
+]

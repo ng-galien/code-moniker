@@ -5,11 +5,12 @@ use serde::Serialize;
 
 use crate::cli::args::Args;
 use crate::cli::extract;
+use crate::cli::lines::line_range;
 use crate::cli::predicate::MatchSet;
+use crate::cli::render_uri;
 use crate::core::code_graph::{DefRecord, RefRecord};
 use crate::core::kinds::KIND_COMMENT;
-use crate::core::moniker::Moniker;
-use crate::core::uri::{UriConfig, to_uri};
+use crate::core::uri::UriConfig;
 use crate::lang::Lang;
 
 pub fn write_tsv<W: Write>(
@@ -24,9 +25,10 @@ pub fn write_tsv<W: Write>(
 		let uri = render_uri(&d.moniker, &cfg);
 		write!(
 			w,
-			"def\t{uri}\t{kind}\t{pos}\t{vis}\t{sig}\t{origin}",
+			"def\t{uri}\t{kind}\t{pos}\t{lines}\t{vis}\t{sig}\t{origin}",
 			kind = utf8_or_dash(&d.kind),
 			pos = pos_or_dash(d.position),
+			lines = lines_or_dash(d.position, source),
 			vis = utf8_or_dash(&d.visibility),
 			sig = utf8_or_dash(&d.signature),
 			origin = utf8_or_dash(&d.origin),
@@ -41,9 +43,10 @@ pub fn write_tsv<W: Write>(
 		let target = render_uri(&r.target, &cfg);
 		writeln!(
 			w,
-			"ref\t{target}\t{kind}\t{pos}\tsource_idx={src}\t{alias}\t{conf}\t{rcv}",
+			"ref\t{target}\t{kind}\t{pos}\t{lines}\tsource_idx={src}\t{alias}\t{conf}\t{rcv}",
 			kind = utf8_or_dash(&r.kind),
 			pos = pos_or_dash(r.position),
+			lines = lines_or_dash(r.position, source),
 			src = r.source,
 			alias = utf8_or_dash(&r.alias),
 			conf = utf8_or_dash(&r.confidence),
@@ -71,7 +74,7 @@ pub fn write_json<W: Write>(
 	let refs: Vec<RefView> = matches
 		.refs
 		.iter()
-		.map(|r| RefView::from(r, &cfg))
+		.map(|r| RefView::from(r, &cfg, source))
 		.collect();
 	let out = JsonOutput {
 		uri: extract::file_uri(path),
@@ -103,6 +106,8 @@ struct DefView<'a> {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	position: Option<[u32; 2]>,
 	#[serde(skip_serializing_if = "Option::is_none")]
+	lines: Option<[u32; 2]>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	visibility: Option<&'a str>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	signature: Option<&'a str>,
@@ -125,6 +130,10 @@ impl<'a> DefView<'a> {
 			moniker: render_uri(&d.moniker, cfg),
 			kind: std::str::from_utf8(&d.kind).unwrap_or(""),
 			position: d.position.map(|(l, c)| [l, c]),
+			lines: d.position.map(|(s, e)| {
+				let (a, b) = line_range(source, s, e);
+				[a, b]
+			}),
 			visibility: nullable(&d.visibility),
 			signature: nullable(&d.signature),
 			binding: nullable(&d.binding),
@@ -142,6 +151,8 @@ struct RefView<'a> {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	position: Option<[u32; 2]>,
 	#[serde(skip_serializing_if = "Option::is_none")]
+	lines: Option<[u32; 2]>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	alias: Option<&'a str>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	confidence: Option<&'a str>,
@@ -152,22 +163,22 @@ struct RefView<'a> {
 }
 
 impl<'a> RefView<'a> {
-	fn from(r: &'a RefRecord, cfg: &UriConfig<'_>) -> Self {
+	fn from(r: &'a RefRecord, cfg: &UriConfig<'_>, source: &str) -> Self {
 		Self {
 			source_idx: r.source,
 			target: render_uri(&r.target, cfg),
 			kind: std::str::from_utf8(&r.kind).unwrap_or(""),
 			position: r.position.map(|(l, c)| [l, c]),
+			lines: r.position.map(|(s, e)| {
+				let (a, b) = line_range(source, s, e);
+				[a, b]
+			}),
 			alias: nullable(&r.alias),
 			confidence: nullable(&r.confidence),
 			receiver_hint: nullable(&r.receiver_hint),
 			binding: nullable(&r.binding),
 		}
 	}
-}
-
-fn render_uri(m: &Moniker, cfg: &UriConfig<'_>) -> String {
-	to_uri(m, cfg).unwrap_or_else(|_| format!("<non-utf8:{}b>", m.as_bytes().len()))
 }
 
 fn nullable(b: &[u8]) -> Option<&str> {
@@ -189,6 +200,16 @@ fn utf8_or_dash(b: &[u8]) -> &str {
 fn pos_or_dash(p: Option<(u32, u32)>) -> String {
 	match p {
 		Some((start, end)) => format!("{start}..{end}"),
+		None => "-".to_string(),
+	}
+}
+
+fn lines_or_dash(p: Option<(u32, u32)>, source: &str) -> String {
+	match p {
+		Some((start, end)) => {
+			let (a, b) = line_range(source, start, end);
+			format!("L{a}-L{b}")
+		}
 		None => "-".to_string(),
 	}
 }
@@ -215,11 +236,11 @@ mod tests {
 	use crate::cli::args::OutputFormat;
 	use crate::cli::predicate::MatchSet;
 	use crate::core::code_graph::CodeGraph;
-	use crate::core::moniker::MonikerBuilder;
+	use crate::core::moniker::{Moniker, MonikerBuilder};
 
 	fn args() -> Args {
 		Args {
-			file: "a.ts".into(),
+			file: Some("a.ts".into()),
 			eq: None,
 			lt: None,
 			le: None,
@@ -271,8 +292,32 @@ mod tests {
 		assert_eq!(s.lines().count(), 3);
 		for line in s.lines() {
 			assert!(line.starts_with("def\t"));
-			assert_eq!(line.matches('\t').count(), 6);
+			assert_eq!(line.matches('\t').count(), 7, "tsv columns: {line}");
 		}
+	}
+
+	#[test]
+	fn tsv_renders_line_range_when_position_is_known() {
+		let mut b = MonikerBuilder::new();
+		b.project(b"app");
+		let root = b.build();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let mut b = MonikerBuilder::new();
+		b.project(b"app");
+		b.segment(b"function", b"foo");
+		let foo = b.build();
+		let source = "line1\nfn foo() {\n  body\n}\nline5\n";
+		g.add_def(foo.clone(), b"function", &root, Some((6, 25)))
+			.unwrap();
+		let foo_def = g.defs().find(|d| d.moniker == foo).unwrap();
+		let matches = MatchSet {
+			defs: vec![foo_def],
+			refs: vec![],
+		};
+		let mut buf = Vec::new();
+		write_tsv(&mut buf, &matches, source, &args(), "ts+moniker://").unwrap();
+		let s = String::from_utf8(buf).unwrap();
+		assert!(s.contains("\tL2-L4\t"), "missing line range column: {s}");
 	}
 
 	#[test]
@@ -316,6 +361,41 @@ mod tests {
 		assert!(v["matches"]["defs"].is_array());
 		assert!(v["matches"]["refs"].is_array());
 		assert_eq!(v["matches"]["defs"].as_array().unwrap().len(), 3);
+	}
+
+	#[test]
+	fn json_includes_line_range_alongside_byte_position() {
+		let mut b = MonikerBuilder::new();
+		b.project(b"app");
+		let root = b.build();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let mut b = MonikerBuilder::new();
+		b.project(b"app");
+		b.segment(b"class", b"Foo");
+		let foo = b.build();
+		let source = "line1\nclass Foo {\n  body\n}\nline5\n";
+		g.add_def(foo.clone(), b"class", &root, Some((6, 26)))
+			.unwrap();
+		let foo_def = g.defs().find(|d| d.moniker == foo).unwrap();
+		let matches = MatchSet {
+			defs: vec![foo_def],
+			refs: vec![],
+		};
+		let mut buf = Vec::new();
+		write_json(
+			&mut buf,
+			&matches,
+			source,
+			&args(),
+			Lang::Ts,
+			Path::new("a.ts"),
+			"ts+moniker://",
+		)
+		.unwrap();
+		let v: serde_json::Value = serde_json::from_slice(&buf).unwrap();
+		let def = &v["matches"]["defs"][0];
+		assert_eq!(def["position"], serde_json::json!([6, 26]));
+		assert_eq!(def["lines"], serde_json::json!([2, 4]));
 	}
 
 	#[test]

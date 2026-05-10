@@ -53,7 +53,7 @@ Phases 1–7 of `SPEC.md` shipped: typed canonical URI (`<scheme>+moniker://...`
 | `extract_python`      | tree-sitter       | `extract_pyproject`        |
 | `extract_go`          | tree-sitter       | `extract_go_mod`           |
 | `extract_csharp`      | tree-sitter       | `extract_csproj`           |
-| `extract_plpgsql`     | libpg_query (vendored) | —                     |
+| `extract_plpgsql`     | PG runtime parser + vendored plpgsql sources | — |
 
 Each emits defs and refs with full metadata (visibility, signature, alias, confidence, receiver_hint, scope-tracked locals). All take a `deep := false` default; pass `deep := true` for parameter / local extraction.
 
@@ -84,7 +84,7 @@ src/
             moniker/, uri/, code_graph.rs
   pg/      pgrx wrappers exposing the SQL surface (gated by pgN feature)
             moniker/, code_graph/, extract.rs, build.rs
-  lang/    per-language extractors (tree-sitter + libpg_query for SQL)
+  lang/    per-language extractors (tree-sitter + PG runtime parser for SQL)
             ts/, rs/, java/, python/, go/, cs/, sql/
 test/
   sql/                pgTAP files (run via ./test/run.sh)
@@ -93,7 +93,7 @@ test/
 examples/
   bench_codegraph.rs  CodeGraph add_def / add_ref scaling bench
   bench_extract.rs    full extractor on a real file
-vendor/plpgsql/       vendored PG PL/pgSQL parser sources for libpg_query-style use
+vendor/plpgsql/       vendored PostgreSQL plpgsql parser sources, compiled via build.rs + cc
 Dockerfile            multi-stage build, lands the extension on postgres:17
 ```
 
