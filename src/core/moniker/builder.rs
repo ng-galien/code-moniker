@@ -1,6 +1,8 @@
 use super::encoding::{HEADER_FIXED_LEN, VERSION, write_u16};
 use super::{Moniker, MonikerView};
 
+const MAX_COMPONENT_LEN: usize = u16::MAX as usize;
+
 #[derive(Default, Debug)]
 pub struct MonikerBuilder {
 	project: Vec<u8>,
@@ -37,11 +39,33 @@ impl MonikerBuilder {
 	}
 
 	pub fn build(&self) -> Moniker {
+		// The on-the-wire encoding stores each component's length as a
+		// u16. A silent `as u16` cast on an oversized component would
+		// truncate the length to its low 16 bits and corrupt the buffer
+		// (the bytes that follow would be reinterpreted as the next
+		// header field). Refuse outright — every realistic identifier
+		// fits comfortably under 64 KB; anything bigger is an upstream
+		// bug or hostile input.
+		assert!(
+			self.project.len() <= MAX_COMPONENT_LEN,
+			"moniker project longer than u16::MAX bytes ({})",
+			self.project.len()
+		);
 		let mut buf = Vec::with_capacity(self.estimated_size());
 		buf.push(VERSION);
 		write_u16(&mut buf, self.project.len() as u16);
 		buf.extend_from_slice(&self.project);
 		for (kind, name) in &self.segments {
+			assert!(
+				kind.len() <= MAX_COMPONENT_LEN,
+				"moniker segment kind longer than u16::MAX bytes ({})",
+				kind.len()
+			);
+			assert!(
+				name.len() <= MAX_COMPONENT_LEN,
+				"moniker segment name longer than u16::MAX bytes ({})",
+				name.len()
+			);
 			write_u16(&mut buf, kind.len() as u16);
 			buf.extend_from_slice(kind);
 			write_u16(&mut buf, name.len() as u16);
@@ -122,5 +146,45 @@ mod tests {
 		let segs: Vec<_> = m.as_view().segments().collect();
 		assert_eq!(segs[1].name, b"bar()");
 		assert_eq!(segs[2].name, b"bar(2)");
+	}
+
+	#[test]
+	fn builder_accepts_max_length_component() {
+		let big = vec![b'a'; MAX_COMPONENT_LEN];
+		let m = MonikerBuilder::new()
+			.project(&big)
+			.segment(b"path", &big)
+			.build();
+		let v = m.as_view();
+		assert_eq!(v.project().len(), MAX_COMPONENT_LEN);
+		let seg = v.segments().next().unwrap();
+		assert_eq!(seg.name.len(), MAX_COMPONENT_LEN);
+	}
+
+	#[test]
+	#[should_panic(expected = "moniker project longer than u16::MAX bytes")]
+	fn builder_panics_on_oversized_project() {
+		let oversize = vec![b'a'; MAX_COMPONENT_LEN + 1];
+		MonikerBuilder::new().project(&oversize).build();
+	}
+
+	#[test]
+	#[should_panic(expected = "moniker segment kind longer than u16::MAX bytes")]
+	fn builder_panics_on_oversized_segment_kind() {
+		let oversize = vec![b'a'; MAX_COMPONENT_LEN + 1];
+		MonikerBuilder::new()
+			.project(b"app")
+			.segment(&oversize, b"x")
+			.build();
+	}
+
+	#[test]
+	#[should_panic(expected = "moniker segment name longer than u16::MAX bytes")]
+	fn builder_panics_on_oversized_segment_name() {
+		let oversize = vec![b'a'; MAX_COMPONENT_LEN + 1];
+		MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"path", &oversize)
+			.build();
 	}
 }
