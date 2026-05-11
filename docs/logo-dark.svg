@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" role="img" aria-label="code-moniker">
+  <g fill="none" stroke="#c9d1d9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polygon points="20,8 28,16 20,24 12,16"/>
+    <line x1="20" y1="24" x2="20" y2="40"/>
+    <line x1="20" y1="40" x2="36" y2="40"/>
+    <polygon points="44,32 52,40 44,48 36,40"/>
+    <line x1="44" y1="48" x2="44" y2="64"/>
+    <line x1="44" y1="64" x2="60" y2="64"/>
+    <polygon points="68,56 76,64 68,72 60,64"/>
+  </g>
+  <text x="100" y="52" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="26" font-weight="600" fill="#c9d1d9">code-moniker</text>
+</svg>

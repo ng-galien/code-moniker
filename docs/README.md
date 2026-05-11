@@ -18,6 +18,7 @@ Start with the guide matching your use case.
 | Probe a single source file from the shell (moniker by moniker, JSON / TSV out)                | [`CLI_EXTRACT.md`](CLI_EXTRACT.md)                              |
 | Reference for the `check` subcommand: config merge, suppressions, output format               | [`CLI_CHECK.md`](CLI_CHECK.md)                                  |
 | Write or extend rules — grammar, scopes, quantifiers, path patterns                           | [`CHECK_DSL.md`](CHECK_DSL.md)                                  |
+| Benchmarks: single-file latency and project-scan throughput                                    | [`PERF.md`](PERF.md)                                            |
 
 ## Design and reference
 

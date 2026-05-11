@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo-light.svg" alt="code-moniker" width="300">
+  </picture>
+</p>
+
 # code-moniker
 
 [![CI](https://github.com/ng-galien/code-moniker/actions/workflows/ci.yml/badge.svg)](https://github.com/ng-galien/code-moniker/actions/workflows/ci.yml)
@@ -6,8 +13,8 @@
 [![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-17-336791)](https://www.postgresql.org)
 
-Symbol identity and a symbol graph for source code, in two shapes that
-share one extractor:
+Stateless, [fast](docs/PERF.md) symbol-graph analyser for source
+code, in two shapes that share one extractor:
 
 - a **standalone CLI** that lints projects against a declarative rule
   pack — usable as an agent guardrail, a pre-commit gate, or a CI job;
@@ -94,3 +101,8 @@ and pure functions only.
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE),
 at your option. Contributions are accepted under the same terms.
+
+The `vendor/plpgsql/` directory bundles C sources from PostgreSQL's
+PL/pgSQL parser. Those files keep their upstream license — see
+[`LICENSE-POSTGRESQL`](LICENSE-POSTGRESQL) and
+[`vendor/plpgsql/README.md`](vendor/plpgsql/README.md).

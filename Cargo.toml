@@ -1,11 +1,20 @@
 [package]
-name        = "code-moniker"
-version     = "0.1.0"
-edition     = "2024"
-publish     = false
-license     = "MIT OR Apache-2.0"
-repository  = "https://github.com/ng-galien/code-moniker"
-description = "Native types and indexed algebra for code symbol identity (moniker) and code graph storage (code_graph)"
+name          = "code-moniker"
+version       = "0.1.0"
+edition       = "2024"
+rust-version  = "1.85"
+license       = "(MIT OR Apache-2.0) AND PostgreSQL"
+repository    = "https://github.com/ng-galien/code-moniker"
+homepage      = "https://github.com/ng-galien/code-moniker"
+documentation = "https://docs.rs/code-moniker"
+readme        = "README.md"
+description   = "Stateless symbol-graph analyser for source code: PostgreSQL extension (native moniker / code_graph types with indexed algebra) and standalone CLI / linter."
+keywords      = ["postgres", "tree-sitter", "code-search", "ast", "linter"]
+categories    = ["development-tools", "command-line-utilities", "parser-implementations"]
+
+[package.metadata.docs.rs]
+features = ["pg17"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 name       = "code_moniker"
