@@ -23,7 +23,7 @@ pub(super) fn split_uri(uri: &str) -> (Vec<&str>, &str) {
 }
 
 pub(super) fn file_stem(name: &str) -> &str {
-	for ext in [".sql", ".psql", ".pgsql"] {
+	for ext in [".plpgsql", ".pgsql", ".psql", ".sql"] {
 		if let Some(s) = name.strip_suffix(ext) {
 			return s;
 		}

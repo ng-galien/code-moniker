@@ -1,214 +1,197 @@
-use std::ffi::{CStr, CString};
+//! PL/pgSQL body walker on `tree_sitter_postgres::LANGUAGE_PLPGSQL`.
+//! For every embedded `sql_expression`, re-parse with the SQL grammar and
+//! collect `func_application` refs via the shared walker.
 
-use pgrx::pg_sys;
-use pgrx::pg_sys::pg_try::PgTryBuilder;
+use tree_sitter::{Node, Parser};
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
 use super::walker::collect_calls_in;
 
-unsafe extern "C-unwind" {
-	fn cmk_plpgsql_parse_body(
-		body: *const ::core::ffi::c_char,
-		is_setof: bool,
-		is_void: bool,
-		n_params: ::core::ffi::c_int,
-		param_names: *const *const ::core::ffi::c_char,
-	) -> *mut pg_sys::PLpgSQL_function;
-
-	fn cmk_plpgsql_free(function: *mut pg_sys::PLpgSQL_function);
-}
-
 pub(super) fn walk_plpgsql_body(
-	body: &[u8],
-	is_setof: bool,
-	is_void: bool,
-	param_names: &[Vec<u8>],
+	body: &str,
 	source_def: &Moniker,
 	module: &Moniker,
 	graph: &mut CodeGraph,
 ) {
-	let body_cstr = match CString::new(body) {
-		Ok(c) => c,
-		Err(_) => return,
+	if body.trim().is_empty() {
+		return;
+	}
+	let mut plpgsql_parser = Parser::new();
+	plpgsql_parser
+		.set_language(&tree_sitter_postgres::LANGUAGE_PLPGSQL.into())
+		.expect("failed to load tree-sitter-postgres PL/pgSQL grammar");
+	let Some(tree) = plpgsql_parser.parse(body, None) else {
+		return;
 	};
-
-	let param_cstrs: Vec<CString> = param_names
-		.iter()
-		.map(|n| CString::new(n.as_slice()).unwrap_or_default())
-		.collect();
-	let param_ptrs: Vec<*const ::core::ffi::c_char> =
-		param_cstrs.iter().map(|c| c.as_ptr()).collect();
-
-	let func = PgTryBuilder::new(|| unsafe {
-		cmk_plpgsql_parse_body(
-			body_cstr.as_ptr(),
-			is_setof,
-			is_void,
-			param_ptrs.len() as ::core::ffi::c_int,
-			if param_ptrs.is_empty() {
-				std::ptr::null()
-			} else {
-				param_ptrs.as_ptr()
-			},
-		)
-	})
-	.catch_others(|_| std::ptr::null_mut())
-	.execute();
-
-	if func.is_null() {
-		return;
-	}
-
-	let action = unsafe { (*func).action };
-	if !action.is_null() {
-		walk_block(action, source_def, module, graph);
-	}
-	unsafe { cmk_plpgsql_free(func) };
+	let mut sql_parser = Parser::new();
+	sql_parser
+		.set_language(&tree_sitter_postgres::LANGUAGE.into())
+		.expect("failed to load tree-sitter-postgres SQL grammar");
+	for_each_sql_expression(tree.root_node(), &mut |expr| {
+		emit_calls_from_sql(expr, body, &mut sql_parser, source_def, module, graph);
+	});
 }
 
-fn walk_stmt_list(
-	list: *mut pg_sys::List,
+fn for_each_sql_expression<F: FnMut(Node)>(node: Node, f: &mut F) {
+	if node.kind() == "sql_expression" {
+		f(node);
+	}
+	let mut cur = node.walk();
+	for c in node.named_children(&mut cur) {
+		for_each_sql_expression(c, f);
+	}
+}
+
+fn emit_calls_from_sql(
+	expr: Node,
+	body: &str,
+	sql_parser: &mut Parser,
 	source_def: &Moniker,
 	module: &Moniker,
 	graph: &mut CodeGraph,
 ) {
-	if list.is_null() {
+	// `sql_expression` is the raw text of an embedded SQL fragment in
+	// `PERFORM <expr>;`, `IF <expr> THEN…`, `<lhs> := <rhs>;`, etc. Wrap bare
+	// expressions in `SELECT …` so the SQL grammar can parse them as a stmt.
+	let raw = &body[expr.start_byte()..expr.end_byte().min(body.len())];
+	let trimmed = raw.trim_end_matches(';').trim();
+	if trimmed.is_empty() {
 		return;
 	}
-	let stmts: pgrx::PgList<pg_sys::PLpgSQL_stmt> = unsafe { pgrx::PgList::from_pg(list) };
-	for ptr in stmts.iter_ptr() {
-		if ptr.is_null() {
-			continue;
-		}
-		walk_stmt(ptr, source_def, module, graph);
-	}
-}
-
-fn walk_block(
-	block: *mut pg_sys::PLpgSQL_stmt_block,
-	source_def: &Moniker,
-	module: &Moniker,
-	graph: &mut CodeGraph,
-) {
-	if block.is_null() {
-		return;
-	}
-	let b = unsafe { &*block };
-	walk_stmt_list(b.body, source_def, module, graph);
-}
-
-fn walk_stmt(
-	stmt: *mut pg_sys::PLpgSQL_stmt,
-	source_def: &Moniker,
-	module: &Moniker,
-	graph: &mut CodeGraph,
-) {
-	let cmd = unsafe { (*stmt).cmd_type };
-	use pg_sys::PLpgSQL_stmt_type::*;
-	match cmd {
-		PLPGSQL_STMT_BLOCK => {
-			walk_block(
-				stmt as *mut pg_sys::PLpgSQL_stmt_block,
-				source_def,
-				module,
-				graph,
-			);
-		}
-		PLPGSQL_STMT_ASSIGN => {
-			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_assign) };
-			walk_expr(s.expr, source_def, module, graph);
-		}
-		PLPGSQL_STMT_IF => {
-			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_if) };
-			walk_expr(s.cond, source_def, module, graph);
-			walk_stmt_list(s.then_body, source_def, module, graph);
-			walk_elsif_list(s.elsif_list, source_def, module, graph);
-			walk_stmt_list(s.else_body, source_def, module, graph);
-		}
-		PLPGSQL_STMT_LOOP => {
-			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_loop) };
-			walk_stmt_list(s.body, source_def, module, graph);
-		}
-		PLPGSQL_STMT_WHILE => {
-			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_while) };
-			walk_expr(s.cond, source_def, module, graph);
-			walk_stmt_list(s.body, source_def, module, graph);
-		}
-		PLPGSQL_STMT_RETURN_QUERY => {
-			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_return_query) };
-			walk_expr(s.query, source_def, module, graph);
-		}
-		PLPGSQL_STMT_EXECSQL => {
-			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_execsql) };
-			walk_expr(s.sqlstmt, source_def, module, graph);
-		}
-		PLPGSQL_STMT_PERFORM => {
-			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_perform) };
-			walk_expr(s.expr, source_def, module, graph);
-		}
-		PLPGSQL_STMT_CALL => {
-			let s = unsafe { &*(stmt as *mut pg_sys::PLpgSQL_stmt_call) };
-			walk_expr(s.expr, source_def, module, graph);
-		}
-		_ => {}
-	}
-}
-
-fn walk_elsif_list(
-	list: *mut pg_sys::List,
-	source_def: &Moniker,
-	module: &Moniker,
-	graph: &mut CodeGraph,
-) {
-	if list.is_null() {
-		return;
-	}
-	let elsifs: pgrx::PgList<pg_sys::PLpgSQL_if_elsif> = unsafe { pgrx::PgList::from_pg(list) };
-	for ptr in elsifs.iter_ptr() {
-		if ptr.is_null() {
-			continue;
-		}
-		let e = unsafe { &*ptr };
-		walk_expr(e.cond, source_def, module, graph);
-		walk_stmt_list(e.stmts, source_def, module, graph);
-	}
-}
-
-fn walk_expr(
-	expr: *mut pg_sys::PLpgSQL_expr,
-	source_def: &Moniker,
-	module: &Moniker,
-	graph: &mut CodeGraph,
-) {
-	if expr.is_null() {
-		return;
-	}
-	let e = unsafe { &*expr };
-	if e.query.is_null() {
-		return;
-	}
-	let query = unsafe { CStr::from_ptr(e.query) };
-	let cstr = match CString::new(query.to_bytes()) {
-		Ok(c) => c,
-		Err(_) => return,
+	// EXECUTE 'string literal': the literal is itself SQL. Quote-escape
+	// handling (`''` → `'`) is deliberately omitted; rare in practice.
+	let prepared = if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2 {
+		trimmed[1..trimmed.len() - 1].to_string()
+	} else {
+		format!("SELECT {trimmed}")
 	};
-	let raw_list = PgTryBuilder::new(|| unsafe { pg_sys::raw_parser(cstr.as_ptr(), e.parseMode) })
-		.catch_others(|_| std::ptr::null_mut())
-		.execute();
-	if raw_list.is_null() {
+	let Some(tree) = sql_parser.parse(&prepared, None) else {
 		return;
+	};
+	let root = tree.root_node();
+	let src = prepared.as_bytes();
+	for c in root.children(&mut root.walk()) {
+		if c.kind() != "toplevel_stmt" {
+			continue;
+		}
+		if let Some(stmt) = c.named_child(0).and_then(|s| s.named_child(0)) {
+			collect_calls_in(stmt, src, source_def, module, graph);
+		}
 	}
-	let stmts: pgrx::PgList<pg_sys::RawStmt> = unsafe { pgrx::PgList::from_pg(raw_list) };
-	for raw_ptr in stmts.iter_ptr() {
-		if raw_ptr.is_null() {
-			continue;
-		}
-		let raw = unsafe { &*raw_ptr };
-		if raw.stmt.is_null() {
-			continue;
-		}
-		collect_calls_in(raw.stmt, source_def, module, graph);
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::core::moniker::MonikerBuilder;
+	use crate::lang::sql::Presets;
+	use crate::lang::sql::extract;
+
+	fn anchor() -> Moniker {
+		MonikerBuilder::new().project(b"app").build()
+	}
+
+	fn run(uri: &str, src: &str) -> CodeGraph {
+		extract(uri, src, &anchor(), false, &Presets::default())
+	}
+
+	fn ref_targets(g: &CodeGraph) -> Vec<String> {
+		g.refs()
+			.map(|r| crate::core::uri::to_uri(&r.target, &Default::default()).unwrap())
+			.collect()
+	}
+
+	#[test]
+	fn perform_in_body_emits_call_ref() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION outer_fn(x int) RETURNS void LANGUAGE plpgsql AS $$\n\
+			 BEGIN\n\
+			 PERFORM esac.inner_fn(x);\n\
+			 END;\n\
+			 $$;",
+		);
+		assert!(
+			ref_targets(&g)
+				.iter()
+				.any(|t| t
+					== "code+moniker://app/lang:sql/module:foo/schema:esac/function:inner_fn(1)"),
+			"got refs: {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn perform_in_if_branch_is_picked_up() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION outer_fn(x int) RETURNS void LANGUAGE plpgsql AS $$\n\
+			 BEGIN\n\
+			 IF x > 0 THEN\n\
+			   PERFORM other_fn();\n\
+			 END IF;\n\
+			 END;\n\
+			 $$;",
+		);
+		assert!(
+			ref_targets(&g)
+				.iter()
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:other_fn()"),
+			"got refs: {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn nested_blocks_recurse() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION outer_fn() RETURNS void LANGUAGE plpgsql AS $$\n\
+			 BEGIN\n\
+			 BEGIN\n\
+			   PERFORM deep_fn();\n\
+			 END;\n\
+			 END;\n\
+			 $$;",
+		);
+		assert!(
+			ref_targets(&g)
+				.iter()
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:deep_fn()"),
+			"got refs: {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn while_body_picks_up_calls() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION outer_fn(x int) RETURNS void LANGUAGE plpgsql AS $$\n\
+			 BEGIN\n\
+			 WHILE x > 0 LOOP\n\
+			   PERFORM step_fn(x);\n\
+			 END LOOP;\n\
+			 END;\n\
+			 $$;",
+		);
+		assert!(
+			ref_targets(&g)
+				.iter()
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:step_fn(1)"),
+			"got refs: {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn malformed_body_is_silent() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION bad() RETURNS void LANGUAGE plpgsql AS $$ this is not valid plpgsql $$;",
+		);
+		assert!(g.defs().any(|d| d.kind == b"function"));
 	}
 }

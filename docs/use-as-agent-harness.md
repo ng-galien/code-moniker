@@ -19,10 +19,12 @@ methods, that every public method has a doc-comment on the line
 above.
 
 Path encoding depends on the language: TS / JS / Rust / Go / C#
-use `dir:<segment>`, Java and Python use `package:<segment>`, SQL
-uses `schema:<name>`. Patterns in rules must match the encoding
-the extractor produces (run `code-moniker <file> --format json`
-to see one).
+use `dir:<segment>` for filesystem directories, Java and Python use
+`package:<segment>`. SQL / PL/pgSQL uses `dir:<segment>` for filesystem
+directories and `schema:<name>` for SQL schemas inside the source
+(`CREATE FUNCTION public.bar(...)` lands at `…/schema:public/function:bar(...)`).
+Patterns in rules must match the encoding the extractor produces
+(run `code-moniker <file> --format json` to see one).
 
 ## Install
 
@@ -33,13 +35,17 @@ cargo install --git https://github.com/ng-galien/code-moniker --features cli cod
 In-tree alternative: `cargo run --features cli --bin code-moniker -- check src/`.
 
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
-Python, Go, C#, and PL/pgSQL when built with `--features pg17`.
+Python, Go, C#, SQL, PL/pgSQL.
 
 ## Configure
 
 Drop `.code-moniker.toml` at the repo root. An empty file is valid:
-the embedded default rule pack covers naming hygiene, doc-comments
-on public symbols, god classes, and deep nesting. User entries
+the embedded default rule pack covers naming hygiene per language
+(PascalCase / camelCase / snake_case / SCREAMING) and rejects
+placeholder names (`helper`, `manager`, `temp`, …) — broadly
+uncontroversial structural rules only. Stricter policies
+(doc-comment requirements, god-class budgets, max-lines / deep-nesting
+proxies) are opt-in: declare them in the user overlay. User entries
 overlay the default by rule id.
 
 ```toml
@@ -103,9 +109,9 @@ which lets the agent read its own violation and self-correct.
 
 | Exit | Effect on the agent                                                                              |
 | ---- | ------------------------------------------------------------------------------------------------ |
-| 0    | Silent; the edit proceeds.                                                                       |
+| 0    | Silent; the edit proceeds. Also returned for files whose extension isn't a recognised source language (the hook is a no-op on docs / configs / generated outputs). |
 | 1    | Violation text injected into the conversation. The agent reads it and re-tries.                  |
-| 2    | Silent (the hook is a no-op for non-source edits and parse errors).                              |
+| 2    | Usage error — bad path or malformed `.code-moniker.toml`. Surface this to the user; never silence it. |
 
 The agent sees the rule id, the violating moniker, and the custom
 `message` (with `{name}`, `{value}`, `{moniker}` substituted). The

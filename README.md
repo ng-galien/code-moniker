@@ -13,16 +13,18 @@
 [![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-17-336791)](https://www.postgresql.org)
 
-Stateless, [fast](docs/perf.md) symbol-graph analyser for source
-code, in two shapes that share one extractor:
+`code-moniker` makes the symbol graph queryable. Two surfaces, one
+extractor:
 
 - a **standalone CLI** that lints projects against a declarative rule
   pack — usable as an agent guardrail, a pre-commit gate, or a CI job;
 - a **PostgreSQL extension** that exposes the same graph as native
   SQL types (`moniker`, `code_graph`) with an indexed algebra.
 
+No index to maintain, no daemon — the linter runs on any checkout
+without setup; benchmarks live in [`docs/perf.md`](docs/perf.md).
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
-Python, Go, C#, PL/pgSQL.
+Python, Go, C#, SQL, PL/pgSQL.
 
 ## Why this exists
 
@@ -65,9 +67,16 @@ The Postgres extension is this model ported into a database.
 (`<@` for subtree, `?=` for `bind_match` cross-file resolution,
 `@>` for ancestry) becomes SQL operators backed by GiST and GIN
 indexes. The symbol graph now sits next to your domain tables and
-joins with them in one query — which deployments touched files
-under `dir:domain/`, which owners reviewed code calling
-`interface:OrderRepo`.
+joins with them in one query:
+
+```sql
+-- Which deployments in the last week touched code under dir:domain/?
+SELECT d.id, d.deployed_at, m.source_uri
+FROM module m
+JOIN deployment d ON d.path = m.source_uri
+WHERE graph_root(m.graph) <@ 'code+moniker://app/lang:ts/dir:domain'::moniker
+  AND d.deployed_at > now() - interval '7 days';
+```
 
 ## Install
 
@@ -170,8 +179,3 @@ and pure functions only.
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE),
 at your option. Contributions are accepted under the same terms.
-
-The `vendor/plpgsql/` directory bundles C sources from PostgreSQL's
-PL/pgSQL parser. Those files keep their upstream license — see
-[`LICENSE-POSTGRESQL`](LICENSE-POSTGRESQL) and
-[`vendor/plpgsql/README.md`](vendor/plpgsql/README.md).

@@ -70,7 +70,7 @@ src/
                         build for go.mod)
     cs/                 C# (mod / kinds / canonicalize / walker / refs / scope /
                         build for .csproj)
-    sql/                PL/pgSQL via PG runtime parser + vendored plpgsql sources (mod / kinds /
+    sql/                SQL + PL/pgSQL via tree-sitter-postgres (mod / kinds /
                         canonicalize / walker / body / refs / scope)
 pgtap/
   run.sh                pgTAP harness against the pgrx-managed PG
@@ -155,6 +155,16 @@ Bench: `cargo run --release --example bench_codegraph` (CodeGraph throughput), `
 - `qualified_type` exposes prefix as field `package` and type as field `name` (not `path`).
 - `composite_literal` has fields `type` and `body` (= `literal_value`); recurse on `generic_type.type` to peel `Foo[T]{}`.
 - `short_var_declaration` / `var_declaration` / `range_clause` use field `left` (identifier OR expression_list); skip `_` blank patterns.
+
+## tree-sitter-postgres gotchas
+
+- Two grammars in one crate: `tree_sitter_postgres::LANGUAGE` for SQL top-level (`CreateFunctionStmt`, `CreateStmt`, `ViewStmt`, `SelectStmt`, …) and `tree_sitter_postgres::LANGUAGE_PLPGSQL` for function bodies. Pure-Rust, no postmaster, no symbol clash with pgrx — both can be linked in the same binary as the PG extension.
+- `func_arg_list` is **left-recursive**: a call `f(a, b, c)` produces `func_arg_list(func_arg_list(func_arg_list(a), b), c)`. Counting arity by listing direct children of the outer list only catches the last arg; walk recursively over the subtree for every `func_arg_expr`.
+- `func_application` is the call node; `func_name` is its first named child. The same `func_name` shape is reused by `CreateFunctionStmt` and `CallStmt`.
+- `qualified_name` / `func_name` decompose `schema.name` as `ColId(name)` then optional `indirection > indirection_el > attr_name`. Walk into both `ColId` and `attr_name` for the identifier leaf — top-level `identifier` children alone undercount.
+- `func_type` returns raw text including `pg_catalog.` prefixing on keyword aliases (`int` becomes `pg_catalog.int4`). Strip the prefix and canonicalise (`int → int4`, `bigint → int8`, …) before using as the moniker signature.
+- PL/pgSQL `sql_expression` is **opaque text** — the grammar parses PERFORM / IF / EXECUTE / `:=` envelopes but doesn't descend into the embedded SQL. To find `func_application` refs inside the expression, slice the text and re-parse with the SQL grammar (wrapping in `SELECT <expr>` if it's a bare expression).
+- `CREATE FUNCTION` body is wrapped in a `dollar_quoted_string` under `func_as`. The delimiters are `$$` or `$tag$…$tag$` — strip them by finding the first and last occurrence of the delimiter run.
 
 ## tree-sitter-c-sharp gotchas
 

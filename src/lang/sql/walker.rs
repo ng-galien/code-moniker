@@ -1,7 +1,7 @@
-use std::ffi::{CStr, CString};
+//! Top-level statement walker using the `tree_sitter_postgres::LANGUAGE`
+//! grammar. Pure-Rust — no postgres runtime, no symbol clash with pgrx.
 
-use pgrx::pg_sys;
-use pgrx::pg_sys::pg_try::PgTryBuilder;
+use tree_sitter::{Node, Parser, Tree};
 
 use crate::core::code_graph::{CodeGraph, DefAttrs, Position, RefAttrs};
 use crate::core::moniker::Moniker;
@@ -12,70 +12,64 @@ use super::canonicalize::{
 };
 use super::kinds;
 
+fn parse_sql(source: &str) -> Tree {
+	let mut parser = Parser::new();
+	parser
+		.set_language(&tree_sitter_postgres::LANGUAGE.into())
+		.expect("failed to load tree-sitter-postgres SQL grammar");
+	parser
+		.parse(source, None)
+		.expect("tree-sitter parse returned None on a non-cancelled call")
+}
+
 pub(super) fn walk_source(source: &str, module: &Moniker, _deep: bool, graph: &mut CodeGraph) {
-	let cstr = match CString::new(source) {
-		Ok(c) => c,
-		Err(_) => return,
-	};
-
-	let raw_list = PgTryBuilder::new(|| unsafe { pg_sys::pg_parse_query(cstr.as_ptr()) })
-		.catch_others(|_| std::ptr::null_mut())
-		.execute();
-
-	if raw_list.is_null() {
-		return;
-	}
-
-	let stmts: pgrx::PgList<pg_sys::RawStmt> = unsafe { pgrx::PgList::from_pg(raw_list) };
-	for raw_ptr in stmts.iter_ptr() {
-		if raw_ptr.is_null() {
+	let tree = parse_sql(source);
+	let root = tree.root_node();
+	let src = source.as_bytes();
+	let mut cur = root.walk();
+	for child in root.children(&mut cur) {
+		if child.kind() != "toplevel_stmt" {
 			continue;
 		}
-		let raw = unsafe { &*raw_ptr };
-		if raw.stmt.is_null() {
-			continue;
-		}
-		dispatch_stmt(raw, source, module, graph);
+		walk_stmt(child, src, source, module, graph);
 	}
 }
 
-fn dispatch_stmt(raw: &pg_sys::RawStmt, source: &str, module: &Moniker, graph: &mut CodeGraph) {
-	let node_type = unsafe { (*raw.stmt).type_ };
-	let position = stmt_position(raw, source.len());
-
-	match node_type {
-		pg_sys::NodeTag::T_CreateFunctionStmt => {
-			let stmt = raw.stmt as *const pg_sys::CreateFunctionStmt;
-			emit_create_function(unsafe { &*stmt }, module, position, graph);
-		}
-		pg_sys::NodeTag::T_CreateStmt => {
-			let stmt = raw.stmt as *const pg_sys::CreateStmt;
-			emit_create_table(unsafe { &*stmt }, module, position, graph);
-		}
-		pg_sys::NodeTag::T_ViewStmt => {
-			let stmt = raw.stmt as *const pg_sys::ViewStmt;
-			let view_stmt = unsafe { &*stmt };
-			emit_view(view_stmt, module, position, graph);
-			collect_calls_in(view_stmt.query, module, module, graph);
-		}
-		_ => {
-			collect_calls_in(raw.stmt, module, module, graph);
-		}
+fn walk_stmt(top: Node, src: &[u8], source: &str, module: &Moniker, graph: &mut CodeGraph) {
+	let stmt = match find_child(top, "stmt") {
+		Some(n) => n,
+		None => return,
+	};
+	let inner = match stmt.named_child(0) {
+		Some(n) => n,
+		None => return,
+	};
+	let position = node_position(inner);
+	match inner.kind() {
+		"CreateFunctionStmt" => emit_create_function(inner, src, source, module, position, graph),
+		"CreateStmt" => emit_create_table(inner, src, module, position, graph),
+		"ViewStmt" => emit_view(inner, src, module, position, graph),
+		_ => collect_calls_in(inner, src, module, module, graph),
 	}
 }
 
 fn emit_create_function(
-	stmt: &pg_sys::CreateFunctionStmt,
+	node: Node,
+	src: &[u8],
+	source: &str,
 	module: &Moniker,
 	position: Option<Position>,
 	graph: &mut CodeGraph,
 ) {
-	let qualified = qualified_name_from_list(stmt.funcname);
-	let (schema, name) = match qualified {
-		Some(q) => q,
+	let func_name = match find_child(node, "func_name") {
+		Some(n) => n,
 		None => return,
 	};
-	let arg_types = function_param_types(stmt.parameters);
+	let (schema, name) = split_qualified_name(func_name, src);
+	let params = find_child(node, "func_args_with_defaults");
+	let arg_types = params
+		.map(|p| collect_param_types(p, src))
+		.unwrap_or_default();
 	let parent = maybe_schema(module, &schema);
 	let func_moniker = extend_callable_typed(&parent, kinds::FUNCTION, &name, &arg_types);
 	let signature = arg_types.join(b",".as_ref());
@@ -97,332 +91,432 @@ fn emit_create_function(
 		return;
 	}
 
-	let (lang, body) = function_language_and_body(stmt.options);
-	if lang.eq_ignore_ascii_case(b"plpgsql") && !body.is_empty() {
-		let (is_setof, is_void) = return_shape(stmt.returnType);
-		let param_names = function_param_names(stmt.parameters);
-		body::walk_plpgsql_body(
-			&body,
-			is_setof,
-			is_void,
-			&param_names,
-			&func_moniker,
-			module,
-			graph,
-		);
+	if function_language(node, src).eq_ignore_ascii_case(b"plpgsql")
+		&& let Some(body_text) = dollar_body(node, source)
+	{
+		body::walk_plpgsql_body(body_text, &func_moniker, module, graph);
 	}
-}
-
-fn function_param_names(params: *mut pg_sys::List) -> Vec<Vec<u8>> {
-	if params.is_null() {
-		return Vec::new();
-	}
-	let list: pgrx::PgList<pg_sys::FunctionParameter> = unsafe { pgrx::PgList::from_pg(params) };
-	list.iter_ptr()
-		.map(|p| {
-			if p.is_null() {
-				return Vec::new();
-			}
-			let fp = unsafe { &*p };
-			if fp.name.is_null() {
-				Vec::new()
-			} else {
-				cstr_to_bytes(fp.name)
-			}
-		})
-		.collect()
-}
-
-fn return_shape(return_type: *mut pg_sys::TypeName) -> (bool, bool) {
-	if return_type.is_null() {
-		return (false, true);
-	}
-	let rt = unsafe { &*return_type };
-	let is_setof = rt.setof;
-	let mut is_void = false;
-	if !rt.names.is_null() {
-		let names: pgrx::PgList<pg_sys::String> = unsafe { pgrx::PgList::from_pg(rt.names) };
-		if let Some(last) = names.iter_ptr().last()
-			&& !last.is_null()
-		{
-			let name = cstr_to_bytes(unsafe { (*last).sval });
-			if name.eq_ignore_ascii_case(b"void") {
-				is_void = true;
-			}
-		}
-	}
-	(is_setof, is_void)
 }
 
 fn emit_create_table(
-	stmt: &pg_sys::CreateStmt,
+	node: Node,
+	src: &[u8],
 	module: &Moniker,
 	position: Option<Position>,
 	graph: &mut CodeGraph,
 ) {
-	if stmt.relation.is_null() {
-		return;
-	}
-	let rv = unsafe { &*stmt.relation };
-	let (schema, name) = match relation_name(rv) {
-		Some(p) => p,
+	let q = match find_child(node, "qualified_name") {
+		Some(n) => n,
 		None => return,
 	};
+	let (schema, name) = split_qualified_name(q, src);
+	if name.is_empty() {
+		return;
+	}
 	let parent = maybe_schema(module, &schema);
 	let moniker = extend_segment(&parent, kinds::TABLE, &name);
 	let _ = graph.add_def(moniker, kinds::TABLE, module, position);
 }
 
 fn emit_view(
-	stmt: &pg_sys::ViewStmt,
+	node: Node,
+	src: &[u8],
 	module: &Moniker,
 	position: Option<Position>,
 	graph: &mut CodeGraph,
 ) {
-	if stmt.view.is_null() {
-		return;
-	}
-	let rv = unsafe { &*stmt.view };
-	let (schema, name) = match relation_name(rv) {
-		Some(p) => p,
+	let q = match find_child(node, "qualified_name") {
+		Some(n) => n,
 		None => return,
 	};
+	let (schema, name) = split_qualified_name(q, src);
+	if name.is_empty() {
+		return;
+	}
 	let parent = maybe_schema(module, &schema);
 	let moniker = extend_segment(&parent, kinds::VIEW, &name);
-	let _ = graph.add_def(moniker, kinds::VIEW, module, position);
-}
+	let _ = graph.add_def(moniker.clone(), kinds::VIEW, module, position);
 
-struct CallCtx {
-	module: *const Moniker,
-	source: *const Moniker,
-	graph: *mut CodeGraph,
+	if let Some(sel) = find_child(node, "SelectStmt") {
+		collect_calls_in(sel, src, &moniker, module, graph);
+	}
 }
 
 pub(super) fn collect_calls_in(
-	node: *mut pg_sys::Node,
+	node: Node,
+	src: &[u8],
 	source_def: &Moniker,
 	module: &Moniker,
 	graph: &mut CodeGraph,
 ) {
-	if node.is_null() {
-		return;
-	}
-	let mut ctx = CallCtx {
-		module: module as *const _,
-		source: source_def as *const _,
-		graph: graph as *mut _,
-	};
-	let ctx_ptr = &mut ctx as *mut _ as *mut ::core::ffi::c_void;
-	let _ = PgTryBuilder::new(|| unsafe {
-		pg_sys::raw_expression_tree_walker_impl(node, Some(walker_cb), ctx_ptr)
-	})
-	.catch_others(|_| false)
-	.execute();
+	visit(node, &mut |n| {
+		if n.kind() == "func_application" {
+			emit_call(n, src, source_def, module, graph);
+		}
+	});
 }
 
-unsafe extern "C-unwind" fn walker_cb(
-	node: *mut pg_sys::Node,
-	context: *mut ::core::ffi::c_void,
-) -> bool {
-	if node.is_null() {
-		return false;
-	}
-	let ctx = unsafe { &mut *(context as *mut CallCtx) };
-	let tag = unsafe { (*node).type_ };
-	if tag == pg_sys::NodeTag::T_FuncCall {
-		let fc = node as *const pg_sys::FuncCall;
-		emit_call_ref(unsafe { &*fc }, ctx);
-	}
-	unsafe { pg_sys::raw_expression_tree_walker_impl(node, Some(walker_cb), context) }
-}
-
-fn emit_call_ref(fc: &pg_sys::FuncCall, ctx: &mut CallCtx) {
-	let qualified = qualified_name_from_list(fc.funcname);
-	let (schema, name) = match qualified {
-		Some(q) => q,
+fn emit_call(
+	call: Node,
+	src: &[u8],
+	source_def: &Moniker,
+	module: &Moniker,
+	graph: &mut CodeGraph,
+) {
+	let name_node = match find_child(call, "func_name") {
+		Some(n) => n,
 		None => return,
 	};
-	let arity = list_len(fc.args);
-	let module = unsafe { &*ctx.module };
-	let source = unsafe { &*ctx.source };
+	let (schema, name) = split_qualified_name(name_node, src);
+	if name.is_empty() {
+		return;
+	}
+	let arity = func_call_arity(call);
 	let parent = maybe_schema(module, &schema);
 	let target = extend_callable_arity(&parent, kinds::FUNCTION, &name, arity);
-	let position = func_call_position(fc);
+	let position = node_position(call).map(|(s, _)| (s, s));
 	let attrs = RefAttrs {
 		confidence: kinds::CONF_UNRESOLVED,
 		..RefAttrs::default()
 	};
-	let graph = unsafe { &mut *ctx.graph };
-	let _ = graph.add_ref_attrs(source, target, kinds::REF_CALLS, position, &attrs);
+	let _ = graph.add_ref_attrs(source_def, target, kinds::REF_CALLS, position, &attrs);
 }
 
-fn stmt_position(raw: &pg_sys::RawStmt, source_len: usize) -> Option<Position> {
-	let start = raw.stmt_location;
-	if start < 0 {
-		return None;
-	}
-	let start_u = start as u32;
-	let len = raw.stmt_len.max(0) as u32;
-	let mut end = start_u.saturating_add(len);
-	if (end as usize) > source_len {
-		end = source_len as u32;
-	}
-	Some((start_u, end))
+/// `func_arg_list` is left-recursive — `(a, b, c)` produces
+/// `func_arg_list(func_arg_list(func_arg_list(a), b), c)`. Walk only the chain;
+/// `func_arg_expr` may itself contain another `func_application` whose own
+/// args must not be counted.
+fn func_call_arity(call: Node) -> u16 {
+	let args = match find_child(call, "func_arg_list") {
+		Some(n) => n,
+		None => return 0,
+	};
+	let mut count = 0u16;
+	walk_arg_list(args, &mut count);
+	count
 }
 
-fn func_call_position(fc: &pg_sys::FuncCall) -> Option<Position> {
-	if fc.location < 0 {
-		return None;
-	}
-	let start = fc.location as u32;
-	Some((start, start))
-}
-
-fn list_len(list: *mut pg_sys::List) -> u16 {
-	if list.is_null() {
-		return 0;
-	}
-	let l: pgrx::PgList<pg_sys::Node> = unsafe { pgrx::PgList::from_pg(list) };
-	l.len() as u16
-}
-
-fn qualified_name_from_list(list: *mut pg_sys::List) -> Option<(Vec<u8>, Vec<u8>)> {
-	if list.is_null() {
-		return None;
-	}
-	let parts: pgrx::PgList<pg_sys::String> = unsafe { pgrx::PgList::from_pg(list) };
-	let strings: Vec<Vec<u8>> = parts
-		.iter_ptr()
-		.filter_map(|p| {
-			if p.is_null() {
-				None
-			} else {
-				Some(unsafe { (*p).sval })
-			}
-		})
-		.filter_map(|cstr| {
-			if cstr.is_null() {
-				None
-			} else {
-				Some(cstr_to_bytes(cstr))
-			}
-		})
-		.collect();
-	match strings.len() {
-		0 => None,
-		1 => Some((Vec::new(), strings.into_iter().next().unwrap())),
-		_ => {
-			let mut it = strings.into_iter();
-			let schema = it.next().unwrap();
-			let name = it.last().unwrap();
-			Some((schema, name))
-		}
-	}
-}
-
-fn function_language_and_body(options: *mut pg_sys::List) -> (Vec<u8>, Vec<u8>) {
-	let mut lang = Vec::new();
-	let mut body = Vec::new();
-	if options.is_null() {
-		return (lang, body);
-	}
-	let opts: pgrx::PgList<pg_sys::DefElem> = unsafe { pgrx::PgList::from_pg(options) };
-	for opt_ptr in opts.iter_ptr() {
-		if opt_ptr.is_null() {
-			continue;
-		}
-		let opt = unsafe { &*opt_ptr };
-		if opt.defname.is_null() || opt.arg.is_null() {
-			continue;
-		}
-		let name = cstr_to_bytes(opt.defname);
-		match name.as_slice() {
-			b"language" if unsafe { (*opt.arg).type_ } == pg_sys::NodeTag::T_String => {
-				let s = opt.arg as *const pg_sys::String;
-				lang = cstr_to_bytes(unsafe { (*s).sval });
-			}
-			b"as" if unsafe { (*opt.arg).type_ } == pg_sys::NodeTag::T_List => {
-				let list: pgrx::PgList<pg_sys::String> =
-					unsafe { pgrx::PgList::from_pg(opt.arg as *mut pg_sys::List) };
-				if let Some(first) = list.iter_ptr().next()
-					&& !first.is_null()
-				{
-					body = cstr_to_bytes(unsafe { (*first).sval });
-				}
-			}
+fn walk_arg_list(list: Node, count: &mut u16) {
+	let mut cur = list.walk();
+	for c in list.named_children(&mut cur) {
+		match c.kind() {
+			"func_arg_expr" => *count = count.saturating_add(1),
+			"func_arg_list" => walk_arg_list(c, count),
 			_ => {}
 		}
 	}
-	(lang, body)
 }
 
-fn relation_name(rv: &pg_sys::RangeVar) -> Option<(Vec<u8>, Vec<u8>)> {
-	if rv.relname.is_null() {
+fn visit<F: FnMut(Node)>(node: Node, f: &mut F) {
+	f(node);
+	let mut cur = node.walk();
+	for c in node.named_children(&mut cur) {
+		visit(c, f);
+	}
+}
+
+fn find_child<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
+	let mut cur = node.walk();
+	node.named_children(&mut cur).find(|c| c.kind() == kind)
+}
+
+fn find_descendant<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
+	if node.kind() == kind {
+		return Some(node);
+	}
+	let mut cur = node.walk();
+	for c in node.named_children(&mut cur) {
+		if let Some(d) = find_descendant(c, kind) {
+			return Some(d);
+		}
+	}
+	None
+}
+
+/// `func_name` / `qualified_name` shape:
+/// `ColId(name)` then optional `indirection > indirection_el > attr_name(name)`.
+/// One segment → (empty schema, last). Two+ segments → (first, last).
+fn split_qualified_name(node: Node, src: &[u8]) -> (Vec<u8>, Vec<u8>) {
+	let mut parts: Vec<Vec<u8>> = Vec::new();
+	collect_qualified_parts(node, src, &mut parts);
+	match parts.len() {
+		0 => (Vec::new(), Vec::new()),
+		1 => (Vec::new(), parts.into_iter().next().unwrap()),
+		_ => {
+			let last = parts.last().cloned().unwrap();
+			let first = parts.into_iter().next().unwrap();
+			(first, last)
+		}
+	}
+}
+
+fn collect_qualified_parts(node: Node, src: &[u8], out: &mut Vec<Vec<u8>>) {
+	let mut cur = node.walk();
+	for c in node.named_children(&mut cur) {
+		match c.kind() {
+			"ColId" | "ColLabel" | "type_function_name" => {
+				if let Some(id) = find_descendant(c, "identifier") {
+					out.push(node_bytes(id, src));
+				}
+			}
+			"indirection" | "indirection_el" => collect_qualified_parts(c, src, out),
+			"attr_name" => {
+				if let Some(id) = find_descendant(c, "identifier") {
+					out.push(node_bytes(id, src));
+				}
+			}
+			"identifier" => out.push(node_bytes(c, src)),
+			_ => collect_qualified_parts(c, src, out),
+		}
+	}
+}
+
+fn collect_param_types(params: Node, src: &[u8]) -> Vec<Vec<u8>> {
+	let mut out = Vec::new();
+	visit(params, &mut |n| {
+		if n.kind() != "func_arg" {
+			return;
+		}
+		if let Some(ft) = find_child(n, "func_type") {
+			let raw = node_bytes(ft, src);
+			let bytes = normalize_type(&raw);
+			out.push(bytes);
+		}
+	});
+	out
+}
+
+/// `func_type` text comes back with `pg_catalog.` qualification on builtin
+/// keyword aliases (`int → pg_catalog.int4`) and arbitrary surrounding
+/// whitespace. Collapse runs to single spaces (preserves `double precision`)
+/// and strip the `pg_catalog.` prefix.
+fn normalize_type(raw: &[u8]) -> Vec<u8> {
+	let s = std::str::from_utf8(raw).unwrap_or("");
+	let trimmed = s.trim();
+	let collapsed: String = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+	let canon = match collapsed.as_str() {
+		"int" => "int4".to_string(),
+		"integer" => "int4".to_string(),
+		"bigint" => "int8".to_string(),
+		"smallint" => "int2".to_string(),
+		"real" => "float4".to_string(),
+		"double precision" => "float8".to_string(),
+		_ => collapsed,
+	};
+	canon.into_bytes()
+}
+
+fn function_language(node: Node, src: &[u8]) -> Vec<u8> {
+	let opts = match find_descendant(node, "createfunc_opt_list") {
+		Some(n) => n,
+		None => return Vec::new(),
+	};
+	let mut found = Vec::new();
+	visit(opts, &mut |item| {
+		if item.kind() != "createfunc_opt_item" {
+			return;
+		}
+		let mut has_lang = false;
+		let mut cur = item.walk();
+		for c in item.named_children(&mut cur) {
+			if c.kind() == "kw_language" {
+				has_lang = true;
+			} else if has_lang && found.is_empty() {
+				if let Some(id) = find_descendant(c, "identifier") {
+					found = node_bytes(id, src);
+				}
+			}
+		}
+	});
+	found
+}
+
+fn dollar_body<'a>(node: Node<'_>, source: &'a str) -> Option<&'a str> {
+	let dollar = find_descendant(node, "dollar_quoted_string")?;
+	let full = source.get(dollar.start_byte()..dollar.end_byte())?;
+	let first = full.find('$')?;
+	let end_delim = full[first + 1..].find('$')? + first + 2;
+	let close = full.rfind(&full[first..end_delim])?;
+	if close <= end_delim {
 		return None;
 	}
-	let name = cstr_to_bytes(rv.relname);
-	let schema = if rv.schemaname.is_null() {
-		Vec::new()
-	} else {
-		cstr_to_bytes(rv.schemaname)
-	};
-	Some((schema, name))
+	source.get(dollar.start_byte() + end_delim..dollar.start_byte() + close)
 }
 
-fn function_param_types(params: *mut pg_sys::List) -> Vec<Vec<u8>> {
-	if params.is_null() {
-		return Vec::new();
-	}
-	let list: pgrx::PgList<pg_sys::FunctionParameter> = unsafe { pgrx::PgList::from_pg(params) };
-	list.iter_ptr()
-		.filter_map(|p| {
-			if p.is_null() {
-				return None;
-			}
-			let fp = unsafe { &*p };
-			if !param_mode_is_input(fp.mode) {
-				return None;
-			}
-			Some(type_name_to_bytes(fp.argType))
-		})
-		.collect()
+fn node_bytes(node: Node, src: &[u8]) -> Vec<u8> {
+	src[node.start_byte()..node.end_byte().min(src.len())].to_vec()
 }
 
-fn param_mode_is_input(mode: pg_sys::FunctionParameterMode::Type) -> bool {
-	matches!(
-		mode,
-		pg_sys::FunctionParameterMode::FUNC_PARAM_IN
-			| pg_sys::FunctionParameterMode::FUNC_PARAM_INOUT
-			| pg_sys::FunctionParameterMode::FUNC_PARAM_VARIADIC
-			| pg_sys::FunctionParameterMode::FUNC_PARAM_DEFAULT
-	)
+fn node_position(node: Node) -> Option<Position> {
+	let s = node.start_byte() as u32;
+	let e = node.end_byte() as u32;
+	Some((s, e))
 }
 
-fn type_name_to_bytes(type_name: *mut pg_sys::TypeName) -> Vec<u8> {
-	if type_name.is_null() {
-		return Vec::new();
-	}
-	let cstr = unsafe { pg_sys::TypeNameToString(type_name) };
-	if cstr.is_null() {
-		return Vec::new();
-	}
-	let bytes = cstr_to_bytes(cstr);
-	unsafe { pg_sys::pfree(cstr as *mut _) };
-	strip_pg_catalog(bytes)
-}
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::core::moniker::MonikerBuilder;
+	use crate::lang::sql::Presets;
+	use crate::lang::sql::extract;
 
-fn strip_pg_catalog(bytes: Vec<u8>) -> Vec<u8> {
-	const PREFIX: &[u8] = b"pg_catalog.";
-	if bytes.starts_with(PREFIX) {
-		bytes[PREFIX.len()..].to_vec()
-	} else {
-		bytes
+	fn anchor() -> Moniker {
+		MonikerBuilder::new().project(b"app").build()
 	}
-}
 
-fn cstr_to_bytes(p: *const ::core::ffi::c_char) -> Vec<u8> {
-	if p.is_null() {
-		return Vec::new();
+	fn run(uri: &str, src: &str) -> CodeGraph {
+		extract(uri, src, &anchor(), false, &Presets::default())
 	}
-	unsafe { CStr::from_ptr(p) }.to_bytes().to_vec()
+
+	fn def_monikers(g: &CodeGraph) -> Vec<String> {
+		g.defs()
+			.map(|d| crate::core::uri::to_uri(&d.moniker, &Default::default()).unwrap())
+			.collect()
+	}
+
+	fn ref_targets(g: &CodeGraph) -> Vec<String> {
+		g.refs()
+			.map(|r| crate::core::uri::to_uri(&r.target, &Default::default()).unwrap())
+			.collect()
+	}
+
+	#[test]
+	fn qualified_function_emits_full_signature() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION public.bar(a int, b text) RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;",
+		);
+		assert!(
+			def_monikers(&g).iter().any(|m| m
+				== "code+moniker://app/lang:sql/module:foo/schema:public/function:bar(int4,text)"),
+			"got defs: {:?}",
+			def_monikers(&g)
+		);
+		let func = g
+			.defs()
+			.find(|d| d.kind == b"function")
+			.expect("function def");
+		assert_eq!(func.signature, b"int4,text");
+	}
+
+	#[test]
+	fn unqualified_function_omits_schema() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION bar() RETURNS void LANGUAGE sql AS $$ $$;",
+		);
+		assert!(
+			def_monikers(&g)
+				.iter()
+				.any(|m| m == "code+moniker://app/lang:sql/module:foo/function:bar()")
+		);
+		assert_eq!(g.defs().filter(|d| d.kind == b"function").count(), 1);
+	}
+
+	#[test]
+	fn overloads_with_different_types_both_land() {
+		let g = run(
+			"foo.sql",
+			"CREATE FUNCTION m(x int) RETURNS int LANGUAGE sql AS $$ SELECT x $$;\
+			 CREATE FUNCTION m(x text) RETURNS text LANGUAGE sql AS $$ SELECT x $$;",
+		);
+		assert_eq!(g.defs().filter(|d| d.kind == b"function").count(), 2);
+	}
+
+	#[test]
+	fn create_table_emits_table_under_schema() {
+		let g = run(
+			"schema.sql",
+			"CREATE TABLE esac.module_t (id uuid PRIMARY KEY);",
+		);
+		assert!(
+			def_monikers(&g).iter().any(
+				|m| m == "code+moniker://app/lang:sql/module:schema/schema:esac/table:module_t"
+			)
+		);
+	}
+
+	#[test]
+	fn create_view_emits_view_and_call_ref() {
+		let g = run("schema.sql", "CREATE VIEW v AS SELECT esac.foo() FROM t;");
+		assert!(
+			def_monikers(&g)
+				.iter()
+				.any(|m| m == "code+moniker://app/lang:sql/module:schema/view:v")
+		);
+		assert!(
+			ref_targets(&g).iter().any(
+				|t| t == "code+moniker://app/lang:sql/module:schema/schema:esac/function:foo()"
+			),
+			"got refs: {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn top_level_select_emits_qualified_call() {
+		let g = run("foo.sql", "SELECT public.bar(1, 2);");
+		assert!(
+			ref_targets(&g).iter().any(
+				|t| t == "code+moniker://app/lang:sql/module:foo/schema:public/function:bar(2)"
+			),
+			"got refs: {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn unqualified_top_level_call_omits_schema() {
+		let g = run("foo.sql", "SELECT bar();");
+		assert!(
+			ref_targets(&g)
+				.iter()
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:bar()"),
+			"got refs: {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn empty_source_yields_only_module_root() {
+		let g = run("db/functions/plan/create_plan.sql", "");
+		let defs: Vec<_> = g.defs().collect();
+		assert_eq!(defs.len(), 1);
+		assert_eq!(
+			crate::core::uri::to_uri(&defs[0].moniker, &Default::default()).unwrap(),
+			"code+moniker://app/lang:sql/dir:db/dir:functions/dir:plan/module:create_plan"
+		);
+	}
+
+	#[test]
+	fn nested_call_arity_is_outer_only() {
+		// `func_arg_list` is left-recursive; a naive `visit` would count the
+		// inner `g(a, b)` args (2) on top of the outer single arg.
+		let g = run("foo.sql", "SELECT f(g(a, b));");
+		assert!(
+			ref_targets(&g)
+				.iter()
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:f(1)"),
+			"outer call f should have arity 1, got refs: {:?}",
+			ref_targets(&g)
+		);
+		assert!(
+			ref_targets(&g)
+				.iter()
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:g(2)"),
+			"inner call g should have arity 2, got refs: {:?}",
+			ref_targets(&g)
+		);
+	}
+
+	#[test]
+	fn function_def_has_byte_range() {
+		let g = run(
+			"pkg.sql",
+			"CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;",
+		);
+		let func = g.defs().find(|d| d.kind == b"function").expect("function");
+		let (s, e) = func.position.expect("position");
+		assert!(s <= e, "start={s} end={e}");
+	}
 }

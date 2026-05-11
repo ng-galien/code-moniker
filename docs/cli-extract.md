@@ -29,7 +29,7 @@ URI prefix (matches the Postgres GUC `code_moniker.scheme`).
 | `.py`                    | `python`     |
 | `.go`                    | `go`         |
 | `.cs`                    | `cs`         |
-| `.sql` `.plpgsql`        | `sql` (only when built with `--features pg17`) |
+| `.sql` `.plpgsql`        | `sql`        |
 
 Unknown extension exits with code `2`.
 

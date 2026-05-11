@@ -3,7 +3,7 @@ name          = "code-moniker"
 version       = "0.1.0"
 edition       = "2024"
 rust-version  = "1.85"
-license       = "(MIT OR Apache-2.0) AND PostgreSQL"
+license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/ng-galien/code-moniker"
 homepage      = "https://github.com/ng-galien/code-moniker"
 documentation = "https://docs.rs/code-moniker"
@@ -67,11 +67,14 @@ toml       = "0.8"
 serde_json = "1"
 roxmltree  = "0.20"
 
+# Pure-Rust PostgreSQL & PL/pgSQL grammars for tree-sitter. Two grammars
+# (`LANGUAGE` for SQL, `LANGUAGE_PLPGSQL` for function bodies) used by
+# `lang::sql/`. No C runtime, no postmaster, no symbol clash with pgrx —
+# the same extractor runs in the CLI binary and the pgrx-hosted extension.
+tree-sitter-postgres = "1.1"
+
 # pgrx-tests added later when in-PG tests (`#[pg_test]`) are introduced.
 # It requires a `pgN` feature and breaks pure-Rust `cargo test` when always-on.
-
-[build-dependencies]
-cc = "1"
 
 [dev-dependencies]
 serde_cbor = "0.11"

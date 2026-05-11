@@ -24,11 +24,11 @@ just produces a one-entry `files` list.
 
 Exit codes:
 
-| Code | Meaning                                                     |
-| ---- | ----------------------------------------------------------- |
-| `0`  | No violations.                                              |
-| `1`  | At least one violation (stdout carries the report).         |
-| `2`  | Usage / parse error (bad path, malformed user TOML, etc.).  |
+| Code | Meaning                                                                                          |
+| ---- | ------------------------------------------------------------------------------------------------ |
+| `0`  | No violations. Also returned when the target file's extension isn't a recognised source language — per-file mode is a silent no-op so PostToolUse hooks don't spam the agent on docs / configs. |
+| `1`  | At least one violation (stdout carries the report).                                              |
+| `2`  | Usage error (bad path, malformed user TOML).                                                     |
 
 ## Configuration
 

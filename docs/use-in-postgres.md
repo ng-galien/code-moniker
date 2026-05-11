@@ -82,7 +82,7 @@ INSERT INTO module (id, graph, source_text, source_uri, origin) VALUES
 | `extract_python`      | tree-sitter                              | `extract_pyproject`        |
 | `extract_go`          | tree-sitter                              | `extract_go_mod`           |
 | `extract_csharp`      | tree-sitter                              | `extract_csproj`           |
-| `extract_plpgsql`     | PG runtime parser + vendored plpgsql     | —                          |
+| `extract_plpgsql`     | tree-sitter                              | —                          |
 
 Each takes `deep boolean DEFAULT false`; pass `deep => true` to
 also emit parameters and local variables. `extract_typescript`

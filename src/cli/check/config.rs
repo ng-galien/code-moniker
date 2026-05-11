@@ -422,7 +422,6 @@ impl Config {
 			Lang::Python => &self.python,
 			Lang::Go => &self.go,
 			Lang::Cs => &self.cs,
-			#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 			Lang::Sql => &self.sql,
 		}
 	}

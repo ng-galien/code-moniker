@@ -29,12 +29,14 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-	/// Run lint rules against a single file (live linter for agent harnesses).
+	/// Run lint rules against a file or directory tree (live linter for agent harnesses, pre-commit, CI).
 	Check(CheckArgs),
 }
 
 #[derive(Debug, ClapArgs)]
 pub struct CheckArgs {
+	/// Source file (per-edit lint) or directory (project-wide scan, walks .gitignore-aware).
+	#[arg(value_name = "PATH")]
 	pub file: PathBuf,
 
 	#[arg(

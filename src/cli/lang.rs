@@ -6,7 +6,9 @@ use crate::lang::Lang;
 
 #[derive(Debug, Error)]
 pub enum LangError {
-	#[error("unsupported file extension `.{0}` (known: ts/tsx/js/jsx, rs, java, py, go, cs, sql)")]
+	#[error(
+		"unsupported file extension `.{0}` (known: ts/tsx/js/jsx, rs, java, py, go, cs, sql/plpgsql)"
+	)]
 	UnknownExtension(String),
 	#[error("file has no extension; cannot infer language")]
 	NoExtension,
@@ -28,7 +30,6 @@ pub fn path_to_lang(path: &Path) -> Result<Lang, LangError> {
 		"py" | "pyi" => Ok(Lang::Python),
 		"go" => Ok(Lang::Go),
 		"cs" => Ok(Lang::Cs),
-		#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 		"sql" | "plpgsql" => Ok(Lang::Sql),
 		other => Err(LangError::UnknownExtension(other.to_string())),
 	}
@@ -90,18 +91,9 @@ mod tests {
 		assert_eq!(dispatch("X.RS").unwrap(), Lang::Rs);
 	}
 
-	#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 	#[test]
-	fn sql_resolves_when_pg_feature_on() {
+	fn sql_extension_resolves() {
 		assert_eq!(dispatch("a.sql").unwrap(), Lang::Sql);
-	}
-
-	#[cfg(not(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17")))]
-	#[test]
-	fn sql_unknown_without_pg_feature() {
-		match dispatch("a.sql") {
-			Err(LangError::UnknownExtension(s)) => assert_eq!(s, "sql"),
-			other => panic!("unexpected: {other:?}"),
-		}
+		assert_eq!(dispatch("a.plpgsql").unwrap(), Lang::Sql);
 	}
 }

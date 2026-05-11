@@ -274,8 +274,7 @@ Arguments:
 
 The extractor:
 
-1. Parses `source` with the language's tree-sitter grammar (or the
-   PG runtime parser for SQL).
+1. Parses `source` with the language's tree-sitter grammar.
 2. Walks the AST.
 3. Posts the `lang:<short>` segment as the first segment under
    `anchor`. Every produced moniker is rooted under

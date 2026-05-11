@@ -51,7 +51,6 @@ pub fn extract(lang: Lang, source: &str, path: &Path) -> CodeGraph {
 			deep,
 			&crate::lang::cs::Presets::default(),
 		),
-		#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
 		Lang::Sql => crate::lang::sql::extract(
 			uri,
 			source,

@@ -35,7 +35,6 @@ scripts/
 examples/
   bench_codegraph.rs    CodeGraph add_def / add_ref scaling bench
   bench_extract.rs      full extractor on a real file
-vendor/plpgsql/         vendored PostgreSQL plpgsql parser sources
 ```
 
 **No file > ~600 lines.** One responsibility per file, named by its suffix.
