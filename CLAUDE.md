@@ -145,6 +145,8 @@ Bench: `cargo run --release --example bench_codegraph` (CodeGraph throughput), `
 
 **Adding a `#[pg_extern]` arg without breaking callers**: wrap the new param in `pgrx::default!(T, "sql_literal")`. Opt in via named arg (`fn extract_rust(..., deep := true)`).
 
+pgrx-pg-sys and `libpg_query` (`pg_query` crate) cannot cohabit a binary; both define `palloc`, `MemoryContext`, `plpgsql_check_syntax`. SQL / PL-pgSQL must stay on tree-sitter-postgres.
+
 ## tree-sitter-rust gotchas
 
 - Node kinds are `function_item` / `type_item` / `enum_item` / `trait_item` (not `fn_item` / `type_alias_item`).
@@ -169,6 +171,14 @@ Bench: `cargo run --release --example bench_codegraph` (CodeGraph throughput), `
 - `func_type` returns raw text including `pg_catalog.` prefixing on keyword aliases (`int` becomes `pg_catalog.int4`). Strip the prefix and canonicalise (`int → int4`, `bigint → int8`, …) before using as the moniker signature.
 - PL/pgSQL `sql_expression` is **opaque text** — the grammar parses PERFORM / IF / EXECUTE / `:=` envelopes but doesn't descend into the embedded SQL. To find `func_application` refs inside the expression, slice the text and re-parse with the SQL grammar (wrapping in `SELECT <expr>` if it's a bare expression).
 - `CREATE FUNCTION` body is wrapped in a `dollar_quoted_string` under `func_as`. The delimiters are `$$` or `$tag$…$tag$` — strip them by finding the first and last occurrence of the delimiter run.
+- `lang::callable::normalize_type_text` strips all whitespace; SQL keeps its own `normalize_type` (collapses runs to single spaces, applies `int → int4` aliases) to preserve `double precision` etc.
+
+## Architectural rule authoring (`.code-moniker.toml`)
+
+- Rust import refs encode `crate::X::Y::Z` (depth ≥3) as `dir:X/module:Y/path:Z`, `crate::X::Y` (depth 2) as `module:X/path:Y`. Path-based ref rules use `target ~ '**/dir:X/**' OR target ~ '**/module:X/**'`.
+- Validate new path-rules by injection: `sed -i '' '1a use crate::FORBIDDEN as _' file.rs`, run linter, revert. `0 violations` baseline does not validate a rule.
+- `scripts/check-arch.sh` runs `code-moniker check .` (whole repo, not `src/`).
+- `// code-moniker: ignore[<id>]` applies to the next non-comment def. Comment-on-comment suppression is not supported; use rule-level `text =~ X` exemption.
 
 ## tree-sitter-c-sharp gotchas
 
