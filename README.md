@@ -24,6 +24,51 @@ code, in two shapes that share one extractor:
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
 Python, Go, C#, PL/pgSQL.
 
+## Why this exists
+
+**SCIP / LSIF / tree-sitter-graph** emit symbol graphs as static
+files — you bolt your own consumer on top to query them. **Semgrep
+CE, ast-grep**, and local syntax-pattern matchers give you a query
+language but match syntax, not a symbol graph, so cross-file refs
+and layering constraints (`domain/` must not depend on
+`infrastructure/`) stay out of reach as primitives.
+
+`code-moniker` bakes structural context into the symbol identity.
+The AST of `class OrderEntity` under `src/domain/order/`
+materialises like this (scanning with `src/` as root):
+
+```
+    // src/domain/order.ts
+    class OrderEntity { save(r: OrderRepo) {…} }
+
+                            │ extract
+                            ▼
+
+    moniker (identity + structural path, one per def):
+      ◆ code+moniker://app/lang:ts/dir:domain/module:order/class:OrderEntity
+                                    └────────┘
+                                       layering anchor — pattern-matchable
+      ◆ …/class:OrderEntity/method:save(OrderRepo)
+
+    code_graph (edges between monikers):
+      …/method:save  ── uses_type ──▶  …/dir:domain/module:repo/interface:OrderRepo
+```
+
+The moniker URI carries identity and structural path; `code_graph`
+carries the relations (calls, imports, implements, extends,
+uses_type) between monikers. A rule like
+`source ~ '**/dir:domain/**' => target ~ '**/dir:domain/**'`
+becomes a one-liner the linter enforces statelessly, file by file.
+
+The Postgres extension is this model ported into a database.
+`moniker` and `code_graph` become native SQL types; the algebra
+(`<@` for subtree, `?=` for `bind_match` cross-file resolution,
+`@>` for ancestry) becomes SQL operators backed by GiST and GIN
+indexes. The symbol graph now sits next to your domain tables and
+joins with them in one query — which deployments touched files
+under `dir:domain/`, which owners reviewed code calling
+`interface:OrderRepo`.
+
 ## Install
 
 CLI (standalone, no Postgres needed):
