@@ -1,15 +1,4 @@
 //! Rule DSL for `code-moniker check`. Full reference: docs/CHECK_DSL.md.
-//!
-//! Boolean tree over atoms: `AND` `OR` `NOT` `=>` with parens. Precedence
-//! `=>` < `OR` < `AND` < `NOT`. Atom = `<lhs> <op> <rhs>` ; ops mirror the
-//! moniker algebra plus regex (`=~` `!~`) and numeric comparison.
-//!
-//! Operator search is restricted to the LHS prefix (an ident, optionally
-//! `count(<kind>)`), so a regex RHS like `^count\(.+\) <= 20$` cannot be
-//! mis-split. Boundaries between atoms are `" AND "`, `" OR "`, `" => "`
-//! at depth 0 outside string literals.
-
-use std::collections::HashMap;
 
 use regex::Regex;
 
@@ -17,8 +6,7 @@ use crate::core::moniker::Moniker;
 use crate::core::uri::{UriConfig, from_uri};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum Lhs {
-	// Def scope (and unprefixed in ref scope: `kind` = ref_kind)
+pub(super) enum Lhs {
 	Name,
 	Lines,
 	Kind,
@@ -29,7 +17,6 @@ pub enum Lhs {
 	Confidence,
 	ParentName,
 	ParentKind,
-	// Ref scope projections
 	SourceName,
 	SourceKind,
 	SourceVisibility,
@@ -38,13 +25,12 @@ pub enum Lhs {
 	TargetKind,
 	TargetVisibility,
 	TargetMoniker,
-	// Segment-domain quantifier body
 	SegmentName,
 	SegmentKind,
 }
 
 impl Lhs {
-	pub fn as_str(self) -> &'static str {
+	pub(super) fn as_str(self) -> &'static str {
 		match self {
 			Self::Name => "name",
 			Self::Lines => "lines",
@@ -70,23 +56,15 @@ impl Lhs {
 	}
 }
 
-/// Two-character operator tokens, ordered by parse priority. Shared between
-/// the DSL parser and the CLI `--where` reader so the two cannot drift.
-pub const TWO_CHAR_OPS: &[&str] = &["<=", ">=", "!=", "=~", "!~", "<@", "@>", "?="];
+pub(super) const TWO_CHAR_OPS: &[&str] = &["<=", ">=", "!=", "=~", "!~", "<@", "@>", "?="];
 
 #[derive(Debug, Clone)]
-pub enum LhsExpr {
+pub(super) enum LhsExpr {
 	Attr(Lhs),
-	/// `count(<domain>)` or `count(<domain>, <filter>)` — number of items in
-	/// the domain (children of a kind, segments, out_refs, in_refs) optionally
-	/// constrained by a filter expression.
 	Count {
 		domain: Domain,
 		filter: Option<Box<Node>>,
 	},
-	/// `segment("kind")` / `source.segment("kind")` / `target.segment("kind")`
-	/// — name of the first segment of that kind in the relevant moniker.
-	/// Returns `""` if no segment of that kind exists.
 	SegmentOf {
 		scope: SegmentScope,
 		kind: String,
@@ -94,37 +72,29 @@ pub enum LhsExpr {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum SegmentScope {
-	/// Bare `segment("K")` — current def's moniker (def scope) or the
-	/// outer scope's moniker (segment-quantifier body).
+pub(super) enum SegmentScope {
 	Def,
-	/// `source.segment("K")` — ref scope only.
 	Source,
-	/// `target.segment("K")` — ref scope only.
 	Target,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Domain {
-	/// Direct children defs of the given kind under the current def.
+pub(super) enum Domain {
 	Children(String),
-	/// Segments of the current moniker (def scope) or scope's moniker.
 	Segments,
-	/// Refs whose source is the current def.
 	OutRefs,
-	/// Refs whose target is the current def.
 	InRefs,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum QuantKind {
+pub(super) enum QuantKind {
 	Any,
 	All,
 	None,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum Op {
+pub(super) enum Op {
 	Eq,
 	Ne,
 	Lt,
@@ -136,25 +106,21 @@ pub enum Op {
 	AncestorOf,
 	DescendantOf,
 	BindMatch,
-	/// `~ '<path-pattern>'` — moniker matches the path pattern.
 	PathMatch,
 }
 
 #[derive(Debug, Clone)]
-pub enum Rhs {
+pub(super) enum Rhs {
 	Number(u32),
-	/// Raw regex string preserved for messages; compiled in `Atom::compile`.
 	RegexStr(String),
 	Moniker(Moniker),
 	Str(String),
 	PathPattern(super::path::Pattern),
-	/// Another projection on the same scope — resolved at eval time. Enables
-	/// `name != parent.name`, `source.kind = target.kind`, …
 	Projection(Lhs),
 }
 
 #[derive(Debug, Clone)]
-pub struct Atom {
+pub(super) struct Atom {
 	pub lhs: LhsExpr,
 	pub op: Op,
 	pub rhs: Rhs,
@@ -163,14 +129,12 @@ pub struct Atom {
 }
 
 #[derive(Debug, Clone)]
-pub enum Node {
+pub(super) enum Node {
 	Atom(Atom),
 	And(Vec<Node>),
 	Or(Vec<Node>),
 	Not(Box<Node>),
 	Implies(Box<Node>, Box<Node>),
-	/// `any|all|none(<domain>, <expr>)` — body evaluated with each item of the
-	/// domain as the current scope.
 	Quantifier {
 		kind: QuantKind,
 		domain: Domain,
@@ -179,7 +143,7 @@ pub enum Node {
 }
 
 #[derive(Debug, Clone)]
-pub struct Expr {
+pub(super) struct Expr {
 	pub root: Node,
 }
 
@@ -189,7 +153,7 @@ pub enum ParseError {
 	BadExpr { expr: String, msg: String },
 }
 
-pub fn parse(input: &str, scheme: &str, allowed_kinds: &[&str]) -> Result<Expr, ParseError> {
+pub(super) fn parse(input: &str, scheme: &str, allowed_kinds: &[&str]) -> Result<Expr, ParseError> {
 	let raw = input.to_string();
 	let mut p = Parser {
 		input,
@@ -299,21 +263,17 @@ impl<'a> Parser<'a> {
 			});
 		}
 		let atom_str = &self.input[self.pos..atom_end];
-		let atom = parse_atom(atom_str, self.scheme, self.raw, self.allowed_kinds)?;
+		let atom = parse_atom(atom_str, self.scheme, self.raw)?;
 		self.pos = atom_end;
 		Ok(Node::Atom(atom))
 	}
 
-	/// Recognize `segment("K")` / `source.segment("K")` / `target.segment("K")`
-	/// followed by a string op (`=`, `!=`, `=~`, `!~`) and a RHS.
 	fn try_parse_segment_atom(&mut self) -> Result<Option<Atom>, ParseError> {
 		self.skip_ws();
 		let rest = &self.input[self.pos..];
-		let (scope, prefix_len) = if let Some(r) = rest.strip_prefix("source.segment(") {
-			let _ = r;
+		let (scope, prefix_len) = if rest.starts_with("source.segment(") {
 			(SegmentScope::Source, "source.segment(".len())
-		} else if let Some(r) = rest.strip_prefix("target.segment(") {
-			let _ = r;
+		} else if rest.starts_with("target.segment(") {
 			(SegmentScope::Target, "target.segment(".len())
 		} else if rest.starts_with("segment(") {
 			(SegmentScope::Def, "segment(".len())
@@ -345,31 +305,15 @@ impl<'a> Parser<'a> {
 				msg: "segment(<kind>) needs a kind argument".to_string(),
 			});
 		}
-		self.pos += 1; // consume `)`
-		// Now expect `<op> <rhs>`. Find the next op token at this position.
+		self.pos += 1;
 		self.skip_ws();
-		let after = &self.input[self.pos..];
-		let op_offset = self.pos;
-		let (op_str, op_len): (&str, usize) = if let Some(op) = TWO_CHAR_OPS
-			.iter()
-			.find(|op| after.starts_with(**op))
-			.copied()
-		{
-			(op, op.len())
-		} else if let Some(c) = after.chars().next()
-			&& "<>=~".contains(c)
-		{
-			let s = &after[..c.len_utf8()];
-			(s, c.len_utf8())
-		} else {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!(
-					"expected `<op> <rhs>` after `segment(...)` at byte {}",
-					self.pos
-				),
-			});
-		};
+		let (op_str, op_len) = self.eat_op().ok_or_else(|| ParseError::BadExpr {
+			expr: self.raw.to_string(),
+			msg: format!(
+				"expected `<op> <rhs>` after `segment(...)` at byte {}",
+				self.pos
+			),
+		})?;
 		self.pos += op_len;
 		let op = parse_op(op_str, self.raw)?;
 		// Parse the RHS — re-use the existing rhs scanner. RHS ends at next
@@ -403,7 +347,6 @@ impl<'a> Parser<'a> {
 			}
 		}
 		self.pos = rhs_end;
-		let _ = op_offset;
 		let raw = self.input[raw_start..self.pos].to_string();
 		Ok(Some(Atom {
 			lhs: LhsExpr::SegmentOf { scope, kind },
@@ -414,9 +357,6 @@ impl<'a> Parser<'a> {
 		}))
 	}
 
-	/// Recognize `count(<domain>, <filter>?)` followed by `<num_op> <number>`
-	/// as a complete atom. Required because the filter can be an arbitrary
-	/// expression that the atom-string scanner can't parse on its own.
 	fn try_parse_count_atom(&mut self) -> Result<Option<Atom>, ParseError> {
 		self.skip_ws();
 		if !self.input[self.pos..].starts_with("count(") {
@@ -424,36 +364,18 @@ impl<'a> Parser<'a> {
 		}
 		let raw_start = self.pos;
 		self.pos += "count".len();
-		let (domain, filter) = self.parse_quantifier_body(false)?;
-		// Look for `<num_op> <number>` after `count(...)`.
+		let (domain, filter) = self.parse_quantifier_body()?;
 		self.skip_ws();
-		let op_offset = self.pos;
-		let rest = &self.input[self.pos..];
-		let (op_str, op_len): (&str, usize) = if rest.starts_with("<=") {
-			("<=", 2)
-		} else if rest.starts_with(">=") {
-			(">=", 2)
-		} else if rest.starts_with("!=") {
-			("!=", 2)
-		} else if rest.starts_with("<") {
-			("<", 1)
-		} else if rest.starts_with(">") {
-			(">", 1)
-		} else if rest.starts_with("=") {
-			("=", 1)
-		} else {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!(
-					"expected numeric comparison after `count(...)` at byte {}",
-					self.pos
-				),
-			});
-		};
+		let (op_str, op_len) = self.eat_op().ok_or_else(|| ParseError::BadExpr {
+			expr: self.raw.to_string(),
+			msg: format!(
+				"expected numeric comparison after `count(...)` at byte {}",
+				self.pos
+			),
+		})?;
 		self.pos += op_len;
 		let op = parse_op(op_str, self.raw)?;
 		self.skip_ws();
-		// Read the number.
 		let num_start = self.pos;
 		let bytes = self.input.as_bytes();
 		while self.pos < bytes.len() && bytes[self.pos].is_ascii_digit() {
@@ -467,7 +389,6 @@ impl<'a> Parser<'a> {
 			),
 		})?;
 		let raw = self.input[raw_start..self.pos].to_string();
-		let _ = op_offset; // explanatory binding kept for future error messages
 		Ok(Some(Atom {
 			lhs: LhsExpr::Count {
 				domain,
@@ -480,9 +401,6 @@ impl<'a> Parser<'a> {
 		}))
 	}
 
-	/// Recognize `any(...)` / `all(...)` / `none(...)` at the current
-	/// position. `count(...)` stays an Atom (Lhs that yields a number) and is
-	/// handled by the regular atom path.
 	fn try_parse_quantifier(&mut self) -> Result<Option<Node>, ParseError> {
 		self.skip_ws();
 		for (kw, qk) in [
@@ -494,7 +412,7 @@ impl<'a> Parser<'a> {
 				&& rest.starts_with('(')
 			{
 				self.pos += kw.len(); // consume kw, leave the `(` for the body parser
-				let (domain, filter) = self.parse_quantifier_body(true)?;
+				let (domain, filter) = self.parse_quantifier_body()?;
 				let filter = filter.ok_or_else(|| ParseError::BadExpr {
 					expr: self.raw.to_string(),
 					msg: format!("`{kw}` requires a filter expression: `{kw}(<domain>, <expr>)`"),
@@ -509,14 +427,7 @@ impl<'a> Parser<'a> {
 		Ok(None)
 	}
 
-	/// Parse `(<domain>, <expr>?)` or `(<domain>)` after the head keyword. Caller
-	/// guarantees the cursor is on `(`. `filter_required = false` lets the form
-	/// `count(<domain>)` (no filter) work.
-	fn parse_quantifier_body(
-		&mut self,
-		_filter_required: bool,
-	) -> Result<(Domain, Option<Node>), ParseError> {
-		// Eat `(`.
+	fn parse_quantifier_body(&mut self) -> Result<(Domain, Option<Node>), ParseError> {
 		if self.peek_byte() != Some(b'(') {
 			return Err(ParseError::BadExpr {
 				expr: self.raw.to_string(),
@@ -576,10 +487,8 @@ impl<'a> Parser<'a> {
 		Ok((domain, filter))
 	}
 
-	/// Walk from `self.pos` to the next top-level boolean connective, closing
-	/// paren, or EOI. Tracks paren depth and string/regex literals so an
-	/// operator char inside a regex or a `count(...)` argument can't end the
-	/// atom prematurely.
+	/// Boundaries are " AND " / " OR " / " => " at paren depth 0 outside
+	/// string literals, so op chars inside a regex / count() arg never split.
 	fn find_atom_end(&self) -> usize {
 		let bytes = self.input.as_bytes();
 		let mut i = self.pos;
@@ -642,6 +551,21 @@ impl<'a> Parser<'a> {
 		self.input.as_bytes().get(self.pos).copied()
 	}
 
+	fn eat_op(&self) -> Option<(&'static str, usize)> {
+		let rest = &self.input[self.pos..];
+		for op in TWO_CHAR_OPS {
+			if rest.starts_with(op) {
+				return Some((*op, op.len()));
+			}
+		}
+		for op in ["<", ">", "=", "~"] {
+			if rest.starts_with(op) {
+				return Some((op, 1));
+			}
+		}
+		None
+	}
+
 	fn eat_keyword(&mut self, kw: &str) -> bool {
 		let rest = &self.input[self.pos..];
 		if let Some(after) = rest.strip_prefix(kw) {
@@ -657,18 +581,13 @@ impl<'a> Parser<'a> {
 	}
 }
 
-fn parse_atom(
-	input: &str,
-	scheme: &str,
-	full: &str,
-	allowed_kinds: &[&str],
-) -> Result<Atom, ParseError> {
+fn parse_atom(input: &str, scheme: &str, full: &str) -> Result<Atom, ParseError> {
 	let raw = input.trim().to_string();
 	if let Some(atom) = parse_has_segment(&raw, full)? {
 		return Ok(atom);
 	}
 	let (lhs_str, op_str, rhs_str) = split_atom(&raw, full)?;
-	let lhs = parse_lhs(lhs_str, full, allowed_kinds)?;
+	let lhs = parse_lhs(lhs_str, full)?;
 	let op = parse_op(op_str, full)?;
 	check_type(&lhs, op, full)?;
 	let rhs = parse_rhs(rhs_str, op, scheme, full)?;
@@ -727,11 +646,10 @@ fn parse_has_segment(raw: &str, full: &str) -> Result<Option<Atom>, ParseError> 
 	}))
 }
 
-/// Recognize projection names usable as RHS (e.g. `parent.name`, `target.kind`).
-/// Returns the matching `Lhs` variant or `None` if `s` isn't a known projection.
 fn projection_name_to_lhs(s: &str) -> Option<Lhs> {
 	Some(match s {
 		"name" => Lhs::Name,
+		"lines" => Lhs::Lines,
 		"kind" => Lhs::Kind,
 		"visibility" => Lhs::Visibility,
 		"text" => Lhs::Text,
@@ -740,9 +658,11 @@ fn projection_name_to_lhs(s: &str) -> Option<Lhs> {
 		"confidence" => Lhs::Confidence,
 		"parent.name" => Lhs::ParentName,
 		"parent.kind" => Lhs::ParentKind,
+		"source" => Lhs::SourceMoniker,
 		"source.name" => Lhs::SourceName,
 		"source.kind" => Lhs::SourceKind,
 		"source.visibility" => Lhs::SourceVisibility,
+		"target" => Lhs::TargetMoniker,
 		"target.name" => Lhs::TargetName,
 		"target.kind" => Lhs::TargetKind,
 		"target.visibility" => Lhs::TargetVisibility,
@@ -763,10 +683,8 @@ fn unquote(s: &str) -> &str {
 	}
 }
 
-/// Operator search is restricted to the LHS prefix (an `[A-Za-z_]+` ident,
-/// optionally followed by a parenthesised arg for `count(<kind>)`). The RHS
-/// is never scanned for operator chars, so regexes like `^[a-z]+$` or
-/// `<= 10` in a `text =~ …` predicate cannot be mistaken for the operator.
+/// Operator search restricted to the LHS prefix so an op char inside a regex
+/// RHS (`^[a-z]+$`, `foo<=bar`) can't be mistaken for the main operator.
 fn split_atom<'a>(s: &'a str, full: &str) -> Result<(&'a str, &'a str, &'a str), ParseError> {
 	let bail = || ParseError::BadExpr {
 		expr: full.to_string(),
@@ -826,48 +744,21 @@ fn lhs_token_end(bytes: &[u8]) -> Option<usize> {
 	Some(i)
 }
 
-fn parse_lhs(s: &str, full: &str, allowed_kinds: &[&str]) -> Result<LhsExpr, ParseError> {
+fn parse_lhs(s: &str, full: &str) -> Result<LhsExpr, ParseError> {
 	if s.starts_with("count(") {
-		// `count(...)` is parsed at primary level by `try_parse_count_atom`
-		// so we never reach this branch through normal flow. Surface a clear
-		// error in case an atom string sneaks in directly (e.g. via a future
-		// caller).
 		return Err(ParseError::BadExpr {
 			expr: full.to_string(),
 			msg: "internal: count(...) reached parse_lhs; should be handled at primary level"
 				.to_string(),
 		});
 	}
-	let _ = allowed_kinds;
-	let attr = match s {
-		"name" => Lhs::Name,
-		"lines" => Lhs::Lines,
-		"kind" => Lhs::Kind,
-		"visibility" => Lhs::Visibility,
-		"text" => Lhs::Text,
-		"moniker" => Lhs::Moniker,
-		"depth" => Lhs::Depth,
-		"confidence" => Lhs::Confidence,
-		"parent.name" => Lhs::ParentName,
-		"parent.kind" => Lhs::ParentKind,
-		"source" => Lhs::SourceMoniker,
-		"source.name" => Lhs::SourceName,
-		"source.kind" => Lhs::SourceKind,
-		"source.visibility" => Lhs::SourceVisibility,
-		"target" => Lhs::TargetMoniker,
-		"target.name" => Lhs::TargetName,
-		"target.kind" => Lhs::TargetKind,
-		"target.visibility" => Lhs::TargetVisibility,
-		"segment.name" => Lhs::SegmentName,
-		"segment.kind" => Lhs::SegmentKind,
-		other => {
-			return Err(ParseError::BadExpr {
-				expr: full.to_string(),
-				msg: format!("unknown lhs `{other}`"),
-			});
-		}
-	};
-	Ok(LhsExpr::Attr(attr))
+	match projection_name_to_lhs(s) {
+		Some(lhs) => Ok(LhsExpr::Attr(lhs)),
+		None => Err(ParseError::BadExpr {
+			expr: full.to_string(),
+			msg: format!("unknown lhs `{s}`"),
+		}),
+	}
 }
 
 fn parse_op(s: &str, full: &str) -> Result<Op, ParseError> {
@@ -994,10 +885,6 @@ fn parse_rhs(s: &str, op: Op, scheme: &str, full: &str) -> Result<Rhs, ParseErro
 		}
 	})
 }
-
-/// Free variables available to a template message — set by the evaluator
-/// when the atom fires. Keyed by short name (`name`, `value`, `expected`, …).
-pub type Bindings = HashMap<&'static str, String>;
 
 #[cfg(test)]
 mod tests {

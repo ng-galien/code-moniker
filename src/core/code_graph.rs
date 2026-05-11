@@ -248,6 +248,10 @@ impl CodeGraph {
 		self.refs.iter()
 	}
 
+	pub fn ref_at(&self, i: usize) -> &RefRecord {
+		&self.refs[i]
+	}
+
 	pub fn locate(&self, m: &Moniker) -> Option<Position> {
 		self.find_def(m).and_then(|i| self.defs[i].position)
 	}

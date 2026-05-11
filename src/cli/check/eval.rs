@@ -339,70 +339,9 @@ fn eval_ref_node(
 	r: &crate::core::code_graph::RefRecord,
 	graph: &CodeGraph,
 ) -> NodeOutcome {
-	match node {
-		Node::Atom(atom) => match eval_ref_atom(atom, r, graph) {
-			AtomOutcome::Pass => NodeOutcome::Pass,
-			AtomOutcome::Fail { actual, expected } => NodeOutcome::Fail(Failure {
-				atom_raw: atom.raw.clone(),
-				lhs_label: describe_lhs(&atom.lhs).to_string(),
-				actual,
-				expected,
-			}),
-			AtomOutcome::NotApplicable => NodeOutcome::NotApplicable,
-		},
-		Node::And(children) => {
-			let mut na = false;
-			for c in children {
-				match eval_ref_node(c, r, graph) {
-					NodeOutcome::Pass => {}
-					NodeOutcome::Fail(f) => return NodeOutcome::Fail(f),
-					NodeOutcome::NotApplicable => na = true,
-				}
-			}
-			if na {
-				NodeOutcome::NotApplicable
-			} else {
-				NodeOutcome::Pass
-			}
-		}
-		Node::Or(children) => {
-			let mut last_fail: Option<Failure> = None;
-			let mut na = false;
-			for c in children {
-				match eval_ref_node(c, r, graph) {
-					NodeOutcome::Pass => return NodeOutcome::Pass,
-					NodeOutcome::Fail(f) => last_fail = Some(f),
-					NodeOutcome::NotApplicable => na = true,
-				}
-			}
-			if na {
-				NodeOutcome::NotApplicable
-			} else if let Some(f) = last_fail {
-				NodeOutcome::Fail(f)
-			} else {
-				NodeOutcome::NotApplicable
-			}
-		}
-		Node::Not(inner) => match eval_ref_node(inner, r, graph) {
-			NodeOutcome::Pass => NodeOutcome::Fail(Failure {
-				atom_raw: "NOT (...)".to_string(),
-				lhs_label: "NOT".to_string(),
-				actual: "true".to_string(),
-				expected: "false".to_string(),
-			}),
-			NodeOutcome::Fail(_) => NodeOutcome::Pass,
-			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
-		},
-		Node::Implies(prem, cons) => match eval_ref_node(prem, r, graph) {
-			NodeOutcome::Pass => eval_ref_node(cons, r, graph),
-			NodeOutcome::Fail(_) => NodeOutcome::Pass,
-			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
-		},
-		// Nested quantifiers inside a ref-scope filter aren't supported in
-		// this revision — a ref doesn't have children / segments addressable
-		// from itself.
-		Node::Quantifier { .. } => NodeOutcome::NotApplicable,
-	}
+	walk_node(node, &|a| eval_ref_atom(a, r, graph), &|_, _, _| {
+		NodeOutcome::NotApplicable
+	})
 }
 
 fn eval_ref_atom(
@@ -454,7 +393,6 @@ fn eval_ref_atom(
 		},
 		LhsExpr::SegmentOf { scope, kind } => match scope {
 			SegmentScope::Def => {
-				// Ambiguous in ref scope — use source.segment / target.segment instead.
 				return AtomOutcome::NotApplicable;
 			}
 			SegmentScope::Source => {
@@ -462,9 +400,6 @@ fn eval_ref_atom(
 			}
 			SegmentScope::Target => Value::Str(first_segment_name(&r.target, kind.as_bytes())),
 		},
-		// Other def-scope projections (Name, Lines, Text, Moniker, Visibility)
-		// aren't meaningful in ref scope. The user should write source.* /
-		// target.* / kind / confidence instead.
 		_ => return AtomOutcome::NotApplicable,
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
@@ -568,9 +503,16 @@ enum AtomOutcome {
 	NotApplicable,
 }
 
-fn eval_node(node: &Node, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) -> NodeOutcome {
+/// Trivalent-logic walker shared by def/ref/segment evaluators. `atom_eval`
+/// produces the atom leaf outcome; `quant_eval` handles `Node::Quantifier`
+/// (scopes that can't iterate, like ref and segment, return NotApplicable).
+fn walk_node<A, Q>(node: &Node, atom_eval: &A, quant_eval: &Q) -> NodeOutcome
+where
+	A: Fn(&Atom) -> AtomOutcome,
+	Q: Fn(QuantKind, &Domain, &Node) -> NodeOutcome,
+{
 	match node {
-		Node::Atom(atom) => match eval_atom(atom, d, def_idx, ctx) {
+		Node::Atom(atom) => match atom_eval(atom) {
 			AtomOutcome::Pass => NodeOutcome::Pass,
 			AtomOutcome::Fail { actual, expected } => NodeOutcome::Fail(Failure {
 				atom_raw: atom.raw.clone(),
@@ -583,7 +525,7 @@ fn eval_node(node: &Node, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 		Node::And(children) => {
 			let mut na = false;
 			for c in children {
-				match eval_node(c, d, def_idx, ctx) {
+				match walk_node(c, atom_eval, quant_eval) {
 					NodeOutcome::Pass => {}
 					NodeOutcome::Fail(f) => return NodeOutcome::Fail(f),
 					NodeOutcome::NotApplicable => na = true,
@@ -599,7 +541,7 @@ fn eval_node(node: &Node, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 			let mut last_fail: Option<Failure> = None;
 			let mut na = false;
 			for c in children {
-				match eval_node(c, d, def_idx, ctx) {
+				match walk_node(c, atom_eval, quant_eval) {
 					NodeOutcome::Pass => return NodeOutcome::Pass,
 					NodeOutcome::Fail(f) => last_fail = Some(f),
 					NodeOutcome::NotApplicable => na = true,
@@ -613,7 +555,7 @@ fn eval_node(node: &Node, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 				NodeOutcome::NotApplicable
 			}
 		}
-		Node::Not(inner) => match eval_node(inner, d, def_idx, ctx) {
+		Node::Not(inner) => match walk_node(inner, atom_eval, quant_eval) {
 			NodeOutcome::Pass => NodeOutcome::Fail(Failure {
 				atom_raw: "NOT (...)".to_string(),
 				lhs_label: "NOT".to_string(),
@@ -623,8 +565,8 @@ fn eval_node(node: &Node, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 			NodeOutcome::Fail(_) => NodeOutcome::Pass,
 			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
 		},
-		Node::Implies(prem, cons) => match eval_node(prem, d, def_idx, ctx) {
-			NodeOutcome::Pass => eval_node(cons, d, def_idx, ctx),
+		Node::Implies(prem, cons) => match walk_node(prem, atom_eval, quant_eval) {
+			NodeOutcome::Pass => walk_node(cons, atom_eval, quant_eval),
 			NodeOutcome::Fail(_) => NodeOutcome::Pass,
 			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
 		},
@@ -632,18 +574,20 @@ fn eval_node(node: &Node, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 			kind,
 			domain,
 			filter,
-		} => eval_quantifier_def(*kind, domain, filter, d, def_idx, ctx),
+		} => quant_eval(*kind, domain, filter),
 	}
 }
 
-fn resolve_def_lhs(
-	lhs: Lhs,
-	d: &DefRecord,
-	def_idx: usize,
-	ctx: &EvalCtx<'_, '_>,
-) -> Option<Value> {
+fn eval_node(node: &Node, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) -> NodeOutcome {
+	walk_node(
+		node,
+		&|a| eval_atom(a, d, def_idx, ctx),
+		&|kind, domain, filter| eval_quantifier_def(kind, domain, filter, d, def_idx, ctx),
+	)
+}
+
+fn resolve_def_lhs(lhs: Lhs, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<Value> {
 	let source = ctx.source;
-	let _ = def_idx;
 	let value = match lhs {
 		Lhs::Name => Value::Str(def_name(d)?),
 		Lhs::Kind => Value::Str(std::str::from_utf8(&d.kind).ok()?.to_string()),
@@ -676,7 +620,6 @@ fn resolve_def_lhs(
 			let p = &segs[segs.len() - 2];
 			Value::Str(std::str::from_utf8(p.kind).ok()?.to_string())
 		}
-		// Ref-/segment-scope projections aren't meaningful on a def.
 		Lhs::Confidence
 		| Lhs::SourceName
 		| Lhs::SourceKind
@@ -710,7 +653,7 @@ fn eval_count(
 				.unwrap_or(0),
 			Some(node) => count_children_filtered(d, def_idx, kind, node, ctx),
 		},
-		Domain::Segments => count_segments(d, filter, ctx),
+		Domain::Segments => count_segments(d, filter),
 		Domain::OutRefs => count_out_refs(d, def_idx, filter, ctx),
 		Domain::InRefs => count_in_refs(d, filter, ctx),
 	}
@@ -739,13 +682,13 @@ fn count_children_filtered(
 	n
 }
 
-fn count_segments(d: &DefRecord, filter: Option<&Node>, ctx: &EvalCtx<'_, '_>) -> u32 {
+fn count_segments(d: &DefRecord, filter: Option<&Node>) -> u32 {
 	let mut n = 0;
 	for seg in d.moniker.as_view().segments() {
 		match filter {
 			None => n += 1,
 			Some(node) => {
-				if let NodeOutcome::Pass = eval_node_segment(node, seg.kind, seg.name, ctx) {
+				if let NodeOutcome::Pass = eval_node_segment(node, seg.kind, seg.name) {
 					n += 1;
 				}
 			}
@@ -765,7 +708,7 @@ fn count_out_refs(
 	};
 	let mut n = 0;
 	for &ri in ref_idxs {
-		let r = ctx.graph.refs().nth(ri).expect("ref idx in bounds");
+		let r = ctx.graph.ref_at(ri);
 		match filter {
 			None => n += 1,
 			Some(node) => {
@@ -785,7 +728,7 @@ fn count_in_refs(d: &DefRecord, filter: Option<&Node>, ctx: &EvalCtx<'_, '_>) ->
 	};
 	let mut n = 0;
 	for &ri in ref_idxs {
-		let r = ctx.graph.refs().nth(ri).expect("ref idx in bounds");
+		let r = ctx.graph.ref_at(ri);
 		match filter {
 			None => n += 1,
 			Some(node) => {
@@ -828,7 +771,7 @@ fn eval_quantifier_def(
 			for seg in d.moniker.as_view().segments() {
 				total += 1;
 				if matches!(
-					eval_node_segment(filter, seg.kind, seg.name, ctx),
+					eval_node_segment(filter, seg.kind, seg.name),
 					NodeOutcome::Pass
 				) {
 					passes += 1;
@@ -839,7 +782,7 @@ fn eval_quantifier_def(
 			let empty = Vec::new();
 			let ref_idxs = ctx.out_refs_by_source.get(&def_idx).unwrap_or(&empty);
 			for &ri in ref_idxs {
-				let r = ctx.graph.refs().nth(ri).expect("ref idx in bounds");
+				let r = ctx.graph.ref_at(ri);
 				total += 1;
 				if matches!(eval_ref_node(filter, r, ctx.graph), NodeOutcome::Pass) {
 					passes += 1;
@@ -851,7 +794,7 @@ fn eval_quantifier_def(
 			let empty = Vec::new();
 			let ref_idxs = ctx.in_refs_by_target.get(key).unwrap_or(&empty);
 			for &ri in ref_idxs {
-				let r = ctx.graph.refs().nth(ri).expect("ref idx in bounds");
+				let r = ctx.graph.ref_at(ri);
 				total += 1;
 				if matches!(eval_ref_node(filter, r, ctx.graph), NodeOutcome::Pass) {
 					passes += 1;
@@ -885,80 +828,12 @@ fn eval_quantifier_def(
 	}
 }
 
-/// Evaluate a Node with a segment as scope. Only `segment.kind` and
-/// `segment.name` projections are meaningful; everything else returns
-/// `NotApplicable`. `ctx` is unused at the leaves but threaded for symmetry
-/// with the def/ref evaluators.
-fn eval_node_segment(
-	node: &Node,
-	seg_kind: &[u8],
-	seg_name: &[u8],
-	ctx: &EvalCtx<'_, '_>,
-) -> NodeOutcome {
-	let _ = ctx;
-	match node {
-		Node::Atom(atom) => match eval_atom_segment(atom, seg_kind, seg_name) {
-			AtomOutcome::Pass => NodeOutcome::Pass,
-			AtomOutcome::Fail { actual, expected } => NodeOutcome::Fail(Failure {
-				atom_raw: atom.raw.clone(),
-				lhs_label: describe_lhs(&atom.lhs).to_string(),
-				actual,
-				expected,
-			}),
-			AtomOutcome::NotApplicable => NodeOutcome::NotApplicable,
-		},
-		Node::And(children) => {
-			let mut na = false;
-			for c in children {
-				match eval_node_segment(c, seg_kind, seg_name, ctx) {
-					NodeOutcome::Pass => {}
-					NodeOutcome::Fail(f) => return NodeOutcome::Fail(f),
-					NodeOutcome::NotApplicable => na = true,
-				}
-			}
-			if na {
-				NodeOutcome::NotApplicable
-			} else {
-				NodeOutcome::Pass
-			}
-		}
-		Node::Or(children) => {
-			let mut last_fail: Option<Failure> = None;
-			let mut na = false;
-			for c in children {
-				match eval_node_segment(c, seg_kind, seg_name, ctx) {
-					NodeOutcome::Pass => return NodeOutcome::Pass,
-					NodeOutcome::Fail(f) => last_fail = Some(f),
-					NodeOutcome::NotApplicable => na = true,
-				}
-			}
-			if na {
-				NodeOutcome::NotApplicable
-			} else if let Some(f) = last_fail {
-				NodeOutcome::Fail(f)
-			} else {
-				NodeOutcome::NotApplicable
-			}
-		}
-		Node::Not(inner) => match eval_node_segment(inner, seg_kind, seg_name, ctx) {
-			NodeOutcome::Pass => NodeOutcome::Fail(Failure {
-				atom_raw: "NOT (...)".to_string(),
-				lhs_label: "NOT".to_string(),
-				actual: "true".to_string(),
-				expected: "false".to_string(),
-			}),
-			NodeOutcome::Fail(_) => NodeOutcome::Pass,
-			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
-		},
-		Node::Implies(prem, cons) => match eval_node_segment(prem, seg_kind, seg_name, ctx) {
-			NodeOutcome::Pass => eval_node_segment(cons, seg_kind, seg_name, ctx),
-			NodeOutcome::Fail(_) => NodeOutcome::Pass,
-			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
-		},
-		// Nested quantifiers inside a segment filter aren't supported — a
-		// segment has no children / refs.
-		Node::Quantifier { .. } => NodeOutcome::NotApplicable,
-	}
+fn eval_node_segment(node: &Node, seg_kind: &[u8], seg_name: &[u8]) -> NodeOutcome {
+	walk_node(
+		node,
+		&|a| eval_atom_segment(a, seg_kind, seg_name),
+		&|_, _, _| NodeOutcome::NotApplicable,
+	)
 }
 
 fn eval_atom_segment(atom: &Atom, seg_kind: &[u8], seg_name: &[u8]) -> AtomOutcome {
@@ -1061,26 +936,20 @@ fn eval_atom(atom: &Atom, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 			| Lhs::TargetMoniker
 			| Lhs::SegmentName
 			| Lhs::SegmentKind,
-		) => {
-			// Ref-/segment-scope projections aren't meaningful on a def.
-			return AtomOutcome::NotApplicable;
-		}
+		) => return AtomOutcome::NotApplicable,
 		LhsExpr::Count { domain, filter } => {
 			let c = eval_count(domain, filter.as_deref(), d, def_idx, ctx);
 			Value::Number(c)
 		}
-		LhsExpr::SegmentOf { scope, kind } => {
-			match scope {
-				SegmentScope::Def => Value::Str(first_segment_name(&d.moniker, kind.as_bytes())),
-				SegmentScope::Source | SegmentScope::Target => {
-					// Ref-scope projection used on a def — not applicable.
-					return AtomOutcome::NotApplicable;
-				}
+		LhsExpr::SegmentOf { scope, kind } => match scope {
+			SegmentScope::Def => Value::Str(first_segment_name(&d.moniker, kind.as_bytes())),
+			SegmentScope::Source | SegmentScope::Target => {
+				return AtomOutcome::NotApplicable;
 			}
-		}
+		},
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
-		let Some(rhs_val) = resolve_def_lhs(*other, d, def_idx, ctx) else {
+		let Some(rhs_val) = resolve_def_lhs(*other, d, ctx) else {
 			return AtomOutcome::NotApplicable;
 		};
 		return apply_op_values(&value, atom.op, &rhs_val);
