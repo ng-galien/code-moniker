@@ -24,6 +24,24 @@ code, in two shapes that share one extractor:
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
 Python, Go, C#, PL/pgSQL.
 
+## Install
+
+CLI (standalone, no Postgres needed):
+
+```sh
+cargo install --git https://github.com/ng-galien/code-moniker --features cli code-moniker
+```
+
+Postgres extension (PG17 via pgrx; Docker variant in [`docs/use-in-postgres.md`](docs/use-in-postgres.md)):
+
+```sh
+cargo install --locked cargo-pgrx
+cargo pgrx init --pg17 download
+cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
+```
+
+Then `CREATE EXTENSION code_moniker;` in any PG17 database.
+
 ## CLI — `code-moniker check`
 
 ```toml
