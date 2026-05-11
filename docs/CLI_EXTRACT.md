@@ -2,8 +2,7 @@
 
 The bare `code-moniker <file>` form runs the same extractor as the
 PostgreSQL extension on a single source file, without a running PG
-instance. Same `core::moniker` / `core::code_graph` types behind the
-scenes; only the I/O changes (stdin/stdout instead of SQL).
+instance.
 
 For the `check` subcommand (project linter / agent guardrail), see
 [`CLI_CHECK.md`](CLI_CHECK.md).
@@ -13,11 +12,14 @@ For the `check` subcommand (project linter / agent guardrail), see
 ```
 code-moniker <file> [--where '<op> <uri>']... [--kind <name>]...
              [--format tsv|json] [--count] [--quiet] [--with-text]
+             [--scheme <SCHEME>]
 code-moniker --help
 code-moniker --version
 ```
 
-`<file>` is a path to a source file. Language is dispatched from the extension:
+`<file>` is a path to a source file. Language is dispatched from the
+file extension. `--scheme` overrides the default `code+moniker://`
+URI prefix (matches the Postgres GUC `code_moniker.scheme`).
 
 | Extension                | Language tag |
 | ------------------------ | ------------ |
@@ -33,10 +35,10 @@ Unknown extension exits with code `2`.
 
 ## Predicates
 
-A single flag `--where '<op> <uri>'` exposes the eight moniker operators
-shared with the SQL extension. The URI uses the canonical typed form
-(`<lang>+moniker://<project>/<kind>:<name>...`). Single quotes around the
-predicate avoid shell I/O redirection on `<` and `>`.
+`--where '<op> <uri>'` exposes the moniker operators shared with the
+SQL extension. The URI uses the canonical typed form,
+`code+moniker://<project>/<kind>:<name>[/...]`. Single quotes avoid
+shell I/O redirection on `<` and `>`.
 
 | `--where 'op uri'`       | SQL operator | Semantics                                          |
 | ------------------------ | ------------ | -------------------------------------------------- |
@@ -50,21 +52,29 @@ predicate avoid shell I/O redirection on `<` and `>`.
 | `--where '?= <uri>'`     | `?=`         | Asymmetric `bind_match` (per-language arms).       |
 | `--kind <name>`          | —            | Element kind equals `<name>` (repeatable, OR).     |
 
-`--where` is repeatable; predicates compose via implicit `AND`. A `def`
-matches when its own moniker satisfies every predicate; a `ref` matches when
-its **target** moniker satisfies every predicate.
+`--where` is repeatable; predicates compose via implicit `AND`. A
+`def` matches when its own moniker satisfies every predicate; a
+`ref` matches when its **target** moniker satisfies every predicate.
 
-Without any predicate, the binary dumps the full graph.
+Without any predicate, the binary dumps the full graph. Predicate
+URIs must match the full anchor produced by the extractor (the
+`lang:` segment plus the path encoding for the source file). To
+discover the anchor for a file, run the binary once without
+`--where` and copy a moniker from the output.
 
 ```sh
-# Methods of class Foo
-code-moniker file.ts --where '<@ code+moniker://./class:Foo' --kind method
+# All methods inside a class, given the file's full anchor
+code-moniker src/widget.ts \
+  --where '<@ code+moniker://./lang:ts/dir:src/module:widget/class:UserService' \
+  --kind method
 
-# Anything that resolves to Foo (cross-file bind)
-code-moniker file.ts --where '?= code+moniker://./class:Foo'
+# Anything that resolves to UserService (cross-file bind_match)
+code-moniker src/widget.ts \
+  --where '?= code+moniker://./lang:ts/dir:src/module:widget/class:UserService'
 
 # Exact handle of a typed callable
-code-moniker file.ts --where '= code+moniker://./fn:handle(string)→void'
+code-moniker src/widget.ts \
+  --where '= code+moniker://./lang:ts/dir:src/module:widget/class:UserService/method:findById(string)'
 ```
 
 ## Output
@@ -91,9 +101,10 @@ For a `ref`:
 ref<TAB>target_moniker<TAB>ref_kind<TAB>start..end<TAB>L<a>-L<b><TAB>source_idx=N<TAB>alias<TAB>confidence<TAB>receiver_hint
 ```
 
-The `ref_kind` is one of the canonical lowercase tokens from `core::kinds`:
-`calls`, `method_call`, `extends`, `implements`, `uses_type`, `imports`,
-`imports_module`, `reexports`, `instantiates`, `reads`, `annotates`, etc.
+The `ref_kind` is one of the canonical lowercase tokens used by the
+extractors: `calls`, `method_call`, `extends`, `implements`,
+`uses_type`, `imports_symbol`, `imports_module`, `reexports`,
+`instantiates`, `reads`, `annotates`, `di_register`, `di_require`.
 
 ### `--format json`
 
@@ -108,22 +119,24 @@ A single JSON document on stdout, intentionally identical in shape to
   "matches": {
     "defs": [
       {
-        "moniker":    "code+moniker://./lang:ts/module:widget/class:Foo",
+        "moniker":    "code+moniker://./lang:ts/dir:src/module:widget/class:Foo",
         "kind":       "class",
         "position":   [142, 187],
         "lines":      [12, 18],
         "visibility": "public",
+        "binding":    "export",
         "origin":     "extracted"
       }
     ],
     "refs": [
       {
-        "source_idx": 4,
-        "target":     "code+moniker://./lang:ts/module:widget/class:Foo",
+        "source_idx": 0,
+        "target":     "code+moniker://./lang:ts/dir:src/module:widget/class:Bar",
         "kind":       "extends",
         "position":   [220, 243],
         "lines":      [25, 25],
-        "confidence": "name_match"
+        "confidence": "name_match",
+        "binding":    "local"
       }
     ]
   }
@@ -154,11 +167,11 @@ fi
 
 ## Comments
 
-Each AST comment node yields a def of `kind: comment`, with a moniker scoped to
-the lexical context (`code+moniker://./class:Foo/comment:<start_byte>` for a
-comment inside class `Foo`). The kind name is the same across all seven
-extractors. The disambiguator is the comment's start byte, so distinct comments
-never collide.
+Each AST comment node yields a def of `kind: comment`, with a
+moniker scoped to the lexical context (a comment inside `class:Foo`
+gets `.../class:Foo/comment:<start_byte>`). The kind name is the
+same across every extractor. The disambiguator is the comment's
+start byte, so distinct comments never collide.
 
 The `code_graph` does not store comment text — only the position. To project
 the text, pass `--with-text`: the binary re-reads the source file at each
@@ -172,12 +185,16 @@ comment's position and adds:
 ```bash
 # Are there any comments?
 code-moniker file.ts --kind comment --quiet
+
 # Count them
 code-moniker file.ts --kind comment --count
+
 # Find TODOs in the file
 code-moniker file.ts --kind comment --with-text --format tsv | grep -i todo
-# Comments inside a specific class
-code-moniker file.ts --where '<@ code+moniker://./class:Foo' --kind comment
+
+# Comments inside a specific class (full anchor required)
+code-moniker src/widget.ts --kind comment \
+  --where '<@ code+moniker://./lang:ts/dir:src/module:widget/class:UserService'
 ```
 
 ## Stable ordering
@@ -206,24 +223,24 @@ is written to stdout.
 # Full graph as JSON, ready for code_graph_declare
 code-moniker src/widget.ts --format json > widget.spec.json
 
-# All methods of class Foo
-code-moniker src/widget.ts --where '<@ code+moniker://./class:Foo' --kind method
+# All methods of a class (anchor includes lang: + path encoding)
+code-moniker src/widget.ts --kind method \
+  --where '<@ code+moniker://./lang:ts/dir:src/module:widget/class:UserService'
 
-# Does file define a function called `handle` taking a string?
-code-moniker src/server.ts --where '= code+moniker://./function:handle(string)→_' --quiet
+# Does the file define `findById(string)` on UserService?
+code-moniker src/widget.ts --quiet \
+  --where '= code+moniker://./lang:ts/dir:src/module:widget/class:UserService/method:findById(string)'
 
-# All references to a specific symbol's family (bind_match)
-code-moniker src/widget.ts --where '?= code+moniker://./class:Foo/method:bar(_)→_'
+# Refs that bind-match a symbol family (signature collapsed per-lang)
+code-moniker src/widget.ts \
+  --where '?= code+moniker://./lang:ts/dir:src/module:widget/class:UserService/method:findById(_)'
 
 # Count comments and exit 1 if there are none
 code-moniker file.py --kind comment --count
 ```
 
-## Non-goals
+## See also
 
-- **No multi-file ingestion.** One file per invocation; combine via shell.
-  For project-wide scans see [`CLI_CHECK.md`](CLI_CHECK.md).
-- **No persistence.** Output is text; round-tripping is what `code_graph_declare`
-  is for inside Postgres — see [`USE_IN_POSTGRES.md`](USE_IN_POSTGRES.md).
-- **No DSL.** Predicates are flags. Repeated `--kind` is the only OR; everything
-  else is AND. For the rich rule DSL, use `code-moniker check`.
+- [`CLI_CHECK.md`](CLI_CHECK.md) — project-wide scan with a rule DSL.
+- [`USE_IN_POSTGRES.md`](USE_IN_POSTGRES.md) — round-trip the JSON
+  output into Postgres via `code_graph_declare`.

@@ -200,20 +200,18 @@ replace-by-name rule.
 
 ## Worked example — Hex / DDD / Clean Code
 
-A `.code-moniker.toml` that covers the main architecture patterns on a
-hexagonal TS app with bounded contexts `billing` and `shipping`.
+A `.code-moniker.toml` for a TypeScript app organised as
+`src/domain/`, `src/application/`, `src/infrastructure/`,
+`src/billing/`, `src/shipping/`. TS path segments are encoded as
+`dir:<seg>`, so an alias matches against `**/dir:domain/**`.
 
 ```toml
-# ─── Aliases ──────────────────────────────────────────────────────────
 [aliases]
-domain   = "moniker ~ '**/module:domain/**'"
-app      = "moniker ~ '**/module:application/**'"
-infra    = "moniker ~ '**/module:infrastructure/**'"
-adapter  = "moniker ~ '**/module:adapter/**'"
-test     = "any(segment, segment.kind = 'module' AND segment.name =~ (^tests?$|_test$))"
-std      = "moniker ~ '**/module:std/**' OR moniker ~ '**/module:core/**'"
-port     = "moniker ~ '**/interface:/Port$/'"
-contract = "moniker ~ '**/module:contract/**'"
+domain   = "moniker ~ '**/dir:domain/**'"
+app      = "moniker ~ '**/dir:application/**'"
+infra    = "moniker ~ '**/dir:infrastructure/**'"
+adapter  = "moniker ~ '**/dir:adapter/**'"
+contract = "moniker ~ '**/dir:contract/**'"
 
 # ─── Clean Code (def-scoped, per-lang) ────────────────────────────────
 [[ts.class.where]]
@@ -263,47 +261,46 @@ expr = "NOT name =~ Port$"
 
 # ─── Hex / Layering (poly-lang refs) ──────────────────────────────────
 # Aliases substitute textually — `source $domain` would expand to
-# `source moniker ~ '...'` which is malformed. In refs scope, use the
+# `source (moniker ~ '...')` which is malformed. In refs scope, use the
 # explicit `source ~` / `target ~` form instead.
 [[refs.where]]
-id   = "domain-depends-on-nothing-but-itself-or-std"
+id   = "domain-depends-on-nothing-but-itself"
 expr = """
-  source ~ '**/module:domain/**'
-  => target ~ '**/module:domain/**'
-     OR target ~ '**/module:std/**'
-     OR target ~ '**/module:core/**'
+  source ~ '**/dir:domain/**'
+  => target ~ '**/dir:domain/**'
 """
 
 [[refs.where]]
 id   = "application-only-inward"
 expr = """
-  source ~ '**/module:application/**'
-  => target ~ '**/module:application/**'
-     OR target ~ '**/module:domain/**'
-     OR target ~ '**/module:std/**'
+  source ~ '**/dir:application/**'
+  => target ~ '**/dir:application/**'
+     OR target ~ '**/dir:domain/**'
 """
 
 [[refs.where]]
 id   = "domain-imports-no-framework"
 expr = """
-  source ~ '**/module:domain/**' AND kind = 'imports'
-  => NOT target.name =~ ^(express|nestjs|typeorm|prisma)$
+  source ~ '**/dir:domain/**' AND kind = 'imports_symbol'
+  => NOT (target ~ '**/external_pkg:express/**'
+          OR target ~ '**/external_pkg:nestjs/**'
+          OR target ~ '**/external_pkg:typeorm/**'
+          OR target ~ '**/external_pkg:prisma/**')
 """
 
 [[refs.where]]
 id   = "infra-implements-application-ports-only"
 expr = """
-  source ~ '**/module:infrastructure/**' AND kind = 'implements'
-  => target ~ '**/module:application/**' AND target.name =~ Port$
+  source ~ '**/dir:infrastructure/**' AND kind = 'implements'
+  => target ~ '**/dir:application/**' AND target.name =~ Port$
 """
 
 # ─── Bounded contexts ─────────────────────────────────────────────────
 [[refs.where]]
 id   = "billing-touches-shipping-only-via-contract"
 expr = """
-  source.segment('module') = 'billing'
-  AND target.segment('module') = 'shipping'
-  => target ~ '**/module:contract/**'
+  source ~ '**/dir:billing/**' AND target ~ '**/dir:shipping/**'
+  => target ~ '**/dir:contract/**'
 """
 
 # ─── Adapters & controllers ───────────────────────────────────────────
@@ -321,17 +318,17 @@ id   = "adapter-implements-a-port"
 expr = """
   name =~ Adapter$
   => any(out_refs, kind = 'implements'
-                   AND target ~ '**/module:application/**'
+                   AND target ~ '**/dir:application/**'
                    AND target.name =~ Port$)
 """
 
-# ─── Couplage ─────────────────────────────────────────────────────────
+# ─── Coupling ─────────────────────────────────────────────────────────
 [[ts.class.where]]
 id   = "low-fan-out"
 expr = """
   kind = 'class'
   => count(out_refs, kind = 'uses_type'
-                     AND NOT target ~ '**/module:std/**') <= 7
+                     AND NOT target ~ '**/external_pkg:/**') <= 7
 """
 
 # ─── Tests ────────────────────────────────────────────────────────────
@@ -339,7 +336,7 @@ expr = """
 id   = "fixtures-only-in-test-modules"
 expr = """
   name =~ ^(Stub|Mock|Fake|Builder)$
-  => any(segment, segment.kind = 'module'
+  => any(segment, segment.kind = 'dir'
                   AND segment.name =~ (^tests?$|_test$))
 """
 
@@ -362,16 +359,10 @@ Rule ids follow the TOML path: `<lang>.<kind>.<id>` for def rules,
 ones. Suffix match: `name-pascalcase` matches every
 `<lang>.<kind>.name-pascalcase`.
 
-## Limits
+## Beyond direct refs
 
-Three classes of invariants are **out of scope** of this DSL and live in
-SQL on `code_graph`:
-
-- Transitive closure ("X indirectly calls Y").
-- Cycle detection.
-- Dataflow / taint propagation.
-
-Anything that requires walking the graph beyond direct refs of the current
-def is intentionally not expressible here — the linter is per-file and
-runs in a hook on each edit. Cross-file invariants belong to a separate
+The DSL evaluates per def or per ref, looking at direct refs of the
+current node. Transitive closure (`X indirectly calls Y`), cycle
+detection, and dataflow / taint propagation are expressed as SQL on
+`code_graph`, not as rules. Cross-file invariants belong to a separate
 SQL query that runs in CI or against an ingested code_graph corpus.

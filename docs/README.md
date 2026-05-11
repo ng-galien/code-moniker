@@ -14,7 +14,7 @@ Start with the guide matching your use case.
 | You want to…                                                                                  | Read                                                            |
 |-----------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
 | Gate an agent (Claude Code, etc.), pre-commit, or CI against architecture violations          | [`USE_AS_AGENT_HARNESS.md`](USE_AS_AGENT_HARNESS.md)            |
-| Index a code corpus inside Postgres for cross-file queries (the ESAC use case)                | [`USE_IN_POSTGRES.md`](USE_IN_POSTGRES.md)                      |
+| Index a code corpus inside Postgres for cross-file queries                                     | [`USE_IN_POSTGRES.md`](USE_IN_POSTGRES.md)                      |
 | Probe a single source file from the shell (moniker by moniker, JSON / TSV out)                | [`CLI_EXTRACT.md`](CLI_EXTRACT.md)                              |
 | Reference for the `check` subcommand: config merge, suppressions, output format               | [`CLI_CHECK.md`](CLI_CHECK.md)                                  |
 | Write or extend rules — grammar, scopes, quantifiers, path patterns                           | [`CHECK_DSL.md`](CHECK_DSL.md)                                  |
@@ -34,4 +34,4 @@ adding a language.
 
 | Topic                                                                                          | Read                                                            |
 |------------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
-| Build, test, dogfood loops; per-language extractor skeleton; pgrx invariants                   | [`../CONTRIBUTING.md`](../CONTRIBUTING.md)                      |
+| Build, test, extractor skeleton, pgrx invariants                                                | [`../CONTRIBUTING.md`](../CONTRIBUTING.md)                      |

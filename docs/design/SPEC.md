@@ -5,21 +5,19 @@ graph storage, with indexed algebra. No table schemas, no triggers,
 no I/O against external state. Pure types, operators, and per-language
 extractors.
 
-## Goals
+## Design constraints
 
-- Make symbol identity a first-class PostgreSQL type, with O(log n) indexed matching.
-- Make a per-module code structure a first-class PostgreSQL type, queryable with operators and indexes.
-- Provide per-language extractors that produce code graphs from source via tree-sitter.
-- Provide constructors so consumers can build code graphs without source (forward modeling, declared externals).
-
-## Non-goals
-
-- No persistent state owned by the extension.
-- No knowledge of any consumer's schema (tables, RLS, triggers, application logic).
-- No project-level configuration storage. Callers pass project anchors and presets as function arguments.
-- No language whose scoping is not locally determinable.
-- No support for cross-project federation.
-- No stack-graph-style dynamic resolution; the moniker must be locally determinable from the source.
+- Symbol identity is a first-class PostgreSQL type with O(log n)
+  indexed matching.
+- A per-module code structure is a first-class PostgreSQL type,
+  queryable with operators and indexes.
+- Extractors are pure: same `(uri, source, anchor, presets)` ⇒ same
+  `code_graph`. No table reads, no order dependence, no backend-local
+  ids in persisted identity.
+- Callers own state. Project anchors and presets are function
+  arguments; persistence, schemas, and RLS belong to the caller.
+- The moniker must be locally determinable from the source. Languages
+  whose scoping requires whole-program resolution are not supported.
 
 ## Conceptual model
 
@@ -57,48 +55,44 @@ Canonical external representation is a **typed-segment URI** using a
 `+moniker` scheme profile:
 
 ```
-<scheme>+moniker://<project>/<kind>:<name>[/<kind>:<name>...][#<kind>:<name>[#<kind>:<name>...]]
+<scheme>+moniker://<project>/<kind>:<name>[/<kind>:<name>...]
 ```
 
-The base scheme is set via the GUC `code_moniker.scheme` (default
-`code+moniker://`). Stored moniker bytes are scheme-independent; only
-the text I/O (`::text` / `::moniker` casts, `from_uri`, `to_uri`,
-`moniker_compact`) consults the GUC. The `+moniker` suffix identifies
-the canonical typed moniker profile, not the final symbol kind.
-Kinds are carried by each segment.
+Every segment is `<kind>:<name>` separated by `/`. There is no
+secondary separator. The base scheme is set via the GUC
+`code_moniker.scheme` (default `code+moniker://`). Stored moniker
+bytes are scheme-independent; only the text I/O consults the GUC.
+The `+moniker` suffix identifies the canonical typed moniker profile,
+not the final symbol kind — kinds are carried by each segment.
 
 Examples (default scheme):
 
 ```
-code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo
-code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo#method:bar()
-code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo#method:bar(int,String)
-code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:lib/module:util#class:Helper#method:process()
-code+moniker://my-app/srcset:main/lang:python/package:acme/module:util#class:Helper#method:process(int)
-code+moniker://my-app/srcset:db/lang:sql/schema:public/module:plan#function:create_plan(uuid,text)
-code+moniker://my-app/external_pkg:maven/org.springframework/spring-core/6.1.0
+code+moniker://./lang:java/package:com/package:acme/package:domain/module:OrderService/class:OrderService/method:process(String)
+code+moniker://./lang:ts/dir:src/dir:lib/module:user/class:UserService/method:findById(string)
+code+moniker://./lang:python/package:acme/module:util/class:Helper/method:process(int)
+code+moniker://./lang:rs/dir:src/dir:lang/dir:ts/module:mod/fn:parse(&str)
+code+moniker://./external_pkg:maven/org.springframework/spring-core/6.1.0
 ```
 
-The URI is symbolic only — it identifies the node in the tree. It
-does not encode disk location. Source location lives in a sidecar
-column (`source_uri`) on the holding row.
+The URI is symbolic only — it does not encode disk location. Source
+location lives in a sidecar column (`source_uri`) on the holding row.
 
-Names with reserved characters (`/`, `#`, `:`, `(`, `)`, backtick,
+Names with reserved characters (`/`, `:`, `(`, `)`, backtick,
 whitespace) are wrapped in backticks; literal backticks are doubled.
 
-Detailed URI design and segment semantics live in
-`MONIKER_URI.md` (this directory).
+URI grammar and per-language path encoding: `MONIKER_URI.md`.
 
 #### Operators
 
-| Op            | Signature                                      | Semantics                                                                |
-|---------------|------------------------------------------------|--------------------------------------------------------------------------|
+| Op            | Signature                                      | Semantics                                                                   |
+|---------------|------------------------------------------------|-----------------------------------------------------------------------------|
 | `=`           | `moniker = moniker → bool`                     | Byte-strict equality (every segment, including final kind). Total identity. |
-| `bind_match`  | `bind_match(moniker, moniker) → bool`          | Structural matching for cross-file linkage. The linkage primitive.       |
-| `<@`          | `moniker <@ moniker → bool`                    | Left is descendant of right.                                             |
-| `@>`          | `moniker @> moniker → bool`                    | Left is ancestor of right.                                               |
-| `\|\|`        | `moniker \|\| (segment text, kind text) → moniker` | Compose child from parent.                                            |
-| `~`           | `moniker ~ moniker_pattern → bool`             | Pattern match.                                                           |
+| `?=`          | `moniker ?= moniker → bool`                    | `bind_match`: structural matching for cross-file linkage.                   |
+| `<`, `<=`, `>`, `>=` | `moniker <op> moniker → bool`           | Byte-lex ordering (btree).                                                  |
+| `<@`          | `moniker <@ moniker → bool`                    | Left is descendant of right.                                                |
+| `@>`          | `moniker @> moniker → bool`                    | Left is ancestor of right; also `code_graph @> moniker`.                    |
+| `\|\|`        | `moniker \|\| text → moniker`                  | Compose child from parent and a typed `kind:name` segment.                  |
 
 `bind_match(left, right)` is true when:
 
@@ -132,11 +126,11 @@ project-regime monikers), `path_of(moniker) → text[]`,
 I/O: `moniker_in(cstring) → moniker`, `moniker_out(moniker) → cstring`.
 URI parsing and serialization are part of the type's I/O contract.
 
-Index: custom GiST opclass supporting `=`, `bind_match`, `<@`, `@>`,
-`~`. Btree and hash opclasses also available for `=` / `<` / `>` /
-`DISTINCT` / hash joins. GIN over `moniker[]` indexes
-`graph_def_monikers` / `graph_ref_targets` / `graph_export_monikers`
-/ `graph_import_targets`.
+Index: custom GiST opclass supporting `=`, `@>`, `<@`, `?=`. Btree
+and hash opclasses also available for ordering, `DISTINCT`, and
+hash joins. GIN over `moniker[]` indexes `graph_def_monikers` /
+`graph_ref_targets` / `graph_export_monikers` /
+`graph_import_targets`.
 
 ODR (One Definition Rule) is a property the caller enforces with
 `UNIQUE` constraints on `moniker` columns. The extension does not
@@ -152,16 +146,16 @@ A `code_graph` contains:
   module's own moniker. Children are types, members, nested
   functions, etc.
 - **Defs** — for each node in the tree, a record carrying
-  `(moniker, kind, parent, position, visibility, signature, binding,
-  origin)`. `position` is `int4range` over byte offsets in source;
-  `NULL` when the module has no source text (synthetic / external).
+  `(moniker, kind, visibility, signature, binding, origin, start_byte,
+  end_byte)`. `start_byte` / `end_byte` are `int` byte offsets in
+  source; `NULL` when the module has no source text (synthetic /
+  external). The parent is implicit in the moniker chain.
 - **Refs** — outgoing references. Each ref carries
-  `(source_moniker, target_moniker, kind, position, receiver_hint,
-  alias, confidence, binding)`. `source_moniker` is one of the
-  module's own defs; `target_moniker` may be any moniker in the
-  canonical tree, in any module. `kind` distinguishes the relation
-  (call, import, extends, uses_type, …). `position` is the location
-  of the ref in source; `NULL` when no source.
+  `(source, target, kind, receiver_hint, alias, confidence, binding,
+  start_byte, end_byte)`. `source` is one of the module's own defs;
+  `target` may be any moniker in the canonical tree, in any module.
+  `kind` distinguishes the relation (`calls`, `imports_module`,
+  `extends`, `uses_type`, …).
 
 A `code_graph` is immutable as a value. Mutations are performed by
 constructors that return a new value.
@@ -205,13 +199,12 @@ Callers that want to filter DI separately project on `binding`.
 Origin is the row-level qualifier for **how a def came into existence**.
 It is a column on `DefRecord`, opaque to `bind_match`.
 
-`DefRecord.origin` ∈ {`extracted`, `declared`, `inferred`}:
+`DefRecord.origin` ∈ {`extracted`, `declared`}:
 
 | Value       | When                                                                                                                                              |
 |-------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| `extracted` | Produced by an `extract_<lang>` call from real source. Default for extractor output. Positions are real.                                          |
+| `extracted` | Produced by an `extract_<lang>` call. Default for extractor output. Positions point into the source text.                                         |
 | `declared`  | Produced by `code_graph_declare` from a declarative spec. The symbol exists at the moniker level only — no implementation. Positions are NULL.    |
-| `inferred`  | Produced by analytical projections (e.g. types implied by usage with no source-level def). Reserved.                                              |
 
 Origin does not participate in `bind_match`. A `declared` def and an
 `extracted` def with the same moniker resolve identically. When both
@@ -229,7 +222,7 @@ containing graph's defs.
 | `graph_contains` | `code_graph @> moniker → bool` | Does this graph define this moniker? |
 | `graph_defs` | `code_graph → setof DefRecord` | Iterate defs. |
 | `graph_refs` | `code_graph → setof RefRecord` | Iterate refs. |
-| `graph_locate` | `code_graph, moniker → int4range` | Position of a def in source. NULL if absent or no source. |
+| `graph_locate` | `(code_graph, moniker) → TABLE(start_byte int, end_byte int)` | Position of a def in source. Empty if absent or no source. |
 | `graph_def_monikers` | `code_graph → moniker[]` | Index helper: flatten defs to a sortable array. |
 | `graph_ref_targets` | `code_graph → moniker[]` | Index helper: flatten outgoing ref targets. |
 | `graph_export_monikers` | `code_graph → moniker[]` | Defs whose `binding` ∈ {`export`, `inject`}. |
@@ -240,10 +233,19 @@ Constructors:
 | Function | Signature | Semantics |
 |---|---|---|
 | `graph_create` | `(root moniker, kind text) → code_graph` | New graph rooted at this moniker. |
-| `graph_add_def` | `(graph code_graph, m moniker, kind text, parent moniker, position int4range, visibility text, signature text, binding text, origin text) → code_graph` | Add a def. `parent` must already be in the graph. `origin` defaults to `extracted`. |
-| `graph_add_ref` | `(graph code_graph, source moniker, target moniker, kind text, position int4range, receiver_hint text, alias text, confidence text, binding text) → code_graph` | Add a ref. `source` must be a def in the graph. |
+| `graph_add_def` | `(graph, def moniker, kind text, parent moniker, start_byte int DEFAULT NULL, end_byte int DEFAULT NULL) → code_graph` | Add a def. `parent` must already be in the graph. |
+| `graph_add_ref` | `(graph, source moniker, target moniker, kind text, start_byte int DEFAULT NULL, end_byte int DEFAULT NULL) → code_graph` | Add a ref. `source` must be a def in the graph. |
+| `graph_add_defs` | `(graph, defs moniker[], kinds text[], parents moniker[]) → code_graph` | Bulk def insertion. Arrays are zipped position-wise. |
+| `graph_add_refs` | `(graph, sources moniker[], targets moniker[], kinds text[]) → code_graph` | Bulk ref insertion. |
 | `code_graph_declare` | `(spec jsonb) → code_graph` | Build a graph from a declarative specification. All defs carry `origin = declared`. |
 | `code_graph_to_spec` | `(graph code_graph) → jsonb` | Reverse projection. Lossy on non-canonical ref kinds. `lang` is inferred from the root's `lang:` segment. |
+
+Visibility, signature, binding, origin, receiver_hint, alias, and
+confidence are produced by the extractors and surfaced by `graph_defs`
+/ `graph_refs`. The point-wise `graph_add_def` / `graph_add_ref`
+constructors take only the moniker-level fields; richer metadata
+goes through `code_graph_declare` (a full JSONB spec) or comes out
+of `extract_<lang>`.
 
 Constructors return a new `code_graph`; they do not mutate.
 
@@ -252,18 +254,23 @@ Constructors return a new `code_graph`; they do not mutate.
 One function per supported language:
 
 ```
-extract_<lang>(uri text, source text, anchor moniker, presets jsonb) → code_graph
+extract_<lang>(uri text, source text, anchor moniker, deep boolean DEFAULT false) → code_graph
 ```
+
+`extract_typescript` takes one extra named argument
+`di_register_callees text[] DEFAULT ARRAY[]::text[]` to declare which
+factory-style calls should emit `di_register` refs.
 
 Arguments:
 
 - `uri` — disk path or symbolic identifier of the source. Used by
-  the extractor for diagnostics; not embedded in produced monikers.
+  the extractor to drive `dir:` / `package:` segments under the
+  anchor.
 - `source` — the source text.
-- `anchor` — the srcset moniker under which all extracted defs will
-  be rooted. The extractor never produces monikers above this anchor.
-- `presets` — language-specific configuration. Caller-supplied,
-  opaque to the extension's framework.
+- `anchor` — the srcset moniker under which all extracted defs are
+  rooted. The extractor never produces monikers above this anchor.
+- `deep` — when `true`, the extractor also emits parameters and
+  local variables (`param:`, `local:` segments).
 
 The extractor:
 
@@ -317,7 +324,7 @@ fixture. The invariants:
    last segment.
 4. Every def's `visibility` is in `E::ALLOWED_VISIBILITIES` (or empty).
 5. Every def's `origin` is `extracted` (extractors never produce
-   `declared` or `inferred`).
+   `declared`).
 6. Every ref's `binding` is consistent with its `kind` per
    § Binding semantics.
 7. Every ref tagged `confidence = local` resolves to a def in the
@@ -497,27 +504,27 @@ level than extractor output.
 
 #### Examples
 
-Java — declare a service class with a call to an external dep:
+Java — class + method with a call to a JDK dep:
 
 ```json
 {
-  "root": "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService",
+  "root": "code+moniker://app/srcset:main/lang:java/package:com/package:acme/module:UserService",
   "lang": "java",
   "symbols": [
-    { "moniker":    "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService",
+    { "moniker":    "code+moniker://app/srcset:main/lang:java/package:com/package:acme/module:UserService/class:UserService",
       "kind":       "class",
-      "parent":     "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService",
+      "parent":     "code+moniker://app/srcset:main/lang:java/package:com/package:acme/module:UserService",
       "visibility": "public" },
-    { "moniker":    "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService#method:findByEmail(String)Optional",
+    { "moniker":    "code+moniker://app/srcset:main/lang:java/package:com/package:acme/module:UserService/class:UserService/method:findByEmail(String)",
       "kind":       "method",
-      "parent":     "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService",
+      "parent":     "code+moniker://app/srcset:main/lang:java/package:com/package:acme/module:UserService/class:UserService",
       "visibility": "public",
-      "signature":  "findByEmail(String): Optional" }
+      "signature":  "String" }
   ],
   "edges": [
-    { "from": "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService#method:findByEmail(String)Optional",
+    { "from": "code+moniker://app/srcset:main/lang:java/package:com/package:acme/module:UserService/class:UserService/method:findByEmail(String)",
       "kind": "calls",
-      "to":   "code+moniker://my-app/external_pkg:maven/jakarta.persistence/jakarta.persistence-api/EntityManager#method:find(Class,Object)Object" }
+      "to":   "code+moniker://app/external_pkg:java/path:util/path:Optional/path:empty" }
   ]
 }
 ```
@@ -526,18 +533,18 @@ TypeScript:
 
 ```json
 {
-  "root": "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
+  "root": "code+moniker://app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
   "lang": "ts",
   "symbols": [
-    { "moniker":    "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
+    { "moniker":    "code+moniker://app/srcset:main/lang:ts/dir:src/dir:services/module:user-service/class:UserService",
       "kind":       "class",
-      "parent":     "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
+      "parent":     "code+moniker://app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
       "visibility": "public" }
   ],
   "edges": [
-    { "from": "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
+    { "from": "code+moniker://app/srcset:main/lang:ts/dir:src/dir:services/module:user-service/class:UserService",
       "kind": "depends_on",
-      "to":   "code+moniker://my-app/external_pkg:npm/typeorm/Repository" }
+      "to":   "code+moniker://app/external_pkg:typeorm/path:Repository" }
   ]
 }
 ```
@@ -546,19 +553,19 @@ Rust — `pub fn` requiring a trait via DI wiring:
 
 ```json
 {
-  "root": "code+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service",
+  "root": "code+moniker://app/srcset:main/lang:rs/dir:domain/dir:user/module:service",
   "lang": "rs",
   "symbols": [
-    { "moniker":    "code+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service#fn:create_user(String,String)Result",
+    { "moniker":    "code+moniker://app/srcset:main/lang:rs/dir:domain/dir:user/module:service/fn:create_user(String,String)",
       "kind":       "fn",
-      "parent":     "code+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service",
+      "parent":     "code+moniker://app/srcset:main/lang:rs/dir:domain/dir:user/module:service",
       "visibility": "public",
-      "signature":  "create_user(String, String): Result" }
+      "signature":  "Result" }
   ],
   "edges": [
-    { "from": "code+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service#fn:create_user(String,String)Result",
+    { "from": "code+moniker://app/srcset:main/lang:rs/dir:domain/dir:user/module:service/fn:create_user(String,String)",
       "kind": "injects:require",
-      "to":   "code+moniker://my-app/srcset:main/lang:rs/mod:infra/module:db#trait:UserRepo" }
+      "to":   "code+moniker://app/srcset:main/lang:rs/dir:infra/module:db/trait:UserRepo" }
   ]
 }
 ```
@@ -680,7 +687,7 @@ The same `module` table holds all three origins uniformly.
 Discriminate by `origin` when needed:
 
 - `extracted` — `source_text` and `source_uri` non-NULL; positions
-  in `graph` are real; `graph_defs(graph)` rows have
+  in `graph` point into `source_text`; `graph_defs(graph)` rows have
   `origin = extracted`.
 - `declared` — both NULL; positions in `graph` are NULL; produced by
   `code_graph_declare`; `graph_defs(graph)` rows have

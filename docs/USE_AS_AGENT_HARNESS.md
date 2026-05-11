@@ -9,12 +9,20 @@ Reference: [`CLI_CHECK.md`](CLI_CHECK.md) (subcommand), [`CHECK_DSL.md`](CHECK_D
 
 ## What rules talk about
 
-Rules operate on the symbol graph extracted from source: defs, refs,
-imports, inheritance, calls. They are not regex on text. A rule can
-require that a class in `src/domain/**` never imports from
-`src/infrastructure/**`, that every `*Repository` interface lives
-under `module:domain`, that no class has more than 20 methods, that
-every public method has a doc-comment on the line above.
+Rules operate on the symbol graph extracted from source: defs,
+refs, imports, inheritance, calls. They are not regex on text. A
+rule can require that a class under `src/domain/` (encoded as
+`dir:src/dir:domain` in the moniker) never imports from
+`src/infrastructure/`, that every `*Repository` interface lives
+under the domain directory, that no class has more than 20
+methods, that every public method has a doc-comment on the line
+above.
+
+Path encoding depends on the language: TS / JS / Rust / Go / C#
+use `dir:<segment>`, Java and Python use `package:<segment>`, SQL
+uses `schema:<name>`. Patterns in rules must match the encoding
+the extractor produces (run `code-moniker <file> --format json`
+to see one).
 
 ## Install
 
@@ -37,7 +45,7 @@ overlay the default by rule id.
 ```toml
 [[refs.where]]
 id      = "domain-no-infra"
-expr    = "source ~ '**/module:domain/**' => NOT target ~ '**/module:infrastructure/**'"
+expr    = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infrastructure/**'"
 message = "Domain code in `{moniker}` reaches into infrastructure (`{value}`)."
 
 [[ts.class.where]]
@@ -46,7 +54,7 @@ expr = "count(method) <= 20 AND all(method, lines <= 60)"
 
 [[ts.interface.where]]
 id   = "repository-lives-in-domain"
-expr = "name =~ Repository$ => moniker ~ '**/module:domain/**'"
+expr = "name =~ Repository$ => moniker ~ '**/dir:domain/**'"
 ```
 
 Full grammar: [`CHECK_DSL.md`](CHECK_DSL.md). A larger example
@@ -190,9 +198,9 @@ message = "Module `core` is parser-agnostic; pgrx imports belong under `src/pg/`
 [[refs.where]]
 id   = "domain-depends-on-nothing-but-itself-or-std"
 expr = """
-  source ~ '**/module:domain/**'
-  => target ~ '**/module:domain/**'
-     OR target ~ '**/module:std/**'
+  source ~ '**/dir:domain/**'
+  => target ~ '**/dir:domain/**'
+     OR target ~ '**/external_pkg:std/**'
 """
 
 [[ts.class.where]]
@@ -203,13 +211,8 @@ expr = """
 """
 ```
 
-## Out of scope
+## Beyond per-file rules
 
-- Transitive analysis (`X indirectly calls Y`). Rules see direct refs
-  of the current def only; transitive queries belong in SQL against
-  an ingested corpus — see [`USE_IN_POSTGRES.md`](USE_IN_POSTGRES.md).
-- Type checking. Run `tsc` / `mypy` / `clippy` / `rustc` in parallel.
-- Formatting. Run `prettier` / `rustfmt` / `black` in parallel.
-- Stateful baselines. A clean exit means "no violation right now".
-  Use suppressions for legitimate exceptions; remove them when the
-  code is fixed.
+Rules see direct refs of the current def. Transitive analysis
+(`X indirectly calls Y`), cycle detection, and dataflow live in SQL
+against an ingested corpus — see [`USE_IN_POSTGRES.md`](USE_IN_POSTGRES.md).

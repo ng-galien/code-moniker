@@ -1,10 +1,11 @@
 # Use `code-moniker` as a PostgreSQL extension
 
-The extension provides native types (`moniker`, `code_graph`), an
-indexed algebra (`=`, `bind_match`, `<@`, `@>`, `||`, `~`), and
-per-language extractors. It owns no tables, no triggers, no I/O
-against external state. Persistence is the caller's responsibility;
-the shape below is the recommended one.
+The extension provides native types (`moniker`, `code_graph`),
+an indexed algebra (`=`, `?=`, `<@`, `@>`, `||`, plus btree-order
+`<`/`<=`/`>`/`>=`), and per-language extractors. It owns no
+tables, no triggers, no I/O against external state. Persistence
+is the caller's responsibility; the shape below is the
+recommended one.
 
 References: [`design/SPEC.md`](design/SPEC.md) (conceptual model + SQL
 surface), [`design/MONIKER_URI.md`](design/MONIKER_URI.md) (URI grammar).
@@ -83,8 +84,11 @@ INSERT INTO module (id, graph, source_text, source_uri, origin) VALUES
 | `extract_csharp`      | tree-sitter                              | `extract_csproj`           |
 | `extract_plpgsql`     | PG runtime parser + vendored plpgsql     | —                          |
 
-Each takes `deep := false` by default; `deep := true` adds parameter
-and local-variable extraction.
+Each takes `deep boolean DEFAULT false`; pass `deep => true` to
+also emit parameters and local variables. `extract_typescript`
+takes one extra named argument `di_register_callees text[] DEFAULT
+ARRAY[]::text[]` to declare which factory-style calls emit
+`di_register` refs.
 
 ## Query
 
@@ -102,8 +106,10 @@ SELECT id FROM module
 SELECT * FROM module m, graph_defs(m.graph) WHERE m.id = $1;
 ```
 
-Columns: kind, visibility, signature, binding, position (`int4range`),
-origin.
+`graph_defs` returns rows of `(moniker, kind, visibility, signature,
+binding, origin, start_byte int, end_byte int)`. `graph_refs`
+returns `(source, target, kind, receiver_hint, alias, confidence,
+binding, start_byte, end_byte)`.
 
 ### Subtree containment
 
@@ -115,12 +121,13 @@ SELECT id FROM module
  WHERE graph_root(graph) <@ 'code+moniker://app/srcset:main/lang:java'::moniker;
 ```
 
-### Cross-file linkage with `bind_match`
+### Cross-file linkage with `?=` (`bind_match`)
 
 The extractor knows an import's path but not the kind of the
 imported symbol, so byte-strict `=` cannot match an `imports_symbol`
-ref against the exporting `class:` / `function:` def. `bind_match`
-compares everything except the final segment's kind.
+ref against the exporting `class:` / `function:` def. The `?=`
+operator (`bind_match` function) compares everything except the
+final segment's kind.
 
 ```sql
 CREATE INDEX module_export_gin ON module USING gin (graph_export_monikers(graph));
@@ -131,10 +138,10 @@ FROM module m_imp, LATERAL graph_refs(m_imp.graph) r,
      module m_def, LATERAL graph_defs(m_def.graph) d
 WHERE r.binding IN ('import', 'inject')
   AND d.binding IN ('export', 'inject')
-  AND bind_match(r.target, d.moniker);
+  AND r.target ?= d.moniker;
 ```
 
-`bind_match` is registered in the moniker GiST opclass; lookups are
+`?=` is registered in the moniker GiST opclass; lookups are
 O(log n) on the corpus.
 
 ## Flat linkage cache
@@ -150,14 +157,15 @@ CREATE TABLE linkage (
     kind           text       NOT NULL,
     binding        text       NOT NULL,
     confidence     text       NOT NULL,
-    position       int4range
+    start_byte     integer,
+    end_byte       integer
 );
 
 CREATE INDEX linkage_target_gist ON linkage USING gist (target_moniker);
 CREATE INDEX linkage_source     ON linkage (source_id);
 
-INSERT INTO linkage (source_id, source_moniker, target_moniker, kind, binding, confidence, position)
-SELECT m.id, r.source, r.target, r.kind, r.binding, r.confidence, r.position
+INSERT INTO linkage (source_id, source_moniker, target_moniker, kind, binding, confidence, start_byte, end_byte)
+SELECT m.id, r.source, r.target, r.kind, r.binding, r.confidence, r.start_byte, r.end_byte
 FROM module m, LATERAL graph_refs(m.graph) AS r;
 ```
 
@@ -173,15 +181,15 @@ SELECT code_graph_declare($$ {
   "root": "code+moniker://app/srcset:main/lang:ts/module:billing",
   "lang": "ts",
   "symbols": [
-    {"moniker": "code+moniker://app/srcset:main/lang:ts/module:billing#class:Charge",
+    {"moniker": "code+moniker://app/srcset:main/lang:ts/module:billing/class:Charge",
      "kind": "class",
      "parent": "code+moniker://app/srcset:main/lang:ts/module:billing",
      "visibility": "public"}
   ],
   "edges": [
-    {"from": "code+moniker://app/srcset:main/lang:ts/module:billing#class:Charge",
+    {"from": "code+moniker://app/srcset:main/lang:ts/module:billing/class:Charge",
      "kind": "depends_on",
-     "to":   "code+moniker://app/external_pkg:npm/stripe"}
+     "to":   "code+moniker://app/external_pkg:stripe/path:Charge"}
   ]
 } $$::jsonb);
 ```
@@ -189,7 +197,7 @@ SELECT code_graph_declare($$ {
 Spec schema: [`declare_schema.json`](declare_schema.json). Reverse
 projection: `code_graph_to_spec(graph) → jsonb`.
 
-## Boundaries
+## Extension vs caller
 
 | Extension                | Caller                                |
 |--------------------------|---------------------------------------|
@@ -198,9 +206,6 @@ projection: `code_graph_to_spec(graph) → jsonb`.
 | operators + GiST opclass | linkage projection, materialised views |
 | `code_graph_declare`     | spec sourcing, validation pipeline    |
 | `code_graph_to_spec`     | UI, history, coverage tables          |
-
-Cross-module resolution is a JOIN on `bind_match`. No table reads
-happen inside `extract_<lang>` — extraction is pure.
 
 ## See also
 

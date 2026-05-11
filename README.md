@@ -23,7 +23,7 @@ Python, Go, C#, PL/pgSQL.
 # .code-moniker.toml
 [[refs.where]]
 id   = "domain-no-infra"
-expr = "source ~ '**/module:domain/**' => NOT target ~ '**/module:infrastructure/**'"
+expr = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infrastructure/**'"
 
 [[ts.class.where]]
 id   = "no-god-class"
@@ -61,9 +61,9 @@ SELECT 'code+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker
 ```
 
 `moniker` carries node identity; `code_graph` carries a module's
-defs / refs / containment tree. Cross-file linkage is a single
-indexed JOIN on `bind_match`. The extension owns no tables — types,
-operators, and pure functions only.
+defs and refs. Cross-file linkage is a single indexed JOIN on `?=`
+(`bind_match`). The extension owns no tables — types, operators,
+and pure functions only.
 
 → [docs/USE_IN_POSTGRES.md](docs/USE_IN_POSTGRES.md)
 
@@ -78,29 +78,17 @@ operators, and pure functions only.
 
 ## Surface
 
-- Types: `moniker`, `moniker_pattern`, `code_graph`.
-- Algebra: `=`, `bind_match`, `<@`, `@>`, `||`, `~`.
+- Types: `moniker`, `code_graph`.
+- Operators: `=`, `?=` (`bind_match`), `<` / `<=` / `>` / `>=`,
+  `<@` / `@>`, `||` (compose child).
 - Indexes: btree / hash / GiST on `moniker`, GIN over `moniker[]`.
-- Extractors: one per supported language, with manifest parsers for
-  `Cargo.toml`, `package.json`, `pom.xml`, `pyproject.toml`,
-  `go.mod`, `.csproj`.
-- Constructors for synthetic graphs (`code_graph_declare` /
-  `code_graph_to_spec`) for forward modeling and external libraries.
-
-The extension is stateless: no tables, no triggers, no I/O against
-external state. Cross-module resolution is the consumer's responsibility,
-performed by a JOIN on `bind_match`. Storage and querying are Postgres'
-job; the CLI shares the same extractor core and adds a rule engine
-on top.
-
-## Not in scope
-
-- No application schema (tables, RLS, triggers).
-- No project-level configuration storage; callers pass anchors and
-  presets as arguments.
-- No cross-project federation.
-- No stack-graph-style dynamic resolution; the moniker must be
-  locally determinable from the source.
+- Extractors: `extract_typescript`, `extract_rust`, `extract_java`,
+  `extract_python`, `extract_go`, `extract_csharp`,
+  `extract_plpgsql`. Manifest parsers: `extract_cargo`,
+  `extract_package_json`, `extract_pom_xml`, `extract_pyproject`,
+  `extract_go_mod`, `extract_csproj`.
+- Constructors for synthetic graphs: `code_graph_declare(jsonb)` /
+  `code_graph_to_spec(code_graph)`.
 
 ## License
 
