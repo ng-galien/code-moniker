@@ -25,6 +25,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-17 postgresql-server-dev-17 postgresql-17-pgtap
 
+      - name: Make PG17 extension dirs writable for `cargo pgrx install`
+        run: |
+          sudo chmod a+w /usr/share/postgresql/17/extension/
+          sudo chmod a+w "$(/usr/lib/postgresql/17/bin/pg_config --pkglibdir)"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
