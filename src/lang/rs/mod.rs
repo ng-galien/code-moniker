@@ -711,4 +711,79 @@ enum Baz {
 			g.def_monikers()
 		);
 	}
+
+	#[test]
+	fn extract_self_dot_method_emits_method_call_ref() {
+		let src = r#"
+pub struct W;
+impl W {
+    fn dispatch(&self) { self.walk(); }
+    fn walk(&self) {}
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let refs: Vec<_> = g.refs().filter(|r| r.kind == b"method_call").collect();
+		assert_eq!(
+			refs.len(),
+			1,
+			"expected one method_call ref; refs: {:?}",
+			refs
+		);
+		let target = &refs[0].target;
+		let last = target.as_view().segments().last().unwrap();
+		assert_eq!(last.kind, b"method");
+		let bare = crate::core::moniker::query::bare_callable_name(last.name);
+		assert_eq!(
+			bare,
+			b"walk",
+			"method_call target must point at `walk`; got name={:?}",
+			std::str::from_utf8(last.name)
+		);
+		let source_def = g.def_at(refs[0].source);
+		let source_last = source_def.moniker.as_view().segments().last().unwrap();
+		let source_bare = crate::core::moniker::query::bare_callable_name(source_last.name);
+		assert_eq!(
+			source_bare,
+			b"dispatch",
+			"method_call source must be `dispatch`; got name={:?}",
+			std::str::from_utf8(source_last.name)
+		);
+	}
+
+	#[test]
+	fn extract_non_self_method_call_emits_no_method_call_ref() {
+		let src = r#"
+pub struct W;
+impl W {
+    fn run(&self, other: W) { other.walk(); }
+    fn walk(&self) {}
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		assert!(
+			g.refs().all(|r| r.kind != b"method_call"),
+			"non-self receiver must not emit method_call (resolution out of scope); refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_nested_self_call_emits_two_method_call_refs() {
+		let src = r#"
+pub struct W;
+impl W {
+    fn outer(&self) { self.foo(self.bar()); }
+    fn foo(&self, _: u8) {}
+    fn bar(&self) -> u8 { 0 }
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g.refs().filter(|r| r.kind == b"method_call").count();
+		assert_eq!(
+			n,
+			2,
+			"nested self.foo(self.bar()) must emit two method_call refs; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
 }

@@ -1,9 +1,9 @@
 use tree_sitter::Node;
 
-use crate::core::code_graph::CodeGraph;
+use crate::core::code_graph::{CodeGraph, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-use super::canonicalize::{impl_type_name, node_position};
+use super::canonicalize::{extend_callable_arity, impl_type_name, node_position};
 use super::kinds;
 use super::walker::Walker;
 
@@ -59,6 +59,76 @@ impl<'src> Walker<'src> {
 			Some(node_position(impl_node)),
 		);
 	}
+
+	pub(super) fn handle_call(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		if let Some(func) = node.child_by_field_name("function")
+			&& func.kind() == "field_expression"
+		{
+			self.emit_self_method_call(node, func, scope, graph);
+		}
+		if let Some(args) = node.child_by_field_name("arguments") {
+			self.walk(args, scope, graph);
+		}
+	}
+
+	fn emit_self_method_call(
+		&self,
+		call: Node<'_>,
+		func: Node<'_>,
+		scope: &Moniker,
+		graph: &mut CodeGraph,
+	) {
+		let Some(receiver) = func.child_by_field_name("value") else {
+			return;
+		};
+		if receiver.kind() != "self" {
+			return;
+		}
+		let Some(field) = func.child_by_field_name("field") else {
+			return;
+		};
+		let Ok(name) = field.utf8_text(self.source_bytes) else {
+			return;
+		};
+		let Some(type_moniker) = enclosing_type_moniker(scope) else {
+			return;
+		};
+		let arity = count_call_args(call);
+		let target = extend_callable_arity(&type_moniker, kinds::METHOD, name.as_bytes(), arity);
+		let attrs = RefAttrs {
+			confidence: kinds::CONF_UNRESOLVED,
+			..RefAttrs::default()
+		};
+		let pos = node_position(call);
+		let _ = graph.add_ref_attrs(scope, target, kinds::METHOD_CALL, Some(pos), &attrs);
+	}
+}
+
+fn enclosing_type_moniker(scope: &Moniker) -> Option<Moniker> {
+	let view = scope.as_view();
+	let segs: Vec<_> = view.segments().collect();
+	for (i, seg) in segs.iter().enumerate().rev() {
+		if seg.kind == kinds::STRUCT || seg.kind == kinds::TRAIT || seg.kind == kinds::ENUM {
+			let mut b = MonikerBuilder::from_view(view);
+			b.truncate(i + 1);
+			return Some(b.build());
+		}
+	}
+	None
+}
+
+fn count_call_args(call: Node<'_>) -> u16 {
+	let Some(args) = call.child_by_field_name("arguments") else {
+		return 0;
+	};
+	let mut count = 0u16;
+	let mut cursor = args.walk();
+	for child in args.named_children(&mut cursor) {
+		if !matches!(child.kind(), "line_comment" | "block_comment") {
+			count = count.saturating_add(1);
+		}
+	}
+	count
 }
 
 fn collect_use_leaves(

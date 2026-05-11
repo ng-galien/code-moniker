@@ -33,51 +33,57 @@ pub(super) fn collect_local_mods(root: Node<'_>, source: &[u8]) -> HashSet<Strin
 }
 
 impl<'src> Walker<'src> {
-	pub(super) fn walk(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
+	pub(super) fn walk(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
-			match child.kind() {
-				"struct_item" => self.handle_simple_def(child, parent, graph, kinds::STRUCT),
-				"enum_item" => self.handle_simple_def(child, parent, graph, kinds::ENUM),
-				"trait_item" => self.handle_simple_def(child, parent, graph, kinds::TRAIT),
-				"type_item" => self.handle_simple_def(child, parent, graph, kinds::TYPE),
-				"function_item" => self.handle_function(child, parent, graph, kinds::FN),
-				"impl_item" => self.handle_impl(child, parent, graph),
-				"use_declaration" => self.handle_use(child, parent, graph),
-				"line_comment" | "block_comment" => self.handle_comment(child, parent, graph),
-				_ => {}
-			}
+			self.dispatch(child, scope, graph);
+		}
+	}
+
+	pub(super) fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		match node.kind() {
+			"struct_item" => self.handle_simple_def(node, scope, graph, kinds::STRUCT),
+			"enum_item" => self.handle_simple_def(node, scope, graph, kinds::ENUM),
+			"trait_item" => self.handle_simple_def(node, scope, graph, kinds::TRAIT),
+			"type_item" => self.handle_simple_def(node, scope, graph, kinds::TYPE),
+			"function_item" => self.handle_function(node, scope, graph),
+			"impl_item" => self.handle_impl(node, scope, graph),
+			"use_declaration" => self.handle_use(node, scope, graph),
+			"let_declaration" => self.handle_let(node, scope, graph),
+			"call_expression" => self.handle_call(node, scope, graph),
+			"line_comment" | "block_comment" => self.handle_comment(node, scope, graph),
+			"mod_item" => {}
+			_ => self.walk(node, scope, graph),
 		}
 	}
 
 	fn handle_simple_def(
 		&self,
 		node: Node<'_>,
-		parent: &Moniker,
+		scope: &Moniker,
 		graph: &mut CodeGraph,
 		kind: &[u8],
 	) {
 		let Some(name) = self.field_text(node, "name") else {
 			return;
 		};
-		let m = extend_segment(parent, kind, name.as_bytes());
-		let _ = graph.add_def(m.clone(), kind, parent, Some(node_position(node)));
-		self.emit_descendant_comments(node, &m, graph);
+		let m = extend_segment(scope, kind, name.as_bytes());
+		let _ = graph.add_def(m.clone(), kind, scope, Some(node_position(node)));
+		self.walk(node, &m, graph);
 	}
 
-	fn handle_function(
-		&self,
-		node: Node<'_>,
-		parent: &Moniker,
-		graph: &mut CodeGraph,
-		kind: &[u8],
-	) {
+	fn handle_function(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(name) = self.field_text(node, "name") else {
 			return;
 		};
+		let kind = if is_type_scope(scope) {
+			kinds::METHOD
+		} else {
+			kinds::FN
+		};
 		let types = function_param_types(node, self.source_bytes);
-		let m = extend_callable_typed(parent, kind, name.as_bytes(), &types);
-		let _ = graph.add_def(m.clone(), kind, parent, Some(node_position(node)));
+		let m = extend_callable_typed(scope, kind, name.as_bytes(), &types);
+		let _ = graph.add_def(m.clone(), kind, scope, Some(node_position(node)));
 		if !self.deep {
 			return;
 		}
@@ -85,7 +91,7 @@ impl<'src> Walker<'src> {
 			self.emit_params(params, &m, graph);
 		}
 		if let Some(body) = node.child_by_field_name("body") {
-			self.walk_callable_body(body, &m, graph);
+			self.walk(body, &m, graph);
 		}
 	}
 
@@ -142,30 +148,9 @@ impl<'src> Walker<'src> {
 		let _ = graph.add_def(m, kind, callable, Some(node_position(anchor)));
 	}
 
-	fn walk_callable_body(&self, node: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
-		let mut cursor = node.walk();
-		for child in node.named_children(&mut cursor) {
-			match child.kind() {
-				"let_declaration" => self.handle_let(child, callable, graph),
-				"line_comment" | "block_comment" => self.handle_comment(child, callable, graph),
-				_ => self.walk_callable_body(child, callable, graph),
-			}
-		}
-	}
-
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let m = extend_segment_u32(scope, kinds::COMMENT, node.start_byte() as u32);
 		let _ = graph.add_def(m, kinds::COMMENT, scope, Some(node_position(node)));
-	}
-
-	fn emit_descendant_comments(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let mut cursor = node.walk();
-		for child in node.children(&mut cursor) {
-			match child.kind() {
-				"line_comment" | "block_comment" => self.handle_comment(child, scope, graph),
-				_ => self.emit_descendant_comments(child, scope, graph),
-			}
-		}
 	}
 
 	fn handle_let(&self, node: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
@@ -182,7 +167,7 @@ impl<'src> Walker<'src> {
 			self.emit_named_closure(value, callable, bind_name.as_bytes(), graph);
 			return;
 		}
-		self.walk_callable_body(value, callable, graph);
+		self.walk(value, callable, graph);
 	}
 
 	fn emit_named_closure(
@@ -199,11 +184,11 @@ impl<'src> Walker<'src> {
 			self.emit_params(params, &m, graph);
 		}
 		if let Some(body) = closure.child_by_field_name("body") {
-			self.walk_callable_body(body, &m, graph);
+			self.walk(body, &m, graph);
 		}
 	}
 
-	fn handle_impl(&self, node: Node<'_>, _parent: &Moniker, graph: &mut CodeGraph) {
+	fn handle_impl(&self, node: Node<'_>, _scope: &Moniker, graph: &mut CodeGraph) {
 		let Some(type_node) = node.child_by_field_name("type") else {
 			return;
 		};
@@ -215,18 +200,7 @@ impl<'src> Walker<'src> {
 		let Some(body) = node.child_by_field_name("body") else {
 			return;
 		};
-		self.walk_impl_body(body, &type_moniker, graph);
-	}
-
-	fn walk_impl_body(&self, node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
-		let mut cursor = node.walk();
-		for child in node.children(&mut cursor) {
-			match child.kind() {
-				"function_item" => self.handle_function(child, parent, graph, kinds::METHOD),
-				"line_comment" | "block_comment" => self.handle_comment(child, parent, graph),
-				_ => {}
-			}
-		}
+		self.walk(body, &type_moniker, graph);
 	}
 
 	pub(super) fn field_text(&self, node: Node<'_>, field: &str) -> Option<&'src str> {
@@ -234,6 +208,13 @@ impl<'src> Walker<'src> {
 			.utf8_text(self.source_bytes)
 			.ok()
 	}
+}
+
+fn is_type_scope(scope: &Moniker) -> bool {
+	matches!(
+		scope.last_kind().as_deref(),
+		Some(b"struct") | Some(b"trait") | Some(b"enum")
+	)
 }
 
 fn first_identifier<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {

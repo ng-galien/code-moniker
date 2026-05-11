@@ -96,3 +96,36 @@ message = "Rust trait `{name}` starts with `I` — drop the prefix (`Extractor`,
 id      = "no-nested-comments"
 expr    = "$tests OR $example OR parent.kind = 'module' OR text =~ '^//\\s*SAFETY:'"
 message = "Do not add comments inside functions, methods, structs, enums, traits, or impls. Keep code self-explanatory; only module-boundary and `SAFETY:` comments are allowed."
+
+# ─── Walker shape — canonical extractor contract ───────────────────────
+# Every `src/lang/<X>/walker.rs` mirrors the same moniker shape:
+#   struct:Walker / method:walk / method:dispatch
+# `walk` iterates children and calls dispatch; `dispatch` matches on
+# `node.kind()` with `_ => self.walk(...)` as catch-all. Drop-arm
+# `_ => {}` is forbidden — it silently loses sub-trees.
+
+[[rust.module.where]]
+id      = "walker-struct-exists"
+expr    = "moniker ~ '**/dir:lang/**/module:walker' => any(struct, name = 'Walker')"
+message = "`walker.rs` must define a `Walker` struct (state + dispatch methods)."
+
+[[rust.struct.where]]
+id      = "walker-has-walk-method"
+expr    = "name = 'Walker' AND moniker ~ '**/module:walker/struct:Walker' => any(method, name = 'walk')"
+message = "Walker must expose `walk(node, scope, graph)` — iterates children, calls dispatch on each."
+
+[[rust.struct.where]]
+id      = "walker-has-dispatch-method"
+expr    = "name = 'Walker' AND moniker ~ '**/module:walker/struct:Walker' => any(method, name = 'dispatch')"
+message = "Walker must expose `dispatch(node, scope, graph)` — kind dispatch with `_ => self.walk(...)` catch-all."
+
+# Behavioral rule: dispatch must call self.walk in its catch-all arm.
+# Symbolically: dispatch must emit at least one out_ref method_call → walk.
+# Whitelist-with-`_ => {}` divergence has no such ref and trips the rule.
+[[rust.method.where]]
+id      = "walker-dispatch-recurses-into-walk"
+expr    = """
+  parent.name = 'Walker' AND name = 'dispatch'
+  => any(out_refs, kind = 'method_call' AND target.name = 'walk')
+"""
+message = "Walker.dispatch must call `self.walk(...)` (typically as catch-all). Missing this drops sub-trees."

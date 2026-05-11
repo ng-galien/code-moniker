@@ -21,7 +21,9 @@ pub(super) fn strip_rs_extension(uri: &str) -> &str {
 	uri.strip_suffix(".rs").unwrap_or(uri)
 }
 
-pub(super) use crate::lang::callable::{extend_callable_typed, extend_segment, extend_segment_u32};
+pub(super) use crate::lang::callable::{
+	extend_callable_arity, extend_callable_typed, extend_segment, extend_segment_u32,
+};
 
 pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
 	(node.start_byte() as u32, node.end_byte() as u32)

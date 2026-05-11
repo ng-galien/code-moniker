@@ -24,7 +24,13 @@ pub fn extract(
 ) -> CodeGraph {
 	let module = compute_module_moniker(anchor, uri);
 	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
-	walker::walk_source(source, &module, deep, &mut graph);
+	let tree = walker::parse(source);
+	let walker = walker::Walker {
+		source,
+		module: module.clone(),
+		deep,
+	};
+	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
 }
 

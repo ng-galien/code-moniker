@@ -12,7 +12,7 @@ use super::canonicalize::{
 };
 use super::kinds;
 
-fn parse_sql(source: &str) -> Tree {
+pub(super) fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
 	parser
 		.set_language(&tree_sitter_postgres::LANGUAGE.into())
@@ -22,123 +22,112 @@ fn parse_sql(source: &str) -> Tree {
 		.expect("tree-sitter parse returned None on a non-cancelled call")
 }
 
-pub(super) fn walk_source(source: &str, module: &Moniker, _deep: bool, graph: &mut CodeGraph) {
-	let tree = parse_sql(source);
-	let root = tree.root_node();
-	let src = source.as_bytes();
-	let mut cur = root.walk();
-	for child in root.children(&mut cur) {
-		if child.kind() != "toplevel_stmt" {
-			continue;
+pub(super) struct Walker<'src> {
+	pub(super) source: &'src str,
+	pub(super) module: Moniker,
+	#[allow(dead_code)]
+	pub(super) deep: bool,
+}
+
+impl<'src> Walker<'src> {
+	fn source_bytes(&self) -> &'src [u8] {
+		self.source.as_bytes()
+	}
+
+	pub(super) fn walk(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let mut cursor = node.walk();
+		for child in node.children(&mut cursor) {
+			self.dispatch(child, scope, graph);
 		}
-		walk_stmt(child, src, source, module, graph);
-	}
-}
-
-fn walk_stmt(top: Node, src: &[u8], source: &str, module: &Moniker, graph: &mut CodeGraph) {
-	let stmt = match find_child(top, "stmt") {
-		Some(n) => n,
-		None => return,
-	};
-	let inner = match stmt.named_child(0) {
-		Some(n) => n,
-		None => return,
-	};
-	let position = node_position(inner);
-	match inner.kind() {
-		"CreateFunctionStmt" => emit_create_function(inner, src, source, module, position, graph),
-		"CreateStmt" => emit_create_table(inner, src, module, position, graph),
-		"ViewStmt" => emit_view(inner, src, module, position, graph),
-		_ => collect_calls_in(inner, src, module, module, graph),
-	}
-}
-
-fn emit_create_function(
-	node: Node,
-	src: &[u8],
-	source: &str,
-	module: &Moniker,
-	position: Option<Position>,
-	graph: &mut CodeGraph,
-) {
-	let func_name = match find_child(node, "func_name") {
-		Some(n) => n,
-		None => return,
-	};
-	let (schema, name) = split_qualified_name(func_name, src);
-	let params = find_child(node, "func_args_with_defaults");
-	let arg_types = params
-		.map(|p| collect_param_types(p, src))
-		.unwrap_or_default();
-	let parent = maybe_schema(module, &schema);
-	let func_moniker = extend_callable_typed(&parent, kinds::FUNCTION, &name, &arg_types);
-	let signature = arg_types.join(b",".as_ref());
-	let attrs = DefAttrs {
-		visibility: kinds::VIS_NONE,
-		signature: &signature,
-		..DefAttrs::default()
-	};
-	if graph
-		.add_def_attrs(
-			func_moniker.clone(),
-			kinds::FUNCTION,
-			module,
-			position,
-			&attrs,
-		)
-		.is_err()
-	{
-		return;
 	}
 
-	if function_language(node, src).eq_ignore_ascii_case(b"plpgsql")
-		&& let Some(body_text) = dollar_body(node, source)
-	{
-		body::walk_plpgsql_body(body_text, &func_moniker, module, graph);
+	pub(super) fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		match node.kind() {
+			"toplevel_stmt" => self.handle_toplevel_stmt(node, scope, graph),
+			_ => self.walk(node, scope, graph),
+		}
 	}
-}
 
-fn emit_create_table(
-	node: Node,
-	src: &[u8],
-	module: &Moniker,
-	position: Option<Position>,
-	graph: &mut CodeGraph,
-) {
-	let q = match find_child(node, "qualified_name") {
-		Some(n) => n,
-		None => return,
-	};
-	let (schema, name) = split_qualified_name(q, src);
-	if name.is_empty() {
-		return;
+	fn handle_toplevel_stmt(&self, top: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let Some(stmt) = find_child(top, "stmt") else {
+			return;
+		};
+		let Some(inner) = stmt.named_child(0) else {
+			return;
+		};
+		match inner.kind() {
+			"CreateFunctionStmt" => self.handle_create_function(inner, scope, graph),
+			"CreateStmt" => self.handle_create_table(inner, scope, graph),
+			"ViewStmt" => self.handle_view(inner, scope, graph),
+			_ => collect_calls_in(inner, self.source_bytes(), scope, &self.module, graph),
+		}
 	}
-	let parent = maybe_schema(module, &schema);
-	let moniker = extend_segment(&parent, kinds::TABLE, &name);
-	let _ = graph.add_def(moniker, kinds::TABLE, module, position);
-}
 
-fn emit_view(
-	node: Node,
-	src: &[u8],
-	module: &Moniker,
-	position: Option<Position>,
-	graph: &mut CodeGraph,
-) {
-	let q = match find_child(node, "qualified_name") {
-		Some(n) => n,
-		None => return,
-	};
-	let (schema, name) = split_qualified_name(q, src);
-	if name.is_empty() {
-		return;
+	fn handle_create_function(&self, node: Node<'_>, module: &Moniker, graph: &mut CodeGraph) {
+		let Some(func_name) = find_child(node, "func_name") else {
+			return;
+		};
+		let (schema, name) = split_qualified_name(func_name, self.source_bytes());
+		let params = find_child(node, "func_args_with_defaults");
+		let arg_types = params
+			.map(|p| collect_param_types(p, self.source_bytes()))
+			.unwrap_or_default();
+		let parent = maybe_schema(module, &schema);
+		let func_moniker = extend_callable_typed(&parent, kinds::FUNCTION, &name, &arg_types);
+		let signature = arg_types.join(b",".as_ref());
+		let attrs = DefAttrs {
+			visibility: kinds::VIS_NONE,
+			signature: &signature,
+			..DefAttrs::default()
+		};
+		if graph
+			.add_def_attrs(
+				func_moniker.clone(),
+				kinds::FUNCTION,
+				module,
+				node_position(node),
+				&attrs,
+			)
+			.is_err()
+		{
+			return;
+		}
+
+		if function_language(node, self.source_bytes()).eq_ignore_ascii_case(b"plpgsql")
+			&& let Some(body_text) = dollar_body(node, self.source)
+		{
+			body::walk_plpgsql_body(body_text, &func_moniker, module, graph);
+		}
 	}
-	let parent = maybe_schema(module, &schema);
-	let moniker = extend_segment(&parent, kinds::VIEW, &name);
-	let _ = graph.add_def(moniker.clone(), kinds::VIEW, module, position);
 
-	if let Some(sel) = find_child(node, "SelectStmt") {
-		collect_calls_in(sel, src, &moniker, module, graph);
+	fn handle_create_table(&self, node: Node<'_>, module: &Moniker, graph: &mut CodeGraph) {
+		let Some(q) = find_child(node, "qualified_name") else {
+			return;
+		};
+		let (schema, name) = split_qualified_name(q, self.source_bytes());
+		if name.is_empty() {
+			return;
+		}
+		let parent = maybe_schema(module, &schema);
+		let moniker = extend_segment(&parent, kinds::TABLE, &name);
+		let _ = graph.add_def(moniker, kinds::TABLE, module, node_position(node));
+	}
+
+	fn handle_view(&self, node: Node<'_>, module: &Moniker, graph: &mut CodeGraph) {
+		let Some(q) = find_child(node, "qualified_name") else {
+			return;
+		};
+		let (schema, name) = split_qualified_name(q, self.source_bytes());
+		if name.is_empty() {
+			return;
+		}
+		let parent = maybe_schema(module, &schema);
+		let moniker = extend_segment(&parent, kinds::VIEW, &name);
+		let _ = graph.add_def(moniker.clone(), kinds::VIEW, module, node_position(node));
+
+		if let Some(sel) = find_child(node, "SelectStmt") {
+			collect_calls_in(sel, self.source_bytes(), &moniker, module, graph);
+		}
 	}
 }
 
