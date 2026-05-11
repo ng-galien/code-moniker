@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::cli::check::config::{Config, ConfigError, KindRules, config_section};
-use crate::cli::check::expr::{self, Atom, Lhs, LhsExpr, Op, Rhs};
+use crate::cli::check::expr::{self, Atom, Lhs, LhsExpr, Node, Op, Rhs};
 use crate::cli::lines::line_range;
 use crate::cli::render_uri;
 use crate::core::code_graph::{CodeGraph, DefRecord};
@@ -83,7 +83,7 @@ struct EvalCtx<'g, 'src> {
 struct CompiledRule {
 	id: String,
 	raw_expr: String,
-	atoms: Vec<Atom>,
+	root: Node,
 	message: Option<String>,
 }
 
@@ -143,7 +143,7 @@ fn compile(
 		compiled.push(CompiledRule {
 			id,
 			raw_expr: entry.expr.clone(),
-			atoms: parsed.0,
+			root: parsed.root,
 			message: entry.message.clone(),
 		});
 	}
@@ -189,28 +189,20 @@ fn eval_rule(
 	ctx: &EvalCtx<'_, '_>,
 	out: &mut Vec<Violation>,
 ) {
-	let mut first_failed: Option<(usize, String, String)> = None;
-	for (i, atom) in rule.atoms.iter().enumerate() {
-		match eval_atom(atom, d, def_idx, ctx.source, &ctx.parent_counts) {
-			AtomOutcome::Pass => {}
-			AtomOutcome::Fail { actual, expected } => {
-				first_failed = Some((i, actual, expected));
-				break;
-			}
-			AtomOutcome::NotApplicable => return,
-		}
-	}
-	let Some((atom_idx, actual, expected)) = first_failed else {
-		return;
+	let Failure {
+		atom_raw,
+		lhs_label,
+		actual,
+		expected,
+	} = match eval_node(&rule.root, d, def_idx, ctx.source, &ctx.parent_counts) {
+		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
+		NodeOutcome::Fail(f) => f,
 	};
-	let atom = &rule.atoms[atom_idx];
 	let name = def_name(d).unwrap_or_default();
 	let moniker = render_uri(&d.moniker, &ctx.uri_cfg);
 	let (start_line, end_line) = lines_of(d, ctx.source);
 	let message = format!(
-		"{kind} `{name}` fails `{}` ({} = {actual}, expected {expected})",
-		atom.raw,
-		describe_lhs(&atom.lhs),
+		"{kind} `{name}` fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})",
 	);
 	let explanation = rule.message.as_ref().map(|tpl| {
 		render_template(
@@ -246,15 +238,100 @@ fn describe_lhs(lhs: &LhsExpr) -> &str {
 	}
 }
 
+#[derive(Debug)]
+struct Failure {
+	atom_raw: String,
+	lhs_label: String,
+	actual: String,
+	expected: String,
+}
+
+#[derive(Debug)]
+enum NodeOutcome {
+	Pass,
+	Fail(Failure),
+	/// Atom not extractable on this def (anonymous, no position, …).
+	/// Propagation rules (Kleene-style trivalent logic):
+	///   And : NA + Pass = NA ; NA + Fail = Fail ; NA + NA = NA
+	///   Or  : NA + Pass = Pass; NA + Fail = NA ; NA + NA = NA
+	///   Not(NA) = NA
+	///   Implies(NA, _) = NA  — premise indeterminate ⇒ rule doesn't apply
+	NotApplicable,
+}
+
 enum AtomOutcome {
 	Pass,
-	Fail {
-		actual: String,
-		expected: String,
-	},
-	/// Lhs isn't extractable from this def (e.g. `name` on an anonymous def);
-	/// the rule simply doesn't apply.
+	Fail { actual: String, expected: String },
 	NotApplicable,
+}
+
+fn eval_node(
+	node: &Node,
+	d: &DefRecord,
+	def_idx: usize,
+	source: &str,
+	parent_counts: &HashMap<(usize, &[u8]), u32>,
+) -> NodeOutcome {
+	match node {
+		Node::Atom(atom) => match eval_atom(atom, d, def_idx, source, parent_counts) {
+			AtomOutcome::Pass => NodeOutcome::Pass,
+			AtomOutcome::Fail { actual, expected } => NodeOutcome::Fail(Failure {
+				atom_raw: atom.raw.clone(),
+				lhs_label: describe_lhs(&atom.lhs).to_string(),
+				actual,
+				expected,
+			}),
+			AtomOutcome::NotApplicable => NodeOutcome::NotApplicable,
+		},
+		Node::And(children) => {
+			let mut na = false;
+			for c in children {
+				match eval_node(c, d, def_idx, source, parent_counts) {
+					NodeOutcome::Pass => {}
+					NodeOutcome::Fail(f) => return NodeOutcome::Fail(f),
+					NodeOutcome::NotApplicable => na = true,
+				}
+			}
+			if na {
+				NodeOutcome::NotApplicable
+			} else {
+				NodeOutcome::Pass
+			}
+		}
+		Node::Or(children) => {
+			let mut last_fail: Option<Failure> = None;
+			let mut na = false;
+			for c in children {
+				match eval_node(c, d, def_idx, source, parent_counts) {
+					NodeOutcome::Pass => return NodeOutcome::Pass,
+					NodeOutcome::Fail(f) => last_fail = Some(f),
+					NodeOutcome::NotApplicable => na = true,
+				}
+			}
+			if na {
+				NodeOutcome::NotApplicable
+			} else if let Some(f) = last_fail {
+				NodeOutcome::Fail(f)
+			} else {
+				NodeOutcome::NotApplicable
+			}
+		}
+		Node::Not(inner) => match eval_node(inner, d, def_idx, source, parent_counts) {
+			NodeOutcome::Pass => NodeOutcome::Fail(Failure {
+				atom_raw: "NOT (...)".to_string(),
+				lhs_label: "NOT".to_string(),
+				actual: "true".to_string(),
+				expected: "false".to_string(),
+			}),
+			NodeOutcome::Fail(_) => NodeOutcome::Pass,
+			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
+		},
+		Node::Implies(prem, cons) => match eval_node(prem, d, def_idx, source, parent_counts) {
+			NodeOutcome::Pass => eval_node(cons, d, def_idx, source, parent_counts),
+			NodeOutcome::Fail(_) => NodeOutcome::Pass,
+			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
+		},
+	}
 }
 
 fn eval_atom(
@@ -736,6 +813,160 @@ mod tests {
 		assert!(
 			v.is_empty(),
 			"comment line 1 + annotation line 2 + class line 3: doc must attach via annotation anchor: {v:?}"
+		);
+	}
+
+	// ─── booleans + implication semantics ───────────────────────────────
+
+	#[test]
+	fn or_passes_if_one_arm_passes() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "any-of"
+			expr = "name = 'Foo' OR name = 'Bar'"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		g.add_def(
+			child(&module, b"class", b"Foo"),
+			b"class",
+			&module,
+			Some((0, 10)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert!(v.is_empty(), "Foo matches first arm: {v:?}");
+	}
+
+	#[test]
+	fn or_fails_when_all_arms_fail() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "any-of"
+			expr = "name = 'Foo' OR name = 'Bar'"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		g.add_def(
+			child(&module, b"class", b"Baz"),
+			b"class",
+			&module,
+			Some((0, 10)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "Baz matches no arm: {v:?}");
+	}
+
+	#[test]
+	fn not_inverts_pass_and_fail() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "not-internal"
+			expr = "NOT name = 'Internal'"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		g.add_def(
+			child(&module, b"class", b"Internal"),
+			b"class",
+			&module,
+			Some((0, 5)),
+		)
+		.unwrap();
+		g.add_def(
+			child(&module, b"class", b"Public"),
+			b"class",
+			&module,
+			Some((6, 10)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "only `Internal` violates: {v:?}");
+		assert!(v[0].moniker.contains("class:Internal"));
+	}
+
+	#[test]
+	fn implies_false_premise_is_pass() {
+		// `name = 'Entity' => any(...)` should NOT flag classes that aren't Entities.
+		// This is the bug that fix-by-implication addresses.
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "entity-implies-x"
+			expr = "name =~ Entity$ => kind = 'class'"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		g.add_def(
+			child(&module, b"class", b"NotAnEntity"),
+			b"class",
+			&module,
+			Some((0, 10)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert!(
+			v.is_empty(),
+			"premise false (no `Entity` suffix) ⇒ implication trivially true: {v:?}"
+		);
+	}
+
+	#[test]
+	fn implies_true_premise_evaluates_consequent() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "entity-must-be-class"
+			expr = "name =~ Entity$ => kind = 'class'"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		// kind is 'class', so this should pass
+		g.add_def(
+			child(&module, b"class", b"UserEntity"),
+			b"class",
+			&module,
+			Some((0, 10)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert!(v.is_empty(), "premise true + consequent true: {v:?}");
+	}
+
+	#[test]
+	fn implies_true_premise_failed_consequent_violates() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.function.where]]
+			id   = "use-case-has-one-method"
+			expr = "name =~ UseCase$ => lines <= 5"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		g.add_def(
+			child(&module, b"function", b"CreateInvoiceUseCase"),
+			b"function",
+			&module,
+			Some((0, 200)),
+		)
+		.unwrap();
+		// 50 lines of source so lines > 5
+		let source: String = (0..50).map(|_| "a\n").collect();
+		let v = evaluate(&g, &source, Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(
+			v.len(),
+			1,
+			"premise true, consequent false ⇒ violation: {v:?}"
 		);
 	}
 }

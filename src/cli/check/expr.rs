@@ -1,20 +1,13 @@
-//! Tiny DSL for rule predicates and CLI `--where`.
+//! Rule DSL for `code-moniker check`. Full reference: docs/CHECK_DSL.md.
 //!
-//! Grammar:
-//! ```text
-//! expr  := atom (" AND " atom)*
-//! atom  := lhs op rhs
-//! lhs   := IDENT | "count" "(" IDENT ")"
-//! op    := "="  | "!="
-//!        | "<"  | "<=" | ">" | ">="
-//!        | "=~" | "!~"
-//!        | "@>" | "<@" | "?="
-//! rhs   := NUMBER | STRING | MONIKER_URI
-//! ```
+//! Boolean tree over atoms: `AND` `OR` `NOT` `=>` with parens. Precedence
+//! `=>` < `OR` < `AND` < `NOT`. Atom = `<lhs> <op> <rhs>` ; ops mirror the
+//! moniker algebra plus regex (`=~` `!~`) and numeric comparison.
 //!
-//! `" AND "` (literal substring, surrounding spaces) is the only multi-atom
-//! combinator. Regex RHS that need a literal " AND " must escape one of the
-//! spaces (`\sAND\s` or `(?i)and`) — the parser is whitespace-sensitive.
+//! Operator search is restricted to the LHS prefix (an ident, optionally
+//! `count(<kind>)`), so a regex RHS like `^count\(.+\) <= 20$` cannot be
+//! mis-split. Boundaries between atoms are `" AND "`, `" OR "`, `" => "`
+//! at depth 0 outside string literals.
 
 use std::collections::HashMap;
 
@@ -92,7 +85,18 @@ pub struct Atom {
 }
 
 #[derive(Debug, Clone)]
-pub struct Expr(pub Vec<Atom>);
+pub enum Node {
+	Atom(Atom),
+	And(Vec<Node>),
+	Or(Vec<Node>),
+	Not(Box<Node>),
+	Implies(Box<Node>, Box<Node>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Expr {
+	pub root: Node,
+}
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ParseError {
@@ -102,12 +106,189 @@ pub enum ParseError {
 
 pub fn parse(input: &str, scheme: &str, allowed_kinds: &[&str]) -> Result<Expr, ParseError> {
 	let raw = input.to_string();
-	let parts: Vec<&str> = input.split(" AND ").collect();
-	let mut atoms = Vec::with_capacity(parts.len());
-	for part in parts {
-		atoms.push(parse_atom(part, scheme, &raw, allowed_kinds)?);
+	let mut p = Parser {
+		input,
+		pos: 0,
+		scheme,
+		allowed_kinds,
+		raw: &raw,
+	};
+	let root = p.parse_expr()?;
+	p.skip_ws();
+	if p.pos < p.input.len() {
+		let msg = format!("trailing input at byte {}: `{}`", p.pos, &p.input[p.pos..]);
+		return Err(ParseError::BadExpr { expr: raw, msg });
 	}
-	Ok(Expr(atoms))
+	Ok(Expr { root })
+}
+
+struct Parser<'a> {
+	input: &'a str,
+	pos: usize,
+	scheme: &'a str,
+	allowed_kinds: &'a [&'a str],
+	raw: &'a str,
+}
+
+impl<'a> Parser<'a> {
+	fn parse_expr(&mut self) -> Result<Node, ParseError> {
+		let lhs = self.parse_or()?;
+		self.skip_ws();
+		if self.eat_keyword("=>") {
+			let rhs = self.parse_or()?;
+			return Ok(Node::Implies(Box::new(lhs), Box::new(rhs)));
+		}
+		Ok(lhs)
+	}
+
+	fn parse_or(&mut self) -> Result<Node, ParseError> {
+		let mut nodes = vec![self.parse_and()?];
+		loop {
+			self.skip_ws();
+			if !self.eat_keyword("OR") {
+				break;
+			}
+			nodes.push(self.parse_and()?);
+		}
+		Ok(if nodes.len() == 1 {
+			nodes.pop().unwrap()
+		} else {
+			Node::Or(nodes)
+		})
+	}
+
+	fn parse_and(&mut self) -> Result<Node, ParseError> {
+		let mut nodes = vec![self.parse_not()?];
+		loop {
+			self.skip_ws();
+			if !self.eat_keyword("AND") {
+				break;
+			}
+			nodes.push(self.parse_not()?);
+		}
+		Ok(if nodes.len() == 1 {
+			nodes.pop().unwrap()
+		} else {
+			Node::And(nodes)
+		})
+	}
+
+	fn parse_not(&mut self) -> Result<Node, ParseError> {
+		self.skip_ws();
+		if self.eat_keyword("NOT") {
+			let inner = self.parse_not()?;
+			return Ok(Node::Not(Box::new(inner)));
+		}
+		self.parse_primary()
+	}
+
+	fn parse_primary(&mut self) -> Result<Node, ParseError> {
+		self.skip_ws();
+		if self.peek_byte() == Some(b'(') {
+			self.pos += 1;
+			let inner = self.parse_expr()?;
+			self.skip_ws();
+			if self.peek_byte() != Some(b')') {
+				return Err(ParseError::BadExpr {
+					expr: self.raw.to_string(),
+					msg: format!("missing `)` at byte {}", self.pos),
+				});
+			}
+			self.pos += 1;
+			return Ok(inner);
+		}
+		let atom_end = self.find_atom_end();
+		if atom_end == self.pos {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected atom at byte {}", self.pos),
+			});
+		}
+		let atom_str = &self.input[self.pos..atom_end];
+		let atom = parse_atom(atom_str, self.scheme, self.raw, self.allowed_kinds)?;
+		self.pos = atom_end;
+		Ok(Node::Atom(atom))
+	}
+
+	/// Walk from `self.pos` to the next top-level boolean connective, closing
+	/// paren, or EOI. Tracks paren depth and string/regex literals so an
+	/// operator char inside a regex or a `count(...)` argument can't end the
+	/// atom prematurely.
+	fn find_atom_end(&self) -> usize {
+		let bytes = self.input.as_bytes();
+		let mut i = self.pos;
+		let mut depth: i32 = 0;
+		let mut in_string: Option<u8> = None;
+		while i < bytes.len() {
+			let c = bytes[i];
+			if let Some(q) = in_string {
+				if c == q {
+					in_string = None;
+				}
+				i += 1;
+				continue;
+			}
+			match c {
+				b'\'' | b'"' => {
+					in_string = Some(c);
+					i += 1;
+				}
+				b'(' => {
+					depth += 1;
+					i += 1;
+				}
+				b')' => {
+					if depth == 0 {
+						return i;
+					}
+					depth -= 1;
+					i += 1;
+				}
+				_ => {
+					if depth == 0 && self.boundary_at(i) {
+						return i;
+					}
+					i += 1;
+				}
+			}
+		}
+		i
+	}
+
+	fn boundary_at(&self, i: usize) -> bool {
+		let rest = &self.input[i..];
+		rest.starts_with(" AND ")
+			|| rest.starts_with(" OR ")
+			|| rest.starts_with(" => ")
+			|| rest.starts_with(" AND\t")
+			|| rest.starts_with(" OR\t")
+			|| rest.starts_with(" =>\t")
+	}
+
+	fn skip_ws(&mut self) {
+		let bytes = self.input.as_bytes();
+		while self.pos < bytes.len() && bytes[self.pos].is_ascii_whitespace() {
+			self.pos += 1;
+		}
+	}
+
+	fn peek_byte(&self) -> Option<u8> {
+		self.input.as_bytes().get(self.pos).copied()
+	}
+
+	fn eat_keyword(&mut self, kw: &str) -> bool {
+		let rest = &self.input[self.pos..];
+		if let Some(after) = rest.strip_prefix(kw) {
+			let next_ok = after.is_empty()
+				|| after.starts_with(|c: char| c.is_ascii_whitespace())
+				|| after.starts_with('(');
+			if next_ok {
+				self.pos += kw.len();
+				return true;
+			}
+		}
+		false
+	}
 }
 
 fn parse_atom(
@@ -347,11 +528,31 @@ mod tests {
 	const TS: &str = "ts+moniker://";
 	const KINDS: &[&str] = &["class", "method", "function", "module"];
 
+	fn solo(e: &Expr) -> &Atom {
+		match &e.root {
+			Node::Atom(a) => a,
+			other => panic!("expected solo Atom, got {other:?}"),
+		}
+	}
+
+	fn and_arms(e: &Expr) -> Vec<&Atom> {
+		match &e.root {
+			Node::And(children) => children
+				.iter()
+				.map(|c| match c {
+					Node::Atom(a) => a,
+					other => panic!("expected Atom under And, got {other:?}"),
+				})
+				.collect(),
+			Node::Atom(a) => vec![a],
+			other => panic!("expected And or Atom root, got {other:?}"),
+		}
+	}
+
 	#[test]
 	fn parses_name_regex() {
 		let e = parse("name =~ ^[A-Z]", TS, KINDS).unwrap();
-		assert_eq!(e.0.len(), 1);
-		let a = &e.0[0];
+		let a = solo(&e);
 		assert!(matches!(a.lhs, LhsExpr::Attr(Lhs::Name)));
 		assert!(matches!(a.op, Op::RegexMatch));
 		assert!(matches!(a.rhs, Rhs::RegexStr(_)));
@@ -361,7 +562,8 @@ mod tests {
 	#[test]
 	fn parses_lines_le() {
 		let e = parse("lines <= 60", TS, KINDS).unwrap();
-		match (&e.0[0].lhs, &e.0[0].op, &e.0[0].rhs) {
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
 			(LhsExpr::Attr(Lhs::Lines), Op::Le, Rhs::Number(60)) => {}
 			other => panic!("unexpected: {other:?}"),
 		}
@@ -370,7 +572,8 @@ mod tests {
 	#[test]
 	fn parses_moniker_descendant() {
 		let e = parse("moniker <@ ts+moniker://./class:Foo", TS, KINDS).unwrap();
-		match (&e.0[0].lhs, &e.0[0].op, &e.0[0].rhs) {
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
 			(LhsExpr::Attr(Lhs::Moniker), Op::DescendantOf, Rhs::Moniker(_)) => {}
 			other => panic!("unexpected: {other:?}"),
 		}
@@ -379,7 +582,8 @@ mod tests {
 	#[test]
 	fn parses_count() {
 		let e = parse("count(method) <= 20", TS, KINDS).unwrap();
-		match (&e.0[0].lhs, &e.0[0].op, &e.0[0].rhs) {
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
 			(LhsExpr::CountChildren(k), Op::Le, Rhs::Number(20)) if k == "method" => {}
 			other => panic!("unexpected: {other:?}"),
 		}
@@ -388,7 +592,7 @@ mod tests {
 	#[test]
 	fn parses_and_combination() {
 		let e = parse("name =~ ^[A-Z] AND lines <= 60", TS, KINDS).unwrap();
-		assert_eq!(e.0.len(), 2);
+		assert_eq!(and_arms(&e).len(), 2);
 	}
 
 	#[test]
@@ -443,8 +647,8 @@ mod tests {
 	fn regex_rhs_containing_op_chars_is_not_split_on_rhs() {
 		// RHS contains `>=` and `<=` — must NOT be taken as the main op.
 		let e = parse("text =~ ^count\\(.+\\) <= 20$", TS, KINDS).unwrap();
-		assert_eq!(e.0.len(), 1);
-		match (&e.0[0].lhs, &e.0[0].op) {
+		let a = solo(&e);
+		match (&a.lhs, &a.op) {
 			(LhsExpr::Attr(Lhs::Text), Op::RegexMatch) => {}
 			other => panic!("unexpected: {other:?}"),
 		}
@@ -453,8 +657,9 @@ mod tests {
 	#[test]
 	fn regex_rhs_with_neq_token_is_not_split_on_rhs() {
 		let e = parse("text =~ foo!=bar", TS, KINDS).unwrap();
-		assert!(matches!(e.0[0].op, Op::RegexMatch));
-		match &e.0[0].rhs {
+		let a = solo(&e);
+		assert!(matches!(a.op, Op::RegexMatch));
+		match &a.rhs {
 			Rhs::RegexStr(s) => assert_eq!(s, "foo!=bar"),
 			other => panic!("unexpected: {other:?}"),
 		}
@@ -463,9 +668,77 @@ mod tests {
 	#[test]
 	fn strips_surrounding_quotes_on_rhs() {
 		let e = parse("name =~ \"^foo$\"", TS, KINDS).unwrap();
-		match &e.0[0].rhs {
+		match &solo(&e).rhs {
 			Rhs::RegexStr(s) => assert_eq!(s, "^foo$"),
 			other => panic!("unexpected: {other:?}"),
 		}
+	}
+
+	// ─── booleans + implication ─────────────────────────────────────────
+
+	#[test]
+	fn parses_or() {
+		let e = parse("name = 'Foo' OR name = 'Bar'", TS, KINDS).unwrap();
+		match &e.root {
+			Node::Or(children) => assert_eq!(children.len(), 2),
+			other => panic!("expected Or, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_not() {
+		let e = parse("NOT name = 'Foo'", TS, KINDS).unwrap();
+		assert!(matches!(e.root, Node::Not(_)));
+	}
+
+	#[test]
+	fn parses_implies() {
+		let e = parse("name = 'Foo' => kind = 'class'", TS, KINDS).unwrap();
+		assert!(matches!(e.root, Node::Implies(_, _)));
+	}
+
+	#[test]
+	fn parses_parens_override_precedence() {
+		// `A OR B AND C` would normally bind as `A OR (B AND C)`.
+		// `(A OR B) AND C` must produce an And at the root.
+		let e = parse("(name = 'X' OR name = 'Y') AND lines <= 10", TS, KINDS).unwrap();
+		assert!(matches!(e.root, Node::And(_)));
+	}
+
+	#[test]
+	fn precedence_implies_is_lowest() {
+		// `A OR B => C AND D` ≡ `(A OR B) => (C AND D)`
+		let e = parse(
+			"name = 'X' OR name = 'Y' => lines <= 10 AND kind = 'class'",
+			TS,
+			KINDS,
+		)
+		.unwrap();
+		match e.root {
+			Node::Implies(lhs, rhs) => {
+				assert!(matches!(*lhs, Node::Or(_)));
+				assert!(matches!(*rhs, Node::And(_)));
+			}
+			other => panic!("expected Implies at root, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn precedence_not_binds_tighter_than_and() {
+		// `NOT A AND B` ≡ `(NOT A) AND B`
+		let e = parse("NOT name = 'X' AND lines <= 10", TS, KINDS).unwrap();
+		match e.root {
+			Node::And(children) => {
+				assert!(matches!(children[0], Node::Not(_)));
+				assert!(matches!(children[1], Node::Atom(_)));
+			}
+			other => panic!("expected And, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn rejects_unmatched_paren() {
+		assert!(parse("(name = 'X'", TS, KINDS).is_err());
+		assert!(parse("name = 'X')", TS, KINDS).is_err());
 	}
 }

@@ -236,60 +236,30 @@ Loads an embedded default rule pack, optionally merges a user `<path>` (default
 invoked from a `PostToolUse` hook so an agent gets immediate feedback on each
 edit.
 
-### Configuration — TOML
+### Configuration
 
-Each kind block carries a `where` array of assertion entries. An assertion
-is a tiny DSL expression `<lhs> <op> <rhs>` — a def violates the rule when
-the expression evaluates to false. The embedded preset only ships
-broadly-uncontroversial naming rules; project-specific policies
-(`max-lines`, `max-methods`, comment-content allow-lists,
-`require_doc_comment`) belong in your overlay.
+Full DSL reference: **[docs/CHECK_DSL.md](CHECK_DSL.md)**. Grammar, scopes
+(`[[<lang>.<kind>.where]]` for defs, `[[refs.where]]` for refs),
+quantifiers (`any` / `all` / `none` / `count` on `<kind>` / `segment` /
+`out_refs` / `in_refs`), path patterns (`moniker ~ '**/class:/Port$/'`),
+aliases (`$name`), and a worked example covering Clean Code, DDD, Hex and
+bounded-context invariants live there.
+
+Minimal shape:
 
 ```toml
-# .code-moniker.toml — overlays the embedded preset
-
 [[ts.class.where]]
-id   = "max-methods"
-expr = "count(method) <= 20"
+id      = "no-god-class"
+expr    = "count(method) <= 20 AND all(method, lines <= 60)"
+message = "Class `{name}` is too wide ({value})."
 
-[[ts.function.where]]
-id   = "max-lines"
-expr = "lines <= 60"
-
-[[ts.function.where]]
-id   = "no-placeholder-names"
-expr = "name !~ ^(helper|utils|manager|temp)$"
-
-[[ts.comment.where]]
-id      = "allow-only-directives"
-expr    = '''text =~ ^\s*(//\s*(@ts-|eslint-|code-moniker:|TODO|FIXME)|/\*\*)'''
-message = "Prose comments are forbidden. Use a directive or a JSDoc block."
+[[refs.where]]
+id   = "domain-no-infra"
+expr = "source ~ '**/module:domain/**' => NOT target ~ '**/module:infrastructure/**'"
 
 [ts.class]
-require_doc_comment = "public"   # spatial rule, separate from `where`
+require_doc_comment = "public"
 ```
-
-### Expression grammar
-
-```
-expr := atom ("AND" atom)*
-atom := lhs op rhs
-lhs  := "name" | "lines" | "kind" | "visibility" | "text" | "moniker" | "count(" KIND ")"
-op   := "="  | "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" | "@>" | "<@" | "?="
-rhs  := NUMBER | REGEX | MONIKER_URI | IDENT
-```
-
-Operator-type compatibility:
-
-| lhs                         | accepted ops                                  |
-| --------------------------- | --------------------------------------------- |
-| `name` `kind` `visibility` `text` | `=` `!=` `=~` `!~`                       |
-| `lines` `count(<kind>)`     | `<` `<=` `=` `!=` `>=` `>`                    |
-| `moniker`                   | `=` `!=` `@>` `<@` `?=`                       |
-
-`count(<kind>)` evaluated on a def D yields the number of direct children of
-kind `<kind>` under D. Lives naturally under the **parent** kind block —
-e.g. `count(method) <= 20` belongs in `[[ts.class.where]]`.
 
 `require_doc_comment` is a separate field on the kind block (not part of
 `where`). Value is a visibility name (`"public"`, `"private"`, `"any"`).
