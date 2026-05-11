@@ -42,6 +42,8 @@ pub fn extract(
 		module: module.clone(),
 		local_mods,
 		deep,
+		local_scope: std::cell::RefCell::new(Vec::new()),
+		type_params: std::cell::RefCell::new(Vec::new()),
 	};
 	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
@@ -439,8 +441,9 @@ enum Baz {
 			&make_anchor(),
 			false,
 		);
-		assert_eq!(g.ref_count(), 2);
-		let targets: Vec<_> = g.refs().map(|r| r.target.clone()).collect();
+		let imports_symbol: Vec<_> = g.refs().filter(|r| r.kind == b"imports_symbol").collect();
+		assert_eq!(imports_symbol.len(), 2);
+		let targets: Vec<_> = imports_symbol.iter().map(|r| r.target.clone()).collect();
 		let hashmap = MonikerBuilder::new()
 			.project(b"code-moniker")
 			.segment(b"external_pkg", b"std")
@@ -460,15 +463,15 @@ enum Baz {
 	#[test]
 	fn extract_use_wildcard_splits_scoped_path() {
 		let g = extract("util.rs", "use pgrx::prelude::*;", &make_anchor(), false);
-		assert_eq!(g.ref_count(), 1);
+		let imports_symbol: Vec<_> = g.refs().filter(|r| r.kind == b"imports_symbol").collect();
+		assert_eq!(imports_symbol.len(), 1);
 		let target = MonikerBuilder::new()
 			.project(b"code-moniker")
 			.segment(b"external_pkg", b"pgrx")
 			.segment(b"path", b"prelude")
 			.build();
 		assert_eq!(
-			g.refs().next().unwrap().target,
-			target,
+			imports_symbol[0].target, target,
 			"wildcard parent path must split on :: AND mark crate root as external"
 		);
 	}
@@ -481,8 +484,9 @@ enum Baz {
 			&make_anchor(),
 			false,
 		);
-		assert_eq!(g.ref_count(), 1);
-		let r = g.refs().next().unwrap();
+		let imports_symbol: Vec<_> = g.refs().filter(|r| r.kind == b"imports_symbol").collect();
+		assert_eq!(imports_symbol.len(), 1);
+		let r = &imports_symbol[0];
 		let target = MonikerBuilder::new()
 			.project(b"code-moniker")
 			.segment(b"external_pkg", b"std")
@@ -751,7 +755,7 @@ impl W {
 	}
 
 	#[test]
-	fn extract_non_self_method_call_emits_no_method_call_ref() {
+	fn extract_non_self_method_call_emits_method_call_ref() {
 		let src = r#"
 pub struct W;
 impl W {
@@ -760,9 +764,10 @@ impl W {
 }
 "#;
 		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g.refs().filter(|r| r.kind == b"method_call").count();
 		assert!(
-			g.refs().all(|r| r.kind != b"method_call"),
-			"non-self receiver must not emit method_call (resolution out of scope); refs: {:?}",
+			n >= 1,
+			"non-self receiver must emit method_call with arity-only target; refs: {:?}",
 			g.refs().collect::<Vec<_>>()
 		);
 	}
@@ -783,6 +788,407 @@ impl W {
 			n,
 			2,
 			"nested self.foo(self.bar()) must emit two method_call refs; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_use_emits_imports_module_to_parent() {
+		let src = "use crate::foo::bar::Baz;";
+		let g = extract("lib.rs", src, &make_anchor(), false);
+		let ims: Vec<_> = g.refs().filter(|r| r.kind == b"imports_module").collect();
+		assert!(
+			!ims.is_empty(),
+			"use must emit imports_module; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+		let last = ims[0].target.as_view().segments().last().unwrap();
+		assert_ne!(
+			last.kind,
+			b"path",
+			"imports_module target must point at a module, not at the leaf path:Baz; last={:?}",
+			std::str::from_utf8(last.kind)
+		);
+	}
+
+	#[test]
+	fn extract_use_external_emits_imports_module() {
+		let src = "use std::collections::HashMap;";
+		let g = extract("lib.rs", src, &make_anchor(), false);
+		let n = g.refs().filter(|r| r.kind == b"imports_module").count();
+		assert!(
+			n >= 1,
+			"extern use must emit imports_module; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_use_single_segment_skips_imports_module() {
+		let src = "use foo;";
+		let g = extract("lib.rs", src, &make_anchor(), false);
+		let n = g.refs().filter(|r| r.kind == b"imports_module").count();
+		assert_eq!(n, 0, "single-segment use has no parent module to point at");
+	}
+
+	#[test]
+	fn extract_free_function_call_emits_calls_ref() {
+		let src = "pub fn run() { foo(); }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g.refs().filter(|r| r.kind == b"calls").count();
+		assert!(
+			n >= 1,
+			"free fn call must emit calls ref; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_path_qualified_call_emits_calls_ref() {
+		let src = "pub fn run() { ::foo::bar::baz(); }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g.refs().filter(|r| r.kind == b"calls").count();
+		assert!(
+			n >= 1,
+			"path-qualified call must emit calls ref; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_param_type_emits_uses_type_ref() {
+		let src = "pub fn run(x: SomeType) {}";
+		let g = extract("util.rs", src, &make_anchor(), false);
+		let n = g.refs().filter(|r| r.kind == b"uses_type").count();
+		assert!(
+			n >= 1,
+			"param type annotation must emit uses_type; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_return_type_emits_uses_type_ref() {
+		let src = "pub fn run() -> SomeType { todo!() }";
+		let g = extract("util.rs", src, &make_anchor(), false);
+		let n = g.refs().filter(|r| r.kind == b"uses_type").count();
+		assert!(
+			n >= 1,
+			"return type must emit uses_type; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_let_type_emits_uses_type_ref() {
+		let src = "pub fn run() { let x: SomeType = todo!(); }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g.refs().filter(|r| r.kind == b"uses_type").count();
+		assert!(
+			n >= 1,
+			"typed let binding must emit uses_type; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_struct_field_type_emits_uses_type_ref() {
+		let src = "pub struct Foo { pub value: SomeType }";
+		let g = extract("util.rs", src, &make_anchor(), false);
+		let n = g.refs().filter(|r| r.kind == b"uses_type").count();
+		assert!(
+			n >= 1,
+			"struct field type must emit uses_type; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_struct_literal_emits_instantiates_ref() {
+		let src = "pub fn run() { let _ = Foo { x: 1 }; }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g.refs().filter(|r| r.kind == b"instantiates").count();
+		assert!(
+			n >= 1,
+			"struct literal must emit instantiates; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_path_constructor_emits_instantiates_ref() {
+		let src = "pub fn run() { let _ = Foo::new(); }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g.refs().filter(|r| r.kind == b"instantiates").count();
+		assert!(
+			n >= 1,
+			"Foo::new() must emit instantiates; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_comprehensive_fixture_covers_all_expected_ref_kinds() {
+		let src = r#"
+use std::collections::HashMap;
+use crate::foo::Bar;
+
+pub trait Greet { fn hi(&self); }
+
+pub struct Service { backing: HashMap<String, Bar> }
+
+impl Greet for Service {
+    fn hi(&self) {
+        let _ = Service { backing: HashMap::new() };
+        let other: Service = Service::new();
+        other.hi();
+        self.hi();
+        helper();
+    }
+}
+
+pub fn helper() {}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let kinds: std::collections::HashSet<Vec<u8>> = g.refs().map(|r| r.kind.clone()).collect();
+		let expected: &[&[u8]] = &[
+			b"imports_module",
+			b"imports_symbol",
+			b"calls",
+			b"method_call",
+			b"uses_type",
+			b"instantiates",
+			b"implements",
+		];
+		let missing: Vec<&str> = expected
+			.iter()
+			.filter(|k| !kinds.contains(*k as &[u8]))
+			.map(|k| std::str::from_utf8(k).unwrap())
+			.collect();
+		assert!(
+			missing.is_empty(),
+			"missing ref kinds in comprehensive fixture: {:?}; got: {:?}",
+			missing,
+			kinds
+				.iter()
+				.map(|k| std::str::from_utf8(k).unwrap_or("?"))
+				.collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_method_chain_emits_method_call_per_link() {
+		let src = r#"
+pub struct W;
+impl W {
+    fn outer(&self) { self.foo().bar(); }
+    fn foo(&self) -> Self { W }
+    fn bar(&self) {}
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g.refs().filter(|r| r.kind == b"method_call").count();
+		assert_eq!(
+			n,
+			2,
+			"method chain self.foo().bar() must emit one method_call per link; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_enum_variant_construction_emits_instantiates() {
+		let src = r#"
+pub fn run() { let _ = Color::Red(1); }
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g
+			.refs()
+			.filter(|r| {
+				r.kind == b"instantiates"
+					&& r.target
+						.as_view()
+						.segments()
+						.last()
+						.is_some_and(|s| s.kind == b"enum" && s.name == b"Color")
+			})
+			.count();
+		assert_eq!(
+			n,
+			1,
+			"Type::Variant(args) must emit instantiates → enum:Type; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_tuple_struct_construction_emits_instantiates() {
+		let src = "pub fn run() { let _ = Foo(1, 2); }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g
+			.refs()
+			.filter(|r| {
+				r.kind == b"instantiates"
+					&& r.target
+						.as_view()
+						.segments()
+						.last()
+						.is_some_and(|s| s.kind == b"struct" && s.name == b"Foo")
+			})
+			.count();
+		assert_eq!(
+			n,
+			1,
+			"CamelCase identifier call Foo(...) must emit instantiates → struct:Foo; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+		let mistaken = g
+			.refs()
+			.filter(|r| r.kind == b"calls")
+			.any(|r| r.target.as_view().segments().last().unwrap().name == b"Foo(2)");
+		assert!(
+			!mistaken,
+			"Foo(...) must NOT emit calls → fn:Foo; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_macro_invocation_emits_calls_ref() {
+		let src = "pub fn run() { vec![1, 2]; format!(\"{}\", 1); }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let names: Vec<_> = g
+			.refs()
+			.filter(|r| r.kind == b"calls")
+			.map(|r| {
+				r.target
+					.as_view()
+					.segments()
+					.last()
+					.map(|s| s.name.to_vec())
+					.unwrap_or_default()
+			})
+			.collect();
+		assert!(
+			names.iter().any(|n| n.starts_with(b"vec")),
+			"vec! must emit calls; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+		assert!(
+			names.iter().any(|n| n.starts_with(b"format")),
+			"format! must emit calls; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_primitive_types_emit_no_uses_type_ref() {
+		let src = "pub fn run(x: i32, y: bool, z: String) -> u8 { let _: f64 = 0.0; 0 }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let primitives: &[&[u8]] = &[b"i32", b"u8", b"bool", b"f64", b"String", b"str"];
+		let leaked: Vec<_> = g
+			.refs()
+			.filter(|r| r.kind == b"uses_type")
+			.filter(|r| {
+				let name = r.target.as_view().segments().last().unwrap().name;
+				primitives.contains(&name)
+			})
+			.collect();
+		assert!(
+			leaked.is_empty(),
+			"primitive types must NOT emit uses_type; leaked: {:?}",
+			leaked
+		);
+	}
+
+	#[test]
+	fn extract_generic_type_param_emits_no_uses_type_ref() {
+		let src = "pub fn run<T>(x: T) -> T { x }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let leaked = g
+			.refs()
+			.filter(|r| r.kind == b"uses_type")
+			.any(|r| r.target.as_view().segments().last().unwrap().name == b"T");
+		assert!(
+			!leaked,
+			"generic type param T must NOT emit uses_type; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_closure_bound_call_targets_local_def() {
+		let src = "pub fn run() { let f = |x| x + 1; f(2); }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let local_call = g
+			.refs()
+			.filter(|r| r.kind == b"calls")
+			.find(|r| r.target.as_view().segments().last().unwrap().name == b"f(1)");
+		assert!(
+			local_call.is_some(),
+			"call to closure-bound name `f` must target the local closure def; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+		let r = local_call.unwrap();
+		assert_eq!(
+			r.confidence,
+			b"local",
+			"closure-bound call confidence must be `local`, got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
+	fn extract_scoped_variant_in_value_position_emits_reads() {
+		let src = "pub fn run() { let _ = Color::Red; }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let n = g
+			.refs()
+			.filter(|r| r.kind == b"reads")
+			.any(|r| r.target.as_view().segments().last().unwrap().name == b"Red");
+		assert!(
+			n,
+			"Color::Red in value position must emit reads → variant; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_trait_supertype_emits_extends_ref() {
+		let src = "pub trait Foo: Bar + Baz {}";
+		let g = extract("util.rs", src, &make_anchor(), false);
+		let extends: Vec<_> = g.refs().filter(|r| r.kind == b"extends").collect();
+		assert_eq!(
+			extends.len(),
+			2,
+			"trait Foo: Bar + Baz must emit two extends refs; refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_derive_attribute_emits_annotates_ref() {
+		let src = "#[derive(Clone, Debug)] pub struct Foo;";
+		let g = extract("util.rs", src, &make_anchor(), false);
+		let n = g.refs().filter(|r| r.kind == b"annotates").count();
+		assert!(
+			n >= 2,
+			"#[derive(Clone, Debug)] must emit at least 2 annotates refs (one per trait); refs: {:?}",
+			g.refs().collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_local_var_reference_emits_reads_ref() {
+		let src = "pub fn run() { let x = 1; foo(x); }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let reads_x = g
+			.refs()
+			.filter(|r| r.kind == b"reads")
+			.any(|r| r.target.as_view().segments().last().unwrap().name == b"x");
+		assert!(
+			reads_x,
+			"local variable read `x` must emit reads → local:x; refs: {:?}",
 			g.refs().collect::<Vec<_>>()
 		);
 	}

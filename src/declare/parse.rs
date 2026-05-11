@@ -59,7 +59,9 @@ fn parse_symbol(value: &Value, path: &str, lang: Lang) -> Result<DeclSymbol, Dec
 	let moniker = parse_moniker_uri(moniker_str, &format!("{path}.moniker"))?;
 
 	let kind = req_str(obj, path, "kind")?.to_string();
-	if !lang.allowed_kinds().contains(&kind.as_str()) {
+	if !crate::lang::kinds::INTERNAL_KINDS.contains(&kind.as_str())
+		&& !lang.allowed_kinds().contains(&kind.as_str())
+	{
 		return Err(DeclareError::KindNotInProfile {
 			lang: lang.tag(),
 			kind,
@@ -216,6 +218,30 @@ mod tests {
 		});
 		let err = parse_spec(&v).unwrap_err();
 		assert!(matches!(err, DeclareError::UnknownLang(s) if s == "cobol"));
+	}
+
+	#[test]
+	fn accepts_internal_kinds_comment_local_param_module() {
+		let v = json!({
+			"root": "code+moniker://app/lang:rs/module:foo",
+			"lang": "rs",
+			"symbols": [
+				{ "moniker": "code+moniker://app/lang:rs/module:foo/comment:128",
+				  "kind": "comment",
+				  "parent": "code+moniker://app/lang:rs/module:foo" },
+				{ "moniker": "code+moniker://app/lang:rs/module:foo/fn:run()",
+				  "kind": "fn",
+				  "parent": "code+moniker://app/lang:rs/module:foo" },
+				{ "moniker": "code+moniker://app/lang:rs/module:foo/fn:run()/local:x",
+				  "kind": "local",
+				  "parent": "code+moniker://app/lang:rs/module:foo/fn:run()" },
+				{ "moniker": "code+moniker://app/lang:rs/module:foo/fn:run()/param:y",
+				  "kind": "param",
+				  "parent": "code+moniker://app/lang:rs/module:foo/fn:run()" }
+			]
+		});
+		let spec = parse_spec(&v).expect("internal kinds must round-trip through declare");
+		assert_eq!(spec.symbols.len(), 4);
 	}
 
 	#[test]

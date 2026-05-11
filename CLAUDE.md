@@ -105,7 +105,6 @@ A new language under `src/lang/<lang>/` mirrors the `ts/` skeleton:
 - Optional `imports.rs` (when imports decompose into many specifiers) and `build.rs` (manifest parser yielding `Vec<Dep>` consumed by `src/pg/build.rs::extract_<system>`).
 
 - **Pre-pass `collect_type_table`** (when methods can precede their receiver type, e.g. Go / Rust impl): emits top-level type defs to the graph AND fills the resolution HashMap. Walker's `handle_type_spec` gates `add_def_attrs` on `scope != module` to skip the duplicate. `DuplicateMoniker` is silently tolerated everywhere via `let _ = graph.add_def(...)`.
-- **Triplicated helpers** (`resolve_type_target`, `stdlib_or_imported`, external-package target builders) are deliberately copy-pasted across `java/`, `python/`, `go/`. Do not factor prematurely.
 
 Every new extractor MUST implement `lang::LangExtractor` on a zero-sized `pub struct Lang;` at the top of `src/lang/<lang>/mod.rs`, exposing `LANG_TAG`, `ALLOWED_KINDS`, `ALLOWED_VISIBILITIES`, and forwarding `extract` to the free function. `extract_default` test helper calls `lang::assert_conformance::<Lang>(&g, anchor)` on every fixture. Adding a kind or visibility requires updating the trait constants AND `docs/declare_schema.json`.
 

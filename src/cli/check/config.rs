@@ -9,9 +9,7 @@ use crate::lang::Lang;
 
 const DEFAULT_PRESET: &str = include_str!("presets/default.toml");
 
-/// Internal kinds emitted by extractors that are not part of `Lang::ALLOWED_KINDS`
-/// but ARE legitimate rule targets.
-pub(crate) const INTERNAL_KINDS: &[&str] = &["module", "local", "param", "comment"];
+pub(crate) use crate::lang::kinds::INTERNAL_KINDS;
 
 /// Reserved keys under `[<lang>.…]` that aren't def kinds. `refs` is treated
 /// as the per-lang ref rule list (parallel to top-level `[[refs.where]]`).

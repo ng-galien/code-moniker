@@ -48,6 +48,8 @@ pub const HINT_CALL: &[u8] = b"call";
 pub const HINT_MEMBER: &[u8] = b"member";
 pub const HINT_SUBSCRIPT: &[u8] = b"subscript";
 
+pub const INTERNAL_KINDS: &[&str] = &["module", "local", "param", "comment"];
+
 pub const CONF_EXTERNAL: &[u8] = b"external";
 pub const CONF_IMPORTED: &[u8] = b"imported";
 pub const CONF_NAME_MATCH: &[u8] = b"name_match";
