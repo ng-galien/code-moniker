@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod eval;
+pub mod expr;
 pub mod suppress;
 
 pub use config::{Config, KindRules, LangRules, load_default, load_with_overrides};

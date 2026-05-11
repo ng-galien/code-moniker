@@ -58,7 +58,7 @@ fn run_extract<W1: Write, W2: Write>(args: &Args, stdout: &mut W1, stderr: &mut 
 			}
 		}
 		Err(e) => {
-			let _ = writeln!(stderr, "pg-moniker: {e:#}");
+			let _ = writeln!(stderr, "code-moniker: {e:#}");
 			Exit::UsageError
 		}
 	}
@@ -68,7 +68,7 @@ fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> 
 	let file = args
 		.file
 		.as_deref()
-		.ok_or_else(|| anyhow::anyhow!("missing FILE argument; run `pg-moniker --help`"))?;
+		.ok_or_else(|| anyhow::anyhow!("missing FILE argument; run `code-moniker --help`"))?;
 	let path: &Path = file;
 	let lang = path_to_lang(path)?;
 	let source = std::fs::read_to_string(path)
@@ -107,7 +107,7 @@ fn run_check<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &m
 			}
 		}
 		Err(e) => {
-			let _ = writeln!(stderr, "pg-moniker: {e:#}");
+			let _ = writeln!(stderr, "code-moniker: {e:#}");
 			Exit::UsageError
 		}
 	}

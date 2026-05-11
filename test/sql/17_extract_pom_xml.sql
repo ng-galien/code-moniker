@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(7);
 
@@ -50,7 +50,7 @@ SELECT
 
 CREATE TEMP TABLE pkg(project moniker, name text, version text);
 INSERT INTO pkg
-	SELECT 'pcm+moniker://app'::moniker, name, version
+	SELECT 'code+moniker://app'::moniker, name, version
 	FROM extract_pom_xml($x$
 <project>
 	<groupId>com.example</groupId>

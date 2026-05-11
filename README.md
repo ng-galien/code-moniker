@@ -1,6 +1,6 @@
-# pg_code_moniker
+# code-moniker
 
-[![CI](https://github.com/ng-galien/pg_code_moniker/actions/workflows/ci.yml/badge.svg)](https://github.com/ng-galien/pg_code_moniker/actions/workflows/ci.yml)
+[![CI](https://github.com/ng-galien/code-moniker/actions/workflows/ci.yml/badge.svg)](https://github.com/ng-galien/code-moniker/actions/workflows/ci.yml)
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 [![Rust](https://img.shields.io/badge/rust-1.95%2B-orange)](https://www.rust-lang.org)
 [![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
@@ -13,19 +13,19 @@ Implementation: **Rust** via [`pgrx`](https://github.com/pgcentralfoundation/pgr
 ## TL;DR
 
 ```sql
-CREATE EXTENSION pg_code_moniker;
+CREATE EXTENSION code_moniker;
 
 -- Extract a TypeScript file into a code_graph value.
 SELECT extract_typescript(
   'src/util.ts',
   'export class Util { run() { return 1; } }',
-  'pcm+moniker://app'::moniker
+  'code+moniker://app'::moniker
 );
 -- => code_graph(defs=3, refs=0)
 
 -- Identity is a first-class type: parse, compare, index, JOIN on it.
-SELECT 'pcm+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker
-    <@ 'pcm+moniker://app/lang:ts'::moniker;
+SELECT 'code+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker
+    <@ 'code+moniker://app/lang:ts'::moniker;
 -- => true (subtree containment, GiST-indexed)
 ```
 
@@ -102,20 +102,20 @@ Dockerfile            multi-stage build, lands the extension on postgres:17
 The repo ships a multi-stage `Dockerfile` that builds the extension against an apt PostgreSQL 17 install and lands the artifacts on top of the official `postgres:17` image. No local Rust or pgrx setup required:
 
 ```sh
-docker build -t pg_code_moniker:dev .
+docker build -t code-moniker:dev .
 docker run --rm -e POSTGRES_PASSWORD=pgcm -p 5432:5432 \
-    --name pgcm pg_code_moniker:dev
+    --name pgcm code-moniker:dev
 ```
 
 In another shell:
 
 ```sh
-docker exec -it pgcm psql -U postgres -c "CREATE EXTENSION pg_code_moniker;"
+docker exec -it pgcm psql -U postgres -c "CREATE EXTENSION code_moniker;"
 docker exec -it pgcm psql -U postgres -c "
     SELECT extract_typescript(
         'src/util.ts',
         'export class Util { run() { return 1; } }',
-        'pcm+moniker://app'::moniker
+        'code+moniker://app'::moniker
     );"
 ```
 
@@ -196,7 +196,7 @@ cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
 The extension defines no tables. The shape below — one row per module — is what `SPEC.md` is designed to serve and what ESAC uses.
 
 ```sql
-CREATE EXTENSION pg_code_moniker;
+CREATE EXTENSION code_moniker;
 
 CREATE TABLE module (
     id          uuid PRIMARY KEY,
@@ -226,7 +226,7 @@ INSERT INTO module (id, graph, source_text, source_uri, origin) VALUES
      extract_typescript(
          'src/util.ts',
          'export class Util { run() { return 1; } }',
-         'pcm+moniker://app'::moniker
+         'code+moniker://app'::moniker
      ),
      'export class Util { run() { return 1; } }',
      'src/util.ts',
@@ -235,14 +235,14 @@ INSERT INTO module (id, graph, source_text, source_uri, origin) VALUES
 -- Find the module that defines a moniker (uses module_def_monikers_gin).
 SELECT id FROM module
  WHERE graph_def_monikers(graph)
-       @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker];
+       @> ARRAY['code+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker];
 
 -- Inspect every def of a module (kind, visibility, signature, binding, …).
 SELECT * FROM module m, graph_defs(m.graph) WHERE m.id = $1;
 
 -- Subtree containment: every module under a srcset.
 SELECT id FROM module
- WHERE graph_root(graph) <@ 'pcm+moniker://app/srcset:main'::moniker;
+ WHERE graph_root(graph) <@ 'code+moniker://app/srcset:main'::moniker;
 ```
 
 ## Consumers

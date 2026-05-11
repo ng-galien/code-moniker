@@ -1,6 +1,6 @@
 ---
 name: pgtap-test
-description: Scaffold a new pgTAP test file under test/sql/ with the project's standard boilerplate (BEGIN, CREATE EXTENSION pgtap + pg_code_moniker, plan, finish, ROLLBACK). Pick the next free NN_ prefix automatically. Use when adding SQL-level tests for a new feature on the moniker / code_graph surface.
+description: Scaffold a new pgTAP test file under test/sql/ with the project's standard boilerplate (BEGIN, CREATE EXTENSION pgtap + code_moniker, plan, finish, ROLLBACK). Pick the next free NN_ prefix automatically. Use when adding SQL-level tests for a new feature on the moniker / code_graph surface.
 disable-model-invocation: true
 ---
 
@@ -28,7 +28,7 @@ Create a new test file `test/sql/<NN>_<slug>.sql` ready for pgTAP assertions.
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(<plan_count>);
 

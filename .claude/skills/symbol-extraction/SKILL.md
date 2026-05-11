@@ -1,9 +1,9 @@
 ---
 name: symbol-extraction
-description: Reference and workflow for writing per-language symbol extractors in pg_code_moniker (`src/lang/<lang>/`). Use this skill for any task that adds, extends, ports, or debugs an extractor for TypeScript/JavaScript/TSX/JSX, Java, Python, SQL/PL/pgSQL, Rust, Go, C#, C/C++, or PHP — including emitting defs and refs into `code_graph`, computing typed `+moniker` identities from AST nodes, picking kinds, handling deep extraction (parameters, locals, callbacks), wiring tree-sitter grammars, fixing canonicalization bugs, or interpreting `docs/EXTRACTION_TARGETS.md` / `docs/MONIKER_URI.md`. Trigger on phrases like "ajoute un extracteur", "extract symbols", "moniker pour ...", "ref kind", "deep extraction", "canonicalize", "anchor moniker", "tree-sitter walker", or whenever code under `src/lang/` is touched.
+description: Reference and workflow for writing per-language symbol extractors in code-moniker (`src/lang/<lang>/`). Use this skill for any task that adds, extends, ports, or debugs an extractor for TypeScript/JavaScript/TSX/JSX, Java, Python, SQL/PL/pgSQL, Rust, Go, C#, C/C++, or PHP — including emitting defs and refs into `code_graph`, computing typed `+moniker` identities from AST nodes, picking kinds, handling deep extraction (parameters, locals, callbacks), wiring tree-sitter grammars, fixing canonicalization bugs, or interpreting `docs/EXTRACTION_TARGETS.md` / `docs/MONIKER_URI.md`. Trigger on phrases like "ajoute un extracteur", "extract symbols", "moniker pour ...", "ref kind", "deep extraction", "canonicalize", "anchor moniker", "tree-sitter walker", or whenever code under `src/lang/` is touched.
 ---
 
-# Symbol extraction — pg_code_moniker
+# Symbol extraction — code-moniker
 
 Authoritative reference for writing and reviewing language extractors. The
 target documents are:

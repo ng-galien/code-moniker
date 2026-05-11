@@ -1,4 +1,4 @@
-# pg_code_moniker — specification
+# code-moniker — specification
 
 PostgreSQL extension. Native types for code symbol identity and code graph storage, with indexed algebra. No table schemas, no triggers, no I/O against external state. Pure types + operators + per-language extractors.
 
@@ -46,18 +46,18 @@ Canonical external representation is a **typed-segment URI** using a `+moniker` 
 <scheme>+moniker://<project>/<kind>:<name>[/<kind>:<name>...][#<kind>:<name>[#<kind>:<name>...]]
 ```
 
-The base scheme is set via the GUC `pg_code_moniker.scheme` (default `pcm+moniker://`). A consumer like ESAC sets it once per database, e.g. `ALTER DATABASE esac SET pg_code_moniker.scheme = 'esac+moniker://'`. The `+moniker` suffix identifies the canonical typed moniker profile, not the final symbol kind. Kinds are carried by each segment. Stored moniker bytes are scheme-independent — only the text I/O (`::text` / `::moniker` casts, `from_uri`, `to_uri`, `moniker_compact`) consults the GUC.
+The base scheme is set via the GUC `code_moniker.scheme` (default `code+moniker://`). A consumer like ESAC sets it once per database, e.g. `ALTER DATABASE esac SET code_moniker.scheme = 'esac+moniker://'`. The `+moniker` suffix identifies the canonical typed moniker profile, not the final symbol kind. Kinds are carried by each segment. Stored moniker bytes are scheme-independent — only the text I/O (`::text` / `::moniker` casts, `from_uri`, `to_uri`, `moniker_compact`) consults the GUC.
 
 Examples (default scheme):
 
 ```
-pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo
-pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo#method:bar()
-pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo#method:bar(int,String)
-pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:lib/module:util#class:Helper#method:process()
-pcm+moniker://my-app/srcset:main/lang:python/package:acme/module:util#class:Helper#method:process(int)
-pcm+moniker://my-app/srcset:db/lang:sql/schema:esac/module:plan#function:create_plan(uuid,text)
-pcm+moniker://my-app/external_pkg:maven/org.springframework/spring-core/6.1.0
+code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo
+code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo#method:bar()
+code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/class:Foo#method:bar(int,String)
+code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:lib/module:util#class:Helper#method:process()
+code+moniker://my-app/srcset:main/lang:python/package:acme/module:util#class:Helper#method:process(int)
+code+moniker://my-app/srcset:db/lang:sql/schema:esac/module:plan#function:create_plan(uuid,text)
+code+moniker://my-app/external_pkg:maven/org.springframework/spring-core/6.1.0
 ```
 
 The earlier SCIP-like punctuation form remains a compact display option under the base scheme (`pcm://`, `esac://`); it is lossy and not a persistence format.
@@ -327,23 +327,23 @@ Java — declare a service class with a call to an external dep :
 
 ```json
 {
-  "root": "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService",
+  "root": "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService",
   "lang": "java",
   "symbols": [
-    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService",
+    { "moniker":    "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService",
       "kind":       "class",
-      "parent":     "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService",
+      "parent":     "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService",
       "visibility": "public" },
-    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService#method:findByEmail(String)Optional",
+    { "moniker":    "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService#method:findByEmail(String)Optional",
       "kind":       "method",
-      "parent":     "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService",
+      "parent":     "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService",
       "visibility": "public",
       "signature":  "findByEmail(String): Optional" }
   ],
   "edges": [
-    { "from": "pcm+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService#method:findByEmail(String)Optional",
+    { "from": "code+moniker://my-app/srcset:main/lang:java/package:com/package:acme/module:UserService#class:UserService#method:findByEmail(String)Optional",
       "kind": "calls",
-      "to":   "pcm+moniker://my-app/external_pkg:maven/jakarta.persistence/jakarta.persistence-api/EntityManager#method:find(Class,Object)Object" }
+      "to":   "code+moniker://my-app/external_pkg:maven/jakarta.persistence/jakarta.persistence-api/EntityManager#method:find(Class,Object)Object" }
   ]
 }
 ```
@@ -352,23 +352,23 @@ TypeScript — same shape, restricted enums :
 
 ```json
 {
-  "root": "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
+  "root": "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
   "lang": "ts",
   "symbols": [
-    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
+    { "moniker":    "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
       "kind":       "class",
-      "parent":     "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
+      "parent":     "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service",
       "visibility": "public" },
-    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService#method:findByEmail(string)Promise",
+    { "moniker":    "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService#method:findByEmail(string)Promise",
       "kind":       "method",
-      "parent":     "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
+      "parent":     "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
       "visibility": "public",
       "signature":  "findByEmail(string): Promise" }
   ],
   "edges": [
-    { "from": "pcm+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
+    { "from": "code+moniker://my-app/srcset:main/lang:ts/dir:src/dir:services/module:user-service#class:UserService",
       "kind": "depends_on",
-      "to":   "pcm+moniker://my-app/external_pkg:npm/typeorm/Repository" }
+      "to":   "code+moniker://my-app/external_pkg:npm/typeorm/Repository" }
   ]
 }
 ```
@@ -377,19 +377,19 @@ Rust — `pub fn` requiring a trait via DI wiring :
 
 ```json
 {
-  "root": "pcm+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service",
+  "root": "code+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service",
   "lang": "rs",
   "symbols": [
-    { "moniker":    "pcm+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service#fn:create_user(String,String)Result",
+    { "moniker":    "code+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service#fn:create_user(String,String)Result",
       "kind":       "fn",
-      "parent":     "pcm+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service",
+      "parent":     "code+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service",
       "visibility": "public",
       "signature":  "create_user(String, String): Result" }
   ],
   "edges": [
-    { "from": "pcm+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service#fn:create_user(String,String)Result",
+    { "from": "code+moniker://my-app/srcset:main/lang:rs/mod:domain/mod:user/module:service#fn:create_user(String,String)Result",
       "kind": "injects:require",
-      "to":   "pcm+moniker://my-app/srcset:main/lang:rs/mod:infra/module:db#trait:UserRepo" }
+      "to":   "code+moniker://my-app/srcset:main/lang:rs/mod:infra/module:db#trait:UserRepo" }
   ]
 }
 ```
@@ -461,11 +461,11 @@ Subtree queries on the canonical project tree leverage the moniker's `<@` / `@>`
 ```sql
 -- Every module under com.acme (any language)
 SELECT m.* FROM module m
-WHERE graph_root(m.graph) <@ 'pcm+moniker://app/srcset:main'::moniker;
+WHERE graph_root(m.graph) <@ 'code+moniker://app/srcset:main'::moniker;
 
 -- Every module of the Java regime under a srcset
 SELECT m.* FROM module m
-WHERE graph_root(m.graph) <@ 'pcm+moniker://app/srcset:main/lang:java'::moniker;
+WHERE graph_root(m.graph) <@ 'code+moniker://app/srcset:main/lang:java'::moniker;
 ```
 
 Backed by `module_root_gist` and the moniker GiST opclass.
@@ -566,7 +566,7 @@ Validation snapshot (Phase-7 ship): cross-file linkage on the dogfood panel reso
 | gson             | java  | 83    | 286            |
 | httpx            | py    | 24    | 131            |
 | zod              | ts    | 82    | 110            |
-| pg_code_moniker  | rs    | 58    | 19             |
+| code-moniker  | rs    | 58    | 19             |
 
 ## Testing
 

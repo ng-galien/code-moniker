@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(10);
 
@@ -26,7 +26,7 @@ export function makeUserRepository() {
 	return new UserRepository();
 }
 $ts$,
-			'pcm+moniker://app'::moniker)),
+			'code+moniker://app'::moniker)),
 	('logger',
 		extract_typescript(
 			'src/logger.ts',
@@ -37,7 +37,7 @@ export class ConsoleLogger {
 	warn(msg: string)  { return msg; }
 }
 $ts$,
-			'pcm+moniker://app'::moniker)),
+			'code+moniker://app'::moniker)),
 	('service',
 		extract_typescript(
 			'src/service.ts',
@@ -58,17 +58,17 @@ export function bootApp() {
 	return new UserService();
 }
 $ts$,
-			'pcm+moniker://app'::moniker));
+			'code+moniker://app'::moniker));
 
 
 SELECT is(
 	(SELECT graph_root(graph)::text FROM module WHERE id = 'repository'),
-	'pcm+moniker://app/lang:ts/dir:src/module:repository',
+	'code+moniker://app/lang:ts/dir:src/module:repository',
 	'repository module root');
 
 SELECT is(
 	(SELECT graph_root(graph)::text FROM module WHERE id = 'service'),
-	'pcm+moniker://app/lang:ts/dir:src/module:service',
+	'code+moniker://app/lang:ts/dir:src/module:service',
 	'service module root');
 
 
@@ -78,12 +78,12 @@ SELECT cmp_ok(
 	'service graph has at least the module + 2 defs + members');
 
 SELECT ok(
-	(SELECT graph @> 'pcm+moniker://app/lang:ts/dir:src/module:service/class:UserService'::moniker
+	(SELECT graph @> 'code+moniker://app/lang:ts/dir:src/module:service/class:UserService'::moniker
 	   FROM module WHERE id = 'service'),
 	'service graph contains UserService class');
 
 SELECT ok(
-	(SELECT graph @> 'pcm+moniker://app/lang:ts/dir:src/module:service/class:UserService/method:findById(string)'::moniker
+	(SELECT graph @> 'code+moniker://app/lang:ts/dir:src/module:service/class:UserService/method:findById(string)'::moniker
 	   FROM module WHERE id = 'service'),
 	'service graph contains UserService#findById(string) method');
 
@@ -91,25 +91,25 @@ SELECT ok(
 SELECT ok(
 	EXISTS (SELECT 1 FROM module
 	         WHERE id = 'service'
-	           AND 'pcm+moniker://app/lang:ts/dir:src/module:repository/path:UserRepository'::moniker = ANY(graph_ref_targets(graph))),
+	           AND 'code+moniker://app/lang:ts/dir:src/module:repository/path:UserRepository'::moniker = ANY(graph_ref_targets(graph))),
 	'service ref-targets contains UserRepository under the repository module');
 
 SELECT ok(
 	EXISTS (SELECT 1 FROM module
 	         WHERE id = 'service'
-	           AND 'pcm+moniker://app/lang:ts/dir:src/module:logger/path:ConsoleLogger'::moniker = ANY(graph_ref_targets(graph))),
+	           AND 'code+moniker://app/lang:ts/dir:src/module:logger/path:ConsoleLogger'::moniker = ANY(graph_ref_targets(graph))),
 	'service ref-targets contains ConsoleLogger under the logger module');
 
 
 SELECT is(
 	(SELECT id FROM module
-	  WHERE graph @> 'pcm+moniker://app/lang:ts/dir:src/module:repository/class:UserRepository'::moniker),
+	  WHERE graph @> 'code+moniker://app/lang:ts/dir:src/module:repository/class:UserRepository'::moniker),
 	'repository',
 	'graph @> resolves UserRepository to its owning module');
 
 SELECT is(
 	(SELECT id FROM module
-	  WHERE graph @> 'pcm+moniker://app/lang:ts/dir:src/module:logger/class:ConsoleLogger'::moniker),
+	  WHERE graph @> 'code+moniker://app/lang:ts/dir:src/module:logger/class:ConsoleLogger'::moniker),
 	'logger',
 	'graph @> resolves ConsoleLogger to its owning module');
 
@@ -120,7 +120,7 @@ SELECT is(
 	  WHERE EXISTS (
 	    SELECT 1 FROM graph_refs(graph) r
 	    WHERE r.kind IN ('imports_symbol','imports_module','reexports')
-	      AND 'pcm+moniker://app/lang:ts/dir:src/module:repository'::moniker @> r.target
+	      AND 'code+moniker://app/lang:ts/dir:src/module:repository'::moniker @> r.target
 	  )),
 	ARRAY['service']::text[],
 	'ancestor query on import refs finds every importer of the repository module');

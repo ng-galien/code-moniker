@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(8);
 
@@ -47,7 +47,7 @@ SELECT
 
 CREATE TEMP TABLE proj(project moniker, name text, version text);
 INSERT INTO proj
-	SELECT 'pcm+moniker://app'::moniker, name, version
+	SELECT 'code+moniker://app'::moniker, name, version
 	FROM extract_csproj($t$<Project>
   <ItemGroup>
     <PackageReference Include="Acme" Version="1.0.0" />
@@ -59,7 +59,7 @@ WITH g AS (
 	SELECT extract_csharp(
 		'F.cs',
 		E'using Acme;\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 ), refs_with_root AS (
 	SELECT external_pkg_root(t) AS root

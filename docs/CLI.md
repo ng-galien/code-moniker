@@ -1,4 +1,4 @@
-# `pg-moniker` CLI
+# `code-moniker` CLI
 
 A standalone binary that runs the same extractors and the same predicates as the
 PostgreSQL extension, but on a single source file, without requiring a running
@@ -8,11 +8,11 @@ the scenes; only the I/O changes (stdin/stdout instead of SQL).
 ## Synopsis
 
 ```
-pg-moniker <file> [predicate]... [--kind <name>]... [--format tsv|json]
-                  [--count] [--quiet] [--with-text]
-pg-moniker check <file> [--rules <path>] [--format text|json]
-pg-moniker --help
-pg-moniker --version
+code-moniker <file> [--where '<op> <uri>']... [--kind <name>]...
+             [--format tsv|json] [--count] [--quiet] [--with-text]
+code-moniker check <file> [--rules <path>] [--format text|json]
+code-moniker --help
+code-moniker --version
 ```
 
 `<file>` is a path to a source file. Language is dispatched from the extension:
@@ -31,29 +31,39 @@ Unknown extension exits with code `2`.
 
 ## Predicates
 
-Each predicate flag takes a moniker URI in the same canonical typed form as the
-extension (`<lang>+moniker://<project>/<kind>:<name>...`). When the binary is
-built with the default scheme, the project authority defaults to `.` for
-single-file extraction.
+A single flag `--where '<op> <uri>'` exposes the eight moniker operators
+shared with the SQL extension. The URI uses the canonical typed form
+(`<lang>+moniker://<project>/<kind>:<name>...`). Single quotes around the
+predicate avoid shell I/O redirection on `<` and `>`.
 
-| Flag                       | Semantics                                                                                |
-| -------------------------- | ---------------------------------------------------------------------------------------- |
-| `--eq <uri>`               | Moniker equals (`=`).                                                                    |
-| `--lt <uri>` / `--le <uri>`| Strictly / non-strictly less than (byte-lex `<` / `<=`).                                 |
-| `--gt <uri>` / `--ge <uri>`| Strictly / non-strictly greater than.                                                    |
-| `--ancestor-of <uri>`      | The element's moniker is an ancestor of `<uri>` (`@>`).                                  |
-| `--descendant-of <uri>`    | The element's moniker is a descendant of `<uri>` (`<@`).                                 |
-| `--bind <uri>`             | Asymmetric `bind_match` (the `?=` operator), with the same per-language arms.            |
-| `--kind <name>`            | Element kind equals `<name>` (e.g. `class`, `method`, `function`, `comment`, `import`).  |
+| `--where 'op uri'`       | SQL operator | Semantics                                          |
+| ------------------------ | ------------ | -------------------------------------------------- |
+| `--where '= <uri>'`      | `=`          | Moniker equals.                                    |
+| `--where '< <uri>'`      | `<`          | Byte-lex strictly less than.                       |
+| `--where '<= <uri>'`     | `<=`         | Byte-lex less or equal.                            |
+| `--where '> <uri>'`      | `>`          | Byte-lex strictly greater than.                    |
+| `--where '>= <uri>'`     | `>=`         | Byte-lex greater or equal.                         |
+| `--where '@> <uri>'`     | `@>`         | The element is an ancestor of `<uri>`.             |
+| `--where '<@ <uri>'`     | `<@`         | The element is a descendant of `<uri>`.            |
+| `--where '?= <uri>'`     | `?=`         | Asymmetric `bind_match` (per-language arms).       |
+| `--kind <name>`          | —            | Element kind equals `<name>` (repeatable, OR).     |
 
-Predicates compose via implicit `AND`. A `def` is a match if its own moniker
-satisfies every predicate. A `ref` is a match if its **target** moniker
-satisfies every predicate.
-
-A `--kind` flag may be repeated, in which case the kinds are OR-combined. All
-other flags are accepted at most once.
+`--where` is repeatable; predicates compose via implicit `AND`. A `def`
+matches when its own moniker satisfies every predicate; a `ref` matches when
+its **target** moniker satisfies every predicate.
 
 Without any predicate, the binary dumps the full graph.
+
+```sh
+# Methods of class Foo
+code-moniker file.ts --where '<@ ts+moniker://./class:Foo' --kind method
+
+# Anything that resolves to Foo (cross-file bind)
+code-moniker file.ts --where '?= ts+moniker://./class:Foo'
+
+# Exact handle of a typed callable
+code-moniker file.ts --where '= ts+moniker://./fn:handle(string)→void'
+```
 
 ## Output
 
@@ -135,7 +145,7 @@ matches) on stdout. Mutually exclusive with `--quiet`.
 Suppresses output entirely. Combine with the exit code to write shell guards:
 
 ```bash
-if pg-moniker file.ts --kind comment --quiet; then
+if code-moniker file.ts --kind comment --quiet; then
     echo "file has at least one comment"
 fi
 ```
@@ -159,13 +169,13 @@ comment's position and adds:
 
 ```bash
 # Are there any comments?
-pg-moniker file.ts --kind comment --quiet
+code-moniker file.ts --kind comment --quiet
 # Count them
-pg-moniker file.ts --kind comment --count
+code-moniker file.ts --kind comment --count
 # Find TODOs in the file
-pg-moniker file.ts --kind comment --with-text --format tsv | grep -i todo
+code-moniker file.ts --kind comment --with-text --format tsv | grep -i todo
 # Comments inside a specific class
-pg-moniker file.ts --descendant-of 'ts+moniker://./class:Foo' --kind comment
+code-moniker file.ts --where '<@ ts+moniker://./class:Foo' --kind comment
 ```
 
 ## Stable ordering
@@ -192,19 +202,19 @@ is written to stdout.
 
 ```bash
 # Full graph as JSON, ready for code_graph_declare
-pg-moniker src/widget.ts --format json > widget.spec.json
+code-moniker src/widget.ts --format json > widget.spec.json
 
 # All methods of class Foo
-pg-moniker src/widget.ts --descendant-of 'ts+moniker://./class:Foo' --kind method
+code-moniker src/widget.ts --where '<@ ts+moniker://./class:Foo' --kind method
 
 # Does file define a function called `handle` taking a string?
-pg-moniker src/server.ts --eq 'ts+moniker://./function:handle(string)→_' --quiet
+code-moniker src/server.ts --where '= ts+moniker://./function:handle(string)→_' --quiet
 
 # All references to a specific symbol's family (bind_match)
-pg-moniker src/widget.ts --bind 'ts+moniker://./class:Foo/method:bar(_)→_'
+code-moniker src/widget.ts --where '?= ts+moniker://./class:Foo/method:bar(_)→_'
 
 # Count comments and exit 1 if there are none
-pg-moniker file.py --kind comment --count
+code-moniker file.py --kind comment --count
 ```
 
 ## Non-goals
@@ -218,131 +228,131 @@ pg-moniker file.py --kind comment --count
 ## `check` — live linter for agent harnesses
 
 ```
-pg-moniker check <file> [--rules <path>] [--format text|json]
+code-moniker check <file> [--rules <path>] [--format text|json]
 ```
 
 Loads an embedded default rule pack, optionally merges a user `<path>` (default
-`.pg-moniker.toml`) on top, and reports violations on stdout. Designed to be
+`.code-moniker.toml`) on top, and reports violations on stdout. Designed to be
 invoked from a `PostToolUse` hook so an agent gets immediate feedback on each
 edit.
 
 ### Configuration — TOML
 
-Each section is `[<lang>.<kind>]`. Five rule fields, all optional:
+Each kind block carries a `where` array of assertion entries. An assertion
+is a tiny DSL expression `<lhs> <op> <rhs>` — a def violates the rule when
+the expression evaluates to false. The embedded preset only ships
+broadly-uncontroversial naming rules; project-specific policies
+(`max-lines`, `max-methods`, comment-content allow-lists,
+`require_doc_comment`) belong in your overlay.
 
 ```toml
+# .code-moniker.toml — overlays the embedded preset
+
+[[ts.class.where]]
+id   = "max-methods"
+expr = "count(method) <= 20"
+
+[[ts.function.where]]
+id   = "max-lines"
+expr = "lines <= 60"
+
+[[ts.function.where]]
+id   = "no-placeholder-names"
+expr = "name !~ ^(helper|utils|manager|temp)$"
+
+[[ts.comment.where]]
+id      = "allow-only-directives"
+expr    = '''text =~ ^\s*(//\s*(@ts-|eslint-|code-moniker:|TODO|FIXME)|/\*\*)'''
+message = "Prose comments are forbidden. Use a directive or a JSDoc block."
+
 [ts.class]
-name_pattern = "^[A-Z][A-Za-z0-9]*$"
-
-[ts.function]
-name_pattern = "^[a-z_][A-Za-z0-9]*$"
-max_lines    = 60
-
-[ts.method]
-max_count_per_parent = 20            # max methods per class
-
-[ts.comment]
-allow_only_patterns = ['^\s*//\s*(TODO|@ts-)', '^\s*/\*\*']  # whitelist mode
-forbid_patterns     = ['eslint-disable(?!-next-line)']        # block-form ban
+require_doc_comment = "public"   # spatial rule, separate from `where`
 ```
 
-Rule field semantics:
+### Expression grammar
 
-| Field                    | Triggered when                                                                              |
-| ------------------------ | ------------------------------------------------------------------------------------------- |
-| `name_pattern`           | the bare last-segment name does not match the regex.                                        |
-| `forbid_name_patterns`   | the name matches ANY of these regex (denylist for placeholder names: `helper`, `utils`, …).|
-| `max_lines`              | the def's source span exceeds N physical lines.                                             |
-| `max_count_per_parent`   | one parent contains more than N children of this kind.                                      |
-| `forbid_patterns`        | a comment text matches any pattern (deny-list).                                             |
-| `allow_only_patterns`    | a comment text matches NONE of the patterns (strict allow-list).                            |
-| `require_doc_comment`    | def whose visibility matches the configured value lacks a doc comment immediately above it. |
-
-`require_doc_comment` takes a string: a visibility name (`"public"`, `"private"`, `"package"`, …) restricts the rule to defs of that visibility, or `"any"` applies it regardless. A def is considered documented iff a comment def ends before its start byte AND only ASCII whitespace separates the two — so `/** doc */\nfn foo()` passes, `/** doc */ stuff\nfn foo()` doesn't.
-
-The `default` section provides fall-back rules across languages
-(`[default.<kind>]` is consulted when a kind has nothing in `[<lang>.<kind>]`).
-
-### Custom messages — `[<lang>.<kind>.messages]`
-
-For an agent harness, a factual diagnostic ("name does not match
-`^[A-Z][A-Za-z0-9]*$`") is rarely enough — the agent needs the **rule to
-follow**. Each kind can carry an optional `messages` sub-table keyed by rule
-name; matching violations get the rendered template attached as
-`explanation`, displayed alongside the engine's factual `message` (not in
-place of).
-
-```toml
-[ts.class]
-name_pattern = "^[A-Z][A-Za-z0-9]*$"
-
-[ts.class.messages]
-name_pattern = """
-Class names must be PascalCase. Rename `{name}` to match `{pattern}`.
-See CLAUDE.md §naming.
-"""
-
-[ts.function]
-max_lines = 60
-
-[ts.function.messages]
-max_lines = "Function `{name}` is {lines} lines, max {limit}. Split it."
+```
+expr := atom ("AND" atom)*
+atom := lhs op rhs
+lhs  := "name" | "lines" | "kind" | "visibility" | "text" | "moniker" | "count(" KIND ")"
+op   := "="  | "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" | "@>" | "<@" | "?="
+rhs  := NUMBER | REGEX | MONIKER_URI | IDENT
 ```
 
-**Placeholders** (substituted by literal `str::replace`):
+Operator-type compatibility:
 
-| Token        | Available in                                                              |
-| ------------ | ------------------------------------------------------------------------- |
-| `{name}`     | every rule (bare callable name, signature stripped)                       |
-| `{kind}`     | every rule                                                                |
-| `{moniker}`  | every rule (full URI)                                                     |
-| `{pattern}`  | `name_pattern`, `forbid_patterns`                                         |
-| `{lines}`    | `max_lines`                                                               |
-| `{limit}`    | `max_lines`, `max_count_per_parent`                                       |
-| `{count}`    | `max_count_per_parent`                                                    |
+| lhs                         | accepted ops                                  |
+| --------------------------- | --------------------------------------------- |
+| `name` `kind` `visibility` `text` | `=` `!=` `=~` `!~`                       |
+| `lines` `count(<kind>)`     | `<` `<=` `=` `!=` `>=` `>`                    |
+| `moniker`                   | `=` `!=` `@>` `<@` `?=`                       |
 
-Unknown placeholders are left intact. Unknown message keys (rule names that
-don't exist) are silently ignored — forward-compatible.
+`count(<kind>)` evaluated on a def D yields the number of direct children of
+kind `<kind>` under D. Lives naturally under the **parent** kind block —
+e.g. `count(method) <= 20` belongs in `[[ts.class.where]]`.
+
+`require_doc_comment` is a separate field on the kind block (not part of
+`where`). Value is a visibility name (`"public"`, `"private"`, `"any"`).
+A def is documented iff a comment def ends on the line immediately above
+the def's **doc anchor** — which is the earliest of (the def's own start,
+any `annotates` ref position for this def). That handles
+`/** doc */\n@Decorator\nclass Foo` correctly.
+
+### Custom messages
+
+Each `where` entry carries an optional `message` template. When the rule
+fires, the template is rendered with placeholders:
+
+| Token        | Value                                                |
+| ------------ | ---------------------------------------------------- |
+| `{name}`     | def's bare callable name                             |
+| `{kind}`     | def's kind                                           |
+| `{moniker}`  | def's full URI                                       |
+| `{expr}`     | the raw expression that fired                        |
+| `{value}`    | the actual LHS value                                 |
+| `{expected}` | the RHS literal                                      |
+| `{pattern}` `{lines}` `{limit}` `{count}` | legacy aliases of `{expected}`/`{value}` for familiar wording |
+
+Unknown placeholders are left intact.
+
+### Suppressions
+
+```ts
+// code-moniker: ignore                       // suppress every rule on the next def
+// code-moniker: ignore[name-pascalcase]      // only that rule id (suffix match)
+// code-moniker: ignore-file                  // whole file
+// code-moniker: ignore-file[max-lines]       // whole file, single rule
+```
+
+The directive prefix is the language's line-comment marker (`//`, `#`,
+`--`). Rule ids follow the TOML path: `<lang>.<kind>.<id>` where `<id>` is
+either the explicit `id` on the entry or `where_<index>` if omitted. The
+suppression filter matches by suffix.
 
 In the text output, the explanation is shown indented under the violation:
 
 ```
-src/widget.ts:L12-L18 [ts.class.name_pattern] name `lower_bad` does not match `^[A-Z][A-Za-z0-9]*$`
-  → Class names must be PascalCase. Rename `lower_bad` to match `^[A-Z][A-Za-z0-9]*$`.
-  → See CLAUDE.md §naming.
+src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`
+  → Class names must be PascalCase. Rename `lower_bad`.
 ```
 
 In JSON, it lands as a sibling field of `message`:
 
 ```json
 {
-  "rule_id":     "ts.class.name_pattern",
-  "message":     "name `lower_bad` does not match `^[A-Z][A-Za-z0-9]*$`",
-  "explanation": "Class names must be PascalCase. Rename `lower_bad` to match `^[A-Z][A-Za-z0-9]*$`.\nSee CLAUDE.md §naming."
+  "rule_id":     "ts.class.name-pascalcase",
+  "message":     "class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$` (name = lower_bad, expected ^[A-Z][A-Za-z0-9]*$)",
+  "explanation": "Class names must be PascalCase. Rename `lower_bad`."
 }
 ```
-
-### Suppressions
-
-```ts
-// pg-moniker: ignore                            // suppress every rule on the next def
-// pg-moniker: ignore[name_pattern]              // only that rule (suffix match)
-// pg-moniker: ignore-file                       // whole file
-// pg-moniker: ignore-file[max_lines]            // whole file, single rule
-```
-
-The directive prefix is the language's line-comment marker (`//`, `#`, `--`).
-Rule IDs follow the TOML path — `ts.class.name_pattern`, `python.function.max_lines`,
-etc. — and the filter accepts any suffix (`name_pattern` matches every
-`<lang>.<kind>.name_pattern`).
 
 ### Output
 
 Default text format — one violation per line, similar to ESLint stylish:
 
 ```
-src/widget.ts:L12-L18 [ts.class.name_pattern] name `lower_bad` does not match `^[A-Z][A-Za-z0-9]*$`
-src/widget.ts:L24-L24 [ts.comment.allow_only_patterns] prose comment forbidden — only directives in the allow-list are permitted
+src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`
+src/widget.ts:L24-L24 [ts.function.max-lines]    function `loadEverything` fails `lines <= 60`
 ```
 
 `--format json` emits a single document with the same fields:
@@ -352,11 +362,11 @@ src/widget.ts:L24-L24 [ts.comment.allow_only_patterns] prose comment forbidden �
   "file": "src/widget.ts",
   "violations": [
     {
-      "rule_id": "ts.class.name_pattern",
+      "rule_id": "ts.class.name-pascalcase",
       "moniker": "ts+moniker://./lang:ts/module:widget/class:lower_bad",
       "kind":    "class",
       "lines":   [12, 18],
-      "message": "name `lower_bad` does not match `^[A-Z][A-Za-z0-9]*$`"
+      "message": "class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`"
     }
   ]
 }
@@ -370,8 +380,8 @@ src/widget.ts:L24-L24 [ts.comment.allow_only_patterns] prose comment forbidden �
 | `1`  | At least one violation. Stdout carries the report.                       |
 | `2`  | Usage / parse error (bad path, unknown extension, malformed user TOML).  |
 
-The semantic mirrors `pg-moniker file.ts` (0 = match, 1 = no match), so a
-shell wrapper using `if pg-moniker check ...` reads naturally as "any
+The semantic mirrors `code-moniker file.ts` (0 = match, 1 = no match), so a
+shell wrapper using `if code-moniker check ...` reads naturally as "any
 problems?".
 
 ### Hook recipe — Claude Code `PostToolUse`
@@ -387,7 +397,7 @@ Drop in `.claude/settings.json` at the repo root:
         "hooks": [
           {
             "type": "command",
-            "command": "pg-moniker check \"$CLAUDE_FILE_PATH\""
+            "command": "code-moniker check \"$CLAUDE_FILE_PATH\""
           }
         ]
       }

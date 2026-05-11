@@ -8,7 +8,7 @@ use crate::core::uri::{UriConfig, from_uri};
 
 #[derive(Debug, Parser)]
 #[command(
-	name = "pg-moniker",
+	name = "code-moniker",
 	about = "Single-file moniker / code_graph extraction; see docs/CLI.md",
 	version
 )]
@@ -33,7 +33,7 @@ pub struct CheckArgs {
 	#[arg(
 		long,
 		value_name = "PATH",
-		default_value = ".pg-moniker.toml",
+		default_value = ".code-moniker.toml",
 		help = "user TOML overlay; missing file falls back to embedded defaults"
 	)]
 	pub rules: PathBuf,
@@ -52,24 +52,12 @@ pub enum CheckFormat {
 pub struct Args {
 	pub file: Option<PathBuf>,
 
-	#[arg(long, value_name = "URI", help = "element moniker = <uri>")]
-	pub eq: Option<String>,
-
-	#[arg(long, value_name = "URI")]
-	pub lt: Option<String>,
-	#[arg(long, value_name = "URI")]
-	pub le: Option<String>,
-	#[arg(long, value_name = "URI")]
-	pub gt: Option<String>,
-	#[arg(long, value_name = "URI")]
-	pub ge: Option<String>,
-
-	#[arg(long = "ancestor-of", value_name = "URI")]
-	pub ancestor_of: Option<String>,
-	#[arg(long = "descendant-of", value_name = "URI")]
-	pub descendant_of: Option<String>,
-	#[arg(long, value_name = "URI", help = "asymmetric bind_match (?= operator)")]
-	pub bind: Option<String>,
+	#[arg(
+		long = "where",
+		value_name = "OP URI",
+		help = "predicate `<op> <uri>` where op ∈ {=, <, <=, >, >=, @>, <@, ?=}; repeatable, AND-combined"
+	)]
+	pub where_: Vec<String>,
 
 	#[arg(long, value_name = "NAME", help = "kind filter (repeatable, OR)")]
 	pub kind: Vec<String>,
@@ -124,36 +112,52 @@ impl Args {
 	pub fn compiled_predicates(&self, default_scheme: &str) -> anyhow::Result<Vec<Predicate>> {
 		let scheme = self.scheme.as_deref().unwrap_or(default_scheme);
 		let cfg = UriConfig { scheme };
-		let parse = |flag: &str, raw: &str| -> anyhow::Result<Moniker> {
-			from_uri(raw, &cfg).map_err(|e| anyhow::anyhow!("--{flag} `{raw}`: {e}"))
-		};
-		let mut out = Vec::new();
-		if let Some(s) = &self.eq {
-			out.push(Predicate::Eq(parse("eq", s)?));
-		}
-		if let Some(s) = &self.lt {
-			out.push(Predicate::Lt(parse("lt", s)?));
-		}
-		if let Some(s) = &self.le {
-			out.push(Predicate::Le(parse("le", s)?));
-		}
-		if let Some(s) = &self.gt {
-			out.push(Predicate::Gt(parse("gt", s)?));
-		}
-		if let Some(s) = &self.ge {
-			out.push(Predicate::Ge(parse("ge", s)?));
-		}
-		if let Some(s) = &self.ancestor_of {
-			out.push(Predicate::AncestorOf(parse("ancestor-of", s)?));
-		}
-		if let Some(s) = &self.descendant_of {
-			out.push(Predicate::DescendantOf(parse("descendant-of", s)?));
-		}
-		if let Some(s) = &self.bind {
-			out.push(Predicate::Bind(parse("bind", s)?));
+		let mut out = Vec::with_capacity(self.where_.len());
+		for raw in &self.where_ {
+			out.push(parse_where(raw, &cfg)?);
 		}
 		Ok(out)
 	}
+}
+
+/// CLI predicate ops are the moniker subset of `expr::TWO_CHAR_OPS` — regex
+/// ops (`=~`, `!~`) and inequality (`!=`) don't map to a `Predicate` variant.
+const CLI_TWO_CHAR_OPS: &[&str] = &["<=", ">=", "<@", "@>", "?="];
+
+fn parse_where(raw: &str, cfg: &UriConfig<'_>) -> anyhow::Result<Predicate> {
+	let raw = raw.trim();
+	let bail = || {
+		anyhow::anyhow!("--where `{raw}`: expected `<op> <uri>` (op ∈ =, <=, >=, <, >, @>, <@, ?=)")
+	};
+	for op in CLI_TWO_CHAR_OPS {
+		if let Some(rest) = raw.strip_prefix(op) {
+			return finish_where(op, rest.trim(), cfg, raw);
+		}
+	}
+	for &op in &["<", ">", "="] {
+		if let Some(rest) = raw.strip_prefix(op) {
+			return finish_where(op, rest.trim(), cfg, raw);
+		}
+	}
+	Err(bail())
+}
+
+fn finish_where(op: &str, uri: &str, cfg: &UriConfig<'_>, raw: &str) -> anyhow::Result<Predicate> {
+	if uri.is_empty() {
+		return Err(anyhow::anyhow!("--where `{raw}`: missing URI after `{op}`"));
+	}
+	let m: Moniker = from_uri(uri, cfg).map_err(|e| anyhow::anyhow!("--where `{raw}`: {e}"))?;
+	Ok(match op {
+		"=" => Predicate::Eq(m),
+		"<" => Predicate::Lt(m),
+		"<=" => Predicate::Le(m),
+		">" => Predicate::Gt(m),
+		">=" => Predicate::Ge(m),
+		"@>" => Predicate::AncestorOf(m),
+		"<@" => Predicate::DescendantOf(m),
+		"?=" => Predicate::Bind(m),
+		_ => unreachable!("op set is whitelisted via CLI_TWO_CHAR_OPS / single-char fallthrough"),
+	})
 }
 
 #[cfg(test)]
@@ -161,7 +165,7 @@ mod tests {
 	use super::*;
 
 	fn parse(argv: &[&str]) -> Result<Cli, clap::Error> {
-		let mut full = vec!["pg-moniker"];
+		let mut full = vec!["code-moniker"];
 		full.extend_from_slice(argv);
 		Cli::try_parse_from(full)
 	}
@@ -229,22 +233,51 @@ mod tests {
 	}
 
 	#[test]
-	fn predicate_uri_parses() {
-		let a = extract(&["a.ts", "--descendant-of", "ts+moniker://./class:Foo"]);
-		let preds = a.compiled_predicates("ts+moniker://").expect("uri ok");
+	fn where_descendant_parses() {
+		let a = extract(&["a.ts", "--where", "<@ ts+moniker://./class:Foo"]);
+		let preds = a.compiled_predicates("ts+moniker://").expect("ok");
 		assert_eq!(preds.len(), 1);
-		match &preds[0] {
-			Predicate::DescendantOf(_) => {}
-			other => panic!("unexpected: {other:?}"),
+		assert!(matches!(preds[0], Predicate::DescendantOf(_)));
+	}
+
+	#[test]
+	fn where_multiple_predicates_compose_with_and() {
+		let a = extract(&[
+			"a.ts",
+			"--where",
+			"@> ts+moniker://./class:Foo",
+			"--where",
+			"= ts+moniker://./class:Foo/method:bar",
+		]);
+		let preds = a.compiled_predicates("ts+moniker://").expect("ok");
+		assert_eq!(preds.len(), 2);
+		assert!(matches!(preds[0], Predicate::AncestorOf(_)));
+		assert!(matches!(preds[1], Predicate::Eq(_)));
+	}
+
+	#[test]
+	fn where_each_operator_supported() {
+		for op in &["=", "<", "<=", ">", ">=", "@>", "<@", "?="] {
+			let a = extract(&["a.ts", "--where", &format!("{op} ts+moniker://./class:Foo")]);
+			let preds = a.compiled_predicates("ts+moniker://").expect(op);
+			assert_eq!(preds.len(), 1, "op {op} failed");
 		}
 	}
 
 	#[test]
-	fn predicate_uri_malformed_is_usage_error() {
-		let a = extract(&["a.ts", "--eq", "not a uri"]);
+	fn where_malformed_is_usage_error() {
+		let a = extract(&["a.ts", "--where", "garbage uri"]);
 		let err = a.compiled_predicates("ts+moniker://").unwrap_err();
 		let msg = format!("{err:#}");
-		assert!(msg.contains("--eq"), "expected flag in error: {msg}");
+		assert!(msg.contains("--where"), "{msg}");
+	}
+
+	#[test]
+	fn where_missing_uri_is_usage_error() {
+		let a = extract(&["a.ts", "--where", "@>"]);
+		let err = a.compiled_predicates("ts+moniker://").unwrap_err();
+		let msg = format!("{err:#}");
+		assert!(msg.contains("missing URI"), "{msg}");
 	}
 
 	#[test]

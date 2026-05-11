@@ -13,6 +13,14 @@ use super::canonicalize::{
 use super::kinds;
 use super::scope::{class_member_visibility, collect_binding_names, is_callable_scope};
 
+pub(super) struct Callable<'tree, 'vis> {
+	pub callable_node: Node<'tree>,
+	pub anchor_node: Node<'tree>,
+	pub name: &'tree [u8],
+	pub kind: &'tree [u8],
+	pub visibility: &'vis [u8],
+}
+
 pub(super) struct Walker<'src> {
 	pub(super) source_bytes: &'src [u8],
 	pub(super) module: Moniker,
@@ -378,13 +386,15 @@ impl<'src> Walker<'src> {
 		};
 		let vis = self.module_visibility(node);
 		self.emit_callable(
-			node,
-			node,
-			name.as_bytes(),
-			kinds::FUNCTION,
+			Callable {
+				callable_node: node,
+				anchor_node: node,
+				name: name.as_bytes(),
+				kind: kinds::FUNCTION,
+				visibility: vis,
+			},
 			scope,
 			graph,
-			vis,
 		);
 	}
 
@@ -425,13 +435,15 @@ impl<'src> Walker<'src> {
 				value.filter(|v| v.kind() == "arrow_function" || v.kind() == "function_expression")
 			{
 				self.emit_callable(
-					v,
-					decl,
-					name.as_bytes(),
-					kinds::FUNCTION,
+					Callable {
+						callable_node: v,
+						anchor_node: decl,
+						name: name.as_bytes(),
+						kind: kinds::FUNCTION,
+						visibility: module_vis,
+					},
 					scope,
 					graph,
-					module_vis,
 				);
 				continue;
 			} else {
@@ -501,13 +513,15 @@ impl<'src> Walker<'src> {
 		if self.deep && is_callable_scope(scope, &self.module) {
 			let name = anonymous_callback_name(node);
 			self.emit_callable(
-				node,
-				node,
-				&name,
-				kinds::FUNCTION,
+				Callable {
+					callable_node: node,
+					anchor_node: node,
+					name: &name,
+					kind: kinds::FUNCTION,
+					visibility: kinds::VIS_NONE,
+				},
 				scope,
 				graph,
-				kinds::VIS_NONE,
 			);
 			return;
 		}
@@ -558,13 +572,15 @@ impl<'src> Walker<'src> {
 			{
 				let name = self.text_of(k);
 				self.emit_callable(
-					v,
-					node,
-					name.as_bytes(),
-					kinds::FUNCTION,
+					Callable {
+						callable_node: v,
+						anchor_node: node,
+						name: name.as_bytes(),
+						kind: kinds::FUNCTION,
+						visibility: kinds::VIS_PUBLIC,
+					},
 					scope,
 					graph,
-					kinds::VIS_PUBLIC,
 				);
 				return;
 			}
@@ -572,41 +588,36 @@ impl<'src> Walker<'src> {
 		self.walk(node, scope, graph);
 	}
 
-	#[allow(clippy::too_many_arguments)]
 	fn emit_callable(
 		&self,
-		callable_node: Node<'_>,
-		anchor_node: Node<'_>,
-		name: &[u8],
-		kind: &[u8],
+		c: Callable<'_, '_>,
 		parent: &Moniker,
 		graph: &mut CodeGraph,
-		visibility: &[u8],
 	) -> Moniker {
-		let types = callable_param_types(callable_node, self.source_bytes);
-		let m = extend_callable_typed(parent, kind, name, &types);
+		let types = callable_param_types(c.callable_node, self.source_bytes);
+		let m = extend_callable_typed(parent, c.kind, c.name, &types);
 		let attrs = DefAttrs {
-			visibility,
+			visibility: c.visibility,
 			..DefAttrs::default()
 		};
 		let _ = graph.add_def_attrs(
 			m.clone(),
-			kind,
+			c.kind,
 			parent,
-			Some(node_position(anchor_node)),
+			Some(node_position(c.anchor_node)),
 			&attrs,
 		);
 		self.push_local_scope();
-		if let Some(rt) = callable_node.child_by_field_name("return_type") {
+		if let Some(rt) = c.callable_node.child_by_field_name("return_type") {
 			self.emit_uses_type_recursive(rt, &m, graph);
 		}
-		if let Some(params) = callable_node.child_by_field_name("parameters") {
+		if let Some(params) = c.callable_node.child_by_field_name("parameters") {
 			self.handle_parameters(params, &m, graph);
 		}
-		if let Some(p) = callable_node.child_by_field_name("parameter") {
+		if let Some(p) = c.callable_node.child_by_field_name("parameter") {
 			self.emit_param_leaf(p, &m, graph);
 		}
-		if let Some(body) = callable_node.child_by_field_name("body") {
+		if let Some(body) = c.callable_node.child_by_field_name("body") {
 			self.walk(body, &m, graph);
 		}
 		self.pop_local_scope();

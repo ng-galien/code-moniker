@@ -166,13 +166,13 @@ mod tests {
 
 	fn java_minimal() -> serde_json::Value {
 		json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 					"kind": "class",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 					"visibility": "public"
 				}
 			]
@@ -203,12 +203,12 @@ mod tests {
 	#[test]
 	fn rejects_kind_mismatch_with_moniker_last_segment() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "interface",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo"
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo"
 			}]
 		});
 		let err = build_from_json(v).unwrap_err();
@@ -222,12 +222,12 @@ mod tests {
 	#[test]
 	fn rejects_unknown_parent() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
 				"kind": "method",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:DoesNotExist"
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:DoesNotExist"
 			}]
 		});
 		let err = build_from_json(v).unwrap_err();
@@ -237,18 +237,18 @@ mod tests {
 	#[test]
 	fn rejects_duplicate_moniker_in_symbols() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 					"kind": "class",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo"
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo"
 				},
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 					"kind": "class",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo"
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo"
 				}
 			]
 		});
@@ -259,18 +259,18 @@ mod tests {
 	#[test]
 	fn out_of_order_symbols_are_topologically_sorted() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
 					"kind": "method",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo"
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo"
 				},
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 					"kind": "class",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo"
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo"
 				}
 			]
 		});
@@ -281,24 +281,24 @@ mod tests {
 	#[test]
 	fn calls_intra_module_get_local_binding() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 			"lang": "rs",
 			"symbols": [
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+					"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 					"kind": "fn",
-					"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+					"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 				},
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:g()",
+					"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:g()",
 					"kind": "fn",
-					"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+					"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 				}
 			],
 			"edges": [{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "calls",
-				"to":   "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:g()"
+				"to":   "code+moniker://app/srcset:main/lang:rs/module:svc/fn:g()"
 			}]
 		});
 		let g = build_from_json(v).unwrap();
@@ -309,17 +309,17 @@ mod tests {
 	#[test]
 	fn calls_cross_module_get_none_binding() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 			"lang": "rs",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 			}],
 			"edges": [{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "calls",
-				"to":   "pcm+moniker://app/srcset:main/lang:rs/module:other/fn:g()"
+				"to":   "code+moniker://app/srcset:main/lang:rs/module:other/fn:g()"
 			}]
 		});
 		let g = build_from_json(v).unwrap();
@@ -330,17 +330,17 @@ mod tests {
 	#[test]
 	fn depends_on_lowers_to_imports_module_with_import_binding() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 			"lang": "rs",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 			}],
 			"edges": [{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "depends_on",
-				"to":   "pcm+moniker://app/external_pkg:cargo/path:serde"
+				"to":   "code+moniker://app/external_pkg:cargo/path:serde"
 			}]
 		});
 		let g = build_from_json(v).unwrap();
@@ -352,17 +352,17 @@ mod tests {
 	#[test]
 	fn injects_provide_lowers_to_di_register_with_inject_binding() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 			"lang": "rs",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 			}],
 			"edges": [{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "injects:provide",
-				"to":   "pcm+moniker://app/srcset:main/lang:rs/module:other/trait:T"
+				"to":   "code+moniker://app/srcset:main/lang:rs/module:other/trait:T"
 			}]
 		});
 		let g = build_from_json(v).unwrap();
@@ -374,17 +374,17 @@ mod tests {
 	#[test]
 	fn injects_require_lowers_to_di_require_with_inject_binding() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 			"lang": "rs",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 			}],
 			"edges": [{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "injects:require",
-				"to":   "pcm+moniker://app/srcset:main/lang:rs/module:other/trait:U"
+				"to":   "code+moniker://app/srcset:main/lang:rs/module:other/trait:U"
 			}]
 		});
 		let g = build_from_json(v).unwrap();
@@ -396,13 +396,13 @@ mod tests {
 	#[test]
 	fn rejects_edge_from_undeclared_symbol() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 			"lang": "rs",
 			"symbols": [],
 			"edges": [{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:undeclared()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:undeclared()",
 				"kind": "calls",
-				"to":   "pcm+moniker://app/srcset:main/lang:rs/module:other/fn:g()"
+				"to":   "code+moniker://app/srcset:main/lang:rs/module:other/fn:g()"
 			}]
 		});
 		let err = build_from_json(v).unwrap_err();
@@ -412,17 +412,17 @@ mod tests {
 	#[test]
 	fn edge_to_unknown_target_is_accepted() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 			"lang": "rs",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 			}],
 			"edges": [{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "calls",
-				"to":   "pcm+moniker://app/srcset:main/lang:rs/module:never_extracted/fn:phantom()"
+				"to":   "code+moniker://app/srcset:main/lang:rs/module:never_extracted/fn:phantom()"
 			}]
 		});
 		assert!(build_from_json(v).is_ok());
@@ -431,18 +431,18 @@ mod tests {
 	#[test]
 	fn shares_module_handles_nested_class_in_module() {
 		let svc_f =
-			parse_uri("pcm+moniker://app/srcset:main/lang:rs/module:svc/class:C/method:f()");
+			parse_uri("code+moniker://app/srcset:main/lang:rs/module:svc/class:C/method:f()");
 		let svc_g =
-			parse_uri("pcm+moniker://app/srcset:main/lang:rs/module:svc/class:C/method:g()");
+			parse_uri("code+moniker://app/srcset:main/lang:rs/module:svc/class:C/method:g()");
 		assert!(shares_module(&svc_f, &svc_g));
 	}
 
 	#[test]
 	fn shares_module_returns_false_when_no_module_segment() {
 		let java_a =
-			parse_uri("pcm+moniker://app/srcset:main/lang:java/package:com/class:A/method:f()");
+			parse_uri("code+moniker://app/srcset:main/lang:java/package:com/class:A/method:f()");
 		let java_b =
-			parse_uri("pcm+moniker://app/srcset:main/lang:java/package:com/class:A/method:g()");
+			parse_uri("code+moniker://app/srcset:main/lang:java/package:com/class:A/method:g()");
 		assert!(!shares_module(&java_a, &java_b));
 	}
 

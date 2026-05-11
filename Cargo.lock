@@ -223,6 +223,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "code-moniker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cc",
+ "clap",
+ "pgrx",
+ "proptest",
+ "regex",
+ "roxmltree",
+ "serde",
+ "serde_cbor",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "toml 0.8.23",
+ "tree-sitter",
+ "tree-sitter-c-sharp",
+ "tree-sitter-go",
+ "tree-sitter-java",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+]
+
+[[package]]
 name = "codepage"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -723,32 +749,6 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap",
  "serde",
-]
-
-[[package]]
-name = "pg_code_moniker"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cc",
- "clap",
- "pgrx",
- "proptest",
- "regex",
- "roxmltree",
- "serde",
- "serde_cbor",
- "serde_json",
- "tempfile",
- "thiserror",
- "toml 0.8.23",
- "tree-sitter",
- "tree-sitter-c-sharp",
- "tree-sitter-go",
- "tree-sitter-java",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
 ]
 
 [[package]]

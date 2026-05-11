@@ -2,8 +2,8 @@ use std::env;
 use std::fs;
 use std::time::Instant;
 
-use pg_code_moniker::core::moniker::MonikerBuilder;
-use pg_code_moniker::lang::ts;
+use code_moniker::core::moniker::MonikerBuilder;
+use code_moniker::lang::ts;
 
 fn main() {
 	let iters: usize = env::args()

@@ -1,6 +1,6 @@
 ---
 name: pgrx-reinstall
-description: Build, install the pg_code_moniker extension into the pgrx-managed PG17 instance, and run the full pgTAP suite. Use after any change to src/pg/ or src/lang/ to validate that the SQL surface still behaves correctly. Reports only failures; quiet on success.
+description: Build, install the code_moniker extension into the pgrx-managed PG17 instance, and run the full pgTAP suite. Use after any change to src/pg/ or src/lang/ to validate that the SQL surface still behaves correctly. Reports only failures; quiet on success.
 ---
 
 # pgrx-reinstall

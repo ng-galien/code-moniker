@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(13);
 
@@ -15,11 +15,11 @@ WITH g AS (
 	SELECT extract_csharp(
 		'Acme/Util/Text.cs',
 		E'namespace Acme.Util;\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT is(graph_root(g)::text,
-	'pcm+moniker://app/lang:cs/package:Acme/package:Util/module:Text',
+	'code+moniker://app/lang:cs/package:Acme/package:Util/module:Text',
 	'file path drives the module moniker (path-based)')
 FROM g;
 
@@ -28,11 +28,11 @@ WITH g AS (
 	SELECT extract_csharp(
 		'F.cs',
 		E'namespace Foo;\npublic class Bar {\n    public int Add(int a, int b) { return a + b; }\n}\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:cs/module:F/class:Bar/method:Add(int,int)'::moniker,
+	ok(g @> 'code+moniker://app/lang:cs/module:F/class:Bar/method:Add(int,int)'::moniker,
 		'method moniker carries full parameter type signature') AS r1,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'method'),
 		'int,int',
@@ -44,13 +44,13 @@ WITH g AS (
 	SELECT extract_csharp(
 		'F.cs',
 		E'namespace Foo;\npublic record Person(int Age, string Name);\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:cs/module:F/record:Person'::moniker,
+	ok(g @> 'code+moniker://app/lang:cs/module:F/record:Person'::moniker,
 		'record emits record def') AS r3,
-	ok(g @> 'pcm+moniker://app/lang:cs/module:F/record:Person/constructor:Person(int,string)'::moniker,
+	ok(g @> 'code+moniker://app/lang:cs/module:F/record:Person/constructor:Person(int,string)'::moniker,
 		'record primary constructor synthesised under the record') AS r4
 FROM g;
 
@@ -59,7 +59,7 @@ WITH g AS (
 	SELECT extract_csharp(
 		'F.cs',
 		E'namespace Foo;\nclass Bar {}\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT is((SELECT visibility FROM graph_defs(g) WHERE kind = 'class'),
@@ -72,7 +72,7 @@ WITH g AS (
 	SELECT extract_csharp(
 		'F.cs',
 		E'using System;\nusing Newtonsoft.Json;\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -91,7 +91,7 @@ WITH g AS (
 	SELECT extract_csharp(
 		'F.cs',
 		E'namespace Foo;\npublic class Base {}\npublic class Bar : Base {}\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -105,7 +105,7 @@ WITH g AS (
 	SELECT extract_csharp(
 		'F.cs',
 		E'namespace Foo;\n[Serializable]\npublic class Bar {}\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT is((SELECT count(*)::int FROM graph_refs(g) WHERE kind = 'annotates'),
@@ -118,7 +118,7 @@ WITH g AS (
 	SELECT extract_csharp(
 		'F.cs',
 		E'class B {\n    void M() { Console.WriteLine("hi"); }\n}\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT is((SELECT receiver_hint FROM graph_refs(g) WHERE kind = 'method_call'),
@@ -131,12 +131,12 @@ WITH g AS (
 	SELECT extract_csharp(
 		'F.cs',
 		E'class B {\n    void M(int a) { var x = 1; }\n}\n',
-		'pcm+moniker://app'::moniker,
+		'code+moniker://app'::moniker,
 		true
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:cs/module:F/class:B/method:M(int)/param:a'::moniker,
+	ok(g @> 'code+moniker://app/lang:cs/module:F/class:B/method:M(int)/param:a'::moniker,
 		'deep extraction emits param def') AS r8
 FROM g;
 

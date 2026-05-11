@@ -1,6 +1,6 @@
 # bug/
 
-Bugs documentés contre `pg_code_moniker`. Un fichier par bug ou famille de
+Bugs documentés contre `code-moniker`. Un fichier par bug ou famille de
 bugs partageant le même invariant violé. Chaque entrée est numérotée + datée,
 contient :
 

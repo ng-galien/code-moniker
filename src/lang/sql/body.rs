@@ -9,7 +9,7 @@ use crate::core::moniker::Moniker;
 use super::walker::collect_calls_in;
 
 unsafe extern "C-unwind" {
-	fn pcm_plpgsql_parse_body(
+	fn cmk_plpgsql_parse_body(
 		body: *const ::core::ffi::c_char,
 		is_setof: bool,
 		is_void: bool,
@@ -17,7 +17,7 @@ unsafe extern "C-unwind" {
 		param_names: *const *const ::core::ffi::c_char,
 	) -> *mut pg_sys::PLpgSQL_function;
 
-	fn pcm_plpgsql_free(function: *mut pg_sys::PLpgSQL_function);
+	fn cmk_plpgsql_free(function: *mut pg_sys::PLpgSQL_function);
 }
 
 pub(super) fn walk_plpgsql_body(
@@ -42,7 +42,7 @@ pub(super) fn walk_plpgsql_body(
 		param_cstrs.iter().map(|c| c.as_ptr()).collect();
 
 	let func = PgTryBuilder::new(|| unsafe {
-		pcm_plpgsql_parse_body(
+		cmk_plpgsql_parse_body(
 			body_cstr.as_ptr(),
 			is_setof,
 			is_void,
@@ -65,7 +65,7 @@ pub(super) fn walk_plpgsql_body(
 	if !action.is_null() {
 		walk_block(action, source_def, module, graph);
 	}
-	unsafe { pcm_plpgsql_free(func) };
+	unsafe { cmk_plpgsql_free(func) };
 }
 
 fn walk_stmt_list(

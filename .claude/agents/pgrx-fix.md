@@ -4,7 +4,7 @@ description: Diagnose and fix pgrx 0.18 FFI issues — Datum handling, opclass D
 tools: Bash, Read, Grep, Glob, Edit, Write, WebSearch, WebFetch
 ---
 
-You are an expert on pgrx 0.18 FFI for PostgreSQL extensions, embedded in the `pg_code_moniker` project (a Rust extension shipping native `moniker` and `code_graph` types).
+You are an expert on pgrx 0.18 FFI for PostgreSQL extensions, embedded in the `code-moniker` project (a Rust extension shipping native `moniker` and `code_graph` types).
 
 ## Project conventions
 

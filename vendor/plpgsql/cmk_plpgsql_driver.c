@@ -54,9 +54,9 @@ static PLpgSQL_function *parse_body_impl(
 	int n_params,
 	const char *const *param_names);
 
-/* Returns NULL on parse error. Pair each non-NULL with `pcm_plpgsql_free`. */
+/* Returns NULL on parse error. Pair each non-NULL with `cmk_plpgsql_free`. */
 PLpgSQL_function *
-pcm_plpgsql_parse_body(
+cmk_plpgsql_parse_body(
 	const char *body,
 	bool is_setof,
 	bool is_void,
@@ -106,7 +106,7 @@ parse_body_impl(
 	plpgsql_curr_compile = function;
 
 	func_cxt = AllocSetContextCreate(CurrentMemoryContext,
-									 "pg_code_moniker plpgsql ctx",
+									 "code_moniker plpgsql ctx",
 									 ALLOCSET_DEFAULT_SIZES);
 	plpgsql_compile_tmp_cxt = MemoryContextSwitchTo(func_cxt);
 
@@ -166,7 +166,7 @@ parse_body_impl(
 
 /* Reclaim the per-function MemoryContext allocated by `parse_body_impl`. */
 void
-pcm_plpgsql_free(PLpgSQL_function *function)
+cmk_plpgsql_free(PLpgSQL_function *function)
 {
 	if (function != NULL && function->fn_cxt != NULL)
 		MemoryContextDelete(function->fn_cxt);

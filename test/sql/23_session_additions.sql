@@ -2,19 +2,19 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(12);
 
 
 SELECT is(
-	('pcm+moniker://app/path:main'::moniker || 'class:Foo')::text,
-	'pcm+moniker://app/path:main/class:Foo',
+	('code+moniker://app/path:main'::moniker || 'class:Foo')::text,
+	'code+moniker://app/path:main/class:Foo',
 	'|| operator composes a typed child segment'
 );
 
 SELECT throws_ok(
-	$$SELECT 'pcm+moniker://app/path:main'::moniker || 'no_kind_separator'$$,
+	$$SELECT 'code+moniker://app/path:main'::moniker || 'no_kind_separator'$$,
 	NULL,
 	NULL,
 	'|| rejects RHS that lacks the kind:name separator'
@@ -23,22 +23,22 @@ SELECT throws_ok(
 
 WITH g AS (
 	SELECT graph_add_def(
-		graph_create('pcm+moniker://app/path:m'::moniker, 'module'),
-		'pcm+moniker://app/path:m/class:Foo'::moniker,
+		graph_create('code+moniker://app/path:m'::moniker, 'module'),
+		'code+moniker://app/path:m/class:Foo'::moniker,
 		'class',
-		'pcm+moniker://app/path:m'::moniker,
+		'code+moniker://app/path:m'::moniker,
 		10,
 		42
 	) AS g
 )
 SELECT
-	is((SELECT start_byte FROM graph_locate(g, 'pcm+moniker://app/path:m/class:Foo'::moniker)),
+	is((SELECT start_byte FROM graph_locate(g, 'code+moniker://app/path:m/class:Foo'::moniker)),
 		10,
 		'graph_locate returns the recorded start byte') AS r1,
-	is((SELECT end_byte FROM graph_locate(g, 'pcm+moniker://app/path:m/class:Foo'::moniker)),
+	is((SELECT end_byte FROM graph_locate(g, 'code+moniker://app/path:m/class:Foo'::moniker)),
 		42,
 		'graph_locate returns the recorded end byte') AS r2,
-	is((SELECT start_byte FROM graph_locate(g, 'pcm+moniker://app/path:m/class:Bar'::moniker)),
+	is((SELECT start_byte FROM graph_locate(g, 'code+moniker://app/path:m/class:Bar'::moniker)),
 		NULL,
 		'graph_locate returns NULL for monikers absent from the graph') AS r3
 FROM g;
@@ -46,11 +46,11 @@ FROM g;
 
 WITH g AS (
 	SELECT graph_add_defs(
-		graph_create('pcm+moniker://app/path:m'::moniker, 'module'),
-		ARRAY['pcm+moniker://app/path:m/class:A',
-		      'pcm+moniker://app/path:m/class:B']::moniker[],
+		graph_create('code+moniker://app/path:m'::moniker, 'module'),
+		ARRAY['code+moniker://app/path:m/class:A',
+		      'code+moniker://app/path:m/class:B']::moniker[],
 		ARRAY['class','class']::text[],
-		ARRAY['pcm+moniker://app/path:m','pcm+moniker://app/path:m']::moniker[]
+		ARRAY['code+moniker://app/path:m','code+moniker://app/path:m']::moniker[]
 	) AS g
 )
 SELECT is(
@@ -62,24 +62,24 @@ SELECT is(
 
 SELECT ok(
 	bind_match(
-		'pcm+moniker://app/lang:sql/schema:esac/module:plan/function:create_plan(2)'::moniker,
-		'pcm+moniker://app/lang:sql/schema:esac/module:plan/function:create_plan(uuid,text)'::moniker
+		'code+moniker://app/lang:sql/schema:esac/module:plan/function:create_plan(2)'::moniker,
+		'code+moniker://app/lang:sql/schema:esac/module:plan/function:create_plan(uuid,text)'::moniker
 	),
 	'SQL refinement: arity-only ref name matches typed def by bare callable name'
 );
 
 SELECT ok(
 	NOT bind_match(
-		'pcm+moniker://app/lang:sql/schema:esac/module:plan/function:drop_plan(uuid)'::moniker,
-		'pcm+moniker://app/lang:sql/schema:esac/module:plan/function:create_plan(uuid)'::moniker
+		'code+moniker://app/lang:sql/schema:esac/module:plan/function:drop_plan(uuid)'::moniker,
+		'code+moniker://app/lang:sql/schema:esac/module:plan/function:create_plan(uuid)'::moniker
 	),
 	'SQL refinement: distinct bare callable names do not match'
 );
 
 SELECT ok(
 	bind_match(
-		'pcm+moniker://app/lang:java/package:acme/class:Plan/method:create'::moniker,
-		'pcm+moniker://app/lang:java/package:acme/class:Plan/method:create(int)'::moniker
+		'code+moniker://app/lang:java/package:acme/class:Plan/method:create'::moniker,
+		'code+moniker://app/lang:java/package:acme/class:Plan/method:create(int)'::moniker
 	),
 	'bare-name refinement applies to java: method:create bind_matches method:create(int)'
 );

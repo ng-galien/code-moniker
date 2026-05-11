@@ -7,7 +7,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(24);
 
@@ -21,13 +21,13 @@ SELECT has_function(
 -- 1) Minimal Java spec produces root + class def.
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+		"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 		"lang": "java",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"visibility": "public"
 			}
 		]
@@ -45,13 +45,13 @@ SELECT is(
 -- 2) Declared defs carry origin = 'declared'; root keeps origin = 'extracted'.
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+		"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 		"lang": "java",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"visibility": "public"
 			}
 		]
@@ -70,13 +70,13 @@ SELECT is(
 
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+		"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 		"lang": "java",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"visibility": "public"
 			}
 		]
@@ -97,21 +97,21 @@ SELECT is(
 -- 3) depends_on edge lowers to imports_module + binding=import.
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+		"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 		"lang": "rs",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc",
 				"visibility": "public"
 			}
 		],
 		"edges": [
 			{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "depends_on",
-				"to": "pcm+moniker://app/external_pkg:cargo/path:serde"
+				"to": "code+moniker://app/external_pkg:cargo/path:serde"
 			}
 		]
 	}'::jsonb AS s
@@ -128,21 +128,21 @@ SELECT is(
 
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+		"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 		"lang": "rs",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc",
 				"visibility": "public"
 			}
 		],
 		"edges": [
 			{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "depends_on",
-				"to": "pcm+moniker://app/external_pkg:cargo/path:serde"
+				"to": "code+moniker://app/external_pkg:cargo/path:serde"
 			}
 		]
 	}'::jsonb AS s
@@ -161,21 +161,21 @@ SELECT is(
 -- 4) injects:require lowers to di_require + binding=inject.
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+		"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 		"lang": "rs",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc",
 				"visibility": "public"
 			}
 		],
 		"edges": [
 			{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "injects:require",
-				"to": "pcm+moniker://app/srcset:main/lang:rs/module:other/trait:Repo"
+				"to": "code+moniker://app/srcset:main/lang:rs/module:other/trait:Repo"
 			}
 		]
 	}'::jsonb AS s
@@ -192,21 +192,21 @@ SELECT is(
 
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+		"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 		"lang": "rs",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc",
 				"visibility": "public"
 			}
 		],
 		"edges": [
 			{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "injects:require",
-				"to": "pcm+moniker://app/srcset:main/lang:rs/module:other/trait:Repo"
+				"to": "code+moniker://app/srcset:main/lang:rs/module:other/trait:Repo"
 			}
 		]
 	}'::jsonb AS s
@@ -224,15 +224,15 @@ SELECT is(
 
 -- 5) Validation errors surface from the constructor.
 SELECT throws_like(
-	$$ SELECT code_graph_declare('{"root":"pcm+moniker://app/srcset:m/lang:cobol/module:f","lang":"cobol","symbols":[]}'::jsonb) $$,
+	$$ SELECT code_graph_declare('{"root":"code+moniker://app/srcset:m/lang:cobol/module:f","lang":"cobol","symbols":[]}'::jsonb) $$,
 	'%unknown lang%cobol%',
 	'unknown lang is rejected'
 );
 
 SELECT throws_like(
 	$$ SELECT code_graph_declare(
-		'{"root":"pcm+moniker://app/srcset:m/lang:java/module:F","lang":"java","symbols":[
-			{"moniker":"pcm+moniker://app/srcset:m/lang:java/module:F/trait:T","kind":"trait","parent":"pcm+moniker://app/srcset:m/lang:java/module:F"}
+		'{"root":"code+moniker://app/srcset:m/lang:java/module:F","lang":"java","symbols":[
+			{"moniker":"code+moniker://app/srcset:m/lang:java/module:F/trait:T","kind":"trait","parent":"code+moniker://app/srcset:m/lang:java/module:F"}
 		]}'::jsonb) $$,
 	'%trait%not allowed for lang=java%',
 	'kind outside lang profile is rejected'
@@ -240,8 +240,8 @@ SELECT throws_like(
 
 SELECT throws_like(
 	$$ SELECT code_graph_declare(
-		'{"root":"pcm+moniker://app/srcset:m/lang:java/module:F","lang":"java","symbols":[
-			{"moniker":"pcm+moniker://app/srcset:m/lang:java/module:F/class:Foo","kind":"interface","parent":"pcm+moniker://app/srcset:m/lang:java/module:F"}
+		'{"root":"code+moniker://app/srcset:m/lang:java/module:F","lang":"java","symbols":[
+			{"moniker":"code+moniker://app/srcset:m/lang:java/module:F/class:Foo","kind":"interface","parent":"code+moniker://app/srcset:m/lang:java/module:F"}
 		]}'::jsonb) $$,
 	'%does not match the moniker%',
 	'kind mismatch with moniker last segment is rejected'
@@ -249,9 +249,9 @@ SELECT throws_like(
 
 SELECT throws_like(
 	$$ SELECT code_graph_declare(
-		'{"root":"pcm+moniker://app/srcset:m/lang:java/module:F","lang":"java","symbols":[
-			{"moniker":"pcm+moniker://app/srcset:m/lang:java/module:F/class:X","kind":"class","parent":"pcm+moniker://app/srcset:m/lang:java/module:F"},
-			{"moniker":"pcm+moniker://app/srcset:m/lang:java/module:F/class:X","kind":"class","parent":"pcm+moniker://app/srcset:m/lang:java/module:F"}
+		'{"root":"code+moniker://app/srcset:m/lang:java/module:F","lang":"java","symbols":[
+			{"moniker":"code+moniker://app/srcset:m/lang:java/module:F/class:X","kind":"class","parent":"code+moniker://app/srcset:m/lang:java/module:F"},
+			{"moniker":"code+moniker://app/srcset:m/lang:java/module:F/class:X","kind":"class","parent":"code+moniker://app/srcset:m/lang:java/module:F"}
 		]}'::jsonb) $$,
 	'%duplicate moniker%',
 	'duplicate moniker is rejected'
@@ -262,13 +262,13 @@ SELECT throws_like(
 -- with public visibility get binding=export by default).
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+		"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 		"lang": "java",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"visibility": "public"
 			}
 		]
@@ -287,13 +287,13 @@ SELECT is(
 -- def with the same moniker resolve identically through bind_match.
 WITH declared_g AS (
 	SELECT code_graph_declare('{
-		"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+		"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 		"lang": "java",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"visibility": "public"
 			}
 		]
@@ -301,11 +301,11 @@ WITH declared_g AS (
 ), extracted_g AS (
 	SELECT graph_add_def(
 		graph_create(
-			'pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo'::moniker,
+			'code+moniker://app/srcset:main/lang:java/package:com/module:Foo'::moniker,
 			'module'),
-		'pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo'::moniker,
+		'code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo'::moniker,
 		'class',
-		'pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo'::moniker
+		'code+moniker://app/srcset:main/lang:java/package:com/module:Foo'::moniker
 	) AS g
 )
 SELECT ok(
@@ -320,25 +320,25 @@ FROM
 -- 8) calls intra-module gets binding=local.
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+		"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 		"lang": "rs",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 			},
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:g()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:g()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 			}
 		],
 		"edges": [
 			{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "calls",
-				"to":   "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:g()"
+				"to":   "code+moniker://app/srcset:main/lang:rs/module:svc/fn:g()"
 			}
 		]
 	}'::jsonb AS s
@@ -357,20 +357,20 @@ SELECT is(
 -- 9) calls cross-module gets binding=none.
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+		"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 		"lang": "rs",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 			}
 		],
 		"edges": [
 			{
-				"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "calls",
-				"to":   "pcm+moniker://app/srcset:main/lang:rs/module:other/fn:g()"
+				"to":   "code+moniker://app/srcset:main/lang:rs/module:other/fn:g()"
 			}
 		]
 	}'::jsonb AS s
@@ -389,18 +389,18 @@ SELECT is(
 -- 10) Topological sort: parent declared after child still works.
 WITH spec AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+		"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 		"lang": "java",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
 				"kind": "method",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo"
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo"
 			},
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"visibility": "public"
 			}
 		]
@@ -429,26 +429,26 @@ SELECT has_function(
 -- 11) Round-trip declare → to_spec → declare yields equivalent graph.
 WITH input AS (
 	SELECT '{
-		"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+		"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 		"lang": "java",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"visibility": "public"
 			},
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
 				"kind": "method",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"visibility": "public"
 			}
 		],
 		"edges": [{
-			"from": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
+			"from": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
 			"kind": "calls",
-			"to":   "pcm+moniker://app/srcset:main/lang:java/package:com/module:Other/class:Other/method:baz()"
+			"to":   "code+moniker://app/srcset:main/lang:java/package:com/module:Other/class:Other/method:baz()"
 		}]
 	}'::jsonb AS s
 ), g1 AS (
@@ -470,7 +470,7 @@ SELECT is(
 -- 12) lang field is inferred from root's lang: segment.
 WITH g AS (
 	SELECT code_graph_declare('{
-		"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+		"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 		"lang": "rs",
 		"symbols": []
 	}'::jsonb) AS g
@@ -485,19 +485,19 @@ SELECT is(
 -- 13) Symbols emitted = number of non-root defs.
 WITH g AS (
 	SELECT code_graph_declare('{
-		"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+		"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 		"lang": "java",
 		"symbols": [
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"visibility": "public"
 			},
 			{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
 				"kind": "method",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"visibility": "public"
 			}
 		]
@@ -513,17 +513,17 @@ SELECT is(
 -- 14) Canonical edges preserved in to_spec output.
 WITH g AS (
 	SELECT code_graph_declare('{
-		"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+		"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 		"lang": "rs",
 		"symbols": [{
-			"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+			"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 			"kind": "fn",
-			"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+			"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 		}],
 		"edges": [{
-			"from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+			"from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 			"kind": "depends_on",
-			"to":   "pcm+moniker://app/external_pkg:cargo/path:serde"
+			"to":   "code+moniker://app/external_pkg:cargo/path:serde"
 		}]
 	}'::jsonb) AS g
 )
@@ -539,14 +539,14 @@ WITH g AS (
 	SELECT graph_add_ref(
 		graph_add_def(
 			graph_create(
-				'pcm+moniker://app/srcset:main/lang:rs/module:svc'::moniker,
+				'code+moniker://app/srcset:main/lang:rs/module:svc'::moniker,
 				'module'),
-			'pcm+moniker://app/srcset:main/lang:rs/module:svc/struct:S'::moniker,
+			'code+moniker://app/srcset:main/lang:rs/module:svc/struct:S'::moniker,
 			'struct',
-			'pcm+moniker://app/srcset:main/lang:rs/module:svc'::moniker
+			'code+moniker://app/srcset:main/lang:rs/module:svc'::moniker
 		),
-		'pcm+moniker://app/srcset:main/lang:rs/module:svc/struct:S'::moniker,
-		'pcm+moniker://app/srcset:main/lang:rs/module:other/trait:T'::moniker,
+		'code+moniker://app/srcset:main/lang:rs/module:svc/struct:S'::moniker,
+		'code+moniker://app/srcset:main/lang:rs/module:other/trait:T'::moniker,
 		'extends'
 	) AS g
 )
@@ -560,7 +560,7 @@ SELECT is(
 -- 16) Errors when root has no lang: segment.
 SELECT throws_like(
 	$$ SELECT code_graph_to_spec(
-		graph_create('pcm+moniker://app/srcset:main'::moniker, 'srcset')
+		graph_create('code+moniker://app/srcset:main'::moniker, 'srcset')
 	) $$,
 	'%has no `lang:` segment%',
 	'root without lang: segment is rejected'

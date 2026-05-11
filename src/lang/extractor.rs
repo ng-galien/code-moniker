@@ -243,7 +243,7 @@ mod typed_lifecycle_tests {
 	#[test]
 	fn typed_declare_rejects_lang_mismatch() {
 		let spec = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:foo",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:foo",
 			"lang": "rs",
 			"symbols": []
 		});
@@ -257,7 +257,7 @@ mod typed_lifecycle_tests {
 	#[test]
 	fn typed_declare_accepts_matching_lang() {
 		let spec = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:foo",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:foo",
 			"lang": "rs",
 			"symbols": []
 		});
@@ -267,7 +267,7 @@ mod typed_lifecycle_tests {
 	#[test]
 	fn typed_to_spec_rejects_lang_mismatch() {
 		let spec = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:foo",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:foo",
 			"lang": "rs",
 			"symbols": []
 		});
@@ -282,7 +282,7 @@ mod typed_lifecycle_tests {
 	#[test]
 	fn typed_to_spec_accepts_matching_lang() {
 		let spec = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:foo",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:foo",
 			"lang": "rs",
 			"symbols": []
 		});

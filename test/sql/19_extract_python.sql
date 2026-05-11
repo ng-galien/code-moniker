@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(12);
 
@@ -15,11 +15,11 @@ WITH g AS (
 	SELECT extract_python(
 		'acme/util/text.py',
 		'',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT is(graph_root(g)::text,
-	'pcm+moniker://app/lang:python/package:acme/package:util/module:text',
+	'code+moniker://app/lang:python/package:acme/package:util/module:text',
 	'file path drives the module moniker')
 FROM g;
 
@@ -28,11 +28,11 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'def make(x: int, y: str) -> int:\n    return x\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:python/module:m/function:make(int,str)'::moniker,
+	ok(g @> 'code+moniker://app/lang:python/module:m/function:make(int,str)'::moniker,
 		'function moniker carries full parameter type signature') AS r1,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'function'),
 		'int,str',
@@ -44,11 +44,11 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'def f(a, b=1):\n    return a\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:python/module:m/function:f(_,_)'::moniker,
+	ok(g @> 'code+moniker://app/lang:python/module:m/function:f(_,_)'::moniker,
 		'untyped python params collapse to `_` in the signature') AS r3
 FROM g;
 
@@ -57,11 +57,11 @@ WITH g AS (
 	SELECT extract_python(
 		'foo.py',
 		E'class Foo:\n    def bar(self, x: int) -> int:\n        return x\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:python/module:foo/class:Foo/method:bar(int)'::moniker,
+	ok(g @> 'code+moniker://app/lang:python/module:foo/class:Foo/method:bar(int)'::moniker,
 		'method moniker excludes self and uses kind=method') AS r4
 FROM g;
 
@@ -70,23 +70,23 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'def _helper():\n    pass\ndef __secret():\n    pass\ndef public_fn():\n    pass\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
 	is((SELECT visibility FROM graph_defs(g) d
 	     WHERE kind = 'function' AND
-	           moniker = 'pcm+moniker://app/lang:python/module:m/function:_helper()'::moniker),
+	           moniker = 'code+moniker://app/lang:python/module:m/function:_helper()'::moniker),
 		'module',
 		'leading-underscore function is module-private') AS r5,
 	is((SELECT visibility FROM graph_defs(g) d
 	     WHERE kind = 'function' AND
-	           moniker = 'pcm+moniker://app/lang:python/module:m/function:__secret()'::moniker),
+	           moniker = 'code+moniker://app/lang:python/module:m/function:__secret()'::moniker),
 		'private',
 		'double-underscore (no trailing dunder) is private') AS r6,
 	is((SELECT visibility FROM graph_defs(g) d
 	     WHERE kind = 'function' AND
-	           moniker = 'pcm+moniker://app/lang:python/module:m/function:public_fn()'::moniker),
+	           moniker = 'code+moniker://app/lang:python/module:m/function:public_fn()'::moniker),
 		'public',
 		'plain name is public') AS r7
 FROM g;
@@ -96,7 +96,7 @@ WITH g AS (
 	SELECT extract_python(
 		'm.py',
 		E'import json\nimport acme.util\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -115,7 +115,7 @@ WITH g AS (
 	SELECT extract_python(
 		'foo.py',
 		E'class Foo:\n    def m(self):\n        self.bar()\n    def bar(self):\n        pass\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT

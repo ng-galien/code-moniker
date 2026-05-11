@@ -40,7 +40,7 @@ FROM postgres:${PG_MAJOR}
 
 ARG PG_MAJOR
 
-COPY --from=builder /src/target/release/pg_code_moniker-pg${PG_MAJOR}/usr/lib/postgresql/${PG_MAJOR}/lib/pg_code_moniker.so \
+COPY --from=builder /src/target/release/code-moniker-pg${PG_MAJOR}/usr/lib/postgresql/${PG_MAJOR}/lib/code_moniker.so \
     /usr/lib/postgresql/${PG_MAJOR}/lib/
-COPY --from=builder /src/target/release/pg_code_moniker-pg${PG_MAJOR}/usr/share/postgresql/${PG_MAJOR}/extension/ \
+COPY --from=builder /src/target/release/code-moniker-pg${PG_MAJOR}/usr/share/postgresql/${PG_MAJOR}/extension/ \
     /usr/share/postgresql/${PG_MAJOR}/extension/

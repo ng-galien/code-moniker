@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use pg_code_moniker::cli::{self, Cli};
+use code_moniker::cli::{self, Cli};
 
 fn main() -> ExitCode {
 	let cli = match Cli::try_parse() {

@@ -20,7 +20,7 @@ done
 COV_DIR="$REPO_ROOT/target/cov"
 rm -rf "$COV_DIR"
 mkdir -p "$COV_DIR"
-cargo clean -p pg_code_moniker >/dev/null 2>&1 || true
+cargo clean -p code-moniker >/dev/null 2>&1 || true
 
 case "$(uname)" in
 	Darwin)
@@ -45,8 +45,8 @@ fi
 cargo pgrx stop "$PG_VERSION" 2>/dev/null || true
 cargo pgrx install --pg-config "$PG_CONFIG"
 
-INSTALLED_DYLIB="$(dirname "$PG_CONFIG")/../lib/postgresql/pg_code_moniker.dylib"
-[ -f "$INSTALLED_DYLIB" ] || INSTALLED_DYLIB="$(dirname "$PG_CONFIG")/../lib/postgresql/pg_code_moniker.so"
+INSTALLED_DYLIB="$(dirname "$PG_CONFIG")/../lib/postgresql/code_moniker.dylib"
+[ -f "$INSTALLED_DYLIB" ] || INSTALLED_DYLIB="$(dirname "$PG_CONFIG")/../lib/postgresql/code_moniker.so"
 nm_count="$(nm "$INSTALLED_DYLIB" 2>&1 | grep -c '__llvm_profile' || true)"
 if [ "$nm_count" -eq 0 ]; then
 	echo "coverage.sh: installed $INSTALLED_DYLIB lacks __llvm_profile symbols" >&2

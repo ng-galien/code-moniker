@@ -1,7 +1,7 @@
 use std::time::Instant;
 
-use pg_code_moniker::core::code_graph::CodeGraph;
-use pg_code_moniker::core::moniker::{Moniker, MonikerBuilder};
+use code_moniker::core::code_graph::CodeGraph;
+use code_moniker::core::moniker::{Moniker, MonikerBuilder};
 
 fn def_at(i: usize) -> Moniker {
 	MonikerBuilder::new()

@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(11);
 
@@ -20,37 +20,37 @@ SELECT has_function('depth'::name, ARRAY['moniker'],
 
 
 SELECT is(
-	('pcm+moniker://my-app'::moniker)::text,
-	'pcm+moniker://my-app',
+	('code+moniker://my-app'::moniker)::text,
+	'code+moniker://my-app',
 	'project-only roundtrip');
 
 SELECT is(
-	('pcm+moniker://my-app/path:main/path:com/path:acme/class:Foo/method:bar(2)'::moniker)::text,
-	'pcm+moniker://my-app/path:main/path:com/path:acme/class:Foo/method:bar(2)',
+	('code+moniker://my-app/path:main/path:com/path:acme/class:Foo/method:bar(2)'::moniker)::text,
+	'code+moniker://my-app/path:main/path:com/path:acme/class:Foo/method:bar(2)',
 	'full descriptor chain roundtrip');
 
 
 SELECT ok(
-	'pcm+moniker://app/class:Foo'::moniker = 'pcm+moniker://app/class:Foo'::moniker,
+	'code+moniker://app/class:Foo'::moniker = 'code+moniker://app/class:Foo'::moniker,
 	'identical monikers compare equal');
 
 SELECT ok(
-	NOT ('pcm+moniker://app/class:Foo'::moniker = 'pcm+moniker://app/class:Bar'::moniker),
+	NOT ('code+moniker://app/class:Foo'::moniker = 'code+moniker://app/class:Bar'::moniker),
 	'different monikers compare unequal');
 
 
 SELECT is(
-	project_of('pcm+moniker://my-app/path:main/path:com/path:acme/class:Foo'::moniker),
+	project_of('code+moniker://my-app/path:main/path:com/path:acme/class:Foo'::moniker),
 	'my-app',
 	'project_of returns the authority');
 
 SELECT is(
-	depth('pcm+moniker://my-app'::moniker),
+	depth('code+moniker://my-app'::moniker),
 	0,
 	'depth of project-only moniker is 0');
 
 SELECT is(
-	depth('pcm+moniker://my-app/path:main/class:Foo/method:bar()'::moniker),
+	depth('code+moniker://my-app/path:main/class:Foo/method:bar()'::moniker),
 	3,
 	'depth counts every segment regardless of kind');
 

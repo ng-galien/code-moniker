@@ -1,6 +1,6 @@
 # Extraction Targets
 
-This document defines the extraction level `pg_code_moniker` must reach to
+This document defines the extraction level `code-moniker` must reach to
 serve ESAC. The extension is not aiming for a toy extractor. ESAC already has
 rich extractors; the native extension must preserve that semantic surface while
 moving identity and graph storage into PostgreSQL-native `moniker` and
@@ -8,7 +8,7 @@ moving identity and graph storage into PostgreSQL-native `moniker` and
 
 ## Purpose
 
-`pg_code_moniker` owns stateless primitives:
+`code-moniker` owns stateless primitives:
 
 - native symbol identity (`moniker`);
 - per-module graph storage (`code_graph`);
@@ -328,7 +328,7 @@ Minimum target:
 - visibility where the language exposes it;
 - external package/library monikers where the project manifest provides them.
 
-These are second-wave languages for `pg_code_moniker`; do not dilute the TS,
+These are second-wave languages for `code-moniker`; do not dilute the TS,
 Java, Python and SQL targets to make room for them.
 
 ## Migration Bar

@@ -168,7 +168,7 @@ mod tests {
 	#[test]
 	fn lang_field_is_inferred_from_root_lang_segment() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": []
 		});
@@ -178,7 +178,7 @@ mod tests {
 
 	#[test]
 	fn root_field_is_preserved() {
-		let root = "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo";
+		let root = "code+moniker://app/srcset:main/lang:java/package:com/module:Foo";
 		let v = json!({
 			"root": root,
 			"lang": "java",
@@ -191,19 +191,19 @@ mod tests {
 	#[test]
 	fn symbols_are_emitted_for_each_non_root_def() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 					"kind": "class",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 					"visibility": "public"
 				},
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
 					"kind": "method",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 					"visibility": "public",
 					"signature": "bar(): void"
 				}
@@ -217,26 +217,26 @@ mod tests {
 	#[test]
 	fn edges_lift_canonical_kinds() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:svc",
 			"lang": "rs",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:svc"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:svc"
 			}],
 			"edges": [
-				{ "from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				{ "from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				  "kind": "depends_on",
-				  "to":   "pcm+moniker://app/external_pkg:cargo/path:serde" },
-				{ "from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				  "to":   "code+moniker://app/external_pkg:cargo/path:serde" },
+				{ "from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				  "kind": "calls",
-				  "to":   "pcm+moniker://app/srcset:main/lang:rs/module:other/fn:g()" },
-				{ "from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				  "to":   "code+moniker://app/srcset:main/lang:rs/module:other/fn:g()" },
+				{ "from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				  "kind": "injects:provide",
-				  "to":   "pcm+moniker://app/srcset:main/lang:rs/module:di/trait:Repo" },
-				{ "from": "pcm+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
+				  "to":   "code+moniker://app/srcset:main/lang:rs/module:di/trait:Repo" },
+				{ "from": "code+moniker://app/srcset:main/lang:rs/module:svc/fn:f()",
 				  "kind": "injects:require",
-				  "to":   "pcm+moniker://app/srcset:main/lang:rs/module:di/trait:Bus" }
+				  "to":   "code+moniker://app/srcset:main/lang:rs/module:di/trait:Bus" }
 			]
 		});
 		let out = round_trip(v);
@@ -303,27 +303,27 @@ mod tests {
 	#[test]
 	fn round_trip_preserves_structure() {
 		let original = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 					"kind": "class",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 					"visibility": "public"
 				},
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
 					"kind": "method",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 					"visibility": "public"
 				}
 			],
 			"edges": [
 				{
-					"from": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
+					"from": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo/method:bar()",
 					"kind": "calls",
-					"to":   "pcm+moniker://app/srcset:main/lang:java/package:com/module:Other/class:Other/method:baz()"
+					"to":   "code+moniker://app/srcset:main/lang:java/package:com/module:Other/class:Other/method:baz()"
 				}
 			]
 		});
@@ -340,12 +340,12 @@ mod tests {
 	#[test]
 	fn declared_origin_preserved_after_round_trip() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"visibility": "public"
 			}]
 		});

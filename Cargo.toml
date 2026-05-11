@@ -1,18 +1,19 @@
 [package]
-name        = "pg_code_moniker"
+name        = "code-moniker"
 version     = "0.1.0"
 edition     = "2024"
 publish     = false
 license     = "MIT OR Apache-2.0"
-repository  = "https://github.com/ng-galien/pg_code_moniker"
+repository  = "https://github.com/ng-galien/code-moniker"
 description = "Native types and indexed algebra for code symbol identity (moniker) and code graph storage (code_graph)"
 
 [lib]
+name       = "code_moniker"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name              = "pg-moniker"
-path              = "src/bin/pg_moniker.rs"
+name              = "code-moniker"
+path              = "src/bin/code_moniker.rs"
 required-features = ["cli"]
 
 # -----------------------------------------------------------------------------

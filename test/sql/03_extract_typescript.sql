@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(24);
 
@@ -16,11 +16,11 @@ WITH empty AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
-	is(graph_root(g)::text, 'pcm+moniker://app/path:main/lang:ts/module:util',
+	is(graph_root(g)::text, 'code+moniker://app/path:main/lang:ts/module:util',
 		'module moniker = anchor + file basename (extension stripped)') AS r1,
 	is(array_length(graph_def_monikers(g), 1), 1,
 		'empty source yields a graph with the module def only') AS r2
@@ -31,15 +31,15 @@ WITH g AS (
 	SELECT extract_typescript(
 		'src/Foo.ts',
 		'export class Foo { bar(a, b) { return a; } }',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/path:main/lang:ts/dir:src/module:Foo'::moniker,
+	ok(g @> 'code+moniker://app/path:main/lang:ts/dir:src/module:Foo'::moniker,
 		'graph contains the module moniker') AS r3,
-	ok(g @> 'pcm+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Foo'::moniker,
+	ok(g @> 'code+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Foo'::moniker,
 		'graph contains the class def') AS r4,
-	ok(g @> 'pcm+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Foo/method:bar(_,_)'::moniker,
+	ok(g @> 'code+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Foo/method:bar(_,_)'::moniker,
 		'method moniker carries `_` placeholders for unannotated JS params') AS r5
 FROM g;
 
@@ -48,13 +48,13 @@ WITH g AS (
 	SELECT extract_typescript(
 		'src/index.ts',
 		'import { foo, bar } from "./util";',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
 	is(array_length(graph_ref_targets(g), 1), 2,
 		'two named specifiers produce two refs') AS r6,
-	ok('pcm+moniker://app/path:main/lang:ts/dir:src/module:util/path:foo'::moniker = ANY(graph_ref_targets(g)),
+	ok('code+moniker://app/path:main/lang:ts/dir:src/module:util/path:foo'::moniker = ANY(graph_ref_targets(g)),
 		'imports_symbol target = resolved-module + path:<name>') AS r7
 FROM g;
 
@@ -62,11 +62,11 @@ WITH g AS (
 	SELECT extract_typescript(
 		'src/index.ts',
 		'import { useState } from "react";',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
-	ok('pcm+moniker://app/external_pkg:react/path:useState'::moniker = ANY(graph_ref_targets(g)),
+	ok('code+moniker://app/external_pkg:react/path:useState'::moniker = ANY(graph_ref_targets(g)),
 		'bare specifier resolves under project + external_pkg') AS r8
 FROM g;
 
@@ -75,15 +75,15 @@ WITH g AS (
 	SELECT extract_typescript(
 		'src/Foo.ts',
 		'@Decor class Foo extends Base implements I {}',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
-	ok('pcm+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Base'::moniker = ANY(graph_ref_targets(g)),
+	ok('code+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Base'::moniker = ANY(graph_ref_targets(g)),
 		'extends emits a class:<name> target') AS r9,
-	ok('pcm+moniker://app/path:main/lang:ts/dir:src/module:Foo/interface:I'::moniker = ANY(graph_ref_targets(g)),
+	ok('code+moniker://app/path:main/lang:ts/dir:src/module:Foo/interface:I'::moniker = ANY(graph_ref_targets(g)),
 		'implements emits an interface:<name> target') AS r10,
-	ok('pcm+moniker://app/path:main/lang:ts/dir:src/module:Foo/function:Decor()'::moniker = ANY(graph_ref_targets(g)),
+	ok('code+moniker://app/path:main/lang:ts/dir:src/module:Foo/function:Decor()'::moniker = ANY(graph_ref_targets(g)),
 		'decorator emits a function-shaped annotates target') AS r11
 FROM g;
 
@@ -92,14 +92,14 @@ WITH g AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'function f(a, b) { let sum = a + b; }',
-		'pcm+moniker://app/path:main'::moniker,
+		'code+moniker://app/path:main'::moniker,
 		deep := true
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/path:main/lang:ts/module:util/function:f(_,_)/param:a'::moniker,
+	ok(g @> 'code+moniker://app/path:main/lang:ts/module:util/function:f(_,_)/param:a'::moniker,
 		'deep=true surfaces parameter defs') AS r12,
-	ok(g @> 'pcm+moniker://app/path:main/lang:ts/module:util/function:f(_,_)/local:sum'::moniker,
+	ok(g @> 'code+moniker://app/path:main/lang:ts/module:util/function:f(_,_)/local:sum'::moniker,
 		'deep=true surfaces local defs') AS r13
 FROM g;
 
@@ -108,7 +108,7 @@ WITH g AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'class C { m() { this.bar(); } }',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
@@ -122,13 +122,13 @@ WITH no_preset AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'register(UserService);',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 ), with_preset AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'register(UserService);',
-		'pcm+moniker://app/path:main'::moniker,
+		'code+moniker://app/path:main'::moniker,
 		false,
 		ARRAY['register']::text[]
 	) AS g
@@ -146,16 +146,16 @@ WITH g AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'export class A {} class B {}',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
 	is((SELECT visibility FROM graph_defs(g) WHERE kind = 'class'
-	     AND moniker = 'pcm+moniker://app/path:main/lang:ts/module:util/class:A'::moniker),
+	     AND moniker = 'code+moniker://app/path:main/lang:ts/module:util/class:A'::moniker),
 		'public',
 		'exported class is public') AS r17,
 	is((SELECT visibility FROM graph_defs(g) WHERE kind = 'class'
-	     AND moniker = 'pcm+moniker://app/path:main/lang:ts/module:util/class:B'::moniker),
+	     AND moniker = 'code+moniker://app/path:main/lang:ts/module:util/class:B'::moniker),
 		'module',
 		'unexported class is module-visible') AS r18
 FROM g;
@@ -165,7 +165,7 @@ WITH g AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'import { X as Y } from "./foo";',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
@@ -179,7 +179,7 @@ WITH g AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'import a from "./local"; import b from "react";',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
@@ -194,7 +194,7 @@ WITH g AS (
 	SELECT extract_typescript(
 		'explorer.ts',
 		'import { z } from ''zod''; const s = z.string();',
-		'pcm+moniker://app/path:main'::moniker
+		'code+moniker://app/path:main'::moniker
 	) AS g
 )
 SELECT
@@ -208,7 +208,7 @@ WITH member_callee AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'container.register(''repo'', makeRepo);',
-		'pcm+moniker://app/path:main'::moniker,
+		'code+moniker://app/path:main'::moniker,
 		false,
 		ARRAY['register']::text[]
 	) AS g
@@ -216,7 +216,7 @@ WITH member_callee AS (
 	SELECT extract_typescript(
 		'util.ts',
 		'register(''repo'', asFunction(makeRepo).singleton());',
-		'pcm+moniker://app/path:main'::moniker,
+		'code+moniker://app/path:main'::moniker,
 		false,
 		ARRAY['register']::text[]
 	) AS g

@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(9);
 
@@ -15,14 +15,14 @@ WITH g AS (
 	SELECT extract_java(
 		'src/main/java/com/acme/Foo.java',
 		E'package com.acme;\npublic class Foo {}\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
 	is(graph_root(g)::text,
-		'pcm+moniker://app/lang:java/package:com/package:acme/module:Foo',
+		'code+moniker://app/lang:java/package:com/package:acme/module:Foo',
 		'package decl drives the module moniker') AS r1,
-	ok(g @> 'pcm+moniker://app/lang:java/package:com/package:acme/module:Foo/class:Foo'::moniker,
+	ok(g @> 'code+moniker://app/lang:java/package:com/package:acme/module:Foo/class:Foo'::moniker,
 		'class def lives under the module') AS r2
 FROM g;
 
@@ -31,11 +31,11 @@ WITH g AS (
 	SELECT extract_java(
 		'Foo.java',
 		'public class Foo { public int bar(int a, String b) { return a; } }',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
-	ok(g @> 'pcm+moniker://app/lang:java/module:Foo/class:Foo/method:bar(int,String)'::moniker,
+	ok(g @> 'code+moniker://app/lang:java/module:Foo/class:Foo/method:bar(int,String)'::moniker,
 		'method moniker carries full parameter type signature') AS r3,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'method'),
 		'int,String',
@@ -47,7 +47,7 @@ WITH g AS (
 	SELECT extract_java(
 		'Foo.java',
 		'class Foo {}',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -61,7 +61,7 @@ WITH g AS (
 	SELECT extract_java(
 		'Foo.java',
 		E'import java.util.List;\nimport com.acme.Helpers;\nclass Foo {}\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT
@@ -80,7 +80,7 @@ WITH g AS (
 	SELECT extract_java(
 		'Foo.java',
 		'class Foo { void m() { this.bar(); } void bar() {} }',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 )
 SELECT

@@ -1,5 +1,5 @@
 comment = 'Native types and indexed algebra for code symbol identity (moniker) and code graph storage (code_graph)'
 default_version = '0.1.0'
-module_pathname = '$libdir/pg_code_moniker'
+module_pathname = '$libdir/code_moniker'
 relocatable = false
 superuser = false

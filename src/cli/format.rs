@@ -241,14 +241,7 @@ mod tests {
 	fn args() -> Args {
 		Args {
 			file: Some("a.ts".into()),
-			eq: None,
-			lt: None,
-			le: None,
-			gt: None,
-			ge: None,
-			ancestor_of: None,
-			descendant_of: None,
-			bind: None,
+			where_: Vec::new(),
 			kind: vec![],
 			format: OutputFormat::Tsv,
 			count: false,

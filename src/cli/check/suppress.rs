@@ -4,7 +4,7 @@ use crate::cli::check::eval::Violation;
 use crate::core::code_graph::{CodeGraph, DefRecord};
 use crate::core::kinds::KIND_COMMENT;
 
-/// Strip violations suppressed by `// pg-moniker: ignore` (or `#`/`--`)
+/// Strip violations suppressed by `// code-moniker: ignore` (or `#`/`--`)
 /// directives in comment-defs of the graph.
 ///
 /// `ignore` (no `-file` suffix) suppresses violations on the next def whose
@@ -47,7 +47,7 @@ fn directive_re() -> &'static Regex {
 	use std::sync::OnceLock;
 	static RE: OnceLock<Regex> = OnceLock::new();
 	RE.get_or_init(|| {
-		Regex::new(r"(?://|#|--)\s*pg-moniker:\s*ignore(-file)?(?:\[([^\]]+)\])?").unwrap()
+		Regex::new(r"(?://|#|--)\s*code-moniker:\s*ignore(-file)?(?:\[([^\]]+)\])?").unwrap()
 	})
 }
 
@@ -144,73 +144,85 @@ mod tests {
 	#[test]
 	fn ignore_without_filter_drops_next_def_violations() {
 		let cfg = cfg(r#"
-			[ts.class]
-			name_pattern = "^[A-Z][A-Za-z0-9]*$"
+			[[ts.class.where]]
+			id   = "name-pascal"
+			expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
 			"#);
-		let source = "// pg-moniker: ignore\nclass lower_bad {}\n";
+		let source = "// code-moniker: ignore\nclass lower_bad {}\n";
 		assert!(run(source, &cfg).is_empty());
 	}
 
 	#[test]
 	fn ignore_with_specific_id_only_drops_matching_violations() {
 		let cfg = cfg(r#"
-			[ts.class]
-			name_pattern = "^[A-Z][A-Za-z0-9]*$"
-			max_lines    = 1
+			[[ts.class.where]]
+			id   = "name-pascal"
+			expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+
+			[[ts.class.where]]
+			id   = "max-lines"
+			expr = "lines <= 1"
 			"#);
-		let source = "// pg-moniker: ignore[name_pattern]\nclass lower_bad {\n}\n";
+		let source = "// code-moniker: ignore[name-pascal]\nclass lower_bad {\n}\n";
 		let v = run(source, &cfg);
 		let ids: Vec<&str> = v.iter().map(|x| x.rule_id.as_str()).collect();
-		assert!(!ids.contains(&"ts.class.name_pattern"), "{ids:?}");
+		assert!(!ids.contains(&"ts.class.name-pascal"), "{ids:?}");
 		assert!(
-			ids.contains(&"ts.class.max_lines"),
-			"max_lines should remain: {ids:?}"
+			ids.contains(&"ts.class.max-lines"),
+			"max-lines should remain: {ids:?}"
 		);
 	}
 
 	#[test]
 	fn ignore_with_other_id_does_not_drop_violation() {
 		let cfg = cfg(r#"
-			[ts.class]
-			name_pattern = "^[A-Z][A-Za-z0-9]*$"
+			[[ts.class.where]]
+			id   = "name-pascal"
+			expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
 			"#);
-		let source = "// pg-moniker: ignore[max_lines]\nclass lower_bad {}\n";
+		let source = "// code-moniker: ignore[max-lines]\nclass lower_bad {}\n";
 		let v = run(source, &cfg);
 		assert_eq!(v.len(), 1);
-		assert_eq!(v[0].rule_id, "ts.class.name_pattern");
+		assert_eq!(v[0].rule_id, "ts.class.name-pascal");
 	}
 
 	#[test]
 	fn ignore_file_drops_violations_anywhere() {
 		let cfg = cfg(r#"
-			[ts.class]
-			name_pattern = "^[A-Z][A-Za-z0-9]*$"
+			[[ts.class.where]]
+			id   = "name-pascal"
+			expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
 			"#);
-		let source = "// pg-moniker: ignore-file\nclass lower_one {}\nclass another_lower {}\n";
+		let source = "// code-moniker: ignore-file\nclass lower_one {}\nclass another_lower {}\n";
 		assert!(run(source, &cfg).is_empty());
 	}
 
 	#[test]
 	fn ignore_file_with_filter_only_drops_listed_rules() {
 		let cfg = cfg(r#"
-			[ts.class]
-			name_pattern = "^[A-Z][A-Za-z0-9]*$"
-			max_lines    = 1
+			[[ts.class.where]]
+			id   = "name-pascal"
+			expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+
+			[[ts.class.where]]
+			id   = "max-lines"
+			expr = "lines <= 1"
 			"#);
-		let source = "// pg-moniker: ignore-file[name_pattern]\nclass lower_one {\n}\n";
+		let source = "// code-moniker: ignore-file[name-pascal]\nclass lower_one {\n}\n";
 		let v = run(source, &cfg);
 		let ids: Vec<&str> = v.iter().map(|x| x.rule_id.as_str()).collect();
-		assert!(!ids.contains(&"ts.class.name_pattern"), "{ids:?}");
-		assert!(ids.contains(&"ts.class.max_lines"), "{ids:?}");
+		assert!(!ids.contains(&"ts.class.name-pascal"), "{ids:?}");
+		assert!(ids.contains(&"ts.class.max-lines"), "{ids:?}");
 	}
 
 	#[test]
 	fn ignore_only_applies_to_immediate_next_def() {
 		let cfg = cfg(r#"
-			[ts.class]
-			name_pattern = "^[A-Z][A-Za-z0-9]*$"
+			[[ts.class.where]]
+			id   = "name-pascal"
+			expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
 			"#);
-		let source = "// pg-moniker: ignore\nclass lower_one {}\nclass lower_two {}\n";
+		let source = "// code-moniker: ignore\nclass lower_one {}\nclass lower_two {}\n";
 		let v = run(source, &cfg);
 		let ids: Vec<&str> = v.iter().map(|x| x.rule_id.as_str()).collect();
 		assert_eq!(v.len(), 1, "second class still flagged: {ids:?}");
@@ -219,10 +231,11 @@ mod tests {
 	#[test]
 	fn ignore_directives_dont_self_flag_as_prose() {
 		let cfg = cfg(r#"
-			[ts.comment]
-			allow_only_patterns = ['^\s*//\s*pg-moniker:']
+			[[ts.comment.where]]
+			id   = "allow-only"
+			expr = '''text =~ ^\s*//\s*code-moniker:'''
 			"#);
-		let source = "// pg-moniker: ignore\nclass Whatever {}\n";
+		let source = "// code-moniker: ignore\nclass Whatever {}\n";
 		assert!(run(source, &cfg).is_empty());
 	}
 }

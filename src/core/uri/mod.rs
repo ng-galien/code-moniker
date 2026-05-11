@@ -68,7 +68,7 @@ pub struct UriConfig<'a> {
 impl Default for UriConfig<'_> {
 	fn default() -> Self {
 		Self {
-			scheme: "pcm+moniker://",
+			scheme: "code+moniker://",
 		}
 	}
 }

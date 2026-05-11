@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(6);
 
@@ -41,7 +41,7 @@ WITH src AS (
 	SELECT extract_typescript(
 		'app/src/foo.ts',
 		src.code,
-		'pcm+moniker://app'::moniker,
+		'code+moniker://app'::moniker,
 		true
 	) AS graph
 	FROM src

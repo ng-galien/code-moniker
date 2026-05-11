@@ -41,8 +41,8 @@ encode the final kind. A moniker is a heterogeneous path, so
 `esac+class://...` is redundant and fragile.
 
 The full scheme (`<base>+moniker://`) is configured via the Postgres GUC
-`pg_code_moniker.scheme`. Default `pcm+moniker://`. A consumer database sets
-its own once: `ALTER DATABASE esac SET pg_code_moniker.scheme = 'esac+moniker://'`.
+`code_moniker.scheme`. Default `code+moniker://`. A consumer database sets
+its own once: `ALTER DATABASE esac SET code_moniker.scheme = 'esac+moniker://'`.
 
 ## Project regime / Language regime
 

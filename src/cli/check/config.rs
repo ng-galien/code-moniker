@@ -10,9 +10,10 @@ const DEFAULT_PRESET: &str = include_str!("presets/default.toml");
 
 /// Internal kinds emitted by extractors that are not part of `Lang::ALLOWED_KINDS`
 /// but ARE legitimate rule targets.
-const INTERNAL_KINDS: &[&str] = &["module", "local", "param", "comment"];
+pub(crate) const INTERNAL_KINDS: &[&str] = &["module", "local", "param", "comment"];
 
 #[derive(Debug, Default, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
 	#[serde(default)]
 	pub default: LangRules,
@@ -41,16 +42,25 @@ pub struct LangRules {
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct KindRules {
-	pub name_pattern: Option<String>,
-	pub forbid_name_patterns: Option<Vec<String>>,
-	pub max_lines: Option<u32>,
-	pub max_count_per_parent: Option<u32>,
-	pub forbid_patterns: Option<Vec<String>>,
-	pub allow_only_patterns: Option<Vec<String>>,
+	#[serde(default, rename = "where")]
+	pub rules: Vec<RuleEntry>,
 	/// Visibility name that triggers the doc-comment requirement, e.g. "public",
-	/// "any". `None` disables the rule.
+	/// "any". `None` disables the rule. Spatial check (annotation-aware), not an
+	/// expression — lives outside the `where` DSL.
 	pub require_doc_comment: Option<String>,
-	pub messages: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct RuleEntry {
+	/// Stable rule-id used in violation reports and suppression directives.
+	/// When absent, the engine derives `where_<index>` from the rule's
+	/// position in the per-kind list.
+	#[serde(default)]
+	pub id: Option<String>,
+	pub expr: String,
+	#[serde(default)]
+	pub message: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -64,16 +74,24 @@ pub enum ConfigError {
 	},
 	#[error("cannot read `{path}`: {error}")]
 	Io { path: String, error: std::io::Error },
-	#[error("invalid regex at `{at}` (`{pattern}`): {error}")]
-	InvalidRegex {
+	#[error("invalid expression at `{at}`: {error}")]
+	InvalidExpr {
 		at: String,
-		pattern: String,
-		error: regex::Error,
+		error: super::expr::ParseError,
 	},
 	#[error("unknown kind `{kind}` under `[{section}.{kind}]` (allowed: {allowed})")]
 	UnknownKind {
 		section: String,
 		kind: String,
+		allowed: String,
+	},
+	#[error(
+		"require_doc_comment = `{value}` under `[{section}.{kind}]` is not a recognised visibility for that language (allowed: {allowed})"
+	)]
+	UnknownDocVisibility {
+		section: String,
+		kind: String,
+		value: String,
 		allowed: String,
 	},
 }
@@ -128,48 +146,42 @@ fn merge_lang(base: &mut LangRules, ov: LangRules) {
 	}
 }
 
-/// Field-by-field merge: each `Some` in `ov` overwrites `base`. Vec/HashMap
-/// fields are replaced wholesale, not extended — to extend a default list,
-/// the user must repeat the inherited entries explicitly.
+/// `where` rules are concatenated when both sides supply entries: an entry
+/// from `ov` whose `id` matches an existing base entry replaces that base
+/// entry; otherwise it's appended. `require_doc_comment` overrides if set.
 fn merge_kind(base: &mut KindRules, ov: KindRules) {
-	if ov.name_pattern.is_some() {
-		base.name_pattern = ov.name_pattern;
-	}
-	if ov.forbid_name_patterns.is_some() {
-		base.forbid_name_patterns = ov.forbid_name_patterns;
-	}
-	if ov.max_lines.is_some() {
-		base.max_lines = ov.max_lines;
-	}
-	if ov.max_count_per_parent.is_some() {
-		base.max_count_per_parent = ov.max_count_per_parent;
-	}
-	if ov.forbid_patterns.is_some() {
-		base.forbid_patterns = ov.forbid_patterns;
-	}
-	if ov.allow_only_patterns.is_some() {
-		base.allow_only_patterns = ov.allow_only_patterns;
+	for ov_rule in ov.rules {
+		match ov_rule
+			.id
+			.as_deref()
+			.and_then(|id| base.rules.iter().position(|r| r.id.as_deref() == Some(id)))
+		{
+			Some(idx) => base.rules[idx] = ov_rule,
+			None => base.rules.push(ov_rule),
+		}
 	}
 	if ov.require_doc_comment.is_some() {
 		base.require_doc_comment = ov.require_doc_comment;
 	}
-	if let Some(ov_msgs) = ov.messages {
-		match &mut base.messages {
-			Some(base_msgs) => {
-				for (k, v) in ov_msgs {
-					base_msgs.insert(k, v);
-				}
-			}
-			None => base.messages = Some(ov_msgs),
-		}
-	}
 }
 
 fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
-	validate_lang_section(&cfg.default, "default", &allowed_kinds_set(None), path)?;
+	validate_lang_section(
+		&cfg.default,
+		"default",
+		&allowed_kinds_set(None),
+		None,
+		path,
+	)?;
 	for lang in Lang::ALL {
 		let allowed = allowed_kinds_set(Some(*lang));
-		validate_lang_section(cfg.for_lang(*lang), config_section(*lang), &allowed, path)?;
+		validate_lang_section(
+			cfg.for_lang(*lang),
+			config_section(*lang),
+			&allowed,
+			Some(*lang),
+			path,
+		)?;
 	}
 	Ok(())
 }
@@ -188,6 +200,21 @@ fn allowed_kinds_set(lang: Option<Lang>) -> Vec<&'static str> {
 	out
 }
 
+/// Kinds legitimately usable in DSL `count(<kind>)` for `lang` — `lang`'s
+/// extractor vocabulary plus internal kinds (`module`, `local`, `param`,
+/// `comment`).
+pub(crate) fn allowed_kinds_for(lang: Lang) -> Vec<&'static str> {
+	allowed_kinds_set(Some(lang))
+}
+
+/// `lang`'s visibility vocabulary plus `"any"`. `"any"` is a special token
+/// that means "ignore the visibility and require a doc comment everywhere".
+fn allowed_doc_vis_for(lang: Lang) -> Vec<&'static str> {
+	let mut out: Vec<&'static str> = vec!["any"];
+	out.extend(lang.allowed_visibilities().iter().copied());
+	out
+}
+
 /// TOML section / rule-id segment for a language. `Lang::Rs` aliases to
 /// `rust` for readability — every other lang uses its `LANG_TAG` verbatim.
 pub(crate) fn config_section(lang: Lang) -> &'static str {
@@ -201,15 +228,27 @@ fn validate_lang_section(
 	lr: &LangRules,
 	section: &str,
 	allowed: &[&str],
+	lang: Option<Lang>,
 	_path: &str,
 ) -> Result<(), ConfigError> {
-	for kind in lr.kinds.keys() {
+	for (kind, kr) in lr.kinds.iter() {
 		if !allowed.contains(&kind.as_str()) {
 			return Err(ConfigError::UnknownKind {
 				section: section.to_string(),
 				kind: kind.clone(),
 				allowed: allowed.join(", "),
 			});
+		}
+		if let (Some(value), Some(l)) = (&kr.require_doc_comment, lang) {
+			let allowed_vis = allowed_doc_vis_for(l);
+			if !allowed_vis.contains(&value.as_str()) {
+				return Err(ConfigError::UnknownDocVisibility {
+					section: section.to_string(),
+					kind: kind.clone(),
+					value: value.clone(),
+					allowed: allowed_vis.join(", "),
+				});
+			}
 		}
 	}
 	Ok(())
@@ -257,85 +296,95 @@ mod tests {
 		let cfg = load_default().expect("default preset must parse");
 		assert!(cfg.ts.kinds.contains_key("class"));
 		assert!(cfg.ts.kinds.contains_key("function"));
-		assert!(cfg.ts.kinds.contains_key("comment"));
 	}
 
 	#[test]
-	fn ts_class_has_pascal_case_pattern_in_default() {
+	fn ts_class_ships_at_least_one_rule_in_default() {
 		let cfg = load_default().unwrap();
 		let r = cfg.rules_for(Lang::Ts, "class").expect("ts.class present");
-		let pat = r.name_pattern.as_deref().unwrap();
-		assert!(
-			pat.contains("[A-Z]"),
-			"expected PascalCase regex, got {pat}"
-		);
+		assert!(!r.rules.is_empty(), "preset must ship rules for ts.class");
 	}
 
 	#[test]
 	fn rules_for_falls_back_to_default_section() {
 		let cfg = parse(
 			r#"
-			[default.module]
-			max_lines = 99
+			[[default.module.where]]
+			id   = "stub"
+			expr = "lines <= 99"
 
-			[ts.class]
-			name_pattern = "x"
+			[[ts.class.where]]
+			expr = "name =~ ^X"
 			"#,
 		)
 		.unwrap();
-		assert_eq!(
-			cfg.rules_for(Lang::Ts, "module").and_then(|r| r.max_lines),
-			Some(99),
+		let r = cfg
+			.rules_for(Lang::Ts, "module")
+			.expect("falls back to default.module");
+		assert_eq!(r.rules.len(), 1);
+		assert_eq!(r.rules[0].id.as_deref(), Some("stub"));
+	}
+
+	#[test]
+	fn override_with_same_id_replaces_preset_rule() {
+		let user = parse(
+			r#"
+			[[ts.function.where]]
+			id   = "max-lines"
+			expr = "lines <= 999"
+			"#,
+		)
+		.unwrap();
+		let mut base = parse(
+			r#"
+			[[ts.function.where]]
+			id   = "name-camel"
+			expr = "name =~ ^[a-z]"
+
+			[[ts.function.where]]
+			id   = "max-lines"
+			expr = "lines <= 60"
+			"#,
+		)
+		.unwrap();
+		merge_into(&mut base, user);
+		let f = base.rules_for(Lang::Ts, "function").unwrap();
+		assert_eq!(f.rules.len(), 2, "id-matched override replaces in place");
+		let max_lines = f
+			.rules
+			.iter()
+			.find(|r| r.id.as_deref() == Some("max-lines"))
+			.unwrap();
+		assert!(max_lines.expr.contains("999"), "user override applied");
+		assert!(
+			f.rules
+				.iter()
+				.any(|r| r.id.as_deref() == Some("name-camel")),
+			"sibling rule preserved"
 		);
 	}
 
 	#[test]
-	fn override_max_lines_keeps_inherited_name_pattern() {
+	fn override_with_new_id_appends_to_preset() {
 		let user = parse(
 			r#"
-			[ts.function]
-			max_lines = 10
+			[[ts.class.where]]
+			id   = "extra"
+			expr = "name !~ ^Internal"
 			"#,
 		)
 		.unwrap();
-		let mut base = load_default().unwrap();
-		let pattern_before = base
-			.rules_for(Lang::Ts, "function")
-			.unwrap()
-			.name_pattern
-			.clone();
-		assert!(
-			pattern_before.is_some(),
-			"preset should ship a TS function name pattern"
-		);
-
-		merge_into(&mut base, user);
-		let merged = base.rules_for(Lang::Ts, "function").unwrap();
-		assert_eq!(merged.max_lines, Some(10), "override applied");
-		assert_eq!(
-			merged.name_pattern, pattern_before,
-			"name_pattern from preset must survive the merge"
-		);
-	}
-
-	#[test]
-	fn override_messages_extends_inherited_keys() {
-		let user = parse(
+		let mut base = parse(
 			r#"
-			[ts.class.messages]
-			max_lines = "custom"
+			[[ts.class.where]]
+			id   = "name-pascal"
+			expr = "name =~ ^[A-Z]"
 			"#,
 		)
 		.unwrap();
-		let mut base = load_default().unwrap();
 		merge_into(&mut base, user);
-		let merged = base.rules_for(Lang::Ts, "class").unwrap();
-		let msgs = merged.messages.as_ref().expect("messages present");
-		assert_eq!(msgs.get("max_lines").map(|s| s.as_str()), Some("custom"));
-		assert!(
-			msgs.contains_key("name_pattern"),
-			"preset name_pattern message must survive: {msgs:?}"
-		);
+		let r = base.rules_for(Lang::Ts, "class").unwrap();
+		assert_eq!(r.rules.len(), 2);
 	}
 
 	#[test]
@@ -344,18 +393,56 @@ mod tests {
 			r#"
 			[ts.function]
 			max_lines = 10
-			bogus_unknown_field = true
 			"#,
 		);
-		assert!(r.is_err(), "deny_unknown_fields should reject typos");
+		assert!(r.is_err(), "deny_unknown_fields rejects legacy fields");
+	}
+
+	#[test]
+	fn unknown_top_level_lang_section_is_rejected() {
+		let r = toml::from_str::<Config>(
+			r#"
+			[[typescript.class.where]]
+			expr = "name =~ ^[A-Z]"
+			"#,
+		);
+		assert!(
+			r.is_err(),
+			"deny_unknown_fields must reject unknown lang sections"
+		);
+	}
+
+	#[test]
+	fn unknown_require_doc_visibility_is_rejected() {
+		let r = parse(
+			r#"
+			[ts.class]
+			require_doc_comment = "publc"
+			"#,
+		);
+		match r {
+			Err(ConfigError::UnknownDocVisibility { value, .. }) => assert_eq!(value, "publc"),
+			other => panic!("expected UnknownDocVisibility, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn doc_visibility_any_is_accepted() {
+		let r = parse(
+			r#"
+			[ts.class]
+			require_doc_comment = "any"
+			"#,
+		);
+		assert!(r.is_ok(), "any is always valid");
 	}
 
 	#[test]
 	fn unknown_kind_section_is_rejected() {
 		let r = parse(
 			r#"
-			[ts.classs]
-			name_pattern = "x"
+			[[ts.classs.where]]
+			expr = "name =~ ^X"
 			"#,
 		);
 		match r {
@@ -383,13 +470,13 @@ mod tests {
 	}
 
 	#[test]
-	fn default_section_per_language_is_loadable() {
+	fn default_preset_ships_at_least_one_rule_per_language() {
 		let cfg = load_default().unwrap();
 		for lang in Lang::ALL {
 			let lr = cfg.for_lang(*lang);
 			assert!(
-				lr.kinds.contains_key("comment"),
-				"{} must define comment rules in the default preset",
+				!lr.kinds.is_empty(),
+				"{} should ship at least one default rule",
 				lang.tag()
 			);
 		}

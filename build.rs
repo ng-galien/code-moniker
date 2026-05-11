@@ -31,12 +31,12 @@ fn main() {
 		"pl_scanner.c",
 		"pl_funcs.c",
 		"pl_comp.c",
-		"pcm_plpgsql_driver.c",
+		"cmk_plpgsql_driver.c",
 	] {
 		build.file(vendor.join(src));
 	}
 
-	build.compile("pcm_plpgsql");
+	build.compile("cmk_plpgsql");
 }
 
 fn select_pg_feature() -> Option<String> {

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-`pg_code_moniker` — PostgreSQL extension in Rust + pgrx. Native `moniker` and `code_graph` types with GiST-indexed algebra. No tables, no triggers, no persistent state — **types + operators + per-language extractors**.
+`code-moniker` — PostgreSQL extension in Rust + pgrx + standalone CLI (`code-moniker`). Native `moniker` and `code_graph` types with GiST-indexed algebra. No tables, no triggers, no persistent state — **core + operators + per-language extractors**.
 
 ## Documents
 
@@ -9,7 +9,7 @@
 - `CLAUDE.md` (this file) — coding rules
 - `docs/EXTRACTION_TARGETS.md` — parity targets vs ESAC's existing extractors
 - `docs/MONIKER_URI.md` — moniker URI grammar
-- `docs/CLI.md` — `pg-moniker` standalone binary (extract + check)
+- `docs/CLI.md` — `code-moniker` standalone binary (extract + check)
 - `docs/declare_schema.json` — JSON Schema 2020-12 for `code_graph_declare`. Per-language profiles must stay in sync with `LangExtractor::ALLOWED_KINDS` / `ALLOWED_VISIBILITIES` (enforced by the schema-sync test in `src/lang/mod.rs`).
 
 ## Comment sobriety

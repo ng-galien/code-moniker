@@ -163,13 +163,13 @@ mod tests {
 
 	fn minimal_spec() -> Value {
 		json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [
 				{
-					"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
+					"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/class:Foo",
 					"kind": "class",
-					"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+					"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 					"visibility": "public"
 				}
 			]
@@ -210,7 +210,7 @@ mod tests {
 	#[test]
 	fn rejects_unknown_lang() {
 		let v = json!({
-			"root": "pcm+moniker://app/foo:bar",
+			"root": "code+moniker://app/foo:bar",
 			"lang": "cobol",
 			"symbols": []
 		});
@@ -221,12 +221,12 @@ mod tests {
 	#[test]
 	fn rejects_kind_outside_profile() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo/trait:Foo",
+				"moniker": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo/trait:Foo",
 				"kind": "trait",
-				"parent": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo"
+				"parent": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo"
 			}]
 		});
 		let err = parse_spec(&v).unwrap_err();
@@ -236,12 +236,12 @@ mod tests {
 	#[test]
 	fn rejects_visibility_outside_profile() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:ts/dir:src/module:foo",
+			"root": "code+moniker://app/srcset:main/lang:ts/dir:src/module:foo",
 			"lang": "ts",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:ts/dir:src/module:foo/class:Bar",
+				"moniker": "code+moniker://app/srcset:main/lang:ts/dir:src/module:foo/class:Bar",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:ts/dir:src/module:foo",
+				"parent": "code+moniker://app/srcset:main/lang:ts/dir:src/module:foo",
 				"visibility": "package"
 			}]
 		});
@@ -255,12 +255,12 @@ mod tests {
 	#[test]
 	fn ts_accepts_module_visibility() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:ts/dir:src/module:foo",
+			"root": "code+moniker://app/srcset:main/lang:ts/dir:src/module:foo",
 			"lang": "ts",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:ts/dir:src/module:foo/class:Bar",
+				"moniker": "code+moniker://app/srcset:main/lang:ts/dir:src/module:foo/class:Bar",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:ts/dir:src/module:foo",
+				"parent": "code+moniker://app/srcset:main/lang:ts/dir:src/module:foo",
 				"visibility": "module"
 			}]
 		});
@@ -270,12 +270,12 @@ mod tests {
 	#[test]
 	fn python_accepts_module_visibility() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:python/package:acme/module:util",
+			"root": "code+moniker://app/srcset:main/lang:python/package:acme/module:util",
 			"lang": "python",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:python/package:acme/module:util/class:Helper",
+				"moniker": "code+moniker://app/srcset:main/lang:python/package:acme/module:util/class:Helper",
 				"kind": "class",
-				"parent": "pcm+moniker://app/srcset:main/lang:python/package:acme/module:util",
+				"parent": "code+moniker://app/srcset:main/lang:python/package:acme/module:util",
 				"visibility": "module"
 			}]
 		});
@@ -285,12 +285,12 @@ mod tests {
 	#[test]
 	fn go_accepts_module_visibility_replaces_package() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:go/package:foo/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:go/package:foo/module:svc",
 			"lang": "go",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:go/package:foo/module:svc/func:helper()",
+				"moniker": "code+moniker://app/srcset:main/lang:go/package:foo/module:svc/func:helper()",
 				"kind": "func",
-				"parent": "pcm+moniker://app/srcset:main/lang:go/package:foo/module:svc",
+				"parent": "code+moniker://app/srcset:main/lang:go/package:foo/module:svc",
 				"visibility": "module"
 			}]
 		});
@@ -300,12 +300,12 @@ mod tests {
 	#[test]
 	fn go_rejects_legacy_package_visibility() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:go/package:foo/module:svc",
+			"root": "code+moniker://app/srcset:main/lang:go/package:foo/module:svc",
 			"lang": "go",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:go/package:foo/module:svc/func:helper()",
+				"moniker": "code+moniker://app/srcset:main/lang:go/package:foo/module:svc/func:helper()",
 				"kind": "func",
-				"parent": "pcm+moniker://app/srcset:main/lang:go/package:foo/module:svc",
+				"parent": "code+moniker://app/srcset:main/lang:go/package:foo/module:svc",
 				"visibility": "package"
 			}]
 		});
@@ -320,12 +320,12 @@ mod tests {
 	#[test]
 	fn sql_ignores_visibility_field() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:db/lang:sql/schema:public",
+			"root": "code+moniker://app/srcset:db/lang:sql/schema:public",
 			"lang": "sql",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:db/lang:sql/schema:public/function:do_thing(uuid)",
+				"moniker": "code+moniker://app/srcset:db/lang:sql/schema:public/function:do_thing(uuid)",
 				"kind": "function",
-				"parent": "pcm+moniker://app/srcset:db/lang:sql/schema:public",
+				"parent": "code+moniker://app/srcset:db/lang:sql/schema:public",
 				"visibility": "anything"
 			}]
 		});
@@ -335,13 +335,13 @@ mod tests {
 	#[test]
 	fn rejects_unknown_edge_kind() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+			"root": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 			"lang": "java",
 			"symbols": [],
 			"edges": [{
-				"from": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Foo",
+				"from": "code+moniker://app/srcset:main/lang:java/package:com/module:Foo",
 				"kind": "extends",
-				"to": "pcm+moniker://app/srcset:main/lang:java/package:com/module:Bar"
+				"to": "code+moniker://app/srcset:main/lang:java/package:com/module:Bar"
 			}]
 		});
 		let err = parse_spec(&v).unwrap_err();
@@ -351,26 +351,26 @@ mod tests {
 	#[test]
 	fn parses_all_four_canonical_edge_kinds() {
 		let v = json!({
-			"root": "pcm+moniker://app/srcset:main/lang:rs/module:foo",
+			"root": "code+moniker://app/srcset:main/lang:rs/module:foo",
 			"lang": "rs",
 			"symbols": [{
-				"moniker": "pcm+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
+				"moniker": "code+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
 				"kind": "fn",
-				"parent": "pcm+moniker://app/srcset:main/lang:rs/module:foo"
+				"parent": "code+moniker://app/srcset:main/lang:rs/module:foo"
 			}],
 			"edges": [
-				{ "from": "pcm+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
+				{ "from": "code+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
 				  "kind": "depends_on",
-				  "to":   "pcm+moniker://app/external_pkg:cargo/path:serde" },
-				{ "from": "pcm+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
+				  "to":   "code+moniker://app/external_pkg:cargo/path:serde" },
+				{ "from": "code+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
 				  "kind": "calls",
-				  "to":   "pcm+moniker://app/srcset:main/lang:rs/module:foo/fn:g()" },
-				{ "from": "pcm+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
+				  "to":   "code+moniker://app/srcset:main/lang:rs/module:foo/fn:g()" },
+				{ "from": "code+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
 				  "kind": "injects:provide",
-				  "to":   "pcm+moniker://app/srcset:main/lang:rs/module:bar/trait:T" },
-				{ "from": "pcm+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
+				  "to":   "code+moniker://app/srcset:main/lang:rs/module:bar/trait:T" },
+				{ "from": "code+moniker://app/srcset:main/lang:rs/module:foo/fn:f()",
 				  "kind": "injects:require",
-				  "to":   "pcm+moniker://app/srcset:main/lang:rs/module:bar/trait:U" }
+				  "to":   "code+moniker://app/srcset:main/lang:rs/module:bar/trait:U" }
 			]
 		});
 		let s = parse_spec(&v).unwrap();

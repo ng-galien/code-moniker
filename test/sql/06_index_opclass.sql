@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(11);
 
@@ -17,28 +17,28 @@ SELECT has_function('moniker_hash'::name, ARRAY['moniker'],
 SELECT is(
 	(SELECT array_agg(m::text ORDER BY m)
 	   FROM (VALUES
-	     ('pcm+moniker://app/path:c'::moniker),
-	     ('pcm+moniker://app/path:a'::moniker),
-	     ('pcm+moniker://app/path:b'::moniker)
+	     ('code+moniker://app/path:c'::moniker),
+	     ('code+moniker://app/path:a'::moniker),
+	     ('code+moniker://app/path:b'::moniker)
 	   ) AS t(m)),
-	ARRAY['pcm+moniker://app/path:a', 'pcm+moniker://app/path:b', 'pcm+moniker://app/path:c']::text[],
+	ARRAY['code+moniker://app/path:a', 'code+moniker://app/path:b', 'code+moniker://app/path:c']::text[],
 	'ORDER BY moniker uses the btree opclass');
 
 SELECT ok(
-	'pcm+moniker://app/path:main'::moniker < 'pcm+moniker://app/path:main/class:Foo'::moniker,
+	'code+moniker://app/path:main'::moniker < 'code+moniker://app/path:main/class:Foo'::moniker,
 	'parent < child via btree');
 
 SELECT ok(
-	NOT ('pcm+moniker://app/class:Foo'::moniker > 'pcm+moniker://app/class:Foo'::moniker),
+	NOT ('code+moniker://app/class:Foo'::moniker > 'code+moniker://app/class:Foo'::moniker),
 	'reflexive: moniker is not strictly greater than itself');
 
 
 SELECT is(
 	(SELECT count(DISTINCT m)::int
 	   FROM (VALUES
-	     ('pcm+moniker://app/path:a'::moniker),
-	     ('pcm+moniker://app/path:a'::moniker),
-	     ('pcm+moniker://app/path:b'::moniker)
+	     ('code+moniker://app/path:a'::moniker),
+	     ('code+moniker://app/path:a'::moniker),
+	     ('code+moniker://app/path:b'::moniker)
 	   ) AS t(m)),
 	2,
 	'DISTINCT moniker uses the hash opclass');
@@ -57,27 +57,27 @@ SELECT pass('GIN on graph_ref_targets(graph) created');
 INSERT INTO module VALUES
 	('lib', extract_typescript('src/lib.ts',
 		'export class Lib { go() { return 1; } }',
-		'pcm+moniker://app'::moniker)),
+		'code+moniker://app'::moniker)),
 	('app', extract_typescript('src/app.ts',
 		'import { Lib } from "./lib";',
-		'pcm+moniker://app'::moniker));
+		'code+moniker://app'::moniker));
 
 SELECT is(
 	(SELECT id FROM module
-	  WHERE graph_def_monikers(graph) @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker]),
+	  WHERE graph_def_monikers(graph) @> ARRAY['code+moniker://app/lang:ts/dir:src/module:lib/class:Lib'::moniker]),
 	'lib',
 	'graph_def_monikers @> ARRAY[m] resolves the owning module');
 
 SELECT is(
 	(SELECT array_agg(id ORDER BY id) FROM module
-	  WHERE graph_ref_targets(graph) @> ARRAY['pcm+moniker://app/lang:ts/dir:src/module:lib/path:Lib'::moniker]),
+	  WHERE graph_ref_targets(graph) @> ARRAY['code+moniker://app/lang:ts/dir:src/module:lib/path:Lib'::moniker]),
 	ARRAY['app']::text[],
 	'graph_ref_targets @> ARRAY[m] finds every importer');
 
 SELECT is(
 	(SELECT array_agg(graph_root(graph)::text ORDER BY graph_root(graph))
 	   FROM module),
-	ARRAY['pcm+moniker://app/lang:ts/dir:src/module:app', 'pcm+moniker://app/lang:ts/dir:src/module:lib']::text[],
+	ARRAY['code+moniker://app/lang:ts/dir:src/module:app', 'code+moniker://app/lang:ts/dir:src/module:lib']::text[],
 	'ORDER BY on a moniker-returning expression');
 
 SELECT * FROM finish();

@@ -2,7 +2,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
-CREATE EXTENSION IF NOT EXISTS pg_code_moniker;
+CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(8);
 
@@ -57,7 +57,7 @@ SELECT
 
 CREATE TEMP TABLE gomod(project moniker, name text, version text);
 INSERT INTO gomod
-	SELECT 'pcm+moniker://app'::moniker, name, version
+	SELECT 'code+moniker://app'::moniker, name, version
 	FROM extract_go_mod($t$
 module myapp
 
@@ -68,7 +68,7 @@ WITH g AS (
 	SELECT extract_go(
 		'cmd/main.go',
 		E'package main\nimport "github.com/gorilla/mux"\nfunc Run() { mux.NewRouter() }\n',
-		'pcm+moniker://app'::moniker
+		'code+moniker://app'::moniker
 	) AS g
 ), refs_with_root AS (
 	SELECT external_pkg_root(t) AS root

@@ -107,7 +107,7 @@ $PSQL -d postgres -c "CREATE DATABASE $DB;" >/dev/null
 
 echo "== install extension + schema"
 $PSQL -d "$DB" <<SQL >/dev/null
-CREATE EXTENSION pg_code_moniker;
+CREATE EXTENSION code_moniker;
 CREATE TABLE module (
 	project    text       NOT NULL,
 	lang       text       NOT NULL,
@@ -187,7 +187,7 @@ ingest_one() {
 		fi
 		local source_escaped="${rel//\'/\'\'}"
 		local logical_escaped="${logical//\'/\'\'}"
-		printf "INSERT INTO module(project, lang, source_uri, graph) VALUES ('%s', '%s', '%s', %s('%s', pg_read_file('%s'), 'pcm+moniker://%s'::moniker));\n" \
+		printf "INSERT INTO module(project, lang, source_uri, graph) VALUES ('%s', '%s', '%s', %s('%s', pg_read_file('%s'), 'code+moniker://%s'::moniker));\n" \
 			"$project" "$lang" "$source_escaped" "$extr" "$logical_escaped" "$abs" "$project" \
 			>>"$batch_sql"
 		count=$((count + 1))

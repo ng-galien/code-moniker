@@ -98,7 +98,7 @@ Required kinds:
 - external monikers for JDK / Maven dependencies: when a type refers to
   something imported from `java.*`, `javax.*`, or a Maven coordinate
   declared in `presets`, emit an external moniker shape
-  (`pcm+moniker://app/external_pkg:maven/group:org.springframework/artifact:spring-core/version:6.1.0#class:ApplicationContext`).
+  (`code+moniker://app/external_pkg:maven/group:org.springframework/artifact:spring-core/version:6.1.0#class:ApplicationContext`).
   Exact shape evolves with the Maven graph work; until then, name-only
   with explicit external kind is acceptable.
 

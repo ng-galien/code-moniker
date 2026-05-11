@@ -2,7 +2,7 @@
 
 Deep extraction captures symbols below the repo-wide public surface of a
 module: function parameters, local variables, inline callbacks, function
-expressions. These symbols are **in scope** for `pg_code_moniker`.
+expressions. These symbols are **in scope** for `code-moniker`.
 
 ESAC may choose not to flatten them into the repo-wide `esac.symbol` /
 `esac.linkage` projections. That does not make them out-of-scope. They power

@@ -45,7 +45,7 @@ Pinned today:
 
 | lang | project          | size hint            |
 | ---- | ---------------- | -------------------- |
-| rs   | pg_code_moniker  | self (~50 files)     |
+| rs   | code-moniker     | self (~50 files)     |
 | rs   | clap (builder)   | popular CLI lib      |
 | rs   | tokio bytes      | small but type-rich  |
 | ts   | zod              | declarative schemas  |

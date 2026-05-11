@@ -7,7 +7,7 @@ PG_VERSION="${PG_VERSION:-pg17}"
 PG_CONFIG="${PG_CONFIG:-$HOME/.pgrx/17.9/pgrx-install/bin/pg_config}"
 PG_BIN="$(dirname "$PG_CONFIG")"
 PG_PORT="${PG_PORT:-28817}"
-DB_NAME="${DB_NAME:-pg_code_moniker_test}"
+DB_NAME="${DB_NAME:-code_moniker_test}"
 
 PSQL="$PG_BIN/psql -h localhost -p $PG_PORT -X -q -A -t -v ON_ERROR_STOP=1"
 
