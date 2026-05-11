@@ -7,7 +7,7 @@ use crate::lang::Lang;
 #[derive(Debug, Error)]
 pub enum LangError {
 	#[error(
-		"unsupported file extension `.{0}` (known: ts/tsx/js/jsx, rs, java, py, go, cs, sql/plpgsql)"
+		"unsupported file extension `.{0}` (known: ts/tsx/js/jsx/mjs/cjs, rs, java, py/pyi, go, cs, sql/plpgsql)"
 	)]
 	UnknownExtension(String),
 	#[error("file has no extension; cannot infer language")]

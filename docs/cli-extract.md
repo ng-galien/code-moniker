@@ -21,15 +21,15 @@ code-moniker --version
 file extension. `--scheme` overrides the default `code+moniker://`
 URI prefix (matches the Postgres GUC `code_moniker.scheme`).
 
-| Extension                | Language tag |
-| ------------------------ | ------------ |
-| `.ts` `.tsx` `.js` `.jsx`| `ts`         |
-| `.rs`                    | `rs`         |
-| `.java`                  | `java`       |
-| `.py`                    | `python`     |
-| `.go`                    | `go`         |
-| `.cs`                    | `cs`         |
-| `.sql` `.plpgsql`        | `sql`        |
+| Extension                                 | Language tag |
+| ----------------------------------------- | ------------ |
+| `.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs` | `ts`         |
+| `.rs`                                     | `rs`         |
+| `.java`                                   | `java`       |
+| `.py` `.pyi`                              | `python`     |
+| `.go`                                     | `go`         |
+| `.cs`                                     | `cs`         |
+| `.sql` `.plpgsql`                         | `sql`        |
 
 Unknown extension exits with code `2`.
 
