@@ -32,6 +32,12 @@ CLI (standalone, no Postgres needed):
 cargo install --git https://github.com/ng-galien/code-moniker --features cli code-moniker
 ```
 
+From a local clone:
+
+```sh
+cargo install --path . --features cli
+```
+
 Postgres extension (PG17 via pgrx; Docker variant in [`docs/use-in-postgres.md`](docs/use-in-postgres.md)):
 
 ```sh

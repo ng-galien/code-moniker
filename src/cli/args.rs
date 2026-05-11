@@ -6,10 +6,17 @@ use crate::cli::predicate::Predicate;
 use crate::core::moniker::Moniker;
 use crate::core::uri::{UriConfig, from_uri};
 
+const ASCII_LOGO: &str = "
+    ◆ code+moniker://
+    └─◆ lang:ts
+      └─◆ class:Util
+";
+
 #[derive(Debug, Parser)]
 #[command(
 	name = "code-moniker",
 	about = "Single-file moniker / code_graph extraction; see docs/cli-extract.md",
+	before_help = ASCII_LOGO,
 	version
 )]
 pub struct Cli {
