@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::cli::check::config::{Config, ConfigError, KindRules, config_section};
-use crate::cli::check::expr::{self, Atom, Lhs, LhsExpr, Node, Op, Rhs};
+use crate::cli::check::expr::{self, Atom, Domain, Lhs, LhsExpr, Node, Op, QuantKind, Rhs};
 use crate::cli::lines::line_range;
 use crate::cli::render_uri;
 use crate::core::code_graph::{CodeGraph, DefRecord};
@@ -33,10 +33,14 @@ pub fn evaluate(
 		.values()
 		.any(|r| r.require_doc_for_vis.is_some());
 	let ctx = EvalCtx {
+		graph,
 		source,
 		lang,
 		uri_cfg: UriConfig { scheme },
 		parent_counts: parent_counts_by_kind(graph),
+		children_by_parent: children_by_parent(graph),
+		out_refs_by_source: out_refs_by_source(graph),
+		in_refs_by_target: in_refs_by_target(graph),
 		comment_ends: if need_doc_anchors {
 			comment_end_bytes(graph)
 		} else {
@@ -73,10 +77,14 @@ pub fn evaluate(
 }
 
 struct EvalCtx<'g, 'src> {
+	graph: &'g CodeGraph,
 	source: &'src str,
 	lang: Lang,
 	uri_cfg: UriConfig<'src>,
 	parent_counts: HashMap<(usize, &'g [u8]), u32>,
+	children_by_parent: HashMap<usize, Vec<usize>>,
+	out_refs_by_source: HashMap<usize, Vec<usize>>,
+	in_refs_by_target: HashMap<Vec<u8>, Vec<usize>>,
 	/// Sorted byte offsets where comment defs end. Empty when no rule needs
 	/// `require_doc_comment`.
 	comment_ends: Vec<u32>,
@@ -224,7 +232,7 @@ fn eval_rule(
 		lhs_label,
 		actual,
 		expected,
-	} = match eval_node(&rule.root, d, def_idx, ctx.source, &ctx.parent_counts) {
+	} = match eval_node(&rule.root, d, def_idx, ctx) {
 		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
 		NodeOutcome::Fail(f) => f,
 	};
@@ -362,6 +370,10 @@ fn eval_ref_node(
 			NodeOutcome::Fail(_) => NodeOutcome::Pass,
 			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
 		},
+		// Nested quantifiers inside a ref-scope filter aren't supported in
+		// this revision — a ref doesn't have children / segments addressable
+		// from itself.
+		Node::Quantifier { .. } => NodeOutcome::NotApplicable,
 	}
 }
 
@@ -475,7 +487,7 @@ fn resolve_local_def<'g>(
 fn describe_lhs(lhs: &LhsExpr) -> &str {
 	match lhs {
 		LhsExpr::Attr(a) => a.as_str(),
-		LhsExpr::CountChildren(_) => "count",
+		LhsExpr::Count { .. } => "count",
 	}
 }
 
@@ -506,15 +518,9 @@ enum AtomOutcome {
 	NotApplicable,
 }
 
-fn eval_node(
-	node: &Node,
-	d: &DefRecord,
-	def_idx: usize,
-	source: &str,
-	parent_counts: &HashMap<(usize, &[u8]), u32>,
-) -> NodeOutcome {
+fn eval_node(node: &Node, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) -> NodeOutcome {
 	match node {
-		Node::Atom(atom) => match eval_atom(atom, d, def_idx, source, parent_counts) {
+		Node::Atom(atom) => match eval_atom(atom, d, def_idx, ctx) {
 			AtomOutcome::Pass => NodeOutcome::Pass,
 			AtomOutcome::Fail { actual, expected } => NodeOutcome::Fail(Failure {
 				atom_raw: atom.raw.clone(),
@@ -527,7 +533,7 @@ fn eval_node(
 		Node::And(children) => {
 			let mut na = false;
 			for c in children {
-				match eval_node(c, d, def_idx, source, parent_counts) {
+				match eval_node(c, d, def_idx, ctx) {
 					NodeOutcome::Pass => {}
 					NodeOutcome::Fail(f) => return NodeOutcome::Fail(f),
 					NodeOutcome::NotApplicable => na = true,
@@ -543,7 +549,7 @@ fn eval_node(
 			let mut last_fail: Option<Failure> = None;
 			let mut na = false;
 			for c in children {
-				match eval_node(c, d, def_idx, source, parent_counts) {
+				match eval_node(c, d, def_idx, ctx) {
 					NodeOutcome::Pass => return NodeOutcome::Pass,
 					NodeOutcome::Fail(f) => last_fail = Some(f),
 					NodeOutcome::NotApplicable => na = true,
@@ -557,7 +563,7 @@ fn eval_node(
 				NodeOutcome::NotApplicable
 			}
 		}
-		Node::Not(inner) => match eval_node(inner, d, def_idx, source, parent_counts) {
+		Node::Not(inner) => match eval_node(inner, d, def_idx, ctx) {
 			NodeOutcome::Pass => NodeOutcome::Fail(Failure {
 				atom_raw: "NOT (...)".to_string(),
 				lhs_label: "NOT".to_string(),
@@ -567,11 +573,16 @@ fn eval_node(
 			NodeOutcome::Fail(_) => NodeOutcome::Pass,
 			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
 		},
-		Node::Implies(prem, cons) => match eval_node(prem, d, def_idx, source, parent_counts) {
-			NodeOutcome::Pass => eval_node(cons, d, def_idx, source, parent_counts),
+		Node::Implies(prem, cons) => match eval_node(prem, d, def_idx, ctx) {
+			NodeOutcome::Pass => eval_node(cons, d, def_idx, ctx),
 			NodeOutcome::Fail(_) => NodeOutcome::Pass,
 			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
 		},
+		Node::Quantifier {
+			kind,
+			domain,
+			filter,
+		} => eval_quantifier_def(*kind, domain, filter, d, def_idx, ctx),
 	}
 }
 
@@ -579,9 +590,10 @@ fn resolve_def_lhs(
 	lhs: Lhs,
 	d: &DefRecord,
 	def_idx: usize,
-	source: &str,
-	parent_counts: &HashMap<(usize, &[u8]), u32>,
+	ctx: &EvalCtx<'_, '_>,
 ) -> Option<Value> {
+	let source = ctx.source;
+	let _ = def_idx;
 	let value = match lhs {
 		Lhs::Name => Value::Str(def_name(d)?),
 		Lhs::Kind => Value::Str(std::str::from_utf8(&d.kind).ok()?.to_string()),
@@ -627,17 +639,313 @@ fn resolve_def_lhs(
 		| Lhs::SegmentName
 		| Lhs::SegmentKind => return None,
 	};
-	let _ = (def_idx, parent_counts);
 	Some(value)
 }
 
-fn eval_atom(
-	atom: &Atom,
+/// `count(<domain>, <filter>?)` evaluated in def scope. Counts items in
+/// the domain for which `filter` evaluates to Pass.
+fn eval_count(
+	domain: &Domain,
+	filter: Option<&Node>,
 	d: &DefRecord,
 	def_idx: usize,
-	source: &str,
-	parent_counts: &HashMap<(usize, &[u8]), u32>,
-) -> AtomOutcome {
+	ctx: &EvalCtx<'_, '_>,
+) -> u32 {
+	match domain {
+		Domain::Children(kind) => match filter {
+			None => ctx
+				.parent_counts
+				.get(&(def_idx, kind.as_bytes()))
+				.copied()
+				.unwrap_or(0),
+			Some(node) => count_children_filtered(d, def_idx, kind, node, ctx),
+		},
+		Domain::Segments => count_segments(d, filter, ctx),
+		Domain::OutRefs => count_out_refs(d, def_idx, filter, ctx),
+		Domain::InRefs => count_in_refs(d, filter, ctx),
+	}
+}
+
+fn count_children_filtered(
+	_d: &DefRecord,
+	def_idx: usize,
+	kind: &str,
+	filter: &Node,
+	ctx: &EvalCtx<'_, '_>,
+) -> u32 {
+	let Some(child_idxs) = ctx.children_by_parent.get(&def_idx) else {
+		return 0;
+	};
+	let mut n = 0;
+	for &ci in child_idxs {
+		let cd = ctx.graph.def_at(ci);
+		if cd.kind.as_slice() != kind.as_bytes() {
+			continue;
+		}
+		if let NodeOutcome::Pass = eval_node(filter, cd, ci, ctx) {
+			n += 1;
+		}
+	}
+	n
+}
+
+fn count_segments(d: &DefRecord, filter: Option<&Node>, ctx: &EvalCtx<'_, '_>) -> u32 {
+	let mut n = 0;
+	for seg in d.moniker.as_view().segments() {
+		match filter {
+			None => n += 1,
+			Some(node) => {
+				if let NodeOutcome::Pass = eval_node_segment(node, seg.kind, seg.name, ctx) {
+					n += 1;
+				}
+			}
+		}
+	}
+	n
+}
+
+fn count_out_refs(
+	_d: &DefRecord,
+	def_idx: usize,
+	filter: Option<&Node>,
+	ctx: &EvalCtx<'_, '_>,
+) -> u32 {
+	let Some(ref_idxs) = ctx.out_refs_by_source.get(&def_idx) else {
+		return 0;
+	};
+	let mut n = 0;
+	for &ri in ref_idxs {
+		let r = ctx.graph.refs().nth(ri).expect("ref idx in bounds");
+		match filter {
+			None => n += 1,
+			Some(node) => {
+				if let NodeOutcome::Pass = eval_ref_node(node, r, ctx.graph) {
+					n += 1;
+				}
+			}
+		}
+	}
+	n
+}
+
+fn count_in_refs(d: &DefRecord, filter: Option<&Node>, ctx: &EvalCtx<'_, '_>) -> u32 {
+	let key = d.moniker.as_bytes();
+	let Some(ref_idxs) = ctx.in_refs_by_target.get(key) else {
+		return 0;
+	};
+	let mut n = 0;
+	for &ri in ref_idxs {
+		let r = ctx.graph.refs().nth(ri).expect("ref idx in bounds");
+		match filter {
+			None => n += 1,
+			Some(node) => {
+				if let NodeOutcome::Pass = eval_ref_node(node, r, ctx.graph) {
+					n += 1;
+				}
+			}
+		}
+	}
+	n
+}
+
+/// Quantifier evaluation in def scope.
+fn eval_quantifier_def(
+	kind: QuantKind,
+	domain: &Domain,
+	filter: &Node,
+	d: &DefRecord,
+	def_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> NodeOutcome {
+	let mut total = 0u32;
+	let mut passes = 0u32;
+	match domain {
+		Domain::Children(child_kind) => {
+			let empty = Vec::new();
+			let child_idxs = ctx.children_by_parent.get(&def_idx).unwrap_or(&empty);
+			for &ci in child_idxs {
+				let cd = ctx.graph.def_at(ci);
+				if cd.kind.as_slice() != child_kind.as_bytes() {
+					continue;
+				}
+				total += 1;
+				if matches!(eval_node(filter, cd, ci, ctx), NodeOutcome::Pass) {
+					passes += 1;
+				}
+			}
+		}
+		Domain::Segments => {
+			for seg in d.moniker.as_view().segments() {
+				total += 1;
+				if matches!(
+					eval_node_segment(filter, seg.kind, seg.name, ctx),
+					NodeOutcome::Pass
+				) {
+					passes += 1;
+				}
+			}
+		}
+		Domain::OutRefs => {
+			let empty = Vec::new();
+			let ref_idxs = ctx.out_refs_by_source.get(&def_idx).unwrap_or(&empty);
+			for &ri in ref_idxs {
+				let r = ctx.graph.refs().nth(ri).expect("ref idx in bounds");
+				total += 1;
+				if matches!(eval_ref_node(filter, r, ctx.graph), NodeOutcome::Pass) {
+					passes += 1;
+				}
+			}
+		}
+		Domain::InRefs => {
+			let key = d.moniker.as_bytes();
+			let empty = Vec::new();
+			let ref_idxs = ctx.in_refs_by_target.get(key).unwrap_or(&empty);
+			for &ri in ref_idxs {
+				let r = ctx.graph.refs().nth(ri).expect("ref idx in bounds");
+				total += 1;
+				if matches!(eval_ref_node(filter, r, ctx.graph), NodeOutcome::Pass) {
+					passes += 1;
+				}
+			}
+		}
+	}
+	let label = match kind {
+		QuantKind::Any => "any",
+		QuantKind::All => "all",
+		QuantKind::None => "none",
+	};
+	let ok = match kind {
+		QuantKind::Any => passes > 0,
+		QuantKind::All => total == 0 || passes == total,
+		QuantKind::None => passes == 0,
+	};
+	if ok {
+		NodeOutcome::Pass
+	} else {
+		NodeOutcome::Fail(Failure {
+			atom_raw: format!("{label}(...)"),
+			lhs_label: label.to_string(),
+			actual: format!("{passes}/{total}"),
+			expected: match kind {
+				QuantKind::Any => "≥ 1 match".to_string(),
+				QuantKind::All => "all match".to_string(),
+				QuantKind::None => "zero matches".to_string(),
+			},
+		})
+	}
+}
+
+/// Evaluate a Node with a segment as scope. Only `segment.kind` and
+/// `segment.name` projections are meaningful; everything else returns
+/// `NotApplicable`. `ctx` is unused at the leaves but threaded for symmetry
+/// with the def/ref evaluators.
+fn eval_node_segment(
+	node: &Node,
+	seg_kind: &[u8],
+	seg_name: &[u8],
+	ctx: &EvalCtx<'_, '_>,
+) -> NodeOutcome {
+	let _ = ctx;
+	match node {
+		Node::Atom(atom) => match eval_atom_segment(atom, seg_kind, seg_name) {
+			AtomOutcome::Pass => NodeOutcome::Pass,
+			AtomOutcome::Fail { actual, expected } => NodeOutcome::Fail(Failure {
+				atom_raw: atom.raw.clone(),
+				lhs_label: describe_lhs(&atom.lhs).to_string(),
+				actual,
+				expected,
+			}),
+			AtomOutcome::NotApplicable => NodeOutcome::NotApplicable,
+		},
+		Node::And(children) => {
+			let mut na = false;
+			for c in children {
+				match eval_node_segment(c, seg_kind, seg_name, ctx) {
+					NodeOutcome::Pass => {}
+					NodeOutcome::Fail(f) => return NodeOutcome::Fail(f),
+					NodeOutcome::NotApplicable => na = true,
+				}
+			}
+			if na {
+				NodeOutcome::NotApplicable
+			} else {
+				NodeOutcome::Pass
+			}
+		}
+		Node::Or(children) => {
+			let mut last_fail: Option<Failure> = None;
+			let mut na = false;
+			for c in children {
+				match eval_node_segment(c, seg_kind, seg_name, ctx) {
+					NodeOutcome::Pass => return NodeOutcome::Pass,
+					NodeOutcome::Fail(f) => last_fail = Some(f),
+					NodeOutcome::NotApplicable => na = true,
+				}
+			}
+			if na {
+				NodeOutcome::NotApplicable
+			} else if let Some(f) = last_fail {
+				NodeOutcome::Fail(f)
+			} else {
+				NodeOutcome::NotApplicable
+			}
+		}
+		Node::Not(inner) => match eval_node_segment(inner, seg_kind, seg_name, ctx) {
+			NodeOutcome::Pass => NodeOutcome::Fail(Failure {
+				atom_raw: "NOT (...)".to_string(),
+				lhs_label: "NOT".to_string(),
+				actual: "true".to_string(),
+				expected: "false".to_string(),
+			}),
+			NodeOutcome::Fail(_) => NodeOutcome::Pass,
+			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
+		},
+		Node::Implies(prem, cons) => match eval_node_segment(prem, seg_kind, seg_name, ctx) {
+			NodeOutcome::Pass => eval_node_segment(cons, seg_kind, seg_name, ctx),
+			NodeOutcome::Fail(_) => NodeOutcome::Pass,
+			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
+		},
+		// Nested quantifiers inside a segment filter aren't supported — a
+		// segment has no children / refs.
+		Node::Quantifier { .. } => NodeOutcome::NotApplicable,
+	}
+}
+
+fn eval_atom_segment(atom: &Atom, seg_kind: &[u8], seg_name: &[u8]) -> AtomOutcome {
+	let value: Value = match &atom.lhs {
+		LhsExpr::Attr(Lhs::SegmentKind) => Value::Str(
+			std::str::from_utf8(seg_kind)
+				.unwrap_or_default()
+				.to_string(),
+		),
+		LhsExpr::Attr(Lhs::SegmentName) => Value::Str(
+			std::str::from_utf8(seg_name)
+				.unwrap_or_default()
+				.to_string(),
+		),
+		_ => return AtomOutcome::NotApplicable,
+	};
+	if let Rhs::Projection(other) = &atom.rhs {
+		let rhs_val = match other {
+			Lhs::SegmentKind => Value::Str(
+				std::str::from_utf8(seg_kind)
+					.unwrap_or_default()
+					.to_string(),
+			),
+			Lhs::SegmentName => Value::Str(
+				std::str::from_utf8(seg_name)
+					.unwrap_or_default()
+					.to_string(),
+			),
+			_ => return AtomOutcome::NotApplicable,
+		};
+		return apply_op_values(&value, atom.op, &rhs_val);
+	}
+	apply_op(&value, atom)
+}
+
+fn eval_atom(atom: &Atom, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) -> AtomOutcome {
+	let source = ctx.source;
 	let value: Value = match &atom.lhs {
 		LhsExpr::Attr(Lhs::Name) => match def_name(d) {
 			Some(n) => Value::Str(n),
@@ -707,16 +1015,13 @@ fn eval_atom(
 			// Ref-/segment-scope projections aren't meaningful on a def.
 			return AtomOutcome::NotApplicable;
 		}
-		LhsExpr::CountChildren(k) => {
-			let c = parent_counts
-				.get(&(def_idx, k.as_bytes()))
-				.copied()
-				.unwrap_or(0);
+		LhsExpr::Count { domain, filter } => {
+			let c = eval_count(domain, filter.as_deref(), d, def_idx, ctx);
 			Value::Number(c)
 		}
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
-		let Some(rhs_val) = resolve_def_lhs(*other, d, def_idx, source, parent_counts) else {
+		let Some(rhs_val) = resolve_def_lhs(*other, d, def_idx, ctx) else {
 			return AtomOutcome::NotApplicable;
 		};
 		return apply_op_values(&value, atom.op, &rhs_val);
@@ -815,6 +1120,32 @@ fn render_rhs(r: &Rhs) -> String {
 		Rhs::PathPattern(p) => format!("path `{}`", p.raw),
 		Rhs::Projection(l) => l.as_str().to_string(),
 	}
+}
+
+fn children_by_parent(graph: &CodeGraph) -> HashMap<usize, Vec<usize>> {
+	let mut m: HashMap<usize, Vec<usize>> = HashMap::new();
+	for (idx, d) in graph.defs().enumerate() {
+		if let Some(p) = d.parent {
+			m.entry(p).or_default().push(idx);
+		}
+	}
+	m
+}
+
+fn out_refs_by_source(graph: &CodeGraph) -> HashMap<usize, Vec<usize>> {
+	let mut m: HashMap<usize, Vec<usize>> = HashMap::new();
+	for (idx, r) in graph.refs().enumerate() {
+		m.entry(r.source).or_default().push(idx);
+	}
+	m
+}
+
+fn in_refs_by_target(graph: &CodeGraph) -> HashMap<Vec<u8>, Vec<usize>> {
+	let mut m: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
+	for (idx, r) in graph.refs().enumerate() {
+		m.entry(r.target.as_bytes().to_vec()).or_default().push(idx);
+	}
+	m
 }
 
 fn parent_counts_by_kind(graph: &CodeGraph) -> HashMap<(usize, &[u8]), u32> {
@@ -1322,6 +1653,143 @@ mod tests {
 		.unwrap();
 		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
 		assert!(v.is_empty(), "premise true + consequent true: {v:?}");
+	}
+
+	// ─── quantifiers ────────────────────────────────────────────────────
+
+	#[test]
+	fn count_method_with_filter() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "few-getters"
+			expr = "count(method, name =~ ^get) <= 1"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let cls = child(&module, b"class", b"Foo");
+		g.add_def(cls.clone(), b"class", &module, Some((0, 50)))
+			.unwrap();
+		for name in [
+			b"getFoo".as_slice(),
+			b"getBar".as_slice(),
+			b"setBaz".as_slice(),
+		] {
+			let m = child(&cls, b"method", name);
+			g.add_def(m, b"method", &cls, Some((1, 5))).unwrap();
+		}
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "2 getters > 1 limit: {v:?}");
+	}
+
+	#[test]
+	fn any_quantifier_children() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "must-have-execute"
+			expr = "name =~ UseCase$ => any(method, name = 'execute')"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		// MissingUC has no execute → violation
+		let uc = child(&module, b"class", b"PayUseCase");
+		g.add_def(uc.clone(), b"class", &module, Some((0, 50)))
+			.unwrap();
+		g.add_def(
+			child(&uc, b"method", b"prepare"),
+			b"method",
+			&uc,
+			Some((1, 5)),
+		)
+		.unwrap();
+		// GoodUC has execute → no violation
+		let good = child(&module, b"class", b"GoodUseCase");
+		g.add_def(good.clone(), b"class", &module, Some((51, 100)))
+			.unwrap();
+		g.add_def(
+			child(&good, b"method", b"execute"),
+			b"method",
+			&good,
+			Some((52, 60)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "PayUseCase lacks execute: {v:?}");
+		assert!(v[0].moniker.contains("PayUseCase"));
+	}
+
+	#[test]
+	fn all_quantifier_children() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "methods-short"
+			expr = "all(method, lines <= 5)"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let cls = child(&module, b"class", b"Foo");
+		g.add_def(cls.clone(), b"class", &module, Some((0, 100)))
+			.unwrap();
+		g.add_def(child(&cls, b"method", b"ok"), b"method", &cls, Some((0, 4)))
+			.unwrap();
+		g.add_def(
+			child(&cls, b"method", b"long"),
+			b"method",
+			&cls,
+			Some((0, 200)),
+		)
+		.unwrap();
+		let source: String = (0..40).map(|_| "a\n").collect();
+		let v = evaluate(&g, &source, Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "long method violates: {v:?}");
+	}
+
+	#[test]
+	fn none_quantifier_segments() {
+		// "this def's moniker has no segment whose kind is 'class'"
+		let cfg = cfg_from(
+			r#"
+			[[ts.function.where]]
+			id   = "function-not-in-class"
+			expr = "none(segment, segment.kind = 'class')"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let cls = child(&module, b"class", b"Foo");
+		g.add_def(cls.clone(), b"class", &module, Some((0, 50)))
+			.unwrap();
+		// function nested inside class → has a class segment → violates
+		let f = child(&cls, b"function", b"inner");
+		g.add_def(f, b"function", &cls, Some((1, 5))).unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "function inside class violates: {v:?}");
+	}
+
+	#[test]
+	fn any_out_refs_must_implement_port() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "adapter-implements-port"
+			expr = "name =~ Adapter$ => any(out_refs, kind = 'implements' AND target.name =~ Port$)"
+			"#,
+		);
+		let root = build_root();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let m = submodule(&root, b"adapters");
+		g.add_def(m.clone(), b"module", &root, Some((0, 1)))
+			.unwrap();
+		let bad = child(&m, b"class", b"OrderAdapter");
+		g.add_def(bad.clone(), b"class", &m, Some((2, 10))).unwrap();
+		// No implements ref → adapter without port → violation
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "adapter with no implements: {v:?}");
 	}
 
 	// ─── projection extensions ──────────────────────────────────────────

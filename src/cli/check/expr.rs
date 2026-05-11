@@ -77,9 +77,32 @@ pub const TWO_CHAR_OPS: &[&str] = &["<=", ">=", "!=", "=~", "!~", "<@", "@>", "?
 #[derive(Debug, Clone)]
 pub enum LhsExpr {
 	Attr(Lhs),
-	/// `count(<kind>)` — number of children of the given kind under this def
-	/// (when this def is treated as a parent).
-	CountChildren(String),
+	/// `count(<domain>)` or `count(<domain>, <filter>)` — number of items in
+	/// the domain (children of a kind, segments, out_refs, in_refs) optionally
+	/// constrained by a filter expression.
+	Count {
+		domain: Domain,
+		filter: Option<Box<Node>>,
+	},
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Domain {
+	/// Direct children defs of the given kind under the current def.
+	Children(String),
+	/// Segments of the current moniker (def scope) or scope's moniker.
+	Segments,
+	/// Refs whose source is the current def.
+	OutRefs,
+	/// Refs whose target is the current def.
+	InRefs,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum QuantKind {
+	Any,
+	All,
+	None,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -128,6 +151,13 @@ pub enum Node {
 	Or(Vec<Node>),
 	Not(Box<Node>),
 	Implies(Box<Node>, Box<Node>),
+	/// `any|all|none(<domain>, <expr>)` — body evaluated with each item of the
+	/// domain as the current scope.
+	Quantifier {
+		kind: QuantKind,
+		domain: Domain,
+		filter: Box<Node>,
+	},
 }
 
 #[derive(Debug, Clone)]
@@ -234,6 +264,12 @@ impl<'a> Parser<'a> {
 			self.pos += 1;
 			return Ok(inner);
 		}
+		if let Some(q) = self.try_parse_quantifier()? {
+			return Ok(q);
+		}
+		if let Some(atom) = self.try_parse_count_atom()? {
+			return Ok(Node::Atom(atom));
+		}
 		let atom_end = self.find_atom_end();
 		if atom_end == self.pos {
 			return Err(ParseError::BadExpr {
@@ -245,6 +281,168 @@ impl<'a> Parser<'a> {
 		let atom = parse_atom(atom_str, self.scheme, self.raw, self.allowed_kinds)?;
 		self.pos = atom_end;
 		Ok(Node::Atom(atom))
+	}
+
+	/// Recognize `count(<domain>, <filter>?)` followed by `<num_op> <number>`
+	/// as a complete atom. Required because the filter can be an arbitrary
+	/// expression that the atom-string scanner can't parse on its own.
+	fn try_parse_count_atom(&mut self) -> Result<Option<Atom>, ParseError> {
+		self.skip_ws();
+		if !self.input[self.pos..].starts_with("count(") {
+			return Ok(None);
+		}
+		let raw_start = self.pos;
+		self.pos += "count".len();
+		let (domain, filter) = self.parse_quantifier_body(false)?;
+		// Look for `<num_op> <number>` after `count(...)`.
+		self.skip_ws();
+		let op_offset = self.pos;
+		let rest = &self.input[self.pos..];
+		let (op_str, op_len): (&str, usize) = if rest.starts_with("<=") {
+			("<=", 2)
+		} else if rest.starts_with(">=") {
+			(">=", 2)
+		} else if rest.starts_with("!=") {
+			("!=", 2)
+		} else if rest.starts_with("<") {
+			("<", 1)
+		} else if rest.starts_with(">") {
+			(">", 1)
+		} else if rest.starts_with("=") {
+			("=", 1)
+		} else {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!(
+					"expected numeric comparison after `count(...)` at byte {}",
+					self.pos
+				),
+			});
+		};
+		self.pos += op_len;
+		let op = parse_op(op_str, self.raw)?;
+		self.skip_ws();
+		// Read the number.
+		let num_start = self.pos;
+		let bytes = self.input.as_bytes();
+		while self.pos < bytes.len() && bytes[self.pos].is_ascii_digit() {
+			self.pos += 1;
+		}
+		let num_str = &self.input[num_start..self.pos];
+		let n: u32 = num_str.parse().map_err(|_| ParseError::BadExpr {
+			expr: self.raw.to_string(),
+			msg: format!(
+				"expected number after `count(...) {op_str}` at byte {num_start}, got `{num_str}`"
+			),
+		})?;
+		let raw = self.input[raw_start..self.pos].to_string();
+		let _ = op_offset; // explanatory binding kept for future error messages
+		Ok(Some(Atom {
+			lhs: LhsExpr::Count {
+				domain,
+				filter: filter.map(Box::new),
+			},
+			op,
+			rhs: Rhs::Number(n),
+			raw,
+			regex: None,
+		}))
+	}
+
+	/// Recognize `any(...)` / `all(...)` / `none(...)` at the current
+	/// position. `count(...)` stays an Atom (Lhs that yields a number) and is
+	/// handled by the regular atom path.
+	fn try_parse_quantifier(&mut self) -> Result<Option<Node>, ParseError> {
+		self.skip_ws();
+		for (kw, qk) in [
+			("any", QuantKind::Any),
+			("all", QuantKind::All),
+			("none", QuantKind::None),
+		] {
+			if let Some(rest) = self.input[self.pos..].strip_prefix(kw)
+				&& rest.starts_with('(')
+			{
+				self.pos += kw.len(); // consume kw, leave the `(` for the body parser
+				let (domain, filter) = self.parse_quantifier_body(true)?;
+				let filter = filter.ok_or_else(|| ParseError::BadExpr {
+					expr: self.raw.to_string(),
+					msg: format!("`{kw}` requires a filter expression: `{kw}(<domain>, <expr>)`"),
+				})?;
+				return Ok(Some(Node::Quantifier {
+					kind: qk,
+					domain,
+					filter: Box::new(filter),
+				}));
+			}
+		}
+		Ok(None)
+	}
+
+	/// Parse `(<domain>, <expr>?)` or `(<domain>)` after the head keyword. Caller
+	/// guarantees the cursor is on `(`. `filter_required = false` lets the form
+	/// `count(<domain>)` (no filter) work.
+	fn parse_quantifier_body(
+		&mut self,
+		_filter_required: bool,
+	) -> Result<(Domain, Option<Node>), ParseError> {
+		// Eat `(`.
+		if self.peek_byte() != Some(b'(') {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected `(` at byte {}", self.pos),
+			});
+		}
+		self.pos += 1;
+		// Domain ident: count up to `,` or `)` (no whitespace allowed inside).
+		self.skip_ws();
+		let start = self.pos;
+		let bytes = self.input.as_bytes();
+		while self.pos < bytes.len()
+			&& (bytes[self.pos].is_ascii_alphanumeric() || bytes[self.pos] == b'_')
+		{
+			self.pos += 1;
+		}
+		let domain_ident = self.input[start..self.pos].to_string();
+		if domain_ident.is_empty() {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected domain identifier at byte {}", start),
+			});
+		}
+		let domain = match domain_ident.as_str() {
+			"segment" => Domain::Segments,
+			"out_refs" => Domain::OutRefs,
+			"in_refs" => Domain::InRefs,
+			other => {
+				if !self.allowed_kinds.contains(&other) {
+					return Err(ParseError::BadExpr {
+						expr: self.raw.to_string(),
+						msg: format!(
+							"unknown domain `{other}` (allowed: segment, out_refs, in_refs, or one of {})",
+							self.allowed_kinds.join(", ")
+						),
+					});
+				}
+				Domain::Children(other.to_string())
+			}
+		};
+		self.skip_ws();
+		let filter = if self.peek_byte() == Some(b',') {
+			self.pos += 1;
+			let f = self.parse_expr()?;
+			self.skip_ws();
+			Some(f)
+		} else {
+			None
+		};
+		if self.peek_byte() != Some(b')') {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("missing `)` for quantifier at byte {}", self.pos),
+			});
+		}
+		self.pos += 1;
+		Ok((domain, filter))
 	}
 
 	/// Walk from `self.pos` to the next top-level boolean connective, closing
@@ -498,25 +696,18 @@ fn lhs_token_end(bytes: &[u8]) -> Option<usize> {
 }
 
 fn parse_lhs(s: &str, full: &str, allowed_kinds: &[&str]) -> Result<LhsExpr, ParseError> {
-	if let Some(rest) = s.strip_prefix("count(").and_then(|s| s.strip_suffix(")")) {
-		let kind = rest.trim();
-		if kind.is_empty() {
-			return Err(ParseError::BadExpr {
-				expr: full.to_string(),
-				msg: "count() needs a kind argument".to_string(),
-			});
-		}
-		if !allowed_kinds.contains(&kind) {
-			return Err(ParseError::BadExpr {
-				expr: full.to_string(),
-				msg: format!(
-					"count(`{kind}`) — unknown kind for this language (allowed: {})",
-					allowed_kinds.join(", ")
-				),
-			});
-		}
-		return Ok(LhsExpr::CountChildren(kind.to_string()));
+	if s.starts_with("count(") {
+		// `count(...)` is parsed at primary level by `try_parse_count_atom`
+		// so we never reach this branch through normal flow. Surface a clear
+		// error in case an atom string sneaks in directly (e.g. via a future
+		// caller).
+		return Err(ParseError::BadExpr {
+			expr: full.to_string(),
+			msg: "internal: count(...) reached parse_lhs; should be handled at primary level"
+				.to_string(),
+		});
 	}
+	let _ = allowed_kinds;
 	let attr = match s {
 		"name" => Lhs::Name,
 		"lines" => Lhs::Lines,
@@ -576,7 +767,7 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 	use Op::*;
 	let lhs_attr = match lhs {
 		LhsExpr::Attr(a) => *a,
-		LhsExpr::CountChildren(_) => {
+		LhsExpr::Count { .. } => {
 			return match op {
 				Lt | Le | Gt | Ge | Eq | Ne => Ok(()),
 				_ => Err(ParseError::BadExpr {
@@ -731,9 +922,76 @@ mod tests {
 		let e = parse("count(method) <= 20", TS, KINDS).unwrap();
 		let a = solo(&e);
 		match (&a.lhs, &a.op, &a.rhs) {
-			(LhsExpr::CountChildren(k), Op::Le, Rhs::Number(20)) if k == "method" => {}
+			(
+				LhsExpr::Count {
+					domain: Domain::Children(k),
+					filter: None,
+				},
+				Op::Le,
+				Rhs::Number(20),
+			) if k == "method" => {}
 			other => panic!("unexpected: {other:?}"),
 		}
+	}
+
+	#[test]
+	fn parses_count_with_filter() {
+		let e = parse("count(method, name =~ ^get) <= 5", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op) {
+			(
+				LhsExpr::Count {
+					domain: Domain::Children(k),
+					filter: Some(_),
+				},
+				Op::Le,
+			) if k == "method" => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_any_quantifier() {
+		let e = parse("any(method, name = 'execute')", TS, KINDS).unwrap();
+		match &e.root {
+			Node::Quantifier {
+				kind: QuantKind::Any,
+				domain: Domain::Children(k),
+				..
+			} if k == "method" => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_all_quantifier_on_segment() {
+		let e = parse("all(segment, segment.kind = 'module')", TS, KINDS).unwrap();
+		match &e.root {
+			Node::Quantifier {
+				kind: QuantKind::All,
+				domain: Domain::Segments,
+				..
+			} => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_none_quantifier_on_out_refs() {
+		let e = parse("none(out_refs, kind = 'imports')", TS, KINDS).unwrap();
+		match &e.root {
+			Node::Quantifier {
+				kind: QuantKind::None,
+				domain: Domain::OutRefs,
+				..
+			} => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn rejects_quantifier_without_filter() {
+		assert!(parse("any(method)", TS, KINDS).is_err());
 	}
 
 	#[test]
@@ -766,7 +1024,7 @@ mod tests {
 		match r {
 			Err(ParseError::BadExpr { msg, .. }) => {
 				assert!(msg.contains("methdo"), "{msg}");
-				assert!(msg.contains("unknown kind"), "{msg}");
+				assert!(msg.contains("unknown domain"), "{msg}");
 			}
 			other => panic!("expected BadExpr, got {other:?}"),
 		}
