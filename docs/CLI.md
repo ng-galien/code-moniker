@@ -228,13 +228,27 @@ code-moniker file.py --kind comment --count
 ## `check` — live linter for agent harnesses
 
 ```
-code-moniker check <file> [--rules <path>] [--format text|json]
+code-moniker check <path> [--rules <path>] [--format text|json]
 ```
 
-Loads an embedded default rule pack, optionally merges a user `<path>` (default
-`.code-moniker.toml`) on top, and reports violations on stdout. Designed to be
-invoked from a `PostToolUse` hook so an agent gets immediate feedback on each
-edit.
+`<path>` is either a single source file (per-edit lint) or a directory
+(project-wide scan). Loads an embedded default rule pack, optionally merges
+a user `<path>` (default `.code-moniker.toml`) on top, and reports
+violations on stdout.
+
+Per-file mode is designed for `PostToolUse` hooks; project mode walks the
+tree respecting `.gitignore` / `.ignore` / hidden-file rules (via the
+`ignore` crate) and processes recognised extensions in parallel
+(`rayon`). The output shape is the same in both modes — a single file
+just produces a one-entry `files` list.
+
+Exit codes:
+
+| Code | Meaning                                                     |
+| ---- | ----------------------------------------------------------- |
+| `0`  | No violations.                                              |
+| `1`  | At least one violation (stdout carries the report).         |
+| `2`  | Usage / parse error (bad path, malformed user TOML, etc.).  |
 
 ### Configuration
 
@@ -318,37 +332,42 @@ In JSON, it lands as a sibling field of `message`:
 
 ### Output
 
-Default text format — one violation per line, similar to ESLint stylish:
+Default text format — one violation per line, similar to ESLint stylish,
+with a trailing summary in project mode:
 
 ```
 src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`
 src/widget.ts:L24-L24 [ts.function.max-lines]    function `loadEverything` fails `lines <= 60`
+src/order.ts:L5-L20  [ts.class.no-god-class]     class `Order` fails `count(method) <= 20`
+
+3 violation(s) across 2 file(s) (42 scanned).
 ```
 
-`--format json` emits a single document with the same fields:
+`--format json` emits one document with a summary and a `files` array:
 
 ```json
 {
-  "file": "src/widget.ts",
-  "violations": [
+  "summary": {
+    "files_scanned": 42,
+    "files_with_violations": 2,
+    "total_violations": 3
+  },
+  "files": [
     {
-      "rule_id": "ts.class.name-pascalcase",
-      "moniker": "ts+moniker://./lang:ts/module:widget/class:lower_bad",
-      "kind":    "class",
-      "lines":   [12, 18],
-      "message": "class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`"
+      "file": "src/widget.ts",
+      "violations": [
+        {
+          "rule_id": "ts.class.name-pascalcase",
+          "moniker": "ts+moniker://./lang:ts/module:widget/class:lower_bad",
+          "kind":    "class",
+          "lines":   [12, 18],
+          "message": "class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`"
+        }
+      ]
     }
   ]
 }
 ```
-
-### Exit codes (`check`)
-
-| Code | Meaning                                                                  |
-| ---- | ------------------------------------------------------------------------ |
-| `0`  | No violation.                                                            |
-| `1`  | At least one violation. Stdout carries the report.                       |
-| `2`  | Usage / parse error (bad path, unknown extension, malformed user TOML).  |
 
 The semantic mirrors `code-moniker file.ts` (0 = match, 1 = no match), so a
 shell wrapper using `if code-moniker check ...` reads naturally as "any

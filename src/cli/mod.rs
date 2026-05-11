@@ -9,7 +9,7 @@ pub mod lines;
 pub mod predicate;
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 pub use args::{Args, CheckArgs, CheckFormat, Cli, Command, OutputFormat, OutputMode};
@@ -115,51 +115,113 @@ fn run_check<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &m
 
 fn check_inner<W: Write>(args: &CheckArgs, stdout: &mut W) -> anyhow::Result<bool> {
 	let path: &Path = &args.file;
-	let lang = path_to_lang(path)?;
-	let source = std::fs::read_to_string(path)
-		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
 	let cfg = check::load_with_overrides(Some(&args.rules))?;
-	let scheme = format!("{}+moniker://", lang.tag());
-	let graph = extract::extract(lang, &source);
-	let raw = check::evaluate(&graph, &source, lang, &cfg, &scheme)?;
-	let violations = check::apply_suppressions(&graph, &source, raw);
-	let any = !violations.is_empty();
+	let meta = std::fs::metadata(path)
+		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
+	let reports = if meta.is_dir() {
+		check_project(path, &cfg)?
+	} else {
+		match check_one_file(path, &cfg) {
+			Ok(Some(report)) => vec![report],
+			Ok(None) => {
+				return Err(anyhow::anyhow!(
+					"{} has no recognised extension",
+					path.display()
+				));
+			}
+			Err(e) => return Err(e),
+		}
+	};
+	let any = reports.iter().any(|r| !r.violations.is_empty());
 	match args.format {
-		CheckFormat::Text => write_violations_text(stdout, path, &violations)?,
-		CheckFormat::Json => write_violations_json(stdout, path, &violations)?,
+		CheckFormat::Text => write_reports_text(stdout, &reports)?,
+		CheckFormat::Json => write_reports_json(stdout, &reports)?,
 	}
 	Ok(any)
 }
 
-fn write_violations_text<W: Write>(
-	w: &mut W,
-	path: &Path,
-	violations: &[check::Violation],
-) -> std::io::Result<()> {
-	for v in violations {
-		writeln!(
-			w,
-			"{}:L{}-L{} [{}] {}",
-			path.display(),
-			v.lines.0,
-			v.lines.1,
-			v.rule_id,
-			v.message
-		)?;
-		if let Some(explanation) = &v.explanation {
-			for line in explanation.trim().lines() {
-				writeln!(w, "  → {line}")?;
+struct FileReport {
+	path: PathBuf,
+	violations: Vec<check::Violation>,
+}
+
+fn check_one_file(path: &Path, cfg: &check::Config) -> anyhow::Result<Option<FileReport>> {
+	let lang = match path_to_lang(path) {
+		Ok(l) => l,
+		Err(_) => return Ok(None),
+	};
+	let source = std::fs::read_to_string(path)
+		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+	let scheme = format!("{}+moniker://", lang.tag());
+	let graph = extract::extract(lang, &source);
+	let raw = check::evaluate(&graph, &source, lang, cfg, &scheme)?;
+	let violations = check::apply_suppressions(&graph, &source, raw);
+	Ok(Some(FileReport {
+		path: path.to_path_buf(),
+		violations,
+	}))
+}
+
+fn check_project(root: &Path, cfg: &check::Config) -> anyhow::Result<Vec<FileReport>> {
+	use rayon::prelude::*;
+	let walker = ignore::WalkBuilder::new(root)
+		.standard_filters(true)
+		.build();
+	let paths: Vec<PathBuf> = walker
+		.filter_map(|entry| entry.ok())
+		.filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+		.map(|e| e.into_path())
+		.filter(|p| path_to_lang(p).is_ok())
+		.collect();
+	let mut reports: Vec<FileReport> = paths
+		.par_iter()
+		.filter_map(|p| match check_one_file(p, cfg) {
+			Ok(Some(r)) => Some(Ok(r)),
+			Ok(None) => None,
+			Err(e) => Some(Err(e)),
+		})
+		.collect::<anyhow::Result<Vec<_>>>()?;
+	reports.sort_by(|a, b| a.path.cmp(&b.path));
+	Ok(reports)
+}
+
+fn write_reports_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::io::Result<()> {
+	let mut total = 0usize;
+	let mut files_with = 0usize;
+	for r in reports {
+		if r.violations.is_empty() {
+			continue;
+		}
+		files_with += 1;
+		total += r.violations.len();
+		for v in &r.violations {
+			writeln!(
+				w,
+				"{}:L{}-L{} [{}] {}",
+				r.path.display(),
+				v.lines.0,
+				v.lines.1,
+				v.rule_id,
+				v.message
+			)?;
+			if let Some(explanation) = &v.explanation {
+				for line in explanation.trim().lines() {
+					writeln!(w, "  → {line}")?;
+				}
 			}
 		}
+	}
+	if reports.len() > 1 || files_with > 0 {
+		writeln!(
+			w,
+			"\n{total} violation(s) across {files_with} file(s) ({} scanned).",
+			reports.len()
+		)?;
 	}
 	Ok(())
 }
 
-fn write_violations_json<W: Write>(
-	w: &mut W,
-	path: &Path,
-	violations: &[check::Violation],
-) -> anyhow::Result<()> {
+fn write_reports_json<W: Write>(w: &mut W, reports: &[FileReport]) -> anyhow::Result<()> {
 	#[derive(serde::Serialize)]
 	struct V<'a> {
 		rule_id: &'a str,
@@ -171,23 +233,48 @@ fn write_violations_json<W: Write>(
 		explanation: Option<&'a str>,
 	}
 	#[derive(serde::Serialize)]
-	struct Out<'a> {
+	struct File<'a> {
 		file: String,
 		violations: Vec<V<'a>>,
 	}
+	#[derive(serde::Serialize)]
+	struct Summary {
+		files_scanned: usize,
+		files_with_violations: usize,
+		total_violations: usize,
+	}
+	#[derive(serde::Serialize)]
+	struct Out<'a> {
+		summary: Summary,
+		files: Vec<File<'a>>,
+	}
+	let files: Vec<File> = reports
+		.iter()
+		.map(|r| File {
+			file: r.path.display().to_string(),
+			violations: r
+				.violations
+				.iter()
+				.map(|v| V {
+					rule_id: &v.rule_id,
+					moniker: &v.moniker,
+					kind: &v.kind,
+					lines: [v.lines.0, v.lines.1],
+					message: &v.message,
+					explanation: v.explanation.as_deref(),
+				})
+				.collect(),
+		})
+		.collect();
+	let total = files.iter().map(|f| f.violations.len()).sum();
+	let files_with = files.iter().filter(|f| !f.violations.is_empty()).count();
 	let out = Out {
-		file: path.display().to_string(),
-		violations: violations
-			.iter()
-			.map(|v| V {
-				rule_id: &v.rule_id,
-				moniker: &v.moniker,
-				kind: &v.kind,
-				lines: [v.lines.0, v.lines.1],
-				message: &v.message,
-				explanation: v.explanation.as_deref(),
-			})
-			.collect(),
+		summary: Summary {
+			files_scanned: files.len(),
+			files_with_violations: files_with,
+			total_violations: total,
+		},
+		files,
 	};
 	serde_json::to_writer_pretty(&mut *w, &out)?;
 	w.write_all(b"\n")?;

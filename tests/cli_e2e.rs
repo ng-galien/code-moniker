@@ -248,10 +248,90 @@ fn check_json_format_is_structured() {
 	]);
 	assert_eq!(exit, Exit::NoMatch);
 	let v: serde_json::Value = serde_json::from_str(&out).expect("json output");
-	assert!(v["file"].as_str().unwrap().ends_with("a.ts"));
-	let arr = v["violations"].as_array().unwrap();
-	assert!(!arr.is_empty());
-	assert_eq!(arr[0]["rule_id"], "ts.class.name-pascalcase");
+	assert_eq!(v["summary"]["files_scanned"], 1);
+	assert_eq!(v["summary"]["files_with_violations"], 1);
+	let files = v["files"].as_array().unwrap();
+	assert_eq!(files.len(), 1);
+	assert!(files[0]["file"].as_str().unwrap().ends_with("a.ts"));
+	let viols = files[0]["violations"].as_array().unwrap();
+	assert_eq!(viols[0]["rule_id"], "ts.class.name-pascalcase");
+}
+
+#[test]
+fn check_project_walks_directory_and_aggregates() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::write(dir.path().join("good.ts"), "class GoodName {}\n").unwrap();
+	std::fs::write(dir.path().join("bad.ts"), TS_BAD_NAMING).unwrap();
+	std::fs::write(dir.path().join("README.md"), "not a source file\n").unwrap();
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+	]);
+	assert_eq!(exit, Exit::NoMatch, "stdout={out}");
+	assert!(out.contains("bad.ts"), "{out}");
+	assert!(!out.contains("good.ts"), "{out}");
+	assert!(out.contains("ts.class.name-pascalcase"), "{out}");
+	assert!(out.contains("violation(s) across 1 file(s)"), "{out}");
+}
+
+#[test]
+fn check_project_respects_gitignore() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::write(dir.path().join(".gitignore"), "ignored.ts\n").unwrap();
+	std::fs::write(dir.path().join("scanned.ts"), TS_BAD_NAMING).unwrap();
+	std::fs::write(dir.path().join("ignored.ts"), TS_BAD_NAMING).unwrap();
+	// `ignore` only honors .gitignore inside a git repo, so init one.
+	std::fs::create_dir(dir.path().join(".git")).unwrap();
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(out.contains("scanned.ts"), "{out}");
+	assert!(!out.contains("ignored.ts"), "{out}");
+}
+
+#[test]
+fn check_project_clean_returns_match() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::write(dir.path().join("a.ts"), "class GoodName {}\n").unwrap();
+	std::fs::write(dir.path().join("b.ts"), "class AlsoGood {}\n").unwrap();
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+	]);
+	assert_eq!(exit, Exit::Match);
+	assert!(out.contains("0 violation(s)"), "{out}");
+}
+
+#[test]
+fn check_project_json_has_summary_and_files() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::write(dir.path().join("bad.ts"), TS_BAD_NAMING).unwrap();
+	std::fs::write(dir.path().join("good.ts"), "class GoodName {}\n").unwrap();
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	let v: serde_json::Value = serde_json::from_str(&out).expect("json output");
+	assert_eq!(v["summary"]["files_scanned"], 2);
+	assert_eq!(v["summary"]["files_with_violations"], 1);
+	assert_eq!(v["summary"]["total_violations"], 1);
 }
 
 #[test]
@@ -439,7 +519,7 @@ fn check_explanation_appears_in_text_and_json() {
 		"json",
 	]);
 	let v: serde_json::Value = serde_json::from_str(&out_json).expect("valid JSON");
-	let arr = v["violations"].as_array().unwrap();
+	let arr = v["files"][0]["violations"].as_array().unwrap();
 	let exp = arr[0]["explanation"]
 		.as_str()
 		.expect("json carries explanation");
