@@ -479,8 +479,6 @@ impl<'a> Parser<'a> {
 		Ok((domain, filter))
 	}
 
-	/// Boundaries are " AND " / " OR " / " => " at paren depth 0 outside
-	/// string literals, so op chars inside a regex / count() arg never split.
 	fn find_atom_end(&self) -> usize {
 		let bytes = self.input.as_bytes();
 		let mut i = self.pos;

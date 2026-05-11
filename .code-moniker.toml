@@ -90,14 +90,9 @@ id      = "no-i-prefix"
 expr    = "NOT name =~ ^I[A-Z]"
 message = "Rust trait `{name}` starts with `I` — drop the prefix (`Extractor`, not `IExtractor`)."
 
-# ─── Comment hygiene (per CLAUDE.md + feedback_no_narrative_comments) ───
-# A comment's `parent.kind` reflects its lexical scope: doc comments above an
-# item land under the enclosing module / struct / impl (allowed). Comments
-# inside a callable body are forbidden — code should be self-explanatory and
-# the WHY belongs on the item's `///` doc-comment. `SAFETY:` for `unsafe`
-# blocks is the standard Rust exception.
+# ─── Comment hygiene ────────────────────────────────────────────────────
 
 [[rust.comment.where]]
-id      = "no-body-comments"
-expr    = "NOT parent.kind =~ ^(fn|method|closure)$ OR text =~ SAFETY: OR $tests"
-message = "Comment inside callable body. Move WHY into the item's doc-comment if non-obvious; otherwise delete. (`SAFETY:` for unsafe blocks and code under `tests/` are exempt.)"
+id      = "no-nested-comments"
+expr    = "$tests OR $example OR parent.kind = 'module' OR text =~ '^//\\s*SAFETY:'"
+message = "Do not add comments inside functions, methods, structs, enums, traits, or impls. Keep code self-explanatory; only module-boundary and `SAFETY:` comments are allowed."

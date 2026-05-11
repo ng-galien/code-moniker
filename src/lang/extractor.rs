@@ -22,15 +22,10 @@ use crate::declare::{DeclareError, SerializeError, declare_from_json_value, grap
 pub trait LangExtractor {
 	type Presets: Default;
 
-	/// Short language tag posted as the first segment under the srcset anchor.
 	const LANG_TAG: &'static str;
 
-	/// Structural kinds the extractor may emit on `DefRecord`s, beyond the
-	/// universal internal vocabulary (`module`, `local`, `param`, `section`).
-	/// This list IS the per-language declarative profile.
 	const ALLOWED_KINDS: &'static [&'static str];
 
-	/// Visibilities the extractor may emit, beyond the universal `VIS_NONE`.
 	const ALLOWED_VISIBILITIES: &'static [&'static str];
 
 	fn extract(
@@ -41,17 +36,11 @@ pub trait LangExtractor {
 		presets: &Self::Presets,
 	) -> CodeGraph;
 
-	/// Build a graph from a declarative spec, requiring `spec.lang == LANG_TAG`.
-	/// The default impl validates the language tag, then delegates to the
-	/// language-agnostic core builder.
 	fn declare(spec: &serde_json::Value) -> Result<CodeGraph, DeclareError> {
 		check_spec_lang::<Self>(spec)?;
 		declare_from_json_value(spec)
 	}
 
-	/// Project a graph back to a declarative spec, requiring the graph's
-	/// root to carry `lang:LANG_TAG`. The default impl validates that, then
-	/// delegates to the language-agnostic core serializer.
 	fn to_spec(graph: &CodeGraph) -> Result<serde_json::Value, SerializeError> {
 		check_graph_lang::<Self>(graph)?;
 		graph_to_spec(graph)

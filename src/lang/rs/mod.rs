@@ -71,7 +71,7 @@ impl crate::lang::LangExtractor for Lang {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::core::moniker::MonikerBuilder;
+	use crate::core::moniker::{Moniker, MonikerBuilder};
 	use crate::lang::assert_conformance;
 
 	fn extract(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
@@ -82,6 +82,13 @@ mod tests {
 
 	fn make_anchor() -> Moniker {
 		MonikerBuilder::new().project(b"code-moniker").build()
+	}
+
+	fn has_parent_segment(m: &Moniker, kind: &[u8], name: &[u8]) -> bool {
+		let segments: Vec<_> = m.as_view().segments().collect();
+		segments
+			.get(segments.len().saturating_sub(2))
+			.is_some_and(|seg| seg.kind == kind && seg.name == name)
 	}
 
 	#[test]
@@ -96,6 +103,44 @@ mod tests {
 		let g = extract("src/lib.rs", src, &make_anchor(), false);
 		let n = g.defs().filter(|d| d.kind == b"comment").count();
 		assert_eq!(n, 2);
+	}
+
+	#[test]
+	fn extract_emits_comments_inside_type_bodies() {
+		let src = r#"
+struct Foo {
+    // field comment
+    value: i32,
+}
+
+trait Bar {
+    // trait comment
+    fn bar(&self);
+}
+
+enum Baz {
+    // enum comment
+    A,
+}
+"#;
+		let g = extract("src/lib.rs", src, &make_anchor(), true);
+		let comments: Vec<_> = g.defs().filter(|d| d.kind == b"comment").collect();
+		assert_eq!(comments.len(), 3);
+		assert!(
+			comments
+				.iter()
+				.any(|d| has_parent_segment(&d.moniker, b"struct", b"Foo"))
+		);
+		assert!(
+			comments
+				.iter()
+				.any(|d| has_parent_segment(&d.moniker, b"trait", b"Bar"))
+		);
+		assert!(
+			comments
+				.iter()
+				.any(|d| has_parent_segment(&d.moniker, b"enum", b"Baz"))
+		);
 	}
 
 	#[test]

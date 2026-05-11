@@ -19,13 +19,8 @@ const RESERVED_LANG_KEYS: &[&str] = &["refs"];
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-	/// Named expression fragments. `$name` in any rule `expr` is substituted
-	/// textually pre-parse. Aliases may reference other aliases provided
-	/// there is no cycle.
 	#[serde(default)]
 	pub aliases: HashMap<String, String>,
-	/// `[[refs.where]]` — poly-lang ref rules. Each rule evaluates on every
-	/// `(source_def, target_moniker, ref_kind)` triple in the graph.
 	#[serde(default)]
 	pub refs: RefsRules,
 	#[serde(default)]
@@ -44,6 +39,17 @@ pub struct Config {
 	pub cs: LangRules,
 	#[serde(default)]
 	pub sql: LangRules,
+	#[serde(default)]
+	pub profiles: HashMap<String, Profile>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Profile {
+	#[serde(default)]
+	pub enable: Vec<String>,
+	#[serde(default)]
+	pub disable: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -64,18 +70,12 @@ pub struct LangRules {
 pub struct KindRules {
 	#[serde(default, rename = "where")]
 	pub rules: Vec<RuleEntry>,
-	/// Visibility name that triggers the doc-comment requirement, e.g. "public",
-	/// "any". `None` disables the rule. Spatial check (annotation-aware), not an
-	/// expression — lives outside the `where` DSL.
 	pub require_doc_comment: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RuleEntry {
-	/// Stable rule-id used in violation reports and suppression directives.
-	/// When absent, the engine derives `where_<index>` from the rule's
-	/// position in the per-kind list.
 	#[serde(default)]
 	pub id: Option<String>,
 	pub expr: String,
@@ -118,6 +118,15 @@ pub enum ConfigError {
 	AliasCycle { chain: String },
 	#[error("unknown alias `${name}` referenced under `{at}`")]
 	UnknownAlias { name: String, at: String },
+	#[error("unknown profile `{name}` (known: {known})")]
+	UnknownProfile { name: String, known: String },
+	#[error("invalid regex `{pattern}` in profile `{profile}` ({field}): {error}")]
+	BadProfileRegex {
+		profile: String,
+		field: &'static str,
+		pattern: String,
+		error: regex::Error,
+	},
 }
 
 pub fn load_default() -> Result<Config, ConfigError> {
@@ -151,6 +160,9 @@ pub fn load_with_overrides(user_path: Option<&Path>) -> Result<Config, ConfigErr
 fn merge_into(base: &mut Config, ov: Config) {
 	for (k, v) in ov.aliases {
 		base.aliases.insert(k, v);
+	}
+	for (k, v) in ov.profiles {
+		base.profiles.insert(k, v);
 	}
 	merge_refs(&mut base.refs, ov.refs);
 	merge_lang(&mut base.default, ov.default);
@@ -426,8 +438,6 @@ impl Config {
 		}
 	}
 
-	/// Effective rules for `(lang, kind)`, falling back to `default.<kind>`
-	/// when the language has nothing defined for that kind.
 	pub fn rules_for(&self, lang: Lang, kind: &str) -> Option<&KindRules> {
 		self.for_lang(lang)
 			.kinds

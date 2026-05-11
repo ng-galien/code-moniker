@@ -115,11 +115,7 @@ struct EvalCtx<'g, 'src> {
 	children_by_parent: HashMap<usize, Vec<usize>>,
 	out_refs_by_source: HashMap<usize, Vec<usize>>,
 	in_refs_by_target: HashMap<Vec<u8>, Vec<usize>>,
-	/// Sorted byte offsets where comment defs end. Empty when no rule needs
-	/// `require_doc_comment`.
 	comment_ends: Vec<u32>,
-	/// Earliest `annotates` ref start byte per annotated def — the header
-	/// anchor for the doc-comment adjacency check.
 	doc_anchors: HashMap<usize, u32>,
 }
 
@@ -521,12 +517,6 @@ struct Failure {
 enum NodeOutcome {
 	Pass,
 	Fail(Failure),
-	/// Atom not extractable on this def (anonymous, no position, …).
-	/// Propagation rules (Kleene-style trivalent logic):
-	///   And : NA + Pass = NA ; NA + Fail = Fail ; NA + NA = NA
-	///   Or  : NA + Pass = Pass; NA + Fail = NA ; NA + NA = NA
-	///   Not(NA) = NA
-	///   Implies(NA, _) = NA  — premise indeterminate ⇒ rule doesn't apply
 	NotApplicable,
 }
 

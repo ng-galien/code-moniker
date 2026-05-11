@@ -61,7 +61,8 @@ impl<'src> Walker<'src> {
 			return;
 		};
 		let m = extend_segment(parent, kind, name.as_bytes());
-		let _ = graph.add_def(m, kind, parent, Some(node_position(node)));
+		let _ = graph.add_def(m.clone(), kind, parent, Some(node_position(node)));
+		self.emit_descendant_comments(node, &m, graph);
 	}
 
 	fn handle_function(
@@ -166,6 +167,16 @@ impl<'src> Walker<'src> {
 	fn handle_comment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let m = extend_segment_u32(scope, kinds::COMMENT, node.start_byte() as u32);
 		let _ = graph.add_def(m, kinds::COMMENT, scope, Some(node_position(node)));
+	}
+
+	fn emit_descendant_comments(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let mut cursor = node.walk();
+		for child in node.children(&mut cursor) {
+			match child.kind() {
+				"line_comment" | "block_comment" => self.handle_comment(child, scope, graph),
+				_ => self.emit_descendant_comments(child, scope, graph),
+			}
+		}
 	}
 
 	fn handle_let(&self, node: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
