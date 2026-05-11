@@ -1640,7 +1640,7 @@ mod tests {
 
 	#[test]
 	fn docs_worked_example_parses_and_evaluates() {
-		let md = include_str!("../../../docs/CHECK_DSL.md");
+		let md = include_str!("../../../docs/check-dsl.md");
 		let toml_src = extract_toml_block(md, "## Worked example");
 		let cfg: Config = toml::from_str(&toml_src).unwrap_or_else(|e| {
 			panic!(

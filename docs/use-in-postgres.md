@@ -7,8 +7,8 @@ tables, no triggers, no I/O against external state. Persistence
 is the caller's responsibility; the shape below is the
 recommended one.
 
-References: [`design/SPEC.md`](design/SPEC.md) (conceptual model + SQL
-surface), [`design/MONIKER_URI.md`](design/MONIKER_URI.md) (URI grammar).
+References: [`design/spec.md`](design/spec.md) (conceptual model + SQL
+surface), [`design/moniker-uri.md`](design/moniker-uri.md) (URI grammar).
 
 ## Install
 
@@ -209,7 +209,7 @@ projection: `code_graph_to_spec(graph) → jsonb`.
 
 ## See also
 
-- [`design/SPEC.md`](design/SPEC.md) — conceptual model, full SQL surface.
-- [`design/MONIKER_URI.md`](design/MONIKER_URI.md) — URI grammar, escaping, `bind_match` semantics.
-- [`CLI_EXTRACT.md`](CLI_EXTRACT.md) — standalone CLI, no PG required.
-- [`USE_AS_AGENT_HARNESS.md`](USE_AS_AGENT_HARNESS.md) — same extractors plus a rule engine.
+- [`design/spec.md`](design/spec.md) — conceptual model, full SQL surface.
+- [`design/moniker-uri.md`](design/moniker-uri.md) — URI grammar, escaping, `bind_match` semantics.
+- [`cli-extract.md`](cli-extract.md) — standalone CLI, no PG required.
+- [`use-as-agent-harness.md`](use-as-agent-harness.md) — same extractors plus a rule engine.

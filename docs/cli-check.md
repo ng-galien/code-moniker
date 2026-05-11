@@ -7,9 +7,9 @@ code-moniker check <path> [--rules <path>] [--format text|json]
 The `check` subcommand evaluates a declarative rule pack against the
 symbol graph of one file or a whole project. It is the entry point for
 agent guardrails, pre-commit hooks, and CI gates. For the per-file
-probe form, see [`CLI_EXTRACT.md`](CLI_EXTRACT.md). For the full rule
-grammar, see [`CHECK_DSL.md`](CHECK_DSL.md). For an end-to-end
-integration walkthrough, see [`USE_AS_AGENT_HARNESS.md`](USE_AS_AGENT_HARNESS.md).
+probe form, see [`cli-extract.md`](cli-extract.md). For the full rule
+grammar, see [`check-dsl.md`](check-dsl.md). For an end-to-end
+integration walkthrough, see [`use-as-agent-harness.md`](use-as-agent-harness.md).
 
 `<path>` is either a single source file (per-edit lint) or a directory
 (project-wide scan). Loads an embedded default rule pack, optionally
@@ -32,7 +32,7 @@ Exit codes:
 
 ## Configuration
 
-Full DSL reference: [`CHECK_DSL.md`](CHECK_DSL.md). Grammar, scopes
+Full DSL reference: [`check-dsl.md`](check-dsl.md). Grammar, scopes
 (`[[<lang>.<kind>.where]]` for defs, `[[refs.where]]` for refs),
 quantifiers (`any` / `all` / `none` / `count` on `<kind>` / `segment` /
 `out_refs` / `in_refs`), path patterns (`moniker ~ '**/class:/Port$/'`),
@@ -155,6 +155,6 @@ problems?".
 
 ## Next steps
 
-- Plug into an agent loop or CI gate → [`USE_AS_AGENT_HARNESS.md`](USE_AS_AGENT_HARNESS.md).
-- Write your first rule → [`CHECK_DSL.md`](CHECK_DSL.md).
-- Probe a single file ad-hoc → [`CLI_EXTRACT.md`](CLI_EXTRACT.md).
+- Plug into an agent loop or CI gate → [`use-as-agent-harness.md`](use-as-agent-harness.md).
+- Write your first rule → [`check-dsl.md`](check-dsl.md).
+- Probe a single file ad-hoc → [`cli-extract.md`](cli-extract.md).

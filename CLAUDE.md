@@ -8,10 +8,10 @@
 - `CONTRIBUTING.md` — developer workflow (build, test, dogfood, add a language)
 - `CLAUDE.md` (this file) — coding rules
 - `docs/README.md` — doc index, grouped by audience
-- `docs/USE_AS_AGENT_HARNESS.md`, `docs/USE_IN_POSTGRES.md` — user guides
-- `docs/CLI_EXTRACT.md`, `docs/CLI_CHECK.md`, `docs/CHECK_DSL.md` — CLI reference
-- `docs/design/SPEC.md` — conceptual model, public API
-- `docs/design/MONIKER_URI.md` — moniker URI grammar
+- `docs/use-as-agent-harness.md`, `docs/use-in-postgres.md` — user guides
+- `docs/cli-extract.md`, `docs/cli-check.md`, `docs/check-dsl.md` — CLI reference
+- `docs/design/spec.md` — conceptual model, public API
+- `docs/design/moniker-uri.md` — moniker URI grammar
 - `docs/declare_schema.json` — JSON Schema 2020-12 for `code_graph_declare`. Per-language profiles must stay in sync with `LangExtractor::ALLOWED_KINDS` / `ALLOWED_VISIBILITIES` (enforced by the schema-sync test in `src/lang/mod.rs`).
 
 ## Comment sobriety

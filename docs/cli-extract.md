@@ -5,7 +5,7 @@ PostgreSQL extension on a single source file, without a running PG
 instance.
 
 For the `check` subcommand (project linter / agent guardrail), see
-[`CLI_CHECK.md`](CLI_CHECK.md).
+[`cli-check.md`](cli-check.md).
 
 ## Synopsis
 
@@ -241,6 +241,6 @@ code-moniker file.py --kind comment --count
 
 ## See also
 
-- [`CLI_CHECK.md`](CLI_CHECK.md) — project-wide scan with a rule DSL.
-- [`USE_IN_POSTGRES.md`](USE_IN_POSTGRES.md) — round-trip the JSON
+- [`cli-check.md`](cli-check.md) — project-wide scan with a rule DSL.
+- [`use-in-postgres.md`](use-in-postgres.md) — round-trip the JSON
   output into Postgres via `code_graph_declare`.

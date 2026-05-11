@@ -1,7 +1,7 @@
 # Contributing to `code-moniker`
 
 Build, test, and extend the project. The conceptual model and SQL
-surface are documented in [`docs/design/SPEC.md`](docs/design/SPEC.md).
+surface are documented in [`docs/design/spec.md`](docs/design/spec.md).
 
 ## Layout
 

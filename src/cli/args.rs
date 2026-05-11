@@ -9,7 +9,7 @@ use crate::core::uri::{UriConfig, from_uri};
 #[derive(Debug, Parser)]
 #[command(
 	name = "code-moniker",
-	about = "Single-file moniker / code_graph extraction; see docs/CLI_EXTRACT.md",
+	about = "Single-file moniker / code_graph extraction; see docs/cli-extract.md",
 	version
 )]
 pub struct Cli {

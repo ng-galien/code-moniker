@@ -1,4 +1,4 @@
-//! Rule DSL for `code-moniker check`. Full reference: docs/CHECK_DSL.md.
+//! Rule DSL for `code-moniker check`. Full reference: docs/check-dsl.md.
 
 use regex::Regex;
 

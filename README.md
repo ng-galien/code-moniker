@@ -13,7 +13,7 @@
 [![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-17-336791)](https://www.postgresql.org)
 
-Stateless, [fast](docs/PERF.md) symbol-graph analyser for source
+Stateless, [fast](docs/perf.md) symbol-graph analyser for source
 code, in two shapes that share one extractor:
 
 - a **standalone CLI** that lints projects against a declarative rule
@@ -50,7 +50,7 @@ Rules talk about symbols and their relations (calls, imports,
 inheritance, layering, naming), not just syntax. Exit 1 is the signal
 for `PostToolUse` hooks, pre-commit, and CI.
 
-→ [docs/USE_AS_AGENT_HARNESS.md](docs/USE_AS_AGENT_HARNESS.md)
+→ [docs/use-as-agent-harness.md](docs/use-as-agent-harness.md)
 
 ## Postgres extension — `extract_<lang>` + indexed algebra
 
@@ -72,16 +72,16 @@ defs and refs. Cross-file linkage is a single indexed JOIN on `?=`
 (`bind_match`). The extension owns no tables — types, operators,
 and pure functions only.
 
-→ [docs/USE_IN_POSTGRES.md](docs/USE_IN_POSTGRES.md)
+→ [docs/use-in-postgres.md](docs/use-in-postgres.md)
 
 ## Doc map
 
 | Goal                                                                | Read                                                              |
 |---------------------------------------------------------------------|-------------------------------------------------------------------|
-| Lint a project, gate an agent, guard pre-commit / CI                | [docs/USE_AS_AGENT_HARNESS.md](docs/USE_AS_AGENT_HARNESS.md)      |
-| Index a corpus in Postgres for cross-file queries                   | [docs/USE_IN_POSTGRES.md](docs/USE_IN_POSTGRES.md)                |
+| Lint a project, gate an agent, guard pre-commit / CI                | [docs/use-as-agent-harness.md](docs/use-as-agent-harness.md)      |
+| Index a corpus in Postgres for cross-file queries                   | [docs/use-in-postgres.md](docs/use-in-postgres.md)                |
 | CLI reference (per-file probe, project linter, rule DSL)            | [docs/README.md](docs/README.md)                                  |
-| Add a language, change the SQL surface, build & test                | [CONTRIBUTING.md](CONTRIBUTING.md) · [docs/design/SPEC.md](docs/design/SPEC.md) |
+| Add a language, change the SQL surface, build & test                | [CONTRIBUTING.md](CONTRIBUTING.md) · [docs/design/spec.md](docs/design/spec.md) |
 
 ## Surface
 

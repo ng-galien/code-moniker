@@ -5,7 +5,7 @@
 reads exit codes — a Claude Code `PostToolUse` hook, a Git
 pre-commit hook, a CI job — can gate on that signal.
 
-Reference: [`CLI_CHECK.md`](CLI_CHECK.md) (subcommand), [`CHECK_DSL.md`](CHECK_DSL.md) (rule grammar).
+Reference: [`cli-check.md`](cli-check.md) (subcommand), [`check-dsl.md`](check-dsl.md) (rule grammar).
 
 ## What rules talk about
 
@@ -57,7 +57,7 @@ id   = "repository-lives-in-domain"
 expr = "name =~ Repository$ => moniker ~ '**/dir:domain/**'"
 ```
 
-Full grammar: [`CHECK_DSL.md`](CHECK_DSL.md). A larger example
+Full grammar: [`check-dsl.md`](check-dsl.md). A larger example
 covering Clean Code, DDD, Hex layering, and bounded contexts is
 appended to that file.
 
@@ -215,4 +215,4 @@ expr = """
 
 Rules see direct refs of the current def. Transitive analysis
 (`X indirectly calls Y`), cycle detection, and dataflow live in SQL
-against an ingested corpus — see [`USE_IN_POSTGRES.md`](USE_IN_POSTGRES.md).
+against an ingested corpus — see [`use-in-postgres.md`](use-in-postgres.md).

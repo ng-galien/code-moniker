@@ -81,7 +81,7 @@ location lives in a sidecar column (`source_uri`) on the holding row.
 Names with reserved characters (`/`, `:`, `(`, `)`, backtick,
 whitespace) are wrapped in backticks; literal backticks are doubled.
 
-URI grammar and per-language path encoding: `MONIKER_URI.md`.
+URI grammar and per-language path encoding: `moniker-uri.md`.
 
 #### Operators
 
