@@ -890,7 +890,7 @@ fn parse_rhs(s: &str, op: Op, scheme: &str, full: &str) -> Result<Rhs, ParseErro
 mod tests {
 	use super::*;
 
-	const TS: &str = "ts+moniker://";
+	const TS: &str = "code+moniker://";
 	const KINDS: &[&str] = &["class", "method", "function", "module"];
 
 	fn solo(e: &Expr) -> &Atom {
@@ -936,7 +936,7 @@ mod tests {
 
 	#[test]
 	fn parses_moniker_descendant() {
-		let e = parse("moniker <@ ts+moniker://./class:Foo", TS, KINDS).unwrap();
+		let e = parse("moniker <@ code+moniker://./class:Foo", TS, KINDS).unwrap();
 		let a = solo(&e);
 		match (&a.lhs, &a.op, &a.rhs) {
 			(LhsExpr::Attr(Lhs::Moniker), Op::DescendantOf, Rhs::Moniker(_)) => {}

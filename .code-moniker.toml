@@ -1,0 +1,59 @@
+# Project-specific rules overlay. Merged on top of the embedded preset by
+# rule id (same id → replace, new id → append).
+#
+# The path of each file is encoded into its monikers as `dir:<seg>/.../module:<name>`
+# segments, so rules can gate on layer via path-pattern matching.
+
+[aliases]
+# Pure-Rust core, no pgrx, no tree-sitter, no PG runtime.
+core   = "moniker ~ '**/dir:src/dir:core/**'"
+# pgrx PG extension wrapper around core.
+pg     = "moniker ~ '**/dir:src/dir:pg/**'"
+# Per-language extractors (one mod per supported source language).
+lang   = "moniker ~ '**/dir:src/dir:lang/**'"
+# CLI surface (standalone binary).
+cli    = "moniker ~ '**/dir:src/dir:cli/**'"
+# Examples / benchmarks — looser conventions.
+example = "moniker ~ '**/dir:examples/**'"
+
+# ─── Hex / Layering (cross-layer dependencies via imports) ─────────────
+# These work because Rust import refs carry the external crate / module
+# path in the target moniker — match against `target ~ '...'`.
+[[refs.where]]
+id      = "core-no-pgrx"
+expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
+message = "Module `core` is parser-agnostic by contract; pgrx imports belong under `src/pg/`."
+
+[[refs.where]]
+id      = "core-no-tree-sitter"
+expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:tree_sitter/**'"
+message = "Module `core` is parser-agnostic; tree-sitter belongs under `src/lang/`."
+
+[[refs.where]]
+id      = "lang-extractors-isolated"
+expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
+message = "Per-language extractors are pure Rust; they don't import pgrx (the SQL surface lives in src/pg/)."
+
+# ─── Naming hygiene per layer ────────────────────────────────────────
+# These extend / refine the embedded preset that already enforces
+# PascalCase / snake_case on the obvious cases.
+
+[[rust.fn.where]]
+id      = "max-lines"
+expr    = "lines <= 120"
+message = "Function `{name}` is {value} lines (project cap = {expected}). Split it before its host file approaches the 600-line cap."
+
+[[rust.method.where]]
+id      = "max-lines"
+expr    = "lines <= 120"
+message = "Method `{name}` is {value} lines (project cap = {expected})."
+
+[[rust.fn.where]]
+id      = "no-placeholder-names"
+expr    = "NOT name =~ ^(helper|helpers|do_thing|manage|process)$"
+message = "`{name}` is a placeholder. Pick a verb that names the actual behaviour (`extract_*`, `parse_*`, `walk_*`, …)."
+
+[[rust.trait.where]]
+id      = "no-i-prefix"
+expr    = "NOT name =~ ^I[A-Z]"
+message = "Rust trait `{name}` starts with `I` — drop the prefix (`Extractor`, not `IExtractor`)."

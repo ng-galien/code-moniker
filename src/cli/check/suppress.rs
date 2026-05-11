@@ -131,9 +131,9 @@ mod tests {
 	use crate::lang::Lang;
 
 	fn run(source: &str, cfg: &Config) -> Vec<Violation> {
-		let graph = extract::extract(Lang::Ts, source);
-		let violations =
-			evaluate(&graph, source, Lang::Ts, cfg, "ts+moniker://").expect("test config compiles");
+		let graph = extract::extract(Lang::Ts, source, std::path::Path::new("test.ts"));
+		let violations = evaluate(&graph, source, Lang::Ts, cfg, "code+moniker://")
+			.expect("test config compiles");
 		apply(&graph, source, violations)
 	}
 

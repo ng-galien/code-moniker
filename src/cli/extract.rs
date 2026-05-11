@@ -4,8 +4,8 @@ use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::{Moniker, MonikerBuilder};
 use crate::lang::Lang;
 
-pub fn extract(lang: Lang, source: &str) -> CodeGraph {
-	let uri = "single-file";
+pub fn extract(lang: Lang, source: &str, path: &Path) -> CodeGraph {
+	let uri = path.to_str().unwrap_or("single-file");
 	let anchor = anchor_moniker();
 	let deep = true;
 	match lang {

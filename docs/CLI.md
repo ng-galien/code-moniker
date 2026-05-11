@@ -56,13 +56,13 @@ Without any predicate, the binary dumps the full graph.
 
 ```sh
 # Methods of class Foo
-code-moniker file.ts --where '<@ ts+moniker://./class:Foo' --kind method
+code-moniker file.ts --where '<@ code+moniker://./class:Foo' --kind method
 
 # Anything that resolves to Foo (cross-file bind)
-code-moniker file.ts --where '?= ts+moniker://./class:Foo'
+code-moniker file.ts --where '?= code+moniker://./class:Foo'
 
 # Exact handle of a typed callable
-code-moniker file.ts --where '= ts+moniker://./fn:handle(string)→void'
+code-moniker file.ts --where '= code+moniker://./fn:handle(string)→void'
 ```
 
 ## Output
@@ -106,7 +106,7 @@ A single JSON document on stdout, intentionally identical in shape to
   "matches": {
     "defs": [
       {
-        "moniker":    "ts+moniker://./lang:ts/module:widget/class:Foo",
+        "moniker":    "code+moniker://./lang:ts/module:widget/class:Foo",
         "kind":       "class",
         "position":   [142, 187],
         "lines":      [12, 18],
@@ -117,7 +117,7 @@ A single JSON document on stdout, intentionally identical in shape to
     "refs": [
       {
         "source_idx": 4,
-        "target":     "ts+moniker://./lang:ts/module:widget/class:Foo",
+        "target":     "code+moniker://./lang:ts/module:widget/class:Foo",
         "kind":       "extends",
         "position":   [220, 243],
         "lines":      [25, 25],
@@ -153,7 +153,7 @@ fi
 ## Comments
 
 Each AST comment node yields a def of `kind: comment`, with a moniker scoped to
-the lexical context (`ts+moniker://./class:Foo/comment:<start_byte>` for a
+the lexical context (`code+moniker://./class:Foo/comment:<start_byte>` for a
 comment inside class `Foo`). The kind name is the same across all seven
 extractors. The disambiguator is the comment's start byte, so distinct comments
 never collide.
@@ -175,7 +175,7 @@ code-moniker file.ts --kind comment --count
 # Find TODOs in the file
 code-moniker file.ts --kind comment --with-text --format tsv | grep -i todo
 # Comments inside a specific class
-code-moniker file.ts --where '<@ ts+moniker://./class:Foo' --kind comment
+code-moniker file.ts --where '<@ code+moniker://./class:Foo' --kind comment
 ```
 
 ## Stable ordering
@@ -205,13 +205,13 @@ is written to stdout.
 code-moniker src/widget.ts --format json > widget.spec.json
 
 # All methods of class Foo
-code-moniker src/widget.ts --where '<@ ts+moniker://./class:Foo' --kind method
+code-moniker src/widget.ts --where '<@ code+moniker://./class:Foo' --kind method
 
 # Does file define a function called `handle` taking a string?
-code-moniker src/server.ts --where '= ts+moniker://./function:handle(string)→_' --quiet
+code-moniker src/server.ts --where '= code+moniker://./function:handle(string)→_' --quiet
 
 # All references to a specific symbol's family (bind_match)
-code-moniker src/widget.ts --where '?= ts+moniker://./class:Foo/method:bar(_)→_'
+code-moniker src/widget.ts --where '?= code+moniker://./class:Foo/method:bar(_)→_'
 
 # Count comments and exit 1 if there are none
 code-moniker file.py --kind comment --count
@@ -358,7 +358,7 @@ src/order.ts:L5-L20  [ts.class.no-god-class]     class `Order` fails `count(meth
       "violations": [
         {
           "rule_id": "ts.class.name-pascalcase",
-          "moniker": "ts+moniker://./lang:ts/module:widget/class:lower_bad",
+          "moniker": "code+moniker://./lang:ts/module:widget/class:lower_bad",
           "kind":    "class",
           "lines":   [12, 18],
           "message": "class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`"

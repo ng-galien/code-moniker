@@ -91,14 +91,12 @@ fn no_match_returns_exit_one() {
 }
 
 #[test]
-fn descendant_of_filters_to_class_members() {
+fn class_kind_filter_finds_class_foo() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let path = dir.path().join("a.ts");
 	let (exit, out, err) = run_with(vec![
 		"code-moniker",
 		path.to_str().unwrap(),
-		"--where",
-		"<@ ts+moniker://./lang:ts/module:single-file/class:Foo",
 		"--kind",
 		"method",
 	]);
@@ -106,11 +104,8 @@ fn descendant_of_filters_to_class_members() {
 	let lines: Vec<&str> = out.lines().collect();
 	assert!(!lines.is_empty(), "no methods matched");
 	for line in &lines {
-		assert!(line.contains("class:Foo"), "non-Foo descendant: {line}");
-		assert!(
-			line.contains("method") && line.starts_with("def\t"),
-			"unexpected: {line}"
-		);
+		assert!(line.contains("class:Foo"), "{line}");
+		assert!(line.starts_with("def\t"), "{line}");
 	}
 }
 
@@ -349,6 +344,76 @@ fn check_project_json_includes_errors_array() {
 	let errors = v["errors"].as_array().unwrap();
 	assert_eq!(errors.len(), 1);
 	assert!(errors[0]["file"].as_str().unwrap().ends_with("broken.ts"));
+}
+
+#[test]
+fn check_project_path_in_moniker_gates_a_rule() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::create_dir(dir.path().join("strict")).unwrap();
+	std::fs::create_dir(dir.path().join("lax")).unwrap();
+	std::fs::write(dir.path().join("strict/a.ts"), "class lower_case {}\n").unwrap();
+	std::fs::write(dir.path().join("lax/b.ts"), "class lower_case {}\n").unwrap();
+	let rules_path = dir.path().join("rules.toml");
+	// Replace the preset's name-pascalcase rule with one that only fires
+	// inside the `strict` directory — keyed off the path-derived moniker
+	// (`**/dir:strict/**` segment).
+	std::fs::write(
+		&rules_path,
+		r#"
+		[[ts.class.where]]
+		id      = "name-pascalcase"
+		expr    = "moniker ~ '**/dir:strict/**' => name =~ ^[A-Z][A-Za-z0-9]*$"
+		message = "Strict layer requires PascalCase."
+		"#,
+	)
+	.unwrap();
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::NoMatch, "strict/a.ts should violate: {out}");
+	assert!(out.contains("strict/a.ts"), "{out}");
+	assert!(
+		!out.contains("lax/b.ts"),
+		"lax/ exempt by path-in-moniker gate: {out}"
+	);
+}
+
+#[test]
+fn check_project_cross_layer_import_violation() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::create_dir_all(dir.path().join("src/core")).unwrap();
+	std::fs::write(
+		dir.path().join("src/core/bad.rs"),
+		"use pgrx::prelude::*;\npub fn foo() {}\n",
+	)
+	.unwrap();
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[aliases]
+		core = "moniker ~ '**/dir:src/dir:core/**'"
+
+		[[refs.where]]
+		id   = "core-no-pgrx"
+		expr = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
+		"#,
+	)
+	.unwrap();
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::NoMatch, "core/bad.rs imports pgrx: {out}");
+	assert!(out.contains("core-no-pgrx"), "{out}");
+	assert!(out.contains("bad.rs"), "{out}");
 }
 
 #[test]

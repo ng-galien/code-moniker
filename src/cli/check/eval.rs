@@ -337,7 +337,7 @@ fn eval_ref_rule(
 		lhs_label,
 		actual,
 		expected,
-	} = match eval_ref_node(&rule.root, r, graph) {
+	} = match eval_ref_node(&rule.root, r, ctx) {
 		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
 		NodeOutcome::Fail(f) => f,
 	};
@@ -365,9 +365,9 @@ fn eval_ref_rule(
 fn eval_ref_node(
 	node: &Node,
 	r: &crate::core::code_graph::RefRecord,
-	graph: &CodeGraph,
+	ctx: &EvalCtx<'_, '_>,
 ) -> NodeOutcome {
-	walk_node(node, &|a| eval_ref_atom(a, r, graph), &|_, _, _| {
+	walk_node(node, &|a| eval_ref_atom(a, r, ctx), &|_, _, _| {
 		NodeOutcome::NotApplicable
 	})
 }
@@ -375,8 +375,9 @@ fn eval_ref_node(
 fn eval_ref_atom(
 	atom: &Atom,
 	r: &crate::core::code_graph::RefRecord,
-	graph: &CodeGraph,
+	ctx: &EvalCtx<'_, '_>,
 ) -> AtomOutcome {
+	let graph = ctx.graph;
 	let source_def = graph.def_at(r.source);
 	let value: Value = match &atom.lhs {
 		// `kind` in ref scope = the ref kind.
@@ -388,7 +389,10 @@ fn eval_ref_atom(
 				.unwrap_or_default()
 				.to_string(),
 		),
-		LhsExpr::Attr(Lhs::SourceMoniker) => Value::Moniker(source_def.moniker.clone()),
+		// Unprefixed `moniker` in ref scope = source, so def aliases reuse here.
+		LhsExpr::Attr(Lhs::Moniker) | LhsExpr::Attr(Lhs::SourceMoniker) => {
+			Value::Moniker(source_def.moniker.clone())
+		}
 		LhsExpr::Attr(Lhs::TargetMoniker) => Value::Moniker(r.target.clone()),
 		LhsExpr::Attr(Lhs::SourceName) => match name_of(&source_def.moniker) {
 			Some(n) => Value::Str(n),
@@ -431,7 +435,7 @@ fn eval_ref_atom(
 		_ => return AtomOutcome::NotApplicable,
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
-		let Some(rhs_val) = resolve_ref_lhs(*other, r, graph) else {
+		let Some(rhs_val) = resolve_ref_lhs(*other, r, ctx) else {
 			return AtomOutcome::NotApplicable;
 		};
 		return apply_op_values(&value, atom.op, &rhs_val);
@@ -442,13 +446,14 @@ fn eval_ref_atom(
 fn resolve_ref_lhs(
 	lhs: Lhs,
 	r: &crate::core::code_graph::RefRecord,
-	graph: &CodeGraph,
+	ctx: &EvalCtx<'_, '_>,
 ) -> Option<Value> {
+	let graph = ctx.graph;
 	let source_def = graph.def_at(r.source);
 	Some(match lhs {
 		Lhs::Kind => Value::Str(std::str::from_utf8(&r.kind).ok()?.to_string()),
 		Lhs::Confidence => Value::Str(std::str::from_utf8(&r.confidence).ok()?.to_string()),
-		Lhs::SourceMoniker => Value::Moniker(source_def.moniker.clone()),
+		Lhs::Moniker | Lhs::SourceMoniker => Value::Moniker(source_def.moniker.clone()),
 		Lhs::TargetMoniker => Value::Moniker(r.target.clone()),
 		Lhs::SourceName => Value::Str(name_of(&source_def.moniker)?),
 		Lhs::TargetName => Value::Str(name_of(&r.target)?),
@@ -740,7 +745,7 @@ fn count_out_refs(
 		match filter {
 			None => n += 1,
 			Some(node) => {
-				if let NodeOutcome::Pass = eval_ref_node(node, r, ctx.graph) {
+				if let NodeOutcome::Pass = eval_ref_node(node, r, ctx) {
 					n += 1;
 				}
 			}
@@ -760,7 +765,7 @@ fn count_in_refs(d: &DefRecord, filter: Option<&Node>, ctx: &EvalCtx<'_, '_>) ->
 		match filter {
 			None => n += 1,
 			Some(node) => {
-				if let NodeOutcome::Pass = eval_ref_node(node, r, ctx.graph) {
+				if let NodeOutcome::Pass = eval_ref_node(node, r, ctx) {
 					n += 1;
 				}
 			}
@@ -812,7 +817,7 @@ fn eval_quantifier_def(
 			for &ri in ref_idxs {
 				let r = ctx.graph.ref_at(ri);
 				total += 1;
-				if matches!(eval_ref_node(filter, r, ctx.graph), NodeOutcome::Pass) {
+				if matches!(eval_ref_node(filter, r, ctx), NodeOutcome::Pass) {
 					passes += 1;
 				}
 			}
@@ -824,7 +829,7 @@ fn eval_quantifier_def(
 			for &ri in ref_idxs {
 				let r = ctx.graph.ref_at(ri);
 				total += 1;
-				if matches!(eval_ref_node(filter, r, ctx.graph), NodeOutcome::Pass) {
+				if matches!(eval_ref_node(filter, r, ctx), NodeOutcome::Pass) {
 					passes += 1;
 				}
 			}
@@ -1208,7 +1213,7 @@ mod tests {
 	use crate::core::code_graph::DefAttrs;
 	use crate::core::moniker::{Moniker, MonikerBuilder};
 
-	const SCHEME: &str = "ts+moniker://";
+	const SCHEME: &str = "code+moniker://";
 
 	fn cfg_from(s: &str) -> Config {
 		toml::from_str(s).expect("test config must parse")
@@ -1383,7 +1388,7 @@ mod tests {
 			r#"
 			[[ts.method.where]]
 			id   = "stay-in-foo"
-			expr = "moniker <@ ts+moniker://./lang:ts/module:a/class:Foo"
+			expr = "moniker <@ code+moniker://./lang:ts/module:a/class:Foo"
 			"#,
 		);
 		let module = build_module(b"a");

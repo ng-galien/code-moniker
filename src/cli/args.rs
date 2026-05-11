@@ -80,7 +80,7 @@ pub struct Args {
 	#[arg(
 		long,
 		value_name = "SCHEME",
-		help = "URI scheme; defaults to <lang>+moniker:// based on the file extension"
+		help = "URI scheme; defaults to code+moniker://"
 	)]
 	pub scheme: Option<String>,
 }
@@ -234,8 +234,8 @@ mod tests {
 
 	#[test]
 	fn where_descendant_parses() {
-		let a = extract(&["a.ts", "--where", "<@ ts+moniker://./class:Foo"]);
-		let preds = a.compiled_predicates("ts+moniker://").expect("ok");
+		let a = extract(&["a.ts", "--where", "<@ code+moniker://./class:Foo"]);
+		let preds = a.compiled_predicates("code+moniker://").expect("ok");
 		assert_eq!(preds.len(), 1);
 		assert!(matches!(preds[0], Predicate::DescendantOf(_)));
 	}
@@ -245,11 +245,11 @@ mod tests {
 		let a = extract(&[
 			"a.ts",
 			"--where",
-			"@> ts+moniker://./class:Foo",
+			"@> code+moniker://./class:Foo",
 			"--where",
-			"= ts+moniker://./class:Foo/method:bar",
+			"= code+moniker://./class:Foo/method:bar",
 		]);
-		let preds = a.compiled_predicates("ts+moniker://").expect("ok");
+		let preds = a.compiled_predicates("code+moniker://").expect("ok");
 		assert_eq!(preds.len(), 2);
 		assert!(matches!(preds[0], Predicate::AncestorOf(_)));
 		assert!(matches!(preds[1], Predicate::Eq(_)));
@@ -258,8 +258,12 @@ mod tests {
 	#[test]
 	fn where_each_operator_supported() {
 		for op in &["=", "<", "<=", ">", ">=", "@>", "<@", "?="] {
-			let a = extract(&["a.ts", "--where", &format!("{op} ts+moniker://./class:Foo")]);
-			let preds = a.compiled_predicates("ts+moniker://").expect(op);
+			let a = extract(&[
+				"a.ts",
+				"--where",
+				&format!("{op} code+moniker://./class:Foo"),
+			]);
+			let preds = a.compiled_predicates("code+moniker://").expect(op);
 			assert_eq!(preds.len(), 1, "op {op} failed");
 		}
 	}
@@ -267,7 +271,7 @@ mod tests {
 	#[test]
 	fn where_malformed_is_usage_error() {
 		let a = extract(&["a.ts", "--where", "garbage uri"]);
-		let err = a.compiled_predicates("ts+moniker://").unwrap_err();
+		let err = a.compiled_predicates("code+moniker://").unwrap_err();
 		let msg = format!("{err:#}");
 		assert!(msg.contains("--where"), "{msg}");
 	}
@@ -275,7 +279,7 @@ mod tests {
 	#[test]
 	fn where_missing_uri_is_usage_error() {
 		let a = extract(&["a.ts", "--where", "@>"]);
-		let err = a.compiled_predicates("ts+moniker://").unwrap_err();
+		let err = a.compiled_predicates("code+moniker://").unwrap_err();
 		let msg = format!("{err:#}");
 		assert!(msg.contains("missing URI"), "{msg}");
 	}

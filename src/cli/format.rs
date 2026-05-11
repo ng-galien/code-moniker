@@ -280,7 +280,7 @@ mod tests {
 			refs: vec![],
 		};
 		let mut buf = Vec::new();
-		write_tsv(&mut buf, &matches, "", &args(), "ts+moniker://").unwrap();
+		write_tsv(&mut buf, &matches, "", &args(), "code+moniker://").unwrap();
 		let s = String::from_utf8(buf).unwrap();
 		assert_eq!(s.lines().count(), 3);
 		for line in s.lines() {
@@ -308,7 +308,7 @@ mod tests {
 			refs: vec![],
 		};
 		let mut buf = Vec::new();
-		write_tsv(&mut buf, &matches, source, &args(), "ts+moniker://").unwrap();
+		write_tsv(&mut buf, &matches, source, &args(), "code+moniker://").unwrap();
 		let s = String::from_utf8(buf).unwrap();
 		assert!(s.contains("\tL2-L4\t"), "missing line range column: {s}");
 	}
@@ -322,10 +322,10 @@ mod tests {
 			refs: vec![],
 		};
 		let mut buf = Vec::new();
-		write_tsv(&mut buf, &matches, "", &args(), "ts+moniker://").unwrap();
+		write_tsv(&mut buf, &matches, "", &args(), "code+moniker://").unwrap();
 		let s = String::from_utf8(buf).unwrap();
 		assert!(
-			s.contains("ts+moniker://app/class:Foo"),
+			s.contains("code+moniker://app/class:Foo"),
 			"missing canonical URI in: {s}"
 		);
 	}
@@ -345,7 +345,7 @@ mod tests {
 			&args(),
 			Lang::Ts,
 			Path::new("a.ts"),
-			"ts+moniker://",
+			"code+moniker://",
 		)
 		.unwrap();
 		let v: serde_json::Value = serde_json::from_slice(&buf).unwrap();
@@ -382,7 +382,7 @@ mod tests {
 			&args(),
 			Lang::Ts,
 			Path::new("a.ts"),
-			"ts+moniker://",
+			"code+moniker://",
 		)
 		.unwrap();
 		let v: serde_json::Value = serde_json::from_slice(&buf).unwrap();
@@ -407,7 +407,7 @@ mod tests {
 			&args(),
 			Lang::Ts,
 			Path::new("a.ts"),
-			"ts+moniker://",
+			"code+moniker://",
 		)
 		.unwrap();
 		let v: serde_json::Value = serde_json::from_slice(&buf).unwrap();

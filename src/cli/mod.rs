@@ -16,6 +16,8 @@ pub use args::{Args, CheckArgs, CheckFormat, Cli, Command, OutputFormat, OutputM
 pub use lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};
 
+pub(crate) const DEFAULT_SCHEME: &str = "code+moniker://";
+
 pub(crate) fn render_uri(
 	m: &crate::core::moniker::Moniker,
 	cfg: &crate::core::uri::UriConfig<'_>,
@@ -73,12 +75,9 @@ fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> 
 	let lang = path_to_lang(path)?;
 	let source = std::fs::read_to_string(path)
 		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-	let scheme = args
-		.scheme
-		.clone()
-		.unwrap_or_else(|| format!("{}+moniker://", lang.tag()));
+	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
 	let predicates = args.compiled_predicates(&scheme)?;
-	let graph = extract::extract(lang, &source);
+	let graph = extract::extract(lang, &source, path);
 	let matches = predicate::filter(&graph, &predicates, &args.kind);
 	let any = !matches.defs.is_empty() || !matches.refs.is_empty();
 	match args.mode() {
@@ -165,32 +164,33 @@ fn check_one_file(path: &Path, cfg: &check::Config) -> anyhow::Result<Option<Fil
 	let Ok(lang) = path_to_lang(path) else {
 		return Ok(None);
 	};
-	let scheme = format!("{}+moniker://", lang.tag());
-	let compiled = check::compile_rules(cfg, lang, &scheme)?;
-	check_one_compiled(path, lang, &scheme, &compiled).map(Some)
+	let compiled = check::compile_rules(cfg, lang, DEFAULT_SCHEME)?;
+	check_one_compiled(path, None, lang, &compiled).map(Some)
 }
 
+/// `moniker_anchor` overrides the path passed to the extractor — used by
+/// project mode to anchor each file's moniker on its path relative to the
+/// scan root. `None` means "same as `fs_path`" (single-file mode).
 fn check_one_compiled(
-	path: &Path,
+	fs_path: &Path,
+	moniker_anchor: Option<&Path>,
 	lang: crate::lang::Lang,
-	scheme: &str,
 	compiled: &check::CompiledRules,
 ) -> anyhow::Result<FileReport> {
-	let source = std::fs::read_to_string(path)
-		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-	let graph = extract::extract(lang, &source);
-	let raw = check::evaluate_compiled(&graph, &source, lang, scheme, compiled);
+	let source = std::fs::read_to_string(fs_path)
+		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", fs_path.display()))?;
+	let graph = extract::extract(lang, &source, moniker_anchor.unwrap_or(fs_path));
+	let raw = check::evaluate_compiled(&graph, &source, lang, DEFAULT_SCHEME, compiled);
 	let violations = check::apply_suppressions(&graph, &source, raw);
 	Ok(FileReport {
-		path: path.to_path_buf(),
+		path: fs_path.to_path_buf(),
 		violations,
 	})
 }
 
-/// Project-mode scan. Per-file I/O errors (unreadable, non-UTF-8, …) are
-/// collected into the returned `Vec<FileError>` rather than aborting the
-/// scan — a single broken file shouldn't suppress violations from the rest.
-/// Rules are compiled once per language and shared across the parallel pool.
+/// Project-mode scan. Per-file I/O errors are accumulated in `Vec<FileError>`
+/// rather than aborting the scan. Rules are compiled once per language and
+/// shared across the parallel pool.
 fn check_project(
 	root: &Path,
 	cfg: &check::Config,
@@ -207,20 +207,19 @@ fn check_project(
 			Some((p, lang))
 		})
 		.collect();
-	let mut compiled: HashMap<crate::lang::Lang, (String, check::CompiledRules)> = HashMap::new();
+	let mut compiled: HashMap<crate::lang::Lang, check::CompiledRules> = HashMap::new();
 	for (_, lang) in &paths {
 		if compiled.contains_key(lang) {
 			continue;
 		}
-		let scheme = format!("{}+moniker://", lang.tag());
-		let rules = check::compile_rules(cfg, *lang, &scheme)?;
-		compiled.insert(*lang, (scheme, rules));
+		compiled.insert(*lang, check::compile_rules(cfg, *lang, DEFAULT_SCHEME)?);
 	}
 	let outcomes: Vec<Result<FileReport, FileError>> = paths
 		.par_iter()
 		.map(|(p, lang)| {
-			let (scheme, rules) = &compiled[lang];
-			check_one_compiled(p, *lang, scheme, rules).map_err(|e| FileError {
+			let rules = &compiled[lang];
+			let rel = p.strip_prefix(root).unwrap_or(p);
+			check_one_compiled(p, Some(rel), *lang, rules).map_err(|e| FileError {
 				path: p.clone(),
 				error: format!("{e:#}"),
 			})
