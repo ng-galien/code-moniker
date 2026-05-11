@@ -632,4 +632,83 @@ enum Baz {
 			g.def_monikers()
 		);
 	}
+
+	#[test]
+	fn extract_deep_comment_inside_match_arm_emits_def() {
+		let src = r#"pub fn run() {
+            match Some(1) {
+                Some(_) => {}
+                // inside-arm
+                None => {}
+            }
+        }"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		assert!(
+			g.defs().any(|d| d.kind == b"comment"),
+			"comment between match arms must emit a comment def; defs: {:?}",
+			g.def_monikers()
+		);
+	}
+
+	#[test]
+	fn extract_deep_comment_inside_let_value_expression_emits_def() {
+		let src = r#"pub fn run() {
+            let _value = if true {
+                1
+            } else {
+                match Some(2) {
+                    Some(_) => 3,
+                    // hidden-in-let-value
+                    None => 4,
+                }
+            };
+        }"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		assert!(
+			g.defs().any(|d| d.kind == b"comment"),
+			"comment nested in the value of a let must emit a comment def; defs: {:?}",
+			g.def_monikers()
+		);
+	}
+
+	#[test]
+	fn extract_deep_comment_inside_call_closure_emits_def() {
+		let src = r#"pub fn run() {
+            let _ = (0..1).map(|x| {
+                // hidden-in-closure-arg
+                x + 1
+            });
+        }"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		assert!(
+			g.defs().any(|d| d.kind == b"comment"),
+			"comment inside a closure passed as a call argument must emit a comment def; defs: {:?}",
+			g.def_monikers()
+		);
+	}
+
+	#[test]
+	fn extract_deep_local_inside_let_value_emits_def() {
+		let src = r#"pub fn run() {
+            let _v = if true {
+                let inner = 7;
+                inner
+            } else {
+                0
+            };
+        }"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let inner = MonikerBuilder::new()
+			.project(b"code-moniker")
+			.segment(b"lang", b"rs")
+			.segment(b"module", b"util")
+			.segment(b"fn", b"run()")
+			.segment(b"local", b"inner")
+			.build();
+		assert!(
+			g.contains(&inner),
+			"local inside a let-value expression must attach to the function; defs: {:?}",
+			g.def_monikers()
+		);
+	}
 }

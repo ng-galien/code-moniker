@@ -130,9 +130,6 @@ fn check_inner<W: Write, E: Write>(
 	} else {
 		match check_one_file(path, &cfg)? {
 			Some(report) => (vec![report], Vec::new()),
-			// Non-source single-file targets are a silent no-op so PostToolUse hooks
-			// firing on every Edit/Write don't spam the agent when it touches
-			// docs, configs, or anything outside the supported extensions.
 			None => return Ok(false),
 		}
 	};

@@ -376,7 +376,6 @@ fn eval_ref_atom(
 	let graph = ctx.graph;
 	let source_def = graph.def_at(r.source);
 	let value: Value = match &atom.lhs {
-		// `kind` in ref scope = the ref kind.
 		LhsExpr::Attr(Lhs::Kind) => {
 			Value::Str(std::str::from_utf8(&r.kind).unwrap_or_default().to_string())
 		}
@@ -385,7 +384,6 @@ fn eval_ref_atom(
 				.unwrap_or_default()
 				.to_string(),
 		),
-		// Unprefixed `moniker` in ref scope = source, so def aliases reuse here.
 		LhsExpr::Attr(Lhs::Moniker) | LhsExpr::Attr(Lhs::SourceMoniker) => {
 			Value::Moniker(source_def.moniker.clone())
 		}

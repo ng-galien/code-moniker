@@ -148,18 +148,7 @@ impl<'src> Walker<'src> {
 			match child.kind() {
 				"let_declaration" => self.handle_let(child, callable, graph),
 				"line_comment" | "block_comment" => self.handle_comment(child, callable, graph),
-				"block"
-				| "if_expression"
-				| "match_expression"
-				| "while_expression"
-				| "for_expression"
-				| "loop_expression"
-				| "match_arm"
-				| "match_block"
-				| "expression_statement" => {
-					self.walk_callable_body(child, callable, graph);
-				}
-				_ => {}
+				_ => self.walk_callable_body(child, callable, graph),
 			}
 		}
 	}
@@ -184,12 +173,16 @@ impl<'src> Walker<'src> {
 			return;
 		};
 		self.emit_pattern_defs(pattern, callable, kinds::LOCAL, node, graph);
-		if let Some(value) = node.child_by_field_name("value")
-			&& value.kind() == "closure_expression"
+		let Some(value) = node.child_by_field_name("value") else {
+			return;
+		};
+		if value.kind() == "closure_expression"
 			&& let Some(bind_name) = first_identifier(pattern, self.source_bytes)
 		{
 			self.emit_named_closure(value, callable, bind_name.as_bytes(), graph);
+			return;
 		}
+		self.walk_callable_body(value, callable, graph);
 	}
 
 	fn emit_named_closure(

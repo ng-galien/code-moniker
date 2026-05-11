@@ -799,16 +799,13 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 		}
 	};
 	let ok = match (lhs_attr, op) {
-		// String ops
 		(
 			Name | Kind | Visibility | Text | Confidence | ParentName | ParentKind | SourceName
 			| SourceKind | SourceVisibility | TargetName | TargetKind | TargetVisibility
 			| SegmentName | SegmentKind,
 			Eq | Ne | RegexMatch | RegexNoMatch,
 		) => true,
-		// Numeric ops
 		(Lines | Depth, Lt | Le | Gt | Ge | Eq | Ne) => true,
-		// Moniker structural ops (incl. source/target as monikers)
 		(
 			Moniker | SourceMoniker | TargetMoniker,
 			Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch,
