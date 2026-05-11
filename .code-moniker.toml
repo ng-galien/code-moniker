@@ -6,13 +6,16 @@
 
 [aliases]
 # Pure-Rust core, no pgrx, no tree-sitter, no PG runtime.
-core   = "moniker ~ '**/dir:src/dir:core/**'"
+core   = "moniker ~ '**/dir:core/**'"
 # pgrx PG extension wrapper around core.
-pg     = "moniker ~ '**/dir:src/dir:pg/**'"
+pg     = "moniker ~ '**/dir:pg/**'"
 # Per-language extractors (one mod per supported source language).
-lang   = "moniker ~ '**/dir:src/dir:lang/**'"
+lang   = "moniker ~ '**/dir:lang/**'"
+# PL/pgSQL is backed by PostgreSQL parser structs, so it is the one extractor
+# allowed to touch pgrx / pg_sys directly.
+lang_sql = "moniker ~ '**/dir:lang/dir:sql/**'"
 # CLI surface (standalone binary).
-cli    = "moniker ~ '**/dir:src/dir:cli/**'"
+cli    = "moniker ~ '**/dir:cli/**'"
 # Examples / benchmarks — looser conventions.
 example = "moniker ~ '**/dir:examples/**'"
 
@@ -31,8 +34,8 @@ message = "Module `core` is parser-agnostic; tree-sitter belongs under `src/lang
 
 [[refs.where]]
 id      = "lang-extractors-isolated"
-expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
-message = "Per-language extractors are pure Rust; they don't import pgrx (the SQL surface lives in src/pg/)."
+expr    = "$lang AND NOT $lang_sql AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
+message = "Per-language extractors are pure Rust; pgrx imports belong under `src/pg/` except for the PL/pgSQL extractor."
 
 # ─── Naming hygiene per layer ────────────────────────────────────────
 # These extend / refine the embedded preset that already enforces

@@ -8,7 +8,7 @@
 # Embedded defaults stick to structural / naming hygiene that is broadly
 # uncontroversial. Project-specific policies (comment-content allow-lists,
 # doc-comment requirements, max-lines/max-methods budgets) belong in the
-# user overlay — see docs/CLI.md for a worked example.
+# user overlay — see docs/CHECK_DSL.md for a worked example.
 
 # ─── TypeScript / JavaScript ──────────────────────────────────────────────
 [[ts.class.where]]

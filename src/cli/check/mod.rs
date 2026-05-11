@@ -1,4 +1,4 @@
-//! Live rules engine for agent harnesses. See `docs/CLI.md` (`check`).
+//! Live rules engine for agent harnesses. See `docs/CLI_CHECK.md`.
 
 pub mod config;
 pub mod eval;

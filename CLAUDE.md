@@ -4,12 +4,14 @@
 
 ## Documents
 
-- `README.md` — posture, scope, build/test commands
-- `SPEC.md` — conceptual model, public API, SCIP URI format, implementation phases
+- `README.md` — posture, two-pitch entry point, status
+- `CONTRIBUTING.md` — developer workflow (build, test, dogfood, add a language)
 - `CLAUDE.md` (this file) — coding rules
-- `docs/EXTRACTION_TARGETS.md` — parity targets vs ESAC's existing extractors
-- `docs/MONIKER_URI.md` — moniker URI grammar
-- `docs/CLI.md` — `code-moniker` standalone binary (extract + check)
+- `docs/README.md` — doc index, grouped by audience
+- `docs/USE_AS_AGENT_HARNESS.md`, `docs/USE_IN_POSTGRES.md` — user guides
+- `docs/CLI_EXTRACT.md`, `docs/CLI_CHECK.md`, `docs/CHECK_DSL.md` — CLI reference
+- `docs/design/SPEC.md` — conceptual model, public API
+- `docs/design/MONIKER_URI.md` — moniker URI grammar
 - `docs/declare_schema.json` — JSON Schema 2020-12 for `code_graph_declare`. Per-language profiles must stay in sync with `LangExtractor::ALLOWED_KINDS` / `ALLOWED_VISIBILITIES` (enforced by the schema-sync test in `src/lang/mod.rs`).
 
 ## Comment sobriety

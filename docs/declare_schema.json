@@ -43,7 +43,7 @@
     "MonikerURI": {
       "type": "string",
       "minLength": 1,
-      "description": "Typed-segment URI of the form <scheme>+moniker://<project>/<kind>:<name>[/<kind>:<name>...][#<kind>:<name>[#<kind>:<name>...]]. See docs/MONIKER_URI.md for the full grammar.",
+      "description": "Typed-segment URI of the form <scheme>+moniker://<project>/<kind>:<name>[/<kind>:<name>...][#<kind>:<name>[#<kind>:<name>...]]. See docs/design/MONIKER_URI.md for the full grammar.",
       "pattern": "^[a-z][a-z0-9_]*\\+moniker://[^/]+(/.+)?$"
     },
 
