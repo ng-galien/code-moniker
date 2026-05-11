@@ -157,7 +157,7 @@ fn utf8<'a>(bytes: &'a [u8], what: &'static str) -> Result<&'a str, SerializeErr
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::core::declare::{declare_from_json_value, parse_spec};
+	use crate::declare::{declare_from_json_value, parse_spec};
 	use serde_json::json;
 
 	fn round_trip(input: Value) -> Value {

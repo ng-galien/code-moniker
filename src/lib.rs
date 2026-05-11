@@ -3,6 +3,7 @@
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod core;
+pub mod declare;
 pub mod lang;
 
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]

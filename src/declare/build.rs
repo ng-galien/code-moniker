@@ -150,9 +150,9 @@ fn render_uri(m: &Moniker) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::core::declare::{parse_moniker_uri, parse_spec};
 	use crate::core::kinds::{ORIGIN_DECLARED, ORIGIN_EXTRACTED};
 	use crate::core::moniker::MonikerBuilder;
+	use crate::declare::{parse_moniker_uri, parse_spec};
 	use serde_json::json;
 
 	fn parse_uri(uri: &str) -> Moniker {

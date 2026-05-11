@@ -5,14 +5,17 @@
 # segments, so rules can gate on layer via path-pattern matching.
 
 [aliases]
-# Pure-Rust core, no pgrx, no tree-sitter, no PG runtime.
-core   = "moniker ~ '**/dir:core/**'"
-# pgrx PG extension wrapper around core.
-pg     = "moniker ~ '**/dir:pg/**'"
+# Pure-Rust core, no pgrx, no tree-sitter, no lang awareness.
+core    = "moniker ~ '**/dir:core/**'"
+# Declarative spec lifecycle (jsonb ↔ code_graph). Sits above core/ since
+# it consumes `lang::Lang` for typed spec.lang.
+declare = "moniker ~ '**/dir:declare/**'"
 # Per-language extractors (one mod per supported source language).
-lang   = "moniker ~ '**/dir:lang/**'"
+lang    = "moniker ~ '**/dir:lang/**'"
+# pgrx PG extension surface (SQL types + operators + extract_<lang> entries).
+pg      = "moniker ~ '**/dir:pg/**'"
 # CLI surface (standalone binary).
-cli    = "moniker ~ '**/dir:cli/**'"
+cli     = "moniker ~ '**/dir:cli/**'"
 # Examples / benchmarks — looser conventions.
 example = "moniker ~ '**/dir:examples/**'"
 
@@ -33,6 +36,32 @@ message = "Module `core` is parser-agnostic; tree-sitter belongs under `src/lang
 id      = "lang-extractors-isolated"
 expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
 message = "Per-language extractors are pure Rust; pgrx imports belong under `src/pg/`."
+
+# CLI is the standalone path — it MUST link without pgrx. If anything under
+# `src/cli/` ever imports from `src/pg/`, the cli-only build breaks.
+#
+# The Rust import extractor encodes `crate::X::Y` (depth 2) as `module:X/path:Y`
+# and `crate::X::Y::Z` (depth 3+) as `dir:X/module:Y/path:Z`. Layering rules
+# must OR both encodings to catch all forms.
+[[refs.where]]
+id      = "cli-no-pg"
+expr    = "$cli AND kind = 'imports_symbol' => NOT (target ~ '**/dir:pg/**' OR target ~ '**/module:pg/**')"
+message = "`cli` is the standalone binary path; importing from `pg/` pulls pgrx into the cli-only build."
+
+[[refs.where]]
+id      = "lang-no-cli"
+expr    = "$lang AND kind = 'imports_symbol' => NOT (target ~ '**/dir:cli/**' OR target ~ '**/module:cli/**')"
+message = "`lang` extractors are pure libraries consumed by `cli` / `pg`; they must not depend back on the CLI surface."
+
+[[refs.where]]
+id      = "core-no-upper"
+expr    = """
+  $core AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:pg/**'   OR target ~ '**/module:pg/**'
+       OR target ~ '**/dir:lang/**' OR target ~ '**/module:lang/**'
+       OR target ~ '**/dir:cli/**'  OR target ~ '**/module:cli/**')
+"""
+message = "`core` is the foundation layer; it must not depend on `pg`, `lang`, or `cli`."
 
 # ─── Naming hygiene per layer ────────────────────────────────────────
 # These extend / refine the embedded preset that already enforces

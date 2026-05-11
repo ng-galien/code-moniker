@@ -9,11 +9,12 @@ surface are documented in [`docs/design/spec.md`](docs/design/spec.md).
 src/
   lib.rs                entry point, gates pgrx behind pgN features
   bin/code_moniker.rs   standalone CLI entry (feature `cli`)
-  core/                 pure Rust, no pgrx, testable with `cargo test`
+  core/                 pure Rust, no pgrx / tree-sitter, no lang awareness
     moniker/            Moniker struct + Ord + tree-position queries
     uri/                typed canonical URI parse / serialize
-    declare/            declarative spec lifecycle (jsonb ↔ code_graph)
     code_graph.rs       defs / refs / O(1) moniker→idx index
+  declare/              declarative spec lifecycle (jsonb ↔ code_graph) —
+                        sits above core/ because it consumes `lang::Lang`
   cli/                  CLI internals (extract, check, presets)
   pg/                   pgrx wrappers, gated by pgN feature
     moniker/            moniker SQL type + opclasses (btree / hash / GiST)

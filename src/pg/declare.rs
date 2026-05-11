@@ -1,6 +1,6 @@
 use pgrx::prelude::*;
 
-use crate::core::declare::{declare_from_json_value, graph_to_spec};
+use crate::declare::{declare_from_json_value, graph_to_spec};
 use crate::pg::code_graph::code_graph;
 
 #[pg_extern(immutable, parallel_safe)]

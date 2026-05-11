@@ -9,15 +9,15 @@
 //! `#[cfg(test)] extract_default` helper invokes it on every fixture.
 //!
 //! The trait also exposes `declare` / `to_spec` default impls that delegate
-//! to `core::declare::*` after validating the spec/graph carries this
+//! to `declare::*` after validating the spec/graph carries this
 //! language's `LANG_TAG`. The dynamic-dispatch SQL entry points
 //! (`code_graph_declare`, `code_graph_to_spec`) keep using the free
-//! functions in `core::declare`; the typed methods on the trait give Rust
+//! functions in `declare`; the typed methods on the trait give Rust
 //! callers a compile-time-typed handle to the same lifecycle.
 
 use crate::core::code_graph::CodeGraph;
-use crate::core::declare::{DeclareError, SerializeError, declare_from_json_value, graph_to_spec};
 use crate::core::moniker::Moniker;
+use crate::declare::{DeclareError, SerializeError, declare_from_json_value, graph_to_spec};
 
 pub trait LangExtractor {
 	type Presets: Default;
@@ -237,7 +237,7 @@ pub use conformance::assert_conformance;
 #[cfg(test)]
 mod typed_lifecycle_tests {
 	use super::*;
-	use crate::core::declare::{DeclareError, declare_from_json_value};
+	use crate::declare::{DeclareError, declare_from_json_value};
 	use serde_json::json;
 
 	#[test]

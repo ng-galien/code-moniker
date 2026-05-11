@@ -25,12 +25,16 @@
 ```
 src/
   lib.rs                entry, gates pgrx behind pgN features
-  core/                 pure Rust, no pgrx, testable with cargo test
+  core/                 pure Rust foundation — no pgrx, no tree-sitter, no
+                        lang awareness, testable with cargo test
     moniker/            Moniker struct + Ord (byte-lex) + tree-position queries
                         (mod, encoding, view, builder, query)
     uri/                typed canonical URI parse / serialize (mod, parse, serialize)
     code_graph.rs       defs / refs / O(1) moniker→idx index, DefAttrs / RefAttrs
                         (visibility, signature, alias, confidence, receiver_hint)
+  declare/              declarative spec lifecycle (jsonb ↔ code_graph). Sits
+                        above core/ because the typed `DeclareSpec.lang: Lang`
+                        carries the lang enum from `lang/`.
   pg/                   pgrx wrappers, gated behind pgN feature
     moniker/            moniker SQL type + operators (btree / hash / GiST opclasses,
                         compact projection)
