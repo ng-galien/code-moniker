@@ -11,9 +11,6 @@ core   = "moniker ~ '**/dir:core/**'"
 pg     = "moniker ~ '**/dir:pg/**'"
 # Per-language extractors (one mod per supported source language).
 lang   = "moniker ~ '**/dir:lang/**'"
-# PL/pgSQL is backed by PostgreSQL parser structs, so it is the one extractor
-# allowed to touch pgrx / pg_sys directly.
-lang_sql = "moniker ~ '**/dir:lang/dir:sql/**'"
 # CLI surface (standalone binary).
 cli    = "moniker ~ '**/dir:cli/**'"
 # Examples / benchmarks — looser conventions.
@@ -34,8 +31,8 @@ message = "Module `core` is parser-agnostic; tree-sitter belongs under `src/lang
 
 [[refs.where]]
 id      = "lang-extractors-isolated"
-expr    = "$lang AND NOT $lang_sql AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
-message = "Per-language extractors are pure Rust; pgrx imports belong under `src/pg/` except for the PL/pgSQL extractor."
+expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
+message = "Per-language extractors are pure Rust; pgrx imports belong under `src/pg/`."
 
 # ─── Naming hygiene per layer ────────────────────────────────────────
 # These extend / refine the embedded preset that already enforces
@@ -60,3 +57,15 @@ message = "`{name}` is a placeholder. Pick a verb that names the actual behaviou
 id      = "no-i-prefix"
 expr    = "NOT name =~ ^I[A-Z]"
 message = "Rust trait `{name}` starts with `I` — drop the prefix (`Extractor`, not `IExtractor`)."
+
+# ─── Comment hygiene (per CLAUDE.md + feedback_no_narrative_comments) ───
+# A comment's `parent.kind` reflects its lexical scope: doc comments above an
+# item land under the enclosing module / struct / impl (allowed). Comments
+# inside a callable body are forbidden — code should be self-explanatory and
+# the WHY belongs on the item's `///` doc-comment. `SAFETY:` for `unsafe`
+# blocks is the standard Rust exception.
+
+[[rust.comment.where]]
+id      = "no-body-comments"
+expr    = "NOT parent.kind =~ ^(fn|method|closure)$ OR text =~ SAFETY:"
+message = "Comment inside callable body. Move WHY into the item's doc-comment if non-obvious; otherwise delete. (`SAFETY:` for unsafe blocks is exempt.)"

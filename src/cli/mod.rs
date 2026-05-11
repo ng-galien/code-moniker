@@ -237,6 +237,9 @@ fn check_project(
 	Ok((reports, errors))
 }
 
+/// Single-file clean runs (one report, zero violations, zero errors) skip the
+/// trailing summary so per-edit PostToolUse hooks stay silent. Every other
+/// shape emits the `N violation(s) across M file(s) (K scanned)` footer.
 fn write_reports_text<W: Write>(
 	w: &mut W,
 	reports: &[FileReport],
@@ -267,9 +270,6 @@ fn write_reports_text<W: Write>(
 			}
 		}
 	}
-	// Suppress the footer only in the per-edit happy path: one file scanned,
-	// clean, no errors. That preserves the existing single-file hook UX
-	// while every multi-file or noisy run gets a one-line summary.
 	let single_clean = reports.len() == 1 && files_with == 0 && errors.is_empty();
 	if !single_clean {
 		write!(

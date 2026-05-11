@@ -44,6 +44,11 @@ fn for_each_sql_expression<F: FnMut(Node)>(node: Node, f: &mut F) {
 	}
 }
 
+/// Re-parses the raw text of a PL/pgSQL `sql_expression` envelope (the body of
+/// `PERFORM <expr>;`, `IF <expr> THEN`, `<lhs> := <rhs>;`, …) with the SQL
+/// grammar. Bare expressions get wrapped in `SELECT …`. `EXECUTE 'literal'`
+/// strips the quotes so the inner SQL parses; Postgres `''` escape handling
+/// is deliberately omitted.
 fn emit_calls_from_sql(
 	expr: Node,
 	body: &str,
@@ -52,16 +57,11 @@ fn emit_calls_from_sql(
 	module: &Moniker,
 	graph: &mut CodeGraph,
 ) {
-	// `sql_expression` is the raw text of an embedded SQL fragment in
-	// `PERFORM <expr>;`, `IF <expr> THEN…`, `<lhs> := <rhs>;`, etc. Wrap bare
-	// expressions in `SELECT …` so the SQL grammar can parse them as a stmt.
 	let raw = &body[expr.start_byte()..expr.end_byte().min(body.len())];
 	let trimmed = raw.trim_end_matches(';').trim();
 	if trimmed.is_empty() {
 		return;
 	}
-	// EXECUTE 'string literal': the literal is itself SQL. Quote-escape
-	// handling (`''` → `'`) is deliberately omitted; rare in practice.
 	let prepared = if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2 {
 		trimmed[1..trimmed.len() - 1].to_string()
 	} else {

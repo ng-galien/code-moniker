@@ -280,12 +280,8 @@ impl<'a> Parser<'a> {
 		} else {
 			return Ok(None);
 		};
-		// Disambiguate: `segment(...)` could be the segment-domain inside a
-		// quantifier, but quantifier was already tried before. If we got here
-		// from primary, it's a projection call.
 		let raw_start = self.pos;
 		self.pos += prefix_len;
-		// Read up to closing `)`
 		let bytes = self.input.as_bytes();
 		let arg_start = self.pos;
 		while self.pos < bytes.len() && bytes[self.pos] != b')' {
@@ -316,8 +312,6 @@ impl<'a> Parser<'a> {
 		})?;
 		self.pos += op_len;
 		let op = parse_op(op_str, self.raw)?;
-		// Parse the RHS — re-use the existing rhs scanner. RHS ends at next
-		// boundary / closing paren / EOI.
 		let rhs_end = self.find_atom_end();
 		let rhs_str = self.input[self.pos..rhs_end].trim();
 		if rhs_str.is_empty() {
@@ -336,7 +330,6 @@ impl<'a> Parser<'a> {
 			}
 			_ => None,
 		};
-		// Validate op for SegmentOf (string lhs)
 		match op {
 			Op::Eq | Op::Ne | Op::RegexMatch | Op::RegexNoMatch => {}
 			_ => {
@@ -411,7 +404,7 @@ impl<'a> Parser<'a> {
 			if let Some(rest) = self.input[self.pos..].strip_prefix(kw)
 				&& rest.starts_with('(')
 			{
-				self.pos += kw.len(); // consume kw, leave the `(` for the body parser
+				self.pos += kw.len();
 				let (domain, filter) = self.parse_quantifier_body()?;
 				let filter = filter.ok_or_else(|| ParseError::BadExpr {
 					expr: self.raw.to_string(),
@@ -435,7 +428,6 @@ impl<'a> Parser<'a> {
 			});
 		}
 		self.pos += 1;
-		// Domain ident: count up to `,` or `)` (no whitespace allowed inside).
 		self.skip_ws();
 		let start = self.pos;
 		let bytes = self.input.as_bytes();

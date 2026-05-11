@@ -319,8 +319,8 @@ pub(crate) fn substitute_aliases(
 	Ok(out)
 }
 
+/// Aliases are resolved first so cycles surface before any kind / visibility check.
 fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
-	// Resolve aliases first so cycles fail before kind/visibility checks.
 	resolve_aliases(&cfg.aliases)?;
 	validate_lang_section(
 		&cfg.default,
