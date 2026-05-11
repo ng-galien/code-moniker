@@ -1,29 +1,38 @@
 #!/usr/bin/env bash
-# pre-commit: cargo fmt --check + cargo clippy -D warnings on staged Rust changes.
-# Activate once per clone: `git config core.hooksPath .githooks`.
+# pre-commit: cargo fmt --check, cargo clippy -D warnings, and
+# code-moniker architecture lint. Activate once per clone:
+# `git config core.hooksPath .githooks`.
 
 set -euo pipefail
 
-if ! git diff --cached --name-only --diff-filter=ACMR | grep -qE '\.rs$|^Cargo\.(toml|lock)$'; then
-	exit 0
+staged() {
+	git diff --cached --name-only --diff-filter=ACMR | grep -qE "$1"
+}
+
+rust_changed=false
+if staged '\.rs$|^Cargo\.(toml|lock)$'; then
+	rust_changed=true
 fi
 
-if ! cargo fmt --all -- --check; then
-	echo "pre-commit: cargo fmt failed. Run 'cargo fmt --all' and re-stage." >&2
-	exit 1
+# fmt / clippy only matter when Rust sources changed.
+if $rust_changed; then
+	if ! cargo fmt --all -- --check; then
+		echo "pre-commit: cargo fmt failed. Run 'cargo fmt --all' and re-stage." >&2
+		exit 1
+	fi
+	if ! cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings; then
+		echo "pre-commit: cargo clippy failed (warnings treated as errors)." >&2
+		exit 1
+	fi
 fi
 
-if ! cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings; then
-	echo "pre-commit: cargo clippy failed (warnings treated as errors)." >&2
-	exit 1
-fi
-
-# Only re-lint the architecture when staged changes touch source under `src/`.
-# Test fixtures, examples, docs etc. don't affect the rule outcome.
-if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^src/.*\.rs$'; then
+# Architecture lint runs whenever Rust sources OR the rule pack itself change.
+# Closes the loophole where editing `.code-moniker.toml` to add a stricter
+# rule wouldn't re-check the repo against it.
+if $rust_changed || staged '^\.code-moniker\.toml$'; then
 	if ! ./scripts/check-arch.sh; then
 		echo "pre-commit: code-moniker architecture lint failed." >&2
-		echo "  Fix the violation, or add `// code-moniker: ignore[<rule-id>]` if the exception is legitimate." >&2
+		echo "  Fix the violation, or add \`// code-moniker: ignore[<rule-id>]\` if the exception is legitimate." >&2
 		exit 1
 	fi
 fi
