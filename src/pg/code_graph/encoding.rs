@@ -139,6 +139,9 @@ pub(super) fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 	}
 	let def_count = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]) as usize;
 	let ref_count = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]) as usize;
+	if def_count > buf.len() || ref_count > buf.len() {
+		return Err(EncodingError::Truncated("counts exceed buffer"));
+	}
 
 	let mut cur = Cursor {
 		buf,
@@ -519,6 +522,28 @@ mod tests {
 		assert!(matches!(
 			decode(&bytes),
 			Err(EncodingError::InvalidIndex("def parent"))
+		));
+	}
+
+	#[test]
+	fn decode_rejects_def_count_exceeding_buffer() {
+		let mut bytes = vec![0u8; HEADER_LEN];
+		bytes[0..2].copy_from_slice(&LAYOUT_VERSION.to_le_bytes());
+		bytes[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+		assert!(matches!(
+			decode(&bytes),
+			Err(EncodingError::Truncated("counts exceed buffer"))
+		));
+	}
+
+	#[test]
+	fn decode_rejects_ref_count_exceeding_buffer() {
+		let mut bytes = vec![0u8; HEADER_LEN];
+		bytes[0..2].copy_from_slice(&LAYOUT_VERSION.to_le_bytes());
+		bytes[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+		assert!(matches!(
+			decode(&bytes),
+			Err(EncodingError::Truncated("counts exceed buffer"))
 		));
 	}
 
