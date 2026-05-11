@@ -298,6 +298,60 @@ fn check_project_respects_gitignore() {
 }
 
 #[test]
+fn check_project_continues_on_per_file_errors() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::write(dir.path().join("bad.ts"), TS_BAD_NAMING).unwrap();
+	// Non-UTF-8 bytes: `std::fs::read_to_string` rejects this.
+	std::fs::write(dir.path().join("broken.ts"), [0xff, 0xfe, 0xff, 0xfe]).unwrap();
+	std::fs::write(dir.path().join("good.ts"), "class GoodName {}\n").unwrap();
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+	]);
+	// Exit 1: violations + errors both signal an unclean run; exit 2 stays
+	// reserved for global usage errors.
+	assert_eq!(exit, Exit::NoMatch, "out={out} err={err}");
+	assert!(
+		out.contains("bad.ts"),
+		"bad.ts violation still emitted: {out}"
+	);
+	assert!(out.contains("ts.class.name-pascalcase"), "{out}");
+	assert!(
+		err.contains("broken.ts"),
+		"broken.ts error on stderr: {err}"
+	);
+	assert!(
+		out.contains("1 file(s) errored"),
+		"footer mentions errors: {out}"
+	);
+}
+
+#[test]
+fn check_project_json_includes_errors_array() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::write(dir.path().join("broken.ts"), [0xff, 0xfe, 0xff]).unwrap();
+	std::fs::write(dir.path().join("good.ts"), "class GoodName {}\n").unwrap();
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	let v: serde_json::Value = serde_json::from_str(&out).expect("json output");
+	assert_eq!(v["summary"]["files_with_errors"], 1);
+	let errors = v["errors"].as_array().unwrap();
+	assert_eq!(errors.len(), 1);
+	assert!(errors[0]["file"].as_str().unwrap().ends_with("broken.ts"));
+}
+
+#[test]
 fn check_project_clean_returns_match() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	std::fs::write(dir.path().join("a.ts"), "class GoodName {}\n").unwrap();

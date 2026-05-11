@@ -98,9 +98,9 @@ fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> 
 }
 
 fn run_check<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
-	match check_inner(args, stdout) {
-		Ok(any_violation) => {
-			if any_violation {
+	match check_inner(args, stdout, stderr) {
+		Ok(any_violation_or_error) => {
+			if any_violation_or_error {
 				Exit::NoMatch
 			} else {
 				Exit::Match
@@ -113,31 +113,42 @@ fn run_check<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &m
 	}
 }
 
-fn check_inner<W: Write>(args: &CheckArgs, stdout: &mut W) -> anyhow::Result<bool> {
+fn check_inner<W: Write, E: Write>(
+	args: &CheckArgs,
+	stdout: &mut W,
+	stderr: &mut E,
+) -> anyhow::Result<bool> {
 	let path: &Path = &args.file;
 	let cfg = check::load_with_overrides(Some(&args.rules))?;
 	let meta = std::fs::metadata(path)
 		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
-	let reports = if meta.is_dir() {
+	let (reports, errors) = if meta.is_dir() {
 		check_project(path, &cfg)?
 	} else {
-		match check_one_file(path, &cfg) {
-			Ok(Some(report)) => vec![report],
-			Ok(None) => {
+		match check_one_file(path, &cfg)? {
+			Some(report) => (vec![report], Vec::new()),
+			None => {
 				return Err(anyhow::anyhow!(
 					"{} has no recognised extension",
 					path.display()
 				));
 			}
-			Err(e) => return Err(e),
 		}
 	};
-	let any = reports.iter().any(|r| !r.violations.is_empty());
-	match args.format {
-		CheckFormat::Text => write_reports_text(stdout, &reports)?,
-		CheckFormat::Json => write_reports_json(stdout, &reports)?,
+	for e in &errors {
+		let _ = writeln!(
+			stderr,
+			"code-moniker: error reading {}: {}",
+			e.path.display(),
+			e.error
+		);
 	}
-	Ok(any)
+	let any_violation = reports.iter().any(|r| !r.violations.is_empty());
+	match args.format {
+		CheckFormat::Text => write_reports_text(stdout, &reports, &errors)?,
+		CheckFormat::Json => write_reports_json(stdout, &reports, &errors)?,
+	}
+	Ok(any_violation || !errors.is_empty())
 }
 
 struct FileReport {
@@ -145,47 +156,94 @@ struct FileReport {
 	violations: Vec<check::Violation>,
 }
 
+struct FileError {
+	path: PathBuf,
+	error: String,
+}
+
 fn check_one_file(path: &Path, cfg: &check::Config) -> anyhow::Result<Option<FileReport>> {
-	let lang = match path_to_lang(path) {
-		Ok(l) => l,
-		Err(_) => return Ok(None),
+	let Ok(lang) = path_to_lang(path) else {
+		return Ok(None);
 	};
+	let scheme = format!("{}+moniker://", lang.tag());
+	let compiled = check::compile_rules(cfg, lang, &scheme)?;
+	check_one_compiled(path, lang, &scheme, &compiled).map(Some)
+}
+
+fn check_one_compiled(
+	path: &Path,
+	lang: crate::lang::Lang,
+	scheme: &str,
+	compiled: &check::CompiledRules,
+) -> anyhow::Result<FileReport> {
 	let source = std::fs::read_to_string(path)
 		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-	let scheme = format!("{}+moniker://", lang.tag());
 	let graph = extract::extract(lang, &source);
-	let raw = check::evaluate(&graph, &source, lang, cfg, &scheme)?;
+	let raw = check::evaluate_compiled(&graph, &source, lang, scheme, compiled);
 	let violations = check::apply_suppressions(&graph, &source, raw);
-	Ok(Some(FileReport {
+	Ok(FileReport {
 		path: path.to_path_buf(),
 		violations,
-	}))
+	})
 }
 
-fn check_project(root: &Path, cfg: &check::Config) -> anyhow::Result<Vec<FileReport>> {
+/// Project-mode scan. Per-file I/O errors (unreadable, non-UTF-8, …) are
+/// collected into the returned `Vec<FileError>` rather than aborting the
+/// scan — a single broken file shouldn't suppress violations from the rest.
+/// Rules are compiled once per language and shared across the parallel pool.
+fn check_project(
+	root: &Path,
+	cfg: &check::Config,
+) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	use rayon::prelude::*;
-	let walker = ignore::WalkBuilder::new(root)
-		.standard_filters(true)
-		.build();
-	let paths: Vec<PathBuf> = walker
+	use std::collections::HashMap;
+	let paths: Vec<(PathBuf, crate::lang::Lang)> = ignore::WalkBuilder::new(root)
+		.build()
 		.filter_map(|entry| entry.ok())
 		.filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-		.map(|e| e.into_path())
-		.filter(|p| path_to_lang(p).is_ok())
-		.collect();
-	let mut reports: Vec<FileReport> = paths
-		.par_iter()
-		.filter_map(|p| match check_one_file(p, cfg) {
-			Ok(Some(r)) => Some(Ok(r)),
-			Ok(None) => None,
-			Err(e) => Some(Err(e)),
+		.filter_map(|e| {
+			let p = e.into_path();
+			let lang = path_to_lang(&p).ok()?;
+			Some((p, lang))
 		})
-		.collect::<anyhow::Result<Vec<_>>>()?;
+		.collect();
+	let mut compiled: HashMap<crate::lang::Lang, (String, check::CompiledRules)> = HashMap::new();
+	for (_, lang) in &paths {
+		if compiled.contains_key(lang) {
+			continue;
+		}
+		let scheme = format!("{}+moniker://", lang.tag());
+		let rules = check::compile_rules(cfg, *lang, &scheme)?;
+		compiled.insert(*lang, (scheme, rules));
+	}
+	let outcomes: Vec<Result<FileReport, FileError>> = paths
+		.par_iter()
+		.map(|(p, lang)| {
+			let (scheme, rules) = &compiled[lang];
+			check_one_compiled(p, *lang, scheme, rules).map_err(|e| FileError {
+				path: p.clone(),
+				error: format!("{e:#}"),
+			})
+		})
+		.collect();
+	let mut reports = Vec::new();
+	let mut errors = Vec::new();
+	for o in outcomes {
+		match o {
+			Ok(r) => reports.push(r),
+			Err(e) => errors.push(e),
+		}
+	}
 	reports.sort_by(|a, b| a.path.cmp(&b.path));
-	Ok(reports)
+	errors.sort_by(|a, b| a.path.cmp(&b.path));
+	Ok((reports, errors))
 }
 
-fn write_reports_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::io::Result<()> {
+fn write_reports_text<W: Write>(
+	w: &mut W,
+	reports: &[FileReport],
+	errors: &[FileError],
+) -> std::io::Result<()> {
 	let mut total = 0usize;
 	let mut files_with = 0usize;
 	for r in reports {
@@ -211,70 +269,78 @@ fn write_reports_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::io::R
 			}
 		}
 	}
-	if reports.len() > 1 || files_with > 0 {
-		writeln!(
+	// Suppress the footer only in the per-edit happy path: one file scanned,
+	// clean, no errors. That preserves the existing single-file hook UX
+	// while every multi-file or noisy run gets a one-line summary.
+	let single_clean = reports.len() == 1 && files_with == 0 && errors.is_empty();
+	if !single_clean {
+		write!(
 			w,
-			"\n{total} violation(s) across {files_with} file(s) ({} scanned).",
+			"\n{total} violation(s) across {files_with} file(s) ({} scanned",
 			reports.len()
 		)?;
+		if !errors.is_empty() {
+			write!(w, ", {} file(s) errored", errors.len())?;
+		}
+		writeln!(w, ").")?;
 	}
 	Ok(())
 }
 
-fn write_reports_json<W: Write>(w: &mut W, reports: &[FileReport]) -> anyhow::Result<()> {
+fn write_reports_json<W: Write>(
+	w: &mut W,
+	reports: &[FileReport],
+	errors: &[FileError],
+) -> anyhow::Result<()> {
 	#[derive(serde::Serialize)]
-	struct V<'a> {
-		rule_id: &'a str,
-		moniker: &'a str,
-		kind: &'a str,
-		lines: [u32; 2],
-		message: &'a str,
-		#[serde(skip_serializing_if = "Option::is_none")]
-		explanation: Option<&'a str>,
+	struct FileEntry<'a> {
+		file: String,
+		violations: &'a [check::Violation],
 	}
 	#[derive(serde::Serialize)]
-	struct File<'a> {
+	struct ErrorEntry<'a> {
 		file: String,
-		violations: Vec<V<'a>>,
+		error: &'a str,
 	}
 	#[derive(serde::Serialize)]
 	struct Summary {
 		files_scanned: usize,
 		files_with_violations: usize,
 		total_violations: usize,
+		files_with_errors: usize,
 	}
 	#[derive(serde::Serialize)]
 	struct Out<'a> {
 		summary: Summary,
-		files: Vec<File<'a>>,
+		files: Vec<FileEntry<'a>>,
+		#[serde(skip_serializing_if = "Vec::is_empty")]
+		errors: Vec<ErrorEntry<'a>>,
 	}
-	let files: Vec<File> = reports
+	let files: Vec<FileEntry> = reports
 		.iter()
-		.map(|r| File {
+		.map(|r| FileEntry {
 			file: r.path.display().to_string(),
-			violations: r
-				.violations
-				.iter()
-				.map(|v| V {
-					rule_id: &v.rule_id,
-					moniker: &v.moniker,
-					kind: &v.kind,
-					lines: [v.lines.0, v.lines.1],
-					message: &v.message,
-					explanation: v.explanation.as_deref(),
-				})
-				.collect(),
+			violations: &r.violations,
 		})
 		.collect();
 	let total = files.iter().map(|f| f.violations.len()).sum();
 	let files_with = files.iter().filter(|f| !f.violations.is_empty()).count();
+	let err_entries: Vec<ErrorEntry> = errors
+		.iter()
+		.map(|e| ErrorEntry {
+			file: e.path.display().to_string(),
+			error: &e.error,
+		})
+		.collect();
 	let out = Out {
 		summary: Summary {
 			files_scanned: files.len(),
 			files_with_violations: files_with,
 			total_violations: total,
+			files_with_errors: err_entries.len(),
 		},
 		files,
+		errors: err_entries,
 	};
 	serde_json::to_writer_pretty(&mut *w, &out)?;
 	w.write_all(b"\n")?;

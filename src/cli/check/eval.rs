@@ -12,14 +12,24 @@ use crate::core::moniker::query::bare_callable_name;
 use crate::core::uri::UriConfig;
 use crate::lang::Lang;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Violation {
 	pub rule_id: String,
 	pub moniker: String,
 	pub kind: String,
+	#[serde(serialize_with = "serialize_lines")]
 	pub lines: (u32, u32),
 	pub message: String,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub explanation: Option<String>,
+}
+
+fn serialize_lines<S: serde::Serializer>(v: &(u32, u32), s: S) -> Result<S::Ok, S::Error> {
+	use serde::ser::SerializeTuple;
+	let mut t = s.serialize_tuple(2)?;
+	t.serialize_element(&v.0)?;
+	t.serialize_element(&v.1)?;
+	t.end()
 }
 
 pub fn evaluate(
@@ -29,7 +39,25 @@ pub fn evaluate(
 	cfg: &Config,
 	scheme: &str,
 ) -> Result<Vec<Violation>, ConfigError> {
-	let compiled = CompiledRules::for_lang(cfg, lang, scheme)?;
+	let compiled = compile_rules(cfg, lang, scheme)?;
+	Ok(evaluate_compiled(graph, source, lang, scheme, &compiled))
+}
+
+/// Build the compiled rule set for a single `lang`. Parses every rule
+/// expression, resolves aliases. Call once per language and reuse across
+/// many files of that language — the eval pipeline is shaped so the heavy
+/// work happens here, not per-file.
+pub fn compile_rules(cfg: &Config, lang: Lang, scheme: &str) -> Result<CompiledRules, ConfigError> {
+	CompiledRules::for_lang(cfg, lang, scheme)
+}
+
+pub fn evaluate_compiled(
+	graph: &CodeGraph,
+	source: &str,
+	lang: Lang,
+	scheme: &str,
+	compiled: &CompiledRules,
+) -> Vec<Violation> {
 	let need_doc_anchors = compiled
 		.by_kind
 		.values()
@@ -75,7 +103,7 @@ pub fn evaluate(
 		}
 	}
 
-	Ok(out)
+	out
 }
 
 struct EvalCtx<'g, 'src> {
@@ -109,17 +137,17 @@ struct CompiledKindRules {
 	require_doc_for_vis: Option<String>,
 }
 
-struct CompiledRules<'cfg> {
-	by_kind: HashMap<&'cfg str, CompiledKindRules>,
+pub struct CompiledRules {
+	by_kind: HashMap<String, CompiledKindRules>,
 	refs: Vec<CompiledRule>,
 }
 
-impl<'cfg> CompiledRules<'cfg> {
-	fn for_lang(cfg: &'cfg Config, lang: Lang, scheme: &str) -> Result<Self, ConfigError> {
+impl CompiledRules {
+	fn for_lang(cfg: &Config, lang: Lang, scheme: &str) -> Result<Self, ConfigError> {
 		let section = config_section(lang);
 		let allowed = crate::cli::check::config::allowed_kinds_for(lang);
 		let aliases = crate::cli::check::config::resolve_aliases(&cfg.aliases)?;
-		let mut by_kind: HashMap<&str, CompiledKindRules> = HashMap::new();
+		let mut by_kind: HashMap<String, CompiledKindRules> = HashMap::new();
 		let mut per_lang_refs: Vec<&crate::cli::check::config::RuleEntry> = Vec::new();
 		for (kind, rules) in cfg.for_lang(lang).kinds.iter() {
 			if kind == "refs" {
@@ -127,7 +155,7 @@ impl<'cfg> CompiledRules<'cfg> {
 				continue;
 			}
 			by_kind.insert(
-				kind.as_str(),
+				kind.clone(),
 				compile(rules, section, kind, scheme, &allowed, &aliases)?,
 			);
 		}
@@ -137,7 +165,7 @@ impl<'cfg> CompiledRules<'cfg> {
 			}
 			if !by_kind.contains_key(kind.as_str()) {
 				by_kind.insert(
-					kind.as_str(),
+					kind.clone(),
 					compile(rules, "default", kind, scheme, &allowed, &aliases)?,
 				);
 			}
