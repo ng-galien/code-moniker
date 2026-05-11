@@ -7,10 +7,10 @@ real-world scale and to spot regressions that fixture-sized tests miss.
 ## Run
 
 ```sh
-test/dogfood.sh                   # full panel
-test/dogfood.sh --lang ts         # only TypeScript entries
-test/dogfood.sh --only zod        # one project
-test/dogfood.sh --reset           # discard caches and re-clone
+scripts/dogfood.sh                   # full panel
+scripts/dogfood.sh --lang ts         # only TypeScript entries
+scripts/dogfood.sh --only zod        # one project
+scripts/dogfood.sh --reset           # discard caches and re-clone
 ```
 
 Cloned repositories land under `<repo_root>/dogfood/<lang>/<project>/`
@@ -32,7 +32,7 @@ support the same membership queries used in pgTAP.
 
 ## Panel
 
-See `test/dogfood/panel.sh` for the canonical list. Selection bias:
+See `scripts/dogfood/panel.sh` for the canonical list. Selection bias:
 
 - mid-size enough to exercise real call/heritage/import graphs (>50
   source files, real-world conventions);

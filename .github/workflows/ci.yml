@@ -61,7 +61,7 @@ jobs:
           # pgTAP's .sql lands in the apt-installed extension dir, which
           # the pgrx-managed instance reads via the same pg_config, so
           # CREATE EXTENSION pgtap works out of the box.
-          ./test/run.sh
+          ./pgtap/run.sh
 
   arch-check:
     name: code-moniker self-lint (dogfood)

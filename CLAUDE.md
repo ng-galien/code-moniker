@@ -72,8 +72,12 @@ src/
                         build for .csproj)
     sql/                PL/pgSQL via PG runtime parser + vendored plpgsql sources (mod / kinds /
                         canonicalize / walker / body / refs / scope)
-test/
-  sql/                  pgTAP test files (run via ./test/run.sh)
+pgtap/
+  run.sh                pgTAP harness against the pgrx-managed PG
+  coverage.sh           cargo --lib + pgTAP under llvm-cov instrumentation
+  sql/                  pgTAP test files
+scripts/
+  check-arch.sh         dogfood the linter on src/ (pre-commit + CI gate)
   dogfood.sh            multi-project ingestion runner
   dogfood/panel.sh      pinned panel of representative open-source projects
   dogfood/README.md     panel doctrine + spot-check queries
@@ -101,14 +105,14 @@ A new language under `src/lang/<lang>/` mirrors the `ts/` skeleton:
 
 Every new extractor MUST implement `lang::LangExtractor` on a zero-sized `pub struct Lang;` at the top of `src/lang/<lang>/mod.rs`, exposing `LANG_TAG`, `ALLOWED_KINDS`, `ALLOWED_VISIBILITIES`, and forwarding `extract` to the free function. `extract_default` test helper calls `lang::assert_conformance::<Lang>(&g, anchor)` on every fixture. Adding a kind or visibility requires updating the trait constants AND `docs/declare_schema.json`.
 
-Wire the SQL surface in `src/pg/extract.rs` (`#[pg_extern] fn extract_<lang>(...)`); add a pgTAP file under `test/sql/` and a panel entry to `test/dogfood/panel.sh`.
+Wire the SQL surface in `src/pg/extract.rs` (`#[pg_extern] fn extract_<lang>(...)`); add a pgTAP file under `pgtap/sql/` and a panel entry to `scripts/dogfood/panel.sh`.
 
 ## TDD
 
 Cycle: red test → minimal impl → green.
 
 - **Pure-Rust** : `cargo test` for `core/` and `lang/`. Tests inline in `#[cfg(test)] mod tests` next to the code under test.
-- **SQL surface** : `pg/` is tested via **pgTAP**, files in `test/sql/*.sql`, runner `./test/run.sh` against the pgrx-managed PG17 instance. No `pgrx-tests` / `#[pg_test]`.
+- **SQL surface** : `pg/` is tested via **pgTAP**, files in `pgtap/sql/*.sql`, runner `./pgtap/run.sh` against the pgrx-managed PG17 instance. No `pgrx-tests` / `#[pg_test]`.
 - **Iteration loop** : `cargo check --features pg17 --no-default-features` before `cargo pgrx install`. The pgTAP runner does NOT reinstall the extension — install first.
 - **Cross-layer visibility** : `core/` items consumed by `pg/` need `pub(crate)`, not `pub(super)`. Canonical example: `core::moniker::encoding` constants (`VERSION`, `HEADER_FIXED_LEN`, `read_u16`, `write_u16`).
 
@@ -119,8 +123,8 @@ cargo check --features pg17 --no-default-features --tests   # FFI/lifetime check
 cargo test  --features pg17 --no-default-features --lib     # unit tests, sub-second
 cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings
 cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
-./test/run.sh                                               # pgTAP suite, ~5s
-./test/dogfood.sh --only <project>                          # scaling validation
+./pgtap/run.sh                                               # pgTAP suite, ~5s
+./scripts/dogfood.sh --only <project>                          # scaling validation
 ```
 
 Pre-commit hook runs `cargo fmt -- --check` + `cargo clippy ... -D warnings` on `*.rs` / `Cargo.{toml,lock}` changes. Clippy lints (`manual_find`, `manual_let_else`) block the commit — run it proactively.

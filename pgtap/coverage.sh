@@ -59,7 +59,7 @@ trap 'cargo pgrx stop "$PG_VERSION" 2>/dev/null || true' EXIT
 "$TEST_BIN" --test-threads=1 >/dev/null
 
 pgtap_status=0
-./test/run.sh || pgtap_status=$?
+./pgtap/run.sh || pgtap_status=$?
 
 cargo pgrx stop "$PG_VERSION"
 trap - EXIT

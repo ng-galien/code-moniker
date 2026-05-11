@@ -25,8 +25,11 @@ src/
     extractor.rs        `LangExtractor` trait + default impls
     mod.rs              `define_languages!` macro (single dispatch table)
     ts/ rs/ java/ python/ go/ cs/ sql/
-test/
-  sql/                  pgTAP test files (run via ./test/run.sh)
+pgtap/
+  run.sh                pgTAP harness (run via ./pgtap/run.sh)
+  sql/                  pgTAP test files
+scripts/
+  check-arch.sh         dogfood the linter on src/
   dogfood.sh            multi-project ingestion runner
   dogfood/panel.sh      pinned panel of representative open-source projects
 examples/
@@ -46,8 +49,8 @@ cargo check --features pg17 --no-default-features --tests   # FFI/lifetime check
 cargo test  --features pg17 --no-default-features --lib     # unit tests, sub-second
 cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings
 cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
-./test/run.sh                                               # pgTAP suite, ~5s
-./test/dogfood.sh --only <project>                          # scaling validation
+./pgtap/run.sh                                               # pgTAP suite, ~5s
+./scripts/dogfood.sh --only <project>                          # scaling validation
 ```
 
 Initial pgrx setup (one-time, ~15 min):
@@ -84,7 +87,7 @@ Cycle: red test → minimal impl → green.
 - **Pure-Rust**: `cargo test` for `core/` and `lang/`. Tests inline in
   `#[cfg(test)] mod tests` next to the code under test.
 - **SQL surface**: `pg/` is tested via **pgTAP**, files in
-  `test/sql/*.sql`, runner `./test/run.sh` against the pgrx-managed
+  `pgtap/sql/*.sql`, runner `./pgtap/run.sh` against the pgrx-managed
   PG17 instance. No `pgrx-tests` / `#[pg_test]`.
 - **Iteration loop**: `cargo check --features pg17 --no-default-features`
   before `cargo pgrx install`. The pgTAP runner does NOT reinstall the
@@ -134,8 +137,8 @@ Adding a kind or visibility requires updating the trait constants
 in `src/lang/mod.rs`).
 
 Wire the SQL surface in `src/pg/extract.rs` (`#[pg_extern] fn
-extract_<lang>(...)`); add a pgTAP file under `test/sql/` and a panel
-entry to `test/dogfood/panel.sh`.
+extract_<lang>(...)`); add a pgTAP file under `pgtap/sql/` and a panel
+entry to `scripts/dogfood/panel.sh`.
 
 The allowed kinds and visibilities per language are enumerated in
 `src/lang/<lang>/mod.rs` (the `LangExtractor` trait constants) and

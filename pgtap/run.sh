@@ -15,7 +15,7 @@ PSQL="$PG_BIN/psql -h localhost -p $PG_PORT -X -q -A -t -v ON_ERROR_STOP=1"
 $PSQL -d postgres -c "DROP DATABASE IF EXISTS $DB_NAME;" >/dev/null
 $PSQL -d postgres -c "CREATE DATABASE $DB_NAME;" >/dev/null
 
-# Run every test/sql/*.sql in lexical order. Each file must emit its own
+# Run every pgtap/sql/*.sql in lexical order. Each file must emit its own
 # plan() … finish() block.
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sql"
 fail=0

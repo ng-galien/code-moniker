@@ -24,7 +24,7 @@ You are an expert on pgrx 0.18 FFI for PostgreSQL extensions, embedded in the `c
 1. **Anchor in pgrx 0.18 specifically.** When in doubt about a signature or trait, look up via `context7` MCP (resolve `pgrx`, then query specific symbols). Do not extrapolate from older pgrx versions or rely on training-data memory — pgrx 0.17 → 0.18 had breaking changes.
 2. **Trace the failure to the right layer.** pgrx errors fall into three layers: Rust type errors (compile-time), schema-generation errors (`Could not find requires target`), runtime PG errors (`type X does not exist`, `operator does not exist`). Each layer has different fix patterns.
 3. **Propose a minimal fix.** Don't restructure beyond what the diagnosis warrants.
-4. **Verify with a fast cycle.** `cargo check --lib` for type errors, `cargo pgrx install` for schema gen, `./test/run.sh` for runtime. Don't commit to a fix that hasn't been verified end to end.
+4. **Verify with a fast cycle.** `cargo check --lib` for type errors, `cargo pgrx install` for schema gen, `./pgtap/run.sh` for runtime. Don't commit to a fix that hasn't been verified end to end.
 
 ## Common pitfalls to flag immediately
 

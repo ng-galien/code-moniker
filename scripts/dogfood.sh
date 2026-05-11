@@ -2,10 +2,10 @@
 # Ingest the dogfood panel into a fresh DB via extract_<lang>().
 #
 # Usage:
-#   test/dogfood.sh                    # full panel
-#   test/dogfood.sh --lang rs          # only Rust panel entries
-#   test/dogfood.sh --only zod         # only one project_id
-#   test/dogfood.sh --reset            # drop and re-clone all entries
+#   scripts/dogfood.sh                    # full panel
+#   scripts/dogfood.sh --lang rs          # only Rust panel entries
+#   scripts/dogfood.sh --only zod         # only one project_id
+#   scripts/dogfood.sh --reset            # drop and re-clone all entries
 #
 # After this script, query live in psql:
 #   $HOME/.pgrx/17.9/pgrx-install/bin/psql -h localhost -p 28817 -d pcm_dogfood
@@ -23,8 +23,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CACHE="${CACHE:-$ROOT/dogfood}"
 PSQL="$PG_BIN/psql -h localhost -p $PG_PORT -X -q -v ON_ERROR_STOP=1"
 
-# shellcheck source=test/dogfood/panel.sh
-source "$ROOT/test/dogfood/panel.sh"
+# shellcheck source=scripts/dogfood/panel.sh
+source "$ROOT/scripts/dogfood/panel.sh"
 
 LANG_FILTER=""
 ONLY_FILTER=""

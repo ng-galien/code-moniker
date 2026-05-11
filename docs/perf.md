@@ -52,6 +52,6 @@ return to 25 ms.
 
 ```sh
 cargo build --release --features cli --bin code-moniker
-./test/dogfood.sh --reset            # clones the panel into ./dogfood/
+./scripts/dogfood.sh --reset            # clones the panel into ./dogfood/
 time ./target/release/code-moniker check dogfood/ts/date-fns
 ```
