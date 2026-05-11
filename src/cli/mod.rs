@@ -119,7 +119,10 @@ fn check_inner<W: Write, E: Write>(
 	stderr: &mut E,
 ) -> anyhow::Result<bool> {
 	let path: &Path = &args.file;
-	let cfg = check::load_with_overrides(Some(&args.rules))?;
+	let mut cfg = check::load_with_overrides(Some(&args.rules))?;
+	if let Some(name) = &args.profile {
+		cfg.apply_profile(name)?;
+	}
 	let meta = std::fs::metadata(path)
 		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
 	let (reports, errors) = if meta.is_dir() {

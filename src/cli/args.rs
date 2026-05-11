@@ -47,6 +47,13 @@ pub struct CheckArgs {
 
 	#[arg(long, value_enum, default_value_t = CheckFormat::Text)]
 	pub format: CheckFormat,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "filter rules through a named profile from .code-moniker.toml"
+	)]
+	pub profile: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use regex::Regex;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -438,12 +439,98 @@ impl Config {
 		}
 	}
 
+	pub fn for_lang_mut(&mut self, lang: Lang) -> &mut LangRules {
+		match lang {
+			Lang::Ts => &mut self.ts,
+			Lang::Rs => &mut self.rust,
+			Lang::Java => &mut self.java,
+			Lang::Python => &mut self.python,
+			Lang::Go => &mut self.go,
+			Lang::Cs => &mut self.cs,
+			Lang::Sql => &mut self.sql,
+		}
+	}
+
 	pub fn rules_for(&self, lang: Lang, kind: &str) -> Option<&KindRules> {
 		self.for_lang(lang)
 			.kinds
 			.get(kind)
 			.or_else(|| self.default.kinds.get(kind))
 	}
+
+	pub fn apply_profile(&mut self, name: &str) -> Result<(), ConfigError> {
+		let profile = self
+			.profiles
+			.get(name)
+			.ok_or_else(|| ConfigError::UnknownProfile {
+				name: name.to_string(),
+				known: self.known_profiles(),
+			})?
+			.clone();
+		let enable = compile_patterns(&profile.enable, name, "enable")?;
+		let disable = compile_patterns(&profile.disable, name, "disable")?;
+		filter_rules(&mut self.refs.rules, "refs", &enable, &disable);
+		filter_lang(&mut self.default, "default", &enable, &disable);
+		for lang in Lang::ALL {
+			filter_lang(
+				self.for_lang_mut(*lang),
+				config_section(*lang),
+				&enable,
+				&disable,
+			);
+		}
+		Ok(())
+	}
+
+	fn known_profiles(&self) -> String {
+		let mut names: Vec<&str> = self.profiles.keys().map(|s| s.as_str()).collect();
+		names.sort();
+		names.join(", ")
+	}
+}
+
+impl RuleEntry {
+	pub(crate) fn fallback_id(&self, idx: usize) -> String {
+		self.id.clone().unwrap_or_else(|| format!("where_{idx}"))
+	}
+}
+
+fn compile_patterns(
+	patterns: &[String],
+	profile: &str,
+	field: &'static str,
+) -> Result<Vec<Regex>, ConfigError> {
+	patterns
+		.iter()
+		.map(|p| {
+			Regex::new(p).map_err(|error| ConfigError::BadProfileRegex {
+				profile: profile.to_string(),
+				field,
+				pattern: p.clone(),
+				error,
+			})
+		})
+		.collect()
+}
+
+fn filter_lang(lr: &mut LangRules, section: &str, enable: &[Regex], disable: &[Regex]) {
+	for (kind, kr) in lr.kinds.iter_mut() {
+		let prefix = format!("{section}.{kind}");
+		filter_rules(&mut kr.rules, &prefix, enable, disable);
+	}
+}
+
+fn filter_rules(rules: &mut Vec<RuleEntry>, prefix: &str, enable: &[Regex], disable: &[Regex]) {
+	if rules.is_empty() || (enable.is_empty() && disable.is_empty()) {
+		return;
+	}
+	let mut idx = 0;
+	rules.retain(|r| {
+		let full = format!("{prefix}.{}", r.fallback_id(idx));
+		idx += 1;
+		(enable.is_empty() || enable.iter().any(|re| re.is_match(&full)))
+			&& !disable.iter().any(|re| re.is_match(&full))
+	});
 }
 
 #[cfg(test)]
@@ -707,6 +794,233 @@ mod tests {
 			Err(ConfigError::UserConfig { .. }) => {}
 			other => panic!("expected UserConfig error, got {other:?}"),
 		}
+	}
+
+	#[test]
+	fn profile_enable_filters_in() {
+		let mut cfg = parse(
+			r#"
+			[[ts.class.where]]
+			id   = "keep"
+			expr = "lines <= 99"
+
+			[[ts.class.where]]
+			id   = "drop"
+			expr = "lines <= 99"
+
+			[profiles.only_keep]
+			enable = ["\\.keep$"]
+			"#,
+		)
+		.unwrap();
+		cfg.apply_profile("only_keep").unwrap();
+		let r = cfg.rules_for(Lang::Ts, "class").unwrap();
+		assert_eq!(r.rules.len(), 1);
+		assert_eq!(r.rules[0].id.as_deref(), Some("keep"));
+	}
+
+	#[test]
+	fn profile_disable_filters_out() {
+		let mut cfg = parse(
+			r#"
+			[[ts.class.where]]
+			id   = "keep"
+			expr = "lines <= 99"
+
+			[[ts.class.where]]
+			id   = "drop"
+			expr = "lines <= 99"
+
+			[profiles.drop_one]
+			disable = ["\\.drop$"]
+			"#,
+		)
+		.unwrap();
+		cfg.apply_profile("drop_one").unwrap();
+		let r = cfg.rules_for(Lang::Ts, "class").unwrap();
+		assert_eq!(r.rules.len(), 1);
+		assert_eq!(r.rules[0].id.as_deref(), Some("keep"));
+	}
+
+	#[test]
+	fn profile_enable_then_disable() {
+		let mut cfg = parse(
+			r#"
+			[[ts.class.where]]
+			id   = "a"
+			expr = "lines <= 99"
+
+			[[ts.class.where]]
+			id   = "b"
+			expr = "lines <= 99"
+
+			[[ts.class.where]]
+			id   = "c"
+			expr = "lines <= 99"
+
+			[profiles.p]
+			enable  = ["ts\\.class\\.(a|b)$"]
+			disable = ["ts\\.class\\.b$"]
+			"#,
+		)
+		.unwrap();
+		cfg.apply_profile("p").unwrap();
+		let r = cfg.rules_for(Lang::Ts, "class").unwrap();
+		assert_eq!(r.rules.len(), 1);
+		assert_eq!(r.rules[0].id.as_deref(), Some("a"));
+	}
+
+	#[test]
+	fn profile_filters_refs_top_level() {
+		let mut cfg = parse(
+			r#"
+			[[refs.where]]
+			id   = "stay"
+			expr = "kind = 'call'"
+
+			[[refs.where]]
+			id   = "go"
+			expr = "kind = 'call'"
+
+			[profiles.p]
+			disable = ["^refs\\.go$"]
+			"#,
+		)
+		.unwrap();
+		cfg.apply_profile("p").unwrap();
+		assert_eq!(cfg.refs.rules.len(), 1);
+		assert_eq!(cfg.refs.rules[0].id.as_deref(), Some("stay"));
+	}
+
+	#[test]
+	fn profile_filters_per_lang_refs() {
+		let mut cfg = parse(
+			r#"
+			[[ts.refs.where]]
+			id   = "stay"
+			expr = "kind = 'call'"
+
+			[[ts.refs.where]]
+			id   = "go"
+			expr = "kind = 'call'"
+
+			[profiles.p]
+			disable = ["^ts\\.refs\\.go$"]
+			"#,
+		)
+		.unwrap();
+		cfg.apply_profile("p").unwrap();
+		let r = cfg.ts.kinds.get("refs").unwrap();
+		assert_eq!(r.rules.len(), 1);
+		assert_eq!(r.rules[0].id.as_deref(), Some("stay"));
+	}
+
+	#[test]
+	fn profile_filters_default_section() {
+		let mut cfg = parse(
+			r#"
+			[[default.module.where]]
+			id   = "stay"
+			expr = "lines <= 99"
+
+			[[default.module.where]]
+			id   = "go"
+			expr = "lines <= 99"
+
+			[profiles.p]
+			disable = ["^default\\.module\\.go$"]
+			"#,
+		)
+		.unwrap();
+		cfg.apply_profile("p").unwrap();
+		let r = cfg.default.kinds.get("module").unwrap();
+		assert_eq!(r.rules.len(), 1);
+		assert_eq!(r.rules[0].id.as_deref(), Some("stay"));
+	}
+
+	#[test]
+	fn unknown_profile_returns_error() {
+		let mut cfg = parse(
+			r#"
+			[profiles.known]
+			disable = []
+			"#,
+		)
+		.unwrap();
+		match cfg.apply_profile("nope") {
+			Err(ConfigError::UnknownProfile { name, known }) => {
+				assert_eq!(name, "nope");
+				assert!(known.contains("known"), "{known}");
+			}
+			other => panic!("expected UnknownProfile, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn bad_regex_returns_error() {
+		let mut cfg = parse(
+			r#"
+			[profiles.p]
+			enable = ["(unclosed"]
+			"#,
+		)
+		.unwrap();
+		match cfg.apply_profile("p") {
+			Err(ConfigError::BadProfileRegex {
+				profile,
+				field,
+				pattern,
+				..
+			}) => {
+				assert_eq!(profile, "p");
+				assert_eq!(field, "enable");
+				assert_eq!(pattern, "(unclosed");
+			}
+			other => panic!("expected BadProfileRegex, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn fallback_where_n_id_matches() {
+		let mut cfg = parse(
+			r#"
+			[[ts.class.where]]
+			expr = "lines <= 99"
+
+			[[ts.class.where]]
+			expr = "lines <= 99"
+
+			[profiles.p]
+			disable = ["^ts\\.class\\.where_0$"]
+			"#,
+		)
+		.unwrap();
+		cfg.apply_profile("p").unwrap();
+		let r = cfg.rules_for(Lang::Ts, "class").unwrap();
+		assert_eq!(r.rules.len(), 1);
+	}
+
+	#[test]
+	fn user_profile_overrides_preset_by_name() {
+		let user = parse(
+			r#"
+			[profiles.bugfix]
+			enable  = ["^user$"]
+			disable = []
+			"#,
+		)
+		.unwrap();
+		let mut base = parse(
+			r#"
+			[profiles.bugfix]
+			enable  = ["^base$"]
+			disable = []
+			"#,
+		)
+		.unwrap();
+		merge_into(&mut base, user);
+		let p = base.profiles.get("bugfix").unwrap();
+		assert_eq!(p.enable, vec!["^user$".to_string()]);
 	}
 
 	#[test]

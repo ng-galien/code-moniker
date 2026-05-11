@@ -168,7 +168,7 @@ impl CompiledRules {
 		}
 		let mut refs = Vec::with_capacity(cfg.refs.rules.len() + per_lang_refs.len());
 		for (idx, entry) in cfg.refs.rules.iter().enumerate() {
-			let id = entry.id.clone().unwrap_or_else(|| format!("where_{idx}"));
+			let id = entry.fallback_id(idx);
 			let at = format!("refs.{id}");
 			let expanded =
 				crate::cli::check::config::substitute_aliases(&entry.expr, &aliases, &at)?;
@@ -186,7 +186,7 @@ impl CompiledRules {
 			});
 		}
 		for (idx, entry) in per_lang_refs.iter().enumerate() {
-			let id = entry.id.clone().unwrap_or_else(|| format!("where_{idx}"));
+			let id = entry.fallback_id(idx);
 			let at = format!("{section}.refs.{id}");
 			let expanded =
 				crate::cli::check::config::substitute_aliases(&entry.expr, &aliases, &at)?;
@@ -221,7 +221,7 @@ fn compile(
 ) -> Result<CompiledKindRules, ConfigError> {
 	let mut compiled = Vec::with_capacity(rules.rules.len());
 	for (idx, entry) in rules.rules.iter().enumerate() {
-		let id = entry.id.clone().unwrap_or_else(|| format!("where_{idx}"));
+		let id = entry.fallback_id(idx);
 		let at = format!("{section}.{kind}.{id}");
 		let expanded = crate::cli::check::config::substitute_aliases(&entry.expr, aliases, &at)?;
 		let parsed = expr::parse(&expanded, scheme, allowed_kinds).map_err(|error| {
