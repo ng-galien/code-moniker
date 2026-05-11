@@ -12,6 +12,10 @@ const DEFAULT_PRESET: &str = include_str!("presets/default.toml");
 /// but ARE legitimate rule targets.
 pub(crate) const INTERNAL_KINDS: &[&str] = &["module", "local", "param", "comment"];
 
+/// Reserved keys under `[<lang>.…]` that aren't def kinds. `refs` is treated
+/// as the per-lang ref rule list (parallel to top-level `[[refs.where]]`).
+const RESERVED_LANG_KEYS: &[&str] = &["refs"];
+
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -384,6 +388,9 @@ fn validate_lang_section(
 	_path: &str,
 ) -> Result<(), ConfigError> {
 	for (kind, kr) in lr.kinds.iter() {
+		if RESERVED_LANG_KEYS.contains(&kind.as_str()) {
+			continue;
+		}
 		if !allowed.contains(&kind.as_str()) {
 			return Err(ConfigError::UnknownKind {
 				section: section.to_string(),

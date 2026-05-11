@@ -84,6 +84,24 @@ pub enum LhsExpr {
 		domain: Domain,
 		filter: Option<Box<Node>>,
 	},
+	/// `segment("kind")` / `source.segment("kind")` / `target.segment("kind")`
+	/// — name of the first segment of that kind in the relevant moniker.
+	/// Returns `""` if no segment of that kind exists.
+	SegmentOf {
+		scope: SegmentScope,
+		kind: String,
+	},
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum SegmentScope {
+	/// Bare `segment("K")` — current def's moniker (def scope) or the
+	/// outer scope's moniker (segment-quantifier body).
+	Def,
+	/// `source.segment("K")` — ref scope only.
+	Source,
+	/// `target.segment("K")` — ref scope only.
+	Target,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -270,6 +288,9 @@ impl<'a> Parser<'a> {
 		if let Some(atom) = self.try_parse_count_atom()? {
 			return Ok(Node::Atom(atom));
 		}
+		if let Some(atom) = self.try_parse_segment_atom()? {
+			return Ok(Node::Atom(atom));
+		}
 		let atom_end = self.find_atom_end();
 		if atom_end == self.pos {
 			return Err(ParseError::BadExpr {
@@ -281,6 +302,116 @@ impl<'a> Parser<'a> {
 		let atom = parse_atom(atom_str, self.scheme, self.raw, self.allowed_kinds)?;
 		self.pos = atom_end;
 		Ok(Node::Atom(atom))
+	}
+
+	/// Recognize `segment("K")` / `source.segment("K")` / `target.segment("K")`
+	/// followed by a string op (`=`, `!=`, `=~`, `!~`) and a RHS.
+	fn try_parse_segment_atom(&mut self) -> Result<Option<Atom>, ParseError> {
+		self.skip_ws();
+		let rest = &self.input[self.pos..];
+		let (scope, prefix_len) = if let Some(r) = rest.strip_prefix("source.segment(") {
+			let _ = r;
+			(SegmentScope::Source, "source.segment(".len())
+		} else if let Some(r) = rest.strip_prefix("target.segment(") {
+			let _ = r;
+			(SegmentScope::Target, "target.segment(".len())
+		} else if rest.starts_with("segment(") {
+			(SegmentScope::Def, "segment(".len())
+		} else {
+			return Ok(None);
+		};
+		// Disambiguate: `segment(...)` could be the segment-domain inside a
+		// quantifier, but quantifier was already tried before. If we got here
+		// from primary, it's a projection call.
+		let raw_start = self.pos;
+		self.pos += prefix_len;
+		// Read up to closing `)`
+		let bytes = self.input.as_bytes();
+		let arg_start = self.pos;
+		while self.pos < bytes.len() && bytes[self.pos] != b')' {
+			self.pos += 1;
+		}
+		if self.pos == bytes.len() {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: "unclosed `segment(...)` projection".to_string(),
+			});
+		}
+		let arg = self.input[arg_start..self.pos].trim();
+		let kind = unquote(arg).to_string();
+		if kind.is_empty() {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: "segment(<kind>) needs a kind argument".to_string(),
+			});
+		}
+		self.pos += 1; // consume `)`
+		// Now expect `<op> <rhs>`. Find the next op token at this position.
+		self.skip_ws();
+		let after = &self.input[self.pos..];
+		let op_offset = self.pos;
+		let (op_str, op_len): (&str, usize) = if let Some(op) = TWO_CHAR_OPS
+			.iter()
+			.find(|op| after.starts_with(**op))
+			.copied()
+		{
+			(op, op.len())
+		} else if let Some(c) = after.chars().next()
+			&& "<>=~".contains(c)
+		{
+			let s = &after[..c.len_utf8()];
+			(s, c.len_utf8())
+		} else {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!(
+					"expected `<op> <rhs>` after `segment(...)` at byte {}",
+					self.pos
+				),
+			});
+		};
+		self.pos += op_len;
+		let op = parse_op(op_str, self.raw)?;
+		// Parse the RHS — re-use the existing rhs scanner. RHS ends at next
+		// boundary / closing paren / EOI.
+		let rhs_end = self.find_atom_end();
+		let rhs_str = self.input[self.pos..rhs_end].trim();
+		if rhs_str.is_empty() {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: "empty RHS after `segment(...)` op".to_string(),
+			});
+		}
+		let rhs = parse_rhs(rhs_str, op, self.scheme, self.raw)?;
+		let regex = match (&op, &rhs) {
+			(Op::RegexMatch | Op::RegexNoMatch, Rhs::RegexStr(p)) => {
+				Some(Regex::new(p).map_err(|e| ParseError::BadExpr {
+					expr: self.raw.to_string(),
+					msg: format!("invalid regex `{p}`: {e}"),
+				})?)
+			}
+			_ => None,
+		};
+		// Validate op for SegmentOf (string lhs)
+		match op {
+			Op::Eq | Op::Ne | Op::RegexMatch | Op::RegexNoMatch => {}
+			_ => {
+				return Err(ParseError::BadExpr {
+					expr: self.raw.to_string(),
+					msg: format!("operator {op:?} not valid for segment(...) projection"),
+				});
+			}
+		}
+		self.pos = rhs_end;
+		let _ = op_offset;
+		let raw = self.input[raw_start..self.pos].to_string();
+		Ok(Some(Atom {
+			lhs: LhsExpr::SegmentOf { scope, kind },
+			op,
+			rhs,
+			raw,
+			regex,
+		}))
 	}
 
 	/// Recognize `count(<domain>, <filter>?)` followed by `<num_op> <number>`
@@ -773,6 +904,15 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 				_ => Err(ParseError::BadExpr {
 					expr: full.to_string(),
 					msg: format!("count(...) only accepts numeric operators, got {op:?}"),
+				}),
+			};
+		}
+		LhsExpr::SegmentOf { .. } => {
+			return match op {
+				Eq | Ne | RegexMatch | RegexNoMatch => Ok(()),
+				_ => Err(ParseError::BadExpr {
+					expr: full.to_string(),
+					msg: format!("segment(...) only accepts string operators, got {op:?}"),
 				}),
 			};
 		}

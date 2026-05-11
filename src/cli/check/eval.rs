@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::cli::check::config::{Config, ConfigError, KindRules, config_section};
-use crate::cli::check::expr::{self, Atom, Domain, Lhs, LhsExpr, Node, Op, QuantKind, Rhs};
+use crate::cli::check::expr::{
+	self, Atom, Domain, Lhs, LhsExpr, Node, Op, QuantKind, Rhs, SegmentScope,
+};
 use crate::cli::lines::line_range;
 use crate::cli::render_uri;
 use crate::core::code_graph::{CodeGraph, DefRecord};
@@ -118,13 +120,21 @@ impl<'cfg> CompiledRules<'cfg> {
 		let allowed = crate::cli::check::config::allowed_kinds_for(lang);
 		let aliases = crate::cli::check::config::resolve_aliases(&cfg.aliases)?;
 		let mut by_kind: HashMap<&str, CompiledKindRules> = HashMap::new();
+		let mut per_lang_refs: Vec<&crate::cli::check::config::RuleEntry> = Vec::new();
 		for (kind, rules) in cfg.for_lang(lang).kinds.iter() {
+			if kind == "refs" {
+				per_lang_refs.extend(rules.rules.iter());
+				continue;
+			}
 			by_kind.insert(
 				kind.as_str(),
 				compile(rules, section, kind, scheme, &allowed, &aliases)?,
 			);
 		}
 		for (kind, rules) in cfg.default.kinds.iter() {
+			if kind == "refs" {
+				continue;
+			}
 			if !by_kind.contains_key(kind.as_str()) {
 				by_kind.insert(
 					kind.as_str(),
@@ -132,10 +142,28 @@ impl<'cfg> CompiledRules<'cfg> {
 				);
 			}
 		}
-		let mut refs = Vec::with_capacity(cfg.refs.rules.len());
+		let mut refs = Vec::with_capacity(cfg.refs.rules.len() + per_lang_refs.len());
 		for (idx, entry) in cfg.refs.rules.iter().enumerate() {
 			let id = entry.id.clone().unwrap_or_else(|| format!("where_{idx}"));
 			let at = format!("refs.{id}");
+			let expanded =
+				crate::cli::check::config::substitute_aliases(&entry.expr, &aliases, &at)?;
+			let parsed = expr::parse(&expanded, scheme, &allowed).map_err(|error| {
+				ConfigError::InvalidExpr {
+					at: at.clone(),
+					error,
+				}
+			})?;
+			refs.push(CompiledRule {
+				id,
+				raw_expr: entry.expr.clone(),
+				root: parsed.root,
+				message: entry.message.clone(),
+			});
+		}
+		for (idx, entry) in per_lang_refs.iter().enumerate() {
+			let id = entry.id.clone().unwrap_or_else(|| format!("where_{idx}"));
+			let at = format!("{section}.refs.{id}");
 			let expanded =
 				crate::cli::check::config::substitute_aliases(&entry.expr, &aliases, &at)?;
 			let parsed = expr::parse(&expanded, scheme, &allowed).map_err(|error| {
@@ -424,6 +452,16 @@ fn eval_ref_atom(
 			),
 			None => return AtomOutcome::NotApplicable,
 		},
+		LhsExpr::SegmentOf { scope, kind } => match scope {
+			SegmentScope::Def => {
+				// Ambiguous in ref scope — use source.segment / target.segment instead.
+				return AtomOutcome::NotApplicable;
+			}
+			SegmentScope::Source => {
+				Value::Str(first_segment_name(&source_def.moniker, kind.as_bytes()))
+			}
+			SegmentScope::Target => Value::Str(first_segment_name(&r.target, kind.as_bytes())),
+		},
 		// Other def-scope projections (Name, Lines, Text, Moniker, Visibility)
 		// aren't meaningful in ref scope. The user should write source.* /
 		// target.* / kind / confidence instead.
@@ -472,6 +510,17 @@ fn name_of(m: &crate::core::moniker::Moniker) -> Option<String> {
 	std::str::from_utf8(bare).ok().map(|s| s.to_string())
 }
 
+fn first_segment_name(m: &crate::core::moniker::Moniker, kind: &[u8]) -> String {
+	for seg in m.as_view().segments() {
+		if seg.kind == kind {
+			return std::str::from_utf8(seg.name)
+				.unwrap_or_default()
+				.to_string();
+		}
+	}
+	String::new()
+}
+
 fn last_segment_kind(m: &crate::core::moniker::Moniker) -> Option<String> {
 	let last = m.as_view().segments().last()?;
 	std::str::from_utf8(last.kind).ok().map(|s| s.to_string())
@@ -488,6 +537,7 @@ fn describe_lhs(lhs: &LhsExpr) -> &str {
 	match lhs {
 		LhsExpr::Attr(a) => a.as_str(),
 		LhsExpr::Count { .. } => "count",
+		LhsExpr::SegmentOf { .. } => "segment",
 	}
 }
 
@@ -1018,6 +1068,15 @@ fn eval_atom(atom: &Atom, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 		LhsExpr::Count { domain, filter } => {
 			let c = eval_count(domain, filter.as_deref(), d, def_idx, ctx);
 			Value::Number(c)
+		}
+		LhsExpr::SegmentOf { scope, kind } => {
+			match scope {
+				SegmentScope::Def => Value::Str(first_segment_name(&d.moniker, kind.as_bytes())),
+				SegmentScope::Source | SegmentScope::Target => {
+					// Ref-scope projection used on a def — not applicable.
+					return AtomOutcome::NotApplicable;
+				}
+			}
 		}
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
@@ -1653,6 +1712,134 @@ mod tests {
 		.unwrap();
 		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
 		assert!(v.is_empty(), "premise true + consequent true: {v:?}");
+	}
+
+	// ─── doc <-> code drift guard ───────────────────────────────────────
+
+	/// Extract the first ```toml fenced block from a given markdown section.
+	fn extract_toml_block(md: &str, heading: &str) -> String {
+		let after = md
+			.split(heading)
+			.nth(1)
+			.unwrap_or_else(|| panic!("heading `{heading}` not found in doc"));
+		let open = "```toml";
+		let close = "```";
+		let after_open = after
+			.split(open)
+			.nth(1)
+			.unwrap_or_else(|| panic!("no ```toml block under `{heading}`"));
+		after_open
+			.split(close)
+			.next()
+			.unwrap_or_else(|| panic!("unterminated ```toml block under `{heading}`"))
+			.trim()
+			.to_string()
+	}
+
+	#[test]
+	fn docs_worked_example_parses_and_evaluates() {
+		let md = include_str!("../../../docs/CHECK_DSL.md");
+		let toml_src = extract_toml_block(md, "## Worked example");
+		let cfg: Config = toml::from_str(&toml_src).unwrap_or_else(|e| {
+			panic!(
+				"worked example does not parse as TOML: {e}\n--- source ---\n{toml_src}\n--- end ---"
+			)
+		});
+		// Compile (= parse every rule expression and resolve aliases) by
+		// running an evaluation against an empty graph. Catches any rule
+		// the parser refuses.
+		let root = build_module(b"empty");
+		let g = CodeGraph::new(root, b"module");
+		let res = evaluate(&g, "", Lang::Ts, &cfg, SCHEME);
+		res.unwrap_or_else(|e| {
+			panic!("worked example fails to compile: {e}\n--- source ---\n{toml_src}\n--- end ---")
+		});
+	}
+
+	// ─── segment(K) projection ──────────────────────────────────────────
+
+	#[test]
+	fn segment_of_def_returns_first_match() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "must-be-in-domain-module"
+			expr = "segment('module') = 'domain'"
+			"#,
+		);
+		let module = build_module(b"app");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		g.add_def(
+			child(&module, b"class", b"Foo"),
+			b"class",
+			&module,
+			Some((0, 5)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(
+			v.len(),
+			1,
+			"class lives in module:app, not module:domain: {v:?}"
+		);
+	}
+
+	#[test]
+	fn source_and_target_segment_in_refs() {
+		let cfg = cfg_from(
+			r#"
+			[[refs.where]]
+			id   = "same-module-only"
+			expr = "source.segment('module') != target.segment('module') => target.segment('module') = 'std'"
+			"#,
+		);
+		let root = build_root();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let billing = submodule(&root, b"billing");
+		g.add_def(billing.clone(), b"module", &root, Some((0, 1)))
+			.unwrap();
+		let shipping = submodule(&root, b"shipping");
+		g.add_def(shipping.clone(), b"module", &root, Some((2, 3)))
+			.unwrap();
+		let o = child(&billing, b"class", b"Order");
+		g.add_def(o.clone(), b"class", &billing, Some((4, 5)))
+			.unwrap();
+		let p = child(&shipping, b"class", b"Pkg");
+		g.add_def(p.clone(), b"class", &shipping, Some((6, 10)))
+			.unwrap();
+		g.add_ref(&o, p, b"uses_type", Some((4, 5))).unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "billing→shipping violation: {v:?}");
+	}
+
+	#[test]
+	fn per_lang_refs_section_is_evaluated() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.refs.where]]
+			id   = "no-domain-import"
+			expr = "source.segment('module') = 'domain' => NOT kind = 'imports'"
+			"#,
+		);
+		let root = build_root();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let domain = submodule(&root, b"domain");
+		g.add_def(domain.clone(), b"module", &root, Some((0, 1)))
+			.unwrap();
+		let other = submodule(&root, b"infra");
+		g.add_def(other.clone(), b"module", &root, Some((2, 3)))
+			.unwrap();
+		let order = child(&domain, b"class", b"Order");
+		g.add_def(order.clone(), b"class", &domain, Some((4, 5)))
+			.unwrap();
+		let infra_cls = child(&other, b"class", b"X");
+		g.add_def(infra_cls.clone(), b"class", &other, Some((6, 10)))
+			.unwrap();
+		g.add_ref(&order, infra_cls, b"imports", Some((4, 5)))
+			.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "per-lang refs rule fires: {v:?}");
+		assert_eq!(v[0].rule_id, "refs.no-domain-import");
 	}
 
 	// ─── quantifiers ────────────────────────────────────────────────────

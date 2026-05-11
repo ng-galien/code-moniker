@@ -162,10 +162,18 @@ infra  = "moniker ~ '**/module:infrastructure/**'"
 port   = "moniker ~ '**/interface:/Port$/'"
 ```
 
-A `$name` reference is substituted **textually** by its value before
-parsing. Aliases may reference other aliases provided there is no cycle;
-unknown aliases and cycles are reported at config load time, not at
-evaluation.
+A `$name` reference is substituted **textually** (wrapped in parens to
+preserve precedence) before parsing. Aliases may reference other
+aliases provided there is no cycle; unknown aliases and cycles are
+reported at config load time.
+
+Because substitution is textual, an alias bundles **both** its
+projection and its right-hand side. An alias written for def scope
+(`moniker ~ '...'`) can't be reused in ref scope by writing
+`source $domain` — that would expand to `source (moniker ~ '...')`
+which is malformed. For ref-scope rules, write `source ~ '...'`
+explicitly, or define separate aliases per scope (`src_domain`,
+`tgt_domain`).
 
 ## Configuration topology
 
@@ -254,26 +262,39 @@ id   = "port-is-never-a-class"
 expr = "NOT name =~ Port$"
 
 # ─── Hex / Layering (poly-lang refs) ──────────────────────────────────
+# Aliases substitute textually — `source $domain` would expand to
+# `source moniker ~ '...'` which is malformed. In refs scope, use the
+# explicit `source ~` / `target ~` form instead.
 [[refs.where]]
 id   = "domain-depends-on-nothing-but-itself-or-std"
-expr = "source $domain => target $domain OR target $std"
+expr = """
+  source ~ '**/module:domain/**'
+  => target ~ '**/module:domain/**'
+     OR target ~ '**/module:std/**'
+     OR target ~ '**/module:core/**'
+"""
 
 [[refs.where]]
 id   = "application-only-inward"
-expr = "source $app => target $app OR target $domain OR target $std"
+expr = """
+  source ~ '**/module:application/**'
+  => target ~ '**/module:application/**'
+     OR target ~ '**/module:domain/**'
+     OR target ~ '**/module:std/**'
+"""
 
 [[refs.where]]
 id   = "domain-imports-no-framework"
 expr = """
-  source $domain AND kind = 'imports'
+  source ~ '**/module:domain/**' AND kind = 'imports'
   => NOT target.name =~ ^(express|nestjs|typeorm|prisma)$
 """
 
 [[refs.where]]
 id   = "infra-implements-application-ports-only"
 expr = """
-  source $infra AND kind = 'implements'
-  => target $app AND target.name =~ Port$
+  source ~ '**/module:infrastructure/**' AND kind = 'implements'
+  => target ~ '**/module:application/**' AND target.name =~ Port$
 """
 
 # ─── Bounded contexts ─────────────────────────────────────────────────
@@ -282,7 +303,7 @@ id   = "billing-touches-shipping-only-via-contract"
 expr = """
   source.segment('module') = 'billing'
   AND target.segment('module') = 'shipping'
-  => target $contract
+  => target ~ '**/module:contract/**'
 """
 
 # ─── Adapters & controllers ───────────────────────────────────────────
@@ -300,7 +321,7 @@ id   = "adapter-implements-a-port"
 expr = """
   name =~ Adapter$
   => any(out_refs, kind = 'implements'
-                   AND target $app
+                   AND target ~ '**/module:application/**'
                    AND target.name =~ Port$)
 """
 
@@ -309,13 +330,18 @@ expr = """
 id   = "low-fan-out"
 expr = """
   kind = 'class'
-  => count(out_refs, kind = 'uses_type' AND NOT target $std) <= 7
+  => count(out_refs, kind = 'uses_type'
+                     AND NOT target ~ '**/module:std/**') <= 7
 """
 
 # ─── Tests ────────────────────────────────────────────────────────────
 [[ts.class.where]]
-id   = "no-class-in-config-or-fixture-only-module"
-expr = "$test => NOT name =~ ^(Stub|Mock|Fake|Builder)$"
+id   = "fixtures-only-in-test-modules"
+expr = """
+  name =~ ^(Stub|Mock|Fake|Builder)$
+  => any(segment, segment.kind = 'module'
+                  AND segment.name =~ (^tests?$|_test$))
+"""
 
 # ─── Doc comment (spatial, outside the DSL) ───────────────────────────
 [ts.class]
