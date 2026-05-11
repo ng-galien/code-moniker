@@ -62,3 +62,20 @@ jobs:
           # the pgrx-managed instance reads via the same pg_config, so
           # CREATE EXTENSION pgtap works out of the box.
           ./test/run.sh
+
+  arch-check:
+    name: code-moniker self-lint (dogfood)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cli
+
+      - name: code-moniker check src/
+        run: ./scripts/check-arch.sh

@@ -13,6 +13,7 @@ use crate::pg::util::resolve_type_oid;
 
 mod encoding;
 
+// code-moniker: ignore[name-pascalcase] — pgrx maps the Rust struct name 1:1 to the SQL type name, which must be `code_graph`.
 #[allow(non_camel_case_types)]
 #[derive(PostgresType, Debug)]
 #[inoutfuncs]

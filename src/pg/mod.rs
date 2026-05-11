@@ -8,6 +8,7 @@ pub mod moniker;
 mod registry;
 mod util;
 
+// code-moniker: ignore[name-snakecase] — postgres dlopens this exact symbol name; the init hook contract is `_PG_init`.
 #[pg_guard]
 pub extern "C-unwind" fn _PG_init() {
 	registry::init_gucs();

@@ -17,3 +17,13 @@ if ! cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D 
 	echo "pre-commit: cargo clippy failed (warnings treated as errors)." >&2
 	exit 1
 fi
+
+# Only re-lint the architecture when staged changes touch source under `src/`.
+# Test fixtures, examples, docs etc. don't affect the rule outcome.
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^src/.*\.rs$'; then
+	if ! ./scripts/check-arch.sh; then
+		echo "pre-commit: code-moniker architecture lint failed." >&2
+		echo "  Fix the violation, or add `// code-moniker: ignore[<rule-id>]` if the exception is legitimate." >&2
+		exit 1
+	fi
+fi

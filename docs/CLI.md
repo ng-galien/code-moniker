@@ -399,3 +399,58 @@ Exit `1` is surfaced to the agent as feedback in the conversation, which
 lets it self-correct before continuing. Exit `2` (e.g. unsupported file
 extension) is silent for the agent — the hook is a no-op for non-source
 edits.
+
+### Recipe — pre-commit hook + CI (architectural lint)
+
+For a project that wants `code-moniker check src/` to gate commits and
+pull-requests, ship a thin wrapper script and call it from both
+`.githooks/pre-commit` and the CI workflow. This repo dogfoods itself
+that way:
+
+```bash
+# scripts/check-arch.sh
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+exec cargo run --quiet --features cli --bin code-moniker -- check src/
+```
+
+```bash
+# .githooks/pre-commit (excerpt)
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^src/.*\.rs$'; then
+    ./scripts/check-arch.sh || {
+        echo "pre-commit: architecture lint failed."
+        echo "  Add // code-moniker: ignore[<rule-id>] if the exception is legitimate."
+        exit 1
+    }
+fi
+```
+
+```yaml
+# .github/workflows/ci.yml (excerpt)
+arch-check:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: cli
+    - run: ./scripts/check-arch.sh
+```
+
+`cargo run` makes the script idempotent against an incremental build —
+first call compiles the binary, subsequent calls reuse it. The CI job
+shares its build cache (`shared-key: cli`) across runs, so warm runs
+are ~5 s total.
+
+A failed rule produces exit code 1, which both Git (rejecting the
+commit) and GitHub Actions (failing the job) honour natively. Exit
+code 2 is reserved for genuine usage errors (bad path, malformed
+TOML); the hook only flags it when the script signals real config
+trouble, not a code-style violation.
+
+Suppression at the call site stays the most local fix — when pgrx
+forces a specific casing, when a generated file can't be renamed,
+etc. — using `// code-moniker: ignore[<rule-id>] — <one-line why>`
+right above the def keeps the audit trail in the source.
