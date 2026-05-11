@@ -63,6 +63,12 @@ pub fn evaluate(
 		check_require_doc_comment(d, kind_str, idx, rules, &ctx, &mut out);
 	}
 
+	for r in graph.refs() {
+		for rule in &compiled.refs {
+			eval_ref_rule(rule, r, graph, &ctx, &mut out);
+		}
+	}
+
 	Ok(out)
 }
 
@@ -95,6 +101,7 @@ struct CompiledKindRules {
 
 struct CompiledRules<'cfg> {
 	by_kind: HashMap<&'cfg str, CompiledKindRules>,
+	refs: Vec<CompiledRule>,
 }
 
 impl<'cfg> CompiledRules<'cfg> {
@@ -117,7 +124,26 @@ impl<'cfg> CompiledRules<'cfg> {
 				);
 			}
 		}
-		Ok(Self { by_kind })
+		let mut refs = Vec::with_capacity(cfg.refs.rules.len());
+		for (idx, entry) in cfg.refs.rules.iter().enumerate() {
+			let id = entry.id.clone().unwrap_or_else(|| format!("where_{idx}"));
+			let at = format!("refs.{id}");
+			let expanded =
+				crate::cli::check::config::substitute_aliases(&entry.expr, &aliases, &at)?;
+			let parsed = expr::parse(&expanded, scheme, &allowed).map_err(|error| {
+				ConfigError::InvalidExpr {
+					at: at.clone(),
+					error,
+				}
+			})?;
+			refs.push(CompiledRule {
+				id,
+				raw_expr: entry.expr.clone(),
+				root: parsed.root,
+				message: entry.message.clone(),
+			});
+		}
+		Ok(Self { by_kind, refs })
 	}
 
 	fn for_kind(&self, kind: &str) -> Option<&CompiledKindRules> {
@@ -233,6 +259,150 @@ fn eval_rule(
 		message,
 		explanation,
 	});
+}
+
+fn eval_ref_rule(
+	rule: &CompiledRule,
+	r: &crate::core::code_graph::RefRecord,
+	graph: &CodeGraph,
+	ctx: &EvalCtx<'_, '_>,
+	out: &mut Vec<Violation>,
+) {
+	let Failure {
+		atom_raw,
+		lhs_label,
+		actual,
+		expected,
+	} = match eval_ref_node(&rule.root, r, graph) {
+		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
+		NodeOutcome::Fail(f) => f,
+	};
+	let source_def = graph.def_at(r.source);
+	let source_uri = render_uri(&source_def.moniker, &ctx.uri_cfg);
+	let target_uri = render_uri(&r.target, &ctx.uri_cfg);
+	let ref_kind = std::str::from_utf8(&r.kind).unwrap_or_default();
+	let (start_line, end_line) = match r.position {
+		Some((s, e)) => crate::cli::lines::line_range(ctx.source, s, e),
+		None => (0, 0),
+	};
+	let message = format!(
+		"ref {ref_kind} {source_uri} → {target_uri} fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})"
+	);
+	out.push(Violation {
+		rule_id: format!("refs.{}", rule.id),
+		moniker: target_uri,
+		kind: ref_kind.to_string(),
+		lines: (start_line, end_line),
+		message,
+		explanation: rule.message.clone(),
+	});
+}
+
+fn eval_ref_node(
+	node: &Node,
+	r: &crate::core::code_graph::RefRecord,
+	graph: &CodeGraph,
+) -> NodeOutcome {
+	match node {
+		Node::Atom(atom) => match eval_ref_atom(atom, r, graph) {
+			AtomOutcome::Pass => NodeOutcome::Pass,
+			AtomOutcome::Fail { actual, expected } => NodeOutcome::Fail(Failure {
+				atom_raw: atom.raw.clone(),
+				lhs_label: describe_lhs(&atom.lhs).to_string(),
+				actual,
+				expected,
+			}),
+			AtomOutcome::NotApplicable => NodeOutcome::NotApplicable,
+		},
+		Node::And(children) => {
+			let mut na = false;
+			for c in children {
+				match eval_ref_node(c, r, graph) {
+					NodeOutcome::Pass => {}
+					NodeOutcome::Fail(f) => return NodeOutcome::Fail(f),
+					NodeOutcome::NotApplicable => na = true,
+				}
+			}
+			if na {
+				NodeOutcome::NotApplicable
+			} else {
+				NodeOutcome::Pass
+			}
+		}
+		Node::Or(children) => {
+			let mut last_fail: Option<Failure> = None;
+			let mut na = false;
+			for c in children {
+				match eval_ref_node(c, r, graph) {
+					NodeOutcome::Pass => return NodeOutcome::Pass,
+					NodeOutcome::Fail(f) => last_fail = Some(f),
+					NodeOutcome::NotApplicable => na = true,
+				}
+			}
+			if na {
+				NodeOutcome::NotApplicable
+			} else if let Some(f) = last_fail {
+				NodeOutcome::Fail(f)
+			} else {
+				NodeOutcome::NotApplicable
+			}
+		}
+		Node::Not(inner) => match eval_ref_node(inner, r, graph) {
+			NodeOutcome::Pass => NodeOutcome::Fail(Failure {
+				atom_raw: "NOT (...)".to_string(),
+				lhs_label: "NOT".to_string(),
+				actual: "true".to_string(),
+				expected: "false".to_string(),
+			}),
+			NodeOutcome::Fail(_) => NodeOutcome::Pass,
+			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
+		},
+		Node::Implies(prem, cons) => match eval_ref_node(prem, r, graph) {
+			NodeOutcome::Pass => eval_ref_node(cons, r, graph),
+			NodeOutcome::Fail(_) => NodeOutcome::Pass,
+			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
+		},
+	}
+}
+
+fn eval_ref_atom(
+	atom: &Atom,
+	r: &crate::core::code_graph::RefRecord,
+	graph: &CodeGraph,
+) -> AtomOutcome {
+	let source_def = graph.def_at(r.source);
+	let value: Value = match &atom.lhs {
+		// `kind` in ref scope = the ref kind.
+		LhsExpr::Attr(Lhs::Kind) => {
+			Value::Str(std::str::from_utf8(&r.kind).unwrap_or_default().to_string())
+		}
+		LhsExpr::Attr(Lhs::Confidence) => Value::Str(
+			std::str::from_utf8(&r.confidence)
+				.unwrap_or_default()
+				.to_string(),
+		),
+		LhsExpr::Attr(Lhs::SourceMoniker) => Value::Moniker(source_def.moniker.clone()),
+		LhsExpr::Attr(Lhs::TargetMoniker) => Value::Moniker(r.target.clone()),
+		LhsExpr::Attr(Lhs::SourceName) => match name_of(&source_def.moniker) {
+			Some(n) => Value::Str(n),
+			None => return AtomOutcome::NotApplicable,
+		},
+		LhsExpr::Attr(Lhs::TargetName) => match name_of(&r.target) {
+			Some(n) => Value::Str(n),
+			None => return AtomOutcome::NotApplicable,
+		},
+		// Other def-scope projections (Name, Lines, Text, Moniker, Visibility)
+		// aren't meaningful in ref scope. The user should write source.* /
+		// target.* / kind / confidence instead.
+		_ => return AtomOutcome::NotApplicable,
+	};
+	apply_op(&value, atom)
+}
+
+fn name_of(m: &crate::core::moniker::Moniker) -> Option<String> {
+	let last = m.as_view().segments().last()?;
+	let bare = crate::core::moniker::query::bare_callable_name(last.name);
+	std::str::from_utf8(bare).ok().map(|s| s.to_string())
 }
 
 fn describe_lhs(lhs: &LhsExpr) -> &str {
@@ -372,6 +542,16 @@ fn eval_atom(
 			Value::Str(source.get(s as usize..e as usize).unwrap_or("").to_string())
 		}
 		LhsExpr::Attr(Lhs::Moniker) => Value::Moniker(d.moniker.clone()),
+		LhsExpr::Attr(
+			Lhs::Confidence
+			| Lhs::SourceName
+			| Lhs::SourceMoniker
+			| Lhs::TargetName
+			| Lhs::TargetMoniker,
+		) => {
+			// Ref-scope projections aren't meaningful on a def.
+			return AtomOutcome::NotApplicable;
+		}
 		LhsExpr::CountChildren(k) => {
 			let c = parent_counts
 				.get(&(def_idx, k.as_bytes()))
@@ -948,6 +1128,108 @@ mod tests {
 		.unwrap();
 		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
 		assert!(v.is_empty(), "premise true + consequent true: {v:?}");
+	}
+
+	// ─── refs pipeline ──────────────────────────────────────────────────
+
+	fn build_root() -> Moniker {
+		let mut b = MonikerBuilder::new();
+		b.project(b".");
+		b.segment(b"lang", b"ts");
+		b.build()
+	}
+
+	fn submodule(root: &Moniker, name: &[u8]) -> Moniker {
+		let mut b = MonikerBuilder::from_view(root.as_view());
+		b.segment(b"module", name);
+		b.build()
+	}
+
+	#[test]
+	fn refs_top_level_flags_cross_layer_dep() {
+		let cfg = cfg_from(
+			r#"
+			[[refs.where]]
+			id   = "domain-no-infra"
+			expr = "source ~ '**/module:domain/**' => NOT target ~ '**/module:infrastructure/**'"
+			"#,
+		);
+		let root = build_root();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let domain = submodule(&root, b"domain");
+		g.add_def(domain.clone(), b"module", &root, Some((0, 1)))
+			.unwrap();
+		let infra = submodule(&root, b"infrastructure");
+		g.add_def(infra.clone(), b"module", &root, Some((2, 3)))
+			.unwrap();
+		let order = child(&domain, b"class", b"Order");
+		g.add_def(order.clone(), b"class", &domain, Some((4, 5)))
+			.unwrap();
+		let repo = child(&infra, b"class", b"OrderRepoImpl");
+		g.add_def(repo.clone(), b"class", &infra, Some((6, 10)))
+			.unwrap();
+		g.add_ref(&order, repo, b"uses_type", Some((4, 5))).unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "cross-layer ref must violate: {v:?}");
+		assert_eq!(v[0].rule_id, "refs.domain-no-infra");
+	}
+
+	#[test]
+	fn refs_implication_skips_unrelated_refs() {
+		let cfg = cfg_from(
+			r#"
+			[[refs.where]]
+			id   = "domain-only-self-or-std"
+			expr = "source ~ '**/module:domain/**' => target ~ '**/module:domain/**' OR target ~ '**/module:std/**'"
+			"#,
+		);
+		let root = build_root();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let domain = submodule(&root, b"domain");
+		g.add_def(domain.clone(), b"module", &root, Some((0, 1)))
+			.unwrap();
+		let std_mod = submodule(&root, b"std");
+		g.add_def(std_mod.clone(), b"module", &root, Some((2, 3)))
+			.unwrap();
+		let order = child(&domain, b"class", b"Order");
+		g.add_def(order.clone(), b"class", &domain, Some((4, 5)))
+			.unwrap();
+		let vec_class = child(&std_mod, b"class", b"Vec");
+		g.add_def(vec_class.clone(), b"class", &std_mod, Some((6, 10)))
+			.unwrap();
+		g.add_ref(&order, vec_class, b"uses_type", Some((4, 5)))
+			.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert!(v.is_empty(), "domain → std is allowed: {v:?}");
+	}
+
+	#[test]
+	fn refs_filtered_by_kind() {
+		let cfg = cfg_from(
+			r#"
+			[[refs.where]]
+			id   = "no-domain-imports-framework"
+			expr = "source ~ '**/module:domain/**' AND kind = 'imports' => NOT target.name =~ ^(express|nestjs)$"
+			"#,
+		);
+		let root = build_root();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let domain = submodule(&root, b"domain");
+		g.add_def(domain.clone(), b"module", &root, Some((0, 1)))
+			.unwrap();
+		let ext = submodule(&root, b"extern");
+		g.add_def(ext.clone(), b"module", &root, Some((2, 3)))
+			.unwrap();
+		let order = child(&domain, b"class", b"Order");
+		g.add_def(order.clone(), b"class", &domain, Some((4, 5)))
+			.unwrap();
+		let express = child(&ext, b"class", b"express");
+		g.add_def(express.clone(), b"class", &ext, Some((6, 10)))
+			.unwrap();
+		g.add_ref(&order, express, b"imports", Some((4, 5)))
+			.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "domain import of express must violate: {v:?}");
 	}
 
 	#[test]

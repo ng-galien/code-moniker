@@ -20,6 +20,10 @@ pub struct Config {
 	/// there is no cycle.
 	#[serde(default)]
 	pub aliases: HashMap<String, String>,
+	/// `[[refs.where]]` — poly-lang ref rules. Each rule evaluates on every
+	/// `(source_def, target_moniker, ref_kind)` triple in the graph.
+	#[serde(default)]
+	pub refs: RefsRules,
 	#[serde(default)]
 	pub default: LangRules,
 	#[serde(default)]
@@ -36,6 +40,13 @@ pub struct Config {
 	pub cs: LangRules,
 	#[serde(default)]
 	pub sql: LangRules,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct RefsRules {
+	#[serde(default, rename = "where")]
+	pub rules: Vec<RuleEntry>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -137,6 +148,7 @@ fn merge_into(base: &mut Config, ov: Config) {
 	for (k, v) in ov.aliases {
 		base.aliases.insert(k, v);
 	}
+	merge_refs(&mut base.refs, ov.refs);
 	merge_lang(&mut base.default, ov.default);
 	merge_lang(&mut base.ts, ov.ts);
 	merge_lang(&mut base.rust, ov.rust);
@@ -145,6 +157,19 @@ fn merge_into(base: &mut Config, ov: Config) {
 	merge_lang(&mut base.go, ov.go);
 	merge_lang(&mut base.cs, ov.cs);
 	merge_lang(&mut base.sql, ov.sql);
+}
+
+fn merge_refs(base: &mut RefsRules, ov: RefsRules) {
+	for ov_rule in ov.rules {
+		match ov_rule
+			.id
+			.as_deref()
+			.and_then(|id| base.rules.iter().position(|r| r.id.as_deref() == Some(id)))
+		{
+			Some(idx) => base.rules[idx] = ov_rule,
+			None => base.rules.push(ov_rule),
+		}
+	}
 }
 
 fn merge_lang(base: &mut LangRules, ov: LangRules) {

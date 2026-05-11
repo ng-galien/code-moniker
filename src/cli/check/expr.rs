@@ -18,12 +18,19 @@ use crate::core::uri::{UriConfig, from_uri};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Lhs {
+	// Def scope (and unprefixed in ref scope: `kind` = ref_kind)
 	Name,
 	Lines,
 	Kind,
 	Visibility,
 	Text,
 	Moniker,
+	Confidence,
+	// Ref scope projections
+	SourceName,
+	SourceMoniker,
+	TargetName,
+	TargetMoniker,
 }
 
 impl Lhs {
@@ -35,6 +42,11 @@ impl Lhs {
 			Self::Visibility => "visibility",
 			Self::Text => "text",
 			Self::Moniker => "moniker",
+			Self::Confidence => "confidence",
+			Self::SourceName => "source.name",
+			Self::SourceMoniker => "source",
+			Self::TargetName => "target.name",
+			Self::TargetMoniker => "target",
 		}
 	}
 }
@@ -417,7 +429,9 @@ fn lhs_token_end(bytes: &[u8]) -> Option<usize> {
 		i += 1;
 	}
 	let start = i;
-	while i < bytes.len() && (bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') {
+	while i < bytes.len()
+		&& (bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' || bytes[i] == b'.')
+	{
 		i += 1;
 	}
 	if i == start {
@@ -463,6 +477,11 @@ fn parse_lhs(s: &str, full: &str, allowed_kinds: &[&str]) -> Result<LhsExpr, Par
 		"visibility" => Lhs::Visibility,
 		"text" => Lhs::Text,
 		"moniker" => Lhs::Moniker,
+		"confidence" => Lhs::Confidence,
+		"source" => Lhs::SourceMoniker,
+		"source.name" => Lhs::SourceName,
+		"target" => Lhs::TargetMoniker,
+		"target.name" => Lhs::TargetName,
 		other => {
 			return Err(ParseError::BadExpr {
 				expr: full.to_string(),
@@ -513,11 +532,17 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 	};
 	let ok = match (lhs_attr, op) {
 		// String ops
-		(Name | Kind | Visibility | Text, Eq | Ne | RegexMatch | RegexNoMatch) => true,
+		(
+			Name | Kind | Visibility | Text | Confidence | SourceName | TargetName,
+			Eq | Ne | RegexMatch | RegexNoMatch,
+		) => true,
 		// Numeric ops
 		(Lines, Lt | Le | Gt | Ge | Eq | Ne) => true,
-		// Moniker structural ops
-		(Moniker, Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch) => true,
+		// Moniker structural ops (incl. source/target as monikers)
+		(
+			Moniker | SourceMoniker | TargetMoniker,
+			Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch,
+		) => true,
 		_ => false,
 	};
 	if !ok {
