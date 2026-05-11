@@ -64,6 +64,8 @@ pub enum Op {
 	AncestorOf,
 	DescendantOf,
 	BindMatch,
+	/// `~ '<path-pattern>'` — moniker matches the path pattern.
+	PathMatch,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +75,7 @@ pub enum Rhs {
 	RegexStr(String),
 	Moniker(Moniker),
 	Str(String),
+	PathPattern(super::path::Pattern),
 }
 
 #[derive(Debug, Clone)]
@@ -298,6 +301,9 @@ fn parse_atom(
 	allowed_kinds: &[&str],
 ) -> Result<Atom, ParseError> {
 	let raw = input.trim().to_string();
+	if let Some(atom) = parse_has_segment(&raw, full)? {
+		return Ok(atom);
+	}
 	let (lhs_str, op_str, rhs_str) = split_atom(&raw, full)?;
 	let lhs = parse_lhs(lhs_str, full, allowed_kinds)?;
 	let op = parse_op(op_str, full)?;
@@ -319,6 +325,54 @@ fn parse_atom(
 		raw,
 		regex,
 	})
+}
+
+/// `has_segment("kind", "name")` is sugar for `moniker ~ '**/kind:name/**'`.
+fn parse_has_segment(raw: &str, full: &str) -> Result<Option<Atom>, ParseError> {
+	let Some(args) = raw
+		.strip_prefix("has_segment(")
+		.and_then(|s| s.strip_suffix(')'))
+	else {
+		return Ok(None);
+	};
+	let bail = |msg: String| ParseError::BadExpr {
+		expr: full.to_string(),
+		msg,
+	};
+	let mut parts = args.splitn(2, ',').map(str::trim);
+	let kind = parts
+		.next()
+		.ok_or_else(|| bail("has_segment(kind, name) needs two args".to_string()))?;
+	let name = parts
+		.next()
+		.ok_or_else(|| bail("has_segment(kind, name) needs two args".to_string()))?;
+	let kind = unquote(kind);
+	let name = unquote(name);
+	if kind.is_empty() || name.is_empty() {
+		return Err(bail(
+			"has_segment(kind, name) args must be non-empty strings".to_string(),
+		));
+	}
+	let pat_src = format!("**/{kind}:{name}/**");
+	let pattern = super::path::parse(&pat_src).map_err(|e| bail(format!("{e}")))?;
+	Ok(Some(Atom {
+		lhs: LhsExpr::Attr(Lhs::Moniker),
+		op: Op::PathMatch,
+		rhs: Rhs::PathPattern(pattern),
+		raw: raw.to_string(),
+		regex: None,
+	}))
+}
+
+fn unquote(s: &str) -> &str {
+	let s = s.trim();
+	if (s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2)
+		|| (s.starts_with('"') && s.ends_with('"') && s.len() >= 2)
+	{
+		&s[1..s.len() - 1]
+	} else {
+		s
+	}
 }
 
 /// Operator search is restricted to the LHS prefix (an `[A-Za-z_]+` ident,
@@ -344,7 +398,7 @@ fn split_atom<'a>(s: &'a str, full: &str) -> Result<(&'a str, &'a str, &'a str),
 			return Ok((lhs, &s[op_offset..op_offset + op.len()], rhs));
 		}
 	}
-	for op in ['<', '>', '='] {
+	for op in ['<', '>', '=', '~'] {
 		if let Some(rest) = after_lhs.strip_prefix(op) {
 			let lhs = s[..lhs_end].trim();
 			let rhs = rest.trim();
@@ -432,6 +486,7 @@ fn parse_op(s: &str, full: &str) -> Result<Op, ParseError> {
 		"@>" => Op::AncestorOf,
 		"<@" => Op::DescendantOf,
 		"?=" => Op::BindMatch,
+		"~" => Op::PathMatch,
 		other => {
 			return Err(ParseError::BadExpr {
 				expr: full.to_string(),
@@ -462,7 +517,7 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 		// Numeric ops
 		(Lines, Lt | Le | Gt | Ge | Eq | Ne) => true,
 		// Moniker structural ops
-		(Moniker, Eq | Ne | AncestorOf | DescendantOf | BindMatch) => true,
+		(Moniker, Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch) => true,
 		_ => false,
 	};
 	if !ok {
@@ -485,6 +540,13 @@ fn parse_rhs(s: &str, op: Op, scheme: &str, full: &str) -> Result<Rhs, ParseErro
 	};
 	Ok(match op {
 		Op::RegexMatch | Op::RegexNoMatch => Rhs::RegexStr(s.to_string()),
+		Op::PathMatch => {
+			let pattern = super::path::parse(s).map_err(|e| ParseError::BadExpr {
+				expr: full.to_string(),
+				msg: format!("{e}"),
+			})?;
+			Rhs::PathPattern(pattern)
+		}
 		Op::AncestorOf | Op::DescendantOf | Op::BindMatch => {
 			let cfg = UriConfig { scheme };
 			let m = from_uri(s, &cfg).map_err(|e| ParseError::BadExpr {
@@ -740,5 +802,44 @@ mod tests {
 	fn rejects_unmatched_paren() {
 		assert!(parse("(name = 'X'", TS, KINDS).is_err());
 		assert!(parse("name = 'X')", TS, KINDS).is_err());
+	}
+
+	// ─── path patterns ──────────────────────────────────────────────────
+
+	#[test]
+	fn parses_path_match() {
+		let e = parse("moniker ~ '**/class:Foo/**'", TS, KINDS).unwrap();
+		let a = solo(&e);
+		assert!(matches!(a.op, Op::PathMatch));
+		assert!(matches!(a.rhs, Rhs::PathPattern(_)));
+	}
+
+	#[test]
+	fn parses_path_match_with_regex_step() {
+		let e = parse("moniker ~ '**/class:/Port$/'", TS, KINDS).unwrap();
+		let a = solo(&e);
+		assert!(matches!(a.op, Op::PathMatch));
+	}
+
+	#[test]
+	fn has_segment_desugars_to_path_match() {
+		let e = parse("has_segment('module', 'domain')", TS, KINDS).unwrap();
+		let a = solo(&e);
+		assert!(matches!(a.op, Op::PathMatch));
+		match &a.rhs {
+			Rhs::PathPattern(p) => assert_eq!(p.raw, "**/module:domain/**"),
+			other => panic!("expected PathPattern, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn rejects_path_match_on_non_moniker_lhs() {
+		assert!(parse("name ~ 'foo'", TS, KINDS).is_err());
+	}
+
+	#[test]
+	fn rejects_invalid_path_pattern() {
+		assert!(parse("moniker ~ ''", TS, KINDS).is_err());
+		assert!(parse("moniker ~ 'no-colon-step'", TS, KINDS).is_err());
 	}
 }

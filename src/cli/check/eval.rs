@@ -407,6 +407,9 @@ fn apply_op(value: &Value, atom: &Atom) -> AtomOutcome {
 		(Value::Moniker(m), AncestorOf, Rhs::Moniker(t)) => m.is_ancestor_of(t),
 		(Value::Moniker(m), DescendantOf, Rhs::Moniker(t)) => t.is_ancestor_of(m),
 		(Value::Moniker(m), BindMatch, Rhs::Moniker(t)) => m.bind_match(t),
+		(Value::Moniker(m), PathMatch, Rhs::PathPattern(p)) => {
+			crate::cli::check::path::matches(p, m)
+		}
 		_ => return AtomOutcome::NotApplicable,
 	};
 	if ok {
@@ -432,6 +435,7 @@ fn render_rhs(r: &Rhs) -> String {
 		Rhs::Number(n) => n.to_string(),
 		Rhs::RegexStr(s) => s.clone(),
 		Rhs::Moniker(m) => format!("{}b moniker", m.as_bytes().len()),
+		Rhs::PathPattern(p) => format!("path `{}`", p.raw),
 	}
 }
 
@@ -940,6 +944,82 @@ mod tests {
 		.unwrap();
 		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
 		assert!(v.is_empty(), "premise true + consequent true: {v:?}");
+	}
+
+	#[test]
+	fn path_match_subtree_flags_domain_class() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "no-class-in-domain"
+			expr = "NOT moniker ~ '**/module:domain/**'"
+			"#,
+		);
+		let module = build_module(b"domain");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		g.add_def(
+			child(&module, b"class", b"User"),
+			b"class",
+			&module,
+			Some((0, 10)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "class lives in module:domain: {v:?}");
+	}
+
+	#[test]
+	fn has_segment_finds_module() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "must-be-in-app"
+			expr = "has_segment('module', 'application')"
+			"#,
+		);
+		let module = build_module(b"infrastructure");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		g.add_def(
+			child(&module, b"class", b"Foo"),
+			b"class",
+			&module,
+			Some((0, 5)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "Foo lives in infrastructure, not application");
+	}
+
+	#[test]
+	fn path_regex_step_on_class_name() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "ports-only-in-app"
+			expr = "moniker ~ '**/class:/Port$/' => has_segment('module', 'application')"
+			"#,
+		);
+		let module = build_module(b"domain");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		// A `Port` class living in `domain` (wrong place) — should flag.
+		g.add_def(
+			child(&module, b"class", b"UserPort"),
+			b"class",
+			&module,
+			Some((0, 5)),
+		)
+		.unwrap();
+		// A non-Port class in domain — premise false, should NOT flag.
+		g.add_def(
+			child(&module, b"class", b"Order"),
+			b"class",
+			&module,
+			Some((6, 10)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "only `UserPort` violates: {v:?}");
+		assert!(v[0].moniker.contains("UserPort"));
 	}
 
 	#[test]
