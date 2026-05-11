@@ -391,18 +391,85 @@ fn eval_ref_atom(
 			Some(n) => Value::Str(n),
 			None => return AtomOutcome::NotApplicable,
 		},
+		LhsExpr::Attr(Lhs::SourceKind) => match last_segment_kind(&source_def.moniker) {
+			Some(k) => Value::Str(k),
+			None => return AtomOutcome::NotApplicable,
+		},
+		LhsExpr::Attr(Lhs::TargetKind) => match last_segment_kind(&r.target) {
+			Some(k) => Value::Str(k),
+			None => return AtomOutcome::NotApplicable,
+		},
+		LhsExpr::Attr(Lhs::SourceVisibility) => Value::Str(
+			std::str::from_utf8(&source_def.visibility)
+				.unwrap_or_default()
+				.to_string(),
+		),
+		LhsExpr::Attr(Lhs::TargetVisibility) => match resolve_local_def(graph, &r.target) {
+			Some(def) => Value::Str(
+				std::str::from_utf8(&def.visibility)
+					.unwrap_or_default()
+					.to_string(),
+			),
+			None => return AtomOutcome::NotApplicable,
+		},
 		// Other def-scope projections (Name, Lines, Text, Moniker, Visibility)
 		// aren't meaningful in ref scope. The user should write source.* /
 		// target.* / kind / confidence instead.
 		_ => return AtomOutcome::NotApplicable,
 	};
+	if let Rhs::Projection(other) = &atom.rhs {
+		let Some(rhs_val) = resolve_ref_lhs(*other, r, graph) else {
+			return AtomOutcome::NotApplicable;
+		};
+		return apply_op_values(&value, atom.op, &rhs_val);
+	}
 	apply_op(&value, atom)
+}
+
+fn resolve_ref_lhs(
+	lhs: Lhs,
+	r: &crate::core::code_graph::RefRecord,
+	graph: &CodeGraph,
+) -> Option<Value> {
+	let source_def = graph.def_at(r.source);
+	Some(match lhs {
+		Lhs::Kind => Value::Str(std::str::from_utf8(&r.kind).ok()?.to_string()),
+		Lhs::Confidence => Value::Str(std::str::from_utf8(&r.confidence).ok()?.to_string()),
+		Lhs::SourceMoniker => Value::Moniker(source_def.moniker.clone()),
+		Lhs::TargetMoniker => Value::Moniker(r.target.clone()),
+		Lhs::SourceName => Value::Str(name_of(&source_def.moniker)?),
+		Lhs::TargetName => Value::Str(name_of(&r.target)?),
+		Lhs::SourceKind => Value::Str(last_segment_kind(&source_def.moniker)?),
+		Lhs::TargetKind => Value::Str(last_segment_kind(&r.target)?),
+		Lhs::SourceVisibility => Value::Str(
+			std::str::from_utf8(&source_def.visibility)
+				.ok()?
+				.to_string(),
+		),
+		Lhs::TargetVisibility => {
+			let def = resolve_local_def(graph, &r.target)?;
+			Value::Str(std::str::from_utf8(&def.visibility).ok()?.to_string())
+		}
+		_ => return None,
+	})
 }
 
 fn name_of(m: &crate::core::moniker::Moniker) -> Option<String> {
 	let last = m.as_view().segments().last()?;
 	let bare = crate::core::moniker::query::bare_callable_name(last.name);
 	std::str::from_utf8(bare).ok().map(|s| s.to_string())
+}
+
+fn last_segment_kind(m: &crate::core::moniker::Moniker) -> Option<String> {
+	let last = m.as_view().segments().last()?;
+	std::str::from_utf8(last.kind).ok().map(|s| s.to_string())
+}
+
+fn resolve_local_def<'g>(
+	graph: &'g CodeGraph,
+	m: &crate::core::moniker::Moniker,
+) -> Option<&'g DefRecord> {
+	graph.defs().find(|d| d.moniker == *m)
 }
 
 fn describe_lhs(lhs: &LhsExpr) -> &str {
@@ -508,6 +575,62 @@ fn eval_node(
 	}
 }
 
+fn resolve_def_lhs(
+	lhs: Lhs,
+	d: &DefRecord,
+	def_idx: usize,
+	source: &str,
+	parent_counts: &HashMap<(usize, &[u8]), u32>,
+) -> Option<Value> {
+	let value = match lhs {
+		Lhs::Name => Value::Str(def_name(d)?),
+		Lhs::Kind => Value::Str(std::str::from_utf8(&d.kind).ok()?.to_string()),
+		Lhs::Visibility => Value::Str(std::str::from_utf8(&d.visibility).ok()?.to_string()),
+		Lhs::Lines => {
+			let (s, e) = d.position?;
+			let (sl, el) = line_range(source, s, e);
+			Value::Number(el - sl + 1)
+		}
+		Lhs::Text => {
+			let (s, e) = d.position?;
+			Value::Str(source.get(s as usize..e as usize).unwrap_or("").to_string())
+		}
+		Lhs::Moniker => Value::Moniker(d.moniker.clone()),
+		Lhs::Depth => Value::Number(d.moniker.as_view().segments().count() as u32),
+		Lhs::ParentName => {
+			let segs: Vec<_> = d.moniker.as_view().segments().collect();
+			if segs.len() < 2 {
+				return None;
+			}
+			let p = &segs[segs.len() - 2];
+			let bare = bare_callable_name(p.name);
+			Value::Str(std::str::from_utf8(bare).ok()?.to_string())
+		}
+		Lhs::ParentKind => {
+			let segs: Vec<_> = d.moniker.as_view().segments().collect();
+			if segs.len() < 2 {
+				return None;
+			}
+			let p = &segs[segs.len() - 2];
+			Value::Str(std::str::from_utf8(p.kind).ok()?.to_string())
+		}
+		// Ref-/segment-scope projections aren't meaningful on a def.
+		Lhs::Confidence
+		| Lhs::SourceName
+		| Lhs::SourceKind
+		| Lhs::SourceVisibility
+		| Lhs::SourceMoniker
+		| Lhs::TargetName
+		| Lhs::TargetKind
+		| Lhs::TargetVisibility
+		| Lhs::TargetMoniker
+		| Lhs::SegmentName
+		| Lhs::SegmentKind => return None,
+	};
+	let _ = (def_idx, parent_counts);
+	Some(value)
+}
+
 fn eval_atom(
 	atom: &Atom,
 	d: &DefRecord,
@@ -542,14 +665,46 @@ fn eval_atom(
 			Value::Str(source.get(s as usize..e as usize).unwrap_or("").to_string())
 		}
 		LhsExpr::Attr(Lhs::Moniker) => Value::Moniker(d.moniker.clone()),
+		LhsExpr::Attr(Lhs::Depth) => Value::Number(d.moniker.as_view().segments().count() as u32),
+		LhsExpr::Attr(Lhs::ParentName) => {
+			let segs: Vec<_> = d.moniker.as_view().segments().collect();
+			let Some(p) = segs.get(segs.len().saturating_sub(2)) else {
+				return AtomOutcome::NotApplicable;
+			};
+			if segs.len() < 2 {
+				return AtomOutcome::NotApplicable;
+			}
+			let bare = bare_callable_name(p.name);
+			match std::str::from_utf8(bare) {
+				Ok(s) => Value::Str(s.to_string()),
+				Err(_) => return AtomOutcome::NotApplicable,
+			}
+		}
+		LhsExpr::Attr(Lhs::ParentKind) => {
+			let segs: Vec<_> = d.moniker.as_view().segments().collect();
+			if segs.len() < 2 {
+				return AtomOutcome::NotApplicable;
+			}
+			let p = &segs[segs.len() - 2];
+			match std::str::from_utf8(p.kind) {
+				Ok(s) => Value::Str(s.to_string()),
+				Err(_) => return AtomOutcome::NotApplicable,
+			}
+		}
 		LhsExpr::Attr(
 			Lhs::Confidence
 			| Lhs::SourceName
+			| Lhs::SourceKind
+			| Lhs::SourceVisibility
 			| Lhs::SourceMoniker
 			| Lhs::TargetName
-			| Lhs::TargetMoniker,
+			| Lhs::TargetKind
+			| Lhs::TargetVisibility
+			| Lhs::TargetMoniker
+			| Lhs::SegmentName
+			| Lhs::SegmentKind,
 		) => {
-			// Ref-scope projections aren't meaningful on a def.
+			// Ref-/segment-scope projections aren't meaningful on a def.
 			return AtomOutcome::NotApplicable;
 		}
 		LhsExpr::CountChildren(k) => {
@@ -560,7 +715,45 @@ fn eval_atom(
 			Value::Number(c)
 		}
 	};
+	if let Rhs::Projection(other) = &atom.rhs {
+		let Some(rhs_val) = resolve_def_lhs(*other, d, def_idx, source, parent_counts) else {
+			return AtomOutcome::NotApplicable;
+		};
+		return apply_op_values(&value, atom.op, &rhs_val);
+	}
 	apply_op(&value, atom)
+}
+
+/// Value-vs-Value comparison for the cases where the RHS is itself a
+/// projection. Restricted to the ops that pair naturally (equality and
+/// numeric ordering); a structural moniker op against a string projection
+/// stays `NotApplicable`.
+fn apply_op_values(lhs: &Value, op: Op, rhs: &Value) -> AtomOutcome {
+	use Op::*;
+	let ok = match (lhs, op, rhs) {
+		(Value::Str(a), Eq, Value::Str(b)) => a == b,
+		(Value::Str(a), Ne, Value::Str(b)) => a != b,
+		(Value::Number(a), Eq, Value::Number(b)) => a == b,
+		(Value::Number(a), Ne, Value::Number(b)) => a != b,
+		(Value::Number(a), Lt, Value::Number(b)) => a < b,
+		(Value::Number(a), Le, Value::Number(b)) => a <= b,
+		(Value::Number(a), Gt, Value::Number(b)) => a > b,
+		(Value::Number(a), Ge, Value::Number(b)) => a >= b,
+		(Value::Moniker(a), Eq, Value::Moniker(b)) => a == b,
+		(Value::Moniker(a), Ne, Value::Moniker(b)) => a != b,
+		(Value::Moniker(a), AncestorOf, Value::Moniker(b)) => a.is_ancestor_of(b),
+		(Value::Moniker(a), DescendantOf, Value::Moniker(b)) => b.is_ancestor_of(a),
+		(Value::Moniker(a), BindMatch, Value::Moniker(b)) => a.bind_match(b),
+		_ => return AtomOutcome::NotApplicable,
+	};
+	if ok {
+		AtomOutcome::Pass
+	} else {
+		AtomOutcome::Fail {
+			actual: render_value(lhs),
+			expected: render_value(rhs),
+		}
+	}
 }
 
 enum Value {
@@ -620,6 +813,7 @@ fn render_rhs(r: &Rhs) -> String {
 		Rhs::RegexStr(s) => s.clone(),
 		Rhs::Moniker(m) => format!("{}b moniker", m.as_bytes().len()),
 		Rhs::PathPattern(p) => format!("path `{}`", p.raw),
+		Rhs::Projection(l) => l.as_str().to_string(),
 	}
 }
 
@@ -1128,6 +1322,89 @@ mod tests {
 		.unwrap();
 		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
 		assert!(v.is_empty(), "premise true + consequent true: {v:?}");
+	}
+
+	// ─── projection extensions ──────────────────────────────────────────
+
+	#[test]
+	fn depth_projection() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "shallow"
+			expr = "depth <= 3"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let cls = child(&module, b"class", b"DeepClass");
+		g.add_def(cls.clone(), b"class", &module, Some((0, 5)))
+			.unwrap();
+		// depth = 3 (project segment doesn't count, segments: lang, module, class)
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert!(v.is_empty(), "depth = 3 is within limit: {v:?}");
+	}
+
+	#[test]
+	fn parent_name_projection() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.method.where]]
+			id   = "no-name-clash"
+			expr = "name != parent.name"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let cls = child(&module, b"class", b"Foo");
+		g.add_def(cls.clone(), b"class", &module, Some((0, 50)))
+			.unwrap();
+		let m_ok = child(&cls, b"method", b"bar");
+		g.add_def(m_ok, b"method", &cls, Some((1, 10))).unwrap();
+		let m_bad = child(&cls, b"method", b"Foo");
+		g.add_def(m_bad, b"method", &cls, Some((11, 20))).unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "method `Foo` shares parent name: {v:?}");
+	}
+
+	#[test]
+	fn parent_kind_projection() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.method.where]]
+			id   = "method-in-class"
+			expr = "parent.kind = 'class'"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		// method directly under module (no class parent) — violates
+		let m = child(&module, b"method", b"loose");
+		g.add_def(m, b"method", &module, Some((0, 5))).unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "parent is module, not class: {v:?}");
+	}
+
+	#[test]
+	fn source_and_target_kind_projection() {
+		let cfg = cfg_from(
+			r#"
+			[[refs.where]]
+			id   = "no-class-to-function-edge"
+			expr = "source.kind = 'class' => NOT target.kind = 'function'"
+			"#,
+		);
+		let root = build_root();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let cls = child(&root, b"class", b"Foo");
+		g.add_def(cls.clone(), b"class", &root, Some((0, 5)))
+			.unwrap();
+		let func = child(&root, b"function", b"bar");
+		g.add_def(func.clone(), b"function", &root, Some((6, 10)))
+			.unwrap();
+		g.add_ref(&cls, func, b"calls", Some((0, 5))).unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "class→function edge flagged: {v:?}");
 	}
 
 	// ─── refs pipeline ──────────────────────────────────────────────────

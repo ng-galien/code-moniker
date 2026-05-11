@@ -25,12 +25,22 @@ pub enum Lhs {
 	Visibility,
 	Text,
 	Moniker,
+	Depth,
 	Confidence,
+	ParentName,
+	ParentKind,
 	// Ref scope projections
 	SourceName,
+	SourceKind,
+	SourceVisibility,
 	SourceMoniker,
 	TargetName,
+	TargetKind,
+	TargetVisibility,
 	TargetMoniker,
+	// Segment-domain quantifier body
+	SegmentName,
+	SegmentKind,
 }
 
 impl Lhs {
@@ -42,11 +52,20 @@ impl Lhs {
 			Self::Visibility => "visibility",
 			Self::Text => "text",
 			Self::Moniker => "moniker",
+			Self::Depth => "depth",
 			Self::Confidence => "confidence",
+			Self::ParentName => "parent.name",
+			Self::ParentKind => "parent.kind",
 			Self::SourceName => "source.name",
+			Self::SourceKind => "source.kind",
+			Self::SourceVisibility => "source.visibility",
 			Self::SourceMoniker => "source",
 			Self::TargetName => "target.name",
+			Self::TargetKind => "target.kind",
+			Self::TargetVisibility => "target.visibility",
 			Self::TargetMoniker => "target",
+			Self::SegmentName => "segment.name",
+			Self::SegmentKind => "segment.kind",
 		}
 	}
 }
@@ -88,6 +107,9 @@ pub enum Rhs {
 	Moniker(Moniker),
 	Str(String),
 	PathPattern(super::path::Pattern),
+	/// Another projection on the same scope — resolved at eval time. Enables
+	/// `name != parent.name`, `source.kind = target.kind`, …
+	Projection(Lhs),
 }
 
 #[derive(Debug, Clone)]
@@ -376,6 +398,31 @@ fn parse_has_segment(raw: &str, full: &str) -> Result<Option<Atom>, ParseError> 
 	}))
 }
 
+/// Recognize projection names usable as RHS (e.g. `parent.name`, `target.kind`).
+/// Returns the matching `Lhs` variant or `None` if `s` isn't a known projection.
+fn projection_name_to_lhs(s: &str) -> Option<Lhs> {
+	Some(match s {
+		"name" => Lhs::Name,
+		"kind" => Lhs::Kind,
+		"visibility" => Lhs::Visibility,
+		"text" => Lhs::Text,
+		"moniker" => Lhs::Moniker,
+		"depth" => Lhs::Depth,
+		"confidence" => Lhs::Confidence,
+		"parent.name" => Lhs::ParentName,
+		"parent.kind" => Lhs::ParentKind,
+		"source.name" => Lhs::SourceName,
+		"source.kind" => Lhs::SourceKind,
+		"source.visibility" => Lhs::SourceVisibility,
+		"target.name" => Lhs::TargetName,
+		"target.kind" => Lhs::TargetKind,
+		"target.visibility" => Lhs::TargetVisibility,
+		"segment.name" => Lhs::SegmentName,
+		"segment.kind" => Lhs::SegmentKind,
+		_ => return None,
+	})
+}
+
 fn unquote(s: &str) -> &str {
 	let s = s.trim();
 	if (s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2)
@@ -477,11 +524,20 @@ fn parse_lhs(s: &str, full: &str, allowed_kinds: &[&str]) -> Result<LhsExpr, Par
 		"visibility" => Lhs::Visibility,
 		"text" => Lhs::Text,
 		"moniker" => Lhs::Moniker,
+		"depth" => Lhs::Depth,
 		"confidence" => Lhs::Confidence,
+		"parent.name" => Lhs::ParentName,
+		"parent.kind" => Lhs::ParentKind,
 		"source" => Lhs::SourceMoniker,
 		"source.name" => Lhs::SourceName,
+		"source.kind" => Lhs::SourceKind,
+		"source.visibility" => Lhs::SourceVisibility,
 		"target" => Lhs::TargetMoniker,
 		"target.name" => Lhs::TargetName,
+		"target.kind" => Lhs::TargetKind,
+		"target.visibility" => Lhs::TargetVisibility,
+		"segment.name" => Lhs::SegmentName,
+		"segment.kind" => Lhs::SegmentKind,
 		other => {
 			return Err(ParseError::BadExpr {
 				expr: full.to_string(),
@@ -533,11 +589,13 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 	let ok = match (lhs_attr, op) {
 		// String ops
 		(
-			Name | Kind | Visibility | Text | Confidence | SourceName | TargetName,
+			Name | Kind | Visibility | Text | Confidence | ParentName | ParentKind | SourceName
+			| SourceKind | SourceVisibility | TargetName | TargetKind | TargetVisibility
+			| SegmentName | SegmentKind,
 			Eq | Ne | RegexMatch | RegexNoMatch,
 		) => true,
 		// Numeric ops
-		(Lines, Lt | Le | Gt | Ge | Eq | Ne) => true,
+		(Lines | Depth, Lt | Le | Gt | Ge | Eq | Ne) => true,
 		// Moniker structural ops (incl. source/target as monikers)
 		(
 			Moniker | SourceMoniker | TargetMoniker,
@@ -597,6 +655,8 @@ fn parse_rhs(s: &str, op: Op, scheme: &str, full: &str) -> Result<Rhs, ParseErro
 					msg: format!("invalid moniker URI `{s}`: {e}"),
 				})?;
 				Rhs::Moniker(m)
+			} else if let Some(lhs) = projection_name_to_lhs(s) {
+				Rhs::Projection(lhs)
 			} else {
 				Rhs::Str(s.to_string())
 			}
