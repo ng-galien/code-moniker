@@ -16,6 +16,9 @@ lang    = "moniker ~ '**/dir:lang/**'"
 pg      = "moniker ~ '**/dir:pg/**'"
 # CLI surface (standalone binary).
 cli     = "moniker ~ '**/dir:cli/**'"
+# Integration tests (top-level `tests/` crate dir). CLAUDE.md: tests are the
+# legitimate place for documentation; in-body WHY comments are welcomed there.
+tests   = "moniker ~ '**/dir:tests/**'"
 # Examples / benchmarks — looser conventions.
 example = "moniker ~ '**/dir:examples/**'"
 
@@ -96,5 +99,5 @@ message = "Rust trait `{name}` starts with `I` — drop the prefix (`Extractor`,
 
 [[rust.comment.where]]
 id      = "no-body-comments"
-expr    = "NOT parent.kind =~ ^(fn|method|closure)$ OR text =~ SAFETY:"
-message = "Comment inside callable body. Move WHY into the item's doc-comment if non-obvious; otherwise delete. (`SAFETY:` for unsafe blocks is exempt.)"
+expr    = "NOT parent.kind =~ ^(fn|method|closure)$ OR text =~ SAFETY: OR $tests"
+message = "Comment inside callable body. Move WHY into the item's doc-comment if non-obvious; otherwise delete. (`SAFETY:` for unsafe blocks and code under `tests/` are exempt.)"
