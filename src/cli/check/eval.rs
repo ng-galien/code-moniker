@@ -101,18 +101,19 @@ impl<'cfg> CompiledRules<'cfg> {
 	fn for_lang(cfg: &'cfg Config, lang: Lang, scheme: &str) -> Result<Self, ConfigError> {
 		let section = config_section(lang);
 		let allowed = crate::cli::check::config::allowed_kinds_for(lang);
+		let aliases = crate::cli::check::config::resolve_aliases(&cfg.aliases)?;
 		let mut by_kind: HashMap<&str, CompiledKindRules> = HashMap::new();
 		for (kind, rules) in cfg.for_lang(lang).kinds.iter() {
 			by_kind.insert(
 				kind.as_str(),
-				compile(rules, section, kind, scheme, &allowed)?,
+				compile(rules, section, kind, scheme, &allowed, &aliases)?,
 			);
 		}
 		for (kind, rules) in cfg.default.kinds.iter() {
 			if !by_kind.contains_key(kind.as_str()) {
 				by_kind.insert(
 					kind.as_str(),
-					compile(rules, "default", kind, scheme, &allowed)?,
+					compile(rules, "default", kind, scheme, &allowed, &aliases)?,
 				);
 			}
 		}
@@ -130,13 +131,16 @@ fn compile(
 	kind: &str,
 	scheme: &str,
 	allowed_kinds: &[&str],
+	aliases: &HashMap<String, String>,
 ) -> Result<CompiledKindRules, ConfigError> {
 	let mut compiled = Vec::with_capacity(rules.rules.len());
 	for (idx, entry) in rules.rules.iter().enumerate() {
 		let id = entry.id.clone().unwrap_or_else(|| format!("where_{idx}"));
-		let parsed = expr::parse(&entry.expr, scheme, allowed_kinds).map_err(|error| {
+		let at = format!("{section}.{kind}.{id}");
+		let expanded = crate::cli::check::config::substitute_aliases(&entry.expr, aliases, &at)?;
+		let parsed = expr::parse(&expanded, scheme, allowed_kinds).map_err(|error| {
 			ConfigError::InvalidExpr {
-				at: format!("{section}.{kind}.{id}"),
+				at: at.clone(),
 				error,
 			}
 		})?;
@@ -944,6 +948,31 @@ mod tests {
 		.unwrap();
 		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
 		assert!(v.is_empty(), "premise true + consequent true: {v:?}");
+	}
+
+	#[test]
+	fn alias_expands_in_rule_expr() {
+		let cfg = cfg_from(
+			r#"
+			[aliases]
+			domain = "moniker ~ '**/module:domain/**'"
+
+			[[ts.class.where]]
+			id   = "no-class-in-domain"
+			expr = "NOT $domain"
+			"#,
+		);
+		let module = build_module(b"domain");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		g.add_def(
+			child(&module, b"class", b"Foo"),
+			b"class",
+			&module,
+			Some((0, 5)),
+		)
+		.unwrap();
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "class in module:domain violates: {v:?}");
 	}
 
 	#[test]

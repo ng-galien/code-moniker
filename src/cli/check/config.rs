@@ -15,6 +15,11 @@ pub(crate) const INTERNAL_KINDS: &[&str] = &["module", "local", "param", "commen
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+	/// Named expression fragments. `$name` in any rule `expr` is substituted
+	/// textually pre-parse. Aliases may reference other aliases provided
+	/// there is no cycle.
+	#[serde(default)]
+	pub aliases: HashMap<String, String>,
 	#[serde(default)]
 	pub default: LangRules,
 	#[serde(default)]
@@ -94,6 +99,10 @@ pub enum ConfigError {
 		value: String,
 		allowed: String,
 	},
+	#[error("alias cycle through `{chain}`")]
+	AliasCycle { chain: String },
+	#[error("unknown alias `${name}` referenced under `{at}`")]
+	UnknownAlias { name: String, at: String },
 }
 
 pub fn load_default() -> Result<Config, ConfigError> {
@@ -125,6 +134,9 @@ pub fn load_with_overrides(user_path: Option<&Path>) -> Result<Config, ConfigErr
 }
 
 fn merge_into(base: &mut Config, ov: Config) {
+	for (k, v) in ov.aliases {
+		base.aliases.insert(k, v);
+	}
 	merge_lang(&mut base.default, ov.default);
 	merge_lang(&mut base.ts, ov.ts);
 	merge_lang(&mut base.rust, ov.rust);
@@ -165,7 +177,122 @@ fn merge_kind(base: &mut KindRules, ov: KindRules) {
 	}
 }
 
+/// Resolve every alias to its fully-expanded form. Reports a cycle when one
+/// is detected and an unknown-alias error if a referenced `$name` doesn't
+/// exist among the aliases (referenced names inside rule `expr` are
+/// validated lazily at compile time, not here).
+pub(crate) fn resolve_aliases(
+	aliases: &HashMap<String, String>,
+) -> Result<HashMap<String, String>, ConfigError> {
+	let mut resolved: HashMap<String, String> = HashMap::new();
+	for name in aliases.keys() {
+		let mut stack: Vec<String> = Vec::new();
+		resolve_one(name, aliases, &mut resolved, &mut stack)?;
+	}
+	Ok(resolved)
+}
+
+fn resolve_one(
+	name: &str,
+	src: &HashMap<String, String>,
+	resolved: &mut HashMap<String, String>,
+	stack: &mut Vec<String>,
+) -> Result<String, ConfigError> {
+	if let Some(v) = resolved.get(name) {
+		return Ok(v.clone());
+	}
+	if stack.iter().any(|s| s == name) {
+		stack.push(name.to_string());
+		return Err(ConfigError::AliasCycle {
+			chain: stack.join(" → "),
+		});
+	}
+	let Some(body) = src.get(name) else {
+		return Err(ConfigError::UnknownAlias {
+			name: name.to_string(),
+			at: format!("alias `{}`", stack.last().unwrap_or(&"<root>".to_string())),
+		});
+	};
+	stack.push(name.to_string());
+	let expanded = expand_refs(body, src, resolved, stack)?;
+	stack.pop();
+	resolved.insert(name.to_string(), expanded.clone());
+	Ok(expanded)
+}
+
+fn expand_refs(
+	body: &str,
+	src: &HashMap<String, String>,
+	resolved: &mut HashMap<String, String>,
+	stack: &mut Vec<String>,
+) -> Result<String, ConfigError> {
+	let mut out = String::with_capacity(body.len());
+	let bytes = body.as_bytes();
+	let mut i = 0;
+	while i < bytes.len() {
+		if bytes[i] == b'$' {
+			let start = i + 1;
+			let mut j = start;
+			while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+				j += 1;
+			}
+			if j > start {
+				let name = &body[start..j];
+				let expanded = resolve_one(name, src, resolved, stack)?;
+				out.push('(');
+				out.push_str(&expanded);
+				out.push(')');
+				i = j;
+				continue;
+			}
+		}
+		out.push(bytes[i] as char);
+		i += 1;
+	}
+	Ok(out)
+}
+
+/// Substitute `$name` references in `expr` against an already-resolved alias
+/// map. Unknown alias → error tagged with the rule location.
+pub(crate) fn substitute_aliases(
+	expr: &str,
+	resolved: &HashMap<String, String>,
+	at: &str,
+) -> Result<String, ConfigError> {
+	let mut out = String::with_capacity(expr.len());
+	let bytes = expr.as_bytes();
+	let mut i = 0;
+	while i < bytes.len() {
+		if bytes[i] == b'$' {
+			let start = i + 1;
+			let mut j = start;
+			while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+				j += 1;
+			}
+			if j > start {
+				let name = &expr[start..j];
+				let Some(expanded) = resolved.get(name) else {
+					return Err(ConfigError::UnknownAlias {
+						name: name.to_string(),
+						at: at.to_string(),
+					});
+				};
+				out.push('(');
+				out.push_str(expanded);
+				out.push(')');
+				i = j;
+				continue;
+			}
+		}
+		out.push(bytes[i] as char);
+		i += 1;
+	}
+	Ok(out)
+}
+
 fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
+	// Resolve aliases first so cycles fail before kind/visibility checks.
+	resolve_aliases(&cfg.aliases)?;
 	validate_lang_section(
 		&cfg.default,
 		"default",
@@ -396,6 +523,78 @@ mod tests {
 			"#,
 		);
 		assert!(r.is_err(), "deny_unknown_fields rejects legacy fields");
+	}
+
+	#[test]
+	fn alias_section_parses() {
+		let cfg = parse(
+			r#"
+			[aliases]
+			domain = "moniker ~ '**/module:domain/**'"
+			"#,
+		)
+		.unwrap();
+		assert_eq!(
+			cfg.aliases.get("domain").map(|s| s.as_str()),
+			Some("moniker ~ '**/module:domain/**'"),
+		);
+	}
+
+	#[test]
+	fn alias_cycle_is_rejected() {
+		let r = parse(
+			r#"
+			[aliases]
+			a = "$b"
+			b = "$a"
+			"#,
+		);
+		match r {
+			Err(ConfigError::AliasCycle { chain }) => {
+				assert!(chain.contains("a") && chain.contains("b"), "{chain}");
+			}
+			other => panic!("expected AliasCycle, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn alias_chain_resolves() {
+		let cfg = parse(
+			r#"
+			[aliases]
+			a = "name = 'X'"
+			b = "$a OR name = 'Y'"
+			c = "$b AND lines <= 10"
+			"#,
+		)
+		.unwrap();
+		let resolved = resolve_aliases(&cfg.aliases).unwrap();
+		let final_c = resolved.get("c").unwrap();
+		assert!(final_c.contains("name = 'X'"), "{final_c}");
+		assert!(final_c.contains("name = 'Y'"), "{final_c}");
+		assert!(final_c.contains("lines <= 10"), "{final_c}");
+	}
+
+	#[test]
+	fn alias_substitution_wraps_in_parens() {
+		// `$x OR Y` → `(<x-body>) OR Y` so precedence is preserved.
+		let mut src = HashMap::new();
+		src.insert("x".to_string(), "A AND B".to_string());
+		let resolved = resolve_aliases(&src).unwrap();
+		let out = substitute_aliases("$x OR C", &resolved, "test").unwrap();
+		assert_eq!(out, "(A AND B) OR C");
+	}
+
+	#[test]
+	fn unknown_alias_is_rejected_at_substitution() {
+		let resolved = HashMap::new();
+		match substitute_aliases("$bogus AND name = 'X'", &resolved, "ts.class.r1") {
+			Err(ConfigError::UnknownAlias { name, at }) => {
+				assert_eq!(name, "bogus");
+				assert_eq!(at, "ts.class.r1");
+			}
+			other => panic!("expected UnknownAlias, got {other:?}"),
+		}
 	}
 
 	#[test]
