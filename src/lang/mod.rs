@@ -196,3 +196,36 @@ mod schema_sync_tests {
 		v
 	}
 }
+
+#[cfg(test)]
+mod shape_coverage_tests {
+	use super::for_each_language;
+	use crate::core::shape::shape_of;
+
+	#[test]
+	fn every_allowed_kind_has_a_shape() {
+		let mut missing: Vec<(String, String)> = Vec::new();
+		for_each_language(|tag, kinds, _| {
+			for k in kinds {
+				if shape_of(k.as_bytes()).is_none() {
+					missing.push((tag.to_string(), (*k).to_string()));
+				}
+			}
+		});
+		assert!(
+			missing.is_empty(),
+			"kinds in ALLOWED_KINDS without an entry in core::shape::SHAPE_TABLE: {missing:?}"
+		);
+	}
+
+	#[test]
+	fn internal_kinds_have_a_shape() {
+		for k in [b"module".as_slice(), b"comment", b"local", b"param"] {
+			assert!(
+				shape_of(k).is_some(),
+				"internal kind {:?} must have a shape entry",
+				std::str::from_utf8(k).unwrap()
+			);
+		}
+	}
+}
