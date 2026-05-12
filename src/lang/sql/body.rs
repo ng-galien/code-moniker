@@ -1,13 +1,9 @@
-//! PL/pgSQL body walker on `tree_sitter_postgres::LANGUAGE_PLPGSQL`.
-//! For every embedded `sql_expression`, re-parse with the SQL grammar and
-//! collect `func_application` refs via the shared walker.
-
 use tree_sitter::{Node, Parser};
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
-use super::walker::collect_calls_in;
+use super::strategy::run_inner_sql;
 
 pub(super) fn walk_plpgsql_body(
 	body: &str,
@@ -25,12 +21,19 @@ pub(super) fn walk_plpgsql_body(
 	let Some(tree) = plpgsql_parser.parse(body, None) else {
 		return;
 	};
-	let mut sql_parser = Parser::new();
-	sql_parser
-		.set_language(&tree_sitter_postgres::LANGUAGE.into())
-		.expect("failed to load tree-sitter-postgres SQL grammar");
 	for_each_sql_expression(tree.root_node(), &mut |expr| {
-		emit_calls_from_sql(expr, body, &mut sql_parser, source_def, module, graph);
+		let raw = &body[expr.start_byte()..expr.end_byte().min(body.len())];
+		let trimmed = raw.trim_end_matches(';').trim();
+		if trimmed.is_empty() {
+			return;
+		}
+		let prepared = if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2
+		{
+			trimmed[1..trimmed.len() - 1].to_string()
+		} else {
+			format!("SELECT {trimmed}")
+		};
+		run_inner_sql(&prepared, source_def, module, graph);
 	});
 }
 
@@ -41,44 +44,6 @@ fn for_each_sql_expression<F: FnMut(Node)>(node: Node, f: &mut F) {
 	let mut cur = node.walk();
 	for c in node.named_children(&mut cur) {
 		for_each_sql_expression(c, f);
-	}
-}
-
-/// Re-parses the raw text of a PL/pgSQL `sql_expression` envelope (the body of
-/// `PERFORM <expr>;`, `IF <expr> THEN`, `<lhs> := <rhs>;`, …) with the SQL
-/// grammar. Bare expressions get wrapped in `SELECT …`. `EXECUTE 'literal'`
-/// strips the quotes so the inner SQL parses; Postgres `''` escape handling
-/// is deliberately omitted.
-fn emit_calls_from_sql(
-	expr: Node,
-	body: &str,
-	sql_parser: &mut Parser,
-	source_def: &Moniker,
-	module: &Moniker,
-	graph: &mut CodeGraph,
-) {
-	let raw = &body[expr.start_byte()..expr.end_byte().min(body.len())];
-	let trimmed = raw.trim_end_matches(';').trim();
-	if trimmed.is_empty() {
-		return;
-	}
-	let prepared = if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2 {
-		trimmed[1..trimmed.len() - 1].to_string()
-	} else {
-		format!("SELECT {trimmed}")
-	};
-	let Some(tree) = sql_parser.parse(&prepared, None) else {
-		return;
-	};
-	let root = tree.root_node();
-	let src = prepared.as_bytes();
-	for c in root.children(&mut root.walk()) {
-		if c.kind() != "toplevel_stmt" {
-			continue;
-		}
-		if let Some(stmt) = c.named_child(0).and_then(|s| s.named_child(0)) {
-			collect_calls_in(stmt, src, source_def, module, graph);
-		}
 	}
 }
 

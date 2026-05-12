@@ -1,8 +1,7 @@
 use tree_sitter::Node;
 
-use crate::core::code_graph::{CodeGraph, DefAttrs};
+use crate::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
-use crate::core::shape;
 
 use crate::lang::strategy::{LangStrategy, NodeShape};
 
@@ -24,16 +23,28 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 	}
 
 	pub fn dispatch(&self, node: Node<'a>, scope: &Moniker, graph: &mut CodeGraph) {
-		match self.strategy.classify(node, self.source) {
+		match self.strategy.classify(node, scope, self.source) {
 			NodeShape::Annotation { kind } => {
 				self.emit_annotation(node, scope, kind, graph);
 			}
 			NodeShape::Symbol(sym) => {
 				self.emit_symbol(node, scope, sym, graph);
 			}
+			NodeShape::Ref(r) => {
+				self.emit_ref(scope, r, graph);
+				self.walk(node, scope, graph);
+			}
 			NodeShape::Skip => {}
 			NodeShape::Recurse => self.walk(node, scope, graph),
 		}
+	}
+
+	fn emit_ref(&self, scope: &Moniker, r: crate::lang::strategy::Ref, graph: &mut CodeGraph) {
+		let attrs = RefAttrs {
+			confidence: r.confidence,
+			..RefAttrs::default()
+		};
+		let _ = graph.add_ref_attrs(scope, r.target, r.kind, Some(r.position), &attrs);
 	}
 
 	fn emit_annotation(
@@ -60,19 +71,14 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 		graph: &mut CodeGraph,
 	) {
 		let crate::lang::strategy::Symbol {
+			moniker: m,
 			kind,
-			name,
 			visibility,
 			signature,
 			body,
 			position,
 		} = sym;
 
-		let m = {
-			let mut b = MonikerBuilder::from_view(scope.as_view());
-			b.segment(kind, name);
-			b.build()
-		};
 		let attrs = DefAttrs {
 			visibility,
 			signature: signature.as_deref().unwrap_or_default(),
@@ -85,10 +91,12 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 			return;
 		}
 
-		if shape::opens_scope(kind) {
-			let recurse_target = body.unwrap_or(node);
-			self.walk(recurse_target, &m, graph);
+		if let Some(body_node) = body {
+			self.walk(body_node, &m, graph);
 		}
+
+		self.strategy
+			.on_symbol_emitted(node, kind, &m, self.source, graph);
 	}
 }
 
@@ -119,7 +127,12 @@ mod tests {
 	struct RustToyStrategy;
 
 	impl LangStrategy for RustToyStrategy {
-		fn classify<'src>(&self, node: Node<'src>, source: &'src [u8]) -> NodeShape<'src> {
+		fn classify<'src>(
+			&self,
+			node: Node<'src>,
+			scope: &Moniker,
+			source: &'src [u8],
+		) -> NodeShape<'src> {
 			match node.kind() {
 				"line_comment" | "block_comment" => NodeShape::Annotation { kind: b"comment" },
 				"struct_item" => {
@@ -127,9 +140,12 @@ mod tests {
 						return NodeShape::Recurse;
 					};
 					let bytes = &source[name.start_byte()..name.end_byte()];
+					let moniker = MonikerBuilder::from_view(scope.as_view())
+						.segment(b"struct", bytes)
+						.build();
 					NodeShape::Symbol(Symbol {
+						moniker,
 						kind: b"struct",
-						name: bytes,
 						visibility: b"public",
 						signature: None,
 						body: node.child_by_field_name("body"),
@@ -141,9 +157,12 @@ mod tests {
 						return NodeShape::Recurse;
 					};
 					let bytes = &source[name.start_byte()..name.end_byte()];
+					let moniker = MonikerBuilder::from_view(scope.as_view())
+						.segment(b"fn", bytes)
+						.build();
 					NodeShape::Symbol(Symbol {
+						moniker,
 						kind: b"fn",
-						name: bytes,
 						visibility: b"public",
 						signature: None,
 						body: node.child_by_field_name("body"),
