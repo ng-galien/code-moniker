@@ -143,6 +143,21 @@ pub(crate) fn extend_callable_slots(
 	extend_segment(parent, kind, &callable_segment_slots(name, slots))
 }
 
+pub(crate) fn slot_signature_bytes(slot: &CallableSlot) -> Vec<u8> {
+	match (slot.name.as_slice(), slot.r#type.as_slice()) {
+		(b"", b"") => b"_".to_vec(),
+		(name, b"") => name.to_vec(),
+		(b"", ty) => ty.to_vec(),
+		(name, ty) => {
+			let mut out = Vec::with_capacity(name.len() + 1 + ty.len());
+			out.extend_from_slice(name);
+			out.push(b':');
+			out.extend_from_slice(ty);
+			out
+		}
+	}
+}
+
 pub(crate) fn extend_callable_arity(
 	parent: &Moniker,
 	kind: &[u8],

@@ -32,11 +32,11 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:go/module:m/func:Add(int,int)'::moniker,
-		'function moniker carries full parameter type signature') AS r1,
+	ok(g @> 'code+moniker://app/lang:go/module:m/func:Add(a:int,b:int)'::moniker,
+		'function moniker carries name:type slot signature') AS r1,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'func'),
-		'int,int',
-		'function signature column lists parameter types') AS r2
+		'a:int,b:int',
+		'function signature column lists name:type slots') AS r2
 FROM g;
 
 
@@ -48,8 +48,8 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:go/module:m/struct:Foo/method:Bar(int)'::moniker,
-		'method moniker reparented under receiver type, pointer star stripped') AS r3
+	ok(g @> 'code+moniker://app/lang:go/module:m/struct:Foo/method:Bar(x:int)'::moniker,
+		'method moniker reparented under receiver type, pointer star stripped, name:type slots') AS r3
 FROM g;
 
 

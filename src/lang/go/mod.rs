@@ -14,7 +14,7 @@ mod kinds;
 mod strategy;
 
 use canonicalize::compute_module_moniker;
-use strategy::{ImportEntry, Strategy, collect_type_table};
+use strategy::{ImportEntry, Strategy, collect_callable_table, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
@@ -48,6 +48,14 @@ pub fn extract(
 		&mut graph,
 		&mut type_table,
 	);
+	let mut callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>> = HashMap::new();
+	collect_callable_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&type_table,
+		&mut callable_table,
+	);
 	let strat = Strategy {
 		module: module.clone(),
 		source_bytes: source.as_bytes(),
@@ -55,6 +63,7 @@ pub fn extract(
 		imports: RefCell::new(HashMap::<Vec<u8>, ImportEntry>::new()),
 		local_scope: RefCell::new(Vec::new()),
 		type_table,
+		callable_table,
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -149,8 +158,8 @@ mod tests {
 		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
 		let last = f.moniker.as_view().segments().last().unwrap();
 		assert_eq!(last.kind, b"func");
-		assert_eq!(last.name, b"Add(int,int)");
-		assert_eq!(f.signature, b"int,int".to_vec());
+		assert_eq!(last.name, b"Add(a:int,b:int)");
+		assert_eq!(f.signature, b"a:int,b:int".to_vec());
 	}
 
 	#[test]
@@ -160,8 +169,8 @@ mod tests {
 		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
 		assert_eq!(
 			f.moniker.as_view().segments().last().unwrap().name,
-			b"Add(int,int)",
-			"`a, b int` must expand to two int slots"
+			b"Add(a:int,b:int)",
+			"`a, b int` must expand to two named slots sharing the type"
 		);
 	}
 
@@ -284,7 +293,7 @@ mod tests {
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
 			.segment(b"struct", b"Foo")
-			.segment(b"method", b"Bar(int)")
+			.segment(b"method", b"Bar(x:int)")
 			.build();
 		assert!(
 			g.contains(&bar),
@@ -333,9 +342,9 @@ mod tests {
 		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
 		assert_eq!(
 			m.moniker.as_view().segments().last().unwrap().name,
-			b"Sum(int,int)"
+			b"Sum(a:int,b:int)"
 		);
-		assert_eq!(m.signature, b"int,int".to_vec());
+		assert_eq!(m.signature, b"a:int,b:int".to_vec());
 	}
 
 	#[test]
@@ -472,28 +481,41 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_simple_call_emits_calls_with_arity() {
+	fn extract_simple_call_to_unresolved_callee_uses_name_only() {
 		let src = "package foo\nfunc Run() { Helper(1, 2) }\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
 		let r = g
 			.refs()
 			.find(|r| {
 				r.kind == b"calls"
-					&& r.target.as_view().segments().last().unwrap().name == b"Helper(2)"
+					&& r.target.as_view().segments().last().unwrap().name == b"Helper"
 			})
-			.expect("calls Helper(2)");
+			.expect("calls Helper (name-only, no parens)");
 		assert_eq!(r.confidence, b"name_match".to_vec());
 	}
 
 	#[test]
-	fn extract_imported_call_uses_full_path_in_target() {
-		let src = "package foo\nimport \"net/http\"\nfunc Run() { http.Get(\"u\") }\n";
+	fn extract_simple_call_to_same_module_func_resolves_slots() {
+		let src = "package foo\nfunc Run() { Helper(1) }\nfunc Helper(n int) {}\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
 		let r = g
 			.refs()
 			.find(|r| {
 				r.kind == b"calls"
-					&& r.target.as_view().segments().last().unwrap().name == b"Get(1)"
+					&& r.target.as_view().segments().last().unwrap().name == b"Helper(n:int)"
+			})
+			.expect("calls Helper(n:int)");
+		assert_eq!(r.confidence, b"name_match".to_vec());
+	}
+
+	#[test]
+	fn extract_imported_call_uses_name_only_target() {
+		let src = "package foo\nimport \"net/http\"\nfunc Run() { http.Get(\"u\") }\n";
+		let g = extract_default("foo.go", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"Get"
 			})
 			.expect("calls http.Get");
 		assert_eq!(r.confidence, b"external".to_vec());
@@ -509,11 +531,11 @@ mod tests {
 			.refs()
 			.find(|r| {
 				r.kind == b"calls"
-					&& r.target.as_view().segments().last().unwrap().name == b"Println(1)"
+					&& r.target.as_view().segments().last().unwrap().name == b"Println"
 			})
 			.expect("calls fmt.Println");
 		let names: Vec<&[u8]> = r.target.as_view().segments().map(|s| s.name).collect();
-		assert_eq!(names, vec![&b"fmt"[..], &b"Println(1)"[..]]);
+		assert_eq!(names, vec![&b"fmt"[..], &b"Println"[..]]);
 	}
 
 	#[test]
@@ -523,7 +545,7 @@ mod tests {
 		let r = g
 			.refs()
 			.find(|r| {
-				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"New()"
+				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"New"
 			})
 			.expect("calls mux.New");
 		assert_eq!(r.confidence, b"imported".to_vec());
@@ -538,7 +560,7 @@ mod tests {
 			.find(|r| r.kind == b"method_call")
 			.expect("method_call ref");
 		assert_eq!(r.receiver_hint, b"obj".to_vec());
-		assert_eq!(r.target.as_view().segments().last().unwrap().name, b"Bar()");
+		assert_eq!(r.target.as_view().segments().last().unwrap().name, b"Bar");
 	}
 
 	#[test]
@@ -549,7 +571,7 @@ mod tests {
 			.refs()
 			.find(|r| {
 				r.kind == b"method_call"
-					&& r.target.as_view().segments().last().unwrap().name == b"bar()"
+					&& r.target.as_view().segments().last().unwrap().name == b"bar"
 			})
 			.expect("method_call bar");
 		assert_eq!(r.receiver_hint, b"call".to_vec());
@@ -564,8 +586,8 @@ mod tests {
 			.filter(|r| r.kind == b"calls")
 			.map(|r| r.target.as_view().segments().last().unwrap().name)
 			.collect();
-		assert!(names.contains(&&b"Outer(1)"[..]));
-		assert!(names.contains(&&b"Inner()"[..]));
+		assert!(names.contains(&&b"Outer"[..]));
+		assert!(names.contains(&&b"Inner"[..]));
 	}
 
 	#[test]
@@ -787,14 +809,14 @@ mod tests {
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"func", b"Run(int,string)")
+			.segment(b"func", b"Run(a:int,b:string)")
 			.segment(b"param", b"a")
 			.build();
 		let pb = MonikerBuilder::new()
 			.project(b"app")
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
-			.segment(b"func", b"Run(int,string)")
+			.segment(b"func", b"Run(a:int,b:string)")
 			.segment(b"param", b"b")
 			.build();
 		assert!(g.contains(&pa));
@@ -810,7 +832,7 @@ mod tests {
 			.segment(b"lang", b"go")
 			.segment(b"module", b"foo")
 			.segment(b"struct", b"Foo")
-			.segment(b"method", b"Bar(int)")
+			.segment(b"method", b"Bar(x:int)")
 			.segment(b"param", b"r")
 			.build();
 		assert!(g.contains(&recv));
