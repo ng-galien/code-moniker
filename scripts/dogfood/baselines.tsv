@@ -22,7 +22,7 @@ clap|rs|def|trait|15
 clap|rs|def|type|57
 code-moniker|rs|def|comment|144
 code-moniker|rs|def|enum|39
-code-moniker|rs|def|fn|437
+code-moniker|rs|def|fn|432
 code-moniker|rs|def|method|379
 code-moniker|rs|def|module|81
 code-moniker|rs|def|struct|96
@@ -107,14 +107,14 @@ clap|rs|ref|method_call|3354
 clap|rs|ref|reads|709
 clap|rs|ref|uses_type|1944
 code-moniker|rs|ref|annotates|490
-code-moniker|rs|ref|calls|1672
+code-moniker|rs|ref|calls|1664
 code-moniker|rs|ref|implements|63
 code-moniker|rs|ref|imports_module|825
 code-moniker|rs|ref|imports_symbol|831
-code-moniker|rs|ref|instantiates|1038
-code-moniker|rs|ref|method_call|4427
+code-moniker|rs|ref|instantiates|1039
+code-moniker|rs|ref|method_call|4412
 code-moniker|rs|ref|reads|1210
-code-moniker|rs|ref|uses_type|2277
+code-moniker|rs|ref|uses_type|2269
 commandline|cs|ref|annotates|8
 commandline|cs|ref|calls|194
 commandline|cs|ref|extends|54
@@ -177,7 +177,7 @@ pgtap|sql|total|files|11
 zod|ts|total|files|77
 bytes|rs|total|defs|4002
 clap|rs|total|defs|10976
-code-moniker|rs|total|defs|1192
+code-moniker|rs|total|defs|1186
 commandline|cs|total|defs|3292
 date-fns|ts|total|defs|10320
 gson|java|total|defs|2433
@@ -187,7 +187,7 @@ pgtap|sql|total|defs|653
 zod|ts|total|defs|2869
 bytes|rs|total|refs|1865
 clap|rs|total|refs|9710
-code-moniker|rs|total|refs|12837
+code-moniker|rs|total|refs|12806
 commandline|cs|total|refs|4254
 date-fns|ts|total|refs|29621
 gson|java|total|refs|9120

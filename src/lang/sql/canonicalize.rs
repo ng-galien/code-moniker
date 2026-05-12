@@ -31,9 +31,7 @@ pub(super) fn file_stem(name: &str) -> &str {
 	name
 }
 
-pub(super) use crate::lang::callable::{
-	extend_callable_arity, extend_callable_typed, extend_segment,
-};
+pub(super) use crate::lang::callable::extend_segment;
 
 pub(super) fn maybe_schema(parent: &Moniker, schema: &[u8]) -> Moniker {
 	if schema.is_empty() {

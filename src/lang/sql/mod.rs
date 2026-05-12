@@ -87,7 +87,7 @@ mod tests {
 		);
 		assert!(
 			def_monikers(&g).iter().any(|m| m
-				== "code+moniker://app/lang:sql/module:foo/schema:public/function:bar(int4,text)"),
+				== "code+moniker://app/lang:sql/module:foo/schema:public/function:bar(a:int4,b:text)"),
 			"got defs: {:?}",
 			def_monikers(&g)
 		);
@@ -95,7 +95,7 @@ mod tests {
 			.defs()
 			.find(|d| d.kind == b"function")
 			.expect("function def");
-		assert_eq!(func.signature, b"int4,text");
+		assert_eq!(func.signature, b"a:int4,b:text");
 	}
 
 	#[test]
@@ -144,9 +144,9 @@ mod tests {
 				.any(|m| m == "code+moniker://app/lang:sql/module:schema/view:v")
 		);
 		assert!(
-			ref_targets(&g).iter().any(
-				|t| t == "code+moniker://app/lang:sql/module:schema/schema:esac/function:foo()"
-			),
+			ref_targets(&g)
+				.iter()
+				.any(|t| t == "code+moniker://app/lang:sql/module:schema/schema:esac/function:foo"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -156,9 +156,9 @@ mod tests {
 	fn top_level_select_emits_qualified_call() {
 		let g = run("foo.sql", "SELECT public.bar(1, 2);");
 		assert!(
-			ref_targets(&g).iter().any(
-				|t| t == "code+moniker://app/lang:sql/module:foo/schema:public/function:bar(2)"
-			),
+			ref_targets(&g)
+				.iter()
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/schema:public/function:bar"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -170,7 +170,7 @@ mod tests {
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:bar()"),
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:bar"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -188,20 +188,20 @@ mod tests {
 	}
 
 	#[test]
-	fn nested_call_arity_is_outer_only() {
+	fn nested_calls_both_emit_name_only_targets() {
 		let g = run("foo.sql", "SELECT f(g(a, b));");
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:f(1)"),
-			"outer call f should have arity 1, got refs: {:?}",
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:f"),
+			"outer call f should emit name-only target, got refs: {:?}",
 			ref_targets(&g)
 		);
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:g(2)"),
-			"inner call g should have arity 2, got refs: {:?}",
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:g"),
+			"inner call g should emit name-only target, got refs: {:?}",
 			ref_targets(&g)
 		);
 	}

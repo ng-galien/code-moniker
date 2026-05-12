@@ -32,11 +32,11 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:sql/module:foo/schema:public/function:bar(int4,text)'::moniker,
-		'qualified function moniker carries schema + full type signature') AS r1,
+	ok(g @> 'code+moniker://app/lang:sql/module:foo/schema:public/function:bar(a:int4,b:text)'::moniker,
+		'qualified function moniker carries schema + name:type slots') AS r1,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'function'),
-		'int4,text',
-		'function signature column lists parameter types') AS r2
+		'a:int4,b:text',
+		'function signature column lists name:type slots') AS r2
 FROM g;
 
 
@@ -98,9 +98,9 @@ SELECT
 		'CREATE VIEW emits a view def') AS r8,
 	ok(EXISTS (SELECT 1 FROM graph_refs(g)
 	           WHERE kind = 'calls'
-	             AND target = 'code+moniker://app/lang:sql/module:schema/schema:esac/function:foo()'::moniker
-	             AND confidence = 'unresolved'),
-		'CREATE VIEW body emits unresolved calls ref to esac.foo()') AS r9
+	             AND target = 'code+moniker://app/lang:sql/module:schema/schema:esac/function:foo'::moniker
+	             AND confidence = 'name_match'),
+		'CREATE VIEW body emits name-match calls ref to esac.foo()') AS r9
 FROM g;
 
 
@@ -114,11 +114,11 @@ WITH g AS (
 SELECT
 	ok(EXISTS (SELECT 1 FROM graph_refs(g)
 	           WHERE kind = 'calls'
-	             AND target = 'code+moniker://app/lang:sql/module:foo/schema:public/function:bar(2)'::moniker),
-		'top-level SELECT emits qualified arity-only calls ref') AS r10,
+	             AND target = 'code+moniker://app/lang:sql/module:foo/schema:public/function:bar'::moniker),
+		'top-level SELECT emits qualified name-only calls ref') AS r10,
 	is((SELECT confidence FROM graph_refs(g) WHERE kind = 'calls' LIMIT 1),
-		'unresolved',
-		'top-level call confidence is unresolved (types unknown at call site)') AS r11
+		'name_match',
+		'top-level call confidence is name_match (types unknown at call site)') AS r11
 FROM g;
 
 
@@ -131,7 +131,7 @@ WITH g AS (
 )
 SELECT ok(EXISTS (SELECT 1 FROM graph_refs(g)
 	         WHERE kind = 'calls'
-	           AND target = 'code+moniker://app/lang:sql/module:foo/function:bar()'::moniker),
+	           AND target = 'code+moniker://app/lang:sql/module:foo/function:bar'::moniker),
 	'unqualified top-level call target omits schema') AS r12
 FROM g;
 
@@ -151,16 +151,16 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:sql/module:foo/function:outer_fn(int4)'::moniker,
-		'plpgsql function def is emitted') AS r14,
+	ok(g @> 'code+moniker://app/lang:sql/module:foo/function:outer_fn(x:int4)'::moniker,
+		'plpgsql function def carries name:type slots') AS r14,
 	ok(EXISTS (SELECT 1 FROM graph_refs(g) r
 	           WHERE r.kind = 'calls'
-	             AND r.target = 'code+moniker://app/lang:sql/module:foo/schema:esac/function:inner_fn(1)'::moniker),
-		'PERFORM in plpgsql body emits calls ref to qualified target') AS r15,
+	             AND r.target = 'code+moniker://app/lang:sql/module:foo/schema:esac/function:inner_fn'::moniker),
+		'PERFORM in plpgsql body emits calls ref to qualified name-only target') AS r15,
 	ok(EXISTS (SELECT 1 FROM graph_refs(g) r
 	           WHERE r.kind = 'calls'
-	             AND r.target = 'code+moniker://app/lang:sql/module:foo/function:other_fn()'::moniker),
-		'IF branch in plpgsql body picks up nested PERFORM call') AS r16
+	             AND r.target = 'code+moniker://app/lang:sql/module:foo/function:other_fn'::moniker),
+		'IF branch in plpgsql body picks up nested PERFORM call (name-only)') AS r16
 FROM g;
 
 

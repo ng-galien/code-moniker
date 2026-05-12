@@ -10,9 +10,11 @@ use crate::lang::canonical_walker::CanonicalWalker;
 use crate::lang::strategy::{LangStrategy, NodeShape, Symbol};
 use crate::lang::tree_util::{find_descendant, find_named_child, node_position, node_slice};
 
-use super::canonicalize::{
-	extend_callable_arity, extend_callable_typed, extend_segment, maybe_schema,
+use crate::lang::callable::{
+	CallableSlot, extend_callable_slots, join_bytes_with_comma, slot_signature_bytes,
 };
+
+use super::canonicalize::{extend_segment, maybe_schema};
 use super::kinds;
 
 use find_named_child as find_child;
@@ -121,12 +123,13 @@ fn classify_create_function<'src>(
 		return NodeShape::Recurse;
 	}
 	let params = find_child(node, "func_args_with_defaults");
-	let arg_types = params
-		.map(|p| collect_param_types(p, source))
+	let slots = params
+		.map(|p| collect_param_slots(p, source))
 		.unwrap_or_default();
 	let parent = maybe_schema(module, schema);
-	let moniker = extend_callable_typed(&parent, kinds::FUNCTION, name, &arg_types);
-	let signature = arg_types.join(b",".as_ref());
+	let moniker = extend_callable_slots(&parent, kinds::FUNCTION, name, &slots);
+	let signature =
+		join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
 	NodeShape::Symbol(Symbol {
 		moniker,
 		kind: kinds::FUNCTION,
@@ -179,7 +182,6 @@ fn emit_call(
 	if name.is_empty() {
 		return;
 	}
-	let arity = func_call_arity(node);
 	let confidence = if schema == b"pg_catalog" || (schema.is_empty() && is_builtin_function(name))
 	{
 		kinds::CONF_EXTERNAL
@@ -194,7 +196,7 @@ fn emit_call(
 		b.build()
 	} else {
 		let parent = maybe_schema(module, schema);
-		extend_callable_arity(&parent, kinds::FUNCTION, name, arity)
+		extend_segment(&parent, kinds::FUNCTION, name)
 	};
 	let s = node.start_byte() as u32;
 	let attrs = RefAttrs {
@@ -317,15 +319,19 @@ fn collect_qualified_parts<'src>(node: Node<'src>, src: &'src [u8], out: &mut Ve
 	}
 }
 
-fn collect_param_types(params: Node, src: &[u8]) -> Vec<Vec<u8>> {
+fn collect_param_slots(params: Node, src: &[u8]) -> Vec<CallableSlot> {
 	let mut out = Vec::new();
 	visit(params, &mut |n| {
 		if n.kind() != "func_arg" {
 			return;
 		}
-		if let Some(ft) = find_child(n, "func_type") {
-			out.push(normalize_type(node_slice(ft, src)));
-		}
+		let r#type = find_child(n, "func_type")
+			.map(|ft| normalize_type(node_slice(ft, src)))
+			.unwrap_or_default();
+		let name = find_child(n, "param_name")
+			.map(|pn| node_slice(pn, src).to_vec())
+			.unwrap_or_default();
+		out.push(CallableSlot { name, r#type });
 	});
 	out
 }
@@ -387,27 +393,6 @@ fn dollar_body<'a>(node: Node<'_>, source: &'a str) -> Option<&'a str> {
 		return None;
 	}
 	source.get(dollar.start_byte() + end_delim..dollar.start_byte() + close)
-}
-
-fn func_call_arity(call: Node) -> u16 {
-	let args = match find_child(call, "func_arg_list") {
-		Some(n) => n,
-		None => return 0,
-	};
-	let mut count = 0u16;
-	walk_arg_list(args, &mut count);
-	count
-}
-
-fn walk_arg_list(list: Node, count: &mut u16) {
-	let mut cur = list.walk();
-	for c in list.named_children(&mut cur) {
-		match c.kind() {
-			"func_arg_expr" => *count = count.saturating_add(1),
-			"func_arg_list" => walk_arg_list(c, count),
-			_ => {}
-		}
-	}
 }
 
 fn emit_function_type_refs(

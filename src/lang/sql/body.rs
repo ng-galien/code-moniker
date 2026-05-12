@@ -80,10 +80,9 @@ mod tests {
 			 $$;",
 		);
 		assert!(
-			ref_targets(&g)
-				.iter()
-				.any(|t| t
-					== "code+moniker://app/lang:sql/module:foo/schema:esac/function:inner_fn(1)"),
+			ref_targets(&g).iter().any(
+				|t| t == "code+moniker://app/lang:sql/module:foo/schema:esac/function:inner_fn"
+			),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -104,7 +103,7 @@ mod tests {
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:other_fn()"),
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:other_fn"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -125,7 +124,7 @@ mod tests {
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:deep_fn()"),
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:deep_fn"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -146,7 +145,7 @@ mod tests {
 		assert!(
 			ref_targets(&g)
 				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:step_fn(1)"),
+				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:step_fn"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
