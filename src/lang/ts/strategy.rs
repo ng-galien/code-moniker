@@ -8,13 +8,19 @@ use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use crate::lang::callable::{extend_callable_arity, extend_segment};
 use crate::lang::strategy::{LangStrategy, NodeShape, RefSpec, Symbol};
-use crate::lang::tree_util::{node_position, node_slice};
+use crate::lang::tree_util::{find_named_child, node_position, node_slice};
 
 use super::canonicalize::{
 	anonymous_callback_name, append_module_segments, callable_param_types, extend_callable_typed,
 	external_pkg_builder, strip_known_extension,
 };
 use super::kinds;
+
+struct DecoratorCallee<'src> {
+	name: &'src [u8],
+	arity: u16,
+	args: Option<Node<'src>>,
+}
 
 pub(super) struct Strategy<'src> {
 	pub(super) module: Moniker,
@@ -156,10 +162,10 @@ impl<'a> LangStrategy for Strategy<'a> {
 			self.emit_uses_type_recursive(rt, moniker, graph);
 		}
 		if let Some(params) = node.child_by_field_name("parameters") {
-			self.emit_param_defs_and_types(params, moniker, graph);
+			self.bind_and_emit_params(params, moniker, graph);
 		}
 		if let Some(p) = node.child_by_field_name("parameter") {
-			self.emit_param_leaf(p, moniker, graph);
+			self.bind_and_emit_param_leaf(p, moniker, graph);
 		}
 	}
 
@@ -498,12 +504,6 @@ impl<'src_lang> Strategy<'src_lang> {
 		let moniker = extend_callable_typed(scope, kind, name, &types);
 
 		self.push_local_scope();
-		if let Some(params) = callable_node.child_by_field_name("parameters") {
-			self.record_param_locals(params);
-		}
-		if let Some(p) = callable_node.child_by_field_name("parameter") {
-			self.record_pat_locals(p);
-		}
 
 		NodeShape::Symbol(Symbol {
 			moniker,
@@ -539,60 +539,29 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn record_param_locals(&self, params: Node<'_>) {
+	fn bind_and_emit_params(&self, params: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = params.walk();
 		for child in params.named_children(&mut cursor) {
 			match child.kind() {
 				"required_parameter" | "optional_parameter" => {
 					if let Some(p) = child.child_by_field_name("pattern") {
-						for n in collect_binding_names(p, self.source_bytes) {
-							self.record_local(&n);
-						}
-					}
-				}
-				"rest_pattern" => {
-					for n in collect_binding_names(child, self.source_bytes) {
-						self.record_local(&n);
-					}
-				}
-				_ => {}
-			}
-		}
-	}
-
-	fn record_pat_locals(&self, pat: Node<'_>) {
-		for n in collect_binding_names(pat, self.source_bytes) {
-			self.record_local(&n);
-		}
-	}
-
-	fn emit_param_defs_and_types(
-		&self,
-		params: Node<'_>,
-		callable: &Moniker,
-		graph: &mut CodeGraph,
-	) {
-		let mut cursor = params.walk();
-		for child in params.named_children(&mut cursor) {
-			match child.kind() {
-				"required_parameter" | "optional_parameter" => {
-					if let Some(p) = child.child_by_field_name("pattern") {
-						self.emit_param_leaf(p, callable, graph);
+						self.bind_and_emit_param_leaf(p, callable, graph);
 					}
 					if let Some(t) = child.child_by_field_name("type") {
 						self.emit_uses_type_recursive(t, callable, graph);
 					}
 				}
 				"rest_pattern" => {
-					self.emit_param_leaf(child, callable, graph);
+					self.bind_and_emit_param_leaf(child, callable, graph);
 				}
 				_ => {}
 			}
 		}
 	}
 
-	fn emit_param_leaf(&self, pat: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
+	fn bind_and_emit_param_leaf(&self, pat: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		for name in collect_binding_names(pat, self.source_bytes) {
+			self.record_local(&name);
 			if self.deep {
 				let m = extend_segment(callable, kinds::PARAM, &name);
 				let _ = graph.add_def(m, kinds::PARAM, callable, Some(node_position(pat)));
@@ -655,12 +624,10 @@ impl<'src_lang> Strategy<'src_lang> {
 					self.emit_uses_type_recursive(rt, &m, graph);
 				}
 				if let Some(params) = v.child_by_field_name("parameters") {
-					self.record_param_locals(params);
-					self.emit_param_defs_and_types(params, &m, graph);
+					self.bind_and_emit_params(params, &m, graph);
 				}
 				if let Some(p) = v.child_by_field_name("parameter") {
-					self.record_pat_locals(p);
-					self.emit_param_leaf(p, &m, graph);
+					self.bind_and_emit_param_leaf(p, &m, graph);
 				}
 				if let Some(body) = v.child_by_field_name("body") {
 					self.walk_children(body, &m, graph);
@@ -696,10 +663,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		if is_callable_scope(scope, &self.module)
 			&& let Some(p) = node.child_by_field_name("parameter")
 		{
-			for n in collect_binding_names(p, self.source_bytes) {
-				self.record_local(&n);
-			}
-			self.emit_param_leaf(p, scope, graph);
+			self.bind_and_emit_param_leaf(p, scope, graph);
 		}
 		if let Some(body) = node.child_by_field_name("body") {
 			self.walk_children(body, scope, graph);
@@ -810,43 +774,56 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.walk_children(node, scope, graph);
 	}
 
-	fn handle_decorator(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let pos = node_position(node);
-		let mut cursor = node.walk();
-		for c in node.children(&mut cursor) {
-			match c.kind() {
+	fn decorator_callees<'src>(&self, decorator: Node<'src>) -> Vec<DecoratorCallee<'src>>
+	where
+		'src_lang: 'src,
+	{
+		let mut out = Vec::new();
+		let mut cursor = decorator.walk();
+		for ch in decorator.children(&mut cursor) {
+			match ch.kind() {
 				"identifier" => {
-					let name = node_slice(c, self.source_bytes);
+					let name = node_slice(ch, self.source_bytes);
 					if !name.is_empty() {
-						let target = extend_callable_arity(&self.module, kinds::FUNCTION, name, 0);
-						let attrs = RefAttrs {
-							confidence: kinds::CONF_NAME_MATCH,
-							..RefAttrs::default()
-						};
-						let _ =
-							graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &attrs);
+						out.push(DecoratorCallee {
+							name,
+							arity: 0,
+							args: None,
+						});
 					}
 				}
 				"call_expression" => {
-					if let Some(fn_node) = c.child_by_field_name("function")
+					if let Some(fn_node) = ch.child_by_field_name("function")
 						&& fn_node.kind() == "identifier"
 					{
 						let name = node_slice(fn_node, self.source_bytes);
-						let arity = call_argument_count(c);
-						let target =
-							extend_callable_arity(&self.module, kinds::FUNCTION, name, arity);
-						let attrs = RefAttrs {
-							confidence: kinds::CONF_NAME_MATCH,
-							..RefAttrs::default()
-						};
-						let _ =
-							graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &attrs);
-					}
-					if let Some(args) = c.child_by_field_name("arguments") {
-						self.walk_children(args, scope, graph);
+						if !name.is_empty() {
+							out.push(DecoratorCallee {
+								name,
+								arity: call_argument_count(ch),
+								args: ch.child_by_field_name("arguments"),
+							});
+						}
 					}
 				}
 				_ => {}
+			}
+		}
+		out
+	}
+
+	fn handle_decorator(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let pos = node_position(node);
+		for callee in self.decorator_callees(node) {
+			let target =
+				extend_callable_arity(&self.module, kinds::FUNCTION, callee.name, callee.arity);
+			let attrs = RefAttrs {
+				confidence: kinds::CONF_NAME_MATCH,
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &attrs);
+			if let Some(args) = callee.args {
+				self.walk_children(args, scope, graph);
 			}
 		}
 	}
@@ -857,11 +834,8 @@ impl<'src_lang> Strategy<'src_lang> {
 		sym_moniker: &Moniker,
 		graph: &mut CodeGraph,
 	) {
-		let mut cursor = decorator.walk();
-		for c in decorator.children(&mut cursor) {
-			if c.kind() == "call_expression"
-				&& let Some(args) = c.child_by_field_name("arguments")
-			{
+		for callee in self.decorator_callees(decorator) {
+			if let Some(args) = callee.args {
 				self.walk_children(args, sym_moniker, graph);
 			}
 		}
@@ -869,44 +843,17 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn collect_decorator_ref(&self, decorator: Node<'_>, out: &mut Vec<RefSpec>) {
 		let pos = node_position(decorator);
-		let mut dc = decorator.walk();
-		for ch in decorator.children(&mut dc) {
-			match ch.kind() {
-				"identifier" => {
-					let name = node_slice(ch, self.source_bytes);
-					if name.is_empty() {
-						continue;
-					}
-					let target = extend_callable_arity(&self.module, kinds::FUNCTION, name, 0);
-					out.push(RefSpec {
-						kind: kinds::ANNOTATES,
-						target,
-						confidence: kinds::CONF_NAME_MATCH,
-						position: pos,
-						receiver_hint: b"",
-						alias: b"",
-					});
-				}
-				"call_expression" => {
-					if let Some(fn_node) = ch.child_by_field_name("function")
-						&& fn_node.kind() == "identifier"
-					{
-						let name = node_slice(fn_node, self.source_bytes);
-						let arity = call_argument_count(ch);
-						let target =
-							extend_callable_arity(&self.module, kinds::FUNCTION, name, arity);
-						out.push(RefSpec {
-							kind: kinds::ANNOTATES,
-							target,
-							confidence: kinds::CONF_NAME_MATCH,
-							position: pos,
-							receiver_hint: b"",
-							alias: b"",
-						});
-					}
-				}
-				_ => {}
-			}
+		for callee in self.decorator_callees(decorator) {
+			let target =
+				extend_callable_arity(&self.module, kinds::FUNCTION, callee.name, callee.arity);
+			out.push(RefSpec {
+				kind: kinds::ANNOTATES,
+				target,
+				confidence: kinds::CONF_NAME_MATCH,
+				position: pos,
+				receiver_hint: b"",
+				alias: b"",
+			});
 		}
 	}
 
@@ -1099,17 +1046,8 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 		let pos = node_position(node);
 
-		let mut clause: Option<Node<'_>> = None;
-		let mut cursor = node.walk();
-		for c in node.children(&mut cursor) {
-			if c.kind() == "import_clause" {
-				clause = Some(c);
-				break;
-			}
-		}
-
 		let confidence = import_confidence(raw_spec);
-		let Some(clause) = clause else {
+		let Some(clause) = find_named_child(node, "import_clause") else {
 			let target = self.import_module_target(raw_spec);
 			let attrs = RefAttrs {
 				confidence,
@@ -1545,13 +1483,9 @@ fn import_confidence(spec: &str) -> &'static [u8] {
 }
 
 fn first_identifier_text<'src>(node: Node<'src>, source: &'src [u8]) -> &'src [u8] {
-	let mut cursor = node.walk();
-	for c in node.children(&mut cursor) {
-		if c.kind() == "identifier" {
-			return node_slice(c, source);
-		}
-	}
-	b""
+	find_named_child(node, "identifier")
+		.map(|c| node_slice(c, source))
+		.unwrap_or(b"")
 }
 
 fn unquote_string_literal<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
