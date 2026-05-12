@@ -112,8 +112,8 @@ code-moniker|rs|ref|implements|63
 code-moniker|rs|ref|imports_module|811
 code-moniker|rs|ref|imports_symbol|817
 code-moniker|rs|ref|instantiates|995
-code-moniker|rs|ref|method_call|4156
-code-moniker|rs|ref|reads|1182
+code-moniker|rs|ref|method_call|4159
+code-moniker|rs|ref|reads|1183
 code-moniker|rs|ref|uses_type|2148
 commandline|cs|ref|annotates|8
 commandline|cs|ref|calls|194
@@ -187,7 +187,7 @@ pgtap|sql|total|defs|653
 zod|ts|total|defs|2869
 bytes|rs|total|refs|1865
 clap|rs|total|refs|9686
-code-moniker|rs|total|refs|12258
+code-moniker|rs|total|refs|12263
 commandline|cs|total|refs|4254
 date-fns|ts|total|refs|29621
 gson|java|total|refs|9120

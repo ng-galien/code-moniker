@@ -312,6 +312,53 @@ mod tests {
 	}
 
 	#[test]
+	fn method_call_on_imported_class_carries_imported_confidence() {
+		let src = r#"
+            import com.acme.Util;
+            class Foo {
+                void m() { Util.run(); }
+            }
+        "#;
+		let g = extract_default("src/Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"Util")
+			.expect("method_call on Util");
+		assert_eq!(r.confidence, b"imported");
+	}
+
+	#[test]
+	fn method_call_on_jdk_class_carries_external_confidence() {
+		let src = r#"
+            import java.util.List;
+            class Foo {
+                void m() { List.of(); }
+            }
+        "#;
+		let g = extract_default("src/Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"List")
+			.expect("method_call on List");
+		assert_eq!(r.confidence, b"external");
+	}
+
+	#[test]
+	fn method_call_on_non_imported_identifier_stays_name_match() {
+		let src = r#"
+            class Foo {
+                void m() { obj.bar(); }
+            }
+        "#;
+		let g = extract_default("src/Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"obj")
+			.expect("method_call on obj");
+		assert_eq!(r.confidence, b"name_match");
+	}
+
+	#[test]
 	fn extract_object_creation_emits_instantiates() {
 		let src = r#"
             class Foo {

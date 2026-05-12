@@ -506,9 +506,16 @@ impl<'src_lang> Strategy<'src_lang> {
 
 		if let Some(obj) = object {
 			let target = extend_callable_arity(&self.module, kinds::METHOD, name, arity);
+			let confidence = if obj.kind() == "identifier" {
+				let obj_name = node_slice(obj, self.source_bytes);
+				self.import_confidence_for(obj_name)
+					.unwrap_or(kinds::CONF_NAME_MATCH)
+			} else {
+				kinds::CONF_NAME_MATCH
+			};
 			let attrs = RefAttrs {
 				receiver_hint: receiver_hint(obj, self.source_bytes),
-				confidence: kinds::CONF_NAME_MATCH,
+				confidence,
 				..RefAttrs::default()
 			};
 			let _ = graph.add_ref_attrs(scope, target, kinds::METHOD_CALL, Some(pos), &attrs);
