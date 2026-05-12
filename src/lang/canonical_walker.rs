@@ -1,0 +1,244 @@
+use tree_sitter::Node;
+
+use crate::core::code_graph::{CodeGraph, DefAttrs};
+use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::core::shape;
+
+use crate::lang::strategy::{LangStrategy, NodeShape};
+
+pub struct CanonicalWalker<'a, S: LangStrategy> {
+	pub strategy: &'a S,
+	pub source: &'a [u8],
+}
+
+impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
+	pub fn new(strategy: &'a S, source: &'a [u8]) -> Self {
+		Self { strategy, source }
+	}
+
+	pub fn walk(&self, node: Node<'a>, scope: &Moniker, graph: &mut CodeGraph) {
+		let mut cursor = node.walk();
+		for child in node.children(&mut cursor) {
+			self.dispatch(child, scope, graph);
+		}
+	}
+
+	pub fn dispatch(&self, node: Node<'a>, scope: &Moniker, graph: &mut CodeGraph) {
+		match self.strategy.classify(node, self.source) {
+			NodeShape::Annotation { kind } => {
+				self.emit_annotation(node, scope, kind, graph);
+			}
+			NodeShape::Symbol(sym) => {
+				self.emit_symbol(node, scope, sym, graph);
+			}
+			NodeShape::Skip => {}
+			NodeShape::Recurse => self.walk(node, scope, graph),
+		}
+	}
+
+	fn emit_annotation(
+		&self,
+		node: Node<'a>,
+		scope: &Moniker,
+		kind: &'static [u8],
+		graph: &mut CodeGraph,
+	) {
+		let mut b = MonikerBuilder::from_view(scope.as_view());
+		let mut name = [0u8; 10];
+		let n = format_u32(node.start_byte() as u32, &mut name);
+		b.segment(kind, &name[..n]);
+		let m = b.build();
+		let pos = (node.start_byte() as u32, node.end_byte() as u32);
+		let _ = graph.add_def(m, kind, scope, Some(pos));
+	}
+
+	fn emit_symbol(
+		&self,
+		node: Node<'a>,
+		scope: &Moniker,
+		sym: crate::lang::strategy::Symbol<'a>,
+		graph: &mut CodeGraph,
+	) {
+		let crate::lang::strategy::Symbol {
+			kind,
+			name,
+			visibility,
+			signature,
+			body,
+			position,
+		} = sym;
+
+		let m = {
+			let mut b = MonikerBuilder::from_view(scope.as_view());
+			b.segment(kind, name);
+			b.build()
+		};
+		let attrs = DefAttrs {
+			visibility,
+			signature: signature.as_deref().unwrap_or_default(),
+			..DefAttrs::default()
+		};
+		let added = graph
+			.add_def_attrs(m.clone(), kind, scope, Some(position), &attrs)
+			.is_ok();
+		if !added {
+			return;
+		}
+
+		if shape::opens_scope(kind) {
+			let recurse_target = body.unwrap_or(node);
+			self.walk(recurse_target, &m, graph);
+		}
+	}
+}
+
+fn format_u32(mut n: u32, out: &mut [u8; 10]) -> usize {
+	if n == 0 {
+		out[0] = b'0';
+		return 1;
+	}
+	let mut buf = [0u8; 10];
+	let mut i = 0;
+	while n > 0 {
+		buf[i] = b'0' + (n % 10) as u8;
+		n /= 10;
+		i += 1;
+	}
+	for k in 0..i {
+		out[k] = buf[i - 1 - k];
+	}
+	i
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::core::moniker::MonikerBuilder;
+	use crate::lang::strategy::{NodeShape, Symbol};
+
+	struct RustToyStrategy;
+
+	impl LangStrategy for RustToyStrategy {
+		fn classify<'src>(&self, node: Node<'src>, source: &'src [u8]) -> NodeShape<'src> {
+			match node.kind() {
+				"line_comment" | "block_comment" => NodeShape::Annotation { kind: b"comment" },
+				"struct_item" => {
+					let Some(name) = node.child_by_field_name("name") else {
+						return NodeShape::Recurse;
+					};
+					let bytes = &source[name.start_byte()..name.end_byte()];
+					NodeShape::Symbol(Symbol {
+						kind: b"struct",
+						name: bytes,
+						visibility: b"public",
+						signature: None,
+						body: node.child_by_field_name("body"),
+						position: (node.start_byte() as u32, node.end_byte() as u32),
+					})
+				}
+				"function_item" => {
+					let Some(name) = node.child_by_field_name("name") else {
+						return NodeShape::Recurse;
+					};
+					let bytes = &source[name.start_byte()..name.end_byte()];
+					NodeShape::Symbol(Symbol {
+						kind: b"fn",
+						name: bytes,
+						visibility: b"public",
+						signature: None,
+						body: node.child_by_field_name("body"),
+						position: (node.start_byte() as u32, node.end_byte() as u32),
+					})
+				}
+				_ => NodeShape::Recurse,
+			}
+		}
+	}
+
+	fn anchor() -> Moniker {
+		MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"rs")
+			.segment(b"module", b"toy")
+			.build()
+	}
+
+	#[test]
+	fn canonical_walker_emits_struct_and_fn_via_strategy() {
+		let mut p = tree_sitter::Parser::new();
+		p.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+		let src = b"pub struct Foo;\npub fn bar() {}";
+		let tree = p.parse(src, None).unwrap();
+
+		let root = anchor();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let w = CanonicalWalker::new(&RustToyStrategy, src);
+		w.walk(tree.root_node(), &root, &mut g);
+
+		let kinds: Vec<&[u8]> = g.defs().map(|d| d.kind.as_slice()).collect();
+		assert!(kinds.contains(&b"struct".as_slice()));
+		assert!(kinds.contains(&b"fn".as_slice()));
+	}
+
+	#[test]
+	fn canonical_walker_emits_comments_at_top_level() {
+		let mut p = tree_sitter::Parser::new();
+		p.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+		let src = b"// hi\npub struct Foo;";
+		let tree = p.parse(src, None).unwrap();
+
+		let root = anchor();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let w = CanonicalWalker::new(&RustToyStrategy, src);
+		w.walk(tree.root_node(), &root, &mut g);
+
+		assert_eq!(g.defs().filter(|d| d.kind == b"comment").count(), 1);
+	}
+
+	#[test]
+	fn canonical_walker_recurses_into_struct_body_and_finds_inner_comments() {
+		let mut p = tree_sitter::Parser::new();
+		p.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+		let src = b"pub struct Foo {\n    // hi\n    x: i32,\n}";
+		let tree = p.parse(src, None).unwrap();
+
+		let root = anchor();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let w = CanonicalWalker::new(&RustToyStrategy, src);
+		w.walk(tree.root_node(), &root, &mut g);
+
+		let comment_under_struct = g.defs().filter(|d| d.kind == b"comment").any(|d| {
+			d.moniker
+				.as_view()
+				.segments()
+				.any(|s| s.kind == b"struct" && s.name == b"Foo")
+		});
+		assert!(
+			comment_under_struct,
+			"comment inside struct body should be re-parented onto the struct"
+		);
+	}
+
+	#[test]
+	fn canonical_walker_does_not_drop_comments_in_mod_inline_position() {
+		let mut p = tree_sitter::Parser::new();
+		p.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+		let src = b"pub mod inner {\n    // inside\n    pub struct InnerStruct;\n}";
+		let tree = p.parse(src, None).unwrap();
+
+		let root = anchor();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let w = CanonicalWalker::new(&RustToyStrategy, src);
+		w.walk(tree.root_node(), &root, &mut g);
+
+		assert_eq!(
+			g.defs().filter(|d| d.kind == b"comment").count(),
+			1,
+			"default-recurse must reach into mod_item; comment inside must be emitted"
+		);
+		assert!(
+			g.defs().any(|d| d.kind == b"struct"),
+			"the inner struct must also be emitted because the walker recursed"
+		);
+	}
+}

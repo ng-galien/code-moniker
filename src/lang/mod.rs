@@ -1,4 +1,5 @@
 pub mod callable;
+pub mod canonical_walker;
 pub mod cs;
 pub mod extractor;
 pub mod go;
@@ -7,6 +8,7 @@ pub mod kinds;
 pub mod python;
 pub mod rs;
 pub mod sql;
+pub mod strategy;
 pub mod ts;
 
 pub use extractor::LangExtractor;
