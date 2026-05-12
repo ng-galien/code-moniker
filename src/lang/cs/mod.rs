@@ -14,7 +14,7 @@ mod kinds;
 mod strategy;
 
 use canonicalize::compute_module_moniker;
-use strategy::{Strategy, collect_type_table};
+use strategy::{Strategy, collect_callable_table, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
@@ -47,6 +47,13 @@ pub fn extract(
 		&module,
 		&mut type_table,
 	);
+	let mut callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>> = HashMap::new();
+	collect_callable_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&mut callable_table,
+	);
 	let strat = Strategy {
 		module: module.clone(),
 		source_bytes: source.as_bytes(),
@@ -54,6 +61,7 @@ pub fn extract(
 		imports: RefCell::new(HashMap::new()),
 		local_scope: RefCell::new(Vec::new()),
 		type_table,
+		callable_table,
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -210,7 +218,7 @@ mod tests {
 			.segment(b"lang", b"cs")
 			.segment(b"module", b"F")
 			.segment(b"class", b"Bar")
-			.segment(b"method", b"Add(int,int)")
+			.segment(b"method", b"Add(a:int,b:int)")
 			.build();
 		assert!(
 			g.contains(&m),
@@ -224,7 +232,7 @@ mod tests {
 		let src = "namespace Foo;\npublic class Bar {\n    public string Greet(string n) { return n; }\n}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
 		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
-		assert_eq!(m.signature, b"string".to_vec());
+		assert_eq!(m.signature, b"n:string".to_vec());
 	}
 
 	#[test]
@@ -244,7 +252,7 @@ mod tests {
 			.segment(b"lang", b"cs")
 			.segment(b"module", b"F")
 			.segment(b"class", b"Bar")
-			.segment(b"constructor", b"Bar(int)")
+			.segment(b"constructor", b"Bar(x:int)")
 			.build();
 		assert!(
 			g.contains(&ctor),
@@ -291,7 +299,7 @@ mod tests {
 			.segment(b"lang", b"cs")
 			.segment(b"module", b"F")
 			.segment(b"record", b"Person")
-			.segment(b"constructor", b"Person(int,string)")
+			.segment(b"constructor", b"Person(Age:int,Name:string)")
 			.build();
 		assert!(g.contains(&record));
 		assert!(
@@ -496,16 +504,30 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_simple_invocation_emits_calls_with_arity() {
+	fn extract_simple_invocation_to_unresolved_callee_uses_name_only() {
 		let src = "class B {\n    void M() { Helper(1, 2); }\n}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
 		let r = g
 			.refs()
 			.find(|r| {
 				r.kind == b"calls"
-					&& r.target.as_view().segments().last().unwrap().name == b"Helper(2)"
+					&& r.target.as_view().segments().last().unwrap().name == b"Helper"
 			})
-			.expect("calls Helper(2)");
+			.expect("calls Helper (name-only)");
+		assert_eq!(r.confidence, b"name_match".to_vec());
+	}
+
+	#[test]
+	fn extract_simple_invocation_to_same_module_resolves_slots() {
+		let src = "class B {\n    void M() { Helper(1); }\n    void Helper(int n) {}\n}\n";
+		let g = extract_default("F.cs", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls"
+					&& r.target.as_view().segments().last().unwrap().name == b"Helper(n:int)"
+			})
+			.expect("calls Helper(n:int)");
 		assert_eq!(r.confidence, b"name_match".to_vec());
 	}
 
@@ -520,7 +542,7 @@ mod tests {
 		assert_eq!(r.receiver_hint, b"Console".to_vec());
 		assert_eq!(
 			r.target.as_view().segments().last().unwrap().name,
-			b"WriteLine(1)"
+			b"WriteLine"
 		);
 	}
 
@@ -532,7 +554,7 @@ mod tests {
 			.refs()
 			.find(|r| {
 				r.kind == b"method_call"
-					&& r.target.as_view().segments().last().unwrap().name == b"bar()"
+					&& r.target.as_view().segments().last().unwrap().name == b"bar"
 			})
 			.expect("method_call bar");
 		assert_eq!(r.receiver_hint, b"call".to_vec());
@@ -570,8 +592,8 @@ mod tests {
 			.filter(|r| r.kind == b"calls")
 			.map(|r| r.target.as_view().segments().last().unwrap().name)
 			.collect();
-		assert!(names.contains(&&b"Outer(1)"[..]));
-		assert!(names.contains(&&b"Inner()"[..]));
+		assert!(names.contains(&&b"Outer"[..]));
+		assert!(names.contains(&&b"Inner"[..]));
 	}
 
 	#[test]
@@ -643,7 +665,7 @@ mod tests {
 			.segment(b"lang", b"cs")
 			.segment(b"module", b"F")
 			.segment(b"class", b"B")
-			.segment(b"method", b"M(int,string)")
+			.segment(b"method", b"M(a:int,b:string)")
 			.segment(b"param", b"a")
 			.build();
 		assert!(g.contains(&pa));

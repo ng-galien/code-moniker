@@ -17,38 +17,46 @@ pub(super) fn strip_cs_extension(uri: &str) -> &str {
 	uri.strip_suffix(".cs").unwrap_or(uri)
 }
 
-pub(super) use crate::lang::callable::extend_callable_typed;
+pub(super) use crate::lang::callable::CallableSlot;
+use crate::lang::tree_util::node_slice;
 
-pub(super) fn parameter_types(callable: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
+pub(super) fn parameter_slots(callable: Node<'_>, source: &[u8]) -> Vec<CallableSlot> {
 	let params = callable
 		.child_by_field_name("parameters")
 		.or_else(|| find_named_child(callable, "parameter_list"));
 	let Some(params) = params else {
 		return Vec::new();
 	};
-	parameter_list_types(params, source)
+	parameter_list_slots(params, source)
 }
 
-pub(super) fn parameter_list_types(params: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
+pub(super) fn parameter_list_slots(params: Node<'_>, source: &[u8]) -> Vec<CallableSlot> {
 	let mut out = Vec::new();
 	let mut has_params_modifier = false;
 	let mut cursor = params.walk();
 	for c in params.children(&mut cursor) {
 		match c.kind() {
 			"parameter" => {
-				let ty = c
+				let r#type = c
 					.child_by_field_name("type")
 					.and_then(|t| t.utf8_text(source).ok())
 					.map(crate::lang::callable::normalize_type_text)
-					.unwrap_or_else(|| b"_".to_vec());
-				out.push(ty);
+					.unwrap_or_default();
+				let name = c
+					.child_by_field_name("name")
+					.map(|n| node_slice(n, source).to_vec())
+					.unwrap_or_default();
+				out.push(CallableSlot { name, r#type });
 			}
 			"params" => has_params_modifier = true,
 			_ => {}
 		}
 	}
 	if has_params_modifier {
-		out.push(b"...".to_vec());
+		out.push(CallableSlot {
+			name: Vec::new(),
+			r#type: b"...".to_vec(),
+		});
 	}
 	out
 }

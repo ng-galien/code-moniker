@@ -32,11 +32,11 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:cs/module:F/class:Bar/method:Add(int,int)'::moniker,
-		'method moniker carries full parameter type signature') AS r1,
+	ok(g @> 'code+moniker://app/lang:cs/module:F/class:Bar/method:Add(a:int,b:int)'::moniker,
+		'method moniker carries name:type slot signature') AS r1,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'method'),
-		'int,int',
-		'method signature column lists parameter types') AS r2
+		'a:int,b:int',
+		'method signature column lists name:type slots') AS r2
 FROM g;
 
 
@@ -50,7 +50,7 @@ WITH g AS (
 SELECT
 	ok(g @> 'code+moniker://app/lang:cs/module:F/record:Person'::moniker,
 		'record emits record def') AS r3,
-	ok(g @> 'code+moniker://app/lang:cs/module:F/record:Person/constructor:Person(int,string)'::moniker,
+	ok(g @> 'code+moniker://app/lang:cs/module:F/record:Person/constructor:Person(Age:int,Name:string)'::moniker,
 		'record primary constructor synthesised under the record') AS r4
 FROM g;
 
@@ -136,7 +136,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:cs/module:F/class:B/method:M(int)/param:a'::moniker,
+	ok(g @> 'code+moniker://app/lang:cs/module:F/class:B/method:M(a:int)/param:a'::moniker,
 		'deep extraction emits param def') AS r8
 FROM g;
 

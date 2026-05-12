@@ -6,11 +6,14 @@ use tree_sitter::Node;
 use crate::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-use crate::lang::callable::{extend_callable_arity, extend_segment, join_bytes_with_comma};
+use crate::lang::callable::{
+	callable_segment_slots, extend_callable_slots, extend_segment, join_bytes_with_comma,
+	slot_signature_bytes,
+};
 use crate::lang::strategy::{LangStrategy, NodeShape, RefSpec, Symbol};
 use crate::lang::tree_util::{find_named_child, node_position, node_slice};
 
-use super::canonicalize::{extend_callable_typed, parameter_list_types, parameter_types};
+use super::canonicalize::{parameter_list_slots, parameter_slots};
 use super::kinds;
 
 #[derive(Clone)]
@@ -26,6 +29,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) imports: RefCell<HashMap<Vec<u8>, ImportEntry>>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) type_table: HashMap<&'src [u8], Moniker>,
+	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
 }
 
 impl<'a> LangStrategy for Strategy<'a> {
@@ -207,9 +211,10 @@ impl<'src_lang> Strategy<'src_lang> {
 			return NodeShape::Recurse;
 		};
 		let name = node_slice(name_node, source);
-		let types = parameter_types(node, source);
-		let signature = join_bytes_with_comma(&types);
-		let moniker = extend_callable_typed(scope, kind, name, &types);
+		let slots = parameter_slots(node, source);
+		let signature =
+			join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
+		let moniker = extend_callable_slots(scope, kind, name, &slots);
 
 		let mut annotated_by: Vec<RefSpec> = Vec::new();
 		self.collect_attribute_refs(node, &mut annotated_by);
@@ -273,9 +278,10 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		};
 		let name = node_slice(name_node, self.source_bytes);
-		let types = parameter_list_types(plist, self.source_bytes);
-		let signature = join_bytes_with_comma(&types);
-		let ctor = extend_callable_typed(record, kinds::CONSTRUCTOR, name, &types);
+		let slots = parameter_list_slots(plist, self.source_bytes);
+		let signature =
+			join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
+		let ctor = extend_callable_slots(record, kinds::CONSTRUCTOR, name, &slots);
 		let attrs = DefAttrs {
 			visibility: kinds::VIS_PUBLIC,
 			signature: &signature,
@@ -474,15 +480,14 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn handle_invocation(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
-		let arity = argument_count(node);
 		let Some(callee) = node.child_by_field_name("function") else {
 			self.walk_children(node, scope, graph);
 			return;
 		};
 		match callee.kind() {
-			"identifier" => self.emit_simple_call(callee, scope, arity, pos, graph),
+			"identifier" => self.emit_simple_call(callee, scope, pos, graph),
 			"member_access_expression" => {
-				self.emit_member_call(callee, scope, arity, pos, graph);
+				self.emit_member_call(callee, scope, pos, graph);
 			}
 			_ => self.recurse_subtree(callee, scope, graph),
 		}
@@ -495,7 +500,6 @@ impl<'src_lang> Strategy<'src_lang> {
 		&self,
 		callee: Node<'_>,
 		scope: &Moniker,
-		arity: u16,
 		pos: (u32, u32),
 		graph: &mut CodeGraph,
 	) {
@@ -504,7 +508,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		}
 		if let Some(entry) = self.import_entry_for(name) {
-			let target = extend_callable_arity(&entry.module_prefix, kinds::FUNCTION, name, arity);
+			let target = extend_segment(&entry.module_prefix, kinds::FUNCTION, name);
 			let attrs = RefAttrs {
 				confidence: entry.confidence,
 				..RefAttrs::default()
@@ -518,7 +522,8 @@ impl<'src_lang> Strategy<'src_lang> {
 		let target = if conf == kinds::CONF_LOCAL {
 			extend_segment(scope, kinds::LOCAL, name)
 		} else {
-			extend_callable_arity(&self.module, kinds::FUNCTION, name, arity)
+			self.lookup_callable_in_scope(scope, name, kinds::METHOD)
+				.unwrap_or_else(|| extend_segment(&self.module, kinds::FUNCTION, name))
 		};
 		let attrs = RefAttrs {
 			confidence: conf,
@@ -531,7 +536,6 @@ impl<'src_lang> Strategy<'src_lang> {
 		&self,
 		callee: Node<'_>,
 		scope: &Moniker,
-		arity: u16,
 		pos: (u32, u32),
 		graph: &mut CodeGraph,
 	) {
@@ -544,7 +548,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		}
 		let operand = callee.child_by_field_name("expression");
-		let target = extend_callable_arity(&self.module, kinds::METHOD, name, arity);
+		let target = extend_segment(&self.module, kinds::METHOD, name);
 		let hint = operand
 			.map(|o| receiver_hint(o, self.source_bytes))
 			.unwrap_or(b"");
@@ -802,6 +806,95 @@ impl<'src_lang> Strategy<'src_lang> {
 			.unwrap_or(kinds::CONF_NAME_MATCH);
 		(target, confidence)
 	}
+
+	fn lookup_callable_in_scope(
+		&self,
+		scope: &Moniker,
+		name: &[u8],
+		kind: &[u8],
+	) -> Option<Moniker> {
+		let parent = enclosing_type(scope, &self.module).unwrap_or_else(|| self.module.clone());
+		let seg = self.callable_table.get(&(parent.clone(), name.to_vec()))?;
+		Some(extend_segment(&parent, kind, seg))
+	}
+}
+
+fn enclosing_type(scope: &Moniker, module: &Moniker) -> Option<Moniker> {
+	let view = scope.as_view();
+	let segs: Vec<_> = view.segments().collect();
+	let idx = segs.iter().rposition(|s| {
+		matches!(
+			s.kind,
+			b"class" | b"struct" | b"record" | b"interface" | b"enum"
+		)
+	})?;
+	let mut b = crate::core::moniker::MonikerBuilder::new();
+	b.project(view.project());
+	for s in &segs[..=idx] {
+		b.segment(s.kind, s.name);
+	}
+	let out = b.build();
+	if &out == module { None } else { Some(out) }
+}
+
+pub(super) fn collect_callable_table<'src>(
+	node: Node<'src>,
+	source: &'src [u8],
+	parent: &Moniker,
+	out: &mut HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+) {
+	let mut cursor = node.walk();
+	for child in node.children(&mut cursor) {
+		match child.kind() {
+			"class_declaration"
+			| "struct_declaration"
+			| "record_declaration"
+			| "record_struct_declaration"
+			| "interface_declaration"
+			| "enum_declaration" => {
+				let Some(name_node) = child.child_by_field_name("name") else {
+					continue;
+				};
+				let Ok(name) = name_node.utf8_text(source) else {
+					continue;
+				};
+				let kind: &[u8] = match child.kind() {
+					"class_declaration" => kinds::CLASS,
+					"struct_declaration" | "record_struct_declaration" => kinds::STRUCT,
+					"record_declaration" => kinds::RECORD,
+					"interface_declaration" => kinds::INTERFACE,
+					"enum_declaration" => kinds::ENUM,
+					_ => continue,
+				};
+				let scope = extend_segment(parent, kind, name.as_bytes());
+				if let Some(body) = child
+					.child_by_field_name("body")
+					.or_else(|| find_named_child(child, "declaration_list"))
+				{
+					collect_callable_table(body, source, &scope, out);
+				}
+				if matches!(
+					child.kind(),
+					"record_declaration" | "record_struct_declaration"
+				) && let Some(plist) = find_named_child(child, "parameter_list")
+				{
+					let slots = parameter_list_slots(plist, source);
+					let seg = callable_segment_slots(name.as_bytes(), &slots);
+					out.insert((scope.clone(), name.as_bytes().to_vec()), seg);
+				}
+			}
+			"method_declaration" | "constructor_declaration" | "local_function_statement" => {
+				let Some(name_node) = child.child_by_field_name("name") else {
+					continue;
+				};
+				let name = node_slice(name_node, source);
+				let slots = parameter_slots(child, source);
+				let seg = callable_segment_slots(name, &slots);
+				out.insert((parent.clone(), name.to_vec()), seg);
+			}
+			_ => collect_callable_table(child, source, parent, out),
+		}
+	}
 }
 
 pub(super) fn collect_type_table<'src>(
@@ -918,20 +1011,6 @@ fn first_identifier_child(node: Node<'_>) -> Option<Node<'_>> {
 	let mut cursor = node.walk();
 	node.named_children(&mut cursor)
 		.find(|c| c.kind() == "identifier")
-}
-
-fn argument_count(call: Node<'_>) -> u16 {
-	let Some(args) = call.child_by_field_name("arguments") else {
-		return 0;
-	};
-	let mut cursor = args.walk();
-	let mut count: u16 = 0;
-	for c in args.named_children(&mut cursor) {
-		if c.kind() == "argument" {
-			count = count.saturating_add(1);
-		}
-	}
-	count
 }
 
 fn receiver_hint<'a>(obj: Node<'_>, source: &'a [u8]) -> &'a [u8] {
