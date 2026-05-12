@@ -207,6 +207,80 @@ mod tests {
 	}
 
 	#[test]
+	fn line_comment_emits_comment_def() {
+		let g = run(
+			"pkg.sql",
+			"-- this is a header\nCREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;",
+		);
+		assert_eq!(
+			g.defs().filter(|d| d.kind == b"comment").count(),
+			1,
+			"a single -- line comment must produce one comment def, defs: {:?}",
+			g.def_monikers()
+		);
+	}
+
+	#[test]
+	fn function_param_emits_uses_type_with_pg_catalog_target() {
+		let g = run(
+			"pkg.sql",
+			"CREATE FUNCTION f(x int, y text) RETURNS bigint LANGUAGE sql AS $$ SELECT 1 $$;",
+		);
+		let int_target = "code+moniker://app/external_pkg:pg_catalog/path:int4";
+		let text_target = "code+moniker://app/external_pkg:pg_catalog/path:text";
+		let bigint_target = "code+moniker://app/external_pkg:pg_catalog/path:int8";
+		let targets = ref_targets(&g);
+		assert!(
+			targets.iter().any(|t| t == int_target),
+			"int param must emit uses_type → pg_catalog/path:int4, got: {targets:?}"
+		);
+		assert!(
+			targets.iter().any(|t| t == text_target),
+			"text param must emit uses_type → pg_catalog/path:text"
+		);
+		assert!(
+			targets.iter().any(|t| t == bigint_target),
+			"bigint return must emit uses_type → pg_catalog/path:int8"
+		);
+		let uses_type_count = g.refs().filter(|r| r.kind == b"uses_type").count();
+		assert!(
+			uses_type_count >= 3,
+			"expected at least 3 uses_type refs (2 params + 1 return), got {uses_type_count}"
+		);
+	}
+
+	#[test]
+	fn table_column_types_emit_uses_type() {
+		let g = run("pkg.sql", "CREATE TABLE t (id int, name text);");
+		let int_target = "code+moniker://app/external_pkg:pg_catalog/path:int4";
+		let text_target = "code+moniker://app/external_pkg:pg_catalog/path:text";
+		let targets = ref_targets(&g);
+		assert!(
+			targets.iter().any(|t| t == int_target),
+			"column type int must emit uses_type → int4"
+		);
+		assert!(
+			targets.iter().any(|t| t == text_target),
+			"column type text must emit uses_type → text"
+		);
+	}
+
+	#[test]
+	fn builtin_function_call_carries_external_confidence() {
+		let g = run("pkg.sql", "SELECT now();");
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"calls")
+			.expect("calls ref for now()");
+		assert_eq!(
+			r.confidence,
+			b"external".to_vec(),
+			"builtin functions like now() must be marked external, got {:?}",
+			std::str::from_utf8(&r.confidence).unwrap_or("?")
+		);
+	}
+
+	#[test]
 	fn function_def_has_byte_range() {
 		let g = run(
 			"pkg.sql",

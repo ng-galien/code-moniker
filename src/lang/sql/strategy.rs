@@ -5,6 +5,7 @@ use crate::core::moniker::Moniker;
 
 use crate::core::code_graph::RefAttrs;
 
+use crate::core::moniker::MonikerBuilder;
 use crate::lang::canonical_walker::CanonicalWalker;
 use crate::lang::strategy::{LangStrategy, NodeShape, Symbol};
 use crate::lang::tree_util::{find_descendant, find_named_child, node_position, node_slice};
@@ -48,6 +49,9 @@ impl LangStrategy for Strategy<'_> {
 		graph: &mut CodeGraph,
 	) -> NodeShape<'src> {
 		match node.kind() {
+			"comment" => NodeShape::Annotation {
+				kind: kinds::COMMENT,
+			},
 			"CreateFunctionStmt" => classify_create_function(node, source, &self.module),
 			"CreateStmt" => {
 				classify_qualified_relation(node, source, &self.module, kinds::TABLE, None)
@@ -75,16 +79,16 @@ impl LangStrategy for Strategy<'_> {
 		source: &[u8],
 		graph: &mut CodeGraph,
 	) {
-		if sym_kind != kinds::FUNCTION {
-			return;
+		if sym_kind == kinds::FUNCTION {
+			emit_function_type_refs(node, source, sym_moniker, &self.module, graph);
+			if function_language(node, source).eq_ignore_ascii_case(b"plpgsql")
+				&& let Some(body_text) = dollar_body(node, self.source_str)
+			{
+				super::body::walk_plpgsql_body(body_text, sym_moniker, &self.module, graph);
+			}
+		} else if sym_kind == kinds::TABLE {
+			emit_table_column_type_refs(node, source, sym_moniker, &self.module, graph);
 		}
-		if !function_language(node, source).eq_ignore_ascii_case(b"plpgsql") {
-			return;
-		}
-		let Some(body_text) = dollar_body(node, self.source_str) else {
-			return;
-		};
-		super::body::walk_plpgsql_body(body_text, sym_moniker, &self.module, graph);
 	}
 }
 
@@ -176,14 +180,99 @@ fn emit_call(
 		return;
 	}
 	let arity = func_call_arity(node);
-	let parent = maybe_schema(module, schema);
-	let target = extend_callable_arity(&parent, kinds::FUNCTION, name, arity);
+	let confidence = if schema == b"pg_catalog" || (schema.is_empty() && is_builtin_function(name))
+	{
+		kinds::CONF_EXTERNAL
+	} else {
+		kinds::CONF_NAME_MATCH
+	};
+	let target = if confidence == kinds::CONF_EXTERNAL && schema != b"pg_catalog" {
+		let mut b = MonikerBuilder::new();
+		b.project(module.as_view().project());
+		b.segment(kinds::EXTERNAL_PKG, b"pg_catalog");
+		b.segment(kinds::PATH, name);
+		b.build()
+	} else {
+		let parent = maybe_schema(module, schema);
+		extend_callable_arity(&parent, kinds::FUNCTION, name, arity)
+	};
 	let s = node.start_byte() as u32;
 	let attrs = RefAttrs {
-		confidence: kinds::CONF_UNRESOLVED,
+		confidence,
 		..RefAttrs::default()
 	};
 	let _ = graph.add_ref_attrs(scope, target, kinds::REF_CALLS, Some((s, s)), &attrs);
+}
+
+fn is_builtin_function(name: &[u8]) -> bool {
+	matches!(
+		name,
+		b"format"
+			| b"format_type"
+			| b"to_regtype"
+			| b"to_regtypemod"
+			| b"to_regclass"
+			| b"to_regproc"
+			| b"current_setting"
+			| b"current_database"
+			| b"current_schema"
+			| b"current_user"
+			| b"session_user"
+			| b"version"
+			| b"now" | b"clock_timestamp"
+			| b"transaction_timestamp"
+			| b"statement_timestamp"
+			| b"timeofday"
+			| b"coalesce"
+			| b"nullif"
+			| b"greatest"
+			| b"least"
+			| b"length"
+			| b"char_length"
+			| b"character_length"
+			| b"octet_length"
+			| b"lower"
+			| b"upper"
+			| b"initcap"
+			| b"substring"
+			| b"substr"
+			| b"trim" | b"ltrim"
+			| b"rtrim"
+			| b"btrim"
+			| b"replace"
+			| b"translate"
+			| b"position"
+			| b"strpos"
+			| b"concat"
+			| b"concat_ws"
+			| b"string_agg"
+			| b"array_agg"
+			| b"array_length"
+			| b"array_to_string"
+			| b"string_to_array"
+			| b"unnest"
+			| b"generate_series"
+			| b"jsonb_build_object"
+			| b"jsonb_build_array"
+			| b"jsonb_object_keys"
+			| b"to_json"
+			| b"to_jsonb"
+			| b"row_to_json"
+			| b"abs" | b"floor"
+			| b"ceil" | b"ceiling"
+			| b"round"
+			| b"trunc"
+			| b"mod" | b"power"
+			| b"sqrt" | b"random"
+			| b"count"
+			| b"sum" | b"avg"
+			| b"min" | b"max"
+			| b"nextval"
+			| b"currval"
+			| b"setval"
+			| b"pg_typeof"
+			| b"pg_size_pretty"
+	)
 }
 
 pub(super) fn visit<F: FnMut(Node)>(node: Node, f: &mut F) {
@@ -319,4 +408,114 @@ fn walk_arg_list(list: Node, count: &mut u16) {
 			_ => {}
 		}
 	}
+}
+
+fn emit_function_type_refs(
+	node: Node<'_>,
+	source: &[u8],
+	source_moniker: &Moniker,
+	module: &Moniker,
+	graph: &mut CodeGraph,
+) {
+	if let Some(params) = find_child(node, "func_args_with_defaults") {
+		visit(params, &mut |n| {
+			if n.kind() != "func_arg" {
+				return;
+			}
+			if let Some(ft) = find_child(n, "func_type") {
+				emit_uses_type(ft, source, source_moniker, module, graph);
+			}
+		});
+	}
+	if let Some(ft) = find_descendant(node, "func_return")
+		&& let Some(t) = find_descendant(ft, "func_type")
+	{
+		emit_uses_type(t, source, source_moniker, module, graph);
+	}
+}
+
+fn emit_table_column_type_refs(
+	node: Node<'_>,
+	source: &[u8],
+	source_moniker: &Moniker,
+	module: &Moniker,
+	graph: &mut CodeGraph,
+) {
+	visit(node, &mut |n| {
+		if n.kind() != "columnDef" {
+			return;
+		}
+		if let Some(t) = find_child(n, "Typename") {
+			emit_uses_type(t, source, source_moniker, module, graph);
+		}
+	});
+}
+
+fn emit_uses_type(
+	type_node: Node<'_>,
+	source: &[u8],
+	source_moniker: &Moniker,
+	module: &Moniker,
+	graph: &mut CodeGraph,
+) {
+	let raw = node_slice(type_node, source);
+	let canonical = normalize_type(raw);
+	if canonical.is_empty() {
+		return;
+	}
+	let (target, confidence) = type_target(&canonical, module);
+	let attrs = RefAttrs {
+		confidence,
+		..RefAttrs::default()
+	};
+	let _ = graph.add_ref_attrs(
+		source_moniker,
+		target,
+		kinds::USES_TYPE,
+		Some(node_position(type_node)),
+		&attrs,
+	);
+}
+
+fn type_target(canonical: &[u8], module: &Moniker) -> (Moniker, &'static [u8]) {
+	if is_builtin_type(canonical) {
+		let mut b = MonikerBuilder::new();
+		b.project(module.as_view().project());
+		b.segment(kinds::EXTERNAL_PKG, b"pg_catalog");
+		b.segment(kinds::PATH, canonical);
+		return (b.build(), kinds::CONF_EXTERNAL);
+	}
+	let target = extend_segment(module, kinds::TYPE, canonical);
+	(target, kinds::CONF_NAME_MATCH)
+}
+
+fn is_builtin_type(name: &[u8]) -> bool {
+	matches!(
+		name,
+		b"int2"
+			| b"int4" | b"int8"
+			| b"float4"
+			| b"float8"
+			| b"numeric"
+			| b"text" | b"varchar"
+			| b"bpchar"
+			| b"char" | b"bool"
+			| b"date" | b"time"
+			| b"timestamp"
+			| b"timestamptz"
+			| b"interval"
+			| b"uuid" | b"json"
+			| b"jsonb"
+			| b"bytea"
+			| b"oid" | b"regclass"
+			| b"regproc"
+			| b"regprocedure"
+			| b"regtype"
+			| b"cstring"
+			| b"name" | b"void"
+			| b"trigger"
+			| b"record"
+			| b"any" | b"anyelement"
+			| b"anyarray"
+	)
 }
