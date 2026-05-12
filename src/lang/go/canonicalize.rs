@@ -16,13 +16,7 @@ pub(super) fn strip_go_extension(uri: &str) -> &str {
 	uri.strip_suffix(".go").unwrap_or(uri)
 }
 
-pub(super) use crate::lang::callable::{
-	extend_callable_arity, extend_callable_typed, extend_segment, extend_segment_u32,
-};
-
-pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
-	(node.start_byte() as u32, node.end_byte() as u32)
-}
+pub(super) use crate::lang::callable::extend_callable_typed;
 
 pub(super) fn function_param_types(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 	let Some(params) = node.child_by_field_name("parameters") else {
