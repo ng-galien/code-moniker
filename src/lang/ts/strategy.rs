@@ -51,11 +51,9 @@ impl<'a> LangStrategy for Strategy<'a> {
 			"function_declaration" | "generator_function_declaration" => {
 				self.classify_function_decl(node, scope, source)
 			}
-			"method_definition" | "method_signature" => {
-				self.classify_method(node, scope, source, graph)
-			}
+			"method_definition" | "method_signature" => self.classify_method(node, scope, source),
 			"public_field_definition" | "property_signature" => {
-				self.classify_field(node, scope, source, graph)
+				self.classify_field(node, scope, source)
 			}
 			"lexical_declaration" | "variable_declaration" => {
 				self.handle_lexical(node, scope, graph);
@@ -107,19 +105,24 @@ impl<'a> LangStrategy for Strategy<'a> {
 				NodeShape::Skip
 			}
 			"binary_expression" | "assignment_expression" => {
-				self.handle_binary_like(node, scope, graph);
+				self.dispatch_fields(node, scope, graph, &["left", "right"]);
 				NodeShape::Skip
 			}
 			"unary_expression" | "update_expression" => {
-				self.handle_unary_like(node, scope, graph);
+				self.dispatch_fields(node, scope, graph, &["argument"]);
 				NodeShape::Skip
 			}
 			"ternary_expression" => {
-				self.handle_ternary(node, scope, graph);
+				self.dispatch_fields(
+					node,
+					scope,
+					graph,
+					&["condition", "consequence", "alternative"],
+				);
 				NodeShape::Skip
 			}
 			"member_expression" | "subscript_expression" => {
-				self.handle_member_like(node, scope, graph);
+				self.dispatch_fields(node, scope, graph, &["object"]);
 				NodeShape::Skip
 			}
 			"shorthand_property_identifier" => {
@@ -222,11 +225,14 @@ impl<'src_lang> Strategy<'src_lang> {
 		let moniker = extend_segment(scope, kinds::CLASS, name);
 
 		let mut annotated_by: Vec<RefSpec> = Vec::new();
-		self.collect_decorator_refs(node, &mut annotated_by);
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
-			if child.kind() == "class_heritage" {
-				self.collect_heritage_refs_from_clauses(child, &mut annotated_by);
+			match child.kind() {
+				"decorator" => self.collect_decorator_ref(child, &mut annotated_by),
+				"class_heritage" => {
+					self.collect_heritage_refs_from_clauses(child, &mut annotated_by)
+				}
+				_ => {}
 			}
 		}
 
@@ -345,7 +351,6 @@ impl<'src_lang> Strategy<'src_lang> {
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
-		graph: &mut CodeGraph,
 	) -> NodeShape<'src> {
 		let Some(name_node) = node.child_by_field_name("name") else {
 			return NodeShape::Recurse;
@@ -357,7 +362,6 @@ impl<'src_lang> Strategy<'src_lang> {
 			kinds::METHOD
 		};
 		let vis = class_member_visibility(node, source);
-		let _ = graph;
 		self.callable_symbol(node, node, name, kind, scope, vis)
 	}
 
@@ -366,7 +370,6 @@ impl<'src_lang> Strategy<'src_lang> {
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
-		_graph: &mut CodeGraph,
 	) -> NodeShape<'src> {
 		let Some(name_node) = node.child_by_field_name("name") else {
 			return NodeShape::Recurse;
@@ -864,22 +867,34 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn collect_decorator_refs(&self, node: Node<'_>, out: &mut Vec<RefSpec>) {
-		let mut cursor = node.walk();
-		for c in node.children(&mut cursor) {
-			if c.kind() != "decorator" {
-				continue;
-			}
-			let pos = node_position(c);
-			let mut dc = c.walk();
-			for ch in c.children(&mut dc) {
-				match ch.kind() {
-					"identifier" => {
-						let name = node_slice(ch, self.source_bytes);
-						if name.is_empty() {
-							continue;
-						}
-						let target = extend_callable_arity(&self.module, kinds::FUNCTION, name, 0);
+	fn collect_decorator_ref(&self, decorator: Node<'_>, out: &mut Vec<RefSpec>) {
+		let pos = node_position(decorator);
+		let mut dc = decorator.walk();
+		for ch in decorator.children(&mut dc) {
+			match ch.kind() {
+				"identifier" => {
+					let name = node_slice(ch, self.source_bytes);
+					if name.is_empty() {
+						continue;
+					}
+					let target = extend_callable_arity(&self.module, kinds::FUNCTION, name, 0);
+					out.push(RefSpec {
+						kind: kinds::ANNOTATES,
+						target,
+						confidence: kinds::CONF_NAME_MATCH,
+						position: pos,
+						receiver_hint: b"",
+						alias: b"",
+					});
+				}
+				"call_expression" => {
+					if let Some(fn_node) = ch.child_by_field_name("function")
+						&& fn_node.kind() == "identifier"
+					{
+						let name = node_slice(fn_node, self.source_bytes);
+						let arity = call_argument_count(ch);
+						let target =
+							extend_callable_arity(&self.module, kinds::FUNCTION, name, arity);
 						out.push(RefSpec {
 							kind: kinds::ANNOTATES,
 							target,
@@ -889,26 +904,8 @@ impl<'src_lang> Strategy<'src_lang> {
 							alias: b"",
 						});
 					}
-					"call_expression" => {
-						if let Some(fn_node) = ch.child_by_field_name("function")
-							&& fn_node.kind() == "identifier"
-						{
-							let name = node_slice(fn_node, self.source_bytes);
-							let arity = call_argument_count(ch);
-							let target =
-								extend_callable_arity(&self.module, kinds::FUNCTION, name, arity);
-							out.push(RefSpec {
-								kind: kinds::ANNOTATES,
-								target,
-								confidence: kinds::CONF_NAME_MATCH,
-								position: pos,
-								receiver_hint: b"",
-								alias: b"",
-							});
-						}
-					}
-					_ => {}
 				}
+				_ => {}
 			}
 		}
 	}
@@ -939,22 +936,19 @@ impl<'src_lang> Strategy<'src_lang> {
 			} else {
 				kinds::CLASS
 			};
-			let name_opt: Option<Vec<u8>> = match c.kind() {
-				"identifier" | "type_identifier" => Some(node_slice(c, self.source_bytes).to_vec()),
+			let name: Option<&[u8]> = match c.kind() {
+				"identifier" | "type_identifier" => Some(node_slice(c, self.source_bytes)),
 				"member_expression" => c
 					.child_by_field_name("property")
-					.map(|p| node_slice(p, self.source_bytes).to_vec()),
-				"generic_type" => generic_short(c, self.source_bytes).map(|s| s.into_bytes()),
-				"nested_type_identifier" => {
-					nested_type_short(c, self.source_bytes).map(|s| s.into_bytes())
-				}
+					.map(|p| node_slice(p, self.source_bytes)),
+				"generic_type" => generic_short(c, self.source_bytes),
+				"nested_type_identifier" => nested_type_short(c, self.source_bytes),
 				_ => None,
 			};
-			let Some(name) = name_opt else { continue };
-			if name.is_empty() {
+			let Some(name) = name.filter(|n| !n.is_empty()) else {
 				continue;
-			}
-			let target = extend_segment(&self.module, target_kind, &name);
+			};
+			let target = extend_segment(&self.module, target_kind, name);
 			out.push(RefSpec {
 				kind: edge,
 				target,
@@ -988,7 +982,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			}
 			"nested_type_identifier" => {
 				if let Some(name) = nested_type_short(node, self.source_bytes) {
-					let target = extend_segment(&self.module, kinds::CLASS, name.as_bytes());
+					let target = extend_segment(&self.module, kinds::CLASS, name);
 					let attrs = RefAttrs {
 						confidence: kinds::CONF_NAME_MATCH,
 						..RefAttrs::default()
@@ -1004,7 +998,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			}
 			"generic_type" => {
 				if let Some(name) = generic_short(node, self.source_bytes) {
-					let target = extend_segment(&self.module, kinds::CLASS, name.as_bytes());
+					let target = extend_segment(&self.module, kinds::CLASS, name);
 					let attrs = RefAttrs {
 						confidence: kinds::CONF_NAME_MATCH,
 						..RefAttrs::default()
@@ -1067,46 +1061,21 @@ impl<'src_lang> Strategy<'src_lang> {
 		);
 	}
 
-	fn handle_member_like(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		if let Some(obj) = node.child_by_field_name("object") {
-			if obj.kind() == "identifier" {
-				self.emit_read_at(obj, scope, graph);
+	fn dispatch_fields(
+		&self,
+		node: Node<'_>,
+		scope: &Moniker,
+		graph: &mut CodeGraph,
+		fields: &[&str],
+	) {
+		for f in fields {
+			let Some(c) = node.child_by_field_name(f) else {
+				continue;
+			};
+			if c.kind() == "identifier" {
+				self.emit_read_at(c, scope, graph);
 			} else {
-				self.recurse_subtree(obj, scope, graph);
-			}
-		}
-	}
-
-	fn handle_binary_like(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		for field in &["left", "right"] {
-			if let Some(c) = node.child_by_field_name(field) {
-				if c.kind() == "identifier" {
-					self.emit_read_at(c, scope, graph);
-				} else {
-					self.recurse_subtree(c, scope, graph);
-				}
-			}
-		}
-	}
-
-	fn handle_unary_like(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		if let Some(arg) = node.child_by_field_name("argument") {
-			if arg.kind() == "identifier" {
-				self.emit_read_at(arg, scope, graph);
-			} else {
-				self.recurse_subtree(arg, scope, graph);
-			}
-		}
-	}
-
-	fn handle_ternary(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		for field in &["condition", "consequence", "alternative"] {
-			if let Some(c) = node.child_by_field_name(field) {
-				if c.kind() == "identifier" {
-					self.emit_read_at(c, scope, graph);
-				} else {
-					self.recurse_subtree(c, scope, graph);
-				}
+				self.recurse_subtree(c, scope, graph);
 			}
 		}
 	}
@@ -1155,7 +1124,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			match c.kind() {
 				"identifier" => {
 					let local_name = node_slice(c, self.source_bytes);
-					let target = self.import_symbol_target(raw_spec, "default");
+					let target = self.import_symbol_target(raw_spec, b"default");
 					let attrs = RefAttrs {
 						alias: local_name,
 						confidence,
@@ -1191,15 +1160,13 @@ impl<'src_lang> Strategy<'src_lang> {
 						if spec.kind() != "import_specifier" {
 							continue;
 						}
-						let name = spec
+						let Some(name) = spec
 							.child_by_field_name("name")
-							.map(|n| {
-								std::str::from_utf8(node_slice(n, self.source_bytes)).unwrap_or("")
-							})
-							.unwrap_or("");
-						if name.is_empty() {
+							.map(|n| node_slice(n, self.source_bytes))
+							.filter(|n| !n.is_empty())
+						else {
 							continue;
-						}
+						};
 						let alias = spec
 							.child_by_field_name("alias")
 							.map(|n| node_slice(n, self.source_bytes))
@@ -1262,13 +1229,13 @@ impl<'src_lang> Strategy<'src_lang> {
 			if spec.kind() != "export_specifier" {
 				continue;
 			}
-			let name = spec
+			let Some(name) = spec
 				.child_by_field_name("name")
-				.map(|n| std::str::from_utf8(node_slice(n, self.source_bytes)).unwrap_or(""))
-				.unwrap_or("");
-			if name.is_empty() {
+				.map(|n| node_slice(n, self.source_bytes))
+				.filter(|n| !n.is_empty())
+			else {
 				continue;
-			}
+			};
 			let alias = spec
 				.child_by_field_name("alias")
 				.map(|n| node_slice(n, self.source_bytes))
@@ -1287,18 +1254,18 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.import_target(raw_path, None)
 	}
 
-	fn import_symbol_target(&self, raw_path: &str, name: &str) -> Moniker {
+	fn import_symbol_target(&self, raw_path: &str, name: &[u8]) -> Moniker {
 		self.import_target(raw_path, Some(name))
 	}
 
-	fn import_target(&self, raw_path: &str, symbol: Option<&str>) -> Moniker {
+	fn import_target(&self, raw_path: &str, symbol: Option<&[u8]>) -> Moniker {
 		let mut b = if is_relative_specifier(raw_path) {
 			self.relative_module_builder(raw_path)
 		} else {
 			external_pkg_builder(self.module.as_view().project(), raw_path)
 		};
 		if let Some(sym) = symbol {
-			b.segment(kinds::PATH, sym.as_bytes());
+			b.segment(kinds::PATH, sym);
 		}
 		b.build()
 	}
@@ -1455,7 +1422,7 @@ pub(super) fn collect_export_ranges(root: Node<'_>) -> Vec<(u32, u32)> {
 	let mut cursor = root.walk();
 	for child in root.children(&mut cursor) {
 		if child.kind() == "export_statement" {
-			out.push((child.start_byte() as u32, child.end_byte() as u32));
+			out.push(node_position(child));
 		}
 	}
 	out
@@ -1489,12 +1456,11 @@ fn class_member_visibility(node: Node<'_>, source: &[u8]) -> &'static [u8] {
 	kinds::VIS_PUBLIC
 }
 
-fn collect_binding_names(pat: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
-	fn rec(node: Node<'_>, source: &[u8], out: &mut Vec<Vec<u8>>) {
+fn collect_binding_names<'src>(pat: Node<'src>, source: &'src [u8]) -> Vec<Vec<u8>> {
+	fn rec<'src>(node: Node<'src>, source: &'src [u8], out: &mut Vec<Vec<u8>>) {
 		match node.kind() {
 			"identifier" | "shorthand_property_identifier_pattern" => {
-				let slice = &source[node.start_byte()..node.end_byte().min(source.len())];
-				out.push(slice.to_vec());
+				out.push(node_slice(node, source).to_vec());
 			}
 			"object_pattern" | "array_pattern" | "pair_pattern" | "rest_pattern"
 			| "assignment_pattern" => {
@@ -1541,27 +1507,26 @@ fn receiver_hint<'a>(member_expr: Node<'_>, source: &'a [u8]) -> &'a [u8] {
 	}
 }
 
-fn generic_short(node: Node<'_>, source: &[u8]) -> Option<String> {
+fn generic_short<'src>(node: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
 	let inner = node.child_by_field_name("name").or_else(|| {
 		let mut cursor = node.walk();
 		node.named_children(&mut cursor).next()
 	})?;
 	match inner.kind() {
-		"type_identifier" => inner.utf8_text(source).ok().map(|s| s.to_string()),
 		"nested_type_identifier" => nested_type_short(inner, source),
-		_ => inner.utf8_text(source).ok().map(|s| s.to_string()),
+		_ => Some(node_slice(inner, source)),
 	}
 }
 
-fn nested_type_short(node: Node<'_>, source: &[u8]) -> Option<String> {
+fn nested_type_short<'src>(node: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
 	if let Some(name) = node.child_by_field_name("name") {
-		return name.utf8_text(source).ok().map(|s| s.to_string());
+		return Some(node_slice(name, source));
 	}
 	let mut cursor = node.walk();
-	let mut last: Option<String> = None;
+	let mut last: Option<&'src [u8]> = None;
 	for c in node.named_children(&mut cursor) {
 		if c.kind() == "type_identifier" || c.kind() == "identifier" {
-			last = c.utf8_text(source).ok().map(|s| s.to_string());
+			last = Some(node_slice(c, source));
 		}
 	}
 	last
@@ -1579,11 +1544,11 @@ fn import_confidence(spec: &str) -> &'static [u8] {
 	}
 }
 
-fn first_identifier_text<'a>(node: Node<'_>, source: &'a [u8]) -> &'a [u8] {
+fn first_identifier_text<'src>(node: Node<'src>, source: &'src [u8]) -> &'src [u8] {
 	let mut cursor = node.walk();
 	for c in node.children(&mut cursor) {
 		if c.kind() == "identifier" {
-			return &source[c.start_byte()..c.end_byte().min(source.len())];
+			return node_slice(c, source);
 		}
 	}
 	b""
