@@ -16,6 +16,29 @@ scripts/dogfood.sh --reset           # discard caches and re-clone
 Cloned repositories land under `<repo_root>/dogfood/<lang>/<project>/`
 and are gitignored. Re-running without `--reset` reuses existing clones.
 
+## Regression floors
+
+After ingest, `scripts/dogfood-check.sh` asserts that every
+`(project, kind)` count is at least the floor recorded in
+`scripts/dogfood/baselines.tsv`. The floors are 5% below the snapshot
+in the file — small fluctuations from tree-sitter grammar updates or
+panel pin refreshes pass; a real regression where the extractor stops
+emitting a class of defs/refs fails loudly.
+
+Workflow when extractor behavior changes legitimately (a fix that
+emits more defs, a new kind, etc.):
+
+```sh
+scripts/dogfood.sh                    # re-ingest
+scripts/dogfood-check.sh              # may fail on the new code path
+scripts/dogfood-baseline.sh           # regenerate the floors
+git diff scripts/dogfood/baselines.tsv  # audit the change
+git add scripts/dogfood/baselines.tsv && git commit
+```
+
+Tolerance is configurable: `FLOOR_RATIO=0.90 scripts/dogfood-baseline.sh`
+loosens to ±10%, `FLOOR_RATIO=1.0` matches exact counts.
+
 ## Schema
 
 Single DB `pcm_dogfood` with two tables, both project-keyed so a query
