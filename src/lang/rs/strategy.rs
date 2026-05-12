@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use tree_sitter::Node;
 
-use crate::core::code_graph::{CodeGraph, RefAttrs};
+use crate::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use crate::lang::callable::{extend_callable_arity, extend_segment};
@@ -240,6 +240,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		};
 		let type_moniker = extend_segment(&self.module, kinds::STRUCT, type_name.as_bytes());
+		self.ensure_inferred_struct(&type_moniker, node, graph);
 		if let Some(trait_node) = node.child_by_field_name("trait")
 			&& let Some(trait_name) = impl_type_name(trait_node, source)
 		{
@@ -256,6 +257,23 @@ impl<'src_lang> Strategy<'src_lang> {
 		if let Some(body) = node.child_by_field_name("body") {
 			self.walk_children(body, &type_moniker, graph);
 		}
+	}
+
+	fn ensure_inferred_struct(&self, m: &Moniker, anchor: Node<'_>, graph: &mut CodeGraph) {
+		if graph.contains(m) {
+			return;
+		}
+		let attrs = DefAttrs {
+			visibility: kinds::VIS_NONE,
+			..DefAttrs::default()
+		};
+		let _ = graph.add_def_attrs(
+			m.clone(),
+			kinds::STRUCT,
+			&self.module,
+			Some(node_position(anchor)),
+			&attrs,
+		);
 	}
 
 	fn handle_let(&self, node: Node<'_>, callable: &Moniker, source: &[u8], graph: &mut CodeGraph) {

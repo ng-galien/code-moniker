@@ -320,6 +320,47 @@ enum Baz {
 	}
 
 	#[test]
+	fn extract_impl_trait_for_external_type_keeps_methods_and_ref() {
+		let src = r#"
+            use alloc::collections::VecDeque;
+            pub trait Buf { fn remaining(&self) -> usize; }
+            impl Buf for VecDeque<u8> {
+                fn remaining(&self) -> usize { 0 }
+                fn chunk(&self) -> &[u8] { &[] }
+            }
+        "#;
+		let g = extract("util.rs", src, &make_anchor(), false);
+		let vec_deque = MonikerBuilder::new()
+			.project(b"code-moniker")
+			.segment(b"lang", b"rs")
+			.segment(b"module", b"util")
+			.segment(b"struct", b"VecDeque")
+			.build();
+		let remaining = MonikerBuilder::new()
+			.project(b"code-moniker")
+			.segment(b"lang", b"rs")
+			.segment(b"module", b"util")
+			.segment(b"struct", b"VecDeque")
+			.segment(b"method", b"remaining()")
+			.build();
+		assert!(
+			g.contains(&vec_deque),
+			"VecDeque must be synthesized as a placeholder struct so its methods can land. defs: {:?}",
+			g.def_monikers()
+		);
+		assert!(
+			g.contains(&remaining),
+			"method on impl-for-external-type must be captured. defs: {:?}",
+			g.def_monikers()
+		);
+		assert!(
+			g.refs().any(|r| r.kind == b"implements".to_vec()
+				&& r.target.as_view().segments().last().unwrap().name == b"Buf"),
+			"impl-for-external must still emit the implements ref"
+		);
+	}
+
+	#[test]
 	fn extract_use_bare_ident_is_external() {
 		let g = extract("util.rs", "use foo;", &make_anchor(), false);
 		assert_eq!(g.ref_count(), 1);
