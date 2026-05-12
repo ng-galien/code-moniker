@@ -346,6 +346,8 @@ fn graph_defs(
 	(
 		name!(moniker, moniker),
 		name!(kind, String),
+		name!(shape, Option<String>),
+		name!(opens_scope, bool),
 		name!(visibility, Option<String>),
 		name!(signature, Option<String>),
 		name!(binding, Option<String>),
@@ -359,6 +361,8 @@ fn graph_defs(
 		moniker,
 		String,
 		Option<String>,
+		bool,
+		Option<String>,
 		Option<String>,
 		Option<String>,
 		Option<String>,
@@ -371,6 +375,8 @@ fn graph_defs(
 			(
 				moniker::from_core(d.moniker.clone()),
 				kind_text(&d.kind),
+				d.shape().map(|s| s.as_str().to_string()),
+				d.opens_scope(),
 				bytes_to_opt_string(&d.visibility),
 				bytes_to_opt_string(&d.signature),
 				bytes_to_opt_string(&d.binding),
