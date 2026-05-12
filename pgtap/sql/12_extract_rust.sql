@@ -41,8 +41,8 @@ SELECT
 		'struct emits struct def') AS r1,
 	ok(g @> 'code+moniker://pkg/lang:rs/module:util/struct:Foo/method:bar()'::moniker,
 		'impl method re-parented onto struct; &self is implicit so arity 0 with empty parens') AS r2,
-	ok(g @> 'code+moniker://pkg/lang:rs/module:util/struct:Foo/method:baz(u32)'::moniker,
-		'second impl method with one value parameter (self excluded)') AS r3
+	ok(g @> 'code+moniker://pkg/lang:rs/module:util/struct:Foo/method:baz(n:u32)'::moniker,
+		'second impl method with one value parameter (self excluded), name:type slot') AS r3
 FROM g;
 
 WITH g AS (

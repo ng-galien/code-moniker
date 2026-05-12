@@ -10,8 +10,10 @@ mod canonicalize;
 mod kinds;
 mod strategy;
 
+use std::collections::HashMap;
+
 use canonicalize::compute_module_moniker;
-use strategy::{Strategy, collect_local_mods};
+use strategy::{Strategy, collect_callable_table, collect_local_mods};
 
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
@@ -38,6 +40,13 @@ pub fn extract(
 	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
 	let tree = parse(source);
 	let local_mods = collect_local_mods(tree.root_node(), source.as_bytes());
+	let mut callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>> = HashMap::new();
+	collect_callable_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&mut callable_table,
+	);
 	let strat = Strategy {
 		module: module.clone(),
 		source_bytes: source.as_bytes(),
@@ -45,6 +54,7 @@ pub fn extract(
 		local_mods,
 		local_scope: std::cell::RefCell::new(Vec::new()),
 		type_params: std::cell::RefCell::new(Vec::new()),
+		callable_table,
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -238,7 +248,7 @@ enum Baz {
 			.project(b"code-moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"fn", b"add(i32,i32)")
+			.segment(b"fn", b"add(a:i32,b:i32)")
 			.build();
 		assert!(
 			g.contains(&add),
@@ -557,20 +567,20 @@ enum Baz {
 			.project(b"code-moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"fn", b"add(i32,i32)")
+			.segment(b"fn", b"add(a:i32,b:i32)")
 			.build();
 		let pa = MonikerBuilder::new()
 			.project(b"code-moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"fn", b"add(i32,i32)")
+			.segment(b"fn", b"add(a:i32,b:i32)")
 			.segment(b"param", b"a")
 			.build();
 		let pb = MonikerBuilder::new()
 			.project(b"code-moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"fn", b"add(i32,i32)")
+			.segment(b"fn", b"add(a:i32,b:i32)")
 			.segment(b"param", b"b")
 			.build();
 		assert!(g.contains(&add));
@@ -591,7 +601,7 @@ enum Baz {
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"struct", b"Foo")
-			.segment(b"method", b"bar(i32)")
+			.segment(b"method", b"bar(x:i32)")
 			.segment(b"param", b"self")
 			.build();
 		let bar_x = MonikerBuilder::new()
@@ -599,7 +609,7 @@ enum Baz {
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"struct", b"Foo")
-			.segment(b"method", b"bar(i32)")
+			.segment(b"method", b"bar(x:i32)")
 			.segment(b"param", b"x")
 			.build();
 		assert!(g.contains(&bar_self));
@@ -641,7 +651,7 @@ enum Baz {
 			.project(b"code-moniker")
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
-			.segment(b"fn", b"run(bool)")
+			.segment(b"fn", b"run(flag:bool)")
 			.segment(b"local", b"inner")
 			.build();
 		assert!(
@@ -660,7 +670,7 @@ enum Baz {
 			.segment(b"lang", b"rs")
 			.segment(b"module", b"util")
 			.segment(b"fn", b"run()")
-			.segment(b"fn", b"f(_)")
+			.segment(b"fn", b"f(x)")
 			.build();
 		assert!(
 			g.contains(&f),
@@ -1166,7 +1176,7 @@ pub fn run() { let _ = Color::Red(1); }
 		let local_call = g
 			.refs()
 			.filter(|r| r.kind == b"calls")
-			.find(|r| r.target.as_view().segments().last().unwrap().name == b"f(1)");
+			.find(|r| r.target.as_view().segments().last().unwrap().name == b"f");
 		assert!(
 			local_call.is_some(),
 			"call to closure-bound name `f` must target the local closure def; refs: {:?}",

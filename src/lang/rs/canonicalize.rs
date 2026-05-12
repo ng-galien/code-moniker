@@ -21,9 +21,9 @@ pub(super) fn strip_rs_extension(uri: &str) -> &str {
 	uri.strip_suffix(".rs").unwrap_or(uri)
 }
 
-pub(super) use crate::lang::callable::extend_callable_typed;
+pub(super) use crate::lang::callable::CallableSlot;
 
-pub(super) fn function_param_types(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
+pub(super) fn function_param_slots(node: Node<'_>, source: &[u8]) -> Vec<CallableSlot> {
 	let Some(params) = node.child_by_field_name("parameters") else {
 		return Vec::new();
 	};
@@ -32,13 +32,23 @@ pub(super) fn function_param_types(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>
 	for child in params.named_children(&mut cursor) {
 		match child.kind() {
 			"parameter" => {
-				let t = child
+				let r#type = child
 					.child_by_field_name("type")
 					.and_then(|n| n.utf8_text(source).ok())
-					.unwrap_or("_");
-				out.push(crate::lang::callable::normalize_type_text(t));
+					.map(crate::lang::callable::normalize_type_text)
+					.unwrap_or_default();
+				let name = child
+					.child_by_field_name("pattern")
+					.filter(|p| p.kind() == "identifier")
+					.and_then(|p| p.utf8_text(source).ok())
+					.map(|s| s.as_bytes().to_vec())
+					.unwrap_or_default();
+				out.push(CallableSlot { name, r#type });
 			}
-			"variadic_parameter" => out.push(b"...".to_vec()),
+			"variadic_parameter" => out.push(CallableSlot {
+				name: Vec::new(),
+				r#type: b"...".to_vec(),
+			}),
 			"self_parameter" => {}
 			_ => {}
 		}
@@ -46,7 +56,7 @@ pub(super) fn function_param_types(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>
 	out
 }
 
-pub(super) fn closure_param_types(closure: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
+pub(super) fn closure_param_slots(closure: Node<'_>, source: &[u8]) -> Vec<CallableSlot> {
 	let Some(params) = closure.child_by_field_name("parameters") else {
 		return Vec::new();
 	};
@@ -54,13 +64,29 @@ pub(super) fn closure_param_types(closure: Node<'_>, source: &[u8]) -> Vec<Vec<u
 	let mut cursor = params.walk();
 	for child in params.named_children(&mut cursor) {
 		if child.kind() == "parameter" {
-			let t = child
+			let r#type = child
 				.child_by_field_name("type")
 				.and_then(|n| n.utf8_text(source).ok())
-				.unwrap_or("_");
-			out.push(crate::lang::callable::normalize_type_text(t));
+				.map(crate::lang::callable::normalize_type_text)
+				.unwrap_or_default();
+			let name = child
+				.child_by_field_name("pattern")
+				.filter(|p| p.kind() == "identifier")
+				.and_then(|p| p.utf8_text(source).ok())
+				.map(|s| s.as_bytes().to_vec())
+				.unwrap_or_default();
+			out.push(CallableSlot { name, r#type });
+		} else if child.kind() == "identifier" {
+			let name = child
+				.utf8_text(source)
+				.map(|s| s.as_bytes().to_vec())
+				.unwrap_or_default();
+			out.push(CallableSlot {
+				name,
+				r#type: Vec::new(),
+			});
 		} else {
-			out.push(b"_".to_vec());
+			out.push(CallableSlot::default());
 		}
 	}
 	out

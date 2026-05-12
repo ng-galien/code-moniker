@@ -6,14 +6,14 @@ use tree_sitter::Node;
 use crate::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-use crate::lang::callable::{extend_callable_arity, extend_segment};
+use crate::lang::callable::{callable_segment_slots, extend_callable_slots, extend_segment};
 use crate::lang::strategy::{LangStrategy, NodeShape, Symbol};
 use crate::lang::tree_util::{node_position, node_slice};
 
-use super::canonicalize::{
-	closure_param_types, extend_callable_typed, function_param_types, impl_type_name,
-};
+use super::canonicalize::{closure_param_slots, function_param_slots, impl_type_name};
 use super::kinds;
+
+use std::collections::HashMap;
 
 pub(super) struct Strategy<'src> {
 	pub(super) module: Moniker,
@@ -22,6 +22,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) local_mods: HashSet<String>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) type_params: RefCell<Vec<HashSet<Vec<u8>>>>,
+	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
 }
 
 impl<'a> LangStrategy for Strategy<'a> {
@@ -189,8 +190,8 @@ impl<'src_lang> Strategy<'src_lang> {
 		} else {
 			kinds::FN
 		};
-		let types = function_param_types(node, source);
-		let moniker = extend_callable_typed(scope, kind, name, &types);
+		let slots = function_param_slots(node, source);
+		let moniker = extend_callable_slots(scope, kind, name, &slots);
 		self.push_type_params_from(node, source);
 		self.push_local_scope();
 		if let Some(params) = node.child_by_field_name("parameters") {
@@ -308,8 +309,8 @@ impl<'src_lang> Strategy<'src_lang> {
 		source: &[u8],
 		graph: &mut CodeGraph,
 	) {
-		let types = closure_param_types(closure, source);
-		let moniker = extend_callable_typed(callable, kinds::FN, name, &types);
+		let slots = closure_param_slots(closure, source);
+		let moniker = extend_callable_slots(callable, kinds::FN, name, &slots);
 		let _ = graph.add_def(
 			moniker.clone(),
 			kinds::FN,
@@ -402,7 +403,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		let Some(name) = type_name_text(macro_node, self.source_bytes) else {
 			return;
 		};
-		let target = extend_callable_arity(&self.module, kinds::FN, name.as_bytes(), 0);
+		let target = extend_segment(&self.module, kinds::FN, name.as_bytes());
 		let attrs = RefAttrs {
 			confidence: kinds::CONF_UNRESOLVED,
 			..RefAttrs::default()
@@ -530,13 +531,15 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		};
 		let name = node_slice(field, self.source_bytes);
-		let arity = count_call_args(call);
 		let target = if receiver.kind() == "self"
 			&& let Some(t) = enclosing_type_moniker(scope)
 		{
-			extend_callable_arity(&t, kinds::METHOD, name, arity)
+			self.callable_table
+				.get(&(t.clone(), name.to_vec()))
+				.map(|seg| extend_segment(&t, kinds::METHOD, seg))
+				.unwrap_or_else(|| extend_segment(&t, kinds::METHOD, name))
 		} else {
-			extend_callable_arity(&self.module, kinds::METHOD, name, arity)
+			extend_segment(&self.module, kinds::METHOD, name)
 		};
 		let attrs = RefAttrs {
 			confidence: kinds::CONF_UNRESOLVED,
@@ -560,7 +563,6 @@ impl<'src_lang> Strategy<'src_lang> {
 		graph: &mut CodeGraph,
 	) {
 		let name = node_slice(func, self.source_bytes);
-		let arity = count_call_args(call);
 		let name_str = std::str::from_utf8(name).unwrap_or("");
 		if starts_uppercase(name_str) {
 			let target = extend_segment(&self.module, kinds::STRUCT, name);
@@ -580,7 +582,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		if self.is_local_in_scope(name)
 			&& let Some(callable) = enclosing_callable_moniker(scope)
 		{
-			let target = extend_callable_arity(&callable, kinds::FN, name, arity);
+			let target = extend_segment(&callable, kinds::FN, name);
 			let attrs = RefAttrs {
 				confidence: kinds::CONF_LOCAL,
 				..RefAttrs::default()
@@ -594,7 +596,11 @@ impl<'src_lang> Strategy<'src_lang> {
 			);
 			return;
 		}
-		let target = extend_callable_arity(&self.module, kinds::FN, name, arity);
+		let target = self
+			.callable_table
+			.get(&(self.module.clone(), name.to_vec()))
+			.map(|seg| extend_segment(&self.module, kinds::FN, seg))
+			.unwrap_or_else(|| extend_segment(&self.module, kinds::FN, name));
 		let attrs = RefAttrs {
 			confidence: kinds::CONF_UNRESOLVED,
 			..RefAttrs::default()
@@ -620,7 +626,6 @@ impl<'src_lang> Strategy<'src_lang> {
 		};
 		let name = node_slice(name_node, self.source_bytes);
 		let name_str = std::str::from_utf8(name).unwrap_or("");
-		let arity = count_call_args(call);
 		let path_name = func
 			.child_by_field_name("path")
 			.and_then(|p| type_name_text(p, self.source_bytes));
@@ -636,7 +641,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				return;
 			}
 		}
-		let target = extend_callable_arity(&self.module, kinds::FN, name, arity);
+		let target = extend_segment(&self.module, kinds::FN, name);
 		let attrs = RefAttrs {
 			confidence: kinds::CONF_UNRESOLVED,
 			..RefAttrs::default()
@@ -894,18 +899,63 @@ fn first_identifier<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {
 	None
 }
 
-fn count_call_args(call: Node<'_>) -> u16 {
-	let Some(args) = call.child_by_field_name("arguments") else {
-		return 0;
-	};
-	let mut count = 0u16;
-	let mut cursor = args.walk();
-	for child in args.named_children(&mut cursor) {
-		if !matches!(child.kind(), "line_comment" | "block_comment") {
-			count = count.saturating_add(1);
+pub(super) fn collect_callable_table<'src>(
+	node: Node<'src>,
+	source: &'src [u8],
+	parent: &Moniker,
+	out: &mut HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+) {
+	let mut cursor = node.walk();
+	for child in node.children(&mut cursor) {
+		match child.kind() {
+			"function_item" | "function_signature_item" => {
+				let Some(name_node) = child.child_by_field_name("name") else {
+					continue;
+				};
+				let name = node_slice(name_node, source);
+				let slots = function_param_slots(child, source);
+				let seg = callable_segment_slots(name, &slots);
+				out.insert((parent.clone(), name.to_vec()), seg);
+			}
+			"struct_item" | "enum_item" | "trait_item" => {
+				let Some(name_node) = child.child_by_field_name("name") else {
+					continue;
+				};
+				let name = node_slice(name_node, source);
+				let kind: &[u8] = match child.kind() {
+					"struct_item" => kinds::STRUCT,
+					"enum_item" => kinds::ENUM,
+					"trait_item" => kinds::TRAIT,
+					_ => continue,
+				};
+				let scope = extend_segment(parent, kind, name);
+				if let Some(body) = child.child_by_field_name("body") {
+					collect_callable_table(body, source, &scope, out);
+				}
+			}
+			"impl_item" => {
+				if let Some(type_node) = child.child_by_field_name("type")
+					&& let Some(name) = impl_type_name(type_node, source)
+				{
+					let scope = extend_segment(parent, kinds::STRUCT, name.as_bytes());
+					if let Some(body) = child.child_by_field_name("body") {
+						collect_callable_table(body, source, &scope, out);
+					}
+				}
+			}
+			"mod_item" => {
+				let Some(name_node) = child.child_by_field_name("name") else {
+					continue;
+				};
+				let name = node_slice(name_node, source);
+				let scope = extend_segment(parent, kinds::MODULE, name);
+				if let Some(body) = child.child_by_field_name("body") {
+					collect_callable_table(body, source, &scope, out);
+				}
+			}
+			_ => collect_callable_table(child, source, parent, out),
 		}
 	}
-	count
 }
 
 fn enclosing_callable_moniker(scope: &Moniker) -> Option<Moniker> {
