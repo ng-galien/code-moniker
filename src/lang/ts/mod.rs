@@ -887,6 +887,40 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_class_field_type_annotation_emits_uses_type_sourced_from_field() {
+		let g = extract(
+			"util.ts",
+			"class Bar { private x: Foo; }",
+			&make_anchor(),
+			false,
+		);
+		let field = MonikerBuilder::new()
+			.project(b"my-app")
+			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
+			.segment(b"module", b"util")
+			.segment(b"class", b"Bar")
+			.segment(b"field", b"x")
+			.build();
+		let foo = MonikerBuilder::new()
+			.project(b"my-app")
+			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
+			.segment(b"module", b"util")
+			.segment(b"class", b"Foo")
+			.build();
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"uses_type" && r.target == foo)
+			.expect("missing uses_type Foo from field");
+		assert_eq!(
+			g.def_at(r.source).moniker,
+			field,
+			"field type ref must be sourced from the field moniker, not the class scope"
+		);
+	}
+
+	#[test]
 	fn extract_return_identifier_emits_reads() {
 		let g = extract(
 			"util.ts",
