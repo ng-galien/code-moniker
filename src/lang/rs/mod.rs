@@ -3,14 +3,15 @@ use tree_sitter::{Language, Parser, Tree};
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
+use crate::lang::canonical_walker::CanonicalWalker;
+
 pub mod build;
 mod canonicalize;
 mod kinds;
-mod refs;
-mod walker;
+mod strategy;
 
 use canonicalize::compute_module_moniker;
-use walker::{Walker, collect_local_mods};
+use strategy::{Strategy, collect_local_mods};
 
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
@@ -37,14 +38,15 @@ pub fn extract(
 	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
 	let tree = parse(source);
 	let local_mods = collect_local_mods(tree.root_node(), source.as_bytes());
-	let walker = Walker {
-		source_bytes: source.as_bytes(),
+	let strat = Strategy {
 		module: module.clone(),
-		local_mods,
+		source_bytes: source.as_bytes(),
 		deep,
+		local_mods,
 		local_scope: std::cell::RefCell::new(Vec::new()),
 		type_params: std::cell::RefCell::new(Vec::new()),
 	};
+	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
 }
