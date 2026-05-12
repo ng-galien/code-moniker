@@ -57,6 +57,9 @@ pub fn extract(
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
+	if let Some(docstring) = strategy::first_docstring(tree.root_node()) {
+		strategy::emit_docstring_def(docstring, &module, &mut graph);
+	}
 	graph
 }
 
@@ -419,6 +422,56 @@ mod tests {
 			r.confidence.as_slice(),
 			b"name_match" | b"resolved"
 		));
+	}
+
+	#[test]
+	fn extract_function_docstring_emits_comment_def_parented_on_function() {
+		let src = "def f():\n    \"\"\"docstring\"\"\"\n    return 0\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let fn_moniker = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"python")
+			.segment(b"module", b"m")
+			.segment(b"function", b"f()")
+			.build();
+		let docstring_count = g
+			.defs()
+			.filter(|d| d.kind == b"comment")
+			.filter(|d| {
+				d.parent
+					.and_then(|i| g.defs().nth(i))
+					.is_some_and(|p| p.moniker == fn_moniker)
+			})
+			.count();
+		assert_eq!(
+			docstring_count,
+			1,
+			"function docstring must emit one comment def parented on the function. defs: {:?}",
+			g.def_monikers()
+		);
+	}
+
+	#[test]
+	fn extract_class_and_module_docstring_each_emit_one_comment() {
+		let src = "\"\"\"module doc\"\"\"\nclass A:\n    \"\"\"class doc\"\"\"\n    pass\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		assert_eq!(
+			g.defs().filter(|d| d.kind == b"comment").count(),
+			2,
+			"module-level and class docstrings should each yield one comment def. defs: {:?}",
+			g.def_monikers()
+		);
+	}
+
+	#[test]
+	fn extract_non_docstring_string_at_start_is_not_a_comment() {
+		let src = "x = \"hello\"\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		assert_eq!(
+			g.defs().filter(|d| d.kind == b"comment").count(),
+			0,
+			"string literals that aren't bare expression-statement-strings must NOT be treated as docstrings"
+		);
 	}
 
 	#[test]

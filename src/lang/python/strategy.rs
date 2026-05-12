@@ -93,6 +93,25 @@ impl<'a> LangStrategy for Strategy<'a> {
 			self.pop_local_scope();
 		}
 	}
+
+	fn on_symbol_emitted(
+		&self,
+		node: Node<'_>,
+		sym_kind: &[u8],
+		sym_moniker: &Moniker,
+		_source: &[u8],
+		graph: &mut CodeGraph,
+	) {
+		if sym_kind != kinds::FUNCTION && sym_kind != kinds::METHOD && sym_kind != kinds::CLASS {
+			return;
+		}
+		let Some(body) = node.child_by_field_name("body") else {
+			return;
+		};
+		if let Some(docstring) = first_docstring(body) {
+			emit_docstring_def(docstring, sym_moniker, graph);
+		}
+	}
 }
 
 impl<'src_lang> Strategy<'src_lang> {
@@ -1131,4 +1150,25 @@ fn is_class_scope(scope: &Moniker) -> bool {
 		return false;
 	};
 	last.kind == kinds::CLASS
+}
+
+pub(super) fn first_docstring<'src>(body: Node<'src>) -> Option<Node<'src>> {
+	let mut cursor = body.walk();
+	let first = body.named_children(&mut cursor).next()?;
+	if first.kind() != "expression_statement" {
+		return None;
+	}
+	let mut inner = first.walk();
+	let expr = first.named_children(&mut inner).next()?;
+	if matches!(expr.kind(), "string" | "concatenated_string") {
+		Some(expr)
+	} else {
+		None
+	}
+}
+
+pub(super) fn emit_docstring_def(node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
+	let m =
+		crate::lang::callable::extend_segment_u32(parent, kinds::COMMENT, node.start_byte() as u32);
+	let _ = graph.add_def(m, kinds::COMMENT, parent, Some(node_position(node)));
 }
