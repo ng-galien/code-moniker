@@ -25,13 +25,7 @@ pub(super) fn strip_known_extension(uri: &str) -> &str {
 		.unwrap_or(uri)
 }
 
-pub(super) use crate::lang::callable::{
-	extend_callable_arity, extend_callable_typed, extend_segment, extend_segment_u32,
-};
-
-pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
-	(node.start_byte() as u32, node.end_byte() as u32)
-}
+pub(super) use crate::lang::callable::extend_callable_typed;
 
 pub(super) fn anonymous_callback_name(node: Node<'_>) -> Vec<u8> {
 	let p = node.start_position();
