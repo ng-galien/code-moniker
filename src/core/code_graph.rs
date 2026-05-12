@@ -20,6 +20,16 @@ pub struct DefRecord {
 	pub origin: Vec<u8>,
 }
 
+impl DefRecord {
+	pub fn shape(&self) -> Option<crate::core::shape::Shape> {
+		crate::core::shape::shape_of(&self.kind)
+	}
+
+	pub fn opens_scope(&self) -> bool {
+		crate::core::shape::opens_scope(&self.kind)
+	}
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RefRecord {
@@ -398,6 +408,29 @@ mod tests {
 		assert_eq!(g.def_count(), 1);
 		assert_eq!(g.ref_count(), 0);
 		assert!(g.contains(&root));
+	}
+
+	#[test]
+	fn def_shape_is_derived_from_kind() {
+		use crate::core::shape::Shape;
+		let root = mk(b"util");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let class = mk_under(&root, b"class", b"Foo");
+		g.add_def(class.clone(), b"class", &root, None).unwrap();
+		let comment = mk_under(&root, b"comment", b"42");
+		g.add_def(comment.clone(), b"comment", &root, None).unwrap();
+
+		let class_def = g.defs().find(|d| d.moniker == class).unwrap();
+		assert_eq!(class_def.shape(), Some(Shape::Type));
+		assert!(class_def.opens_scope());
+
+		let comment_def = g.defs().find(|d| d.moniker == comment).unwrap();
+		assert_eq!(comment_def.shape(), Some(Shape::Annotation));
+		assert!(!comment_def.opens_scope());
+
+		let root_def = g.defs().next().unwrap();
+		assert_eq!(root_def.shape(), Some(Shape::Namespace));
+		assert!(root_def.opens_scope());
 	}
 
 	#[test]
