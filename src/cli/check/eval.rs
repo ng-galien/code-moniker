@@ -404,6 +404,27 @@ fn eval_ref_atom(
 			Some(k) => Value::Str(k),
 			None => return AtomOutcome::NotApplicable,
 		},
+		LhsExpr::Attr(Lhs::Shape) | LhsExpr::Attr(Lhs::SourceShape) => {
+			match shape_of_last_segment(&source_def.moniker) {
+				Some(s) => Value::Str(s.as_str().to_string()),
+				None => return AtomOutcome::NotApplicable,
+			}
+		}
+		LhsExpr::Attr(Lhs::TargetShape) => match shape_of_last_segment(&r.target) {
+			Some(s) => Value::Str(s.as_str().to_string()),
+			None => return AtomOutcome::NotApplicable,
+		},
+		LhsExpr::Attr(Lhs::ParentShape) => {
+			let segs: Vec<_> = source_def.moniker.as_view().segments().collect();
+			if segs.len() < 2 {
+				return AtomOutcome::NotApplicable;
+			}
+			let parent_kind = segs[segs.len() - 2].kind;
+			match crate::core::shape::shape_of(parent_kind) {
+				Some(s) => Value::Str(s.as_str().to_string()),
+				None => return AtomOutcome::NotApplicable,
+			}
+		}
 		LhsExpr::Attr(Lhs::SourceVisibility) => Value::Str(
 			std::str::from_utf8(&source_def.visibility)
 				.unwrap_or_default()
@@ -486,6 +507,11 @@ fn first_segment_name(m: &crate::core::moniker::Moniker, kind: &[u8]) -> String 
 fn last_segment_kind(m: &crate::core::moniker::Moniker) -> Option<String> {
 	let last = m.as_view().segments().last()?;
 	std::str::from_utf8(last.kind).ok().map(|s| s.to_string())
+}
+
+fn shape_of_last_segment(m: &crate::core::moniker::Moniker) -> Option<crate::core::shape::Shape> {
+	let last = m.as_view().segments().last()?;
+	crate::core::shape::shape_of(last.kind)
 }
 
 fn resolve_local_def<'g>(
@@ -641,13 +667,28 @@ fn resolve_def_lhs(lhs: Lhs, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<Val
 			let p = &segs[segs.len() - 2];
 			Value::Str(std::str::from_utf8(p.kind).ok()?.to_string())
 		}
+		Lhs::Shape => Value::Str(d.shape()?.as_str().to_string()),
+		Lhs::ParentShape => {
+			let segs: Vec<_> = d.moniker.as_view().segments().collect();
+			if segs.len() < 2 {
+				return None;
+			}
+			let parent_kind = segs[segs.len() - 2].kind;
+			Value::Str(
+				crate::core::shape::shape_of(parent_kind)?
+					.as_str()
+					.to_string(),
+			)
+		}
 		Lhs::Confidence
 		| Lhs::SourceName
 		| Lhs::SourceKind
+		| Lhs::SourceShape
 		| Lhs::SourceVisibility
 		| Lhs::SourceMoniker
 		| Lhs::TargetName
 		| Lhs::TargetKind
+		| Lhs::TargetShape
 		| Lhs::TargetVisibility
 		| Lhs::TargetMoniker
 		| Lhs::SegmentName
@@ -945,14 +986,31 @@ fn eval_atom(atom: &Atom, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 				Err(_) => return AtomOutcome::NotApplicable,
 			}
 		}
+		LhsExpr::Attr(Lhs::Shape) => match d.shape() {
+			Some(s) => Value::Str(s.as_str().to_string()),
+			None => return AtomOutcome::NotApplicable,
+		},
+		LhsExpr::Attr(Lhs::ParentShape) => {
+			let segs: Vec<_> = d.moniker.as_view().segments().collect();
+			if segs.len() < 2 {
+				return AtomOutcome::NotApplicable;
+			}
+			let parent_kind = segs[segs.len() - 2].kind;
+			match crate::core::shape::shape_of(parent_kind) {
+				Some(s) => Value::Str(s.as_str().to_string()),
+				None => return AtomOutcome::NotApplicable,
+			}
+		}
 		LhsExpr::Attr(
 			Lhs::Confidence
 			| Lhs::SourceName
 			| Lhs::SourceKind
+			| Lhs::SourceShape
 			| Lhs::SourceVisibility
 			| Lhs::SourceMoniker
 			| Lhs::TargetName
 			| Lhs::TargetKind
+			| Lhs::TargetShape
 			| Lhs::TargetVisibility
 			| Lhs::TargetMoniker
 			| Lhs::SegmentName

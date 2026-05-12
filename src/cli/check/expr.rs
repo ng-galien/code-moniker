@@ -10,6 +10,7 @@ pub(super) enum Lhs {
 	Name,
 	Lines,
 	Kind,
+	Shape,
 	Visibility,
 	Text,
 	Moniker,
@@ -17,12 +18,15 @@ pub(super) enum Lhs {
 	Confidence,
 	ParentName,
 	ParentKind,
+	ParentShape,
 	SourceName,
 	SourceKind,
+	SourceShape,
 	SourceVisibility,
 	SourceMoniker,
 	TargetName,
 	TargetKind,
+	TargetShape,
 	TargetVisibility,
 	TargetMoniker,
 	SegmentName,
@@ -35,6 +39,7 @@ impl Lhs {
 			Self::Name => "name",
 			Self::Lines => "lines",
 			Self::Kind => "kind",
+			Self::Shape => "shape",
 			Self::Visibility => "visibility",
 			Self::Text => "text",
 			Self::Moniker => "moniker",
@@ -42,12 +47,15 @@ impl Lhs {
 			Self::Confidence => "confidence",
 			Self::ParentName => "parent.name",
 			Self::ParentKind => "parent.kind",
+			Self::ParentShape => "parent.shape",
 			Self::SourceName => "source.name",
 			Self::SourceKind => "source.kind",
+			Self::SourceShape => "source.shape",
 			Self::SourceVisibility => "source.visibility",
 			Self::SourceMoniker => "source",
 			Self::TargetName => "target.name",
 			Self::TargetKind => "target.kind",
+			Self::TargetShape => "target.shape",
 			Self::TargetVisibility => "target.visibility",
 			Self::TargetMoniker => "target",
 			Self::SegmentName => "segment.name",
@@ -641,6 +649,7 @@ fn projection_name_to_lhs(s: &str) -> Option<Lhs> {
 		"name" => Lhs::Name,
 		"lines" => Lhs::Lines,
 		"kind" => Lhs::Kind,
+		"shape" => Lhs::Shape,
 		"visibility" => Lhs::Visibility,
 		"text" => Lhs::Text,
 		"moniker" => Lhs::Moniker,
@@ -648,13 +657,16 @@ fn projection_name_to_lhs(s: &str) -> Option<Lhs> {
 		"confidence" => Lhs::Confidence,
 		"parent.name" => Lhs::ParentName,
 		"parent.kind" => Lhs::ParentKind,
+		"parent.shape" => Lhs::ParentShape,
 		"source" => Lhs::SourceMoniker,
 		"source.name" => Lhs::SourceName,
 		"source.kind" => Lhs::SourceKind,
+		"source.shape" => Lhs::SourceShape,
 		"source.visibility" => Lhs::SourceVisibility,
 		"target" => Lhs::TargetMoniker,
 		"target.name" => Lhs::TargetName,
 		"target.kind" => Lhs::TargetKind,
+		"target.shape" => Lhs::TargetShape,
 		"target.visibility" => Lhs::TargetVisibility,
 		"segment.name" => Lhs::SegmentName,
 		"segment.kind" => Lhs::SegmentKind,
@@ -798,20 +810,27 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 			};
 		}
 	};
-	let ok = match (lhs_attr, op) {
-		(
-			Name | Kind | Visibility | Text | Confidence | ParentName | ParentKind | SourceName
-			| SourceKind | SourceVisibility | TargetName | TargetKind | TargetVisibility
-			| SegmentName | SegmentKind,
-			Eq | Ne | RegexMatch | RegexNoMatch,
-		) => true,
-		(Lines | Depth, Lt | Le | Gt | Ge | Eq | Ne) => true,
-		(
-			Moniker | SourceMoniker | TargetMoniker,
-			Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch,
-		) => true,
-		_ => false,
-	};
+	let ok =
+		matches!(
+			(lhs_attr, op),
+			(
+				Name | Kind
+					| Shape | Visibility
+					| Text | Confidence
+					| ParentName | ParentKind
+					| ParentShape | SourceName
+					| SourceKind | SourceShape
+					| SourceVisibility
+					| TargetName | TargetKind
+					| TargetShape | TargetVisibility
+					| SegmentName | SegmentKind,
+				Eq | Ne | RegexMatch | RegexNoMatch,
+			) | (Lines | Depth, Lt | Le | Gt | Ge | Eq | Ne)
+				| (
+					Moniker | SourceMoniker | TargetMoniker,
+					Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch,
+				)
+		);
 	if !ok {
 		return Err(ParseError::BadExpr {
 			expr: full.to_string(),
@@ -909,6 +928,38 @@ mod tests {
 		assert!(matches!(a.op, Op::RegexMatch));
 		assert!(matches!(a.rhs, Rhs::RegexStr(_)));
 		assert!(a.regex.is_some());
+	}
+
+	#[test]
+	fn parses_shape_eq() {
+		let e = parse("shape = 'callable'", TS, KINDS).unwrap();
+		let a = solo(&e);
+		assert!(matches!(a.lhs, LhsExpr::Attr(Lhs::Shape)));
+		assert!(matches!(a.op, Op::Eq));
+		match &a.rhs {
+			Rhs::Str(s) => assert_eq!(s, "callable"),
+			other => panic!("expected Str rhs, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_parent_shape_eq() {
+		let e = parse("parent.shape = 'type'", TS, KINDS).unwrap();
+		let a = solo(&e);
+		assert!(matches!(a.lhs, LhsExpr::Attr(Lhs::ParentShape)));
+	}
+
+	#[test]
+	fn parses_target_shape_regex() {
+		let e = parse("target.shape =~ ^(type|callable)$", TS, KINDS).unwrap();
+		let a = solo(&e);
+		assert!(matches!(a.lhs, LhsExpr::Attr(Lhs::TargetShape)));
+		assert!(matches!(a.op, Op::RegexMatch));
+	}
+
+	#[test]
+	fn shape_rejects_numeric_operator() {
+		assert!(parse("shape < 'callable'", TS, KINDS).is_err());
 	}
 
 	#[test]
