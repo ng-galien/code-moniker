@@ -14,7 +14,7 @@ mod kinds;
 mod strategy;
 
 use canonicalize::compute_module_moniker;
-use strategy::{Strategy, collect_type_table};
+use strategy::{Strategy, collect_callable_table, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
@@ -47,6 +47,14 @@ pub fn extract(
 		&module,
 		&mut type_table,
 	);
+	let mut callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>> = HashMap::new();
+	collect_callable_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		false,
+		&mut callable_table,
+	);
 	let strat = Strategy {
 		module: module.clone(),
 		source_bytes: source.as_bytes(),
@@ -54,6 +62,7 @@ pub fn extract(
 		imports: RefCell::new(HashMap::<Vec<u8>, &'static [u8]>::new()),
 		local_scope: RefCell::new(Vec::new()),
 		type_table,
+		callable_table,
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -154,12 +163,12 @@ mod tests {
 			.expect("function def");
 		let last = f.moniker.as_view().segments().last().unwrap();
 		assert_eq!(last.kind, b"function");
-		assert_eq!(last.name, b"make(int,str)");
-		assert_eq!(f.signature, b"int,str".to_vec());
+		assert_eq!(last.name, b"make(x:int,y:str)");
+		assert_eq!(f.signature, b"x:int,y:str".to_vec());
 	}
 
 	#[test]
-	fn extract_function_with_untyped_params_uses_underscore_placeholder() {
+	fn extract_function_with_untyped_params_uses_name_only_slots() {
 		let src = "def f(a, b=1):\n    return a\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
 		let f = g
@@ -167,8 +176,8 @@ mod tests {
 			.find(|d| d.kind == b"function")
 			.expect("function def");
 		let last = f.moniker.as_view().segments().last().unwrap();
-		assert_eq!(last.name, b"f(_,_)");
-		assert_eq!(f.signature, b"_,_".to_vec());
+		assert_eq!(last.name, b"f(a,b)");
+		assert_eq!(f.signature, b"a,b".to_vec());
 	}
 
 	#[test]
@@ -178,8 +187,8 @@ mod tests {
 		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
 		let last = m.moniker.as_view().segments().last().unwrap();
 		assert_eq!(last.kind, b"method");
-		assert_eq!(last.name, b"bar(int)");
-		assert_eq!(m.signature, b"int".to_vec());
+		assert_eq!(last.name, b"bar(x:int)");
+		assert_eq!(m.signature, b"x:int".to_vec());
 	}
 
 	#[test]
@@ -189,7 +198,7 @@ mod tests {
 		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
 		assert_eq!(
 			m.moniker.as_view().segments().last().unwrap().name,
-			b"make(int)"
+			b"make(x:int)"
 		);
 	}
 
@@ -375,9 +384,9 @@ mod tests {
 			.refs()
 			.find(|r| {
 				r.kind == b"calls"
-					&& r.target.as_view().segments().last().unwrap().name == b"helper()"
+					&& r.target.as_view().segments().last().unwrap().name == b"helper"
 			})
-			.expect("calls helper");
+			.expect("calls helper (name-only — imported callee, signature unknown)");
 		assert_eq!(r.confidence, b"imported".to_vec());
 	}
 

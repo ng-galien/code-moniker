@@ -32,8 +32,6 @@ fn strip_py_suffix(name: &str) -> &str {
 		.unwrap_or(name)
 }
 
-pub(super) use crate::lang::callable::extend_callable_typed;
-
 #[cfg(test)]
 mod tests {
 	use super::*;

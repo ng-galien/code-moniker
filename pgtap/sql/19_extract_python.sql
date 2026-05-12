@@ -32,11 +32,11 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:python/module:m/function:make(int,str)'::moniker,
-		'function moniker carries full parameter type signature') AS r1,
+	ok(g @> 'code+moniker://app/lang:python/module:m/function:make(x:int,y:str)'::moniker,
+		'function moniker carries name:type slot signature') AS r1,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'function'),
-		'int,str',
-		'function signature column lists parameter types') AS r2
+		'x:int,y:str',
+		'function signature column lists name:type slots') AS r2
 FROM g;
 
 
@@ -48,8 +48,8 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:python/module:m/function:f(_,_)'::moniker,
-		'untyped python params collapse to `_` in the signature') AS r3
+	ok(g @> 'code+moniker://app/lang:python/module:m/function:f(a,b)'::moniker,
+		'untyped python params expose names (name-only slots)') AS r3
 FROM g;
 
 
@@ -61,8 +61,8 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:python/module:foo/class:Foo/method:bar(int)'::moniker,
-		'method moniker excludes self and uses kind=method') AS r4
+	ok(g @> 'code+moniker://app/lang:python/module:foo/class:Foo/method:bar(x:int)'::moniker,
+		'method moniker excludes self and uses kind=method with name:type slots') AS r4
 FROM g;
 
 
