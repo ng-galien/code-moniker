@@ -106,6 +106,8 @@ A new language under `src/lang/<lang>/` mirrors the `ts/` skeleton:
 
 - **Pre-pass `collect_type_table`** (when methods can precede their receiver type, e.g. Go / Rust impl): emits top-level type defs to the graph AND fills the resolution HashMap. Walker's `handle_type_spec` gates `add_def_attrs` on `scope != module` to skip the duplicate. `DuplicateMoniker` is silently tolerated everywhere via `let _ = graph.add_def(...)`.
 
+- **`ParentNotFound` / `SourceNotFound` are silently dropped** by `let _ = graph.add_def_attrs(...)`. Synthesizing a moniker whose parent isn't in the graph drops every child (commit `9c23d04` Rust impl-for-external). Pre-check via `graph.contains(&parent)`; if missing, emit a placeholder first with `origin = ORIGIN_EXTRACTED` — `assert_conformance` rejects `ORIGIN_INFERRED` / `ORIGIN_DECLARED` from extractors (reserved for `code_graph_declare`).
+
 Every new extractor MUST implement `lang::LangExtractor` on a zero-sized `pub struct Lang;` at the top of `src/lang/<lang>/mod.rs`, exposing `LANG_TAG`, `ALLOWED_KINDS`, `ALLOWED_VISIBILITIES`, and forwarding `extract` to the free function. `extract_default` test helper calls `lang::assert_conformance::<Lang>(&g, anchor)` on every fixture. Adding a kind or visibility requires updating the trait constants AND `docs/declare_schema.json`.
 
 Wire the SQL surface in `src/pg/extract.rs` (`#[pg_extern] fn extract_<lang>(...)`); add a pgTAP file under `pgtap/sql/` and a panel entry to `scripts/dogfood/panel.sh`.
@@ -128,7 +130,11 @@ cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warni
 cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
 ./pgtap/run.sh                                               # pgTAP suite, ~5s
 ./scripts/dogfood.sh --only <project>                          # scaling validation
+./scripts/dogfood-check.sh                                     # asserts per-(project,kind) floors in scripts/dogfood/baselines.tsv
+./scripts/dogfood-baseline.sh                                  # regen floors after a legitimate count change; commit the TSV diff
 ```
+
+`dogfood.sh` drops + recreates `pcm_dogfood` on each run, including with `--lang <x>` (wipes other-lang data). Commit baseline diffs alongside extractor changes — counts moving up = fix worked; silent down = regression `dogfood-check.sh` would have caught.
 
 Pre-commit hook runs `cargo fmt -- --check` + `cargo clippy ... -D warnings` on `*.rs` / `Cargo.{toml,lock}` changes. Clippy lints (`manual_find`, `manual_let_else`) block the commit — run it proactively.
 
@@ -160,6 +166,7 @@ pgrx-pg-sys and `libpg_query` (`pg_query` crate) cannot cohabit a binary; both d
 - `qualified_type` exposes prefix as field `package` and type as field `name` (not `path`).
 - `composite_literal` has fields `type` and `body` (= `literal_value`); recurse on `generic_type.type` to peel `Foo[T]{}`.
 - `short_var_declaration` / `var_declaration` / `range_clause` use field `left` (identifier OR expression_list); skip `_` blank patterns.
+- Grouped `var ( ... )` and `const ( ... )` wrap specs in an extra `var_spec_list` / `const_spec_list` layer; single-line `var x int` puts the spec directly under `var_declaration`. Flatten both — see `spec_children` in `src/lang/go/strategy.rs`.
 
 ## tree-sitter-postgres gotchas
 
@@ -171,6 +178,11 @@ pgrx-pg-sys and `libpg_query` (`pg_query` crate) cannot cohabit a binary; both d
 - PL/pgSQL `sql_expression` is **opaque text** — the grammar parses PERFORM / IF / EXECUTE / `:=` envelopes but doesn't descend into the embedded SQL. To find `func_application` refs inside the expression, slice the text and re-parse with the SQL grammar (wrapping in `SELECT <expr>` if it's a bare expression).
 - `CREATE FUNCTION` body is wrapped in a `dollar_quoted_string` under `func_as`. The delimiters are `$$` or `$tag$…$tag$` — strip them by finding the first and last occurrence of the delimiter run.
 - `lang::callable::normalize_type_text` strips all whitespace; SQL keeps its own `normalize_type` (collapses runs to single spaces, applies `int → int4` aliases) to preserve `double precision` etc.
+- `columnDef` (CREATE TABLE column declarations) is **lowercase `c`**, unlike most PG node kinds. Match on `"columnDef"` exactly; iterate via `visit(create_stmt, |n| n.kind() == "columnDef")` then read its `Typename` child.
+
+## tree-sitter-python gotchas
+
+- Docstrings (`"""..."""` as first stmt of a function/class/module body) are `expression_statement > string` (or `concatenated_string`), NOT `comment` nodes. Captured via `on_symbol_emitted` on FUNCTION/METHOD/CLASS + a post-walk pass on `tree.root_node()` in `extract()` for module-level — see `src/lang/python/strategy.rs::first_docstring`.
 
 ## Architectural rule authoring (`.code-moniker.toml`)
 
