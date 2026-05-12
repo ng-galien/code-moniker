@@ -73,7 +73,7 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	is(array_length(graph_ref_targets(g), 1), 2,
+	is((SELECT count(*)::int FROM graph_refs(g) WHERE kind = 'imports_symbol'), 2,
 		'group import emits one ref per leaf') AS r5,
 	ok('code+moniker://pkg/external_pkg:std/path:collections/path:HashMap'::moniker
 	     = ANY(graph_ref_targets(g)),

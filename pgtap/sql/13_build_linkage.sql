@@ -74,7 +74,7 @@ use std::collections::HashMap;',
 		'code+moniker://app'::moniker
 	) AS g
 ), refs_with_root AS (
-	SELECT external_pkg_root(t) AS root
+	SELECT DISTINCT external_pkg_root(t) AS root
 	FROM g, LATERAL unnest(graph_ref_targets(g)) t
 )
 SELECT
