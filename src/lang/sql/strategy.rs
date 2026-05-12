@@ -11,11 +11,19 @@ use super::canonicalize::{
 };
 use super::kinds;
 
-pub(super) fn parse(source: &str) -> Tree {
+pub(super) fn new_sql_parser() -> Parser {
 	let mut parser = Parser::new();
 	parser
 		.set_language(&tree_sitter_postgres::LANGUAGE.into())
 		.expect("failed to load tree-sitter-postgres SQL grammar");
+	parser
+}
+
+pub(super) fn parse(source: &str) -> Tree {
+	parse_with(&mut new_sql_parser(), source)
+}
+
+pub(super) fn parse_with(parser: &mut Parser, source: &str) -> Tree {
 	parser
 		.parse(source, None)
 		.expect("tree-sitter parse returned None on a non-cancelled call")
@@ -35,8 +43,16 @@ impl LangStrategy for Strategy<'_> {
 	) -> NodeShape<'src> {
 		match node.kind() {
 			"CreateFunctionStmt" => classify_create_function(node, source, &self.module),
-			"CreateStmt" => classify_create_table(node, source, &self.module),
-			"ViewStmt" => classify_create_view(node, source, &self.module),
+			"CreateStmt" => {
+				classify_qualified_relation(node, source, &self.module, kinds::TABLE, None)
+			}
+			"ViewStmt" => classify_qualified_relation(
+				node,
+				source,
+				&self.module,
+				kinds::VIEW,
+				find_child(node, "SelectStmt"),
+			),
 			"func_application" => classify_call(node, source, &self.module),
 			_ => NodeShape::Recurse,
 		}
@@ -64,12 +80,13 @@ impl LangStrategy for Strategy<'_> {
 }
 
 pub(super) fn run_inner_sql(
+	parser: &mut Parser,
 	source: &str,
 	scope: &Moniker,
 	module: &Moniker,
 	graph: &mut CodeGraph,
 ) {
-	let tree = parse(source);
+	let tree = parse_with(parser, source);
 	let strategy = Strategy {
 		module: module.clone(),
 		source_str: source,
@@ -94,8 +111,8 @@ fn classify_create_function<'src>(
 	let arg_types = params
 		.map(|p| collect_param_types(p, source))
 		.unwrap_or_default();
-	let parent = maybe_schema(module, &schema);
-	let moniker = extend_callable_typed(&parent, kinds::FUNCTION, &name, &arg_types);
+	let parent = maybe_schema(module, schema);
+	let moniker = extend_callable_typed(&parent, kinds::FUNCTION, name, &arg_types);
 	let signature = arg_types.join(b",".as_ref());
 	NodeShape::Symbol(Symbol {
 		moniker,
@@ -107,10 +124,12 @@ fn classify_create_function<'src>(
 	})
 }
 
-fn classify_create_table<'src>(
+fn classify_qualified_relation<'src>(
 	node: Node<'src>,
 	source: &'src [u8],
 	module: &Moniker,
+	kind: &'static [u8],
+	body: Option<Node<'src>>,
 ) -> NodeShape<'src> {
 	let Some(q) = find_child(node, "qualified_name") else {
 		return NodeShape::Recurse;
@@ -119,36 +138,11 @@ fn classify_create_table<'src>(
 	if name.is_empty() {
 		return NodeShape::Recurse;
 	}
-	let parent = maybe_schema(module, &schema);
-	let moniker = extend_segment(&parent, kinds::TABLE, &name);
+	let parent = maybe_schema(module, schema);
+	let moniker = extend_segment(&parent, kind, name);
 	NodeShape::Symbol(Symbol {
 		moniker,
-		kind: kinds::TABLE,
-		visibility: kinds::VIS_NONE,
-		signature: None,
-		body: None,
-		position: pos(node),
-	})
-}
-
-fn classify_create_view<'src>(
-	node: Node<'src>,
-	source: &'src [u8],
-	module: &Moniker,
-) -> NodeShape<'src> {
-	let Some(q) = find_child(node, "qualified_name") else {
-		return NodeShape::Recurse;
-	};
-	let (schema, name) = split_qualified_name(q, source);
-	if name.is_empty() {
-		return NodeShape::Recurse;
-	}
-	let parent = maybe_schema(module, &schema);
-	let moniker = extend_segment(&parent, kinds::VIEW, &name);
-	let body = find_child(node, "SelectStmt");
-	NodeShape::Symbol(Symbol {
-		moniker,
-		kind: kinds::VIEW,
+		kind,
 		visibility: kinds::VIS_NONE,
 		signature: None,
 		body,
@@ -165,8 +159,8 @@ fn classify_call<'src>(node: Node<'src>, source: &'src [u8], module: &Moniker) -
 		return NodeShape::Recurse;
 	}
 	let arity = func_call_arity(node);
-	let parent = maybe_schema(module, &schema);
-	let target = extend_callable_arity(&parent, kinds::FUNCTION, &name, arity);
+	let parent = maybe_schema(module, schema);
+	let target = extend_callable_arity(&parent, kinds::FUNCTION, name, arity);
 	let s = node.start_byte() as u32;
 	NodeShape::Ref(Ref {
 		kind: kinds::REF_CALLS,
@@ -206,36 +200,35 @@ pub(super) fn visit<F: FnMut(Node)>(node: Node, f: &mut F) {
 	}
 }
 
-pub(super) fn split_qualified_name(node: Node, src: &[u8]) -> (Vec<u8>, Vec<u8>) {
-	let mut parts: Vec<Vec<u8>> = Vec::new();
+pub(super) fn split_qualified_name<'src>(
+	node: Node<'src>,
+	src: &'src [u8],
+) -> (&'src [u8], &'src [u8]) {
+	let mut parts: Vec<&'src [u8]> = Vec::new();
 	collect_qualified_parts(node, src, &mut parts);
 	match parts.len() {
-		0 => (Vec::new(), Vec::new()),
-		1 => (Vec::new(), parts.into_iter().next().unwrap()),
-		_ => {
-			let last = parts.last().cloned().unwrap();
-			let first = parts.into_iter().next().unwrap();
-			(first, last)
-		}
+		0 => (&[], &[]),
+		1 => (&[], parts[0]),
+		_ => (parts[0], parts[parts.len() - 1]),
 	}
 }
 
-fn collect_qualified_parts(node: Node, src: &[u8], out: &mut Vec<Vec<u8>>) {
+fn collect_qualified_parts<'src>(node: Node<'src>, src: &'src [u8], out: &mut Vec<&'src [u8]>) {
 	let mut cur = node.walk();
 	for c in node.named_children(&mut cur) {
 		match c.kind() {
 			"ColId" | "ColLabel" | "type_function_name" => {
 				if let Some(id) = find_descendant(c, "identifier") {
-					out.push(node_bytes(id, src));
+					out.push(node_slice(id, src));
 				}
 			}
 			"indirection" | "indirection_el" => collect_qualified_parts(c, src, out),
 			"attr_name" => {
 				if let Some(id) = find_descendant(c, "identifier") {
-					out.push(node_bytes(id, src));
+					out.push(node_slice(id, src));
 				}
 			}
-			"identifier" => out.push(node_bytes(c, src)),
+			"identifier" => out.push(node_slice(c, src)),
 			_ => collect_qualified_parts(c, src, out),
 		}
 	}
@@ -248,9 +241,7 @@ fn collect_param_types(params: Node, src: &[u8]) -> Vec<Vec<u8>> {
 			return;
 		}
 		if let Some(ft) = find_child(n, "func_type") {
-			let raw = node_bytes(ft, src);
-			let bytes = normalize_type(&raw);
-			out.push(bytes);
+			out.push(normalize_type(node_slice(ft, src)));
 		}
 	});
 	out
@@ -258,43 +249,49 @@ fn collect_param_types(params: Node, src: &[u8]) -> Vec<Vec<u8>> {
 
 fn normalize_type(raw: &[u8]) -> Vec<u8> {
 	let s = std::str::from_utf8(raw).unwrap_or("");
-	let trimmed = s.trim();
-	let collapsed: String = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
-	let canon = match collapsed.as_str() {
-		"int" => "int4".to_string(),
-		"integer" => "int4".to_string(),
-		"bigint" => "int8".to_string(),
-		"smallint" => "int2".to_string(),
-		"real" => "float4".to_string(),
-		"double precision" => "float8".to_string(),
-		_ => collapsed,
-	};
-	canon.into_bytes()
+	let mut collapsed = String::new();
+	for w in s.split_whitespace() {
+		if !collapsed.is_empty() {
+			collapsed.push(' ');
+		}
+		collapsed.push_str(w);
+	}
+	match collapsed.as_str() {
+		"int" | "integer" => b"int4".to_vec(),
+		"bigint" => b"int8".to_vec(),
+		"smallint" => b"int2".to_vec(),
+		"real" => b"float4".to_vec(),
+		"double precision" => b"float8".to_vec(),
+		_ => collapsed.into_bytes(),
+	}
 }
 
-fn function_language(node: Node, src: &[u8]) -> Vec<u8> {
-	let opts = match find_descendant(node, "createfunc_opt_list") {
-		Some(n) => n,
-		None => return Vec::new(),
+fn function_language<'src>(node: Node<'src>, src: &'src [u8]) -> &'src [u8] {
+	let Some(opts) = find_descendant(node, "createfunc_opt_list") else {
+		return &[];
 	};
-	let mut found = Vec::new();
-	visit(opts, &mut |item| {
-		if item.kind() != "createfunc_opt_item" {
-			return;
-		}
+	find_language_in(opts, src).unwrap_or(&[])
+}
+
+fn find_language_in<'src>(node: Node<'src>, src: &'src [u8]) -> Option<&'src [u8]> {
+	if node.kind() == "createfunc_opt_item" {
 		let mut has_lang = false;
-		let mut cur = item.walk();
-		for c in item.named_children(&mut cur) {
+		let mut cur = node.walk();
+		for c in node.named_children(&mut cur) {
 			if c.kind() == "kw_language" {
 				has_lang = true;
-			} else if has_lang && found.is_empty() {
-				if let Some(id) = find_descendant(c, "identifier") {
-					found = node_bytes(id, src);
-				}
+			} else if has_lang && let Some(id) = find_descendant(c, "identifier") {
+				return Some(node_slice(id, src));
 			}
 		}
-	});
-	found
+	}
+	let mut cur = node.walk();
+	for c in node.named_children(&mut cur) {
+		if let Some(found) = find_language_in(c, src) {
+			return Some(found);
+		}
+	}
+	None
 }
 
 fn dollar_body<'a>(node: Node<'_>, source: &'a str) -> Option<&'a str> {
@@ -330,6 +327,6 @@ fn walk_arg_list(list: Node, count: &mut u16) {
 	}
 }
 
-fn node_bytes(node: Node, src: &[u8]) -> Vec<u8> {
-	src[node.start_byte()..node.end_byte().min(src.len())].to_vec()
+fn node_slice<'src>(node: Node<'src>, src: &'src [u8]) -> &'src [u8] {
+	&src[node.start_byte()..node.end_byte().min(src.len())]
 }

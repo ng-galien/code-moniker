@@ -3,7 +3,7 @@ use tree_sitter::{Node, Parser};
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
-use super::strategy::run_inner_sql;
+use super::strategy::{new_sql_parser, run_inner_sql};
 
 pub(super) fn walk_plpgsql_body(
 	body: &str,
@@ -21,6 +21,7 @@ pub(super) fn walk_plpgsql_body(
 	let Some(tree) = plpgsql_parser.parse(body, None) else {
 		return;
 	};
+	let mut sql_parser = new_sql_parser();
 	for_each_sql_expression(tree.root_node(), &mut |expr| {
 		let raw = &body[expr.start_byte()..expr.end_byte().min(body.len())];
 		let trimmed = raw.trim_end_matches(';').trim();
@@ -33,7 +34,7 @@ pub(super) fn walk_plpgsql_body(
 		} else {
 			format!("SELECT {trimmed}")
 		};
-		run_inner_sql(&prepared, source_def, module, graph);
+		run_inner_sql(&mut sql_parser, &prepared, source_def, module, graph);
 	});
 }
 

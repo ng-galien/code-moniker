@@ -1,8 +1,9 @@
 use tree_sitter::Node;
 
 use crate::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
-use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::core::moniker::Moniker;
 
+use crate::lang::callable::extend_segment_u32;
 use crate::lang::strategy::{LangStrategy, NodeShape};
 
 pub struct CanonicalWalker<'a, S: LangStrategy> {
@@ -54,11 +55,7 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 		kind: &'static [u8],
 		graph: &mut CodeGraph,
 	) {
-		let mut b = MonikerBuilder::from_view(scope.as_view());
-		let mut name = [0u8; 10];
-		let n = format_u32(node.start_byte() as u32, &mut name);
-		b.segment(kind, &name[..n]);
-		let m = b.build();
+		let m = extend_segment_u32(scope, kind, node.start_byte() as u32);
 		let pos = (node.start_byte() as u32, node.end_byte() as u32);
 		let _ = graph.add_def(m, kind, scope, Some(pos));
 	}
@@ -98,24 +95,6 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 		self.strategy
 			.on_symbol_emitted(node, kind, &m, self.source, graph);
 	}
-}
-
-fn format_u32(mut n: u32, out: &mut [u8; 10]) -> usize {
-	if n == 0 {
-		out[0] = b'0';
-		return 1;
-	}
-	let mut buf = [0u8; 10];
-	let mut i = 0;
-	while n > 0 {
-		buf[i] = b'0' + (n % 10) as u8;
-		n /= 10;
-		i += 1;
-	}
-	for k in 0..i {
-		out[k] = buf[i - 1 - k];
-	}
-	i
 }
 
 #[cfg(test)]
