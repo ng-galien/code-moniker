@@ -884,6 +884,57 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_top_level_const_block_emits_one_def_per_name() {
+		let src = "package foo\ntype Key int\nconst (\n    a Key = iota\n    b\n    c\n)\n";
+		let g = extract_default("foo.go", src, &make_anchor(), false);
+		let names: Vec<&[u8]> = g
+			.defs()
+			.filter(|d| d.kind == b"const")
+			.map(|d| d.moniker.as_view().segments().last().unwrap().name)
+			.collect();
+		assert_eq!(
+			names,
+			vec![&b"a"[..], &b"b"[..], &b"c"[..]],
+			"each const_spec identifier must yield one const def at the module scope. defs: {:?}",
+			g.def_monikers()
+		);
+	}
+
+	#[test]
+	fn extract_top_level_var_block_emits_one_def_per_name() {
+		let src = "package foo\nvar (\n    x int\n    y string = \"hi\"\n)\n";
+		let g = extract_default("foo.go", src, &make_anchor(), false);
+		let names: Vec<&[u8]> = g
+			.defs()
+			.filter(|d| d.kind == b"var")
+			.map(|d| d.moniker.as_view().segments().last().unwrap().name)
+			.collect();
+		assert_eq!(names, vec![&b"x"[..], &b"y"[..]]);
+	}
+
+	#[test]
+	fn extract_top_level_var_does_not_pollute_locals() {
+		let src = "package foo\nvar GlobalCount int\nfunc Run() { GlobalCount = 1 }\n";
+		let g = extract_default("foo.go", src, &make_anchor(), false);
+		let local_names: Vec<&[u8]> = g
+			.defs()
+			.filter(|d| d.kind == b"local")
+			.map(|d| d.moniker.as_view().segments().last().unwrap().name)
+			.collect();
+		assert!(
+			local_names.is_empty(),
+			"a package-level var must not be emitted as a local. found locals: {:?}",
+			local_names
+		);
+		let vars: Vec<&[u8]> = g
+			.defs()
+			.filter(|d| d.kind == b"var")
+			.map(|d| d.moniker.as_view().segments().last().unwrap().name)
+			.collect();
+		assert_eq!(vars, vec![&b"GlobalCount"[..]]);
+	}
+
+	#[test]
 	fn extract_deep_skips_blank_in_short_var() {
 		let src = "package foo\nfunc Run() { _, y := 1, 2; _ = y }\n";
 		let g = extract_default("foo.go", src, &make_anchor(), true);

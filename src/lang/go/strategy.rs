@@ -72,6 +72,10 @@ impl<'a> LangStrategy for Strategy<'a> {
 				self.handle_var_declaration(node, scope, graph);
 				NodeShape::Skip
 			}
+			"const_declaration" => {
+				self.handle_const_declaration(node, scope, graph);
+				NodeShape::Skip
+			}
 			"range_clause" => {
 				self.handle_range_clause(node, scope, graph);
 				NodeShape::Skip
@@ -321,29 +325,44 @@ impl<'src_lang> Strategy<'src_lang> {
 	}
 
 	fn handle_var_declaration(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		self.handle_var_or_const(node, scope, graph, "var_spec", kinds::VAR);
+	}
+
+	fn handle_const_declaration(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		self.handle_var_or_const(node, scope, graph, "const_spec", kinds::CONST);
+	}
+
+	fn handle_var_or_const(
+		&self,
+		node: Node<'_>,
+		scope: &Moniker,
+		graph: &mut CodeGraph,
+		spec_kind: &str,
+		def_kind: &'static [u8],
+	) {
 		let in_callable = is_callable_scope(scope, &self.module);
-		let mut cursor = node.walk();
-		for spec in node.named_children(&mut cursor) {
-			if spec.kind() != "var_spec" {
-				continue;
-			}
+		for spec in spec_children(node, spec_kind) {
 			if let Some(t) = spec.child_by_field_name("type") {
 				self.emit_uses_type(t, scope, graph);
 			}
-			if in_callable {
-				let mut nc = spec.walk();
-				for n in spec.named_children(&mut nc) {
-					if n.kind() == "identifier" {
-						let s = node_slice(n, self.source_bytes);
-						if !s.is_empty() && s != b"_" {
-							self.record_local(s);
-							if self.deep {
-								let m = extend_segment(scope, kinds::LOCAL, s);
-								let _ =
-									graph.add_def(m, kinds::LOCAL, scope, Some(node_position(n)));
-							}
-						}
+			let mut nc = spec.walk();
+			for n in spec.named_children(&mut nc) {
+				if n.kind() != "identifier" {
+					continue;
+				}
+				let s = node_slice(n, self.source_bytes);
+				if s.is_empty() || s == b"_" {
+					continue;
+				}
+				if in_callable {
+					self.record_local(s);
+					if self.deep {
+						let m = extend_segment(scope, kinds::LOCAL, s);
+						let _ = graph.add_def(m, kinds::LOCAL, scope, Some(node_position(n)));
 					}
+				} else if scope == &self.module {
+					let m = extend_segment(scope, def_kind, s);
+					let _ = graph.add_def(m, def_kind, scope, Some(node_position(n)));
 				}
 			}
 			if let Some(value) = spec.child_by_field_name("value") {
@@ -1023,3 +1042,23 @@ const STDLIB_PACKAGES: &[&str] = &[
 	"unicode",
 	"unsafe",
 ];
+
+fn spec_children<'tree>(node: Node<'tree>, spec_kind: &str) -> Vec<Node<'tree>> {
+	let mut out = Vec::new();
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		match child.kind() {
+			k if k == spec_kind => out.push(child),
+			"var_spec_list" | "const_spec_list" => {
+				let mut nc = child.walk();
+				for spec in child.named_children(&mut nc) {
+					if spec.kind() == spec_kind {
+						out.push(spec);
+					}
+				}
+			}
+			_ => {}
+		}
+	}
+	out
+}

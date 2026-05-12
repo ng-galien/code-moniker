@@ -38,6 +38,7 @@ pub const CONSTRUCTOR: &[u8] = b"constructor";
 pub const FIELD: &[u8] = b"field";
 pub const PROPERTY: &[u8] = b"property";
 pub const CONST: &[u8] = b"const";
+pub const VAR: &[u8] = b"var";
 pub const ENUM_CONSTANT: &[u8] = b"enum_constant";
 
 pub const HINT_THIS: &[u8] = b"this";
