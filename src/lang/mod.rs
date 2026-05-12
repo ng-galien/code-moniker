@@ -9,6 +9,7 @@ pub mod python;
 pub mod rs;
 pub mod sql;
 pub mod strategy;
+pub mod tree_util;
 pub mod ts;
 
 pub use extractor::LangExtractor;

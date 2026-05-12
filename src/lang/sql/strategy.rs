@@ -1,15 +1,18 @@
 use tree_sitter::{Node, Parser, Tree};
 
-use crate::core::code_graph::{CodeGraph, Position};
+use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
 use crate::lang::canonical_walker::CanonicalWalker;
 use crate::lang::strategy::{LangStrategy, NodeShape, Ref, Symbol};
+use crate::lang::tree_util::{find_descendant, find_named_child, node_position, node_slice};
 
 use super::canonicalize::{
 	extend_callable_arity, extend_callable_typed, extend_segment, maybe_schema,
 };
 use super::kinds;
+
+use find_named_child as find_child;
 
 pub(super) fn new_sql_parser() -> Parser {
 	let mut parser = Parser::new();
@@ -120,7 +123,7 @@ fn classify_create_function<'src>(
 		visibility: kinds::VIS_NONE,
 		signature: Some(signature),
 		body: None,
-		position: pos(node),
+		position: node_position(node),
 	})
 }
 
@@ -146,7 +149,7 @@ fn classify_qualified_relation<'src>(
 		visibility: kinds::VIS_NONE,
 		signature: None,
 		body,
-		position: pos(node),
+		position: node_position(node),
 	})
 }
 
@@ -168,28 +171,6 @@ fn classify_call<'src>(node: Node<'src>, source: &'src [u8], module: &Moniker) -
 		confidence: kinds::CONF_UNRESOLVED,
 		position: (s, s),
 	})
-}
-
-fn pos(node: Node) -> Position {
-	(node.start_byte() as u32, node.end_byte() as u32)
-}
-
-pub(super) fn find_child<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-	let mut cur = node.walk();
-	node.named_children(&mut cur).find(|c| c.kind() == kind)
-}
-
-pub(super) fn find_descendant<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-	if node.kind() == kind {
-		return Some(node);
-	}
-	let mut cur = node.walk();
-	for c in node.named_children(&mut cur) {
-		if let Some(d) = find_descendant(c, kind) {
-			return Some(d);
-		}
-	}
-	None
 }
 
 pub(super) fn visit<F: FnMut(Node)>(node: Node, f: &mut F) {
@@ -325,8 +306,4 @@ fn walk_arg_list(list: Node, count: &mut u16) {
 			_ => {}
 		}
 	}
-}
-
-fn node_slice<'src>(node: Node<'src>, src: &'src [u8]) -> &'src [u8] {
-	&src[node.start_byte()..node.end_byte().min(src.len())]
 }
