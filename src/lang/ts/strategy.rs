@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use tree_sitter::Node;
 
@@ -29,6 +29,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) presets: &'src super::Presets,
 	pub(super) export_ranges: Vec<(u32, u32)>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
+	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
 }
 
 impl<'a> LangStrategy for Strategy<'a> {
@@ -723,9 +724,14 @@ impl<'src_lang> Strategy<'src_lang> {
 					if !name.is_empty() {
 						let target =
 							extend_callable_arity(&self.module, kinds::METHOD, name, arity);
+						let confidence = fn_node
+							.child_by_field_name("object")
+							.filter(|o| o.kind() == "identifier")
+							.map(|o| self.ref_confidence(node_slice(o, self.source_bytes)))
+							.unwrap_or(kinds::CONF_NAME_MATCH);
 						let attrs = RefAttrs {
 							receiver_hint: receiver_hint(fn_node, self.source_bytes),
-							confidence: kinds::CONF_NAME_MATCH,
+							confidence,
 							..RefAttrs::default()
 						};
 						let _ = graph.add_ref_attrs(
@@ -764,8 +770,17 @@ impl<'src_lang> Strategy<'src_lang> {
 				&& !n.is_empty()
 			{
 				let target = extend_segment(&self.module, kinds::CLASS, n);
+				let confidence = match ctor.kind() {
+					"identifier" | "type_identifier" => self.ref_confidence(n),
+					"member_expression" => ctor
+						.child_by_field_name("object")
+						.filter(|o| o.kind() == "identifier")
+						.map(|o| self.ref_confidence(node_slice(o, self.source_bytes)))
+						.unwrap_or(kinds::CONF_NAME_MATCH),
+					_ => kinds::CONF_NAME_MATCH,
+				};
 				let attrs = RefAttrs {
-					confidence: kinds::CONF_NAME_MATCH,
+					confidence,
 					..RefAttrs::default()
 				};
 				let _ = graph.add_ref_attrs(scope, target, kinds::INSTANTIATES, Some(pos), &attrs);
@@ -818,7 +833,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			let target =
 				extend_callable_arity(&self.module, kinds::FUNCTION, callee.name, callee.arity);
 			let attrs = RefAttrs {
-				confidence: kinds::CONF_NAME_MATCH,
+				confidence: self.ref_confidence(callee.name),
 				..RefAttrs::default()
 			};
 			let _ = graph.add_ref_attrs(scope, target, kinds::ANNOTATES, Some(pos), &attrs);
@@ -849,7 +864,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			out.push(RefSpec {
 				kind: kinds::ANNOTATES,
 				target,
-				confidence: kinds::CONF_NAME_MATCH,
+				confidence: self.ref_confidence(callee.name),
 				position: pos,
 				receiver_hint: b"",
 				alias: b"",
@@ -899,7 +914,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			out.push(RefSpec {
 				kind: edge,
 				target,
-				confidence: kinds::CONF_NAME_MATCH,
+				confidence: self.ref_confidence(name),
 				position: pos,
 				receiver_hint: b"",
 				alias: b"",
@@ -916,7 +931,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				}
 				let target = extend_segment(&self.module, kinds::CLASS, name);
 				let attrs = RefAttrs {
-					confidence: kinds::CONF_NAME_MATCH,
+					confidence: self.ref_confidence(name),
 					..RefAttrs::default()
 				};
 				let _ = graph.add_ref_attrs(
@@ -930,8 +945,9 @@ impl<'src_lang> Strategy<'src_lang> {
 			"nested_type_identifier" => {
 				if let Some(name) = nested_type_short(node, self.source_bytes) {
 					let target = extend_segment(&self.module, kinds::CLASS, name);
+					let root = nested_type_root(node, self.source_bytes).unwrap_or(name);
 					let attrs = RefAttrs {
-						confidence: kinds::CONF_NAME_MATCH,
+						confidence: self.ref_confidence(root),
 						..RefAttrs::default()
 					};
 					let _ = graph.add_ref_attrs(
@@ -947,7 +963,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				if let Some(name) = generic_short(node, self.source_bytes) {
 					let target = extend_segment(&self.module, kinds::CLASS, name);
 					let attrs = RefAttrs {
-						confidence: kinds::CONF_NAME_MATCH,
+						confidence: self.ref_confidence(name),
 						..RefAttrs::default()
 					};
 					let _ = graph.add_ref_attrs(
@@ -1062,6 +1078,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			match c.kind() {
 				"identifier" => {
 					let local_name = node_slice(c, self.source_bytes);
+					self.record_import(local_name, confidence);
 					let target = self.import_symbol_target(raw_spec, b"default");
 					let attrs = RefAttrs {
 						alias: local_name,
@@ -1078,6 +1095,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				}
 				"namespace_import" => {
 					let alias = first_identifier_text(c, self.source_bytes);
+					self.record_import(alias, confidence);
 					let target = self.import_module_target(raw_spec);
 					let attrs = RefAttrs {
 						alias,
@@ -1109,6 +1127,8 @@ impl<'src_lang> Strategy<'src_lang> {
 							.child_by_field_name("alias")
 							.map(|n| node_slice(n, self.source_bytes))
 							.unwrap_or(b"");
+						let local = if alias.is_empty() { name } else { alias };
+						self.record_import(local, confidence);
 						let target = self.import_symbol_target(raw_spec, name);
 						let attrs = RefAttrs {
 							alias,
@@ -1338,7 +1358,33 @@ impl<'src_lang> Strategy<'src_lang> {
 	}
 
 	fn name_confidence(&self, name: &[u8]) -> Option<&'static [u8]> {
-		crate::lang::kinds::name_confidence_for(self.is_local_name(name), self.deep)
+		if self.is_local_name(name) {
+			return if self.deep {
+				Some(kinds::CONF_LOCAL)
+			} else {
+				None
+			};
+		}
+		Some(
+			self.import_confidence_for(name)
+				.unwrap_or(kinds::CONF_NAME_MATCH),
+		)
+	}
+
+	fn import_confidence_for(&self, name: &[u8]) -> Option<&'static [u8]> {
+		self.imports.borrow().get(name).copied()
+	}
+
+	fn record_import(&self, name: &[u8], confidence: &'static [u8]) {
+		if name.is_empty() {
+			return;
+		}
+		self.imports.borrow_mut().insert(name.to_vec(), confidence);
+	}
+
+	fn ref_confidence(&self, name: &[u8]) -> &'static [u8] {
+		self.import_confidence_for(name)
+			.unwrap_or(kinds::CONF_NAME_MATCH)
 	}
 
 	fn module_visibility(&self, node: Node<'_>) -> &'static [u8] {
@@ -1468,6 +1514,18 @@ fn nested_type_short<'src>(node: Node<'src>, source: &'src [u8]) -> Option<&'src
 		}
 	}
 	last
+}
+
+fn nested_type_root<'src>(node: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
+	let mut cursor = node.walk();
+	for c in node.named_children(&mut cursor) {
+		match c.kind() {
+			"type_identifier" | "identifier" => return Some(node_slice(c, source)),
+			"nested_type_identifier" => return nested_type_root(c, source),
+			_ => {}
+		}
+	}
+	None
 }
 
 fn is_relative_specifier(spec: &str) -> bool {

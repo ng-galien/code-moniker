@@ -47,6 +47,7 @@ pub fn extract(
 		presets,
 		export_ranges,
 		local_scope: std::cell::RefCell::new(Vec::new()),
+		imports: std::cell::RefCell::new(std::collections::HashMap::new()),
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -378,6 +379,83 @@ mod tests {
 		let r = g.refs().next().unwrap();
 		assert_eq!(r.kind, b"reexports".to_vec());
 	}
+	#[test]
+	fn call_to_named_import_carries_imported_confidence() {
+		let g = extract(
+			"util.ts",
+			"import { run } from './foo';\nrun();",
+			&make_anchor(),
+			false,
+		);
+		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
+		assert_eq!(r.confidence, b"imported");
+	}
+
+	#[test]
+	fn call_to_bare_import_carries_external_confidence() {
+		let g = extract(
+			"util.ts",
+			"import { useState } from 'react';\nuseState();",
+			&make_anchor(),
+			false,
+		);
+		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
+		assert_eq!(r.confidence, b"external");
+	}
+
+	#[test]
+	fn method_call_on_imported_namespace_carries_external_confidence() {
+		let g = extract(
+			"util.ts",
+			"import * as fs from 'fs';\nfs.readFile();",
+			&make_anchor(),
+			false,
+		);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call")
+			.expect("method_call");
+		assert_eq!(r.confidence, b"external");
+		assert_eq!(r.receiver_hint, b"fs");
+	}
+
+	#[test]
+	fn new_on_imported_class_carries_imported_confidence() {
+		let g = extract(
+			"util.ts",
+			"import { Foo } from './foo';\nnew Foo();",
+			&make_anchor(),
+			false,
+		);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"instantiates")
+			.expect("instantiates");
+		assert_eq!(r.confidence, b"imported");
+	}
+
+	#[test]
+	fn uses_type_of_imported_type_carries_imported_confidence() {
+		let g = extract(
+			"util.ts",
+			"import type { Opts } from './types';\nfunction f(o: Opts) { return o; }",
+			&make_anchor(),
+			false,
+		);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"uses_type")
+			.expect("uses_type");
+		assert_eq!(r.confidence, b"imported");
+	}
+
+	#[test]
+	fn call_to_non_imported_identifier_stays_name_match() {
+		let g = extract("util.ts", "foo();", &make_anchor(), false);
+		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
+		assert_eq!(r.confidence, b"name_match");
+	}
+
 	#[test]
 	fn extract_interface_emits_interface_def() {
 		let g = extract(
