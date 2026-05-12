@@ -6,15 +6,15 @@ use tree_sitter::{Language, Parser, Tree};
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
+use crate::lang::canonical_walker::CanonicalWalker;
+
 pub mod build;
 mod canonicalize;
 mod kinds;
-mod refs;
-mod scope;
-mod walker;
+mod strategy;
 
 use canonicalize::compute_module_moniker;
-use walker::{ImportEntry, Walker, collect_type_table};
+use strategy::{Strategy, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
@@ -47,14 +47,15 @@ pub fn extract(
 		&module,
 		&mut type_table,
 	);
-	let walker = Walker {
-		source_bytes: source.as_bytes(),
+	let strat = Strategy {
 		module: module.clone(),
+		source_bytes: source.as_bytes(),
 		deep,
+		imports: RefCell::new(HashMap::new()),
 		local_scope: RefCell::new(Vec::new()),
-		imports: RefCell::new(HashMap::<&[u8], ImportEntry>::new()),
 		type_table,
 	};
+	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
 }

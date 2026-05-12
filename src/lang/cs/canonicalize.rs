@@ -1,6 +1,7 @@
 use tree_sitter::Node;
 
 use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::lang::tree_util::find_named_child;
 
 use super::kinds;
 
@@ -16,13 +17,7 @@ pub(super) fn strip_cs_extension(uri: &str) -> &str {
 	uri.strip_suffix(".cs").unwrap_or(uri)
 }
 
-pub(super) use crate::lang::callable::{
-	extend_callable_arity, extend_callable_typed, extend_segment, extend_segment_u32,
-};
-
-pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
-	(node.start_byte() as u32, node.end_byte() as u32)
-}
+pub(super) use crate::lang::callable::extend_callable_typed;
 
 pub(super) fn parameter_types(callable: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 	let params = callable
@@ -56,13 +51,6 @@ pub(super) fn parameter_list_types(params: Node<'_>, source: &[u8]) -> Vec<Vec<u
 		out.push(b"...".to_vec());
 	}
 	out
-}
-
-pub(super) fn find_named_child<'tree>(parent: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
-	let mut cursor = parent.walk();
-	parent
-		.named_children(&mut cursor)
-		.find(|c| c.kind() == kind)
 }
 
 #[cfg(test)]
