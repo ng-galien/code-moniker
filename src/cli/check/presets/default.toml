@@ -10,23 +10,33 @@
 # doc-comment requirements, max-lines/max-methods budgets) belong in the
 # user overlay — see docs/check-dsl.md for a worked example.
 
+# Aliases factor the case regexes shared across languages. A user overlay
+# may redefine any of these to tighten or loosen the convention without
+# touching the per-kind rules.
+[aliases]
+pascal    = "name =~ ^[A-Z][A-Za-z0-9]*$"
+camel     = "name =~ ^[a-z_][A-Za-z0-9]*$"
+snake     = "name =~ ^[a-z_][a-z0-9_]*$"
+screaming = "name =~ ^[A-Z][A-Z0-9_]*$"
+go_id     = "name =~ ^([A-Z][a-zA-Z0-9_]*|[a-z][a-zA-Z0-9_]*)$"
+
 # ─── TypeScript / JavaScript ──────────────────────────────────────────────
 [[ts.class.where]]
 id      = "name-pascalcase"
-expr    = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr    = "$pascal"
 message = "Class names must be PascalCase. Rename `{name}`."
 
 [[ts.interface.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[ts.type.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[ts.function.where]]
 id      = "name-camelcase"
-expr    = "name =~ ^[a-z_][A-Za-z0-9]*$"
+expr    = "$camel"
 message = "Function names use camelCase. Rename `{name}`."
 
 [[ts.function.where]]
@@ -37,75 +47,75 @@ message = "`{name}` is a placeholder name. Pick a verb that describes the actual
 # ─── Rust ─────────────────────────────────────────────────────────────────
 [[rust.fn.where]]
 id   = "name-snakecase"
-expr = "name =~ ^[a-z_][a-z0-9_]*$"
+expr = "$snake"
 
 [[rust.struct.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[rust.trait.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[rust.type.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[rust.enum.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[rust.const.where]]
 id   = "name-screaming"
-expr = "name =~ ^[A-Z][A-Z0-9_]*$"
+expr = "$screaming"
 
 # ─── Java ─────────────────────────────────────────────────────────────────
 [[java.class.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[java.interface.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[java.method.where]]
 id   = "name-camelcase"
-expr = "name =~ ^[a-z_][A-Za-z0-9]*$"
+expr = "$camel"
 
 [[java.field.where]]
 id   = "name-camelcase"
-expr = "name =~ ^[a-z_][A-Za-z0-9]*$"
+expr = "$camel"
 
 [[java.enum_constant.where]]
 id   = "name-screaming"
-expr = "name =~ ^[A-Z][A-Z0-9_]*$"
+expr = "$screaming"
 
 # ─── Python ───────────────────────────────────────────────────────────────
 [[python.function.where]]
 id   = "name-snakecase"
-expr = "name =~ ^[a-z_][a-z0-9_]*$"
+expr = "$snake"
 
 [[python.class.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[python.method.where]]
 id   = "name-snakecase"
-expr = "name =~ ^[a-z_][a-z0-9_]*$"
+expr = "$snake"
 
 # ─── Go ───────────────────────────────────────────────────────────────────
 [[go.type.where]]
 id   = "name-go"
-expr = "name =~ ^([A-Z][a-zA-Z0-9_]*|[a-z][a-zA-Z0-9_]*)$"
+expr = "$go_id"
 
 [[go.const.where]]
 id   = "name-go"
-expr = "name =~ ^([A-Z][a-zA-Z0-9_]*|[a-z][a-zA-Z0-9_]*)$"
+expr = "$go_id"
 
 # ─── C# ───────────────────────────────────────────────────────────────────
 [[cs.class.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[cs.interface.where]]
 id   = "name-i-prefix"
@@ -113,25 +123,37 @@ expr = "name =~ ^I[A-Z][A-Za-z0-9]*$"
 
 [[cs.record.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[cs.method.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 [[cs.property.where]]
 id   = "name-pascalcase"
-expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+expr = "$pascal"
 
 # ─── SQL / PL/pgSQL ───────────────────────────────────────────────────────
 [[sql.function.where]]
 id   = "name-snakecase"
-expr = "name =~ ^[a-z_][a-z0-9_]*$"
+expr = "$snake"
 
 [[sql.table.where]]
 id   = "name-snakecase"
-expr = "name =~ ^[a-z_][a-z0-9_]*$"
+expr = "$snake"
 
 [[sql.view.where]]
 id   = "name-snakecase"
-expr = "name =~ ^[a-z_][a-z0-9_]*$"
+expr = "$snake"
+
+# ─── Cross-language structural invariants ────────────────────────────────
+# These use the `shape` projection (see docs/check-dsl.md "Shape — the
+# canonical kind grouping") to express rules that hold regardless of
+# which language's kinds are involved.
+
+# Annotations have no business calling code or referencing types — they
+# are leaf nodes in the graph by construction.
+[[refs.where]]
+id      = "annotations-do-not-emit-non-annotates-refs"
+expr    = "source.shape = 'annotation' => kind = 'annotates'"
+message = "An annotation def (`{source.name}`) emitted a `{kind}` ref. The annotation shape is leaf — only `annotates` refs originate from it."

@@ -41,7 +41,7 @@ domain      := KIND_IDENT | "segment" | "out_refs" | "in_refs"
 
 projection  := scope_prefix? attribute
 scope_prefix:= ( "source" | "target" | "parent" | "segment" ) "."
-attribute   := "name" | "kind" | "visibility" | "lines"
+attribute   := "name" | "kind" | "shape" | "visibility" | "lines"
              | "depth" | "moniker"
 
 path_match  := projection? "~" PATH_STRING
@@ -116,19 +116,52 @@ In **def scope**, the bare attribute refers to the current def:
 | --------------- | -------------------------------------------- |
 | `name`          | bare callable name of the last segment       |
 | `kind`          | def kind                                     |
+| `shape`         | def's canonical shape (see below)            |
 | `visibility`    | def visibility                               |
 | `lines`         | line count of the def's body                 |
 | `depth`         | number of segments in the moniker            |
 | `moniker`       | the moniker itself (operands: `=` `<@` `@>` `?=` `~`) |
 | `parent.name`   | bare name of the moniker's penultimate segment |
 | `parent.kind`   | kind of the moniker's penultimate segment    |
+| `parent.shape`  | shape of the moniker's penultimate segment   |
 | `segment(<K>)`  | name of the first segment of kind `K`, or `""` |
 
 In **ref scope**, every projection is prefixed by `source.` or `target.`,
 and an unprefixed `kind` refers to the ref kind (e.g. `calls`, `imports`,
 `uses_type`, `implements`, `annotates`). Available projections on each
-side: `name`, `kind`, `visibility`, `moniker`, plus path matching via `~`
-and `has_segment(...)` / `segment(...)`.
+side: `name`, `kind`, `shape`, `visibility`, `moniker`, plus path matching
+via `~` and `has_segment(...)` / `segment(...)`.
+
+### Shape — the canonical kind grouping
+
+`shape` collapses the 30+ per-language `kind` strings into five
+language-agnostic buckets. It is the right projection for invariants that
+hold *structurally* across languages, regardless of how each language
+spells its keywords.
+
+| Shape          | Kinds it covers                                                                 |
+| -------------- | ------------------------------------------------------------------------------- |
+| `namespace`    | `module`, `namespace`, `schema`, `impl`                                         |
+| `type`         | `class`, `struct`, `interface`, `trait`, `enum`, `record`, `annotation_type`, `table`, `type`, `view`, `delegate` |
+| `callable`     | `function`, `method`, `constructor`, `fn`, `func`, `procedure`, `async_function` |
+| `value`        | `field`, `property`, `event`, `enum_constant`, `const`, `static`, `var`, `param`, `local` |
+| `annotation`   | `comment`                                                                       |
+
+```toml
+# Single rule that fires on any type-shape def across all 7 languages.
+[[ts.class.where]]
+expr = "shape = 'type' => name =~ ^[A-Z][A-Za-z0-9]*$"
+
+# Cross-language architectural rule expressed in shapes, not kinds.
+[[refs.where]]
+id   = "annotations-only-annotate"
+expr = "source.shape = 'annotation' => kind = 'annotates'"
+```
+
+The mapping table lives in `src/core/shape.rs` and is the same one
+exposed as the `shape` column of `graph_defs(code_graph)` in SQL — rules
+written in shape terms transfer verbatim to ad-hoc queries against an
+ingested `code_graph` corpus.
 
 `target.visibility` requires that the ref's target is **resolved locally**
 in the file under check; if the target is external (cross-file), the rule
