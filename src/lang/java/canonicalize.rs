@@ -40,8 +40,6 @@ pub(super) fn read_package_name<'src>(root: Node<'_>, source: &'src [u8]) -> &'s
 	""
 }
 
-pub(super) use crate::lang::callable::extend_callable_typed;
-
 #[cfg(test)]
 mod tests {
 	use super::*;

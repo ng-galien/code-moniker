@@ -35,11 +35,11 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/lang:java/module:Foo/class:Foo/method:bar(int,String)'::moniker,
-		'method moniker carries full parameter type signature') AS r3,
+	ok(g @> 'code+moniker://app/lang:java/module:Foo/class:Foo/method:bar(a:int,b:String)'::moniker,
+		'method moniker carries name:type slot signature') AS r3,
 	is((SELECT signature FROM graph_defs(g) WHERE kind = 'method'),
-		'int,String',
-		'method signature column lists parameter types') AS r4
+		'a:int,b:String',
+		'method signature column lists name:type slots') AS r4
 FROM g;
 
 

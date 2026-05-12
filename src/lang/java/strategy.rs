@@ -6,11 +6,13 @@ use tree_sitter::Node;
 use crate::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-use crate::lang::callable::{extend_callable_arity, extend_segment, join_bytes_with_comma};
+use crate::lang::callable::{
+	CallableSlot, callable_segment_slots, extend_callable_slots, extend_segment,
+	join_bytes_with_comma,
+};
 use crate::lang::strategy::{LangStrategy, NodeShape, RefSpec, Symbol};
 use crate::lang::tree_util::{node_position, node_slice};
 
-use super::canonicalize::extend_callable_typed;
 use super::kinds;
 
 pub(super) struct Strategy<'src> {
@@ -22,6 +24,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) type_table: HashMap<&'src [u8], Moniker>,
+	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
 }
 
 impl<'a> LangStrategy for Strategy<'a> {
@@ -208,9 +211,10 @@ impl<'src_lang> Strategy<'src_lang> {
 			return NodeShape::Recurse;
 		};
 		let name = node_slice(name_node, source);
-		let types = formal_parameter_types(node, source);
-		let signature = join_bytes_with_comma(&types);
-		let moniker = extend_callable_typed(scope, kind, name, &types);
+		let slots = formal_parameter_slots(node, source);
+		let signature =
+			join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
+		let moniker = extend_callable_slots(scope, kind, name, &slots);
 
 		let mut annotated_by: Vec<RefSpec> = Vec::new();
 		self.collect_annotations_from(node, &mut annotated_by);
@@ -491,7 +495,6 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn handle_method_invocation(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
-		let arity = argument_count(node);
 
 		let object = node.child_by_field_name("object");
 		let Some(name_node) = node.child_by_field_name("name") else {
@@ -505,7 +508,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 
 		if let Some(obj) = object {
-			let target = extend_callable_arity(&self.module, kinds::METHOD, name, arity);
+			let target = self.resolve_callable_target(scope, &obj, name, kinds::METHOD);
 			let confidence = if obj.kind() == "identifier" {
 				let obj_name = node_slice(obj, self.source_bytes);
 				self.import_confidence_for(obj_name)
@@ -529,7 +532,8 @@ impl<'src_lang> Strategy<'src_lang> {
 				let target = if confidence == kinds::CONF_LOCAL {
 					extend_segment(scope, kinds::LOCAL, name)
 				} else {
-					extend_callable_arity(&self.module, kinds::METHOD, name, arity)
+					self.lookup_callable_in_class(scope, name, kinds::METHOD)
+						.unwrap_or_else(|| extend_segment(&self.module, kinds::METHOD, name))
 				};
 				let attrs = RefAttrs {
 					confidence,
@@ -541,6 +545,32 @@ impl<'src_lang> Strategy<'src_lang> {
 
 		if let Some(args) = node.child_by_field_name("arguments") {
 			self.walk_children(args, scope, graph);
+		}
+	}
+
+	fn lookup_callable_in_class(
+		&self,
+		scope: &Moniker,
+		name: &[u8],
+		kind: &[u8],
+	) -> Option<Moniker> {
+		let cls = enclosing_class(scope)?;
+		let seg = self.callable_table.get(&(cls.clone(), name.to_vec()))?;
+		Some(extend_segment(&cls, kind, seg))
+	}
+
+	fn resolve_callable_target(
+		&self,
+		scope: &Moniker,
+		receiver: &Node<'_>,
+		name: &[u8],
+		kind: &[u8],
+	) -> Moniker {
+		match receiver.kind() {
+			"this" | "super" => self
+				.lookup_callable_in_class(scope, name, kind)
+				.unwrap_or_else(|| extend_segment(&self.module, kind, name)),
+			_ => extend_segment(&self.module, kind, name),
 		}
 	}
 
@@ -810,7 +840,7 @@ pub(super) fn collect_type_table<'src>(
 	}
 }
 
-fn formal_parameter_types(callable: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
+fn formal_parameter_slots(callable: Node<'_>, source: &[u8]) -> Vec<CallableSlot> {
 	let Some(params) = callable.child_by_field_name("parameters") else {
 		return Vec::new();
 	};
@@ -820,15 +850,97 @@ fn formal_parameter_types(callable: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 		if !matches!(c.kind(), "formal_parameter" | "spread_parameter") {
 			continue;
 		}
-		let Some(t) = c.child_by_field_name("type") else {
-			continue;
-		};
-		let Ok(text) = t.utf8_text(source) else {
-			continue;
-		};
-		out.push(crate::lang::callable::normalize_type_text(text));
+		let r#type = c
+			.child_by_field_name("type")
+			.and_then(|t| t.utf8_text(source).ok())
+			.map(crate::lang::callable::normalize_type_text)
+			.unwrap_or_default();
+		let name = c
+			.child_by_field_name("name")
+			.map(|n| node_slice(n, source).to_vec())
+			.unwrap_or_default();
+		out.push(CallableSlot { name, r#type });
 	}
 	out
+}
+
+fn slot_signature_bytes(slot: &CallableSlot) -> Vec<u8> {
+	match (slot.name.as_slice(), slot.r#type.as_slice()) {
+		(b"", b"") => b"_".to_vec(),
+		(name, b"") => name.to_vec(),
+		(b"", ty) => ty.to_vec(),
+		(name, ty) => {
+			let mut out = Vec::with_capacity(name.len() + 1 + ty.len());
+			out.extend_from_slice(name);
+			out.push(b':');
+			out.extend_from_slice(ty);
+			out
+		}
+	}
+}
+
+fn enclosing_class(scope: &Moniker) -> Option<Moniker> {
+	let view = scope.as_view();
+	let segs: Vec<_> = view.segments().collect();
+	let last_class_idx = segs.iter().rposition(|s| {
+		matches!(
+			s.kind,
+			b"class" | b"interface" | b"enum" | b"record" | b"annotation_type"
+		)
+	})?;
+	let mut b = crate::core::moniker::MonikerBuilder::new();
+	b.project(view.project());
+	for s in &segs[..=last_class_idx] {
+		b.segment(s.kind, s.name);
+	}
+	Some(b.build())
+}
+
+pub(super) fn collect_callable_table<'src>(
+	node: Node<'src>,
+	source: &'src [u8],
+	parent: &Moniker,
+	out: &mut std::collections::HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+) {
+	let mut cursor = node.walk();
+	for child in node.children(&mut cursor) {
+		match child.kind() {
+			"class_declaration"
+			| "interface_declaration"
+			| "enum_declaration"
+			| "record_declaration"
+			| "annotation_type_declaration" => {
+				let Some(name_node) = child.child_by_field_name("name") else {
+					continue;
+				};
+				let kind: &[u8] = match child.kind() {
+					"class_declaration" => kinds::CLASS,
+					"interface_declaration" => kinds::INTERFACE,
+					"enum_declaration" => kinds::ENUM,
+					"record_declaration" => kinds::RECORD,
+					"annotation_type_declaration" => kinds::ANNOTATION_TYPE,
+					_ => unreachable!(),
+				};
+				let name = node_slice(name_node, source);
+				let scope = extend_segment(parent, kind, name);
+				if let Some(body) = child.child_by_field_name("body") {
+					collect_callable_table(body, source, &scope, out);
+				}
+			}
+			"method_declaration" | "constructor_declaration" => {
+				let Some(name_node) = child.child_by_field_name("name") else {
+					continue;
+				};
+				let name = node_slice(name_node, source);
+				let slots = formal_parameter_slots(child, source);
+				let seg = callable_segment_slots(name, &slots);
+				out.insert((parent.clone(), name.to_vec()), seg);
+			}
+			_ => {
+				collect_callable_table(child, source, parent, out);
+			}
+		}
+	}
 }
 
 fn modifier_visibility(node: Node<'_>) -> &'static [u8] {
@@ -858,18 +970,6 @@ fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 		return false;
 	};
 	last.kind == kinds::METHOD || last.kind == kinds::CONSTRUCTOR
-}
-
-fn argument_count(call: Node<'_>) -> u16 {
-	let Some(args) = call.child_by_field_name("arguments") else {
-		return 0;
-	};
-	let mut cursor = args.walk();
-	let mut count: u16 = 0;
-	for _ in args.named_children(&mut cursor) {
-		count = count.saturating_add(1);
-	}
-	count
 }
 
 fn receiver_hint<'a>(obj: Node<'a>, source: &'a [u8]) -> &'a [u8] {

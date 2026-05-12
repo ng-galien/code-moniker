@@ -14,7 +14,7 @@ mod kinds;
 mod strategy;
 
 use canonicalize::{compute_module_moniker, read_package_name};
-use strategy::{Strategy, collect_type_table};
+use strategy::{Strategy, collect_callable_table, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
@@ -51,6 +51,13 @@ pub fn extract(
 		&module,
 		&mut type_table,
 	);
+	let mut callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>> = HashMap::new();
+	collect_callable_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&mut callable_table,
+	);
 	let strat = Strategy {
 		module: module.clone(),
 		source_bytes: source.as_bytes(),
@@ -59,6 +66,7 @@ pub fn extract(
 		imports: RefCell::new(HashMap::<Vec<u8>, &'static [u8]>::new()),
 		local_scope: RefCell::new(Vec::new()),
 		type_table,
+		callable_table,
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -175,8 +183,8 @@ mod tests {
 		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
 		let last = m.moniker.as_view().segments().last().unwrap();
 		assert_eq!(last.kind, b"method");
-		assert_eq!(last.name, b"findById(int,String)");
-		assert_eq!(m.signature, b"int,String".to_vec());
+		assert_eq!(last.name, b"findById(id:int,name:String)");
+		assert_eq!(m.signature, b"id:int,name:String".to_vec());
 		assert_eq!(m.visibility, b"public".to_vec());
 	}
 
@@ -356,6 +364,60 @@ mod tests {
 			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"obj")
 			.expect("method_call on obj");
 		assert_eq!(r.confidence, b"name_match");
+	}
+
+	#[test]
+	fn this_call_resolves_to_full_slot_signature() {
+		let src = r#"
+            class Foo {
+                void m() { this.bar(); }
+                void bar() {}
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call")
+			.expect("method_call ref");
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(last.kind, b"method");
+		assert_eq!(
+			last.name, b"bar()",
+			"this.bar() must resolve to the def's slot signature, not to a name-only fallback"
+		);
+	}
+
+	#[test]
+	fn bare_call_to_same_class_method_resolves_to_full_slot_signature() {
+		let src = r#"
+            class Foo {
+                void m() { bar(1, "x"); }
+                int bar(int n, String s) { return n; }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(last.name, b"bar(n:int,s:String)");
+	}
+
+	#[test]
+	fn method_call_on_unresolved_receiver_falls_back_to_name_only() {
+		let src = r#"
+            class Foo {
+                void m() { obj.bar(1); }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call")
+			.expect("method_call ref");
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(
+			last.name, b"bar",
+			"unresolved receiver must produce a name-only target (no parens, no arity)"
+		);
 	}
 
 	#[test]

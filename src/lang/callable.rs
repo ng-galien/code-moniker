@@ -64,6 +64,39 @@ pub(crate) fn callable_segment_typed<T: AsRef<[u8]>>(name: &[u8], param_types: &
 	full
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CallableSlot {
+	pub name: Vec<u8>,
+	pub r#type: Vec<u8>,
+}
+
+pub(crate) fn callable_segment_slots(name: &[u8], slots: &[CallableSlot]) -> Vec<u8> {
+	let body_len: usize = slots
+		.iter()
+		.map(|s| s.name.len() + s.r#type.len() + 2)
+		.sum();
+	let mut full = Vec::with_capacity(name.len() + 2 + body_len);
+	full.extend_from_slice(name);
+	full.push(b'(');
+	for (i, slot) in slots.iter().enumerate() {
+		if i > 0 {
+			full.push(b',');
+		}
+		match (slot.name.as_slice(), slot.r#type.as_slice()) {
+			(b"", b"") => full.push(b'_'),
+			(name, b"") => full.extend_from_slice(name),
+			(b"", ty) => full.extend_from_slice(ty),
+			(name, ty) => {
+				full.extend_from_slice(name);
+				full.push(b':');
+				full.extend_from_slice(ty);
+			}
+		}
+	}
+	full.push(b')');
+	full
+}
+
 pub(crate) fn join_bytes_with_comma<T: AsRef<[u8]>>(parts: &[T]) -> Vec<u8> {
 	let body_len: usize = parts
 		.iter()
@@ -99,6 +132,15 @@ pub(crate) fn extend_callable_typed<T: AsRef<[u8]>>(
 	param_types: &[T],
 ) -> Moniker {
 	extend_segment(parent, kind, &callable_segment_typed(name, param_types))
+}
+
+pub(crate) fn extend_callable_slots(
+	parent: &Moniker,
+	kind: &[u8],
+	name: &[u8],
+	slots: &[CallableSlot],
+) -> Moniker {
+	extend_segment(parent, kind, &callable_segment_slots(name, slots))
 }
 
 pub(crate) fn extend_callable_arity(
@@ -144,6 +186,91 @@ mod tests {
 		assert_eq!(
 			callable_segment_typed(b"f", &["_", "_"]),
 			b"f(_,_)".to_vec()
+		);
+	}
+
+	#[test]
+	fn slots_segment_empty_args_emits_empty_parens() {
+		assert_eq!(callable_segment_slots(b"f", &[]), b"f()".to_vec());
+	}
+
+	#[test]
+	fn slots_segment_name_and_type_pairs() {
+		let slots = vec![
+			CallableSlot {
+				name: b"id".to_vec(),
+				r#type: b"int".to_vec(),
+			},
+			CallableSlot {
+				name: b"label".to_vec(),
+				r#type: b"String".to_vec(),
+			},
+		];
+		assert_eq!(
+			callable_segment_slots(b"findById", &slots),
+			b"findById(id:int,label:String)".to_vec()
+		);
+	}
+
+	#[test]
+	fn slots_segment_name_only_when_type_absent() {
+		let slots = vec![
+			CallableSlot {
+				name: b"x".to_vec(),
+				r#type: Vec::new(),
+			},
+			CallableSlot {
+				name: b"y".to_vec(),
+				r#type: Vec::new(),
+			},
+		];
+		assert_eq!(callable_segment_slots(b"f", &slots), b"f(x,y)".to_vec());
+	}
+
+	#[test]
+	fn slots_segment_type_only_when_name_absent() {
+		let slots = vec![
+			CallableSlot {
+				name: Vec::new(),
+				r#type: b"int".to_vec(),
+			},
+			CallableSlot {
+				name: Vec::new(),
+				r#type: b"String".to_vec(),
+			},
+		];
+		assert_eq!(
+			callable_segment_slots(b"f", &slots),
+			b"f(int,String)".to_vec()
+		);
+	}
+
+	#[test]
+	fn slots_segment_underscore_when_both_absent() {
+		let slots = vec![
+			CallableSlot::default(),
+			CallableSlot::default(),
+			CallableSlot::default(),
+		];
+		assert_eq!(callable_segment_slots(b"f", &slots), b"f(_,_,_)".to_vec());
+	}
+
+	#[test]
+	fn slots_segment_mixed_per_slot() {
+		let slots = vec![
+			CallableSlot {
+				name: b"id".to_vec(),
+				r#type: b"int".to_vec(),
+			},
+			CallableSlot {
+				name: Vec::new(),
+				r#type: b"String".to_vec(),
+			},
+			CallableSlot::default(),
+		];
+		assert_eq!(
+			callable_segment_slots(b"f", &slots),
+			b"f(id:int,String,_)".to_vec()
 		);
 	}
 
