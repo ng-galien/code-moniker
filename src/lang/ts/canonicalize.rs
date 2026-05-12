@@ -25,41 +25,63 @@ pub(super) fn strip_known_extension(uri: &str) -> &str {
 		.unwrap_or(uri)
 }
 
-pub(super) use crate::lang::callable::extend_callable_typed;
+pub(super) use crate::lang::callable::CallableSlot;
 
 pub(super) fn anonymous_callback_name(node: Node<'_>) -> Vec<u8> {
 	let p = node.start_position();
 	format!("__cb_{}_{}", p.row, p.column).into_bytes()
 }
 
-pub(super) fn callable_param_types(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
+pub(super) fn callable_param_slots(node: Node<'_>, source: &[u8]) -> Vec<CallableSlot> {
 	if let Some(params) = node.child_by_field_name("parameters") {
 		let mut out = Vec::new();
 		let mut cursor = params.walk();
 		for child in params.named_children(&mut cursor) {
 			match child.kind() {
 				"required_parameter" | "optional_parameter" => {
-					out.push(parameter_type_text(child, source));
+					out.push(parameter_slot(child, source));
 				}
-				"rest_pattern" => out.push(b"_".to_vec()),
+				"rest_pattern" => out.push(CallableSlot {
+					name: parameter_pattern_name(child, source),
+					r#type: Vec::new(),
+				}),
 				_ => {}
 			}
 		}
 		return out;
 	}
-	if node.child_by_field_name("parameter").is_some() {
-		return vec![b"_".to_vec()];
+	if let Some(p) = node.child_by_field_name("parameter") {
+		return vec![CallableSlot {
+			name: parameter_pattern_name(p, source),
+			r#type: Vec::new(),
+		}];
 	}
 	Vec::new()
 }
 
-fn parameter_type_text(param: Node<'_>, source: &[u8]) -> Vec<u8> {
-	let Some(annot) = param.child_by_field_name("type") else {
-		return b"_".to_vec();
-	};
-	let inner = annot.named_child(0).unwrap_or(annot);
-	let text = inner.utf8_text(source).unwrap_or("_");
-	crate::lang::callable::normalize_type_text(text)
+fn parameter_slot(param: Node<'_>, source: &[u8]) -> CallableSlot {
+	let r#type = param
+		.child_by_field_name("type")
+		.map(|annot| {
+			let inner = annot.named_child(0).unwrap_or(annot);
+			let text = inner.utf8_text(source).unwrap_or("");
+			crate::lang::callable::normalize_type_text(text)
+		})
+		.unwrap_or_default();
+	let name = param
+		.child_by_field_name("pattern")
+		.map(|p| parameter_pattern_name(p, source))
+		.unwrap_or_default();
+	CallableSlot { name, r#type }
+}
+
+fn parameter_pattern_name(node: Node<'_>, source: &[u8]) -> Vec<u8> {
+	match node.kind() {
+		"identifier" | "shorthand_property_identifier_pattern" => {
+			node.utf8_text(source).unwrap_or("").as_bytes().to_vec()
+		}
+		_ => Vec::new(),
+	}
 }
 
 pub(super) fn external_pkg_builder(project: &[u8], pkg: &str) -> MonikerBuilder {

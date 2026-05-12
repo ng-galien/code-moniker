@@ -83,9 +83,9 @@ SELECT ok(
 	'service graph contains UserService class');
 
 SELECT ok(
-	(SELECT graph @> 'code+moniker://app/lang:ts/dir:src/module:service/class:UserService/method:findById(string)'::moniker
+	(SELECT graph @> 'code+moniker://app/lang:ts/dir:src/module:service/class:UserService/method:findById(id:string)'::moniker
 	   FROM module WHERE id = 'service'),
-	'service graph contains UserService#findById(string) method');
+	'service graph contains UserService#findById(id:string) method');
 
 
 SELECT ok(

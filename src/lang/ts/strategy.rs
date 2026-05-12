@@ -6,19 +6,21 @@ use tree_sitter::Node;
 use crate::core::code_graph::{CodeGraph, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-use crate::lang::callable::{extend_callable_arity, extend_segment};
+use crate::lang::callable::{
+	callable_segment_slots, extend_callable_slots, extend_segment, join_bytes_with_comma,
+	slot_signature_bytes,
+};
 use crate::lang::strategy::{LangStrategy, NodeShape, RefSpec, Symbol};
 use crate::lang::tree_util::{find_named_child, node_position, node_slice};
 
 use super::canonicalize::{
-	anonymous_callback_name, append_module_segments, callable_param_types, extend_callable_typed,
-	external_pkg_builder, strip_known_extension,
+	anonymous_callback_name, append_module_segments, callable_param_slots, external_pkg_builder,
+	strip_known_extension,
 };
 use super::kinds;
 
 struct DecoratorCallee<'src> {
 	name: &'src [u8],
-	arity: u16,
 	args: Option<Node<'src>>,
 }
 
@@ -30,6 +32,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) export_ranges: Vec<(u32, u32)>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
+	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
 }
 
 impl<'a> LangStrategy for Strategy<'a> {
@@ -501,8 +504,10 @@ impl<'src_lang> Strategy<'src_lang> {
 		scope: &Moniker,
 		visibility: &'static [u8],
 	) -> NodeShape<'src> {
-		let types = callable_param_types(callable_node, self.source_bytes);
-		let moniker = extend_callable_typed(scope, kind, name, &types);
+		let slots = callable_param_slots(callable_node, self.source_bytes);
+		let _signature =
+			join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
+		let moniker = extend_callable_slots(scope, kind, name, &slots);
 
 		self.push_local_scope();
 
@@ -607,8 +612,8 @@ impl<'src_lang> Strategy<'src_lang> {
 				value.filter(|v| v.kind() == "arrow_function" || v.kind() == "function_expression")
 			{
 				let visibility = module_vis;
-				let types = callable_param_types(v, self.source_bytes);
-				let m = extend_callable_typed(scope, kinds::FUNCTION, name, &types);
+				let slots = callable_param_slots(v, self.source_bytes);
+				let m = extend_callable_slots(scope, kinds::FUNCTION, name, &slots);
 				let attrs = crate::core::code_graph::DefAttrs {
 					visibility,
 					..crate::core::code_graph::DefAttrs::default()
@@ -691,7 +696,6 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn handle_call(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
-		let arity = call_argument_count(node);
 		let Some(fn_node) = node.child_by_field_name("function") else {
 			self.walk_children(node, scope, graph);
 			return;
@@ -704,7 +708,10 @@ impl<'src_lang> Strategy<'src_lang> {
 						let target = if confidence == kinds::CONF_LOCAL {
 							extend_segment(scope, kinds::LOCAL, name)
 						} else {
-							extend_callable_arity(&self.module, kinds::FUNCTION, name, arity)
+							self.lookup_callable(name, kinds::FUNCTION)
+								.unwrap_or_else(|| {
+									extend_segment(&self.module, kinds::FUNCTION, name)
+								})
 						};
 						let attrs = RefAttrs {
 							confidence,
@@ -722,8 +729,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				if let Some(prop) = fn_node.child_by_field_name("property") {
 					let name = node_slice(prop, self.source_bytes);
 					if !name.is_empty() {
-						let target =
-							extend_callable_arity(&self.module, kinds::METHOD, name, arity);
+						let target = extend_segment(&self.module, kinds::METHOD, name);
 						let confidence = fn_node
 							.child_by_field_name("object")
 							.filter(|o| o.kind() == "identifier")
@@ -800,11 +806,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				"identifier" => {
 					let name = node_slice(ch, self.source_bytes);
 					if !name.is_empty() {
-						out.push(DecoratorCallee {
-							name,
-							arity: 0,
-							args: None,
-						});
+						out.push(DecoratorCallee { name, args: None });
 					}
 				}
 				"call_expression" => {
@@ -815,7 +817,6 @@ impl<'src_lang> Strategy<'src_lang> {
 						if !name.is_empty() {
 							out.push(DecoratorCallee {
 								name,
-								arity: call_argument_count(ch),
 								args: ch.child_by_field_name("arguments"),
 							});
 						}
@@ -830,8 +831,7 @@ impl<'src_lang> Strategy<'src_lang> {
 	fn handle_decorator(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
 		for callee in self.decorator_callees(node) {
-			let target =
-				extend_callable_arity(&self.module, kinds::FUNCTION, callee.name, callee.arity);
+			let target = extend_segment(&self.module, kinds::FUNCTION, callee.name);
 			let attrs = RefAttrs {
 				confidence: self.ref_confidence(callee.name),
 				..RefAttrs::default()
@@ -859,8 +859,7 @@ impl<'src_lang> Strategy<'src_lang> {
 	fn collect_decorator_ref(&self, decorator: Node<'_>, out: &mut Vec<RefSpec>) {
 		let pos = node_position(decorator);
 		for callee in self.decorator_callees(decorator) {
-			let target =
-				extend_callable_arity(&self.module, kinds::FUNCTION, callee.name, callee.arity);
+			let target = extend_segment(&self.module, kinds::FUNCTION, callee.name);
 			out.push(RefSpec {
 				kind: kinds::ANNOTATES,
 				target,
@@ -1009,7 +1008,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		let target = if confidence == kinds::CONF_LOCAL {
 			extend_segment(scope, kinds::LOCAL, name)
 		} else {
-			extend_callable_typed(&self.module, kinds::FUNCTION, name, &[] as &[&[u8]])
+			extend_segment(&self.module, kinds::FUNCTION, name)
 		};
 		let attrs = RefAttrs {
 			confidence,
@@ -1382,6 +1381,13 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.imports.borrow_mut().insert(name.to_vec(), confidence);
 	}
 
+	fn lookup_callable(&self, name: &[u8], kind: &[u8]) -> Option<Moniker> {
+		let seg = self
+			.callable_table
+			.get(&(self.module.clone(), name.to_vec()))?;
+		Some(extend_segment(&self.module, kind, seg))
+	}
+
 	fn ref_confidence(&self, name: &[u8]) -> &'static [u8] {
 		self.import_confidence_for(name)
 			.unwrap_or(kinds::CONF_NAME_MATCH)
@@ -1397,6 +1403,62 @@ impl<'src_lang> Strategy<'src_lang> {
 			kinds::VIS_PUBLIC
 		} else {
 			kinds::VIS_MODULE
+		}
+	}
+}
+
+pub(super) fn collect_callable_table<'src>(
+	root: Node<'src>,
+	source: &'src [u8],
+	module: &Moniker,
+	out: &mut HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+) {
+	visit_top_level(root, |child| match child.kind() {
+		"function_declaration" | "generator_function_declaration" => {
+			if let Some(name_node) = child.child_by_field_name("name") {
+				let name = node_slice(name_node, source);
+				let slots = callable_param_slots(child, source);
+				let seg = callable_segment_slots(name, &slots);
+				out.insert((module.clone(), name.to_vec()), seg);
+			}
+		}
+		"lexical_declaration" | "variable_declaration" => {
+			let mut nc = child.walk();
+			for decl in child.named_children(&mut nc) {
+				if decl.kind() != "variable_declarator" {
+					continue;
+				}
+				let Some(name_node) = decl.child_by_field_name("name") else {
+					continue;
+				};
+				if name_node.kind() != "identifier" {
+					continue;
+				}
+				let name = node_slice(name_node, source);
+				if let Some(value) = decl.child_by_field_name("value")
+					&& matches!(value.kind(), "arrow_function" | "function_expression")
+				{
+					let slots = callable_param_slots(value, source);
+					let seg = callable_segment_slots(name, &slots);
+					out.insert((module.clone(), name.to_vec()), seg);
+				}
+			}
+		}
+		_ => {}
+	});
+}
+
+fn visit_top_level<'src, F: FnMut(Node<'src>)>(root: Node<'src>, mut f: F) {
+	let mut cursor = root.walk();
+	for child in root.children(&mut cursor) {
+		match child.kind() {
+			"export_statement" => {
+				let mut ec = child.walk();
+				for inner in child.named_children(&mut ec) {
+					f(inner);
+				}
+			}
+			_ => f(child),
 		}
 	}
 }
@@ -1459,20 +1521,6 @@ fn collect_binding_names<'src>(pat: Node<'src>, source: &'src [u8]) -> Vec<Vec<u
 	let mut out = Vec::new();
 	rec(pat, source, &mut out);
 	out
-}
-
-fn call_argument_count(call: Node<'_>) -> u16 {
-	let Some(args) = call.child_by_field_name("arguments") else {
-		return 0;
-	};
-	let mut cursor = args.walk();
-	let mut count: u16 = 0;
-	for c in args.children(&mut cursor) {
-		if c.is_named() {
-			count = count.saturating_add(1);
-		}
-	}
-	count
 }
 
 fn receiver_hint<'a>(member_expr: Node<'_>, source: &'a [u8]) -> &'a [u8] {

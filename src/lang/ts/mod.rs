@@ -11,7 +11,7 @@ mod kinds;
 mod strategy;
 
 use canonicalize::compute_module_moniker;
-use strategy::{Strategy, collect_export_ranges};
+use strategy::{Strategy, collect_callable_table, collect_export_ranges};
 
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
@@ -40,6 +40,14 @@ pub fn extract(
 	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
 	let tree = parse(source);
 	let export_ranges = collect_export_ranges(tree.root_node());
+	let mut callable_table: std::collections::HashMap<(Moniker, Vec<u8>), Vec<u8>> =
+		std::collections::HashMap::new();
+	collect_callable_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&mut callable_table,
+	);
 	let strat = Strategy {
 		module: module.clone(),
 		source_bytes: source.as_bytes(),
@@ -48,6 +56,7 @@ pub fn extract(
 		export_ranges,
 		local_scope: std::cell::RefCell::new(Vec::new()),
 		imports: std::cell::RefCell::new(std::collections::HashMap::new()),
+		callable_table,
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -535,7 +544,7 @@ mod tests {
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
-			.segment(b"method", b"bar(number,string)")
+			.segment(b"method", b"bar(a:number,b:string)")
 			.build();
 		assert!(
 			g.contains(&bar),
@@ -558,7 +567,7 @@ mod tests {
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
 			.segment(b"class", b"Foo")
-			.segment(b"constructor", b"constructor(number)")
+			.segment(b"constructor", b"constructor(x:number)")
 			.build();
 		assert!(g.contains(&ctor));
 	}
@@ -608,7 +617,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"function", b"add(number,number)")
+			.segment(b"function", b"add(a:number,b:number)")
 			.build();
 		assert!(
 			g.contains(&add),
@@ -626,7 +635,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"function", b"foo(1)")
+			.segment(b"function", b"foo")
 			.build();
 		assert_eq!(r.target, target);
 	}
@@ -824,7 +833,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"method", b"bar(2)")
+			.segment(b"method", b"bar")
 			.build();
 		assert_eq!(r.target, target);
 	}
@@ -912,13 +921,13 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"function", b"Injectable()")
+			.segment(b"function", b"Injectable")
 			.build();
 		assert_eq!(r.target, target);
 	}
 
 	#[test]
-	fn extract_decorator_call_keeps_arity() {
+	fn extract_decorator_call_uses_name_only_target() {
 		let g = extract("util.ts", "@Bind('x') class A {}", &make_anchor(), false);
 		let r = g.refs().find(|r| r.kind == b"annotates").unwrap();
 		let target = MonikerBuilder::new()
@@ -926,7 +935,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"function", b"Bind(1)")
+			.segment(b"function", b"Bind")
 			.build();
 		assert_eq!(r.target, target);
 	}
@@ -1012,7 +1021,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"function", b"x()")
+			.segment(b"function", b"x")
 			.build();
 		assert_eq!(r.target, target);
 	}
@@ -1196,7 +1205,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"function", b"f(number,number)")
+			.segment(b"function", b"f(a:number,b:number)")
 			.segment(b"param", b"a")
 			.build();
 		let pb = MonikerBuilder::new()
@@ -1204,7 +1213,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"function", b"f(number,number)")
+			.segment(b"function", b"f(a:number,b:number)")
 			.segment(b"param", b"b")
 			.build();
 		let sum = MonikerBuilder::new()
@@ -1212,7 +1221,7 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"util")
-			.segment(b"function", b"f(number,number)")
+			.segment(b"function", b"f(a:number,b:number)")
 			.segment(b"local", b"sum")
 			.build();
 		assert!(

@@ -39,8 +39,8 @@ SELECT
 		'graph contains the module moniker') AS r3,
 	ok(g @> 'code+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Foo'::moniker,
 		'graph contains the class def') AS r4,
-	ok(g @> 'code+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Foo/method:bar(_,_)'::moniker,
-		'method moniker carries `_` placeholders for unannotated JS params') AS r5
+	ok(g @> 'code+moniker://app/path:main/lang:ts/dir:src/module:Foo/class:Foo/method:bar(a,b)'::moniker,
+		'method moniker carries param names (unannotated JS exposes names only)') AS r5
 FROM g;
 
 
@@ -83,8 +83,8 @@ SELECT
 		'extends emits a class:<name> target') AS r9,
 	ok('code+moniker://app/path:main/lang:ts/dir:src/module:Foo/interface:I'::moniker = ANY(graph_ref_targets(g)),
 		'implements emits an interface:<name> target') AS r10,
-	ok('code+moniker://app/path:main/lang:ts/dir:src/module:Foo/function:Decor()'::moniker = ANY(graph_ref_targets(g)),
-		'decorator emits a function-shaped annotates target') AS r11
+	ok('code+moniker://app/path:main/lang:ts/dir:src/module:Foo/function:Decor'::moniker = ANY(graph_ref_targets(g)),
+		'decorator emits a name-only function-shaped annotates target') AS r11
 FROM g;
 
 
@@ -97,9 +97,9 @@ WITH g AS (
 	) AS g
 )
 SELECT
-	ok(g @> 'code+moniker://app/path:main/lang:ts/module:util/function:f(_,_)/param:a'::moniker,
+	ok(g @> 'code+moniker://app/path:main/lang:ts/module:util/function:f(a,b)/param:a'::moniker,
 		'deep=true surfaces parameter defs') AS r12,
-	ok(g @> 'code+moniker://app/path:main/lang:ts/module:util/function:f(_,_)/local:sum'::moniker,
+	ok(g @> 'code+moniker://app/path:main/lang:ts/module:util/function:f(a,b)/local:sum'::moniker,
 		'deep=true surfaces local defs') AS r13
 FROM g;
 
