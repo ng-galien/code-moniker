@@ -3,8 +3,10 @@ use tree_sitter::{Node, Parser, Tree};
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
+use crate::core::code_graph::RefAttrs;
+
 use crate::lang::canonical_walker::CanonicalWalker;
-use crate::lang::strategy::{LangStrategy, NodeShape, Ref, Symbol};
+use crate::lang::strategy::{LangStrategy, NodeShape, Symbol};
 use crate::lang::tree_util::{find_descendant, find_named_child, node_position, node_slice};
 
 use super::canonicalize::{
@@ -41,8 +43,9 @@ impl LangStrategy for Strategy<'_> {
 	fn classify<'src>(
 		&self,
 		node: Node<'src>,
-		_scope: &Moniker,
+		scope: &Moniker,
 		source: &'src [u8],
+		graph: &mut CodeGraph,
 	) -> NodeShape<'src> {
 		match node.kind() {
 			"CreateFunctionStmt" => classify_create_function(node, source, &self.module),
@@ -56,7 +59,10 @@ impl LangStrategy for Strategy<'_> {
 				kinds::VIEW,
 				find_child(node, "SelectStmt"),
 			),
-			"func_application" => classify_call(node, source, &self.module),
+			"func_application" => {
+				emit_call(node, source, scope, &self.module, graph);
+				NodeShape::Recurse
+			}
 			_ => NodeShape::Recurse,
 		}
 	}
@@ -124,6 +130,7 @@ fn classify_create_function<'src>(
 		signature: Some(signature),
 		body: None,
 		position: node_position(node),
+		annotated_by: Vec::new(),
 	})
 }
 
@@ -150,27 +157,33 @@ fn classify_qualified_relation<'src>(
 		signature: None,
 		body,
 		position: node_position(node),
+		annotated_by: Vec::new(),
 	})
 }
 
-fn classify_call<'src>(node: Node<'src>, source: &'src [u8], module: &Moniker) -> NodeShape<'src> {
+fn emit_call(
+	node: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	module: &Moniker,
+	graph: &mut CodeGraph,
+) {
 	let Some(name_node) = find_child(node, "func_name") else {
-		return NodeShape::Recurse;
+		return;
 	};
 	let (schema, name) = split_qualified_name(name_node, source);
 	if name.is_empty() {
-		return NodeShape::Recurse;
+		return;
 	}
 	let arity = func_call_arity(node);
 	let parent = maybe_schema(module, schema);
 	let target = extend_callable_arity(&parent, kinds::FUNCTION, name, arity);
 	let s = node.start_byte() as u32;
-	NodeShape::Ref(Ref {
-		kind: kinds::REF_CALLS,
-		target,
+	let attrs = RefAttrs {
 		confidence: kinds::CONF_UNRESOLVED,
-		position: (s, s),
-	})
+		..RefAttrs::default()
+	};
+	let _ = graph.add_ref_attrs(scope, target, kinds::REF_CALLS, Some((s, s)), &attrs);
 }
 
 pub(super) fn visit<F: FnMut(Node)>(node: Node, f: &mut F) {

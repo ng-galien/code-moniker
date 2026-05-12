@@ -5,7 +5,6 @@ use crate::core::moniker::Moniker;
 
 pub enum NodeShape<'src> {
 	Symbol(Symbol<'src>),
-	Ref(Ref),
 	Annotation { kind: &'static [u8] },
 	Skip,
 	Recurse,
@@ -18,13 +17,16 @@ pub struct Symbol<'src> {
 	pub signature: Option<Vec<u8>>,
 	pub body: Option<Node<'src>>,
 	pub position: Position,
+	pub annotated_by: Vec<RefSpec>,
 }
 
-pub struct Ref {
+pub struct RefSpec {
 	pub kind: &'static [u8],
 	pub target: Moniker,
 	pub confidence: &'static [u8],
 	pub position: Position,
+	pub receiver_hint: &'static [u8],
+	pub alias: &'static [u8],
 }
 
 pub trait LangStrategy {
@@ -33,7 +35,22 @@ pub trait LangStrategy {
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
+		graph: &mut CodeGraph,
 	) -> NodeShape<'src>;
+
+	#[allow(unused_variables)]
+	fn before_body(
+		&self,
+		node: Node<'_>,
+		kind: &[u8],
+		moniker: &Moniker,
+		source: &[u8],
+		graph: &mut CodeGraph,
+	) {
+	}
+
+	#[allow(unused_variables)]
+	fn after_body(&self, kind: &[u8], moniker: &Moniker) {}
 
 	#[allow(unused_variables)]
 	fn on_symbol_emitted(
@@ -60,6 +77,7 @@ mod tests {
 			node: Node<'src>,
 			_scope: &Moniker,
 			_source: &'src [u8],
+			_graph: &mut CodeGraph,
 		) -> NodeShape<'src> {
 			match node.kind() {
 				"line_comment" => NodeShape::Annotation { kind: b"comment" },
@@ -81,9 +99,10 @@ mod tests {
 		let tree = p.parse(src, None).unwrap();
 		let mut cursor = tree.root_node().walk();
 		let scope = anchor();
+		let mut g = CodeGraph::new(scope.clone(), b"module");
 		let mut saw_comment = false;
 		for child in tree.root_node().children(&mut cursor) {
-			if let NodeShape::Annotation { kind } = s.classify(child, &scope, src) {
+			if let NodeShape::Annotation { kind } = s.classify(child, &scope, src, &mut g) {
 				assert_eq!(kind, b"comment");
 				saw_comment = true;
 			}
@@ -100,8 +119,12 @@ mod tests {
 		let tree = p.parse(src, None).unwrap();
 		let mut cursor = tree.root_node().walk();
 		let scope = anchor();
+		let mut g = CodeGraph::new(scope.clone(), b"module");
 		for child in tree.root_node().children(&mut cursor) {
-			assert!(matches!(s.classify(child, &scope, src), NodeShape::Recurse));
+			assert!(matches!(
+				s.classify(child, &scope, src, &mut g),
+				NodeShape::Recurse
+			));
 		}
 	}
 }

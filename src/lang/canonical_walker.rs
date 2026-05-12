@@ -16,41 +16,29 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 		Self { strategy, source }
 	}
 
-	pub fn walk(&self, node: Node<'a>, scope: &Moniker, graph: &mut CodeGraph) {
+	pub fn walk(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
 			self.dispatch(child, scope, graph);
 		}
 	}
 
-	pub fn dispatch(&self, node: Node<'a>, scope: &Moniker, graph: &mut CodeGraph) {
-		match self.strategy.classify(node, scope, self.source) {
+	pub fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		match self.strategy.classify(node, scope, self.source, graph) {
 			NodeShape::Annotation { kind } => {
 				self.emit_annotation(node, scope, kind, graph);
 			}
 			NodeShape::Symbol(sym) => {
 				self.emit_symbol(node, scope, sym, graph);
 			}
-			NodeShape::Ref(r) => {
-				self.emit_ref(scope, r, graph);
-				self.walk(node, scope, graph);
-			}
 			NodeShape::Skip => {}
 			NodeShape::Recurse => self.walk(node, scope, graph),
 		}
 	}
 
-	fn emit_ref(&self, scope: &Moniker, r: crate::lang::strategy::Ref, graph: &mut CodeGraph) {
-		let attrs = RefAttrs {
-			confidence: r.confidence,
-			..RefAttrs::default()
-		};
-		let _ = graph.add_ref_attrs(scope, r.target, r.kind, Some(r.position), &attrs);
-	}
-
 	fn emit_annotation(
 		&self,
-		node: Node<'a>,
+		node: Node<'_>,
 		scope: &Moniker,
 		kind: &'static [u8],
 		graph: &mut CodeGraph,
@@ -62,9 +50,9 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 
 	fn emit_symbol(
 		&self,
-		node: Node<'a>,
+		node: Node<'_>,
 		scope: &Moniker,
-		sym: crate::lang::strategy::Symbol<'a>,
+		sym: crate::lang::strategy::Symbol<'_>,
 		graph: &mut CodeGraph,
 	) {
 		let crate::lang::strategy::Symbol {
@@ -74,6 +62,7 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 			signature,
 			body,
 			position,
+			annotated_by,
 		} = sym;
 
 		let attrs = DefAttrs {
@@ -88,8 +77,21 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 			return;
 		}
 
+		for r in annotated_by {
+			let attrs = RefAttrs {
+				confidence: r.confidence,
+				receiver_hint: r.receiver_hint,
+				alias: r.alias,
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(&m, r.target, r.kind, Some(r.position), &attrs);
+		}
+
 		if let Some(body_node) = body {
+			self.strategy
+				.before_body(node, kind, &m, self.source, graph);
 			self.walk(body_node, &m, graph);
+			self.strategy.after_body(kind, &m);
 		}
 
 		self.strategy
@@ -111,6 +113,7 @@ mod tests {
 			node: Node<'src>,
 			scope: &Moniker,
 			source: &'src [u8],
+			_graph: &mut CodeGraph,
 		) -> NodeShape<'src> {
 			match node.kind() {
 				"line_comment" | "block_comment" => NodeShape::Annotation { kind: b"comment" },
@@ -129,6 +132,7 @@ mod tests {
 						signature: None,
 						body: node.child_by_field_name("body"),
 						position: (node.start_byte() as u32, node.end_byte() as u32),
+						annotated_by: Vec::new(),
 					})
 				}
 				"function_item" => {
@@ -146,6 +150,7 @@ mod tests {
 						signature: None,
 						body: node.child_by_field_name("body"),
 						position: (node.start_byte() as u32, node.end_byte() as u32),
+						annotated_by: Vec::new(),
 					})
 				}
 				_ => NodeShape::Recurse,

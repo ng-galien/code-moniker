@@ -1,7 +1,5 @@
 use std::path::Path;
 
-use tree_sitter::Node;
-
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
 use super::kinds;
@@ -34,13 +32,7 @@ fn strip_py_suffix(name: &str) -> &str {
 		.unwrap_or(name)
 }
 
-pub(super) use crate::lang::callable::{
-	extend_callable_arity, extend_callable_typed, extend_segment, extend_segment_u32,
-};
-
-pub(super) fn node_position(node: Node<'_>) -> (u32, u32) {
-	(node.start_byte() as u32, node.end_byte() as u32)
-}
+pub(super) use crate::lang::callable::extend_callable_typed;
 
 #[cfg(test)]
 mod tests {
