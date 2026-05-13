@@ -24,8 +24,8 @@ pub(crate) const DEFAULT_SCHEME: &str = "code+moniker://";
 pub(crate) fn unknown_kinds_error(
 	unknown: &[String],
 	langs: &[code_moniker_core::lang::Lang],
+	known: &std::collections::BTreeSet<&'static str>,
 ) -> anyhow::Error {
-	let known = predicate::known_kinds(langs.iter());
 	let lang_tags: Vec<&str> = langs.iter().map(|l| l.tag()).collect();
 	let known_list: Vec<&str> = known.iter().copied().collect();
 	anyhow::anyhow!(
@@ -103,7 +103,7 @@ fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> 
 	let known = predicate::known_kinds(std::iter::once(&lang));
 	let unknown = predicate::unknown_kinds(&args.kind, &known);
 	if !unknown.is_empty() {
-		return Err(unknown_kinds_error(&unknown, &[lang]));
+		return Err(unknown_kinds_error(&unknown, &[lang], &known));
 	}
 	let graph = extract::extract(lang, &source, path);
 	let matches = predicate::filter(&graph, &predicates, &args.kind);

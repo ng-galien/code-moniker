@@ -69,7 +69,7 @@ fn run_filter<W: Write>(
 	let known = predicate::known_kinds(langs.iter());
 	let unknown = predicate::unknown_kinds(&args.kind, &known);
 	if !unknown.is_empty() {
-		return Err(crate::unknown_kinds_error(&unknown, &langs));
+		return Err(crate::unknown_kinds_error(&unknown, &langs, &known));
 	}
 	let rows: Vec<FilterRow> = files
 		.par_iter()
@@ -108,17 +108,13 @@ impl FileSummary {
 		let mut defs = 0usize;
 		for d in graph.defs() {
 			defs += 1;
-			*by_def_kind
-				.entry(String::from_utf8_lossy(&d.kind).into_owned())
-				.or_default() += 1;
+			bump_kind(&mut by_def_kind, &d.kind);
 		}
 		let mut by_ref_kind: BTreeMap<String, usize> = BTreeMap::new();
 		let mut refs = 0usize;
 		for r in graph.refs() {
 			refs += 1;
-			*by_ref_kind
-				.entry(String::from_utf8_lossy(&r.kind).into_owned())
-				.or_default() += 1;
+			bump_kind(&mut by_ref_kind, &r.kind);
 		}
 		Some(Self {
 			file: rel.display().to_string(),
@@ -165,6 +161,15 @@ fn write_summary_json<W: Write>(w: &mut W, summaries: &[FileSummary]) -> anyhow:
 	serde_json::to_writer_pretty(&mut *w, &out)?;
 	w.write_all(b"\n")?;
 	Ok(())
+}
+
+fn bump_kind(map: &mut BTreeMap<String, usize>, kind: &[u8]) {
+	let key = std::str::from_utf8(kind).unwrap_or("");
+	if let Some(c) = map.get_mut(key) {
+		*c += 1;
+	} else {
+		map.insert(key.to_owned(), 1);
+	}
 }
 
 fn top_kinds(map: &BTreeMap<String, usize>, n: usize) -> String {
@@ -268,23 +273,10 @@ fn write_filter_json<W: Write>(
 		.iter()
 		.map(|row| {
 			let matches = row.match_set();
-			let mut buf: Vec<u8> = Vec::new();
-			format::write_json(
-				&mut buf,
-				&matches,
-				&row.source,
-				args,
-				row.lang,
-				&row.rel,
-				scheme,
-			)
-			.expect("json serialize");
-			let v: serde_json::Value =
-				serde_json::from_slice(&buf).unwrap_or(serde_json::Value::Null);
 			Entry {
 				file: row.rel.display().to_string(),
 				lang: row.lang.tag(),
-				matches: v["matches"].clone(),
+				matches: format::build_matches_value(&matches, &row.source, args, scheme),
 			}
 		})
 		.collect();

@@ -1,6 +1,11 @@
 use std::collections::BTreeSet;
 
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord, RefRecord};
+use code_moniker_core::core::kinds::{
+	KIND_COMMENT, KIND_LOCAL, KIND_MODULE, KIND_PARAM, REF_ANNOTATES, REF_CALLS, REF_DI_REGISTER,
+	REF_DI_REQUIRE, REF_EXTENDS, REF_IMPLEMENTS, REF_IMPORTS_MODULE, REF_IMPORTS_SYMBOL,
+	REF_INSTANTIATES, REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE,
+};
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
 
@@ -85,33 +90,30 @@ pub fn filter<'g>(
 	MatchSet { defs, refs: keyed }
 }
 
-/// Internal kinds emitted by every extractor regardless of language.
-const INTERNAL_KINDS: &[&str] = &["module", "comment", "local", "param"];
-
-/// Ref kinds shared by every extractor (mirrors `core::kinds::REF_*`).
-const REF_KINDS: &[&str] = &[
-	"imports_symbol",
-	"imports_module",
-	"reexports",
-	"di_register",
-	"di_require",
-	"calls",
-	"method_call",
-	"reads",
-	"uses_type",
-	"instantiates",
-	"extends",
-	"implements",
-	"annotates",
+const CROSS_LANG_KINDS: &[&[u8]] = &[
+	KIND_MODULE,
+	KIND_COMMENT,
+	KIND_LOCAL,
+	KIND_PARAM,
+	REF_IMPORTS_SYMBOL,
+	REF_IMPORTS_MODULE,
+	REF_REEXPORTS,
+	REF_DI_REGISTER,
+	REF_DI_REQUIRE,
+	REF_CALLS,
+	REF_METHOD_CALL,
+	REF_READS,
+	REF_USES_TYPE,
+	REF_INSTANTIATES,
+	REF_EXTENDS,
+	REF_IMPLEMENTS,
+	REF_ANNOTATES,
 ];
 
-/// Union of every kind name `--kind` could legitimately match for the given
-/// set of languages: structural def kinds (per-lang `ALLOWED_KINDS`), the
-/// internal kinds every extractor emits, and the cross-language ref kinds.
 pub fn known_kinds<'a>(langs: impl IntoIterator<Item = &'a Lang>) -> BTreeSet<&'static str> {
 	let mut out: BTreeSet<&'static str> = BTreeSet::new();
-	for k in INTERNAL_KINDS.iter().chain(REF_KINDS.iter()) {
-		out.insert(*k);
+	for k in CROSS_LANG_KINDS {
+		out.insert(std::str::from_utf8(k).expect("kind constants are ASCII"));
 	}
 	for lang in langs {
 		for k in lang.allowed_kinds() {
@@ -121,8 +123,6 @@ pub fn known_kinds<'a>(langs: impl IntoIterator<Item = &'a Lang>) -> BTreeSet<&'
 	out
 }
 
-/// Returns the unknown entries from `kinds` (preserving input order) so the
-/// caller can build a usage error. Empty vec means every kind validates.
 pub fn unknown_kinds(kinds: &[String], known: &BTreeSet<&'static str>) -> Vec<String> {
 	kinds
 		.iter()

@@ -65,6 +65,32 @@ pub fn write_json<W: Write>(
 	path: &Path,
 	scheme: &str,
 ) -> anyhow::Result<()> {
+	let out = JsonOutput {
+		uri: extract::file_uri(path),
+		lang: lang.tag(),
+		matches: build_matches(matches, source, args, scheme),
+	};
+	serde_json::to_writer_pretty(&mut *w, &out)?;
+	w.write_all(b"\n")?;
+	Ok(())
+}
+
+pub fn build_matches_value(
+	matches: &MatchSet<'_>,
+	source: &str,
+	args: &Args,
+	scheme: &str,
+) -> serde_json::Value {
+	serde_json::to_value(build_matches(matches, source, args, scheme))
+		.expect("Matches<'_> is always serializable")
+}
+
+fn build_matches<'a>(
+	matches: &'a MatchSet<'_>,
+	source: &'a str,
+	args: &Args,
+	scheme: &'a str,
+) -> Matches<'a> {
 	let cfg = UriConfig { scheme };
 	let defs: Vec<DefView> = matches
 		.defs
@@ -76,14 +102,7 @@ pub fn write_json<W: Write>(
 		.iter()
 		.map(|r| RefView::from(r, &cfg, source))
 		.collect();
-	let out = JsonOutput {
-		uri: extract::file_uri(path),
-		lang: lang.tag(),
-		matches: Matches { defs, refs },
-	};
-	serde_json::to_writer_pretty(&mut *w, &out)?;
-	w.write_all(b"\n")?;
-	Ok(())
+	Matches { defs, refs }
 }
 
 #[derive(Serialize)]
