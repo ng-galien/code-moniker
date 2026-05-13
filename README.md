@@ -83,13 +83,13 @@ WHERE graph_root(m.graph) <@ 'code+moniker://app/lang:ts/dir:domain'::moniker
 CLI (standalone, no Postgres needed):
 
 ```sh
-cargo install --git https://github.com/ng-galien/code-moniker --features cli code-moniker
+cargo install --git https://github.com/ng-galien/code-moniker code-moniker
 ```
 
 From a local clone:
 
 ```sh
-cargo install --path . --features cli
+cargo install --path crates/cli
 ```
 
 Postgres extension (PG17 via pgrx; Docker variant in [`docs/use-in-postgres.md`](docs/use-in-postgres.md)):
@@ -97,7 +97,7 @@ Postgres extension (PG17 via pgrx; Docker variant in [`docs/use-in-postgres.md`]
 ```sh
 cargo install --locked cargo-pgrx
 cargo pgrx init --pg17 download
-cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
+cargo pgrx install --manifest-path crates/pg/Cargo.toml --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
 ```
 
 Then `CREATE EXTENSION code_moniker;` in any PG17 database.

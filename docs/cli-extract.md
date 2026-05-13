@@ -246,7 +246,7 @@ as single-file output:
   "total_defs":  37,
   "total_refs":  0,
   "files": [
-    { "file": "src/cli/dir.rs", "lang": "rs", "matches": { "defs": [...], "refs": [] } }
+    { "file": "crates/cli/src/dir.rs", "lang": "rs", "matches": { "defs": [...], "refs": [] } }
   ]
 }
 ```

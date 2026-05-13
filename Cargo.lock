@@ -238,17 +238,26 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "code-moniker-core",
  "ignore",
- "pgrx",
- "proptest",
  "rayon",
  "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "code-moniker-core"
+version = "0.1.0"
+dependencies = [
+ "proptest",
  "roxmltree",
  "serde",
  "serde_cbor",
  "serde_json",
- "tempfile",
- "thiserror",
  "toml 0.8.23",
  "tree-sitter",
  "tree-sitter-c-sharp",
@@ -258,6 +267,18 @@ dependencies = [
  "tree-sitter-python",
  "tree-sitter-rust",
  "tree-sitter-typescript",
+]
+
+[[package]]
+name = "code-moniker-pg"
+version = "0.1.0"
+dependencies = [
+ "code-moniker-core",
+ "pgrx",
+ "proptest",
+ "serde",
+ "serde_cbor",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,70 +1,73 @@
 # Project-specific rules overlay. Merged on top of the embedded preset by
 # rule id (same id → replace, new id → append).
 #
-# The path of each file is encoded into its monikers as `dir:<seg>/.../module:<name>`
-# segments, so rules can gate on layer via path-pattern matching.
+# Workspace layout: `crates/{core,cli,pg}/src/...`. A file at
+# `crates/core/src/lang/ts/walker.rs` is scanned from the workspace root
+# and encoded as
+# `dir:crates/dir:core/dir:src/dir:lang/dir:ts/module:walker`.
+# Aliases below pin patterns to that encoding.
 
 [aliases]
-# Pure-Rust core, no pgrx, no tree-sitter, no lang awareness.
-core    = "moniker ~ '**/dir:core/**'"
-# Declarative spec lifecycle (jsonb ↔ code_graph). Sits above core/ since
-# it consumes `lang::Lang` for typed spec.lang.
-declare = "moniker ~ '**/dir:declare/**'"
-# Per-language extractors (one mod per supported source language).
-lang    = "moniker ~ '**/dir:lang/**'"
-# pgrx PG extension surface (SQL types + operators + extract_<lang> entries).
-pg      = "moniker ~ '**/dir:pg/**'"
-# CLI surface (standalone binary).
-cli     = "moniker ~ '**/dir:cli/**'"
-# Integration tests (top-level `tests/` crate dir). CLAUDE.md: tests are the
-# legitimate place for documentation; in-body WHY comments are welcomed there.
+# Submodules of the `code_moniker_core` crate. Anchored on `dir:src/dir:<name>`
+# so they don't collide with the enclosing crate dir (`dir:crates/dir:core`).
+core    = "moniker ~ '**/dir:src/dir:core/**'"
+declare = "moniker ~ '**/dir:src/dir:declare/**'"
+lang    = "moniker ~ '**/dir:src/dir:lang/**'"
+# Standalone crates (each at `crates/<name>/`). The crate dirs are unique
+# top-level names, so anchoring on `dir:crates/dir:<name>` is unambiguous.
+cli     = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
+pg      = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
+# Per-crate integration tests / examples.
 tests   = "moniker ~ '**/dir:tests/**'"
-# Examples / benchmarks — looser conventions.
 example = "moniker ~ '**/dir:examples/**'"
 
-# ─── Hex / Layering (cross-layer dependencies via imports) ─────────────
-# These work because Rust import refs carry the external crate / module
-# path in the target moniker — match against `target ~ '...'`.
+# ─── Hex / Layering ─────────────────────────────────────────────────
+# Cross-crate boundaries (cli → pg, lang → cli) are also enforced by cargo
+# via the dependency graph; these rules are defence-in-depth and catch
+# accidental adds before they reach a build break.
+#
+# Intra-crate boundaries (core/ submodule must not import lang/, etc.) are
+# NOT enforced by cargo — only by these rules.
+
 [[refs.where]]
 id      = "core-no-pgrx"
 expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
-message = "Module `core` is parser-agnostic by contract; pgrx imports belong under `src/pg/`."
+message = "Module `core` is parser-agnostic by contract; pgrx belongs to the `code-moniker-pg` crate."
 
 [[refs.where]]
 id      = "core-no-tree-sitter"
 expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:tree_sitter/**'"
-message = "Module `core` is parser-agnostic; tree-sitter belongs under `src/lang/`."
+message = "Module `core` is parser-agnostic; tree-sitter belongs under `crates/core/src/lang/`."
 
 [[refs.where]]
 id      = "lang-extractors-isolated"
 expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
-message = "Per-language extractors are pure Rust; pgrx imports belong under `src/pg/`."
+message = "Per-language extractors are pure Rust; pgrx belongs to the `code-moniker-pg` crate."
 
-# CLI is the standalone path — it MUST link without pgrx. If anything under
-# `src/cli/` ever imports from `src/pg/`, the cli-only build breaks.
-#
-# The Rust import extractor encodes `crate::X::Y` (depth 2) as `module:X/path:Y`
-# and `crate::X::Y::Z` (depth 3+) as `dir:X/module:Y/path:Z`. Layering rules
-# must OR both encodings to catch all forms.
+# Cross-crate refs encode the dependent crate as `external_pkg:<name>` in
+# the target moniker. Intra-crate refs use `module:<name>` / `dir:<name>`.
 [[refs.where]]
 id      = "cli-no-pg"
-expr    = "$cli AND kind = 'imports_symbol' => NOT (target ~ '**/dir:pg/**' OR target ~ '**/module:pg/**')"
-message = "`cli` is the standalone binary path; importing from `pg/` pulls pgrx into the cli-only build."
+expr    = "$cli AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
+message = "`cli` is the standalone binary; importing from `code-moniker-pg` pulls pgrx into the cli build."
 
 [[refs.where]]
 id      = "lang-no-cli"
-expr    = "$lang AND kind = 'imports_symbol' => NOT (target ~ '**/dir:cli/**' OR target ~ '**/module:cli/**')"
-message = "`lang` extractors are pure libraries consumed by `cli` / `pg`; they must not depend back on the CLI surface."
+expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
+message = "`lang` extractors are pure libraries consumed by the CLI / PG crates; they must not depend back on the CLI surface."
 
+# Intra-crate: core/ submodule must not depend on its sibling submodules
+# (lang/, declare/) nor on the standalone crates.
 [[refs.where]]
 id      = "core-no-upper"
 expr    = """
   $core AND kind = 'imports_symbol'
-  => NOT (target ~ '**/dir:pg/**'   OR target ~ '**/module:pg/**'
-       OR target ~ '**/dir:lang/**' OR target ~ '**/module:lang/**'
-       OR target ~ '**/dir:cli/**'  OR target ~ '**/module:cli/**')
+  => NOT (target ~ '**/dir:src/dir:lang/**'    OR target ~ '**/module:lang/**'
+       OR target ~ '**/dir:src/dir:declare/**' OR target ~ '**/module:declare/**'
+       OR target ~ '**/external_pkg:code_moniker_cli/**'
+       OR target ~ '**/external_pkg:code_moniker_pg/**')
 """
-message = "`core` is the foundation layer; it must not depend on `pg`, `lang`, or `cli`."
+message = "`core` is the foundation submodule; it must not depend on `lang`, `declare`, or the standalone crates."
 
 # ─── Naming hygiene per layer ────────────────────────────────────────
 # These extend / refine the embedded preset that already enforces

@@ -12,7 +12,7 @@
 
 PCM_DOGFOOD_PANEL=(
 	# Rust
-	"rs|code-moniker|self|HEAD|src|Cargo.toml"
+	"rs|code-moniker|self|HEAD|crates|crates/core/Cargo.toml"
 	"rs|clap|https://github.com/clap-rs/clap.git|v4.5.20|clap_builder/src|clap_builder/Cargo.toml"
 	"rs|bytes|https://github.com/tokio-rs/bytes.git|v1.7.2|src|Cargo.toml"
 

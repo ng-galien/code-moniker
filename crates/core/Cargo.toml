@@ -1,0 +1,48 @@
+[package]
+name          = "code-moniker-core"
+version       = "0.1.0"
+edition       = "2024"
+rust-version  = "1.85"
+license       = "MIT OR Apache-2.0"
+repository    = "https://github.com/ng-galien/code-moniker"
+homepage      = "https://github.com/ng-galien/code-moniker"
+description   = "Core symbol-graph types and per-language extractors for code-moniker (pure Rust, no pgrx). Consumed by the CLI and the PostgreSQL extension."
+keywords      = ["tree-sitter", "ast", "code-search", "symbol-graph", "parser"]
+categories    = ["parser-implementations", "development-tools"]
+
+[lib]
+name = "code_moniker_core"
+
+[features]
+default = []
+serde   = ["dep:serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+# Tree-sitter and per-language grammars for the lang/ extractors.
+tree-sitter            = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-rust       = { workspace = true }
+tree-sitter-java       = { workspace = true }
+tree-sitter-python     = { workspace = true }
+tree-sitter-go         = { workspace = true }
+tree-sitter-c-sharp    = { workspace = true }
+tree-sitter-postgres   = { workspace = true }
+
+# Manifest parsers for the build/* primitives.
+toml       = { workspace = true }
+serde_json = { workspace = true }
+roxmltree  = { workspace = true }
+
+[dev-dependencies]
+serde_cbor = { workspace = true }
+proptest   = { workspace = true }
+
+[[example]]
+name = "bench_codegraph"
+path = "examples/bench_codegraph.rs"
+
+[[example]]
+name = "bench_extract"
+path = "examples/bench_extract.rs"

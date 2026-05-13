@@ -10,4 +10,4 @@ case "$file_path" in
 esac
 
 cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
-cargo check --lib --message-format=short 2>&1 | grep -E '^(error|warning)' | head -20 || true
+cargo check --workspace --exclude code-moniker-pg --message-format=short 2>&1 | grep -E '^(error|warning)' | head -20 || true

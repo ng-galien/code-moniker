@@ -29,10 +29,10 @@ Patterns in rules must match the encoding the extractor produces
 ## Install
 
 ```sh
-cargo install --git https://github.com/ng-galien/code-moniker --features cli code-moniker
+cargo install --git https://github.com/ng-galien/code-moniker code-moniker
 ```
 
-In-tree alternative: `cargo run --features cli --bin code-moniker -- check src/`.
+In-tree alternative: `cargo run -p code-moniker --bin code-moniker -- check .`.
 
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
 Python, Go, C#, SQL, PL/pgSQL.

@@ -1,0 +1,38 @@
+[package]
+name          = "code-moniker-pg"
+version       = "0.1.0"
+edition       = "2024"
+rust-version  = "1.85"
+license       = "MIT OR Apache-2.0"
+repository    = "https://github.com/ng-galien/code-moniker"
+homepage      = "https://github.com/ng-galien/code-moniker"
+description   = "PostgreSQL extension exposing the code-moniker symbol graph as native SQL types with GiST/GIN-indexed algebra."
+keywords      = ["postgres", "pgrx", "code-search", "symbol-graph", "tree-sitter"]
+categories    = ["development-tools", "database-implementations"]
+
+[package.metadata.docs.rs]
+features = ["pg17"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+name       = "code_moniker_pg"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+pg14    = ["pgrx/pg14"]
+pg15    = ["pgrx/pg15"]
+pg16    = ["pgrx/pg16"]
+pg17    = ["pgrx/pg17"]
+pg_test = []
+
+[dependencies]
+code-moniker-core = { workspace = true, features = ["serde"] }
+
+pgrx       = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest   = { workspace = true }
+serde_cbor = { workspace = true }

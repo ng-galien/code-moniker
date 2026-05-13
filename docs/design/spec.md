@@ -735,7 +735,7 @@ noted.
 
 - PostgreSQL 14, 15, 16, 17. One major active at build time via the
   `pg14` … `pg17` Cargo feature.
-- Rust 1.90+ (edition 2024).
+- Rust 1.85+ (edition 2024).
 - pgrx 0.18+.
 - Tree-sitter via the `tree-sitter` crate and per-language grammar
   crates fetched by Cargo.

@@ -1,0 +1,36 @@
+[package]
+name          = "code-moniker"
+version       = "0.1.0"
+edition       = "2024"
+rust-version  = "1.85"
+license       = "MIT OR Apache-2.0"
+repository    = "https://github.com/ng-galien/code-moniker"
+homepage      = "https://github.com/ng-galien/code-moniker"
+documentation = "https://docs.rs/code-moniker"
+readme        = "../../README.md"
+description   = "Standalone CLI / linter for the code-moniker symbol graph: per-file probe, directory summary, project-wide architecture rules."
+keywords      = ["code-search", "linter", "ast", "tree-sitter", "cli"]
+categories    = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "code_moniker_cli"
+
+[[bin]]
+name = "code-moniker"
+path = "src/main.rs"
+
+[dependencies]
+code-moniker-core = { workspace = true, features = ["serde"] }
+
+clap      = { workspace = true }
+serde     = { workspace = true }
+serde_json = { workspace = true }
+anyhow    = { workspace = true }
+thiserror = { workspace = true }
+regex     = { workspace = true }
+ignore    = { workspace = true }
+rayon     = { workspace = true }
+toml      = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

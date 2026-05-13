@@ -158,7 +158,7 @@ id   = "annotations-only-annotate"
 expr = "source.shape = 'annotation' => kind = 'annotates'"
 ```
 
-The mapping table lives in `src/core/shape.rs` and is the same one
+The mapping table lives in `crates/core/src/core/shape.rs` and is the same one
 exposed as the `shape` column of `graph_defs(code_graph)` in SQL — rules
 written in shape terms transfer verbatim to ad-hoc queries against an
 ingested `code_graph` corpus.

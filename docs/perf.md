@@ -10,11 +10,11 @@ Apple silicon laptop, 10 cores.
 runs after each edit. Cost is dominated by process startup, not by
 the extractor.
 
-| File                              | Bytes  | Time   |
-|-----------------------------------|--------|--------|
-| `src/cli/check/eval.rs`           | 62 KB  | 14 ms  |
-| `src/lang/ts/walker.rs`           | 18 KB  | 6 ms   |
-| `src/core/moniker/mod.rs`         | 3 KB   | 4 ms   |
+| File                                      | Bytes  | Time   |
+|-------------------------------------------|--------|--------|
+| `crates/cli/src/check/eval.rs`            | 62 KB  | 14 ms  |
+| `crates/core/src/lang/ts/walker.rs`       | 18 KB  | 6 ms   |
+| `crates/core/src/core/moniker/mod.rs`     | 3 KB   | 4 ms   |
 
 ## Project scan
 
@@ -35,7 +35,7 @@ supported extension.
 | mux              | go    |    16 |  202 KB  |  26 ms |  615 files/s, 7.6 MB/s  |
 | code-moniker     | rs    |    96 |  708 KB  |  25 ms | 3840 files/s, 28 MB/s   |
 
-The cold-cache run on this repo (`check src/`, first invocation
+The cold-cache run on this repo (`check crates/`, first invocation
 after dropping the OS file cache) takes ~500 ms; subsequent runs
 return to 25 ms.
 
@@ -47,7 +47,7 @@ graph, dominated by the extractor like `check`.
 
 ## Implications
 
-- `check src/` is fast enough to gate every commit and every CI
+- `check crates/` is fast enough to gate every commit and every CI
   job up to several thousand source files in well under a second.
 - Per-file mode in a `PostToolUse` hook adds <15 ms of latency to
   an agent edit cycle.
@@ -57,7 +57,7 @@ graph, dominated by the extractor like `check`.
 ## Reproduce
 
 ```sh
-cargo build --release --features cli --bin code-moniker
+cargo build --release -p code-moniker --bin code-moniker
 ./scripts/dogfood.sh --reset            # clones the panel into ./dogfood/
 time ./target/release/code-moniker check dogfood/ts/date-fns
 ```

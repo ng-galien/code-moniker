@@ -9,7 +9,7 @@ root="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 cd "$root"
 
 set +e
-output=$(cargo run --quiet --features cli --bin code-moniker -- check "$file_path" 2>&1)
+output=$(cargo run --quiet -p code-moniker --bin code-moniker -- check "$file_path" 2>&1)
 status=$?
 set -e
 

@@ -1,0 +1,365 @@
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use rayon::prelude::*;
+use serde::Serialize;
+
+use crate::args::{Args, OutputFormat, OutputMode};
+use crate::extract;
+use crate::format;
+use crate::predicate::{self, MatchSet, Predicate, RefMatch};
+use crate::walk;
+use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
+use code_moniker_core::core::moniker::Moniker;
+use code_moniker_core::lang::Lang;
+
+const TOP_KINDS_DISPLAYED: usize = 3;
+
+pub fn run<W: Write>(
+	args: &Args,
+	stdout: &mut W,
+	root: &Path,
+	scheme: &str,
+) -> anyhow::Result<bool> {
+	let files = walk::walk_lang_files(root);
+	let has_filter = !args.kind.is_empty() || !args.where_.is_empty();
+	if has_filter {
+		run_filter(args, stdout, &files, root, scheme)
+	} else {
+		run_summary(args, stdout, &files, root)
+	}
+}
+
+fn run_summary<W: Write>(
+	args: &Args,
+	stdout: &mut W,
+	files: &[walk::WalkedFile],
+	root: &Path,
+) -> anyhow::Result<bool> {
+	let summaries: Vec<FileSummary> = files
+		.par_iter()
+		.filter_map(|f| FileSummary::compute(&f.path, f.lang, root))
+		.collect();
+	let total_defs: usize = summaries.iter().map(|s| s.defs).sum();
+	let total_refs: usize = summaries.iter().map(|s| s.refs).sum();
+	let any = total_defs + total_refs > 0;
+	match args.mode() {
+		OutputMode::Default => match args.format {
+			OutputFormat::Tsv => write_summary_tsv(stdout, &summaries)?,
+			OutputFormat::Json => write_summary_json(stdout, &summaries)?,
+		},
+		OutputMode::Count => writeln!(stdout, "{}", total_defs + total_refs)?,
+		OutputMode::Quiet => {}
+	}
+	Ok(any)
+}
+
+fn run_filter<W: Write>(
+	args: &Args,
+	stdout: &mut W,
+	files: &[walk::WalkedFile],
+	root: &Path,
+	scheme: &str,
+) -> anyhow::Result<bool> {
+	let predicates = args.compiled_predicates(scheme)?;
+	let mut langs: Vec<Lang> = files.iter().map(|f| f.lang).collect();
+	langs.sort_by_key(|l| l.tag());
+	langs.dedup();
+	let known = predicate::known_kinds(langs.iter());
+	let unknown = predicate::unknown_kinds(&args.kind, &known);
+	if !unknown.is_empty() {
+		return Err(crate::unknown_kinds_error(&unknown, &langs));
+	}
+	let rows: Vec<FilterRow> = files
+		.par_iter()
+		.filter_map(|f| FilterRow::compute(&f.path, f.lang, root, &predicates, &args.kind))
+		.collect();
+	let total_defs: usize = rows.iter().map(|r| r.defs.len()).sum();
+	let total_refs: usize = rows.iter().map(|r| r.refs.len()).sum();
+	let any = total_defs + total_refs > 0;
+	match args.mode() {
+		OutputMode::Default => match args.format {
+			OutputFormat::Tsv => write_filter_tsv(stdout, &rows, args, scheme)?,
+			OutputFormat::Json => write_filter_json(stdout, &rows, args, scheme)?,
+		},
+		OutputMode::Count => writeln!(stdout, "{}", total_defs + total_refs)?,
+		OutputMode::Quiet => {}
+	}
+	Ok(any)
+}
+
+#[derive(Serialize)]
+struct FileSummary {
+	file: String,
+	lang: &'static str,
+	defs: usize,
+	refs: usize,
+	by_def_kind: BTreeMap<String, usize>,
+	by_ref_kind: BTreeMap<String, usize>,
+}
+
+impl FileSummary {
+	fn compute(path: &Path, lang: Lang, root: &Path) -> Option<Self> {
+		let source = std::fs::read_to_string(path).ok()?;
+		let rel = path.strip_prefix(root).unwrap_or(path);
+		let graph = extract::extract(lang, &source, rel);
+		let mut by_def_kind: BTreeMap<String, usize> = BTreeMap::new();
+		let mut defs = 0usize;
+		for d in graph.defs() {
+			defs += 1;
+			*by_def_kind
+				.entry(String::from_utf8_lossy(&d.kind).into_owned())
+				.or_default() += 1;
+		}
+		let mut by_ref_kind: BTreeMap<String, usize> = BTreeMap::new();
+		let mut refs = 0usize;
+		for r in graph.refs() {
+			refs += 1;
+			*by_ref_kind
+				.entry(String::from_utf8_lossy(&r.kind).into_owned())
+				.or_default() += 1;
+		}
+		Some(Self {
+			file: rel.display().to_string(),
+			lang: lang.tag(),
+			defs,
+			refs,
+			by_def_kind,
+			by_ref_kind,
+		})
+	}
+}
+
+fn write_summary_tsv<W: Write>(w: &mut W, summaries: &[FileSummary]) -> std::io::Result<()> {
+	for s in summaries {
+		writeln!(
+			w,
+			"{file}\t{lang}\t{defs}\t{refs}\t{top}",
+			file = s.file,
+			lang = s.lang,
+			defs = s.defs,
+			refs = s.refs,
+			top = top_kinds(&s.by_def_kind, TOP_KINDS_DISPLAYED),
+		)?;
+	}
+	Ok(())
+}
+
+fn write_summary_json<W: Write>(w: &mut W, summaries: &[FileSummary]) -> anyhow::Result<()> {
+	#[derive(Serialize)]
+	struct Out<'a> {
+		total_files: usize,
+		total_defs: usize,
+		total_refs: usize,
+		files: &'a [FileSummary],
+	}
+	let total_defs = summaries.iter().map(|s| s.defs).sum();
+	let total_refs = summaries.iter().map(|s| s.refs).sum();
+	let out = Out {
+		total_files: summaries.len(),
+		total_defs,
+		total_refs,
+		files: summaries,
+	};
+	serde_json::to_writer_pretty(&mut *w, &out)?;
+	w.write_all(b"\n")?;
+	Ok(())
+}
+
+fn top_kinds(map: &BTreeMap<String, usize>, n: usize) -> String {
+	if map.is_empty() {
+		return "-".to_string();
+	}
+	let mut pairs: Vec<(&String, &usize)> = map.iter().collect();
+	pairs.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+	pairs
+		.into_iter()
+		.take(n)
+		.map(|(k, v)| format!("{k}:{v}"))
+		.collect::<Vec<_>>()
+		.join(", ")
+}
+
+struct FilterRow {
+	rel: PathBuf,
+	lang: Lang,
+	source: String,
+	defs: Vec<DefRecord>,
+	refs: Vec<(RefRecord, Moniker)>,
+}
+
+impl FilterRow {
+	fn compute(
+		path: &Path,
+		lang: Lang,
+		root: &Path,
+		predicates: &[Predicate],
+		kinds: &[String],
+	) -> Option<Self> {
+		let source = std::fs::read_to_string(path).ok()?;
+		let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
+		let graph = extract::extract(lang, &source, &rel);
+		let matches = predicate::filter(&graph, predicates, kinds);
+		if matches.defs.is_empty() && matches.refs.is_empty() {
+			return None;
+		}
+		let defs = matches.defs.into_iter().cloned().collect();
+		let refs = matches
+			.refs
+			.into_iter()
+			.map(|rm| (rm.record.clone(), rm.source.clone()))
+			.collect();
+		Some(Self {
+			rel,
+			lang,
+			source,
+			defs,
+			refs,
+		})
+	}
+
+	fn match_set(&self) -> MatchSet<'_> {
+		MatchSet {
+			defs: self.defs.iter().collect(),
+			refs: self
+				.refs
+				.iter()
+				.map(|(rec, src)| RefMatch {
+					record: rec,
+					source: src,
+				})
+				.collect(),
+		}
+	}
+}
+
+fn write_filter_tsv<W: Write>(
+	w: &mut W,
+	rows: &[FilterRow],
+	args: &Args,
+	scheme: &str,
+) -> std::io::Result<()> {
+	for row in rows {
+		let matches = row.match_set();
+		let mut buf: Vec<u8> = Vec::new();
+		format::write_tsv(&mut buf, &matches, &row.source, args, scheme)?;
+		let prefix = row.rel.display().to_string();
+		for line in std::str::from_utf8(&buf).unwrap_or("").lines() {
+			writeln!(w, "{prefix}\t{line}")?;
+		}
+	}
+	Ok(())
+}
+
+fn write_filter_json<W: Write>(
+	w: &mut W,
+	rows: &[FilterRow],
+	args: &Args,
+	scheme: &str,
+) -> anyhow::Result<()> {
+	#[derive(Serialize)]
+	struct Entry {
+		file: String,
+		lang: &'static str,
+		matches: serde_json::Value,
+	}
+	let entries: Vec<Entry> = rows
+		.iter()
+		.map(|row| {
+			let matches = row.match_set();
+			let mut buf: Vec<u8> = Vec::new();
+			format::write_json(
+				&mut buf,
+				&matches,
+				&row.source,
+				args,
+				row.lang,
+				&row.rel,
+				scheme,
+			)
+			.expect("json serialize");
+			let v: serde_json::Value =
+				serde_json::from_slice(&buf).unwrap_or(serde_json::Value::Null);
+			Entry {
+				file: row.rel.display().to_string(),
+				lang: row.lang.tag(),
+				matches: v["matches"].clone(),
+			}
+		})
+		.collect();
+	let total_defs: usize = rows.iter().map(|r| r.defs.len()).sum();
+	let total_refs: usize = rows.iter().map(|r| r.refs.len()).sum();
+	#[derive(Serialize)]
+	struct Out {
+		total_files: usize,
+		total_defs: usize,
+		total_refs: usize,
+		files: Vec<Entry>,
+	}
+	let out = Out {
+		total_files: entries.len(),
+		total_defs,
+		total_refs,
+		files: entries,
+	};
+	serde_json::to_writer_pretty(&mut *w, &out)?;
+	w.write_all(b"\n")?;
+	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::fs;
+
+	fn write_file(root: &Path, rel: &str, body: &str) {
+		let p = root.join(rel);
+		if let Some(parent) = p.parent() {
+			fs::create_dir_all(parent).unwrap();
+		}
+		fs::write(p, body).unwrap();
+	}
+
+	#[test]
+	fn summary_aggregates_per_file_counts() {
+		let tmp = tempfile::tempdir().unwrap();
+		let root = tmp.path();
+		write_file(root, "a.ts", "export class Foo {}\nfunction bar() {}\n");
+		write_file(root, "b.ts", "import { x } from 'y';\n");
+		let files = walk::walk_lang_files(root);
+		let summaries: Vec<FileSummary> = files
+			.iter()
+			.filter_map(|f| FileSummary::compute(&f.path, f.lang, root))
+			.collect();
+		assert_eq!(summaries.len(), 2);
+		let a = summaries.iter().find(|s| s.file.ends_with("a.ts")).unwrap();
+		assert!(a.defs >= 2, "a.ts should have at least 2 defs: {a:?}");
+		let b = summaries.iter().find(|s| s.file.ends_with("b.ts")).unwrap();
+		assert!(b.refs >= 1, "b.ts should have at least 1 ref: {b:?}");
+	}
+
+	#[test]
+	fn top_kinds_sorted_by_count_desc_then_name() {
+		let mut m = BTreeMap::new();
+		m.insert("function".to_string(), 5);
+		m.insert("class".to_string(), 5);
+		m.insert("comment".to_string(), 10);
+		assert_eq!(top_kinds(&m, 3), "comment:10, class:5, function:5");
+	}
+
+	#[test]
+	fn top_kinds_empty_renders_dash() {
+		assert_eq!(top_kinds(&BTreeMap::new(), 3), "-");
+	}
+
+	impl std::fmt::Debug for FileSummary {
+		fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+			f.debug_struct("FileSummary")
+				.field("file", &self.file)
+				.field("defs", &self.defs)
+				.field("refs", &self.refs)
+				.finish()
+		}
+	}
+}

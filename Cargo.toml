@@ -1,59 +1,31 @@
-[package]
-name          = "code-moniker"
+[workspace]
+resolver = "2"
+members = [
+	"crates/core",
+	"crates/cli",
+	"crates/pg",
+]
+
+[workspace.package]
 version       = "0.1.0"
 edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/ng-galien/code-moniker"
 homepage      = "https://github.com/ng-galien/code-moniker"
-documentation = "https://docs.rs/code-moniker"
-readme        = "README.md"
-description   = "Stateless symbol-graph analyser for source code: PostgreSQL extension (native moniker / code_graph types with indexed algebra) and standalone CLI / linter."
-keywords      = ["postgres", "tree-sitter", "code-search", "ast", "linter"]
-categories    = ["development-tools", "command-line-utilities", "parser-implementations"]
 
-[package.metadata.docs.rs]
-features = ["pg17"]
-rustdoc-args = ["--cfg", "docsrs"]
+[workspace.dependencies]
+code-moniker-core = { path = "crates/core", version = "0.1.0" }
 
-[lib]
-name       = "code_moniker"
-crate-type = ["cdylib", "rlib"]
+pgrx      = { version = "0.18" }
+serde     = { version = "1", features = ["derive"] }
+clap      = { version = "4", features = ["derive"] }
+anyhow    = "1"
+thiserror = "2"
+regex     = "1"
+ignore    = "0.4"
+rayon     = "1"
 
-[[bin]]
-name              = "code-moniker"
-path              = "src/bin/code_moniker.rs"
-required-features = ["cli"]
-
-# -----------------------------------------------------------------------------
-# Features
-# -----------------------------------------------------------------------------
-# default = []  -- core/ compiles and tests without pgrx, no PG required.
-# pgN       -- pulls pgrx in for the SQL surface and the chosen PG major.
-#              Use one at a time: `cargo build --features pg17`.
-# pg_test   -- enables in-PG integration tests via pgrx-tests (added later).
-# -----------------------------------------------------------------------------
-[features]
-default = ["cli"]
-serde   = ["dep:serde"]
-cli     = ["dep:clap", "dep:anyhow", "dep:thiserror", "dep:regex", "dep:ignore", "dep:rayon", "serde"]
-pg14    = ["dep:pgrx", "pgrx/pg14", "serde"]
-pg15    = ["dep:pgrx", "pgrx/pg15", "serde"]
-pg16    = ["dep:pgrx", "pgrx/pg16", "serde"]
-pg17    = ["dep:pgrx", "pgrx/pg17", "serde"]
-pg_test = []
-
-[dependencies]
-pgrx      = { version = "0.18", optional = true }
-serde     = { version = "1", features = ["derive"], optional = true }
-clap      = { version = "4", features = ["derive"], optional = true }
-anyhow    = { version = "1", optional = true }
-thiserror = { version = "2", optional = true }
-regex     = { version = "1", optional = true }
-ignore    = { version = "0.4", optional = true }
-rayon     = { version = "1", optional = true }
-
-# Tree-sitter and per-language grammars for the lang/ extractors.
 tree-sitter            = "0.26"
 tree-sitter-typescript = "0.23"
 tree-sitter-rust       = "0.24"
@@ -61,29 +33,16 @@ tree-sitter-java       = "0.23"
 tree-sitter-python     = "0.25"
 tree-sitter-go         = "0.23"
 tree-sitter-c-sharp    = "0.23"
+tree-sitter-postgres   = "1.1"
 
-# Manifest parsers for the build/* primitives.
 toml       = "0.8"
 serde_json = "1"
 roxmltree  = "0.20"
 
-# Pure-Rust PostgreSQL & PL/pgSQL grammars for tree-sitter. Two grammars
-# (`LANGUAGE` for SQL, `LANGUAGE_PLPGSQL` for function bodies) used by
-# `lang::sql/`. No C runtime, no postmaster, no symbol clash with pgrx —
-# the same extractor runs in the CLI binary and the pgrx-hosted extension.
-tree-sitter-postgres = "1.1"
-
-# pgrx-tests added later when in-PG tests (`#[pg_test]`) are introduced.
-# It requires a `pgN` feature and breaks pure-Rust `cargo test` when always-on.
-
-[dev-dependencies]
 serde_cbor = "0.11"
-proptest = { version = "1", default-features = false, features = ["std"] }
-tempfile = "3"
+proptest   = { version = "1", default-features = false, features = ["std"] }
+tempfile   = "3"
 
-# -----------------------------------------------------------------------------
-# Profiles
-# -----------------------------------------------------------------------------
 [profile.dev]
 panic = "unwind"
 

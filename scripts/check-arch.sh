@@ -11,4 +11,4 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-exec cargo run --quiet --features cli --bin code-moniker -- check .
+exec cargo run --quiet -p code-moniker --bin code-moniker -- check .
