@@ -7,6 +7,7 @@ use code_moniker_core::core::kinds::{
 	REF_INSTANTIATES, REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE,
 };
 use code_moniker_core::core::moniker::Moniker;
+use code_moniker_core::core::shape::Shape;
 use code_moniker_core::lang::Lang;
 
 #[derive(Clone, Debug)]
@@ -50,22 +51,28 @@ pub struct MatchSet<'g> {
 	pub refs: Vec<RefMatch<'g>>,
 }
 
-/// A def matches when its own moniker satisfies every predicate; a ref matches
-/// when its **target** moniker does. `kinds` is OR-combined; empty means any.
 pub fn filter<'g>(
 	graph: &'g CodeGraph,
 	predicates: &[Predicate],
 	kinds: &[String],
+	shapes: &[Shape],
 ) -> MatchSet<'g> {
 	let kinds_set: Vec<&[u8]> = kinds.iter().map(|s| s.as_bytes()).collect();
 	let kind_ok = |k: &[u8]| -> bool { kinds_set.is_empty() || kinds_set.contains(&k) };
+	let shape_ok = |k: &[u8]| -> bool { shapes.is_empty() || shapes.contains(&Shape::for_kind(k)) };
 	let mut defs: Vec<&DefRecord> = graph
 		.defs()
-		.filter(|d| kind_ok(&d.kind) && predicates.iter().all(|p| p.matches(&d.moniker)))
+		.filter(|d| {
+			kind_ok(&d.kind)
+				&& shape_ok(&d.kind)
+				&& predicates.iter().all(|p| p.matches(&d.moniker))
+		})
 		.collect();
 	let refs: Vec<&RefRecord> = graph
 		.refs()
-		.filter(|r| kind_ok(&r.kind) && predicates.iter().all(|p| p.matches(&r.target)))
+		.filter(|r| {
+			kind_ok(&r.kind) && shape_ok(&r.kind) && predicates.iter().all(|p| p.matches(&r.target))
+		})
 		.collect();
 	defs.sort_by(|a, b| a.moniker.as_bytes().cmp(b.moniker.as_bytes()));
 	let mut keyed: Vec<RefMatch<'g>> = refs
@@ -90,7 +97,7 @@ pub fn filter<'g>(
 	MatchSet { defs, refs: keyed }
 }
 
-const CROSS_LANG_KINDS: &[&[u8]] = &[
+pub const CROSS_LANG_KINDS: &[&[u8]] = &[
 	KIND_MODULE,
 	KIND_COMMENT,
 	KIND_LOCAL,
@@ -163,7 +170,7 @@ mod tests {
 	#[test]
 	fn no_predicate_matches_everything() {
 		let g = build_graph();
-		let r = filter(&g, &[], &[]);
+		let r = filter(&g, &[], &[], &[]);
 		assert_eq!(r.defs.len(), 4);
 		assert_eq!(r.refs.len(), 1);
 	}
@@ -171,10 +178,10 @@ mod tests {
 	#[test]
 	fn kind_filter_or_combines() {
 		let g = build_graph();
-		let r = filter(&g, &[], &["method".to_string()]);
+		let r = filter(&g, &[], &["method".to_string()], &[]);
 		assert_eq!(r.defs.len(), 1);
 		assert_eq!(r.defs[0].kind, b"method");
-		let r = filter(&g, &[], &["method".to_string(), "module".to_string()]);
+		let r = filter(&g, &[], &["method".to_string(), "module".to_string()], &[]);
 		assert_eq!(r.defs.len(), 2);
 	}
 
@@ -182,7 +189,7 @@ mod tests {
 	fn descendant_of_keeps_only_strict_descendants_and_target() {
 		let g = build_graph();
 		let foo = m(&[(b"class", b"Foo")]);
-		let r = filter(&g, &[Predicate::DescendantOf(foo)], &[]);
+		let r = filter(&g, &[Predicate::DescendantOf(foo)], &[], &[]);
 		let names: Vec<&[u8]> = r.defs.iter().map(|d| d.kind.as_slice()).collect();
 		assert!(names.contains(&b"class".as_slice()));
 		assert!(names.contains(&b"method".as_slice()));
@@ -193,7 +200,7 @@ mod tests {
 	fn equality_matches_one_def() {
 		let g = build_graph();
 		let foo = m(&[(b"class", b"Foo")]);
-		let r = filter(&g, &[Predicate::Eq(foo.clone())], &[]);
+		let r = filter(&g, &[Predicate::Eq(foo.clone())], &[], &[]);
 		assert_eq!(r.defs.len(), 1);
 		assert_eq!(&r.defs[0].moniker, &foo);
 		assert_eq!(r.refs.len(), 1, "ref to Foo also matches via target");
@@ -203,9 +210,9 @@ mod tests {
 	fn ordering_predicates_use_byte_lex() {
 		let g = build_graph();
 		let baz = m(&[(b"class", b"Baz")]);
-		let r = filter(&g, &[Predicate::Lt(baz.clone())], &[]);
+		let r = filter(&g, &[Predicate::Lt(baz.clone())], &[], &[]);
 		assert!(r.defs.iter().all(|d| d.moniker < baz));
-		let r = filter(&g, &[Predicate::Ge(baz.clone())], &[]);
+		let r = filter(&g, &[Predicate::Ge(baz.clone())], &[], &[]);
 		assert!(r.defs.iter().all(|d| d.moniker >= baz));
 	}
 
@@ -213,7 +220,7 @@ mod tests {
 	fn ancestor_of_includes_self() {
 		let g = build_graph();
 		let bar = m(&[(b"class", b"Foo"), (b"method", b"bar")]);
-		let r = filter(&g, &[Predicate::AncestorOf(bar)], &[]);
+		let r = filter(&g, &[Predicate::AncestorOf(bar)], &[], &[]);
 		let kinds: Vec<&[u8]> = r.defs.iter().map(|d| d.kind.as_slice()).collect();
 		assert!(kinds.contains(&b"module".as_slice()));
 		assert!(kinds.contains(&b"class".as_slice()));
@@ -224,7 +231,12 @@ mod tests {
 	fn predicate_and_kind_compose() {
 		let g = build_graph();
 		let foo = m(&[(b"class", b"Foo")]);
-		let r = filter(&g, &[Predicate::DescendantOf(foo)], &["method".to_string()]);
+		let r = filter(
+			&g,
+			&[Predicate::DescendantOf(foo)],
+			&["method".to_string()],
+			&[],
+		);
 		assert_eq!(r.defs.len(), 1);
 		assert_eq!(r.defs[0].kind, b"method");
 	}
@@ -233,8 +245,41 @@ mod tests {
 	fn ref_filtered_by_target_moniker() {
 		let g = build_graph();
 		let foo = m(&[(b"class", b"Foo")]);
-		let r = filter(&g, &[Predicate::Eq(foo)], &[]);
+		let r = filter(&g, &[Predicate::Eq(foo)], &[], &[]);
 		assert_eq!(r.refs.len(), 1, "EXTENDS ref targets Foo");
+	}
+
+	#[test]
+	fn shape_filter_picks_callable_across_kinds() {
+		let g = build_graph();
+		let r = filter(&g, &[], &[], &[Shape::Callable]);
+		assert_eq!(r.defs.len(), 1, "only `method` has shape callable");
+		assert_eq!(r.defs[0].kind, b"method");
+	}
+
+	#[test]
+	fn shape_filter_ref_isolates_ref_records() {
+		let g = build_graph();
+		let r = filter(&g, &[], &[], &[Shape::Ref]);
+		assert!(r.defs.is_empty(), "no def has shape `ref`");
+		assert_eq!(r.refs.len(), 1);
+	}
+
+	#[test]
+	fn kind_and_shape_compose_as_and() {
+		let g = build_graph();
+		let r = filter(&g, &[], &["method".to_string()], &[Shape::Type]);
+		assert!(
+			r.defs.is_empty(),
+			"method is callable, not type — empty AND"
+		);
+	}
+
+	#[test]
+	fn shape_for_kind_maps_known_and_unknown() {
+		assert_eq!(Shape::for_kind(b"method"), Shape::Callable);
+		assert_eq!(Shape::for_kind(b"class"), Shape::Type);
+		assert_eq!(Shape::for_kind(b"EXTENDS"), Shape::Ref);
 	}
 
 	#[test]
@@ -275,7 +320,7 @@ mod tests {
 	#[test]
 	fn defs_sorted_by_moniker_bytes() {
 		let g = build_graph();
-		let r = filter(&g, &[], &[]);
+		let r = filter(&g, &[], &[], &[]);
 		let mut prev: Option<&[u8]> = None;
 		for d in &r.defs {
 			let cur = d.moniker.as_bytes();

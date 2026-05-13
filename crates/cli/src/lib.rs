@@ -16,7 +16,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-pub use args::{Args, CheckArgs, CheckFormat, Cli, Command, OutputFormat, OutputMode};
+pub use args::{
+	CheckArgs, CheckFormat, Cli, Command, ExtractArgs, LangsArgs, LangsFormat, OutputFormat,
+	OutputMode, ShapesArgs,
+};
 pub use lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};
 
@@ -64,12 +67,214 @@ impl From<Exit> for ExitCode {
 
 pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match &cli.command {
-		Some(Command::Check(args)) => run_check(args, stdout, stderr),
-		None => run_extract(&cli.extract, stdout, stderr),
+		Command::Extract(args) => run_extract(args, stdout, stderr),
+		Command::Check(args) => run_check(args, stdout, stderr),
+		Command::Langs(args) => run_langs(args, stdout, stderr),
+		Command::Shapes(args) => run_shapes(args, stdout, stderr),
 	}
 }
 
-fn run_extract<W1: Write, W2: Write>(args: &Args, stdout: &mut W1, stderr: &mut W2) -> Exit {
+fn shape_description(shape: code_moniker_core::core::shape::Shape) -> &'static str {
+	use code_moniker_core::core::shape::Shape;
+	match shape {
+		Shape::Namespace => "container scopes (module, namespace, schema, impl)",
+		Shape::Type => {
+			"type-like declarations (class, struct, enum, interface, trait, table, view, …)"
+		}
+		Shape::Callable => {
+			"executable code (function, method, constructor, procedure, async_function)"
+		}
+		Shape::Value => "named bindings (field, const, static, enum_constant, param, local, …)",
+		Shape::Annotation => "attached metadata (comment) — not a structural scope",
+		Shape::Ref => {
+			"cross-record references (calls, imports_*, extends, uses_type, …) — marker shape for ref records"
+		}
+	}
+}
+
+fn run_shapes<W1: Write, W2: Write>(args: &ShapesArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
+	match shapes_inner(args, stdout) {
+		Ok(()) => Exit::Match,
+		Err(e) => {
+			let _ = writeln!(stderr, "code-moniker: {e:#}");
+			Exit::UsageError
+		}
+	}
+}
+
+fn shapes_inner<W: Write>(args: &ShapesArgs, stdout: &mut W) -> anyhow::Result<()> {
+	use code_moniker_core::core::shape::Shape;
+	match args.format {
+		LangsFormat::Text => {
+			writeln!(
+				stdout,
+				"Each def's `kind` maps to exactly one shape; refs share `ref` as marker."
+			)?;
+			writeln!(
+				stdout,
+				"Filter with `--shape <NAME>`; `code-moniker langs <TAG>` shows the kind↔shape map per language."
+			)?;
+			writeln!(stdout)?;
+			let width = Shape::ALL
+				.iter()
+				.map(|s| s.as_str().len())
+				.max()
+				.unwrap_or(0);
+			for shape in Shape::ALL {
+				writeln!(
+					stdout,
+					"  {:<width$}  {}",
+					shape.as_str(),
+					shape_description(*shape),
+					width = width
+				)?;
+			}
+		}
+		LangsFormat::Json => {
+			#[derive(serde::Serialize)]
+			struct Entry<'a> {
+				name: &'a str,
+				description: &'a str,
+			}
+			let entries: Vec<Entry> = Shape::ALL
+				.iter()
+				.map(|s| Entry {
+					name: s.as_str(),
+					description: shape_description(*s),
+				})
+				.collect();
+			serde_json::to_writer_pretty(&mut *stdout, &entries)?;
+			stdout.write_all(b"\n")?;
+		}
+	}
+	Ok(())
+}
+
+fn run_langs<W1: Write, W2: Write>(args: &LangsArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
+	match langs_inner(args, stdout) {
+		Ok(()) => Exit::Match,
+		Err(e) => {
+			let _ = writeln!(stderr, "code-moniker: {e:#}");
+			Exit::UsageError
+		}
+	}
+}
+
+fn collect_kinds(
+	lang: code_moniker_core::lang::Lang,
+) -> Vec<(&'static str, code_moniker_core::core::shape::Shape)> {
+	use code_moniker_core::core::shape::Shape;
+	predicate::known_kinds(std::iter::once(&lang))
+		.into_iter()
+		.map(|k| (k, Shape::for_kind(k.as_bytes())))
+		.collect()
+}
+
+fn langs_inner<W: Write>(args: &LangsArgs, stdout: &mut W) -> anyhow::Result<()> {
+	use code_moniker_core::lang::Lang;
+
+	match &args.lang {
+		None => match args.format {
+			LangsFormat::Text => {
+				for lang in Lang::ALL {
+					writeln!(stdout, "{}", lang.tag())?;
+				}
+			}
+			LangsFormat::Json => {
+				let tags: Vec<&str> = Lang::ALL.iter().map(|l| l.tag()).collect();
+				serde_json::to_writer_pretty(&mut *stdout, &tags)?;
+				stdout.write_all(b"\n")?;
+			}
+		},
+		Some(tag) => {
+			let lang = Lang::from_tag(tag).ok_or_else(|| {
+				let known: Vec<&str> = Lang::ALL.iter().map(|l| l.tag()).collect();
+				anyhow::anyhow!("unknown language `{tag}` (known: {})", known.join(", "))
+			})?;
+			let kinds = collect_kinds(lang);
+			let visibilities = lang.allowed_visibilities();
+			match args.format {
+				LangsFormat::Text => write_langs_text(stdout, lang.tag(), &kinds, visibilities)?,
+				LangsFormat::Json => write_langs_json(stdout, lang.tag(), &kinds, visibilities)?,
+			}
+		}
+	}
+	Ok(())
+}
+
+fn write_langs_text<W: Write>(
+	w: &mut W,
+	tag: &str,
+	kinds: &[(&'static str, code_moniker_core::core::shape::Shape)],
+	visibilities: &[&'static str],
+) -> std::io::Result<()> {
+	use code_moniker_core::core::shape::Shape;
+	writeln!(w, "lang: {tag}")?;
+	writeln!(w, "kinds:")?;
+	let width = Shape::ALL
+		.iter()
+		.map(|s| s.as_str().len() + 1)
+		.max()
+		.unwrap_or(0);
+	for shape in Shape::ALL {
+		let names: Vec<&str> = kinds
+			.iter()
+			.filter(|(_, s)| s == shape)
+			.map(|(n, _)| *n)
+			.collect();
+		if names.is_empty() {
+			continue;
+		}
+		writeln!(
+			w,
+			"  {:<width$} {}",
+			format!("{}:", shape.as_str()),
+			names.join(", "),
+			width = width
+		)?;
+	}
+	if visibilities.is_empty() {
+		writeln!(w, "visibilities: (none — ignored by this language)")?;
+	} else {
+		writeln!(w, "visibilities: {}", visibilities.join(", "))?;
+	}
+	Ok(())
+}
+
+fn write_langs_json<W: Write>(
+	w: &mut W,
+	tag: &str,
+	kinds: &[(&'static str, code_moniker_core::core::shape::Shape)],
+	visibilities: &[&'static str],
+) -> anyhow::Result<()> {
+	#[derive(serde::Serialize)]
+	struct KindEntry<'a> {
+		name: &'a str,
+		shape: &'a str,
+	}
+	#[derive(serde::Serialize)]
+	struct Out<'a> {
+		lang: &'a str,
+		kinds: Vec<KindEntry<'a>>,
+		visibilities: &'a [&'static str],
+	}
+	let out = Out {
+		lang: tag,
+		kinds: kinds
+			.iter()
+			.map(|(n, s)| KindEntry {
+				name: n,
+				shape: s.as_str(),
+			})
+			.collect(),
+		visibilities,
+	};
+	serde_json::to_writer_pretty(&mut *w, &out)?;
+	w.write_all(b"\n")?;
+	Ok(())
+}
+
+fn run_extract<W1: Write, W2: Write>(args: &ExtractArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match extract_inner(args, stdout) {
 		Ok(any) => {
 			if any {
@@ -85,12 +290,8 @@ fn run_extract<W1: Write, W2: Write>(args: &Args, stdout: &mut W1, stderr: &mut 
 	}
 }
 
-fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> {
-	let file = args
-		.file
-		.as_deref()
-		.ok_or_else(|| anyhow::anyhow!("missing FILE argument; run `code-moniker --help`"))?;
-	let path: &Path = file;
+fn extract_inner<W: Write>(args: &ExtractArgs, stdout: &mut W) -> anyhow::Result<bool> {
+	let path: &Path = &args.path;
 	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
 	let meta = std::fs::metadata(path)
 		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
@@ -111,7 +312,7 @@ fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> 
 		None => std::fs::read_to_string(path)
 			.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?,
 	};
-	let matches = predicate::filter(&graph, &predicates, &args.kind);
+	let matches = predicate::filter(&graph, &predicates, &args.kind, &args.shape);
 	let any = !matches.defs.is_empty() || !matches.refs.is_empty();
 	match args.mode() {
 		OutputMode::Default => match args.format {
@@ -152,7 +353,7 @@ fn check_inner<W: Write, E: Write>(
 	stdout: &mut W,
 	stderr: &mut E,
 ) -> anyhow::Result<bool> {
-	let path: &Path = &args.file;
+	let path: &Path = &args.path;
 	let mut cfg = check::load_with_overrides(Some(&args.rules))?;
 	if let Some(name) = &args.profile {
 		cfg.apply_profile(name)?;
@@ -379,5 +580,15 @@ mod tests {
 		assert_eq!(ExitCode::from(Exit::Match), ExitCode::SUCCESS);
 		assert_eq!(ExitCode::from(Exit::NoMatch), ExitCode::from(1));
 		assert_eq!(ExitCode::from(Exit::UsageError), ExitCode::from(2));
+	}
+
+	#[test]
+	fn shape_description_exists_for_every_canonical_shape() {
+		for shape in code_moniker_core::core::shape::Shape::ALL {
+			assert!(
+				!shape_description(*shape).is_empty(),
+				"missing description for {shape:?}"
+			);
+		}
 	}
 }

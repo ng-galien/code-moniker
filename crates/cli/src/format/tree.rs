@@ -4,7 +4,7 @@ use std::io::Write;
 use anstyle::{AnsiColor, Style};
 use rustc_hash::FxHashMap;
 
-use crate::args::{Args, Charset, ColorChoice};
+use crate::args::{Charset, ColorChoice, ExtractArgs};
 use crate::lines::line_range;
 use crate::predicate::{MatchSet, RefMatch};
 use crate::render_uri;
@@ -18,7 +18,7 @@ pub fn write_tree<W: Write>(
 	w: &mut W,
 	matches: &MatchSet<'_>,
 	source: &str,
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &str,
 ) -> std::io::Result<()> {
 	write_tree_with_prefix(w, matches, source, args, scheme, "")
@@ -28,7 +28,7 @@ pub fn write_tree_with_prefix<W: Write>(
 	w: &mut W,
 	matches: &MatchSet<'_>,
 	source: &str,
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &str,
 	prefix: &str,
 ) -> std::io::Result<()> {
@@ -318,7 +318,7 @@ struct TreeOpts {
 }
 
 impl TreeOpts {
-	fn from_args(args: &Args) -> Self {
+	fn from_args(args: &ExtractArgs) -> Self {
 		let glyph = match args.charset {
 			Charset::Utf8 => Glyphs::utf8(),
 			Charset::Ascii => Glyphs::ascii(),
@@ -432,7 +432,7 @@ fn resolve_color(arg: ColorChoice) -> bool {
 pub fn write_file_header<W: Write>(
 	w: &mut W,
 	path: &std::path::Path,
-	args: &Args,
+	args: &ExtractArgs,
 ) -> std::io::Result<()> {
 	let opts = TreeOpts::from_args(args);
 	let style = opts.palette.name;
@@ -454,7 +454,7 @@ pub struct FileEntry<'a> {
 pub fn write_files_tree<W: Write>(
 	w: &mut W,
 	files: &[FileEntry<'_>],
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &str,
 ) -> std::io::Result<()> {
 	let opts = TreeOpts::from_args(args);
@@ -473,7 +473,7 @@ fn render_file_trie<W: Write>(
 	node: &FileTrie,
 	prefix: &str,
 	files: &[FileEntry<'_>],
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &str,
 	opts: &TreeOpts,
 ) -> std::io::Result<()> {
@@ -512,7 +512,7 @@ fn render_file_trie<W: Write>(
 pub fn render_dir_tree<W: Write>(
 	w: &mut W,
 	entries: &[(String, String)],
-	args: &Args,
+	args: &ExtractArgs,
 ) -> std::io::Result<()> {
 	let opts = TreeOpts::from_args(args);
 	let mut root: PathNode = PathNode::default();
@@ -599,8 +599,8 @@ mod tests {
 	use code_moniker_core::core::code_graph::CodeGraph;
 	use code_moniker_core::core::moniker::MonikerBuilder;
 
-	fn base_args() -> Args {
-		let mut a = Args::for_tests();
+	fn base_args() -> ExtractArgs {
+		let mut a = ExtractArgs::for_tests();
 		a.format = OutputFormat::Tree;
 		a
 	}

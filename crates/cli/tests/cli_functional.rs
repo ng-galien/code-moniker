@@ -69,7 +69,13 @@ fn binary_help_version_and_usage_errors_are_wired() {
 	let out = run(["--help"]);
 	assert_code(&out, 0);
 	assert!(out.stdout.contains("Usage: code-moniker"), "{}", out.stdout);
-	assert!(out.stdout.contains("check"), "{}", out.stdout);
+	for verb in ["extract", "check", "langs", "shapes"] {
+		assert!(
+			out.stdout.contains(verb),
+			"missing `{verb}`: {}",
+			out.stdout
+		);
+	}
 
 	let out = run(["check", "--help"]);
 	assert_code(&out, 0);
@@ -84,8 +90,8 @@ fn binary_help_version_and_usage_errors_are_wired() {
 	assert_code(&out, 2);
 	assert!(out.stdout.is_empty(), "stdout: {}", out.stdout);
 	assert!(
-		out.stderr.contains("missing FILE argument"),
-		"{}",
+		out.stderr.contains("requires a subcommand") || out.stderr.contains("Usage:"),
+		"expected clap subcommand-required error; got: {}",
 		out.stderr
 	);
 }
@@ -95,13 +101,14 @@ fn binary_extracts_filters_formats_and_sets_exit_codes() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	let file = write_file(dir.path(), "sample.ts", TS_SAMPLE);
 
-	let out = run([file.as_os_str()]);
+	let out = run(["extract".as_ref(), file.as_os_str()]);
 	assert_code(&out, 0);
 	assert!(out.stdout.contains("def\t"), "{}", out.stdout);
 	assert!(out.stdout.contains("class:Foo"), "{}", out.stdout);
 	assert!(out.stdout.contains("class:Bar"), "{}", out.stdout);
 
 	let out = run([
+		"extract".as_ref(),
 		file.as_os_str(),
 		"--kind".as_ref(),
 		"comment".as_ref(),
@@ -111,6 +118,7 @@ fn binary_extracts_filters_formats_and_sets_exit_codes() {
 	assert_eq!(out.stdout.trim(), "2");
 
 	let out = run([
+		"extract".as_ref(),
 		file.as_os_str(),
 		"--kind".as_ref(),
 		"enum_constant".as_ref(),
@@ -121,6 +129,7 @@ fn binary_extracts_filters_formats_and_sets_exit_codes() {
 	assert!(out.stderr.is_empty(), "stderr: {}", out.stderr);
 
 	let out = run([
+		"extract".as_ref(),
 		file.as_os_str(),
 		"--kind".as_ref(),
 		"does_not_exist".as_ref(),
@@ -134,6 +143,7 @@ fn binary_extracts_filters_formats_and_sets_exit_codes() {
 	);
 
 	let out = run([
+		"extract".as_ref(),
 		file.as_os_str(),
 		"--format".as_ref(),
 		"json".as_ref(),
@@ -161,6 +171,7 @@ fn binary_extracts_filters_formats_and_sets_exit_codes() {
 		.expect("Foo class moniker");
 	let predicate = format!("<@ {foo_uri}");
 	let out = run([
+		"extract".as_ref(),
 		file.as_os_str(),
 		"--where".as_ref(),
 		predicate.as_ref(),
@@ -182,7 +193,7 @@ fn binary_extension_contract_matches_extract_behavior() {
 	);
 	let pyi = write_file(dir.path(), "types.pyi", "class GoodName: ...\n");
 
-	let out = run([txt.as_os_str()]);
+	let out = run(["extract".as_ref(), txt.as_os_str()]);
 	assert_code(&out, 2);
 	assert!(
 		out.stderr.contains("unsupported file extension"),
@@ -191,7 +202,7 @@ fn binary_extension_contract_matches_extract_behavior() {
 	);
 
 	for file in [mjs, pyi] {
-		let out = run([file.as_os_str(), "--quiet".as_ref()]);
+		let out = run(["extract".as_ref(), file.as_os_str(), "--quiet".as_ref()]);
 		assert_code(&out, 0);
 		assert!(out.stdout.is_empty(), "stdout: {}", out.stdout);
 		assert!(out.stderr.is_empty(), "stderr: {}", out.stderr);

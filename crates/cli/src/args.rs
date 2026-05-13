@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 
+use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 
 use crate::predicate::Predicate;
 use code_moniker_core::core::moniker::Moniker;
+use code_moniker_core::core::shape::Shape;
 use code_moniker_core::core::uri::{UriConfig, from_uri};
 
 const ASCII_LOGO: &str = "
@@ -13,29 +15,52 @@ const ASCII_LOGO: &str = "
 ";
 
 #[derive(Debug, Parser)]
-#[command(
-	name = "code-moniker",
-	about = "Probe a file or a directory tree. Single-file → full graph; directory → per-file summary (counts) or filtered list when --kind / --where is set. See docs/cli-extract.md.",
-	before_help = ASCII_LOGO,
-	version
-)]
+#[command(name = "code-moniker", before_help = ASCII_LOGO, version)]
 pub struct Cli {
 	#[command(subcommand)]
-	pub command: Option<Command>,
-
-	#[command(flatten)]
-	pub extract: Args,
+	pub command: Command,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+	#[command(about = "Extract a moniker graph from a file or directory.")]
+	Extract(ExtractArgs),
+	#[command(about = "Lint a path against .code-moniker.toml rules.")]
 	Check(CheckArgs),
+	#[command(about = "List supported languages, or kinds of one.")]
+	Langs(LangsArgs),
+	#[command(about = "Show the shape vocabulary.")]
+	Shapes(ShapesArgs),
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct ShapesArgs {
+	#[arg(long, value_enum, default_value_t = LangsFormat::Text)]
+	pub format: LangsFormat,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct LangsArgs {
+	#[arg(
+		value_name = "LANG",
+		help = "language tag (e.g. rs, ts, java, python, go, cs, sql); omit to list every tag"
+	)]
+	pub lang: Option<String>,
+
+	#[arg(long, value_enum, default_value_t = LangsFormat::Text)]
+	pub format: LangsFormat,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum LangsFormat {
+	Text,
+	Json,
 }
 
 #[derive(Debug, ClapArgs)]
 pub struct CheckArgs {
 	#[arg(value_name = "PATH")]
-	pub file: PathBuf,
+	pub path: PathBuf,
 
 	#[arg(
 		long,
@@ -63,8 +88,9 @@ pub enum CheckFormat {
 }
 
 #[derive(Debug, ClapArgs)]
-pub struct Args {
-	pub file: Option<PathBuf>,
+pub struct ExtractArgs {
+	#[arg(value_name = "PATH")]
+	pub path: PathBuf,
 
 	#[arg(
 		long = "where",
@@ -73,8 +99,22 @@ pub struct Args {
 	)]
 	pub where_: Vec<String>,
 
-	#[arg(long, value_name = "NAME", help = "kind filter (repeatable, OR)")]
+	#[arg(
+		long,
+		value_name = "NAME",
+		value_delimiter = ',',
+		help = "concrete kind (e.g. class, fn, calls); repeatable or comma-separated; OR within --kind, AND with --shape. Discover values per language with `code-moniker langs <TAG>`."
+	)]
 	pub kind: Vec<String>,
+
+	#[arg(
+		long,
+		value_name = "SHAPE",
+		value_delimiter = ',',
+		value_parser = shape_parser(),
+		help = "kind family; repeatable or comma-separated; OR within --shape, AND with --kind. See `code-moniker shapes`."
+	)]
+	pub shape: Vec<Shape>,
 
 	#[arg(long, value_enum, default_value_t = OutputFormat::Tsv)]
 	pub format: OutputFormat,
@@ -151,13 +191,14 @@ pub enum OutputMode {
 	Quiet,
 }
 
-impl Args {
+impl ExtractArgs {
 	#[cfg(test)]
 	pub(crate) fn for_tests() -> Self {
-		Args {
-			file: Some("a.ts".into()),
+		ExtractArgs {
+			path: "a.ts".into(),
 			where_: Vec::new(),
 			kind: vec![],
+			shape: vec![],
 			format: OutputFormat::Tsv,
 			color: ColorChoice::Never,
 			charset: Charset::Utf8,
@@ -188,6 +229,13 @@ impl Args {
 		}
 		Ok(out)
 	}
+}
+
+fn shape_parser() -> impl TypedValueParser<Value = Shape> {
+	PossibleValuesParser::new(Shape::ALL.iter().map(|s| s.as_str())).map(|s| {
+		s.parse::<Shape>()
+			.expect("PossibleValuesParser pre-validated")
+	})
 }
 
 /// CLI predicate ops are the moniker subset of `expr::TWO_CHAR_OPS` — regex
@@ -240,23 +288,28 @@ mod tests {
 		Cli::try_parse_from(full)
 	}
 
-	fn extract(argv: &[&str]) -> Args {
-		let cli = parse(argv).unwrap();
-		assert!(cli.command.is_none());
-		cli.extract
+	fn extract(argv: &[&str]) -> ExtractArgs {
+		let mut full = vec!["extract"];
+		full.extend_from_slice(argv);
+		let cli = parse(&full).unwrap();
+		match cli.command {
+			Command::Extract(a) => a,
+			other => panic!("expected Extract, got {other:?}"),
+		}
 	}
 
 	#[test]
-	fn no_args_parses_but_carries_no_file() {
-		let cli = parse(&[]).expect("clap accepts empty argv");
-		assert!(cli.command.is_none());
-		assert!(cli.extract.file.is_none());
+	fn no_args_requires_subcommand() {
+		assert!(
+			parse(&[]).is_err(),
+			"empty argv must error — subcommand required"
+		);
 	}
 
 	#[test]
 	fn minimal_invocation() {
 		let a = extract(&["a.ts"]);
-		assert_eq!(a.file.as_deref(), Some(std::path::Path::new("a.ts")));
+		assert_eq!(a.path, PathBuf::from("a.ts"));
 		assert_eq!(a.format, OutputFormat::Tsv);
 		assert_eq!(a.mode(), OutputMode::Default);
 		assert!(a.kind.is_empty());
@@ -265,7 +318,7 @@ mod tests {
 
 	#[test]
 	fn quiet_and_count_are_mutually_exclusive() {
-		assert!(parse(&["a.ts", "--count", "--quiet"]).is_err());
+		assert!(parse(&["extract", "a.ts", "--count", "--quiet"]).is_err());
 	}
 
 	#[test]
@@ -288,7 +341,7 @@ mod tests {
 
 	#[test]
 	fn unknown_format_rejected() {
-		assert!(parse(&["a.ts", "--format", "xml"]).is_err());
+		assert!(parse(&["extract", "a.ts", "--format", "xml"]).is_err());
 	}
 
 	#[test]
@@ -358,7 +411,7 @@ mod tests {
 	fn check_subcommand_routes_to_command() {
 		let cli = parse(&["check", "a.ts"]).unwrap();
 		match cli.command {
-			Some(Command::Check(c)) => assert_eq!(c.file, PathBuf::from("a.ts")),
+			Command::Check(c) => assert_eq!(c.path, PathBuf::from("a.ts")),
 			other => panic!("expected Check, got {other:?}"),
 		}
 	}
@@ -375,7 +428,7 @@ mod tests {
 		])
 		.unwrap();
 		match cli.command {
-			Some(Command::Check(c)) => {
+			Command::Check(c) => {
 				assert_eq!(c.rules, PathBuf::from("my-rules.toml"));
 				assert_eq!(c.format, CheckFormat::Json);
 			}

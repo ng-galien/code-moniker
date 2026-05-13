@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::args::Args;
+use crate::args::ExtractArgs;
 use crate::extract;
 use crate::lines::line_range;
 use crate::predicate::{MatchSet, RefMatch};
@@ -20,7 +20,7 @@ pub fn write_tsv<W: Write>(
 	w: &mut W,
 	matches: &MatchSet<'_>,
 	source: &str,
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &str,
 ) -> std::io::Result<()> {
 	let cfg = UriConfig { scheme };
@@ -63,7 +63,7 @@ pub fn write_json<W: Write>(
 	w: &mut W,
 	matches: &MatchSet<'_>,
 	source: &str,
-	args: &Args,
+	args: &ExtractArgs,
 	lang: Lang,
 	path: &Path,
 	scheme: &str,
@@ -81,7 +81,7 @@ pub fn write_json<W: Write>(
 pub fn build_matches_value(
 	matches: &MatchSet<'_>,
 	source: &str,
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &str,
 ) -> serde_json::Value {
 	serde_json::to_value(build_matches(matches, source, args, scheme))
@@ -91,7 +91,7 @@ pub fn build_matches_value(
 fn build_matches<'a>(
 	matches: &'a MatchSet<'_>,
 	source: &'a str,
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &'a str,
 ) -> Matches<'a> {
 	let cfg = UriConfig { scheme };
@@ -259,8 +259,8 @@ mod tests {
 	use code_moniker_core::core::code_graph::CodeGraph;
 	use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 
-	fn args() -> Args {
-		Args::for_tests()
+	fn args() -> ExtractArgs {
+		ExtractArgs::for_tests()
 	}
 
 	fn build_graph_with_class_and_method() -> (CodeGraph, Moniker, Moniker) {

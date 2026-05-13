@@ -42,7 +42,7 @@ fn write_fixture(name: &str, body: &str) -> tempfile::TempDir {
 fn no_predicate_dumps_full_graph_as_tsv() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let path = dir.path().join("a.ts");
-	let (exit, out, err) = run_with(vec!["code-moniker", path.to_str().unwrap()]);
+	let (exit, out, err) = run_with(vec!["code-moniker", "extract", path.to_str().unwrap()]);
 	assert_eq!(exit, Exit::Match, "stderr={err}");
 	assert!(out.lines().any(|l| l.starts_with("def\t")), "{out}");
 	assert!(out.contains("class:Foo"), "{out}");
@@ -53,7 +53,12 @@ fn no_predicate_dumps_full_graph_as_tsv() {
 fn count_only_prints_an_integer() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let path = dir.path().join("a.ts");
-	let (exit, out, _) = run_with(vec!["code-moniker", path.to_str().unwrap(), "--count"]);
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--count",
+	]);
 	assert_eq!(exit, Exit::Match);
 	let trimmed = out.trim();
 	let n: usize = trimmed.parse().expect("expected integer, got {trimmed}");
@@ -66,6 +71,7 @@ fn quiet_emits_nothing_on_match() {
 	let path = dir.path().join("a.ts");
 	let (exit, out, _) = run_with(vec![
 		"code-moniker",
+		"extract",
 		path.to_str().unwrap(),
 		"--kind",
 		"comment",
@@ -81,6 +87,7 @@ fn no_match_returns_exit_one() {
 	let path = dir.path().join("a.ts");
 	let (exit, _, _) = run_with(vec![
 		"code-moniker",
+		"extract",
 		path.to_str().unwrap(),
 		"--kind",
 		"enum_constant",
@@ -95,6 +102,7 @@ fn class_kind_filter_finds_class_foo() {
 	let path = dir.path().join("a.ts");
 	let (exit, out, err) = run_with(vec![
 		"code-moniker",
+		"extract",
 		path.to_str().unwrap(),
 		"--kind",
 		"method",
@@ -114,6 +122,7 @@ fn json_format_produces_parsable_document() {
 	let path = dir.path().join("a.ts");
 	let (exit, out, _) = run_with(vec![
 		"code-moniker",
+		"extract",
 		path.to_str().unwrap(),
 		"--format",
 		"json",
@@ -130,6 +139,7 @@ fn comment_kind_filter_finds_comments() {
 	let path = dir.path().join("a.ts");
 	let (exit, out, _) = run_with(vec![
 		"code-moniker",
+		"extract",
 		path.to_str().unwrap(),
 		"--kind",
 		"comment",
@@ -146,6 +156,7 @@ fn with_text_attaches_comment_source() {
 	let path = dir.path().join("a.ts");
 	let (exit, out, _) = run_with(vec![
 		"code-moniker",
+		"extract",
 		path.to_str().unwrap(),
 		"--kind",
 		"comment",
@@ -175,7 +186,7 @@ fn with_text_attaches_comment_source() {
 fn unknown_extension_is_usage_error() {
 	let dir = write_fixture("a.txt", "hello");
 	let path = dir.path().join("a.txt");
-	let (exit, _, err) = run_with(vec!["code-moniker", path.to_str().unwrap()]);
+	let (exit, _, err) = run_with(vec!["code-moniker", "extract", path.to_str().unwrap()]);
 	assert_eq!(exit, Exit::UsageError);
 	assert!(err.contains("unsupported"), "{err}");
 }
@@ -186,6 +197,7 @@ fn malformed_predicate_uri_is_usage_error() {
 	let path = dir.path().join("a.ts");
 	let (exit, _, err) = run_with(vec![
 		"code-moniker",
+		"extract",
 		path.to_str().unwrap(),
 		"--where",
 		"= not a uri",
@@ -642,6 +654,232 @@ fn check_explanation_appears_in_text_and_json() {
 		.as_str()
 		.expect("json carries explanation");
 	assert!(exp.contains("CLAUDE.md"), "explanation in JSON: {exp}");
+}
+
+#[test]
+fn langs_no_arg_lists_every_supported_tag() {
+	let (exit, out, err) = run_with(vec!["code-moniker", "langs"]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	let tags: Vec<&str> = out.lines().collect();
+	for expected in ["rs", "ts", "java", "python", "go", "cs", "sql"] {
+		assert!(tags.contains(&expected), "missing `{expected}` in {tags:?}");
+	}
+}
+
+#[test]
+fn langs_rs_groups_kinds_by_shape_with_visibilities() {
+	let (exit, out, err) = run_with(vec!["code-moniker", "langs", "rs"]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(out.starts_with("lang: rs\n"), "{out}");
+	let line_with = |label: &str| -> &str {
+		out.lines()
+			.find(|l| l.trim_start().starts_with(label))
+			.unwrap_or_else(|| panic!("no `{label}` line in:\n{out}"))
+	};
+	for (label, must_contain) in [
+		("namespace:", &["impl", "module"][..]),
+		("type:", &["struct", "enum", "trait"][..]),
+		("callable:", &["fn", "method"][..]),
+		("value:", &["const", "static", "local", "param"][..]),
+		("annotation:", &["comment"][..]),
+		(
+			"ref:",
+			&["calls", "imports_symbol", "extends", "annotates"][..],
+		),
+	] {
+		let line = line_with(label);
+		for needle in must_contain {
+			assert!(
+				line.contains(needle),
+				"`{label}` missing `{needle}`: {line}"
+			);
+		}
+	}
+	let shape_order: Vec<usize> = [
+		"namespace:",
+		"type:",
+		"callable:",
+		"value:",
+		"annotation:",
+		"ref:",
+	]
+	.iter()
+	.map(|l| out.find(l).unwrap_or_else(|| panic!("no `{l}` in:\n{out}")))
+	.collect();
+	assert!(
+		shape_order.windows(2).all(|w| w[0] < w[1]),
+		"shapes are not in canonical order in:\n{out}"
+	);
+	assert!(
+		out.contains("visibilities: public, private, module"),
+		"{out}"
+	);
+}
+
+#[test]
+fn langs_sql_reports_empty_visibilities() {
+	let (exit, out, err) = run_with(vec!["code-moniker", "langs", "sql"]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(out.contains("visibilities: (none"), "{out}");
+}
+
+#[test]
+fn langs_unknown_tag_is_usage_error() {
+	let (exit, _, err) = run_with(vec!["code-moniker", "langs", "cobol"]);
+	assert_eq!(exit, Exit::UsageError);
+	assert!(err.contains("unknown language `cobol`"), "{err}");
+	assert!(err.contains("known:"), "{err}");
+}
+
+#[test]
+fn shape_callable_filter_picks_methods_only() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--shape",
+		"callable",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	for line in out.lines() {
+		assert!(line.starts_with("def\t"), "callables are defs: {line}");
+		assert!(
+			line.contains("method:"),
+			"only method kinds remain in this fixture: {line}"
+		);
+	}
+}
+
+#[test]
+fn shape_comma_list_combines_families() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--shape",
+		"type,callable",
+	]);
+	assert_eq!(exit, Exit::Match);
+	assert!(out.contains("class:Foo"), "type kept: {out}");
+	assert!(out.contains("class:Bar"), "type kept: {out}");
+	assert!(out.contains("method:"), "callable kept: {out}");
+	assert!(!out.contains("comment:"), "annotation excluded: {out}");
+}
+
+#[test]
+fn shape_and_kind_compose_as_and() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--kind",
+		"method",
+		"--shape",
+		"type",
+		"--count",
+	]);
+	assert_eq!(
+		exit,
+		Exit::NoMatch,
+		"AND of disjoint filters yields zero matches"
+	);
+	assert_eq!(
+		out.trim(),
+		"0",
+		"method is callable, AND shape=type empties: {out}"
+	);
+}
+
+#[test]
+fn kind_comma_list_is_equivalent_to_repeated_flag() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (_, out_csv, _) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--kind",
+		"class,method",
+	]);
+	let (_, out_rep, _) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--kind",
+		"class",
+		"--kind",
+		"method",
+	]);
+	assert_eq!(out_csv, out_rep, "comma-list and repeated --kind diverged");
+}
+
+#[test]
+fn shapes_command_documents_every_canonical_shape() {
+	let (exit, out, _) = run_with(vec!["code-moniker", "shapes"]);
+	assert_eq!(exit, Exit::Match);
+	for name in [
+		"namespace",
+		"type",
+		"callable",
+		"value",
+		"annotation",
+		"ref",
+	] {
+		assert!(
+			out.lines().any(|l| l.trim_start().starts_with(name)),
+			"shape `{name}` missing from `shapes` output:\n{out}"
+		);
+	}
+	assert!(
+		out.contains("langs <TAG>"),
+		"output should cross-reference `langs` for the per-language mapping:\n{out}"
+	);
+}
+
+#[test]
+fn shapes_json_is_parsable_and_complete() {
+	let (exit, out, _) = run_with(vec!["code-moniker", "shapes", "--format", "json"]);
+	assert_eq!(exit, Exit::Match);
+	let v: serde_json::Value = serde_json::from_str(&out).expect("valid json");
+	let arr = v.as_array().expect("top-level array");
+	assert_eq!(arr.len(), 6);
+	let names: Vec<&str> = arr.iter().map(|e| e["name"].as_str().unwrap()).collect();
+	assert_eq!(
+		names,
+		vec![
+			"namespace",
+			"type",
+			"callable",
+			"value",
+			"annotation",
+			"ref"
+		]
+	);
+}
+
+#[test]
+fn langs_json_format_emits_kinds_array() {
+	let (exit, out, _) = run_with(vec!["code-moniker", "langs", "rs", "--format", "json"]);
+	assert_eq!(exit, Exit::Match);
+	let v: serde_json::Value = serde_json::from_str(&out).expect("valid json");
+	assert_eq!(v["lang"], "rs");
+	let kinds = v["kinds"].as_array().expect("kinds is array");
+	assert!(
+		kinds
+			.iter()
+			.any(|k| k["name"] == "fn" && k["shape"] == "callable")
+	);
+	assert!(
+		kinds
+			.iter()
+			.any(|k| k["name"] == "calls" && k["shape"] == "ref")
+	);
 }
 
 #[test]

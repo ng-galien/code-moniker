@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use serde::Serialize;
 
-use crate::args::{Args, OutputFormat, OutputMode};
+use crate::args::{ExtractArgs, OutputFormat, OutputMode};
 use crate::cache;
 use crate::format;
 use crate::predicate::{self, MatchSet, Predicate, RefMatch};
@@ -17,13 +17,13 @@ use code_moniker_core::lang::Lang;
 const TOP_KINDS_DISPLAYED: usize = 3;
 
 pub fn run<W: Write>(
-	args: &Args,
+	args: &ExtractArgs,
 	stdout: &mut W,
 	root: &Path,
 	scheme: &str,
 ) -> anyhow::Result<bool> {
 	let files = walk::walk_lang_files(root);
-	let has_filter = !args.kind.is_empty() || !args.where_.is_empty();
+	let has_filter = !args.kind.is_empty() || !args.shape.is_empty() || !args.where_.is_empty();
 	if has_filter {
 		run_filter(args, stdout, &files, root, scheme)
 	} else {
@@ -32,7 +32,7 @@ pub fn run<W: Write>(
 }
 
 fn run_summary<W: Write>(
-	args: &Args,
+	args: &ExtractArgs,
 	stdout: &mut W,
 	files: &[walk::WalkedFile],
 	root: &Path,
@@ -59,7 +59,7 @@ fn run_summary<W: Write>(
 }
 
 fn run_filter<W: Write>(
-	args: &Args,
+	args: &ExtractArgs,
 	stdout: &mut W,
 	files: &[walk::WalkedFile],
 	root: &Path,
@@ -78,7 +78,15 @@ fn run_filter<W: Write>(
 	let rows: Vec<FilterRow> = files
 		.par_iter()
 		.filter_map(|f| {
-			FilterRow::compute(&f.path, f.lang, root, &predicates, &args.kind, cache_dir)
+			FilterRow::compute(
+				&f.path,
+				f.lang,
+				root,
+				&predicates,
+				&args.kind,
+				&args.shape,
+				cache_dir,
+			)
 		})
 		.collect();
 	let total_defs: usize = rows.iter().map(|r| r.defs.len()).sum();
@@ -153,7 +161,7 @@ fn write_summary_tsv<W: Write>(w: &mut W, summaries: &[FileSummary]) -> std::io:
 fn write_summary_tree<W: Write>(
 	w: &mut W,
 	summaries: &[FileSummary],
-	args: &Args,
+	args: &ExtractArgs,
 ) -> anyhow::Result<()> {
 	let entries: Vec<(String, String)> = summaries
 		.iter()
@@ -231,11 +239,12 @@ impl FilterRow {
 		root: &Path,
 		predicates: &[Predicate],
 		kinds: &[String],
+		shapes: &[code_moniker_core::core::shape::Shape],
 		cache_dir: Option<&Path>,
 	) -> Option<Self> {
 		let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
 		let (graph, extracted_source) = cache::load_or_extract(path, &rel, lang, cache_dir)?;
-		let matches = predicate::filter(&graph, predicates, kinds);
+		let matches = predicate::filter(&graph, predicates, kinds, shapes);
 		if matches.defs.is_empty() && matches.refs.is_empty() {
 			return None;
 		}
@@ -276,7 +285,7 @@ impl FilterRow {
 fn write_filter_tsv<W: Write>(
 	w: &mut W,
 	rows: &[FilterRow],
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &str,
 ) -> std::io::Result<()> {
 	for row in rows {
@@ -295,7 +304,7 @@ fn write_filter_tsv<W: Write>(
 fn write_filter_tree<W: Write>(
 	w: &mut W,
 	rows: &[FilterRow],
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &str,
 ) -> anyhow::Result<()> {
 	let entries: Vec<format::tree::FileEntry<'_>> = rows
@@ -313,7 +322,7 @@ fn write_filter_tree<W: Write>(
 fn write_filter_json<W: Write>(
 	w: &mut W,
 	rows: &[FilterRow],
-	args: &Args,
+	args: &ExtractArgs,
 	scheme: &str,
 ) -> anyhow::Result<()> {
 	#[derive(Serialize)]

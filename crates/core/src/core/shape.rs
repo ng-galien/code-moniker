@@ -5,9 +5,19 @@ pub enum Shape {
 	Callable,
 	Value,
 	Annotation,
+	Ref,
 }
 
 impl Shape {
+	pub const ALL: &'static [Shape] = &[
+		Shape::Namespace,
+		Shape::Type,
+		Shape::Callable,
+		Shape::Value,
+		Shape::Annotation,
+		Shape::Ref,
+	];
+
 	pub fn as_bytes(self) -> &'static [u8] {
 		match self {
 			Shape::Namespace => b"namespace",
@@ -15,11 +25,27 @@ impl Shape {
 			Shape::Callable => b"callable",
 			Shape::Value => b"value",
 			Shape::Annotation => b"annotation",
+			Shape::Ref => b"ref",
 		}
 	}
 
 	pub fn as_str(self) -> &'static str {
 		std::str::from_utf8(self.as_bytes()).unwrap()
+	}
+
+	pub fn for_kind(kind: &[u8]) -> Shape {
+		shape_of(kind).unwrap_or(Shape::Ref)
+	}
+}
+
+impl std::str::FromStr for Shape {
+	type Err = String;
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		Self::ALL
+			.iter()
+			.copied()
+			.find(|sh| sh.as_str() == s)
+			.ok_or_else(|| format!("unknown shape `{s}`"))
 	}
 }
 
