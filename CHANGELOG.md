@@ -60,6 +60,10 @@ changes are allowed in minor releases as long as the project is in
 
 ### Fixed
 
+- **`code-moniker-core` (rs extractor)** — `use std::io::{self, Read, Write};`
+  emitted N duplicate `imports_module → std::io` refs (one per leaf).
+  Dedup the parent-module ref per `use` statement; per-leaf
+  `imports_symbol` refs are unaffected.
 - **Docs** — path encoding table in `docs/cli/check.md` corrected:
   - Go uses `package:<segment>/module:<stem>` (not `dir:`).
   - C# uses `package:<segment>/module:<stem>` (not `dir:`).
