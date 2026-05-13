@@ -8,6 +8,8 @@
 # code-moniker
 
 [![CI](https://github.com/ng-galien/code-moniker/actions/workflows/ci.yml/badge.svg)](https://github.com/ng-galien/code-moniker/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/code-moniker.svg?label=code-moniker)](https://crates.io/crates/code-moniker)
+[![crates.io](https://img.shields.io/crates/v/code-moniker-core.svg?label=code-moniker-core)](https://crates.io/crates/code-moniker-core)
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](https://www.rust-lang.org)
 [![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
@@ -83,10 +85,16 @@ WHERE graph_root(m.graph) <@ 'code+moniker://app/lang:ts/dir:domain'::moniker
 CLI (standalone, no Postgres needed):
 
 ```sh
+cargo install code-moniker
+```
+
+Or from git (latest `main`):
+
+```sh
 cargo install --git https://github.com/ng-galien/code-moniker code-moniker
 ```
 
-From a local clone:
+Or from a local clone:
 
 ```sh
 cargo install --path crates/cli
