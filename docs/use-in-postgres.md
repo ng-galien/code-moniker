@@ -197,6 +197,48 @@ SELECT code_graph_declare($$ {
 Spec schema: [`declare_schema.json`](declare_schema.json). Reverse
 projection: `code_graph_to_spec(graph) → jsonb`.
 
+## Binary I/O — `bytea` round-trip + COPY BINARY
+
+Both native types expose explicit casts to/from `bytea`, backed by
+the same encoding the CLI uses for its on-disk cache (see
+`docs/cli-extract.md` `--cache`). The bytes are byte-identical
+across the two surfaces.
+
+```sql
+-- export a graph as raw bytes
+SELECT code_graph_to_bytea(graph) FROM modules WHERE id = 1;
+
+-- ingest from raw bytes (validated; bad bytes throw)
+INSERT INTO modules(uri, graph)
+  VALUES ('src/foo.ts', code_graph_from_bytea(decode('...', 'hex')));
+
+-- and for moniker too
+SELECT moniker_from_bytea(moniker_to_bytea('code+moniker://app/lang:ts'::moniker));
+```
+
+Batch export / import via COPY BINARY using a `bytea` staging
+column — same workflow as `pg_dump --format=binary`:
+
+```sql
+CREATE TEMP TABLE staging (id int, graph_bytes bytea);
+
+-- export
+INSERT INTO staging
+  SELECT id, code_graph_to_bytea(graph) FROM modules;
+COPY staging TO '/tmp/graphs.bin' WITH (FORMAT BINARY);
+
+-- import (on another DB)
+COPY staging FROM '/tmp/graphs.bin' WITH (FORMAT BINARY);
+INSERT INTO modules(id, graph)
+  SELECT id, code_graph_from_bytea(graph_bytes) FROM staging;
+```
+
+The detour through a `bytea` column exists because pgrx 0.18 does
+not currently expose a hook to override its CBOR-based `typsend`/
+`typreceive` generator. When that gap closes upstream, `COPY
+BINARY` will work directly on the `code_graph` / `moniker` columns
+without the staging step.
+
 ## Extension vs caller
 
 | Extension                | Caller                                |

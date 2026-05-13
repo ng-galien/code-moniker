@@ -97,6 +97,14 @@ pub struct Args {
 		help = "URI scheme; defaults to code+moniker://"
 	)]
 	pub scheme: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "DIR",
+		env = "CODE_MONIKER_CACHE_DIR",
+		help = "enable on-disk cache of extracted graphs at DIR (empty = disabled)"
+	)]
+	pub cache: Option<PathBuf>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]

@@ -242,6 +242,7 @@ dependencies = [
  "ignore",
  "rayon",
  "regex",
+ "rustc-hash",
  "serde",
  "serde_json",
  "tempfile",

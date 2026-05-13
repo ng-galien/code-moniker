@@ -19,7 +19,7 @@ code-moniker-core = { path = "crates/core", version = "0.1.0" }
 
 pgrx      = { version = "0.18" }
 serde     = { version = "1", features = ["derive"] }
-clap      = { version = "4", features = ["derive"] }
+clap      = { version = "4", features = ["derive", "env"] }
 anyhow    = "1"
 thiserror = "2"
 regex     = "1"

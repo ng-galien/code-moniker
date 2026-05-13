@@ -2,6 +2,7 @@
 //! and `docs/cli-check.md` (project linter).
 
 pub mod args;
+pub mod cache;
 pub mod check;
 pub mod dir;
 pub mod extract;
@@ -105,7 +106,17 @@ fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> 
 	if !unknown.is_empty() {
 		return Err(unknown_kinds_error(&unknown, &[lang], &known));
 	}
-	let graph = extract::extract(lang, &source, path);
+	let graph = if let Some(dir) = args.cache.as_deref()
+		&& let Ok(key) = cache::CacheKey::from_path(path, path)
+	{
+		cache::load(dir, &key).unwrap_or_else(|| {
+			let g = extract::extract(lang, &source, path);
+			let _ = cache::store(dir, &key, &g);
+			g
+		})
+	} else {
+		extract::extract(lang, &source, path)
+	};
 	let matches = predicate::filter(&graph, &predicates, &args.kind);
 	let any = !matches.defs.is_empty() || !matches.refs.is_empty();
 	match args.mode() {

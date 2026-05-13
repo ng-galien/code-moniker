@@ -267,6 +267,7 @@ mod tests {
 			quiet: false,
 			with_text: false,
 			scheme: None,
+			cache: None,
 		}
 	}
 

@@ -45,6 +45,29 @@ within ±10 ms. Summary is marginally faster (no rule eval); filter
 mode does the same extraction with a kind/predicate sieve over the
 graph, dominated by the extractor like `check`.
 
+## Cache (`--cache <DIR>`)
+
+The cache stores `(path, mtime, size, anchor) → encoded graph` on
+disk. Same encoding as the PG extension's `code_graph` Datum (single
+source of truth: `core::code_graph::encoding`).
+
+Measured on date-fns (1410 ts files, M1, warm CPU cache, best of 3):
+
+| Scenario                                       | Wall    |
+|------------------------------------------------|---------|
+| No cache, cold OS                              | 0.84 s  |
+| Cache **populating** (first run, all writes)   | 2.77 s  |
+| Cache all hits, cold OS page cache             | 0.98 s  |
+| Cache all hits, warm OS page cache             | ~0.20 s |
+| **Agent edit (1 file changed, 1409 hits)**     | **0.20 s** |
+
+Cache size: ~7 KB per file (10 MB total for 1410 files).
+
+The win is concentrated in the agent-edit cycle: the hook fires after
+each file edit, the toolchain re-scans, and only one file misses while
+the rest are hits served from the OS page cache (warm). For ad-hoc
+single-run scans, the cache hurts more than it helps — leave it off.
+
 ## Implications
 
 - `check crates/` is fast enough to gate every commit and every CI

@@ -175,6 +175,37 @@ source from `defs`.
 Suppresses the per-match output and prints a single integer (the number of
 matches) on stdout. Mutually exclusive with `--quiet`.
 
+### `--cache <DIR>` (opt-in)
+
+Enables an on-disk cache of extracted graphs at `DIR` (or via the
+`CODE_MONIKER_CACHE_DIR` env var; the flag wins if both are set).
+Disabled by default — no files written.
+
+The cache is keyed on `(absolute path, mtime, size, anchor hash)`. A
+file with unchanged mtime+size is a hit and the graph is loaded from
+disk; any change invalidates the entry. The cache survives across
+runs (it is your responsibility to remove it: `rm -rf <DIR>`).
+
+```
+<DIR>/v{LAYOUT_VERSION}_{CACHE_FORMAT_VERSION}/<path-hash[0..2]>/<path-hash>_<anchor-hash>.bin
+```
+
+Each cache file is `[header: magic + format-version + mtime + size +
+anchor-hash + path][body: code_graph encoded bytes]`. The body is
+byte-identical to what the PG extension stores in a `code_graph`
+Datum (same `core::code_graph::encoding` module on both sides).
+
+Use cases:
+- Agent edit/hook cycle on a large repo — typical 4× speedup on the
+  re-scan after a single-file edit (1 cache miss, N−1 hits).
+- Repeated `code-moniker check` runs on the same tree.
+
+When it does NOT help:
+- First run on a tree (cache miss everywhere; cache *writes* cost more
+  than just extracting).
+- Cold OS page cache on a tree the cache was populated minutes/hours
+  ago (cache file I/O cost approaches extraction cost on small files).
+
 ### `--quiet`
 
 Suppresses output entirely. Combine with the exit code to write shell guards:
