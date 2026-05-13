@@ -12,8 +12,6 @@ use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::kinds::{KIND_COMMENT, KIND_LOCAL, KIND_PARAM};
 use code_moniker_core::core::uri::UriConfig;
 
-const SIG_BUDGET: usize = 32;
-
 const NOISE_KINDS: &[&[u8]] = &[KIND_LOCAL, KIND_PARAM, KIND_COMMENT];
 
 pub fn write_tree<W: Write>(
@@ -172,10 +170,9 @@ fn def_line(node: &Node<'_>) -> u32 {
 
 fn format_seg_label(seg: &str, def: Option<&DefRecord>, source: &str, opts: &TreeOpts) -> String {
 	let (kind_part, name_part) = seg.split_once(':').unwrap_or(("", seg));
-	let compact_name = compact_signature(name_part);
-	let (name_only, args_part) = match compact_name.find('(') {
-		Some(i) => (&compact_name[..i], &compact_name[i..]),
-		None => (compact_name.as_str(), ""),
+	let (name_only, args_part) = match name_part.find('(') {
+		Some(i) => (&name_part[..i], &name_part[i..]),
+		None => (name_part, ""),
 	};
 	let kind_disp = def
 		.map(|d| std::str::from_utf8(&d.kind).unwrap_or(kind_part))
@@ -295,25 +292,6 @@ fn format_ref_label(r: &RefMatch<'_>, cfg: &UriConfig<'_>, opts: &TreeOpts) -> S
 		dpre = p.dim.render(),
 		dpost = p.dim.render_reset(),
 	)
-}
-
-fn compact_signature(s: &str) -> String {
-	let Some(open) = s.find('(') else {
-		return s.to_string();
-	};
-	let Some(close) = s.rfind(')') else {
-		return s.to_string();
-	};
-	if close <= open + 1 {
-		return s.to_string();
-	}
-	let inside = &s[open + 1..close];
-	if inside.len() <= SIG_BUDGET {
-		return s.to_string();
-	}
-	let head: String = inside.chars().take(SIG_BUDGET).collect();
-	let tail = &s[close..];
-	format!("{}{head}…{tail}", &s[..=open])
 }
 
 fn strip_fs_prefix(segs: Vec<&str>) -> Vec<&str> {
@@ -738,13 +716,5 @@ mod tests {
 		unsafe { std::env::set_var("NO_COLOR", "1") };
 		assert!(!resolve_color(ColorChoice::Always));
 		unsafe { std::env::remove_var("NO_COLOR") };
-	}
-
-	#[test]
-	fn long_signature_is_truncated() {
-		let raw = "fn:do_a_lot_of_stuff(a:i32,b:String,c:Vec<u8>,d:HashMap<u8,u8>,e:bool)";
-		let out = compact_signature(raw);
-		assert!(out.contains("…"), "no ellipsis: {out}");
-		assert!(out.ends_with(')'));
 	}
 }
