@@ -12,6 +12,23 @@ changes are allowed in minor releases as long as the project is in
 
 ### Added
 
+- **`code-moniker-core`** — `CanonicalWalker` now collapses runs of adjacent
+  same-kind comment nodes (same `tree-sitter` kind, consecutive lines)
+  into a single `comment` def whose position spans the whole block. A
+  blank line or any non-comment node breaks the run. This makes
+  `lines = N` the cardinal of a docstring/`//` block instead of `1`
+  per line, so DSL rules can cap doc-block length. Behaviour validated
+  per-language by `extract_collapses_adjacent_line_comments_into_one_def`
+  + `extract_splits_comments_separated_by_blank_line` regression tests
+  in every `lang/*/mod.rs::tests`.
+- **CLI rule pack** — `rust.comment.comment-max-lines` in
+  `.code-moniker.toml` caps `///` / `//` blocks at 4 lines. Module-level
+  `//!` and `SAFETY:` narratives are exempt.
+- **`code-moniker check`** — `// code-moniker: ignore[<id>]` now also
+  suppresses violations on the comment def that carries the directive,
+  not just the next non-comment def. Lets the new
+  `comment-max-lines` rule be opted out per-site when a legacy doc
+  block is intentionally long.
 - **CLI** — `code-moniker manifest <PATH>`. Extracts declared deps from
   `Cargo.toml`, `package.json`, `pom.xml`, `pyproject.toml`, `go.mod`,
   and `*.csproj` (auto-detected by filename, or walk a directory).

@@ -11,6 +11,13 @@ pub struct CanonicalWalker<'a, S: LangStrategy> {
 	pub source: &'a [u8],
 }
 
+struct PendingAnnotation {
+	kind: &'static [u8],
+	start_byte: u32,
+	end_byte: u32,
+	end_row: usize,
+}
+
 impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 	pub fn new(strategy: &'a S, source: &'a [u8]) -> Self {
 		Self { strategy, source }
@@ -18,15 +25,55 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 
 	pub fn walk(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let mut cursor = node.walk();
+		let mut pending: Option<PendingAnnotation> = None;
 		for child in node.children(&mut cursor) {
-			self.dispatch(child, scope, graph);
+			let shape = self.strategy.classify(child, scope, self.source, graph);
+			if let NodeShape::Annotation { kind } = shape {
+				let start_row = child.start_position().row;
+				let end_row = child.end_position().row;
+				let start_byte = child.start_byte() as u32;
+				let end_byte = child.end_byte() as u32;
+				if let Some(p) = pending.as_mut() {
+					if p.kind == kind && start_row <= p.end_row + 1 {
+						p.end_byte = end_byte;
+						p.end_row = end_row;
+						continue;
+					}
+					self.emit_annotation_range(p.kind, p.start_byte, p.end_byte, scope, graph);
+				}
+				pending = Some(PendingAnnotation {
+					kind,
+					start_byte,
+					end_byte,
+					end_row,
+				});
+				continue;
+			}
+			if let Some(p) = pending.take() {
+				self.emit_annotation_range(p.kind, p.start_byte, p.end_byte, scope, graph);
+			}
+			match shape {
+				NodeShape::Symbol(sym) => self.emit_symbol(child, scope, sym, graph),
+				NodeShape::Skip => {}
+				NodeShape::Recurse => self.walk(child, scope, graph),
+				NodeShape::Annotation { .. } => unreachable!("handled in the Annotation arm above"),
+			}
+		}
+		if let Some(p) = pending.take() {
+			self.emit_annotation_range(p.kind, p.start_byte, p.end_byte, scope, graph);
 		}
 	}
 
 	pub fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		match self.strategy.classify(node, scope, self.source, graph) {
 			NodeShape::Annotation { kind } => {
-				self.emit_annotation(node, scope, kind, graph);
+				self.emit_annotation_range(
+					kind,
+					node.start_byte() as u32,
+					node.end_byte() as u32,
+					scope,
+					graph,
+				);
 			}
 			NodeShape::Symbol(sym) => {
 				self.emit_symbol(node, scope, sym, graph);
@@ -36,16 +83,16 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 		}
 	}
 
-	fn emit_annotation(
+	fn emit_annotation_range(
 		&self,
-		node: Node<'_>,
-		scope: &Moniker,
 		kind: &'static [u8],
+		start_byte: u32,
+		end_byte: u32,
+		scope: &Moniker,
 		graph: &mut CodeGraph,
 	) {
-		let m = extend_segment_u32(scope, kind, node.start_byte() as u32);
-		let pos = (node.start_byte() as u32, node.end_byte() as u32);
-		let _ = graph.add_def(m, kind, scope, Some(pos));
+		let m = extend_segment_u32(scope, kind, start_byte);
+		let _ = graph.add_def(m, kind, scope, Some((start_byte, end_byte)));
 	}
 
 	fn emit_symbol(
@@ -219,6 +266,70 @@ mod tests {
 		assert!(
 			comment_under_struct,
 			"comment inside struct body should be re-parented onto the struct"
+		);
+	}
+
+	#[test]
+	fn canonical_walker_collapses_consecutive_line_comments_into_one_def() {
+		let mut p = tree_sitter::Parser::new();
+		p.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+		let src = b"// a\n// b\n// c\npub struct Foo;";
+		let tree = p.parse(src, None).unwrap();
+
+		let root = anchor();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let w = CanonicalWalker::new(&RustToyStrategy, src);
+		w.walk(tree.root_node(), &root, &mut g);
+
+		let comments: Vec<_> = g.defs().filter(|d| d.kind == b"comment").collect();
+		assert_eq!(
+			comments.len(),
+			1,
+			"three adjacent line comments collapse to one def"
+		);
+		let pos = comments[0].position.expect("comment has a position");
+		assert_eq!(
+			&src[pos.0 as usize..pos.1 as usize],
+			b"// a\n// b\n// c".as_slice(),
+			"collapsed span covers the whole run"
+		);
+	}
+
+	#[test]
+	fn canonical_walker_splits_comments_separated_by_blank_line() {
+		let mut p = tree_sitter::Parser::new();
+		p.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+		let src = b"// a\n// b\n\n// c\npub struct Foo;";
+		let tree = p.parse(src, None).unwrap();
+
+		let root = anchor();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let w = CanonicalWalker::new(&RustToyStrategy, src);
+		w.walk(tree.root_node(), &root, &mut g);
+
+		assert_eq!(
+			g.defs().filter(|d| d.kind == b"comment").count(),
+			2,
+			"a blank line breaks the run"
+		);
+	}
+
+	#[test]
+	fn canonical_walker_splits_comments_separated_by_code() {
+		let mut p = tree_sitter::Parser::new();
+		p.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+		let src = b"// a\npub struct Foo;\n// b\npub struct Bar;";
+		let tree = p.parse(src, None).unwrap();
+
+		let root = anchor();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		let w = CanonicalWalker::new(&RustToyStrategy, src);
+		w.walk(tree.root_node(), &root, &mut g);
+
+		assert_eq!(
+			g.defs().filter(|d| d.kind == b"comment").count(),
+			2,
+			"code between two comments forces two separate defs"
 		);
 	}
 

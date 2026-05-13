@@ -17,6 +17,7 @@ pub use extractor::LangExtractor;
 #[cfg(test)]
 pub use extractor::assert_conformance;
 
+// code-moniker: ignore[comment-max-lines]
 /// Single dispatch table for every supported language.
 ///
 /// Adding a language is a one-line change here. Each row produces:

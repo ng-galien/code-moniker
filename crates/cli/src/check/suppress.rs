@@ -4,13 +4,15 @@ use crate::check::eval::Violation;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::core::kinds::KIND_COMMENT;
 
+// code-moniker: ignore[comment-max-lines]
 /// Strip violations suppressed by `// code-moniker: ignore` (or `#`/`--`)
 /// directives in comment-defs of the graph.
 ///
-/// `ignore` (no `-file` suffix) suppresses violations on the next def whose
-/// position starts at or after the comment's end byte. `ignore-file` applies
-/// to every violation in the file. The optional `[id1, id2, ...]` list scopes
-/// the suppression by rule-id suffix; without it, all rules are suppressed.
+/// `ignore` (no `-file` suffix) suppresses violations on the comment def
+/// that carries the directive **and** the next def whose position starts
+/// at or after the comment's end byte. `ignore-file` applies to every
+/// violation in the file. The optional `[id1, id2, ...]` list scopes the
+/// suppression by rule-id suffix; without it, all rules are suppressed.
 pub fn apply(graph: &CodeGraph, source: &str, violations: Vec<Violation>) -> Vec<Violation> {
 	let directives = collect_directives(graph, source);
 	if directives.is_empty() {
@@ -38,6 +40,7 @@ pub fn apply(graph: &CodeGraph, source: &str, violations: Vec<Violation>) -> Vec
 
 #[derive(Debug)]
 struct Directive {
+	comment_start_byte: u32,
 	comment_end_byte: u32,
 	file_scope: bool,
 	rule_filters: Vec<String>,
@@ -76,6 +79,7 @@ fn collect_directives(graph: &CodeGraph, source: &str) -> Vec<Directive> {
 			})
 			.unwrap_or_default();
 		out.push(Directive {
+			comment_start_byte: s,
 			comment_end_byte: e,
 			file_scope,
 			rule_filters,
@@ -85,9 +89,19 @@ fn collect_directives(graph: &CodeGraph, source: &str) -> Vec<Directive> {
 }
 
 fn target_lines_for(graph: &CodeGraph, source: &str, dir: &Directive) -> Option<(u32, u32)> {
-	let target = next_def_after(graph, dir.comment_end_byte)?;
-	let (s, e) = target.position?;
-	Some(crate::lines::line_range(source, s, e))
+	let directive_lines =
+		crate::lines::line_range(source, dir.comment_start_byte, dir.comment_end_byte);
+	match next_def_after(graph, dir.comment_end_byte) {
+		Some(target) => {
+			let (s, e) = target.position?;
+			let target_lines = crate::lines::line_range(source, s, e);
+			Some((
+				directive_lines.0.min(target_lines.0),
+				directive_lines.1.max(target_lines.1),
+			))
+		}
+		None => Some(directive_lines),
+	}
 }
 
 fn next_def_after(graph: &CodeGraph, after_byte: u32) -> Option<&DefRecord> {
@@ -236,6 +250,42 @@ mod tests {
 			expr = '''text =~ ^\s*//\s*code-moniker:'''
 			"#);
 		let source = "// code-moniker: ignore\nclass Whatever {}\n";
+		assert!(run(source, &cfg).is_empty());
+	}
+
+	#[test]
+	fn ignore_suppresses_violation_on_comment_def_that_carries_directive() {
+		let cfg = cfg(r#"
+			[[ts.comment.where]]
+			id   = "max-lines"
+			expr = "lines <= 2"
+			"#);
+		// The directive line is fused with the four `//` lines that follow
+		// (adjacent + same comment kind), so the resulting comment def has
+		// `lines = 5` and would trip `max-lines`. The directive must
+		// suppress its own def.
+		let source = "// code-moniker: ignore[max-lines]\n// a\n// b\n// c\n// d\nclass Foo {}\n";
+		let v = run(source, &cfg);
+		assert!(
+			v.is_empty(),
+			"directive must suppress the comment def it lives in: {v:?}"
+		);
+	}
+
+	#[test]
+	fn ignore_still_suppresses_next_non_comment_def() {
+		let cfg = cfg(r#"
+			[[ts.class.where]]
+			id   = "name-pascal"
+			expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+
+			[[ts.comment.where]]
+			id   = "max-lines"
+			expr = "lines <= 2"
+			"#);
+		// A single-line directive + a bad class: the directive lives in its
+		// own comment def (cap fine), and still suppresses the class.
+		let source = "// code-moniker: ignore\nclass lower_bad {}\n";
 		assert!(run(source, &cfg).is_empty());
 	}
 }

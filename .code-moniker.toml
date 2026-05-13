@@ -100,6 +100,16 @@ id      = "no-nested-comments"
 expr    = "$tests OR $example OR parent.kind = 'module' OR text =~ '^//\\s*SAFETY:'"
 message = "Do not add comments inside functions, methods, structs, enums, traits, or impls. Keep code self-explanatory; only module-boundary and `SAFETY:` comments are allowed."
 
+# Adjacent line/doc-comments are collapsed into one `comment` def by the
+# extractor (see `crates/core/src/lang/canonical_walker.rs`), so `lines`
+# is the cardinal of a docstring block. Cap to keep doc prose short
+# per CLAUDE.md comment sobriety. Exempt module-level `//!` (which
+# document modules / formats / contracts) and `SAFETY:` narratives.
+[[rust.comment.where]]
+id      = "comment-max-lines"
+expr    = "$tests OR $example OR text =~ '^//\\s*SAFETY:' OR text =~ '^//!' OR lines <= 4"
+message = "Doc/block comment is {value} lines (cap = 4). Move prose to docs/ — see CLAUDE.md comment sobriety."
+
 # ─── Walker shape — canonical extractor contract ───────────────────────
 # Every `src/lang/<X>/walker.rs` mirrors the same moniker shape:
 #   struct:Walker / method:walk / method:dispatch

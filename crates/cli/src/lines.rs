@@ -1,8 +1,6 @@
 /// 1-indexed line range for the byte slice `[start, end)` in `source`.
-/// `end_line` is the line of the LAST byte (`end - 1`) — a slice that ends
-/// just past a `\n` does not yet "touch" the next line. Empty / out-of-bounds
-/// ranges collapse to a single line at the start position. Convention matches
-/// what every IDE shows the user.
+/// `end_line` is the line of the LAST byte (`end - 1`); empty / out-of-bounds
+/// ranges collapse to a single line at the start position.
 pub fn line_range(source: &str, start: u32, end: u32) -> (u32, u32) {
 	let bytes = source.as_bytes();
 	let s = (start as usize).min(bytes.len());
