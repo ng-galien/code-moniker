@@ -98,24 +98,18 @@ fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> 
 		return dir::run(args, stdout, path, &scheme);
 	}
 	let lang = path_to_lang(path)?;
-	let source = std::fs::read_to_string(path)
-		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
 	let predicates = args.compiled_predicates(&scheme)?;
 	let known = predicate::known_kinds(std::iter::once(&lang));
 	let unknown = predicate::unknown_kinds(&args.kind, &known);
 	if !unknown.is_empty() {
 		return Err(unknown_kinds_error(&unknown, &[lang], &known));
 	}
-	let graph = if let Some(dir) = args.cache.as_deref()
-		&& let Ok(key) = cache::CacheKey::from_path(path, path)
-	{
-		cache::load(dir, &key).unwrap_or_else(|| {
-			let g = extract::extract(lang, &source, path);
-			let _ = cache::store(dir, &key, &g);
-			g
-		})
-	} else {
-		extract::extract(lang, &source, path)
+	let (graph, extracted_source) = cache::load_or_extract(path, path, lang, args.cache.as_deref())
+		.ok_or_else(|| anyhow::anyhow!("cannot read {}", path.display()))?;
+	let source = match extracted_source {
+		Some(s) => s,
+		None => std::fs::read_to_string(path)
+			.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?,
 	};
 	let matches = predicate::filter(&graph, &predicates, &args.kind);
 	let any = !matches.defs.is_empty() || !matches.refs.is_empty();

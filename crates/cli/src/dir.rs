@@ -6,8 +6,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::args::{Args, OutputFormat, OutputMode};
-use crate::cache::{self, CacheKey};
-use crate::extract;
+use crate::cache;
 use crate::format;
 use crate::predicate::{self, MatchSet, Predicate, RefMatch};
 use crate::walk;
@@ -104,31 +103,10 @@ struct FileSummary {
 	by_ref_kind: BTreeMap<String, usize>,
 }
 
-fn load_or_extract(
-	path: &Path,
-	anchor: &Path,
-	lang: Lang,
-	cache_dir: Option<&Path>,
-) -> Option<code_moniker_core::core::code_graph::CodeGraph> {
-	if let Some(dir) = cache_dir
-		&& let Ok(key) = CacheKey::from_path(path, anchor)
-	{
-		if let Some(g) = cache::load(dir, &key) {
-			return Some(g);
-		}
-		let source = std::fs::read_to_string(path).ok()?;
-		let graph = extract::extract(lang, &source, anchor);
-		let _ = cache::store(dir, &key, &graph);
-		return Some(graph);
-	}
-	let source = std::fs::read_to_string(path).ok()?;
-	Some(extract::extract(lang, &source, anchor))
-}
-
 impl FileSummary {
 	fn compute(path: &Path, lang: Lang, root: &Path, cache_dir: Option<&Path>) -> Option<Self> {
 		let rel = path.strip_prefix(root).unwrap_or(path);
-		let graph = load_or_extract(path, rel, lang, cache_dir)?;
+		let (graph, _) = cache::load_or_extract(path, rel, lang, cache_dir)?;
 		let mut by_def_kind: BTreeMap<String, usize> = BTreeMap::new();
 		let mut defs = 0usize;
 		for d in graph.defs() {
@@ -228,23 +206,16 @@ impl FilterRow {
 		kinds: &[String],
 		cache_dir: Option<&Path>,
 	) -> Option<Self> {
-		let source = std::fs::read_to_string(path).ok()?;
 		let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
-		let graph = if let Some(dir) = cache_dir
-			&& let Ok(key) = CacheKey::from_path(path, &rel)
-		{
-			cache::load(dir, &key).unwrap_or_else(|| {
-				let g = extract::extract(lang, &source, &rel);
-				let _ = cache::store(dir, &key, &g);
-				g
-			})
-		} else {
-			extract::extract(lang, &source, &rel)
-		};
+		let (graph, extracted_source) = cache::load_or_extract(path, &rel, lang, cache_dir)?;
 		let matches = predicate::filter(&graph, predicates, kinds);
 		if matches.defs.is_empty() && matches.refs.is_empty() {
 			return None;
 		}
+		let source = match extracted_source {
+			Some(s) => s,
+			None => std::fs::read_to_string(path).ok()?,
+		};
 		let defs = matches.defs.into_iter().cloned().collect();
 		let refs = matches
 			.refs

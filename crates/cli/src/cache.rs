@@ -2,15 +2,27 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
 use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::core::code_graph::encoding::{self, LAYOUT_VERSION};
 use rustc_hash::FxHasher;
 
+use crate::extract;
+use code_moniker_core::lang::Lang;
+
 const CACHE_MAGIC: u32 = 0xC0DE_2106;
 const CACHE_FORMAT_VERSION: u32 = 1;
-const HEADER_FIXED: usize = 4 + 4 + 8 + 8 + 8 + 4;
+const OFF_MAGIC: usize = 0;
+const OFF_FORMAT: usize = 4;
+const OFF_MTIME: usize = 8;
+const OFF_SIZE: usize = 16;
+const OFF_ANCHOR: usize = 24;
+const OFF_PATH_LEN: usize = 32;
+const HEADER_FIXED: usize = OFF_PATH_LEN + 4;
+
+static TMP_NONCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
 pub struct CacheKey {
@@ -54,62 +66,106 @@ impl CacheKey {
 			.join(self.shard())
 			.join(self.filename())
 	}
+
+	fn abs_path_bytes(&self) -> &[u8] {
+		path_bytes(&self.abs_path)
+	}
 }
 
 pub fn load(cache_dir: &Path, key: &CacheKey) -> Option<CodeGraph> {
 	let path = key.full_path(cache_dir);
 	let bytes = fs::read(&path).ok()?;
 	let body = validate_header(&bytes, key)?;
-	encoding::decode(body).ok()
+	match encoding::decode(body) {
+		Ok(g) => Some(g),
+		Err(e) => {
+			eprintln!(
+				"code-moniker: cache decode failed at {} ({e}); ignoring",
+				path.display(),
+			);
+			None
+		}
+	}
 }
 
-pub fn store(cache_dir: &Path, key: &CacheKey, graph: &CodeGraph) -> io::Result<()> {
+pub fn store(cache_dir: &Path, key: &CacheKey, graph: &CodeGraph) {
+	let _ = try_store(cache_dir, key, graph);
+}
+
+fn try_store(cache_dir: &Path, key: &CacheKey, graph: &CodeGraph) -> io::Result<()> {
 	let path = key.full_path(cache_dir);
 	if let Some(parent) = path.parent() {
 		fs::create_dir_all(parent)?;
 	}
 	let body = encoding::encode(graph)
 		.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-	let mut buf = Vec::with_capacity(HEADER_FIXED + key.abs_path_bytes().len() + body.len());
+	let path_bytes = key.abs_path_bytes();
+	let mut buf = Vec::with_capacity(HEADER_FIXED + path_bytes.len() + body.len());
 	buf.extend_from_slice(&CACHE_MAGIC.to_le_bytes());
 	buf.extend_from_slice(&CACHE_FORMAT_VERSION.to_le_bytes());
 	buf.extend_from_slice(&key.mtime.to_le_bytes());
 	buf.extend_from_slice(&key.size.to_le_bytes());
 	buf.extend_from_slice(&key.anchor_hash.to_le_bytes());
-	let path_bytes = key.abs_path_bytes();
 	buf.extend_from_slice(&(path_bytes.len() as u32).to_le_bytes());
 	buf.extend_from_slice(path_bytes);
 	buf.extend_from_slice(&body);
 
-	let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
-	{
+	let nonce = TMP_NONCE.fetch_add(1, Ordering::Relaxed);
+	let tmp = path.with_extension(format!("tmp.{}.{nonce}", std::process::id()));
+	let write_result = (|| -> io::Result<()> {
 		let mut f = fs::File::create(&tmp)?;
 		f.write_all(&buf)?;
 		f.sync_data()?;
+		Ok(())
+	})();
+	if let Err(e) = write_result {
+		let _ = fs::remove_file(&tmp);
+		return Err(e);
 	}
-	fs::rename(&tmp, &path)?;
-	Ok(())
+	fs::rename(&tmp, &path)
+}
+
+pub fn load_or_extract(
+	path: &Path,
+	anchor: &Path,
+	lang: Lang,
+	cache_dir: Option<&Path>,
+) -> Option<(CodeGraph, Option<String>)> {
+	if let Some(dir) = cache_dir
+		&& let Ok(key) = CacheKey::from_path(path, anchor)
+	{
+		if let Some(g) = load(dir, &key) {
+			return Some((g, None));
+		}
+		let source = fs::read_to_string(path).ok()?;
+		let graph = extract::extract(lang, &source, anchor);
+		store(dir, &key, &graph);
+		return Some((graph, Some(source)));
+	}
+	let source = fs::read_to_string(path).ok()?;
+	let graph = extract::extract(lang, &source, anchor);
+	Some((graph, Some(source)))
 }
 
 fn validate_header<'a>(bytes: &'a [u8], key: &CacheKey) -> Option<&'a [u8]> {
 	if bytes.len() < HEADER_FIXED {
 		return None;
 	}
-	let magic = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+	let magic = u32::from_le_bytes(bytes[OFF_MAGIC..OFF_FORMAT].try_into().ok()?);
 	if magic != CACHE_MAGIC {
 		return None;
 	}
-	let version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+	let version = u32::from_le_bytes(bytes[OFF_FORMAT..OFF_MTIME].try_into().ok()?);
 	if version != CACHE_FORMAT_VERSION {
 		return None;
 	}
-	let mtime = u64::from_le_bytes(bytes[8..16].try_into().ok()?);
-	let size = u64::from_le_bytes(bytes[16..24].try_into().ok()?);
-	let anchor_hash = u64::from_le_bytes(bytes[24..32].try_into().ok()?);
+	let mtime = u64::from_le_bytes(bytes[OFF_MTIME..OFF_SIZE].try_into().ok()?);
+	let size = u64::from_le_bytes(bytes[OFF_SIZE..OFF_ANCHOR].try_into().ok()?);
+	let anchor_hash = u64::from_le_bytes(bytes[OFF_ANCHOR..OFF_PATH_LEN].try_into().ok()?);
 	if mtime != key.mtime || size != key.size || anchor_hash != key.anchor_hash {
 		return None;
 	}
-	let path_len = u32::from_le_bytes(bytes[32..36].try_into().ok()?) as usize;
+	let path_len = u32::from_le_bytes(bytes[OFF_PATH_LEN..HEADER_FIXED].try_into().ok()?) as usize;
 	if HEADER_FIXED + path_len > bytes.len() {
 		return None;
 	}
@@ -120,12 +176,6 @@ fn validate_header<'a>(bytes: &'a [u8], key: &CacheKey) -> Option<&'a [u8]> {
 	Some(&bytes[HEADER_FIXED + path_len..])
 }
 
-impl CacheKey {
-	fn abs_path_bytes(&self) -> &[u8] {
-		path_bytes(&self.abs_path)
-	}
-}
-
 #[cfg(unix)]
 fn path_bytes(p: &Path) -> &[u8] {
 	use std::os::unix::ffi::OsStrExt;
@@ -134,8 +184,7 @@ fn path_bytes(p: &Path) -> &[u8] {
 
 #[cfg(not(unix))]
 fn path_bytes(p: &Path) -> &[u8] {
-	// On non-unix, lossy UTF-8 is good enough — every PG-supported host is unix
-	// in practice, but keep the build green elsewhere.
+	// non-unix fallback; PG-supported hosts are all unix
 	p.to_str().map(|s| s.as_bytes()).unwrap_or(&[])
 }
 
@@ -174,7 +223,7 @@ mod tests {
 		let key = CacheKey::from_path(&src, &anchor).unwrap();
 		let g = graph_with_one_def();
 
-		store(tmp.path(), &key, &g).unwrap();
+		store(tmp.path(), &key, &g);
 		let back = load(tmp.path(), &key).expect("should hit");
 		assert_eq!(back.def_count(), g.def_count());
 	}
@@ -186,7 +235,7 @@ mod tests {
 		std::fs::write(&src, b"a").unwrap();
 		let anchor = tmp.path().join("anchor");
 		let key = CacheKey::from_path(&src, &anchor).unwrap();
-		store(tmp.path(), &key, &graph_with_one_def()).unwrap();
+		store(tmp.path(), &key, &graph_with_one_def());
 
 		std::thread::sleep(std::time::Duration::from_millis(10));
 		std::fs::write(&src, b"ab").unwrap();
@@ -204,7 +253,7 @@ mod tests {
 		let anchor2 = tmp.path().join("anchor2");
 		let key1 = CacheKey::from_path(&src, &anchor1).unwrap();
 		let key2 = CacheKey::from_path(&src, &anchor2).unwrap();
-		store(tmp.path(), &key1, &graph_with_one_def()).unwrap();
+		store(tmp.path(), &key1, &graph_with_one_def());
 		assert!(load(tmp.path(), &key1).is_some());
 		assert!(load(tmp.path(), &key2).is_none());
 	}
@@ -227,6 +276,6 @@ mod tests {
 		let full = key.full_path(tmp.path());
 		let s = full.to_string_lossy();
 		assert!(s.contains(&format!("v{LAYOUT_VERSION}_{CACHE_FORMAT_VERSION}")));
-		assert!(full.parent().unwrap().file_name().unwrap().len() == 2); // shard
+		assert!(full.parent().unwrap().file_name().unwrap().len() == 2);
 	}
 }
