@@ -886,6 +886,32 @@ impl W {
 	}
 
 	#[test]
+	fn extract_grouped_use_emits_single_imports_module_per_parent() {
+		let src = "use std::io::{self, Read, Write};";
+		let g = extract("lib.rs", src, &make_anchor(), false);
+		let ims: Vec<_> = g.refs().filter(|r| r.kind == b"imports_module").collect();
+		assert_eq!(
+			ims.len(),
+			1,
+			"grouped use must emit exactly one imports_module per parent module; refs: {:?}",
+			ims
+		);
+	}
+
+	#[test]
+	fn extract_nested_grouped_use_emits_one_imports_module_per_distinct_parent() {
+		let src = "use std::{io::{Read, Write}, fmt};";
+		let g = extract("lib.rs", src, &make_anchor(), false);
+		let all: Vec<_> = g.refs().filter(|r| r.kind == b"imports_module").collect();
+		let unique: std::collections::HashSet<_> = all.iter().map(|r| &r.target).collect();
+		assert_eq!(
+			all.len(),
+			unique.len(),
+			"nested grouped use must not duplicate imports_module refs for the same parent",
+		);
+	}
+
+	#[test]
 	fn extract_free_function_call_emits_calls_ref() {
 		let src = "pub fn run() { foo(); }";
 		let g = extract("util.rs", src, &make_anchor(), true);

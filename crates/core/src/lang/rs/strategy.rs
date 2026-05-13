@@ -337,10 +337,13 @@ impl<'src_lang> Strategy<'src_lang> {
 		let pos = node_position(node);
 		let mut leaves: Vec<Vec<String>> = Vec::new();
 		collect_use_leaves(arg, self.source_bytes, &mut Vec::new(), &mut leaves);
+		let mut emitted_parents: HashSet<Moniker> = HashSet::new();
 		for path in leaves {
 			let target = self.build_use_target(&path);
 			let _ = graph.add_ref(parent, target.clone(), kinds::IMPORTS_SYMBOL, Some(pos));
-			if let Some(parent_module) = drop_leaf_segment(&target) {
+			if let Some(parent_module) = drop_leaf_segment(&target)
+				&& emitted_parents.insert(parent_module.clone())
+			{
 				let _ = graph.add_ref(parent, parent_module, kinds::IMPORTS_MODULE, Some(pos));
 			}
 		}
