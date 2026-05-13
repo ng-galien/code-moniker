@@ -12,6 +12,24 @@ changes are allowed in minor releases as long as the project is in
 
 ### Added
 
+- **CLI** — `code-moniker manifest <PATH>`. Extracts declared deps from
+  `Cargo.toml`, `package.json`, `pom.xml`, `pyproject.toml`, `go.mod`,
+  and `*.csproj` (auto-detected by filename, or walk a directory).
+  Emits one row per dep with `package_moniker` — byte-identical to the
+  `external_pkg:` head the per-language extractor emits for refs that
+  import this dep, so consumers join via `package_moniker @> target_moniker`.
+  Formats: `tsv` (default), `json`, `tree`.
+- **`code-moniker-core`** — `lang::build_manifest` module. Unifies the
+  six per-lang manifest parsers behind one `Manifest` enum + filename
+  dispatcher, attaches `package_moniker` to every declared dep, and
+  preserves per-language splitting rules (TS scoped `@scope/pkg`, Go
+  slash-separated, C# dot-separated). Each `lang::*::build` now exposes
+  a public `package_moniker(project, import_root)` builder.
+- **PG** — `package_moniker moniker` column added to the SETOF rows of
+  `extract_cargo`, `extract_package_json`, `extract_pom_xml`,
+  `extract_pyproject`, `extract_go_mod`, `extract_csproj`. Each now
+  takes `(anchor moniker, content text)` instead of `(content text)`,
+  so the moniker is anchored on the consumer's project label.
 - **CLI** — subcommand-first surface. Every operation is now an explicit
   verb:
   - `code-moniker extract <PATH>` — graph extraction (was the implicit
@@ -60,6 +78,8 @@ changes are allowed in minor releases as long as the project is in
 
 ### Fixed
 
+- **pgTAP** — `00_smoke.sql` asserted `pcm_version() = '0.1.0'`; aligned
+  to the workspace's current `0.2.0`.
 - **`code-moniker-core` (rs extractor)** — `use std::io::{self, Read, Write};`
   emitted N duplicate `imports_module → std::io` refs (one per leaf).
   Dedup the parent-module ref per `use` statement; per-leaf

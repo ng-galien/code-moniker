@@ -7,15 +7,15 @@ CREATE EXTENSION IF NOT EXISTS code_moniker;
 SELECT plan(12);
 
 
-SELECT has_function('extract_cargo'::name, ARRAY['text'],
-	'extract_cargo(text) is exposed');
+SELECT has_function('extract_cargo'::name, ARRAY['moniker', 'text'],
+	'extract_cargo(moniker, text) is exposed');
 
 SELECT has_function('external_pkg_root'::name, ARRAY['moniker'],
 	'external_pkg_root(moniker) is exposed');
 
 
 WITH parsed AS (
-	SELECT * FROM extract_cargo($t$
+	SELECT * FROM extract_cargo('code+moniker://app'::moniker, $t$
 [package]
 name = "demo"
 version = "0.1.0"
@@ -60,10 +60,18 @@ SELECT ok(
 	external_pkg_root('code+moniker://app/path:src/path:lib'::moniker) IS NULL,
 	'project-local moniker returns NULL');
 
-CREATE TEMP TABLE pkg(project moniker, name text, version text);
-INSERT INTO pkg VALUES
-	('code+moniker://app'::moniker, 'pgrx', '0.18'),
-	('code+moniker://app'::moniker, 'serde', '1.0');
+CREATE TEMP TABLE pkg(package_moniker moniker, name text, version text);
+INSERT INTO pkg
+	SELECT package_moniker, name, version
+	FROM extract_cargo('code+moniker://app'::moniker, $t$
+[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies]
+pgrx = "0.18"
+serde = "1.0"
+$t$);
 
 WITH g AS (
 	SELECT extract_rust(
@@ -73,15 +81,19 @@ use serde::Serialize;
 use std::collections::HashMap;',
 		'code+moniker://app'::moniker
 	) AS g
-), refs_with_root AS (
-	SELECT DISTINCT external_pkg_root(t) AS root
+), ref_targets AS (
+	SELECT t AS target
 	FROM g, LATERAL unnest(graph_ref_targets(g)) t
 )
 SELECT
-	is((SELECT count(*)::int FROM refs_with_root r JOIN pkg p ON p.name = r.root),
+	is((SELECT count(DISTINCT p.name)::int
+		FROM ref_targets r
+		JOIN pkg p ON p.package_moniker @> r.target),
 		2,
-		'JOIN matches refs to packages declared in Cargo.toml (pgrx, serde)') AS r6,
-	is((SELECT count(*)::int FROM refs_with_root r WHERE r.root = 'std'),
+		'package_moniker @> ref.target binds refs declared in Cargo.toml (pgrx, serde)') AS r6,
+	is((SELECT count(DISTINCT external_pkg_root(r.target))::int
+		FROM ref_targets r
+		WHERE external_pkg_root(r.target) = 'std'),
 		1,
 		'unmatched external root (std, not in pkg table) still extractable') AS r7;
 

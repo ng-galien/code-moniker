@@ -72,6 +72,10 @@ pub(crate) fn ts_import_root(name: &str) -> String {
 	name.to_string()
 }
 
+pub fn package_moniker(project: &[u8], import_root: &str) -> crate::core::moniker::Moniker {
+	super::canonicalize::external_pkg_builder(project, import_root).build()
+}
+
 fn extract_version(spec: &Value) -> Option<String> {
 	match spec {
 		Value::String(s) => Some(s.clone()),

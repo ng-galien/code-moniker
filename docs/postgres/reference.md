@@ -72,7 +72,7 @@ JSON Schema for `code_graph_declare`: [declare-schema](declare-schema.json).
 
 `extract_typescript`, `extract_rust`, `extract_java`, `extract_python`, `extract_go`, `extract_csharp`, `extract_plpgsql`. Manifest parsers: `extract_cargo`, `extract_package_json`, `extract_pom_xml`, `extract_pyproject`, `extract_go_mod`, `extract_csproj`.
 
-Signature:
+Per-file extractor signature:
 
 ```
 extract_<lang>(uri text, source text, anchor moniker,
@@ -81,6 +81,19 @@ extract_<lang>(uri text, source text, anchor moniker,
 ```
 
 `deep => true` also emits `param:` and `local:` segments. `extract_typescript` takes one extra named argument `di_register_callees text[] DEFAULT ARRAY[]::text[]` listing factory-style callees that should emit `di_register` refs (NestJS providers, custom DI registries, …).
+
+Manifest extractor signature:
+
+```
+extract_<manifest>(anchor moniker, content text)
+  → SETOF (package_moniker moniker,
+           name           text,
+           version        text,
+           dep_kind       text,
+           import_root    text)
+```
+
+`package_moniker` is byte-identical to the head every per-language extractor emits for refs that import this dep, so consumers can bind via `repo_dep.package_moniker @> linkage.target_moniker`. See [CLI manifest](../cli/manifest.md) for the per-manifest segment layout and the known Java / non-stdlib-Python limitation.
 
 The bytes are identical to what the CLI's `--cache` writes (same `core::code_graph::encoding` module).
 

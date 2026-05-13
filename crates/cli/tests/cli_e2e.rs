@@ -883,6 +883,47 @@ fn langs_json_format_emits_kinds_array() {
 }
 
 #[test]
+fn manifest_subcommand_emits_package_moniker_per_dep() {
+	let dir = tempfile::tempdir().unwrap();
+	std::fs::write(
+		dir.path().join("package.json"),
+		r#"{"name":"demo","version":"0.1.0","dependencies":{"react":"^18"}}"#,
+	)
+	.unwrap();
+	let path = dir.path().join("package.json");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"manifest",
+		path.to_str().unwrap(),
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	let v: serde_json::Value = serde_json::from_str(&out).expect("valid json");
+	let rows = v.as_array().expect("array");
+	assert!(rows.iter().any(|r| r["import_root"] == "react"
+		&& r["package_moniker"] == "code+moniker://./external_pkg:react"));
+}
+
+#[test]
+fn manifest_subcommand_walks_directory() {
+	let dir = tempfile::tempdir().unwrap();
+	std::fs::write(
+		dir.path().join("Cargo.toml"),
+		"[package]\nname=\"demo\"\nversion=\"0\"\n\n[dependencies]\nserde = \"1\"\n",
+	)
+	.unwrap();
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"manifest",
+		dir.path().to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(out.contains("external_pkg:serde"), "{out}");
+	assert!(out.contains("\tCargo.toml\t"), "{out}");
+}
+
+#[test]
 fn check_user_overlay_relaxes_default_rule() {
 	let dir = write_fixture("a.ts", TS_BAD_NAMING);
 	let rules_path = dir.path().join("rules.toml");

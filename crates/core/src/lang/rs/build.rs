@@ -70,6 +70,13 @@ pub(crate) fn rust_import_root(name: &str) -> String {
 	name.replace('-', "_")
 }
 
+pub fn package_moniker(project: &[u8], import_root: &str) -> crate::core::moniker::Moniker {
+	let mut b = crate::core::moniker::MonikerBuilder::new();
+	b.project(project);
+	b.segment(crate::lang::kinds::EXTERNAL_PKG, import_root.as_bytes());
+	b.build()
+}
+
 pub(crate) fn extract_version(spec: &toml::Value) -> Option<String> {
 	match spec {
 		toml::Value::String(s) => Some(s.clone()),

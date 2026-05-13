@@ -6,11 +6,11 @@ CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(8);
 
-SELECT has_function('extract_go_mod'::name, ARRAY['text'],
-	'extract_go_mod(text) is exposed');
+SELECT has_function('extract_go_mod'::name, ARRAY['moniker', 'text'],
+	'extract_go_mod(moniker, text) is exposed');
 
 WITH parsed AS (
-	SELECT * FROM extract_go_mod($t$
+	SELECT * FROM extract_go_mod('code+moniker://app'::moniker, $t$
 module github.com/foo/bar
 
 go 1.21
@@ -42,7 +42,7 @@ SELECT
 
 
 WITH parsed AS (
-	SELECT * FROM extract_go_mod($t$
+	SELECT * FROM extract_go_mod('code+moniker://app'::moniker, $t$
 module foo
 
 replace github.com/old => github.com/new v2.0.0
@@ -55,10 +55,10 @@ SELECT
 		'replace directives are not emitted as deps') AS r6;
 
 
-CREATE TEMP TABLE gomod(project moniker, name text, version text);
+CREATE TEMP TABLE gomod(package_moniker moniker, name text, version text);
 INSERT INTO gomod
-	SELECT 'code+moniker://app'::moniker, name, version
-	FROM extract_go_mod($t$
+	SELECT package_moniker, name, version
+	FROM extract_go_mod('code+moniker://app'::moniker, $t$
 module myapp
 
 require github.com/gorilla/mux v1.8.0
@@ -70,13 +70,15 @@ WITH g AS (
 		E'package main\nimport "github.com/gorilla/mux"\nfunc Run() { mux.NewRouter() }\n',
 		'code+moniker://app'::moniker
 	) AS g
-), refs_with_root AS (
-	SELECT external_pkg_root(t) AS root
+), ref_targets AS (
+	SELECT t AS target
 	FROM g, LATERAL unnest(graph_ref_targets(g)) t
 )
 SELECT
-	ok((SELECT count(*)::int FROM refs_with_root r WHERE r.root = 'github.com') > 0,
-		'extract_go produces refs whose external_pkg root is github.com') AS r7;
+	ok((SELECT count(*)::int
+		FROM ref_targets r
+		JOIN gomod m ON m.package_moniker @> r.target) > 0,
+		'package_moniker built from go.mod binds extractor ref targets via @>') AS r7;
 
 
 SELECT * FROM finish();

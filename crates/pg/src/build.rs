@@ -5,22 +5,42 @@ use std::error::Error;
 use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
 
-use code_moniker_core::lang::cs::build as csproj;
-use code_moniker_core::lang::go::build as go_mod;
-use code_moniker_core::lang::java::build as pom_xml;
-use code_moniker_core::lang::python::build as pyproject;
-use code_moniker_core::lang::rs::build as cargo;
-use code_moniker_core::lang::ts::build as package_json;
+use code_moniker_core::lang::build_manifest::{Dep, Manifest, parse};
+
+use crate::moniker::moniker;
 
 type PgError = Box<dyn Error + Send + Sync + 'static>;
 
+fn rows_for(
+	anchor: &moniker,
+	manifest: Manifest,
+	content: &str,
+) -> Result<Vec<(moniker, String, Option<String>, String, String)>, PgError> {
+	let view = anchor.view();
+	let deps = parse(manifest, view.project(), content)?;
+	Ok(deps
+		.into_iter()
+		.map(|d: Dep| {
+			(
+				moniker::from_core(d.package_moniker),
+				d.name,
+				d.version,
+				d.dep_kind,
+				d.import_root,
+			)
+		})
+		.collect())
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn extract_cargo(
+	anchor: moniker,
 	content: &str,
 ) -> Result<
 	TableIterator<
 		'static,
 		(
+			name!(package_moniker, moniker),
 			name!(name, String),
 			name!(version, Option<String>),
 			name!(dep_kind, String),
@@ -29,18 +49,22 @@ fn extract_cargo(
 	>,
 	PgError,
 > {
-	Ok(rows_from(
-		cargo::parse(content)?.into_iter().map(Into::into),
-	))
+	Ok(TableIterator::new(rows_for(
+		&anchor,
+		Manifest::Cargo,
+		content,
+	)?))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_package_json(
+	anchor: moniker,
 	content: &str,
 ) -> Result<
 	TableIterator<
 		'static,
 		(
+			name!(package_moniker, moniker),
 			name!(name, String),
 			name!(version, Option<String>),
 			name!(dep_kind, String),
@@ -49,18 +73,22 @@ fn extract_package_json(
 	>,
 	PgError,
 > {
-	Ok(rows_from(
-		package_json::parse(content)?.into_iter().map(Into::into),
-	))
+	Ok(TableIterator::new(rows_for(
+		&anchor,
+		Manifest::PackageJson,
+		content,
+	)?))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_pom_xml(
+	anchor: moniker,
 	content: &str,
 ) -> Result<
 	TableIterator<
 		'static,
 		(
+			name!(package_moniker, moniker),
 			name!(name, String),
 			name!(version, Option<String>),
 			name!(dep_kind, String),
@@ -69,18 +97,22 @@ fn extract_pom_xml(
 	>,
 	PgError,
 > {
-	Ok(rows_from(
-		pom_xml::parse(content)?.into_iter().map(Into::into),
-	))
+	Ok(TableIterator::new(rows_for(
+		&anchor,
+		Manifest::PomXml,
+		content,
+	)?))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_pyproject(
+	anchor: moniker,
 	content: &str,
 ) -> Result<
 	TableIterator<
 		'static,
 		(
+			name!(package_moniker, moniker),
 			name!(name, String),
 			name!(version, Option<String>),
 			name!(dep_kind, String),
@@ -89,18 +121,22 @@ fn extract_pyproject(
 	>,
 	PgError,
 > {
-	Ok(rows_from(
-		pyproject::parse(content)?.into_iter().map(Into::into),
-	))
+	Ok(TableIterator::new(rows_for(
+		&anchor,
+		Manifest::Pyproject,
+		content,
+	)?))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_go_mod(
+	anchor: moniker,
 	content: &str,
 ) -> Result<
 	TableIterator<
 		'static,
 		(
+			name!(package_moniker, moniker),
 			name!(name, String),
 			name!(version, Option<String>),
 			name!(dep_kind, String),
@@ -109,18 +145,22 @@ fn extract_go_mod(
 	>,
 	PgError,
 > {
-	Ok(rows_from(
-		go_mod::parse(content)?.into_iter().map(Into::into),
-	))
+	Ok(TableIterator::new(rows_for(
+		&anchor,
+		Manifest::GoMod,
+		content,
+	)?))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_csproj(
+	anchor: moniker,
 	content: &str,
 ) -> Result<
 	TableIterator<
 		'static,
 		(
+			name!(package_moniker, moniker),
 			name!(name, String),
 			name!(version, Option<String>),
 			name!(dep_kind, String),
@@ -129,97 +169,9 @@ fn extract_csproj(
 	>,
 	PgError,
 > {
-	Ok(rows_from(
-		csproj::parse(content)?.into_iter().map(Into::into),
-	))
-}
-
-fn rows_from<I: Iterator<Item = Dep>>(
-	deps: I,
-) -> TableIterator<
-	'static,
-	(
-		name!(name, String),
-		name!(version, Option<String>),
-		name!(dep_kind, String),
-		name!(import_root, String),
-	),
-> {
-	let rows = deps
-		.map(|d| (d.name, d.version, d.dep_kind, d.import_root))
-		.collect::<Vec<_>>();
-	TableIterator::new(rows)
-}
-
-struct Dep {
-	name: String,
-	version: Option<String>,
-	dep_kind: String,
-	import_root: String,
-}
-
-impl From<cargo::Dep> for Dep {
-	fn from(d: cargo::Dep) -> Self {
-		Self {
-			name: d.name,
-			version: d.version,
-			dep_kind: d.dep_kind,
-			import_root: d.import_root,
-		}
-	}
-}
-
-impl From<package_json::Dep> for Dep {
-	fn from(d: package_json::Dep) -> Self {
-		Self {
-			name: d.name,
-			version: d.version,
-			dep_kind: d.dep_kind,
-			import_root: d.import_root,
-		}
-	}
-}
-
-impl From<pom_xml::Dep> for Dep {
-	fn from(d: pom_xml::Dep) -> Self {
-		Self {
-			name: d.name,
-			version: d.version,
-			dep_kind: d.dep_kind,
-			import_root: d.import_root,
-		}
-	}
-}
-
-impl From<pyproject::Dep> for Dep {
-	fn from(d: pyproject::Dep) -> Self {
-		Self {
-			name: d.name,
-			version: d.version,
-			dep_kind: d.dep_kind,
-			import_root: d.import_root,
-		}
-	}
-}
-
-impl From<go_mod::Dep> for Dep {
-	fn from(d: go_mod::Dep) -> Self {
-		Self {
-			name: d.name,
-			version: d.version,
-			dep_kind: d.dep_kind,
-			import_root: d.import_root,
-		}
-	}
-}
-
-impl From<csproj::Dep> for Dep {
-	fn from(d: csproj::Dep) -> Self {
-		Self {
-			name: d.name,
-			version: d.version,
-			dep_kind: d.dep_kind,
-			import_root: d.import_root,
-		}
-	}
+	Ok(TableIterator::new(rows_for(
+		&anchor,
+		Manifest::Csproj,
+		content,
+	)?))
 }

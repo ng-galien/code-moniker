@@ -141,6 +141,13 @@ pub(crate) fn python_import_root(name: &str) -> String {
 	name.replace('-', "_").to_ascii_lowercase()
 }
 
+pub fn package_moniker(project: &[u8], import_root: &str) -> crate::core::moniker::Moniker {
+	let mut b = crate::core::moniker::MonikerBuilder::new();
+	b.project(project);
+	b.segment(crate::lang::kinds::EXTERNAL_PKG, import_root.as_bytes());
+	b.build()
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

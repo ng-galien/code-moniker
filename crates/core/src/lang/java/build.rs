@@ -86,6 +86,15 @@ fn is_dependency(n: &Node<'_, '_>) -> bool {
 	n.is_element() && n.tag_name().name() == "dependency"
 }
 
+// Single-head shape; non-stdlib refs use `lang:java/package:…` so this row
+// is emitted for column uniformity but does not bind via `@>`.
+pub fn package_moniker(project: &[u8], import_root: &str) -> crate::core::moniker::Moniker {
+	let mut b = crate::core::moniker::MonikerBuilder::new();
+	b.project(project);
+	b.segment(crate::lang::kinds::EXTERNAL_PKG, import_root.as_bytes());
+	b.build()
+}
+
 fn direct_child<'a, 'input>(parent: Node<'a, 'input>, name: &str) -> Option<Node<'a, 'input>> {
 	parent
 		.children()

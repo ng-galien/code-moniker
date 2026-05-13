@@ -6,11 +6,11 @@ CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(7);
 
-SELECT has_function('extract_pom_xml'::name, ARRAY['text'],
-	'extract_pom_xml(text) is exposed');
+SELECT has_function('extract_pom_xml'::name, ARRAY['moniker', 'text'],
+	'extract_pom_xml(moniker, text) is exposed');
 
 WITH parsed AS (
-	SELECT * FROM extract_pom_xml($x$
+	SELECT * FROM extract_pom_xml('code+moniker://app'::moniker, $x$
 <project>
 	<groupId>com.example</groupId>
 	<artifactId>demo</artifactId>
@@ -48,10 +48,10 @@ SELECT
 		'com.google.guava:guava',
 		'import_root = groupId:artifactId for join with external_pkg_root') AS r5;
 
-CREATE TEMP TABLE pkg(project moniker, name text, version text);
+CREATE TEMP TABLE pkg(package_moniker moniker, name text, version text);
 INSERT INTO pkg
-	SELECT 'code+moniker://app'::moniker, name, version
-	FROM extract_pom_xml($x$
+	SELECT package_moniker, name, version
+	FROM extract_pom_xml('code+moniker://app'::moniker, $x$
 <project>
 	<groupId>com.example</groupId>
 	<artifactId>demo</artifactId>
@@ -67,9 +67,9 @@ INSERT INTO pkg
 $x$);
 
 SELECT is(
-	(SELECT count(*)::int FROM pkg WHERE name = 'com.google.guava:guava'),
-	1,
-	'pom-derived pkg table joins on coordinate name') AS r6;
+	(SELECT package_moniker FROM pkg WHERE name = 'com.google.guava:guava'),
+	'code+moniker://app/external_pkg:com.google.guava:guava'::moniker,
+	'package_moniker built on supplied project with head=import_root') AS r6;
 
 SELECT * FROM finish();
 

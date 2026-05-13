@@ -119,6 +119,19 @@ fn parse_require_entry(line: &str, comment: &str) -> Option<Dep> {
 	})
 }
 
+pub fn package_moniker(project: &[u8], import_root: &str) -> crate::core::moniker::Moniker {
+	let mut b = crate::core::moniker::MonikerBuilder::new();
+	b.project(project);
+	let mut pieces = import_root.split('/').filter(|s| !s.is_empty());
+	if let Some(head) = pieces.next() {
+		b.segment(crate::lang::kinds::EXTERNAL_PKG, head.as_bytes());
+		for piece in pieces {
+			b.segment(crate::lang::kinds::PATH, piece.as_bytes());
+		}
+	}
+	b.build()
+}
+
 fn split_comment(line: &str) -> (&str, &str) {
 	if let Some(idx) = line.find("//") {
 		(&line[..idx], &line[idx + 2..])

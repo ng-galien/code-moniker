@@ -118,6 +118,19 @@ fn project_path_stem(path: &str) -> String {
 	leaf.strip_suffix(".csproj").unwrap_or(leaf).to_string()
 }
 
+pub fn package_moniker(project: &[u8], import_root: &str) -> crate::core::moniker::Moniker {
+	let mut b = crate::core::moniker::MonikerBuilder::new();
+	b.project(project);
+	let mut pieces = import_root.split('.').filter(|s| !s.is_empty());
+	if let Some(head) = pieces.next() {
+		b.segment(crate::lang::kinds::EXTERNAL_PKG, head.as_bytes());
+		for piece in pieces {
+			b.segment(crate::lang::kinds::PATH, piece.as_bytes());
+		}
+	}
+	b.build()
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

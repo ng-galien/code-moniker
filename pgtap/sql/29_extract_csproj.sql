@@ -6,11 +6,11 @@ CREATE EXTENSION IF NOT EXISTS code_moniker;
 
 SELECT plan(8);
 
-SELECT has_function('extract_csproj'::name, ARRAY['text'],
-	'extract_csproj(text) is exposed');
+SELECT has_function('extract_csproj'::name, ARRAY['moniker', 'text'],
+	'extract_csproj(moniker, text) is exposed');
 
 WITH parsed AS (
-	SELECT * FROM extract_csproj($t$<Project Sdk="Microsoft.NET.Sdk">
+	SELECT * FROM extract_csproj('code+moniker://app'::moniker, $t$<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AssemblyName>MyApp</AssemblyName>
     <Version>1.2.3</Version>
@@ -45,10 +45,10 @@ SELECT
 		'package import_root preserves the namespace name') AS r5;
 
 
-CREATE TEMP TABLE proj(project moniker, name text, version text);
+CREATE TEMP TABLE proj(package_moniker moniker, name text, version text);
 INSERT INTO proj
-	SELECT 'code+moniker://app'::moniker, name, version
-	FROM extract_csproj($t$<Project>
+	SELECT package_moniker, name, version
+	FROM extract_csproj('code+moniker://app'::moniker, $t$<Project>
   <ItemGroup>
     <PackageReference Include="Acme" Version="1.0.0" />
   </ItemGroup>
@@ -61,17 +61,19 @@ WITH g AS (
 		E'using Acme;\n',
 		'code+moniker://app'::moniker
 	) AS g
-), refs_with_root AS (
-	SELECT external_pkg_root(t) AS root
+), ref_targets AS (
+	SELECT t AS target
 	FROM g, LATERAL unnest(graph_ref_targets(g)) t
 )
 SELECT
-	ok((SELECT count(*)::int FROM refs_with_root r JOIN proj p ON p.name = r.root) > 0,
-		'JOIN matches refs to packages declared in csproj (single-segment namespace)') AS r6;
+	ok((SELECT count(*)::int
+		FROM ref_targets r
+		JOIN proj p ON p.package_moniker @> r.target) > 0,
+		'package_moniker built from csproj binds extractor ref targets via @>') AS r6;
 
 
 SELECT
-	ok((SELECT count(*)::int FROM extract_csproj($t$<Project></Project>$t$)) = 0,
+	ok((SELECT count(*)::int FROM extract_csproj('code+moniker://app'::moniker, $t$<Project></Project>$t$)) = 0,
 		'empty project yields no deps') AS r7;
 
 

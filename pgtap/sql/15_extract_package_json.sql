@@ -4,13 +4,13 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 CREATE EXTENSION IF NOT EXISTS code_moniker;
 
-SELECT plan(8);
+SELECT plan(10);
 
-SELECT has_function('extract_package_json'::name, ARRAY['text'],
-	'extract_package_json(text) is exposed');
+SELECT has_function('extract_package_json'::name, ARRAY['moniker', 'text'],
+	'extract_package_json(moniker, text) is exposed');
 
 WITH parsed AS (
-	SELECT * FROM extract_package_json($t$
+	SELECT * FROM extract_package_json('code+moniker://app'::moniker, $t$
 {
 	"name": "demo",
 	"version": "0.1.0",
@@ -48,12 +48,15 @@ SELECT
 		'peerDependencies tagged dep_kind=peer') AS r5,
 	is((SELECT dep_kind FROM parsed WHERE name = 'fsevents'),
 		'optional',
-		'optionalDependencies tagged dep_kind=optional') AS r6;
+		'optionalDependencies tagged dep_kind=optional') AS r6,
+	is((SELECT package_moniker FROM parsed WHERE name = 'react'),
+		'code+moniker://app/external_pkg:react'::moniker,
+		'package_moniker is anchored on the supplied project and head=import_root') AS r6b;
 
-CREATE TEMP TABLE pkg(project moniker, name text, version text);
+CREATE TEMP TABLE pkg(package_moniker moniker, name text, version text);
 INSERT INTO pkg
-	SELECT 'code+moniker://app'::moniker, name, version
-	FROM extract_package_json($t$
+	SELECT package_moniker, name, version
+	FROM extract_package_json('code+moniker://app'::moniker, $t$
 { "name": "demo", "version": "0.1.0",
   "dependencies": { "react": "^18.0.0", "lodash": "^4.0.0" } }
 $t$);
@@ -66,14 +69,21 @@ import { get } from "lodash";
 import { local } from "./util";',
 		'code+moniker://app'::moniker
 	) AS g
-), refs_with_root AS (
-	SELECT external_pkg_root(t) AS root
+), ref_targets AS (
+	SELECT t AS target
 	FROM g, LATERAL unnest(graph_ref_targets(g)) t
 )
 SELECT
-	is((SELECT count(*)::int FROM refs_with_root r JOIN pkg p ON p.name = r.root),
+	is((SELECT count(*)::int
+		FROM ref_targets r
+		JOIN pkg p ON p.package_moniker @> r.target),
 		2,
-		'JOIN matches refs to packages declared in package.json (react, lodash)') AS r7;
+		'package_moniker @> ref.target binds refs declared in package.json (react, lodash)') AS r7,
+	is((SELECT count(DISTINCT p.name)::int
+		FROM ref_targets r
+		JOIN pkg p ON p.package_moniker @> r.target),
+		2,
+		'each declared package binds at least one ref') AS r8;
 
 SELECT * FROM finish();
 

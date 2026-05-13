@@ -31,6 +31,10 @@ pub enum Command {
 	Langs(LangsArgs),
 	#[command(about = "Show the shape vocabulary.")]
 	Shapes(ShapesArgs),
+	#[command(
+		about = "Extract declared dependencies from a build manifest (auto-detected by filename) or every manifest under a directory."
+	)]
+	Manifest(ManifestArgs),
 }
 
 #[derive(Debug, ClapArgs)]
@@ -189,6 +193,54 @@ pub enum OutputMode {
 	Default,
 	Count,
 	Quiet,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct ManifestArgs {
+	#[arg(
+		value_name = "PATH",
+		help = "manifest file (Cargo.toml / package.json / pom.xml / pyproject.toml / go.mod / *.csproj) or a directory to walk for any of those"
+	)]
+	pub path: PathBuf,
+
+	#[arg(long, value_enum, default_value_t = ManifestFormat::Tsv)]
+	pub format: ManifestFormat,
+
+	#[arg(long, conflicts_with = "quiet", help = "print only the row count")]
+	pub count: bool,
+	#[arg(
+		long,
+		conflicts_with = "count",
+		help = "suppress output, exit code only"
+	)]
+	pub quiet: bool,
+
+	#[arg(
+		long,
+		value_name = "SCHEME",
+		help = "URI scheme for package_moniker; defaults to code+moniker://"
+	)]
+	pub scheme: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum ManifestFormat {
+	Tsv,
+	Json,
+	#[cfg(feature = "pretty")]
+	Tree,
+}
+
+impl ManifestArgs {
+	pub fn mode(&self) -> OutputMode {
+		if self.count {
+			OutputMode::Count
+		} else if self.quiet {
+			OutputMode::Quiet
+		} else {
+			OutputMode::Default
+		}
+	}
 }
 
 impl ExtractArgs {

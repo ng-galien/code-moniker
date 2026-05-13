@@ -117,11 +117,12 @@ CREATE TABLE module (
 	PRIMARY KEY (project, source_uri)
 );
 CREATE TABLE package (
-	project     text NOT NULL,
-	name        text NOT NULL,
-	version     text,
-	dep_kind    text NOT NULL,
-	import_root text NOT NULL,
+	project         text    NOT NULL,
+	package_moniker moniker NOT NULL,
+	name            text    NOT NULL,
+	version         text,
+	dep_kind        text    NOT NULL,
+	import_root     text    NOT NULL,
 	PRIMARY KEY (project, name, dep_kind)
 );
 SQL
@@ -144,9 +145,9 @@ ingest_one() {
 		if [[ -f "$manifest_abs" ]]; then
 			fn="$(manifest_fn "$lang")"
 			$PSQL -d "$DB" -c "
-				INSERT INTO package(project, name, version, dep_kind, import_root)
-				SELECT '$project', name, version, dep_kind, import_root
-				FROM $fn(pg_read_file('$manifest_abs'))
+				INSERT INTO package(project, package_moniker, name, version, dep_kind, import_root)
+				SELECT '$project', package_moniker, name, version, dep_kind, import_root
+				FROM $fn('code+moniker://$project'::moniker, pg_read_file('$manifest_abs'))
 				ON CONFLICT DO NOTHING;
 			" >/dev/null
 		fi

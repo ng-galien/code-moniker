@@ -9,6 +9,7 @@ pub mod extract;
 pub mod format;
 pub mod lang;
 pub mod lines;
+pub mod manifest;
 pub mod predicate;
 pub mod walk;
 
@@ -17,8 +18,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 pub use args::{
-	CheckArgs, CheckFormat, Cli, Command, ExtractArgs, LangsArgs, LangsFormat, OutputFormat,
-	OutputMode, ShapesArgs,
+	CheckArgs, CheckFormat, Cli, Command, ExtractArgs, LangsArgs, LangsFormat, ManifestArgs,
+	ManifestFormat, OutputFormat, OutputMode, ShapesArgs,
 };
 pub use lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};
@@ -71,6 +72,19 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Check(args) => run_check(args, stdout, stderr),
 		Command::Langs(args) => run_langs(args, stdout, stderr),
 		Command::Shapes(args) => run_shapes(args, stdout, stderr),
+		Command::Manifest(args) => run_manifest(args, stdout, stderr),
+	}
+}
+
+fn run_manifest<W1: Write, W2: Write>(
+	args: &ManifestArgs,
+	stdout: &mut W1,
+	stderr: &mut W2,
+) -> Exit {
+	match manifest::run(args, stdout, stderr) {
+		0 => Exit::Match,
+		1 => Exit::NoMatch,
+		_ => Exit::UsageError,
 	}
 }
 

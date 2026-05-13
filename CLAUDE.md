@@ -8,7 +8,7 @@
 - `CONTRIBUTING.md` — developer workflow (build, test, dogfood, add a language)
 - `CLAUDE.md` (this file) — coding rules
 - `docs/README.md` — single doc index (no per-category READMEs)
-- `docs/cli/extract.md`, `docs/cli/check.md`, `docs/cli/check-dsl.md`, `docs/cli/langs.md`, `docs/cli/agent-harness.md` — CLI surface
+- `docs/cli/extract.md`, `docs/cli/manifest.md`, `docs/cli/check.md`, `docs/cli/check-dsl.md`, `docs/cli/langs.md`, `docs/cli/agent-harness.md` — CLI surface
 - `docs/postgres/reference.md`, `docs/postgres/usage.md` — PostgreSQL extension
 - `docs/design/spec.md`, `docs/design/moniker-uri.md` — conceptual model + URI grammar
 - `docs/postgres/declare-schema.json` — JSON Schema 2020-12 for `code_graph_declare`. Per-language profiles must stay in sync with `LangExtractor::ALLOWED_KINDS` / `ALLOWED_VISIBILITIES` (enforced by the schema-sync test in `crates/core/src/lang/mod.rs`).

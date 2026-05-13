@@ -86,7 +86,7 @@ SELECT ok(
 
 
 WITH p AS (
-	SELECT * FROM extract_pyproject($$
+	SELECT * FROM extract_pyproject('code+moniker://app'::moniker, $$
 		[project]
 		name = "demo"
 		version = "0.2.0"

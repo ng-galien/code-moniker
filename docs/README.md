@@ -9,6 +9,7 @@ details.
 | Need | Page |
 | ---- | ---- |
 | Dump a symbol graph for a file or directory | [Extract](cli/extract.md) |
+| List declared deps with their package moniker | [Manifest](cli/manifest.md) |
 | Run architecture and naming rules | [Check](cli/check.md) |
 | Write rule expressions | [Rule DSL](cli/check-dsl.md) |
 | Discover supported language tags, kinds, and shapes | [Discovery](cli/langs.md) |
