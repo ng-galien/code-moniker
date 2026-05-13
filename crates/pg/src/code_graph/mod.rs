@@ -184,6 +184,18 @@ fn code_graph_from_bytea(bytes: &[u8]) -> code_graph {
 }
 
 #[pg_extern(immutable, parallel_safe)]
+fn code_graph_to_cbor(graph: code_graph) -> Vec<u8> {
+	serde_cbor::to_vec(&graph.to_core()).unwrap_or_else(|e| error!("code_graph_to_cbor: {e}"))
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn code_graph_from_cbor(bytes: &[u8]) -> code_graph {
+	let core: CoreGraph =
+		serde_cbor::from_slice(bytes).unwrap_or_else(|e| error!("code_graph_from_cbor: {e}"));
+	code_graph::from_core(core)
+}
+
+#[pg_extern(immutable, parallel_safe)]
 fn graph_create(root: moniker, kind: &str) -> code_graph {
 	code_graph::from_core(CoreGraph::new(root.into_core(), kind.as_bytes()))
 }

@@ -239,6 +239,40 @@ not currently expose a hook to override its CBOR-based `typsend`/
 BINARY` will work directly on the `code_graph` / `moniker` columns
 without the staging step.
 
+## Polyglot import via CBOR
+
+`code_graph_to_cbor` / `code_graph_from_cbor` (and the matching
+`moniker_*_cbor` pair) speak CBOR (RFC 8949). They are intended for
+**polyglot interop** — a framework / library in any language
+(Rust, Python, Node, …) can produce graphs via `serde_cbor` (or
+any CBOR library) and import them through `COPY BINARY` of a
+bytea staging column.
+
+```sql
+CREATE TEMP TABLE graph_import (id text, payload bytea);
+
+-- ingest a PGCOPY-binary dump where `payload` is CBOR-encoded
+COPY graph_import FROM '/tmp/graphs.cbor.copy' WITH (FORMAT BINARY);
+
+INSERT INTO modules(id, graph)
+SELECT id, code_graph_from_cbor(payload) FROM graph_import;
+```
+
+Trade-offs vs `bytea` (custom encoding):
+
+| | `*_to_bytea` (custom) | `*_to_cbor` |
+|---|---|---|
+| Size | ~30 % smaller | RFC-8949 framing overhead |
+| Speed | direct byte ops | serde traversal |
+| Producer language | Rust crate required | any CBOR lib |
+| Spec stability | versioned (`LAYOUT_VERSION`) | RFC 8949 (stable) |
+| Debug tooling | none (opaque) | `cbor-diag`, etc. |
+
+Rule of thumb: bytea for Rust→Rust pipelines (CLI cache → PG
+import); CBOR for cross-language ingestion. The Datum stored in
+the column is the SAME in both cases — these are import / export
+encodings, not storage formats.
+
 ## Extension vs caller
 
 | Extension                | Caller                                |

@@ -135,6 +135,18 @@ fn moniker_from_bytea(bytes: &[u8]) -> moniker {
 }
 
 #[pg_extern(immutable, parallel_safe)]
+fn moniker_to_cbor(m: moniker) -> Vec<u8> {
+	serde_cbor::to_vec(&m.to_core()).unwrap_or_else(|e| error!("moniker_to_cbor: {e}"))
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn moniker_from_cbor(bytes: &[u8]) -> moniker {
+	let core: CoreMoniker =
+		serde_cbor::from_slice(bytes).unwrap_or_else(|e| error!("moniker_from_cbor: {e}"));
+	moniker::from_core(core)
+}
+
+#[pg_extern(immutable, parallel_safe)]
 fn project_of(m: moniker) -> String {
 	String::from_utf8(m.view().project().to_vec()).expect("project must be UTF-8")
 }

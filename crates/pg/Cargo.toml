@@ -31,8 +31,8 @@ code-moniker-core = { workspace = true, features = ["serde"] }
 
 pgrx       = { workspace = true }
 serde      = { workspace = true }
+serde_cbor = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
 proptest   = { workspace = true }
-serde_cbor = { workspace = true }
