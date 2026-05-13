@@ -85,14 +85,13 @@ URI grammar and per-language path encoding: `moniker-uri.md`.
 
 #### Operators
 
-| Op            | Signature                                      | Semantics                                                                   |
-|---------------|------------------------------------------------|-----------------------------------------------------------------------------|
-| `=`           | `moniker = moniker → bool`                     | Byte-strict equality (every segment, including final kind). Total identity. |
-| `?=`          | `moniker ?= moniker → bool`                    | `bind_match`: structural matching for cross-file linkage.                   |
-| `<`, `<=`, `>`, `>=` | `moniker <op> moniker → bool`           | Byte-lex ordering (btree).                                                  |
-| `<@`          | `moniker <@ moniker → bool`                    | Left is descendant of right.                                                |
-| `@>`          | `moniker @> moniker → bool`                    | Left is ancestor of right; also `code_graph @> moniker`.                    |
-| `\|\|`        | `moniker \|\| text → moniker`                  | Compose child from parent and a typed `kind:name` segment.                  |
+Signatures and the full operator list live in the [SQL reference operators table](../postgres/reference.md#operators). The semantics that matter conceptually:
+
+- `=` is byte-strict equality on the full moniker (segment kinds included). Total identity.
+- `?=` is `bind_match`, the cross-file resolution operator defined below.
+- `<@` / `@>` are byte-prefix containment (descendant / ancestor).
+- `||` composes a child from a parent and a typed `kind:name` segment.
+- `<` / `<=` / `>` / `>=` are byte-lex orderings (btree-backed).
 
 `bind_match(left, right)` is true when:
 
@@ -118,13 +117,7 @@ Current arms (`sql`, `ts`, `java`, `python`, `rs`, `go`) collapse on
 `bare_callable_name`. Languages without an arm fall back to
 byte-strict last-segment-name equality.
 
-Accessors: `kind_of(moniker) → text`, `project_of(moniker) → text`,
-`lang_of(moniker) → text` (the `lang:` segment payload, or empty for
-project-regime monikers), `path_of(moniker) → text[]`,
-`parent_of(moniker) → moniker`, `depth(moniker) → int`.
-
-I/O: `moniker_in(cstring) → moniker`, `moniker_out(moniker) → cstring`.
-URI parsing and serialization are part of the type's I/O contract.
+Accessor and I/O signatures: [SQL reference accessors](../postgres/reference.md#accessors). URI parsing and serialisation are part of the type's `moniker_in` / `moniker_out` I/O contract.
 
 Index: custom GiST opclass supporting `=`, `@>`, `<@`, `?=`. Btree
 and hash opclasses also available for ordering, `DISTINCT`, and
@@ -216,38 +209,11 @@ containing graph's defs.
 
 #### Operators and functions
 
-| Function | Signature | Semantics |
-|---|---|---|
-| `graph_root` | `code_graph → moniker` | The module's own moniker. |
-| `graph_contains` | `code_graph @> moniker → bool` | Does this graph define this moniker? |
-| `graph_defs` | `code_graph → setof DefRecord` | Iterate defs. |
-| `graph_refs` | `code_graph → setof RefRecord` | Iterate refs. |
-| `graph_locate` | `(code_graph, moniker) → TABLE(start_byte int, end_byte int)` | Position of a def in source. Empty if absent or no source. |
-| `graph_def_monikers` | `code_graph → moniker[]` | Index helper: flatten defs to a sortable array. |
-| `graph_ref_targets` | `code_graph → moniker[]` | Index helper: flatten outgoing ref targets. |
-| `graph_export_monikers` | `code_graph → moniker[]` | Defs whose `binding` ∈ {`export`, `inject`}. |
-| `graph_import_targets` | `code_graph → moniker[]` | Refs whose `binding` ∈ {`import`, `inject`}. |
+Accessor and constructor signatures live in the SQL reference under [accessors](../postgres/reference.md#accessors) and [constructors](../postgres/reference.md#constructors). What matters at this level:
 
-Constructors:
-
-| Function | Signature | Semantics |
-|---|---|---|
-| `graph_create` | `(root moniker, kind text) → code_graph` | New graph rooted at this moniker. |
-| `graph_add_def` | `(graph, def moniker, kind text, parent moniker, start_byte int DEFAULT NULL, end_byte int DEFAULT NULL) → code_graph` | Add a def. `parent` must already be in the graph. |
-| `graph_add_ref` | `(graph, source moniker, target moniker, kind text, start_byte int DEFAULT NULL, end_byte int DEFAULT NULL) → code_graph` | Add a ref. `source` must be a def in the graph. |
-| `graph_add_defs` | `(graph, defs moniker[], kinds text[], parents moniker[]) → code_graph` | Bulk def insertion. Arrays are zipped position-wise. |
-| `graph_add_refs` | `(graph, sources moniker[], targets moniker[], kinds text[]) → code_graph` | Bulk ref insertion. |
-| `code_graph_declare` | `(spec jsonb) → code_graph` | Build a graph from a declarative specification. All defs carry `origin = declared`. |
-| `code_graph_to_spec` | `(graph code_graph) → jsonb` | Reverse projection. Lossy on non-canonical ref kinds. `lang` is inferred from the root's `lang:` segment. |
-
-Visibility, signature, binding, origin, receiver_hint, alias, and
-confidence are produced by the extractors and surfaced by `graph_defs`
-/ `graph_refs`. The point-wise `graph_add_def` / `graph_add_ref`
-constructors take only the moniker-level fields; richer metadata
-goes through `code_graph_declare` (a full JSONB spec) or comes out
-of `extract_<lang>`.
-
-Constructors return a new `code_graph`; they do not mutate.
+- `graph_defs` / `graph_refs` iterate the per-module records. Each `DefRecord` and `RefRecord` carries the full set of qualifying fields (visibility, signature, binding, origin, receiver_hint, alias, confidence) the extractor produces.
+- Point-wise `graph_add_def` / `graph_add_ref` take only moniker-level fields; richer metadata flows through `code_graph_declare` (full JSONB spec) or out of `extract_<lang>`.
+- Constructors return a new `code_graph`; values are immutable.
 
 ### Per-language extraction
 
@@ -332,7 +298,7 @@ fixture. The invariants:
 `code_graph_declare` consumes the same `ALLOWED_KINDS` /
 `ALLOWED_VISIBILITIES` constants. The trait is the single source of
 truth shared between extractor output validation and declarative spec
-validation. `../declare_schema.json` mirrors these enumerations and
+validation. `../postgres/declare-schema.json` mirrors these enumerations and
 must be kept in sync with the trait constants.
 
 #### Per-language import target shape
@@ -418,7 +384,7 @@ model.
 #### Spec format
 
 A spec is a JSONB document validated against
-`../declare_schema.json` (JSON Schema 2020-12). Top-level shape:
+`../postgres/declare-schema.json` (JSON Schema 2020-12). Top-level shape:
 
 ```json
 {
@@ -462,7 +428,7 @@ valid for every supported language.
 
 At ingest, `code_graph_declare`:
 
-1. Validates `spec` against `../declare_schema.json` (structural shape
+1. Validates `spec` against `../postgres/declare-schema.json` (structural shape
    + per-lang enum restrictions).
 2. Parses each `MonikerURI` as a typed moniker.
 3. Checks that `symbols[i].kind` matches the last segment kind of
@@ -590,53 +556,23 @@ typically the `target_moniker` of a linkage edge, which by design
 points across modules. Everywhere else the moniker is derived from
 the graph at query time and indexed via expression indexes.
 
-### One row per module
+### One row per module — recommended shape
 
 A module's structure is its `code_graph`. Source text is optional
-(NULL for `declared` / `external` origins). The minimal table:
+(NULL for `declared` / `external` origins). The module's identity is
+`graph_root(graph)` — an expression index makes it queryable and
+enforces uniqueness. Updating a file produces a new `code_graph` and
+the row is rewritten atomically.
 
-```sql
-CREATE TABLE module (
-    id          uuid PRIMARY KEY,
-    graph       code_graph NOT NULL,
-    source_text text,
-    source_uri  text,
-    origin      text NOT NULL  -- 'extracted' | 'declared' | 'external'
-);
-```
-
-The module's identity is `graph_root(graph)`. Make it queryable and
-unique with an expression index:
-
-```sql
-CREATE UNIQUE INDEX module_root_uniq ON module ((graph_root(graph)));
-CREATE INDEX module_root_gist        ON module USING gist ((graph_root(graph)));
-```
-
-Updating a file produces a new `code_graph` and the row is rewritten
-atomically.
+DDL and `CREATE INDEX` statements: see the [Postgres usage schema](../postgres/usage.md#schema).
 
 ### Linkage = JOIN on bind_match
 
 Cross-file linkage is a single indexed JOIN. Use `bind_match` for
-the cross-file case and `=` for total identity.
+the cross-file case and `=` for total identity. The moniker GiST
+opclass indexes `bind_match`; lookups remain O(log n) on the corpus.
 
-```sql
-CREATE INDEX module_export_gin ON module USING gin (graph_export_monikers(graph));
-CREATE INDEX module_import_gin ON module USING gin (graph_import_targets(graph));
-
-SELECT m_def.id, m_imp.id
-FROM module m_imp,
-     LATERAL graph_refs(m_imp.graph) r,
-     module m_def,
-     LATERAL graph_defs(m_def.graph) d
-WHERE r.binding IN ('import', 'inject')
-  AND d.binding IN ('export', 'inject')
-  AND bind_match(r.target, d.moniker);
-```
-
-The moniker GiST opclass indexes `bind_match`; lookups remain
-O(log n) on the corpus.
+The matching matrix is `ref.binding ∈ {import, inject}` × `def.binding ∈ {export, inject}` — see § Binding semantics. A full worked query (LATERAL JOIN, GIN-backed export / import predicates) lives in the [cross-file linkage walkthrough](../postgres/usage.md#cross-file-linkage-with--bind_match).
 
 ### Containment queries
 
@@ -648,91 +584,21 @@ SELECT m.* FROM module m
 WHERE graph_root(m.graph) <@ 'code+moniker://app/srcset:main/lang:java'::moniker;
 ```
 
-Backed by `module_root_gist`.
+Backed by the expression index on `graph_root(graph)`.
 
 ### Linkage cache (optional)
 
-For hot queries (`find-callers` at scale, deep call-graph traversal)
-the linkage can be projected once into a flat table. This is the
-table where storing monikers as columns is the right shape: each row
-is a single edge whose endpoints are individual monikers, not
-summaries of a graph.
+For hot queries (`find-callers` at scale, deep call-graph traversal),
+the linkage can be projected once into a flat table — each row a
+single edge whose endpoints are individual monikers. It is a cache,
+reconstructible from `module` rows at any time; truth lives in
+`module.graph`.
 
-```sql
-CREATE TABLE linkage (
-    source_id      uuid       NOT NULL REFERENCES module(id) ON DELETE CASCADE,
-    source_moniker moniker    NOT NULL,
-    target_moniker moniker    NOT NULL,
-    kind           text       NOT NULL,
-    binding        text       NOT NULL,
-    confidence     text       NOT NULL,
-    position       int4range
-);
-
-CREATE INDEX linkage_target_gist ON linkage USING gist (target_moniker);
-CREATE INDEX linkage_source     ON linkage (source_id);
-
-INSERT INTO linkage (source_id, source_moniker, target_moniker, kind, binding, confidence, position)
-SELECT m.id, r.source, r.target, r.kind, r.binding, r.confidence, r.position
-FROM module m, LATERAL graph_refs(m.graph) AS r;
-```
-
-The table is reconstructible from `module` rows at any time; it is
-a cache, not the truth. Truth lives in `module.graph`.
-
-### Origins
-
-The same `module` table holds all three origins uniformly.
-Discriminate by `origin` when needed:
-
-- `extracted` — `source_text` and `source_uri` non-NULL; positions
-  in `graph` point into `source_text`; `graph_defs(graph)` rows have
-  `origin = extracted`.
-- `declared` — both NULL; positions in `graph` are NULL; produced by
-  `code_graph_declare`; `graph_defs(graph)` rows have
-  `origin = declared`.
-- `external` — both NULL; `graph` may be minimal.
-
-Promotion (`declared → extracted` when a source file appears) is an
-UPDATE on the row that swaps `graph` and fills `source_*`. The
-module's `id` is preserved.
+DDL + populating `INSERT`: see the [flat linkage cache section](../postgres/usage.md#flat-linkage-cache).
 
 ## API surface
 
-The SQL surface is generated by pgrx from `#[pg_extern]` and
-`#[derive(PostgresType)]` annotations on Rust items. Everything below
-lives in the `code_moniker` schema; qualify or pin
-`search_path = code_moniker, public` before running the examples in
-this section.
-
-- **Types**: `moniker`, `moniker_pattern`, `code_graph`.
-- **Operators**:
-  - `moniker = moniker → bool`
-  - `bind_match(moniker, moniker) → bool`
-  - `moniker <@ moniker → bool`, `moniker @> moniker → bool`
-  - `moniker || (segment, kind) → moniker`
-  - `moniker ~ moniker_pattern → bool`
-  - `code_graph @> moniker → bool`
-- **Accessors on `moniker`**: `kind_of`, `project_of`, `lang_of`,
-  `path_of`, `parent_of`, `depth`.
-- **Accessors / iterators on `code_graph`**: `graph_root`,
-  `graph_defs`, `graph_refs`, `graph_locate`, `graph_def_monikers`,
-  `graph_ref_targets`, `graph_export_monikers`, `graph_import_targets`.
-- **Constructors**: `graph_create(moniker, kind) → code_graph`,
-  `graph_add_def(...)`, `graph_add_ref(...)`,
-  `code_graph_declare(jsonb) → code_graph`. Immutable: each returns
-  a new `code_graph`.
-- **Projection**: `code_graph_to_spec(code_graph) → jsonb`. Inverse
-  of `code_graph_declare`, lossy on non-canonical ref kinds.
-- **Extractors**: `extract_typescript(...)`, `extract_rust(...)`,
-  `extract_java(...)`, `extract_python(...)`, `extract_go(...)`,
-  `extract_csharp(...)`, `extract_plpgsql(...)`.
-- **Index**: custom GiST opclass for `moniker` (`=`, `bind_match`,
-  `<@`, `@>`, `~`); btree and hash opclasses for ordering and hash
-  joins; GIN over `moniker[]`.
-
-All functions are `IMMUTABLE STRICT PARALLEL SAFE` unless explicitly
-noted.
+The full SQL surface (types, operators, accessors, extractors, indexes) lives in the [SQL reference](../postgres/reference.md). It is generated by pgrx from `#[pg_extern]` and `#[derive(PostgresType)]` annotations on Rust items.
 
 ## Compatibility
 

@@ -1,15 +1,15 @@
 # `code-moniker check` — project linter
 
 ```
-code-moniker check <path> [--rules <path>] [--format text|json]
+code-moniker check <path> [--rules <path>] [--format text|json] [--profile <NAME>]
 ```
 
 The `check` subcommand evaluates a declarative rule pack against the
 symbol graph of one file or a whole project. It is the entry point for
 agent guardrails, pre-commit hooks, and CI gates. For the per-file
-probe form, see [`cli-extract.md`](cli-extract.md). For the full rule
-grammar, see [`check-dsl.md`](check-dsl.md). For an end-to-end
-integration walkthrough, see [`use-as-agent-harness.md`](use-as-agent-harness.md).
+probe form, see the [extract subcommand](extract.md). For the full rule
+grammar, see the [rule DSL](check-dsl.md). For an end-to-end
+integration walkthrough, see the [agent harness guide](agent-harness.md).
 
 `<path>` is either a single source file (per-edit lint) or a directory
 (project-wide scan). Loads an embedded default rule pack, optionally
@@ -32,7 +32,7 @@ Exit codes:
 
 ## Configuration
 
-Full DSL reference: [`check-dsl.md`](check-dsl.md). Grammar, scopes
+Full grammar reference: [rule DSL](check-dsl.md). Scopes
 (`[[<lang>.<kind>.where]]` for defs, `[[refs.where]]` for refs),
 quantifiers (`any` / `all` / `none` / `count` on `<kind>` / `segment` /
 `out_refs` / `in_refs`), path patterns (`moniker ~ '**/class:/Port$/'`),
@@ -49,7 +49,7 @@ message = "Class `{name}` is too wide ({value})."
 
 [[refs.where]]
 id   = "domain-no-infra"
-expr = "source ~ '**/module:domain/**' => NOT target ~ '**/module:infrastructure/**'"
+expr = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infrastructure/**'"
 
 [ts.class]
 require_doc_comment = "public"
@@ -61,6 +61,39 @@ A def is documented iff a comment def ends on the line immediately above
 the def's **doc anchor** — which is the earliest of (the def's own start,
 any `annotates` ref position for this def). That handles
 `/** doc */\n@Decorator\nclass Foo` correctly.
+
+## Profiles
+
+`--profile <NAME>` filters the active rule set through a named profile
+declared in `.code-moniker.toml`. A profile is two regex lists matched
+against fully-qualified rule ids (`<lang>.<kind>.<id>` for def rules,
+`refs.<id>` for top-level ref rules, `<lang>.refs.<id>` for per-lang ref
+rules).
+
+```toml
+[profiles.bugfix]
+# only keep rules whose id matches at least one pattern in `enable`
+enable = ["^ts\\.class\\..*", "^refs\\.domain-no-infra$"]
+
+[profiles.naming-only]
+# keep everything except what `disable` matches
+disable = ["\\.no-god-class$", "\\.low-fan-out$"]
+```
+
+A rule is kept iff:
+
+```
+(enable is empty OR any enable pattern matches the rule id)
+AND no disable pattern matches the rule id
+```
+
+```sh
+code-moniker check src/ --profile bugfix
+```
+
+`enable` empty means "keep everything"; `disable` empty means "drop
+nothing". Unknown profile name → exit 2 with the list of declared
+profiles. Bad regex → exit 2 with the offending pattern.
 
 ## Recipes
 
@@ -283,9 +316,9 @@ block. Value `"public"` lints public defs only, `"any"` lints them all.
 
 The full grammar (operators, projections, alias scoping) and a single
 consolidated `.code-moniker.toml` covering every recipe above live in
-[`check-dsl.md`](check-dsl.md). For wiring `check` into a Claude Code
-hook, a pre-commit gate, or CI, see
-[`use-as-agent-harness.md`](use-as-agent-harness.md).
+the [rule DSL](check-dsl.md). For wiring `check` into a Claude Code
+hook, a pre-commit gate, or CI, see the
+[agent harness guide](agent-harness.md).
 
 ## Custom messages
 
@@ -380,6 +413,6 @@ problems?".
 
 ## Next steps
 
-- Plug into an agent loop or CI gate → [`use-as-agent-harness.md`](use-as-agent-harness.md).
-- Write your first rule → [`check-dsl.md`](check-dsl.md).
-- Probe a single file ad-hoc → [`cli-extract.md`](cli-extract.md).
+- Plug into an agent loop or CI gate → [agent harness](agent-harness.md).
+- Write your first rule → [rule DSL](check-dsl.md).
+- Probe a single file ad-hoc → [extract](extract.md).

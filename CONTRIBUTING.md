@@ -1,7 +1,7 @@
 # Contributing to `code-moniker`
 
 Build, test, and extend the project. The conceptual model and SQL
-surface are documented in [`docs/design/spec.md`](docs/design/spec.md).
+surface are documented in the [spec](docs/design/spec.md).
 
 ## Layout
 
@@ -146,7 +146,7 @@ A new extractor under `crates/core/src/lang/<lang>/` mirrors the `ts/` skeleton:
   `crates/pg/src/build.rs::extract_<system>`).
 
 Adding a kind or visibility requires updating the trait constants
-**and** `docs/declare_schema.json` (enforced by the schema-sync test
+**and** `docs/postgres/declare-schema.json` (enforced by the schema-sync test
 in `crates/core/src/lang/mod.rs`).
 
 Wire the SQL surface in `crates/pg/src/extract.rs` (`#[pg_extern] fn
@@ -155,7 +155,7 @@ entry to `scripts/dogfood/panel.sh`.
 
 The allowed kinds and visibilities per language are enumerated in
 `crates/core/src/lang/<lang>/mod.rs` (the `LangExtractor` trait
-constants) and mirrored in `docs/declare_schema.json`.
+constants) and mirrored in `docs/postgres/declare-schema.json`.
 
 ## pgrx 0.18 gotchas
 

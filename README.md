@@ -24,7 +24,7 @@ extractor:
   SQL types (`moniker`, `code_graph`) with an indexed algebra.
 
 No index to maintain, no daemon — the linter runs on any checkout
-without setup; benchmarks live in [`docs/perf.md`](docs/perf.md).
+without setup; benchmarks are in [Performance](docs/perf.md).
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
 Python, Go, C#, SQL, PL/pgSQL.
 
@@ -58,18 +58,20 @@ materialises like this (scanning with `src/` as root):
       …/method:save  ── uses_type ──▶  …/dir:domain/module:repo/interface:OrderRepo
 ```
 
-The moniker URI carries identity and structural path; `code_graph`
-carries the relations (calls, imports, implements, extends,
-uses_type) between monikers. A rule like
+The [moniker URI](docs/design/moniker-uri.md) carries identity and
+structural path; the [`code_graph`](docs/design/spec.md#the-code_graph)
+carries the relations (calls, imports, implements, extends, uses_type)
+between monikers. A [`check` rule](docs/cli/check.md) like
 `source ~ '**/dir:domain/**' => target ~ '**/dir:domain/**'`
 becomes a one-liner the linter enforces statelessly, file by file.
 
 The Postgres extension is this model ported into a database.
-`moniker` and `code_graph` become native SQL types; the algebra
-(`<@` for subtree, `?=` for `bind_match` cross-file resolution,
-`@>` for ancestry) becomes SQL operators backed by GiST and GIN
-indexes. The symbol graph now sits next to your domain tables and
-joins with them in one query:
+[`moniker` and `code_graph`](docs/postgres/reference.md#types) become
+native SQL types; the [indexed algebra](docs/postgres/reference.md#operators)
+(`<@` for subtree, `?=` for `bind_match` cross-file resolution, `@>`
+for ancestry) becomes SQL operators backed by GiST and GIN indexes.
+The symbol graph now sits next to your domain tables and joins with
+them in one query:
 
 ```sql
 -- Which deployments in the last week touched code under dir:domain/?
@@ -100,7 +102,7 @@ Or from a local clone:
 cargo install --path crates/cli
 ```
 
-Postgres extension (PG17 via pgrx; Docker variant in [`docs/use-in-postgres.md`](docs/use-in-postgres.md)):
+Postgres extension (PG17 via pgrx; Docker variant in the [SQL reference](docs/postgres/reference.md)):
 
 ```sh
 cargo install --locked cargo-pgrx
@@ -110,39 +112,21 @@ cargo pgrx install --manifest-path crates/pg/Cargo.toml --pg-config $HOME/.pgrx/
 
 Then `CREATE EXTENSION code_moniker;` in any PG17 database.
 
-## CLI — `code-moniker check`
+## CLI
 
-```toml
-# .code-moniker.toml
-[[refs.where]]
-id   = "domain-no-infra"
-expr = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infrastructure/**'"
+Two subcommands :
 
-[[ts.class.where]]
-id   = "no-god-class"
-expr = "count(method) <= 20 AND all(method, lines <= 60)"
-```
-
-```sh
-$ code-moniker check src/
-src/domain/order.ts:L42-L88 [ts.class.no-god-class] class `Order` fails `count(method) <= 20`
-  → Class `Order` is too wide (24).
-1 violation(s) across 1 file(s) (47 scanned).
-$ echo $?
-1
-```
+- `code-moniker check <path>` — lint against `.code-moniker.toml` rules.
+  Exit 1 on the first violation; output line points to file:line and
+  carries the rule id. Plugs into `PostToolUse` hooks, pre-commit, CI.
+- `code-moniker extract <path>` — dump the moniker graph (TSV / JSON /
+  tree) for a file or directory. `--kind`, `--shape`, `--where` turn it
+  into a filtered cross-tree query.
 
 Rules talk about symbols and their relations (calls, imports,
-inheritance, layering, naming), not just syntax. Exit 1 is the signal
-for `PostToolUse` hooks, pre-commit, and CI.
+inheritance, layering, naming) — not text.
 
-The bare `code-moniker <path>` form (no `check`) is a probe: a single
-file emits its full graph (TSV / JSON), a directory emits a per-file
-summary, and `--kind` / `--where` turn it into a filtered cross-tree
-query. Useful for ad-hoc exploration without writing a rule pack.
-
-→ [docs/use-as-agent-harness.md](docs/use-as-agent-harness.md) ·
-[docs/cli-extract.md](docs/cli-extract.md)
+→ [Check](docs/cli/check.md) · [Extract](docs/cli/extract.md) · [Agent harness](docs/cli/agent-harness.md)
 
 ## Postgres extension — `extract_<lang>` + indexed algebra
 
@@ -164,30 +148,16 @@ defs and refs. Cross-file linkage is a single indexed JOIN on `?=`
 (`bind_match`). The extension owns no tables — types, operators,
 and pure functions only.
 
-→ [docs/use-in-postgres.md](docs/use-in-postgres.md)
+→ [Postgres usage](docs/postgres/usage.md)
 
-## Doc map
+## Documentation
 
-| Goal                                                                | Read                                                              |
-|---------------------------------------------------------------------|-------------------------------------------------------------------|
-| Lint a project, gate an agent, guard pre-commit / CI                | [docs/use-as-agent-harness.md](docs/use-as-agent-harness.md)      |
-| Index a corpus in Postgres for cross-file queries                   | [docs/use-in-postgres.md](docs/use-in-postgres.md)                |
-| CLI reference (per-file probe, project linter, rule DSL)            | [docs/README.md](docs/README.md)                                  |
-| Add a language, change the SQL surface, build & test                | [CONTRIBUTING.md](CONTRIBUTING.md) · [docs/design/spec.md](docs/design/spec.md) |
+Full index in the [docs/](docs/README.md) tree. Entry points:
 
-## Surface
-
-- Types: `moniker`, `code_graph`.
-- Operators: `=`, `?=` (`bind_match`), `<` / `<=` / `>` / `>=`,
-  `<@` / `@>`, `||` (compose child).
-- Indexes: btree / hash / GiST on `moniker`, GIN over `moniker[]`.
-- Extractors: `extract_typescript`, `extract_rust`, `extract_java`,
-  `extract_python`, `extract_go`, `extract_csharp`,
-  `extract_plpgsql`. Manifest parsers: `extract_cargo`,
-  `extract_package_json`, `extract_pom_xml`, `extract_pyproject`,
-  `extract_go_mod`, `extract_csproj`.
-- Constructors for synthetic graphs: `code_graph_declare(jsonb)` /
-  `code_graph_to_spec(code_graph)`.
+- CLI — [Extract](docs/cli/extract.md), [Check](docs/cli/check.md), [Agent harness](docs/cli/agent-harness.md)
+- PostgreSQL — [SQL reference](docs/postgres/reference.md), [Usage](docs/postgres/usage.md)
+- Design — [Spec](docs/design/spec.md), [Moniker URI](docs/design/moniker-uri.md)
+- [Contributing](CONTRIBUTING.md) — build, test, add a language
 
 ## License
 

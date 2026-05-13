@@ -23,7 +23,7 @@ pub use extractor::assert_conformance;
 /// - participation in `Lang::from_tag` / `Lang::tag` / `Lang::allowed_kinds`
 ///   / `Lang::allowed_visibilities` (all consult the trait — no per-language
 ///   constant ever lives outside its `LangExtractor` impl)
-/// - dispatch in the conformance test that scans `docs/declare_schema.json`
+/// - dispatch in the conformance test that scans `docs/postgres/declare-schema.json`
 ///
 /// Forgetting to update one of those callsites is impossible: if a row is
 /// missing, the build fails. If the row is present, every dispatch sees it.
@@ -127,7 +127,7 @@ mod schema_sync_tests {
 	use super::for_each_language;
 	use serde_json::Value;
 
-	const SCHEMA_JSON: &str = include_str!("../../../../docs/declare_schema.json");
+	const SCHEMA_JSON: &str = include_str!("../../../../docs/postgres/declare-schema.json");
 
 	fn profile_name_for(tag: &str) -> String {
 		let mut chars = tag.chars();
@@ -152,8 +152,8 @@ mod schema_sync_tests {
 
 	#[test]
 	fn declare_schema_matches_trait_constants() {
-		let schema: Value =
-			serde_json::from_str(SCHEMA_JSON).expect("docs/declare_schema.json must be valid JSON");
+		let schema: Value = serde_json::from_str(SCHEMA_JSON)
+			.expect("docs/postgres/declare-schema.json must be valid JSON");
 
 		let mut visited = 0usize;
 		for_each_language(|tag, kinds, visibilities| {
@@ -165,14 +165,14 @@ mod schema_sync_tests {
 			assert_eq!(
 				sort(&schema_kinds),
 				sort(&trait_kinds),
-				"declare_schema.json {profile}.kind enum drifted from `{tag}` trait ALLOWED_KINDS"
+				"declare-schema.json {profile}.kind enum drifted from `{tag}` trait ALLOWED_KINDS"
 			);
 
 			if visibilities.is_empty() {
 				let schema_vis = enum_at(&schema, &profile, "visibility");
 				assert!(
 					schema_vis.is_empty(),
-					"declare_schema.json {profile} declares visibilities but extractor profile is empty"
+					"declare-schema.json {profile} declares visibilities but extractor profile is empty"
 				);
 			} else {
 				let schema_vis = enum_at(&schema, &profile, "visibility");
@@ -180,7 +180,7 @@ mod schema_sync_tests {
 				assert_eq!(
 					sort(&schema_vis),
 					sort(&trait_vis),
-					"declare_schema.json {profile}.visibility enum drifted from `{tag}` trait ALLOWED_VISIBILITIES"
+					"declare-schema.json {profile}.visibility enum drifted from `{tag}` trait ALLOWED_VISIBILITIES"
 				);
 			}
 		});

@@ -5,7 +5,7 @@
 reads exit codes — a Claude Code `PostToolUse` hook, a Git
 pre-commit hook, a CI job — can gate on that signal.
 
-Reference: [`cli-check.md`](cli-check.md) (subcommand), [`check-dsl.md`](check-dsl.md) (rule grammar).
+Reference: the [check subcommand](check.md) and the [rule DSL](check-dsl.md).
 
 ## What rules talk about
 
@@ -63,23 +63,15 @@ id   = "repository-lives-in-domain"
 expr = "name =~ Repository$ => moniker ~ '**/dir:domain/**'"
 ```
 
-Full grammar: [`check-dsl.md`](check-dsl.md). A larger example
+Full grammar: the [rule DSL](check-dsl.md). A larger example
 covering Clean Code, DDD, Hex layering, and bounded contexts is
 appended to that file.
 
 ## Run
 
-```sh
-$ code-moniker check src/
-src/domain/order.ts:L42-L88 [ts.class.no-god-class] class `Order` fails `count(method) <= 20`
-  → Class `Order` is too wide (24).
-1 violation(s) across 1 file(s) (47 scanned).
-$ echo $?
-1
-```
-
-`--format json` switches to structured output for harnesses that
-parse the report.
+For the invocation shape, exit codes, text vs JSON output, and the
+violation line format, see the [output section of check](check.md#output). Everything
+below assumes you've read that surface and focuses on the wiring.
 
 ## Claude Code `PostToolUse` hook
 
@@ -221,4 +213,4 @@ expr = """
 
 Rules see direct refs of the current def. Transitive analysis
 (`X indirectly calls Y`), cycle detection, and dataflow live in SQL
-against an ingested corpus — see [`use-in-postgres.md`](use-in-postgres.md).
+against an ingested corpus — see [Postgres usage](../postgres/usage.md).

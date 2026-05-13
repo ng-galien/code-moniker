@@ -1,5 +1,5 @@
-//! Standalone CLI surface. See `docs/cli-extract.md` (per-file probe)
-//! and `docs/cli-check.md` (project linter).
+//! Standalone CLI surface. See `docs/cli/extract.md` (per-file probe)
+//! and `docs/cli/check.md` (project linter).
 
 pub mod args;
 pub mod cache;

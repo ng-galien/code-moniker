@@ -88,72 +88,24 @@ The `lang:` segment serves three purposes:
 3. Encodes language as identity: a `class:Foo` in Java and a
    `class:Foo` in TypeScript are not the same node.
 
-## Binding metadata
+## Binding lives outside the URI
 
 The moniker is identity. Binding (whether a def is exported or
-local, whether a ref is an import / DI injection / local) is not in
-the moniker bytes. It lives as an explicit column on the def/ref
-records:
+local, whether a ref is an import / DI injection / local) is **not**
+in the moniker bytes — it lives as an explicit column on the def/ref
+records. Keeping binding on the row lets the GiST opclass implement
+`bind_match` as a purely structural operation, qualified by `WHERE`
+predicates over binding columns at query time.
 
-- `DefRecord.binding` ∈ {`export`, `local`, `none`, `inject`}
-- `RefRecord.binding` ∈ {`import`, `local`, `none`, `inject`}
-
-Semantics: `SPEC.md` § Binding semantics. Keeping binding on the row
-lets the GiST opclass implement `bind_match` as a purely structural
-operation, qualified by `WHERE` predicates over binding columns at
-query time.
+Enum values and matching matrix: see [binding semantics](spec.md#binding-semantics) in the spec.
 
 ## Operators
 
-### `=` — byte-strict equality
-
-Equality of the canonical bytes, including the kind of every
-segment. The matching primitive when total identity is required
-(ODR enforcement, deduplication, primary keys).
-
-### `?=` / `bind_match` — structural matching for cross-file linkage
-
-`bind_match(left, right)` (operator `?=`) is true when:
-
-- `left.project == right.project` (byte-strict);
-- every segment except the last is byte-equal (including `srcset:`,
-  `lang:`, every parent segment);
-- the **last** segment compares **name-only**:
-  `left.last.name == right.last.name`. The last segment's `kind`
-  may differ.
-
-The intent is to match an extractor's import-side ref against the
-corresponding export-side def when the extractor has only partial
-information about the target. For Python `from X import Y`:
-
-```text
--- Import-side ref (extractor doesn't know what Y is):
-.../module:X/path:Y
--- Export-side def:
-.../module:X/function:Y(int,str)
-```
-
-These are not equal byte-for-byte, but `?=` returns true: project
-equal, `.../module:X` equal, last segment names equal (`Y == Y`
-after stripping `(...)` from the def-side name per the `lang:python`
-arm).
-
-Default last-segment matching is byte-strict on the name.
-Language-specific refinements (callable bare-name matching) are
-dispatched by the shared `lang:` segment. `bind_match` is registered
-in the moniker GiST opclass; index lookups are O(log n).
-
-### Containment and composition
-
-`<@` / `@>` test byte-prefix containment. `||` composes a child
-moniker from a parent and a typed segment:
-
-```sql
-'code+moniker://app/srcset:main'::moniker || 'lang:ts'   -- compose by typed segment
-compose_child(parent, kind text, name text)              -- compose by (kind, name) pair
-```
-
-These operators are byte-strict and unaffected by `bind_match`.
+The URI grammar feeds five operators: `=` (byte-strict equality),
+`?=` (`bind_match`, cross-file resolution), `<@` / `@>` (byte-prefix
+containment), `||` (child composition by typed segment). Conceptual
+semantics: [spec operators](spec.md#operators). SQL signatures:
+[SQL reference operators](../postgres/reference.md#operators).
 
 ## Compact URI
 

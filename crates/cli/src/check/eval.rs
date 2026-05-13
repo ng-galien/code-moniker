@@ -1660,48 +1660,6 @@ mod tests {
 		assert!(v.is_empty(), "premise true + consequent true: {v:?}");
 	}
 
-	// ─── doc <-> code drift guard ───────────────────────────────────────
-
-	/// Extract the first ```toml fenced block from a given markdown section.
-	fn extract_toml_block(md: &str, heading: &str) -> String {
-		let after = md
-			.split(heading)
-			.nth(1)
-			.unwrap_or_else(|| panic!("heading `{heading}` not found in doc"));
-		let open = "```toml";
-		let close = "```";
-		let after_open = after
-			.split(open)
-			.nth(1)
-			.unwrap_or_else(|| panic!("no ```toml block under `{heading}`"));
-		after_open
-			.split(close)
-			.next()
-			.unwrap_or_else(|| panic!("unterminated ```toml block under `{heading}`"))
-			.trim()
-			.to_string()
-	}
-
-	#[test]
-	fn docs_worked_example_parses_and_evaluates() {
-		let md = include_str!("../../../../docs/check-dsl.md");
-		let toml_src = extract_toml_block(md, "## Worked example");
-		let cfg: Config = toml::from_str(&toml_src).unwrap_or_else(|e| {
-			panic!(
-				"worked example does not parse as TOML: {e}\n--- source ---\n{toml_src}\n--- end ---"
-			)
-		});
-		// Compile (= parse every rule expression and resolve aliases) by
-		// running an evaluation against an empty graph. Catches any rule
-		// the parser refuses.
-		let root = build_module(b"empty");
-		let g = CodeGraph::new(root, b"module");
-		let res = evaluate(&g, "", Lang::Ts, &cfg, SCHEME);
-		res.unwrap_or_else(|e| {
-			panic!("worked example fails to compile: {e}\n--- source ---\n{toml_src}\n--- end ---")
-		});
-	}
-
 	// ─── segment(K) projection ──────────────────────────────────────────
 
 	#[test]

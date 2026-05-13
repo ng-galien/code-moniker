@@ -8,11 +8,12 @@ evaluates to **false** on a given def or ref.
 
 ## Scopes
 
-A rule is anchored to one of three **scopes** by its TOML path:
+A rule is anchored to one of four **scopes** by its TOML path:
 
 | TOML path                           | Scope             | Iterates over    |
 | ----------------------------------- | ----------------- | ---------------- |
 | `[[<lang>.<kind>.where]]`           | Def of that kind  | `graph.defs()` filtered by lang + kind |
+| `[[default.<kind>.where]]`          | Def of that kind, **any lang** | fallback when no `[<lang>.<kind>]` entry exists for the file's language |
 | `[[refs.where]]`                    | Ref (poly-lang)   | `graph.refs()`   |
 | `[[<lang>.refs.where]]`             | Ref (per lang)    | `graph.refs()` filtered by lang of source |
 
@@ -20,6 +21,11 @@ Top-level `[[refs.where]]` is the natural home for architectural invariants
 that hold across languages ("the domain layer does not depend on
 infrastructure"). The per-lang form exists only for conventions that are
 genuinely language-specific (e.g. `kind = 'reexports'` only exists in TS/JS).
+
+`[[default.<kind>.where]]` lets you state a rule once for a kind that
+exists in several languages (`class`, `method`, `function`). It only
+applies to a file when the file's language has **no** `[<lang>.<kind>]`
+block for that kind — per-language rules win over the default.
 
 ## Grammar
 
@@ -231,166 +237,12 @@ place) or appends new rules. `require_doc_comment` overrides if set.
 Aliases from the user merge on top of embedded ones with the same
 replace-by-name rule.
 
-## Worked example — Hex / DDD / Clean Code
+## Recipes and suppression directives
 
-A `.code-moniker.toml` for a TypeScript app organised as
-`src/domain/`, `src/application/`, `src/infrastructure/`,
-`src/billing/`, `src/shipping/`. TS path segments are encoded as
-`dir:<seg>`, so an alias matches against `**/dir:domain/**`.
-
-```toml
-[aliases]
-domain   = "moniker ~ '**/dir:domain/**'"
-app      = "moniker ~ '**/dir:application/**'"
-infra    = "moniker ~ '**/dir:infrastructure/**'"
-adapter  = "moniker ~ '**/dir:adapter/**'"
-contract = "moniker ~ '**/dir:contract/**'"
-
-# ─── Clean Code (def-scoped, per-lang) ────────────────────────────────
-[[ts.class.where]]
-id   = "no-god-class"
-expr = "count(method) <= 20 AND count(field) <= 7 AND all(method, lines <= 60)"
-
-[[ts.method.where]]
-id   = "name-is-a-verb"
-expr = "NOT name =~ ^(do|handle|process|manage)[A-Z]"
-
-[[ts.constructor.where]]
-id   = "small-ctor"
-expr = "count(param) <= 4"
-
-[[ts.method.where]]
-id   = "method-not-named-after-parent"
-expr = "name != parent.name"
-
-# ─── DDD building blocks ──────────────────────────────────────────────
-[[ts.class.where]]
-id   = "entity-has-id"
-expr = "name =~ Entity$ => any(field, name = 'id')"
-
-[[ts.class.where]]
-id   = "value-object-immutable"
-expr = """
-  (name =~ VO$ OR name =~ Value$)
-  => all(field, visibility = 'private')
-     AND none(method, name =~ ^set)
-"""
-
-[[ts.interface.where]]
-id   = "repository-lives-in-domain"
-expr = "name =~ Repository$ => $domain"
-
-[[ts.class.where]]
-id   = "use-case-shape"
-expr = """
-  name =~ UseCase$
-  => count(method) = 1
-     AND any(method, name = 'execute')
-"""
-
-[[ts.class.where]]
-id   = "port-is-never-a-class"
-expr = "NOT name =~ Port$"
-
-# ─── Hex / Layering (poly-lang refs) ──────────────────────────────────
-# Aliases substitute textually — `source $domain` would expand to
-# `source (moniker ~ '...')` which is malformed. In refs scope, use the
-# explicit `source ~` / `target ~` form instead.
-[[refs.where]]
-id   = "domain-depends-on-nothing-but-itself"
-expr = """
-  source ~ '**/dir:domain/**'
-  => target ~ '**/dir:domain/**'
-"""
-
-[[refs.where]]
-id   = "application-only-inward"
-expr = """
-  source ~ '**/dir:application/**'
-  => target ~ '**/dir:application/**'
-     OR target ~ '**/dir:domain/**'
-"""
-
-[[refs.where]]
-id   = "domain-imports-no-framework"
-expr = """
-  source ~ '**/dir:domain/**' AND kind = 'imports_symbol'
-  => NOT (target ~ '**/external_pkg:express/**'
-          OR target ~ '**/external_pkg:nestjs/**'
-          OR target ~ '**/external_pkg:typeorm/**'
-          OR target ~ '**/external_pkg:prisma/**')
-"""
-
-[[refs.where]]
-id   = "infra-implements-application-ports-only"
-expr = """
-  source ~ '**/dir:infrastructure/**' AND kind = 'implements'
-  => target ~ '**/dir:application/**' AND target.name =~ Port$
-"""
-
-# ─── Bounded contexts ─────────────────────────────────────────────────
-[[refs.where]]
-id   = "billing-touches-shipping-only-via-contract"
-expr = """
-  source ~ '**/dir:billing/**' AND target ~ '**/dir:shipping/**'
-  => target ~ '**/dir:contract/**'
-"""
-
-# ─── Adapters & controllers ───────────────────────────────────────────
-[[ts.class.where]]
-id   = "thin-controller"
-expr = """
-  name =~ Controller$
-  => count(method) <= 8
-     AND count(class) = 0
-     AND all(method, lines <= 30)
-"""
-
-[[ts.class.where]]
-id   = "adapter-implements-a-port"
-expr = """
-  name =~ Adapter$
-  => any(out_refs, kind = 'implements'
-                   AND target ~ '**/dir:application/**'
-                   AND target.name =~ Port$)
-"""
-
-# ─── Coupling ─────────────────────────────────────────────────────────
-[[ts.class.where]]
-id   = "low-fan-out"
-expr = """
-  kind = 'class'
-  => count(out_refs, kind = 'uses_type'
-                     AND NOT target ~ '**/external_pkg:/**') <= 7
-"""
-
-# ─── Tests ────────────────────────────────────────────────────────────
-[[ts.class.where]]
-id   = "fixtures-only-in-test-modules"
-expr = """
-  name =~ ^(Stub|Mock|Fake|Builder)$
-  => any(segment, segment.kind = 'dir'
-                  AND segment.name =~ (^tests?$|_test$))
-"""
-
-# ─── Doc comment (spatial, outside the DSL) ───────────────────────────
-[ts.class]
-require_doc_comment = "public"
-```
-
-## Suppression directives
-
-```ts
-// code-moniker: ignore                              // suppress every rule on the next def
-// code-moniker: ignore[name-pascalcase]             // only that rule id (suffix match)
-// code-moniker: ignore-file                         // whole file
-// code-moniker: ignore-file[max-lines]              // whole file, single rule
-```
-
-Rule ids follow the TOML path: `<lang>.<kind>.<id>` for def rules,
-`refs.<id>` for top-level ref rules, `<lang>.refs.<id>` for lang-specific
-ones. Suffix match: `name-pascalcase` matches every
-`<lang>.<kind>.name-pascalcase`.
+Worked examples for Clean Code, DDD, Hex layering, bounded contexts,
+adapters/controllers, and test modules — plus the `// code-moniker: ignore`
+syntax — live in the [recipes section of check](check.md#recipes). They use this grammar; no
+new construct is introduced.
 
 ## Beyond direct refs
 

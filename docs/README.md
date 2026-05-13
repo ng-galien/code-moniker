@@ -1,38 +1,25 @@
-# `code-moniker` documentation
+# Documentation
 
-`code-moniker` is two things sharing one extractor core:
+## CLI — `code-moniker`
 
-- a **standalone CLI** that turns source files into a symbol graph and
-  lints projects against a declarative rule pack;
-- a **PostgreSQL extension** that exposes the same graph as native SQL
-  types (`moniker`, `code_graph`) with an indexed algebra.
+- [Extract](cli/extract.md) — dump the moniker graph for a file or directory
+- [Check](cli/check.md) — lint a path against `.code-moniker.toml` rules
+- [Rule DSL](cli/check-dsl.md) — grammar: scopes, quantifiers, projections, path patterns
+- [Discovery](cli/langs.md) — `langs` and `shapes` vocabularies
+- [Agent harness](cli/agent-harness.md) — wire `check` into Claude Code hooks, pre-commit, or CI
 
-Start with the guide matching your use case.
+## PostgreSQL extension
 
-## Using `code-moniker`
+- [Reference](postgres/reference.md) — install, types, operators, accessors, constructors, extractors, indexes
+- [Usage](postgres/usage.md) — schema layout, populate, query patterns, binary I/O
+- [Declare schema](postgres/declare-schema.json) — JSON Schema for `code_graph_declare`
 
-| You want to…                                                                                  | Read                                                            |
-|-----------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
-| Gate an agent (Claude Code, etc.), pre-commit, or CI against architecture violations          | [`use-as-agent-harness.md`](use-as-agent-harness.md)            |
-| Index a code corpus inside Postgres for cross-file queries                                     | [`use-in-postgres.md`](use-in-postgres.md)                      |
-| Probe a file or a directory tree (single-file full graph, dir summary, filtered list)         | [`cli-extract.md`](cli-extract.md)                              |
-| Reference for the `check` subcommand: config merge, suppressions, output format               | [`cli-check.md`](cli-check.md)                                  |
-| Write or extend rules — grammar, scopes, quantifiers, path patterns                           | [`check-dsl.md`](check-dsl.md)                                  |
-| Benchmarks: single-file latency and project-scan throughput                                    | [`perf.md`](perf.md)                                            |
+## Design
 
-## Design and reference
+- [Spec](design/spec.md) — conceptual model, full SQL surface, per-language contract
+- [Moniker URI](design/moniker-uri.md) — URI grammar, operators, escaping
 
-Deeper, for consumers building on the SQL surface or contributors
-adding a language.
+## Other
 
-| Topic                                                                                          | Read                                                            |
-|------------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
-| Conceptual model, full SQL surface, implementation phases                                      | [`design/spec.md`](design/spec.md)                              |
-| Moniker URI grammar, operators (`=`, `bind_match`, `<@`, `@>`, `~`), escaping                  | [`design/moniker-uri.md`](design/moniker-uri.md)                |
-| JSON Schema for the declarative graph constructor (`code_graph_declare`)                       | [`declare_schema.json`](declare_schema.json)                    |
-
-## Contributing
-
-| Topic                                                                                          | Read                                                            |
-|------------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
-| Build, test, extractor skeleton, pgrx invariants                                                | [`../CONTRIBUTING.md`](../CONTRIBUTING.md)                      |
+- [Performance](perf.md) — single-file latency, project-scan throughput, cache impact
+- [Contributing](../CONTRIBUTING.md) — build, test, add a language, pgrx invariants

@@ -7,12 +7,11 @@
 - `README.md` — posture, two-pitch entry point, status
 - `CONTRIBUTING.md` — developer workflow (build, test, dogfood, add a language)
 - `CLAUDE.md` (this file) — coding rules
-- `docs/README.md` — doc index, grouped by audience
-- `docs/use-as-agent-harness.md`, `docs/use-in-postgres.md` — user guides
-- `docs/cli-extract.md`, `docs/cli-check.md`, `docs/check-dsl.md` — CLI reference
-- `docs/design/spec.md` — conceptual model, public API
-- `docs/design/moniker-uri.md` — moniker URI grammar
-- `docs/declare_schema.json` — JSON Schema 2020-12 for `code_graph_declare`. Per-language profiles must stay in sync with `LangExtractor::ALLOWED_KINDS` / `ALLOWED_VISIBILITIES` (enforced by the schema-sync test in `crates/core/src/lang/mod.rs`).
+- `docs/README.md` — single doc index (no per-category READMEs)
+- `docs/cli/extract.md`, `docs/cli/check.md`, `docs/cli/check-dsl.md`, `docs/cli/langs.md`, `docs/cli/agent-harness.md` — CLI surface
+- `docs/postgres/reference.md`, `docs/postgres/usage.md` — PostgreSQL extension
+- `docs/design/spec.md`, `docs/design/moniker-uri.md` — conceptual model + URI grammar
+- `docs/postgres/declare-schema.json` — JSON Schema 2020-12 for `code_graph_declare`. Per-language profiles must stay in sync with `LangExtractor::ALLOWED_KINDS` / `ALLOWED_VISIBILITIES` (enforced by the schema-sync test in `crates/core/src/lang/mod.rs`).
 
 ## Comment sobriety
 
@@ -97,7 +96,7 @@ A new language under `crates/core/src/lang/<lang>/` mirrors the `ts/` skeleton:
 
 - **`ParentNotFound` / `SourceNotFound` are silently dropped** by `let _ = graph.add_def_attrs(...)`. Synthesizing a moniker whose parent isn't in the graph drops every child (commit `9c23d04` Rust impl-for-external). Pre-check via `graph.contains(&parent)`; if missing, emit a placeholder first with `origin = ORIGIN_EXTRACTED` — `assert_conformance` rejects `ORIGIN_INFERRED` / `ORIGIN_DECLARED` from extractors (reserved for `code_graph_declare`).
 
-Every new extractor MUST implement `lang::LangExtractor` on a zero-sized `pub struct Lang;` at the top of `crates/core/src/lang/<lang>/mod.rs`, exposing `LANG_TAG`, `ALLOWED_KINDS`, `ALLOWED_VISIBILITIES`, and forwarding `extract` to the free function. `extract_default` test helper calls `lang::assert_conformance::<Lang>(&g, anchor)` on every fixture. Adding a kind or visibility requires updating the trait constants AND `docs/declare_schema.json`.
+Every new extractor MUST implement `lang::LangExtractor` on a zero-sized `pub struct Lang;` at the top of `crates/core/src/lang/<lang>/mod.rs`, exposing `LANG_TAG`, `ALLOWED_KINDS`, `ALLOWED_VISIBILITIES`, and forwarding `extract` to the free function. `extract_default` test helper calls `lang::assert_conformance::<Lang>(&g, anchor)` on every fixture. Adding a kind or visibility requires updating the trait constants AND `docs/postgres/declare-schema.json`.
 
 Wire the SQL surface in `crates/pg/src/extract.rs` (`#[pg_extern] fn extract_<lang>(...)`); add a pgTAP file under `pgtap/sql/` and a panel entry to `scripts/dogfood/panel.sh`.
 

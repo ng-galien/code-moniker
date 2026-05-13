@@ -1,40 +1,6 @@
-# Use `code-moniker` as a PostgreSQL extension
+# PostgreSQL — usage
 
-The extension provides native types (`moniker`, `code_graph`),
-an indexed algebra (`=`, `?=`, `<@`, `@>`, `||`, plus btree-order
-`<`/`<=`/`>`/`>=`), and per-language extractors. It owns no
-tables, no triggers, no I/O against external state. Persistence
-is the caller's responsibility; the shape below is the
-recommended one.
-
-References: [`design/spec.md`](design/spec.md) (conceptual model + SQL
-surface), [`design/moniker-uri.md`](design/moniker-uri.md) (URI grammar).
-
-## Install
-
-### Docker
-
-```sh
-docker build -t code-moniker:dev .
-docker run --rm -e POSTGRES_PASSWORD=pgcm -p 5432:5432 \
-    --name pgcm code-moniker:dev
-docker exec -it pgcm psql -U postgres -c "CREATE EXTENSION code_moniker;"
-```
-
-The image lands the extension on top of `postgres:17`. Version pins:
-`PG_MAJOR=17`, `PGRX_VERSION=0.18.0`; override either with `--build-arg`.
-
-### From source
-
-```sh
-cargo install --locked cargo-pgrx
-cargo pgrx init --pg17 download
-cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
-```
-
-`cargo pgrx run pg17` drops into an interactive `psql` with the
-extension loaded. See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the
-test loop.
+Reference (install, types, operators, accessors): see the [SQL reference](reference.md).
 
 ## Schema
 
@@ -207,14 +173,14 @@ SELECT code_graph_declare($$ {
 } $$::jsonb);
 ```
 
-Spec schema: [`declare_schema.json`](declare_schema.json). Reverse
+Spec schema: [declare-schema](declare-schema.json). Reverse
 projection: `code_graph_to_spec(graph) → jsonb`.
 
 ## Binary I/O — `bytea` round-trip + COPY BINARY
 
 Both native types expose explicit casts to/from `bytea`, backed by
 the same encoding the CLI uses for its on-disk cache (see
-`docs/cli-extract.md` `--cache`). The bytes are byte-identical
+`docs/cli/extract.md` `--cache`). The bytes are byte-identical
 across the two surfaces.
 
 ```sql
@@ -298,7 +264,8 @@ encodings, not storage formats.
 
 ## See also
 
-- [`design/spec.md`](design/spec.md) — conceptual model, full SQL surface.
-- [`design/moniker-uri.md`](design/moniker-uri.md) — URI grammar, escaping, `bind_match` semantics.
-- [`cli-extract.md`](cli-extract.md) — standalone CLI, no PG required.
-- [`use-as-agent-harness.md`](use-as-agent-harness.md) — same extractors plus a rule engine.
+- [SQL reference](reference.md) — install, types, operators, accessors, indexes.
+- [Spec](../design/spec.md) — conceptual model.
+- [Moniker URI](../design/moniker-uri.md) — URI grammar, `bind_match` semantics.
+- [Extract](../cli/extract.md) — standalone CLI.
+- [Agent harness](../cli/agent-harness.md) — same extractors with the rule engine.

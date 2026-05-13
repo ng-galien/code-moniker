@@ -8,7 +8,7 @@
 # Embedded defaults stick to structural / naming hygiene that is broadly
 # uncontroversial. Project-specific policies (comment-content allow-lists,
 # doc-comment requirements, max-lines/max-methods budgets) belong in the
-# user overlay — see docs/check-dsl.md for a worked example.
+# user overlay — see docs/cli/check-dsl.md for a worked example.
 
 # Aliases factor the case regexes shared across languages. A user overlay
 # may redefine any of these to tighten or loosen the convention without
@@ -147,7 +147,7 @@ id   = "name-snakecase"
 expr = "$snake"
 
 # ─── Cross-language structural invariants ────────────────────────────────
-# These use the `shape` projection (see docs/check-dsl.md "Shape — the
+# These use the `shape` projection (see docs/cli/check-dsl.md "Shape — the
 # canonical kind grouping") to express rules that hold regardless of
 # which language's kinds are involved.
 
