@@ -62,8 +62,8 @@ message = "`lang` extractors are pure libraries consumed by the CLI / PG crates;
 id      = "core-no-upper"
 expr    = """
   $core AND kind = 'imports_symbol'
-  => NOT (target ~ '**/dir:src/dir:lang/**'    OR target ~ '**/module:lang/**'
-       OR target ~ '**/dir:src/dir:declare/**' OR target ~ '**/module:declare/**'
+  => NOT (target ~ '**/dir:lang/**'    OR target ~ '**/module:lang/**'
+       OR target ~ '**/dir:declare/**' OR target ~ '**/module:declare/**'
        OR target ~ '**/external_pkg:code_moniker_cli/**'
        OR target ~ '**/external_pkg:code_moniker_pg/**')
 """
