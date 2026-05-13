@@ -255,6 +255,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "roxmltree",
+ "rustc-hash",
  "serde",
  "serde_cbor",
  "serde_json",

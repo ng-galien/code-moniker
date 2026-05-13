@@ -20,6 +20,8 @@ serde   = ["dep:serde"]
 [dependencies]
 serde = { workspace = true, optional = true }
 
+rustc-hash             = { workspace = true }
+
 # Tree-sitter and per-language grammars for the lang/ extractors.
 tree-sitter            = { workspace = true }
 tree-sitter-typescript = { workspace = true }

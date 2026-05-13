@@ -1,5 +1,5 @@
+use rustc_hash::FxHashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -88,7 +88,7 @@ pub struct CodeGraph {
 	defs: Vec<DefRecord>,
 	refs: Vec<RefRecord>,
 	#[cfg_attr(feature = "serde", serde(skip, default))]
-	index: RefCell<HashMap<Moniker, usize>>,
+	index: RefCell<FxHashMap<Moniker, usize>>,
 	#[cfg_attr(feature = "serde", serde(skip, default))]
 	def_monikers_cache: RefCell<Option<Arc<Vec<Moniker>>>>,
 	#[cfg_attr(feature = "serde", serde(skip, default))]
@@ -112,7 +112,8 @@ impl Hash for CodeGraph {
 
 impl CodeGraph {
 	pub fn from_records(defs: Vec<DefRecord>, refs: Vec<RefRecord>) -> Self {
-		let mut index = HashMap::with_capacity(defs.len());
+		let mut index: FxHashMap<Moniker, usize> = FxHashMap::default();
+		index.reserve(defs.len());
 		for (i, d) in defs.iter().enumerate() {
 			index.insert(d.moniker.clone(), i);
 		}
@@ -126,25 +127,36 @@ impl CodeGraph {
 	}
 
 	pub fn new(root: Moniker, root_kind: &[u8]) -> Self {
+		Self::with_capacity(root, root_kind, 8, 0)
+	}
+
+	pub fn with_capacity(root: Moniker, root_kind: &[u8], def_cap: usize, ref_cap: usize) -> Self {
 		use crate::core::kinds::{BIND_EXPORT, ORIGIN_EXTRACTED};
-		let mut index = HashMap::with_capacity(8);
+		let mut index: FxHashMap<Moniker, usize> = FxHashMap::default();
+		index.reserve(def_cap.max(8));
 		index.insert(root.clone(), 0);
+		let mut defs = Vec::with_capacity(def_cap.max(1));
+		defs.push(DefRecord {
+			moniker: root,
+			kind: root_kind.to_vec(),
+			parent: None,
+			position: None,
+			visibility: Vec::new(),
+			signature: Vec::new(),
+			binding: BIND_EXPORT.to_vec(),
+			origin: ORIGIN_EXTRACTED.to_vec(),
+		});
 		Self {
-			defs: vec![DefRecord {
-				moniker: root,
-				kind: root_kind.to_vec(),
-				parent: None,
-				position: None,
-				visibility: Vec::new(),
-				signature: Vec::new(),
-				binding: BIND_EXPORT.to_vec(),
-				origin: ORIGIN_EXTRACTED.to_vec(),
-			}],
-			refs: Vec::new(),
+			defs,
+			refs: Vec::with_capacity(ref_cap),
 			index: RefCell::new(index),
 			def_monikers_cache: RefCell::new(None),
 			ref_targets_cache: RefCell::new(None),
 		}
+	}
+
+	pub fn capacity_for_source(source_len: usize) -> (usize, usize) {
+		(source_len / 100, source_len / 50)
 	}
 
 	pub fn add_def(

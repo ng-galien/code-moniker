@@ -39,7 +39,8 @@ pub fn extract(
 ) -> CodeGraph {
 	let tree = parse(source);
 	let module = compute_module_moniker(anchor, uri);
-	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
+	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
+	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
 	let mut type_table: HashMap<&[u8], Moniker> = HashMap::new();
 	collect_type_table(
 		tree.root_node(),

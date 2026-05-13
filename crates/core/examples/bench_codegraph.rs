@@ -6,6 +6,7 @@ use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 fn def_at(i: usize) -> Moniker {
 	MonikerBuilder::new()
 		.project(b"bench")
+		.segment(b"path", b"root")
 		.segment(b"path", format!("d{i:06}").as_bytes())
 		.build()
 }

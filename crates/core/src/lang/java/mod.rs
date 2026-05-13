@@ -43,7 +43,8 @@ pub fn extract(
 	let pkg = read_package_name(tree.root_node(), source.as_bytes());
 	let pieces: Vec<&str> = pkg.split('.').filter(|s| !s.is_empty()).collect();
 	let module = compute_module_moniker(anchor, uri, &pieces);
-	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
+	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
+	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
 	let mut type_table: HashMap<&[u8], Moniker> = HashMap::new();
 	collect_type_table(
 		tree.root_node(),

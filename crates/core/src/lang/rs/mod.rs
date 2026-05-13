@@ -37,7 +37,8 @@ pub fn extract(
 	_presets: &Presets,
 ) -> CodeGraph {
 	let module = compute_module_moniker(anchor, uri);
-	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
+	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
+	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
 	let tree = parse(source);
 	let local_mods = collect_local_mods(tree.root_node(), source.as_bytes());
 	let mut callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>> = HashMap::new();

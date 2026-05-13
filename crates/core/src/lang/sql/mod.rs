@@ -23,7 +23,8 @@ pub fn extract(
 	_presets: &Presets,
 ) -> CodeGraph {
 	let module = compute_module_moniker(anchor, uri);
-	let mut graph = CodeGraph::new(module.clone(), kinds::MODULE);
+	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
+	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
 	let tree = strategy::parse(source);
 	let strat = strategy::Strategy {
 		module: module.clone(),
