@@ -38,8 +38,21 @@ test loop.
 
 ## Schema
 
+The extension installs its types, operators, and functions in the
+`code_moniker` schema. Either qualify every call (`code_moniker.moniker`,
+`code_moniker.extract_typescript(...)`) or pin the search path once:
+
+```sql
+SET search_path = code_moniker, public;
+-- or, per-session-persistent:
+ALTER DATABASE mydb SET search_path = code_moniker, public;
+```
+
+The examples below assume the search path is set.
+
 ```sql
 CREATE EXTENSION code_moniker;
+SET search_path = code_moniker, public;
 
 CREATE TABLE module (
     id          uuid PRIMARY KEY,

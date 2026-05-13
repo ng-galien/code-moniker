@@ -11,9 +11,12 @@ DB_NAME="${DB_NAME:-code_moniker_test}"
 
 PSQL="$PG_BIN/psql -h localhost -p $PG_PORT -X -q -A -t -v ON_ERROR_STOP=1"
 
-# Recreate the test DB.
+# Recreate the test DB. Pin search_path to find code_moniker.* objects unqualified;
+# install pgtap once in public so its functions persist across per-file ROLLBACKs.
 $PSQL -d postgres -c "DROP DATABASE IF EXISTS $DB_NAME;" >/dev/null
 $PSQL -d postgres -c "CREATE DATABASE $DB_NAME;" >/dev/null
+$PSQL -d "$DB_NAME" -c "CREATE EXTENSION pgtap WITH SCHEMA public;" >/dev/null
+$PSQL -d postgres -c "ALTER DATABASE $DB_NAME SET search_path = code_moniker, public;" >/dev/null
 
 # Run every pgtap/sql/*.sql in lexical order. Each file must emit its own
 # plan() … finish() block.

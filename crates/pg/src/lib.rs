@@ -1,6 +1,6 @@
 use pgrx::prelude::*;
 
-::pgrx::pg_module_magic!();
+::pgrx::pg_module_magic!(name, version);
 
 pub mod build;
 pub mod code_graph;

@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::sync::OnceLock;
 
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
@@ -170,29 +171,28 @@ where
 	}
 }
 
+type PgError = Box<dyn Error + Send + Sync + 'static>;
+
 #[pg_extern(immutable, parallel_safe)]
 fn code_graph_to_bytea(graph: code_graph) -> Vec<u8> {
 	graph.as_bytes().to_vec()
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn code_graph_from_bytea(bytes: &[u8]) -> code_graph {
-	if let Err(e) = encoding::decode(bytes) {
-		error!("code_graph_from_bytea: {e}");
-	}
-	code_graph::from_owned_bytes(bytes.to_vec())
+fn code_graph_from_bytea(bytes: &[u8]) -> Result<code_graph, PgError> {
+	encoding::decode(bytes)?;
+	Ok(code_graph::from_owned_bytes(bytes.to_vec()))
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn code_graph_to_cbor(graph: code_graph) -> Vec<u8> {
-	serde_cbor::to_vec(&graph.to_core()).unwrap_or_else(|e| error!("code_graph_to_cbor: {e}"))
+fn code_graph_to_cbor(graph: code_graph) -> Result<Vec<u8>, PgError> {
+	Ok(serde_cbor::to_vec(&graph.to_core())?)
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn code_graph_from_cbor(bytes: &[u8]) -> code_graph {
-	let core: CoreGraph =
-		serde_cbor::from_slice(bytes).unwrap_or_else(|e| error!("code_graph_from_cbor: {e}"));
-	code_graph::from_core(core)
+fn code_graph_from_cbor(bytes: &[u8]) -> Result<code_graph, PgError> {
+	let core: CoreGraph = serde_cbor::from_slice(bytes)?;
+	Ok(code_graph::from_core(core))
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -208,16 +208,15 @@ fn graph_add_def(
 	parent: moniker,
 	start_byte: default!(Option<i32>, "NULL"),
 	end_byte: default!(Option<i32>, "NULL"),
-) -> code_graph {
+) -> Result<code_graph, PgError> {
 	let mut next = graph.to_core();
 	next.add_def(
 		def.into_core(),
 		kind.as_bytes(),
 		&parent.to_core(),
 		pos_from_args(start_byte, end_byte),
-	)
-	.unwrap_or_else(|e| error!("graph_add_def: {e}"));
-	code_graph::from_core(next)
+	)?;
+	Ok(code_graph::from_core(next))
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -228,16 +227,15 @@ fn graph_add_ref(
 	kind: &str,
 	start_byte: default!(Option<i32>, "NULL"),
 	end_byte: default!(Option<i32>, "NULL"),
-) -> code_graph {
+) -> Result<code_graph, PgError> {
 	let mut next = graph.to_core();
 	next.add_ref(
 		&source.to_core(),
 		target.into_core(),
 		kind.as_bytes(),
 		pos_from_args(start_byte, end_byte),
-	)
-	.unwrap_or_else(|e| error!("graph_add_ref: {e}"));
-	code_graph::from_core(next)
+	)?;
+	Ok(code_graph::from_core(next))
 }
 
 fn pos_from_args(start: Option<i32>, end: Option<i32>) -> Option<Position> {
@@ -253,16 +251,15 @@ fn graph_add_defs(
 	defs: Vec<moniker>,
 	kinds: Vec<String>,
 	parents: Vec<moniker>,
-) -> code_graph {
+) -> Result<code_graph, PgError> {
 	if defs.len() != kinds.len() || defs.len() != parents.len() {
-		error!("graph_add_defs: arrays must have the same length");
+		return Err("graph_add_defs: arrays must have the same length".into());
 	}
 	let mut next = graph.to_core();
 	for ((d, k), p) in defs.into_iter().zip(kinds).zip(parents) {
-		next.add_def(d.into_core(), k.as_bytes(), &p.to_core(), None)
-			.unwrap_or_else(|e| error!("graph_add_defs: {e}"));
+		next.add_def(d.into_core(), k.as_bytes(), &p.to_core(), None)?;
 	}
-	code_graph::from_core(next)
+	Ok(code_graph::from_core(next))
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -271,16 +268,15 @@ fn graph_add_refs(
 	sources: Vec<moniker>,
 	targets: Vec<moniker>,
 	kinds: Vec<String>,
-) -> code_graph {
+) -> Result<code_graph, PgError> {
 	if sources.len() != targets.len() || sources.len() != kinds.len() {
-		error!("graph_add_refs: arrays must have the same length");
+		return Err("graph_add_refs: arrays must have the same length".into());
 	}
 	let mut next = graph.to_core();
 	for ((s, t), k) in sources.into_iter().zip(targets).zip(kinds) {
-		next.add_ref(&s.to_core(), t.into_core(), k.as_bytes(), None)
-			.unwrap_or_else(|e| error!("graph_add_refs: {e}"));
+		next.add_ref(&s.to_core(), t.into_core(), k.as_bytes(), None)?;
 	}
-	code_graph::from_core(next)
+	Ok(code_graph::from_core(next))
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -297,10 +293,9 @@ fn graph_locate(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn graph_root(graph: code_graph) -> moniker {
-	let root = encoding::decode_root(graph.as_bytes())
-		.unwrap_or_else(|e| error!("code_graph decode_root: {e}"));
-	moniker::from_core(root)
+fn graph_root(graph: code_graph) -> Result<moniker, PgError> {
+	let root = encoding::decode_root(graph.as_bytes())?;
+	Ok(moniker::from_core(root))
 }
 
 #[pg_operator(immutable, parallel_safe)]

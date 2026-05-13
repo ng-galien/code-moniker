@@ -45,7 +45,7 @@ fn extract_java(
 	code_graph::from_core(inner)
 }
 
-#[pg_extern]
+#[pg_extern(immutable, parallel_safe)]
 fn extract_plpgsql(
 	uri: &str,
 	source: &str,

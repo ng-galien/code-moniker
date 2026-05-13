@@ -108,6 +108,7 @@ $PSQL -d postgres -c "CREATE DATABASE $DB;" >/dev/null
 echo "== install extension + schema"
 $PSQL -d "$DB" <<SQL >/dev/null
 CREATE EXTENSION code_moniker;
+SET search_path = code_moniker, public;
 CREATE TABLE module (
 	project    text       NOT NULL,
 	lang       text       NOT NULL,
@@ -124,6 +125,8 @@ CREATE TABLE package (
 	PRIMARY KEY (project, name, dep_kind)
 );
 SQL
+
+$PSQL -d postgres -c "ALTER DATABASE $DB SET search_path = code_moniker, public;" >/dev/null
 
 ingest_one() {
 	local lang="$1" project="$2" clone_path="$3" src_subdir="$4" manifest_path="$5"

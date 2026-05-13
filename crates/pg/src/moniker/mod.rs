@@ -1,5 +1,6 @@
 use core::ffi::CStr;
 use core::ptr::addr_of_mut;
+use std::error::Error;
 use std::sync::OnceLock;
 
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
@@ -121,29 +122,28 @@ fn moniker_eq(a: moniker, b: moniker) -> bool {
 	a.as_bytes() == b.as_bytes()
 }
 
+type PgError = Box<dyn Error + Send + Sync + 'static>;
+
 #[pg_extern(immutable, parallel_safe)]
 fn moniker_to_bytea(m: moniker) -> Vec<u8> {
 	m.as_bytes().to_vec()
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn moniker_from_bytea(bytes: &[u8]) -> moniker {
-	if MonikerView::from_bytes(bytes).is_err() {
-		error!("moniker_from_bytea: invalid moniker bytes");
-	}
-	moniker::from_owned_bytes(bytes.to_vec())
+fn moniker_from_bytea(bytes: &[u8]) -> Result<moniker, PgError> {
+	MonikerView::from_bytes(bytes).map_err(|_| "moniker_from_bytea: invalid moniker bytes")?;
+	Ok(moniker::from_owned_bytes(bytes.to_vec()))
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn moniker_to_cbor(m: moniker) -> Vec<u8> {
-	serde_cbor::to_vec(&m.to_core()).unwrap_or_else(|e| error!("moniker_to_cbor: {e}"))
+fn moniker_to_cbor(m: moniker) -> Result<Vec<u8>, PgError> {
+	Ok(serde_cbor::to_vec(&m.to_core())?)
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn moniker_from_cbor(bytes: &[u8]) -> moniker {
-	let core: CoreMoniker =
-		serde_cbor::from_slice(bytes).unwrap_or_else(|e| error!("moniker_from_cbor: {e}"));
-	moniker::from_core(core)
+fn moniker_from_cbor(bytes: &[u8]) -> Result<moniker, PgError> {
+	let core: CoreMoniker = serde_cbor::from_slice(bytes)?;
+	Ok(moniker::from_core(core))
 }
 
 #[pg_extern(immutable, parallel_safe)]

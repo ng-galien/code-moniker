@@ -1,3 +1,7 @@
+#![allow(clippy::type_complexity)]
+
+use std::error::Error;
+
 use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
 
@@ -8,100 +12,126 @@ use code_moniker_core::lang::python::build as pyproject;
 use code_moniker_core::lang::rs::build as cargo;
 use code_moniker_core::lang::ts::build as package_json;
 
+type PgError = Box<dyn Error + Send + Sync + 'static>;
+
 #[pg_extern(immutable, parallel_safe)]
 fn extract_cargo(
 	content: &str,
-) -> TableIterator<
-	'static,
-	(
-		name!(name, String),
-		name!(version, Option<String>),
-		name!(dep_kind, String),
-		name!(import_root, String),
-	),
+) -> Result<
+	TableIterator<
+		'static,
+		(
+			name!(name, String),
+			name!(version, Option<String>),
+			name!(dep_kind, String),
+			name!(import_root, String),
+		),
+	>,
+	PgError,
 > {
-	let deps = cargo::parse(content).unwrap_or_else(|e| error!("{e}"));
-	rows_from(deps.into_iter().map(Into::into))
+	Ok(rows_from(
+		cargo::parse(content)?.into_iter().map(Into::into),
+	))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_package_json(
 	content: &str,
-) -> TableIterator<
-	'static,
-	(
-		name!(name, String),
-		name!(version, Option<String>),
-		name!(dep_kind, String),
-		name!(import_root, String),
-	),
+) -> Result<
+	TableIterator<
+		'static,
+		(
+			name!(name, String),
+			name!(version, Option<String>),
+			name!(dep_kind, String),
+			name!(import_root, String),
+		),
+	>,
+	PgError,
 > {
-	let deps = package_json::parse(content).unwrap_or_else(|e| error!("{e}"));
-	rows_from(deps.into_iter().map(Into::into))
+	Ok(rows_from(
+		package_json::parse(content)?.into_iter().map(Into::into),
+	))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_pom_xml(
 	content: &str,
-) -> TableIterator<
-	'static,
-	(
-		name!(name, String),
-		name!(version, Option<String>),
-		name!(dep_kind, String),
-		name!(import_root, String),
-	),
+) -> Result<
+	TableIterator<
+		'static,
+		(
+			name!(name, String),
+			name!(version, Option<String>),
+			name!(dep_kind, String),
+			name!(import_root, String),
+		),
+	>,
+	PgError,
 > {
-	let deps = pom_xml::parse(content).unwrap_or_else(|e| error!("{e}"));
-	rows_from(deps.into_iter().map(Into::into))
+	Ok(rows_from(
+		pom_xml::parse(content)?.into_iter().map(Into::into),
+	))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_pyproject(
 	content: &str,
-) -> TableIterator<
-	'static,
-	(
-		name!(name, String),
-		name!(version, Option<String>),
-		name!(dep_kind, String),
-		name!(import_root, String),
-	),
+) -> Result<
+	TableIterator<
+		'static,
+		(
+			name!(name, String),
+			name!(version, Option<String>),
+			name!(dep_kind, String),
+			name!(import_root, String),
+		),
+	>,
+	PgError,
 > {
-	let deps = pyproject::parse(content).unwrap_or_else(|e| error!("{e}"));
-	rows_from(deps.into_iter().map(Into::into))
+	Ok(rows_from(
+		pyproject::parse(content)?.into_iter().map(Into::into),
+	))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_go_mod(
 	content: &str,
-) -> TableIterator<
-	'static,
-	(
-		name!(name, String),
-		name!(version, Option<String>),
-		name!(dep_kind, String),
-		name!(import_root, String),
-	),
+) -> Result<
+	TableIterator<
+		'static,
+		(
+			name!(name, String),
+			name!(version, Option<String>),
+			name!(dep_kind, String),
+			name!(import_root, String),
+		),
+	>,
+	PgError,
 > {
-	let deps = go_mod::parse(content).unwrap_or_else(|e| error!("{e}"));
-	rows_from(deps.into_iter().map(Into::into))
+	Ok(rows_from(
+		go_mod::parse(content)?.into_iter().map(Into::into),
+	))
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn extract_csproj(
 	content: &str,
-) -> TableIterator<
-	'static,
-	(
-		name!(name, String),
-		name!(version, Option<String>),
-		name!(dep_kind, String),
-		name!(import_root, String),
-	),
+) -> Result<
+	TableIterator<
+		'static,
+		(
+			name!(name, String),
+			name!(version, Option<String>),
+			name!(dep_kind, String),
+			name!(import_root, String),
+		),
+	>,
+	PgError,
 > {
-	let deps = csproj::parse(content).unwrap_or_else(|e| error!("{e}"));
-	rows_from(deps.into_iter().map(Into::into))
+	Ok(rows_from(
+		csproj::parse(content)?.into_iter().map(Into::into),
+	))
 }
 
 fn rows_from<I: Iterator<Item = Dep>>(
