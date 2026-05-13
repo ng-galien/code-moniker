@@ -3,11 +3,13 @@
 
 pub mod args;
 pub mod check;
+pub mod dir;
 pub mod extract;
 pub mod format;
 pub mod lang;
 pub mod lines;
 pub mod predicate;
+pub mod walk;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -18,6 +20,21 @@ pub use lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};
 
 pub(crate) const DEFAULT_SCHEME: &str = "code+moniker://";
+
+pub(crate) fn unknown_kinds_error(
+	unknown: &[String],
+	langs: &[crate::lang::Lang],
+) -> anyhow::Error {
+	let known = predicate::known_kinds(langs.iter());
+	let lang_tags: Vec<&str> = langs.iter().map(|l| l.tag()).collect();
+	let known_list: Vec<&str> = known.iter().copied().collect();
+	anyhow::anyhow!(
+		"unknown --kind {} (langs in scope: {}; known kinds: {})",
+		unknown.join(", "),
+		lang_tags.join(", "),
+		known_list.join(", "),
+	)
+}
 
 pub(crate) fn render_uri(
 	m: &crate::core::moniker::Moniker,
@@ -73,11 +90,21 @@ fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> 
 		.as_deref()
 		.ok_or_else(|| anyhow::anyhow!("missing FILE argument; run `code-moniker --help`"))?;
 	let path: &Path = file;
+	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
+	let meta = std::fs::metadata(path)
+		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
+	if meta.is_dir() {
+		return dir::run(args, stdout, path, &scheme);
+	}
 	let lang = path_to_lang(path)?;
 	let source = std::fs::read_to_string(path)
 		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
 	let predicates = args.compiled_predicates(&scheme)?;
+	let known = predicate::known_kinds(std::iter::once(&lang));
+	let unknown = predicate::unknown_kinds(&args.kind, &known);
+	if !unknown.is_empty() {
+		return Err(unknown_kinds_error(&unknown, &[lang]));
+	}
 	let graph = extract::extract(lang, &source, path);
 	let matches = predicate::filter(&graph, &predicates, &args.kind);
 	let any = !matches.defs.is_empty() || !matches.refs.is_empty();
@@ -196,30 +223,21 @@ fn check_project(
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	use rayon::prelude::*;
 	use std::collections::HashMap;
-	let paths: Vec<(PathBuf, crate::lang::Lang)> = ignore::WalkBuilder::new(root)
-		.build()
-		.filter_map(|entry| entry.ok())
-		.filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-		.filter_map(|e| {
-			let p = e.into_path();
-			let lang = path_to_lang(&p).ok()?;
-			Some((p, lang))
-		})
-		.collect();
+	let paths = walk::walk_lang_files(root);
 	let mut compiled: HashMap<crate::lang::Lang, check::CompiledRules> = HashMap::new();
-	for (_, lang) in &paths {
-		if compiled.contains_key(lang) {
+	for f in &paths {
+		if compiled.contains_key(&f.lang) {
 			continue;
 		}
-		compiled.insert(*lang, check::compile_rules(cfg, *lang, DEFAULT_SCHEME)?);
+		compiled.insert(f.lang, check::compile_rules(cfg, f.lang, DEFAULT_SCHEME)?);
 	}
 	let outcomes: Vec<Result<FileReport, FileError>> = paths
 		.par_iter()
-		.map(|(p, lang)| {
-			let rules = &compiled[lang];
-			let rel = p.strip_prefix(root).unwrap_or(p);
-			check_one_compiled(p, Some(rel), *lang, rules).map_err(|e| FileError {
-				path: p.clone(),
+		.map(|f| {
+			let rules = &compiled[&f.lang];
+			let rel = f.path.strip_prefix(root).unwrap_or(&f.path);
+			check_one_compiled(&f.path, Some(rel), f.lang, rules).map_err(|e| FileError {
+				path: f.path.clone(),
 				error: format!("{e:#}"),
 			})
 		})

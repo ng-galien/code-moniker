@@ -1,8 +1,12 @@
-# `code-moniker` — probe a single file
+# `code-moniker` — probe a file or a tree
 
-The bare `code-moniker <file>` form runs the same extractor as the
-PostgreSQL extension on a single source file, without a running PG
-instance.
+The bare `code-moniker <path>` form runs the same extractor as the
+PostgreSQL extension on local source, without a running PG instance.
+The argument shape selects the behavior:
+
+- `<file>` → full graph for that file (the original probe).
+- `<dir>` with no filter → per-file summary across the tree.
+- `<dir>` with `--kind` or `--where` → filtered defs/refs across the tree.
 
 For the `check` subcommand (project linter / agent guardrail), see
 [`cli-check.md`](cli-check.md).
@@ -10,16 +14,19 @@ For the `check` subcommand (project linter / agent guardrail), see
 ## Synopsis
 
 ```
-code-moniker <file> [--where '<op> <uri>']... [--kind <name>]...
+code-moniker <path> [--where '<op> <uri>']... [--kind <name>]...
              [--format tsv|json] [--count] [--quiet] [--with-text]
              [--scheme <SCHEME>]
 code-moniker --help
 code-moniker --version
 ```
 
-`<file>` is a path to a source file. Language is dispatched from the
-file extension. `--scheme` overrides the default `code+moniker://`
-URI prefix (matches the Postgres GUC `code_moniker.scheme`).
+`<path>` is a file or a directory. For a single file, the language is
+dispatched from the extension. For a directory, the walker respects
+`.gitignore` (same semantics as `check`) and processes every file with
+a known extension in parallel. `--scheme` overrides the default
+`code+moniker://` URI prefix (matches the Postgres GUC
+`code_moniker.scheme`).
 
 | Extension                                 | Language tag |
 | ----------------------------------------- | ------------ |
@@ -56,11 +63,22 @@ shell I/O redirection on `<` and `>`.
 `def` matches when its own moniker satisfies every predicate; a
 `ref` matches when its **target** moniker satisfies every predicate.
 
-Without any predicate, the binary dumps the full graph. Predicate
-URIs must match the full anchor produced by the extractor (the
-`lang:` segment plus the path encoding for the source file). To
-discover the anchor for a file, run the binary once without
-`--where` and copy a moniker from the output.
+`--kind <name>` is validated against the union of the per-language
+structural kinds (`LangExtractor::ALLOWED_KINDS`), the internal kinds
+every extractor emits (`module`, `comment`, `local`, `param`), and the
+cross-language ref kinds (`calls`, `imports_module`, `extends`, …). For
+a single file the union is restricted to that file's language; for a
+directory it's the union over every language present in the scan.
+Unknown kinds exit with code `2` and list the valid set — e.g.
+`--kind fn` against a TS tree errors out instead of silently matching
+nothing (Rust uses `fn`; TypeScript uses `function`/`method`).
+
+Without any predicate, a single file dumps the full graph; a
+directory dumps the per-file summary (see below). Predicate URIs
+must match the full anchor produced by the extractor (the `lang:`
+segment plus the path encoding for the source file). To discover
+the anchor for a file, run the binary once without `--where` and
+copy a moniker from the output.
 
 ```sh
 # All methods inside a class, given the file's full anchor
@@ -98,7 +116,7 @@ fields are rendered as `-`.
 For a `ref`:
 
 ```
-ref<TAB>target_moniker<TAB>ref_kind<TAB>start..end<TAB>L<a>-L<b><TAB>source_idx=N<TAB>alias<TAB>confidence<TAB>receiver_hint
+ref<TAB>target_moniker<TAB>ref_kind<TAB>start..end<TAB>L<a>-L<b><TAB>source=<URI><TAB>alias<TAB>confidence<TAB>receiver_hint
 ```
 
 The `ref_kind` is one of the canonical lowercase tokens used by the
@@ -130,7 +148,7 @@ A single JSON document on stdout, intentionally identical in shape to
     ],
     "refs": [
       {
-        "source_idx": 0,
+        "source":     "code+moniker://./lang:ts/dir:src/module:widget/class:Foo",
         "target":     "code+moniker://./lang:ts/dir:src/module:widget/class:Bar",
         "kind":       "extends",
         "position":   [220, 243],
@@ -147,8 +165,10 @@ Attribute fields (`visibility`, `signature`, `binding`, `origin`, `alias`,
 `confidence`, `receiver_hint`, `text`) are omitted when empty rather than
 rendered as `null`. `position` is `[start_byte, end_byte]` (0-indexed),
 matching `core::Position`. `lines` is `[start_line, end_line]` (1-indexed,
-inclusive), where `end_line` is the line of the last byte. `source_idx`
-indexes into the same `defs` array.
+inclusive), where `end_line` is the line of the last byte. `source` is the
+moniker URI of the def that emitted the ref — self-contained so a consumer
+can resolve it without re-extracting, even when the filter excluded the
+source from `defs`.
 
 ### `--count`
 
@@ -164,6 +184,75 @@ if code-moniker file.ts --kind comment --quiet; then
     echo "file has at least one comment"
 fi
 ```
+
+## Directory mode
+
+When `<path>` is a directory, the cost of the output scales with what
+you ask for:
+
+- No filter → **summary**. One row per scanned file with totals and
+  the top kinds. Tiny — readable in full.
+- `--kind <k>` or `--where ...` → **filtered list**. Same per-match
+  output shape as single-file mode, prefixed by the file path.
+
+The walker uses `ignore::WalkBuilder` (same engine as `check`), so
+`.gitignore` / `.ignore` are honored. Files whose extension isn't
+in the dispatch table above are skipped silently.
+
+### Summary
+
+`--format tsv` (default), one row per file:
+
+```
+<file><TAB><lang><TAB><defs><TAB><refs><TAB><kind:count, …>
+```
+
+The trailing column shows the top three def kinds by count, sorted
+desc then alphabetically. `--format json` adds the full breakdown:
+
+```json
+{
+  "total_files": 88,
+  "total_defs":  5339,
+  "total_refs":  21232,
+  "files": [
+    {
+      "file":        "core/code_graph.rs",
+      "lang":        "rs",
+      "defs":        109,
+      "refs":        462,
+      "by_def_kind": { "fn": 4, "method": 23, "struct": 6, ... },
+      "by_ref_kind": { "calls": 21, "method_call": 91, ... }
+    }
+  ]
+}
+```
+
+### Filtered list
+
+`--format tsv` prefixes every match line with the file path:
+
+```
+<file><TAB>def<TAB><moniker><TAB><kind><TAB>…
+<file><TAB>ref<TAB><target><TAB><kind><TAB>…
+```
+
+`--format json` groups matches per file with the same `matches` shape
+as single-file output:
+
+```json
+{
+  "total_files": 12,
+  "total_defs":  37,
+  "total_refs":  0,
+  "files": [
+    { "file": "src/cli/dir.rs", "lang": "rs", "matches": { "defs": [...], "refs": [] } }
+  ]
+}
+```
+
+`--count` returns the total across all files; `--quiet` exits `0` when
+at least one file matched.
 
 ## Comments
 
@@ -208,11 +297,11 @@ Output ordering is deterministic so it can be diffed across runs:
 
 ## Exit codes
 
-| Code | Meaning                                                                          |
-| ---- | -------------------------------------------------------------------------------- |
-| `0`  | At least one match (or, without predicates, extraction succeeded with content).  |
-| `1`  | Extraction succeeded but no element satisfied the predicates.                    |
-| `2`  | Usage error: bad file path, unknown extension, malformed URI in a predicate.     |
+| Code | Meaning                                                                                |
+| ---- | -------------------------------------------------------------------------------------- |
+| `0`  | At least one match (or, without predicates, extraction succeeded with content).        |
+| `1`  | Extraction succeeded but no element satisfied the predicates.                          |
+| `2`  | Usage error: bad path, unknown extension, malformed URI, or unknown `--kind` for lang. |
 
 `--quiet` and `--count` follow the same exit semantics — they only affect what
 is written to stdout.
@@ -237,6 +326,15 @@ code-moniker src/widget.ts \
 
 # Count comments and exit 1 if there are none
 code-moniker file.py --kind comment --count
+
+# Per-file summary across the whole src tree (small, readable)
+code-moniker src
+
+# All function defs across the tree (filtered list)
+code-moniker src --kind fn
+
+# Refs to a specific symbol across the tree
+code-moniker src --where '?= code+moniker://./lang:rs/module:walk/fn:walk_lang_files'
 ```
 
 ## See also

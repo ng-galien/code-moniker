@@ -39,6 +39,12 @@ The cold-cache run on this repo (`check src/`, first invocation
 after dropping the OS file cache) takes ~500 ms; subsequent runs
 return to 25 ms.
 
+The bare `code-moniker <dir>` probe (summary or filtered list) shares
+the same walker + rayon pool, so wall-time tracks the table above
+within ±10 ms. Summary is marginally faster (no rule eval); filter
+mode does the same extraction with a kind/predicate sieve over the
+graph, dominated by the extractor like `check`.
+
 ## Implications
 
 - `check src/` is fast enough to gate every commit and every CI

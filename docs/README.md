@@ -15,7 +15,7 @@ Start with the guide matching your use case.
 |-----------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
 | Gate an agent (Claude Code, etc.), pre-commit, or CI against architecture violations          | [`use-as-agent-harness.md`](use-as-agent-harness.md)            |
 | Index a code corpus inside Postgres for cross-file queries                                     | [`use-in-postgres.md`](use-in-postgres.md)                      |
-| Probe a single source file from the shell (moniker by moniker, JSON / TSV out)                | [`cli-extract.md`](cli-extract.md)                              |
+| Probe a file or a directory tree (single-file full graph, dir summary, filtered list)         | [`cli-extract.md`](cli-extract.md)                              |
 | Reference for the `check` subcommand: config merge, suppressions, output format               | [`cli-check.md`](cli-check.md)                                  |
 | Write or extend rules — grammar, scopes, quantifiers, path patterns                           | [`check-dsl.md`](check-dsl.md)                                  |
 | Benchmarks: single-file latency and project-scan throughput                                    | [`perf.md`](perf.md)                                            |

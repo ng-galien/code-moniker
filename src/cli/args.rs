@@ -15,7 +15,7 @@ const ASCII_LOGO: &str = "
 #[derive(Debug, Parser)]
 #[command(
 	name = "code-moniker",
-	about = "Single-file moniker / code_graph extraction; see docs/cli-extract.md",
+	about = "Probe a file or a directory tree. Single-file → full graph; directory → per-file summary (counts) or filtered list when --kind / --where is set. See docs/cli-extract.md.",
 	before_help = ASCII_LOGO,
 	version
 )]

@@ -6,9 +6,9 @@ use serde::Serialize;
 use crate::cli::args::Args;
 use crate::cli::extract;
 use crate::cli::lines::line_range;
-use crate::cli::predicate::MatchSet;
+use crate::cli::predicate::{MatchSet, RefMatch};
 use crate::cli::render_uri;
-use crate::core::code_graph::{DefRecord, RefRecord};
+use crate::core::code_graph::DefRecord;
 use crate::core::kinds::KIND_COMMENT;
 use crate::core::uri::UriConfig;
 use crate::lang::Lang;
@@ -40,17 +40,17 @@ pub fn write_tsv<W: Write>(
 		writeln!(w)?;
 	}
 	for r in &matches.refs {
-		let target = render_uri(&r.target, &cfg);
+		let target = render_uri(&r.record.target, &cfg);
+		let src_uri = render_uri(r.source, &cfg);
 		writeln!(
 			w,
-			"ref\t{target}\t{kind}\t{pos}\t{lines}\tsource_idx={src}\t{alias}\t{conf}\t{rcv}",
-			kind = utf8_or_dash(&r.kind),
-			pos = pos_or_dash(r.position),
-			lines = lines_or_dash(r.position, source),
-			src = r.source,
-			alias = utf8_or_dash(&r.alias),
-			conf = utf8_or_dash(&r.confidence),
-			rcv = utf8_or_dash(&r.receiver_hint),
+			"ref\t{target}\t{kind}\t{pos}\t{lines}\tsource={src_uri}\t{alias}\t{conf}\t{rcv}",
+			kind = utf8_or_dash(&r.record.kind),
+			pos = pos_or_dash(r.record.position),
+			lines = lines_or_dash(r.record.position, source),
+			alias = utf8_or_dash(&r.record.alias),
+			conf = utf8_or_dash(&r.record.confidence),
+			rcv = utf8_or_dash(&r.record.receiver_hint),
 		)?;
 	}
 	Ok(())
@@ -145,7 +145,7 @@ impl<'a> DefView<'a> {
 
 #[derive(Serialize)]
 struct RefView<'a> {
-	source_idx: usize,
+	source: String,
 	target: String,
 	kind: &'a str,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -163,20 +163,20 @@ struct RefView<'a> {
 }
 
 impl<'a> RefView<'a> {
-	fn from(r: &'a RefRecord, cfg: &UriConfig<'_>, source: &str) -> Self {
+	fn from(r: &'a RefMatch<'a>, cfg: &UriConfig<'_>, source: &str) -> Self {
 		Self {
-			source_idx: r.source,
-			target: render_uri(&r.target, cfg),
-			kind: std::str::from_utf8(&r.kind).unwrap_or(""),
-			position: r.position.map(|(l, c)| [l, c]),
-			lines: r.position.map(|(s, e)| {
+			source: render_uri(r.source, cfg),
+			target: render_uri(&r.record.target, cfg),
+			kind: std::str::from_utf8(&r.record.kind).unwrap_or(""),
+			position: r.record.position.map(|(l, c)| [l, c]),
+			lines: r.record.position.map(|(s, e)| {
 				let (a, b) = line_range(source, s, e);
 				[a, b]
 			}),
-			alias: nullable(&r.alias),
-			confidence: nullable(&r.confidence),
-			receiver_hint: nullable(&r.receiver_hint),
-			binding: nullable(&r.binding),
+			alias: nullable(&r.record.alias),
+			confidence: nullable(&r.record.confidence),
+			receiver_hint: nullable(&r.record.receiver_hint),
+			binding: nullable(&r.record.binding),
 		}
 	}
 }

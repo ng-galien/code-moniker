@@ -1,5 +1,8 @@
+use std::collections::BTreeSet;
+
 use crate::core::code_graph::{CodeGraph, DefRecord, RefRecord};
 use crate::core::moniker::Moniker;
+use crate::lang::Lang;
 
 #[derive(Clone, Debug)]
 pub enum Predicate {
@@ -28,10 +31,18 @@ impl Predicate {
 	}
 }
 
+/// A matched ref paired with the moniker of its source def, pre-resolved at
+/// filter time so consumers don't have to carry the graph around.
+#[derive(Debug)]
+pub struct RefMatch<'g> {
+	pub record: &'g RefRecord,
+	pub source: &'g Moniker,
+}
+
 #[derive(Debug, Default)]
 pub struct MatchSet<'g> {
 	pub defs: Vec<&'g DefRecord>,
-	pub refs: Vec<&'g RefRecord>,
+	pub refs: Vec<RefMatch<'g>>,
 }
 
 /// A def matches when its own moniker satisfies every predicate; a ref matches
@@ -52,15 +63,72 @@ pub fn filter<'g>(
 		.filter(|r| kind_ok(&r.kind) && predicates.iter().all(|p| p.matches(&r.target)))
 		.collect();
 	defs.sort_by(|a, b| a.moniker.as_bytes().cmp(b.moniker.as_bytes()));
-	let mut keyed: Vec<(&RefRecord, &[u8])> = refs
+	let mut keyed: Vec<RefMatch<'g>> = refs
 		.into_iter()
-		.map(|r| (r, graph.def_at(r.source).moniker.as_bytes()))
+		.map(|r| RefMatch {
+			record: r,
+			source: &graph.def_at(r.source).moniker,
+		})
 		.collect();
-	keyed.sort_by(|(a, a_src), (b, b_src)| {
-		(a_src, a.target.as_bytes(), a.position).cmp(&(b_src, b.target.as_bytes(), b.position))
+	keyed.sort_by(|a, b| {
+		(
+			a.source.as_bytes(),
+			a.record.target.as_bytes(),
+			a.record.position,
+		)
+			.cmp(&(
+				b.source.as_bytes(),
+				b.record.target.as_bytes(),
+				b.record.position,
+			))
 	});
-	let refs = keyed.into_iter().map(|(r, _)| r).collect();
-	MatchSet { defs, refs }
+	MatchSet { defs, refs: keyed }
+}
+
+/// Internal kinds emitted by every extractor regardless of language.
+const INTERNAL_KINDS: &[&str] = &["module", "comment", "local", "param"];
+
+/// Ref kinds shared by every extractor (mirrors `core::kinds::REF_*`).
+const REF_KINDS: &[&str] = &[
+	"imports_symbol",
+	"imports_module",
+	"reexports",
+	"di_register",
+	"di_require",
+	"calls",
+	"method_call",
+	"reads",
+	"uses_type",
+	"instantiates",
+	"extends",
+	"implements",
+	"annotates",
+];
+
+/// Union of every kind name `--kind` could legitimately match for the given
+/// set of languages: structural def kinds (per-lang `ALLOWED_KINDS`), the
+/// internal kinds every extractor emits, and the cross-language ref kinds.
+pub fn known_kinds<'a>(langs: impl IntoIterator<Item = &'a Lang>) -> BTreeSet<&'static str> {
+	let mut out: BTreeSet<&'static str> = BTreeSet::new();
+	for k in INTERNAL_KINDS.iter().chain(REF_KINDS.iter()) {
+		out.insert(*k);
+	}
+	for lang in langs {
+		for k in lang.allowed_kinds() {
+			out.insert(*k);
+		}
+	}
+	out
+}
+
+/// Returns the unknown entries from `kinds` (preserving input order) so the
+/// caller can build a usage error. Empty vec means every kind validates.
+pub fn unknown_kinds(kinds: &[String], known: &BTreeSet<&'static str>) -> Vec<String> {
+	kinds
+		.iter()
+		.filter(|k| !known.contains(k.as_str()))
+		.cloned()
+		.collect()
 }
 
 #[cfg(test)]
@@ -167,6 +235,41 @@ mod tests {
 		let foo = m(&[(b"class", b"Foo")]);
 		let r = filter(&g, &[Predicate::Eq(foo)], &[]);
 		assert_eq!(r.refs.len(), 1, "EXTENDS ref targets Foo");
+	}
+
+	#[test]
+	fn known_kinds_for_ts_includes_class_function_and_ref_kinds() {
+		let k = known_kinds(std::iter::once(&Lang::Ts));
+		assert!(k.contains("class"));
+		assert!(k.contains("function"));
+		assert!(k.contains("method"));
+		assert!(k.contains("calls"));
+		assert!(k.contains("imports_module"));
+		assert!(k.contains("module"));
+		assert!(!k.contains("fn"), "fn is Rust-specific, not in ts vocab");
+	}
+
+	#[test]
+	fn known_kinds_union_picks_up_per_lang_specifics() {
+		let langs = [Lang::Ts, Lang::Rs];
+		let k = known_kinds(langs.iter());
+		assert!(k.contains("function"), "TS contributes `function`");
+		assert!(k.contains("fn"), "Rust contributes `fn`");
+	}
+
+	#[test]
+	fn unknown_kinds_flags_typos_and_lang_mismatches() {
+		let langs = [Lang::Ts];
+		let k = known_kinds(langs.iter());
+		let unknown = unknown_kinds(
+			&[
+				"function".to_string(),
+				"fn".to_string(),
+				"clazz".to_string(),
+			],
+			&k,
+		);
+		assert_eq!(unknown, vec!["fn".to_string(), "clazz".to_string()]);
 	}
 
 	#[test]

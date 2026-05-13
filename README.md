@@ -9,7 +9,7 @@
 
 [![CI](https://github.com/ng-galien/code-moniker/actions/workflows/ci.yml/badge.svg)](https://github.com/ng-galien/code-moniker/actions/workflows/ci.yml)
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
-[![Rust](https://img.shields.io/badge/rust-1.95%2B-orange)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](https://www.rust-lang.org)
 [![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-17-336791)](https://www.postgresql.org)
 
@@ -128,7 +128,13 @@ Rules talk about symbols and their relations (calls, imports,
 inheritance, layering, naming), not just syntax. Exit 1 is the signal
 for `PostToolUse` hooks, pre-commit, and CI.
 
-→ [docs/use-as-agent-harness.md](docs/use-as-agent-harness.md)
+The bare `code-moniker <path>` form (no `check`) is a probe: a single
+file emits its full graph (TSV / JSON), a directory emits a per-file
+summary, and `--kind` / `--where` turn it into a filtered cross-tree
+query. Useful for ad-hoc exploration without writing a rule pack.
+
+→ [docs/use-as-agent-harness.md](docs/use-as-agent-harness.md) ·
+[docs/cli-extract.md](docs/cli-extract.md)
 
 ## Postgres extension — `extract_<lang>` + indexed algebra
 
