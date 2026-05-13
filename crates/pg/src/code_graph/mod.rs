@@ -9,9 +9,8 @@ use pgrx::{InOutFuncs, StringInfo, default, name, varlena_to_byte_slice};
 
 use crate::moniker::{moniker, palloc_varlena_from_slice, varlena_to_borrowed_bytes};
 use crate::util::resolve_type_oid;
+use code_moniker_core::core::code_graph::encoding;
 use code_moniker_core::core::code_graph::{CodeGraph as CoreGraph, Position};
-
-mod encoding;
 
 // code-moniker: ignore[name-pascalcase] — pgrx maps the Rust struct name 1:1 to the SQL type name, which must be `code_graph`.
 #[allow(non_camel_case_types)]
@@ -169,6 +168,19 @@ where
 				.unwrap_or_else(|| panic!("argument {index} must not be null"))
 		}
 	}
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn code_graph_to_bytea(graph: code_graph) -> Vec<u8> {
+	graph.as_bytes().to_vec()
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn code_graph_from_bytea(bytes: &[u8]) -> code_graph {
+	if let Err(e) = encoding::decode(bytes) {
+		error!("code_graph_from_bytea: {e}");
+	}
+	code_graph::from_owned_bytes(bytes.to_vec())
 }
 
 #[pg_extern(immutable, parallel_safe)]

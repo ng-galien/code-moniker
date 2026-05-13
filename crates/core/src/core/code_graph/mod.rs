@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use crate::core::moniker::Moniker;
 
+pub mod encoding;
+
 pub type Position = (u32, u32);
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]

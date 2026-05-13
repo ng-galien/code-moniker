@@ -27,10 +27,10 @@
 
 use std::fmt;
 
-use code_moniker_core::core::code_graph::{CodeGraph, DefRecord, Position, RefRecord};
-use code_moniker_core::core::moniker::Moniker;
+use crate::core::code_graph::{CodeGraph, DefRecord, Position, RefRecord};
+use crate::core::moniker::Moniker;
 
-pub(super) const LAYOUT_VERSION: u16 = 2;
+pub const LAYOUT_VERSION: u16 = 2;
 const VERSION_BYTES: usize = 2;
 const RESERVED_BYTES: usize = 2;
 const DEF_COUNT_BYTES: usize = 4;
@@ -63,7 +63,7 @@ impl fmt::Display for EncodingError {
 
 impl std::error::Error for EncodingError {}
 
-pub(super) fn encode(graph: &CodeGraph) -> Result<Vec<u8>, EncodingError> {
+pub fn encode(graph: &CodeGraph) -> Result<Vec<u8>, EncodingError> {
 	let defs: Vec<&DefRecord> = graph.defs().collect();
 	let refs: Vec<&RefRecord> = graph.refs().collect();
 	let def_count: u32 = defs
@@ -110,7 +110,7 @@ pub(super) fn encode(graph: &CodeGraph) -> Result<Vec<u8>, EncodingError> {
 	Ok(out)
 }
 
-pub(super) fn decode_root(buf: &[u8]) -> Result<Moniker, EncodingError> {
+pub fn decode_root(buf: &[u8]) -> Result<Moniker, EncodingError> {
 	if buf.len() < HEADER_LEN {
 		return Err(EncodingError::Truncated("header"));
 	}
@@ -129,7 +129,7 @@ pub(super) fn decode_root(buf: &[u8]) -> Result<Moniker, EncodingError> {
 	cur.read_moniker()
 }
 
-pub(super) fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
+pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 	if buf.len() < HEADER_LEN {
 		return Err(EncodingError::Truncated("header"));
 	}
@@ -345,8 +345,8 @@ impl<'a> Cursor<'a> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use code_moniker_core::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
-	use code_moniker_core::core::moniker::MonikerBuilder;
+	use crate::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
+	use crate::core::moniker::MonikerBuilder;
 
 	fn mk(seg: &[u8]) -> Moniker {
 		MonikerBuilder::new()
@@ -567,6 +567,7 @@ mod tests {
 		));
 	}
 
+	#[cfg(feature = "serde")]
 	#[test]
 	fn custom_layout_is_smaller_than_cbor() {
 		let root = mk(b"util");
@@ -650,5 +651,36 @@ mod tests {
 			let _ = decode(&bytes);
 			let _ = decode_root(&bytes);
 		}
+	}
+
+	#[test]
+	fn file_roundtrip_preserves_graph_byte_identical() {
+		let root = mk(b"util");
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		for i in 0..8 {
+			let m = mk_under(&root, b"path", format!("c{i}").as_bytes());
+			g.add_def_attrs(
+				m,
+				b"class",
+				&root,
+				Some((i * 10, i * 10 + 5)),
+				&DefAttrs::default(),
+			)
+			.unwrap();
+		}
+		let encoded = encode(&g).unwrap();
+
+		let tmp = tempfile::NamedTempFile::new().unwrap();
+		std::fs::write(tmp.path(), &encoded).unwrap();
+		let reread = std::fs::read(tmp.path()).unwrap();
+		assert_eq!(reread, encoded, "file bytes must equal encode output");
+
+		let decoded = decode(&reread).unwrap();
+		assert_eq!(decoded.def_count(), g.def_count());
+		assert_eq!(
+			encode(&decoded).unwrap(),
+			encoded,
+			"decode→encode is identity"
+		);
 	}
 }

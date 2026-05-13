@@ -40,6 +40,7 @@ roxmltree  = { workspace = true }
 [dev-dependencies]
 serde_cbor = { workspace = true }
 proptest   = { workspace = true }
+tempfile   = { workspace = true }
 
 [[example]]
 name = "bench_codegraph"

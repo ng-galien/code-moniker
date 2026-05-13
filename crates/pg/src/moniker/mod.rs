@@ -122,6 +122,19 @@ fn moniker_eq(a: moniker, b: moniker) -> bool {
 }
 
 #[pg_extern(immutable, parallel_safe)]
+fn moniker_to_bytea(m: moniker) -> Vec<u8> {
+	m.as_bytes().to_vec()
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn moniker_from_bytea(bytes: &[u8]) -> moniker {
+	if MonikerView::from_bytes(bytes).is_err() {
+		error!("moniker_from_bytea: invalid moniker bytes");
+	}
+	moniker::from_owned_bytes(bytes.to_vec())
+}
+
+#[pg_extern(immutable, parallel_safe)]
 fn project_of(m: moniker) -> String {
 	String::from_utf8(m.view().project().to_vec()).expect("project must be UTF-8")
 }

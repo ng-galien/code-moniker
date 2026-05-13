@@ -259,6 +259,7 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_json",
+ "tempfile",
  "toml 0.8.23",
  "tree-sitter",
  "tree-sitter-c-sharp",
