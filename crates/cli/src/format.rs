@@ -1,4 +1,7 @@
 use std::io::Write;
+
+#[cfg(feature = "pretty")]
+pub mod tree;
 use std::path::Path;
 
 use serde::Serialize;
@@ -252,23 +255,12 @@ fn escape_tsv(s: &str) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::args::OutputFormat;
 	use crate::predicate::MatchSet;
 	use code_moniker_core::core::code_graph::CodeGraph;
 	use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 
 	fn args() -> Args {
-		Args {
-			file: Some("a.ts".into()),
-			where_: Vec::new(),
-			kind: vec![],
-			format: OutputFormat::Tsv,
-			count: false,
-			quiet: false,
-			with_text: false,
-			scheme: None,
-			cache: None,
-		}
+		Args::for_tests()
 	}
 
 	fn build_graph_with_class_and_method() -> (CodeGraph, Moniker, Moniker) {

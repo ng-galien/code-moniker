@@ -49,6 +49,8 @@ fn run_summary<W: Write>(
 		OutputMode::Default => match args.format {
 			OutputFormat::Tsv => write_summary_tsv(stdout, &summaries)?,
 			OutputFormat::Json => write_summary_json(stdout, &summaries)?,
+			#[cfg(feature = "pretty")]
+			OutputFormat::Tree => write_summary_tree(stdout, &summaries, args)?,
 		},
 		OutputMode::Count => writeln!(stdout, "{}", total_defs + total_refs)?,
 		OutputMode::Quiet => {}
@@ -86,6 +88,8 @@ fn run_filter<W: Write>(
 		OutputMode::Default => match args.format {
 			OutputFormat::Tsv => write_filter_tsv(stdout, &rows, args, scheme)?,
 			OutputFormat::Json => write_filter_json(stdout, &rows, args, scheme)?,
+			#[cfg(feature = "pretty")]
+			OutputFormat::Tree => write_filter_tree(stdout, &rows, args, scheme)?,
 		},
 		OutputMode::Count => writeln!(stdout, "{}", total_defs + total_refs)?,
 		OutputMode::Quiet => {}
@@ -142,6 +146,29 @@ fn write_summary_tsv<W: Write>(w: &mut W, summaries: &[FileSummary]) -> std::io:
 			top = top_kinds(&s.by_def_kind, TOP_KINDS_DISPLAYED),
 		)?;
 	}
+	Ok(())
+}
+
+#[cfg(feature = "pretty")]
+fn write_summary_tree<W: Write>(
+	w: &mut W,
+	summaries: &[FileSummary],
+	args: &Args,
+) -> anyhow::Result<()> {
+	let entries: Vec<(String, String)> = summaries
+		.iter()
+		.map(|s| {
+			let label = format!(
+				"({lang}) defs:{defs} refs:{refs} [{top}]",
+				lang = s.lang,
+				defs = s.defs,
+				refs = s.refs,
+				top = top_kinds(&s.by_def_kind, TOP_KINDS_DISPLAYED),
+			);
+			(s.file.clone(), label)
+		})
+		.collect();
+	format::tree::render_dir_tree(w, &entries, args)?;
 	Ok(())
 }
 
@@ -261,6 +288,25 @@ fn write_filter_tsv<W: Write>(
 			writeln!(w, "{prefix}\t{line}")?;
 		}
 	}
+	Ok(())
+}
+
+#[cfg(feature = "pretty")]
+fn write_filter_tree<W: Write>(
+	w: &mut W,
+	rows: &[FilterRow],
+	args: &Args,
+	scheme: &str,
+) -> anyhow::Result<()> {
+	let entries: Vec<format::tree::FileEntry<'_>> = rows
+		.iter()
+		.map(|row| format::tree::FileEntry {
+			rel_path: row.rel.to_string_lossy().into_owned(),
+			matches: row.match_set(),
+			source: row.source.as_str(),
+		})
+		.collect();
+	format::tree::write_files_tree(w, &entries, args, scheme)?;
 	Ok(())
 }
 

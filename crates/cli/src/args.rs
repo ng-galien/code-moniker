@@ -79,6 +79,22 @@ pub struct Args {
 	#[arg(long, value_enum, default_value_t = OutputFormat::Tsv)]
 	pub format: OutputFormat,
 
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = ColorChoice::Auto,
+		help = "ANSI color for --format tree: auto = on if stdout is a TTY (honors NO_COLOR / CLICOLOR / CLICOLOR_FORCE)"
+	)]
+	pub color: ColorChoice,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = Charset::Utf8,
+		help = "glyph set for --format tree"
+	)]
+	pub charset: Charset,
+
 	#[arg(long, conflicts_with = "quiet", help = "print only the match count")]
 	pub count: bool,
 	#[arg(
@@ -111,6 +127,21 @@ pub struct Args {
 pub enum OutputFormat {
 	Tsv,
 	Json,
+	#[cfg(feature = "pretty")]
+	Tree,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum ColorChoice {
+	Auto,
+	Always,
+	Never,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum Charset {
+	Utf8,
+	Ascii,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -121,6 +152,23 @@ pub enum OutputMode {
 }
 
 impl Args {
+	#[cfg(test)]
+	pub(crate) fn for_tests() -> Self {
+		Args {
+			file: Some("a.ts".into()),
+			where_: Vec::new(),
+			kind: vec![],
+			format: OutputFormat::Tsv,
+			color: ColorChoice::Never,
+			charset: Charset::Utf8,
+			count: false,
+			quiet: false,
+			with_text: false,
+			scheme: None,
+			cache: None,
+		}
+	}
+
 	pub fn mode(&self) -> OutputMode {
 		if self.count {
 			OutputMode::Count

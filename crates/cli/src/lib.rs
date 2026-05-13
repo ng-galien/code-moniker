@@ -119,6 +119,8 @@ fn extract_inner<W: Write>(args: &Args, stdout: &mut W) -> anyhow::Result<bool> 
 			OutputFormat::Json => {
 				format::write_json(stdout, &matches, &source, args, lang, path, &scheme)?
 			}
+			#[cfg(feature = "pretty")]
+			OutputFormat::Tree => format::tree::write_tree(stdout, &matches, &source, args, &scheme)?,
 		},
 		OutputMode::Count => {
 			let n = matches.defs.len() + matches.refs.len();
