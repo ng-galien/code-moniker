@@ -124,28 +124,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_collapses_adjacent_line_comments_into_one_def() {
-		let src = "// a\n// b\n// c\nclass Foo {}\n";
-		let g = extract_default("Foo.cs", src, &make_anchor(), false);
-		assert_eq!(
-			g.defs().filter(|d| d.kind == b"comment").count(),
-			1,
-			"three adjacent `//` lines collapse to a single comment def"
-		);
-	}
-
-	#[test]
-	fn extract_splits_comments_separated_by_blank_line() {
-		let src = "// a\n// b\n\n// c\nclass Foo {}\n";
-		let g = extract_default("Foo.cs", src, &make_anchor(), false);
-		assert_eq!(
-			g.defs().filter(|d| d.kind == b"comment").count(),
-			2,
-			"a blank line breaks the run into two distinct comment defs"
-		);
-	}
-
-	#[test]
 	fn extract_module_uses_path_segments() {
 		let g = extract_default(
 			"Acme/Util/Text.cs",

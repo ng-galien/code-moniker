@@ -1157,35 +1157,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_collapses_adjacent_line_comments_into_one_def() {
-		let g = extract(
-			"util.ts",
-			"// a\n// b\n// c\nclass Foo {}",
-			&make_anchor(),
-			false,
-		);
-		assert_eq!(
-			g.defs().filter(|d| d.kind == b"comment").count(),
-			1,
-			"three adjacent `//` lines collapse to a single comment def"
-		);
-	}
-
-	#[test]
-	fn extract_keeps_comment_block_inside_class_distinct_from_module_run() {
-		let g = extract(
-			"util.ts",
-			"// a\n// b\nclass Foo { /* c */ }",
-			&make_anchor(),
-			false,
-		);
-		assert_eq!(
-			g.defs().filter(|d| d.kind == b"comment").count(),
-			2,
-			"module-level `// a / // b` collapses (1) but `/* c */` inside the class body stays separate (1)"
-		);
-	}
-	#[test]
 	fn extract_export_default_class_named_default() {
 		let g = extract("util.ts", "export default class {}", &make_anchor(), false);
 		let m = MonikerBuilder::new()

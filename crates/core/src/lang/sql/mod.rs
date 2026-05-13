@@ -222,32 +222,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_collapses_adjacent_line_comments_into_one_def() {
-		let g = run(
-			"pkg.sql",
-			"-- a\n-- b\n-- c\nCREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;",
-		);
-		assert_eq!(
-			g.defs().filter(|d| d.kind == b"comment").count(),
-			1,
-			"three adjacent `--` lines collapse to a single comment def"
-		);
-	}
-
-	#[test]
-	fn extract_splits_comments_separated_by_blank_line() {
-		let g = run(
-			"pkg.sql",
-			"-- a\n-- b\n\n-- c\nCREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;",
-		);
-		assert_eq!(
-			g.defs().filter(|d| d.kind == b"comment").count(),
-			2,
-			"a blank line breaks the run into two distinct comment defs"
-		);
-	}
-
-	#[test]
 	fn function_param_emits_uses_type_with_pg_catalog_target() {
 		let g = run(
 			"pkg.sql",

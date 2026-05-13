@@ -27,38 +27,58 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 		let mut cursor = node.walk();
 		let mut pending: Option<PendingAnnotation> = None;
 		for child in node.children(&mut cursor) {
-			let shape = self.strategy.classify(child, scope, self.source, graph);
-			if let NodeShape::Annotation { kind } = shape {
-				let start_row = child.start_position().row;
-				let end_row = child.end_position().row;
-				let start_byte = child.start_byte() as u32;
-				let end_byte = child.end_byte() as u32;
-				if let Some(p) = pending.as_mut() {
-					if p.kind == kind && start_row <= p.end_row + 1 {
-						p.end_byte = end_byte;
-						p.end_row = end_row;
-						continue;
-					}
-					self.emit_annotation_range(p.kind, p.start_byte, p.end_byte, scope, graph);
+			match self.strategy.classify(child, scope, self.source, graph) {
+				NodeShape::Annotation { kind } => {
+					self.extend_or_flush(&mut pending, kind, child, scope, graph);
 				}
-				pending = Some(PendingAnnotation {
-					kind,
-					start_byte,
-					end_byte,
-					end_row,
-				});
-				continue;
-			}
-			if let Some(p) = pending.take() {
-				self.emit_annotation_range(p.kind, p.start_byte, p.end_byte, scope, graph);
-			}
-			match shape {
-				NodeShape::Symbol(sym) => self.emit_symbol(child, scope, sym, graph),
-				NodeShape::Skip => {}
-				NodeShape::Recurse => self.walk(child, scope, graph),
-				NodeShape::Annotation { .. } => unreachable!("handled in the Annotation arm above"),
+				NodeShape::Symbol(sym) => {
+					self.flush_pending(&mut pending, scope, graph);
+					self.emit_symbol(child, scope, sym, graph);
+				}
+				NodeShape::Skip => self.flush_pending(&mut pending, scope, graph),
+				NodeShape::Recurse => {
+					self.flush_pending(&mut pending, scope, graph);
+					self.walk(child, scope, graph);
+				}
 			}
 		}
+		self.flush_pending(&mut pending, scope, graph);
+	}
+
+	fn extend_or_flush(
+		&self,
+		pending: &mut Option<PendingAnnotation>,
+		kind: &'static [u8],
+		child: Node<'_>,
+		scope: &Moniker,
+		graph: &mut CodeGraph,
+	) {
+		let start_row = child.start_position().row;
+		let end_row = child.end_position().row;
+		let start_byte = child.start_byte() as u32;
+		let end_byte = child.end_byte() as u32;
+		if let Some(p) = pending.as_mut() {
+			if p.kind == kind && start_row <= p.end_row + 1 {
+				p.end_byte = end_byte;
+				p.end_row = end_row;
+				return;
+			}
+			self.emit_annotation_range(p.kind, p.start_byte, p.end_byte, scope, graph);
+		}
+		*pending = Some(PendingAnnotation {
+			kind,
+			start_byte,
+			end_byte,
+			end_row,
+		});
+	}
+
+	fn flush_pending(
+		&self,
+		pending: &mut Option<PendingAnnotation>,
+		scope: &Moniker,
+		graph: &mut CodeGraph,
+	) {
 		if let Some(p) = pending.take() {
 			self.emit_annotation_range(p.kind, p.start_byte, p.end_byte, scope, graph);
 		}

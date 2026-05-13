@@ -17,18 +17,8 @@ pub use extractor::LangExtractor;
 #[cfg(test)]
 pub use extractor::assert_conformance;
 
-// code-moniker: ignore[comment-max-lines]
-/// Single dispatch table for every supported language.
-///
-/// Adding a language is a one-line change here. Each row produces:
-/// - a variant on `Lang`
-/// - participation in `Lang::from_tag` / `Lang::tag` / `Lang::allowed_kinds`
-///   / `Lang::allowed_visibilities` (all consult the trait — no per-language
-///   constant ever lives outside its `LangExtractor` impl)
-/// - dispatch in the conformance test that scans `docs/postgres/declare-schema.json`
-///
-/// Forgetting to update one of those callsites is impossible: if a row is
-/// missing, the build fails. If the row is present, every dispatch sees it.
+/// Adding a row registers the language for `Lang::from_tag` / `tag` /
+/// `allowed_kinds` / `allowed_visibilities` and the schema-sync test.
 macro_rules! define_languages {
 	($($(#[$attr:meta])* $variant:ident => $module:ty),* $(,)?) => {
 		#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -230,6 +220,185 @@ mod shape_coverage_tests {
 				shape_of(k).is_some(),
 				"internal kind {:?} must have a shape entry",
 				std::str::from_utf8(k).unwrap()
+			);
+		}
+	}
+}
+
+#[cfg(test)]
+mod comment_collapse_tests {
+	use crate::core::moniker::MonikerBuilder;
+
+	struct Case {
+		tag: &'static str,
+		uri: &'static str,
+		run: fn(&'static str) -> crate::core::code_graph::CodeGraph,
+	}
+
+	fn anchor() -> crate::core::moniker::Moniker {
+		MonikerBuilder::new().project(b"app").build()
+	}
+
+	fn cases() -> Vec<Case> {
+		vec![
+			Case {
+				tag: "rs",
+				uri: "test.rs",
+				run: |src| {
+					super::rs::extract(
+						"test.rs",
+						src,
+						&anchor(),
+						false,
+						&super::rs::Presets::default(),
+					)
+				},
+			},
+			Case {
+				tag: "ts",
+				uri: "test.ts",
+				run: |src| {
+					super::ts::extract(
+						"test.ts",
+						src,
+						&anchor(),
+						false,
+						&super::ts::Presets::default(),
+					)
+				},
+			},
+			Case {
+				tag: "python",
+				uri: "test.py",
+				run: |src| {
+					super::python::extract(
+						"test.py",
+						src,
+						&anchor(),
+						false,
+						&super::python::Presets::default(),
+					)
+				},
+			},
+			Case {
+				tag: "go",
+				uri: "test.go",
+				run: |src| {
+					super::go::extract(
+						"test.go",
+						src,
+						&anchor(),
+						false,
+						&super::go::Presets::default(),
+					)
+				},
+			},
+			Case {
+				tag: "java",
+				uri: "test.java",
+				run: |src| {
+					super::java::extract(
+						"test.java",
+						src,
+						&anchor(),
+						false,
+						&super::java::Presets::default(),
+					)
+				},
+			},
+			Case {
+				tag: "cs",
+				uri: "test.cs",
+				run: |src| {
+					super::cs::extract(
+						"test.cs",
+						src,
+						&anchor(),
+						false,
+						&super::cs::Presets::default(),
+					)
+				},
+			},
+			Case {
+				tag: "sql",
+				uri: "test.sql",
+				run: |src| {
+					super::sql::extract(
+						"test.sql",
+						src,
+						&anchor(),
+						false,
+						&super::sql::Presets::default(),
+					)
+				},
+			},
+		]
+	}
+
+	const ADJACENT: &[(&str, &str)] = &[
+		("rs", "// a\n// b\n// c\nstruct Foo;\n"),
+		("ts", "// a\n// b\n// c\nclass Foo {}"),
+		("python", "# a\n# b\n# c\nclass Foo: pass\n"),
+		("go", "package x\n// a\n// b\n// c\nfunc Foo() {}\n"),
+		("java", "// a\n// b\n// c\nclass Foo {}\n"),
+		("cs", "// a\n// b\n// c\nclass Foo {}\n"),
+		(
+			"sql",
+			"-- a\n-- b\n-- c\nCREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;\n",
+		),
+	];
+
+	const SPLIT_BY_BLANK: &[(&str, &str)] = &[
+		("rs", "// a\n// b\n\n// c\nstruct Foo;\n"),
+		("ts", "// a\n// b\n\n// c\nclass Foo {}"),
+		("python", "# a\n# b\n\n# c\nclass Foo: pass\n"),
+		("go", "package x\n// a\n// b\n\n// c\nfunc Foo() {}\n"),
+		("java", "// a\n// b\n\n// c\nclass Foo {}\n"),
+		("cs", "// a\n// b\n\n// c\nclass Foo {}\n"),
+		(
+			"sql",
+			"-- a\n-- b\n\n-- c\nCREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;\n",
+		),
+	];
+
+	fn count_comments(g: &crate::core::code_graph::CodeGraph) -> usize {
+		g.defs().filter(|d| d.kind == b"comment").count()
+	}
+
+	#[test]
+	fn each_language_collapses_three_adjacent_line_comments_into_one_def() {
+		for case in cases() {
+			let src = ADJACENT
+				.iter()
+				.find(|(tag, _)| *tag == case.tag)
+				.expect("adjacent fixture")
+				.1;
+			let g = (case.run)(src);
+			assert_eq!(
+				count_comments(&g),
+				1,
+				"lang={} ({}): three adjacent line comments must collapse to one def",
+				case.tag,
+				case.uri
+			);
+		}
+	}
+
+	#[test]
+	fn each_language_splits_runs_on_blank_line() {
+		for case in cases() {
+			let src = SPLIT_BY_BLANK
+				.iter()
+				.find(|(tag, _)| *tag == case.tag)
+				.expect("blank-line fixture")
+				.1;
+			let g = (case.run)(src);
+			assert_eq!(
+				count_comments(&g),
+				2,
+				"lang={} ({}): blank line must break the run into two defs",
+				case.tag,
+				case.uri
 			);
 		}
 	}

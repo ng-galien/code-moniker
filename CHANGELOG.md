@@ -17,10 +17,8 @@ changes are allowed in minor releases as long as the project is in
   into a single `comment` def whose position spans the whole block. A
   blank line or any non-comment node breaks the run. This makes
   `lines = N` the cardinal of a docstring/`//` block instead of `1`
-  per line, so DSL rules can cap doc-block length. Behaviour validated
-  per-language by `extract_collapses_adjacent_line_comments_into_one_def`
-  + `extract_splits_comments_separated_by_blank_line` regression tests
-  in every `lang/*/mod.rs::tests`.
+  per line, so DSL rules can cap doc-block length. Cross-language
+  invariant covered by `lang::comment_collapse_tests`.
 - **CLI rule pack** — `rust.comment.comment-max-lines` in
   `.code-moniker.toml` caps `///` / `//` blocks at 4 lines. Module-level
   `//!` and `SAFETY:` narratives are exempt.
@@ -95,6 +93,10 @@ changes are allowed in minor releases as long as the project is in
 
 ### Fixed
 
+- **`code-moniker check` (suppress)** — `target_lines_for` discarded the
+  directive's own line range when the next def had no position; the
+  combined range now falls back to the directive's lines, keeping the
+  comment-def suppression intact.
 - **pgTAP** — `00_smoke.sql` asserted `pcm_version() = '0.1.0'`; aligned
   to the workspace's current `0.2.0`.
 - **`code-moniker-core` (rs extractor)** — `use std::io::{self, Read, Write};`
