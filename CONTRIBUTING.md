@@ -47,9 +47,10 @@ scripts/
   dogfood/panel.sh          pinned panel of representative open-source projects
 ```
 
-**No file > ~600 lines.** One responsibility per file, named by its suffix.
-When a file exceeds the cap, split the production module (subfiles
-with their own `mod tests`); do not extract the tests.
+Prefer small files with one responsibility and a clear suffix. Some legacy
+modules are larger; when a change grows one further, split the production
+module around the responsibility being touched and keep the tests next to
+the code under test.
 
 ## Workflow
 
@@ -117,7 +118,7 @@ cargo run --release -p code-moniker-core --example bench_codegraph
 cargo run --release -p code-moniker-core --example bench_extract
 ```
 
-Dogfood runner clones the panel into `/dogfood/` (gitignored) on first
+Dogfood runner clones the panel into `./dogfood/` (gitignored) on first
 use; reuses on subsequent runs unless `--reset` is passed.
 
 ## Adding a language
@@ -133,16 +134,12 @@ A new extractor under `crates/core/src/lang/<lang>/` mirrors the `ts/` skeleton:
   for the shared vocabulary. Never redeclare visibility or confidence values.
 - `canonicalize.rs` — `compute_module_moniker`, `extend_segment`,
   `extend_callable` with arity-based segment names.
-- `walker.rs` — Walker struct (source bytes, module, deep, presets,
-  scope state, language-specific tables) + AST dispatch + def emitters.
-- `refs.rs` — ref emitters per kind. Use `RefAttrs { ..RefAttrs::default() }`
-  shorthand. `add_ref_attrs` for confidence / alias / receiver_hint;
-  bare `add_ref` only when nothing is known.
-- `scope.rs` — local-scope stack (`record_local`, `is_local_name`,
-  `name_confidence`) and language-specific visibility helper. Push /
-  pop on each callable so `confidence: local` stays accurate.
-- Optional `imports.rs` (when imports decompose into many specifiers)
-  and `build.rs` (manifest parser yielding `Vec<Dep>` consumed by
+- `strategy.rs` — AST traversal, extractor state, def emitters, ref
+  emitters, local-scope tracking, visibility helpers, and any language
+  lookup tables. Use `RefAttrs { ..RefAttrs::default() }` when emitting refs;
+  use `add_ref_attrs` when confidence, alias, binding, or receiver hints are
+  known.
+- Optional `build.rs` (manifest parser yielding `Vec<Dep>` consumed by
   `crates/pg/src/build.rs::extract_<system>`).
 
 Adding a kind or visibility requires updating the trait constants

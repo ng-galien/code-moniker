@@ -13,7 +13,7 @@ the extractor.
 | File                                      | Bytes  | Time   |
 |-------------------------------------------|--------|--------|
 | `crates/cli/src/check/eval.rs`            | 62 KB  | 14 ms  |
-| `crates/core/src/lang/ts/walker.rs`       | 18 KB  | 6 ms   |
+| `crates/core/src/lang/ts/strategy.rs`     | 43 KB  | 6 ms   |
 | `crates/core/src/core/moniker/mod.rs`     | 3 KB   | 4 ms   |
 
 ## Project scan
@@ -39,7 +39,7 @@ The cold-cache run on this repo (`check crates/`, first invocation
 after dropping the OS file cache) takes ~500 ms; subsequent runs
 return to 25 ms.
 
-The bare `code-moniker <dir>` probe (summary or filtered list) shares
+The bare `code-moniker extract <dir>` probe (summary or filtered list) shares
 the same walker + rayon pool, so wall-time tracks the table above
 within ±10 ms. Summary is marginally faster (no rule eval); filter
 mode does the same extraction with a kind/predicate sieve over the

@@ -1,161 +1,220 @@
-# `code-moniker check` — project linter
+# `code-moniker check`
 
+`check` evaluates a TOML rule pack against the symbol graph of one file or
+one directory.
+
+```sh
+code-moniker check <PATH> [--rules <PATH>] [--format text|json] [--profile <NAME>]
 ```
-code-moniker check <path> [--rules <path>] [--format text|json] [--profile <NAME>]
+
+Use it for local architecture checks, pre-commit hooks, CI jobs, or
+per-file edit hooks. Use [`extract`](extract.md) when you only want to
+inspect the graph.
+
+## Run
+
+Check one file:
+
+```sh
+code-moniker check src/order.ts
 ```
 
-The `check` subcommand evaluates a declarative rule pack against the
-symbol graph of one file or a whole project. It is the entry point for
-agent guardrails, pre-commit hooks, and CI gates. For the per-file
-probe form, see the [extract subcommand](extract.md). For the full rule
-grammar, see the [rule DSL](check-dsl.md). For an end-to-end
-integration walkthrough, see the [agent harness guide](agent-harness.md).
+Check a project:
 
-`<path>` is either a single source file (per-edit lint) or a directory
-(project-wide scan). Loads an embedded default rule pack, optionally
-merges a user `<path>` (default `.code-moniker.toml`) on top, and
-reports violations on stdout.
+```sh
+code-moniker check src/
+```
 
-Per-file mode is designed for `PostToolUse` hooks; project mode walks
-the tree respecting `.gitignore` / `.ignore` / hidden-file rules (via
-the `ignore` crate) and processes recognised extensions in parallel
-(`rayon`). The output shape is the same in both modes — a single file
-just produces a one-entry `files` list.
+Use a rule file other than `.code-moniker.toml`:
+
+```sh
+code-moniker check src/ --rules arch.toml
+```
+
+Machine-readable output:
+
+```sh
+code-moniker check src/ --format json
+```
 
 Exit codes:
 
-| Code | Meaning                                                                                          |
-| ---- | ------------------------------------------------------------------------------------------------ |
-| `0`  | No violations. Also returned when the target file's extension isn't a recognised source language — per-file mode is a silent no-op so PostToolUse hooks don't spam the agent on docs / configs. |
-| `1`  | At least one violation (stdout carries the report).                                              |
-| `2`  | Usage error (bad path, malformed user TOML).                                                     |
+| Code | Meaning |
+| ---- | ------- |
+| `0`  | no violations |
+| `1`  | at least one violation, or a per-file read error during project scan |
+| `2`  | usage error: bad path, invalid TOML, bad expression, unknown profile |
+
+In single-file mode, unsupported extensions return `0` and produce no
+output. This keeps edit hooks quiet for docs, configs, and generated files.
 
 ## Configuration
 
-Full grammar reference: [rule DSL](check-dsl.md). Scopes
-(`[[<lang>.<kind>.where]]` for defs, `[[refs.where]]` for refs),
-quantifiers (`any` / `all` / `none` / `count` on `<kind>` / `segment` /
-`out_refs` / `in_refs`), path patterns (`moniker ~ '**/class:/Port$/'`),
-aliases (`$name`), and a worked example covering Clean Code, DDD, Hex
-and bounded-context invariants live there.
+`check` always starts with the embedded default rule pack. If the rules
+file exists, it is merged on top. The default path is `.code-moniker.toml`.
 
-Minimal shape:
+The embedded defaults cover conservative naming rules. Project policies
+such as layer boundaries, maximum class size, or mandatory doc comments
+belong in your overlay.
+
+Minimal overlay:
 
 ```toml
+[[refs.where]]
+id      = "domain-no-infra"
+expr    = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infrastructure/**'"
+message = "Domain code must not depend on infrastructure."
+
 [[ts.class.where]]
 id      = "no-god-class"
 expr    = "count(method) <= 20 AND all(method, lines <= 60)"
-message = "Class `{name}` is too wide ({value})."
+message = "Class `{name}` exceeds the class budget."
 
-[[refs.where]]
-id   = "domain-no-infra"
-expr = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infrastructure/**'"
-
-[ts.class]
-require_doc_comment = "public"
+[[ts.interface.where]]
+id   = "repository-lives-in-domain"
+expr = "name =~ Repository$ => moniker ~ '**/dir:domain/**'"
 ```
 
-`require_doc_comment` is a separate field on the kind block (not part of
-`where`). Value is a visibility name (`"public"`, `"private"`, `"any"`).
-A def is documented iff a comment def ends on the line immediately above
-the def's **doc anchor** — which is the earliest of (the def's own start,
-any `annotates` ref position for this def). That handles
-`/** doc */\n@Decorator\nclass Foo` correctly.
+Rule ids are built from the TOML path: `ts.class.no-god-class`,
+`refs.domain-no-infra`, and so on.
 
-## Profiles
+## Scopes
 
-`--profile <NAME>` filters the active rule set through a named profile
-declared in `.code-moniker.toml`. A profile is two regex lists matched
-against fully-qualified rule ids (`<lang>.<kind>.<id>` for def rules,
-`refs.<id>` for top-level ref rules, `<lang>.refs.<id>` for per-lang ref
-rules).
+Each rule belongs to one scope:
+
+| TOML path | Evaluated against |
+| --------- | ----------------- |
+| `[[<lang>.<kind>.where]]` | defs of one language and kind |
+| `[[default.<kind>.where]]` | defs of one kind in any language, unless that language has its own kind block |
+| `[[refs.where]]` | every ref in every supported language |
+| `[[<lang>.refs.where]]` | refs emitted by one language |
+
+Rust uses the TOML section `rust`, even though the language tag in
+monikers and `code-moniker langs` is `rs`.
+
+## Expressions
+
+A rule expression is an assertion. If the assertion is false for the
+current def or ref, `check` reports a violation.
+
+Common def projections:
+
+| Projection | Meaning |
+| ---------- | ------- |
+| `name` | bare name of the current def |
+| `kind` | def kind such as `class`, `function`, `fn` |
+| `shape` | cross-language group: `namespace`, `type`, `callable`, `value`, `annotation` |
+| `visibility` | language visibility, when the extractor supports it |
+| `lines` | line count for the def body |
+| `moniker` | full moniker |
+| `parent.name` | bare name of the parent segment |
+
+Common ref projections:
+
+| Projection | Meaning |
+| ---------- | ------- |
+| `kind` | ref kind such as `calls`, `imports_symbol`, `implements` |
+| `source.name` / `target.name` | bare source or target name |
+| `source.shape` / `target.shape` | source or target shape |
+| `source ~ '...'` / `target ~ '...'` | path match against source or target moniker |
+
+Operators:
+
+| Operator | Meaning |
+| -------- | ------- |
+| `=` `!=` | equality |
+| `<` `<=` `>` `>=` | numeric comparison |
+| `=~` `!~` | regex match / no match |
+| `~` | moniker path pattern match |
+| `<@` `@>` | descendant / ancestor |
+| `?=` | `bind_match`, used for cross-file symbol resolution |
+| `AND` `OR` `NOT` `=>` | boolean logic; `A => B` means "when A, require B" |
+
+Quantifiers:
 
 ```toml
-[profiles.bugfix]
-# only keep rules whose id matches at least one pattern in `enable`
-enable = ["^ts\\.class\\..*", "^refs\\.domain-no-infra$"]
-
-[profiles.naming-only]
-# keep everything except what `disable` matches
-disable = ["\\.no-god-class$", "\\.low-fan-out$"]
+count(method) <= 20
+all(method, lines <= 60)
+any(out_refs, kind = 'implements' AND target.name =~ Port$)
+none(field, visibility = 'public')
 ```
 
-A rule is kept iff:
+Domains are direct child defs (`method`, `field`, `class`, etc.),
+`segment`, `out_refs`, and `in_refs`.
 
+Full grammar: [Rule DSL](check-dsl.md).
+
+## Path patterns
+
+Path patterns match moniker segments, not filesystem strings.
+
+```toml
+moniker ~ '**/dir:domain/**'
+source  ~ '**/dir:application/**'
+target  ~ '**/interface:/Port$/'
 ```
-(enable is empty OR any enable pattern matches the rule id)
-AND no disable pattern matches the rule id
-```
+
+Language path encoding differs:
+
+| Language | Path segments |
+| -------- | ------------- |
+| TS / JS / TSX / JSX | `dir:<segment>/module:<stem>` |
+| Rust | `dir:<segment>/module:<stem>` |
+| Go | `package:<segment>/module:<stem>` |
+| C# | `package:<segment>/module:<stem>` |
+| Java | `package:<segment>/module:<stem>` |
+| Python | `package:<segment>/module:<stem>` |
+| SQL / PL/pgSQL | `dir:<segment>/module:<stem>`, then `schema:<name>` nested under module for schema-scoped objects |
+
+When a rule does not match what you expect, inspect the graph first:
 
 ```sh
-code-moniker check src/ --profile bugfix
+code-moniker extract src/order.ts --format json
+code-moniker extract src/order.ts --format tree
 ```
-
-`enable` empty means "keep everything"; `disable` empty means "drop
-nothing". Unknown profile name → exit 2 with the list of declared
-profiles. Bad regex → exit 2 with the offending pattern.
 
 ## Recipes
 
-The patterns below cover the architectural concerns most projects ask the
-linter to enforce: Clean Code (defs stay small and well-named),
-Domain-Driven Design (building blocks have a fixed shape), Hexagonal
-Architecture (dependencies only point inward), and bounded contexts
-(modules talk through a shared contract). Each recipe stands alone — drop
-it into `.code-moniker.toml`, adjust the path globs to your layout, and
-the rule fires on the next `code-moniker check`.
-
-Path encoding depends on the language. TS / JS / TSX / JSX, Rust, Go and
-C# encode directories as `dir:<seg>`; Java and Python encode packages as
-`package:<seg>`; PL/pgSQL encodes schemas as `schema:<name>`. Run
-`code-moniker <file> --format json` once to see what the extractor
-produces and align the globs with that.
-
-The examples assume a TypeScript layout: `src/domain/`,
-`src/application/`, `src/infrastructure/`, plus the bounded contexts
-`src/billing/`, `src/shipping/`, `src/contract/`. Aliases keep the path
-globs readable:
+### Layer boundary
 
 ```toml
-[aliases]
-domain   = "moniker ~ '**/dir:domain/**'"
-app      = "moniker ~ '**/dir:application/**'"
-infra    = "moniker ~ '**/dir:infrastructure/**'"
-contract = "moniker ~ '**/dir:contract/**'"
+[[refs.where]]
+id      = "domain-depends-only-on-domain"
+expr    = "source ~ '**/dir:domain/**' => target ~ '**/dir:domain/**'"
+message = "Domain code may only depend on domain code."
+
+[[refs.where]]
+id   = "application-depends-inward"
+expr = """
+  source ~ '**/dir:application/**'
+  => target ~ '**/dir:application/**'
+     OR target ~ '**/dir:domain/**'
+"""
 ```
 
-`$name` expands textually before parsing, so the alias bundles its
-projection (`moniker ~ '...'`). For ref-scoped rules write `source ~ '...'`
-/ `target ~ '...'` explicitly — aliases don't compose under a prefix.
+### Framework imports stay out of domain
 
-### Clean Code — keep defs small and verb-named
+```toml
+[[refs.where]]
+id   = "domain-imports-no-framework"
+expr = """
+  source ~ '**/dir:domain/**' AND kind = 'imports_symbol'
+  => NOT (target ~ '**/external_pkg:express/**'
+          OR target ~ '**/external_pkg:nestjs/**'
+          OR target ~ '**/external_pkg:typeorm/**')
+"""
+```
+
+### Keep classes small
 
 ```toml
 [[ts.class.where]]
-id   = "no-god-class"
-expr = "count(method) <= 20 AND count(field) <= 7 AND all(method, lines <= 60)"
-
-[[ts.constructor.where]]
-id   = "small-ctor"
-expr = "count(param) <= 4"
-
-[[ts.method.where]]
-id   = "name-is-a-verb"
-expr = "NOT name =~ ^(do|handle|process|manage)[A-Z]"
-
-[[ts.method.where]]
-id   = "method-not-named-after-parent"
-expr = "name != parent.name"
+id      = "class-budget"
+expr    = "count(method) <= 20 AND count(field) <= 7 AND all(method, lines <= 60)"
+message = "Class `{name}` is too large for the project budget."
 ```
 
-`count(method)` and `count(field)` iterate the direct children defs of
-the class under check. `all(method, lines <= 60)` is a quantifier: the
-inner expression is evaluated with each method bound as the current
-item. The naming rule rejects vague prefixes that paper over
-multi-purpose helpers; `parent.name` reads the bare name of the
-moniker's penultimate segment, catching `OrderService.OrderService(...)`.
-
-### DDD — shape the building blocks
+### DDD naming contracts
 
 ```toml
 [[ts.class.where]]
@@ -172,124 +231,27 @@ expr = """
 
 [[ts.interface.where]]
 id   = "repository-lives-in-domain"
-expr = "name =~ Repository$ => $domain"
-
-[[ts.class.where]]
-id   = "use-case-shape"
-expr = """
-  name =~ UseCase$
-  => count(method) = 1 AND any(method, name = 'execute')
-"""
-
-[[ts.class.where]]
-id   = "port-is-never-a-class"
-expr = "NOT name =~ Port$"
+expr = "name =~ Repository$ => moniker ~ '**/dir:domain/**'"
 ```
 
-Every rule is gated by a suffix premise (`name =~ Entity$ =>`), so only
-defs that opt in by name are evaluated. `=>` is the implication — drop
-it and the rule fires on every class that isn't an entity. The
-`port-is-never-a-class` rule has no premise: ports are interfaces, full
-stop.
-
-### Hexagonal — dependency direction at the boundaries
-
-```toml
-[[refs.where]]
-id   = "domain-depends-on-nothing-but-itself"
-expr = "source ~ '**/dir:domain/**' => target ~ '**/dir:domain/**'"
-
-[[refs.where]]
-id   = "application-only-inward"
-expr = """
-  source ~ '**/dir:application/**'
-  => target ~ '**/dir:application/**' OR target ~ '**/dir:domain/**'
-"""
-
-[[refs.where]]
-id   = "domain-imports-no-framework"
-expr = """
-  source ~ '**/dir:domain/**' AND kind = 'imports_symbol'
-  => NOT (target ~ '**/external_pkg:express/**'
-          OR target ~ '**/external_pkg:nestjs/**'
-          OR target ~ '**/external_pkg:typeorm/**'
-          OR target ~ '**/external_pkg:prisma/**')
-"""
-
-[[refs.where]]
-id   = "infra-implements-application-ports-only"
-expr = """
-  source ~ '**/dir:infrastructure/**' AND kind = 'implements'
-  => target ~ '**/dir:application/**' AND target.name =~ Port$
-"""
-```
-
-`[[refs.where]]` is poly-lang: one rule covers every language the
-project mixes. `kind = '...'` narrows the ref type — `imports_symbol`
-for imports, `implements` for inheritance edges. `target.name` reads the
-bare callable name of the moniker's last segment, so the port-suffix
-convention is enforced without a path pattern. The framework blacklist
-lives in the import rule, not the layering rule, because it speaks
-about external packages rather than source layout.
-
-### Bounded contexts — talk only through a shared contract
-
-```toml
-[[refs.where]]
-id   = "billing-touches-shipping-only-via-contract"
-expr = """
-  source ~ '**/dir:billing/**' AND target ~ '**/dir:shipping/**'
-  => target ~ '**/dir:contract/**'
-"""
-```
-
-Two contexts (`billing`, `shipping`) may only exchange types defined in
-the shared `contract` module. The premise narrows to refs that already
-cross the boundary; the consequent demands they land in `contract/`.
-Duplicate the pattern per pair of contexts that should stay isolated.
-
-### Adapters and controllers
+### Adapters implement ports
 
 ```toml
 [[ts.class.where]]
-id   = "thin-controller"
-expr = """
-  name =~ Controller$
-  => count(method) <= 8
-     AND count(class) = 0
-     AND all(method, lines <= 30)
-"""
-
-[[ts.class.where]]
-id   = "adapter-implements-a-port"
+id   = "adapter-implements-port"
 expr = """
   name =~ Adapter$
   => any(out_refs, kind = 'implements'
                    AND target ~ '**/dir:application/**'
                    AND target.name =~ Port$)
 """
-
-[[ts.class.where]]
-id   = "low-fan-out"
-expr = """
-  kind = 'class'
-  => count(out_refs, kind = 'uses_type'
-                     AND NOT target ~ '**/external_pkg:/**') <= 7
-"""
 ```
 
-`out_refs` iterates the refs whose source is the current def — useful
-when a structural rule asserts something about what the def *does*, not
-just what it *contains*. The `adapter-implements-a-port` rule reads as
-"every `*Adapter` must have at least one `implements` edge to an
-application-layer `*Port`"; the coupling rule counts non-external
-`uses_type` edges and caps them at 7.
-
-### Fixture and test code stays in test modules
+### Fixtures stay in tests
 
 ```toml
 [[ts.class.where]]
-id   = "fixtures-only-in-test-modules"
+id   = "fixtures-only-in-tests"
 expr = """
   name =~ ^(Stub|Mock|Fake|Builder)$
   => any(segment, segment.kind = 'dir'
@@ -297,11 +259,10 @@ expr = """
 """
 ```
 
-`segment` iterates the moniker top-down; the rule walks the def's own
-path and demands at least one segment is a `tests/` or `*_test/`
-directory. Production code that shadows a fixture name fires.
+### Require doc comments
 
-### Doc comments — spatial, outside `where`
+`require_doc_comment` is not a `where` expression. It is a field on a
+kind block.
 
 ```toml
 [ts.class]
@@ -311,108 +272,101 @@ require_doc_comment = "public"
 require_doc_comment = "any"
 ```
 
-`require_doc_comment` is not an expression — it's a field on the kind
-block. Value `"public"` lints public defs only, `"any"` lints them all.
+Values are a visibility name such as `"public"` or `"private"`, plus the
+special value `"any"`. A doc comment must end immediately before the
+definition's doc anchor. Decorated definitions are handled by anchoring
+before the decorator.
 
-The full grammar (operators, projections, alias scoping) and a single
-consolidated `.code-moniker.toml` covering every recipe above live in
-the [rule DSL](check-dsl.md). For wiring `check` into a Claude Code
-hook, a pre-commit gate, or CI, see the
-[agent harness guide](agent-harness.md).
+## Profiles
 
-## Custom messages
+Profiles select a subset of rules by regex over full rule ids.
 
-Each `where` entry carries an optional `message` template. When the rule
-fires, the template is rendered with placeholders:
+```toml
+[profiles.bugfix]
+enable = ["^ts\\.class\\.", "^refs\\.domain-no-infra$"]
 
-| Token        | Value                                                |
-| ------------ | ---------------------------------------------------- |
-| `{name}`     | def's bare callable name                             |
-| `{kind}`     | def's kind                                           |
-| `{moniker}`  | def's full URI                                       |
-| `{expr}`     | the raw expression that fired                        |
-| `{value}`    | the actual LHS value                                 |
-| `{expected}` | the RHS literal                                      |
-| `{pattern}` `{lines}` `{limit}` `{count}` | legacy aliases of `{expected}`/`{value}` for familiar wording |
+[profiles.naming-only]
+disable = ["\\.class-budget$", "\\.domain-"]
+```
 
-Unknown placeholders are left intact.
+Run a profile:
+
+```sh
+code-moniker check src/ --profile bugfix
+```
+
+Selection rule:
+
+```text
+(enable is empty OR any enable pattern matches)
+AND no disable pattern matches
+```
+
+Unknown profile names and bad regexes exit `2`.
 
 ## Suppressions
 
+Suppress the next def:
+
 ```ts
-// code-moniker: ignore                       // suppress every rule on the next def
-// code-moniker: ignore[name-pascalcase]      // only that rule id (suffix match)
-// code-moniker: ignore-file                  // whole file
-// code-moniker: ignore-file[max-lines]       // whole file, single rule
+// code-moniker: ignore
+// code-moniker: ignore[ts.class.class-budget]
+// code-moniker: ignore[class-budget]
 ```
 
-The directive prefix is the language's line-comment marker (`//`, `#`,
-`--`). Rule ids follow the TOML path: `<lang>.<kind>.<id>` where `<id>` is
-either the explicit `id` on the entry or `where_<index>` if omitted. The
-suppression filter matches by suffix.
+Suppress a whole file:
 
-In the text output, the explanation is shown indented under the violation:
-
-```
-src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`
-  → Class names must be PascalCase. Rename `lower_bad`.
+```ts
+// code-moniker: ignore-file
+// code-moniker: ignore-file[class-budget]
 ```
 
-In JSON, it lands as a sibling field of `message`:
+The directive uses the language line-comment marker (`//`, `#`, or `--`).
+Rule filters match by suffix, so `ignore[class-budget]` matches
+`ts.class.class-budget`.
 
-```json
-{
-  "rule_id":     "ts.class.name-pascalcase",
-  "message":     "class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$` (name = lower_bad, expected ^[A-Z][A-Za-z0-9]*$)",
-  "explanation": "Class names must be PascalCase. Rename `lower_bad`."
-}
-```
+## Messages
+
+Def-scoped rules support message templates:
+
+| Token | Value |
+| ----- | ----- |
+| `{name}` | bare def name |
+| `{kind}` | def kind |
+| `{moniker}` | full def moniker |
+| `{expr}` | raw expression |
+| `{value}` | failing left-hand value |
+| `{expected}` | right-hand literal |
+| `{pattern}` `{lines}` `{limit}` `{count}` | aliases for `{expected}` or `{value}` |
+
+Ref-scoped `message` values are emitted as literal explanatory text.
 
 ## Output
 
-Default text format — one violation per line, similar to ESLint stylish,
-with a trailing summary in project mode:
+Text output prints one violation per line:
 
+```text
+src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$` (name = lower_bad, expected ^[A-Z][A-Za-z0-9]*$)
 ```
-src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`
-src/widget.ts:L24-L24 [ts.function.max-lines]    function `loadEverything` fails `lines <= 60`
-src/order.ts:L5-L20  [ts.class.no-god-class]     class `Order` fails `count(method) <= 20`
 
+If a custom message is present, it is printed as the explanation below the
+violation:
+
+```text
+src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$` (name = lower_bad, expected ^[A-Z][A-Za-z0-9]*$)
+  → Class names must be PascalCase. Rename `lower_bad`.
+```
+
+Project scans end with a summary:
+
+```text
 3 violation(s) across 2 file(s) (42 scanned).
 ```
 
-`--format json` emits one document with a summary and a `files` array:
+JSON output contains a `summary` object and one entry per scanned file.
 
-```json
-{
-  "summary": {
-    "files_scanned": 42,
-    "files_with_violations": 2,
-    "total_violations": 3
-  },
-  "files": [
-    {
-      "file": "src/widget.ts",
-      "violations": [
-        {
-          "rule_id": "ts.class.name-pascalcase",
-          "moniker": "code+moniker://./lang:ts/module:widget/class:lower_bad",
-          "kind":    "class",
-          "lines":   [12, 18],
-          "message": "class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`"
-        }
-      ]
-    }
-  ]
-}
-```
+## Next
 
-The semantic mirrors `code-moniker file.ts` (0 = match, 1 = no match), so a
-shell wrapper using `if code-moniker check ...` reads naturally as "any
-problems?".
-
-## Next steps
-
-- Plug into an agent loop or CI gate → [agent harness](agent-harness.md).
-- Write your first rule → [rule DSL](check-dsl.md).
-- Probe a single file ad-hoc → [extract](extract.md).
+- Inspect graphs with [`extract`](extract.md).
+- Write exact expressions with the [Rule DSL](check-dsl.md).
+- Wire `check` into hooks or CI with the [agent harness](agent-harness.md).

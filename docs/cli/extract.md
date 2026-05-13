@@ -6,6 +6,7 @@ Extract a moniker graph from a file or a directory.
 code-moniker extract <PATH> [--where '<op> <uri>']... [--kind <name>]...
                             [--shape <shape>]...
                             [--format tsv|json|tree] [--count] [--quiet]
+                            [--color auto|always|never] [--charset utf8|ascii]
                             [--with-text] [--scheme <SCHEME>] [--cache <DIR>]
 ```
 
@@ -57,7 +58,7 @@ ref<TAB>target_moniker<TAB>kind<TAB>start..end<TAB>L<a>-L<b><TAB>source=<URI><TA
 
 ### JSON
 
-Identical shape to `code_graph_to_spec(graph)` — round-trippable into Postgres via `code_graph_declare(jsonb)`.
+CLI-specific shape: `{uri, lang, matches: {defs, refs}}`. Not the same shape as `code_graph_to_spec(graph)`; not directly consumable by `code_graph_declare(jsonb)`.
 
 ```json
 {
@@ -70,7 +71,8 @@ Identical shape to `code_graph_to_spec(graph)` — round-trippable into Postgres
     ],
     "refs": [
       { "source": "...", "target": "...", "kind": "extends",
-        "position": [220, 243], "lines": [25, 25], "confidence": "name_match" }
+        "position": [220, 243], "lines": [25, 25],
+        "binding": "local", "confidence": "name_match" }
     ]
   }
 }

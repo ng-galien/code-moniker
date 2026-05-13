@@ -4,7 +4,7 @@
 
 ## Documents
 
-- `README.md` — posture, two-pitch entry point, status
+- `README.md` — product entry point, install, first CLI run, documentation map
 - `CONTRIBUTING.md` — developer workflow (build, test, dogfood, add a language)
 - `CLAUDE.md` (this file) — coding rules
 - `docs/README.md` — single doc index (no per-category READMEs)
@@ -37,7 +37,7 @@ crates/
         moniker/            Moniker struct + Ord + tree-position queries
                             (mod, encoding, view, builder, query)
         uri/                typed canonical URI parse / serialize
-        code_graph.rs       defs / refs / O(1) moniker→idx, DefAttrs / RefAttrs
+        code_graph/         defs / refs / O(1) moniker→idx, DefAttrs / RefAttrs
       declare/              declarative spec lifecycle (jsonb ↔ code_graph).
                             Sits above core/ because DeclareSpec.lang: Lang
                             carries the lang enum from lang/.
@@ -78,7 +78,10 @@ scripts/
   dogfood/panel.sh          pinned panel of representative open-source projects
 ```
 
-**No file > ~600 lines.** One responsibility per file, named by its suffix. When a file exceeds the cap, split the production module (subfiles with their own `mod tests`); do not extract the tests.
+Prefer small files with one responsibility and a clear suffix. Some legacy
+modules are larger; when a change grows one further, split the production
+module around the responsibility being touched and keep the tests next to
+the code under test.
 
 ## Extractor extension protocol
 
@@ -87,12 +90,15 @@ A new language under `crates/core/src/lang/<lang>/` mirrors the `ts/` skeleton:
 - `mod.rs` — `pub fn parse`, `pub fn extract(uri, source, anchor, deep, &Presets) -> CodeGraph`, `pub struct Presets` for caller-supplied hints.
 - `kinds.rs` — language-specific structural kinds + `pub(super) use crate::lang::kinds::{VIS_*, CONF_*}` for the shared vocabulary. Never redeclare visibility or confidence values.
 - `canonicalize.rs` — `compute_module_moniker`, `extend_segment`, `extend_callable` with arity-based segment names.
-- `walker.rs` — Walker struct (source bytes, module, deep, presets, scope state, language-specific tables like `imports` / `type_table`) + AST dispatch + def emitters.
-- `refs.rs` — ref emitters per kind. Use `RefAttrs { ..RefAttrs::default() }` shorthand so future fields land without touching every site. Reach for `add_ref_attrs` when emitting confidence / alias / receiver_hint; the bare `add_ref` is for cases where nothing is known.
-- `scope.rs` — local-scope stack (`record_local`, `is_local_name`, `name_confidence`) and language-specific visibility helper. Defaults differ per language — Java is `package`, TS is `public`. Push/pop on each callable so `confidence: local` stays accurate.
-- Optional `imports.rs` (when imports decompose into many specifiers) and `build.rs` (manifest parser yielding `Vec<Dep>` consumed by `crates/pg/src/build.rs::extract_<system>`).
+- `strategy.rs` — AST traversal, extractor state, def emitters, ref emitters,
+  local-scope tracking, visibility helpers, and any language lookup tables
+  such as `imports` or `type_table`. Use `RefAttrs { ..RefAttrs::default() }`
+  when emitting refs; use `add_ref_attrs` when confidence, alias, binding, or
+  receiver hints are known.
+- Optional `build.rs` (manifest parser yielding `Vec<Dep>` consumed by
+  `crates/pg/src/build.rs::extract_<system>`).
 
-- **Pre-pass `collect_type_table`** (when methods can precede their receiver type, e.g. Go / Rust impl): emits top-level type defs to the graph AND fills the resolution HashMap. Walker's `handle_type_spec` gates `add_def_attrs` on `scope != module` to skip the duplicate. `DuplicateMoniker` is silently tolerated everywhere via `let _ = graph.add_def(...)`.
+- **Pre-pass `collect_type_table`** (when methods can precede their receiver type, e.g. Go / Rust impl): emits top-level type defs to the graph AND fills the resolution HashMap. The language strategy gates duplicate `add_def_attrs` calls where needed. `DuplicateMoniker` is silently tolerated everywhere via `let _ = graph.add_def(...)`.
 
 - **`ParentNotFound` / `SourceNotFound` are silently dropped** by `let _ = graph.add_def_attrs(...)`. Synthesizing a moniker whose parent isn't in the graph drops every child (commit `9c23d04` Rust impl-for-external). Pre-check via `graph.contains(&parent)`; if missing, emit a placeholder first with `origin = ORIGIN_EXTRACTED` — `assert_conformance` rejects `ORIGIN_INFERRED` / `ORIGIN_DECLARED` from extractors (reserved for `code_graph_declare`).
 
@@ -128,7 +134,7 @@ cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config --man
 
 Pre-commit hook runs `cargo fmt -- --check` + `cargo clippy ... -D warnings` on `*.rs` / `Cargo.{toml,lock}` changes. Clippy lints (`manual_find`, `manual_let_else`) block the commit — run it proactively.
 
-Dogfood runner clones the panel into `/dogfood/` (gitignored) on first use; reuses on subsequent runs unless `--reset` is passed.
+Dogfood runner clones the panel into `./dogfood/` (gitignored) on first use; reuses on subsequent runs unless `--reset` is passed.
 
 Bench: `cargo run --release -p code-moniker-core --example bench_codegraph` (CodeGraph throughput), `cargo run --release -p code-moniker-core --example bench_extract` (full extractor on a real file).
 

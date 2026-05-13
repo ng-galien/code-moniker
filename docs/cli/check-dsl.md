@@ -223,7 +223,7 @@ explicitly, or define separate aliases per scope (`src_domain`,
 [[<lang>.<kind>.where]]                    # def-scoped, lang-specific
 id      = "..."
 expr    = "..."
-message = "..."                            # optional, custom template
+message = "..."                            # optional; templates are rendered for def rules
 
 [[refs.where]]                             # ref-scoped, poly-lang
 [[<lang>.refs.where]]                      # ref-scoped, lang-specific
@@ -239,10 +239,10 @@ replace-by-name rule.
 
 ## Recipes and suppression directives
 
-Worked examples for Clean Code, DDD, Hex layering, bounded contexts,
-adapters/controllers, and test modules — plus the `// code-moniker: ignore`
-syntax — live in the [recipes section of check](check.md#recipes). They use this grammar; no
-new construct is introduced.
+Worked examples for layer boundaries, DDD contracts, adapters, test modules,
+and doc comments live in the [recipes section of check](check.md#recipes).
+Suppression directives live in [suppressions](check.md#suppressions). They
+use this grammar; no new construct is introduced.
 
 ## Beyond direct refs
 

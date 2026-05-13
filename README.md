@@ -15,149 +15,172 @@
 [![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-17-336791)](https://www.postgresql.org)
 
-`code-moniker` makes the symbol graph queryable. Two surfaces, one
-extractor:
+`code-moniker` extracts a symbol graph from source code.
 
-- a **standalone CLI** that lints projects against a declarative rule
-  pack — usable as an agent guardrail, a pre-commit gate, or a CI job;
-- a **PostgreSQL extension** that exposes the same graph as native
-  SQL types (`moniker`, `code_graph`) with an indexed algebra.
+It gives you two surfaces over the same model:
 
-No index to maintain, no daemon — the linter runs on any checkout
-without setup; benchmarks are in [Performance](docs/perf.md).
+- a CLI for inspecting code and enforcing architecture rules in hooks or CI;
+- a PostgreSQL extension for storing and querying symbol graphs with SQL.
+
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
-Python, Go, C#, SQL, PL/pgSQL.
+Python, Go, C#, SQL, and PL/pgSQL.
 
-## Why this exists
+## What it is for
 
-**SCIP / LSIF / tree-sitter-graph** emit symbol graphs as static
-files — you bolt your own consumer on top to query them. **Semgrep
-CE, ast-grep**, and local syntax-pattern matchers give you a query
-language but match syntax, not a symbol graph, so cross-file refs
-and layering constraints (`domain/` must not depend on
-`infrastructure/`) stay out of reach as primitives.
+Use `code-moniker` when text search is too weak because the question is
+about symbols and relationships:
 
-`code-moniker` bakes structural context into the symbol identity.
-The AST of `class OrderEntity` under `src/domain/order/`
-materialises like this (scanning with `src/` as root):
+- Which definitions live under `src/domain/`?
+- Does domain code import infrastructure code?
+- Which classes implement a port?
+- Which refs point at a symbol family, even when the final segment kind
+  differs across import and definition sites?
+- Can this rule run after every edit, before commit, or in CI?
 
-```
-    // src/domain/order.ts
-    class OrderEntity { save(r: OrderRepo) {…} }
+The unit of identity is a `moniker`: a URI-like path made of typed
+segments.
 
-                            │ extract
-                            ▼
-
-    moniker (identity + structural path, one per def):
-      ◆ code+moniker://app/lang:ts/dir:domain/module:order/class:OrderEntity
-                                    └────────┘
-                                       layering anchor — pattern-matchable
-      ◆ …/class:OrderEntity/method:save(OrderRepo)
-
-    code_graph (edges between monikers):
-      …/method:save  ── uses_type ──▶  …/dir:domain/module:repo/interface:OrderRepo
+```text
+code+moniker://app/lang:ts/dir:src/dir:domain/module:order/class:OrderEntity
 ```
 
-The [moniker URI](docs/design/moniker-uri.md) carries identity and
-structural path; the [`code_graph`](docs/design/spec.md#the-code_graph)
-carries the relations (calls, imports, implements, extends, uses_type)
-between monikers. A [`check` rule](docs/cli/check.md) like
-`source ~ '**/dir:domain/**' => target ~ '**/dir:domain/**'`
-becomes a one-liner the linter enforces statelessly, file by file.
-
-The Postgres extension is this model ported into a database.
-[`moniker` and `code_graph`](docs/postgres/reference.md#types) become
-native SQL types; the [indexed algebra](docs/postgres/reference.md#operators)
-(`<@` for subtree, `?=` for `bind_match` cross-file resolution, `@>`
-for ancestry) becomes SQL operators backed by GiST and GIN indexes.
-The symbol graph now sits next to your domain tables and joins with
-them in one query:
-
-```sql
--- Which deployments in the last week touched code under dir:domain/?
-SELECT d.id, d.deployed_at, m.source_uri
-FROM module m
-JOIN deployment d ON d.path = m.source_uri
-WHERE graph_root(m.graph) <@ 'code+moniker://app/lang:ts/dir:domain'::moniker
-  AND d.deployed_at > now() - interval '7 days';
-```
+The graph then stores defs and refs between those monikers: calls,
+imports, inheritance, implemented interfaces, type usage, annotations,
+and related language-specific edges.
 
 ## Install
 
-CLI (standalone, no Postgres needed):
+Install the standalone CLI:
 
 ```sh
 cargo install code-moniker
 ```
 
-Or from git (latest `main`):
+Or install the latest `main`:
 
 ```sh
 cargo install --git https://github.com/ng-galien/code-moniker code-moniker
 ```
 
-Or from a local clone:
+From a local checkout:
 
 ```sh
 cargo install --path crates/cli
 ```
 
-Postgres extension (PG17 via pgrx; Docker variant in the [SQL reference](docs/postgres/reference.md)):
+## First CLI run
+
+Inspect a file:
 
 ```sh
-cargo install --locked cargo-pgrx
-cargo pgrx init --pg17 download
-cargo pgrx install --manifest-path crates/pg/Cargo.toml --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
+code-moniker extract src/order.ts --format tree
 ```
 
-Then `CREATE EXTENSION code_moniker;` in any PG17 database.
+Inspect a directory:
 
-## CLI
+```sh
+code-moniker extract src/
+```
 
-Two subcommands :
+Filter by kind or shape:
 
-- `code-moniker check <path>` — lint against `.code-moniker.toml` rules.
-  Exit 1 on the first violation; output line points to file:line and
-  carries the rule id. Plugs into `PostToolUse` hooks, pre-commit, CI.
-- `code-moniker extract <path>` — dump the moniker graph (TSV / JSON /
-  tree) for a file or directory. `--kind`, `--shape`, `--where` turn it
-  into a filtered cross-tree query.
+```sh
+code-moniker extract src/ --shape callable
+code-moniker extract src/ --kind class,interface
+```
 
-Rules talk about symbols and their relations (calls, imports,
-inheritance, layering, naming) — not text.
+Run the linter:
 
-→ [Check](docs/cli/check.md) · [Extract](docs/cli/extract.md) · [Agent harness](docs/cli/agent-harness.md)
+```sh
+code-moniker check src/
+```
 
-## Postgres extension — `extract_<lang>` + indexed algebra
+Exit codes:
+
+| Code | Meaning |
+| ---- | ------- |
+| `0`  | no violations |
+| `1`  | at least one violation |
+| `2`  | usage or configuration error |
+
+## Configure rules
+
+`code-moniker check` loads embedded defaults first. If a
+`.code-moniker.toml` file exists, it is merged on top.
+
+```toml
+[[refs.where]]
+id      = "domain-no-infra"
+expr    = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infrastructure/**'"
+message = "Domain code must not depend on infrastructure."
+
+[[ts.class.where]]
+id      = "no-god-class"
+expr    = "count(method) <= 20 AND all(method, lines <= 60)"
+message = "Class `{name}` exceeds the class budget."
+
+[[ts.interface.where]]
+id   = "repository-lives-in-domain"
+expr = "name =~ Repository$ => moniker ~ '**/dir:domain/**'"
+```
+
+Rules evaluate symbols and refs, not source text. The path pattern must
+match the moniker encoding produced by the extractor. Check one file when
+in doubt:
+
+```sh
+code-moniker extract src/order.ts --format json
+```
+
+## PostgreSQL extension
+
+The extension installs native `moniker` and `code_graph` types, extractors,
+accessors, and indexes. It owns no application tables.
 
 ```sql
 CREATE EXTENSION code_moniker;
+SET search_path = code_moniker, public;
 
 SELECT extract_typescript(
   'src/util.ts',
   'export class Util { run() { return 1; } }',
   'code+moniker://app'::moniker
 );
-
-SELECT 'code+moniker://app/lang:ts/dir:src/module:util/class:Util'::moniker
-    <@ 'code+moniker://app/lang:ts'::moniker;   -- subtree containment, GiST-indexed
 ```
 
-`moniker` carries node identity; `code_graph` carries a module's
-defs and refs. Cross-file linkage is a single indexed JOIN on `?=`
-(`bind_match`). The extension owns no tables — types, operators,
-and pure functions only.
+Example indexed query:
 
-→ [Postgres usage](docs/postgres/usage.md)
+```sql
+SELECT id
+FROM module
+WHERE graph_root(graph) <@ 'code+moniker://app/lang:ts/dir:domain'::moniker;
+```
+
+Install and usage details live in the PostgreSQL docs.
 
 ## Documentation
 
-Full index in the [docs/](docs/README.md) tree. Entry points:
+Start with the page that matches the task:
 
-- CLI — [Extract](docs/cli/extract.md), [Check](docs/cli/check.md), [Agent harness](docs/cli/agent-harness.md)
-- PostgreSQL — [SQL reference](docs/postgres/reference.md), [Usage](docs/postgres/usage.md)
-- Design — [Spec](docs/design/spec.md), [Moniker URI](docs/design/moniker-uri.md)
-- [Contributing](CONTRIBUTING.md) — build, test, add a language
+| Task | Page |
+| ---- | ---- |
+| Inspect symbols from the CLI | [Extract](docs/cli/extract.md) |
+| Lint a repository with rules | [Check](docs/cli/check.md) |
+| Write rule expressions | [Rule DSL](docs/cli/check-dsl.md) |
+| Wire the linter into hooks or CI | [Agent harness](docs/cli/agent-harness.md) |
+| Query graphs in PostgreSQL | [Postgres usage](docs/postgres/usage.md) |
+| Look up SQL functions and operators | [Postgres reference](docs/postgres/reference.md) |
+| Understand moniker URI syntax | [Moniker URI](docs/design/moniker-uri.md) |
+| Read the full model | [Design spec](docs/design/spec.md) |
+| Build or contribute | [Contributing](CONTRIBUTING.md) |
+
+Full index: [docs/](docs/README.md).
+
+## Performance
+
+The CLI is designed for hooks and CI. Project scans are parallel; per-file
+checks are bounded enough for edit hooks. Measurements and reproduction
+commands are in [Performance](docs/perf.md).
 
 ## License
 
