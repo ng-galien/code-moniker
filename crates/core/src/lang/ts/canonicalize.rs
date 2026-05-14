@@ -5,11 +5,15 @@ use crate::core::moniker::{Moniker, MonikerBuilder};
 use super::kinds;
 
 pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
-	let stem = strip_known_extension(uri);
+	module_builder_for_path(anchor, uri).build()
+}
+
+pub(super) fn module_builder_for_path(anchor: &Moniker, path: &str) -> MonikerBuilder {
+	let stem = strip_known_extension(path.trim_start_matches("./"));
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
 	builder.segment(crate::lang::kinds::LANG, b"ts");
 	append_module_segments(&mut builder, stem);
-	builder.build()
+	builder
 }
 
 pub(super) fn append_module_segments(b: &mut MonikerBuilder, path: &str) {

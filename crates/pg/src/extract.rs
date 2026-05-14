@@ -10,10 +10,23 @@ fn extract_typescript(
 	anchor: moniker,
 	deep: pgrx::default!(bool, "false"),
 	di_register_callees: pgrx::default!(Vec<String>, "ARRAY[]::text[]"),
+	path_alias_patterns: pgrx::default!(Vec<String>, "ARRAY[]::text[]"),
+	path_alias_substitutions: pgrx::default!(Vec<String>, "ARRAY[]::text[]"),
 ) -> code_graph {
 	let core_anchor = anchor.to_core();
+	let path_aliases = path_alias_patterns
+		.into_iter()
+		.zip(path_alias_substitutions)
+		.map(
+			|(pattern, substitution)| code_moniker_core::lang::ts::PathAlias {
+				pattern,
+				substitution,
+			},
+		)
+		.collect();
 	let presets = code_moniker_core::lang::ts::Presets {
 		di_register_callees,
+		path_aliases,
 	};
 	let inner = code_moniker_core::lang::ts::extract(uri, source, &core_anchor, deep, &presets);
 	code_graph::from_core(inner)

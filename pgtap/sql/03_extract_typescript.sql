@@ -8,8 +8,8 @@ SELECT plan(24);
 
 
 SELECT has_function('extract_typescript'::name,
-	ARRAY['text','text','moniker','boolean','text[]'],
-	'extract_typescript(text, text, moniker, boolean, text[]) is exposed');
+	ARRAY['text','text','moniker','boolean','text[]','text[]','text[]'],
+	'extract_typescript(text, text, moniker, boolean, text[], text[], text[]) is exposed');
 
 
 WITH empty AS (

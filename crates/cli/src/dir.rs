@@ -7,8 +7,10 @@ use serde::Serialize;
 
 use crate::args::{ExtractArgs, OutputFormat, OutputMode};
 use crate::cache;
+use crate::extract;
 use crate::format;
 use crate::predicate::{self, MatchSet, Predicate, RefMatch};
+use crate::tsconfig;
 use crate::walk;
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::Moniker;
@@ -23,11 +25,14 @@ pub fn run<W: Write>(
 	scheme: &str,
 ) -> anyhow::Result<bool> {
 	let files = walk::walk_lang_files(root);
+	let ctx = extract::Context {
+		ts: tsconfig::load(root),
+	};
 	let has_filter = !args.kind.is_empty() || !args.shape.is_empty() || !args.where_.is_empty();
 	if has_filter {
-		run_filter(args, stdout, &files, root, scheme)
+		run_filter(args, stdout, &files, root, scheme, &ctx)
 	} else {
-		run_summary(args, stdout, &files, root)
+		run_summary(args, stdout, &files, root, &ctx)
 	}
 }
 
@@ -36,11 +41,12 @@ fn run_summary<W: Write>(
 	stdout: &mut W,
 	files: &[walk::WalkedFile],
 	root: &Path,
+	ctx: &extract::Context,
 ) -> anyhow::Result<bool> {
 	let cache_dir = args.cache.as_deref();
 	let summaries: Vec<FileSummary> = files
 		.par_iter()
-		.filter_map(|f| FileSummary::compute(&f.path, f.lang, root, cache_dir))
+		.filter_map(|f| FileSummary::compute(&f.path, f.lang, root, cache_dir, ctx))
 		.collect();
 	let total_defs: usize = summaries.iter().map(|s| s.defs).sum();
 	let total_refs: usize = summaries.iter().map(|s| s.refs).sum();
@@ -64,6 +70,7 @@ fn run_filter<W: Write>(
 	files: &[walk::WalkedFile],
 	root: &Path,
 	scheme: &str,
+	ctx: &extract::Context,
 ) -> anyhow::Result<bool> {
 	let predicates = args.compiled_predicates(scheme)?;
 	let mut langs: Vec<Lang> = files.iter().map(|f| f.lang).collect();
@@ -86,6 +93,7 @@ fn run_filter<W: Write>(
 				&args.kind,
 				&args.shape,
 				cache_dir,
+				ctx,
 			)
 		})
 		.collect();
@@ -116,9 +124,15 @@ struct FileSummary {
 }
 
 impl FileSummary {
-	fn compute(path: &Path, lang: Lang, root: &Path, cache_dir: Option<&Path>) -> Option<Self> {
+	fn compute(
+		path: &Path,
+		lang: Lang,
+		root: &Path,
+		cache_dir: Option<&Path>,
+		ctx: &extract::Context,
+	) -> Option<Self> {
 		let rel = path.strip_prefix(root).unwrap_or(path);
-		let (graph, _) = cache::load_or_extract(path, rel, lang, cache_dir)?;
+		let (graph, _) = cache::load_or_extract(path, rel, lang, cache_dir, ctx)?;
 		let mut by_def_kind: BTreeMap<String, usize> = BTreeMap::new();
 		let mut defs = 0usize;
 		for d in graph.defs() {
@@ -233,6 +247,7 @@ struct FilterRow {
 }
 
 impl FilterRow {
+	#[allow(clippy::too_many_arguments)]
 	fn compute(
 		path: &Path,
 		lang: Lang,
@@ -241,9 +256,10 @@ impl FilterRow {
 		kinds: &[String],
 		shapes: &[code_moniker_core::core::shape::Shape],
 		cache_dir: Option<&Path>,
+		ctx: &extract::Context,
 	) -> Option<Self> {
 		let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
-		let (graph, extracted_source) = cache::load_or_extract(path, &rel, lang, cache_dir)?;
+		let (graph, extracted_source) = cache::load_or_extract(path, &rel, lang, cache_dir, ctx)?;
 		let matches = predicate::filter(&graph, predicates, kinds, shapes);
 		if matches.defs.is_empty() && matches.refs.is_empty() {
 			return None;
@@ -384,7 +400,9 @@ mod tests {
 		let files = walk::walk_lang_files(root);
 		let summaries: Vec<FileSummary> = files
 			.iter()
-			.filter_map(|f| FileSummary::compute(&f.path, f.lang, root, None))
+			.filter_map(|f| {
+				FileSummary::compute(&f.path, f.lang, root, None, &extract::Context::default())
+			})
 			.collect();
 		assert_eq!(summaries.len(), 2);
 		let a = summaries.iter().find(|s| s.file.ends_with("a.ts")).unwrap();

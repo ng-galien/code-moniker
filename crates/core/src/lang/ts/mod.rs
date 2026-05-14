@@ -14,8 +14,16 @@ use canonicalize::compute_module_moniker;
 use strategy::{Strategy, collect_callable_table, collect_export_ranges};
 
 pub fn parse(source: &str) -> Tree {
+	parse_with_uri(source, "")
+}
+
+pub fn parse_with_uri(source: &str, uri: &str) -> Tree {
 	let mut parser = Parser::new();
-	let language: Language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+	let language: Language = if uri_uses_jsx(uri) {
+		tree_sitter_typescript::LANGUAGE_TSX.into()
+	} else {
+		tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
+	};
 	parser
 		.set_language(&language)
 		.expect("failed to load tree-sitter TypeScript grammar");
@@ -24,9 +32,20 @@ pub fn parse(source: &str) -> Tree {
 		.expect("tree-sitter parse returned None on a non-cancelled call")
 }
 
+fn uri_uses_jsx(uri: &str) -> bool {
+	uri.ends_with(".tsx") || uri.ends_with(".jsx")
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
 	pub di_register_callees: Vec<String>,
+	pub path_aliases: Vec<PathAlias>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PathAlias {
+	pub pattern: String,
+	pub substitution: String,
 }
 
 pub fn extract(
@@ -39,7 +58,7 @@ pub fn extract(
 	let module = compute_module_moniker(anchor, uri);
 	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
 	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
-	let tree = parse(source);
+	let tree = parse_with_uri(source, uri);
 	let export_ranges = collect_export_ranges(tree.root_node());
 	let mut callable_table: std::collections::HashMap<(Moniker, Vec<u8>), Vec<u8>> =
 		std::collections::HashMap::new();
@@ -51,6 +70,7 @@ pub fn extract(
 	);
 	let strat = Strategy {
 		module: module.clone(),
+		anchor: anchor.clone(),
 		source_bytes: source.as_bytes(),
 		deep,
 		presets,
@@ -1030,6 +1050,7 @@ mod tests {
 	fn extract_di_register_fires_only_when_callee_in_preset() {
 		let presets = Presets {
 			di_register_callees: vec!["register".into(), "bind".into()],
+			..Presets::default()
 		};
 		let g = super::extract(
 			"util.ts",
@@ -1054,6 +1075,7 @@ mod tests {
 	fn extract_di_register_skips_non_matching_callee() {
 		let presets = Presets {
 			di_register_callees: vec!["register".into()],
+			..Presets::default()
 		};
 		let g = super::extract("util.ts", "expect(value);", &make_anchor(), false, &presets);
 		assert!(g.refs().all(|r| r.kind != b"di_register"));
@@ -1063,6 +1085,7 @@ mod tests {
 	fn extract_di_register_register_with_name_and_factory() {
 		let presets = Presets {
 			di_register_callees: vec!["register".into()],
+			..Presets::default()
 		};
 		let g = super::extract(
 			"util.ts",
@@ -1081,6 +1104,7 @@ mod tests {
 	fn extract_di_register_member_callee_register() {
 		let presets = Presets {
 			di_register_callees: vec!["register".into()],
+			..Presets::default()
 		};
 		let g = super::extract(
 			"util.ts",
@@ -1099,6 +1123,7 @@ mod tests {
 	fn extract_di_register_recurses_into_factory_call_argument() {
 		let presets = Presets {
 			di_register_callees: vec!["register".into()],
+			..Presets::default()
 		};
 		let g = super::extract(
 			"util.ts",
@@ -1117,6 +1142,7 @@ mod tests {
 	fn extract_di_register_recurses_through_chained_call_postfix() {
 		let presets = Presets {
 			di_register_callees: vec!["asFunction".into()],
+			..Presets::default()
 		};
 		let g = super::extract(
 			"util.ts",
@@ -1135,6 +1161,7 @@ mod tests {
 	fn extract_di_register_full_awilix_pattern() {
 		let presets = Presets {
 			di_register_callees: vec!["register".into()],
+			..Presets::default()
 		};
 		let g = super::extract(
 			"util.ts",
@@ -1248,6 +1275,112 @@ mod tests {
 			dv.segment_count() == view.segment_count() + 1
 				&& dv.segments().last().unwrap().kind == b"param"
 		}));
+	}
+
+	#[test]
+	fn extract_alias_import_routes_to_project_rooted_module() {
+		let presets = Presets {
+			path_aliases: vec![PathAlias {
+				pattern: "@/*".into(),
+				substitution: "./src/*".into(),
+			}],
+			..Presets::default()
+		};
+		let g = super::extract(
+			"src/router.tsx",
+			"import { AppShell } from '@/components/layout/app-shell';",
+			&make_anchor(),
+			false,
+			&presets,
+		);
+		let r = g.refs().next().expect("one ref");
+		let target = MonikerBuilder::new()
+			.project(b"my-app")
+			.segment(b"path", b"main")
+			.segment(b"lang", b"ts")
+			.segment(b"dir", b"src")
+			.segment(b"dir", b"components")
+			.segment(b"dir", b"layout")
+			.segment(b"module", b"app-shell")
+			.segment(b"path", b"AppShell")
+			.build();
+		assert_eq!(
+			r.target, target,
+			"alias-resolved import must point at the project-rooted module, not external_pkg",
+		);
+	}
+
+	#[test]
+	fn extract_alias_import_keeps_external_when_no_alias_matches() {
+		let presets = Presets {
+			path_aliases: vec![PathAlias {
+				pattern: "@/*".into(),
+				substitution: "./src/*".into(),
+			}],
+			..Presets::default()
+		};
+		let g = super::extract(
+			"util.ts",
+			"import { join } from '@scope/pkg/sub';",
+			&make_anchor(),
+			false,
+			&presets,
+		);
+		let r = g.refs().next().unwrap();
+		let head = r.target.as_view().segments().next().unwrap();
+		assert_eq!(head.kind, b"external_pkg");
+	}
+
+	#[test]
+	fn extract_jsx_intrinsic_tag_emits_no_ref() {
+		let g = extract(
+			"app.tsx",
+			"function App() { return <div className=\"x\"><span /></div>; }",
+			&make_anchor(),
+			false,
+		);
+		let intrinsic: Vec<_> = g
+			.refs()
+			.filter(|r| {
+				let last = r.target.as_view().segments().last().unwrap();
+				last.name == b"div" || last.name == b"span" || last.name == b"className"
+			})
+			.collect();
+		assert!(
+			intrinsic.is_empty(),
+			"lowercase JSX tags and attribute names must not surface as refs: {intrinsic:?}",
+		);
+	}
+
+	#[test]
+	fn extract_jsx_uppercase_component_still_emits_ref() {
+		let g = extract(
+			"app.tsx",
+			"function Page() { return <Layout><Item /></Layout>; }",
+			&make_anchor(),
+			false,
+		);
+		let names: Vec<&[u8]> = g
+			.refs()
+			.map(|r| r.target.as_view().segments().last().unwrap().name)
+			.collect();
+		assert!(names.iter().any(|n| *n == b"Layout"));
+		assert!(names.iter().any(|n| *n == b"Item"));
+	}
+
+	#[test]
+	fn extract_jsx_expression_identifier_still_emits_read() {
+		let g = extract(
+			"app.tsx",
+			"function App(label: string) { return <div>{label}</div>; }",
+			&make_anchor(),
+			true,
+		);
+		assert!(
+			g.refs().any(|r| r.kind == b"reads"
+				&& r.target.as_view().segments().last().unwrap().name == b"label"),
+			"identifier inside jsx_expression must still surface as a read",
+		);
 	}
 
 	#[test]

@@ -11,6 +11,7 @@ pub mod lang;
 pub mod lines;
 pub mod manifest;
 pub mod predicate;
+pub mod tsconfig;
 pub mod walk;
 
 use std::io::Write;
@@ -319,8 +320,12 @@ fn extract_inner<W: Write>(args: &ExtractArgs, stdout: &mut W) -> anyhow::Result
 	if !unknown.is_empty() {
 		return Err(unknown_kinds_error(&unknown, &[lang], &known));
 	}
-	let (graph, extracted_source) = cache::load_or_extract(path, path, lang, args.cache.as_deref())
-		.ok_or_else(|| anyhow::anyhow!("cannot read {}", path.display()))?;
+	let ctx = extract::Context {
+		ts: tsconfig::load(path.parent().unwrap_or_else(|| Path::new("."))),
+	};
+	let (graph, extracted_source) =
+		cache::load_or_extract(path, path, lang, args.cache.as_deref(), &ctx)
+			.ok_or_else(|| anyhow::anyhow!("cannot read {}", path.display()))?;
 	let source = match extracted_source {
 		Some(s) => s,
 		None => std::fs::read_to_string(path)

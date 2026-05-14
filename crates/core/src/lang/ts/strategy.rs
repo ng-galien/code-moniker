@@ -26,6 +26,7 @@ struct DecoratorCallee<'src> {
 
 pub(super) struct Strategy<'src> {
 	pub(super) module: Moniker,
+	pub(super) anchor: Moniker,
 	pub(super) source_bytes: &'src [u8],
 	pub(super) deep: bool,
 	pub(super) presets: &'src super::Presets,
@@ -1045,10 +1046,22 @@ impl<'src_lang> Strategy<'src_lang> {
 	fn handle_jsx_element(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		if let Some(name) = node.child_by_field_name("name")
 			&& name.kind() == "identifier"
+			&& !is_intrinsic_jsx_tag(node_slice(name, self.source_bytes))
 		{
 			self.emit_read_at(name, scope, graph);
 		}
-		self.walk_children(node, scope, graph);
+		let mut cursor = node.walk();
+		for c in node.children(&mut cursor) {
+			match c.kind() {
+				"jsx_attribute" => {
+					if let Some(v) = c.child_by_field_name("value") {
+						self.recurse_subtree(v, scope, graph);
+					}
+				}
+				"jsx_text" => {}
+				_ => self.recurse_subtree(c, scope, graph),
+			}
+		}
 	}
 
 	fn handle_import(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
@@ -1216,7 +1229,9 @@ impl<'src_lang> Strategy<'src_lang> {
 	}
 
 	fn import_target(&self, raw_path: &str, symbol: Option<&[u8]>) -> Moniker {
-		let mut b = if is_relative_specifier(raw_path) {
+		let mut b = if let Some(resolved) = self.resolve_path_alias(raw_path) {
+			self.project_rooted_module_builder(&resolved)
+		} else if is_relative_specifier(raw_path) {
 			self.relative_module_builder(raw_path)
 		} else {
 			external_pkg_builder(self.module.as_view().project(), raw_path)
@@ -1225,6 +1240,19 @@ impl<'src_lang> Strategy<'src_lang> {
 			b.segment(kinds::PATH, sym);
 		}
 		b.build()
+	}
+
+	fn resolve_path_alias(&self, spec: &str) -> Option<String> {
+		for alias in &self.presets.path_aliases {
+			if let Some(captured) = match_path_alias(&alias.pattern, spec) {
+				return Some(apply_path_alias(&alias.substitution, captured));
+			}
+		}
+		None
+	}
+
+	fn project_rooted_module_builder(&self, path: &str) -> MonikerBuilder {
+		super::canonicalize::module_builder_for_path(&self.anchor, path)
 	}
 
 	fn relative_module_builder(&self, raw_path: &str) -> MonikerBuilder {
@@ -1476,6 +1504,40 @@ pub(super) fn collect_export_ranges(root: Node<'_>) -> Vec<(u32, u32)> {
 
 fn is_callable_kind(kind: &[u8]) -> bool {
 	kind == kinds::FUNCTION || kind == kinds::METHOD || kind == kinds::CONSTRUCTOR
+}
+
+fn is_intrinsic_jsx_tag(name: &[u8]) -> bool {
+	matches!(name.first(), Some(b'a'..=b'z'))
+}
+
+fn match_path_alias<'a>(pattern: &str, spec: &'a str) -> Option<&'a str> {
+	if let Some(star) = pattern.find('*') {
+		let prefix = &pattern[..star];
+		let suffix = &pattern[star + 1..];
+		if spec.len() >= prefix.len() + suffix.len()
+			&& spec.starts_with(prefix)
+			&& spec.ends_with(suffix)
+		{
+			return Some(&spec[prefix.len()..spec.len() - suffix.len()]);
+		}
+		None
+	} else if pattern == spec {
+		Some("")
+	} else {
+		None
+	}
+}
+
+fn apply_path_alias(template: &str, captured: &str) -> String {
+	if let Some(star) = template.find('*') {
+		let mut out = String::with_capacity(template.len() + captured.len());
+		out.push_str(&template[..star]);
+		out.push_str(captured);
+		out.push_str(&template[star + 1..]);
+		out
+	} else {
+		template.to_string()
+	}
 }
 
 fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {

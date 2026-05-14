@@ -13,7 +13,7 @@ use crate::extract;
 use code_moniker_core::lang::Lang;
 
 const CACHE_MAGIC: u32 = 0xC0DE_2106;
-const CACHE_FORMAT_VERSION: u32 = 1;
+const CACHE_FORMAT_VERSION: u32 = 2;
 const OFF_MAGIC: usize = 0;
 const OFF_FORMAT: usize = 4;
 const OFF_MTIME: usize = 8;
@@ -130,6 +130,7 @@ pub fn load_or_extract(
 	anchor: &Path,
 	lang: Lang,
 	cache_dir: Option<&Path>,
+	ctx: &extract::Context,
 ) -> Option<(CodeGraph, Option<String>)> {
 	if let Some(dir) = cache_dir
 		&& let Ok(key) = CacheKey::from_path(path, anchor)
@@ -138,12 +139,12 @@ pub fn load_or_extract(
 			return Some((g, None));
 		}
 		let source = fs::read_to_string(path).ok()?;
-		let graph = extract::extract(lang, &source, anchor);
+		let graph = extract::extract_with(lang, &source, anchor, ctx);
 		store(dir, &key, &graph);
 		return Some((graph, Some(source)));
 	}
 	let source = fs::read_to_string(path).ok()?;
-	let graph = extract::extract(lang, &source, anchor);
+	let graph = extract::extract_with(lang, &source, anchor, ctx);
 	Some((graph, Some(source)))
 }
 

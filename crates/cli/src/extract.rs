@@ -2,20 +2,31 @@ use std::path::Path;
 
 use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
-use code_moniker_core::lang::Lang;
+use code_moniker_core::lang::{Lang, ts};
+
+use crate::tsconfig::TsResolution;
+
+#[derive(Debug, Clone, Default)]
+pub struct Context {
+	pub ts: TsResolution,
+}
 
 pub fn extract(lang: Lang, source: &str, path: &Path) -> CodeGraph {
+	extract_with(lang, source, path, &Context::default())
+}
+
+pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> CodeGraph {
 	let uri = path.to_str().unwrap_or("single-file");
 	let anchor = anchor_moniker();
 	let deep = true;
 	match lang {
-		Lang::Ts => code_moniker_core::lang::ts::extract(
-			uri,
-			source,
-			&anchor,
-			deep,
-			&code_moniker_core::lang::ts::Presets::default(),
-		),
+		Lang::Ts => {
+			let presets = ts::Presets {
+				path_aliases: ctx.ts.aliases.clone(),
+				..ts::Presets::default()
+			};
+			ts::extract(uri, source, &anchor, deep, &presets)
+		}
 		Lang::Rs => code_moniker_core::lang::rs::extract(
 			uri,
 			source,
