@@ -13,7 +13,7 @@ jobs:
     name: fmt + clippy + cargo test --lib + pgTAP
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.2
 
       - name: Install PostgreSQL 17 (server + dev headers + pgTAP)
         run: |
@@ -36,12 +36,12 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           shared-key: pgrx-pg17
 
       - name: Install cargo-pgrx
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.78.0
         with:
           tool: cargo-pgrx@0.18.0
 
@@ -72,13 +72,13 @@ jobs:
     name: code-moniker self-lint (dogfood)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           shared-key: cli
 
