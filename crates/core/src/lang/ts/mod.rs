@@ -611,4 +611,52 @@ function outer() {
 			"identifier inside jsx_expression must still surface as a read",
 		);
 	}
+
+	#[test]
+	fn extract_closure_read_targets_outer_param_def() {
+		let src = "function outer({ x }: { x: string }) { return function inner() { return x; }; }";
+		let g = extract("util.ts", src, &make_anchor(), true);
+		let read = g
+			.refs()
+			.find(|r| {
+				r.kind == b"reads" && r.target.as_view().segments().last().unwrap().name == b"x"
+			})
+			.expect("reads ref for x");
+		let segs: Vec<_> = read.target.as_view().segments().collect();
+		assert!(
+			segs.iter().any(|s| s.kind == b"param" && s.name == b"x"),
+			"target must terminate with param:x of the defining frame, got: {segs:?}"
+		);
+		assert!(
+			!segs
+				.iter()
+				.any(|s| s.kind == b"function" && s.name == b"inner()"),
+			"target must NOT carry the inner frame segment, got: {segs:?}"
+		);
+	}
+
+	#[test]
+	fn extract_closure_call_targets_outer_local_def() {
+		let src = "function outer() { const helper = () => 1; return function inner() { return helper(); }; }";
+		let g = extract("util.ts", src, &make_anchor(), true);
+		let call = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls"
+					&& r.target.as_view().segments().last().unwrap().name == b"helper"
+			})
+			.expect("calls ref for helper");
+		let segs: Vec<_> = call.target.as_view().segments().collect();
+		assert!(
+			segs.iter()
+				.any(|s| s.kind == b"local" && s.name == b"helper"),
+			"target must terminate with local:helper of the defining frame, got: {segs:?}"
+		);
+		assert!(
+			!segs
+				.iter()
+				.any(|s| s.kind == b"function" && s.name == b"inner()"),
+			"target must NOT carry the inner frame segment, got: {segs:?}"
+		);
+	}
 }

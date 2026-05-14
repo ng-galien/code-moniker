@@ -138,6 +138,11 @@ changes are allowed in minor releases as long as the project is in
   paths: top-level `function`, top-level `const X = anyExpr` (indexed
   with kind `const`), and nested `function` declarations (hoisted into
   the enclosing scope, matching JS semantics).
+- **`code-moniker-core` (ts extractor)** — `reads` and `calls` to a
+  binding captured from an outer frame target the defining frame's
+  def (e.g. `outer({x})/param:x`), not a synthetic `local:x` segment
+  appended to the inner frame's scope. Scope frames now carry the
+  exact def moniker per binding.
 - **Docs** — `docs/cli/check.md` path encoding table: Go and C# use
   `package:<segment>/module:<stem>` (not `dir:`); SQL nests
   `schema:<name>` under `module:` (was reversed).

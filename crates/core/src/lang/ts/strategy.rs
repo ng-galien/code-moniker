@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use tree_sitter::Node;
 
@@ -31,7 +31,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) deep: bool,
 	pub(super) presets: &'src super::Presets,
 	pub(super) export_ranges: Vec<(u32, u32)>,
-	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
+	pub(super) local_scope: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
 	pub(super) import_targets: RefCell<HashMap<Vec<u8>, Moniker>>,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
@@ -581,9 +581,9 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn bind_and_emit_param_leaf(&self, pat: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
 		for name in collect_binding_names(pat, self.source_bytes) {
-			self.record_local(&name);
+			let m = extend_segment(callable, kinds::PARAM, &name);
+			self.bind_local(&name, m.clone());
 			if self.deep {
-				let m = extend_segment(callable, kinds::PARAM, &name);
 				let _ = graph.add_def(m, kinds::PARAM, callable, Some(node_position(pat)));
 			}
 		}
@@ -618,7 +618,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		let module_vis = self.module_visibility(decl);
 		for name in &names {
 			if inside_callable {
-				self.record_local(name);
+				self.bind_local(name, extend_segment(scope, kinds::LOCAL, name));
 			}
 			let (kind, emit) = if inside_callable {
 				(kinds::LOCAL, self.deep)
@@ -696,9 +696,9 @@ impl<'src_lang> Strategy<'src_lang> {
 			for c in node.named_children(&mut cursor) {
 				if c.kind() == "identifier" {
 					let name = node_slice(c, self.source_bytes);
-					self.record_local(name);
+					let m = extend_segment(scope, kinds::LOCAL, name);
+					self.bind_local(name, m.clone());
 					if self.deep {
-						let m = extend_segment(scope, kinds::LOCAL, name);
 						let _ = graph.add_def(m, kinds::LOCAL, scope, Some(node_position(c)));
 					}
 					break;
@@ -720,7 +720,10 @@ impl<'src_lang> Strategy<'src_lang> {
 				match self.name_confidence(name) {
 					Some(confidence) => {
 						let (target, confidence) = if confidence == kinds::CONF_LOCAL {
-							(extend_segment(scope, kinds::LOCAL, name), confidence)
+							let t = self
+								.lookup_local_binding(name)
+								.unwrap_or_else(|| extend_segment(scope, kinds::LOCAL, name));
+							(t, confidence)
 						} else if confidence == kinds::CONF_NAME_MATCH {
 							if let Some(m) = self.lookup_nested_func(name) {
 								(m, kinds::CONF_RESOLVED)
@@ -1046,7 +1049,8 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		};
 		let target = if confidence == kinds::CONF_LOCAL {
-			extend_segment(scope, kinds::LOCAL, name)
+			self.lookup_local_binding(name)
+				.unwrap_or_else(|| extend_segment(scope, kinds::LOCAL, name))
 		} else {
 			extend_segment(&self.module, kinds::FUNCTION, name)
 		};
@@ -1441,7 +1445,7 @@ impl<'src_lang> Strategy<'src_lang> {
 	}
 
 	fn push_local_scope(&self) {
-		self.local_scope.borrow_mut().push(HashSet::new());
+		self.local_scope.borrow_mut().push(HashMap::new());
 		self.nested_funcs.borrow_mut().push(HashMap::new());
 	}
 
@@ -1464,17 +1468,22 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn record_local(&self, name: &[u8]) {
+	fn bind_local(&self, name: &[u8], def: Moniker) {
 		if let Some(top) = self.local_scope.borrow_mut().last_mut() {
-			top.insert(name.to_vec());
+			top.insert(name.to_vec(), def);
 		}
 	}
 
-	fn is_local_name(&self, name: &[u8]) -> bool {
+	fn lookup_local_binding(&self, name: &[u8]) -> Option<Moniker> {
 		self.local_scope
 			.borrow()
 			.iter()
-			.any(|frame| frame.contains(name))
+			.rev()
+			.find_map(|frame| frame.get(name).cloned())
+	}
+
+	fn is_local_name(&self, name: &[u8]) -> bool {
+		self.lookup_local_binding(name).is_some()
 	}
 
 	fn name_confidence(&self, name: &[u8]) -> Option<&'static [u8]> {
