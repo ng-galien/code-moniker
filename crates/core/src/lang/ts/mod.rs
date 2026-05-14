@@ -171,58 +171,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_default_import_emits_imports_symbol_default() {
-		let g = extract("util.ts", "import Foo from './foo';", &make_anchor(), false);
-		let r = g.refs().next().expect("one ref");
-		assert_eq!(r.kind, b"imports_symbol".to_vec());
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"foo")
-			.segment(b"path", b"default")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_namespace_import_emits_imports_module() {
-		let g = extract(
-			"util.ts",
-			"import * as M from './foo';",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().next().unwrap();
-		assert_eq!(r.kind, b"imports_module".to_vec());
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"foo")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_scoped_bare_import_keeps_full_scope() {
-		let g = extract(
-			"util.ts",
-			"import { join } from '@scope/pkg/sub';",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().next().unwrap();
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"external_pkg", b"@scope/pkg")
-			.segment(b"path", b"sub")
-			.segment(b"path", b"join")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
 	fn extract_dot_only_specifier_resolves_relative_not_external() {
 		let g = extract(
 			"src/__tests__/foo.test.ts",
@@ -262,12 +210,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_side_effect_import_emits_imports_module() {
-		let g = extract("util.ts", "import 'side-effects';", &make_anchor(), false);
-		let r = g.refs().next().unwrap();
-		assert_eq!(r.kind, b"imports_module".to_vec());
-	}
-	#[test]
 	fn extract_named_reexport_emits_reexports_per_specifier() {
 		let g = extract(
 			"index.ts",
@@ -287,45 +229,6 @@ mod tests {
 		let r = g.refs().next().unwrap();
 		assert_eq!(r.kind, b"reexports".to_vec());
 	}
-	#[test]
-	fn call_to_named_import_carries_imported_confidence() {
-		let g = extract(
-			"util.ts",
-			"import { run } from './foo';\nrun();",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
-		assert_eq!(r.confidence, b"imported");
-	}
-
-	#[test]
-	fn call_to_bare_import_carries_external_confidence() {
-		let g = extract(
-			"util.ts",
-			"import { useState } from 'react';\nuseState();",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
-		assert_eq!(r.confidence, b"external");
-	}
-
-	#[test]
-	fn new_on_imported_class_carries_imported_confidence() {
-		let g = extract(
-			"util.ts",
-			"import { Foo } from './foo';\nnew Foo();",
-			&make_anchor(),
-			false,
-		);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"instantiates")
-			.expect("instantiates");
-		assert_eq!(r.confidence, b"imported");
-	}
-
 	#[test]
 	fn extract_enum_emits_enum_constants() {
 		let g = extract(
@@ -505,30 +408,6 @@ function outer() {
 			b"public".to_vec(),
 			"no modifier defaults to public"
 		);
-	}
-
-	#[test]
-	fn extract_named_import_alias_recorded() {
-		let g = extract(
-			"util.ts",
-			"import { X as Y } from './foo';",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().next().unwrap();
-		assert_eq!(r.alias, b"Y".to_vec());
-	}
-
-	#[test]
-	fn extract_namespace_import_alias_recorded() {
-		let g = extract(
-			"util.ts",
-			"import * as Mod from './foo';",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().next().unwrap();
-		assert_eq!(r.alias, b"Mod".to_vec());
 	}
 
 	#[test]

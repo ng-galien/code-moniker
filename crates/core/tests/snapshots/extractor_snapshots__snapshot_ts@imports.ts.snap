@@ -1,0 +1,256 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+assertion_line: 111
+expression: body
+input_file: crates/core/tests/fixtures/ts/imports.ts
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:imports/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:imports",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "const",
+      "moniker": "code+moniker://app/lang:ts/module:imports/const:schema",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:imports",
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "local",
+      "kind": "const",
+      "moniker": "code+moniker://app/lang:ts/module:imports/const:widget",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:imports",
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:imports",
+      "signature": "",
+      "visibility": "public"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:polyfills"
+    },
+    {
+      "alias": "defaultLogger",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:logger/path:default"
+    },
+    {
+      "alias": "fs",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:node:fs"
+    },
+    {
+      "alias": "Util",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:util"
+    },
+    {
+      "alias": "fmt",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:`@scope/datelib`/path:iso/path:format"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:`@scope/datelib`/path:iso/path:parse"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:zod/path:z"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:zod/path:Schema"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:node:buffer/path:Buffer"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:helper/path:helper"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:widget/path:Widget"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:zod/path:Schema"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "method_call",
+      "receiver_hint": "z",
+      "to": "code+moniker://app/external_pkg:zod/path:z/method:string"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:imports",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:imports/class:Widget"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:imports/function:fmt"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:imports/class:Date"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:imports/function:parse"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "kind": "method_call",
+      "receiver_hint": "fs",
+      "to": "code+moniker://app/external_pkg:node:fs/method:statSync"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:imports/class:Buffer"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:imports/function:helper"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "kind": "method_call",
+      "receiver_hint": "Util",
+      "to": "code+moniker://app/lang:ts/module:util/method:init"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:imports/function:schema"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:imports/function:widget"
+    }
+  ],
+  "root": "code+moniker://app/lang:ts/module:imports"
+}
