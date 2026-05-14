@@ -108,7 +108,7 @@ macro_rules! snapshot_lang {
 	};
 }
 
-snapshot_lang!(snapshot_ts, "fixtures/ts/*.ts", lang::ts::Lang);
+snapshot_lang!(snapshot_ts, "fixtures/ts/*.{ts,tsx,jsx}", lang::ts::Lang);
 snapshot_lang!(snapshot_rs, "fixtures/rs/*.rs", lang::rs::Lang);
 snapshot_lang!(snapshot_python, "fixtures/python/*.py", lang::python::Lang);
 snapshot_lang!(snapshot_go, "fixtures/go/*.go", lang::go::Lang);

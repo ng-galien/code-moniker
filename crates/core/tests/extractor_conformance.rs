@@ -28,7 +28,7 @@ macro_rules! conformance_lang {
 	};
 }
 
-conformance_lang!(conformance_ts, "fixtures/ts/*.ts", lang::ts::Lang);
+conformance_lang!(conformance_ts, "fixtures/ts/*.{ts,tsx,jsx}", lang::ts::Lang);
 conformance_lang!(conformance_rs, "fixtures/rs/*.rs", lang::rs::Lang);
 conformance_lang!(
 	conformance_python,

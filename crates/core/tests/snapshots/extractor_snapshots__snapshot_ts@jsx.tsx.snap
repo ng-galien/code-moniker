@@ -1,0 +1,130 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+assertion_line: 111
+expression: body
+input_file: crates/core/tests/fixtures/ts/jsx.tsx
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/interface:CounterProps",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/interface:CounterProps/field:label",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx/interface:CounterProps",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/interface:CounterProps/field:initial",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx/interface:CounterProps",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx",
+      "signature": "",
+      "visibility": "public"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:jsx",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:react/path:useState"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:jsx",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:button/path:Button"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:jsx/class:CounterProps"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:jsx/function:useState"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:jsx/function:Button"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})",
+      "kind": "method_call",
+      "receiver_hint": "labels",
+      "to": "code+moniker://app/lang:ts/module:jsx/method:map"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:jsx/function:Counter"
+    }
+  ],
+  "root": "code+moniker://app/lang:ts/module:jsx"
+}

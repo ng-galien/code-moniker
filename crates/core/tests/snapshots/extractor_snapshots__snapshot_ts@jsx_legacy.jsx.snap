@@ -1,0 +1,85 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+assertion_line: 111
+expression: body
+input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:jsx_legacy/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:jsx_legacy/function:App()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "signature": "",
+      "visibility": "module"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:react-dom/path:render"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:greeting/path:Greeting"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:jsx_legacy/function:App()",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:Greeting"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:render"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:App"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "kind": "method_call",
+      "receiver_hint": "document",
+      "to": "code+moniker://app/lang:ts/module:jsx_legacy/method:getElementById"
+    }
+  ],
+  "root": "code+moniker://app/lang:ts/module:jsx_legacy"
+}

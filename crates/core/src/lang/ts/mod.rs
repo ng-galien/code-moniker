@@ -964,43 +964,6 @@ function outer() {
 	}
 
 	#[test]
-	fn extract_jsx_intrinsic_tag_emits_no_ref() {
-		let g = extract(
-			"app.tsx",
-			"function App() { return <div className=\"x\"><span /></div>; }",
-			&make_anchor(),
-			false,
-		);
-		let intrinsic: Vec<_> = g
-			.refs()
-			.filter(|r| {
-				let last = r.target.as_view().segments().last().unwrap();
-				last.name == b"div" || last.name == b"span" || last.name == b"className"
-			})
-			.collect();
-		assert!(
-			intrinsic.is_empty(),
-			"lowercase JSX tags and attribute names must not surface as refs: {intrinsic:?}",
-		);
-	}
-
-	#[test]
-	fn extract_jsx_uppercase_component_still_emits_ref() {
-		let g = extract(
-			"app.tsx",
-			"function Page() { return <Layout><Item /></Layout>; }",
-			&make_anchor(),
-			false,
-		);
-		let names: Vec<&[u8]> = g
-			.refs()
-			.map(|r| r.target.as_view().segments().last().unwrap().name)
-			.collect();
-		assert!(names.iter().any(|n| *n == b"Layout"));
-		assert!(names.iter().any(|n| *n == b"Item"));
-	}
-
-	#[test]
 	fn extract_jsx_expression_identifier_still_emits_read() {
 		let g = extract(
 			"app.tsx",
