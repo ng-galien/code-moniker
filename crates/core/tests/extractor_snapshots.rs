@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use code_moniker_core::core::code_graph::{CodeGraph, DefRecord, RefRecord};
+use code_moniker_core::core::code_graph::{CodeGraph, DefRecord, Position, RefRecord};
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::core::uri::{UriConfig, to_uri};
 use code_moniker_core::lang::{self, LangExtractor};
@@ -60,12 +60,13 @@ fn def_entry<F: Fn(&Moniker) -> String>(
 	parent: Option<&Moniker>,
 	render: &F,
 ) -> Value {
-	let mut m = Map::with_capacity(7);
+	let mut m = Map::with_capacity(8);
 	m.insert("kind".into(), s(&d.kind));
 	m.insert("moniker".into(), Value::String(render(&d.moniker)));
 	if let Some(p) = parent {
 		m.insert("parent".into(), Value::String(render(p)));
 	}
+	m.insert("position".into(), position_value(d.position));
 	m.insert("visibility".into(), s(&d.visibility));
 	m.insert("signature".into(), s(&d.signature));
 	m.insert("binding".into(), s(&d.binding));
@@ -78,18 +79,26 @@ fn ref_entry<F: Fn(&Moniker) -> String>(
 	from: Option<&Moniker>,
 	render: &F,
 ) -> Value {
-	let mut m = Map::with_capacity(7);
+	let mut m = Map::with_capacity(8);
 	m.insert("kind".into(), s(&r.kind));
 	m.insert(
 		"from".into(),
 		Value::String(from.map(render).unwrap_or_else(|| "<unknown>".into())),
 	);
 	m.insert("to".into(), Value::String(render(&r.target)));
+	m.insert("position".into(), position_value(r.position));
 	m.insert("confidence".into(), s(&r.confidence));
 	m.insert("binding".into(), s(&r.binding));
 	m.insert("alias".into(), s(&r.alias));
 	m.insert("receiver_hint".into(), s(&r.receiver_hint));
 	Value::Object(m)
+}
+
+fn position_value(p: Option<Position>) -> Value {
+	match p {
+		Some((a, b)) => json!([a, b]),
+		None => Value::Null,
+	}
 }
 
 fn s(bytes: &[u8]) -> Value {

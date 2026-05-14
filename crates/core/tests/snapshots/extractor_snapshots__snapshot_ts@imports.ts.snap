@@ -1,6 +1,6 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 111
+assertion_line: 120
 expression: body
 input_file: crates/core/tests/fixtures/ts/imports.ts
 ---
@@ -12,6 +12,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "moniker": "code+moniker://app/lang:ts/module:imports/comment:0",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:imports",
+      "position": [
+        0,
+        130
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -21,6 +25,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "moniker": "code+moniker://app/lang:ts/module:imports/const:schema",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:imports",
+      "position": [
+        467,
+        494
+      ],
       "signature": "",
       "visibility": "module"
     },
@@ -30,6 +38,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "moniker": "code+moniker://app/lang:ts/module:imports/const:widget",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:imports",
+      "position": [
+        502,
+        523
+      ],
       "signature": "",
       "visibility": "module"
     },
@@ -39,6 +51,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "moniker": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:imports",
+      "position": [
+        533,
+        798
+      ],
       "signature": "",
       "visibility": "public"
     }
@@ -50,6 +66,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_module",
+      "position": [
+        132,
+        153
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:polyfills"
     },
@@ -59,6 +79,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_symbol",
+      "position": [
+        154,
+        191
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:logger/path:default"
     },
@@ -68,6 +92,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_module",
+      "position": [
+        192,
+        222
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:node:fs"
     },
@@ -77,6 +105,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_module",
+      "position": [
+        223,
+        254
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:util"
     },
@@ -86,6 +118,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_symbol",
+      "position": [
+        255,
+        313
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:`@scope/datelib`/path:iso/path:format"
     },
@@ -95,6 +131,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_symbol",
+      "position": [
+        255,
+        313
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:`@scope/datelib`/path:iso/path:parse"
     },
@@ -104,6 +144,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_symbol",
+      "position": [
+        314,
+        351
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:zod/path:z"
     },
@@ -113,6 +157,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_symbol",
+      "position": [
+        314,
+        351
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:zod/path:Schema"
     },
@@ -122,6 +170,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_symbol",
+      "position": [
+        352,
+        389
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:node:buffer/path:Buffer"
     },
@@ -131,6 +183,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_symbol",
+      "position": [
+        390,
+        424
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:helper/path:helper"
     },
@@ -140,6 +196,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "imports_symbol",
+      "position": [
+        425,
+        459
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:widget/path:Widget"
     },
@@ -149,6 +209,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "uses_type",
+      "position": [
+        475,
+        481
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:zod/path:Schema"
     },
@@ -158,6 +222,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "method_call",
+      "position": [
+        484,
+        494
+      ],
       "receiver_hint": "z",
       "to": "code+moniker://app/external_pkg:zod/path:z/method:string"
     },
@@ -167,6 +235,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:imports",
       "kind": "instantiates",
+      "position": [
+        511,
+        523
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:imports/class:Widget"
     },
@@ -176,6 +248,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "kind": "calls",
+      "position": [
+        592,
+        607
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:imports/function:fmt"
     },
@@ -185,6 +261,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "kind": "instantiates",
+      "position": [
+        596,
+        606
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:imports/class:Date"
     },
@@ -194,6 +274,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "kind": "calls",
+      "position": [
+        625,
+        635
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:imports/function:parse"
     },
@@ -203,6 +287,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "kind": "method_call",
+      "position": [
+        651,
+        670
+      ],
       "receiver_hint": "fs",
       "to": "code+moniker://app/external_pkg:node:fs/method:statSync"
     },
@@ -212,6 +300,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "kind": "instantiates",
+      "position": [
+        685,
+        698
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:imports/class:Buffer"
     },
@@ -221,6 +313,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "kind": "calls",
+      "position": [
+        712,
+        720
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:imports/function:helper"
     },
@@ -230,6 +326,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "kind": "method_call",
+      "position": [
+        723,
+        734
+      ],
       "receiver_hint": "Util",
       "to": "code+moniker://app/lang:ts/module:util/method:init"
     },
@@ -239,6 +339,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "kind": "reads",
+      "position": [
+        770,
+        776
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:imports/function:schema"
     },
@@ -248,6 +352,10 @@ input_file: crates/core/tests/fixtures/ts/imports.ts
       "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:imports/function:boot()",
       "kind": "reads",
+      "position": [
+        783,
+        789
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:imports/function:widget"
     }

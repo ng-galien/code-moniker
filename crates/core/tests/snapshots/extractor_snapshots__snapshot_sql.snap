@@ -1,5 +1,6 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
+assertion_line: 126
 expression: body
 input_file: crates/core/tests/fixtures/sql/users.sql
 ---
@@ -11,6 +12,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/comment:0",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        0,
+        252
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -20,6 +25,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/comment:288",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        288,
+        526
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -29,6 +38,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        527,
+        707
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -38,6 +51,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/comment:710",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        710,
+        780
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -47,6 +64,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        781,
+        941
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -56,6 +77,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/comment:944",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        944,
+        1017
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -65,6 +90,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/comment:1074",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        1074,
+        1189
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -74,6 +103,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        1190,
+        1322
+      ],
       "signature": "p_email:text",
       "visibility": ""
     },
@@ -83,6 +116,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/comment:1325",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        1325,
+        1506
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -92,6 +129,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        1507,
+        2070
+      ],
       "signature": "p_email:text,p_name:text",
       "visibility": ""
     },
@@ -101,6 +142,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/comment:2073",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        2073,
+        2201
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -110,6 +155,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/schema:app/function:users_with_tag(p_tag:text)",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        2202,
+        2437
+      ],
       "signature": "p_tag:text",
       "visibility": ""
     },
@@ -119,6 +168,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/comment:2440",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        2440,
+        2554
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -128,6 +181,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "moniker": "code+moniker://app/lang:sql/module:users/schema:app/view:recent_users",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:sql/module:users",
+      "position": [
+        2555,
+        2681
+      ],
       "signature": "",
       "visibility": ""
     }
@@ -139,6 +196,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
       "kind": "uses_type",
+      "position": [
+        568,
+        572
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -148,6 +209,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
       "kind": "uses_type",
+      "position": [
+        602,
+        606
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -157,6 +222,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
       "kind": "uses_type",
+      "position": [
+        640,
+        644
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -166,6 +235,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
       "kind": "uses_type",
+      "position": [
+        671,
+        682
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:timestamptz"
     },
@@ -175,6 +248,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags",
       "kind": "uses_type",
+      "position": [
+        823,
+        827
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -184,6 +261,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags",
       "kind": "uses_type",
+      "position": [
+        894,
+        898
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -193,6 +274,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)",
       "kind": "uses_type",
+      "position": [
+        1226,
+        1230
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -202,6 +287,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)",
       "kind": "uses_type",
+      "position": [
+        1240,
+        1244
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -211,6 +300,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
       "kind": "uses_type",
+      "position": [
+        1547,
+        1551
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -220,6 +313,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
       "kind": "uses_type",
+      "position": [
+        1560,
+        1564
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -229,6 +326,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "name_match",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
       "kind": "uses_type",
+      "position": [
+        1574,
+        1583
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:sql/module:users/type:app.users"
     },
@@ -238,6 +339,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "resolved",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
       "kind": "calls",
+      "position": [
+        7,
+        7
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)"
     },
@@ -247,6 +352,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:users_with_tag(p_tag:text)",
       "kind": "uses_type",
+      "position": [
+        2243,
+        2247
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
     },
@@ -256,6 +365,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "name_match",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/function:users_with_tag(p_tag:text)",
       "kind": "uses_type",
+      "position": [
+        2257,
+        2272
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:sql/module:users/type:`SETOF app.users`"
     },
@@ -265,6 +378,10 @@ input_file: crates/core/tests/fixtures/sql/users.sql
       "confidence": "external",
       "from": "code+moniker://app/lang:sql/module:users/schema:app/view:recent_users",
       "kind": "calls",
+      "position": [
+        2656,
+        2656
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:pg_catalog/path:now"
     }

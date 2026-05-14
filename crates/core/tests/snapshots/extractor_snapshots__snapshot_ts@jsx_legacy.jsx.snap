@@ -1,6 +1,6 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 111
+assertion_line: 120
 expression: body
 input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
 ---
@@ -12,6 +12,10 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
       "moniker": "code+moniker://app/lang:ts/module:jsx_legacy/comment:0",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "position": [
+        0,
+        153
+      ],
       "signature": "",
       "visibility": ""
     },
@@ -21,6 +25,10 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
       "moniker": "code+moniker://app/lang:ts/module:jsx_legacy/function:App()",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "position": [
+        231,
+        378
+      ],
       "signature": "",
       "visibility": "module"
     }
@@ -32,6 +40,10 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:jsx_legacy",
       "kind": "imports_symbol",
+      "position": [
+        155,
+        190
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:react-dom/path:render"
     },
@@ -41,6 +53,10 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:jsx_legacy",
       "kind": "imports_symbol",
+      "position": [
+        191,
+        229
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:greeting/path:Greeting"
     },
@@ -50,6 +66,10 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
       "confidence": "imported",
       "from": "code+moniker://app/lang:ts/module:jsx_legacy/function:App()",
       "kind": "reads",
+      "position": [
+        310,
+        318
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:Greeting"
     },
@@ -59,6 +79,10 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:jsx_legacy",
       "kind": "calls",
+      "position": [
+        380,
+        428
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:render"
     },
@@ -68,6 +92,10 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
       "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:jsx_legacy",
       "kind": "reads",
+      "position": [
+        388,
+        391
+      ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:App"
     },
@@ -77,6 +105,10 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
       "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:jsx_legacy",
       "kind": "method_call",
+      "position": [
+        396,
+        427
+      ],
       "receiver_hint": "document",
       "to": "code+moniker://app/lang:ts/module:jsx_legacy/method:getElementById"
     }
