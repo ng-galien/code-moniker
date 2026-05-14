@@ -9,7 +9,7 @@
 | `2`  | usage or configuration error |
 
 That makes it usable anywhere exit codes matter: editor hooks,
-Claude Code `PostToolUse`, Git pre-commit, or CI.
+Codex or Claude Code `PostToolUse`, Git pre-commit, or CI.
 
 For command behavior and rule syntax, see [`check`](check.md) and the
 [Rule DSL](check-dsl.md).
@@ -37,12 +37,75 @@ code-moniker check .
 
 | Need | Use case | Configs shown |
 | ---- | -------- | ------------- |
+| Give Codex a live architecture harness from the project profile | [Install a Codex live harness](#install-a-codex-live-harness) | `.code-moniker.toml`, `.codex/hooks.json`, `.codex/hooks/` |
 | Stop the agent from adding prose comments inside Rust code | [Block prose comments inside code bodies](#block-prose-comments-inside-code-bodies) | `.code-moniker.toml`, `.claude/hooks/code-moniker-check.sh`, `.claude/settings.json` |
 | Stop agent edits that cross a forbidden layer boundary | [Keep an agent inside a layer](#keep-an-agent-inside-a-layer) | `.code-moniker.toml`, `.claude/settings.json` |
 | Make the agent split oversized TypeScript classes immediately | [Enforce small TypeScript classes after each edit](#enforce-small-typescript-classes-after-each-edit) | `.code-moniker.toml`, `.claude/settings.json` |
 | Run a smaller rule set in edit hooks than in CI | [Run only fast edit-time rules for the agent](#run-only-fast-edit-time-rules-for-the-agent) | `.code-moniker.toml`, `.claude/settings.json`, CI command |
 | Check the whole tree before commit | [Gate commits on architecture rules](#gate-commits-on-architecture-rules) | `.code-moniker.toml`, `cargo arch-check`, `.githooks/pre-commit` |
 | Introduce rules in a legacy repo without blocking everything | [Roll out rules in a legacy repository](#roll-out-rules-in-a-legacy-repository) | `.code-moniker.toml`, `.claude/settings.json`, non-blocking CI |
+
+### Install a Codex live harness
+
+Use this when a repository has a fast architecture profile and Codex
+should reject local write-tool edits immediately.
+
+`.code-moniker.toml`:
+
+```toml
+[profiles.architecture]
+enable = ["^architecture\\."]
+```
+
+Install project-local Codex configuration:
+
+```sh
+code-moniker harness codex . --profile architecture --scope src
+```
+
+The command verifies that `[profiles.architecture]` exists, then writes:
+
+- `.codex/hooks/code-moniker-architecture.sh`
+- `.codex/hooks.json`
+- `.codex/code-moniker-performance.md`
+
+Recommended Codex hook entry:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CODEX_PROJECT_DIR/.codex/hooks/code-moniker-architecture.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The generated script calls the binary directly:
+
+```sh
+code-moniker check --rules ".code-moniker.toml" --profile "architecture" "src"
+```
+
+The default matcher covers local write tools only. MCP servers and custom
+tools are outside the default guarantee boundary; add them explicitly only
+after measuring their payload shape and cost. This live harness catches
+agent-local writes early, but it is not a substitute for pre-commit hooks
+or CI gates.
+
+Publish hook overhead before enabling it for a team:
+
+| Date | Machine | Scope | Command | p50 | p95 | Notes |
+| ---- | ------- | ----- | ------- | --- | --- | ----- |
+| 2026-05-14 | M3 Pro | `src` | `code-moniker check --profile architecture src` | 35 ms | 44 ms | warm cache |
 
 ### Block prose comments inside code bodies
 

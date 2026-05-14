@@ -27,6 +27,8 @@ pub enum Command {
 	Extract(ExtractArgs),
 	#[command(about = "Lint a path against .code-moniker.toml rules.")]
 	Check(CheckArgs),
+	#[command(about = "Install live agent harness configuration.")]
+	Harness(HarnessArgs),
 	#[command(about = "List supported languages, or kinds of one.")]
 	Langs(LangsArgs),
 	#[command(about = "Show the shape vocabulary.")]
@@ -35,6 +37,48 @@ pub enum Command {
 		about = "Extract declared dependencies from a build manifest (auto-detected by filename) or every manifest under a directory."
 	)]
 	Manifest(ManifestArgs),
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct HarnessArgs {
+	#[command(subcommand)]
+	pub command: HarnessCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HarnessCommand {
+	#[command(about = "Install a project-local Codex PostToolUse hook.")]
+	Codex(CodexHarnessArgs),
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct CodexHarnessArgs {
+	#[arg(value_name = "ROOT", default_value = ".")]
+	pub root: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "PATH",
+		default_value = ".code-moniker.toml",
+		help = "project rules file, resolved from ROOT unless absolute"
+	)]
+	pub rules: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		default_value = "architecture",
+		help = "profile that the live harness must run"
+	)]
+	pub profile: String,
+
+	#[arg(
+		long,
+		value_name = "PATH",
+		default_value = "src",
+		help = "project scope checked by the hook, resolved from ROOT"
+	)]
+	pub scope: PathBuf,
 }
 
 #[derive(Debug, ClapArgs)]

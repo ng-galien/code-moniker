@@ -17,6 +17,10 @@ changes are allowed in minor releases as long as the project is in
   path-backed dependency metadata in JSON output, giving ESAC-style
   consumers enough structure to reconstruct workspace modules and path
   edges.
+- **`code-moniker harness codex`** — installs a project-local Codex
+  `PostToolUse` live architecture harness from a named profile, writing
+  `.codex/hooks.json`, a direct `code-moniker check` hook script, and
+  a small hook-overhead report template.
 - **`code-moniker-core` (rs extractor)** — Rust test declarations now
   emit `test` defs with stable monikers, source positions, framework
   metadata (`rust-test` / `proptest`), display names, disabled state

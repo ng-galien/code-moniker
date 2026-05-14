@@ -7,6 +7,7 @@ pub mod check;
 pub mod dir;
 pub mod extract;
 pub mod format;
+pub mod harness;
 pub mod lang;
 pub mod lines;
 pub mod manifest;
@@ -19,8 +20,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 pub use args::{
-	CheckArgs, CheckFormat, Cli, Command, ExtractArgs, LangsArgs, LangsFormat, ManifestArgs,
-	ManifestFormat, OutputFormat, OutputMode, ShapesArgs,
+	CheckArgs, CheckFormat, Cli, CodexHarnessArgs, Command, ExtractArgs, HarnessArgs,
+	HarnessCommand, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, OutputFormat, OutputMode,
+	ShapesArgs,
 };
 pub use lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};
@@ -71,6 +73,7 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 	match &cli.command {
 		Command::Extract(args) => run_extract(args, stdout, stderr),
 		Command::Check(args) => run_check(args, stdout, stderr),
+		Command::Harness(args) => harness::run(args, stdout, stderr),
 		Command::Langs(args) => run_langs(args, stdout, stderr),
 		Command::Shapes(args) => run_shapes(args, stdout, stderr),
 		Command::Manifest(args) => run_manifest(args, stdout, stderr),

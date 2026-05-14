@@ -22,6 +22,9 @@ tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
 example           = "moniker ~ '**/dir:examples/**'"
 
+[profiles.architecture]
+enable = [".*"]
+
 # ─── Hex / Layering ─────────────────────────────────────────────────
 # Cross-crate boundaries (cli → pg, lang → cli) are also enforced by cargo
 # via the dependency graph; these rules are defence-in-depth and catch
