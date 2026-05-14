@@ -29,6 +29,7 @@ pub fn extract(
 	let strat = strategy::Strategy {
 		module: module.clone(),
 		source_str: source,
+		emit_comments: true,
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -205,6 +206,37 @@ mod tests {
 			"inner call g should emit name-only target, got refs: {:?}",
 			ref_targets(&g)
 		);
+	}
+
+	#[test]
+	fn comment_def_bytes_are_a_real_comment_in_outer_source() {
+		let src = r#"CREATE OR REPLACE FUNCTION foo.bar(
+  p_a uuid,
+  p_b text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = foo, pg_temp
+AS $$
+DECLARE
+  v_x text;
+BEGIN
+  -- real comment, do not lose
+  v_x := 'hello';
+END;
+$$;
+"#;
+		let g = run("fixture.sql", src);
+		for d in g.defs().filter(|d| d.kind == b"comment") {
+			let (s, e) = d.position.expect("comment def must have a position");
+			let slice = &src.as_bytes()[s as usize..e as usize];
+			assert!(
+				slice.starts_with(b"--") || slice.starts_with(b"/*"),
+				"comment def bytes {s}..{e} are not a real comment: {:?}",
+				std::str::from_utf8(slice).unwrap_or("?")
+			);
+		}
 	}
 
 	#[test]

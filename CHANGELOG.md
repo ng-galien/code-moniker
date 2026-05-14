@@ -72,6 +72,9 @@ changes are allowed in minor releases as long as the project is in
   line range when the next def had no position; now falls back to the
   directive's own lines.
 - **pgTAP** — `00_smoke.sql` aligned to `pcm_version() = '0.2.0'`.
+- **`code-moniker-core` (sql extractor)** — PL/pgSQL body re-parse
+  leaked phantom `comment` defs with synthetic-buffer byte offsets onto
+  the outer file; the inner `SELECT <expr>` walker now skips comments.
 - **`code-moniker-core` (rs extractor)** — `use std::io::{self, Read,
   Write};` emitted N duplicate `imports_module → std::io` refs; dedup
   the parent-module ref per `use`. Per-leaf `imports_symbol` unaffected.

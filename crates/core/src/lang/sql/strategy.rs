@@ -40,6 +40,7 @@ pub(super) fn parse_with(parser: &mut Parser, source: &str) -> Tree {
 pub(super) struct Strategy<'src> {
 	pub(super) module: Moniker,
 	pub(super) source_str: &'src str,
+	pub(super) emit_comments: bool,
 }
 
 impl LangStrategy for Strategy<'_> {
@@ -51,9 +52,10 @@ impl LangStrategy for Strategy<'_> {
 		graph: &mut CodeGraph,
 	) -> NodeShape<'src> {
 		match node.kind() {
-			"comment" => NodeShape::Annotation {
+			"comment" if self.emit_comments => NodeShape::Annotation {
 				kind: kinds::COMMENT,
 			},
+			"comment" => NodeShape::Skip,
 			"CreateFunctionStmt" => classify_create_function(node, source, &self.module),
 			"CreateStmt" => {
 				classify_qualified_relation(node, source, &self.module, kinds::TABLE, None)
@@ -105,6 +107,7 @@ pub(super) fn run_inner_sql(
 	let strategy = Strategy {
 		module: module.clone(),
 		source_str: source,
+		emit_comments: false,
 	};
 	let walker = CanonicalWalker::new(&strategy, source.as_bytes());
 	walker.walk(tree.root_node(), scope, graph);
