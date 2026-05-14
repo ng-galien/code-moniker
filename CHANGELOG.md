@@ -108,6 +108,12 @@ changes are allowed in minor releases as long as the project is in
   `confidence = resolved` instead of `unresolved`. The `callable_table`
   lookup was already used to build the target moniker but the confidence
   was hardcoded; converges with the Go / Python / C# extractors.
+- **`code-moniker-core` (ts extractor)** — same-file free-fn `calls`
+  now emit `confidence = resolved` (was `name_match`). Covers three
+  paths: top-level `function`, top-level `const X = anyExpr` (indexed
+  with kind `const`), and nested `function` declarations inside another
+  function body (hoisted into the enclosing scope, matching JS
+  semantics).
 - **Docs** — path encoding table in `docs/cli/check.md` corrected:
   - Go uses `package:<segment>/module:<stem>` (not `dir:`).
   - C# uses `package:<segment>/module:<stem>` (not `dir:`).

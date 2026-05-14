@@ -33,7 +33,14 @@ pub(super) struct Strategy<'src> {
 	pub(super) export_ranges: Vec<(u32, u32)>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
-	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
+	pub(super) nested_funcs: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
+}
+
+#[derive(Clone)]
+pub(super) struct CallableEntry {
+	pub(super) kind: &'static [u8],
+	pub(super) segment: Vec<u8>,
 }
 
 impl<'a> LangStrategy for Strategy<'a> {
@@ -511,13 +518,17 @@ impl<'src_lang> Strategy<'src_lang> {
 		let moniker = extend_callable_slots(scope, kind, name, &slots);
 
 		self.push_local_scope();
+		let body = callable_node.child_by_field_name("body");
+		if let Some(body) = body {
+			self.hoist_nested_funcs(body, &moniker);
+		}
 
 		NodeShape::Symbol(Symbol {
 			moniker,
 			kind,
 			visibility,
 			signature: None,
-			body: callable_node.child_by_field_name("body"),
+			body,
 			position: node_position(anchor_node),
 			annotated_by: Vec::new(),
 		})
@@ -706,13 +717,24 @@ impl<'src_lang> Strategy<'src_lang> {
 				let name = node_slice(fn_node, self.source_bytes);
 				match self.name_confidence(name) {
 					Some(confidence) => {
-						let target = if confidence == kinds::CONF_LOCAL {
-							extend_segment(scope, kinds::LOCAL, name)
+						let (target, confidence) = if confidence == kinds::CONF_LOCAL {
+							(extend_segment(scope, kinds::LOCAL, name), confidence)
+						} else if confidence == kinds::CONF_NAME_MATCH {
+							if let Some(m) = self.lookup_nested_func(name) {
+								(m, kinds::CONF_RESOLVED)
+							} else if let Some(m) = self.lookup_callable(name) {
+								(m, kinds::CONF_RESOLVED)
+							} else {
+								(
+									extend_segment(&self.module, kinds::FUNCTION, name),
+									confidence,
+								)
+							}
 						} else {
-							self.lookup_callable(name, kinds::FUNCTION)
-								.unwrap_or_else(|| {
-									extend_segment(&self.module, kinds::FUNCTION, name)
-								})
+							(
+								extend_segment(&self.module, kinds::FUNCTION, name),
+								confidence,
+							)
 						};
 						let attrs = RefAttrs {
 							confidence,
@@ -1365,10 +1387,26 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn push_local_scope(&self) {
 		self.local_scope.borrow_mut().push(HashSet::new());
+		self.nested_funcs.borrow_mut().push(HashMap::new());
 	}
 
 	fn pop_local_scope(&self) {
 		self.local_scope.borrow_mut().pop();
+		self.nested_funcs.borrow_mut().pop();
+	}
+
+	fn hoist_nested_funcs(&self, body: Node<'_>, parent: &Moniker) {
+		let mut cursor = body.walk();
+		let mut nf = self.nested_funcs.borrow_mut();
+		let Some(top) = nf.last_mut() else {
+			return;
+		};
+		for child in body.named_children(&mut cursor) {
+			if let Some((name, slots)) = function_decl_info(child, self.source_bytes) {
+				let m = extend_callable_slots(parent, kinds::FUNCTION, name, &slots);
+				top.insert(name.to_vec(), m);
+			}
+		}
 	}
 
 	fn record_local(&self, name: &[u8]) {
@@ -1409,11 +1447,20 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.imports.borrow_mut().insert(name.to_vec(), confidence);
 	}
 
-	fn lookup_callable(&self, name: &[u8], kind: &[u8]) -> Option<Moniker> {
-		let seg = self
+	fn lookup_callable(&self, name: &[u8]) -> Option<Moniker> {
+		let entry = self
 			.callable_table
 			.get(&(self.module.clone(), name.to_vec()))?;
-		Some(extend_segment(&self.module, kind, seg))
+		Some(extend_segment(&self.module, entry.kind, &entry.segment))
+	}
+
+	fn lookup_nested_func(&self, name: &[u8]) -> Option<Moniker> {
+		for frame in self.nested_funcs.borrow().iter().rev() {
+			if let Some(m) = frame.get(name) {
+				return Some(m.clone());
+			}
+		}
+		None
 	}
 
 	fn ref_confidence(&self, name: &[u8]) -> &'static [u8] {
@@ -1435,19 +1482,37 @@ impl<'src_lang> Strategy<'src_lang> {
 	}
 }
 
+fn function_decl_info<'src>(
+	node: Node<'src>,
+	source: &'src [u8],
+) -> Option<(&'src [u8], Vec<crate::lang::callable::CallableSlot>)> {
+	if !matches!(
+		node.kind(),
+		"function_declaration" | "generator_function_declaration"
+	) {
+		return None;
+	}
+	let name_node = node.child_by_field_name("name")?;
+	let name = node_slice(name_node, source);
+	Some((name, callable_param_slots(node, source)))
+}
+
 pub(super) fn collect_callable_table<'src>(
 	root: Node<'src>,
 	source: &'src [u8],
 	module: &Moniker,
-	out: &mut HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+	out: &mut HashMap<(Moniker, Vec<u8>), CallableEntry>,
 ) {
 	visit_top_level(root, |child| match child.kind() {
 		"function_declaration" | "generator_function_declaration" => {
-			if let Some(name_node) = child.child_by_field_name("name") {
-				let name = node_slice(name_node, source);
-				let slots = callable_param_slots(child, source);
-				let seg = callable_segment_slots(name, &slots);
-				out.insert((module.clone(), name.to_vec()), seg);
+			if let Some((name, slots)) = function_decl_info(child, source) {
+				out.insert(
+					(module.clone(), name.to_vec()),
+					CallableEntry {
+						kind: kinds::FUNCTION,
+						segment: callable_segment_slots(name, &slots),
+					},
+				);
 			}
 		}
 		"lexical_declaration" | "variable_declaration" => {
@@ -1463,13 +1528,17 @@ pub(super) fn collect_callable_table<'src>(
 					continue;
 				}
 				let name = node_slice(name_node, source);
-				if let Some(value) = decl.child_by_field_name("value")
-					&& matches!(value.kind(), "arrow_function" | "function_expression")
-				{
-					let slots = callable_param_slots(value, source);
-					let seg = callable_segment_slots(name, &slots);
-					out.insert((module.clone(), name.to_vec()), seg);
-				}
+				let (kind, seg) = match decl.child_by_field_name("value") {
+					Some(v) if matches!(v.kind(), "arrow_function" | "function_expression") => {
+						let slots = callable_param_slots(v, source);
+						(kinds::FUNCTION, callable_segment_slots(name, &slots))
+					}
+					_ => (kinds::CONST, name.to_vec()),
+				};
+				out.insert(
+					(module.clone(), name.to_vec()),
+					CallableEntry { kind, segment: seg },
+				);
 			}
 		}
 		_ => {}

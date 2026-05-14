@@ -11,7 +11,7 @@ mod kinds;
 mod strategy;
 
 use canonicalize::compute_module_moniker;
-use strategy::{Strategy, collect_callable_table, collect_export_ranges};
+use strategy::{CallableEntry, Strategy, collect_callable_table, collect_export_ranges};
 
 pub fn parse(source: &str) -> Tree {
 	parse_with_uri(source, "")
@@ -60,7 +60,7 @@ pub fn extract(
 	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
 	let tree = parse_with_uri(source, uri);
 	let export_ranges = collect_export_ranges(tree.root_node());
-	let mut callable_table: std::collections::HashMap<(Moniker, Vec<u8>), Vec<u8>> =
+	let mut callable_table: std::collections::HashMap<(Moniker, Vec<u8>), CallableEntry> =
 		std::collections::HashMap::new();
 	collect_callable_table(
 		tree.root_node(),
@@ -78,6 +78,7 @@ pub fn extract(
 		local_scope: std::cell::RefCell::new(Vec::new()),
 		imports: std::cell::RefCell::new(std::collections::HashMap::new()),
 		callable_table,
+		nested_funcs: std::cell::RefCell::new(Vec::new()),
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -659,6 +660,141 @@ mod tests {
 			.segment(b"function", b"foo")
 			.build();
 		assert_eq!(r.target, target);
+	}
+
+	#[test]
+	fn extract_call_to_same_file_function_is_resolved() {
+		let src = "function foo() {}\nfoo();";
+		let g = extract("util.ts", src, &make_anchor(), false);
+		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"same-file free fn call must be resolved; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
+	fn extract_call_to_unknown_name_stays_name_match() {
+		let g = extract("util.ts", "foo();", &make_anchor(), false);
+		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
+		assert_eq!(
+			r.confidence,
+			b"name_match",
+			"call to undefined name stays name_match; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
+	fn extract_imported_call_keeps_imported_confidence() {
+		let src = "import { foo } from './other';\nfoo();";
+		let g = extract("util.ts", src, &make_anchor(), false);
+		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
+		assert_eq!(
+			r.confidence,
+			b"imported",
+			"imported call must keep imported confidence; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
+	fn extract_call_to_same_file_const_from_call_is_resolved() {
+		let src = "const exec = wrap(other);\nexec();";
+		let g = extract("util.ts", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"exec"
+			})
+			.expect("calls ref for exec");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"same-file const-from-call must be resolved; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(
+			last.kind,
+			b"const",
+			"target kind must be const, got {:?}",
+			std::str::from_utf8(last.kind)
+		);
+	}
+
+	#[test]
+	fn extract_call_to_nested_function_is_resolved() {
+		let src = r#"
+function outer() {
+    function inner() {}
+    inner();
+}
+"#;
+		let g = extract("util.ts", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls"
+					&& r.target
+						.as_view()
+						.segments()
+						.last()
+						.unwrap()
+						.name
+						.starts_with(b"inner")
+			})
+			.expect("calls ref for inner");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"call to nested fn must be resolved; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+		let segs: Vec<_> = r.target.as_view().segments().collect();
+		assert!(
+			segs.iter()
+				.any(|s| s.kind == b"function" && s.name.starts_with(b"outer")),
+			"target must be scoped under outer; got {:?}",
+			segs.iter()
+				.map(|s| (
+					std::str::from_utf8(s.kind).unwrap_or("?"),
+					std::str::from_utf8(s.name).unwrap_or("?")
+				))
+				.collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn extract_call_hoists_nested_fn_used_before_decl() {
+		let src = r#"
+function outer() {
+    inner();
+    function inner() {}
+}
+"#;
+		let g = extract("util.ts", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls"
+					&& r.target
+						.as_view()
+						.segments()
+						.last()
+						.unwrap()
+						.name
+						.starts_with(b"inner")
+			})
+			.expect("calls ref for inner");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"hoisted nested fn call must be resolved; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
 	}
 
 	#[test]
