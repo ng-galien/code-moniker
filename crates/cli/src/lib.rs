@@ -381,9 +381,9 @@ fn check_inner<W: Write, E: Write>(
 	let meta = std::fs::metadata(path)
 		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
 	let (reports, errors) = if meta.is_dir() {
-		check_project(path, &cfg)?
+		check_project(path, &cfg, args.report)?
 	} else {
-		match check_one_file(path, &cfg)? {
+		match check_one_file(path, &cfg, args.report)? {
 			Some(report) => (vec![report], Vec::new()),
 			None => return Ok(false),
 		}
@@ -398,8 +398,8 @@ fn check_inner<W: Write, E: Write>(
 	}
 	let any_violation = reports.iter().any(|r| !r.violations.is_empty());
 	match args.format {
-		CheckFormat::Text => write_reports_text(stdout, &reports, &errors)?,
-		CheckFormat::Json => write_reports_json(stdout, &reports, &errors)?,
+		CheckFormat::Text => write_reports_text(stdout, &reports, &errors, args.report)?,
+		CheckFormat::Json => write_reports_json(stdout, &reports, &errors, args.report)?,
 	}
 	Ok(any_violation || !errors.is_empty())
 }
@@ -407,6 +407,7 @@ fn check_inner<W: Write, E: Write>(
 struct FileReport {
 	path: PathBuf,
 	violations: Vec<check::Violation>,
+	rule_reports: Vec<check::RuleReport>,
 }
 
 struct FileError {
@@ -414,12 +415,16 @@ struct FileError {
 	error: String,
 }
 
-fn check_one_file(path: &Path, cfg: &check::Config) -> anyhow::Result<Option<FileReport>> {
+fn check_one_file(
+	path: &Path,
+	cfg: &check::Config,
+	report: bool,
+) -> anyhow::Result<Option<FileReport>> {
 	let Ok(lang) = path_to_lang(path) else {
 		return Ok(None);
 	};
 	let compiled = check::compile_rules(cfg, lang, DEFAULT_SCHEME)?;
-	check_one_compiled(path, None, lang, &compiled).map(Some)
+	check_one_compiled(path, None, lang, &compiled, report).map(Some)
 }
 
 /// `moniker_anchor` overrides the path passed to the extractor — used by
@@ -430,15 +435,25 @@ fn check_one_compiled(
 	moniker_anchor: Option<&Path>,
 	lang: code_moniker_core::lang::Lang,
 	compiled: &check::CompiledRules,
+	report: bool,
 ) -> anyhow::Result<FileReport> {
 	let source = std::fs::read_to_string(fs_path)
 		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", fs_path.display()))?;
 	let graph = extract::extract(lang, &source, moniker_anchor.unwrap_or(fs_path));
 	let raw = check::evaluate_compiled(&graph, &source, lang, DEFAULT_SCHEME, compiled);
 	let violations = check::apply_suppressions(&graph, &source, raw);
+	let rule_reports = if report {
+		let mut rule_reports =
+			check::rule_report_compiled(&graph, &source, lang, DEFAULT_SCHEME, compiled);
+		align_report_violations_with_suppressions(&mut rule_reports, &violations);
+		rule_reports
+	} else {
+		Vec::new()
+	};
 	Ok(FileReport {
 		path: fs_path.to_path_buf(),
 		violations,
+		rule_reports,
 	})
 }
 
@@ -448,6 +463,7 @@ fn check_one_compiled(
 fn check_project(
 	root: &Path,
 	cfg: &check::Config,
+	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	use rayon::prelude::*;
 	use std::collections::HashMap;
@@ -464,7 +480,7 @@ fn check_project(
 		.map(|f| {
 			let rules = &compiled[&f.lang];
 			let rel = f.path.strip_prefix(root).unwrap_or(&f.path);
-			check_one_compiled(&f.path, Some(rel), f.lang, rules).map_err(|e| FileError {
+			check_one_compiled(&f.path, Some(rel), f.lang, rules, report).map_err(|e| FileError {
 				path: f.path.clone(),
 				error: format!("{e:#}"),
 			})
@@ -483,6 +499,20 @@ fn check_project(
 	Ok((reports, errors))
 }
 
+fn align_report_violations_with_suppressions(
+	rule_reports: &mut [check::RuleReport],
+	violations: &[check::Violation],
+) {
+	use std::collections::HashMap;
+	let mut counts: HashMap<&str, usize> = HashMap::new();
+	for v in violations {
+		*counts.entry(v.rule_id.as_str()).or_insert(0) += 1;
+	}
+	for report in rule_reports {
+		report.violations = counts.get(report.rule_id.as_str()).copied().unwrap_or(0);
+	}
+}
+
 /// Single-file clean runs (one report, zero violations, zero errors) skip the
 /// trailing summary so per-edit PostToolUse hooks stay silent. Every other
 /// shape emits the `N violation(s) across M file(s) (K scanned)` footer.
@@ -490,6 +520,7 @@ fn write_reports_text<W: Write>(
 	w: &mut W,
 	reports: &[FileReport],
 	errors: &[FileError],
+	include_rule_report: bool,
 ) -> std::io::Result<()> {
 	let mut total = 0usize;
 	let mut files_with = 0usize;
@@ -528,13 +559,69 @@ fn write_reports_text<W: Write>(
 		}
 		writeln!(w, ").")?;
 	}
+	if include_rule_report {
+		write_rule_report_text(w, reports)?;
+	}
 	Ok(())
+}
+
+fn write_rule_report_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::io::Result<()> {
+	let rule_reports = aggregate_rule_reports(reports);
+	if rule_reports.is_empty() {
+		return Ok(());
+	}
+	writeln!(w, "\nRule report:")?;
+	for r in rule_reports {
+		write!(
+			w,
+			"- {}: domain={}, evaluated={}, matches={}, violations={}",
+			r.rule_id, r.domain, r.evaluated, r.matches, r.violations
+		)?;
+		if let Some(n) = r.antecedent_matches {
+			write!(w, ", antecedent_matches={n}")?;
+		}
+		if let Some(warning) = r.warning {
+			write!(w, " warning: {warning}")?;
+		}
+		writeln!(w)?;
+	}
+	Ok(())
+}
+
+fn aggregate_rule_reports(reports: &[FileReport]) -> Vec<check::RuleReport> {
+	use std::collections::BTreeMap;
+	let mut by_rule: BTreeMap<String, check::RuleReport> = BTreeMap::new();
+	for report in reports {
+		for item in &report.rule_reports {
+			by_rule
+				.entry(item.rule_id.clone())
+				.and_modify(|acc| {
+					acc.evaluated += item.evaluated;
+					acc.matches += item.matches;
+					acc.violations += item.violations;
+					if let Some(n) = item.antecedent_matches {
+						acc.antecedent_matches = Some(acc.antecedent_matches.unwrap_or(0) + n);
+					}
+				})
+				.or_insert_with(|| item.clone());
+		}
+	}
+	let mut out: Vec<_> = by_rule.into_values().collect();
+	for r in &mut out {
+		if r.evaluated > 0 && r.antecedent_matches == Some(0) {
+			r.warning = Some("antecedent never matched".to_string());
+		} else {
+			r.warning = None;
+		}
+	}
+	out
 }
 
 fn write_reports_json<W: Write>(
 	w: &mut W,
 	reports: &[FileReport],
 	errors: &[FileError],
+	include_rule_report: bool,
 ) -> anyhow::Result<()> {
 	#[derive(serde::Serialize)]
 	struct FileEntry<'a> {
@@ -559,6 +646,8 @@ fn write_reports_json<W: Write>(
 		files: Vec<FileEntry<'a>>,
 		#[serde(skip_serializing_if = "Vec::is_empty")]
 		errors: Vec<ErrorEntry<'a>>,
+		#[serde(skip_serializing_if = "Vec::is_empty")]
+		rule_report: Vec<check::RuleReport>,
 	}
 	let files: Vec<FileEntry> = reports
 		.iter()
@@ -585,6 +674,11 @@ fn write_reports_json<W: Write>(
 		},
 		files,
 		errors: err_entries,
+		rule_report: if include_rule_report {
+			aggregate_rule_reports(reports)
+		} else {
+			Vec::new()
+		},
 	};
 	serde_json::to_writer_pretty(&mut *w, &out)?;
 	w.write_all(b"\n")?;

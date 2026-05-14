@@ -12,6 +12,11 @@ changes are allowed in minor releases as long as the project is in
 
 ### Added
 
+- **`code-moniker check`** — `--report` appends per-rule observability
+  counts in text and JSON output. Implication rules include
+  `antecedent_matches` and warn when the left-hand side never matched
+  the scanned graph, making scan-root-relative architecture aliases
+  easier to diagnose.
 - **CLI** — `extract --project <NAME>` sets the project component of
   the anchor moniker (default `.`); composes with `--scheme`. Cache
   keyed on the anchor hash, so different projects coexist on disk

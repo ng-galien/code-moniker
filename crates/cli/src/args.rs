@@ -79,6 +79,12 @@ pub struct CheckArgs {
 
 	#[arg(
 		long,
+		help = "print per-rule observability, including implication antecedent hit counts"
+	)]
+	pub report: bool,
+
+	#[arg(
+		long,
 		value_name = "NAME",
 		help = "filter rules through a named profile from .code-moniker.toml"
 	)]
@@ -491,7 +497,17 @@ mod tests {
 			Command::Check(c) => {
 				assert_eq!(c.rules, PathBuf::from("my-rules.toml"));
 				assert_eq!(c.format, CheckFormat::Json);
+				assert!(!c.report);
 			}
+			other => panic!("expected Check, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn check_subcommand_accepts_report() {
+		let cli = parse(&["check", "a.ts", "--report"]).unwrap();
+		match cli.command {
+			Command::Check(c) => assert!(c.report),
 			other => panic!("expected Check, got {other:?}"),
 		}
 	}

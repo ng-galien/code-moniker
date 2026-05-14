@@ -106,6 +106,166 @@ pub fn evaluate_compiled(
 	out
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RuleReport {
+	pub rule_id: String,
+	pub domain: String,
+	pub evaluated: usize,
+	pub matches: usize,
+	pub violations: usize,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub antecedent_matches: Option<usize>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub warning: Option<String>,
+}
+
+pub fn rule_report_compiled(
+	graph: &CodeGraph,
+	source: &str,
+	lang: Lang,
+	scheme: &str,
+	compiled: &CompiledRules,
+) -> Vec<RuleReport> {
+	let need_doc_anchors = compiled
+		.by_kind
+		.values()
+		.any(|r| r.require_doc_for_vis.is_some());
+	let ctx = EvalCtx {
+		graph,
+		source,
+		lang,
+		uri_cfg: UriConfig { scheme },
+		parent_counts: parent_counts_by_kind(graph),
+		children_by_parent: children_by_parent(graph),
+		out_refs_by_source: out_refs_by_source(graph),
+		in_refs_by_target: in_refs_by_target(graph),
+		comment_ends: if need_doc_anchors {
+			comment_end_bytes(graph)
+		} else {
+			Vec::new()
+		},
+		doc_anchors: if need_doc_anchors {
+			doc_anchors_by_def(graph)
+		} else {
+			HashMap::new()
+		},
+	};
+	let mut out = Vec::new();
+	for (kind, rules) in &compiled.by_kind {
+		for rule in &rules.rules {
+			let mut report = RuleReport::new(rule_id(lang, kind, &rule.id), kind.clone(), rule);
+			for (idx, d) in graph.defs().enumerate() {
+				if d.kind.as_slice() != kind.as_bytes() {
+					continue;
+				}
+				report.evaluated += 1;
+				let premise =
+					implication_premise(rule).map(|premise| eval_node(premise, d, idx, &ctx));
+				report.record(eval_node(&rule.root, d, idx, &ctx), premise);
+			}
+			report.finalize_warning();
+			out.push(report);
+		}
+		if rules.require_doc_for_vis.is_some() {
+			let mut report = RuleReport::new_require_doc(
+				rule_id(lang, kind, "require_doc_comment"),
+				kind.clone(),
+			);
+			for (idx, d) in graph.defs().enumerate() {
+				if d.kind.as_slice() != kind.as_bytes() {
+					continue;
+				}
+				report.evaluated += 1;
+				report.record(
+					eval_require_doc_comment(d, idx, rules, &ctx).map_or(
+						NodeOutcome::NotApplicable,
+						|has_doc| {
+							if has_doc {
+								NodeOutcome::Pass
+							} else {
+								NodeOutcome::Fail(Failure {
+									atom_raw: "require_doc_comment".to_string(),
+									lhs_label: "doc_comment".to_string(),
+									actual: "missing".to_string(),
+									expected: "present".to_string(),
+								})
+							}
+						},
+					),
+					None,
+				);
+			}
+			out.push(report);
+		}
+	}
+	for rule in &compiled.refs {
+		let mut report = RuleReport::new(format!("refs.{}", rule.id), "refs".to_string(), rule);
+		for r in graph.refs() {
+			report.evaluated += 1;
+			let premise = implication_premise(rule).map(|premise| eval_ref_node(premise, r, &ctx));
+			report.record(eval_ref_node(&rule.root, r, &ctx), premise);
+		}
+		report.finalize_warning();
+		out.push(report);
+	}
+	out.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+	out
+}
+
+impl RuleReport {
+	fn new(rule_id: String, domain: String, rule: &CompiledRule) -> Self {
+		Self {
+			rule_id,
+			domain,
+			evaluated: 0,
+			matches: 0,
+			violations: 0,
+			antecedent_matches: implication_premise(rule).map(|_| 0),
+			warning: None,
+		}
+	}
+
+	fn new_require_doc(rule_id: String, domain: String) -> Self {
+		Self {
+			rule_id,
+			domain,
+			evaluated: 0,
+			matches: 0,
+			violations: 0,
+			antecedent_matches: None,
+			warning: None,
+		}
+	}
+
+	fn record(&mut self, outcome: NodeOutcome, premise: Option<NodeOutcome>) {
+		if matches!(premise, Some(NodeOutcome::Pass)) {
+			self.antecedent_matches = Some(self.antecedent_matches.unwrap_or(0) + 1);
+		}
+		match outcome {
+			NodeOutcome::Pass => {
+				if premise.is_none() || matches!(premise, Some(NodeOutcome::Pass)) {
+					self.matches += 1;
+				}
+			}
+			NodeOutcome::Fail(_) => self.violations += 1,
+			NodeOutcome::NotApplicable => {}
+		}
+	}
+
+	fn finalize_warning(&mut self) {
+		if self.evaluated > 0 && self.antecedent_matches == Some(0) {
+			self.warning = Some("antecedent never matched".to_string());
+		}
+	}
+}
+
+fn implication_premise(rule: &CompiledRule) -> Option<&Node> {
+	match &rule.root {
+		Node::Implies(premise, _) => Some(premise),
+		_ => None,
+	}
+}
+
 struct EvalCtx<'g, 'src> {
 	graph: &'g CodeGraph,
 	source: &'src str,
@@ -1214,27 +1374,7 @@ fn check_require_doc_comment(
 	ctx: &EvalCtx<'_, '_>,
 	out: &mut Vec<Violation>,
 ) {
-	let Some(filter) = &rules.require_doc_for_vis else {
-		return;
-	};
-	let vis = std::str::from_utf8(&d.visibility).unwrap_or("");
-	if filter != "any" && filter != vis {
-		return;
-	}
-	let Some((def_start, _)) = d.position else {
-		return;
-	};
-	let header_start = ctx
-		.doc_anchors
-		.get(&def_idx)
-		.copied()
-		.map(|anc| anc.min(def_start))
-		.unwrap_or(def_start);
-
-	let idx = ctx.comment_ends.partition_point(|&end| end <= header_start);
-	let has_doc =
-		idx > 0 && comment_attaches_to(ctx.source, ctx.comment_ends[idx - 1], header_start);
-	if has_doc {
+	if eval_require_doc_comment(d, def_idx, rules, ctx) != Some(false) {
 		return;
 	}
 
@@ -1249,6 +1389,31 @@ fn check_require_doc_comment(
 		message: format!("{kind} `{name}` is missing a doc comment immediately before it"),
 		explanation: None,
 	});
+}
+
+fn eval_require_doc_comment(
+	d: &DefRecord,
+	def_idx: usize,
+	rules: &CompiledKindRules,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<bool> {
+	let filter = rules.require_doc_for_vis.as_ref()?;
+	let vis = std::str::from_utf8(&d.visibility).unwrap_or("");
+	if filter != "any" && filter != vis {
+		return None;
+	}
+	let (def_start, _) = d.position?;
+	let header_start = ctx
+		.doc_anchors
+		.get(&def_idx)
+		.copied()
+		.map(|anc| anc.min(def_start))
+		.unwrap_or(def_start);
+
+	let idx = ctx.comment_ends.partition_point(|&end| end <= header_start);
+	let has_doc =
+		idx > 0 && comment_attaches_to(ctx.source, ctx.comment_ends[idx - 1], header_start);
+	Some(has_doc)
 }
 
 #[cfg(test)]

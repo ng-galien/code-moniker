@@ -4,7 +4,7 @@
 one directory.
 
 ```sh
-code-moniker check <PATH> [--rules <PATH>] [--format text|json] [--profile <NAME>]
+code-moniker check <PATH> [--rules <PATH>] [--format text|json] [--profile <NAME>] [--report]
 ```
 
 Use it for local architecture checks, pre-commit hooks, CI jobs, or
@@ -36,6 +36,16 @@ Machine-readable output:
 ```sh
 code-moniker check src/ --format json
 ```
+
+Rule observability:
+
+```sh
+code-moniker check src/ --profile architecture --report
+```
+
+`--report` appends per-rule counts. For implication rules (`A => B`), it
+also prints `antecedent_matches`; `0` means the left-hand side never
+matched any scanned def or ref.
 
 Exit codes:
 
@@ -153,6 +163,12 @@ moniker ~ '**/dir:domain/**'
 source  ~ '**/dir:application/**'
 target  ~ '**/interface:/Port$/'
 ```
+
+Project scans anchor each file at its path relative to the scanned root.
+For example, `code-moniker check src/` sees `src/core/order.ts` as
+`dir:core/module:order`, not `dir:src/dir:core/module:order`. If a layer
+rule unexpectedly passes, run `check --report` and inspect the graph with
+`extract --format tree`.
 
 Language path encoding differs:
 

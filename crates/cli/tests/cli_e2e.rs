@@ -428,6 +428,88 @@ fn check_project_cross_layer_import_violation() {
 }
 
 #[test]
+fn check_report_warns_when_implication_antecedent_never_matches() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::create_dir_all(dir.path().join("src/core")).unwrap();
+	std::fs::write(
+		dir.path().join("src/core/bad.ts"),
+		"import { apiRouter } from '../api/index.js';\nexport const x = apiRouter;\n",
+	)
+	.unwrap();
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[aliases]
+		source_core = "source ~ '**/dir:src/dir:core/**'"
+
+		[[refs.where]]
+		id      = "core-depends-only-on-core"
+		expr    = "$source_core => target ~ '**/dir:core/**'"
+		message = "Core code may only depend on core internals."
+		"#,
+	)
+	.unwrap();
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().join("src").to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--report",
+	]);
+	assert_eq!(
+		exit,
+		Exit::Match,
+		"bad alias should hide the violation: {out}"
+	);
+	assert!(out.contains("Rule report"), "{out}");
+	assert!(out.contains("refs.core-depends-only-on-core"), "{out}");
+	assert!(out.contains("matches=0"), "{out}");
+	assert!(out.contains("antecedent_matches=0"), "{out}");
+	assert!(out.contains("warning: antecedent never matched"), "{out}");
+}
+
+#[test]
+fn check_report_uses_post_suppression_violation_counts() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::write(
+		dir.path().join("a.ts"),
+		"// code-moniker: ignore[name-pascalcase]\nclass lower_bad {}\n",
+	)
+	.unwrap();
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[[ts.class.where]]
+		id   = "name-pascalcase"
+		expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+		"#,
+	)
+	.unwrap();
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().join("a.ts").to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--format",
+		"json",
+		"--report",
+	]);
+	assert_eq!(exit, Exit::Match, "{out}");
+	let v: serde_json::Value = serde_json::from_str(&out).expect("json output");
+	assert_eq!(v["summary"]["total_violations"], 0);
+	let report = v["rule_report"].as_array().unwrap();
+	let class_rule = report
+		.iter()
+		.find(|item| item["rule_id"] == "ts.class.name-pascalcase")
+		.expect("class rule report");
+	assert_eq!(class_rule["violations"], 0);
+}
+
+#[test]
 fn check_project_clean_returns_match() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	std::fs::write(dir.path().join("a.ts"), "class GoodName {}\n").unwrap();
@@ -483,9 +565,12 @@ fn check_require_doc_comment_flags_undocumented_public_class() {
 		path.to_str().unwrap(),
 		"--rules",
 		rules_path.to_str().unwrap(),
+		"--report",
 	]);
 	assert_eq!(exit, Exit::NoMatch);
 	assert!(out.contains("ts.class.require_doc_comment"), "{out}");
+	assert!(out.contains("Rule report"), "{out}");
+	assert!(out.contains("violations=1"), "{out}");
 }
 
 #[test]
