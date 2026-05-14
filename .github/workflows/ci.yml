@@ -13,7 +13,7 @@ jobs:
     name: fmt + clippy + cargo test --lib + pgTAP
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install PostgreSQL 17 (server + dev headers + pgTAP)
         run: |
@@ -72,7 +72,7 @@ jobs:
     name: code-moniker self-lint (dogfood)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
