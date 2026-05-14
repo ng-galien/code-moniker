@@ -134,28 +134,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_module_root_is_filename_only() {
-		let g = extract_default("foo.go", "package foo\n", &make_anchor(), false);
-		let expected = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"go")
-			.segment(b"module", b"foo")
-			.build();
-		assert_eq!(g.root(), &expected);
-	}
-
-	#[test]
-	fn extract_function_with_typed_params_emits_full_signature() {
-		let src = "package foo\nfunc Add(a int, b int) int { return a + b }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
-		let last = f.moniker.as_view().segments().last().unwrap();
-		assert_eq!(last.kind, b"func");
-		assert_eq!(last.name, b"Add(a:int,b:int)");
-		assert_eq!(f.signature, b"a:int,b:int".to_vec());
-	}
-
-	#[test]
 	fn extract_function_grouped_param_names_repeat_type() {
 		let src = "package foo\nfunc Add(a, b int) int { return a + b }\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
@@ -165,25 +143,6 @@ mod tests {
 			b"Add(a:int,b:int)",
 			"`a, b int` must expand to two named slots sharing the type"
 		);
-	}
-
-	#[test]
-	fn extract_function_no_params_emits_empty_parens() {
-		let src = "package foo\nfunc Boot() {}\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
-		assert_eq!(
-			f.moniker.as_view().segments().last().unwrap().name,
-			b"Boot()"
-		);
-	}
-
-	#[test]
-	fn extract_function_capitalized_name_is_public() {
-		let src = "package foo\nfunc Hello() {}\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let f = g.defs().find(|d| d.kind == b"func").expect("function def");
-		assert_eq!(f.visibility, b"public".to_vec());
 	}
 
 	#[test]
@@ -202,32 +161,6 @@ mod tests {
 		assert_eq!(
 			f.moniker.as_view().segments().last().unwrap().name,
 			b"Printf(...)"
-		);
-	}
-
-	#[test]
-	fn extract_struct_emits_struct_def() {
-		let src = "package foo\ntype Foo struct { X int }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let foo = g.defs().find(|d| d.kind == b"struct").expect("struct def");
-		assert_eq!(
-			foo.moniker.as_view().segments().last().unwrap().name,
-			b"Foo"
-		);
-		assert_eq!(foo.visibility, b"public".to_vec());
-	}
-
-	#[test]
-	fn extract_interface_emits_interface_def() {
-		let src = "package foo\ntype Greeter interface { Hello() string }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let i = g
-			.defs()
-			.find(|d| d.kind == b"interface")
-			.expect("interface def");
-		assert_eq!(
-			i.moniker.as_view().segments().last().unwrap().name,
-			b"Greeter"
 		);
 	}
 
@@ -278,38 +211,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_method_reparents_to_receiver_type() {
-		let src = "package foo\ntype Foo struct{}\nfunc (r Foo) Bar(x int) int { return x }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let bar = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"go")
-			.segment(b"module", b"foo")
-			.segment(b"struct", b"Foo")
-			.segment(b"method", b"Bar(x:int)")
-			.build();
-		assert!(
-			g.contains(&bar),
-			"expected {bar:?}, defs: {:?}",
-			g.def_monikers()
-		);
-	}
-
-	#[test]
-	fn extract_method_with_pointer_receiver_strips_star() {
-		let src = "package foo\ntype Foo struct{}\nfunc (r *Foo) Bar() {}\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let bar = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"go")
-			.segment(b"module", b"foo")
-			.segment(b"struct", b"Foo")
-			.segment(b"method", b"Bar()")
-			.build();
-		assert!(g.contains(&bar));
-	}
-
-	#[test]
 	fn extract_method_when_type_declared_after_method() {
 		let src = "package foo\nfunc (r *Foo) Bar() {}\ntype Foo struct{}\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
@@ -325,27 +226,6 @@ mod tests {
 			"method emitted before its type declaration must still be reparented; defs: {:?}",
 			g.def_monikers()
 		);
-	}
-
-	#[test]
-	fn extract_method_signature_excludes_receiver() {
-		let src =
-			"package foo\ntype Foo struct{}\nfunc (r Foo) Sum(a, b int) int { return a + b }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
-		assert_eq!(
-			m.moniker.as_view().segments().last().unwrap().name,
-			b"Sum(a:int,b:int)"
-		);
-		assert_eq!(m.signature, b"a:int,b:int".to_vec());
-	}
-
-	#[test]
-	fn extract_method_capitalized_visibility_public() {
-		let src = "package foo\ntype Foo struct{}\nfunc (f Foo) Public() {}\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
-		assert_eq!(m.visibility, b"public".to_vec());
 	}
 
 	#[test]
@@ -466,14 +346,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_grouped_imports_emit_one_ref_per_spec() {
-		let src = "package foo\nimport (\n\t\"fmt\"\n\t\"os\"\n\t\"github.com/x/y\"\n)\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let count = g.refs().filter(|r| r.kind == b"imports_module").count();
-		assert_eq!(count, 3);
-	}
-
-	#[test]
 	fn extract_simple_call_to_unresolved_callee_uses_name_only() {
 		let src = "package foo\nfunc Run() { Helper(1, 2) }\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
@@ -502,36 +374,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_imported_call_uses_name_only_target() {
-		let src = "package foo\nimport \"net/http\"\nfunc Run() { http.Get(\"u\") }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| {
-				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"Get"
-			})
-			.expect("calls http.Get");
-		assert_eq!(r.confidence, b"external".to_vec());
-		let segs: Vec<&[u8]> = r.target.as_view().segments().map(|s| s.kind).collect();
-		assert_eq!(segs, vec![&b"external_pkg"[..], &b"path"[..], &b"func"[..]]);
-	}
-
-	#[test]
-	fn extract_imported_simple_path_call_target() {
-		let src = "package foo\nimport \"fmt\"\nfunc Run() { fmt.Println(1) }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| {
-				r.kind == b"calls"
-					&& r.target.as_view().segments().last().unwrap().name == b"Println"
-			})
-			.expect("calls fmt.Println");
-		let names: Vec<&[u8]> = r.target.as_view().segments().map(|s| s.name).collect();
-		assert_eq!(names, vec![&b"fmt"[..], &b"Println"[..]]);
-	}
-
-	#[test]
 	fn extract_third_party_call_marks_imported() {
 		let src = "package foo\nimport \"github.com/x/mux\"\nfunc Run() { mux.New() }\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
@@ -542,18 +384,6 @@ mod tests {
 			})
 			.expect("calls mux.New");
 		assert_eq!(r.confidence, b"imported".to_vec());
-	}
-
-	#[test]
-	fn extract_method_call_carries_receiver_hint_identifier() {
-		let src = "package foo\nfunc Run(obj T) { obj.Bar() }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"method_call")
-			.expect("method_call ref");
-		assert_eq!(r.receiver_hint, b"obj".to_vec());
-		assert_eq!(r.target.as_view().segments().last().unwrap().name, b"Bar");
 	}
 
 	#[test]
@@ -584,18 +414,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_composite_literal_emits_instantiates() {
-		let src = "package foo\ntype Foo struct{ X int }\nfunc Run() { _ = Foo{X: 1} }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"instantiates")
-			.expect("instantiates ref");
-		assert_eq!(r.target.as_view().segments().last().unwrap().name, b"Foo");
-		assert_eq!(r.confidence, b"resolved".to_vec());
-	}
-
-	#[test]
 	fn extract_qualified_composite_literal_uses_imported_path() {
 		let src = "package foo\nimport \"net/http\"\nfunc Run() { _ = http.Request{} }\n";
 		let g = extract_default("foo.go", src, &make_anchor(), false);
@@ -617,28 +435,6 @@ mod tests {
 			.find(|r| r.kind == b"instantiates")
 			.expect("instantiates ref");
 		assert_eq!(r.confidence, b"name_match".to_vec());
-	}
-
-	#[test]
-	fn extract_param_type_emits_uses_type() {
-		let src = "package foo\ntype Bar struct{}\nfunc Run(x Bar) {}\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| {
-				r.kind == b"uses_type"
-					&& r.target.as_view().segments().last().unwrap().name == b"Bar"
-			})
-			.expect("uses_type Bar");
-		assert_eq!(r.confidence, b"resolved".to_vec());
-	}
-
-	#[test]
-	fn extract_return_type_emits_uses_type() {
-		let src = "package foo\ntype Bar struct{}\nfunc Run() Bar { return Bar{} }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		assert!(g.refs().any(|r| r.kind == b"uses_type"
-			&& r.target.as_view().segments().last().unwrap().name == b"Bar"));
 	}
 
 	#[test]
@@ -698,26 +494,6 @@ mod tests {
 			.collect();
 		assert!(names.contains(&&b"K"[..]));
 		assert!(names.contains(&&b"V"[..]));
-	}
-
-	#[test]
-	fn extract_struct_field_type_emits_uses_type() {
-		let src = "package foo\ntype Bar struct{}\ntype Foo struct { x Bar }\n";
-		let g = extract_default("foo.go", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| {
-				r.kind == b"uses_type"
-					&& r.target.as_view().segments().last().unwrap().name == b"Bar"
-			})
-			.expect("uses_type Bar");
-		let foo = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"go")
-			.segment(b"module", b"foo")
-			.segment(b"struct", b"Foo")
-			.build();
-		assert_eq!(g.defs().nth(r.source).unwrap().moniker, foo);
 	}
 
 	#[test]

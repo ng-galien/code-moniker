@@ -56,6 +56,8 @@ pub fn extract(
 		local_scope: std::cell::RefCell::new(Vec::new()),
 		type_params: std::cell::RefCell::new(Vec::new()),
 		callable_table,
+		in_trait_impl: std::cell::Cell::new(false),
+		imported_modules: std::cell::RefCell::new(std::collections::HashSet::new()),
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -99,55 +101,10 @@ mod tests {
 		MonikerBuilder::new().project(b"code-moniker").build()
 	}
 
-	fn has_parent_segment(m: &Moniker, kind: &[u8], name: &[u8]) -> bool {
-		let segments: Vec<_> = m.as_view().segments().collect();
-		segments
-			.get(segments.len().saturating_sub(2))
-			.is_some_and(|seg| seg.kind == kind && seg.name == name)
-	}
-
 	#[test]
 	fn parse_empty_returns_source_file() {
 		let tree = parse("");
 		assert_eq!(tree.root_node().kind(), "source_file");
-	}
-
-	#[test]
-	fn extract_emits_comments_inside_type_bodies() {
-		let src = r#"
-struct Foo {
-    // field comment
-    value: i32,
-}
-
-trait Bar {
-    // trait comment
-    fn bar(&self);
-}
-
-enum Baz {
-    // enum comment
-    A,
-}
-"#;
-		let g = extract("src/lib.rs", src, &make_anchor(), true);
-		let comments: Vec<_> = g.defs().filter(|d| d.kind == b"comment").collect();
-		assert_eq!(comments.len(), 3);
-		assert!(
-			comments
-				.iter()
-				.any(|d| has_parent_segment(&d.moniker, b"struct", b"Foo"))
-		);
-		assert!(
-			comments
-				.iter()
-				.any(|d| has_parent_segment(&d.moniker, b"trait", b"Bar"))
-		);
-		assert!(
-			comments
-				.iter()
-				.any(|d| has_parent_segment(&d.moniker, b"enum", b"Baz"))
-		);
 	}
 
 	#[test]
@@ -167,57 +124,6 @@ enum Baz {
 	}
 
 	#[test]
-	fn extract_struct_emits_class_def() {
-		let g = extract(
-			"util.rs",
-			"pub struct Foo { x: i32 }",
-			&make_anchor(),
-			false,
-		);
-		let foo = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"lang", b"rs")
-			.segment(b"module", b"util")
-			.segment(b"struct", b"Foo")
-			.build();
-		assert!(g.contains(&foo));
-	}
-
-	#[test]
-	fn extract_enum_emits_enum_def() {
-		let g = extract(
-			"util.rs",
-			"pub enum Color { Red, Green }",
-			&make_anchor(),
-			false,
-		);
-		let color = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"lang", b"rs")
-			.segment(b"module", b"util")
-			.segment(b"enum", b"Color")
-			.build();
-		assert!(g.contains(&color));
-	}
-
-	#[test]
-	fn extract_trait_emits_interface_def() {
-		let g = extract(
-			"util.rs",
-			"pub trait Greet { fn hi(&self); }",
-			&make_anchor(),
-			false,
-		);
-		let greet = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"lang", b"rs")
-			.segment(b"module", b"util")
-			.segment(b"trait", b"Greet")
-			.build();
-		assert!(g.contains(&greet));
-	}
-
-	#[test]
 	fn extract_type_alias_emits_type_alias_def() {
 		let g = extract("util.rs", "pub type Id = u64;", &make_anchor(), false);
 		let id = MonikerBuilder::new()
@@ -227,99 +133,6 @@ enum Baz {
 			.segment(b"type", b"Id")
 			.build();
 		assert!(g.contains(&id));
-	}
-
-	#[test]
-	fn extract_top_level_fn_emits_function_def() {
-		let g = extract(
-			"util.rs",
-			"pub fn add(a: i32, b: i32) -> i32 { a + b }",
-			&make_anchor(),
-			false,
-		);
-		let add = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"lang", b"rs")
-			.segment(b"module", b"util")
-			.segment(b"fn", b"add(a:i32,b:i32)")
-			.build();
-		assert!(
-			g.contains(&add),
-			"expected {add:?}, defs: {:?}",
-			g.def_monikers()
-		);
-	}
-
-	#[test]
-	fn extract_fn_no_args_uses_arity_zero_form() {
-		let g = extract("util.rs", "pub fn boot() {}", &make_anchor(), false);
-		let boot = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"lang", b"rs")
-			.segment(b"module", b"util")
-			.segment(b"fn", b"boot()")
-			.build();
-		assert!(g.contains(&boot));
-	}
-
-	#[test]
-	fn extract_impl_block_reparents_methods_to_type() {
-		let src = r#"
-            pub struct Foo;
-            impl Foo {
-                pub fn bar(&self) -> i32 { 0 }
-            }
-        "#;
-		let g = extract("util.rs", src, &make_anchor(), false);
-		let foo = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"lang", b"rs")
-			.segment(b"module", b"util")
-			.segment(b"struct", b"Foo")
-			.build();
-		let bar = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"lang", b"rs")
-			.segment(b"module", b"util")
-			.segment(b"struct", b"Foo")
-			.segment(b"method", b"bar()")
-			.build();
-		assert!(g.contains(&foo));
-		assert!(
-			g.contains(&bar),
-			"expected {bar:?}, defs: {:?}",
-			g.def_monikers()
-		);
-	}
-
-	#[test]
-	fn extract_impl_trait_for_emits_implements_ref() {
-		let src = r#"
-            pub trait Greet { fn hi(&self); }
-            pub struct Foo;
-            impl Greet for Foo {
-                fn hi(&self) {}
-            }
-        "#;
-		let g = extract("util.rs", src, &make_anchor(), false);
-		let foo = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"lang", b"rs")
-			.segment(b"module", b"util")
-			.segment(b"struct", b"Foo")
-			.build();
-		let greet = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"lang", b"rs")
-			.segment(b"module", b"util")
-			.segment(b"trait", b"Greet")
-			.build();
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"implements".to_vec())
-			.expect("implements ref");
-		assert_eq!(g.defs().nth(r.source).unwrap().moniker, foo);
-		assert_eq!(r.target, greet);
 	}
 
 	#[test]
@@ -372,24 +185,6 @@ enum Baz {
 		let target = MonikerBuilder::new()
 			.project(b"code-moniker")
 			.segment(b"external_pkg", b"foo")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_use_external_crate_marks_external_pkg() {
-		let g = extract(
-			"util.rs",
-			"use std::collections::HashMap;",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().next().unwrap();
-		let target = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"external_pkg", b"std")
-			.segment(b"path", b"collections")
-			.segment(b"path", b"HashMap")
 			.build();
 		assert_eq!(r.target, target);
 	}
@@ -452,17 +247,6 @@ enum Baz {
 			r.target, target,
 			"bare path matching a local mod must resolve project-local"
 		);
-	}
-
-	#[test]
-	fn extract_use_unknown_first_segment_stays_external() {
-		let g = extract("util.rs", "use foo::bar;", &make_anchor(), false);
-		let target = MonikerBuilder::new()
-			.project(b"code-moniker")
-			.segment(b"external_pkg", b"foo")
-			.segment(b"path", b"bar")
-			.build();
-		assert_eq!(g.refs().next().unwrap().target, target);
 	}
 
 	#[test]
@@ -763,62 +547,6 @@ enum Baz {
 	}
 
 	#[test]
-	fn extract_self_dot_method_emits_method_call_ref() {
-		let src = r#"
-pub struct W;
-impl W {
-    fn dispatch(&self) { self.walk(); }
-    fn walk(&self) {}
-}
-"#;
-		let g = extract("util.rs", src, &make_anchor(), true);
-		let refs: Vec<_> = g.refs().filter(|r| r.kind == b"method_call").collect();
-		assert_eq!(
-			refs.len(),
-			1,
-			"expected one method_call ref; refs: {:?}",
-			refs
-		);
-		let target = &refs[0].target;
-		let last = target.as_view().segments().last().unwrap();
-		assert_eq!(last.kind, b"method");
-		let bare = crate::core::moniker::query::bare_callable_name(last.name);
-		assert_eq!(
-			bare,
-			b"walk",
-			"method_call target must point at `walk`; got name={:?}",
-			std::str::from_utf8(last.name)
-		);
-		let source_def = g.def_at(refs[0].source);
-		let source_last = source_def.moniker.as_view().segments().last().unwrap();
-		let source_bare = crate::core::moniker::query::bare_callable_name(source_last.name);
-		assert_eq!(
-			source_bare,
-			b"dispatch",
-			"method_call source must be `dispatch`; got name={:?}",
-			std::str::from_utf8(source_last.name)
-		);
-	}
-
-	#[test]
-	fn extract_non_self_method_call_emits_method_call_ref() {
-		let src = r#"
-pub struct W;
-impl W {
-    fn run(&self, other: W) { other.walk(); }
-    fn walk(&self) {}
-}
-"#;
-		let g = extract("util.rs", src, &make_anchor(), true);
-		let n = g.refs().filter(|r| r.kind == b"method_call").count();
-		assert!(
-			n >= 1,
-			"non-self receiver must emit method_call with arity-only target; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
 	fn extract_nested_self_call_emits_two_method_call_refs() {
 		let src = r#"
 pub struct W;
@@ -834,37 +562,6 @@ impl W {
 			n,
 			2,
 			"nested self.foo(self.bar()) must emit two method_call refs; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
-	fn extract_use_emits_imports_module_to_parent() {
-		let src = "use crate::foo::bar::Baz;";
-		let g = extract("lib.rs", src, &make_anchor(), false);
-		let ims: Vec<_> = g.refs().filter(|r| r.kind == b"imports_module").collect();
-		assert!(
-			!ims.is_empty(),
-			"use must emit imports_module; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-		let last = ims[0].target.as_view().segments().last().unwrap();
-		assert_ne!(
-			last.kind,
-			b"path",
-			"imports_module target must point at a module, not at the leaf path:Baz; last={:?}",
-			std::str::from_utf8(last.kind)
-		);
-	}
-
-	#[test]
-	fn extract_use_external_emits_imports_module() {
-		let src = "use std::collections::HashMap;";
-		let g = extract("lib.rs", src, &make_anchor(), false);
-		let n = g.refs().filter(|r| r.kind == b"imports_module").count();
-		assert!(
-			n >= 1,
-			"extern use must emit imports_module; refs: {:?}",
 			g.refs().collect::<Vec<_>>()
 		);
 	}
@@ -900,18 +597,6 @@ impl W {
 			all.len(),
 			unique.len(),
 			"nested grouped use must not duplicate imports_module refs for the same parent",
-		);
-	}
-
-	#[test]
-	fn extract_free_function_call_emits_calls_ref() {
-		let src = "pub fn run() { foo(); }";
-		let g = extract("util.rs", src, &make_anchor(), true);
-		let n = g.refs().filter(|r| r.kind == b"calls").count();
-		assert!(
-			n >= 1,
-			"free fn call must emit calls ref; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
 		);
 	}
 
@@ -982,30 +667,6 @@ impl W {
 	}
 
 	#[test]
-	fn extract_param_type_emits_uses_type_ref() {
-		let src = "pub fn run(x: SomeType) {}";
-		let g = extract("util.rs", src, &make_anchor(), false);
-		let n = g.refs().filter(|r| r.kind == b"uses_type").count();
-		assert!(
-			n >= 1,
-			"param type annotation must emit uses_type; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
-	fn extract_return_type_emits_uses_type_ref() {
-		let src = "pub fn run() -> SomeType { todo!() }";
-		let g = extract("util.rs", src, &make_anchor(), false);
-		let n = g.refs().filter(|r| r.kind == b"uses_type").count();
-		assert!(
-			n >= 1,
-			"return type must emit uses_type; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
 	fn extract_let_type_emits_uses_type_ref() {
 		let src = "pub fn run() { let x: SomeType = todo!(); }";
 		let g = extract("util.rs", src, &make_anchor(), true);
@@ -1014,91 +675,6 @@ impl W {
 			n >= 1,
 			"typed let binding must emit uses_type; refs: {:?}",
 			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
-	fn extract_struct_field_type_emits_uses_type_ref() {
-		let src = "pub struct Foo { pub value: SomeType }";
-		let g = extract("util.rs", src, &make_anchor(), false);
-		let n = g.refs().filter(|r| r.kind == b"uses_type").count();
-		assert!(
-			n >= 1,
-			"struct field type must emit uses_type; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
-	fn extract_struct_literal_emits_instantiates_ref() {
-		let src = "pub fn run() { let _ = Foo { x: 1 }; }";
-		let g = extract("util.rs", src, &make_anchor(), true);
-		let n = g.refs().filter(|r| r.kind == b"instantiates").count();
-		assert!(
-			n >= 1,
-			"struct literal must emit instantiates; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
-	fn extract_path_constructor_emits_instantiates_ref() {
-		let src = "pub fn run() { let _ = Foo::new(); }";
-		let g = extract("util.rs", src, &make_anchor(), true);
-		let n = g.refs().filter(|r| r.kind == b"instantiates").count();
-		assert!(
-			n >= 1,
-			"Foo::new() must emit instantiates; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
-	fn extract_comprehensive_fixture_covers_all_expected_ref_kinds() {
-		let src = r#"
-use std::collections::HashMap;
-use crate::foo::Bar;
-
-pub trait Greet { fn hi(&self); }
-
-pub struct Service { backing: HashMap<String, Bar> }
-
-impl Greet for Service {
-    fn hi(&self) {
-        let _ = Service { backing: HashMap::new() };
-        let other: Service = Service::new();
-        other.hi();
-        self.hi();
-        helper();
-    }
-}
-
-pub fn helper() {}
-"#;
-		let g = extract("util.rs", src, &make_anchor(), true);
-		let kinds: std::collections::HashSet<Vec<u8>> = g.refs().map(|r| r.kind.clone()).collect();
-		let expected: &[&[u8]] = &[
-			b"imports_module",
-			b"imports_symbol",
-			b"calls",
-			b"method_call",
-			b"uses_type",
-			b"instantiates",
-			b"implements",
-		];
-		let missing: Vec<&str> = expected
-			.iter()
-			.filter(|k| !kinds.contains(*k as &[u8]))
-			.map(|k| std::str::from_utf8(k).unwrap())
-			.collect();
-		assert!(
-			missing.is_empty(),
-			"missing ref kinds in comprehensive fixture: {:?}; got: {:?}",
-			missing,
-			kinds
-				.iter()
-				.map(|k| std::str::from_utf8(k).unwrap_or("?"))
-				.collect::<Vec<_>>()
 		);
 	}
 
@@ -1180,34 +756,6 @@ pub fn run() { let _ = Color::Red(1); }
 	}
 
 	#[test]
-	fn extract_macro_invocation_emits_calls_ref() {
-		let src = "pub fn run() { vec![1, 2]; format!(\"{}\", 1); }";
-		let g = extract("util.rs", src, &make_anchor(), true);
-		let names: Vec<_> = g
-			.refs()
-			.filter(|r| r.kind == b"calls")
-			.map(|r| {
-				r.target
-					.as_view()
-					.segments()
-					.last()
-					.map(|s| s.name.to_vec())
-					.unwrap_or_default()
-			})
-			.collect();
-		assert!(
-			names.iter().any(|n| n.starts_with(b"vec")),
-			"vec! must emit calls; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-		assert!(
-			names.iter().any(|n| n.starts_with(b"format")),
-			"format! must emit calls; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
 	fn extract_primitive_types_emit_no_uses_type_ref() {
 		let src = "pub fn run(x: i32, y: bool, z: String) -> u8 { let _: f64 = 0.0; 0 }";
 		let g = extract("util.rs", src, &make_anchor(), true);
@@ -1275,31 +823,6 @@ pub fn run() { let _ = Color::Red(1); }
 		assert!(
 			n,
 			"Color::Red in value position must emit reads → variant; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
-	fn extract_trait_supertype_emits_extends_ref() {
-		let src = "pub trait Foo: Bar + Baz {}";
-		let g = extract("util.rs", src, &make_anchor(), false);
-		let extends: Vec<_> = g.refs().filter(|r| r.kind == b"extends").collect();
-		assert_eq!(
-			extends.len(),
-			2,
-			"trait Foo: Bar + Baz must emit two extends refs; refs: {:?}",
-			g.refs().collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
-	fn extract_derive_attribute_emits_annotates_ref() {
-		let src = "#[derive(Clone, Debug)] pub struct Foo;";
-		let g = extract("util.rs", src, &make_anchor(), false);
-		let n = g.refs().filter(|r| r.kind == b"annotates").count();
-		assert!(
-			n >= 2,
-			"#[derive(Clone, Debug)] must emit at least 2 annotates refs (one per trait); refs: {:?}",
 			g.refs().collect::<Vec<_>>()
 		);
 	}

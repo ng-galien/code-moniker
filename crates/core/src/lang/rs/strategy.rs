@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 
 use tree_sitter::Node;
@@ -23,6 +23,8 @@ pub(super) struct Strategy<'src> {
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) type_params: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+	pub(super) in_trait_impl: Cell<bool>,
+	pub(super) imported_modules: RefCell<HashSet<Moniker>>,
 }
 
 impl<'a> LangStrategy for Strategy<'a> {
@@ -136,7 +138,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		NodeShape::Symbol(Symbol {
 			moniker,
 			kind,
-			visibility: kinds::VIS_NONE,
+			visibility: self.visibility_of(node, scope, source),
 			signature: None,
 			body: Some(node),
 			position: node_position(node),
@@ -167,7 +169,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		NodeShape::Symbol(Symbol {
 			moniker,
 			kind: kinds::TRAIT,
-			visibility: kinds::VIS_NONE,
+			visibility: self.visibility_of(node, scope, source),
 			signature: None,
 			body: node.child_by_field_name("body"),
 			position: node_position(node),
@@ -201,7 +203,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		NodeShape::Symbol(Symbol {
 			moniker,
 			kind,
-			visibility: kinds::VIS_NONE,
+			visibility: self.visibility_of(node, scope, source),
 			signature: None,
 			body: node.child_by_field_name("body"),
 			position: node_position(node),
@@ -240,9 +242,12 @@ impl<'src_lang> Strategy<'src_lang> {
 		let Some(type_name) = impl_type_name(type_node, source) else {
 			return;
 		};
-		let type_moniker = extend_segment(&self.module, kinds::STRUCT, type_name.as_bytes());
-		self.ensure_inferred_struct(&type_moniker, node, graph);
-		if let Some(trait_node) = node.child_by_field_name("trait")
+		let type_moniker = self.resolve_impl_target(type_name, graph);
+		if !graph.contains(&type_moniker) {
+			self.ensure_inferred_struct(&type_moniker, node, graph);
+		}
+		let trait_node = node.child_by_field_name("trait");
+		if let Some(trait_node) = trait_node
 			&& let Some(trait_name) = impl_type_name(trait_node, source)
 		{
 			let trait_moniker = MonikerBuilder::from_view(self.module.as_view())
@@ -256,8 +261,41 @@ impl<'src_lang> Strategy<'src_lang> {
 			);
 		}
 		if let Some(body) = node.child_by_field_name("body") {
+			let prev = self.in_trait_impl.replace(trait_node.is_some());
 			self.walk_children(body, &type_moniker, graph);
+			self.in_trait_impl.set(prev);
 		}
+	}
+
+	fn visibility_of(&self, node: Node<'_>, scope: &Moniker, source: &[u8]) -> &'static [u8] {
+		let mut cursor = node.walk();
+		let modifier = node
+			.children(&mut cursor)
+			.find(|c| c.kind() == "visibility_modifier");
+		match modifier {
+			Some(vm) => match vm.utf8_text(source).unwrap_or("").trim() {
+				"pub" => kinds::VIS_PUBLIC,
+				_ => kinds::VIS_MODULE,
+			},
+			None => {
+				let in_trait_scope = scope.last_kind().as_deref() == Some(b"trait");
+				if in_trait_scope || self.in_trait_impl.get() {
+					kinds::VIS_PUBLIC
+				} else {
+					kinds::VIS_PRIVATE
+				}
+			}
+		}
+	}
+
+	fn resolve_impl_target(&self, type_name: &str, graph: &CodeGraph) -> Moniker {
+		for kind in [kinds::ENUM, kinds::TRAIT, kinds::TYPE, kinds::STRUCT] {
+			let m = extend_segment(&self.module, kind, type_name.as_bytes());
+			if graph.contains(&m) {
+				return m;
+			}
+		}
+		extend_segment(&self.module, kinds::STRUCT, type_name.as_bytes())
 	}
 
 	fn ensure_inferred_struct(&self, m: &Moniker, anchor: Node<'_>, graph: &mut CodeGraph) {
@@ -337,12 +375,14 @@ impl<'src_lang> Strategy<'src_lang> {
 		let pos = node_position(node);
 		let mut leaves: Vec<Vec<String>> = Vec::new();
 		collect_use_leaves(arg, self.source_bytes, &mut Vec::new(), &mut leaves);
-		let mut emitted_parents: HashSet<Moniker> = HashSet::new();
 		for path in leaves {
 			let target = self.build_use_target(&path);
 			let _ = graph.add_ref(parent, target.clone(), kinds::IMPORTS_SYMBOL, Some(pos));
 			if let Some(parent_module) = drop_leaf_segment(&target)
-				&& emitted_parents.insert(parent_module.clone())
+				&& self
+					.imported_modules
+					.borrow_mut()
+					.insert(parent_module.clone())
 			{
 				let _ = graph.add_ref(parent, parent_module, kinds::IMPORTS_MODULE, Some(pos));
 			}
@@ -383,9 +423,18 @@ impl<'src_lang> Strategy<'src_lang> {
 		if let Some(name_node) = node.child_by_field_name("name")
 			&& let Some(name) = type_name_text(name_node, self.source_bytes)
 		{
-			let target = extend_segment(&self.module, kinds::STRUCT, name.as_bytes());
+			let (target, confidence) = if is_self_type(name)
+				&& let Some(t) = enclosing_type_moniker(scope)
+			{
+				(t, kinds::CONF_RESOLVED)
+			} else {
+				(
+					extend_segment(&self.module, kinds::STRUCT, name.as_bytes()),
+					kinds::CONF_NAME_MATCH,
+				)
+			};
 			let attrs = RefAttrs {
-				confidence: kinds::CONF_NAME_MATCH,
+				confidence,
 				..RefAttrs::default()
 			};
 			let _ = graph.add_ref_attrs(
@@ -406,7 +455,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		let Some(name) = type_name_text(macro_node, self.source_bytes) else {
 			return;
 		};
-		let target = extend_segment(&self.module, kinds::FN, name.as_bytes());
+		let target = extend_segment(&self.module, kinds::MACRO, name.as_bytes());
 		let attrs = RefAttrs {
 			confidence: kinds::CONF_UNRESOLVED,
 			..RefAttrs::default()
@@ -558,6 +607,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		};
 		let attrs = RefAttrs {
 			confidence,
+			receiver_hint: receiver_hint(receiver, self.source_bytes),
 			..RefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(
@@ -644,6 +694,22 @@ impl<'src_lang> Strategy<'src_lang> {
 		if let Some(type_name) = path_name
 			&& starts_uppercase(type_name)
 		{
+			if is_self_type(type_name)
+				&& let Some(t) = enclosing_type_moniker(scope)
+			{
+				let attrs = RefAttrs {
+					confidence: kinds::CONF_RESOLVED,
+					..RefAttrs::default()
+				};
+				let _ = graph.add_ref_attrs(
+					scope,
+					t,
+					kinds::INSTANTIATES,
+					Some(node_position(call)),
+					&attrs,
+				);
+				return;
+			}
 			if name_str == "new" {
 				self.emit_instantiates_ref(call, scope, graph, kinds::STRUCT, type_name.as_bytes());
 				return;
@@ -1040,6 +1106,17 @@ fn is_primitive_type(name: &str) -> bool {
 
 fn is_self_type(name: &str) -> bool {
 	name == "Self"
+}
+
+fn receiver_hint<'a>(receiver: Node<'_>, source: &'a [u8]) -> &'a [u8] {
+	use crate::lang::kinds::{HINT_CALL, HINT_MEMBER, HINT_SELF};
+	match receiver.kind() {
+		"self" => HINT_SELF,
+		"identifier" => receiver.utf8_text(source).unwrap_or("").as_bytes(),
+		"field_expression" => HINT_MEMBER,
+		"call_expression" => HINT_CALL,
+		_ => b"",
+	}
 }
 
 fn is_ident_token(s: &str) -> bool {

@@ -22,6 +22,7 @@ pub(super) struct Strategy<'src> {
 	#[allow(dead_code)]
 	pub(super) presets: &'src super::Presets,
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
+	pub(super) import_targets: RefCell<HashMap<Vec<u8>, Moniker>>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) type_table: HashMap<&'src [u8], Moniker>,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
@@ -480,12 +481,16 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		}
 
+		let target = symbol_target(self.module.as_view().project(), &pieces, confidence);
 		if let Some(last) = pieces.last().copied() {
+			let last_bytes = last.as_bytes();
 			self.imports
 				.borrow_mut()
-				.insert(last.as_bytes().to_vec(), confidence);
+				.insert(last_bytes.to_vec(), confidence);
+			self.import_targets
+				.borrow_mut()
+				.insert(last_bytes.to_vec(), target.clone());
 		}
-		let target = symbol_target(self.module.as_view().project(), &pieces, confidence);
 		let attrs = RefAttrs {
 			confidence,
 			..RefAttrs::default()
@@ -710,7 +715,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				return;
 			}
 		};
-		if name.is_empty() {
+		if name.is_empty() || is_java_primitive(name.as_bytes()) {
 			return;
 		}
 		let (target, confidence) = self.resolve_type_target(name.as_bytes(), kinds::CLASS);
@@ -796,9 +801,27 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.imports.borrow().get(name).copied()
 	}
 
+	fn lookup_import_target(&self, name: &[u8]) -> Option<Moniker> {
+		self.import_targets.borrow().get(name).cloned()
+	}
+
 	fn resolve_type_target(&self, name: &[u8], fallback_kind: &[u8]) -> (Moniker, &'static [u8]) {
 		if let Some(m) = self.type_table.get(name) {
 			return (m.clone(), kinds::CONF_RESOLVED);
+		}
+		if let Some(m) = self.lookup_import_target(name) {
+			let confidence = self
+				.import_confidence_for(name)
+				.unwrap_or(kinds::CONF_NAME_MATCH);
+			return (m, confidence);
+		}
+		if is_java_lang_class(name) {
+			let target = symbol_target(
+				self.module.as_view().project(),
+				&["java", "lang", std::str::from_utf8(name).unwrap_or("")],
+				kinds::CONF_EXTERNAL,
+			);
+			return (target, kinds::CONF_EXTERNAL);
 		}
 		let target = extend_segment(&self.module, fallback_kind, name);
 		let confidence = self
@@ -941,6 +964,65 @@ pub(super) fn collect_callable_table<'src>(
 			}
 		}
 	}
+}
+
+fn is_java_primitive(name: &[u8]) -> bool {
+	matches!(
+		name,
+		b"boolean"
+			| b"byte" | b"char"
+			| b"short"
+			| b"int" | b"long"
+			| b"float"
+			| b"double"
+			| b"void"
+	)
+}
+
+fn is_java_lang_class(name: &[u8]) -> bool {
+	matches!(
+		name,
+		b"Object"
+			| b"String"
+			| b"StringBuilder"
+			| b"StringBuffer"
+			| b"CharSequence"
+			| b"Integer"
+			| b"Long" | b"Short"
+			| b"Byte" | b"Float"
+			| b"Double"
+			| b"Boolean"
+			| b"Character"
+			| b"Number"
+			| b"Math" | b"Class"
+			| b"ClassLoader"
+			| b"System"
+			| b"Runtime"
+			| b"Thread"
+			| b"ThreadGroup"
+			| b"ThreadLocal"
+			| b"Throwable"
+			| b"Exception"
+			| b"RuntimeException"
+			| b"Error"
+			| b"AssertionError"
+			| b"IllegalArgumentException"
+			| b"IllegalStateException"
+			| b"NullPointerException"
+			| b"IndexOutOfBoundsException"
+			| b"ArithmeticException"
+			| b"ClassCastException"
+			| b"UnsupportedOperationException"
+			| b"NumberFormatException"
+			| b"Iterable"
+			| b"Comparable"
+			| b"Cloneable"
+			| b"Runnable"
+			| b"AutoCloseable"
+			| b"Enum" | b"Record"
+			| b"Void" | b"Process"
+			| b"ProcessBuilder"
+	)
 }
 
 fn modifier_visibility(node: Node<'_>) -> &'static [u8] {

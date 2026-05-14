@@ -1,0 +1,606 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/go/accounts.go
+---
+{
+  "defs": [
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:User",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:ConflictError",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:382",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "var",
+      "moniker": "code+moniker://app/lang:go/module:accounts/var:ErrNotFound",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:582",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:741",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:929",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:ConflictError/method:Error()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:1073",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:1481",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:1699",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:go/module:accounts/func:NewInMemory()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByID(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "id:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByID(id:string)/comment:1973",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByID(id:string)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByEmail(email:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "email:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "user:User",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)/comment:2346",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:2653",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:3065",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:go/module:accounts/func:WithTag(repo:UserRepository,tag:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "repo:UserRepository,tag:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:accounts/comment:3464",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:go/module:accounts/func:MakeID(email:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "signature": "email:string",
+      "visibility": "public"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:errors"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:fmt"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:strings"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:sync"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:errors/func:New"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:ConflictError/method:Error()",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:fmt/func:Sprintf"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/func:NewInMemory()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:InMemory"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/func:NewInMemory()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:InMemory"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/func:NewInMemory()",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/func:make"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByID(id:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByID(id:string)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:accounts/method:RLock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByID(id:string)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:accounts/method:RUnlock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByEmail(email:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByEmail(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:accounts/method:RLock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByEmail(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:accounts/method:RUnlock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:accounts/method:Lock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:accounts/method:Unlock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:ConflictError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/func:make"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/func:close"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:accounts/method:RLock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:accounts/method:RUnlock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/func:WithTag(repo:UserRepository,tag:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/interface:UserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/func:WithTag(repo:UserRepository,tag:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/func:WithTag(repo:UserRepository,tag:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/func:WithTag(repo:UserRepository,tag:string)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:go/module:accounts/method:Scan"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:accounts/func:WithTag(repo:UserRepository,tag:string)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:accounts/func:append"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts/func:MakeID(email:string)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:strings/func:IndexByte"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts/func:MakeID(email:string)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:strings/func:ToLower"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:accounts/func:MakeID(email:string)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:strings/func:ToLower"
+    }
+  ],
+  "root": "code+moniker://app/lang:go/module:accounts"
+}

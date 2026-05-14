@@ -1,0 +1,786 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/cs/UserService.cs
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/comment:396",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "record",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/record:User",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/record:User/constructor:User(Id:string,Email:string,Name:string,Tags:IReadOnlyList<string>)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/record:User",
+      "signature": "Id:string,Email:string,Name:string,Tags:IReadOnlyList<string>",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/comment:584",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserNotFoundException",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "property",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserNotFoundException/property:UserId",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserNotFoundException",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserNotFoundException/constructor:UserNotFoundException(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserNotFoundException",
+      "signature": "id:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/comment:819",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:ConflictException",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "property",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:ConflictException/property:Field",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:ConflictException",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "property",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:ConflictException/property:Value",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:ConflictException",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:ConflictException/constructor:ConflictException(field:string,value:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:ConflictException",
+      "signature": "field:string,value:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/comment:1144",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:FindByIdAsync(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository",
+      "signature": "id:string",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:FindByEmailAsync(email:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository",
+      "signature": "email:string",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:InsertAsync(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository",
+      "signature": "user:User",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:ScanAsync()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository",
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/comment:1502",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/field:_byId",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository",
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByIdAsync(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository",
+      "signature": "id:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByEmailAsync(email:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository",
+      "signature": "email:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByEmailAsync(email:string)/comment:1881",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByEmailAsync(email:string)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:InsertAsync(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository",
+      "signature": "user:User",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:InsertAsync(user:User)/comment:2104",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:InsertAsync(user:User)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:ScanAsync()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:ScanAsync()/comment:2586",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:ScanAsync()",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService/field:_repo",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService/constructor:UserService(repo:IUserRepository)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "signature": "repo:IUserRepository",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService/comment:2868",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:GetAsync(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "signature": "id:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService/comment:3187",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "signature": "email:string,name:string,tags:IReadOnlyList<string>",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:WithTagAsync(tag:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "signature": "tag:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService/comment:3841",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:MakeId(email:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "signature": "email:string",
+      "visibility": "private"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Concurrent"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Linq"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserNotFoundException",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Exception"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:ConflictException",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Exception"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Concurrent/path:ConcurrentDictionary"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByIdAsync(id:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByIdAsync(id:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByIdAsync(id:string)",
+      "kind": "method_call",
+      "receiver_hint": "_byId",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:TryGetValue"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByIdAsync(id:string)",
+      "kind": "method_call",
+      "receiver_hint": "Task",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:FromResult<User?>"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByEmailAsync(email:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByEmailAsync(email:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByEmailAsync(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:FirstOrDefault"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByEmailAsync(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "Task",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:FromResult<User?>"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:InsertAsync(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:InsertAsync(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:InsertAsync(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:InsertAsync(user:User)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:FindByEmailAsync(email:string)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:InsertAsync(user:User)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/class:ConflictException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:ScanAsync()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IAsyncEnumerable"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:ScanAsync()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository/method:ScanAsync()",
+      "kind": "method_call",
+      "receiver_hint": "Task",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:Yield"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/constructor:UserService(repo:IUserRepository)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:GetAsync(id:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:GetAsync(id:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:GetAsync(id:string)",
+      "kind": "method_call",
+      "receiver_hint": "_repo",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:FindByIdAsync"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:GetAsync(id:string)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/class:UserNotFoundException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IReadOnlyList"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "method_call",
+      "receiver_hint": "_repo",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:FindByEmailAsync"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/class:ConflictException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:MakeId(email:string)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)",
+      "kind": "method_call",
+      "receiver_hint": "_repo",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:InsertAsync"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:WithTagAsync(tag:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IAsyncEnumerable"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:WithTagAsync(tag:string)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:WithTagAsync(tag:string)",
+      "kind": "method_call",
+      "receiver_hint": "_repo",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:ScanAsync"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:WithTagAsync(tag:string)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:Contains"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:MakeId(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:IndexOf"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:MakeId(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "subscript",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:ToLowerInvariant"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:UserService/class:UserService/method:MakeId(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:cs/module:UserService/method:ToLowerInvariant"
+    }
+  ],
+  "root": "code+moniker://app/lang:cs/module:UserService"
+}

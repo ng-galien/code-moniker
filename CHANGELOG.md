@@ -12,6 +12,11 @@ changes are allowed in minor releases as long as the project is in
 
 ### Added
 
+- **`code-moniker-core` tests** — snapshot + conformance harness
+  (`crates/core/tests/extractor_{snapshots,conformance}.rs`, insta-driven)
+  over real-code fixtures in `crates/core/tests/fixtures/<lang>/`. The
+  full def/ref graph (every attr, every confidence) is the
+  anti-regression surface. Replaces the bulk of inline micro-tests.
 - **`code-moniker-core`** — `CanonicalWalker` collapses adjacent
   same-kind comment nodes into a single `comment` def spanning the
   block; `lines = N` now reflects the block, not 1 per line.
@@ -51,6 +56,14 @@ changes are allowed in minor releases as long as the project is in
 
 ### Changed
 
+- **`code-moniker-core` (sql/rs/cs strategies)** — internal perf/clean
+  pass: SQL `Strategy.callable_table` borrowed (no clone per
+  plpgsql re-parse); Rust `receiver_hint` returns `&[u8]` (was `Vec<u8>`,
+  matches other langs); C# `clr_system_path` returns `Option<&'static
+  [&'static str]>` (no per-call alloc).
+- **`code-moniker-core` (test helpers)** — `assert_conformance` /
+  `assert_local_refs_closed` exposed `pub` for integration tests, marked
+  `#[doc(hidden)]`.
 - **CLI** — `--format tree` no longer truncates signatures (was a
   32-char ellipsis).
 - **CLI library** — `ExtractArgs` / `CheckArgs` rename `file` →
@@ -63,11 +76,41 @@ changes are allowed in minor releases as long as the project is in
 
 ### Removed
 
+- **`code-moniker-core` tests** — 128 shape-probe micro-tests across
+  the seven per-lang `mod tests` blocks (629 → 501 lib tests).
+  Subsumed by the new snapshot + conformance fixtures. Kept tests
+  target error paths, Presets, `deep=true`, syntax absent from
+  fixtures, tree-sitter gotchas, and documented regressions.
 - **CLI** — root-level `code-moniker <PATH>` form. Use
   `code-moniker extract <PATH>`; filters moved under the verb.
 
 ### Fixed
 
+- **`code-moniker-core` (rs extractor)** — `pub`/`pub(crate)` now emit
+  `visibility = public/module`; methods inside `impl Trait for T` inherit
+  public via the trait. `impl X for Enum` no longer shadows with a phantom
+  `struct:Enum`. `write!()`/`format!()` target `macro:` (was `fn:`).
+  `Self {...}` / `Self::new()` resolve to the impl type. `method_call`
+  populates `receiver_hint` (self / call / member / identifier text).
+- **`code-moniker-core` (ts/python/java extractors)** — `import_targets`
+  map routes `uses_type` / `method_call` / `calls` through imported
+  symbols: `z.object()` → `external_pkg:zod/path:z/method:object`,
+  `Protocol` → `external_pkg:typing/function:Protocol`, `List<T>` →
+  `external_pkg:java/path:util/path:List`.
+- **`code-moniker-core` (java extractor)** — `java.lang.*` classes
+  (`String`, `Exception`, `RuntimeException`, …) resolve implicitly to
+  `external_pkg:java/path:lang/path:X`. Primitives skipped from refs.
+- **`code-moniker-core` (cs extractor)** — well-known CLR types
+  (`Task`, `IAsyncEnumerable`, `ConcurrentDictionary`, `Exception`, …)
+  resolve to `external_pkg:System/path:.../path:X` even without an
+  explicit `using`.
+- **`code-moniker-core` (go extractor)** — `var ErrFoo = …` emits
+  visibility (capitalized → public). Built-in primitives
+  (`string`/`int`/`error`/…) skipped from `uses_type`.
+- **`code-moniker-core` (sql extractor)** — same-file qualified calls
+  (`app.make_id(...)`) resolve to the defined `function:make_id(p:text)`
+  signature; `callable_table` propagates into `walk_plpgsql_body` so
+  plpgsql bodies see outer-file definitions.
 - **`code-moniker check`** — `target_lines_for` dropped the directive's
   line range when the next def had no position; now falls back to the
   directive's own lines.

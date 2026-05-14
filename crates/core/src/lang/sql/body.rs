@@ -3,12 +3,13 @@ use tree_sitter::{Node, Parser};
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
 
-use super::strategy::{new_sql_parser, run_inner_sql};
+use super::strategy::{CallableTable, new_sql_parser, run_inner_sql};
 
 pub(super) fn walk_plpgsql_body(
 	body: &str,
 	source_def: &Moniker,
 	module: &Moniker,
+	callable_table: &CallableTable,
 	graph: &mut CodeGraph,
 ) {
 	if body.trim().is_empty() {
@@ -34,7 +35,14 @@ pub(super) fn walk_plpgsql_body(
 		} else {
 			format!("SELECT {trimmed}")
 		};
-		run_inner_sql(&mut sql_parser, &prepared, source_def, module, graph);
+		run_inner_sql(
+			&mut sql_parser,
+			&prepared,
+			source_def,
+			module,
+			callable_table,
+			graph,
+		);
 	});
 }
 

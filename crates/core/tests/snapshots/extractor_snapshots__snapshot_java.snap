@@ -1,0 +1,1218 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/java/UserService.java
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/comment:368",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/comment:614",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "record",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/comment:771",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:UserNotFoundException",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:UserNotFoundException/constructor:UserNotFoundException(id:String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:UserNotFoundException",
+      "signature": "id:String",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/comment:975",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/field:field",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException",
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/field:value",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException",
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/constructor:ConflictException(field:String,value:String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException",
+      "signature": "field:String,value:String",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/method:field()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/method:value()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/comment:1425",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository/method:findById(id:String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository",
+      "signature": "id:String",
+      "visibility": "package"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository/method:findByEmail(email:String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository",
+      "signature": "email:String",
+      "visibility": "package"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository/method:insert(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository",
+      "signature": "user:User",
+      "visibility": "package"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository/method:scan()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository",
+      "signature": "",
+      "visibility": "package"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/comment:1736",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/field:byId",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(id:String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "signature": "id:String",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "signature": "email:String",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)/comment:2210",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "signature": "user:User",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)/comment:2420",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:scan()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/field:repo",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/constructor:UserService(repo:UserRepository)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "repo:UserRepository",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/comment:2897",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:get(id:String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "id:String",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/comment:3079",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "email:String,name:String,tags:List<String>",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "tag:String",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/comment:3609",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "signature": "email:String",
+      "visibility": "private"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:concurrent/path:ConcurrentHashMap"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:stream/path:Collectors"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:stream/path:Stream"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:UserNotFoundException",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:RuntimeException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:UserNotFoundException/constructor:UserNotFoundException(id:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:RuntimeException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/constructor:ConflictException(field:String,value:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/constructor:ConflictException(field:String,value:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/method:field()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/method:field()",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:field"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/method:value()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/method:value()",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:value"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "kind": "implements",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:concurrent/path:ConcurrentHashMap"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/field:byId",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:concurrent/path:ConcurrentHashMap"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/field:byId",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:concurrent/path:ConcurrentHashMap"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(id:String)",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/annotation_type:Override"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(id:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(id:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(id:String)",
+      "kind": "method_call",
+      "receiver_hint": "Optional",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:ofNullable"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(id:String)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(id:String)",
+      "kind": "method_call",
+      "receiver_hint": "byId",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:get"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(id:String)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:byId"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/annotation_type:Override"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:findFirst"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:filter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:stream"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "method_call",
+      "receiver_hint": "byId",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:values"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:byId"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "method_call",
+      "receiver_hint": "u",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:email"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:equals"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/annotation_type:Override"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:isPresent"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findByEmail(email:String)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "user",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:email"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "user",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:email"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "byId",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:put"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:byId"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "user",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:scan()",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/annotation_type:Override"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:stream/path:Stream"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:scan()",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:stream"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:scan()",
+      "kind": "method_call",
+      "receiver_hint": "byId",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:values"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:scan()",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:byId"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/constructor:UserService(repo:UserRepository)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:get(id:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:get(id:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:get(id:String)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:orElseThrow"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:get(id:String)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:findById"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:get(id:String)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:repo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:get(id:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:UserNotFoundException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:isPresent"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:findByEmail"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:repo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "method_call",
+      "receiver_hint": "List",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:copyOf"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:List"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:insert"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:repo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:collect"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:filter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:scan"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:repo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "method_call",
+      "receiver_hint": "u",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:tags"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:contains"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "method_call",
+      "receiver_hint": "Collectors",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:toList"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:withTag(tag:String)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/field:Collectors"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:indexOf"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:toLowerCase"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:substring"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/method:toLowerCase"
+    }
+  ],
+  "root": "code+moniker://app/lang:java/package:app/package:user/module:UserService"
+}

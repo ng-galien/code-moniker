@@ -371,8 +371,8 @@ fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
 	BIND_NONE
 }
 
-#[cfg(test)]
-pub(crate) fn assert_local_refs_closed(g: &CodeGraph) {
+#[doc(hidden)]
+pub fn assert_local_refs_closed(g: &CodeGraph) {
 	use crate::core::uri::{UriConfig, to_uri};
 	let cfg = UriConfig::default();
 	let render = |m: &Moniker| to_uri(m, &cfg).unwrap_or_else(|_| format!("{:?}", m.as_bytes()));

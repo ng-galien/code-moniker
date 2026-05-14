@@ -33,6 +33,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) export_ranges: Vec<(u32, u32)>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
+	pub(super) import_targets: RefCell<HashMap<Vec<u8>, Moniker>>,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
 	pub(super) nested_funcs: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
 }
@@ -752,11 +753,16 @@ impl<'src_lang> Strategy<'src_lang> {
 				if let Some(prop) = fn_node.child_by_field_name("property") {
 					let name = node_slice(prop, self.source_bytes);
 					if !name.is_empty() {
-						let target = extend_segment(&self.module, kinds::METHOD, name);
-						let confidence = fn_node
+						let obj_ident = fn_node
 							.child_by_field_name("object")
 							.filter(|o| o.kind() == "identifier")
-							.map(|o| self.ref_confidence(node_slice(o, self.source_bytes)))
+							.map(|o| node_slice(o, self.source_bytes));
+						let target = obj_ident
+							.and_then(|n| self.lookup_import_target(n))
+							.map(|m| extend_segment(&m, kinds::METHOD, name))
+							.unwrap_or_else(|| extend_segment(&self.module, kinds::METHOD, name));
+						let confidence = obj_ident
+							.map(|n| self.ref_confidence(n))
 							.unwrap_or(kinds::CONF_NAME_MATCH);
 						let attrs = RefAttrs {
 							receiver_hint: receiver_hint(fn_node, self.source_bytes),
@@ -951,7 +957,9 @@ impl<'src_lang> Strategy<'src_lang> {
 				if name.is_empty() {
 					return;
 				}
-				let target = extend_segment(&self.module, kinds::CLASS, name);
+				let target = self
+					.lookup_import_target(name)
+					.unwrap_or_else(|| extend_segment(&self.module, kinds::CLASS, name));
 				let attrs = RefAttrs {
 					confidence: self.ref_confidence(name),
 					..RefAttrs::default()
@@ -966,8 +974,11 @@ impl<'src_lang> Strategy<'src_lang> {
 			}
 			"nested_type_identifier" => {
 				if let Some(name) = nested_type_short(node, self.source_bytes) {
-					let target = extend_segment(&self.module, kinds::CLASS, name);
 					let root = nested_type_root(node, self.source_bytes).unwrap_or(name);
+					let target = self
+						.lookup_import_target(root)
+						.map(|m| extend_segment(&m, kinds::CLASS, name))
+						.unwrap_or_else(|| extend_segment(&self.module, kinds::CLASS, name));
 					let attrs = RefAttrs {
 						confidence: self.ref_confidence(root),
 						..RefAttrs::default()
@@ -983,7 +994,9 @@ impl<'src_lang> Strategy<'src_lang> {
 			}
 			"generic_type" => {
 				if let Some(name) = generic_short(node, self.source_bytes) {
-					let target = extend_segment(&self.module, kinds::CLASS, name);
+					let target = self
+						.lookup_import_target(name)
+						.unwrap_or_else(|| extend_segment(&self.module, kinds::CLASS, name));
 					let attrs = RefAttrs {
 						confidence: self.ref_confidence(name),
 						..RefAttrs::default()
@@ -1114,6 +1127,7 @@ impl<'src_lang> Strategy<'src_lang> {
 					let local_name = node_slice(c, self.source_bytes);
 					self.record_import(local_name, confidence);
 					let target = self.import_symbol_target(raw_spec, b"default");
+					self.record_import_target(local_name, &target);
 					let attrs = RefAttrs {
 						alias: local_name,
 						confidence,
@@ -1131,6 +1145,7 @@ impl<'src_lang> Strategy<'src_lang> {
 					let alias = first_identifier_text(c, self.source_bytes);
 					self.record_import(alias, confidence);
 					let target = self.import_module_target(raw_spec);
+					self.record_import_target(alias, &target);
 					let attrs = RefAttrs {
 						alias,
 						confidence,
@@ -1164,6 +1179,7 @@ impl<'src_lang> Strategy<'src_lang> {
 						let local = if alias.is_empty() { name } else { alias };
 						self.record_import(local, confidence);
 						let target = self.import_symbol_target(raw_spec, name);
+						self.record_import_target(local, &target);
 						let attrs = RefAttrs {
 							alias,
 							confidence,
@@ -1445,6 +1461,19 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		}
 		self.imports.borrow_mut().insert(name.to_vec(), confidence);
+	}
+
+	fn record_import_target(&self, name: &[u8], target: &Moniker) {
+		if name.is_empty() {
+			return;
+		}
+		self.import_targets
+			.borrow_mut()
+			.insert(name.to_vec(), target.clone());
+	}
+
+	fn lookup_import_target(&self, name: &[u8]) -> Option<Moniker> {
+		self.import_targets.borrow().get(name).cloned()
 	}
 
 	fn lookup_callable(&self, name: &[u8]) -> Option<Moniker> {

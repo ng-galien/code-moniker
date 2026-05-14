@@ -86,7 +86,6 @@ fn check_graph_lang<E: LangExtractor + ?Sized>(graph: &CodeGraph) -> Result<(), 
 	Ok(())
 }
 
-#[cfg(test)]
 mod conformance {
 	use super::LangExtractor;
 	use crate::core::code_graph::{CodeGraph, assert_local_refs_closed};
@@ -220,7 +219,7 @@ mod conformance {
 	}
 }
 
-#[cfg(test)]
+#[doc(hidden)]
 pub use conformance::assert_conformance;
 
 #[cfg(test)]

@@ -37,10 +37,13 @@ pub(super) fn parse_with(parser: &mut Parser, source: &str) -> Tree {
 		.expect("tree-sitter parse returned None on a non-cancelled call")
 }
 
+pub(super) type CallableTable = std::collections::HashMap<(Moniker, Vec<u8>), Moniker>;
+
 pub(super) struct Strategy<'src> {
 	pub(super) module: Moniker,
 	pub(super) source_str: &'src str,
 	pub(super) emit_comments: bool,
+	pub(super) callable_table: &'src CallableTable,
 }
 
 impl LangStrategy for Strategy<'_> {
@@ -68,7 +71,14 @@ impl LangStrategy for Strategy<'_> {
 				find_child(node, "SelectStmt"),
 			),
 			"func_application" => {
-				emit_call(node, source, scope, &self.module, graph);
+				emit_call(
+					node,
+					source,
+					scope,
+					&self.module,
+					self.callable_table,
+					graph,
+				);
 				NodeShape::Recurse
 			}
 			_ => NodeShape::Recurse,
@@ -88,7 +98,13 @@ impl LangStrategy for Strategy<'_> {
 			if function_language(node, source).eq_ignore_ascii_case(b"plpgsql")
 				&& let Some(body_text) = dollar_body(node, self.source_str)
 			{
-				super::body::walk_plpgsql_body(body_text, sym_moniker, &self.module, graph);
+				super::body::walk_plpgsql_body(
+					body_text,
+					sym_moniker,
+					&self.module,
+					self.callable_table,
+					graph,
+				);
 			}
 		} else if sym_kind == kinds::TABLE {
 			emit_table_column_type_refs(node, source, sym_moniker, &self.module, graph);
@@ -101,6 +117,7 @@ pub(super) fn run_inner_sql(
 	source: &str,
 	scope: &Moniker,
 	module: &Moniker,
+	callable_table: &CallableTable,
 	graph: &mut CodeGraph,
 ) {
 	let tree = parse_with(parser, source);
@@ -108,6 +125,7 @@ pub(super) fn run_inner_sql(
 		module: module.clone(),
 		source_str: source,
 		emit_comments: false,
+		callable_table,
 	};
 	let walker = CanonicalWalker::new(&strategy, source.as_bytes());
 	walker.walk(tree.root_node(), scope, graph);
@@ -171,11 +189,40 @@ fn classify_qualified_relation<'src>(
 	})
 }
 
+pub(super) fn collect_callable_table(
+	root: Node<'_>,
+	source: &[u8],
+	module: &Moniker,
+) -> CallableTable {
+	let mut out = CallableTable::new();
+	visit(root, &mut |n| {
+		if n.kind() != "CreateFunctionStmt" {
+			return;
+		}
+		let Some(func_name) = find_child(n, "func_name") else {
+			return;
+		};
+		let (schema, name) = split_qualified_name(func_name, source);
+		if name.is_empty() {
+			return;
+		}
+		let params = find_child(n, "func_args_with_defaults");
+		let slots = params
+			.map(|p| collect_param_slots(p, source))
+			.unwrap_or_default();
+		let parent = maybe_schema(module, schema);
+		let m = extend_callable_slots(&parent, kinds::FUNCTION, name, &slots);
+		out.insert((parent, name.to_vec()), m);
+	});
+	out
+}
+
 fn emit_call(
 	node: Node<'_>,
 	source: &[u8],
 	scope: &Moniker,
 	module: &Moniker,
+	callable_table: &CallableTable,
 	graph: &mut CodeGraph,
 ) {
 	let Some(name_node) = find_child(node, "func_name") else {
@@ -185,12 +232,12 @@ fn emit_call(
 	if name.is_empty() {
 		return;
 	}
-	let confidence = if schema == b"pg_catalog" || (schema.is_empty() && is_builtin_function(name))
-	{
-		kinds::CONF_EXTERNAL
-	} else {
-		kinds::CONF_NAME_MATCH
-	};
+	let mut confidence =
+		if schema == b"pg_catalog" || (schema.is_empty() && is_builtin_function(name)) {
+			kinds::CONF_EXTERNAL
+		} else {
+			kinds::CONF_NAME_MATCH
+		};
 	let target = if confidence == kinds::CONF_EXTERNAL && schema != b"pg_catalog" {
 		let mut b = MonikerBuilder::new();
 		b.project(module.as_view().project());
@@ -199,7 +246,12 @@ fn emit_call(
 		b.build()
 	} else {
 		let parent = maybe_schema(module, schema);
-		extend_segment(&parent, kinds::FUNCTION, name)
+		if let Some(resolved) = callable_table.get(&(parent.clone(), name.to_vec())) {
+			confidence = kinds::CONF_RESOLVED;
+			resolved.clone()
+		} else {
+			extend_segment(&parent, kinds::FUNCTION, name)
+		}
 	};
 	let s = node.start_byte() as u32;
 	let attrs = RefAttrs {

@@ -20,6 +20,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) source_bytes: &'src [u8],
 	pub(super) deep: bool,
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
+	pub(super) import_targets: RefCell<HashMap<Vec<u8>, Moniker>>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) type_table: HashMap<&'src [u8], Moniker>,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
@@ -337,6 +338,8 @@ impl<'src_lang> Strategy<'src_lang> {
 					if let Some(confidence) = confidence {
 						let target = if confidence == kinds::CONF_LOCAL {
 							extend_segment(scope, kinds::LOCAL, name)
+						} else if let Some(m) = self.lookup_import_target(name) {
+							m
 						} else {
 							self.lookup_callable_in_scope(scope, name, kinds::METHOD)
 								.or_else(|| {
@@ -459,6 +462,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.bind_import(bind.as_bytes(), confidence);
 
 		let target = build_module_target(&self.module, &pieces, 0, confidence);
+		self.bind_import_target(bind.as_bytes(), &target);
 		let attrs = RefAttrs {
 			confidence,
 			alias: alias.as_bytes(),
@@ -518,6 +522,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				name.as_bytes(),
 				confidence,
 			);
+			self.bind_import_target(bind.as_bytes(), &target);
 			let attrs = RefAttrs {
 				confidence,
 				alias: alias.as_bytes(),
@@ -719,6 +724,19 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.imports.borrow_mut().insert(name.to_vec(), confidence);
 	}
 
+	fn bind_import_target(&self, name: &[u8], target: &Moniker) {
+		if name.is_empty() {
+			return;
+		}
+		self.import_targets
+			.borrow_mut()
+			.insert(name.to_vec(), target.clone());
+	}
+
+	fn lookup_import_target(&self, name: &[u8]) -> Option<Moniker> {
+		self.import_targets.borrow().get(name).cloned()
+	}
+
 	fn is_local_name(&self, name: &[u8]) -> bool {
 		self.local_scope
 			.borrow()
@@ -737,6 +755,12 @@ impl<'src_lang> Strategy<'src_lang> {
 	fn resolve_type_target(&self, name: &[u8], fallback_kind: &[u8]) -> (Moniker, &'static [u8]) {
 		if let Some(m) = self.type_table.get(name) {
 			return (m.clone(), kinds::CONF_RESOLVED);
+		}
+		if let Some(m) = self.lookup_import_target(name) {
+			let confidence = self
+				.import_confidence_for(name)
+				.unwrap_or(kinds::CONF_NAME_MATCH);
+			return (m, confidence);
 		}
 		let target = extend_segment(&self.module, fallback_kind, name);
 		let confidence = self

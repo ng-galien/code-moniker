@@ -1,0 +1,1173 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/rs/accounts.rs
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/comment:320",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:User",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/comment:583",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "enum",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/enum:RepoError",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/comment:797",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/enum:RepoError",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/comment:845",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/enum:RepoError",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/comment:937",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/enum:RepoError",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/enum:RepoError",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/comment:1344",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "trait",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/comment:1711",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/comment:1828",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:new()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/comment:2152",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:default()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)/comment:2794",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)/comment:3146",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()/comment:3545",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/comment:3844",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/comment:4117",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/fn:make_id(email:&str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:collections/path:HashMap"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:collections"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:sync/path:Arc"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:sync"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:sync/path:RwLock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:Debug"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:Clone"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:PartialEq"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:Eq"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:User",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:Debug"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError",
+      "kind": "implements",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:Display"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Formatter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Result"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/path:NotFound"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/macro:write"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/path:Conflict"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/macro:write"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/path:Internal"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/macro:write"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError",
+      "kind": "implements",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:Error"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:Send"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:Sync"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Arc"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:RwLock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:HashMap"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:new()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:new()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Arc"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:new()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:RwLock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:new()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:HashMap"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Result"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:RwLockReadGuard"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:HashMap"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:map_err"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:read"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
+      "kind": "method_call",
+      "receiver_hint": "e",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:to_string"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "kind": "implements",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:Default"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:default()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
+      "kind": "implements",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Result"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Option"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Ok"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:cloned"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
+      "kind": "method_call",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:get"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
+      "kind": "method_call",
+      "receiver_hint": "self",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Result"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Option"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "kind": "method_call",
+      "receiver_hint": "self",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Ok"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:cloned"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:find"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
+      "kind": "method_call",
+      "receiver_hint": "by_id",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:values"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Result"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:map_err"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:write"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "e",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:to_string"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:any"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "by_id",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:values"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Err"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/macro:format"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "by_id",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:insert"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:clone"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "user",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:clone"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Ok"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Box"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Iterator"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "method_call",
+      "receiver_hint": "self",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:collect"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:cloned"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "method_call",
+      "receiver_hint": "g",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:values"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Box"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
+      "kind": "method_call",
+      "receiver_hint": "snapshot",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:into_iter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:collect"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:filter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:scan"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:any"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:iter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:make_id(email:&str)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:find"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:make_id(email:&str)",
+      "kind": "method_call",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:to_lowercase"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/fn:make_id(email:&str)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:rs/module:accounts/method:to_lowercase"
+    }
+  ],
+  "root": "code+moniker://app/lang:rs/module:accounts"
+}

@@ -368,7 +368,11 @@ impl<'src_lang> Strategy<'src_lang> {
 					}
 				} else if scope == &self.module {
 					let m = extend_segment(scope, def_kind, s);
-					let _ = graph.add_def(m, def_kind, scope, Some(node_position(n)));
+					let attrs = DefAttrs {
+						visibility: visibility_from_name(s),
+						..DefAttrs::default()
+					};
+					let _ = graph.add_def_attrs(m, def_kind, scope, Some(node_position(n)), &attrs);
 				}
 			}
 			if let Some(value) = spec.child_by_field_name("value") {
@@ -623,7 +627,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		match type_node.kind() {
 			"type_identifier" => {
 				let name = node_slice(type_node, self.source_bytes);
-				if name.is_empty() {
+				if name.is_empty() || is_go_primitive(name) {
 					return None;
 				}
 				Some(self.resolve_type_target(name, kinds::STRUCT))
@@ -1017,6 +1021,29 @@ fn build_module_target(project: &[u8], pieces: &[&str]) -> Moniker {
 		b.segment(kinds::PATH, p.as_bytes());
 	}
 	b.build()
+}
+
+fn is_go_primitive(name: &[u8]) -> bool {
+	matches!(
+		name,
+		b"bool"
+			| b"byte" | b"complex64"
+			| b"complex128"
+			| b"error"
+			| b"float32"
+			| b"float64"
+			| b"int" | b"int8"
+			| b"int16"
+			| b"int32"
+			| b"int64"
+			| b"rune" | b"string"
+			| b"uint" | b"uint8"
+			| b"uint16"
+			| b"uint32"
+			| b"uint64"
+			| b"uintptr"
+			| b"any"
+	)
 }
 
 fn visibility_from_name(name: &[u8]) -> &'static [u8] {

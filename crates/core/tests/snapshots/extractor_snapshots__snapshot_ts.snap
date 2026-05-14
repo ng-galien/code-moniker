@@ -1,0 +1,849 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/ts/accounts.ts
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "const",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/const:CreateUserSchema",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/comment:368",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/type:CreateUserInput",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/comment:859",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:ValidationError",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:ValidationError/constructor:constructor(fields:Record<string,string>)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:ValidationError",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/interface:UserService",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:create(input:CreateUserInput)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/interface:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:findById(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/interface:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:withTag(tag:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/interface:UserService",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController/comment:1311",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:UserController",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController/constructor:constructor(service:UserService)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:UserController",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController/comment:1444",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:UserController",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:UserController",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)/comment:1637",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController/comment:2048",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:UserController",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:UserController",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController/comment:2430",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:UserController",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/class:UserController",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/comment:2731",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)/comment:2980",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:findById(id)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:withTag(tag)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:withTag(tag)/comment:3404",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:withTag(tag)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/comment:3584",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:accounts",
+      "signature": "",
+      "visibility": "module"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:Request"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:Response"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:NextFunction"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:zod/path:z"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:repository/path:UserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:repository/path:UserRow"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "z",
+      "to": "code+moniker://app/external_pkg:zod/path:z/method:object"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:email"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "z",
+      "to": "code+moniker://app/external_pkg:zod/path:z/method:string"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:max"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:min"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "z",
+      "to": "code+moniker://app/external_pkg:zod/path:z/method:string"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:default"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "z",
+      "to": "code+moniker://app/external_pkg:zod/path:z/method:array"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "z",
+      "to": "code+moniker://app/external_pkg:zod/path:z/method:string"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:ValidationError",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:Error"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:ValidationError/constructor:constructor(fields:Record<string,string>)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:Record"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/constructor:constructor(service:UserService)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:UserService"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:Request"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:Response"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:NextFunction"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "CreateUserSchema",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:safeParse"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "Object",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:fromEntries"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:map"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:join"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/function:i"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/function:i"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:ValidationError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:create"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:json"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "res",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:status"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:Request"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:Response"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:NextFunction"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:json"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "res",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:status"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:findById"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:end"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "res",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:status"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
+      "kind": "method_call",
+      "receiver_hint": "res",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:json"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:Request"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:express/path:Response"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/function:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:repository/path:UserRow"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:withTag"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
+      "kind": "method_call",
+      "receiver_hint": "out",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:push"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
+      "kind": "method_call",
+      "receiver_hint": "res",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:json"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:UserService"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:repository/path:UserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:findByEmail"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)",
+      "kind": "instantiates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:ValidationError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:insert"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:findById(id)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:findById"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:withTag(tag)",
+      "kind": "method_call",
+      "receiver_hint": "repo",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:scan"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:withTag(tag)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:includes"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:indexOf"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:toLowerCase"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:slice"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:ts/module:accounts/method:toLowerCase"
+    }
+  ],
+  "root": "code+moniker://app/lang:ts/module:accounts"
+}

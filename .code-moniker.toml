@@ -93,6 +93,14 @@ id      = "no-i-prefix"
 expr    = "NOT name =~ ^I[A-Z]"
 message = "Rust trait `{name}` starts with `I` — drop the prefix (`Extractor`, not `IExtractor`)."
 
+# Fixtures under `crates/core/tests/fixtures/` are intentionally arbitrary
+# real-code samples used by the snapshot harness; project naming rules
+# don't apply to them.
+[[ts.function.where]]
+id      = "name-camelcase"
+expr    = "$tests OR $camel"
+message = "Function names use camelCase. Rename `{name}`."
+
 # ─── Comment hygiene ────────────────────────────────────────────────────
 
 [[rust.comment.where]]

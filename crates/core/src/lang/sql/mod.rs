@@ -26,10 +26,13 @@ pub fn extract(
 	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
 	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
 	let tree = strategy::parse(source);
+	let callable_table =
+		strategy::collect_callable_table(tree.root_node(), source.as_bytes(), &module);
 	let strat = strategy::Strategy {
 		module: module.clone(),
 		source_str: source,
 		emit_comments: true,
+		callable_table: &callable_table,
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -101,20 +104,6 @@ mod tests {
 	}
 
 	#[test]
-	fn unqualified_function_omits_schema() {
-		let g = run(
-			"foo.sql",
-			"CREATE FUNCTION bar() RETURNS void LANGUAGE sql AS $$ $$;",
-		);
-		assert!(
-			def_monikers(&g)
-				.iter()
-				.any(|m| m == "code+moniker://app/lang:sql/module:foo/function:bar()")
-		);
-		assert_eq!(g.defs().filter(|d| d.kind == b"function").count(), 1);
-	}
-
-	#[test]
 	fn overloads_with_different_types_both_land() {
 		let g = run(
 			"foo.sql",
@@ -125,54 +114,12 @@ mod tests {
 	}
 
 	#[test]
-	fn create_table_emits_table_under_schema() {
-		let g = run(
-			"schema.sql",
-			"CREATE TABLE esac.module_t (id uuid PRIMARY KEY);",
-		);
-		assert!(
-			def_monikers(&g).iter().any(
-				|m| m == "code+moniker://app/lang:sql/module:schema/schema:esac/table:module_t"
-			)
-		);
-	}
-
-	#[test]
-	fn create_view_emits_view_and_call_ref() {
-		let g = run("schema.sql", "CREATE VIEW v AS SELECT esac.foo() FROM t;");
-		assert!(
-			def_monikers(&g)
-				.iter()
-				.any(|m| m == "code+moniker://app/lang:sql/module:schema/view:v")
-		);
-		assert!(
-			ref_targets(&g)
-				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:schema/schema:esac/function:foo"),
-			"got refs: {:?}",
-			ref_targets(&g)
-		);
-	}
-
-	#[test]
 	fn top_level_select_emits_qualified_call() {
 		let g = run("foo.sql", "SELECT public.bar(1, 2);");
 		assert!(
 			ref_targets(&g)
 				.iter()
 				.any(|t| t == "code+moniker://app/lang:sql/module:foo/schema:public/function:bar"),
-			"got refs: {:?}",
-			ref_targets(&g)
-		);
-	}
-
-	#[test]
-	fn unqualified_top_level_call_omits_schema() {
-		let g = run("foo.sql", "SELECT bar();");
-		assert!(
-			ref_targets(&g)
-				.iter()
-				.any(|t| t == "code+moniker://app/lang:sql/module:foo/function:bar"),
 			"got refs: {:?}",
 			ref_targets(&g)
 		);
@@ -240,20 +187,6 @@ $$;
 	}
 
 	#[test]
-	fn line_comment_emits_comment_def() {
-		let g = run(
-			"pkg.sql",
-			"-- this is a header\nCREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;",
-		);
-		assert_eq!(
-			g.defs().filter(|d| d.kind == b"comment").count(),
-			1,
-			"a single -- line comment must produce one comment def, defs: {:?}",
-			g.def_monikers()
-		);
-	}
-
-	#[test]
 	fn function_param_emits_uses_type_with_pg_catalog_target() {
 		let g = run(
 			"pkg.sql",
@@ -283,22 +216,6 @@ $$;
 	}
 
 	#[test]
-	fn table_column_types_emit_uses_type() {
-		let g = run("pkg.sql", "CREATE TABLE t (id int, name text);");
-		let int_target = "code+moniker://app/external_pkg:pg_catalog/path:int4";
-		let text_target = "code+moniker://app/external_pkg:pg_catalog/path:text";
-		let targets = ref_targets(&g);
-		assert!(
-			targets.iter().any(|t| t == int_target),
-			"column type int must emit uses_type → int4"
-		);
-		assert!(
-			targets.iter().any(|t| t == text_target),
-			"column type text must emit uses_type → text"
-		);
-	}
-
-	#[test]
 	fn builtin_function_call_carries_external_confidence() {
 		let g = run("pkg.sql", "SELECT now();");
 		let r = g
@@ -311,16 +228,5 @@ $$;
 			"builtin functions like now() must be marked external, got {:?}",
 			std::str::from_utf8(&r.confidence).unwrap_or("?")
 		);
-	}
-
-	#[test]
-	fn function_def_has_byte_range() {
-		let g = run(
-			"pkg.sql",
-			"CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;",
-		);
-		let func = g.defs().find(|d| d.kind == b"function").expect("function");
-		let (s, e) = func.position.expect("position");
-		assert!(s <= e, "start={s} end={e}");
 	}
 }

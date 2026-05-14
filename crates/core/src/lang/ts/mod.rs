@@ -77,6 +77,7 @@ pub fn extract(
 		export_ranges,
 		local_scope: std::cell::RefCell::new(Vec::new()),
 		imports: std::cell::RefCell::new(std::collections::HashMap::new()),
+		import_targets: std::cell::RefCell::new(std::collections::HashMap::new()),
 		callable_table,
 		nested_funcs: std::cell::RefCell::new(Vec::new()),
 	};
@@ -158,24 +159,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_empty_source_yields_module_only_graph() {
-		let anchor = make_anchor();
-		let graph = extract("src/lib/util.ts", "", &anchor, false);
-		assert_eq!(graph.def_count(), 1);
-		assert_eq!(graph.ref_count(), 0);
-
-		let expected = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"dir", b"src")
-			.segment(b"dir", b"lib")
-			.segment(b"module", b"util")
-			.build();
-		assert_eq!(graph.root(), &expected);
-	}
-
-	#[test]
 	fn extract_strips_each_known_extension() {
 		let anchor = make_anchor();
 		for uri in [
@@ -185,94 +168,6 @@ mod tests {
 			let last = g.root().as_view().segments().last().unwrap();
 			assert_eq!(last.name, b"foo", "extension not stripped on {uri}");
 		}
-	}
-
-	#[test]
-	fn extract_simple_class_emits_class_def() {
-		let anchor = make_anchor();
-		let graph = extract("util.ts", "class Foo {}", &anchor, false);
-		assert_eq!(graph.def_count(), 2);
-
-		let foo = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
-			.build();
-		assert!(graph.contains(&foo));
-	}
-
-	#[test]
-	fn extract_export_class_descends_into_export_statement() {
-		let anchor = make_anchor();
-		let graph = extract("util.ts", "export class Foo {}", &anchor, false);
-		assert_eq!(graph.def_count(), 2);
-	}
-
-	#[test]
-	fn extract_class_with_method_emits_method_def() {
-		let anchor = make_anchor();
-		let graph = extract("util.ts", "class Foo { bar() {} }", &anchor, false);
-		assert_eq!(graph.def_count(), 3);
-
-		let bar = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
-			.segment(b"method", b"bar()")
-			.build();
-		assert!(graph.contains(&bar));
-	}
-
-	#[test]
-	fn extract_function_declaration_emits_def() {
-		let anchor = make_anchor();
-		let graph = extract("util.ts", "function foo() {}", &anchor, false);
-		assert_eq!(graph.def_count(), 2);
-
-		let foo = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"function", b"foo()")
-			.build();
-		assert!(graph.contains(&foo));
-	}
-	#[test]
-	fn extract_named_import_emits_imports_symbol_per_specifier() {
-		let g = extract(
-			"src/util.ts",
-			"import { Bar, Baz } from './bar';",
-			&make_anchor(),
-			false,
-		);
-		let kinds: Vec<_> = g.refs().map(|r| r.kind.clone()).collect();
-		assert_eq!(kinds.len(), 2, "one ref per named specifier; got {kinds:?}");
-		assert!(kinds.iter().all(|k| k == b"imports_symbol"));
-
-		let bar = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"dir", b"src")
-			.segment(b"module", b"bar")
-			.segment(b"path", b"Bar")
-			.build();
-		let baz = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"dir", b"src")
-			.segment(b"module", b"bar")
-			.segment(b"path", b"Baz")
-			.build();
-		let targets: Vec<_> = g.refs().map(|r| r.target.clone()).collect();
-		assert!(targets.contains(&bar), "missing Bar target: {targets:?}");
-		assert!(targets.contains(&baz));
 	}
 
 	#[test]
@@ -305,24 +200,6 @@ mod tests {
 			.segment(b"path", b"main")
 			.segment(b"lang", b"ts")
 			.segment(b"module", b"foo")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_bare_import_resolves_to_external_pkg() {
-		let g = extract(
-			"util.ts",
-			"import { useState } from 'react';",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().next().unwrap();
-		assert_eq!(r.kind, b"imports_symbol".to_vec());
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"external_pkg", b"react")
-			.segment(b"path", b"useState")
 			.build();
 		assert_eq!(r.target, target);
 	}
@@ -435,22 +312,6 @@ mod tests {
 	}
 
 	#[test]
-	fn method_call_on_imported_namespace_carries_external_confidence() {
-		let g = extract(
-			"util.ts",
-			"import * as fs from 'fs';\nfs.readFile();",
-			&make_anchor(),
-			false,
-		);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"method_call")
-			.expect("method_call");
-		assert_eq!(r.confidence, b"external");
-		assert_eq!(r.receiver_hint, b"fs");
-	}
-
-	#[test]
 	fn new_on_imported_class_carries_imported_confidence() {
 		let g = extract(
 			"util.ts",
@@ -463,58 +324,6 @@ mod tests {
 			.find(|r| r.kind == b"instantiates")
 			.expect("instantiates");
 		assert_eq!(r.confidence, b"imported");
-	}
-
-	#[test]
-	fn uses_type_of_imported_type_carries_imported_confidence() {
-		let g = extract(
-			"util.ts",
-			"import type { Opts } from './types';\nfunction f(o: Opts) { return o; }",
-			&make_anchor(),
-			false,
-		);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"uses_type")
-			.expect("uses_type");
-		assert_eq!(r.confidence, b"imported");
-	}
-
-	#[test]
-	fn call_to_non_imported_identifier_stays_name_match() {
-		let g = extract("util.ts", "foo();", &make_anchor(), false);
-		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
-		assert_eq!(r.confidence, b"name_match");
-	}
-
-	#[test]
-	fn extract_interface_emits_interface_def() {
-		let g = extract(
-			"util.ts",
-			"interface Greet { hi(): void; }",
-			&make_anchor(),
-			false,
-		);
-		let greet = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"interface", b"Greet")
-			.build();
-		assert!(g.contains(&greet));
-		let hi = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"interface", b"Greet")
-			.segment(b"method", b"hi()")
-			.build();
-		assert!(
-			g.contains(&hi),
-			"method_signature in interface body must be a method def"
-		);
 	}
 
 	#[test]
@@ -538,92 +347,6 @@ mod tests {
 			"missing Red enum constant; defs: {:?}",
 			g.def_monikers()
 		);
-	}
-
-	#[test]
-	fn extract_type_alias_emits_type_alias_def() {
-		let g = extract("util.ts", "type Id = string;", &make_anchor(), false);
-		let id = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"type", b"Id")
-			.build();
-		assert!(g.contains(&id));
-	}
-	#[test]
-	fn extract_method_signature_encoded_in_segment_name() {
-		let g = extract(
-			"util.ts",
-			"class Foo { bar(a: number, b: string) {} }",
-			&make_anchor(),
-			false,
-		);
-		let bar = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
-			.segment(b"method", b"bar(a:number,b:string)")
-			.build();
-		assert!(
-			g.contains(&bar),
-			"expected typed segment, defs: {:?}",
-			g.def_monikers()
-		);
-	}
-
-	#[test]
-	fn extract_constructor_uses_constructor_kind() {
-		let g = extract(
-			"util.ts",
-			"class Foo { constructor(x: number) {} }",
-			&make_anchor(),
-			false,
-		);
-		let ctor = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
-			.segment(b"constructor", b"constructor(x:number)")
-			.build();
-		assert!(g.contains(&ctor));
-	}
-
-	#[test]
-	fn extract_class_field_emits_field_def() {
-		let g = extract(
-			"util.ts",
-			"class Foo { x: number = 0; }",
-			&make_anchor(),
-			false,
-		);
-		let x = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
-			.segment(b"field", b"x")
-			.build();
-		assert!(g.contains(&x));
-	}
-
-	#[test]
-	fn extract_module_const_emits_const_def() {
-		let g = extract("util.ts", "const PI = 3.14;", &make_anchor(), false);
-		let pi = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"const", b"PI")
-			.build();
-		assert!(g.contains(&pi));
 	}
 
 	#[test]
@@ -660,44 +383,6 @@ mod tests {
 			.segment(b"function", b"foo")
 			.build();
 		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_call_to_same_file_function_is_resolved() {
-		let src = "function foo() {}\nfoo();";
-		let g = extract("util.ts", src, &make_anchor(), false);
-		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
-		assert_eq!(
-			r.confidence,
-			b"resolved",
-			"same-file free fn call must be resolved; got {:?}",
-			std::str::from_utf8(&r.confidence)
-		);
-	}
-
-	#[test]
-	fn extract_call_to_unknown_name_stays_name_match() {
-		let g = extract("util.ts", "foo();", &make_anchor(), false);
-		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
-		assert_eq!(
-			r.confidence,
-			b"name_match",
-			"call to undefined name stays name_match; got {:?}",
-			std::str::from_utf8(&r.confidence)
-		);
-	}
-
-	#[test]
-	fn extract_imported_call_keeps_imported_confidence() {
-		let src = "import { foo } from './other';\nfoo();";
-		let g = extract("util.ts", src, &make_anchor(), false);
-		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
-		assert_eq!(
-			r.confidence,
-			b"imported",
-			"imported call must keep imported confidence; got {:?}",
-			std::str::from_utf8(&r.confidence)
-		);
 	}
 
 	#[test]
@@ -798,20 +483,6 @@ function outer() {
 	}
 
 	#[test]
-	fn extract_visibility_module_for_unexported_class() {
-		let g = extract("util.ts", "class Foo {}", &make_anchor(), false);
-		let foo = g.defs().find(|d| d.kind == b"class").unwrap();
-		assert_eq!(foo.visibility, b"module".to_vec());
-	}
-
-	#[test]
-	fn extract_visibility_public_for_exported_class() {
-		let g = extract("util.ts", "export class Foo {}", &make_anchor(), false);
-		let foo = g.defs().find(|d| d.kind == b"class").unwrap();
-		assert_eq!(foo.visibility, b"public".to_vec());
-	}
-
-	#[test]
 	fn extract_visibility_for_class_member_modifiers() {
 		let g = extract(
 			"util.ts",
@@ -873,18 +544,6 @@ function outer() {
 	}
 
 	#[test]
-	fn extract_reads_unbound_identifier_marks_name_match() {
-		let g = extract(
-			"util.ts",
-			"function f() { return outsideVar; }",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().find(|r| r.kind == b"reads").unwrap();
-		assert_eq!(r.confidence, b"name_match".to_vec());
-	}
-
-	#[test]
 	fn extract_calls_local_function_marks_confidence_local() {
 		let g = extract(
 			"util.ts",
@@ -924,19 +583,6 @@ function outer() {
 	}
 
 	#[test]
-	fn extract_import_confidence_distinguishes_relative_vs_external() {
-		let g = extract(
-			"util.ts",
-			"import { a } from './local';\nimport { b } from 'react';",
-			&make_anchor(),
-			false,
-		);
-		let confs: Vec<&[u8]> = g.refs().map(|r| r.confidence.as_slice()).collect();
-		assert!(confs.contains(&b"imported".as_slice()));
-		assert!(confs.contains(&b"external".as_slice()));
-	}
-
-	#[test]
 	fn extract_method_call_carries_receiver_hint() {
 		let cases = [
 			("class C { m() { this.bar(); } }", b"this".as_slice()),
@@ -957,96 +603,6 @@ function outer() {
 				"receiver hint mismatch for {src:?}"
 			);
 		}
-	}
-
-	#[test]
-	fn extract_method_call_receiver_hint_carries_imported_alias() {
-		let g = extract(
-			"explorer.ts",
-			"import { z } from 'zod';\nconst schema = z.string();",
-			&make_anchor(),
-			false,
-		);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"method_call")
-			.expect("method_call ref");
-		assert_eq!(
-			r.receiver_hint.as_slice(),
-			b"z",
-			"receiver hint must carry the alias text so the consumer can join to imports_symbol",
-		);
-	}
-
-	#[test]
-	fn extract_method_call_emits_method_call_ref() {
-		let g = extract("util.ts", "obj.bar(1, 2);", &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"method_call")
-			.expect("method_call ref");
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"method", b"bar")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_call_inside_method_sources_on_method() {
-		let g = extract(
-			"util.ts",
-			"class C { m() { foo(); } }",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
-		let m_def = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"C")
-			.segment(b"method", b"m()")
-			.build();
-		assert_eq!(g.defs().nth(r.source).unwrap().moniker, m_def);
-	}
-
-	#[test]
-	fn extract_new_expression_emits_instantiates() {
-		let g = extract("util.ts", "const x = new Foo();", &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"instantiates")
-			.expect("instantiates ref");
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_class_extends_emits_extends_ref() {
-		let g = extract("util.ts", "class A extends B {}", &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"extends")
-			.expect("extends ref");
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"B")
-			.build();
-		assert_eq!(r.target, target);
 	}
 
 	#[test]
@@ -1097,40 +653,6 @@ function outer() {
 		assert_eq!(r.target, target);
 	}
 	#[test]
-	fn extract_param_type_annotation_emits_uses_type() {
-		let g = extract(
-			"util.ts",
-			"function f(x: Foo): Bar { return x as Bar; }",
-			&make_anchor(),
-			false,
-		);
-		let foo = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
-			.build();
-		let bar = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Bar")
-			.build();
-		let targets: Vec<_> = g
-			.refs()
-			.filter(|r| r.kind == b"uses_type")
-			.map(|r| r.target.clone())
-			.collect();
-		assert!(
-			targets.contains(&foo),
-			"missing Foo uses_type; got {targets:?}"
-		);
-		assert!(targets.contains(&bar));
-	}
-
-	#[test]
 	fn extract_class_field_type_annotation_emits_uses_type_sourced_from_field() {
 		let g = extract(
 			"util.ts",
@@ -1164,24 +686,6 @@ function outer() {
 		);
 	}
 
-	#[test]
-	fn extract_return_identifier_emits_reads() {
-		let g = extract(
-			"util.ts",
-			"function f() { return x; }",
-			&make_anchor(),
-			false,
-		);
-		let r = g.refs().find(|r| r.kind == b"reads").expect("reads ref");
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"function", b"x")
-			.build();
-		assert_eq!(r.target, target);
-	}
 	#[test]
 	fn extract_di_register_fires_only_when_callee_in_preset() {
 		let presets = Presets {
@@ -1311,14 +815,6 @@ function outer() {
 			"container.register('name', asFunction(make).singleton()) must emit di_register",
 		);
 	}
-	#[test]
-	fn extract_comment_emits_comment_def() {
-		let g = extract("util.ts", "// hello\nclass Foo {}", &make_anchor(), false);
-		let comments: Vec<_> = g.defs().filter(|d| d.kind == b"comment").collect();
-		assert_eq!(comments.len(), 1);
-		assert_eq!(comments[0].position, Some((0, 8)));
-	}
-
 	#[test]
 	fn extract_export_default_class_named_default() {
 		let g = extract("util.ts", "export default class {}", &make_anchor(), false);
@@ -1517,13 +1013,5 @@ function outer() {
 				&& r.target.as_view().segments().last().unwrap().name == b"label"),
 			"identifier inside jsx_expression must still surface as a read",
 		);
-	}
-
-	#[test]
-	fn extract_position_covers_definition_node() {
-		let g = extract("util.ts", "class Foo {}", &make_anchor(), false);
-		let foo = g.defs().find(|d| d.kind == b"class").unwrap();
-		let (s, e) = foo.position.unwrap();
-		assert!(e > s);
 	}
 }

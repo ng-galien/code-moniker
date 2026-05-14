@@ -124,52 +124,11 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_module_uses_path_segments() {
-		let g = extract_default(
-			"Acme/Util/Text.cs",
-			"namespace Acme.Util;\n",
-			&make_anchor(),
-			false,
-		);
-		let expected = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"cs")
-			.segment(b"package", b"Acme")
-			.segment(b"package", b"Util")
-			.segment(b"module", b"Text")
-			.build();
-		assert_eq!(g.root(), &expected);
-	}
-
-	#[test]
-	fn extract_class_emits_class_def() {
-		let src = "namespace Foo;\npublic class Bar {}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let bar = g.defs().find(|d| d.kind == b"class").expect("class def");
-		assert_eq!(
-			bar.moniker.as_view().segments().last().unwrap().name,
-			b"Bar"
-		);
-		assert_eq!(bar.visibility, b"public".to_vec());
-	}
-
-	#[test]
 	fn extract_struct_emits_struct_def() {
 		let src = "namespace Foo;\npublic struct Bar {}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
 		assert!(g.defs().any(|d| d.kind == b"struct"
 			&& d.moniker.as_view().segments().last().unwrap().name == b"Bar"));
-	}
-
-	#[test]
-	fn extract_interface_emits_interface_def() {
-		let src = "namespace Foo;\npublic interface IBar {}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let i = g
-			.defs()
-			.find(|d| d.kind == b"interface")
-			.expect("interface def");
-		assert_eq!(i.moniker.as_view().segments().last().unwrap().name, b"IBar");
 	}
 
 	#[test]
@@ -203,66 +162,11 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_method_reparented_under_class() {
-		let src = "namespace Foo;\npublic class Bar {\n    public int Add(int a, int b) { return a + b; }\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let m = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"cs")
-			.segment(b"module", b"F")
-			.segment(b"class", b"Bar")
-			.segment(b"method", b"Add(a:int,b:int)")
-			.build();
-		assert!(
-			g.contains(&m),
-			"expected {m:?}, defs: {:?}",
-			g.def_monikers()
-		);
-	}
-
-	#[test]
-	fn extract_method_signature_excludes_return_type() {
-		let src = "namespace Foo;\npublic class Bar {\n    public string Greet(string n) { return n; }\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
-		assert_eq!(m.signature, b"n:string".to_vec());
-	}
-
-	#[test]
 	fn extract_method_default_visibility_is_private() {
 		let src = "namespace Foo;\npublic class Bar {\n    int Hidden() { return 0; }\n}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
 		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
 		assert_eq!(m.visibility, b"private".to_vec());
-	}
-
-	#[test]
-	fn extract_constructor_emits_constructor_def() {
-		let src = "namespace Foo;\npublic class Bar {\n    public Bar(int x) {}\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let ctor = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"cs")
-			.segment(b"module", b"F")
-			.segment(b"class", b"Bar")
-			.segment(b"constructor", b"Bar(x:int)")
-			.build();
-		assert!(
-			g.contains(&ctor),
-			"constructor expected at {ctor:?}; defs: {:?}",
-			g.def_monikers()
-		);
-	}
-
-	#[test]
-	fn extract_method_no_params_emits_empty_parens() {
-		let src = "namespace Foo;\npublic class Bar {\n    public void Boot() {}\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
-		assert_eq!(
-			m.moniker.as_view().segments().last().unwrap().name,
-			b"Boot()"
-		);
 	}
 
 	#[test]
@@ -278,31 +182,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_record_emits_record_plus_primary_constructor() {
-		let src = "namespace Foo;\npublic record Person(int Age, string Name);\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let record = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"cs")
-			.segment(b"module", b"F")
-			.segment(b"record", b"Person")
-			.build();
-		let ctor = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"cs")
-			.segment(b"module", b"F")
-			.segment(b"record", b"Person")
-			.segment(b"constructor", b"Person(Age:int,Name:string)")
-			.build();
-		assert!(g.contains(&record));
-		assert!(
-			g.contains(&ctor),
-			"record primary constructor expected at {ctor:?}; defs: {:?}",
-			g.def_monikers()
-		);
-	}
-
-	#[test]
 	fn extract_nested_class_attached_to_outer_class() {
 		let src = "namespace Foo;\npublic class Outer {\n    public class Inner {}\n}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
@@ -314,60 +193,6 @@ mod tests {
 			.segment(b"class", b"Inner")
 			.build();
 		assert!(g.contains(&inner));
-	}
-
-	#[test]
-	fn extract_field_emits_field_def() {
-		let src = "namespace Foo;\npublic class Bar {\n    private int _count;\n    public string Name = \"x\";\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let names: Vec<&[u8]> = g
-			.defs()
-			.filter(|d| d.kind == b"field")
-			.map(|d| d.moniker.as_view().segments().last().unwrap().name)
-			.collect();
-		assert!(names.contains(&&b"_count"[..]));
-		assert!(names.contains(&&b"Name"[..]));
-		let count = g
-			.defs()
-			.find(|d| d.moniker.as_view().segments().last().unwrap().name == b"_count")
-			.unwrap();
-		assert_eq!(count.visibility, b"private".to_vec());
-		let name_def = g
-			.defs()
-			.find(|d| d.moniker.as_view().segments().last().unwrap().name == b"Name")
-			.unwrap();
-		assert_eq!(name_def.visibility, b"public".to_vec());
-	}
-
-	#[test]
-	fn extract_field_with_user_type_emits_uses_type() {
-		let src = "namespace Foo;\npublic class Other {}\npublic class Bar {\n    private Other _ref;\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| {
-				r.kind == b"uses_type"
-					&& r.target.as_view().segments().last().unwrap().name == b"Other"
-			})
-			.expect("uses_type Other");
-		assert!(matches!(
-			r.confidence.as_slice(),
-			b"name_match" | b"resolved"
-		));
-	}
-
-	#[test]
-	fn extract_property_emits_property_def() {
-		let src = "namespace Foo;\npublic class Bar {\n    public string Name { get; set; }\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let p = g
-			.defs()
-			.find(|d| {
-				d.kind == b"property"
-					&& d.moniker.as_view().segments().last().unwrap().name == b"Name"
-			})
-			.expect("property def");
-		assert_eq!(p.visibility, b"public".to_vec());
 	}
 
 	#[test]
@@ -413,52 +238,6 @@ mod tests {
 		let g = extract_default("F.cs", src, &make_anchor(), false);
 		let count = g.refs().filter(|r| r.kind == b"extends").count();
 		assert_eq!(count, 2);
-	}
-
-	#[test]
-	fn extract_method_param_user_type_emits_uses_type() {
-		let src = "namespace Foo;\npublic class Other {}\npublic class Bar {\n    public void Take(Other o) {}\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		assert!(
-			g.refs().any(|r| r.kind == b"uses_type"
-				&& r.target.as_view().segments().last().unwrap().name == b"Other"),
-			"refs: {:?}",
-			g.refs().map(|r| r.kind.clone()).collect::<Vec<_>>()
-		);
-	}
-
-	#[test]
-	fn extract_using_simple_emits_imports_module_external() {
-		let g = extract_default("F.cs", "using System;\n", &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"imports_module")
-			.expect("imports_module ref");
-		assert_eq!(r.confidence, b"external".to_vec());
-		let target = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"external_pkg", b"System")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_using_dotted_path_segments() {
-		let g = extract_default(
-			"F.cs",
-			"using System.Collections.Generic;\n",
-			&make_anchor(),
-			false,
-		);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"imports_module")
-			.expect("imports_module ref");
-		let names: Vec<&[u8]> = r.target.as_view().segments().map(|s| s.name).collect();
-		assert_eq!(
-			names,
-			vec![&b"System"[..], &b"Collections"[..], &b"Generic"[..]]
-		);
 	}
 
 	#[test]
@@ -511,35 +290,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_simple_invocation_to_same_module_resolves_slots() {
-		let src = "class B {\n    void M() { Helper(1); }\n    void Helper(int n) {}\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| {
-				r.kind == b"calls"
-					&& r.target.as_view().segments().last().unwrap().name == b"Helper(n:int)"
-			})
-			.expect("calls Helper(n:int)");
-		assert_eq!(r.confidence, b"name_match".to_vec());
-	}
-
-	#[test]
-	fn extract_member_invocation_emits_method_call_with_receiver_hint() {
-		let src = "class B {\n    void M() { Console.WriteLine(\"hi\"); }\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"method_call")
-			.expect("method_call ref");
-		assert_eq!(r.receiver_hint, b"Console".to_vec());
-		assert_eq!(
-			r.target.as_view().segments().last().unwrap().name,
-			b"WriteLine"
-		);
-	}
-
-	#[test]
 	fn extract_chained_member_call_receiver_hint_is_call() {
 		let src = "class B {\n    void M() { foo().bar(); }\n}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
@@ -554,18 +304,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_object_creation_emits_instantiates() {
-		let src = "namespace Foo;\npublic class Bar {}\nclass C {\n    void M() { var x = new Bar(); }\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"instantiates")
-			.expect("instantiates ref");
-		assert_eq!(r.target.as_view().segments().last().unwrap().name, b"Bar");
-		assert_eq!(r.confidence, b"resolved".to_vec());
-	}
-
-	#[test]
 	fn extract_object_creation_unresolved_marks_name_match() {
 		let src = "class C {\n    void M() { var x = new Unknown(); }\n}\n";
 		let g = extract_default("F.cs", src, &make_anchor(), false);
@@ -574,19 +312,6 @@ mod tests {
 			.find(|r| r.kind == b"instantiates")
 			.expect("instantiates ref");
 		assert_eq!(r.confidence, b"name_match".to_vec());
-	}
-
-	#[test]
-	fn extract_invocation_visits_arguments_for_nested_calls() {
-		let src = "class B {\n    void M() { Outer(Inner()); }\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), false);
-		let names: Vec<&[u8]> = g
-			.refs()
-			.filter(|r| r.kind == b"calls")
-			.map(|r| r.target.as_view().segments().last().unwrap().name)
-			.collect();
-		assert!(names.contains(&&b"Outer"[..]));
-		assert!(names.contains(&&b"Inner"[..]));
 	}
 
 	#[test]
@@ -647,54 +372,6 @@ mod tests {
 			g.defs().all(|d| d.kind != b"param" && d.kind != b"local"),
 			"shallow extraction must not emit param/local defs"
 		);
-	}
-
-	#[test]
-	fn extract_deep_emits_param_def() {
-		let src = "class B {\n    void M(int a, string b) {}\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), true);
-		let pa = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"cs")
-			.segment(b"module", b"F")
-			.segment(b"class", b"B")
-			.segment(b"method", b"M(a:int,b:string)")
-			.segment(b"param", b"a")
-			.build();
-		assert!(g.contains(&pa));
-	}
-
-	#[test]
-	fn extract_deep_emits_local_def_for_typed_var() {
-		let src = "class B {\n    void M() { int x = 5; }\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), true);
-		let lx = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"cs")
-			.segment(b"module", b"F")
-			.segment(b"class", b"B")
-			.segment(b"method", b"M()")
-			.segment(b"local", b"x")
-			.build();
-		assert!(g.contains(&lx));
-	}
-
-	#[test]
-	fn extract_deep_emits_local_def_for_implicit_var() {
-		let src = "class B {\n    void M() { var s = \"hi\"; }\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), true);
-		assert!(
-			g.defs().any(|d| d.kind == b"local"
-				&& d.moniker.as_view().segments().last().unwrap().name == b"s")
-		);
-	}
-
-	#[test]
-	fn extract_deep_emits_local_def_for_foreach_iter() {
-		let src = "class B {\n    void M(int[] items) { foreach (var item in items) {} }\n}\n";
-		let g = extract_default("F.cs", src, &make_anchor(), true);
-		assert!(g.defs().any(|d| d.kind == b"local"
-			&& d.moniker.as_view().segments().last().unwrap().name == b"item"));
 	}
 
 	#[test]

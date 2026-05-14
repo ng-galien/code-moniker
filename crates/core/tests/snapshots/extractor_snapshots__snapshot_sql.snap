@@ -1,0 +1,273 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/sql/users.sql
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:users/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:users/comment:288",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "table",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:users/comment:710",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "table",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:users/comment:944",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:users/comment:1074",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "p_email:text",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:users/comment:1325",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "p_email:text,p_name:text",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:users/comment:2073",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/function:users_with_tag(p_tag:text)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "p_tag:text",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:users/comment:2440",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "view",
+      "moniker": "code+moniker://app/lang:sql/module:users/schema:app/view:recent_users",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:users",
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:users",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:timestamptz"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/table:user_tags",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/type:app.users"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:users_with_tag(p_tag:text)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/function:users_with_tag(p_tag:text)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:sql/module:users/type:`SETOF app.users`"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:users/schema:app/view:recent_users",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:now"
+    }
+  ],
+  "root": "code+moniker://app/lang:sql/module:users"
+}

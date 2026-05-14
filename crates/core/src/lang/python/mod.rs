@@ -61,6 +61,7 @@ pub fn extract(
 		source_bytes: source.as_bytes(),
 		deep,
 		imports: RefCell::new(HashMap::<Vec<u8>, &'static [u8]>::new()),
+		import_targets: RefCell::new(HashMap::<Vec<u8>, _>::new()),
 		local_scope: RefCell::new(Vec::new()),
 		type_table,
 		callable_table,
@@ -140,13 +141,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_class_emits_class_def_with_public_visibility_default() {
-		let g = extract_default("foo.py", "class Foo:\n    pass\n", &make_anchor(), false);
-		let foo = g.defs().find(|d| d.kind == b"class").expect("class def");
-		assert_eq!(foo.visibility, b"public".to_vec());
-	}
-
-	#[test]
 	fn extract_function_with_typed_params_emits_full_signature() {
 		let src = "def make(x: int, y: str) -> int:\n    return x\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
@@ -174,17 +168,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_method_excludes_self_from_signature() {
-		let src = "class Foo:\n    def bar(self, x: int) -> int:\n        return x\n";
-		let g = extract_default("foo.py", src, &make_anchor(), false);
-		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
-		let last = m.moniker.as_view().segments().last().unwrap();
-		assert_eq!(last.kind, b"method");
-		assert_eq!(last.name, b"bar(x:int)");
-		assert_eq!(m.signature, b"x:int".to_vec());
-	}
-
-	#[test]
 	fn extract_classmethod_excludes_cls_from_signature() {
 		let src = "class Foo:\n    @classmethod\n    def make(cls, x: int) -> 'Foo':\n        return cls()\n";
 		let g = extract_default("foo.py", src, &make_anchor(), false);
@@ -193,14 +176,6 @@ mod tests {
 			m.moniker.as_view().segments().last().unwrap().name,
 			b"make(x:int)"
 		);
-	}
-
-	#[test]
-	fn extract_dunder_visibility_is_public() {
-		let src = "class Foo:\n    def __init__(self):\n        pass\n";
-		let g = extract_default("foo.py", src, &make_anchor(), false);
-		let m = g.defs().find(|d| d.kind == b"method").expect("__init__");
-		assert_eq!(m.visibility, b"public".to_vec());
 	}
 
 	#[test]
@@ -329,61 +304,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_base_class_emits_extends() {
-		let src = "class A:\n    pass\nclass B(A):\n    pass\n";
-		let g = extract_default("m.py", src, &make_anchor(), false);
-		let extends_a = g
-			.refs()
-			.find(|r| r.kind == b"extends")
-			.expect("extends ref");
-		assert_eq!(extends_a.confidence, b"resolved".to_vec());
-		let last = extends_a.target.as_view().segments().last().unwrap();
-		assert_eq!(last.kind, b"class");
-		assert_eq!(last.name, b"A");
-	}
-
-	#[test]
-	fn extract_method_call_carries_receiver_hint_self() {
-		let src =
-			"class Foo:\n    def m(self):\n        self.bar()\n    def bar(self):\n        pass\n";
-		let g = extract_default("foo.py", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"method_call")
-			.expect("method_call ref");
-		assert_eq!(r.receiver_hint, b"self".to_vec());
-	}
-
-	#[test]
-	fn extract_method_call_receiver_hint_carries_identifier_text() {
-		let src = "def f():\n    obj.bar()\n";
-		let g = extract_default("m.py", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"method_call")
-			.expect("method_call ref");
-		assert_eq!(
-			r.receiver_hint,
-			b"obj".to_vec(),
-			"receiver hint must carry the identifier text for non-self/cls receivers",
-		);
-	}
-
-	#[test]
-	fn extract_call_with_imported_name_marks_imported_confidence() {
-		let src = "from acme import helper\ndef f():\n    helper()\n";
-		let g = extract_default("m.py", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| {
-				r.kind == b"calls"
-					&& r.target.as_view().segments().last().unwrap().name == b"helper"
-			})
-			.expect("calls helper (name-only — imported callee, signature unknown)");
-		assert_eq!(r.confidence, b"imported".to_vec());
-	}
-
-	#[test]
 	fn extract_param_read_marks_confidence_local() {
 		let src = "def f(x):\n    return x\n";
 		let g = extract_default("m.py", src, &make_anchor(), true);
@@ -407,23 +327,6 @@ mod tests {
 			.collect();
 		assert!(params.contains(&&b"x"[..]));
 		assert!(params.contains(&&b"y"[..]));
-	}
-
-	#[test]
-	fn extract_typed_param_emits_uses_type() {
-		let src = "def f(x: int):\n    return x\n";
-		let g = extract_default("m.py", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| {
-				r.kind == b"uses_type"
-					&& r.target.as_view().segments().last().unwrap().name == b"int"
-			})
-			.expect("uses_type int");
-		assert!(matches!(
-			r.confidence.as_slice(),
-			b"name_match" | b"resolved"
-		));
 	}
 
 	#[test]
@@ -474,18 +377,5 @@ mod tests {
 			0,
 			"string literals that aren't bare expression-statement-strings must NOT be treated as docstrings"
 		);
-	}
-
-	#[test]
-	fn extract_subscript_type_descends_into_arguments() {
-		let src = "from typing import List\ndef f(xs: List[int]) -> List[int]:\n    return xs\n";
-		let g = extract_default("m.py", src, &make_anchor(), false);
-		let kinds: Vec<&[u8]> = g
-			.refs()
-			.filter(|r| r.kind == b"uses_type")
-			.map(|r| r.target.as_view().segments().last().unwrap().name)
-			.collect();
-		assert!(kinds.contains(&&b"List"[..]));
-		assert!(kinds.contains(&&b"int"[..]));
 	}
 }

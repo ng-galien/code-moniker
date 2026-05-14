@@ -65,6 +65,7 @@ pub fn extract(
 		deep,
 		presets,
 		imports: RefCell::new(HashMap::<Vec<u8>, &'static [u8]>::new()),
+		import_targets: RefCell::new(HashMap::<Vec<u8>, _>::new()),
 		local_scope: RefCell::new(Vec::new()),
 		type_table,
 		callable_table,
@@ -127,20 +128,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_module_uses_package_decl_and_class_filename() {
-		let src = "package com.acme;\nclass Foo {}\n";
-		let g = extract_default("src/Foo.java", src, &make_anchor(), false);
-		let expected = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"java")
-			.segment(b"package", b"com")
-			.segment(b"package", b"acme")
-			.segment(b"module", b"Foo")
-			.build();
-		assert_eq!(g.root(), &expected);
-	}
-
-	#[test]
 	fn extract_default_package_skips_package_segments() {
 		let g = extract_default("Foo.java", "class Foo {}", &make_anchor(), false);
 		let expected = MonikerBuilder::new()
@@ -156,40 +143,6 @@ mod tests {
 		let g = extract_default("Foo.java", "class Foo {}", &make_anchor(), false);
 		let foo = g.defs().find(|d| d.kind == b"class").expect("class def");
 		assert_eq!(foo.visibility, b"package".to_vec());
-	}
-
-	#[test]
-	fn extract_class_with_public_modifier_carries_visibility_public() {
-		let g = extract_default("Foo.java", "public class Foo {}", &make_anchor(), false);
-		let foo = g.defs().find(|d| d.kind == b"class").unwrap();
-		assert_eq!(foo.visibility, b"public".to_vec());
-	}
-
-	#[test]
-	fn extract_method_signature_in_moniker_and_signature_column() {
-		let src = r#"
-            public class Foo {
-                public int findById(int id, String name) { return id; }
-            }
-        "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
-		let m = g.defs().find(|d| d.kind == b"method").expect("method def");
-		let last = m.moniker.as_view().segments().last().unwrap();
-		assert_eq!(last.kind, b"method");
-		assert_eq!(last.name, b"findById(id:int,name:String)");
-		assert_eq!(m.signature, b"id:int,name:String".to_vec());
-		assert_eq!(m.visibility, b"public".to_vec());
-	}
-
-	#[test]
-	fn extract_constructor_uses_constructor_kind() {
-		let src = r#"
-            public class Foo {
-                public Foo(int x) {}
-            }
-        "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
-		assert!(g.defs().any(|d| d.kind == b"constructor"));
 	}
 
 	#[test]
@@ -233,40 +186,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_record_emits_record_def() {
-		let g = extract_default(
-			"Point.java",
-			"public record Point(int x, int y) {}",
-			&make_anchor(),
-			false,
-		);
-		let pt = g.defs().find(|d| d.kind == b"record").expect("record def");
-		assert_eq!(pt.visibility, b"public".to_vec());
-	}
-
-	#[test]
-	fn extract_extends_and_implements_emit_refs() {
-		let src = r#"
-            public class A extends B implements I, J {}
-        "#;
-		let g = extract_default("A.java", src, &make_anchor(), false);
-		let kinds: Vec<&[u8]> = g.refs().map(|r| r.kind.as_slice()).collect();
-		assert_eq!(kinds.iter().filter(|k| **k == b"extends").count(), 1);
-		assert_eq!(kinds.iter().filter(|k| **k == b"implements").count(), 2);
-	}
-
-	#[test]
-	fn extract_named_jdk_import_marks_external() {
-		let src = "import java.util.List;\nclass Foo {}";
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"imports_symbol")
-			.expect("imports_symbol ref");
-		assert_eq!(r.confidence, b"external".to_vec());
-	}
-
-	#[test]
 	fn extract_wildcard_import_emits_imports_module() {
 		let src = "import com.acme.*;\nclass Foo {}";
 		let g = extract_default("Foo.java", src, &make_anchor(), false);
@@ -294,25 +213,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_method_call_receiver_hint_carries_identifier_text() {
-		let src = r#"
-            class Foo {
-                void m() { obj.bar(); }
-            }
-        "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"method_call")
-			.expect("method_call ref");
-		assert_eq!(
-			r.receiver_hint,
-			b"obj".to_vec(),
-			"receiver hint must carry the local identifier text",
-		);
-	}
-
-	#[test]
 	fn method_call_on_imported_class_carries_imported_confidence() {
 		let src = r#"
             import com.acme.Util;
@@ -326,22 +226,6 @@ mod tests {
 			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"Util")
 			.expect("method_call on Util");
 		assert_eq!(r.confidence, b"imported");
-	}
-
-	#[test]
-	fn method_call_on_jdk_class_carries_external_confidence() {
-		let src = r#"
-            import java.util.List;
-            class Foo {
-                void m() { List.of(); }
-            }
-        "#;
-		let g = extract_default("src/Foo.java", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"List")
-			.expect("method_call on List");
-		assert_eq!(r.confidence, b"external");
 	}
 
 	#[test]
@@ -381,20 +265,6 @@ mod tests {
 	}
 
 	#[test]
-	fn bare_call_to_same_class_method_resolves_to_full_slot_signature() {
-		let src = r#"
-            class Foo {
-                void m() { bar(1, "x"); }
-                int bar(int n, String s) { return n; }
-            }
-        "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
-		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
-		let last = r.target.as_view().segments().last().unwrap();
-		assert_eq!(last.name, b"bar(n:int,s:String)");
-	}
-
-	#[test]
 	fn method_call_on_unresolved_receiver_falls_back_to_name_only() {
 		let src = r#"
             class Foo {
@@ -414,30 +284,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_object_creation_emits_instantiates() {
-		let src = r#"
-            class Foo {
-                Object m() { return new Bar(); }
-            }
-        "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"instantiates")
-			.expect("instantiates ref");
-		let last = r.target.as_view().segments().last().unwrap();
-		assert_eq!(last.kind, b"class");
-		assert_eq!(last.name, b"Bar");
-	}
-
-	#[test]
-	fn extract_annotation_on_class_emits_annotates() {
-		let src = "@Deprecated public class Foo {}";
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
-		assert!(g.refs().any(|r| r.kind == b"annotates"));
-	}
-
-	#[test]
 	fn extract_imported_call_marks_confidence_imported() {
 		let src = r#"
             import com.acme.Helpers;
@@ -450,60 +296,6 @@ mod tests {
 		if let Some(r) = reads_helpers {
 			assert_eq!(r.confidence, b"imported".to_vec());
 		}
-	}
-
-	#[test]
-	fn extract_same_file_type_resolves_with_real_target() {
-		let src = r#"
-            class Bar {}
-            class Foo {
-                Bar b;
-                Object m() { return new Bar(); }
-            }
-        "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), false);
-
-		let bar_def = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"java")
-			.segment(b"module", b"Foo")
-			.segment(b"class", b"Bar")
-			.build();
-
-		let uses = g
-			.refs()
-			.find(|r| r.kind == b"uses_type" && r.target == bar_def)
-			.expect("uses_type ref to Bar");
-		assert_eq!(uses.confidence, b"resolved".to_vec());
-
-		let inst = g
-			.refs()
-			.find(|r| r.kind == b"instantiates" && r.target == bar_def)
-			.expect("instantiates ref to Bar");
-		assert_eq!(inst.confidence, b"resolved".to_vec());
-	}
-
-	#[test]
-	fn extract_nested_type_resolves_via_table() {
-		let src = r#"
-            class Outer {
-                static class Inner {}
-                Inner make() { return new Inner(); }
-            }
-        "#;
-		let g = extract_default("Outer.java", src, &make_anchor(), false);
-		let inner = MonikerBuilder::new()
-			.project(b"app")
-			.segment(b"lang", b"java")
-			.segment(b"module", b"Outer")
-			.segment(b"class", b"Outer")
-			.segment(b"class", b"Inner")
-			.build();
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"instantiates" && r.target == inner)
-			.expect("instantiates Inner");
-		assert_eq!(r.confidence, b"resolved".to_vec());
 	}
 
 	#[test]
@@ -538,32 +330,5 @@ mod tests {
 				&& d.moniker.as_view().segments().last().unwrap().name == b"x"),
 			"enhanced-for var should be a local def"
 		);
-	}
-
-	#[test]
-	fn extract_lambda_param_marks_reads_as_local() {
-		let src = r#"
-            class Foo {
-                java.util.function.BinaryOperator<Integer> add = (a, b) -> a + b;
-            }
-        "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), true);
-		let read_a = g
-			.refs()
-			.find(|r| {
-				r.kind == b"reads" && r.target.as_view().segments().last().unwrap().name == b"a"
-			})
-			.expect("reads a inside lambda");
-		assert_eq!(read_a.confidence, b"local".to_vec());
-	}
-
-	#[test]
-	fn extract_param_read_marks_confidence_local() {
-		let src = r#"
-            class Foo { int m(int x) { return x; } }
-        "#;
-		let g = extract_default("Foo.java", src, &make_anchor(), true);
-		let r = g.refs().find(|r| r.kind == b"reads").expect("reads ref");
-		assert_eq!(r.confidence, b"local".to_vec());
 	}
 }

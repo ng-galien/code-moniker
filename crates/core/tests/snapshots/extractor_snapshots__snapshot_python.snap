@@ -1,0 +1,1182 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/python/accounts.py
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:accounts/comment:553",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:User",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError/method:__init__(user_id:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError",
+      "signature": "user_id:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError/comment:1141",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:ConflictError",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:ConflictError/method:__init__(field_name:str,value:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:ConflictError",
+      "signature": "field_name:str,value:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:ConflictError/comment:1494",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:ConflictError",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserRepository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_id(user_id:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserRepository",
+      "signature": "user_id:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_email(email:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserRepository",
+      "signature": "email:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:insert(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserRepository",
+      "signature": "user:User",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:scan()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserRepository",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserRepository/comment:1779",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserRepository",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserService",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserService/method:__init__(repo:UserRepository)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserService",
+      "signature": "repo:UserRepository",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserService/method:get(user_id:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserService",
+      "signature": "user_id:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserService",
+      "signature": "email:str,name:str,tags:Iterable[str]",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserService",
+      "signature": "tag:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:UserService/comment:2097",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:UserService",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:__init__()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_id(user_id:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository",
+      "signature": "user_id:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_email(email:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository",
+      "signature": "email:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:insert(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository",
+      "signature": "user:User",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:scan()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository",
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/comment:3312",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts",
+      "signature": "email:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)/comment:4352",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:accounts/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:accounts",
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:annotations"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "imports_module",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:logging"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:field"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Iterable"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Iterator"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "imports_symbol",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "method_call",
+      "receiver_hint": "logging",
+      "to": "code+moniker://app/lang:python/module:accounts/method:getLogger"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:logging"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:__name__"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User",
+      "kind": "annotates",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:list"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:field"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:default_factory"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:list"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:Exception"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError/method:__init__(user_id:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError/method:__init__(user_id:str)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:python/module:accounts/method:__init__"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserNotFoundError/method:__init__(user_id:str)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:super"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:ConflictError",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:Exception"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:ConflictError/method:__init__(field_name:str,value:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:ConflictError/method:__init__(field_name:str,value:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:ConflictError/method:__init__(field_name:str,value:str)",
+      "kind": "method_call",
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:python/module:accounts/method:__init__"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:ConflictError/method:__init__(field_name:str,value:str)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:super"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository",
+      "kind": "extends",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_id(user_id:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_id(user_id:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_id(user_id:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_email(email:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_email(email:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:find_by_email(email:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Iterator"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:__init__(repo:UserRepository)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:UserRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:get(user_id:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:get(user_id:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:get(user_id:str)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:accounts/method:find_by_id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:get(user_id:str)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:_repo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:get(user_id:str)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:UserNotFoundError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Iterable"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:accounts/method:find_by_email"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:_repo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:ConflictError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:make_id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:list"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "method_call",
+      "receiver_hint": "log",
+      "to": "code+moniker://app/lang:python/module:accounts/method:info"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:log"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:extra"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:accounts/method:insert"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:_repo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:list"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:u"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:u"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:accounts/method:scan"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:_repo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:u"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:tags"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:__init__()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:dict"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:__init__()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:__init__()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_id(user_id:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_id(user_id:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_id(user_id:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_id(user_id:str)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:accounts/method:get"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_id(user_id:str)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:_by_id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_email(email:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Optional"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_email(email:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_email(email:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_email(email:str)",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:accounts/method:values"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_email(email:str)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:_by_id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "method_call",
+      "receiver_hint": "self",
+      "to": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:find_by_email(email:str)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:email"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "calls",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:ConflictError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:insert(user:User)",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:email"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Iterator"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:scan()",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:scan()",
+      "kind": "method_call",
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:accounts/method:values"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:scan()",
+      "kind": "reads",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/function:_by_id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
+      "kind": "uses_type",
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:accounts/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:python/module:accounts/method:partition"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
+      "kind": "method_call",
+      "receiver_hint": "head",
+      "to": "code+moniker://app/lang:python/module:accounts/method:lower"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)",
+      "kind": "method_call",
+      "receiver_hint": "email",
+      "to": "code+moniker://app/lang:python/module:accounts/method:lower"
+    }
+  ],
+  "root": "code+moniker://app/lang:python/module:accounts"
+}

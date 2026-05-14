@@ -14,7 +14,7 @@ pub mod tree_util;
 pub mod ts;
 
 pub use extractor::LangExtractor;
-#[cfg(test)]
+#[doc(hidden)]
 pub use extractor::assert_conformance;
 
 /// Adding a row registers the language for `Lang::from_tag` / `tag` /

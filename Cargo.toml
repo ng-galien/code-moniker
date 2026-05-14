@@ -43,6 +43,7 @@ roxmltree  = "0.20"
 serde_cbor = "0.11"
 proptest   = { version = "1", default-features = false, features = ["std"] }
 tempfile   = "3"
+insta      = { version = "1", features = ["glob", "json"] }
 
 anstyle       = "1"
 

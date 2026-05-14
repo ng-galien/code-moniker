@@ -800,6 +800,10 @@ impl<'src_lang> Strategy<'src_lang> {
 		if let Some(m) = self.type_table.get(name) {
 			return (m.clone(), kinds::CONF_RESOLVED);
 		}
+		if let Some(pieces) = clr_system_path(name) {
+			let target = build_module_target(self.module.as_view().project(), pieces);
+			return (target, kinds::CONF_EXTERNAL);
+		}
 		let target = extend_segment(&self.module, fallback_kind, name);
 		let confidence = self
 			.import_confidence_for(name)
@@ -1023,6 +1027,85 @@ fn receiver_hint<'a>(obj: Node<'_>, source: &'a [u8]) -> &'a [u8] {
 		"element_access_expression" => HINT_SUBSCRIPT,
 		_ => b"",
 	}
+}
+
+fn clr_system_path(name: &[u8]) -> Option<&'static [&'static str]> {
+	let n = std::str::from_utf8(name).ok()?;
+	let path: &[&'static str] = match n {
+		"Object" => &["System", "Object"],
+		"String" => &["System", "String"],
+		"Exception" => &["System", "Exception"],
+		"ArgumentException" => &["System", "ArgumentException"],
+		"ArgumentNullException" => &["System", "ArgumentNullException"],
+		"InvalidOperationException" => &["System", "InvalidOperationException"],
+		"NotImplementedException" => &["System", "NotImplementedException"],
+		"NotSupportedException" => &["System", "NotSupportedException"],
+		"FormatException" => &["System", "FormatException"],
+		"NullReferenceException" => &["System", "NullReferenceException"],
+		"Type" => &["System", "Type"],
+		"Action" => &["System", "Action"],
+		"Func" => &["System", "Func"],
+		"Predicate" => &["System", "Predicate"],
+		"EventHandler" => &["System", "EventHandler"],
+		"Lazy" => &["System", "Lazy"],
+		"Nullable" => &["System", "Nullable"],
+		"DateTime" => &["System", "DateTime"],
+		"TimeSpan" => &["System", "TimeSpan"],
+		"Guid" => &["System", "Guid"],
+		"Uri" => &["System", "Uri"],
+		"Random" => &["System", "Random"],
+		"Math" => &["System", "Math"],
+		"Convert" => &["System", "Convert"],
+		"Environment" => &["System", "Environment"],
+		"Console" => &["System", "Console"],
+		"Tuple" => &["System", "Tuple"],
+		"ValueTuple" => &["System", "ValueTuple"],
+		"Span" => &["System", "Span"],
+		"Memory" => &["System", "Memory"],
+		"ReadOnlySpan" => &["System", "ReadOnlySpan"],
+		"ReadOnlyMemory" => &["System", "ReadOnlyMemory"],
+		"IDisposable" => &["System", "IDisposable"],
+		"IComparable" => &["System", "IComparable"],
+		"IEquatable" => &["System", "IEquatable"],
+		"ICloneable" => &["System", "ICloneable"],
+		"IFormattable" => &["System", "IFormattable"],
+		"IServiceProvider" => &["System", "IServiceProvider"],
+		"Task" => &["System", "Threading", "Tasks", "Task"],
+		"ValueTask" => &["System", "Threading", "Tasks", "ValueTask"],
+		"CancellationToken" => &["System", "Threading", "CancellationToken"],
+		"CancellationTokenSource" => &["System", "Threading", "CancellationTokenSource"],
+		"List" => &["System", "Collections", "Generic", "List"],
+		"Dictionary" => &["System", "Collections", "Generic", "Dictionary"],
+		"HashSet" => &["System", "Collections", "Generic", "HashSet"],
+		"Queue" => &["System", "Collections", "Generic", "Queue"],
+		"Stack" => &["System", "Collections", "Generic", "Stack"],
+		"LinkedList" => &["System", "Collections", "Generic", "LinkedList"],
+		"SortedDictionary" => &["System", "Collections", "Generic", "SortedDictionary"],
+		"SortedSet" => &["System", "Collections", "Generic", "SortedSet"],
+		"IEnumerable" => &["System", "Collections", "Generic", "IEnumerable"],
+		"ICollection" => &["System", "Collections", "Generic", "ICollection"],
+		"IList" => &["System", "Collections", "Generic", "IList"],
+		"IDictionary" => &["System", "Collections", "Generic", "IDictionary"],
+		"IReadOnlyList" => &["System", "Collections", "Generic", "IReadOnlyList"],
+		"IReadOnlyCollection" => &["System", "Collections", "Generic", "IReadOnlyCollection"],
+		"IReadOnlyDictionary" => &["System", "Collections", "Generic", "IReadOnlyDictionary"],
+		"IAsyncEnumerable" => &["System", "Collections", "Generic", "IAsyncEnumerable"],
+		"IAsyncEnumerator" => &["System", "Collections", "Generic", "IAsyncEnumerator"],
+		"KeyValuePair" => &["System", "Collections", "Generic", "KeyValuePair"],
+		"ConcurrentDictionary" => &[
+			"System",
+			"Collections",
+			"Concurrent",
+			"ConcurrentDictionary",
+		],
+		"ConcurrentBag" => &["System", "Collections", "Concurrent", "ConcurrentBag"],
+		"ConcurrentQueue" => &["System", "Collections", "Concurrent", "ConcurrentQueue"],
+		"ConcurrentStack" => &["System", "Collections", "Concurrent", "ConcurrentStack"],
+		"Enumerable" => &["System", "Linq", "Enumerable"],
+		"Queryable" => &["System", "Linq", "Queryable"],
+		_ => return None,
+	};
+	Some(path)
 }
 
 fn build_module_target(project: &[u8], pieces: &[&str]) -> Moniker {
