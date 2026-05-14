@@ -81,6 +81,6 @@ single-run scans, the cache hurts more than it helps — leave it off.
 
 ```sh
 cargo build --release -p code-moniker --bin code-moniker
-./scripts/dogfood.sh --reset            # clones the panel into ./dogfood/
+./scripts/dogfood/run.sh ingest --reset # clones the panel into ./dogfood/
 time ./target/release/code-moniker check dogfood/ts/date-fns
 ```

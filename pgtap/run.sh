@@ -9,7 +9,10 @@ PG_BIN="$(dirname "$PG_CONFIG")"
 PG_PORT="${PG_PORT:-28817}"
 DB_NAME="${DB_NAME:-code_moniker_test}"
 
-PSQL="$PG_BIN/psql -h localhost -p $PG_PORT -X -q -A -t -v ON_ERROR_STOP=1"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXPECTED_VERSION="$(grep -m1 '^version' "$REPO_ROOT/crates/pg/Cargo.toml" | awk -F'"' '{print $2}')"
+
+PSQL="$PG_BIN/psql -h localhost -p $PG_PORT -X -q -A -t -v ON_ERROR_STOP=1 -v expected_version=$EXPECTED_VERSION"
 
 # Recreate the test DB. Pin search_path to find code_moniker.* objects unqualified;
 # install pgtap once in public so its functions persist across per-file ROLLBACKs.

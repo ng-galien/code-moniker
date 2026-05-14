@@ -41,7 +41,7 @@ code-moniker check .
 | Stop agent edits that cross a forbidden layer boundary | [Keep an agent inside a layer](#keep-an-agent-inside-a-layer) | `.code-moniker.toml`, `.claude/settings.json` |
 | Make the agent split oversized TypeScript classes immediately | [Enforce small TypeScript classes after each edit](#enforce-small-typescript-classes-after-each-edit) | `.code-moniker.toml`, `.claude/settings.json` |
 | Run a smaller rule set in edit hooks than in CI | [Run only fast edit-time rules for the agent](#run-only-fast-edit-time-rules-for-the-agent) | `.code-moniker.toml`, `.claude/settings.json`, CI command |
-| Check the whole tree before commit | [Gate commits on architecture rules](#gate-commits-on-architecture-rules) | `.code-moniker.toml`, `scripts/check-arch.sh`, `.githooks/pre-commit` |
+| Check the whole tree before commit | [Gate commits on architecture rules](#gate-commits-on-architecture-rules) | `.code-moniker.toml`, `cargo arch-check`, `.githooks/pre-commit` |
 | Introduce rules in a legacy repo without blocking everything | [Roll out rules in a legacy repository](#roll-out-rules-in-a-legacy-repository) | `.code-moniker.toml`, `.claude/settings.json`, non-blocking CI |
 
 ### Block prose comments inside code bodies
@@ -256,13 +256,11 @@ id   = "domain-depends-only-on-domain"
 expr = "source ~ '**/dir:domain/**' => target ~ '**/dir:domain/**'"
 ```
 
-`scripts/check-arch.sh`:
+`.cargo/config.toml`:
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
-exec code-moniker check src/
+```toml
+[alias]
+arch-check = "run --release -p code-moniker -- check ."
 ```
 
 `.githooks/pre-commit`:
@@ -272,7 +270,7 @@ exec code-moniker check src/
 set -euo pipefail
 
 if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^src/'; then
-  ./scripts/check-arch.sh
+  cargo arch-check
 fi
 ```
 
@@ -393,14 +391,12 @@ rule.
 
 ## Pre-commit
 
-Create a repository script:
+Add a cargo alias:
 
-```bash
-# scripts/check-arch.sh
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
-exec code-moniker check src/
+```toml
+# .cargo/config.toml
+[alias]
+arch-check = "run --release -p code-moniker -- check src/"
 ```
 
 Create a hook:
@@ -411,7 +407,7 @@ Create a hook:
 set -euo pipefail
 
 if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^src/'; then
-  ./scripts/check-arch.sh
+  cargo arch-check
 fi
 ```
 

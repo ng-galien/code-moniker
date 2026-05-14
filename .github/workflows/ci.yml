@@ -83,4 +83,4 @@ jobs:
           shared-key: cli
 
       - name: code-moniker check src/
-        run: ./scripts/check-arch.sh
+        run: cargo arch-check

@@ -42,9 +42,10 @@ pgtap/
   run.sh                    pgTAP harness against the pgrx-managed PG17
   sql/                      pgTAP test files
 scripts/
-  check-arch.sh             dogfood the linter on the whole workspace
-  dogfood.sh                multi-project ingestion runner
-  dogfood/panel.sh          pinned panel of representative open-source projects
+  dogfood/
+    run.sh                  ingest|baseline|check subcommands
+    panel.sh                pinned panel of representative open-source projects
+    baselines.tsv           regression floors
 ```
 
 Prefer small files with one responsibility and a clear suffix. Some legacy
@@ -62,7 +63,8 @@ cargo check  -p code-moniker-pg --features pg17                        # FFI / l
 cargo clippy -p code-moniker-pg --features pg17 --no-deps -- -D warnings
 cargo pgrx install --manifest-path crates/pg/Cargo.toml --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
 ./pgtap/run.sh                                                          # pgTAP suite, ~5s
-./scripts/dogfood.sh --only <project>                                   # scaling validation
+./scripts/dogfood/run.sh ingest --only <project>                        # scaling validation
+cargo arch-check                                                        # workspace-wide rule lint
 ```
 
 Initial pgrx setup (one-time, ~15 min):
@@ -87,8 +89,8 @@ git config core.hooksPath .githooks
 
 Activates `.githooks/pre-commit`, which runs `cargo fmt --check` +
 `cargo clippy ... -D warnings` on staged `*.rs` / `Cargo.{toml,lock}`
-changes, then `./scripts/check-arch.sh` (the workspace-wide
-self-lint) when staged changes touch any `*.rs` under `crates/`.
+changes, then `cargo arch-check` (the workspace-wide self-lint) when
+staged changes touch any `*.rs` under `crates/`.
 
 Project formatting convention: `hard_tabs = true` (`rustfmt.toml`).
 

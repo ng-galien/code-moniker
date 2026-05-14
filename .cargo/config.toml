@@ -3,3 +3,6 @@
 # symbols that only exist when loaded inside a Postgres backend.
 [target.'cfg(target_os="macos")']
 rustflags = ["-Clink-arg=-undefined", "-Clink-arg=dynamic_lookup"]
+
+[alias]
+arch-check = "run --release -p code-moniker -- check ."

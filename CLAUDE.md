@@ -73,9 +73,10 @@ pgtap/
   coverage.sh               cargo --lib + pgTAP under llvm-cov
   sql/                      pgTAP test files
 scripts/
-  check-arch.sh             dogfood the linter on the whole workspace
-  dogfood.sh                multi-project ingestion runner
-  dogfood/panel.sh          pinned panel of representative open-source projects
+  dogfood/
+    run.sh                  ingest|baseline|check subcommands (regression gate)
+    panel.sh                pinned panel of representative open-source projects
+    baselines.tsv           committed regression floors
 ```
 
 Prefer small files with one responsibility and a clear suffix. Some legacy
@@ -125,16 +126,17 @@ cargo check  -p code-moniker-pg --features pg17                        # FFI / l
 cargo clippy -p code-moniker-pg --features pg17 --no-deps -- -D warnings
 cargo pgrx install --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config --manifest-path crates/pg/Cargo.toml
 ./pgtap/run.sh                                               # pgTAP suite, ~5s
-./scripts/dogfood.sh --only <project>                          # scaling validation
-./scripts/dogfood-check.sh                                     # asserts per-(project,kind) floors in scripts/dogfood/baselines.tsv
-./scripts/dogfood-baseline.sh                                  # regen floors after a legitimate count change; commit the TSV diff
+./scripts/dogfood/run.sh ingest --only <project>               # scaling validation
+./scripts/dogfood/run.sh check                                 # asserts per-(project,kind) floors in scripts/dogfood/baselines.tsv
+./scripts/dogfood/run.sh baseline                              # regen floors after a legitimate count change; commit the TSV diff
+cargo arch-check                                               # workspace-wide rule lint (alias to `code-moniker check .`)
 ```
 
-`dogfood.sh` drops + recreates `pcm_dogfood` on each run, including with `--lang <x>` (wipes other-lang data). Commit baseline diffs alongside extractor changes — counts moving up = fix worked; silent down = regression `dogfood-check.sh` would have caught.
+`dogfood/run.sh ingest` drops + recreates `pcm_dogfood` on each run, including with `--lang <x>` (wipes other-lang data). Commit baseline diffs alongside extractor changes — counts moving up = fix worked; silent down = regression `dogfood/run.sh check` would have caught.
 
 Pre-commit hook runs `cargo fmt -- --check` + `cargo clippy ... -D warnings` on `*.rs` / `Cargo.{toml,lock}` changes. Clippy lints (`manual_find`, `manual_let_else`) block the commit — run it proactively.
 
-Dogfood runner clones the panel into `./dogfood/` (gitignored) on first use; reuses on subsequent runs unless `--reset` is passed.
+`dogfood/run.sh ingest` clones the panel into `./dogfood/` (gitignored) on first use; reuses on subsequent runs unless `--reset` is passed.
 
 Bench: `cargo run --release -p code-moniker-core --example bench_codegraph` (CodeGraph throughput), `cargo run --release -p code-moniker-core --example bench_extract` (full extractor on a real file).
 
@@ -184,7 +186,7 @@ pgrx-pg-sys and `libpg_query` (`pg_query` crate) cannot cohabit a binary; both d
 
 - Rust import refs encode `crate::X::Y::Z` (depth ≥3) as `dir:X/module:Y/path:Z`, `crate::X::Y` (depth 2) as `module:X/path:Y`. Path-based ref rules use `target ~ '**/dir:X/**' OR target ~ '**/module:X/**'`.
 - Validate new path-rules by injection: `sed -i '' '1a use crate::FORBIDDEN as _' file.rs`, run linter, revert. `0 violations` baseline does not validate a rule.
-- `scripts/check-arch.sh` runs `code-moniker check .` (whole repo, not `src/`).
+- `cargo arch-check` runs `code-moniker check .` (whole repo, not `src/`).
 - `// code-moniker: ignore[<id>]` applies to the next non-comment def. Comment-on-comment suppression is not supported; use rule-level `text =~ X` exemption.
 
 ## tree-sitter-c-sharp gotchas
