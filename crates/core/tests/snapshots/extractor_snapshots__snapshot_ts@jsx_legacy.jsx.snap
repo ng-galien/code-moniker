@@ -84,7 +84,7 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
         428
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:render"
+      "to": "code+moniker://app/external_pkg:react-dom/function:render"
     },
     {
       "alias": "",

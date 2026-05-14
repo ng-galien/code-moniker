@@ -466,6 +466,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			self.handle_reexport(node, scope, graph);
 			return NodeShape::Skip;
 		}
+		self.handle_bare_reexport(node, scope, graph);
 		let mut has_default = false;
 		let mut cursor = node.walk();
 		for c in node.children(&mut cursor) {
@@ -732,10 +733,10 @@ impl<'src_lang> Strategy<'src_lang> {
 								)
 							}
 						} else {
-							(
-								extend_segment(&self.module, kinds::FUNCTION, name),
-								confidence,
-							)
+							let base = self
+								.lookup_import_module(name)
+								.unwrap_or_else(|| self.module.clone());
+							(extend_segment(&base, kinds::FUNCTION, name), confidence)
 						};
 						let attrs = RefAttrs {
 							confidence,
@@ -804,7 +805,6 @@ impl<'src_lang> Strategy<'src_lang> {
 			if let Some(n) = name
 				&& !n.is_empty()
 			{
-				let target = extend_segment(&self.module, kinds::CLASS, n);
 				let confidence = match ctor.kind() {
 					"identifier" | "type_identifier" => self.ref_confidence(n),
 					"member_expression" => ctor
@@ -814,6 +814,15 @@ impl<'src_lang> Strategy<'src_lang> {
 						.unwrap_or(kinds::CONF_NAME_MATCH),
 					_ => kinds::CONF_NAME_MATCH,
 				};
+				let target =
+					if confidence == kinds::CONF_IMPORTED || confidence == kinds::CONF_EXTERNAL {
+						let base = self
+							.lookup_import_module(n)
+							.unwrap_or_else(|| self.module.clone());
+						extend_segment(&base, kinds::CLASS, n)
+					} else {
+						extend_segment(&self.module, kinds::CLASS, n)
+					};
 				let attrs = RefAttrs {
 					confidence,
 					..RefAttrs::default()
@@ -1258,6 +1267,41 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
+	fn handle_bare_reexport(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let pos = node_position(node);
+		let mut cursor = node.walk();
+		for c in node.children(&mut cursor) {
+			if c.kind() != "export_clause" {
+				continue;
+			}
+			let mut nc = c.walk();
+			for spec in c.children(&mut nc) {
+				if spec.kind() != "export_specifier" {
+					continue;
+				}
+				let Some(local) = spec
+					.child_by_field_name("name")
+					.map(|n| node_slice(n, self.source_bytes))
+					.filter(|n| !n.is_empty())
+				else {
+					continue;
+				};
+				let Some(target) = self.lookup_import_target(local) else {
+					continue;
+				};
+				let alias = spec
+					.child_by_field_name("alias")
+					.map(|n| node_slice(n, self.source_bytes))
+					.unwrap_or(b"");
+				let attrs = RefAttrs {
+					alias,
+					..RefAttrs::default()
+				};
+				let _ = graph.add_ref_attrs(scope, target, kinds::REEXPORTS, Some(pos), &attrs);
+			}
+		}
+	}
+
 	fn import_module_target(&self, raw_path: &str) -> Moniker {
 		self.import_target(raw_path, None)
 	}
@@ -1474,6 +1518,20 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn lookup_import_target(&self, name: &[u8]) -> Option<Moniker> {
 		self.import_targets.borrow().get(name).cloned()
+	}
+
+	fn lookup_import_module(&self, name: &[u8]) -> Option<Moniker> {
+		let target = self.import_targets.borrow().get(name).cloned()?;
+		let view = target.as_view();
+		let last = view.segments().last()?;
+		if last.kind == crate::lang::kinds::PATH {
+			let count = view.segment_count() as usize;
+			let mut b = crate::core::moniker::MonikerBuilder::from_view(view);
+			b.truncate(count - 1);
+			Some(b.build())
+		} else {
+			Some(target)
+		}
 	}
 
 	fn lookup_callable(&self, name: &[u8]) -> Option<Moniker> {

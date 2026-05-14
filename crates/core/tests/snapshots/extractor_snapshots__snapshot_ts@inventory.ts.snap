@@ -552,7 +552,7 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
         527
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:inventory/function:makeGuard"
+      "to": "code+moniker://app/lang:ts/module:guards/function:makeGuard"
     },
     {
       "alias": "",

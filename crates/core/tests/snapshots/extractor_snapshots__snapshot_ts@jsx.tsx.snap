@@ -136,7 +136,7 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
         392
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:jsx/function:useState"
+      "to": "code+moniker://app/external_pkg:react/function:useState"
     },
     {
       "alias": "",

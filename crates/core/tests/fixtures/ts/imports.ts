@@ -11,6 +11,9 @@ import { Buffer } from "node:buffer";
 import { helper } from "./helper";
 import { Widget } from "./widget";
 
+export { helper };
+export { Widget as RenamedWidget };
+
 const schema: Schema = z.string();
 const widget = new Widget();
 
