@@ -97,10 +97,15 @@ changes are allowed in minor releases as long as the project is in
   `Self {...}` / `Self::new()` resolve to the impl type. `method_call`
   populates `receiver_hint` (self / call / member / identifier text).
 - **`code-moniker-core` (ts/python/java extractors)** — `import_targets`
-  map routes `uses_type` / `method_call` / `calls` through imported
-  symbols: `z.object()` → `external_pkg:zod/path:z/method:object`,
-  `Protocol` → `external_pkg:typing/function:Protocol`, `List<T>` →
-  `external_pkg:java/path:util/path:List`.
+  map routes `uses_type` / `method_call` / `calls` / `instantiates`
+  through imported symbols: `z.object()` →
+  `external_pkg:zod/path:z/method:object`, `Protocol` →
+  `external_pkg:typing/function:Protocol`, `List<T>` →
+  `external_pkg:java/path:util/path:List`. (TS) `helper()` and `new
+  Widget()` on a `import { … } from "./y"` name now target
+  `module:y/function:helper` / `module:y/class:Widget` (was the local
+  module); bare re-export `export { X };` after such an import emits
+  a `reexports` ref to the import target.
 - **`code-moniker-core` (java extractor)** — `java.lang.*` classes
   (`String`, `Exception`, `RuntimeException`, …) resolve implicitly to
   `external_pkg:java/path:lang/path:X`. Primitives skipped from refs.
