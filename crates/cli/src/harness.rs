@@ -9,10 +9,18 @@ use crate::Exit;
 use crate::args::{CodexHarnessArgs, HarnessArgs, HarnessCommand};
 
 const CODEX_MATCHER: &str = "apply_patch|Write|Edit|MultiEdit";
+const CLAUDE_MATCHER: &str = "Edit|Write|MultiEdit";
+
+#[derive(Copy, Clone)]
+enum HarnessBackend {
+	Codex,
+	Claude,
+}
 
 pub fn run<W1: Write, W2: Write>(args: &HarnessArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	let result = match &args.command {
-		HarnessCommand::Codex(args) => install_codex(args, stdout),
+		HarnessCommand::Codex(args) => install(args, HarnessBackend::Codex, stdout),
+		HarnessCommand::Claude(args) => install(args, HarnessBackend::Claude, stdout),
 	};
 	match result {
 		Ok(()) => Exit::Match,
@@ -23,7 +31,11 @@ pub fn run<W1: Write, W2: Write>(args: &HarnessArgs, stdout: &mut W1, stderr: &m
 	}
 }
 
-fn install_codex<W: Write>(args: &CodexHarnessArgs, stdout: &mut W) -> anyhow::Result<()> {
+fn install<W: Write>(
+	args: &CodexHarnessArgs,
+	backend: HarnessBackend,
+	stdout: &mut W,
+) -> anyhow::Result<()> {
 	let root = args
 		.root
 		.canonicalize()
@@ -40,38 +52,84 @@ fn install_codex<W: Write>(args: &CodexHarnessArgs, stdout: &mut W) -> anyhow::R
 		);
 	}
 
-	let codex_dir = root.join(".codex");
-	let hooks_dir = codex_dir.join("hooks");
+	let project_dir = root.join(backend.project_dir());
+	let hooks_dir = project_dir.join("hooks");
 	fs::create_dir_all(&hooks_dir)
 		.with_context(|| format!("cannot create `{}`", hooks_dir.display()))?;
 
 	let hook_file = hook_file_name(&args.profile);
 	let hook_path = hooks_dir.join(&hook_file);
-	fs::write(&hook_path, hook_script(&args.profile, &args.rules, &scope))
-		.with_context(|| format!("cannot write `{}`", hook_path.display()))?;
+	fs::write(
+		&hook_path,
+		hook_script(&args.profile, &args.rules, &scope, backend),
+	)
+	.with_context(|| format!("cannot write `{}`", hook_path.display()))?;
 	make_executable(&hook_path)?;
 
-	let hooks_path = codex_dir.join("hooks.json");
-	let hooks = read_json_object(&hooks_path)?;
-	let hook_command = format!("$CODEX_PROJECT_DIR/.codex/hooks/{hook_file}");
-	let hooks = upsert_codex_hook(hooks, &hooks_path, &hook_command)?;
-	fs::write(&hooks_path, serde_json::to_vec_pretty(&hooks)?)
-		.with_context(|| format!("cannot write `{}`", hooks_path.display()))?;
+	let config_path = project_dir.join(backend.config_file());
+	let config = read_json_object(&config_path)?;
+	let hook_command = hook_path.display().to_string();
+	let config = upsert_post_tool_use_hook(config, &config_path, &hook_command, backend.matcher())?;
+	fs::write(&config_path, serde_json::to_vec_pretty(&config)?)
+		.with_context(|| format!("cannot write `{}`", config_path.display()))?;
 	fs::write(
-		codex_dir.join("code-moniker-performance.md"),
-		performance_report(&args.profile, &scope),
+		project_dir.join("code-moniker-performance.md"),
+		performance_report(&args.profile, &scope, backend),
 	)
-	.with_context(|| "cannot write Codex hook performance template")?;
+	.with_context(|| format!("cannot write {} hook performance template", backend.name()))?;
 
 	writeln!(
 		stdout,
-		"Installed Codex live harness for profile `{}` on `{}`.",
+		"Installed {} live harness for profile `{}` on `{}`.",
+		backend.name(),
 		args.profile,
 		scope.display()
 	)?;
 	writeln!(stdout, "Hook: {}", hook_path.display())?;
-	writeln!(stdout, "Codex hooks: {}", hooks_path.display())?;
+	writeln!(
+		stdout,
+		"{} config: {}",
+		backend.name(),
+		config_path.display()
+	)?;
 	Ok(())
+}
+
+impl HarnessBackend {
+	fn name(self) -> &'static str {
+		match self {
+			Self::Codex => "Codex",
+			Self::Claude => "Claude",
+		}
+	}
+
+	fn project_dir(self) -> &'static str {
+		match self {
+			Self::Codex => ".codex",
+			Self::Claude => ".claude",
+		}
+	}
+
+	fn config_file(self) -> &'static str {
+		match self {
+			Self::Codex => "hooks.json",
+			Self::Claude => "settings.json",
+		}
+	}
+
+	fn env_var(self) -> &'static str {
+		match self {
+			Self::Codex => "CODEX_PROJECT_DIR",
+			Self::Claude => "CLAUDE_PROJECT_DIR",
+		}
+	}
+
+	fn matcher(self) -> &'static str {
+		match self {
+			Self::Codex => CODEX_MATCHER,
+			Self::Claude => CLAUDE_MATCHER,
+		}
+	}
 }
 
 fn resolve_from_root(root: &Path, path: &Path) -> PathBuf {
@@ -107,20 +165,56 @@ fn hook_file_name(profile: &str) -> String {
 	format!("code-moniker-{slug}.sh")
 }
 
-fn hook_script(profile: &str, rules: &Path, scope: &Path) -> String {
-	format!(
-		r#"#!/usr/bin/env sh
-set -eu
-
-root="${{CODEX_PROJECT_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}}"
-cd "$root"
-
-exec code-moniker check --rules {} --profile {} {}
-"#,
+fn hook_script(profile: &str, rules: &Path, scope: &Path, backend: HarnessBackend) -> String {
+	let root_expr = format!(
+		r#"root="${{{}:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}}""#,
+		backend.env_var()
+	);
+	let command = format!(
+		r#""$HOME/.cargo/bin/code-moniker" check --rules {} --profile {} {}"#,
 		sh_quote(&rules.display().to_string()),
 		sh_quote(profile),
 		sh_quote(&scope.display().to_string())
-	)
+	);
+	match backend {
+		HarnessBackend::Codex => format!(
+			r#"#!/usr/bin/env sh
+set -eu
+
+{root_expr}
+cd "$root"
+
+exec {command}
+"#
+		),
+		HarnessBackend::Claude => format!(
+			r#"#!/usr/bin/env sh
+set -eu
+
+{root_expr}
+cd "$root"
+
+set +e
+output=$({command} 2>&1)
+status=$?
+set -e
+
+if [ -n "$output" ]; then
+	if [ "$status" -eq 0 ]; then
+		printf '%s\n' "$output"
+	else
+		printf '%s\n' "$output" >&2
+	fi
+fi
+
+if [ "$status" -eq 1 ]; then
+	exit 2
+fi
+
+exit "$status"
+"#
+		),
+	}
 }
 
 fn sh_quote(value: &str) -> String {
@@ -143,7 +237,12 @@ fn read_json_object(path: &Path) -> anyhow::Result<Value> {
 	}
 }
 
-fn upsert_codex_hook(mut settings: Value, path: &Path, command: &str) -> anyhow::Result<Value> {
+fn upsert_post_tool_use_hook(
+	mut settings: Value,
+	path: &Path,
+	command: &str,
+	matcher: &str,
+) -> anyhow::Result<Value> {
 	let root = settings.as_object_mut().expect("settings object");
 	let hooks = root
 		.entry("hooks")
@@ -163,7 +262,7 @@ fn upsert_codex_hook(mut settings: Value, path: &Path, command: &str) -> anyhow:
 
 	post.retain(|entry| !entry_contains_command(entry, command));
 	post.push(json!({
-		"matcher": CODEX_MATCHER,
+		"matcher": matcher,
 		"hooks": [
 			{
 				"type": "command",
@@ -185,9 +284,10 @@ fn entry_contains_command(entry: &Value, command: &str) -> bool {
 		})
 }
 
-fn performance_report(profile: &str, scope: &Path) -> String {
+fn performance_report(profile: &str, scope: &Path, backend: HarnessBackend) -> String {
 	format!(
-		"# code-moniker Codex hook overhead\n\n| Date | Machine | Scope | Command | p50 | p95 | Notes |\n| ---- | ------- | ----- | ------- | --- | --- | ----- |\n| YYYY-MM-DD | dev laptop | {} | `code-moniker check --profile {} {}` |  |  |  |\n",
+		"# code-moniker {} hook overhead\n\n| Date | Machine | Scope | Command | p50 | p95 | Notes |\n| ---- | ------- | ----- | ------- | --- | --- | ----- |\n| YYYY-MM-DD | dev laptop | {} | `code-moniker check --profile {} {}` |  |  |  |\n",
+		backend.name(),
 		scope.display(),
 		profile,
 		scope.display()
@@ -246,7 +346,8 @@ enable = [".*"]
 		let script =
 			std::fs::read_to_string(dir.path().join(".codex/hooks/code-moniker-architecture.sh"))
 				.unwrap();
-		assert!(script.contains("exec code-moniker check"));
+		assert!(script.contains("exec \"$HOME/.cargo/bin/code-moniker\" check"));
+		assert!(script.contains("$HOME/.cargo/bin/code-moniker"));
 		assert!(script.contains("--profile 'architecture'"));
 		assert!(script.contains("'src'"));
 		assert!(!script.contains("npm"));
@@ -371,7 +472,12 @@ enable = [".*"]
 		.unwrap();
 		assert_eq!(
 			hooks["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
-			"$CODEX_PROJECT_DIR/.codex/hooks/code-moniker-fast-profile.sh"
+			dir.path()
+				.join(".codex/hooks/code-moniker-fast-profile.sh")
+				.canonicalize()
+				.unwrap()
+				.display()
+				.to_string()
 		);
 	}
 
@@ -391,5 +497,144 @@ enable = [".*"]
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::UsageError);
 		let stderr = String::from_utf8(stderr).unwrap();
 		assert!(stderr.contains("profile `architecture` is not defined"));
+	}
+
+	#[test]
+	fn claude_harness_installs_project_local_settings_and_hook() {
+		let dir = tempdir().unwrap();
+		write_architecture_profile(dir.path());
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"harness",
+			"claude",
+			dir.path().to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+
+		let script = std::fs::read_to_string(
+			dir.path()
+				.join(".claude/hooks/code-moniker-architecture.sh"),
+		)
+		.unwrap();
+		assert!(script.contains("CLAUDE_PROJECT_DIR"));
+		assert!(script.contains("\"$HOME/.cargo/bin/code-moniker\" check"));
+		assert!(script.contains("exit 2"));
+		assert!(!script.contains("npm"));
+
+		let settings: serde_json::Value = serde_json::from_str(
+			&std::fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap(),
+		)
+		.unwrap();
+		assert_eq!(
+			settings["hooks"]["PostToolUse"][0]["matcher"],
+			"Edit|Write|MultiEdit"
+		);
+		assert_eq!(
+			settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
+			dir.path()
+				.join(".claude/hooks/code-moniker-architecture.sh")
+				.canonicalize()
+				.unwrap()
+				.display()
+				.to_string()
+		);
+	}
+
+	#[test]
+	fn claude_harness_maps_violations_to_stderr_exit_two() {
+		use std::process::Command;
+
+		let dir = tempdir().unwrap();
+		write_architecture_profile(dir.path());
+		let bin_dir = dir.path().join(".cargo/bin");
+		std::fs::create_dir_all(&bin_dir).unwrap();
+		let fake = bin_dir.join("code-moniker");
+		std::fs::write(
+			&fake,
+			"#!/usr/bin/env sh\necho 'violation from fake checker'\nexit 1\n",
+		)
+		.unwrap();
+		super::make_executable(&fake).unwrap();
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"harness",
+			"claude",
+			dir.path().to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+
+		let output = Command::new(
+			dir.path()
+				.join(".claude/hooks/code-moniker-architecture.sh"),
+		)
+		.env("CLAUDE_PROJECT_DIR", dir.path())
+		.env("HOME", dir.path())
+		.output()
+		.unwrap();
+
+		assert_eq!(output.status.code(), Some(2));
+		assert!(String::from_utf8(output.stdout).unwrap().is_empty());
+		assert_eq!(
+			String::from_utf8(output.stderr).unwrap().trim(),
+			"violation from fake checker"
+		);
+	}
+
+	#[test]
+	fn claude_harness_preserves_existing_settings_entries() {
+		let dir = tempdir().unwrap();
+		write_architecture_profile(dir.path());
+		std::fs::create_dir(dir.path().join(".claude")).unwrap();
+		std::fs::write(
+			dir.path().join(".claude/settings.json"),
+			r#"{
+  "permissions": {
+    "allow": ["Bash(cargo test:*)"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo read"
+          }
+        ]
+      }
+    ]
+  }
+}"#,
+		)
+		.unwrap();
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"harness",
+			"claude",
+			dir.path().to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+
+		let settings: serde_json::Value = serde_json::from_str(
+			&std::fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap(),
+		)
+		.unwrap();
+		assert_eq!(settings["permissions"]["allow"][0], "Bash(cargo test:*)");
+		assert_eq!(
+			settings["hooks"]["PostToolUse"].as_array().unwrap().len(),
+			2
+		);
+		assert_eq!(
+			settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
+			"echo read"
+		);
 	}
 }

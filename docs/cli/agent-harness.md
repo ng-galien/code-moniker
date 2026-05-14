@@ -38,6 +38,7 @@ code-moniker check .
 | Need | Use case | Configs shown |
 | ---- | -------- | ------------- |
 | Give Codex a live architecture harness from the project profile | [Install a Codex live harness](#install-a-codex-live-harness) | `.code-moniker.toml`, `.codex/hooks.json`, `.codex/hooks/` |
+| Give Claude Code the same project-local architecture harness | [Install a Claude Code live harness](#install-a-claude-code-live-harness) | `.code-moniker.toml`, `.claude/settings.json`, `.claude/hooks/` |
 | Stop the agent from adding prose comments inside Rust code | [Block prose comments inside code bodies](#block-prose-comments-inside-code-bodies) | `.code-moniker.toml`, `.claude/hooks/code-moniker-check.sh`, `.claude/settings.json` |
 | Stop agent edits that cross a forbidden layer boundary | [Keep an agent inside a layer](#keep-an-agent-inside-a-layer) | `.code-moniker.toml`, `.claude/settings.json` |
 | Make the agent split oversized TypeScript classes immediately | [Enforce small TypeScript classes after each edit](#enforce-small-typescript-classes-after-each-edit) | `.code-moniker.toml`, `.claude/settings.json` |
@@ -80,7 +81,7 @@ Recommended Codex hook entry:
         "hooks": [
           {
             "type": "command",
-            "command": "$CODEX_PROJECT_DIR/.codex/hooks/code-moniker-architecture.sh"
+            "command": "sh -c 'root=\"${CODEX_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.codex/hooks/code-moniker-architecture.sh\"'"
           }
         ]
       }
@@ -95,6 +96,9 @@ The generated script calls the binary directly:
 code-moniker check --rules ".code-moniker.toml" --profile "architecture" "src"
 ```
 
+The generated script assumes `code-moniker` was installed with Cargo and
+calls `$HOME/.cargo/bin/code-moniker` directly.
+
 The default matcher covers local write tools only. MCP servers and custom
 tools are outside the default guarantee boundary; add them explicitly only
 after measuring their payload shape and cost. This live harness catches
@@ -106,6 +110,66 @@ Publish hook overhead before enabling it for a team:
 | Date | Machine | Scope | Command | p50 | p95 | Notes |
 | ---- | ------- | ----- | ------- | --- | --- | ----- |
 | 2026-05-14 | M3 Pro | `src` | `code-moniker check --profile architecture src` | 35 ms | 44 ms | warm cache |
+
+### Install a Claude Code live harness
+
+Use this when the same architecture profile should run from Claude Code
+without any global configuration writes.
+
+```sh
+code-moniker harness claude . --profile architecture --scope .
+```
+
+The command verifies that `[profiles.architecture]` exists, then writes:
+
+- `.claude/hooks/code-moniker-architecture.sh`
+- `.claude/settings.json`
+- `.claude/code-moniker-performance.md`
+
+Recommended Claude Code hook entry:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'root=\"${CLAUDE_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.claude/hooks/code-moniker-architecture.sh\"'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The generated script maps `code-moniker` violations to Claude's `exit 2`
+feedback status and writes the diagnostic to `stderr`:
+
+```sh
+output=$(code-moniker check --rules ".code-moniker.toml" --profile "architecture" "." 2>&1)
+status=$?
+
+if [ -n "$output" ] && [ "$status" -ne 0 ]; then
+  printf '%s\n' "$output" >&2
+fi
+
+if [ "$status" -eq 1 ]; then
+  exit 2
+fi
+
+exit "$status"
+```
+
+The generated script assumes `code-moniker` was installed with Cargo and
+calls `$HOME/.cargo/bin/code-moniker` directly.
+
+`PostToolUse` runs after the edit is applied, so this is repair feedback
+for the agent, not a guarantee that the write never happened. Keep
+pre-commit and CI checks for repository guarantees.
 
 ### Block prose comments inside code bodies
 

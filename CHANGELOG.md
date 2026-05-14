@@ -21,6 +21,9 @@ changes are allowed in minor releases as long as the project is in
   `PostToolUse` live architecture harness from a named profile, writing
   `.codex/hooks.json`, a direct `code-moniker check` hook script, and
   a small hook-overhead report template.
+- **`code-moniker harness claude`** — installs the same live
+  architecture harness under project-local `.claude/` files only, with
+  Claude Code's `exit 2` mapping for `PostToolUse` repair feedback.
 - **`code-moniker-core` (rs extractor)** — Rust test declarations now
   emit `test` defs with stable monikers, source positions, framework
   metadata (`rust-test` / `proptest`), display names, disabled state

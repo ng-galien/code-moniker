@@ -49,6 +49,8 @@ pub struct HarnessArgs {
 pub enum HarnessCommand {
 	#[command(about = "Install a project-local Codex PostToolUse hook.")]
 	Codex(CodexHarnessArgs),
+	#[command(about = "Install a project-local Claude Code PostToolUse hook.")]
+	Claude(CodexHarnessArgs),
 }
 
 #[derive(Debug, ClapArgs)]

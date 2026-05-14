@@ -6,15 +6,16 @@ one directory.
 ```sh
 code-moniker check <PATH> [--rules <PATH>] [--format text|json] [--profile <NAME>] [--report]
 code-moniker harness codex <ROOT> [--profile architecture] [--scope src]
+code-moniker harness claude <ROOT> [--profile architecture] [--scope src]
 ```
 
 Use it for local architecture checks, pre-commit hooks, CI jobs, or
 per-file edit hooks. Use [`extract`](extract.md) when you only want to
 inspect the graph.
 
-Use `code-moniker harness codex` to generate a project-local Codex
-`PostToolUse` hook that runs an architecture profile after local write
-tools.
+Use `code-moniker harness codex` or `code-moniker harness claude` to
+generate project-local `PostToolUse` hooks that run an architecture
+profile after local write tools.
 
 ## Run
 
