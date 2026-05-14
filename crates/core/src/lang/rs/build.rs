@@ -4,6 +4,7 @@ pub struct Dep {
 	pub version: Option<String>,
 	pub dep_kind: String,
 	pub import_root: String,
+	pub path: Option<String>,
 }
 
 #[derive(Debug)]
@@ -41,7 +42,29 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, CargoError> {
 			version,
 			dep_kind: "package".to_string(),
 			import_root: rust_import_root(name),
+			path: None,
 		});
+	}
+
+	if let Some(workspace) = value.get("workspace").and_then(|v| v.as_table()) {
+		let excludes = workspace_excludes(workspace);
+		if let Some(members) = workspace.get("members").and_then(|v| v.as_array()) {
+			for member in members.iter().filter_map(|v| v.as_str()) {
+				if excludes.iter().any(|exclude| exclude == member) || has_glob_meta(member) {
+					continue;
+				}
+				out.push(Dep {
+					name: member.to_string(),
+					version: None,
+					dep_kind: "workspace_member".to_string(),
+					import_root: rust_import_root(last_path_component(member)),
+					path: Some(member.to_string()),
+				});
+			}
+		}
+		if let Some(deps) = workspace.get("dependencies").and_then(|v| v.as_table()) {
+			parse_dep_table(deps, "workspace", &mut out);
+		}
 	}
 
 	for (kind_table, kind_label) in [
@@ -52,18 +75,35 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, CargoError> {
 		let Some(table) = value.get(kind_table).and_then(|v| v.as_table()) else {
 			continue;
 		};
-		for (name, spec) in table {
-			let version = extract_version(spec);
-			out.push(Dep {
-				name: name.clone(),
-				version,
-				dep_kind: kind_label.to_string(),
-				import_root: rust_import_root(name),
-			});
-		}
+		parse_dep_table(table, kind_label, &mut out);
 	}
 
 	Ok(out)
+}
+
+fn parse_dep_table(
+	table: &toml::map::Map<String, toml::Value>,
+	kind_label: &str,
+	out: &mut Vec<Dep>,
+) {
+	for (name, spec) in table {
+		let version = extract_version(spec);
+		let path = extract_path(spec);
+		let dep_kind = if dependency_uses_workspace(spec) {
+			"workspace"
+		} else if path.is_some() {
+			"path"
+		} else {
+			kind_label
+		};
+		out.push(Dep {
+			name: name.clone(),
+			version,
+			dep_kind: dep_kind.to_string(),
+			import_root: rust_import_root(name),
+			path,
+		});
+	}
 }
 
 pub(crate) fn rust_import_root(name: &str) -> String {
@@ -88,6 +128,43 @@ pub(crate) fn extract_version(spec: &toml::Value) -> Option<String> {
 	}
 }
 
+fn extract_path(spec: &toml::Value) -> Option<String> {
+	match spec {
+		toml::Value::Table(t) => t.get("path").and_then(|v| v.as_str()).map(str::to_string),
+		_ => None,
+	}
+}
+
+fn dependency_uses_workspace(spec: &toml::Value) -> bool {
+	match spec {
+		toml::Value::Table(t) => t
+			.get("workspace")
+			.and_then(|v| v.as_bool())
+			.unwrap_or(false),
+		_ => false,
+	}
+}
+
+fn last_path_component(path: &str) -> &str {
+	path.rsplit('/').find(|s| !s.is_empty()).unwrap_or(path)
+}
+
+fn workspace_excludes(workspace: &toml::map::Map<String, toml::Value>) -> Vec<String> {
+	workspace
+		.get("exclude")
+		.and_then(|v| v.as_array())
+		.into_iter()
+		.flatten()
+		.filter_map(|v| v.as_str().map(str::to_string))
+		.collect()
+}
+
+fn has_glob_meta(path: &str) -> bool {
+	path.as_bytes()
+		.iter()
+		.any(|b| matches!(b, b'*' | b'?' | b'[' | b']'))
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -107,6 +184,7 @@ mod tests {
 				version: Some("0.1.0".into()),
 				dep_kind: "package".into(),
 				import_root: "demo".into(),
+				path: None,
 			}]
 		);
 	}
@@ -127,6 +205,7 @@ mod tests {
 			version: Some("1.0".into()),
 			dep_kind: "normal".into(),
 			import_root: "serde".into(),
+			path: None,
 		}));
 	}
 
@@ -146,11 +225,12 @@ mod tests {
 			version: Some("1.40".into()),
 			dep_kind: "normal".into(),
 			import_root: "tokio".into(),
+			path: None,
 		}));
 	}
 
 	#[test]
-	fn parse_path_dep_has_no_version() {
+	fn parse_path_dep_marks_path_kind_and_path() {
 		let toml = r#"
             [package]
             name = "demo"
@@ -163,9 +243,69 @@ mod tests {
 		assert!(deps.contains(&Dep {
 			name: "local_lib".into(),
 			version: None,
-			dep_kind: "normal".into(),
+			dep_kind: "path".into(),
 			import_root: "local_lib".into(),
+			path: Some("../local_lib".into()),
 		}));
+	}
+
+	#[test]
+	fn parse_workspace_members_and_workspace_dependencies() {
+		let toml = r#"
+            [workspace]
+            members = ["crates/core", "crates/cli"]
+
+            [workspace.dependencies]
+            code-moniker-core = { path = "crates/core", version = "0.2.0" }
+            serde = "1"
+        "#;
+		let deps = parse(toml).unwrap();
+		assert!(deps.contains(&Dep {
+			name: "crates/core".into(),
+			version: None,
+			dep_kind: "workspace_member".into(),
+			import_root: "core".into(),
+			path: Some("crates/core".into()),
+		}));
+		assert!(deps.contains(&Dep {
+			name: "code-moniker-core".into(),
+			version: Some("0.2.0".into()),
+			dep_kind: "path".into(),
+			import_root: "code_moniker_core".into(),
+			path: Some("crates/core".into()),
+		}));
+		assert!(deps.contains(&Dep {
+			name: "serde".into(),
+			version: Some("1".into()),
+			dep_kind: "workspace".into(),
+			import_root: "serde".into(),
+			path: None,
+		}));
+	}
+
+	#[test]
+	fn parse_workspace_members_skips_globs_and_excluded_literals() {
+		let toml = r#"
+            [workspace]
+            members = ["crates/*", "crates/core", "crates/experimental"]
+            exclude = ["crates/experimental"]
+        "#;
+		let deps = parse(toml).unwrap();
+		assert!(deps.iter().any(|d| {
+			d.name == "crates/core"
+				&& d.dep_kind == "workspace_member"
+				&& d.path.as_deref() == Some("crates/core")
+		}));
+		assert!(
+			!deps
+				.iter()
+				.any(|d| d.dep_kind == "workspace_member" && d.name == "crates/*")
+		);
+		assert!(
+			!deps
+				.iter()
+				.any(|d| d.dep_kind == "workspace_member" && d.name == "crates/experimental")
+		);
 	}
 
 	#[test]

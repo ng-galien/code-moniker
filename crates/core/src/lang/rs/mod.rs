@@ -437,6 +437,98 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_builtin_macro_marks_external_std_reference() {
+		let g = extract(
+			"util.rs",
+			"fn demo() { let xs = vec![1, 2, 3]; }",
+			&make_anchor(),
+			false,
+		);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"vec"
+			})
+			.expect("vec! macro call should be represented");
+		assert_eq!(r.confidence, b"external".to_vec());
+		let target = MonikerBuilder::new()
+			.project(b"code-moniker")
+			.segment(b"external_pkg", b"std")
+			.segment(b"path", b"macros")
+			.segment(b"macro", b"vec")
+			.build();
+		assert_eq!(r.target, target);
+	}
+
+	#[test]
+	fn extract_common_iterator_chain_methods_are_external_when_receiver_is_a_call() {
+		let src = r#"
+            fn demo(values: Vec<i32>) -> Vec<i32> {
+                let mut out = Vec::new();
+                out.push(1);
+                values.into_iter().map(|v| v + 1).collect()
+            }
+        "#;
+		let g = extract("util.rs", src, &make_anchor(), false);
+		for name in ["map", "collect"] {
+			let r = g
+				.refs()
+				.find(|r| {
+					r.kind == b"method_call"
+						&& r.target.as_view().segments().last().unwrap().name == name.as_bytes()
+				})
+				.unwrap_or_else(|| panic!("missing method call {name}"));
+			assert_eq!(
+				r.confidence,
+				b"external".to_vec(),
+				"{name} should not be surfaced as an unresolved project method"
+			);
+			let mut segs = r.target.as_view().segments();
+			let head = segs.next().expect("external target has head");
+			assert_eq!(head.kind, b"external_pkg");
+			assert_eq!(head.name, b"std");
+		}
+		for name in ["push", "into_iter"] {
+			let r = g
+				.refs()
+				.find(|r| {
+					r.kind == b"method_call"
+						&& r.target.as_view().segments().last().unwrap().name == name.as_bytes()
+				})
+				.unwrap_or_else(|| panic!("missing method call {name}"));
+			assert_eq!(
+				r.confidence,
+				b"unresolved".to_vec(),
+				"{name} has an identifier receiver and should stay actionable"
+			);
+		}
+	}
+
+	#[test]
+	fn extract_project_receiver_method_with_std_like_name_stays_unresolved() {
+		let src = r#"
+            struct Repo;
+            fn demo(repo: Repo) {
+                repo.get();
+                repo.insert();
+            }
+        "#;
+		let g = extract("util.rs", src, &make_anchor(), false);
+		for name in ["get", "insert"] {
+			let r = g
+				.refs()
+				.find(|r| {
+					r.kind == b"method_call"
+						&& r.target.as_view().segments().last().unwrap().name == name.as_bytes()
+				})
+				.unwrap_or_else(|| panic!("missing method call {name}"));
+			assert_eq!(r.confidence, b"unresolved".to_vec());
+			let mut segs = r.target.as_view().segments();
+			assert_ne!(segs.next().unwrap().kind, b"external_pkg");
+		}
+	}
+
+	#[test]
 	fn extract_shallow_skips_param_and_local() {
 		let src = "pub fn add(a: i32, b: i32) -> i32 { let sum = a + b; sum }";
 		let g = extract("util.rs", src, &make_anchor(), false);

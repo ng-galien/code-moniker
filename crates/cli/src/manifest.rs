@@ -121,6 +121,7 @@ fn scan_dir(root: &Path) -> Vec<Entry> {
 				.collect()
 		})
 		.collect();
+	enrich_cargo_workspace_members(&mut entries, root);
 	entries.sort_by(|a, b| {
 		a.manifest_uri
 			.cmp(&b.manifest_uri)
@@ -128,6 +129,36 @@ fn scan_dir(root: &Path) -> Vec<Entry> {
 			.then_with(|| a.dep.dep_kind.cmp(&b.dep.dep_kind))
 	});
 	entries
+}
+
+fn enrich_cargo_workspace_members(entries: &mut [Entry], root: &Path) {
+	use std::collections::HashMap;
+	let package_by_manifest: HashMap<String, Dep> = entries
+		.iter()
+		.filter(|e| e.manifest_kind == Manifest::Cargo && e.dep.dep_kind == "package")
+		.map(|e| (e.manifest_uri.clone(), e.dep.clone()))
+		.collect();
+	for e in entries
+		.iter_mut()
+		.filter(|e| e.manifest_kind == Manifest::Cargo && e.dep.dep_kind == "workspace_member")
+	{
+		let Some(path) = e.dep.path.as_deref() else {
+			continue;
+		};
+		let member_manifest = root.join(path).join("Cargo.toml");
+		let rel = member_manifest
+			.strip_prefix(root)
+			.unwrap_or(&member_manifest)
+			.display()
+			.to_string();
+		let Some(pkg) = package_by_manifest.get(&rel) else {
+			continue;
+		};
+		e.dep.name = pkg.name.clone();
+		e.dep.import_root = pkg.import_root.clone();
+		e.dep.version = pkg.version.clone();
+		e.dep.package_moniker = pkg.package_moniker.clone();
+	}
 }
 
 fn render(m: &code_moniker_core::core::moniker::Moniker, scheme: &str) -> String {
@@ -160,6 +191,8 @@ struct JsonRow<'a> {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	version: Option<&'a str>,
 	dep_kind: &'a str,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	path: Option<&'a str>,
 }
 
 #[cfg(feature = "pretty")]
@@ -198,6 +231,7 @@ fn write_json<W: Write>(w: &mut W, entries: &[Entry], scheme: &str) -> anyhow::R
 			import_root: &e.dep.import_root,
 			version: e.dep.version.as_deref(),
 			dep_kind: &e.dep.dep_kind,
+			path: e.dep.path.as_deref(),
 		})
 		.collect();
 	serde_json::to_writer_pretty(&mut *w, &rows)?;
@@ -258,6 +292,85 @@ mod tests {
 		assert!(rows.iter().any(|r| r["import_root"] == "serde_json"
 			&& r["package_moniker"] == "code+moniker://./external_pkg:serde_json"));
 		assert!(rows.iter().any(|r| r["manifest_kind"] == "cargo"));
+	}
+
+	#[test]
+	fn cargo_workspace_json_exposes_members_and_path_dependencies() {
+		let tmp = tempfile::tempdir().unwrap();
+		let p = tmp.path().join("Cargo.toml");
+		fs::write(
+			&p,
+			r#"
+[workspace]
+members = ["crates/core", "crates/cli"]
+
+[workspace.dependencies]
+code-moniker-core = { path = "crates/core", version = "0.2.0" }
+serde = "1"
+"#,
+		)
+		.unwrap();
+		let args = args_for(p, ManifestFormat::Json);
+		let mut out = Vec::new();
+		let mut err = Vec::new();
+		assert_eq!(run(&args, &mut out, &mut err), 0);
+		let rows: Vec<serde_json::Value> = serde_json::from_slice(&out).unwrap();
+		assert!(rows.iter().any(|r| {
+			r["name"] == "crates/core"
+				&& r["dep_kind"] == "workspace_member"
+				&& r["path"] == "crates/core"
+		}));
+		assert!(rows.iter().any(|r| {
+			r["name"] == "code-moniker-core"
+				&& r["dep_kind"] == "path"
+				&& r["path"] == "crates/core"
+				&& r["import_root"] == "code_moniker_core"
+		}));
+		assert!(
+			rows.iter()
+				.any(|r| r["name"] == "serde" && r["dep_kind"] == "workspace")
+		);
+	}
+
+	#[test]
+	fn dir_mode_enriches_workspace_member_rows_from_member_packages() {
+		let tmp = tempfile::tempdir().unwrap();
+		let root = tmp.path();
+		fs::write(
+			root.join("Cargo.toml"),
+			r#"
+[workspace]
+members = ["crates/core"]
+"#,
+		)
+		.unwrap();
+		fs::create_dir_all(root.join("crates/core")).unwrap();
+		fs::write(
+			root.join("crates/core/Cargo.toml"),
+			r#"
+[package]
+name = "code-moniker-core"
+version = "0.2.0"
+"#,
+		)
+		.unwrap();
+		let args = args_for(root.to_path_buf(), ManifestFormat::Json);
+		let mut out = Vec::new();
+		let mut err = Vec::new();
+		assert_eq!(run(&args, &mut out, &mut err), 0);
+		let rows: Vec<serde_json::Value> = serde_json::from_slice(&out).unwrap();
+		let member = rows
+			.iter()
+			.find(|r| r["dep_kind"] == "workspace_member")
+			.expect("workspace member row");
+		assert_eq!(member["name"], "code-moniker-core");
+		assert_eq!(member["version"], "0.2.0");
+		assert_eq!(member["import_root"], "code_moniker_core");
+		assert_eq!(
+			member["package_moniker"],
+			"code+moniker://./external_pkg:code_moniker_core"
+		);
+		assert_eq!(member["path"], "crates/core");
 	}
 
 	#[test]

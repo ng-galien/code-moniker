@@ -17,6 +17,7 @@ pub struct Dep {
 	pub import_root: String,
 	pub version: Option<String>,
 	pub dep_kind: String,
+	pub path: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -178,6 +179,7 @@ macro_rules! impl_into_dep {
 						import_root: self.import_root,
 						version: self.version,
 						dep_kind: self.dep_kind,
+						path: None,
 					}
 				}
 			}
@@ -185,8 +187,21 @@ macro_rules! impl_into_dep {
 	};
 }
 
+impl IntoDep for rs::build::Dep {
+	fn into_dep(self, manifest: Manifest, project: &[u8]) -> Dep {
+		let package_moniker = package_moniker(manifest, project, &self.import_root);
+		Dep {
+			package_moniker,
+			name: self.name,
+			import_root: self.import_root,
+			version: self.version,
+			dep_kind: self.dep_kind,
+			path: self.path,
+		}
+	}
+}
+
 impl_into_dep!(
-	rs::build::Dep,
 	ts::build::Dep,
 	java::build::Dep,
 	python::build::Dep,

@@ -582,7 +582,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
       "kind": "calls",
       "position": [
@@ -590,7 +590,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         1177
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:accounts/macro:write"
+      "to": "code+moniker://app/external_pkg:std/path:macros/macro:write"
     },
     {
       "alias": "",
@@ -608,7 +608,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
       "kind": "calls",
       "position": [
@@ -616,7 +616,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         1234
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:accounts/macro:write"
+      "to": "code+moniker://app/external_pkg:std/path:macros/macro:write"
     },
     {
       "alias": "",
@@ -634,7 +634,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/enum:RepoError/method:fmt(f:&mutstd::fmt::Formatter<'_>)",
       "kind": "calls",
       "position": [
@@ -642,7 +642,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         1291
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:accounts/macro:write"
+      "to": "code+moniker://app/external_pkg:std/path:macros/macro:write"
     },
     {
       "alias": "",
@@ -1011,7 +1011,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
       "kind": "method_call",
       "position": [
@@ -1019,7 +1019,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         2711
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:rs/module:accounts/method:cloned"
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:cloned"
     },
     {
       "alias": "",
@@ -1128,7 +1128,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
       "kind": "method_call",
       "position": [
@@ -1136,12 +1136,12 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         2980
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:rs/module:accounts/method:cloned"
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:cloned"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
       "kind": "method_call",
       "position": [
@@ -1149,7 +1149,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         2971
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:rs/module:accounts/method:find"
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:find"
     },
     {
       "alias": "",
@@ -1323,7 +1323,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
       "kind": "calls",
       "position": [
@@ -1331,7 +1331,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         3409
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:accounts/macro:format"
+      "to": "code+moniker://app/external_pkg:std/path:macros/macro:format"
     },
     {
       "alias": "",
@@ -1479,7 +1479,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
       "kind": "method_call",
       "position": [
@@ -1487,12 +1487,12 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         3773
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:rs/module:accounts/method:collect"
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:collect"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
       "kind": "method_call",
       "position": [
@@ -1500,7 +1500,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         3763
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:rs/module:accounts/method:cloned"
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:cloned"
     },
     {
       "alias": "",
@@ -1583,7 +1583,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
       "kind": "method_call",
       "position": [
@@ -1591,12 +1591,12 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         4113
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:rs/module:accounts/method:collect"
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:collect"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
       "kind": "method_call",
       "position": [
@@ -1604,7 +1604,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         4100
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:rs/module:accounts/method:filter"
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:filter"
     },
     {
       "alias": "",

@@ -12,11 +12,23 @@ changes are allowed in minor releases as long as the project is in
 
 ### Added
 
+- **`code-moniker manifest` / Cargo** — Cargo workspace manifests now
+  expose `workspace_member` rows, workspace dependency rows, and
+  path-backed dependency metadata in JSON output, giving ESAC-style
+  consumers enough structure to reconstruct workspace modules and path
+  edges.
 - **`code-moniker-core` (rs extractor)** — Rust test declarations now
   emit `test` defs with stable monikers, source positions, framework
   metadata (`rust-test` / `proptest`), display names, disabled state
   from `#[ignore]`, and inline module hierarchy for ESAC-style test
   taxonomy consumers.
+
+### Changed
+
+- **`code-moniker-core` (rs extractor)** — common Rust iterator-chain
+  methods on call receivers and built-in macros now carry `external`
+  confidence and `external_pkg:std` targets, reducing noisy unresolved
+  ESAC gaps while leaving identifier-receiver project calls actionable.
 
 ## [0.2.0] — 2026-05-13
 

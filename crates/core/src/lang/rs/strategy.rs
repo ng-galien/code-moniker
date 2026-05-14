@@ -492,9 +492,19 @@ impl<'src_lang> Strategy<'src_lang> {
 		let Some(name) = type_name_text(macro_node, self.source_bytes) else {
 			return;
 		};
-		let target = extend_segment(&self.module, kinds::MACRO, name.as_bytes());
+		let (target, confidence) = if is_builtin_macro(name) {
+			(
+				target_external_std(&self.module, &[("path", "macros"), ("macro", name)]),
+				kinds::CONF_EXTERNAL,
+			)
+		} else {
+			(
+				extend_segment(&self.module, kinds::MACRO, name.as_bytes()),
+				kinds::CONF_UNRESOLVED,
+			)
+		};
 		let attrs = RefAttrs {
-			confidence: kinds::CONF_UNRESOLVED,
+			confidence,
 			..RefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(
@@ -656,6 +666,17 @@ impl<'src_lang> Strategy<'src_lang> {
 			&& let Some(t) = enclosing_type_moniker(scope)
 		{
 			self.resolve_callable(&t, kinds::METHOD, name)
+		} else if receiver.kind() == "call_expression" && is_common_std_chain_method(name) {
+			(
+				target_external_std(
+					&self.module,
+					&[
+						("path", "prelude"),
+						("method", std::str::from_utf8(name).unwrap_or("")),
+					],
+				),
+				kinds::CONF_EXTERNAL,
+			)
 		} else {
 			(
 				extend_segment(&self.module, kinds::METHOD, name),
@@ -1307,6 +1328,53 @@ fn target_external(module: &Moniker, path: &[String]) -> Moniker {
 		b.segment(kinds::PATH, piece.as_bytes());
 	}
 	b.build()
+}
+
+fn target_external_std(module: &Moniker, pieces: &[(&str, &str)]) -> Moniker {
+	let mut b = MonikerBuilder::new();
+	b.project(module.as_view().project());
+	b.segment(kinds::EXTERNAL_PKG, b"std");
+	for (kind, name) in pieces {
+		b.segment(kind.as_bytes(), name.as_bytes());
+	}
+	b.build()
+}
+
+fn is_builtin_macro(name: &str) -> bool {
+	matches!(
+		name,
+		"assert"
+			| "assert_eq"
+			| "assert_ne"
+			| "cfg" | "compile_error"
+			| "concat"
+			| "dbg" | "debug_assert"
+			| "debug_assert_eq"
+			| "debug_assert_ne"
+			| "env" | "eprintln"
+			| "format"
+			| "format_args"
+			| "include"
+			| "include_bytes"
+			| "include_str"
+			| "line" | "matches"
+			| "module_path"
+			| "option_env"
+			| "panic" | "print"
+			| "println"
+			| "stringify"
+			| "todo" | "unimplemented"
+			| "unreachable"
+			| "vec" | "write"
+			| "writeln"
+	)
+}
+
+fn is_common_std_chain_method(name: &[u8]) -> bool {
+	matches!(
+		name,
+		b"cloned" | b"collect" | b"copied" | b"filter" | b"find" | b"flatten" | b"map"
+	)
 }
 
 fn has_rust_attribute(node: Node<'_>, source: &[u8], wanted: &str) -> bool {

@@ -1,0 +1,246 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/rs/rust_refs.rs
+---
+{
+  "defs": [
+    {
+      "binding": "local",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs",
+      "position": [
+        32,
+        339
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/fn:local_project_call()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs",
+      "position": [
+        341,
+        397
+      ],
+      "signature": "",
+      "visibility": "private"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:rust_refs",
+      "kind": "imports_symbol",
+      "position": [
+        0,
+        30
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:collections/path:HashMap"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:rust_refs",
+      "kind": "imports_module",
+      "position": [
+        0,
+        30
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:collections"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "uses_type",
+      "position": [
+        53,
+        56
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/struct:Vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "uses_type",
+      "position": [
+        69,
+        72
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/struct:Vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "instantiates",
+      "position": [
+        99,
+        113
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/struct:HashMap"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "instantiates",
+      "position": [
+        130,
+        140
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/struct:Vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "method_call",
+      "position": [
+        156,
+        197
+      ],
+      "receiver_hint": "call",
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:map"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "method_call",
+      "position": [
+        156,
+        174
+      ],
+      "receiver_hint": "values",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/method:into_iter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "method_call",
+      "position": [
+        183,
+        196
+      ],
+      "receiver_hint": "v",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/method:to_string"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "method_call",
+      "position": [
+        205,
+        216
+      ],
+      "receiver_hint": "value",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/method:len"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "method_call",
+      "position": [
+        226,
+        265
+      ],
+      "receiver_hint": "seen",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/method:insert"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "method_call",
+      "position": [
+        238,
+        251
+      ],
+      "receiver_hint": "value",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/method:clone"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "method_call",
+      "position": [
+        253,
+        264
+      ],
+      "receiver_hint": "value",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/method:len"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "method_call",
+      "position": [
+        270,
+        285
+      ],
+      "receiver_hint": "out",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/method:push"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "kind": "calls",
+      "position": [
+        295,
+        337
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:macros/macro:vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:rust_refs/fn:local_project_call()",
+      "kind": "calls",
+      "position": [
+        368,
+        394
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_refs/fn:missing_project_function"
+    }
+  ],
+  "root": "code+moniker://app/lang:rs/module:rust_refs"
+}
