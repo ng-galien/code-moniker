@@ -648,6 +648,14 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
+	fn resolve_callable_parent(&self, scope: &Moniker, name: &[u8]) -> Option<Moniker> {
+		let parent = enclosing_module_moniker(scope).unwrap_or_else(|| self.module.clone());
+		[parent].into_iter().find(|parent| {
+			self.callable_table
+				.contains_key(&(parent.clone(), name.to_vec()))
+		})
+	}
+
 	fn emit_method_call(
 		&self,
 		call: Node<'_>,
@@ -739,8 +747,12 @@ impl<'src_lang> Strategy<'src_lang> {
 			);
 			return;
 		}
-		let module = self.module.clone();
-		let (target, confidence) = self.resolve_callable(&module, kinds::FN, name);
+		let parent = self
+			.resolve_callable_parent(scope, name)
+			.unwrap_or_else(|| {
+				enclosing_module_moniker(scope).unwrap_or_else(|| self.module.clone())
+			});
+		let (target, confidence) = self.resolve_callable(&parent, kinds::FN, name);
 		let attrs = RefAttrs {
 			confidence,
 			..RefAttrs::default()
@@ -769,6 +781,23 @@ impl<'src_lang> Strategy<'src_lang> {
 		let path_name = func
 			.child_by_field_name("path")
 			.and_then(|p| type_name_text(p, self.source_bytes));
+		if let Some(path_node) = func.child_by_field_name("path")
+			&& let Some(parent) = self.resolve_module_path_callable_parent(scope, path_node, name)
+		{
+			let (target, confidence) = self.resolve_callable(&parent, kinds::FN, name);
+			let attrs = RefAttrs {
+				confidence,
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(
+				scope,
+				target,
+				kinds::CALLS,
+				Some(node_position(call)),
+				&attrs,
+			);
+			return;
+		}
 		if let Some(type_name) = path_name
 			&& starts_uppercase(type_name)
 		{
@@ -809,6 +838,41 @@ impl<'src_lang> Strategy<'src_lang> {
 			Some(node_position(call)),
 			&attrs,
 		);
+	}
+
+	fn resolve_module_path_callable_parent(
+		&self,
+		scope: &Moniker,
+		path_node: Node<'_>,
+		name: &[u8],
+	) -> Option<Moniker> {
+		let mut pieces = Vec::new();
+		collect_scoped_path_into(path_node, self.source_bytes, &mut pieces);
+		if pieces.is_empty() {
+			return None;
+		}
+		let parents = self.module_path_candidates(scope, &pieces);
+		parents.into_iter().find(|parent| {
+			self.callable_table
+				.contains_key(&(parent.clone(), name.to_vec()))
+		})
+	}
+
+	fn module_path_candidates(&self, scope: &Moniker, pieces: &[String]) -> Vec<Moniker> {
+		let base = enclosing_module_moniker(scope).unwrap_or_else(|| self.module.clone());
+		if pieces.first().is_some_and(|p| p == "crate") {
+			module_path_from_relative(&self.module, &pieces[1..])
+				.map(|module| vec![module])
+				.unwrap_or_default()
+		} else if pieces.first().is_some_and(|p| p == "super") {
+			module_path_from_relative(&base, pieces)
+				.map(|module| vec![module])
+				.unwrap_or_default()
+		} else {
+			module_path_from_relative(&base, pieces)
+				.map(|module| vec![module])
+				.unwrap_or_default()
+		}
 	}
 
 	fn emit_instantiates_ref(
@@ -1116,6 +1180,47 @@ pub(super) fn collect_callable_table<'src>(
 
 fn enclosing_callable_moniker(scope: &Moniker) -> Option<Moniker> {
 	enclosing_segment(scope, |kind| kind == kinds::FN || kind == kinds::METHOD)
+}
+
+fn enclosing_module_moniker(scope: &Moniker) -> Option<Moniker> {
+	enclosing_segment(scope, |kind| kind == kinds::MODULE)
+}
+
+fn parent_module(scope: &Moniker) -> Option<Moniker> {
+	let view = scope.as_view();
+	let modules: Vec<usize> = view
+		.segments()
+		.enumerate()
+		.filter_map(|(i, seg)| (seg.kind == kinds::MODULE).then_some(i))
+		.collect();
+	let i = *modules.get(modules.len().checked_sub(2)?)?;
+	let mut b = MonikerBuilder::from_view(view);
+	b.truncate(i + 1);
+	Some(b.build())
+}
+
+fn module_path_from_base(base: &Moniker, pieces: &[String]) -> Moniker {
+	let mut b = MonikerBuilder::from_view(base.as_view());
+	for piece in pieces {
+		b.segment(kinds::MODULE, piece.as_bytes());
+	}
+	b.build()
+}
+
+fn module_path_from_relative(base: &Moniker, pieces: &[String]) -> Option<Moniker> {
+	let mut current = base.clone();
+	let mut i = 0;
+	while let Some(piece) = pieces.get(i) {
+		if piece == "self" {
+			i += 1;
+		} else if piece == "super" {
+			current = parent_module(&current)?;
+			i += 1;
+		} else {
+			break;
+		}
+	}
+	Some(module_path_from_base(&current, &pieces[i..]))
 }
 
 fn enclosing_segment(scope: &Moniker, pred: impl Fn(&[u8]) -> bool) -> Option<Moniker> {

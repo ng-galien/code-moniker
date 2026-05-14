@@ -32,6 +32,11 @@ changes are allowed in minor releases as long as the project is in
 
 ### Changed
 
+- **`code-moniker-core` (rs extractor)** — free function calls now
+  resolve against their enclosing Rust module, including explicit nested
+  module paths such as `tests::mk_under()` and repeated
+  `super::super::...` paths. This resolves local test factories/helpers
+  without masking genuinely unresolved project calls.
 - **`code-moniker-core` (rs extractor)** — common Rust iterator-chain
   methods on call receivers and built-in macros now carry `external`
   confidence and `external_pkg:std` targets, reducing noisy unresolved

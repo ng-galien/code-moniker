@@ -819,6 +819,197 @@ impl W {
 	}
 
 	#[test]
+	fn extract_free_call_to_helper_in_nested_test_module_is_resolved() {
+		let src = r#"
+mod tests {
+    fn mk() -> u8 { 1 }
+    #[test]
+    fn builds() { mk(); }
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"mk()"
+			})
+			.expect("missing calls ref to mk");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"nested test helper call must resolve in its module; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+		let target = crate::core::uri::to_uri(&r.target, &Default::default()).unwrap();
+		assert!(
+			target.contains("module:tests/fn:mk()"),
+			"target should stay under module:tests, got {target}"
+		);
+	}
+
+	#[test]
+	fn extract_free_call_to_strategy_style_nested_helper_is_resolved() {
+		let src = r#"
+mod fixtures {
+    fn cfg_from() -> u8 { 1 }
+    fn build_module() { cfg_from(); }
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls"
+					&& r.target.as_view().segments().last().unwrap().name == b"cfg_from()"
+			})
+			.expect("missing calls ref to cfg_from");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"nested helper call must resolve in its module; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+		let target = crate::core::uri::to_uri(&r.target, &Default::default()).unwrap();
+		assert!(
+			target.contains("module:fixtures/fn:cfg_from()"),
+			"target should stay under module:fixtures, got {target}"
+		);
+	}
+
+	#[test]
+	fn extract_qualified_call_to_nested_helper_is_resolved() {
+		let src = r#"
+mod tests {
+    pub(super) fn mk_under() -> u8 { 1 }
+}
+fn run() { tests::mk_under(); }
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls"
+					&& r.target.as_view().segments().last().unwrap().name == b"mk_under()"
+			})
+			.expect("missing calls ref to tests::mk_under");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"qualified nested helper call must resolve; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+		let target = crate::core::uri::to_uri(&r.target, &Default::default()).unwrap();
+		assert!(
+			target.contains("module:tests/fn:mk_under()"),
+			"target should stay under module:tests, got {target}"
+		);
+	}
+
+	#[test]
+	fn extract_self_qualified_call_does_not_fall_back_to_root() {
+		let src = r#"
+fn mk() -> u8 { 1 }
+mod child {
+    fn run() { self::mk(); }
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"mk"
+			})
+			.expect("missing calls ref to self::mk");
+		assert_eq!(
+			r.confidence,
+			b"unresolved",
+			"self::mk inside child must not resolve to root mk; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
+	fn extract_unprefixed_qualified_call_does_not_fall_back_to_root_from_child() {
+		let src = r#"
+mod tests {
+    pub fn mk_under() -> u8 { 1 }
+}
+mod child {
+    fn run() { tests::mk_under(); }
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls"
+					&& r.target.as_view().segments().last().unwrap().name == b"mk_under"
+			})
+			.expect("missing calls ref to tests::mk_under");
+		assert_eq!(
+			r.confidence,
+			b"unresolved",
+			"tests::mk_under inside child must not resolve to root tests::mk_under; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
+	fn extract_free_call_does_not_fall_back_to_root_from_child() {
+		let src = r#"
+fn mk() -> u8 { 1 }
+mod child {
+    fn run() { mk(); }
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"mk"
+			})
+			.expect("missing calls ref to mk");
+		assert_eq!(
+			r.confidence,
+			b"unresolved",
+			"mk inside child must not resolve to root mk; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
+	fn extract_repeated_super_qualified_call_is_resolved() {
+		let src = r#"
+mod root {
+    pub(super) fn mk() -> u8 { 1 }
+    mod child {
+        mod grandchild {
+            fn run() { super::super::mk(); }
+        }
+    }
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"mk()"
+			})
+			.expect("missing calls ref to super::super::mk");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"super::super::mk must resolve to the ancestor module helper; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+		let target = crate::core::uri::to_uri(&r.target, &Default::default()).unwrap();
+		assert!(
+			target.contains("module:root/fn:mk()"),
+			"target should stay under module:root, got {target}"
+		);
+	}
+
+	#[test]
 	fn extract_free_call_to_unknown_name_stays_unresolved() {
 		let src = "pub fn run() { foo(); }";
 		let g = extract("util.rs", src, &make_anchor(), true);
