@@ -210,110 +210,6 @@ mod tests {
 	}
 
 	#[test]
-	fn extract_named_reexport_emits_reexports_per_specifier() {
-		let g = extract(
-			"index.ts",
-			"export { Foo, Bar } from './lib';",
-			&make_anchor(),
-			false,
-		);
-		let kinds: Vec<_> = g.refs().map(|r| r.kind.clone()).collect();
-		assert_eq!(kinds.len(), 2);
-		assert!(kinds.iter().all(|k| k == b"reexports"));
-	}
-
-	#[test]
-	fn extract_star_reexport_emits_single_reexports_ref() {
-		let g = extract("index.ts", "export * from './lib';", &make_anchor(), false);
-		assert_eq!(g.ref_count(), 1);
-		let r = g.refs().next().unwrap();
-		assert_eq!(r.kind, b"reexports".to_vec());
-	}
-	#[test]
-	fn extract_enum_emits_enum_constants() {
-		let g = extract(
-			"util.ts",
-			"enum Color { Red, Green = 1 }",
-			&make_anchor(),
-			false,
-		);
-		let red = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"enum", b"Color")
-			.segment(b"enum_constant", b"Red")
-			.build();
-		assert!(
-			g.contains(&red),
-			"missing Red enum constant; defs: {:?}",
-			g.def_monikers()
-		);
-	}
-
-	#[test]
-	fn extract_arrow_const_emits_function_def() {
-		let g = extract(
-			"util.ts",
-			"const add = (a: number, b: number) => a + b;",
-			&make_anchor(),
-			false,
-		);
-		let add = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"function", b"add(a:number,b:number)")
-			.build();
-		assert!(
-			g.contains(&add),
-			"arrow-as-const must be a function def; defs: {:?}",
-			g.def_monikers()
-		);
-	}
-	#[test]
-	fn extract_top_level_call_emits_calls_ref() {
-		let g = extract("util.ts", "foo(1);", &make_anchor(), false);
-		let r = g.refs().find(|r| r.kind == b"calls").expect("calls ref");
-		assert_eq!(r.source, 0, "top-level call sources on the module");
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"function", b"foo")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_call_to_same_file_const_from_call_is_resolved() {
-		let src = "const exec = wrap(other);\nexec();";
-		let g = extract("util.ts", src, &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| {
-				r.kind == b"calls" && r.target.as_view().segments().last().unwrap().name == b"exec"
-			})
-			.expect("calls ref for exec");
-		assert_eq!(
-			r.confidence,
-			b"resolved",
-			"same-file const-from-call must be resolved; got {:?}",
-			std::str::from_utf8(&r.confidence)
-		);
-		let last = r.target.as_view().segments().last().unwrap();
-		assert_eq!(
-			last.kind,
-			b"const",
-			"target kind must be const, got {:?}",
-			std::str::from_utf8(last.kind)
-		);
-	}
-
-	#[test]
 	fn extract_call_to_nested_function_is_resolved() {
 		let src = r#"
 function outer() {
@@ -386,31 +282,6 @@ function outer() {
 	}
 
 	#[test]
-	fn extract_visibility_for_class_member_modifiers() {
-		let g = extract(
-			"util.ts",
-			"export class C { public a() {}; protected b() {}; private c() {}; d() {} }",
-			&make_anchor(),
-			false,
-		);
-		let by_name = |n: &[u8]| {
-			g.defs()
-				.find(|d| d.moniker.as_view().segments().last().unwrap().name == n)
-				.unwrap()
-				.visibility
-				.clone()
-		};
-		assert_eq!(by_name(b"a()"), b"public".to_vec());
-		assert_eq!(by_name(b"b()"), b"protected".to_vec());
-		assert_eq!(by_name(b"c()"), b"private".to_vec());
-		assert_eq!(
-			by_name(b"d()"),
-			b"public".to_vec(),
-			"no modifier defaults to public"
-		);
-	}
-
-	#[test]
 	fn extract_reads_param_marks_confidence_local() {
 		let g = extract(
 			"util.ts",
@@ -459,110 +330,6 @@ function outer() {
 		let g = extract("util.ts", "function f(x) {}", &make_anchor(), true);
 		let p = g.defs().find(|d| d.kind == b"param").expect("param def");
 		assert!(p.visibility.is_empty());
-	}
-
-	#[test]
-	fn extract_method_call_carries_receiver_hint() {
-		let cases = [
-			("class C { m() { this.bar(); } }", b"this".as_slice()),
-			("class C { m() { super.bar(); } }", b"super".as_slice()),
-			("obj.bar();", b"obj".as_slice()),
-			("a.b.bar();", b"member".as_slice()),
-			("foo().bar();", b"call".as_slice()),
-		];
-		for (src, expected) in cases {
-			let g = extract("util.ts", src, &make_anchor(), false);
-			let r = g
-				.refs()
-				.find(|r| r.kind == b"method_call")
-				.unwrap_or_else(|| panic!("no method_call ref for: {src}"));
-			assert_eq!(
-				r.receiver_hint.as_slice(),
-				expected,
-				"receiver hint mismatch for {src:?}"
-			);
-		}
-	}
-
-	#[test]
-	fn extract_class_implements_emits_implements_ref() {
-		let g = extract("util.ts", "class A implements I {}", &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"implements")
-			.expect("implements ref");
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"interface", b"I")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_decorator_emits_annotates_ref() {
-		let g = extract("util.ts", "@Injectable class A {}", &make_anchor(), false);
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"annotates")
-			.expect("annotates ref");
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"function", b"Injectable")
-			.build();
-		assert_eq!(r.target, target);
-	}
-
-	#[test]
-	fn extract_decorator_call_uses_name_only_target() {
-		let g = extract("util.ts", "@Bind('x') class A {}", &make_anchor(), false);
-		let r = g.refs().find(|r| r.kind == b"annotates").unwrap();
-		let target = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"function", b"Bind")
-			.build();
-		assert_eq!(r.target, target);
-	}
-	#[test]
-	fn extract_class_field_type_annotation_emits_uses_type_sourced_from_field() {
-		let g = extract(
-			"util.ts",
-			"class Bar { private x: Foo; }",
-			&make_anchor(),
-			false,
-		);
-		let field = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Bar")
-			.segment(b"field", b"x")
-			.build();
-		let foo = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"Foo")
-			.build();
-		let r = g
-			.refs()
-			.find(|r| r.kind == b"uses_type" && r.target == foo)
-			.expect("missing uses_type Foo from field");
-		assert_eq!(
-			g.def_at(r.source).moniker,
-			field,
-			"field type ref must be sourced from the field moniker, not the class scope"
-		);
 	}
 
 	#[test]
@@ -693,18 +460,6 @@ function outer() {
 			g.refs().any(|r| r.kind == b"di_register"),
 			"container.register('name', asFunction(make).singleton()) must emit di_register",
 		);
-	}
-	#[test]
-	fn extract_export_default_class_named_default() {
-		let g = extract("util.ts", "export default class {}", &make_anchor(), false);
-		let m = MonikerBuilder::new()
-			.project(b"my-app")
-			.segment(b"path", b"main")
-			.segment(b"lang", b"ts")
-			.segment(b"module", b"util")
-			.segment(b"class", b"default")
-			.build();
-		assert!(g.contains(&m));
 	}
 	#[test]
 	fn extract_shallow_skips_param_and_local() {

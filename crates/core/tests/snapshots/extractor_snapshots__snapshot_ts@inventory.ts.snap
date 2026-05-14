@@ -1,0 +1,1040 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+assertion_line: 120
+expression: body
+input_file: crates/core/tests/fixtures/ts/inventory.ts
+---
+{
+  "defs": [
+    {
+      "binding": "export",
+      "kind": "enum",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/enum:Stock",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        209,
+        257
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/enum:Stock/enum_constant:Empty",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/enum:Stock",
+      "position": [
+        223,
+        232
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/enum:Stock/enum_constant:Low",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/enum:Stock",
+      "position": [
+        235,
+        242
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/enum:Stock/enum_constant:Ample",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/enum:Stock",
+      "position": [
+        245,
+        254
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        266,
+        361
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo/method:get(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo",
+      "position": [
+        288,
+        325
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo/method:put(item:Item)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo",
+      "position": [
+        328,
+        358
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/interface:Item",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        370,
+        416
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/interface:Item/field:id",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/interface:Item",
+      "position": [
+        388,
+        398
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/interface:Item/field:stock",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/interface:Item",
+      "position": [
+        401,
+        413
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/function:makeId(prefix:string,n:number)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        424,
+        488
+      ],
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "local",
+      "kind": "const",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/const:guard",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        497,
+        527
+      ],
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:BaseItem",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        555,
+        689
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:BaseItem/constructor:constructor(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:BaseItem",
+      "position": [
+        573,
+        618
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:BaseItem/method:describe()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:BaseItem",
+      "position": [
+        621,
+        687
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:AuditedItem",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        723,
+        808
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:AuditedItem/method:log()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:AuditedItem",
+      "position": [
+        761,
+        806
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        817,
+        1069
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/field:items",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo",
+      "position": [
+        857,
+        901
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:get(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo",
+      "position": [
+        905,
+        990
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:put(item:Item)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo",
+      "position": [
+        993,
+        1067
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:1071",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        1071,
+        1120
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        1148,
+        1933
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/field:cache",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "position": [
+        1174,
+        1222
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/field:next",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "position": [
+        1225,
+        1243
+      ],
+      "signature": "",
+      "visibility": "protected"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/constructor:constructor(repo:ItemRepo,logger:Logger)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "position": [
+        1247,
+        1350
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "position": [
+        1353,
+        1723
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "position": [
+        1726,
+        1860
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/method:advance()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "position": [
+        1863,
+        1931
+      ],
+      "signature": "",
+      "visibility": "private"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "imports_symbol",
+      "position": [
+        0,
+        58
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:di/path:Injectable"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "imports_symbol",
+      "position": [
+        0,
+        58
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:di/path:Inject"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "imports_symbol",
+      "position": [
+        0,
+        58
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:di/path:Logged"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "imports_symbol",
+      "position": [
+        0,
+        58
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:di/path:Tagged"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "imports_symbol",
+      "position": [
+        59,
+        93
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:logger/path:Logger"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "imports_symbol",
+      "position": [
+        94,
+        131
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:guards/path:makeGuard"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "reexports",
+      "position": [
+        133,
+        174
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:format/path:format"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "reexports",
+      "position": [
+        133,
+        174
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:format/path:parse"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "reexports",
+      "position": [
+        175,
+        200
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:errors"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/interface:Item/field:stock",
+      "kind": "uses_type",
+      "position": [
+        408,
+        413
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Stock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "reads",
+      "position": [
+        475,
+        481
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/function:prefix"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "reads",
+      "position": [
+        485,
+        486
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/function:n"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "calls",
+      "position": [
+        505,
+        527
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/function:makeGuard"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "calls",
+      "position": [
+        530,
+        537
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/const:guard"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "annotates",
+      "position": [
+        540,
+        547
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/function:Logged"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:BaseItem/method:describe()",
+      "kind": "method_call",
+      "position": [
+        651,
+        683
+      ],
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:toUpperCase"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:BaseItem/method:describe()",
+      "kind": "calls",
+      "position": [
+        651,
+        669
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/function:makeId(prefix:string,n:number)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "annotates",
+      "position": [
+        691,
+        698
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/function:Logged"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory",
+      "kind": "annotates",
+      "position": [
+        699,
+        715
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/function:Tagged"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:AuditedItem",
+      "kind": "extends",
+      "position": [
+        749,
+        757
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:BaseItem"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:AuditedItem/method:log()",
+      "kind": "method_call",
+      "position": [
+        786,
+        802
+      ],
+      "receiver_hint": "super",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:describe"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo",
+      "kind": "implements",
+      "position": [
+        845,
+        853
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/field:items",
+      "kind": "uses_type",
+      "position": [
+        872,
+        889
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Map"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/field:items",
+      "kind": "uses_type",
+      "position": [
+        884,
+        888
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/field:items",
+      "kind": "instantiates",
+      "position": [
+        892,
+        901
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Map"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:get(id:string)",
+      "kind": "uses_type",
+      "position": [
+        928,
+        948
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:get(id:string)",
+      "kind": "uses_type",
+      "position": [
+        936,
+        940
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:get(id:string)",
+      "kind": "method_call",
+      "position": [
+        960,
+        978
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:get"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:put(item:Item)",
+      "kind": "uses_type",
+      "position": [
+        1016,
+        1029
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:put(item:Item)",
+      "kind": "uses_type",
+      "position": [
+        1009,
+        1013
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:put(item:Item)",
+      "kind": "method_call",
+      "position": [
+        1034,
+        1063
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:set"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/field:cache",
+      "kind": "instantiates",
+      "position": [
+        1199,
+        1222
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Map"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/field:cache",
+      "kind": "uses_type",
+      "position": [
+        1215,
+        1219
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/constructor:constructor(repo:ItemRepo,logger:Logger)",
+      "kind": "uses_type",
+      "position": [
+        1301,
+        1309
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:ItemRepo"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/constructor:constructor(repo:ItemRepo,logger:Logger)",
+      "kind": "uses_type",
+      "position": [
+        1337,
+        1343
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:logger/path:Logger"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "uses_type",
+      "position": [
+        1399,
+        1414
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "uses_type",
+      "position": [
+        1407,
+        1411
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "uses_type",
+      "position": [
+        1430,
+        1434
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "calls",
+      "position": [
+        1496,
+        1526
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/function:makeId(prefix:string,n:number)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "method_call",
+      "position": [
+        1511,
+        1525
+      ],
+      "receiver_hint": "this",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:advance"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "uses_type",
+      "position": [
+        1543,
+        1547
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "reads",
+      "position": [
+        1563,
+        1568
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/function:Stock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "method_call",
+      "position": [
+        1587,
+        1606
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:put"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "method_call",
+      "position": [
+        1611,
+        1635
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:set"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "method_call",
+      "position": [
+        1640,
+        1654
+      ],
+      "receiver_hint": "out",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:push"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "kind": "method_call",
+      "position": [
+        1662,
+        1705
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:info"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
+      "kind": "uses_type",
+      "position": [
+        1750,
+        1770
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
+      "kind": "uses_type",
+      "position": [
+        1758,
+        1762
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
+      "kind": "method_call",
+      "position": [
+        1787,
+        1805
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:get"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
+      "kind": "method_call",
+      "position": [
+        1839,
+        1856
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:inventory/method:get"
+    }
+  ],
+  "root": "code+moniker://app/lang:ts/module:inventory"
+}
