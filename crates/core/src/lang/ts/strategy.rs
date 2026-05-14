@@ -733,9 +733,7 @@ impl<'src_lang> Strategy<'src_lang> {
 								)
 							}
 						} else {
-							let base = self
-								.lookup_import_module(name)
-								.unwrap_or_else(|| self.module.clone());
+							let base = self.import_or_local_module(name);
 							(extend_segment(&base, kinds::FUNCTION, name), confidence)
 						};
 						let attrs = RefAttrs {
@@ -816,10 +814,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				};
 				let target =
 					if confidence == kinds::CONF_IMPORTED || confidence == kinds::CONF_EXTERNAL {
-						let base = self
-							.lookup_import_module(n)
-							.unwrap_or_else(|| self.module.clone());
-						extend_segment(&base, kinds::CLASS, n)
+						extend_segment(&self.import_or_local_module(n), kinds::CLASS, n)
 					} else {
 						extend_segment(&self.module, kinds::CLASS, n)
 					};
@@ -1532,6 +1527,11 @@ impl<'src_lang> Strategy<'src_lang> {
 		} else {
 			Some(target)
 		}
+	}
+
+	fn import_or_local_module(&self, name: &[u8]) -> Moniker {
+		self.lookup_import_module(name)
+			.unwrap_or_else(|| self.module.clone())
 	}
 
 	fn lookup_callable(&self, name: &[u8]) -> Option<Moniker> {
