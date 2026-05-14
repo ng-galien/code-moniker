@@ -27,6 +27,7 @@ pub fn run<W: Write>(
 	let files = walk::walk_lang_files(root);
 	let ctx = extract::Context {
 		ts: tsconfig::load(root),
+		project: args.project.clone(),
 	};
 	let has_filter = !args.kind.is_empty() || !args.shape.is_empty() || !args.where_.is_empty();
 	if has_filter {

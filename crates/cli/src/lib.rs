@@ -322,6 +322,7 @@ fn extract_inner<W: Write>(args: &ExtractArgs, stdout: &mut W) -> anyhow::Result
 	}
 	let ctx = extract::Context {
 		ts: tsconfig::load(path.parent().unwrap_or_else(|| Path::new("."))),
+		project: args.project.clone(),
 	};
 	let (graph, extracted_source) =
 		cache::load_or_extract(path, path, lang, args.cache.as_deref(), &ctx)

@@ -12,6 +12,10 @@ changes are allowed in minor releases as long as the project is in
 
 ### Added
 
+- **CLI** — `extract --project <NAME>` sets the project component of
+  the anchor moniker (default `.`); composes with `--scheme`. Cache
+  keyed on the anchor hash, so different projects coexist on disk
+  without collision.
 - **`code-moniker-core` tests** — snapshot + conformance harness
   (`crates/core/tests/extractor_{snapshots,conformance}.rs`, insta-driven)
   over real-code fixtures in `crates/core/tests/fixtures/<lang>/`. The

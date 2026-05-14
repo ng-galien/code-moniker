@@ -946,3 +946,61 @@ fn check_user_overlay_relaxes_default_rule() {
 	]);
 	assert_eq!(exit, Exit::Match, "user override permits the name: {out}");
 }
+
+#[test]
+fn project_flag_overrides_anchor_project_segment() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--project",
+		"my-app",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	for line in out.lines() {
+		assert!(
+			line.contains("code+moniker://my-app/"),
+			"expected anchor project `my-app`, got: {line}"
+		);
+		assert!(
+			!line.contains("code+moniker://./"),
+			"default `.` anchor leaked: {line}"
+		);
+	}
+}
+
+#[test]
+fn project_flag_composes_with_scheme() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--scheme",
+		"esac+moniker://",
+		"--project",
+		"my-app",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	for line in out.lines() {
+		assert!(
+			line.contains("esac+moniker://my-app/"),
+			"expected `esac+moniker://my-app/` prefix, got: {line}"
+		);
+	}
+}
+
+#[test]
+fn project_flag_default_keeps_dot_anchor() {
+	let dir = write_fixture("a.ts", "export class Foo {}\n");
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec!["code-moniker", "extract", path.to_str().unwrap()]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(
+		out.lines().any(|l| l.contains("code+moniker://./")),
+		"default project `.` expected in: {out}"
+	);
+}

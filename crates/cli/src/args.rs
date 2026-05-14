@@ -160,6 +160,13 @@ pub struct ExtractArgs {
 
 	#[arg(
 		long,
+		value_name = "NAME",
+		help = "project component of the anchor moniker; defaults to '.'"
+	)]
+	pub project: Option<String>,
+
+	#[arg(
+		long,
 		value_name = "DIR",
 		env = "CODE_MONIKER_CACHE_DIR",
 		help = "enable on-disk cache of extracted graphs at DIR (empty = disabled)"
@@ -258,6 +265,7 @@ impl ExtractArgs {
 			quiet: false,
 			with_text: false,
 			scheme: None,
+			project: None,
 			cache: None,
 		}
 	}

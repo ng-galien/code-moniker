@@ -7,7 +7,8 @@ code-moniker extract <PATH> [--where '<op> <uri>']... [--kind <name>]...
                             [--shape <shape>]...
                             [--format tsv|json|tree] [--count] [--quiet]
                             [--color auto|always|never] [--charset utf8|ascii]
-                            [--with-text] [--scheme <SCHEME>] [--cache <DIR>]
+                            [--with-text] [--scheme <SCHEME>] [--project <NAME>]
+                            [--cache <DIR>]
 ```
 
 | `<PATH>`     | Output                                                  |
@@ -15,7 +16,7 @@ code-moniker extract <PATH> [--where '<op> <uri>']... [--kind <name>]...
 | file         | full graph for that file                                |
 | directory    | per-file summary (no filter) or filtered list           |
 
-The walker honors `.gitignore`. `--scheme` overrides the `code+moniker://` URI prefix (matches the PG GUC `code_moniker.scheme`).
+The walker honors `.gitignore`. `--scheme` overrides the `code+moniker://` URI prefix (matches the PG GUC `code_moniker.scheme`). `--project <NAME>` sets the project component of every emitted moniker (default `.`); the cache shards by anchor hash, so caches keyed at different projects coexist on disk without collision.
 
 | Extension                                | Language |
 | ---------------------------------------- | -------- |

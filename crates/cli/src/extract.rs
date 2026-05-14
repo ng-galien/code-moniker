@@ -9,6 +9,7 @@ use crate::tsconfig::TsResolution;
 #[derive(Debug, Clone, Default)]
 pub struct Context {
 	pub ts: TsResolution,
+	pub project: Option<String>,
 }
 
 pub fn extract(lang: Lang, source: &str, path: &Path) -> CodeGraph {
@@ -17,7 +18,8 @@ pub fn extract(lang: Lang, source: &str, path: &Path) -> CodeGraph {
 
 pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> CodeGraph {
 	let uri = path.to_str().unwrap_or("single-file");
-	let anchor = anchor_moniker();
+	let project = ctx.project.as_deref().map(str::as_bytes).unwrap_or(b".");
+	let anchor = anchor_moniker(project);
 	let deep = true;
 	match lang {
 		Lang::Ts => {
@@ -72,9 +74,9 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 	}
 }
 
-fn anchor_moniker() -> Moniker {
+fn anchor_moniker(project: &[u8]) -> Moniker {
 	let mut b = MonikerBuilder::new();
-	b.project(b".");
+	b.project(project);
 	b.build()
 }
 
