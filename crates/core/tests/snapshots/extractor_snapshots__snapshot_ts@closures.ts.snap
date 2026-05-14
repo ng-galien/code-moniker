@@ -1,0 +1,377 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+assertion_line: 120
+expression: body
+input_file: crates/core/tests/fixtures/ts/closures.ts
+---
+{
+  "defs": [
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeStringer()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures",
+      "position": [
+        7,
+        121
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/type:Local",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeStringer()",
+      "position": [
+        34,
+        54
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/function:inner(x:Local)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeStringer()",
+      "position": [
+        56,
+        104
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeShaper()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures",
+      "position": [
+        130,
+        257
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeShaper()",
+      "position": [
+        155,
+        188
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape/field:v",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape",
+      "position": [
+        175,
+        184
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/function:client(s:Shape)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeShaper()",
+      "position": [
+        190,
+        239
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeMode()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures",
+      "position": [
+        266,
+        376
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "enum",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()",
+      "position": [
+        289,
+        313
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode/enum_constant:A",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode",
+      "position": [
+        303,
+        304
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode/enum_constant:B",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode",
+      "position": [
+        308,
+        309
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeMode()/function:pick(m:Mode)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()",
+      "position": [
+        315,
+        360
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures",
+      "position": [
+        385,
+        509
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()",
+      "position": [
+        411,
+        440
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local/field:ok",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local",
+      "position": [
+        427,
+        436
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()",
+      "position": [
+        442,
+        492
+      ],
+      "signature": "",
+      "visibility": "public"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/function:inner(x:Local)",
+      "kind": "uses_type",
+      "position": [
+        82,
+        87
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/type:Local"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/function:inner(x:Local)",
+      "kind": "uses_type",
+      "position": [
+        74,
+        79
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/type:Local"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeStringer()",
+      "kind": "reads",
+      "position": [
+        113,
+        118
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:inner"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/function:client(s:Shape)",
+      "kind": "uses_type",
+      "position": [
+        217,
+        222
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/function:client(s:Shape)",
+      "kind": "uses_type",
+      "position": [
+        209,
+        214
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeShaper()",
+      "kind": "reads",
+      "position": [
+        248,
+        254
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:client"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeMode()/function:pick(m:Mode)",
+      "kind": "uses_type",
+      "position": [
+        339,
+        343
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeMode()/function:pick(m:Mode)",
+      "kind": "uses_type",
+      "position": [
+        332,
+        336
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeMode()",
+      "kind": "reads",
+      "position": [
+        369,
+        373
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:pick"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()",
+      "kind": "uses_type",
+      "position": [
+        460,
+        465
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()",
+      "kind": "instantiates",
+      "position": [
+        477,
+        488
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()",
+      "kind": "reads",
+      "position": [
+        501,
+        506
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:closures/function:build"
+    }
+  ],
+  "root": "code+moniker://app/lang:ts/module:closures"
+}

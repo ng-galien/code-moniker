@@ -659,6 +659,77 @@ function outer() {
 	}
 
 	#[test]
+	fn extract_closure_uses_type_targets_outer_interface_def() {
+		let src = "function outer() { interface Local { v: string; } function inner(x: Local): Local { return x; } return inner; }";
+		let g = extract("util.ts", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"uses_type"
+					&& r.target.as_view().segments().last().unwrap().name == b"Local"
+			})
+			.expect("uses_type ref for Local");
+		let segs: Vec<_> = r.target.as_view().segments().collect();
+		assert!(
+			segs.iter()
+				.any(|s| s.kind == b"interface" && s.name == b"Local"),
+			"target must terminate with interface:Local of the defining frame, got: {segs:?}"
+		);
+		assert!(
+			segs.iter()
+				.any(|s| s.kind == b"function" && s.name.starts_with(b"outer")),
+			"target must be parented under outer, got: {segs:?}"
+		);
+	}
+
+	#[test]
+	fn extract_closure_instantiates_targets_outer_class_def() {
+		let src = "function outer() { class Local { ok = true; } function inner() { return new Local(); } return inner; }";
+		let g = extract("util.ts", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"instantiates"
+					&& r.target.as_view().segments().last().unwrap().name == b"Local"
+			})
+			.expect("instantiates ref for Local");
+		let segs: Vec<_> = r.target.as_view().segments().collect();
+		assert!(
+			segs.iter()
+				.any(|s| s.kind == b"class" && s.name == b"Local"),
+			"target must terminate with class:Local of the defining frame, got: {segs:?}"
+		);
+		assert!(
+			segs.iter()
+				.any(|s| s.kind == b"function" && s.name.starts_with(b"outer")),
+			"target must be parented under outer, got: {segs:?}"
+		);
+	}
+
+	#[test]
+	fn extract_closure_uses_type_targets_outer_enum_def() {
+		let src = "function outer() { enum Mode { A, B } function inner(m: Mode): Mode { return m; } return inner; }";
+		let g = extract("util.ts", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"uses_type"
+					&& r.target.as_view().segments().last().unwrap().name == b"Mode"
+			})
+			.expect("uses_type ref for Mode");
+		let segs: Vec<_> = r.target.as_view().segments().collect();
+		assert!(
+			segs.iter().any(|s| s.kind == b"enum" && s.name == b"Mode"),
+			"target must terminate with enum:Mode of the defining frame, got: {segs:?}"
+		);
+		assert!(
+			segs.iter()
+				.any(|s| s.kind == b"function" && s.name.starts_with(b"outer")),
+			"target must be parented under outer, got: {segs:?}"
+		);
+	}
+
+	#[test]
 	fn extract_closure_call_targets_outer_local_def() {
 		let src = "function outer() { const helper = () => 1; return function inner() { return helper(); }; }";
 		let g = extract("util.ts", src, &make_anchor(), true);

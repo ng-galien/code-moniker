@@ -242,6 +242,9 @@ impl<'src_lang> Strategy<'src_lang> {
 			node_slice(name_node, source)
 		};
 		let moniker = extend_segment(scope, kinds::CLASS, name);
+		if is_callable_scope(scope, &self.module) {
+			self.bind_local(name, moniker.clone());
+		}
 
 		let mut annotated_by: Vec<RefSpec> = Vec::new();
 		let mut cursor = node.walk();
@@ -277,6 +280,9 @@ impl<'src_lang> Strategy<'src_lang> {
 		};
 		let name = node_slice(name_node, source);
 		let moniker = extend_segment(scope, kinds::INTERFACE, name);
+		if is_callable_scope(scope, &self.module) {
+			self.bind_local(name, moniker.clone());
+		}
 
 		let mut annotated_by: Vec<RefSpec> = Vec::new();
 		let mut cursor = node.walk();
@@ -308,6 +314,9 @@ impl<'src_lang> Strategy<'src_lang> {
 		};
 		let name = node_slice(name_node, source);
 		let moniker = extend_segment(scope, kinds::ENUM, name);
+		if is_callable_scope(scope, &self.module) {
+			self.bind_local(name, moniker.clone());
+		}
 		NodeShape::Symbol(Symbol {
 			moniker,
 			kind: kinds::ENUM,
@@ -821,6 +830,8 @@ impl<'src_lang> Strategy<'src_lang> {
 				let target =
 					if confidence == kinds::CONF_IMPORTED || confidence == kinds::CONF_EXTERNAL {
 						extend_segment(&self.import_or_local_module(n), kinds::CLASS, n)
+					} else if let Some(m) = self.lookup_local_binding(n) {
+						m
 					} else {
 						extend_segment(&self.module, kinds::CLASS, n)
 					};
