@@ -30,18 +30,45 @@ Python, Go, C#, SQL, and PL/pgSQL.
 
 ```mermaid
 flowchart LR
-  S[Source code<br/>TS, Rust, Java, Python,<br/>Go, C#, SQL] --> E[Language extractors]
-  E --> G[Code graph<br/>defs, refs, monikers,<br/>positions, attributes]
+  subgraph Input["Inputs"]
+    S["Source code<br/>TS, Rust, Java, Python,<br/>Go, C#, SQL"]
+    M["Build manifests<br/>Cargo.toml, package.json,<br/>pom.xml, pyproject.toml,<br/>go.mod, csproj"]
+  end
 
-  G --> C[CLI<br/>extract, check, manifest]
-  G --> P[PostgreSQL extension<br/>moniker + code_graph types,<br/>SQL extractors, indexes]
+  subgraph Model["Extraction model"]
+    E["Language extractors"]
+    G["Code graph<br/>defs, refs, monikers,<br/>positions, attributes"]
+    D["Dependency rows<br/>package monikers"]
+  end
 
-  M[Build manifests<br/>Cargo.toml, package.json,<br/>pom.xml, pyproject.toml,<br/>go.mod, csproj] --> D[Dependency rows<br/>package monikers]
+  subgraph Tools["Tools"]
+    C["CLI<br/>extract, check, manifest"]
+    P["PostgreSQL extension<br/>moniker + code_graph types,<br/>SQL extractors, indexes"]
+  end
+
+  subgraph Uses["Uses"]
+    I["Inspection<br/>tree, json, tsv"]
+    R["Architecture rules<br/>hooks, CI, agent harnesses"]
+    Q["SQL queries<br/>storage, joins, indexed lookup"]
+  end
+
+  S --> E --> G
+  M --> D
+  G --> C
+  G --> P
   D --> C
+  C --> I
+  C --> R
+  P --> Q
 
-  C --> R[Architecture rules<br/>hooks, CI, agent harnesses]
-  C --> I[Inspection<br/>tree, json, tsv]
-  P --> Q[SQL queries<br/>storage, joins, indexed lookup]
+  classDef input fill:#eef6ff,stroke:#2f6f9f,color:#0b253a
+  classDef model fill:#f1f8f4,stroke:#3a7d4f,color:#0f2a18
+  classDef tool fill:#fff6e5,stroke:#9a6b12,color:#332100
+  classDef use fill:#f7f1ff,stroke:#6f4aa1,color:#211232
+  class S,M input
+  class E,G,D model
+  class C,P tool
+  class I,R,Q use
 ```
 
 First useful commands:
