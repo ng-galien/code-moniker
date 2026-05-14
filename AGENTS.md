@@ -23,6 +23,21 @@ Use `bug/` for confirmed incorrect behavior with a minimal reproducer. Use `evol
 - `./pgtap/run.sh`: run SQL extension tests after installing the extension.
 - `cargo arch-check`: run this project’s own architecture rules.
 
+## CI & Release Workflow
+
+GitHub CI lives in `.github/workflows/ci.yml`. It runs on `main` pushes
+and pull requests, installs PostgreSQL 17 + pgTAP, then executes
+`cargo fmt --all -- --check`, `cargo clippy --features pg17
+--no-default-features --tests --no-deps -- -D warnings`, `cargo test
+--features pg17 --no-default-features --lib`, installs the pgrx
+extension, runs `./pgtap/run.sh`, and finishes with `cargo arch-check`.
+
+The release workflow is `.github/workflows/release.yml` and only starts
+when a `v*.*.*` tag is pushed. It verifies the tag matches the
+`code-moniker-core` workspace version, then publishes `code-moniker-core`
+before `code-moniker`. Pushing `main` is a CI action; pushing `v0.2.0`
+is the release action.
+
 ## Coding Style & Naming Conventions
 
 Use `rustfmt`; this repo sets `hard_tabs = true` in `rustfmt.toml`. Keep modules focused by responsibility. Language extractors follow `crates/core/src/lang/<lang>/` with files such as `mod.rs`, `kinds.rs`, `canonicalize.rs`, and `strategy.rs`. Public APIs shared with CLI or PG crates must be `pub`, not `pub(crate)`.
