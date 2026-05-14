@@ -1,0 +1,975 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+assertion_line: 123
+expression: body
+input_file: crates/core/tests/fixtures/go/metrics.go
+---
+{
+  "defs": [
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:go/module:metrics/type:Counter",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        404,
+        420
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:go/module:metrics/type:Histogram",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        422,
+        444
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        446,
+        500
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:go/module:metrics/type:AnyBucket",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        502,
+        524
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:go/module:metrics/interface:Snapshot",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        526,
+        565
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:go/module:metrics/type:Labels",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        574,
+        598
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:go/module:metrics/interface:Reader",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        605,
+        665
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:Sampler",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        672,
+        737
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:ledger",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        744,
+        780
+      ],
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        787,
+        874
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "const",
+      "moniker": "code+moniker://app/lang:go/module:metrics/const:StatusOK",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        154,
+        162
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "const",
+      "moniker": "code+moniker://app/lang:go/module:metrics/const:StatusError",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        173,
+        184
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "const",
+      "moniker": "code+moniker://app/lang:go/module:metrics/const:defaultTag",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        192,
+        202
+      ],
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "export",
+      "kind": "var",
+      "moniker": "code+moniker://app/lang:go/module:metrics/var:ErrTimeout",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        225,
+        235
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "var",
+      "moniker": "code+moniker://app/lang:go/module:metrics/var:defaultBuf",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        263,
+        273
+      ],
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "local",
+      "kind": "var",
+      "moniker": "code+moniker://app/lang:go/module:metrics/var:moduleStart",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        300,
+        311
+      ],
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "local",
+      "kind": "var",
+      "moniker": "code+moniker://app/lang:go/module:metrics/var:reqCounter",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        319,
+        329
+      ],
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "local",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        876,
+        1007
+      ],
+      "signature": "src:Reader,...",
+      "visibility": "module"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        1009,
+        1290
+      ],
+      "signature": "ctx:context.Context,name:string,...",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Drain(out:*Counter,route:map[Counter]string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        1292,
+        1433
+      ],
+      "signature": "out:*Counter,route:map[Counter]string",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        1435,
+        1598
+      ],
+      "signature": "specs:[]*BucketSpec",
+      "visibility": "module"
+    },
+    {
+      "binding": "local",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        1600,
+        1698
+      ],
+      "signature": "p:*Pipeline",
+      "visibility": "module"
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:Sampler/method:labels()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        1700,
+        1754
+      ],
+      "signature": "",
+      "visibility": "module"
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        1756,
+        1965
+      ],
+      "signature": "a:int,b:int,marks:[]float64",
+      "visibility": "public"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "imports_module",
+      "position": [
+        27,
+        36
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:context"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "imports_module",
+      "position": [
+        38,
+        42
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:io"
+    },
+    {
+      "alias": "fmtx",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "imports_module",
+      "position": [
+        44,
+        54
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:fmt"
+    },
+    {
+      "alias": ".",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "imports_module",
+      "position": [
+        56,
+        67
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:strings"
+    },
+    {
+      "alias": "_",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "imports_module",
+      "position": [
+        69,
+        90
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:github.com/path:lib/path:pq"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "imports_module",
+      "position": [
+        93,
+        141
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:github.com/path:prometheus/path:client_golang/path:prometheus"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "calls",
+      "position": [
+        239,
+        261
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:fmt/func:Errorf"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "calls",
+      "position": [
+        277,
+        298
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/func:make"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "calls",
+      "position": [
+        333,
+        392
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:github.com/path:prometheus/path:client_golang/path:prometheus/func:NewCounter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:go/module:metrics",
+      "kind": "instantiates",
+      "position": [
+        355,
+        391
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:github.com/path:prometheus/path:client_golang/path:prometheus/struct:CounterOpts"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/type:AnyBucket",
+      "kind": "uses_type",
+      "position": [
+        514,
+        524
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:metrics/interface:Reader",
+      "kind": "extends",
+      "position": [
+        625,
+        634
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:io/struct:Reader"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Sampler",
+      "kind": "extends",
+      "position": [
+        690,
+        710
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:github.com/path:prometheus/path:client_golang/path:prometheus/struct:Collector"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Sampler",
+      "kind": "extends",
+      "position": [
+        713,
+        720
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Sampler",
+      "kind": "uses_type",
+      "position": [
+        729,
+        735
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/type:Labels"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:ledger",
+      "kind": "uses_type",
+      "position": [
+        771,
+        778
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
+      "kind": "extends",
+      "position": [
+        806,
+        813
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:Sampler"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
+      "kind": "uses_type",
+      "position": [
+        821,
+        827
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/interface:Reader"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
+      "kind": "uses_type",
+      "position": [
+        837,
+        846
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:io/struct:Writer"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
+      "kind": "uses_type",
+      "position": [
+        865,
+        872
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
+      "kind": "uses_type",
+      "position": [
+        897,
+        903
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/interface:Reader"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
+      "kind": "uses_type",
+      "position": [
+        914,
+        923
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:io/struct:Writer"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
+      "kind": "uses_type",
+      "position": [
+        926,
+        934
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:Pipeline"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
+      "kind": "instantiates",
+      "position": [
+        946,
+        1005
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:Pipeline"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "kind": "uses_type",
+      "position": [
+        1037,
+        1052
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:context/struct:Context"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "kind": "uses_type",
+      "position": [
+        1085,
+        1092
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "kind": "uses_type",
+      "position": [
+        1095,
+        1105
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "kind": "calls",
+      "position": [
+        1123,
+        1136
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/func:ToUpper"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "kind": "instantiates",
+      "position": [
+        1149,
+        1179
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "kind": "calls",
+      "position": [
+        1193,
+        1211
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/func:Counter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "kind": "calls",
+      "position": [
+        1201,
+        1210
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/func:len"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "kind": "method_call",
+      "position": [
+        1223,
+        1245
+      ],
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:go/module:metrics/method:labels"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "kind": "calls",
+      "position": [
+        1223,
+        1236
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Drain(out:*Counter,route:map[Counter]string)",
+      "kind": "uses_type",
+      "position": [
+        1322,
+        1329
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Drain(out:*Counter,route:map[Counter]string)",
+      "kind": "uses_type",
+      "position": [
+        1341,
+        1348
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
+      "kind": "uses_type",
+      "position": [
+        1472,
+        1482
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
+      "kind": "uses_type",
+      "position": [
+        1485,
+        1491
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:ledger"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
+      "kind": "instantiates",
+      "position": [
+        1501,
+        1548
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:ledger"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
+      "kind": "calls",
+      "position": [
+        1517,
+        1547
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/func:make"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
+      "kind": "calls",
+      "position": [
+        1536,
+        1546
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/func:len"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)",
+      "kind": "uses_type",
+      "position": [
+        1619,
+        1627
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:Pipeline"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)",
+      "kind": "uses_type",
+      "position": [
+        1630,
+        1637
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:Sampler"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)",
+      "kind": "instantiates",
+      "position": [
+        1649,
+        1696
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:Sampler"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)",
+      "kind": "instantiates",
+      "position": [
+        1665,
+        1695
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/type:Labels"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/struct:Sampler/method:labels()",
+      "kind": "uses_type",
+      "position": [
+        1727,
+        1733
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/type:Labels"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
+      "kind": "uses_type",
+      "position": [
+        1796,
+        1806
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
+      "kind": "instantiates",
+      "position": [
+        1826,
+        1865
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:github.com/path:prometheus/path:client_golang/path:prometheus/struct:HistogramOpts"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
+      "kind": "instantiates",
+      "position": [
+        1876,
+        1924
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
+      "kind": "calls",
+      "position": [
+        1894,
+        1904
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/func:float64"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
+      "kind": "calls",
+      "position": [
+        1913,
+        1923
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:metrics/func:float64"
+    }
+  ],
+  "root": "code+moniker://app/lang:go/module:metrics"
+}
