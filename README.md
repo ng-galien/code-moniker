@@ -17,13 +17,40 @@
 
 `code-moniker` extracts a symbol graph from source code.
 
-It gives you two surfaces over the same model:
+It turns source files into stable symbol identities, then exposes the
+same graph through two surfaces:
 
 - a CLI for inspecting code and enforcing architecture rules in hooks or CI;
 - a PostgreSQL extension for storing and querying symbol graphs with SQL.
 
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
 Python, Go, C#, SQL, and PL/pgSQL.
+
+## At a glance
+
+```mermaid
+flowchart LR
+  S[Source code<br/>TS, Rust, Java, Python,<br/>Go, C#, SQL] --> E[Language extractors]
+  E --> G[Code graph<br/>defs, refs, monikers,<br/>positions, attributes]
+
+  G --> C[CLI<br/>extract, check, manifest]
+  G --> P[PostgreSQL extension<br/>moniker + code_graph types,<br/>SQL extractors, indexes]
+
+  M[Build manifests<br/>Cargo.toml, package.json,<br/>pom.xml, pyproject.toml,<br/>go.mod, csproj] --> D[Dependency rows<br/>package monikers]
+  D --> C
+
+  C --> R[Architecture rules<br/>hooks, CI, agent harnesses]
+  C --> I[Inspection<br/>tree, json, tsv]
+  P --> Q[SQL queries<br/>storage, joins, indexed lookup]
+```
+
+First useful commands:
+
+```sh
+code-moniker extract src/order.ts --format tree
+code-moniker check src/ --report
+code-moniker manifest .
+```
 
 ## What it is for
 
@@ -37,16 +64,43 @@ about symbols and relationships:
   differs across import and definition sites?
 - Can this rule run after every edit, before commit, or in CI?
 
-The unit of identity is a `moniker`: a URI-like path made of typed
-segments.
+## How extraction works
 
-```text
-code+moniker://app/lang:ts/dir:src/dir:domain/module:order/class:OrderEntity
+The unit of identity is a `moniker`: a URI-like path made of typed
+segments. Each segment says what the name means, not only where text was
+found.
+
+For this file:
+
+```ts
+// src/domain/order.ts
+export class OrderEntity {
+  total() {
+    return computeTotal();
+  }
+}
+
+function computeTotal() {
+  return 42;
+}
 ```
 
-The graph then stores defs and refs between those monikers: calls,
-imports, inheritance, implemented interfaces, type usage, annotations,
-and related language-specific edges.
+`extract` emits definitions such as:
+
+```text
+code+moniker://./lang:ts/dir:src/dir:domain/module:order/class:OrderEntity
+code+moniker://./lang:ts/dir:src/dir:domain/module:order/function:computeTotal()
+```
+
+It also emits refs between those definitions. The call inside
+`OrderEntity.total()` points at the `function:computeTotal()` moniker,
+so rules and queries can reason over relationships instead of strings.
+
+Common ref kinds include calls, imports, inheritance, implemented
+interfaces, type usage, annotations, and language-specific edges. In
+project scans, file paths are anchored relative to the scanned root:
+`code-moniker extract src/` sees `src/domain/order.ts` as
+`dir:domain/module:order`.
 
 ## Install
 
