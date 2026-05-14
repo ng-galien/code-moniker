@@ -8,6 +8,16 @@ The three published crates share a single workspace version. Breaking
 changes are allowed in minor releases as long as the project is in
 `0.y.z`.
 
+## [Unreleased]
+
+### Added
+
+- **`code-moniker-core` (rs extractor)** — Rust test declarations now
+  emit `test` defs with stable monikers, source positions, framework
+  metadata (`rust-test` / `proptest`), display names, disabled state
+  from `#[ignore]`, and inline module hierarchy for ESAC-style test
+  taxonomy consumers.
+
 ## [0.2.0] — 2026-05-13
 
 ### Added

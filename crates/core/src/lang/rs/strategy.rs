@@ -86,7 +86,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 				self.handle_scoped_read(node, scope, graph);
 				NodeShape::Skip
 			}
-			"mod_item" => NodeShape::Skip,
+			"mod_item" => self.classify_inline_module(node, scope, source),
 			_ => NodeShape::Recurse,
 		}
 	}
@@ -99,7 +99,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 		_source: &[u8],
 		graph: &mut CodeGraph,
 	) {
-		if kind != kinds::FN && kind != kinds::METHOD {
+		if kind != kinds::FN && kind != kinds::METHOD && kind != kinds::TEST {
 			return;
 		}
 		if let Some(params) = node.child_by_field_name("parameters") {
@@ -114,7 +114,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 	}
 
 	fn after_body(&self, kind: &[u8], _moniker: &Moniker) {
-		if kind == kinds::FN || kind == kinds::METHOD {
+		if kind == kinds::FN || kind == kinds::METHOD || kind == kinds::TEST {
 			self.pop_local_scope();
 		}
 	}
@@ -187,13 +187,26 @@ impl<'src_lang> Strategy<'src_lang> {
 			return NodeShape::Recurse;
 		};
 		let name = node_slice(name_node, source);
-		let kind = if is_type_scope(scope) {
+		let is_test = has_rust_attribute(node, source, "test");
+		let kind = if is_test {
+			kinds::TEST
+		} else if is_type_scope(scope) {
 			kinds::METHOD
 		} else {
 			kinds::FN
 		};
 		let slots = function_param_slots(node, source);
 		let moniker = extend_callable_slots(scope, kind, name, &slots);
+		let signature = if is_test {
+			Some(test_signature(
+				b"rust-test",
+				name,
+				has_rust_attribute(node, source, "ignore"),
+				rust_attribute_value(node, source, "ignore").as_deref(),
+			))
+		} else {
+			None
+		};
 		self.push_type_params_from(node, source);
 		self.push_local_scope();
 		if let Some(params) = node.child_by_field_name("parameters") {
@@ -204,8 +217,32 @@ impl<'src_lang> Strategy<'src_lang> {
 			moniker,
 			kind,
 			visibility: self.visibility_of(node, scope, source),
-			signature: None,
+			signature,
 			body: node.child_by_field_name("body"),
+			position: node_position(node),
+			annotated_by: Vec::new(),
+		})
+	}
+
+	fn classify_inline_module<'src>(
+		&self,
+		node: Node<'src>,
+		scope: &Moniker,
+		source: &'src [u8],
+	) -> NodeShape<'src> {
+		let Some(body) = node.child_by_field_name("body") else {
+			return NodeShape::Skip;
+		};
+		let Some(name_node) = node.child_by_field_name("name") else {
+			return NodeShape::Recurse;
+		};
+		let name = node_slice(name_node, source);
+		NodeShape::Symbol(Symbol {
+			moniker: extend_segment(scope, kinds::MODULE, name),
+			kind: kinds::MODULE,
+			visibility: self.visibility_of(node, scope, source),
+			signature: None,
+			body: Some(body),
 			position: node_position(node),
 			annotated_by: Vec::new(),
 		})
@@ -467,7 +504,27 @@ impl<'src_lang> Strategy<'src_lang> {
 			Some(node_position(node)),
 			&attrs,
 		);
+		if name == "proptest" {
+			self.emit_proptest_tests(node, scope, graph);
+		}
 		self.walk_children(node, scope, graph);
+	}
+
+	fn emit_proptest_tests(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let Ok(text) = node.utf8_text(self.source_bytes) else {
+			return;
+		};
+		for parsed in parse_proptest_tests(text) {
+			let moniker = extend_segment(scope, kinds::TEST, parsed.segment.as_bytes());
+			let attrs = DefAttrs {
+				visibility: kinds::VIS_PRIVATE,
+				signature: &parsed.signature,
+				..DefAttrs::default()
+			};
+			let start = node.start_byte() as u32 + parsed.start_offset as u32;
+			let end = node.start_byte() as u32 + parsed.end_offset as u32;
+			let _ = graph.add_def_attrs(moniker, kinds::TEST, scope, Some((start, end)), &attrs);
+		}
 	}
 
 	fn handle_attribute(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
@@ -1250,4 +1307,237 @@ fn target_external(module: &Moniker, path: &[String]) -> Moniker {
 		b.segment(kinds::PATH, piece.as_bytes());
 	}
 	b.build()
+}
+
+fn has_rust_attribute(node: Node<'_>, source: &[u8], wanted: &str) -> bool {
+	rust_attribute_items(node).into_iter().any(|attr_item| {
+		bare_attr_name(attr_item, source)
+			.as_deref()
+			.is_some_and(|name| name == wanted)
+	})
+}
+
+fn rust_attribute_value(node: Node<'_>, source: &[u8], wanted: &str) -> Option<String> {
+	rust_attribute_items(node)
+		.into_iter()
+		.find_map(|attr_item| {
+			if bare_attr_name(attr_item, source).as_deref()? != wanted {
+				return None;
+			}
+			quoted_value(attr_item.utf8_text(source).ok()?)
+		})
+}
+
+fn rust_attribute_items(node: Node<'_>) -> Vec<Node<'_>> {
+	let mut cursor = node.walk();
+	let mut out: Vec<Node<'_>> = node
+		.children(&mut cursor)
+		.filter(|child| child.kind() == "attribute_item")
+		.collect();
+	let mut prev = node.prev_named_sibling();
+	while let Some(sibling) = prev {
+		if sibling.kind() != "attribute_item" {
+			break;
+		}
+		out.push(sibling);
+		prev = sibling.prev_named_sibling();
+	}
+	out
+}
+
+fn bare_attr_name(attr_item: Node<'_>, source: &[u8]) -> Option<String> {
+	let mut cursor = attr_item.walk();
+	for child in attr_item.named_children(&mut cursor) {
+		if child.kind() != "attribute" {
+			continue;
+		}
+		let mut attr_cursor = child.walk();
+		for item in child.named_children(&mut attr_cursor) {
+			if item.kind() == "identifier" {
+				return item.utf8_text(source).ok().map(str::to_string);
+			}
+		}
+	}
+	None
+}
+
+fn quoted_value(text: &str) -> Option<String> {
+	let start = text.find('"')? + 1;
+	let end = text[start..].find('"')? + start;
+	Some(text[start..end].to_string())
+}
+
+fn test_signature(
+	framework: &[u8],
+	display: &[u8],
+	ignored: bool,
+	ignore_reason: Option<&str>,
+) -> Vec<u8> {
+	let mut out = Vec::new();
+	out.extend_from_slice(b"framework=");
+	out.extend_from_slice(framework);
+	out.extend_from_slice(if ignored {
+		b";enabled=false;display="
+	} else {
+		b";enabled=true;display="
+	});
+	out.extend_from_slice(display);
+	if let Some(reason) = ignore_reason {
+		out.extend_from_slice(b";ignore=");
+		out.extend_from_slice(sanitize_signature_value(reason).as_bytes());
+	}
+	out
+}
+
+fn sanitize_signature_value(value: &str) -> String {
+	value
+		.chars()
+		.map(|c| match c {
+			'\n' | '\r' | '\t' => ' ',
+			';' => ',',
+			_ => c,
+		})
+		.collect()
+}
+
+struct ParsedProptest {
+	segment: String,
+	signature: Vec<u8>,
+	start_offset: usize,
+	end_offset: usize,
+}
+
+fn parse_proptest_tests(text: &str) -> Vec<ParsedProptest> {
+	let mut out = Vec::new();
+	let mut cursor = 0;
+	while let Some(test_rel) = text[cursor..].find("#[test]") {
+		let test_offset = cursor + test_rel;
+		let Some(fn_rel) = find_keyword(&text[test_offset + 7..], "fn") else {
+			break;
+		};
+		let fn_offset = test_offset + 7 + fn_rel;
+		let mut name_start = fn_offset + 2;
+		while text
+			.as_bytes()
+			.get(name_start)
+			.is_some_and(u8::is_ascii_whitespace)
+		{
+			name_start += 1;
+		}
+		let mut name_end = name_start;
+		while text
+			.as_bytes()
+			.get(name_end)
+			.is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_')
+		{
+			name_end += 1;
+		}
+		if name_end == name_start {
+			cursor = fn_offset + 2;
+			continue;
+		}
+		let name = &text[name_start..name_end];
+		let Some(params_open_rel) = text[name_end..].find('(') else {
+			break;
+		};
+		let params_open = name_end + params_open_rel;
+		let Some(params_close) = find_matching_paren(text, params_open) else {
+			break;
+		};
+		let params = proptest_param_names(&text[params_open + 1..params_close]).join(",");
+		let segment = format!("{name}({params})");
+		let attrs = text[cursor..test_offset].trim();
+		let ignored = attrs.contains("#[ignore");
+		let ignore_reason = ignore_reason_from_attr_text(attrs);
+		out.push(ParsedProptest {
+			segment,
+			signature: test_signature(
+				b"proptest",
+				name.as_bytes(),
+				ignored,
+				ignore_reason.as_deref(),
+			),
+			start_offset: test_offset,
+			end_offset: params_close + 1,
+		});
+		cursor = params_close + 1;
+	}
+	out
+}
+
+fn ignore_reason_from_attr_text(text: &str) -> Option<String> {
+	let offset = text.rfind("#[ignore")?;
+	quoted_value(&text[offset..])
+}
+
+fn find_keyword(text: &str, keyword: &str) -> Option<usize> {
+	let mut cursor = 0;
+	while let Some(rel) = text[cursor..].find(keyword) {
+		let pos = cursor + rel;
+		let before = pos
+			.checked_sub(1)
+			.and_then(|i| text.as_bytes().get(i))
+			.is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'_');
+		let after = text
+			.as_bytes()
+			.get(pos + keyword.len())
+			.is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'_');
+		if before && after {
+			return Some(pos);
+		}
+		cursor = pos + keyword.len();
+	}
+	None
+}
+
+fn find_matching_paren(text: &str, open: usize) -> Option<usize> {
+	let mut depth = 0usize;
+	for (offset, byte) in text.as_bytes()[open..].iter().enumerate() {
+		match byte {
+			b'(' => depth += 1,
+			b')' => {
+				depth = depth.checked_sub(1)?;
+				if depth == 0 {
+					return Some(open + offset);
+				}
+			}
+			_ => {}
+		}
+	}
+	None
+}
+
+fn proptest_param_names(params: &str) -> Vec<&str> {
+	split_top_level_commas(params)
+		.into_iter()
+		.map(|param| {
+			let trimmed = param.trim();
+			trimmed
+				.split_once(" in ")
+				.or_else(|| trimmed.split_once(':'))
+				.map(|(name, _)| name.trim())
+				.unwrap_or("_")
+		})
+		.collect()
+}
+
+fn split_top_level_commas(text: &str) -> Vec<&str> {
+	let mut parts = Vec::new();
+	let mut start = 0usize;
+	let mut depth = 0usize;
+	for (idx, byte) in text.as_bytes().iter().enumerate() {
+		match byte {
+			b'(' | b'[' | b'{' | b'<' => depth += 1,
+			b')' | b']' | b'}' | b'>' => depth = depth.saturating_sub(1),
+			b',' if depth == 0 => {
+				parts.push(&text[start..idx]);
+				start = idx + 1;
+			}
+			_ => {}
+		}
+	}
+	if start < text.len() || text.is_empty() {
+		parts.push(&text[start..]);
+	}
+	parts
 }

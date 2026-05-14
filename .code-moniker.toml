@@ -18,8 +18,9 @@ lang    = "moniker ~ '**/dir:src/dir:lang/**'"
 cli     = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 pg      = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
 # Per-crate integration tests / examples.
-tests   = "moniker ~ '**/dir:tests/**'"
-example = "moniker ~ '**/dir:examples/**'"
+tests             = "moniker ~ '**/dir:tests/**'"
+rust_inline_tests = "moniker ~ '**/module:tests/**'"
+example           = "moniker ~ '**/dir:examples/**'"
 
 # ─── Hex / Layering ─────────────────────────────────────────────────
 # Cross-crate boundaries (cli → pg, lang → cli) are also enforced by cargo
@@ -105,7 +106,7 @@ message = "Function names use camelCase. Rename `{name}`."
 
 [[rust.comment.where]]
 id      = "no-nested-comments"
-expr    = "$tests OR $example OR parent.kind = 'module' OR text =~ '^//\\s*SAFETY:'"
+expr    = "$tests OR $rust_inline_tests OR $example OR parent.kind = 'module' OR text =~ '^//\\s*SAFETY:'"
 message = "Do not add comments inside functions, methods, structs, enums, traits, or impls. Keep code self-explanatory; only module-boundary and `SAFETY:` comments are allowed."
 
 # Adjacent line/doc-comments are collapsed into one `comment` def by the
@@ -115,7 +116,7 @@ message = "Do not add comments inside functions, methods, structs, enums, traits
 # document modules / formats / contracts) and `SAFETY:` narratives.
 [[rust.comment.where]]
 id      = "comment-max-lines"
-expr    = "$tests OR $example OR text =~ '^//\\s*SAFETY:' OR text =~ '^//!' OR lines <= 4"
+expr    = "$tests OR $rust_inline_tests OR $example OR text =~ '^//\\s*SAFETY:' OR text =~ '^//!' OR lines <= 4"
 message = "Doc/block comment is {value} lines (cap = 4). Move prose to docs/ — see CLAUDE.md comment sobriety."
 
 # ─── Walker shape — canonical extractor contract ───────────────────────

@@ -1,0 +1,298 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/rs/rust_tests.rs
+---
+{
+  "defs": [
+    {
+      "binding": "local",
+      "kind": "module",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests",
+      "position": [
+        13,
+        244
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "test",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:parses_order()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "position": [
+        35,
+        55
+      ],
+      "signature": "framework=rust-test;enabled=true;display=parses_order",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "test",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_without_reason()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "position": [
+        78,
+        108
+      ],
+      "signature": "framework=rust-test;enabled=false;display=skipped_without_reason",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "test",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_with_reason()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "position": [
+        161,
+        188
+      ],
+      "signature": "framework=rust-test;enabled=false;display=skipped_with_reason;ignore=requires external service",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "module",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "position": [
+        191,
+        242
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "test",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested/test:keeps_hierarchy()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested",
+      "position": [
+        216,
+        239
+      ],
+      "signature": "framework=rust-test;enabled=true;display=keeps_hierarchy",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "module",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests",
+      "position": [
+        246,
+        311
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "test",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style/test:top_level_module_test()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style",
+      "position": [
+        280,
+        309
+      ],
+      "signature": "framework=rust-test;enabled=true;display=top_level_module_test",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/fn:async_runtime_test_is_not_builtin_rust_test()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests",
+      "position": [
+        328,
+        385
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "test",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/test:round_trips(bytes,size)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests",
+      "position": [
+        410,
+        508
+      ],
+      "signature": "framework=proptest;enabled=true;display=round_trips",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "test",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/test:ignored_property(value)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests",
+      "position": [
+        570,
+        618
+      ],
+      "signature": "framework=proptest;enabled=false;display=ignored_property;ignore=slow property",
+      "visibility": "private"
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests",
+      "kind": "annotates",
+      "position": [
+        2,
+        11
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:cfg"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "kind": "annotates",
+      "position": [
+        28,
+        32
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "kind": "annotates",
+      "position": [
+        60,
+        64
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "kind": "annotates",
+      "position": [
+        69,
+        75
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:ignore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "kind": "annotates",
+      "position": [
+        113,
+        149
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:ignore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "kind": "annotates",
+      "position": [
+        154,
+        158
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested",
+      "kind": "annotates",
+      "position": [
+        208,
+        212
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style",
+      "kind": "annotates",
+      "position": [
+        273,
+        277
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests",
+      "kind": "annotates",
+      "position": [
+        315,
+        326
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:rust_tests",
+      "kind": "calls",
+      "position": [
+        387,
+        642
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/macro:proptest"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:rust_tests",
+      "kind": "reads",
+      "position": [
+        387,
+        405
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:rust_tests/path:proptest"
+    }
+  ],
+  "root": "code+moniker://app/lang:rs/module:rust_tests"
+}

@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 121
 expression: body
 input_file: crates/core/tests/fixtures/rs/accounts.rs
 ---

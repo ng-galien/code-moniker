@@ -116,7 +116,7 @@
         "symbols": {
           "items": {
             "properties": {
-              "kind":       { "enum": ["struct", "enum", "trait", "impl", "fn", "method", "const", "static", "type"] },
+              "kind":       { "enum": ["struct", "enum", "trait", "impl", "fn", "method", "test", "const", "static", "type"] },
               "visibility": { "enum": ["public", "private", "module"] }
             }
           }

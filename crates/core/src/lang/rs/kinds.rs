@@ -6,3 +6,4 @@ pub(super) use crate::lang::kinds::{
 };
 
 pub(super) const MACRO: &[u8] = b"macro";
+pub(super) const TEST: &[u8] = b"test";

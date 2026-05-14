@@ -70,7 +70,7 @@ impl crate::lang::LangExtractor for Lang {
 	type Presets = Presets;
 	const LANG_TAG: &'static str = "rs";
 	const ALLOWED_KINDS: &'static [&'static str] = &[
-		"struct", "enum", "trait", "impl", "fn", "method", "const", "static", "type",
+		"struct", "enum", "trait", "impl", "fn", "method", "test", "const", "static", "type",
 	];
 	const ALLOWED_VISIBILITIES: &'static [&'static str] = &["public", "private", "module"];
 
@@ -133,6 +133,116 @@ mod tests {
 			.segment(b"type", b"Id")
 			.build();
 		assert!(g.contains(&id));
+	}
+
+	#[test]
+	fn extract_rust_test_function_emits_test_def_with_metadata() {
+		let src = r#"
+            #[cfg(test)]
+            mod tests {
+                #[test]
+                fn parses_order() {}
+            }
+        "#;
+		let g = extract("util.rs", src, &make_anchor(), false);
+		let test = MonikerBuilder::new()
+			.project(b"code-moniker")
+			.segment(b"lang", b"rs")
+			.segment(b"module", b"util")
+			.segment(b"module", b"tests")
+			.segment(b"test", b"parses_order()")
+			.build();
+		let def = g
+			.defs()
+			.find(|d| d.moniker == test)
+			.expect("expected #[test] function to be represented as a test def");
+		assert_eq!(def.kind, b"test".to_vec());
+		assert_eq!(
+			def.signature,
+			b"framework=rust-test;enabled=true;display=parses_order".to_vec()
+		);
+	}
+
+	#[test]
+	fn extract_ignored_rust_test_marks_test_disabled() {
+		let src = r#"
+            #[test]
+            #[ignore = "requires external service"]
+            fn skipped() {}
+        "#;
+		let g = extract("util.rs", src, &make_anchor(), false);
+		let test = MonikerBuilder::new()
+			.project(b"code-moniker")
+			.segment(b"lang", b"rs")
+			.segment(b"module", b"util")
+			.segment(b"test", b"skipped()")
+			.build();
+		let def = g.defs().find(|d| d.moniker == test).unwrap();
+		assert_eq!(
+			def.signature,
+			b"framework=rust-test;enabled=false;display=skipped;ignore=requires external service"
+				.to_vec()
+		);
+	}
+
+	#[test]
+	fn extract_scoped_test_attribute_is_not_builtin_rust_test() {
+		let src = r#"
+            #[tokio::test]
+            async fn async_runtime_test() {}
+        "#;
+		let g = extract("util.rs", src, &make_anchor(), false);
+		assert!(
+			!g.defs().any(|d| d.kind == b"test"),
+			"scoped test proc macro attributes should not be classified as built-in rust-test defs"
+		);
+	}
+
+	#[test]
+	fn extract_proptest_function_emits_test_def_with_proptest_framework() {
+		let src = r#"
+            proptest::proptest! {
+                #[test]
+                fn round_trips(bytes in proptest::collection::vec(any::<u8>(), 0..16)) {
+                    let _ = bytes;
+                }
+            }
+        "#;
+		let g = extract("util.rs", src, &make_anchor(), false);
+		assert!(
+			g.defs().any(|d| {
+				d.kind == b"test".to_vec()
+					&& d.signature
+						== b"framework=proptest;enabled=true;display=round_trips".to_vec()
+					&& d.moniker.as_view().segments().last().unwrap().name == b"round_trips(bytes)"
+			}),
+			"proptest #[test] should appear as a test def. defs: {:?}",
+			g.def_monikers()
+		);
+	}
+
+	#[test]
+	fn extract_ignored_proptest_function_marks_test_disabled() {
+		let src = r#"
+            proptest::proptest! {
+                #[ignore = "slow property"]
+                #[test]
+                fn ignored_property(value in 0usize..8) {}
+            }
+        "#;
+		let g = extract("util.rs", src, &make_anchor(), false);
+		assert!(
+			g.defs().any(|d| {
+				d.kind == b"test".to_vec()
+					&& d.signature
+						== b"framework=proptest;enabled=false;display=ignored_property;ignore=slow property"
+							.to_vec()
+					&& d.moniker.as_view().segments().last().unwrap().name
+						== b"ignored_property(value)"
+			}),
+			"ignored proptest #[test] should appear disabled. defs: {:?}",
+			g.def_monikers()
+		);
 	}
 
 	#[test]
