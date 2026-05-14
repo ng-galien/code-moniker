@@ -520,6 +520,18 @@ impl<'src_lang> Strategy<'src_lang> {
 		);
 	}
 
+	fn resolve_callable(
+		&self,
+		parent: &Moniker,
+		kind: &[u8],
+		name: &[u8],
+	) -> (Moniker, &'static [u8]) {
+		match self.callable_table.get(&(parent.clone(), name.to_vec())) {
+			Some(seg) => (extend_segment(parent, kind, seg), kinds::CONF_RESOLVED),
+			None => (extend_segment(parent, kind, name), kinds::CONF_UNRESOLVED),
+		}
+	}
+
 	fn emit_method_call(
 		&self,
 		call: Node<'_>,
@@ -534,18 +546,18 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		};
 		let name = node_slice(field, self.source_bytes);
-		let target = if receiver.kind() == "self"
+		let (target, confidence) = if receiver.kind() == "self"
 			&& let Some(t) = enclosing_type_moniker(scope)
 		{
-			self.callable_table
-				.get(&(t.clone(), name.to_vec()))
-				.map(|seg| extend_segment(&t, kinds::METHOD, seg))
-				.unwrap_or_else(|| extend_segment(&t, kinds::METHOD, name))
+			self.resolve_callable(&t, kinds::METHOD, name)
 		} else {
-			extend_segment(&self.module, kinds::METHOD, name)
+			(
+				extend_segment(&self.module, kinds::METHOD, name),
+				kinds::CONF_UNRESOLVED,
+			)
 		};
 		let attrs = RefAttrs {
-			confidence: kinds::CONF_UNRESOLVED,
+			confidence,
 			..RefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(
@@ -599,13 +611,10 @@ impl<'src_lang> Strategy<'src_lang> {
 			);
 			return;
 		}
-		let target = self
-			.callable_table
-			.get(&(self.module.clone(), name.to_vec()))
-			.map(|seg| extend_segment(&self.module, kinds::FN, seg))
-			.unwrap_or_else(|| extend_segment(&self.module, kinds::FN, name));
+		let module = self.module.clone();
+		let (target, confidence) = self.resolve_callable(&module, kinds::FN, name);
 		let attrs = RefAttrs {
-			confidence: kinds::CONF_UNRESOLVED,
+			confidence,
 			..RefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(

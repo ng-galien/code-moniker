@@ -103,6 +103,11 @@ changes are allowed in minor releases as long as the project is in
   emitted N duplicate `imports_module → std::io` refs (one per leaf).
   Dedup the parent-module ref per `use` statement; per-leaf
   `imports_symbol` refs are unaffected.
+- **`code-moniker-core` (rs extractor)** — free-fn `calls` and self
+  `method_call` refs to callees defined in the same file now emit
+  `confidence = resolved` instead of `unresolved`. The `callable_table`
+  lookup was already used to build the target moniker but the confidence
+  was hardcoded; converges with the Go / Python / C# extractors.
 - **Docs** — path encoding table in `docs/cli/check.md` corrected:
   - Go uses `package:<segment>/module:<stem>` (not `dir:`).
   - C# uses `package:<segment>/module:<stem>` (not `dir:`).

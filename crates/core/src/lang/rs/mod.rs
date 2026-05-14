@@ -916,6 +916,60 @@ impl W {
 	}
 
 	#[test]
+	fn extract_free_call_to_same_file_def_is_resolved() {
+		let src = "pub fn run() { foo(); }\npub fn foo() {}";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"calls")
+			.expect("missing calls ref");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"same-file free fn call must be resolved; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
+	fn extract_free_call_to_unknown_name_stays_unresolved() {
+		let src = "pub fn run() { foo(); }";
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"calls")
+			.expect("missing calls ref");
+		assert_eq!(
+			r.confidence,
+			b"unresolved",
+			"call to unknown name stays unresolved; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
+	fn extract_self_method_call_to_same_impl_is_resolved() {
+		let src = r#"
+pub struct W;
+impl W {
+    fn dispatch(&self) { self.walk(); }
+    fn walk(&self) {}
+}
+"#;
+		let g = extract("util.rs", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call")
+			.expect("missing method_call ref");
+		assert_eq!(
+			r.confidence,
+			b"resolved",
+			"self method call to same impl must be resolved; got {:?}",
+			std::str::from_utf8(&r.confidence)
+		);
+	}
+
+	#[test]
 	fn extract_path_qualified_call_emits_calls_ref() {
 		let src = "pub fn run() { ::foo::bar::baz(); }";
 		let g = extract("util.rs", src, &make_anchor(), true);
