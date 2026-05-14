@@ -331,6 +331,9 @@ impl<'src_lang> Strategy<'src_lang> {
 		};
 		let name = node_slice(name_node, source);
 		let moniker = extend_segment(scope, kinds::TYPE, name);
+		if is_callable_scope(scope, &self.module) {
+			self.bind_local(name, moniker.clone());
+		}
 		if let Some(value) = node.child_by_field_name("value") {
 			self.emit_uses_type_recursive(value, &moniker, graph);
 		}
@@ -965,7 +968,8 @@ impl<'src_lang> Strategy<'src_lang> {
 					return;
 				}
 				let target = self
-					.lookup_import_target(name)
+					.lookup_local_binding(name)
+					.or_else(|| self.lookup_import_target(name))
 					.unwrap_or_else(|| extend_segment(&self.module, kinds::CLASS, name));
 				let attrs = RefAttrs {
 					confidence: self.ref_confidence(name),

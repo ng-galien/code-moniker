@@ -636,6 +636,29 @@ function outer() {
 	}
 
 	#[test]
+	fn extract_closure_uses_type_targets_outer_type_alias_def() {
+		let src = "function outer() { type Local = string; function inner(x: Local): Local { return x; } return inner; }";
+		let g = extract("util.ts", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"uses_type"
+					&& r.target.as_view().segments().last().unwrap().name == b"Local"
+			})
+			.expect("uses_type ref for Local");
+		let segs: Vec<_> = r.target.as_view().segments().collect();
+		assert!(
+			segs.iter().any(|s| s.kind == b"type" && s.name == b"Local"),
+			"target must terminate with type:Local of the defining frame, got: {segs:?}"
+		);
+		assert!(
+			segs.iter()
+				.any(|s| s.kind == b"function" && s.name.starts_with(b"outer")),
+			"target must be parented under outer (the defining frame), got: {segs:?}"
+		);
+	}
+
+	#[test]
 	fn extract_closure_call_targets_outer_local_def() {
 		let src = "function outer() { const helper = () => 1; return function inner() { return helper(); }; }";
 		let g = extract("util.ts", src, &make_anchor(), true);
