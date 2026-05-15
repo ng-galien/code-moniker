@@ -229,14 +229,26 @@ pub struct ExtractArgs {
 	)]
 	pub shape: Vec<Shape>,
 
-	#[arg(long, value_enum, default_value_t = OutputFormat::Tsv)]
+	#[arg(long, value_enum, default_value_t = OutputFormat::Text)]
 	pub format: OutputFormat,
 
 	#[arg(
 		long,
 		value_enum,
+		default_value_t = MonikerFormat::Compact,
+		help = "moniker rendering for text and TSV output"
+	)]
+	pub moniker_format: MonikerFormat,
+
+	#[arg(
+		long,
+		short = 'c',
+		value_enum,
 		default_value_t = ColorChoice::Auto,
-		help = "ANSI color for --format tree: auto = on if stdout is a TTY (honors NO_COLOR / CLICOLOR / CLICOLOR_FORCE)"
+		default_missing_value = "always",
+		num_args = 0..=1,
+		require_equals = false,
+		help = "ANSI color for --format text/tree: auto = on if stdout is a TTY (honors NO_COLOR / CLICOLOR / CLICOLOR_FORCE); -c forces color"
 	)]
 	pub color: ColorChoice,
 
@@ -285,10 +297,18 @@ pub struct ExtractArgs {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 pub enum OutputFormat {
+	#[value(alias = "txt")]
+	Text,
 	Tsv,
 	Json,
 	#[cfg(feature = "pretty")]
 	Tree,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum MonikerFormat {
+	Compact,
+	Uri,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -368,7 +388,8 @@ impl ExtractArgs {
 			kind: vec![],
 			name: vec![],
 			shape: vec![],
-			format: OutputFormat::Tsv,
+			format: OutputFormat::Text,
+			moniker_format: MonikerFormat::Compact,
 			color: ColorChoice::Never,
 			charset: Charset::Utf8,
 			count: false,
@@ -480,7 +501,7 @@ mod tests {
 	fn minimal_invocation() {
 		let a = extract(&["a.ts"]);
 		assert_eq!(a.path, PathBuf::from("a.ts"));
-		assert_eq!(a.format, OutputFormat::Tsv);
+		assert_eq!(a.format, OutputFormat::Text);
 		assert_eq!(a.mode(), OutputMode::Default);
 		assert!(a.kind.is_empty());
 		assert!(!a.with_text);

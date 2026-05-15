@@ -30,7 +30,8 @@ pub fn run<W: Write>(
 		ts: tsconfig::load(root),
 		project: args.project.clone(),
 	};
-	let has_filter = !args.kind.is_empty()
+	let has_filter = args.format == OutputFormat::Text
+		|| !args.kind.is_empty()
 		|| !args.name.is_empty()
 		|| !args.shape.is_empty()
 		|| !args.where_.is_empty();
@@ -58,6 +59,7 @@ fn run_summary<W: Write>(
 	let any = total_defs + total_refs > 0;
 	match args.mode() {
 		OutputMode::Default => match args.format {
+			OutputFormat::Text => unreachable!("text format uses filtered moniker output"),
 			OutputFormat::Tsv => write_summary_tsv(stdout, &summaries)?,
 			OutputFormat::Json => write_summary_json(stdout, &summaries)?,
 			#[cfg(feature = "pretty")]
@@ -109,6 +111,7 @@ fn run_filter<W: Write>(
 	let any = total_defs + total_refs > 0;
 	match args.mode() {
 		OutputMode::Default => match args.format {
+			OutputFormat::Text => write_filter_text(stdout, &rows, args, scheme)?,
 			OutputFormat::Tsv => write_filter_tsv(stdout, &rows, args, scheme)?,
 			OutputFormat::Json => write_filter_json(stdout, &rows, args, scheme)?,
 			#[cfg(feature = "pretty")]
@@ -320,6 +323,19 @@ fn write_filter_tsv<W: Write>(
 		for line in std::str::from_utf8(&buf).unwrap_or("").lines() {
 			writeln!(w, "{prefix}\t{line}")?;
 		}
+	}
+	Ok(())
+}
+
+fn write_filter_text<W: Write>(
+	w: &mut W,
+	rows: &[FilterRow],
+	args: &ExtractArgs,
+	scheme: &str,
+) -> std::io::Result<()> {
+	for row in rows {
+		let matches = row.match_set();
+		format::write_text(w, &matches, args, scheme)?;
 	}
 	Ok(())
 }

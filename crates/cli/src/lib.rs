@@ -342,6 +342,7 @@ fn extract_inner<W: Write>(args: &ExtractArgs, stdout: &mut W) -> anyhow::Result
 	let any = !matches.defs.is_empty() || !matches.refs.is_empty();
 	match args.mode() {
 		OutputMode::Default => match args.format {
+			OutputFormat::Text => format::write_text(stdout, &matches, args, &scheme)?,
 			OutputFormat::Tsv => format::write_tsv(stdout, &matches, &source, args, &scheme)?,
 			OutputFormat::Json => {
 				format::write_json(stdout, &matches, &source, args, lang, path, &scheme)?

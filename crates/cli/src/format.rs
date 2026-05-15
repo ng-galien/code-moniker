@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::args::ExtractArgs;
+use crate::args::{ExtractArgs, MonikerFormat};
 use crate::extract;
 use crate::lines::line_range;
 use crate::predicate::{MatchSet, RefMatch};
@@ -25,7 +25,7 @@ pub fn write_tsv<W: Write>(
 ) -> std::io::Result<()> {
 	let cfg = UriConfig { scheme };
 	for d in &matches.defs {
-		let uri = render_uri(&d.moniker, &cfg);
+		let uri = render_moniker(&d.moniker, &cfg, args.moniker_format);
 		write!(
 			w,
 			"def\t{uri}\t{kind}\t{pos}\t{lines}\t{vis}\t{sig}\t{origin}",
@@ -43,8 +43,8 @@ pub fn write_tsv<W: Write>(
 		writeln!(w)?;
 	}
 	for r in &matches.refs {
-		let target = render_uri(&r.record.target, &cfg);
-		let src_uri = render_uri(r.source, &cfg);
+		let target = render_moniker(&r.record.target, &cfg, args.moniker_format);
+		let src_uri = render_moniker(r.source, &cfg, args.moniker_format);
 		writeln!(
 			w,
 			"ref\t{target}\t{kind}\t{pos}\t{lines}\tsource={src_uri}\t{alias}\t{conf}\t{rcv}",
@@ -57,6 +57,148 @@ pub fn write_tsv<W: Write>(
 		)?;
 	}
 	Ok(())
+}
+
+pub fn write_text<W: Write>(
+	w: &mut W,
+	matches: &MatchSet<'_>,
+	args: &ExtractArgs,
+	scheme: &str,
+) -> std::io::Result<()> {
+	let cfg = UriConfig { scheme };
+	let color = resolve_color(args.color);
+	for d in &matches.defs {
+		writeln!(
+			w,
+			"{}",
+			render_text_moniker(&d.moniker, &cfg, args.moniker_format, color)
+		)?;
+	}
+	for r in &matches.refs {
+		writeln!(
+			w,
+			"{}",
+			render_text_moniker(&r.record.target, &cfg, args.moniker_format, color)
+		)?;
+	}
+	Ok(())
+}
+
+fn render_moniker(
+	m: &code_moniker_core::core::moniker::Moniker,
+	cfg: &UriConfig<'_>,
+	format: MonikerFormat,
+) -> String {
+	match format {
+		MonikerFormat::Uri => render_uri(m, cfg),
+		MonikerFormat::Compact => {
+			render_compact_moniker(m, false).unwrap_or_else(|| render_uri(m, cfg))
+		}
+	}
+}
+
+fn render_text_moniker(
+	m: &code_moniker_core::core::moniker::Moniker,
+	cfg: &UriConfig<'_>,
+	format: MonikerFormat,
+	color: bool,
+) -> String {
+	match format {
+		MonikerFormat::Uri => render_uri(m, cfg),
+		MonikerFormat::Compact => {
+			render_compact_moniker(m, color).unwrap_or_else(|| render_uri(m, cfg))
+		}
+	}
+}
+
+fn render_compact_moniker(
+	m: &code_moniker_core::core::moniker::Moniker,
+	color: bool,
+) -> Option<String> {
+	let view = m.as_view();
+	let mut lang: Option<String> = None;
+	let mut packages: Vec<String> = Vec::new();
+	let mut dirs: Vec<String> = Vec::new();
+	let mut module: Option<String> = None;
+	let mut rest: Vec<(String, String)> = Vec::new();
+	for seg in view.segments() {
+		let kind = std::str::from_utf8(seg.kind).ok()?.to_string();
+		let name = std::str::from_utf8(seg.name).ok()?.to_string();
+		match kind.as_str() {
+			"lang" => lang = Some(name),
+			"package" => packages.push(name),
+			"dir" => dirs.push(name),
+			"module" => module = Some(name),
+			_ => rest.push((kind, name)),
+		}
+	}
+	let head = lang.unwrap_or_else(|| {
+		std::str::from_utf8(view.project())
+			.unwrap_or(".")
+			.to_string()
+	});
+	if packages.is_empty() && dirs.is_empty() && module.is_none() && rest.is_empty() {
+		return Some(paint(color, "36", &head));
+	}
+	let mut out = String::new();
+	out.push_str(&paint(color, "36", &head));
+	out.push(':');
+	let mut wrote_scope = false;
+	if !packages.is_empty() {
+		out.push_str(&paint(color, "2", &packages.join(".")));
+		wrote_scope = true;
+	} else if !dirs.is_empty() {
+		out.push_str(&paint(color, "2", &dirs.join("/")));
+		wrote_scope = true;
+	}
+	let has_module = module.is_some();
+	if let Some(module) = module {
+		if wrote_scope {
+			out.push('/');
+		}
+		out.push_str(&paint(color, "34;1", &module));
+	}
+	for (idx, (kind, name)) in rest.iter().enumerate() {
+		if idx == 0 && has_module {
+			out.push('.');
+		} else if wrote_scope || has_module || idx > 0 {
+			out.push('/');
+		}
+		out.push_str(&paint(color, "35", kind));
+		out.push(':');
+		out.push_str(&paint(color, "32;1", name));
+	}
+	Some(out)
+}
+
+fn paint(color: bool, code: &str, text: &str) -> String {
+	if color {
+		format!("\x1b[{code}m{text}\x1b[0m")
+	} else {
+		text.to_string()
+	}
+}
+
+fn resolve_color(arg: crate::args::ColorChoice) -> bool {
+	use std::io::IsTerminal;
+	match arg {
+		crate::args::ColorChoice::Always => return true,
+		crate::args::ColorChoice::Never => return false,
+		crate::args::ColorChoice::Auto => {}
+	}
+	if std::env::var_os("NO_COLOR").is_some() {
+		return false;
+	}
+	if std::env::var_os("CLICOLOR_FORCE").is_some_and(|v| v != "0") {
+		return true;
+	}
+	if std::env::var("TERM").is_ok_and(|t| t == "dumb") {
+		return false;
+	}
+	if std::env::var("CLICOLOR").is_ok_and(|v| v == "0") {
+		return false;
+	}
+	std::io::stdout().is_terminal()
 }
 
 pub fn write_json<W: Write>(
@@ -263,6 +405,23 @@ mod tests {
 		ExtractArgs::for_tests()
 	}
 
+	fn args_with_uri_monikers() -> ExtractArgs {
+		let mut args = args();
+		args.moniker_format = MonikerFormat::Uri;
+		args
+	}
+
+	fn java_service_moniker() -> Moniker {
+		let mut b = MonikerBuilder::new();
+		b.project(b".");
+		b.segment(b"lang", b"java");
+		b.segment(b"package", b"app");
+		b.segment(b"package", b"user");
+		b.segment(b"module", b"UserService");
+		b.segment(b"class", b"UserService");
+		b.build()
+	}
+
 	fn build_graph_with_class_and_method() -> (CodeGraph, Moniker, Moniker) {
 		let mut b = MonikerBuilder::new();
 		b.project(b"app");
@@ -326,7 +485,7 @@ mod tests {
 	}
 
 	#[test]
-	fn tsv_renders_moniker_uri_with_supplied_scheme() {
+	fn tsv_renders_compact_monikers_by_default() {
 		let (g, foo, _) = build_graph_with_class_and_method();
 		let foo_def = g.defs().find(|d| d.moniker == foo).unwrap();
 		let matches = MatchSet {
@@ -335,6 +494,75 @@ mod tests {
 		};
 		let mut buf = Vec::new();
 		write_tsv(&mut buf, &matches, "", &args(), "code+moniker://").unwrap();
+		let s = String::from_utf8(buf).unwrap();
+		assert!(
+			s.contains("\tapp:class:Foo\t"),
+			"missing compact moniker in: {s}"
+		);
+		assert!(
+			!s.contains("code+moniker://"),
+			"default TSV should omit URI scheme: {s}"
+		);
+	}
+
+	#[test]
+	fn compact_moniker_collapses_lang_package_and_module() {
+		let m = java_service_moniker();
+		let rendered = render_compact_moniker(&m, false).unwrap();
+		assert_eq!(rendered, "java:app.user/UserService.class:UserService");
+	}
+
+	#[test]
+	fn text_colorizes_compact_monikers_when_forced() {
+		unsafe { std::env::remove_var("NO_COLOR") };
+		let m = java_service_moniker();
+		let root = MonikerBuilder::new().project(b".").build();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+		g.add_def(m, b"class", &root, None).unwrap();
+		let matches = MatchSet {
+			defs: g.defs().collect(),
+			refs: vec![],
+		};
+		let mut args = args();
+		args.color = crate::args::ColorChoice::Always;
+		let mut buf = Vec::new();
+		write_text(&mut buf, &matches, &args, "code+moniker://").unwrap();
+		let s = String::from_utf8(buf).unwrap();
+		assert!(s.contains("\x1b["), "expected ANSI color escapes: {s}");
+		assert!(s.contains("java"), "{s}");
+	}
+
+	#[test]
+	fn color_always_wins_over_no_color_for_text() {
+		unsafe { std::env::set_var("NO_COLOR", "1") };
+		assert!(resolve_color(crate::args::ColorChoice::Always));
+		unsafe { std::env::remove_var("NO_COLOR") };
+	}
+
+	#[test]
+	fn color_never_wins_over_clicolor_force_for_text() {
+		unsafe { std::env::set_var("CLICOLOR_FORCE", "1") };
+		assert!(!resolve_color(crate::args::ColorChoice::Never));
+		unsafe { std::env::remove_var("CLICOLOR_FORCE") };
+	}
+
+	#[test]
+	fn tsv_can_render_moniker_uri_with_supplied_scheme() {
+		let (g, foo, _) = build_graph_with_class_and_method();
+		let foo_def = g.defs().find(|d| d.moniker == foo).unwrap();
+		let matches = MatchSet {
+			defs: vec![foo_def],
+			refs: vec![],
+		};
+		let mut buf = Vec::new();
+		write_tsv(
+			&mut buf,
+			&matches,
+			"",
+			&args_with_uri_monikers(),
+			"code+moniker://",
+		)
+		.unwrap();
 		let s = String::from_utf8(buf).unwrap();
 		assert!(
 			s.contains("code+moniker://app/class:Foo"),

@@ -5,7 +5,8 @@ Extract a moniker graph from a file or a directory.
 ```
 code-moniker extract <PATH> [--where '<op> <uri>']... [--kind <name>]...
                             [--name <regex>]... [--shape <shape>]...
-                            [--format tsv|json|tree] [--count] [--quiet]
+                            [--format text|tsv|json|tree] [--count] [--quiet]
+                            [--moniker-format compact|uri]
                             [--color auto|always|never] [--charset utf8|ascii]
                             [--with-text] [--scheme <SCHEME>] [--project <NAME>]
                             [--cache <DIR>]
@@ -49,14 +50,36 @@ Discover valid kinds with `code-moniker langs <TAG>`; the shape vocabulary lives
 
 ## Output formats
 
-### TSV (default)
+### Text (default)
+
+One moniker per line. The `txt` alias is also accepted.
+
+```
+<moniker>
+<moniker>
+```
+
+Text output uses compact monikers by default, for example
+`java:app.user/UserService.class:UserService`. Use
+`--moniker-format uri` to emit full URIs such as
+`code+moniker://./lang:java/package:app/package:user/module:UserService/class:UserService`.
+
+Compact text output is colorized automatically when stdout is a terminal.
+Use `--color never` to disable color, or `-c` / `--color always` to force it.
+
+### TSV
 
 ```
 def<TAB>moniker<TAB>kind<TAB>start..end<TAB>L<a>-L<b><TAB>visibility<TAB>signature<TAB>origin
-ref<TAB>target_moniker<TAB>kind<TAB>start..end<TAB>L<a>-L<b><TAB>source=<URI><TAB>alias<TAB>confidence<TAB>receiver_hint
+ref<TAB>target_moniker<TAB>kind<TAB>start..end<TAB>L<a>-L<b><TAB>source=<MONIKER><TAB>alias<TAB>confidence<TAB>receiver_hint
 ```
 
 `start..end` is byte range (0-indexed); `L<a>-L<b>` is the inclusive line range (1-indexed). Empty fields render as `-`.
+
+TSV uses compact monikers by default, for example
+`java:app.user/UserService.class:UserService`. Use
+`--moniker-format uri` to restore full URIs such as
+`code+moniker://./lang:java/package:app/package:user/module:UserService/class:UserService`.
 
 ### JSON
 

@@ -48,14 +48,97 @@ fn write_under(root: &std::path::Path, rel: &str, body: &str) {
 }
 
 #[test]
-fn no_predicate_dumps_full_graph_as_tsv() {
+fn no_predicate_dumps_monikers_as_text_by_default() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let path = dir.path().join("a.ts");
 	let (exit, out, err) = run_with(vec!["code-moniker", "extract", path.to_str().unwrap()]);
 	assert_eq!(exit, Exit::Match, "stderr={err}");
-	assert!(out.lines().any(|l| l.starts_with("def\t")), "{out}");
+	assert!(!out.lines().any(|l| l.starts_with("def\t")), "{out}");
 	assert!(out.contains("class:Foo"), "{out}");
 	assert!(out.contains("class:Bar"), "{out}");
+	assert!(
+		!out.contains("code+moniker://"),
+		"default text should use compact monikers: {out}"
+	);
+	for line in out.lines() {
+		assert!(
+			!line.contains('\t'),
+			"text format should contain only monikers: {line}"
+		);
+	}
+}
+
+#[test]
+fn extract_tsv_still_emits_table_rows() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--format",
+		"tsv",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(out.lines().any(|l| l.starts_with("def\t")), "{out}");
+	assert!(
+		out.lines().any(|l| l.matches('\t').count() >= 7),
+		"expected TSV metadata columns: {out}"
+	);
+}
+
+#[test]
+fn extract_text_accepts_txt_alias() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--format",
+		"txt",
+		"--kind",
+		"class",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(out.contains("class:Foo"), "{out}");
+	assert!(!out.contains('\t'), "{out}");
+}
+
+#[test]
+fn extract_text_color_can_be_forced_with_short_flag() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	unsafe { std::env::remove_var("NO_COLOR") };
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"-c",
+		"--kind",
+		"class",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(out.contains("\x1b["), "expected ANSI color escapes: {out}");
+	assert!(out.contains("class"), "{out}");
+}
+
+#[test]
+fn extract_text_can_emit_full_moniker_uris() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--kind",
+		"class",
+		"--moniker-format",
+		"uri",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(out.contains("code+moniker://"), "{out}");
+	assert!(out.contains("class:Foo"), "{out}");
 }
 
 #[test]
@@ -197,6 +280,8 @@ fn class_kind_filter_finds_class_foo() {
 		"code-moniker",
 		"extract",
 		path.to_str().unwrap(),
+		"--format",
+		"tsv",
 		"--kind",
 		"method",
 	]);
@@ -964,6 +1049,8 @@ fn shape_callable_filter_picks_methods_only() {
 		"code-moniker",
 		"extract",
 		path.to_str().unwrap(),
+		"--format",
+		"tsv",
 		"--shape",
 		"callable",
 	]);
@@ -1182,6 +1269,8 @@ fn project_flag_overrides_anchor_project_segment() {
 		path.to_str().unwrap(),
 		"--project",
 		"my-app",
+		"--moniker-format",
+		"uri",
 	]);
 	assert_eq!(exit, Exit::Match, "stderr={err}");
 	for line in out.lines() {
@@ -1208,6 +1297,8 @@ fn project_flag_composes_with_scheme() {
 		"esac+moniker://",
 		"--project",
 		"my-app",
+		"--moniker-format",
+		"uri",
 	]);
 	assert_eq!(exit, Exit::Match, "stderr={err}");
 	for line in out.lines() {
@@ -1222,7 +1313,13 @@ fn project_flag_composes_with_scheme() {
 fn project_flag_default_keeps_dot_anchor() {
 	let dir = write_fixture("a.ts", "export class Foo {}\n");
 	let path = dir.path().join("a.ts");
-	let (exit, out, err) = run_with(vec!["code-moniker", "extract", path.to_str().unwrap()]);
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--moniker-format",
+		"uri",
+	]);
 	assert_eq!(exit, Exit::Match, "stderr={err}");
 	assert!(
 		out.lines().any(|l| l.contains("code+moniker://./")),

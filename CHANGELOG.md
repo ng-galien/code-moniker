@@ -12,6 +12,12 @@ changes are allowed in minor releases as long as the project is in
 
 ### Added
 
+- **`code-moniker extract --format text`** — extract now defaults to a
+  moniker-only text output (`txt` alias supported). `--format tsv`
+  remains available for metadata columns. Compact monikers use a concise
+  form such as `java:app.user/UserService.class:UserService`, text output
+  colorizes automatically on TTYs, `-c` forces color, and
+  `--moniker-format uri` restores full `code+moniker://` URIs.
 - **`code-moniker extract --name <regex>`** — filters defs by their
   last moniker segment name, and refs by target name, before rendering.
   This keeps `--format tree` usable for queries such as Java interfaces

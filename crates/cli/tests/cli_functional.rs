@@ -101,7 +101,12 @@ fn binary_extracts_filters_formats_and_sets_exit_codes() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	let file = write_file(dir.path(), "sample.ts", TS_SAMPLE);
 
-	let out = run(["extract".as_ref(), file.as_os_str()]);
+	let out = run([
+		"extract".as_ref(),
+		file.as_os_str(),
+		"--format".as_ref(),
+		"tsv".as_ref(),
+	]);
 	assert_code(&out, 0);
 	assert!(out.stdout.contains("def\t"), "{}", out.stdout);
 	assert!(out.stdout.contains("class:Foo"), "{}", out.stdout);
