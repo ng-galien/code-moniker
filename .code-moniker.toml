@@ -17,6 +17,8 @@ lang    = "moniker ~ '**/dir:src/dir:lang/**'"
 # top-level names, so anchoring on `dir:crates/dir:<name>` is unambiguous.
 cli     = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 pg      = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
+ui      = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/**'"
+ui_store = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:store/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:store'"
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
@@ -59,6 +61,14 @@ message = "`cli` is the standalone binary; importing from `code-moniker-pg` pull
 id      = "lang-no-cli"
 expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
 message = "`lang` extractors are pure libraries consumed by the CLI / PG crates; they must not depend back on the CLI surface."
+
+[[refs.where]]
+id      = "ui-store-boundary"
+expr    = """
+  $ui AND NOT $ui_store AND kind = 'imports_symbol'
+  => NOT target ~ '**/path:SessionIndex'
+"""
+message = "`code-moniker ui` must query indexes through `ui::store`; only the store adapter may import `SessionIndex`."
 
 # Intra-crate: core/ submodule must not depend on its sibling submodules
 # (lang/, declare/) nor on the standalone crates.

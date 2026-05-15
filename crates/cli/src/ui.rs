@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyEvent, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
 	EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -16,24 +16,35 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
 use crate::args::UiArgs;
-use crate::inspect::{CheckSummary, DefLocation, RefLocation, SessionIndex, SessionOptions};
+use crate::inspect::{CheckSummary, DefLocation, RefLocation, SessionOptions};
 use crate::{DEFAULT_SCHEME, Exit};
-use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
-use code_moniker_core::core::moniker::Moniker;
 
+mod component;
+mod contracts;
+mod events;
+mod features;
 mod filter;
 mod navigator;
+mod shell;
 mod source;
+mod store;
 #[cfg(test)]
 mod tests;
 mod theme;
 
+use component::{ComponentId, block_title, marker};
+use contracts::{Effect, RenderContext, Route, Screen, ScreenContext};
+use events::{FilterEdit, Msg, UiMode, key_to_msg};
+use features::explorer::{ExplorerFeature, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW, ROUTE_REFS};
 use filter::{NavFilter, parse_filter};
 use navigator::{
 	NavNode, NavNodeKind, NavRow, build_navigator, filtered_expanded_keys, flatten_nav,
-	is_nav_symbol,
 };
+use shell::FeatureRegistry;
 use source::source_snippet_lines;
+use store::{
+	IndexStore, MemoryIndexStore, UsageFocus, compact_moniker, def_kind, last_name, ref_kind,
+};
 use theme::THEME;
 
 pub fn run<W1: Write, W2: Write>(args: &UiArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
@@ -48,12 +59,12 @@ pub fn run<W1: Write, W2: Write>(args: &UiArgs, stdout: &mut W1, stderr: &mut W2
 
 fn run_inner<W: Write>(args: &UiArgs, stdout: &mut W) -> anyhow::Result<()> {
 	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: args.paths.clone(),
 		project: args.project.clone(),
 		cache_dir: args.cache.clone(),
 	})?;
-	let app = App::new(index, scheme, args.rules.clone(), args.profile.clone());
+	let app = App::new(store, scheme, args.rules.clone(), args.profile.clone());
 	run_terminal(stdout, app)
 }
 
@@ -119,6 +130,29 @@ impl View {
 			Self::Check => "check",
 		}
 	}
+
+	fn route_path(self) -> &'static str {
+		match self {
+			Self::Overview => ROUTE_OVERVIEW,
+			Self::Tree => ROUTE_OUTLINE,
+			Self::Refs => ROUTE_REFS,
+			Self::Check => ROUTE_CHECK,
+		}
+	}
+
+	fn from_route_path(path: &str) -> Option<Self> {
+		match path {
+			ROUTE_OVERVIEW => Some(Self::Overview),
+			ROUTE_OUTLINE => Some(Self::Tree),
+			ROUTE_REFS => Some(Self::Refs),
+			ROUTE_CHECK => Some(Self::Check),
+			_ => None,
+		}
+	}
+
+	fn route(self) -> Route {
+		ExplorerFeature::route(self.route_path())
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,16 +162,68 @@ enum CheckState {
 	Error(String),
 }
 
+#[derive(Clone, Debug)]
+enum ActiveFilter {
+	None,
+	Text { raw: String, query: NavFilter },
+	Invalid { raw: String, error: String },
+	Usages(UsageFocus),
+}
+
+impl ActiveFilter {
+	fn label(&self) -> String {
+		match self {
+			Self::None => "<all>".to_string(),
+			Self::Text { query, .. } => query.describe(),
+			Self::Invalid { raw, .. } => display_filter(raw).to_string(),
+			Self::Usages(focus) => format!("usages:{}", focus.label),
+		}
+	}
+
+	fn text_raw(&self) -> Option<&str> {
+		match self {
+			Self::Text { raw, .. } | Self::Invalid { raw, .. } => Some(raw),
+			Self::None | Self::Usages(_) => None,
+		}
+	}
+
+	fn query(&self) -> Option<&NavFilter> {
+		match self {
+			Self::Text { query, .. } => Some(query),
+			Self::None | Self::Invalid { .. } | Self::Usages(_) => None,
+		}
+	}
+
+	fn usage_focus(&self) -> Option<&UsageFocus> {
+		match self {
+			Self::Usages(focus) => Some(focus),
+			Self::None | Self::Text { .. } | Self::Invalid { .. } => None,
+		}
+	}
+
+	fn error(&self) -> Option<(&str, &str)> {
+		match self {
+			Self::Invalid { raw, error } => Some((raw, error)),
+			Self::None | Self::Text { .. } | Self::Usages(_) => None,
+		}
+	}
+
+	fn filters_navigator(&self) -> bool {
+		matches!(self, Self::Text { .. } | Self::Usages(_))
+	}
+}
+
 struct App {
-	index: SessionIndex,
+	registry: FeatureRegistry,
+	route: Route,
+	store: MemoryIndexStore,
 	scheme: String,
 	rules: PathBuf,
 	profile: Option<String>,
 	view: View,
-	filter: String,
-	filter_query: Option<NavFilter>,
-	filter_error: Option<String>,
-	search_mode: bool,
+	mode: UiMode,
+	active_filter: ActiveFilter,
+	filter_draft: String,
 	selection: usize,
 	visible_defs: Vec<DefLocation>,
 	navigator: NavNode,
@@ -149,18 +235,28 @@ struct App {
 }
 
 impl App {
-	fn new(index: SessionIndex, scheme: String, rules: PathBuf, profile: Option<String>) -> Self {
-		let navigator = build_navigator(&index);
+	fn new(
+		store: MemoryIndexStore,
+		scheme: String,
+		rules: PathBuf,
+		profile: Option<String>,
+	) -> Self {
+		let registry = FeatureRegistry::static_registry();
+		let route = registry.initial_route();
+		let nav_count = registry.navigation().len();
+		let command_count = registry.commands().len();
+		let navigator = build_navigator(&store);
 		let mut app = Self {
-			index,
+			registry,
+			route,
+			store,
 			scheme,
 			rules,
 			profile,
 			view: View::Overview,
-			filter: String::new(),
-			filter_query: None,
-			filter_error: None,
-			search_mode: false,
+			mode: UiMode::Normal,
+			active_filter: ActiveFilter::None,
+			filter_draft: String::new(),
 			selection: 0,
 			visible_defs: Vec::new(),
 			navigator,
@@ -168,11 +264,11 @@ impl App {
 			filtered_expanded: BTreeSet::new(),
 			nav_rows: Vec::new(),
 			check: CheckState::Pending,
-			status:
-				"Enter opens nodes, / filters tree, kind:<kind> narrows by kind, c checks, q quits"
-					.to_string(),
+			status: format!(
+				"Enter opens nodes, / edits filter, u focuses usages, c checks, Esc quits ({nav_count} nav items, {command_count} commands)"
+			),
 		};
-		app.refresh_filter(false);
+		app.refresh_results(false);
 		app
 	}
 
@@ -188,7 +284,7 @@ impl App {
 	}
 
 	fn active_expanded(&self) -> &BTreeSet<String> {
-		if self.filter_query.is_some() {
+		if self.is_filtered() {
 			&self.filtered_expanded
 		} else {
 			&self.expanded
@@ -196,36 +292,21 @@ impl App {
 	}
 
 	fn active_expanded_mut(&mut self) -> &mut BTreeSet<String> {
-		if self.filter_query.is_some() {
+		if self.is_filtered() {
 			&mut self.filtered_expanded
 		} else {
 			&mut self.expanded
 		}
 	}
 
-	fn refresh_filter(&mut self, reset_expansion: bool) {
-		match parse_filter(&self.filter) {
-			Ok(query) => {
-				self.filter_error = None;
-				self.filter_query = query;
-			}
-			Err(error) => {
-				self.filter_query = None;
-				self.filter_error = Some(error.to_string());
-				self.visible_defs.clear();
-				self.nav_rows.clear();
-				self.selection = 0;
-				self.status = format!("invalid filter regex: /{}", self.filter);
-				return;
-			}
-		}
+	fn refresh_results(&mut self, reset_expansion: bool) {
 		self.visible_defs = self.matching_defs();
 		if reset_expansion {
 			self.filtered_expanded.clear();
-			if let Some(filter) = &self.filter_query {
+			if self.is_filtered() {
 				let expand_symbols = self.visible_defs.len() <= 200;
 				self.filtered_expanded =
-					filtered_expanded_keys(&self.index, &self.navigator, filter, expand_symbols);
+					filtered_expanded_keys(&self.navigator, &self.visible_defs, expand_symbols);
 			}
 			self.selection = 0;
 		}
@@ -233,68 +314,127 @@ impl App {
 	}
 
 	fn matching_defs(&self) -> Vec<DefLocation> {
-		let mut out: Vec<DefLocation> = self
-			.index
-			.files
-			.iter()
-			.enumerate()
-			.flat_map(|(file_idx, file)| {
-				file.graph
-					.defs()
-					.enumerate()
-					.map(move |(def_idx, _)| DefLocation {
-						file: file_idx,
-						def: def_idx,
-					})
-			})
-			.filter(|loc| {
-				let def = self.index.def(loc);
-				if !is_nav_symbol(def) {
-					return false;
-				}
-				self.filter_query
-					.as_ref()
-					.is_none_or(|filter| filter.matches(&def_kind(def), &last_name(&def.moniker)))
-			})
-			.collect();
-		out.sort_by(|a, b| self.index.def(a).moniker.cmp(&self.index.def(b).moniker));
-		out
+		match &self.active_filter {
+			ActiveFilter::Usages(focus) => focus.contexts.clone(),
+			ActiveFilter::Invalid { .. } => Vec::new(),
+			ActiveFilter::None | ActiveFilter::Text { .. } => {
+				self.store.all_navigable_defs(self.active_filter.query())
+			}
+		}
 	}
 
 	fn refresh_nav(&mut self) {
 		self.nav_rows.clear();
-		if self.filter_error.is_none() {
+		if self.active_filter.error().is_none() {
 			let expanded = self.active_expanded().clone();
-			let filter = self.filter_query.clone();
-			flatten_nav(
-				&self.index,
-				&self.navigator,
-				&expanded,
-				filter.as_ref(),
-				0,
-				&mut self.nav_rows,
-			);
+			let matches = self.is_filtered().then_some(self.visible_defs.as_slice());
+			flatten_nav(&self.navigator, &expanded, matches, 0, &mut self.nav_rows);
 		}
 		self.clamp_selection();
 	}
 
-	fn apply_filter_change(&mut self) {
-		self.refresh_filter(true);
-		if self.filter_error.is_none() {
+	fn filter_label(&self) -> String {
+		if self.mode == UiMode::EditingFilter {
+			return display_filter(&self.filter_draft).to_string();
+		}
+		self.active_filter.label()
+	}
+
+	fn is_filtered(&self) -> bool {
+		self.active_filter.filters_navigator()
+	}
+
+	fn focus_usages(&mut self, loc: DefLocation) {
+		let focus = self.store.usage_focus(loc);
+		let label = focus.label.clone();
+		self.mode = UiMode::Normal;
+		self.filter_draft.clear();
+		self.active_filter = ActiveFilter::Usages(focus);
+		self.refresh_results(true);
+		let focus = self
+			.active_filter
+			.usage_focus()
+			.expect("usage focus was set");
+		self.view = View::Refs;
+		self.status = format!(
+			"usages of {label}: {} reference(s), {} navigable context(s)",
+			focus.refs.len(),
+			focus.contexts.len()
+		);
+	}
+
+	fn start_filter_edit(&mut self) {
+		self.mode = UiMode::EditingFilter;
+		self.filter_draft = self
+			.active_filter
+			.text_raw()
+			.map(str::to_string)
+			.unwrap_or_default();
+		self.status =
+			"type a filter, Enter applies, Esc cancels: Resolver, kind:interface, kind:method async.*"
+				.to_string();
+	}
+
+	fn edit_filter(&mut self, edit: FilterEdit) {
+		match edit {
+			FilterEdit::Push(c) => self.filter_draft.push(c),
+			FilterEdit::Backspace => {
+				self.filter_draft.pop();
+			}
+			FilterEdit::Clear => self.filter_draft.clear(),
+		}
+		self.status = format!("draft filter: {}", display_filter(&self.filter_draft));
+	}
+
+	fn apply_filter(&mut self) {
+		let raw = self.filter_draft.trim().to_string();
+		self.mode = UiMode::Normal;
+		self.active_filter = match parse_filter(&raw) {
+			Ok(Some(query)) => ActiveFilter::Text {
+				raw: raw.clone(),
+				query,
+			},
+			Ok(None) => ActiveFilter::None,
+			Err(error) => ActiveFilter::Invalid {
+				raw: raw.clone(),
+				error: error.to_string(),
+			},
+		};
+		self.refresh_results(true);
+		if let Some((raw, _)) = self.active_filter.error() {
+			self.status = format!("invalid filter regex: /{raw}");
+		} else {
 			self.status = format!(
 				"filter: {} ({}/{})",
 				self.filter_label(),
 				self.visible_defs.len(),
-				self.index.stats.defs
+				self.store.stats().defs
 			);
 		}
 	}
 
-	fn filter_label(&self) -> String {
-		self.filter_query
-			.as_ref()
-			.map(NavFilter::describe)
-			.unwrap_or_else(|| display_filter(&self.filter).to_string())
+	fn cancel_input(&mut self) {
+		self.mode = UiMode::Normal;
+		self.status = format!(
+			"filter edit canceled; active filter: {}",
+			self.filter_label()
+		);
+	}
+
+	fn clear_filter(&mut self) {
+		self.mode = UiMode::Normal;
+		self.active_filter = ActiveFilter::None;
+		self.filter_draft.clear();
+		self.refresh_results(true);
+		self.status = "filter cleared".to_string();
+	}
+
+	fn focus_usages_of_selected(&mut self) {
+		let Some(loc) = self.selected() else {
+			self.status = "select a declaration before focusing usages".to_string();
+			return;
+		};
+		self.focus_usages(loc);
 	}
 
 	fn clamp_selection(&mut self) {
@@ -375,7 +515,7 @@ impl App {
 	fn run_check(&mut self) {
 		self.view = View::Check;
 		match self
-			.index
+			.store
 			.check_summary(&self.rules, self.profile.as_deref(), &self.scheme)
 		{
 			Ok(summary) => {
@@ -393,107 +533,122 @@ impl App {
 	}
 
 	fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-		if self.search_mode {
-			match key.code {
-				KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-					return Ok(true);
-				}
-				KeyCode::Esc | KeyCode::Enter => {
-					self.search_mode = false;
-					self.status = format!("filter: {}", self.filter_label());
-				}
-				KeyCode::Backspace => {
-					self.filter.pop();
-					self.apply_filter_change();
-				}
-				KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-					self.filter.push(c);
-					self.apply_filter_change();
-				}
-				_ => {}
-			}
-			return Ok(false);
-		}
+		Ok(self.update(Msg::Key(key)))
+	}
 
-		match key.code {
-			KeyCode::Char('q') | KeyCode::Esc => Ok(true),
-			KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => Ok(true),
-			KeyCode::Tab => {
-				self.view = self.view.next();
-				Ok(false)
+	fn update(&mut self, msg: Msg) -> bool {
+		let msg = match msg {
+			Msg::Key(key) => key_to_msg(self.mode, key),
+			msg => msg,
+		};
+		let route = self.route.clone();
+		let mut ctx = ScreenContext { route: &route };
+		let effects = match Screen::handle_msg(self, msg, &mut ctx) {
+			Ok(effects) => effects,
+			Err(error) => vec![Effect::Notify(format!("screen error: {error:#}"))],
+		};
+		self.apply_effects(effects)
+	}
+
+	fn apply_effects(&mut self, effects: Vec<Effect>) -> bool {
+		for effect in effects {
+			if self.apply_effect(effect) {
+				return true;
 			}
-			KeyCode::Char('1') => {
-				self.view = View::Overview;
-				Ok(false)
-			}
-			KeyCode::Char('2') => {
-				self.view = View::Tree;
-				Ok(false)
-			}
-			KeyCode::Char('3') | KeyCode::Char('r') => {
-				self.view = View::Refs;
-				Ok(false)
-			}
-			KeyCode::Char('4') => {
-				self.view = View::Check;
-				Ok(false)
-			}
-			KeyCode::Char('/') => {
-				self.search_mode = true;
-				self.status =
-					"type a filter: Resolver, kind:interface, kind:method async.*".to_string();
-				Ok(false)
-			}
-			KeyCode::Char('x') => {
-				self.filter.clear();
-				self.refresh_filter(true);
-				self.status = "filter cleared".to_string();
-				Ok(false)
-			}
-			KeyCode::Char('c') => {
-				self.run_check();
-				Ok(false)
-			}
-			KeyCode::Down | KeyCode::Char('j') => {
-				self.move_down();
-				Ok(false)
-			}
-			KeyCode::Up | KeyCode::Char('k') => {
-				self.move_up();
-				Ok(false)
-			}
-			KeyCode::Home | KeyCode::Char('g') => {
-				self.selection = 0;
-				Ok(false)
-			}
-			KeyCode::End | KeyCode::Char('G') => {
-				self.selection = self.nav_rows.len().saturating_sub(1);
-				Ok(false)
-			}
-			KeyCode::Enter => {
-				self.toggle_selected_nav();
-				Ok(false)
-			}
-			KeyCode::Right => {
-				self.open_selected_nav();
-				Ok(false)
-			}
-			KeyCode::Left => {
-				self.close_selected_nav();
-				Ok(false)
-			}
-			KeyCode::Char('?') => {
-				self.status =
-					"keys: Enter/right/left tree, / filter, kind:<kind>, x clear, Tab/1-4 views, c check, q quit"
-						.to_string();
-				Ok(false)
-			}
-			_ => Ok(false),
 		}
+		false
+	}
+
+	fn apply_effect(&mut self, effect: Effect) -> bool {
+		match effect {
+			Effect::Navigate(route) => self.navigate(route),
+			Effect::Back => {}
+			Effect::Quit => return true,
+			Effect::Notify(message) => self.status = message,
+			Effect::Refresh => self.refresh_results(false),
+			Effect::Spawn(task) => {
+				self.status = format!("task queued: {} ({})", task.label, task.id);
+			}
+			Effect::None => {}
+		}
+		false
+	}
+
+	fn navigate(&mut self, route: Route) {
+		if !self.registry.can_open(&route) {
+			self.status = format!("unknown route: {}/{}", route.feature, route.path);
+			return;
+		}
+		if let Some(view) = View::from_route_path(&route.path) {
+			self.view = view;
+		}
+		self.route = route;
 	}
 }
 
-fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
+impl Screen for App {
+	fn title(&self) -> String {
+		"Explorer".to_string()
+	}
+
+	fn component(&self) -> ComponentId {
+		ComponentId::PanelOverview
+	}
+
+	fn render(&mut self, frame: &mut ratatui::Frame<'_>, area: Rect, ctx: &RenderContext<'_>) {
+		let _ = ctx.route;
+		render_shell(frame, area, self);
+	}
+
+	fn handle_msg(&mut self, msg: Msg, ctx: &mut ScreenContext<'_>) -> anyhow::Result<Vec<Effect>> {
+		let _ = ctx.route;
+		match msg {
+			Msg::Quit => return Ok(vec![Effect::Quit]),
+			Msg::CycleView => return Ok(vec![Effect::Navigate(self.view.next().route())]),
+			Msg::ShowView(view) => return Ok(vec![Effect::Navigate(view.route())]),
+			Msg::StartFilterEdit => self.start_filter_edit(),
+			Msg::FilterInput(edit) => self.edit_filter(edit),
+			Msg::ApplyFilter => self.apply_filter(),
+			Msg::CancelInput => self.cancel_input(),
+			Msg::ClearFilter => self.clear_filter(),
+			Msg::FocusUsages => {
+				let had_selection = self.selected().is_some();
+				self.focus_usages_of_selected();
+				if had_selection {
+					return Ok(vec![Effect::Navigate(View::Refs.route())]);
+				}
+			}
+			Msg::RunCheck => {
+				self.run_check();
+				return Ok(vec![Effect::Navigate(View::Check.route())]);
+			}
+			Msg::MoveDown => self.move_down(),
+			Msg::MoveUp => self.move_up(),
+			Msg::Home => self.selection = 0,
+			Msg::End => self.selection = self.nav_rows.len().saturating_sub(1),
+			Msg::ToggleNode => self.toggle_selected_nav(),
+			Msg::OpenNode => self.open_selected_nav(),
+			Msg::CloseNode => self.close_selected_nav(),
+			Msg::Help => {
+				self.status =
+					"keys: Enter/right/left tree, / edit filter, u usages, x clear, Tab/1-4 views, c check, Esc quit"
+						.to_string();
+			}
+			Msg::Key(_) | Msg::Noop => {}
+		}
+		Ok(Vec::new())
+	}
+}
+
+fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
+	let _title = Screen::title(app);
+	let _component = Screen::component(app);
+	let route = app.route.clone();
+	let ctx = RenderContext { route: &route };
+	Screen::render(app, frame, frame.area(), &ctx);
+}
+
+fn render_shell(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let rows = Layout::default()
 		.direction(Direction::Vertical)
 		.constraints([
@@ -501,14 +656,14 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
 			Constraint::Min(0),
 			Constraint::Length(1),
 		])
-		.split(frame.area());
+		.split(area);
 	render_header(frame, rows[0], app);
 	render_body(frame, rows[1], app);
 	render_footer(frame, rows[2], app);
 }
 
 fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let stats = &app.index.stats;
+	let stats = app.store.stats();
 	let line = Line::from(vec![
 		Span::styled(
 			"code-moniker ",
@@ -516,6 +671,8 @@ fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 				.fg(THEME.brand)
 				.add_modifier(Modifier::BOLD),
 		),
+		marker(ComponentId::Header),
+		Span::raw(" "),
 		Span::raw(format!(
 			"{}  files {}  defs {}  refs {}  filter {}",
 			app.view.label(),
@@ -543,12 +700,18 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let prefix = if app.search_mode { "search" } else { "status" };
+	let prefix = if app.mode == UiMode::EditingFilter {
+		"filter"
+	} else {
+		"status"
+	};
 	let line = Line::from(vec![
 		Span::styled(
 			format!("{prefix}: "),
 			Style::default().fg(THEME.status_label),
 		),
+		marker(ComponentId::Status),
+		Span::raw(" "),
 		Span::raw(&app.status),
 	]);
 	frame.render_widget(Paragraph::new(line), area);
@@ -576,21 +739,26 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 			ListItem::new(line).style(style)
 		})
 		.collect();
-	let title = if app.filter_query.is_some() {
+	let title = if app.is_filtered() {
 		format!(
 			" filtered {} files {} defs ",
 			matched_file_count(&app.visible_defs),
 			app.visible_defs.len()
 		)
-	} else if app.filter_error.is_some() {
+	} else if app.active_filter.error().is_some() {
 		" filtered invalid ".to_string()
 	} else {
 		format!(
 			" navigator {} files {} defs ",
-			app.index.stats.files, app.navigator.def_count
+			app.store.stats().files,
+			app.navigator.def_count
 		)
 	};
-	let list = List::new(items).block(Block::default().title(title).borders(Borders::ALL));
+	let list = List::new(items).block(
+		Block::default()
+			.title(block_title(title, ComponentId::Navigator))
+			.borders(Borders::ALL),
+	);
 	frame.render_widget(list, area);
 }
 
@@ -640,7 +808,7 @@ fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
 			spans.push(nav_count_span(row));
 		}
 		NavNodeKind::Def(loc) => {
-			let def = app.index.def(&loc);
+			let def = app.store.def(&loc);
 			spans.push(Span::styled(
 				def_kind(def),
 				Style::default().fg(THEME.nav.kind),
@@ -678,10 +846,10 @@ fn matched_file_count(defs: &[DefLocation]) -> usize {
 }
 
 fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let stats = &app.index.stats;
+	let stats = app.store.stats();
 	let total_ms = stats.scan_ms + stats.extract_ms + stats.index_ms;
 	let mut lines = vec![
-		Line::raw(format!("root        {}", app.index.root)),
+		Line::raw(format!("root        {}", app.store.root())),
 		Line::raw(format!("files       {}", stats.files)),
 		Line::raw(format!("defs        {}", stats.defs)),
 		Line::raw(format!("refs        {}", stats.refs)),
@@ -703,7 +871,7 @@ fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	for (shape, count) in &stats.by_shape {
 		lines.push(Line::raw(format!("{shape:<10} {count}")));
 	}
-	render_panel(frame, area, " overview ", lines);
+	render_panel(frame, area, "overview", ComponentId::PanelOverview, lines);
 }
 
 fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
@@ -711,8 +879,8 @@ fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		render_nav_selection(frame, area, app);
 		return;
 	};
-	let file = &app.index.files[loc.file];
-	let def = app.index.def(&loc);
+	let file = app.store.file(loc.file);
+	let def = app.store.def(&loc);
 	let mut lines = vec![
 		Line::styled("selected", Style::default().fg(THEME.section)),
 		Line::raw(format!("kind      {}", def_kind(def))),
@@ -722,16 +890,12 @@ fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		Line::raw(""),
 		Line::styled("children", Style::default().fg(THEME.section)),
 	];
-	let children = app
-		.index
-		.children_by_parent
-		.get(&def.moniker)
-		.map_or(&[][..], Vec::as_slice);
+	let children = app.store.children_by_parent(&def.moniker);
 	if children.is_empty() {
 		lines.push(Line::raw("none"));
 	} else {
 		for child in children.iter().take(40) {
-			let child_def = app.index.def(child);
+			let child_def = app.store.def(child);
 			lines.push(Line::raw(format!(
 				"{} {}",
 				def_kind(child_def),
@@ -743,29 +907,33 @@ fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		}
 	}
 	lines.push(Line::raw(""));
-	lines.push(Line::styled("source", Style::default().fg(THEME.section)));
+	lines.push(Line::from(vec![
+		Span::styled("source", Style::default().fg(THEME.section)),
+		Span::raw(" "),
+		marker(ComponentId::SourceSnippet),
+	]));
 	let snippet = source_snippet_lines(app, &loc, 3);
 	if snippet.is_empty() {
 		lines.push(Line::raw("no source position"));
 	} else {
 		lines.extend(snippet);
 	}
-	render_panel_unwrapped(frame, area, " outline ", lines);
+	render_panel_unwrapped(frame, area, "outline", ComponentId::PanelOutline, lines);
 }
 
 fn render_nav_selection(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let Some(row) = app.selected_nav_row() else {
-		let lines = if let Some(error) = &app.filter_error {
+		let lines = if let Some((raw, error)) = app.active_filter.error() {
 			vec![
 				Line::styled("invalid filter", Style::default().fg(THEME.danger)),
-				Line::raw(format!("query     {}", app.filter)),
+				Line::raw(format!("query     {raw}")),
 				Line::raw(error),
 				Line::raw(""),
 				Line::raw("examples  Resolver"),
 				Line::raw("          kind:interface Resolver"),
 				Line::raw("          kind:method ^async"),
 			]
-		} else if app.filter_query.is_some() {
+		} else if app.is_filtered() {
 			vec![
 				Line::styled("filtered navigator", Style::default().fg(THEME.section)),
 				Line::raw(format!("filter    {}", app.filter_label())),
@@ -776,7 +944,7 @@ fn render_nav_selection(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		} else {
 			vec![Line::raw("navigator is empty")]
 		};
-		render_panel(frame, area, " outline ", lines);
+		render_panel(frame, area, "outline", ComponentId::PanelOutline, lines);
 		return;
 	};
 	let kind = match row.kind {
@@ -805,22 +973,27 @@ fn render_nav_selection(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	} else {
 		lines.push(Line::raw("no child node"));
 	}
-	render_panel(frame, area, " outline ", lines);
+	render_panel(frame, area, "outline", ComponentId::PanelOutline, lines);
 }
 
 fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	if let Some(focus) = app.active_filter.usage_focus() {
+		render_usage_focus(frame, area, app, focus);
+		return;
+	}
 	let Some(loc) = app.selected() else {
 		render_panel(
 			frame,
 			area,
-			" refs ",
+			"refs",
+			ComponentId::PanelRefs,
 			vec![Line::raw("select a declaration to inspect refs")],
 		);
 		return;
 	};
-	let def = app.index.def(&loc);
-	let outgoing = app.index.outgoing_refs(&def.moniker);
-	let incoming = app.index.incoming_refs(&def.moniker);
+	let def = app.store.def(&loc);
+	let outgoing = app.store.outgoing_refs(&def.moniker);
+	let incoming = app.store.incoming_refs(&def.moniker);
 	let mut lines = vec![
 		Line::styled("outgoing", Style::default().fg(THEME.section)),
 		Line::raw(format!("{} reference(s)", outgoing.len())),
@@ -840,7 +1013,30 @@ fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	if incoming.len() > 30 {
 		lines.push(Line::raw(format!("... {} more", incoming.len() - 30)));
 	}
-	render_panel(frame, area, " refs ", lines);
+	render_panel(frame, area, "refs", ComponentId::PanelRefs, lines);
+}
+
+fn render_usage_focus(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, focus: &UsageFocus) {
+	let mut lines = vec![
+		Line::styled("usage focus", Style::default().fg(THEME.section)),
+		Line::raw(format!("symbol     {}", focus.label)),
+		Line::raw(format!("moniker    {}", compact_moniker(&focus.target))),
+		Line::raw(format!("refs       {}", focus.refs.len())),
+		Line::raw(format!("contexts   {}", focus.contexts.len())),
+		Line::raw(""),
+		Line::styled("references", Style::default().fg(THEME.section)),
+	];
+	if focus.refs.is_empty() {
+		lines.push(Line::raw("none"));
+	} else {
+		for loc in focus.refs.iter().take(40) {
+			lines.push(usage_ref_line(app, loc));
+		}
+		if focus.refs.len() > 40 {
+			lines.push(Line::raw(format!("... {} more", focus.refs.len() - 40)));
+		}
+	}
+	render_panel(frame, area, "usages", ComponentId::PanelUsages, lines);
 }
 
 fn render_check(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
@@ -869,12 +1065,22 @@ fn render_check(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 			Line::raw(error),
 		],
 	};
-	render_panel(frame, area, " check ", lines);
+	render_panel(frame, area, "check", ComponentId::PanelCheck, lines);
 }
 
-fn render_panel(frame: &mut ratatui::Frame<'_>, area: Rect, title: &str, lines: Vec<Line<'_>>) {
+fn render_panel(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	title: &str,
+	component: ComponentId,
+	lines: Vec<Line<'_>>,
+) {
 	let paragraph = Paragraph::new(Text::from(lines))
-		.block(Block::default().title(title).borders(Borders::ALL))
+		.block(
+			Block::default()
+				.title(block_title(title, component))
+				.borders(Borders::ALL),
+		)
 		.wrap(Wrap { trim: false });
 	frame.render_widget(paragraph, area);
 }
@@ -883,16 +1089,20 @@ fn render_panel_unwrapped(
 	frame: &mut ratatui::Frame<'_>,
 	area: Rect,
 	title: &str,
+	component: ComponentId,
 	lines: Vec<Line<'_>>,
 ) {
-	let paragraph = Paragraph::new(Text::from(lines))
-		.block(Block::default().title(title).borders(Borders::ALL));
+	let paragraph = Paragraph::new(Text::from(lines)).block(
+		Block::default()
+			.title(block_title(title, component))
+			.borders(Borders::ALL),
+	);
 	frame.render_widget(paragraph, area);
 }
 
 fn ref_line(app: &App, loc: &RefLocation, outgoing: bool) -> Line<'static> {
-	let file = &app.index.files[loc.file];
-	let reference = app.index.reference(loc);
+	let file = app.store.file(loc.file);
+	let reference = app.store.reference(loc);
 	let source = file.graph.def_at(reference.source);
 	let kind = ref_kind(reference);
 	let target = compact_moniker(&reference.target);
@@ -905,41 +1115,18 @@ fn ref_line(app: &App, loc: &RefLocation, outgoing: bool) -> Line<'static> {
 	Line::raw(rendered)
 }
 
+fn usage_ref_line(app: &App, loc: &RefLocation) -> Line<'static> {
+	let file = app.store.file(loc.file);
+	let reference = app.store.reference(loc);
+	let source = file.graph.def_at(reference.source);
+	Line::raw(format!(
+		"{:<14} {}  {}",
+		ref_kind(reference),
+		file.rel_path.display(),
+		compact_moniker(&source.moniker)
+	))
+}
+
 fn display_filter(filter: &str) -> &str {
 	if filter.is_empty() { "<all>" } else { filter }
-}
-
-fn def_kind(def: &DefRecord) -> String {
-	std::str::from_utf8(&def.kind).unwrap_or("?").to_string()
-}
-
-fn ref_kind(reference: &RefRecord) -> String {
-	std::str::from_utf8(&reference.kind)
-		.unwrap_or("?")
-		.to_string()
-}
-
-fn last_name(moniker: &Moniker) -> String {
-	moniker
-		.as_view()
-		.segments()
-		.last()
-		.and_then(|s| std::str::from_utf8(s.name).ok())
-		.unwrap_or(".")
-		.to_string()
-}
-
-fn compact_moniker(moniker: &Moniker) -> String {
-	let view = moniker.as_view();
-	let project = std::str::from_utf8(view.project()).unwrap_or(".");
-	let mut out = String::from(project);
-	for seg in view.segments() {
-		let kind = std::str::from_utf8(seg.kind).unwrap_or("?");
-		let name = std::str::from_utf8(seg.name).unwrap_or("?");
-		out.push('/');
-		out.push_str(kind);
-		out.push(':');
-		out.push_str(name);
-	}
-	out
 }

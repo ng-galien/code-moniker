@@ -45,6 +45,16 @@ version in `[workspace.package]`; do not use a `-snapshot` suffix.
 
 Use `rustfmt`; this repo sets `hard_tabs = true` in `rustfmt.toml`. Keep modules focused by responsibility. Language extractors follow `crates/core/src/lang/<lang>/` with files such as `mod.rs`, `kinds.rs`, `canonicalize.rs`, and `strategy.rs`. Public APIs shared with CLI or PG crates must be `pub`, not `pub(crate)`.
 
+## UI Architecture Working Posture
+
+Treat `code-moniker ui` as a contract-driven TUI shell for code supervision, not as an IDE clone or a pile of ratatui widgets. Before changing UI behavior, identify whether the change belongs to the shell, a feature, a screen, an effect, or the data store.
+
+Keep global concerns in the shell: terminal loop, layout, routing, navigation registry, and effect application. Feature code should declare navigation, commands, routes, and screens; it should not directly own terminal state, mutate global navigation, or bypass shell effects.
+
+Route user input through `ui::events` and typed messages, then through screen handling and `Effect` application. Do not add ad hoc key handling inside render code. Treat `ui::store` as the first data port: UI code should ask the store for data instead of reaching into `SessionIndex` or future index engines directly.
+
+Use component markers as stable vocabulary for collaboration. They make feedback and bug reports unambiguous, but business behavior should not depend on rendered labels. Add focused tests for state transitions, route/effect behavior, and store boundaries; use `code-moniker extract`/`stats` plus `cargo arch-check` to keep new UI modules understandable.
+
 ## Testing Guidelines
 
 Place Rust unit tests next to the code under `#[cfg(test)] mod tests`; use `crates/cli/tests/` for CLI behavior. SQL surface coverage belongs in numbered `pgtap/sql/*.sql` files and runs through `./pgtap/run.sh`. When changing extractors, include focused fixtures under `crates/core/tests/fixtures/` where useful and update proptest regressions intentionally.

@@ -1,11 +1,8 @@
 use std::collections::BTreeSet;
 
-use code_moniker_core::core::code_graph::DefRecord;
+use crate::inspect::DefLocation;
 
-use crate::inspect::{DefLocation, SessionIndex};
-
-use super::filter::NavFilter;
-use super::{def_kind, last_name};
+use super::store::{IndexStore, is_navigable_def, last_name};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum NavNodeKind {
@@ -50,9 +47,10 @@ impl NavNode {
 	}
 }
 
-pub(super) fn build_navigator(index: &SessionIndex) -> NavNode {
+pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
 	let mut root = NavNode::new("root".to_string(), "root".to_string(), NavNodeKind::Root);
-	for (file_idx, file) in index.files.iter().enumerate() {
+	for file_idx in 0..store.file_count() {
+		let file = store.file(file_idx);
 		let lang_key = format!("lang:{}", file.lang.tag());
 		let lang = child_mut(
 			&mut root,
@@ -93,7 +91,7 @@ pub(super) fn build_navigator(index: &SessionIndex) -> NavNode {
 			file_label,
 			NavNodeKind::File(file_idx),
 		);
-		file_node.children = symbol_children(index, file_idx, None);
+		file_node.children = symbol_children(store, file_idx, None);
 		parent.children.push(file_node);
 	}
 	sort_nav(&mut root);
@@ -145,110 +143,67 @@ fn compute_nav_counts(node: &mut NavNode) -> (usize, usize) {
 }
 
 fn symbol_children(
-	index: &SessionIndex,
+	store: &impl IndexStore,
 	file_idx: usize,
 	parent: Option<DefLocation>,
 ) -> Vec<NavNode> {
 	let mut out = Vec::new();
-	for loc in direct_children(index, file_idx, parent) {
-		collect_symbol_node(index, file_idx, loc, &mut out);
+	for loc in direct_children(store, file_idx, parent) {
+		collect_symbol_node(store, file_idx, loc, &mut out);
 	}
 	out
 }
 
 fn collect_symbol_node(
-	index: &SessionIndex,
+	store: &impl IndexStore,
 	file_idx: usize,
 	loc: DefLocation,
 	out: &mut Vec<NavNode>,
 ) {
-	let def = index.def(&loc);
-	if is_nav_symbol(def) {
+	let def = store.def(&loc);
+	if is_navigable_def(def) {
 		let mut node = NavNode::new(
 			format!("def:{}:{}", loc.file, loc.def),
 			last_name(&def.moniker),
 			NavNodeKind::Def(loc),
 		);
-		node.children = symbol_children(index, file_idx, Some(loc));
+		node.children = symbol_children(store, file_idx, Some(loc));
 		out.push(node);
 	} else {
-		out.extend(symbol_children(index, file_idx, Some(loc)));
+		out.extend(symbol_children(store, file_idx, Some(loc)));
 	}
 }
 
 fn direct_children(
-	index: &SessionIndex,
+	store: &impl IndexStore,
 	file_idx: usize,
 	parent: Option<DefLocation>,
 ) -> Vec<DefLocation> {
-	let mut locs: Vec<DefLocation> = if let Some(parent) = parent {
-		index
-			.children_by_parent
-			.get(&index.def(&parent).moniker)
-			.into_iter()
-			.flat_map(|children| children.iter().copied())
-			.filter(|loc| loc.file == file_idx)
-			.collect()
+	if let Some(parent) = parent {
+		store.child_defs(&parent)
 	} else {
-		index.files[file_idx]
-			.graph
-			.defs()
-			.enumerate()
-			.filter(|(_, def)| def.parent.is_none())
-			.map(|(def_idx, _)| DefLocation {
-				file: file_idx,
-				def: def_idx,
-			})
-			.collect()
-	};
-	locs.sort_by(|a, b| {
-		let left = index.def(a);
-		let right = index.def(b);
-		left.position
-			.map(|(start, _)| start)
-			.cmp(&right.position.map(|(start, _)| start))
-			.then_with(|| last_name(&left.moniker).cmp(&last_name(&right.moniker)))
-	});
-	locs
-}
-
-pub(super) fn is_nav_symbol(def: &DefRecord) -> bool {
-	matches!(
-		def_kind(def).as_str(),
-		"annotation_type"
-			| "class" | "const"
-			| "constructor"
-			| "enum" | "enum_constant"
-			| "field" | "fn"
-			| "func" | "function"
-			| "impl" | "interface"
-			| "method"
-			| "record"
-			| "struct"
-			| "test" | "trait"
-			| "type" | "var"
-	)
+		store.root_defs(file_idx)
+	}
 }
 
 pub(super) fn flatten_nav(
-	index: &SessionIndex,
 	node: &NavNode,
 	expanded: &BTreeSet<String>,
-	filter: Option<&NavFilter>,
+	matches: Option<&[DefLocation]>,
 	depth: usize,
 	rows: &mut Vec<NavRow>,
 ) {
-	if let Some(filter) = filter {
-		let Some(filtered) = filter_node(index, node, filter) else {
+	if let Some(matches) = matches {
+		let Some(filtered) = filter_node(node, matches) else {
 			return;
 		};
 		for child in &filtered.children {
-			flatten_compact_nav(child, expanded, depth, rows);
+			flatten_compact_nav(child, expanded, depth, rows, true);
 		}
 		return;
 	}
 	for child in &node.children {
-		flatten_compact_nav(child, expanded, depth, rows);
+		flatten_compact_nav(child, expanded, depth, rows, false);
 	}
 }
 
@@ -257,8 +212,9 @@ fn flatten_compact_nav(
 	expanded: &BTreeSet<String>,
 	depth: usize,
 	rows: &mut Vec<NavRow>,
+	allow_terminal_compaction: bool,
 ) {
-	let (rendered, label) = compact_chain(node);
+	let (rendered, label) = compact_chain(node, allow_terminal_compaction);
 	rows.push(NavRow {
 		key: rendered.key.clone(),
 		label,
@@ -270,18 +226,23 @@ fn flatten_compact_nav(
 	});
 	if !rendered.children.is_empty() && expanded.contains(&rendered.key) {
 		for child in &rendered.children {
-			flatten_compact_nav(child, expanded, depth + 1, rows);
+			flatten_compact_nav(child, expanded, depth + 1, rows, allow_terminal_compaction);
 		}
 	}
 }
 
-fn compact_chain(node: &NavNode) -> (&NavNode, String) {
+fn compact_chain(node: &NavNode, allow_terminal_compaction: bool) -> (&NavNode, String) {
 	let mut current = node;
 	let mut labels = vec![node.label.clone()];
 	while !matches!(current.kind, NavNodeKind::Def(_)) && current.children.len() == 1 {
 		let Some(child) = current.children.first() else {
 			break;
 		};
+		if !allow_terminal_compaction
+			&& matches!(child.kind, NavNodeKind::File(_) | NavNodeKind::Def(_))
+		{
+			break;
+		}
 		labels.push(child.label.clone());
 		current = child;
 	}
@@ -289,24 +250,23 @@ fn compact_chain(node: &NavNode) -> (&NavNode, String) {
 }
 
 pub(super) fn filtered_expanded_keys(
-	index: &SessionIndex,
 	node: &NavNode,
-	filter: &NavFilter,
+	matches: &[DefLocation],
 	expand_symbols: bool,
 ) -> BTreeSet<String> {
 	let mut keys = BTreeSet::new();
 	for child in &node.children {
-		collect_filtered_expanded_keys(index, child, filter, expand_symbols, &mut keys);
+		collect_filtered_expanded_keys(child, matches, expand_symbols, &mut keys);
 	}
 	keys
 }
 
-fn filter_node(index: &SessionIndex, node: &NavNode, filter: &NavFilter) -> Option<NavNode> {
+fn filter_node(node: &NavNode, matches: &[DefLocation]) -> Option<NavNode> {
 	let mut children = Vec::new();
 	let mut files = 0;
-	let mut defs = usize::from(node_matches(index, node, filter));
+	let mut defs = usize::from(node_matches(node, matches));
 	for child in &node.children {
-		if let Some(child) = filter_node(index, child, filter) {
+		if let Some(child) = filter_node(child, matches) {
 			files += child.file_count;
 			defs += child.def_count;
 			children.push(child);
@@ -329,19 +289,18 @@ fn filter_node(index: &SessionIndex, node: &NavNode, filter: &NavFilter) -> Opti
 }
 
 fn collect_filtered_expanded_keys(
-	index: &SessionIndex,
 	node: &NavNode,
-	filter: &NavFilter,
+	matches: &[DefLocation],
 	expand_symbols: bool,
 	keys: &mut BTreeSet<String>,
 ) -> Option<bool> {
 	let mut has_matching_child = false;
 	for child in &node.children {
-		if collect_filtered_expanded_keys(index, child, filter, expand_symbols, keys).is_some() {
+		if collect_filtered_expanded_keys(child, matches, expand_symbols, keys).is_some() {
 			has_matching_child = true;
 		}
 	}
-	let included = node_matches(index, node, filter) || has_matching_child;
+	let included = node_matches(node, matches) || has_matching_child;
 	if !included {
 		return None;
 	}
@@ -353,10 +312,9 @@ fn collect_filtered_expanded_keys(
 	Some(has_matching_child)
 }
 
-fn node_matches(index: &SessionIndex, node: &NavNode, filter: &NavFilter) -> bool {
+fn node_matches(node: &NavNode, matches: &[DefLocation]) -> bool {
 	let NavNodeKind::Def(loc) = node.kind else {
 		return false;
 	};
-	let def = index.def(&loc);
-	filter.matches(&def_kind(def), &last_name(&def.moniker))
+	matches.contains(&loc)
 }

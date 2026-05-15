@@ -81,6 +81,19 @@ in `0.y.z`.
   real branch point, matching the compact tree output style.
 - **`code-moniker ui`** — TUI colors are now centralized behind theme
   tokens for navigation, status, sections, and source snippets.
+- **`code-moniker ui`** — keyboard handling now follows a small
+  Elm-style `Msg -> update -> render` loop with explicit normal and
+  filter-editing modes. Index access is isolated behind `ui::store`,
+  and the architecture profile now guards that only the store adapter
+  imports `SessionIndex`.
+- **`code-moniker ui`** — visible component markers such as
+  `[ui.navigator]`, `[ui.panel.refs]`, and `[ui.status]` now identify
+  stable UI zones for bug reports, feedback, and future feature-module
+  contracts.
+- **`code-moniker ui`** — introduces the first contract-driven TUI shell
+  layer: typed `Route`, `Effect`, `Screen`, and `Feature` contracts, a
+  static feature registry, and an `ExplorerFeature` that declares the
+  current overview/outline/refs/check navigation surface.
 - **`code-moniker-core` (rs extractor)** — free function calls now
   resolve against their enclosing Rust module, including explicit nested
   module paths such as `tests::mk_under()` and repeated
@@ -93,9 +106,10 @@ in `0.y.z`.
 
 ### Fixed
 
-- **`code-moniker ui`** — filter entry now updates the visible
-  declaration list and status line while typing, including terminals that
-  report printable keys with modifier flags.
+- **`code-moniker ui`** — filter entry is now modal: `/` edits a draft,
+  `Enter` applies it, `Esc` cancels editing, and normal-mode `x` clears
+  the active filter. `Esc` is the only quit key in normal mode, so
+  command keys are no longer swallowed by the filter input.
 - **`code-moniker ui`** — source snippets now preserve indentation and
   use a light-theme-friendly editor palette with muted context lines,
   a pale active-line background, and clearer line numbers.
@@ -108,6 +122,14 @@ in `0.y.z`.
 - **`code-moniker ui`** — Rust `fn` declarations are now navigable, and
   filter counters only count declarations that can actually appear in
   the navigator.
+- **`code-moniker ui`** — multi-source navigator compaction now stops
+  before file and symbol rows, so single-file services remain visible as
+  source-root directory rows instead of looking like class-only entries.
+- **`code-moniker ui`** — pressing `u` on a selected declaration focuses
+  the navigator on usages of that symbol and shows the matching
+  references in the refs panel. For multi-source Java inspection, this
+  also matches compatible import targets across source roots, which makes
+  shared-library consumers visible from the library symbol.
 
 ## [0.2.0] — 2026-05-13
 

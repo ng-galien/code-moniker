@@ -1,9 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::DEFAULT_SCHEME;
-use crate::inspect::{SessionIndex, SessionOptions};
+use crate::inspect::SessionOptions;
 
 use super::source::source_snippet_lines;
+use super::store::IndexStore;
 use super::theme::THEME;
 use super::*;
 
@@ -40,6 +41,74 @@ fn select_nav_label_ending_with(app: &mut App, suffix: &str) {
 		});
 }
 
+fn apply_text_filter(app: &mut App, raw: &str) {
+	app.filter_draft = raw.to_string();
+	app.apply_filter();
+}
+
+#[test]
+fn component_titles_include_stable_collaboration_markers() {
+	let title = block_title("navigator", ComponentId::Navigator);
+	let rendered = title
+		.spans
+		.iter()
+		.map(|span| span.content.as_ref())
+		.collect::<String>();
+
+	assert_eq!(rendered, "navigator [ui.navigator]");
+	assert_eq!(ComponentId::PanelRefs.as_str(), "ui.panel.refs");
+	assert_eq!(ComponentId::SourceSnippet.as_str(), "ui.source.snippet");
+}
+
+#[test]
+fn feature_registry_exposes_static_explorer_contracts() {
+	let registry = FeatureRegistry::static_registry();
+	let navigation = registry.navigation();
+	let commands = registry.commands();
+
+	assert_eq!(registry.initial_route(), ExplorerFeature::initial_route());
+	assert!(registry.can_open(&ExplorerFeature::route(ROUTE_REFS)));
+	assert!(!registry.can_open(&Route::new("missing", "index")));
+	assert_eq!(
+		navigation
+			.iter()
+			.map(|item| item.label.as_str())
+			.collect::<Vec<_>>(),
+		vec!["Overview", "Outline", "Refs", "Check"]
+	);
+	assert!(
+		commands
+			.iter()
+			.any(|command| command.label == "Edit filter"
+				&& command.shortcut.as_deref() == Some("/")),
+		"{commands:?}"
+	);
+}
+
+#[test]
+fn view_switches_update_shell_route_through_effects() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	assert_eq!(app.route, ExplorerFeature::route(ROUTE_OVERVIEW));
+	app.handle_key(key(KeyCode::Char('3'))).unwrap();
+
+	assert_eq!(app.view, View::Refs);
+	assert_eq!(app.route, ExplorerFeature::route(ROUTE_REFS));
+}
+
 #[test]
 fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 	let tmp = tempfile::tempdir().unwrap();
@@ -48,24 +117,23 @@ fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 		"src/a.ts",
 		"class Alpha {}\nclass Beta {}\nfunction gamma() {}\n",
 	);
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
 	})
 	.unwrap();
 	let mut app = App::new(
-		index,
+		store,
 		DEFAULT_SCHEME.to_string(),
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
-	app.filter = "Alpha".into();
-	app.refresh_filter(true);
+	apply_text_filter(&mut app, "Alpha");
 	assert!(
 		app.visible_defs
 			.iter()
-			.all(|loc| last_name(&app.index.def(loc).moniker).contains("Alpha")),
+			.all(|loc| last_name(&app.store.def(loc).moniker).contains("Alpha")),
 		"{:?}",
 		app.visible_defs
 	);
@@ -81,7 +149,7 @@ fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 	select_nav_label_ending_with(&mut app, "Alpha");
 	assert_eq!(
 		last_name(
-			&app.index
+			&app.store
 				.def(&app.selected().expect("selected Alpha"))
 				.moniker
 		),
@@ -98,14 +166,14 @@ fn navigator_compacts_linear_branches_and_expands_at_branch_points() {
 		"class Foo { bar() { return 1; } }\nfunction helper() { return 2; }\n",
 	);
 	write(tmp.path(), "src/nested/b.ts", "class Other {}\n");
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
 	})
 	.unwrap();
 	let mut app = App::new(
-		index,
+		store,
 		DEFAULT_SCHEME.to_string(),
 		tmp.path().join(".code-moniker.toml"),
 		None,
@@ -122,11 +190,169 @@ fn navigator_compacts_linear_branches_and_expands_at_branch_points() {
 
 	select_nav_label(&mut app, "Foo");
 	let selected = app.selected().expect("selected symbol");
-	assert_eq!(last_name(&app.index.def(&selected).moniker), "Foo");
+	assert_eq!(last_name(&app.store.def(&selected).moniker), "Foo");
 	assert!(
 		app.nav_rows
 			.iter()
 			.any(|row| row.label.starts_with("helper"))
+	);
+}
+
+#[test]
+fn multi_source_navigator_keeps_source_roots_as_directory_rows() {
+	let tmp = tempfile::tempdir().unwrap();
+	let common = tmp.path().join("common-lib");
+	let billing = tmp.path().join("billing-service");
+	let order = tmp.path().join("order-service");
+	write(
+		&common,
+		"src/main/java/com/acme/common/A.java",
+		"class A {}\n",
+	);
+	write(
+		&common,
+		"src/main/java/com/acme/common/B.java",
+		"class B {}\n",
+	);
+	write(
+		&billing,
+		"src/main/java/com/acme/billing/BillingApplication.java",
+		"class BillingApplication {}\n",
+	);
+	write(
+		&order,
+		"src/main/java/com/acme/order/OrderApplication.java",
+		"class OrderApplication {}\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![common, billing, order],
+		project: None,
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	select_nav_label(&mut app, "java");
+	app.toggle_selected_nav();
+
+	let service_rows: Vec<_> = app
+		.nav_rows
+		.iter()
+		.filter(|row| {
+			row.label.starts_with("billing-service/") || row.label.starts_with("order-service/")
+		})
+		.collect();
+	assert_eq!(service_rows.len(), 2, "{:?}", app.nav_rows);
+	for row in service_rows {
+		assert!(
+			matches!(row.kind, NavNodeKind::Dir),
+			"single-file services should remain directory rows: {row:?}"
+		);
+		assert!(
+			!row.label.contains("Application.java") && !row.label.contains("Application"),
+			"service root row should not be compacted into a file or class: {row:?}"
+		);
+	}
+	assert!(
+		app.nav_rows
+			.iter()
+			.any(|row| row.label == "common-lib/src/main/java/com/acme/common"),
+		"{:?}",
+		app.nav_rows
+	);
+}
+
+#[test]
+fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
+	let tmp = tempfile::tempdir().unwrap();
+	let common = tmp.path().join("common-lib");
+	let billing = tmp.path().join("billing-service");
+	let order = tmp.path().join("order-service");
+	write(
+		&common,
+		"src/main/java/com/acme/common/MoneyFormatter.java",
+		"package com.acme.common;\npublic class MoneyFormatter { public String format(long cents) { return Long.toString(cents); } }\n",
+	);
+	write(
+		&billing,
+		"src/main/java/com/acme/billing/BillingApplication.java",
+		"package com.acme.billing;\nimport com.acme.common.MoneyFormatter;\npublic class BillingApplication { private final MoneyFormatter formatter = new MoneyFormatter(); public String run() { return formatter.format(10); } }\n",
+	);
+	write(
+		&order,
+		"src/main/java/com/acme/order/OrderApplication.java",
+		"package com.acme.order;\npublic class OrderApplication { public String run() { return \"ok\"; } }\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![common, billing, order],
+		project: None,
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	let money_formatter = (0..app.store.file_count())
+		.flat_map(|file_idx| {
+			app.store
+				.file(file_idx)
+				.graph
+				.defs()
+				.enumerate()
+				.map(move |(def_idx, _)| DefLocation {
+					file: file_idx,
+					def: def_idx,
+				})
+		})
+		.find(|loc| {
+			let def = app.store.def(loc);
+			def_kind(def) == "class" && last_name(&def.moniker) == "MoneyFormatter"
+		})
+		.expect("MoneyFormatter class");
+
+	app.focus_usages(money_formatter);
+
+	assert_eq!(app.view, View::Refs);
+	assert!(
+		app.status.contains("usages of MoneyFormatter"),
+		"{}",
+		app.status
+	);
+	assert!(
+		app.visible_defs
+			.iter()
+			.any(|loc| last_name(&app.store.def(loc).moniker) == "BillingApplication"),
+		"{:?}",
+		app.visible_defs
+	);
+	assert!(
+		!app.visible_defs
+			.iter()
+			.any(|loc| last_name(&app.store.def(loc).moniker) == "OrderApplication"),
+		"{:?}",
+		app.visible_defs
+	);
+	assert!(
+		app.nav_rows.iter().any(|row| {
+			row.label.contains("billing-service") && row.label.contains("BillingApplication")
+		}),
+		"{:?}",
+		app.nav_rows
+	);
+	assert!(
+		!app.nav_rows
+			.iter()
+			.any(|row| row.label.contains("order-service")),
+		"{:?}",
+		app.nav_rows
 	);
 }
 
@@ -138,21 +364,20 @@ fn kind_filter_limits_navigator_to_matching_declaration_kinds() {
 		"src/a.ts",
 		"class Alpha {}\ninterface Resolver {}\nfunction helper() {}\n",
 	);
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
 	})
 	.unwrap();
 	let mut app = App::new(
-		index,
+		store,
 		DEFAULT_SCHEME.to_string(),
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
 
-	app.filter = "kind:interface Resolver".into();
-	app.refresh_filter(true);
+	apply_text_filter(&mut app, "kind:interface Resolver");
 
 	assert_eq!(app.visible_defs.len(), 1, "{:?}", app.nav_rows);
 	assert!(
@@ -174,21 +399,20 @@ fn kind_filter_limits_navigator_to_matching_declaration_kinds() {
 fn rust_fn_kind_is_navigable_and_filterable() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/lib.rs", "pub fn build() {}\n");
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
 	})
 	.unwrap();
 	let mut app = App::new(
-		index,
+		store,
 		DEFAULT_SCHEME.to_string(),
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
 
-	app.filter = "kind:fn build".into();
-	app.refresh_filter(true);
+	apply_text_filter(&mut app, "kind:fn build");
 
 	assert_eq!(app.visible_defs.len(), 1, "{:?}", app.nav_rows);
 	assert!(
@@ -206,21 +430,20 @@ fn filter_counts_only_navigable_declarations() {
 		"src/lib.rs",
 		"pub fn build(value: u32) { let local = value; }\n",
 	);
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
 	})
 	.unwrap();
 	let mut app = App::new(
-		index,
+		store,
 		DEFAULT_SCHEME.to_string(),
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
 
-	app.filter = "kind:local".into();
-	app.refresh_filter(true);
+	apply_text_filter(&mut app, "kind:local");
 
 	assert!(app.visible_defs.is_empty(), "{:?}", app.visible_defs);
 	assert!(app.nav_rows.is_empty(), "{:?}", app.nav_rows);
@@ -230,23 +453,22 @@ fn filter_counts_only_navigable_declarations() {
 fn invalid_filter_regex_clears_rows_with_actionable_status() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
 	})
 	.unwrap();
 	let mut app = App::new(
-		index,
+		store,
 		DEFAULT_SCHEME.to_string(),
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
 
-	app.filter = "*Provider".into();
-	app.refresh_filter(true);
+	apply_text_filter(&mut app, "*Provider");
 
-	assert!(app.filter_error.is_some());
+	assert!(app.active_filter.error().is_some());
 	assert!(app.nav_rows.is_empty());
 	assert!(
 		app.status.contains("invalid filter regex"),
@@ -263,14 +485,14 @@ fn source_snippet_preserves_indent_and_dims_context_lines() {
 		"src/a.ts",
 		"const before = 1;\nfunction target() {\n    nested();\n}\nconst after = 2;\n",
 	);
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
 	})
 	.unwrap();
 	let app = App::new(
-		index,
+		store,
 		DEFAULT_SCHEME.to_string(),
 		tmp.path().join(".code-moniker.toml"),
 		None,
@@ -279,7 +501,7 @@ fn source_snippet_preserves_indent_and_dims_context_lines() {
 		.visible_defs
 		.iter()
 		.copied()
-		.find(|loc| last_name(&app.index.def(loc).moniker).starts_with("target"))
+		.find(|loc| last_name(&app.store.def(loc).moniker).starts_with("target"))
 		.expect("target function");
 
 	let lines = source_snippet_lines(&app, &target, 1);
@@ -323,21 +545,21 @@ fn source_snippet_preserves_indent_and_dims_context_lines() {
 }
 
 #[test]
-fn search_mode_keystrokes_update_filter_and_visible_declarations() {
+fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(
 		tmp.path(),
 		"src/a.ts",
 		"class Alpha {}\nclass Beta {}\nfunction gamma() {}\n",
 	);
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
 	})
 	.unwrap();
 	let mut app = App::new(
-		index,
+		store,
 		DEFAULT_SCHEME.to_string(),
 		tmp.path().join(".code-moniker.toml"),
 		None,
@@ -349,13 +571,18 @@ fn search_mode_keystrokes_update_filter_and_visible_declarations() {
 		app.handle_key(key(KeyCode::Char(c))).unwrap();
 	}
 
-	assert!(app.search_mode);
-	assert_eq!(app.filter, "Alpha");
+	assert_eq!(app.mode, UiMode::EditingFilter);
+	assert_eq!(app.filter_draft, "Alpha");
+	assert_eq!(app.visible_defs.len(), total);
+
+	app.handle_key(key(KeyCode::Enter)).unwrap();
+
+	assert_eq!(app.mode, UiMode::Normal);
 	assert!(app.visible_defs.len() < total);
 	assert!(
 		app.visible_defs
 			.iter()
-			.all(|loc| last_name(&app.index.def(loc).moniker).contains("Alpha")),
+			.all(|loc| last_name(&app.store.def(loc).moniker).contains("Alpha")),
 		"{:?}",
 		app.visible_defs
 	);
@@ -369,17 +596,17 @@ fn search_mode_keystrokes_update_filter_and_visible_declarations() {
 }
 
 #[test]
-fn search_mode_accepts_printable_chars_with_terminal_modifiers() {
+fn editing_filter_accepts_printable_chars_with_terminal_modifiers() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let index = SessionIndex::load(&SessionOptions {
+	let store = MemoryIndexStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
 	})
 	.unwrap();
 	let mut app = App::new(
-		index,
+		store,
 		DEFAULT_SCHEME.to_string(),
 		tmp.path().join(".code-moniker.toml"),
 		None,
@@ -389,6 +616,100 @@ fn search_mode_accepts_printable_chars_with_terminal_modifiers() {
 	app.handle_key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::ALT))
 		.unwrap();
 
-	assert_eq!(app.filter, "A");
+	assert_eq!(app.filter_draft, "A");
 	assert!(app.status.contains("A"), "{}", app.status);
+}
+
+#[test]
+fn normal_mode_x_clears_filter_but_editing_mode_x_updates_draft() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	apply_text_filter(&mut app, "Alpha");
+	assert!(app.is_filtered());
+
+	app.handle_key(key(KeyCode::Char('/'))).unwrap();
+	app.handle_key(key(KeyCode::Char('x'))).unwrap();
+
+	assert_eq!(app.mode, UiMode::EditingFilter);
+	assert_eq!(app.filter_draft, "Alphax");
+	assert!(app.is_filtered());
+
+	app.handle_key(key(KeyCode::Esc)).unwrap();
+	assert_eq!(app.mode, UiMode::Normal);
+	assert!(app.is_filtered());
+
+	app.handle_key(key(KeyCode::Char('x'))).unwrap();
+	assert!(!app.is_filtered());
+	assert_eq!(app.filter_label(), "<all>");
+}
+
+#[test]
+fn only_escape_quits_in_normal_mode() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	assert!(!app.handle_key(key(KeyCode::Char('q'))).unwrap());
+	assert_eq!(app.view, View::Overview);
+	assert!(
+		!app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL))
+			.unwrap()
+	);
+	assert_eq!(app.view, View::Overview);
+	assert!(matches!(app.check, CheckState::Pending));
+	assert!(app.handle_key(key(KeyCode::Esc)).unwrap());
+}
+
+#[test]
+fn normal_mode_ignores_control_modified_command_keys() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	apply_text_filter(&mut app, "Alpha");
+	let visible = app.visible_defs.clone();
+	let status = app.status.clone();
+
+	app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL))
+		.unwrap();
+	app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL))
+		.unwrap();
+
+	assert_eq!(app.view, View::Overview);
+	assert_eq!(app.visible_defs, visible);
+	assert_eq!(app.status, status);
+	assert!(app.is_filtered());
 }

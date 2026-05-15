@@ -5,6 +5,7 @@ pub(super) struct UiTheme {
 	pub(super) brand: Color,
 	pub(super) section: Color,
 	pub(super) status_label: Color,
+	pub(super) component_marker: Color,
 	pub(super) danger: Color,
 	pub(super) nav: NavTheme,
 	pub(super) source: SourceTheme,
@@ -40,6 +41,7 @@ pub(super) const THEME: UiTheme = UiTheme {
 	brand: Color::Cyan,
 	section: Color::Cyan,
 	status_label: Color::Yellow,
+	component_marker: Color::Rgb(107, 114, 128),
 	danger: Color::Red,
 	nav: NavTheme {
 		selected_bg: Color::Rgb(229, 231, 235),

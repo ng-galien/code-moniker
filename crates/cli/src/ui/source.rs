@@ -5,6 +5,7 @@ use crate::inspect::DefLocation;
 use crate::lines::line_range;
 
 use super::App;
+use super::store::IndexStore;
 use super::theme::{SourceTheme, THEME};
 
 pub(super) fn source_snippet_lines(
@@ -13,8 +14,8 @@ pub(super) fn source_snippet_lines(
 	context: u32,
 ) -> Vec<Line<'static>> {
 	let theme = THEME.source;
-	let file = &app.index.files[loc.file];
-	let Some((start, end)) = app.index.def(loc).position else {
+	let file = app.store.file(loc.file);
+	let Some((start, end)) = app.store.def(loc).position else {
 		return Vec::new();
 	};
 	let (start_line, end_line) = line_range(&file.source, start, end);
