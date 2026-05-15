@@ -9,7 +9,7 @@ members = [
 [workspace.package]
 version       = "0.3.0"
 edition       = "2024"
-rust-version  = "1.85"
+rust-version  = "1.86"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/ng-galien/code-moniker"
 homepage      = "https://github.com/ng-galien/code-moniker"
@@ -46,6 +46,8 @@ tempfile   = "3"
 insta      = { version = "1", features = ["glob", "json"] }
 
 anstyle       = "1"
+ratatui       = "0.30"
+crossterm     = "0.29"
 
 [profile.dev]
 panic = "unwind"

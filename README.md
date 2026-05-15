@@ -11,7 +11,7 @@
 [![crates.io](https://img.shields.io/crates/v/code-moniker.svg?label=code-moniker)](https://crates.io/crates/code-moniker)
 [![crates.io](https://img.shields.io/crates/v/code-moniker-core.svg?label=code-moniker-core)](https://crates.io/crates/code-moniker-core)
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.86%2B-orange)](https://www.rust-lang.org)
 [![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-17-336791)](https://www.postgresql.org)
 
@@ -75,6 +75,7 @@ First useful commands:
 
 ```sh
 code-moniker extract src/order.ts --format tree
+code-moniker ui . --cache .code-moniker-cache
 code-moniker check src/ --report
 code-moniker manifest .
 ```
@@ -174,6 +175,12 @@ Run the linter:
 
 ```sh
 code-moniker check src/
+```
+
+Open the read-only terminal explorer:
+
+```sh
+code-moniker ui . --cache .code-moniker-cache
 ```
 
 Exit codes:

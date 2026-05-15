@@ -13,6 +13,11 @@ in `0.y.z`.
 
 ### Added
 
+- **`code-moniker ui`** — adds a read-only terminal architecture explorer
+  over the extracted graph. It reuses the shared cache, shows overview
+  metrics, declaration outlines, incoming/outgoing refs, regex name
+  filtering, source snippets, and an on-demand `.code-moniker.toml`
+  check summary.
 - **`code-moniker extract --format text`** — extract now defaults to a
   moniker-only text output (`txt` alias supported). `--format tsv`
   remains available for metadata columns. Compact monikers use a concise
@@ -47,6 +52,8 @@ in `0.y.z`.
 
 ### Changed
 
+- **MSRV** — minimum supported Rust version is now 1.86, matching the
+  `ratatui 0.30` requirement used by the new terminal UI.
 - **Release versioning** — `main` now tracks the next planned Cargo
   release version (`0.3.0`) instead of retaining the already-tagged
   version. Crates inherit `version.workspace = true`, the internal

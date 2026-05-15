@@ -48,6 +48,17 @@ fn write_under(root: &std::path::Path, rel: &str, body: &str) {
 }
 
 #[test]
+#[cfg(feature = "tui")]
+fn ui_help_is_available() {
+	let err = Cli::try_parse_from(vec!["code-moniker", "ui", "--help"]).unwrap_err();
+	assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
+	let help = err.to_string();
+	assert!(help.contains("terminal architecture explorer"), "{help}");
+	assert!(help.contains("--cache"), "{help}");
+	assert!(help.contains("--rules"), "{help}");
+}
+
+#[test]
 fn no_predicate_dumps_monikers_as_text_by_default() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let path = dir.path().join("a.ts");

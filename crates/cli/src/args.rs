@@ -29,6 +29,9 @@ pub enum Command {
 	Stats(StatsArgs),
 	#[command(about = "Lint a path against .code-moniker.toml rules.")]
 	Check(CheckArgs),
+	#[cfg(feature = "tui")]
+	#[command(about = "Open a read-only terminal architecture explorer.")]
+	Ui(UiArgs),
 	#[command(about = "Install live agent harness configuration.")]
 	Harness(HarnessArgs),
 	#[command(about = "List supported languages, or kinds of one.")]
@@ -143,6 +146,50 @@ pub struct CheckArgs {
 pub enum CheckFormat {
 	Text,
 	Json,
+}
+
+#[cfg(feature = "tui")]
+#[derive(Debug, ClapArgs)]
+pub struct UiArgs {
+	#[arg(value_name = "PATH", default_value = ".")]
+	pub path: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "SCHEME",
+		help = "URI scheme; defaults to code+moniker://"
+	)]
+	pub scheme: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "project component of the anchor moniker; defaults to '.'"
+	)]
+	pub project: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "DIR",
+		env = "CODE_MONIKER_CACHE_DIR",
+		help = "enable on-disk cache of extracted graphs at DIR (empty = disabled)"
+	)]
+	pub cache: Option<PathBuf>,
+
+	#[arg(
+		long,
+		value_name = "PATH",
+		default_value = ".code-moniker.toml",
+		help = "user TOML overlay for the check view"
+	)]
+	pub rules: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "filter check rules through a named profile from .code-moniker.toml"
+	)]
+	pub profile: Option<String>,
 }
 
 #[derive(Debug, ClapArgs)]

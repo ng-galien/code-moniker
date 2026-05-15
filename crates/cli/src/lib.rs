@@ -8,18 +8,23 @@ pub mod dir;
 pub mod extract;
 pub mod format;
 pub mod harness;
+pub mod inspect;
 pub mod lang;
 pub mod lines;
 pub mod manifest;
 pub mod predicate;
 pub mod stats;
 pub mod tsconfig;
+#[cfg(feature = "tui")]
+pub mod ui;
 pub mod walk;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+#[cfg(feature = "tui")]
+pub use args::UiArgs;
 pub use args::{
 	CheckArgs, CheckFormat, Cli, CodexHarnessArgs, Command, ExtractArgs, HarnessArgs,
 	HarnessCommand, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, OutputFormat, OutputMode,
@@ -76,6 +81,8 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Stats(args) => stats::run(args, stdout, stderr),
 		Command::Check(args) => run_check(args, stdout, stderr),
 		Command::Harness(args) => harness::run(args, stdout, stderr),
+		#[cfg(feature = "tui")]
+		Command::Ui(args) => ui::run(args, stdout, stderr),
 		Command::Langs(args) => run_langs(args, stdout, stderr),
 		Command::Shapes(args) => run_shapes(args, stdout, stderr),
 		Command::Manifest(args) => run_manifest(args, stdout, stderr),
