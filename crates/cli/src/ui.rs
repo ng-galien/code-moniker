@@ -366,6 +366,10 @@ impl App {
 		self.active_filter.filters_navigator()
 	}
 
+	fn has_clearable_scope(&self) -> bool {
+		!matches!(self.active_filter, ActiveFilter::None)
+	}
+
 	fn contextual_view(&self) -> View {
 		match self.regime {
 			VisualizationRegime::Usages => View::Refs,
@@ -496,6 +500,7 @@ impl App {
 		self.active_filter = ActiveFilter::None;
 		self.filter_draft.clear();
 		self.refresh_results(true);
+		self.sync_contextual_view();
 		self.status = "filter cleared".to_string();
 	}
 
@@ -560,9 +565,9 @@ impl App {
 		}
 	}
 
-	fn close_selected_nav(&mut self) {
+	fn close_selected_nav(&mut self) -> bool {
 		let Some(row) = self.selected_nav_row() else {
-			return;
+			return false;
 		};
 		if row.has_children && self.active_expanded().contains(&row.key) {
 			let key = row.key.clone();
@@ -570,10 +575,10 @@ impl App {
 			self.active_expanded_mut().remove(&key);
 			self.status = format!("closed {label}");
 			self.refresh_nav();
-			return;
+			return true;
 		}
 		if row.depth == 0 {
-			return;
+			return false;
 		}
 		let parent_depth = row.depth - 1;
 		if let Some(parent) = self.nav_rows[..self.selection]
@@ -581,7 +586,10 @@ impl App {
 			.rposition(|candidate| candidate.depth == parent_depth)
 		{
 			self.selection = parent;
+			self.sync_contextual_view();
+			return true;
 		}
+		false
 	}
 
 	fn run_check(&mut self) {
@@ -707,7 +715,11 @@ impl Screen for App {
 			}
 			Msg::ToggleNode => self.toggle_selected_nav(),
 			Msg::OpenNode => self.open_selected_nav(),
-			Msg::CloseNode => self.close_selected_nav(),
+			Msg::CloseNode => {
+				if !self.close_selected_nav() && self.has_clearable_scope() {
+					self.clear_filter();
+				}
+			}
 			Msg::Help => {
 				self.status =
 					"keys: Enter/right open, Esc/left close, / filter, u usages, x clear, Tab/1-4 panels, c check, q quit"

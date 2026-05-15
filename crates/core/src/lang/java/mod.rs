@@ -16,7 +16,7 @@ mod kinds;
 mod strategy;
 
 use canonicalize::{compute_module_moniker, read_package_name};
-use strategy::{Strategy, collect_callable_table, collect_type_table};
+use strategy::{CallableTable, Strategy, collect_callable_table, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
@@ -54,7 +54,7 @@ pub fn extract(
 		&module,
 		&mut type_table,
 	);
-	let mut callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>> = HashMap::new();
+	let mut callable_table: CallableTable = HashMap::new();
 	collect_callable_table(
 		tree.root_node(),
 		source.as_bytes(),
@@ -97,10 +97,10 @@ const DEF_KIND_SPECS: &[KindSpec] = &[
 	KindSpec::new("enum", Shape::Type, 22, "enum"),
 	KindSpec::new("record", Shape::Type, 23, "record"),
 	KindSpec::new("annotation_type", Shape::Type, 24, "annotation_type"),
+	KindSpec::new("enum_constant", Shape::Value, 30, "enum_constant"),
+	KindSpec::new("field", Shape::Value, 31, "field"),
 	KindSpec::new("constructor", Shape::Callable, 40, "constructor"),
 	KindSpec::new("method", Shape::Callable, 41, "method"),
-	KindSpec::new("field", Shape::Value, 60, "field"),
-	KindSpec::new("enum_constant", Shape::Value, 61, "enum_constant"),
 ];
 
 impl crate::lang::LangExtractor for Lang {
@@ -178,6 +178,134 @@ mod tests {
 			.find(|d| d.moniker.as_view().segments().last().unwrap().name == b"name")
 			.unwrap();
 		assert_eq!(private_field.visibility, b"private".to_vec());
+	}
+
+	#[test]
+	fn extract_record_components_emit_fields_and_accessors() {
+		let g = extract_default(
+			"User.java",
+			"public record User(String id, int age) {}",
+			&make_anchor(),
+			false,
+		);
+		let user = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"java")
+			.segment(b"module", b"User")
+			.segment(b"record", b"User")
+			.build();
+		let user_idx = g
+			.defs()
+			.enumerate()
+			.find_map(|(idx, def)| (def.moniker == user).then_some(idx))
+			.expect("record def index");
+		for name in [b"id".as_slice(), b"age".as_slice()] {
+			let field = MonikerBuilder::from_view(user.as_view())
+				.segment(b"field", name)
+				.build();
+			let accessor_name = [name, b"()"].concat();
+			let accessor = MonikerBuilder::from_view(user.as_view())
+				.segment(b"method", &accessor_name)
+				.build();
+
+			let field_def = g
+				.defs()
+				.find(|d| d.moniker == field)
+				.unwrap_or_else(|| panic!("missing record component field {name:?}"));
+			assert_eq!(field_def.visibility, b"private".to_vec());
+			let accessor_def = g
+				.defs()
+				.find(|d| d.moniker == accessor)
+				.unwrap_or_else(|| panic!("missing record accessor {name:?}"));
+			assert_eq!(accessor_def.visibility, b"public".to_vec());
+			assert_eq!(accessor_def.signature, b"".to_vec());
+		}
+		assert!(
+			g.refs().any(|r| r.kind == b"uses_type"
+				&& r.source == user_idx
+				&& r.target.as_view().segments().last().unwrap().name == b"String"),
+			"record component type should emit a uses_type ref"
+		);
+	}
+
+	#[test]
+	fn extract_record_component_keeps_explicit_accessor_without_duplicate() {
+		let g = extract_default(
+			"User.java",
+			"public record User(String id) { public String id() { return id; } }",
+			&make_anchor(),
+			false,
+		);
+		let accessors: Vec<_> = g
+			.defs()
+			.filter(|d| {
+				d.kind == b"method"
+					&& d.moniker.as_view().segments().last().unwrap().name == b"id()"
+			})
+			.collect();
+		assert_eq!(
+			accessors.len(),
+			1,
+			"record accessor should be emitted once: {:?}",
+			accessors.iter().map(|d| &d.moniker).collect::<Vec<_>>()
+		);
+		assert!(
+			g.defs().any(|d| d.kind == b"field"
+				&& d.moniker.as_view().segments().last().unwrap().name == b"id")
+		);
+	}
+
+	#[test]
+	fn record_zero_arg_accessor_resolution_survives_same_name_overload() {
+		let g = extract_default(
+			"User.java",
+			r#"public record User(String id) {
+                String id(String prefix) { return prefix + id; }
+                String current() { return this.id(); }
+            }"#,
+			&make_anchor(),
+			false,
+		);
+		let target_names: Vec<_> = g
+			.refs()
+			.filter(|r| r.kind == b"method_call" && r.receiver_hint == b"this")
+			.map(|r| r.target.as_view().segments().last().unwrap().name.to_vec())
+			.collect();
+		assert!(
+			target_names.iter().any(|name| name == b"id()"),
+			"this.id() should resolve to the zero-arg record accessor, got {target_names:?}"
+		);
+		assert!(
+			!target_names.iter().any(|name| name == b"id(prefix:String)"),
+			"this.id() must not resolve to same-name overload, got {target_names:?}"
+		);
+	}
+
+	#[test]
+	fn this_call_arity_mismatch_does_not_resolve_to_only_overload() {
+		let g = extract_default(
+			"User.java",
+			r#"class User {
+                String id(String prefix) { return prefix; }
+                String current() { return this.id(); }
+            }"#,
+			&make_anchor(),
+			false,
+		);
+		let target_names: Vec<_> = g
+			.refs()
+			.filter(|r| r.kind == b"method_call" && r.receiver_hint == b"this")
+			.map(|r| r.target.as_view().segments().last().unwrap().name.to_vec())
+			.collect();
+
+		assert!(
+			!target_names.iter().any(|name| name == b"id(prefix:String)"),
+			"this.id() must not resolve to one-arg overload, got {target_names:?}"
+		);
+		assert!(
+			target_names.iter().any(|name| name == b"id"),
+			"this.id() should remain unresolved/name-only on arity mismatch, got {target_names:?}"
+		);
 	}
 
 	#[test]

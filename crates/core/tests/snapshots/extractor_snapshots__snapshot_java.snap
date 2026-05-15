@@ -72,6 +72,110 @@ input_file: crates/core/tests/fixtures/java/UserService.java
       "visibility": "public"
     },
     {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User/field:id",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "position": [
+        709,
+        718
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User/method:id()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "position": [
+        709,
+        718
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User/field:email",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "position": [
+        720,
+        732
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User/method:email()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "position": [
+        720,
+        732
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User/field:name",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "position": [
+        734,
+        745
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User/method:name()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "position": [
+        734,
+        745
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User/field:tags",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "position": [
+        747,
+        764
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User/method:tags()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "position": [
+        747,
+        764
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
       "binding": "none",
       "kind": "comment",
       "moniker": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/comment:771",
@@ -579,6 +683,58 @@ input_file: crates/core/tests/fixtures/java/UserService.java
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:stream/path:Stream"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "kind": "uses_type",
+      "position": [
+        709,
+        715
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "kind": "uses_type",
+      "position": [
+        720,
+        726
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "kind": "uses_type",
+      "position": [
+        734,
+        740
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User",
+      "kind": "uses_type",
+      "position": [
+        747,
+        759
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:List"
     },
     {
       "alias": "",

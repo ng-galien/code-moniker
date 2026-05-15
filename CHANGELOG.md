@@ -109,6 +109,9 @@ in `0.y.z`.
 - **`code-moniker ui`** — explorer symbols now sort by each language's
   `KindSpec` order before source position, so types, callables, and
   values appear in a stable semantic order.
+- **`code-moniker ui` / Java** — Java value members now sort before
+  callables in the explorer, so record component fields stay visible
+  before their generated accessors.
 - **`code-moniker-core`** — each language extractor now exposes a
   semantic definition-kind contract (`KindSpec`) with shape, display
   label, and ordering metadata. The UI consumes this contract for
@@ -126,10 +129,24 @@ in `0.y.z`.
 
 ### Fixed
 
+- **`code-moniker-core` (java extractor)** — Java record components now
+  emit private field defs, public accessor method defs, and `uses_type`
+  refs for their component types. Explicit record accessors are not
+  duplicated.
+- **`code-moniker-core` (java extractor)** — `this`/`super` method calls
+  no longer resolve to a same-name Java overload when the argument arity
+  does not match.
 - **`code-moniker ui`** — filter entry is now modal: `/` edits a draft,
   `Enter` applies it, `Esc` cancels editing, and normal-mode `x` clears
   the active filter. Normal-mode `Esc` closes navigation nodes instead
   of quitting the UI; use `q` or `Ctrl-C` for explicit exit.
+- **`code-moniker ui`** — `Esc`/left now behaves as a back action in
+  filtered regimes: it closes navigation when possible, otherwise it
+  clears an empty or invalid search/usages scope and returns to
+  explorer mode.
+- **Cache correctness** — graph cache entries are invalidated for this
+  release so Java record component fields/accessors are not hidden by
+  stale graphs from older extractor semantics.
 - **`code-moniker ui`** — source snippets now preserve indentation and
   use a light-theme-friendly editor palette with muted context lines,
   a pale active-line background, and clearer line numbers.

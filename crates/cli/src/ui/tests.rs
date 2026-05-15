@@ -134,6 +134,9 @@ fn ui_kind_groups_come_from_language_contracts() {
 	assert!(
 		definition_kind_order(Lang::Java, "class") < definition_kind_order(Lang::Java, "method")
 	);
+	assert!(
+		definition_kind_order(Lang::Java, "field") < definition_kind_order(Lang::Java, "method")
+	);
 }
 
 #[test]
@@ -364,6 +367,63 @@ fn explorer_orders_symbols_by_language_kind_contract() {
 }
 
 #[test]
+fn explorer_shows_java_record_fields_before_accessors() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/User.java",
+		"public record User(String id, int age) { public String label() { return id; } }\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.toggle_selected_nav();
+	select_nav_label(&mut app, "User.java");
+	app.toggle_selected_nav();
+	select_nav_label(&mut app, "User");
+	app.toggle_selected_nav();
+
+	let rows: Vec<_> = app
+		.nav_rows
+		.iter()
+		.filter_map(|row| {
+			let NavNodeKind::Def(loc) = row.kind else {
+				return None;
+			};
+			let def = app.store.def(&loc);
+			Some((def_kind(def), row.label.clone()))
+		})
+		.collect();
+	let id_field = rows
+		.iter()
+		.position(|(kind, label)| kind == "field" && label == "id")
+		.unwrap_or_else(|| panic!("missing record field id: {rows:?}"));
+	let age_field = rows
+		.iter()
+		.position(|(kind, label)| kind == "field" && label == "age")
+		.unwrap_or_else(|| panic!("missing record field age: {rows:?}"));
+	let first_method = rows
+		.iter()
+		.position(|(kind, _)| kind == "method")
+		.unwrap_or_else(|| panic!("missing record accessors/methods: {rows:?}"));
+
+	assert!(
+		id_field < first_method && age_field < first_method,
+		"record fields should be visible before accessors/methods: {rows:?}"
+	);
+}
+
+#[test]
 fn multi_source_navigator_keeps_source_roots_as_directory_rows() {
 	let tmp = tempfile::tempdir().unwrap();
 	let common = tmp.path().join("common-lib");
@@ -525,6 +585,61 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 		"{:?}",
 		app.nav_rows
 	);
+}
+
+#[test]
+fn escape_leaves_empty_usage_focus_back_to_explorer() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/CustomerProfile.java",
+		"public record CustomerProfile(boolean premium) {}\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	let premium_accessor = (0..app.store.file_count())
+		.flat_map(|file_idx| {
+			app.store
+				.file(file_idx)
+				.graph
+				.defs()
+				.enumerate()
+				.map(move |(def_idx, _)| DefLocation {
+					file: file_idx,
+					def: def_idx,
+				})
+		})
+		.find(|loc| {
+			let def = app.store.def(loc);
+			def_kind(def) == "method" && last_name(&def.moniker) == "premium()"
+		})
+		.expect("generated premium accessor");
+
+	app.focus_usages(premium_accessor);
+
+	assert_eq!(app.regime, VisualizationRegime::Usages);
+	assert!(app.is_filtered());
+	assert!(app.nav_rows.is_empty());
+	assert!(app.status.contains("0 reference(s)"), "{}", app.status);
+
+	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
+
+	assert_eq!(app.regime, VisualizationRegime::Explorer);
+	assert!(!app.is_filtered());
+	assert_eq!(app.filter_label(), "<all>");
+	assert!(!app.nav_rows.is_empty());
+	assert_eq!(app.view, View::Overview);
+	assert!(app.status.contains("filter cleared"), "{}", app.status);
 }
 
 #[test]
@@ -742,6 +857,13 @@ fn invalid_filter_regex_clears_rows_with_actionable_status() {
 		"{}",
 		app.status
 	);
+
+	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
+
+	assert_eq!(app.regime, VisualizationRegime::Explorer);
+	assert!(app.active_filter.error().is_none());
+	assert!(!app.nav_rows.is_empty());
+	assert_eq!(app.filter_label(), "<all>");
 }
 
 #[test]

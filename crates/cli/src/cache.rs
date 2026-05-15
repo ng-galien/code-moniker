@@ -13,7 +13,8 @@ use crate::extract;
 use code_moniker_core::lang::Lang;
 
 const CACHE_MAGIC: u32 = 0xC0DE_2106;
-const CACHE_FORMAT_VERSION: u32 = 3;
+// Bump when cached graph semantics change, even if the binary layout stays stable.
+const CACHE_FORMAT_VERSION: u32 = 4;
 const OFF_MAGIC: usize = 0;
 const OFF_FORMAT: usize = 4;
 const OFF_MTIME: usize = 8;
