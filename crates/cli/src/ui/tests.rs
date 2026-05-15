@@ -331,6 +331,39 @@ fn navigator_compacts_linear_branches_and_expands_at_branch_points() {
 }
 
 #[test]
+fn explorer_orders_symbols_by_language_kind_contract() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/a.ts",
+		"function Ahelper() {}\nconst Bvalue = 1;\nclass Zeta {}\ninterface YResolver {}\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.toggle_selected_nav();
+	select_nav_label(&mut app, "a.ts");
+	app.toggle_selected_nav();
+
+	let labels: Vec<_> = app
+		.nav_rows
+		.iter()
+		.filter_map(|row| matches!(row.kind, NavNodeKind::Def(_)).then_some(row.label.as_str()))
+		.collect();
+	assert_eq!(labels, vec!["Zeta", "YResolver", "Ahelper()", "Bvalue"]);
+}
+
+#[test]
 fn multi_source_navigator_keeps_source_roots_as_directory_rows() {
 	let tmp = tempfile::tempdir().unwrap();
 	let common = tmp.path().join("common-lib");

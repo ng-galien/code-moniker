@@ -118,7 +118,7 @@ impl IndexStore for MemoryIndexStore {
 				def: def_idx,
 			})
 			.collect();
-		self.sort_defs_by_position(&mut locs);
+		self.sort_defs_for_navigation(&mut locs);
 		locs
 	}
 
@@ -131,7 +131,7 @@ impl IndexStore for MemoryIndexStore {
 			.flat_map(|children| children.iter().copied())
 			.filter(|loc| loc.file == parent.file)
 			.collect();
-		self.sort_defs_by_position(&mut locs);
+		self.sort_defs_for_navigation(&mut locs);
 		locs
 	}
 
@@ -174,17 +174,19 @@ impl IndexStore for MemoryIndexStore {
 }
 
 impl MemoryIndexStore {
-	fn sort_defs_by_position(&self, locs: &mut [DefLocation]) {
+	fn sort_defs_for_navigation(&self, locs: &mut [DefLocation]) {
 		locs.sort_by(|a, b| {
 			let left = self.def(a);
 			let right = self.def(b);
-			left.position
-				.map(|(start, _)| start)
-				.cmp(&right.position.map(|(start, _)| start))
+			definition_kind_order(self.file(a.file).lang, &def_kind(left))
+				.cmp(&definition_kind_order(
+					self.file(b.file).lang,
+					&def_kind(right),
+				))
 				.then_with(|| {
-					definition_kind_order(self.file(a.file).lang, &def_kind(left)).cmp(
-						&definition_kind_order(self.file(b.file).lang, &def_kind(right)),
-					)
+					left.position
+						.map(|(start, _)| start)
+						.cmp(&right.position.map(|(start, _)| start))
 				})
 				.then_with(|| last_name(&left.moniker).cmp(&last_name(&right.moniker)))
 		});

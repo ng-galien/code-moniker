@@ -111,11 +111,17 @@ fn child_mut(node: &mut NavNode, key: String, label: String, kind: NavNodeKind) 
 }
 
 fn sort_nav(node: &mut NavNode) {
-	node.children
-		.sort_by(|a, b| nav_sort_key(a).cmp(&nav_sort_key(b)));
+	if should_sort_children(node) {
+		node.children
+			.sort_by(|a, b| nav_sort_key(a).cmp(&nav_sort_key(b)));
+	}
 	for child in &mut node.children {
 		sort_nav(child);
 	}
+}
+
+fn should_sort_children(node: &NavNode) -> bool {
+	!matches!(node.kind, NavNodeKind::File(_) | NavNodeKind::Def(_))
 }
 
 fn nav_sort_key(node: &NavNode) -> (u8, &str) {

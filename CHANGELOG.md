@@ -106,6 +106,9 @@ in `0.y.z`.
 - **`code-moniker ui`** — declaration and reference kinds now use a
   centralized theme palette, grouping callable, type-like, value, module,
   reference, metadata, and fallback colors.
+- **`code-moniker ui`** — explorer symbols now sort by each language's
+  `KindSpec` order before source position, so types, callables, and
+  values appear in a stable semantic order.
 - **`code-moniker-core`** — each language extractor now exposes a
   semantic definition-kind contract (`KindSpec`) with shape, display
   label, and ordering metadata. The UI consumes this contract for
