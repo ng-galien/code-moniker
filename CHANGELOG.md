@@ -32,6 +32,11 @@ in `0.y.z`.
   or directory: supported file counts by language, def/ref totals,
   shape and kind distributions, plus scan/extract/total wall-clock
   timings in milliseconds. Formats: `tsv`, `json`, and colored `tree`.
+- **Multi-source inspection** — `code-moniker stats` and
+  `code-moniker ui` now accept several source roots in one command
+  (for example `code-moniker stats service-a service-b`). Each root is
+  labelled and prefixed in the session graph so same-path files from
+  different repositories remain distinguishable.
 - **`code-moniker manifest` / Cargo** — Cargo workspace manifests now
   expose `workspace_member` rows, workspace dependency rows, and
   path-backed dependency metadata in JSON output, giving ESAC-style
@@ -64,6 +69,18 @@ in `0.y.z`.
   linear filesystem and namespace branches inline, so paths such as
   `src/main/java` and package chains such as `org.apache.bookkeeper`
   render as one IDE-style branch instead of one row per segment.
+- **`code-moniker ui`** — the left pane now defaults to a collapsible
+  navigator (`language -> directory -> file -> symbol`) instead of a
+  global declaration list.
+- **`code-moniker ui`** — filtering now narrows the navigator in place
+  instead of switching to a flat list. Filters keep ancestor context,
+  remain navigable with the same tree keys, and accept `kind:<kind>`
+  clauses such as `kind:interface Resolver`.
+- **`code-moniker ui`** — navigator rows now compact linear branches
+  (`lang -> dir -> file`) into one row and auto-open down to the first
+  real branch point, matching the compact tree output style.
+- **`code-moniker ui`** — TUI colors are now centralized behind theme
+  tokens for navigation, status, sections, and source snippets.
 - **`code-moniker-core` (rs extractor)** — free function calls now
   resolve against their enclosing Rust module, including explicit nested
   module paths such as `tests::mk_under()` and repeated
@@ -73,6 +90,24 @@ in `0.y.z`.
   methods on call receivers and built-in macros now carry `external`
   confidence and `external_pkg:std` targets, reducing noisy unresolved
   ESAC gaps while leaving identifier-receiver project calls actionable.
+
+### Fixed
+
+- **`code-moniker ui`** — filter entry now updates the visible
+  declaration list and status line while typing, including terminals that
+  report printable keys with modifier flags.
+- **`code-moniker ui`** — source snippets now preserve indentation and
+  use a light-theme-friendly editor palette with muted context lines,
+  a pale active-line background, and clearer line numbers.
+- **Cache correctness** — cache keys now include the extraction context
+  (`--project` and TS path aliases), so changing context cannot reuse a
+  graph extracted with stale monikers.
+- **Multi-source TS aliases** — TypeScript path aliases are rebased into
+  their labelled source root, keeping `@/*` imports connected to the
+  correct service when inspecting several roots together.
+- **`code-moniker ui`** — Rust `fn` declarations are now navigable, and
+  filter counters only count declarations that can actually appear in
+  the navigator.
 
 ## [0.2.0] — 2026-05-13
 

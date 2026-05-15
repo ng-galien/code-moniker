@@ -200,6 +200,32 @@ fn stats_json_reports_extraction_metrics() {
 }
 
 #[test]
+fn stats_accepts_multiple_source_roots() {
+	let dir = tempfile::tempdir().unwrap();
+	let service_a = dir.path().join("service-a");
+	let service_b = dir.path().join("service-b");
+	write_under(&service_a, "src/a.ts", "export class Alpha {}\n");
+	write_under(&service_b, "src/b.ts", "export class Beta {}\n");
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"stats",
+		service_a.to_str().unwrap(),
+		service_b.to_str().unwrap(),
+		"--format",
+		"json",
+	]);
+
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+	assert_eq!(v["total_files"].as_u64(), Some(2));
+	assert_eq!(v["by_lang"]["ts"]["files"].as_u64(), Some(2));
+	let path = v["path"].as_str().unwrap_or_default();
+	assert!(path.contains("service-a"), "{path}");
+	assert!(path.contains("service-b"), "{path}");
+}
+
+#[test]
 fn stats_tsv_is_metrics_only() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let (exit, out, err) = run_with(vec![
@@ -1294,6 +1320,45 @@ fn project_flag_overrides_anchor_project_segment() {
 			"default `.` anchor leaked: {line}"
 		);
 	}
+}
+
+#[test]
+fn cache_respects_project_context() {
+	let dir = write_fixture("a.ts", "export class Foo {}\n");
+	let path = dir.path().join("a.ts");
+	let cache = dir.path().join(".cache");
+	let (first_exit, first_out, first_err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--cache",
+		cache.to_str().unwrap(),
+		"--project",
+		"one",
+		"--moniker-format",
+		"uri",
+		"--kind",
+		"class",
+	]);
+	assert_eq!(first_exit, Exit::Match, "stderr={first_err}");
+	assert!(first_out.contains("code+moniker://one/"), "{first_out}");
+
+	let (second_exit, second_out, second_err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--cache",
+		cache.to_str().unwrap(),
+		"--project",
+		"two",
+		"--moniker-format",
+		"uri",
+		"--kind",
+		"class",
+	]);
+	assert_eq!(second_exit, Exit::Match, "stderr={second_err}");
+	assert!(second_out.contains("code+moniker://two/"), "{second_out}");
+	assert!(!second_out.contains("code+moniker://one/"), "{second_out}");
 }
 
 #[test]

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -10,16 +11,30 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
-use regex::Regex;
 
 use crate::args::UiArgs;
 use crate::inspect::{CheckSummary, DefLocation, RefLocation, SessionIndex, SessionOptions};
 use crate::{DEFAULT_SCHEME, Exit};
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::Moniker;
+
+mod filter;
+mod navigator;
+mod source;
+#[cfg(test)]
+mod tests;
+mod theme;
+
+use filter::{NavFilter, parse_filter};
+use navigator::{
+	NavNode, NavNodeKind, NavRow, build_navigator, filtered_expanded_keys, flatten_nav,
+	is_nav_symbol,
+};
+use source::source_snippet_lines;
+use theme::THEME;
 
 pub fn run<W1: Write, W2: Write>(args: &UiArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match run_inner(args, stdout) {
@@ -34,7 +49,7 @@ pub fn run<W1: Write, W2: Write>(args: &UiArgs, stdout: &mut W1, stderr: &mut W2
 fn run_inner<W: Write>(args: &UiArgs, stdout: &mut W) -> anyhow::Result<()> {
 	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
 	let index = SessionIndex::load(&SessionOptions {
-		path: args.path.clone(),
+		paths: args.paths.clone(),
 		project: args.project.clone(),
 		cache_dir: args.cache.clone(),
 	})?;
@@ -120,15 +135,22 @@ struct App {
 	profile: Option<String>,
 	view: View,
 	filter: String,
+	filter_query: Option<NavFilter>,
+	filter_error: Option<String>,
 	search_mode: bool,
 	selection: usize,
 	visible_defs: Vec<DefLocation>,
+	navigator: NavNode,
+	expanded: BTreeSet<String>,
+	filtered_expanded: BTreeSet<String>,
+	nav_rows: Vec<NavRow>,
 	check: CheckState,
 	status: String,
 }
 
 impl App {
 	fn new(index: SessionIndex, scheme: String, rules: PathBuf, profile: Option<String>) -> Self {
+		let navigator = build_navigator(&index);
 		let mut app = Self {
 			index,
 			scheme,
@@ -136,50 +158,218 @@ impl App {
 			profile,
 			view: View::Overview,
 			filter: String::new(),
+			filter_query: None,
+			filter_error: None,
 			search_mode: false,
 			selection: 0,
 			visible_defs: Vec::new(),
+			navigator,
+			expanded: BTreeSet::new(),
+			filtered_expanded: BTreeSet::new(),
+			nav_rows: Vec::new(),
 			check: CheckState::Pending,
-			status: "Tab changes view, / filters names, c runs check, q quits".to_string(),
+			status:
+				"Enter opens nodes, / filters tree, kind:<kind> narrows by kind, c checks, q quits"
+					.to_string(),
 		};
-		app.refresh_defs();
+		app.refresh_filter(false);
 		app
 	}
 
 	fn selected(&self) -> Option<DefLocation> {
-		self.visible_defs.get(self.selection).copied()
+		self.selected_nav_row().and_then(|row| match row.kind {
+			NavNodeKind::Def(loc) => Some(loc),
+			_ => None,
+		})
 	}
 
-	fn refresh_defs(&mut self) {
-		if !self.filter.is_empty() && Regex::new(&self.filter).is_err() {
-			self.visible_defs.clear();
-			self.selection = 0;
-			self.status = "invalid name regex".to_string();
-			return;
+	fn selected_nav_row(&self) -> Option<&NavRow> {
+		self.nav_rows.get(self.selection)
+	}
+
+	fn active_expanded(&self) -> &BTreeSet<String> {
+		if self.filter_query.is_some() {
+			&self.filtered_expanded
+		} else {
+			&self.expanded
 		}
-		self.visible_defs = self.index.filtered_defs(&crate::inspect::ViewFilter {
-			name: (!self.filter.is_empty()).then(|| self.filter.clone()),
-			..crate::inspect::ViewFilter::default()
-		});
+	}
+
+	fn active_expanded_mut(&mut self) -> &mut BTreeSet<String> {
+		if self.filter_query.is_some() {
+			&mut self.filtered_expanded
+		} else {
+			&mut self.expanded
+		}
+	}
+
+	fn refresh_filter(&mut self, reset_expansion: bool) {
+		match parse_filter(&self.filter) {
+			Ok(query) => {
+				self.filter_error = None;
+				self.filter_query = query;
+			}
+			Err(error) => {
+				self.filter_query = None;
+				self.filter_error = Some(error.to_string());
+				self.visible_defs.clear();
+				self.nav_rows.clear();
+				self.selection = 0;
+				self.status = format!("invalid filter regex: /{}", self.filter);
+				return;
+			}
+		}
+		self.visible_defs = self.matching_defs();
+		if reset_expansion {
+			self.filtered_expanded.clear();
+			if let Some(filter) = &self.filter_query {
+				let expand_symbols = self.visible_defs.len() <= 200;
+				self.filtered_expanded =
+					filtered_expanded_keys(&self.index, &self.navigator, filter, expand_symbols);
+			}
+			self.selection = 0;
+		}
+		self.refresh_nav();
+	}
+
+	fn matching_defs(&self) -> Vec<DefLocation> {
+		let mut out: Vec<DefLocation> = self
+			.index
+			.files
+			.iter()
+			.enumerate()
+			.flat_map(|(file_idx, file)| {
+				file.graph
+					.defs()
+					.enumerate()
+					.map(move |(def_idx, _)| DefLocation {
+						file: file_idx,
+						def: def_idx,
+					})
+			})
+			.filter(|loc| {
+				let def = self.index.def(loc);
+				if !is_nav_symbol(def) {
+					return false;
+				}
+				self.filter_query
+					.as_ref()
+					.is_none_or(|filter| filter.matches(&def_kind(def), &last_name(&def.moniker)))
+			})
+			.collect();
+		out.sort_by(|a, b| self.index.def(a).moniker.cmp(&self.index.def(b).moniker));
+		out
+	}
+
+	fn refresh_nav(&mut self) {
+		self.nav_rows.clear();
+		if self.filter_error.is_none() {
+			let expanded = self.active_expanded().clone();
+			let filter = self.filter_query.clone();
+			flatten_nav(
+				&self.index,
+				&self.navigator,
+				&expanded,
+				filter.as_ref(),
+				0,
+				&mut self.nav_rows,
+			);
+		}
 		self.clamp_selection();
 	}
 
+	fn apply_filter_change(&mut self) {
+		self.refresh_filter(true);
+		if self.filter_error.is_none() {
+			self.status = format!(
+				"filter: {} ({}/{})",
+				self.filter_label(),
+				self.visible_defs.len(),
+				self.index.stats.defs
+			);
+		}
+	}
+
+	fn filter_label(&self) -> String {
+		self.filter_query
+			.as_ref()
+			.map(NavFilter::describe)
+			.unwrap_or_else(|| display_filter(&self.filter).to_string())
+	}
+
 	fn clamp_selection(&mut self) {
-		if self.visible_defs.is_empty() {
+		let len = self.nav_rows.len();
+		if len == 0 {
 			self.selection = 0;
-		} else if self.selection >= self.visible_defs.len() {
-			self.selection = self.visible_defs.len() - 1;
+		} else if self.selection >= len {
+			self.selection = len - 1;
 		}
 	}
 
 	fn move_down(&mut self) {
-		if self.selection + 1 < self.visible_defs.len() {
+		let len = self.nav_rows.len();
+		if self.selection + 1 < len {
 			self.selection += 1;
 		}
 	}
 
 	fn move_up(&mut self) {
 		self.selection = self.selection.saturating_sub(1);
+	}
+
+	fn toggle_selected_nav(&mut self) {
+		let Some(row) = self.selected_nav_row() else {
+			return;
+		};
+		if !row.has_children {
+			return;
+		}
+		let key = row.key.clone();
+		let label = row.label.clone();
+		if self.active_expanded_mut().remove(&key) {
+			self.status = format!("closed {label}");
+		} else {
+			self.active_expanded_mut().insert(key);
+			self.status = format!("opened {label}");
+		}
+		self.refresh_nav();
+	}
+
+	fn open_selected_nav(&mut self) {
+		let Some(row) = self.selected_nav_row() else {
+			return;
+		};
+		if row.has_children && !self.active_expanded().contains(&row.key) {
+			let key = row.key.clone();
+			let label = row.label.clone();
+			self.active_expanded_mut().insert(key);
+			self.status = format!("opened {label}");
+			self.refresh_nav();
+		}
+	}
+
+	fn close_selected_nav(&mut self) {
+		let Some(row) = self.selected_nav_row() else {
+			return;
+		};
+		if row.has_children && self.active_expanded().contains(&row.key) {
+			let key = row.key.clone();
+			let label = row.label.clone();
+			self.active_expanded_mut().remove(&key);
+			self.status = format!("closed {label}");
+			self.refresh_nav();
+			return;
+		}
+		if row.depth == 0 {
+			return;
+		}
+		let parent_depth = row.depth - 1;
+		if let Some(parent) = self.nav_rows[..self.selection]
+			.iter()
+			.rposition(|candidate| candidate.depth == parent_depth)
+		{
+			self.selection = parent;
+		}
 	}
 
 	fn run_check(&mut self) {
@@ -205,19 +395,20 @@ impl App {
 	fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
 		if self.search_mode {
 			match key.code {
+				KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+					return Ok(true);
+				}
 				KeyCode::Esc | KeyCode::Enter => {
 					self.search_mode = false;
-					self.status = format!("filter: {}", display_filter(&self.filter));
+					self.status = format!("filter: {}", self.filter_label());
 				}
 				KeyCode::Backspace => {
 					self.filter.pop();
-					self.refresh_defs();
+					self.apply_filter_change();
 				}
-				KeyCode::Char(c)
-					if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
-				{
+				KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
 					self.filter.push(c);
-					self.refresh_defs();
+					self.apply_filter_change();
 				}
 				_ => {}
 			}
@@ -249,12 +440,13 @@ impl App {
 			}
 			KeyCode::Char('/') => {
 				self.search_mode = true;
-				self.status = "type a Rust regex for declaration names".to_string();
+				self.status =
+					"type a filter: Resolver, kind:interface, kind:method async.*".to_string();
 				Ok(false)
 			}
 			KeyCode::Char('x') => {
 				self.filter.clear();
-				self.refresh_defs();
+				self.refresh_filter(true);
 				self.status = "filter cleared".to_string();
 				Ok(false)
 			}
@@ -275,12 +467,24 @@ impl App {
 				Ok(false)
 			}
 			KeyCode::End | KeyCode::Char('G') => {
-				self.selection = self.visible_defs.len().saturating_sub(1);
+				self.selection = self.nav_rows.len().saturating_sub(1);
+				Ok(false)
+			}
+			KeyCode::Enter => {
+				self.toggle_selected_nav();
+				Ok(false)
+			}
+			KeyCode::Right => {
+				self.open_selected_nav();
+				Ok(false)
+			}
+			KeyCode::Left => {
+				self.close_selected_nav();
 				Ok(false)
 			}
 			KeyCode::Char('?') => {
 				self.status =
-					"keys: Tab/1-4 views, arrows/j/k move, / filter, x clear, c check, q quit"
+					"keys: Enter/right/left tree, / filter, kind:<kind>, x clear, Tab/1-4 views, c check, q quit"
 						.to_string();
 				Ok(false)
 			}
@@ -309,7 +513,7 @@ fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		Span::styled(
 			"code-moniker ",
 			Style::default()
-				.fg(Color::Cyan)
+				.fg(THEME.brand)
 				.add_modifier(Modifier::BOLD),
 		),
 		Span::raw(format!(
@@ -318,7 +522,7 @@ fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 			stats.files,
 			stats.defs,
 			stats.refs,
-			display_filter(&app.filter)
+			app.filter_label()
 		)),
 	]);
 	frame.render_widget(Paragraph::new(line), area);
@@ -329,7 +533,7 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		.direction(Direction::Horizontal)
 		.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
 		.split(area);
-	render_def_list(frame, cols[0], app);
+	render_nav_list(frame, cols[0], app);
 	match app.view {
 		View::Overview => render_overview(frame, cols[1], app),
 		View::Tree => render_outline(frame, cols[1], app),
@@ -341,62 +545,143 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let prefix = if app.search_mode { "search" } else { "status" };
 	let line = Line::from(vec![
-		Span::styled(format!("{prefix}: "), Style::default().fg(Color::Yellow)),
+		Span::styled(
+			format!("{prefix}: "),
+			Style::default().fg(THEME.status_label),
+		),
 		Span::raw(&app.status),
 	]);
 	frame.render_widget(Paragraph::new(line), area);
 }
 
-fn render_def_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let visible_rows = area.height.saturating_sub(2) as usize;
 	let start = if visible_rows == 0 {
 		0
 	} else {
 		app.selection.saturating_sub(visible_rows.saturating_sub(1))
 	};
-	let end = (start + visible_rows).min(app.visible_defs.len());
-	let items: Vec<ListItem<'_>> = app.visible_defs[start..end]
+	let end = (start + visible_rows).min(app.nav_rows.len());
+	let items: Vec<ListItem<'_>> = app.nav_rows[start..end]
 		.iter()
 		.enumerate()
-		.map(|(offset, loc)| {
+		.map(|(offset, row)| {
 			let idx = start + offset;
-			let file = &app.index.files[loc.file];
-			let def = app.index.def(loc);
-			let marker = if idx == app.selection { ">" } else { " " };
-			let line = Line::from(vec![
-				Span::styled(marker, Style::default().fg(Color::Yellow)),
-				Span::raw(" "),
-				Span::styled(def_kind(def), Style::default().fg(Color::Magenta)),
-				Span::raw(" "),
-				Span::styled(last_name(&def.moniker), Style::default().fg(Color::White)),
-				Span::raw("  "),
-				Span::styled(
-					file.rel_path.display().to_string(),
-					Style::default().fg(Color::DarkGray),
-				),
-			]);
+			let line = nav_row_line(app, row, idx == app.selection);
 			let style = if idx == app.selection {
-				Style::default().bg(Color::DarkGray)
+				Style::default().bg(THEME.nav.selected_bg)
 			} else {
 				Style::default()
 			};
 			ListItem::new(line).style(style)
 		})
 		.collect();
-	let title = format!(
-		" declarations {}/{} ",
-		app.visible_defs.len(),
-		app.index.stats.defs
-	);
+	let title = if app.filter_query.is_some() {
+		format!(
+			" filtered {} files {} defs ",
+			matched_file_count(&app.visible_defs),
+			app.visible_defs.len()
+		)
+	} else if app.filter_error.is_some() {
+		" filtered invalid ".to_string()
+	} else {
+		format!(
+			" navigator {} files {} defs ",
+			app.index.stats.files, app.navigator.def_count
+		)
+	};
 	let list = List::new(items).block(Block::default().title(title).borders(Borders::ALL));
 	frame.render_widget(list, area);
+}
+
+fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
+	let marker = if selected { ">" } else { " " };
+	let indent = "  ".repeat(row.depth);
+	let twisty = if row.has_children {
+		if app.active_expanded().contains(&row.key) {
+			"▾"
+		} else {
+			"▸"
+		}
+	} else {
+		" "
+	};
+	let mut spans = vec![
+		Span::styled(marker, Style::default().fg(THEME.nav.marker)),
+		Span::raw(" "),
+		Span::raw(indent),
+		Span::styled(twisty, Style::default().fg(THEME.nav.twisty)),
+		Span::raw(" "),
+	];
+	match row.kind {
+		NavNodeKind::Lang => {
+			spans.push(Span::styled(
+				row.label.clone(),
+				Style::default()
+					.fg(THEME.nav.language)
+					.add_modifier(Modifier::BOLD),
+			));
+			spans.push(nav_count_span(row));
+		}
+		NavNodeKind::Dir => {
+			spans.push(Span::styled(
+				format!("{}/", row.label),
+				Style::default().fg(THEME.nav.directory),
+			));
+			spans.push(nav_count_span(row));
+		}
+		NavNodeKind::File(_) => {
+			spans.push(Span::styled(
+				row.label.clone(),
+				Style::default()
+					.fg(THEME.nav.file)
+					.add_modifier(Modifier::BOLD),
+			));
+			spans.push(nav_count_span(row));
+		}
+		NavNodeKind::Def(loc) => {
+			let def = app.index.def(&loc);
+			spans.push(Span::styled(
+				def_kind(def),
+				Style::default().fg(THEME.nav.kind),
+			));
+			spans.push(Span::raw(" "));
+			spans.push(Span::styled(
+				row.label.clone(),
+				Style::default().fg(THEME.nav.symbol),
+			));
+			if row.def_count > 1 {
+				spans.push(Span::styled(
+					format!("  {} children", row.def_count - 1),
+					Style::default().fg(THEME.nav.meta),
+				));
+			}
+		}
+		NavNodeKind::Root => {}
+	}
+	Line::from(spans)
+}
+
+fn nav_count_span(row: &NavRow) -> Span<'static> {
+	let label = match (row.file_count, row.def_count) {
+		(0, defs) => format!("  {defs} defs"),
+		(files, defs) => format!("  {files} files  {defs} defs"),
+	};
+	Span::styled(label, Style::default().fg(THEME.nav.meta))
+}
+
+fn matched_file_count(defs: &[DefLocation]) -> usize {
+	defs.iter()
+		.map(|loc| loc.file)
+		.collect::<BTreeSet<_>>()
+		.len()
 }
 
 fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let stats = &app.index.stats;
 	let total_ms = stats.scan_ms + stats.extract_ms + stats.index_ms;
 	let mut lines = vec![
-		Line::raw(format!("root        {}", app.index.root.display())),
+		Line::raw(format!("root        {}", app.index.root)),
 		Line::raw(format!("files       {}", stats.files)),
 		Line::raw(format!("defs        {}", stats.defs)),
 		Line::raw(format!("refs        {}", stats.refs)),
@@ -405,7 +690,7 @@ fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		Line::raw(format!("extract     {} ms", stats.extract_ms)),
 		Line::raw(format!("index       {} ms", stats.index_ms)),
 		Line::raw(""),
-		Line::styled("languages", Style::default().fg(Color::Cyan)),
+		Line::styled("languages", Style::default().fg(THEME.section)),
 	];
 	for (lang, totals) in &stats.by_lang {
 		lines.push(Line::raw(format!(
@@ -414,7 +699,7 @@ fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		)));
 	}
 	lines.push(Line::raw(""));
-	lines.push(Line::styled("shapes", Style::default().fg(Color::Cyan)));
+	lines.push(Line::styled("shapes", Style::default().fg(THEME.section)));
 	for (shape, count) in &stats.by_shape {
 		lines.push(Line::raw(format!("{shape:<10} {count}")));
 	}
@@ -423,24 +708,19 @@ fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 
 fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let Some(loc) = app.selected() else {
-		render_panel(
-			frame,
-			area,
-			" outline ",
-			vec![Line::raw("no declaration matches filter")],
-		);
+		render_nav_selection(frame, area, app);
 		return;
 	};
 	let file = &app.index.files[loc.file];
 	let def = app.index.def(&loc);
 	let mut lines = vec![
-		Line::styled("selected", Style::default().fg(Color::Cyan)),
+		Line::styled("selected", Style::default().fg(THEME.section)),
 		Line::raw(format!("kind      {}", def_kind(def))),
 		Line::raw(format!("name      {}", last_name(&def.moniker))),
 		Line::raw(format!("file      {}", file.rel_path.display())),
 		Line::raw(format!("moniker   {}", compact_moniker(&def.moniker))),
 		Line::raw(""),
-		Line::styled("children", Style::default().fg(Color::Cyan)),
+		Line::styled("children", Style::default().fg(THEME.section)),
 	];
 	let children = app
 		.index
@@ -463,12 +743,67 @@ fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		}
 	}
 	lines.push(Line::raw(""));
-	lines.push(Line::styled("source", Style::default().fg(Color::Cyan)));
-	let snippet = app.index.source_snippet(&loc, 3);
+	lines.push(Line::styled("source", Style::default().fg(THEME.section)));
+	let snippet = source_snippet_lines(app, &loc, 3);
 	if snippet.is_empty() {
 		lines.push(Line::raw("no source position"));
 	} else {
-		lines.extend(snippet.into_iter().map(Line::raw));
+		lines.extend(snippet);
+	}
+	render_panel_unwrapped(frame, area, " outline ", lines);
+}
+
+fn render_nav_selection(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	let Some(row) = app.selected_nav_row() else {
+		let lines = if let Some(error) = &app.filter_error {
+			vec![
+				Line::styled("invalid filter", Style::default().fg(THEME.danger)),
+				Line::raw(format!("query     {}", app.filter)),
+				Line::raw(error),
+				Line::raw(""),
+				Line::raw("examples  Resolver"),
+				Line::raw("          kind:interface Resolver"),
+				Line::raw("          kind:method ^async"),
+			]
+		} else if app.filter_query.is_some() {
+			vec![
+				Line::styled("filtered navigator", Style::default().fg(THEME.section)),
+				Line::raw(format!("filter    {}", app.filter_label())),
+				Line::raw("matches   0"),
+				Line::raw(""),
+				Line::raw("x clears the filter"),
+			]
+		} else {
+			vec![Line::raw("navigator is empty")]
+		};
+		render_panel(frame, area, " outline ", lines);
+		return;
+	};
+	let kind = match row.kind {
+		NavNodeKind::Root => "root",
+		NavNodeKind::Lang => "language",
+		NavNodeKind::Dir => "directory",
+		NavNodeKind::File(_) => "file",
+		NavNodeKind::Def(_) => "declaration",
+	};
+	let mut lines = vec![
+		Line::styled("navigator", Style::default().fg(THEME.section)),
+		Line::raw(format!("kind      {kind}")),
+		Line::raw(format!("name      {}", row.label)),
+		Line::raw(format!("files     {}", row.file_count)),
+		Line::raw(format!("defs      {}", row.def_count)),
+		Line::raw(""),
+	];
+	if row.has_children {
+		let state = if app.active_expanded().contains(&row.key) {
+			"opened"
+		} else {
+			"closed"
+		};
+		lines.push(Line::raw(format!("state     {state}")));
+		lines.push(Line::raw("Enter toggles, right opens, left closes"));
+	} else {
+		lines.push(Line::raw("no child node"));
 	}
 	render_panel(frame, area, " outline ", lines);
 }
@@ -479,7 +814,7 @@ fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 			frame,
 			area,
 			" refs ",
-			vec![Line::raw("no declaration matches filter")],
+			vec![Line::raw("select a declaration to inspect refs")],
 		);
 		return;
 	};
@@ -487,7 +822,7 @@ fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let outgoing = app.index.outgoing_refs(&def.moniker);
 	let incoming = app.index.incoming_refs(&def.moniker);
 	let mut lines = vec![
-		Line::styled("outgoing", Style::default().fg(Color::Cyan)),
+		Line::styled("outgoing", Style::default().fg(THEME.section)),
 		Line::raw(format!("{} reference(s)", outgoing.len())),
 	];
 	for r in outgoing.iter().take(30) {
@@ -497,7 +832,7 @@ fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		lines.push(Line::raw(format!("... {} more", outgoing.len() - 30)));
 	}
 	lines.push(Line::raw(""));
-	lines.push(Line::styled("incoming", Style::default().fg(Color::Cyan)));
+	lines.push(Line::styled("incoming", Style::default().fg(THEME.section)));
 	lines.push(Line::raw(format!("{} reference(s)", incoming.len())));
 	for r in incoming.iter().take(30) {
 		lines.push(ref_line(app, r, false));
@@ -530,7 +865,7 @@ fn render_check(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 			)),
 		],
 		CheckState::Error(error) => vec![
-			Line::styled("check failed", Style::default().fg(Color::Red)),
+			Line::styled("check failed", Style::default().fg(THEME.danger)),
 			Line::raw(error),
 		],
 	};
@@ -541,6 +876,17 @@ fn render_panel(frame: &mut ratatui::Frame<'_>, area: Rect, title: &str, lines: 
 	let paragraph = Paragraph::new(Text::from(lines))
 		.block(Block::default().title(title).borders(Borders::ALL))
 		.wrap(Wrap { trim: false });
+	frame.render_widget(paragraph, area);
+}
+
+fn render_panel_unwrapped(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	title: &str,
+	lines: Vec<Line<'_>>,
+) {
+	let paragraph = Paragraph::new(Text::from(lines))
+		.block(Block::default().title(title).borders(Borders::ALL));
 	frame.render_widget(paragraph, area);
 }
 
@@ -596,49 +942,4 @@ fn compact_moniker(moniker: &Moniker) -> String {
 		out.push_str(name);
 	}
 	out
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	fn write(root: &std::path::Path, rel: &str, body: &str) {
-		let p = root.join(rel);
-		if let Some(parent) = p.parent() {
-			std::fs::create_dir_all(parent).unwrap();
-		}
-		std::fs::write(p, body).unwrap();
-	}
-
-	#[test]
-	fn app_filter_limits_visible_declarations() {
-		let tmp = tempfile::tempdir().unwrap();
-		write(
-			tmp.path(),
-			"src/a.ts",
-			"class Alpha {}\nclass Beta {}\nfunction gamma() {}\n",
-		);
-		let index = SessionIndex::load(&SessionOptions {
-			path: tmp.path().into(),
-			project: Some("app".into()),
-			cache_dir: None,
-		})
-		.unwrap();
-		let mut app = App::new(
-			index,
-			DEFAULT_SCHEME.to_string(),
-			tmp.path().join(".code-moniker.toml"),
-			None,
-		);
-		app.filter = "Alpha".into();
-		app.refresh_defs();
-		assert!(
-			app.visible_defs
-				.iter()
-				.all(|loc| last_name(&app.index.def(loc).moniker).contains("Alpha")),
-			"{:?}",
-			app.visible_defs
-		);
-		assert!(!app.visible_defs.is_empty());
-	}
 }

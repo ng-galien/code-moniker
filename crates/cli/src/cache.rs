@@ -13,13 +13,14 @@ use crate::extract;
 use code_moniker_core::lang::Lang;
 
 const CACHE_MAGIC: u32 = 0xC0DE_2106;
-const CACHE_FORMAT_VERSION: u32 = 2;
+const CACHE_FORMAT_VERSION: u32 = 3;
 const OFF_MAGIC: usize = 0;
 const OFF_FORMAT: usize = 4;
 const OFF_MTIME: usize = 8;
 const OFF_SIZE: usize = 16;
 const OFF_ANCHOR: usize = 24;
-const OFF_PATH_LEN: usize = 32;
+const OFF_CONTEXT: usize = 32;
+const OFF_PATH_LEN: usize = 40;
 const HEADER_FIXED: usize = OFF_PATH_LEN + 4;
 
 static TMP_NONCE: AtomicU64 = AtomicU64::new(0);
@@ -30,10 +31,19 @@ pub struct CacheKey {
 	pub mtime: u64,
 	pub size: u64,
 	pub anchor_hash: u64,
+	pub context_hash: u64,
 }
 
 impl CacheKey {
 	pub fn from_path(path: &Path, anchor: &Path) -> io::Result<Self> {
+		Self::from_path_with_context(path, anchor, &extract::Context::default())
+	}
+
+	pub fn from_path_with_context(
+		path: &Path,
+		anchor: &Path,
+		ctx: &extract::Context,
+	) -> io::Result<Self> {
 		let abs_path = path.canonicalize()?;
 		let meta = fs::metadata(&abs_path)?;
 		let mtime = meta
@@ -46,6 +56,7 @@ impl CacheKey {
 			mtime,
 			size: meta.len(),
 			anchor_hash: hash_path(anchor),
+			context_hash: hash_context(ctx),
 		})
 	}
 
@@ -58,7 +69,12 @@ impl CacheKey {
 	}
 
 	fn filename(&self) -> String {
-		format!("{:016x}_{:016x}.bin", self.path_hash(), self.anchor_hash)
+		format!(
+			"{:016x}_{:016x}_{:016x}.bin",
+			self.path_hash(),
+			self.anchor_hash,
+			self.context_hash,
+		)
 	}
 
 	fn full_path(&self, root: &Path) -> PathBuf {
@@ -106,6 +122,7 @@ fn try_store(cache_dir: &Path, key: &CacheKey, graph: &CodeGraph) -> io::Result<
 	buf.extend_from_slice(&key.mtime.to_le_bytes());
 	buf.extend_from_slice(&key.size.to_le_bytes());
 	buf.extend_from_slice(&key.anchor_hash.to_le_bytes());
+	buf.extend_from_slice(&key.context_hash.to_le_bytes());
 	buf.extend_from_slice(&(path_bytes.len() as u32).to_le_bytes());
 	buf.extend_from_slice(path_bytes);
 	buf.extend_from_slice(&body);
@@ -143,7 +160,7 @@ pub fn load_or_extract_result(
 	ctx: &extract::Context,
 ) -> io::Result<(CodeGraph, Option<String>)> {
 	if let Some(dir) = cache_dir
-		&& let Ok(key) = CacheKey::from_path(path, anchor)
+		&& let Ok(key) = CacheKey::from_path_with_context(path, anchor, ctx)
 	{
 		if let Some(g) = load(dir, &key) {
 			return Ok((g, None));
@@ -172,8 +189,13 @@ fn validate_header<'a>(bytes: &'a [u8], key: &CacheKey) -> Option<&'a [u8]> {
 	}
 	let mtime = u64::from_le_bytes(bytes[OFF_MTIME..OFF_SIZE].try_into().ok()?);
 	let size = u64::from_le_bytes(bytes[OFF_SIZE..OFF_ANCHOR].try_into().ok()?);
-	let anchor_hash = u64::from_le_bytes(bytes[OFF_ANCHOR..OFF_PATH_LEN].try_into().ok()?);
-	if mtime != key.mtime || size != key.size || anchor_hash != key.anchor_hash {
+	let anchor_hash = u64::from_le_bytes(bytes[OFF_ANCHOR..OFF_CONTEXT].try_into().ok()?);
+	let context_hash = u64::from_le_bytes(bytes[OFF_CONTEXT..OFF_PATH_LEN].try_into().ok()?);
+	if mtime != key.mtime
+		|| size != key.size
+		|| anchor_hash != key.anchor_hash
+		|| context_hash != key.context_hash
+	{
 		return None;
 	}
 	let path_len = u32::from_le_bytes(bytes[OFF_PATH_LEN..HEADER_FIXED].try_into().ok()?) as usize;
@@ -202,6 +224,17 @@ fn path_bytes(p: &Path) -> &[u8] {
 fn hash_path(p: &Path) -> u64 {
 	let mut h = FxHasher::default();
 	path_bytes(p).hash(&mut h);
+	h.finish()
+}
+
+fn hash_context(ctx: &extract::Context) -> u64 {
+	let mut h = FxHasher::default();
+	ctx.project.hash(&mut h);
+	ctx.ts.aliases.len().hash(&mut h);
+	for alias in &ctx.ts.aliases {
+		alias.pattern.hash(&mut h);
+		alias.substitution.hash(&mut h);
+	}
 	h.finish()
 }
 
@@ -267,6 +300,30 @@ mod tests {
 		store(tmp.path(), &key1, &graph_with_one_def());
 		assert!(load(tmp.path(), &key1).is_some());
 		assert!(load(tmp.path(), &key2).is_none());
+	}
+
+	#[test]
+	fn load_misses_when_context_changes() {
+		let tmp = tempfile::tempdir().unwrap();
+		let src = tmp.path().join("src.ts");
+		std::fs::write(&src, b"export class Foo {}\n").unwrap();
+		let anchor = tmp.path().join("anchor");
+		let ctx_one = extract::Context {
+			project: Some("one".into()),
+			..extract::Context::default()
+		};
+		let ctx_two = extract::Context {
+			project: Some("two".into()),
+			..extract::Context::default()
+		};
+		let key1 = CacheKey::from_path_with_context(&src, &anchor, &ctx_one).unwrap();
+		let key2 = CacheKey::from_path_with_context(&src, &anchor, &ctx_two).unwrap();
+
+		store(tmp.path(), &key1, &graph_with_one_def());
+
+		assert!(load(tmp.path(), &key1).is_some());
+		assert!(load(tmp.path(), &key2).is_none());
+		assert_ne!(key1.full_path(tmp.path()), key2.full_path(tmp.path()));
 	}
 
 	#[test]

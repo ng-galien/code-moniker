@@ -151,8 +151,8 @@ pub enum CheckFormat {
 #[cfg(feature = "tui")]
 #[derive(Debug, ClapArgs)]
 pub struct UiArgs {
-	#[arg(value_name = "PATH", default_value = ".")]
-	pub path: PathBuf,
+	#[arg(value_name = "PATH", default_value = ".", num_args = 1..)]
+	pub paths: Vec<PathBuf>,
 
 	#[arg(
 		long,
@@ -194,8 +194,8 @@ pub struct UiArgs {
 
 #[derive(Debug, ClapArgs)]
 pub struct StatsArgs {
-	#[arg(value_name = "PATH")]
-	pub path: PathBuf,
+	#[arg(value_name = "PATH", num_args = 1..)]
+	pub paths: Vec<PathBuf>,
 
 	#[arg(long, value_enum, default_value_t = StatsFormat::Tsv)]
 	pub format: StatsFormat,
@@ -536,6 +536,27 @@ mod tests {
 		}
 	}
 
+	fn stats(argv: &[&str]) -> StatsArgs {
+		let mut full = vec!["stats"];
+		full.extend_from_slice(argv);
+		let cli = parse(&full).unwrap();
+		match cli.command {
+			Command::Stats(a) => a,
+			other => panic!("expected Stats, got {other:?}"),
+		}
+	}
+
+	#[cfg(feature = "tui")]
+	fn ui(argv: &[&str]) -> UiArgs {
+		let mut full = vec!["ui"];
+		full.extend_from_slice(argv);
+		let cli = parse(&full).unwrap();
+		match cli.command {
+			Command::Ui(a) => a,
+			other => panic!("expected Ui, got {other:?}"),
+		}
+	}
+
 	#[test]
 	fn no_args_requires_subcommand() {
 		assert!(
@@ -552,6 +573,25 @@ mod tests {
 		assert_eq!(a.mode(), OutputMode::Default);
 		assert!(a.kind.is_empty());
 		assert!(!a.with_text);
+	}
+
+	#[test]
+	fn stats_accepts_multiple_paths() {
+		let a = stats(&["svc-a", "svc-b"]);
+		assert_eq!(
+			a.paths,
+			vec![PathBuf::from("svc-a"), PathBuf::from("svc-b")]
+		);
+	}
+
+	#[cfg(feature = "tui")]
+	#[test]
+	fn ui_defaults_to_current_dir_and_accepts_multiple_paths() {
+		assert_eq!(ui(&[]).paths, vec![PathBuf::from(".")]);
+		assert_eq!(
+			ui(&["svc-a", "svc-b"]).paths,
+			vec![PathBuf::from("svc-a"), PathBuf::from("svc-b")]
+		);
 	}
 
 	#[test]

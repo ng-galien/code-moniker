@@ -12,15 +12,12 @@ use rustc_hash::FxHashMap;
 
 use crate::cache;
 use crate::check;
-use crate::extract;
-use crate::lang::path_to_lang;
 use crate::lines::line_range;
-use crate::tsconfig;
-use crate::walk::{self, WalkedFile};
+use crate::sources;
 
 #[derive(Clone, Debug)]
 pub struct SessionOptions {
-	pub path: PathBuf,
+	pub paths: Vec<PathBuf>,
 	pub project: Option<String>,
 	pub cache_dir: Option<PathBuf>,
 }
@@ -89,7 +86,7 @@ pub struct CheckError {
 }
 
 pub struct SessionIndex {
-	pub root: PathBuf,
+	pub root: String,
 	pub files: Vec<IndexedFile>,
 	pub stats: SessionStats,
 	pub defs_by_moniker: FxHashMap<Moniker, Vec<DefLocation>>,
@@ -103,44 +100,21 @@ pub struct SessionIndex {
 impl SessionIndex {
 	pub fn load(opts: &SessionOptions) -> anyhow::Result<Self> {
 		let started = Instant::now();
-		let meta = std::fs::metadata(&opts.path)
-			.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", opts.path.display()))?;
 		let scan_started = Instant::now();
-		let root_is_dir = meta.is_dir();
-		let (root, walked) = if root_is_dir {
-			(opts.path.clone(), walk::walk_lang_files(&opts.path))
-		} else {
-			let lang = path_to_lang(&opts.path)?;
-			let root = opts
-				.path
-				.parent()
-				.unwrap_or_else(|| Path::new("."))
-				.to_path_buf();
-			(
-				root,
-				vec![WalkedFile {
-					path: opts.path.clone(),
-					lang,
-				}],
-			)
-		};
+		let sources = sources::discover(&opts.paths, opts.project.clone())?;
 		let scan_ms = millis(scan_started.elapsed());
-		let ctx = extract::Context {
-			ts: tsconfig::load(&root),
-			project: opts.project.clone(),
-		};
 		let extract_started = Instant::now();
-		let mut files: Vec<IndexedFile> = walked
+		let mut files: Vec<IndexedFile> = sources
+			.files
 			.par_iter()
 			.map(|f| {
-				let rel_path = f.path.strip_prefix(&root).unwrap_or(&f.path).to_path_buf();
-				let anchor = if root_is_dir { &rel_path } else { &f.path };
+				let ctx = &sources.roots[f.source].ctx;
 				let (graph, extracted_source) = cache::load_or_extract_result(
 					&f.path,
-					anchor,
+					&f.anchor,
 					f.lang,
 					opts.cache_dir.as_deref(),
-					&ctx,
+					ctx,
 				)
 				.map_err(|e| anyhow::anyhow!("cannot extract {}: {e}", f.path.display()))?;
 				let source = match extracted_source {
@@ -150,7 +124,7 @@ impl SessionIndex {
 				};
 				Ok(IndexedFile {
 					path: f.path.clone(),
-					rel_path,
+					rel_path: f.rel_path.clone(),
 					lang: f.lang,
 					graph,
 					source,
@@ -161,7 +135,7 @@ impl SessionIndex {
 		let extract_ms = millis(extract_started.elapsed());
 		let index_started = Instant::now();
 		let mut idx = Self {
-			root,
+			root: sources.display_path(),
 			files,
 			stats: SessionStats {
 				scan_ms,
@@ -400,7 +374,7 @@ mod tests {
 			"export class Foo { bar() { return helper(); } }\nfunction helper() { return 1; }\n",
 		);
 		let idx = SessionIndex::load(&SessionOptions {
-			path: tmp.path().into(),
+			paths: vec![tmp.path().into()],
 			project: Some("app".into()),
 			cache_dir: None,
 		})
@@ -436,7 +410,7 @@ message = "class too long"
 "#,
 		);
 		let idx = SessionIndex::load(&SessionOptions {
-			path: tmp.path().join("src"),
+			paths: vec![tmp.path().join("src")],
 			project: Some("app".into()),
 			cache_dir: None,
 		})
@@ -451,5 +425,89 @@ message = "class too long"
 		assert_eq!(summary.files_scanned, 1);
 		assert_eq!(summary.total_violations, 1);
 		assert_eq!(summary.files_with_violations, 1);
+	}
+
+	#[test]
+	fn session_loads_multiple_roots_with_prefixed_relative_paths() {
+		let tmp = tempfile::tempdir().unwrap();
+		let service_a = tmp.path().join("service-a");
+		let service_b = tmp.path().join("service-b");
+		write(&service_a, "src/a.ts", "export class Alpha {}\n");
+		write(&service_b, "src/b.ts", "export class Beta {}\n");
+
+		let idx = SessionIndex::load(&SessionOptions {
+			paths: vec![service_a.clone(), service_b.clone()],
+			project: None,
+			cache_dir: None,
+		})
+		.unwrap();
+
+		assert_eq!(idx.stats.files, 2);
+		assert!(idx.root.contains("service-a"), "{}", idx.root);
+		assert!(idx.root.contains("service-b"), "{}", idx.root);
+		assert!(
+			idx.files
+				.iter()
+				.any(|file| file.rel_path.as_path() == Path::new("service-a/src/a.ts"))
+		);
+		assert!(
+			idx.files
+				.iter()
+				.any(|file| file.rel_path.as_path() == Path::new("service-b/src/b.ts"))
+		);
+		let alpha = idx
+			.filtered_defs(&ViewFilter {
+				name: Some("^Alpha$".into()),
+				..ViewFilter::default()
+			})
+			.pop()
+			.expect("Alpha def");
+		let project =
+			std::str::from_utf8(idx.def(&alpha).moniker.as_view().project()).unwrap_or("");
+		assert_eq!(project, "service-a");
+	}
+
+	#[test]
+	fn session_keeps_ts_path_aliases_inside_their_multi_source_root() {
+		let tmp = tempfile::tempdir().unwrap();
+		let service_a = tmp.path().join("service-a");
+		let service_b = tmp.path().join("service-b");
+		write(
+			&service_a,
+			"tsconfig.json",
+			r#"{"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}"#,
+		);
+		write(
+			&service_a,
+			"src/router.ts",
+			r#"import { Foo } from "@/foo"; export const value = Foo;"#,
+		);
+		write(&service_a, "src/foo.ts", "export class Foo {}\n");
+		write(&service_b, "src/foo.ts", "export class Foo {}\n");
+
+		let idx = SessionIndex::load(&SessionOptions {
+			paths: vec![service_a, service_b],
+			project: None,
+			cache_dir: None,
+		})
+		.unwrap();
+
+		let expected = code_moniker_core::core::moniker::MonikerBuilder::new()
+			.project(b"service-a")
+			.segment(b"lang", b"ts")
+			.segment(b"dir", b"service-a")
+			.segment(b"dir", b"src")
+			.segment(b"module", b"foo")
+			.segment(b"path", b"Foo")
+			.build();
+		assert!(
+			idx.files
+				.iter()
+				.flat_map(|file| file.graph.refs())
+				.any(
+					|reference| reference.kind == b"imports_symbol" && reference.target == expected
+				),
+			"alias import should target service-a's prefixed module"
+		);
 	}
 }

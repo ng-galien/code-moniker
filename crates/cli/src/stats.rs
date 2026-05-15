@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "pretty")]
@@ -14,10 +14,7 @@ use crate::Exit;
 use crate::args::{Charset, ColorChoice};
 use crate::args::{StatsArgs, StatsFormat};
 use crate::cache;
-use crate::extract;
-use crate::lang::path_to_lang;
-use crate::tsconfig;
-use crate::walk::{self, WalkedFile};
+use crate::sources::{self, SourceFile, SourceSet};
 
 pub fn run<W1: Write, W2: Write>(args: &StatsArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match stats_inner(args, stdout) {
@@ -37,37 +34,19 @@ pub fn run<W1: Write, W2: Write>(args: &StatsArgs, stdout: &mut W1, stderr: &mut
 
 fn stats_inner<W: Write>(args: &StatsArgs, stdout: &mut W) -> anyhow::Result<bool> {
 	let started = Instant::now();
-	let path = &args.path;
-	let meta = std::fs::metadata(path)
-		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
 	let scan_started = Instant::now();
-	let (root, files) = if meta.is_dir() {
-		(path.as_path(), walk::walk_lang_files(path))
-	} else {
-		let lang = path_to_lang(path)?;
-		let root = path.parent().unwrap_or_else(|| Path::new("."));
-		(
-			root,
-			vec![WalkedFile {
-				path: path.to_path_buf(),
-				lang,
-			}],
-		)
-	};
+	let sources = sources::discover(&args.paths, args.project.clone())?;
 	let scan_elapsed = scan_started.elapsed();
-	let ctx = extract::Context {
-		ts: tsconfig::load(root),
-		project: args.project.clone(),
-	};
 	let extract_started = Instant::now();
 	let cache_dir = args.cache.as_deref();
-	let file_stats: Vec<FileStats> = files
+	let file_stats: Vec<FileStats> = sources
+		.files
 		.par_iter()
-		.map(|f| FileStats::compute(f, root, cache_dir, &ctx))
+		.map(|f| FileStats::compute(f, &sources, cache_dir))
 		.collect::<anyhow::Result<Vec<_>>>()?;
 	let extract_elapsed = extract_started.elapsed();
 	let report = StatsReport::from_files(
-		path,
+		sources.display_path(),
 		file_stats,
 		scan_elapsed,
 		extract_elapsed,
@@ -100,7 +79,7 @@ struct StatsReport {
 
 impl StatsReport {
 	fn from_files(
-		path: &Path,
+		path: String,
 		files: Vec<FileStats>,
 		scan_elapsed: Duration,
 		extract_elapsed: Duration,
@@ -126,7 +105,7 @@ impl StatsReport {
 			merge_counts(&mut by_kind.refs, &file.by_ref_kind);
 		}
 		Self {
-			path: path.display().to_string(),
+			path,
 			total_files: files.len(),
 			total_defs,
 			total_refs,
@@ -174,18 +153,14 @@ struct FileStats {
 
 impl FileStats {
 	fn compute(
-		file: &WalkedFile,
-		root: &Path,
+		file: &SourceFile,
+		sources: &SourceSet,
 		cache_dir: Option<&Path>,
-		ctx: &extract::Context,
 	) -> anyhow::Result<Self> {
-		let rel: PathBuf = file
-			.path
-			.strip_prefix(root)
-			.unwrap_or(&file.path)
-			.to_path_buf();
-		let (graph, _) = cache::load_or_extract_result(&file.path, &rel, file.lang, cache_dir, ctx)
-			.map_err(|e| anyhow::anyhow!("cannot extract {}: {e}", file.path.display()))?;
+		let ctx = &sources.roots[file.source].ctx;
+		let (graph, _) =
+			cache::load_or_extract_result(&file.path, &file.anchor, file.lang, cache_dir, ctx)
+				.map_err(|e| anyhow::anyhow!("cannot extract {}: {e}", file.path.display()))?;
 		let mut defs = 0usize;
 		let mut refs = 0usize;
 		let mut by_shape: BTreeMap<&'static str, usize> = Shape::ALL

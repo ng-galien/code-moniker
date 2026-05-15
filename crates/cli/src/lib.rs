@@ -13,6 +13,7 @@ pub mod lang;
 pub mod lines;
 pub mod manifest;
 pub mod predicate;
+pub mod sources;
 pub mod stats;
 pub mod tsconfig;
 #[cfg(feature = "tui")]
