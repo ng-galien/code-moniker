@@ -27,13 +27,22 @@ jobs:
         with:
           shared-key: release
 
-      - name: Verify tag matches workspace version
+      - name: Verify tag matches crates.io package versions
         run: |
           tag="${GITHUB_REF#refs/tags/v}"
-          version=$(cargo metadata --no-deps --format-version 1 \
-                    | jq -r '.packages[] | select(.name == "code-moniker-core") | .version')
+          versions=$(cargo metadata --no-deps --format-version 1 \
+                    | jq -r '.packages[]
+                      | select(.name == "code-moniker-core" or .name == "code-moniker")
+                      | .version' \
+                    | sort -u)
+          count=$(printf '%s\n' "$versions" | sed '/^$/d' | wc -l | tr -d ' ')
+          if [ "$count" != "1" ]; then
+            echo "::error::crates.io packages do not share one version: $versions"
+            exit 1
+          fi
+          version="$versions"
           if [ "$tag" != "$version" ]; then
-            echo "::error::tag v$tag does not match code-moniker-core version $version"
+            echo "::error::tag v$tag does not match crates.io package version $version"
             exit 1
           fi
 

@@ -10,7 +10,7 @@ PG_PORT="${PG_PORT:-28817}"
 DB_NAME="${DB_NAME:-code_moniker_test}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-EXPECTED_VERSION="$(grep -m1 '^version' "$REPO_ROOT/crates/pg/Cargo.toml" | awk -F'"' '{print $2}')"
+EXPECTED_VERSION="$(cd "$REPO_ROOT" && cargo pkgid -p code-moniker-pg | sed 's/.*@//')"
 
 PSQL="$PG_BIN/psql -h localhost -p $PG_PORT -X -q -A -t -v ON_ERROR_STOP=1 -v expected_version=$EXPECTED_VERSION"
 

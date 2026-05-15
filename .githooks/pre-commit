@@ -38,7 +38,7 @@ if $rust_changed || staged '^\.code-moniker\.toml$'; then
 fi
 
 if staged '^Cargo\.toml$|^crates/pg/Cargo\.toml$|^crates/pg/code_moniker\.control$'; then
-	cargo_version="$(grep -m1 '^version' crates/pg/Cargo.toml | awk -F'"' '{print $2}')"
+	cargo_version="$(cargo pkgid -p code-moniker-pg | sed 's/.*@//')"
 	control_version="$(awk -F"'" '/^default_version[[:space:]]*=/ {print $2; exit}' crates/pg/code_moniker.control)"
 	if [[ "$cargo_version" != "$control_version" ]]; then
 		echo "pre-commit: version drift between crates/pg/Cargo.toml ($cargo_version) and code_moniker.control ($control_version)." >&2

@@ -33,10 +33,13 @@ and pull requests, installs PostgreSQL 17 + pgTAP, then executes
 extension, runs `./pgtap/run.sh`, and finishes with `cargo arch-check`.
 
 The release workflow is `.github/workflows/release.yml` and only starts
-when a `v*.*.*` tag is pushed. It verifies the tag matches the
-`code-moniker-core` workspace version, then publishes `code-moniker-core`
-before `code-moniker`. Pushing `main` is a CI action; pushing `v0.2.0`
-is the release action.
+when a `v*.*.*` tag is pushed. It verifies the tag matches the crates.io
+package versions, then publishes `code-moniker-core` before
+`code-moniker`. `code-moniker-pg` is versioned with the workspace for
+extension metadata but is not auto-published (`publish = false`). Pushing
+`main` is a CI action; pushing a version tag such as `v0.3.0` is the
+release action. After a release, bump `main` to the next planned Cargo
+version in `[workspace.package]`; do not use a `-snapshot` suffix.
 
 ## Coding Style & Naming Conventions
 

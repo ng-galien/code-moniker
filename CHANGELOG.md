@@ -4,9 +4,10 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The three published crates share a single workspace version. Breaking
-changes are allowed in minor releases as long as the project is in
-`0.y.z`.
+The workspace crates share a single version; only `code-moniker-core`
+and `code-moniker` are published to crates.io by the release workflow.
+Breaking changes are allowed in minor releases as long as the project is
+in `0.y.z`.
 
 ## [Unreleased]
 
@@ -46,6 +47,12 @@ changes are allowed in minor releases as long as the project is in
 
 ### Changed
 
+- **Release versioning** — `main` now tracks the next planned Cargo
+  release version (`0.3.0`) instead of retaining the already-tagged
+  version. Crates inherit `version.workspace = true`, the internal
+  `code-moniker-core` dependency is bumped once in workspace
+  dependencies, `code-moniker-pg` is marked `publish = false`, and
+  release CI verifies crates.io packages share the tag version.
 - **`code-moniker extract --format tree`** — tree output now collapses
   linear filesystem and namespace branches inline, so paths such as
   `src/main/java` and package chains such as `org.apache.bookkeeper`

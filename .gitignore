@@ -20,5 +20,9 @@ TODO.md
 /evolutions
 /bug
 /dogfood
+/delivery
 
 
+# ESAC bridge token — never commit
+.esac/
+.codex/
