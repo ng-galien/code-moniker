@@ -66,6 +66,8 @@ Text output uses compact monikers by default, for example
 
 Compact text output is colorized automatically when stdout is a terminal.
 Use `--color never` to disable color, or `-c` / `--color always` to force it.
+Explicit `--color always|never` wins over terminal environment variables;
+`auto` honors `NO_COLOR`, `CLICOLOR_FORCE`, `TERM=dumb`, and `CLICOLOR=0`.
 
 ### TSV
 
@@ -75,6 +77,8 @@ ref<TAB>target_moniker<TAB>kind<TAB>start..end<TAB>L<a>-L<b><TAB>source=<MONIKER
 ```
 
 `start..end` is byte range (0-indexed); `L<a>-L<b>` is the inclusive line range (1-indexed). Empty fields render as `-`.
+TSV is a typed record stream: the first column discriminates the `def` and
+`ref` schemas rather than promising one uniform table.
 
 TSV uses compact monikers by default, for example
 `java:app.user/UserService.class:UserService`. Use
@@ -114,6 +118,7 @@ Linear filesystem and namespace branches are collapsed inline. For example,
 branches when each segment has only one child.
 
 `--color auto|always|never` controls ANSI; `--charset utf8|ascii` controls glyphs.
+Explicit color flags use the same precedence as text output.
 
 **Default filter.** Without `--kind`, the tree drops noise defs (`local`, `param`, `comment`) and hides refs — the output is a structural skeleton. Passing any `--kind` re-enables full output: noise defs and refs both render if they match the filter.
 
@@ -135,7 +140,7 @@ With `--kind`/`--shape`/`--where`: same match shape as single-file, prefixed by 
 
 ## `--with-text`
 
-Comment defs carry only position. Pass `--with-text` to re-read the source and project the text into a `text` column (TSV) or field (JSON). No-op on non-comment defs.
+Comment defs carry only position. Pass `--with-text` to re-read the source and project the text into a trailing text field on TSV comment `def` rows, or a `text` field in JSON. No-op on non-comment defs.
 
 ## `--cache <DIR>`
 

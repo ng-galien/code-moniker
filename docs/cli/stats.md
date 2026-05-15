@@ -13,6 +13,10 @@ code-moniker stats <PATH> [--format tsv|json|tree]
 compare extractor coverage, or measure scan overhead before enabling
 rules.
 
+For tree output, explicit `--color always|never` wins over terminal
+environment variables. `auto` honors `NO_COLOR`, `CLICOLOR_FORCE`,
+`TERM=dumb`, and `CLICOLOR=0`.
+
 ## Metrics
 
 | Metric | Meaning |

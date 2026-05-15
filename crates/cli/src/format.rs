@@ -7,6 +7,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::args::{ExtractArgs, MonikerFormat};
+use crate::color::resolve_color;
 use crate::extract;
 use crate::lines::line_range;
 use crate::predicate::{MatchSet, RefMatch};
@@ -25,7 +26,7 @@ pub fn write_tsv<W: Write>(
 ) -> std::io::Result<()> {
 	let cfg = UriConfig { scheme };
 	for d in &matches.defs {
-		let uri = render_moniker(&d.moniker, &cfg, args.moniker_format);
+		let uri = render_moniker(&d.moniker, &cfg, args.moniker_format, false);
 		write!(
 			w,
 			"def\t{uri}\t{kind}\t{pos}\t{lines}\t{vis}\t{sig}\t{origin}",
@@ -43,8 +44,8 @@ pub fn write_tsv<W: Write>(
 		writeln!(w)?;
 	}
 	for r in &matches.refs {
-		let target = render_moniker(&r.record.target, &cfg, args.moniker_format);
-		let src_uri = render_moniker(r.source, &cfg, args.moniker_format);
+		let target = render_moniker(&r.record.target, &cfg, args.moniker_format, false);
+		let src_uri = render_moniker(r.source, &cfg, args.moniker_format, false);
 		writeln!(
 			w,
 			"ref\t{target}\t{kind}\t{pos}\t{lines}\tsource={src_uri}\t{alias}\t{conf}\t{rcv}",
@@ -71,33 +72,20 @@ pub fn write_text<W: Write>(
 		writeln!(
 			w,
 			"{}",
-			render_text_moniker(&d.moniker, &cfg, args.moniker_format, color)
+			render_moniker(&d.moniker, &cfg, args.moniker_format, color)
 		)?;
 	}
 	for r in &matches.refs {
 		writeln!(
 			w,
 			"{}",
-			render_text_moniker(&r.record.target, &cfg, args.moniker_format, color)
+			render_moniker(&r.record.target, &cfg, args.moniker_format, color)
 		)?;
 	}
 	Ok(())
 }
 
 fn render_moniker(
-	m: &code_moniker_core::core::moniker::Moniker,
-	cfg: &UriConfig<'_>,
-	format: MonikerFormat,
-) -> String {
-	match format {
-		MonikerFormat::Uri => render_uri(m, cfg),
-		MonikerFormat::Compact => {
-			render_compact_moniker(m, false).unwrap_or_else(|| render_uri(m, cfg))
-		}
-	}
-}
-
-fn render_text_moniker(
 	m: &code_moniker_core::core::moniker::Moniker,
 	cfg: &UriConfig<'_>,
 	format: MonikerFormat,
@@ -177,28 +165,6 @@ fn paint(color: bool, code: &str, text: &str) -> String {
 	} else {
 		text.to_string()
 	}
-}
-
-fn resolve_color(arg: crate::args::ColorChoice) -> bool {
-	use std::io::IsTerminal;
-	match arg {
-		crate::args::ColorChoice::Always => return true,
-		crate::args::ColorChoice::Never => return false,
-		crate::args::ColorChoice::Auto => {}
-	}
-	if std::env::var_os("NO_COLOR").is_some() {
-		return false;
-	}
-	if std::env::var_os("CLICOLOR_FORCE").is_some_and(|v| v != "0") {
-		return true;
-	}
-	if std::env::var("TERM").is_ok_and(|t| t == "dumb") {
-		return false;
-	}
-	if std::env::var("CLICOLOR").is_ok_and(|v| v == "0") {
-		return false;
-	}
-	std::io::stdout().is_terminal()
 }
 
 pub fn write_json<W: Write>(
@@ -392,6 +358,7 @@ fn escape_tsv(s: &str) -> String {
 	s.replace('\\', "\\\\")
 		.replace('\t', "\\t")
 		.replace('\n', "\\n")
+		.replace('\r', "\\r")
 }
 
 #[cfg(test)]
@@ -682,6 +649,7 @@ mod tests {
 	fn tsv_escape_handles_tabs_and_newlines() {
 		assert_eq!(escape_tsv("a\tb"), "a\\tb");
 		assert_eq!(escape_tsv("a\nb"), "a\\nb");
+		assert_eq!(escape_tsv("a\rb"), "a\\rb");
 		assert_eq!(escape_tsv("a\\b"), "a\\\\b");
 	}
 }

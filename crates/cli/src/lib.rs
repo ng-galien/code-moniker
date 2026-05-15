@@ -4,6 +4,7 @@
 pub mod args;
 pub mod cache;
 pub mod check;
+pub(crate) mod color;
 pub mod dir;
 pub mod extract;
 pub mod format;

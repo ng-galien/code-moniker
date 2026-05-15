@@ -47,7 +47,8 @@ use navigator::{
 use shell::FeatureRegistry;
 use source::source_snippet_lines;
 use store::{
-	IndexStore, MemoryIndexStore, UsageFocus, compact_moniker, def_kind, last_name, ref_kind,
+	IndexStore, MemoryIndexStore, SearchHit, UsageFocus, compact_moniker, def_kind, last_name,
+	ref_kind,
 };
 use theme::THEME;
 
@@ -185,6 +186,7 @@ enum ActiveFilter {
 	None,
 	Text { raw: String, query: NavFilter },
 	Invalid { raw: String, error: String },
+	Search { raw: String, hits: Vec<SearchHit> },
 	Usages(UsageFocus),
 }
 
@@ -194,6 +196,7 @@ impl ActiveFilter {
 			Self::None => "<all>".to_string(),
 			Self::Text { query, .. } => query.describe(),
 			Self::Invalid { raw, .. } => display_filter(raw).to_string(),
+			Self::Search { raw, .. } => format!("search:{raw}"),
 			Self::Usages(focus) => format!("usages:{}", focus.label),
 		}
 	}
@@ -201,33 +204,36 @@ impl ActiveFilter {
 	fn text_raw(&self) -> Option<&str> {
 		match self {
 			Self::Text { raw, .. } | Self::Invalid { raw, .. } => Some(raw),
-			Self::None | Self::Usages(_) => None,
+			Self::None | Self::Search { .. } | Self::Usages(_) => None,
 		}
 	}
 
 	fn query(&self) -> Option<&NavFilter> {
 		match self {
 			Self::Text { query, .. } => Some(query),
-			Self::None | Self::Invalid { .. } | Self::Usages(_) => None,
+			Self::None | Self::Invalid { .. } | Self::Search { .. } | Self::Usages(_) => None,
 		}
 	}
 
 	fn usage_focus(&self) -> Option<&UsageFocus> {
 		match self {
 			Self::Usages(focus) => Some(focus),
-			Self::None | Self::Text { .. } | Self::Invalid { .. } => None,
+			Self::None | Self::Text { .. } | Self::Invalid { .. } | Self::Search { .. } => None,
 		}
 	}
 
 	fn error(&self) -> Option<(&str, &str)> {
 		match self {
 			Self::Invalid { raw, error } => Some((raw, error)),
-			Self::None | Self::Text { .. } | Self::Usages(_) => None,
+			Self::None | Self::Text { .. } | Self::Search { .. } | Self::Usages(_) => None,
 		}
 	}
 
 	fn filters_navigator(&self) -> bool {
-		matches!(self, Self::Text { .. } | Self::Usages(_))
+		matches!(
+			self,
+			Self::Text { .. } | Self::Search { .. } | Self::Usages(_)
+		)
 	}
 }
 
@@ -244,6 +250,7 @@ struct App {
 	mode: UiMode,
 	active_filter: ActiveFilter,
 	filter_draft: String,
+	search_draft: String,
 	selection: usize,
 	visible_defs: Vec<DefLocation>,
 	navigator: NavNode,
@@ -279,6 +286,7 @@ impl App {
 			mode: UiMode::Normal,
 			active_filter: ActiveFilter::None,
 			filter_draft: String::new(),
+			search_draft: String::new(),
 			selection: 0,
 			visible_defs: Vec::new(),
 			navigator,
@@ -287,7 +295,7 @@ impl App {
 			nav_rows: Vec::new(),
 			check: CheckState::Pending,
 			status: format!(
-				"Enter opens nodes, Esc/left closes, / edits filter, u focuses usages, c checks, q quits ({nav_count} nav items, {command_count} commands)"
+				"Enter opens nodes, Esc/left closes, / filters, s searches, u usages, c checks, q quits ({nav_count} nav items, {command_count} commands)"
 			),
 		};
 		app.refresh_results(false);
@@ -337,6 +345,7 @@ impl App {
 
 	fn matching_defs(&self) -> Vec<DefLocation> {
 		match &self.active_filter {
+			ActiveFilter::Search { hits, .. } => hits.iter().map(|hit| hit.loc).collect(),
 			ActiveFilter::Usages(focus) => focus.contexts.clone(),
 			ActiveFilter::Invalid { .. } => Vec::new(),
 			ActiveFilter::None | ActiveFilter::Text { .. } => {
@@ -355,9 +364,22 @@ impl App {
 		self.clamp_selection();
 	}
 
+	fn select_def(&mut self, loc: DefLocation) {
+		if let Some(idx) = self
+			.nav_rows
+			.iter()
+			.position(|row| matches!(row.kind, NavNodeKind::Def(row_loc) if row_loc == loc))
+		{
+			self.selection = idx;
+		}
+	}
+
 	fn filter_label(&self) -> String {
 		if self.mode == UiMode::EditingFilter {
 			return display_filter(&self.filter_draft).to_string();
+		}
+		if self.mode == UiMode::EditingSearch {
+			return format!("search:{}", display_filter(&self.search_draft));
 		}
 		self.active_filter.label()
 	}
@@ -401,6 +423,7 @@ impl App {
 			ActiveFilter::None => "all".to_string(),
 			ActiveFilter::Text { query, .. } => query.describe(),
 			ActiveFilter::Invalid { raw, .. } => format!("invalid {}", display_filter(raw)),
+			ActiveFilter::Search { raw, .. } => format!("search:{raw}"),
 			ActiveFilter::Usages(focus) => focus.label.clone(),
 		}
 	}
@@ -410,6 +433,7 @@ impl App {
 		let label = focus.label.clone();
 		self.mode = UiMode::Normal;
 		self.filter_draft.clear();
+		self.search_draft.clear();
 		self.regime = VisualizationRegime::Usages;
 		self.panel_policy = PanelPolicy::Contextual;
 		self.active_filter = ActiveFilter::Usages(focus);
@@ -436,19 +460,33 @@ impl App {
 			.map(str::to_string)
 			.unwrap_or_default();
 		self.status =
-			"type a filter, Enter applies, Esc cancels: Resolver, kind:interface, kind:method async.*"
+			"type a structural filter, Enter applies, Esc cancels: Resolver, kind:interface, kind:method async.*"
 				.to_string();
 	}
 
-	fn edit_filter(&mut self, edit: FilterEdit) {
+	fn start_search_edit(&mut self) {
+		self.mode = UiMode::EditingSearch;
+		self.search_draft = match &self.active_filter {
+			ActiveFilter::Search { raw, .. } => raw.clone(),
+			_ => String::new(),
+		};
+		self.status = "type a symbol search, Enter applies, Esc cancels: customer resolver format"
+			.to_string();
+	}
+
+	fn edit_input(&mut self, edit: FilterEdit) {
+		let (draft, label) = match self.mode {
+			UiMode::EditingSearch => (&mut self.search_draft, "search"),
+			UiMode::EditingFilter | UiMode::Normal => (&mut self.filter_draft, "filter"),
+		};
 		match edit {
-			FilterEdit::Push(c) => self.filter_draft.push(c),
+			FilterEdit::Push(c) => draft.push(c),
 			FilterEdit::Backspace => {
-				self.filter_draft.pop();
+				draft.pop();
 			}
-			FilterEdit::Clear => self.filter_draft.clear(),
+			FilterEdit::Clear => draft.clear(),
 		}
-		self.status = format!("draft filter: {}", display_filter(&self.filter_draft));
+		self.status = format!("draft {label}: {}", display_filter(draft));
 	}
 
 	fn apply_filter(&mut self) {
@@ -469,6 +507,7 @@ impl App {
 		self.regime = match &self.active_filter {
 			ActiveFilter::None => VisualizationRegime::Explorer,
 			ActiveFilter::Text { .. } | ActiveFilter::Invalid { .. } => VisualizationRegime::Search,
+			ActiveFilter::Search { .. } => VisualizationRegime::Search,
 			ActiveFilter::Usages(_) => VisualizationRegime::Usages,
 		};
 		self.panel_policy = PanelPolicy::Contextual;
@@ -485,10 +524,39 @@ impl App {
 		}
 	}
 
+	fn apply_search(&mut self) {
+		let raw = self.search_draft.trim().to_string();
+		self.mode = UiMode::Normal;
+		if raw.is_empty() {
+			self.clear_filter();
+			self.status = "search cleared".to_string();
+			return;
+		}
+		let hits = self.store.search_symbols(&raw, 500);
+		let hit_count = hits.len();
+		let first_hit = hits.first().map(|hit| hit.loc);
+		self.active_filter = ActiveFilter::Search {
+			raw: raw.clone(),
+			hits,
+		};
+		self.regime = VisualizationRegime::Search;
+		self.panel_policy = PanelPolicy::Contextual;
+		self.refresh_results(true);
+		if let Some(loc) = first_hit {
+			self.select_def(loc);
+		}
+		self.sync_contextual_view();
+		self.status = format!("search: {raw} ({}/{})", hit_count, self.store.stats().defs);
+	}
+
 	fn cancel_input(&mut self) {
+		let input = match self.mode {
+			UiMode::EditingSearch => "search",
+			UiMode::EditingFilter | UiMode::Normal => "filter",
+		};
 		self.mode = UiMode::Normal;
 		self.status = format!(
-			"filter edit canceled; active filter: {}",
+			"{input} edit canceled; active filter: {}",
 			self.filter_label()
 		);
 	}
@@ -499,6 +567,7 @@ impl App {
 		self.panel_policy = PanelPolicy::Contextual;
 		self.active_filter = ActiveFilter::None;
 		self.filter_draft.clear();
+		self.search_draft.clear();
 		self.refresh_results(true);
 		self.sync_contextual_view();
 		self.status = "filter cleared".to_string();
@@ -688,8 +757,10 @@ impl Screen for App {
 			Msg::CycleView => return Ok(vec![Effect::Navigate(self.view.next().route())]),
 			Msg::ShowView(view) => return Ok(vec![Effect::Navigate(view.route())]),
 			Msg::StartFilterEdit => self.start_filter_edit(),
-			Msg::FilterInput(edit) => self.edit_filter(edit),
+			Msg::StartSearchEdit => self.start_search_edit(),
+			Msg::FilterInput(edit) => self.edit_input(edit),
 			Msg::ApplyFilter => self.apply_filter(),
+			Msg::ApplySearch => self.apply_search(),
 			Msg::CancelInput => self.cancel_input(),
 			Msg::ClearFilter => self.clear_filter(),
 			Msg::FocusUsages => {
@@ -722,7 +793,7 @@ impl Screen for App {
 			}
 			Msg::Help => {
 				self.status =
-					"keys: Enter/right open, Esc/left close, / filter, u usages, x clear, Tab/1-4 panels, c check, q quit"
+					"keys: Enter/right open, Esc/left close, / filter, s search, u usages, x clear, Tab/1-4 panels, c check, q quit"
 						.to_string();
 			}
 			Msg::Key(_) | Msg::Noop => {}
@@ -808,10 +879,10 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let prefix = if app.mode == UiMode::EditingFilter {
-		"filter"
-	} else {
-		"status"
+	let prefix = match app.mode {
+		UiMode::EditingFilter => "filter",
+		UiMode::EditingSearch => "search",
+		UiMode::Normal => "status",
 	};
 	let line = Line::from(vec![
 		Span::styled(

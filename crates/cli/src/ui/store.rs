@@ -19,6 +19,13 @@ pub(super) struct UsageFocus {
 	pub(super) contexts: Vec<DefLocation>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct SearchHit {
+	pub(super) loc: DefLocation,
+	pub(super) score: u32,
+	pub(super) reason: String,
+}
+
 pub(super) trait IndexStore {
 	fn root(&self) -> &str;
 	fn stats(&self) -> &SessionStats;
@@ -30,6 +37,7 @@ pub(super) trait IndexStore {
 	fn root_defs(&self, file_idx: usize) -> Vec<DefLocation>;
 	fn child_defs(&self, parent: &DefLocation) -> Vec<DefLocation>;
 	fn children_by_parent(&self, parent: &Moniker) -> &[DefLocation];
+	fn search_symbols(&self, query: &str, limit: usize) -> Vec<SearchHit>;
 	fn outgoing_refs(&self, moniker: &Moniker) -> &[RefLocation];
 	fn incoming_refs(&self, moniker: &Moniker) -> &[RefLocation];
 	fn usage_focus(&self, loc: DefLocation) -> UsageFocus;
@@ -43,6 +51,16 @@ pub(super) trait IndexStore {
 
 pub(super) struct MemoryIndexStore {
 	index: SessionIndex,
+	search_docs: Vec<SearchDoc>,
+}
+
+struct SearchDoc {
+	loc: DefLocation,
+	name: String,
+	kind: String,
+	path: String,
+	moniker: String,
+	signature: String,
 }
 
 impl MemoryIndexStore {
@@ -51,7 +69,8 @@ impl MemoryIndexStore {
 	}
 
 	pub(super) fn new(index: SessionIndex) -> Self {
-		Self { index }
+		let search_docs = build_search_docs(&index);
+		Self { index, search_docs }
 	}
 }
 
@@ -140,6 +159,33 @@ impl IndexStore for MemoryIndexStore {
 			.children_by_parent
 			.get(parent)
 			.map_or(&[], Vec::as_slice)
+	}
+
+	fn search_symbols(&self, query: &str, limit: usize) -> Vec<SearchHit> {
+		let raw = query.trim().to_ascii_lowercase();
+		let terms = search_terms(&raw);
+		if raw.is_empty() || terms.is_empty() || limit == 0 {
+			return Vec::new();
+		}
+		let mut hits: Vec<_> = self
+			.search_docs
+			.iter()
+			.filter_map(|doc| {
+				let (score, reason) = score_doc(doc, &raw, &terms)?;
+				Some(SearchHit {
+					loc: doc.loc,
+					score,
+					reason,
+				})
+			})
+			.collect();
+		hits.sort_by(|a, b| {
+			b.score
+				.cmp(&a.score)
+				.then_with(|| self.def(&a.loc).moniker.cmp(&self.def(&b.loc).moniker))
+		});
+		hits.truncate(limit);
+		hits
 	}
 
 	fn outgoing_refs(&self, moniker: &Moniker) -> &[RefLocation] {
@@ -244,6 +290,73 @@ impl MemoryIndexStore {
 			})
 			.collect()
 	}
+}
+
+fn build_search_docs(index: &SessionIndex) -> Vec<SearchDoc> {
+	let mut docs = Vec::new();
+	for (file_idx, file) in index.files.iter().enumerate() {
+		for (def_idx, def) in file.graph.defs().enumerate() {
+			if !is_navigable_def(file.lang, def) {
+				continue;
+			}
+			let loc = DefLocation {
+				file: file_idx,
+				def: def_idx,
+			};
+			docs.push(SearchDoc {
+				loc,
+				name: last_name(&def.moniker).to_ascii_lowercase(),
+				kind: def_kind(def).to_ascii_lowercase(),
+				path: file.rel_path.display().to_string().to_ascii_lowercase(),
+				moniker: compact_moniker(&def.moniker).to_ascii_lowercase(),
+				signature: String::from_utf8_lossy(&def.signature).to_ascii_lowercase(),
+			});
+		}
+	}
+	docs
+}
+
+fn search_terms(query: &str) -> Vec<String> {
+	query
+		.split(|c: char| !c.is_alphanumeric())
+		.filter(|term| !term.is_empty())
+		.map(ToOwned::to_owned)
+		.collect()
+}
+
+fn score_doc(doc: &SearchDoc, phrase: &str, terms: &[String]) -> Option<(u32, String)> {
+	let fields = [
+		("name", doc.name.as_str(), 120, 50),
+		("kind", doc.kind.as_str(), 35, 20),
+		("path", doc.path.as_str(), 25, 12),
+		("moniker", doc.moniker.as_str(), 20, 10),
+		("signature", doc.signature.as_str(), 10, 5),
+	];
+	let mut score = 0;
+	let mut reason = None;
+	for (label, value, exact_score, _) in fields {
+		if value == phrase {
+			score += exact_score * 2;
+			reason.get_or_insert(label);
+		} else if value.contains(phrase) {
+			score += exact_score;
+			reason.get_or_insert(label);
+		}
+	}
+	for term in terms {
+		let mut matched = false;
+		for (label, value, _, term_score) in fields {
+			if value.contains(term) {
+				score += term_score;
+				matched = true;
+				reason.get_or_insert(label);
+			}
+		}
+		if !matched {
+			return None;
+		}
+	}
+	(score > 0).then(|| (score, reason.unwrap_or("match").to_string()))
 }
 
 pub(super) fn is_navigable_def(lang: Lang, def: &DefRecord) -> bool {

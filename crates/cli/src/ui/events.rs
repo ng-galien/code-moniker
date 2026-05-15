@@ -6,6 +6,7 @@ use super::View;
 pub(super) enum UiMode {
 	Normal,
 	EditingFilter,
+	EditingSearch,
 }
 
 #[derive(Clone, Debug)]
@@ -15,8 +16,10 @@ pub(super) enum Msg {
 	CycleView,
 	ShowView(View),
 	StartFilterEdit,
+	StartSearchEdit,
 	FilterInput(FilterEdit),
 	ApplyFilter,
+	ApplySearch,
 	CancelInput,
 	ClearFilter,
 	FocusUsages,
@@ -53,6 +56,18 @@ pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
 			}
 			_ => Msg::Noop,
 		},
+		UiMode::EditingSearch => match key.code {
+			KeyCode::Esc => Msg::CancelInput,
+			KeyCode::Enter => Msg::ApplySearch,
+			KeyCode::Backspace => Msg::FilterInput(FilterEdit::Backspace),
+			KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+				Msg::FilterInput(FilterEdit::Clear)
+			}
+			KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+				Msg::FilterInput(FilterEdit::Push(c))
+			}
+			_ => Msg::Noop,
+		},
 		UiMode::Normal => normal_key_to_msg(key),
 	}
 }
@@ -73,6 +88,7 @@ fn normal_key_to_msg(key: KeyEvent) -> Msg {
 		KeyCode::Char('4') => Msg::ShowView(View::Check),
 		KeyCode::Char('q') => Msg::Quit,
 		KeyCode::Char('/') => Msg::StartFilterEdit,
+		KeyCode::Char('s') => Msg::StartSearchEdit,
 		KeyCode::Char('x') => Msg::ClearFilter,
 		KeyCode::Char('u') => Msg::FocusUsages,
 		KeyCode::Char('c') => Msg::RunCheck,

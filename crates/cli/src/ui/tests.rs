@@ -293,6 +293,94 @@ fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 }
 
 #[test]
+fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/z/core.ts",
+		"class CustomerProfile {}\nclass OrderFlow {}\n",
+	);
+	write(
+		tmp.path(),
+		"src/a/customer/billing.ts",
+		"class BillingService {}\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	let total = app.visible_defs.len();
+	let hits = app.store.search_symbols("customer", 10);
+	let hit_names: Vec<_> = hits
+		.iter()
+		.map(|hit| last_name(&app.store.def(&hit.loc).moniker))
+		.collect();
+
+	assert_eq!(
+		hit_names.first().map(String::as_str),
+		Some("CustomerProfile")
+	);
+	assert!(
+		hit_names.iter().any(|name| name == "BillingService"),
+		"{hit_names:?}"
+	);
+
+	app.handle_key(key(KeyCode::Char('s'))).unwrap();
+	for c in "customer".chars() {
+		app.handle_key(key(KeyCode::Char(c))).unwrap();
+	}
+
+	assert_eq!(app.mode, UiMode::EditingSearch);
+	assert_eq!(app.search_draft, "customer");
+	assert_eq!(app.visible_defs.len(), total);
+
+	app.handle_key(key(KeyCode::Enter)).unwrap();
+
+	assert_eq!(app.mode, UiMode::Normal);
+	assert_eq!(app.regime, VisualizationRegime::Search);
+	assert!(app.is_filtered());
+	assert!(matches!(app.active_filter, ActiveFilter::Search { .. }));
+	assert_eq!(
+		last_name(&app.store.def(&app.visible_defs[0]).moniker),
+		"CustomerProfile"
+	);
+	assert_eq!(
+		last_name(
+			&app.store
+				.def(&app.selected().expect("top ranked search hit is selected"))
+				.moniker
+		),
+		"CustomerProfile"
+	);
+	assert!(
+		!app.visible_defs
+			.iter()
+			.any(|loc| last_name(&app.store.def(loc).moniker) == "OrderFlow"),
+		"{:?}",
+		app.visible_defs
+	);
+	assert!(
+		app.nav_rows
+			.iter()
+			.any(|row| row.label.contains("CustomerProfile")),
+		"{:?}",
+		app.nav_rows
+	);
+	let header = line_text(&header_line(&app, 120));
+	assert!(header.contains("regime search"), "{header}");
+	assert!(header.contains("scope search:customer"), "{header}");
+	assert!(app.status.contains("search: customer"), "{}", app.status);
+}
+
+#[test]
 fn navigator_compacts_linear_branches_and_expands_at_branch_points() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(

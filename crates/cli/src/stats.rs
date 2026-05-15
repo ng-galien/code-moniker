@@ -11,9 +11,11 @@ use serde::Serialize;
 
 use crate::Exit;
 #[cfg(feature = "pretty")]
-use crate::args::{Charset, ColorChoice};
+use crate::args::Charset;
 use crate::args::{StatsArgs, StatsFormat};
 use crate::cache;
+#[cfg(feature = "pretty")]
+use crate::color::resolve_color;
 use crate::sources::{self, SourceFile, SourceSet};
 
 pub fn run<W1: Write, W2: Write>(args: &StatsArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
@@ -433,30 +435,6 @@ impl StatsPalette {
 			dim: Style::new()
 				.fg_color(Some(AnsiColor::BrightBlack.into()))
 				.dimmed(),
-		}
-	}
-}
-
-#[cfg(feature = "pretty")]
-fn resolve_color(arg: ColorChoice) -> bool {
-	use std::io::IsTerminal;
-	if std::env::var_os("NO_COLOR").is_some() {
-		return false;
-	}
-	if std::env::var_os("CLICOLOR_FORCE").is_some_and(|v| v != "0") {
-		return true;
-	}
-	match arg {
-		ColorChoice::Always => true,
-		ColorChoice::Never => false,
-		ColorChoice::Auto => {
-			if std::env::var("TERM").is_ok_and(|t| t == "dumb") {
-				return false;
-			}
-			if std::env::var("CLICOLOR").is_ok_and(|v| v == "0") {
-				return false;
-			}
-			std::io::stdout().is_terminal()
 		}
 	}
 }

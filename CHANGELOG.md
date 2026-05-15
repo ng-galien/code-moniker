@@ -18,6 +18,9 @@ in `0.y.z`.
   metrics, declaration outlines, incoming/outgoing refs, regex name
   filtering, source snippets, and an on-demand `.code-moniker.toml`
   check summary.
+- **`code-moniker ui` search mode** — `s` opens a ranked symbol search
+  that feeds the contextual navigator, while `/` remains the structural
+  regex/kind filter.
 - **`code-moniker extract --format text`** — extract now defaults to a
   moniker-only text output (`txt` alias supported). `--format tsv`
   remains available for metadata columns. Compact monikers use a concise
@@ -59,6 +62,10 @@ in `0.y.z`.
 
 - **MSRV** — minimum supported Rust version is now 1.86, matching the
   `ratatui 0.30` requirement used by the new terminal UI.
+- **CLI color handling** — `extract --format text`, `extract --format
+  tree`, and `stats --format tree` now share one `--color` decision:
+  explicit `always` / `never` wins, while `auto` honors terminal
+  environment variables.
 - **Release versioning** — `main` now tracks the next planned Cargo
   release version (`0.3.0`) instead of retaining the already-tagged
   version. Crates inherit `version.workspace = true`, the internal

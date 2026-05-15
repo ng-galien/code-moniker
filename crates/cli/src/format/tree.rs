@@ -4,7 +4,8 @@ use std::io::Write;
 use anstyle::{AnsiColor, Style};
 use rustc_hash::FxHashMap;
 
-use crate::args::{Charset, ColorChoice, ExtractArgs};
+use crate::args::{Charset, ExtractArgs};
+use crate::color::resolve_color;
 use crate::lines::line_range;
 use crate::predicate::{MatchSet, RefMatch};
 use crate::render_uri;
@@ -389,6 +390,7 @@ struct Glyphs {
 	skip_mid: &'static str,
 	skip_last: &'static str,
 	arrow: &'static str,
+	header_rule: &'static str,
 }
 
 impl Glyphs {
@@ -399,6 +401,7 @@ impl Glyphs {
 			skip_mid: "│   ",
 			skip_last: "    ",
 			arrow: "→",
+			header_rule: "──",
 		}
 	}
 	fn ascii() -> Self {
@@ -408,6 +411,7 @@ impl Glyphs {
 			skip_mid: "|   ",
 			skip_last: "    ",
 			arrow: "->",
+			header_rule: "--",
 		}
 	}
 }
@@ -457,29 +461,6 @@ impl Palette {
 	}
 }
 
-fn resolve_color(arg: ColorChoice) -> bool {
-	use std::io::IsTerminal;
-	if std::env::var_os("NO_COLOR").is_some() {
-		return false;
-	}
-	if std::env::var_os("CLICOLOR_FORCE").is_some_and(|v| v != "0") {
-		return true;
-	}
-	match arg {
-		ColorChoice::Always => true,
-		ColorChoice::Never => false,
-		ColorChoice::Auto => {
-			if std::env::var("TERM").is_ok_and(|t| t == "dumb") {
-				return false;
-			}
-			if std::env::var("CLICOLOR").is_ok_and(|v| v == "0") {
-				return false;
-			}
-			std::io::stdout().is_terminal()
-		}
-	}
-}
-
 pub fn write_file_header<W: Write>(
 	w: &mut W,
 	path: &std::path::Path,
@@ -487,11 +468,14 @@ pub fn write_file_header<W: Write>(
 ) -> std::io::Result<()> {
 	let opts = TreeOpts::from_args(args);
 	let style = opts.palette.name;
+	let rule = opts.glyph.header_rule;
 	writeln!(
 		w,
-		"\n{}── {} ──{}",
+		"\n{}{} {} {}{}",
 		style.render(),
+		rule,
 		path.display(),
+		rule,
 		style.render_reset()
 	)
 }
@@ -661,7 +645,7 @@ fn render_path_node<W: Write>(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::args::OutputFormat;
+	use crate::args::{ColorChoice, OutputFormat};
 	use code_moniker_core::core::code_graph::CodeGraph;
 	use code_moniker_core::core::moniker::MonikerBuilder;
 
@@ -846,9 +830,21 @@ mod tests {
 	}
 
 	#[test]
-	fn no_color_env_disables_color_even_with_always() {
+	fn color_always_wins_over_no_color_for_tree() {
 		unsafe { std::env::set_var("NO_COLOR", "1") };
-		assert!(!resolve_color(ColorChoice::Always));
+		assert!(resolve_color(ColorChoice::Always));
 		unsafe { std::env::remove_var("NO_COLOR") };
+	}
+
+	#[test]
+	fn file_header_honors_ascii_charset() {
+		let mut args = base_args();
+		args.charset = Charset::Ascii;
+		let mut buf = Vec::new();
+		write_file_header(&mut buf, std::path::Path::new("src/a.ts"), &args).unwrap();
+		let s = String::from_utf8(buf).unwrap();
+
+		assert!(s.is_ascii(), "ascii header produced non-ASCII: {s:?}");
+		assert!(s.contains("-- src/a.ts --"), "{s}");
 	}
 }
