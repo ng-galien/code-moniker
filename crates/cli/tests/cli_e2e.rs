@@ -210,6 +210,53 @@ fn class_kind_filter_finds_class_foo() {
 }
 
 #[test]
+#[cfg(feature = "pretty")]
+fn name_regex_filter_keeps_tree_output_ergonomic() {
+	let source = r#"
+package demo;
+
+interface PaymentResolver {}
+interface PaymentService {}
+"#;
+	let dir = write_fixture("ResolverDemo.java", source);
+	let path = dir.path().join("ResolverDemo.java");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--kind",
+		"interface",
+		"--name",
+		"Resolver",
+		"--format",
+		"tree",
+		"--color",
+		"never",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err} stdout={out}");
+	assert!(out.contains("interface PaymentResolver"), "{out}");
+	assert!(!out.contains("PaymentService"), "{out}");
+}
+
+#[test]
+fn name_regex_accepts_comma_quantifiers() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--kind",
+		"class",
+		"--name",
+		"^Fo{2,3}$",
+		"--count",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert_eq!(out.trim(), "1");
+}
+
+#[test]
 fn json_format_produces_parsable_document() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let path = dir.path().join("a.ts");

@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
+use regex::Regex;
 use serde::Serialize;
 
 use crate::args::{ExtractArgs, OutputFormat, OutputMode};
@@ -29,7 +30,10 @@ pub fn run<W: Write>(
 		ts: tsconfig::load(root),
 		project: args.project.clone(),
 	};
-	let has_filter = !args.kind.is_empty() || !args.shape.is_empty() || !args.where_.is_empty();
+	let has_filter = !args.kind.is_empty()
+		|| !args.name.is_empty()
+		|| !args.shape.is_empty()
+		|| !args.where_.is_empty();
 	if has_filter {
 		run_filter(args, stdout, &files, root, scheme, &ctx)
 	} else {
@@ -74,6 +78,7 @@ fn run_filter<W: Write>(
 	ctx: &extract::Context,
 ) -> anyhow::Result<bool> {
 	let predicates = args.compiled_predicates(scheme)?;
+	let names = predicate::compile_name_filters(&args.name)?;
 	let mut langs: Vec<Lang> = files.iter().map(|f| f.lang).collect();
 	langs.sort_by_key(|l| l.tag());
 	langs.dedup();
@@ -92,6 +97,7 @@ fn run_filter<W: Write>(
 				root,
 				&predicates,
 				&args.kind,
+				&names,
 				&args.shape,
 				cache_dir,
 				ctx,
@@ -255,13 +261,14 @@ impl FilterRow {
 		root: &Path,
 		predicates: &[Predicate],
 		kinds: &[String],
+		names: &[Regex],
 		shapes: &[code_moniker_core::core::shape::Shape],
 		cache_dir: Option<&Path>,
 		ctx: &extract::Context,
 	) -> Option<Self> {
 		let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
 		let (graph, extracted_source) = cache::load_or_extract(path, &rel, lang, cache_dir, ctx)?;
-		let matches = predicate::filter(&graph, predicates, kinds, shapes);
+		let matches = predicate::filter(&graph, predicates, kinds, names, shapes);
 		if matches.defs.is_empty() && matches.refs.is_empty() {
 			return None;
 		}

@@ -12,6 +12,10 @@ changes are allowed in minor releases as long as the project is in
 
 ### Added
 
+- **`code-moniker extract --name <regex>`** — filters defs by their
+  last moniker segment name, and refs by target name, before rendering.
+  This keeps `--format tree` usable for queries such as Java interfaces
+  ending with `Resolver`.
 - **`code-moniker stats`** — reports extraction-only metrics for a file
   or directory: supported file counts by language, def/ref totals,
   shape and kind distributions, plus scan/extract/total wall-clock

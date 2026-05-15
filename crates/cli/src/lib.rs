@@ -320,6 +320,7 @@ fn extract_inner<W: Write>(args: &ExtractArgs, stdout: &mut W) -> anyhow::Result
 	}
 	let lang = path_to_lang(path)?;
 	let predicates = args.compiled_predicates(&scheme)?;
+	let names = predicate::compile_name_filters(&args.name)?;
 	let known = predicate::known_kinds(std::iter::once(&lang));
 	let unknown = predicate::unknown_kinds(&args.kind, &known);
 	if !unknown.is_empty() {
@@ -337,7 +338,7 @@ fn extract_inner<W: Write>(args: &ExtractArgs, stdout: &mut W) -> anyhow::Result
 		None => std::fs::read_to_string(path)
 			.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?,
 	};
-	let matches = predicate::filter(&graph, &predicates, &args.kind, &args.shape);
+	let matches = predicate::filter(&graph, &predicates, &args.kind, &names, &args.shape);
 	let any = !matches.defs.is_empty() || !matches.refs.is_empty();
 	match args.mode() {
 		OutputMode::Default => match args.format {

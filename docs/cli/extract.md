@@ -4,7 +4,7 @@ Extract a moniker graph from a file or a directory.
 
 ```
 code-moniker extract <PATH> [--where '<op> <uri>']... [--kind <name>]...
-                            [--shape <shape>]...
+                            [--name <regex>]... [--shape <shape>]...
                             [--format tsv|json|tree] [--count] [--quiet]
                             [--color auto|always|never] [--charset utf8|ascii]
                             [--with-text] [--scheme <SCHEME>] [--project <NAME>]
@@ -40,9 +40,10 @@ Unknown extension exits `2`.
 | `--where '<@ <uri>'`  | `<@` | element is descendant of `<uri>`                       |
 | `--where '?= <uri>'`  | `?=` | asymmetric `bind_match`                                |
 | `--kind <name>`       | —    | concrete kind (e.g. `class`, `fn`, `calls`)            |
+| `--name <regex>`      | —    | regex on the last moniker segment name                 |
 | `--shape <shape>`     | —    | kind family (`namespace`, `type`, `callable`, …)       |
 
-`--where` is repeatable, AND-combined. `--kind` and `--shape` are each repeatable or comma-separated (OR within), AND-combined with each other. A `def` matches when its moniker satisfies every predicate; a `ref` matches when its **target** does.
+`--where` is repeatable, AND-combined. `--kind` and `--shape` are repeatable or comma-separated (OR within); `--name` is repeatable but is not comma-separated because commas are valid inside regex quantifiers. These filters are AND-combined with each other. `--name` uses Rust regex syntax and matches the last moniker segment name; callable signatures are matched on their bare name. A `def` matches when its moniker satisfies every predicate; a `ref` matches when its **target** does.
 
 Discover valid kinds with `code-moniker langs <TAG>`; the shape vocabulary lives in `code-moniker shapes`. Unknown `--kind` exits `2` with the valid set; unknown `--shape` is rejected at parse time by clap.
 
@@ -144,6 +145,9 @@ code-moniker extract src/widget.ts --shape callable \
 
 # Cross-file bind_match for a typed method family
 code-moniker extract src/ --where '?= code+moniker://./lang:ts/dir:src/module:widget/class:UserService/method:findById(_)'
+
+# Java interfaces ending with Resolver, rendered as an outline
+code-moniker extract . --kind interface --name 'Resolver$' --format tree
 
 # TODOs across a tree
 code-moniker extract src --kind comment --with-text | grep -i todo

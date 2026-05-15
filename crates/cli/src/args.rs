@@ -215,6 +215,13 @@ pub struct ExtractArgs {
 
 	#[arg(
 		long,
+		value_name = "REGEX",
+		help = "regex matched against the last moniker segment name; repeatable; OR within --name, AND with --kind/--shape/--where"
+	)]
+	pub name: Vec<String>,
+
+	#[arg(
+		long,
 		value_name = "SHAPE",
 		value_delimiter = ',',
 		value_parser = shape_parser(),
@@ -359,6 +366,7 @@ impl ExtractArgs {
 			path: "a.ts".into(),
 			where_: Vec::new(),
 			kind: vec![],
+			name: vec![],
 			shape: vec![],
 			format: OutputFormat::Tsv,
 			color: ColorChoice::Never,
