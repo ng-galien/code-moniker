@@ -26,3 +26,4 @@ TODO.md
 # ESAC bridge token — never commit
 .esac/
 .codex/
+.claude/
