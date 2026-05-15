@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use crossterm::event::{self, Event, KeyEvent, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -17,6 +18,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
 use crate::args::UiArgs;
 use crate::inspect::{CheckSummary, DefLocation, RefLocation, SessionOptions};
+use crate::lines::line_range;
 use crate::{DEFAULT_SCHEME, Exit};
 
 mod component;
@@ -24,6 +26,7 @@ mod contracts;
 mod events;
 mod features;
 mod filter;
+mod kinds;
 mod navigator;
 mod shell;
 mod source;
@@ -37,6 +40,7 @@ use contracts::{Effect, RenderContext, Route, Screen, ScreenContext};
 use events::{FilterEdit, Msg, UiMode, key_to_msg};
 use features::explorer::{ExplorerFeature, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW, ROUTE_REFS};
 use filter::{NavFilter, parse_filter};
+use kinds::{definition_kind_group, reference_kind_group, sort_reference_kinds};
 use navigator::{
 	NavNode, NavNodeKind, NavRow, build_navigator, filtered_expanded_keys, flatten_nav,
 };
@@ -122,15 +126,6 @@ impl View {
 		}
 	}
 
-	fn label(self) -> &'static str {
-		match self {
-			Self::Overview => "overview",
-			Self::Tree => "outline",
-			Self::Refs => "refs",
-			Self::Check => "check",
-		}
-	}
-
 	fn route_path(self) -> &'static str {
 		match self {
 			Self::Overview => ROUTE_OVERVIEW,
@@ -153,6 +148,29 @@ impl View {
 	fn route(self) -> Route {
 		ExplorerFeature::route(self.route_path())
 	}
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum VisualizationRegime {
+	Explorer,
+	Search,
+	Usages,
+}
+
+impl VisualizationRegime {
+	fn label(self) -> &'static str {
+		match self {
+			Self::Explorer => "explorer",
+			Self::Search => "search",
+			Self::Usages => "usages",
+		}
+	}
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum PanelPolicy {
+	Contextual,
+	Manual,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -221,6 +239,8 @@ struct App {
 	rules: PathBuf,
 	profile: Option<String>,
 	view: View,
+	regime: VisualizationRegime,
+	panel_policy: PanelPolicy,
 	mode: UiMode,
 	active_filter: ActiveFilter,
 	filter_draft: String,
@@ -254,6 +274,8 @@ impl App {
 			rules,
 			profile,
 			view: View::Overview,
+			regime: VisualizationRegime::Explorer,
+			panel_policy: PanelPolicy::Contextual,
 			mode: UiMode::Normal,
 			active_filter: ActiveFilter::None,
 			filter_draft: String::new(),
@@ -265,7 +287,7 @@ impl App {
 			nav_rows: Vec::new(),
 			check: CheckState::Pending,
 			status: format!(
-				"Enter opens nodes, / edits filter, u focuses usages, c checks, Esc quits ({nav_count} nav items, {command_count} commands)"
+				"Enter opens nodes, Esc/left closes, / edits filter, u focuses usages, c checks, q quits ({nav_count} nav items, {command_count} commands)"
 			),
 		};
 		app.refresh_results(false);
@@ -344,22 +366,61 @@ impl App {
 		self.active_filter.filters_navigator()
 	}
 
+	fn contextual_view(&self) -> View {
+		match self.regime {
+			VisualizationRegime::Usages => View::Refs,
+			VisualizationRegime::Search if self.active_filter.error().is_some() => View::Tree,
+			VisualizationRegime::Explorer | VisualizationRegime::Search => {
+				if self.selected().is_some() {
+					View::Tree
+				} else {
+					View::Overview
+				}
+			}
+		}
+	}
+
+	fn sync_contextual_view(&mut self) {
+		if self.panel_policy == PanelPolicy::Contextual {
+			self.set_view(self.contextual_view(), PanelPolicy::Contextual);
+		}
+	}
+
+	fn set_view(&mut self, view: View, policy: PanelPolicy) {
+		self.view = view;
+		self.panel_policy = policy;
+		self.route = view.route();
+	}
+
+	fn scope_label(&self) -> String {
+		match &self.active_filter {
+			ActiveFilter::None => "all".to_string(),
+			ActiveFilter::Text { query, .. } => query.describe(),
+			ActiveFilter::Invalid { raw, .. } => format!("invalid {}", display_filter(raw)),
+			ActiveFilter::Usages(focus) => focus.label.clone(),
+		}
+	}
+
 	fn focus_usages(&mut self, loc: DefLocation) {
 		let focus = self.store.usage_focus(loc);
 		let label = focus.label.clone();
 		self.mode = UiMode::Normal;
 		self.filter_draft.clear();
+		self.regime = VisualizationRegime::Usages;
+		self.panel_policy = PanelPolicy::Contextual;
 		self.active_filter = ActiveFilter::Usages(focus);
 		self.refresh_results(true);
-		let focus = self
-			.active_filter
-			.usage_focus()
-			.expect("usage focus was set");
-		self.view = View::Refs;
+		let (refs_len, contexts_len) = {
+			let focus = self
+				.active_filter
+				.usage_focus()
+				.expect("usage focus was set");
+			(focus.refs.len(), focus.contexts.len())
+		};
+		self.sync_contextual_view();
 		self.status = format!(
 			"usages of {label}: {} reference(s), {} navigable context(s)",
-			focus.refs.len(),
-			focus.contexts.len()
+			refs_len, contexts_len
 		);
 	}
 
@@ -401,6 +462,13 @@ impl App {
 			},
 		};
 		self.refresh_results(true);
+		self.regime = match &self.active_filter {
+			ActiveFilter::None => VisualizationRegime::Explorer,
+			ActiveFilter::Text { .. } | ActiveFilter::Invalid { .. } => VisualizationRegime::Search,
+			ActiveFilter::Usages(_) => VisualizationRegime::Usages,
+		};
+		self.panel_policy = PanelPolicy::Contextual;
+		self.sync_contextual_view();
 		if let Some((raw, _)) = self.active_filter.error() {
 			self.status = format!("invalid filter regex: /{raw}");
 		} else {
@@ -423,6 +491,8 @@ impl App {
 
 	fn clear_filter(&mut self) {
 		self.mode = UiMode::Normal;
+		self.regime = VisualizationRegime::Explorer;
+		self.panel_policy = PanelPolicy::Contextual;
 		self.active_filter = ActiveFilter::None;
 		self.filter_draft.clear();
 		self.refresh_results(true);
@@ -450,11 +520,13 @@ impl App {
 		let len = self.nav_rows.len();
 		if self.selection + 1 < len {
 			self.selection += 1;
+			self.sync_contextual_view();
 		}
 	}
 
 	fn move_up(&mut self) {
 		self.selection = self.selection.saturating_sub(1);
+		self.sync_contextual_view();
 	}
 
 	fn toggle_selected_nav(&mut self) {
@@ -513,7 +585,7 @@ impl App {
 	}
 
 	fn run_check(&mut self) {
-		self.view = View::Check;
+		self.set_view(View::Check, PanelPolicy::Manual);
 		match self
 			.store
 			.check_summary(&self.rules, self.profile.as_deref(), &self.scheme)
@@ -580,7 +652,8 @@ impl App {
 			return;
 		}
 		if let Some(view) = View::from_route_path(&route.path) {
-			self.view = view;
+			self.set_view(view, PanelPolicy::Manual);
+			return;
 		}
 		self.route = route;
 	}
@@ -615,23 +688,29 @@ impl Screen for App {
 				let had_selection = self.selected().is_some();
 				self.focus_usages_of_selected();
 				if had_selection {
-					return Ok(vec![Effect::Navigate(View::Refs.route())]);
+					return Ok(Vec::new());
 				}
 			}
 			Msg::RunCheck => {
 				self.run_check();
-				return Ok(vec![Effect::Navigate(View::Check.route())]);
+				return Ok(Vec::new());
 			}
 			Msg::MoveDown => self.move_down(),
 			Msg::MoveUp => self.move_up(),
-			Msg::Home => self.selection = 0,
-			Msg::End => self.selection = self.nav_rows.len().saturating_sub(1),
+			Msg::Home => {
+				self.selection = 0;
+				self.sync_contextual_view();
+			}
+			Msg::End => {
+				self.selection = self.nav_rows.len().saturating_sub(1);
+				self.sync_contextual_view();
+			}
 			Msg::ToggleNode => self.toggle_selected_nav(),
 			Msg::OpenNode => self.open_selected_nav(),
 			Msg::CloseNode => self.close_selected_nav(),
 			Msg::Help => {
 				self.status =
-					"keys: Enter/right/left tree, / edit filter, u usages, x clear, Tab/1-4 views, c check, Esc quit"
+					"keys: Enter/right open, Esc/left close, / filter, u usages, x clear, Tab/1-4 panels, c check, q quit"
 						.to_string();
 			}
 			Msg::Key(_) | Msg::Noop => {}
@@ -663,8 +742,25 @@ fn render_shell(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let stats = app.store.stats();
-	let line = Line::from(vec![
+	frame.render_widget(
+		Paragraph::new(header_line(app, usize::from(area.width))),
+		area,
+	);
+}
+
+fn header_line(app: &App, width: usize) -> Line<'static> {
+	let regime = app.regime.label();
+	let prefix_width = visible_len("code-moniker ")
+		+ visible_len(ComponentId::Header.as_str())
+		+ 2 + visible_len(" regime ")
+		+ visible_len(regime)
+		+ visible_len("  scope ");
+	let scope = fit_text(
+		&app.scope_label(),
+		width.saturating_sub(prefix_width),
+		FitMode::Middle,
+	);
+	Line::from(vec![
 		Span::styled(
 			"code-moniker ",
 			Style::default()
@@ -673,16 +769,16 @@ fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		),
 		marker(ComponentId::Header),
 		Span::raw(" "),
-		Span::raw(format!(
-			"{}  files {}  defs {}  refs {}  filter {}",
-			app.view.label(),
-			stats.files,
-			stats.defs,
-			stats.refs,
-			app.filter_label()
-		)),
-	]);
-	frame.render_widget(Paragraph::new(line), area);
+		Span::raw("regime "),
+		Span::styled(
+			app.regime.label(),
+			Style::default()
+				.fg(THEME.section)
+				.add_modifier(Modifier::BOLD),
+		),
+		Span::raw("  scope "),
+		Span::styled(scope, Style::default().fg(THEME.nav.symbol)),
+	])
 }
 
 fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
@@ -809,9 +905,11 @@ fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
 		}
 		NavNodeKind::Def(loc) => {
 			let def = app.store.def(&loc);
+			let kind = def_kind(def);
+			let group = definition_kind_group(app.store.file(loc.file).lang, &kind);
 			spans.push(Span::styled(
-				def_kind(def),
-				Style::default().fg(THEME.nav.kind),
+				kind.clone(),
+				Style::default().fg(THEME.kind.color_for_group(group)),
 			));
 			spans.push(Span::raw(" "));
 			spans.push(Span::styled(
@@ -977,8 +1075,9 @@ fn render_nav_selection(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	let width = panel_content_width(area);
 	if let Some(focus) = app.active_filter.usage_focus() {
-		render_usage_focus(frame, area, app, focus);
+		render_usage_focus(frame, area, app, focus, width);
 		return;
 	}
 	let Some(loc) = app.selected() else {
@@ -992,51 +1091,104 @@ fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		return;
 	};
 	let def = app.store.def(&loc);
+	render_panel(
+		frame,
+		area,
+		"refs",
+		ComponentId::PanelRefs,
+		refs_panel_lines(app, loc, def, width),
+	);
+}
+
+fn render_usage_focus(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	app: &App,
+	focus: &UsageFocus,
+	width: usize,
+) {
+	render_panel(
+		frame,
+		area,
+		"usages",
+		ComponentId::PanelUsages,
+		usage_focus_lines(app, focus, width),
+	);
+}
+
+fn refs_panel_lines(
+	app: &App,
+	loc: DefLocation,
+	def: &DefRecord,
+	width: usize,
+) -> Vec<Line<'static>> {
+	let file = app.store.file(loc.file);
 	let outgoing = app.store.outgoing_refs(&def.moniker);
 	let incoming = app.store.incoming_refs(&def.moniker);
 	let mut lines = vec![
-		Line::styled("outgoing", Style::default().fg(THEME.section)),
-		Line::raw(format!("{} reference(s)", outgoing.len())),
+		Line::styled("selected", Style::default().fg(THEME.section)),
+		detail_line("kind", &def_kind(def), width, FitMode::Tail),
+		detail_line("name", &last_name(&def.moniker), width, FitMode::Middle),
+		detail_line(
+			"file",
+			&file.rel_path.display().to_string(),
+			width,
+			FitMode::Tail,
+		),
+		detail_line(
+			"moniker",
+			&compact_moniker(&def.moniker),
+			width,
+			FitMode::Middle,
+		),
+		Line::raw(""),
+		Line::styled("incoming impact", Style::default().fg(THEME.section)),
+		Line::raw(reference_summary(app, incoming)),
 	];
-	for r in outgoing.iter().take(30) {
-		lines.push(ref_line(app, r, true));
-	}
-	if outgoing.len() > 30 {
-		lines.push(Line::raw(format!("... {} more", outgoing.len() - 30)));
-	}
+	push_ref_rows(&mut lines, app, incoming, RefDirection::Incoming, 30, width);
 	lines.push(Line::raw(""));
-	lines.push(Line::styled("incoming", Style::default().fg(THEME.section)));
-	lines.push(Line::raw(format!("{} reference(s)", incoming.len())));
-	for r in incoming.iter().take(30) {
-		lines.push(ref_line(app, r, false));
-	}
-	if incoming.len() > 30 {
-		lines.push(Line::raw(format!("... {} more", incoming.len() - 30)));
-	}
-	render_panel(frame, area, "refs", ComponentId::PanelRefs, lines);
+	lines.push(Line::styled(
+		"outgoing dependencies",
+		Style::default().fg(THEME.section),
+	));
+	lines.push(Line::raw(reference_summary(app, outgoing)));
+	push_ref_rows(&mut lines, app, outgoing, RefDirection::Outgoing, 30, width);
+	lines
 }
 
-fn render_usage_focus(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App, focus: &UsageFocus) {
+fn usage_focus_lines(app: &App, focus: &UsageFocus, width: usize) -> Vec<Line<'static>> {
 	let mut lines = vec![
 		Line::styled("usage focus", Style::default().fg(THEME.section)),
-		Line::raw(format!("symbol     {}", focus.label)),
-		Line::raw(format!("moniker    {}", compact_moniker(&focus.target))),
-		Line::raw(format!("refs       {}", focus.refs.len())),
-		Line::raw(format!("contexts   {}", focus.contexts.len())),
+		detail_line("symbol", &focus.label, width, FitMode::Middle),
+		detail_line(
+			"moniker",
+			&compact_moniker(&focus.target),
+			width,
+			FitMode::Middle,
+		),
+		detail_line("refs", &focus.refs.len().to_string(), width, FitMode::Tail),
+		detail_line(
+			"contexts",
+			&focus.contexts.len().to_string(),
+			width,
+			FitMode::Tail,
+		),
 		Line::raw(""),
 		Line::styled("references", Style::default().fg(THEME.section)),
 	];
 	if focus.refs.is_empty() {
 		lines.push(Line::raw("none"));
 	} else {
-		for loc in focus.refs.iter().take(40) {
-			lines.push(usage_ref_line(app, loc));
-		}
-		if focus.refs.len() > 40 {
-			lines.push(Line::raw(format!("... {} more", focus.refs.len() - 40)));
-		}
+		push_ref_rows(
+			&mut lines,
+			app,
+			&focus.refs,
+			RefDirection::Incoming,
+			40,
+			width,
+		);
 	}
-	render_panel(frame, area, "usages", ComponentId::PanelUsages, lines);
+	lines
 }
 
 fn render_check(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
@@ -1100,31 +1252,308 @@ fn render_panel_unwrapped(
 	frame.render_widget(paragraph, area);
 }
 
-fn ref_line(app: &App, loc: &RefLocation, outgoing: bool) -> Line<'static> {
+fn panel_content_width(area: Rect) -> usize {
+	usize::from(area.width.saturating_sub(2)).max(20)
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum RefDirection {
+	Incoming,
+	Outgoing,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum FitMode {
+	Middle,
+	Tail,
+}
+
+fn reference_summary(app: &App, refs: &[RefLocation]) -> String {
+	let files = refs
+		.iter()
+		.map(|loc| app.store.file(loc.file).rel_path.as_path())
+		.collect::<BTreeSet<_>>()
+		.len();
+	match (refs.len(), files) {
+		(0, _) => "0 reference(s)".to_string(),
+		(count, 1) => format!("{count} reference(s) from 1 file"),
+		(count, files) => format!("{count} reference(s) from {files} files"),
+	}
+}
+
+fn push_ref_rows(
+	lines: &mut Vec<Line<'static>>,
+	app: &App,
+	refs: &[RefLocation],
+	direction: RefDirection,
+	limit: usize,
+	width: usize,
+) {
+	if refs.is_empty() {
+		lines.push(Line::raw("none"));
+		return;
+	}
+	let groups = ref_groups(app, refs, direction);
+	for group in groups.iter().take(limit) {
+		lines.extend(ref_group_lines(group, width));
+	}
+	if groups.len() > limit {
+		lines.push(Line::raw(format!("... {} more", groups.len() - limit)));
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RefGroup {
+	kinds: Vec<String>,
+	actor: String,
+	location: String,
+	endpoint_label: &'static str,
+	endpoint: String,
+	confidence: String,
+	receiver: Option<String>,
+	alias: Option<String>,
+}
+
+impl RefGroup {
+	fn same_context(&self, other: &Self) -> bool {
+		self.actor == other.actor
+			&& self.location == other.location
+			&& self.endpoint_label == other.endpoint_label
+			&& self.endpoint == other.endpoint
+			&& self.confidence == other.confidence
+			&& self.receiver == other.receiver
+			&& self.alias == other.alias
+	}
+}
+
+fn ref_groups(app: &App, refs: &[RefLocation], direction: RefDirection) -> Vec<RefGroup> {
+	let mut groups: Vec<RefGroup> = Vec::new();
+	for loc in refs {
+		let group = ref_group(app, loc, direction);
+		if let Some(existing) = groups
+			.iter_mut()
+			.find(|existing| existing.same_context(&group))
+		{
+			for kind in group.kinds {
+				if !existing.kinds.contains(&kind) {
+					existing.kinds.push(kind);
+				}
+			}
+		} else {
+			groups.push(group);
+		}
+	}
+	for group in &mut groups {
+		sort_reference_kinds(&mut group.kinds);
+	}
+	groups
+}
+
+fn ref_group(app: &App, loc: &RefLocation, direction: RefDirection) -> RefGroup {
 	let file = app.store.file(loc.file);
 	let reference = app.store.reference(loc);
 	let source = file.graph.def_at(reference.source);
 	let kind = ref_kind(reference);
-	let target = compact_moniker(&reference.target);
-	let source_name = compact_moniker(&source.moniker);
-	let rendered = if outgoing {
-		format!("{kind:<14} -> {target}")
-	} else {
-		format!("{kind:<14} <- {source_name}")
+	let actor = match direction {
+		RefDirection::Incoming => last_name(&source.moniker),
+		RefDirection::Outgoing => last_name(&reference.target),
 	};
-	Line::raw(rendered)
+	let endpoint_label = match direction {
+		RefDirection::Incoming => "source",
+		RefDirection::Outgoing => "target",
+	};
+	let endpoint = match direction {
+		RefDirection::Incoming => compact_moniker(&source.moniker),
+		RefDirection::Outgoing => compact_moniker(&reference.target),
+	};
+	RefGroup {
+		kinds: vec![kind],
+		actor,
+		location: ref_location(app, loc),
+		endpoint_label,
+		endpoint,
+		confidence: ref_confidence(reference),
+		receiver: ref_attr(&reference.receiver_hint).map(str::to_string),
+		alias: ref_attr(&reference.alias).map(str::to_string),
+	}
 }
 
-fn usage_ref_line(app: &App, loc: &RefLocation) -> Line<'static> {
+fn ref_group_lines(group: &RefGroup, width: usize) -> Vec<Line<'static>> {
+	let mut lines = vec![
+		ref_actor_line(&group.actor, &group.confidence, width),
+		ref_kinds_line(&group.kinds, width),
+		ref_location_line(&group.location, width),
+		ref_endpoint_line(group.endpoint_label, &group.endpoint, width),
+	];
+	if let Some(attrs) = ref_attrs_line(group, width) {
+		lines.push(attrs);
+	}
+	lines
+}
+
+fn ref_actor_line(actor: &str, confidence: &str, width: usize) -> Line<'static> {
+	let prefix = "  ";
+	let suffix = if confidence == "-" {
+		String::new()
+	} else {
+		format!("  {confidence}")
+	};
+	let actor_width = width.saturating_sub(visible_len(&prefix) + visible_len(&suffix));
+	Line::from(vec![
+		Span::raw("  "),
+		Span::styled(
+			fit_text(actor, actor_width, FitMode::Middle),
+			Style::default().fg(THEME.nav.symbol),
+		),
+		Span::styled(suffix, Style::default().fg(THEME.nav.meta)),
+	])
+}
+
+fn ref_kinds_line(kinds: &[String], width: usize) -> Line<'static> {
+	let prefix = "    kinds  ";
+	let value = kinds.join(", ");
+	let value_width = width.saturating_sub(visible_len(prefix));
+	let color = kinds
+		.first()
+		.map(|kind| THEME.kind.color_for_group(reference_kind_group(kind)))
+		.unwrap_or(THEME.kind.fallback);
+	Line::from(vec![
+		Span::raw("    "),
+		Span::styled("kinds  ", Style::default().fg(THEME.nav.meta)),
+		Span::styled(
+			fit_text(&value, value_width, FitMode::Middle),
+			Style::default().fg(color),
+		),
+	])
+}
+
+fn ref_location_line(location: &str, width: usize) -> Line<'static> {
+	let prefix = "    at ";
+	let value_width = width.saturating_sub(visible_len(prefix));
+	Line::from(vec![
+		Span::raw("    "),
+		Span::styled("at ", Style::default().fg(THEME.nav.meta)),
+		Span::styled(
+			fit_text(location, value_width, FitMode::Tail),
+			Style::default().fg(THEME.nav.meta),
+		),
+	])
+}
+
+fn ref_endpoint_line(endpoint_label: &'static str, endpoint: &str, width: usize) -> Line<'static> {
+	let prefix = format!("    {endpoint_label:<6} ");
+	let value_width = width.saturating_sub(visible_len(&prefix));
+	Line::from(vec![
+		Span::raw("    "),
+		Span::styled(
+			format!("{endpoint_label:<6} "),
+			Style::default().fg(THEME.nav.meta),
+		),
+		Span::raw(fit_text(endpoint, value_width, FitMode::Middle)),
+	])
+}
+
+fn ref_attrs_line(group: &RefGroup, width: usize) -> Option<Line<'static>> {
+	let mut attrs = Vec::new();
+	if let Some(receiver) = &group.receiver {
+		attrs.push(format!("receiver {receiver}"));
+	}
+	if let Some(alias) = &group.alias {
+		attrs.push(format!("alias {alias}"));
+	}
+	if attrs.is_empty() {
+		return None;
+	}
+	let prefix = "    via ";
+	let value = attrs.join("  ");
+	let value_width = width.saturating_sub(visible_len(prefix));
+	Some(Line::from(vec![
+		Span::raw("    "),
+		Span::styled("via ", Style::default().fg(THEME.nav.meta)),
+		Span::raw(fit_text(&value, value_width, FitMode::Middle)),
+	]))
+}
+
+fn ref_location(app: &App, loc: &RefLocation) -> String {
 	let file = app.store.file(loc.file);
 	let reference = app.store.reference(loc);
-	let source = file.graph.def_at(reference.source);
-	Line::raw(format!(
-		"{:<14} {}  {}",
-		ref_kind(reference),
-		file.rel_path.display(),
-		compact_moniker(&source.moniker)
-	))
+	let lines = reference
+		.position
+		.map(|(start, end)| {
+			let (start_line, end_line) = line_range(&file.source, start, end);
+			if start_line == end_line {
+				format!("L{start_line}")
+			} else {
+				format!("L{start_line}-L{end_line}")
+			}
+		})
+		.unwrap_or_else(|| "L?".to_string());
+	format!("{}:{lines}", file.rel_path.display())
+}
+
+fn ref_confidence(reference: &RefRecord) -> String {
+	ref_attr(&reference.confidence)
+		.map(str::to_string)
+		.unwrap_or_else(|| "-".to_string())
+}
+
+fn ref_attr(bytes: &[u8]) -> Option<&str> {
+	if bytes.is_empty() {
+		return None;
+	}
+	std::str::from_utf8(bytes).ok().filter(|s| !s.is_empty())
+}
+
+fn detail_line(label: &str, value: &str, width: usize, mode: FitMode) -> Line<'static> {
+	let prefix = format!("{label:<10}");
+	let value_width = width.saturating_sub(visible_len(&prefix));
+	Line::raw(format!("{prefix}{}", fit_text(value, value_width, mode)))
+}
+
+fn fit_text(value: &str, width: usize, mode: FitMode) -> String {
+	if visible_len(value) <= width {
+		return value.to_string();
+	}
+	match mode {
+		FitMode::Middle => fit_middle(value, width),
+		FitMode::Tail => fit_tail(value, width),
+	}
+}
+
+fn fit_middle(value: &str, width: usize) -> String {
+	if width == 0 {
+		return String::new();
+	}
+	if width <= 3 {
+		return ".".repeat(width);
+	}
+	let available = width - 3;
+	let left = available / 2;
+	let right = available - left;
+	format!("{}...{}", take_start(value, left), take_end(value, right))
+}
+
+fn fit_tail(value: &str, width: usize) -> String {
+	if width == 0 {
+		return String::new();
+	}
+	if width <= 3 {
+		return ".".repeat(width);
+	}
+	format!("...{}", take_end(value, width - 3))
+}
+
+fn take_start(value: &str, count: usize) -> String {
+	value.chars().take(count).collect()
+}
+
+fn take_end(value: &str, count: usize) -> String {
+	let chars: Vec<_> = value.chars().collect();
+	chars[chars.len().saturating_sub(count)..].iter().collect()
+}
+
+fn visible_len(value: &str) -> usize {
+	value.chars().count()
 }
 
 fn display_filter(filter: &str) -> &str {

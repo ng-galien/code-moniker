@@ -161,7 +161,7 @@ fn collect_symbol_node(
 	out: &mut Vec<NavNode>,
 ) {
 	let def = store.def(&loc);
-	if is_navigable_def(def) {
+	if is_navigable_def(store.file(file_idx).lang, def) {
 		let mut node = NavNode::new(
 			format!("def:{}:{}", loc.file, loc.def),
 			last_name(&def.moniker),

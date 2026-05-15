@@ -17,7 +17,27 @@
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
+use crate::core::shape::Shape;
 use crate::declare::{DeclareError, SerializeError, declare_from_json_value, graph_to_spec};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct KindSpec {
+	pub id: &'static str,
+	pub shape: Shape,
+	pub order: u16,
+	pub label: &'static str,
+}
+
+impl KindSpec {
+	pub const fn new(id: &'static str, shape: Shape, order: u16, label: &'static str) -> Self {
+		Self {
+			id,
+			shape,
+			order,
+			label,
+		}
+	}
+}
 
 pub trait LangExtractor {
 	type Presets: Default;
@@ -25,6 +45,8 @@ pub trait LangExtractor {
 	const LANG_TAG: &'static str;
 
 	const ALLOWED_KINDS: &'static [&'static str];
+
+	const KIND_SPECS: &'static [KindSpec];
 
 	const ALLOWED_VISIBILITIES: &'static [&'static str];
 

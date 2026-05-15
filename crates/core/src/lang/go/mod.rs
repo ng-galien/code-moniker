@@ -5,7 +5,9 @@ use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
+use crate::core::shape::Shape;
 
+use crate::lang::KindSpec;
 use crate::lang::canonical_walker::CanonicalWalker;
 
 pub mod build;
@@ -73,18 +75,31 @@ pub fn extract(
 
 pub struct Lang;
 
+const DEF_KINDS: &[&str] = &[
+	"type",
+	"struct",
+	"interface",
+	"func",
+	"method",
+	"var",
+	"const",
+];
+
+const DEF_KIND_SPECS: &[KindSpec] = &[
+	KindSpec::new("struct", Shape::Type, 20, "struct"),
+	KindSpec::new("interface", Shape::Type, 21, "interface"),
+	KindSpec::new("type", Shape::Type, 22, "type"),
+	KindSpec::new("func", Shape::Callable, 40, "func"),
+	KindSpec::new("method", Shape::Callable, 41, "method"),
+	KindSpec::new("const", Shape::Value, 60, "const"),
+	KindSpec::new("var", Shape::Value, 61, "var"),
+];
+
 impl crate::lang::LangExtractor for Lang {
 	type Presets = Presets;
 	const LANG_TAG: &'static str = "go";
-	const ALLOWED_KINDS: &'static [&'static str] = &[
-		"type",
-		"struct",
-		"interface",
-		"func",
-		"method",
-		"var",
-		"const",
-	];
+	const ALLOWED_KINDS: &'static [&'static str] = DEF_KINDS;
+	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
 	const ALLOWED_VISIBILITIES: &'static [&'static str] = &["public", "module"];
 
 	fn extract(

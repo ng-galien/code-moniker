@@ -5,7 +5,9 @@ use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
+use crate::core::shape::Shape;
 
+use crate::lang::KindSpec;
 use crate::lang::canonical_walker::CanonicalWalker;
 
 pub mod build;
@@ -77,20 +79,35 @@ pub fn extract(
 
 pub struct Lang;
 
+const DEF_KINDS: &[&str] = &[
+	"class",
+	"interface",
+	"enum",
+	"record",
+	"annotation_type",
+	"method",
+	"constructor",
+	"field",
+	"enum_constant",
+];
+
+const DEF_KIND_SPECS: &[KindSpec] = &[
+	KindSpec::new("class", Shape::Type, 20, "class"),
+	KindSpec::new("interface", Shape::Type, 21, "interface"),
+	KindSpec::new("enum", Shape::Type, 22, "enum"),
+	KindSpec::new("record", Shape::Type, 23, "record"),
+	KindSpec::new("annotation_type", Shape::Type, 24, "annotation_type"),
+	KindSpec::new("constructor", Shape::Callable, 40, "constructor"),
+	KindSpec::new("method", Shape::Callable, 41, "method"),
+	KindSpec::new("field", Shape::Value, 60, "field"),
+	KindSpec::new("enum_constant", Shape::Value, 61, "enum_constant"),
+];
+
 impl crate::lang::LangExtractor for Lang {
 	type Presets = Presets;
 	const LANG_TAG: &'static str = "java";
-	const ALLOWED_KINDS: &'static [&'static str] = &[
-		"class",
-		"interface",
-		"enum",
-		"record",
-		"annotation_type",
-		"method",
-		"constructor",
-		"field",
-		"enum_constant",
-	];
+	const ALLOWED_KINDS: &'static [&'static str] = DEF_KINDS;
+	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
 	const ALLOWED_VISIBILITIES: &'static [&'static str] =
 		&["public", "protected", "package", "private"];
 

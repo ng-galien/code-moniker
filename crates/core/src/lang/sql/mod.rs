@@ -7,7 +7,9 @@ use canonicalize::compute_module_moniker;
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
+use crate::core::shape::Shape;
 
+use crate::lang::KindSpec;
 use crate::lang::canonical_walker::CanonicalWalker;
 
 #[derive(Clone, Debug, Default)]
@@ -41,11 +43,21 @@ pub fn extract(
 
 pub struct Lang;
 
+const DEF_KINDS: &[&str] = &["function", "procedure", "view", "table", "schema"];
+
+const DEF_KIND_SPECS: &[KindSpec] = &[
+	KindSpec::new("schema", Shape::Namespace, 10, "schema"),
+	KindSpec::new("table", Shape::Type, 20, "table"),
+	KindSpec::new("view", Shape::Type, 21, "view"),
+	KindSpec::new("function", Shape::Callable, 40, "function"),
+	KindSpec::new("procedure", Shape::Callable, 41, "procedure"),
+];
+
 impl crate::lang::LangExtractor for Lang {
 	type Presets = Presets;
 	const LANG_TAG: &'static str = "sql";
-	const ALLOWED_KINDS: &'static [&'static str] =
-		&["function", "procedure", "view", "table", "schema"];
+	const ALLOWED_KINDS: &'static [&'static str] = DEF_KINDS;
+	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
 	const ALLOWED_VISIBILITIES: &'static [&'static str] = &[];
 
 	fn extract(

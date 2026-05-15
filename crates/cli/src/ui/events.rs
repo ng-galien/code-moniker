@@ -58,16 +58,20 @@ pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
 }
 
 fn normal_key_to_msg(key: KeyEvent) -> Msg {
+	if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+		return Msg::Quit;
+	}
 	if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::ALT) {
 		return Msg::Noop;
 	}
 	match key.code {
-		KeyCode::Esc => Msg::Quit,
+		KeyCode::Esc => Msg::CloseNode,
 		KeyCode::Tab => Msg::CycleView,
 		KeyCode::Char('1') => Msg::ShowView(View::Overview),
 		KeyCode::Char('2') => Msg::ShowView(View::Tree),
 		KeyCode::Char('3') | KeyCode::Char('r') => Msg::ShowView(View::Refs),
 		KeyCode::Char('4') => Msg::ShowView(View::Check),
+		KeyCode::Char('q') => Msg::Quit,
 		KeyCode::Char('/') => Msg::StartFilterEdit,
 		KeyCode::Char('x') => Msg::ClearFilter,
 		KeyCode::Char('u') => Msg::FocusUsages,

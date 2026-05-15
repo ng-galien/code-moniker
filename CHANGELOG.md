@@ -94,6 +94,23 @@ in `0.y.z`.
   layer: typed `Route`, `Effect`, `Screen`, and `Feature` contracts, a
   static feature registry, and an `ExplorerFeature` that declares the
   current overview/outline/refs/check navigation surface.
+- **`code-moniker ui`** — visualization regimes are now explicit UI
+  state. The header now carries only global orientation (`regime` and
+  `scope`), while contextual panels can follow navigator selection when
+  the view is not manually pinned.
+- **`code-moniker ui`** — the refs panel is now impact-oriented:
+  incoming references are shown before outgoing dependencies, and refs
+  sharing the same visual context are grouped into width-aware component
+  rows with aggregated kinds, location, confidence, and compact moniker
+  details instead of full moniker URIs.
+- **`code-moniker ui`** — declaration and reference kinds now use a
+  centralized theme palette, grouping callable, type-like, value, module,
+  reference, metadata, and fallback colors.
+- **`code-moniker-core`** — each language extractor now exposes a
+  semantic definition-kind contract (`KindSpec`) with shape, display
+  label, and ordering metadata. The UI consumes this contract for
+  navigability, kind ordering, and color grouping instead of hard-coding
+  language-specific kind lists.
 - **`code-moniker-core` (rs extractor)** — free function calls now
   resolve against their enclosing Rust module, including explicit nested
   module paths such as `tests::mk_under()` and repeated
@@ -108,8 +125,8 @@ in `0.y.z`.
 
 - **`code-moniker ui`** — filter entry is now modal: `/` edits a draft,
   `Enter` applies it, `Esc` cancels editing, and normal-mode `x` clears
-  the active filter. `Esc` is the only quit key in normal mode, so
-  command keys are no longer swallowed by the filter input.
+  the active filter. Normal-mode `Esc` closes navigation nodes instead
+  of quitting the UI; use `q` or `Ctrl-C` for explicit exit.
 - **`code-moniker ui`** — source snippets now preserve indentation and
   use a light-theme-friendly editor palette with muted context lines,
   a pale active-line background, and clearer line numbers.

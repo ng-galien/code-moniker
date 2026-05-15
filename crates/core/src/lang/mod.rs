@@ -13,9 +13,9 @@ pub mod strategy;
 pub mod tree_util;
 pub mod ts;
 
-pub use extractor::LangExtractor;
 #[doc(hidden)]
 pub use extractor::assert_conformance;
+pub use extractor::{KindSpec, LangExtractor};
 
 /// Adding a row registers the language for `Lang::from_tag` / `tag` /
 /// `allowed_kinds` / `allowed_visibilities` and the schema-sync test.
@@ -65,6 +65,19 @@ macro_rules! define_languages {
 				}
 			}
 
+			pub fn kind_specs(self) -> &'static [$crate::lang::KindSpec] {
+				match self {
+					$(
+						$(#[$attr])*
+						Self::$variant => <$module as $crate::lang::LangExtractor>::KIND_SPECS,
+					)*
+				}
+			}
+
+			pub fn kind_spec(self, id: &str) -> Option<&'static $crate::lang::KindSpec> {
+				self.kind_specs().iter().find(|spec| spec.id == id)
+			}
+
 			pub fn allowed_visibilities(self) -> &'static [&'static str] {
 				match self {
 					$(
@@ -86,7 +99,12 @@ macro_rules! define_languages {
 			/// Dispatches a closure that takes `(lang_tag, allowed_kinds, allowed_visibilities)`
 			/// over every registered language. Used by the JSON Schema sync test.
 			pub(crate) fn for_each_language(
-				mut f: impl FnMut(&'static str, &'static [&'static str], &'static [&'static str]),
+				mut f: impl FnMut(
+					&'static str,
+					&'static [&'static str],
+					&'static [&'static str],
+					&'static [$crate::lang::KindSpec],
+				),
 			) {
 				$(
 					$(#[$attr])*
@@ -94,6 +112,7 @@ macro_rules! define_languages {
 						<$module as LangExtractor>::LANG_TAG,
 						<$module as LangExtractor>::ALLOWED_KINDS,
 						<$module as LangExtractor>::ALLOWED_VISIBILITIES,
+						<$module as LangExtractor>::KIND_SPECS,
 					);
 				)*
 			}
@@ -148,7 +167,7 @@ mod schema_sync_tests {
 			.expect("docs/postgres/declare-schema.json must be valid JSON");
 
 		let mut visited = 0usize;
-		for_each_language(|tag, kinds, visibilities| {
+		for_each_language(|tag, kinds, visibilities, _| {
 			visited += 1;
 			let profile = profile_name_for(tag);
 
@@ -200,7 +219,7 @@ mod shape_coverage_tests {
 	#[test]
 	fn every_allowed_kind_has_a_shape() {
 		let mut missing: Vec<(String, String)> = Vec::new();
-		for_each_language(|tag, kinds, _| {
+		for_each_language(|tag, kinds, _, _| {
 			for k in kinds {
 				if shape_of(k.as_bytes()).is_none() {
 					missing.push((tag.to_string(), (*k).to_string()));
@@ -222,6 +241,57 @@ mod shape_coverage_tests {
 				std::str::from_utf8(k).unwrap()
 			);
 		}
+	}
+}
+
+#[cfg(test)]
+mod kind_contract_tests {
+	use super::for_each_language;
+	use crate::core::shape::shape_of;
+
+	#[test]
+	fn every_language_kind_spec_matches_allowed_kinds() {
+		for_each_language(|tag, kinds, _, specs| {
+			let spec_ids: Vec<_> = specs.iter().map(|spec| spec.id).collect();
+			assert_eq!(
+				sort(&spec_ids),
+				sort(kinds),
+				"{tag} KIND_SPECS must describe exactly ALLOWED_KINDS"
+			);
+		});
+	}
+
+	#[test]
+	fn every_language_kind_spec_has_stable_semantics() {
+		for_each_language(|tag, _, _, specs| {
+			assert!(!specs.is_empty(), "{tag} must declare kind specs");
+			let mut seen_ids = std::collections::HashSet::new();
+			for spec in specs {
+				assert!(
+					seen_ids.insert(spec.id),
+					"{tag} duplicates kind spec `{}`",
+					spec.id
+				);
+				assert!(
+					!spec.label.is_empty(),
+					"{tag} kind `{}` has no label",
+					spec.id
+				);
+				assert_ne!(spec.order, 0, "{tag} kind `{}` has no order", spec.id);
+				assert_eq!(
+					shape_of(spec.id.as_bytes()),
+					Some(spec.shape),
+					"{tag} kind `{}` shape must stay aligned with core shape taxonomy",
+					spec.id
+				);
+			}
+		});
+	}
+
+	fn sort<'a>(xs: &[&'a str]) -> Vec<&'a str> {
+		let mut v: Vec<&str> = xs.to_vec();
+		v.sort_unstable();
+		v
 	}
 }
 

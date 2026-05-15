@@ -2,12 +2,14 @@ use std::path::Path;
 
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::{Moniker, Segment};
+use code_moniker_core::lang::Lang;
 
 use crate::inspect::{
 	CheckSummary, DefLocation, IndexedFile, RefLocation, SessionIndex, SessionOptions, SessionStats,
 };
 
 use super::filter::NavFilter;
+use super::kinds::{definition_kind_order, is_navigable_definition};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct UsageFocus {
@@ -95,7 +97,7 @@ impl IndexStore for MemoryIndexStore {
 			})
 			.filter(|loc| {
 				let def = self.def(loc);
-				is_navigable_def(def)
+				is_navigable_def(self.file(loc.file).lang, def)
 					&& filter.is_none_or(|filter| {
 						filter.matches(&def_kind(def), &last_name(&def.moniker))
 					})
@@ -179,6 +181,11 @@ impl MemoryIndexStore {
 			left.position
 				.map(|(start, _)| start)
 				.cmp(&right.position.map(|(start, _)| start))
+				.then_with(|| {
+					definition_kind_order(self.file(a.file).lang, &def_kind(left)).cmp(
+						&definition_kind_order(self.file(b.file).lang, &def_kind(right)),
+					)
+				})
 				.then_with(|| last_name(&left.moniker).cmp(&last_name(&right.moniker)))
 		});
 	}
@@ -222,34 +229,23 @@ impl MemoryIndexStore {
 			file: loc.file,
 			def: reference.source,
 		};
-		if is_navigable_def(self.def(&source)) {
+		if is_navigable_def(self.file(source.file).lang, self.def(&source)) {
 			return vec![source];
 		}
 		let source_moniker = self.def(&source).moniker.clone();
 		self.children_by_parent(&source_moniker)
 			.iter()
 			.copied()
-			.filter(|child| child.file == loc.file && is_navigable_def(self.def(child)))
+			.filter(|child| {
+				child.file == loc.file
+					&& is_navigable_def(self.file(child.file).lang, self.def(child))
+			})
 			.collect()
 	}
 }
 
-pub(super) fn is_navigable_def(def: &DefRecord) -> bool {
-	matches!(
-		def_kind(def).as_str(),
-		"annotation_type"
-			| "class" | "const"
-			| "constructor"
-			| "enum" | "enum_constant"
-			| "field" | "fn"
-			| "func" | "function"
-			| "impl" | "interface"
-			| "method"
-			| "record"
-			| "struct"
-			| "test" | "trait"
-			| "type" | "var"
-	)
+pub(super) fn is_navigable_def(lang: Lang, def: &DefRecord) -> bool {
+	is_navigable_definition(lang, &def_kind(def))
 }
 
 pub(super) fn def_kind(def: &DefRecord) -> String {

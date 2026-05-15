@@ -5,7 +5,9 @@ use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
 use crate::core::moniker::Moniker;
+use crate::core::shape::Shape;
 
+use crate::lang::KindSpec;
 use crate::lang::canonical_walker::CanonicalWalker;
 
 pub mod build;
@@ -76,11 +78,20 @@ pub fn extract(
 
 pub struct Lang;
 
+const DEF_KINDS: &[&str] = &["class", "function", "method", "async_function"];
+
+const DEF_KIND_SPECS: &[KindSpec] = &[
+	KindSpec::new("class", Shape::Type, 20, "class"),
+	KindSpec::new("function", Shape::Callable, 40, "function"),
+	KindSpec::new("async_function", Shape::Callable, 41, "async_function"),
+	KindSpec::new("method", Shape::Callable, 42, "method"),
+];
+
 impl crate::lang::LangExtractor for Lang {
 	type Presets = Presets;
 	const LANG_TAG: &'static str = "python";
-	const ALLOWED_KINDS: &'static [&'static str] =
-		&["class", "function", "method", "async_function"];
+	const ALLOWED_KINDS: &'static [&'static str] = DEF_KINDS;
+	const KIND_SPECS: &'static [KindSpec] = DEF_KIND_SPECS;
 	const ALLOWED_VISIBILITIES: &'static [&'static str] = &["public", "private", "module"];
 
 	fn extract(
