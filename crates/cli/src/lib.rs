@@ -12,6 +12,7 @@ pub mod lang;
 pub mod lines;
 pub mod manifest;
 pub mod predicate;
+pub mod stats;
 pub mod tsconfig;
 pub mod walk;
 
@@ -22,7 +23,7 @@ use std::process::ExitCode;
 pub use args::{
 	CheckArgs, CheckFormat, Cli, CodexHarnessArgs, Command, ExtractArgs, HarnessArgs,
 	HarnessCommand, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, OutputFormat, OutputMode,
-	ShapesArgs,
+	ShapesArgs, StatsArgs, StatsFormat,
 };
 pub use lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};
@@ -72,6 +73,7 @@ impl From<Exit> for ExitCode {
 pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match &cli.command {
 		Command::Extract(args) => run_extract(args, stdout, stderr),
+		Command::Stats(args) => stats::run(args, stdout, stderr),
 		Command::Check(args) => run_check(args, stdout, stderr),
 		Command::Harness(args) => harness::run(args, stdout, stderr),
 		Command::Langs(args) => run_langs(args, stdout, stderr),

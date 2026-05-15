@@ -38,6 +38,15 @@ fn write_fixture(name: &str, body: &str) -> tempfile::TempDir {
 	dir
 }
 
+fn write_under(root: &std::path::Path, rel: &str, body: &str) {
+	let p = root.join(rel);
+	if let Some(parent) = p.parent() {
+		std::fs::create_dir_all(parent).unwrap();
+	}
+	let mut f = std::fs::File::create(&p).unwrap();
+	f.write_all(body.as_bytes()).unwrap();
+}
+
 #[test]
 fn no_predicate_dumps_full_graph_as_tsv() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
@@ -63,6 +72,90 @@ fn count_only_prints_an_integer() {
 	let trimmed = out.trim();
 	let n: usize = trimmed.parse().expect("expected integer, got {trimmed}");
 	assert!(n > 0);
+}
+
+#[test]
+fn stats_json_reports_extraction_metrics() {
+	let dir = tempfile::tempdir().unwrap();
+	write_under(dir.path(), "src/a.ts", TS_FIXTURE);
+	write_under(
+		dir.path(),
+		"src/lib.rs",
+		"mod tests { fn mk() {} fn run() { mk(); } }\n",
+	);
+	write_under(dir.path(), "README.md", "ignored\n");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"stats",
+		dir.path().to_str().unwrap(),
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+	assert_eq!(v["total_files"].as_u64(), Some(2));
+	assert_eq!(v["by_lang"]["ts"]["files"].as_u64(), Some(1));
+	assert_eq!(v["by_lang"]["rs"]["files"].as_u64(), Some(1));
+	assert!(v["by_shape"]["namespace"].as_u64().unwrap() >= 2);
+	assert!(v["by_shape"]["callable"].as_u64().unwrap() >= 1);
+	assert!(v["by_shape"]["ref"].as_u64().unwrap() >= 1);
+	assert!(v["by_kind"]["defs"]["module"].as_u64().unwrap() >= 2);
+	assert!(v["timings"]["total_ms"].as_u64().is_some());
+	assert!(v["timings"]["scan_ms"].as_u64().is_some());
+	assert!(v["timings"]["extract_ms"].as_u64().is_some());
+}
+
+#[test]
+fn stats_tsv_is_metrics_only() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"stats",
+		dir.path().join("a.ts").to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(out.contains("files\t1"), "{out}");
+	assert!(out.contains("lang\tts\tfiles\t1"), "{out}");
+	assert!(out.contains("shape\tcallable\t"), "{out}");
+	assert!(!out.contains("code+moniker://"), "{out}");
+	assert!(!out.contains("def\t"), "{out}");
+}
+
+#[test]
+#[cfg(feature = "pretty")]
+fn stats_tree_is_human_readable_and_colored_when_requested() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	unsafe { std::env::remove_var("NO_COLOR") };
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"stats",
+		dir.path().join("a.ts").to_str().unwrap(),
+		"--format",
+		"tree",
+		"--color",
+		"always",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(out.contains("stats"), "{out}");
+	assert!(out.contains("time"), "{out}");
+	assert!(out.contains("ms"), "{out}");
+	assert!(out.contains("languages"), "{out}");
+	assert!(out.contains("shapes"), "{out}");
+	assert!(out.contains("\x1b["), "expected ANSI color escapes: {out}");
+	assert!(!out.contains("code+moniker://"), "{out}");
+	assert!(!out.contains("def\t"), "{out}");
+}
+
+#[test]
+fn stats_reports_supported_file_read_errors() {
+	let dir = tempfile::tempdir().unwrap();
+	let path = dir.path().join("bad.ts");
+	std::fs::write(&path, [0xff, 0xfe, 0xfd]).unwrap();
+	let (exit, out, err) = run_with(vec!["code-moniker", "stats", path.to_str().unwrap()]);
+	assert_eq!(exit, Exit::UsageError);
+	assert!(out.is_empty(), "{out}");
+	assert!(err.contains("cannot extract"), "{err}");
+	assert!(err.contains("bad.ts"), "{err}");
 }
 
 #[test]

@@ -132,20 +132,30 @@ pub fn load_or_extract(
 	cache_dir: Option<&Path>,
 	ctx: &extract::Context,
 ) -> Option<(CodeGraph, Option<String>)> {
+	load_or_extract_result(path, anchor, lang, cache_dir, ctx).ok()
+}
+
+pub fn load_or_extract_result(
+	path: &Path,
+	anchor: &Path,
+	lang: Lang,
+	cache_dir: Option<&Path>,
+	ctx: &extract::Context,
+) -> io::Result<(CodeGraph, Option<String>)> {
 	if let Some(dir) = cache_dir
 		&& let Ok(key) = CacheKey::from_path(path, anchor)
 	{
 		if let Some(g) = load(dir, &key) {
-			return Some((g, None));
+			return Ok((g, None));
 		}
-		let source = fs::read_to_string(path).ok()?;
+		let source = fs::read_to_string(path)?;
 		let graph = extract::extract_with(lang, &source, anchor, ctx);
 		store(dir, &key, &graph);
-		return Some((graph, Some(source)));
+		return Ok((graph, Some(source)));
 	}
-	let source = fs::read_to_string(path).ok()?;
+	let source = fs::read_to_string(path)?;
 	let graph = extract::extract_with(lang, &source, anchor, ctx);
-	Some((graph, Some(source)))
+	Ok((graph, Some(source)))
 }
 
 fn validate_header<'a>(bytes: &'a [u8], key: &CacheKey) -> Option<&'a [u8]> {

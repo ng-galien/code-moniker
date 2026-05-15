@@ -25,6 +25,8 @@ pub struct Cli {
 pub enum Command {
 	#[command(about = "Extract a moniker graph from a file or directory.")]
 	Extract(ExtractArgs),
+	#[command(about = "Report extraction metrics for a file or directory.")]
+	Stats(StatsArgs),
 	#[command(about = "Lint a path against .code-moniker.toml rules.")]
 	Check(CheckArgs),
 	#[command(about = "Install live agent harness configuration.")]
@@ -141,6 +143,54 @@ pub struct CheckArgs {
 pub enum CheckFormat {
 	Text,
 	Json,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct StatsArgs {
+	#[arg(value_name = "PATH")]
+	pub path: PathBuf,
+
+	#[arg(long, value_enum, default_value_t = StatsFormat::Tsv)]
+	pub format: StatsFormat,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = ColorChoice::Auto,
+		help = "ANSI color for --format tree: auto = on if stdout is a TTY (honors NO_COLOR / CLICOLOR / CLICOLOR_FORCE)"
+	)]
+	pub color: ColorChoice,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = Charset::Utf8,
+		help = "glyph set for --format tree"
+	)]
+	pub charset: Charset,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "project component of the anchor moniker; defaults to '.'"
+	)]
+	pub project: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "DIR",
+		env = "CODE_MONIKER_CACHE_DIR",
+		help = "enable on-disk cache of extracted graphs at DIR (empty = disabled)"
+	)]
+	pub cache: Option<PathBuf>,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum StatsFormat {
+	Tsv,
+	Json,
+	#[cfg(feature = "pretty")]
+	Tree,
 }
 
 #[derive(Debug, ClapArgs)]

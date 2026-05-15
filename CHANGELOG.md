@@ -12,6 +12,10 @@ changes are allowed in minor releases as long as the project is in
 
 ### Added
 
+- **`code-moniker stats`** — reports extraction-only metrics for a file
+  or directory: supported file counts by language, def/ref totals,
+  shape and kind distributions, plus scan/extract/total wall-clock
+  timings in milliseconds. Formats: `tsv`, `json`, and colored `tree`.
 - **`code-moniker manifest` / Cargo** — Cargo workspace manifests now
   expose `workspace_member` rows, workspace dependency rows, and
   path-backed dependency metadata in JSON output, giving ESAC-style
