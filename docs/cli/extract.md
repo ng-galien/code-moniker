@@ -109,6 +109,10 @@ Empty attributes are omitted (not `null`). `source` on a ref is self-contained â
 
 Human-readable outline built from moniker segments, defs ordered by source position. Refs render under their source def. Available only when the binary is built with `--features pretty` (the default for `cargo install code-moniker` and release builds).
 
+Linear filesystem and namespace branches are collapsed inline. For example,
+`src/main/java` and `package org.apache.bookkeeper` render as single
+branches when each segment has only one child.
+
 `--color auto|always|never` controls ANSI; `--charset utf8|ascii` controls glyphs.
 
 **Default filter.** Without `--kind`, the tree drops noise defs (`local`, `param`, `comment`) and hides refs â€” the output is a structural skeleton. Passing any `--kind` re-enables full output: noise defs and refs both render if they match the filter.

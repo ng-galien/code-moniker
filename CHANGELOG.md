@@ -46,6 +46,10 @@ changes are allowed in minor releases as long as the project is in
 
 ### Changed
 
+- **`code-moniker extract --format tree`** — tree output now collapses
+  linear filesystem and namespace branches inline, so paths such as
+  `src/main/java` and package chains such as `org.apache.bookkeeper`
+  render as one IDE-style branch instead of one row per segment.
 - **`code-moniker-core` (rs extractor)** — free function calls now
   resolve against their enclosing Rust module, including explicit nested
   module paths such as `tests::mk_under()` and repeated

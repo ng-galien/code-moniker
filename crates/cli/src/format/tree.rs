@@ -128,10 +128,10 @@ fn render<W: Write>(
 	for (seg, child) in &entries {
 		let last = i + 1 == total;
 		let (branch, cont) = branch_glyphs(is_top, last, opts);
-		let label = format_seg_label(seg, child.def, source, opts);
+		let (label, rendered_child) = collapsed_outline_label(seg, child, source, opts);
 		writeln!(w, "{prefix}{branch}{label}")?;
 		let next_prefix = format!("{prefix}{cont}");
-		render(w, child, &next_prefix, false, opts, cfg, source)?;
+		render(w, rendered_child, &next_prefix, false, opts, cfg, source)?;
 		i += 1;
 	}
 
@@ -143,6 +143,57 @@ fn render<W: Write>(
 		i += 1;
 	}
 	Ok(())
+}
+
+fn collapsed_outline_label<'a>(
+	seg: &str,
+	node: &'a Node<'a>,
+	source: &str,
+	opts: &TreeOpts,
+) -> (String, &'a Node<'a>) {
+	let Some((kind, name)) = split_structural_seg(seg) else {
+		return (format_seg_label(seg, node.def, source, opts), node);
+	};
+	let mut names = vec![name.to_string()];
+	let mut current = node;
+	while current.refs.is_empty() && current.children.len() == 1 {
+		let Some((child_seg, child)) = current.children.iter().next() else {
+			break;
+		};
+		let Some((child_kind, child_name)) = split_structural_seg(child_seg) else {
+			break;
+		};
+		if child_kind != kind {
+			break;
+		}
+		names.push(child_name.to_string());
+		current = child;
+	}
+	if names.len() == 1 {
+		return (format_seg_label(seg, node.def, source, opts), node);
+	}
+	(
+		format_collapsed_structural_label(kind, &names, opts),
+		current,
+	)
+}
+
+fn split_structural_seg(seg: &str) -> Option<(&str, &str)> {
+	let (kind, name) = seg.split_once(':')?;
+	matches!(kind, "package" | "dir").then_some((kind, name))
+}
+
+fn format_collapsed_structural_label(kind: &str, names: &[String], opts: &TreeOpts) -> String {
+	let sep = if kind == "package" { "." } else { "/" };
+	let name = names.join(sep);
+	let p = &opts.palette;
+	format!(
+		"{kpre}{kind:<7}{kpost} {npre}{name}{npost}",
+		kpre = p.kind.render(),
+		kpost = p.kind.render_reset(),
+		npre = p.name.render(),
+		npost = p.name.render_reset(),
+	)
 }
 
 fn branch_glyphs(is_top: bool, last: bool, opts: &TreeOpts) -> (String, String) {
@@ -490,23 +541,37 @@ fn render_file_trie<W: Write>(
 		} else {
 			opts.glyph.skip_mid
 		};
-		let is_dir = child.leaf.is_none();
+		let (label_name, rendered_child) = collapsed_leaf_label(name, child);
+		let is_dir = rendered_child.leaf.is_none();
 		let suffix = if is_dir { "/" } else { "" };
 		writeln!(
 			w,
-			"{prefix}{branch} {hpre}{name}{suffix}{hpost}",
+			"{prefix}{branch} {hpre}{label_name}{suffix}{hpost}",
 			hpre = opts.palette.name.render(),
 			hpost = opts.palette.name.render_reset(),
 		)?;
 		let sub_prefix = format!("{prefix}{cont}");
-		if let Some(idx) = child.leaf {
+		if let Some(idx) = rendered_child.leaf {
 			let f = &files[idx];
 			write_tree_with_prefix(w, &f.matches, f.source, args, scheme, &sub_prefix)?;
 		} else {
-			render_file_trie(w, child, &sub_prefix, files, args, scheme, opts)?;
+			render_file_trie(w, rendered_child, &sub_prefix, files, args, scheme, opts)?;
 		}
 	}
 	Ok(())
+}
+
+fn collapsed_leaf_label<'a, T>(name: &str, node: &'a LeafTrie<T>) -> (String, &'a LeafTrie<T>) {
+	let mut names = vec![name.to_string()];
+	let mut current = node;
+	while current.leaf.is_none() && current.children.len() == 1 {
+		let Some((child_name, child)) = current.children.iter().next() else {
+			break;
+		};
+		names.push(child_name.clone());
+		current = child;
+	}
+	(names.join("/"), current)
 }
 
 pub fn render_dir_tree<W: Write>(
@@ -561,6 +626,7 @@ fn render_path_node<W: Write>(
 	let total = node.children.len();
 	for (i, (seg, child)) in node.children.iter().enumerate() {
 		let last = i + 1 == total;
+		let (label_seg, rendered_child) = collapsed_leaf_label(seg, child);
 		let branch = if last {
 			opts.glyph.last
 		} else {
@@ -571,23 +637,23 @@ fn render_path_node<W: Write>(
 		} else {
 			opts.glyph.skip_mid
 		};
-		let label = match &child.leaf {
+		let label = match &rendered_child.leaf {
 			Some(l) => format!(
-				"{npre}{seg}{npost} {dpre}{l}{dpost}",
+				"{npre}{label_seg}{npost} {dpre}{l}{dpost}",
 				npre = opts.palette.name.render(),
 				npost = opts.palette.name.render_reset(),
 				dpre = opts.palette.dim.render(),
 				dpost = opts.palette.dim.render_reset(),
 			),
 			None => format!(
-				"{kpre}{seg}/{kpost}",
+				"{kpre}{label_seg}/{kpost}",
 				kpre = opts.palette.kind.render(),
 				kpost = opts.palette.kind.render_reset(),
 			),
 		};
 		writeln!(w, "{prefix}{branch} {label}")?;
 		let next_prefix = format!("{prefix}{cont}");
-		render_path_node(w, child, &next_prefix, opts)?;
+		render_path_node(w, rendered_child, &next_prefix, opts)?;
 	}
 	Ok(())
 }
@@ -637,6 +703,26 @@ mod tests {
 		g
 	}
 
+	fn graph_java_packaged_class() -> CodeGraph {
+		let mut b = MonikerBuilder::new();
+		b.project(b".");
+		let root = b.build();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+
+		let mut b = MonikerBuilder::new();
+		b.project(b".");
+		b.segment(b"lang", b"java");
+		b.segment(b"package", b"org");
+		b.segment(b"package", b"apache");
+		b.segment(b"package", b"bookkeeper");
+		b.segment(b"module", b"Ledger");
+		b.segment(b"class", b"Ledger");
+		let ledger = b.build();
+		g.add_def(ledger, b"class", &root, Some((0, 0))).unwrap();
+
+		g
+	}
+
 	#[test]
 	fn structural_only_by_default_hides_locals() {
 		let g = graph_class_method_and_local();
@@ -657,6 +743,54 @@ mod tests {
 			!s.contains("code+moniker"),
 			"URI header should not appear: {s}"
 		);
+	}
+
+	#[test]
+	fn tree_collapses_linear_package_chain() {
+		let g = graph_java_packaged_class();
+		let matches = MatchSet {
+			defs: g.defs().collect(),
+			refs: vec![],
+		};
+		let mut buf = Vec::new();
+		write_tree(&mut buf, &matches, "", &base_args(), "code+moniker://").unwrap();
+		let s = String::from_utf8(buf).unwrap();
+		assert!(s.contains("package org.apache.bookkeeper"), "{s}");
+		assert_eq!(s.matches("package").count(), 1, "{s}");
+		assert!(s.contains("module"), "{s}");
+		assert!(s.contains("class"), "{s}");
+	}
+
+	#[test]
+	fn file_tree_collapses_linear_directory_chain() {
+		let g = graph_class_method_and_local();
+		let matches = MatchSet {
+			defs: g.defs().collect(),
+			refs: vec![],
+		};
+		let files = [FileEntry {
+			rel_path: "src/main/java/Foo.java".to_string(),
+			matches,
+			source: "",
+		}];
+		let mut buf = Vec::new();
+		write_files_tree(&mut buf, &files, &base_args(), "code+moniker://").unwrap();
+		let s = String::from_utf8(buf).unwrap();
+		assert!(s.contains("src/main/java/Foo.java"), "{s}");
+		assert!(!s.contains("src/\n"), "{s}");
+	}
+
+	#[test]
+	fn directory_summary_tree_collapses_linear_directory_chain() {
+		let entries = [(
+			"src/main/java/Foo.java".to_string(),
+			"files=1 defs=1 refs=0".to_string(),
+		)];
+		let mut buf = Vec::new();
+		render_dir_tree(&mut buf, &entries, &base_args()).unwrap();
+		let s = String::from_utf8(buf).unwrap();
+		assert!(s.contains("src/main/java/Foo.java"), "{s}");
+		assert!(!s.contains("src/\n"), "{s}");
 	}
 
 	#[test]
