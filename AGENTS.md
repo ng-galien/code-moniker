@@ -29,6 +29,14 @@ Prefer the narrowest validation that covers the files you changed. During
 TDD, run focused tests first and only widen the gate when the behavior is
 stable. Do not repeat the full workspace suite after every small edit.
 
+Recent warm-cache timings on this repository are a useful order of
+magnitude, not a contract: `fmt --check` ~0.4s, `cargo check` ~0.5s, all UI
+tests ~1s, `cargo arch-check` ~1s when release artifacts are hot but ~40s
+after a release rebuild, `cargo test --features pg17 --no-default-features
+--lib` ~2s, workspace tests ~5-6s, and `cargo install --path crates/cli`
+~45s when it recompiles. Optimize for feedback latency: avoid cold
+`cargo install` and repeated full workspace gates while iterating.
+
 Iteration loop examples:
 
 - UI behavior: `cargo test -p code-moniker ui::tests::<test_name> --lib`,
@@ -46,9 +54,12 @@ Before code review, use a short gate:
 - the focused test group for the changed surface
 - `cargo arch-check` when architectural boundaries are involved
 
+For documentation-only changes, use `git diff --check`; do not run Rust
+builds unless the docs include generated examples that need verification.
+
 Before commit on non-release work, run the full gate once after review fixes:
-`cargo test --workspace --exclude code-moniker-pg`, `cargo clippy --features
-pg17 --no-default-features --tests --no-deps -- -D warnings`, and
+`cargo test --workspace --exclude code-moniker-pg --quiet`, `cargo clippy
+--features pg17 --no-default-features --tests --no-deps -- -D warnings`, and
 `cargo test --features pg17 --no-default-features --lib`. Run `./pgtap/run.sh`
 only when `crates/pg`, SQL types, or extension behavior changed. Install the
 binary with `cargo install --path crates/cli` only when CLI/TUI behavior changed
