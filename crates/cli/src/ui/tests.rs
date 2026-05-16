@@ -2,6 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::layout::Position;
+use std::process::Command;
 
 use code_moniker_core::lang::Lang;
 
@@ -24,6 +25,21 @@ fn write(root: &std::path::Path, rel: &str, body: &str) {
 		std::fs::create_dir_all(parent).unwrap();
 	}
 	std::fs::write(p, body).unwrap();
+}
+
+fn git(root: &std::path::Path, args: &[&str]) {
+	let output = Command::new("git")
+		.arg("-C")
+		.arg(root)
+		.args(args)
+		.output()
+		.unwrap_or_else(|e| panic!("cannot run git {args:?}: {e}"));
+	assert!(
+		output.status.success(),
+		"git {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+		String::from_utf8_lossy(&output.stdout),
+		String::from_utf8_lossy(&output.stderr)
+	);
 }
 
 fn line_text(line: &Line<'_>) -> String {
@@ -67,6 +83,7 @@ fn component_titles_include_stable_collaboration_markers() {
 	assert_eq!(rendered, "navigator [ui.navigator]");
 	assert_eq!(ComponentId::SearchInput.as_str(), "ui.search.input");
 	assert_eq!(ComponentId::PanelRefs.as_str(), "ui.panel.refs");
+	assert_eq!(ComponentId::PanelChange.as_str(), "ui.panel.change");
 	assert_eq!(ComponentId::SourceSnippet.as_str(), "ui.source.snippet");
 }
 
@@ -84,13 +101,20 @@ fn feature_registry_exposes_static_explorer_contracts() {
 			.iter()
 			.map(|item| item.label.as_str())
 			.collect::<Vec<_>>(),
-		vec!["Overview", "Outline", "Refs", "Check"]
+		vec!["Overview", "Outline", "Refs", "Check", "Change"]
 	);
 	assert!(
 		commands
 			.iter()
 			.any(|command| command.label == "Edit filter"
 				&& command.shortcut.as_deref() == Some("/")),
+		"{commands:?}"
+	);
+	assert!(
+		commands
+			.iter()
+			.any(|command| command.label == "Show changes"
+				&& command.shortcut.as_deref() == Some("d")),
 		"{commands:?}"
 	);
 }
@@ -442,6 +466,319 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
 
 	assert!(!search_input_visible(&app));
+}
+
+#[test]
+fn change_mode_reports_sources_without_git() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	assert!(
+		app.store
+			.change_index()
+			.resources
+			.iter()
+			.any(|resource| !resource.available())
+	);
+
+	app.handle_key(key(KeyCode::Char('d'))).unwrap();
+
+	assert_eq!(app.view_mode, VisualizationMode::Change);
+	assert_eq!(app.view, View::Change);
+	assert_eq!(
+		line_text(&header_line(&app, 120)),
+		"code-moniker [ui.header] mode change  scope HEAD..worktree"
+	);
+	assert!(app.nav_rows.is_empty());
+	let lines = change_panel_lines(&app, 80);
+	let rendered = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+	assert!(
+		rendered.contains("not inside a Git repository"),
+		"{rendered}"
+	);
+}
+
+#[test]
+fn change_mode_reports_each_non_git_source_in_multi_source_sessions() {
+	let tmp = tempfile::tempdir().unwrap();
+	let common = tmp.path().join("common-lib");
+	let service = tmp.path().join("billing-service");
+	write(&common, "src/Common.java", "class Common {}\n");
+	write(&service, "src/Billing.java", "class Billing {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![common.clone(), service.clone()],
+		project: None,
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.handle_key(key(KeyCode::Char('d'))).unwrap();
+
+	let lines = change_panel_lines(&app, 100);
+	let rendered = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+	assert!(rendered.contains("common-lib"), "{rendered}");
+	assert!(rendered.contains("billing-service"), "{rendered}");
+	assert_eq!(
+		app.store
+			.change_index()
+			.resources
+			.iter()
+			.filter(|resource| !resource.available())
+			.count(),
+		2
+	);
+}
+
+#[test]
+fn change_mode_filters_changed_symbols_and_toggles_blast_radius() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/MoneyFormatter.java",
+		"package com.acme;\npublic class MoneyFormatter {\n  public String format(long cents) {\n    return Long.toString(cents);\n  }\n}\n",
+	);
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/BillingApplication.java",
+		"package com.acme;\npublic class BillingApplication {\n  public String run(MoneyFormatter formatter) {\n    return formatter.format(10);\n  }\n}\n",
+	);
+	git(tmp.path(), &["init"]);
+	git(tmp.path(), &["config", "user.email", "agent@example.com"]);
+	git(tmp.path(), &["config", "user.name", "Agent"]);
+	git(tmp.path(), &["add", "."]);
+	git(tmp.path(), &["commit", "-m", "baseline"]);
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/MoneyFormatter.java",
+		"package com.acme;\npublic class MoneyFormatter {\n  public String format(long cents) {\n    return \"$\" + cents;\n  }\n}\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.handle_key(key(KeyCode::Char('d'))).unwrap();
+
+	assert_eq!(app.view_mode, VisualizationMode::Change);
+	assert_eq!(app.view, View::Change);
+	assert_eq!(app.visible_defs.len(), 1, "{:?}", app.visible_defs);
+	let changed = app.visible_defs[0];
+	assert_eq!(
+		last_name(&app.store.def(&changed).moniker),
+		"format(cents:long)"
+	);
+	assert!(app.store.change_for_def(&changed).is_some());
+	assert!(
+		app.nav_rows
+			.iter()
+			.any(|row| row.label == "format(cents:long)"),
+		"{:?}",
+		app.nav_rows
+	);
+	let diff_lines = change_panel_lines(&app, 100);
+	let rendered_diff = diff_lines
+		.iter()
+		.map(line_text)
+		.collect::<Vec<_>>()
+		.join("\n");
+	assert!(
+		rendered_diff.contains("status    modified"),
+		"{rendered_diff}"
+	);
+	assert!(rendered_diff.contains("blast radius"), "{rendered_diff}");
+	assert!(rendered_diff.contains("1 direct usage"), "{rendered_diff}");
+
+	app.handle_key(key(KeyCode::Char('u'))).unwrap();
+
+	assert_eq!(app.view_mode, VisualizationMode::Change);
+	assert_eq!(app.view, View::Change);
+	assert_eq!(app.change_panel, ChangePanelMode::Usages);
+	let usage_lines = change_panel_lines(&app, 100);
+	let rendered_usages = usage_lines
+		.iter()
+		.map(line_text)
+		.collect::<Vec<_>>()
+		.join("\n");
+	assert!(
+		rendered_usages.contains("blast radius"),
+		"{rendered_usages}"
+	);
+	assert!(
+		rendered_usages.contains("BillingApplication"),
+		"{rendered_usages}"
+	);
+
+	app.handle_key(key(KeyCode::Char('u'))).unwrap();
+
+	assert_eq!(app.change_panel, ChangePanelMode::Diff);
+}
+
+#[test]
+fn change_mode_shows_removed_symbol_and_its_blast_radius() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/MoneyFormatter.java",
+		"package com.acme;\npublic class MoneyFormatter {\n  public String format(long cents) {\n    return Long.toString(cents);\n  }\n}\n",
+	);
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/BillingApplication.java",
+		"package com.acme;\npublic class BillingApplication {\n  public String run(MoneyFormatter formatter) {\n    return formatter.format(10);\n  }\n}\n",
+	);
+	git(tmp.path(), &["init"]);
+	git(tmp.path(), &["config", "user.email", "agent@example.com"]);
+	git(tmp.path(), &["config", "user.name", "Agent"]);
+	git(tmp.path(), &["add", "."]);
+	git(tmp.path(), &["commit", "-m", "baseline"]);
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/MoneyFormatter.java",
+		"package com.acme;\npublic class MoneyFormatter {\n}\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.handle_key(key(KeyCode::Char('d'))).unwrap();
+
+	assert!(
+		app.nav_rows
+			.iter()
+			.any(|row| row.label == "format(cents:long)"
+				&& matches!(row.kind, NavNodeKind::Change(_))),
+		"{:?}",
+		app.nav_rows
+	);
+	select_nav_label(&mut app, "format(cents:long)");
+	let lines = change_panel_lines(&app, 100);
+	let rendered = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+	assert!(rendered.contains("status    removed"), "{rendered}");
+	assert!(rendered.contains("format(cents:long)"), "{rendered}");
+	assert!(rendered.contains("1 direct usage"), "{rendered}");
+}
+
+#[test]
+fn full_store_event_reloads_index_and_refreshes_active_search() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.search_draft = "Beta".to_string();
+	app.apply_search();
+
+	assert!(app.visible_defs.is_empty(), "{:?}", app.visible_defs);
+
+	write(tmp.path(), "src/b.ts", "class Beta {}\n");
+	app.handle_store_event(StoreEvent::FullIndex);
+
+	assert!(
+		app.visible_defs
+			.iter()
+			.any(|loc| last_name(&app.store.def(loc).moniker) == "Beta"),
+		"{:?}",
+		app.visible_defs
+	);
+	assert!(
+		app.nav_rows.iter().any(|row| row.label.contains("Beta")),
+		"{:?}",
+		app.nav_rows
+	);
+	assert!(app.status.contains("store reloaded"), "{}", app.status);
+}
+
+#[test]
+fn full_store_event_refreshes_change_navigator_while_change_mode_is_active() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/MoneyFormatter.java",
+		"package com.acme;\npublic class MoneyFormatter {\n  public String format(long cents) {\n    return Long.toString(cents);\n  }\n}\n",
+	);
+	git(tmp.path(), &["init"]);
+	git(tmp.path(), &["config", "user.email", "agent@example.com"]);
+	git(tmp.path(), &["config", "user.name", "Agent"]);
+	git(tmp.path(), &["add", "."]);
+	git(tmp.path(), &["commit", "-m", "baseline"]);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.handle_key(key(KeyCode::Char('d'))).unwrap();
+	assert!(app.nav_rows.is_empty(), "{:?}", app.nav_rows);
+
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/MoneyFormatter.java",
+		"package com.acme;\npublic class MoneyFormatter {\n  public String format(long cents) {\n    return \"$\" + cents;\n  }\n}\n",
+	);
+	app.handle_store_event(StoreEvent::FullIndex);
+
+	assert_eq!(app.view_mode, VisualizationMode::Change);
+	assert!(
+		app.nav_rows
+			.iter()
+			.any(|row| row.label == "format(cents:long)"
+				&& matches!(row.kind, NavNodeKind::Change(_))),
+		"{:?}",
+		app.nav_rows
+	);
+	assert!(app.status.contains("store reloaded"), "{}", app.status);
 }
 
 #[test]

@@ -48,6 +48,7 @@ insta      = { version = "1", features = ["glob", "json"] }
 anstyle       = "1"
 ratatui       = "0.30"
 crossterm     = "0.29"
+notify        = "8.2"
 
 [profile.dev]
 panic = "unwind"

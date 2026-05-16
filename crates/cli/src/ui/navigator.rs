@@ -11,6 +11,8 @@ pub(super) enum NavNodeKind {
 	Dir,
 	File(usize),
 	Def(DefLocation),
+	ChangeFile,
+	Change(usize),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +101,65 @@ pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
 	root
 }
 
+pub(super) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
+	let mut root = NavNode::new(
+		"change-root".to_string(),
+		"root".to_string(),
+		NavNodeKind::Root,
+	);
+	for (change_idx, entry) in store.change_index().entries.iter().enumerate() {
+		let lang_key = format!("change-lang:{}", entry.lang.tag());
+		let lang = child_mut(
+			&mut root,
+			lang_key,
+			entry.lang.tag().to_string(),
+			NavNodeKind::Lang,
+		);
+		let mut parent = lang;
+		let path_parts: Vec<String> = entry
+			.file_path
+			.parent()
+			.into_iter()
+			.flat_map(|path| path.components())
+			.filter_map(|component| component.as_os_str().to_str())
+			.map(ToOwned::to_owned)
+			.collect();
+		let mut path_key = String::new();
+		for part in path_parts {
+			if !path_key.is_empty() {
+				path_key.push('/');
+			}
+			path_key.push_str(&part);
+			parent = child_mut(
+				parent,
+				format!("change-dir:{}:{path_key}", entry.lang.tag()),
+				part,
+				NavNodeKind::Dir,
+			);
+		}
+		let file_label = entry
+			.file_path
+			.file_name()
+			.and_then(|name| name.to_str())
+			.unwrap_or_else(|| entry.file_path.to_str().unwrap_or("<file>"))
+			.to_string();
+		let file = child_mut(
+			parent,
+			format!("change-file:{}", entry.file_path.display()),
+			file_label,
+			NavNodeKind::ChangeFile,
+		);
+		file.children.push(NavNode::new(
+			format!("change:{change_idx}"),
+			entry.name.clone(),
+			NavNodeKind::Change(change_idx),
+		));
+	}
+	sort_nav(&mut root);
+	compute_nav_counts(&mut root);
+	root
+}
+
 fn child_mut(node: &mut NavNode, key: String, label: String, kind: NavNodeKind) -> &mut NavNode {
 	let idx = match node.children.iter().position(|child| child.key == key) {
 		Some(idx) => idx,
@@ -129,15 +190,21 @@ fn nav_sort_key(node: &NavNode) -> (u8, &str) {
 		NavNodeKind::Root => 0,
 		NavNodeKind::Lang => 1,
 		NavNodeKind::Dir => 2,
-		NavNodeKind::File(_) => 3,
-		NavNodeKind::Def(_) => 4,
+		NavNodeKind::File(_) | NavNodeKind::ChangeFile => 3,
+		NavNodeKind::Def(_) | NavNodeKind::Change(_) => 4,
 	};
 	(group, node.label.as_str())
 }
 
 fn compute_nav_counts(node: &mut NavNode) -> (usize, usize) {
-	let mut files = usize::from(matches!(node.kind, NavNodeKind::File(_)));
-	let mut defs = usize::from(matches!(node.kind, NavNodeKind::Def(_)));
+	let mut files = usize::from(matches!(
+		node.kind,
+		NavNodeKind::File(_) | NavNodeKind::ChangeFile
+	));
+	let mut defs = usize::from(matches!(
+		node.kind,
+		NavNodeKind::Def(_) | NavNodeKind::Change(_)
+	));
 	for child in &mut node.children {
 		let (child_files, child_defs) = compute_nav_counts(child);
 		files += child_files;
@@ -245,8 +312,13 @@ fn compact_chain(node: &NavNode, allow_terminal_compaction: bool) -> (&NavNode, 
 			break;
 		};
 		if !allow_terminal_compaction
-			&& matches!(child.kind, NavNodeKind::File(_) | NavNodeKind::Def(_))
-		{
+			&& matches!(
+				child.kind,
+				NavNodeKind::File(_)
+					| NavNodeKind::Def(_)
+					| NavNodeKind::ChangeFile
+					| NavNodeKind::Change(_)
+			) {
 			break;
 		}
 		labels.push(child.label.clone());
@@ -278,7 +350,9 @@ fn filter_node(node: &NavNode, matches: &[DefLocation]) -> Option<NavNode> {
 			children.push(child);
 		}
 	}
-	if matches!(node.kind, NavNodeKind::File(_)) && (!children.is_empty() || defs > 0) {
+	if matches!(node.kind, NavNodeKind::File(_) | NavNodeKind::ChangeFile)
+		&& (!children.is_empty() || defs > 0)
+	{
 		files = 1;
 	}
 	if children.is_empty() && defs == 0 {
@@ -323,4 +397,19 @@ fn node_matches(node: &NavNode, matches: &[DefLocation]) -> bool {
 		return false;
 	};
 	matches.contains(&loc)
+}
+
+pub(super) fn all_expanded_keys(node: &NavNode) -> BTreeSet<String> {
+	let mut keys = BTreeSet::new();
+	collect_all_expanded_keys(node, &mut keys);
+	keys
+}
+
+fn collect_all_expanded_keys(node: &NavNode, keys: &mut BTreeSet<String>) {
+	if !node.children.is_empty() {
+		keys.insert(node.key.clone());
+	}
+	for child in &node.children {
+		collect_all_expanded_keys(child, keys);
+	}
 }

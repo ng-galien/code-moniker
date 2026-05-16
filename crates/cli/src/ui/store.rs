@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::{Moniker, Segment};
@@ -8,6 +8,7 @@ use crate::inspect::{
 	CheckSummary, DefLocation, IndexedFile, RefLocation, SessionIndex, SessionOptions, SessionStats,
 };
 
+use super::change::{ChangeEntry, ChangeFile, ChangeIndex, ChangeRoot, ChangeScan};
 use super::filter::NavFilter;
 use super::kinds::{definition_kind_order, is_navigable_definition};
 
@@ -38,6 +39,9 @@ pub(super) trait IndexStore {
 	fn child_defs(&self, parent: &DefLocation) -> Vec<DefLocation>;
 	fn children_by_parent(&self, parent: &Moniker) -> &[DefLocation];
 	fn search_symbols(&self, query: &str, limit: usize) -> Vec<SearchHit>;
+	fn change_index(&self) -> &ChangeIndex;
+	fn changed_defs(&self) -> Vec<DefLocation>;
+	fn change_for_def(&self, loc: &DefLocation) -> Option<&ChangeEntry>;
 	fn outgoing_refs(&self, moniker: &Moniker) -> &[RefLocation];
 	fn incoming_refs(&self, moniker: &Moniker) -> &[RefLocation];
 	fn usage_focus(&self, loc: DefLocation) -> UsageFocus;
@@ -49,9 +53,18 @@ pub(super) trait IndexStore {
 	) -> anyhow::Result<CheckSummary>;
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct StoreWatchRoot {
+	pub(super) path: PathBuf,
+	pub(super) git_root: Option<PathBuf>,
+	pub(super) ignored_paths: Vec<PathBuf>,
+}
+
 pub(super) struct MemoryIndexStore {
+	opts: SessionOptions,
 	index: SessionIndex,
 	search_docs: Vec<SearchDoc>,
+	change_index: ChangeIndex,
 }
 
 struct SearchDoc {
@@ -65,13 +78,103 @@ struct SearchDoc {
 
 impl MemoryIndexStore {
 	pub(super) fn load(opts: &SessionOptions) -> anyhow::Result<Self> {
-		Ok(Self::new(SessionIndex::load(opts)?))
+		Ok(Self::new(SessionIndex::load(opts)?, opts.clone()))
 	}
 
-	pub(super) fn new(index: SessionIndex) -> Self {
+	fn new(index: SessionIndex, opts: SessionOptions) -> Self {
 		let search_docs = build_search_docs(&index);
-		Self { index, search_docs }
+		let change_index = build_change_index(&index);
+		Self {
+			opts,
+			index,
+			search_docs,
+			change_index,
+		}
 	}
+
+	pub(super) fn watch_roots(&self) -> Vec<StoreWatchRoot> {
+		let ignored_paths = self
+			.opts
+			.cache_dir
+			.as_ref()
+			.map(|path| vec![absolute_path(path)])
+			.unwrap_or_default();
+		self.index
+			.roots
+			.iter()
+			.enumerate()
+			.map(|(idx, root)| StoreWatchRoot {
+				path: root.path.clone(),
+				git_root: self
+					.change_index
+					.resources
+					.get(idx)
+					.and_then(|resource| resource.git_root.clone()),
+				ignored_paths: ignored_paths.clone(),
+			})
+			.collect()
+	}
+
+	pub(super) fn refresh_change_index(&mut self) {
+		self.change_index = build_change_index(&self.index);
+	}
+
+	pub(super) fn reload(&mut self) -> anyhow::Result<()> {
+		let index = SessionIndex::load(&self.opts)?;
+		self.search_docs = build_search_docs(&index);
+		self.change_index = build_change_index(&index);
+		self.index = index;
+		Ok(())
+	}
+
+	pub(super) fn usage_focus_for_target(&self, target: Moniker, label: String) -> UsageFocus {
+		let refs = self.refs_matching_target(&target);
+		let contexts = self.usage_contexts(&refs);
+		UsageFocus {
+			target,
+			label,
+			refs,
+			contexts,
+		}
+	}
+}
+
+fn absolute_path(path: &Path) -> PathBuf {
+	if path.is_absolute() {
+		path.to_path_buf()
+	} else {
+		std::env::current_dir()
+			.map(|cwd| cwd.join(path))
+			.unwrap_or_else(|_| path.to_path_buf())
+	}
+}
+
+fn build_change_index(index: &SessionIndex) -> ChangeIndex {
+	let roots = index
+		.roots
+		.iter()
+		.map(|root| ChangeRoot {
+			label: &root.label,
+			path: &root.path,
+			ctx: &root.ctx,
+		})
+		.collect();
+	let files = index
+		.files
+		.iter()
+		.enumerate()
+		.map(|(file_idx, file)| ChangeFile {
+			file_idx,
+			source_root: file.source_root,
+			path: &file.path,
+			rel_path: &file.rel_path,
+			anchor: &file.anchor,
+			lang: file.lang,
+			graph: &file.graph,
+			source: &file.source,
+		})
+		.collect();
+	super::change::build_change_index(ChangeScan { roots, files })
 }
 
 impl IndexStore for MemoryIndexStore {
@@ -186,6 +289,18 @@ impl IndexStore for MemoryIndexStore {
 		});
 		hits.truncate(limit);
 		hits
+	}
+
+	fn change_index(&self) -> &ChangeIndex {
+		&self.change_index
+	}
+
+	fn changed_defs(&self) -> Vec<DefLocation> {
+		self.change_index.changed_defs()
+	}
+
+	fn change_for_def(&self, loc: &DefLocation) -> Option<&ChangeEntry> {
+		self.change_index.entry_for(loc)
 	}
 
 	fn outgoing_refs(&self, moniker: &Moniker) -> &[RefLocation] {
@@ -403,6 +518,7 @@ fn usage_target_matches(selected: &Moniker, reference_target: &Moniker) -> bool 
 		|| selected.is_ancestor_of(reference_target)
 		|| moniker_matches_without_project(selected, reference_target)
 		|| moniker_is_ancestor_without_project(selected, reference_target)
+		|| callable_last_segment_matches(selected, reference_target)
 }
 
 fn moniker_matches_without_project(left: &Moniker, right: &Moniker) -> bool {
@@ -427,6 +543,20 @@ fn moniker_is_ancestor_without_project(parent: &Moniker, child: &Moniker) -> boo
 
 fn segment_names_match(left: Segment<'_>, right: Segment<'_>) -> bool {
 	left.name == right.name || bare_callable_name(left.name) == bare_callable_name(right.name)
+}
+
+fn callable_last_segment_matches(selected: &Moniker, reference_target: &Moniker) -> bool {
+	let Some(selected_segment) = selected.as_view().segments().last() else {
+		return false;
+	};
+	let Some(target_segment) = reference_target.as_view().segments().last() else {
+		return false;
+	};
+	let kind = std::str::from_utf8(selected_segment.kind).unwrap_or("");
+	if !matches!(kind, "method" | "function" | "func" | "constructor") {
+		return false;
+	}
+	bare_callable_name(selected_segment.name) == bare_callable_name(target_segment.name)
 }
 
 fn bare_callable_name(name: &[u8]) -> &[u8] {

@@ -14,6 +14,7 @@ pub(super) enum ComponentId {
 	PanelRefs,
 	PanelUsages,
 	PanelCheck,
+	PanelChange,
 	SourceSnippet,
 }
 
@@ -29,6 +30,7 @@ impl ComponentId {
 			Self::PanelRefs => "ui.panel.refs",
 			Self::PanelUsages => "ui.panel.usages",
 			Self::PanelCheck => "ui.panel.check",
+			Self::PanelChange => "ui.panel.change",
 			Self::SourceSnippet => "ui.source.snippet",
 		}
 	}

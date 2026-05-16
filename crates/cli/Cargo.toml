@@ -22,7 +22,7 @@ path = "src/main.rs"
 [features]
 default = ["pretty", "tui"]
 pretty  = ["dep:anstyle"]
-tui     = ["pretty", "dep:ratatui", "dep:crossterm"]
+tui     = ["pretty", "dep:ratatui", "dep:crossterm", "dep:notify"]
 
 [dependencies]
 code-moniker-core = { workspace = true, features = ["serde"] }
@@ -41,6 +41,7 @@ toml      = { workspace = true }
 anstyle       = { workspace = true, optional = true }
 ratatui       = { workspace = true, optional = true }
 crossterm     = { workspace = true, optional = true }
+notify        = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

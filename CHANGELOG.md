@@ -24,6 +24,16 @@ in `0.y.z`.
 - **`code-moniker ui` search input** — active symbol searches now render
   a dedicated search field above `ui.navigator`; the field is visibly
   focused while editing.
+- **`code-moniker ui` change mode** — `d` opens a Git-backed
+  `HEAD..worktree` view that filters `ui.navigator` to changed
+  declarations, marks changed symbols in explorer mode, reports roots
+  without Git in single-source and multi-source sessions, and lets `u`
+  toggle blast-radius usages without leaving change mode. Added,
+  modified, and removed declarations are represented in the change
+  navigator. The UI now keeps the store live through filesystem watchers:
+  source changes reload the in-memory index, while `.git` changes refresh
+  the change index; generated build paths and custom cache directories
+  are ignored.
 - **`code-moniker extract --format text`** — extract now defaults to a
   moniker-only text output (`txt` alias supported). `--format tsv`
   remains available for metadata columns. Compact monikers use a concise

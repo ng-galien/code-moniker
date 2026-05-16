@@ -12,6 +12,7 @@ use rustc_hash::FxHashMap;
 
 use crate::cache;
 use crate::check;
+use crate::extract;
 use crate::lines::line_range;
 use crate::sources;
 
@@ -35,9 +36,19 @@ pub struct RefLocation {
 }
 
 #[derive(Clone, Debug)]
+pub struct IndexedRoot {
+	pub input: PathBuf,
+	pub path: PathBuf,
+	pub label: String,
+	pub ctx: extract::Context,
+}
+
+#[derive(Clone, Debug)]
 pub struct IndexedFile {
+	pub source_root: usize,
 	pub path: PathBuf,
 	pub rel_path: PathBuf,
+	pub anchor: PathBuf,
 	pub lang: Lang,
 	pub graph: CodeGraph,
 	pub source: String,
@@ -87,6 +98,7 @@ pub struct CheckError {
 
 pub struct SessionIndex {
 	pub root: String,
+	pub roots: Vec<IndexedRoot>,
 	pub files: Vec<IndexedFile>,
 	pub stats: SessionStats,
 	pub defs_by_moniker: FxHashMap<Moniker, Vec<DefLocation>>,
@@ -123,8 +135,10 @@ impl SessionIndex {
 						.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", f.path.display()))?,
 				};
 				Ok(IndexedFile {
+					source_root: f.source,
 					path: f.path.clone(),
 					rel_path: f.rel_path.clone(),
+					anchor: f.anchor.clone(),
 					lang: f.lang,
 					graph,
 					source,
@@ -136,6 +150,16 @@ impl SessionIndex {
 		let index_started = Instant::now();
 		let mut idx = Self {
 			root: sources.display_path(),
+			roots: sources
+				.roots
+				.iter()
+				.map(|root| IndexedRoot {
+					input: root.input.clone(),
+					path: root.path.clone(),
+					label: root.label.clone(),
+					ctx: root.ctx.clone(),
+				})
+				.collect(),
 			files,
 			stats: SessionStats {
 				scan_ms,

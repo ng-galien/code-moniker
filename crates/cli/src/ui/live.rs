@@ -1,0 +1,246 @@
+use std::path::{Component, Path, PathBuf};
+
+use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+
+use super::store::StoreWatchRoot;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum StoreEvent {
+	ChangeIndex,
+	FullIndex,
+}
+
+impl StoreEvent {
+	pub(super) fn coalesce(self, other: Self) -> Self {
+		if matches!(self, Self::FullIndex) || matches!(other, Self::FullIndex) {
+			Self::FullIndex
+		} else {
+			Self::ChangeIndex
+		}
+	}
+}
+
+pub(super) struct LiveStoreWatcher {
+	_watcher: RecommendedWatcher,
+	watched_paths: usize,
+	warnings: Vec<String>,
+}
+
+impl LiveStoreWatcher {
+	pub(super) fn start<F>(roots: Vec<StoreWatchRoot>, publish: F) -> anyhow::Result<Self>
+	where
+		F: Fn(StoreEvent) + Send + 'static,
+	{
+		let classifier = EventClassifier::new(roots);
+		let callback_classifier = classifier.clone();
+		let mut watcher = RecommendedWatcher::new(
+			move |event: notify::Result<Event>| {
+				let Ok(event) = event else {
+					return;
+				};
+				if let Some(store_event) = callback_classifier.classify_paths(&event.paths) {
+					publish(store_event);
+				}
+			},
+			Config::default(),
+		)?;
+
+		let mut warnings = Vec::new();
+		let mut watched_paths = 0;
+		for path in classifier.watch_paths() {
+			match watcher.watch(&path, RecursiveMode::Recursive) {
+				Ok(()) => watched_paths += 1,
+				Err(error) => warnings.push(format!("{}: {error}", path.display())),
+			}
+		}
+
+		Ok(Self {
+			_watcher: watcher,
+			watched_paths,
+			warnings,
+		})
+	}
+
+	pub(super) fn status(&self) -> Option<String> {
+		if self.watched_paths == 0 {
+			return Some("live store disabled: no source path could be watched".to_string());
+		}
+		if self.warnings.is_empty() {
+			return Some(format!(
+				"live store watching {} path(s)",
+				self.watched_paths
+			));
+		}
+		Some(format!(
+			"live store watching {} path(s), {} warning(s)",
+			self.watched_paths,
+			self.warnings.len()
+		))
+	}
+}
+
+#[derive(Clone, Debug)]
+struct EventClassifier {
+	roots: Vec<StoreWatchRoot>,
+}
+
+impl EventClassifier {
+	fn new(roots: Vec<StoreWatchRoot>) -> Self {
+		Self { roots }
+	}
+
+	fn watch_paths(&self) -> Vec<PathBuf> {
+		let mut paths = Vec::new();
+		for root in &self.roots {
+			push_unique(&mut paths, root.path.clone());
+			if let Some(git_root) = &root.git_root {
+				push_unique(&mut paths, git_root.join(".git"));
+			}
+		}
+		paths
+	}
+
+	fn classify_paths(&self, paths: &[PathBuf]) -> Option<StoreEvent> {
+		let mut event: Option<StoreEvent> = None;
+		for path in paths {
+			if ignored_path(path) {
+				continue;
+			}
+			if self.is_ignored_root(path) {
+				continue;
+			}
+			if self.is_git_path(path) {
+				event = Some(event.map_or(StoreEvent::ChangeIndex, |current| {
+					current.coalesce(StoreEvent::ChangeIndex)
+				}));
+				continue;
+			}
+			if self.is_source_path(path) {
+				return Some(StoreEvent::FullIndex);
+			}
+		}
+		event
+	}
+
+	fn is_git_path(&self, path: &Path) -> bool {
+		self.roots.iter().any(|root| {
+			root.git_root
+				.as_ref()
+				.map(|git_root| path.starts_with(git_root.join(".git")))
+				.unwrap_or(false)
+		})
+	}
+
+	fn is_source_path(&self, path: &Path) -> bool {
+		self.roots.iter().any(|root| path.starts_with(&root.path))
+	}
+
+	fn is_ignored_root(&self, path: &Path) -> bool {
+		let path = normalize_path(path);
+		self.roots.iter().any(|root| {
+			root.ignored_paths
+				.iter()
+				.any(|ignored| path.starts_with(normalize_path(ignored)))
+		})
+	}
+}
+
+fn push_unique(paths: &mut Vec<PathBuf>, path: PathBuf) {
+	if !paths.iter().any(|existing| existing == &path) {
+		paths.push(path);
+	}
+}
+
+fn ignored_path(path: &Path) -> bool {
+	path.components().any(|component| {
+		matches!(
+			component,
+			Component::Normal(name)
+				if name == ".code-moniker-cache"
+					|| name == ".gradle"
+					|| name == "target"
+					|| name == "node_modules"
+					|| name == "build"
+					|| name == "dist"
+		)
+	})
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+	path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn root(path: &str, git_root: Option<&str>) -> StoreWatchRoot {
+		StoreWatchRoot {
+			path: PathBuf::from(path),
+			git_root: git_root.map(PathBuf::from),
+			ignored_paths: Vec::new(),
+		}
+	}
+
+	#[test]
+	fn classifies_source_changes_as_full_index_refresh() {
+		let classifier = EventClassifier::new(vec![root("/repo/service", Some("/repo"))]);
+
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/service/src/App.java")]),
+			Some(StoreEvent::FullIndex)
+		);
+	}
+
+	#[test]
+	fn classifies_git_changes_as_change_index_refresh() {
+		let classifier = EventClassifier::new(vec![root("/repo/service", Some("/repo"))]);
+
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.git/index")]),
+			Some(StoreEvent::ChangeIndex)
+		);
+	}
+
+	#[test]
+	fn ignores_generated_cache_and_build_paths() {
+		let classifier = EventClassifier::new(vec![root("/repo", Some("/repo"))]);
+
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.code-moniker-cache/a")]),
+			None
+		);
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/target/debug/app")]),
+			None
+		);
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/build/classes/App.class")]),
+			None
+		);
+	}
+
+	#[test]
+	fn ignores_custom_cache_path_inside_watched_root() {
+		let mut watch_root = root("/repo", Some("/repo"));
+		watch_root.ignored_paths = vec![PathBuf::from("/repo/.cm-cache")];
+		let classifier = EventClassifier::new(vec![watch_root]);
+
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.cm-cache/shard/graph")]),
+			None
+		);
+	}
+
+	#[test]
+	fn coalesces_full_refresh_over_change_index_refresh() {
+		assert_eq!(
+			StoreEvent::ChangeIndex.coalesce(StoreEvent::FullIndex),
+			StoreEvent::FullIndex
+		);
+		assert_eq!(
+			StoreEvent::ChangeIndex.coalesce(StoreEvent::ChangeIndex),
+			StoreEvent::ChangeIndex
+		);
+	}
+}

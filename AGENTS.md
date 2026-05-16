@@ -53,6 +53,8 @@ Keep global concerns in the shell: terminal loop, layout, routing, navigation re
 
 Route user input through `ui::events` and typed messages, then through screen handling and `Effect` application. Do not add ad hoc key handling inside render code. Treat `ui::store` as the first data port: UI code should ask the store for data instead of reaching into `SessionIndex` or future index engines directly.
 
+Keep terminal input and store notifications as distinct shell events. Filesystem or Git watcher events should enter through the shell event source and explicit store refresh methods, not as synthetic key events or render-side checks.
+
 Use component markers as stable vocabulary for collaboration. They make feedback and bug reports unambiguous, but business behavior should not depend on rendered labels. Add focused tests for state transitions, route/effect behavior, and store boundaries; use `code-moniker extract`/`stats` plus `cargo arch-check` to keep new UI modules understandable.
 
 ## Testing Guidelines

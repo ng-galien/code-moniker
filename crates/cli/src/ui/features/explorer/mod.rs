@@ -7,6 +7,7 @@ pub(in crate::ui) const ROUTE_OVERVIEW: &str = "overview";
 pub(in crate::ui) const ROUTE_OUTLINE: &str = "outline";
 pub(in crate::ui) const ROUTE_REFS: &str = "refs";
 pub(in crate::ui) const ROUTE_CHECK: &str = "check";
+pub(in crate::ui) const ROUTE_CHANGE: &str = "change";
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(in crate::ui) struct ExplorerFeature;
@@ -47,6 +48,12 @@ impl Feature for ExplorerFeature {
 				Some("Explorer".into()),
 				40,
 			),
+			NavItem::new(
+				"Change",
+				Self::route(ROUTE_CHANGE),
+				Some("Explorer".into()),
+				50,
+			),
 		]
 	}
 
@@ -67,6 +74,11 @@ impl Feature for ExplorerFeature {
 				"Run checks",
 				Some("c".into()),
 			),
+			CommandSpec::new(
+				CommandId::new("explorer.change"),
+				"Show changes",
+				Some("d".into()),
+			),
 		]
 	}
 
@@ -74,7 +86,7 @@ impl Feature for ExplorerFeature {
 		route.feature.as_str() == FEATURE_ID
 			&& matches!(
 				route.path.as_str(),
-				ROUTE_OVERVIEW | ROUTE_OUTLINE | ROUTE_REFS | ROUTE_CHECK
+				ROUTE_OVERVIEW | ROUTE_OUTLINE | ROUTE_REFS | ROUTE_CHECK | ROUTE_CHANGE
 			)
 	}
 }

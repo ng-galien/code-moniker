@@ -9,6 +9,8 @@ pub(super) struct UiTheme {
 	pub(super) status_label: Color,
 	pub(super) component_marker: Color,
 	pub(super) danger: Color,
+	pub(super) change_added: Color,
+	pub(super) change_modified: Color,
 	pub(super) kind: KindTheme,
 	pub(super) nav: NavTheme,
 	pub(super) source: SourceTheme,
@@ -70,6 +72,8 @@ pub(super) const THEME: UiTheme = UiTheme {
 	status_label: Color::Yellow,
 	component_marker: Color::Rgb(107, 114, 128),
 	danger: Color::Red,
+	change_added: Color::Rgb(5, 150, 105),
+	change_modified: Color::Rgb(217, 119, 6),
 	kind: KindTheme {
 		callable: Color::Rgb(37, 99, 235),
 		type_like: Color::Rgb(126, 34, 206),
