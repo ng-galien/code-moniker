@@ -24,6 +24,10 @@ in `0.y.z`.
 - **`code-moniker ui` search input** — active symbol searches now render
   a dedicated search field above `ui.navigator`; the field is visibly
   focused while editing.
+- **`code-moniker ui` panel snapshots** — `y` copies a plain-text
+  snapshot of the active right panel, including its stable component
+  marker, current mode, scope, and panel lines, to the system clipboard
+  without blocking the TUI event loop.
 - **`code-moniker ui` change mode** — `d` opens a Git-backed
   `HEAD..worktree` view that filters `ui.navigator` to changed
   declarations, marks changed symbols in explorer mode, reports roots

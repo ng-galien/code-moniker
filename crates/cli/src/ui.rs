@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::mpsc::Sender;
 
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
@@ -21,6 +22,7 @@ use crate::lines::line_range;
 use crate::{DEFAULT_SCHEME, Exit};
 
 mod change;
+mod clipboard;
 mod component;
 mod contracts;
 mod events;
@@ -102,6 +104,7 @@ fn app_loop<W: Write>(
 	app: &mut App,
 ) -> anyhow::Result<()> {
 	let events = EventSource::start(app.store.watch_roots());
+	app.set_event_sender(events.sender());
 	if let Some(status) = events.status.as_deref() {
 		app.status = status.to_string();
 	}
@@ -131,6 +134,7 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 					None => event,
 				});
 			}
+			ShellEvent::Clipboard(result) => app.handle_clipboard_result(result),
 			ShellEvent::Error(error) => return Err(anyhow::anyhow!(error)),
 		}
 	}
@@ -317,6 +321,8 @@ struct App {
 	filtered_expanded: BTreeSet<String>,
 	nav_rows: Vec<NavRow>,
 	check: CheckState,
+	last_panel_width: usize,
+	event_tx: Option<Sender<ShellEvent>>,
 	status: String,
 }
 
@@ -356,8 +362,10 @@ impl App {
 			filtered_expanded: BTreeSet::new(),
 			nav_rows: Vec::new(),
 			check: CheckState::Pending,
+			last_panel_width: 100,
+			event_tx: None,
 			status: format!(
-				"Enter opens nodes, Esc/left closes, / filters, s searches, d changes, u usages, c checks, q quits ({nav_count} nav items, {command_count} commands)"
+				"Enter opens nodes, Esc/left closes, / filters, s searches, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
 			),
 		};
 		app.refresh_results(false);
@@ -878,6 +886,37 @@ impl App {
 		}
 	}
 
+	fn set_event_sender(&mut self, tx: Sender<ShellEvent>) {
+		self.event_tx = Some(tx);
+	}
+
+	fn handle_clipboard_result(&mut self, result: clipboard::ClipboardResult) {
+		match result.result {
+			Ok(()) => {
+				self.status = format!("copied {} snapshot to clipboard", result.component);
+			}
+			Err(error) => {
+				self.status = format!("clipboard copy failed for {}: {error}", result.component);
+			}
+		}
+	}
+
+	fn copy_panel_snapshot(&mut self) {
+		let snapshot = active_panel_snapshot(self);
+		let component = snapshot.component.as_str().to_string();
+		let text = snapshot.to_text(self);
+		let Some(tx) = self.event_tx.clone() else {
+			self.status = "clipboard copy unavailable before event loop start".to_string();
+			return;
+		};
+		match clipboard::copy_text_async(component.clone(), text, move |result| {
+			let _ = tx.send(ShellEvent::Clipboard(result));
+		}) {
+			Ok(()) => self.status = format!("copying {component} snapshot to clipboard"),
+			Err(error) => self.status = format!("clipboard copy failed: {error:#}"),
+		}
+	}
+
 	fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
 		Ok(self.update(Msg::Key(key)))
 	}
@@ -971,6 +1010,10 @@ impl Screen for App {
 				self.toggle_change_mode();
 				return Ok(Vec::new());
 			}
+			Msg::CopyPanelSnapshot => {
+				self.copy_panel_snapshot();
+				return Ok(Vec::new());
+			}
 			Msg::RunCheck => {
 				self.run_check();
 				return Ok(Vec::new());
@@ -994,7 +1037,7 @@ impl Screen for App {
 			}
 			Msg::Help => {
 				self.status =
-					"keys: Enter/right open, Esc/left close, / filter, s search, d changes, u usages, x clear, Tab/1-5 panels, c check, q quit"
+					"keys: Enter/right open, Esc/left close, / filter, s search, d changes, u usages, y copy panel, x clear, Tab/1-5 panels, c check, q quit"
 						.to_string();
 			}
 			Msg::Key(_) | Msg::Noop => {}
@@ -1011,7 +1054,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
 	Screen::render(app, frame, frame.area(), &ctx);
 }
 
-fn render_shell(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+fn render_shell(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
 	let rows = Layout::default()
 		.direction(Direction::Vertical)
 		.constraints([
@@ -1065,11 +1108,12 @@ fn header_line(app: &App, width: usize) -> Line<'static> {
 	])
 }
 
-fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
 	let cols = Layout::default()
 		.direction(Direction::Horizontal)
 		.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
 		.split(area);
+	app.last_panel_width = panel_content_width(cols[1]);
 	render_left_pane(frame, cols[0], app);
 	match app.view {
 		View::Overview => render_overview(frame, cols[1], app),
@@ -1397,7 +1441,84 @@ fn matched_file_count(defs: &[DefLocation]) -> usize {
 		.len()
 }
 
-fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+struct PanelSnapshot {
+	title: &'static str,
+	component: ComponentId,
+	lines: Vec<Line<'static>>,
+}
+
+impl PanelSnapshot {
+	fn to_text(&self, app: &App) -> String {
+		let mut lines = vec![
+			"code-moniker panel snapshot".to_string(),
+			format!("component {}", self.component.as_str()),
+			format!("title     {}", self.title),
+			format!("mode      {}", app.view_mode.label()),
+			format!("scope     {}", app.scope_label()),
+			String::new(),
+		];
+		lines.extend(self.lines.iter().map(plain_line_text));
+		lines.join("\n")
+	}
+}
+
+fn active_panel_snapshot(app: &App) -> PanelSnapshot {
+	let width = app.last_panel_width;
+	match app.view {
+		View::Overview => PanelSnapshot {
+			title: "overview",
+			component: ComponentId::PanelOverview,
+			lines: overview_lines(app),
+		},
+		View::Tree => PanelSnapshot {
+			title: "outline",
+			component: ComponentId::PanelOutline,
+			lines: outline_panel_lines(app, width),
+		},
+		View::Refs => refs_panel_snapshot(app, width),
+		View::Check => PanelSnapshot {
+			title: "check",
+			component: ComponentId::PanelCheck,
+			lines: check_panel_lines(app),
+		},
+		View::Change => PanelSnapshot {
+			title: "change",
+			component: ComponentId::PanelChange,
+			lines: change_panel_lines(app, width),
+		},
+	}
+}
+
+fn refs_panel_snapshot(app: &App, width: usize) -> PanelSnapshot {
+	if let Some(focus) = app.active_filter.usage_focus() {
+		return PanelSnapshot {
+			title: "usages",
+			component: ComponentId::PanelUsages,
+			lines: usage_focus_lines(app, focus, width),
+		};
+	}
+	let lines = match app.selected() {
+		Some(loc) => {
+			let def = app.store.def(&loc);
+			refs_panel_lines(app, loc, def, width)
+		}
+		None => vec![Line::raw("select a declaration to inspect refs")],
+	};
+	PanelSnapshot {
+		title: "refs",
+		component: ComponentId::PanelRefs,
+		lines,
+	}
+}
+
+fn plain_line_text(line: &Line<'_>) -> String {
+	line.spans
+		.iter()
+		.map(|span| span.content.as_ref())
+		.collect()
+}
+
+fn overview_lines(app: &App) -> Vec<Line<'static>> {
 	let stats = app.store.stats();
 	let total_ms = stats.scan_ms + stats.extract_ms + stats.index_ms;
 	let mut lines = vec![
@@ -1423,13 +1544,22 @@ fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	for (shape, count) in &stats.by_shape {
 		lines.push(Line::raw(format!("{shape:<10} {count}")));
 	}
-	render_panel(frame, area, "overview", ComponentId::PanelOverview, lines);
+	lines
 }
 
-fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	render_panel(
+		frame,
+		area,
+		"overview",
+		ComponentId::PanelOverview,
+		overview_lines(app),
+	);
+}
+
+fn outline_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 	let Some(loc) = app.selected() else {
-		render_nav_selection(frame, area, app);
-		return;
+		return nav_selection_lines(app);
 	};
 	let file = app.store.file(loc.file);
 	let def = app.store.def(&loc);
@@ -1442,12 +1572,7 @@ fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	];
 	if let Some(change) = app.store.change_for_def(&loc) {
 		lines.push(Line::raw(""));
-		lines.extend(change_summary_lines(
-			app,
-			loc,
-			change,
-			panel_content_width(area),
-		));
+		lines.extend(change_summary_lines(app, loc, change, width));
 	}
 	lines.extend([
 		Line::raw(""),
@@ -1481,16 +1606,26 @@ fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	} else {
 		lines.extend(snippet);
 	}
-	render_panel_unwrapped(frame, area, "outline", ComponentId::PanelOutline, lines);
+	lines
 }
 
-fn render_nav_selection(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	render_panel_unwrapped(
+		frame,
+		area,
+		"outline",
+		ComponentId::PanelOutline,
+		outline_panel_lines(app, panel_content_width(area)),
+	);
+}
+
+fn nav_selection_lines(app: &App) -> Vec<Line<'static>> {
 	let Some(row) = app.selected_nav_row() else {
-		let lines = if let Some((raw, error)) = app.active_filter.error() {
+		return if let Some((raw, error)) = app.active_filter.error() {
 			vec![
 				Line::styled("invalid filter", Style::default().fg(THEME.danger)),
 				Line::raw(format!("query     {raw}")),
-				Line::raw(error),
+				Line::raw(error.to_string()),
 				Line::raw(""),
 				Line::raw("examples  Resolver"),
 				Line::raw("          kind:interface Resolver"),
@@ -1507,8 +1642,6 @@ fn render_nav_selection(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		} else {
 			vec![Line::raw("navigator is empty")]
 		};
-		render_panel(frame, area, "outline", ComponentId::PanelOutline, lines);
-		return;
 	};
 	let kind = match row.kind {
 		NavNodeKind::Root => "root",
@@ -1537,7 +1670,7 @@ fn render_nav_selection(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	} else {
 		lines.push(Line::raw("no child node"));
 	}
-	render_panel(frame, area, "outline", ComponentId::PanelOutline, lines);
+	lines
 }
 
 fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
@@ -1855,8 +1988,8 @@ fn usage_focus_lines(app: &App, focus: &UsageFocus, width: usize) -> Vec<Line<'s
 	lines
 }
 
-fn render_check(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let lines = match &app.check {
+fn check_panel_lines(app: &App) -> Vec<Line<'static>> {
+	match &app.check {
 		CheckState::Pending => vec![
 			Line::raw("press c to run .code-moniker.toml rules on the loaded graph"),
 			Line::raw(format!("rules   {}", app.rules.display())),
@@ -1878,10 +2011,19 @@ fn render_check(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		],
 		CheckState::Error(error) => vec![
 			Line::styled("check failed", Style::default().fg(THEME.danger)),
-			Line::raw(error),
+			Line::raw(error.clone()),
 		],
-	};
-	render_panel(frame, area, "check", ComponentId::PanelCheck, lines);
+	}
+}
+
+fn render_check(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	render_panel(
+		frame,
+		area,
+		"check",
+		ComponentId::PanelCheck,
+		check_panel_lines(app),
+	);
 }
 
 fn render_panel(

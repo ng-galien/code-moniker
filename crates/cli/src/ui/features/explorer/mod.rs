@@ -79,6 +79,11 @@ impl Feature for ExplorerFeature {
 				"Show changes",
 				Some("d".into()),
 			),
+			CommandSpec::new(
+				CommandId::new("explorer.copy-panel"),
+				"Copy panel snapshot",
+				Some("y".into()),
+			),
 		]
 	}
 

@@ -3,16 +3,19 @@ use std::thread::{self, JoinHandle};
 
 use crossterm::event::{self, Event};
 
+use crate::ui::clipboard::ClipboardResult;
 use crate::ui::live::{LiveStoreWatcher, StoreEvent};
 use crate::ui::store::StoreWatchRoot;
 
 pub(in crate::ui) enum ShellEvent {
 	Terminal(Event),
 	Store(StoreEvent),
+	Clipboard(ClipboardResult),
 	Error(String),
 }
 
 pub(in crate::ui) struct EventSource {
+	tx: Sender<ShellEvent>,
 	rx: Receiver<ShellEvent>,
 	_terminal_reader: JoinHandle<()>,
 	_live_watcher: Option<LiveStoreWatcher>,
@@ -34,11 +37,16 @@ impl EventSource {
 			Err(error) => (None, Some(format!("live store disabled: {error:#}"))),
 		};
 		Self {
+			tx,
 			rx,
 			_terminal_reader: terminal_reader,
 			_live_watcher: live_watcher,
 			status,
 		}
+	}
+
+	pub(in crate::ui) fn sender(&self) -> Sender<ShellEvent> {
+		self.tx.clone()
 	}
 
 	pub(in crate::ui) fn recv_batch(&self) -> anyhow::Result<Vec<ShellEvent>> {

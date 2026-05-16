@@ -72,6 +72,7 @@ Generated cache and build paths such as `.code-moniker-cache/`, `target/`,
 | `s` | search declarations with ranked symbol search |
 | `d` | toggle Git change mode (`HEAD..worktree`) |
 | `u` | focus usages; in change mode, toggle blast-radius details |
+| `y` | copy a text snapshot of the active right panel to the clipboard |
 | `x` | clear the filter |
 | `c` | run the check view |
 | `?` | show key help |
@@ -81,3 +82,7 @@ Generated cache and build paths such as `.code-moniker-cache/`, `target/`,
 The UI does not modify source or rules files. When `--cache DIR` is used,
 it may create or update cache entries under that directory; without
 `--cache`, it only reads project sources and the selected rules file.
+Panel snapshots are copied as plain text with the active component marker,
+mode, scope, and panel content lines so they can be pasted into an issue
+or an agent conversation. They are text-oriented debug payloads, not
+terminal image captures.

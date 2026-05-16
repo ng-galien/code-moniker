@@ -117,6 +117,29 @@ fn feature_registry_exposes_static_explorer_contracts() {
 				&& command.shortcut.as_deref() == Some("d")),
 		"{commands:?}"
 	);
+	assert!(
+		commands
+			.iter()
+			.any(|command| command.label == "Copy panel snapshot"
+				&& command.shortcut.as_deref() == Some("y")),
+		"{commands:?}"
+	);
+}
+
+#[test]
+fn y_key_copies_panel_only_in_normal_mode() {
+	assert!(matches!(
+		key_to_msg(UiMode::Normal, key(KeyCode::Char('y'))),
+		Msg::CopyPanelSnapshot
+	));
+	assert!(matches!(
+		key_to_msg(UiMode::EditingFilter, key(KeyCode::Char('y'))),
+		Msg::FilterInput(FilterEdit::Push('y'))
+	));
+	assert!(matches!(
+		key_to_msg(UiMode::EditingSearch, key(KeyCode::Char('y'))),
+		Msg::FilterInput(FilterEdit::Push('y'))
+	));
 }
 
 #[test]
@@ -439,7 +462,7 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 	assert_eq!(search_input_value(&app), "customer");
 	let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
 	terminal
-		.draw(|frame| render_shell(frame, frame.area(), &app))
+		.draw(|frame| render_shell(frame, frame.area(), &mut app))
 		.unwrap();
 	let screen = format!("{}", terminal.backend());
 
@@ -466,6 +489,74 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
 
 	assert!(!search_input_visible(&app));
+}
+
+#[test]
+fn panel_snapshot_text_names_active_component_and_body() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	let overview = active_panel_snapshot(&app).to_text(&app);
+	assert!(
+		overview.contains("component ui.panel.overview"),
+		"{overview}"
+	);
+	assert!(overview.contains("mode      explorer"), "{overview}");
+	assert!(overview.contains("files       1"), "{overview}");
+
+	apply_text_filter(&mut app, "Alpha");
+	select_nav_label_ending_with(&mut app, "Alpha");
+	app.sync_contextual_view();
+
+	let outline = active_panel_snapshot(&app).to_text(&app);
+	assert!(outline.contains("component ui.panel.outline"), "{outline}");
+	assert!(outline.contains("kind      class"), "{outline}");
+	assert!(outline.contains("name      Alpha"), "{outline}");
+}
+
+#[test]
+fn clipboard_result_updates_user_visible_status() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.handle_clipboard_result(clipboard::ClipboardResult {
+		component: "ui.panel.refs".to_string(),
+		result: Ok(()),
+	});
+	assert_eq!(app.status, "copied ui.panel.refs snapshot to clipboard");
+
+	app.handle_clipboard_result(clipboard::ClipboardResult {
+		component: "ui.panel.refs".to_string(),
+		result: Err("missing clipboard command".to_string()),
+	});
+	assert_eq!(
+		app.status,
+		"clipboard copy failed for ui.panel.refs: missing clipboard command"
+	);
 }
 
 #[test]
