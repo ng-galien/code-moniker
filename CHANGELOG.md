@@ -28,6 +28,9 @@ in `0.y.z`.
   snapshot of the active right panel, including its stable component
   marker, current mode, scope, and panel lines, to the system clipboard
   without blocking the TUI event loop.
+- **`code-moniker ui` panel readability** — right-side panels now share a
+  structured presentation layer with bold sections, muted hints, reusable
+  key/value rows, tabular summaries, and theme-driven panel colors.
 - **`code-moniker ui` change mode** — `d` opens a Git-backed
   `HEAD..worktree` view that filters `ui.navigator` to changed
   declarations, marks changed symbols in explorer mode, reports roots

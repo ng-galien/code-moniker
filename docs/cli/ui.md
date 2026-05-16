@@ -86,3 +86,8 @@ Panel snapshots are copied as plain text with the active component marker,
 mode, scope, and panel content lines so they can be pasted into an issue
 or an agent conversation. They are text-oriented debug payloads, not
 terminal image captures.
+
+Right-side panels use a shared presentation layer: sections, key/value
+details, tables, lists, muted hints, and separators are styled consistently
+from the UI theme. Keep new panel content on those helpers so snapshots and
+terminal rendering stay readable in the same way.

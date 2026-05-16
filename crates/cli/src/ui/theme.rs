@@ -13,6 +13,7 @@ pub(super) struct UiTheme {
 	pub(super) change_modified: Color,
 	pub(super) kind: KindTheme,
 	pub(super) nav: NavTheme,
+	pub(super) panel: PanelTheme,
 	pub(super) source: SourceTheme,
 }
 
@@ -54,6 +55,16 @@ impl KindTheme {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub(super) struct PanelTheme {
+	pub(super) section: Color,
+	pub(super) label: Color,
+	pub(super) value: Color,
+	pub(super) header: Color,
+	pub(super) muted: Color,
+	pub(super) separator: Color,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(super) struct SourceTheme {
 	pub(super) active_fg: Color,
 	pub(super) active_bg: Color,
@@ -92,6 +103,14 @@ pub(super) const THEME: UiTheme = UiTheme {
 		file: Color::Rgb(17, 24, 39),
 		symbol: Color::Rgb(17, 24, 39),
 		meta: Color::Rgb(107, 114, 128),
+	},
+	panel: PanelTheme {
+		section: Color::Rgb(8, 145, 178),
+		label: Color::Rgb(107, 114, 128),
+		value: Color::Rgb(17, 24, 39),
+		header: Color::Rgb(55, 65, 81),
+		muted: Color::Rgb(107, 114, 128),
+		separator: Color::Rgb(209, 213, 219),
 	},
 	source: SourceTheme {
 		active_fg: Color::Rgb(31, 41, 55),

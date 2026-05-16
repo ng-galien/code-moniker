@@ -143,6 +143,46 @@ fn y_key_copies_panel_only_in_normal_mode() {
 }
 
 #[test]
+fn panel_display_helpers_render_tables_and_fitted_details() {
+	let columns = [
+		panel::Column::left("lang", 6),
+		panel::Column::right("defs", 5),
+	];
+
+	assert_eq!(
+		line_text(&panel::table_header(&columns, 13)),
+		"lang     defs"
+	);
+	assert_eq!(
+		line_text(&panel::table_row(
+			&columns,
+			&["java".to_string(), "1234".to_string()],
+			13
+		)),
+		"java     1234"
+	);
+	let narrow = line_text(&panel::table_row(
+		&columns,
+		&["typescript".to_string(), "123456".to_string()],
+		8,
+	));
+	assert!(panel::visible_len(&narrow) <= 8, "{narrow}");
+	assert_eq!(
+		line_text(&panel::danger_section("invalid filter")),
+		"invalid filter"
+	);
+	assert_eq!(
+		line_text(&panel::kv(
+			"moniker",
+			"common-lib/lang:java/package:acme",
+			24,
+			FitMode::Middle
+		)),
+		"moniker   commo...e:acme"
+	);
+}
+
+#[test]
 fn kind_palette_groups_known_kinds_and_keeps_fallback() {
 	assert_eq!(
 		THEME.kind.color_for_group(KindGroup::Callable),
@@ -514,7 +554,13 @@ fn panel_snapshot_text_names_active_component_and_body() {
 		"{overview}"
 	);
 	assert!(overview.contains("mode      explorer"), "{overview}");
-	assert!(overview.contains("files       1"), "{overview}");
+	assert!(overview.contains("summary"), "{overview}");
+	assert!(overview.contains("files     1"), "{overview}");
+	assert!(
+		overview.contains("lang          files      defs      refs"),
+		"{overview}"
+	);
+	assert!(overview.contains("shape            count"), "{overview}");
 
 	apply_text_filter(&mut app, "Alpha");
 	select_nav_label_ending_with(&mut app, "Alpha");

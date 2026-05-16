@@ -31,6 +31,7 @@ mod filter;
 mod kinds;
 mod live;
 mod navigator;
+mod panel;
 mod shell;
 mod source;
 mod store;
@@ -52,6 +53,7 @@ use navigator::{
 	NavNode, NavNodeKind, NavRow, all_expanded_keys, build_change_navigator, build_navigator,
 	filtered_expanded_keys, flatten_nav,
 };
+use panel::{Column, FitMode, fit_text, visible_len};
 use shell::{EventSource, FeatureRegistry, ShellEvent};
 use source::source_snippet_lines;
 use store::{
@@ -1468,7 +1470,7 @@ fn active_panel_snapshot(app: &App) -> PanelSnapshot {
 		View::Overview => PanelSnapshot {
 			title: "overview",
 			component: ComponentId::PanelOverview,
-			lines: overview_lines(app),
+			lines: overview_lines(app, width),
 		},
 		View::Tree => PanelSnapshot {
 			title: "outline",
@@ -1479,7 +1481,7 @@ fn active_panel_snapshot(app: &App) -> PanelSnapshot {
 		View::Check => PanelSnapshot {
 			title: "check",
 			component: ComponentId::PanelCheck,
-			lines: check_panel_lines(app),
+			lines: check_panel_lines(app, width),
 		},
 		View::Change => PanelSnapshot {
 			title: "change",
@@ -1502,7 +1504,7 @@ fn refs_panel_snapshot(app: &App, width: usize) -> PanelSnapshot {
 			let def = app.store.def(&loc);
 			refs_panel_lines(app, loc, def, width)
 		}
-		None => vec![Line::raw("select a declaration to inspect refs")],
+		None => vec![panel::muted("select a declaration to inspect refs")],
 	};
 	PanelSnapshot {
 		title: "refs",
@@ -1518,31 +1520,71 @@ fn plain_line_text(line: &Line<'_>) -> String {
 		.collect()
 }
 
-fn overview_lines(app: &App) -> Vec<Line<'static>> {
+fn overview_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 	let stats = app.store.stats();
 	let total_ms = stats.scan_ms + stats.extract_ms + stats.index_ms;
 	let mut lines = vec![
-		Line::raw(format!("root        {}", app.store.root())),
-		Line::raw(format!("files       {}", stats.files)),
-		Line::raw(format!("defs        {}", stats.defs)),
-		Line::raw(format!("refs        {}", stats.refs)),
-		Line::raw(format!("time        {total_ms} ms")),
-		Line::raw(format!("scan        {} ms", stats.scan_ms)),
-		Line::raw(format!("extract     {} ms", stats.extract_ms)),
-		Line::raw(format!("index       {} ms", stats.index_ms)),
-		Line::raw(""),
-		Line::styled("languages", Style::default().fg(THEME.section)),
+		panel::section("summary"),
+		detail_line("root", &app.store.root(), width, FitMode::Tail),
+		detail_line("files", &stats.files.to_string(), width, FitMode::Tail),
+		detail_line("defs", &stats.defs.to_string(), width, FitMode::Tail),
+		detail_line("refs", &stats.refs.to_string(), width, FitMode::Tail),
+		detail_line("time", &format!("{total_ms} ms"), width, FitMode::Tail),
+		detail_line(
+			"scan",
+			&format!("{} ms", stats.scan_ms),
+			width,
+			FitMode::Tail,
+		),
+		detail_line(
+			"extract",
+			&format!("{} ms", stats.extract_ms),
+			width,
+			FitMode::Tail,
+		),
+		detail_line(
+			"index",
+			&format!("{} ms", stats.index_ms),
+			width,
+			FitMode::Tail,
+		),
+		panel::blank(),
+		panel::section("languages"),
 	];
+	let language_columns = [
+		Column::left("lang", 10),
+		Column::right("files", 7),
+		Column::right("defs", 8),
+		Column::right("refs", 8),
+	];
+	lines.push(panel::table_header(&language_columns, width));
+	lines.push(panel::separator(panel::table_width(
+		&language_columns,
+		width,
+	)));
 	for (lang, totals) in &stats.by_lang {
-		lines.push(Line::raw(format!(
-			"{lang:<10} files {:>5}  defs {:>7}  refs {:>7}",
-			totals.files, totals.defs, totals.refs
-		)));
+		lines.push(panel::table_row(
+			&language_columns,
+			&[
+				lang.to_string(),
+				totals.files.to_string(),
+				totals.defs.to_string(),
+				totals.refs.to_string(),
+			],
+			width,
+		));
 	}
-	lines.push(Line::raw(""));
-	lines.push(Line::styled("shapes", Style::default().fg(THEME.section)));
+	lines.push(panel::blank());
+	lines.push(panel::section("shapes"));
+	let shape_columns = [Column::left("shape", 12), Column::right("count", 8)];
+	lines.push(panel::table_header(&shape_columns, width));
+	lines.push(panel::separator(panel::table_width(&shape_columns, width)));
 	for (shape, count) in &stats.by_shape {
-		lines.push(Line::raw(format!("{shape:<10} {count}")));
+		lines.push(panel::table_row(
+			&shape_columns,
+			&[shape.to_string(), count.to_string()],
+			width,
+		));
 	}
 	lines
 }
@@ -1553,56 +1595,71 @@ fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		area,
 		"overview",
 		ComponentId::PanelOverview,
-		overview_lines(app),
+		overview_lines(app, panel_content_width(area)),
 	);
 }
 
 fn outline_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 	let Some(loc) = app.selected() else {
-		return nav_selection_lines(app);
+		return nav_selection_lines(app, width);
 	};
 	let file = app.store.file(loc.file);
 	let def = app.store.def(&loc);
 	let mut lines = vec![
-		Line::styled("selected", Style::default().fg(THEME.section)),
-		Line::raw(format!("kind      {}", def_kind(def))),
-		Line::raw(format!("name      {}", last_name(&def.moniker))),
-		Line::raw(format!("file      {}", file.rel_path.display())),
-		Line::raw(format!("moniker   {}", compact_moniker(&def.moniker))),
+		panel::section("selected"),
+		detail_line("kind", &def_kind(def), width, FitMode::Tail),
+		detail_line("name", &last_name(&def.moniker), width, FitMode::Middle),
+		detail_line(
+			"file",
+			&file.rel_path.display().to_string(),
+			width,
+			FitMode::Tail,
+		),
+		detail_line(
+			"moniker",
+			&compact_moniker(&def.moniker),
+			width,
+			FitMode::Middle,
+		),
 	];
 	if let Some(change) = app.store.change_for_def(&loc) {
 		lines.push(Line::raw(""));
 		lines.extend(change_summary_lines(app, loc, change, width));
 	}
-	lines.extend([
-		Line::raw(""),
-		Line::styled("children", Style::default().fg(THEME.section)),
-	]);
+	lines.extend([panel::blank(), panel::section("children")]);
 	let children = app.store.children_by_parent(&def.moniker);
 	if children.is_empty() {
-		lines.push(Line::raw("none"));
+		lines.push(panel::muted("none"));
 	} else {
+		let child_columns = [Column::left("kind", 12), Column::left("name", 40)];
+		lines.push(panel::table_header(&child_columns, width));
+		lines.push(panel::separator(panel::table_width(&child_columns, width)));
 		for child in children.iter().take(40) {
 			let child_def = app.store.def(child);
-			lines.push(Line::raw(format!(
-				"{} {}",
-				def_kind(child_def),
-				last_name(&child_def.moniker)
-			)));
+			lines.push(panel::table_row(
+				&child_columns,
+				&[def_kind(child_def), last_name(&child_def.moniker)],
+				width,
+			));
 		}
 		if children.len() > 40 {
-			lines.push(Line::raw(format!("... {} more", children.len() - 40)));
+			lines.push(panel::muted(format!("... {} more", children.len() - 40)));
 		}
 	}
-	lines.push(Line::raw(""));
+	lines.push(panel::blank());
 	lines.push(Line::from(vec![
-		Span::styled("source", Style::default().fg(THEME.section)),
+		Span::styled(
+			"source",
+			Style::default()
+				.fg(THEME.panel.section)
+				.add_modifier(Modifier::BOLD),
+		),
 		Span::raw(" "),
 		marker(ComponentId::SourceSnippet),
 	]));
 	let snippet = source_snippet_lines(app, &loc, 3);
 	if snippet.is_empty() {
-		lines.push(Line::raw("no source position"));
+		lines.push(panel::muted("no source position"));
 	} else {
 		lines.extend(snippet);
 	}
@@ -1619,28 +1676,29 @@ fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	);
 }
 
-fn nav_selection_lines(app: &App) -> Vec<Line<'static>> {
+fn nav_selection_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 	let Some(row) = app.selected_nav_row() else {
 		return if let Some((raw, error)) = app.active_filter.error() {
 			vec![
-				Line::styled("invalid filter", Style::default().fg(THEME.danger)),
-				Line::raw(format!("query     {raw}")),
-				Line::raw(error.to_string()),
-				Line::raw(""),
-				Line::raw("examples  Resolver"),
-				Line::raw("          kind:interface Resolver"),
-				Line::raw("          kind:method ^async"),
+				panel::danger_section("invalid filter"),
+				detail_line("query", raw, width, FitMode::Tail),
+				Line::styled(error.to_string(), Style::default().fg(THEME.danger)),
+				panel::blank(),
+				panel::section("examples"),
+				panel::bullet("Resolver"),
+				panel::bullet("kind:interface Resolver"),
+				panel::bullet("kind:method ^async"),
 			]
 		} else if app.is_filtered() {
 			vec![
-				Line::styled("filtered navigator", Style::default().fg(THEME.section)),
-				Line::raw(format!("filter    {}", app.filter_label())),
-				Line::raw("matches   0"),
-				Line::raw(""),
-				Line::raw("x clears the filter"),
+				panel::section("filtered navigator"),
+				detail_line("filter", &app.filter_label(), width, FitMode::Tail),
+				detail_line("matches", "0", width, FitMode::Tail),
+				panel::blank(),
+				panel::muted("x clears the filter"),
 			]
 		} else {
-			vec![Line::raw("navigator is empty")]
+			vec![panel::muted("navigator is empty")]
 		};
 	};
 	let kind = match row.kind {
@@ -1652,12 +1710,12 @@ fn nav_selection_lines(app: &App) -> Vec<Line<'static>> {
 		NavNodeKind::Change(_) => "change",
 	};
 	let mut lines = vec![
-		Line::styled("navigator", Style::default().fg(THEME.section)),
-		Line::raw(format!("kind      {kind}")),
-		Line::raw(format!("name      {}", row.label)),
-		Line::raw(format!("files     {}", row.file_count)),
-		Line::raw(format!("defs      {}", row.def_count)),
-		Line::raw(""),
+		panel::section("navigator"),
+		detail_line("kind", kind, width, FitMode::Tail),
+		detail_line("name", &row.label, width, FitMode::Middle),
+		detail_line("files", &row.file_count.to_string(), width, FitMode::Tail),
+		detail_line("defs", &row.def_count.to_string(), width, FitMode::Tail),
+		panel::blank(),
 	];
 	if row.has_children {
 		let state = if app.active_expanded().contains(&row.key) {
@@ -1665,10 +1723,10 @@ fn nav_selection_lines(app: &App) -> Vec<Line<'static>> {
 		} else {
 			"closed"
 		};
-		lines.push(Line::raw(format!("state     {state}")));
-		lines.push(Line::raw("Enter toggles, right opens, left closes"));
+		lines.push(detail_line("state", state, width, FitMode::Tail));
+		lines.push(panel::muted("Enter toggles, right opens, left closes"));
 	} else {
-		lines.push(Line::raw("no child node"));
+		lines.push(panel::muted("no child node"));
 	}
 	lines
 }
@@ -1685,7 +1743,7 @@ fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 			area,
 			"refs",
 			ComponentId::PanelRefs,
-			vec![Line::raw("select a declaration to inspect refs")],
+			vec![panel::muted("select a declaration to inspect refs")],
 		);
 		return;
 	};
@@ -1735,7 +1793,7 @@ fn refs_panel_lines(
 	let outgoing = app.store.outgoing_refs(&def.moniker);
 	let incoming = app.store.incoming_refs(&def.moniker);
 	let mut lines = vec![
-		Line::styled("selected", Style::default().fg(THEME.section)),
+		panel::section("selected"),
 		detail_line("kind", &def_kind(def), width, FitMode::Tail),
 		detail_line("name", &last_name(&def.moniker), width, FitMode::Middle),
 		detail_line(
@@ -1750,17 +1808,14 @@ fn refs_panel_lines(
 			width,
 			FitMode::Middle,
 		),
-		Line::raw(""),
-		Line::styled("incoming impact", Style::default().fg(THEME.section)),
-		Line::raw(reference_summary(app, incoming)),
+		panel::blank(),
+		panel::section("incoming impact"),
+		panel::muted(reference_summary(app, incoming)),
 	];
 	push_ref_rows(&mut lines, app, incoming, RefDirection::Incoming, 30, width);
-	lines.push(Line::raw(""));
-	lines.push(Line::styled(
-		"outgoing dependencies",
-		Style::default().fg(THEME.section),
-	));
-	lines.push(Line::raw(reference_summary(app, outgoing)));
+	lines.push(panel::blank());
+	lines.push(panel::section("outgoing dependencies"));
+	lines.push(panel::muted(reference_summary(app, outgoing)));
 	push_ref_rows(&mut lines, app, outgoing, RefDirection::Outgoing, 30, width);
 	lines
 }
@@ -1778,7 +1833,7 @@ fn change_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 fn change_overview_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 	let changes = app.store.change_index();
 	let mut lines = vec![
-		Line::styled("change scope", Style::default().fg(THEME.section)),
+		panel::section("change scope"),
 		detail_line("scope", &changes.scope, width, FitMode::Tail),
 		detail_line(
 			"changes",
@@ -1792,11 +1847,11 @@ fn change_overview_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 			width,
 			FitMode::Tail,
 		),
-		Line::raw(""),
-		Line::styled("git resources", Style::default().fg(THEME.section)),
+		panel::blank(),
+		panel::section("git resources"),
 	];
 	if changes.resources.is_empty() {
-		lines.push(Line::raw("none"));
+		lines.push(panel::muted("none"));
 	} else {
 		for resource in &changes.resources {
 			let status = if resource.available() {
@@ -1813,13 +1868,13 @@ fn change_overview_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 		}
 	}
 	if !changes.diagnostics.is_empty() {
-		lines.push(Line::raw(""));
+		lines.push(panel::blank());
 		lines.push(Line::styled(
 			"diagnostics",
 			Style::default().fg(THEME.danger),
 		));
 		for diagnostic in &changes.diagnostics {
-			lines.push(Line::raw(diagnostic.clone()));
+			lines.push(panel::bullet(diagnostic.clone()));
 		}
 	}
 	lines
@@ -1828,7 +1883,7 @@ fn change_overview_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 fn change_diff_lines(app: &App, change: &ChangeEntry, width: usize) -> Vec<Line<'static>> {
 	let refs = change_blast_radius_refs_for_change(app, change);
 	let mut lines = vec![
-		Line::styled("changed symbol", Style::default().fg(THEME.section)),
+		panel::section("changed symbol"),
 		detail_line("status", change.status.label(), width, FitMode::Tail),
 		detail_line("kind", &change.kind, width, FitMode::Tail),
 		detail_line("symbol", &change.name, width, FitMode::Middle),
@@ -1859,10 +1914,10 @@ fn change_diff_lines(app: &App, change: &ChangeEntry, width: usize) -> Vec<Line<
 		width,
 		FitMode::Tail,
 	));
-	lines.push(Line::raw(""));
+	lines.push(panel::blank());
 	lines.extend(change_blast_radius_summary(&refs, width));
-	lines.push(Line::raw(""));
-	lines.push(Line::raw("u toggles blast radius details"));
+	lines.push(panel::blank());
+	lines.push(panel::muted("u toggles blast radius details"));
 	lines
 }
 
@@ -1874,7 +1929,7 @@ fn change_summary_lines(
 ) -> Vec<Line<'static>> {
 	let usages = change_blast_radius_refs(app, loc).len();
 	vec![
-		Line::styled("change", Style::default().fg(THEME.section)),
+		panel::section("change"),
 		detail_line("status", change.status.label(), width, FitMode::Tail),
 		detail_line(
 			"scope",
@@ -1893,7 +1948,7 @@ fn change_blast_radius_summary(refs: &[RefLocation], width: usize) -> Vec<Line<'
 		.collect::<BTreeSet<_>>()
 		.len();
 	vec![
-		Line::styled("blast radius", Style::default().fg(THEME.section)),
+		panel::section("blast radius"),
 		detail_line(
 			"direct",
 			&format!("{} direct usage(s)", refs.len()),
@@ -1907,13 +1962,10 @@ fn change_blast_radius_summary(refs: &[RefLocation], width: usize) -> Vec<Line<'
 fn change_usage_lines(app: &App, change: &ChangeEntry, width: usize) -> Vec<Line<'static>> {
 	let refs = change_blast_radius_refs_for_change(app, change);
 	let mut lines = change_blast_radius_summary(&refs, width);
-	lines.push(Line::raw(""));
-	lines.push(Line::styled(
-		"references",
-		Style::default().fg(THEME.section),
-	));
+	lines.push(panel::blank());
+	lines.push(panel::section("references"));
 	if refs.is_empty() {
-		lines.push(Line::raw("none"));
+		lines.push(panel::muted("none"));
 	} else {
 		push_ref_rows(&mut lines, app, &refs, RefDirection::Incoming, 40, width);
 	}
@@ -1955,7 +2007,7 @@ fn app_ref_source_index(loc: &RefLocation) -> usize {
 
 fn usage_focus_lines(app: &App, focus: &UsageFocus, width: usize) -> Vec<Line<'static>> {
 	let mut lines = vec![
-		Line::styled("usage focus", Style::default().fg(THEME.section)),
+		panel::section("usage focus"),
 		detail_line("symbol", &focus.label, width, FitMode::Middle),
 		detail_line(
 			"moniker",
@@ -1970,11 +2022,11 @@ fn usage_focus_lines(app: &App, focus: &UsageFocus, width: usize) -> Vec<Line<'s
 			width,
 			FitMode::Tail,
 		),
-		Line::raw(""),
-		Line::styled("references", Style::default().fg(THEME.section)),
+		panel::blank(),
+		panel::section("references"),
 	];
 	if focus.refs.is_empty() {
-		lines.push(Line::raw("none"));
+		lines.push(panel::muted("none"));
 	} else {
 		push_ref_rows(
 			&mut lines,
@@ -1988,30 +2040,53 @@ fn usage_focus_lines(app: &App, focus: &UsageFocus, width: usize) -> Vec<Line<'s
 	lines
 }
 
-fn check_panel_lines(app: &App) -> Vec<Line<'static>> {
+fn check_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 	match &app.check {
 		CheckState::Pending => vec![
-			Line::raw("press c to run .code-moniker.toml rules on the loaded graph"),
-			Line::raw(format!("rules   {}", app.rules.display())),
-			Line::raw(format!(
-				"profile {}",
-				app.profile.as_deref().unwrap_or("<none>")
-			)),
+			panel::section("check"),
+			panel::muted("press c to run .code-moniker.toml rules on the loaded graph"),
+			detail_line(
+				"rules",
+				&app.rules.display().to_string(),
+				width,
+				FitMode::Tail,
+			),
+			detail_line(
+				"profile",
+				app.profile.as_deref().unwrap_or("<none>"),
+				width,
+				FitMode::Tail,
+			),
 		],
 		CheckState::Ready(summary) => vec![
-			Line::raw(format!("files scanned          {}", summary.files_scanned)),
-			Line::raw(format!(
-				"files with violations  {}",
-				summary.files_with_violations
-			)),
-			Line::raw(format!(
-				"violations             {}",
-				summary.total_violations
-			)),
+			panel::section("check summary"),
+			detail_line(
+				"files",
+				&summary.files_scanned.to_string(),
+				width,
+				FitMode::Tail,
+			),
+			detail_line(
+				"flagged",
+				&summary.files_with_violations.to_string(),
+				width,
+				FitMode::Tail,
+			),
+			detail_line(
+				"violations",
+				&summary.total_violations.to_string(),
+				width,
+				FitMode::Tail,
+			),
 		],
 		CheckState::Error(error) => vec![
-			Line::styled("check failed", Style::default().fg(THEME.danger)),
-			Line::raw(error.clone()),
+			Line::styled(
+				"check failed",
+				Style::default()
+					.fg(THEME.danger)
+					.add_modifier(Modifier::BOLD),
+			),
+			panel::bullet(error.clone()),
 		],
 	}
 }
@@ -2022,7 +2097,7 @@ fn render_check(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		area,
 		"check",
 		ComponentId::PanelCheck,
-		check_panel_lines(app),
+		check_panel_lines(app, panel_content_width(area)),
 	);
 }
 
@@ -2068,12 +2143,6 @@ enum RefDirection {
 	Outgoing,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum FitMode {
-	Middle,
-	Tail,
-}
-
 fn reference_summary(app: &App, refs: &[RefLocation]) -> String {
 	let files = refs
 		.iter()
@@ -2096,15 +2165,18 @@ fn push_ref_rows(
 	width: usize,
 ) {
 	if refs.is_empty() {
-		lines.push(Line::raw("none"));
+		lines.push(panel::muted("none"));
 		return;
 	}
 	let groups = ref_groups(app, refs, direction);
-	for group in groups.iter().take(limit) {
+	for (idx, group) in groups.iter().take(limit).enumerate() {
+		if idx > 0 {
+			lines.push(panel::blank());
+		}
 		lines.extend(ref_group_lines(group, width));
 	}
 	if groups.len() > limit {
-		lines.push(Line::raw(format!("... {} more", groups.len() - limit)));
+		lines.push(panel::muted(format!("... {} more", groups.len() - limit)));
 	}
 }
 
@@ -2311,55 +2383,7 @@ fn ref_attr(bytes: &[u8]) -> Option<&str> {
 }
 
 fn detail_line(label: &str, value: &str, width: usize, mode: FitMode) -> Line<'static> {
-	let prefix = format!("{label:<10}");
-	let value_width = width.saturating_sub(visible_len(&prefix));
-	Line::raw(format!("{prefix}{}", fit_text(value, value_width, mode)))
-}
-
-fn fit_text(value: &str, width: usize, mode: FitMode) -> String {
-	if visible_len(value) <= width {
-		return value.to_string();
-	}
-	match mode {
-		FitMode::Middle => fit_middle(value, width),
-		FitMode::Tail => fit_tail(value, width),
-	}
-}
-
-fn fit_middle(value: &str, width: usize) -> String {
-	if width == 0 {
-		return String::new();
-	}
-	if width <= 3 {
-		return ".".repeat(width);
-	}
-	let available = width - 3;
-	let left = available / 2;
-	let right = available - left;
-	format!("{}...{}", take_start(value, left), take_end(value, right))
-}
-
-fn fit_tail(value: &str, width: usize) -> String {
-	if width == 0 {
-		return String::new();
-	}
-	if width <= 3 {
-		return ".".repeat(width);
-	}
-	format!("...{}", take_end(value, width - 3))
-}
-
-fn take_start(value: &str, count: usize) -> String {
-	value.chars().take(count).collect()
-}
-
-fn take_end(value: &str, count: usize) -> String {
-	let chars: Vec<_> = value.chars().collect();
-	chars[chars.len().saturating_sub(count)..].iter().collect()
-}
-
-fn visible_len(value: &str) -> usize {
-	value.chars().count()
+	panel::kv(label, value, width, mode)
 }
 
 fn display_filter(filter: &str) -> &str {
