@@ -130,6 +130,13 @@ impl HarnessBackend {
 			Self::Claude => CLAUDE_MATCHER,
 		}
 	}
+
+	fn check_format_arg(self) -> &'static str {
+		match self {
+			Self::Codex => " --format codex-hook",
+			Self::Claude => "",
+		}
+	}
 }
 
 fn resolve_from_root(root: &Path, path: &Path) -> PathBuf {
@@ -171,9 +178,10 @@ fn hook_script(profile: &str, rules: &Path, scope: &Path, backend: HarnessBacken
 		backend.env_var()
 	);
 	let command = format!(
-		r#""$HOME/.cargo/bin/code-moniker" check --rules {} --profile {} {}"#,
+		r#""$HOME/.cargo/bin/code-moniker" check --rules {} --profile {}{} {}"#,
 		sh_quote(&rules.display().to_string()),
 		sh_quote(profile),
+		backend.check_format_arg(),
 		sh_quote(&scope.display().to_string())
 	);
 	match backend {
@@ -346,11 +354,52 @@ enable = [".*"]
 		let script =
 			std::fs::read_to_string(dir.path().join(".codex/hooks/code-moniker-architecture.sh"))
 				.unwrap();
-		assert!(script.contains("exec \"$HOME/.cargo/bin/code-moniker\" check"));
+		assert!(script.contains("\"$HOME/.cargo/bin/code-moniker\" check"));
+		assert!(script.contains("--format codex-hook"));
+		assert!(!script.contains("hookSpecificOutput"));
+		assert!(!script.contains("python3"));
 		assert!(script.contains("$HOME/.cargo/bin/code-moniker"));
 		assert!(script.contains("--profile 'architecture'"));
 		assert!(script.contains("'src'"));
 		assert!(!script.contains("npm"));
+	}
+
+	#[test]
+	fn codex_harness_uses_code_moniker_codex_hook_format_directly() {
+		use std::process::Command;
+
+		let dir = tempdir().unwrap();
+		write_architecture_profile(dir.path());
+		let bin_dir = dir.path().join(".cargo/bin");
+		std::fs::create_dir_all(&bin_dir).unwrap();
+		let fake = bin_dir.join("code-moniker");
+		std::fs::write(
+			&fake,
+			"#!/usr/bin/env sh\nprintf '%s\\n' \"$*\"\nprintf '%s\\n' '{\"decision\":\"block\",\"reason\":\"violation from fake checker\"}'\nexit 0\n",
+		)
+		.unwrap();
+		super::make_executable(&fake).unwrap();
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"harness",
+			"codex",
+			dir.path().to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+
+		let output = Command::new(dir.path().join(".codex/hooks/code-moniker-architecture.sh"))
+			.env("CODEX_PROJECT_DIR", dir.path())
+			.env("HOME", dir.path())
+			.output()
+			.unwrap();
+
+		assert_eq!(output.status.code(), Some(0));
+		assert!(String::from_utf8(output.stderr).unwrap().is_empty());
+		let stdout = String::from_utf8(output.stdout).unwrap();
+		assert!(stdout.contains("--format codex-hook"), "{stdout}");
+		assert!(stdout.contains("violation from fake checker"), "{stdout}");
 	}
 
 	#[test]

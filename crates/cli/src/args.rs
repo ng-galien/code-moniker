@@ -146,6 +146,7 @@ pub struct CheckArgs {
 pub enum CheckFormat {
 	Text,
 	Json,
+	CodexHook,
 }
 
 #[cfg(feature = "tui")]

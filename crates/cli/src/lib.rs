@@ -370,8 +370,9 @@ fn extract_inner<W: Write>(args: &ExtractArgs, stdout: &mut W) -> anyhow::Result
 
 fn run_check<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match check_inner(args, stdout, stderr) {
-		Ok(any_violation_or_error) => {
-			if any_violation_or_error {
+		Ok(outcome) => {
+			if outcome.any_error || (outcome.any_violation && args.format != CheckFormat::CodexHook)
+			{
 				Exit::NoMatch
 			} else {
 				Exit::Match
@@ -388,7 +389,7 @@ fn check_inner<W: Write, E: Write>(
 	args: &CheckArgs,
 	stdout: &mut W,
 	stderr: &mut E,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<CheckOutcome> {
 	let path: &Path = &args.path;
 	let mut cfg = check::load_with_overrides(Some(&args.rules))?;
 	if let Some(name) = &args.profile {
@@ -401,7 +402,12 @@ fn check_inner<W: Write, E: Write>(
 	} else {
 		match check_one_file(path, &cfg, args.report)? {
 			Some(report) => (vec![report], Vec::new()),
-			None => return Ok(false),
+			None => {
+				return Ok(CheckOutcome {
+					any_violation: false,
+					any_error: false,
+				});
+			}
 		}
 	};
 	for e in &errors {
@@ -416,8 +422,12 @@ fn check_inner<W: Write, E: Write>(
 	match args.format {
 		CheckFormat::Text => write_reports_text(stdout, &reports, &errors, args.report)?,
 		CheckFormat::Json => write_reports_json(stdout, &reports, &errors, args.report)?,
+		CheckFormat::CodexHook => write_reports_codex_hook(stdout, &reports, &errors)?,
 	}
-	Ok(any_violation || !errors.is_empty())
+	Ok(CheckOutcome {
+		any_violation,
+		any_error: !errors.is_empty(),
+	})
 }
 
 struct FileReport {
@@ -429,6 +439,12 @@ struct FileReport {
 struct FileError {
 	path: PathBuf,
 	error: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CheckOutcome {
+	any_violation: bool,
+	any_error: bool,
 }
 
 fn check_one_file(
@@ -701,6 +717,37 @@ fn write_reports_json<W: Write>(
 	Ok(())
 }
 
+fn write_reports_codex_hook<W: Write>(
+	w: &mut W,
+	reports: &[FileReport],
+	errors: &[FileError],
+) -> anyhow::Result<()> {
+	let any_violation = reports.iter().any(|report| !report.violations.is_empty());
+	if !any_violation {
+		return Ok(());
+	}
+	let reason = codex_hook_reason(reports, errors)?;
+	serde_json::to_writer(
+		&mut *w,
+		&serde_json::json!({
+			"decision": "block",
+			"reason": reason,
+		}),
+	)?;
+	w.write_all(b"\n")?;
+	Ok(())
+}
+
+fn codex_hook_reason(reports: &[FileReport], errors: &[FileError]) -> anyhow::Result<String> {
+	let mut reason = Vec::new();
+	writeln!(
+		&mut reason,
+		"code-moniker architecture check failed. Fix the reported rule violation(s):"
+	)?;
+	write_reports_text(&mut reason, reports, errors, false)?;
+	Ok(String::from_utf8(reason)?)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -720,5 +767,46 @@ mod tests {
 				"missing description for {shape:?}"
 			);
 		}
+	}
+
+	#[test]
+	fn codex_hook_format_emits_block_json_with_rule_diagnostic() {
+		let reports = vec![FileReport {
+			path: PathBuf::from("src/lib.rs"),
+			violations: vec![check::Violation {
+				rule_id: "refs.ui-store-boundary".to_string(),
+				moniker: "code+moniker://./lang:rs/module:ui".to_string(),
+				kind: "imports_symbol".to_string(),
+				lines: (11, 11),
+				message: "only the store adapter may import SessionIndex".to_string(),
+				explanation: Some("route indexes through ui::store".to_string()),
+			}],
+			rule_reports: Vec::new(),
+		}];
+		let mut out = Vec::new();
+
+		write_reports_codex_hook(&mut out, &reports, &[]).unwrap();
+
+		let feedback: serde_json::Value = serde_json::from_slice(&out).unwrap();
+		assert_eq!(feedback["decision"], "block");
+		let reason = feedback["reason"].as_str().unwrap();
+		assert!(reason.contains("code-moniker architecture check failed"));
+		assert!(reason.contains("src/lib.rs:L11-L11 [refs.ui-store-boundary]"));
+		assert!(reason.contains("only the store adapter may import SessionIndex"));
+		assert!(feedback.get("hookSpecificOutput").is_none());
+	}
+
+	#[test]
+	fn codex_hook_format_stays_silent_when_clean() {
+		let reports = vec![FileReport {
+			path: PathBuf::from("src/lib.rs"),
+			violations: Vec::new(),
+			rule_reports: Vec::new(),
+		}];
+		let mut out = Vec::new();
+
+		write_reports_codex_hook(&mut out, &reports, &[]).unwrap();
+
+		assert!(out.is_empty());
 	}
 }

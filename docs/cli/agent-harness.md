@@ -90,10 +90,17 @@ Recommended Codex hook entry:
 }
 ```
 
-The generated script calls the binary directly:
+The generated script calls the binary directly. `--format codex-hook`
+maps architecture violations to Codex `PostToolUse` JSON feedback. Plain
+text on `stdout` is ignored by Codex for this event, so failures are
+emitted as a structured `decision: "block"` payload carrying the exact
+`code-moniker check` diagnostics:
 
 ```sh
-code-moniker check --rules ".code-moniker.toml" --profile "architecture" "src"
+code-moniker check --rules ".code-moniker.toml" \
+  --profile "architecture" \
+  --format codex-hook \
+  "src"
 ```
 
 The generated script assumes `code-moniker` was installed with Cargo and
