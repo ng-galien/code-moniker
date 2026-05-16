@@ -11,7 +11,7 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
@@ -152,13 +152,13 @@ impl View {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum VisualizationRegime {
+enum VisualizationMode {
 	Explorer,
 	Search,
 	Usages,
 }
 
-impl VisualizationRegime {
+impl VisualizationMode {
 	fn label(self) -> &'static str {
 		match self {
 			Self::Explorer => "explorer",
@@ -245,7 +245,7 @@ struct App {
 	rules: PathBuf,
 	profile: Option<String>,
 	view: View,
-	regime: VisualizationRegime,
+	view_mode: VisualizationMode,
 	panel_policy: PanelPolicy,
 	mode: UiMode,
 	active_filter: ActiveFilter,
@@ -281,7 +281,7 @@ impl App {
 			rules,
 			profile,
 			view: View::Overview,
-			regime: VisualizationRegime::Explorer,
+			view_mode: VisualizationMode::Explorer,
 			panel_policy: PanelPolicy::Contextual,
 			mode: UiMode::Normal,
 			active_filter: ActiveFilter::None,
@@ -393,10 +393,10 @@ impl App {
 	}
 
 	fn contextual_view(&self) -> View {
-		match self.regime {
-			VisualizationRegime::Usages => View::Refs,
-			VisualizationRegime::Search if self.active_filter.error().is_some() => View::Tree,
-			VisualizationRegime::Explorer | VisualizationRegime::Search => {
+		match self.view_mode {
+			VisualizationMode::Usages => View::Refs,
+			VisualizationMode::Search if self.active_filter.error().is_some() => View::Tree,
+			VisualizationMode::Explorer | VisualizationMode::Search => {
 				if self.selected().is_some() {
 					View::Tree
 				} else {
@@ -434,7 +434,7 @@ impl App {
 		self.mode = UiMode::Normal;
 		self.filter_draft.clear();
 		self.search_draft.clear();
-		self.regime = VisualizationRegime::Usages;
+		self.view_mode = VisualizationMode::Usages;
 		self.panel_policy = PanelPolicy::Contextual;
 		self.active_filter = ActiveFilter::Usages(focus);
 		self.refresh_results(true);
@@ -504,11 +504,11 @@ impl App {
 			},
 		};
 		self.refresh_results(true);
-		self.regime = match &self.active_filter {
-			ActiveFilter::None => VisualizationRegime::Explorer,
-			ActiveFilter::Text { .. } | ActiveFilter::Invalid { .. } => VisualizationRegime::Search,
-			ActiveFilter::Search { .. } => VisualizationRegime::Search,
-			ActiveFilter::Usages(_) => VisualizationRegime::Usages,
+		self.view_mode = match &self.active_filter {
+			ActiveFilter::None => VisualizationMode::Explorer,
+			ActiveFilter::Text { .. } | ActiveFilter::Invalid { .. } => VisualizationMode::Search,
+			ActiveFilter::Search { .. } => VisualizationMode::Search,
+			ActiveFilter::Usages(_) => VisualizationMode::Usages,
 		};
 		self.panel_policy = PanelPolicy::Contextual;
 		self.sync_contextual_view();
@@ -539,7 +539,7 @@ impl App {
 			raw: raw.clone(),
 			hits,
 		};
-		self.regime = VisualizationRegime::Search;
+		self.view_mode = VisualizationMode::Search;
 		self.panel_policy = PanelPolicy::Contextual;
 		self.refresh_results(true);
 		if let Some(loc) = first_hit {
@@ -563,7 +563,7 @@ impl App {
 
 	fn clear_filter(&mut self) {
 		self.mode = UiMode::Normal;
-		self.regime = VisualizationRegime::Explorer;
+		self.view_mode = VisualizationMode::Explorer;
 		self.panel_policy = PanelPolicy::Contextual;
 		self.active_filter = ActiveFilter::None;
 		self.filter_draft.clear();
@@ -832,11 +832,11 @@ fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 }
 
 fn header_line(app: &App, width: usize) -> Line<'static> {
-	let regime = app.regime.label();
+	let mode = app.view_mode.label();
 	let prefix_width = visible_len("code-moniker ")
 		+ visible_len(ComponentId::Header.as_str())
-		+ 2 + visible_len(" regime ")
-		+ visible_len(regime)
+		+ 2 + visible_len(" mode ")
+		+ visible_len(mode)
 		+ visible_len("  scope ");
 	let scope = fit_text(
 		&app.scope_label(),
@@ -852,9 +852,9 @@ fn header_line(app: &App, width: usize) -> Line<'static> {
 		),
 		marker(ComponentId::Header),
 		Span::raw(" "),
-		Span::raw("regime "),
+		Span::raw("mode "),
 		Span::styled(
-			app.regime.label(),
+			app.view_mode.label(),
 			Style::default()
 				.fg(THEME.section)
 				.add_modifier(Modifier::BOLD),
@@ -869,12 +869,105 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		.direction(Direction::Horizontal)
 		.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
 		.split(area);
-	render_nav_list(frame, cols[0], app);
+	render_left_pane(frame, cols[0], app);
 	match app.view {
 		View::Overview => render_overview(frame, cols[1], app),
 		View::Tree => render_outline(frame, cols[1], app),
 		View::Refs => render_refs(frame, cols[1], app),
 		View::Check => render_check(frame, cols[1], app),
+	}
+}
+
+fn render_left_pane(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	if search_input_visible(app) && area.height >= 5 {
+		let rows = Layout::default()
+			.direction(Direction::Vertical)
+			.constraints([Constraint::Length(3), Constraint::Min(0)])
+			.split(area);
+		render_search_input(frame, rows[0], app);
+		render_nav_list(frame, rows[1], app);
+	} else {
+		render_nav_list(frame, area, app);
+	}
+}
+
+fn search_input_visible(app: &App) -> bool {
+	app.mode == UiMode::EditingSearch || matches!(app.active_filter, ActiveFilter::Search { .. })
+}
+
+fn search_input_value(app: &App) -> String {
+	if app.mode == UiMode::EditingSearch {
+		return app.search_draft.clone();
+	}
+	match &app.active_filter {
+		ActiveFilter::Search { raw, .. } => raw.clone(),
+		_ => String::new(),
+	}
+}
+
+fn search_input_title(app: &App) -> String {
+	if app.mode == UiMode::EditingSearch {
+		"search focused".to_string()
+	} else {
+		"search".to_string()
+	}
+}
+
+fn render_search_input(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	let focused = app.mode == UiMode::EditingSearch;
+	let value = search_input_value(app);
+	let width = panel_content_width(area);
+	let prompt = if focused { "> " } else { "  " };
+	let hint = if focused {
+		"  Enter apply  Esc cancel"
+	} else {
+		"  s edit  x clear"
+	};
+	let value_width = width
+		.saturating_sub(visible_len(prompt))
+		.saturating_sub(visible_len(hint));
+	let displayed_value = fit_text(display_filter(&value), value_width, FitMode::Middle);
+	let line = Line::from(vec![
+		Span::styled(prompt, Style::default().fg(THEME.nav.marker)),
+		Span::styled(
+			displayed_value.clone(),
+			Style::default()
+				.fg(THEME.nav.symbol)
+				.add_modifier(if focused {
+					Modifier::BOLD
+				} else {
+					Modifier::empty()
+				}),
+		),
+		Span::styled(hint, Style::default().fg(THEME.nav.meta)),
+	]);
+	let border_style = if focused {
+		Style::default().fg(THEME.status_label)
+	} else {
+		Style::default().fg(THEME.component_marker)
+	};
+	let input = Paragraph::new(line).block(
+		Block::default()
+			.title(block_title(
+				search_input_title(app),
+				ComponentId::SearchInput,
+			))
+			.border_style(border_style)
+			.borders(Borders::ALL),
+	);
+	frame.render_widget(input, area);
+	if focused {
+		let cursor_offset = visible_len(prompt) + visible_len(&displayed_value);
+		let max_x = area.x.saturating_add(area.width.saturating_sub(2));
+		let x = area
+			.x
+			.saturating_add(1)
+			.saturating_add(cursor_offset as u16)
+			.min(max_x);
+		frame.set_cursor_position(Position {
+			x,
+			y: area.y.saturating_add(1),
+		});
 	}
 }
 

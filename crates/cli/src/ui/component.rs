@@ -6,6 +6,7 @@ use super::theme::THEME;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(super) enum ComponentId {
 	Header,
+	SearchInput,
 	Navigator,
 	Status,
 	PanelOverview,
@@ -20,6 +21,7 @@ impl ComponentId {
 	pub(super) fn as_str(self) -> &'static str {
 		match self {
 			Self::Header => "ui.header",
+			Self::SearchInput => "ui.search.input",
 			Self::Navigator => "ui.navigator",
 			Self::Status => "ui.status",
 			Self::PanelOverview => "ui.panel.overview",

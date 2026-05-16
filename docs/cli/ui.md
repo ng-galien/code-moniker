@@ -33,6 +33,19 @@ and moniker anchor.
 | `refs` | incoming and outgoing references for the selected declaration |
 | `check` | runs `.code-moniker.toml` rules against the loaded graph |
 
+## Modes
+
+The header reports the current UI mode and scope:
+
+- `mode explorer  scope all` for normal navigation;
+- `mode search  scope /Resolver` for structural filters;
+- `mode search  scope search:customer` for ranked symbol search;
+- `mode usages  scope MoneyFormatter` when focusing references to a symbol.
+
+Ranked symbol search uses a dedicated `ui.search.input` field above
+`ui.navigator`. The field is focused while editing and remains visible
+after applying the search so the navigator context is explicit.
+
 ## Keys
 
 | Key | Action |
@@ -40,10 +53,12 @@ and moniker anchor.
 | `Tab`, `1`-`4` | switch views |
 | `j`/`k`, arrows | move selection |
 | `/` | filter declaration names with a Rust regex |
+| `s` | search declarations with ranked symbol search |
 | `x` | clear the filter |
 | `c` | run the check view |
 | `?` | show key help |
-| `q`, `Esc`, `Ctrl-C` | quit |
+| `Esc`, left | close navigation or clear the active filtered scope |
+| `q`, `Ctrl-C` | quit |
 
 The UI does not modify source or rules files. When `--cache DIR` is used,
 it may create or update cache entries under that directory; without

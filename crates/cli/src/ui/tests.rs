@@ -1,4 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
+use ratatui::layout::Position;
 
 use code_moniker_core::lang::Lang;
 
@@ -62,6 +65,7 @@ fn component_titles_include_stable_collaboration_markers() {
 	let rendered = line_text(&title);
 
 	assert_eq!(rendered, "navigator [ui.navigator]");
+	assert_eq!(ComponentId::SearchInput.as_str(), "ui.search.input");
 	assert_eq!(ComponentId::PanelRefs.as_str(), "ui.panel.refs");
 	assert_eq!(ComponentId::SourceSnippet.as_str(), "ui.source.snippet");
 }
@@ -140,7 +144,7 @@ fn ui_kind_groups_come_from_language_contracts() {
 }
 
 #[test]
-fn header_exposes_visualization_regime_and_scope_only() {
+fn header_exposes_visualization_mode_and_scope_only() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
 	let store = MemoryIndexStore::load(&SessionOptions {
@@ -156,21 +160,18 @@ fn header_exposes_visualization_regime_and_scope_only() {
 		None,
 	);
 
-	assert_eq!(app.regime, VisualizationRegime::Explorer);
+	assert_eq!(app.view_mode, VisualizationMode::Explorer);
 	assert_eq!(app.view, View::Overview);
 	let initial = line_text(&header_line(&app, 120));
-	assert_eq!(
-		initial,
-		"code-moniker [ui.header] regime explorer  scope all"
-	);
+	assert_eq!(initial, "code-moniker [ui.header] mode explorer  scope all");
 
 	apply_text_filter(&mut app, "Alpha");
 
-	assert_eq!(app.regime, VisualizationRegime::Search);
+	assert_eq!(app.view_mode, VisualizationMode::Search);
 	assert_eq!(app.panel_policy, PanelPolicy::Contextual);
 	assert_eq!(app.view, View::Tree);
 	let filtered = line_text(&header_line(&app, 120));
-	assert!(filtered.contains("regime search"), "{filtered}");
+	assert!(filtered.contains("mode search"), "{filtered}");
 	assert!(filtered.contains("scope /Alpha"), "{filtered}");
 	assert!(!filtered.contains("panel"), "{filtered}");
 	assert!(!filtered.contains("files"), "{filtered}");
@@ -204,7 +205,7 @@ fn view_switches_update_shell_route_through_effects() {
 }
 
 #[test]
-fn contextual_panel_tracks_selected_declaration_in_explorer_regime() {
+fn contextual_panel_tracks_selected_declaration_in_explorer_mode() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
 	let store = MemoryIndexStore::load(&SessionOptions {
@@ -220,7 +221,7 @@ fn contextual_panel_tracks_selected_declaration_in_explorer_regime() {
 		None,
 	);
 
-	assert_eq!(app.regime, VisualizationRegime::Explorer);
+	assert_eq!(app.view_mode, VisualizationMode::Explorer);
 	assert_eq!(app.panel_policy, PanelPolicy::Contextual);
 	assert_eq!(app.view, View::Overview);
 
@@ -345,7 +346,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 
 	assert_eq!(app.mode, UiMode::Normal);
-	assert_eq!(app.regime, VisualizationRegime::Search);
+	assert_eq!(app.view_mode, VisualizationMode::Search);
 	assert!(app.is_filtered());
 	assert!(matches!(app.active_filter, ActiveFilter::Search { .. }));
 	assert_eq!(
@@ -375,9 +376,72 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 		app.nav_rows
 	);
 	let header = line_text(&header_line(&app, 120));
-	assert!(header.contains("regime search"), "{header}");
+	assert!(header.contains("mode search"), "{header}");
 	assert!(header.contains("scope search:customer"), "{header}");
 	assert!(app.status.contains("search: customer"), "{}", app.status);
+}
+
+#[test]
+fn search_edit_uses_focused_input_section_above_navigator() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/a.ts",
+		"class CustomerProfile {}\nclass OrderFlow {}\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	assert!(!search_input_visible(&app));
+
+	app.handle_key(key(KeyCode::Char('s'))).unwrap();
+	for c in "customer".chars() {
+		app.handle_key(key(KeyCode::Char(c))).unwrap();
+	}
+
+	assert_eq!(app.mode, UiMode::EditingSearch);
+	assert!(search_input_visible(&app));
+	assert_eq!(search_input_title(&app), "search focused");
+	assert_eq!(search_input_value(&app), "customer");
+	let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+	terminal
+		.draw(|frame| render_shell(frame, frame.area(), &app))
+		.unwrap();
+	let screen = format!("{}", terminal.backend());
+
+	assert!(
+		screen.contains("search focused [ui.search.input]"),
+		"{screen}"
+	);
+	assert!(
+		screen.find("search focused [ui.search.input]")
+			< screen.find("navigator").or_else(|| screen.find("filtered")),
+		"search input should render above the navigator: {screen}"
+	);
+	terminal
+		.backend_mut()
+		.assert_cursor_position(Position { x: 11, y: 2 });
+
+	app.handle_key(key(KeyCode::Enter)).unwrap();
+
+	assert_eq!(app.mode, UiMode::Normal);
+	assert!(search_input_visible(&app));
+	assert_eq!(search_input_title(&app), "search");
+	assert_eq!(search_input_value(&app), "customer");
+
+	app.handle_key(key(KeyCode::Char('x'))).unwrap();
+
+	assert!(!search_input_visible(&app));
 }
 
 #[test]
@@ -639,10 +703,10 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 		"{}",
 		app.status
 	);
-	assert_eq!(app.regime, VisualizationRegime::Usages);
+	assert_eq!(app.view_mode, VisualizationMode::Usages);
 	assert_eq!(app.panel_policy, PanelPolicy::Contextual);
 	let header = line_text(&header_line(&app, 120));
-	assert!(header.contains("regime usages"), "{header}");
+	assert!(header.contains("mode usages"), "{header}");
 	assert!(header.contains("scope MoneyFormatter"), "{header}");
 	assert!(!header.contains("panel"), "{header}");
 	assert!(
@@ -715,14 +779,14 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 
 	app.focus_usages(premium_accessor);
 
-	assert_eq!(app.regime, VisualizationRegime::Usages);
+	assert_eq!(app.view_mode, VisualizationMode::Usages);
 	assert!(app.is_filtered());
 	assert!(app.nav_rows.is_empty());
 	assert!(app.status.contains("0 reference(s)"), "{}", app.status);
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
 
-	assert_eq!(app.regime, VisualizationRegime::Explorer);
+	assert_eq!(app.view_mode, VisualizationMode::Explorer);
 	assert!(!app.is_filtered());
 	assert_eq!(app.filter_label(), "<all>");
 	assert!(!app.nav_rows.is_empty());
@@ -948,7 +1012,7 @@ fn invalid_filter_regex_clears_rows_with_actionable_status() {
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
 
-	assert_eq!(app.regime, VisualizationRegime::Explorer);
+	assert_eq!(app.view_mode, VisualizationMode::Explorer);
 	assert!(app.active_filter.error().is_none());
 	assert!(!app.nav_rows.is_empty());
 	assert_eq!(app.filter_label(), "<all>");
@@ -1129,7 +1193,7 @@ fn normal_mode_x_clears_filter_but_editing_mode_x_updates_draft() {
 
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
 	assert!(!app.is_filtered());
-	assert_eq!(app.regime, VisualizationRegime::Explorer);
+	assert_eq!(app.view_mode, VisualizationMode::Explorer);
 	assert_eq!(app.filter_label(), "<all>");
 }
 

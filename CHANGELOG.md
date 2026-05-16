@@ -21,6 +21,9 @@ in `0.y.z`.
 - **`code-moniker ui` search mode** — `s` opens a ranked symbol search
   that feeds the contextual navigator, while `/` remains the structural
   regex/kind filter.
+- **`code-moniker ui` search input** — active symbol searches now render
+  a dedicated search field above `ui.navigator`; the field is visibly
+  focused while editing.
 - **`code-moniker extract --format text`** — extract now defaults to a
   moniker-only text output (`txt` alias supported). `--format tsv`
   remains available for metadata columns. Compact monikers use a concise
@@ -101,8 +104,8 @@ in `0.y.z`.
   layer: typed `Route`, `Effect`, `Screen`, and `Feature` contracts, a
   static feature registry, and an `ExplorerFeature` that declares the
   current overview/outline/refs/check navigation surface.
-- **`code-moniker ui`** — visualization regimes are now explicit UI
-  state. The header now carries only global orientation (`regime` and
+- **`code-moniker ui`** — visualization modes are now explicit UI
+  state. The header now carries only global orientation (`mode` and
   `scope`), while contextual panels can follow navigator selection when
   the view is not manually pinned.
 - **`code-moniker ui`** — the refs panel is now impact-oriented:
@@ -148,7 +151,7 @@ in `0.y.z`.
   the active filter. Normal-mode `Esc` closes navigation nodes instead
   of quitting the UI; use `q` or `Ctrl-C` for explicit exit.
 - **`code-moniker ui`** — `Esc`/left now behaves as a back action in
-  filtered regimes: it closes navigation when possible, otherwise it
+  filtered modes: it closes navigation when possible, otherwise it
   clears an empty or invalid search/usages scope and returns to
   explorer mode.
 - **Cache correctness** — graph cache entries are invalidated for this
