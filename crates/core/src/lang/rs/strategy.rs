@@ -42,6 +42,8 @@ impl<'a> LangStrategy for Strategy<'a> {
 			"struct_item" => self.classify_simple_def(node, scope, source, kinds::STRUCT),
 			"enum_item" => self.classify_simple_def(node, scope, source, kinds::ENUM),
 			"type_item" => self.classify_simple_def(node, scope, source, kinds::TYPE),
+			"const_item" => self.classify_simple_def(node, scope, source, kinds::CONST),
+			"static_item" => self.classify_simple_def(node, scope, source, kinds::STATIC),
 			"trait_item" => self.classify_trait(node, scope, source, graph),
 			"function_item" => self.classify_function(node, scope, source),
 			"impl_item" => {

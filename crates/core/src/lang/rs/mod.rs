@@ -154,6 +154,43 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_const_and_static_emit_defs() {
+		let g = extract(
+			"util.rs",
+			"pub const LIMIT: u8 = 1;\nstatic ENABLED: bool = true;\n",
+			&make_anchor(),
+			false,
+		);
+		let const_id = MonikerBuilder::new()
+			.project(b"code-moniker")
+			.segment(b"lang", b"rs")
+			.segment(b"module", b"util")
+			.segment(b"const", b"LIMIT")
+			.build();
+		let static_id = MonikerBuilder::new()
+			.project(b"code-moniker")
+			.segment(b"lang", b"rs")
+			.segment(b"module", b"util")
+			.segment(b"static", b"ENABLED")
+			.build();
+
+		assert!(g.contains(&const_id), "missing const def");
+		assert!(g.contains(&static_id), "missing static def");
+		assert_eq!(
+			g.defs()
+				.find(|def| def.moniker == const_id)
+				.map(|def| def.kind.as_slice()),
+			Some(b"const".as_slice())
+		);
+		assert_eq!(
+			g.defs()
+				.find(|def| def.moniker == static_id)
+				.map(|def| def.kind.as_slice()),
+			Some(b"static".as_slice())
+		);
+	}
+
+	#[test]
 	fn extract_rust_test_function_emits_test_def_with_metadata() {
 		let src = r#"
             #[cfg(test)]

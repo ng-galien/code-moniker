@@ -160,6 +160,8 @@ in `0.y.z`.
 
 ### Fixed
 
+- **`code-moniker-core` (rs extractor)** — Rust `const` and `static`
+  items now emit defs matching the language kind contract.
 - **`code-moniker-core` (java extractor)** — Java record components now
   emit private field defs, public accessor method defs, and `uses_type`
   refs for their component types. Explicit record accessors are not
