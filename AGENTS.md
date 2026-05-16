@@ -23,6 +23,37 @@ Use `bug/` for confirmed incorrect behavior with a minimal reproducer. Use `evol
 - `./pgtap/run.sh`: run SQL extension tests after installing the extension.
 - `cargo arch-check`: run this project’s own architecture rules.
 
+## Validation Workflow
+
+Prefer the narrowest validation that covers the files you changed. During
+TDD, run focused tests first and only widen the gate when the behavior is
+stable. Do not repeat the full workspace suite after every small edit.
+
+Iteration loop examples:
+
+- UI behavior: `cargo test -p code-moniker ui::tests::<test_name> --lib`,
+  then `cargo test -p code-moniker ui::tests --lib` once the flow works.
+- CLI behavior: `cargo test -p code-moniker --test cli_e2e <test_name>`.
+- Extractor behavior: run the focused language unit test, then the relevant
+  `cargo test -p code-moniker-core snapshot_<lang>` or conformance test.
+- Architecture rules: run `cargo arch-check` only when touching UI/store
+  boundaries, rules, imports, module organization, or before commit.
+
+Before code review, use a short gate:
+
+- `cargo fmt --all -- --check`
+- `cargo check --workspace --exclude code-moniker-pg --all-targets`
+- the focused test group for the changed surface
+- `cargo arch-check` when architectural boundaries are involved
+
+Before commit on non-release work, run the full gate once after review fixes:
+`cargo test --workspace --exclude code-moniker-pg`, `cargo clippy --features
+pg17 --no-default-features --tests --no-deps -- -D warnings`, and
+`cargo test --features pg17 --no-default-features --lib`. Run `./pgtap/run.sh`
+only when `crates/pg`, SQL types, or extension behavior changed. Install the
+binary with `cargo install --path crates/cli` only when CLI/TUI behavior changed
+or when the user will test the installed executable.
+
 ## CI & Release Workflow
 
 GitHub CI lives in `.github/workflows/ci.yml`. It runs on `main` pushes
