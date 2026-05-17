@@ -303,10 +303,8 @@ fn header_exposes_visualization_mode_and_scope_only() {
 	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
 	assert_eq!(app.view(), View::Overview);
 	let initial = line_text(&header_line(&app, 120));
-	assert_eq!(
-		initial,
-		"code-moniker [ui.header] mode explorer  [ui.search.input] search [<all>] lang [all] kind [all] scope all"
-	);
+	assert_eq!(initial, "code-moniker [ui.header] mode explorer  scope all");
+	assert!(!initial.contains("[ui.search.input]"), "{initial}");
 
 	apply_text_filter(&mut app, "Alpha");
 
@@ -315,8 +313,9 @@ fn header_exposes_visualization_mode_and_scope_only() {
 	assert_eq!(app.view(), View::Tree);
 	let filtered = line_text(&header_line(&app, 120));
 	assert!(filtered.contains("mode search"), "{filtered}");
-	assert!(filtered.contains("search [Alpha]"), "{filtered}");
 	assert!(filtered.contains("scope search:Alpha"), "{filtered}");
+	assert!(!filtered.contains("[ui.search.input]"), "{filtered}");
+	assert!(!filtered.contains("search ["), "{filtered}");
 	assert!(!filtered.contains("panel"), "{filtered}");
 	assert!(!filtered.contains("files"), "{filtered}");
 	assert!(!filtered.contains("defs"), "{filtered}");
@@ -527,8 +526,10 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	);
 	let header = line_text(&header_line(&app, 120));
 	assert!(header.contains("mode search"), "{header}");
-	assert!(header.contains("search [customer]"), "{header}");
 	assert!(header.contains("scope search:customer"), "{header}");
+	assert!(!header.contains("[ui.search.input]"), "{header}");
+	let search = line_text(&search_line(&app, 120));
+	assert!(search.contains("search [customer]"), "{search}");
 	assert!(app.status().contains("search:customer"), "{}", app.status());
 }
 
@@ -553,15 +554,20 @@ fn header_search_is_always_visible_and_keeps_navigator_space() {
 		None,
 	);
 
-	assert!(!search_input_visible(&app));
+	assert!(search_input_visible(&app));
 	let initial_header = line_text(&header_line(&app, 120));
 	assert!(
-		initial_header.contains("[ui.search.input]"),
+		!initial_header.contains("[ui.search.input]"),
 		"{initial_header}"
 	);
+	let initial_search = line_text(&search_line(&app, 120));
 	assert!(
-		initial_header.contains("search [<all>]"),
-		"{initial_header}"
+		initial_search.contains("[ui.search.input]"),
+		"{initial_search}"
+	);
+	assert!(
+		initial_search.contains("search [<all>]"),
+		"{initial_search}"
 	);
 
 	app.handle_key(key(KeyCode::Char('s'))).unwrap();
@@ -582,9 +588,13 @@ fn header_search_is_always_visible_and_keeps_navigator_space() {
 	assert!(screen.contains("[ui.search.input]"), "{screen}");
 	assert!(screen.contains("search ["), "{screen}");
 	assert!(
+		screen.find("[ui.header]") < screen.find("[ui.search.input]"),
+		"search should render below the header: {screen}"
+	);
+	assert!(
 		screen.find("[ui.search.input]")
 			< screen.find("navigator").or_else(|| screen.find("filtered")),
-		"header search should render before the navigator: {screen}"
+		"search should render before the navigator: {screen}"
 	);
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
@@ -597,11 +607,12 @@ fn header_search_is_always_visible_and_keeps_navigator_space() {
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
 	app.apply_header_search(None, true);
 
-	assert!(!search_input_visible(&app));
+	assert!(search_input_visible(&app));
+	assert_eq!(search_input_value(&app), "");
 }
 
 #[test]
-fn header_values_are_fitted_before_scope_is_rendered() {
+fn search_bar_values_are_fitted_on_the_full_width_row() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
 	let store = WorkspaceStore::load(&SessionOptions {
@@ -628,8 +639,10 @@ fn header_values_are_fitted_before_scope_is_rendered() {
 	app.apply_header_search(None, true);
 
 	let header = line_text(&header_line(&app, 100));
-	assert!(text::visible_len(&header) <= 100, "{header}");
-	assert!(header.contains("scope "), "{header}");
+	assert!(!header.contains("[ui.search.input]"), "{header}");
+	let search = line_text(&search_line(&app, 100));
+	assert!(text::visible_len(&search) <= 100, "{search}");
+	assert!(search.contains("[ui.search.input]"), "{search}");
 }
 
 #[test]
@@ -960,7 +973,7 @@ fn change_mode_reports_sources_without_git() {
 	assert_eq!(app.view(), View::Change);
 	assert_eq!(
 		line_text(&header_line(&app, 120)),
-		"code-moniker [ui.header] mode change  [ui.search.input] search [<all>] lang [all] kind [all] scope HEAD..worktree"
+		"code-moniker [ui.header] mode change  scope HEAD..worktree"
 	);
 	assert!(app.nav_rows().is_empty());
 	let lines = change_panel_lines(&app, 80);
@@ -2175,6 +2188,32 @@ fn escape_closes_navigation_and_explicit_quit_keys_exit() {
 	assert!(matches!(app.check_state(), CheckState::Pending));
 
 	assert!(app.handle_key(key(KeyCode::Char('q'))).unwrap());
+	assert!(
+		app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL))
+			.unwrap()
+	);
+}
+
+#[test]
+fn ctrl_c_quits_even_when_search_field_is_focused() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.handle_key(key(KeyCode::Char('s'))).unwrap();
+	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
+
 	assert!(
 		app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL))
 			.unwrap()

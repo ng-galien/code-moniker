@@ -60,6 +60,9 @@ pub(super) enum FilterEdit {
 }
 
 pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
+	if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+		return Msg::Quit;
+	}
 	match mode {
 		UiMode::HeaderSearch(HeaderSearchFocus::Text) => match key.code {
 			KeyCode::Esc => Msg::ToggleHeaderSearch,
@@ -92,9 +95,6 @@ pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
 }
 
 fn normal_key_to_msg(key: KeyEvent) -> Msg {
-	if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-		return Msg::Quit;
-	}
 	if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::ALT) {
 		return Msg::Noop;
 	}

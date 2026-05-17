@@ -65,7 +65,7 @@ use store::navigation::{NavigationAction, NavigationNotice, NavigationScope, Nav
 #[cfg(test)]
 use view::{
 	active_panel_snapshot, change_panel_lines, header_line, nav_row_line, refs_panel_lines,
-	render_shell, search_input_title, search_input_value, search_input_visible,
+	render_shell, search_input_title, search_input_value, search_input_visible, search_line,
 };
 
 const DEFAULT_PANEL_SNAPSHOT_WIDTH: usize = 100;

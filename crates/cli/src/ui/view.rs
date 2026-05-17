@@ -34,13 +34,15 @@ pub(in crate::ui) fn render_shell(frame: &mut ratatui::Frame<'_>, area: Rect, ap
 		.direction(Direction::Vertical)
 		.constraints([
 			Constraint::Length(1),
+			Constraint::Length(1),
 			Constraint::Min(0),
 			Constraint::Length(1),
 		])
 		.split(area);
 	render_header(frame, rows[0], app);
-	render_body(frame, rows[1], app);
-	render_footer(frame, rows[2], app);
+	render_search_bar(frame, rows[1], app);
+	render_body(frame, rows[2], app);
+	render_footer(frame, rows[3], app);
 }
 
 fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
@@ -52,34 +54,17 @@ fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 
 pub(super) fn header_line(app: &App, width: usize) -> Line<'static> {
 	let mode = app.view_mode().label();
-	let search = app.header_search();
-	let raw_search_value = display_filter(search.text.trim()).to_string();
-	let raw_lang_value = search
-		.lang
-		.map_or("all".to_string(), |lang| lang.tag().to_string());
-	let raw_kind_value = search.kind.as_deref().unwrap_or("all").to_string();
-	let raw_scope = app.scope_label();
-	let fixed_width = visible_len("code-moniker ")
+	let prefix_width = visible_len("code-moniker ")
 		+ visible_len(ComponentId::Header.as_str())
 		+ 2 + visible_len(" mode ")
 		+ visible_len(mode)
-		+ visible_len("  ")
-		+ visible_len(ComponentId::SearchInput.as_str())
-		+ 2 + visible_len(" search [] lang [] kind [] scope ");
-	let [search_width, lang_width, kind_width, scope_width] = fit_header_value_widths(
-		width.saturating_sub(fixed_width),
-		[
-			visible_len(&raw_search_value),
-			visible_len(&raw_lang_value),
-			visible_len(&raw_kind_value),
-			visible_len(&raw_scope),
-		],
+		+ visible_len("  scope ");
+	let scope = fit_text(
+		&app.scope_label(),
+		width.saturating_sub(prefix_width),
+		FitMode::Middle,
 	);
-	let search_value = fit_text(&raw_search_value, search_width, FitMode::Middle);
-	let lang_value = fit_text(&raw_lang_value, lang_width, FitMode::Middle);
-	let kind_value = fit_text(&raw_kind_value, kind_width, FitMode::Middle);
-	let scope = fit_text(&raw_scope, scope_width, FitMode::Middle);
-	let mut spans = vec![
+	Line::from(vec![
 		Span::styled(
 			"code-moniker ",
 			Style::default()
@@ -95,38 +80,65 @@ pub(super) fn header_line(app: &App, width: usize) -> Line<'static> {
 				.fg(THEME.section)
 				.add_modifier(Modifier::BOLD),
 		),
-		Span::raw("  "),
-		marker(ComponentId::SearchInput),
-		Span::raw(" "),
-	];
-	spans.extend(header_field(
+		Span::raw("  scope "),
+		Span::styled(scope, Style::default().fg(THEME.nav.symbol)),
+	])
+}
+
+fn render_search_bar(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	frame.render_widget(
+		Paragraph::new(search_line(app, usize::from(area.width))),
+		area,
+	);
+}
+
+pub(super) fn search_line(app: &App, width: usize) -> Line<'static> {
+	let search = app.header_search();
+	let raw_search_value = display_filter(search.text.trim()).to_string();
+	let raw_lang_value = search
+		.lang
+		.map_or("all".to_string(), |lang| lang.tag().to_string());
+	let raw_kind_value = search.kind.as_deref().unwrap_or("all").to_string();
+	let fixed_width = visible_len(ComponentId::SearchInput.as_str())
+		+ 2 + visible_len(" search [] lang [] kind [] ");
+	let [search_width, lang_width, kind_width] = fit_search_value_widths(
+		width.saturating_sub(fixed_width),
+		[
+			visible_len(&raw_search_value),
+			visible_len(&raw_lang_value),
+			visible_len(&raw_kind_value),
+		],
+	);
+	let search_value = fit_text(&raw_search_value, search_width, FitMode::Middle);
+	let lang_value = fit_text(&raw_lang_value, lang_width, FitMode::Middle);
+	let kind_value = fit_text(&raw_kind_value, kind_width, FitMode::Middle);
+	let mut spans = vec![marker(ComponentId::SearchInput), Span::raw(" ")];
+	spans.extend(search_field(
 		"search",
 		search_value,
 		HeaderSearchFocus::Text,
 		app.mode(),
 	));
-	spans.extend(header_field(
+	spans.extend(search_field(
 		"lang",
 		lang_value,
 		HeaderSearchFocus::Lang,
 		app.mode(),
 	));
-	spans.extend(header_field(
+	spans.extend(search_field(
 		"kind",
 		kind_value,
 		HeaderSearchFocus::Kind,
 		app.mode(),
 	));
-	spans.push(Span::raw("scope "));
-	spans.push(Span::styled(scope, Style::default().fg(THEME.nav.symbol)));
 	Line::from(spans)
 }
 
-fn fit_header_value_widths(available: usize, requested: [usize; 4]) -> [usize; 4] {
+fn fit_search_value_widths(available: usize, requested: [usize; 3]) -> [usize; 3] {
 	if requested.iter().sum::<usize>() <= available {
 		return requested;
 	}
-	let mut widths = [0; 4];
+	let mut widths = [0; 3];
 	let mut remaining = available;
 	while remaining > 0
 		&& widths
@@ -134,7 +146,7 @@ fn fit_header_value_widths(available: usize, requested: [usize; 4]) -> [usize; 4
 			.zip(requested)
 			.any(|(width, max)| *width < max)
 	{
-		for idx in [1, 2, 0, 3] {
+		for idx in [1, 2, 0] {
 			if remaining == 0 {
 				break;
 			}
@@ -147,7 +159,7 @@ fn fit_header_value_widths(available: usize, requested: [usize; 4]) -> [usize; 4
 	widths
 }
 
-fn header_field<'a>(
+fn search_field<'a>(
 	label: &'static str,
 	value: String,
 	focus: HeaderSearchFocus,
@@ -185,7 +197,8 @@ fn render_left_pane(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 
 #[cfg(test)]
 pub(super) fn search_input_visible(app: &App) -> bool {
-	app.header_search().has_filter() || matches!(app.mode(), UiMode::HeaderSearch(_))
+	let _ = app;
+	true
 }
 
 #[cfg(test)]
@@ -452,6 +465,7 @@ pub(super) fn current_panel_snapshot_width() -> usize {
 				.direction(Direction::Vertical)
 				.constraints([
 					Constraint::Length(1),
+					Constraint::Length(1),
 					Constraint::Min(0),
 					Constraint::Length(1),
 				])
@@ -459,7 +473,7 @@ pub(super) fn current_panel_snapshot_width() -> usize {
 			let cols = Layout::default()
 				.direction(Direction::Horizontal)
 				.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
-				.split(rows[1]);
+				.split(rows[2]);
 			panel::content_width(cols[1])
 		})
 		.unwrap_or(DEFAULT_PANEL_SNAPSHOT_WIDTH)
