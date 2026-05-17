@@ -160,6 +160,9 @@ in `0.y.z`.
   app-store shell slice instead of a mutable `App` field, making
   terminal events, task completions, navigation notices, and clipboard
   feedback part of the same reactive state model.
+- **`code-moniker ui`** — the architecture-check panel state is now
+  owned by the app store, starting the migration of right-panel data out
+  of the monolithic `App` struct.
 - **`code-moniker ui` internals** — `SessionIndex` now owns the empty
   and file-catalog construction paths used by phased startup, avoiding
   duplicate partial-index setup in the UI store adapter. Navigator

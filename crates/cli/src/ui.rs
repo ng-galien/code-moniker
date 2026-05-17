@@ -17,7 +17,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
 use crate::args::UiArgs;
-use crate::inspect::{CheckSummary, DefLocation, RefLocation, SessionOptions};
+use crate::inspect::{DefLocation, RefLocation, SessionOptions};
 use crate::lines::line_range;
 use crate::{DEFAULT_SCHEME, Exit};
 
@@ -42,7 +42,7 @@ mod store;
 mod tests;
 mod theme;
 
-use app::{AppAction, AppStore};
+use app::{AppAction, AppStore, CheckState};
 use change::{ChangeEntry, ChangeStatus};
 use component::{ComponentId, block_title, marker};
 use contracts::{Effect, RenderContext, Route, Screen, ScreenContext};
@@ -238,13 +238,6 @@ enum PanelPolicy {
 	Manual,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum CheckState {
-	Pending,
-	Ready(CheckSummary),
-	Error(String),
-}
-
 #[derive(Clone, Debug)]
 enum ActiveFilter {
 	None,
@@ -332,7 +325,6 @@ struct App {
 	filter_draft: String,
 	search_draft: String,
 	navigation: ReactiveStore<NavigationState>,
-	check: CheckState,
 	last_panel_width: usize,
 	event_tx: Option<Sender<ShellEvent>>,
 	startup_load_pending: bool,
@@ -371,7 +363,6 @@ impl App {
 			filter_draft: String::new(),
 			search_draft: String::new(),
 			navigation,
-			check: CheckState::Pending,
 			last_panel_width: 100,
 			event_tx: None,
 			startup_load_pending: false,
@@ -401,6 +392,14 @@ impl App {
 
 	fn append_status(&mut self, status: impl AsRef<str>) {
 		self.app_store.append_status(status);
+	}
+
+	fn check_state(&self) -> &CheckState {
+		self.app_store.check_state()
+	}
+
+	fn set_check_state(&mut self, state: CheckState) {
+		self.app_store.set_check_state(state);
 	}
 
 	fn selected(&self) -> Option<DefLocation> {
@@ -910,11 +909,11 @@ impl App {
 					"check complete: {} violation(s) across {} file(s)",
 					summary.total_violations, summary.files_with_violations
 				));
-				self.check = CheckState::Ready(summary);
+				self.set_check_state(CheckState::Ready(summary));
 			}
 			Err(e) => {
 				self.set_status("check failed");
-				self.check = CheckState::Error(e.to_string());
+				self.set_check_state(CheckState::Error(e.to_string()));
 			}
 		}
 	}
@@ -2157,7 +2156,7 @@ fn usage_focus_lines(app: &App, focus: &UsageFocus, width: usize) -> Vec<Line<'s
 }
 
 fn check_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-	match &app.check {
+	match app.check_state() {
 		CheckState::Pending => vec![
 			panel::section("check"),
 			panel::muted("press c to run .code-moniker.toml rules on the loaded graph"),

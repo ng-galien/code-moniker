@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::inspect::CheckSummary;
 use crate::ui::live::StoreEvent;
 use crate::ui::runtime::{TaskId, TaskOutcome, TaskResult, WorkKind};
 use crate::ui::store::IndexStore;
@@ -96,6 +97,25 @@ pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) status: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum CheckState {
+	Pending,
+	Ready(CheckSummary),
+	Error(String),
+}
+
+impl Default for CheckState {
+	fn default() -> Self {
+		Self::Pending
+	}
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::ui) struct CheckSlice {
+	pub(in crate::ui) generation: u64,
+	pub(in crate::ui) state: CheckState,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct AppState {
 	pub(in crate::ui) generation: u64,
@@ -109,6 +129,7 @@ pub(in crate::ui) struct AppState {
 	pub(in crate::ui) impact: ImpactSlice,
 	pub(in crate::ui) panels: PanelSlice,
 	pub(in crate::ui) coverage: CoverageSlice,
+	pub(in crate::ui) check: CheckSlice,
 	pub(in crate::ui) work: WorkSlice,
 	pub(in crate::ui) last_task: Option<TaskSummary>,
 }
@@ -196,6 +217,16 @@ impl AppState {
 		} else {
 			self.shell.status = format!("{}; {suffix}", self.shell.status);
 		}
+	}
+
+	pub(in crate::ui) fn check_state(&self) -> &CheckState {
+		&self.check.state
+	}
+
+	pub(in crate::ui) fn set_check_state(&mut self, state: CheckState) {
+		self.bump();
+		self.check.generation += 1;
+		self.check.state = state;
 	}
 
 	pub(in crate::ui) fn generation_for_work(&self, work: WorkKind) -> u64 {

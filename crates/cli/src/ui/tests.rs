@@ -2091,7 +2091,7 @@ fn escape_closes_navigation_and_explicit_quit_keys_exit() {
 	assert!(!app.active_expanded().contains(&selected_key));
 	assert!(app.status().contains("closed"), "{}", app.status());
 	assert_eq!(app.view, View::Overview);
-	assert!(matches!(app.check, CheckState::Pending));
+	assert!(matches!(app.check_state(), CheckState::Pending));
 
 	assert!(app.handle_key(key(KeyCode::Char('q'))).unwrap());
 	assert!(

@@ -1,7 +1,7 @@
 use crate::ui::app::action::AppAction;
-use crate::ui::app::state::AppState;
 #[cfg(test)]
 use crate::ui::app::state::LoadState;
+use crate::ui::app::state::{AppState, CheckState};
 use crate::ui::live::StoreEvent;
 use crate::ui::reactive::{ReactiveStore, Reduce, Transition};
 use crate::ui::runtime::{TaskResult, TaskSpec};
@@ -77,6 +77,17 @@ impl AppStore {
 		self.inner.reduce_with(|state| {
 			state.append_status(suffix);
 			Transition::changed("shell-status-appended")
+		});
+	}
+
+	pub(in crate::ui) fn check_state(&self) -> &CheckState {
+		self.inner.state().check_state()
+	}
+
+	pub(in crate::ui) fn set_check_state(&mut self, check: CheckState) {
+		self.inner.reduce_with(|state| {
+			state.set_check_state(check);
+			Transition::changed("check-state")
 		});
 	}
 
@@ -218,6 +229,25 @@ mod tests {
 
 		assert_eq!(store.status(), "loading index; watching git");
 		assert_eq!(store.state().shell.generation, 2);
+	}
+
+	#[test]
+	fn check_state_is_owned_by_app_store() {
+		let mut store = AppStore::new();
+
+		store.set_check_state(CheckState::Ready(crate::inspect::CheckSummary {
+			files_scanned: 7,
+			files_with_violations: 1,
+			total_violations: 3,
+			errors: Vec::new(),
+		}));
+
+		assert!(matches!(
+			store.check_state(),
+			CheckState::Ready(summary)
+				if summary.files_scanned == 7 && summary.total_violations == 3
+		));
+		assert_eq!(store.state().check.generation, 1);
 	}
 
 	#[test]
