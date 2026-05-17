@@ -91,8 +91,15 @@ pub(in crate::ui) struct CoverageSlice {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::ui) struct ShellSlice {
+	pub(in crate::ui) generation: u64,
+	pub(in crate::ui) status: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct AppState {
 	pub(in crate::ui) generation: u64,
+	pub(in crate::ui) shell: ShellSlice,
 	pub(in crate::ui) project: ProjectSlice,
 	pub(in crate::ui) files: FileSlice,
 	pub(in crate::ui) graph: GraphSlice,
@@ -168,6 +175,27 @@ impl AppState {
 
 	pub(in crate::ui) fn set_index_ready(&mut self, files: usize, defs: usize, refs: usize) {
 		self.index.status = LoadState::Ready(IndexSummary { files, defs, refs });
+	}
+
+	pub(in crate::ui) fn status(&self) -> &str {
+		&self.shell.status
+	}
+
+	pub(in crate::ui) fn set_status(&mut self, status: impl Into<String>) {
+		self.bump();
+		self.shell.generation += 1;
+		self.shell.status = status.into();
+	}
+
+	pub(in crate::ui) fn append_status(&mut self, suffix: impl AsRef<str>) {
+		let suffix = suffix.as_ref();
+		self.bump();
+		self.shell.generation += 1;
+		if self.shell.status.is_empty() {
+			self.shell.status = suffix.to_string();
+		} else {
+			self.shell.status = format!("{}; {suffix}", self.shell.status);
+		}
 	}
 
 	pub(in crate::ui) fn generation_for_work(&self, work: WorkKind) -> u64 {

@@ -156,6 +156,10 @@ in `0.y.z`.
   work-kind generations. The app store records task startup, marks
   loading slices, and ignores stale background completions that arrive
   after a newer filesystem or Git invalidation.
+- **`code-moniker ui`** — shell status messages now live in the
+  app-store shell slice instead of a mutable `App` field, making
+  terminal events, task completions, navigation notices, and clipboard
+  feedback part of the same reactive state model.
 - **`code-moniker ui` internals** — `SessionIndex` now owns the empty
   and file-catalog construction paths used by phased startup, avoiding
   duplicate partial-index setup in the UI store adapter. Navigator

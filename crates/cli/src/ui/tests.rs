@@ -476,7 +476,11 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	let header = line_text(&header_line(&app, 120));
 	assert!(header.contains("mode search"), "{header}");
 	assert!(header.contains("scope search:customer"), "{header}");
-	assert!(app.status.contains("search: customer"), "{}", app.status);
+	assert!(
+		app.status().contains("search: customer"),
+		"{}",
+		app.status()
+	);
 }
 
 #[test]
@@ -604,14 +608,14 @@ fn clipboard_result_updates_user_visible_status() {
 		component: "ui.panel.refs".to_string(),
 		result: Ok(()),
 	});
-	assert_eq!(app.status, "copied ui.panel.refs snapshot to clipboard");
+	assert_eq!(app.status(), "copied ui.panel.refs snapshot to clipboard");
 
 	app.handle_clipboard_result(clipboard::ClipboardResult {
 		component: "ui.panel.refs".to_string(),
 		result: Err("missing clipboard command".to_string()),
 	});
 	assert_eq!(
-		app.status,
+		app.status(),
 		"clipboard copy failed for ui.panel.refs: missing clipboard command"
 	);
 }
@@ -645,7 +649,7 @@ fn spawn_effect_runs_task_through_shell_event_channel() {
 	};
 	app.update(AppAction::TaskCompleted(result));
 
-	assert_eq!(app.status, "lazy smoke completed: task completed");
+	assert_eq!(app.status(), "lazy smoke completed: task completed");
 }
 
 #[test]
@@ -668,7 +672,7 @@ fn boot_opens_with_empty_store_then_loads_index_async() {
 	assert_eq!(app.store.stats().files, 0);
 	app.queue_startup_load();
 
-	assert_eq!(app.status, "loading file tree in background");
+	assert_eq!(app.status(), "loading file tree in background");
 	let ShellEvent::TaskCompleted(result) = rx
 		.recv_timeout(std::time::Duration::from_secs(2))
 		.expect("file catalog result")
@@ -686,7 +690,10 @@ fn boot_opens_with_empty_store_then_loads_index_async() {
 		"{:?}",
 		app.nav_rows()
 	);
-	assert_eq!(app.status, "file tree ready; loading symbols in background");
+	assert_eq!(
+		app.status(),
+		"file tree ready; loading symbols in background"
+	);
 
 	let ShellEvent::TaskCompleted(result) = rx
 		.recv_timeout(std::time::Duration::from_secs(2))
@@ -698,7 +705,7 @@ fn boot_opens_with_empty_store_then_loads_index_async() {
 
 	assert!(app.store.stats().defs > 0);
 	assert!(app.take_watch_roots_update().is_some());
-	assert_eq!(app.status, "reload index completed");
+	assert_eq!(app.status(), "reload index completed");
 }
 
 #[test]
@@ -724,9 +731,9 @@ fn full_store_event_queues_async_reload_when_event_loop_is_available() {
 	app.handle_store_event(StoreEvent::FullIndex);
 
 	assert!(
-		app.status.contains("task queued: reload index"),
+		app.status().contains("task queued: reload index"),
 		"{}",
-		app.status
+		app.status()
 	);
 	let ShellEvent::TaskCompleted(result) = rx
 		.recv_timeout(std::time::Duration::from_secs(2))
@@ -743,7 +750,7 @@ fn full_store_event_queues_async_reload_when_event_loop_is_available() {
 			.any(|loc| last_name(&app.store.def(loc).moniker) == "Beta"),
 		"store should be replaced by async reload result"
 	);
-	assert_eq!(app.status, "reload index completed");
+	assert_eq!(app.status(), "reload index completed");
 }
 
 #[test]
@@ -782,9 +789,9 @@ fn change_store_event_queues_async_change_index_refresh() {
 	app.handle_store_event(StoreEvent::ChangeIndex);
 
 	assert!(
-		app.status.contains("task queued: refresh change index"),
+		app.status().contains("task queued: refresh change index"),
 		"{}",
-		app.status
+		app.status()
 	);
 	let ShellEvent::TaskCompleted(result) = rx
 		.recv_timeout(std::time::Duration::from_secs(2))
@@ -803,7 +810,7 @@ fn change_store_event_queues_async_change_index_refresh() {
 		"{:?}",
 		app.store.change_index().entries
 	);
-	assert_eq!(app.status, "refresh change index completed");
+	assert_eq!(app.status(), "refresh change index completed");
 }
 
 #[test]
@@ -1071,7 +1078,7 @@ fn full_store_event_reloads_index_and_refreshes_active_search() {
 		"{:?}",
 		app.nav_rows()
 	);
-	assert!(app.status.contains("store reloaded"), "{}", app.status);
+	assert!(app.status().contains("store reloaded"), "{}", app.status());
 }
 
 #[test]
@@ -1163,7 +1170,7 @@ fn full_store_event_refreshes_change_navigator_while_change_mode_is_active() {
 		"{:?}",
 		app.nav_rows()
 	);
-	assert!(app.status.contains("store reloaded"), "{}", app.status);
+	assert!(app.status().contains("store reloaded"), "{}", app.status());
 }
 
 #[test]
@@ -1524,9 +1531,9 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 
 	assert_eq!(app.view, View::Refs);
 	assert!(
-		app.status.contains("usages of MoneyFormatter"),
+		app.status().contains("usages of MoneyFormatter"),
 		"{}",
-		app.status
+		app.status()
 	);
 	assert_eq!(app.view_mode, VisualizationMode::Usages);
 	assert_eq!(app.panel_policy, PanelPolicy::Contextual);
@@ -1607,7 +1614,7 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 	assert_eq!(app.view_mode, VisualizationMode::Usages);
 	assert!(app.is_filtered());
 	assert!(app.nav_rows().is_empty());
-	assert!(app.status.contains("0 reference(s)"), "{}", app.status);
+	assert!(app.status().contains("0 reference(s)"), "{}", app.status());
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
 
@@ -1616,7 +1623,7 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 	assert_eq!(app.filter_label(), "<all>");
 	assert!(!app.nav_rows().is_empty());
 	assert_eq!(app.view, View::Overview);
-	assert!(app.status.contains("filter cleared"), "{}", app.status);
+	assert!(app.status().contains("filter cleared"), "{}", app.status());
 }
 
 #[test]
@@ -1866,9 +1873,9 @@ fn invalid_filter_regex_clears_rows_with_actionable_status() {
 	assert!(app.active_filter.error().is_some());
 	assert!(app.nav_rows().is_empty());
 	assert!(
-		app.status.contains("invalid filter regex"),
+		app.status().contains("invalid filter regex"),
 		"{}",
-		app.status
+		app.status()
 	);
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
@@ -1988,7 +1995,7 @@ fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 		"{:?}",
 		app.visible_defs()
 	);
-	assert!(app.status.contains("Alpha"), "{}", app.status);
+	assert!(app.status().contains("Alpha"), "{}", app.status());
 	assert!(
 		app.nav_rows()
 			.iter()
@@ -2019,7 +2026,7 @@ fn editing_filter_accepts_printable_chars_with_terminal_modifiers() {
 		.unwrap();
 
 	assert_eq!(app.filter_draft, "A");
-	assert!(app.status.contains("A"), "{}", app.status);
+	assert!(app.status().contains("A"), "{}", app.status());
 }
 
 #[test]
@@ -2082,7 +2089,7 @@ fn escape_closes_navigation_and_explicit_quit_keys_exit() {
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
 	assert_eq!(app.view, View::Overview);
 	assert!(!app.active_expanded().contains(&selected_key));
-	assert!(app.status.contains("closed"), "{}", app.status);
+	assert!(app.status().contains("closed"), "{}", app.status());
 	assert_eq!(app.view, View::Overview);
 	assert!(matches!(app.check, CheckState::Pending));
 
@@ -2112,7 +2119,7 @@ fn normal_mode_ignores_control_modified_command_keys() {
 	apply_text_filter(&mut app, "Alpha");
 	let visible = app.visible_defs().to_vec();
 	let view = app.view;
-	let status = app.status.clone();
+	let status = app.status().to_string();
 
 	app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL))
 		.unwrap();
@@ -2121,6 +2128,6 @@ fn normal_mode_ignores_control_modified_command_keys() {
 
 	assert_eq!(app.view, view);
 	assert_eq!(app.visible_defs(), visible.as_slice());
-	assert_eq!(app.status, status);
+	assert_eq!(app.status(), status);
 	assert!(app.is_filtered());
 }

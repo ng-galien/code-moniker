@@ -112,7 +112,7 @@ fn app_loop<W: Write>(
 	let mut events = EventSource::start(app.store.watch_roots());
 	app.set_event_sender(events.sender());
 	if let Some(status) = events.status.as_deref() {
-		app.status = status.to_string();
+		app.set_status(status);
 	}
 	app.queue_startup_load();
 	terminal.draw(|frame| draw(frame, app))?;
@@ -123,7 +123,7 @@ fn app_loop<W: Write>(
 		}
 		if let Some(watch_roots) = app.take_watch_roots_update() {
 			if let Some(status) = events.replace_watch_roots(watch_roots) {
-				app.status = format!("{}; {status}", app.status);
+				app.append_status(status);
 			}
 		}
 		terminal.draw(|frame| draw(frame, app))?;
@@ -337,7 +337,6 @@ struct App {
 	event_tx: Option<Sender<ShellEvent>>,
 	startup_load_pending: bool,
 	watch_roots_update: Option<Vec<StoreWatchRoot>>,
-	status: String,
 }
 
 impl App {
@@ -377,10 +376,10 @@ impl App {
 			event_tx: None,
 			startup_load_pending: false,
 			watch_roots_update: None,
-			status: format!(
-				"Enter opens nodes, Esc/left closes, / filters, s searches, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
-			),
 		};
+		app.set_status(format!(
+			"Enter opens nodes, Esc/left closes, / filters, s searches, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
+		));
 		app.refresh_results(false);
 		app
 	}
@@ -388,8 +387,20 @@ impl App {
 	fn boot(opts: SessionOptions, scheme: String, rules: PathBuf, profile: Option<String>) -> Self {
 		let mut app = Self::new(MemoryIndexStore::empty(opts), scheme, rules, profile);
 		app.startup_load_pending = true;
-		app.status = "loading index...".to_string();
+		app.set_status("loading index...");
 		app
+	}
+
+	fn status(&self) -> &str {
+		self.app_store.status()
+	}
+
+	fn set_status(&mut self, status: impl Into<String>) {
+		self.app_store.set_status(status);
+	}
+
+	fn append_status(&mut self, status: impl AsRef<str>) {
+		self.app_store.append_status(status);
 	}
 
 	fn selected(&self) -> Option<DefLocation> {
@@ -553,10 +564,10 @@ impl App {
 			(focus.refs.len(), focus.contexts.len())
 		};
 		self.sync_contextual_view();
-		self.status = format!(
+		self.set_status(format!(
 			"usages of {label}: {} reference(s), {} navigable context(s)",
 			refs_len, contexts_len
-		);
+		));
 	}
 
 	fn start_filter_edit(&mut self) {
@@ -566,9 +577,9 @@ impl App {
 			.text_raw()
 			.map(str::to_string)
 			.unwrap_or_default();
-		self.status =
-			"type a structural filter, Enter applies, Esc cancels: Resolver, kind:interface, kind:method async.*"
-				.to_string();
+		self.set_status(
+			"type a structural filter, Enter applies, Esc cancels: Resolver, kind:interface, kind:method async.*",
+		);
 	}
 
 	fn start_search_edit(&mut self) {
@@ -577,23 +588,27 @@ impl App {
 			ActiveFilter::Search { raw, .. } => raw.clone(),
 			_ => String::new(),
 		};
-		self.status = "type a symbol search, Enter applies, Esc cancels: customer resolver format"
-			.to_string();
+		self.set_status(
+			"type a symbol search, Enter applies, Esc cancels: customer resolver format",
+		);
 	}
 
 	fn edit_input(&mut self, edit: FilterEdit) {
-		let (draft, label) = match self.mode {
-			UiMode::EditingSearch => (&mut self.search_draft, "search"),
-			UiMode::EditingFilter | UiMode::Normal => (&mut self.filter_draft, "filter"),
-		};
-		match edit {
-			FilterEdit::Push(c) => draft.push(c),
-			FilterEdit::Backspace => {
-				draft.pop();
+		let status = {
+			let (draft, label) = match self.mode {
+				UiMode::EditingSearch => (&mut self.search_draft, "search"),
+				UiMode::EditingFilter | UiMode::Normal => (&mut self.filter_draft, "filter"),
+			};
+			match edit {
+				FilterEdit::Push(c) => draft.push(c),
+				FilterEdit::Backspace => {
+					draft.pop();
+				}
+				FilterEdit::Clear => draft.clear(),
 			}
-			FilterEdit::Clear => draft.clear(),
-		}
-		self.status = format!("draft {label}: {}", display_filter(draft));
+			format!("draft {label}: {}", display_filter(draft))
+		};
+		self.set_status(status);
 	}
 
 	fn apply_filter(&mut self) {
@@ -621,14 +636,14 @@ impl App {
 		self.panel_policy = PanelPolicy::Contextual;
 		self.sync_contextual_view();
 		if let Some((raw, _)) = self.active_filter.error() {
-			self.status = format!("invalid filter regex: /{raw}");
+			self.set_status(format!("invalid filter regex: /{raw}"));
 		} else {
-			self.status = format!(
+			self.set_status(format!(
 				"filter: {} ({}/{})",
 				self.filter_label(),
 				self.visible_defs().len(),
 				self.store.stats().defs
-			);
+			));
 		}
 	}
 
@@ -637,7 +652,7 @@ impl App {
 		self.mode = UiMode::Normal;
 		if raw.is_empty() {
 			self.clear_filter();
-			self.status = "search cleared".to_string();
+			self.set_status("search cleared");
 			return;
 		}
 		let hits = self.store.search_symbols(&raw, 500);
@@ -654,7 +669,11 @@ impl App {
 			self.select_def(loc);
 		}
 		self.sync_contextual_view();
-		self.status = format!("search: {raw} ({}/{})", hit_count, self.store.stats().defs);
+		self.set_status(format!(
+			"search: {raw} ({}/{})",
+			hit_count,
+			self.store.stats().defs
+		));
 	}
 
 	fn cancel_input(&mut self) {
@@ -663,10 +682,10 @@ impl App {
 			UiMode::EditingFilter | UiMode::Normal => "filter",
 		};
 		self.mode = UiMode::Normal;
-		self.status = format!(
+		self.set_status(format!(
 			"{input} edit canceled; active filter: {}",
 			self.filter_label()
-		);
+		));
 	}
 
 	fn clear_filter(&mut self) {
@@ -679,7 +698,7 @@ impl App {
 		self.search_draft.clear();
 		self.refresh_results(true);
 		self.sync_contextual_view();
-		self.status = "filter cleared".to_string();
+		self.set_status("filter cleared");
 	}
 
 	fn focus_usages_of_selected(&mut self) {
@@ -688,7 +707,7 @@ impl App {
 			return;
 		}
 		let Some(loc) = self.selected() else {
-			self.status = "select a declaration before focusing usages".to_string();
+			self.set_status("select a declaration before focusing usages");
 			return;
 		};
 		self.focus_usages(loc);
@@ -710,16 +729,16 @@ impl App {
 		self.select_first_change();
 		self.sync_contextual_view();
 		let changes = self.store.change_index();
-		self.status = format!(
+		self.set_status(format!(
 			"changes: {} declaration(s) across {} file(s)",
 			changes.entries.len(),
 			changes.changed_file_count()
-		);
+		));
 	}
 
 	fn toggle_change_usages(&mut self) {
 		let Some(change) = self.selected_change_entry() else {
-			self.status = "select a changed declaration before toggling blast radius".to_string();
+			self.set_status("select a changed declaration before toggling blast radius");
 			return;
 		};
 		let name = change.name.clone();
@@ -728,10 +747,10 @@ impl App {
 			ChangePanelMode::Usages => ChangePanelMode::Diff,
 		};
 		self.set_view(View::Change, PanelPolicy::Contextual);
-		self.status = match self.change_panel {
+		self.set_status(match self.change_panel {
 			ChangePanelMode::Diff => format!("change diff details for {name}"),
 			ChangePanelMode::Usages => format!("change blast radius for {name}"),
-		};
+		});
 	}
 
 	fn handle_store_event(&mut self, event: StoreEvent) {
@@ -762,7 +781,7 @@ impl App {
 					self.apply_reloaded_store("store reloaded after filesystem change".to_string());
 				}
 				Err(error) => {
-					self.status = format!("store reload failed: {error:#}");
+					self.set_status(format!("store reload failed: {error:#}"));
 				}
 			},
 		}
@@ -776,7 +795,7 @@ impl App {
 		});
 		self.refresh_results(true);
 		self.sync_contextual_view();
-		self.status = status;
+		self.set_status(status);
 	}
 
 	fn apply_reloaded_store(&mut self, status: String) {
@@ -793,7 +812,7 @@ impl App {
 			self.select_first_change();
 		}
 		self.sync_contextual_view();
-		self.status = status;
+		self.set_status(status);
 	}
 
 	fn apply_refreshed_change_store(&mut self, status: String) {
@@ -809,7 +828,7 @@ impl App {
 			self.select_first_change();
 		}
 		self.sync_contextual_view();
-		self.status = status;
+		self.set_status(status);
 	}
 
 	fn refresh_active_filter_after_store_reload(&mut self) {
@@ -852,8 +871,8 @@ impl App {
 	fn toggle_selected_nav(&mut self) {
 		self.dispatch_navigation(NavigationAction::ToggleSelected);
 		match self.navigation.state().last_notice() {
-			NavigationNotice::Opened(label) => self.status = format!("opened {label}"),
-			NavigationNotice::Closed(label) => self.status = format!("closed {label}"),
+			NavigationNotice::Opened(label) => self.set_status(format!("opened {label}")),
+			NavigationNotice::Closed(label) => self.set_status(format!("closed {label}")),
 			NavigationNotice::MovedToParent | NavigationNotice::Noop => {}
 		}
 	}
@@ -861,7 +880,7 @@ impl App {
 	fn open_selected_nav(&mut self) {
 		self.dispatch_navigation(NavigationAction::OpenSelected);
 		if let NavigationNotice::Opened(label) = self.navigation.state().last_notice() {
-			self.status = format!("opened {label}");
+			self.set_status(format!("opened {label}"));
 		}
 	}
 
@@ -869,7 +888,7 @@ impl App {
 		self.dispatch_navigation(NavigationAction::CloseSelected);
 		match self.navigation.state().last_notice() {
 			NavigationNotice::Closed(label) => {
-				self.status = format!("closed {label}");
+				self.set_status(format!("closed {label}"));
 				true
 			}
 			NavigationNotice::MovedToParent => {
@@ -887,14 +906,14 @@ impl App {
 			.check_summary(&self.rules, self.profile.as_deref(), &self.scheme)
 		{
 			Ok(summary) => {
-				self.status = format!(
+				self.set_status(format!(
 					"check complete: {} violation(s) across {} file(s)",
 					summary.total_violations, summary.files_with_violations
-				);
+				));
 				self.check = CheckState::Ready(summary);
 			}
 			Err(e) => {
-				self.status = "check failed".to_string();
+				self.set_status("check failed");
 				self.check = CheckState::Error(e.to_string());
 			}
 		}
@@ -910,7 +929,7 @@ impl App {
 		}
 		self.startup_load_pending = false;
 		if self.queue_task(runtime::TaskSpec::load_file_catalog(self.store.options())) {
-			self.status = "loading file tree in background".to_string();
+			self.set_status("loading file tree in background");
 		} else {
 			self.handle_store_event_sync(StoreEvent::FullIndex);
 		}
@@ -923,10 +942,13 @@ impl App {
 	fn handle_clipboard_result(&mut self, result: clipboard::ClipboardResult) {
 		match result.result {
 			Ok(()) => {
-				self.status = format!("copied {} snapshot to clipboard", result.component);
+				self.set_status(format!("copied {} snapshot to clipboard", result.component));
 			}
 			Err(error) => {
-				self.status = format!("clipboard copy failed for {}: {error}", result.component);
+				self.set_status(format!(
+					"clipboard copy failed for {}: {error}",
+					result.component
+				));
 			}
 		}
 	}
@@ -934,13 +956,13 @@ impl App {
 	fn handle_task_result(&mut self, result: runtime::TaskResult) {
 		match result.outcome {
 			TaskOutcome::Completed(message) => {
-				self.status = format!("{} completed: {message}", result.label);
+				self.set_status(format!("{} completed: {message}", result.label));
 			}
 			TaskOutcome::FileCatalogLoaded(store) => {
 				self.store = *store;
 				self.apply_file_catalog_store("file tree ready".to_string());
 				if self.queue_task(runtime::TaskSpec::reload_store(self.store.options())) {
-					self.status = "file tree ready; loading symbols in background".to_string();
+					self.set_status("file tree ready; loading symbols in background");
 				}
 			}
 			TaskOutcome::StoreReloaded(store) => {
@@ -952,7 +974,7 @@ impl App {
 				self.apply_refreshed_change_store(format!("{} completed", result.label));
 			}
 			TaskOutcome::Failed(error) => {
-				self.status = format!("{} failed: {error}", result.label);
+				self.set_status(format!("{} failed: {error}", result.label));
 			}
 		}
 	}
@@ -962,14 +984,14 @@ impl App {
 		let component = snapshot.component.as_str().to_string();
 		let text = snapshot.to_text(self);
 		let Some(tx) = self.event_tx.clone() else {
-			self.status = "clipboard copy unavailable before event loop start".to_string();
+			self.set_status("clipboard copy unavailable before event loop start");
 			return;
 		};
 		match clipboard::copy_text_async(component.clone(), text, move |result| {
 			let _ = tx.send(ShellEvent::Clipboard(result));
 		}) {
-			Ok(()) => self.status = format!("copying {component} snapshot to clipboard"),
-			Err(error) => self.status = format!("clipboard copy failed: {error:#}"),
+			Ok(()) => self.set_status(format!("copying {component} snapshot to clipboard")),
+			Err(error) => self.set_status(format!("clipboard copy failed: {error:#}")),
 		}
 	}
 
@@ -983,7 +1005,7 @@ impl App {
 				if self.app_store.complete_task(&result) {
 					self.handle_task_result(result);
 				} else {
-					self.status = format!("ignored stale task result: {}", result.label);
+					self.set_status(format!("ignored stale task result: {}", result.label));
 				}
 				return false;
 			}
@@ -1039,7 +1061,7 @@ impl App {
 			Effect::Navigate(route) => self.navigate(route),
 			Effect::Back => {}
 			Effect::Quit => return true,
-			Effect::Notify(message) => self.status = message,
+			Effect::Notify(message) => self.set_status(message),
 			Effect::Refresh => self.refresh_results(false),
 			Effect::Spawn(task) => {
 				self.queue_task(task);
@@ -1052,7 +1074,7 @@ impl App {
 	fn queue_task(&mut self, task: runtime::TaskSpec) -> bool {
 		let Some(tx) = self.event_tx.clone() else {
 			let label = task.label().to_string();
-			self.status = format!("task runtime unavailable for {label}");
+			self.set_status(format!("task runtime unavailable for {label}"));
 			return false;
 		};
 		let task = self.app_store.register_task(task);
@@ -1061,13 +1083,13 @@ impl App {
 		TaskRuntime::spawn(task, move |result| {
 			let _ = tx.send(ShellEvent::TaskCompleted(result));
 		});
-		self.status = format!("task queued: {label} ({id})");
+		self.set_status(format!("task queued: {label} ({id})"));
 		true
 	}
 
 	fn navigate(&mut self, route: Route) {
 		if !self.registry.can_open(&route) {
-			self.status = format!("unknown route: {}/{}", route.feature, route.path);
+			self.set_status(format!("unknown route: {}/{}", route.feature, route.path));
 			return;
 		}
 		if let Some(view) = View::from_route_path(&route.path) {
@@ -1146,9 +1168,9 @@ impl Screen for App {
 				}
 			}
 			Msg::Help => {
-				self.status =
-					"keys: Enter/right open, Esc/left close, / filter, s search, d changes, u usages, y copy panel, x clear, Tab/1-5 panels, c check, q quit"
-						.to_string();
+				self.set_status(
+					"keys: Enter/right open, Esc/left close, / filter, s search, d changes, u usages, y copy panel, x clear, Tab/1-5 panels, c check, q quit",
+				);
 			}
 			Msg::Key(_) | Msg::Noop => {}
 		}
@@ -1340,7 +1362,7 @@ fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		),
 		marker(ComponentId::Status),
 		Span::raw(" "),
-		Span::raw(&app.status),
+		Span::raw(app.status()),
 	]);
 	frame.render_widget(Paragraph::new(line), area);
 }

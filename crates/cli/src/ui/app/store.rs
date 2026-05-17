@@ -61,6 +61,25 @@ impl AppStore {
 		accepted
 	}
 
+	pub(in crate::ui) fn status(&self) -> &str {
+		self.inner.state().status()
+	}
+
+	pub(in crate::ui) fn set_status(&mut self, status: impl Into<String>) {
+		let status = status.into();
+		self.inner.reduce_with(|state| {
+			state.set_status(status);
+			Transition::changed("shell-status")
+		});
+	}
+
+	pub(in crate::ui) fn append_status(&mut self, suffix: impl AsRef<str>) {
+		self.inner.reduce_with(|state| {
+			state.append_status(suffix);
+			Transition::changed("shell-status-appended")
+		});
+	}
+
 	pub(in crate::ui) fn dispatch(&mut self, action: &AppAction) -> &mut Transition {
 		self.inner.dispatch(action)
 	}
@@ -188,6 +207,17 @@ mod tests {
 		let task = store.state().last_task.as_ref().expect("task summary");
 		assert_eq!(task.id, id);
 		assert_eq!(task.label, "coverage lookup");
+	}
+
+	#[test]
+	fn shell_status_is_owned_by_app_store() {
+		let mut store = AppStore::new();
+
+		store.set_status("loading index");
+		store.append_status("watching git");
+
+		assert_eq!(store.status(), "loading index; watching git");
+		assert_eq!(store.state().shell.generation, 2);
 	}
 
 	#[test]
