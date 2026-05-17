@@ -2,6 +2,7 @@ use std::io::{ErrorKind, Write};
 use std::process::{Command, Stdio};
 use std::thread;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct ClipboardResult {
 	pub(in crate::ui) component: String,
 	pub(in crate::ui) result: Result<(), String>,

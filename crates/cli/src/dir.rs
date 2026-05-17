@@ -200,7 +200,7 @@ fn write_summary_tree<W: Write>(
 			(s.file.clone(), label)
 		})
 		.collect();
-	format::tree::render_dir_tree(w, &entries, args)?;
+	crate::tree::render_dir_tree(w, &entries, args)?;
 	Ok(())
 }
 
@@ -347,15 +347,15 @@ fn write_filter_tree<W: Write>(
 	args: &ExtractArgs,
 	scheme: &str,
 ) -> anyhow::Result<()> {
-	let entries: Vec<format::tree::FileEntry<'_>> = rows
+	let entries: Vec<crate::tree::FileEntry<'_>> = rows
 		.iter()
-		.map(|row| format::tree::FileEntry {
+		.map(|row| crate::tree::FileEntry {
 			rel_path: row.rel.to_string_lossy().into_owned(),
 			matches: row.match_set(),
 			source: row.source.as_str(),
 		})
 		.collect();
-	format::tree::write_files_tree(w, &entries, args, scheme)?;
+	crate::tree::write_files_tree(w, &entries, args, scheme)?;
 	Ok(())
 }
 

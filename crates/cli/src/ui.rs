@@ -21,6 +21,7 @@ use crate::inspect::{CheckSummary, DefLocation, RefLocation, SessionOptions};
 use crate::lines::line_range;
 use crate::{DEFAULT_SCHEME, Exit};
 
+mod app;
 mod change;
 mod clipboard;
 mod component;
@@ -32,6 +33,8 @@ mod kinds;
 mod live;
 mod navigator;
 mod panel;
+mod reactive;
+mod runtime;
 mod shell;
 mod source;
 mod store;
@@ -39,6 +42,7 @@ mod store;
 mod tests;
 mod theme;
 
+use app::{AppAction, AppStore};
 use change::{ChangeEntry, ChangeStatus};
 use component::{ComponentId, block_title, marker};
 use contracts::{Effect, RenderContext, Route, Screen, ScreenContext};
@@ -49,16 +53,16 @@ use features::explorer::{
 use filter::{NavFilter, parse_filter};
 use kinds::{definition_kind_group, reference_kind_group, sort_reference_kinds};
 use live::StoreEvent;
-use navigator::{
-	NavNode, NavNodeKind, NavRow, all_expanded_keys, build_change_navigator, build_navigator,
-	filtered_expanded_keys, flatten_nav,
-};
+use navigator::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
 use panel::{Column, FitMode, fit_text, visible_len};
+use reactive::ReactiveStore;
+use runtime::{TaskOutcome, TaskRuntime};
 use shell::{EventSource, FeatureRegistry, ShellEvent};
 use source::source_snippet_lines;
+use store::navigation::{NavigationAction, NavigationNotice, NavigationScope, NavigationState};
 use store::{
-	IndexStore, MemoryIndexStore, SearchHit, UsageFocus, compact_moniker, def_kind, last_name,
-	ref_kind,
+	IndexStore, MemoryIndexStore, SearchHit, StoreWatchRoot, UsageFocus, compact_moniker, def_kind,
+	last_name, ref_kind,
 };
 use theme::THEME;
 
@@ -74,12 +78,12 @@ pub fn run<W1: Write, W2: Write>(args: &UiArgs, stdout: &mut W1, stderr: &mut W2
 
 fn run_inner<W: Write>(args: &UiArgs, stdout: &mut W) -> anyhow::Result<()> {
 	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let opts = SessionOptions {
 		paths: args.paths.clone(),
 		project: args.project.clone(),
 		cache_dir: args.cache.clone(),
-	})?;
-	let app = App::new(store, scheme, args.rules.clone(), args.profile.clone());
+	};
+	let app = App::boot(opts, scheme, args.rules.clone(), args.profile.clone());
 	run_terminal(stdout, app)
 }
 
@@ -105,16 +109,22 @@ fn app_loop<W: Write>(
 	terminal: &mut Terminal<CrosstermBackend<&mut W>>,
 	app: &mut App,
 ) -> anyhow::Result<()> {
-	let events = EventSource::start(app.store.watch_roots());
+	let mut events = EventSource::start(app.store.watch_roots());
 	app.set_event_sender(events.sender());
 	if let Some(status) = events.status.as_deref() {
 		app.status = status.to_string();
 	}
+	app.queue_startup_load();
 	terminal.draw(|frame| draw(frame, app))?;
 	loop {
 		let batch = events.recv_batch()?;
 		if handle_app_events(batch, app)? {
 			return Ok(());
+		}
+		if let Some(watch_roots) = app.take_watch_roots_update() {
+			if let Some(status) = events.replace_watch_roots(watch_roots) {
+				app.status = format!("{}; {status}", app.status);
+			}
 		}
 		terminal.draw(|frame| draw(frame, app))?;
 	}
@@ -136,12 +146,17 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 					None => event,
 				});
 			}
-			ShellEvent::Clipboard(result) => app.handle_clipboard_result(result),
+			ShellEvent::TaskCompleted(result) => {
+				app.update(AppAction::TaskCompleted(result));
+			}
+			ShellEvent::Clipboard(result) => {
+				app.update(AppAction::Clipboard(result));
+			}
 			ShellEvent::Error(error) => return Err(anyhow::anyhow!(error)),
 		}
 	}
 	if let Some(event) = store_event {
-		app.handle_store_event(event);
+		app.update(AppAction::Store(event));
 	}
 	Ok(false)
 }
@@ -301,6 +316,7 @@ impl ActiveFilter {
 }
 
 struct App {
+	app_store: AppStore,
 	registry: FeatureRegistry,
 	route: Route,
 	store: MemoryIndexStore,
@@ -315,16 +331,12 @@ struct App {
 	active_filter: ActiveFilter,
 	filter_draft: String,
 	search_draft: String,
-	selection: usize,
-	visible_defs: Vec<DefLocation>,
-	navigator: NavNode,
-	change_navigator: NavNode,
-	expanded: BTreeSet<String>,
-	filtered_expanded: BTreeSet<String>,
-	nav_rows: Vec<NavRow>,
+	navigation: ReactiveStore<NavigationState>,
 	check: CheckState,
 	last_panel_width: usize,
 	event_tx: Option<Sender<ShellEvent>>,
+	startup_load_pending: bool,
+	watch_roots_update: Option<Vec<StoreWatchRoot>>,
 	status: String,
 }
 
@@ -341,7 +353,10 @@ impl App {
 		let command_count = registry.commands().len();
 		let navigator = build_navigator(&store);
 		let change_navigator = build_change_navigator(&store);
+		let navigation = ReactiveStore::new(NavigationState::new(navigator, change_navigator));
+		let app_store = AppStore::from_index_store(&store);
 		let mut app = Self {
+			app_store,
 			registry,
 			route,
 			store,
@@ -356,21 +371,24 @@ impl App {
 			active_filter: ActiveFilter::None,
 			filter_draft: String::new(),
 			search_draft: String::new(),
-			selection: 0,
-			visible_defs: Vec::new(),
-			navigator,
-			change_navigator,
-			expanded: BTreeSet::new(),
-			filtered_expanded: BTreeSet::new(),
-			nav_rows: Vec::new(),
+			navigation,
 			check: CheckState::Pending,
 			last_panel_width: 100,
 			event_tx: None,
+			startup_load_pending: false,
+			watch_roots_update: None,
 			status: format!(
 				"Enter opens nodes, Esc/left closes, / filters, s searches, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
 			),
 		};
 		app.refresh_results(false);
+		app
+	}
+
+	fn boot(opts: SessionOptions, scheme: String, rules: PathBuf, profile: Option<String>) -> Self {
+		let mut app = Self::new(MemoryIndexStore::empty(opts), scheme, rules, profile);
+		app.startup_load_pending = true;
+		app.status = "loading index...".to_string();
 		app
 	}
 
@@ -390,39 +408,43 @@ impl App {
 	}
 
 	fn selected_nav_row(&self) -> Option<&NavRow> {
-		self.nav_rows.get(self.selection)
+		self.navigation.state().selected_row()
 	}
 
-	fn active_expanded(&self) -> &BTreeSet<String> {
-		if self.is_filtered() {
-			&self.filtered_expanded
-		} else {
-			&self.expanded
-		}
+	fn active_expanded(&self) -> &BTreeSet<store::ids::NodeId> {
+		self.navigation.state().active_expanded()
 	}
 
-	fn active_expanded_mut(&mut self) -> &mut BTreeSet<String> {
-		if self.is_filtered() {
-			&mut self.filtered_expanded
-		} else {
-			&mut self.expanded
-		}
+	fn nav_rows(&self) -> &[NavRow] {
+		self.navigation.select(|state| state.rows())
+	}
+
+	fn visible_defs(&self) -> &[DefLocation] {
+		self.navigation.select(|state| state.visible_defs())
+	}
+
+	fn selected_nav_index(&self) -> usize {
+		self.navigation.select(NavigationState::selection)
+	}
+
+	fn dispatch_navigation(&mut self, action: NavigationAction) -> bool {
+		let (changed, effects) = {
+			let transition = self.navigation.dispatch(action);
+			(transition.changed, transition.take_effects())
+		};
+		self.apply_effects(effects);
+		changed
 	}
 
 	fn refresh_results(&mut self, reset_expansion: bool) {
-		self.visible_defs = self.matching_defs();
-		if reset_expansion {
-			self.filtered_expanded.clear();
-			if matches!(self.active_filter, ActiveFilter::Change) {
-				self.filtered_expanded = all_expanded_keys(&self.change_navigator);
-			} else if self.is_filtered() {
-				let expand_symbols = self.visible_defs.len() <= 200;
-				self.filtered_expanded =
-					filtered_expanded_keys(&self.navigator, &self.visible_defs, expand_symbols);
-			}
-			self.selection = 0;
-		}
-		self.refresh_nav();
+		let visible_defs = self.matching_defs();
+		let expand_symbols = visible_defs.len() <= 200;
+		self.dispatch_navigation(NavigationAction::SetScope {
+			scope: self.navigation_scope(),
+			visible_defs,
+			reset_expansion,
+			expand_symbols,
+		});
 	}
 
 	fn matching_defs(&self) -> Vec<DefLocation> {
@@ -437,44 +459,24 @@ impl App {
 		}
 	}
 
-	fn refresh_nav(&mut self) {
-		self.nav_rows.clear();
-		if self.active_filter.error().is_none() {
-			let expanded = self.active_expanded().clone();
-			if matches!(self.active_filter, ActiveFilter::Change) {
-				flatten_nav(
-					&self.change_navigator,
-					&expanded,
-					None,
-					0,
-					&mut self.nav_rows,
-				);
-			} else {
-				let matches = self.is_filtered().then_some(self.visible_defs.as_slice());
-				flatten_nav(&self.navigator, &expanded, matches, 0, &mut self.nav_rows);
-			}
+	fn navigation_scope(&self) -> NavigationScope {
+		if self.active_filter.error().is_some() {
+			NavigationScope::Invalid
+		} else if matches!(self.active_filter, ActiveFilter::Change) {
+			NavigationScope::Change
+		} else if self.is_filtered() {
+			NavigationScope::Filtered
+		} else {
+			NavigationScope::Explorer
 		}
-		self.clamp_selection();
 	}
 
 	fn select_def(&mut self, loc: DefLocation) {
-		if let Some(idx) = self
-			.nav_rows
-			.iter()
-			.position(|row| matches!(row.kind, NavNodeKind::Def(row_loc) if row_loc == loc))
-		{
-			self.selection = idx;
-		}
+		self.dispatch_navigation(NavigationAction::SelectDef(loc));
 	}
 
 	fn select_first_change(&mut self) {
-		if let Some(idx) = self
-			.nav_rows
-			.iter()
-			.position(|row| matches!(row.kind, NavNodeKind::Change(_)))
-		{
-			self.selection = idx;
-		}
+		self.dispatch_navigation(NavigationAction::SelectFirstChange);
 	}
 
 	fn filter_label(&self) -> String {
@@ -624,7 +626,7 @@ impl App {
 			self.status = format!(
 				"filter: {} ({}/{})",
 				self.filter_label(),
-				self.visible_defs.len(),
+				self.visible_defs().len(),
 				self.store.stats().defs
 			);
 		}
@@ -733,36 +735,81 @@ impl App {
 	}
 
 	fn handle_store_event(&mut self, event: StoreEvent) {
+		if self.queue_store_task(event) {
+			return;
+		}
+		self.handle_store_event_sync(event);
+	}
+
+	fn queue_store_task(&mut self, event: StoreEvent) -> bool {
+		let task = match event {
+			StoreEvent::ChangeIndex => {
+				runtime::TaskSpec::refresh_change_index(self.store.change_index_refresh_input())
+			}
+			StoreEvent::FullIndex => runtime::TaskSpec::reload_store(self.store.options()),
+		};
+		self.queue_task(task)
+	}
+
+	fn handle_store_event_sync(&mut self, event: StoreEvent) {
 		match event {
 			StoreEvent::ChangeIndex => {
 				self.store.refresh_change_index();
-				self.change_navigator = build_change_navigator(&self.store);
-				let reset = matches!(self.active_filter, ActiveFilter::Change);
-				self.refresh_results(reset);
-				if reset {
-					self.select_first_change();
-				}
-				self.sync_contextual_view();
-				self.status = "change index refreshed".to_string();
+				self.apply_refreshed_change_store("change index refreshed".to_string());
 			}
 			StoreEvent::FullIndex => match self.store.reload() {
 				Ok(()) => {
-					self.refresh_active_filter_after_store_reload();
-					self.navigator = build_navigator(&self.store);
-					self.change_navigator = build_change_navigator(&self.store);
-					let reset = matches!(self.active_filter, ActiveFilter::Change);
-					self.refresh_results(reset);
-					if reset {
-						self.select_first_change();
-					}
-					self.sync_contextual_view();
-					self.status = "store reloaded after filesystem change".to_string();
+					self.apply_reloaded_store("store reloaded after filesystem change".to_string());
 				}
 				Err(error) => {
 					self.status = format!("store reload failed: {error:#}");
 				}
 			},
 		}
+	}
+
+	fn apply_file_catalog_store(&mut self, status: String) {
+		self.watch_roots_update = Some(self.store.watch_roots());
+		self.dispatch_navigation(NavigationAction::ReplaceModels {
+			explorer: build_navigator(&self.store),
+			change: build_change_navigator(&self.store),
+		});
+		self.refresh_results(true);
+		self.sync_contextual_view();
+		self.status = status;
+	}
+
+	fn apply_reloaded_store(&mut self, status: String) {
+		self.watch_roots_update = Some(self.store.watch_roots());
+		let reset =
+			matches!(self.active_filter, ActiveFilter::Change) && self.nav_rows().is_empty();
+		self.refresh_active_filter_after_store_reload();
+		self.dispatch_navigation(NavigationAction::ReplaceModels {
+			explorer: build_navigator(&self.store),
+			change: build_change_navigator(&self.store),
+		});
+		self.refresh_results(reset);
+		if reset {
+			self.select_first_change();
+		}
+		self.sync_contextual_view();
+		self.status = status;
+	}
+
+	fn apply_refreshed_change_store(&mut self, status: String) {
+		self.watch_roots_update = Some(self.store.watch_roots());
+		let reset =
+			matches!(self.active_filter, ActiveFilter::Change) && self.nav_rows().is_empty();
+		self.dispatch_navigation(NavigationAction::ReplaceModels {
+			explorer: build_navigator(&self.store),
+			change: build_change_navigator(&self.store),
+		});
+		self.refresh_results(reset);
+		if reset {
+			self.select_first_change();
+		}
+		self.sync_contextual_view();
+		self.status = status;
 	}
 
 	fn refresh_active_filter_after_store_reload(&mut self) {
@@ -788,84 +835,49 @@ impl App {
 		};
 	}
 
-	fn clamp_selection(&mut self) {
-		let len = self.nav_rows.len();
-		if len == 0 {
-			self.selection = 0;
-		} else if self.selection >= len {
-			self.selection = len - 1;
-		}
-	}
-
 	fn move_down(&mut self) {
-		let len = self.nav_rows.len();
-		if self.selection + 1 < len {
-			self.selection += 1;
+		let changed = self.dispatch_navigation(NavigationAction::MoveDown);
+		if changed {
 			self.sync_contextual_view();
 		}
 	}
 
 	fn move_up(&mut self) {
-		self.selection = self.selection.saturating_sub(1);
-		self.sync_contextual_view();
+		let changed = self.dispatch_navigation(NavigationAction::MoveUp);
+		if changed {
+			self.sync_contextual_view();
+		}
 	}
 
 	fn toggle_selected_nav(&mut self) {
-		let Some(row) = self.selected_nav_row() else {
-			return;
-		};
-		if !row.has_children {
-			return;
+		self.dispatch_navigation(NavigationAction::ToggleSelected);
+		match self.navigation.state().last_notice() {
+			NavigationNotice::Opened(label) => self.status = format!("opened {label}"),
+			NavigationNotice::Closed(label) => self.status = format!("closed {label}"),
+			NavigationNotice::MovedToParent | NavigationNotice::Noop => {}
 		}
-		let key = row.key.clone();
-		let label = row.label.clone();
-		if self.active_expanded_mut().remove(&key) {
-			self.status = format!("closed {label}");
-		} else {
-			self.active_expanded_mut().insert(key);
-			self.status = format!("opened {label}");
-		}
-		self.refresh_nav();
 	}
 
 	fn open_selected_nav(&mut self) {
-		let Some(row) = self.selected_nav_row() else {
-			return;
-		};
-		if row.has_children && !self.active_expanded().contains(&row.key) {
-			let key = row.key.clone();
-			let label = row.label.clone();
-			self.active_expanded_mut().insert(key);
+		self.dispatch_navigation(NavigationAction::OpenSelected);
+		if let NavigationNotice::Opened(label) = self.navigation.state().last_notice() {
 			self.status = format!("opened {label}");
-			self.refresh_nav();
 		}
 	}
 
 	fn close_selected_nav(&mut self) -> bool {
-		let Some(row) = self.selected_nav_row() else {
-			return false;
-		};
-		if row.has_children && self.active_expanded().contains(&row.key) {
-			let key = row.key.clone();
-			let label = row.label.clone();
-			self.active_expanded_mut().remove(&key);
-			self.status = format!("closed {label}");
-			self.refresh_nav();
-			return true;
+		self.dispatch_navigation(NavigationAction::CloseSelected);
+		match self.navigation.state().last_notice() {
+			NavigationNotice::Closed(label) => {
+				self.status = format!("closed {label}");
+				true
+			}
+			NavigationNotice::MovedToParent => {
+				self.sync_contextual_view();
+				true
+			}
+			NavigationNotice::Opened(_) | NavigationNotice::Noop => false,
 		}
-		if row.depth == 0 {
-			return false;
-		}
-		let parent_depth = row.depth - 1;
-		if let Some(parent) = self.nav_rows[..self.selection]
-			.iter()
-			.rposition(|candidate| candidate.depth == parent_depth)
-		{
-			self.selection = parent;
-			self.sync_contextual_view();
-			return true;
-		}
-		false
 	}
 
 	fn run_check(&mut self) {
@@ -892,6 +904,22 @@ impl App {
 		self.event_tx = Some(tx);
 	}
 
+	fn queue_startup_load(&mut self) {
+		if !self.startup_load_pending {
+			return;
+		}
+		self.startup_load_pending = false;
+		if self.queue_task(runtime::TaskSpec::load_file_catalog(self.store.options())) {
+			self.status = "loading file tree in background".to_string();
+		} else {
+			self.handle_store_event_sync(StoreEvent::FullIndex);
+		}
+	}
+
+	fn take_watch_roots_update(&mut self) -> Option<Vec<StoreWatchRoot>> {
+		self.watch_roots_update.take()
+	}
+
 	fn handle_clipboard_result(&mut self, result: clipboard::ClipboardResult) {
 		match result.result {
 			Ok(()) => {
@@ -899,6 +927,32 @@ impl App {
 			}
 			Err(error) => {
 				self.status = format!("clipboard copy failed for {}: {error}", result.component);
+			}
+		}
+	}
+
+	fn handle_task_result(&mut self, result: runtime::TaskResult) {
+		match result.outcome {
+			TaskOutcome::Completed(message) => {
+				self.status = format!("{} completed: {message}", result.label);
+			}
+			TaskOutcome::FileCatalogLoaded(store) => {
+				self.store = *store;
+				self.apply_file_catalog_store("file tree ready".to_string());
+				if self.queue_task(runtime::TaskSpec::reload_store(self.store.options())) {
+					self.status = "file tree ready; loading symbols in background".to_string();
+				}
+			}
+			TaskOutcome::StoreReloaded(store) => {
+				self.store = *store;
+				self.apply_reloaded_store(format!("{} completed", result.label));
+			}
+			TaskOutcome::ChangeIndexRefreshed(store) => {
+				self.store = *store;
+				self.apply_refreshed_change_store(format!("{} completed", result.label));
+			}
+			TaskOutcome::Failed(error) => {
+				self.status = format!("{} failed: {error}", result.label);
 			}
 		}
 	}
@@ -920,10 +974,44 @@ impl App {
 	}
 
 	fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-		Ok(self.update(Msg::Key(key)))
+		Ok(self.update(AppAction::Ui(Msg::Key(key))))
 	}
 
-	fn update(&mut self, msg: Msg) -> bool {
+	fn update(&mut self, action: AppAction) -> bool {
+		let action = match action {
+			AppAction::TaskCompleted(result) => {
+				if self.app_store.complete_task(&result) {
+					self.handle_task_result(result);
+				} else {
+					self.status = format!("ignored stale task result: {}", result.label);
+				}
+				return false;
+			}
+			action => action,
+		};
+		let effects = {
+			let transition = self.app_store.dispatch(&action);
+			transition.take_effects()
+		};
+		if self.apply_effects(effects) {
+			return true;
+		}
+		match action {
+			AppAction::Ui(msg) => self.update_msg(msg),
+			AppAction::Store(event) => {
+				self.handle_store_event(event);
+				false
+			}
+			AppAction::TaskStarted { .. } => false,
+			AppAction::TaskCompleted(_) => unreachable!("task completion handled before dispatch"),
+			AppAction::Clipboard(result) => {
+				self.handle_clipboard_result(result);
+				false
+			}
+		}
+	}
+
+	fn update_msg(&mut self, msg: Msg) -> bool {
 		let msg = match msg {
 			Msg::Key(key) => key_to_msg(self.mode, key),
 			msg => msg,
@@ -954,11 +1042,27 @@ impl App {
 			Effect::Notify(message) => self.status = message,
 			Effect::Refresh => self.refresh_results(false),
 			Effect::Spawn(task) => {
-				self.status = format!("task queued: {} ({})", task.label, task.id);
+				self.queue_task(task);
 			}
 			Effect::None => {}
 		}
 		false
+	}
+
+	fn queue_task(&mut self, task: runtime::TaskSpec) -> bool {
+		let Some(tx) = self.event_tx.clone() else {
+			let label = task.label().to_string();
+			self.status = format!("task runtime unavailable for {label}");
+			return false;
+		};
+		let task = self.app_store.register_task(task);
+		let label = task.label().to_string();
+		let id = task.id();
+		TaskRuntime::spawn(task, move |result| {
+			let _ = tx.send(ShellEvent::TaskCompleted(result));
+		});
+		self.status = format!("task queued: {label} ({id})");
+		true
 	}
 
 	fn navigate(&mut self, route: Route) {
@@ -1023,12 +1127,16 @@ impl Screen for App {
 			Msg::MoveDown => self.move_down(),
 			Msg::MoveUp => self.move_up(),
 			Msg::Home => {
-				self.selection = 0;
-				self.sync_contextual_view();
+				let changed = self.dispatch_navigation(NavigationAction::Home);
+				if changed {
+					self.sync_contextual_view();
+				}
 			}
 			Msg::End => {
-				self.selection = self.nav_rows.len().saturating_sub(1);
-				self.sync_contextual_view();
+				let changed = self.dispatch_navigation(NavigationAction::End);
+				if changed {
+					self.sync_contextual_view();
+				}
 			}
 			Msg::ToggleNode => self.toggle_selected_nav(),
 			Msg::OpenNode => self.open_selected_nav(),
@@ -1239,19 +1347,21 @@ fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 
 fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let visible_rows = area.height.saturating_sub(2) as usize;
+	let nav_rows = app.nav_rows();
+	let selection = app.selected_nav_index();
 	let start = if visible_rows == 0 {
 		0
 	} else {
-		app.selection.saturating_sub(visible_rows.saturating_sub(1))
+		selection.saturating_sub(visible_rows.saturating_sub(1))
 	};
-	let end = (start + visible_rows).min(app.nav_rows.len());
-	let items: Vec<ListItem<'_>> = app.nav_rows[start..end]
+	let end = (start + visible_rows).min(nav_rows.len());
+	let items: Vec<ListItem<'_>> = nav_rows[start..end]
 		.iter()
 		.enumerate()
 		.map(|(offset, row)| {
 			let idx = start + offset;
-			let line = nav_row_line(app, row, idx == app.selection);
-			let style = if idx == app.selection {
+			let line = nav_row_line(app, row, idx == selection);
+			let style = if idx == selection {
 				Style::default().bg(THEME.nav.selected_bg)
 			} else {
 				Style::default()
@@ -1263,14 +1373,14 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		if app.view_mode == VisualizationMode::Change {
 			format!(
 				" change {} files {} defs ",
-				matched_file_count(&app.visible_defs),
-				app.visible_defs.len()
+				matched_file_count(app.visible_defs()),
+				app.visible_defs().len()
 			)
 		} else {
 			format!(
 				" filtered {} files {} defs ",
-				matched_file_count(&app.visible_defs),
-				app.visible_defs.len()
+				matched_file_count(app.visible_defs()),
+				app.visible_defs().len()
 			)
 		}
 	} else if app.active_filter.error().is_some() {
@@ -1279,7 +1389,7 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		format!(
 			" navigator {} files {} defs ",
 			app.store.stats().files,
-			app.navigator.def_count
+			app.navigation.state().explorer_def_count()
 		)
 	};
 	let list = List::new(items).block(
@@ -1311,8 +1421,13 @@ fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
 	];
 	match row.kind {
 		NavNodeKind::Lang => {
+			let label = if row.has_children {
+				format!("{}/", row.label)
+			} else {
+				row.label.clone()
+			};
 			spans.push(Span::styled(
-				row.label.clone(),
+				label,
 				Style::default()
 					.fg(THEME.nav.language)
 					.add_modifier(Modifier::BOLD),
@@ -1360,7 +1475,7 @@ fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
 			if let Some(change) = app.store.change_for_def(&loc) {
 				spans.push(Span::raw("  "));
 				spans.push(change_marker_span(change.status));
-				let usages = change_blast_radius_refs(app, loc).len();
+				let usages = app.store.change_usage_refs(change).len();
 				spans.push(Span::styled(
 					format!("  {usages} usages"),
 					Style::default().fg(THEME.nav.meta),
@@ -1381,7 +1496,7 @@ fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
 			));
 			spans.push(Span::raw("  "));
 			spans.push(change_marker_span(change.status));
-			let usages = change_blast_radius_refs_for_change(app, change).len();
+			let usages = app.store.change_usage_refs(change).len();
 			spans.push(Span::styled(
 				format!("  {usages} usages"),
 				Style::default().fg(THEME.nav.meta),
@@ -1404,13 +1519,7 @@ fn row_change_count(app: &App, row: &NavRow) -> Option<usize> {
 	let NavNodeKind::File(file_idx) = row.kind else {
 		return None;
 	};
-	let count = app
-		.store
-		.change_index()
-		.entries
-		.iter()
-		.filter(|entry| entry.loc.is_some_and(|loc| loc.file == file_idx))
-		.count();
+	let count = app.store.change_count_for_file(file_idx);
 	(count > 0).then_some(count)
 }
 
@@ -1972,33 +2081,18 @@ fn change_usage_lines(app: &App, change: &ChangeEntry, width: usize) -> Vec<Line
 	lines
 }
 
-fn change_blast_radius_refs(app: &App, loc: DefLocation) -> Vec<RefLocation> {
-	let target = app.store.def(&loc).moniker.clone();
-	change_blast_radius_refs_for_target(app, &target, Some(loc))
-}
-
-fn change_blast_radius_refs_for_change(app: &App, change: &ChangeEntry) -> Vec<RefLocation> {
-	change_blast_radius_refs_for_target(app, &change.moniker, change.loc)
-}
-
-fn change_blast_radius_refs_for_target(
-	app: &App,
-	target: &code_moniker_core::core::moniker::Moniker,
-	self_loc: Option<DefLocation>,
-) -> Vec<RefLocation> {
+fn change_blast_radius_refs(app: &App, loc: DefLocation) -> &[RefLocation] {
 	app.store
-		.usage_focus_for_target(target.clone(), last_name(target))
-		.refs
-		.into_iter()
-		.filter(|ref_loc| {
-			if self_loc.is_none() {
-				return true;
-			}
-			let reference = app.store.reference(ref_loc);
-			let source = app.store.file(ref_loc.file).graph.def_at(reference.source);
-			!target.bind_match(&source.moniker) && !target.is_ancestor_of(&source.moniker)
-		})
-		.collect()
+		.change_for_def(&loc)
+		.map(|change| app.store.change_usage_refs(change))
+		.unwrap_or(&[])
+}
+
+fn change_blast_radius_refs_for_change<'a>(
+	app: &'a App,
+	change: &ChangeEntry,
+) -> &'a [RefLocation] {
+	app.store.change_usage_refs(change)
 }
 
 fn app_ref_source_index(loc: &RefLocation) -> usize {

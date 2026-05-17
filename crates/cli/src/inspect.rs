@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord, RefRecord};
-use code_moniker_core::core::moniker::Moniker;
+use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::core::shape::Shape;
 use code_moniker_core::lang::Lang;
 use rayon::prelude::*;
@@ -148,31 +148,16 @@ impl SessionIndex {
 		files.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
 		let extract_ms = millis(extract_started.elapsed());
 		let index_started = Instant::now();
-		let mut idx = Self {
-			root: sources.display_path(),
-			roots: sources
-				.roots
-				.iter()
-				.map(|root| IndexedRoot {
-					input: root.input.clone(),
-					path: root.path.clone(),
-					label: root.label.clone(),
-					ctx: root.ctx.clone(),
-				})
-				.collect(),
+		let mut idx = Self::from_parts(
+			sources.display_path(),
+			indexed_roots(&sources),
 			files,
-			stats: SessionStats {
+			SessionStats {
 				scan_ms,
 				extract_ms,
 				..SessionStats::default()
 			},
-			defs_by_moniker: FxHashMap::default(),
-			refs_by_source: FxHashMap::default(),
-			refs_by_target: FxHashMap::default(),
-			children_by_parent: FxHashMap::default(),
-			defs_by_kind: BTreeMap::new(),
-			defs_by_name: BTreeMap::new(),
-		};
+		);
 		idx.rebuild_indexes();
 		idx.stats.index_ms = millis(index_started.elapsed());
 		idx.stats.scan_ms = scan_ms;
@@ -181,6 +166,63 @@ impl SessionIndex {
 			idx.stats.index_ms = millis(started.elapsed()).saturating_sub(scan_ms + extract_ms);
 		}
 		Ok(idx)
+	}
+
+	pub fn catalog(sources: sources::SourceSet) -> Self {
+		let files = sources
+			.files
+			.iter()
+			.map(|file| IndexedFile {
+				source_root: file.source,
+				path: file.path.clone(),
+				rel_path: file.rel_path.clone(),
+				anchor: file.anchor.clone(),
+				lang: file.lang,
+				graph: CodeGraph::new(
+					catalog_file_moniker(
+						sources.roots[file.source].ctx.project.as_deref(),
+						file.lang,
+						&file.anchor,
+					),
+					b"placeholder",
+				),
+				source: String::new(),
+			})
+			.collect();
+		let file_count = sources.files.len();
+		Self::from_parts(
+			sources.display_path(),
+			indexed_roots(&sources),
+			files,
+			SessionStats {
+				files: file_count,
+				..SessionStats::default()
+			},
+		)
+	}
+
+	pub fn empty(root: impl Into<String>) -> Self {
+		Self::from_parts(root.into(), Vec::new(), Vec::new(), SessionStats::default())
+	}
+
+	fn from_parts(
+		root: String,
+		roots: Vec<IndexedRoot>,
+		files: Vec<IndexedFile>,
+		stats: SessionStats,
+	) -> Self {
+		Self {
+			root,
+			roots,
+			files,
+			stats,
+			defs_by_moniker: FxHashMap::default(),
+			refs_by_source: FxHashMap::default(),
+			refs_by_target: FxHashMap::default(),
+			children_by_parent: FxHashMap::default(),
+			defs_by_kind: BTreeMap::new(),
+			defs_by_name: BTreeMap::new(),
+		}
 	}
 
 	pub fn filtered_defs(&self, filter: &ViewFilter) -> Vec<DefLocation> {
@@ -371,6 +413,29 @@ pub fn last_segment_name(moniker: &Moniker) -> String {
 
 fn kind_bytes(def: &DefRecord) -> String {
 	std::str::from_utf8(&def.kind).unwrap_or("").to_string()
+}
+
+fn indexed_roots(sources: &sources::SourceSet) -> Vec<IndexedRoot> {
+	sources
+		.roots
+		.iter()
+		.map(|root| IndexedRoot {
+			input: root.input.clone(),
+			path: root.path.clone(),
+			label: root.label.clone(),
+			ctx: root.ctx.clone(),
+		})
+		.collect()
+}
+
+fn catalog_file_moniker(project: Option<&str>, lang: Lang, anchor: &Path) -> Moniker {
+	let project = project.unwrap_or(".");
+	let name = anchor.to_string_lossy();
+	MonikerBuilder::new()
+		.project(project.as_bytes())
+		.segment(b"lang", lang.tag().as_bytes())
+		.segment(b"file", name.as_bytes())
+		.build()
 }
 
 fn millis(d: Duration) -> u64 {

@@ -1,7 +1,6 @@
 use rustc_hash::FxHashMap;
-use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::core::moniker::Moniker;
 
@@ -84,17 +83,23 @@ impl std::fmt::Display for GraphError {
 
 impl std::error::Error for GraphError {}
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CodeGraph {
 	defs: Vec<DefRecord>,
 	refs: Vec<RefRecord>,
 	#[cfg_attr(feature = "serde", serde(skip, default))]
-	index: RefCell<FxHashMap<Moniker, usize>>,
+	index: RwLock<FxHashMap<Moniker, usize>>,
 	#[cfg_attr(feature = "serde", serde(skip, default))]
-	def_monikers_cache: RefCell<Option<Arc<Vec<Moniker>>>>,
+	def_monikers_cache: RwLock<Option<Arc<Vec<Moniker>>>>,
 	#[cfg_attr(feature = "serde", serde(skip, default))]
-	ref_targets_cache: RefCell<Option<Arc<Vec<Moniker>>>>,
+	ref_targets_cache: RwLock<Option<Arc<Vec<Moniker>>>>,
+}
+
+impl Clone for CodeGraph {
+	fn clone(&self) -> Self {
+		Self::from_records(self.defs.clone(), self.refs.clone())
+	}
 }
 
 impl PartialEq for CodeGraph {
@@ -122,9 +127,9 @@ impl CodeGraph {
 		Self {
 			defs,
 			refs,
-			index: RefCell::new(index),
-			def_monikers_cache: RefCell::new(None),
-			ref_targets_cache: RefCell::new(None),
+			index: RwLock::new(index),
+			def_monikers_cache: RwLock::new(None),
+			ref_targets_cache: RwLock::new(None),
 		}
 	}
 
@@ -151,9 +156,9 @@ impl CodeGraph {
 		Self {
 			defs,
 			refs: Vec::with_capacity(ref_cap),
-			index: RefCell::new(index),
-			def_monikers_cache: RefCell::new(None),
-			ref_targets_cache: RefCell::new(None),
+			index: RwLock::new(index),
+			def_monikers_cache: RwLock::new(None),
+			ref_targets_cache: RwLock::new(None),
 		}
 	}
 
@@ -188,7 +193,10 @@ impl CodeGraph {
 		}
 		let parent_idx = self.find_def(parent).ok_or(GraphError::ParentNotFound)?;
 		let new_idx = self.defs.len();
-		self.index.borrow_mut().insert(moniker.clone(), new_idx);
+		self.index
+			.write()
+			.expect("code graph index lock poisoned")
+			.insert(moniker.clone(), new_idx);
 		let binding = if attrs.binding.is_empty() {
 			default_def_binding(kind, attrs.visibility)
 		} else {
@@ -209,7 +217,10 @@ impl CodeGraph {
 			binding: binding.to_vec(),
 			origin: origin.to_vec(),
 		});
-		self.def_monikers_cache.borrow_mut().take();
+		self.def_monikers_cache
+			.write()
+			.expect("code graph def cache lock poisoned")
+			.take();
 		Ok(())
 	}
 
@@ -247,7 +258,10 @@ impl CodeGraph {
 			confidence: attrs.confidence.to_vec(),
 			binding: binding.to_vec(),
 		});
-		self.ref_targets_cache.borrow_mut().take();
+		self.ref_targets_cache
+			.write()
+			.expect("code graph ref cache lock poisoned")
+			.take();
 		Ok(())
 	}
 
@@ -280,24 +294,40 @@ impl CodeGraph {
 	}
 
 	pub fn def_monikers(&self) -> Arc<Vec<Moniker>> {
-		if let Some(cached) = self.def_monikers_cache.borrow().as_ref() {
+		if let Some(cached) = self
+			.def_monikers_cache
+			.read()
+			.expect("code graph def cache lock poisoned")
+			.as_ref()
+		{
 			return Arc::clone(cached);
 		}
 		let mut v: Vec<Moniker> = self.defs.iter().map(|d| d.moniker.clone()).collect();
 		v.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
 		let arc = Arc::new(v);
-		*self.def_monikers_cache.borrow_mut() = Some(Arc::clone(&arc));
+		*self
+			.def_monikers_cache
+			.write()
+			.expect("code graph def cache lock poisoned") = Some(Arc::clone(&arc));
 		arc
 	}
 
 	pub fn ref_targets(&self) -> Arc<Vec<Moniker>> {
-		if let Some(cached) = self.ref_targets_cache.borrow().as_ref() {
+		if let Some(cached) = self
+			.ref_targets_cache
+			.read()
+			.expect("code graph ref cache lock poisoned")
+			.as_ref()
+		{
 			return Arc::clone(cached);
 		}
 		let mut v: Vec<Moniker> = self.refs.iter().map(|r| r.target.clone()).collect();
 		v.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
 		let arc = Arc::new(v);
-		*self.ref_targets_cache.borrow_mut() = Some(Arc::clone(&arc));
+		*self
+			.ref_targets_cache
+			.write()
+			.expect("code graph ref cache lock poisoned") = Some(Arc::clone(&arc));
 		arc
 	}
 
@@ -310,7 +340,13 @@ impl CodeGraph {
 	}
 
 	fn find_def(&self, m: &Moniker) -> Option<usize> {
-		let mut idx = self.index.borrow_mut();
+		{
+			let idx = self.index.read().expect("code graph index lock poisoned");
+			if idx.len() == self.defs.len() {
+				return idx.get(m).copied();
+			}
+		}
+		let mut idx = self.index.write().expect("code graph index lock poisoned");
 		if idx.len() != self.defs.len() {
 			idx.clear();
 			idx.reserve(self.defs.len());
@@ -692,7 +728,10 @@ mod tests {
 		let a = mk_under(&root, b"path", b"a");
 		let mut g = CodeGraph::new(root.clone(), b"module");
 		g.add_def(a.clone(), b"class", &root, None).unwrap();
-		g.index.borrow_mut().clear();
+		g.index
+			.write()
+			.expect("code graph index lock poisoned")
+			.clear();
 
 		assert!(g.contains(&root));
 		assert!(g.contains(&a));

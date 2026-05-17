@@ -1,7 +1,5 @@
 use std::io::Write;
 
-#[cfg(feature = "pretty")]
-pub mod tree;
 use std::path::Path;
 
 use serde::Serialize;
@@ -99,7 +97,7 @@ fn render_moniker(
 	}
 }
 
-fn render_compact_moniker(
+pub(crate) fn render_compact_moniker(
 	m: &code_moniker_core::core::moniker::Moniker,
 	color: bool,
 ) -> Option<String> {
@@ -107,7 +105,7 @@ fn render_compact_moniker(
 	let mut lang: Option<String> = None;
 	let mut packages: Vec<String> = Vec::new();
 	let mut dirs: Vec<String> = Vec::new();
-	let mut module: Option<String> = None;
+	let mut modules: Vec<String> = Vec::new();
 	let mut rest: Vec<(String, String)> = Vec::new();
 	for seg in view.segments() {
 		let kind = std::str::from_utf8(seg.kind).ok()?.to_string();
@@ -116,7 +114,7 @@ fn render_compact_moniker(
 			"lang" => lang = Some(name),
 			"package" => packages.push(name),
 			"dir" => dirs.push(name),
-			"module" => module = Some(name),
+			"module" => modules.push(name),
 			_ => rest.push((kind, name)),
 		}
 	}
@@ -125,7 +123,7 @@ fn render_compact_moniker(
 			.unwrap_or(".")
 			.to_string()
 	});
-	if packages.is_empty() && dirs.is_empty() && module.is_none() && rest.is_empty() {
+	if packages.is_empty() && dirs.is_empty() && modules.is_empty() && rest.is_empty() {
 		return Some(paint(color, "36", &head));
 	}
 	let mut out = String::new();
@@ -139,12 +137,12 @@ fn render_compact_moniker(
 		out.push_str(&paint(color, "2", &dirs.join("/")));
 		wrote_scope = true;
 	}
-	let has_module = module.is_some();
-	if let Some(module) = module {
+	let has_module = !modules.is_empty();
+	if has_module {
 		if wrote_scope {
 			out.push('/');
 		}
-		out.push_str(&paint(color, "34;1", &module));
+		out.push_str(&paint(color, "34;1", &modules.join(".")));
 	}
 	for (idx, (kind, name)) in rest.iter().enumerate() {
 		if idx == 0 && has_module {
@@ -477,6 +475,25 @@ mod tests {
 		let m = java_service_moniker();
 		let rendered = render_compact_moniker(&m, false).unwrap();
 		assert_eq!(rendered, "java:app.user/UserService.class:UserService");
+	}
+
+	#[test]
+	fn compact_moniker_keeps_nested_modules() {
+		let mut b = MonikerBuilder::new();
+		b.project(b".");
+		b.segment(b"lang", b"rs");
+		b.segment(b"dir", b"crates");
+		b.segment(b"dir", b"cli");
+		b.segment(b"dir", b"src");
+		b.segment(b"module", b"args");
+		b.segment(b"module", b"tests");
+		b.segment(b"test", b"no_args_requires_subcommand()");
+		let rendered = render_compact_moniker(&b.build(), false).unwrap();
+
+		assert_eq!(
+			rendered,
+			"rs:crates/cli/src/args.tests.test:no_args_requires_subcommand()"
+		);
 	}
 
 	#[test]

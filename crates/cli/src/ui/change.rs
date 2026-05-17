@@ -5,6 +5,7 @@ use std::process::Command;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
+use rustc_hash::FxHashMap;
 
 use crate::extract;
 use crate::inspect::DefLocation;
@@ -92,6 +93,8 @@ pub(super) struct ChangeIndex {
 	pub(super) entries: Vec<ChangeEntry>,
 	pub(super) resources: Vec<GitResourceStatus>,
 	pub(super) diagnostics: Vec<String>,
+	entries_by_def: FxHashMap<DefLocation, usize>,
+	count_by_file: FxHashMap<usize, usize>,
 }
 
 impl Default for ChangeIndex {
@@ -101,17 +104,25 @@ impl Default for ChangeIndex {
 			entries: Vec::new(),
 			resources: Vec::new(),
 			diagnostics: Vec::new(),
+			entries_by_def: FxHashMap::default(),
+			count_by_file: FxHashMap::default(),
 		}
 	}
 }
 
 impl ChangeIndex {
 	pub(super) fn entry_for(&self, loc: &DefLocation) -> Option<&ChangeEntry> {
-		self.entries.iter().find(|entry| entry.loc == Some(*loc))
+		self.entries_by_def
+			.get(loc)
+			.and_then(|idx| self.entries.get(*idx))
 	}
 
 	pub(super) fn changed_defs(&self) -> Vec<DefLocation> {
 		self.entries.iter().filter_map(|entry| entry.loc).collect()
+	}
+
+	pub(super) fn change_count_for_file(&self, file_idx: usize) -> usize {
+		self.count_by_file.get(&file_idx).copied().unwrap_or(0)
 	}
 
 	pub(super) fn changed_file_count(&self) -> usize {
@@ -120,6 +131,18 @@ impl ChangeIndex {
 			.map(|entry| entry.file_path.clone())
 			.collect::<HashSet<_>>()
 			.len()
+	}
+
+	fn rebuild_lookups(&mut self) {
+		self.entries_by_def.clear();
+		self.count_by_file.clear();
+		for (idx, entry) in self.entries.iter().enumerate() {
+			let Some(loc) = entry.loc else {
+				continue;
+			};
+			self.entries_by_def.insert(loc, idx);
+			*self.count_by_file.entry(loc.file).or_default() += 1;
+		}
 	}
 }
 
@@ -212,6 +235,7 @@ pub(super) fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 	});
 	entries.dedup_by_key(|entry| entry.moniker.clone());
 	changes.entries = entries;
+	changes.rebuild_lookups();
 	changes
 }
 

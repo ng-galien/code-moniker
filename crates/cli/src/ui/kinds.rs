@@ -1,6 +1,8 @@
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 
+use crate::tree::strategy::TreeStrategy;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum KindGroup {
 	Namespace,
@@ -13,19 +15,18 @@ pub(super) enum KindGroup {
 }
 
 pub(super) fn definition_kind_group(lang: Lang, kind: &str) -> KindGroup {
-	lang.kind_spec(kind)
-		.map(|spec| group_for_shape(spec.shape))
+	TreeStrategy::for_lang(lang)
+		.definition_shape(kind)
+		.map(group_for_shape)
 		.unwrap_or_else(|| group_for_kind(kind))
 }
 
 pub(super) fn definition_kind_order(lang: Lang, kind: &str) -> u16 {
-	lang.kind_spec(kind)
-		.map(|spec| spec.order)
-		.unwrap_or_else(|| fallback_order(group_for_kind(kind)))
+	TreeStrategy::for_lang(lang).definition_order(kind)
 }
 
 pub(super) fn is_navigable_definition(lang: Lang, kind: &str) -> bool {
-	lang.kind_spec(kind).is_some()
+	TreeStrategy::for_lang(lang).is_known_definition_kind(kind)
 }
 
 pub(super) fn reference_kind_group(_kind: &str) -> KindGroup {
@@ -55,18 +56,6 @@ fn group_for_shape(shape: Shape) -> KindGroup {
 		Shape::Value => KindGroup::Value,
 		Shape::Annotation => KindGroup::Meta,
 		Shape::Ref => KindGroup::Reference,
-	}
-}
-
-fn fallback_order(group: KindGroup) -> u16 {
-	match group {
-		KindGroup::Namespace => 10,
-		KindGroup::Type => 20,
-		KindGroup::Callable => 40,
-		KindGroup::Value => 60,
-		KindGroup::Reference => 80,
-		KindGroup::Meta => 90,
-		KindGroup::Unknown => u16::MAX,
 	}
 }
 

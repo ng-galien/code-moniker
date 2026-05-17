@@ -50,24 +50,35 @@ fn line_text(line: &Line<'_>) -> String {
 }
 
 fn select_nav_label(app: &mut App, label: &str) {
-	app.selection = app
-		.nav_rows
+	let idx = app
+		.nav_rows()
 		.iter()
 		.position(|row| row.label == label)
-		.unwrap_or_else(|| panic!("missing navigator row {label}: {:?}", app.nav_rows));
+		.unwrap_or_else(|| panic!("missing navigator row {label}: {:?}", app.nav_rows()));
+	select_nav_index(app, idx);
 }
 
 fn select_nav_label_ending_with(app: &mut App, suffix: &str) {
-	app.selection = app
-		.nav_rows
+	let idx = app
+		.nav_rows()
 		.iter()
 		.position(|row| row.label.ends_with(suffix))
 		.unwrap_or_else(|| {
 			panic!(
 				"missing navigator row ending with {suffix}: {:?}",
-				app.nav_rows
+				app.nav_rows()
 			)
 		});
+	select_nav_index(app, idx);
+}
+
+fn select_nav_index(app: &mut App, idx: usize) {
+	while app.selected_nav_index() < idx {
+		app.dispatch_navigation(NavigationAction::MoveDown);
+	}
+	while app.selected_nav_index() > idx {
+		app.dispatch_navigation(NavigationAction::MoveUp);
+	}
 }
 
 fn apply_text_filter(app: &mut App, raw: &str) {
@@ -354,21 +365,21 @@ fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 	);
 	apply_text_filter(&mut app, "Alpha");
 	assert!(
-		app.visible_defs
+		app.visible_defs()
 			.iter()
 			.all(|loc| last_name(&app.store.def(loc).moniker).contains("Alpha")),
 		"{:?}",
-		app.visible_defs
+		app.visible_defs()
 	);
-	assert!(!app.visible_defs.is_empty());
+	assert!(!app.visible_defs().is_empty());
 	assert!(
-		app.nav_rows
+		app.nav_rows()
 			.iter()
 			.any(|row| row.label == "ts/src/a.ts/Alpha"),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
-	assert!(!app.nav_rows.iter().any(|row| row.label.contains("Beta")));
+	assert!(!app.nav_rows().iter().any(|row| row.label.contains("Beta")));
 	select_nav_label_ending_with(&mut app, "Alpha");
 	assert_eq!(
 		last_name(
@@ -405,7 +416,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
-	let total = app.visible_defs.len();
+	let total = app.visible_defs().len();
 	let hits = app.store.search_symbols("customer", 10);
 	let hit_names: Vec<_> = hits
 		.iter()
@@ -428,7 +439,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 
 	assert_eq!(app.mode, UiMode::EditingSearch);
 	assert_eq!(app.search_draft, "customer");
-	assert_eq!(app.visible_defs.len(), total);
+	assert_eq!(app.visible_defs().len(), total);
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 
@@ -437,7 +448,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	assert!(app.is_filtered());
 	assert!(matches!(app.active_filter, ActiveFilter::Search { .. }));
 	assert_eq!(
-		last_name(&app.store.def(&app.visible_defs[0]).moniker),
+		last_name(&app.store.def(&app.visible_defs()[0]).moniker),
 		"CustomerProfile"
 	);
 	assert_eq!(
@@ -449,18 +460,18 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 		"CustomerProfile"
 	);
 	assert!(
-		!app.visible_defs
+		!app.visible_defs()
 			.iter()
 			.any(|loc| last_name(&app.store.def(loc).moniker) == "OrderFlow"),
 		"{:?}",
-		app.visible_defs
+		app.visible_defs()
 	);
 	assert!(
-		app.nav_rows
+		app.nav_rows()
 			.iter()
 			.any(|row| row.label.contains("CustomerProfile")),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
 	let header = line_text(&header_line(&app, 120));
 	assert!(header.contains("mode search"), "{header}");
@@ -606,6 +617,196 @@ fn clipboard_result_updates_user_visible_status() {
 }
 
 #[test]
+fn spawn_effect_runs_task_through_shell_event_channel() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	let (tx, rx) = std::sync::mpsc::channel();
+	app.set_event_sender(tx);
+
+	app.apply_effect(Effect::Spawn(runtime::TaskSpec::noop("lazy smoke")));
+
+	let ShellEvent::TaskCompleted(result) = rx
+		.recv_timeout(std::time::Duration::from_secs(2))
+		.expect("task result")
+	else {
+		panic!("expected task completion");
+	};
+	app.update(AppAction::TaskCompleted(result));
+
+	assert_eq!(app.status, "lazy smoke completed: task completed");
+}
+
+#[test]
+fn boot_opens_with_empty_store_then_loads_index_async() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let mut app = App::boot(
+		SessionOptions {
+			paths: vec![tmp.path().into()],
+			project: Some("app".into()),
+			cache_dir: None,
+		},
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	let (tx, rx) = std::sync::mpsc::channel();
+	app.set_event_sender(tx);
+
+	assert_eq!(app.store.stats().files, 0);
+	app.queue_startup_load();
+
+	assert_eq!(app.status, "loading file tree in background");
+	let ShellEvent::TaskCompleted(result) = rx
+		.recv_timeout(std::time::Duration::from_secs(2))
+		.expect("file catalog result")
+	else {
+		panic!("expected file catalog completion");
+	};
+	app.update(AppAction::TaskCompleted(result));
+
+	assert_eq!(app.store.stats().files, 1);
+	assert_eq!(app.store.stats().defs, 0);
+	assert!(
+		app.nav_rows()
+			.iter()
+			.any(|row| row.label == "ts/src" && row.file_count == 1),
+		"{:?}",
+		app.nav_rows()
+	);
+	assert_eq!(app.status, "file tree ready; loading symbols in background");
+
+	let ShellEvent::TaskCompleted(result) = rx
+		.recv_timeout(std::time::Duration::from_secs(2))
+		.expect("startup index result")
+	else {
+		panic!("expected startup index completion");
+	};
+	app.update(AppAction::TaskCompleted(result));
+
+	assert!(app.store.stats().defs > 0);
+	assert!(app.take_watch_roots_update().is_some());
+	assert_eq!(app.status, "reload index completed");
+}
+
+#[test]
+fn full_store_event_queues_async_reload_when_event_loop_is_available() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	let (tx, rx) = std::sync::mpsc::channel();
+	app.set_event_sender(tx);
+
+	write(tmp.path(), "src/b.ts", "class Beta {}\n");
+	app.handle_store_event(StoreEvent::FullIndex);
+
+	assert!(
+		app.status.contains("task queued: reload index"),
+		"{}",
+		app.status
+	);
+	let ShellEvent::TaskCompleted(result) = rx
+		.recv_timeout(std::time::Duration::from_secs(2))
+		.expect("store reload result")
+	else {
+		panic!("expected store reload completion");
+	};
+	app.update(AppAction::TaskCompleted(result));
+
+	assert!(
+		app.store
+			.all_navigable_defs(None)
+			.iter()
+			.any(|loc| last_name(&app.store.def(loc).moniker) == "Beta"),
+		"store should be replaced by async reload result"
+	);
+	assert_eq!(app.status, "reload index completed");
+}
+
+#[test]
+fn change_store_event_queues_async_change_index_refresh() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/MoneyFormatter.java",
+		"package com.acme;\npublic class MoneyFormatter {\n  public String format(long cents) {\n    return Long.toString(cents);\n  }\n}\n",
+	);
+	git(tmp.path(), &["init"]);
+	git(tmp.path(), &["config", "user.email", "agent@example.com"]);
+	git(tmp.path(), &["config", "user.name", "Agent"]);
+	git(tmp.path(), &["add", "."]);
+	git(tmp.path(), &["commit", "-m", "baseline"]);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	let (tx, rx) = std::sync::mpsc::channel();
+	app.set_event_sender(tx);
+
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/MoneyFormatter.java",
+		"package com.acme;\npublic class MoneyFormatter {\n  public String format(long cents) {\n    return \"$\" + cents;\n  }\n}\n",
+	);
+	app.handle_store_event(StoreEvent::ChangeIndex);
+
+	assert!(
+		app.status.contains("task queued: refresh change index"),
+		"{}",
+		app.status
+	);
+	let ShellEvent::TaskCompleted(result) = rx
+		.recv_timeout(std::time::Duration::from_secs(2))
+		.expect("change index result")
+	else {
+		panic!("expected change index completion");
+	};
+	app.update(AppAction::TaskCompleted(result));
+
+	assert!(
+		app.store
+			.change_index()
+			.entries
+			.iter()
+			.any(|entry| entry.name == "format(cents:long)"),
+		"{:?}",
+		app.store.change_index().entries
+	);
+	assert_eq!(app.status, "refresh change index completed");
+}
+
+#[test]
 fn change_mode_reports_sources_without_git() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
@@ -638,7 +839,7 @@ fn change_mode_reports_sources_without_git() {
 		line_text(&header_line(&app, 120)),
 		"code-moniker [ui.header] mode change  scope HEAD..worktree"
 	);
-	assert!(app.nav_rows.is_empty());
+	assert!(app.nav_rows().is_empty());
 	let lines = change_panel_lines(&app, 80);
 	let rendered = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
 	assert!(
@@ -724,19 +925,22 @@ fn change_mode_filters_changed_symbols_and_toggles_blast_radius() {
 
 	assert_eq!(app.view_mode, VisualizationMode::Change);
 	assert_eq!(app.view, View::Change);
-	assert_eq!(app.visible_defs.len(), 1, "{:?}", app.visible_defs);
-	let changed = app.visible_defs[0];
+	assert_eq!(app.visible_defs().len(), 1, "{:?}", app.visible_defs());
+	let changed = app.visible_defs()[0];
 	assert_eq!(
 		last_name(&app.store.def(&changed).moniker),
 		"format(cents:long)"
 	);
 	assert!(app.store.change_for_def(&changed).is_some());
+	assert_eq!(app.store.change_count_for_file(changed.file), 1);
+	let change = app.store.change_for_def(&changed).unwrap();
+	assert_eq!(app.store.change_usage_refs(change).len(), 1);
 	assert!(
-		app.nav_rows
+		app.nav_rows()
 			.iter()
 			.any(|row| row.label == "format(cents:long)"),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
 	let diff_lines = change_panel_lines(&app, 100);
 	let rendered_diff = diff_lines
@@ -815,12 +1019,12 @@ fn change_mode_shows_removed_symbol_and_its_blast_radius() {
 	app.handle_key(key(KeyCode::Char('d'))).unwrap();
 
 	assert!(
-		app.nav_rows
+		app.nav_rows()
 			.iter()
 			.any(|row| row.label == "format(cents:long)"
 				&& matches!(row.kind, NavNodeKind::Change(_))),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
 	select_nav_label(&mut app, "format(cents:long)");
 	let lines = change_panel_lines(&app, 100);
@@ -850,24 +1054,68 @@ fn full_store_event_reloads_index_and_refreshes_active_search() {
 	app.search_draft = "Beta".to_string();
 	app.apply_search();
 
-	assert!(app.visible_defs.is_empty(), "{:?}", app.visible_defs);
+	assert!(app.visible_defs().is_empty(), "{:?}", app.visible_defs());
 
 	write(tmp.path(), "src/b.ts", "class Beta {}\n");
 	app.handle_store_event(StoreEvent::FullIndex);
 
 	assert!(
-		app.visible_defs
+		app.visible_defs()
 			.iter()
 			.any(|loc| last_name(&app.store.def(loc).moniker) == "Beta"),
 		"{:?}",
-		app.visible_defs
+		app.visible_defs()
 	);
 	assert!(
-		app.nav_rows.iter().any(|row| row.label.contains("Beta")),
+		app.nav_rows().iter().any(|row| row.label.contains("Beta")),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
 	assert!(app.status.contains("store reloaded"), "{}", app.status);
+}
+
+#[test]
+fn full_store_event_preserves_expanded_tree_and_selected_symbol() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.toggle_selected_nav();
+	select_nav_label(&mut app, "a.ts");
+	app.toggle_selected_nav();
+	select_nav_label(&mut app, "Alpha");
+	let selected_key = app.selected_nav_row().expect("selected row").key.clone();
+
+	write(tmp.path(), "src/0.ts", "class Before {}\n");
+	app.handle_store_event(StoreEvent::FullIndex);
+
+	assert_eq!(
+		app.selected_nav_row().map(|row| row.key.clone()),
+		Some(selected_key),
+		"{:?}",
+		app.nav_rows()
+	);
+	assert!(
+		app.nav_rows().iter().any(|row| row.label == "Beta"),
+		"file expansion should survive reload: {:?}",
+		app.nav_rows()
+	);
+	assert!(
+		app.nav_rows().iter().any(|row| row.label == "0.ts"),
+		"reloaded tree should include new files without collapsing opened branches: {:?}",
+		app.nav_rows()
+	);
 }
 
 #[test]
@@ -897,7 +1145,7 @@ fn full_store_event_refreshes_change_navigator_while_change_mode_is_active() {
 	);
 
 	app.handle_key(key(KeyCode::Char('d'))).unwrap();
-	assert!(app.nav_rows.is_empty(), "{:?}", app.nav_rows);
+	assert!(app.nav_rows().is_empty(), "{:?}", app.nav_rows());
 
 	write(
 		tmp.path(),
@@ -908,12 +1156,12 @@ fn full_store_event_refreshes_change_navigator_while_change_mode_is_active() {
 
 	assert_eq!(app.view_mode, VisualizationMode::Change);
 	assert!(
-		app.nav_rows
+		app.nav_rows()
 			.iter()
 			.any(|row| row.label == "format(cents:long)"
 				&& matches!(row.kind, NavNodeKind::Change(_))),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
 	assert!(app.status.contains("store reloaded"), "{}", app.status);
 }
@@ -940,9 +1188,9 @@ fn navigator_compacts_linear_branches_and_expands_at_branch_points() {
 		None,
 	);
 
-	assert_eq!(app.nav_rows.len(), 1);
-	assert_eq!(app.nav_rows[0].label, "ts/src");
-	assert_eq!(app.nav_rows[0].file_count, 2);
+	assert_eq!(app.nav_rows().len(), 1);
+	assert_eq!(app.nav_rows()[0].label, "ts/src");
+	assert_eq!(app.nav_rows()[0].file_count, 2);
 	assert!(app.selected().is_none());
 
 	app.toggle_selected_nav();
@@ -953,9 +1201,46 @@ fn navigator_compacts_linear_branches_and_expands_at_branch_points() {
 	let selected = app.selected().expect("selected symbol");
 	assert_eq!(last_name(&app.store.def(&selected).moniker), "Foo");
 	assert!(
-		app.nav_rows
+		app.nav_rows()
 			.iter()
 			.any(|row| row.label.starts_with("helper"))
+	);
+}
+
+#[test]
+fn navigator_renders_uncompacted_language_rows_as_containers() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "pgtap/sql/00_smoke.sql", "select 1;\n");
+	write(
+		tmp.path(),
+		"crates/core/tests/fixtures/sql/users.sql",
+		"select 2;\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	let row = app
+		.nav_rows()
+		.iter()
+		.find(|row| row.label == "sql")
+		.unwrap_or_else(|| panic!("missing uncompacted SQL language row: {:?}", app.nav_rows()));
+	assert!(matches!(row.kind, NavNodeKind::Lang));
+	assert!(row.has_children);
+
+	let rendered = line_text(&nav_row_line(&app, row, false));
+	assert!(
+		rendered.contains("sql/"),
+		"uncompacted language rows should render as containers: {rendered:?}"
 	);
 }
 
@@ -985,11 +1270,77 @@ fn explorer_orders_symbols_by_language_kind_contract() {
 	app.toggle_selected_nav();
 
 	let labels: Vec<_> = app
-		.nav_rows
+		.nav_rows()
 		.iter()
 		.filter_map(|row| matches!(row.kind, NavNodeKind::Def(_)).then_some(row.label.as_str()))
 		.collect();
 	assert_eq!(labels, vec!["Zeta", "YResolver", "Ahelper()", "Bvalue"]);
+}
+
+#[test]
+fn explorer_orders_rust_symbols_by_language_kind_contract() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/a.rs",
+		"fn helper() {}\n#[test]\nfn parses() {}\nstruct Service;\nconst LIMIT: u8 = 1;\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.toggle_selected_nav();
+	select_nav_label(&mut app, "a.rs");
+	app.toggle_selected_nav();
+
+	let labels: Vec<_> = app
+		.nav_rows()
+		.iter()
+		.filter_map(|row| matches!(row.kind, NavNodeKind::Def(_)).then_some(row.label.as_str()))
+		.collect();
+	assert_eq!(labels, vec!["Service", "helper()", "parses()", "LIMIT"]);
+}
+
+#[test]
+fn explorer_orders_symbols_after_flattening_non_navigable_modules() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/a.rs",
+		"#[cfg(test)]\nmod tests {\n    fn helper() {}\n    #[test]\n    fn parses() {}\n}\nstruct Service;\nfn run() {}\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.toggle_selected_nav();
+	select_nav_label(&mut app, "a.rs");
+	app.toggle_selected_nav();
+
+	let labels: Vec<_> = app
+		.nav_rows()
+		.iter()
+		.filter_map(|row| matches!(row.kind, NavNodeKind::Def(_)).then_some(row.label.as_str()))
+		.collect();
+	assert_eq!(labels, vec!["Service", "helper()", "run()", "parses()"]);
 }
 
 #[test]
@@ -1020,7 +1371,7 @@ fn explorer_shows_java_record_fields_before_accessors() {
 	app.toggle_selected_nav();
 
 	let rows: Vec<_> = app
-		.nav_rows
+		.nav_rows()
 		.iter()
 		.filter_map(|row| {
 			let NavNodeKind::Def(loc) = row.kind else {
@@ -1092,13 +1443,13 @@ fn multi_source_navigator_keeps_source_roots_as_directory_rows() {
 	app.toggle_selected_nav();
 
 	let service_rows: Vec<_> = app
-		.nav_rows
+		.nav_rows()
 		.iter()
 		.filter(|row| {
 			row.label.starts_with("billing-service/") || row.label.starts_with("order-service/")
 		})
 		.collect();
-	assert_eq!(service_rows.len(), 2, "{:?}", app.nav_rows);
+	assert_eq!(service_rows.len(), 2, "{:?}", app.nav_rows());
 	for row in service_rows {
 		assert!(
 			matches!(row.kind, NavNodeKind::Dir),
@@ -1110,11 +1461,11 @@ fn multi_source_navigator_keeps_source_roots_as_directory_rows() {
 		);
 	}
 	assert!(
-		app.nav_rows
+		app.nav_rows()
 			.iter()
 			.any(|row| row.label == "common-lib/src/main/java/com/acme/common"),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
 }
 
@@ -1184,32 +1535,32 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 	assert!(header.contains("scope MoneyFormatter"), "{header}");
 	assert!(!header.contains("panel"), "{header}");
 	assert!(
-		app.visible_defs
+		app.visible_defs()
 			.iter()
 			.any(|loc| last_name(&app.store.def(loc).moniker) == "BillingApplication"),
 		"{:?}",
-		app.visible_defs
+		app.visible_defs()
 	);
 	assert!(
-		!app.visible_defs
+		!app.visible_defs()
 			.iter()
 			.any(|loc| last_name(&app.store.def(loc).moniker) == "OrderApplication"),
 		"{:?}",
-		app.visible_defs
+		app.visible_defs()
 	);
 	assert!(
-		app.nav_rows.iter().any(|row| {
+		app.nav_rows().iter().any(|row| {
 			row.label.contains("billing-service") && row.label.contains("BillingApplication")
 		}),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
 	assert!(
-		!app.nav_rows
+		!app.nav_rows()
 			.iter()
 			.any(|row| row.label.contains("order-service")),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
 }
 
@@ -1255,7 +1606,7 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 
 	assert_eq!(app.view_mode, VisualizationMode::Usages);
 	assert!(app.is_filtered());
-	assert!(app.nav_rows.is_empty());
+	assert!(app.nav_rows().is_empty());
 	assert!(app.status.contains("0 reference(s)"), "{}", app.status);
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
@@ -1263,7 +1614,7 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 	assert_eq!(app.view_mode, VisualizationMode::Explorer);
 	assert!(!app.is_filtered());
 	assert_eq!(app.filter_label(), "<all>");
-	assert!(!app.nav_rows.is_empty());
+	assert!(!app.nav_rows().is_empty());
 	assert_eq!(app.view, View::Overview);
 	assert!(app.status.contains("filter cleared"), "{}", app.status);
 }
@@ -1342,7 +1693,7 @@ fn refs_panel_prioritizes_incoming_impact_with_location_context() {
 	assert!(
 		lines
 			.iter()
-			.any(|line| line.contains("source app/") && line.contains("field:formatter")),
+			.any(|line| line.contains("source ts:") && line.contains("field:formatter")),
 		"refs panel should render compact source monikers: {lines:?}"
 	);
 	let kind_lines: Vec<_> = lines
@@ -1362,6 +1713,42 @@ fn refs_panel_prioritizes_incoming_impact_with_location_context() {
 		lines.iter().all(|line| line.chars().count() <= panel_width),
 		"refs panel lines should fit their component width: {lines:?}"
 	);
+}
+
+#[test]
+fn outline_panel_renders_compact_moniker_format() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/args.rs",
+		"#[cfg(test)]\nmod tests {\n    #[test]\n    fn no_args_requires_subcommand() {}\n}\n",
+	);
+	let store = MemoryIndexStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.toggle_selected_nav();
+	select_nav_label(&mut app, "args.rs");
+	app.toggle_selected_nav();
+	select_nav_label(&mut app, "no_args_requires_subcommand()");
+	app.sync_contextual_view();
+
+	let snapshot = active_panel_snapshot(&app).to_text(&app);
+	assert!(
+		snapshot.contains("moniker   rs:src/args.tests.test:no_args_requires_subcommand()"),
+		"{snapshot}"
+	);
+	assert!(!snapshot.contains("/lang:"), "{snapshot}");
+	assert!(!snapshot.contains("/dir:"), "{snapshot}");
 }
 
 #[test]
@@ -1387,15 +1774,15 @@ fn kind_filter_limits_navigator_to_matching_declaration_kinds() {
 
 	apply_text_filter(&mut app, "kind:interface Resolver");
 
-	assert_eq!(app.visible_defs.len(), 1, "{:?}", app.nav_rows);
+	assert_eq!(app.visible_defs().len(), 1, "{:?}", app.nav_rows());
 	assert!(
-		app.nav_rows
+		app.nav_rows()
 			.iter()
 			.any(|row| row.label == "ts/src/a.ts/Resolver"),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
-	assert!(!app.nav_rows.iter().any(|row| row.label.contains("Alpha")));
+	assert!(!app.nav_rows().iter().any(|row| row.label.contains("Alpha")));
 	assert!(
 		app.filter_label().contains("kind:interface"),
 		"{}",
@@ -1422,11 +1809,11 @@ fn rust_fn_kind_is_navigable_and_filterable() {
 
 	apply_text_filter(&mut app, "kind:fn build");
 
-	assert_eq!(app.visible_defs.len(), 1, "{:?}", app.nav_rows);
+	assert_eq!(app.visible_defs().len(), 1, "{:?}", app.nav_rows());
 	assert!(
-		app.nav_rows.iter().any(|row| row.label.contains("build")),
+		app.nav_rows().iter().any(|row| row.label.contains("build")),
 		"{:?}",
-		app.nav_rows
+		app.nav_rows()
 	);
 }
 
@@ -1453,8 +1840,8 @@ fn filter_counts_only_navigable_declarations() {
 
 	apply_text_filter(&mut app, "kind:local");
 
-	assert!(app.visible_defs.is_empty(), "{:?}", app.visible_defs);
-	assert!(app.nav_rows.is_empty(), "{:?}", app.nav_rows);
+	assert!(app.visible_defs().is_empty(), "{:?}", app.visible_defs());
+	assert!(app.nav_rows().is_empty(), "{:?}", app.nav_rows());
 }
 
 #[test]
@@ -1477,7 +1864,7 @@ fn invalid_filter_regex_clears_rows_with_actionable_status() {
 	apply_text_filter(&mut app, "*Provider");
 
 	assert!(app.active_filter.error().is_some());
-	assert!(app.nav_rows.is_empty());
+	assert!(app.nav_rows().is_empty());
 	assert!(
 		app.status.contains("invalid filter regex"),
 		"{}",
@@ -1488,7 +1875,7 @@ fn invalid_filter_regex_clears_rows_with_actionable_status() {
 
 	assert_eq!(app.view_mode, VisualizationMode::Explorer);
 	assert!(app.active_filter.error().is_none());
-	assert!(!app.nav_rows.is_empty());
+	assert!(!app.nav_rows().is_empty());
 	assert_eq!(app.filter_label(), "<all>");
 }
 
@@ -1513,7 +1900,7 @@ fn source_snippet_preserves_indent_and_dims_context_lines() {
 		None,
 	);
 	let target = app
-		.visible_defs
+		.visible_defs()
 		.iter()
 		.copied()
 		.find(|loc| last_name(&app.store.def(loc).moniker).starts_with("target"))
@@ -1579,7 +1966,7 @@ fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
-	let total = app.visible_defs.len();
+	let total = app.visible_defs().len();
 
 	app.handle_key(key(KeyCode::Char('/'))).unwrap();
 	for c in "Alpha".chars() {
@@ -1588,26 +1975,26 @@ fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 
 	assert_eq!(app.mode, UiMode::EditingFilter);
 	assert_eq!(app.filter_draft, "Alpha");
-	assert_eq!(app.visible_defs.len(), total);
+	assert_eq!(app.visible_defs().len(), total);
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 
 	assert_eq!(app.mode, UiMode::Normal);
-	assert!(app.visible_defs.len() < total);
+	assert!(app.visible_defs().len() < total);
 	assert!(
-		app.visible_defs
+		app.visible_defs()
 			.iter()
 			.all(|loc| last_name(&app.store.def(loc).moniker).contains("Alpha")),
 		"{:?}",
-		app.visible_defs
+		app.visible_defs()
 	);
 	assert!(app.status.contains("Alpha"), "{}", app.status);
 	assert!(
-		app.nav_rows
+		app.nav_rows()
 			.iter()
 			.any(|row| row.label == "ts/src/a.ts/Alpha")
 	);
-	assert!(!app.nav_rows.iter().any(|row| row.label.contains("Beta")));
+	assert!(!app.nav_rows().iter().any(|row| row.label.contains("Beta")));
 }
 
 #[test]
@@ -1723,7 +2110,7 @@ fn normal_mode_ignores_control_modified_command_keys() {
 		None,
 	);
 	apply_text_filter(&mut app, "Alpha");
-	let visible = app.visible_defs.clone();
+	let visible = app.visible_defs().to_vec();
 	let view = app.view;
 	let status = app.status.clone();
 
@@ -1733,7 +2120,7 @@ fn normal_mode_ignores_control_modified_command_keys() {
 		.unwrap();
 
 	assert_eq!(app.view, view);
-	assert_eq!(app.visible_defs, visible);
+	assert_eq!(app.visible_defs(), visible.as_slice());
 	assert_eq!(app.status, status);
 	assert!(app.is_filtered());
 }

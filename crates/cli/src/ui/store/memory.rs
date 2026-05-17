@@ -1,33 +1,36 @@
+use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::{Moniker, Segment};
 use code_moniker_core::lang::Lang;
+use rustc_hash::FxHashMap;
 
 use crate::inspect::{
 	CheckSummary, DefLocation, IndexedFile, RefLocation, SessionIndex, SessionOptions, SessionStats,
 };
-
-use super::change::{ChangeEntry, ChangeFile, ChangeIndex, ChangeRoot, ChangeScan};
-use super::filter::NavFilter;
-use super::kinds::{definition_kind_order, is_navigable_definition};
+use crate::sources;
+use crate::ui::change::{ChangeEntry, ChangeFile, ChangeIndex, ChangeRoot, ChangeScan};
+use crate::ui::filter::NavFilter;
+use crate::ui::kinds::{definition_kind_order, is_navigable_definition};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct UsageFocus {
-	pub(super) target: Moniker,
-	pub(super) label: String,
-	pub(super) refs: Vec<RefLocation>,
-	pub(super) contexts: Vec<DefLocation>,
+pub(in crate::ui) struct UsageFocus {
+	pub(in crate::ui) target: Moniker,
+	pub(in crate::ui) label: String,
+	pub(in crate::ui) refs: Vec<RefLocation>,
+	pub(in crate::ui) contexts: Vec<DefLocation>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct SearchHit {
-	pub(super) loc: DefLocation,
-	pub(super) score: u32,
-	pub(super) reason: String,
+pub(in crate::ui) struct SearchHit {
+	pub(in crate::ui) loc: DefLocation,
+	pub(in crate::ui) score: u32,
+	pub(in crate::ui) reason: String,
 }
 
-pub(super) trait IndexStore {
+pub(in crate::ui) trait IndexStore {
 	fn root(&self) -> &str;
 	fn stats(&self) -> &SessionStats;
 	fn file_count(&self) -> usize;
@@ -37,11 +40,14 @@ pub(super) trait IndexStore {
 	fn all_navigable_defs(&self, filter: Option<&NavFilter>) -> Vec<DefLocation>;
 	fn root_defs(&self, file_idx: usize) -> Vec<DefLocation>;
 	fn child_defs(&self, parent: &DefLocation) -> Vec<DefLocation>;
+	fn compare_defs_for_navigation(&self, left: &DefLocation, right: &DefLocation) -> Ordering;
 	fn children_by_parent(&self, parent: &Moniker) -> &[DefLocation];
 	fn search_symbols(&self, query: &str, limit: usize) -> Vec<SearchHit>;
 	fn change_index(&self) -> &ChangeIndex;
 	fn changed_defs(&self) -> Vec<DefLocation>;
 	fn change_for_def(&self, loc: &DefLocation) -> Option<&ChangeEntry>;
+	fn change_count_for_file(&self, file_idx: usize) -> usize;
+	fn change_usage_refs(&self, change: &ChangeEntry) -> &[RefLocation];
 	fn outgoing_refs(&self, moniker: &Moniker) -> &[RefLocation];
 	fn incoming_refs(&self, moniker: &Moniker) -> &[RefLocation];
 	fn usage_focus(&self, loc: DefLocation) -> UsageFocus;
@@ -54,17 +60,24 @@ pub(super) trait IndexStore {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct StoreWatchRoot {
-	pub(super) path: PathBuf,
-	pub(super) git_root: Option<PathBuf>,
-	pub(super) ignored_paths: Vec<PathBuf>,
+pub(in crate::ui) struct StoreWatchRoot {
+	pub(in crate::ui) path: PathBuf,
+	pub(in crate::ui) git_root: Option<PathBuf>,
+	pub(in crate::ui) ignored_paths: Vec<PathBuf>,
 }
 
-pub(super) struct MemoryIndexStore {
+pub(in crate::ui) struct MemoryIndexStore {
 	opts: SessionOptions,
-	index: SessionIndex,
-	search_docs: Vec<SearchDoc>,
+	index: Arc<SessionIndex>,
+	search_docs: Arc<Vec<SearchDoc>>,
 	change_index: ChangeIndex,
+	change_usage_refs: FxHashMap<Moniker, Vec<RefLocation>>,
+}
+
+pub(in crate::ui) struct ChangeIndexRefreshInput {
+	opts: SessionOptions,
+	index: Arc<SessionIndex>,
+	search_docs: Arc<Vec<SearchDoc>>,
 }
 
 struct SearchDoc {
@@ -77,22 +90,70 @@ struct SearchDoc {
 }
 
 impl MemoryIndexStore {
-	pub(super) fn load(opts: &SessionOptions) -> anyhow::Result<Self> {
+	pub(in crate::ui) fn load(opts: &SessionOptions) -> anyhow::Result<Self> {
 		Ok(Self::new(SessionIndex::load(opts)?, opts.clone()))
+	}
+
+	pub(in crate::ui) fn catalog(opts: &SessionOptions) -> anyhow::Result<Self> {
+		let sources = sources::discover(&opts.paths, opts.project.clone())?;
+		Ok(Self::from_catalog_index(
+			SessionIndex::catalog(sources),
+			opts.clone(),
+		))
+	}
+
+	pub(in crate::ui) fn empty(opts: SessionOptions) -> Self {
+		Self::from_catalog_index(SessionIndex::empty(display_boot_path(&opts.paths)), opts)
 	}
 
 	fn new(index: SessionIndex, opts: SessionOptions) -> Self {
 		let search_docs = build_search_docs(&index);
 		let change_index = build_change_index(&index);
+		let change_usage_refs = build_change_usage_refs(&index, &change_index);
 		Self {
 			opts,
-			index,
-			search_docs,
+			index: Arc::new(index),
+			search_docs: Arc::new(search_docs),
 			change_index,
+			change_usage_refs,
 		}
 	}
 
-	pub(super) fn watch_roots(&self) -> Vec<StoreWatchRoot> {
+	fn from_catalog_index(index: SessionIndex, opts: SessionOptions) -> Self {
+		Self {
+			opts,
+			index: Arc::new(index),
+			search_docs: Arc::new(Vec::new()),
+			change_index: ChangeIndex::default(),
+			change_usage_refs: FxHashMap::default(),
+		}
+	}
+
+	pub(in crate::ui) fn options(&self) -> SessionOptions {
+		self.opts.clone()
+	}
+
+	pub(in crate::ui) fn change_index_refresh_input(&self) -> ChangeIndexRefreshInput {
+		ChangeIndexRefreshInput {
+			opts: self.opts.clone(),
+			index: Arc::clone(&self.index),
+			search_docs: Arc::clone(&self.search_docs),
+		}
+	}
+
+	pub(in crate::ui) fn refresh_change_indexed(input: ChangeIndexRefreshInput) -> Self {
+		let change_index = build_change_index(&input.index);
+		let change_usage_refs = build_change_usage_refs(&input.index, &change_index);
+		Self {
+			opts: input.opts,
+			index: input.index,
+			search_docs: input.search_docs,
+			change_index,
+			change_usage_refs,
+		}
+	}
+
+	pub(in crate::ui) fn watch_roots(&self) -> Vec<StoreWatchRoot> {
 		let ignored_paths = self
 			.opts
 			.cache_dir
@@ -115,19 +176,25 @@ impl MemoryIndexStore {
 			.collect()
 	}
 
-	pub(super) fn refresh_change_index(&mut self) {
+	pub(in crate::ui) fn refresh_change_index(&mut self) {
 		self.change_index = build_change_index(&self.index);
+		self.change_usage_refs = build_change_usage_refs(&self.index, &self.change_index);
 	}
 
-	pub(super) fn reload(&mut self) -> anyhow::Result<()> {
+	pub(in crate::ui) fn reload(&mut self) -> anyhow::Result<()> {
 		let index = SessionIndex::load(&self.opts)?;
-		self.search_docs = build_search_docs(&index);
+		self.search_docs = Arc::new(build_search_docs(&index));
 		self.change_index = build_change_index(&index);
-		self.index = index;
+		self.change_usage_refs = build_change_usage_refs(&index, &self.change_index);
+		self.index = Arc::new(index);
 		Ok(())
 	}
 
-	pub(super) fn usage_focus_for_target(&self, target: Moniker, label: String) -> UsageFocus {
+	pub(in crate::ui) fn usage_focus_for_target(
+		&self,
+		target: Moniker,
+		label: String,
+	) -> UsageFocus {
 		let refs = self.refs_matching_target(&target);
 		let contexts = self.usage_contexts(&refs);
 		UsageFocus {
@@ -136,6 +203,18 @@ impl MemoryIndexStore {
 			refs,
 			contexts,
 		}
+	}
+}
+
+fn display_boot_path(paths: &[PathBuf]) -> String {
+	match paths {
+		[] => "<empty>".to_string(),
+		[path] => path.display().to_string(),
+		paths => paths
+			.iter()
+			.map(|path| path.display().to_string())
+			.collect::<Vec<_>>()
+			.join(", "),
 	}
 }
 
@@ -174,7 +253,51 @@ fn build_change_index(index: &SessionIndex) -> ChangeIndex {
 			source: &file.source,
 		})
 		.collect();
-	super::change::build_change_index(ChangeScan { roots, files })
+	crate::ui::change::build_change_index(ChangeScan { roots, files })
+}
+
+fn build_change_usage_refs(
+	index: &SessionIndex,
+	change_index: &ChangeIndex,
+) -> FxHashMap<Moniker, Vec<RefLocation>> {
+	let mut cache = FxHashMap::default();
+	for change in &change_index.entries {
+		cache.entry(change.moniker.clone()).or_insert_with(|| {
+			refs_matching_target_in_index(index, &change.moniker)
+				.into_iter()
+				.filter(|ref_loc| change_ref_is_outside_changed_symbol(index, change, ref_loc))
+				.collect()
+		});
+	}
+	cache
+}
+
+fn refs_matching_target_in_index(index: &SessionIndex, target: &Moniker) -> Vec<RefLocation> {
+	let mut refs = Vec::new();
+	for (file_idx, file) in index.files.iter().enumerate() {
+		for (ref_idx, reference) in file.graph.refs().enumerate() {
+			if usage_target_matches(target, &reference.target) {
+				refs.push(RefLocation {
+					file: file_idx,
+					reference: ref_idx,
+				});
+			}
+		}
+	}
+	refs
+}
+
+fn change_ref_is_outside_changed_symbol(
+	index: &SessionIndex,
+	change: &ChangeEntry,
+	ref_loc: &RefLocation,
+) -> bool {
+	if change.loc.is_none() {
+		return true;
+	}
+	let reference = index.reference(ref_loc);
+	let source = index.files[ref_loc.file].graph.def_at(reference.source);
+	!change.moniker.bind_match(&source.moniker) && !change.moniker.is_ancestor_of(&source.moniker)
 }
 
 impl IndexStore for MemoryIndexStore {
@@ -257,6 +380,23 @@ impl IndexStore for MemoryIndexStore {
 		locs
 	}
 
+	fn compare_defs_for_navigation(&self, left: &DefLocation, right: &DefLocation) -> Ordering {
+		let left_def = self.def(left);
+		let right_def = self.def(right);
+		definition_kind_order(self.file(left.file).lang, &def_kind(left_def))
+			.cmp(&definition_kind_order(
+				self.file(right.file).lang,
+				&def_kind(right_def),
+			))
+			.then_with(|| {
+				left_def
+					.position
+					.map(|(start, _)| start)
+					.cmp(&right_def.position.map(|(start, _)| start))
+			})
+			.then_with(|| last_name(&left_def.moniker).cmp(&last_name(&right_def.moniker)))
+	}
+
 	fn children_by_parent(&self, parent: &Moniker) -> &[DefLocation] {
 		self.index
 			.children_by_parent
@@ -303,6 +443,16 @@ impl IndexStore for MemoryIndexStore {
 		self.change_index.entry_for(loc)
 	}
 
+	fn change_count_for_file(&self, file_idx: usize) -> usize {
+		self.change_index.change_count_for_file(file_idx)
+	}
+
+	fn change_usage_refs(&self, change: &ChangeEntry) -> &[RefLocation] {
+		self.change_usage_refs
+			.get(&change.moniker)
+			.map_or(&[], Vec::as_slice)
+	}
+
 	fn outgoing_refs(&self, moniker: &Moniker) -> &[RefLocation] {
 		self.index.outgoing_refs(moniker)
 	}
@@ -336,36 +486,11 @@ impl IndexStore for MemoryIndexStore {
 
 impl MemoryIndexStore {
 	fn sort_defs_for_navigation(&self, locs: &mut [DefLocation]) {
-		locs.sort_by(|a, b| {
-			let left = self.def(a);
-			let right = self.def(b);
-			definition_kind_order(self.file(a.file).lang, &def_kind(left))
-				.cmp(&definition_kind_order(
-					self.file(b.file).lang,
-					&def_kind(right),
-				))
-				.then_with(|| {
-					left.position
-						.map(|(start, _)| start)
-						.cmp(&right.position.map(|(start, _)| start))
-				})
-				.then_with(|| last_name(&left.moniker).cmp(&last_name(&right.moniker)))
-		});
+		locs.sort_by(|a, b| self.compare_defs_for_navigation(a, b));
 	}
 
 	fn refs_matching_target(&self, target: &Moniker) -> Vec<RefLocation> {
-		let mut refs = Vec::new();
-		for (file_idx, file) in self.index.files.iter().enumerate() {
-			for (ref_idx, reference) in file.graph.refs().enumerate() {
-				if usage_target_matches(target, &reference.target) {
-					refs.push(RefLocation {
-						file: file_idx,
-						reference: ref_idx,
-					});
-				}
-			}
-		}
-		refs
+		refs_matching_target_in_index(&self.index, target)
 	}
 
 	fn usage_contexts(&self, refs: &[RefLocation]) -> Vec<DefLocation> {
@@ -474,21 +599,21 @@ fn score_doc(doc: &SearchDoc, phrase: &str, terms: &[String]) -> Option<(u32, St
 	(score > 0).then(|| (score, reason.unwrap_or("match").to_string()))
 }
 
-pub(super) fn is_navigable_def(lang: Lang, def: &DefRecord) -> bool {
+pub(in crate::ui) fn is_navigable_def(lang: Lang, def: &DefRecord) -> bool {
 	is_navigable_definition(lang, &def_kind(def))
 }
 
-pub(super) fn def_kind(def: &DefRecord) -> String {
+pub(in crate::ui) fn def_kind(def: &DefRecord) -> String {
 	std::str::from_utf8(&def.kind).unwrap_or("?").to_string()
 }
 
-pub(super) fn ref_kind(reference: &RefRecord) -> String {
+pub(in crate::ui) fn ref_kind(reference: &RefRecord) -> String {
 	std::str::from_utf8(&reference.kind)
 		.unwrap_or("?")
 		.to_string()
 }
 
-pub(super) fn last_name(moniker: &Moniker) -> String {
+pub(in crate::ui) fn last_name(moniker: &Moniker) -> String {
 	moniker
 		.as_view()
 		.segments()
@@ -498,19 +623,13 @@ pub(super) fn last_name(moniker: &Moniker) -> String {
 		.to_string()
 }
 
-pub(super) fn compact_moniker(moniker: &Moniker) -> String {
-	let view = moniker.as_view();
-	let project = std::str::from_utf8(view.project()).unwrap_or(".");
-	let mut out = String::from(project);
-	for seg in view.segments() {
-		let kind = std::str::from_utf8(seg.kind).unwrap_or("?");
-		let name = std::str::from_utf8(seg.name).unwrap_or("?");
-		out.push('/');
-		out.push_str(kind);
-		out.push(':');
-		out.push_str(name);
-	}
-	out
+pub(in crate::ui) fn compact_moniker(moniker: &Moniker) -> String {
+	crate::format::render_compact_moniker(moniker, false).unwrap_or_else(|| {
+		let cfg = code_moniker_core::core::uri::UriConfig {
+			scheme: crate::DEFAULT_SCHEME,
+		};
+		crate::render_uri(moniker, &cfg)
+	})
 }
 
 fn usage_target_matches(selected: &Moniker, reference_target: &Moniker) -> bool {

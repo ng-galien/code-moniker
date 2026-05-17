@@ -125,6 +125,44 @@ in `0.y.z`.
   layer: typed `Route`, `Effect`, `Screen`, and `Feature` contracts, a
   static feature registry, and an `ExplorerFeature` that declares the
   current overview/outline/refs/check navigation surface.
+- **`code-moniker ui`** — navigation state now sits behind a reusable
+  reactive store abstraction (`dispatch`, reducer, selector). The
+  navigator uses stable node identities for roots, files, symbols, and
+  changes, so full index reloads can preserve expanded branches and the
+  selected symbol instead of resetting the tree.
+- **`code-moniker ui`** — the shell now has the foundation for lazy
+  asynchronous work: app input is routed through `AppAction`, store
+  reducers return `Transition` values with effects, `Effect::Spawn`
+  queues typed task specs through a Rayon-backed runtime, and task
+  completion re-enters the UI as `ShellEvent::TaskCompleted`.
+- **`code-moniker ui`** — app-level state is now organized into
+  reactive domain slices for project loading, files, graph/index state,
+  search, Git changes, blast-radius impact, panels, and future coverage
+  instead of leaving long-lived data hidden in individual panel code. A
+  work catalog now names the lazy/async candidates that will be scheduled
+  independently on large repositories.
+- **`code-moniker ui`** — live filesystem and Git refreshes now queue
+  typed background tasks when the event loop is available. Full index
+  reloads and change-index refreshes run through the Rayon-backed task
+  runtime and return through `ShellEvent::TaskCompleted`, with a
+  synchronous fallback kept for direct unit tests.
+- **`code-moniker ui`** — startup now opens the terminal shell with an
+  empty boot store, then quickly loads a file-catalog store so the
+  navigator can show the directory/file tree before symbol extraction is
+  complete. The full index still loads through the background task
+  runtime; once ready, the app swaps in the loaded store and replaces
+  live watchers with the real source/Git roots.
+- **`code-moniker ui`** — async task results are now guarded by
+  work-kind generations. The app store records task startup, marks
+  loading slices, and ignores stale background completions that arrive
+  after a newer filesystem or Git invalidation.
+- **`code-moniker ui` internals** — `SessionIndex` now owns the empty
+  and file-catalog construction paths used by phased startup, avoiding
+  duplicate partial-index setup in the UI store adapter. Navigator
+  symbol ordering now comes from the store/language strategy only.
+- **`code-moniker-core`** — `CodeGraph` internal lookup and moniker
+  caches now use thread-safe locks instead of `RefCell`, allowing
+  session indexes to be moved through the UI task runtime.
 - **`code-moniker ui`** — visualization modes are now explicit UI
   state. The header now carries only global orientation (`mode` and
   `scope`), while contextual panels can follow navigator selection when
@@ -160,6 +198,24 @@ in `0.y.z`.
 
 ### Fixed
 
+- **`code-moniker ui`** — un-compacted language rows in
+  `ui.navigator`, such as dogfood SQL roots split across fixtures and
+  pgTAP files, now render as containers with a trailing slash.
+- **`code-moniker ui`** — panel monikers now use the same compact
+  format as `extract`, for example
+  `rs:crates/cli/src/args.tests.test:no_args_requires_subcommand()`,
+  instead of `lang:`/`dir:` URI-like segments.
+- **`code-moniker ui` / `extract --format tree`** — tree rendering now
+  uses a shared language strategy for kind ordering, shape-driven colors,
+  and structural package/directory compaction instead of local ad hoc
+  ordering.
+- **`code-moniker ui`** — `ui.navigator` now reorders symbols after
+  flattening non-navigable containers such as Rust `mod tests`, so
+  tests and helper functions no longer jump ahead of type declarations.
+- **`code-moniker ui` change mode** — navigation inside files with
+  changes no longer recomputes Git change lookups or blast-radius refs
+  during each draw; the store now serves indexed change counts and cached
+  usage refs.
 - **`code-moniker-core` (rs extractor)** — Rust `const` and `static`
   items now emit defs matching the language kind contract.
 - **`code-moniker-core` (java extractor)** — Java record components now

@@ -5,11 +5,13 @@ use crossterm::event::{self, Event};
 
 use crate::ui::clipboard::ClipboardResult;
 use crate::ui::live::{LiveStoreWatcher, StoreEvent};
+use crate::ui::runtime::TaskResult;
 use crate::ui::store::StoreWatchRoot;
 
 pub(in crate::ui) enum ShellEvent {
 	Terminal(Event),
 	Store(StoreEvent),
+	TaskCompleted(TaskResult),
 	Clipboard(ClipboardResult),
 	Error(String),
 }
@@ -26,16 +28,7 @@ impl EventSource {
 	pub(in crate::ui) fn start(watch_roots: Vec<StoreWatchRoot>) -> Self {
 		let (tx, rx) = mpsc::channel();
 		let terminal_reader = spawn_terminal_reader(tx.clone());
-		let live_tx = tx.clone();
-		let (live_watcher, status) = match LiveStoreWatcher::start(watch_roots, move |event| {
-			let _ = live_tx.send(ShellEvent::Store(event));
-		}) {
-			Ok(watcher) => {
-				let status = watcher.status();
-				(Some(watcher), status)
-			}
-			Err(error) => (None, Some(format!("live store disabled: {error:#}"))),
-		};
+		let (live_watcher, status) = start_live_watcher(watch_roots, &tx);
 		Self {
 			tx,
 			rx,
@@ -49,6 +42,16 @@ impl EventSource {
 		self.tx.clone()
 	}
 
+	pub(in crate::ui) fn replace_watch_roots(
+		&mut self,
+		watch_roots: Vec<StoreWatchRoot>,
+	) -> Option<String> {
+		let (live_watcher, status) = start_live_watcher(watch_roots, &self.tx);
+		self._live_watcher = live_watcher;
+		self.status = status.clone();
+		status
+	}
+
 	pub(in crate::ui) fn recv_batch(&self) -> anyhow::Result<Vec<ShellEvent>> {
 		let first = self
 			.rx
@@ -59,6 +62,22 @@ impl EventSource {
 			batch.push(event);
 		}
 		Ok(batch)
+	}
+}
+
+fn start_live_watcher(
+	watch_roots: Vec<StoreWatchRoot>,
+	tx: &Sender<ShellEvent>,
+) -> (Option<LiveStoreWatcher>, Option<String>) {
+	let live_tx = tx.clone();
+	match LiveStoreWatcher::start(watch_roots, move |event| {
+		let _ = live_tx.send(ShellEvent::Store(event));
+	}) {
+		Ok(watcher) => {
+			let status = watcher.status();
+			(Some(watcher), status)
+		}
+		Err(error) => (None, Some(format!("live store disabled: {error:#}"))),
 	}
 }
 

@@ -16,6 +16,8 @@ pub mod manifest;
 pub mod predicate;
 pub mod sources;
 pub mod stats;
+#[cfg(feature = "pretty")]
+pub(crate) mod tree;
 pub mod tsconfig;
 #[cfg(feature = "tui")]
 pub mod ui;
@@ -357,7 +359,7 @@ fn extract_inner<W: Write>(args: &ExtractArgs, stdout: &mut W) -> anyhow::Result
 				format::write_json(stdout, &matches, &source, args, lang, path, &scheme)?
 			}
 			#[cfg(feature = "pretty")]
-			OutputFormat::Tree => format::tree::write_tree(stdout, &matches, &source, args, &scheme)?,
+			OutputFormat::Tree => tree::write_tree(stdout, &matches, &source, args, &scheme)?,
 		},
 		OutputMode::Count => {
 			let n = matches.defs.len() + matches.refs.len();

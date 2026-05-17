@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 
-use anstyle::{AnsiColor, Style};
+use anstyle::Style;
 use rustc_hash::FxHashMap;
 
-use crate::args::{Charset, ExtractArgs};
-use crate::color::resolve_color;
+use super::strategy::TreeStrategy;
+use super::style::{Palette, TreeOpts};
+use crate::args::ExtractArgs;
 use crate::lines::line_range;
 use crate::predicate::{MatchSet, RefMatch};
 use crate::render_uri;
@@ -121,7 +122,7 @@ fn render<W: Write>(
 	source: &str,
 ) -> std::io::Result<()> {
 	let mut entries: Vec<(&String, &Node<'_>)> = node.children.iter().collect();
-	entries.sort_by(|a, b| def_line(a.1).cmp(&def_line(b.1)).then_with(|| a.0.cmp(b.0)));
+	entries.sort_by(|a, b| tree_sort_key(a.0, a.1).cmp(&tree_sort_key(b.0, b.1)));
 
 	let total = entries.len() + node.refs.len();
 	let mut i = 0usize;
@@ -146,13 +147,41 @@ fn render<W: Write>(
 	Ok(())
 }
 
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
+struct TreeSortKey {
+	order: u16,
+	line: u32,
+	label: String,
+}
+
+fn tree_sort_key(seg: &str, node: &Node<'_>) -> TreeSortKey {
+	let kind = node
+		.def
+		.and_then(|def| std::str::from_utf8(&def.kind).ok())
+		.or_else(|| seg.split_once(':').map(|(kind, _)| kind))
+		.unwrap_or("");
+	let strategy = node
+		.def
+		.map(|def| TreeStrategy::from_moniker(&def.moniker))
+		.unwrap_or_else(TreeStrategy::unknown);
+	TreeSortKey {
+		order: strategy.definition_order(kind),
+		line: def_line(node),
+		label: seg.to_string(),
+	}
+}
+
 fn collapsed_outline_label<'a>(
 	seg: &str,
 	node: &'a Node<'a>,
 	source: &str,
 	opts: &TreeOpts,
 ) -> (String, &'a Node<'a>) {
-	let Some((kind, name)) = split_structural_seg(seg) else {
+	let strategy = node
+		.def
+		.map(|def| TreeStrategy::from_moniker(&def.moniker))
+		.unwrap_or_else(TreeStrategy::unknown);
+	let Some((kind, name)) = split_structural_seg(seg, strategy) else {
 		return (format_seg_label(seg, node.def, source, opts), node);
 	};
 	let mut names = vec![name.to_string()];
@@ -161,7 +190,7 @@ fn collapsed_outline_label<'a>(
 		let Some((child_seg, child)) = current.children.iter().next() else {
 			break;
 		};
-		let Some((child_kind, child_name)) = split_structural_seg(child_seg) else {
+		let Some((child_kind, child_name)) = split_structural_seg(child_seg, strategy) else {
 			break;
 		};
 		if child_kind != kind {
@@ -174,24 +203,33 @@ fn collapsed_outline_label<'a>(
 		return (format_seg_label(seg, node.def, source, opts), node);
 	}
 	(
-		format_collapsed_structural_label(kind, &names, opts),
+		format_collapsed_structural_label(kind, &names, strategy, opts),
 		current,
 	)
 }
 
-fn split_structural_seg(seg: &str) -> Option<(&str, &str)> {
+fn split_structural_seg(seg: &str, strategy: TreeStrategy) -> Option<(&str, &str)> {
 	let (kind, name) = seg.split_once(':')?;
-	matches!(kind, "package" | "dir").then_some((kind, name))
+	strategy
+		.collapse_separator(kind)
+		.is_some()
+		.then_some((kind, name))
 }
 
-fn format_collapsed_structural_label(kind: &str, names: &[String], opts: &TreeOpts) -> String {
-	let sep = if kind == "package" { "." } else { "/" };
+fn format_collapsed_structural_label(
+	kind: &str,
+	names: &[String],
+	strategy: TreeStrategy,
+	opts: &TreeOpts,
+) -> String {
+	let sep = strategy.collapse_separator(kind).unwrap_or("/");
 	let name = names.join(sep);
 	let p = &opts.palette;
+	let kind_style = p.kind_style(strategy.definition_shape(kind));
 	format!(
 		"{kpre}{kind:<7}{kpost} {npre}{name}{npost}",
-		kpre = p.kind.render(),
-		kpost = p.kind.render_reset(),
+		kpre = kind_style.render(),
+		kpost = kind_style.render_reset(),
 		npre = p.name.render(),
 		npost = p.name.render_reset(),
 	)
@@ -229,6 +267,9 @@ fn format_seg_label(seg: &str, def: Option<&DefRecord>, source: &str, opts: &Tre
 	let kind_disp = def
 		.map(|d| std::str::from_utf8(&d.kind).unwrap_or(kind_part))
 		.unwrap_or(kind_part);
+	let strategy = def
+		.map(|d| TreeStrategy::from_moniker(&d.moniker))
+		.unwrap_or_else(TreeStrategy::unknown);
 	let lines = def
 		.and_then(|d| d.position)
 		.map(|(s, e)| {
@@ -243,10 +284,11 @@ fn format_seg_label(seg: &str, def: Option<&DefRecord>, source: &str, opts: &Tre
 
 	let p = &opts.palette;
 	let args_colored = colorize_args(args_part, p);
+	let kind_style = p.kind_style(strategy.definition_shape(kind_disp));
 	format!(
 		"{kpre}{kind_disp:<7}{kpost} {npre}{name_only}{npost}{args_colored}{rpre}{lines}{rpost}",
-		kpre = p.kind.render(),
-		kpost = p.kind.render_reset(),
+		kpre = kind_style.render(),
+		kpost = kind_style.render_reset(),
 		npre = p.name.render(),
 		npost = p.name.render_reset(),
 		rpre = p.range.render(),
@@ -364,288 +406,11 @@ fn is_noise(kind: &[u8]) -> bool {
 	NOISE_KINDS.contains(&kind)
 }
 
-struct TreeOpts {
-	glyph: Glyphs,
-	palette: Palette,
-}
-
-impl TreeOpts {
-	fn from_args(args: &ExtractArgs) -> Self {
-		let glyph = match args.charset {
-			Charset::Utf8 => Glyphs::utf8(),
-			Charset::Ascii => Glyphs::ascii(),
-		};
-		let palette = if resolve_color(args.color) {
-			Palette::ansi()
-		} else {
-			Palette::none()
-		};
-		Self { glyph, palette }
-	}
-}
-
-struct Glyphs {
-	tee: &'static str,
-	last: &'static str,
-	skip_mid: &'static str,
-	skip_last: &'static str,
-	arrow: &'static str,
-	header_rule: &'static str,
-}
-
-impl Glyphs {
-	fn utf8() -> Self {
-		Self {
-			tee: "├──",
-			last: "└──",
-			skip_mid: "│   ",
-			skip_last: "    ",
-			arrow: "→",
-			header_rule: "──",
-		}
-	}
-	fn ascii() -> Self {
-		Self {
-			tee: "+--",
-			last: "+--",
-			skip_mid: "|   ",
-			skip_last: "    ",
-			arrow: "->",
-			header_rule: "--",
-		}
-	}
-}
-
-struct Palette {
-	kind: Style,
-	name: Style,
-	range: Style,
-	arrow: Style,
-	ref_kind: Style,
-	dim: Style,
-	punct: Style,
-	arg_name: Style,
-	arg_type: Style,
-}
-
-impl Palette {
-	fn none() -> Self {
-		Self {
-			kind: Style::new(),
-			name: Style::new(),
-			range: Style::new(),
-			arrow: Style::new(),
-			ref_kind: Style::new(),
-			dim: Style::new(),
-			punct: Style::new(),
-			arg_name: Style::new(),
-			arg_type: Style::new(),
-		}
-	}
-	fn ansi() -> Self {
-		Self {
-			kind: Style::new().fg_color(Some(AnsiColor::Cyan.into())),
-			name: Style::new().bold(),
-			range: Style::new().fg_color(Some(AnsiColor::Green.into())),
-			arrow: Style::new()
-				.fg_color(Some(AnsiColor::BrightBlack.into()))
-				.dimmed(),
-			ref_kind: Style::new().fg_color(Some(AnsiColor::Magenta.into())),
-			dim: Style::new()
-				.fg_color(Some(AnsiColor::BrightBlack.into()))
-				.dimmed(),
-			punct: Style::new().fg_color(Some(AnsiColor::BrightBlack.into())),
-			arg_name: Style::new().fg_color(Some(AnsiColor::Yellow.into())),
-			arg_type: Style::new().fg_color(Some(AnsiColor::Blue.into())),
-		}
-	}
-}
-
-pub fn write_file_header<W: Write>(
-	w: &mut W,
-	path: &std::path::Path,
-	args: &ExtractArgs,
-) -> std::io::Result<()> {
-	let opts = TreeOpts::from_args(args);
-	let style = opts.palette.name;
-	let rule = opts.glyph.header_rule;
-	writeln!(
-		w,
-		"\n{}{} {} {}{}",
-		style.render(),
-		rule,
-		path.display(),
-		rule,
-		style.render_reset()
-	)
-}
-
-pub struct FileEntry<'a> {
-	pub rel_path: String,
-	pub matches: MatchSet<'a>,
-	pub source: &'a str,
-}
-
-pub fn write_files_tree<W: Write>(
-	w: &mut W,
-	files: &[FileEntry<'_>],
-	args: &ExtractArgs,
-	scheme: &str,
-) -> std::io::Result<()> {
-	let opts = TreeOpts::from_args(args);
-	let mut trie: FileTrie = FileTrie::default();
-	for (i, f) in files.iter().enumerate() {
-		let segs: Vec<&str> = f.rel_path.split('/').filter(|s| !s.is_empty()).collect();
-		trie.insert(&segs, i);
-	}
-	render_file_trie(w, &trie, "", files, args, scheme, &opts)
-}
-
-type FileTrie = LeafTrie<usize>;
-
-fn render_file_trie<W: Write>(
-	w: &mut W,
-	node: &FileTrie,
-	prefix: &str,
-	files: &[FileEntry<'_>],
-	args: &ExtractArgs,
-	scheme: &str,
-	opts: &TreeOpts,
-) -> std::io::Result<()> {
-	let total = node.children.len();
-	for (i, (name, child)) in node.children.iter().enumerate() {
-		let last = i + 1 == total;
-		let branch = if last {
-			opts.glyph.last
-		} else {
-			opts.glyph.tee
-		};
-		let cont = if last {
-			opts.glyph.skip_last
-		} else {
-			opts.glyph.skip_mid
-		};
-		let (label_name, rendered_child) = collapsed_leaf_label(name, child);
-		let is_dir = rendered_child.leaf.is_none();
-		let suffix = if is_dir { "/" } else { "" };
-		writeln!(
-			w,
-			"{prefix}{branch} {hpre}{label_name}{suffix}{hpost}",
-			hpre = opts.palette.name.render(),
-			hpost = opts.palette.name.render_reset(),
-		)?;
-		let sub_prefix = format!("{prefix}{cont}");
-		if let Some(idx) = rendered_child.leaf {
-			let f = &files[idx];
-			write_tree_with_prefix(w, &f.matches, f.source, args, scheme, &sub_prefix)?;
-		} else {
-			render_file_trie(w, rendered_child, &sub_prefix, files, args, scheme, opts)?;
-		}
-	}
-	Ok(())
-}
-
-fn collapsed_leaf_label<'a, T>(name: &str, node: &'a LeafTrie<T>) -> (String, &'a LeafTrie<T>) {
-	let mut names = vec![name.to_string()];
-	let mut current = node;
-	while current.leaf.is_none() && current.children.len() == 1 {
-		let Some((child_name, child)) = current.children.iter().next() else {
-			break;
-		};
-		names.push(child_name.clone());
-		current = child;
-	}
-	(names.join("/"), current)
-}
-
-pub fn render_dir_tree<W: Write>(
-	w: &mut W,
-	entries: &[(String, String)],
-	args: &ExtractArgs,
-) -> std::io::Result<()> {
-	let opts = TreeOpts::from_args(args);
-	let mut root: PathNode = PathNode::default();
-	for (path, label) in entries {
-		let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-		root.insert(&segs, label.clone());
-	}
-	render_path_node(w, &root, "", &opts)
-}
-
-type PathNode = LeafTrie<String>;
-
-struct LeafTrie<T> {
-	leaf: Option<T>,
-	children: BTreeMap<String, LeafTrie<T>>,
-}
-
-impl<T> Default for LeafTrie<T> {
-	fn default() -> Self {
-		Self {
-			leaf: None,
-			children: BTreeMap::new(),
-		}
-	}
-}
-
-impl<T> LeafTrie<T> {
-	fn insert(&mut self, segs: &[&str], val: T) {
-		let Some((head, rest)) = segs.split_first() else {
-			self.leaf = Some(val);
-			return;
-		};
-		self.children
-			.entry((*head).to_string())
-			.or_default()
-			.insert(rest, val);
-	}
-}
-
-fn render_path_node<W: Write>(
-	w: &mut W,
-	node: &PathNode,
-	prefix: &str,
-	opts: &TreeOpts,
-) -> std::io::Result<()> {
-	let total = node.children.len();
-	for (i, (seg, child)) in node.children.iter().enumerate() {
-		let last = i + 1 == total;
-		let (label_seg, rendered_child) = collapsed_leaf_label(seg, child);
-		let branch = if last {
-			opts.glyph.last
-		} else {
-			opts.glyph.tee
-		};
-		let cont = if last {
-			opts.glyph.skip_last
-		} else {
-			opts.glyph.skip_mid
-		};
-		let label = match &rendered_child.leaf {
-			Some(l) => format!(
-				"{npre}{label_seg}{npost} {dpre}{l}{dpost}",
-				npre = opts.palette.name.render(),
-				npost = opts.palette.name.render_reset(),
-				dpre = opts.palette.dim.render(),
-				dpost = opts.palette.dim.render_reset(),
-			),
-			None => format!(
-				"{kpre}{label_seg}/{kpost}",
-				kpre = opts.palette.kind.render(),
-				kpost = opts.palette.kind.render_reset(),
-			),
-		};
-		writeln!(w, "{prefix}{branch} {label}")?;
-		let next_prefix = format!("{prefix}{cont}");
-		render_path_node(w, rendered_child, &next_prefix, opts)?;
-	}
-	Ok(())
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::args::{ColorChoice, OutputFormat};
+	use crate::args::{Charset, ColorChoice, OutputFormat};
+	use crate::color::resolve_color;
 	use code_moniker_core::core::code_graph::CodeGraph;
 	use code_moniker_core::core::moniker::MonikerBuilder;
 
@@ -707,6 +472,45 @@ mod tests {
 		g
 	}
 
+	fn graph_java_field_method_source_order_reversed() -> CodeGraph {
+		let mut b = MonikerBuilder::new();
+		b.project(b".");
+		let root = b.build();
+		let mut g = CodeGraph::new(root.clone(), b"module");
+
+		let mut b = MonikerBuilder::new();
+		b.project(b".");
+		b.segment(b"lang", b"java");
+		b.segment(b"package", b"app");
+		b.segment(b"module", b"User");
+		b.segment(b"class", b"User");
+		let class = b.build();
+		g.add_def(class.clone(), b"class", &root, Some((0, 0)))
+			.unwrap();
+
+		let mut b = MonikerBuilder::new();
+		b.project(b".");
+		b.segment(b"lang", b"java");
+		b.segment(b"package", b"app");
+		b.segment(b"module", b"User");
+		b.segment(b"class", b"User");
+		b.segment(b"method", b"compute()");
+		let method = b.build();
+		g.add_def(method, b"method", &class, Some((1, 1))).unwrap();
+
+		let mut b = MonikerBuilder::new();
+		b.project(b".");
+		b.segment(b"lang", b"java");
+		b.segment(b"package", b"app");
+		b.segment(b"module", b"User");
+		b.segment(b"class", b"User");
+		b.segment(b"field", b"total");
+		let field = b.build();
+		g.add_def(field, b"field", &class, Some((10, 10))).unwrap();
+
+		g
+	}
+
 	#[test]
 	fn structural_only_by_default_hides_locals() {
 		let g = graph_class_method_and_local();
@@ -746,35 +550,26 @@ mod tests {
 	}
 
 	#[test]
-	fn file_tree_collapses_linear_directory_chain() {
-		let g = graph_class_method_and_local();
+	fn tree_orders_defs_by_language_kind_contract() {
+		let g = graph_java_field_method_source_order_reversed();
 		let matches = MatchSet {
 			defs: g.defs().collect(),
 			refs: vec![],
 		};
-		let files = [FileEntry {
-			rel_path: "src/main/java/Foo.java".to_string(),
-			matches,
-			source: "",
-		}];
 		let mut buf = Vec::new();
-		write_files_tree(&mut buf, &files, &base_args(), "code+moniker://").unwrap();
+		write_tree(&mut buf, &matches, "", &base_args(), "code+moniker://").unwrap();
 		let s = String::from_utf8(buf).unwrap();
-		assert!(s.contains("src/main/java/Foo.java"), "{s}");
-		assert!(!s.contains("src/\n"), "{s}");
-	}
+		let field = s
+			.find("field")
+			.unwrap_or_else(|| panic!("missing field: {s}"));
+		let method = s
+			.find("method")
+			.unwrap_or_else(|| panic!("missing method: {s}"));
 
-	#[test]
-	fn directory_summary_tree_collapses_linear_directory_chain() {
-		let entries = [(
-			"src/main/java/Foo.java".to_string(),
-			"files=1 defs=1 refs=0".to_string(),
-		)];
-		let mut buf = Vec::new();
-		render_dir_tree(&mut buf, &entries, &base_args()).unwrap();
-		let s = String::from_utf8(buf).unwrap();
-		assert!(s.contains("src/main/java/Foo.java"), "{s}");
-		assert!(!s.contains("src/\n"), "{s}");
+		assert!(
+			field < method,
+			"Java field should be ordered before method by the language kind contract: {s}"
+		);
 	}
 
 	#[test]
@@ -834,17 +629,5 @@ mod tests {
 		unsafe { std::env::set_var("NO_COLOR", "1") };
 		assert!(resolve_color(ColorChoice::Always));
 		unsafe { std::env::remove_var("NO_COLOR") };
-	}
-
-	#[test]
-	fn file_header_honors_ascii_charset() {
-		let mut args = base_args();
-		args.charset = Charset::Ascii;
-		let mut buf = Vec::new();
-		write_file_header(&mut buf, std::path::Path::new("src/a.ts"), &args).unwrap();
-		let s = String::from_utf8(buf).unwrap();
-
-		assert!(s.is_ascii(), "ascii header produced non-ASCII: {s:?}");
-		assert!(s.contains("-- src/a.ts --"), "{s}");
 	}
 }

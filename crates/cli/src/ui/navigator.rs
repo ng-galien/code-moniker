@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::inspect::DefLocation;
 
+use super::store::ids::NodeId;
 use super::store::{IndexStore, is_navigable_def, last_name};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,7 +18,7 @@ pub(super) enum NavNodeKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct NavNode {
-	pub(super) key: String,
+	pub(super) key: NodeId,
 	pub(super) label: String,
 	pub(super) kind: NavNodeKind,
 	pub(super) children: Vec<NavNode>,
@@ -27,7 +28,7 @@ pub(super) struct NavNode {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct NavRow {
-	pub(super) key: String,
+	pub(super) key: NodeId,
 	pub(super) label: String,
 	pub(super) kind: NavNodeKind,
 	pub(super) depth: usize,
@@ -37,10 +38,10 @@ pub(super) struct NavRow {
 }
 
 impl NavNode {
-	fn new(key: String, label: String, kind: NavNodeKind) -> Self {
+	fn new(key: NodeId, label: impl Into<String>, kind: NavNodeKind) -> Self {
 		Self {
 			key,
-			label,
+			label: label.into(),
 			kind,
 			children: Vec::new(),
 			file_count: 0,
@@ -50,13 +51,12 @@ impl NavNode {
 }
 
 pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
-	let mut root = NavNode::new("root".to_string(), "root".to_string(), NavNodeKind::Root);
+	let mut root = NavNode::new(NodeId::root("explorer"), "root", NavNodeKind::Root);
 	for file_idx in 0..store.file_count() {
 		let file = store.file(file_idx);
-		let lang_key = format!("lang:{}", file.lang.tag());
 		let lang = child_mut(
 			&mut root,
-			lang_key,
+			NodeId::lang("explorer", file.lang.tag()),
 			file.lang.tag().to_string(),
 			NavNodeKind::Lang,
 		);
@@ -77,7 +77,7 @@ pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
 			path_key.push_str(&part);
 			parent = child_mut(
 				parent,
-				format!("dir:{}:{path_key}", file.lang.tag()),
+				NodeId::dir("explorer", file.lang.tag(), &path_key),
 				part,
 				NavNodeKind::Dir,
 			);
@@ -89,7 +89,7 @@ pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
 			.unwrap_or_else(|| file.rel_path.to_str().unwrap_or("<file>"))
 			.to_string();
 		let mut file_node = NavNode::new(
-			format!("file:{file_idx}"),
+			NodeId::file(&file.anchor),
 			file_label,
 			NavNodeKind::File(file_idx),
 		);
@@ -102,16 +102,11 @@ pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
 }
 
 pub(super) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
-	let mut root = NavNode::new(
-		"change-root".to_string(),
-		"root".to_string(),
-		NavNodeKind::Root,
-	);
+	let mut root = NavNode::new(NodeId::root("change"), "root", NavNodeKind::Root);
 	for (change_idx, entry) in store.change_index().entries.iter().enumerate() {
-		let lang_key = format!("change-lang:{}", entry.lang.tag());
 		let lang = child_mut(
 			&mut root,
-			lang_key,
+			NodeId::lang("change", entry.lang.tag()),
 			entry.lang.tag().to_string(),
 			NavNodeKind::Lang,
 		);
@@ -132,7 +127,7 @@ pub(super) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
 			path_key.push_str(&part);
 			parent = child_mut(
 				parent,
-				format!("change-dir:{}:{path_key}", entry.lang.tag()),
+				NodeId::dir("change", entry.lang.tag(), &path_key),
 				part,
 				NavNodeKind::Dir,
 			);
@@ -145,12 +140,12 @@ pub(super) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
 			.to_string();
 		let file = child_mut(
 			parent,
-			format!("change-file:{}", entry.file_path.display()),
+			NodeId::change_file(&entry.file_path),
 			file_label,
 			NavNodeKind::ChangeFile,
 		);
 		file.children.push(NavNode::new(
-			format!("change:{change_idx}"),
+			NodeId::change(&entry.moniker),
 			entry.name.clone(),
 			NavNodeKind::Change(change_idx),
 		));
@@ -160,7 +155,7 @@ pub(super) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
 	root
 }
 
-fn child_mut(node: &mut NavNode, key: String, label: String, kind: NavNodeKind) -> &mut NavNode {
+fn child_mut(node: &mut NavNode, key: NodeId, label: String, kind: NavNodeKind) -> &mut NavNode {
 	let idx = match node.children.iter().position(|child| child.key == key) {
 		Some(idx) => idx,
 		None => {
@@ -224,7 +219,17 @@ fn symbol_children(
 	for loc in direct_children(store, file_idx, parent) {
 		collect_symbol_node(store, file_idx, loc, &mut out);
 	}
+	sort_symbol_nodes(store, &mut out);
 	out
+}
+
+fn sort_symbol_nodes(store: &impl IndexStore, nodes: &mut [NavNode]) {
+	nodes.sort_by(|a, b| match (a.kind, b.kind) {
+		(NavNodeKind::Def(left), NavNodeKind::Def(right)) => {
+			store.compare_defs_for_navigation(&left, &right)
+		}
+		_ => nav_sort_key(a).cmp(&nav_sort_key(b)),
+	});
 }
 
 fn collect_symbol_node(
@@ -236,7 +241,7 @@ fn collect_symbol_node(
 	let def = store.def(&loc);
 	if is_navigable_def(store.file(file_idx).lang, def) {
 		let mut node = NavNode::new(
-			format!("def:{}:{}", loc.file, loc.def),
+			NodeId::def(&def.moniker),
 			last_name(&def.moniker),
 			NavNodeKind::Def(loc),
 		);
@@ -261,7 +266,7 @@ fn direct_children(
 
 pub(super) fn flatten_nav(
 	node: &NavNode,
-	expanded: &BTreeSet<String>,
+	expanded: &BTreeSet<NodeId>,
 	matches: Option<&[DefLocation]>,
 	depth: usize,
 	rows: &mut Vec<NavRow>,
@@ -282,7 +287,7 @@ pub(super) fn flatten_nav(
 
 fn flatten_compact_nav(
 	node: &NavNode,
-	expanded: &BTreeSet<String>,
+	expanded: &BTreeSet<NodeId>,
 	depth: usize,
 	rows: &mut Vec<NavRow>,
 	allow_terminal_compaction: bool,
@@ -331,7 +336,7 @@ pub(super) fn filtered_expanded_keys(
 	node: &NavNode,
 	matches: &[DefLocation],
 	expand_symbols: bool,
-) -> BTreeSet<String> {
+) -> BTreeSet<NodeId> {
 	let mut keys = BTreeSet::new();
 	for child in &node.children {
 		collect_filtered_expanded_keys(child, matches, expand_symbols, &mut keys);
@@ -372,7 +377,7 @@ fn collect_filtered_expanded_keys(
 	node: &NavNode,
 	matches: &[DefLocation],
 	expand_symbols: bool,
-	keys: &mut BTreeSet<String>,
+	keys: &mut BTreeSet<NodeId>,
 ) -> Option<bool> {
 	let mut has_matching_child = false;
 	for child in &node.children {
@@ -399,13 +404,13 @@ fn node_matches(node: &NavNode, matches: &[DefLocation]) -> bool {
 	matches.contains(&loc)
 }
 
-pub(super) fn all_expanded_keys(node: &NavNode) -> BTreeSet<String> {
+pub(super) fn all_expanded_keys(node: &NavNode) -> BTreeSet<NodeId> {
 	let mut keys = BTreeSet::new();
 	collect_all_expanded_keys(node, &mut keys);
 	keys
 }
 
-fn collect_all_expanded_keys(node: &NavNode, keys: &mut BTreeSet<String>) {
+fn collect_all_expanded_keys(node: &NavNode, keys: &mut BTreeSet<NodeId>) {
 	if !node.children.is_empty() {
 		keys.insert(node.key.clone());
 	}

@@ -18,7 +18,7 @@ lang    = "moniker ~ '**/dir:src/dir:lang/**'"
 cli     = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 pg      = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
 ui      = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/**'"
-ui_store = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:store/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:store'"
+ui_store = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:store/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:store' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:store/**'"
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
