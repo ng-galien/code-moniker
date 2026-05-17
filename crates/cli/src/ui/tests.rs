@@ -10,8 +10,10 @@ use crate::DEFAULT_SCHEME;
 use crate::workspace::SessionOptions;
 
 use super::events::FilterEdit;
+use super::events::Msg;
 use super::kinds::{KindGroup, definition_kind_group, definition_kind_order, reference_kind_group};
-use super::source::source_snippet_lines;
+use super::panels::source_snippet_lines;
+use super::source::source_snippet;
 use super::theme::THEME;
 use super::*;
 use crate::workspace::IndexStore;
@@ -179,8 +181,8 @@ fn y_key_copies_panel_only_in_normal_mode() {
 #[test]
 fn panel_display_helpers_render_tables_and_fitted_details() {
 	let columns = [
-		panel::Column::left("lang", 6),
-		panel::Column::right("defs", 5),
+		text::Column::left("lang", 6),
+		text::Column::right("defs", 5),
 	];
 
 	assert_eq!(
@@ -200,7 +202,7 @@ fn panel_display_helpers_render_tables_and_fitted_details() {
 		&["typescript".to_string(), "123456".to_string()],
 		8,
 	));
-	assert!(panel::visible_len(&narrow) <= 8, "{narrow}");
+	assert!(text::visible_len(&narrow) <= 8, "{narrow}");
 	assert_eq!(
 		line_text(&panel::danger_section("invalid filter")),
 		"invalid filter"
@@ -210,7 +212,7 @@ fn panel_display_helpers_render_tables_and_fitted_details() {
 			"moniker",
 			"common-lib/lang:java/package:acme",
 			24,
-			FitMode::Middle
+			text::FitMode::Middle
 		)),
 		"moniker   commo...e:acme"
 	);
@@ -571,7 +573,7 @@ fn panel_snapshot_text_names_active_component_and_body() {
 		None,
 	);
 
-	let overview = active_panel_snapshot(&app).to_text(&app);
+	let overview = active_panel_snapshot(&app).to_text(app.view_mode().label(), &app.scope_label());
 	assert!(
 		overview.contains("component ui.panel.overview"),
 		"{overview}"
@@ -589,7 +591,7 @@ fn panel_snapshot_text_names_active_component_and_body() {
 	select_nav_label_ending_with(&mut app, "Alpha");
 	app.sync_contextual_view();
 
-	let outline = active_panel_snapshot(&app).to_text(&app);
+	let outline = active_panel_snapshot(&app).to_text(app.view_mode().label(), &app.scope_label());
 	assert!(outline.contains("component ui.panel.outline"), "{outline}");
 	assert!(outline.contains("kind      class"), "{outline}");
 	assert!(outline.contains("name      Alpha"), "{outline}");
@@ -1702,7 +1704,7 @@ fn outline_panel_renders_compact_moniker_format() {
 	select_nav_label(&mut app, "no_args_requires_subcommand()");
 	app.sync_contextual_view();
 
-	let snapshot = active_panel_snapshot(&app).to_text(&app);
+	let snapshot = active_panel_snapshot(&app).to_text(app.view_mode().label(), &app.scope_label());
 	assert!(
 		snapshot.contains("moniker   rs:src/args.tests.test:no_args_requires_subcommand()"),
 		"{snapshot}"
@@ -1866,7 +1868,8 @@ fn source_snippet_preserves_indent_and_dims_context_lines() {
 		.find(|loc| symbol_name(&app, loc).starts_with("target"))
 		.expect("target function");
 
-	let lines = source_snippet_lines(&app, &target, 1);
+	let snippet = source_snippet(&app, &target, 1);
+	let lines = source_snippet_lines(&snippet);
 
 	let nested_line = lines
 		.iter()

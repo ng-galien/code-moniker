@@ -176,6 +176,9 @@ impl Reduce<&AppAction> for AppState {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::ui::app::{AppCommand, Effect, View};
+	use crate::ui::events::Msg;
+	use crate::ui::features::explorer::{ExplorerFeature, ROUTE_REFS};
 	use crate::ui::navigator::{NavNode, NavNodeKind};
 	use crate::ui::runtime::{TaskOutcome, TaskSpec, WorkKind};
 	use crate::ui::store::ids::NodeId;
@@ -231,6 +234,32 @@ mod tests {
 
 		assert_eq!(store.state().generation_for_work(WorkKind::GraphIndex), 0);
 		assert!(store.state().work.pending.is_empty());
+	}
+
+	#[test]
+	fn ui_messages_emit_commands_from_the_reducer() {
+		let mut store = AppStore::new();
+
+		let transition = store.dispatch(&AppAction::Ui(Msg::ApplySearch));
+
+		assert!(!transition.changed);
+		assert!(matches!(
+			&transition.effects[0],
+			Effect::RunCommand(AppCommand::ApplySearch)
+		));
+	}
+
+	#[test]
+	fn ui_view_messages_emit_navigation_effects_from_the_reducer() {
+		let mut store = AppStore::new();
+
+		let transition = store.dispatch(&AppAction::Ui(Msg::ShowView(View::Refs)));
+
+		assert!(!transition.changed);
+		assert!(matches!(
+			&transition.effects[0],
+			Effect::Navigate(route) if *route == ExplorerFeature::route(ROUTE_REFS)
+		));
 	}
 
 	#[test]

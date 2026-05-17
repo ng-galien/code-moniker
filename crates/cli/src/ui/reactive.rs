@@ -1,11 +1,10 @@
-use crate::ui::contracts::Effect;
+use crate::ui::app::Effect;
 
 #[derive(Debug)]
 pub(super) struct Transition {
 	pub(super) changed: bool,
 	#[allow(dead_code)]
 	pub(super) reason: &'static str,
-	pub(super) handled: bool,
 	pub(super) effects: Vec<Effect>,
 }
 
@@ -14,7 +13,6 @@ impl Transition {
 		Self {
 			changed: true,
 			reason,
-			handled: true,
 			effects: Vec::new(),
 		}
 	}
@@ -23,16 +21,6 @@ impl Transition {
 		Self {
 			changed: false,
 			reason,
-			handled: true,
-			effects: Vec::new(),
-		}
-	}
-
-	pub(super) const fn deferred(reason: &'static str) -> Self {
-		Self {
-			changed: false,
-			reason,
-			handled: false,
 			effects: Vec::new(),
 		}
 	}

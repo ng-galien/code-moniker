@@ -18,6 +18,12 @@ lang    = "moniker ~ '**/dir:src/dir:lang/**'"
 cli     = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 pg      = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
 ui      = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/**'"
+ui_panels         = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/**'"
+ui_panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:render'"
+ui_contracts      = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/**'"
+ui_screen_contract     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/module:screen'"
+ui_msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:action' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state'"
+ui_app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:effect'"
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
@@ -74,6 +80,44 @@ expr    = """
        OR target ~ '**/path:ChangeEntry')
 """
 message = "`code-moniker ui` must consume workspace read models; raw graph/index/Git records stay inside `workspace`."
+
+[[refs.where]]
+id      = "ui-panels-ratatui-renderers-only"
+expr    = """
+  $ui_panels AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => ($ui_panel_renderer OR NOT target ~ '**/external_pkg:ratatui/**')
+"""
+message = "`ui::panels` view models and builders must stay ratatui-free; only panel renderers may import ratatui."
+
+[[refs.where]]
+id      = "ui-screen-render-contract-only"
+expr    = """
+  $ui_screen_contract AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT (target ~ '**/path:Msg'
+       OR target ~ '**/path:Effect'
+       OR target ~ '**/path:AppCommand'
+       OR target ~ '**/module:events/**'
+       OR target ~ '**/module:app/**'
+       OR target ~ '**/dir:app/**')
+"""
+message = "`ui::contracts::Screen` is a render-only contract; input messages, effects, and app commands belong to the Elm orchestration layer."
+
+[[refs.where]]
+id      = "ui-contracts-do-not-depend-on-app"
+expr    = """
+  $ui_contracts AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT (target ~ '**/module:app/**' OR target ~ '**/dir:app/**')
+"""
+message = "`ui::contracts` must stay app-neutral; app commands and effects belong to `ui::app`."
+
+[[refs.where]]
+id      = "ui-elm-orchestration-boundary"
+expr    = """
+  $ui AND kind = 'imports_symbol'
+  => (NOT target ~ '**/path:Msg' OR $ui_msg_owner OR $rust_inline_tests)
+     AND (NOT target ~ '**/path:AppCommand' OR $ui_app_command_boundary OR $rust_inline_tests)
+"""
+message = "`Msg` is owned by `ui::events` and reduced in `ui::app`; `AppCommand` is emitted by the reducer and interpreted by the runtime shell."
 
 # Intra-crate: core/ submodule must not depend on its sibling submodules
 # (lang/, declare/) nor on the standalone crates.

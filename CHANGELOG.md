@@ -117,13 +117,20 @@ in `0.y.z`.
   filter-editing modes. Moniker data access is isolated behind
   `workspace::WorkspaceStore` read models, and the architecture profile
   now guards that UI modules do not import raw graph/index/Git records.
+- **`code-moniker ui` internals** — `AppState::reduce_ui_msg` now owns
+  the `Msg` decision table and emits app-level
+  `Effect::RunCommand(AppCommand)` values; the runtime `App` interprets
+  those commands for workspace reads, navigation, async tasks,
+  clipboard, and checks. `Screen` is now a rendering contract only,
+  which keeps input orchestration out of view components.
 - **`code-moniker ui`** — visible component markers such as
   `[ui.navigator]`, `[ui.panel.refs]`, and `[ui.status]` now identify
   stable UI zones for bug reports, feedback, and future feature-module
   contracts.
 - **`code-moniker ui`** — introduces the first contract-driven TUI shell
-  layer: typed `Route`, `Effect`, `Screen`, and `Feature` contracts, a
-  static feature registry, and an `ExplorerFeature` that declares the
+  layer: typed `Route`, `Screen`, and `Feature` contracts, app-level
+  effects, a static feature registry, and an `ExplorerFeature` that
+  declares the
   current overview/outline/refs/check navigation surface.
 - **`code-moniker ui`** — navigation state now sits behind a reusable
   reactive store abstraction (`dispatch`, reducer, selector). The
@@ -179,6 +186,13 @@ in `0.y.z`.
   and file-catalog construction paths used by phased startup, avoiding
   duplicate partial-index setup in the UI store adapter. Navigator
   symbol ordering now comes from the store/language strategy only.
+- **`code-moniker ui` internals** — shell rendering now lives in
+  `ui::view`, while right-side panels are projected through semantic
+  `PanelVm` / `PanelSection` view models under `ui::panels`. Terminal
+  rendering and clipboard snapshots now consume the same panel
+  projection instead of duplicating panel-specific line builders inside
+  the `App` orchestration layer, and the architecture profile now keeps
+  `ratatui` imports out of panel view-models and builders.
 - **`code-moniker-core`** — `CodeGraph` internal lookup and moniker
   caches now use thread-safe locks instead of `RefCell`, allowing
   session indexes to be moved through the UI task runtime.

@@ -10,15 +10,13 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+#[cfg(test)]
+use ratatui::text::Line;
 
 use crate::args::UiArgs;
 use crate::workspace::{
-	ChangeDetail, ChangeStatus, DefLocation, IndexStore, ReferenceGroup, ReferenceSet,
-	SessionOptions, StoreWatchRoot, SymbolFilter, UsageFocus, WorkspaceStore, parse_filter,
+	ChangeDetail, DefLocation, IndexStore, SessionOptions, StoreWatchRoot, SymbolFilter,
+	UsageFocus, WorkspaceStore, parse_filter,
 };
 use crate::{DEFAULT_SCHEME, Exit};
 
@@ -32,6 +30,7 @@ mod kinds;
 mod live;
 mod navigator;
 mod panel;
+mod panels;
 mod reactive;
 mod runtime;
 mod shell;
@@ -39,27 +38,31 @@ mod source;
 mod store;
 #[cfg(test)]
 mod tests;
+mod text;
 mod theme;
+mod view;
 
 use app::{
-	ActiveFilter, AppAction, AppStore, ChangePanelMode, CheckState, PanelPolicy, ShellAction, View,
-	VisualizationMode,
+	ActiveFilter, AppAction, AppCommand, AppStore, ChangePanelMode, CheckState, Effect,
+	PanelPolicy, ShellAction, View, VisualizationMode,
 };
-use component::{ComponentId, block_title, marker};
-use contracts::{Effect, RenderContext, Route, Screen, ScreenContext};
-use events::{Msg, UiMode, key_to_msg};
-use features::explorer::{
-	ExplorerFeature, ROUTE_CHANGE, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW, ROUTE_REFS,
-};
-use kinds::{definition_kind_group, reference_kind_group};
+#[cfg(test)]
+use component::{ComponentId, block_title};
+use contracts::Route;
+use events::{UiMode, key_to_msg};
+use features::explorer::ExplorerFeature;
+#[cfg(test)]
+use features::explorer::{ROUTE_OUTLINE, ROUTE_OVERVIEW, ROUTE_REFS};
 use live::StoreEvent;
 use navigator::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
-use panel::{Column, FitMode, fit_text, visible_len};
 use runtime::{TaskOutcome, TaskRuntime};
 use shell::{EventSource, FeatureRegistry, ShellEvent};
-use source::source_snippet_lines;
 use store::navigation::{NavigationAction, NavigationNotice, NavigationScope, NavigationState};
-use theme::THEME;
+#[cfg(test)]
+use view::{
+	active_panel_snapshot, change_panel_lines, header_line, nav_row_line, refs_panel_lines,
+	render_shell, search_input_title, search_input_value, search_input_visible,
+};
 
 const DEFAULT_PANEL_SNAPSHOT_WIDTH: usize = 100;
 
@@ -112,7 +115,7 @@ fn app_loop<W: Write>(
 		app.set_status(status);
 	}
 	app.queue_startup_load();
-	terminal.draw(|frame| draw(frame, app))?;
+	terminal.draw(|frame| view::draw(frame, app))?;
 	loop {
 		let batch = events.recv_batch()?;
 		if handle_app_events(batch, app)? {
@@ -123,7 +126,7 @@ fn app_loop<W: Write>(
 				app.append_status(status);
 			}
 		}
-		terminal.draw(|frame| draw(frame, app))?;
+		terminal.draw(|frame| view::draw(frame, app))?;
 	}
 }
 
@@ -156,54 +159,6 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 		app.update(AppAction::Store(event));
 	}
 	Ok(false)
-}
-
-impl View {
-	fn next(self) -> Self {
-		match self {
-			Self::Overview => Self::Tree,
-			Self::Tree => Self::Refs,
-			Self::Refs => Self::Check,
-			Self::Check => Self::Change,
-			Self::Change => Self::Overview,
-		}
-	}
-
-	fn route_path(self) -> &'static str {
-		match self {
-			Self::Overview => ROUTE_OVERVIEW,
-			Self::Tree => ROUTE_OUTLINE,
-			Self::Refs => ROUTE_REFS,
-			Self::Check => ROUTE_CHECK,
-			Self::Change => ROUTE_CHANGE,
-		}
-	}
-
-	fn from_route_path(path: &str) -> Option<Self> {
-		match path {
-			ROUTE_OVERVIEW => Some(Self::Overview),
-			ROUTE_OUTLINE => Some(Self::Tree),
-			ROUTE_REFS => Some(Self::Refs),
-			ROUTE_CHECK => Some(Self::Check),
-			ROUTE_CHANGE => Some(Self::Change),
-			_ => None,
-		}
-	}
-
-	fn route(self) -> Route {
-		ExplorerFeature::route(self.route_path())
-	}
-}
-
-impl VisualizationMode {
-	fn label(self) -> &'static str {
-		match self {
-			Self::Explorer => "explorer",
-			Self::Search => "search",
-			Self::Usages => "usages",
-			Self::Change => "change",
-		}
-	}
 }
 
 impl ActiveFilter {
@@ -781,20 +736,6 @@ impl App {
 		self.dispatch_shell(ShellAction::ReplaceActiveFilter(active_filter));
 	}
 
-	fn move_down(&mut self) {
-		let changed = self.dispatch_navigation(NavigationAction::MoveDown);
-		if changed {
-			self.sync_contextual_view();
-		}
-	}
-
-	fn move_up(&mut self) {
-		let changed = self.dispatch_navigation(NavigationAction::MoveUp);
-		if changed {
-			self.sync_contextual_view();
-		}
-	}
-
 	fn toggle_selected_nav(&mut self) {
 		self.dispatch_navigation(NavigationAction::ToggleSelected);
 		match self.app_store.navigation().last_notice() {
@@ -926,9 +867,10 @@ impl App {
 	}
 
 	fn copy_panel_snapshot(&mut self) {
-		let snapshot = active_panel_snapshot_with_width(self, current_panel_snapshot_width());
+		let panel = ExplorerFeature::active_panel(self);
+		let snapshot = panels::panel_snapshot(&panel, view::current_panel_snapshot_width());
 		let component = snapshot.component.as_str().to_string();
-		let text = snapshot.to_text(self);
+		let text = snapshot.to_text(self.view_mode().label(), &self.scope_label());
 		let Some(tx) = self.event_tx.clone() else {
 			self.set_status("clipboard copy unavailable before event loop start");
 			return;
@@ -957,22 +899,15 @@ impl App {
 			}
 			action => action,
 		};
-		let (ui_handled, effects) = {
+		let effects = {
 			let transition = self.app_store.dispatch(&action);
-			let ui_handled = matches!(action, AppAction::Ui(_)) && transition.handled;
-			(ui_handled, transition.take_effects())
+			transition.take_effects()
 		};
 		if self.apply_effects(effects) {
 			return true;
 		}
 		match action {
-			AppAction::Ui(msg) => {
-				if ui_handled {
-					false
-				} else {
-					self.update_msg(msg)
-				}
-			}
+			AppAction::Ui(_) => false,
 			AppAction::Shell(_) => false,
 			AppAction::Store(event) => {
 				self.handle_store_event(event);
@@ -985,16 +920,6 @@ impl App {
 				false
 			}
 		}
-	}
-
-	fn update_msg(&mut self, msg: Msg) -> bool {
-		let route = self.route().clone();
-		let mut ctx = ScreenContext { route: &route };
-		let effects = match Screen::handle_msg(self, msg, &mut ctx) {
-			Ok(effects) => effects,
-			Err(error) => vec![Effect::Notify(format!("screen error: {error:#}"))],
-		};
-		self.apply_effects(effects)
 	}
 
 	fn apply_effects(&mut self, effects: Vec<Effect>) -> bool {
@@ -1016,9 +941,38 @@ impl App {
 			Effect::Spawn(task) => {
 				self.queue_task(task);
 			}
+			Effect::RunCommand(command) => return self.run_command(command),
 			Effect::None => {}
 		}
 		false
+	}
+
+	fn run_command(&mut self, command: AppCommand) -> bool {
+		match command {
+			AppCommand::ApplyFilter => self.apply_filter(),
+			AppCommand::ApplySearch => self.apply_search(),
+			AppCommand::ClearFilter => self.clear_filter(),
+			AppCommand::FocusUsages => self.focus_usages_of_selected(),
+			AppCommand::ToggleChangeMode => self.toggle_change_mode(),
+			AppCommand::CopyPanelSnapshot => self.copy_panel_snapshot(),
+			AppCommand::RunCheck => self.run_check(),
+			AppCommand::Navigation(action) => self.apply_navigation(action),
+			AppCommand::ToggleSelectedNode => self.toggle_selected_nav(),
+			AppCommand::OpenSelectedNode => self.open_selected_nav(),
+			AppCommand::CloseNodeOrClearScope => {
+				if !self.close_selected_nav() && self.has_clearable_scope() {
+					self.clear_filter();
+				}
+			}
+		}
+		false
+	}
+
+	fn apply_navigation(&mut self, action: NavigationAction) {
+		let changed = self.dispatch_navigation(action);
+		if changed {
+			self.sync_contextual_view();
+		}
 	}
 
 	fn queue_task(&mut self, task: runtime::TaskSpec) -> bool {
@@ -1048,1248 +1002,6 @@ impl App {
 		}
 		self.dispatch_shell(ShellAction::SetRoute(route));
 	}
-}
-
-impl Screen for App {
-	fn title(&self) -> String {
-		"Explorer".to_string()
-	}
-
-	fn component(&self) -> ComponentId {
-		ComponentId::PanelOverview
-	}
-
-	fn render(&mut self, frame: &mut ratatui::Frame<'_>, area: Rect, ctx: &RenderContext<'_>) {
-		let _ = ctx.route;
-		render_shell(frame, area, self);
-	}
-
-	fn handle_msg(&mut self, msg: Msg, ctx: &mut ScreenContext<'_>) -> anyhow::Result<Vec<Effect>> {
-		let _ = ctx.route;
-		match msg {
-			Msg::Quit => return Ok(vec![Effect::Quit]),
-			Msg::CycleView => return Ok(vec![Effect::Navigate(self.view().next().route())]),
-			Msg::ShowView(view) => return Ok(vec![Effect::Navigate(view.route())]),
-			Msg::StartFilterEdit | Msg::StartSearchEdit | Msg::FilterInput(_) => {}
-			Msg::ApplyFilter => self.apply_filter(),
-			Msg::ApplySearch => self.apply_search(),
-			Msg::CancelInput => {}
-			Msg::ClearFilter => self.clear_filter(),
-			Msg::FocusUsages => {
-				let had_selection = self.selected().is_some();
-				self.focus_usages_of_selected();
-				if had_selection || self.view_mode() == VisualizationMode::Change {
-					return Ok(Vec::new());
-				}
-			}
-			Msg::ToggleChangeMode => {
-				self.toggle_change_mode();
-				return Ok(Vec::new());
-			}
-			Msg::CopyPanelSnapshot => {
-				self.copy_panel_snapshot();
-				return Ok(Vec::new());
-			}
-			Msg::RunCheck => {
-				self.run_check();
-				return Ok(Vec::new());
-			}
-			Msg::MoveDown => self.move_down(),
-			Msg::MoveUp => self.move_up(),
-			Msg::Home => {
-				let changed = self.dispatch_navigation(NavigationAction::Home);
-				if changed {
-					self.sync_contextual_view();
-				}
-			}
-			Msg::End => {
-				let changed = self.dispatch_navigation(NavigationAction::End);
-				if changed {
-					self.sync_contextual_view();
-				}
-			}
-			Msg::ToggleNode => self.toggle_selected_nav(),
-			Msg::OpenNode => self.open_selected_nav(),
-			Msg::CloseNode => {
-				if !self.close_selected_nav() && self.has_clearable_scope() {
-					self.clear_filter();
-				}
-			}
-			Msg::Help => {}
-			Msg::Noop => {}
-		}
-		Ok(Vec::new())
-	}
-}
-
-fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
-	let _title = Screen::title(app);
-	let _component = Screen::component(app);
-	let route = app.route().clone();
-	let ctx = RenderContext { route: &route };
-	Screen::render(app, frame, frame.area(), &ctx);
-}
-
-fn render_shell(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
-	let rows = Layout::default()
-		.direction(Direction::Vertical)
-		.constraints([
-			Constraint::Length(1),
-			Constraint::Min(0),
-			Constraint::Length(1),
-		])
-		.split(area);
-	render_header(frame, rows[0], app);
-	render_body(frame, rows[1], app);
-	render_footer(frame, rows[2], app);
-}
-
-fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	frame.render_widget(
-		Paragraph::new(header_line(app, usize::from(area.width))),
-		area,
-	);
-}
-
-fn header_line(app: &App, width: usize) -> Line<'static> {
-	let mode = app.view_mode().label();
-	let prefix_width = visible_len("code-moniker ")
-		+ visible_len(ComponentId::Header.as_str())
-		+ 2 + visible_len(" mode ")
-		+ visible_len(mode)
-		+ visible_len("  scope ");
-	let scope = fit_text(
-		&app.scope_label(),
-		width.saturating_sub(prefix_width),
-		FitMode::Middle,
-	);
-	Line::from(vec![
-		Span::styled(
-			"code-moniker ",
-			Style::default()
-				.fg(THEME.brand)
-				.add_modifier(Modifier::BOLD),
-		),
-		marker(ComponentId::Header),
-		Span::raw(" "),
-		Span::raw("mode "),
-		Span::styled(
-			app.view_mode().label(),
-			Style::default()
-				.fg(THEME.section)
-				.add_modifier(Modifier::BOLD),
-		),
-		Span::raw("  scope "),
-		Span::styled(scope, Style::default().fg(THEME.nav.symbol)),
-	])
-}
-
-fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
-	let cols = Layout::default()
-		.direction(Direction::Horizontal)
-		.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
-		.split(area);
-	render_left_pane(frame, cols[0], app);
-	match app.view() {
-		View::Overview => render_overview(frame, cols[1], app),
-		View::Tree => render_outline(frame, cols[1], app),
-		View::Refs => render_refs(frame, cols[1], app),
-		View::Check => render_check(frame, cols[1], app),
-		View::Change => render_change(frame, cols[1], app),
-	}
-}
-
-fn render_left_pane(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	if search_input_visible(app) && area.height >= 5 {
-		let rows = Layout::default()
-			.direction(Direction::Vertical)
-			.constraints([Constraint::Length(3), Constraint::Min(0)])
-			.split(area);
-		render_search_input(frame, rows[0], app);
-		render_nav_list(frame, rows[1], app);
-	} else {
-		render_nav_list(frame, area, app);
-	}
-}
-
-fn search_input_visible(app: &App) -> bool {
-	app.mode() == UiMode::EditingSearch
-		|| matches!(app.active_filter(), ActiveFilter::Search { .. })
-}
-
-fn search_input_value(app: &App) -> String {
-	if app.mode() == UiMode::EditingSearch {
-		return app.search_draft().to_string();
-	}
-	match app.active_filter() {
-		ActiveFilter::Search { raw, .. } => raw.clone(),
-		_ => String::new(),
-	}
-}
-
-fn search_input_title(app: &App) -> String {
-	if app.mode() == UiMode::EditingSearch {
-		"search focused".to_string()
-	} else {
-		"search".to_string()
-	}
-}
-
-fn render_search_input(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let focused = app.mode() == UiMode::EditingSearch;
-	let value = search_input_value(app);
-	let width = panel_content_width(area);
-	let prompt = if focused { "> " } else { "  " };
-	let hint = if focused {
-		"  Enter apply  Esc cancel"
-	} else {
-		"  s edit  x clear"
-	};
-	let value_width = width
-		.saturating_sub(visible_len(prompt))
-		.saturating_sub(visible_len(hint));
-	let displayed_value = fit_text(display_filter(&value), value_width, FitMode::Middle);
-	let line = Line::from(vec![
-		Span::styled(prompt, Style::default().fg(THEME.nav.marker)),
-		Span::styled(
-			displayed_value.clone(),
-			Style::default()
-				.fg(THEME.nav.symbol)
-				.add_modifier(if focused {
-					Modifier::BOLD
-				} else {
-					Modifier::empty()
-				}),
-		),
-		Span::styled(hint, Style::default().fg(THEME.nav.meta)),
-	]);
-	let border_style = if focused {
-		Style::default().fg(THEME.status_label)
-	} else {
-		Style::default().fg(THEME.component_marker)
-	};
-	let input = Paragraph::new(line).block(
-		Block::default()
-			.title(block_title(
-				search_input_title(app),
-				ComponentId::SearchInput,
-			))
-			.border_style(border_style)
-			.borders(Borders::ALL),
-	);
-	frame.render_widget(input, area);
-	if focused {
-		let cursor_offset = visible_len(prompt) + visible_len(&displayed_value);
-		let max_x = area.x.saturating_add(area.width.saturating_sub(2));
-		let x = area
-			.x
-			.saturating_add(1)
-			.saturating_add(cursor_offset as u16)
-			.min(max_x);
-		frame.set_cursor_position(Position {
-			x,
-			y: area.y.saturating_add(1),
-		});
-	}
-}
-
-fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let prefix = match app.mode() {
-		UiMode::EditingFilter => "filter",
-		UiMode::EditingSearch => "search",
-		UiMode::Normal => "status",
-	};
-	let line = Line::from(vec![
-		Span::styled(
-			format!("{prefix}: "),
-			Style::default().fg(THEME.status_label),
-		),
-		marker(ComponentId::Status),
-		Span::raw(" "),
-		Span::raw(app.status()),
-	]);
-	frame.render_widget(Paragraph::new(line), area);
-}
-
-fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let visible_rows = area.height.saturating_sub(2) as usize;
-	let nav_rows = app.nav_rows();
-	let selection = app.selected_nav_index();
-	let start = if visible_rows == 0 {
-		0
-	} else {
-		selection.saturating_sub(visible_rows.saturating_sub(1))
-	};
-	let end = (start + visible_rows).min(nav_rows.len());
-	let items: Vec<ListItem<'_>> = nav_rows[start..end]
-		.iter()
-		.enumerate()
-		.map(|(offset, row)| {
-			let idx = start + offset;
-			let line = nav_row_line(app, row, idx == selection);
-			let style = if idx == selection {
-				Style::default().bg(THEME.nav.selected_bg)
-			} else {
-				Style::default()
-			};
-			ListItem::new(line).style(style)
-		})
-		.collect();
-	let title = if app.is_filtered() {
-		if app.view_mode() == VisualizationMode::Change {
-			format!(
-				" change {} files {} defs ",
-				matched_file_count(app.visible_defs()),
-				app.visible_defs().len()
-			)
-		} else {
-			format!(
-				" filtered {} files {} defs ",
-				matched_file_count(app.visible_defs()),
-				app.visible_defs().len()
-			)
-		}
-	} else if app.active_filter().error().is_some() {
-		" filtered invalid ".to_string()
-	} else {
-		format!(
-			" navigator {} files {} defs ",
-			app.store().stats().files,
-			app.app_store.navigation().explorer_def_count()
-		)
-	};
-	let list = List::new(items).block(
-		Block::default()
-			.title(block_title(title, ComponentId::Navigator))
-			.borders(Borders::ALL),
-	);
-	frame.render_widget(list, area);
-}
-
-fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
-	let marker = if selected { ">" } else { " " };
-	let indent = "  ".repeat(row.depth);
-	let twisty = if row.has_children {
-		if app.active_expanded().contains(&row.key) {
-			"▾"
-		} else {
-			"▸"
-		}
-	} else {
-		" "
-	};
-	let mut spans = vec![
-		Span::styled(marker, Style::default().fg(THEME.nav.marker)),
-		Span::raw(" "),
-		Span::raw(indent),
-		Span::styled(twisty, Style::default().fg(THEME.nav.twisty)),
-		Span::raw(" "),
-	];
-	match row.kind {
-		NavNodeKind::Lang => {
-			let label = if row.has_children {
-				format!("{}/", row.label)
-			} else {
-				row.label.clone()
-			};
-			spans.push(Span::styled(
-				label,
-				Style::default()
-					.fg(THEME.nav.language)
-					.add_modifier(Modifier::BOLD),
-			));
-			spans.push(nav_count_span(row));
-		}
-		NavNodeKind::Dir => {
-			spans.push(Span::styled(
-				format!("{}/", row.label),
-				Style::default().fg(THEME.nav.directory),
-			));
-			spans.push(nav_count_span(row));
-		}
-		NavNodeKind::File(_) | NavNodeKind::ChangeFile => {
-			spans.push(Span::styled(
-				row.label.clone(),
-				Style::default()
-					.fg(THEME.nav.file)
-					.add_modifier(Modifier::BOLD),
-			));
-			spans.push(nav_count_span(row));
-			if let Some(count) = row_change_count(app, row) {
-				spans.push(change_count_span(count));
-			}
-		}
-		NavNodeKind::Def(loc) => {
-			let symbol = app.store().symbol_summary(&loc);
-			let group = definition_kind_group(symbol.lang, &symbol.kind);
-			spans.push(Span::styled(
-				symbol.kind,
-				Style::default().fg(THEME.kind.color_for_group(group)),
-			));
-			spans.push(Span::raw(" "));
-			spans.push(Span::styled(
-				row.label.clone(),
-				Style::default().fg(THEME.nav.symbol),
-			));
-			if row.def_count > 1 {
-				spans.push(Span::styled(
-					format!("  {} children", row.def_count - 1),
-					Style::default().fg(THEME.nav.meta),
-				));
-			}
-			if let Some(change) = symbol.change {
-				spans.push(Span::raw("  "));
-				spans.push(change_marker_span(change.status));
-				spans.push(Span::styled(
-					format!("  {} usages", change.usage_count),
-					Style::default().fg(THEME.nav.meta),
-				));
-			}
-		}
-		NavNodeKind::Change(id) => {
-			let Some(change) = app.store().change_summary(id) else {
-				return Line::from(spans);
-			};
-			let group = definition_kind_group(change.lang, &change.kind);
-			spans.push(Span::styled(
-				change.kind.clone(),
-				Style::default().fg(THEME.kind.color_for_group(group)),
-			));
-			spans.push(Span::raw(" "));
-			spans.push(Span::styled(
-				row.label.clone(),
-				Style::default().fg(THEME.nav.symbol),
-			));
-			spans.push(Span::raw("  "));
-			spans.push(change_marker_span(change.status));
-			spans.push(Span::styled(
-				format!("  {} usages", change.usage_count),
-				Style::default().fg(THEME.nav.meta),
-			));
-		}
-		NavNodeKind::Root => {}
-	}
-	Line::from(spans)
-}
-
-fn nav_count_span(row: &NavRow) -> Span<'static> {
-	let label = match (row.file_count, row.def_count) {
-		(0, defs) => format!("  {defs} defs"),
-		(files, defs) => format!("  {files} files  {defs} defs"),
-	};
-	Span::styled(label, Style::default().fg(THEME.nav.meta))
-}
-
-fn row_change_count(app: &App, row: &NavRow) -> Option<usize> {
-	let NavNodeKind::File(file_idx) = row.kind else {
-		return None;
-	};
-	let count = app.store().change_count_for_file(file_idx);
-	(count > 0).then_some(count)
-}
-
-fn change_count_span(count: usize) -> Span<'static> {
-	Span::styled(
-		format!("  {count} change(s)"),
-		Style::default().fg(THEME.change_modified),
-	)
-}
-
-fn change_marker_span(status: ChangeStatus) -> Span<'static> {
-	Span::styled(
-		status.marker().to_string(),
-		Style::default().fg(change_status_color(status)),
-	)
-}
-
-fn change_status_color(status: ChangeStatus) -> ratatui::style::Color {
-	match status {
-		ChangeStatus::Added => THEME.change_added,
-		ChangeStatus::Modified => THEME.change_modified,
-		ChangeStatus::Removed => THEME.danger,
-	}
-}
-
-fn matched_file_count(defs: &[DefLocation]) -> usize {
-	defs.iter()
-		.map(|loc| loc.file)
-		.collect::<BTreeSet<_>>()
-		.len()
-}
-
-struct PanelSnapshot {
-	title: &'static str,
-	component: ComponentId,
-	lines: Vec<Line<'static>>,
-}
-
-impl PanelSnapshot {
-	fn to_text(&self, app: &App) -> String {
-		let mut lines = vec![
-			"code-moniker panel snapshot".to_string(),
-			format!("component {}", self.component.as_str()),
-			format!("title     {}", self.title),
-			format!("mode      {}", app.view_mode().label()),
-			format!("scope     {}", app.scope_label()),
-			String::new(),
-		];
-		lines.extend(self.lines.iter().map(plain_line_text));
-		lines.join("\n")
-	}
-}
-
-#[cfg(test)]
-fn active_panel_snapshot(app: &App) -> PanelSnapshot {
-	active_panel_snapshot_with_width(app, DEFAULT_PANEL_SNAPSHOT_WIDTH)
-}
-
-fn active_panel_snapshot_with_width(app: &App, width: usize) -> PanelSnapshot {
-	match app.view() {
-		View::Overview => PanelSnapshot {
-			title: "overview",
-			component: ComponentId::PanelOverview,
-			lines: overview_lines(app, width),
-		},
-		View::Tree => PanelSnapshot {
-			title: "outline",
-			component: ComponentId::PanelOutline,
-			lines: outline_panel_lines(app, width),
-		},
-		View::Refs => refs_panel_snapshot(app, width),
-		View::Check => PanelSnapshot {
-			title: "check",
-			component: ComponentId::PanelCheck,
-			lines: check_panel_lines(app, width),
-		},
-		View::Change => PanelSnapshot {
-			title: "change",
-			component: ComponentId::PanelChange,
-			lines: change_panel_lines(app, width),
-		},
-	}
-}
-
-fn current_panel_snapshot_width() -> usize {
-	crossterm::terminal::size()
-		.map(|(width, height)| {
-			let area = Rect::new(0, 0, width, height);
-			let rows = Layout::default()
-				.direction(Direction::Vertical)
-				.constraints([
-					Constraint::Length(1),
-					Constraint::Min(0),
-					Constraint::Length(1),
-				])
-				.split(area);
-			let cols = Layout::default()
-				.direction(Direction::Horizontal)
-				.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
-				.split(rows[1]);
-			panel_content_width(cols[1])
-		})
-		.unwrap_or(DEFAULT_PANEL_SNAPSHOT_WIDTH)
-}
-
-fn refs_panel_snapshot(app: &App, width: usize) -> PanelSnapshot {
-	if let Some(focus) = app.active_filter().usage_focus() {
-		return PanelSnapshot {
-			title: "usages",
-			component: ComponentId::PanelUsages,
-			lines: usage_focus_lines(focus, width),
-		};
-	}
-	let lines = match app.selected() {
-		Some(loc) => refs_panel_lines(app, loc, width),
-		None => vec![panel::muted("select a declaration to inspect refs")],
-	};
-	PanelSnapshot {
-		title: "refs",
-		component: ComponentId::PanelRefs,
-		lines,
-	}
-}
-
-fn plain_line_text(line: &Line<'_>) -> String {
-	line.spans
-		.iter()
-		.map(|span| span.content.as_ref())
-		.collect()
-}
-
-fn overview_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-	let stats = app.store().stats();
-	let total_ms = stats.scan_ms + stats.extract_ms + stats.index_ms;
-	let mut lines = vec![
-		panel::section("summary"),
-		detail_line("root", &app.store().root(), width, FitMode::Tail),
-		detail_line("files", &stats.files.to_string(), width, FitMode::Tail),
-		detail_line("defs", &stats.defs.to_string(), width, FitMode::Tail),
-		detail_line("refs", &stats.refs.to_string(), width, FitMode::Tail),
-		detail_line("time", &format!("{total_ms} ms"), width, FitMode::Tail),
-		detail_line(
-			"scan",
-			&format!("{} ms", stats.scan_ms),
-			width,
-			FitMode::Tail,
-		),
-		detail_line(
-			"extract",
-			&format!("{} ms", stats.extract_ms),
-			width,
-			FitMode::Tail,
-		),
-		detail_line(
-			"index",
-			&format!("{} ms", stats.index_ms),
-			width,
-			FitMode::Tail,
-		),
-		panel::blank(),
-		panel::section("languages"),
-	];
-	let language_columns = [
-		Column::left("lang", 10),
-		Column::right("files", 7),
-		Column::right("defs", 8),
-		Column::right("refs", 8),
-	];
-	lines.push(panel::table_header(&language_columns, width));
-	lines.push(panel::separator(panel::table_width(
-		&language_columns,
-		width,
-	)));
-	for (lang, totals) in &stats.by_lang {
-		lines.push(panel::table_row(
-			&language_columns,
-			&[
-				lang.to_string(),
-				totals.files.to_string(),
-				totals.defs.to_string(),
-				totals.refs.to_string(),
-			],
-			width,
-		));
-	}
-	lines.push(panel::blank());
-	lines.push(panel::section("shapes"));
-	let shape_columns = [Column::left("shape", 12), Column::right("count", 8)];
-	lines.push(panel::table_header(&shape_columns, width));
-	lines.push(panel::separator(panel::table_width(&shape_columns, width)));
-	for (shape, count) in &stats.by_shape {
-		lines.push(panel::table_row(
-			&shape_columns,
-			&[shape.to_string(), count.to_string()],
-			width,
-		));
-	}
-	lines
-}
-
-fn render_overview(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	render_panel(
-		frame,
-		area,
-		"overview",
-		ComponentId::PanelOverview,
-		overview_lines(app, panel_content_width(area)),
-	);
-}
-
-fn outline_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-	let Some(loc) = app.selected() else {
-		return nav_selection_lines(app, width);
-	};
-	let detail = app.store().symbol_detail(&loc);
-	let symbol = &detail.symbol;
-	let mut lines = vec![
-		panel::section("selected"),
-		detail_line("kind", &symbol.kind, width, FitMode::Tail),
-		detail_line("name", &symbol.name, width, FitMode::Middle),
-		detail_line(
-			"file",
-			&symbol.file_path.display().to_string(),
-			width,
-			FitMode::Tail,
-		),
-		detail_line("moniker", &symbol.compact_moniker, width, FitMode::Middle),
-	];
-	if let Some(change) = app.store().change_detail_for_symbol(&loc) {
-		lines.push(Line::raw(""));
-		lines.extend(change_summary_lines(&change, width));
-	}
-	lines.extend([panel::blank(), panel::section("children")]);
-	if detail.children.is_empty() {
-		lines.push(panel::muted("none"));
-	} else {
-		let child_columns = [Column::left("kind", 12), Column::left("name", 40)];
-		lines.push(panel::table_header(&child_columns, width));
-		lines.push(panel::separator(panel::table_width(&child_columns, width)));
-		for child in detail.children.iter().take(40) {
-			lines.push(panel::table_row(
-				&child_columns,
-				&[child.kind.clone(), child.name.clone()],
-				width,
-			));
-		}
-		if detail.children.len() > 40 {
-			lines.push(panel::muted(format!(
-				"... {} more",
-				detail.children.len() - 40
-			)));
-		}
-	}
-	lines.push(panel::blank());
-	lines.push(Line::from(vec![
-		Span::styled(
-			"source",
-			Style::default()
-				.fg(THEME.panel.section)
-				.add_modifier(Modifier::BOLD),
-		),
-		Span::raw(" "),
-		marker(ComponentId::SourceSnippet),
-	]));
-	let snippet = source_snippet_lines(app, &loc, 3);
-	if snippet.is_empty() {
-		lines.push(panel::muted("no source position"));
-	} else {
-		lines.extend(snippet);
-	}
-	lines
-}
-
-fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	render_panel_unwrapped(
-		frame,
-		area,
-		"outline",
-		ComponentId::PanelOutline,
-		outline_panel_lines(app, panel_content_width(area)),
-	);
-}
-
-fn nav_selection_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-	let Some(row) = app.selected_nav_row() else {
-		return if let Some((raw, error)) = app.active_filter().error() {
-			vec![
-				panel::danger_section("invalid filter"),
-				detail_line("query", raw, width, FitMode::Tail),
-				Line::styled(error.to_string(), Style::default().fg(THEME.danger)),
-				panel::blank(),
-				panel::section("examples"),
-				panel::bullet("Resolver"),
-				panel::bullet("kind:interface Resolver"),
-				panel::bullet("kind:method ^async"),
-			]
-		} else if app.is_filtered() {
-			vec![
-				panel::section("filtered navigator"),
-				detail_line("filter", &app.filter_label(), width, FitMode::Tail),
-				detail_line("matches", "0", width, FitMode::Tail),
-				panel::blank(),
-				panel::muted("x clears the filter"),
-			]
-		} else {
-			vec![panel::muted("navigator is empty")]
-		};
-	};
-	let kind = match row.kind {
-		NavNodeKind::Root => "root",
-		NavNodeKind::Lang => "language",
-		NavNodeKind::Dir => "directory",
-		NavNodeKind::File(_) | NavNodeKind::ChangeFile => "file",
-		NavNodeKind::Def(_) => "declaration",
-		NavNodeKind::Change(_) => "change",
-	};
-	let mut lines = vec![
-		panel::section("navigator"),
-		detail_line("kind", kind, width, FitMode::Tail),
-		detail_line("name", &row.label, width, FitMode::Middle),
-		detail_line("files", &row.file_count.to_string(), width, FitMode::Tail),
-		detail_line("defs", &row.def_count.to_string(), width, FitMode::Tail),
-		panel::blank(),
-	];
-	if row.has_children {
-		let state = if app.active_expanded().contains(&row.key) {
-			"opened"
-		} else {
-			"closed"
-		};
-		lines.push(detail_line("state", state, width, FitMode::Tail));
-		lines.push(panel::muted("Enter toggles, right opens, left closes"));
-	} else {
-		lines.push(panel::muted("no child node"));
-	}
-	lines
-}
-
-fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let width = panel_content_width(area);
-	if let Some(focus) = app.active_filter().usage_focus() {
-		render_usage_focus(frame, area, focus, width);
-		return;
-	}
-	let Some(loc) = app.selected() else {
-		render_panel(
-			frame,
-			area,
-			"refs",
-			ComponentId::PanelRefs,
-			vec![panel::muted("select a declaration to inspect refs")],
-		);
-		return;
-	};
-	render_panel(
-		frame,
-		area,
-		"refs",
-		ComponentId::PanelRefs,
-		refs_panel_lines(app, loc, width),
-	);
-}
-
-fn render_usage_focus(
-	frame: &mut ratatui::Frame<'_>,
-	area: Rect,
-	focus: &UsageFocus,
-	width: usize,
-) {
-	render_panel(
-		frame,
-		area,
-		"usages",
-		ComponentId::PanelUsages,
-		usage_focus_lines(focus, width),
-	);
-}
-
-fn render_change(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	render_panel(
-		frame,
-		area,
-		"change",
-		ComponentId::PanelChange,
-		change_panel_lines(app, panel_content_width(area)),
-	);
-}
-
-fn refs_panel_lines(app: &App, loc: DefLocation, width: usize) -> Vec<Line<'static>> {
-	let refs = app.store().symbol_references(&loc);
-	let mut lines = vec![
-		panel::section("selected"),
-		detail_line("kind", &refs.symbol.kind, width, FitMode::Tail),
-		detail_line("name", &refs.symbol.name, width, FitMode::Middle),
-		detail_line(
-			"file",
-			&refs.symbol.file_path.display().to_string(),
-			width,
-			FitMode::Tail,
-		),
-		detail_line(
-			"moniker",
-			&refs.symbol.compact_moniker,
-			width,
-			FitMode::Middle,
-		),
-		panel::blank(),
-		panel::section("incoming impact"),
-		panel::muted(reference_summary(&refs.incoming)),
-	];
-	push_ref_groups(&mut lines, &refs.incoming.groups, 30, width);
-	lines.push(panel::blank());
-	lines.push(panel::section("outgoing dependencies"));
-	lines.push(panel::muted(reference_summary(&refs.outgoing)));
-	push_ref_groups(&mut lines, &refs.outgoing.groups, 30, width);
-	lines
-}
-
-fn change_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-	let Some(change) = app.selected_change_detail() else {
-		return change_overview_lines(app, width);
-	};
-	match app.change_panel() {
-		ChangePanelMode::Diff => change_diff_lines(&change, width),
-		ChangePanelMode::Usages => change_usage_lines(&change, width),
-	}
-}
-
-fn change_overview_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-	let changes = app.store().change_overview();
-	let mut lines = vec![
-		panel::section("change scope"),
-		detail_line("scope", &changes.scope, width, FitMode::Tail),
-		detail_line(
-			"changes",
-			&changes.change_count.to_string(),
-			width,
-			FitMode::Tail,
-		),
-		detail_line(
-			"files",
-			&changes.file_count.to_string(),
-			width,
-			FitMode::Tail,
-		),
-		panel::blank(),
-		panel::section("git resources"),
-	];
-	if changes.resources.is_empty() {
-		lines.push(panel::muted("none"));
-	} else {
-		for resource in &changes.resources {
-			let status = if resource.available { "git" } else { "no git" };
-			lines.push(detail_line(
-				status,
-				&format!("{}: {}", resource.label, resource.message),
-				width,
-				FitMode::Middle,
-			));
-		}
-	}
-	if !changes.diagnostics.is_empty() {
-		lines.push(panel::blank());
-		lines.push(Line::styled(
-			"diagnostics",
-			Style::default().fg(THEME.danger),
-		));
-		for diagnostic in &changes.diagnostics {
-			lines.push(panel::bullet(diagnostic.clone()));
-		}
-	}
-	lines
-}
-
-fn change_diff_lines(change: &ChangeDetail, width: usize) -> Vec<Line<'static>> {
-	let summary = &change.summary;
-	let mut lines = vec![
-		panel::section("changed symbol"),
-		detail_line("status", summary.status.label(), width, FitMode::Tail),
-		detail_line("kind", &summary.kind, width, FitMode::Tail),
-		detail_line("symbol", &summary.name, width, FitMode::Middle),
-		detail_line(
-			"file",
-			&summary.file_path.display().to_string(),
-			width,
-			FitMode::Tail,
-		),
-		detail_line("moniker", &summary.compact_moniker, width, FitMode::Middle),
-	];
-	if let Some((start, end)) = summary.line_range {
-		let range = if start == end {
-			format!("L{start}")
-		} else {
-			format!("L{start}-L{end}")
-		};
-		lines.push(detail_line("range", &range, width, FitMode::Tail));
-	}
-	lines.push(detail_line(
-		"hunks",
-		&summary.hunk_count.to_string(),
-		width,
-		FitMode::Tail,
-	));
-	lines.push(panel::blank());
-	lines.extend(change_blast_radius_summary(&change.blast_radius, width));
-	lines.push(panel::blank());
-	lines.push(panel::muted("u toggles blast radius details"));
-	lines
-}
-
-fn change_summary_lines(change: &ChangeDetail, width: usize) -> Vec<Line<'static>> {
-	vec![
-		panel::section("change"),
-		detail_line(
-			"status",
-			change.summary.status.label(),
-			width,
-			FitMode::Tail,
-		),
-		detail_line(
-			"usages",
-			&change.summary.usage_count.to_string(),
-			width,
-			FitMode::Tail,
-		),
-	]
-}
-
-fn change_blast_radius_summary(refs: &ReferenceSet, width: usize) -> Vec<Line<'static>> {
-	vec![
-		panel::section("blast radius"),
-		detail_line(
-			"direct",
-			&format!("{} direct usage(s)", refs.summary.refs),
-			width,
-			FitMode::Tail,
-		),
-		detail_line(
-			"contexts",
-			&refs.summary.contexts.to_string(),
-			width,
-			FitMode::Tail,
-		),
-	]
-}
-
-fn change_usage_lines(change: &ChangeDetail, width: usize) -> Vec<Line<'static>> {
-	let mut lines = change_blast_radius_summary(&change.blast_radius, width);
-	lines.push(panel::blank());
-	lines.push(panel::section("references"));
-	if change.blast_radius.summary.refs == 0 {
-		lines.push(panel::muted("none"));
-	} else {
-		push_ref_groups(&mut lines, &change.blast_radius.groups, 40, width);
-	}
-	lines
-}
-
-fn usage_focus_lines(focus: &UsageFocus, width: usize) -> Vec<Line<'static>> {
-	let mut lines = vec![
-		panel::section("usage focus"),
-		detail_line("symbol", &focus.label, width, FitMode::Middle),
-		detail_line("moniker", &focus.compact_moniker, width, FitMode::Middle),
-		detail_line("refs", &focus.refs.len().to_string(), width, FitMode::Tail),
-		detail_line(
-			"contexts",
-			&focus.contexts.len().to_string(),
-			width,
-			FitMode::Tail,
-		),
-		panel::blank(),
-		panel::section("references"),
-	];
-	if focus.refs.is_empty() {
-		lines.push(panel::muted("none"));
-	} else {
-		push_ref_groups(&mut lines, &focus.references.groups, 40, width);
-	}
-	lines
-}
-
-fn check_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-	match app.check_state() {
-		CheckState::Pending => vec![
-			panel::section("check"),
-			panel::muted("press c to run .code-moniker.toml rules on the loaded graph"),
-			detail_line(
-				"rules",
-				&app.rules.display().to_string(),
-				width,
-				FitMode::Tail,
-			),
-			detail_line(
-				"profile",
-				app.profile.as_deref().unwrap_or("<none>"),
-				width,
-				FitMode::Tail,
-			),
-		],
-		CheckState::Ready(summary) => vec![
-			panel::section("check summary"),
-			detail_line(
-				"files",
-				&summary.files_scanned.to_string(),
-				width,
-				FitMode::Tail,
-			),
-			detail_line(
-				"flagged",
-				&summary.files_with_violations.to_string(),
-				width,
-				FitMode::Tail,
-			),
-			detail_line(
-				"violations",
-				&summary.total_violations.to_string(),
-				width,
-				FitMode::Tail,
-			),
-		],
-		CheckState::Error(error) => vec![
-			Line::styled(
-				"check failed",
-				Style::default()
-					.fg(THEME.danger)
-					.add_modifier(Modifier::BOLD),
-			),
-			panel::bullet(error.clone()),
-		],
-	}
-}
-
-fn render_check(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	render_panel(
-		frame,
-		area,
-		"check",
-		ComponentId::PanelCheck,
-		check_panel_lines(app, panel_content_width(area)),
-	);
-}
-
-fn render_panel(
-	frame: &mut ratatui::Frame<'_>,
-	area: Rect,
-	title: &str,
-	component: ComponentId,
-	lines: Vec<Line<'_>>,
-) {
-	let paragraph = Paragraph::new(Text::from(lines))
-		.block(
-			Block::default()
-				.title(block_title(title, component))
-				.borders(Borders::ALL),
-		)
-		.wrap(Wrap { trim: false });
-	frame.render_widget(paragraph, area);
-}
-
-fn render_panel_unwrapped(
-	frame: &mut ratatui::Frame<'_>,
-	area: Rect,
-	title: &str,
-	component: ComponentId,
-	lines: Vec<Line<'_>>,
-) {
-	let paragraph = Paragraph::new(Text::from(lines)).block(
-		Block::default()
-			.title(block_title(title, component))
-			.borders(Borders::ALL),
-	);
-	frame.render_widget(paragraph, area);
-}
-
-fn panel_content_width(area: Rect) -> usize {
-	usize::from(area.width.saturating_sub(2)).max(20)
-}
-
-fn reference_summary(refs: &ReferenceSet) -> String {
-	match (refs.summary.refs, refs.summary.files) {
-		(0, _) => "0 reference(s)".to_string(),
-		(count, 1) => format!("{count} reference(s) from 1 file"),
-		(count, files) => format!("{count} reference(s) from {files} files"),
-	}
-}
-
-fn push_ref_groups(
-	lines: &mut Vec<Line<'static>>,
-	groups: &[ReferenceGroup],
-	limit: usize,
-	width: usize,
-) {
-	if groups.is_empty() {
-		lines.push(panel::muted("none"));
-		return;
-	}
-	for (idx, group) in groups.iter().take(limit).enumerate() {
-		if idx > 0 {
-			lines.push(panel::blank());
-		}
-		lines.extend(ref_group_lines(group, width));
-	}
-	if groups.len() > limit {
-		lines.push(panel::muted(format!("... {} more", groups.len() - limit)));
-	}
-}
-
-fn ref_group_lines(group: &ReferenceGroup, width: usize) -> Vec<Line<'static>> {
-	let mut lines = vec![
-		ref_actor_line(&group.actor, &group.confidence, width),
-		ref_kinds_line(&group.kinds, width),
-		ref_location_line(&group.location, width),
-		ref_endpoint_line(group.endpoint_label, &group.endpoint, width),
-	];
-	if let Some(attrs) = ref_attrs_line(group, width) {
-		lines.push(attrs);
-	}
-	lines
-}
-
-fn ref_actor_line(actor: &str, confidence: &str, width: usize) -> Line<'static> {
-	let prefix = "  ";
-	let suffix = if confidence == "-" {
-		String::new()
-	} else {
-		format!("  {confidence}")
-	};
-	let actor_width = width.saturating_sub(visible_len(&prefix) + visible_len(&suffix));
-	Line::from(vec![
-		Span::raw("  "),
-		Span::styled(
-			fit_text(actor, actor_width, FitMode::Middle),
-			Style::default().fg(THEME.nav.symbol),
-		),
-		Span::styled(suffix, Style::default().fg(THEME.nav.meta)),
-	])
-}
-
-fn ref_kinds_line(kinds: &[String], width: usize) -> Line<'static> {
-	let prefix = "    kinds  ";
-	let value = kinds.join(", ");
-	let value_width = width.saturating_sub(visible_len(prefix));
-	let color = kinds
-		.first()
-		.map(|kind| THEME.kind.color_for_group(reference_kind_group(kind)))
-		.unwrap_or(THEME.kind.fallback);
-	Line::from(vec![
-		Span::raw("    "),
-		Span::styled("kinds  ", Style::default().fg(THEME.nav.meta)),
-		Span::styled(
-			fit_text(&value, value_width, FitMode::Middle),
-			Style::default().fg(color),
-		),
-	])
-}
-
-fn ref_location_line(location: &str, width: usize) -> Line<'static> {
-	let prefix = "    at ";
-	let value_width = width.saturating_sub(visible_len(prefix));
-	Line::from(vec![
-		Span::raw("    "),
-		Span::styled("at ", Style::default().fg(THEME.nav.meta)),
-		Span::styled(
-			fit_text(location, value_width, FitMode::Tail),
-			Style::default().fg(THEME.nav.meta),
-		),
-	])
-}
-
-fn ref_endpoint_line(endpoint_label: &'static str, endpoint: &str, width: usize) -> Line<'static> {
-	let prefix = format!("    {endpoint_label:<6} ");
-	let value_width = width.saturating_sub(visible_len(&prefix));
-	Line::from(vec![
-		Span::raw("    "),
-		Span::styled(
-			format!("{endpoint_label:<6} "),
-			Style::default().fg(THEME.nav.meta),
-		),
-		Span::raw(fit_text(endpoint, value_width, FitMode::Middle)),
-	])
-}
-
-fn ref_attrs_line(group: &ReferenceGroup, width: usize) -> Option<Line<'static>> {
-	let mut attrs = Vec::new();
-	if let Some(receiver) = &group.receiver {
-		attrs.push(format!("receiver {receiver}"));
-	}
-	if let Some(alias) = &group.alias {
-		attrs.push(format!("alias {alias}"));
-	}
-	if attrs.is_empty() {
-		return None;
-	}
-	let prefix = "    via ";
-	let value = attrs.join("  ");
-	let value_width = width.saturating_sub(visible_len(prefix));
-	Some(Line::from(vec![
-		Span::raw("    "),
-		Span::styled("via ", Style::default().fg(THEME.nav.meta)),
-		Span::raw(fit_text(&value, value_width, FitMode::Middle)),
-	]))
-}
-
-fn detail_line(label: &str, value: &str, width: usize, mode: FitMode) -> Line<'static> {
-	panel::kv(label, value, width, mode)
 }
 
 fn display_filter(filter: &str) -> &str {

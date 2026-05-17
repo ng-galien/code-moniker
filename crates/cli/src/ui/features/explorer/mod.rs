@@ -1,6 +1,15 @@
+mod panels;
+mod screen;
+
+use crate::ui::App;
 use crate::ui::contracts::{
 	CommandId, CommandSpec, Feature, FeatureContext, FeatureId, NavItem, Route,
 };
+use crate::ui::panels::PanelVm;
+#[cfg(test)]
+use crate::workspace::DefLocation;
+
+use screen::ExplorerScreen;
 
 pub(in crate::ui) const FEATURE_ID: &str = "explorer";
 pub(in crate::ui) const ROUTE_OVERVIEW: &str = "overview";
@@ -19,6 +28,19 @@ impl ExplorerFeature {
 
 	pub(in crate::ui) fn initial_route() -> Route {
 		Self::route(ROUTE_OVERVIEW)
+	}
+
+	pub(in crate::ui) fn active_panel(app: &App) -> PanelVm {
+		panels::active_panel(app)
+	}
+
+	pub(in crate::ui) fn screen(app: &mut App) -> ExplorerScreen<'_> {
+		ExplorerScreen::new(app)
+	}
+
+	#[cfg(test)]
+	pub(in crate::ui) fn refs_for_symbol_panel(app: &App, loc: DefLocation) -> PanelVm {
+		panels::refs_for_symbol_panel(app, loc)
 	}
 }
 

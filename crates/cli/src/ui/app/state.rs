@@ -1,14 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ui::app::action::ShellAction;
+use crate::ui::app::command::AppCommand;
 use crate::ui::contracts::Route;
 use crate::ui::events::{FilterEdit, Msg, UiMode};
-use crate::ui::features::explorer::{ExplorerFeature, ROUTE_OVERVIEW};
+use crate::ui::features::explorer::{
+	ExplorerFeature, ROUTE_CHANGE, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW, ROUTE_REFS,
+};
 use crate::ui::live::StoreEvent;
 use crate::ui::reactive::Transition;
 use crate::ui::runtime::{TaskId, TaskOutcome, TaskResult, WorkKind};
-use crate::ui::store::navigation::NavigationState;
+use crate::ui::store::navigation::{NavigationAction, NavigationState};
 use crate::workspace::{CheckSummary, SearchHit, SymbolFilter, UsageFocus};
+
+use super::Effect;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct WorkSlice {
@@ -51,12 +56,60 @@ pub(in crate::ui) enum View {
 	Change,
 }
 
+impl View {
+	pub(in crate::ui) fn next(self) -> Self {
+		match self {
+			Self::Overview => Self::Tree,
+			Self::Tree => Self::Refs,
+			Self::Refs => Self::Check,
+			Self::Check => Self::Change,
+			Self::Change => Self::Overview,
+		}
+	}
+
+	pub(in crate::ui) fn route_path(self) -> &'static str {
+		match self {
+			Self::Overview => ROUTE_OVERVIEW,
+			Self::Tree => ROUTE_OUTLINE,
+			Self::Refs => ROUTE_REFS,
+			Self::Check => ROUTE_CHECK,
+			Self::Change => ROUTE_CHANGE,
+		}
+	}
+
+	pub(in crate::ui) fn from_route_path(path: &str) -> Option<Self> {
+		match path {
+			ROUTE_OVERVIEW => Some(Self::Overview),
+			ROUTE_OUTLINE => Some(Self::Tree),
+			ROUTE_REFS => Some(Self::Refs),
+			ROUTE_CHECK => Some(Self::Check),
+			ROUTE_CHANGE => Some(Self::Change),
+			_ => None,
+		}
+	}
+
+	pub(in crate::ui) fn route(self) -> Route {
+		ExplorerFeature::route(self.route_path())
+	}
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) enum VisualizationMode {
 	Explorer,
 	Search,
 	Usages,
 	Change,
+}
+
+impl VisualizationMode {
+	pub(in crate::ui) fn label(self) -> &'static str {
+		match self {
+			Self::Explorer => "explorer",
+			Self::Search => "search",
+			Self::Usages => "usages",
+			Self::Change => "change",
+		}
+	}
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -278,6 +331,12 @@ impl AppState {
 
 	pub(in crate::ui) fn reduce_ui_msg(&mut self, msg: &Msg) -> Transition {
 		match msg {
+			Msg::Quit => Transition::unchanged("ui.quit").with_effect(Effect::Quit),
+			Msg::CycleView => Transition::unchanged("ui.cycle_view")
+				.with_effect(Effect::Navigate(self.shell.view.next().route())),
+			Msg::ShowView(view) => {
+				Transition::unchanged("ui.show_view").with_effect(Effect::Navigate(view.route()))
+			}
 			Msg::StartFilterEdit => {
 				let draft = self
 					.shell
@@ -335,7 +394,21 @@ impl AppState {
 				);
 				Transition::changed("ui.help")
 			}
-			_ => Transition::deferred("ui.deferred"),
+			Msg::ApplyFilter => run_command(AppCommand::ApplyFilter),
+			Msg::ApplySearch => run_command(AppCommand::ApplySearch),
+			Msg::ClearFilter => run_command(AppCommand::ClearFilter),
+			Msg::FocusUsages => run_command(AppCommand::FocusUsages),
+			Msg::ToggleChangeMode => run_command(AppCommand::ToggleChangeMode),
+			Msg::CopyPanelSnapshot => run_command(AppCommand::CopyPanelSnapshot),
+			Msg::RunCheck => run_command(AppCommand::RunCheck),
+			Msg::MoveDown => run_command(AppCommand::Navigation(NavigationAction::MoveDown)),
+			Msg::MoveUp => run_command(AppCommand::Navigation(NavigationAction::MoveUp)),
+			Msg::Home => run_command(AppCommand::Navigation(NavigationAction::Home)),
+			Msg::End => run_command(AppCommand::Navigation(NavigationAction::End)),
+			Msg::ToggleNode => run_command(AppCommand::ToggleSelectedNode),
+			Msg::OpenNode => run_command(AppCommand::OpenSelectedNode),
+			Msg::CloseNode => run_command(AppCommand::CloseNodeOrClearScope),
+			Msg::Noop => Transition::unchanged("ui.noop"),
 		}
 	}
 
@@ -513,4 +586,8 @@ impl ActiveFilter {
 
 fn display_filter_text(filter: &str) -> &str {
 	if filter.is_empty() { "<empty>" } else { filter }
+}
+
+fn run_command(command: AppCommand) -> Transition {
+	Transition::unchanged("ui.command").with_effect(Effect::RunCommand(command))
 }
