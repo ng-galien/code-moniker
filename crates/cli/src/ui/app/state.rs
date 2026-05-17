@@ -220,6 +220,18 @@ pub(in crate::ui) enum TaskStatus {
 	Failed,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum TaskCompletion {
+	Accepted,
+	Ignored,
+}
+
+impl TaskCompletion {
+	pub(in crate::ui) fn accepted(self) -> bool {
+		self == Self::Accepted
+	}
+}
+
 impl AppState {
 	pub(in crate::ui) fn new() -> Self {
 		Self::default()
@@ -292,31 +304,49 @@ impl AppState {
 				});
 				Transition::changed("shell.set_view")
 			}
-			ShellAction::SetActiveFilter {
-				active_filter,
-				view_mode,
-				panel_policy,
-				mode,
-				change_panel,
-				clear_filter_draft,
-				clear_search_draft,
-			} => {
+			ShellAction::ApplyFilter(active_filter) => {
 				self.update_shell(|shell| {
-					shell.mode = *mode;
+					shell.mode = UiMode::Normal;
 					shell.active_filter = active_filter.clone();
-					shell.view_mode = *view_mode;
-					shell.panel_policy = *panel_policy;
-					if let Some(change_panel) = change_panel {
-						shell.change_panel = *change_panel;
-					}
-					if *clear_filter_draft {
-						shell.filter_draft.clear();
-					}
-					if *clear_search_draft {
-						shell.search_draft.clear();
-					}
+					shell.view_mode = active_filter.view_mode();
+					shell.panel_policy = PanelPolicy::Contextual;
 				});
-				Transition::changed("shell.set_active_filter")
+				Transition::changed("shell.apply_filter")
+			}
+			ShellAction::ClearFilter => {
+				self.update_shell(|shell| {
+					shell.mode = UiMode::Normal;
+					shell.active_filter = ActiveFilter::None;
+					shell.view_mode = VisualizationMode::Explorer;
+					shell.panel_policy = PanelPolicy::Contextual;
+					shell.change_panel = ChangePanelMode::Diff;
+					shell.filter_draft.clear();
+					shell.search_draft.clear();
+				});
+				Transition::changed("shell.clear_filter")
+			}
+			ShellAction::FocusUsages(focus) => {
+				self.update_shell(|shell| {
+					shell.mode = UiMode::Normal;
+					shell.active_filter = ActiveFilter::Usages(focus.clone());
+					shell.view_mode = VisualizationMode::Usages;
+					shell.panel_policy = PanelPolicy::Contextual;
+					shell.filter_draft.clear();
+					shell.search_draft.clear();
+				});
+				Transition::changed("shell.focus_usages")
+			}
+			ShellAction::EnterChangeMode => {
+				self.update_shell(|shell| {
+					shell.mode = UiMode::Normal;
+					shell.active_filter = ActiveFilter::Change;
+					shell.view_mode = VisualizationMode::Change;
+					shell.panel_policy = PanelPolicy::Contextual;
+					shell.change_panel = ChangePanelMode::Diff;
+					shell.filter_draft.clear();
+					shell.search_draft.clear();
+				});
+				Transition::changed("shell.enter_change_mode")
 			}
 			ShellAction::ReplaceActiveFilter(active_filter) => {
 				self.update_shell(|shell| shell.active_filter = active_filter.clone());
@@ -326,6 +356,9 @@ impl AppState {
 				self.update_shell(|shell| shell.change_panel = *change_panel);
 				Transition::changed("shell.set_change_panel")
 			}
+			#[cfg(test)]
+			ShellAction::EmitNotify(message) => Transition::unchanged("shell.emit_notify")
+				.with_effect(Effect::Notify(message.clone())),
 		}
 	}
 
@@ -443,12 +476,12 @@ impl AppState {
 		})
 	}
 
-	pub(in crate::ui) fn complete_task(&mut self, result: &TaskResult) -> bool {
+	pub(in crate::ui) fn complete_task(&mut self, result: &TaskResult) -> TaskCompletion {
 		let accepted = self.accepts_task_result(result);
 		self.bump();
 		self.work.running.remove(&result.id);
 		if !accepted {
-			return false;
+			return TaskCompletion::Ignored;
 		}
 		match &result.outcome {
 			TaskOutcome::StoreReloaded(_) => {
@@ -469,6 +502,7 @@ impl AppState {
 				self.work.pending.remove(&WorkKind::ProjectLoad);
 				self.work.pending.remove(&WorkKind::FileCatalog);
 			}
+			#[cfg(test)]
 			TaskOutcome::Completed(_) => {
 				self.work.pending.remove(&result.work);
 			}
@@ -484,6 +518,7 @@ impl AppState {
 			id: result.id,
 			label: result.label.clone(),
 			status: match &result.outcome {
+				#[cfg(test)]
 				TaskOutcome::Completed(_) => TaskStatus::Completed,
 				TaskOutcome::FileCatalogLoaded(_) => TaskStatus::Completed,
 				TaskOutcome::StoreReloaded(_) => TaskStatus::Completed,
@@ -492,7 +527,7 @@ impl AppState {
 				TaskOutcome::Failed(_) => TaskStatus::Failed,
 			},
 		});
-		true
+		TaskCompletion::Accepted
 	}
 
 	fn invalidate_full_index(&mut self) {
@@ -580,6 +615,17 @@ impl ActiveFilter {
 		match self {
 			Self::Text { raw, .. } | Self::Invalid { raw, .. } => Some(raw),
 			Self::None | Self::Search { .. } | Self::Usages(_) | Self::Change => None,
+		}
+	}
+
+	fn view_mode(&self) -> VisualizationMode {
+		match self {
+			Self::None => VisualizationMode::Explorer,
+			Self::Text { .. } | Self::Invalid { .. } | Self::Search { .. } => {
+				VisualizationMode::Search
+			}
+			Self::Usages(_) => VisualizationMode::Usages,
+			Self::Change => VisualizationMode::Change,
 		}
 	}
 }

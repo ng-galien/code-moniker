@@ -1,11 +1,10 @@
-use crate::ui::app::state::{
-	ActiveFilter, ChangePanelMode, CheckState, PanelPolicy, View, VisualizationMode,
-};
+use crate::ui::app::state::{ActiveFilter, ChangePanelMode, CheckState, PanelPolicy, View};
 use crate::ui::clipboard::ClipboardResult;
 use crate::ui::contracts::Route;
-use crate::ui::events::{Msg, UiMode};
+use crate::ui::events::Msg;
 use crate::ui::live::StoreEvent;
 use crate::ui::runtime::{TaskId, TaskResult, WorkKind};
+use crate::workspace::UsageFocus;
 
 #[derive(Debug)]
 pub(in crate::ui) enum AppAction {
@@ -32,15 +31,12 @@ pub(in crate::ui) enum ShellAction {
 		policy: PanelPolicy,
 		route: Route,
 	},
-	SetActiveFilter {
-		active_filter: ActiveFilter,
-		view_mode: VisualizationMode,
-		panel_policy: PanelPolicy,
-		mode: UiMode,
-		change_panel: Option<ChangePanelMode>,
-		clear_filter_draft: bool,
-		clear_search_draft: bool,
-	},
+	ApplyFilter(ActiveFilter),
+	ClearFilter,
+	FocusUsages(UsageFocus),
+	EnterChangeMode,
 	ReplaceActiveFilter(ActiveFilter),
 	SetChangePanel(ChangePanelMode),
+	#[cfg(test)]
+	EmitNotify(String),
 }

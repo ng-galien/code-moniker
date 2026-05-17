@@ -45,7 +45,7 @@ pub(in crate::ui) struct TaskSpec {
 }
 
 impl TaskSpec {
-	#[allow(dead_code)]
+	#[cfg(test)]
 	pub(in crate::ui) fn noop(label: impl Into<String>) -> Self {
 		Self {
 			id: TaskId::next(),
@@ -127,6 +127,7 @@ impl TaskSpec {
 		let work = self.work_kind();
 		let generation = self.generation;
 		let outcome = match self.kind {
+			#[cfg(test)]
 			TaskKind::Noop => TaskOutcome::Completed("task completed".to_string()),
 			TaskKind::LoadFileCatalog { opts } => match WorkspaceStore::catalog(&opts) {
 				Ok(store) => TaskOutcome::FileCatalogLoaded(Box::new(store)),
@@ -160,6 +161,7 @@ impl TaskSpec {
 }
 
 enum TaskKind {
+	#[cfg(test)]
 	Noop,
 	LoadFileCatalog {
 		opts: SessionOptions,
@@ -192,6 +194,7 @@ impl fmt::Debug for TaskSpec {
 impl TaskKind {
 	fn label(&self) -> &'static str {
 		match self {
+			#[cfg(test)]
 			Self::Noop => "noop",
 			Self::LoadFileCatalog { .. } => "load_file_catalog",
 			Self::ReloadStore { .. } => "reload_store",
@@ -202,6 +205,7 @@ impl TaskKind {
 
 	fn work_kind(&self) -> WorkKind {
 		match self {
+			#[cfg(test)]
 			Self::Noop => WorkKind::PanelData,
 			Self::LoadFileCatalog { .. } => WorkKind::FileCatalog,
 			Self::ReloadStore { .. } => WorkKind::GraphIndex,
@@ -221,6 +225,7 @@ pub(in crate::ui) struct TaskResult {
 }
 
 pub(in crate::ui) enum TaskOutcome {
+	#[cfg(test)]
 	Completed(String),
 	FileCatalogLoaded(Box<WorkspaceStore>),
 	StoreReloaded(Box<WorkspaceStore>),
@@ -232,6 +237,7 @@ pub(in crate::ui) enum TaskOutcome {
 impl fmt::Debug for TaskOutcome {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
+			#[cfg(test)]
 			Self::Completed(message) => f.debug_tuple("Completed").field(message).finish(),
 			Self::FileCatalogLoaded(_) => f.write_str("FileCatalogLoaded(..)"),
 			Self::StoreReloaded(_) => f.write_str("StoreReloaded(..)"),

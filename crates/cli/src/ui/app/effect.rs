@@ -1,17 +1,16 @@
 use crate::ui::contracts::Route;
+#[cfg(test)]
 use crate::ui::runtime::TaskSpec;
 
 use super::AppCommand;
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(in crate::ui) enum Effect {
 	Navigate(Route),
-	Back,
 	Quit,
+	#[cfg(test)]
 	Notify(String),
-	Refresh,
+	#[cfg(test)]
 	Spawn(TaskSpec),
 	RunCommand(AppCommand),
-	None,
 }

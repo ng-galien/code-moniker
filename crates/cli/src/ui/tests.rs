@@ -328,6 +328,25 @@ fn view_switches_update_shell_route_through_effects() {
 }
 
 #[test]
+fn nested_shell_dispatches_apply_emitted_effects() {
+	let tmp = tempfile::tempdir().unwrap();
+	let mut app = App::new(
+		WorkspaceStore::empty(SessionOptions {
+			paths: vec![tmp.path().into()],
+			project: Some("app".into()),
+			cache_dir: None,
+		}),
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.dispatch_shell(ShellAction::EmitNotify("nested effect applied".to_string()));
+
+	assert_eq!(app.status(), "nested effect applied");
+}
+
+#[test]
 fn contextual_panel_tracks_selected_declaration_in_explorer_mode() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");

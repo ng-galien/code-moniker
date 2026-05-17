@@ -44,7 +44,7 @@ mod view;
 
 use app::{
 	ActiveFilter, AppAction, AppCommand, AppStore, ChangePanelMode, CheckState, Effect,
-	PanelPolicy, ShellAction, View, VisualizationMode,
+	PanelPolicy, ShellAction, TaskCompletion, View, VisualizationMode,
 };
 #[cfg(test)]
 use component::{ComponentId, block_title};
@@ -147,16 +147,22 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 				});
 			}
 			ShellEvent::TaskCompleted(result) => {
-				app.update(AppAction::TaskCompleted(result));
+				if app.update(AppAction::TaskCompleted(result)) {
+					return Ok(true);
+				}
 			}
 			ShellEvent::Clipboard(result) => {
-				app.update(AppAction::Clipboard(result));
+				if app.update(AppAction::Clipboard(result)) {
+					return Ok(true);
+				}
 			}
 			ShellEvent::Error(error) => return Err(anyhow::anyhow!(error)),
 		}
 	}
 	if let Some(event) = store_event {
-		app.update(AppAction::Store(event));
+		if app.update(AppAction::Store(event)) {
+			return Ok(true);
+		}
 	}
 	Ok(false)
 }
@@ -254,11 +260,11 @@ impl App {
 	}
 
 	fn set_status(&mut self, status: impl Into<String>) {
-		self.app_store.set_status(status);
+		self.dispatch_shell(ShellAction::SetStatus(status.into()));
 	}
 
 	fn append_status(&mut self, status: impl AsRef<str>) {
-		self.app_store.append_status(status);
+		self.dispatch_shell(ShellAction::AppendStatus(status.as_ref().to_string()));
 	}
 
 	fn check_state(&self) -> &CheckState {
@@ -266,11 +272,11 @@ impl App {
 	}
 
 	fn set_check_state(&mut self, state: CheckState) {
-		self.app_store.set_check_state(state);
+		self.dispatch_shell(ShellAction::SetCheckState(state));
 	}
 
 	fn dispatch_shell(&mut self, action: ShellAction) {
-		self.app_store.dispatch(&AppAction::Shell(action));
+		self.dispatch_and_apply(&AppAction::Shell(action));
 	}
 
 	fn route(&self) -> &Route {
@@ -471,15 +477,7 @@ impl App {
 		let label = focus.label.clone();
 		let refs_len = focus.refs.len();
 		let contexts_len = focus.contexts.len();
-		self.dispatch_shell(ShellAction::SetActiveFilter {
-			active_filter: ActiveFilter::Usages(focus),
-			view_mode: VisualizationMode::Usages,
-			panel_policy: PanelPolicy::Contextual,
-			mode: UiMode::Normal,
-			change_panel: None,
-			clear_filter_draft: true,
-			clear_search_draft: true,
-		});
+		self.dispatch_shell(ShellAction::FocusUsages(focus));
 		self.refresh_results(true);
 		self.sync_contextual_view();
 		self.set_status(format!(
@@ -501,22 +499,7 @@ impl App {
 				error: error.to_string(),
 			},
 		};
-		let view_mode = match &active_filter {
-			ActiveFilter::None => VisualizationMode::Explorer,
-			ActiveFilter::Text { .. } | ActiveFilter::Invalid { .. } => VisualizationMode::Search,
-			ActiveFilter::Search { .. } => VisualizationMode::Search,
-			ActiveFilter::Usages(_) => VisualizationMode::Usages,
-			ActiveFilter::Change => VisualizationMode::Change,
-		};
-		self.dispatch_shell(ShellAction::SetActiveFilter {
-			active_filter,
-			view_mode,
-			panel_policy: PanelPolicy::Contextual,
-			mode: UiMode::Normal,
-			change_panel: None,
-			clear_filter_draft: false,
-			clear_search_draft: false,
-		});
+		self.dispatch_shell(ShellAction::ApplyFilter(active_filter));
 		self.refresh_results(true);
 		self.sync_contextual_view();
 		if let Some((raw, _)) = self.active_filter().error() {
@@ -541,18 +524,10 @@ impl App {
 		let hits = self.store().search_symbols(&raw, 500);
 		let hit_count = hits.len();
 		let first_hit = hits.first().map(|hit| hit.loc);
-		self.dispatch_shell(ShellAction::SetActiveFilter {
-			active_filter: ActiveFilter::Search {
-				raw: raw.clone(),
-				hits,
-			},
-			view_mode: VisualizationMode::Search,
-			panel_policy: PanelPolicy::Contextual,
-			mode: UiMode::Normal,
-			change_panel: None,
-			clear_filter_draft: false,
-			clear_search_draft: false,
-		});
+		self.dispatch_shell(ShellAction::ApplyFilter(ActiveFilter::Search {
+			raw: raw.clone(),
+			hits,
+		}));
 		self.refresh_results(true);
 		if let Some(loc) = first_hit {
 			self.select_def(loc);
@@ -566,15 +541,7 @@ impl App {
 	}
 
 	fn clear_filter(&mut self) {
-		self.dispatch_shell(ShellAction::SetActiveFilter {
-			active_filter: ActiveFilter::None,
-			view_mode: VisualizationMode::Explorer,
-			panel_policy: PanelPolicy::Contextual,
-			mode: UiMode::Normal,
-			change_panel: Some(ChangePanelMode::Diff),
-			clear_filter_draft: true,
-			clear_search_draft: true,
-		});
+		self.dispatch_shell(ShellAction::ClearFilter);
 		self.refresh_results(true);
 		self.sync_contextual_view();
 		self.set_status("filter cleared");
@@ -597,15 +564,7 @@ impl App {
 			self.clear_filter();
 			return;
 		}
-		self.dispatch_shell(ShellAction::SetActiveFilter {
-			active_filter: ActiveFilter::Change,
-			view_mode: VisualizationMode::Change,
-			panel_policy: PanelPolicy::Contextual,
-			mode: UiMode::Normal,
-			change_panel: Some(ChangePanelMode::Diff),
-			clear_filter_draft: true,
-			clear_search_draft: true,
-		});
+		self.dispatch_shell(ShellAction::EnterChangeMode);
 		self.refresh_results(true);
 		self.select_first_change();
 		self.sync_contextual_view();
@@ -833,6 +792,7 @@ impl App {
 
 	fn handle_task_result(&mut self, result: runtime::TaskResult) {
 		match result.outcome {
+			#[cfg(test)]
 			TaskOutcome::Completed(message) => {
 				self.set_status(format!("{} completed: {message}", result.label));
 			}
@@ -890,20 +850,17 @@ impl App {
 	fn update(&mut self, action: AppAction) -> bool {
 		let action = match action {
 			AppAction::TaskCompleted(result) => {
-				if self.app_store.complete_task(&result) {
-					self.handle_task_result(result);
-				} else {
-					self.set_status(format!("ignored stale task result: {}", result.label));
+				match self.app_store.complete_task(&result) {
+					TaskCompletion::Accepted => self.handle_task_result(result),
+					TaskCompletion::Ignored => {
+						self.set_status(format!("ignored stale task result: {}", result.label));
+					}
 				}
 				return false;
 			}
 			action => action,
 		};
-		let effects = {
-			let transition = self.app_store.dispatch(&action);
-			transition.take_effects()
-		};
-		if self.apply_effects(effects) {
+		if self.dispatch_and_apply(&action) {
 			return true;
 		}
 		match action {
@@ -922,6 +879,14 @@ impl App {
 		}
 	}
 
+	fn dispatch_and_apply(&mut self, action: &AppAction) -> bool {
+		let effects = {
+			let transition = self.app_store.dispatch(action);
+			transition.take_effects()
+		};
+		self.apply_effects(effects)
+	}
+
 	fn apply_effects(&mut self, effects: Vec<Effect>) -> bool {
 		for effect in effects {
 			if self.apply_effect(effect) {
@@ -934,15 +899,14 @@ impl App {
 	fn apply_effect(&mut self, effect: Effect) -> bool {
 		match effect {
 			Effect::Navigate(route) => self.navigate(route),
-			Effect::Back => {}
 			Effect::Quit => return true,
+			#[cfg(test)]
 			Effect::Notify(message) => self.set_status(message),
-			Effect::Refresh => self.refresh_results(false),
+			#[cfg(test)]
 			Effect::Spawn(task) => {
 				self.queue_task(task);
 			}
 			Effect::RunCommand(command) => return self.run_command(command),
-			Effect::None => {}
 		}
 		false
 	}

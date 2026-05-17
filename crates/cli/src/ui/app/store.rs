@@ -1,5 +1,7 @@
-use crate::ui::app::action::{AppAction, ShellAction};
-use crate::ui::app::state::{AppState, CheckState, ShellSlice};
+use crate::ui::app::action::AppAction;
+#[cfg(test)]
+use crate::ui::app::action::ShellAction;
+use crate::ui::app::state::{AppState, CheckState, ShellSlice, TaskCompletion};
 use crate::ui::live::StoreEvent;
 use crate::ui::reactive::{ReactiveStore, Reduce, Transition};
 use crate::ui::runtime::{TaskResult, TaskSpec};
@@ -58,17 +60,17 @@ impl AppStore {
 		self.workspace = Some(store);
 	}
 
-	pub(in crate::ui) fn complete_task(&mut self, result: &TaskResult) -> bool {
-		let mut accepted = false;
-		self.inner.reduce_with(|state| {
-			accepted = state.complete_task(result);
-			if accepted {
+	pub(in crate::ui) fn complete_task(&mut self, result: &TaskResult) -> TaskCompletion {
+		let (_, completion) = self.inner.reduce_with_outcome(|state| {
+			let completion = state.complete_task(result);
+			let transition = if completion.accepted() {
 				Transition::changed("task-completed")
 			} else {
 				Transition::changed("task-ignored")
-			}
+			};
+			transition.with_outcome(completion)
 		});
-		accepted
+		completion
 	}
 
 	pub(in crate::ui) fn status(&self) -> &str {
@@ -79,11 +81,13 @@ impl AppStore {
 		&self.inner.state().shell
 	}
 
-	pub(in crate::ui) fn set_status(&mut self, status: impl Into<String>) {
+	#[cfg(test)]
+	fn set_status(&mut self, status: impl Into<String>) {
 		self.dispatch(&AppAction::Shell(ShellAction::SetStatus(status.into())));
 	}
 
-	pub(in crate::ui) fn append_status(&mut self, suffix: impl AsRef<str>) {
+	#[cfg(test)]
+	fn append_status(&mut self, suffix: impl AsRef<str>) {
 		self.dispatch(&AppAction::Shell(ShellAction::AppendStatus(
 			suffix.as_ref().to_string(),
 		)));
@@ -93,7 +97,8 @@ impl AppStore {
 		self.inner.state().check_state()
 	}
 
-	pub(in crate::ui) fn set_check_state(&mut self, check: CheckState) {
+	#[cfg(test)]
+	fn set_check_state(&mut self, check: CheckState) {
 		self.dispatch(&AppAction::Shell(ShellAction::SetCheckState(check)));
 	}
 
@@ -162,7 +167,7 @@ impl Reduce<&AppAction> for AppState {
 				Transition::changed("task-started")
 			}
 			AppAction::TaskCompleted(result) => {
-				if self.complete_task(result) {
+				if self.complete_task(result).accepted() {
 					Transition::changed("task-completed")
 				} else {
 					Transition::changed("task-ignored")
@@ -268,13 +273,16 @@ mod tests {
 		let spec = store.register_task(TaskSpec::noop("coverage lookup"));
 		let id = spec.id();
 
-		assert!(store.complete_task(&crate::ui::runtime::TaskResult {
-			id,
-			work: spec.work_kind(),
-			generation: spec.generation(),
-			label: "coverage lookup".to_string(),
-			outcome: TaskOutcome::Completed("ok".to_string()),
-		}));
+		assert_eq!(
+			store.complete_task(&crate::ui::runtime::TaskResult {
+				id,
+				work: spec.work_kind(),
+				generation: spec.generation(),
+				label: "coverage lookup".to_string(),
+				outcome: TaskOutcome::Completed("ok".to_string()),
+			}),
+			TaskCompletion::Accepted
+		);
 
 		let task = store.state().last_task.as_ref().expect("task summary");
 		assert_eq!(task.id, id);
@@ -341,7 +349,7 @@ mod tests {
 
 		store.dispatch(&AppAction::Store(StoreEvent::FullIndex));
 
-		let accepted = store.complete_task(&crate::ui::runtime::TaskResult {
+		let completion = store.complete_task(&crate::ui::runtime::TaskResult {
 			id: spec.id(),
 			work: spec.work_kind(),
 			generation: spec.generation(),
@@ -349,7 +357,7 @@ mod tests {
 			outcome: TaskOutcome::Completed("late".to_string()),
 		});
 
-		assert!(!accepted);
+		assert_eq!(completion, TaskCompletion::Ignored);
 		assert!(store.state().last_task.is_none());
 		assert!(!store.state().work.running.contains_key(&spec.id()));
 	}

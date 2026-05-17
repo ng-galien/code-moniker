@@ -3,32 +3,45 @@ use crate::ui::app::Effect;
 #[derive(Debug)]
 pub(super) struct Transition {
 	pub(super) changed: bool,
-	#[allow(dead_code)]
+	#[cfg(test)]
 	pub(super) reason: &'static str,
 	pub(super) effects: Vec<Effect>,
 }
 
+pub(super) struct Reduction<Outcome> {
+	pub(super) transition: Transition,
+	pub(super) outcome: Outcome,
+}
+
 impl Transition {
-	pub(super) const fn changed(reason: &'static str) -> Self {
+	pub(super) const fn changed(_reason: &'static str) -> Self {
 		Self {
 			changed: true,
-			reason,
+			#[cfg(test)]
+			reason: _reason,
 			effects: Vec::new(),
 		}
 	}
 
-	pub(super) const fn unchanged(reason: &'static str) -> Self {
+	pub(super) const fn unchanged(_reason: &'static str) -> Self {
 		Self {
 			changed: false,
-			reason,
+			#[cfg(test)]
+			reason: _reason,
 			effects: Vec::new(),
 		}
 	}
 
-	#[allow(dead_code)]
 	pub(super) fn with_effect(mut self, effect: Effect) -> Self {
 		self.effects.push(effect);
 		self
+	}
+
+	pub(super) fn with_outcome<Outcome>(self, outcome: Outcome) -> Reduction<Outcome> {
+		Reduction {
+			transition: self,
+			outcome,
+		}
 	}
 
 	pub(super) fn take_effects(&mut self) -> Vec<Effect> {
@@ -86,5 +99,18 @@ impl<State> ReactiveStore<State> {
 			self.version += 1;
 		}
 		&mut self.last_transition
+	}
+
+	pub(super) fn reduce_with_outcome<Outcome>(
+		&mut self,
+		reduce: impl FnOnce(&mut State) -> Reduction<Outcome>,
+	) -> (&mut Transition, Outcome) {
+		let reduction = reduce(&mut self.state);
+		let outcome = reduction.outcome;
+		self.last_transition = reduction.transition;
+		if self.last_transition.changed {
+			self.version += 1;
+		}
+		(&mut self.last_transition, outcome)
 	}
 }

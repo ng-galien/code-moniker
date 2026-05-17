@@ -123,6 +123,12 @@ in `0.y.z`.
   those commands for workspace reads, navigation, async tasks,
   clipboard, and checks. `Screen` is now a rendering contract only,
   which keeps input orchestration out of view components.
+- **`code-moniker ui` internals** — runtime dispatch now drains effects
+  for nested shell actions as well as root messages, and filter scope
+  changes use named shell actions instead of a broad multi-field setter.
+- **`code-moniker ui` internals** — reducer calls that need a return
+  value now use typed reduction outcomes, removing ad hoc captured bools
+  and runtime quit flags from the UI shell.
 - **`code-moniker ui`** — visible component markers such as
   `[ui.navigator]`, `[ui.panel.refs]`, and `[ui.status]` now identify
   stable UI zones for bug reports, feedback, and future feature-module
