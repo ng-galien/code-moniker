@@ -1,11 +1,12 @@
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::state::{
-	ActiveFilter, ChangePanelMode, CheckState, HeaderSearchResults, PanelPolicy, View,
+	ActiveFilter, ChangePanelMode, CheckState, HeaderKindFilter, HeaderSearchResults, PanelPolicy,
+	View,
 };
 use crate::ui::clipboard::ClipboardResult;
 use crate::ui::contracts::Route;
-use crate::ui::events::Msg;
+use crate::ui::events::{HeaderSearchFocus, Msg};
 use crate::ui::live::StoreEvent;
 use crate::ui::runtime::{TaskId, TaskResult, WorkKind};
 use crate::workspace::UsageFocus;
@@ -41,8 +42,20 @@ pub(in crate::ui) enum ShellAction {
 		return_focus: bool,
 	},
 	SetHeaderSearchFilters {
-		lang: Option<Lang>,
-		kind: Option<String>,
+		langs: Vec<Lang>,
+		kind_filters: Vec<HeaderKindFilter>,
+	},
+	SetHeaderSearchOptions {
+		langs: Vec<Lang>,
+		kind_filters: Vec<HeaderKindFilter>,
+		available_langs: Vec<Lang>,
+		available_kind_filters: Vec<HeaderKindFilter>,
+		lang_cursor: usize,
+		kind_cursor: usize,
+	},
+	SetHeaderSearchCursor {
+		focus: HeaderSearchFocus,
+		cursor: usize,
 	},
 	ClearFilter {
 		return_focus: bool,

@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use code_moniker_core::core::shape::Shape;
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::action::ShellAction;
@@ -129,21 +130,29 @@ pub(in crate::ui) enum ActiveFilter {
 pub(in crate::ui) struct HeaderSearchState {
 	pub(in crate::ui) focus: HeaderSearchFocus,
 	pub(in crate::ui) text: String,
-	pub(in crate::ui) lang: Option<Lang>,
-	pub(in crate::ui) kind: Option<String>,
+	pub(in crate::ui) langs: Vec<Lang>,
+	pub(in crate::ui) kind_filters: Vec<HeaderKindFilter>,
+	pub(in crate::ui) available_langs: Vec<Lang>,
+	pub(in crate::ui) available_kind_filters: Vec<HeaderKindFilter>,
+	pub(in crate::ui) lang_cursor: usize,
+	pub(in crate::ui) kind_cursor: usize,
+	pub(in crate::ui) combo_open: bool,
 	pub(in crate::ui) generation: u64,
 	pub(in crate::ui) pending_generation: Option<u64>,
 }
 
 impl HeaderSearchState {
 	pub(in crate::ui) fn has_filter(&self) -> bool {
-		!self.text.trim().is_empty() || self.lang.is_some() || self.kind.is_some()
+		!self.text.trim().is_empty() || !self.langs.is_empty() || !self.kind_filters.is_empty()
 	}
 
 	fn reset(&mut self) {
 		self.text.clear();
-		self.lang = None;
-		self.kind = None;
+		self.langs.clear();
+		self.kind_filters.clear();
+		self.lang_cursor = 0;
+		self.kind_cursor = 0;
+		self.combo_open = false;
 	}
 
 	fn bump_pending(&mut self) -> u64 {
@@ -154,16 +163,40 @@ impl HeaderSearchState {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum HeaderKindFilter {
+	Kind(String),
+	Shape(Shape),
+}
+
+impl HeaderKindFilter {
+	pub(in crate::ui) fn label(&self) -> String {
+		match self {
+			Self::Kind(kind) => kind.clone(),
+			Self::Shape(shape) => format!("shape:{}", shape.as_str()),
+		}
+	}
+
+	pub(in crate::ui) fn matches_kind(&self, kind: &str) -> bool {
+		match self {
+			Self::Kind(filter) => filter == kind,
+			Self::Shape(shape) => {
+				code_moniker_core::core::shape::shape_of(kind.as_bytes()) == Some(*shape)
+			}
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct HeaderSearchResults {
 	pub(in crate::ui) text: String,
-	pub(in crate::ui) lang: Option<Lang>,
-	pub(in crate::ui) kind: Option<String>,
+	pub(in crate::ui) langs: Vec<Lang>,
+	pub(in crate::ui) kind_filters: Vec<HeaderKindFilter>,
 	pub(in crate::ui) matches: Vec<DefLocation>,
 }
 
 impl HeaderSearchResults {
 	pub(in crate::ui) fn label(&self) -> String {
-		header_search_label(&self.text, self.lang, self.kind.as_deref())
+		header_search_label(&self.text, &self.langs, &self.kind_filters)
 	}
 }
 
@@ -328,15 +361,27 @@ impl AppState {
 				results,
 				return_focus,
 			} => self.apply_header_search_action(results, *return_focus),
-			ShellAction::SetHeaderSearchFilters { lang, kind } => {
-				let mut generation = self.shell.header_search.generation;
-				self.update_shell(|shell| {
-					shell.header_search.lang = *lang;
-					shell.header_search.kind = kind.clone();
-					generation = shell.header_search.bump_pending();
-				});
-				Transition::changed("shell.set_header_search_filters")
-					.with_effect(Effect::DebounceHeaderSearch(generation))
+			ShellAction::SetHeaderSearchFilters {
+				langs,
+				kind_filters,
+			} => self.set_header_search_filters_action(langs, kind_filters),
+			ShellAction::SetHeaderSearchOptions {
+				langs,
+				kind_filters,
+				available_langs,
+				available_kind_filters,
+				lang_cursor,
+				kind_cursor,
+			} => self.set_header_search_options_action(
+				langs,
+				kind_filters,
+				available_langs,
+				available_kind_filters,
+				*lang_cursor,
+				*kind_cursor,
+			),
+			ShellAction::SetHeaderSearchCursor { focus, cursor } => {
+				self.set_header_search_cursor_action(*focus, *cursor)
 			}
 			ShellAction::ClearFilter { return_focus } => {
 				self.update_shell(|shell| {
@@ -400,7 +445,10 @@ impl AppState {
 					UiMode::Normal => UiMode::HeaderSearch(self.shell.header_search.focus),
 					UiMode::HeaderSearch(_) => UiMode::Normal,
 				};
-				self.update_shell(|shell| shell.mode = next);
+				self.update_shell(|shell| {
+					shell.mode = next;
+					shell.header_search.combo_open = false;
+				});
 				self.shell.status = match next {
 					UiMode::Normal => "search focus returned to navigator".to_string(),
 					UiMode::HeaderSearch(HeaderSearchFocus::Text) => {
@@ -422,6 +470,7 @@ impl AppState {
 				};
 				self.update_shell(|shell| {
 					shell.header_search.focus = focus;
+					shell.header_search.combo_open = false;
 					shell.mode = UiMode::HeaderSearch(focus);
 				});
 				self.shell.status = match focus {
@@ -444,6 +493,9 @@ impl AppState {
 			Msg::HeaderSearchSelectPrevious => {
 				run_command(AppCommand::CycleHeaderSearchSelector { direction: -1 })
 			}
+			Msg::HeaderSearchToggleSelection => {
+				run_command(AppCommand::ToggleHeaderSearchSelection)
+			}
 			Msg::HeaderSearchReset => {
 				let return_focus = matches!(self.shell.mode, UiMode::Normal);
 				self.reset_header_search();
@@ -455,10 +507,27 @@ impl AppState {
 					},
 				))
 			}
-			Msg::HeaderSearchApply => run_command(AppCommand::ApplyHeaderSearch {
-				generation: None,
-				return_focus: true,
-			}),
+			Msg::HeaderSearchApply => match self.shell.mode {
+				UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal => {
+					run_command(AppCommand::ApplyHeaderSearch {
+						generation: None,
+						return_focus: true,
+					})
+				}
+				UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind)
+					if self.shell.header_search.combo_open =>
+				{
+					self.update_shell(|shell| shell.header_search.combo_open = false);
+					run_command(AppCommand::ApplyHeaderSearch {
+						generation: None,
+						return_focus: false,
+					})
+				}
+				UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind) => {
+					self.update_shell(|shell| shell.header_search.combo_open = true);
+					Transition::changed("ui.header_search_open_combo")
+				}
+			},
 			Msg::Help => {
 				self.set_status(
 					"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, d changes, u usages, y copy panel, 1-5 panels, c check, q quit",
@@ -625,16 +694,65 @@ impl AppState {
 		self.update_shell(|shell| {
 			if return_focus {
 				shell.mode = UiMode::Normal;
+				shell.header_search.combo_open = false;
 			}
 			shell.active_filter = ActiveFilter::HeaderSearch(results.clone());
 			shell.view_mode = VisualizationMode::Search;
 			shell.panel_policy = PanelPolicy::Contextual;
 			shell.header_search.text = results.text.clone();
-			shell.header_search.lang = results.lang;
-			shell.header_search.kind = results.kind.clone();
+			shell.header_search.langs = results.langs.clone();
+			shell.header_search.kind_filters = results.kind_filters.clone();
 			shell.header_search.pending_generation = None;
 		});
 		Transition::changed("shell.apply_header_search")
+	}
+
+	fn set_header_search_filters_action(
+		&mut self,
+		langs: &[Lang],
+		kind_filters: &[HeaderKindFilter],
+	) -> Transition {
+		let mut generation = self.shell.header_search.generation;
+		self.update_shell(|shell| {
+			shell.header_search.langs = langs.to_vec();
+			shell.header_search.kind_filters = kind_filters.to_vec();
+			generation = shell.header_search.bump_pending();
+		});
+		Transition::changed("shell.set_header_search_filters")
+			.with_effect(Effect::DebounceHeaderSearch(generation))
+	}
+
+	fn set_header_search_options_action(
+		&mut self,
+		langs: &[Lang],
+		kind_filters: &[HeaderKindFilter],
+		available_langs: &[Lang],
+		available_kind_filters: &[HeaderKindFilter],
+		lang_cursor: usize,
+		kind_cursor: usize,
+	) -> Transition {
+		self.update_shell(|shell| {
+			shell.header_search.langs = langs.to_vec();
+			shell.header_search.kind_filters = kind_filters.to_vec();
+			shell.header_search.available_langs = available_langs.to_vec();
+			shell.header_search.available_kind_filters = available_kind_filters.to_vec();
+			shell.header_search.lang_cursor = lang_cursor;
+			shell.header_search.kind_cursor = kind_cursor;
+		});
+		Transition::changed("shell.set_header_search_options")
+	}
+
+	fn set_header_search_cursor_action(
+		&mut self,
+		focus: HeaderSearchFocus,
+		cursor: usize,
+	) -> Transition {
+		self.update_shell(|shell| match focus {
+			HeaderSearchFocus::Text => {}
+			HeaderSearchFocus::Lang => shell.header_search.lang_cursor = cursor,
+			HeaderSearchFocus::Kind => shell.header_search.kind_cursor = cursor,
+		});
+		Transition::changed("shell.set_header_search_cursor")
 	}
 
 	fn edit_header_search_input(&mut self, edit: FilterEdit) -> u64 {
@@ -675,16 +793,30 @@ fn display_filter_text(filter: &str) -> &str {
 	if filter.is_empty() { "<empty>" } else { filter }
 }
 
-fn header_search_label(text: &str, lang: Option<Lang>, kind: Option<&str>) -> String {
+fn header_search_label(text: &str, langs: &[Lang], kind_filters: &[HeaderKindFilter]) -> String {
 	let mut parts = Vec::new();
 	if !text.trim().is_empty() {
 		parts.push(format!("search:{}", text.trim()));
 	}
-	if let Some(lang) = lang {
-		parts.push(format!("lang:{}", lang.tag()));
+	if !langs.is_empty() {
+		parts.push(format!(
+			"lang:{}",
+			langs
+				.iter()
+				.map(|lang| lang.tag())
+				.collect::<Vec<_>>()
+				.join(",")
+		));
 	}
-	if let Some(kind) = kind {
-		parts.push(format!("kind:{kind}"));
+	if !kind_filters.is_empty() {
+		parts.push(format!(
+			"kind:{}",
+			kind_filters
+				.iter()
+				.map(HeaderKindFilter::label)
+				.collect::<Vec<_>>()
+				.join(",")
+		));
 	}
 	if parts.is_empty() {
 		"<all>".to_string()

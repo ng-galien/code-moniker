@@ -35,6 +35,7 @@ pub(super) enum Msg {
 	HeaderSearchInput(FilterEdit),
 	HeaderSearchSelectNext,
 	HeaderSearchSelectPrevious,
+	HeaderSearchToggleSelection,
 	HeaderSearchApply,
 	HeaderSearchReset,
 	FocusUsages,
@@ -84,6 +85,7 @@ pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
 		UiMode::HeaderSearch(_) => match key.code {
 			KeyCode::Esc | KeyCode::Char('s') => Msg::ToggleHeaderSearch,
 			KeyCode::Enter => Msg::HeaderSearchApply,
+			KeyCode::Char(' ') => Msg::HeaderSearchToggleSelection,
 			KeyCode::Tab => Msg::HeaderSearchNextField,
 			KeyCode::Char('x') => Msg::HeaderSearchReset,
 			KeyCode::Down | KeyCode::Right | KeyCode::Char('j') => Msg::HeaderSearchSelectNext,

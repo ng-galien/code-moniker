@@ -3,12 +3,12 @@ use std::collections::BTreeSet;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 
 use crate::workspace::{ChangeStatus, DefLocation, IndexStore};
 
 use super::app::VisualizationMode;
-use super::component::{ComponentId, block_title, marker};
+use super::component::{ComponentId, block_title, marker, raw_marker};
 use super::contracts::{RenderContext, Screen};
 use super::events::{HeaderSearchFocus, UiMode};
 use super::features::explorer::ExplorerFeature;
@@ -18,7 +18,11 @@ use super::panel;
 use super::panels;
 use super::text::{FitMode, fit_text, visible_len};
 use super::theme::THEME;
-use super::{App, DEFAULT_PANEL_SNAPSHOT_WIDTH, display_filter};
+use super::{
+	App, DEFAULT_PANEL_SNAPSHOT_WIDTH, display_filter, kind_filter_summary, lang_filter_summary,
+};
+
+const SEARCH_WIDGET_HEIGHT: u16 = 5;
 
 pub(super) fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
 	let route = app.route().clone();
@@ -34,7 +38,7 @@ pub(in crate::ui) fn render_shell(frame: &mut ratatui::Frame<'_>, area: Rect, ap
 		.direction(Direction::Vertical)
 		.constraints([
 			Constraint::Length(1),
-			Constraint::Length(1),
+			Constraint::Length(SEARCH_WIDGET_HEIGHT),
 			Constraint::Min(0),
 			Constraint::Length(1),
 		])
@@ -43,6 +47,7 @@ pub(in crate::ui) fn render_shell(frame: &mut ratatui::Frame<'_>, area: Rect, ap
 	render_search_bar(frame, rows[1], app);
 	render_body(frame, rows[2], app);
 	render_footer(frame, rows[3], app);
+	render_search_popup(frame, rows[1], app);
 }
 
 fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
@@ -86,21 +91,39 @@ pub(super) fn header_line(app: &App, width: usize) -> Line<'static> {
 }
 
 fn render_search_bar(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	frame.render_widget(
-		Paragraph::new(search_line(app, usize::from(area.width))),
-		area,
+	let block = Block::default()
+		.title(block_title(" search ", ComponentId::SearchInput))
+		.borders(Borders::ALL)
+		.style(Style::default().bg(THEME.search.background));
+	let inner = block.inner(area);
+	frame.render_widget(block, area);
+	let regions = search_regions(app, inner);
+	render_search_query(frame, regions.query, app);
+	render_search_combo(
+		frame,
+		regions.lang,
+		"lang",
+		search_lang_summary(app),
+		app,
+		HeaderSearchFocus::Lang,
+	);
+	render_search_combo(
+		frame,
+		regions.kind,
+		"kind",
+		search_kind_summary(app),
+		app,
+		HeaderSearchFocus::Kind,
 	);
 }
 
+#[cfg(test)]
 pub(super) fn search_line(app: &App, width: usize) -> Line<'static> {
 	let search = app.header_search();
 	let raw_search_value = display_filter(search.text.trim()).to_string();
-	let raw_lang_value = search
-		.lang
-		.map_or("all".to_string(), |lang| lang.tag().to_string());
-	let raw_kind_value = search.kind.as_deref().unwrap_or("all").to_string();
-	let fixed_width = visible_len(ComponentId::SearchInput.as_str())
-		+ 2 + visible_len(" search [] lang [] kind [] ");
+	let raw_lang_value = search_lang_summary(app);
+	let raw_kind_value = search_kind_summary(app);
+	let fixed_width = visible_len("query [] filters lang [] kind []");
 	let [search_width, lang_width, kind_width] = fit_search_value_widths(
 		width.saturating_sub(fixed_width),
 		[
@@ -112,28 +135,269 @@ pub(super) fn search_line(app: &App, width: usize) -> Line<'static> {
 	let search_value = fit_text(&raw_search_value, search_width, FitMode::Middle);
 	let lang_value = fit_text(&raw_lang_value, lang_width, FitMode::Middle);
 	let kind_value = fit_text(&raw_kind_value, kind_width, FitMode::Middle);
-	let mut spans = vec![marker(ComponentId::SearchInput), Span::raw(" ")];
-	spans.extend(search_field(
-		"search",
-		search_value,
-		HeaderSearchFocus::Text,
-		app.mode(),
-	));
-	spans.extend(search_field(
-		"lang",
-		lang_value,
-		HeaderSearchFocus::Lang,
-		app.mode(),
-	));
-	spans.extend(search_field(
-		"kind",
-		kind_value,
-		HeaderSearchFocus::Kind,
-		app.mode(),
-	));
-	Line::from(spans)
+	Line::from(vec![
+		Span::raw("query ["),
+		Span::raw(search_value),
+		Span::raw("] filters "),
+		Span::raw("lang ["),
+		Span::raw(lang_value),
+		Span::raw("] "),
+		Span::raw("kind ["),
+		Span::raw(kind_value),
+		Span::raw("]"),
+	])
 }
 
+#[derive(Copy, Clone, Debug)]
+struct SearchRegions {
+	query: Rect,
+	lang: Rect,
+	kind: Rect,
+}
+
+fn search_regions(app: &App, area: Rect) -> SearchRegions {
+	let lang_width = combo_width("lang", &search_lang_summary(app), 16, 30);
+	let kind_width = combo_width("kind", &search_kind_summary(app), 18, 38);
+	let max_selector_width = area.width.saturating_sub(18);
+	let selector_width = (lang_width + kind_width).min(max_selector_width);
+	let lang_width = lang_width.min(selector_width / 2).max(10);
+	let kind_width = selector_width.saturating_sub(lang_width).max(10);
+	let chunks = Layout::default()
+		.direction(Direction::Horizontal)
+		.constraints([
+			Constraint::Min(12),
+			Constraint::Length(lang_width),
+			Constraint::Length(kind_width),
+		])
+		.split(area);
+	SearchRegions {
+		query: chunks[0],
+		lang: chunks[1],
+		kind: chunks[2],
+	}
+}
+
+fn combo_width(label: &str, value: &str, min: u16, max: u16) -> u16 {
+	let requested = visible_len(label) + visible_len(value) + 8;
+	requested.clamp(usize::from(min), usize::from(max)) as u16
+}
+
+fn render_search_query(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	let focused = matches!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
+	let block = search_query_block(focused);
+	let inner = block.inner(area);
+	frame.render_widget(block, area);
+	frame.render_widget(Paragraph::new(search_query_line(app, inner.width)), inner);
+}
+
+fn render_search_combo(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	label: &'static str,
+	value: String,
+	app: &App,
+	focus: HeaderSearchFocus,
+) {
+	let focused = matches!(app.mode(), UiMode::HeaderSearch(active) if active == focus);
+	let block = search_block(label, focused);
+	let inner = block.inner(area);
+	frame.render_widget(block, area);
+	let fitted = fit_text(
+		&format!("{value} ▾"),
+		usize::from(inner.width),
+		FitMode::Middle,
+	);
+	frame.render_widget(
+		Paragraph::new(Line::from(Span::styled(
+			fitted,
+			search_value_style(focused),
+		))),
+		inner,
+	);
+}
+
+fn search_block(label: &'static str, focused: bool) -> Block<'static> {
+	search_block_with_title(
+		Line::from(Span::styled(
+			format!(" {label} "),
+			Style::default().fg(THEME.search.label),
+		)),
+		focused,
+	)
+}
+
+fn search_query_block(focused: bool) -> Block<'static> {
+	search_block_with_title(
+		Line::from(vec![
+			Span::styled(" query ", Style::default().fg(THEME.search.label)),
+			raw_marker("ui.search.input#query"),
+		]),
+		focused,
+	)
+}
+
+fn search_block_with_title(title: Line<'static>, focused: bool) -> Block<'static> {
+	let border = if focused {
+		THEME.search.active
+	} else {
+		THEME.search.muted
+	};
+	let bg = if focused {
+		THEME.search.focus_bg
+	} else {
+		THEME.search.background
+	};
+	Block::default()
+		.title(title)
+		.borders(Borders::ALL)
+		.border_style(Style::default().fg(border).bg(bg))
+		.style(Style::default().bg(bg))
+}
+
+fn search_query_line(app: &App, width: u16) -> Line<'static> {
+	let focused = matches!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
+	let raw = app.header_search().text.as_str();
+	let width = usize::from(width);
+	if focused {
+		let value_width = width.saturating_sub(1);
+		let value = fit_text(raw, value_width, FitMode::Tail);
+		return Line::from(vec![
+			Span::styled(value, search_value_style(true)),
+			Span::styled(
+				"|",
+				Style::default()
+					.fg(THEME.search.active)
+					.bg(THEME.search.focus_bg)
+					.add_modifier(Modifier::BOLD),
+			),
+		]);
+	}
+	let value = display_filter(raw.trim());
+	let fitted = fit_text(value, width, FitMode::Middle);
+	Line::from(Span::styled(fitted, search_value_style(false)))
+}
+
+fn search_value_style(focused: bool) -> Style {
+	if focused {
+		Style::default()
+			.fg(THEME.search.active)
+			.bg(THEME.search.focus_bg)
+			.add_modifier(Modifier::BOLD)
+	} else {
+		Style::default()
+			.fg(THEME.search.value)
+			.bg(THEME.search.background)
+	}
+}
+
+fn render_search_popup(frame: &mut ratatui::Frame<'_>, search_area: Rect, app: &App) {
+	if !app.header_search().combo_open {
+		return;
+	}
+	let Some((anchor, title, items, cursor)) = search_popup_model(search_area, app) else {
+		return;
+	};
+	if items.is_empty() {
+		return;
+	}
+	let frame_area = frame.area();
+	let popup_y = search_area.y.saturating_add(search_area.height);
+	if popup_y >= frame_area.height {
+		return;
+	}
+	let width = anchor
+		.width
+		.max(28)
+		.min(frame_area.width.saturating_sub(anchor.x));
+	let wanted_height = (items.len() as u16).saturating_add(2).min(8);
+	let height = wanted_height.min(frame_area.height.saturating_sub(popup_y));
+	let popup = Rect::new(anchor.x, popup_y, width, height);
+	let list_items = items
+		.into_iter()
+		.enumerate()
+		.map(|(idx, item)| {
+			let style = if idx == cursor {
+				Style::default()
+					.fg(THEME.search.active)
+					.bg(THEME.search.focus_bg)
+					.add_modifier(Modifier::BOLD)
+			} else {
+				Style::default()
+					.fg(THEME.search.value)
+					.bg(THEME.search.background)
+			};
+			ListItem::new(Line::from(Span::styled(item, style))).style(style)
+		})
+		.collect::<Vec<_>>();
+	let list = List::new(list_items).block(
+		Block::default()
+			.title(Span::styled(
+				format!(" {title} "),
+				Style::default().fg(THEME.search.label),
+			))
+			.borders(Borders::ALL)
+			.border_style(Style::default().fg(THEME.search.active))
+			.style(Style::default().bg(THEME.search.background)),
+	);
+	frame.render_widget(Clear, popup);
+	frame.render_widget(list, popup);
+}
+
+fn search_popup_model(
+	search_area: Rect,
+	app: &App,
+) -> Option<(Rect, &'static str, Vec<String>, usize)> {
+	let inner = Block::default().borders(Borders::ALL).inner(search_area);
+	let regions = search_regions(app, inner);
+	let search = app.header_search();
+	match app.mode() {
+		UiMode::HeaderSearch(HeaderSearchFocus::Lang) => {
+			let options = app.available_header_langs();
+			let mut items = vec![if search.langs.is_empty() {
+				"[x] all languages".to_string()
+			} else {
+				"clear language filter".to_string()
+			}];
+			for lang in &options {
+				let mark = if search.langs.contains(lang) {
+					"[x]"
+				} else {
+					"[ ]"
+				};
+				items.push(format!("{mark} {}", lang.tag()));
+			}
+			Some((regions.lang, "lang selector", items, search.lang_cursor))
+		}
+		UiMode::HeaderSearch(HeaderSearchFocus::Kind) => {
+			let options = app.available_header_kind_filters();
+			let mut items = vec![if search.kind_filters.is_empty() {
+				"[x] all kinds".to_string()
+			} else {
+				"clear kind filter".to_string()
+			}];
+			for option in &options {
+				let mark = if search.kind_filters.contains(option) {
+					"[x]"
+				} else {
+					"[ ]"
+				};
+				items.push(format!("{mark} {}", option.label()));
+			}
+			Some((regions.kind, "kind selector", items, search.kind_cursor))
+		}
+		_ => None,
+	}
+}
+
+fn search_lang_summary(app: &App) -> String {
+	lang_filter_summary(&app.header_search().langs)
+}
+
+fn search_kind_summary(app: &App) -> String {
+	kind_filter_summary(&app.header_search().kind_filters)
+}
+
+#[cfg(test)]
 fn fit_search_value_widths(available: usize, requested: [usize; 3]) -> [usize; 3] {
 	if requested.iter().sum::<usize>() <= available {
 		return requested;
@@ -157,28 +421,6 @@ fn fit_search_value_widths(available: usize, requested: [usize; 3]) -> [usize; 3
 		}
 	}
 	widths
-}
-
-fn search_field<'a>(
-	label: &'static str,
-	value: String,
-	focus: HeaderSearchFocus,
-	current: UiMode,
-) -> Vec<Span<'a>> {
-	let is_current = matches!(current, UiMode::HeaderSearch(active) if active == focus);
-	let value_style = if is_current {
-		Style::default()
-			.fg(THEME.nav.symbol)
-			.add_modifier(Modifier::BOLD)
-	} else {
-		Style::default().fg(THEME.nav.symbol)
-	};
-	vec![
-		Span::styled(format!("{label} "), Style::default().fg(THEME.panel.label)),
-		Span::styled("[", Style::default().fg(THEME.panel.muted)),
-		Span::styled(value, value_style),
-		Span::styled("] ", Style::default().fg(THEME.panel.muted)),
-	]
 }
 
 fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
@@ -465,7 +707,7 @@ pub(super) fn current_panel_snapshot_width() -> usize {
 				.direction(Direction::Vertical)
 				.constraints([
 					Constraint::Length(1),
-					Constraint::Length(1),
+					Constraint::Length(SEARCH_WIDGET_HEIGHT),
 					Constraint::Min(0),
 					Constraint::Length(1),
 				])

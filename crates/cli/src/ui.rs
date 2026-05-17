@@ -5,6 +5,7 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
+use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use crossterm::execute;
@@ -47,8 +48,8 @@ mod view;
 
 use app::{
 	ActiveFilter, AppAction, AppCommand, AppStore, ChangePanelMode, CheckState, Effect,
-	HeaderSearchResults, HeaderSearchState, PanelPolicy, ShellAction, TaskCompletion, View,
-	VisualizationMode,
+	HeaderKindFilter, HeaderSearchResults, HeaderSearchState, PanelPolicy, ShellAction,
+	TaskCompletion, View, VisualizationMode,
 };
 #[cfg(test)]
 use component::{ComponentId, block_title};
@@ -221,6 +222,7 @@ impl App {
 			startup_load_pending: false,
 			watch_roots_update: None,
 		};
+		app.refresh_header_search_options();
 		app.dispatch_shell(ShellAction::SetRoute(route));
 		app.set_status(format!(
 			"Enter opens nodes, Esc/left closes, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
@@ -257,7 +259,14 @@ impl App {
 	}
 
 	fn dispatch_shell(&mut self, action: ShellAction) {
+		let refresh_search_options = matches!(
+			action,
+			ShellAction::SetHeaderSearchFilters { .. } | ShellAction::ClearFilter { .. }
+		);
 		self.dispatch_and_apply(&AppAction::Shell(action));
+		if refresh_search_options {
+			self.refresh_header_search_options();
+		}
 	}
 
 	fn route(&self) -> &Route {
@@ -389,7 +398,7 @@ impl App {
 	fn filter_label(&self) -> String {
 		if matches!(self.mode(), UiMode::HeaderSearch(_)) {
 			let header = self.header_search();
-			return header_search_label(&header.text, header.lang, header.kind.as_deref());
+			return header_search_label(&header.text, &header.langs, &header.kind_filters);
 		}
 		self.active_filter().label()
 	}
@@ -465,7 +474,7 @@ impl App {
 			}
 			return;
 		}
-		let results = self.header_search_results(&header.text, header.lang, header.kind.as_deref());
+		let results = self.header_search_results(&header.text, &header.langs, &header.kind_filters);
 		let match_count = results.matches.len();
 		let first_match = results.matches.first().copied();
 		self.dispatch_shell(ShellAction::ApplyHeaderSearch {
@@ -497,15 +506,16 @@ impl App {
 	fn header_search_results(
 		&self,
 		text: &str,
-		lang: Option<Lang>,
-		kind: Option<&str>,
+		langs: &[Lang],
+		kind_filters: &[HeaderKindFilter],
 	) -> HeaderSearchResults {
 		let raw = text.trim().to_string();
+		let (kind_names, shapes) = split_kind_filters(kind_filters);
 		let mut matches = if raw.is_empty() {
 			self.store().all_navigable_defs()
 		} else {
 			self.store()
-				.search_symbols_filtered(&raw, 500, lang, kind)
+				.search_symbols_filtered(&raw, 500, langs, &kind_names, &shapes)
 				.into_iter()
 				.map(|hit| hit.loc)
 				.collect()
@@ -513,13 +523,13 @@ impl App {
 		matches.retain(|loc| {
 			let symbol = self.store().symbol_summary(loc);
 			self.store().is_navigable_symbol(loc)
-				&& lang.is_none_or(|lang| symbol.lang == lang)
-				&& kind.is_none_or(|kind| symbol.kind == kind)
+				&& lang_filter_matches(langs, symbol.lang)
+				&& kind_filter_matches(kind_filters, &symbol.kind)
 		});
 		HeaderSearchResults {
 			text: raw,
-			lang,
-			kind: kind.map(str::to_string),
+			langs: langs.to_vec(),
+			kind_filters: kind_filters.to_vec(),
 			matches,
 		}
 	}
@@ -536,45 +546,132 @@ impl App {
 				));
 			}
 			HeaderSearchFocus::Lang => {
-				let next_lang = cycle_optional(
-					self.header_search().lang,
-					self.available_header_langs(),
+				if !self.header_search().combo_open {
+					self.set_status("press Enter to open the selector, Space toggles an option");
+					return;
+				}
+				let options = self.available_header_langs();
+				let cursor = cycle_index(
+					self.header_search().lang_cursor,
+					options.len() + 1,
 					direction,
 				);
-				let next_kind = self
-					.header_search()
-					.kind
-					.as_deref()
-					.filter(|kind| self.kind_is_available(next_lang, kind))
-					.map(str::to_string);
-				self.dispatch_shell(ShellAction::SetHeaderSearchFilters {
-					lang: next_lang,
-					kind: next_kind,
+				self.dispatch_shell(ShellAction::SetHeaderSearchCursor {
+					focus: HeaderSearchFocus::Lang,
+					cursor,
 				});
 				self.set_status(format!(
-					"language filter: {}",
-					next_lang.map_or("all", Lang::tag)
+					"language option: {}",
+					lang_selector_option_label(&self.header_search().langs, &options, cursor)
 				));
 			}
 			HeaderSearchFocus::Kind => {
-				let next_kind = cycle_optional(
-					self.header_search().kind.clone(),
-					self.available_header_kinds(self.header_search().lang),
+				let options = self.available_header_kind_filters();
+				let cursor = cycle_index(
+					self.header_search().kind_cursor,
+					options.len() + 1,
 					direction,
 				);
-				self.dispatch_shell(ShellAction::SetHeaderSearchFilters {
-					lang: self.header_search().lang,
-					kind: next_kind.clone(),
+				self.dispatch_shell(ShellAction::SetHeaderSearchCursor {
+					focus: HeaderSearchFocus::Kind,
+					cursor,
 				});
 				self.set_status(format!(
-					"kind filter: {}",
-					next_kind.as_deref().unwrap_or("all")
+					"kind option: {}",
+					kind_selector_option_label(
+						&self.header_search().kind_filters,
+						&options,
+						cursor
+					)
 				));
 			}
 		}
 	}
 
+	fn toggle_header_search_selection(&mut self) {
+		let focus = match self.mode() {
+			UiMode::HeaderSearch(focus) => focus,
+			UiMode::Normal => HeaderSearchFocus::Text,
+		};
+		match focus {
+			HeaderSearchFocus::Text => {
+				self.apply_header_search(None, true);
+			}
+			HeaderSearchFocus::Lang => {
+				if !self.header_search().combo_open {
+					self.set_status("press Enter to open the selector, Space toggles an option");
+					return;
+				}
+				let options = self.available_header_langs();
+				let cursor = self.header_search().lang_cursor.min(options.len());
+				let mut langs = self.header_search().langs.clone();
+				if cursor == 0 {
+					langs.clear();
+				} else {
+					toggle_value(&mut langs, options[cursor - 1]);
+				}
+				self.dispatch_shell(ShellAction::SetHeaderSearchFilters {
+					langs: langs.clone(),
+					kind_filters: self.header_search().kind_filters.clone(),
+				});
+				self.set_status(format!("language filter: {}", lang_filter_summary(&langs)));
+			}
+			HeaderSearchFocus::Kind => {
+				if !self.header_search().combo_open {
+					self.set_status("press Enter to open the selector, Space toggles an option");
+					return;
+				}
+				let options = self.available_header_kind_filters();
+				let cursor = self.header_search().kind_cursor.min(options.len());
+				let mut filters = self.header_search().kind_filters.clone();
+				if cursor == 0 {
+					filters.clear();
+				} else {
+					toggle_value(&mut filters, options[cursor - 1].clone());
+				}
+				self.dispatch_shell(ShellAction::SetHeaderSearchFilters {
+					langs: self.header_search().langs.clone(),
+					kind_filters: filters.clone(),
+				});
+				self.set_status(format!("kind filter: {}", kind_filter_summary(&filters)));
+			}
+		}
+	}
+
 	fn available_header_langs(&self) -> Vec<Lang> {
+		self.header_search().available_langs.clone()
+	}
+
+	fn available_header_kind_filters(&self) -> Vec<HeaderKindFilter> {
+		self.header_search().available_kind_filters.clone()
+	}
+
+	fn refresh_header_search_options(&mut self) {
+		let available_langs = self.compute_header_lang_options();
+		let langs =
+			self.normalize_header_langs(self.header_search().langs.clone(), &available_langs);
+		let available_kind_filters = self.compute_header_kind_filter_options(&langs);
+		let kind_filters = self.normalize_header_kind_filters(
+			self.header_search().kind_filters.clone(),
+			&langs,
+			&available_kind_filters,
+		);
+		let lang_cursor = self.header_search().lang_cursor.min(available_langs.len());
+		let kind_cursor = self
+			.header_search()
+			.kind_cursor
+			.min(available_kind_filters.len());
+		self.dispatch_and_apply(&AppAction::Shell(ShellAction::SetHeaderSearchOptions {
+			langs,
+			kind_filters,
+			available_langs,
+			available_kind_filters,
+			lang_cursor,
+			kind_cursor,
+		}));
+	}
+
+	fn compute_header_lang_options(&self) -> Vec<Lang> {
 		Lang::ALL
 			.iter()
 			.copied()
@@ -582,21 +679,97 @@ impl App {
 			.collect()
 	}
 
-	fn available_header_kinds(&self, lang: Option<Lang>) -> Vec<String> {
+	fn compute_header_kind_filter_options(&self, langs: &[Lang]) -> Vec<HeaderKindFilter> {
+		if langs.len() == 1 {
+			return self
+				.available_header_kinds_for_lang(langs[0])
+				.into_iter()
+				.map(HeaderKindFilter::Kind)
+				.collect();
+		}
+		self.available_header_shapes(langs)
+			.into_iter()
+			.map(HeaderKindFilter::Shape)
+			.collect()
+	}
+
+	fn available_header_kinds_for_lang(&self, lang: Lang) -> Vec<String> {
 		let mut kinds = BTreeSet::new();
 		for loc in self.store().all_navigable_defs() {
 			let symbol = self.store().symbol_summary(&loc);
-			if lang.is_none_or(|lang| symbol.lang == lang) {
+			if symbol.lang == lang {
 				kinds.insert(symbol.kind);
 			}
 		}
 		kinds.into_iter().collect()
 	}
 
-	fn kind_is_available(&self, lang: Option<Lang>, kind: &str) -> bool {
-		self.available_header_kinds(lang)
+	fn available_header_shapes(&self, langs: &[Lang]) -> Vec<Shape> {
+		let mut shapes = Vec::new();
+		for loc in self.store().all_navigable_defs() {
+			let symbol = self.store().symbol_summary(&loc);
+			if lang_filter_matches(langs, symbol.lang)
+				&& let Some(shape) = shape_of(symbol.kind.as_bytes())
+				&& !shapes.contains(&shape)
+			{
+				shapes.push(shape);
+			}
+		}
+		Shape::ALL
 			.iter()
-			.any(|available| available == kind)
+			.copied()
+			.filter(|shape| shapes.contains(shape))
+			.collect()
+	}
+
+	fn normalize_header_langs(&self, langs: Vec<Lang>, available: &[Lang]) -> Vec<Lang> {
+		Lang::ALL
+			.iter()
+			.copied()
+			.filter(|lang| available.contains(lang) && langs.contains(lang))
+			.collect()
+	}
+
+	fn normalize_header_kind_filters(
+		&self,
+		filters: Vec<HeaderKindFilter>,
+		langs: &[Lang],
+		available: &[HeaderKindFilter],
+	) -> Vec<HeaderKindFilter> {
+		let mut normalized = Vec::new();
+		if langs.len() == 1 {
+			for filter in filters {
+				match filter {
+					HeaderKindFilter::Kind(kind) => {
+						push_unique(&mut normalized, HeaderKindFilter::Kind(kind));
+					}
+					HeaderKindFilter::Shape(shape) => {
+						let before = normalized.len();
+						for option in available {
+							if let HeaderKindFilter::Kind(kind) = option
+								&& shape_of(kind.as_bytes()) == Some(shape)
+							{
+								push_unique(&mut normalized, HeaderKindFilter::Kind(kind.clone()));
+							}
+						}
+						if normalized.len() == before {
+							push_unique(&mut normalized, HeaderKindFilter::Shape(shape));
+						}
+					}
+				}
+			}
+		} else {
+			for filter in filters {
+				let shape = match filter {
+					HeaderKindFilter::Kind(kind) => shape_of(kind.as_bytes()),
+					HeaderKindFilter::Shape(shape) => Some(shape),
+				};
+				if let Some(shape) = shape {
+					push_unique(&mut normalized, HeaderKindFilter::Shape(shape));
+				}
+			}
+		}
+		normalized
 	}
 
 	fn clear_filter(&mut self) {
@@ -692,6 +865,7 @@ impl App {
 
 	fn apply_file_catalog_store(&mut self, status: String) {
 		self.watch_roots_update = Some(self.store().watch_roots());
+		self.refresh_header_search_options();
 		self.dispatch_navigation(NavigationAction::ReplaceModels {
 			explorer: build_navigator(self.store()),
 			change: build_change_navigator(self.store()),
@@ -703,6 +877,7 @@ impl App {
 
 	fn apply_reloaded_store(&mut self, status: String) {
 		self.watch_roots_update = Some(self.store().watch_roots());
+		self.refresh_header_search_options();
 		let reset =
 			matches!(self.active_filter(), ActiveFilter::Change) && self.nav_rows().is_empty();
 		self.refresh_active_filter_after_store_reload();
@@ -737,7 +912,7 @@ impl App {
 	fn refresh_active_filter_after_store_reload(&mut self) {
 		let active_filter = match self.active_filter() {
 			ActiveFilter::HeaderSearch(results) => ActiveFilter::HeaderSearch(
-				self.header_search_results(&results.text, results.lang, results.kind.as_deref()),
+				self.header_search_results(&results.text, &results.langs, &results.kind_filters),
 			),
 			ActiveFilter::Usages(focus) => ActiveFilter::Usages(
 				self.store()
@@ -978,6 +1153,7 @@ impl App {
 			AppCommand::CycleHeaderSearchSelector { direction } => {
 				self.cycle_header_search_selector(direction)
 			}
+			AppCommand::ToggleHeaderSearchSelection => self.toggle_header_search_selection(),
 			AppCommand::FocusUsages => self.focus_usages_of_selected(),
 			AppCommand::ToggleChangeMode => self.toggle_change_mode(),
 			AppCommand::CopyPanelSnapshot => self.copy_panel_snapshot(),
@@ -1041,19 +1217,19 @@ impl App {
 }
 
 fn display_filter(filter: &str) -> &str {
-	if filter.is_empty() { "<all>" } else { filter }
+	if filter.is_empty() { "all" } else { filter }
 }
 
-fn header_search_label(text: &str, lang: Option<Lang>, kind: Option<&str>) -> String {
+fn header_search_label(text: &str, langs: &[Lang], kind_filters: &[HeaderKindFilter]) -> String {
 	let mut parts = Vec::new();
 	if !text.trim().is_empty() {
 		parts.push(format!("search:{}", text.trim()));
 	}
-	if let Some(lang) = lang {
-		parts.push(format!("lang:{}", lang.tag()));
+	if !langs.is_empty() {
+		parts.push(format!("lang:{}", lang_filter_summary(langs)));
 	}
-	if let Some(kind) = kind {
-		parts.push(format!("kind:{kind}"));
+	if !kind_filters.is_empty() {
+		parts.push(format!("kind:{}", kind_filter_summary(kind_filters)));
 	}
 	if parts.is_empty() {
 		"<all>".to_string()
@@ -1062,24 +1238,104 @@ fn header_search_label(text: &str, lang: Option<Lang>, kind: Option<&str>) -> St
 	}
 }
 
-fn cycle_optional<T: Clone + Eq>(current: Option<T>, options: Vec<T>, direction: i8) -> Option<T> {
-	let len = options.len() + 1;
-	if len == 1 {
-		return None;
+fn split_kind_filters(filters: &[HeaderKindFilter]) -> (Vec<String>, Vec<Shape>) {
+	let mut kinds = Vec::new();
+	let mut shapes = Vec::new();
+	for filter in filters {
+		match filter {
+			HeaderKindFilter::Kind(kind) => push_unique(&mut kinds, kind.clone()),
+			HeaderKindFilter::Shape(shape) => push_unique(&mut shapes, *shape),
+		}
 	}
-	let current_idx = current
-		.as_ref()
-		.and_then(|current| options.iter().position(|option| option == current))
-		.map(|idx| idx + 1)
-		.unwrap_or(0);
-	let next = if direction >= 0 {
-		(current_idx + 1) % len
-	} else {
-		(current_idx + len - 1) % len
+	(kinds, shapes)
+}
+
+fn lang_filter_matches(langs: &[Lang], lang: Lang) -> bool {
+	langs.is_empty() || langs.contains(&lang)
+}
+
+fn kind_filter_matches(filters: &[HeaderKindFilter], kind: &str) -> bool {
+	filters.is_empty() || filters.iter().any(|filter| filter.matches_kind(kind))
+}
+
+fn lang_filter_summary(langs: &[Lang]) -> String {
+	if langs.is_empty() {
+		return "<all>".to_string();
+	}
+	langs
+		.iter()
+		.map(|lang| lang.tag())
+		.collect::<Vec<_>>()
+		.join(",")
+}
+
+fn kind_filter_summary(filters: &[HeaderKindFilter]) -> String {
+	if filters.is_empty() {
+		return "<all>".to_string();
+	}
+	filters
+		.iter()
+		.map(HeaderKindFilter::label)
+		.collect::<Vec<_>>()
+		.join(",")
+}
+
+fn lang_selector_option_label(selected: &[Lang], options: &[Lang], cursor: usize) -> String {
+	if cursor == 0 {
+		return if selected.is_empty() {
+			"<all>".to_string()
+		} else {
+			"clear".to_string()
+		};
+	}
+	let Some(lang) = options.get(cursor - 1).copied() else {
+		return "<all>".to_string();
 	};
-	if next == 0 {
-		None
+	let marker = if selected.contains(&lang) { "-" } else { "+" };
+	format!("{marker}{}", lang.tag())
+}
+
+fn kind_selector_option_label(
+	selected: &[HeaderKindFilter],
+	options: &[HeaderKindFilter],
+	cursor: usize,
+) -> String {
+	if cursor == 0 {
+		return if selected.is_empty() {
+			"<all>".to_string()
+		} else {
+			"clear".to_string()
+		};
+	}
+	let Some(filter) = options.get(cursor - 1) else {
+		return "<all>".to_string();
+	};
+	let marker = if selected.contains(filter) { "-" } else { "+" };
+	format!("{marker}{}", filter.label())
+}
+
+fn cycle_index(current: usize, len: usize, direction: i8) -> usize {
+	if len == 0 {
+		return 0;
+	}
+	let current = current.min(len - 1);
+	if direction >= 0 {
+		(current + 1) % len
 	} else {
-		Some(options[next - 1].clone())
+		(current + len - 1) % len
+	}
+}
+
+fn toggle_value<T: Eq>(values: &mut Vec<T>, value: T) {
+	if let Some(idx) = values.iter().position(|candidate| candidate == &value) {
+		values.remove(idx);
+	} else {
+		values.push(value);
+	}
+}
+
+fn push_unique<T: Eq>(values: &mut Vec<T>, value: T) {
+	if !values.contains(&value) {
+		values.push(value);
 	}
 }

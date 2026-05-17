@@ -9,6 +9,7 @@ pub(in crate::ui) enum AppCommand {
 	CycleHeaderSearchSelector {
 		direction: i8,
 	},
+	ToggleHeaderSearchSelection,
 	FocusUsages,
 	ToggleChangeMode,
 	CopyPanelSnapshot,

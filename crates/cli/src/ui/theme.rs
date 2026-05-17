@@ -14,6 +14,7 @@ pub(super) struct UiTheme {
 	pub(super) kind: KindTheme,
 	pub(super) nav: NavTheme,
 	pub(super) panel: PanelTheme,
+	pub(super) search: SearchTheme,
 	pub(super) source: SourceTheme,
 }
 
@@ -65,6 +66,16 @@ pub(super) struct PanelTheme {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub(super) struct SearchTheme {
+	pub(super) background: Color,
+	pub(super) focus_bg: Color,
+	pub(super) label: Color,
+	pub(super) value: Color,
+	pub(super) muted: Color,
+	pub(super) active: Color,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(super) struct SourceTheme {
 	pub(super) active_fg: Color,
 	pub(super) active_bg: Color,
@@ -111,6 +122,14 @@ pub(super) const THEME: UiTheme = UiTheme {
 		header: Color::Rgb(55, 65, 81),
 		muted: Color::Rgb(107, 114, 128),
 		separator: Color::Rgb(209, 213, 219),
+	},
+	search: SearchTheme {
+		background: Color::Rgb(243, 244, 246),
+		focus_bg: Color::Rgb(219, 234, 254),
+		label: Color::Rgb(75, 85, 99),
+		value: Color::Rgb(17, 24, 39),
+		muted: Color::Rgb(107, 114, 128),
+		active: Color::Rgb(37, 99, 235),
 	},
 	source: SourceTheme {
 		active_fg: Color::Rgb(31, 41, 55),

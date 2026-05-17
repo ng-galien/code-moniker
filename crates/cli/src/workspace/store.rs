@@ -44,8 +44,9 @@ pub(crate) trait IndexStore {
 		&self,
 		query: &str,
 		limit: usize,
-		lang: Option<Lang>,
-		kind: Option<&str>,
+		langs: &[Lang],
+		kinds: &[String],
+		shapes: &[Shape],
 	) -> Vec<SearchHit>;
 	fn change_overview(&self) -> ChangeOverview;
 	fn change_rows(&self) -> Vec<ChangeSummary>;
@@ -487,14 +488,20 @@ impl IndexStore for WorkspaceStore {
 		&self,
 		query: &str,
 		limit: usize,
-		lang: Option<Lang>,
-		kind: Option<&str>,
+		langs: &[Lang],
+		kinds: &[String],
+		shapes: &[Shape],
 	) -> Vec<SearchHit> {
 		self.search_symbols_matching(query, limit, |doc| {
 			let file_lang = self.raw_file(doc.loc.file).lang;
 			let def = self.raw_def(&doc.loc);
-			lang.is_none_or(|lang| file_lang == lang)
-				&& kind.is_none_or(|kind| def_kind(def) == kind)
+			let kind = std::str::from_utf8(&def.kind).unwrap_or("?");
+			let lang_matches = langs.is_empty() || langs.contains(&file_lang);
+			let has_kind_filter = !kinds.is_empty() || !shapes.is_empty();
+			let kind_matches = !kinds.is_empty() && kinds.iter().any(|filter| filter == kind);
+			let shape_matches = !shapes.is_empty()
+				&& shape_of(&def.kind).is_some_and(|shape| shapes.contains(&shape));
+			lang_matches && (!has_kind_filter || kind_matches || shape_matches)
 		})
 	}
 
@@ -1079,10 +1086,35 @@ mod tests {
 		assert_eq!(store.snapshot.plan.generation, 0);
 		assert!(
 			store
-				.search_symbols_filtered("UserService", 5, None, None)
+				.search_symbols_filtered("UserService", 5, &[], &[], &[])
 				.iter()
 				.any(|hit| store.symbol_summary(&hit.loc).name == "UserService")
 		);
+	}
+
+	#[test]
+	fn kind_filters_apply_before_search_result_limit() {
+		let tmp = tempfile::tempdir().unwrap();
+		let mut body = (0..510)
+			.map(|idx| format!("export class A{idx:03}Resolver {{}}\n"))
+			.collect::<String>();
+		body.push_str("export function ZResolver() { return 1; }\n");
+		write(tmp.path(), "src/resolvers.ts", &body);
+
+		let store = WorkspaceStore::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let hits =
+			store.search_symbols_filtered("Resolver", 5, &[], &["function".to_string()], &[]);
+		let names = hits
+			.iter()
+			.map(|hit| store.symbol_summary(&hit.loc).name)
+			.collect::<Vec<_>>();
+
+		assert_eq!(names, vec!["ZResolver()"]);
 	}
 
 	#[test]

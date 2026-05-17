@@ -3,6 +3,7 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use std::process::Command;
 
+use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 
 use crate::DEFAULT_SCHEME;
@@ -116,8 +117,8 @@ fn apply_kind_filter(app: &mut App, text: &str, lang: Option<Lang>, kind: &str) 
 		app.update(AppAction::Ui(Msg::HeaderSearchInput(FilterEdit::Push(ch))));
 	}
 	app.dispatch_shell(ShellAction::SetHeaderSearchFilters {
-		lang,
-		kind: Some(kind.to_string()),
+		langs: lang.into_iter().collect(),
+		kind_filters: vec![HeaderKindFilter::Kind(kind.to_string())],
 	});
 	app.apply_header_search(None, true);
 }
@@ -475,7 +476,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	let total = app.visible_defs().len();
 	let hits = app
 		.store()
-		.search_symbols_filtered("customer", 10, None, None);
+		.search_symbols_filtered("customer", 10, &[], &[], &[]);
 	let hit_names: Vec<_> = hits.iter().map(|hit| symbol_name(&app, &hit.loc)).collect();
 
 	assert_eq!(
@@ -529,7 +530,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	assert!(header.contains("scope search:customer"), "{header}");
 	assert!(!header.contains("[ui.search.input]"), "{header}");
 	let search = line_text(&search_line(&app, 120));
-	assert!(search.contains("search [customer]"), "{search}");
+	assert!(search.contains("query [customer]"), "{search}");
 	assert!(app.status().contains("search:customer"), "{}", app.status());
 }
 
@@ -562,13 +563,10 @@ fn header_search_is_always_visible_and_keeps_navigator_space() {
 	);
 	let initial_search = line_text(&search_line(&app, 120));
 	assert!(
-		initial_search.contains("[ui.search.input]"),
+		!initial_search.contains("[ui.search.input]"),
 		"{initial_search}"
 	);
-	assert!(
-		initial_search.contains("search [<all>]"),
-		"{initial_search}"
-	);
+	assert!(initial_search.contains("query [all]"), "{initial_search}");
 
 	app.handle_key(key(KeyCode::Char('s'))).unwrap();
 	for c in "customer".chars() {
@@ -586,7 +584,10 @@ fn header_search_is_always_visible_and_keeps_navigator_space() {
 	let screen = format!("{}", terminal.backend());
 
 	assert!(screen.contains("[ui.search.input]"), "{screen}");
-	assert!(screen.contains("search ["), "{screen}");
+	assert!(screen.contains("[ui.search.input#query]"), "{screen}");
+	assert!(screen.contains("query"), "{screen}");
+	assert!(screen.contains("customer|"), "{screen}");
+	assert!(screen.contains("lang"), "{screen}");
 	assert!(
 		screen.find("[ui.header]") < screen.find("[ui.search.input]"),
 		"search should render below the header: {screen}"
@@ -612,6 +613,100 @@ fn header_search_is_always_visible_and_keeps_navigator_space() {
 }
 
 #[test]
+fn search_filter_selectors_render_as_right_aligned_comboboxes() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/a.ts",
+		"export function alpha() { return 1; }\n",
+	);
+	write(tmp.path(), "src/lib.rs", "pub fn beta() -> i32 { 1 }\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.dispatch_shell(ShellAction::SetHeaderSearchFilters {
+		langs: vec![Lang::Ts, Lang::Rs],
+		kind_filters: vec![HeaderKindFilter::Shape(Shape::Callable)],
+	});
+	app.update(AppAction::Ui(Msg::ToggleHeaderSearch));
+	app.update(AppAction::Ui(Msg::HeaderSearchNextField));
+	app.update(AppAction::Ui(Msg::HeaderSearchNextField));
+	app.update(AppAction::Ui(Msg::HeaderSearchApply));
+
+	let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+	terminal
+		.draw(|frame| render_shell(frame, frame.area(), &mut app))
+		.unwrap();
+	let screen = format!("{}", terminal.backend());
+
+	assert!(screen.contains("query"), "{screen}");
+	assert!(screen.contains("lang"), "{screen}");
+	assert!(screen.contains("kind"), "{screen}");
+	assert!(screen.contains("kind selector"), "{screen}");
+	assert!(screen.contains("[x] shape:callable"), "{screen}");
+	assert!(
+		screen.find("query").unwrap() < screen.find("lang").unwrap()
+			&& screen.find("lang").unwrap() < screen.find("kind").unwrap(),
+		"filters should be aligned to the right of query: {screen}"
+	);
+}
+
+#[test]
+fn search_combobox_uses_enter_to_open_and_space_to_toggle() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/a.ts",
+		"export function alpha() { return 1; }\n",
+	);
+	write(tmp.path(), "src/lib.rs", "pub fn beta() -> i32 { 1 }\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.handle_key(key(KeyCode::Char('s'))).unwrap();
+	app.handle_key(key(KeyCode::Tab)).unwrap();
+
+	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Lang));
+	assert!(!app.header_search().combo_open);
+
+	app.handle_key(key(KeyCode::Char(' '))).unwrap();
+	assert!(app.header_search().langs.is_empty());
+	assert!(!app.header_search().combo_open);
+
+	app.handle_key(key(KeyCode::Enter)).unwrap();
+	assert!(app.header_search().combo_open);
+
+	app.handle_key(key(KeyCode::Down)).unwrap();
+	app.handle_key(key(KeyCode::Char(' '))).unwrap();
+	assert_eq!(app.header_search().langs, vec![Lang::Ts]);
+	assert!(app.header_search().combo_open);
+
+	app.handle_key(key(KeyCode::Enter)).unwrap();
+	assert!(!app.header_search().combo_open);
+	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Lang));
+}
+
+#[test]
 fn search_bar_values_are_fitted_on_the_full_width_row() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
@@ -633,8 +728,8 @@ fn search_bar_values_are_fitted_on_the_full_width_row() {
 		app.update(AppAction::Ui(Msg::HeaderSearchInput(FilterEdit::Push(ch))));
 	}
 	app.dispatch_shell(ShellAction::SetHeaderSearchFilters {
-		lang: Some(Lang::Ts),
-		kind: Some("very_long_kind_name".to_string()),
+		langs: vec![Lang::Ts],
+		kind_filters: vec![HeaderKindFilter::Kind("very_long_kind_name".to_string())],
 	});
 	app.apply_header_search(None, true);
 
@@ -642,7 +737,7 @@ fn search_bar_values_are_fitted_on_the_full_width_row() {
 	assert!(!header.contains("[ui.search.input]"), "{header}");
 	let search = line_text(&search_line(&app, 100));
 	assert!(text::visible_len(&search) <= 100, "{search}");
-	assert!(search.contains("[ui.search.input]"), "{search}");
+	assert!(search.contains("query ["), "{search}");
 }
 
 #[test]
@@ -674,6 +769,62 @@ fn header_search_applies_structured_filters_before_result_limit() {
 		.map(|loc| symbol_name(&app, loc))
 		.collect::<Vec<_>>();
 	assert_eq!(names, vec!["ZResolver"]);
+}
+
+#[test]
+fn multi_language_kind_filter_uses_semantic_shapes() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/a.ts",
+		"export function resolveCustomer() { return 1; }\n",
+	);
+	write(
+		tmp.path(),
+		"src/lib.rs",
+		"pub fn resolve_customer() -> i32 { 1 }\n",
+	);
+	write(
+		tmp.path(),
+		"src/main/java/com/acme/ResolveCustomer.java",
+		"package com.acme;\nclass ResolveCustomer {}\n",
+	);
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.dispatch_shell(ShellAction::SetHeaderSearchFilters {
+		langs: vec![Lang::Ts, Lang::Rs],
+		kind_filters: vec![HeaderKindFilter::Shape(Shape::Callable)],
+	});
+	app.apply_header_search(None, true);
+
+	let summaries = app
+		.visible_defs()
+		.iter()
+		.map(|loc| app.store().symbol_summary(loc))
+		.collect::<Vec<_>>();
+	assert!(summaries.iter().any(|symbol| symbol.lang == Lang::Ts));
+	assert!(summaries.iter().any(|symbol| symbol.lang == Lang::Rs));
+	assert!(!summaries.iter().any(|symbol| symbol.lang == Lang::Java));
+	assert!(
+		summaries
+			.iter()
+			.all(|symbol| shape_of(symbol.kind.as_bytes()) == Some(Shape::Callable)),
+		"{summaries:?}"
+	);
+	let search = line_text(&search_line(&app, 120));
+	assert!(search.contains("lang [ts,rs]"), "{search}");
+	assert!(search.contains("kind [shape:callable]"), "{search}");
 }
 
 #[test]

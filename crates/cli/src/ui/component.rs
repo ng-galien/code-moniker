@@ -37,8 +37,12 @@ impl ComponentId {
 }
 
 pub(super) fn marker(id: ComponentId) -> Span<'static> {
+	raw_marker(id.as_str())
+}
+
+pub(super) fn raw_marker(id: &'static str) -> Span<'static> {
 	Span::styled(
-		format!("[{}]", id.as_str()),
+		format!("[{id}]"),
 		Style::default().fg(THEME.component_marker),
 	)
 }
