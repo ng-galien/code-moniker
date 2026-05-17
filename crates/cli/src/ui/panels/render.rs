@@ -9,7 +9,7 @@ use super::super::panel;
 use super::super::source::SourceLineVm;
 use super::super::text::{FitMode, fit_text, visible_len};
 use super::super::theme::{SourceTheme, THEME};
-use super::model::{HeadingTone, MessageTone, PanelSection, PanelVm, ReferenceGroupVm, WrapMode};
+use super::model::{MessageTone, PanelSection, PanelVm, ReferenceGroupVm, WrapMode};
 
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct PanelSnapshot {
@@ -59,10 +59,7 @@ fn panel_lines(panel: &PanelVm, width: usize) -> Vec<Line<'static>> {
 	let mut lines = Vec::new();
 	for section in &panel.sections {
 		match section {
-			PanelSection::Heading { label, tone } => lines.push(match tone {
-				HeadingTone::Normal => panel::section(label.clone()),
-				HeadingTone::Danger => panel::danger_section(label.clone()),
-			}),
+			PanelSection::Heading { label } => lines.push(panel::section(label.clone())),
 			PanelSection::ComponentHeading { label, component } => {
 				lines.push(Line::from(vec![
 					Span::styled(

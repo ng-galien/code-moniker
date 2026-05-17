@@ -122,7 +122,7 @@ fn render<W: Write>(
 	source: &str,
 ) -> std::io::Result<()> {
 	let mut entries: Vec<(&String, &Node<'_>)> = node.children.iter().collect();
-	entries.sort_by(|a, b| tree_sort_key(a.0, a.1).cmp(&tree_sort_key(b.0, b.1)));
+	entries.sort_by_key(|entry| tree_sort_key(entry.0, entry.1));
 
 	let total = entries.len() + node.refs.len();
 	let mut i = 0usize;

@@ -1,16 +1,16 @@
 use std::collections::BTreeSet;
 
-use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 
 use crate::workspace::{ChangeStatus, DefLocation, IndexStore};
 
-use super::app::{ActiveFilter, VisualizationMode};
+use super::app::VisualizationMode;
 use super::component::{ComponentId, block_title, marker};
 use super::contracts::{RenderContext, Screen};
-use super::events::UiMode;
+use super::events::{HeaderSearchFocus, UiMode};
 use super::features::explorer::ExplorerFeature;
 use super::kinds::definition_kind_group;
 use super::navigator::{NavNodeKind, NavRow};
@@ -52,17 +52,34 @@ fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 
 pub(super) fn header_line(app: &App, width: usize) -> Line<'static> {
 	let mode = app.view_mode().label();
-	let prefix_width = visible_len("code-moniker ")
+	let search = app.header_search();
+	let raw_search_value = display_filter(search.text.trim()).to_string();
+	let raw_lang_value = search
+		.lang
+		.map_or("all".to_string(), |lang| lang.tag().to_string());
+	let raw_kind_value = search.kind.as_deref().unwrap_or("all").to_string();
+	let raw_scope = app.scope_label();
+	let fixed_width = visible_len("code-moniker ")
 		+ visible_len(ComponentId::Header.as_str())
 		+ 2 + visible_len(" mode ")
 		+ visible_len(mode)
-		+ visible_len("  scope ");
-	let scope = fit_text(
-		&app.scope_label(),
-		width.saturating_sub(prefix_width),
-		FitMode::Middle,
+		+ visible_len("  ")
+		+ visible_len(ComponentId::SearchInput.as_str())
+		+ 2 + visible_len(" search [] lang [] kind [] scope ");
+	let [search_width, lang_width, kind_width, scope_width] = fit_header_value_widths(
+		width.saturating_sub(fixed_width),
+		[
+			visible_len(&raw_search_value),
+			visible_len(&raw_lang_value),
+			visible_len(&raw_kind_value),
+			visible_len(&raw_scope),
+		],
 	);
-	Line::from(vec![
+	let search_value = fit_text(&raw_search_value, search_width, FitMode::Middle);
+	let lang_value = fit_text(&raw_lang_value, lang_width, FitMode::Middle);
+	let kind_value = fit_text(&raw_kind_value, kind_width, FitMode::Middle);
+	let scope = fit_text(&raw_scope, scope_width, FitMode::Middle);
+	let mut spans = vec![
 		Span::styled(
 			"code-moniker ",
 			Style::default()
@@ -78,9 +95,78 @@ pub(super) fn header_line(app: &App, width: usize) -> Line<'static> {
 				.fg(THEME.section)
 				.add_modifier(Modifier::BOLD),
 		),
-		Span::raw("  scope "),
-		Span::styled(scope, Style::default().fg(THEME.nav.symbol)),
-	])
+		Span::raw("  "),
+		marker(ComponentId::SearchInput),
+		Span::raw(" "),
+	];
+	spans.extend(header_field(
+		"search",
+		search_value,
+		HeaderSearchFocus::Text,
+		app.mode(),
+	));
+	spans.extend(header_field(
+		"lang",
+		lang_value,
+		HeaderSearchFocus::Lang,
+		app.mode(),
+	));
+	spans.extend(header_field(
+		"kind",
+		kind_value,
+		HeaderSearchFocus::Kind,
+		app.mode(),
+	));
+	spans.push(Span::raw("scope "));
+	spans.push(Span::styled(scope, Style::default().fg(THEME.nav.symbol)));
+	Line::from(spans)
+}
+
+fn fit_header_value_widths(available: usize, requested: [usize; 4]) -> [usize; 4] {
+	if requested.iter().sum::<usize>() <= available {
+		return requested;
+	}
+	let mut widths = [0; 4];
+	let mut remaining = available;
+	while remaining > 0
+		&& widths
+			.iter()
+			.zip(requested)
+			.any(|(width, max)| *width < max)
+	{
+		for idx in [1, 2, 0, 3] {
+			if remaining == 0 {
+				break;
+			}
+			if widths[idx] < requested[idx] {
+				widths[idx] += 1;
+				remaining -= 1;
+			}
+		}
+	}
+	widths
+}
+
+fn header_field<'a>(
+	label: &'static str,
+	value: String,
+	focus: HeaderSearchFocus,
+	current: UiMode,
+) -> Vec<Span<'a>> {
+	let is_current = matches!(current, UiMode::HeaderSearch(active) if active == focus);
+	let value_style = if is_current {
+		Style::default()
+			.fg(THEME.nav.symbol)
+			.add_modifier(Modifier::BOLD)
+	} else {
+		Style::default().fg(THEME.nav.symbol)
+	};
+	vec![
+		Span::styled(format!("{label} "), Style::default().fg(THEME.panel.label)),
+		Span::styled("[", Style::default().fg(THEME.panel.muted)),
+		Span::styled(value, value_style),
+		Span::styled("] ", Style::default().fg(THEME.panel.muted)),
+	]
 }
 
 fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
@@ -94,103 +180,34 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
 }
 
 fn render_left_pane(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	if search_input_visible(app) && area.height >= 5 {
-		let rows = Layout::default()
-			.direction(Direction::Vertical)
-			.constraints([Constraint::Length(3), Constraint::Min(0)])
-			.split(area);
-		render_search_input(frame, rows[0], app);
-		render_nav_list(frame, rows[1], app);
-	} else {
-		render_nav_list(frame, area, app);
-	}
+	render_nav_list(frame, area, app);
 }
 
+#[cfg(test)]
 pub(super) fn search_input_visible(app: &App) -> bool {
-	app.mode() == UiMode::EditingSearch
-		|| matches!(app.active_filter(), ActiveFilter::Search { .. })
+	app.header_search().has_filter() || matches!(app.mode(), UiMode::HeaderSearch(_))
 }
 
+#[cfg(test)]
 pub(super) fn search_input_value(app: &App) -> String {
-	if app.mode() == UiMode::EditingSearch {
-		return app.search_draft().to_string();
-	}
-	match app.active_filter() {
-		ActiveFilter::Search { raw, .. } => raw.clone(),
-		_ => String::new(),
-	}
+	app.header_search().text.clone()
 }
 
+#[cfg(test)]
 pub(super) fn search_input_title(app: &App) -> String {
-	if app.mode() == UiMode::EditingSearch {
-		"search focused".to_string()
-	} else {
-		"search".to_string()
-	}
-}
-
-fn render_search_input(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let focused = app.mode() == UiMode::EditingSearch;
-	let value = search_input_value(app);
-	let width = panel::content_width(area);
-	let prompt = if focused { "> " } else { "  " };
-	let hint = if focused {
-		"  Enter apply  Esc cancel"
-	} else {
-		"  s edit  x clear"
-	};
-	let value_width = width
-		.saturating_sub(visible_len(prompt))
-		.saturating_sub(visible_len(hint));
-	let displayed_value = fit_text(display_filter(&value), value_width, FitMode::Middle);
-	let line = Line::from(vec![
-		Span::styled(prompt, Style::default().fg(THEME.nav.marker)),
-		Span::styled(
-			displayed_value.clone(),
-			Style::default()
-				.fg(THEME.nav.symbol)
-				.add_modifier(if focused {
-					Modifier::BOLD
-				} else {
-					Modifier::empty()
-				}),
-		),
-		Span::styled(hint, Style::default().fg(THEME.nav.meta)),
-	]);
-	let border_style = if focused {
-		Style::default().fg(THEME.status_label)
-	} else {
-		Style::default().fg(THEME.component_marker)
-	};
-	let input = Paragraph::new(line).block(
-		Block::default()
-			.title(block_title(
-				search_input_title(app),
-				ComponentId::SearchInput,
-			))
-			.border_style(border_style)
-			.borders(Borders::ALL),
-	);
-	frame.render_widget(input, area);
-	if focused {
-		let cursor_offset = visible_len(prompt) + visible_len(&displayed_value);
-		let max_x = area.x.saturating_add(area.width.saturating_sub(2));
-		let x = area
-			.x
-			.saturating_add(1)
-			.saturating_add(cursor_offset as u16)
-			.min(max_x);
-		frame.set_cursor_position(Position {
-			x,
-			y: area.y.saturating_add(1),
-		});
+	match app.mode() {
+		UiMode::HeaderSearch(HeaderSearchFocus::Text) => "search text focused".to_string(),
+		UiMode::HeaderSearch(HeaderSearchFocus::Lang) => "search language focused".to_string(),
+		UiMode::HeaderSearch(HeaderSearchFocus::Kind) => "search kind focused".to_string(),
+		UiMode::Normal => "search".to_string(),
 	}
 }
 
 fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let prefix = match app.mode() {
-		UiMode::EditingFilter => "filter",
-		UiMode::EditingSearch => "search",
+		UiMode::HeaderSearch(HeaderSearchFocus::Text) => "search",
+		UiMode::HeaderSearch(HeaderSearchFocus::Lang) => "lang",
+		UiMode::HeaderSearch(HeaderSearchFocus::Kind) => "kind",
 		UiMode::Normal => "status",
 	};
 	let line = Line::from(vec![
@@ -243,8 +260,6 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 				app.visible_defs().len()
 			)
 		}
-	} else if app.active_filter().error().is_some() {
-		" filtered invalid ".to_string()
 	} else {
 		format!(
 			" navigator {} files {} defs ",

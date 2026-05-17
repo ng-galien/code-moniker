@@ -1,4 +1,8 @@
-use crate::ui::app::state::{ActiveFilter, ChangePanelMode, CheckState, PanelPolicy, View};
+use code_moniker_core::lang::Lang;
+
+use crate::ui::app::state::{
+	ActiveFilter, ChangePanelMode, CheckState, HeaderSearchResults, PanelPolicy, View,
+};
 use crate::ui::clipboard::ClipboardResult;
 use crate::ui::contracts::Route;
 use crate::ui::events::Msg;
@@ -9,6 +13,7 @@ use crate::workspace::UsageFocus;
 #[derive(Debug)]
 pub(in crate::ui) enum AppAction {
 	Ui(Msg),
+	HeaderSearchDebounced(u64),
 	Shell(ShellAction),
 	Store(StoreEvent),
 	TaskStarted {
@@ -31,8 +36,17 @@ pub(in crate::ui) enum ShellAction {
 		policy: PanelPolicy,
 		route: Route,
 	},
-	ApplyFilter(ActiveFilter),
-	ClearFilter,
+	ApplyHeaderSearch {
+		results: HeaderSearchResults,
+		return_focus: bool,
+	},
+	SetHeaderSearchFilters {
+		lang: Option<Lang>,
+		kind: Option<String>,
+	},
+	ClearFilter {
+		return_focus: bool,
+	},
 	FocusUsages(UsageFocus),
 	EnterChangeMode,
 	ReplaceActiveFilter(ActiveFilter),

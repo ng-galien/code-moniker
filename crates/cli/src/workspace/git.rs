@@ -182,14 +182,14 @@ pub(crate) fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 	let mut changes = ChangeIndex::default();
 	let mut diffs = Vec::new();
 	for root in &scan.roots {
-		match git_root_for(&root.path) {
+		match git_root_for(root.path) {
 			Ok(git_root) => {
 				changes.resources.push(GitResourceStatus {
 					label: root.label.to_string(),
 					git_root: Some(git_root.clone()),
 					message: format!("git root {}", git_root.display()),
 				});
-				match collect_changed_files(&git_root, &root.path) {
+				match collect_changed_files(&git_root, root.path) {
 					Ok(mut root_diffs) => diffs.append(&mut root_diffs),
 					Err(error) => changes.diagnostics.push(format!(
 						"{}: cannot inspect git changes: {error}",
@@ -209,7 +209,7 @@ pub(crate) fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 	}
 	let mut entries = Vec::new();
 	for file in &scan.files {
-		let file_path = normalize_path(&file.path);
+		let file_path = normalize_path(file.path);
 		let Some(diff) = diffs
 			.iter()
 			.find(|diff| normalize_path(&diff_path(diff)) == file_path)
@@ -268,7 +268,7 @@ fn changed_entries_for_file(
 			} else {
 				ChangeStatus::Added
 			};
-			if status == ChangeStatus::Modified && !def_intersects_hunks(def, &file.source, diff) {
+			if status == ChangeStatus::Modified && !def_intersects_hunks(def, file.source, diff) {
 				return None;
 			}
 			Some(DefLocation {
@@ -284,7 +284,7 @@ fn changed_entries_for_file(
 		.filter(|loc| {
 			keep_ancestors
 				|| !candidates.iter().any(|candidate| {
-					candidate != loc && is_descendant(&file.graph, loc.def, candidate.def)
+					candidate != loc && is_descendant(file.graph, loc.def, candidate.def)
 				})
 		})
 		.map(|loc| {
@@ -305,7 +305,7 @@ fn changed_entries_for_file(
 				hunk_count: diff.hunks.len(),
 				line_range: def
 					.position
-					.map(|(start, end)| line_range(&file.source, start, end)),
+					.map(|(start, end)| line_range(file.source, start, end)),
 			}
 		})
 		.collect();
@@ -385,7 +385,7 @@ fn base_file(
 ) -> anyhow::Result<BaseFile> {
 	let source = git_show(&diff.repo_root, &diff.repo_rel)?;
 	let root = &scan.roots[file.source_root];
-	let graph = extract::extract_with(file.lang, &source, &file.anchor, &root.ctx);
+	let graph = extract::extract_with(file.lang, &source, file.anchor, root.ctx);
 	Ok(BaseFile {
 		defs: graph
 			.defs()
@@ -414,7 +414,7 @@ fn removed_entries_for_deleted_file(
 	};
 	let lang = path_to_lang(&path)?;
 	let anchor = anchor_for(scan, root, &rel_path);
-	let graph = extract::extract_with(lang, &source, &anchor, &root.ctx);
+	let graph = extract::extract_with(lang, &source, &anchor, root.ctx);
 	let mut entries = Vec::new();
 	for def in graph.defs().filter(|def| is_navigable_def(lang, def)) {
 		let Some((start, end)) = def.position else {

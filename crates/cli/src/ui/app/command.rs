@@ -2,14 +2,18 @@ use crate::ui::store::navigation::NavigationAction;
 
 #[derive(Debug)]
 pub(in crate::ui) enum AppCommand {
-	ApplyFilter,
-	ApplySearch,
-	ClearFilter,
+	ApplyHeaderSearch {
+		generation: Option<u64>,
+		return_focus: bool,
+	},
+	CycleHeaderSearchSelector {
+		direction: i8,
+	},
 	FocusUsages,
 	ToggleChangeMode,
 	CopyPanelSnapshot,
 	RunCheck,
-	Navigation(NavigationAction),
+	Navigation(Box<NavigationAction>),
 	ToggleSelectedNode,
 	OpenSelectedNode,
 	CloseNodeOrClearScope,

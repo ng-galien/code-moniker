@@ -12,6 +12,7 @@ pub(in crate::ui) enum ShellEvent {
 	Terminal(Event),
 	Store(StoreEvent),
 	TaskCompleted(TaskResult),
+	HeaderSearchDebounced(u64),
 	Clipboard(ClipboardResult),
 	Error(String),
 }

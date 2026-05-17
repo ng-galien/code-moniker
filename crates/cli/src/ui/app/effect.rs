@@ -12,5 +12,6 @@ pub(in crate::ui) enum Effect {
 	Notify(String),
 	#[cfg(test)]
 	Spawn(TaskSpec),
+	DebounceHeaderSearch(u64),
 	RunCommand(AppCommand),
 }

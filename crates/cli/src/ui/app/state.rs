@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use code_moniker_core::lang::Lang;
+
 use crate::ui::app::action::ShellAction;
 use crate::ui::app::command::AppCommand;
 use crate::ui::contracts::Route;
-use crate::ui::events::{FilterEdit, Msg, UiMode};
+use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
 use crate::ui::features::explorer::{
 	ExplorerFeature, ROUTE_CHANGE, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW, ROUTE_REFS,
 };
@@ -11,7 +13,7 @@ use crate::ui::live::StoreEvent;
 use crate::ui::reactive::Transition;
 use crate::ui::runtime::{TaskId, TaskOutcome, TaskResult, WorkKind};
 use crate::ui::store::navigation::{NavigationAction, NavigationState};
-use crate::workspace::{CheckSummary, SearchHit, SymbolFilter, UsageFocus};
+use crate::workspace::{CheckSummary, DefLocation, UsageFocus};
 
 use super::Effect;
 
@@ -57,16 +59,6 @@ pub(in crate::ui) enum View {
 }
 
 impl View {
-	pub(in crate::ui) fn next(self) -> Self {
-		match self {
-			Self::Overview => Self::Tree,
-			Self::Tree => Self::Refs,
-			Self::Refs => Self::Check,
-			Self::Check => Self::Change,
-			Self::Change => Self::Overview,
-		}
-	}
-
 	pub(in crate::ui) fn route_path(self) -> &'static str {
 		match self {
 			Self::Overview => ROUTE_OVERVIEW,
@@ -124,19 +116,54 @@ pub(in crate::ui) enum PanelPolicy {
 	Manual,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) enum ActiveFilter {
+	#[default]
 	None,
-	Text { raw: String, query: SymbolFilter },
-	Invalid { raw: String, error: String },
-	Search { raw: String, hits: Vec<SearchHit> },
+	HeaderSearch(HeaderSearchResults),
 	Usages(UsageFocus),
 	Change,
 }
 
-impl Default for ActiveFilter {
-	fn default() -> Self {
-		Self::None
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::ui) struct HeaderSearchState {
+	pub(in crate::ui) focus: HeaderSearchFocus,
+	pub(in crate::ui) text: String,
+	pub(in crate::ui) lang: Option<Lang>,
+	pub(in crate::ui) kind: Option<String>,
+	pub(in crate::ui) generation: u64,
+	pub(in crate::ui) pending_generation: Option<u64>,
+}
+
+impl HeaderSearchState {
+	pub(in crate::ui) fn has_filter(&self) -> bool {
+		!self.text.trim().is_empty() || self.lang.is_some() || self.kind.is_some()
+	}
+
+	fn reset(&mut self) {
+		self.text.clear();
+		self.lang = None;
+		self.kind = None;
+	}
+
+	fn bump_pending(&mut self) -> u64 {
+		self.generation += 1;
+		self.pending_generation = Some(self.generation);
+		self.generation
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::ui) struct HeaderSearchResults {
+	pub(in crate::ui) text: String,
+	pub(in crate::ui) lang: Option<Lang>,
+	pub(in crate::ui) kind: Option<String>,
+	pub(in crate::ui) matches: Vec<DefLocation>,
+}
+
+impl HeaderSearchResults {
+	pub(in crate::ui) fn label(&self) -> String {
+		header_search_label(&self.text, self.lang, self.kind.as_deref())
 	}
 }
 
@@ -151,8 +178,7 @@ pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) change_panel: ChangePanelMode,
 	pub(in crate::ui) mode: UiMode,
 	pub(in crate::ui) active_filter: ActiveFilter,
-	pub(in crate::ui) filter_draft: String,
-	pub(in crate::ui) search_draft: String,
+	pub(in crate::ui) header_search: HeaderSearchState,
 }
 
 impl Default for ShellSlice {
@@ -167,23 +193,17 @@ impl Default for ShellSlice {
 			change_panel: ChangePanelMode::Diff,
 			mode: UiMode::Normal,
 			active_filter: ActiveFilter::None,
-			filter_draft: String::new(),
-			search_draft: String::new(),
+			header_search: HeaderSearchState::default(),
 		}
 	}
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) enum CheckState {
+	#[default]
 	Pending,
 	Ready(CheckSummary),
 	Error(String),
-}
-
-impl Default for CheckState {
-	fn default() -> Self {
-		Self::Pending
-	}
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -304,24 +324,31 @@ impl AppState {
 				});
 				Transition::changed("shell.set_view")
 			}
-			ShellAction::ApplyFilter(active_filter) => {
+			ShellAction::ApplyHeaderSearch {
+				results,
+				return_focus,
+			} => self.apply_header_search_action(results, *return_focus),
+			ShellAction::SetHeaderSearchFilters { lang, kind } => {
+				let mut generation = self.shell.header_search.generation;
 				self.update_shell(|shell| {
-					shell.mode = UiMode::Normal;
-					shell.active_filter = active_filter.clone();
-					shell.view_mode = active_filter.view_mode();
-					shell.panel_policy = PanelPolicy::Contextual;
+					shell.header_search.lang = *lang;
+					shell.header_search.kind = kind.clone();
+					generation = shell.header_search.bump_pending();
 				});
-				Transition::changed("shell.apply_filter")
+				Transition::changed("shell.set_header_search_filters")
+					.with_effect(Effect::DebounceHeaderSearch(generation))
 			}
-			ShellAction::ClearFilter => {
+			ShellAction::ClearFilter { return_focus } => {
 				self.update_shell(|shell| {
-					shell.mode = UiMode::Normal;
+					if *return_focus {
+						shell.mode = UiMode::Normal;
+					}
 					shell.active_filter = ActiveFilter::None;
 					shell.view_mode = VisualizationMode::Explorer;
 					shell.panel_policy = PanelPolicy::Contextual;
 					shell.change_panel = ChangePanelMode::Diff;
-					shell.filter_draft.clear();
-					shell.search_draft.clear();
+					shell.header_search.reset();
+					shell.header_search.pending_generation = None;
 				});
 				Transition::changed("shell.clear_filter")
 			}
@@ -331,8 +358,8 @@ impl AppState {
 					shell.active_filter = ActiveFilter::Usages(focus.clone());
 					shell.view_mode = VisualizationMode::Usages;
 					shell.panel_policy = PanelPolicy::Contextual;
-					shell.filter_draft.clear();
-					shell.search_draft.clear();
+					shell.header_search.reset();
+					shell.header_search.pending_generation = None;
 				});
 				Transition::changed("shell.focus_usages")
 			}
@@ -343,8 +370,8 @@ impl AppState {
 					shell.view_mode = VisualizationMode::Change;
 					shell.panel_policy = PanelPolicy::Contextual;
 					shell.change_panel = ChangePanelMode::Diff;
-					shell.filter_draft.clear();
-					shell.search_draft.clear();
+					shell.header_search.reset();
+					shell.header_search.pending_generation = None;
 				});
 				Transition::changed("shell.enter_change_mode")
 			}
@@ -365,83 +392,104 @@ impl AppState {
 	pub(in crate::ui) fn reduce_ui_msg(&mut self, msg: &Msg) -> Transition {
 		match msg {
 			Msg::Quit => Transition::unchanged("ui.quit").with_effect(Effect::Quit),
-			Msg::CycleView => Transition::unchanged("ui.cycle_view")
-				.with_effect(Effect::Navigate(self.shell.view.next().route())),
 			Msg::ShowView(view) => {
 				Transition::unchanged("ui.show_view").with_effect(Effect::Navigate(view.route()))
 			}
-			Msg::StartFilterEdit => {
-				let draft = self
-					.shell
-					.active_filter
-					.text_raw()
-					.map(str::to_string)
-					.unwrap_or_default();
-				self.update_shell(|shell| {
-					shell.mode = UiMode::EditingFilter;
-					shell.filter_draft = draft;
-				});
-				self.shell.status =
-					"type a structural filter, Enter applies, Esc cancels: Resolver, kind:interface, kind:method async.*"
-						.to_string();
-				Transition::changed("ui.start_filter_edit")
+			Msg::ToggleHeaderSearch => {
+				let next = match self.shell.mode {
+					UiMode::Normal => UiMode::HeaderSearch(self.shell.header_search.focus),
+					UiMode::HeaderSearch(_) => UiMode::Normal,
+				};
+				self.update_shell(|shell| shell.mode = next);
+				self.shell.status = match next {
+					UiMode::Normal => "search focus returned to navigator".to_string(),
+					UiMode::HeaderSearch(HeaderSearchFocus::Text) => {
+						"type to search; Tab selects lang".to_string()
+					}
+					UiMode::HeaderSearch(HeaderSearchFocus::Lang) => {
+						"select language; Tab selects kind".to_string()
+					}
+					UiMode::HeaderSearch(HeaderSearchFocus::Kind) => {
+						"select kind; Tab returns to text".to_string()
+					}
+				};
+				Transition::changed("ui.toggle_header_search")
 			}
-			Msg::StartSearchEdit => {
-				let draft = match &self.shell.active_filter {
-					ActiveFilter::Search { raw, .. } => raw.clone(),
-					_ => String::new(),
+			Msg::HeaderSearchNextField => {
+				let focus = match self.shell.mode {
+					UiMode::HeaderSearch(focus) => focus.next(),
+					UiMode::Normal => HeaderSearchFocus::Text,
 				};
 				self.update_shell(|shell| {
-					shell.mode = UiMode::EditingSearch;
-					shell.search_draft = draft;
+					shell.header_search.focus = focus;
+					shell.mode = UiMode::HeaderSearch(focus);
 				});
-				self.shell.status =
-					"type a symbol search, Enter applies, Esc cancels: customer resolver format"
-						.to_string();
-				Transition::changed("ui.start_search_edit")
-			}
-			Msg::FilterInput(edit) => {
-				let label = self.edit_input(*edit);
-				let draft = match self.shell.mode {
-					UiMode::EditingSearch => self.shell.search_draft.as_str(),
-					UiMode::EditingFilter | UiMode::Normal => self.shell.filter_draft.as_str(),
+				self.shell.status = match focus {
+					HeaderSearchFocus::Text => "search text focused".to_string(),
+					HeaderSearchFocus::Lang => "language selector focused".to_string(),
+					HeaderSearchFocus::Kind => "kind selector focused".to_string(),
 				};
-				self.shell.status = format!("draft {label}: {}", display_filter_text(draft));
-				Transition::changed("ui.edit_input")
+				Transition::changed("ui.header_search_next_field")
 			}
-			Msg::CancelInput => {
-				let input = match self.shell.mode {
-					UiMode::EditingSearch => "search",
-					UiMode::EditingFilter | UiMode::Normal => "filter",
-				};
-				self.update_shell(|shell| shell.mode = UiMode::Normal);
-				self.shell.status = format!(
-					"{input} edit canceled; active filter: {}",
-					self.filter_label()
-				);
-				Transition::changed("ui.cancel_input")
+			Msg::HeaderSearchInput(edit) => {
+				let generation = self.edit_header_search_input(*edit);
+				let text = display_filter_text(&self.shell.header_search.text);
+				self.shell.status = format!("search draft: {text}");
+				Transition::changed("ui.header_search_input")
+					.with_effect(Effect::DebounceHeaderSearch(generation))
 			}
+			Msg::HeaderSearchSelectNext => {
+				run_command(AppCommand::CycleHeaderSearchSelector { direction: 1 })
+			}
+			Msg::HeaderSearchSelectPrevious => {
+				run_command(AppCommand::CycleHeaderSearchSelector { direction: -1 })
+			}
+			Msg::HeaderSearchReset => {
+				let return_focus = matches!(self.shell.mode, UiMode::Normal);
+				self.reset_header_search();
+				self.shell.status = "search filters reset".to_string();
+				Transition::changed("ui.header_search_reset").with_effect(Effect::RunCommand(
+					AppCommand::ApplyHeaderSearch {
+						generation: None,
+						return_focus,
+					},
+				))
+			}
+			Msg::HeaderSearchApply => run_command(AppCommand::ApplyHeaderSearch {
+				generation: None,
+				return_focus: true,
+			}),
 			Msg::Help => {
 				self.set_status(
-					"keys: Enter/right open, Esc/left close, / filter, s search, d changes, u usages, y copy panel, x clear, Tab/1-5 panels, c check, q quit",
+					"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, d changes, u usages, y copy panel, 1-5 panels, c check, q quit",
 				);
 				Transition::changed("ui.help")
 			}
-			Msg::ApplyFilter => run_command(AppCommand::ApplyFilter),
-			Msg::ApplySearch => run_command(AppCommand::ApplySearch),
-			Msg::ClearFilter => run_command(AppCommand::ClearFilter),
 			Msg::FocusUsages => run_command(AppCommand::FocusUsages),
 			Msg::ToggleChangeMode => run_command(AppCommand::ToggleChangeMode),
 			Msg::CopyPanelSnapshot => run_command(AppCommand::CopyPanelSnapshot),
 			Msg::RunCheck => run_command(AppCommand::RunCheck),
-			Msg::MoveDown => run_command(AppCommand::Navigation(NavigationAction::MoveDown)),
-			Msg::MoveUp => run_command(AppCommand::Navigation(NavigationAction::MoveUp)),
-			Msg::Home => run_command(AppCommand::Navigation(NavigationAction::Home)),
-			Msg::End => run_command(AppCommand::Navigation(NavigationAction::End)),
+			Msg::MoveDown => {
+				run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveDown)))
+			}
+			Msg::MoveUp => run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveUp))),
+			Msg::Home => run_command(AppCommand::Navigation(Box::new(NavigationAction::Home))),
+			Msg::End => run_command(AppCommand::Navigation(Box::new(NavigationAction::End))),
 			Msg::ToggleNode => run_command(AppCommand::ToggleSelectedNode),
 			Msg::OpenNode => run_command(AppCommand::OpenSelectedNode),
 			Msg::CloseNode => run_command(AppCommand::CloseNodeOrClearScope),
 			Msg::Noop => Transition::unchanged("ui.noop"),
+		}
+	}
+
+	pub(in crate::ui) fn reduce_header_search_debounced(&mut self, generation: u64) -> Transition {
+		if self.shell.header_search.pending_generation == Some(generation) {
+			run_command(AppCommand::ApplyHeaderSearch {
+				generation: Some(generation),
+				return_focus: false,
+			})
+		} else {
+			Transition::unchanged("ui.header_search_debounce_stale")
 		}
 	}
 
@@ -569,33 +617,46 @@ impl AppState {
 		update(&mut self.shell);
 	}
 
-	fn edit_input(&mut self, edit: FilterEdit) -> &'static str {
-		let mut edited = "filter";
+	fn apply_header_search_action(
+		&mut self,
+		results: &HeaderSearchResults,
+		return_focus: bool,
+	) -> Transition {
 		self.update_shell(|shell| {
-			let (draft, label) = match shell.mode {
-				UiMode::EditingSearch => (&mut shell.search_draft, "search"),
-				UiMode::EditingFilter | UiMode::Normal => (&mut shell.filter_draft, "filter"),
-			};
-			edited = label;
-			match edit {
-				FilterEdit::Push(c) => draft.push(c),
-				FilterEdit::Backspace => {
-					draft.pop();
-				}
-				FilterEdit::Clear => draft.clear(),
+			if return_focus {
+				shell.mode = UiMode::Normal;
 			}
+			shell.active_filter = ActiveFilter::HeaderSearch(results.clone());
+			shell.view_mode = VisualizationMode::Search;
+			shell.panel_policy = PanelPolicy::Contextual;
+			shell.header_search.text = results.text.clone();
+			shell.header_search.lang = results.lang;
+			shell.header_search.kind = results.kind.clone();
+			shell.header_search.pending_generation = None;
 		});
-		edited
+		Transition::changed("shell.apply_header_search")
 	}
 
-	fn filter_label(&self) -> String {
-		if self.shell.mode == UiMode::EditingFilter {
-			return display_filter_text(&self.shell.filter_draft).to_string();
-		}
-		if self.shell.mode == UiMode::EditingSearch {
-			return format!("search:{}", display_filter_text(&self.shell.search_draft));
-		}
-		self.shell.active_filter.label()
+	fn edit_header_search_input(&mut self, edit: FilterEdit) -> u64 {
+		let mut generation = self.shell.header_search.generation;
+		self.update_shell(|shell| {
+			match edit {
+				FilterEdit::Push(c) => shell.header_search.text.push(c),
+				FilterEdit::Backspace => {
+					shell.header_search.text.pop();
+				}
+				FilterEdit::Clear => shell.header_search.text.clear(),
+			}
+			generation = shell.header_search.bump_pending();
+		});
+		generation
+	}
+
+	fn reset_header_search(&mut self) {
+		self.update_shell(|shell| {
+			shell.header_search.reset();
+			shell.header_search.bump_pending();
+		});
 	}
 }
 
@@ -603,35 +664,33 @@ impl ActiveFilter {
 	pub(in crate::ui) fn label(&self) -> String {
 		match self {
 			Self::None => "<all>".to_string(),
-			Self::Text { query, .. } => query.describe(),
-			Self::Invalid { raw, .. } => display_filter_text(raw).to_string(),
-			Self::Search { raw, .. } => format!("search:{raw}"),
+			Self::HeaderSearch(results) => results.label(),
 			Self::Usages(focus) => format!("usages:{}", focus.label),
 			Self::Change => "changes".to_string(),
-		}
-	}
-
-	pub(in crate::ui) fn text_raw(&self) -> Option<&str> {
-		match self {
-			Self::Text { raw, .. } | Self::Invalid { raw, .. } => Some(raw),
-			Self::None | Self::Search { .. } | Self::Usages(_) | Self::Change => None,
-		}
-	}
-
-	fn view_mode(&self) -> VisualizationMode {
-		match self {
-			Self::None => VisualizationMode::Explorer,
-			Self::Text { .. } | Self::Invalid { .. } | Self::Search { .. } => {
-				VisualizationMode::Search
-			}
-			Self::Usages(_) => VisualizationMode::Usages,
-			Self::Change => VisualizationMode::Change,
 		}
 	}
 }
 
 fn display_filter_text(filter: &str) -> &str {
 	if filter.is_empty() { "<empty>" } else { filter }
+}
+
+fn header_search_label(text: &str, lang: Option<Lang>, kind: Option<&str>) -> String {
+	let mut parts = Vec::new();
+	if !text.trim().is_empty() {
+		parts.push(format!("search:{}", text.trim()));
+	}
+	if let Some(lang) = lang {
+		parts.push(format!("lang:{}", lang.tag()));
+	}
+	if let Some(kind) = kind {
+		parts.push(format!("kind:{kind}"));
+	}
+	if parts.is_empty() {
+		"<all>".to_string()
+	} else {
+		parts.join(" ")
+	}
 }
 
 fn run_command(command: AppCommand) -> Transition {

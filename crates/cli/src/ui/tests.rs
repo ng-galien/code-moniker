@@ -1,7 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
-use ratatui::layout::Position;
 use std::process::Command;
 
 use code_moniker_core::lang::Lang;
@@ -62,7 +61,7 @@ fn symbol_kind(app: &App, loc: &DefLocation) -> String {
 
 fn find_symbol(app: &App, kind: &str, name: &str) -> DefLocation {
 	app.store()
-		.all_navigable_defs(None)
+		.all_navigable_defs()
 		.into_iter()
 		.find(|loc| {
 			let symbol = app.store().symbol_summary(loc);
@@ -104,11 +103,23 @@ fn select_nav_index(app: &mut App, idx: usize) {
 }
 
 fn apply_text_filter(app: &mut App, raw: &str) {
-	app.update(AppAction::Ui(Msg::StartFilterEdit));
+	app.update(AppAction::Ui(Msg::HeaderSearchReset));
 	for ch in raw.chars() {
-		app.update(AppAction::Ui(Msg::FilterInput(FilterEdit::Push(ch))));
+		app.update(AppAction::Ui(Msg::HeaderSearchInput(FilterEdit::Push(ch))));
 	}
-	app.apply_filter();
+	app.apply_header_search(None, true);
+}
+
+fn apply_kind_filter(app: &mut App, text: &str, lang: Option<Lang>, kind: &str) {
+	app.update(AppAction::Ui(Msg::HeaderSearchReset));
+	for ch in text.chars() {
+		app.update(AppAction::Ui(Msg::HeaderSearchInput(FilterEdit::Push(ch))));
+	}
+	app.dispatch_shell(ShellAction::SetHeaderSearchFilters {
+		lang,
+		kind: Some(kind.to_string()),
+	});
+	app.apply_header_search(None, true);
 }
 
 #[test]
@@ -142,8 +153,8 @@ fn feature_registry_exposes_static_explorer_contracts() {
 	assert!(
 		commands
 			.iter()
-			.any(|command| command.label == "Edit filter"
-				&& command.shortcut.as_deref() == Some("/")),
+			.any(|command| command.label == "Focus header search"
+				&& command.shortcut.as_deref() == Some("s")),
 		"{commands:?}"
 	);
 	assert!(
@@ -169,12 +180,18 @@ fn y_key_copies_panel_only_in_normal_mode() {
 		Msg::CopyPanelSnapshot
 	));
 	assert!(matches!(
-		key_to_msg(UiMode::EditingFilter, key(KeyCode::Char('y'))),
-		Msg::FilterInput(FilterEdit::Push('y'))
+		key_to_msg(
+			UiMode::HeaderSearch(HeaderSearchFocus::Text),
+			key(KeyCode::Char('y'))
+		),
+		Msg::HeaderSearchInput(FilterEdit::Push('y'))
 	));
 	assert!(matches!(
-		key_to_msg(UiMode::EditingSearch, key(KeyCode::Char('y'))),
-		Msg::FilterInput(FilterEdit::Push('y'))
+		key_to_msg(
+			UiMode::HeaderSearch(HeaderSearchFocus::Lang),
+			key(KeyCode::Char('y'))
+		),
+		Msg::Noop
 	));
 }
 
@@ -286,7 +303,10 @@ fn header_exposes_visualization_mode_and_scope_only() {
 	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
 	assert_eq!(app.view(), View::Overview);
 	let initial = line_text(&header_line(&app, 120));
-	assert_eq!(initial, "code-moniker [ui.header] mode explorer  scope all");
+	assert_eq!(
+		initial,
+		"code-moniker [ui.header] mode explorer  [ui.search.input] search [<all>] lang [all] kind [all] scope all"
+	);
 
 	apply_text_filter(&mut app, "Alpha");
 
@@ -295,7 +315,8 @@ fn header_exposes_visualization_mode_and_scope_only() {
 	assert_eq!(app.view(), View::Tree);
 	let filtered = line_text(&header_line(&app, 120));
 	assert!(filtered.contains("mode search"), "{filtered}");
-	assert!(filtered.contains("scope /Alpha"), "{filtered}");
+	assert!(filtered.contains("search [Alpha]"), "{filtered}");
+	assert!(filtered.contains("scope search:Alpha"), "{filtered}");
 	assert!(!filtered.contains("panel"), "{filtered}");
 	assert!(!filtered.contains("files"), "{filtered}");
 	assert!(!filtered.contains("defs"), "{filtered}");
@@ -453,7 +474,9 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 		None,
 	);
 	let total = app.visible_defs().len();
-	let hits = app.store().search_symbols("customer", 10);
+	let hits = app
+		.store()
+		.search_symbols_filtered("customer", 10, None, None);
 	let hit_names: Vec<_> = hits.iter().map(|hit| symbol_name(&app, &hit.loc)).collect();
 
 	assert_eq!(
@@ -470,8 +493,8 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 		app.handle_key(key(KeyCode::Char(c))).unwrap();
 	}
 
-	assert_eq!(app.mode(), UiMode::EditingSearch);
-	assert_eq!(app.search_draft(), "customer");
+	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
+	assert_eq!(app.header_search().text, "customer");
 	assert_eq!(app.visible_defs().len(), total);
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
@@ -479,7 +502,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	assert_eq!(app.mode(), UiMode::Normal);
 	assert_eq!(app.view_mode(), VisualizationMode::Search);
 	assert!(app.is_filtered());
-	assert!(matches!(app.active_filter(), ActiveFilter::Search { .. }));
+	assert!(matches!(app.active_filter(), ActiveFilter::HeaderSearch(_)));
 	assert_eq!(symbol_name(&app, &app.visible_defs()[0]), "CustomerProfile");
 	assert_eq!(
 		symbol_name(
@@ -504,16 +527,13 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	);
 	let header = line_text(&header_line(&app, 120));
 	assert!(header.contains("mode search"), "{header}");
+	assert!(header.contains("search [customer]"), "{header}");
 	assert!(header.contains("scope search:customer"), "{header}");
-	assert!(
-		app.status().contains("search: customer"),
-		"{}",
-		app.status()
-	);
+	assert!(app.status().contains("search:customer"), "{}", app.status());
 }
 
 #[test]
-fn search_edit_uses_focused_input_section_above_navigator() {
+fn header_search_is_always_visible_and_keeps_navigator_space() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(
 		tmp.path(),
@@ -534,15 +554,24 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 	);
 
 	assert!(!search_input_visible(&app));
+	let initial_header = line_text(&header_line(&app, 120));
+	assert!(
+		initial_header.contains("[ui.search.input]"),
+		"{initial_header}"
+	);
+	assert!(
+		initial_header.contains("search [<all>]"),
+		"{initial_header}"
+	);
 
 	app.handle_key(key(KeyCode::Char('s'))).unwrap();
 	for c in "customer".chars() {
 		app.handle_key(key(KeyCode::Char(c))).unwrap();
 	}
 
-	assert_eq!(app.mode(), UiMode::EditingSearch);
+	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
 	assert!(search_input_visible(&app));
-	assert_eq!(search_input_title(&app), "search focused");
+	assert_eq!(search_input_title(&app), "search text focused");
 	assert_eq!(search_input_value(&app), "customer");
 	let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
 	terminal
@@ -550,18 +579,13 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 		.unwrap();
 	let screen = format!("{}", terminal.backend());
 
+	assert!(screen.contains("[ui.search.input]"), "{screen}");
+	assert!(screen.contains("search ["), "{screen}");
 	assert!(
-		screen.contains("search focused [ui.search.input]"),
-		"{screen}"
-	);
-	assert!(
-		screen.find("search focused [ui.search.input]")
+		screen.find("[ui.search.input]")
 			< screen.find("navigator").or_else(|| screen.find("filtered")),
-		"search input should render above the navigator: {screen}"
+		"header search should render before the navigator: {screen}"
 	);
-	terminal
-		.backend_mut()
-		.assert_cursor_position(Position { x: 11, y: 2 });
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 
@@ -571,8 +595,72 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 	assert_eq!(search_input_value(&app), "customer");
 
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
+	app.apply_header_search(None, true);
 
 	assert!(!search_input_visible(&app));
+}
+
+#[test]
+fn header_values_are_fitted_before_scope_is_rendered() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.update(AppAction::Ui(Msg::ToggleHeaderSearch));
+	for ch in "very-long-symbol-query-that-would-overflow-the-header".chars() {
+		app.update(AppAction::Ui(Msg::HeaderSearchInput(FilterEdit::Push(ch))));
+	}
+	app.dispatch_shell(ShellAction::SetHeaderSearchFilters {
+		lang: Some(Lang::Ts),
+		kind: Some("very_long_kind_name".to_string()),
+	});
+	app.apply_header_search(None, true);
+
+	let header = line_text(&header_line(&app, 100));
+	assert!(text::visible_len(&header) <= 100, "{header}");
+	assert!(header.contains("scope "), "{header}");
+}
+
+#[test]
+fn header_search_applies_structured_filters_before_result_limit() {
+	let tmp = tempfile::tempdir().unwrap();
+	let java = (0..510)
+		.map(|idx| format!("class A{idx:03}Resolver {{}}\n"))
+		.collect::<String>();
+	write(tmp.path(), "src/main/java/com/acme/Resolvers.java", &java);
+	write(tmp.path(), "src/ts/target.ts", "class ZResolver {}\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	apply_kind_filter(&mut app, "Resolver", Some(Lang::Ts), "class");
+
+	let names = app
+		.visible_defs()
+		.iter()
+		.map(|loc| symbol_name(&app, loc))
+		.collect::<Vec<_>>();
+	assert_eq!(names, vec!["ZResolver"]);
 }
 
 #[test]
@@ -774,7 +862,7 @@ fn full_store_event_queues_async_reload_when_event_loop_is_available() {
 
 	assert!(
 		app.store()
-			.all_navigable_defs(None)
+			.all_navigable_defs()
 			.iter()
 			.any(|loc| symbol_name(&app, loc) == "Beta"),
 		"store should be replaced by async reload result"
@@ -872,7 +960,7 @@ fn change_mode_reports_sources_without_git() {
 	assert_eq!(app.view(), View::Change);
 	assert_eq!(
 		line_text(&header_line(&app, 120)),
-		"code-moniker [ui.header] mode change  scope HEAD..worktree"
+		"code-moniker [ui.header] mode change  [ui.search.input] search [<all>] lang [all] kind [all] scope HEAD..worktree"
 	);
 	assert!(app.nav_rows().is_empty());
 	let lines = change_panel_lines(&app, 80);
@@ -1083,11 +1171,7 @@ fn full_store_event_reloads_index_and_refreshes_active_search() {
 		None,
 	);
 
-	app.update(AppAction::Ui(Msg::StartSearchEdit));
-	for ch in "Beta".chars() {
-		app.update(AppAction::Ui(Msg::FilterInput(FilterEdit::Push(ch))));
-	}
-	app.apply_search();
+	apply_text_filter(&mut app, "Beta");
 
 	assert!(app.visible_defs().is_empty(), "{:?}", app.visible_defs());
 
@@ -1753,7 +1837,7 @@ fn kind_filter_limits_navigator_to_matching_declaration_kinds() {
 		None,
 	);
 
-	apply_text_filter(&mut app, "kind:interface Resolver");
+	apply_kind_filter(&mut app, "Resolver", Some(Lang::Ts), "interface");
 
 	assert_eq!(app.visible_defs().len(), 1, "{:?}", app.nav_rows());
 	assert!(
@@ -1788,7 +1872,7 @@ fn rust_fn_kind_is_navigable_and_filterable() {
 		None,
 	);
 
-	apply_text_filter(&mut app, "kind:fn build");
+	apply_kind_filter(&mut app, "build", Some(Lang::Rs), "fn");
 
 	assert_eq!(app.visible_defs().len(), 1, "{:?}", app.nav_rows());
 	assert!(
@@ -1819,14 +1903,14 @@ fn filter_counts_only_navigable_declarations() {
 		None,
 	);
 
-	apply_text_filter(&mut app, "kind:local");
+	apply_kind_filter(&mut app, "", Some(Lang::Rs), "local");
 
 	assert!(app.visible_defs().is_empty(), "{:?}", app.visible_defs());
 	assert!(app.nav_rows().is_empty(), "{:?}", app.nav_rows());
 }
 
 #[test]
-fn invalid_filter_regex_clears_rows_with_actionable_status() {
+fn free_search_treats_glob_like_text_as_plain_input() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
 	let store = WorkspaceStore::load(&SessionOptions {
@@ -1844,18 +1928,14 @@ fn invalid_filter_regex_clears_rows_with_actionable_status() {
 
 	apply_text_filter(&mut app, "*Provider");
 
-	assert!(app.active_filter().error().is_some());
+	assert!(matches!(app.active_filter(), ActiveFilter::HeaderSearch(_)));
 	assert!(app.nav_rows().is_empty());
-	assert!(
-		app.status().contains("invalid filter regex"),
-		"{}",
-		app.status()
-	);
+	assert!(app.status().contains("*Provider"), "{}", app.status());
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
 
 	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
-	assert!(app.active_filter().error().is_none());
+	assert!(!app.is_filtered());
 	assert!(!app.nav_rows().is_empty());
 	assert_eq!(app.filter_label(), "<all>");
 }
@@ -1929,7 +2009,7 @@ fn source_snippet_preserves_indent_and_dims_context_lines() {
 }
 
 #[test]
-fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
+fn header_search_keystrokes_update_text_until_enter_applies_filter() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(
 		tmp.path(),
@@ -1950,13 +2030,13 @@ fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 	);
 	let total = app.visible_defs().len();
 
-	app.handle_key(key(KeyCode::Char('/'))).unwrap();
+	app.handle_key(key(KeyCode::Char('s'))).unwrap();
 	for c in "Alpha".chars() {
 		app.handle_key(key(KeyCode::Char(c))).unwrap();
 	}
 
-	assert_eq!(app.mode(), UiMode::EditingFilter);
-	assert_eq!(app.filter_draft(), "Alpha");
+	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
+	assert_eq!(app.header_search().text, "Alpha");
 	assert_eq!(app.visible_defs().len(), total);
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
@@ -1980,7 +2060,7 @@ fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 }
 
 #[test]
-fn editing_filter_accepts_printable_chars_with_terminal_modifiers() {
+fn header_search_ignores_alt_modified_printable_chars() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
 	let store = WorkspaceStore::load(&SessionOptions {
@@ -1996,16 +2076,15 @@ fn editing_filter_accepts_printable_chars_with_terminal_modifiers() {
 		None,
 	);
 
-	app.handle_key(key(KeyCode::Char('/'))).unwrap();
+	app.handle_key(key(KeyCode::Char('s'))).unwrap();
 	app.handle_key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::ALT))
 		.unwrap();
 
-	assert_eq!(app.filter_draft(), "A");
-	assert!(app.status().contains("A"), "{}", app.status());
+	assert_eq!(app.header_search().text, "");
 }
 
 #[test]
-fn normal_mode_x_clears_filter_but_editing_mode_x_updates_draft() {
+fn x_resets_filter_from_navigation_and_search_header() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
 	let store = WorkspaceStore::load(&SessionOptions {
@@ -2023,21 +2102,48 @@ fn normal_mode_x_clears_filter_but_editing_mode_x_updates_draft() {
 	apply_text_filter(&mut app, "Alpha");
 	assert!(app.is_filtered());
 
-	app.handle_key(key(KeyCode::Char('/'))).unwrap();
+	app.handle_key(key(KeyCode::Char('s'))).unwrap();
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
 
-	assert_eq!(app.mode(), UiMode::EditingFilter);
-	assert_eq!(app.filter_draft(), "Alphax");
-	assert!(app.is_filtered());
+	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
+	assert_eq!(app.header_search().text, "");
+	assert!(!app.is_filtered());
 
-	app.handle_key(key(KeyCode::Esc)).unwrap();
-	assert_eq!(app.mode(), UiMode::Normal);
-	assert!(app.is_filtered());
-
+	apply_text_filter(&mut app, "Alpha");
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
 	assert!(!app.is_filtered());
 	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
 	assert_eq!(app.filter_label(), "<all>");
+}
+
+#[test]
+fn live_search_clear_preserves_header_text_focus() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.handle_key(key(KeyCode::Char('s'))).unwrap();
+	app.handle_key(key(KeyCode::Char('A'))).unwrap();
+	app.apply_header_search(None, false);
+	assert!(app.is_filtered());
+
+	app.handle_key(key(KeyCode::Backspace)).unwrap();
+	app.apply_header_search(None, false);
+
+	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
+	assert!(!app.is_filtered());
+	assert_eq!(app.header_search().text, "");
 }
 
 #[test]

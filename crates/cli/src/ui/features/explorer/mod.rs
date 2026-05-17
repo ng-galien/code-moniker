@@ -82,9 +82,9 @@ impl Feature for ExplorerFeature {
 	fn commands(&self) -> Vec<CommandSpec> {
 		vec![
 			CommandSpec::new(
-				CommandId::new("explorer.filter"),
-				"Edit filter",
-				Some("/".into()),
+				CommandId::new("explorer.search"),
+				"Focus header search",
+				Some("s".into()),
 			),
 			CommandSpec::new(
 				CommandId::new("explorer.usages"),

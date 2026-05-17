@@ -4,8 +4,6 @@ pub mod index;
 #[cfg(feature = "tui")]
 mod model;
 #[cfg(feature = "tui")]
-pub mod query;
-#[cfg(feature = "tui")]
 mod snapshot;
 #[cfg(feature = "tui")]
 mod store;
@@ -19,11 +17,7 @@ pub use index::{
 	SessionStats, ViewFilter,
 };
 #[cfg(feature = "tui")]
-pub(crate) use model::{
-	ChangeDetail, ChangeId, ReferenceGroup, ReferenceSet, SearchHit, UsageFocus,
-};
-#[cfg(feature = "tui")]
-pub(crate) use query::{SymbolFilter, parse_filter};
+pub(crate) use model::{ChangeDetail, ChangeId, ReferenceGroup, ReferenceSet, UsageFocus};
 #[cfg(feature = "tui")]
 pub(crate) use store::{
 	GitOverlayRefresh, GitOverlayRefreshInput, IndexStore, StoreWatchRoot, WorkspaceStore,

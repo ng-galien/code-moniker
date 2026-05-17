@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
+use std::thread;
+use std::time::Duration;
 
+use code_moniker_core::lang::Lang;
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -15,8 +18,8 @@ use ratatui::text::Line;
 
 use crate::args::UiArgs;
 use crate::workspace::{
-	ChangeDetail, DefLocation, IndexStore, SessionOptions, StoreWatchRoot, SymbolFilter,
-	UsageFocus, WorkspaceStore, parse_filter,
+	ChangeDetail, DefLocation, IndexStore, SessionOptions, StoreWatchRoot, UsageFocus,
+	WorkspaceStore,
 };
 use crate::{DEFAULT_SCHEME, Exit};
 
@@ -44,12 +47,13 @@ mod view;
 
 use app::{
 	ActiveFilter, AppAction, AppCommand, AppStore, ChangePanelMode, CheckState, Effect,
-	PanelPolicy, ShellAction, TaskCompletion, View, VisualizationMode,
+	HeaderSearchResults, HeaderSearchState, PanelPolicy, ShellAction, TaskCompletion, View,
+	VisualizationMode,
 };
 #[cfg(test)]
 use component::{ComponentId, block_title};
 use contracts::Route;
-use events::{UiMode, key_to_msg};
+use events::{HeaderSearchFocus, UiMode, key_to_msg};
 use features::explorer::ExplorerFeature;
 #[cfg(test)]
 use features::explorer::{ROUTE_OUTLINE, ROUTE_OVERVIEW, ROUTE_REFS};
@@ -65,6 +69,7 @@ use view::{
 };
 
 const DEFAULT_PANEL_SNAPSHOT_WIDTH: usize = 100;
+const HEADER_SEARCH_DEBOUNCE_MS: u64 = 180;
 
 pub fn run<W1: Write, W2: Write>(args: &UiArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match run_inner(args, stdout) {
@@ -151,6 +156,11 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 					return Ok(true);
 				}
 			}
+			ShellEvent::HeaderSearchDebounced(generation) => {
+				if app.update(AppAction::HeaderSearchDebounced(generation)) {
+					return Ok(true);
+				}
+			}
 			ShellEvent::Clipboard(result) => {
 				if app.update(AppAction::Clipboard(result)) {
 					return Ok(true);
@@ -168,44 +178,15 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 }
 
 impl ActiveFilter {
-	fn query(&self) -> Option<&SymbolFilter> {
-		match self {
-			Self::Text { query, .. } => Some(query),
-			Self::None
-			| Self::Invalid { .. }
-			| Self::Search { .. }
-			| Self::Usages(_)
-			| Self::Change => None,
-		}
-	}
-
 	fn usage_focus(&self) -> Option<&UsageFocus> {
 		match self {
 			Self::Usages(focus) => Some(focus),
-			Self::None
-			| Self::Text { .. }
-			| Self::Invalid { .. }
-			| Self::Search { .. }
-			| Self::Change => None,
-		}
-	}
-
-	fn error(&self) -> Option<(&str, &str)> {
-		match self {
-			Self::Invalid { raw, error } => Some((raw, error)),
-			Self::None
-			| Self::Text { .. }
-			| Self::Search { .. }
-			| Self::Usages(_)
-			| Self::Change => None,
+			Self::None | Self::HeaderSearch(_) | Self::Change => None,
 		}
 	}
 
 	fn filters_navigator(&self) -> bool {
-		matches!(
-			self,
-			Self::Text { .. } | Self::Search { .. } | Self::Usages(_) | Self::Change
-		)
+		matches!(self, Self::HeaderSearch(_) | Self::Usages(_) | Self::Change)
 	}
 }
 
@@ -242,7 +223,7 @@ impl App {
 		};
 		app.dispatch_shell(ShellAction::SetRoute(route));
 		app.set_status(format!(
-			"Enter opens nodes, Esc/left closes, / filters, s searches, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
+			"Enter opens nodes, Esc/left closes, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
 		));
 		app.refresh_results(false);
 		app
@@ -307,12 +288,8 @@ impl App {
 		&self.app_store.shell().active_filter
 	}
 
-	fn filter_draft(&self) -> &str {
-		&self.app_store.shell().filter_draft
-	}
-
-	fn search_draft(&self) -> &str {
-		&self.app_store.shell().search_draft
+	fn header_search(&self) -> &HeaderSearchState {
+		&self.app_store.shell().header_search
 	}
 
 	fn store(&self) -> &WorkspaceStore {
@@ -384,20 +361,15 @@ impl App {
 
 	fn matching_defs(&self) -> Vec<DefLocation> {
 		match self.active_filter() {
-			ActiveFilter::Search { hits, .. } => hits.iter().map(|hit| hit.loc).collect(),
+			ActiveFilter::HeaderSearch(results) => results.matches.clone(),
 			ActiveFilter::Usages(focus) => focus.contexts.clone(),
 			ActiveFilter::Change => self.store().changed_defs(),
-			ActiveFilter::Invalid { .. } => Vec::new(),
-			ActiveFilter::None | ActiveFilter::Text { .. } => self
-				.store()
-				.all_navigable_defs(self.active_filter().query()),
+			ActiveFilter::None => self.store().all_navigable_defs(),
 		}
 	}
 
 	fn navigation_scope(&self) -> NavigationScope {
-		if self.active_filter().error().is_some() {
-			NavigationScope::Invalid
-		} else if matches!(self.active_filter(), ActiveFilter::Change) {
+		if matches!(self.active_filter(), ActiveFilter::Change) {
 			NavigationScope::Change
 		} else if self.is_filtered() {
 			NavigationScope::Filtered
@@ -415,11 +387,9 @@ impl App {
 	}
 
 	fn filter_label(&self) -> String {
-		if self.mode() == UiMode::EditingFilter {
-			return display_filter(self.filter_draft()).to_string();
-		}
-		if self.mode() == UiMode::EditingSearch {
-			return format!("search:{}", display_filter(self.search_draft()));
+		if matches!(self.mode(), UiMode::HeaderSearch(_)) {
+			let header = self.header_search();
+			return header_search_label(&header.text, header.lang, header.kind.as_deref());
 		}
 		self.active_filter().label()
 	}
@@ -436,7 +406,6 @@ impl App {
 		match self.view_mode() {
 			VisualizationMode::Usages => View::Refs,
 			VisualizationMode::Change => View::Change,
-			VisualizationMode::Search if self.active_filter().error().is_some() => View::Tree,
 			VisualizationMode::Explorer | VisualizationMode::Search => {
 				if self.selected().is_some() {
 					View::Tree
@@ -464,9 +433,7 @@ impl App {
 	fn scope_label(&self) -> String {
 		match self.active_filter() {
 			ActiveFilter::None => "all".to_string(),
-			ActiveFilter::Text { query, .. } => query.describe(),
-			ActiveFilter::Invalid { raw, .. } => format!("invalid {}", display_filter(raw)),
-			ActiveFilter::Search { raw, .. } => format!("search:{raw}"),
+			ActiveFilter::HeaderSearch(results) => results.label(),
 			ActiveFilter::Usages(focus) => focus.label.clone(),
 			ActiveFilter::Change => self.store().change_overview().scope,
 		}
@@ -486,62 +453,158 @@ impl App {
 		));
 	}
 
-	fn apply_filter(&mut self) {
-		let raw = self.filter_draft().trim().to_string();
-		let active_filter = match parse_filter(&raw) {
-			Ok(Some(query)) => ActiveFilter::Text {
-				raw: raw.clone(),
-				query,
-			},
-			Ok(None) => ActiveFilter::None,
-			Err(error) => ActiveFilter::Invalid {
-				raw: raw.clone(),
-				error: error.to_string(),
-			},
-		};
-		self.dispatch_shell(ShellAction::ApplyFilter(active_filter));
+	fn apply_header_search(&mut self, generation: Option<u64>, return_focus: bool) {
+		if generation.is_some() && generation != self.header_search().pending_generation {
+			return;
+		}
+		let header = self.header_search().clone();
+		if !header.has_filter() {
+			self.clear_filter_with_focus(return_focus);
+			if return_focus {
+				self.dispatch_shell(ShellAction::SetStatus("search cleared".to_string()));
+			}
+			return;
+		}
+		let results = self.header_search_results(&header.text, header.lang, header.kind.as_deref());
+		let match_count = results.matches.len();
+		let first_match = results.matches.first().copied();
+		self.dispatch_shell(ShellAction::ApplyHeaderSearch {
+			results: results.clone(),
+			return_focus,
+		});
 		self.refresh_results(true);
+		if let Some(loc) = first_match {
+			self.select_def(loc);
+		}
 		self.sync_contextual_view();
-		if let Some((raw, _)) = self.active_filter().error() {
-			self.set_status(format!("invalid filter regex: /{raw}"));
+		if return_focus {
+			self.dispatch_shell(ShellAction::SetStatus(format!(
+				"search applied: {} ({}/{})",
+				results.label(),
+				match_count,
+				self.store().stats().defs
+			)));
 		} else {
 			self.set_status(format!(
-				"filter: {} ({}/{})",
-				self.filter_label(),
-				self.visible_defs().len(),
+				"search: {} ({}/{})",
+				results.label(),
+				match_count,
 				self.store().stats().defs
 			));
 		}
 	}
 
-	fn apply_search(&mut self) {
-		let raw = self.search_draft().trim().to_string();
-		if raw.is_empty() {
-			self.clear_filter();
-			self.set_status("search cleared");
-			return;
+	fn header_search_results(
+		&self,
+		text: &str,
+		lang: Option<Lang>,
+		kind: Option<&str>,
+	) -> HeaderSearchResults {
+		let raw = text.trim().to_string();
+		let mut matches = if raw.is_empty() {
+			self.store().all_navigable_defs()
+		} else {
+			self.store()
+				.search_symbols_filtered(&raw, 500, lang, kind)
+				.into_iter()
+				.map(|hit| hit.loc)
+				.collect()
+		};
+		matches.retain(|loc| {
+			let symbol = self.store().symbol_summary(loc);
+			self.store().is_navigable_symbol(loc)
+				&& lang.is_none_or(|lang| symbol.lang == lang)
+				&& kind.is_none_or(|kind| symbol.kind == kind)
+		});
+		HeaderSearchResults {
+			text: raw,
+			lang,
+			kind: kind.map(str::to_string),
+			matches,
 		}
-		let hits = self.store().search_symbols(&raw, 500);
-		let hit_count = hits.len();
-		let first_hit = hits.first().map(|hit| hit.loc);
-		self.dispatch_shell(ShellAction::ApplyFilter(ActiveFilter::Search {
-			raw: raw.clone(),
-			hits,
-		}));
-		self.refresh_results(true);
-		if let Some(loc) = first_hit {
-			self.select_def(loc);
+	}
+
+	fn cycle_header_search_selector(&mut self, direction: i8) {
+		let focus = match self.mode() {
+			UiMode::HeaderSearch(focus) => focus,
+			UiMode::Normal => HeaderSearchFocus::Text,
+		};
+		match focus {
+			HeaderSearchFocus::Text => {
+				self.dispatch_shell(ShellAction::SetStatus(
+					"type text or press Tab to edit language".to_string(),
+				));
+			}
+			HeaderSearchFocus::Lang => {
+				let next_lang = cycle_optional(
+					self.header_search().lang,
+					self.available_header_langs(),
+					direction,
+				);
+				let next_kind = self
+					.header_search()
+					.kind
+					.as_deref()
+					.filter(|kind| self.kind_is_available(next_lang, kind))
+					.map(str::to_string);
+				self.dispatch_shell(ShellAction::SetHeaderSearchFilters {
+					lang: next_lang,
+					kind: next_kind,
+				});
+				self.set_status(format!(
+					"language filter: {}",
+					next_lang.map_or("all", Lang::tag)
+				));
+			}
+			HeaderSearchFocus::Kind => {
+				let next_kind = cycle_optional(
+					self.header_search().kind.clone(),
+					self.available_header_kinds(self.header_search().lang),
+					direction,
+				);
+				self.dispatch_shell(ShellAction::SetHeaderSearchFilters {
+					lang: self.header_search().lang,
+					kind: next_kind.clone(),
+				});
+				self.set_status(format!(
+					"kind filter: {}",
+					next_kind.as_deref().unwrap_or("all")
+				));
+			}
 		}
-		self.sync_contextual_view();
-		self.set_status(format!(
-			"search: {raw} ({}/{})",
-			hit_count,
-			self.store().stats().defs
-		));
+	}
+
+	fn available_header_langs(&self) -> Vec<Lang> {
+		Lang::ALL
+			.iter()
+			.copied()
+			.filter(|lang| self.store().stats().by_lang.contains_key(lang.tag()))
+			.collect()
+	}
+
+	fn available_header_kinds(&self, lang: Option<Lang>) -> Vec<String> {
+		let mut kinds = BTreeSet::new();
+		for loc in self.store().all_navigable_defs() {
+			let symbol = self.store().symbol_summary(&loc);
+			if lang.is_none_or(|lang| symbol.lang == lang) {
+				kinds.insert(symbol.kind);
+			}
+		}
+		kinds.into_iter().collect()
+	}
+
+	fn kind_is_available(&self, lang: Option<Lang>, kind: &str) -> bool {
+		self.available_header_kinds(lang)
+			.iter()
+			.any(|available| available == kind)
 	}
 
 	fn clear_filter(&mut self) {
-		self.dispatch_shell(ShellAction::ClearFilter);
+		self.clear_filter_with_focus(true);
+	}
+
+	fn clear_filter_with_focus(&mut self, return_focus: bool) {
+		self.dispatch_shell(ShellAction::ClearFilter { return_focus });
 		self.refresh_results(true);
 		self.sync_contextual_view();
 		self.set_status("filter cleared");
@@ -673,23 +736,14 @@ impl App {
 
 	fn refresh_active_filter_after_store_reload(&mut self) {
 		let active_filter = match self.active_filter() {
-			ActiveFilter::Search { raw, .. } => ActiveFilter::Search {
-				raw: raw.clone(),
-				hits: self.store().search_symbols(raw, 500),
-			},
+			ActiveFilter::HeaderSearch(results) => ActiveFilter::HeaderSearch(
+				self.header_search_results(&results.text, results.lang, results.kind.as_deref()),
+			),
 			ActiveFilter::Usages(focus) => ActiveFilter::Usages(
 				self.store()
 					.usage_focus_for_target(focus.target.clone(), focus.label.clone()),
 			),
 			ActiveFilter::None => ActiveFilter::None,
-			ActiveFilter::Text { raw, query } => ActiveFilter::Text {
-				raw: raw.clone(),
-				query: query.clone(),
-			},
-			ActiveFilter::Invalid { raw, error } => ActiveFilter::Invalid {
-				raw: raw.clone(),
-				error: error.clone(),
-			},
 			ActiveFilter::Change => ActiveFilter::Change,
 		};
 		self.dispatch_shell(ShellAction::ReplaceActiveFilter(active_filter));
@@ -865,6 +919,7 @@ impl App {
 		}
 		match action {
 			AppAction::Ui(_) => false,
+			AppAction::HeaderSearchDebounced(_) => false,
 			AppAction::Shell(_) => false,
 			AppAction::Store(event) => {
 				self.handle_store_event(event);
@@ -906,6 +961,9 @@ impl App {
 			Effect::Spawn(task) => {
 				self.queue_task(task);
 			}
+			Effect::DebounceHeaderSearch(generation) => {
+				self.queue_header_search_debounce(generation);
+			}
 			Effect::RunCommand(command) => return self.run_command(command),
 		}
 		false
@@ -913,14 +971,18 @@ impl App {
 
 	fn run_command(&mut self, command: AppCommand) -> bool {
 		match command {
-			AppCommand::ApplyFilter => self.apply_filter(),
-			AppCommand::ApplySearch => self.apply_search(),
-			AppCommand::ClearFilter => self.clear_filter(),
+			AppCommand::ApplyHeaderSearch {
+				generation,
+				return_focus,
+			} => self.apply_header_search(generation, return_focus),
+			AppCommand::CycleHeaderSearchSelector { direction } => {
+				self.cycle_header_search_selector(direction)
+			}
 			AppCommand::FocusUsages => self.focus_usages_of_selected(),
 			AppCommand::ToggleChangeMode => self.toggle_change_mode(),
 			AppCommand::CopyPanelSnapshot => self.copy_panel_snapshot(),
 			AppCommand::RunCheck => self.run_check(),
-			AppCommand::Navigation(action) => self.apply_navigation(action),
+			AppCommand::Navigation(action) => self.apply_navigation(*action),
 			AppCommand::ToggleSelectedNode => self.toggle_selected_nav(),
 			AppCommand::OpenSelectedNode => self.open_selected_nav(),
 			AppCommand::CloseNodeOrClearScope => {
@@ -955,6 +1017,16 @@ impl App {
 		true
 	}
 
+	fn queue_header_search_debounce(&mut self, generation: u64) {
+		let Some(tx) = self.event_tx.clone() else {
+			return;
+		};
+		thread::spawn(move || {
+			thread::sleep(Duration::from_millis(HEADER_SEARCH_DEBOUNCE_MS));
+			let _ = tx.send(ShellEvent::HeaderSearchDebounced(generation));
+		});
+	}
+
 	fn navigate(&mut self, route: Route) {
 		if !self.registry.can_open(&route) {
 			self.set_status(format!("unknown route: {}/{}", route.feature, route.path));
@@ -970,4 +1042,44 @@ impl App {
 
 fn display_filter(filter: &str) -> &str {
 	if filter.is_empty() { "<all>" } else { filter }
+}
+
+fn header_search_label(text: &str, lang: Option<Lang>, kind: Option<&str>) -> String {
+	let mut parts = Vec::new();
+	if !text.trim().is_empty() {
+		parts.push(format!("search:{}", text.trim()));
+	}
+	if let Some(lang) = lang {
+		parts.push(format!("lang:{}", lang.tag()));
+	}
+	if let Some(kind) = kind {
+		parts.push(format!("kind:{kind}"));
+	}
+	if parts.is_empty() {
+		"<all>".to_string()
+	} else {
+		parts.join(" ")
+	}
+}
+
+fn cycle_optional<T: Clone + Eq>(current: Option<T>, options: Vec<T>, direction: i8) -> Option<T> {
+	let len = options.len() + 1;
+	if len == 1 {
+		return None;
+	}
+	let current_idx = current
+		.as_ref()
+		.and_then(|current| options.iter().position(|option| option == current))
+		.map(|idx| idx + 1)
+		.unwrap_or(0);
+	let next = if direction >= 0 {
+		(current_idx + 1) % len
+	} else {
+		(current_idx + len - 1) % len
+	};
+	if next == 0 {
+		None
+	} else {
+		Some(options[next - 1].clone())
+	}
 }

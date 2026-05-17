@@ -117,16 +117,7 @@ fn outline_panel(app: &App) -> PanelVm {
 fn nav_selection_panel(app: &App) -> PanelVm {
 	let mut vm = PanelVm::new("outline", ComponentId::PanelOutline).unwrapped();
 	let Some(row) = app.selected_nav_row() else {
-		if let Some((raw, error)) = app.active_filter().error() {
-			vm.danger_section("invalid filter");
-			vm.kv("query", raw, FitMode::Tail);
-			vm.danger(error);
-			vm.blank();
-			vm.section("examples");
-			vm.bullet("Resolver");
-			vm.bullet("kind:interface Resolver");
-			vm.bullet("kind:method ^async");
-		} else if app.is_filtered() {
+		if app.is_filtered() {
 			vm.section("filtered navigator");
 			vm.kv("filter", app.filter_label(), FitMode::Tail);
 			vm.kv("matches", "0", FitMode::Tail);

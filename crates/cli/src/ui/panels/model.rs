@@ -28,14 +28,6 @@ impl PanelVm {
 	pub(in crate::ui) fn section(&mut self, label: impl Into<String>) {
 		self.sections.push(PanelSection::Heading {
 			label: label.into(),
-			tone: HeadingTone::Normal,
-		});
-	}
-
-	pub(in crate::ui) fn danger_section(&mut self, label: impl Into<String>) {
-		self.sections.push(PanelSection::Heading {
-			label: label.into(),
-			tone: HeadingTone::Danger,
 		});
 	}
 
@@ -110,7 +102,6 @@ pub(super) enum WrapMode {
 pub(super) enum PanelSection {
 	Heading {
 		label: String,
-		tone: HeadingTone,
 	},
 	ComponentHeading {
 		label: String,
@@ -138,12 +129,6 @@ pub(super) enum PanelSection {
 		limit: usize,
 	},
 	Blank,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(super) enum HeadingTone {
-	Normal,
-	Danger,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

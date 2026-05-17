@@ -13,7 +13,6 @@ pub(in crate::ui) enum NavigationScope {
 	Explorer,
 	Filtered,
 	Change,
-	Invalid,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -120,7 +119,7 @@ impl NavigationState {
 	fn is_filtered_scope(&self) -> bool {
 		matches!(
 			self.scope,
-			NavigationScope::Filtered | NavigationScope::Change | NavigationScope::Invalid
+			NavigationScope::Filtered | NavigationScope::Change
 		)
 	}
 
@@ -152,7 +151,7 @@ impl NavigationState {
 					self.filtered_expanded =
 						filtered_expanded_keys(&self.explorer, &self.visible_defs, expand_symbols);
 				}
-				NavigationScope::Explorer | NavigationScope::Invalid => {}
+				NavigationScope::Explorer => {}
 			}
 			self.selection = 0;
 		}
@@ -162,7 +161,6 @@ impl NavigationState {
 	fn refresh_rows(&mut self) {
 		self.rows.clear();
 		match self.scope {
-			NavigationScope::Invalid => {}
 			NavigationScope::Change => {
 				flatten_nav(
 					&self.change,

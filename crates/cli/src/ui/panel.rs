@@ -14,6 +14,7 @@ pub(super) fn section(label: impl Into<String>) -> Line<'static> {
 	)
 }
 
+#[cfg(test)]
 pub(super) fn danger_section(label: impl Into<String>) -> Line<'static> {
 	Line::styled(
 		label.into(),

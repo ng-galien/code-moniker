@@ -150,6 +150,9 @@ impl Reduce<&AppAction> for AppState {
 	fn reduce(&mut self, action: &AppAction) -> Transition {
 		match action {
 			AppAction::Ui(msg) => self.reduce_ui_msg(msg),
+			AppAction::HeaderSearchDebounced(generation) => {
+				self.reduce_header_search_debounced(*generation)
+			}
 			AppAction::Shell(action) => self.reduce_shell_action(action),
 			AppAction::Store(event) => {
 				self.invalidate_for_store_event(*event);
@@ -182,7 +185,7 @@ impl Reduce<&AppAction> for AppState {
 mod tests {
 	use super::*;
 	use crate::ui::app::{AppCommand, Effect, View};
-	use crate::ui::events::Msg;
+	use crate::ui::events::{FilterEdit, Msg};
 	use crate::ui::features::explorer::{ExplorerFeature, ROUTE_REFS};
 	use crate::ui::navigator::{NavNode, NavNodeKind};
 	use crate::ui::runtime::{TaskOutcome, TaskSpec, WorkKind};
@@ -242,15 +245,49 @@ mod tests {
 	}
 
 	#[test]
-	fn ui_messages_emit_commands_from_the_reducer() {
+	fn header_search_apply_messages_emit_commands_from_the_reducer() {
 		let mut store = AppStore::new();
 
-		let transition = store.dispatch(&AppAction::Ui(Msg::ApplySearch));
+		let transition = store.dispatch(&AppAction::Ui(Msg::HeaderSearchApply));
 
 		assert!(!transition.changed);
 		assert!(matches!(
 			&transition.effects[0],
-			Effect::RunCommand(AppCommand::ApplySearch)
+			Effect::RunCommand(AppCommand::ApplyHeaderSearch {
+				generation: None,
+				return_focus: true
+			})
+		));
+	}
+
+	#[test]
+	fn header_search_input_debounces_live_application_by_generation() {
+		let mut store = AppStore::new();
+
+		let transition = store.dispatch(&AppAction::Ui(Msg::HeaderSearchInput(FilterEdit::Push(
+			'A',
+		))));
+
+		assert!(transition.changed);
+		assert!(matches!(
+			&transition.effects[0],
+			Effect::DebounceHeaderSearch(1)
+		));
+		assert_eq!(
+			store.state().shell.header_search.pending_generation,
+			Some(1)
+		);
+
+		let stale = store.dispatch(&AppAction::HeaderSearchDebounced(0));
+		assert!(stale.effects.is_empty());
+
+		let current = store.dispatch(&AppAction::HeaderSearchDebounced(1));
+		assert!(matches!(
+			&current.effects[0],
+			Effect::RunCommand(AppCommand::ApplyHeaderSearch {
+				generation: Some(1),
+				return_focus: false
+			})
 		));
 	}
 

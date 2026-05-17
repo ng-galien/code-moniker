@@ -17,7 +17,6 @@ use super::model::{
 	GitResourceSummary, ReferenceDirection, ReferenceGroup, ReferenceSet, ReferenceSetSummary,
 	SourceLine, SymbolDetail, SymbolReferences, SymbolSummary, UsageFocus,
 };
-use super::query::SymbolFilter;
 use super::snapshot::{
 	CoverageOverlay, GitOverlay, PlanOverlay, SearchDoc, SearchIndex, WorkspaceSnapshot,
 };
@@ -32,7 +31,7 @@ pub(crate) trait IndexStore {
 	fn stats(&self) -> &SessionStats;
 	fn file_count(&self) -> usize;
 	fn file_summary(&self, file_idx: usize) -> FileSummary;
-	fn all_navigable_defs(&self, filter: Option<&SymbolFilter>) -> Vec<DefLocation>;
+	fn all_navigable_defs(&self) -> Vec<DefLocation>;
 	fn root_defs(&self, file_idx: usize) -> Vec<DefLocation>;
 	fn child_defs(&self, parent: &DefLocation) -> Vec<DefLocation>;
 	fn compare_defs_for_navigation(&self, left: &DefLocation, right: &DefLocation) -> Ordering;
@@ -41,7 +40,13 @@ pub(crate) trait IndexStore {
 	fn symbol_detail(&self, loc: &DefLocation) -> SymbolDetail;
 	fn symbol_references(&self, loc: &DefLocation) -> SymbolReferences;
 	fn source_snippet(&self, loc: &DefLocation, context: u32) -> Vec<SourceLine>;
-	fn search_symbols(&self, query: &str, limit: usize) -> Vec<SearchHit>;
+	fn search_symbols_filtered(
+		&self,
+		query: &str,
+		limit: usize,
+		lang: Option<Lang>,
+		kind: Option<&str>,
+	) -> Vec<SearchHit>;
 	fn change_overview(&self) -> ChangeOverview;
 	fn change_rows(&self) -> Vec<ChangeSummary>;
 	fn change_summary(&self, change: ChangeId) -> Option<ChangeSummary>;
@@ -348,7 +353,7 @@ impl IndexStore for WorkspaceStore {
 		}
 	}
 
-	fn all_navigable_defs(&self, filter: Option<&SymbolFilter>) -> Vec<DefLocation> {
+	fn all_navigable_defs(&self) -> Vec<DefLocation> {
 		let mut out: Vec<DefLocation> = self
 			.snapshot
 			.index
@@ -367,9 +372,6 @@ impl IndexStore for WorkspaceStore {
 			.filter(|loc| {
 				let def = self.raw_def(loc);
 				is_navigable_def(self.raw_file(loc.file).lang, def)
-					&& filter.is_none_or(|filter| {
-						filter.matches(&def_kind(def), &last_name(&def.moniker))
-					})
 			})
 			.collect();
 		out.sort_by(|a, b| self.raw_def(a).moniker.cmp(&self.raw_def(b).moniker));
@@ -481,35 +483,19 @@ impl IndexStore for WorkspaceStore {
 			.collect()
 	}
 
-	fn search_symbols(&self, query: &str, limit: usize) -> Vec<SearchHit> {
-		let raw = query.trim().to_ascii_lowercase();
-		let terms = search_terms(&raw);
-		if raw.is_empty() || terms.is_empty() || limit == 0 {
-			return Vec::new();
-		}
-		let mut hits: Vec<_> = self
-			.snapshot
-			.search
-			.docs
-			.iter()
-			.filter_map(|doc| {
-				let (score, reason) = score_doc(doc, &raw, &terms)?;
-				Some(SearchHit {
-					loc: doc.loc,
-					score,
-					reason,
-				})
-			})
-			.collect();
-		hits.sort_by(|a, b| {
-			b.score.cmp(&a.score).then_with(|| {
-				self.raw_def(&a.loc)
-					.moniker
-					.cmp(&self.raw_def(&b.loc).moniker)
-			})
-		});
-		hits.truncate(limit);
-		hits
+	fn search_symbols_filtered(
+		&self,
+		query: &str,
+		limit: usize,
+		lang: Option<Lang>,
+		kind: Option<&str>,
+	) -> Vec<SearchHit> {
+		self.search_symbols_matching(query, limit, |doc| {
+			let file_lang = self.raw_file(doc.loc.file).lang;
+			let def = self.raw_def(&doc.loc);
+			lang.is_none_or(|lang| file_lang == lang)
+				&& kind.is_none_or(|kind| def_kind(def) == kind)
+		})
 	}
 
 	fn change_overview(&self) -> ChangeOverview {
@@ -608,6 +594,42 @@ impl IndexStore for WorkspaceStore {
 }
 
 impl WorkspaceStore {
+	fn search_symbols_matching(
+		&self,
+		query: &str,
+		limit: usize,
+		mut include: impl FnMut(&SearchDoc) -> bool,
+	) -> Vec<SearchHit> {
+		let raw = query.trim().to_ascii_lowercase();
+		let terms = search_terms(&raw);
+		if raw.is_empty() || terms.is_empty() || limit == 0 {
+			return Vec::new();
+		}
+		let mut hits: Vec<_> = self
+			.snapshot
+			.search
+			.docs
+			.iter()
+			.filter(|doc| include(doc))
+			.filter_map(|doc| {
+				let (score, reason) = score_doc(doc, &raw, &terms)?;
+				Some(SearchHit {
+					loc: doc.loc,
+					score,
+					reason,
+				})
+			})
+			.collect();
+		hits.sort_by(|a, b| {
+			b.score.cmp(&a.score).then_with(|| {
+				self.raw_def(&a.loc)
+					.moniker
+					.cmp(&self.raw_def(&b.loc).moniker)
+			})
+		});
+		hits.truncate(limit);
+		hits
+	}
 	fn sort_defs_for_navigation(&self, locs: &mut [DefLocation]) {
 		locs.sort_by(|a, b| self.compare_defs_for_navigation(a, b));
 	}
@@ -1057,7 +1079,7 @@ mod tests {
 		assert_eq!(store.snapshot.plan.generation, 0);
 		assert!(
 			store
-				.search_symbols("UserService", 5)
+				.search_symbols_filtered("UserService", 5, None, None)
 				.iter()
 				.any(|hit| store.symbol_summary(&hit.loc).name == "UserService")
 		);
