@@ -82,7 +82,7 @@ fn select_nav_index(app: &mut App, idx: usize) {
 }
 
 fn apply_text_filter(app: &mut App, raw: &str) {
-	app.filter_draft = raw.to_string();
+	app.update_shell(|shell| shell.filter_draft = raw.to_string());
 	app.apply_filter();
 }
 
@@ -258,16 +258,16 @@ fn header_exposes_visualization_mode_and_scope_only() {
 		None,
 	);
 
-	assert_eq!(app.view_mode, VisualizationMode::Explorer);
-	assert_eq!(app.view, View::Overview);
+	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
+	assert_eq!(app.view(), View::Overview);
 	let initial = line_text(&header_line(&app, 120));
 	assert_eq!(initial, "code-moniker [ui.header] mode explorer  scope all");
 
 	apply_text_filter(&mut app, "Alpha");
 
-	assert_eq!(app.view_mode, VisualizationMode::Search);
-	assert_eq!(app.panel_policy, PanelPolicy::Contextual);
-	assert_eq!(app.view, View::Tree);
+	assert_eq!(app.view_mode(), VisualizationMode::Search);
+	assert_eq!(app.panel_policy(), PanelPolicy::Contextual);
+	assert_eq!(app.view(), View::Tree);
 	let filtered = line_text(&header_line(&app, 120));
 	assert!(filtered.contains("mode search"), "{filtered}");
 	assert!(filtered.contains("scope /Alpha"), "{filtered}");
@@ -295,11 +295,11 @@ fn view_switches_update_shell_route_through_effects() {
 		None,
 	);
 
-	assert_eq!(app.route, ExplorerFeature::route(ROUTE_OVERVIEW));
+	assert_eq!(app.route().clone(), ExplorerFeature::route(ROUTE_OVERVIEW));
 	app.handle_key(key(KeyCode::Char('3'))).unwrap();
 
-	assert_eq!(app.view, View::Refs);
-	assert_eq!(app.route, ExplorerFeature::route(ROUTE_REFS));
+	assert_eq!(app.view(), View::Refs);
+	assert_eq!(app.route().clone(), ExplorerFeature::route(ROUTE_REFS));
 }
 
 #[test]
@@ -319,28 +319,28 @@ fn contextual_panel_tracks_selected_declaration_in_explorer_mode() {
 		None,
 	);
 
-	assert_eq!(app.view_mode, VisualizationMode::Explorer);
-	assert_eq!(app.panel_policy, PanelPolicy::Contextual);
-	assert_eq!(app.view, View::Overview);
+	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
+	assert_eq!(app.panel_policy(), PanelPolicy::Contextual);
+	assert_eq!(app.view(), View::Overview);
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 	app.handle_key(key(KeyCode::Down)).unwrap();
 	assert!(app.selected().is_none());
-	assert_eq!(app.view, View::Overview);
+	assert_eq!(app.view(), View::Overview);
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 	app.handle_key(key(KeyCode::Down)).unwrap();
 
 	assert_eq!(
 		last_name(
-			&app.store
+			&app.store()
 				.def(&app.selected().expect("selected declaration"))
 				.moniker
 		),
 		"Alpha"
 	);
-	assert_eq!(app.view, View::Tree);
-	assert_eq!(app.route, ExplorerFeature::route(ROUTE_OUTLINE));
+	assert_eq!(app.view(), View::Tree);
+	assert_eq!(app.route().clone(), ExplorerFeature::route(ROUTE_OUTLINE));
 }
 
 #[test]
@@ -367,7 +367,7 @@ fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 	assert!(
 		app.visible_defs()
 			.iter()
-			.all(|loc| last_name(&app.store.def(loc).moniker).contains("Alpha")),
+			.all(|loc| last_name(&app.store().def(loc).moniker).contains("Alpha")),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -383,7 +383,7 @@ fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 	select_nav_label_ending_with(&mut app, "Alpha");
 	assert_eq!(
 		last_name(
-			&app.store
+			&app.store()
 				.def(&app.selected().expect("selected Alpha"))
 				.moniker
 		),
@@ -417,10 +417,10 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 		None,
 	);
 	let total = app.visible_defs().len();
-	let hits = app.store.search_symbols("customer", 10);
+	let hits = app.store().search_symbols("customer", 10);
 	let hit_names: Vec<_> = hits
 		.iter()
-		.map(|hit| last_name(&app.store.def(&hit.loc).moniker))
+		.map(|hit| last_name(&app.store().def(&hit.loc).moniker))
 		.collect();
 
 	assert_eq!(
@@ -437,23 +437,23 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 		app.handle_key(key(KeyCode::Char(c))).unwrap();
 	}
 
-	assert_eq!(app.mode, UiMode::EditingSearch);
-	assert_eq!(app.search_draft, "customer");
+	assert_eq!(app.mode(), UiMode::EditingSearch);
+	assert_eq!(app.search_draft(), "customer");
 	assert_eq!(app.visible_defs().len(), total);
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 
-	assert_eq!(app.mode, UiMode::Normal);
-	assert_eq!(app.view_mode, VisualizationMode::Search);
+	assert_eq!(app.mode(), UiMode::Normal);
+	assert_eq!(app.view_mode(), VisualizationMode::Search);
 	assert!(app.is_filtered());
-	assert!(matches!(app.active_filter, ActiveFilter::Search { .. }));
+	assert!(matches!(app.active_filter(), ActiveFilter::Search { .. }));
 	assert_eq!(
-		last_name(&app.store.def(&app.visible_defs()[0]).moniker),
+		last_name(&app.store().def(&app.visible_defs()[0]).moniker),
 		"CustomerProfile"
 	);
 	assert_eq!(
 		last_name(
-			&app.store
+			&app.store()
 				.def(&app.selected().expect("top ranked search hit is selected"))
 				.moniker
 		),
@@ -462,7 +462,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	assert!(
 		!app.visible_defs()
 			.iter()
-			.any(|loc| last_name(&app.store.def(loc).moniker) == "OrderFlow"),
+			.any(|loc| last_name(&app.store().def(loc).moniker) == "OrderFlow"),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -511,7 +511,7 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 		app.handle_key(key(KeyCode::Char(c))).unwrap();
 	}
 
-	assert_eq!(app.mode, UiMode::EditingSearch);
+	assert_eq!(app.mode(), UiMode::EditingSearch);
 	assert!(search_input_visible(&app));
 	assert_eq!(search_input_title(&app), "search focused");
 	assert_eq!(search_input_value(&app), "customer");
@@ -536,7 +536,7 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 
-	assert_eq!(app.mode, UiMode::Normal);
+	assert_eq!(app.mode(), UiMode::Normal);
 	assert!(search_input_visible(&app));
 	assert_eq!(search_input_title(&app), "search");
 	assert_eq!(search_input_value(&app), "customer");
@@ -669,7 +669,7 @@ fn boot_opens_with_empty_store_then_loads_index_async() {
 	let (tx, rx) = std::sync::mpsc::channel();
 	app.set_event_sender(tx);
 
-	assert_eq!(app.store.stats().files, 0);
+	assert_eq!(app.store().stats().files, 0);
 	app.queue_startup_load();
 
 	assert_eq!(app.status(), "loading file tree in background");
@@ -681,8 +681,8 @@ fn boot_opens_with_empty_store_then_loads_index_async() {
 	};
 	app.update(AppAction::TaskCompleted(result));
 
-	assert_eq!(app.store.stats().files, 1);
-	assert_eq!(app.store.stats().defs, 0);
+	assert_eq!(app.store().stats().files, 1);
+	assert_eq!(app.store().stats().defs, 0);
 	assert!(
 		app.nav_rows()
 			.iter()
@@ -703,7 +703,7 @@ fn boot_opens_with_empty_store_then_loads_index_async() {
 	};
 	app.update(AppAction::TaskCompleted(result));
 
-	assert!(app.store.stats().defs > 0);
+	assert!(app.store().stats().defs > 0);
 	assert!(app.take_watch_roots_update().is_some());
 	assert_eq!(app.status(), "reload index completed");
 }
@@ -744,10 +744,10 @@ fn full_store_event_queues_async_reload_when_event_loop_is_available() {
 	app.update(AppAction::TaskCompleted(result));
 
 	assert!(
-		app.store
+		app.store()
 			.all_navigable_defs(None)
 			.iter()
-			.any(|loc| last_name(&app.store.def(loc).moniker) == "Beta"),
+			.any(|loc| last_name(&app.store().def(loc).moniker) == "Beta"),
 		"store should be replaced by async reload result"
 	);
 	assert_eq!(app.status(), "reload index completed");
@@ -802,13 +802,13 @@ fn change_store_event_queues_async_change_index_refresh() {
 	app.update(AppAction::TaskCompleted(result));
 
 	assert!(
-		app.store
+		app.store()
 			.change_index()
 			.entries
 			.iter()
 			.any(|entry| entry.name == "format(cents:long)"),
 		"{:?}",
-		app.store.change_index().entries
+		app.store().change_index().entries
 	);
 	assert_eq!(app.status(), "refresh change index completed");
 }
@@ -831,7 +831,7 @@ fn change_mode_reports_sources_without_git() {
 	);
 
 	assert!(
-		app.store
+		app.store()
 			.change_index()
 			.resources
 			.iter()
@@ -840,8 +840,8 @@ fn change_mode_reports_sources_without_git() {
 
 	app.handle_key(key(KeyCode::Char('d'))).unwrap();
 
-	assert_eq!(app.view_mode, VisualizationMode::Change);
-	assert_eq!(app.view, View::Change);
+	assert_eq!(app.view_mode(), VisualizationMode::Change);
+	assert_eq!(app.view(), View::Change);
 	assert_eq!(
 		line_text(&header_line(&app, 120)),
 		"code-moniker [ui.header] mode change  scope HEAD..worktree"
@@ -882,7 +882,7 @@ fn change_mode_reports_each_non_git_source_in_multi_source_sessions() {
 	assert!(rendered.contains("common-lib"), "{rendered}");
 	assert!(rendered.contains("billing-service"), "{rendered}");
 	assert_eq!(
-		app.store
+		app.store()
 			.change_index()
 			.resources
 			.iter()
@@ -930,18 +930,18 @@ fn change_mode_filters_changed_symbols_and_toggles_blast_radius() {
 
 	app.handle_key(key(KeyCode::Char('d'))).unwrap();
 
-	assert_eq!(app.view_mode, VisualizationMode::Change);
-	assert_eq!(app.view, View::Change);
+	assert_eq!(app.view_mode(), VisualizationMode::Change);
+	assert_eq!(app.view(), View::Change);
 	assert_eq!(app.visible_defs().len(), 1, "{:?}", app.visible_defs());
 	let changed = app.visible_defs()[0];
 	assert_eq!(
-		last_name(&app.store.def(&changed).moniker),
+		last_name(&app.store().def(&changed).moniker),
 		"format(cents:long)"
 	);
-	assert!(app.store.change_for_def(&changed).is_some());
-	assert_eq!(app.store.change_count_for_file(changed.file), 1);
-	let change = app.store.change_for_def(&changed).unwrap();
-	assert_eq!(app.store.change_usage_refs(change).len(), 1);
+	assert!(app.store().change_for_def(&changed).is_some());
+	assert_eq!(app.store().change_count_for_file(changed.file), 1);
+	let change = app.store().change_for_def(&changed).unwrap();
+	assert_eq!(app.store().change_usage_refs(change).len(), 1);
 	assert!(
 		app.nav_rows()
 			.iter()
@@ -964,9 +964,9 @@ fn change_mode_filters_changed_symbols_and_toggles_blast_radius() {
 
 	app.handle_key(key(KeyCode::Char('u'))).unwrap();
 
-	assert_eq!(app.view_mode, VisualizationMode::Change);
-	assert_eq!(app.view, View::Change);
-	assert_eq!(app.change_panel, ChangePanelMode::Usages);
+	assert_eq!(app.view_mode(), VisualizationMode::Change);
+	assert_eq!(app.view(), View::Change);
+	assert_eq!(app.change_panel(), ChangePanelMode::Usages);
 	let usage_lines = change_panel_lines(&app, 100);
 	let rendered_usages = usage_lines
 		.iter()
@@ -984,7 +984,7 @@ fn change_mode_filters_changed_symbols_and_toggles_blast_radius() {
 
 	app.handle_key(key(KeyCode::Char('u'))).unwrap();
 
-	assert_eq!(app.change_panel, ChangePanelMode::Diff);
+	assert_eq!(app.change_panel(), ChangePanelMode::Diff);
 }
 
 #[test]
@@ -1058,7 +1058,7 @@ fn full_store_event_reloads_index_and_refreshes_active_search() {
 		None,
 	);
 
-	app.search_draft = "Beta".to_string();
+	app.update_shell(|shell| shell.search_draft = "Beta".to_string());
 	app.apply_search();
 
 	assert!(app.visible_defs().is_empty(), "{:?}", app.visible_defs());
@@ -1069,7 +1069,7 @@ fn full_store_event_reloads_index_and_refreshes_active_search() {
 	assert!(
 		app.visible_defs()
 			.iter()
-			.any(|loc| last_name(&app.store.def(loc).moniker) == "Beta"),
+			.any(|loc| last_name(&app.store().def(loc).moniker) == "Beta"),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -1161,7 +1161,7 @@ fn full_store_event_refreshes_change_navigator_while_change_mode_is_active() {
 	);
 	app.handle_store_event(StoreEvent::FullIndex);
 
-	assert_eq!(app.view_mode, VisualizationMode::Change);
+	assert_eq!(app.view_mode(), VisualizationMode::Change);
 	assert!(
 		app.nav_rows()
 			.iter()
@@ -1206,7 +1206,7 @@ fn navigator_compacts_linear_branches_and_expands_at_branch_points() {
 
 	select_nav_label(&mut app, "Foo");
 	let selected = app.selected().expect("selected symbol");
-	assert_eq!(last_name(&app.store.def(&selected).moniker), "Foo");
+	assert_eq!(last_name(&app.store().def(&selected).moniker), "Foo");
 	assert!(
 		app.nav_rows()
 			.iter()
@@ -1384,7 +1384,7 @@ fn explorer_shows_java_record_fields_before_accessors() {
 			let NavNodeKind::Def(loc) = row.kind else {
 				return None;
 			};
-			let def = app.store.def(&loc);
+			let def = app.store().def(&loc);
 			Some((def_kind(def), row.label.clone()))
 		})
 		.collect();
@@ -1509,9 +1509,9 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
-	let money_formatter = (0..app.store.file_count())
+	let money_formatter = (0..app.store().file_count())
 		.flat_map(|file_idx| {
-			app.store
+			app.store()
 				.file(file_idx)
 				.graph
 				.defs()
@@ -1522,21 +1522,21 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 				})
 		})
 		.find(|loc| {
-			let def = app.store.def(loc);
+			let def = app.store().def(loc);
 			def_kind(def) == "class" && last_name(&def.moniker) == "MoneyFormatter"
 		})
 		.expect("MoneyFormatter class");
 
 	app.focus_usages(money_formatter);
 
-	assert_eq!(app.view, View::Refs);
+	assert_eq!(app.view(), View::Refs);
 	assert!(
 		app.status().contains("usages of MoneyFormatter"),
 		"{}",
 		app.status()
 	);
-	assert_eq!(app.view_mode, VisualizationMode::Usages);
-	assert_eq!(app.panel_policy, PanelPolicy::Contextual);
+	assert_eq!(app.view_mode(), VisualizationMode::Usages);
+	assert_eq!(app.panel_policy(), PanelPolicy::Contextual);
 	let header = line_text(&header_line(&app, 120));
 	assert!(header.contains("mode usages"), "{header}");
 	assert!(header.contains("scope MoneyFormatter"), "{header}");
@@ -1544,14 +1544,14 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 	assert!(
 		app.visible_defs()
 			.iter()
-			.any(|loc| last_name(&app.store.def(loc).moniker) == "BillingApplication"),
+			.any(|loc| last_name(&app.store().def(loc).moniker) == "BillingApplication"),
 		"{:?}",
 		app.visible_defs()
 	);
 	assert!(
 		!app.visible_defs()
 			.iter()
-			.any(|loc| last_name(&app.store.def(loc).moniker) == "OrderApplication"),
+			.any(|loc| last_name(&app.store().def(loc).moniker) == "OrderApplication"),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -1591,9 +1591,9 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
-	let premium_accessor = (0..app.store.file_count())
+	let premium_accessor = (0..app.store().file_count())
 		.flat_map(|file_idx| {
-			app.store
+			app.store()
 				.file(file_idx)
 				.graph
 				.defs()
@@ -1604,25 +1604,25 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 				})
 		})
 		.find(|loc| {
-			let def = app.store.def(loc);
+			let def = app.store().def(loc);
 			def_kind(def) == "method" && last_name(&def.moniker) == "premium()"
 		})
 		.expect("generated premium accessor");
 
 	app.focus_usages(premium_accessor);
 
-	assert_eq!(app.view_mode, VisualizationMode::Usages);
+	assert_eq!(app.view_mode(), VisualizationMode::Usages);
 	assert!(app.is_filtered());
 	assert!(app.nav_rows().is_empty());
 	assert!(app.status().contains("0 reference(s)"), "{}", app.status());
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
 
-	assert_eq!(app.view_mode, VisualizationMode::Explorer);
+	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
 	assert!(!app.is_filtered());
 	assert_eq!(app.filter_label(), "<all>");
 	assert!(!app.nav_rows().is_empty());
-	assert_eq!(app.view, View::Overview);
+	assert_eq!(app.view(), View::Overview);
 	assert!(app.status().contains("filter cleared"), "{}", app.status());
 }
 
@@ -1646,9 +1646,9 @@ fn refs_panel_prioritizes_incoming_impact_with_location_context() {
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
-	let money_formatter = (0..app.store.file_count())
+	let money_formatter = (0..app.store().file_count())
 		.flat_map(|file_idx| {
-			app.store
+			app.store()
 				.file(file_idx)
 				.graph
 				.defs()
@@ -1659,7 +1659,7 @@ fn refs_panel_prioritizes_incoming_impact_with_location_context() {
 				})
 		})
 		.find(|loc| {
-			let def = app.store.def(loc);
+			let def = app.store().def(loc);
 			def_kind(def) == "class" && last_name(&def.moniker) == "MoneyFormatter"
 		})
 		.expect("MoneyFormatter class");
@@ -1667,7 +1667,7 @@ fn refs_panel_prioritizes_incoming_impact_with_location_context() {
 	let lines: Vec<_> = refs_panel_lines(
 		&app,
 		money_formatter,
-		app.store.def(&money_formatter),
+		app.store().def(&money_formatter),
 		panel_width,
 	)
 	.iter()
@@ -1870,7 +1870,7 @@ fn invalid_filter_regex_clears_rows_with_actionable_status() {
 
 	apply_text_filter(&mut app, "*Provider");
 
-	assert!(app.active_filter.error().is_some());
+	assert!(app.active_filter().error().is_some());
 	assert!(app.nav_rows().is_empty());
 	assert!(
 		app.status().contains("invalid filter regex"),
@@ -1880,8 +1880,8 @@ fn invalid_filter_regex_clears_rows_with_actionable_status() {
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
 
-	assert_eq!(app.view_mode, VisualizationMode::Explorer);
-	assert!(app.active_filter.error().is_none());
+	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
+	assert!(app.active_filter().error().is_none());
 	assert!(!app.nav_rows().is_empty());
 	assert_eq!(app.filter_label(), "<all>");
 }
@@ -1910,7 +1910,7 @@ fn source_snippet_preserves_indent_and_dims_context_lines() {
 		.visible_defs()
 		.iter()
 		.copied()
-		.find(|loc| last_name(&app.store.def(loc).moniker).starts_with("target"))
+		.find(|loc| last_name(&app.store().def(loc).moniker).starts_with("target"))
 		.expect("target function");
 
 	let lines = source_snippet_lines(&app, &target, 1);
@@ -1980,18 +1980,18 @@ fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 		app.handle_key(key(KeyCode::Char(c))).unwrap();
 	}
 
-	assert_eq!(app.mode, UiMode::EditingFilter);
-	assert_eq!(app.filter_draft, "Alpha");
+	assert_eq!(app.mode(), UiMode::EditingFilter);
+	assert_eq!(app.filter_draft(), "Alpha");
 	assert_eq!(app.visible_defs().len(), total);
 
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 
-	assert_eq!(app.mode, UiMode::Normal);
+	assert_eq!(app.mode(), UiMode::Normal);
 	assert!(app.visible_defs().len() < total);
 	assert!(
 		app.visible_defs()
 			.iter()
-			.all(|loc| last_name(&app.store.def(loc).moniker).contains("Alpha")),
+			.all(|loc| last_name(&app.store().def(loc).moniker).contains("Alpha")),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -2025,7 +2025,7 @@ fn editing_filter_accepts_printable_chars_with_terminal_modifiers() {
 	app.handle_key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::ALT))
 		.unwrap();
 
-	assert_eq!(app.filter_draft, "A");
+	assert_eq!(app.filter_draft(), "A");
 	assert!(app.status().contains("A"), "{}", app.status());
 }
 
@@ -2051,17 +2051,17 @@ fn normal_mode_x_clears_filter_but_editing_mode_x_updates_draft() {
 	app.handle_key(key(KeyCode::Char('/'))).unwrap();
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
 
-	assert_eq!(app.mode, UiMode::EditingFilter);
-	assert_eq!(app.filter_draft, "Alphax");
+	assert_eq!(app.mode(), UiMode::EditingFilter);
+	assert_eq!(app.filter_draft(), "Alphax");
 	assert!(app.is_filtered());
 
 	app.handle_key(key(KeyCode::Esc)).unwrap();
-	assert_eq!(app.mode, UiMode::Normal);
+	assert_eq!(app.mode(), UiMode::Normal);
 	assert!(app.is_filtered());
 
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
 	assert!(!app.is_filtered());
-	assert_eq!(app.view_mode, VisualizationMode::Explorer);
+	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
 	assert_eq!(app.filter_label(), "<all>");
 }
 
@@ -2087,10 +2087,10 @@ fn escape_closes_navigation_and_explicit_quit_keys_exit() {
 	assert!(app.active_expanded().contains(&selected_key));
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
-	assert_eq!(app.view, View::Overview);
+	assert_eq!(app.view(), View::Overview);
 	assert!(!app.active_expanded().contains(&selected_key));
 	assert!(app.status().contains("closed"), "{}", app.status());
-	assert_eq!(app.view, View::Overview);
+	assert_eq!(app.view(), View::Overview);
 	assert!(matches!(app.check_state(), CheckState::Pending));
 
 	assert!(app.handle_key(key(KeyCode::Char('q'))).unwrap());
@@ -2118,7 +2118,7 @@ fn normal_mode_ignores_control_modified_command_keys() {
 	);
 	apply_text_filter(&mut app, "Alpha");
 	let visible = app.visible_defs().to_vec();
-	let view = app.view;
+	let view = app.view();
 	let status = app.status().to_string();
 
 	app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL))
@@ -2126,7 +2126,7 @@ fn normal_mode_ignores_control_modified_command_keys() {
 	app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL))
 		.unwrap();
 
-	assert_eq!(app.view, view);
+	assert_eq!(app.view(), view);
 	assert_eq!(app.visible_defs(), visible.as_slice());
 	assert_eq!(app.status(), status);
 	assert!(app.is_filtered());

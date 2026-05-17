@@ -66,6 +66,7 @@ pub(in crate::ui) struct StoreWatchRoot {
 	pub(in crate::ui) ignored_paths: Vec<PathBuf>,
 }
 
+#[derive(Clone)]
 pub(in crate::ui) struct MemoryIndexStore {
 	opts: SessionOptions,
 	index: Arc<SessionIndex>,
@@ -80,6 +81,7 @@ pub(in crate::ui) struct ChangeIndexRefreshInput {
 	search_docs: Arc<Vec<SearchDoc>>,
 }
 
+#[derive(Clone)]
 struct SearchDoc {
 	loc: DefLocation,
 	name: String,

@@ -38,7 +38,7 @@ pub(super) struct NavRow {
 }
 
 impl NavNode {
-	fn new(key: NodeId, label: impl Into<String>, kind: NavNodeKind) -> Self {
+	pub(in crate::ui) fn new(key: NodeId, label: impl Into<String>, kind: NavNodeKind) -> Self {
 		Self {
 			key,
 			label: label.into(),
@@ -47,6 +47,12 @@ impl NavNode {
 			file_count: 0,
 			def_count: 0,
 		}
+	}
+
+	#[cfg(test)]
+	pub(in crate::ui) fn push_child(&mut self, child: NavNode) {
+		self.children.push(child);
+		compute_nav_counts(self);
 	}
 }
 

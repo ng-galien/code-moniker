@@ -42,7 +42,10 @@ mod store;
 mod tests;
 mod theme;
 
-use app::{AppAction, AppStore, CheckState};
+use app::{
+	ActiveFilter, AppAction, AppStore, ChangePanelMode, CheckState, PanelPolicy, ShellSlice, View,
+	VisualizationMode,
+};
 use change::{ChangeEntry, ChangeStatus};
 use component::{ComponentId, block_title, marker};
 use contracts::{Effect, RenderContext, Route, Screen, ScreenContext};
@@ -55,14 +58,13 @@ use kinds::{definition_kind_group, reference_kind_group, sort_reference_kinds};
 use live::StoreEvent;
 use navigator::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
 use panel::{Column, FitMode, fit_text, visible_len};
-use reactive::ReactiveStore;
 use runtime::{TaskOutcome, TaskRuntime};
 use shell::{EventSource, FeatureRegistry, ShellEvent};
 use source::source_snippet_lines;
 use store::navigation::{NavigationAction, NavigationNotice, NavigationScope, NavigationState};
 use store::{
-	IndexStore, MemoryIndexStore, SearchHit, StoreWatchRoot, UsageFocus, compact_moniker, def_kind,
-	last_name, ref_kind,
+	IndexStore, MemoryIndexStore, StoreWatchRoot, UsageFocus, compact_moniker, def_kind, last_name,
+	ref_kind,
 };
 use theme::THEME;
 
@@ -109,7 +111,7 @@ fn app_loop<W: Write>(
 	terminal: &mut Terminal<CrosstermBackend<&mut W>>,
 	app: &mut App,
 ) -> anyhow::Result<()> {
-	let mut events = EventSource::start(app.store.watch_roots());
+	let mut events = EventSource::start(app.store().watch_roots());
 	app.set_event_sender(events.sender());
 	if let Some(status) = events.status.as_deref() {
 		app.set_status(status);
@@ -161,15 +163,6 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 	Ok(false)
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum View {
-	Overview,
-	Tree,
-	Refs,
-	Check,
-	Change,
-}
-
 impl View {
 	fn next(self) -> Self {
 		match self {
@@ -207,14 +200,6 @@ impl View {
 	}
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum VisualizationMode {
-	Explorer,
-	Search,
-	Usages,
-	Change,
-}
-
 impl VisualizationMode {
 	fn label(self) -> &'static str {
 		match self {
@@ -224,28 +209,6 @@ impl VisualizationMode {
 			Self::Change => "change",
 		}
 	}
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum ChangePanelMode {
-	Diff,
-	Usages,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum PanelPolicy {
-	Contextual,
-	Manual,
-}
-
-#[derive(Clone, Debug)]
-enum ActiveFilter {
-	None,
-	Text { raw: String, query: NavFilter },
-	Invalid { raw: String, error: String },
-	Search { raw: String, hits: Vec<SearchHit> },
-	Usages(UsageFocus),
-	Change,
 }
 
 impl ActiveFilter {
@@ -311,21 +274,9 @@ impl ActiveFilter {
 struct App {
 	app_store: AppStore,
 	registry: FeatureRegistry,
-	route: Route,
-	store: MemoryIndexStore,
 	scheme: String,
 	rules: PathBuf,
 	profile: Option<String>,
-	view: View,
-	view_mode: VisualizationMode,
-	panel_policy: PanelPolicy,
-	change_panel: ChangePanelMode,
-	mode: UiMode,
-	active_filter: ActiveFilter,
-	filter_draft: String,
-	search_draft: String,
-	navigation: ReactiveStore<NavigationState>,
-	last_panel_width: usize,
 	event_tx: Option<Sender<ShellEvent>>,
 	startup_load_pending: bool,
 	watch_roots_update: Option<Vec<StoreWatchRoot>>,
@@ -344,30 +295,19 @@ impl App {
 		let command_count = registry.commands().len();
 		let navigator = build_navigator(&store);
 		let change_navigator = build_change_navigator(&store);
-		let navigation = ReactiveStore::new(NavigationState::new(navigator, change_navigator));
-		let app_store = AppStore::from_index_store(&store);
+		let mut app_store = AppStore::from_memory_store(store);
+		app_store.set_navigation(NavigationState::new(navigator, change_navigator));
 		let mut app = Self {
 			app_store,
 			registry,
-			route,
-			store,
 			scheme,
 			rules,
 			profile,
-			view: View::Overview,
-			view_mode: VisualizationMode::Explorer,
-			panel_policy: PanelPolicy::Contextual,
-			change_panel: ChangePanelMode::Diff,
-			mode: UiMode::Normal,
-			active_filter: ActiveFilter::None,
-			filter_draft: String::new(),
-			search_draft: String::new(),
-			navigation,
-			last_panel_width: 100,
 			event_tx: None,
 			startup_load_pending: false,
 			watch_roots_update: None,
 		};
+		app.update_shell(|shell| shell.route = route);
 		app.set_status(format!(
 			"Enter opens nodes, Esc/left closes, / filters, s searches, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
 		));
@@ -402,6 +342,62 @@ impl App {
 		self.app_store.set_check_state(state);
 	}
 
+	fn route(&self) -> &Route {
+		&self.app_store.shell().route
+	}
+
+	fn view(&self) -> View {
+		self.app_store.shell().view
+	}
+
+	fn view_mode(&self) -> VisualizationMode {
+		self.app_store.shell().view_mode
+	}
+
+	fn panel_policy(&self) -> PanelPolicy {
+		self.app_store.shell().panel_policy
+	}
+
+	fn change_panel(&self) -> ChangePanelMode {
+		self.app_store.shell().change_panel
+	}
+
+	fn mode(&self) -> UiMode {
+		self.app_store.shell().mode
+	}
+
+	fn active_filter(&self) -> &ActiveFilter {
+		&self.app_store.shell().active_filter
+	}
+
+	fn filter_draft(&self) -> &str {
+		&self.app_store.shell().filter_draft
+	}
+
+	fn search_draft(&self) -> &str {
+		&self.app_store.shell().search_draft
+	}
+
+	fn last_panel_width(&self) -> usize {
+		self.app_store.shell().last_panel_width
+	}
+
+	fn store(&self) -> &MemoryIndexStore {
+		self.app_store.index()
+	}
+
+	fn store_mut(&mut self) -> &mut MemoryIndexStore {
+		self.app_store.index_mut()
+	}
+
+	fn replace_store(&mut self, store: MemoryIndexStore) {
+		self.app_store.replace_index(store);
+	}
+
+	fn update_shell(&mut self, f: impl FnOnce(&mut ShellSlice)) {
+		self.app_store.update_shell(f);
+	}
+
 	fn selected(&self) -> Option<DefLocation> {
 		self.selected_nav_row().and_then(|row| match row.kind {
 			NavNodeKind::Def(loc) => Some(loc),
@@ -411,35 +407,35 @@ impl App {
 
 	fn selected_change_entry(&self) -> Option<&ChangeEntry> {
 		self.selected_nav_row().and_then(|row| match row.kind {
-			NavNodeKind::Change(idx) => self.store.change_index().entries.get(idx),
-			NavNodeKind::Def(loc) => self.store.change_for_def(&loc),
+			NavNodeKind::Change(idx) => self.store().change_index().entries.get(idx),
+			NavNodeKind::Def(loc) => self.store().change_for_def(&loc),
 			_ => None,
 		})
 	}
 
 	fn selected_nav_row(&self) -> Option<&NavRow> {
-		self.navigation.state().selected_row()
+		self.app_store.navigation().selected_row()
 	}
 
 	fn active_expanded(&self) -> &BTreeSet<store::ids::NodeId> {
-		self.navigation.state().active_expanded()
+		self.app_store.navigation().active_expanded()
 	}
 
 	fn nav_rows(&self) -> &[NavRow] {
-		self.navigation.select(|state| state.rows())
+		self.app_store.navigation().rows()
 	}
 
 	fn visible_defs(&self) -> &[DefLocation] {
-		self.navigation.select(|state| state.visible_defs())
+		self.app_store.navigation().visible_defs()
 	}
 
 	fn selected_nav_index(&self) -> usize {
-		self.navigation.select(NavigationState::selection)
+		self.app_store.navigation().selection()
 	}
 
 	fn dispatch_navigation(&mut self, action: NavigationAction) -> bool {
 		let (changed, effects) = {
-			let transition = self.navigation.dispatch(action);
+			let transition = self.app_store.dispatch_navigation(action);
 			(transition.changed, transition.take_effects())
 		};
 		self.apply_effects(effects);
@@ -458,21 +454,21 @@ impl App {
 	}
 
 	fn matching_defs(&self) -> Vec<DefLocation> {
-		match &self.active_filter {
+		match self.active_filter() {
 			ActiveFilter::Search { hits, .. } => hits.iter().map(|hit| hit.loc).collect(),
 			ActiveFilter::Usages(focus) => focus.contexts.clone(),
-			ActiveFilter::Change => self.store.changed_defs(),
+			ActiveFilter::Change => self.store().changed_defs(),
 			ActiveFilter::Invalid { .. } => Vec::new(),
-			ActiveFilter::None | ActiveFilter::Text { .. } => {
-				self.store.all_navigable_defs(self.active_filter.query())
-			}
+			ActiveFilter::None | ActiveFilter::Text { .. } => self
+				.store()
+				.all_navigable_defs(self.active_filter().query()),
 		}
 	}
 
 	fn navigation_scope(&self) -> NavigationScope {
-		if self.active_filter.error().is_some() {
+		if self.active_filter().error().is_some() {
 			NavigationScope::Invalid
-		} else if matches!(self.active_filter, ActiveFilter::Change) {
+		} else if matches!(self.active_filter(), ActiveFilter::Change) {
 			NavigationScope::Change
 		} else if self.is_filtered() {
 			NavigationScope::Filtered
@@ -490,28 +486,28 @@ impl App {
 	}
 
 	fn filter_label(&self) -> String {
-		if self.mode == UiMode::EditingFilter {
-			return display_filter(&self.filter_draft).to_string();
+		if self.mode() == UiMode::EditingFilter {
+			return display_filter(self.filter_draft()).to_string();
 		}
-		if self.mode == UiMode::EditingSearch {
-			return format!("search:{}", display_filter(&self.search_draft));
+		if self.mode() == UiMode::EditingSearch {
+			return format!("search:{}", display_filter(self.search_draft()));
 		}
-		self.active_filter.label()
+		self.active_filter().label()
 	}
 
 	fn is_filtered(&self) -> bool {
-		self.active_filter.filters_navigator()
+		self.active_filter().filters_navigator()
 	}
 
 	fn has_clearable_scope(&self) -> bool {
-		!matches!(self.active_filter, ActiveFilter::None)
+		!matches!(self.active_filter(), ActiveFilter::None)
 	}
 
 	fn contextual_view(&self) -> View {
-		match self.view_mode {
+		match self.view_mode() {
 			VisualizationMode::Usages => View::Refs,
 			VisualizationMode::Change => View::Change,
-			VisualizationMode::Search if self.active_filter.error().is_some() => View::Tree,
+			VisualizationMode::Search if self.active_filter().error().is_some() => View::Tree,
 			VisualizationMode::Explorer | VisualizationMode::Search => {
 				if self.selected().is_some() {
 					View::Tree
@@ -523,45 +519,44 @@ impl App {
 	}
 
 	fn sync_contextual_view(&mut self) {
-		if self.panel_policy == PanelPolicy::Contextual {
+		if self.panel_policy() == PanelPolicy::Contextual {
 			self.set_view(self.contextual_view(), PanelPolicy::Contextual);
 		}
 	}
 
 	fn set_view(&mut self, view: View, policy: PanelPolicy) {
-		self.view = view;
-		self.panel_policy = policy;
-		self.route = view.route();
+		self.update_shell(|shell| {
+			shell.view = view;
+			shell.panel_policy = policy;
+			shell.route = view.route();
+		});
 	}
 
 	fn scope_label(&self) -> String {
-		match &self.active_filter {
+		match self.active_filter() {
 			ActiveFilter::None => "all".to_string(),
 			ActiveFilter::Text { query, .. } => query.describe(),
 			ActiveFilter::Invalid { raw, .. } => format!("invalid {}", display_filter(raw)),
 			ActiveFilter::Search { raw, .. } => format!("search:{raw}"),
 			ActiveFilter::Usages(focus) => focus.label.clone(),
-			ActiveFilter::Change => self.store.change_index().scope.clone(),
+			ActiveFilter::Change => self.store().change_index().scope.clone(),
 		}
 	}
 
 	fn focus_usages(&mut self, loc: DefLocation) {
-		let focus = self.store.usage_focus(loc);
+		let focus = self.store().usage_focus(loc);
 		let label = focus.label.clone();
-		self.mode = UiMode::Normal;
-		self.filter_draft.clear();
-		self.search_draft.clear();
-		self.view_mode = VisualizationMode::Usages;
-		self.panel_policy = PanelPolicy::Contextual;
-		self.active_filter = ActiveFilter::Usages(focus);
+		let refs_len = focus.refs.len();
+		let contexts_len = focus.contexts.len();
+		self.update_shell(|shell| {
+			shell.mode = UiMode::Normal;
+			shell.filter_draft.clear();
+			shell.search_draft.clear();
+			shell.view_mode = VisualizationMode::Usages;
+			shell.panel_policy = PanelPolicy::Contextual;
+			shell.active_filter = ActiveFilter::Usages(focus);
+		});
 		self.refresh_results(true);
-		let (refs_len, contexts_len) = {
-			let focus = self
-				.active_filter
-				.usage_focus()
-				.expect("usage focus was set");
-			(focus.refs.len(), focus.contexts.len())
-		};
 		self.sync_contextual_view();
 		self.set_status(format!(
 			"usages of {label}: {} reference(s), {} navigable context(s)",
@@ -570,33 +565,40 @@ impl App {
 	}
 
 	fn start_filter_edit(&mut self) {
-		self.mode = UiMode::EditingFilter;
-		self.filter_draft = self
-			.active_filter
+		let draft = self
+			.active_filter()
 			.text_raw()
 			.map(str::to_string)
 			.unwrap_or_default();
+		self.update_shell(|shell| {
+			shell.mode = UiMode::EditingFilter;
+			shell.filter_draft = draft;
+		});
 		self.set_status(
 			"type a structural filter, Enter applies, Esc cancels: Resolver, kind:interface, kind:method async.*",
 		);
 	}
 
 	fn start_search_edit(&mut self) {
-		self.mode = UiMode::EditingSearch;
-		self.search_draft = match &self.active_filter {
+		let draft = match self.active_filter() {
 			ActiveFilter::Search { raw, .. } => raw.clone(),
 			_ => String::new(),
 		};
+		self.update_shell(|shell| {
+			shell.mode = UiMode::EditingSearch;
+			shell.search_draft = draft;
+		});
 		self.set_status(
 			"type a symbol search, Enter applies, Esc cancels: customer resolver format",
 		);
 	}
 
 	fn edit_input(&mut self, edit: FilterEdit) {
-		let status = {
-			let (draft, label) = match self.mode {
-				UiMode::EditingSearch => (&mut self.search_draft, "search"),
-				UiMode::EditingFilter | UiMode::Normal => (&mut self.filter_draft, "filter"),
+		let mut status = String::new();
+		self.update_shell(|shell| {
+			let (draft, label) = match shell.mode {
+				UiMode::EditingSearch => (&mut shell.search_draft, "search"),
+				UiMode::EditingFilter | UiMode::Normal => (&mut shell.filter_draft, "filter"),
 			};
 			match edit {
 				FilterEdit::Push(c) => draft.push(c),
@@ -605,15 +607,14 @@ impl App {
 				}
 				FilterEdit::Clear => draft.clear(),
 			}
-			format!("draft {label}: {}", display_filter(draft))
-		};
+			status = format!("draft {label}: {}", display_filter(draft));
+		});
 		self.set_status(status);
 	}
 
 	fn apply_filter(&mut self) {
-		let raw = self.filter_draft.trim().to_string();
-		self.mode = UiMode::Normal;
-		self.active_filter = match parse_filter(&raw) {
+		let raw = self.filter_draft().trim().to_string();
+		let active_filter = match parse_filter(&raw) {
 			Ok(Some(query)) => ActiveFilter::Text {
 				raw: raw.clone(),
 				query,
@@ -624,45 +625,52 @@ impl App {
 				error: error.to_string(),
 			},
 		};
-		self.refresh_results(true);
-		self.view_mode = match &self.active_filter {
+		let view_mode = match &active_filter {
 			ActiveFilter::None => VisualizationMode::Explorer,
 			ActiveFilter::Text { .. } | ActiveFilter::Invalid { .. } => VisualizationMode::Search,
 			ActiveFilter::Search { .. } => VisualizationMode::Search,
 			ActiveFilter::Usages(_) => VisualizationMode::Usages,
 			ActiveFilter::Change => VisualizationMode::Change,
 		};
-		self.panel_policy = PanelPolicy::Contextual;
+		self.update_shell(|shell| {
+			shell.mode = UiMode::Normal;
+			shell.active_filter = active_filter;
+			shell.view_mode = view_mode;
+			shell.panel_policy = PanelPolicy::Contextual;
+		});
+		self.refresh_results(true);
 		self.sync_contextual_view();
-		if let Some((raw, _)) = self.active_filter.error() {
+		if let Some((raw, _)) = self.active_filter().error() {
 			self.set_status(format!("invalid filter regex: /{raw}"));
 		} else {
 			self.set_status(format!(
 				"filter: {} ({}/{})",
 				self.filter_label(),
 				self.visible_defs().len(),
-				self.store.stats().defs
+				self.store().stats().defs
 			));
 		}
 	}
 
 	fn apply_search(&mut self) {
-		let raw = self.search_draft.trim().to_string();
-		self.mode = UiMode::Normal;
+		let raw = self.search_draft().trim().to_string();
 		if raw.is_empty() {
 			self.clear_filter();
 			self.set_status("search cleared");
 			return;
 		}
-		let hits = self.store.search_symbols(&raw, 500);
+		let hits = self.store().search_symbols(&raw, 500);
 		let hit_count = hits.len();
 		let first_hit = hits.first().map(|hit| hit.loc);
-		self.active_filter = ActiveFilter::Search {
-			raw: raw.clone(),
-			hits,
-		};
-		self.view_mode = VisualizationMode::Search;
-		self.panel_policy = PanelPolicy::Contextual;
+		self.update_shell(|shell| {
+			shell.mode = UiMode::Normal;
+			shell.active_filter = ActiveFilter::Search {
+				raw: raw.clone(),
+				hits,
+			};
+			shell.view_mode = VisualizationMode::Search;
+			shell.panel_policy = PanelPolicy::Contextual;
+		});
 		self.refresh_results(true);
 		if let Some(loc) = first_hit {
 			self.select_def(loc);
@@ -671,16 +679,16 @@ impl App {
 		self.set_status(format!(
 			"search: {raw} ({}/{})",
 			hit_count,
-			self.store.stats().defs
+			self.store().stats().defs
 		));
 	}
 
 	fn cancel_input(&mut self) {
-		let input = match self.mode {
+		let input = match self.mode() {
 			UiMode::EditingSearch => "search",
 			UiMode::EditingFilter | UiMode::Normal => "filter",
 		};
-		self.mode = UiMode::Normal;
+		self.update_shell(|shell| shell.mode = UiMode::Normal);
 		self.set_status(format!(
 			"{input} edit canceled; active filter: {}",
 			self.filter_label()
@@ -688,20 +696,22 @@ impl App {
 	}
 
 	fn clear_filter(&mut self) {
-		self.mode = UiMode::Normal;
-		self.view_mode = VisualizationMode::Explorer;
-		self.panel_policy = PanelPolicy::Contextual;
-		self.change_panel = ChangePanelMode::Diff;
-		self.active_filter = ActiveFilter::None;
-		self.filter_draft.clear();
-		self.search_draft.clear();
+		self.update_shell(|shell| {
+			shell.mode = UiMode::Normal;
+			shell.view_mode = VisualizationMode::Explorer;
+			shell.panel_policy = PanelPolicy::Contextual;
+			shell.change_panel = ChangePanelMode::Diff;
+			shell.active_filter = ActiveFilter::None;
+			shell.filter_draft.clear();
+			shell.search_draft.clear();
+		});
 		self.refresh_results(true);
 		self.sync_contextual_view();
 		self.set_status("filter cleared");
 	}
 
 	fn focus_usages_of_selected(&mut self) {
-		if self.view_mode == VisualizationMode::Change {
+		if self.view_mode() == VisualizationMode::Change {
 			self.toggle_change_usages();
 			return;
 		}
@@ -713,21 +723,23 @@ impl App {
 	}
 
 	fn toggle_change_mode(&mut self) {
-		if self.view_mode == VisualizationMode::Change {
+		if self.view_mode() == VisualizationMode::Change {
 			self.clear_filter();
 			return;
 		}
-		self.mode = UiMode::Normal;
-		self.filter_draft.clear();
-		self.search_draft.clear();
-		self.view_mode = VisualizationMode::Change;
-		self.panel_policy = PanelPolicy::Contextual;
-		self.change_panel = ChangePanelMode::Diff;
-		self.active_filter = ActiveFilter::Change;
+		self.update_shell(|shell| {
+			shell.mode = UiMode::Normal;
+			shell.filter_draft.clear();
+			shell.search_draft.clear();
+			shell.view_mode = VisualizationMode::Change;
+			shell.panel_policy = PanelPolicy::Contextual;
+			shell.change_panel = ChangePanelMode::Diff;
+			shell.active_filter = ActiveFilter::Change;
+		});
 		self.refresh_results(true);
 		self.select_first_change();
 		self.sync_contextual_view();
-		let changes = self.store.change_index();
+		let changes = self.store().change_index();
 		self.set_status(format!(
 			"changes: {} declaration(s) across {} file(s)",
 			changes.entries.len(),
@@ -741,12 +753,13 @@ impl App {
 			return;
 		};
 		let name = change.name.clone();
-		self.change_panel = match self.change_panel {
+		let next_panel = match self.change_panel() {
 			ChangePanelMode::Diff => ChangePanelMode::Usages,
 			ChangePanelMode::Usages => ChangePanelMode::Diff,
 		};
+		self.update_shell(|shell| shell.change_panel = next_panel);
 		self.set_view(View::Change, PanelPolicy::Contextual);
-		self.set_status(match self.change_panel {
+		self.set_status(match next_panel {
 			ChangePanelMode::Diff => format!("change diff details for {name}"),
 			ChangePanelMode::Usages => format!("change blast radius for {name}"),
 		});
@@ -762,9 +775,9 @@ impl App {
 	fn queue_store_task(&mut self, event: StoreEvent) -> bool {
 		let task = match event {
 			StoreEvent::ChangeIndex => {
-				runtime::TaskSpec::refresh_change_index(self.store.change_index_refresh_input())
+				runtime::TaskSpec::refresh_change_index(self.store().change_index_refresh_input())
 			}
-			StoreEvent::FullIndex => runtime::TaskSpec::reload_store(self.store.options()),
+			StoreEvent::FullIndex => runtime::TaskSpec::reload_store(self.store().options()),
 		};
 		self.queue_task(task)
 	}
@@ -772,10 +785,10 @@ impl App {
 	fn handle_store_event_sync(&mut self, event: StoreEvent) {
 		match event {
 			StoreEvent::ChangeIndex => {
-				self.store.refresh_change_index();
+				self.store_mut().refresh_change_index();
 				self.apply_refreshed_change_store("change index refreshed".to_string());
 			}
-			StoreEvent::FullIndex => match self.store.reload() {
+			StoreEvent::FullIndex => match self.store_mut().reload() {
 				Ok(()) => {
 					self.apply_reloaded_store("store reloaded after filesystem change".to_string());
 				}
@@ -787,10 +800,10 @@ impl App {
 	}
 
 	fn apply_file_catalog_store(&mut self, status: String) {
-		self.watch_roots_update = Some(self.store.watch_roots());
+		self.watch_roots_update = Some(self.store().watch_roots());
 		self.dispatch_navigation(NavigationAction::ReplaceModels {
-			explorer: build_navigator(&self.store),
-			change: build_change_navigator(&self.store),
+			explorer: build_navigator(self.store()),
+			change: build_change_navigator(self.store()),
 		});
 		self.refresh_results(true);
 		self.sync_contextual_view();
@@ -798,13 +811,13 @@ impl App {
 	}
 
 	fn apply_reloaded_store(&mut self, status: String) {
-		self.watch_roots_update = Some(self.store.watch_roots());
+		self.watch_roots_update = Some(self.store().watch_roots());
 		let reset =
-			matches!(self.active_filter, ActiveFilter::Change) && self.nav_rows().is_empty();
+			matches!(self.active_filter(), ActiveFilter::Change) && self.nav_rows().is_empty();
 		self.refresh_active_filter_after_store_reload();
 		self.dispatch_navigation(NavigationAction::ReplaceModels {
-			explorer: build_navigator(&self.store),
-			change: build_change_navigator(&self.store),
+			explorer: build_navigator(self.store()),
+			change: build_change_navigator(self.store()),
 		});
 		self.refresh_results(reset);
 		if reset {
@@ -815,12 +828,12 @@ impl App {
 	}
 
 	fn apply_refreshed_change_store(&mut self, status: String) {
-		self.watch_roots_update = Some(self.store.watch_roots());
+		self.watch_roots_update = Some(self.store().watch_roots());
 		let reset =
-			matches!(self.active_filter, ActiveFilter::Change) && self.nav_rows().is_empty();
+			matches!(self.active_filter(), ActiveFilter::Change) && self.nav_rows().is_empty();
 		self.dispatch_navigation(NavigationAction::ReplaceModels {
-			explorer: build_navigator(&self.store),
-			change: build_change_navigator(&self.store),
+			explorer: build_navigator(self.store()),
+			change: build_change_navigator(self.store()),
 		});
 		self.refresh_results(reset);
 		if reset {
@@ -831,13 +844,13 @@ impl App {
 	}
 
 	fn refresh_active_filter_after_store_reload(&mut self) {
-		self.active_filter = match &self.active_filter {
+		let active_filter = match self.active_filter() {
 			ActiveFilter::Search { raw, .. } => ActiveFilter::Search {
 				raw: raw.clone(),
-				hits: self.store.search_symbols(raw, 500),
+				hits: self.store().search_symbols(raw, 500),
 			},
 			ActiveFilter::Usages(focus) => ActiveFilter::Usages(
-				self.store
+				self.store()
 					.usage_focus_for_target(focus.target.clone(), focus.label.clone()),
 			),
 			ActiveFilter::None => ActiveFilter::None,
@@ -851,6 +864,7 @@ impl App {
 			},
 			ActiveFilter::Change => ActiveFilter::Change,
 		};
+		self.update_shell(|shell| shell.active_filter = active_filter);
 	}
 
 	fn move_down(&mut self) {
@@ -869,7 +883,7 @@ impl App {
 
 	fn toggle_selected_nav(&mut self) {
 		self.dispatch_navigation(NavigationAction::ToggleSelected);
-		match self.navigation.state().last_notice() {
+		match self.app_store.navigation().last_notice() {
 			NavigationNotice::Opened(label) => self.set_status(format!("opened {label}")),
 			NavigationNotice::Closed(label) => self.set_status(format!("closed {label}")),
 			NavigationNotice::MovedToParent | NavigationNotice::Noop => {}
@@ -878,14 +892,14 @@ impl App {
 
 	fn open_selected_nav(&mut self) {
 		self.dispatch_navigation(NavigationAction::OpenSelected);
-		if let NavigationNotice::Opened(label) = self.navigation.state().last_notice() {
+		if let NavigationNotice::Opened(label) = self.app_store.navigation().last_notice() {
 			self.set_status(format!("opened {label}"));
 		}
 	}
 
 	fn close_selected_nav(&mut self) -> bool {
 		self.dispatch_navigation(NavigationAction::CloseSelected);
-		match self.navigation.state().last_notice() {
+		match self.app_store.navigation().last_notice() {
 			NavigationNotice::Closed(label) => {
 				self.set_status(format!("closed {label}"));
 				true
@@ -900,8 +914,18 @@ impl App {
 
 	fn run_check(&mut self) {
 		self.set_view(View::Check, PanelPolicy::Manual);
+		let task = runtime::TaskSpec::run_check(
+			self.store().clone(),
+			self.rules.clone(),
+			self.profile.clone(),
+			self.scheme.clone(),
+		);
+		if self.queue_task(task) {
+			self.set_status("check queued in background");
+			return;
+		}
 		match self
-			.store
+			.store()
 			.check_summary(&self.rules, self.profile.as_deref(), &self.scheme)
 		{
 			Ok(summary) => {
@@ -927,7 +951,7 @@ impl App {
 			return;
 		}
 		self.startup_load_pending = false;
-		if self.queue_task(runtime::TaskSpec::load_file_catalog(self.store.options())) {
+		if self.queue_task(runtime::TaskSpec::load_file_catalog(self.store().options())) {
 			self.set_status("loading file tree in background");
 		} else {
 			self.handle_store_event_sync(StoreEvent::FullIndex);
@@ -958,19 +982,25 @@ impl App {
 				self.set_status(format!("{} completed: {message}", result.label));
 			}
 			TaskOutcome::FileCatalogLoaded(store) => {
-				self.store = *store;
+				self.replace_store(*store);
 				self.apply_file_catalog_store("file tree ready".to_string());
-				if self.queue_task(runtime::TaskSpec::reload_store(self.store.options())) {
+				if self.queue_task(runtime::TaskSpec::reload_store(self.store().options())) {
 					self.set_status("file tree ready; loading symbols in background");
 				}
 			}
 			TaskOutcome::StoreReloaded(store) => {
-				self.store = *store;
+				self.replace_store(*store);
 				self.apply_reloaded_store(format!("{} completed", result.label));
 			}
 			TaskOutcome::ChangeIndexRefreshed(store) => {
-				self.store = *store;
+				self.replace_store(*store);
 				self.apply_refreshed_change_store(format!("{} completed", result.label));
+			}
+			TaskOutcome::CheckCompleted(summary) => {
+				self.set_status(format!(
+					"check complete: {} violation(s) across {} file(s)",
+					summary.total_violations, summary.files_with_violations
+				));
 			}
 			TaskOutcome::Failed(error) => {
 				self.set_status(format!("{} failed: {error}", result.label));
@@ -1034,10 +1064,10 @@ impl App {
 
 	fn update_msg(&mut self, msg: Msg) -> bool {
 		let msg = match msg {
-			Msg::Key(key) => key_to_msg(self.mode, key),
+			Msg::Key(key) => key_to_msg(self.mode(), key),
 			msg => msg,
 		};
-		let route = self.route.clone();
+		let route = self.route().clone();
 		let mut ctx = ScreenContext { route: &route };
 		let effects = match Screen::handle_msg(self, msg, &mut ctx) {
 			Ok(effects) => effects,
@@ -1095,7 +1125,7 @@ impl App {
 			self.set_view(view, PanelPolicy::Manual);
 			return;
 		}
-		self.route = route;
+		self.update_shell(|shell| shell.route = route);
 	}
 }
 
@@ -1117,7 +1147,7 @@ impl Screen for App {
 		let _ = ctx.route;
 		match msg {
 			Msg::Quit => return Ok(vec![Effect::Quit]),
-			Msg::CycleView => return Ok(vec![Effect::Navigate(self.view.next().route())]),
+			Msg::CycleView => return Ok(vec![Effect::Navigate(self.view().next().route())]),
 			Msg::ShowView(view) => return Ok(vec![Effect::Navigate(view.route())]),
 			Msg::StartFilterEdit => self.start_filter_edit(),
 			Msg::StartSearchEdit => self.start_search_edit(),
@@ -1129,7 +1159,7 @@ impl Screen for App {
 			Msg::FocusUsages => {
 				let had_selection = self.selected().is_some();
 				self.focus_usages_of_selected();
-				if had_selection || self.view_mode == VisualizationMode::Change {
+				if had_selection || self.view_mode() == VisualizationMode::Change {
 					return Ok(Vec::new());
 				}
 			}
@@ -1180,7 +1210,7 @@ impl Screen for App {
 fn draw(frame: &mut ratatui::Frame<'_>, app: &mut App) {
 	let _title = Screen::title(app);
 	let _component = Screen::component(app);
-	let route = app.route.clone();
+	let route = app.route().clone();
 	let ctx = RenderContext { route: &route };
 	Screen::render(app, frame, frame.area(), &ctx);
 }
@@ -1207,7 +1237,7 @@ fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 }
 
 fn header_line(app: &App, width: usize) -> Line<'static> {
-	let mode = app.view_mode.label();
+	let mode = app.view_mode().label();
 	let prefix_width = visible_len("code-moniker ")
 		+ visible_len(ComponentId::Header.as_str())
 		+ 2 + visible_len(" mode ")
@@ -1229,7 +1259,7 @@ fn header_line(app: &App, width: usize) -> Line<'static> {
 		Span::raw(" "),
 		Span::raw("mode "),
 		Span::styled(
-			app.view_mode.label(),
+			app.view_mode().label(),
 			Style::default()
 				.fg(THEME.section)
 				.add_modifier(Modifier::BOLD),
@@ -1244,9 +1274,9 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
 		.direction(Direction::Horizontal)
 		.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
 		.split(area);
-	app.last_panel_width = panel_content_width(cols[1]);
+	app.update_shell(|shell| shell.last_panel_width = panel_content_width(cols[1]));
 	render_left_pane(frame, cols[0], app);
-	match app.view {
+	match app.view() {
 		View::Overview => render_overview(frame, cols[1], app),
 		View::Tree => render_outline(frame, cols[1], app),
 		View::Refs => render_refs(frame, cols[1], app),
@@ -1269,21 +1299,22 @@ fn render_left_pane(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 }
 
 fn search_input_visible(app: &App) -> bool {
-	app.mode == UiMode::EditingSearch || matches!(app.active_filter, ActiveFilter::Search { .. })
+	app.mode() == UiMode::EditingSearch
+		|| matches!(app.active_filter(), ActiveFilter::Search { .. })
 }
 
 fn search_input_value(app: &App) -> String {
-	if app.mode == UiMode::EditingSearch {
-		return app.search_draft.clone();
+	if app.mode() == UiMode::EditingSearch {
+		return app.search_draft().to_string();
 	}
-	match &app.active_filter {
+	match app.active_filter() {
 		ActiveFilter::Search { raw, .. } => raw.clone(),
 		_ => String::new(),
 	}
 }
 
 fn search_input_title(app: &App) -> String {
-	if app.mode == UiMode::EditingSearch {
+	if app.mode() == UiMode::EditingSearch {
 		"search focused".to_string()
 	} else {
 		"search".to_string()
@@ -1291,7 +1322,7 @@ fn search_input_title(app: &App) -> String {
 }
 
 fn render_search_input(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let focused = app.mode == UiMode::EditingSearch;
+	let focused = app.mode() == UiMode::EditingSearch;
 	let value = search_input_value(app);
 	let width = panel_content_width(area);
 	let prompt = if focused { "> " } else { "  " };
@@ -1349,7 +1380,7 @@ fn render_search_input(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let prefix = match app.mode {
+	let prefix = match app.mode() {
 		UiMode::EditingFilter => "filter",
 		UiMode::EditingSearch => "search",
 		UiMode::Normal => "status",
@@ -1391,7 +1422,7 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		})
 		.collect();
 	let title = if app.is_filtered() {
-		if app.view_mode == VisualizationMode::Change {
+		if app.view_mode() == VisualizationMode::Change {
 			format!(
 				" change {} files {} defs ",
 				matched_file_count(app.visible_defs()),
@@ -1404,13 +1435,13 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 				app.visible_defs().len()
 			)
 		}
-	} else if app.active_filter.error().is_some() {
+	} else if app.active_filter().error().is_some() {
 		" filtered invalid ".to_string()
 	} else {
 		format!(
 			" navigator {} files {} defs ",
-			app.store.stats().files,
-			app.navigation.state().explorer_def_count()
+			app.store().stats().files,
+			app.app_store.navigation().explorer_def_count()
 		)
 	};
 	let list = List::new(items).block(
@@ -1475,9 +1506,9 @@ fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
 			}
 		}
 		NavNodeKind::Def(loc) => {
-			let def = app.store.def(&loc);
+			let def = app.store().def(&loc);
 			let kind = def_kind(def);
-			let group = definition_kind_group(app.store.file(loc.file).lang, &kind);
+			let group = definition_kind_group(app.store().file(loc.file).lang, &kind);
 			spans.push(Span::styled(
 				kind.clone(),
 				Style::default().fg(THEME.kind.color_for_group(group)),
@@ -1493,10 +1524,10 @@ fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
 					Style::default().fg(THEME.nav.meta),
 				));
 			}
-			if let Some(change) = app.store.change_for_def(&loc) {
+			if let Some(change) = app.store().change_for_def(&loc) {
 				spans.push(Span::raw("  "));
 				spans.push(change_marker_span(change.status));
-				let usages = app.store.change_usage_refs(change).len();
+				let usages = app.store().change_usage_refs(change).len();
 				spans.push(Span::styled(
 					format!("  {usages} usages"),
 					Style::default().fg(THEME.nav.meta),
@@ -1504,7 +1535,7 @@ fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
 			}
 		}
 		NavNodeKind::Change(idx) => {
-			let change = &app.store.change_index().entries[idx];
+			let change = &app.store().change_index().entries[idx];
 			let group = definition_kind_group(change.lang, &change.kind);
 			spans.push(Span::styled(
 				change.kind.clone(),
@@ -1517,7 +1548,7 @@ fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
 			));
 			spans.push(Span::raw("  "));
 			spans.push(change_marker_span(change.status));
-			let usages = app.store.change_usage_refs(change).len();
+			let usages = app.store().change_usage_refs(change).len();
 			spans.push(Span::styled(
 				format!("  {usages} usages"),
 				Style::default().fg(THEME.nav.meta),
@@ -1540,7 +1571,7 @@ fn row_change_count(app: &App, row: &NavRow) -> Option<usize> {
 	let NavNodeKind::File(file_idx) = row.kind else {
 		return None;
 	};
-	let count = app.store.change_count_for_file(file_idx);
+	let count = app.store().change_count_for_file(file_idx);
 	(count > 0).then_some(count)
 }
 
@@ -1585,7 +1616,7 @@ impl PanelSnapshot {
 			"code-moniker panel snapshot".to_string(),
 			format!("component {}", self.component.as_str()),
 			format!("title     {}", self.title),
-			format!("mode      {}", app.view_mode.label()),
+			format!("mode      {}", app.view_mode().label()),
 			format!("scope     {}", app.scope_label()),
 			String::new(),
 		];
@@ -1595,8 +1626,8 @@ impl PanelSnapshot {
 }
 
 fn active_panel_snapshot(app: &App) -> PanelSnapshot {
-	let width = app.last_panel_width;
-	match app.view {
+	let width = app.last_panel_width();
+	match app.view() {
 		View::Overview => PanelSnapshot {
 			title: "overview",
 			component: ComponentId::PanelOverview,
@@ -1622,7 +1653,7 @@ fn active_panel_snapshot(app: &App) -> PanelSnapshot {
 }
 
 fn refs_panel_snapshot(app: &App, width: usize) -> PanelSnapshot {
-	if let Some(focus) = app.active_filter.usage_focus() {
+	if let Some(focus) = app.active_filter().usage_focus() {
 		return PanelSnapshot {
 			title: "usages",
 			component: ComponentId::PanelUsages,
@@ -1631,7 +1662,7 @@ fn refs_panel_snapshot(app: &App, width: usize) -> PanelSnapshot {
 	}
 	let lines = match app.selected() {
 		Some(loc) => {
-			let def = app.store.def(&loc);
+			let def = app.store().def(&loc);
 			refs_panel_lines(app, loc, def, width)
 		}
 		None => vec![panel::muted("select a declaration to inspect refs")],
@@ -1651,11 +1682,11 @@ fn plain_line_text(line: &Line<'_>) -> String {
 }
 
 fn overview_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-	let stats = app.store.stats();
+	let stats = app.store().stats();
 	let total_ms = stats.scan_ms + stats.extract_ms + stats.index_ms;
 	let mut lines = vec![
 		panel::section("summary"),
-		detail_line("root", &app.store.root(), width, FitMode::Tail),
+		detail_line("root", &app.store().root(), width, FitMode::Tail),
 		detail_line("files", &stats.files.to_string(), width, FitMode::Tail),
 		detail_line("defs", &stats.defs.to_string(), width, FitMode::Tail),
 		detail_line("refs", &stats.refs.to_string(), width, FitMode::Tail),
@@ -1733,8 +1764,8 @@ fn outline_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 	let Some(loc) = app.selected() else {
 		return nav_selection_lines(app, width);
 	};
-	let file = app.store.file(loc.file);
-	let def = app.store.def(&loc);
+	let file = app.store().file(loc.file);
+	let def = app.store().def(&loc);
 	let mut lines = vec![
 		panel::section("selected"),
 		detail_line("kind", &def_kind(def), width, FitMode::Tail),
@@ -1752,12 +1783,12 @@ fn outline_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 			FitMode::Middle,
 		),
 	];
-	if let Some(change) = app.store.change_for_def(&loc) {
+	if let Some(change) = app.store().change_for_def(&loc) {
 		lines.push(Line::raw(""));
 		lines.extend(change_summary_lines(app, loc, change, width));
 	}
 	lines.extend([panel::blank(), panel::section("children")]);
-	let children = app.store.children_by_parent(&def.moniker);
+	let children = app.store().children_by_parent(&def.moniker);
 	if children.is_empty() {
 		lines.push(panel::muted("none"));
 	} else {
@@ -1765,7 +1796,7 @@ fn outline_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 		lines.push(panel::table_header(&child_columns, width));
 		lines.push(panel::separator(panel::table_width(&child_columns, width)));
 		for child in children.iter().take(40) {
-			let child_def = app.store.def(child);
+			let child_def = app.store().def(child);
 			lines.push(panel::table_row(
 				&child_columns,
 				&[def_kind(child_def), last_name(&child_def.moniker)],
@@ -1808,7 +1839,7 @@ fn render_outline(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 
 fn nav_selection_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 	let Some(row) = app.selected_nav_row() else {
-		return if let Some((raw, error)) = app.active_filter.error() {
+		return if let Some((raw, error)) = app.active_filter().error() {
 			vec![
 				panel::danger_section("invalid filter"),
 				detail_line("query", raw, width, FitMode::Tail),
@@ -1863,7 +1894,7 @@ fn nav_selection_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 
 fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let width = panel_content_width(area);
-	if let Some(focus) = app.active_filter.usage_focus() {
+	if let Some(focus) = app.active_filter().usage_focus() {
 		render_usage_focus(frame, area, app, focus, width);
 		return;
 	}
@@ -1877,7 +1908,7 @@ fn render_refs(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		);
 		return;
 	};
-	let def = app.store.def(&loc);
+	let def = app.store().def(&loc);
 	render_panel(
 		frame,
 		area,
@@ -1919,9 +1950,9 @@ fn refs_panel_lines(
 	def: &DefRecord,
 	width: usize,
 ) -> Vec<Line<'static>> {
-	let file = app.store.file(loc.file);
-	let outgoing = app.store.outgoing_refs(&def.moniker);
-	let incoming = app.store.incoming_refs(&def.moniker);
+	let file = app.store().file(loc.file);
+	let outgoing = app.store().outgoing_refs(&def.moniker);
+	let incoming = app.store().incoming_refs(&def.moniker);
 	let mut lines = vec![
 		panel::section("selected"),
 		detail_line("kind", &def_kind(def), width, FitMode::Tail),
@@ -1954,14 +1985,14 @@ fn change_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
 	let Some(change) = app.selected_change_entry() else {
 		return change_overview_lines(app, width);
 	};
-	match app.change_panel {
+	match app.change_panel() {
 		ChangePanelMode::Diff => change_diff_lines(app, change, width),
 		ChangePanelMode::Usages => change_usage_lines(app, change, width),
 	}
 }
 
 fn change_overview_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-	let changes = app.store.change_index();
+	let changes = app.store().change_index();
 	let mut lines = vec![
 		panel::section("change scope"),
 		detail_line("scope", &changes.scope, width, FitMode::Tail),
@@ -2063,7 +2094,7 @@ fn change_summary_lines(
 		detail_line("status", change.status.label(), width, FitMode::Tail),
 		detail_line(
 			"scope",
-			&app.store.change_index().scope,
+			&app.store().change_index().scope,
 			width,
 			FitMode::Tail,
 		),
@@ -2103,9 +2134,9 @@ fn change_usage_lines(app: &App, change: &ChangeEntry, width: usize) -> Vec<Line
 }
 
 fn change_blast_radius_refs(app: &App, loc: DefLocation) -> &[RefLocation] {
-	app.store
+	app.store()
 		.change_for_def(&loc)
-		.map(|change| app.store.change_usage_refs(change))
+		.map(|change| app.store().change_usage_refs(change))
 		.unwrap_or(&[])
 }
 
@@ -2113,7 +2144,7 @@ fn change_blast_radius_refs_for_change<'a>(
 	app: &'a App,
 	change: &ChangeEntry,
 ) -> &'a [RefLocation] {
-	app.store.change_usage_refs(change)
+	app.store().change_usage_refs(change)
 }
 
 fn app_ref_source_index(loc: &RefLocation) -> usize {
@@ -2261,7 +2292,7 @@ enum RefDirection {
 fn reference_summary(app: &App, refs: &[RefLocation]) -> String {
 	let files = refs
 		.iter()
-		.map(|loc| app.store.file(loc.file).rel_path.as_path())
+		.map(|loc| app.store().file(loc.file).rel_path.as_path())
 		.collect::<BTreeSet<_>>()
 		.len();
 	match (refs.len(), files) {
@@ -2343,8 +2374,8 @@ fn ref_groups(app: &App, refs: &[RefLocation], direction: RefDirection) -> Vec<R
 }
 
 fn ref_group(app: &App, loc: &RefLocation, direction: RefDirection) -> RefGroup {
-	let file = app.store.file(loc.file);
-	let reference = app.store.reference(loc);
+	let file = app.store().file(loc.file);
+	let reference = app.store().reference(loc);
 	let source = file.graph.def_at(reference.source);
 	let kind = ref_kind(reference);
 	let actor = match direction {
@@ -2468,8 +2499,8 @@ fn ref_attrs_line(group: &RefGroup, width: usize) -> Option<Line<'static>> {
 }
 
 fn ref_location(app: &App, loc: &RefLocation) -> String {
-	let file = app.store.file(loc.file);
-	let reference = app.store.reference(loc);
+	let file = app.store().file(loc.file);
+	let reference = app.store().reference(loc);
 	let lines = reference
 		.position
 		.map(|(start, end)| {

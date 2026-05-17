@@ -1,8 +1,9 @@
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::inspect::SessionOptions;
-use crate::ui::store::{ChangeIndexRefreshInput, MemoryIndexStore};
+use crate::inspect::{CheckSummary, SessionOptions};
+use crate::ui::store::{ChangeIndexRefreshInput, IndexStore, MemoryIndexStore};
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -15,6 +16,7 @@ pub(in crate::ui) enum WorkKind {
 	GitChangeIndex,
 	ImpactIndex,
 	PanelData,
+	CheckPanel,
 	CoverageIndex,
 }
 
@@ -78,6 +80,25 @@ impl TaskSpec {
 		}
 	}
 
+	pub(in crate::ui) fn run_check(
+		store: MemoryIndexStore,
+		rules: PathBuf,
+		profile: Option<String>,
+		scheme: String,
+	) -> Self {
+		Self {
+			id: TaskId::next(),
+			generation: 0,
+			label: "run check".to_string(),
+			kind: TaskKind::RunCheck {
+				store,
+				rules,
+				profile,
+				scheme,
+			},
+		}
+	}
+
 	pub(in crate::ui) fn id(&self) -> TaskId {
 		self.id
 	}
@@ -116,6 +137,15 @@ impl TaskSpec {
 			TaskKind::RefreshChangeIndex { input } => TaskOutcome::ChangeIndexRefreshed(Box::new(
 				MemoryIndexStore::refresh_change_indexed(input),
 			)),
+			TaskKind::RunCheck {
+				store,
+				rules,
+				profile,
+				scheme,
+			} => match store.check_summary(&rules, profile.as_deref(), &scheme) {
+				Ok(summary) => TaskOutcome::CheckCompleted(Box::new(summary)),
+				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
+			},
 		};
 		TaskResult {
 			id: self.id,
@@ -129,9 +159,21 @@ impl TaskSpec {
 
 enum TaskKind {
 	Noop,
-	LoadFileCatalog { opts: SessionOptions },
-	ReloadStore { opts: SessionOptions },
-	RefreshChangeIndex { input: ChangeIndexRefreshInput },
+	LoadFileCatalog {
+		opts: SessionOptions,
+	},
+	ReloadStore {
+		opts: SessionOptions,
+	},
+	RefreshChangeIndex {
+		input: ChangeIndexRefreshInput,
+	},
+	RunCheck {
+		store: MemoryIndexStore,
+		rules: PathBuf,
+		profile: Option<String>,
+		scheme: String,
+	},
 }
 
 impl fmt::Debug for TaskSpec {
@@ -152,6 +194,7 @@ impl TaskKind {
 			Self::LoadFileCatalog { .. } => "load_file_catalog",
 			Self::ReloadStore { .. } => "reload_store",
 			Self::RefreshChangeIndex { .. } => "refresh_change_index",
+			Self::RunCheck { .. } => "run_check",
 		}
 	}
 
@@ -161,6 +204,7 @@ impl TaskKind {
 			Self::LoadFileCatalog { .. } => WorkKind::FileCatalog,
 			Self::ReloadStore { .. } => WorkKind::GraphIndex,
 			Self::RefreshChangeIndex { .. } => WorkKind::GitChangeIndex,
+			Self::RunCheck { .. } => WorkKind::CheckPanel,
 		}
 	}
 }
@@ -179,6 +223,7 @@ pub(in crate::ui) enum TaskOutcome {
 	FileCatalogLoaded(Box<MemoryIndexStore>),
 	StoreReloaded(Box<MemoryIndexStore>),
 	ChangeIndexRefreshed(Box<MemoryIndexStore>),
+	CheckCompleted(Box<CheckSummary>),
 	Failed(String),
 }
 
@@ -189,6 +234,7 @@ impl fmt::Debug for TaskOutcome {
 			Self::FileCatalogLoaded(_) => f.write_str("FileCatalogLoaded(..)"),
 			Self::StoreReloaded(_) => f.write_str("StoreReloaded(..)"),
 			Self::ChangeIndexRefreshed(_) => f.write_str("ChangeIndexRefreshed(..)"),
+			Self::CheckCompleted(_) => f.write_str("CheckCompleted(..)"),
 			Self::Failed(error) => f.debug_tuple("Failed").field(error).finish(),
 		}
 	}

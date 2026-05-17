@@ -1,21 +1,23 @@
 use crate::ui::app::action::AppAction;
 #[cfg(test)]
 use crate::ui::app::state::LoadState;
-use crate::ui::app::state::{AppState, CheckState};
+use crate::ui::app::state::{AppState, CheckState, ShellSlice};
 use crate::ui::live::StoreEvent;
 use crate::ui::reactive::{ReactiveStore, Reduce, Transition};
 use crate::ui::runtime::{TaskResult, TaskSpec};
-use crate::ui::store::IndexStore;
+use crate::ui::store::navigation::{NavigationAction, NavigationState};
+use crate::ui::store::{IndexStore, MemoryIndexStore};
 
-#[derive(Debug)]
 pub(in crate::ui) struct AppStore {
 	inner: ReactiveStore<AppState>,
+	index: Option<MemoryIndexStore>,
 }
 
 impl AppStore {
 	pub(in crate::ui) fn new() -> Self {
 		Self {
 			inner: ReactiveStore::new(AppState::new()),
+			index: None,
 		}
 	}
 
@@ -23,11 +25,18 @@ impl AppStore {
 		Self::from_stats(store.stats())
 	}
 
+	pub(in crate::ui) fn from_memory_store(store: MemoryIndexStore) -> Self {
+		let mut app_store = Self::from_index_store(&store);
+		app_store.index = Some(store);
+		app_store
+	}
+
 	fn from_stats(stats: &crate::inspect::SessionStats) -> Self {
 		let mut state = AppState::new();
 		state.set_index_ready(stats.files, stats.defs, stats.refs);
 		Self {
 			inner: ReactiveStore::new(state),
+			index: None,
 		}
 	}
 
@@ -48,6 +57,18 @@ impl AppStore {
 		task
 	}
 
+	pub(in crate::ui) fn index(&self) -> &MemoryIndexStore {
+		self.index.as_ref().expect("index store initialized")
+	}
+
+	pub(in crate::ui) fn index_mut(&mut self) -> &mut MemoryIndexStore {
+		self.index.as_mut().expect("index store initialized")
+	}
+
+	pub(in crate::ui) fn replace_index(&mut self, store: MemoryIndexStore) {
+		self.index = Some(store);
+	}
+
 	pub(in crate::ui) fn complete_task(&mut self, result: &TaskResult) -> bool {
 		let mut accepted = false;
 		self.inner.reduce_with(|state| {
@@ -63,6 +84,19 @@ impl AppStore {
 
 	pub(in crate::ui) fn status(&self) -> &str {
 		self.inner.state().status()
+	}
+
+	pub(in crate::ui) fn shell(&self) -> &ShellSlice {
+		&self.inner.state().shell
+	}
+
+	pub(in crate::ui) fn update_shell(&mut self, f: impl FnOnce(&mut ShellSlice)) {
+		self.inner.reduce_with(|state| {
+			state.generation += 1;
+			state.shell.generation += 1;
+			f(&mut state.shell);
+			Transition::changed("shell")
+		});
 	}
 
 	pub(in crate::ui) fn set_status(&mut self, status: impl Into<String>) {
@@ -89,6 +123,39 @@ impl AppStore {
 			state.set_check_state(check);
 			Transition::changed("check-state")
 		});
+	}
+
+	pub(in crate::ui) fn set_navigation(&mut self, navigation: NavigationState) {
+		self.inner.reduce_with(|state| {
+			state.set_navigation(navigation);
+			Transition::changed("navigation-init")
+		});
+	}
+
+	pub(in crate::ui) fn navigation(&self) -> &NavigationState {
+		self.inner
+			.state()
+			.navigation
+			.state
+			.as_ref()
+			.expect("navigation initialized")
+	}
+
+	pub(in crate::ui) fn dispatch_navigation(
+		&mut self,
+		action: NavigationAction,
+	) -> &mut Transition {
+		self.inner.reduce_with(|state| {
+			let Some(navigation) = state.navigation.state.as_mut() else {
+				return Transition::unchanged("navigation-missing");
+			};
+			let transition = navigation.reduce(action);
+			if transition.changed {
+				state.generation += 1;
+				state.navigation.generation += 1;
+			}
+			transition
+		})
 	}
 
 	pub(in crate::ui) fn dispatch(&mut self, action: &AppAction) -> &mut Transition {
@@ -135,7 +202,9 @@ impl Reduce<&AppAction> for AppState {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::ui::navigator::{NavNode, NavNodeKind};
 	use crate::ui::runtime::{TaskOutcome, TaskSpec, WorkKind};
+	use crate::ui::store::ids::NodeId;
 
 	#[test]
 	fn full_index_event_invalidates_domain_slices() {
@@ -248,6 +317,29 @@ mod tests {
 				if summary.files_scanned == 7 && summary.total_violations == 3
 		));
 		assert_eq!(store.state().check.generation, 1);
+	}
+
+	#[test]
+	fn navigation_state_is_owned_by_app_store() {
+		let mut store = AppStore::new();
+		let mut root = NavNode::new(NodeId::root("test"), "root", NavNodeKind::Root);
+		root.push_child(NavNode::new(
+			NodeId::lang("test", "rs"),
+			"rs",
+			NavNodeKind::Lang,
+		));
+		root.push_child(NavNode::new(
+			NodeId::lang("test", "ts"),
+			"ts",
+			NavNodeKind::Lang,
+		));
+		let change = NavNode::new(NodeId::root("change"), "root", NavNodeKind::Root);
+
+		store.set_navigation(NavigationState::new(root, change));
+		store.dispatch_navigation(NavigationAction::MoveDown);
+
+		assert_eq!(store.navigation().selection(), 1);
+		assert_eq!(store.state().navigation.generation, 2);
 	}
 
 	#[test]

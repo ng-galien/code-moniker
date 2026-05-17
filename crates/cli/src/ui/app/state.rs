@@ -1,10 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::inspect::CheckSummary;
+use crate::ui::contracts::Route;
+use crate::ui::events::UiMode;
+use crate::ui::features::explorer::{ExplorerFeature, ROUTE_OVERVIEW};
+use crate::ui::filter::NavFilter;
 use crate::ui::live::StoreEvent;
 use crate::ui::runtime::{TaskId, TaskOutcome, TaskResult, WorkKind};
-use crate::ui::store::IndexStore;
 use crate::ui::store::ids::{CoverageRunId, FileId, RefId, SourceRootId, SymbolId};
+use crate::ui::store::navigation::NavigationState;
+use crate::ui::store::{IndexStore, SearchHit, UsageFocus};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct WorkSlice {
@@ -91,10 +96,84 @@ pub(in crate::ui) struct CoverageSlice {
 	pub(in crate::ui) by_symbol: BTreeMap<SymbolId, LoadState<CoverageSummary>>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum View {
+	Overview,
+	Tree,
+	Refs,
+	Check,
+	Change,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum VisualizationMode {
+	Explorer,
+	Search,
+	Usages,
+	Change,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum ChangePanelMode {
+	Diff,
+	Usages,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum PanelPolicy {
+	Contextual,
+	Manual,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum ActiveFilter {
+	None,
+	Text { raw: String, query: NavFilter },
+	Invalid { raw: String, error: String },
+	Search { raw: String, hits: Vec<SearchHit> },
+	Usages(UsageFocus),
+	Change,
+}
+
+impl Default for ActiveFilter {
+	fn default() -> Self {
+		Self::None
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) generation: u64,
 	pub(in crate::ui) status: String,
+	pub(in crate::ui) route: Route,
+	pub(in crate::ui) view: View,
+	pub(in crate::ui) view_mode: VisualizationMode,
+	pub(in crate::ui) panel_policy: PanelPolicy,
+	pub(in crate::ui) change_panel: ChangePanelMode,
+	pub(in crate::ui) mode: UiMode,
+	pub(in crate::ui) active_filter: ActiveFilter,
+	pub(in crate::ui) filter_draft: String,
+	pub(in crate::ui) search_draft: String,
+	pub(in crate::ui) last_panel_width: usize,
+}
+
+impl Default for ShellSlice {
+	fn default() -> Self {
+		Self {
+			generation: 0,
+			status: String::new(),
+			route: ExplorerFeature::route(ROUTE_OVERVIEW),
+			view: View::Overview,
+			view_mode: VisualizationMode::Explorer,
+			panel_policy: PanelPolicy::Contextual,
+			change_panel: ChangePanelMode::Diff,
+			mode: UiMode::Normal,
+			active_filter: ActiveFilter::None,
+			filter_draft: String::new(),
+			search_draft: String::new(),
+			last_panel_width: 100,
+		}
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -117,6 +196,12 @@ pub(in crate::ui) struct CheckSlice {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::ui) struct NavigationSlice {
+	pub(in crate::ui) generation: u64,
+	pub(in crate::ui) state: Option<NavigationState>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct AppState {
 	pub(in crate::ui) generation: u64,
 	pub(in crate::ui) shell: ShellSlice,
@@ -130,6 +215,7 @@ pub(in crate::ui) struct AppState {
 	pub(in crate::ui) panels: PanelSlice,
 	pub(in crate::ui) coverage: CoverageSlice,
 	pub(in crate::ui) check: CheckSlice,
+	pub(in crate::ui) navigation: NavigationSlice,
 	pub(in crate::ui) work: WorkSlice,
 	pub(in crate::ui) last_task: Option<TaskSummary>,
 }
@@ -229,6 +315,12 @@ impl AppState {
 		self.check.state = state;
 	}
 
+	pub(in crate::ui) fn set_navigation(&mut self, navigation: NavigationState) {
+		self.bump();
+		self.navigation.generation += 1;
+		self.navigation.state = Some(navigation);
+	}
+
 	pub(in crate::ui) fn generation_for_work(&self, work: WorkKind) -> u64 {
 		match work {
 			WorkKind::ProjectLoad => self.project.generation,
@@ -237,6 +329,7 @@ impl AppState {
 			WorkKind::GitChangeIndex => self.git.generation,
 			WorkKind::ImpactIndex => self.impact.generation,
 			WorkKind::PanelData => self.panels.generation,
+			WorkKind::CheckPanel => self.check.generation,
 			WorkKind::CoverageIndex => self.coverage.generation,
 		}
 	}
@@ -310,6 +403,10 @@ impl AppState {
 			TaskOutcome::Completed(_) => {
 				self.work.pending.remove(&result.work);
 			}
+			TaskOutcome::CheckCompleted(summary) => {
+				self.check.state = CheckState::Ready((**summary).clone());
+				self.work.pending.remove(&WorkKind::CheckPanel);
+			}
 			TaskOutcome::Failed(error) => {
 				self.mark_failed(result.work, error.clone());
 			}
@@ -322,6 +419,7 @@ impl AppState {
 				TaskOutcome::FileCatalogLoaded(_) => TaskStatus::Completed,
 				TaskOutcome::StoreReloaded(_) => TaskStatus::Completed,
 				TaskOutcome::ChangeIndexRefreshed(_) => TaskStatus::Completed,
+				TaskOutcome::CheckCompleted(_) => TaskStatus::Completed,
 				TaskOutcome::Failed(_) => TaskStatus::Failed,
 			},
 		});
@@ -338,6 +436,7 @@ impl AppState {
 		self.impact.generation += 1;
 		self.panels.generation += 1;
 		self.coverage.generation += 1;
+		self.check.generation += 1;
 		self.work.generation += 1;
 
 		self.project.roots = LoadState::Idle;
@@ -350,6 +449,7 @@ impl AppState {
 		self.impact.by_symbol.clear();
 		self.panels.panels.clear();
 		self.coverage.by_symbol.clear();
+		self.check.state = CheckState::Pending;
 		self.work.pending.extend([
 			WorkKind::ProjectLoad,
 			WorkKind::FileCatalog,
@@ -358,6 +458,7 @@ impl AppState {
 			WorkKind::GitChangeIndex,
 			WorkKind::ImpactIndex,
 			WorkKind::PanelData,
+			WorkKind::CheckPanel,
 			WorkKind::CoverageIndex,
 		]);
 	}
@@ -388,6 +489,7 @@ impl AppState {
 			WorkKind::GraphIndex => self.index.status = LoadState::Loading(id),
 			WorkKind::SearchIndex => self.search.results = LoadState::Loading(id),
 			WorkKind::GitChangeIndex | WorkKind::ImpactIndex | WorkKind::PanelData => {}
+			WorkKind::CheckPanel => self.check.state = CheckState::Pending,
 			WorkKind::CoverageIndex => self.coverage.runs = LoadState::Loading(id),
 		}
 	}
@@ -399,6 +501,7 @@ impl AppState {
 			WorkKind::GraphIndex => self.index.status = LoadState::Failed(error),
 			WorkKind::SearchIndex => self.search.results = LoadState::Failed(error),
 			WorkKind::GitChangeIndex | WorkKind::ImpactIndex | WorkKind::PanelData => {}
+			WorkKind::CheckPanel => self.check.state = CheckState::Error(error),
 			WorkKind::CoverageIndex => self.coverage.runs = LoadState::Failed(error),
 		}
 	}

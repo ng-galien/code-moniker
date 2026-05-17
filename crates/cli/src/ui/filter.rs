@@ -8,6 +8,14 @@ pub(super) struct NavFilter {
 	kind: Option<String>,
 }
 
+impl PartialEq for NavFilter {
+	fn eq(&self, other: &Self) -> bool {
+		self.raw == other.raw && self.name_pattern == other.name_pattern && self.kind == other.kind
+	}
+}
+
+impl Eq for NavFilter {}
+
 impl NavFilter {
 	pub(super) fn matches(&self, kind: &str, name: &str) -> bool {
 		if let Some(expected) = &self.kind

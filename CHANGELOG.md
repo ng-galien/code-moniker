@@ -163,6 +163,11 @@ in `0.y.z`.
 - **`code-moniker ui`** — the architecture-check panel state is now
   owned by the app store, starting the migration of right-panel data out
   of the monolithic `App` struct.
+- **`code-moniker ui`** — shell route/view mode, filter drafts, active
+  filters, navigator state, and the live in-memory index now sit behind
+  `AppStore`. The check panel also runs through the background task
+  runtime when the event loop is active, keeping the UI migration aligned
+  with the reactive store model.
 - **`code-moniker ui` internals** — `SessionIndex` now owns the empty
   and file-catalog construction paths used by phased startup, avoiding
   duplicate partial-index setup in the UI store adapter. Navigator

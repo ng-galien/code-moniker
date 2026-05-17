@@ -24,7 +24,7 @@ pub(in crate::ui) enum NavigationNotice {
 	Noop,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) enum NavigationAction {
 	ReplaceModels {
 		explorer: NavNode,
@@ -47,7 +47,7 @@ pub(in crate::ui) enum NavigationAction {
 	CloseSelected,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct NavigationState {
 	explorer: NavNode,
 	change: NavNode,
