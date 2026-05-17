@@ -2,8 +2,10 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::inspect::{CheckSummary, SessionOptions};
-use crate::ui::store::{ChangeIndexRefreshInput, IndexStore, MemoryIndexStore};
+use crate::workspace::{
+	CheckSummary, GitOverlayRefresh, GitOverlayRefreshInput, IndexStore, SessionOptions,
+	WorkspaceStore,
+};
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -13,7 +15,7 @@ pub(in crate::ui) enum WorkKind {
 	FileCatalog,
 	GraphIndex,
 	SearchIndex,
-	GitChangeIndex,
+	GitOverlay,
 	ImpactIndex,
 	PanelData,
 	CheckPanel,
@@ -71,17 +73,17 @@ impl TaskSpec {
 		}
 	}
 
-	pub(in crate::ui) fn refresh_change_index(input: ChangeIndexRefreshInput) -> Self {
+	pub(in crate::ui) fn refresh_git_overlay(input: GitOverlayRefreshInput) -> Self {
 		Self {
 			id: TaskId::next(),
 			generation: 0,
-			label: "refresh change index".to_string(),
-			kind: TaskKind::RefreshChangeIndex { input },
+			label: "refresh git overlay".to_string(),
+			kind: TaskKind::RefreshGitOverlay { input },
 		}
 	}
 
 	pub(in crate::ui) fn run_check(
-		store: MemoryIndexStore,
+		store: WorkspaceStore,
 		rules: PathBuf,
 		profile: Option<String>,
 		scheme: String,
@@ -126,16 +128,16 @@ impl TaskSpec {
 		let generation = self.generation;
 		let outcome = match self.kind {
 			TaskKind::Noop => TaskOutcome::Completed("task completed".to_string()),
-			TaskKind::LoadFileCatalog { opts } => match MemoryIndexStore::catalog(&opts) {
+			TaskKind::LoadFileCatalog { opts } => match WorkspaceStore::catalog(&opts) {
 				Ok(store) => TaskOutcome::FileCatalogLoaded(Box::new(store)),
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
-			TaskKind::ReloadStore { opts } => match MemoryIndexStore::load(&opts) {
+			TaskKind::ReloadStore { opts } => match WorkspaceStore::load(&opts) {
 				Ok(store) => TaskOutcome::StoreReloaded(Box::new(store)),
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
-			TaskKind::RefreshChangeIndex { input } => TaskOutcome::ChangeIndexRefreshed(Box::new(
-				MemoryIndexStore::refresh_change_indexed(input),
+			TaskKind::RefreshGitOverlay { input } => TaskOutcome::GitOverlayRefreshed(Box::new(
+				WorkspaceStore::build_git_overlay_refresh(input),
 			)),
 			TaskKind::RunCheck {
 				store,
@@ -165,11 +167,11 @@ enum TaskKind {
 	ReloadStore {
 		opts: SessionOptions,
 	},
-	RefreshChangeIndex {
-		input: ChangeIndexRefreshInput,
+	RefreshGitOverlay {
+		input: GitOverlayRefreshInput,
 	},
 	RunCheck {
-		store: MemoryIndexStore,
+		store: WorkspaceStore,
 		rules: PathBuf,
 		profile: Option<String>,
 		scheme: String,
@@ -193,7 +195,7 @@ impl TaskKind {
 			Self::Noop => "noop",
 			Self::LoadFileCatalog { .. } => "load_file_catalog",
 			Self::ReloadStore { .. } => "reload_store",
-			Self::RefreshChangeIndex { .. } => "refresh_change_index",
+			Self::RefreshGitOverlay { .. } => "refresh_git_overlay",
 			Self::RunCheck { .. } => "run_check",
 		}
 	}
@@ -203,7 +205,7 @@ impl TaskKind {
 			Self::Noop => WorkKind::PanelData,
 			Self::LoadFileCatalog { .. } => WorkKind::FileCatalog,
 			Self::ReloadStore { .. } => WorkKind::GraphIndex,
-			Self::RefreshChangeIndex { .. } => WorkKind::GitChangeIndex,
+			Self::RefreshGitOverlay { .. } => WorkKind::GitOverlay,
 			Self::RunCheck { .. } => WorkKind::CheckPanel,
 		}
 	}
@@ -220,9 +222,9 @@ pub(in crate::ui) struct TaskResult {
 
 pub(in crate::ui) enum TaskOutcome {
 	Completed(String),
-	FileCatalogLoaded(Box<MemoryIndexStore>),
-	StoreReloaded(Box<MemoryIndexStore>),
-	ChangeIndexRefreshed(Box<MemoryIndexStore>),
+	FileCatalogLoaded(Box<WorkspaceStore>),
+	StoreReloaded(Box<WorkspaceStore>),
+	GitOverlayRefreshed(Box<GitOverlayRefresh>),
 	CheckCompleted(Box<CheckSummary>),
 	Failed(String),
 }
@@ -233,7 +235,7 @@ impl fmt::Debug for TaskOutcome {
 			Self::Completed(message) => f.debug_tuple("Completed").field(message).finish(),
 			Self::FileCatalogLoaded(_) => f.write_str("FileCatalogLoaded(..)"),
 			Self::StoreReloaded(_) => f.write_str("StoreReloaded(..)"),
-			Self::ChangeIndexRefreshed(_) => f.write_str("ChangeIndexRefreshed(..)"),
+			Self::GitOverlayRefreshed(_) => f.write_str("GitOverlayRefreshed(..)"),
 			Self::CheckCompleted(_) => f.write_str("CheckCompleted(..)"),
 			Self::Failed(error) => f.debug_tuple("Failed").field(error).finish(),
 		}

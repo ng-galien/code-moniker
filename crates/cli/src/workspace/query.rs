@@ -1,23 +1,23 @@
 use regex::Regex;
 
 #[derive(Clone, Debug)]
-pub(super) struct NavFilter {
+pub(crate) struct SymbolFilter {
 	raw: String,
 	name_pattern: Option<String>,
 	name: Option<Regex>,
 	kind: Option<String>,
 }
 
-impl PartialEq for NavFilter {
+impl PartialEq for SymbolFilter {
 	fn eq(&self, other: &Self) -> bool {
 		self.raw == other.raw && self.name_pattern == other.name_pattern && self.kind == other.kind
 	}
 }
 
-impl Eq for NavFilter {}
+impl Eq for SymbolFilter {}
 
-impl NavFilter {
-	pub(super) fn matches(&self, kind: &str, name: &str) -> bool {
+impl SymbolFilter {
+	pub(crate) fn matches(&self, kind: &str, name: &str) -> bool {
 		if let Some(expected) = &self.kind
 			&& kind != expected
 		{
@@ -31,7 +31,7 @@ impl NavFilter {
 		true
 	}
 
-	pub(super) fn describe(&self) -> String {
+	pub(crate) fn describe(&self) -> String {
 		match (&self.kind, &self.name_pattern) {
 			(Some(kind), Some(name)) => format!("kind:{kind} /{name}"),
 			(Some(kind), None) => format!("kind:{kind}"),
@@ -41,7 +41,7 @@ impl NavFilter {
 	}
 }
 
-pub(super) fn parse_filter(raw: &str) -> Result<Option<NavFilter>, regex::Error> {
+pub(crate) fn parse_filter(raw: &str) -> Result<Option<SymbolFilter>, regex::Error> {
 	let raw = raw.trim();
 	if raw.is_empty() {
 		return Ok(None);
@@ -75,7 +75,7 @@ pub(super) fn parse_filter(raw: &str) -> Result<Option<NavFilter>, regex::Error>
 	}
 	let name_pattern = (!name_parts.is_empty()).then(|| name_parts.join(" "));
 	let name = name_pattern.as_deref().map(Regex::new).transpose()?;
-	Ok(Some(NavFilter {
+	Ok(Some(SymbolFilter {
 		raw: raw.to_string(),
 		name_pattern,
 		name,

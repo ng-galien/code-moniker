@@ -39,7 +39,7 @@ in `0.y.z`.
   modified, and removed declarations are represented in the change
   navigator. The UI now keeps the store live through filesystem watchers:
   source changes reload the in-memory index, while `.git` changes refresh
-  the change index; generated build paths and custom cache directories
+  the Git overlay; generated build paths and custom cache directories
   are ignored.
 - **`code-moniker extract --format text`** — extract now defaults to a
   moniker-only text output (`txt` alias supported). `--format tsv`
@@ -114,9 +114,9 @@ in `0.y.z`.
   tokens for navigation, status, sections, and source snippets.
 - **`code-moniker ui`** — keyboard handling now follows a small
   Elm-style `Msg -> update -> render` loop with explicit normal and
-  filter-editing modes. Index access is isolated behind `ui::store`,
-  and the architecture profile now guards that only the store adapter
-  imports `SessionIndex`.
+  filter-editing modes. Moniker data access is isolated behind
+  `workspace::WorkspaceStore` read models, and the architecture profile
+  now guards that UI modules do not import raw graph/index/Git records.
 - **`code-moniker ui`** — visible component markers such as
   `[ui.navigator]`, `[ui.panel.refs]`, and `[ui.status]` now identify
   stable UI zones for bug reports, feedback, and future feature-module
@@ -135,15 +135,15 @@ in `0.y.z`.
   reducers return `Transition` values with effects, `Effect::Spawn`
   queues typed task specs through a Rayon-backed runtime, and task
   completion re-enters the UI as `ShellEvent::TaskCompleted`.
-- **`code-moniker ui`** — app-level state is now organized into
-  reactive domain slices for project loading, files, graph/index state,
-  search, Git changes, blast-radius impact, panels, and future coverage
-  instead of leaving long-lived data hidden in individual panel code. A
-  work catalog now names the lazy/async candidates that will be scheduled
-  independently on large repositories.
+- **`code-moniker ui`** — app-level state now separates durable shell
+  state from workspace data. `AppState` owns shell mode, route/view,
+  navigation, check state, and async work epochs, while
+  `WorkspaceStore` owns moniker data and read-model selectors. The work
+  catalog names lazy/async candidates without mirroring fake
+  file/symbol IDs in the UI store.
 - **`code-moniker ui`** — live filesystem and Git refreshes now queue
   typed background tasks when the event loop is available. Full index
-  reloads and change-index refreshes run through the Rayon-backed task
+  reloads and Git overlay refreshes run through the Rayon-backed task
   runtime and return through `ShellEvent::TaskCompleted`, with a
   synchronous fallback kept for direct unit tests.
 - **`code-moniker ui`** — startup now opens the terminal shell with an
@@ -153,9 +153,9 @@ in `0.y.z`.
   runtime; once ready, the app swaps in the loaded store and replaces
   live watchers with the real source/Git roots.
 - **`code-moniker ui`** — async task results are now guarded by
-  work-kind generations. The app store records task startup, marks
-  loading slices, and ignores stale background completions that arrive
-  after a newer filesystem or Git invalidation.
+  work-kind epochs. The app store records task startup and ignores stale
+  background completions that arrive after a newer filesystem or Git
+  invalidation.
 - **`code-moniker ui`** — shell status messages now live in the
   app-store shell slice instead of a mutable `App` field, making
   terminal events, task completions, navigation notices, and clipboard
@@ -168,6 +168,13 @@ in `0.y.z`.
   `AppStore`. The check panel also runs through the background task
   runtime when the event loop is active, keeping the UI migration aligned
   with the reactive store model.
+- **`code-moniker workspace store`** — the long-lived moniker store now
+  lives outside `ui::store` as `workspace::WorkspaceStore`. It publishes
+  a `WorkspaceSnapshot` composed of the canonical `SessionIndex`, a Git
+  overlay, coverage and plan overlays, and a derived symbol-search index,
+  plus read models for symbols, references, source snippets, changes,
+  and blast-radius panels. Git refreshes now apply as overlay patches on
+  the current snapshot instead of replacing the full store.
 - **`code-moniker ui` internals** — `SessionIndex` now owns the empty
   and file-catalog construction paths used by phased startup, avoiding
   duplicate partial-index setup in the UI store adapter. Navigator

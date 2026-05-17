@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 
-use crate::inspect::DefLocation;
+use crate::workspace::{ChangeId, DefLocation};
 
 use super::store::ids::NodeId;
-use super::store::{IndexStore, is_navigable_def, last_name};
+use crate::workspace::IndexStore;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum NavNodeKind {
@@ -13,7 +13,7 @@ pub(super) enum NavNodeKind {
 	File(usize),
 	Def(DefLocation),
 	ChangeFile,
-	Change(usize),
+	Change(ChangeId),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -59,7 +59,7 @@ impl NavNode {
 pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("explorer"), "root", NavNodeKind::Root);
 	for file_idx in 0..store.file_count() {
-		let file = store.file(file_idx);
+		let file = store.file_summary(file_idx);
 		let lang = child_mut(
 			&mut root,
 			NodeId::lang("explorer", file.lang.tag()),
@@ -97,9 +97,9 @@ pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
 		let mut file_node = NavNode::new(
 			NodeId::file(&file.anchor),
 			file_label,
-			NavNodeKind::File(file_idx),
+			NavNodeKind::File(file.index),
 		);
-		file_node.children = symbol_children(store, file_idx, None);
+		file_node.children = symbol_children(store, file.index, None);
 		parent.children.push(file_node);
 	}
 	sort_nav(&mut root);
@@ -109,15 +109,15 @@ pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
 
 pub(super) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("change"), "root", NavNodeKind::Root);
-	for (change_idx, entry) in store.change_index().entries.iter().enumerate() {
+	for change in store.change_rows() {
 		let lang = child_mut(
 			&mut root,
-			NodeId::lang("change", entry.lang.tag()),
-			entry.lang.tag().to_string(),
+			NodeId::lang("change", change.lang.tag()),
+			change.lang.tag().to_string(),
 			NavNodeKind::Lang,
 		);
 		let mut parent = lang;
-		let path_parts: Vec<String> = entry
+		let path_parts: Vec<String> = change
 			.file_path
 			.parent()
 			.into_iter()
@@ -133,27 +133,27 @@ pub(super) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
 			path_key.push_str(&part);
 			parent = child_mut(
 				parent,
-				NodeId::dir("change", entry.lang.tag(), &path_key),
+				NodeId::dir("change", change.lang.tag(), &path_key),
 				part,
 				NavNodeKind::Dir,
 			);
 		}
-		let file_label = entry
+		let file_label = change
 			.file_path
 			.file_name()
 			.and_then(|name| name.to_str())
-			.unwrap_or_else(|| entry.file_path.to_str().unwrap_or("<file>"))
+			.unwrap_or_else(|| change.file_path.to_str().unwrap_or("<file>"))
 			.to_string();
 		let file = child_mut(
 			parent,
-			NodeId::change_file(&entry.file_path),
+			NodeId::change_file(&change.file_path),
 			file_label,
 			NavNodeKind::ChangeFile,
 		);
 		file.children.push(NavNode::new(
-			NodeId::change(&entry.moniker),
-			entry.name.clone(),
-			NavNodeKind::Change(change_idx),
+			NodeId::change(&change.compact_moniker),
+			change.name.clone(),
+			NavNodeKind::Change(change.id),
 		));
 	}
 	sort_nav(&mut root);
@@ -244,11 +244,11 @@ fn collect_symbol_node(
 	loc: DefLocation,
 	out: &mut Vec<NavNode>,
 ) {
-	let def = store.def(&loc);
-	if is_navigable_def(store.file(file_idx).lang, def) {
+	if store.is_navigable_symbol(&loc) {
+		let symbol = store.symbol_summary(&loc);
 		let mut node = NavNode::new(
-			NodeId::def(&def.moniker),
-			last_name(&def.moniker),
+			NodeId::def(&symbol.compact_moniker),
+			symbol.name,
 			NavNodeKind::Def(loc),
 		);
 		node.children = symbol_children(store, file_idx, Some(loc));

@@ -7,13 +7,14 @@ use std::process::Command;
 use code_moniker_core::lang::Lang;
 
 use crate::DEFAULT_SCHEME;
-use crate::inspect::SessionOptions;
+use crate::workspace::SessionOptions;
 
+use super::events::FilterEdit;
 use super::kinds::{KindGroup, definition_kind_group, definition_kind_order, reference_kind_group};
 use super::source::source_snippet_lines;
-use super::store::IndexStore;
 use super::theme::THEME;
 use super::*;
+use crate::workspace::IndexStore;
 
 fn key(code: KeyCode) -> KeyEvent {
 	KeyEvent::new(code, KeyModifiers::empty())
@@ -49,6 +50,25 @@ fn line_text(line: &Line<'_>) -> String {
 		.collect::<String>()
 }
 
+fn symbol_name(app: &App, loc: &DefLocation) -> String {
+	app.store().symbol_summary(loc).name
+}
+
+fn symbol_kind(app: &App, loc: &DefLocation) -> String {
+	app.store().symbol_summary(loc).kind
+}
+
+fn find_symbol(app: &App, kind: &str, name: &str) -> DefLocation {
+	app.store()
+		.all_navigable_defs(None)
+		.into_iter()
+		.find(|loc| {
+			let symbol = app.store().symbol_summary(loc);
+			symbol.kind == kind && symbol.name == name
+		})
+		.unwrap_or_else(|| panic!("missing symbol {kind} {name}"))
+}
+
 fn select_nav_label(app: &mut App, label: &str) {
 	let idx = app
 		.nav_rows()
@@ -82,7 +102,10 @@ fn select_nav_index(app: &mut App, idx: usize) {
 }
 
 fn apply_text_filter(app: &mut App, raw: &str) {
-	app.update_shell(|shell| shell.filter_draft = raw.to_string());
+	app.update(AppAction::Ui(Msg::StartFilterEdit));
+	for ch in raw.chars() {
+		app.update(AppAction::Ui(Msg::FilterInput(FilterEdit::Push(ch))));
+	}
 	app.apply_filter();
 }
 
@@ -245,7 +268,7 @@ fn ui_kind_groups_come_from_language_contracts() {
 fn header_exposes_visualization_mode_and_scope_only() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -282,7 +305,7 @@ fn header_exposes_visualization_mode_and_scope_only() {
 fn view_switches_update_shell_route_through_effects() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -306,7 +329,7 @@ fn view_switches_update_shell_route_through_effects() {
 fn contextual_panel_tracks_selected_declaration_in_explorer_mode() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -332,11 +355,7 @@ fn contextual_panel_tracks_selected_declaration_in_explorer_mode() {
 	app.handle_key(key(KeyCode::Down)).unwrap();
 
 	assert_eq!(
-		last_name(
-			&app.store()
-				.def(&app.selected().expect("selected declaration"))
-				.moniker
-		),
+		symbol_name(&app, &app.selected().expect("selected declaration")),
 		"Alpha"
 	);
 	assert_eq!(app.view(), View::Tree);
@@ -351,7 +370,7 @@ fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 		"src/a.ts",
 		"class Alpha {}\nclass Beta {}\nfunction gamma() {}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -367,7 +386,7 @@ fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 	assert!(
 		app.visible_defs()
 			.iter()
-			.all(|loc| last_name(&app.store().def(loc).moniker).contains("Alpha")),
+			.all(|loc| symbol_name(&app, loc).contains("Alpha")),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -382,11 +401,7 @@ fn app_filter_limits_visible_declarations_and_keeps_tree_navigation() {
 	assert!(!app.nav_rows().iter().any(|row| row.label.contains("Beta")));
 	select_nav_label_ending_with(&mut app, "Alpha");
 	assert_eq!(
-		last_name(
-			&app.store()
-				.def(&app.selected().expect("selected Alpha"))
-				.moniker
-		),
+		symbol_name(&app, &app.selected().expect("selected Alpha")),
 		"Alpha"
 	);
 }
@@ -404,7 +419,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 		"src/a/customer/billing.ts",
 		"class BillingService {}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -418,10 +433,7 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	);
 	let total = app.visible_defs().len();
 	let hits = app.store().search_symbols("customer", 10);
-	let hit_names: Vec<_> = hits
-		.iter()
-		.map(|hit| last_name(&app.store().def(&hit.loc).moniker))
-		.collect();
+	let hit_names: Vec<_> = hits.iter().map(|hit| symbol_name(&app, &hit.loc)).collect();
 
 	assert_eq!(
 		hit_names.first().map(String::as_str),
@@ -447,22 +459,18 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 	assert_eq!(app.view_mode(), VisualizationMode::Search);
 	assert!(app.is_filtered());
 	assert!(matches!(app.active_filter(), ActiveFilter::Search { .. }));
+	assert_eq!(symbol_name(&app, &app.visible_defs()[0]), "CustomerProfile");
 	assert_eq!(
-		last_name(&app.store().def(&app.visible_defs()[0]).moniker),
-		"CustomerProfile"
-	);
-	assert_eq!(
-		last_name(
-			&app.store()
-				.def(&app.selected().expect("top ranked search hit is selected"))
-				.moniker
+		symbol_name(
+			&app,
+			&app.selected().expect("top ranked search hit is selected")
 		),
 		"CustomerProfile"
 	);
 	assert!(
 		!app.visible_defs()
 			.iter()
-			.any(|loc| last_name(&app.store().def(loc).moniker) == "OrderFlow"),
+			.any(|loc| symbol_name(&app, loc) == "OrderFlow"),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -491,7 +499,7 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 		"src/a.ts",
 		"class CustomerProfile {}\nclass OrderFlow {}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -550,7 +558,7 @@ fn search_edit_uses_focused_input_section_above_navigator() {
 fn panel_snapshot_text_names_active_component_and_body() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -591,7 +599,7 @@ fn panel_snapshot_text_names_active_component_and_body() {
 fn clipboard_result_updates_user_visible_status() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -624,7 +632,7 @@ fn clipboard_result_updates_user_visible_status() {
 fn spawn_effect_runs_task_through_shell_event_channel() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -712,7 +720,7 @@ fn boot_opens_with_empty_store_then_loads_index_async() {
 fn full_store_event_queues_async_reload_when_event_loop_is_available() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -747,14 +755,14 @@ fn full_store_event_queues_async_reload_when_event_loop_is_available() {
 		app.store()
 			.all_navigable_defs(None)
 			.iter()
-			.any(|loc| last_name(&app.store().def(loc).moniker) == "Beta"),
+			.any(|loc| symbol_name(&app, loc) == "Beta"),
 		"store should be replaced by async reload result"
 	);
 	assert_eq!(app.status(), "reload index completed");
 }
 
 #[test]
-fn change_store_event_queues_async_change_index_refresh() {
+fn change_store_event_queues_async_git_overlay_refresh() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(
 		tmp.path(),
@@ -766,7 +774,7 @@ fn change_store_event_queues_async_change_index_refresh() {
 	git(tmp.path(), &["config", "user.name", "Agent"]);
 	git(tmp.path(), &["add", "."]);
 	git(tmp.path(), &["commit", "-m", "baseline"]);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -786,38 +794,37 @@ fn change_store_event_queues_async_change_index_refresh() {
 		"src/main/java/com/acme/MoneyFormatter.java",
 		"package com.acme;\npublic class MoneyFormatter {\n  public String format(long cents) {\n    return \"$\" + cents;\n  }\n}\n",
 	);
-	app.handle_store_event(StoreEvent::ChangeIndex);
+	app.handle_store_event(StoreEvent::GitOverlay);
 
 	assert!(
-		app.status().contains("task queued: refresh change index"),
+		app.status().contains("task queued: refresh git overlay"),
 		"{}",
 		app.status()
 	);
 	let ShellEvent::TaskCompleted(result) = rx
 		.recv_timeout(std::time::Duration::from_secs(2))
-		.expect("change index result")
+		.expect("git overlay result")
 	else {
-		panic!("expected change index completion");
+		panic!("expected git overlay completion");
 	};
 	app.update(AppAction::TaskCompleted(result));
 
 	assert!(
 		app.store()
-			.change_index()
-			.entries
+			.change_rows()
 			.iter()
-			.any(|entry| entry.name == "format(cents:long)"),
+			.any(|change| change.name == "format(cents:long)"),
 		"{:?}",
-		app.store().change_index().entries
+		app.store().change_rows()
 	);
-	assert_eq!(app.status(), "refresh change index completed");
+	assert_eq!(app.status(), "refresh git overlay completed");
 }
 
 #[test]
 fn change_mode_reports_sources_without_git() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -832,10 +839,10 @@ fn change_mode_reports_sources_without_git() {
 
 	assert!(
 		app.store()
-			.change_index()
+			.change_overview()
 			.resources
 			.iter()
-			.any(|resource| !resource.available())
+			.any(|resource| !resource.available)
 	);
 
 	app.handle_key(key(KeyCode::Char('d'))).unwrap();
@@ -862,7 +869,7 @@ fn change_mode_reports_each_non_git_source_in_multi_source_sessions() {
 	let service = tmp.path().join("billing-service");
 	write(&common, "src/Common.java", "class Common {}\n");
 	write(&service, "src/Billing.java", "class Billing {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![common.clone(), service.clone()],
 		project: None,
 		cache_dir: None,
@@ -883,10 +890,10 @@ fn change_mode_reports_each_non_git_source_in_multi_source_sessions() {
 	assert!(rendered.contains("billing-service"), "{rendered}");
 	assert_eq!(
 		app.store()
-			.change_index()
+			.change_overview()
 			.resources
 			.iter()
-			.filter(|resource| !resource.available())
+			.filter(|resource| !resource.available)
 			.count(),
 		2
 	);
@@ -915,7 +922,7 @@ fn change_mode_filters_changed_symbols_and_toggles_blast_radius() {
 		"src/main/java/com/acme/MoneyFormatter.java",
 		"package com.acme;\npublic class MoneyFormatter {\n  public String format(long cents) {\n    return \"$\" + cents;\n  }\n}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -934,14 +941,11 @@ fn change_mode_filters_changed_symbols_and_toggles_blast_radius() {
 	assert_eq!(app.view(), View::Change);
 	assert_eq!(app.visible_defs().len(), 1, "{:?}", app.visible_defs());
 	let changed = app.visible_defs()[0];
-	assert_eq!(
-		last_name(&app.store().def(&changed).moniker),
-		"format(cents:long)"
-	);
-	assert!(app.store().change_for_def(&changed).is_some());
+	assert_eq!(symbol_name(&app, &changed), "format(cents:long)");
+	assert!(app.store().change_detail_for_symbol(&changed).is_some());
 	assert_eq!(app.store().change_count_for_file(changed.file), 1);
-	let change = app.store().change_for_def(&changed).unwrap();
-	assert_eq!(app.store().change_usage_refs(change).len(), 1);
+	let change = app.store().change_detail_for_symbol(&changed).unwrap();
+	assert_eq!(change.blast_radius.summary.refs, 1);
 	assert!(
 		app.nav_rows()
 			.iter()
@@ -1010,7 +1014,7 @@ fn change_mode_shows_removed_symbol_and_its_blast_radius() {
 		"src/main/java/com/acme/MoneyFormatter.java",
 		"package com.acme;\npublic class MoneyFormatter {\n}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1045,7 +1049,7 @@ fn change_mode_shows_removed_symbol_and_its_blast_radius() {
 fn full_store_event_reloads_index_and_refreshes_active_search() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1058,7 +1062,10 @@ fn full_store_event_reloads_index_and_refreshes_active_search() {
 		None,
 	);
 
-	app.update_shell(|shell| shell.search_draft = "Beta".to_string());
+	app.update(AppAction::Ui(Msg::StartSearchEdit));
+	for ch in "Beta".chars() {
+		app.update(AppAction::Ui(Msg::FilterInput(FilterEdit::Push(ch))));
+	}
 	app.apply_search();
 
 	assert!(app.visible_defs().is_empty(), "{:?}", app.visible_defs());
@@ -1069,7 +1076,7 @@ fn full_store_event_reloads_index_and_refreshes_active_search() {
 	assert!(
 		app.visible_defs()
 			.iter()
-			.any(|loc| last_name(&app.store().def(loc).moniker) == "Beta"),
+			.any(|loc| symbol_name(&app, loc) == "Beta"),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -1085,7 +1092,7 @@ fn full_store_event_reloads_index_and_refreshes_active_search() {
 fn full_store_event_preserves_expanded_tree_and_selected_symbol() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1138,7 +1145,7 @@ fn full_store_event_refreshes_change_navigator_while_change_mode_is_active() {
 	git(tmp.path(), &["config", "user.name", "Agent"]);
 	git(tmp.path(), &["add", "."]);
 	git(tmp.path(), &["commit", "-m", "baseline"]);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1182,7 +1189,7 @@ fn navigator_compacts_linear_branches_and_expands_at_branch_points() {
 		"class Foo { bar() { return 1; } }\nfunction helper() { return 2; }\n",
 	);
 	write(tmp.path(), "src/nested/b.ts", "class Other {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1206,7 +1213,7 @@ fn navigator_compacts_linear_branches_and_expands_at_branch_points() {
 
 	select_nav_label(&mut app, "Foo");
 	let selected = app.selected().expect("selected symbol");
-	assert_eq!(last_name(&app.store().def(&selected).moniker), "Foo");
+	assert_eq!(symbol_name(&app, &selected), "Foo");
 	assert!(
 		app.nav_rows()
 			.iter()
@@ -1223,7 +1230,7 @@ fn navigator_renders_uncompacted_language_rows_as_containers() {
 		"crates/core/tests/fixtures/sql/users.sql",
 		"select 2;\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1259,7 +1266,7 @@ fn explorer_orders_symbols_by_language_kind_contract() {
 		"src/a.ts",
 		"function Ahelper() {}\nconst Bvalue = 1;\nclass Zeta {}\ninterface YResolver {}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1292,7 +1299,7 @@ fn explorer_orders_rust_symbols_by_language_kind_contract() {
 		"src/a.rs",
 		"fn helper() {}\n#[test]\nfn parses() {}\nstruct Service;\nconst LIMIT: u8 = 1;\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1325,7 +1332,7 @@ fn explorer_orders_symbols_after_flattening_non_navigable_modules() {
 		"src/a.rs",
 		"#[cfg(test)]\nmod tests {\n    fn helper() {}\n    #[test]\n    fn parses() {}\n}\nstruct Service;\nfn run() {}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1358,7 +1365,7 @@ fn explorer_shows_java_record_fields_before_accessors() {
 		"src/User.java",
 		"public record User(String id, int age) { public String label() { return id; } }\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1384,8 +1391,7 @@ fn explorer_shows_java_record_fields_before_accessors() {
 			let NavNodeKind::Def(loc) = row.kind else {
 				return None;
 			};
-			let def = app.store().def(&loc);
-			Some((def_kind(def), row.label.clone()))
+			Some((symbol_kind(&app, &loc), row.label.clone()))
 		})
 		.collect();
 	let id_field = rows
@@ -1433,7 +1439,7 @@ fn multi_source_navigator_keeps_source_roots_as_directory_rows() {
 		"src/main/java/com/acme/order/OrderApplication.java",
 		"class OrderApplication {}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![common, billing, order],
 		project: None,
 		cache_dir: None,
@@ -1497,7 +1503,7 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 		"src/main/java/com/acme/order/OrderApplication.java",
 		"package com.acme.order;\npublic class OrderApplication { public String run() { return \"ok\"; } }\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![common, billing, order],
 		project: None,
 		cache_dir: None,
@@ -1509,23 +1515,7 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
-	let money_formatter = (0..app.store().file_count())
-		.flat_map(|file_idx| {
-			app.store()
-				.file(file_idx)
-				.graph
-				.defs()
-				.enumerate()
-				.map(move |(def_idx, _)| DefLocation {
-					file: file_idx,
-					def: def_idx,
-				})
-		})
-		.find(|loc| {
-			let def = app.store().def(loc);
-			def_kind(def) == "class" && last_name(&def.moniker) == "MoneyFormatter"
-		})
-		.expect("MoneyFormatter class");
+	let money_formatter = find_symbol(&app, "class", "MoneyFormatter");
 
 	app.focus_usages(money_formatter);
 
@@ -1544,14 +1534,14 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 	assert!(
 		app.visible_defs()
 			.iter()
-			.any(|loc| last_name(&app.store().def(loc).moniker) == "BillingApplication"),
+			.any(|loc| symbol_name(&app, loc) == "BillingApplication"),
 		"{:?}",
 		app.visible_defs()
 	);
 	assert!(
 		!app.visible_defs()
 			.iter()
-			.any(|loc| last_name(&app.store().def(loc).moniker) == "OrderApplication"),
+			.any(|loc| symbol_name(&app, loc) == "OrderApplication"),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -1579,7 +1569,7 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 		"src/CustomerProfile.java",
 		"public record CustomerProfile(boolean premium) {}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1591,23 +1581,7 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
-	let premium_accessor = (0..app.store().file_count())
-		.flat_map(|file_idx| {
-			app.store()
-				.file(file_idx)
-				.graph
-				.defs()
-				.enumerate()
-				.map(move |(def_idx, _)| DefLocation {
-					file: file_idx,
-					def: def_idx,
-				})
-		})
-		.find(|loc| {
-			let def = app.store().def(loc);
-			def_kind(def) == "method" && last_name(&def.moniker) == "premium()"
-		})
-		.expect("generated premium accessor");
+	let premium_accessor = find_symbol(&app, "method", "premium()");
 
 	app.focus_usages(premium_accessor);
 
@@ -1634,7 +1608,7 @@ fn refs_panel_prioritizes_incoming_impact_with_location_context() {
 		"src/a.ts",
 		"class MoneyFormatter {}\nclass BillingApplication { formatter: MoneyFormatter = new MoneyFormatter(); }\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1646,33 +1620,12 @@ fn refs_panel_prioritizes_incoming_impact_with_location_context() {
 		tmp.path().join(".code-moniker.toml"),
 		None,
 	);
-	let money_formatter = (0..app.store().file_count())
-		.flat_map(|file_idx| {
-			app.store()
-				.file(file_idx)
-				.graph
-				.defs()
-				.enumerate()
-				.map(move |(def_idx, _)| DefLocation {
-					file: file_idx,
-					def: def_idx,
-				})
-		})
-		.find(|loc| {
-			let def = app.store().def(loc);
-			def_kind(def) == "class" && last_name(&def.moniker) == "MoneyFormatter"
-		})
-		.expect("MoneyFormatter class");
+	let money_formatter = find_symbol(&app, "class", "MoneyFormatter");
 	let panel_width = 64;
-	let lines: Vec<_> = refs_panel_lines(
-		&app,
-		money_formatter,
-		app.store().def(&money_formatter),
-		panel_width,
-	)
-	.iter()
-	.map(line_text)
-	.collect();
+	let lines: Vec<_> = refs_panel_lines(&app, money_formatter, panel_width)
+		.iter()
+		.map(line_text)
+		.collect();
 	let incoming = lines
 		.iter()
 		.position(|line| line == "incoming impact")
@@ -1730,7 +1683,7 @@ fn outline_panel_renders_compact_moniker_format() {
 		"src/args.rs",
 		"#[cfg(test)]\nmod tests {\n    #[test]\n    fn no_args_requires_subcommand() {}\n}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1766,7 +1719,7 @@ fn kind_filter_limits_navigator_to_matching_declaration_kinds() {
 		"src/a.ts",
 		"class Alpha {}\ninterface Resolver {}\nfunction helper() {}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1801,7 +1754,7 @@ fn kind_filter_limits_navigator_to_matching_declaration_kinds() {
 fn rust_fn_kind_is_navigable_and_filterable() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/lib.rs", "pub fn build() {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1832,7 +1785,7 @@ fn filter_counts_only_navigable_declarations() {
 		"src/lib.rs",
 		"pub fn build(value: u32) { let local = value; }\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1855,7 +1808,7 @@ fn filter_counts_only_navigable_declarations() {
 fn invalid_filter_regex_clears_rows_with_actionable_status() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1894,7 +1847,7 @@ fn source_snippet_preserves_indent_and_dims_context_lines() {
 		"src/a.ts",
 		"const before = 1;\nfunction target() {\n    nested();\n}\nconst after = 2;\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1910,7 +1863,7 @@ fn source_snippet_preserves_indent_and_dims_context_lines() {
 		.visible_defs()
 		.iter()
 		.copied()
-		.find(|loc| last_name(&app.store().def(loc).moniker).starts_with("target"))
+		.find(|loc| symbol_name(&app, loc).starts_with("target"))
 		.expect("target function");
 
 	let lines = source_snippet_lines(&app, &target, 1);
@@ -1961,7 +1914,7 @@ fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 		"src/a.ts",
 		"class Alpha {}\nclass Beta {}\nfunction gamma() {}\n",
 	);
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -1991,7 +1944,7 @@ fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 	assert!(
 		app.visible_defs()
 			.iter()
-			.all(|loc| last_name(&app.store().def(loc).moniker).contains("Alpha")),
+			.all(|loc| symbol_name(&app, loc).contains("Alpha")),
 		"{:?}",
 		app.visible_defs()
 	);
@@ -2008,7 +1961,7 @@ fn editing_filter_keystrokes_update_draft_until_enter_applies_filter() {
 fn editing_filter_accepts_printable_chars_with_terminal_modifiers() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -2033,7 +1986,7 @@ fn editing_filter_accepts_printable_chars_with_terminal_modifiers() {
 fn normal_mode_x_clears_filter_but_editing_mode_x_updates_draft() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -2069,7 +2022,7 @@ fn normal_mode_x_clears_filter_but_editing_mode_x_updates_draft() {
 fn escape_closes_navigation_and_explicit_quit_keys_exit() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,
@@ -2104,7 +2057,7 @@ fn escape_closes_navigation_and_explicit_quit_keys_exit() {
 fn normal_mode_ignores_control_modified_command_keys() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
-	let store = MemoryIndexStore::load(&SessionOptions {
+	let store = WorkspaceStore::load(&SessionOptions {
 		paths: vec![tmp.path().into()],
 		project: Some("app".into()),
 		cache_dir: None,

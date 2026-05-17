@@ -1,43 +1,28 @@
-use crate::ui::app::action::AppAction;
-#[cfg(test)]
-use crate::ui::app::state::LoadState;
+use crate::ui::app::action::{AppAction, ShellAction};
 use crate::ui::app::state::{AppState, CheckState, ShellSlice};
 use crate::ui::live::StoreEvent;
 use crate::ui::reactive::{ReactiveStore, Reduce, Transition};
 use crate::ui::runtime::{TaskResult, TaskSpec};
 use crate::ui::store::navigation::{NavigationAction, NavigationState};
-use crate::ui::store::{IndexStore, MemoryIndexStore};
+use crate::workspace::WorkspaceStore;
 
 pub(in crate::ui) struct AppStore {
 	inner: ReactiveStore<AppState>,
-	index: Option<MemoryIndexStore>,
+	workspace: Option<WorkspaceStore>,
 }
 
 impl AppStore {
 	pub(in crate::ui) fn new() -> Self {
 		Self {
 			inner: ReactiveStore::new(AppState::new()),
-			index: None,
+			workspace: None,
 		}
 	}
 
-	pub(in crate::ui) fn from_index_store(store: &impl IndexStore) -> Self {
-		Self::from_stats(store.stats())
-	}
-
-	pub(in crate::ui) fn from_memory_store(store: MemoryIndexStore) -> Self {
-		let mut app_store = Self::from_index_store(&store);
-		app_store.index = Some(store);
+	pub(in crate::ui) fn from_workspace_store(store: WorkspaceStore) -> Self {
+		let mut app_store = Self::new();
+		app_store.workspace = Some(store);
 		app_store
-	}
-
-	fn from_stats(stats: &crate::inspect::SessionStats) -> Self {
-		let mut state = AppState::new();
-		state.set_index_ready(stats.files, stats.defs, stats.refs);
-		Self {
-			inner: ReactiveStore::new(state),
-			index: None,
-		}
 	}
 
 	#[cfg(test)]
@@ -57,16 +42,20 @@ impl AppStore {
 		task
 	}
 
-	pub(in crate::ui) fn index(&self) -> &MemoryIndexStore {
-		self.index.as_ref().expect("index store initialized")
+	pub(in crate::ui) fn workspace(&self) -> &WorkspaceStore {
+		self.workspace
+			.as_ref()
+			.expect("workspace store initialized")
 	}
 
-	pub(in crate::ui) fn index_mut(&mut self) -> &mut MemoryIndexStore {
-		self.index.as_mut().expect("index store initialized")
+	pub(in crate::ui) fn workspace_mut(&mut self) -> &mut WorkspaceStore {
+		self.workspace
+			.as_mut()
+			.expect("workspace store initialized")
 	}
 
-	pub(in crate::ui) fn replace_index(&mut self, store: MemoryIndexStore) {
-		self.index = Some(store);
+	pub(in crate::ui) fn replace_workspace(&mut self, store: WorkspaceStore) {
+		self.workspace = Some(store);
 	}
 
 	pub(in crate::ui) fn complete_task(&mut self, result: &TaskResult) -> bool {
@@ -90,28 +79,14 @@ impl AppStore {
 		&self.inner.state().shell
 	}
 
-	pub(in crate::ui) fn update_shell(&mut self, f: impl FnOnce(&mut ShellSlice)) {
-		self.inner.reduce_with(|state| {
-			state.generation += 1;
-			state.shell.generation += 1;
-			f(&mut state.shell);
-			Transition::changed("shell")
-		});
-	}
-
 	pub(in crate::ui) fn set_status(&mut self, status: impl Into<String>) {
-		let status = status.into();
-		self.inner.reduce_with(|state| {
-			state.set_status(status);
-			Transition::changed("shell-status")
-		});
+		self.dispatch(&AppAction::Shell(ShellAction::SetStatus(status.into())));
 	}
 
 	pub(in crate::ui) fn append_status(&mut self, suffix: impl AsRef<str>) {
-		self.inner.reduce_with(|state| {
-			state.append_status(suffix);
-			Transition::changed("shell-status-appended")
-		});
+		self.dispatch(&AppAction::Shell(ShellAction::AppendStatus(
+			suffix.as_ref().to_string(),
+		)));
 	}
 
 	pub(in crate::ui) fn check_state(&self) -> &CheckState {
@@ -119,10 +94,7 @@ impl AppStore {
 	}
 
 	pub(in crate::ui) fn set_check_state(&mut self, check: CheckState) {
-		self.inner.reduce_with(|state| {
-			state.set_check_state(check);
-			Transition::changed("check-state")
-		});
+		self.dispatch(&AppAction::Shell(ShellAction::SetCheckState(check)));
 	}
 
 	pub(in crate::ui) fn set_navigation(&mut self, navigation: NavigationState) {
@@ -172,11 +144,13 @@ impl Default for AppStore {
 impl Reduce<&AppAction> for AppState {
 	fn reduce(&mut self, action: &AppAction) -> Transition {
 		match action {
+			AppAction::Ui(msg) => self.reduce_ui_msg(msg),
+			AppAction::Shell(action) => self.reduce_shell_action(action),
 			AppAction::Store(event) => {
 				self.invalidate_for_store_event(*event);
 				match event {
 					StoreEvent::FullIndex => Transition::changed("full-index-invalidated"),
-					StoreEvent::ChangeIndex => Transition::changed("git-change-invalidated"),
+					StoreEvent::GitOverlay => Transition::changed("git-overlay-invalidated"),
 				}
 			}
 			AppAction::TaskStarted {
@@ -194,7 +168,7 @@ impl Reduce<&AppAction> for AppState {
 					Transition::changed("task-ignored")
 				}
 			}
-			AppAction::Ui(_) | AppAction::Clipboard(_) => Transition::unchanged("ui-local"),
+			AppAction::Clipboard(_) => Transition::unchanged("ui-local"),
 		}
 	}
 }
@@ -207,7 +181,7 @@ mod tests {
 	use crate::ui::store::ids::NodeId;
 
 	#[test]
-	fn full_index_event_invalidates_domain_slices() {
+	fn full_index_event_invalidates_workspace_epochs() {
 		let mut store = AppStore::new();
 
 		let transition = store.dispatch(&AppAction::Store(StoreEvent::FullIndex));
@@ -215,10 +189,13 @@ mod tests {
 		assert!(transition.changed);
 		assert_eq!(transition.reason, "full-index-invalidated");
 		assert_eq!(store.state().generation, 1);
-		assert_eq!(store.state().index.generation, 1);
-		assert_eq!(store.state().git.generation, 1);
-		assert_eq!(store.state().impact.generation, 1);
-		assert_eq!(store.state().coverage.generation, 1);
+		assert_eq!(store.state().generation_for_work(WorkKind::GraphIndex), 1);
+		assert_eq!(store.state().generation_for_work(WorkKind::GitOverlay), 1);
+		assert_eq!(store.state().generation_for_work(WorkKind::ImpactIndex), 1);
+		assert_eq!(
+			store.state().generation_for_work(WorkKind::CoverageIndex),
+			1
+		);
 		assert!(store.state().work.pending.contains(&WorkKind::ProjectLoad));
 		assert!(store.state().work.pending.contains(&WorkKind::GraphIndex));
 		assert!(store.state().work.pending.contains(&WorkKind::ImpactIndex));
@@ -232,42 +209,28 @@ mod tests {
 	}
 
 	#[test]
-	fn change_index_event_only_invalidates_git_and_panels() {
+	fn git_overlay_event_only_invalidates_git_and_panels() {
 		let mut store = AppStore::new();
 
-		store.dispatch(&AppAction::Store(StoreEvent::ChangeIndex));
+		store.dispatch(&AppAction::Store(StoreEvent::GitOverlay));
 
 		assert_eq!(store.state().generation, 1);
-		assert_eq!(store.state().index.generation, 0);
-		assert_eq!(store.state().git.generation, 1);
-		assert_eq!(store.state().impact.generation, 1);
-		assert_eq!(store.state().panels.generation, 1);
-		assert!(
-			store
-				.state()
-				.work
-				.pending
-				.contains(&WorkKind::GitChangeIndex)
-		);
+		assert_eq!(store.state().generation_for_work(WorkKind::GraphIndex), 0);
+		assert_eq!(store.state().generation_for_work(WorkKind::GitOverlay), 1);
+		assert_eq!(store.state().generation_for_work(WorkKind::ImpactIndex), 1);
+		assert_eq!(store.state().generation_for_work(WorkKind::PanelData), 1);
+		assert!(store.state().work.pending.contains(&WorkKind::GitOverlay));
 		assert!(store.state().work.pending.contains(&WorkKind::ImpactIndex));
 		assert!(store.state().work.pending.contains(&WorkKind::PanelData));
 		assert!(!store.state().work.pending.contains(&WorkKind::GraphIndex));
 	}
 
 	#[test]
-	fn app_store_can_be_seeded_from_loaded_index() {
-		let store = AppStore::from_stats(&crate::inspect::SessionStats {
-			files: 3,
-			defs: 5,
-			refs: 8,
-			..Default::default()
-		});
+	fn app_store_keeps_workspace_data_outside_app_state() {
+		let store = AppStore::new();
 
-		assert!(matches!(
-			store.state().index.status,
-			LoadState::Ready(ref summary)
-				if summary.files == 3 && summary.defs == 5 && summary.refs == 8
-		));
+		assert_eq!(store.state().generation_for_work(WorkKind::GraphIndex), 0);
+		assert!(store.state().work.pending.is_empty());
 	}
 
 	#[test]
@@ -304,7 +267,7 @@ mod tests {
 	fn check_state_is_owned_by_app_store() {
 		let mut store = AppStore::new();
 
-		store.set_check_state(CheckState::Ready(crate::inspect::CheckSummary {
+		store.set_check_state(CheckState::Ready(crate::workspace::CheckSummary {
 			files_scanned: 7,
 			files_with_violations: 1,
 			total_violations: 3,
@@ -316,7 +279,7 @@ mod tests {
 			CheckState::Ready(summary)
 				if summary.files_scanned == 7 && summary.total_violations == 3
 		));
-		assert_eq!(store.state().check.generation, 1);
+		assert_eq!(store.state().generation_for_work(WorkKind::CheckPanel), 1);
 	}
 
 	#[test]

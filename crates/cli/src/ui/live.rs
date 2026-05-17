@@ -2,11 +2,11 @@ use std::path::{Component, Path, PathBuf};
 
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 
-use super::store::StoreWatchRoot;
+use crate::workspace::StoreWatchRoot;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum StoreEvent {
-	ChangeIndex,
+	GitOverlay,
 	FullIndex,
 }
 
@@ -15,7 +15,7 @@ impl StoreEvent {
 		if matches!(self, Self::FullIndex) || matches!(other, Self::FullIndex) {
 			Self::FullIndex
 		} else {
-			Self::ChangeIndex
+			Self::GitOverlay
 		}
 	}
 }
@@ -110,8 +110,8 @@ impl EventClassifier {
 				continue;
 			}
 			if self.is_git_path(path) {
-				event = Some(event.map_or(StoreEvent::ChangeIndex, |current| {
-					current.coalesce(StoreEvent::ChangeIndex)
+				event = Some(event.map_or(StoreEvent::GitOverlay, |current| {
+					current.coalesce(StoreEvent::GitOverlay)
 				}));
 				continue;
 			}
@@ -193,12 +193,12 @@ mod tests {
 	}
 
 	#[test]
-	fn classifies_git_changes_as_change_index_refresh() {
+	fn classifies_git_overlays_as_git_overlay_refresh() {
 		let classifier = EventClassifier::new(vec![root("/repo/service", Some("/repo"))]);
 
 		assert_eq!(
 			classifier.classify_paths(&[PathBuf::from("/repo/.git/index")]),
-			Some(StoreEvent::ChangeIndex)
+			Some(StoreEvent::GitOverlay)
 		);
 	}
 
@@ -233,14 +233,14 @@ mod tests {
 	}
 
 	#[test]
-	fn coalesces_full_refresh_over_change_index_refresh() {
+	fn coalesces_full_refresh_over_git_overlay_refresh() {
 		assert_eq!(
-			StoreEvent::ChangeIndex.coalesce(StoreEvent::FullIndex),
+			StoreEvent::GitOverlay.coalesce(StoreEvent::FullIndex),
 			StoreEvent::FullIndex
 		);
 		assert_eq!(
-			StoreEvent::ChangeIndex.coalesce(StoreEvent::ChangeIndex),
-			StoreEvent::ChangeIndex
+			StoreEvent::GitOverlay.coalesce(StoreEvent::GitOverlay),
+			StoreEvent::GitOverlay
 		);
 	}
 }

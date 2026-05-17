@@ -1,12 +1,11 @@
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use crate::inspect::DefLocation;
-use crate::lines::line_range;
+use crate::workspace::DefLocation;
 
 use super::App;
-use super::store::IndexStore;
 use super::theme::{SourceTheme, THEME};
+use crate::workspace::IndexStore;
 
 pub(super) fn source_snippet_lines(
 	app: &App,
@@ -14,29 +13,16 @@ pub(super) fn source_snippet_lines(
 	context: u32,
 ) -> Vec<Line<'static>> {
 	let theme = THEME.source;
-	let file = app.store().file(loc.file);
-	let Some((start, end)) = app.store().def(loc).position else {
-		return Vec::new();
-	};
-	let (start_line, end_line) = line_range(&file.source, start, end);
-	let first = start_line.saturating_sub(context).max(1);
-	let last = end_line.saturating_add(context);
-	let width = last.to_string().len().max(4);
-	file.source
-		.lines()
-		.enumerate()
-		.filter_map(|(idx, line)| {
-			let line_no = idx as u32 + 1;
-			(first <= line_no && line_no <= last).then(|| {
-				source_line(
-					line_no,
-					width,
-					line,
-					start_line <= line_no && line_no <= end_line,
-					theme,
-				)
-			})
-		})
+	let snippet = app.store().source_snippet(loc, context);
+	let width = snippet
+		.iter()
+		.map(|line| line.number.to_string().len())
+		.max()
+		.unwrap_or(4)
+		.max(4);
+	snippet
+		.into_iter()
+		.map(|line| source_line(line.number, width, &line.text, line.active, theme))
 		.collect()
 }
 

@@ -9,6 +9,7 @@ pub mod dir;
 pub mod extract;
 pub mod format;
 pub mod harness;
+#[deprecated(note = "use code_moniker_cli::workspace::index instead")]
 pub mod inspect;
 pub mod lang;
 pub mod lines;
@@ -22,6 +23,7 @@ pub mod tsconfig;
 #[cfg(feature = "tui")]
 pub mod ui;
 pub mod walk;
+pub mod workspace;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -780,8 +782,8 @@ mod tests {
 				moniker: "code+moniker://./lang:rs/module:ui".to_string(),
 				kind: "imports_symbol".to_string(),
 				lines: (11, 11),
-				message: "only the store adapter may import SessionIndex".to_string(),
-				explanation: Some("route indexes through ui::store".to_string()),
+				message: "`code-moniker ui` must consume workspace read models".to_string(),
+				explanation: Some("raw graph/index/Git records stay inside workspace".to_string()),
 			}],
 			rule_reports: Vec::new(),
 		}];
@@ -794,7 +796,7 @@ mod tests {
 		let reason = feedback["reason"].as_str().unwrap();
 		assert!(reason.contains("code-moniker architecture check failed"));
 		assert!(reason.contains("src/lib.rs:L11-L11 [refs.ui-store-boundary]"));
-		assert!(reason.contains("only the store adapter may import SessionIndex"));
+		assert!(reason.contains("`code-moniker ui` must consume workspace read models"));
 		assert!(feedback.get("hookSpecificOutput").is_none());
 	}
 

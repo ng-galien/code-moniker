@@ -8,21 +8,20 @@ use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
 use crate::extract;
-use crate::inspect::DefLocation;
 use crate::lang::path_to_lang;
 use crate::lines::line_range;
-
-use super::kinds::is_navigable_definition;
+use crate::workspace::index::DefLocation;
+use crate::workspace::symbols::{def_kind, is_navigable_def, last_name};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ChangeStatus {
+pub(crate) enum ChangeStatus {
 	Added,
 	Modified,
 	Removed,
 }
 
 impl ChangeStatus {
-	pub(super) fn label(self) -> &'static str {
+	pub(crate) fn label(self) -> &'static str {
 		match self {
 			Self::Added => "added",
 			Self::Modified => "modified",
@@ -30,7 +29,7 @@ impl ChangeStatus {
 		}
 	}
 
-	pub(super) fn marker(self) -> &'static str {
+	pub(crate) fn marker(self) -> &'static str {
 		match self {
 			Self::Added => "+",
 			Self::Modified => "~",
@@ -40,59 +39,59 @@ impl ChangeStatus {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct GitResourceStatus {
-	pub(super) label: String,
-	pub(super) git_root: Option<PathBuf>,
-	pub(super) message: String,
+pub(crate) struct GitResourceStatus {
+	pub(crate) label: String,
+	pub(crate) git_root: Option<PathBuf>,
+	pub(crate) message: String,
 }
 
 impl GitResourceStatus {
-	pub(super) fn available(&self) -> bool {
+	pub(crate) fn available(&self) -> bool {
 		self.git_root.is_some()
 	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct ChangeEntry {
-	pub(super) loc: Option<DefLocation>,
-	pub(super) status: ChangeStatus,
-	pub(super) lang: Lang,
-	pub(super) file_path: PathBuf,
-	pub(super) kind: String,
-	pub(super) name: String,
-	pub(super) moniker: Moniker,
-	pub(super) hunk_count: usize,
-	pub(super) line_range: Option<(u32, u32)>,
+pub(crate) struct ChangeEntry {
+	pub(crate) loc: Option<DefLocation>,
+	pub(crate) status: ChangeStatus,
+	pub(crate) lang: Lang,
+	pub(crate) file_path: PathBuf,
+	pub(crate) kind: String,
+	pub(crate) name: String,
+	pub(crate) moniker: Moniker,
+	pub(crate) hunk_count: usize,
+	pub(crate) line_range: Option<(u32, u32)>,
 }
 
-pub(super) struct ChangeRoot<'a> {
-	pub(super) label: &'a str,
-	pub(super) path: &'a Path,
-	pub(super) ctx: &'a extract::Context,
+pub(crate) struct ChangeRoot<'a> {
+	pub(crate) label: &'a str,
+	pub(crate) path: &'a Path,
+	pub(crate) ctx: &'a extract::Context,
 }
 
-pub(super) struct ChangeFile<'a> {
-	pub(super) file_idx: usize,
-	pub(super) source_root: usize,
-	pub(super) path: &'a Path,
-	pub(super) rel_path: &'a Path,
-	pub(super) anchor: &'a Path,
-	pub(super) lang: Lang,
-	pub(super) graph: &'a CodeGraph,
-	pub(super) source: &'a str,
+pub(crate) struct ChangeFile<'a> {
+	pub(crate) file_idx: usize,
+	pub(crate) source_root: usize,
+	pub(crate) path: &'a Path,
+	pub(crate) rel_path: &'a Path,
+	pub(crate) anchor: &'a Path,
+	pub(crate) lang: Lang,
+	pub(crate) graph: &'a CodeGraph,
+	pub(crate) source: &'a str,
 }
 
-pub(super) struct ChangeScan<'a> {
-	pub(super) roots: Vec<ChangeRoot<'a>>,
-	pub(super) files: Vec<ChangeFile<'a>>,
+pub(crate) struct ChangeScan<'a> {
+	pub(crate) roots: Vec<ChangeRoot<'a>>,
+	pub(crate) files: Vec<ChangeFile<'a>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct ChangeIndex {
-	pub(super) scope: String,
-	pub(super) entries: Vec<ChangeEntry>,
-	pub(super) resources: Vec<GitResourceStatus>,
-	pub(super) diagnostics: Vec<String>,
+pub(crate) struct ChangeIndex {
+	pub(crate) scope: String,
+	pub(crate) entries: Vec<ChangeEntry>,
+	pub(crate) resources: Vec<GitResourceStatus>,
+	pub(crate) diagnostics: Vec<String>,
 	entries_by_def: FxHashMap<DefLocation, usize>,
 	count_by_file: FxHashMap<usize, usize>,
 }
@@ -111,21 +110,21 @@ impl Default for ChangeIndex {
 }
 
 impl ChangeIndex {
-	pub(super) fn entry_for(&self, loc: &DefLocation) -> Option<&ChangeEntry> {
+	pub(crate) fn entry_for(&self, loc: &DefLocation) -> Option<&ChangeEntry> {
 		self.entries_by_def
 			.get(loc)
 			.and_then(|idx| self.entries.get(*idx))
 	}
 
-	pub(super) fn changed_defs(&self) -> Vec<DefLocation> {
+	pub(crate) fn changed_defs(&self) -> Vec<DefLocation> {
 		self.entries.iter().filter_map(|entry| entry.loc).collect()
 	}
 
-	pub(super) fn change_count_for_file(&self, file_idx: usize) -> usize {
+	pub(crate) fn change_count_for_file(&self, file_idx: usize) -> usize {
 		self.count_by_file.get(&file_idx).copied().unwrap_or(0)
 	}
 
-	pub(super) fn changed_file_count(&self) -> usize {
+	pub(crate) fn changed_file_count(&self) -> usize {
 		self.entries
 			.iter()
 			.map(|entry| entry.file_path.clone())
@@ -179,7 +178,7 @@ impl LineSpan {
 	}
 }
 
-pub(super) fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
+pub(crate) fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 	let mut changes = ChangeIndex::default();
 	let mut diffs = Vec::new();
 	for root in &scan.roots {
@@ -638,22 +637,4 @@ fn parse_hunk_side(raw: &str) -> Option<Option<LineSpan>> {
 		start,
 		end: start + count - 1,
 	}))
-}
-
-fn is_navigable_def(lang: Lang, def: &DefRecord) -> bool {
-	is_navigable_definition(lang, &def_kind(def))
-}
-
-fn def_kind(def: &DefRecord) -> String {
-	std::str::from_utf8(&def.kind).unwrap_or("?").to_string()
-}
-
-fn last_name(moniker: &Moniker) -> String {
-	moniker
-		.as_view()
-		.segments()
-		.last()
-		.and_then(|s| std::str::from_utf8(s.name).ok())
-		.unwrap_or(".")
-		.to_string()
 }

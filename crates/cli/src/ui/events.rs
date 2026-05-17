@@ -11,7 +11,6 @@ pub(super) enum UiMode {
 
 #[derive(Clone, Debug)]
 pub(super) enum Msg {
-	Key(KeyEvent),
 	Quit,
 	CycleView,
 	ShowView(View),
@@ -37,7 +36,7 @@ pub(super) enum Msg {
 	Noop,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub(super) enum FilterEdit {
 	Push(char),
 	Backspace,

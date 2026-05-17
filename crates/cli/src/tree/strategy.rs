@@ -39,10 +39,6 @@ impl TreeStrategy {
 			.or_else(|| shape_of(kind.as_bytes()))
 	}
 
-	pub(crate) fn is_known_definition_kind(self, kind: &str) -> bool {
-		self.lang.is_some_and(|lang| lang.kind_spec(kind).is_some())
-	}
-
 	pub(crate) fn collapse_separator(self, kind: &str) -> Option<&'static str> {
 		match kind {
 			"package" => Some("."),

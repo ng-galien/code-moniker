@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
-use crate::inspect::DefLocation;
 use crate::ui::navigator::{
 	NavNode, NavNodeKind, NavRow, all_expanded_keys, filtered_expanded_keys, flatten_nav,
 };
 use crate::ui::reactive::{Reduce, Transition};
+use crate::workspace::DefLocation;
 
 use super::ids::NodeId;
 

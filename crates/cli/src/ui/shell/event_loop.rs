@@ -6,7 +6,7 @@ use crossterm::event::{self, Event};
 use crate::ui::clipboard::ClipboardResult;
 use crate::ui::live::{LiveStoreWatcher, StoreEvent};
 use crate::ui::runtime::TaskResult;
-use crate::ui::store::StoreWatchRoot;
+use crate::workspace::StoreWatchRoot;
 
 pub(in crate::ui) enum ShellEvent {
 	Terminal(Event),
