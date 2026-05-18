@@ -35,6 +35,7 @@ thiserror = { workspace = true }
 regex     = { workspace = true }
 ignore    = { workspace = true }
 rayon     = { workspace = true }
+gix       = { workspace = true }
 rustc-hash = { workspace = true }
 toml      = { workspace = true }
 

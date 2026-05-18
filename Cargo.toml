@@ -25,6 +25,7 @@ thiserror = "2"
 regex     = "1"
 ignore    = "0.4"
 rayon     = "1"
+gix       = { version = "0.83", default-features = false, features = ["revision", "sha1"] }
 
 rustc-hash             = "2"
 tree-sitter            = "0.26"

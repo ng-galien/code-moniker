@@ -182,8 +182,9 @@ pub(crate) fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 	let mut changes = ChangeIndex::default();
 	let mut diffs = Vec::new();
 	for root in &scan.roots {
-		match git_root_for(root.path) {
-			Ok(git_root) => {
+		match GitWorktree::discover(root.path) {
+			Ok(repo) => {
+				let git_root = repo.root().to_path_buf();
 				changes.resources.push(GitResourceStatus {
 					label: root.label.to_string(),
 					git_root: Some(git_root.clone()),
@@ -474,7 +475,7 @@ fn display_rel_path(
 fn collect_changed_files(git_root: &Path, source_root: &Path) -> Result<Vec<FileDiff>, String> {
 	let pathspec = git_pathspec(git_root, source_root);
 	let mut out = Vec::new();
-	for row in git_lines(
+	for row in git_cli_lines(
 		git_root,
 		&[
 			"diff",
@@ -486,7 +487,7 @@ fn collect_changed_files(git_root: &Path, source_root: &Path) -> Result<Vec<File
 		],
 	)? {
 		let (status, repo_rel) = parse_name_status(&row)?;
-		let diff = git_text(
+		let diff = git_cli_text(
 			git_root,
 			&["diff", "--unified=0", "HEAD", "--", &path_to_git(&repo_rel)],
 		)?;
@@ -497,7 +498,7 @@ fn collect_changed_files(git_root: &Path, source_root: &Path) -> Result<Vec<File
 			hunks: parse_diff_hunks(&diff),
 		});
 	}
-	for rel in git_lines(
+	for rel in git_cli_lines(
 		git_root,
 		&[
 			"ls-files",
@@ -536,23 +537,40 @@ fn parse_name_status(row: &str) -> Result<(FileDiffStatus, PathBuf), String> {
 	Ok((status, PathBuf::from(path)))
 }
 
-fn git_root_for(path: &Path) -> Result<PathBuf, String> {
-	let output = git_command(path)
-		.args(["rev-parse", "--show-toplevel"])
-		.output()
-		.map_err(|e| format!("cannot run git for {}: {e}", path.display()))?;
-	if !output.status.success() {
-		return Err(format!("{} is not inside a Git repository", path.display()));
-	}
-	let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
-	if raw.is_empty() {
-		return Err(format!("{} is not inside a Git repository", path.display()));
-	}
-	Ok(PathBuf::from(raw))
+struct GitWorktree {
+	repo: gix::Repository,
+	root: PathBuf,
 }
 
-fn git_lines(git_root: &Path, args: &[&str]) -> Result<Vec<String>, String> {
-	Ok(git_text(git_root, args)?
+impl GitWorktree {
+	fn discover(path: &Path) -> Result<Self, String> {
+		let repo = gix::discover(path)
+			.map_err(|_| format!("{} is not inside a Git repository", path.display()))?;
+		let root = repo
+			.workdir()
+			.map(normalize_path)
+			.ok_or_else(|| format!("{} is not inside a Git worktree", path.display()))?;
+		Ok(Self { repo, root })
+	}
+
+	fn root(&self) -> &Path {
+		&self.root
+	}
+
+	fn head_blob_text(&self, repo_rel: &Path) -> anyhow::Result<String> {
+		let tree = self.repo.head_tree().map_err(|e| {
+			anyhow::anyhow!("cannot read HEAD tree in {}: {e}", self.root.display())
+		})?;
+		let entry = tree
+			.lookup_entry_by_path(repo_rel)?
+			.ok_or_else(|| anyhow::anyhow!("HEAD does not contain {}", repo_rel.display()))?;
+		let blob = entry.object()?.try_into_blob()?;
+		Ok(String::from_utf8_lossy(&blob.data).to_string())
+	}
+}
+
+fn git_cli_lines(git_root: &Path, args: &[&str]) -> Result<Vec<String>, String> {
+	Ok(git_cli_text(git_root, args)?
 		.lines()
 		.map(str::trim)
 		.filter(|line| !line.is_empty())
@@ -561,12 +579,13 @@ fn git_lines(git_root: &Path, args: &[&str]) -> Result<Vec<String>, String> {
 }
 
 fn git_show(git_root: &Path, repo_rel: &Path) -> anyhow::Result<String> {
-	let spec = format!("HEAD:{}", path_to_git(repo_rel));
-	git_text(git_root, &["show", &spec]).map_err(anyhow::Error::msg)
+	GitWorktree::discover(git_root)
+		.map_err(anyhow::Error::msg)?
+		.head_blob_text(repo_rel)
 }
 
-fn git_text(git_root: &Path, args: &[&str]) -> Result<String, String> {
-	let output = git_command(git_root)
+fn git_cli_text(git_root: &Path, args: &[&str]) -> Result<String, String> {
+	let output = git_cli_command(git_root)
 		.args(args)
 		.output()
 		.map_err(|e| format!("cannot run git {:?}: {e}", args))?;
@@ -580,7 +599,7 @@ fn git_text(git_root: &Path, args: &[&str]) -> Result<String, String> {
 	Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-fn git_command(cwd: &Path) -> Command {
+fn git_cli_command(cwd: &Path) -> Command {
 	let mut command = Command::new("git");
 	command.env("GIT_OPTIONAL_LOCKS", "0").arg("-C").arg(cwd);
 	command
@@ -639,4 +658,66 @@ fn parse_hunk_side(raw: &str) -> Option<Option<LineSpan>> {
 		start,
 		end: start + count - 1,
 	}))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn write(root: &Path, rel: &str, body: &str) {
+		let path = root.join(rel);
+		if let Some(parent) = path.parent() {
+			std::fs::create_dir_all(parent).unwrap();
+		}
+		std::fs::write(path, body).unwrap();
+	}
+
+	fn git(root: &Path, args: &[&str]) {
+		let output = Command::new("git")
+			.arg("-C")
+			.arg(root)
+			.args(args)
+			.output()
+			.unwrap_or_else(|e| panic!("cannot run git {args:?}: {e}"));
+		assert!(
+			output.status.success(),
+			"git {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+			String::from_utf8_lossy(&output.stdout),
+			String::from_utf8_lossy(&output.stderr)
+		);
+	}
+
+	fn committed_repo() -> tempfile::TempDir {
+		let tmp = tempfile::tempdir().unwrap();
+		git(tmp.path(), &["init"]);
+		git(
+			tmp.path(),
+			&["config", "user.email", "code-moniker@example.test"],
+		);
+		git(tmp.path(), &["config", "user.name", "Code Moniker"]);
+		write(tmp.path(), "src/Foo.java", "class Foo {}\n");
+		git(tmp.path(), &["add", "."]);
+		git(tmp.path(), &["commit", "-m", "initial"]);
+		tmp
+	}
+
+	#[test]
+	fn gix_discovers_worktree_root() {
+		let tmp = committed_repo();
+		let nested = tmp.path().join("src");
+
+		let repo = GitWorktree::discover(&nested).unwrap();
+
+		assert_eq!(repo.root(), normalize_path(tmp.path()).as_path());
+	}
+
+	#[test]
+	fn gix_reads_blob_from_head_not_worktree() {
+		let tmp = committed_repo();
+		write(tmp.path(), "src/Foo.java", "class Foo { int changed; }\n");
+
+		let text = git_show(tmp.path(), Path::new("src/Foo.java")).unwrap();
+
+		assert_eq!(text, "class Foo {}\n");
+	}
 }
