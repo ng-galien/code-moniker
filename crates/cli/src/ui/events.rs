@@ -31,6 +31,7 @@ pub(super) enum Msg {
 	Quit,
 	ShowView(View),
 	ToggleHeaderSearch,
+	ToggleFocusRegion,
 	HeaderSearchNextField,
 	HeaderSearchInput(FilterEdit),
 	HeaderSearchSelectNext,
@@ -104,7 +105,7 @@ fn normal_key_to_msg(key: KeyEvent) -> Msg {
 	}
 	match key.code {
 		KeyCode::Esc => Msg::CloseNode,
-		KeyCode::Tab => Msg::Noop,
+		KeyCode::Tab => Msg::ToggleFocusRegion,
 		KeyCode::Char('1') => Msg::ShowView(View::Overview),
 		KeyCode::Char('2') => Msg::ShowView(View::Tree),
 		KeyCode::Char('3') | KeyCode::Char('r') => Msg::ShowView(View::Refs),

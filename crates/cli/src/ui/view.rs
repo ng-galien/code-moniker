@@ -8,19 +8,20 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use crate::workspace::{ChangeStatus, DefLocation, IndexStore};
 
 use super::app::VisualizationMode;
-use super::component::{ComponentId, block_title, marker, raw_marker};
+use super::component::{ComponentId, focused_block_title, marker, raw_marker};
 use super::contracts::{RenderContext, Screen};
 use super::events::{HeaderSearchFocus, UiMode};
 use super::features::explorer::ExplorerFeature;
 use super::kinds::definition_kind_group;
 use super::navigator::{NavNodeKind, NavRow};
 use super::panel;
-use super::panels;
+use super::panels::{self, PanelRenderState};
 use super::scroll::{ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin};
 use super::text::{FitMode, fit_text, visible_len};
 use super::theme::THEME;
 use super::{
-	App, DEFAULT_PANEL_SNAPSHOT_WIDTH, display_filter, kind_filter_summary, lang_filter_summary,
+	App, DEFAULT_PANEL_SNAPSHOT_WIDTH, FocusRegion, display_filter, kind_filter_summary,
+	lang_filter_summary,
 };
 
 const SEARCH_WIDGET_HEIGHT: u16 = 5;
@@ -92,9 +93,19 @@ pub(super) fn header_line(app: &App, width: usize) -> Line<'static> {
 }
 
 fn render_search_bar(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	let focused = matches!(app.mode(), UiMode::HeaderSearch(_));
 	let block = Block::default()
-		.title(block_title(" search ", ComponentId::SearchInput))
+		.title(focused_block_title(
+			" search ",
+			ComponentId::SearchInput,
+			focused,
+		))
 		.borders(Borders::ALL)
+		.border_style(if focused {
+			Style::default().fg(THEME.focus.border)
+		} else {
+			Style::default()
+		})
 		.style(Style::default().bg(THEME.search.background));
 	let inner = block.inner(area);
 	frame.render_widget(block, area);
@@ -239,7 +250,7 @@ fn search_query_block(focused: bool) -> Block<'static> {
 
 fn search_block_with_title(title: Line<'static>, focused: bool) -> Block<'static> {
 	let border = if focused {
-		THEME.search.active
+		THEME.focus.border
 	} else {
 		THEME.search.muted
 	};
@@ -337,7 +348,7 @@ fn render_search_popup(frame: &mut ratatui::Frame<'_>, search_area: Rect, app: &
 				Style::default().fg(THEME.search.label),
 			))
 			.borders(Borders::ALL)
-			.border_style(Style::default().fg(THEME.search.active))
+			.border_style(Style::default().fg(THEME.focus.border))
 			.style(Style::default().bg(THEME.search.background)),
 	);
 	frame.render_widget(Clear, popup);
@@ -431,7 +442,21 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
 		.split(area);
 	render_left_pane(frame, cols[0], app);
 	let panel = ExplorerFeature::active_panel(app);
-	panels::render_panel(frame, cols[1], &panel, app.panel_scroll());
+	let panel_focused = focus_region_visible(app, FocusRegion::Panel);
+	panels::render_panel(
+		frame,
+		cols[1],
+		&panel,
+		PanelRenderState {
+			scroll: app.panel_scroll(),
+			selected: app.selected_panel_item(),
+			focused: panel_focused,
+		},
+	);
+}
+
+pub(super) fn focus_region_visible(app: &App, region: FocusRegion) -> bool {
+	matches!(app.mode(), UiMode::Normal) && app.focus_region() == region
 }
 
 fn render_left_pane(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
@@ -501,8 +526,17 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 		)
 	};
 	let block = Block::default()
-		.title(block_title(title, ComponentId::Navigator))
-		.borders(Borders::ALL);
+		.title(focused_block_title(
+			title,
+			ComponentId::Navigator,
+			focus_region_visible(app, FocusRegion::Navigator),
+		))
+		.borders(Borders::ALL)
+		.border_style(if focus_region_visible(app, FocusRegion::Navigator) {
+			Style::default().fg(THEME.focus.border)
+		} else {
+			Style::default()
+		});
 	let inner = block.inner(area);
 	let visible_rows = inner.height as usize;
 	let nav_rows = app.nav_rows();

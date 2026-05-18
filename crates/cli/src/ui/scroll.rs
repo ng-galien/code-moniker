@@ -35,6 +35,33 @@ impl ScrollViewport {
 		Self::from_offset(content_len, viewport_len, offset)
 	}
 
+	pub(super) fn for_visible_line(
+		content_len: usize,
+		viewport_len: usize,
+		current_offset: usize,
+		line: Option<usize>,
+		margin: usize,
+	) -> Self {
+		let mut offset = clamp_offset(current_offset, content_len, viewport_len);
+		let Some(line) = line else {
+			return Self::from_offset(content_len, viewport_len, offset);
+		};
+		if viewport_len == 0 {
+			return Self::from_offset(content_len, viewport_len, 0);
+		}
+		let margin = margin.min(viewport_len.saturating_sub(1) / 2);
+		let upper = offset.saturating_add(margin);
+		let lower = offset
+			.saturating_add(viewport_len)
+			.saturating_sub(1 + margin);
+		if line < upper {
+			offset = line.saturating_sub(margin);
+		} else if line > lower {
+			offset = line.saturating_sub(viewport_len.saturating_sub(1 + margin));
+		}
+		Self::from_offset(content_len, viewport_len, offset)
+	}
+
 	pub(super) fn has_overflow(self) -> bool {
 		self.viewport_len > 0 && self.content_len > self.viewport_len
 	}
@@ -152,6 +179,27 @@ mod tests {
 		assert_eq!(viewport_comfort_margin(7), 0);
 		assert_eq!(viewport_comfort_margin(10), 2);
 		assert_eq!(viewport_comfort_margin(40), 4);
+	}
+
+	#[test]
+	fn selected_line_inside_comfort_zone_keeps_current_offset() {
+		let viewport = ScrollViewport::for_visible_line(100, 10, 20, Some(25), 2);
+
+		assert_eq!(viewport.offset, 20);
+	}
+
+	#[test]
+	fn selected_line_below_comfort_zone_scrolls_down() {
+		let viewport = ScrollViewport::for_visible_line(100, 10, 20, Some(29), 2);
+
+		assert_eq!(viewport.offset, 22);
+	}
+
+	#[test]
+	fn selected_line_above_comfort_zone_scrolls_up() {
+		let viewport = ScrollViewport::for_visible_line(100, 10, 20, Some(21), 2);
+
+		assert_eq!(viewport.offset, 19);
 	}
 
 	#[test]

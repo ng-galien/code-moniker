@@ -10,6 +10,13 @@ pub(in crate::ui) struct PanelVm {
 	pub(super) sections: Vec<PanelSection>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::ui) struct PanelRenderState {
+	pub(in crate::ui) scroll: usize,
+	pub(in crate::ui) selected: Option<usize>,
+	pub(in crate::ui) focused: bool,
+}
+
 impl PanelVm {
 	pub(in crate::ui) fn new(title: &'static str, component: ComponentId) -> Self {
 		Self {
@@ -23,6 +30,14 @@ impl PanelVm {
 	pub(in crate::ui) fn unwrapped(mut self) -> Self {
 		self.wrap = WrapMode::NoWrap;
 		self
+	}
+
+	pub(in crate::ui) fn component(&self) -> ComponentId {
+		self.component
+	}
+
+	pub(in crate::ui) fn navigation_len(&self) -> usize {
+		self.sections.iter().map(PanelSection::navigation_len).sum()
 	}
 
 	pub(in crate::ui) fn section(&mut self, label: impl Into<String>) {
@@ -129,6 +144,22 @@ pub(super) enum PanelSection {
 		limit: usize,
 	},
 	Blank,
+}
+
+impl PanelSection {
+	fn navigation_len(&self) -> usize {
+		match self {
+			Self::Table { rows, .. } => rows.len(),
+			Self::SourceSnippet(lines) => lines.len(),
+			Self::ReferenceGroups { groups, limit } => groups.len().min(*limit),
+			Self::Heading { .. }
+			| Self::ComponentHeading { .. }
+			| Self::KeyValue { .. }
+			| Self::Message { .. }
+			| Self::Bullet { .. }
+			| Self::Blank => 0,
+		}
+	}
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

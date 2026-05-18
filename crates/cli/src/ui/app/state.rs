@@ -5,6 +5,7 @@ use code_moniker_core::lang::Lang;
 
 use crate::ui::app::action::ShellAction;
 use crate::ui::app::command::AppCommand;
+use crate::ui::component::ComponentId;
 use crate::ui::contracts::Route;
 use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
 use crate::ui::features::explorer::{
@@ -119,6 +120,20 @@ pub(in crate::ui) enum PanelPolicy {
 	Manual,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::ui) enum FocusRegion {
+	#[default]
+	Navigator,
+	Panel,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::ui) struct PanelNavigationState {
+	pub(in crate::ui) component: Option<ComponentId>,
+	pub(in crate::ui) selected: Option<usize>,
+	pub(in crate::ui) scroll: usize,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) enum ActiveFilter {
 	#[default]
@@ -212,9 +227,10 @@ pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) panel_policy: PanelPolicy,
 	pub(in crate::ui) change_panel: ChangePanelMode,
 	pub(in crate::ui) mode: UiMode,
+	pub(in crate::ui) focus_region: FocusRegion,
 	pub(in crate::ui) active_filter: ActiveFilter,
 	pub(in crate::ui) header_search: HeaderSearchState,
-	pub(in crate::ui) panel_scroll: usize,
+	pub(in crate::ui) panel_navigation: PanelNavigationState,
 }
 
 impl Default for ShellSlice {
@@ -228,9 +244,10 @@ impl Default for ShellSlice {
 			panel_policy: PanelPolicy::Contextual,
 			change_panel: ChangePanelMode::Diff,
 			mode: UiMode::Normal,
+			focus_region: FocusRegion::Navigator,
 			active_filter: ActiveFilter::None,
 			header_search: HeaderSearchState::default(),
-			panel_scroll: 0,
+			panel_navigation: PanelNavigationState::default(),
 		}
 	}
 }
@@ -385,11 +402,12 @@ impl AppState {
 					if *return_focus {
 						shell.mode = UiMode::Normal;
 					}
+					shell.focus_region = FocusRegion::Navigator;
 					shell.active_filter = ActiveFilter::None;
 					shell.view_mode = VisualizationMode::Explorer;
 					shell.panel_policy = PanelPolicy::Contextual;
 					shell.change_panel = ChangePanelMode::Diff;
-					shell.panel_scroll = 0;
+					shell.panel_navigation = PanelNavigationState::default();
 					shell.header_search.reset();
 					shell.header_search.pending_generation = None;
 				});
@@ -398,10 +416,11 @@ impl AppState {
 			ShellAction::FocusUsages(focus) => {
 				self.update_shell(|shell| {
 					shell.mode = UiMode::Normal;
+					shell.focus_region = FocusRegion::Navigator;
 					shell.active_filter = ActiveFilter::Usages(focus.clone());
 					shell.view_mode = VisualizationMode::Usages;
 					shell.panel_policy = PanelPolicy::Contextual;
-					shell.panel_scroll = 0;
+					shell.panel_navigation = PanelNavigationState::default();
 					shell.header_search.reset();
 					shell.header_search.pending_generation = None;
 				});
@@ -410,11 +429,12 @@ impl AppState {
 			ShellAction::EnterChangeMode => {
 				self.update_shell(|shell| {
 					shell.mode = UiMode::Normal;
+					shell.focus_region = FocusRegion::Navigator;
 					shell.active_filter = ActiveFilter::Change;
 					shell.view_mode = VisualizationMode::Change;
 					shell.panel_policy = PanelPolicy::Contextual;
 					shell.change_panel = ChangePanelMode::Diff;
-					shell.panel_scroll = 0;
+					shell.panel_navigation = PanelNavigationState::default();
 					shell.header_search.reset();
 					shell.header_search.pending_generation = None;
 				});
@@ -427,9 +447,20 @@ impl AppState {
 			ShellAction::SetChangePanel(change_panel) => {
 				self.set_change_panel_action(*change_panel)
 			}
+			ShellAction::SetFocusRegion(region) => {
+				self.update_shell(|shell| {
+					shell.mode = UiMode::Normal;
+					shell.focus_region = *region;
+				});
+				Transition::changed("shell.set_focus_region")
+			}
 			ShellAction::SetPanelScroll(offset) => {
-				self.update_shell(|shell| shell.panel_scroll = *offset);
+				self.update_shell(|shell| shell.panel_navigation.scroll = *offset);
 				Transition::changed("shell.set_panel_scroll")
+			}
+			ShellAction::SetPanelNavigation(state) => {
+				self.update_shell(|shell| shell.panel_navigation = state.clone());
+				Transition::changed("shell.set_panel_navigation")
 			}
 			#[cfg(test)]
 			ShellAction::EmitNotify(message) => Transition::unchanged("shell.emit_notify")
@@ -440,7 +471,7 @@ impl AppState {
 	fn set_view_action(&mut self, view: View, policy: PanelPolicy, route: &Route) -> Transition {
 		self.update_shell(|shell| {
 			if shell.view != view {
-				shell.panel_scroll = 0;
+				shell.panel_navigation = PanelNavigationState::default();
 			}
 			shell.view = view;
 			shell.panel_policy = policy;
@@ -452,7 +483,7 @@ impl AppState {
 	fn set_change_panel_action(&mut self, change_panel: ChangePanelMode) -> Transition {
 		self.update_shell(|shell| {
 			if shell.change_panel != change_panel {
-				shell.panel_scroll = 0;
+				shell.panel_navigation = PanelNavigationState::default();
 			}
 			shell.change_panel = change_panel;
 		});
@@ -462,9 +493,15 @@ impl AppState {
 	fn scroll_panel(&mut self, direction: i8) -> Transition {
 		self.update_shell(|shell| {
 			if direction > 0 {
-				shell.panel_scroll = shell.panel_scroll.saturating_add(PANEL_SCROLL_STEP);
+				shell.panel_navigation.scroll = shell
+					.panel_navigation
+					.scroll
+					.saturating_add(PANEL_SCROLL_STEP);
 			} else {
-				shell.panel_scroll = shell.panel_scroll.saturating_sub(PANEL_SCROLL_STEP);
+				shell.panel_navigation.scroll = shell
+					.panel_navigation
+					.scroll
+					.saturating_sub(PANEL_SCROLL_STEP);
 			}
 		});
 		Transition::changed(if direction > 0 {
@@ -480,29 +517,8 @@ impl AppState {
 			Msg::ShowView(view) => {
 				Transition::unchanged("ui.show_view").with_effect(Effect::Navigate(view.route()))
 			}
-			Msg::ToggleHeaderSearch => {
-				let next = match self.shell.mode {
-					UiMode::Normal => UiMode::HeaderSearch(self.shell.header_search.focus),
-					UiMode::HeaderSearch(_) => UiMode::Normal,
-				};
-				self.update_shell(|shell| {
-					shell.mode = next;
-					shell.header_search.combo_open = false;
-				});
-				self.shell.status = match next {
-					UiMode::Normal => "search focus returned to navigator".to_string(),
-					UiMode::HeaderSearch(HeaderSearchFocus::Text) => {
-						"type to search; Tab selects lang".to_string()
-					}
-					UiMode::HeaderSearch(HeaderSearchFocus::Lang) => {
-						"select language; Tab selects kind".to_string()
-					}
-					UiMode::HeaderSearch(HeaderSearchFocus::Kind) => {
-						"select kind; Tab returns to text".to_string()
-					}
-				};
-				Transition::changed("ui.toggle_header_search")
-			}
+			Msg::ToggleHeaderSearch => self.toggle_header_search(),
+			Msg::ToggleFocusRegion => run_command(AppCommand::ToggleFocusRegion),
 			Msg::HeaderSearchNextField => {
 				let focus = match self.shell.mode {
 					UiMode::HeaderSearch(focus) => focus.next(),
@@ -578,18 +594,77 @@ impl AppState {
 			Msg::ToggleChangeMode => run_command(AppCommand::ToggleChangeMode),
 			Msg::CopyPanelSnapshot => run_command(AppCommand::CopyPanelSnapshot),
 			Msg::RunCheck => run_command(AppCommand::RunCheck),
-			Msg::MoveDown => {
-				run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveDown)))
-			}
-			Msg::MoveUp => run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveUp))),
-			Msg::Home => run_command(AppCommand::Navigation(Box::new(NavigationAction::Home))),
-			Msg::End => run_command(AppCommand::Navigation(Box::new(NavigationAction::End))),
+			Msg::MoveDown => self.reduce_vertical_navigation(1),
+			Msg::MoveUp => self.reduce_vertical_navigation(-1),
+			Msg::Home => self.reduce_positional_navigation(true),
+			Msg::End => self.reduce_positional_navigation(false),
 			Msg::PanelScrollDown => self.scroll_panel(1),
 			Msg::PanelScrollUp => self.scroll_panel(-1),
+			Msg::ToggleNode | Msg::OpenNode if self.shell.focus_region == FocusRegion::Panel => {
+				Transition::unchanged("ui.panel_noop")
+			}
 			Msg::ToggleNode => run_command(AppCommand::ToggleSelectedNode),
 			Msg::OpenNode => run_command(AppCommand::OpenSelectedNode),
+			Msg::CloseNode if self.shell.focus_region == FocusRegion::Panel => {
+				run_command(AppCommand::ToggleFocusRegion)
+			}
 			Msg::CloseNode => run_command(AppCommand::CloseNodeOrClearScope),
 			Msg::Noop => Transition::unchanged("ui.noop"),
+		}
+	}
+
+	fn toggle_header_search(&mut self) -> Transition {
+		let next = match self.shell.mode {
+			UiMode::Normal => UiMode::HeaderSearch(self.shell.header_search.focus),
+			UiMode::HeaderSearch(_) => UiMode::Normal,
+		};
+		self.update_shell(|shell| {
+			shell.mode = next;
+			shell.header_search.combo_open = false;
+			if matches!(next, UiMode::Normal) {
+				shell.focus_region = FocusRegion::Navigator;
+			}
+		});
+		self.shell.status = match next {
+			UiMode::Normal => "search focus returned to navigator".to_string(),
+			UiMode::HeaderSearch(HeaderSearchFocus::Text) => {
+				"type to search; Tab selects lang".to_string()
+			}
+			UiMode::HeaderSearch(HeaderSearchFocus::Lang) => {
+				"select language; Tab selects kind".to_string()
+			}
+			UiMode::HeaderSearch(HeaderSearchFocus::Kind) => {
+				"select kind; Tab returns to text".to_string()
+			}
+		};
+		Transition::changed("ui.toggle_header_search")
+	}
+
+	fn reduce_vertical_navigation(&self, direction: i8) -> Transition {
+		match self.shell.focus_region {
+			FocusRegion::Navigator => {
+				if direction > 0 {
+					run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveDown)))
+				} else {
+					run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveUp)))
+				}
+			}
+			FocusRegion::Panel => run_command(AppCommand::PanelMove { direction }),
+		}
+	}
+
+	fn reduce_positional_navigation(&self, home: bool) -> Transition {
+		match self.shell.focus_region {
+			FocusRegion::Navigator => {
+				let action = if home {
+					NavigationAction::Home
+				} else {
+					NavigationAction::End
+				};
+				run_command(AppCommand::Navigation(Box::new(action)))
+			}
+			FocusRegion::Panel if home => run_command(AppCommand::PanelHome),
+			FocusRegion::Panel => run_command(AppCommand::PanelEnd),
 		}
 	}
 
@@ -737,11 +812,12 @@ impl AppState {
 			if return_focus {
 				shell.mode = UiMode::Normal;
 				shell.header_search.combo_open = false;
+				shell.focus_region = FocusRegion::Navigator;
 			}
 			shell.active_filter = ActiveFilter::HeaderSearch(results.clone());
 			shell.view_mode = VisualizationMode::Search;
 			shell.panel_policy = PanelPolicy::Contextual;
-			shell.panel_scroll = 0;
+			shell.panel_navigation = PanelNavigationState::default();
 			shell.header_search.text = results.text.clone();
 			shell.header_search.langs = results.langs.clone();
 			shell.header_search.kind_filters = results.kind_filters.clone();

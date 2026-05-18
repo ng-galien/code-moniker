@@ -49,11 +49,11 @@ mod view;
 
 use app::{
 	ActiveFilter, AppAction, AppCommand, AppStore, ChangePanelMode, CheckState, Effect,
-	HeaderKindFilter, HeaderSearchResults, HeaderSearchState, PanelPolicy, ShellAction,
-	TaskCompletion, View, VisualizationMode,
+	FocusRegion, HeaderKindFilter, HeaderSearchResults, HeaderSearchState, PanelNavigationState,
+	PanelPolicy, ShellAction, TaskCompletion, View, VisualizationMode,
 };
 #[cfg(test)]
-use component::{ComponentId, block_title};
+use component::{ComponentId, block_title, focused_block_title};
 use contracts::Route;
 use events::{HeaderSearchFocus, UiMode, key_to_msg};
 use features::explorer::ExplorerFeature;
@@ -66,8 +66,9 @@ use shell::{EventSource, FeatureRegistry, ShellEvent};
 use store::navigation::{NavigationAction, NavigationNotice, NavigationScope, NavigationState};
 #[cfg(test)]
 use view::{
-	active_panel_snapshot, change_panel_lines, header_line, nav_row_line, refs_panel_lines,
-	render_shell, search_input_title, search_input_value, search_input_visible, search_line,
+	active_panel_snapshot, change_panel_lines, focus_region_visible, header_line, nav_row_line,
+	refs_panel_lines, render_shell, search_input_title, search_input_value, search_input_visible,
+	search_line,
 };
 
 const DEFAULT_PANEL_SNAPSHOT_WIDTH: usize = 100;
@@ -294,6 +295,10 @@ impl App {
 		self.app_store.shell().mode
 	}
 
+	fn focus_region(&self) -> FocusRegion {
+		self.app_store.shell().focus_region
+	}
+
 	fn active_filter(&self) -> &ActiveFilter {
 		&self.app_store.shell().active_filter
 	}
@@ -350,14 +355,24 @@ impl App {
 	}
 
 	fn panel_scroll(&self) -> usize {
-		self.app_store.shell().panel_scroll
+		self.app_store.shell().panel_navigation.scroll
 	}
 
-	fn reset_panel_scroll(&mut self) {
-		if self.panel_scroll() == 0 {
+	fn selected_panel_item(&self) -> Option<usize> {
+		self.app_store.shell().panel_navigation.selected
+	}
+
+	fn panel_navigation(&self) -> &PanelNavigationState {
+		&self.app_store.shell().panel_navigation
+	}
+
+	fn reset_panel_navigation(&mut self) {
+		if self.app_store.shell().panel_navigation == PanelNavigationState::default() {
 			return;
 		}
-		self.dispatch_shell(ShellAction::SetPanelScroll(0));
+		self.dispatch_shell(ShellAction::SetPanelNavigation(
+			PanelNavigationState::default(),
+		));
 	}
 
 	fn dispatch_navigation(&mut self, action: NavigationAction) -> bool {
@@ -368,7 +383,7 @@ impl App {
 		};
 		self.apply_effects(effects);
 		if changed && before != self.selected_nav_row().map(|row| row.key.clone()) {
-			self.reset_panel_scroll();
+			self.reset_panel_navigation();
 		}
 		changed
 	}
@@ -1174,6 +1189,10 @@ impl App {
 			AppCommand::CopyPanelSnapshot => self.copy_panel_snapshot(),
 			AppCommand::RunCheck => self.run_check(),
 			AppCommand::Navigation(action) => self.apply_navigation(*action),
+			AppCommand::ToggleFocusRegion => self.toggle_focus_region(),
+			AppCommand::PanelMove { direction } => self.move_panel_selection(direction),
+			AppCommand::PanelHome => self.move_panel_to_edge(true),
+			AppCommand::PanelEnd => self.move_panel_to_edge(false),
 			AppCommand::ToggleSelectedNode => self.toggle_selected_nav(),
 			AppCommand::OpenSelectedNode => self.open_selected_nav(),
 			AppCommand::CloseNodeOrClearScope => {
@@ -1183,6 +1202,109 @@ impl App {
 			}
 		}
 		false
+	}
+
+	fn toggle_focus_region(&mut self) {
+		let next = match self.focus_region() {
+			FocusRegion::Navigator => FocusRegion::Panel,
+			FocusRegion::Panel => FocusRegion::Navigator,
+		};
+		self.dispatch_shell(ShellAction::SetFocusRegion(next));
+		if next == FocusRegion::Panel {
+			self.ensure_active_panel_selection();
+			self.set_status("panel focused; up/down moves within panel, Esc returns to navigator");
+		} else {
+			self.set_status("navigator focused");
+		}
+	}
+
+	fn ensure_active_panel_selection(&mut self) {
+		let panel = ExplorerFeature::active_panel(self);
+		let count = panel.navigation_len();
+		let component = panel.component();
+		let selected = if count == 0 {
+			None
+		} else if self.panel_navigation().component == Some(component) {
+			self.panel_navigation()
+				.selected
+				.map(|idx| idx.min(count - 1))
+				.or(Some(0))
+		} else {
+			Some(0)
+		};
+		let scroll = if self.panel_navigation().component == Some(component) {
+			self.panel_navigation().scroll
+		} else {
+			0
+		};
+		self.dispatch_shell(ShellAction::SetPanelNavigation(PanelNavigationState {
+			component: Some(component),
+			selected,
+			scroll,
+		}));
+	}
+
+	fn move_panel_selection(&mut self, direction: i8) {
+		let panel = ExplorerFeature::active_panel(self);
+		let count = panel.navigation_len();
+		let component = panel.component();
+		if count == 0 {
+			self.scroll_panel_lines(direction);
+			self.set_status("panel has no navigable item; scrolled content");
+			return;
+		}
+		let current = if self.panel_navigation().component == Some(component) {
+			self.panel_navigation().selected.unwrap_or(0).min(count - 1)
+		} else {
+			0
+		};
+		let selected = if direction > 0 {
+			(current + 1).min(count - 1)
+		} else {
+			current.saturating_sub(1)
+		};
+		self.dispatch_shell(ShellAction::SetPanelNavigation(PanelNavigationState {
+			component: Some(component),
+			selected: Some(selected),
+			scroll: self.panel_scroll(),
+		}));
+		self.set_status(format!("panel item {}/{}", selected + 1, count));
+	}
+
+	fn move_panel_to_edge(&mut self, home: bool) {
+		let panel = ExplorerFeature::active_panel(self);
+		let count = panel.navigation_len();
+		let component = panel.component();
+		let selected = if count == 0 {
+			None
+		} else if home {
+			Some(0)
+		} else {
+			Some(count - 1)
+		};
+		self.dispatch_shell(ShellAction::SetPanelNavigation(PanelNavigationState {
+			component: Some(component),
+			selected,
+			scroll: if home { 0 } else { self.panel_scroll() },
+		}));
+		if count == 0 {
+			self.set_status("panel has no navigable item");
+		} else {
+			self.set_status(format!(
+				"panel item {}/{}",
+				selected.unwrap_or(0) + 1,
+				count
+			));
+		}
+	}
+
+	fn scroll_panel_lines(&mut self, direction: i8) {
+		let next = if direction > 0 {
+			self.panel_scroll().saturating_add(1)
+		} else {
+			self.panel_scroll().saturating_sub(1)
+		};
+		self.dispatch_shell(ShellAction::SetPanelScroll(next));
 	}
 
 	fn apply_navigation(&mut self, action: NavigationAction) {

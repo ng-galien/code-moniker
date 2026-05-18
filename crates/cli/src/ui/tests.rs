@@ -127,12 +127,40 @@ fn apply_kind_filter(app: &mut App, text: &str, lang: Option<Lang>, kind: &str) 
 fn component_titles_include_stable_collaboration_markers() {
 	let title = block_title("navigator", ComponentId::Navigator);
 	let rendered = line_text(&title);
+	let focused = focused_block_title("navigator", ComponentId::Navigator, true);
 
 	assert_eq!(rendered, "navigator [ui.navigator]");
+	assert_eq!(line_text(&focused), "navigator [ui.navigator]");
+	assert_eq!(focused.spans[0].style.fg, Some(THEME.focus.title));
+	assert_eq!(focused.spans[2].style.fg, Some(THEME.focus.title));
 	assert_eq!(ComponentId::SearchInput.as_str(), "ui.search.input");
 	assert_eq!(ComponentId::PanelRefs.as_str(), "ui.panel.refs");
 	assert_eq!(ComponentId::PanelChange.as_str(), "ui.panel.change");
 	assert_eq!(ComponentId::SourceSnippet.as_str(), "ui.source.snippet");
+}
+
+#[test]
+fn selected_panel_line_background_overrides_span_backgrounds() {
+	let line = ratatui::text::Line::from(vec![
+		ratatui::text::Span::styled(
+			"line",
+			ratatui::style::Style::default().bg(ratatui::style::Color::Red),
+		),
+		ratatui::text::Span::styled(
+			" code",
+			ratatui::style::Style::default().bg(ratatui::style::Color::Green),
+		),
+	]);
+
+	let highlighted = panels::highlight_line(line, true, true);
+
+	assert_eq!(highlighted.style.bg, Some(THEME.panel.selected_focus_bg));
+	assert!(
+		highlighted
+			.spans
+			.iter()
+			.all(|span| span.style.bg == Some(THEME.panel.selected_focus_bg))
+	);
 }
 
 #[test]
@@ -212,6 +240,21 @@ fn page_keys_scroll_panel_only_in_normal_mode() {
 			key(KeyCode::PageDown)
 		),
 		Msg::Noop
+	));
+}
+
+#[test]
+fn tab_toggles_panel_focus_only_in_normal_mode() {
+	assert!(matches!(
+		key_to_msg(UiMode::Normal, key(KeyCode::Tab)),
+		Msg::ToggleFocusRegion
+	));
+	assert!(matches!(
+		key_to_msg(
+			UiMode::HeaderSearch(HeaderSearchFocus::Text),
+			key(KeyCode::Tab)
+		),
+		Msg::HeaderSearchNextField
 	));
 }
 
@@ -392,6 +435,120 @@ fn panel_scroll_resets_when_navigation_selection_changes() {
 	app.handle_key(key(KeyCode::Down)).unwrap();
 
 	assert_eq!(app.panel_scroll(), 0);
+}
+
+#[test]
+fn normal_tab_moves_focus_to_panel_and_arrows_navigate_panel_items() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+	let nav_before = app.selected_nav_index();
+
+	app.handle_key(key(KeyCode::Tab)).unwrap();
+
+	assert_eq!(app.focus_region(), FocusRegion::Panel);
+	assert_eq!(app.selected_panel_item(), Some(0));
+
+	app.handle_key(key(KeyCode::Down)).unwrap();
+
+	assert_eq!(app.focus_region(), FocusRegion::Panel);
+	assert_eq!(app.selected_nav_index(), nav_before);
+	assert_eq!(app.selected_panel_item(), Some(1));
+}
+
+#[test]
+fn search_focus_suppresses_navigator_and_panel_focus_chrome() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	assert!(focus_region_visible(&app, FocusRegion::Navigator));
+
+	app.handle_key(key(KeyCode::Tab)).unwrap();
+	assert!(focus_region_visible(&app, FocusRegion::Panel));
+
+	app.handle_key(key(KeyCode::Char('s'))).unwrap();
+
+	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
+	assert!(!focus_region_visible(&app, FocusRegion::Navigator));
+	assert!(!focus_region_visible(&app, FocusRegion::Panel));
+}
+
+#[test]
+fn escape_returns_from_panel_focus_to_navigator() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.handle_key(key(KeyCode::Tab)).unwrap();
+	app.handle_key(key(KeyCode::Esc)).unwrap();
+
+	assert_eq!(app.focus_region(), FocusRegion::Navigator);
+}
+
+#[test]
+fn outline_panel_navigation_reaches_source_snippet_lines() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(
+		tmp.path(),
+		"src/a.ts",
+		"class Alpha {\n  run() {\n    return 1;\n  }\n}\n",
+	);
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	apply_text_filter(&mut app, "Alpha");
+	let panel_len = ExplorerFeature::active_panel(&app).navigation_len();
+	assert!(panel_len > 1, "outline panel should expose source lines");
+
+	app.handle_key(key(KeyCode::Tab)).unwrap();
+	app.handle_key(key(KeyCode::End)).unwrap();
+
+	assert_eq!(app.focus_region(), FocusRegion::Panel);
+	assert_eq!(app.selected_panel_item(), Some(panel_len - 1));
 }
 
 #[test]

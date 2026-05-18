@@ -15,6 +15,12 @@ pub(in crate::ui) enum AppCommand {
 	CopyPanelSnapshot,
 	RunCheck,
 	Navigation(Box<NavigationAction>),
+	ToggleFocusRegion,
+	PanelMove {
+		direction: i8,
+	},
+	PanelHome,
+	PanelEnd,
 	ToggleSelectedNode,
 	OpenSelectedNode,
 	CloseNodeOrClearScope,

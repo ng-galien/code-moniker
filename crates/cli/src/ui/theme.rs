@@ -11,12 +11,19 @@ pub(super) struct UiTheme {
 	pub(super) danger: Color,
 	pub(super) change_added: Color,
 	pub(super) change_modified: Color,
+	pub(super) focus: FocusTheme,
 	pub(super) kind: KindTheme,
 	pub(super) nav: NavTheme,
 	pub(super) panel: PanelTheme,
 	pub(super) scrollbar: ScrollbarTheme,
 	pub(super) search: SearchTheme,
 	pub(super) source: SourceTheme,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct FocusTheme {
+	pub(super) title: Color,
+	pub(super) border: Color,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -64,6 +71,8 @@ pub(super) struct PanelTheme {
 	pub(super) header: Color,
 	pub(super) muted: Color,
 	pub(super) separator: Color,
+	pub(super) selected_bg: Color,
+	pub(super) selected_focus_bg: Color,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -103,6 +112,10 @@ pub(super) const THEME: UiTheme = UiTheme {
 	danger: Color::Red,
 	change_added: Color::Rgb(5, 150, 105),
 	change_modified: Color::Rgb(217, 119, 6),
+	focus: FocusTheme {
+		title: Color::Rgb(37, 99, 235),
+		border: Color::Rgb(37, 99, 235),
+	},
 	kind: KindTheme {
 		callable: Color::Rgb(37, 99, 235),
 		type_like: Color::Rgb(126, 34, 206),
@@ -129,6 +142,8 @@ pub(super) const THEME: UiTheme = UiTheme {
 		header: Color::Rgb(55, 65, 81),
 		muted: Color::Rgb(107, 114, 128),
 		separator: Color::Rgb(209, 213, 219),
+		selected_bg: Color::Rgb(243, 244, 246),
+		selected_focus_bg: Color::Rgb(219, 234, 254),
 	},
 	scrollbar: ScrollbarTheme {
 		thumb: Color::Rgb(156, 163, 175),

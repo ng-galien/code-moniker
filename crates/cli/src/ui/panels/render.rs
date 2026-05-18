@@ -3,14 +3,16 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
-use super::super::component::{block_title, marker};
+use super::super::component::{focused_block_title, marker};
 use super::super::kinds::reference_kind_group;
 use super::super::panel;
-use super::super::scroll::{ScrollViewport, render_vertical_scrollbar};
+use super::super::scroll::{ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin};
 use super::super::source::SourceLineVm;
 use super::super::text::{FitMode, fit_text, visible_len};
 use super::super::theme::{SourceTheme, THEME};
-use super::model::{MessageTone, PanelSection, PanelVm, ReferenceGroupVm, WrapMode};
+use super::model::{
+	MessageTone, PanelRenderState, PanelSection, PanelVm, ReferenceGroupVm, WrapMode,
+};
 
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct PanelSnapshot {
@@ -38,29 +40,47 @@ pub(super) fn render_panel_vm(
 	frame: &mut ratatui::Frame<'_>,
 	area: Rect,
 	panel: &PanelVm,
-	scroll_offset: usize,
+	state: PanelRenderState,
 ) {
+	let border_style = if state.focused {
+		Style::default().fg(THEME.focus.border)
+	} else {
+		Style::default()
+	};
 	let block = Block::default()
-		.title(block_title(panel.title, panel.component))
-		.borders(Borders::ALL);
+		.title(focused_block_title(
+			panel.title,
+			panel.component,
+			state.focused,
+		))
+		.borders(Borders::ALL)
+		.border_style(border_style);
 	let inner = block.inner(area);
 	let width = content_width(inner);
-	let initial_lines = panel_lines(panel, width);
+	let initial_lines = panel_lines(panel, width, state);
 	let initial_viewport = ScrollViewport::from_offset(
-		initial_lines.len(),
+		initial_lines.lines.len(),
 		usize::from(inner.height),
-		scroll_offset,
+		state.scroll,
 	);
 	let content_area = initial_viewport.content_area(inner);
 	let width = content_width(content_area);
 	let lines = if content_area.width == inner.width {
 		initial_lines
 	} else {
-		panel_lines(panel, width)
+		panel_lines(panel, width, state)
 	};
-	let viewport =
-		ScrollViewport::from_offset(lines.len(), usize::from(inner.height), scroll_offset);
-	let paragraph = Paragraph::new(Text::from(lines)).scroll((viewport.offset_u16(), 0));
+	let selected_line = state
+		.selected
+		.and_then(|selected| lines.navigable_lines.get(selected).copied());
+	let viewport = ScrollViewport::for_visible_line(
+		lines.lines.len(),
+		usize::from(inner.height),
+		state.scroll,
+		selected_line,
+		viewport_comfort_margin(usize::from(inner.height)),
+	);
+	let paragraph = Paragraph::new(Text::from(lines.lines)).scroll((viewport.offset_u16(), 0));
 	frame.render_widget(block, area);
 	match panel.wrap {
 		WrapMode::Wrap => frame.render_widget(
@@ -80,17 +100,42 @@ pub(super) fn snapshot(panel: &PanelVm, width: usize) -> PanelSnapshot {
 	PanelSnapshot {
 		title: panel.title,
 		component: panel.component,
-		lines: panel_lines(panel, width),
+		lines: panel_lines(panel, width, PanelRenderState::default()).lines,
 	}
 }
 
-fn panel_lines(panel: &PanelVm, width: usize) -> Vec<Line<'static>> {
-	let mut lines = Vec::new();
+#[derive(Debug)]
+struct RenderedPanelLines {
+	lines: Vec<Line<'static>>,
+	navigable_lines: Vec<usize>,
+}
+
+impl RenderedPanelLines {
+	fn new() -> Self {
+		Self {
+			lines: Vec::new(),
+			navigable_lines: Vec::new(),
+		}
+	}
+
+	fn push(&mut self, line: Line<'static>) {
+		self.lines.push(line);
+	}
+
+	fn push_navigable(&mut self, line: Line<'static>, selected: bool, focused: bool) {
+		self.navigable_lines.push(self.lines.len());
+		self.lines.push(highlight_line(line, selected, focused));
+	}
+}
+
+fn panel_lines(panel: &PanelVm, width: usize, state: PanelRenderState) -> RenderedPanelLines {
+	let mut rendered = RenderedPanelLines::new();
+	let mut nav_idx = 0;
 	for section in &panel.sections {
 		match section {
-			PanelSection::Heading { label } => lines.push(panel::section(label.clone())),
+			PanelSection::Heading { label } => rendered.push(panel::section(label.clone())),
 			PanelSection::ComponentHeading { label, component } => {
-				lines.push(Line::from(vec![
+				rendered.push(Line::from(vec![
 					Span::styled(
 						label.clone(),
 						Style::default()
@@ -102,32 +147,60 @@ fn panel_lines(panel: &PanelVm, width: usize) -> Vec<Line<'static>> {
 				]));
 			}
 			PanelSection::KeyValue { label, value, fit } => {
-				lines.push(panel::kv(label, value, width, *fit));
+				rendered.push(panel::kv(label, value, width, *fit));
 			}
 			PanelSection::Table { columns, rows } => {
-				lines.push(panel::table_header(columns, width));
-				lines.push(panel::separator(panel::table_width(columns, width)));
+				rendered.push(panel::table_header(columns, width));
+				rendered.push(panel::separator(panel::table_width(columns, width)));
 				for row in rows {
-					lines.push(panel::table_row(columns, row, width));
+					rendered.push_navigable(
+						panel::table_row(columns, row, width),
+						state.selected == Some(nav_idx),
+						state.focused,
+					);
+					nav_idx += 1;
 				}
 			}
-			PanelSection::Message { text, tone } => lines.push(match tone {
+			PanelSection::Message { text, tone } => rendered.push(match tone {
 				MessageTone::Muted => panel::muted(text.clone()),
 				MessageTone::Danger => {
 					Line::styled(text.clone(), Style::default().fg(THEME.danger))
 				}
 			}),
-			PanelSection::Bullet { text } => lines.push(panel::bullet(text.clone())),
+			PanelSection::Bullet { text } => rendered.push(panel::bullet(text.clone())),
 			PanelSection::SourceSnippet(snippet) => {
-				lines.extend(source_snippet_lines(snippet));
+				for line in source_snippet_lines(snippet) {
+					rendered.push_navigable(line, state.selected == Some(nav_idx), state.focused);
+					nav_idx += 1;
+				}
 			}
 			PanelSection::ReferenceGroups { groups, limit } => {
-				push_ref_groups(&mut lines, groups, *limit, width);
+				push_ref_groups(&mut rendered, groups, *limit, width, state, &mut nav_idx);
 			}
-			PanelSection::Blank => lines.push(panel::blank()),
+			PanelSection::Blank => rendered.push(panel::blank()),
 		}
 	}
-	lines
+	rendered
+}
+
+pub(in crate::ui) fn highlight_line(
+	line: Line<'static>,
+	selected: bool,
+	focused: bool,
+) -> Line<'static> {
+	if !selected {
+		return line;
+	}
+	let bg = if focused {
+		THEME.panel.selected_focus_bg
+	} else {
+		THEME.panel.selected_bg
+	};
+	let mut line = line.style(Style::default().bg(bg));
+	for span in &mut line.spans {
+		span.style = span.style.bg(bg);
+	}
+	line
 }
 
 pub(in crate::ui) fn source_snippet_lines(snippet: &[SourceLineVm]) -> Vec<Line<'static>> {
@@ -192,10 +265,12 @@ fn expand_indent(indent: &str) -> String {
 }
 
 fn push_ref_groups(
-	lines: &mut Vec<Line<'static>>,
+	lines: &mut RenderedPanelLines,
 	groups: &[ReferenceGroupVm],
 	limit: usize,
 	width: usize,
+	state: PanelRenderState,
+	nav_idx: &mut usize,
 ) {
 	if groups.is_empty() {
 		lines.push(panel::muted("none"));
@@ -205,7 +280,15 @@ fn push_ref_groups(
 		if idx > 0 {
 			lines.push(panel::blank());
 		}
-		lines.extend(ref_group_lines(group, width));
+		let selected = state.selected == Some(*nav_idx);
+		for (line_idx, line) in ref_group_lines(group, width).into_iter().enumerate() {
+			if line_idx == 0 {
+				lines.push_navigable(line, selected, state.focused);
+			} else {
+				lines.push(highlight_line(line, selected, state.focused));
+			}
+		}
+		*nav_idx += 1;
 	}
 	if groups.len() > limit {
 		lines.push(panel::muted(format!("... {} more", groups.len() - limit)));

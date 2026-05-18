@@ -1,4 +1,4 @@
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use super::theme::THEME;
@@ -53,5 +53,24 @@ pub(super) fn block_title(label: impl Into<String>, id: ComponentId) -> Line<'st
 		Span::raw(label.trim().to_string()),
 		Span::raw(" "),
 		marker(id),
+	])
+}
+
+pub(super) fn focused_block_title(
+	label: impl Into<String>,
+	id: ComponentId,
+	focused: bool,
+) -> Line<'static> {
+	if !focused {
+		return block_title(label, id);
+	}
+	let label = label.into();
+	let style = Style::default()
+		.fg(THEME.focus.title)
+		.add_modifier(Modifier::BOLD);
+	Line::from(vec![
+		Span::styled(label.trim().to_string(), style),
+		Span::raw(" "),
+		Span::styled(format!("[{}]", id.as_str()), style),
 	])
 }

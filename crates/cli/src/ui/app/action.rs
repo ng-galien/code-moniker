@@ -1,8 +1,8 @@
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::state::{
-	ActiveFilter, ChangePanelMode, CheckState, HeaderKindFilter, HeaderSearchResults, PanelPolicy,
-	View,
+	ActiveFilter, ChangePanelMode, CheckState, FocusRegion, HeaderKindFilter, HeaderSearchResults,
+	PanelNavigationState, PanelPolicy, View,
 };
 use crate::ui::clipboard::ClipboardResult;
 use crate::ui::contracts::Route;
@@ -64,7 +64,9 @@ pub(in crate::ui) enum ShellAction {
 	EnterChangeMode,
 	ReplaceActiveFilter(ActiveFilter),
 	SetChangePanel(ChangePanelMode),
+	SetFocusRegion(FocusRegion),
 	SetPanelScroll(usize),
+	SetPanelNavigation(PanelNavigationState),
 	#[cfg(test)]
 	EmitNotify(String),
 }
