@@ -1,6 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
-use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::{AccessKind, AccessMode};
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::workspace::StoreWatchRoot;
 
@@ -38,7 +39,7 @@ impl LiveStoreWatcher {
 				let Ok(event) = event else {
 					return;
 				};
-				if let Some(store_event) = callback_classifier.classify_paths(&event.paths) {
+				if let Some(store_event) = callback_classifier.classify_event(&event) {
 					publish(store_event);
 				}
 			},
@@ -100,10 +101,35 @@ impl EventClassifier {
 		paths
 	}
 
+	fn classify_event(&self, event: &Event) -> Option<StoreEvent> {
+		if event.need_rescan() {
+			return Some(StoreEvent::FullIndex);
+		}
+		match event.kind {
+			EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
+				self.classify_paths_with_git_signals(&event.paths, false)
+			}
+			EventKind::Access(_) | EventKind::Other => None,
+			EventKind::Any => self.classify_paths_with_git_signals(&event.paths, false),
+			EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
+				self.classify_paths_with_git_signals(&event.paths, true)
+			}
+		}
+	}
+
+	#[cfg(test)]
 	fn classify_paths(&self, paths: &[PathBuf]) -> Option<StoreEvent> {
+		self.classify_paths_with_git_signals(paths, true)
+	}
+
+	fn classify_paths_with_git_signals(
+		&self,
+		paths: &[PathBuf],
+		allow_git_signals: bool,
+	) -> Option<StoreEvent> {
 		let mut event: Option<StoreEvent> = None;
 		for path in paths {
-			if self.is_git_signal_path(path) {
+			if allow_git_signals && self.is_git_signal_path(path) {
 				event = Some(event.map_or(StoreEvent::GitOverlay, |current| {
 					current.coalesce(StoreEvent::GitOverlay)
 				}));
@@ -135,10 +161,7 @@ impl EventClassifier {
 			let Ok(rel) = path.strip_prefix(&git_dir) else {
 				return false;
 			};
-			rel == Path::new("index")
-				|| rel == Path::new("HEAD")
-				|| rel == Path::new("packed-refs")
-				|| rel.starts_with("refs")
+			rel == Path::new("HEAD") || rel == Path::new("packed-refs") || rel.starts_with("refs")
 		})
 	}
 
@@ -194,6 +217,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use notify::event::{AccessKind, AccessMode, DataChange, ModifyKind};
 
 	fn root(path: &str, git_root: Option<&str>) -> StoreWatchRoot {
 		StoreWatchRoot {
@@ -201,6 +225,10 @@ mod tests {
 			git_root: git_root.map(PathBuf::from),
 			ignored_paths: Vec::new(),
 		}
+	}
+
+	fn event(kind: EventKind, path: &str) -> Event {
+		Event::new(kind).add_path(PathBuf::from(path))
 	}
 
 	#[test]
@@ -218,10 +246,6 @@ mod tests {
 		let classifier = EventClassifier::new(vec![root("/repo/service", Some("/repo"))]);
 
 		assert_eq!(
-			classifier.classify_paths(&[PathBuf::from("/repo/.git/index")]),
-			Some(StoreEvent::GitOverlay)
-		);
-		assert_eq!(
 			classifier.classify_paths(&[PathBuf::from("/repo/.git/HEAD")]),
 			Some(StoreEvent::GitOverlay)
 		);
@@ -236,9 +260,59 @@ mod tests {
 	}
 
 	#[test]
+	fn ignores_git_access_events() {
+		let classifier = EventClassifier::new(vec![root("/repo/service", Some("/repo"))]);
+
+		assert_eq!(
+			classifier.classify_event(&event(
+				EventKind::Access(AccessKind::Open(AccessMode::Any)),
+				"/repo/.git/HEAD"
+			)),
+			None
+		);
+		assert_eq!(
+			classifier.classify_event(&event(
+				EventKind::Access(AccessKind::Close(AccessMode::Write)),
+				"/repo/.git/index"
+			)),
+			None
+		);
+	}
+
+	#[test]
+	fn classifies_source_close_write_as_full_index_refresh() {
+		let classifier = EventClassifier::new(vec![root("/repo/service", Some("/repo"))]);
+
+		assert_eq!(
+			classifier.classify_event(&event(
+				EventKind::Access(AccessKind::Close(AccessMode::Write)),
+				"/repo/service/src/App.java"
+			)),
+			Some(StoreEvent::FullIndex)
+		);
+	}
+
+	#[test]
+	fn classifies_git_mutation_events() {
+		let classifier = EventClassifier::new(vec![root("/repo/service", Some("/repo"))]);
+
+		assert_eq!(
+			classifier.classify_event(&event(
+				EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+				"/repo/.git/HEAD"
+			)),
+			Some(StoreEvent::GitOverlay)
+		);
+	}
+
+	#[test]
 	fn ignores_noisy_git_internal_paths() {
 		let classifier = EventClassifier::new(vec![root("/repo", Some("/repo"))]);
 
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.git/index")]),
+			None
+		);
 		assert_eq!(
 			classifier.classify_paths(&[PathBuf::from("/repo/.git/logs/HEAD")]),
 			None
