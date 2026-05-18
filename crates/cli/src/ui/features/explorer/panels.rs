@@ -1,5 +1,5 @@
 use super::super::super::App;
-use super::super::super::app::{ChangePanelMode, CheckState, View};
+use super::super::super::app::{ChangePanelMode, CheckState, FocusRegion, View};
 use super::super::super::component::ComponentId;
 use super::super::super::navigator::NavNodeKind;
 use super::super::super::panels::{PanelVm, ReferenceGroupVm};
@@ -157,7 +157,9 @@ fn nav_selection_panel(app: &App) -> PanelVm {
 }
 
 fn refs_panel(app: &App) -> PanelVm {
-	if let Some(focus) = app.active_filter().usage_focus() {
+	if let Some(focus) = app.usage_lens()
+		&& (app.focus_region() != FocusRegion::UsageLens || app.selected().is_none())
+	{
 		return usage_focus_panel(focus);
 	}
 	let Some(loc) = app.selected() else {

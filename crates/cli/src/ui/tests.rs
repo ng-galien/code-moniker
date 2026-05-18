@@ -134,6 +134,7 @@ fn component_titles_include_stable_collaboration_markers() {
 	assert_eq!(focused.spans[0].style.fg, Some(THEME.focus.title));
 	assert_eq!(focused.spans[2].style.fg, Some(THEME.focus.title));
 	assert_eq!(ComponentId::SearchInput.as_str(), "ui.search.input");
+	assert_eq!(ComponentId::NavigatorUsages.as_str(), "ui.navigator.usages");
 	assert_eq!(ComponentId::PanelRefs.as_str(), "ui.panel.refs");
 	assert_eq!(ComponentId::PanelChange.as_str(), "ui.panel.change");
 	assert_eq!(ComponentId::SourceSnippet.as_str(), "ui.source.snippet");
@@ -1724,7 +1725,7 @@ fn navigator_renders_uncompacted_language_rows_as_containers() {
 	assert!(matches!(row.kind, NavNodeKind::Lang));
 	assert!(row.has_children);
 
-	let rendered = line_text(&nav_row_line(&app, row, false));
+	let rendered = line_text(&nav_row_line(&app, row, false, app.primary_expanded()));
 	assert!(
 		rendered.contains("sql/"),
 		"uncompacted language rows should render as containers: {rendered:?}"
@@ -1956,7 +1957,7 @@ fn multi_source_navigator_keeps_source_roots_as_directory_rows() {
 }
 
 #[test]
-fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
+fn usage_lens_splits_navigator_without_filtering_primary_tree() {
 	let tmp = tempfile::tempdir().unwrap();
 	let common = tmp.path().join("common-lib");
 	let billing = tmp.path().join("billing-service");
@@ -1992,50 +1993,54 @@ fn usage_focus_filters_consumers_of_selected_common_java_symbol() {
 
 	app.focus_usages(money_formatter);
 
-	assert_eq!(app.view(), View::Refs);
+	assert_eq!(app.focus_region(), FocusRegion::UsageLens);
+	assert!(app.usage_lens().is_some());
 	assert!(
-		app.status().contains("usages of MoneyFormatter"),
+		app.status().contains("usage lens for MoneyFormatter"),
 		"{}",
 		app.status()
 	);
-	assert_eq!(app.view_mode(), VisualizationMode::Usages);
+	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
 	assert_eq!(app.panel_policy(), PanelPolicy::Contextual);
 	let header = line_text(&header_line(&app, 120));
-	assert!(header.contains("mode usages"), "{header}");
-	assert!(header.contains("scope MoneyFormatter"), "{header}");
+	assert!(header.contains("mode explorer"), "{header}");
+	assert!(
+		header.contains("scope all + usages:MoneyFormatter"),
+		"{header}"
+	);
 	assert!(!header.contains("panel"), "{header}");
 	assert!(
 		app.visible_defs()
 			.iter()
-			.any(|loc| symbol_name(&app, loc) == "BillingApplication"),
-		"{:?}",
-		app.visible_defs()
-	);
-	assert!(
-		!app.visible_defs()
-			.iter()
 			.any(|loc| symbol_name(&app, loc) == "OrderApplication"),
-		"{:?}",
+		"primary tree should keep the full exploration context: {:?}",
 		app.visible_defs()
 	);
 	assert!(
-		app.nav_rows().iter().any(|row| {
-			row.label.contains("billing-service") && row.label.contains("BillingApplication")
-		}),
+		app.usage_nav_rows()
+			.iter()
+			.any(|row| row.label.contains("billing-service")),
 		"{:?}",
-		app.nav_rows()
+		app.usage_nav_rows()
 	);
 	assert!(
-		!app.nav_rows()
+		!app.usage_nav_rows()
 			.iter()
 			.any(|row| row.label.contains("order-service")),
 		"{:?}",
-		app.nav_rows()
+		app.usage_nav_rows()
+	);
+	assert!(
+		app.usage_nav_rows().iter().any(|row| {
+			row.label.contains("billing-service") && row.label.contains("BillingApplication")
+		}),
+		"{:?}",
+		app.usage_nav_rows()
 	);
 }
 
 #[test]
-fn escape_leaves_empty_usage_focus_back_to_explorer() {
+fn escape_leaves_empty_usage_lens_focus_back_to_primary_tree() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(
 		tmp.path(),
@@ -2058,19 +2063,31 @@ fn escape_leaves_empty_usage_focus_back_to_explorer() {
 
 	app.focus_usages(premium_accessor);
 
-	assert_eq!(app.view_mode(), VisualizationMode::Usages);
-	assert!(app.is_filtered());
-	assert!(app.nav_rows().is_empty());
+	assert_eq!(app.focus_region(), FocusRegion::UsageLens);
+	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
+	assert!(!app.is_filtered());
+	assert!(app.usage_nav_rows().is_empty());
 	assert!(app.status().contains("0 reference(s)"), "{}", app.status());
 
 	assert!(!app.handle_key(key(KeyCode::Esc)).unwrap());
 
+	assert_eq!(app.focus_region(), FocusRegion::Navigator);
 	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
 	assert!(!app.is_filtered());
-	assert_eq!(app.filter_label(), "<all>");
+	assert!(app.usage_lens().is_some());
+	assert!(app.filter_label().contains("usages:premium()"));
 	assert!(!app.nav_rows().is_empty());
 	assert_eq!(app.view(), View::Overview);
-	assert!(app.status().contains("filter cleared"), "{}", app.status());
+	assert!(
+		app.status().contains("navigator focused"),
+		"{}",
+		app.status()
+	);
+
+	app.focus_usages_of_selected();
+
+	assert!(app.usage_lens().is_none());
+	assert!(app.usage_nav_rows().is_empty());
 }
 
 #[test]

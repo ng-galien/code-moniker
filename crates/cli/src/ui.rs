@@ -181,15 +181,8 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 }
 
 impl ActiveFilter {
-	fn usage_focus(&self) -> Option<&UsageFocus> {
-		match self {
-			Self::Usages(focus) => Some(focus),
-			Self::None | Self::HeaderSearch(_) | Self::Change => None,
-		}
-	}
-
 	fn filters_navigator(&self) -> bool {
-		matches!(self, Self::HeaderSearch(_) | Self::Usages(_) | Self::Change)
+		matches!(self, Self::HeaderSearch(_) | Self::Change)
 	}
 }
 
@@ -299,6 +292,10 @@ impl App {
 		self.app_store.shell().focus_region
 	}
 
+	fn usage_lens(&self) -> Option<&UsageFocus> {
+		self.app_store.shell().usage_lens.as_ref()
+	}
+
 	fn active_filter(&self) -> &ActiveFilter {
 		&self.app_store.shell().active_filter
 	}
@@ -326,6 +323,14 @@ impl App {
 		})
 	}
 
+	fn primary_selected(&self) -> Option<DefLocation> {
+		self.primary_selected_nav_row()
+			.and_then(|row| match row.kind {
+				NavNodeKind::Def(loc) => Some(loc),
+				_ => None,
+			})
+	}
+
 	fn selected_change_detail(&self) -> Option<ChangeDetail> {
 		self.selected_nav_row().and_then(|row| match row.kind {
 			NavNodeKind::Change(id) => self.store().change_detail(id),
@@ -335,15 +340,46 @@ impl App {
 	}
 
 	fn selected_nav_row(&self) -> Option<&NavRow> {
+		if self.focus_region() == FocusRegion::UsageLens {
+			self.usage_selected_nav_row()
+		} else {
+			self.primary_selected_nav_row()
+		}
+	}
+
+	fn primary_selected_nav_row(&self) -> Option<&NavRow> {
 		self.app_store.navigation().selected_row()
 	}
 
+	fn usage_selected_nav_row(&self) -> Option<&NavRow> {
+		self.app_store.navigation().usage_selected_row()
+	}
+
 	fn active_expanded(&self) -> &BTreeSet<store::ids::NodeId> {
+		if self.focus_region() == FocusRegion::UsageLens {
+			self.usage_expanded()
+		} else {
+			self.primary_expanded()
+		}
+	}
+
+	fn primary_expanded(&self) -> &BTreeSet<store::ids::NodeId> {
 		self.app_store.navigation().active_expanded()
+	}
+
+	fn usage_expanded(&self) -> &BTreeSet<store::ids::NodeId> {
+		self.app_store
+			.navigation()
+			.usage_expanded()
+			.unwrap_or_else(|| self.app_store.navigation().active_expanded())
 	}
 
 	fn nav_rows(&self) -> &[NavRow] {
 		self.app_store.navigation().rows()
+	}
+
+	fn usage_nav_rows(&self) -> &[NavRow] {
+		self.app_store.navigation().usage_rows()
 	}
 
 	fn visible_defs(&self) -> &[DefLocation] {
@@ -352,6 +388,10 @@ impl App {
 
 	fn selected_nav_index(&self) -> usize {
 		self.app_store.navigation().selection()
+	}
+
+	fn selected_usage_nav_index(&self) -> usize {
+		self.app_store.navigation().usage_selection()
 	}
 
 	fn panel_scroll(&self) -> usize {
@@ -402,7 +442,6 @@ impl App {
 	fn matching_defs(&self) -> Vec<DefLocation> {
 		match self.active_filter() {
 			ActiveFilter::HeaderSearch(results) => results.matches.clone(),
-			ActiveFilter::Usages(focus) => focus.contexts.clone(),
 			ActiveFilter::Change => self.store().changed_defs(),
 			ActiveFilter::None => self.store().all_navigable_defs(),
 		}
@@ -431,7 +470,16 @@ impl App {
 			let header = self.header_search();
 			return header_search_label(&header.text, &header.langs, &header.kind_filters);
 		}
-		self.active_filter().label()
+		let base = match self.active_filter() {
+			ActiveFilter::None => "<all>".to_string(),
+			ActiveFilter::HeaderSearch(results) => results.label(),
+			ActiveFilter::Change => "changes".to_string(),
+		};
+		if let Some(focus) = self.usage_lens() {
+			format!("{base} + usages:{}", focus.label)
+		} else {
+			base
+		}
 	}
 
 	fn is_filtered(&self) -> bool {
@@ -439,16 +487,19 @@ impl App {
 	}
 
 	fn has_clearable_scope(&self) -> bool {
-		!matches!(self.active_filter(), ActiveFilter::None)
+		!matches!(self.active_filter(), ActiveFilter::None) || self.usage_lens().is_some()
 	}
 
 	fn contextual_view(&self) -> View {
 		match self.view_mode() {
-			VisualizationMode::Usages => View::Refs,
 			VisualizationMode::Change => View::Change,
 			VisualizationMode::Explorer | VisualizationMode::Search => {
 				if self.selected().is_some() {
 					View::Tree
+				} else if self.usage_lens().is_some()
+					&& self.focus_region() == FocusRegion::UsageLens
+				{
+					View::Refs
 				} else {
 					View::Overview
 				}
@@ -471,11 +522,15 @@ impl App {
 	}
 
 	fn scope_label(&self) -> String {
-		match self.active_filter() {
+		let base = match self.active_filter() {
 			ActiveFilter::None => "all".to_string(),
 			ActiveFilter::HeaderSearch(results) => results.label(),
-			ActiveFilter::Usages(focus) => focus.label.clone(),
 			ActiveFilter::Change => self.store().change_overview().scope,
+		};
+		if let Some(focus) = self.usage_lens() {
+			format!("{base} + usages:{}", focus.label)
+		} else {
+			base
 		}
 	}
 
@@ -484,11 +539,16 @@ impl App {
 		let label = focus.label.clone();
 		let refs_len = focus.refs.len();
 		let contexts_len = focus.contexts.len();
-		self.dispatch_shell(ShellAction::FocusUsages(focus));
-		self.refresh_results(true);
+		let visible_defs = focus.contexts.clone();
+		self.dispatch_shell(ShellAction::SetUsageLens(Some(focus)));
+		self.dispatch_navigation(NavigationAction::SetUsageLens {
+			visible_defs,
+			reset_expansion: true,
+			expand_symbols: contexts_len <= 200,
+		});
 		self.sync_contextual_view();
 		self.set_status(format!(
-			"usages of {label}: {} reference(s), {} navigable context(s)",
+			"usage lens for {label}: {} reference(s), {} navigable context(s)",
 			refs_len, contexts_len
 		));
 	}
@@ -809,6 +869,7 @@ impl App {
 
 	fn clear_filter_with_focus(&mut self, return_focus: bool) {
 		self.dispatch_shell(ShellAction::ClearFilter { return_focus });
+		self.dispatch_navigation(NavigationAction::ClearUsageLens);
 		self.refresh_results(true);
 		self.sync_contextual_view();
 		self.set_status("filter cleared");
@@ -819,11 +880,26 @@ impl App {
 			self.toggle_change_usages();
 			return;
 		}
-		let Some(loc) = self.selected() else {
+		if self.usage_lens().is_some() {
+			self.close_usage_lens();
+			return;
+		}
+		let Some(loc) = self.primary_selected() else {
 			self.set_status("select a declaration before focusing usages");
 			return;
 		};
 		self.focus_usages(loc);
+	}
+
+	fn close_usage_lens(&mut self) {
+		let label = self
+			.usage_lens()
+			.map(|focus| focus.label.clone())
+			.unwrap_or_else(|| "usage lens".to_string());
+		self.dispatch_shell(ShellAction::SetUsageLens(None));
+		self.dispatch_navigation(NavigationAction::ClearUsageLens);
+		self.sync_contextual_view();
+		self.set_status(format!("closed usage lens for {label}"));
 	}
 
 	fn toggle_change_mode(&mut self) {
@@ -944,18 +1020,36 @@ impl App {
 			ActiveFilter::HeaderSearch(results) => ActiveFilter::HeaderSearch(
 				self.header_search_results(&results.text, &results.langs, &results.kind_filters),
 			),
-			ActiveFilter::Usages(focus) => ActiveFilter::Usages(
-				self.store()
-					.usage_focus_for_target(focus.target.clone(), focus.label.clone()),
-			),
 			ActiveFilter::None => ActiveFilter::None,
 			ActiveFilter::Change => ActiveFilter::Change,
 		};
 		self.dispatch_shell(ShellAction::ReplaceActiveFilter(active_filter));
+		self.refresh_usage_lens_after_store_reload();
+	}
+
+	fn refresh_usage_lens_after_store_reload(&mut self) {
+		let Some(focus) = self.usage_lens().cloned() else {
+			return;
+		};
+		let focus = self
+			.store()
+			.usage_focus_for_target(focus.target, focus.label);
+		let visible_defs = focus.contexts.clone();
+		let expand_symbols = visible_defs.len() <= 200;
+		self.dispatch_shell(ShellAction::SetUsageLens(Some(focus)));
+		self.dispatch_navigation(NavigationAction::SetUsageLens {
+			visible_defs,
+			reset_expansion: false,
+			expand_symbols,
+		});
 	}
 
 	fn toggle_selected_nav(&mut self) {
-		self.dispatch_navigation(NavigationAction::ToggleSelected);
+		let action = match self.focus_region() {
+			FocusRegion::UsageLens => NavigationAction::UsageToggleSelected,
+			FocusRegion::Navigator | FocusRegion::Panel => NavigationAction::ToggleSelected,
+		};
+		self.dispatch_navigation(action);
 		match self.app_store.navigation().last_notice() {
 			NavigationNotice::Opened(label) => self.set_status(format!("opened {label}")),
 			NavigationNotice::Closed(label) => self.set_status(format!("closed {label}")),
@@ -964,14 +1058,22 @@ impl App {
 	}
 
 	fn open_selected_nav(&mut self) {
-		self.dispatch_navigation(NavigationAction::OpenSelected);
+		let action = match self.focus_region() {
+			FocusRegion::UsageLens => NavigationAction::UsageOpenSelected,
+			FocusRegion::Navigator | FocusRegion::Panel => NavigationAction::OpenSelected,
+		};
+		self.dispatch_navigation(action);
 		if let NavigationNotice::Opened(label) = self.app_store.navigation().last_notice() {
 			self.set_status(format!("opened {label}"));
 		}
 	}
 
 	fn close_selected_nav(&mut self) -> bool {
-		self.dispatch_navigation(NavigationAction::CloseSelected);
+		let action = match self.focus_region() {
+			FocusRegion::UsageLens => NavigationAction::UsageCloseSelected,
+			FocusRegion::Navigator | FocusRegion::Panel => NavigationAction::CloseSelected,
+		};
+		self.dispatch_navigation(action);
 		match self.app_store.navigation().last_notice() {
 			NavigationNotice::Closed(label) => {
 				self.set_status(format!("closed {label}"));
@@ -981,7 +1083,14 @@ impl App {
 				self.sync_contextual_view();
 				true
 			}
-			NavigationNotice::Opened(_) | NavigationNotice::Noop => false,
+			NavigationNotice::Opened(_) => false,
+			NavigationNotice::Noop if self.focus_region() == FocusRegion::UsageLens => {
+				self.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
+				self.sync_contextual_view();
+				self.set_status("navigator focused");
+				true
+			}
+			NavigationNotice::Noop => false,
 		}
 	}
 
@@ -1205,16 +1314,26 @@ impl App {
 	}
 
 	fn toggle_focus_region(&mut self) {
-		let next = match self.focus_region() {
-			FocusRegion::Navigator => FocusRegion::Panel,
-			FocusRegion::Panel => FocusRegion::Navigator,
+		let usage_open = self.usage_lens().is_some();
+		let next = match (self.focus_region(), usage_open) {
+			(FocusRegion::Navigator, true) => FocusRegion::UsageLens,
+			(FocusRegion::Navigator, false) => FocusRegion::Panel,
+			(FocusRegion::UsageLens, _) => FocusRegion::Panel,
+			(FocusRegion::Panel, _) => FocusRegion::Navigator,
 		};
 		self.dispatch_shell(ShellAction::SetFocusRegion(next));
-		if next == FocusRegion::Panel {
-			self.ensure_active_panel_selection();
-			self.set_status("panel focused; up/down moves within panel, Esc returns to navigator");
-		} else {
-			self.set_status("navigator focused");
+		match next {
+			FocusRegion::Panel => {
+				self.ensure_active_panel_selection();
+				self.set_status(
+					"panel focused; up/down moves within panel, Esc returns to navigator",
+				);
+			}
+			FocusRegion::UsageLens => {
+				self.set_status("usage tree focused; Tab moves to panel, Esc returns to navigator");
+				self.sync_contextual_view();
+			}
+			FocusRegion::Navigator => self.set_status("navigator focused"),
 		}
 	}
 

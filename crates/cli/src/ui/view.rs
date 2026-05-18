@@ -460,7 +460,16 @@ pub(super) fn focus_region_visible(app: &App, region: FocusRegion) -> bool {
 }
 
 fn render_left_pane(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	render_nav_list(frame, area, app);
+	if app.usage_lens().is_none() {
+		render_primary_nav_list(frame, area, app);
+		return;
+	}
+	let rows = Layout::default()
+		.direction(Direction::Vertical)
+		.constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+		.split(area);
+	render_primary_nav_list(frame, rows[0], app);
+	render_usage_nav_list(frame, rows[1], app);
 }
 
 #[cfg(test)]
@@ -503,7 +512,7 @@ fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	frame.render_widget(Paragraph::new(line), area);
 }
 
-fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+fn render_primary_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	let title = if app.is_filtered() {
 		if app.view_mode() == VisualizationMode::Change {
 			format!(
@@ -525,37 +534,78 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 			app.app_store.navigation().explorer_def_count()
 		)
 	};
+	render_nav_block(
+		frame,
+		area,
+		app,
+		title,
+		ComponentId::Navigator,
+		app.nav_rows(),
+		app.selected_nav_index(),
+		app.primary_expanded(),
+		focus_region_visible(app, FocusRegion::Navigator),
+	);
+}
+
+fn render_usage_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
+	let Some(focus) = app.usage_lens() else {
+		return;
+	};
+	let title = format!(
+		" usages {}  {} files {} defs ",
+		focus.label,
+		matched_file_count(&focus.contexts),
+		focus.contexts.len()
+	);
+	render_nav_block(
+		frame,
+		area,
+		app,
+		title,
+		ComponentId::NavigatorUsages,
+		app.usage_nav_rows(),
+		app.selected_usage_nav_index(),
+		app.usage_expanded(),
+		focus_region_visible(app, FocusRegion::UsageLens),
+	);
+}
+
+fn render_nav_block(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	app: &App,
+	title: String,
+	component: ComponentId,
+	rows: &[NavRow],
+	selection: usize,
+	expanded: &BTreeSet<super::store::ids::NodeId>,
+	focused: bool,
+) {
 	let block = Block::default()
-		.title(focused_block_title(
-			title,
-			ComponentId::Navigator,
-			focus_region_visible(app, FocusRegion::Navigator),
-		))
+		.title(focused_block_title(title, component, focused))
 		.borders(Borders::ALL)
-		.border_style(if focus_region_visible(app, FocusRegion::Navigator) {
+		.border_style(if focused {
 			Style::default().fg(THEME.focus.border)
 		} else {
 			Style::default()
 		});
 	let inner = block.inner(area);
 	let visible_rows = inner.height as usize;
-	let nav_rows = app.nav_rows();
-	let selection = app.selected_nav_index();
 	let viewport = ScrollViewport::for_selection_with_margin(
-		nav_rows.len(),
+		rows.len(),
 		visible_rows,
 		selection,
 		viewport_comfort_margin(visible_rows),
 	);
 	let content_area = viewport.content_area(inner);
 	let start = viewport.offset;
-	let end = (start + visible_rows).min(nav_rows.len());
-	let items: Vec<ListItem<'_>> = nav_rows[start..end]
+	let end = (start + visible_rows).min(rows.len());
+	let items: Vec<ListItem<'_>> = rows[start..end]
 		.iter()
 		.enumerate()
 		.map(|(offset, row)| {
 			let idx = start + offset;
-			let line = nav_row_line(app, row, idx == selection);
+			let line = nav_row_line(app, row, idx == selection, expanded);
 			let style = if idx == selection {
 				Style::default().bg(THEME.nav.selected_bg)
 			} else {
@@ -569,11 +619,16 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 	render_vertical_scrollbar(frame, inner, viewport);
 }
 
-pub(super) fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {
+pub(super) fn nav_row_line(
+	app: &App,
+	row: &NavRow,
+	selected: bool,
+	expanded: &BTreeSet<super::store::ids::NodeId>,
+) -> Line<'static> {
 	let marker = if selected { ">" } else { " " };
 	let indent = "  ".repeat(row.depth);
 	let twisty = if row.has_children {
-		if app.active_expanded().contains(&row.key) {
+		if expanded.contains(&row.key) {
 			"▾"
 		} else {
 			"▸"

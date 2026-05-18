@@ -93,7 +93,6 @@ impl View {
 pub(in crate::ui) enum VisualizationMode {
 	Explorer,
 	Search,
-	Usages,
 	Change,
 }
 
@@ -102,7 +101,6 @@ impl VisualizationMode {
 		match self {
 			Self::Explorer => "explorer",
 			Self::Search => "search",
-			Self::Usages => "usages",
 			Self::Change => "change",
 		}
 	}
@@ -124,6 +122,7 @@ pub(in crate::ui) enum PanelPolicy {
 pub(in crate::ui) enum FocusRegion {
 	#[default]
 	Navigator,
+	UsageLens,
 	Panel,
 }
 
@@ -139,7 +138,6 @@ pub(in crate::ui) enum ActiveFilter {
 	#[default]
 	None,
 	HeaderSearch(HeaderSearchResults),
-	Usages(UsageFocus),
 	Change,
 }
 
@@ -229,6 +227,7 @@ pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) mode: UiMode,
 	pub(in crate::ui) focus_region: FocusRegion,
 	pub(in crate::ui) active_filter: ActiveFilter,
+	pub(in crate::ui) usage_lens: Option<UsageFocus>,
 	pub(in crate::ui) header_search: HeaderSearchState,
 	pub(in crate::ui) panel_navigation: PanelNavigationState,
 }
@@ -246,6 +245,7 @@ impl Default for ShellSlice {
 			mode: UiMode::Normal,
 			focus_region: FocusRegion::Navigator,
 			active_filter: ActiveFilter::None,
+			usage_lens: None,
 			header_search: HeaderSearchState::default(),
 			panel_navigation: PanelNavigationState::default(),
 		}
@@ -397,40 +397,14 @@ impl AppState {
 			ShellAction::SetHeaderSearchCursor { focus, cursor } => {
 				self.set_header_search_cursor_action(*focus, *cursor)
 			}
-			ShellAction::ClearFilter { return_focus } => {
-				self.update_shell(|shell| {
-					if *return_focus {
-						shell.mode = UiMode::Normal;
-					}
-					shell.focus_region = FocusRegion::Navigator;
-					shell.active_filter = ActiveFilter::None;
-					shell.view_mode = VisualizationMode::Explorer;
-					shell.panel_policy = PanelPolicy::Contextual;
-					shell.change_panel = ChangePanelMode::Diff;
-					shell.panel_navigation = PanelNavigationState::default();
-					shell.header_search.reset();
-					shell.header_search.pending_generation = None;
-				});
-				Transition::changed("shell.clear_filter")
-			}
-			ShellAction::FocusUsages(focus) => {
-				self.update_shell(|shell| {
-					shell.mode = UiMode::Normal;
-					shell.focus_region = FocusRegion::Navigator;
-					shell.active_filter = ActiveFilter::Usages(focus.clone());
-					shell.view_mode = VisualizationMode::Usages;
-					shell.panel_policy = PanelPolicy::Contextual;
-					shell.panel_navigation = PanelNavigationState::default();
-					shell.header_search.reset();
-					shell.header_search.pending_generation = None;
-				});
-				Transition::changed("shell.focus_usages")
-			}
+			ShellAction::ClearFilter { return_focus } => self.clear_filter_action(*return_focus),
+			ShellAction::SetUsageLens(focus) => self.set_usage_lens_action(focus),
 			ShellAction::EnterChangeMode => {
 				self.update_shell(|shell| {
 					shell.mode = UiMode::Normal;
 					shell.focus_region = FocusRegion::Navigator;
 					shell.active_filter = ActiveFilter::Change;
+					shell.usage_lens = None;
 					shell.view_mode = VisualizationMode::Change;
 					shell.panel_policy = PanelPolicy::Contextual;
 					shell.change_panel = ChangePanelMode::Diff;
@@ -478,6 +452,39 @@ impl AppState {
 			shell.route = route.clone();
 		});
 		Transition::changed("shell.set_view")
+	}
+
+	fn clear_filter_action(&mut self, return_focus: bool) -> Transition {
+		self.update_shell(|shell| {
+			if return_focus {
+				shell.mode = UiMode::Normal;
+			}
+			shell.focus_region = FocusRegion::Navigator;
+			shell.active_filter = ActiveFilter::None;
+			shell.usage_lens = None;
+			shell.view_mode = VisualizationMode::Explorer;
+			shell.panel_policy = PanelPolicy::Contextual;
+			shell.change_panel = ChangePanelMode::Diff;
+			shell.panel_navigation = PanelNavigationState::default();
+			shell.header_search.reset();
+			shell.header_search.pending_generation = None;
+		});
+		Transition::changed("shell.clear_filter")
+	}
+
+	fn set_usage_lens_action(&mut self, focus: &Option<UsageFocus>) -> Transition {
+		self.update_shell(|shell| {
+			shell.mode = UiMode::Normal;
+			shell.focus_region = if focus.is_some() {
+				FocusRegion::UsageLens
+			} else {
+				FocusRegion::Navigator
+			};
+			shell.usage_lens = focus.clone();
+			shell.panel_policy = PanelPolicy::Contextual;
+			shell.panel_navigation = PanelNavigationState::default();
+		});
+		Transition::changed("shell.set_usage_lens")
 	}
 
 	fn set_change_panel_action(&mut self, change_panel: ChangePanelMode) -> Transition {
@@ -605,6 +612,9 @@ impl AppState {
 			}
 			Msg::ToggleNode => run_command(AppCommand::ToggleSelectedNode),
 			Msg::OpenNode => run_command(AppCommand::OpenSelectedNode),
+			Msg::CloseNode if self.shell.focus_region == FocusRegion::UsageLens => {
+				run_command(AppCommand::CloseNodeOrClearScope)
+			}
 			Msg::CloseNode if self.shell.focus_region == FocusRegion::Panel => {
 				run_command(AppCommand::ToggleFocusRegion)
 			}
@@ -649,6 +659,17 @@ impl AppState {
 					run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveUp)))
 				}
 			}
+			FocusRegion::UsageLens => {
+				if direction > 0 {
+					run_command(AppCommand::Navigation(Box::new(
+						NavigationAction::UsageMoveDown,
+					)))
+				} else {
+					run_command(AppCommand::Navigation(Box::new(
+						NavigationAction::UsageMoveUp,
+					)))
+				}
+			}
 			FocusRegion::Panel => run_command(AppCommand::PanelMove { direction }),
 		}
 	}
@@ -660,6 +681,14 @@ impl AppState {
 					NavigationAction::Home
 				} else {
 					NavigationAction::End
+				};
+				run_command(AppCommand::Navigation(Box::new(action)))
+			}
+			FocusRegion::UsageLens => {
+				let action = if home {
+					NavigationAction::UsageHome
+				} else {
+					NavigationAction::UsageEnd
 				};
 				run_command(AppCommand::Navigation(Box::new(action)))
 			}
@@ -894,17 +923,6 @@ impl AppState {
 			shell.header_search.reset();
 			shell.header_search.bump_pending();
 		});
-	}
-}
-
-impl ActiveFilter {
-	pub(in crate::ui) fn label(&self) -> String {
-		match self {
-			Self::None => "<all>".to_string(),
-			Self::HeaderSearch(results) => results.label(),
-			Self::Usages(focus) => format!("usages:{}", focus.label),
-			Self::Change => "changes".to_string(),
-		}
 	}
 }
 
