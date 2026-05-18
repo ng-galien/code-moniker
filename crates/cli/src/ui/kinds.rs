@@ -21,11 +21,6 @@ pub(super) fn definition_kind_group(lang: Lang, kind: &str) -> KindGroup {
 		.unwrap_or_else(|| group_for_kind(kind))
 }
 
-#[cfg(test)]
-pub(super) fn definition_kind_order(lang: Lang, kind: &str) -> u16 {
-	TreeStrategy::for_lang(lang).definition_order(kind)
-}
-
 pub(super) fn reference_kind_group(_kind: &str) -> KindGroup {
 	KindGroup::Reference
 }

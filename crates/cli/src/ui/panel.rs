@@ -14,16 +14,6 @@ pub(super) fn section(label: impl Into<String>) -> Line<'static> {
 	)
 }
 
-#[cfg(test)]
-pub(super) fn danger_section(label: impl Into<String>) -> Line<'static> {
-	Line::styled(
-		label.into(),
-		Style::default()
-			.fg(THEME.danger)
-			.add_modifier(Modifier::BOLD),
-	)
-}
-
 pub(super) fn separator(width: usize) -> Line<'static> {
 	let width = width.clamp(12, 96);
 	Line::styled(

@@ -1,15 +1,15 @@
 mod panels;
-mod screen;
+mod search;
+mod vm;
 
 use crate::ui::App;
-use crate::ui::contracts::{
-	CommandId, CommandSpec, Feature, FeatureContext, FeatureId, NavItem, Route,
-};
+use crate::ui::contracts::{Feature, FeatureId, NavItem, Route};
 use crate::ui::panels::PanelVm;
-#[cfg(test)]
-use crate::workspace::DefLocation;
 
-use screen::ExplorerScreen;
+pub(in crate::ui) use search::{HeaderSearchResults, header_search_options, header_search_results};
+pub(in crate::ui) use vm::{
+	ExplorerVm, FooterVm, HeaderVm, NavPaneVm, NavRowVm, NavRowVmKind, SearchBarVm, SearchPopupVm,
+};
 
 pub(in crate::ui) const FEATURE_ID: &str = "explorer";
 pub(in crate::ui) const ROUTE_OVERVIEW: &str = "overview";
@@ -34,13 +34,8 @@ impl ExplorerFeature {
 		panels::active_panel(app)
 	}
 
-	pub(in crate::ui) fn screen(app: &mut App) -> ExplorerScreen<'_> {
-		ExplorerScreen::new(app)
-	}
-
-	#[cfg(test)]
-	pub(in crate::ui) fn refs_for_symbol_panel(app: &App, loc: DefLocation) -> PanelVm {
-		panels::refs_for_symbol_panel(app, loc)
+	pub(in crate::ui) fn view_model(app: &App) -> ExplorerVm {
+		ExplorerVm::from_app(app)
 	}
 }
 
@@ -79,37 +74,7 @@ impl Feature for ExplorerFeature {
 		]
 	}
 
-	fn commands(&self) -> Vec<CommandSpec> {
-		vec![
-			CommandSpec::new(
-				CommandId::new("explorer.search"),
-				"Focus header search",
-				Some("s".into()),
-			),
-			CommandSpec::new(
-				CommandId::new("explorer.usages"),
-				"Focus usages",
-				Some("u".into()),
-			),
-			CommandSpec::new(
-				CommandId::new("explorer.check"),
-				"Run checks",
-				Some("c".into()),
-			),
-			CommandSpec::new(
-				CommandId::new("explorer.change"),
-				"Show changes",
-				Some("d".into()),
-			),
-			CommandSpec::new(
-				CommandId::new("explorer.copy-panel"),
-				"Copy panel snapshot",
-				Some("y".into()),
-			),
-		]
-	}
-
-	fn can_open(&self, route: &Route, _ctx: &FeatureContext) -> bool {
+	fn can_open(&self, route: &Route) -> bool {
 		route.feature.as_str() == FEATURE_ID
 			&& matches!(
 				route.path.as_str(),

@@ -5,8 +5,6 @@ use ratatui::layout::Rect;
 
 pub(in crate::ui) use model::{PanelRenderState, PanelVm, ReferenceGroupVm};
 pub(in crate::ui) use render::PanelSnapshot;
-#[cfg(test)]
-pub(in crate::ui) use render::{highlight_line, source_snippet_lines};
 
 pub(super) fn render_panel(
 	frame: &mut ratatui::Frame<'_>,

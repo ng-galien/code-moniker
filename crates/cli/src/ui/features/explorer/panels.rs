@@ -4,6 +4,7 @@ use super::super::super::component::ComponentId;
 use super::super::super::navigator::NavNodeKind;
 use super::super::super::panels::{PanelVm, ReferenceGroupVm};
 use super::super::super::source::source_snippet;
+use super::super::super::store::navigation::NavigationPane;
 use super::super::super::text::{Column, FitMode};
 use crate::workspace::{DefLocation, IndexStore, ReferenceGroup, ReferenceSet, UsageFocus};
 
@@ -116,7 +117,17 @@ fn outline_panel(app: &App) -> PanelVm {
 
 fn nav_selection_panel(app: &App) -> PanelVm {
 	let mut vm = PanelVm::new("outline", ComponentId::PanelOutline).unwrapped();
-	let Some(row) = app.selected_nav_row() else {
+	let pane = if app.focus_region() == FocusRegion::UsageLens {
+		NavigationPane::UsageLens
+	} else {
+		NavigationPane::Primary
+	};
+	let Some(selection) = app
+		.app_store
+		.navigation()
+		.pane_view(pane)
+		.and_then(|pane| pane.selected_context())
+	else {
 		if app.is_filtered() {
 			vm.section("filtered navigator");
 			vm.kv("filter", app.filter_label(), FitMode::Tail);
@@ -128,6 +139,7 @@ fn nav_selection_panel(app: &App) -> PanelVm {
 		}
 		return vm;
 	};
+	let row = selection.row;
 	let kind = match row.kind {
 		NavNodeKind::Root => "root",
 		NavNodeKind::Lang => "language",
@@ -143,7 +155,7 @@ fn nav_selection_panel(app: &App) -> PanelVm {
 	vm.kv("defs", row.def_count.to_string(), FitMode::Tail);
 	vm.blank();
 	if row.has_children {
-		let state = if app.active_expanded().contains(&row.key) {
+		let state = if selection.expanded {
 			"opened"
 		} else {
 			"closed"

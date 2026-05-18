@@ -3,8 +3,6 @@ use crate::ui::app::Effect;
 #[derive(Debug)]
 pub(super) struct Transition {
 	pub(super) changed: bool,
-	#[cfg(test)]
-	pub(super) reason: &'static str,
 	pub(super) effects: Vec<Effect>,
 }
 
@@ -14,20 +12,16 @@ pub(super) struct Reduction<Outcome> {
 }
 
 impl Transition {
-	pub(super) const fn changed(_reason: &'static str) -> Self {
+	pub(super) const fn changed() -> Self {
 		Self {
 			changed: true,
-			#[cfg(test)]
-			reason: _reason,
 			effects: Vec::new(),
 		}
 	}
 
-	pub(super) const fn unchanged(_reason: &'static str) -> Self {
+	pub(super) const fn unchanged() -> Self {
 		Self {
 			changed: false,
-			#[cfg(test)]
-			reason: _reason,
 			effects: Vec::new(),
 		}
 	}
@@ -56,7 +50,6 @@ pub(super) trait Reduce<Action> {
 #[derive(Debug)]
 pub(super) struct ReactiveStore<State> {
 	state: State,
-	version: u64,
 	last_transition: Transition,
 }
 
@@ -64,8 +57,7 @@ impl<State> ReactiveStore<State> {
 	pub(super) fn new(state: State) -> Self {
 		Self {
 			state,
-			version: 0,
-			last_transition: Transition::changed("init"),
+			last_transition: Transition::changed(),
 		}
 	}
 
@@ -84,9 +76,6 @@ impl<State> ReactiveStore<State> {
 		State: Reduce<Action>,
 	{
 		self.last_transition = self.state.reduce(action);
-		if self.last_transition.changed {
-			self.version += 1;
-		}
 		&mut self.last_transition
 	}
 
@@ -95,9 +84,6 @@ impl<State> ReactiveStore<State> {
 		reduce: impl FnOnce(&mut State) -> Transition,
 	) -> &mut Transition {
 		self.last_transition = reduce(&mut self.state);
-		if self.last_transition.changed {
-			self.version += 1;
-		}
 		&mut self.last_transition
 	}
 
@@ -108,9 +94,6 @@ impl<State> ReactiveStore<State> {
 		let reduction = reduce(&mut self.state);
 		let outcome = reduction.outcome;
 		self.last_transition = reduction.transition;
-		if self.last_transition.changed {
-			self.version += 1;
-		}
 		(&mut self.last_transition, outcome)
 	}
 }

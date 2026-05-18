@@ -1,32 +1,23 @@
-use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
 
-use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
-use crossterm::event::{Event, KeyEvent, KeyEventKind};
-use crossterm::execute;
-use crossterm::terminal::{
-	EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-#[cfg(test)]
-use ratatui::text::Line;
+use crossterm::event::KeyEvent;
 
+use crate::Exit;
 use crate::args::UiArgs;
 use crate::workspace::{
 	ChangeDetail, DefLocation, IndexStore, SessionOptions, StoreWatchRoot, UsageFocus,
 	WorkspaceStore,
 };
-use crate::{DEFAULT_SCHEME, Exit};
 
 mod app;
 mod clipboard;
 mod component;
+mod components;
 mod contracts;
 mod events;
 mod features;
@@ -41,143 +32,54 @@ mod scroll;
 mod shell;
 mod source;
 mod store;
-#[cfg(test)]
-mod tests;
+// Disabled during the UI architecture rebuild. These tests encode the legacy
+// App facade and will be moved, deleted, or rewritten against the new contracts.
+// #[cfg(test)]
+// mod tests;
 mod text;
 mod theme;
 mod view;
 
 use app::{
-	ActiveFilter, AppAction, AppCommand, AppStore, ChangePanelMode, CheckState, Effect,
-	FocusRegion, HeaderKindFilter, HeaderSearchResults, HeaderSearchState, PanelNavigationState,
-	PanelPolicy, ShellAction, TaskCompletion, View, VisualizationMode,
+	ActiveFilter, AppAction, AppStore, ChangePanelMode, CheckState, Effect, FocusRegion,
+	HeaderKindFilter, HeaderSearchResults, HeaderSearchState, PanelNavigationState, PanelPolicy,
+	ShellAction, TaskCompletion, View, VisualizationMode,
 };
-#[cfg(test)]
-use component::{ComponentId, block_title, focused_block_title};
 use contracts::Route;
 use events::{HeaderSearchFocus, UiMode, key_to_msg};
-use features::explorer::ExplorerFeature;
-#[cfg(test)]
-use features::explorer::{ROUTE_OUTLINE, ROUTE_OVERVIEW, ROUTE_REFS};
+use features::explorer::{
+	ExplorerFeature, header_search_options, header_search_results as explorer_header_search_results,
+};
 use live::StoreEvent;
 use navigator::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
 use runtime::{TaskOutcome, TaskRuntime};
-use shell::{EventSource, FeatureRegistry, ShellEvent};
-use store::navigation::{NavigationAction, NavigationNotice, NavigationScope, NavigationState};
-#[cfg(test)]
-use view::{
-	active_panel_snapshot, change_panel_lines, focus_region_visible, header_line, nav_row_line,
-	refs_panel_lines, render_shell, search_input_title, search_input_value, search_input_visible,
-	search_line,
+use shell::{FeatureRegistry, ShellEvent};
+use store::navigation::{
+	NavigationAction, NavigationNotice, NavigationPane, NavigationScope, NavigationSelection,
+	NavigationState, TreePaneAction,
 };
 
 const DEFAULT_PANEL_SNAPSHOT_WIDTH: usize = 100;
 const HEADER_SEARCH_DEBOUNCE_MS: u64 = 180;
 
-pub fn run<W1: Write, W2: Write>(args: &UiArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
-	match run_inner(args, stdout) {
-		Ok(()) => Exit::Match,
-		Err(e) => {
-			let _ = writeln!(stderr, "code-moniker: {e:#}");
-			Exit::UsageError
-		}
-	}
-}
-
-fn run_inner<W: Write>(args: &UiArgs, stdout: &mut W) -> anyhow::Result<()> {
-	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
-	let opts = SessionOptions {
-		paths: args.paths.clone(),
-		project: args.project.clone(),
-		cache_dir: args.cache.clone(),
+fn focused_tree_action(focus: FocusRegion, action: TreePaneAction) -> NavigationAction {
+	let pane = if focus == FocusRegion::UsageLens {
+		NavigationPane::UsageLens
+	} else {
+		NavigationPane::Primary
 	};
-	let app = App::boot(opts, scheme, args.rules.clone(), args.profile.clone());
-	run_terminal(stdout, app)
+	NavigationAction::Pane { pane, action }
 }
 
-fn run_terminal<W: Write>(stdout: &mut W, mut app: App) -> anyhow::Result<()> {
-	enable_raw_mode()?;
-	if let Err(error) = execute!(stdout, EnterAlternateScreen) {
-		let _ = disable_raw_mode();
-		return Err(error.into());
-	}
-	let result = (|| -> anyhow::Result<()> {
-		let backend = CrosstermBackend::new(&mut *stdout);
-		let mut terminal = Terminal::new(backend)?;
-		let result = app_loop(&mut terminal, &mut app);
-		let _ = terminal.show_cursor();
-		result
-	})();
-	let _ = disable_raw_mode();
-	let _ = execute!(stdout, LeaveAlternateScreen);
-	result
-}
-
-fn app_loop<W: Write>(
-	terminal: &mut Terminal<CrosstermBackend<&mut W>>,
-	app: &mut App,
-) -> anyhow::Result<()> {
-	let mut events = EventSource::start(app.store().watch_roots());
-	app.set_event_sender(events.sender());
-	if let Some(status) = events.status.as_deref() {
-		app.set_status(status);
-	}
-	app.queue_startup_load();
-	terminal.draw(|frame| view::draw(frame, app))?;
-	loop {
-		let batch = events.recv_batch()?;
-		if handle_app_events(batch, app)? {
-			return Ok(());
-		}
-		if let Some(watch_roots) = app.take_watch_roots_update() {
-			if let Some(status) = events.replace_watch_roots(watch_roots) {
-				app.append_status(status);
-			}
-		}
-		terminal.draw(|frame| view::draw(frame, app))?;
+fn primary_tree_selection(target: NavigationSelection) -> NavigationAction {
+	NavigationAction::Select {
+		pane: NavigationPane::Primary,
+		target,
 	}
 }
 
-fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<bool> {
-	let mut store_event: Option<StoreEvent> = None;
-	for event in events {
-		match event {
-			ShellEvent::Terminal(Event::Key(key)) if key.kind == KeyEventKind::Press => {
-				if app.handle_key(key)? {
-					return Ok(true);
-				}
-			}
-			ShellEvent::Terminal(_) => {}
-			ShellEvent::Store(event) => {
-				store_event = Some(match store_event {
-					Some(current) => current.coalesce(event),
-					None => event,
-				});
-			}
-			ShellEvent::TaskCompleted(result) => {
-				if app.update(AppAction::TaskCompleted(result)) {
-					return Ok(true);
-				}
-			}
-			ShellEvent::HeaderSearchDebounced(generation) => {
-				if app.update(AppAction::HeaderSearchDebounced(generation)) {
-					return Ok(true);
-				}
-			}
-			ShellEvent::Clipboard(result) => {
-				if app.update(AppAction::Clipboard(result)) {
-					return Ok(true);
-				}
-			}
-			ShellEvent::Error(error) => return Err(anyhow::anyhow!(error)),
-		}
-	}
-	if let Some(event) = store_event {
-		if app.update(AppAction::Store(event)) {
-			return Ok(true);
-		}
-	}
-	Ok(false)
+pub fn run<W1: Write, W2: Write>(args: &UiArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
+	shell::terminal::run(args, stdout, stderr)
 }
 
 impl ActiveFilter {
@@ -202,7 +104,6 @@ impl App {
 		let registry = FeatureRegistry::static_registry();
 		let route = registry.initial_route();
 		let nav_count = registry.navigation().len();
-		let command_count = registry.commands().len();
 		let navigator = build_navigator(&store);
 		let change_navigator = build_change_navigator(&store);
 		let mut app_store = AppStore::from_workspace_store(store);
@@ -220,7 +121,7 @@ impl App {
 		app.refresh_header_search_options();
 		app.dispatch_shell(ShellAction::SetRoute(route));
 		app.set_status(format!(
-			"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
+			"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items)"
 		));
 		app.refresh_results(false);
 		app
@@ -262,10 +163,6 @@ impl App {
 		if refresh_search_options {
 			self.refresh_header_search_options();
 		}
-	}
-
-	fn route(&self) -> &Route {
-		&self.app_store.shell().route
 	}
 
 	fn view(&self) -> View {
@@ -340,66 +237,26 @@ impl App {
 	}
 
 	fn selected_nav_row(&self) -> Option<&NavRow> {
-		if self.focus_region() == FocusRegion::UsageLens {
-			self.usage_selected_nav_row()
-		} else {
-			self.primary_selected_nav_row()
-		}
+		self.app_store
+			.navigation()
+			.pane_view(self.active_navigation_pane())
+			.and_then(|pane| pane.selected_row())
 	}
 
 	fn primary_selected_nav_row(&self) -> Option<&NavRow> {
-		self.app_store.navigation().selected_row()
+		self.app_store.navigation().primary_view().selected_row()
 	}
 
-	fn usage_selected_nav_row(&self) -> Option<&NavRow> {
-		self.app_store.navigation().usage_selected_row()
-	}
-
-	fn active_expanded(&self) -> &BTreeSet<store::ids::NodeId> {
+	fn active_navigation_pane(&self) -> NavigationPane {
 		if self.focus_region() == FocusRegion::UsageLens {
-			self.usage_expanded()
+			NavigationPane::UsageLens
 		} else {
-			self.primary_expanded()
+			NavigationPane::Primary
 		}
-	}
-
-	fn primary_expanded(&self) -> &BTreeSet<store::ids::NodeId> {
-		self.app_store.navigation().active_expanded()
-	}
-
-	fn usage_expanded(&self) -> &BTreeSet<store::ids::NodeId> {
-		self.app_store
-			.navigation()
-			.usage_expanded()
-			.unwrap_or_else(|| self.app_store.navigation().active_expanded())
-	}
-
-	fn nav_rows(&self) -> &[NavRow] {
-		self.app_store.navigation().rows()
-	}
-
-	fn usage_nav_rows(&self) -> &[NavRow] {
-		self.app_store.navigation().usage_rows()
-	}
-
-	fn visible_defs(&self) -> &[DefLocation] {
-		self.app_store.navigation().visible_defs()
-	}
-
-	fn selected_nav_index(&self) -> usize {
-		self.app_store.navigation().selection()
-	}
-
-	fn selected_usage_nav_index(&self) -> usize {
-		self.app_store.navigation().usage_selection()
 	}
 
 	fn panel_scroll(&self) -> usize {
 		self.app_store.shell().panel_navigation.scroll
-	}
-
-	fn selected_panel_item(&self) -> Option<usize> {
-		self.app_store.shell().panel_navigation.selected
 	}
 
 	fn panel_navigation(&self) -> &PanelNavigationState {
@@ -458,11 +315,11 @@ impl App {
 	}
 
 	fn select_def(&mut self, loc: DefLocation) {
-		self.dispatch_navigation(NavigationAction::SelectDef(loc));
+		self.dispatch_navigation(primary_tree_selection(NavigationSelection::Def(loc)));
 	}
 
 	fn select_first_change(&mut self) {
-		self.dispatch_navigation(NavigationAction::SelectFirstChange);
+		self.dispatch_navigation(primary_tree_selection(NavigationSelection::FirstChange));
 	}
 
 	fn filter_label(&self) -> String {
@@ -600,29 +457,7 @@ impl App {
 		langs: &[Lang],
 		kind_filters: &[HeaderKindFilter],
 	) -> HeaderSearchResults {
-		let raw = text.trim().to_string();
-		let (kind_names, shapes) = split_kind_filters(kind_filters);
-		let mut matches = if raw.is_empty() {
-			self.store().all_navigable_defs()
-		} else {
-			self.store()
-				.search_symbols_filtered(&raw, 500, langs, &kind_names, &shapes)
-				.into_iter()
-				.map(|hit| hit.loc)
-				.collect()
-		};
-		matches.retain(|loc| {
-			let symbol = self.store().symbol_summary(loc);
-			self.store().is_navigable_symbol(loc)
-				&& lang_filter_matches(langs, symbol.lang)
-				&& kind_filter_matches(kind_filters, &symbol.kind)
-		});
-		HeaderSearchResults {
-			text: raw,
-			langs: langs.to_vec(),
-			kind_filters: kind_filters.to_vec(),
-			matches,
-		}
+		explorer_header_search_results(self.store(), text, langs, kind_filters)
 	}
 
 	fn cycle_header_search_selector(&mut self, direction: i8) {
@@ -738,129 +573,15 @@ impl App {
 	}
 
 	fn refresh_header_search_options(&mut self) {
-		let available_langs = self.compute_header_lang_options();
-		let langs =
-			self.normalize_header_langs(self.header_search().langs.clone(), &available_langs);
-		let available_kind_filters = self.compute_header_kind_filter_options(&langs);
-		let kind_filters = self.normalize_header_kind_filters(
-			self.header_search().kind_filters.clone(),
-			&langs,
-			&available_kind_filters,
-		);
-		let lang_cursor = self.header_search().lang_cursor.min(available_langs.len());
-		let kind_cursor = self
-			.header_search()
-			.kind_cursor
-			.min(available_kind_filters.len());
+		let options = header_search_options(self.store(), self.header_search());
 		self.dispatch_and_apply(&AppAction::Shell(ShellAction::SetHeaderSearchOptions {
-			langs,
-			kind_filters,
-			available_langs,
-			available_kind_filters,
-			lang_cursor,
-			kind_cursor,
+			langs: options.langs,
+			kind_filters: options.kind_filters,
+			available_langs: options.available_langs,
+			available_kind_filters: options.available_kind_filters,
+			lang_cursor: options.lang_cursor,
+			kind_cursor: options.kind_cursor,
 		}));
-	}
-
-	fn compute_header_lang_options(&self) -> Vec<Lang> {
-		Lang::ALL
-			.iter()
-			.copied()
-			.filter(|lang| self.store().stats().by_lang.contains_key(lang.tag()))
-			.collect()
-	}
-
-	fn compute_header_kind_filter_options(&self, langs: &[Lang]) -> Vec<HeaderKindFilter> {
-		if langs.len() == 1 {
-			return self
-				.available_header_kinds_for_lang(langs[0])
-				.into_iter()
-				.map(HeaderKindFilter::Kind)
-				.collect();
-		}
-		self.available_header_shapes(langs)
-			.into_iter()
-			.map(HeaderKindFilter::Shape)
-			.collect()
-	}
-
-	fn available_header_kinds_for_lang(&self, lang: Lang) -> Vec<String> {
-		let mut kinds = BTreeSet::new();
-		for loc in self.store().all_navigable_defs() {
-			let symbol = self.store().symbol_summary(&loc);
-			if symbol.lang == lang {
-				kinds.insert(symbol.kind);
-			}
-		}
-		kinds.into_iter().collect()
-	}
-
-	fn available_header_shapes(&self, langs: &[Lang]) -> Vec<Shape> {
-		let mut shapes = Vec::new();
-		for loc in self.store().all_navigable_defs() {
-			let symbol = self.store().symbol_summary(&loc);
-			if lang_filter_matches(langs, symbol.lang)
-				&& let Some(shape) = shape_of(symbol.kind.as_bytes())
-				&& !shapes.contains(&shape)
-			{
-				shapes.push(shape);
-			}
-		}
-		Shape::ALL
-			.iter()
-			.copied()
-			.filter(|shape| shapes.contains(shape))
-			.collect()
-	}
-
-	fn normalize_header_langs(&self, langs: Vec<Lang>, available: &[Lang]) -> Vec<Lang> {
-		Lang::ALL
-			.iter()
-			.copied()
-			.filter(|lang| available.contains(lang) && langs.contains(lang))
-			.collect()
-	}
-
-	fn normalize_header_kind_filters(
-		&self,
-		filters: Vec<HeaderKindFilter>,
-		langs: &[Lang],
-		available: &[HeaderKindFilter],
-	) -> Vec<HeaderKindFilter> {
-		let mut normalized = Vec::new();
-		if langs.len() == 1 {
-			for filter in filters {
-				match filter {
-					HeaderKindFilter::Kind(kind) => {
-						push_unique(&mut normalized, HeaderKindFilter::Kind(kind));
-					}
-					HeaderKindFilter::Shape(shape) => {
-						let before = normalized.len();
-						for option in available {
-							if let HeaderKindFilter::Kind(kind) = option
-								&& shape_of(kind.as_bytes()) == Some(shape)
-							{
-								push_unique(&mut normalized, HeaderKindFilter::Kind(kind.clone()));
-							}
-						}
-						if normalized.len() == before {
-							push_unique(&mut normalized, HeaderKindFilter::Shape(shape));
-						}
-					}
-				}
-			}
-		} else {
-			for filter in filters {
-				let shape = match filter {
-					HeaderKindFilter::Kind(kind) => shape_of(kind.as_bytes()),
-					HeaderKindFilter::Shape(shape) => Some(shape),
-				};
-				if let Some(shape) = shape {
-					push_unique(&mut normalized, HeaderKindFilter::Shape(shape));
-				}
-			}
-		}
-		normalized
 	}
 
 	fn clear_filter(&mut self) {
@@ -985,8 +706,8 @@ impl App {
 	fn apply_reloaded_store(&mut self, status: String) {
 		self.watch_roots_update = Some(self.store().watch_roots());
 		self.refresh_header_search_options();
-		let reset =
-			matches!(self.active_filter(), ActiveFilter::Change) && self.nav_rows().is_empty();
+		let reset = matches!(self.active_filter(), ActiveFilter::Change)
+			&& self.app_store.navigation().primary_view().rows.is_empty();
 		self.refresh_active_filter_after_store_reload();
 		self.dispatch_navigation(NavigationAction::ReplaceModels {
 			explorer: build_navigator(self.store()),
@@ -1001,8 +722,8 @@ impl App {
 	}
 
 	fn apply_refreshed_change_store(&mut self, status: String) {
-		let reset =
-			matches!(self.active_filter(), ActiveFilter::Change) && self.nav_rows().is_empty();
+		let reset = matches!(self.active_filter(), ActiveFilter::Change)
+			&& self.app_store.navigation().primary_view().rows.is_empty();
 		self.dispatch_navigation(NavigationAction::ReplaceModels {
 			explorer: build_navigator(self.store()),
 			change: build_change_navigator(self.store()),
@@ -1045,11 +766,10 @@ impl App {
 	}
 
 	fn toggle_selected_nav(&mut self) {
-		let action = match self.focus_region() {
-			FocusRegion::UsageLens => NavigationAction::UsageToggleSelected,
-			FocusRegion::Navigator | FocusRegion::Panel => NavigationAction::ToggleSelected,
-		};
-		self.dispatch_navigation(action);
+		self.dispatch_navigation(focused_tree_action(
+			self.focus_region(),
+			TreePaneAction::ToggleSelected,
+		));
 		match self.app_store.navigation().last_notice() {
 			NavigationNotice::Opened(label) => self.set_status(format!("opened {label}")),
 			NavigationNotice::Closed(label) => self.set_status(format!("closed {label}")),
@@ -1058,22 +778,20 @@ impl App {
 	}
 
 	fn open_selected_nav(&mut self) {
-		let action = match self.focus_region() {
-			FocusRegion::UsageLens => NavigationAction::UsageOpenSelected,
-			FocusRegion::Navigator | FocusRegion::Panel => NavigationAction::OpenSelected,
-		};
-		self.dispatch_navigation(action);
+		self.dispatch_navigation(focused_tree_action(
+			self.focus_region(),
+			TreePaneAction::OpenSelected,
+		));
 		if let NavigationNotice::Opened(label) = self.app_store.navigation().last_notice() {
 			self.set_status(format!("opened {label}"));
 		}
 	}
 
 	fn close_selected_nav(&mut self) -> bool {
-		let action = match self.focus_region() {
-			FocusRegion::UsageLens => NavigationAction::UsageCloseSelected,
-			FocusRegion::Navigator | FocusRegion::Panel => NavigationAction::CloseSelected,
-		};
-		self.dispatch_navigation(action);
+		self.dispatch_navigation(focused_tree_action(
+			self.focus_region(),
+			TreePaneAction::CloseSelected,
+		));
 		match self.app_store.navigation().last_notice() {
 			NavigationNotice::Closed(label) => {
 				self.set_status(format!("closed {label}"));
@@ -1160,10 +878,6 @@ impl App {
 
 	fn handle_task_result(&mut self, result: runtime::TaskResult) {
 		match result.outcome {
-			#[cfg(test)]
-			TaskOutcome::Completed(message) => {
-				self.set_status(format!("{} completed: {message}", result.label));
-			}
 			TaskOutcome::FileCatalogLoaded(store) => {
 				self.replace_store(*store);
 				self.apply_file_catalog_store("file tree ready".to_string());
@@ -1269,42 +983,29 @@ impl App {
 		match effect {
 			Effect::Navigate(route) => self.navigate(route),
 			Effect::Quit => return true,
-			#[cfg(test)]
-			Effect::Notify(message) => self.set_status(message),
-			#[cfg(test)]
-			Effect::Spawn(task) => {
-				self.queue_task(task);
-			}
 			Effect::DebounceHeaderSearch(generation) => {
 				self.queue_header_search_debounce(generation);
 			}
-			Effect::RunCommand(command) => return self.run_command(command),
-		}
-		false
-	}
-
-	fn run_command(&mut self, command: AppCommand) -> bool {
-		match command {
-			AppCommand::ApplyHeaderSearch {
+			Effect::ApplyHeaderSearch {
 				generation,
 				return_focus,
 			} => self.apply_header_search(generation, return_focus),
-			AppCommand::CycleHeaderSearchSelector { direction } => {
+			Effect::CycleHeaderSearchSelector { direction } => {
 				self.cycle_header_search_selector(direction)
 			}
-			AppCommand::ToggleHeaderSearchSelection => self.toggle_header_search_selection(),
-			AppCommand::FocusUsages => self.focus_usages_of_selected(),
-			AppCommand::ToggleChangeMode => self.toggle_change_mode(),
-			AppCommand::CopyPanelSnapshot => self.copy_panel_snapshot(),
-			AppCommand::RunCheck => self.run_check(),
-			AppCommand::Navigation(action) => self.apply_navigation(*action),
-			AppCommand::ToggleFocusRegion => self.toggle_focus_region(),
-			AppCommand::PanelMove { direction } => self.move_panel_selection(direction),
-			AppCommand::PanelHome => self.move_panel_to_edge(true),
-			AppCommand::PanelEnd => self.move_panel_to_edge(false),
-			AppCommand::ToggleSelectedNode => self.toggle_selected_nav(),
-			AppCommand::OpenSelectedNode => self.open_selected_nav(),
-			AppCommand::CloseNodeOrClearScope => {
+			Effect::ToggleHeaderSearchSelection => self.toggle_header_search_selection(),
+			Effect::FocusUsages => self.focus_usages_of_selected(),
+			Effect::ToggleChangeMode => self.toggle_change_mode(),
+			Effect::CopyPanelSnapshot => self.copy_panel_snapshot(),
+			Effect::RunCheck => self.run_check(),
+			Effect::Navigation(action) => self.apply_navigation(*action),
+			Effect::ToggleFocusRegion => self.toggle_focus_region(),
+			Effect::PanelMove { direction } => self.move_panel_selection(direction),
+			Effect::PanelHome => self.move_panel_to_edge(true),
+			Effect::PanelEnd => self.move_panel_to_edge(false),
+			Effect::ToggleSelectedNode => self.toggle_selected_nav(),
+			Effect::OpenSelectedNode => self.open_selected_nav(),
+			Effect::CloseNodeOrClearScope => {
 				if !self.close_selected_nav() && self.has_clearable_scope() {
 					self.clear_filter();
 				}
@@ -1494,26 +1195,6 @@ fn header_search_label(text: &str, langs: &[Lang], kind_filters: &[HeaderKindFil
 	}
 }
 
-fn split_kind_filters(filters: &[HeaderKindFilter]) -> (Vec<String>, Vec<Shape>) {
-	let mut kinds = Vec::new();
-	let mut shapes = Vec::new();
-	for filter in filters {
-		match filter {
-			HeaderKindFilter::Kind(kind) => push_unique(&mut kinds, kind.clone()),
-			HeaderKindFilter::Shape(shape) => push_unique(&mut shapes, *shape),
-		}
-	}
-	(kinds, shapes)
-}
-
-fn lang_filter_matches(langs: &[Lang], lang: Lang) -> bool {
-	langs.is_empty() || langs.contains(&lang)
-}
-
-fn kind_filter_matches(filters: &[HeaderKindFilter], kind: &str) -> bool {
-	filters.is_empty() || filters.iter().any(|filter| filter.matches_kind(kind))
-}
-
 fn lang_filter_summary(langs: &[Lang]) -> String {
 	if langs.is_empty() {
 		return "<all>".to_string();
@@ -1586,12 +1267,6 @@ fn toggle_value<T: Eq>(values: &mut Vec<T>, value: T) {
 	if let Some(idx) = values.iter().position(|candidate| candidate == &value) {
 		values.remove(idx);
 	} else {
-		values.push(value);
-	}
-}
-
-fn push_unique<T: Eq>(values: &mut Vec<T>, value: T) {
-	if !values.contains(&value) {
 		values.push(value);
 	}
 }

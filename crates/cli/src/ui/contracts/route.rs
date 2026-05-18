@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fmt;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -20,22 +19,10 @@ impl fmt::Display for FeatureId {
 	}
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::ui) struct RouteParams {
-	values: BTreeMap<String, String>,
-}
-
-impl RouteParams {
-	pub(in crate::ui) fn empty() -> Self {
-		Self::default()
-	}
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct Route {
 	pub(in crate::ui) feature: FeatureId,
 	pub(in crate::ui) path: String,
-	pub(in crate::ui) params: RouteParams,
 }
 
 impl Route {
@@ -43,7 +30,6 @@ impl Route {
 		Self {
 			feature: FeatureId::new(feature),
 			path: path.into(),
-			params: RouteParams::empty(),
 		}
 	}
 }

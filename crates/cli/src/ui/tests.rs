@@ -52,6 +52,54 @@ fn line_text(line: &Line<'_>) -> String {
 		.collect::<String>()
 }
 
+fn explorer_vm(app: &App) -> ExplorerVm {
+	ExplorerFeature::view_model(app)
+}
+
+fn vm_header_text(app: &App, width: usize) -> String {
+	let vm = explorer_vm(app);
+	line_text(&header_line(&vm.header, width))
+}
+
+fn vm_search_text(app: &App, width: usize) -> String {
+	let vm = explorer_vm(app);
+	line_text(&search_line(&vm.search, width))
+}
+
+fn vm_search_input_visible(app: &App) -> bool {
+	let vm = explorer_vm(app);
+	search_input_visible(&vm)
+}
+
+fn vm_search_input_value(app: &App) -> String {
+	let vm = explorer_vm(app);
+	search_input_value(&vm)
+}
+
+fn vm_search_input_title(app: &App) -> String {
+	let vm = explorer_vm(app);
+	search_input_title(&vm)
+}
+
+fn vm_change_panel_lines(app: &App, width: usize) -> Vec<Line<'static>> {
+	let vm = explorer_vm(app);
+	change_panel_lines(&vm, width)
+}
+
+fn vm_refs_panel_lines(app: &App, loc: DefLocation, width: usize) -> Vec<Line<'static>> {
+	let panel = ExplorerFeature::refs_for_symbol_panel(app, loc);
+	panels::panel_snapshot(&panel, width).lines
+}
+
+fn vm_panel_selection(app: &App) -> Option<usize> {
+	explorer_vm(app).panel_navigation.selected
+}
+
+fn render_explorer_shell(frame: &mut ratatui::Frame<'_>, app: &App) {
+	let vm = explorer_vm(app);
+	render_shell(frame, frame.area(), &vm);
+}
+
 fn symbol_name(app: &App, loc: &DefLocation) -> String {
 	app.store().symbol_summary(loc).name
 }
@@ -96,10 +144,10 @@ fn select_nav_label_ending_with(app: &mut App, suffix: &str) {
 
 fn select_nav_index(app: &mut App, idx: usize) {
 	while app.selected_nav_index() < idx {
-		app.dispatch_navigation(NavigationAction::MoveDown);
+		app.dispatch_navigation(primary_tree_action(TreePaneAction::MoveDown));
 	}
 	while app.selected_nav_index() > idx {
-		app.dispatch_navigation(NavigationAction::MoveUp);
+		app.dispatch_navigation(primary_tree_action(TreePaneAction::MoveUp));
 	}
 }
 
@@ -366,7 +414,7 @@ fn header_exposes_visualization_mode_and_scope_only() {
 
 	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
 	assert_eq!(app.view(), View::Overview);
-	let initial = line_text(&header_line(&app, 120));
+	let initial = vm_header_text(&app, 120);
 	assert_eq!(initial, "code-moniker [ui.header] mode explorer  scope all");
 	assert!(!initial.contains("[ui.search.input]"), "{initial}");
 
@@ -375,7 +423,7 @@ fn header_exposes_visualization_mode_and_scope_only() {
 	assert_eq!(app.view_mode(), VisualizationMode::Search);
 	assert_eq!(app.panel_policy(), PanelPolicy::Contextual);
 	assert_eq!(app.view(), View::Tree);
-	let filtered = line_text(&header_line(&app, 120));
+	let filtered = vm_header_text(&app, 120);
 	assert!(filtered.contains("mode search"), "{filtered}");
 	assert!(filtered.contains("scope search:Alpha"), "{filtered}");
 	assert!(!filtered.contains("[ui.search.input]"), "{filtered}");
@@ -428,7 +476,7 @@ fn panel_scroll_resets_when_navigation_selection_changes() {
 		None,
 	);
 
-	app.dispatch_navigation(NavigationAction::OpenSelected);
+	app.dispatch_navigation(primary_tree_action(TreePaneAction::OpenSelected));
 	app.handle_key(key(KeyCode::PageDown)).unwrap();
 
 	assert_eq!(app.panel_scroll(), 8);
@@ -459,13 +507,13 @@ fn normal_tab_moves_focus_to_panel_and_arrows_navigate_panel_items() {
 	app.handle_key(key(KeyCode::Tab)).unwrap();
 
 	assert_eq!(app.focus_region(), FocusRegion::Panel);
-	assert_eq!(app.selected_panel_item(), Some(0));
+	assert_eq!(vm_panel_selection(&app), Some(0));
 
 	app.handle_key(key(KeyCode::Down)).unwrap();
 
 	assert_eq!(app.focus_region(), FocusRegion::Panel);
 	assert_eq!(app.selected_nav_index(), nav_before);
-	assert_eq!(app.selected_panel_item(), Some(1));
+	assert_eq!(vm_panel_selection(&app), Some(1));
 }
 
 #[test]
@@ -485,16 +533,17 @@ fn search_focus_suppresses_navigator_and_panel_focus_chrome() {
 		None,
 	);
 
-	assert!(focus_region_visible(&app, FocusRegion::Navigator));
+	assert!(explorer_vm(&app).primary_nav.focused);
 
 	app.handle_key(key(KeyCode::Tab)).unwrap();
-	assert!(focus_region_visible(&app, FocusRegion::Panel));
+	assert!(explorer_vm(&app).panel_focused);
 
 	app.handle_key(key(KeyCode::Char('s'))).unwrap();
 
 	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
-	assert!(!focus_region_visible(&app, FocusRegion::Navigator));
-	assert!(!focus_region_visible(&app, FocusRegion::Panel));
+	let vm = explorer_vm(&app);
+	assert!(!vm.primary_nav.focused);
+	assert!(!vm.panel_focused);
 }
 
 #[test]
@@ -549,7 +598,7 @@ fn outline_panel_navigation_reaches_source_snippet_lines() {
 	app.handle_key(key(KeyCode::End)).unwrap();
 
 	assert_eq!(app.focus_region(), FocusRegion::Panel);
-	assert_eq!(app.selected_panel_item(), Some(panel_len - 1));
+	assert_eq!(vm_panel_selection(&app), Some(panel_len - 1));
 }
 
 #[test]
@@ -729,11 +778,11 @@ fn search_mode_ranks_symbol_hits_and_feeds_contextual_navigator() {
 		"{:?}",
 		app.nav_rows()
 	);
-	let header = line_text(&header_line(&app, 120));
+	let header = vm_header_text(&app, 120);
 	assert!(header.contains("mode search"), "{header}");
 	assert!(header.contains("scope search:customer"), "{header}");
 	assert!(!header.contains("[ui.search.input]"), "{header}");
-	let search = line_text(&search_line(&app, 120));
+	let search = vm_search_text(&app, 120);
 	assert!(search.contains("query [customer]"), "{search}");
 	assert!(app.status().contains("search:customer"), "{}", app.status());
 }
@@ -759,13 +808,13 @@ fn header_search_is_always_visible_and_keeps_navigator_space() {
 		None,
 	);
 
-	assert!(search_input_visible(&app));
-	let initial_header = line_text(&header_line(&app, 120));
+	assert!(vm_search_input_visible(&app));
+	let initial_header = vm_header_text(&app, 120);
 	assert!(
 		!initial_header.contains("[ui.search.input]"),
 		"{initial_header}"
 	);
-	let initial_search = line_text(&search_line(&app, 120));
+	let initial_search = vm_search_text(&app, 120);
 	assert!(
 		!initial_search.contains("[ui.search.input]"),
 		"{initial_search}"
@@ -778,12 +827,12 @@ fn header_search_is_always_visible_and_keeps_navigator_space() {
 	}
 
 	assert_eq!(app.mode(), UiMode::HeaderSearch(HeaderSearchFocus::Text));
-	assert!(search_input_visible(&app));
-	assert_eq!(search_input_title(&app), "search text focused");
-	assert_eq!(search_input_value(&app), "customer");
+	assert!(vm_search_input_visible(&app));
+	assert_eq!(vm_search_input_title(&app), "search text focused");
+	assert_eq!(vm_search_input_value(&app), "customer");
 	let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
 	terminal
-		.draw(|frame| render_shell(frame, frame.area(), &mut app))
+		.draw(|frame| render_explorer_shell(frame, &app))
 		.unwrap();
 	let screen = format!("{}", terminal.backend());
 
@@ -805,15 +854,15 @@ fn header_search_is_always_visible_and_keeps_navigator_space() {
 	app.handle_key(key(KeyCode::Enter)).unwrap();
 
 	assert_eq!(app.mode(), UiMode::Normal);
-	assert!(search_input_visible(&app));
-	assert_eq!(search_input_title(&app), "search");
-	assert_eq!(search_input_value(&app), "customer");
+	assert!(vm_search_input_visible(&app));
+	assert_eq!(vm_search_input_title(&app), "search");
+	assert_eq!(vm_search_input_value(&app), "customer");
 
 	app.handle_key(key(KeyCode::Char('x'))).unwrap();
 	app.apply_header_search(None, true);
 
-	assert!(search_input_visible(&app));
-	assert_eq!(search_input_value(&app), "");
+	assert!(vm_search_input_visible(&app));
+	assert_eq!(vm_search_input_value(&app), "");
 }
 
 #[test]
@@ -849,7 +898,7 @@ fn search_filter_selectors_render_as_right_aligned_comboboxes() {
 
 	let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
 	terminal
-		.draw(|frame| render_shell(frame, frame.area(), &mut app))
+		.draw(|frame| render_explorer_shell(frame, &app))
 		.unwrap();
 	let screen = format!("{}", terminal.backend());
 
@@ -937,9 +986,9 @@ fn search_bar_values_are_fitted_on_the_full_width_row() {
 	});
 	app.apply_header_search(None, true);
 
-	let header = line_text(&header_line(&app, 100));
+	let header = vm_header_text(&app, 100);
 	assert!(!header.contains("[ui.search.input]"), "{header}");
-	let search = line_text(&search_line(&app, 100));
+	let search = vm_search_text(&app, 100);
 	assert!(text::visible_len(&search) <= 100, "{search}");
 	assert!(search.contains("query ["), "{search}");
 }
@@ -1026,7 +1075,7 @@ fn multi_language_kind_filter_uses_semantic_shapes() {
 			.all(|symbol| shape_of(symbol.kind.as_bytes()) == Some(Shape::Callable)),
 		"{summaries:?}"
 	);
-	let search = line_text(&search_line(&app, 120));
+	let search = vm_search_text(&app, 120);
 	assert!(search.contains("lang [ts,rs]"), "{search}");
 	assert!(search.contains("kind [shape:callable]"), "{search}");
 }
@@ -1048,7 +1097,8 @@ fn panel_snapshot_text_names_active_component_and_body() {
 		None,
 	);
 
-	let overview = active_panel_snapshot(&app).to_text(app.view_mode().label(), &app.scope_label());
+	let vm = explorer_vm(&app);
+	let overview = active_panel_snapshot(&vm).to_text(vm.header.mode, &vm.header.scope);
 	assert!(
 		overview.contains("component ui.panel.overview"),
 		"{overview}"
@@ -1066,7 +1116,8 @@ fn panel_snapshot_text_names_active_component_and_body() {
 	select_nav_label_ending_with(&mut app, "Alpha");
 	app.sync_contextual_view();
 
-	let outline = active_panel_snapshot(&app).to_text(app.view_mode().label(), &app.scope_label());
+	let vm = explorer_vm(&app);
+	let outline = active_panel_snapshot(&vm).to_text(vm.header.mode, &vm.header.scope);
 	assert!(outline.contains("component ui.panel.outline"), "{outline}");
 	assert!(outline.contains("kind      class"), "{outline}");
 	assert!(outline.contains("name      Alpha"), "{outline}");
@@ -1328,11 +1379,11 @@ fn change_mode_reports_sources_without_git() {
 	assert_eq!(app.view_mode(), VisualizationMode::Change);
 	assert_eq!(app.view(), View::Change);
 	assert_eq!(
-		line_text(&header_line(&app, 120)),
+		vm_header_text(&app, 120),
 		"code-moniker [ui.header] mode change  scope HEAD..worktree"
 	);
 	assert!(app.nav_rows().is_empty());
-	let lines = change_panel_lines(&app, 80);
+	let lines = vm_change_panel_lines(&app, 80);
 	let rendered = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
 	assert!(
 		rendered.contains("not inside a Git repository"),
@@ -1362,7 +1413,7 @@ fn change_mode_reports_each_non_git_source_in_multi_source_sessions() {
 
 	app.handle_key(key(KeyCode::Char('d'))).unwrap();
 
-	let lines = change_panel_lines(&app, 100);
+	let lines = vm_change_panel_lines(&app, 100);
 	let rendered = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
 	assert!(rendered.contains("common-lib"), "{rendered}");
 	assert!(rendered.contains("billing-service"), "{rendered}");
@@ -1431,7 +1482,7 @@ fn change_mode_filters_changed_symbols_and_toggles_blast_radius() {
 		"{:?}",
 		app.nav_rows()
 	);
-	let diff_lines = change_panel_lines(&app, 100);
+	let diff_lines = vm_change_panel_lines(&app, 100);
 	let rendered_diff = diff_lines
 		.iter()
 		.map(line_text)
@@ -1449,7 +1500,7 @@ fn change_mode_filters_changed_symbols_and_toggles_blast_radius() {
 	assert_eq!(app.view_mode(), VisualizationMode::Change);
 	assert_eq!(app.view(), View::Change);
 	assert_eq!(app.change_panel(), ChangePanelMode::Usages);
-	let usage_lines = change_panel_lines(&app, 100);
+	let usage_lines = vm_change_panel_lines(&app, 100);
 	let rendered_usages = usage_lines
 		.iter()
 		.map(line_text)
@@ -1516,7 +1567,7 @@ fn change_mode_shows_removed_symbol_and_its_blast_radius() {
 		app.nav_rows()
 	);
 	select_nav_label(&mut app, "format(cents:long)");
-	let lines = change_panel_lines(&app, 100);
+	let lines = vm_change_panel_lines(&app, 100);
 	let rendered = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
 	assert!(rendered.contains("status    removed"), "{rendered}");
 	assert!(rendered.contains("format(cents:long)"), "{rendered}");
@@ -1725,7 +1776,19 @@ fn navigator_renders_uncompacted_language_rows_as_containers() {
 	assert!(matches!(row.kind, NavNodeKind::Lang));
 	assert!(row.has_children);
 
-	let rendered = line_text(&nav_row_line(&app, row, false, app.primary_expanded()));
+	let vm = explorer_vm(&app);
+	let row = vm
+		.primary_nav
+		.rows
+		.iter()
+		.find(|row| row.label == "sql")
+		.unwrap_or_else(|| {
+			panic!(
+				"missing uncompacted SQL language VM row: {:?}",
+				vm.primary_nav.rows
+			)
+		});
+	let rendered = line_text(&nav_row_line(row, false));
 	assert!(
 		rendered.contains("sql/"),
 		"uncompacted language rows should render as containers: {rendered:?}"
@@ -2002,7 +2065,7 @@ fn usage_lens_splits_navigator_without_filtering_primary_tree() {
 	);
 	assert_eq!(app.view_mode(), VisualizationMode::Explorer);
 	assert_eq!(app.panel_policy(), PanelPolicy::Contextual);
-	let header = line_text(&header_line(&app, 120));
+	let header = vm_header_text(&app, 120);
 	assert!(header.contains("mode explorer"), "{header}");
 	assert!(
 		header.contains("scope all + usages:MoneyFormatter"),
@@ -2112,7 +2175,7 @@ fn refs_panel_prioritizes_incoming_impact_with_location_context() {
 	);
 	let money_formatter = find_symbol(&app, "class", "MoneyFormatter");
 	let panel_width = 64;
-	let lines: Vec<_> = refs_panel_lines(&app, money_formatter, panel_width)
+	let lines: Vec<_> = vm_refs_panel_lines(&app, money_formatter, panel_width)
 		.iter()
 		.map(line_text)
 		.collect();
@@ -2192,7 +2255,8 @@ fn outline_panel_renders_compact_moniker_format() {
 	select_nav_label(&mut app, "no_args_requires_subcommand()");
 	app.sync_contextual_view();
 
-	let snapshot = active_panel_snapshot(&app).to_text(app.view_mode().label(), &app.scope_label());
+	let vm = explorer_vm(&app);
+	let snapshot = active_panel_snapshot(&vm).to_text(vm.header.mode, &vm.header.scope);
 	assert!(
 		snapshot.contains("moniker   rs:src/args.tests.test:no_args_requires_subcommand()"),
 		"{snapshot}"

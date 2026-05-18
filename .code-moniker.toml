@@ -18,8 +18,11 @@ lang    = "moniker ~ '**/dir:src/dir:lang/**'"
 cli     = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 pg      = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
 ui      = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/**'"
+ui_view           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:view'"
+ui_terminal_shell = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:shell/module:terminal'"
 ui_panels         = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/**'"
 ui_panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:render'"
+ui_components     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:components/**'"
 ui_contracts      = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/**'"
 ui_screen_contract     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/module:screen'"
 ui_msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:action' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state'"
@@ -88,6 +91,45 @@ expr    = """
   => ($ui_panel_renderer OR NOT target ~ '**/external_pkg:ratatui/**')
 """
 message = "`ui::panels` view models and builders must stay ratatui-free; only panel renderers may import ratatui."
+
+[[refs.where]]
+id      = "ui-components-ratatui-free"
+expr    = """
+  $ui_components AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT target ~ '**/external_pkg:ratatui/**'
+"""
+message = "`ui::components` own reusable interaction state; ratatui rendering stays in view/panel renderers."
+
+[[refs.where]]
+id      = "ui-components-workspace-free"
+expr    = """
+  $ui_components AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT target ~ '**/dir:workspace/**'
+"""
+message = "`ui::components` must stay domain-neutral; workspace semantics belong to feature/navigation selectors."
+
+[[refs.where]]
+id      = "ui-view-renders-view-models-only"
+expr    = """
+  $ui_view AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT (target ~ '**/path:App'
+       OR target ~ '**/path:ExplorerFeature'
+       OR target ~ '**/dir:contracts/**')
+"""
+message = "`ui::view` renders feature view-models; App/Feature/Screen orchestration belongs outside the renderer."
+
+[[refs.where]]
+id      = "ui-terminal-backend-owned-by-shell-terminal"
+expr    = """
+  $ui AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => ($ui_terminal_shell OR $rust_inline_tests
+      OR NOT (target ~ '**/path:CrosstermBackend'
+           OR target ~ '**/path:EnterAlternateScreen'
+           OR target ~ '**/path:LeaveAlternateScreen'
+           OR target ~ '**/path:enable_raw_mode'
+           OR target ~ '**/path:disable_raw_mode'))
+"""
+message = "Terminal backend setup belongs to `ui::shell::terminal`; UI root/app code should not own terminal raw-mode or alternate-screen wiring."
 
 [[refs.where]]
 id      = "ui-screen-render-contract-only"

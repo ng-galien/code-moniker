@@ -1,21 +1,23 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use code_moniker_core::core::shape::Shape;
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::action::ShellAction;
-use crate::ui::app::command::AppCommand;
 use crate::ui::component::ComponentId;
+use crate::ui::components::search_bar::{HeaderKindFilter, HeaderSearchState};
 use crate::ui::contracts::Route;
 use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
 use crate::ui::features::explorer::{
-	ExplorerFeature, ROUTE_CHANGE, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW, ROUTE_REFS,
+	ExplorerFeature, HeaderSearchResults, ROUTE_CHANGE, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW,
+	ROUTE_REFS,
 };
 use crate::ui::live::StoreEvent;
 use crate::ui::reactive::Transition;
 use crate::ui::runtime::{TaskId, TaskOutcome, TaskResult, WorkKind};
-use crate::ui::store::navigation::{NavigationAction, NavigationState};
-use crate::workspace::{CheckSummary, DefLocation, UsageFocus};
+use crate::ui::store::navigation::{
+	NavigationAction, NavigationPane, NavigationState, TreePaneAction,
+};
+use crate::workspace::{CheckSummary, UsageFocus};
 
 use super::Effect;
 
@@ -139,80 +141,6 @@ pub(in crate::ui) enum ActiveFilter {
 	None,
 	HeaderSearch(HeaderSearchResults),
 	Change,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::ui) struct HeaderSearchState {
-	pub(in crate::ui) focus: HeaderSearchFocus,
-	pub(in crate::ui) text: String,
-	pub(in crate::ui) langs: Vec<Lang>,
-	pub(in crate::ui) kind_filters: Vec<HeaderKindFilter>,
-	pub(in crate::ui) available_langs: Vec<Lang>,
-	pub(in crate::ui) available_kind_filters: Vec<HeaderKindFilter>,
-	pub(in crate::ui) lang_cursor: usize,
-	pub(in crate::ui) kind_cursor: usize,
-	pub(in crate::ui) combo_open: bool,
-	pub(in crate::ui) generation: u64,
-	pub(in crate::ui) pending_generation: Option<u64>,
-}
-
-impl HeaderSearchState {
-	pub(in crate::ui) fn has_filter(&self) -> bool {
-		!self.text.trim().is_empty() || !self.langs.is_empty() || !self.kind_filters.is_empty()
-	}
-
-	fn reset(&mut self) {
-		self.text.clear();
-		self.langs.clear();
-		self.kind_filters.clear();
-		self.lang_cursor = 0;
-		self.kind_cursor = 0;
-		self.combo_open = false;
-	}
-
-	fn bump_pending(&mut self) -> u64 {
-		self.generation += 1;
-		self.pending_generation = Some(self.generation);
-		self.generation
-	}
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::ui) enum HeaderKindFilter {
-	Kind(String),
-	Shape(Shape),
-}
-
-impl HeaderKindFilter {
-	pub(in crate::ui) fn label(&self) -> String {
-		match self {
-			Self::Kind(kind) => kind.clone(),
-			Self::Shape(shape) => format!("shape:{}", shape.as_str()),
-		}
-	}
-
-	pub(in crate::ui) fn matches_kind(&self, kind: &str) -> bool {
-		match self {
-			Self::Kind(filter) => filter == kind,
-			Self::Shape(shape) => {
-				code_moniker_core::core::shape::shape_of(kind.as_bytes()) == Some(*shape)
-			}
-		}
-	}
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::ui) struct HeaderSearchResults {
-	pub(in crate::ui) text: String,
-	pub(in crate::ui) langs: Vec<Lang>,
-	pub(in crate::ui) kind_filters: Vec<HeaderKindFilter>,
-	pub(in crate::ui) matches: Vec<DefLocation>,
-}
-
-impl HeaderSearchResults {
-	pub(in crate::ui) fn label(&self) -> String {
-		header_search_label(&self.text, &self.langs, &self.kind_filters)
-	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -352,19 +280,19 @@ impl AppState {
 		match action {
 			ShellAction::SetStatus(status) => {
 				self.set_status(status.clone());
-				Transition::changed("shell.set_status")
+				Transition::changed()
 			}
 			ShellAction::AppendStatus(status) => {
 				self.append_status(status);
-				Transition::changed("shell.append_status")
+				Transition::changed()
 			}
 			ShellAction::SetCheckState(state) => {
 				self.set_check_state(state.clone());
-				Transition::changed("shell.set_check_state")
+				Transition::changed()
 			}
 			ShellAction::SetRoute(route) => {
 				self.update_shell(|shell| shell.route = route.clone());
-				Transition::changed("shell.set_route")
+				Transition::changed()
 			}
 			ShellAction::SetView {
 				view,
@@ -412,11 +340,11 @@ impl AppState {
 					shell.header_search.reset();
 					shell.header_search.pending_generation = None;
 				});
-				Transition::changed("shell.enter_change_mode")
+				Transition::changed()
 			}
 			ShellAction::ReplaceActiveFilter(active_filter) => {
 				self.update_shell(|shell| shell.active_filter = active_filter.clone());
-				Transition::changed("shell.replace_active_filter")
+				Transition::changed()
 			}
 			ShellAction::SetChangePanel(change_panel) => {
 				self.set_change_panel_action(*change_panel)
@@ -426,19 +354,16 @@ impl AppState {
 					shell.mode = UiMode::Normal;
 					shell.focus_region = *region;
 				});
-				Transition::changed("shell.set_focus_region")
+				Transition::changed()
 			}
 			ShellAction::SetPanelScroll(offset) => {
 				self.update_shell(|shell| shell.panel_navigation.scroll = *offset);
-				Transition::changed("shell.set_panel_scroll")
+				Transition::changed()
 			}
 			ShellAction::SetPanelNavigation(state) => {
 				self.update_shell(|shell| shell.panel_navigation = state.clone());
-				Transition::changed("shell.set_panel_navigation")
+				Transition::changed()
 			}
-			#[cfg(test)]
-			ShellAction::EmitNotify(message) => Transition::unchanged("shell.emit_notify")
-				.with_effect(Effect::Notify(message.clone())),
 		}
 	}
 
@@ -451,7 +376,7 @@ impl AppState {
 			shell.panel_policy = policy;
 			shell.route = route.clone();
 		});
-		Transition::changed("shell.set_view")
+		Transition::changed()
 	}
 
 	fn clear_filter_action(&mut self, return_focus: bool) -> Transition {
@@ -469,7 +394,7 @@ impl AppState {
 			shell.header_search.reset();
 			shell.header_search.pending_generation = None;
 		});
-		Transition::changed("shell.clear_filter")
+		Transition::changed()
 	}
 
 	fn set_usage_lens_action(&mut self, focus: &Option<UsageFocus>) -> Transition {
@@ -484,7 +409,7 @@ impl AppState {
 			shell.panel_policy = PanelPolicy::Contextual;
 			shell.panel_navigation = PanelNavigationState::default();
 		});
-		Transition::changed("shell.set_usage_lens")
+		Transition::changed()
 	}
 
 	fn set_change_panel_action(&mut self, change_panel: ChangePanelMode) -> Transition {
@@ -494,7 +419,7 @@ impl AppState {
 			}
 			shell.change_panel = change_panel;
 		});
-		Transition::changed("shell.set_change_panel")
+		Transition::changed()
 	}
 
 	fn scroll_panel(&mut self, direction: i8) -> Transition {
@@ -511,21 +436,17 @@ impl AppState {
 					.saturating_sub(PANEL_SCROLL_STEP);
 			}
 		});
-		Transition::changed(if direction > 0 {
-			"ui.panel_scroll_down"
-		} else {
-			"ui.panel_scroll_up"
-		})
+		Transition::changed()
 	}
 
 	pub(in crate::ui) fn reduce_ui_msg(&mut self, msg: &Msg) -> Transition {
 		match msg {
-			Msg::Quit => Transition::unchanged("ui.quit").with_effect(Effect::Quit),
+			Msg::Quit => Transition::unchanged().with_effect(Effect::Quit),
 			Msg::ShowView(view) => {
-				Transition::unchanged("ui.show_view").with_effect(Effect::Navigate(view.route()))
+				Transition::unchanged().with_effect(Effect::Navigate(view.route()))
 			}
 			Msg::ToggleHeaderSearch => self.toggle_header_search(),
-			Msg::ToggleFocusRegion => run_command(AppCommand::ToggleFocusRegion),
+			Msg::ToggleFocusRegion => emit_effect(Effect::ToggleFocusRegion),
 			Msg::HeaderSearchNextField => {
 				let focus = match self.shell.mode {
 					UiMode::HeaderSearch(focus) => focus.next(),
@@ -541,38 +462,33 @@ impl AppState {
 					HeaderSearchFocus::Lang => "language selector focused".to_string(),
 					HeaderSearchFocus::Kind => "kind selector focused".to_string(),
 				};
-				Transition::changed("ui.header_search_next_field")
+				Transition::changed()
 			}
 			Msg::HeaderSearchInput(edit) => {
 				let generation = self.edit_header_search_input(*edit);
 				let text = display_filter_text(&self.shell.header_search.text);
 				self.shell.status = format!("search draft: {text}");
-				Transition::changed("ui.header_search_input")
-					.with_effect(Effect::DebounceHeaderSearch(generation))
+				Transition::changed().with_effect(Effect::DebounceHeaderSearch(generation))
 			}
 			Msg::HeaderSearchSelectNext => {
-				run_command(AppCommand::CycleHeaderSearchSelector { direction: 1 })
+				emit_effect(Effect::CycleHeaderSearchSelector { direction: 1 })
 			}
 			Msg::HeaderSearchSelectPrevious => {
-				run_command(AppCommand::CycleHeaderSearchSelector { direction: -1 })
+				emit_effect(Effect::CycleHeaderSearchSelector { direction: -1 })
 			}
-			Msg::HeaderSearchToggleSelection => {
-				run_command(AppCommand::ToggleHeaderSearchSelection)
-			}
+			Msg::HeaderSearchToggleSelection => emit_effect(Effect::ToggleHeaderSearchSelection),
 			Msg::HeaderSearchReset => {
 				let return_focus = matches!(self.shell.mode, UiMode::Normal);
 				self.reset_header_search();
 				self.shell.status = "search filters reset".to_string();
-				Transition::changed("ui.header_search_reset").with_effect(Effect::RunCommand(
-					AppCommand::ApplyHeaderSearch {
-						generation: None,
-						return_focus,
-					},
-				))
+				Transition::changed().with_effect(Effect::ApplyHeaderSearch {
+					generation: None,
+					return_focus,
+				})
 			}
 			Msg::HeaderSearchApply => match self.shell.mode {
 				UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal => {
-					run_command(AppCommand::ApplyHeaderSearch {
+					emit_effect(Effect::ApplyHeaderSearch {
 						generation: None,
 						return_focus: true,
 					})
@@ -581,26 +497,26 @@ impl AppState {
 					if self.shell.header_search.combo_open =>
 				{
 					self.update_shell(|shell| shell.header_search.combo_open = false);
-					run_command(AppCommand::ApplyHeaderSearch {
+					emit_effect(Effect::ApplyHeaderSearch {
 						generation: None,
 						return_focus: false,
 					})
 				}
 				UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind) => {
 					self.update_shell(|shell| shell.header_search.combo_open = true);
-					Transition::changed("ui.header_search_open_combo")
+					Transition::changed()
 				}
 			},
 			Msg::Help => {
 				self.set_status(
 					"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, PgUp/PgDn scroll panel, d changes, u usages, y copy panel, 1-5 panels, c check, q quit",
 				);
-				Transition::changed("ui.help")
+				Transition::changed()
 			}
-			Msg::FocusUsages => run_command(AppCommand::FocusUsages),
-			Msg::ToggleChangeMode => run_command(AppCommand::ToggleChangeMode),
-			Msg::CopyPanelSnapshot => run_command(AppCommand::CopyPanelSnapshot),
-			Msg::RunCheck => run_command(AppCommand::RunCheck),
+			Msg::FocusUsages => emit_effect(Effect::FocusUsages),
+			Msg::ToggleChangeMode => emit_effect(Effect::ToggleChangeMode),
+			Msg::CopyPanelSnapshot => emit_effect(Effect::CopyPanelSnapshot),
+			Msg::RunCheck => emit_effect(Effect::RunCheck),
 			Msg::MoveDown => self.reduce_vertical_navigation(1),
 			Msg::MoveUp => self.reduce_vertical_navigation(-1),
 			Msg::Home => self.reduce_positional_navigation(true),
@@ -608,18 +524,18 @@ impl AppState {
 			Msg::PanelScrollDown => self.scroll_panel(1),
 			Msg::PanelScrollUp => self.scroll_panel(-1),
 			Msg::ToggleNode | Msg::OpenNode if self.shell.focus_region == FocusRegion::Panel => {
-				Transition::unchanged("ui.panel_noop")
+				Transition::unchanged()
 			}
-			Msg::ToggleNode => run_command(AppCommand::ToggleSelectedNode),
-			Msg::OpenNode => run_command(AppCommand::OpenSelectedNode),
+			Msg::ToggleNode => emit_effect(Effect::ToggleSelectedNode),
+			Msg::OpenNode => emit_effect(Effect::OpenSelectedNode),
 			Msg::CloseNode if self.shell.focus_region == FocusRegion::UsageLens => {
-				run_command(AppCommand::CloseNodeOrClearScope)
+				emit_effect(Effect::CloseNodeOrClearScope)
 			}
 			Msg::CloseNode if self.shell.focus_region == FocusRegion::Panel => {
-				run_command(AppCommand::ToggleFocusRegion)
+				emit_effect(Effect::ToggleFocusRegion)
 			}
-			Msg::CloseNode => run_command(AppCommand::CloseNodeOrClearScope),
-			Msg::Noop => Transition::unchanged("ui.noop"),
+			Msg::CloseNode => emit_effect(Effect::CloseNodeOrClearScope),
+			Msg::Noop => Transition::unchanged(),
 		}
 	}
 
@@ -647,30 +563,38 @@ impl AppState {
 				"select kind; Tab returns to text".to_string()
 			}
 		};
-		Transition::changed("ui.toggle_header_search")
+		Transition::changed()
 	}
 
 	fn reduce_vertical_navigation(&self, direction: i8) -> Transition {
 		match self.shell.focus_region {
 			FocusRegion::Navigator => {
 				if direction > 0 {
-					run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveDown)))
+					emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
+						pane: NavigationPane::Primary,
+						action: TreePaneAction::MoveDown,
+					})))
 				} else {
-					run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveUp)))
+					emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
+						pane: NavigationPane::Primary,
+						action: TreePaneAction::MoveUp,
+					})))
 				}
 			}
 			FocusRegion::UsageLens => {
 				if direction > 0 {
-					run_command(AppCommand::Navigation(Box::new(
-						NavigationAction::UsageMoveDown,
-					)))
+					emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
+						pane: NavigationPane::UsageLens,
+						action: TreePaneAction::MoveDown,
+					})))
 				} else {
-					run_command(AppCommand::Navigation(Box::new(
-						NavigationAction::UsageMoveUp,
-					)))
+					emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
+						pane: NavigationPane::UsageLens,
+						action: TreePaneAction::MoveUp,
+					})))
 				}
 			}
-			FocusRegion::Panel => run_command(AppCommand::PanelMove { direction }),
+			FocusRegion::Panel => emit_effect(Effect::PanelMove { direction }),
 		}
 	}
 
@@ -678,33 +602,39 @@ impl AppState {
 		match self.shell.focus_region {
 			FocusRegion::Navigator => {
 				let action = if home {
-					NavigationAction::Home
+					TreePaneAction::Home
 				} else {
-					NavigationAction::End
+					TreePaneAction::End
 				};
-				run_command(AppCommand::Navigation(Box::new(action)))
+				emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
+					pane: NavigationPane::Primary,
+					action,
+				})))
 			}
 			FocusRegion::UsageLens => {
 				let action = if home {
-					NavigationAction::UsageHome
+					TreePaneAction::Home
 				} else {
-					NavigationAction::UsageEnd
+					TreePaneAction::End
 				};
-				run_command(AppCommand::Navigation(Box::new(action)))
+				emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
+					pane: NavigationPane::UsageLens,
+					action,
+				})))
 			}
-			FocusRegion::Panel if home => run_command(AppCommand::PanelHome),
-			FocusRegion::Panel => run_command(AppCommand::PanelEnd),
+			FocusRegion::Panel if home => emit_effect(Effect::PanelHome),
+			FocusRegion::Panel => emit_effect(Effect::PanelEnd),
 		}
 	}
 
 	pub(in crate::ui) fn reduce_header_search_debounced(&mut self, generation: u64) -> Transition {
 		if self.shell.header_search.pending_generation == Some(generation) {
-			run_command(AppCommand::ApplyHeaderSearch {
+			emit_effect(Effect::ApplyHeaderSearch {
 				generation: Some(generation),
 				return_focus: false,
 			})
 		} else {
-			Transition::unchanged("ui.header_search_debounce_stale")
+			Transition::unchanged()
 		}
 	}
 
@@ -765,10 +695,6 @@ impl AppState {
 				self.work.pending.remove(&WorkKind::ProjectLoad);
 				self.work.pending.remove(&WorkKind::FileCatalog);
 			}
-			#[cfg(test)]
-			TaskOutcome::Completed(_) => {
-				self.work.pending.remove(&result.work);
-			}
 			TaskOutcome::CheckCompleted(summary) => {
 				self.check.state = CheckState::Ready((**summary).clone());
 				self.work.pending.remove(&WorkKind::CheckPanel);
@@ -781,8 +707,6 @@ impl AppState {
 			id: result.id,
 			label: result.label.clone(),
 			status: match &result.outcome {
-				#[cfg(test)]
-				TaskOutcome::Completed(_) => TaskStatus::Completed,
 				TaskOutcome::FileCatalogLoaded(_) => TaskStatus::Completed,
 				TaskOutcome::StoreReloaded(_) => TaskStatus::Completed,
 				TaskOutcome::GitOverlayRefreshed(_) => TaskStatus::Completed,
@@ -852,7 +776,7 @@ impl AppState {
 			shell.header_search.kind_filters = results.kind_filters.clone();
 			shell.header_search.pending_generation = None;
 		});
-		Transition::changed("shell.apply_header_search")
+		Transition::changed()
 	}
 
 	fn set_header_search_filters_action(
@@ -866,8 +790,7 @@ impl AppState {
 			shell.header_search.kind_filters = kind_filters.to_vec();
 			generation = shell.header_search.bump_pending();
 		});
-		Transition::changed("shell.set_header_search_filters")
-			.with_effect(Effect::DebounceHeaderSearch(generation))
+		Transition::changed().with_effect(Effect::DebounceHeaderSearch(generation))
 	}
 
 	fn set_header_search_options_action(
@@ -887,7 +810,7 @@ impl AppState {
 			shell.header_search.lang_cursor = lang_cursor;
 			shell.header_search.kind_cursor = kind_cursor;
 		});
-		Transition::changed("shell.set_header_search_options")
+		Transition::changed()
 	}
 
 	fn set_header_search_cursor_action(
@@ -900,7 +823,7 @@ impl AppState {
 			HeaderSearchFocus::Lang => shell.header_search.lang_cursor = cursor,
 			HeaderSearchFocus::Kind => shell.header_search.kind_cursor = cursor,
 		});
-		Transition::changed("shell.set_header_search_cursor")
+		Transition::changed()
 	}
 
 	fn edit_header_search_input(&mut self, edit: FilterEdit) -> u64 {
@@ -930,38 +853,6 @@ fn display_filter_text(filter: &str) -> &str {
 	if filter.is_empty() { "<empty>" } else { filter }
 }
 
-fn header_search_label(text: &str, langs: &[Lang], kind_filters: &[HeaderKindFilter]) -> String {
-	let mut parts = Vec::new();
-	if !text.trim().is_empty() {
-		parts.push(format!("search:{}", text.trim()));
-	}
-	if !langs.is_empty() {
-		parts.push(format!(
-			"lang:{}",
-			langs
-				.iter()
-				.map(|lang| lang.tag())
-				.collect::<Vec<_>>()
-				.join(",")
-		));
-	}
-	if !kind_filters.is_empty() {
-		parts.push(format!(
-			"kind:{}",
-			kind_filters
-				.iter()
-				.map(HeaderKindFilter::label)
-				.collect::<Vec<_>>()
-				.join(",")
-		));
-	}
-	if parts.is_empty() {
-		"<all>".to_string()
-	} else {
-		parts.join(" ")
-	}
-}
-
-fn run_command(command: AppCommand) -> Transition {
-	Transition::unchanged("ui.command").with_effect(Effect::RunCommand(command))
+fn emit_effect(effect: Effect) -> Transition {
+	Transition::unchanged().with_effect(effect)
 }

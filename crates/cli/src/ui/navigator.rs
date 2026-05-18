@@ -48,12 +48,6 @@ impl NavNode {
 			def_count: 0,
 		}
 	}
-
-	#[cfg(test)]
-	pub(in crate::ui) fn push_child(&mut self, child: NavNode) {
-		self.children.push(child);
-		compute_nav_counts(self);
-	}
 }
 
 pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {

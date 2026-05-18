@@ -1,17 +1,31 @@
 use crate::ui::contracts::Route;
-#[cfg(test)]
-use crate::ui::runtime::TaskSpec;
-
-use super::AppCommand;
+use crate::ui::store::navigation::NavigationAction;
 
 #[derive(Debug)]
 pub(in crate::ui) enum Effect {
 	Navigate(Route),
 	Quit,
-	#[cfg(test)]
-	Notify(String),
-	#[cfg(test)]
-	Spawn(TaskSpec),
 	DebounceHeaderSearch(u64),
-	RunCommand(AppCommand),
+	ApplyHeaderSearch {
+		generation: Option<u64>,
+		return_focus: bool,
+	},
+	CycleHeaderSearchSelector {
+		direction: i8,
+	},
+	ToggleHeaderSearchSelection,
+	FocusUsages,
+	ToggleChangeMode,
+	CopyPanelSnapshot,
+	RunCheck,
+	Navigation(Box<NavigationAction>),
+	ToggleFocusRegion,
+	PanelMove {
+		direction: i8,
+	},
+	PanelHome,
+	PanelEnd,
+	ToggleSelectedNode,
+	OpenSelectedNode,
+	CloseNodeOrClearScope,
 }

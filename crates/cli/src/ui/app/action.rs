@@ -1,12 +1,13 @@
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::state::{
-	ActiveFilter, ChangePanelMode, CheckState, FocusRegion, HeaderKindFilter, HeaderSearchResults,
-	PanelNavigationState, PanelPolicy, View,
+	ActiveFilter, ChangePanelMode, CheckState, FocusRegion, PanelNavigationState, PanelPolicy, View,
 };
 use crate::ui::clipboard::ClipboardResult;
+use crate::ui::components::search_bar::HeaderKindFilter;
 use crate::ui::contracts::Route;
 use crate::ui::events::{HeaderSearchFocus, Msg};
+use crate::ui::features::explorer::HeaderSearchResults;
 use crate::ui::live::StoreEvent;
 use crate::ui::runtime::{TaskId, TaskResult, WorkKind};
 use crate::workspace::UsageFocus;
@@ -67,6 +68,4 @@ pub(in crate::ui) enum ShellAction {
 	SetFocusRegion(FocusRegion),
 	SetPanelScroll(usize),
 	SetPanelNavigation(PanelNavigationState),
-	#[cfg(test)]
-	EmitNotify(String),
 }
