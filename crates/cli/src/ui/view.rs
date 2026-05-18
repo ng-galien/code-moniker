@@ -16,6 +16,7 @@ use super::kinds::definition_kind_group;
 use super::navigator::{NavNodeKind, NavRow};
 use super::panel;
 use super::panels;
+use super::scroll::{ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin};
 use super::text::{FitMode, fit_text, visible_len};
 use super::theme::THEME;
 use super::{
@@ -430,7 +431,7 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
 		.split(area);
 	render_left_pane(frame, cols[0], app);
 	let panel = ExplorerFeature::active_panel(app);
-	panels::render_panel(frame, cols[1], &panel);
+	panels::render_panel(frame, cols[1], &panel, app.panel_scroll());
 }
 
 fn render_left_pane(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
@@ -478,29 +479,6 @@ fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
-	let visible_rows = area.height.saturating_sub(2) as usize;
-	let nav_rows = app.nav_rows();
-	let selection = app.selected_nav_index();
-	let start = if visible_rows == 0 {
-		0
-	} else {
-		selection.saturating_sub(visible_rows.saturating_sub(1))
-	};
-	let end = (start + visible_rows).min(nav_rows.len());
-	let items: Vec<ListItem<'_>> = nav_rows[start..end]
-		.iter()
-		.enumerate()
-		.map(|(offset, row)| {
-			let idx = start + offset;
-			let line = nav_row_line(app, row, idx == selection);
-			let style = if idx == selection {
-				Style::default().bg(THEME.nav.selected_bg)
-			} else {
-				Style::default()
-			};
-			ListItem::new(line).style(style)
-		})
-		.collect();
 	let title = if app.is_filtered() {
 		if app.view_mode() == VisualizationMode::Change {
 			format!(
@@ -522,12 +500,39 @@ fn render_nav_list(frame: &mut ratatui::Frame<'_>, area: Rect, app: &App) {
 			app.app_store.navigation().explorer_def_count()
 		)
 	};
-	let list = List::new(items).block(
-		Block::default()
-			.title(block_title(title, ComponentId::Navigator))
-			.borders(Borders::ALL),
+	let block = Block::default()
+		.title(block_title(title, ComponentId::Navigator))
+		.borders(Borders::ALL);
+	let inner = block.inner(area);
+	let visible_rows = inner.height as usize;
+	let nav_rows = app.nav_rows();
+	let selection = app.selected_nav_index();
+	let viewport = ScrollViewport::for_selection_with_margin(
+		nav_rows.len(),
+		visible_rows,
+		selection,
+		viewport_comfort_margin(visible_rows),
 	);
-	frame.render_widget(list, area);
+	let content_area = viewport.content_area(inner);
+	let start = viewport.offset;
+	let end = (start + visible_rows).min(nav_rows.len());
+	let items: Vec<ListItem<'_>> = nav_rows[start..end]
+		.iter()
+		.enumerate()
+		.map(|(offset, row)| {
+			let idx = start + offset;
+			let line = nav_row_line(app, row, idx == selection);
+			let style = if idx == selection {
+				Style::default().bg(THEME.nav.selected_bg)
+			} else {
+				Style::default()
+			};
+			ListItem::new(line).style(style)
+		})
+		.collect();
+	frame.render_widget(block, area);
+	frame.render_widget(List::new(items), content_area);
+	render_vertical_scrollbar(frame, inner, viewport);
 }
 
 pub(super) fn nav_row_line(app: &App, row: &NavRow, selected: bool) -> Line<'static> {

@@ -37,6 +37,7 @@ mod panel;
 mod panels;
 mod reactive;
 mod runtime;
+mod scroll;
 mod shell;
 mod source;
 mod store;
@@ -225,7 +226,7 @@ impl App {
 		app.refresh_header_search_options();
 		app.dispatch_shell(ShellAction::SetRoute(route));
 		app.set_status(format!(
-			"Enter opens nodes, Esc/left closes, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
+			"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items, {command_count} commands)"
 		));
 		app.refresh_results(false);
 		app
@@ -348,12 +349,27 @@ impl App {
 		self.app_store.navigation().selection()
 	}
 
+	fn panel_scroll(&self) -> usize {
+		self.app_store.shell().panel_scroll
+	}
+
+	fn reset_panel_scroll(&mut self) {
+		if self.panel_scroll() == 0 {
+			return;
+		}
+		self.dispatch_shell(ShellAction::SetPanelScroll(0));
+	}
+
 	fn dispatch_navigation(&mut self, action: NavigationAction) -> bool {
+		let before = self.selected_nav_row().map(|row| row.key.clone());
 		let (changed, effects) = {
 			let transition = self.app_store.dispatch_navigation(action);
 			(transition.changed, transition.take_effects())
 		};
 		self.apply_effects(effects);
+		if changed && before != self.selected_nav_row().map(|row| row.key.clone()) {
+			self.reset_panel_scroll();
+		}
 		changed
 	}
 

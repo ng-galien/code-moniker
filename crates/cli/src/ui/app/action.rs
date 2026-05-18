@@ -64,6 +64,7 @@ pub(in crate::ui) enum ShellAction {
 	EnterChangeMode,
 	ReplaceActiveFilter(ActiveFilter),
 	SetChangePanel(ChangePanelMode),
+	SetPanelScroll(usize),
 	#[cfg(test)]
 	EmitNotify(String),
 }

@@ -14,6 +14,7 @@ pub(super) struct UiTheme {
 	pub(super) kind: KindTheme,
 	pub(super) nav: NavTheme,
 	pub(super) panel: PanelTheme,
+	pub(super) scrollbar: ScrollbarTheme,
 	pub(super) search: SearchTheme,
 	pub(super) source: SourceTheme,
 }
@@ -63,6 +64,12 @@ pub(super) struct PanelTheme {
 	pub(super) header: Color,
 	pub(super) muted: Color,
 	pub(super) separator: Color,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ScrollbarTheme {
+	pub(super) thumb: Color,
+	pub(super) track: Color,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -122,6 +129,10 @@ pub(super) const THEME: UiTheme = UiTheme {
 		header: Color::Rgb(55, 65, 81),
 		muted: Color::Rgb(107, 114, 128),
 		separator: Color::Rgb(209, 213, 219),
+	},
+	scrollbar: ScrollbarTheme {
+		thumb: Color::Rgb(156, 163, 175),
+		track: Color::Rgb(229, 231, 235),
 	},
 	search: SearchTheme {
 		background: Color::Rgb(243, 244, 246),

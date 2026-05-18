@@ -197,6 +197,25 @@ fn y_key_copies_panel_only_in_normal_mode() {
 }
 
 #[test]
+fn page_keys_scroll_panel_only_in_normal_mode() {
+	assert!(matches!(
+		key_to_msg(UiMode::Normal, key(KeyCode::PageDown)),
+		Msg::PanelScrollDown
+	));
+	assert!(matches!(
+		key_to_msg(UiMode::Normal, key(KeyCode::PageUp)),
+		Msg::PanelScrollUp
+	));
+	assert!(matches!(
+		key_to_msg(
+			UiMode::HeaderSearch(HeaderSearchFocus::Text),
+			key(KeyCode::PageDown)
+		),
+		Msg::Noop
+	));
+}
+
+#[test]
 fn panel_display_helpers_render_tables_and_fitted_details() {
 	let columns = [
 		text::Column::left("lang", 6),
@@ -346,6 +365,33 @@ fn view_switches_update_shell_route_through_effects() {
 
 	assert_eq!(app.view(), View::Refs);
 	assert_eq!(app.route().clone(), ExplorerFeature::route(ROUTE_REFS));
+}
+
+#[test]
+fn panel_scroll_resets_when_navigation_selection_changes() {
+	let tmp = tempfile::tempdir().unwrap();
+	write(tmp.path(), "src/a.ts", "class Alpha {}\nclass Beta {}\n");
+	let store = WorkspaceStore::load(&SessionOptions {
+		paths: vec![tmp.path().into()],
+		project: Some("app".into()),
+		cache_dir: None,
+	})
+	.unwrap();
+	let mut app = App::new(
+		store,
+		DEFAULT_SCHEME.to_string(),
+		tmp.path().join(".code-moniker.toml"),
+		None,
+	);
+
+	app.dispatch_navigation(NavigationAction::OpenSelected);
+	app.handle_key(key(KeyCode::PageDown)).unwrap();
+
+	assert_eq!(app.panel_scroll(), 8);
+
+	app.handle_key(key(KeyCode::Down)).unwrap();
+
+	assert_eq!(app.panel_scroll(), 0);
 }
 
 #[test]

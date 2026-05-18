@@ -18,6 +18,8 @@ use crate::workspace::{CheckSummary, DefLocation, UsageFocus};
 
 use super::Effect;
 
+const PANEL_SCROLL_STEP: usize = 8;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct WorkSlice {
 	pub(in crate::ui) generation: u64,
@@ -212,6 +214,7 @@ pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) mode: UiMode,
 	pub(in crate::ui) active_filter: ActiveFilter,
 	pub(in crate::ui) header_search: HeaderSearchState,
+	pub(in crate::ui) panel_scroll: usize,
 }
 
 impl Default for ShellSlice {
@@ -227,6 +230,7 @@ impl Default for ShellSlice {
 			mode: UiMode::Normal,
 			active_filter: ActiveFilter::None,
 			header_search: HeaderSearchState::default(),
+			panel_scroll: 0,
 		}
 	}
 }
@@ -349,14 +353,7 @@ impl AppState {
 				view,
 				policy,
 				route,
-			} => {
-				self.update_shell(|shell| {
-					shell.view = *view;
-					shell.panel_policy = *policy;
-					shell.route = route.clone();
-				});
-				Transition::changed("shell.set_view")
-			}
+			} => self.set_view_action(*view, *policy, route),
 			ShellAction::ApplyHeaderSearch {
 				results,
 				return_focus,
@@ -392,6 +389,7 @@ impl AppState {
 					shell.view_mode = VisualizationMode::Explorer;
 					shell.panel_policy = PanelPolicy::Contextual;
 					shell.change_panel = ChangePanelMode::Diff;
+					shell.panel_scroll = 0;
 					shell.header_search.reset();
 					shell.header_search.pending_generation = None;
 				});
@@ -403,6 +401,7 @@ impl AppState {
 					shell.active_filter = ActiveFilter::Usages(focus.clone());
 					shell.view_mode = VisualizationMode::Usages;
 					shell.panel_policy = PanelPolicy::Contextual;
+					shell.panel_scroll = 0;
 					shell.header_search.reset();
 					shell.header_search.pending_generation = None;
 				});
@@ -415,6 +414,7 @@ impl AppState {
 					shell.view_mode = VisualizationMode::Change;
 					shell.panel_policy = PanelPolicy::Contextual;
 					shell.change_panel = ChangePanelMode::Diff;
+					shell.panel_scroll = 0;
 					shell.header_search.reset();
 					shell.header_search.pending_generation = None;
 				});
@@ -425,13 +425,53 @@ impl AppState {
 				Transition::changed("shell.replace_active_filter")
 			}
 			ShellAction::SetChangePanel(change_panel) => {
-				self.update_shell(|shell| shell.change_panel = *change_panel);
-				Transition::changed("shell.set_change_panel")
+				self.set_change_panel_action(*change_panel)
+			}
+			ShellAction::SetPanelScroll(offset) => {
+				self.update_shell(|shell| shell.panel_scroll = *offset);
+				Transition::changed("shell.set_panel_scroll")
 			}
 			#[cfg(test)]
 			ShellAction::EmitNotify(message) => Transition::unchanged("shell.emit_notify")
 				.with_effect(Effect::Notify(message.clone())),
 		}
+	}
+
+	fn set_view_action(&mut self, view: View, policy: PanelPolicy, route: &Route) -> Transition {
+		self.update_shell(|shell| {
+			if shell.view != view {
+				shell.panel_scroll = 0;
+			}
+			shell.view = view;
+			shell.panel_policy = policy;
+			shell.route = route.clone();
+		});
+		Transition::changed("shell.set_view")
+	}
+
+	fn set_change_panel_action(&mut self, change_panel: ChangePanelMode) -> Transition {
+		self.update_shell(|shell| {
+			if shell.change_panel != change_panel {
+				shell.panel_scroll = 0;
+			}
+			shell.change_panel = change_panel;
+		});
+		Transition::changed("shell.set_change_panel")
+	}
+
+	fn scroll_panel(&mut self, direction: i8) -> Transition {
+		self.update_shell(|shell| {
+			if direction > 0 {
+				shell.panel_scroll = shell.panel_scroll.saturating_add(PANEL_SCROLL_STEP);
+			} else {
+				shell.panel_scroll = shell.panel_scroll.saturating_sub(PANEL_SCROLL_STEP);
+			}
+		});
+		Transition::changed(if direction > 0 {
+			"ui.panel_scroll_down"
+		} else {
+			"ui.panel_scroll_up"
+		})
 	}
 
 	pub(in crate::ui) fn reduce_ui_msg(&mut self, msg: &Msg) -> Transition {
@@ -530,7 +570,7 @@ impl AppState {
 			},
 			Msg::Help => {
 				self.set_status(
-					"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, d changes, u usages, y copy panel, 1-5 panels, c check, q quit",
+					"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, PgUp/PgDn scroll panel, d changes, u usages, y copy panel, 1-5 panels, c check, q quit",
 				);
 				Transition::changed("ui.help")
 			}
@@ -544,6 +584,8 @@ impl AppState {
 			Msg::MoveUp => run_command(AppCommand::Navigation(Box::new(NavigationAction::MoveUp))),
 			Msg::Home => run_command(AppCommand::Navigation(Box::new(NavigationAction::Home))),
 			Msg::End => run_command(AppCommand::Navigation(Box::new(NavigationAction::End))),
+			Msg::PanelScrollDown => self.scroll_panel(1),
+			Msg::PanelScrollUp => self.scroll_panel(-1),
 			Msg::ToggleNode => run_command(AppCommand::ToggleSelectedNode),
 			Msg::OpenNode => run_command(AppCommand::OpenSelectedNode),
 			Msg::CloseNode => run_command(AppCommand::CloseNodeOrClearScope),
@@ -699,6 +741,7 @@ impl AppState {
 			shell.active_filter = ActiveFilter::HeaderSearch(results.clone());
 			shell.view_mode = VisualizationMode::Search;
 			shell.panel_policy = PanelPolicy::Contextual;
+			shell.panel_scroll = 0;
 			shell.header_search.text = results.text.clone();
 			shell.header_search.langs = results.langs.clone();
 			shell.header_search.kind_filters = results.kind_filters.clone();

@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use super::super::component::{block_title, marker};
 use super::super::kinds::reference_kind_group;
 use super::super::panel;
+use super::super::scroll::{ScrollViewport, render_vertical_scrollbar};
 use super::super::source::SourceLineVm;
 use super::super::text::{FitMode, fit_text, visible_len};
 use super::super::theme::{SourceTheme, THEME};
@@ -33,18 +34,46 @@ impl PanelSnapshot {
 	}
 }
 
-pub(super) fn render_panel_vm(frame: &mut ratatui::Frame<'_>, area: Rect, panel: &PanelVm) {
-	let width = panel::content_width(area);
-	let lines = panel_lines(panel, width);
-	let paragraph = Paragraph::new(Text::from(lines)).block(
-		Block::default()
-			.title(block_title(panel.title, panel.component))
-			.borders(Borders::ALL),
+pub(super) fn render_panel_vm(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	panel: &PanelVm,
+	scroll_offset: usize,
+) {
+	let block = Block::default()
+		.title(block_title(panel.title, panel.component))
+		.borders(Borders::ALL);
+	let inner = block.inner(area);
+	let width = content_width(inner);
+	let initial_lines = panel_lines(panel, width);
+	let initial_viewport = ScrollViewport::from_offset(
+		initial_lines.len(),
+		usize::from(inner.height),
+		scroll_offset,
 	);
+	let content_area = initial_viewport.content_area(inner);
+	let width = content_width(content_area);
+	let lines = if content_area.width == inner.width {
+		initial_lines
+	} else {
+		panel_lines(panel, width)
+	};
+	let viewport =
+		ScrollViewport::from_offset(lines.len(), usize::from(inner.height), scroll_offset);
+	let paragraph = Paragraph::new(Text::from(lines)).scroll((viewport.offset_u16(), 0));
+	frame.render_widget(block, area);
 	match panel.wrap {
-		WrapMode::Wrap => frame.render_widget(paragraph.wrap(Wrap { trim: false }), area),
-		WrapMode::NoWrap => frame.render_widget(paragraph, area),
+		WrapMode::Wrap => frame.render_widget(
+			paragraph.wrap(Wrap { trim: false }),
+			viewport.content_area(inner),
+		),
+		WrapMode::NoWrap => frame.render_widget(paragraph, viewport.content_area(inner)),
 	}
+	render_vertical_scrollbar(frame, inner, viewport);
+}
+
+fn content_width(area: Rect) -> usize {
+	usize::from(area.width).max(20)
 }
 
 pub(super) fn snapshot(panel: &PanelVm, width: usize) -> PanelSnapshot {
