@@ -537,9 +537,7 @@ fn parse_name_status(row: &str) -> Result<(FileDiffStatus, PathBuf), String> {
 }
 
 fn git_root_for(path: &Path) -> Result<PathBuf, String> {
-	let output = Command::new("git")
-		.arg("-C")
-		.arg(path)
+	let output = git_command(path)
 		.args(["rev-parse", "--show-toplevel"])
 		.output()
 		.map_err(|e| format!("cannot run git for {}: {e}", path.display()))?;
@@ -568,9 +566,7 @@ fn git_show(git_root: &Path, repo_rel: &Path) -> anyhow::Result<String> {
 }
 
 fn git_text(git_root: &Path, args: &[&str]) -> Result<String, String> {
-	let output = Command::new("git")
-		.arg("-C")
-		.arg(git_root)
+	let output = git_command(git_root)
 		.args(args)
 		.output()
 		.map_err(|e| format!("cannot run git {:?}: {e}", args))?;
@@ -582,6 +578,12 @@ fn git_text(git_root: &Path, args: &[&str]) -> Result<String, String> {
 		));
 	}
 	Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn git_command(cwd: &Path) -> Command {
+	let mut command = Command::new("git");
+	command.env("GIT_OPTIONAL_LOCKS", "0").arg("-C").arg(cwd);
+	command
 }
 
 fn git_pathspec(git_root: &Path, source_root: &Path) -> String {

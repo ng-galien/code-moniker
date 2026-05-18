@@ -103,6 +103,12 @@ impl EventClassifier {
 	fn classify_paths(&self, paths: &[PathBuf]) -> Option<StoreEvent> {
 		let mut event: Option<StoreEvent> = None;
 		for path in paths {
+			if self.is_git_signal_path(path) {
+				event = Some(event.map_or(StoreEvent::GitOverlay, |current| {
+					current.coalesce(StoreEvent::GitOverlay)
+				}));
+				continue;
+			}
 			if ignored_path(path) {
 				continue;
 			}
@@ -110,9 +116,6 @@ impl EventClassifier {
 				continue;
 			}
 			if self.is_git_path(path) {
-				event = Some(event.map_or(StoreEvent::GitOverlay, |current| {
-					current.coalesce(StoreEvent::GitOverlay)
-				}));
 				continue;
 			}
 			if self.is_source_path(path) {
@@ -120,6 +123,23 @@ impl EventClassifier {
 			}
 		}
 		event
+	}
+
+	fn is_git_signal_path(&self, path: &Path) -> bool {
+		let path = normalize_path(path);
+		self.roots.iter().any(|root| {
+			let Some(git_root) = &root.git_root else {
+				return false;
+			};
+			let git_dir = normalize_path(&git_root.join(".git"));
+			let Ok(rel) = path.strip_prefix(&git_dir) else {
+				return false;
+			};
+			rel == Path::new("index")
+				|| rel == Path::new("HEAD")
+				|| rel == Path::new("packed-refs")
+				|| rel.starts_with("refs")
+		})
 	}
 
 	fn is_git_path(&self, path: &Path) -> bool {
@@ -157,6 +177,7 @@ fn ignored_path(path: &Path) -> bool {
 			component,
 			Component::Normal(name)
 				if name == ".code-moniker-cache"
+					|| name == ".git"
 					|| name == ".gradle"
 					|| name == "target"
 					|| name == "node_modules"
@@ -199,6 +220,36 @@ mod tests {
 		assert_eq!(
 			classifier.classify_paths(&[PathBuf::from("/repo/.git/index")]),
 			Some(StoreEvent::GitOverlay)
+		);
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.git/HEAD")]),
+			Some(StoreEvent::GitOverlay)
+		);
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.git/packed-refs")]),
+			Some(StoreEvent::GitOverlay)
+		);
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.git/refs/heads/main")]),
+			Some(StoreEvent::GitOverlay)
+		);
+	}
+
+	#[test]
+	fn ignores_noisy_git_internal_paths() {
+		let classifier = EventClassifier::new(vec![root("/repo", Some("/repo"))]);
+
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.git/logs/HEAD")]),
+			None
+		);
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.git/index.lock")]),
+			None
+		);
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.git/objects/info/commit-graph")]),
+			None
 		);
 	}
 

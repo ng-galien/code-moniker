@@ -1090,6 +1090,7 @@ fn change_store_event_queues_async_git_overlay_refresh() {
 		"{:?}",
 		app.store().change_rows()
 	);
+	assert!(app.take_watch_roots_update().is_none());
 	assert_eq!(app.status(), "refresh git overlay completed");
 }
 

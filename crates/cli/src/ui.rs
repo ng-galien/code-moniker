@@ -894,7 +894,6 @@ impl App {
 	}
 
 	fn apply_refreshed_change_store(&mut self, status: String) {
-		self.watch_roots_update = Some(self.store().watch_roots());
 		let reset =
 			matches!(self.active_filter(), ActiveFilter::Change) && self.nav_rows().is_empty();
 		self.dispatch_navigation(NavigationAction::ReplaceModels {
