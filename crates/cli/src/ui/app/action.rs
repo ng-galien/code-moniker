@@ -1,10 +1,10 @@
 use code_moniker_core::lang::Lang;
 
+use crate::ui::app::HeaderKindFilter;
 use crate::ui::app::state::{
 	ActiveFilter, ChangePanelMode, CheckState, FocusRegion, PanelNavigationState, PanelPolicy, View,
 };
 use crate::ui::clipboard::ClipboardResult;
-use crate::ui::components::search_bar::HeaderKindFilter;
 use crate::ui::events::{HeaderSearchFocus, Msg};
 use crate::ui::features::explorer::HeaderSearchResults;
 use crate::ui::live::StoreEvent;

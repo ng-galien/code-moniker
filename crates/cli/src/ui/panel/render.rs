@@ -3,9 +3,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
+use super as panel;
 use super::super::component::{focused_block_title, marker};
 use super::super::kinds::reference_kind_group;
-use super::super::panel;
 use super::super::scroll::{ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin};
 use super::super::source::SourceLineVm;
 use super::super::text::{FitMode, fit_text, visible_len};

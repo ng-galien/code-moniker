@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 
-use crate::ui::components::search_bar::{HeaderKindFilter, HeaderSearchState, header_search_label};
+use crate::ui::app::{HeaderKindFilter, HeaderSearchState, header_search_label};
 use crate::workspace::{DefLocation, IndexStore};
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use crate::ui::navigator::NavRow;
 use crate::ui::store::ids::NodeId;
 
-use super::{TreePaneAction, TreePaneNotice};
+use super::tree_pane_action::{TreePaneAction, TreePaneNotice};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct TreePaneState {

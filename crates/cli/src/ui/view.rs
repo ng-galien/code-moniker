@@ -13,7 +13,7 @@ use super::features::explorer::{
 };
 use super::kinds::definition_kind_group;
 use super::panel;
-use super::panels::{self, PanelRenderState};
+use super::panel::PanelRenderState;
 use super::scroll::{ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin};
 use super::text::{FitMode, fit_text, visible_len};
 use super::theme::THEME;
@@ -327,7 +327,7 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, vm: &ExplorerVm) {
 		.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
 		.split(area);
 	render_left_pane(frame, cols[0], vm);
-	panels::render_panel(
+	panel::render_panel(
 		frame,
 		cols[1],
 		&vm.panel,

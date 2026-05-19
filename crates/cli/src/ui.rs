@@ -17,14 +17,12 @@ use crate::workspace::{
 mod app;
 mod clipboard;
 mod component;
-mod components;
 mod events;
 mod features;
 mod kinds;
 mod live;
 mod navigator;
 mod panel;
-mod panels;
 mod reactive;
 mod route;
 mod runtime;
@@ -902,7 +900,7 @@ impl App {
 
 	fn copy_panel_snapshot(&mut self) {
 		let panel = ExplorerFeature::active_panel(self);
-		let snapshot = panels::panel_snapshot(&panel, view::current_panel_snapshot_width());
+		let snapshot = panel::panel_snapshot(&panel, view::current_panel_snapshot_width());
 		let component = snapshot.component.as_str().to_string();
 		let text = snapshot.to_text(self.view_mode().label(), &self.scope_label());
 		let Some(tx) = self.event_tx.clone() else {

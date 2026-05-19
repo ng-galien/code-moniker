@@ -1,9 +1,9 @@
-mod panels;
+mod panel_content;
 mod search;
 mod vm;
 
 use crate::ui::App;
-use crate::ui::panels::PanelVm;
+use crate::ui::panel::PanelVm;
 use crate::ui::route::Route;
 
 pub(in crate::ui) use search::{HeaderSearchResults, header_search_options, header_search_results};
@@ -31,7 +31,7 @@ impl ExplorerFeature {
 	}
 
 	pub(in crate::ui) fn active_panel(app: &App) -> PanelVm {
-		panels::active_panel(app)
+		panel_content::active_panel(app)
 	}
 
 	pub(in crate::ui) fn view_model(app: &App) -> ExplorerVm {

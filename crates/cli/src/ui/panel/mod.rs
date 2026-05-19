@@ -5,6 +5,25 @@ use ratatui::text::{Line, Span};
 use super::text::{self, Column, FitMode, fit_text, format_cell, visible_len};
 use super::theme::THEME;
 
+mod model;
+mod render;
+
+pub(in crate::ui) use model::{PanelRenderState, PanelVm, ReferenceGroupVm};
+pub(in crate::ui) use render::PanelSnapshot;
+
+pub(super) fn render_panel(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	panel: &PanelVm,
+	state: PanelRenderState,
+) {
+	render::render_panel_vm(frame, area, panel, state);
+}
+
+pub(super) fn panel_snapshot(panel: &PanelVm, width: usize) -> PanelSnapshot {
+	render::snapshot(panel, width)
+}
+
 pub(super) fn section(label: impl Into<String>) -> Line<'static> {
 	Line::styled(
 		label.into(),

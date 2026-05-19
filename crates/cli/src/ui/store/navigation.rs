@@ -1,15 +1,15 @@
 use std::collections::BTreeSet;
 
-use crate::ui::components::tree_pane::TreePaneState;
 use crate::ui::navigator::{
 	NavNode, NavNodeKind, NavRow, all_expanded_keys, filtered_expanded_keys, flatten_nav,
 };
 use crate::ui::reactive::{Reduce, Transition};
+use crate::ui::store::tree_pane_state::TreePaneState;
 use crate::workspace::DefLocation;
 
 use super::ids::NodeId;
 
-pub(in crate::ui) use crate::ui::components::tree_pane::{
+pub(in crate::ui) use crate::ui::store::tree_pane_action::{
 	TreePaneAction, TreePaneNotice as NavigationNotice,
 };
 

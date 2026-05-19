@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::action::ShellAction;
+use crate::ui::app::{HeaderKindFilter, HeaderSearchState};
 use crate::ui::component::ComponentId;
-use crate::ui::components::search_bar::{HeaderKindFilter, HeaderSearchState};
 use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
 use crate::ui::features::explorer::{
 	ExplorerFeature, HeaderSearchResults, ROUTE_CHANGE, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW,
