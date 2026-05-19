@@ -1,6 +1,7 @@
 mod action;
 mod effect;
 mod header_search;
+mod navigation;
 mod state;
 mod store;
 
