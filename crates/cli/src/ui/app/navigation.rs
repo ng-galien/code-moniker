@@ -30,6 +30,7 @@ fn primary_tree_selection(target: NavigationSelection) -> NavigationAction {
 pub(in crate::ui) struct NavigationDispatchOutcome {
 	pub(in crate::ui) changed: bool,
 	pub(in crate::ui) selection_changed: bool,
+	pub(in crate::ui) primary_selection_changed: bool,
 	pub(in crate::ui) notice: TreePaneNotice,
 }
 
@@ -81,6 +82,7 @@ impl App {
 		action: NavigationAction,
 	) -> NavigationDispatchOutcome {
 		let before = self.selected_nav_row().map(|row| row.key.clone());
+		let before_primary = self.primary_selected_nav_row().map(|row| row.key.clone());
 		let (changed, effects) = {
 			let transition = self.app_store.dispatch_navigation(action);
 			(transition.changed, transition.take_effects())
@@ -94,6 +96,8 @@ impl App {
 		NavigationDispatchOutcome {
 			changed,
 			selection_changed,
+			primary_selection_changed: changed
+				&& before_primary != self.primary_selected_nav_row().map(|row| row.key.clone()),
 			notice: self.app_store.navigation().last_notice().clone(),
 		}
 	}
@@ -253,6 +257,9 @@ impl App {
 
 	pub(in crate::ui) fn apply_navigation(&mut self, action: NavigationAction) {
 		let outcome = self.dispatch_navigation(action);
+		if outcome.primary_selection_changed && self.usage_lens().is_some() {
+			self.refresh_usage_lens_for_primary_selection();
+		}
 		if outcome.changed {
 			self.sync_contextual_view();
 		}
@@ -282,7 +289,7 @@ mod tests {
 		write(
 			tmp.path(),
 			"src/services.ts",
-			"export class AlphaService {}\nexport class BetaService {}\n",
+			"export class AlphaService {}\nexport class BetaService {}\nexport function useAlpha() { return new AlphaService(); }\nexport function useBeta() { return new BetaService(); }\n",
 		);
 		let store = WorkspaceStore::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
@@ -296,6 +303,14 @@ mod tests {
 			tmp.path().join("rules.toml"),
 			None,
 		)
+	}
+
+	fn def_named(app: &App, name: &str) -> DefLocation {
+		app.store()
+			.all_navigable_defs()
+			.into_iter()
+			.find(|loc| app.store().symbol_summary(loc).name == name)
+			.unwrap_or_else(|| panic!("missing def {name}"))
 	}
 
 	#[test]
@@ -327,6 +342,39 @@ mod tests {
 			app.status().starts_with("opened ") || app.status().starts_with("closed "),
 			"status was {:?}",
 			app.status()
+		);
+	}
+
+	#[test]
+	fn primary_navigation_updates_open_usage_lens() {
+		let mut app = fixture_app();
+		let alpha = def_named(&app, "AlphaService");
+		let beta = def_named(&app, "BetaService");
+		let visible_defs = app.store().all_navigable_defs();
+		app.dispatch_navigation(NavigationAction::SetScope {
+			scope: NavigationScope::Filtered,
+			visible_defs,
+			reset_expansion: true,
+			expand_symbols: true,
+		});
+		app.focus_usages(alpha);
+		assert_eq!(
+			app.usage_lens().map(|focus| focus.label.as_str()),
+			Some("AlphaService")
+		);
+		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
+
+		app.apply_navigation(NavigationAction::Select {
+			pane: NavigationPane::Primary,
+			target: NavigationSelection::Def(beta),
+		});
+
+		let focus = app.usage_lens().expect("usage lens remains open");
+		assert_eq!(app.focus_region(), FocusRegion::Navigator);
+		assert_eq!(focus.label, "BetaService");
+		assert_eq!(
+			app.navigation().usage_view().map(|pane| pane.rows.len()),
+			Some(focus.contexts.len())
 		);
 	}
 }

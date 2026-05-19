@@ -59,6 +59,7 @@ pub(in crate::ui) enum ShellAction {
 		return_focus: bool,
 	},
 	SetUsageLens(Option<UsageFocus>),
+	ReplaceUsageLens(UsageFocus),
 	EnterChangeMode,
 	ReplaceActiveFilter(ActiveFilter),
 	SetChangePanel(ChangePanelMode),

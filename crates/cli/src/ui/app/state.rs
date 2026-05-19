@@ -284,6 +284,7 @@ impl AppState {
 			}
 			ShellAction::ClearFilter { return_focus } => self.clear_filter_action(*return_focus),
 			ShellAction::SetUsageLens(focus) => self.set_usage_lens_action(focus),
+			ShellAction::ReplaceUsageLens(focus) => self.replace_usage_lens_action(focus.clone()),
 			ShellAction::EnterChangeMode => {
 				self.update_shell(|shell| {
 					shell.mode = UiMode::Normal;
@@ -362,6 +363,15 @@ impl AppState {
 				FocusRegion::Navigator
 			};
 			shell.usage_lens = focus.clone();
+			shell.panel_policy = PanelPolicy::Contextual;
+			shell.panel_navigation = PanelNavigationState::default();
+		});
+		Transition::changed()
+	}
+
+	fn replace_usage_lens_action(&mut self, focus: UsageFocus) -> Transition {
+		self.update_shell(|shell| {
+			shell.usage_lens = Some(focus);
 			shell.panel_policy = PanelPolicy::Contextual;
 			shell.panel_navigation = PanelNavigationState::default();
 		});

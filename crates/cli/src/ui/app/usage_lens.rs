@@ -6,21 +6,45 @@ use crate::ui::store::navigation::NavigationAction;
 impl App {
 	pub(in crate::ui) fn focus_usages(&mut self, loc: DefLocation) {
 		let focus = self.store().usage_focus(loc);
+		let (label, refs_len, contexts_len) = self.set_usage_lens(focus, true);
+		self.sync_contextual_view();
+		self.set_status(format!(
+			"usage lens for {label}: {refs_len} reference(s), {contexts_len} navigable context(s)"
+		));
+	}
+
+	pub(in crate::ui) fn refresh_usage_lens_for_primary_selection(&mut self) {
+		let Some(loc) = self.primary_selected() else {
+			return;
+		};
+		let focus = self.store().usage_focus(loc);
+		let (label, refs_len, contexts_len) = self.set_usage_lens(focus, false);
+		self.set_status(format!(
+			"usage lens for {label}: {refs_len} reference(s), {contexts_len} navigable context(s)"
+		));
+	}
+
+	fn set_usage_lens(
+		&mut self,
+		focus: crate::workspace::UsageFocus,
+		move_focus: bool,
+	) -> (String, usize, usize) {
 		let label = focus.label.clone();
 		let refs_len = focus.refs.len();
 		let contexts_len = focus.contexts.len();
 		let visible_defs = focus.contexts.clone();
-		self.dispatch_shell(ShellAction::SetUsageLens(Some(focus)));
+		let expand_symbols = contexts_len <= 200;
+		if move_focus {
+			self.dispatch_shell(ShellAction::SetUsageLens(Some(focus)));
+		} else {
+			self.dispatch_shell(ShellAction::ReplaceUsageLens(focus));
+		}
 		self.dispatch_navigation(NavigationAction::SetUsageLens {
 			visible_defs,
 			reset_expansion: true,
-			expand_symbols: contexts_len <= 200,
+			expand_symbols,
 		});
-		self.sync_contextual_view();
-		self.set_status(format!(
-			"usage lens for {label}: {} reference(s), {} navigable context(s)",
-			refs_len, contexts_len
-		));
+		(label, refs_len, contexts_len)
 	}
 
 	pub(in crate::ui) fn focus_usages_of_selected(&mut self) {
