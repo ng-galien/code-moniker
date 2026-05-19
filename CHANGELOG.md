@@ -14,33 +14,8 @@ in `0.y.z`.
 ### Added
 
 - **`code-moniker ui`** — adds a read-only terminal architecture explorer
-  over the extracted graph. It reuses the shared cache, shows overview
-  metrics, declaration outlines, incoming/outgoing refs, regex name
-  filtering, source snippets, and an on-demand `.code-moniker.toml`
-  check summary.
-- **`code-moniker ui` search mode** — `s` opens a ranked symbol search
-  that feeds the contextual navigator, while `/` remains the structural
-  regex/kind filter.
-- **`code-moniker ui` search input** — active symbol searches now render
-  a dedicated search field above `ui.navigator`; the field is visibly
-  focused while editing.
-- **`code-moniker ui` panel snapshots** — `y` copies a plain-text
-  snapshot of the active right panel, including its stable component
-  marker, current mode, scope, and panel lines, to the system clipboard
-  without blocking the TUI event loop.
-- **`code-moniker ui` panel readability** — right-side panels now share a
-  structured presentation layer with bold sections, muted hints, reusable
-  key/value rows, tabular summaries, and theme-driven panel colors.
-- **`code-moniker ui` change mode** — `d` opens a Git-backed
-  `HEAD..worktree` view that filters `ui.navigator` to changed
-  declarations, marks changed symbols in explorer mode, reports roots
-  without Git in single-source and multi-source sessions, and lets `u`
-  toggle blast-radius usages without leaving change mode. Added,
-  modified, and removed declarations are represented in the change
-  navigator. The UI now keeps the store live through filesystem watchers:
-  source changes reload the in-memory index, while `.git` changes refresh
-  the Git overlay; generated build paths and custom cache directories
-  are ignored.
+  with navigator/search, snippets, refs, checks, Git change mode,
+  panel snapshots, clipboard support, and live source/Git refresh.
 - **`code-moniker extract --format text`** — extract now defaults to a
   moniker-only text output (`txt` alias supported). `--format tsv`
   remains available for metadata columns. Compact monikers use a concise
@@ -81,6 +56,11 @@ in `0.y.z`.
   metadata (`rust-test` / `proptest`), display names, disabled state
   from `#[ignore]`, and inline module hierarchy for ESAC-style test
   taxonomy consumers.
+- **`code-moniker-core` fixture contracts** — extractor fixtures now
+  carry adjacent `.expect.toml` contracts and inline `cm:` markers for
+  expected defs/refs across C#, Go, Java, Python, Rust, SQL, and
+  TypeScript. Missing contracts and unknown expectation fields now fail
+  the fixture test suite.
 
 ### Changed
 
@@ -100,126 +80,17 @@ in `0.y.z`.
   linear filesystem and namespace branches inline, so paths such as
   `src/main/java` and package chains such as `org.apache.bookkeeper`
   render as one IDE-style branch instead of one row per segment.
-- **`code-moniker ui`** — the left pane now defaults to a collapsible
-  navigator (`language -> directory -> file -> symbol`) instead of a
-  global declaration list.
-- **`code-moniker ui`** — filtering now narrows the navigator in place
-  instead of switching to a flat list. Filters keep ancestor context,
-  remain navigable with the same tree keys, and accept `kind:<kind>`
-  clauses such as `kind:interface Resolver`.
-- **`code-moniker ui`** — navigator rows now compact linear branches
-  (`lang -> dir -> file`) into one row and auto-open down to the first
-  real branch point, matching the compact tree output style.
-- **`code-moniker ui`** — TUI colors are now centralized behind theme
-  tokens for navigation, status, sections, and source snippets.
-- **`code-moniker ui`** — keyboard handling now follows a small
-  Elm-style `Msg -> update -> render` loop with explicit normal and
-  filter-editing modes. Moniker data access is isolated behind
-  `workspace::WorkspaceStore` read models, and the architecture profile
-  now guards that UI modules do not import raw graph/index/Git records.
-- **`code-moniker ui` internals** — `AppState::reduce_ui_msg` now owns
-  the `Msg` decision table and emits app-level
-  `Effect::RunCommand(AppCommand)` values; the runtime `App` interprets
-  those commands for workspace reads, navigation, async tasks,
-  clipboard, and checks. `Screen` is now a rendering contract only,
-  which keeps input orchestration out of view components.
-- **`code-moniker ui` internals** — runtime dispatch now drains effects
-  for nested shell actions as well as root messages, and filter scope
-  changes use named shell actions instead of a broad multi-field setter.
-- **`code-moniker ui` internals** — reducer calls that need a return
-  value now use typed reduction outcomes, removing ad hoc captured bools
-  and runtime quit flags from the UI shell.
-- **`code-moniker ui`** — visible component markers such as
-  `[ui.navigator]`, `[ui.panel.refs]`, and `[ui.status]` now identify
-  stable UI zones for bug reports, feedback, and future feature-module
-  contracts.
-- **`code-moniker ui`** — introduces the first contract-driven TUI shell
-  layer: typed `Route`, `Screen`, and `Feature` contracts, app-level
-  effects, a static feature registry, and an `ExplorerFeature` that
-  declares the
-  current overview/outline/refs/check navigation surface.
-- **`code-moniker ui`** — navigation state now sits behind a reusable
-  reactive store abstraction (`dispatch`, reducer, selector). The
-  navigator uses stable node identities for roots, files, symbols, and
-  changes, so full index reloads can preserve expanded branches and the
-  selected symbol instead of resetting the tree.
-- **`code-moniker ui`** — the shell now has the foundation for lazy
-  asynchronous work: app input is routed through `AppAction`, store
-  reducers return `Transition` values with effects, `Effect::Spawn`
-  queues typed task specs through a Rayon-backed runtime, and task
-  completion re-enters the UI as `ShellEvent::TaskCompleted`.
-- **`code-moniker ui`** — app-level state now separates durable shell
-  state from workspace data. `AppState` owns shell mode, route/view,
-  navigation, check state, and async work epochs, while
-  `WorkspaceStore` owns moniker data and read-model selectors. The work
-  catalog names lazy/async candidates without mirroring fake
-  file/symbol IDs in the UI store.
-- **`code-moniker ui`** — live filesystem and Git refreshes now queue
-  typed background tasks when the event loop is available. Full index
-  reloads and Git overlay refreshes run through the Rayon-backed task
-  runtime and return through `ShellEvent::TaskCompleted`, with a
-  synchronous fallback kept for direct unit tests.
-- **`code-moniker ui`** — startup now opens the terminal shell with an
-  empty boot store, then quickly loads a file-catalog store so the
-  navigator can show the directory/file tree before symbol extraction is
-  complete. The full index still loads through the background task
-  runtime; once ready, the app swaps in the loaded store and replaces
-  live watchers with the real source/Git roots.
-- **`code-moniker ui`** — async task results are now guarded by
-  work-kind epochs. The app store records task startup and ignores stale
-  background completions that arrive after a newer filesystem or Git
-  invalidation.
-- **`code-moniker ui`** — shell status messages now live in the
-  app-store shell slice instead of a mutable `App` field, making
-  terminal events, task completions, navigation notices, and clipboard
-  feedback part of the same reactive state model.
-- **`code-moniker ui`** — the architecture-check panel state is now
-  owned by the app store, starting the migration of right-panel data out
-  of the monolithic `App` struct.
-- **`code-moniker ui`** — shell route/view mode, filter drafts, active
-  filters, navigator state, and the live in-memory index now sit behind
-  `AppStore`. The check panel also runs through the background task
-  runtime when the event loop is active, keeping the UI migration aligned
-  with the reactive store model.
-- **`code-moniker workspace store`** — the long-lived moniker store now
-  lives outside `ui::store` as `workspace::WorkspaceStore`. It publishes
-  a `WorkspaceSnapshot` composed of the canonical `SessionIndex`, a Git
-  overlay, coverage and plan overlays, and a derived symbol-search index,
-  plus read models for symbols, references, source snippets, changes,
-  and blast-radius panels. Git refreshes now apply as overlay patches on
-  the current snapshot instead of replacing the full store.
-- **`code-moniker ui` internals** — `SessionIndex` now owns the empty
-  and file-catalog construction paths used by phased startup, avoiding
-  duplicate partial-index setup in the UI store adapter. Navigator
-  symbol ordering now comes from the store/language strategy only.
-- **`code-moniker ui` internals** — shell rendering now lives in
-  `ui::view`, while right-side panels are projected through semantic
-  `PanelVm` / `PanelSection` view models under `ui::panels`. Terminal
-  rendering and clipboard snapshots now consume the same panel
-  projection instead of duplicating panel-specific line builders inside
-  the `App` orchestration layer, and the architecture profile now keeps
-  `ratatui` imports out of panel view-models and builders.
+- **`code-moniker ui`** — the explorer moved to a compact
+  contract-driven shell: collapsible navigator, in-place filters,
+  stable component markers, themed panels, semantic refs/impact views,
+  reactive app/workspace stores, async background tasks, phased startup,
+  and live source/Git refresh.
+- **`code-moniker workspace store`** — UI graph access now goes through
+  `workspace::WorkspaceStore` read models over a `WorkspaceSnapshot`
+  with Git, coverage, plan, search, change, snippet, and refs views.
 - **`code-moniker-core`** — `CodeGraph` internal lookup and moniker
   caches now use thread-safe locks instead of `RefCell`, allowing
   session indexes to be moved through the UI task runtime.
-- **`code-moniker ui`** — visualization modes are now explicit UI
-  state. The header now carries only global orientation (`mode` and
-  `scope`), while contextual panels can follow navigator selection when
-  the view is not manually pinned.
-- **`code-moniker ui`** — the refs panel is now impact-oriented:
-  incoming references are shown before outgoing dependencies, and refs
-  sharing the same visual context are grouped into width-aware component
-  rows with aggregated kinds, location, confidence, and compact moniker
-  details instead of full moniker URIs.
-- **`code-moniker ui`** — declaration and reference kinds now use a
-  centralized theme palette, grouping callable, type-like, value, module,
-  reference, metadata, and fallback colors.
-- **`code-moniker ui`** — explorer symbols now sort by each language's
-  `KindSpec` order before source position, so types, callables, and
-  values appear in a stable semantic order.
-- **`code-moniker ui` / Java** — Java value members now sort before
-  callables in the explorer, so record component fields stay visible
-  before their generated accessors.
 - **`code-moniker-core`** — each language extractor now exposes a
   semantic definition-kind contract (`KindSpec`) with shape, display
   label, and ordering metadata. The UI consumes this contract for
@@ -237,24 +108,10 @@ in `0.y.z`.
 
 ### Fixed
 
-- **`code-moniker ui`** — un-compacted language rows in
-  `ui.navigator`, such as dogfood SQL roots split across fixtures and
-  pgTAP files, now render as containers with a trailing slash.
-- **`code-moniker ui`** — panel monikers now use the same compact
-  format as `extract`, for example
-  `rs:crates/cli/src/args.tests.test:no_args_requires_subcommand()`,
-  instead of `lang:`/`dir:` URI-like segments.
-- **`code-moniker ui` / `extract --format tree`** — tree rendering now
-  uses a shared language strategy for kind ordering, shape-driven colors,
-  and structural package/directory compaction instead of local ad hoc
-  ordering.
-- **`code-moniker ui`** — `ui.navigator` now reorders symbols after
-  flattening non-navigable containers such as Rust `mod tests`, so
-  tests and helper functions no longer jump ahead of type declarations.
-- **`code-moniker ui` change mode** — navigation inside files with
-  changes no longer recomputes Git change lookups or blast-radius refs
-  during each draw; the store now serves indexed change counts and cached
-  usage refs.
+- **`code-moniker ui`** — fixes navigator compaction/sorting, modal
+  filter and back behavior, compact panel monikers, source snippet
+  rendering, Rust function navigation, change-mode caching, and
+  multi-source usage navigation.
 - **`code-moniker-core` (rs extractor)** — Rust `const` and `static`
   items now emit defs matching the language kind contract.
 - **`code-moniker-core` (java extractor)** — Java record components now
@@ -264,37 +121,15 @@ in `0.y.z`.
 - **`code-moniker-core` (java extractor)** — `this`/`super` method calls
   no longer resolve to a same-name Java overload when the argument arity
   does not match.
-- **`code-moniker ui`** — filter entry is now modal: `/` edits a draft,
-  `Enter` applies it, `Esc` cancels editing, and normal-mode `x` clears
-  the active filter. Normal-mode `Esc` closes navigation nodes instead
-  of quitting the UI; use `q` or `Ctrl-C` for explicit exit.
-- **`code-moniker ui`** — `Esc`/left now behaves as a back action in
-  filtered modes: it closes navigation when possible, otherwise it
-  clears an empty or invalid search/usages scope and returns to
-  explorer mode.
 - **Cache correctness** — graph cache entries are invalidated for this
   release so Java record component fields/accessors are not hidden by
   stale graphs from older extractor semantics.
-- **`code-moniker ui`** — source snippets now preserve indentation and
-  use a light-theme-friendly editor palette with muted context lines,
-  a pale active-line background, and clearer line numbers.
 - **Cache correctness** — cache keys now include the extraction context
   (`--project` and TS path aliases), so changing context cannot reuse a
   graph extracted with stale monikers.
 - **Multi-source TS aliases** — TypeScript path aliases are rebased into
   their labelled source root, keeping `@/*` imports connected to the
   correct service when inspecting several roots together.
-- **`code-moniker ui`** — Rust `fn` declarations are now navigable, and
-  filter counters only count declarations that can actually appear in
-  the navigator.
-- **`code-moniker ui`** — multi-source navigator compaction now stops
-  before file and symbol rows, so single-file services remain visible as
-  source-root directory rows instead of looking like class-only entries.
-- **`code-moniker ui`** — pressing `u` on a selected declaration focuses
-  the navigator on usages of that symbol and shows the matching
-  references in the refs panel. For multi-source Java inspection, this
-  also matches compatible import targets across source roots, which makes
-  shared-library consumers visible from the library symbol.
 
 ## [0.2.0] — 2026-05-13
 
