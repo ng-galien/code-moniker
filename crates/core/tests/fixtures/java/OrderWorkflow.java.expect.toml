@@ -1,0 +1,58 @@
+root = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow"
+
+[[defs]]
+label = "OrderWorkflow"
+kind = "class"
+moniker = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow"
+visibility = "public"
+
+[[defs]]
+label = "OrderWorkflow.Status"
+kind = "enum"
+moniker = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status"
+parent = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow"
+
+[[defs]]
+label = "OrderWorkflow.Order"
+kind = "record"
+moniker = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order"
+parent = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow"
+
+[[defs]]
+label = "OrderWorkflow.OrderRepository"
+kind = "interface"
+moniker = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository"
+parent = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow"
+
+[[defs]]
+label = "OrderWorkflow.run"
+kind = "method"
+moniker = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()"
+parent = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow"
+
+[[refs]]
+kind = "implements"
+from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow"
+to = "code+moniker://app/external_pkg:java/path:lang/path:Runnable"
+confidence = "external"
+
+[[refs]]
+kind = "imports_symbol"
+from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow"
+to = "code+moniker://app/external_pkg:java/path:time/path:Clock"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order"
+to = "code+moniker://app/external_pkg:java/path:time/path:Instant"
+confidence = "external"
+
+[[refs]]
+label = "OrderWorkflow.run.calls.findExpired"
+kind = "method_call"
+from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()"
+to_contains = "/method:findExpired"
+
+[[absent.defs]]
+kind = "local"

@@ -1,0 +1,69 @@
+root = "code+moniker://app/lang:rs/module:async_jobs"
+
+[[defs]]
+label = "JobStatus"
+kind = "enum"
+moniker = "code+moniker://app/lang:rs/module:async_jobs/enum:JobStatus"
+visibility = "public"
+
+[[defs]]
+label = "Job"
+kind = "struct"
+moniker = "code+moniker://app/lang:rs/module:async_jobs/struct:Job"
+visibility = "public"
+
+[[defs]]
+label = "JobStore"
+kind = "trait"
+moniker = "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore"
+visibility = "public"
+
+[[defs]]
+label = "JobStore.reserve"
+kind = "method"
+moniker = "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:reserve()"
+parent = "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore"
+
+[[defs]]
+label = "MemoryStore"
+kind = "struct"
+moniker = "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore"
+visibility = "public"
+
+[[defs]]
+label = "MemoryStore.new"
+kind = "method"
+moniker = "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:new(queue:VecDeque<Job>)"
+parent = "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore"
+
+[[defs]]
+label = "run_once"
+kind = "fn"
+moniker = "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)"
+visibility = "public"
+
+[[refs]]
+kind = "imports_symbol"
+from = "code+moniker://app/lang:rs/module:async_jobs"
+to = "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
+confidence = "external"
+
+[[refs]]
+kind = "implements"
+from = "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore"
+to = "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:reserve()"
+to = "code+moniker://app/lang:rs/module:async_jobs/struct:Job"
+confidence = "resolved"
+
+[[refs]]
+label = "run_once.calls.reserve"
+kind = "method_call"
+from = "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)"
+to_contains = "/method:reserve"
+
+[[absent.defs]]
+kind = "local"

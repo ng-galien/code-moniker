@@ -1,0 +1,76 @@
+root = "code+moniker://app/lang:ts/module:imports"
+
+[[defs]]
+label = "schema const"
+kind = "const"
+moniker = "code+moniker://app/lang:ts/module:imports/const:schema"
+
+[[defs]]
+label = "widget const"
+kind = "const"
+moniker = "code+moniker://app/lang:ts/module:imports/const:widget"
+
+[[defs]]
+label = "boot function"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:imports/function:boot()"
+
+[[refs]]
+label = "side effect local import"
+kind = "imports_module"
+to = "code+moniker://app/lang:ts/module:polyfills"
+confidence = "imported"
+
+[[refs]]
+label = "scoped package aliased import"
+kind = "imports_symbol"
+to = "code+moniker://app/external_pkg:`@scope/datelib`/path:iso/path:format"
+confidence = "external"
+alias = "fmt"
+
+[[refs]]
+label = "zod type import"
+kind = "imports_symbol"
+to = "code+moniker://app/external_pkg:zod/path:Schema"
+confidence = "external"
+
+[[refs]]
+label = "renamed widget reexport"
+kind = "reexports"
+to = "code+moniker://app/lang:ts/module:widget/path:Widget"
+alias = "RenamedWidget"
+
+[[refs]]
+label = "boot calls aliased format"
+kind = "calls"
+from = "code+moniker://app/lang:ts/module:imports/function:boot()"
+to = "code+moniker://app/external_pkg:`@scope/datelib`/path:iso/function:fmt"
+confidence = "external"
+
+[[refs]]
+label = "boot calls fs stat"
+kind = "method_call"
+from = "code+moniker://app/lang:ts/module:imports/function:boot()"
+to = "code+moniker://app/external_pkg:node:fs/method:statSync"
+confidence = "external"
+
+[[refs]]
+label = "boot instantiates buffer"
+kind = "instantiates"
+from = "code+moniker://app/lang:ts/module:imports/function:boot()"
+to = "code+moniker://app/external_pkg:node:buffer/class:Buffer"
+confidence = "external"
+
+[[refs]]
+label = "boot calls helper"
+kind = "calls"
+from = "code+moniker://app/lang:ts/module:imports/function:boot()"
+to = "code+moniker://app/lang:ts/module:helper/function:helper"
+confidence = "imported"
+
+[[refs]]
+label = "boot calls util init"
+kind = "method_call"
+from = "code+moniker://app/lang:ts/module:imports/function:boot()"
+to = "code+moniker://app/lang:ts/module:util/method:init"
+confidence = "imported"

@@ -1,0 +1,519 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/cs/OrderWorkflow.cs
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/comment:144",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "position": [
+        144,
+        166
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "enum",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/enum:OrderStatus",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "position": [
+        167,
+        220
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/comment:222",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "position": [
+        222,
+        238
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "record",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/record:Order",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "position": [
+        239,
+        316
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/record:Order/constructor:Order(Id:string,Status:OrderStatus,CreatedAt:DateTimeOffset)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/record:Order",
+      "position": [
+        239,
+        316
+      ],
+      "signature": "Id:string,Status:OrderStatus,CreatedAt:DateTimeOffset",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/comment:318",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "position": [
+        318,
+        345
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "position": [
+        346,
+        529
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository",
+      "position": [
+        383,
+        472
+      ],
+      "signature": "now:DateTimeOffset,token:CancellationToken",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:CancelAsync(id:string,token:CancellationToken)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository",
+      "position": [
+        474,
+        527
+      ],
+      "signature": "id:string,token:CancellationToken",
+      "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/comment:531",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "position": [
+        531,
+        555
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "position": [
+        556,
+        1265
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/field:_repository",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow",
+      "position": [
+        627,
+        638
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/field:_timeProvider",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow",
+      "position": [
+        671,
+        684
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:IOrderRepository,timeProvider:TimeProvider)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow",
+      "position": [
+        688,
+        830
+      ],
+      "signature": "repository:IOrderRepository,timeProvider:TimeProvider",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/comment:833",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow",
+      "position": [
+        833,
+        876
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow",
+      "position": [
+        878,
+        1263
+      ],
+      "signature": "token:CancellationToken",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)/comment:950",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
+      "position": [
+        950,
+        1016
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "kind": "imports_module",
+      "position": [
+        22,
+        35
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "kind": "imports_module",
+      "position": [
+        36,
+        69
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "kind": "imports_module",
+      "position": [
+        70,
+        88
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Linq"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "kind": "imports_module",
+      "position": [
+        89,
+        112
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow",
+      "kind": "imports_module",
+      "position": [
+        113,
+        142
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)",
+      "kind": "uses_type",
+      "position": [
+        383,
+        387
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)",
+      "kind": "uses_type",
+      "position": [
+        388,
+        401
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IReadOnlyList"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)",
+      "kind": "uses_type",
+      "position": [
+        402,
+        407
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/record:Order"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)",
+      "kind": "uses_type",
+      "position": [
+        427,
+        441
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/class:DateTimeOffset"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)",
+      "kind": "uses_type",
+      "position": [
+        447,
+        464
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:CancelAsync(id:string,token:CancellationToken)",
+      "kind": "uses_type",
+      "position": [
+        474,
+        478
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:CancelAsync(id:string,token:CancellationToken)",
+      "kind": "uses_type",
+      "position": [
+        502,
+        519
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow",
+      "kind": "uses_type",
+      "position": [
+        610,
+        626
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow",
+      "kind": "uses_type",
+      "position": [
+        658,
+        670
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/class:TimeProvider"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:IOrderRepository,timeProvider:TimeProvider)",
+      "kind": "uses_type",
+      "position": [
+        709,
+        725
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:IOrderRepository,timeProvider:TimeProvider)",
+      "kind": "uses_type",
+      "position": [
+        738,
+        750
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/class:TimeProvider"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
+      "kind": "uses_type",
+      "position": [
+        891,
+        895
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
+      "kind": "uses_type",
+      "position": [
+        920,
+        937
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:CancellationToken"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
+      "kind": "method_call",
+      "position": [
+        1039,
+        1101
+      ],
+      "receiver_hint": "_repository",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/method:FindExpiredAsync"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
+      "kind": "method_call",
+      "position": [
+        1068,
+        1093
+      ],
+      "receiver_hint": "_timeProvider",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/method:GetUtcNow"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
+      "kind": "method_call",
+      "position": [
+        1127,
+        1176
+      ],
+      "receiver_hint": "expired",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/method:Where"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)",
+      "kind": "method_call",
+      "position": [
+        1191,
+        1231
+      ],
+      "receiver_hint": "_repository",
+      "to": "code+moniker://app/lang:cs/module:OrderWorkflow/method:CancelAsync"
+    }
+  ],
+  "root": "code+moniker://app/lang:cs/module:OrderWorkflow"
+}

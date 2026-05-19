@@ -1,0 +1,43 @@
+root = "code+moniker://app/lang:go/module:accounts"
+
+[[defs]]
+kind = "interface"
+moniker = "code+moniker://app/lang:go/module:accounts/interface:UserRepository"
+visibility = "public"
+
+[[defs]]
+kind = "method"
+moniker = "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)"
+parent = "code+moniker://app/lang:go/module:accounts/struct:InMemory"
+
+[[defs]]
+kind = "func"
+moniker = "code+moniker://app/lang:go/module:accounts/func:MakeID(email:string)"
+visibility = "public"
+
+[[refs]]
+kind = "imports_module"
+from = "code+moniker://app/lang:go/module:accounts"
+to = "code+moniker://app/external_pkg:strings"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:go/module:accounts/interface:UserRepository"
+to = "code+moniker://app/lang:go/module:accounts/struct:User"
+confidence = "resolved"
+
+[[refs]]
+kind = "instantiates"
+from = "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)"
+to = "code+moniker://app/lang:go/module:accounts/struct:ConflictError"
+confidence = "resolved"
+
+[[refs]]
+kind = "calls"
+from = "code+moniker://app/lang:go/module:accounts/func:MakeID(email:string)"
+to = "code+moniker://app/external_pkg:strings/func:ToLower"
+confidence = "external"
+
+[[absent.defs]]
+kind = "local"

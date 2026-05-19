@@ -1,0 +1,65 @@
+root = "code+moniker://app/lang:ts/module:orders"
+
+[[defs]]
+label = "OrderStatus"
+kind = "enum"
+moniker = "code+moniker://app/lang:ts/module:orders/enum:OrderStatus"
+visibility = "public"
+
+[[defs]]
+label = "Money"
+kind = "type"
+moniker = "code+moniker://app/lang:ts/module:orders/type:Money"
+visibility = "public"
+
+[[defs]]
+label = "OrderLine"
+kind = "interface"
+moniker = "code+moniker://app/lang:ts/module:orders/interface:OrderLine"
+visibility = "public"
+
+[[defs]]
+label = "Order"
+kind = "class"
+moniker = "code+moniker://app/lang:ts/module:orders/class:Order"
+visibility = "public"
+
+[[defs]]
+label = "Order.total"
+kind = "method"
+moniker = "code+moniker://app/lang:ts/module:orders/class:Order/method:total()"
+parent = "code+moniker://app/lang:ts/module:orders/class:Order"
+
+[[defs]]
+label = "priceOrder"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])"
+visibility = "public"
+
+[[refs]]
+kind = "imports_symbol"
+from = "code+moniker://app/lang:ts/module:orders"
+to = "code+moniker://app/external_pkg:crypto/path:randomUUID"
+confidence = "external"
+
+[[refs]]
+kind = "imports_symbol"
+from = "code+moniker://app/lang:ts/module:orders"
+to = "code+moniker://app/lang:ts/module:catalog/path:ProductCatalog"
+confidence = "imported"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])"
+to = "code+moniker://app/lang:ts/module:catalog/path:ProductCatalog"
+confidence = "imported"
+
+[[refs]]
+label = "priceOrder.instantiates.Order"
+kind = "instantiates"
+from = "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])"
+to = "code+moniker://app/lang:ts/module:orders/class:Order"
+confidence = "resolved"
+
+[[absent.defs]]
+kind = "local"

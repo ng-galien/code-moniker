@@ -13,10 +13,23 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "parent": "code+moniker://app/lang:rs/module:rust_tests",
       "position": [
         13,
-        244
+        381
       ],
       "signature": "",
       "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests/comment:26",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "position": [
+        26,
+        54
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "local",
@@ -25,11 +38,24 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
       "position": [
-        35,
-        55
+        65,
+        85
       ],
       "signature": "framework=rust-test;enabled=true;display=parses_order",
       "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests/comment:88",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "position": [
+        88,
+        126
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "local",
@@ -38,11 +64,24 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
       "position": [
-        78,
-        108
+        148,
+        178
       ],
       "signature": "framework=rust-test;enabled=false;display=skipped_without_reason",
       "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests/comment:181",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
+      "position": [
+        181,
+        216
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "local",
@@ -51,8 +90,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
       "position": [
-        161,
-        188
+        268,
+        295
       ],
       "signature": "framework=rust-test;enabled=false;display=skipped_with_reason;ignore=requires external service",
       "visibility": "private"
@@ -64,11 +103,24 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
       "position": [
-        191,
-        242
+        298,
+        379
       ],
       "signature": "",
       "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested/comment:313",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested",
+      "position": [
+        313,
+        340
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "local",
@@ -77,8 +129,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested",
       "position": [
-        216,
-        239
+        353,
+        376
       ],
       "signature": "framework=rust-test;enabled=true;display=keeps_hierarchy",
       "visibility": "private"
@@ -90,11 +142,24 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests",
       "position": [
-        246,
-        311
+        383,
+        484
       ],
       "signature": "",
       "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style/comment:408",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style",
+      "position": [
+        408,
+        442
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "local",
@@ -103,11 +168,24 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style",
       "position": [
-        280,
-        309
+        453,
+        482
       ],
       "signature": "framework=rust-test;enabled=true;display=top_level_module_test",
       "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/comment:486",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests",
+      "position": [
+        486,
+        527
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "local",
@@ -116,8 +194,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests",
       "position": [
-        328,
-        385
+        543,
+        600
       ],
       "signature": "",
       "visibility": "private"
@@ -129,8 +207,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests",
       "position": [
-        410,
-        508
+        698,
+        796
       ],
       "signature": "framework=proptest;enabled=true;display=round_trips",
       "visibility": "private"
@@ -142,11 +220,50 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_tests",
       "position": [
-        570,
-        618
+        902,
+        950
       ],
       "signature": "framework=proptest;enabled=false;display=ignored_property;ignore=slow property",
       "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/comment:662",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests",
+      "position": [
+        662,
+        696
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/comment:829",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests",
+      "position": [
+        829,
+        871
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_tests/comment:602",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_tests",
+      "position": [
+        602,
+        638
+      ],
+      "signature": "",
+      "visibility": ""
     }
   ],
   "refs": [
@@ -170,8 +287,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
       "kind": "annotates",
       "position": [
-        28,
-        32
+        58,
+        62
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
@@ -183,8 +300,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
       "kind": "annotates",
       "position": [
-        60,
-        64
+        130,
+        134
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
@@ -196,8 +313,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
       "kind": "annotates",
       "position": [
-        69,
-        75
+        139,
+        145
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/fn:ignore"
@@ -209,8 +326,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
       "kind": "annotates",
       "position": [
-        113,
-        149
+        220,
+        256
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/fn:ignore"
@@ -222,8 +339,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests",
       "kind": "annotates",
       "position": [
-        154,
-        158
+        261,
+        265
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
@@ -235,8 +352,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested",
       "kind": "annotates",
       "position": [
-        208,
-        212
+        345,
+        349
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
@@ -248,8 +365,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests/module:integration_style",
       "kind": "annotates",
       "position": [
-        273,
-        277
+        446,
+        450
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
@@ -261,8 +378,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests",
       "kind": "annotates",
       "position": [
-        315,
-        326
+        530,
+        541
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/fn:test"
@@ -274,8 +391,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests",
       "kind": "calls",
       "position": [
-        387,
-        642
+        639,
+        974
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/macro:proptest"
@@ -287,8 +404,8 @@ input_file: crates/core/tests/fixtures/rs/rust_tests.rs
       "from": "code+moniker://app/lang:rs/module:rust_tests",
       "kind": "reads",
       "position": [
-        387,
-        405
+        639,
+        657
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_tests/path:proptest"

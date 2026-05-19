@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 122
 expression: body
 input_file: crates/core/tests/fixtures/python/accounts.py
 ---
@@ -505,15 +504,15 @@ input_file: crates/core/tests/fixtures/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:python/module:accounts",
-      "kind": "method_call",
+      "kind": "calls",
       "position": [
         639,
         666
       ],
       "receiver_hint": "logging",
-      "to": "code+moniker://app/lang:python/module:accounts/method:getLogger"
+      "to": "code+moniker://app/external_pkg:logging/function:getLogger"
     },
     {
       "alias": "",
@@ -1137,7 +1136,7 @@ input_file: crates/core/tests/fixtures/python/accounts.py
         2940
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:accounts/function:make_id"
+      "to": "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)"
     },
     {
       "alias": "",
@@ -1532,7 +1531,7 @@ input_file: crates/core/tests/fixtures/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:InMemoryRepository/method:insert(user:User)",
       "kind": "method_call",
       "position": [

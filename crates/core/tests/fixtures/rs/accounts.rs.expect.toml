@@ -1,0 +1,35 @@
+root = "code+moniker://app/lang:rs/module:accounts"
+
+[[defs]]
+kind = "struct"
+moniker = "code+moniker://app/lang:rs/module:accounts/struct:User"
+visibility = "public"
+
+[[defs]]
+kind = "trait"
+moniker = "code+moniker://app/lang:rs/module:accounts/trait:UserRepository"
+visibility = "public"
+
+[[defs]]
+kind = "method"
+moniker = "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:insert(user:User)"
+parent = "code+moniker://app/lang:rs/module:accounts/trait:UserRepository"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:insert(user:User)"
+to = "code+moniker://app/lang:rs/module:accounts/struct:User"
+confidence = "resolved"
+
+[[refs]]
+kind = "instantiates"
+from = "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:new()"
+to = "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo"
+confidence = "resolved"
+
+[[refs]]
+kind = "method_call"
+to_contains = "/method:to_lowercase"
+
+[[absent.defs]]
+kind = "local"

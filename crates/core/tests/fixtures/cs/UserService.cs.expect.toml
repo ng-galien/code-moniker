@@ -1,0 +1,44 @@
+root = "code+moniker://app/lang:cs/module:UserService"
+
+[[defs]]
+kind = "record"
+moniker = "code+moniker://app/lang:cs/module:UserService/record:User"
+visibility = "public"
+
+[[defs]]
+kind = "interface"
+moniker = "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository"
+visibility = "public"
+
+[[defs]]
+kind = "method"
+moniker = "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)"
+parent = "code+moniker://app/lang:cs/module:UserService/class:UserService"
+
+[[refs]]
+kind = "imports_module"
+from = "code+moniker://app/lang:cs/module:UserService"
+to = "code+moniker://app/external_pkg:System/path:Collections/path:Generic"
+confidence = "external"
+
+[[refs]]
+kind = "extends"
+from = "code+moniker://app/lang:cs/module:UserService/class:InMemoryRepository"
+to = "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository"
+confidence = "resolved"
+
+[[refs]]
+kind = "instantiates"
+from = "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)"
+to = "code+moniker://app/lang:cs/module:UserService/record:User"
+confidence = "resolved"
+
+[[refs]]
+kind = "calls"
+from = "code+moniker://app/lang:cs/module:UserService/class:UserService/method:CreateAsync(email:string,name:string,tags:IReadOnlyList<string>)"
+to = "code+moniker://app/lang:cs/module:UserService/class:UserService/method:MakeId(email:string)"
+confidence = "name_match"
+
+[[absent.defs]]
+kind = "local"
+

@@ -16,7 +16,7 @@ mod kinds;
 mod strategy;
 
 use canonicalize::compute_module_moniker;
-use strategy::{Strategy, collect_callable_table, collect_type_table};
+use strategy::{CallableEntry, Strategy, collect_callable_table, collect_type_table};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
@@ -50,7 +50,7 @@ pub fn extract(
 		&module,
 		&mut type_table,
 	);
-	let mut callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>> = HashMap::new();
+	let mut callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry> = HashMap::new();
 	collect_callable_table(
 		tree.root_node(),
 		source.as_bytes(),

@@ -1,0 +1,19 @@
+root = "code+moniker://app/lang:ts/module:jsx_legacy"
+
+[[defs]]
+label = "app component"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:jsx_legacy/function:App()"
+
+[[refs]]
+label = "app reads greeting"
+kind = "reads"
+from = "code+moniker://app/lang:ts/module:jsx_legacy/function:App()"
+to = "code+moniker://app/lang:ts/module:jsx_legacy/function:Greeting"
+confidence = "imported"
+
+[[refs]]
+label = "render calls react dom"
+kind = "calls"
+to = "code+moniker://app/external_pkg:react-dom/function:render"
+confidence = "external"

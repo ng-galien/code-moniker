@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 125
 expression: body
 input_file: crates/core/tests/fixtures/cs/UserService.cs
 ---
@@ -605,6 +604,123 @@ input_file: crates/core/tests/fixtures/cs/UserService.cs
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:System/path:Exception"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:FindByIdAsync(id:string)",
+      "kind": "uses_type",
+      "position": [
+        1343,
+        1347
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:FindByIdAsync(id:string)",
+      "kind": "uses_type",
+      "position": [
+        1348,
+        1352
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:FindByEmailAsync(email:string)",
+      "kind": "uses_type",
+      "position": [
+        1382,
+        1386
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:FindByEmailAsync(email:string)",
+      "kind": "uses_type",
+      "position": [
+        1387,
+        1391
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:InsertAsync(user:User)",
+      "kind": "uses_type",
+      "position": [
+        1427,
+        1431
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:InsertAsync(user:User)",
+      "kind": "uses_type",
+      "position": [
+        1432,
+        1436
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:InsertAsync(user:User)",
+      "kind": "uses_type",
+      "position": [
+        1450,
+        1454
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:ScanAsync()",
+      "kind": "uses_type",
+      "position": [
+        1463,
+        1479
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:System/path:Collections/path:Generic/path:IAsyncEnumerable"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:cs/module:UserService/interface:IUserRepository/method:ScanAsync()",
+      "kind": "uses_type",
+      "position": [
+        1480,
+        1484
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:cs/module:UserService/record:User"
     },
     {
       "alias": "",

@@ -137,8 +137,12 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 			signature: signature.as_deref().unwrap_or_default(),
 			..DefAttrs::default()
 		};
+		let parent = m
+			.parent()
+			.filter(|parent| parent != scope && graph.contains(parent))
+			.unwrap_or_else(|| scope.clone());
 		let added = graph
-			.add_def_attrs(m.clone(), kind, scope, Some(position), &attrs)
+			.add_def_attrs(m.clone(), kind, &parent, Some(position), &attrs)
 			.is_ok();
 		if !added {
 			return;
@@ -154,12 +158,12 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 			let _ = graph.add_ref_attrs(&m, r.target, r.kind, Some(r.position), &attrs);
 		}
 
+		self.strategy
+			.before_body(node, kind, &m, self.source, graph);
 		if let Some(body_node) = body {
-			self.strategy
-				.before_body(node, kind, &m, self.source, graph);
 			self.walk(body_node, &m, graph);
-			self.strategy.after_body(kind, &m);
 		}
+		self.strategy.after_body(kind, &m);
 
 		self.strategy
 			.on_symbol_emitted(node, kind, &m, self.source, graph);

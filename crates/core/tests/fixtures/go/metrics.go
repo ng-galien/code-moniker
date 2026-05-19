@@ -24,12 +24,15 @@ var (
 )
 
 type (
+	// cm: def counter type
 	Counter    int64
 	Histogram  = []float64
+	// cm: def bucket spec
 	BucketSpec struct {
 		Lower float64
 		Upper float64
 	}
+	// cm: ref bucket alias uses bucket spec
 	AnyBucket = BucketSpec
 	Snapshot  interface {
 		Read() error
@@ -39,6 +42,7 @@ type (
 type Labels map[string]string
 
 type Reader interface {
+	// cm: ref reader embeds io reader
 	io.Reader
 	Read(p []byte) (int, error)
 }
@@ -54,20 +58,26 @@ type ledger struct {
 }
 
 type Pipeline struct {
+	// cm: def pipeline struct
 	Sampler
 	src   Reader
 	sinks []io.Writer
 	cfg   map[string]Counter
 }
 
+// cm: def new pipeline
 func newPipeline(src Reader, sinks ...io.Writer) *Pipeline {
+	// cm: ref new pipeline instantiates pipeline
 	return &Pipeline{src: src, sinks: sinks, cfg: map[string]Counter{}}
 }
 
+// cm: def push method
 func (p *Pipeline) Push(ctx context.Context, name string, vals ...float64) (Counter, *BucketSpec, error) {
 	id := ToUpper(name)
+	// cm: ref push instantiates bucket
 	bucket := &BucketSpec{Lower: 0, Upper: 1}
 	p.cfg[id] = Counter(len(vals))
+	// cm: ref push calls new sampler
 	merged := newSampler(p).labels()
 	_ = merged
 	return p.cfg[id], bucket, nil
@@ -98,6 +108,7 @@ func (s *Sampler) labels() Labels {
 	return s.Labels
 }
 
+// cm: def tally function
 func Tally(a, b int, marks []float64) (*BucketSpec, error) {
 	hist := prometheus.HistogramOpts{Name: "tally"}
 	spec := &BucketSpec{Lower: float64(a), Upper: float64(b)}

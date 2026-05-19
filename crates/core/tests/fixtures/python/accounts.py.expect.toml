@@ -1,0 +1,44 @@
+root = "code+moniker://app/lang:python/module:accounts"
+
+[[defs]]
+kind = "class"
+moniker = "code+moniker://app/lang:python/module:accounts/class:UserService"
+visibility = "public"
+
+[[defs]]
+kind = "method"
+moniker = "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])"
+parent = "code+moniker://app/lang:python/module:accounts/class:UserService"
+signature = "email:str,name:str,tags:Iterable[str]"
+
+[[defs]]
+kind = "function"
+moniker = "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)"
+visibility = "public"
+
+[[refs]]
+kind = "imports_module"
+from = "code+moniker://app/lang:python/module:accounts"
+to = "code+moniker://app/external_pkg:logging"
+confidence = "external"
+
+[[refs]]
+kind = "extends"
+from = "code+moniker://app/lang:python/module:accounts/class:UserRepository"
+to = "code+moniker://app/external_pkg:typing/function:Protocol"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:python/module:accounts/class:UserService/method:__init__(repo:UserRepository)"
+to = "code+moniker://app/lang:python/module:accounts/class:UserRepository"
+confidence = "resolved"
+
+[[refs]]
+kind = "calls"
+from = "code+moniker://app/lang:python/module:accounts/class:UserService/method:create(email:str,name:str,tags:Iterable[str])"
+to = "code+moniker://app/lang:python/module:accounts/function:make_id(email:str)"
+confidence = "name_match"
+
+[[absent.defs]]
+kind = "local"

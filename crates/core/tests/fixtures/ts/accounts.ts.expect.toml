@@ -1,0 +1,44 @@
+root = "code+moniker://app/lang:ts/module:accounts"
+
+[[defs]]
+kind = "interface"
+moniker = "code+moniker://app/lang:ts/module:accounts/interface:UserService"
+visibility = "public"
+binding = "export"
+
+[[defs]]
+kind = "method"
+moniker = "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)"
+parent = "code+moniker://app/lang:ts/module:accounts/class:UserController"
+
+[[defs]]
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)"
+visibility = "module"
+
+[[refs]]
+kind = "imports_symbol"
+from = "code+moniker://app/lang:ts/module:accounts"
+to = "code+moniker://app/lang:ts/module:repository/path:UserRepository"
+confidence = "imported"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)"
+to = "code+moniker://app/external_pkg:express/path:Request"
+confidence = "external"
+
+[[refs]]
+kind = "instantiates"
+from = "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)"
+to = "code+moniker://app/lang:ts/module:accounts/class:ValidationError"
+confidence = "resolved"
+
+[[refs]]
+kind = "calls"
+from = "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)"
+to = "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)"
+confidence = "resolved"
+
+[[absent.defs]]
+kind = "local"

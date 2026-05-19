@@ -1,0 +1,506 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/rs/async_jobs.rs
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/comment:33",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        33,
+        53
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "enum",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/enum:JobStatus",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        54,
+        102
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/comment:104",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        104,
+        118
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:Job",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        119,
+        178
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/comment:180",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        180,
+        199
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "trait",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        200,
+        325
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/comment:222",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore",
+      "position": [
+        222,
+        249
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:reserve()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore",
+      "position": [
+        251,
+        288
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:complete(id:&str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore",
+      "position": [
+        290,
+        323
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/comment:327",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        327,
+        349
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        350,
+        419
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/comment:441",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "position": [
+        441,
+        467
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:new(queue:VecDeque<Job>)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "position": [
+        469,
+        558
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:reserve()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "position": [
+        595,
+        661
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:complete(id:&str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "position": [
+        664,
+        735
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/comment:739",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        739,
+        758
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "fn",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs",
+      "position": [
+        759,
+        947
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)/comment:820",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
+      "position": [
+        820,
+        853
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:rs/module:async_jobs",
+      "kind": "imports_symbol",
+      "position": [
+        0,
+        31
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:rs/module:async_jobs",
+      "kind": "imports_module",
+      "position": [
+        0,
+        31
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:std/path:collections"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:Job",
+      "kind": "uses_type",
+      "position": [
+        166,
+        175
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/enum:JobStatus"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:reserve()",
+      "kind": "uses_type",
+      "position": [
+        276,
+        282
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Option"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:reserve()",
+      "kind": "uses_type",
+      "position": [
+        283,
+        286
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Job"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "kind": "uses_type",
+      "position": [
+        383,
+        391
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:VecDeque"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "kind": "uses_type",
+      "position": [
+        392,
+        395
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Job"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "kind": "uses_type",
+      "position": [
+        405,
+        408
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:new(queue:VecDeque<Job>)",
+      "kind": "uses_type",
+      "position": [
+        487,
+        495
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:VecDeque"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:new(queue:VecDeque<Job>)",
+      "kind": "uses_type",
+      "position": [
+        496,
+        499
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Job"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:new(queue:VecDeque<Job>)",
+      "kind": "instantiates",
+      "position": [
+        514,
+        555
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:new(queue:VecDeque<Job>)",
+      "kind": "instantiates",
+      "position": [
+        540,
+        550
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Vec"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
+      "kind": "implements",
+      "position": [
+        562,
+        737
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:reserve()",
+      "kind": "uses_type",
+      "position": [
+        620,
+        626
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Option"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:reserve()",
+      "kind": "uses_type",
+      "position": [
+        627,
+        630
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Job"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:reserve()",
+      "kind": "method_call",
+      "position": [
+        636,
+        658
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/method:pop_front"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:complete(id:&str)",
+      "kind": "method_call",
+      "position": [
+        701,
+        731
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/method:push"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:complete(id:&str)",
+      "kind": "method_call",
+      "position": [
+        716,
+        730
+      ],
+      "receiver_hint": "id",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/method:to_string"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
+      "kind": "method_call",
+      "position": [
+        871,
+        886
+      ],
+      "receiver_hint": "store",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/method:reserve"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "unresolved",
+      "from": "code+moniker://app/lang:rs/module:async_jobs/fn:run_once(store:&mutS)",
+      "kind": "method_call",
+      "position": [
+        915,
+        938
+      ],
+      "receiver_hint": "store",
+      "to": "code+moniker://app/lang:rs/module:async_jobs/method:complete"
+    }
+  ],
+  "root": "code+moniker://app/lang:rs/module:async_jobs"
+}

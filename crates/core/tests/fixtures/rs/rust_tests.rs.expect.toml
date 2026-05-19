@@ -1,0 +1,47 @@
+root = "code+moniker://app/lang:rs/module:rust_tests"
+
+[[defs]]
+label = "builtin unit test"
+kind = "test"
+moniker = "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:parses_order()"
+
+[[defs]]
+label = "ignored test without reason"
+kind = "test"
+moniker = "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_without_reason()"
+
+[[defs]]
+label = "ignored test with reason"
+kind = "test"
+moniker = "code+moniker://app/lang:rs/module:rust_tests/module:tests/test:skipped_with_reason()"
+
+[[defs]]
+label = "nested unit test"
+kind = "test"
+moniker = "code+moniker://app/lang:rs/module:rust_tests/module:tests/module:nested/test:keeps_hierarchy()"
+
+[[defs]]
+label = "module scoped unit test"
+kind = "test"
+moniker = "code+moniker://app/lang:rs/module:rust_tests/module:integration_style/test:top_level_module_test()"
+
+[[defs]]
+label = "tokio async is normal function"
+kind = "fn"
+moniker = "code+moniker://app/lang:rs/module:rust_tests/fn:async_runtime_test_is_not_builtin_rust_test()"
+
+[[defs]]
+label = "proptest generated test"
+kind = "test"
+moniker = "code+moniker://app/lang:rs/module:rust_tests/test:round_trips(bytes,size)"
+
+[[defs]]
+label = "ignored proptest generated test"
+kind = "test"
+moniker = "code+moniker://app/lang:rs/module:rust_tests/test:ignored_property(value)"
+
+[[refs]]
+label = "proptest macro unresolved"
+kind = "calls"
+to = "code+moniker://app/lang:rs/module:rust_tests/macro:proptest"
+confidence = "unresolved"

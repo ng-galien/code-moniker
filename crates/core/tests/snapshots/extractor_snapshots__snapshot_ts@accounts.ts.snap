@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 120
 expression: body
 input_file: crates/core/tests/fixtures/ts/accounts.ts
 ---
@@ -623,6 +622,97 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:create(input:CreateUserInput)",
+      "kind": "uses_type",
+      "position": [
+        1164,
+        1180
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:create(input:CreateUserInput)",
+      "kind": "uses_type",
+      "position": [
+        1172,
+        1179
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:repository/path:UserRow"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:create(input:CreateUserInput)",
+      "kind": "uses_type",
+      "position": [
+        1146,
+        1161
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:CreateUserInput"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:findById(id:string)",
+      "kind": "uses_type",
+      "position": [
+        1205,
+        1228
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:findById(id:string)",
+      "kind": "uses_type",
+      "position": [
+        1213,
+        1220
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:repository/path:UserRow"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:withTag(tag:string)",
+      "kind": "uses_type",
+      "position": [
+        1253,
+        1275
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/class:AsyncIterable"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:withTag(tag:string)",
+      "kind": "uses_type",
+      "position": [
+        1267,
+        1274
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:repository/path:UserRow"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/constructor:constructor(service:UserService)",
       "kind": "uses_type",
       "position": [
@@ -765,7 +855,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
       "kind": "instantiates",
       "position": [
@@ -1090,7 +1180,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)",
       "kind": "instantiates",
       "position": [

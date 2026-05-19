@@ -6,17 +6,69 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
 {
   "defs": [
     {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/comment:32",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs",
+      "position": [
+        32,
+        61
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
       "binding": "local",
       "kind": "fn",
       "moniker": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_refs",
       "position": [
-        32,
-        339
+        62,
+        454
       ],
       "signature": "",
       "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)/comment:114",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "position": [
+        114,
+        156
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)/comment:217",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
+      "position": [
+        217,
+        256
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/comment:456",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs",
+      "position": [
+        456,
+        490
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "local",
@@ -25,18 +77,31 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "origin": "extracted",
       "parent": "code+moniker://app/lang:rs/module:rust_refs",
       "position": [
-        341,
-        397
+        491,
+        603
       ],
       "signature": "",
       "visibility": "private"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:rs/module:rust_refs/fn:local_project_call()/comment:518",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:rust_refs/fn:local_project_call()",
+      "position": [
+        518,
+        572
+      ],
+      "signature": "",
+      "visibility": ""
     }
   ],
   "refs": [
     {
       "alias": "",
       "binding": "import",
-      "confidence": "",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:rust_refs",
       "kind": "imports_symbol",
       "position": [
@@ -49,7 +114,7 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
     {
       "alias": "",
       "binding": "import",
-      "confidence": "",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:rust_refs",
       "kind": "imports_module",
       "position": [
@@ -66,8 +131,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "uses_type",
       "position": [
-        53,
-        56
+        83,
+        86
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_refs/struct:Vec"
@@ -79,8 +144,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "uses_type",
       "position": [
-        69,
-        72
+        99,
+        102
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_refs/struct:Vec"
@@ -92,8 +157,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "instantiates",
       "position": [
-        99,
-        113
+        173,
+        187
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_refs/struct:HashMap"
@@ -105,8 +170,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "instantiates",
       "position": [
-        130,
-        140
+        204,
+        214
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_refs/struct:Vec"
@@ -118,8 +183,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "method_call",
       "position": [
-        156,
-        197
+        271,
+        312
       ],
       "receiver_hint": "call",
       "to": "code+moniker://app/external_pkg:std/path:prelude/method:map"
@@ -131,8 +196,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "method_call",
       "position": [
-        156,
-        174
+        271,
+        289
       ],
       "receiver_hint": "values",
       "to": "code+moniker://app/lang:rs/module:rust_refs/method:into_iter"
@@ -144,8 +209,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "method_call",
       "position": [
-        183,
-        196
+        298,
+        311
       ],
       "receiver_hint": "v",
       "to": "code+moniker://app/lang:rs/module:rust_refs/method:to_string"
@@ -157,8 +222,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "method_call",
       "position": [
-        205,
-        216
+        320,
+        331
       ],
       "receiver_hint": "value",
       "to": "code+moniker://app/lang:rs/module:rust_refs/method:len"
@@ -170,8 +235,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "method_call",
       "position": [
-        226,
-        265
+        341,
+        380
       ],
       "receiver_hint": "seen",
       "to": "code+moniker://app/lang:rs/module:rust_refs/method:insert"
@@ -183,8 +248,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "method_call",
       "position": [
-        238,
-        251
+        353,
+        366
       ],
       "receiver_hint": "value",
       "to": "code+moniker://app/lang:rs/module:rust_refs/method:clone"
@@ -196,8 +261,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "method_call",
       "position": [
-        253,
-        264
+        368,
+        379
       ],
       "receiver_hint": "value",
       "to": "code+moniker://app/lang:rs/module:rust_refs/method:len"
@@ -209,8 +274,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "method_call",
       "position": [
-        270,
-        285
+        385,
+        400
       ],
       "receiver_hint": "out",
       "to": "code+moniker://app/lang:rs/module:rust_refs/method:push"
@@ -222,8 +287,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)",
       "kind": "calls",
       "position": [
-        295,
-        337
+        410,
+        452
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:std/path:macros/macro:vec"
@@ -235,8 +300,8 @@ input_file: crates/core/tests/fixtures/rs/rust_refs.rs
       "from": "code+moniker://app/lang:rs/module:rust_refs/fn:local_project_call()",
       "kind": "calls",
       "position": [
-        368,
-        394
+        574,
+        600
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:rust_refs/fn:missing_project_function"

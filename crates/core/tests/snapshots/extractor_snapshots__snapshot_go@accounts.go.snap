@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 123
 expression: body
 input_file: crates/core/tests/fixtures/go/accounts.go
 ---
@@ -141,7 +140,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
       "kind": "method",
       "moniker": "code+moniker://app/lang:go/module:accounts/struct:ConflictError/method:Error()",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:accounts",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:ConflictError",
       "position": [
         970,
         1071
@@ -206,7 +205,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
       "kind": "method",
       "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByID(id:string)",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:accounts",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:InMemory",
       "position": [
         1819,
         2051
@@ -232,7 +231,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
       "kind": "method",
       "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByEmail(email:string)",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:accounts",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:InMemory",
       "position": [
         2053,
         2255
@@ -245,7 +244,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
       "kind": "method",
       "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:accounts",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:InMemory",
       "position": [
         2257,
         2651
@@ -284,7 +283,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
       "kind": "method",
       "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:accounts",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:InMemory",
       "position": [
         2865,
         3063

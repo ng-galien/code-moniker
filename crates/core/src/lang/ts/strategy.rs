@@ -34,6 +34,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) local_scope: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
 	pub(super) import_targets: RefCell<HashMap<Vec<u8>, Moniker>>,
+	pub(super) type_table: HashMap<Vec<u8>, Moniker>,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
 	pub(super) nested_funcs: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
 }
@@ -832,11 +833,19 @@ impl<'src_lang> Strategy<'src_lang> {
 						extend_segment(&self.import_or_local_module(n), kinds::CLASS, n)
 					} else if let Some(m) = self.lookup_local_binding(n) {
 						m
+					} else if let Some(m) = self.type_table.get(n) {
+						m.clone()
 					} else {
 						extend_segment(&self.module, kinds::CLASS, n)
 					};
 				let attrs = RefAttrs {
-					confidence,
+					confidence: if self.type_table.values().any(|m| m == &target)
+						|| graph.contains(&target)
+					{
+						kinds::CONF_RESOLVED
+					} else {
+						confidence
+					},
 					..RefAttrs::default()
 				};
 				let _ = graph.add_ref_attrs(scope, target, kinds::INSTANTIATES, Some(pos), &attrs);
@@ -1650,6 +1659,44 @@ pub(super) fn collect_callable_table<'src>(
 					(module.clone(), name.to_vec()),
 					CallableEntry { kind, segment: seg },
 				);
+			}
+		}
+		_ => {}
+	});
+}
+
+pub(super) fn collect_type_table<'src>(
+	root: Node<'src>,
+	source: &'src [u8],
+	module: &Moniker,
+	out: &mut HashMap<Vec<u8>, Moniker>,
+) {
+	visit_top_level(root, |child| match child.kind() {
+		"class_declaration" | "abstract_class_declaration" => {
+			if let Some(name_node) = child.child_by_field_name("name") {
+				let name = node_slice(name_node, source);
+				out.insert(name.to_vec(), extend_segment(module, kinds::CLASS, name));
+			}
+		}
+		"interface_declaration" => {
+			if let Some(name_node) = child.child_by_field_name("name") {
+				let name = node_slice(name_node, source);
+				out.insert(
+					name.to_vec(),
+					extend_segment(module, kinds::INTERFACE, name),
+				);
+			}
+		}
+		"enum_declaration" => {
+			if let Some(name_node) = child.child_by_field_name("name") {
+				let name = node_slice(name_node, source);
+				out.insert(name.to_vec(), extend_segment(module, kinds::ENUM, name));
+			}
+		}
+		"type_alias_declaration" => {
+			if let Some(name_node) = child.child_by_field_name("name") {
+				let name = node_slice(name_node, source);
+				out.insert(name.to_vec(), extend_segment(module, kinds::TYPE, name));
 			}
 		}
 		_ => {}

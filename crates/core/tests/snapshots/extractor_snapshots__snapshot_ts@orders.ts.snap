@@ -1,0 +1,584 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/ts/orders.ts
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:orders/comment:87",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        87,
+        109
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "enum",
+      "moniker": "code+moniker://app/lang:ts/module:orders/enum:OrderStatus",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        117,
+        197
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:ts/module:orders/enum:OrderStatus/enum_constant:Draft",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/enum:OrderStatus",
+      "position": [
+        137,
+        152
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:ts/module:orders/enum:OrderStatus/enum_constant:Paid",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/enum:OrderStatus",
+      "position": [
+        155,
+        168
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:ts/module:orders/enum:OrderStatus/enum_constant:Cancelled",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/enum:OrderStatus",
+      "position": [
+        171,
+        194
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:orders/comment:199",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        199,
+        215
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:ts/module:orders/type:Money",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        223,
+        275
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:orders/comment:277",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        277,
+        297
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:ts/module:orders/interface:OrderLine",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        305,
+        376
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:orders/interface:OrderLine/field:sku",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/interface:OrderLine",
+      "position": [
+        328,
+        339
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:orders/interface:OrderLine/field:quantity",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/interface:OrderLine",
+      "position": [
+        342,
+        358
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:orders/interface:OrderLine/field:price",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/interface:OrderLine",
+      "position": [
+        361,
+        373
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:orders/comment:378",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        378,
+        394
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:ts/module:orders/class:Order",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        402,
+        811
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:orders/class:Order/field:id",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/class:Order",
+      "position": [
+        417,
+        443
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:ts/module:orders/class:Order/field:status",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/class:Order",
+      "position": [
+        446,
+        493
+      ],
+      "signature": "",
+      "visibility": "private"
+    },
+    {
+      "binding": "export",
+      "kind": "constructor",
+      "moniker": "code+moniker://app/lang:ts/module:orders/class:Order/constructor:constructor(lines:OrderLine[])",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/class:Order",
+      "position": [
+        497,
+        575
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:orders/class:Order/comment:578",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/class:Order",
+      "position": [
+        578,
+        600
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/class:Order",
+      "position": [
+        602,
+        751
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:ts/module:orders/class:Order/method:markPaid()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/class:Order",
+      "position": [
+        754,
+        809
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:orders/comment:813",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        813,
+        834
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders",
+      "position": [
+        842,
+        1171
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])/comment:1103",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "position": [
+        1103,
+        1143
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:orders",
+      "kind": "imports_symbol",
+      "position": [
+        0,
+        36
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:crypto/path:randomUUID"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:orders",
+      "kind": "imports_symbol",
+      "position": [
+        37,
+        85
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:catalog/path:ProductCatalog"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/interface:OrderLine/field:price",
+      "kind": "uses_type",
+      "position": [
+        368,
+        373
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/class:Money"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/field:status",
+      "kind": "uses_type",
+      "position": [
+        462,
+        473
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/class:OrderStatus"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/field:status",
+      "kind": "reads",
+      "position": [
+        476,
+        487
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/function:OrderStatus"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/constructor:constructor(lines:OrderLine[])",
+      "kind": "uses_type",
+      "position": [
+        532,
+        541
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/class:OrderLine"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/constructor:constructor(lines:OrderLine[])",
+      "kind": "calls",
+      "position": [
+        559,
+        571
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:crypto/function:randomUUID"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
+      "kind": "uses_type",
+      "position": [
+        611,
+        616
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/class:Money"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
+      "kind": "method_call",
+      "position": [
+        635,
+        710
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:ts/module:orders/method:reduce"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
+      "kind": "reads",
+      "position": [
+        668,
+        671
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/function:sum"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
+      "kind": "reads",
+      "position": [
+        674,
+        678
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/function:line"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
+      "kind": "reads",
+      "position": [
+        693,
+        697
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/function:line"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:markPaid()",
+      "kind": "reads",
+      "position": [
+        789,
+        800
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/function:OrderStatus"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "kind": "uses_type",
+      "position": [
+        910,
+        924
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "kind": "uses_type",
+      "position": [
+        918,
+        923
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/class:Order"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "imported",
+      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "kind": "uses_type",
+      "position": [
+        877,
+        891
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:catalog/path:ProductCatalog"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "kind": "method_call",
+      "position": [
+        948,
+        1100
+      ],
+      "receiver_hint": "Promise",
+      "to": "code+moniker://app/lang:ts/module:orders/method:all"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "kind": "method_call",
+      "position": [
+        963,
+        1096
+      ],
+      "receiver_hint": "skus",
+      "to": "code+moniker://app/lang:ts/module:orders/method:map"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "kind": "method_call",
+      "position": [
+        1014,
+        1036
+      ],
+      "receiver_hint": "catalog",
+      "to": "code+moniker://app/lang:ts/module:orders/method:findBySku"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "kind": "reads",
+      "position": [
+        1050,
+        1053
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/function:sku"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "kind": "instantiates",
+      "position": [
+        1152,
+        1168
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:orders/class:Order"
+    }
+  ],
+  "root": "code+moniker://app/lang:ts/module:orders"
+}

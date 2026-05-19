@@ -1,0 +1,65 @@
+root = "code+moniker://app/lang:go/module:metrics"
+
+[[defs]]
+label = "counter type"
+kind = "type"
+moniker = "code+moniker://app/lang:go/module:metrics/type:Counter"
+
+[[defs]]
+label = "bucket spec"
+kind = "struct"
+moniker = "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
+
+[[defs]]
+label = "pipeline struct"
+kind = "struct"
+moniker = "code+moniker://app/lang:go/module:metrics/struct:Pipeline"
+
+[[defs]]
+label = "new pipeline"
+kind = "func"
+moniker = "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)"
+
+[[defs]]
+label = "push method"
+kind = "method"
+moniker = "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)"
+parent = "code+moniker://app/lang:go/module:metrics/struct:Pipeline"
+
+[[defs]]
+label = "tally function"
+kind = "func"
+moniker = "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)"
+
+[[refs]]
+label = "bucket alias uses bucket spec"
+kind = "uses_type"
+to = "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
+confidence = "resolved"
+
+[[refs]]
+label = "reader embeds io reader"
+kind = "extends"
+to = "code+moniker://app/external_pkg:io/struct:Reader"
+confidence = "external"
+
+[[refs]]
+label = "new pipeline instantiates pipeline"
+kind = "instantiates"
+from = "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)"
+to = "code+moniker://app/lang:go/module:metrics/struct:Pipeline"
+confidence = "resolved"
+
+[[refs]]
+label = "push instantiates bucket"
+kind = "instantiates"
+from = "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)"
+to = "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
+confidence = "resolved"
+
+[[refs]]
+label = "push calls new sampler"
+kind = "calls"
+from = "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)"
+to = "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)"
+confidence = "resolved"

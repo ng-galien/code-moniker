@@ -1,0 +1,66 @@
+root = "code+moniker://app/lang:python/module:jobs"
+
+[[defs]]
+label = "Job"
+kind = "class"
+moniker = "code+moniker://app/lang:python/module:jobs/class:Job"
+visibility = "public"
+
+[[defs]]
+label = "JobStore"
+kind = "class"
+moniker = "code+moniker://app/lang:python/module:jobs/class:JobStore"
+visibility = "public"
+
+[[defs]]
+label = "worker_span"
+kind = "async_function"
+moniker = "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)"
+signature = "job:Job"
+
+[[defs]]
+label = "Worker.__init__"
+kind = "method"
+moniker = "code+moniker://app/lang:python/module:jobs/class:Worker/method:__init__(store:JobStore)"
+parent = "code+moniker://app/lang:python/module:jobs/class:Worker"
+
+[[defs]]
+label = "Worker.run_once"
+kind = "method"
+moniker = "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()"
+parent = "code+moniker://app/lang:python/module:jobs/class:Worker"
+
+[[refs]]
+kind = "imports_symbol"
+from = "code+moniker://app/lang:python/module:jobs"
+to = "code+moniker://app/external_pkg:contextlib/function:asynccontextmanager"
+confidence = "external"
+
+[[refs]]
+kind = "extends"
+from = "code+moniker://app/lang:python/module:jobs/class:JobStore"
+to = "code+moniker://app/external_pkg:typing/function:Protocol"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:python/module:jobs/class:Worker/method:__init__(store:JobStore)"
+to = "code+moniker://app/lang:python/module:jobs/class:JobStore"
+confidence = "resolved"
+
+[[refs]]
+label = "Worker.run_once.calls.worker_span"
+kind = "calls"
+from = "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()"
+to = "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)"
+confidence = "name_match"
+
+[[refs]]
+label = "Worker.run_once.calls.asyncio.sleep"
+kind = "calls"
+from = "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()"
+to = "code+moniker://app/external_pkg:asyncio/function:sleep"
+confidence = "external"
+
+[[absent.defs]]
+kind = "local"

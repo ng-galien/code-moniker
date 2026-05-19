@@ -1,0 +1,32 @@
+root = "code+moniker://app/lang:rs/module:rust_refs"
+
+[[defs]]
+label = "normalize function"
+kind = "fn"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)"
+
+[[defs]]
+label = "local unresolved caller"
+kind = "fn"
+moniker = "code+moniker://app/lang:rs/module:rust_refs/fn:local_project_call()"
+
+[[refs]]
+label = "normalize instantiates hash map"
+kind = "instantiates"
+from = "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)"
+to = "code+moniker://app/lang:rs/module:rust_refs/struct:HashMap"
+confidence = "name_match"
+
+[[refs]]
+label = "normalize calls iterator map"
+kind = "method_call"
+from = "code+moniker://app/lang:rs/module:rust_refs/fn:normalize(values:Vec<String>)"
+to = "code+moniker://app/external_pkg:std/path:prelude/method:map"
+confidence = "external"
+
+[[refs]]
+label = "missing project function remains unresolved"
+kind = "calls"
+from = "code+moniker://app/lang:rs/module:rust_refs/fn:local_project_call()"
+to = "code+moniker://app/lang:rs/module:rust_refs/fn:missing_project_function"
+confidence = "unresolved"

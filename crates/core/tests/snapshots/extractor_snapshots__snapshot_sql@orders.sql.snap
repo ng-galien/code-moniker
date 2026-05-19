@@ -1,0 +1,246 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/sql/orders.sql
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:orders/comment:35",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:orders",
+      "position": [
+        35,
+        52
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "table",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:orders",
+      "position": [
+        53,
+        228
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:orders/comment:231",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:orders",
+      "position": [
+        231,
+        254
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "table",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:orders",
+      "position": [
+        255,
+        420
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:orders/comment:423",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:orders",
+      "position": [
+        423,
+        453
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "function",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:orders",
+      "position": [
+        454,
+        881
+      ],
+      "signature": "p_before:timestamptz",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:sql/module:orders/comment:884",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:orders",
+      "position": [
+        884,
+        906
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "view",
+      "moniker": "code+moniker://app/lang:sql/module:orders/schema:shop/view:open_orders",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:sql/module:orders",
+      "position": [
+        907,
+        1144
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders",
+      "kind": "uses_type",
+      "position": [
+        96,
+        100
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:uuid"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders",
+      "kind": "uses_type",
+      "position": [
+        130,
+        134
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:uuid"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders",
+      "kind": "uses_type",
+      "position": [
+        161,
+        165
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders",
+      "kind": "uses_type",
+      "position": [
+        192,
+        203
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:timestamptz"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events",
+      "kind": "uses_type",
+      "position": [
+        301,
+        305
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:uuid"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events",
+      "kind": "uses_type",
+      "position": [
+        356,
+        360
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:text"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events",
+      "kind": "uses_type",
+      "position": [
+        384,
+        395
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:timestamptz"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)",
+      "kind": "uses_type",
+      "position": [
+        504,
+        515
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:timestamptz"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)",
+      "kind": "uses_type",
+      "position": [
+        525,
+        532
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:int4"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:sql/module:orders/schema:shop/view:open_orders",
+      "kind": "calls",
+      "position": [
+        971,
+        971
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:pg_catalog/path:count"
+    }
+  ],
+  "root": "code+moniker://app/lang:sql/module:orders"
+}

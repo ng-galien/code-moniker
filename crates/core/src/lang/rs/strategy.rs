@@ -23,6 +23,7 @@ pub(super) struct Strategy<'src> {
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) type_params: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+	pub(super) type_table: HashMap<Vec<u8>, Moniker>,
 	pub(super) in_trait_impl: Cell<bool>,
 	pub(super) imported_modules: RefCell<HashSet<Moniker>>,
 }
@@ -45,7 +46,9 @@ impl<'a> LangStrategy for Strategy<'a> {
 			"const_item" => self.classify_simple_def(node, scope, source, kinds::CONST),
 			"static_item" => self.classify_simple_def(node, scope, source, kinds::STATIC),
 			"trait_item" => self.classify_trait(node, scope, source, graph),
-			"function_item" => self.classify_function(node, scope, source),
+			"function_item" | "function_signature_item" => {
+				self.classify_function(node, scope, source)
+			}
 			"impl_item" => {
 				self.handle_impl(node, source, graph);
 				NodeShape::Skip
@@ -416,14 +419,34 @@ impl<'src_lang> Strategy<'src_lang> {
 		collect_use_leaves(arg, self.source_bytes, &mut Vec::new(), &mut leaves);
 		for path in leaves {
 			let target = self.build_use_target(&path);
-			let _ = graph.add_ref(parent, target.clone(), kinds::IMPORTS_SYMBOL, Some(pos));
+			let attrs = RefAttrs {
+				confidence: import_confidence(&target),
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(
+				parent,
+				target.clone(),
+				kinds::IMPORTS_SYMBOL,
+				Some(pos),
+				&attrs,
+			);
 			if let Some(parent_module) = drop_leaf_segment(&target)
 				&& self
 					.imported_modules
 					.borrow_mut()
 					.insert(parent_module.clone())
 			{
-				let _ = graph.add_ref(parent, parent_module, kinds::IMPORTS_MODULE, Some(pos));
+				let attrs = RefAttrs {
+					confidence: import_confidence(&parent_module),
+					..RefAttrs::default()
+				};
+				let _ = graph.add_ref_attrs(
+					parent,
+					parent_module,
+					kinds::IMPORTS_MODULE,
+					Some(pos),
+					&attrs,
+				);
 			}
 		}
 	}
@@ -1001,9 +1024,14 @@ impl<'src_lang> Strategy<'src_lang> {
 		if self.is_type_param_in_scope(name) {
 			return;
 		}
-		let target = extend_segment(&self.module, kinds::STRUCT, name);
+		let target = self.resolve_type_target(name);
 		let attrs = RefAttrs {
-			confidence: kinds::CONF_NAME_MATCH,
+			confidence: if self.type_table.values().any(|m| m == &target) || graph.contains(&target)
+			{
+				kinds::CONF_RESOLVED
+			} else {
+				kinds::CONF_NAME_MATCH
+			},
 			..RefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(
@@ -1013,6 +1041,13 @@ impl<'src_lang> Strategy<'src_lang> {
 			Some(node_position(name_node)),
 			&attrs,
 		);
+	}
+
+	fn resolve_type_target(&self, name: &[u8]) -> Moniker {
+		if let Some(target) = self.type_table.get(name) {
+			return target.clone();
+		}
+		extend_segment(&self.module, kinds::STRUCT, name)
 	}
 
 	fn recurse_subtree(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
@@ -1180,6 +1215,48 @@ pub(super) fn collect_callable_table<'src>(
 	}
 }
 
+pub(super) fn collect_type_table<'src>(
+	node: Node<'src>,
+	source: &'src [u8],
+	parent: &Moniker,
+	out: &mut HashMap<Vec<u8>, Moniker>,
+) {
+	let mut cursor = node.walk();
+	for child in node.children(&mut cursor) {
+		match child.kind() {
+			"struct_item" | "enum_item" | "trait_item" | "type_item" => {
+				let Some(name_node) = child.child_by_field_name("name") else {
+					continue;
+				};
+				let name = node_slice(name_node, source);
+				let kind: &[u8] = match child.kind() {
+					"struct_item" => kinds::STRUCT,
+					"enum_item" => kinds::ENUM,
+					"trait_item" => kinds::TRAIT,
+					"type_item" => kinds::TYPE,
+					_ => continue,
+				};
+				let scope = extend_segment(parent, kind, name);
+				out.insert(name.to_vec(), scope.clone());
+				if let Some(body) = child.child_by_field_name("body") {
+					collect_type_table(body, source, &scope, out);
+				}
+			}
+			"mod_item" => {
+				let Some(name_node) = child.child_by_field_name("name") else {
+					continue;
+				};
+				let name = node_slice(name_node, source);
+				let scope = extend_segment(parent, kinds::MODULE, name);
+				if let Some(body) = child.child_by_field_name("body") {
+					collect_type_table(body, source, &scope, out);
+				}
+			}
+			_ => collect_type_table(child, source, parent, out),
+		}
+	}
+}
+
 fn enclosing_callable_moniker(scope: &Moniker) -> Option<Moniker> {
 	enclosing_segment(scope, |kind| kind == kinds::FN || kind == kinds::METHOD)
 }
@@ -1254,6 +1331,17 @@ fn drop_leaf_segment(target: &Moniker) -> Option<Moniker> {
 	let mut b = MonikerBuilder::from_view(view);
 	b.truncate(depth - 1);
 	Some(b.build())
+}
+
+fn import_confidence(target: &Moniker) -> &'static [u8] {
+	let Some(head) = target.as_view().segments().next() else {
+		return b"";
+	};
+	if head.kind == kinds::EXTERNAL_PKG {
+		kinds::CONF_EXTERNAL
+	} else {
+		kinds::CONF_IMPORTED
+	}
 }
 
 fn type_name_text<'a>(node: Node<'_>, source: &'a [u8]) -> Option<&'a str> {

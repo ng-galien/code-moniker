@@ -1,0 +1,74 @@
+root = "code+moniker://app/lang:ts/module:closures"
+
+[[defs]]
+label = "make stringer"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeStringer()"
+
+[[defs]]
+label = "local type in function"
+kind = "type"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeStringer()/type:Local"
+parent = "code+moniker://app/lang:ts/module:closures/function:makeStringer()"
+
+[[defs]]
+label = "inner function using local type"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeStringer()/function:inner(x:Local)"
+parent = "code+moniker://app/lang:ts/module:closures/function:makeStringer()"
+
+[[defs]]
+label = "make shaper"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeShaper()"
+
+[[defs]]
+label = "local interface in function"
+kind = "interface"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape"
+
+[[defs]]
+label = "make mode"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeMode()"
+
+[[defs]]
+label = "local enum in function"
+kind = "enum"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode"
+
+[[defs]]
+label = "make builder"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeBuilder()"
+
+[[defs]]
+label = "local class in function"
+kind = "class"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local"
+
+[[defs]]
+label = "builder function"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()"
+
+[[refs]]
+label = "client uses local shape"
+kind = "uses_type"
+from = "code+moniker://app/lang:ts/module:closures/function:makeShaper()/function:client(s:Shape)"
+to = "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape"
+confidence = "name_match"
+
+[[refs]]
+label = "pick uses local enum"
+kind = "uses_type"
+from = "code+moniker://app/lang:ts/module:closures/function:makeMode()/function:pick(m:Mode)"
+to = "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode"
+confidence = "name_match"
+
+[[refs]]
+label = "build instantiates local class"
+kind = "instantiates"
+from = "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()"
+to = "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local"
+confidence = "resolved"

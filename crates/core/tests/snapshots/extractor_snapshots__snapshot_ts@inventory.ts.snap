@@ -1,11 +1,36 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 120
 expression: body
 input_file: crates/core/tests/fixtures/ts/inventory.ts
 ---
 {
   "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:175",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        175,
+        210
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:238",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        238,
+        259
+      ],
+      "signature": "",
+      "visibility": ""
+    },
     {
       "binding": "export",
       "kind": "enum",
@@ -13,8 +38,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        209,
-        257
+        267,
+        315
       ],
       "signature": "",
       "visibility": "public"
@@ -26,8 +51,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/enum:Stock",
       "position": [
-        223,
-        232
+        281,
+        290
       ],
       "signature": "",
       "visibility": ""
@@ -39,8 +64,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/enum:Stock",
       "position": [
-        235,
-        242
+        293,
+        300
       ],
       "signature": "",
       "visibility": ""
@@ -52,8 +77,21 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/enum:Stock",
       "position": [
-        245,
-        254
+        303,
+        312
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:317",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        317,
+        347
       ],
       "signature": "",
       "visibility": ""
@@ -65,8 +103,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        266,
-        361
+        355,
+        450
       ],
       "signature": "",
       "visibility": "public"
@@ -78,8 +116,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo",
       "position": [
-        288,
-        325
+        377,
+        414
       ],
       "signature": "",
       "visibility": "public"
@@ -91,11 +129,24 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo",
       "position": [
-        328,
-        358
+        417,
+        447
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:452",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        452,
+        477
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -104,8 +155,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        370,
-        416
+        485,
+        531
       ],
       "signature": "",
       "visibility": "public"
@@ -117,8 +168,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/interface:Item",
       "position": [
-        388,
-        398
+        503,
+        513
       ],
       "signature": "",
       "visibility": "public"
@@ -130,8 +181,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/interface:Item",
       "position": [
-        401,
-        413
+        516,
+        528
       ],
       "signature": "",
       "visibility": "public"
@@ -143,11 +194,24 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        424,
-        488
+        565,
+        629
       ],
       "signature": "",
       "visibility": "module"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:533",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        533,
+        558
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "local",
@@ -156,11 +220,24 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        497,
-        527
+        638,
+        668
       ],
       "signature": "",
       "visibility": "module"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:689",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        689,
+        715
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -169,8 +246,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        555,
-        689
+        723,
+        893
       ],
       "signature": "",
       "visibility": "public"
@@ -182,8 +259,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:BaseItem",
       "position": [
-        573,
-        618
+        741,
+        786
       ],
       "signature": "",
       "visibility": "public"
@@ -195,11 +272,37 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:BaseItem",
       "position": [
-        621,
-        687
+        789,
+        891
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:BaseItem/method:describe()/comment:812",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:BaseItem/method:describe()",
+      "position": [
+        812,
+        845
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:920",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        920,
+        949
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -208,8 +311,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        723,
-        808
+        957,
+        1042
       ],
       "signature": "",
       "visibility": "public"
@@ -221,11 +324,24 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:AuditedItem",
       "position": [
-        761,
-        806
+        995,
+        1040
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:1044",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory",
+      "position": [
+        1044,
+        1072
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -234,8 +350,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        817,
-        1069
+        1080,
+        1332
       ],
       "signature": "",
       "visibility": "public"
@@ -247,8 +363,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo",
       "position": [
-        857,
-        901
+        1120,
+        1164
       ],
       "signature": "",
       "visibility": "private"
@@ -260,8 +376,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo",
       "position": [
-        905,
-        990
+        1168,
+        1253
       ],
       "signature": "",
       "visibility": "public"
@@ -273,8 +389,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo",
       "position": [
-        993,
-        1067
+        1256,
+        1330
       ],
       "signature": "",
       "visibility": "public"
@@ -282,12 +398,12 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
     {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:1071",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/comment:1334",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        1071,
-        1120
+        1334,
+        1383
       ],
       "signature": "",
       "visibility": ""
@@ -299,8 +415,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory",
       "position": [
-        1148,
-        1933
+        1448,
+        2423
       ],
       "signature": "",
       "visibility": "public"
@@ -312,8 +428,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
       "position": [
-        1174,
-        1222
+        1474,
+        1522
       ],
       "signature": "",
       "visibility": "private"
@@ -325,8 +441,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
       "position": [
-        1225,
-        1243
+        1525,
+        1543
       ],
       "signature": "",
       "visibility": "protected"
@@ -338,11 +454,24 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
       "position": [
-        1247,
-        1350
+        1547,
+        1650
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/comment:1653",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "position": [
+        1653,
+        1678
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -351,11 +480,63 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
       "position": [
-        1353,
-        1723
+        1680,
+        2162
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)/comment:1812",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "position": [
+        1812,
+        1844
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)/comment:1944",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "position": [
+        1944,
+        1977
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)/comment:2062",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
+      "position": [
+        2062,
+        2098
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/comment:2165",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "position": [
+        2165,
+        2187
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -364,11 +545,24 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
       "position": [
-        1726,
-        1860
+        2189,
+        2323
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:inventory/class:default/comment:2326",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
+      "position": [
+        2326,
+        2351
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "local",
@@ -377,8 +571,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:inventory/class:default",
       "position": [
-        1863,
-        1931
+        2353,
+        2421
       ],
       "signature": "",
       "visibility": "private"
@@ -496,8 +690,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory",
       "kind": "reexports",
       "position": [
-        175,
-        200
+        211,
+        236
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:errors"
@@ -506,11 +700,63 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo/method:get(id:string)",
+      "kind": "uses_type",
+      "position": [
+        394,
+        414
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo/method:get(id:string)",
+      "kind": "uses_type",
+      "position": [
+        402,
+        406
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo/method:put(item:Item)",
+      "kind": "uses_type",
+      "position": [
+        434,
+        447
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo/method:put(item:Item)",
+      "kind": "uses_type",
+      "position": [
+        427,
+        431
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:ts/module:inventory/interface:Item/field:stock",
       "kind": "uses_type",
       "position": [
-        408,
-        413
+        523,
+        528
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Stock"
@@ -522,8 +768,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory",
       "kind": "reads",
       "position": [
-        475,
-        481
+        616,
+        622
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/function:prefix"
@@ -535,8 +781,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory",
       "kind": "reads",
       "position": [
-        485,
-        486
+        626,
+        627
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/function:n"
@@ -548,8 +794,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory",
       "kind": "calls",
       "position": [
-        505,
-        527
+        646,
+        668
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:guards/function:makeGuard"
@@ -561,8 +807,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory",
       "kind": "calls",
       "position": [
-        530,
-        537
+        671,
+        678
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/const:guard"
@@ -574,8 +820,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory",
       "kind": "annotates",
       "position": [
-        540,
-        547
+        681,
+        688
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/function:Logged"
@@ -587,8 +833,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:BaseItem/method:describe()",
       "kind": "method_call",
       "position": [
-        651,
-        683
+        855,
+        887
       ],
       "receiver_hint": "call",
       "to": "code+moniker://app/lang:ts/module:inventory/method:toUpperCase"
@@ -600,8 +846,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:BaseItem/method:describe()",
       "kind": "calls",
       "position": [
-        651,
-        669
+        855,
+        873
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/function:makeId(prefix:string,n:number)"
@@ -613,8 +859,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory",
       "kind": "annotates",
       "position": [
-        691,
-        698
+        895,
+        902
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/function:Logged"
@@ -626,8 +872,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory",
       "kind": "annotates",
       "position": [
-        699,
-        715
+        903,
+        919
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/function:Tagged"
@@ -639,8 +885,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:AuditedItem",
       "kind": "extends",
       "position": [
-        749,
-        757
+        983,
+        991
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:BaseItem"
@@ -652,8 +898,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:AuditedItem/method:log()",
       "kind": "method_call",
       "position": [
-        786,
-        802
+        1020,
+        1036
       ],
       "receiver_hint": "super",
       "to": "code+moniker://app/lang:ts/module:inventory/method:describe"
@@ -665,8 +911,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo",
       "kind": "implements",
       "position": [
-        845,
-        853
+        1108,
+        1116
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo"
@@ -678,8 +924,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/field:items",
       "kind": "uses_type",
       "position": [
-        872,
-        889
+        1135,
+        1152
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Map"
@@ -691,8 +937,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/field:items",
       "kind": "uses_type",
       "position": [
-        884,
-        888
+        1147,
+        1151
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
@@ -704,8 +950,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/field:items",
       "kind": "instantiates",
       "position": [
-        892,
-        901
+        1155,
+        1164
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Map"
@@ -717,8 +963,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:get(id:string)",
       "kind": "uses_type",
       "position": [
-        928,
-        948
+        1191,
+        1211
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
@@ -730,8 +976,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:get(id:string)",
       "kind": "uses_type",
       "position": [
-        936,
-        940
+        1199,
+        1203
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
@@ -743,8 +989,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:get(id:string)",
       "kind": "method_call",
       "position": [
-        960,
-        978
+        1223,
+        1241
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:ts/module:inventory/method:get"
@@ -756,8 +1002,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:put(item:Item)",
       "kind": "uses_type",
       "position": [
-        1016,
-        1029
+        1279,
+        1292
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
@@ -769,8 +1015,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:put(item:Item)",
       "kind": "uses_type",
       "position": [
-        1009,
-        1013
+        1272,
+        1276
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
@@ -782,8 +1028,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo/method:put(item:Item)",
       "kind": "method_call",
       "position": [
-        1034,
-        1063
+        1297,
+        1326
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:ts/module:inventory/method:set"
@@ -795,8 +1041,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/field:cache",
       "kind": "instantiates",
       "position": [
-        1199,
-        1222
+        1499,
+        1522
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Map"
@@ -808,8 +1054,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/field:cache",
       "kind": "uses_type",
       "position": [
-        1215,
-        1219
+        1515,
+        1519
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
@@ -821,8 +1067,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/constructor:constructor(repo:ItemRepo,logger:Logger)",
       "kind": "uses_type",
       "position": [
-        1301,
-        1309
+        1601,
+        1609
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:ItemRepo"
@@ -834,8 +1080,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/constructor:constructor(repo:ItemRepo,logger:Logger)",
       "kind": "uses_type",
       "position": [
-        1337,
-        1343
+        1637,
+        1643
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:logger/path:Logger"
@@ -847,8 +1093,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "uses_type",
       "position": [
-        1399,
-        1414
+        1726,
+        1741
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
@@ -860,8 +1106,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "uses_type",
       "position": [
-        1407,
-        1411
+        1734,
+        1738
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
@@ -873,8 +1119,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "uses_type",
       "position": [
-        1430,
-        1434
+        1757,
+        1761
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
@@ -886,8 +1132,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "calls",
       "position": [
-        1496,
-        1526
+        1859,
+        1889
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/function:makeId(prefix:string,n:number)"
@@ -899,8 +1145,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
-        1511,
-        1525
+        1874,
+        1888
       ],
       "receiver_hint": "this",
       "to": "code+moniker://app/lang:ts/module:inventory/method:advance"
@@ -912,8 +1158,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "uses_type",
       "position": [
-        1543,
-        1547
+        1906,
+        1910
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
@@ -925,8 +1171,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "reads",
       "position": [
-        1563,
-        1568
+        1926,
+        1931
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/function:Stock"
@@ -938,8 +1184,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
-        1587,
-        1606
+        1987,
+        2006
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:ts/module:inventory/method:put"
@@ -951,8 +1197,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
-        1611,
-        1635
+        2011,
+        2035
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:ts/module:inventory/method:set"
@@ -964,8 +1210,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
-        1640,
-        1654
+        2040,
+        2054
       ],
       "receiver_hint": "out",
       "to": "code+moniker://app/lang:ts/module:inventory/method:push"
@@ -977,8 +1223,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)",
       "kind": "method_call",
       "position": [
-        1662,
-        1705
+        2101,
+        2144
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:ts/module:inventory/method:info"
@@ -990,8 +1236,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
       "kind": "uses_type",
       "position": [
-        1750,
-        1770
+        2213,
+        2233
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Promise"
@@ -1003,8 +1249,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
       "kind": "uses_type",
       "position": [
-        1758,
-        1762
+        2221,
+        2225
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:inventory/class:Item"
@@ -1016,8 +1262,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
       "kind": "method_call",
       "position": [
-        1787,
-        1805
+        2250,
+        2268
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:ts/module:inventory/method:get"
@@ -1029,8 +1275,8 @@ input_file: crates/core/tests/fixtures/ts/inventory.ts
       "from": "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)",
       "kind": "method_call",
       "position": [
-        1839,
-        1856
+        2302,
+        2319
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:ts/module:inventory/method:get"

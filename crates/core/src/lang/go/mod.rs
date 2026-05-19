@@ -164,6 +164,22 @@ mod tests {
 			"method emitted before its type declaration must still be reparented; defs: {:?}",
 			g.def_monikers()
 		);
+		let bar_def = g.defs().find(|d| d.moniker == bar).expect("method def");
+		let defs: Vec<_> = g.defs().collect();
+		let parent = bar_def
+			.parent
+			.and_then(|idx| defs.get(idx).copied())
+			.expect("method parent");
+		let foo = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"go")
+			.segment(b"module", b"foo")
+			.segment(b"struct", b"Foo")
+			.build();
+		assert_eq!(
+			parent.moniker, foo,
+			"method parent metadata must point at receiver type"
+		);
 	}
 
 	#[test]

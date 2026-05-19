@@ -1,0 +1,44 @@
+root = "code+moniker://app/lang:ts/module:jsx"
+
+[[defs]]
+label = "counter props"
+kind = "interface"
+moniker = "code+moniker://app/lang:ts/module:jsx/interface:CounterProps"
+
+[[defs]]
+label = "counter component"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)"
+
+[[defs]]
+label = "counter list component"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})"
+
+[[refs]]
+label = "counter calls use state"
+kind = "calls"
+from = "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)"
+to = "code+moniker://app/external_pkg:react/function:useState"
+confidence = "external"
+
+[[refs]]
+label = "counter reads button"
+kind = "reads"
+from = "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)"
+to = "code+moniker://app/lang:ts/module:jsx/function:Button"
+confidence = "imported"
+
+[[refs]]
+label = "counter list maps labels"
+kind = "method_call"
+from = "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})"
+to = "code+moniker://app/lang:ts/module:jsx/method:map"
+confidence = "name_match"
+
+[[refs]]
+label = "counter list reads counter"
+kind = "reads"
+from = "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})"
+to = "code+moniker://app/lang:ts/module:jsx/function:Counter"
+confidence = "name_match"

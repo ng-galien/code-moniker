@@ -1,0 +1,44 @@
+root = "code+moniker://app/lang:java/package:app/package:user/module:UserService"
+
+[[defs]]
+kind = "class"
+moniker = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService"
+visibility = "public"
+
+[[defs]]
+kind = "record"
+moniker = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
+parent = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService"
+
+[[defs]]
+kind = "method"
+moniker = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)"
+parent = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService"
+
+[[refs]]
+kind = "imports_symbol"
+from = "code+moniker://app/lang:java/package:app/package:user/module:UserService"
+to = "code+moniker://app/external_pkg:java/path:util/path:List"
+confidence = "external"
+
+[[refs]]
+kind = "implements"
+from = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository"
+to = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository"
+confidence = "resolved"
+
+[[refs]]
+kind = "instantiates"
+from = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)"
+to = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
+confidence = "resolved"
+
+[[refs]]
+kind = "calls"
+from = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)"
+to = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)"
+confidence = "name_match"
+
+[[absent.defs]]
+kind = "local"
+

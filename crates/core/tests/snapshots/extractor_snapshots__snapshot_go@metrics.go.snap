@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 123
 expression: body
 input_file: crates/core/tests/fixtures/go/metrics.go
 ---
@@ -13,8 +12,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        404,
-        420
+        429,
+        445
       ],
       "signature": "",
       "visibility": "public"
@@ -26,8 +25,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        422,
-        444
+        447,
+        469
       ],
       "signature": "",
       "visibility": "public"
@@ -39,8 +38,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        446,
-        500
+        495,
+        549
       ],
       "signature": "",
       "visibility": "public"
@@ -52,8 +51,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        502,
-        524
+        593,
+        615
       ],
       "signature": "",
       "visibility": "public"
@@ -65,8 +64,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        526,
-        565
+        617,
+        656
       ],
       "signature": "",
       "visibility": "public"
@@ -78,8 +77,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        574,
-        598
+        665,
+        689
       ],
       "signature": "",
       "visibility": "public"
@@ -91,8 +90,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        605,
-        665
+        696,
+        792
       ],
       "signature": "",
       "visibility": "public"
@@ -104,8 +103,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        672,
-        737
+        799,
+        864
       ],
       "signature": "",
       "visibility": "public"
@@ -117,8 +116,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        744,
-        780
+        871,
+        907
       ],
       "signature": "",
       "visibility": "module"
@@ -130,8 +129,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        787,
-        874
+        914,
+        1029
       ],
       "signature": "",
       "visibility": "public"
@@ -228,40 +227,144 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "visibility": "module"
     },
     {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:metrics/comment:404",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        404,
+        427
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:metrics/comment:471",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        471,
+        493
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:metrics/comment:551",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        551,
+        591
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:metrics/comment:1031",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        1031,
+        1054
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
       "binding": "local",
       "kind": "func",
       "moniker": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        876,
-        1007
+        1055,
+        1233
       ],
       "signature": "src:Reader,...",
       "visibility": "module"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)/comment:1117",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
+      "position": [
+        1117,
+        1162
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:metrics/comment:1235",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        1235,
+        1257
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
       "kind": "method",
       "moniker": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:metrics",
+      "parent": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
       "position": [
-        1009,
-        1290
+        1258,
+        1611
       ],
       "signature": "ctx:context.Context,name:string,...",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)/comment:1387",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "position": [
+        1387,
+        1422
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)/comment:1499",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
+      "position": [
+        1499,
+        1532
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
       "kind": "method",
       "moniker": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Drain(out:*Counter,route:map[Counter]string)",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:metrics",
+      "parent": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
       "position": [
-        1292,
-        1433
+        1613,
+        1754
       ],
       "signature": "out:*Counter,route:map[Counter]string",
       "visibility": "public"
@@ -271,10 +374,10 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "kind": "method",
       "moniker": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:metrics",
+      "parent": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
       "position": [
-        1435,
-        1598
+        1756,
+        1919
       ],
       "signature": "specs:[]*BucketSpec",
       "visibility": "module"
@@ -286,8 +389,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        1600,
-        1698
+        1921,
+        2019
       ],
       "signature": "p:*Pipeline",
       "visibility": "module"
@@ -297,13 +400,26 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "kind": "method",
       "moniker": "code+moniker://app/lang:go/module:metrics/struct:Sampler/method:labels()",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:metrics",
+      "parent": "code+moniker://app/lang:go/module:metrics/struct:Sampler",
       "position": [
-        1700,
-        1754
+        2021,
+        2075
       ],
       "signature": "",
       "visibility": "module"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:metrics/comment:2077",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:metrics",
+      "position": [
+        2077,
+        2102
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -312,8 +428,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:metrics",
       "position": [
-        1756,
-        1965
+        2103,
+        2312
       ],
       "signature": "a:int,b:int,marks:[]float64",
       "visibility": "public"
@@ -457,8 +573,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/type:AnyBucket",
       "kind": "uses_type",
       "position": [
-        514,
-        524
+        605,
+        615
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
@@ -470,8 +586,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/interface:Reader",
       "kind": "extends",
       "position": [
-        625,
-        634
+        752,
+        761
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:io/struct:Reader"
@@ -483,8 +599,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Sampler",
       "kind": "extends",
       "position": [
-        690,
-        710
+        817,
+        837
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:github.com/path:prometheus/path:client_golang/path:prometheus/struct:Collector"
@@ -496,8 +612,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Sampler",
       "kind": "extends",
       "position": [
-        713,
-        720
+        840,
+        847
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
@@ -509,8 +625,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Sampler",
       "kind": "uses_type",
       "position": [
-        729,
-        735
+        856,
+        862
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/type:Labels"
@@ -522,8 +638,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:ledger",
       "kind": "uses_type",
       "position": [
-        771,
-        778
+        898,
+        905
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
@@ -535,8 +651,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
       "kind": "extends",
       "position": [
-        806,
-        813
+        961,
+        968
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:Sampler"
@@ -548,8 +664,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
       "kind": "uses_type",
       "position": [
-        821,
-        827
+        976,
+        982
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/interface:Reader"
@@ -561,8 +677,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
       "kind": "uses_type",
       "position": [
-        837,
-        846
+        992,
+        1001
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:io/struct:Writer"
@@ -574,8 +690,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline",
       "kind": "uses_type",
       "position": [
-        865,
-        872
+        1020,
+        1027
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
@@ -587,8 +703,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
       "kind": "uses_type",
       "position": [
-        897,
-        903
+        1076,
+        1082
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/interface:Reader"
@@ -600,8 +716,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
       "kind": "uses_type",
       "position": [
-        914,
-        923
+        1093,
+        1102
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:io/struct:Writer"
@@ -613,8 +729,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
       "kind": "uses_type",
       "position": [
-        926,
-        934
+        1105,
+        1113
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:Pipeline"
@@ -626,8 +742,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:newPipeline(src:Reader,...)",
       "kind": "instantiates",
       "position": [
-        946,
-        1005
+        1172,
+        1231
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:Pipeline"
@@ -639,8 +755,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "kind": "uses_type",
       "position": [
-        1037,
-        1052
+        1286,
+        1301
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:context/struct:Context"
@@ -652,8 +768,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "kind": "uses_type",
       "position": [
-        1085,
-        1092
+        1334,
+        1341
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
@@ -665,8 +781,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "kind": "uses_type",
       "position": [
-        1095,
-        1105
+        1344,
+        1354
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
@@ -678,8 +794,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "kind": "calls",
       "position": [
-        1123,
-        1136
+        1372,
+        1385
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/func:ToUpper"
@@ -691,8 +807,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "kind": "instantiates",
       "position": [
-        1149,
-        1179
+        1435,
+        1465
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
@@ -704,8 +820,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "kind": "calls",
       "position": [
-        1193,
-        1211
+        1479,
+        1497
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/func:Counter"
@@ -717,8 +833,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "kind": "calls",
       "position": [
-        1201,
-        1210
+        1487,
+        1496
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/func:len"
@@ -730,8 +846,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "kind": "method_call",
       "position": [
-        1223,
-        1245
+        1544,
+        1566
       ],
       "receiver_hint": "call",
       "to": "code+moniker://app/lang:go/module:metrics/method:labels"
@@ -739,12 +855,12 @@ input_file: crates/core/tests/fixtures/go/metrics.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)",
       "kind": "calls",
       "position": [
-        1223,
-        1236
+        1544,
+        1557
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)"
@@ -756,8 +872,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Drain(out:*Counter,route:map[Counter]string)",
       "kind": "uses_type",
       "position": [
-        1322,
-        1329
+        1643,
+        1650
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
@@ -769,8 +885,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Drain(out:*Counter,route:map[Counter]string)",
       "kind": "uses_type",
       "position": [
-        1341,
-        1348
+        1662,
+        1669
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/type:Counter"
@@ -782,8 +898,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
       "kind": "uses_type",
       "position": [
-        1472,
-        1482
+        1793,
+        1803
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
@@ -795,8 +911,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
       "kind": "uses_type",
       "position": [
-        1485,
-        1491
+        1806,
+        1812
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:ledger"
@@ -808,8 +924,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
       "kind": "instantiates",
       "position": [
-        1501,
-        1548
+        1822,
+        1869
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:ledger"
@@ -821,8 +937,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
       "kind": "calls",
       "position": [
-        1517,
-        1547
+        1838,
+        1868
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/func:make"
@@ -834,8 +950,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:snapshot(specs:[]*BucketSpec)",
       "kind": "calls",
       "position": [
-        1536,
-        1546
+        1857,
+        1867
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/func:len"
@@ -847,8 +963,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)",
       "kind": "uses_type",
       "position": [
-        1619,
-        1627
+        1940,
+        1948
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:Pipeline"
@@ -860,8 +976,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)",
       "kind": "uses_type",
       "position": [
-        1630,
-        1637
+        1951,
+        1958
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:Sampler"
@@ -873,8 +989,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)",
       "kind": "instantiates",
       "position": [
-        1649,
-        1696
+        1970,
+        2017
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:Sampler"
@@ -886,8 +1002,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)",
       "kind": "instantiates",
       "position": [
-        1665,
-        1695
+        1986,
+        2016
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/type:Labels"
@@ -899,8 +1015,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/struct:Sampler/method:labels()",
       "kind": "uses_type",
       "position": [
-        1727,
-        1733
+        2048,
+        2054
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/type:Labels"
@@ -912,8 +1028,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
       "kind": "uses_type",
       "position": [
-        1796,
-        1806
+        2143,
+        2153
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
@@ -925,8 +1041,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
       "kind": "instantiates",
       "position": [
-        1826,
-        1865
+        2173,
+        2212
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:github.com/path:prometheus/path:client_golang/path:prometheus/struct:HistogramOpts"
@@ -938,8 +1054,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
       "kind": "instantiates",
       "position": [
-        1876,
-        1924
+        2223,
+        2271
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/struct:BucketSpec"
@@ -951,8 +1067,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
       "kind": "calls",
       "position": [
-        1894,
-        1904
+        2241,
+        2251
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/func:float64"
@@ -964,8 +1080,8 @@ input_file: crates/core/tests/fixtures/go/metrics.go
       "from": "code+moniker://app/lang:go/module:metrics/func:Tally(a:int,b:int,marks:[]float64)",
       "kind": "calls",
       "position": [
-        1913,
-        1923
+        2260,
+        2270
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:metrics/func:float64"

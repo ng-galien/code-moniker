@@ -1,0 +1,60 @@
+root = "code+moniker://app/lang:go/module:http_handlers"
+
+[[defs]]
+label = "User"
+kind = "struct"
+moniker = "code+moniker://app/lang:go/module:http_handlers/struct:User"
+visibility = "public"
+
+[[defs]]
+label = "UserStore"
+kind = "interface"
+moniker = "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
+visibility = "public"
+
+[[defs]]
+label = "UserHandler"
+kind = "struct"
+moniker = "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler"
+visibility = "public"
+
+[[defs]]
+label = "UserHandler.ServeHTTP"
+kind = "method"
+moniker = "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)"
+parent = "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler"
+
+[[defs]]
+label = "parseID"
+kind = "func"
+moniker = "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)"
+visibility = "module"
+
+[[refs]]
+kind = "imports_module"
+from = "code+moniker://app/lang:go/module:http_handlers"
+to = "code+moniker://app/external_pkg:net/path:http"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
+to = "code+moniker://app/external_pkg:context/struct:Context"
+confidence = "external"
+
+[[refs]]
+label = "parseID.calls.strconv.ParseInt"
+kind = "calls"
+from = "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)"
+to = "code+moniker://app/external_pkg:strconv/func:ParseInt"
+confidence = "external"
+
+[[refs]]
+label = "UserHandler.ServeHTTP.calls.parseID"
+kind = "calls"
+from = "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)"
+to = "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)"
+confidence = "resolved"
+
+[[absent.defs]]
+kind = "local"

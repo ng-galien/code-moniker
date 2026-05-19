@@ -1,0 +1,33 @@
+root = "code+moniker://app/lang:sql/module:users"
+
+[[defs]]
+kind = "table"
+moniker = "code+moniker://app/lang:sql/module:users/schema:app/table:users"
+binding = "local"
+
+[[defs]]
+kind = "function"
+moniker = "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)"
+signature = "p_email:text,p_name:text"
+
+[[defs]]
+kind = "view"
+moniker = "code+moniker://app/lang:sql/module:users/schema:app/view:recent_users"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:sql/module:users/schema:app/table:users"
+to = "code+moniker://app/external_pkg:pg_catalog/path:timestamptz"
+confidence = "external"
+
+[[refs]]
+kind = "calls"
+from = "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)"
+to = "code+moniker://app/lang:sql/module:users/schema:app/function:make_id(p_email:text)"
+confidence = "resolved"
+
+[[refs]]
+kind = "calls"
+from = "code+moniker://app/lang:sql/module:users/schema:app/view:recent_users"
+to = "code+moniker://app/external_pkg:pg_catalog/path:now"
+confidence = "external"

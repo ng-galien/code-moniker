@@ -1,0 +1,52 @@
+root = "code+moniker://app/lang:cs/module:OrderWorkflow"
+
+[[defs]]
+label = "OrderStatus"
+kind = "enum"
+moniker = "code+moniker://app/lang:cs/module:OrderWorkflow/enum:OrderStatus"
+visibility = "public"
+
+[[defs]]
+label = "Order"
+kind = "record"
+moniker = "code+moniker://app/lang:cs/module:OrderWorkflow/record:Order"
+visibility = "public"
+
+[[defs]]
+label = "IOrderRepository"
+kind = "interface"
+moniker = "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository"
+visibility = "public"
+
+[[defs]]
+label = "OrderWorkflow"
+kind = "class"
+moniker = "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow"
+visibility = "public"
+
+[[defs]]
+label = "OrderWorkflow.CancelExpiredAsync"
+kind = "method"
+moniker = "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)"
+parent = "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow"
+
+[[refs]]
+kind = "imports_module"
+from = "code+moniker://app/lang:cs/module:OrderWorkflow"
+to = "code+moniker://app/external_pkg:System/path:Threading/path:Tasks"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:cs/module:OrderWorkflow/interface:IOrderRepository/method:FindExpiredAsync(now:DateTimeOffset,token:CancellationToken)"
+to = "code+moniker://app/external_pkg:System/path:Threading/path:Tasks/path:Task"
+confidence = "external"
+
+[[refs]]
+label = "OrderWorkflow.CancelExpiredAsync.calls.FindExpiredAsync"
+kind = "method_call"
+from = "code+moniker://app/lang:cs/module:OrderWorkflow/class:OrderWorkflow/method:CancelExpiredAsync(token:CancellationToken)"
+to_contains = "/method:FindExpiredAsync"
+
+[[absent.defs]]
+kind = "local"

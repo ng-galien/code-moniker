@@ -4,8 +4,10 @@
 import { render } from "react-dom";
 import { Greeting } from "./greeting";
 
+// cm: def app component
 function App() {
 	const name = "world";
+	// cm: ref app reads greeting
 	return (
 		<main className="app">
 			<Greeting>{name}</Greeting>
@@ -14,4 +16,5 @@ function App() {
 	);
 }
 
+// cm: ref render calls react dom
 render(<App />, document.getElementById("root"));

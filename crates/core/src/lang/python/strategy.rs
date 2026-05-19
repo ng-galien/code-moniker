@@ -23,7 +23,13 @@ pub(super) struct Strategy<'src> {
 	pub(super) import_targets: RefCell<HashMap<Vec<u8>, Moniker>>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
 	pub(super) type_table: HashMap<&'src [u8], Moniker>,
-	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
+}
+
+#[derive(Clone)]
+pub(super) struct CallableEntry {
+	pub(super) kind: &'static [u8],
+	pub(super) segment: Vec<u8>,
 }
 
 impl<'a> LangStrategy for Strategy<'a> {
@@ -81,7 +87,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 		source: &[u8],
 		graph: &mut CodeGraph,
 	) {
-		if kind != kinds::FUNCTION && kind != kinds::METHOD {
+		if kind != kinds::FUNCTION && kind != kinds::ASYNC_FUNCTION && kind != kinds::METHOD {
 			return;
 		}
 		if let Some(rt) = node.child_by_field_name("return_type") {
@@ -93,7 +99,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 	}
 
 	fn after_body(&self, kind: &[u8], _moniker: &Moniker) {
-		if kind == kinds::FUNCTION || kind == kinds::METHOD {
+		if kind == kinds::FUNCTION || kind == kinds::ASYNC_FUNCTION || kind == kinds::METHOD {
 			self.pop_local_scope();
 		}
 	}
@@ -106,7 +112,11 @@ impl<'a> LangStrategy for Strategy<'a> {
 		_source: &[u8],
 		graph: &mut CodeGraph,
 	) {
-		if sym_kind != kinds::FUNCTION && sym_kind != kinds::METHOD && sym_kind != kinds::CLASS {
+		if sym_kind != kinds::FUNCTION
+			&& sym_kind != kinds::ASYNC_FUNCTION
+			&& sym_kind != kinds::METHOD
+			&& sym_kind != kinds::CLASS
+		{
 			return;
 		}
 		let Some(body) = node.child_by_field_name("body") else {
@@ -192,8 +202,11 @@ impl<'src_lang> Strategy<'src_lang> {
 		};
 		let name = node_slice(name_node, source);
 		let is_method = is_class_scope(scope);
+		let is_async = is_async_function(node);
 		let kind = if is_method {
 			kinds::METHOD
+		} else if is_async {
+			kinds::ASYNC_FUNCTION
 		} else {
 			kinds::FUNCTION
 		};
@@ -345,6 +358,13 @@ impl<'src_lang> Strategy<'src_lang> {
 								.or_else(|| {
 									self.lookup_callable_in_scope(scope, name, kinds::FUNCTION)
 								})
+								.or_else(|| {
+									self.lookup_callable_in_scope(
+										scope,
+										name,
+										kinds::ASYNC_FUNCTION,
+									)
+								})
 								.unwrap_or_else(|| {
 									extend_segment(&self.module, kinds::FUNCTION, name)
 								})
@@ -364,21 +384,40 @@ impl<'src_lang> Strategy<'src_lang> {
 					let hint = receiver
 						.map(|r| receiver_hint(r, self.source_bytes))
 						.unwrap_or(b"");
-					let target = if matches!(hint, b"self" | b"cls") {
+					let (target, confidence, kind) = if let Some(receiver) = receiver
+						&& receiver.kind() == "identifier"
+						&& let Some(import_target) =
+							self.lookup_import_target(node_slice(receiver, self.source_bytes))
+					{
+						(
+							extend_segment(&import_target, kinds::FUNCTION, name.as_bytes()),
+							self.import_confidence_for(node_slice(receiver, self.source_bytes))
+								.unwrap_or(kinds::CONF_NAME_MATCH),
+							kinds::CALLS,
+						)
+					} else if matches!(hint, b"self" | b"cls") {
 						self.lookup_callable_in_scope(scope, name.as_bytes(), kinds::METHOD)
+							.map(|target| (target, kinds::CONF_RESOLVED, kinds::METHOD_CALL))
 							.unwrap_or_else(|| {
-								extend_segment(&self.module, kinds::METHOD, name.as_bytes())
+								(
+									extend_segment(&self.module, kinds::METHOD, name.as_bytes()),
+									kinds::CONF_NAME_MATCH,
+									kinds::METHOD_CALL,
+								)
 							})
 					} else {
-						extend_segment(&self.module, kinds::METHOD, name.as_bytes())
+						(
+							extend_segment(&self.module, kinds::METHOD, name.as_bytes()),
+							kinds::CONF_NAME_MATCH,
+							kinds::METHOD_CALL,
+						)
 					};
 					let attrs = RefAttrs {
 						receiver_hint: hint,
-						confidence: kinds::CONF_NAME_MATCH,
+						confidence,
 						..RefAttrs::default()
 					};
-					let _ =
-						graph.add_ref_attrs(scope, target, kinds::METHOD_CALL, Some(pos), &attrs);
+					let _ = graph.add_ref_attrs(scope, target, kind, Some(pos), &attrs);
 				}
 				if let Some(obj) = callee.child_by_field_name("object") {
 					self.recurse_subtree(obj, scope, graph);
@@ -775,9 +814,20 @@ impl<'src_lang> Strategy<'src_lang> {
 		name: &[u8],
 		kind: &[u8],
 	) -> Option<Moniker> {
-		let parent = enclosing_class(scope, &self.module).unwrap_or_else(|| self.module.clone());
-		let seg = self.callable_table.get(&(parent.clone(), name.to_vec()))?;
-		Some(extend_segment(&parent, kind, seg))
+		let mut parents = Vec::with_capacity(2);
+		if let Some(class) = enclosing_class(scope, &self.module) {
+			parents.push(class);
+		}
+		parents.push(self.module.clone());
+		for parent in parents {
+			let Some(entry) = self.callable_table.get(&(parent.clone(), name.to_vec())) else {
+				continue;
+			};
+			if entry.kind == kind {
+				return Some(extend_segment(&parent, kind, &entry.segment));
+			}
+		}
+		None
 	}
 }
 
@@ -794,12 +844,18 @@ fn enclosing_class(scope: &Moniker, module: &Moniker) -> Option<Moniker> {
 	if &out == module { None } else { Some(out) }
 }
 
+fn is_async_function(node: Node<'_>) -> bool {
+	let mut cursor = node.walk();
+	node.children(&mut cursor)
+		.any(|child| child.kind() == "async")
+}
+
 pub(super) fn collect_callable_table<'src>(
 	node: Node<'src>,
 	source: &'src [u8],
 	parent: &Moniker,
 	is_class_scope: bool,
-	out: &mut HashMap<(Moniker, Vec<u8>), Vec<u8>>,
+	out: &mut HashMap<(Moniker, Vec<u8>), CallableEntry>,
 ) {
 	let mut cursor = node.walk();
 	for child in node.children(&mut cursor) {
@@ -807,10 +863,17 @@ pub(super) fn collect_callable_table<'src>(
 			"class_definition" => (Some(child), None),
 			"function_definition" => (None, Some(child)),
 			"decorated_definition" => {
-				let d = child.child_by_field_name("definition");
-				match d.map(|n| n.kind()) {
-					Some("class_definition") => (d, None),
-					Some("function_definition") => (None, d),
+				let mut def = None;
+				let mut dc = child.walk();
+				for c in child.children(&mut dc) {
+					if matches!(c.kind(), "class_definition" | "function_definition") {
+						def = Some(c);
+						break;
+					}
+				}
+				match def.map(|n| n.kind()) {
+					Some("class_definition") => (def, None),
+					Some("function_definition") => (None, def),
 					_ => (None, None),
 				}
 			}
@@ -832,7 +895,17 @@ pub(super) fn collect_callable_table<'src>(
 			let name = node_slice(name_node, source);
 			let slots = collect_param_slots(function_node, source, is_class_scope);
 			let seg = callable_segment_slots(name, &slots);
-			out.insert((parent.clone(), name.to_vec()), seg);
+			let kind = if is_class_scope {
+				kinds::METHOD
+			} else if is_async_function(function_node) {
+				kinds::ASYNC_FUNCTION
+			} else {
+				kinds::FUNCTION
+			};
+			out.insert(
+				(parent.clone(), name.to_vec()),
+				CallableEntry { kind, segment: seg },
+			);
 		} else {
 			collect_callable_table(child, source, parent, is_class_scope, out);
 		}

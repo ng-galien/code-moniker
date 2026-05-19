@@ -1,11 +1,23 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 120
 expression: body
 input_file: crates/core/tests/fixtures/ts/closures.ts
 ---
 {
   "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures",
+      "position": [
+        0,
+        24
+      ],
+      "signature": "",
+      "visibility": ""
+    },
     {
       "binding": "export",
       "kind": "function",
@@ -13,11 +25,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures",
       "position": [
-        7,
-        121
+        32,
+        225
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/comment:59",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeStringer()",
+      "position": [
+        59,
+        92
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -26,11 +51,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeStringer()",
       "position": [
-        34,
-        54
+        94,
+        114
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/comment:116",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeStringer()",
+      "position": [
+        116,
+        158
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -39,11 +77,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeStringer()",
       "position": [
-        56,
-        104
+        160,
+        208
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/comment:227",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures",
+      "position": [
+        227,
+        249
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -52,11 +103,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures",
       "position": [
-        130,
-        257
+        257,
+        460
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/comment:282",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeShaper()",
+      "position": [
+        282,
+        320
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -65,8 +129,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeShaper()",
       "position": [
-        155,
-        188
+        322,
+        355
       ],
       "signature": "",
       "visibility": "public"
@@ -78,11 +142,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape",
       "position": [
-        175,
-        184
+        342,
+        351
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/comment:357",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeShaper()",
+      "position": [
+        357,
+        391
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -91,11 +168,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeShaper()",
       "position": [
-        190,
-        239
+        393,
+        442
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/comment:462",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures",
+      "position": [
+        462,
+        482
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -104,11 +194,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures",
       "position": [
-        266,
-        376
+        490,
+        668
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeMode()/comment:513",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()",
+      "position": [
+        513,
+        546
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -117,8 +220,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()",
       "position": [
-        289,
-        313
+        548,
+        572
       ],
       "signature": "",
       "visibility": "public"
@@ -130,8 +233,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode",
       "position": [
-        303,
-        304
+        562,
+        563
       ],
       "signature": "",
       "visibility": ""
@@ -143,8 +246,21 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode",
       "position": [
-        308,
-        309
+        567,
+        568
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeMode()/comment:574",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()",
+      "position": [
+        574,
+        605
       ],
       "signature": "",
       "visibility": ""
@@ -156,11 +272,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeMode()",
       "position": [
-        315,
-        360
+        607,
+        652
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/comment:670",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures",
+      "position": [
+        670,
+        693
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -169,11 +298,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures",
       "position": [
-        385,
-        509
+        701,
+        934
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/comment:727",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()",
+      "position": [
+        727,
+        761
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -182,8 +324,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()",
       "position": [
-        411,
-        440
+        763,
+        792
       ],
       "signature": "",
       "visibility": "public"
@@ -195,11 +337,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local",
       "position": [
-        427,
-        436
+        779,
+        788
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/comment:794",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()",
+      "position": [
+        794,
+        821
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -208,11 +363,24 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()",
       "position": [
-        442,
-        492
+        823,
+        917
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()/comment:851",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()",
+      "position": [
+        851,
+        892
+      ],
+      "signature": "",
+      "visibility": ""
     }
   ],
   "refs": [
@@ -223,8 +391,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/function:inner(x:Local)",
       "kind": "uses_type",
       "position": [
-        82,
-        87
+        186,
+        191
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/type:Local"
@@ -236,8 +404,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/function:inner(x:Local)",
       "kind": "uses_type",
       "position": [
-        74,
-        79
+        178,
+        183
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/type:Local"
@@ -249,8 +417,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeStringer()",
       "kind": "reads",
       "position": [
-        113,
-        118
+        217,
+        222
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:inner"
@@ -262,8 +430,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/function:client(s:Shape)",
       "kind": "uses_type",
       "position": [
-        217,
-        222
+        420,
+        425
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape"
@@ -275,8 +443,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/function:client(s:Shape)",
       "kind": "uses_type",
       "position": [
-        209,
-        214
+        412,
+        417
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape"
@@ -288,8 +456,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeShaper()",
       "kind": "reads",
       "position": [
-        248,
-        254
+        451,
+        457
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:client"
@@ -301,8 +469,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeMode()/function:pick(m:Mode)",
       "kind": "uses_type",
       "position": [
-        339,
-        343
+        631,
+        635
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode"
@@ -314,8 +482,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeMode()/function:pick(m:Mode)",
       "kind": "uses_type",
       "position": [
-        332,
-        336
+        624,
+        628
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode"
@@ -327,8 +495,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeMode()",
       "kind": "reads",
       "position": [
-        369,
-        373
+        661,
+        665
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:pick"
@@ -340,8 +508,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()",
       "kind": "uses_type",
       "position": [
-        460,
-        465
+        841,
+        846
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local"
@@ -349,12 +517,12 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()",
       "kind": "instantiates",
       "position": [
-        477,
-        488
+        902,
+        913
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local"
@@ -366,8 +534,8 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
       "from": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()",
       "kind": "reads",
       "position": [
-        501,
-        506
+        926,
+        931
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:closures/function:build"

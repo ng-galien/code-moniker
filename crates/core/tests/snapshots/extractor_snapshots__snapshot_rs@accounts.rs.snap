@@ -149,6 +149,45 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
       "visibility": "public"
     },
     {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_id(id:&str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository",
+      "position": [
+        1511,
+        1577
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_email(email:&str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository",
+      "position": [
+        1579,
+        1651
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:insert(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository",
+      "position": [
+        1653,
+        1709
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
       "binding": "none",
       "kind": "comment",
       "moniker": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/comment:1711",
@@ -160,6 +199,19 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
       ],
       "signature": "",
       "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:scan()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository",
+      "position": [
+        1763,
+        1824
+      ],
+      "signature": "",
+      "visibility": "public"
     },
     {
       "binding": "none",
@@ -387,7 +439,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "import",
-      "confidence": "",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts",
       "kind": "imports_symbol",
       "position": [
@@ -400,7 +452,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "import",
-      "confidence": "",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts",
       "kind": "imports_module",
       "position": [
@@ -413,7 +465,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "import",
-      "confidence": "",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts",
       "kind": "imports_symbol",
       "position": [
@@ -426,7 +478,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "import",
-      "confidence": "",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts",
       "kind": "imports_module",
       "position": [
@@ -439,7 +491,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "import",
-      "confidence": "",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:accounts",
       "kind": "imports_symbol",
       "position": [
@@ -687,6 +739,214 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
       "alias": "",
       "binding": "local",
       "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_id(id:&str)",
+      "kind": "uses_type",
+      "position": [
+        1545,
+        1551
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Result"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_id(id:&str)",
+      "kind": "uses_type",
+      "position": [
+        1552,
+        1558
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Option"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_id(id:&str)",
+      "kind": "uses_type",
+      "position": [
+        1559,
+        1563
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_id(id:&str)",
+      "kind": "uses_type",
+      "position": [
+        1566,
+        1575
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_email(email:&str)",
+      "kind": "uses_type",
+      "position": [
+        1619,
+        1625
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Result"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_email(email:&str)",
+      "kind": "uses_type",
+      "position": [
+        1626,
+        1632
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Option"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_email(email:&str)",
+      "kind": "uses_type",
+      "position": [
+        1633,
+        1637
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:find_by_email(email:&str)",
+      "kind": "uses_type",
+      "position": [
+        1640,
+        1649
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "position": [
+        1676,
+        1680
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "position": [
+        1685,
+        1691
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Result"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "position": [
+        1692,
+        1696
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:insert(user:User)",
+      "kind": "uses_type",
+      "position": [
+        1698,
+        1707
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:scan()",
+      "kind": "uses_type",
+      "position": [
+        1788,
+        1791
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Box"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:scan()",
+      "kind": "uses_type",
+      "position": [
+        1796,
+        1804
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Iterator"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:scan()",
+      "kind": "uses_type",
+      "position": [
+        1805,
+        1809
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:Item"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:rs/module:accounts/trait:UserRepository/method:scan()",
+      "kind": "uses_type",
+      "position": [
+        1812,
+        1816
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:rs/module:accounts/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
       "kind": "uses_type",
       "position": [
@@ -725,7 +985,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo",
       "kind": "uses_type",
       "position": [
@@ -829,7 +1089,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
       "kind": "uses_type",
       "position": [
@@ -842,7 +1102,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:read_guard()",
       "kind": "uses_type",
       "position": [
@@ -850,7 +1110,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         2401
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:accounts/struct:RepoError"
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
     },
     {
       "alias": "",
@@ -972,7 +1232,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
       "kind": "uses_type",
       "position": [
@@ -985,7 +1245,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_id(id:&str)",
       "kind": "uses_type",
       "position": [
@@ -993,7 +1253,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         2667
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:accounts/struct:RepoError"
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
     },
     {
       "alias": "",
@@ -1076,7 +1336,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
       "kind": "uses_type",
       "position": [
@@ -1089,7 +1349,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:find_by_email(email:&str)",
       "kind": "uses_type",
       "position": [
@@ -1097,7 +1357,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         2788
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:accounts/struct:RepoError"
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
     },
     {
       "alias": "",
@@ -1167,7 +1427,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
       "kind": "uses_type",
       "position": [
@@ -1193,7 +1453,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
       "kind": "uses_type",
       "position": [
@@ -1206,7 +1466,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:insert(user:User)",
       "kind": "uses_type",
       "position": [
@@ -1214,7 +1474,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
         3041
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:accounts/struct:RepoError"
+      "to": "code+moniker://app/lang:rs/module:accounts/enum:RepoError"
     },
     {
       "alias": "",
@@ -1427,7 +1687,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
       "kind": "uses_type",
       "position": [
@@ -1453,7 +1713,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/struct:InMemoryRepo/method:scan()",
       "kind": "uses_type",
       "position": [
@@ -1570,7 +1830,7 @@ input_file: crates/core/tests/fixtures/rs/accounts.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:accounts/fn:users_with_tag(repo:&R,tag:&str)",
       "kind": "uses_type",
       "position": [

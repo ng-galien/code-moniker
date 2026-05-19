@@ -534,9 +534,15 @@ impl<'src_lang> Strategy<'src_lang> {
 		};
 		let target = if conf == kinds::CONF_LOCAL {
 			extend_segment(scope, kinds::LOCAL, name)
+		} else if let Some(target) = self.lookup_module_callable(name, kinds::FUNC) {
+			let attrs = RefAttrs {
+				confidence: kinds::CONF_RESOLVED,
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
+			return;
 		} else {
-			self.lookup_module_callable(name, kinds::FUNC)
-				.unwrap_or_else(|| extend_segment(&self.module, kinds::FUNC, name))
+			extend_segment(&self.module, kinds::FUNC, name)
 		};
 		let attrs = RefAttrs {
 			confidence: conf,

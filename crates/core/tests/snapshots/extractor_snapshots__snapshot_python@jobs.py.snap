@@ -1,0 +1,545 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/python/jobs.py
+---
+{
+  "defs": [
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Job",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs",
+      "position": [
+        198,
+        248
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:jobs/comment:251",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs",
+      "position": [
+        251,
+        269
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:JobStore",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs",
+      "position": [
+        270,
+        397
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:JobStore/method:reserve()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:JobStore",
+      "position": [
+        300,
+        342
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:JobStore/method:complete(job_id:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:JobStore",
+      "position": [
+        347,
+        397
+      ],
+      "signature": "job_id:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "async_function",
+      "moniker": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs",
+      "position": [
+        443,
+        590
+      ],
+      "signature": "job:Job",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:jobs/comment:593",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs",
+      "position": [
+        593,
+        618
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs",
+      "position": [
+        619,
+        1118
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker/method:__init__(store:JobStore)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:Worker",
+      "position": [
+        637,
+        709
+      ],
+      "signature": "store:JobStore",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker/comment:715",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:Worker",
+      "position": [
+        715,
+        740
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:Worker",
+      "position": [
+        745,
+        1118
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()/comment:878",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "position": [
+        878,
+        921
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()/comment:971",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "position": [
+        971,
+        1016
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs",
+      "kind": "reads",
+      "position": [
+        23,
+        34
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/function:annotations"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs",
+      "kind": "imports_module",
+      "position": [
+        36,
+        50
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:asyncio"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs",
+      "kind": "imports_symbol",
+      "position": [
+        51,
+        93
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:contextlib/function:asynccontextmanager"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs",
+      "kind": "imports_symbol",
+      "position": [
+        94,
+        127
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs",
+      "kind": "imports_symbol",
+      "position": [
+        128,
+        170
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:AsyncIterator"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs",
+      "kind": "imports_symbol",
+      "position": [
+        128,
+        170
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Job",
+      "kind": "annotates",
+      "position": [
+        174,
+        183
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Job",
+      "kind": "uses_type",
+      "position": [
+        217,
+        220
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Job",
+      "kind": "uses_type",
+      "position": [
+        234,
+        238
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:dict"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Job",
+      "kind": "uses_type",
+      "position": [
+        239,
+        242
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Job",
+      "kind": "uses_type",
+      "position": [
+        244,
+        247
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs/class:JobStore",
+      "kind": "extends",
+      "position": [
+        285,
+        293
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:JobStore/method:complete(job_id:str)",
+      "kind": "uses_type",
+      "position": [
+        380,
+        383
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:str"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
+      "kind": "annotates",
+      "position": [
+        401,
+        420
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:contextlib/function:asynccontextmanager"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
+      "kind": "calls",
+      "position": [
+        503,
+        525
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/function:print"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
+      "kind": "reads",
+      "position": [
+        522,
+        524
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/function:id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
+      "kind": "calls",
+      "position": [
+        570,
+        590
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/function:print"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
+      "kind": "reads",
+      "position": [
+        587,
+        589
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/function:id"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:__init__(store:JobStore)",
+      "kind": "uses_type",
+      "position": [
+        663,
+        671
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:JobStore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "kind": "uses_type",
+      "position": [
+        773,
+        777
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/class:bool"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "kind": "method_call",
+      "position": [
+        799,
+        820
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:jobs/method:reserve"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "kind": "reads",
+      "position": [
+        804,
+        810
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/function:_store"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "kind": "calls",
+      "position": [
+        941,
+        957
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "kind": "calls",
+      "position": [
+        1035,
+        1051
+      ],
+      "receiver_hint": "asyncio",
+      "to": "code+moniker://app/external_pkg:asyncio/function:sleep"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "kind": "reads",
+      "position": [
+        1035,
+        1042
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/function:asyncio"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "kind": "method_call",
+      "position": [
+        1070,
+        1098
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:jobs/method:complete"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "kind": "reads",
+      "position": [
+        1075,
+        1081
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/function:_store"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()",
+      "kind": "reads",
+      "position": [
+        1095,
+        1097
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:jobs/function:id"
+    }
+  ],
+  "root": "code+moniker://app/lang:python/module:jobs"
+}

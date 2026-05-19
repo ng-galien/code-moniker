@@ -1,0 +1,480 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/go/http_handlers.go
+---
+{
+  "defs": [
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:User",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        102,
+        172
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "interface",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        200,
+        274
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "struct",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        304,
+        343
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:81",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        81,
+        96
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:174",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        174,
+        194
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:276",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        276,
+        298
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/func:NewUserHandler(store:UserStore)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        345,
+        433
+      ],
+      "signature": "store:UserStore",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:435",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        435,
+        467
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler",
+      "position": [
+        468,
+        850
+      ],
+      "signature": "w:http.ResponseWriter,r:*http.Request",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)/comment:543",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "position": [
+        543,
+        589
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:852",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        852,
+        870
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "func",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers",
+      "position": [
+        871,
+        1032
+      ],
+      "signature": "r:*http.Request",
+      "visibility": "module"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)/comment:951",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
+      "position": [
+        951,
+        992
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers",
+      "kind": "imports_module",
+      "position": [
+        28,
+        37
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:context"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers",
+      "kind": "imports_module",
+      "position": [
+        39,
+        54
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:encoding/path:json"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers",
+      "kind": "imports_module",
+      "position": [
+        56,
+        66
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:net/path:http"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers",
+      "kind": "imports_module",
+      "position": [
+        68,
+        77
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:strconv"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore",
+      "kind": "uses_type",
+      "position": [
+        232,
+        247
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:context/struct:Context"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore",
+      "kind": "uses_type",
+      "position": [
+        260,
+        264
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:http_handlers/struct:User"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler",
+      "kind": "uses_type",
+      "position": [
+        332,
+        341
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:http_handlers/func:NewUserHandler(store:UserStore)",
+      "kind": "uses_type",
+      "position": [
+        371,
+        380
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:http_handlers/func:NewUserHandler(store:UserStore)",
+      "kind": "uses_type",
+      "position": [
+        383,
+        394
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:http_handlers/func:NewUserHandler(store:UserStore)",
+      "kind": "instantiates",
+      "position": [
+        406,
+        431
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "kind": "uses_type",
+      "position": [
+        502,
+        521
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:net/path:http/struct:ResponseWriter"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "kind": "uses_type",
+      "position": [
+        526,
+        538
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "kind": "calls",
+      "position": [
+        602,
+        612
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "kind": "calls",
+      "position": [
+        632,
+        678
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:net/path:http/func:Error"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "kind": "method_call",
+      "position": [
+        705,
+        734
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:http_handlers/method:Find"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "kind": "method_call",
+      "position": [
+        718,
+        729
+      ],
+      "receiver_hint": "r",
+      "to": "code+moniker://app/lang:go/module:http_handlers/method:Context"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "kind": "calls",
+      "position": [
+        754,
+        799
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:net/path:http/func:Error"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "kind": "method_call",
+      "position": [
+        817,
+        848
+      ],
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:go/module:http_handlers/method:Encode"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "kind": "calls",
+      "position": [
+        817,
+        835
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:encoding/path:json/func:NewEncoder"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
+      "kind": "uses_type",
+      "position": [
+        887,
+        899
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
+      "kind": "method_call",
+      "position": [
+        926,
+        949
+      ],
+      "receiver_hint": "call",
+      "to": "code+moniker://app/lang:go/module:http_handlers/method:Get"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
+      "kind": "method_call",
+      "position": [
+        926,
+        939
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:go/module:http_handlers/method:Query"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
+      "kind": "calls",
+      "position": [
+        1001,
+        1030
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:strconv/func:ParseInt"
+    }
+  ],
+  "root": "code+moniker://app/lang:go/module:http_handlers"
+}

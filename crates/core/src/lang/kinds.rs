@@ -30,6 +30,7 @@ pub const TABLE: &[u8] = b"table";
 pub const VIEW: &[u8] = b"view";
 
 pub const FUNCTION: &[u8] = b"function";
+pub const ASYNC_FUNCTION: &[u8] = b"async_function";
 pub const FN: &[u8] = b"fn";
 pub const FUNC: &[u8] = b"func";
 pub const METHOD: &[u8] = b"method";

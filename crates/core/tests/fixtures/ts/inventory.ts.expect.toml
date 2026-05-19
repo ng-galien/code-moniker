@@ -1,0 +1,93 @@
+root = "code+moniker://app/lang:ts/module:inventory"
+
+[[defs]]
+label = "stock enum"
+kind = "enum"
+moniker = "code+moniker://app/lang:ts/module:inventory/enum:Stock"
+
+[[defs]]
+label = "item repo interface"
+kind = "interface"
+moniker = "code+moniker://app/lang:ts/module:inventory/interface:ItemRepo"
+
+[[defs]]
+label = "item interface"
+kind = "interface"
+moniker = "code+moniker://app/lang:ts/module:inventory/interface:Item"
+
+[[defs]]
+label = "make id helper"
+kind = "function"
+moniker = "code+moniker://app/lang:ts/module:inventory/function:makeId(prefix:string,n:number)"
+
+[[defs]]
+label = "base item class"
+kind = "class"
+moniker = "code+moniker://app/lang:ts/module:inventory/class:BaseItem"
+
+[[defs]]
+label = "audited item class"
+kind = "class"
+moniker = "code+moniker://app/lang:ts/module:inventory/class:AuditedItem"
+
+[[defs]]
+label = "memory repo class"
+kind = "class"
+moniker = "code+moniker://app/lang:ts/module:inventory/class:MemoryRepo"
+
+[[defs]]
+label = "default inventory service"
+kind = "class"
+moniker = "code+moniker://app/lang:ts/module:inventory/class:default"
+
+[[defs]]
+label = "restock method"
+kind = "method"
+moniker = "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)"
+parent = "code+moniker://app/lang:ts/module:inventory/class:default"
+
+[[defs]]
+label = "find method"
+kind = "method"
+moniker = "code+moniker://app/lang:ts/module:inventory/class:default/method:find(id:string)"
+parent = "code+moniker://app/lang:ts/module:inventory/class:default"
+
+[[defs]]
+label = "advance method"
+kind = "method"
+moniker = "code+moniker://app/lang:ts/module:inventory/class:default/method:advance()"
+parent = "code+moniker://app/lang:ts/module:inventory/class:default"
+
+[[refs]]
+label = "wildcard errors reexport"
+kind = "reexports"
+to = "code+moniker://app/lang:ts/module:errors"
+confidence = "imported"
+
+[[refs]]
+label = "describe calls make id"
+kind = "calls"
+from = "code+moniker://app/lang:ts/module:inventory/class:BaseItem/method:describe()"
+to = "code+moniker://app/lang:ts/module:inventory/function:makeId(prefix:string,n:number)"
+confidence = "resolved"
+
+[[refs]]
+label = "restock calls make id"
+kind = "calls"
+from = "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)"
+to = "code+moniker://app/lang:ts/module:inventory/function:makeId(prefix:string,n:number)"
+confidence = "resolved"
+
+[[refs]]
+label = "restock calls repo put"
+kind = "method_call"
+from = "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)"
+to = "code+moniker://app/lang:ts/module:inventory/method:put"
+confidence = "name_match"
+
+[[refs]]
+label = "restock calls logger info"
+kind = "method_call"
+from = "code+moniker://app/lang:ts/module:inventory/class:default/method:restock(prefix:string,count:number)"
+to = "code+moniker://app/lang:ts/module:inventory/method:info"
+confidence = "name_match"

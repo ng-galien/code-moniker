@@ -1,6 +1,5 @@
 ---
 source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 120
 expression: body
 input_file: crates/core/tests/fixtures/ts/jsx.tsx
 ---
@@ -20,14 +19,27 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "visibility": ""
     },
     {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/comment:214",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx",
+      "position": [
+        214,
+        238
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
       "binding": "export",
       "kind": "interface",
       "moniker": "code+moniker://app/lang:ts/module:jsx/interface:CounterProps",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:jsx",
       "position": [
-        221,
-        282
+        246,
+        307
       ],
       "signature": "",
       "visibility": "public"
@@ -39,8 +51,8 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:jsx/interface:CounterProps",
       "position": [
-        247,
-        260
+        272,
+        285
       ],
       "signature": "",
       "visibility": "public"
@@ -52,11 +64,24 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:jsx/interface:CounterProps",
       "position": [
-        263,
-        279
+        288,
+        304
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/comment:309",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx",
+      "position": [
+        309,
+        337
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -65,11 +90,50 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:jsx",
       "position": [
-        291,
-        546
+        345,
+        669
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)/comment:403",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
+      "position": [
+        403,
+        437
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)/comment:485",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
+      "position": [
+        485,
+        516
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/comment:671",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx",
+      "position": [
+        671,
+        704
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "export",
@@ -78,11 +142,24 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "origin": "extracted",
       "parent": "code+moniker://app/lang:ts/module:jsx",
       "position": [
-        555,
-        727
+        712,
+        960
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})/comment:770",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})",
+      "position": [
+        770,
+        844
+      ],
+      "signature": "",
+      "visibility": ""
     }
   ],
   "refs": [
@@ -119,8 +196,8 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "from": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
       "kind": "uses_type",
       "position": [
-        332,
-        344
+        386,
+        398
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:jsx/class:CounterProps"
@@ -132,8 +209,8 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "from": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
       "kind": "calls",
       "position": [
-        375,
-        392
+        465,
+        482
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:react/function:useState"
@@ -145,8 +222,8 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "from": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)",
       "kind": "reads",
       "position": [
-        478,
-        484
+        601,
+        607
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:jsx/function:Button"
@@ -158,8 +235,8 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "from": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})",
       "kind": "method_call",
       "position": [
-        633,
-        712
+        866,
+        945
       ],
       "receiver_hint": "labels",
       "to": "code+moniker://app/lang:ts/module:jsx/method:map"
@@ -171,8 +248,8 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
       "from": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})",
       "kind": "reads",
       "position": [
-        676,
-        683
+        909,
+        916
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:ts/module:jsx/function:Counter"

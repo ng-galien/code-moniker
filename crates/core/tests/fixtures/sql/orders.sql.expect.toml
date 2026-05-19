@@ -1,0 +1,42 @@
+root = "code+moniker://app/lang:sql/module:orders"
+
+[[defs]]
+label = "orders"
+kind = "table"
+moniker = "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders"
+binding = "local"
+
+[[defs]]
+label = "order_events"
+kind = "table"
+moniker = "code+moniker://app/lang:sql/module:orders/schema:shop/table:order_events"
+binding = "local"
+
+[[defs]]
+label = "cancel_stale_orders"
+kind = "function"
+moniker = "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)"
+signature = "p_before:timestamptz"
+
+[[defs]]
+label = "open_orders"
+kind = "view"
+moniker = "code+moniker://app/lang:sql/module:orders/schema:shop/view:open_orders"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:sql/module:orders/schema:shop/table:orders"
+to = "code+moniker://app/external_pkg:pg_catalog/path:uuid"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:sql/module:orders/schema:shop/function:cancel_stale_orders(p_before:timestamptz)"
+to = "code+moniker://app/external_pkg:pg_catalog/path:timestamptz"
+confidence = "external"
+
+[[refs]]
+kind = "calls"
+from = "code+moniker://app/lang:sql/module:orders/schema:shop/view:open_orders"
+to = "code+moniker://app/external_pkg:pg_catalog/path:count"
+confidence = "external"

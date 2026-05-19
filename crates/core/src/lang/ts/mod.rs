@@ -13,7 +13,9 @@ mod kinds;
 mod strategy;
 
 use canonicalize::compute_module_moniker;
-use strategy::{CallableEntry, Strategy, collect_callable_table, collect_export_ranges};
+use strategy::{
+	CallableEntry, Strategy, collect_callable_table, collect_export_ranges, collect_type_table,
+};
 
 pub fn parse(source: &str) -> Tree {
 	parse_with_uri(source, "")
@@ -70,6 +72,14 @@ pub fn extract(
 		&module,
 		&mut callable_table,
 	);
+	let mut type_table: std::collections::HashMap<Vec<u8>, Moniker> =
+		std::collections::HashMap::new();
+	collect_type_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&mut type_table,
+	);
 	let strat = Strategy {
 		module: module.clone(),
 		anchor: anchor.clone(),
@@ -80,6 +90,7 @@ pub fn extract(
 		local_scope: std::cell::RefCell::new(Vec::new()),
 		imports: std::cell::RefCell::new(std::collections::HashMap::new()),
 		import_targets: std::cell::RefCell::new(std::collections::HashMap::new()),
+		type_table,
 		callable_table,
 		nested_funcs: std::cell::RefCell::new(Vec::new()),
 	};
