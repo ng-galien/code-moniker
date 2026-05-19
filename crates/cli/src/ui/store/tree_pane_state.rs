@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
-use crate::ui::navigator::NavRow;
 use crate::ui::store::ids::NodeId;
+use crate::ui::store::navigation_tree::NavRow;
 
 use super::tree_pane_action::{TreePaneAction, TreePaneNotice};
 
@@ -175,7 +175,7 @@ fn clamp_index(selection: &mut usize, len: usize) {
 #[cfg(any())]
 mod tests {
 	use super::*;
-	use crate::ui::navigator::NavNodeKind;
+	use crate::ui::store::navigation_tree::NavNodeKind;
 
 	fn row(key: NodeId, label: &str, depth: usize, has_children: bool) -> NavRow {
 		NavRow {

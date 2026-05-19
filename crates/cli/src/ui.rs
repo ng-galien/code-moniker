@@ -20,7 +20,6 @@ mod clipboard;
 mod events;
 mod explorer;
 mod live;
-mod navigator;
 mod panel;
 mod render;
 mod shell;
@@ -35,13 +34,13 @@ use async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
 use events::{HeaderSearchFocus, UiMode, key_to_msg};
 use explorer::{header_search_options, header_search_results as explorer_header_search_results};
 use live::StoreEvent;
-use navigator::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
 use render::view;
 use shell::ShellEvent;
 use store::navigation::{
-	NavigationAction, NavigationNotice, NavigationPane, NavigationScope, NavigationSelection,
-	NavigationState, TreePaneAction,
+	NavigationAction, NavigationPane, NavigationScope, NavigationSelection, NavigationState,
 };
+use store::navigation_tree::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
+use store::tree_pane_action::{TreePaneAction, TreePaneNotice};
 
 const DEFAULT_PANEL_SNAPSHOT_WIDTH: usize = 100;
 const HEADER_SEARCH_DEBOUNCE_MS: u64 = 180;
@@ -745,9 +744,9 @@ impl App {
 			TreePaneAction::ToggleSelected,
 		));
 		match self.app_store.navigation().last_notice() {
-			NavigationNotice::Opened(label) => self.set_status(format!("opened {label}")),
-			NavigationNotice::Closed(label) => self.set_status(format!("closed {label}")),
-			NavigationNotice::MovedToParent | NavigationNotice::Noop => {}
+			TreePaneNotice::Opened(label) => self.set_status(format!("opened {label}")),
+			TreePaneNotice::Closed(label) => self.set_status(format!("closed {label}")),
+			TreePaneNotice::MovedToParent | TreePaneNotice::Noop => {}
 		}
 	}
 
@@ -756,7 +755,7 @@ impl App {
 			self.focus_region(),
 			TreePaneAction::OpenSelected,
 		));
-		if let NavigationNotice::Opened(label) = self.app_store.navigation().last_notice() {
+		if let TreePaneNotice::Opened(label) = self.app_store.navigation().last_notice() {
 			self.set_status(format!("opened {label}"));
 		}
 	}
@@ -767,22 +766,22 @@ impl App {
 			TreePaneAction::CloseSelected,
 		));
 		match self.app_store.navigation().last_notice() {
-			NavigationNotice::Closed(label) => {
+			TreePaneNotice::Closed(label) => {
 				self.set_status(format!("closed {label}"));
 				true
 			}
-			NavigationNotice::MovedToParent => {
+			TreePaneNotice::MovedToParent => {
 				self.sync_contextual_view();
 				true
 			}
-			NavigationNotice::Opened(_) => false,
-			NavigationNotice::Noop if self.focus_region() == FocusRegion::UsageLens => {
+			TreePaneNotice::Opened(_) => false,
+			TreePaneNotice::Noop if self.focus_region() == FocusRegion::UsageLens => {
 				self.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
 				self.sync_contextual_view();
 				self.set_status("navigator focused");
 				true
 			}
-			NavigationNotice::Noop => false,
+			TreePaneNotice::Noop => false,
 		}
 	}
 

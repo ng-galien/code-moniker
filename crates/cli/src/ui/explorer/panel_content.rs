@@ -1,10 +1,10 @@
 use crate::ui::App;
 use crate::ui::app::{ChangePanelMode, CheckState, FocusRegion, View};
-use crate::ui::navigator::NavNodeKind;
 use crate::ui::panel::{PanelVm, ReferenceGroupVm, SourceLineVm};
 use crate::ui::render::component::ComponentId;
 use crate::ui::render::text::{Column, FitMode};
 use crate::ui::store::navigation::NavigationPane;
+use crate::ui::store::navigation_tree::NavNodeKind;
 use crate::workspace::{DefLocation, IndexStore, ReferenceGroup, ReferenceSet, UsageFocus};
 
 pub(super) fn active_panel(app: &App) -> PanelVm {

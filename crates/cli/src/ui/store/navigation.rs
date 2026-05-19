@@ -1,17 +1,14 @@
 use std::collections::BTreeSet;
 
-use crate::ui::navigator::{
-	NavNode, NavNodeKind, NavRow, all_expanded_keys, filtered_expanded_keys, flatten_nav,
-};
 use crate::ui::store::reducer::{Reduce, Transition};
 use crate::ui::store::tree_pane_state::TreePaneState;
 use crate::workspace::DefLocation;
 
 use super::ids::NodeId;
-
-pub(in crate::ui) use crate::ui::store::tree_pane_action::{
-	TreePaneAction, TreePaneNotice as NavigationNotice,
+use super::navigation_tree::{
+	NavNode, NavNodeKind, NavRow, all_expanded_keys, filtered_expanded_keys, flatten_nav,
 };
+use super::tree_pane_action::{TreePaneAction, TreePaneNotice};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::ui) enum NavigationScope {
@@ -68,7 +65,7 @@ pub(in crate::ui) struct NavigationState {
 	scoped_pane: TreePaneState,
 	visible_defs: Vec<DefLocation>,
 	scope: NavigationScope,
-	last_notice: NavigationNotice,
+	last_notice: TreePaneNotice,
 	usage_lens: Option<UsageLensNavigationState>,
 }
 
@@ -122,7 +119,7 @@ impl NavigationState {
 			scoped_pane: TreePaneState::new(),
 			visible_defs: Vec::new(),
 			scope: NavigationScope::Explorer,
-			last_notice: NavigationNotice::Noop,
+			last_notice: TreePaneNotice::Noop,
 			usage_lens: None,
 		};
 		state.refresh_primary_rows(None);
@@ -154,7 +151,7 @@ impl NavigationState {
 		self.explorer.def_count
 	}
 
-	pub(in crate::ui) fn last_notice(&self) -> &NavigationNotice {
+	pub(in crate::ui) fn last_notice(&self) -> &TreePaneNotice {
 		&self.last_notice
 	}
 
@@ -275,7 +272,7 @@ impl NavigationState {
 		};
 		self.last_notice = notice;
 		let changed = self.pane_selection(pane) != before
-			|| !matches!(self.last_notice, NavigationNotice::Noop);
+			|| !matches!(self.last_notice, TreePaneNotice::Noop);
 		if changed {
 			Transition::changed()
 		} else {
@@ -300,16 +297,16 @@ impl NavigationState {
 		}
 	}
 
-	fn apply_primary_pane_action(&mut self, action: TreePaneAction) -> NavigationNotice {
+	fn apply_primary_pane_action(&mut self, action: TreePaneAction) -> TreePaneNotice {
 		let notice = self.active_primary_pane_mut().apply(action);
 		let selected_key = self.active_primary_pane().selected_key();
 		self.refresh_primary_rows(selected_key.as_ref());
 		notice
 	}
 
-	fn apply_usage_pane_action(&mut self, action: TreePaneAction) -> NavigationNotice {
+	fn apply_usage_pane_action(&mut self, action: TreePaneAction) -> TreePaneNotice {
 		let Some(lens) = &mut self.usage_lens else {
-			return NavigationNotice::Noop;
+			return TreePaneNotice::Noop;
 		};
 		let notice = lens.pane.apply(action);
 		let selected_key = lens.pane.selected_key();
@@ -383,7 +380,7 @@ fn valid_for_scoped(explorer: &NavNode, change: &NavNode) -> BTreeSet<NodeId> {
 
 impl Reduce<NavigationAction> for NavigationState {
 	fn reduce(&mut self, action: NavigationAction) -> Transition {
-		self.last_notice = NavigationNotice::Noop;
+		self.last_notice = TreePaneNotice::Noop;
 		match action {
 			NavigationAction::ReplaceModels { explorer, change } => {
 				self.replace_models(explorer, change);

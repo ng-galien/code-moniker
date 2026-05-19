@@ -2,11 +2,11 @@ use std::collections::BTreeSet;
 
 use crate::workspace::{ChangeId, DefLocation};
 
-use super::store::ids::NodeId;
+use crate::ui::store::ids::NodeId;
 use crate::workspace::IndexStore;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum NavNodeKind {
+pub(in crate::ui) enum NavNodeKind {
 	Root,
 	Lang,
 	Dir,
@@ -17,24 +17,24 @@ pub(super) enum NavNodeKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct NavNode {
-	pub(super) key: NodeId,
-	pub(super) label: String,
-	pub(super) kind: NavNodeKind,
-	pub(super) children: Vec<NavNode>,
-	pub(super) file_count: usize,
-	pub(super) def_count: usize,
+pub(in crate::ui) struct NavNode {
+	pub(in crate::ui) key: NodeId,
+	pub(in crate::ui) label: String,
+	pub(in crate::ui) kind: NavNodeKind,
+	pub(in crate::ui) children: Vec<NavNode>,
+	pub(in crate::ui) file_count: usize,
+	pub(in crate::ui) def_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct NavRow {
-	pub(super) key: NodeId,
-	pub(super) label: String,
-	pub(super) kind: NavNodeKind,
-	pub(super) depth: usize,
-	pub(super) has_children: bool,
-	pub(super) file_count: usize,
-	pub(super) def_count: usize,
+pub(in crate::ui) struct NavRow {
+	pub(in crate::ui) key: NodeId,
+	pub(in crate::ui) label: String,
+	pub(in crate::ui) kind: NavNodeKind,
+	pub(in crate::ui) depth: usize,
+	pub(in crate::ui) has_children: bool,
+	pub(in crate::ui) file_count: usize,
+	pub(in crate::ui) def_count: usize,
 }
 
 impl NavNode {
@@ -50,7 +50,7 @@ impl NavNode {
 	}
 }
 
-pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
+pub(in crate::ui) fn build_navigator(store: &impl IndexStore) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("explorer"), "root", NavNodeKind::Root);
 	for file_idx in 0..store.file_count() {
 		let file = store.file_summary(file_idx);
@@ -101,7 +101,7 @@ pub(super) fn build_navigator(store: &impl IndexStore) -> NavNode {
 	root
 }
 
-pub(super) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
+pub(in crate::ui) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("change"), "root", NavNodeKind::Root);
 	for change in store.change_rows() {
 		let lang = child_mut(
@@ -264,7 +264,7 @@ fn direct_children(
 	}
 }
 
-pub(super) fn flatten_nav(
+pub(in crate::ui) fn flatten_nav(
 	node: &NavNode,
 	expanded: &BTreeSet<NodeId>,
 	matches: Option<&[DefLocation]>,
@@ -332,7 +332,7 @@ fn compact_chain(node: &NavNode, allow_terminal_compaction: bool) -> (&NavNode, 
 	(current, labels.join("/"))
 }
 
-pub(super) fn filtered_expanded_keys(
+pub(in crate::ui) fn filtered_expanded_keys(
 	node: &NavNode,
 	matches: &[DefLocation],
 	expand_symbols: bool,
@@ -404,7 +404,7 @@ fn node_matches(node: &NavNode, matches: &[DefLocation]) -> bool {
 	matches.contains(&loc)
 }
 
-pub(super) fn all_expanded_keys(node: &NavNode) -> BTreeSet<NodeId> {
+pub(in crate::ui) fn all_expanded_keys(node: &NavNode) -> BTreeSet<NodeId> {
 	let mut keys = BTreeSet::new();
 	collect_all_expanded_keys(node, &mut keys);
 	keys

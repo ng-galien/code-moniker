@@ -9,10 +9,9 @@ use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
 use crate::ui::explorer::HeaderSearchResults;
 use crate::ui::live::StoreEvent;
 use crate::ui::render::component::ComponentId;
-use crate::ui::store::navigation::{
-	NavigationAction, NavigationPane, NavigationState, TreePaneAction,
-};
+use crate::ui::store::navigation::{NavigationAction, NavigationPane, NavigationState};
 use crate::ui::store::reducer::Transition;
+use crate::ui::store::tree_pane_action::TreePaneAction;
 use crate::workspace::{CheckSummary, UsageFocus};
 
 use super::Effect;
