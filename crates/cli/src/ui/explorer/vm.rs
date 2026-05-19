@@ -11,7 +11,7 @@ use crate::ui::store::navigation::NavigationPaneView;
 use crate::ui::store::navigation_tree::{NavNodeKind, NavRow};
 use crate::workspace::{ChangeStatus, DefLocation, IndexStore};
 
-use crate::ui::App;
+use crate::ui::app::App;
 
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct ExplorerVm {
@@ -207,7 +207,7 @@ fn search_popup_vm(app: &App, focus: Option<HeaderSearchFocus>) -> Option<Search
 }
 
 fn primary_nav_vm(app: &App) -> NavPaneVm {
-	let navigation = app.app_store.navigation();
+	let navigation = app.navigation();
 	let visible_defs = navigation.visible_defs();
 	let pane = navigation.primary_view();
 	let title = if app.is_filtered() {
@@ -228,7 +228,7 @@ fn primary_nav_vm(app: &App) -> NavPaneVm {
 		format!(
 			" navigator {} files {} defs ",
 			app.store().stats().files,
-			app.app_store.navigation().explorer_def_count()
+			app.navigation().explorer_def_count()
 		)
 	};
 	NavPaneVm {
@@ -242,7 +242,7 @@ fn primary_nav_vm(app: &App) -> NavPaneVm {
 
 fn usage_nav_vm(app: &App) -> Option<NavPaneVm> {
 	let focus = app.usage_lens()?;
-	let pane = app.app_store.navigation().usage_view()?;
+	let pane = app.navigation().usage_view()?;
 	Some(NavPaneVm {
 		title: format!(
 			" usages {}  {} files {} defs ",

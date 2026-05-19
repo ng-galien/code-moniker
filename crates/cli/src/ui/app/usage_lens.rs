@@ -1,7 +1,6 @@
 use crate::workspace::{DefLocation, IndexStore};
 
-use crate::ui::App;
-use crate::ui::app::{ChangePanelMode, PanelPolicy, ShellAction, View, VisualizationMode};
+use crate::ui::app::{App, ChangePanelMode, PanelPolicy, ShellAction, View, VisualizationMode};
 use crate::ui::store::navigation::NavigationAction;
 
 impl App {

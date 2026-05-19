@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::View;
+use crate::ui::app::View;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(super) enum UiMode {

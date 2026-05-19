@@ -2,7 +2,7 @@ mod panel_content;
 mod search;
 mod vm;
 
-use crate::ui::App;
+use crate::ui::app::App;
 use crate::ui::panel::PanelVm;
 
 pub(in crate::ui) use search::{HeaderSearchResults, header_search_options, header_search_results};

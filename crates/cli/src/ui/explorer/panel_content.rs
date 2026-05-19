@@ -1,5 +1,4 @@
-use crate::ui::App;
-use crate::ui::app::{ChangePanelMode, CheckState, FocusRegion, View};
+use crate::ui::app::{App, ChangePanelMode, CheckState, FocusRegion, View};
 use crate::ui::panel::{PanelVm, ReferenceGroupVm, SourceLineVm};
 use crate::ui::render::component::ComponentId;
 use crate::ui::render::text::{Column, FitMode};
@@ -122,7 +121,6 @@ fn nav_selection_panel(app: &App) -> PanelVm {
 		NavigationPane::Primary
 	};
 	let Some(selection) = app
-		.app_store
 		.navigation()
 		.pane_view(pane)
 		.and_then(|pane| pane.selected_context())
@@ -329,10 +327,14 @@ fn check_panel(app: &App) -> PanelVm {
 		CheckState::Pending => {
 			vm.section("check");
 			vm.muted("press c to run .code-moniker.toml rules on the loaded graph");
-			vm.kv("rules", app.rules.display().to_string(), FitMode::Tail);
+			vm.kv(
+				"rules",
+				app.rules_path().display().to_string(),
+				FitMode::Tail,
+			);
 			vm.kv(
 				"profile",
-				app.profile.as_deref().unwrap_or("<none>"),
+				app.profile_name().unwrap_or("<none>"),
 				FitMode::Tail,
 			);
 		}

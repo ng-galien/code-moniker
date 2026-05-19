@@ -13,8 +13,7 @@ use crate::workspace::SessionOptions;
 use crate::{DEFAULT_SCHEME, Exit};
 
 use super::{EventSource, ShellEvent};
-use crate::ui::App;
-use crate::ui::app::AppAction;
+use crate::ui::app::{App, AppAction};
 use crate::ui::live::StoreEvent;
 use crate::ui::render::view;
 

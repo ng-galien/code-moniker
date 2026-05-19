@@ -1,12 +1,14 @@
 use crate::workspace::{ChangeDetail, DefLocation, IndexStore};
 
-use crate::ui::app::{ActiveFilter, PanelPolicy, ShellAction, View, VisualizationMode};
+use crate::ui::app::{
+	ActiveFilter, App, FocusRegion, PanelPolicy, ShellAction, View, VisualizationMode,
+};
+use crate::ui::events::UiMode;
 use crate::ui::store::navigation::{
 	NavigationAction, NavigationPane, NavigationScope, NavigationSelection,
 };
 use crate::ui::store::navigation_tree::{NavNodeKind, NavRow};
 use crate::ui::store::tree_pane_action::{TreePaneAction, TreePaneNotice};
-use crate::ui::{App, FocusRegion};
 
 fn focused_tree_action(focus: FocusRegion, action: TreePaneAction) -> NavigationAction {
 	let pane = if focus == FocusRegion::UsageLens {
@@ -118,7 +120,7 @@ impl App {
 	}
 
 	pub(in crate::ui) fn filter_label(&self) -> String {
-		if matches!(self.mode(), crate::ui::UiMode::HeaderSearch(_)) {
+		if matches!(self.mode(), UiMode::HeaderSearch(_)) {
 			let header = self.header_search();
 			return super::header_search::header_search_label(
 				&header.text,

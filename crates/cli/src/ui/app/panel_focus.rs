@@ -1,6 +1,7 @@
-use crate::ui::app::{FocusRegion, PanelNavigationState, ShellAction};
+use crate::ui::app::{App, FocusRegion, PanelNavigationState, ShellAction};
 use crate::ui::render::view;
-use crate::ui::{App, clipboard, explorer, panel};
+use crate::ui::shell::ShellEvent;
+use crate::ui::{clipboard, explorer, panel};
 
 impl App {
 	pub(in crate::ui) fn panel_scroll(&self) -> usize {
@@ -30,7 +31,7 @@ impl App {
 			return;
 		};
 		match clipboard::copy_text_async(component.clone(), text, move |result| {
-			let _ = tx.send(crate::ui::ShellEvent::Clipboard(result));
+			let _ = tx.send(ShellEvent::Clipboard(result));
 		}) {
 			Ok(()) => self.set_status(format!("copying {component} snapshot to clipboard")),
 			Err(error) => self.set_status(format!("clipboard copy failed: {error:#}")),

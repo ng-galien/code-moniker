@@ -111,6 +111,12 @@ pub(in crate::ui) enum ActiveFilter {
 	Change,
 }
 
+impl ActiveFilter {
+	pub(in crate::ui) fn filters_navigator(&self) -> bool {
+		matches!(self, Self::HeaderSearch(_) | Self::Change)
+	}
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) generation: u64,

@@ -1,13 +1,13 @@
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 
-use crate::ui::events::HeaderSearchFocus;
+use crate::ui::app::App;
+use crate::ui::events::{HeaderSearchFocus, UiMode};
 use crate::ui::explorer::{
 	HeaderSearchResults, header_search_options,
 	header_search_results as explorer_header_search_results,
 };
 use crate::ui::store::navigation::NavigationAction;
-use crate::ui::{App, UiMode};
 use crate::workspace::IndexStore;
 
 use super::action::{AppAction, ShellAction};
