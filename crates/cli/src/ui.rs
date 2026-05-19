@@ -32,10 +32,6 @@ mod scroll;
 mod shell;
 mod source;
 mod store;
-// Disabled during the UI architecture rebuild. These tests encode the legacy
-// App facade and will be moved, deleted, or rewritten against the new contracts.
-// #[cfg(test)]
-// mod tests;
 mod text;
 mod theme;
 mod view;
@@ -53,7 +49,7 @@ use features::explorer::{
 use live::StoreEvent;
 use navigator::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
 use runtime::{TaskOutcome, TaskRuntime};
-use shell::{FeatureRegistry, ShellEvent};
+use shell::ShellEvent;
 use store::navigation::{
 	NavigationAction, NavigationNotice, NavigationPane, NavigationScope, NavigationSelection,
 	NavigationState, TreePaneAction,
@@ -90,7 +86,6 @@ impl ActiveFilter {
 
 struct App {
 	app_store: AppStore,
-	registry: FeatureRegistry,
 	scheme: String,
 	rules: PathBuf,
 	profile: Option<String>,
@@ -101,16 +96,14 @@ struct App {
 
 impl App {
 	fn new(store: WorkspaceStore, scheme: String, rules: PathBuf, profile: Option<String>) -> Self {
-		let registry = FeatureRegistry::static_registry();
-		let route = registry.initial_route();
-		let nav_count = registry.navigation().len();
+		let route = ExplorerFeature::initial_route();
+		let nav_count = ExplorerFeature::navigation().len();
 		let navigator = build_navigator(&store);
 		let change_navigator = build_change_navigator(&store);
 		let mut app_store = AppStore::from_workspace_store(store);
 		app_store.set_navigation(NavigationState::new(navigator, change_navigator));
 		let mut app = Self {
 			app_store,
-			registry,
 			scheme,
 			rules,
 			profile,
@@ -1161,7 +1154,7 @@ impl App {
 	}
 
 	fn navigate(&mut self, route: Route) {
-		if !self.registry.can_open(&route) {
+		if !ExplorerFeature::can_open(&route) {
 			self.set_status(format!("unknown route: {}/{}", route.feature, route.path));
 			return;
 		}

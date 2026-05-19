@@ -3,7 +3,7 @@ mod search;
 mod vm;
 
 use crate::ui::App;
-use crate::ui::contracts::{Feature, FeatureId, NavItem, Route};
+use crate::ui::contracts::{NavItem, Route};
 use crate::ui::panels::PanelVm;
 
 pub(in crate::ui) use search::{HeaderSearchResults, header_search_options, header_search_results};
@@ -37,14 +37,8 @@ impl ExplorerFeature {
 	pub(in crate::ui) fn view_model(app: &App) -> ExplorerVm {
 		ExplorerVm::from_app(app)
 	}
-}
 
-impl Feature for ExplorerFeature {
-	fn id(&self) -> FeatureId {
-		FeatureId::new(FEATURE_ID)
-	}
-
-	fn navigation(&self) -> Vec<NavItem> {
+	pub(in crate::ui) fn navigation() -> Vec<NavItem> {
 		vec![
 			NavItem::new(
 				"Overview",
@@ -74,7 +68,7 @@ impl Feature for ExplorerFeature {
 		]
 	}
 
-	fn can_open(&self, route: &Route) -> bool {
+	pub(in crate::ui) fn can_open(route: &Route) -> bool {
 		route.feature.as_str() == FEATURE_ID
 			&& matches!(
 				route.path.as_str(),
