@@ -4,12 +4,14 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
 use super as panel;
-use super::super::component::{focused_block_title, marker};
-use super::super::kinds::reference_kind_group;
-use super::super::scroll::{ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin};
+use super::super::render::component::{focused_block_title, marker};
+use super::super::render::kinds::reference_kind_group;
+use super::super::render::scroll::{
+	ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin,
+};
+use super::super::render::text::{FitMode, fit_text, visible_len};
+use super::super::render::theme::{SourceTheme, THEME};
 use super::super::source::SourceLineVm;
-use super::super::text::{FitMode, fit_text, visible_len};
-use super::super::theme::{SourceTheme, THEME};
 use super::model::{
 	MessageTone, PanelRenderState, PanelSection, PanelVm, ReferenceGroupVm, WrapMode,
 };
@@ -17,7 +19,7 @@ use super::model::{
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct PanelSnapshot {
 	pub(in crate::ui) title: &'static str,
-	pub(in crate::ui) component: super::super::component::ComponentId,
+	pub(in crate::ui) component: super::super::render::component::ComponentId,
 	pub(in crate::ui) lines: Vec<Line<'static>>,
 }
 

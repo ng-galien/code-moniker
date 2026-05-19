@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use super::theme::THEME;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(super) enum ComponentId {
+pub(in crate::ui) enum ComponentId {
 	Header,
 	SearchInput,
 	Navigator,
@@ -20,7 +20,7 @@ pub(super) enum ComponentId {
 }
 
 impl ComponentId {
-	pub(super) fn as_str(self) -> &'static str {
+	pub(in crate::ui) fn as_str(self) -> &'static str {
 		match self {
 			Self::Header => "ui.header",
 			Self::SearchInput => "ui.search.input",
@@ -38,18 +38,18 @@ impl ComponentId {
 	}
 }
 
-pub(super) fn marker(id: ComponentId) -> Span<'static> {
+pub(in crate::ui) fn marker(id: ComponentId) -> Span<'static> {
 	raw_marker(id.as_str())
 }
 
-pub(super) fn raw_marker(id: &'static str) -> Span<'static> {
+pub(in crate::ui) fn raw_marker(id: &'static str) -> Span<'static> {
 	Span::styled(
 		format!("[{id}]"),
 		Style::default().fg(THEME.component_marker),
 	)
 }
 
-pub(super) fn block_title(label: impl Into<String>, id: ComponentId) -> Line<'static> {
+pub(in crate::ui) fn block_title(label: impl Into<String>, id: ComponentId) -> Line<'static> {
 	let label = label.into();
 	Line::from(vec![
 		Span::raw(label.trim().to_string()),
@@ -58,7 +58,7 @@ pub(super) fn block_title(label: impl Into<String>, id: ComponentId) -> Line<'st
 	])
 }
 
-pub(super) fn focused_block_title(
+pub(in crate::ui) fn focused_block_title(
 	label: impl Into<String>,
 	id: ComponentId,
 	focused: bool,

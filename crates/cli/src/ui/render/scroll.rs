@@ -4,14 +4,18 @@ use ratatui::style::Style;
 use super::theme::THEME;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct ScrollViewport {
-	pub(super) content_len: usize,
-	pub(super) viewport_len: usize,
-	pub(super) offset: usize,
+pub(in crate::ui) struct ScrollViewport {
+	pub(in crate::ui) content_len: usize,
+	pub(in crate::ui) viewport_len: usize,
+	pub(in crate::ui) offset: usize,
 }
 
 impl ScrollViewport {
-	pub(super) fn from_offset(content_len: usize, viewport_len: usize, offset: usize) -> Self {
+	pub(in crate::ui) fn from_offset(
+		content_len: usize,
+		viewport_len: usize,
+		offset: usize,
+	) -> Self {
 		Self {
 			content_len,
 			viewport_len,
@@ -19,7 +23,7 @@ impl ScrollViewport {
 		}
 	}
 
-	pub(super) fn for_selection_with_margin(
+	pub(in crate::ui) fn for_selection_with_margin(
 		content_len: usize,
 		viewport_len: usize,
 		selection: usize,
@@ -35,7 +39,7 @@ impl ScrollViewport {
 		Self::from_offset(content_len, viewport_len, offset)
 	}
 
-	pub(super) fn for_visible_line(
+	pub(in crate::ui) fn for_visible_line(
 		content_len: usize,
 		viewport_len: usize,
 		current_offset: usize,
@@ -62,11 +66,11 @@ impl ScrollViewport {
 		Self::from_offset(content_len, viewport_len, offset)
 	}
 
-	pub(super) fn has_overflow(self) -> bool {
+	pub(in crate::ui) fn has_overflow(self) -> bool {
 		self.viewport_len > 0 && self.content_len > self.viewport_len
 	}
 
-	pub(super) fn content_area(self, area: Rect) -> Rect {
+	pub(in crate::ui) fn content_area(self, area: Rect) -> Rect {
 		if !self.has_overflow() || area.width <= 1 {
 			return area;
 		}
@@ -76,7 +80,7 @@ impl ScrollViewport {
 		}
 	}
 
-	pub(super) fn offset_u16(self) -> u16 {
+	pub(in crate::ui) fn offset_u16(self) -> u16 {
 		self.offset.min(usize::from(u16::MAX)) as u16
 	}
 
@@ -107,7 +111,7 @@ impl ScrollViewport {
 	}
 }
 
-pub(super) fn viewport_comfort_margin(viewport_len: usize) -> usize {
+pub(in crate::ui) fn viewport_comfort_margin(viewport_len: usize) -> usize {
 	if viewport_len < 8 {
 		0
 	} else {
@@ -115,7 +119,7 @@ pub(super) fn viewport_comfort_margin(viewport_len: usize) -> usize {
 	}
 }
 
-pub(super) fn render_vertical_scrollbar(
+pub(in crate::ui) fn render_vertical_scrollbar(
 	frame: &mut ratatui::Frame<'_>,
 	area: Rect,
 	viewport: ScrollViewport,

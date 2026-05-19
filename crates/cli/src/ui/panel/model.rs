@@ -1,6 +1,6 @@
-use super::super::component::ComponentId;
+use super::super::render::component::ComponentId;
+use super::super::render::text::{Column, FitMode};
 use super::super::source::SourceLineVm;
-use super::super::text::{Column, FitMode};
 
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct PanelVm {

@@ -17,7 +17,7 @@ use crate::ui::App;
 use crate::ui::app::AppAction;
 use crate::ui::explorer::ExplorerFeature;
 use crate::ui::live::StoreEvent;
-use crate::ui::view;
+use crate::ui::render::view;
 
 pub(in crate::ui) fn run<W1: Write, W2: Write>(
 	args: &UiArgs,

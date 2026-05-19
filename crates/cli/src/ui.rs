@@ -16,23 +16,18 @@ use crate::workspace::{
 
 mod app;
 mod clipboard;
-mod component;
 mod events;
 mod explorer;
-mod kinds;
 mod live;
 mod navigator;
 mod panel;
 mod reactive;
+mod render;
 mod route;
 mod runtime;
-mod scroll;
 mod shell;
 mod source;
 mod store;
-mod text;
-mod theme;
-mod view;
 
 use app::{
 	ActiveFilter, AppAction, AppStore, ChangePanelMode, CheckState, Effect, FocusRegion,
@@ -45,6 +40,7 @@ use explorer::{
 };
 use live::StoreEvent;
 use navigator::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
+use render::view;
 use route::Route;
 use runtime::{TaskOutcome, TaskRuntime};
 use shell::ShellEvent;

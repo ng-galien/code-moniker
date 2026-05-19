@@ -1,24 +1,24 @@
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(super) enum FitMode {
+pub(in crate::ui) enum FitMode {
 	Middle,
 	Tail,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(super) enum Align {
+pub(in crate::ui) enum Align {
 	Left,
 	Right,
 }
 
 #[derive(Copy, Clone, Debug)]
-pub(super) struct Column {
-	pub(super) title: &'static str,
-	pub(super) width: usize,
-	pub(super) align: Align,
+pub(in crate::ui) struct Column {
+	pub(in crate::ui) title: &'static str,
+	pub(in crate::ui) width: usize,
+	pub(in crate::ui) align: Align,
 }
 
 impl Column {
-	pub(super) const fn left(title: &'static str, width: usize) -> Self {
+	pub(in crate::ui) const fn left(title: &'static str, width: usize) -> Self {
 		Self {
 			title,
 			width,
@@ -26,7 +26,7 @@ impl Column {
 		}
 	}
 
-	pub(super) const fn right(title: &'static str, width: usize) -> Self {
+	pub(in crate::ui) const fn right(title: &'static str, width: usize) -> Self {
 		Self {
 			title,
 			width,
@@ -35,12 +35,12 @@ impl Column {
 	}
 }
 
-pub(super) fn table_width(columns: &[Column], max_width: usize) -> usize {
+pub(in crate::ui) fn table_width(columns: &[Column], max_width: usize) -> usize {
 	let widths = fitted_widths(columns, max_width);
 	widths.iter().sum::<usize>() + gap_width(columns)
 }
 
-pub(super) fn fitted_widths(columns: &[Column], max_width: usize) -> Vec<usize> {
+pub(in crate::ui) fn fitted_widths(columns: &[Column], max_width: usize) -> Vec<usize> {
 	if columns.is_empty() {
 		return Vec::new();
 	}
@@ -75,7 +75,7 @@ fn gap_width(columns: &[Column]) -> usize {
 	columns.len().saturating_sub(1) * 2
 }
 
-pub(super) fn format_cell(value: &str, width: usize, align: Align) -> String {
+pub(in crate::ui) fn format_cell(value: &str, width: usize, align: Align) -> String {
 	let value = fit_text(value, width, FitMode::Tail);
 	match align {
 		Align::Left => format!("{value:<width$}"),
@@ -83,7 +83,7 @@ pub(super) fn format_cell(value: &str, width: usize, align: Align) -> String {
 	}
 }
 
-pub(super) fn fit_text(value: &str, width: usize, mode: FitMode) -> String {
+pub(in crate::ui) fn fit_text(value: &str, width: usize, mode: FitMode) -> String {
 	if visible_len(value) <= width {
 		return value.to_string();
 	}
@@ -125,6 +125,6 @@ fn take_end(value: &str, count: usize) -> String {
 	chars[chars.len().saturating_sub(count)..].iter().collect()
 }
 
-pub(super) fn visible_len(value: &str) -> usize {
+pub(in crate::ui) fn visible_len(value: &str) -> usize {
 	value.chars().count()
 }

@@ -5,15 +5,15 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 
 use crate::workspace::ChangeStatus;
 
-use super::DEFAULT_PANEL_SNAPSHOT_WIDTH;
-use super::component::{ComponentId, focused_block_title, marker, raw_marker};
-use super::events::HeaderSearchFocus;
-use super::explorer::{
+use super::super::DEFAULT_PANEL_SNAPSHOT_WIDTH;
+use super::super::events::HeaderSearchFocus;
+use super::super::explorer::{
 	ExplorerVm, FooterVm, HeaderVm, NavPaneVm, NavRowVm, NavRowVmKind, SearchBarVm, SearchPopupVm,
 };
+use super::super::panel;
+use super::super::panel::PanelRenderState;
+use super::component::{ComponentId, focused_block_title, marker, raw_marker};
 use super::kinds::definition_kind_group;
-use super::panel;
-use super::panel::PanelRenderState;
 use super::scroll::{ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin};
 use super::text::{FitMode, fit_text, visible_len};
 use super::theme::THEME;
@@ -44,7 +44,7 @@ fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, header: &HeaderVm) 
 	);
 }
 
-pub(super) fn header_line(header: &HeaderVm, width: usize) -> Line<'static> {
+pub(in crate::ui) fn header_line(header: &HeaderVm, width: usize) -> Line<'static> {
 	let prefix_width = visible_len("code-moniker ")
 		+ visible_len(ComponentId::Header.as_str())
 		+ 2 + visible_len(" mode ")
@@ -408,7 +408,7 @@ fn render_nav_block(frame: &mut ratatui::Frame<'_>, area: Rect, pane: &NavPaneVm
 	render_vertical_scrollbar(frame, inner, viewport);
 }
 
-pub(super) fn nav_row_line(row: &NavRowVm, selected: bool) -> Line<'static> {
+pub(in crate::ui) fn nav_row_line(row: &NavRowVm, selected: bool) -> Line<'static> {
 	let marker = if selected { ">" } else { " " };
 	let indent = "  ".repeat(row.depth);
 	let twisty = if row.has_children {
@@ -545,7 +545,7 @@ fn change_status_color(status: ChangeStatus) -> ratatui::style::Color {
 	}
 }
 
-pub(super) fn current_panel_snapshot_width() -> usize {
+pub(in crate::ui) fn current_panel_snapshot_width() -> usize {
 	crossterm::terminal::size()
 		.map(|(width, height)| {
 			let area = Rect::new(0, 0, width, height);

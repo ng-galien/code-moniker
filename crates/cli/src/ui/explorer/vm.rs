@@ -1,10 +1,10 @@
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::{FocusRegion, PanelNavigationState, VisualizationMode};
-use crate::ui::component::ComponentId;
 use crate::ui::events::{HeaderSearchFocus, UiMode};
 use crate::ui::navigator::{NavNodeKind, NavRow};
 use crate::ui::panel::PanelVm;
+use crate::ui::render::component::ComponentId;
 use crate::ui::store::navigation::NavigationPaneView;
 use crate::workspace::{ChangeStatus, DefLocation, IndexStore};
 

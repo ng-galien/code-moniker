@@ -4,7 +4,7 @@ use code_moniker_core::lang::Lang;
 use crate::tree::strategy::TreeStrategy;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum KindGroup {
+pub(in crate::ui) enum KindGroup {
 	Namespace,
 	Type,
 	Callable,
@@ -14,14 +14,14 @@ pub(super) enum KindGroup {
 	Unknown,
 }
 
-pub(super) fn definition_kind_group(lang: Lang, kind: &str) -> KindGroup {
+pub(in crate::ui) fn definition_kind_group(lang: Lang, kind: &str) -> KindGroup {
 	TreeStrategy::for_lang(lang)
 		.definition_shape(kind)
 		.map(group_for_shape)
 		.unwrap_or_else(|| group_for_kind(kind))
 }
 
-pub(super) fn reference_kind_group(_kind: &str) -> KindGroup {
+pub(in crate::ui) fn reference_kind_group(_kind: &str) -> KindGroup {
 	KindGroup::Reference
 }
 

@@ -3,54 +3,54 @@ use ratatui::style::Color;
 use super::kinds::KindGroup;
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct UiTheme {
-	pub(super) brand: Color,
-	pub(super) section: Color,
-	pub(super) status_label: Color,
-	pub(super) component_marker: Color,
-	pub(super) danger: Color,
-	pub(super) change_added: Color,
-	pub(super) change_modified: Color,
-	pub(super) focus: FocusTheme,
-	pub(super) kind: KindTheme,
-	pub(super) nav: NavTheme,
-	pub(super) panel: PanelTheme,
-	pub(super) scrollbar: ScrollbarTheme,
-	pub(super) search: SearchTheme,
-	pub(super) source: SourceTheme,
+pub(in crate::ui) struct UiTheme {
+	pub(in crate::ui) brand: Color,
+	pub(in crate::ui) section: Color,
+	pub(in crate::ui) status_label: Color,
+	pub(in crate::ui) component_marker: Color,
+	pub(in crate::ui) danger: Color,
+	pub(in crate::ui) change_added: Color,
+	pub(in crate::ui) change_modified: Color,
+	pub(in crate::ui) focus: FocusTheme,
+	pub(in crate::ui) kind: KindTheme,
+	pub(in crate::ui) nav: NavTheme,
+	pub(in crate::ui) panel: PanelTheme,
+	pub(in crate::ui) scrollbar: ScrollbarTheme,
+	pub(in crate::ui) search: SearchTheme,
+	pub(in crate::ui) source: SourceTheme,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct FocusTheme {
-	pub(super) title: Color,
-	pub(super) border: Color,
+pub(in crate::ui) struct FocusTheme {
+	pub(in crate::ui) title: Color,
+	pub(in crate::ui) border: Color,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct NavTheme {
-	pub(super) selected_bg: Color,
-	pub(super) marker: Color,
-	pub(super) twisty: Color,
-	pub(super) language: Color,
-	pub(super) directory: Color,
-	pub(super) file: Color,
-	pub(super) symbol: Color,
-	pub(super) meta: Color,
+pub(in crate::ui) struct NavTheme {
+	pub(in crate::ui) selected_bg: Color,
+	pub(in crate::ui) marker: Color,
+	pub(in crate::ui) twisty: Color,
+	pub(in crate::ui) language: Color,
+	pub(in crate::ui) directory: Color,
+	pub(in crate::ui) file: Color,
+	pub(in crate::ui) symbol: Color,
+	pub(in crate::ui) meta: Color,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct KindTheme {
-	pub(super) callable: Color,
-	pub(super) type_like: Color,
-	pub(super) value: Color,
-	pub(super) module: Color,
-	pub(super) reference: Color,
-	pub(super) meta: Color,
-	pub(super) fallback: Color,
+pub(in crate::ui) struct KindTheme {
+	pub(in crate::ui) callable: Color,
+	pub(in crate::ui) type_like: Color,
+	pub(in crate::ui) value: Color,
+	pub(in crate::ui) module: Color,
+	pub(in crate::ui) reference: Color,
+	pub(in crate::ui) meta: Color,
+	pub(in crate::ui) fallback: Color,
 }
 
 impl KindTheme {
-	pub(super) fn color_for_group(self, group: KindGroup) -> Color {
+	pub(in crate::ui) fn color_for_group(self, group: KindGroup) -> Color {
 		match group {
 			KindGroup::Callable => self.callable,
 			KindGroup::Type => self.type_like,
@@ -64,47 +64,47 @@ impl KindTheme {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct PanelTheme {
-	pub(super) section: Color,
-	pub(super) label: Color,
-	pub(super) value: Color,
-	pub(super) header: Color,
-	pub(super) muted: Color,
-	pub(super) separator: Color,
-	pub(super) selected_bg: Color,
-	pub(super) selected_focus_bg: Color,
+pub(in crate::ui) struct PanelTheme {
+	pub(in crate::ui) section: Color,
+	pub(in crate::ui) label: Color,
+	pub(in crate::ui) value: Color,
+	pub(in crate::ui) header: Color,
+	pub(in crate::ui) muted: Color,
+	pub(in crate::ui) separator: Color,
+	pub(in crate::ui) selected_bg: Color,
+	pub(in crate::ui) selected_focus_bg: Color,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct ScrollbarTheme {
-	pub(super) thumb: Color,
-	pub(super) track: Color,
+pub(in crate::ui) struct ScrollbarTheme {
+	pub(in crate::ui) thumb: Color,
+	pub(in crate::ui) track: Color,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct SearchTheme {
-	pub(super) background: Color,
-	pub(super) focus_bg: Color,
-	pub(super) label: Color,
-	pub(super) value: Color,
-	pub(super) muted: Color,
-	pub(super) active: Color,
+pub(in crate::ui) struct SearchTheme {
+	pub(in crate::ui) background: Color,
+	pub(in crate::ui) focus_bg: Color,
+	pub(in crate::ui) label: Color,
+	pub(in crate::ui) value: Color,
+	pub(in crate::ui) muted: Color,
+	pub(in crate::ui) active: Color,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct SourceTheme {
-	pub(super) active_fg: Color,
-	pub(super) active_bg: Color,
-	pub(super) active_indent_bg: Color,
-	pub(super) context_fg: Color,
-	pub(super) context_bg: Color,
-	pub(super) context_indent_bg: Color,
-	pub(super) active_number_fg: Color,
-	pub(super) context_number_fg: Color,
-	pub(super) gutter_fg: Color,
+pub(in crate::ui) struct SourceTheme {
+	pub(in crate::ui) active_fg: Color,
+	pub(in crate::ui) active_bg: Color,
+	pub(in crate::ui) active_indent_bg: Color,
+	pub(in crate::ui) context_fg: Color,
+	pub(in crate::ui) context_bg: Color,
+	pub(in crate::ui) context_indent_bg: Color,
+	pub(in crate::ui) active_number_fg: Color,
+	pub(in crate::ui) context_number_fg: Color,
+	pub(in crate::ui) gutter_fg: Color,
 }
 
-pub(super) const THEME: UiTheme = UiTheme {
+pub(in crate::ui) const THEME: UiTheme = UiTheme {
 	brand: Color::Cyan,
 	section: Color::Cyan,
 	status_label: Color::Yellow,

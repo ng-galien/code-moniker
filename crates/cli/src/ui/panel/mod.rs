@@ -2,8 +2,8 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use super::text::{self, Column, FitMode, fit_text, format_cell, visible_len};
-use super::theme::THEME;
+use super::render::text::{self, Column, FitMode, fit_text, format_cell, visible_len};
+use super::render::theme::THEME;
 
 mod model;
 mod render;
