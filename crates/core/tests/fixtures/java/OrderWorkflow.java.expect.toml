@@ -52,7 +52,8 @@ confidence = "external"
 label = "OrderWorkflow.run.calls.findExpired"
 kind = "method_call"
 from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()"
-to_contains = "/method:findExpired"
+to = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(now:Instant)"
+confidence = "resolved"
 
 [[absent.defs]]
 kind = "local"

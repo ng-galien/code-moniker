@@ -1104,6 +1104,11 @@ mod tests {
 		let segment_refs = linkage.incoming_refs_for_def(&segment, &index);
 		let premium_refs = linkage.incoming_refs_for_def(&premium, &index);
 		let display_name_refs = linkage.incoming_refs_for_def(&display_name, &index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
 
 		assert!(
 			segment_refs.iter().any(|loc| index.files[loc.file]
@@ -1122,6 +1127,10 @@ mod tests {
 				.iter()
 				.any(|loc| index.files[loc.file].rel_path.ends_with("RiskPolicy.java")),
 			"profile.displayName() should resolve through the parameter type"
+		);
+		assert!(
+			!unresolved.iter().any(|name| name == "startsWith"),
+			"String methods after a resolved record accessor should not be actionable unresolved refs: {unresolved:?}"
 		);
 	}
 
@@ -1789,6 +1798,46 @@ public class App {
 		assert!(
 			!unresolved.iter().any(|name| name == "isBlank"),
 			"java.lang.String methods after a project method returning String should not be actionable unresolved refs: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_project_return_with_external_param_does_not_hide_missing_chain_member() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+class Customer {}
+
+class Provider {
+    Customer make(String id) { return new Customer(); }
+}
+
+public class App {
+    boolean ok(Provider provider, String id) {
+        return provider.make(id).missing();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			unresolved.iter().any(|name| name == "missing()"),
+			"missing() on a project return type should remain actionable even when the resolved callee has external parameter types: {unresolved:?}"
 		);
 	}
 

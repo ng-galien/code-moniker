@@ -136,7 +136,8 @@ impl JavaLinkageStrategy {
 		let Some(method_name) = last_segment_name(&ctx.reference.target) else {
 			return;
 		};
-		let arity = call_arity(ctx.source_file, ctx.reference);
+		let method_name = bare_callable_name(method_name);
+		let arity = reference_arity(ctx.reference);
 		for type_def in receiver_type_defs(ctx, ctx.reference, 0) {
 			for loc in java_type_member_methods(ctx.index, type_def, method_name, arity) {
 				out.push(CandidateDef { loc });
@@ -148,7 +149,8 @@ impl JavaLinkageStrategy {
 		let Some(method_name) = last_segment_name(&ctx.reference.target) else {
 			return false;
 		};
-		let arity = call_arity(ctx.source_file, ctx.reference);
+		let method_name = bare_callable_name(method_name);
+		let arity = reference_arity(ctx.reference);
 		receiver_type_defs(ctx, ctx.reference, 0)
 			.into_iter()
 			.any(|type_def| {
@@ -299,292 +301,13 @@ fn receiver_type_defs(
 	if depth > 8 {
 		return Vec::new();
 	}
-	let receiver = reference.receiver_hint.as_slice();
-	if !receiver.is_empty()
-		&& !matches!(receiver, kinds::HINT_CALL | kinds::HINT_MEMBER)
-		&& let Some(receiver_def) = receiver_symbol_def(ctx, reference, receiver)
-		&& let Some(type_ref) = type_ref_for_symbol_def(ctx.index, receiver_def)
-	{
-		let defs = java_type_defs_for_target(ctx, &type_ref.target);
+	if let Some(owner) = method_owner_target(reference) {
+		let defs = java_type_defs_for_target(ctx, &owner);
 		if !defs.is_empty() {
 			return defs;
 		}
 	}
-	let mut defs = span_call_return_type_defs(ctx, reference, depth);
-	if immediate_receiver_call(ctx, reference).is_none() {
-		defs.extend(span_created_type_defs(ctx, reference));
-	}
-	defs.sort_by_key(|loc| (loc.file, loc.def));
-	defs.dedup();
-	defs
-}
-
-fn receiver_symbol_def(
-	ctx: &LinkageQuery<'_>,
-	reference: &RefRecord,
-	receiver: &[u8],
-) -> Option<DefLocation> {
-	let source = ctx.source_file.graph.def_at(reference.source);
-	let reference_start = reference.position.map(|position| position.0);
-	let local_or_param = ctx
-		.source_file
-		.graph
-		.defs()
-		.enumerate()
-		.filter_map(|(idx, def)| {
-			if !matches!(def.kind.as_slice(), kinds::LOCAL | kinds::PARAM) {
-				return None;
-			}
-			if def.parent != Some(reference.source) {
-				return None;
-			}
-			if reference_start.is_some_and(|start| {
-				def.kind == kinds::LOCAL && def.position.is_some_and(|position| position.0 > start)
-			}) {
-				return None;
-			}
-			if def.kind == kinds::LOCAL
-				&& !local_scope_contains_reference(
-					ctx.source_file,
-					def.position,
-					reference.position,
-				) {
-				return None;
-			}
-			def.moniker
-				.as_view()
-				.segments()
-				.last()
-				.is_some_and(|segment| segment.name == receiver)
-				.then_some((
-					def.position.map(|position| position.0).unwrap_or(0),
-					DefLocation {
-						file: ctx.source_file_idx,
-						def: idx,
-					},
-				))
-		})
-		.max_by_key(|(start, _)| *start)
-		.map(|(_, loc)| loc);
-	if local_or_param.is_some() {
-		return local_or_param;
-	}
-
-	let owner = enclosing_java_type(&source.moniker)?;
-	ctx.source_file
-		.graph
-		.defs()
-		.enumerate()
-		.find_map(|(idx, def)| {
-			if def.kind != kinds::FIELD || !owner.is_ancestor_of(&def.moniker) {
-				return None;
-			}
-			def.moniker
-				.as_view()
-				.segments()
-				.last()
-				.is_some_and(|segment| segment.name == receiver)
-				.then_some(DefLocation {
-					file: ctx.source_file_idx,
-					def: idx,
-				})
-		})
-}
-
-fn type_ref_for_symbol_def(index: &SessionIndex, symbol: DefLocation) -> Option<&RefRecord> {
-	let symbol_file = &index.files[symbol.file];
-	let symbol_def = index.def(&symbol);
-	let symbol_span = symbol_def.position?;
-	if symbol_def.kind == kinds::METHOD
-		&& let Some(type_ref) = symbol_file
-			.graph
-			.refs()
-			.filter(|reference| {
-				reference.source == symbol.def
-					&& reference.kind == kinds::USES_TYPE
-					&& reference.position.is_some_and(|position| {
-						symbol_span.0 <= position.0 && position.1 <= symbol_span.1
-					})
-			})
-			.min_by_key(|reference| {
-				reference
-					.position
-					.map(|position| position.0)
-					.unwrap_or(u32::MAX)
-			}) {
-		return Some(type_ref);
-	}
-	let source_idx = symbol_def.parent?;
-	if let Some(type_ref) = symbol_file
-		.graph
-		.refs()
-		.filter(|reference| {
-			reference.source == source_idx
-				&& reference.kind == kinds::USES_TYPE
-				&& reference
-					.position
-					.is_some_and(|position| position.1 <= symbol_span.0)
-		})
-		.max_by_key(|reference| reference.position.map(|position| position.1).unwrap_or(0))
-	{
-		return Some(type_ref);
-	}
-	symbol_file
-		.graph
-		.refs()
-		.filter(|reference| {
-			reference.source == source_idx
-				&& reference.kind == kinds::USES_TYPE
-				&& reference.position.is_some_and(|position| {
-					symbol_span.0 <= position.0 && position.1 <= symbol_span.1
-				})
-		})
-		.max_by_key(|reference| reference.position.map(|position| position.1).unwrap_or(0))
-}
-
-fn local_scope_contains_reference(
-	file: &IndexedFile,
-	local_position: Option<(u32, u32)>,
-	reference_position: Option<(u32, u32)>,
-) -> bool {
-	let Some((local_start, _)) = local_position else {
-		return true;
-	};
-	let Some((reference_start, _)) = reference_position else {
-		return true;
-	};
-	if reference_start < local_start {
-		return false;
-	}
-	if let Some(loop_scope) = for_initializer_scope_containing(&file.source, local_start as usize) {
-		return reference_start as usize <= loop_scope.1;
-	}
-	let Some(block) = innermost_brace_block_containing(&file.source, local_start as usize) else {
-		return true;
-	};
-	reference_start as usize <= block.1
-}
-
-fn for_initializer_scope_containing(source: &str, offset: usize) -> Option<(usize, usize)> {
-	for keyword in keyword_positions_before(source, "for", offset)
-		.into_iter()
-		.rev()
-	{
-		let open = source[keyword + 3..]
-			.char_indices()
-			.find(|(_, ch)| !ch.is_whitespace())
-			.and_then(|(idx, ch)| (ch == '(').then_some(keyword + 3 + idx))?;
-		let close = matching_close_paren(source, open)?;
-		if offset < open || offset > close {
-			continue;
-		}
-		let body_start = source[close + 1..]
-			.char_indices()
-			.find(|(_, ch)| !ch.is_whitespace())
-			.and_then(|(idx, ch)| (ch == '{').then_some(close + 1 + idx))?;
-		let body_end = matching_close_brace(source, body_start)?;
-		return Some((keyword, body_end));
-	}
-	None
-}
-
-fn keyword_positions_before(source: &str, keyword: &str, before: usize) -> Vec<usize> {
-	let mut out = Vec::new();
-	let mut search_start = 0;
-	while let Some(relative) = source[search_start..before].find(keyword) {
-		let start = search_start + relative;
-		let end = start + keyword.len();
-		let before_ok = start == 0
-			|| !source.as_bytes()[start - 1].is_ascii_alphanumeric()
-				&& source.as_bytes()[start - 1] != b'_';
-		let after_ok = end >= source.len()
-			|| !source.as_bytes()[end].is_ascii_alphanumeric() && source.as_bytes()[end] != b'_';
-		if before_ok && after_ok {
-			out.push(start);
-		}
-		search_start = end;
-	}
-	out
-}
-
-fn innermost_brace_block_containing(source: &str, offset: usize) -> Option<(usize, usize)> {
-	let bytes = source.as_bytes();
-	let mut stack = Vec::new();
-	let mut blocks = Vec::new();
-	for (idx, byte) in bytes.iter().enumerate() {
-		match *byte {
-			b'{' => stack.push(idx),
-			b'}' => {
-				if let Some(start) = stack.pop() {
-					blocks.push((start, idx));
-				}
-			}
-			_ => {}
-		}
-	}
-	blocks
-		.into_iter()
-		.filter(|(start, end)| *start <= offset && offset <= *end)
-		.min_by_key(|(start, end)| end - start)
-}
-
-fn matching_close_brace(source: &str, open: usize) -> Option<usize> {
-	let mut depth = 0usize;
-	for (idx, ch) in source.char_indices().skip_while(|(idx, _)| *idx < open) {
-		match ch {
-			'{' => depth += 1,
-			'}' => {
-				depth = depth.saturating_sub(1);
-				if depth == 0 {
-					return Some(idx);
-				}
-			}
-			_ => {}
-		}
-	}
-	None
-}
-
-fn span_created_type_defs(ctx: &LinkageQuery<'_>, reference: &RefRecord) -> Vec<DefLocation> {
-	let Some(call_span) = reference.position else {
-		return Vec::new();
-	};
-	let mut out = Vec::new();
-	for reference in ctx.source_file.graph.refs().filter(|candidate| {
-		candidate.kind == kinds::INSTANTIATES
-			&& candidate
-				.position
-				.is_some_and(|position| position.0 == call_span.0 && position.1 <= call_span.1)
-	}) {
-		out.extend(java_type_defs_for_target(ctx, &reference.target));
-	}
-	out.sort_by_key(|loc| (loc.file, loc.def));
-	out.dedup();
-	out
-}
-
-fn span_call_return_type_defs(
-	ctx: &LinkageQuery<'_>,
-	reference: &RefRecord,
-	depth: usize,
-) -> Vec<DefLocation> {
-	if reference.receiver_hint != kinds::HINT_CALL {
-		return Vec::new();
-	}
-	if reference.position.is_none() {
-		return Vec::new();
-	}
-	let mut out = Vec::new();
-	if let Some(inner) = immediate_receiver_call(ctx, reference) {
-		for method in method_defs_for_call(ctx, inner, depth + 1) {
-			if let Some(type_ref) = type_ref_for_symbol_def(ctx.index, method) {
-				out.extend(java_type_defs_for_target(ctx, &type_ref.target));
-			}
-		}
-	}
-	out.sort_by_key(|loc| (loc.file, loc.def));
-	out.dedup();
-	out
+	Vec::new()
 }
 
 fn immediate_receiver_call<'a>(
@@ -620,8 +343,9 @@ fn method_defs_for_call(
 	if out.is_empty()
 		&& let Some(method_name) = last_segment_name(&reference.target)
 	{
-		let arity = call_arity(ctx.source_file, reference);
-		for type_def in receiver_type_defs(ctx, reference, depth) {
+		let method_name = bare_callable_name(method_name);
+		let arity = reference_arity(reference);
+		for type_def in receiver_type_defs(ctx, reference, depth + 1) {
 			out.extend(java_type_member_methods(
 				ctx.index,
 				type_def,
@@ -633,6 +357,24 @@ fn method_defs_for_call(
 	out.sort_by_key(|loc| (loc.file, loc.def));
 	out.dedup();
 	out
+}
+
+fn method_owner_target(reference: &RefRecord) -> Option<Moniker> {
+	if reference.kind != kinds::METHOD_CALL {
+		return None;
+	}
+	let view = reference.target.as_view();
+	let segments: Vec<_> = view.segments().collect();
+	let last = segments.last()?;
+	if last.kind != kinds::METHOD {
+		return None;
+	}
+	let owner = reference.target.parent()?;
+	let owner_last = owner.as_view().segments().last()?;
+	if is_java_type_kind(owner_last.kind) || owner_last.kind == kinds::PATH {
+		return Some(owner);
+	}
+	None
 }
 
 fn java_type_defs_for_target(ctx: &LinkageQuery<'_>, target: &Moniker) -> Vec<DefLocation> {
@@ -706,78 +448,23 @@ fn java_type_member_methods(
 		.collect()
 }
 
-fn call_arity(file: &IndexedFile, reference: &RefRecord) -> Option<usize> {
-	let (start, end) = reference.position?;
-	let call = file.source.get(start as usize..end as usize)?;
-	let open = call.rfind('(')?;
-	let close = matching_close_paren(call, open)?;
-	Some(count_java_arguments(&call[open + 1..close]))
+fn java_method_return_type_target(index: &SessionIndex, method: DefLocation) -> Option<Moniker> {
+	index.files[method.file]
+		.graph
+		.refs()
+		.filter(|reference| reference.source == method.def && reference.kind == kinds::USES_TYPE)
+		.min_by_key(|reference| {
+			reference
+				.position
+				.map(|position| position.0)
+				.unwrap_or(u32::MAX)
+		})
+		.map(|reference| reference.target.clone())
 }
 
-fn matching_close_paren(source: &str, open: usize) -> Option<usize> {
-	let mut depth = 0usize;
-	let mut in_string = false;
-	let mut escaped = false;
-	for (idx, ch) in source.char_indices().skip_while(|(idx, _)| *idx < open) {
-		if in_string {
-			if escaped {
-				escaped = false;
-			} else if ch == '\\' {
-				escaped = true;
-			} else if ch == '"' {
-				in_string = false;
-			}
-			continue;
-		}
-		match ch {
-			'"' => in_string = true,
-			'(' => depth += 1,
-			')' => {
-				depth = depth.saturating_sub(1);
-				if depth == 0 {
-					return Some(idx);
-				}
-			}
-			_ => {}
-		}
-	}
-	None
-}
-
-fn count_java_arguments(args: &str) -> usize {
-	if args.trim().is_empty() {
-		return 0;
-	}
-	let mut count = 1usize;
-	let mut paren = 0usize;
-	let mut bracket = 0usize;
-	let mut brace = 0usize;
-	let mut in_string = false;
-	let mut escaped = false;
-	for ch in args.chars() {
-		if in_string {
-			if escaped {
-				escaped = false;
-			} else if ch == '\\' {
-				escaped = true;
-			} else if ch == '"' {
-				in_string = false;
-			}
-			continue;
-		}
-		match ch {
-			'"' => in_string = true,
-			'(' => paren += 1,
-			')' => paren = paren.saturating_sub(1),
-			'[' => bracket += 1,
-			']' => bracket = bracket.saturating_sub(1),
-			'{' => brace += 1,
-			'}' => brace = brace.saturating_sub(1),
-			',' if paren == 0 && bracket == 0 && brace == 0 => count += 1,
-			_ => {}
-		}
-	}
-	count
+fn reference_arity(reference: &RefRecord) -> Option<usize> {
+	let name = last_segment_name(&reference.target)?;
+	callable_arity(name)
 }
 
 fn callable_arity(name: &[u8]) -> Option<usize> {
@@ -790,7 +477,23 @@ fn callable_arity(name: &[u8]) -> Option<usize> {
 	if args.is_empty() {
 		return Some(0);
 	}
-	Some(args.iter().filter(|b| **b == b':').count())
+	let mut count = 1usize;
+	let mut angle = 0usize;
+	let mut paren = 0usize;
+	let mut bracket = 0usize;
+	for byte in args {
+		match *byte {
+			b'<' => angle += 1,
+			b'>' => angle = angle.saturating_sub(1),
+			b'(' => paren += 1,
+			b')' => paren = paren.saturating_sub(1),
+			b'[' => bracket += 1,
+			b']' => bracket = bracket.saturating_sub(1),
+			b',' if angle == 0 && paren == 0 && bracket == 0 => count += 1,
+			_ => {}
+		}
+	}
+	Some(count)
 }
 
 fn enclosing_java_type(moniker: &Moniker) -> Option<Moniker> {
@@ -854,20 +557,11 @@ fn java_external_member_reference(ctx: &LinkageQuery<'_>, reference: &RefRecord)
 			}
 			method_defs_for_call(ctx, inner, 0)
 				.into_iter()
-				.filter_map(|method| type_ref_for_symbol_def(ctx.index, method))
-				.any(|type_ref| java_external_target(&type_ref.target))
+				.filter_map(|method| java_method_return_type_target(ctx.index, method))
+				.any(|target| java_external_target(&target))
 		});
 	}
-	if receiver.is_empty() || matches!(receiver, kinds::HINT_CALL | kinds::HINT_MEMBER) {
-		return false;
-	}
-	let Some(receiver_def) = receiver_symbol_def(ctx, reference, receiver) else {
-		return false;
-	};
-	let Some(type_ref) = type_ref_for_symbol_def(ctx.index, receiver_def) else {
-		return false;
-	};
-	java_external_target(&type_ref.target)
+	method_owner_target(reference).is_some_and(|owner| java_external_target(&owner))
 }
 
 fn java_suppressed_member_ref(reference: &RefRecord) -> bool {
@@ -904,4 +598,20 @@ fn java_suppressed_member_ref(reference: &RefRecord) -> bool {
 				| b"startsWith"
 				| b"trim" | b"toLowerCase"
 		))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::callable_arity;
+
+	#[test]
+	fn callable_arity_ignores_commas_inside_generic_types() {
+		assert_eq!(callable_arity(b"save(map:Map<String,String>)"), Some(1));
+		assert_eq!(
+			callable_arity(b"put(id:String,map:Map<String,List<Integer>>)"),
+			Some(2)
+		);
+		assert_eq!(callable_arity(b"empty()"), Some(0));
+		assert_eq!(callable_arity(b"placeholder(_,_)"), Some(2));
+	}
 }

@@ -16,7 +16,11 @@ mod kinds;
 mod strategy;
 
 use canonicalize::{compute_module_moniker, read_package_name};
-use strategy::{CallableTable, Strategy, collect_callable_table, collect_type_table};
+use strategy::{
+	CallableTable, ImportConfidenceTable, ImportTargetTable, ReturnTypeTable, Strategy,
+	ValueTypeTable, collect_callable_table, collect_import_tables, collect_return_type_table,
+	collect_type_table, collect_value_type_table,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {
@@ -61,16 +65,48 @@ pub fn extract(
 		&module,
 		&mut callable_table,
 	);
+	let mut imports: ImportConfidenceTable = HashMap::new();
+	let mut import_targets: ImportTargetTable = HashMap::new();
+	collect_import_tables(
+		tree.root_node(),
+		source.as_bytes(),
+		module.as_view().project(),
+		&mut imports,
+		&mut import_targets,
+	);
+	let mut field_types: ValueTypeTable = HashMap::new();
+	collect_value_type_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&module,
+		&type_table,
+		&import_targets,
+		&mut field_types,
+	);
+	let mut return_type_table: ReturnTypeTable = HashMap::new();
+	collect_return_type_table(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		&module,
+		&type_table,
+		&import_targets,
+		&mut return_type_table,
+	);
 	let strat = Strategy {
 		module: module.clone(),
 		source_bytes: source.as_bytes(),
 		deep,
 		presets,
-		imports: RefCell::new(HashMap::<Vec<u8>, &'static [u8]>::new()),
-		import_targets: RefCell::new(HashMap::<Vec<u8>, _>::new()),
+		imports: RefCell::new(imports),
+		import_targets: RefCell::new(import_targets),
 		local_scope: RefCell::new(Vec::new()),
+		local_types: RefCell::new(Vec::new()),
 		type_table,
 		callable_table,
+		return_type_table,
+		field_types,
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
@@ -424,8 +460,207 @@ mod tests {
 		let last = r.target.as_view().segments().last().unwrap();
 		assert_eq!(
 			last.name, b"bar",
-			"unresolved receiver must produce a name-only target (no parens, no arity)"
+			"unresolved receiver without a known type should stay name-only"
 		);
+	}
+
+	#[test]
+	fn method_call_on_typed_field_resolves_to_receiver_type_method() {
+		let src = r#"
+            class Foo {
+                Repo repo;
+                void m() { repo.find(1); }
+                interface Repo { void find(int id); }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let expected = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"java")
+			.segment(b"module", b"Foo")
+			.segment(b"class", b"Foo")
+			.segment(b"interface", b"Repo")
+			.segment(b"method", b"find(id:int)")
+			.build();
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"repo")
+			.expect("method_call on repo");
+		assert_eq!(r.target, expected);
+		assert_eq!(r.confidence, b"resolved");
+	}
+
+	#[test]
+	fn method_call_on_typed_param_resolves_to_receiver_type_method() {
+		let src = r#"
+            class Foo {
+                void m(Repo repo) { repo.find(1); }
+                interface Repo { void find(int id); }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"repo")
+			.expect("method_call on repo");
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(last.name, b"find(id:int)");
+		assert_eq!(r.confidence, b"resolved");
+	}
+
+	#[test]
+	fn method_call_on_same_package_param_uses_sibling_type_placeholder() {
+		let src = r#"
+            package com.acme.common.customer;
+            class RiskPolicy {
+                boolean isPriority(CustomerProfile profile) {
+                    return profile.premium() || profile.displayName().trim().startsWith("VIP");
+                }
+            }
+        "#;
+		let g = extract_default("RiskPolicy.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"profile")
+			.expect("method_call on profile");
+		let expected = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"java")
+			.segment(b"package", b"com")
+			.segment(b"package", b"acme")
+			.segment(b"package", b"common")
+			.segment(b"package", b"customer")
+			.segment(b"module", b"CustomerProfile")
+			.segment(b"path", b"CustomerProfile")
+			.segment(b"method", b"premium()")
+			.build();
+		assert_eq!(r.target, expected);
+		assert_eq!(r.confidence, b"name_match");
+	}
+
+	#[test]
+	fn method_call_on_imported_param_uses_imported_type_placeholder() {
+		let src = r#"
+            package com.acme.common.money;
+            import com.acme.common.customer.CustomerProfile;
+            class MoneyFormatter {
+                String formatForInvoice(CustomerProfile profile) {
+                    return profile.displayName();
+                }
+            }
+        "#;
+		let g = extract_default("MoneyFormatter.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"profile")
+			.expect("method_call on profile");
+		let expected = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"java")
+			.segment(b"package", b"com")
+			.segment(b"package", b"acme")
+			.segment(b"package", b"common")
+			.segment(b"package", b"customer")
+			.segment(b"module", b"CustomerProfile")
+			.segment(b"path", b"CustomerProfile")
+			.segment(b"method", b"displayName()")
+			.build();
+		assert_eq!(r.target, expected);
+		assert_eq!(r.confidence, b"imported");
+	}
+
+	#[test]
+	fn method_call_on_typed_local_resolves_to_receiver_type_method() {
+		let src = r#"
+            class Foo {
+                Repo repo() { return null; }
+                void m() {
+                    Repo repo = repo();
+                    repo.find(1);
+                }
+                interface Repo { void find(int id); }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"repo")
+			.expect("method_call on repo");
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(last.name, b"find(id:int)");
+		assert_eq!(r.confidence, b"resolved");
+	}
+
+	#[test]
+	fn typed_lambda_parameter_resolves_receiver_method() {
+		let src = r#"
+            class Foo {
+                void m() {
+                    Consumer c = (Worker worker) -> worker.run();
+                }
+                interface Consumer { void accept(Worker worker); }
+                static class Worker { void run() {} }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let calls: Vec<_> = g
+			.refs()
+			.filter(|r| r.kind == b"method_call")
+			.map(|r| {
+				(
+					String::from_utf8_lossy(&r.receiver_hint).into_owned(),
+					r.target.as_view().segments().last().unwrap().name.to_vec(),
+				)
+			})
+			.collect();
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"worker")
+			.unwrap_or_else(|| panic!("method_call on worker, got {calls:?}"));
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(last.name, b"run()");
+		assert_eq!(r.confidence, b"resolved");
+	}
+
+	#[test]
+	fn class_method_reference_resolves_to_receiver_type_method() {
+		let src = r#"
+            class Foo {
+                void m() {
+                    java.util.function.Consumer<Worker> c = Worker::run;
+                }
+                static class Worker { void run() {} }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"Worker")
+			.expect("method reference on Worker");
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(last.name, b"run()");
+		assert_eq!(r.confidence, b"resolved");
+	}
+
+	#[test]
+	fn value_method_reference_resolves_to_receiver_type_method() {
+		let src = r#"
+            class Foo {
+                Worker worker;
+                void m() {
+                    Runnable r = worker::run;
+                }
+                static class Worker { void run() {} }
+            }
+        "#;
+		let g = extract_default("Foo.java", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"worker")
+			.expect("method reference on worker");
+		let last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(last.name, b"run()");
+		assert_eq!(r.confidence, b"resolved");
 	}
 
 	#[test]
