@@ -22,7 +22,6 @@ mod explorer;
 mod live;
 mod navigator;
 mod panel;
-mod reactive;
 mod render;
 mod shell;
 mod store;

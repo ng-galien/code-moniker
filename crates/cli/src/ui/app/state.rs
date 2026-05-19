@@ -8,11 +8,11 @@ use crate::ui::async_task::{TaskId, TaskOutcome, TaskResult, WorkKind};
 use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
 use crate::ui::explorer::HeaderSearchResults;
 use crate::ui::live::StoreEvent;
-use crate::ui::reactive::Transition;
 use crate::ui::render::component::ComponentId;
 use crate::ui::store::navigation::{
 	NavigationAction, NavigationPane, NavigationState, TreePaneAction,
 };
+use crate::ui::store::reducer::Transition;
 use crate::workspace::{CheckSummary, UsageFocus};
 
 use super::Effect;

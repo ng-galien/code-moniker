@@ -2,19 +2,19 @@ use crate::ui::app::action::AppAction;
 use crate::ui::app::state::{AppState, CheckState, ShellSlice, TaskCompletion};
 use crate::ui::async_task::{TaskResult, TaskSpec};
 use crate::ui::live::StoreEvent;
-use crate::ui::reactive::{ReactiveStore, Reduce, Transition};
 use crate::ui::store::navigation::{NavigationAction, NavigationState};
+use crate::ui::store::reducer::{Reduce, ReducerStore, Transition};
 use crate::workspace::WorkspaceStore;
 
 pub(in crate::ui) struct AppStore {
-	inner: ReactiveStore<AppState>,
+	inner: ReducerStore<AppState>,
 	workspace: Option<WorkspaceStore>,
 }
 
 impl AppStore {
 	pub(in crate::ui) fn new() -> Self {
 		Self {
-			inner: ReactiveStore::new(AppState::new()),
+			inner: ReducerStore::new(AppState::new()),
 			workspace: None,
 		}
 	}

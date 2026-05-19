@@ -1,77 +1,77 @@
 use crate::ui::app::Effect;
 
 #[derive(Debug)]
-pub(super) struct Transition {
-	pub(super) changed: bool,
-	pub(super) effects: Vec<Effect>,
+pub(in crate::ui) struct Transition {
+	pub(in crate::ui) changed: bool,
+	pub(in crate::ui) effects: Vec<Effect>,
 }
 
-pub(super) struct Reduction<Outcome> {
-	pub(super) transition: Transition,
-	pub(super) outcome: Outcome,
+pub(in crate::ui) struct Reduction<Outcome> {
+	pub(in crate::ui) transition: Transition,
+	pub(in crate::ui) outcome: Outcome,
 }
 
 impl Transition {
-	pub(super) const fn changed() -> Self {
+	pub(in crate::ui) const fn changed() -> Self {
 		Self {
 			changed: true,
 			effects: Vec::new(),
 		}
 	}
 
-	pub(super) const fn unchanged() -> Self {
+	pub(in crate::ui) const fn unchanged() -> Self {
 		Self {
 			changed: false,
 			effects: Vec::new(),
 		}
 	}
 
-	pub(super) fn with_effect(mut self, effect: Effect) -> Self {
+	pub(in crate::ui) fn with_effect(mut self, effect: Effect) -> Self {
 		self.effects.push(effect);
 		self
 	}
 
-	pub(super) fn with_outcome<Outcome>(self, outcome: Outcome) -> Reduction<Outcome> {
+	pub(in crate::ui) fn with_outcome<Outcome>(self, outcome: Outcome) -> Reduction<Outcome> {
 		Reduction {
 			transition: self,
 			outcome,
 		}
 	}
 
-	pub(super) fn take_effects(&mut self) -> Vec<Effect> {
+	pub(in crate::ui) fn take_effects(&mut self) -> Vec<Effect> {
 		std::mem::take(&mut self.effects)
 	}
 }
 
-pub(super) trait Reduce<Action> {
+pub(in crate::ui) trait Reduce<Action> {
 	fn reduce(&mut self, action: Action) -> Transition;
 }
 
 #[derive(Debug)]
-pub(super) struct ReactiveStore<State> {
+pub(in crate::ui) struct ReducerStore<State> {
 	state: State,
 	last_transition: Transition,
 }
 
-impl<State> ReactiveStore<State> {
-	pub(super) fn new(state: State) -> Self {
+impl<State> ReducerStore<State> {
+	pub(in crate::ui) fn new(state: State) -> Self {
 		Self {
 			state,
 			last_transition: Transition::changed(),
 		}
 	}
 
-	pub(super) fn state(&self) -> &State {
+	pub(in crate::ui) fn state(&self) -> &State {
 		&self.state
 	}
 
-	pub(super) fn select<'a, T>(&'a self, selector: impl FnOnce(&'a State) -> T) -> T {
+	pub(in crate::ui) fn select<'a, T>(&'a self, selector: impl FnOnce(&'a State) -> T) -> T {
 		selector(&self.state)
 	}
 }
 
-impl<State> ReactiveStore<State> {
-	pub(super) fn dispatch<Action>(&mut self, action: Action) -> &mut Transition
+impl<State> ReducerStore<State> {
+	pub(in crate::ui) fn dispatch<Action>(&mut self, action: Action) -> &mut Transition
 	where
 		State: Reduce<Action>,
 	{
@@ -79,7 +79,7 @@ impl<State> ReactiveStore<State> {
 		&mut self.last_transition
 	}
 
-	pub(super) fn reduce_with(
+	pub(in crate::ui) fn reduce_with(
 		&mut self,
 		reduce: impl FnOnce(&mut State) -> Transition,
 	) -> &mut Transition {
@@ -87,7 +87,7 @@ impl<State> ReactiveStore<State> {
 		&mut self.last_transition
 	}
 
-	pub(super) fn reduce_with_outcome<Outcome>(
+	pub(in crate::ui) fn reduce_with_outcome<Outcome>(
 		&mut self,
 		reduce: impl FnOnce(&mut State) -> Reduction<Outcome>,
 	) -> (&mut Transition, Outcome) {
