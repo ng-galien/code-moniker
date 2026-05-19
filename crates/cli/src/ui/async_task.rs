@@ -221,32 +221,12 @@ impl fmt::Debug for TaskOutcome {
 	}
 }
 
-pub(in crate::ui) struct TaskRuntime;
+pub(in crate::ui) struct TaskRunner;
 
-impl TaskRuntime {
+impl TaskRunner {
 	pub(in crate::ui) fn spawn(spec: TaskSpec, publish: impl FnOnce(TaskResult) + Send + 'static) {
 		rayon::spawn(move || {
 			publish(spec.execute());
 		});
-	}
-}
-
-// Disabled during the UI architecture rebuild; rewrite against the new runtime contracts later.
-#[cfg(any())]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn noop_task_completes_with_stable_identity() {
-		let spec = TaskSpec::noop("smoke");
-		let id = spec.id();
-		let result = spec.execute();
-
-		assert_eq!(result.id, id);
-		assert_eq!(result.label, "smoke");
-		assert!(matches!(
-			result.outcome,
-			TaskOutcome::Completed(ref message) if message == "task completed"
-		));
 	}
 }
