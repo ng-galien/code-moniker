@@ -8,7 +8,6 @@ use crate::ui::render::component::ComponentId;
 use crate::ui::store::navigation::NavigationPaneView;
 use crate::workspace::{ChangeStatus, DefLocation, IndexStore};
 
-use super::ExplorerFeature;
 use crate::ui::{App, display_filter, kind_filter_summary, lang_filter_summary};
 
 #[derive(Clone, Debug)]
@@ -113,7 +112,7 @@ impl ExplorerVm {
 			search: search_vm(app),
 			primary_nav: primary_nav_vm(app),
 			usage_nav: usage_nav_vm(app),
-			panel: ExplorerFeature::active_panel(app),
+			panel: super::active_panel(app),
 			panel_navigation: app.panel_navigation().clone(),
 			panel_focused: focus_region_visible(mode, app.focus_region(), FocusRegion::Panel),
 			footer: FooterVm {

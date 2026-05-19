@@ -15,6 +15,7 @@ use crate::workspace::{
 };
 
 mod app;
+mod async_task;
 mod clipboard;
 mod events;
 mod explorer;
@@ -23,10 +24,7 @@ mod navigator;
 mod panel;
 mod reactive;
 mod render;
-mod route;
-mod runtime;
 mod shell;
-mod source;
 mod store;
 
 use app::{
@@ -34,15 +32,12 @@ use app::{
 	HeaderKindFilter, HeaderSearchResults, HeaderSearchState, PanelNavigationState, PanelPolicy,
 	ShellAction, TaskCompletion, View, VisualizationMode,
 };
+use async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
 use events::{HeaderSearchFocus, UiMode, key_to_msg};
-use explorer::{
-	ExplorerFeature, header_search_options, header_search_results as explorer_header_search_results,
-};
+use explorer::{header_search_options, header_search_results as explorer_header_search_results};
 use live::StoreEvent;
 use navigator::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
 use render::view;
-use route::Route;
-use runtime::{TaskOutcome, TaskRuntime};
 use shell::ShellEvent;
 use store::navigation::{
 	NavigationAction, NavigationNotice, NavigationPane, NavigationScope, NavigationSelection,
@@ -90,7 +85,6 @@ struct App {
 
 impl App {
 	fn new(store: WorkspaceStore, scheme: String, rules: PathBuf, profile: Option<String>) -> Self {
-		let route = ExplorerFeature::initial_route();
 		let navigator = build_navigator(&store);
 		let change_navigator = build_change_navigator(&store);
 		let mut app_store = AppStore::from_workspace_store(store);
@@ -105,7 +99,6 @@ impl App {
 			watch_roots_update: None,
 		};
 		app.refresh_header_search_options();
-		app.dispatch_shell(ShellAction::SetRoute(route));
 		app.set_status(format!(
 			"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits"
 		));
@@ -357,11 +350,7 @@ impl App {
 	}
 
 	fn set_view(&mut self, view: View, policy: PanelPolicy) {
-		self.dispatch_shell(ShellAction::SetView {
-			view,
-			policy,
-			route: view.route(),
-		});
+		self.dispatch_shell(ShellAction::SetView { view, policy });
 	}
 
 	fn scope_label(&self) -> String {
@@ -653,9 +642,9 @@ impl App {
 	fn queue_store_task(&mut self, event: StoreEvent) -> bool {
 		let task = match event {
 			StoreEvent::GitOverlay => {
-				runtime::TaskSpec::refresh_git_overlay(self.store().git_overlay_refresh_input())
+				TaskSpec::refresh_git_overlay(self.store().git_overlay_refresh_input())
 			}
-			StoreEvent::FullIndex => runtime::TaskSpec::reload_store(self.store().options()),
+			StoreEvent::FullIndex => TaskSpec::reload_store(self.store().options()),
 		};
 		self.queue_task(task)
 	}
@@ -800,7 +789,7 @@ impl App {
 
 	fn run_check(&mut self) {
 		self.set_view(View::Check, PanelPolicy::Manual);
-		let task = runtime::TaskSpec::run_check(
+		let task = TaskSpec::run_check(
 			self.store().clone(),
 			self.rules.clone(),
 			self.profile.clone(),
@@ -837,7 +826,7 @@ impl App {
 			return;
 		}
 		self.startup_load_pending = false;
-		if self.queue_task(runtime::TaskSpec::load_file_catalog(self.store().options())) {
+		if self.queue_task(TaskSpec::load_file_catalog(self.store().options())) {
 			self.set_status("loading file tree in background");
 		} else {
 			self.handle_store_event_sync(StoreEvent::FullIndex);
@@ -862,12 +851,12 @@ impl App {
 		}
 	}
 
-	fn handle_task_result(&mut self, result: runtime::TaskResult) {
+	fn handle_task_result(&mut self, result: TaskResult) {
 		match result.outcome {
 			TaskOutcome::FileCatalogLoaded(store) => {
 				self.replace_store(*store);
 				self.apply_file_catalog_store("file tree ready".to_string());
-				if self.queue_task(runtime::TaskSpec::reload_store(self.store().options())) {
+				if self.queue_task(TaskSpec::reload_store(self.store().options())) {
 					self.set_status("file tree ready; loading symbols in background");
 				}
 			}
@@ -895,7 +884,7 @@ impl App {
 	}
 
 	fn copy_panel_snapshot(&mut self) {
-		let panel = ExplorerFeature::active_panel(self);
+		let panel = explorer::active_panel(self);
 		let snapshot = panel::panel_snapshot(&panel, view::current_panel_snapshot_width());
 		let component = snapshot.component.as_str().to_string();
 		let text = snapshot.to_text(self.view_mode().label(), &self.scope_label());
@@ -967,7 +956,7 @@ impl App {
 
 	fn apply_effect(&mut self, effect: Effect) -> bool {
 		match effect {
-			Effect::Navigate(route) => self.navigate(route),
+			Effect::ShowView(view) => self.set_view(view, PanelPolicy::Manual),
 			Effect::Quit => return true,
 			Effect::DebounceHeaderSearch(generation) => {
 				self.queue_header_search_debounce(generation);
@@ -1025,7 +1014,7 @@ impl App {
 	}
 
 	fn ensure_active_panel_selection(&mut self) {
-		let panel = ExplorerFeature::active_panel(self);
+		let panel = explorer::active_panel(self);
 		let count = panel.navigation_len();
 		let component = panel.component();
 		let selected = if count == 0 {
@@ -1051,7 +1040,7 @@ impl App {
 	}
 
 	fn move_panel_selection(&mut self, direction: i8) {
-		let panel = ExplorerFeature::active_panel(self);
+		let panel = explorer::active_panel(self);
 		let count = panel.navigation_len();
 		let component = panel.component();
 		if count == 0 {
@@ -1078,7 +1067,7 @@ impl App {
 	}
 
 	fn move_panel_to_edge(&mut self, home: bool) {
-		let panel = ExplorerFeature::active_panel(self);
+		let panel = explorer::active_panel(self);
 		let count = panel.navigation_len();
 		let component = panel.component();
 		let selected = if count == 0 {
@@ -1120,7 +1109,7 @@ impl App {
 		}
 	}
 
-	fn queue_task(&mut self, task: runtime::TaskSpec) -> bool {
+	fn queue_task(&mut self, task: TaskSpec) -> bool {
 		let Some(tx) = self.event_tx.clone() else {
 			let label = task.label().to_string();
 			self.set_status(format!("task runtime unavailable for {label}"));
@@ -1129,7 +1118,7 @@ impl App {
 		let task = self.app_store.register_task(task);
 		let label = task.label().to_string();
 		let id = task.id();
-		TaskRuntime::spawn(task, move |result| {
+		TaskRunner::spawn(task, move |result| {
 			let _ = tx.send(ShellEvent::TaskCompleted(result));
 		});
 		self.set_status(format!("task queued: {label} ({id})"));
@@ -1144,18 +1133,6 @@ impl App {
 			thread::sleep(Duration::from_millis(HEADER_SEARCH_DEBOUNCE_MS));
 			let _ = tx.send(ShellEvent::HeaderSearchDebounced(generation));
 		});
-	}
-
-	fn navigate(&mut self, route: Route) {
-		if !ExplorerFeature::can_open(&route) {
-			self.set_status(format!("unknown route: {}/{}", route.feature, route.path));
-			return;
-		}
-		if let Some(view) = View::from_route_path(&route.path) {
-			self.set_view(view, PanelPolicy::Manual);
-			return;
-		}
-		self.dispatch_shell(ShellAction::SetRoute(route));
 	}
 }
 

@@ -9,7 +9,6 @@ use crate::ui::clipboard::ClipboardResult;
 use crate::ui::events::{HeaderSearchFocus, Msg};
 use crate::ui::explorer::HeaderSearchResults;
 use crate::ui::live::StoreEvent;
-use crate::ui::route::Route;
 use crate::workspace::UsageFocus;
 
 #[derive(Debug)]
@@ -32,11 +31,9 @@ pub(in crate::ui) enum ShellAction {
 	SetStatus(String),
 	AppendStatus(String),
 	SetCheckState(CheckState),
-	SetRoute(Route),
 	SetView {
 		view: View,
 		policy: PanelPolicy,
-		route: Route,
 	},
 	ApplyHeaderSearch {
 		results: HeaderSearchResults,

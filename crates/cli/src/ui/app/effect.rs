@@ -1,9 +1,9 @@
-use crate::ui::route::Route;
+use crate::ui::app::View;
 use crate::ui::store::navigation::NavigationAction;
 
 #[derive(Debug)]
 pub(in crate::ui) enum Effect {
-	Navigate(Route),
+	ShowView(View),
 	Quit,
 	DebounceHeaderSearch(u64),
 	ApplyHeaderSearch {

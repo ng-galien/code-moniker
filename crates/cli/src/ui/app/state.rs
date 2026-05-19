@@ -6,14 +6,10 @@ use crate::ui::app::action::ShellAction;
 use crate::ui::app::{HeaderKindFilter, HeaderSearchState};
 use crate::ui::async_task::{TaskId, TaskOutcome, TaskResult, WorkKind};
 use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
-use crate::ui::explorer::{
-	ExplorerFeature, HeaderSearchResults, ROUTE_CHANGE, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW,
-	ROUTE_REFS,
-};
+use crate::ui::explorer::HeaderSearchResults;
 use crate::ui::live::StoreEvent;
 use crate::ui::reactive::Transition;
 use crate::ui::render::component::ComponentId;
-use crate::ui::route::Route;
 use crate::ui::store::navigation::{
 	NavigationAction, NavigationPane, NavigationState, TreePaneAction,
 };
@@ -62,33 +58,6 @@ pub(in crate::ui) enum View {
 	Refs,
 	Check,
 	Change,
-}
-
-impl View {
-	pub(in crate::ui) fn route_path(self) -> &'static str {
-		match self {
-			Self::Overview => ROUTE_OVERVIEW,
-			Self::Tree => ROUTE_OUTLINE,
-			Self::Refs => ROUTE_REFS,
-			Self::Check => ROUTE_CHECK,
-			Self::Change => ROUTE_CHANGE,
-		}
-	}
-
-	pub(in crate::ui) fn from_route_path(path: &str) -> Option<Self> {
-		match path {
-			ROUTE_OVERVIEW => Some(Self::Overview),
-			ROUTE_OUTLINE => Some(Self::Tree),
-			ROUTE_REFS => Some(Self::Refs),
-			ROUTE_CHECK => Some(Self::Check),
-			ROUTE_CHANGE => Some(Self::Change),
-			_ => None,
-		}
-	}
-
-	pub(in crate::ui) fn route(self) -> Route {
-		ExplorerFeature::route(self.route_path())
-	}
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -147,7 +116,6 @@ pub(in crate::ui) enum ActiveFilter {
 pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) generation: u64,
 	pub(in crate::ui) status: String,
-	pub(in crate::ui) route: Route,
 	pub(in crate::ui) view: View,
 	pub(in crate::ui) view_mode: VisualizationMode,
 	pub(in crate::ui) panel_policy: PanelPolicy,
@@ -165,7 +133,6 @@ impl Default for ShellSlice {
 		Self {
 			generation: 0,
 			status: String::new(),
-			route: ExplorerFeature::route(ROUTE_OVERVIEW),
 			view: View::Overview,
 			view_mode: VisualizationMode::Explorer,
 			panel_policy: PanelPolicy::Contextual,
@@ -290,15 +257,7 @@ impl AppState {
 				self.set_check_state(state.clone());
 				Transition::changed()
 			}
-			ShellAction::SetRoute(route) => {
-				self.update_shell(|shell| shell.route = route.clone());
-				Transition::changed()
-			}
-			ShellAction::SetView {
-				view,
-				policy,
-				route,
-			} => self.set_view_action(*view, *policy, route),
+			ShellAction::SetView { view, policy } => self.set_view_action(*view, *policy),
 			ShellAction::ApplyHeaderSearch {
 				results,
 				return_focus,
@@ -367,14 +326,13 @@ impl AppState {
 		}
 	}
 
-	fn set_view_action(&mut self, view: View, policy: PanelPolicy, route: &Route) -> Transition {
+	fn set_view_action(&mut self, view: View, policy: PanelPolicy) -> Transition {
 		self.update_shell(|shell| {
 			if shell.view != view {
 				shell.panel_navigation = PanelNavigationState::default();
 			}
 			shell.view = view;
 			shell.panel_policy = policy;
-			shell.route = route.clone();
 		});
 		Transition::changed()
 	}
@@ -442,9 +400,7 @@ impl AppState {
 	pub(in crate::ui) fn reduce_ui_msg(&mut self, msg: &Msg) -> Transition {
 		match msg {
 			Msg::Quit => Transition::unchanged().with_effect(Effect::Quit),
-			Msg::ShowView(view) => {
-				Transition::unchanged().with_effect(Effect::Navigate(view.route()))
-			}
+			Msg::ShowView(view) => Transition::unchanged().with_effect(Effect::ShowView(*view)),
 			Msg::ToggleHeaderSearch => self.toggle_header_search(),
 			Msg::ToggleFocusRegion => emit_effect(Effect::ToggleFocusRegion),
 			Msg::HeaderSearchNextField => {

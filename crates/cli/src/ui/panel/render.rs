@@ -11,7 +11,7 @@ use super::super::render::scroll::{
 };
 use super::super::render::text::{FitMode, fit_text, visible_len};
 use super::super::render::theme::{SourceTheme, THEME};
-use super::super::source::SourceLineVm;
+use super::SourceLineVm;
 use super::model::{
 	MessageTone, PanelRenderState, PanelSection, PanelVm, ReferenceGroupVm, WrapMode,
 };

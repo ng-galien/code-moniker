@@ -8,7 +8,7 @@ use super::render::theme::THEME;
 mod model;
 mod render;
 
-pub(in crate::ui) use model::{PanelRenderState, PanelVm, ReferenceGroupVm};
+pub(in crate::ui) use model::{PanelRenderState, PanelVm, ReferenceGroupVm, SourceLineVm};
 pub(in crate::ui) use render::PanelSnapshot;
 
 pub(super) fn render_panel(

@@ -1,10 +1,9 @@
 use crate::ui::App;
 use crate::ui::app::{ChangePanelMode, CheckState, FocusRegion, View};
 use crate::ui::navigator::NavNodeKind;
-use crate::ui::panel::{PanelVm, ReferenceGroupVm};
+use crate::ui::panel::{PanelVm, ReferenceGroupVm, SourceLineVm};
 use crate::ui::render::component::ComponentId;
 use crate::ui::render::text::{Column, FitMode};
-use crate::ui::source::source_snippet;
 use crate::ui::store::navigation::NavigationPane;
 use crate::workspace::{DefLocation, IndexStore, ReferenceGroup, ReferenceSet, UsageFocus};
 
@@ -180,6 +179,25 @@ fn refs_panel(app: &App) -> PanelVm {
 		return vm;
 	};
 	refs_for_symbol_panel(app, loc)
+}
+
+fn source_snippet(app: &App, loc: &DefLocation, context: u32) -> Vec<SourceLineVm> {
+	let snippet = app.store().source_snippet(loc, context);
+	let width = snippet
+		.iter()
+		.map(|line| line.number.to_string().len())
+		.max()
+		.unwrap_or(4)
+		.max(4);
+	snippet
+		.into_iter()
+		.map(|line| SourceLineVm {
+			number: line.number,
+			number_width: width,
+			text: line.text,
+			active: line.active,
+		})
+		.collect()
 }
 
 pub(super) fn refs_for_symbol_panel(app: &App, loc: DefLocation) -> PanelVm {

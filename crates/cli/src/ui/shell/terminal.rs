@@ -15,7 +15,6 @@ use crate::{DEFAULT_SCHEME, Exit};
 use super::{EventSource, ShellEvent};
 use crate::ui::App;
 use crate::ui::app::AppAction;
-use crate::ui::explorer::ExplorerFeature;
 use crate::ui::live::StoreEvent;
 use crate::ui::render::view;
 
@@ -88,7 +87,7 @@ fn app_loop<W: Write>(
 }
 
 fn draw_app(frame: &mut ratatui::Frame<'_>, app: &mut App) {
-	let vm = ExplorerFeature::view_model(app);
+	let vm = crate::ui::explorer::view_model(app);
 	view::render_shell(frame, frame.area(), &vm);
 }
 

@@ -1,6 +1,13 @@
 use super::super::render::component::ComponentId;
 use super::super::render::text::{Column, FitMode};
-use super::super::source::SourceLineVm;
+
+#[derive(Clone, Debug)]
+pub(in crate::ui) struct SourceLineVm {
+	pub(in crate::ui) number: u32,
+	pub(in crate::ui) number_width: usize,
+	pub(in crate::ui) text: String,
+	pub(in crate::ui) active: bool,
+}
 
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct PanelVm {
