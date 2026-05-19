@@ -5,12 +5,16 @@ use std::time::Duration;
 use crossterm::event::KeyEvent;
 
 use crate::ui::app::App;
-use crate::ui::app::{AppAction, CheckState, Effect, PanelPolicy, TaskCompletion, View};
+use crate::ui::app::{
+	AppAction, CheckState, Effect, FocusRegion, PanelPolicy, TaskCompletion, View,
+};
 use crate::ui::async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
 use crate::ui::clipboard;
-use crate::ui::events::key_to_msg;
+use crate::ui::events::{HeaderSearchFocus, Msg, UiMode, key_to_msg};
 use crate::ui::live::StoreEvent;
 use crate::ui::shell::ShellEvent;
+use crate::ui::store::navigation::{NavigationAction, NavigationPane};
+use crate::ui::store::tree_pane_action::TreePaneAction;
 use crate::workspace::{IndexStore, StoreWatchRoot};
 
 const HEADER_SEARCH_DEBOUNCE_MS: u64 = 180;
@@ -127,6 +131,15 @@ impl App {
 				}
 				return false;
 			}
+			AppAction::HeaderSearchDebounced(generation) => {
+				if self.header_search().pending_generation == Some(generation) {
+					self.apply_header_search(Some(generation), false);
+				}
+				return false;
+			}
+			AppAction::Ui(msg) if self.handle_ui_transition_msg(&msg) => {
+				return false;
+			}
 			action => action,
 		};
 		if self.dispatch_and_apply(&action) {
@@ -173,32 +186,107 @@ impl App {
 			Effect::DebounceHeaderSearch(generation) => {
 				self.queue_header_search_debounce(generation);
 			}
-			Effect::ApplyHeaderSearch {
-				generation,
-				return_focus,
-			} => self.apply_header_search(generation, return_focus),
-			Effect::CycleHeaderSearchSelector { direction } => {
-				self.cycle_header_search_selector(direction)
-			}
-			Effect::ToggleHeaderSearchSelection => self.toggle_header_search_selection(),
-			Effect::FocusUsages => self.focus_usages_of_selected(),
-			Effect::ToggleChangeMode => self.toggle_change_mode(),
 			Effect::CopyPanelSnapshot => self.copy_panel_snapshot(),
 			Effect::RunCheck => self.run_check(),
-			Effect::Navigation(action) => self.apply_navigation(*action),
-			Effect::ToggleFocusRegion => self.toggle_focus_region(),
-			Effect::PanelMove { direction } => self.move_panel_selection(direction),
-			Effect::PanelHome => self.move_panel_to_edge(true),
-			Effect::PanelEnd => self.move_panel_to_edge(false),
-			Effect::ToggleSelectedNode => self.toggle_selected_nav(),
-			Effect::OpenSelectedNode => self.open_selected_nav(),
-			Effect::CloseNodeOrClearScope => {
+		}
+		false
+	}
+
+	fn handle_ui_transition_msg(&mut self, msg: &Msg) -> bool {
+		match msg {
+			Msg::ToggleFocusRegion => self.toggle_focus_region(),
+			Msg::HeaderSearchSelectNext => self.cycle_header_search_selector(1),
+			Msg::HeaderSearchSelectPrevious => self.cycle_header_search_selector(-1),
+			Msg::HeaderSearchToggleSelection => self.toggle_header_search_selection(),
+			Msg::HeaderSearchReset => {
+				let return_focus = matches!(self.mode(), UiMode::Normal);
+				self.dispatch_and_apply(&AppAction::Ui(msg.clone()));
+				self.apply_header_search(None, return_focus);
+			}
+			Msg::HeaderSearchApply => {
+				let should_apply = matches!(
+					self.mode(),
+					UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal
+				) || matches!(
+					self.mode(),
+					UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind)
+				) && self.header_search().combo_open;
+				let return_focus = matches!(
+					self.mode(),
+					UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal
+				);
+				self.dispatch_and_apply(&AppAction::Ui(msg.clone()));
+				if should_apply {
+					self.apply_header_search(None, return_focus);
+				}
+			}
+			Msg::FocusUsages => self.focus_usages_of_selected(),
+			Msg::ToggleChangeMode => self.toggle_change_mode(),
+			Msg::MoveDown => self.apply_vertical_navigation(1),
+			Msg::MoveUp => self.apply_vertical_navigation(-1),
+			Msg::Home => self.apply_positional_navigation(true),
+			Msg::End => self.apply_positional_navigation(false),
+			Msg::ToggleNode if self.focus_region() != FocusRegion::Panel => {
+				self.toggle_selected_nav();
+			}
+			Msg::OpenNode if self.focus_region() != FocusRegion::Panel => {
+				self.open_selected_nav();
+			}
+			Msg::CloseNode if self.focus_region() == FocusRegion::Panel => {
+				self.toggle_focus_region();
+			}
+			Msg::CloseNode => {
 				if !self.close_selected_nav() && self.has_clearable_scope() {
 					self.clear_filter();
 				}
 			}
+			_ => return false,
 		}
-		false
+		true
+	}
+
+	fn apply_vertical_navigation(&mut self, direction: i8) {
+		match self.focus_region() {
+			FocusRegion::Navigator => self.apply_navigation(NavigationAction::Pane {
+				pane: NavigationPane::Primary,
+				action: if direction > 0 {
+					TreePaneAction::MoveDown
+				} else {
+					TreePaneAction::MoveUp
+				},
+			}),
+			FocusRegion::UsageLens => self.apply_navigation(NavigationAction::Pane {
+				pane: NavigationPane::UsageLens,
+				action: if direction > 0 {
+					TreePaneAction::MoveDown
+				} else {
+					TreePaneAction::MoveUp
+				},
+			}),
+			FocusRegion::Panel => self.move_panel_selection(direction),
+		}
+	}
+
+	fn apply_positional_navigation(&mut self, home: bool) {
+		match self.focus_region() {
+			FocusRegion::Navigator => self.apply_navigation(NavigationAction::Pane {
+				pane: NavigationPane::Primary,
+				action: if home {
+					TreePaneAction::Home
+				} else {
+					TreePaneAction::End
+				},
+			}),
+			FocusRegion::UsageLens => self.apply_navigation(NavigationAction::Pane {
+				pane: NavigationPane::UsageLens,
+				action: if home {
+					TreePaneAction::Home
+				} else {
+					TreePaneAction::End
+				},
+			}),
+			FocusRegion::Panel => self.move_panel_to_edge(home),
+		}
 	}
 
 	pub(in crate::ui) fn queue_task(&mut self, task: TaskSpec) -> bool {

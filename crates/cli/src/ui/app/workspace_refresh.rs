@@ -4,6 +4,13 @@ use crate::ui::live::StoreEvent;
 use crate::ui::store::navigation::NavigationAction;
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
 
+#[derive(Clone, Copy)]
+enum StoreChangeKind {
+	FileCatalog,
+	Reloaded,
+	GitOverlay,
+}
+
 impl App {
 	pub(in crate::ui) fn handle_store_event(&mut self, event: StoreEvent) {
 		if self.queue_store_task(event) {
@@ -40,44 +47,36 @@ impl App {
 	}
 
 	pub(in crate::ui) fn apply_file_catalog_store(&mut self, status: String) {
-		self.watch_roots_update = Some(self.store().watch_roots());
-		self.refresh_header_search_options();
-		self.dispatch_navigation(NavigationAction::ReplaceModels {
-			explorer: build_navigator(self.store()),
-			change: build_change_navigator(self.store()),
-		});
-		self.refresh_results(true);
-		self.sync_contextual_view();
-		self.set_status(status);
+		self.refresh_ui_after_store_change(StoreChangeKind::FileCatalog, status);
 	}
 
 	pub(in crate::ui) fn apply_reloaded_store(&mut self, status: String) {
-		self.watch_roots_update = Some(self.store().watch_roots());
-		self.refresh_header_search_options();
-		let reset = matches!(self.active_filter(), ActiveFilter::Change)
-			&& self.app_store.navigation().primary_view().rows.is_empty();
-		self.refresh_active_filter_after_store_reload();
-		self.dispatch_navigation(NavigationAction::ReplaceModels {
-			explorer: build_navigator(self.store()),
-			change: build_change_navigator(self.store()),
-		});
-		self.refresh_results(reset);
-		if reset {
-			self.select_first_change();
-		}
-		self.sync_contextual_view();
-		self.set_status(status);
+		self.refresh_ui_after_store_change(StoreChangeKind::Reloaded, status);
 	}
 
 	pub(in crate::ui) fn apply_refreshed_change_store(&mut self, status: String) {
+		self.refresh_ui_after_store_change(StoreChangeKind::GitOverlay, status);
+	}
+
+	fn refresh_ui_after_store_change(&mut self, kind: StoreChangeKind, status: String) {
+		if matches!(
+			kind,
+			StoreChangeKind::FileCatalog | StoreChangeKind::Reloaded
+		) {
+			self.watch_roots_update = Some(self.store().watch_roots());
+			self.refresh_header_search_options();
+		}
 		let reset = matches!(self.active_filter(), ActiveFilter::Change)
 			&& self.app_store.navigation().primary_view().rows.is_empty();
+		if matches!(kind, StoreChangeKind::Reloaded) {
+			self.refresh_active_filter_after_store_reload();
+		}
 		self.dispatch_navigation(NavigationAction::ReplaceModels {
 			explorer: build_navigator(self.store()),
 			change: build_change_navigator(self.store()),
 		});
-		self.refresh_results(reset);
-		if reset {
+		self.refresh_results(matches!(kind, StoreChangeKind::FileCatalog) || reset);
+		if reset && !matches!(kind, StoreChangeKind::FileCatalog) {
 			self.select_first_change();
 		}
 		self.sync_contextual_view();

@@ -1,6 +1,6 @@
 use crate::workspace::{DefLocation, IndexStore};
 
-use crate::ui::app::{App, ChangePanelMode, PanelPolicy, ShellAction, View, VisualizationMode};
+use crate::ui::app::{App, ShellAction, VisualizationMode};
 use crate::ui::store::navigation::NavigationAction;
 
 impl App {
@@ -49,38 +49,51 @@ impl App {
 		self.sync_contextual_view();
 		self.set_status(format!("closed usage lens for {label}"));
 	}
+}
 
-	pub(in crate::ui) fn toggle_change_mode(&mut self) {
-		if self.view_mode() == VisualizationMode::Change {
-			self.clear_filter();
-			return;
+#[cfg(test)]
+mod tests {
+	use std::path::Path;
+
+	use crate::ui::app::App;
+	use crate::workspace::{SessionOptions, WorkspaceStore};
+
+	fn write(root: &Path, rel: &str, body: &str) {
+		let path = root.join(rel);
+		if let Some(parent) = path.parent() {
+			std::fs::create_dir_all(parent).unwrap();
 		}
-		self.dispatch_shell(ShellAction::EnterChangeMode);
-		self.refresh_results(true);
-		self.select_first_change();
-		self.sync_contextual_view();
-		let changes = self.store().change_overview();
-		self.set_status(format!(
-			"changes: {} declaration(s) across {} file(s)",
-			changes.change_count, changes.file_count
-		));
+		std::fs::write(path, body).unwrap();
 	}
 
-	pub(in crate::ui) fn toggle_change_usages(&mut self) {
-		let Some(change) = self.selected_change_detail() else {
-			self.set_status("select a changed declaration before toggling blast radius");
-			return;
-		};
-		let name = change.summary.name;
-		let next_panel = match self.change_panel() {
-			ChangePanelMode::Diff => ChangePanelMode::Usages,
-			ChangePanelMode::Usages => ChangePanelMode::Diff,
-		};
-		self.dispatch_shell(ShellAction::SetChangePanel(next_panel));
-		self.set_view(View::Change, PanelPolicy::Contextual);
-		self.set_status(match next_panel {
-			ChangePanelMode::Diff => format!("change diff details for {name}"),
-			ChangePanelMode::Usages => format!("change blast radius for {name}"),
-		});
+	fn fixture_app() -> App {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/services.ts",
+			"export class AlphaService {}\n",
+		);
+		let store = WorkspaceStore::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		App::new(
+			store,
+			"default".to_string(),
+			tmp.path().join("rules.toml"),
+			None,
+		)
+	}
+
+	#[test]
+	fn focus_usages_without_primary_selection_only_reports_status() {
+		let mut app = fixture_app();
+
+		app.focus_usages_of_selected();
+
+		assert!(app.usage_lens().is_none());
+		assert_eq!(app.status(), "select a declaration before focusing usages");
 	}
 }

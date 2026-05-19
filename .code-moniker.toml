@@ -25,7 +25,7 @@ ui_panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/
 ui_components     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:components/**'"
 ui_contracts      = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/**'"
 ui_screen_contract     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/module:screen'"
-ui_msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:action' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state'"
+ui_msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:action' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:runtime'"
 ui_app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:effect'"
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"

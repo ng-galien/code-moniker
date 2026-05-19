@@ -63,9 +63,9 @@ impl App {
 	}
 
 	pub(in crate::ui) fn ensure_active_panel_selection(&mut self) {
-		let panel = explorer::active_panel(self);
-		let count = panel.navigation_len();
-		let component = panel.component();
+		let panel = explorer::active_panel_nav(self);
+		let count = panel.navigation_len;
+		let component = panel.component;
 		let selected = if count == 0 {
 			None
 		} else if self.panel_navigation().component == Some(component) {
@@ -89,9 +89,9 @@ impl App {
 	}
 
 	pub(in crate::ui) fn move_panel_selection(&mut self, direction: i8) {
-		let panel = explorer::active_panel(self);
-		let count = panel.navigation_len();
-		let component = panel.component();
+		let panel = explorer::active_panel_nav(self);
+		let count = panel.navigation_len;
+		let component = panel.component;
 		if count == 0 {
 			self.scroll_panel_lines(direction);
 			self.set_status("panel has no navigable item; scrolled content");
@@ -116,9 +116,9 @@ impl App {
 	}
 
 	pub(in crate::ui) fn move_panel_to_edge(&mut self, home: bool) {
-		let panel = explorer::active_panel(self);
-		let count = panel.navigation_len();
-		let component = panel.component();
+		let panel = explorer::active_panel_nav(self);
+		let count = panel.navigation_len;
+		let component = panel.component;
 		let selected = if count == 0 {
 			None
 		} else if home {

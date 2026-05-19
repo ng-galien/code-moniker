@@ -39,10 +39,12 @@ impl PanelVm {
 		self
 	}
 
+	#[cfg(test)]
 	pub(in crate::ui) fn component(&self) -> ComponentId {
 		self.component
 	}
 
+	#[cfg(test)]
 	pub(in crate::ui) fn navigation_len(&self) -> usize {
 		self.sections.iter().map(PanelSection::navigation_len).sum()
 	}
@@ -154,6 +156,7 @@ pub(super) enum PanelSection {
 }
 
 impl PanelSection {
+	#[cfg(test)]
 	fn navigation_len(&self) -> usize {
 		match self {
 			Self::Table { rows, .. } => rows.len(),

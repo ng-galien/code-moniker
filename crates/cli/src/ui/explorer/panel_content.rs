@@ -6,6 +6,12 @@ use crate::ui::store::navigation::NavigationPane;
 use crate::ui::store::navigation_tree::NavNodeKind;
 use crate::workspace::{DefLocation, IndexStore, ReferenceGroup, ReferenceSet, UsageFocus};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::ui) struct ActivePanelNav {
+	pub(in crate::ui) component: ComponentId,
+	pub(in crate::ui) navigation_len: usize,
+}
+
 pub(super) fn active_panel(app: &App) -> PanelVm {
 	match app.view() {
 		View::Overview => overview_panel(app),
@@ -13,6 +19,27 @@ pub(super) fn active_panel(app: &App) -> PanelVm {
 		View::Refs => refs_panel(app),
 		View::Check => check_panel(app),
 		View::Change => change_panel(app),
+	}
+}
+
+pub(super) fn active_panel_nav(app: &App) -> ActivePanelNav {
+	match app.view() {
+		View::Overview => overview_panel_nav(app),
+		View::Tree => outline_panel_nav(app),
+		View::Refs => refs_panel_nav(app),
+		View::Check => ActivePanelNav {
+			component: ComponentId::PanelCheck,
+			navigation_len: 0,
+		},
+		View::Change => change_panel_nav(app),
+	}
+}
+
+fn overview_panel_nav(app: &App) -> ActivePanelNav {
+	let stats = app.store().stats();
+	ActivePanelNav {
+		component: ComponentId::PanelOverview,
+		navigation_len: stats.by_lang.len() + stats.by_shape.len(),
 	}
 }
 
@@ -62,6 +89,19 @@ fn overview_panel(app: &App) -> PanelVm {
 			.collect(),
 	);
 	vm
+}
+
+fn outline_panel_nav(app: &App) -> ActivePanelNav {
+	let navigation_len = app.selected().map_or(0, |loc| {
+		let detail = app.store().symbol_detail(&loc);
+		let children = detail.children.len().min(40);
+		let source = app.store().source_snippet(&loc, 3).len();
+		children + source
+	});
+	ActivePanelNav {
+		component: ComponentId::PanelOutline,
+		navigation_len,
+	}
 }
 
 fn outline_panel(app: &App) -> PanelVm {
@@ -179,6 +219,29 @@ fn refs_panel(app: &App) -> PanelVm {
 	refs_for_symbol_panel(app, loc)
 }
 
+fn refs_panel_nav(app: &App) -> ActivePanelNav {
+	if let Some(focus) = app.usage_lens()
+		&& (app.focus_region() != FocusRegion::UsageLens || app.selected().is_none())
+	{
+		return ActivePanelNav {
+			component: ComponentId::PanelUsages,
+			navigation_len: reference_group_nav_len(&focus.references, 40),
+		};
+	}
+	let Some(loc) = app.selected() else {
+		return ActivePanelNav {
+			component: ComponentId::PanelRefs,
+			navigation_len: 0,
+		};
+	};
+	let refs = app.store().symbol_references(&loc);
+	ActivePanelNav {
+		component: ComponentId::PanelRefs,
+		navigation_len: reference_group_nav_len(&refs.incoming, 30)
+			+ reference_group_nav_len(&refs.outgoing, 30),
+	}
+}
+
 fn source_snippet(app: &App, loc: &DefLocation, context: u32) -> Vec<SourceLineVm> {
 	let snippet = app.store().source_snippet(loc, context);
 	let width = snippet
@@ -219,6 +282,20 @@ pub(super) fn refs_for_symbol_panel(app: &App, loc: DefLocation) -> PanelVm {
 	vm.muted(reference_summary(&refs.outgoing));
 	vm.reference_groups(reference_group_vms(&refs.outgoing.groups), 30);
 	vm
+}
+
+fn change_panel_nav(app: &App) -> ActivePanelNav {
+	let navigation_len = app.selected_change_detail().map_or(0, |change| {
+		if app.change_panel() == ChangePanelMode::Usages {
+			reference_group_nav_len(&change.blast_radius, 40)
+		} else {
+			0
+		}
+	});
+	ActivePanelNav {
+		component: ComponentId::PanelChange,
+		navigation_len,
+	}
 }
 
 fn change_panel(app: &App) -> PanelVm {
@@ -388,6 +465,14 @@ fn reference_summary(refs: &ReferenceSet) -> String {
 	}
 }
 
+fn reference_group_nav_len(refs: &ReferenceSet, limit: usize) -> usize {
+	if refs.summary.refs == 0 {
+		0
+	} else {
+		refs.groups.len().min(limit)
+	}
+}
+
 fn reference_group_vms(groups: &[ReferenceGroup]) -> Vec<ReferenceGroupVm> {
 	groups
 		.iter()
@@ -402,4 +487,61 @@ fn reference_group_vms(groups: &[ReferenceGroup]) -> Vec<ReferenceGroupVm> {
 			alias: group.alias.clone(),
 		})
 		.collect()
+}
+
+#[cfg(test)]
+mod tests {
+	use std::path::Path;
+
+	use super::*;
+	use crate::ui::app::App;
+	use crate::workspace::{SessionOptions, WorkspaceStore};
+
+	fn write(root: &Path, rel: &str, body: &str) {
+		let path = root.join(rel);
+		if let Some(parent) = path.parent() {
+			std::fs::create_dir_all(parent).unwrap();
+		}
+		std::fs::write(path, body).unwrap();
+	}
+
+	fn fixture_app() -> App {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/services.ts",
+			"export class AlphaService { run() { return 1; } }\nexport function betaFactory() { return new AlphaService(); }\n",
+		);
+		let store = WorkspaceStore::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		App::new(
+			store,
+			"default".to_string(),
+			tmp.path().join("rules.toml"),
+			None,
+		)
+	}
+
+	#[test]
+	fn active_panel_nav_matches_render_panel_navigation_metadata() {
+		let mut app = fixture_app();
+
+		for view in [
+			View::Overview,
+			View::Tree,
+			View::Refs,
+			View::Check,
+			View::Change,
+		] {
+			app.set_view(view, crate::ui::app::PanelPolicy::Manual);
+			let panel = active_panel(&app);
+			let nav = active_panel_nav(&app);
+			assert_eq!(nav.component, panel.component(), "{view:?}");
+			assert_eq!(nav.navigation_len, panel.navigation_len(), "{view:?}");
+		}
+	}
 }

@@ -8,6 +8,7 @@ use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator}
 use crate::workspace::{SessionOptions, StoreWatchRoot, UsageFocus, WorkspaceStore};
 
 mod action;
+mod change_mode;
 mod effect;
 mod header_search;
 mod navigation;

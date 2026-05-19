@@ -1,15 +1,16 @@
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::{
-	FocusRegion, PanelNavigationState, VisualizationMode, display_filter, kind_filter_summary,
-	lang_filter_summary,
+	FocusRegion, HeaderSearchState, PanelNavigationState, VisualizationMode, display_filter,
+	kind_filter_summary, lang_filter_summary,
 };
 use crate::ui::events::{HeaderSearchFocus, UiMode};
 use crate::ui::panel::PanelVm;
 use crate::ui::render::component::ComponentId;
 use crate::ui::store::navigation::NavigationPaneView;
+use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::navigation_tree::{NavNodeKind, NavRow};
-use crate::workspace::{ChangeStatus, DefLocation, IndexStore};
+use crate::workspace::{ChangeStatus, DefLocation, IndexStore, UsageFocus};
 
 use crate::ui::app::App;
 
@@ -102,25 +103,55 @@ pub(in crate::ui) struct FooterVm {
 	pub(in crate::ui) status: String,
 }
 
+pub(in crate::ui) struct ExplorerVmContext<'a> {
+	mode: UiMode,
+	view_mode: VisualizationMode,
+	scope: String,
+	header_search: &'a HeaderSearchState,
+	navigation: &'a NavigationState,
+	panel: PanelVm,
+	panel_navigation: &'a PanelNavigationState,
+	focus_region: FocusRegion,
+	usage_lens: Option<&'a UsageFocus>,
+	filtered: bool,
+	workspace: &'a dyn IndexStore,
+	status: &'a str,
+}
+
 impl ExplorerVm {
 	pub(in crate::ui) fn from_app(app: &App) -> Self {
-		let mode = app.mode();
-		let view_mode = app.view_mode();
-		let scope = app.scope_label();
+		let ctx = ExplorerVmContext {
+			mode: app.mode(),
+			view_mode: app.view_mode(),
+			scope: app.scope_label(),
+			header_search: app.header_search(),
+			navigation: app.navigation(),
+			panel: super::active_panel(app),
+			panel_navigation: app.panel_navigation(),
+			focus_region: app.focus_region(),
+			usage_lens: app.usage_lens(),
+			filtered: app.is_filtered(),
+			workspace: app.store(),
+			status: app.status(),
+		};
+		Self::from_context(ctx)
+	}
+
+	pub(in crate::ui) fn from_context(ctx: ExplorerVmContext<'_>) -> Self {
 		Self {
 			header: HeaderVm {
-				mode: view_mode.label(),
-				scope: scope.clone(),
+				mode: ctx.view_mode.label(),
+				scope: ctx.scope.clone(),
 			},
-			search: search_vm(app),
-			primary_nav: primary_nav_vm(app),
-			usage_nav: usage_nav_vm(app),
-			panel: super::active_panel(app),
-			panel_navigation: app.panel_navigation().clone(),
-			panel_focused: focus_region_visible(mode, app.focus_region(), FocusRegion::Panel),
+			search: search_vm(&ctx),
+			primary_nav: primary_nav_vm(&ctx),
+			usage_nav: usage_nav_vm(&ctx),
+			panel: ctx.panel,
+			panel_navigation: ctx.panel_navigation.clone(),
+			panel_focused: focus_region_visible(ctx.mode, ctx.focus_region, FocusRegion::Panel),
 			footer: FooterVm {
-				prefix: footer_prefix(mode),
-				status: app.status().to_string(),
+				prefix: footer_prefix(ctx.mode),
+				status: ctx.status.to_string(),
 			},
 		}
 	}
@@ -134,9 +165,9 @@ pub(in crate::ui) fn focus_region_visible(
 	matches!(mode, UiMode::Normal) && current == region
 }
 
-fn search_vm(app: &App) -> SearchBarVm {
-	let search = app.header_search();
-	let focus = match app.mode() {
+fn search_vm(ctx: &ExplorerVmContext<'_>) -> SearchBarVm {
+	let search = ctx.header_search;
+	let focus = match ctx.mode {
 		UiMode::HeaderSearch(focus) => Some(focus),
 		UiMode::Normal => None,
 	};
@@ -148,18 +179,21 @@ fn search_vm(app: &App) -> SearchBarVm {
 		lang_summary: lang_filter_summary(&search.langs),
 		kind_summary: kind_filter_summary(&search.kind_filters),
 		combo_open: search.combo_open,
-		popup: search_popup_vm(app, focus),
+		popup: search_popup_vm(ctx, focus),
 	}
 }
 
-fn search_popup_vm(app: &App, focus: Option<HeaderSearchFocus>) -> Option<SearchPopupVm> {
-	if !app.header_search().combo_open {
+fn search_popup_vm(
+	ctx: &ExplorerVmContext<'_>,
+	focus: Option<HeaderSearchFocus>,
+) -> Option<SearchPopupVm> {
+	if !ctx.header_search.combo_open {
 		return None;
 	}
-	let search = app.header_search();
+	let search = ctx.header_search;
 	match focus {
 		Some(HeaderSearchFocus::Lang) => {
-			let options = app.available_header_langs();
+			let options = search.available_langs.clone();
 			let mut items = vec![if search.langs.is_empty() {
 				"[x] all languages".to_string()
 			} else {
@@ -181,7 +215,7 @@ fn search_popup_vm(app: &App, focus: Option<HeaderSearchFocus>) -> Option<Search
 			})
 		}
 		Some(HeaderSearchFocus::Kind) => {
-			let options = app.available_header_kind_filters();
+			let options = search.available_kind_filters.clone();
 			let mut items = vec![if search.kind_filters.is_empty() {
 				"[x] all kinds".to_string()
 			} else {
@@ -206,12 +240,12 @@ fn search_popup_vm(app: &App, focus: Option<HeaderSearchFocus>) -> Option<Search
 	}
 }
 
-fn primary_nav_vm(app: &App) -> NavPaneVm {
-	let navigation = app.navigation();
+fn primary_nav_vm(ctx: &ExplorerVmContext<'_>) -> NavPaneVm {
+	let navigation = ctx.navigation;
 	let visible_defs = navigation.visible_defs();
 	let pane = navigation.primary_view();
-	let title = if app.is_filtered() {
-		if app.view_mode() == VisualizationMode::Change {
+	let title = if ctx.filtered {
+		if ctx.view_mode == VisualizationMode::Change {
 			format!(
 				" change {} files {} defs ",
 				matched_file_count(visible_defs),
@@ -227,22 +261,22 @@ fn primary_nav_vm(app: &App) -> NavPaneVm {
 	} else {
 		format!(
 			" navigator {} files {} defs ",
-			app.store().stats().files,
-			app.navigation().explorer_def_count()
+			ctx.workspace.stats().files,
+			ctx.navigation.explorer_def_count()
 		)
 	};
 	NavPaneVm {
 		title,
 		component: ComponentId::Navigator,
-		rows: nav_rows_vm(app, pane),
+		rows: nav_rows_vm(ctx, pane),
 		selection: pane.selection,
-		focused: focus_region_visible(app.mode(), app.focus_region(), FocusRegion::Navigator),
+		focused: focus_region_visible(ctx.mode, ctx.focus_region, FocusRegion::Navigator),
 	}
 }
 
-fn usage_nav_vm(app: &App) -> Option<NavPaneVm> {
-	let focus = app.usage_lens()?;
-	let pane = app.navigation().usage_view()?;
+fn usage_nav_vm(ctx: &ExplorerVmContext<'_>) -> Option<NavPaneVm> {
+	let focus = ctx.usage_lens?;
+	let pane = ctx.navigation.usage_view()?;
 	Some(NavPaneVm {
 		title: format!(
 			" usages {}  {} files {} defs ",
@@ -251,20 +285,20 @@ fn usage_nav_vm(app: &App) -> Option<NavPaneVm> {
 			focus.contexts.len()
 		),
 		component: ComponentId::NavigatorUsages,
-		rows: nav_rows_vm(app, pane),
+		rows: nav_rows_vm(ctx, pane),
 		selection: pane.selection,
-		focused: focus_region_visible(app.mode(), app.focus_region(), FocusRegion::UsageLens),
+		focused: focus_region_visible(ctx.mode, ctx.focus_region, FocusRegion::UsageLens),
 	})
 }
 
-fn nav_rows_vm(app: &App, pane: NavigationPaneView<'_>) -> Vec<NavRowVm> {
+fn nav_rows_vm(ctx: &ExplorerVmContext<'_>, pane: NavigationPaneView<'_>) -> Vec<NavRowVm> {
 	pane.rows
 		.iter()
-		.map(|row| nav_row_vm(app, row, pane))
+		.map(|row| nav_row_vm(ctx, row, pane))
 		.collect()
 }
 
-fn nav_row_vm(app: &App, row: &NavRow, pane: NavigationPaneView<'_>) -> NavRowVm {
+fn nav_row_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow, pane: NavigationPaneView<'_>) -> NavRowVm {
 	NavRowVm {
 		label: row.label.clone(),
 		depth: row.depth,
@@ -272,21 +306,21 @@ fn nav_row_vm(app: &App, row: &NavRow, pane: NavigationPaneView<'_>) -> NavRowVm
 		expanded: pane.expanded.contains(&row.key),
 		file_count: row.file_count,
 		def_count: row.def_count,
-		kind: nav_row_kind_vm(app, row),
+		kind: nav_row_kind_vm(ctx, row),
 	}
 }
 
-fn nav_row_kind_vm(app: &App, row: &NavRow) -> NavRowVmKind {
+fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
 	match row.kind {
 		NavNodeKind::Root => NavRowVmKind::Root,
 		NavNodeKind::Lang => NavRowVmKind::Lang,
 		NavNodeKind::Dir => NavRowVmKind::Dir,
 		NavNodeKind::File(file_idx) => NavRowVmKind::File {
-			change_count: file_change_count(app, file_idx),
+			change_count: file_change_count(ctx.workspace, file_idx),
 		},
 		NavNodeKind::ChangeFile => NavRowVmKind::ChangeFile,
 		NavNodeKind::Def(loc) => {
-			let symbol = app.store().symbol_summary(&loc);
+			let symbol = ctx.workspace.symbol_summary(&loc);
 			let kind = symbol.kind.clone();
 			NavRowVmKind::Def {
 				lang: symbol.lang,
@@ -300,7 +334,7 @@ fn nav_row_kind_vm(app: &App, row: &NavRow) -> NavRowVmKind {
 			}
 		}
 		NavNodeKind::Change(id) => {
-			NavRowVmKind::Change(app.store().change_summary(id).map(|change| NavChangeVm {
+			NavRowVmKind::Change(ctx.workspace.change_summary(id).map(|change| NavChangeVm {
 				lang: change.lang,
 				kind: change.kind,
 				status: change.status,
@@ -310,8 +344,8 @@ fn nav_row_kind_vm(app: &App, row: &NavRow) -> NavRowVmKind {
 	}
 }
 
-fn file_change_count(app: &App, file_idx: usize) -> Option<usize> {
-	let count = app.store().change_count_for_file(file_idx);
+fn file_change_count(workspace: &dyn IndexStore, file_idx: usize) -> Option<usize> {
+	let count = workspace.change_count_for_file(file_idx);
 	(count > 0).then_some(count)
 }
 

@@ -9,9 +9,8 @@ use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
 use crate::ui::explorer::HeaderSearchResults;
 use crate::ui::live::StoreEvent;
 use crate::ui::render::component::ComponentId;
-use crate::ui::store::navigation::{NavigationAction, NavigationPane, NavigationState};
+use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::reducer::Transition;
-use crate::ui::store::tree_pane_action::TreePaneAction;
 use crate::workspace::{CheckSummary, UsageFocus};
 
 use super::Effect;
@@ -401,7 +400,7 @@ impl AppState {
 			Msg::Quit => Transition::unchanged().with_effect(Effect::Quit),
 			Msg::ShowView(view) => Transition::unchanged().with_effect(Effect::ShowView(*view)),
 			Msg::ToggleHeaderSearch => self.toggle_header_search(),
-			Msg::ToggleFocusRegion => emit_effect(Effect::ToggleFocusRegion),
+			Msg::ToggleFocusRegion => Transition::unchanged(),
 			Msg::HeaderSearchNextField => {
 				let focus = match self.shell.mode {
 					UiMode::HeaderSearch(focus) => focus.next(),
@@ -425,37 +424,23 @@ impl AppState {
 				self.shell.status = format!("search draft: {text}");
 				Transition::changed().with_effect(Effect::DebounceHeaderSearch(generation))
 			}
-			Msg::HeaderSearchSelectNext => {
-				emit_effect(Effect::CycleHeaderSearchSelector { direction: 1 })
-			}
-			Msg::HeaderSearchSelectPrevious => {
-				emit_effect(Effect::CycleHeaderSearchSelector { direction: -1 })
-			}
-			Msg::HeaderSearchToggleSelection => emit_effect(Effect::ToggleHeaderSearchSelection),
+			Msg::HeaderSearchSelectNext => Transition::unchanged(),
+			Msg::HeaderSearchSelectPrevious => Transition::unchanged(),
+			Msg::HeaderSearchToggleSelection => Transition::unchanged(),
 			Msg::HeaderSearchReset => {
-				let return_focus = matches!(self.shell.mode, UiMode::Normal);
 				self.reset_header_search();
 				self.shell.status = "search filters reset".to_string();
-				Transition::changed().with_effect(Effect::ApplyHeaderSearch {
-					generation: None,
-					return_focus,
-				})
+				Transition::changed()
 			}
 			Msg::HeaderSearchApply => match self.shell.mode {
 				UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal => {
-					emit_effect(Effect::ApplyHeaderSearch {
-						generation: None,
-						return_focus: true,
-					})
+					Transition::unchanged()
 				}
 				UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind)
 					if self.shell.header_search.combo_open =>
 				{
 					self.update_shell(|shell| shell.header_search.combo_open = false);
-					emit_effect(Effect::ApplyHeaderSearch {
-						generation: None,
-						return_focus: false,
-					})
+					Transition::changed()
 				}
 				UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind) => {
 					self.update_shell(|shell| shell.header_search.combo_open = true);
@@ -468,28 +453,28 @@ impl AppState {
 				);
 				Transition::changed()
 			}
-			Msg::FocusUsages => emit_effect(Effect::FocusUsages),
-			Msg::ToggleChangeMode => emit_effect(Effect::ToggleChangeMode),
+			Msg::FocusUsages => Transition::unchanged(),
+			Msg::ToggleChangeMode => Transition::unchanged(),
 			Msg::CopyPanelSnapshot => emit_effect(Effect::CopyPanelSnapshot),
 			Msg::RunCheck => emit_effect(Effect::RunCheck),
-			Msg::MoveDown => self.reduce_vertical_navigation(1),
-			Msg::MoveUp => self.reduce_vertical_navigation(-1),
-			Msg::Home => self.reduce_positional_navigation(true),
-			Msg::End => self.reduce_positional_navigation(false),
+			Msg::MoveDown => Transition::unchanged(),
+			Msg::MoveUp => Transition::unchanged(),
+			Msg::Home => Transition::unchanged(),
+			Msg::End => Transition::unchanged(),
 			Msg::PanelScrollDown => self.scroll_panel(1),
 			Msg::PanelScrollUp => self.scroll_panel(-1),
 			Msg::ToggleNode | Msg::OpenNode if self.shell.focus_region == FocusRegion::Panel => {
 				Transition::unchanged()
 			}
-			Msg::ToggleNode => emit_effect(Effect::ToggleSelectedNode),
-			Msg::OpenNode => emit_effect(Effect::OpenSelectedNode),
+			Msg::ToggleNode => Transition::unchanged(),
+			Msg::OpenNode => Transition::unchanged(),
 			Msg::CloseNode if self.shell.focus_region == FocusRegion::UsageLens => {
-				emit_effect(Effect::CloseNodeOrClearScope)
+				Transition::unchanged()
 			}
 			Msg::CloseNode if self.shell.focus_region == FocusRegion::Panel => {
-				emit_effect(Effect::ToggleFocusRegion)
+				Transition::unchanged()
 			}
-			Msg::CloseNode => emit_effect(Effect::CloseNodeOrClearScope),
+			Msg::CloseNode => Transition::unchanged(),
 			Msg::Noop => Transition::unchanged(),
 		}
 	}
@@ -521,76 +506,8 @@ impl AppState {
 		Transition::changed()
 	}
 
-	fn reduce_vertical_navigation(&self, direction: i8) -> Transition {
-		match self.shell.focus_region {
-			FocusRegion::Navigator => {
-				if direction > 0 {
-					emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
-						pane: NavigationPane::Primary,
-						action: TreePaneAction::MoveDown,
-					})))
-				} else {
-					emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
-						pane: NavigationPane::Primary,
-						action: TreePaneAction::MoveUp,
-					})))
-				}
-			}
-			FocusRegion::UsageLens => {
-				if direction > 0 {
-					emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
-						pane: NavigationPane::UsageLens,
-						action: TreePaneAction::MoveDown,
-					})))
-				} else {
-					emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
-						pane: NavigationPane::UsageLens,
-						action: TreePaneAction::MoveUp,
-					})))
-				}
-			}
-			FocusRegion::Panel => emit_effect(Effect::PanelMove { direction }),
-		}
-	}
-
-	fn reduce_positional_navigation(&self, home: bool) -> Transition {
-		match self.shell.focus_region {
-			FocusRegion::Navigator => {
-				let action = if home {
-					TreePaneAction::Home
-				} else {
-					TreePaneAction::End
-				};
-				emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
-					pane: NavigationPane::Primary,
-					action,
-				})))
-			}
-			FocusRegion::UsageLens => {
-				let action = if home {
-					TreePaneAction::Home
-				} else {
-					TreePaneAction::End
-				};
-				emit_effect(Effect::Navigation(Box::new(NavigationAction::Pane {
-					pane: NavigationPane::UsageLens,
-					action,
-				})))
-			}
-			FocusRegion::Panel if home => emit_effect(Effect::PanelHome),
-			FocusRegion::Panel => emit_effect(Effect::PanelEnd),
-		}
-	}
-
-	pub(in crate::ui) fn reduce_header_search_debounced(&mut self, generation: u64) -> Transition {
-		if self.shell.header_search.pending_generation == Some(generation) {
-			emit_effect(Effect::ApplyHeaderSearch {
-				generation: Some(generation),
-				return_focus: false,
-			})
-		} else {
-			Transition::unchanged()
-		}
+	pub(in crate::ui) fn reduce_header_search_debounced(&mut self, _generation: u64) -> Transition {
+		Transition::unchanged()
 	}
 
 	pub(in crate::ui) fn generation_for_work(&self, work: WorkKind) -> u64 {
