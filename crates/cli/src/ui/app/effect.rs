@@ -1,3 +1,9 @@
+//! Runtime commands plus temporary UI-transition routing points.
+//!
+//! Long-term, this enum should keep only shell/runtime effects: quit,
+//! debounce, checks, clipboard, and async work. Variants that continue a pure
+//! UI transition are refactor targets for the workflow-local decisions.
+
 use crate::ui::app::View;
 use crate::ui::store::navigation::NavigationAction;
 

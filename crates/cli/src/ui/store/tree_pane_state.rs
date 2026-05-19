@@ -58,10 +58,7 @@ impl TreePaneState {
 		self.restore_selection(selected_key);
 	}
 
-	pub(in crate::ui) fn select_first_matching(
-		&mut self,
-		predicate: impl FnMut(&NavRow) -> bool,
-	) {
+	pub(in crate::ui) fn select_first_matching(&mut self, predicate: impl FnMut(&NavRow) -> bool) {
 		if let Some(idx) = self.rows.iter().position(predicate) {
 			self.selection = idx;
 		}

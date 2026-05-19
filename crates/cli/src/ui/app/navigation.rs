@@ -26,6 +26,13 @@ fn primary_tree_selection(target: NavigationSelection) -> NavigationAction {
 	}
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::ui) struct NavigationDispatchOutcome {
+	pub(in crate::ui) changed: bool,
+	pub(in crate::ui) selection_changed: bool,
+	pub(in crate::ui) notice: TreePaneNotice,
+}
+
 impl App {
 	pub(in crate::ui) fn selected(&self) -> Option<DefLocation> {
 		self.selected_nav_row().and_then(|row| match row.kind {
@@ -69,17 +76,26 @@ impl App {
 		}
 	}
 
-	pub(in crate::ui) fn dispatch_navigation(&mut self, action: NavigationAction) -> bool {
+	pub(in crate::ui) fn dispatch_navigation(
+		&mut self,
+		action: NavigationAction,
+	) -> NavigationDispatchOutcome {
 		let before = self.selected_nav_row().map(|row| row.key.clone());
 		let (changed, effects) = {
 			let transition = self.app_store.dispatch_navigation(action);
 			(transition.changed, transition.take_effects())
 		};
 		self.apply_effects(effects);
-		if changed && before != self.selected_nav_row().map(|row| row.key.clone()) {
+		let selection_changed =
+			changed && before != self.selected_nav_row().map(|row| row.key.clone());
+		if selection_changed {
 			self.reset_panel_navigation();
 		}
-		changed
+		NavigationDispatchOutcome {
+			changed,
+			selection_changed,
+			notice: self.app_store.navigation().last_notice().clone(),
+		}
 	}
 
 	pub(in crate::ui) fn refresh_results(&mut self, reset_expansion: bool) {
@@ -189,11 +205,11 @@ impl App {
 	}
 
 	pub(in crate::ui) fn toggle_selected_nav(&mut self) {
-		self.dispatch_navigation(focused_tree_action(
+		let outcome = self.dispatch_navigation(focused_tree_action(
 			self.focus_region(),
 			TreePaneAction::ToggleSelected,
 		));
-		match self.app_store.navigation().last_notice() {
+		match outcome.notice {
 			TreePaneNotice::Opened(label) => self.set_status(format!("opened {label}")),
 			TreePaneNotice::Closed(label) => self.set_status(format!("closed {label}")),
 			TreePaneNotice::MovedToParent | TreePaneNotice::Noop => {}
@@ -201,21 +217,21 @@ impl App {
 	}
 
 	pub(in crate::ui) fn open_selected_nav(&mut self) {
-		self.dispatch_navigation(focused_tree_action(
+		let outcome = self.dispatch_navigation(focused_tree_action(
 			self.focus_region(),
 			TreePaneAction::OpenSelected,
 		));
-		if let TreePaneNotice::Opened(label) = self.app_store.navigation().last_notice() {
+		if let TreePaneNotice::Opened(label) = outcome.notice {
 			self.set_status(format!("opened {label}"));
 		}
 	}
 
 	pub(in crate::ui) fn close_selected_nav(&mut self) -> bool {
-		self.dispatch_navigation(focused_tree_action(
+		let outcome = self.dispatch_navigation(focused_tree_action(
 			self.focus_region(),
 			TreePaneAction::CloseSelected,
 		));
-		match self.app_store.navigation().last_notice() {
+		match outcome.notice {
 			TreePaneNotice::Closed(label) => {
 				self.set_status(format!("closed {label}"));
 				true
@@ -236,9 +252,81 @@ impl App {
 	}
 
 	pub(in crate::ui) fn apply_navigation(&mut self, action: NavigationAction) {
-		let changed = self.dispatch_navigation(action);
-		if changed {
+		let outcome = self.dispatch_navigation(action);
+		if outcome.changed {
 			self.sync_contextual_view();
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use std::path::Path;
+
+	use super::*;
+	use crate::ui::app::{App, PanelNavigationState, ShellAction};
+	use crate::ui::render::component::ComponentId;
+	use crate::ui::store::tree_pane_action::TreePaneAction;
+	use crate::workspace::{SessionOptions, WorkspaceStore};
+
+	fn write(root: &Path, rel: &str, body: &str) {
+		let path = root.join(rel);
+		if let Some(parent) = path.parent() {
+			std::fs::create_dir_all(parent).unwrap();
+		}
+		std::fs::write(path, body).unwrap();
+	}
+
+	fn fixture_app() -> App {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/services.ts",
+			"export class AlphaService {}\nexport class BetaService {}\n",
+		);
+		let store = WorkspaceStore::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		App::new(
+			store,
+			"default".to_string(),
+			tmp.path().join("rules.toml"),
+			None,
+		)
+	}
+
+	#[test]
+	fn navigation_selection_change_resets_panel_navigation() {
+		let mut app = fixture_app();
+		app.toggle_selected_nav();
+		assert!(app.navigation().primary_view().rows.len() > 1);
+		app.dispatch_shell(ShellAction::SetPanelNavigation(PanelNavigationState {
+			component: Some(ComponentId::PanelOverview),
+			selected: Some(2),
+			scroll: 8,
+		}));
+
+		app.apply_navigation(NavigationAction::Pane {
+			pane: NavigationPane::Primary,
+			action: TreePaneAction::MoveDown,
+		});
+
+		assert_eq!(app.panel_navigation(), &PanelNavigationState::default());
+	}
+
+	#[test]
+	fn toggling_selected_navigation_node_reports_open_or_close_status() {
+		let mut app = fixture_app();
+
+		app.toggle_selected_nav();
+
+		assert!(
+			app.status().starts_with("opened ") || app.status().starts_with("closed "),
+			"status was {:?}",
+			app.status()
+		);
 	}
 }

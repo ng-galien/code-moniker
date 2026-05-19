@@ -7,7 +7,8 @@ use crate::ui::explorer::{
 	HeaderSearchResults, header_search_options,
 	header_search_results as explorer_header_search_results,
 };
-use crate::ui::store::navigation::NavigationAction;
+use crate::ui::store::navigation::{NavigationAction, NavigationScope};
+use crate::workspace::DefLocation;
 use crate::workspace::IndexStore;
 
 use super::action::{AppAction, ShellAction};
@@ -172,49 +173,125 @@ fn toggle_value<T: Eq>(values: &mut Vec<T>, value: T) {
 	}
 }
 
+#[derive(Debug)]
+struct HeaderSearchDecision {
+	shell: Vec<ShellAction>,
+	navigation: Vec<NavigationAction>,
+	select: Option<DefLocation>,
+	status: Option<String>,
+	sync_contextual_view: bool,
+}
+
+impl HeaderSearchDecision {
+	fn stale() -> Self {
+		Self {
+			shell: Vec::new(),
+			navigation: Vec::new(),
+			select: None,
+			status: None,
+			sync_contextual_view: false,
+		}
+	}
+}
+
+fn decide_apply_header_search(
+	header: &HeaderSearchState,
+	store: &impl IndexStore,
+	generation: Option<u64>,
+	return_focus: bool,
+) -> HeaderSearchDecision {
+	if generation.is_some() && generation != header.pending_generation {
+		return HeaderSearchDecision::stale();
+	}
+	if !header.has_filter() {
+		let visible_defs = store.all_navigable_defs();
+		let expand_symbols = visible_defs.len() <= 200;
+		return HeaderSearchDecision {
+			shell: vec![ShellAction::ClearFilter { return_focus }],
+			navigation: vec![
+				NavigationAction::ClearUsageLens,
+				NavigationAction::SetScope {
+					scope: NavigationScope::Explorer,
+					visible_defs,
+					reset_expansion: true,
+					expand_symbols,
+				},
+			],
+			select: None,
+			status: Some(if return_focus {
+				"search cleared".to_string()
+			} else {
+				"filter cleared".to_string()
+			}),
+			sync_contextual_view: true,
+		};
+	}
+
+	let results =
+		explorer_header_search_results(store, &header.text, &header.langs, &header.kind_filters);
+	let match_count = results.matches.len();
+	let visible_defs = results.matches.clone();
+	let expand_symbols = visible_defs.len() <= 200;
+	let select = results.matches.first().copied();
+	let status = if return_focus {
+		format!(
+			"search applied: {} ({}/{})",
+			results.label(),
+			match_count,
+			store.stats().defs
+		)
+	} else {
+		format!(
+			"search: {} ({}/{})",
+			results.label(),
+			match_count,
+			store.stats().defs
+		)
+	};
+
+	HeaderSearchDecision {
+		shell: vec![ShellAction::ApplyHeaderSearch {
+			results,
+			return_focus,
+		}],
+		navigation: vec![NavigationAction::SetScope {
+			scope: NavigationScope::Filtered,
+			visible_defs,
+			reset_expansion: true,
+			expand_symbols,
+		}],
+		select,
+		status: Some(status),
+		sync_contextual_view: true,
+	}
+}
+
 impl App {
 	pub(in crate::ui) fn apply_header_search(
 		&mut self,
 		generation: Option<u64>,
 		return_focus: bool,
 	) {
-		if generation.is_some() && generation != self.header_search().pending_generation {
-			return;
-		}
-		let header = self.header_search().clone();
-		if !header.has_filter() {
-			self.clear_filter_with_focus(return_focus);
-			if return_focus {
-				self.dispatch_shell(ShellAction::SetStatus("search cleared".to_string()));
-			}
-			return;
-		}
-		let results = self.header_search_results(&header.text, &header.langs, &header.kind_filters);
-		let match_count = results.matches.len();
-		let first_match = results.matches.first().copied();
-		self.dispatch_shell(ShellAction::ApplyHeaderSearch {
-			results: results.clone(),
+		let decision = decide_apply_header_search(
+			self.header_search(),
+			self.store(),
+			generation,
 			return_focus,
-		});
-		self.refresh_results(true);
-		if let Some(loc) = first_match {
+		);
+		for action in decision.shell {
+			self.dispatch_shell(action);
+		}
+		for action in decision.navigation {
+			self.dispatch_navigation(action);
+		}
+		if let Some(loc) = decision.select {
 			self.select_def(loc);
 		}
-		self.sync_contextual_view();
-		if return_focus {
-			self.dispatch_shell(ShellAction::SetStatus(format!(
-				"search applied: {} ({}/{})",
-				results.label(),
-				match_count,
-				self.store().stats().defs
-			)));
-		} else {
-			self.set_status(format!(
-				"search: {} ({}/{})",
-				results.label(),
-				match_count,
-				self.store().stats().defs
-			));
+		if decision.sync_contextual_view {
+			self.sync_contextual_view();
+		}
+		if let Some(status) = decision.status {
+			self.set_status(status);
 		}
 	}
 
@@ -361,5 +438,145 @@ impl App {
 		self.refresh_results(true);
 		self.sync_contextual_view();
 		self.set_status("filter cleared");
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use std::path::Path;
+
+	use code_moniker_core::lang::Lang;
+
+	use super::*;
+	use crate::ui::app::{ActiveFilter, App, VisualizationMode};
+	use crate::ui::events::{FilterEdit, Msg};
+	use crate::workspace::{IndexStore, SessionOptions, WorkspaceStore};
+
+	fn write(root: &Path, rel: &str, body: &str) {
+		let path = root.join(rel);
+		if let Some(parent) = path.parent() {
+			std::fs::create_dir_all(parent).unwrap();
+		}
+		std::fs::write(path, body).unwrap();
+	}
+
+	fn fixture_app() -> App {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/services.ts",
+			"export class AlphaService {}\nexport class BetaService {}\nexport function betaFactory() { return new BetaService(); }\n",
+		);
+		write(
+			tmp.path(),
+			"src/pkg/main.go",
+			"package pkg\n\nfunc BuildBeta() {}\n",
+		);
+		let store = WorkspaceStore::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		App::new(
+			store,
+			"default".to_string(),
+			tmp.path().join("rules.toml"),
+			None,
+		)
+	}
+
+	fn input_search(app: &mut App, text: &str) -> u64 {
+		app.update(crate::ui::app::AppAction::Ui(Msg::ToggleHeaderSearch));
+		let mut generation = app.header_search().generation;
+		for ch in text.chars() {
+			app.update(crate::ui::app::AppAction::Ui(Msg::HeaderSearchInput(
+				FilterEdit::Push(ch),
+			)));
+			generation = app.header_search().pending_generation.unwrap();
+		}
+		generation
+	}
+
+	fn selected_name(app: &App) -> Option<String> {
+		app.selected()
+			.map(|loc| app.store().symbol_summary(&loc).name)
+	}
+
+	#[test]
+	fn empty_header_search_clears_filter_and_restores_unfiltered_results() {
+		let mut app = fixture_app();
+		let generation = input_search(&mut app, "Alpha");
+		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
+		assert!(matches!(app.active_filter(), ActiveFilter::HeaderSearch(_)));
+
+		app.update(crate::ui::app::AppAction::Ui(Msg::HeaderSearchReset));
+
+		assert!(matches!(app.active_filter(), ActiveFilter::None));
+		assert_eq!(app.view_mode(), VisualizationMode::Explorer);
+		assert!(!app.is_filtered());
+		assert_eq!(
+			app.navigation().visible_defs().len(),
+			app.store().all_navigable_defs().len()
+		);
+	}
+
+	#[test]
+	fn applying_header_search_selects_the_first_match() {
+		let mut app = fixture_app();
+		let generation = input_search(&mut app, "Alpha");
+
+		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
+
+		let ActiveFilter::HeaderSearch(results) = app.active_filter() else {
+			panic!("expected active header search filter");
+		};
+		assert_eq!(results.label(), "search:Alpha");
+		assert_eq!(results.matches.len(), 1);
+		assert_eq!(selected_name(&app).as_deref(), Some("AlphaService"));
+		assert_eq!(app.view_mode(), VisualizationMode::Search);
+	}
+
+	#[test]
+	fn stale_header_search_debounce_does_not_apply_old_draft() {
+		let mut app = fixture_app();
+		let stale_generation = input_search(&mut app, "Alpha");
+		app.update(crate::ui::app::AppAction::Ui(Msg::HeaderSearchInput(
+			FilterEdit::Clear,
+		)));
+		let current_generation = input_search(&mut app, "Beta");
+
+		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(
+			stale_generation,
+		));
+
+		assert!(matches!(app.active_filter(), ActiveFilter::None));
+		assert_eq!(
+			app.header_search().pending_generation,
+			Some(current_generation)
+		);
+	}
+
+	#[test]
+	fn lang_and_kind_filters_constrain_header_search_results() {
+		let mut app = fixture_app();
+		app.dispatch_shell(ShellAction::SetHeaderSearchFilters {
+			langs: vec![Lang::Ts],
+			kind_filters: vec![HeaderKindFilter::Kind("function".to_string())],
+		});
+		let generation = input_search(&mut app, "beta");
+
+		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
+
+		let ActiveFilter::HeaderSearch(results) = app.active_filter() else {
+			panic!("expected active header search filter");
+		};
+		let names = results
+			.matches
+			.iter()
+			.map(|loc| app.store().symbol_summary(loc).name)
+			.collect::<Vec<_>>();
+		assert_eq!(results.label(), "search:beta lang:ts kind:function");
+		assert_eq!(names, vec!["betaFactory()"]);
 	}
 }
