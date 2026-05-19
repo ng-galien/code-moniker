@@ -343,7 +343,6 @@ impl AppState {
 			}
 			shell.focus_region = FocusRegion::Navigator;
 			shell.active_filter = ActiveFilter::None;
-			shell.usage_lens = None;
 			shell.view_mode = VisualizationMode::Explorer;
 			shell.panel_policy = PanelPolicy::Contextual;
 			shell.change_panel = ChangePanelMode::Diff;

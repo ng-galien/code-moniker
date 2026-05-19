@@ -60,6 +60,12 @@ fn overview_panel(app: &App) -> PanelVm {
 	vm.blank();
 	vm.section("linkage");
 	vm.kv("resolved", linkage.resolved_refs.to_string(), FitMode::Tail);
+	vm.kv("external", linkage.external_refs.to_string(), FitMode::Tail);
+	vm.kv(
+		"blocked",
+		linkage.manifest_blocked_refs.to_string(),
+		FitMode::Tail,
+	);
 	vm.kv(
 		"unresolved",
 		linkage.unresolved_refs.to_string(),

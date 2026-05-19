@@ -208,15 +208,12 @@ fn decide_apply_header_search(
 		let expand_symbols = visible_defs.len() <= 200;
 		return HeaderSearchDecision {
 			shell: vec![ShellAction::ClearFilter { return_focus }],
-			navigation: vec![
-				NavigationAction::ClearUsageLens,
-				NavigationAction::SetScope {
-					scope: NavigationScope::Explorer,
-					visible_defs,
-					reset_expansion: true,
-					expand_symbols,
-				},
-			],
+			navigation: vec![NavigationAction::SetScope {
+				scope: NavigationScope::Explorer,
+				visible_defs,
+				reset_expansion: true,
+				expand_symbols,
+			}],
 			select: None,
 			status: Some(if return_focus {
 				"search cleared".to_string()
@@ -282,7 +279,7 @@ impl App {
 			self.dispatch_shell(action);
 		}
 		for action in decision.navigation {
-			self.dispatch_navigation(action);
+			self.apply_navigation(action);
 		}
 		if let Some(loc) = decision.select {
 			self.select_def(loc);
@@ -434,7 +431,6 @@ impl App {
 
 	pub(in crate::ui) fn clear_filter_with_focus(&mut self, return_focus: bool) {
 		self.dispatch_shell(ShellAction::ClearFilter { return_focus });
-		self.dispatch_navigation(NavigationAction::ClearUsageLens);
 		self.refresh_results(true);
 		self.sync_contextual_view();
 		self.set_status("filter cleared");
@@ -503,6 +499,19 @@ mod tests {
 			.map(|loc| app.store().symbol_summary(&loc).name)
 	}
 
+	fn primary_selected_name(app: &App) -> Option<String> {
+		app.primary_selected()
+			.map(|loc| app.store().symbol_summary(&loc).name)
+	}
+
+	fn def_named(app: &App, name: &str) -> DefLocation {
+		app.store()
+			.all_navigable_defs()
+			.into_iter()
+			.find(|loc| app.store().symbol_summary(loc).name == name)
+			.unwrap_or_else(|| panic!("missing def {name}"))
+	}
+
 	#[test]
 	fn empty_header_search_clears_filter_and_restores_unfiltered_results() {
 		let mut app = fixture_app();
@@ -535,6 +544,39 @@ mod tests {
 		assert_eq!(results.matches.len(), 1);
 		assert_eq!(selected_name(&app).as_deref(), Some("AlphaService"));
 		assert_eq!(app.view_mode(), VisualizationMode::Search);
+	}
+
+	#[test]
+	fn applying_header_search_refreshes_open_usage_lens_to_selected_def() {
+		let mut app = fixture_app();
+		let alpha = def_named(&app, "AlphaService");
+		app.focus_usages(alpha);
+		let generation = input_search(&mut app, "Beta");
+
+		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
+
+		let selected = primary_selected_name(&app).expect("selected search match");
+		assert_eq!(
+			app.usage_lens().map(|focus| focus.label.as_str()),
+			Some(selected.as_str())
+		);
+	}
+
+	#[test]
+	fn empty_header_search_preserves_open_usage_lens() {
+		let mut app = fixture_app();
+		let alpha = def_named(&app, "AlphaService");
+		let generation = input_search(&mut app, "Alpha");
+		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
+		app.focus_usages(alpha);
+
+		app.update(crate::ui::app::AppAction::Ui(Msg::HeaderSearchReset));
+
+		assert!(matches!(app.active_filter(), ActiveFilter::None));
+		assert_eq!(
+			app.usage_lens().map(|focus| focus.label.as_str()),
+			Some("AlphaService")
+		);
 	}
 
 	#[test]

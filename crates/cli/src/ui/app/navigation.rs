@@ -132,7 +132,7 @@ impl App {
 	}
 
 	pub(in crate::ui) fn select_def(&mut self, loc: DefLocation) {
-		self.dispatch_navigation(primary_tree_selection(NavigationSelection::Def(loc)));
+		self.apply_navigation(primary_tree_selection(NavigationSelection::Def(loc)));
 	}
 
 	pub(in crate::ui) fn select_first_change(&mut self) {
@@ -165,7 +165,7 @@ impl App {
 	}
 
 	pub(in crate::ui) fn has_clearable_scope(&self) -> bool {
-		!matches!(self.active_filter(), ActiveFilter::None) || self.usage_lens().is_some()
+		!matches!(self.active_filter(), ActiveFilter::None)
 	}
 
 	pub(in crate::ui) fn contextual_view(&self) -> View {
@@ -384,7 +384,32 @@ mod tests {
 	}
 
 	#[test]
-	fn primary_navigation_to_non_definition_clears_open_usage_lens() {
+	fn select_def_refreshes_open_usage_lens() {
+		let mut app = fixture_app();
+		let alpha = def_named(&app, "AlphaService");
+		let beta = def_named(&app, "BetaService");
+		let visible_defs = app.store().all_navigable_defs();
+		app.dispatch_navigation(NavigationAction::SetScope {
+			scope: NavigationScope::Filtered,
+			visible_defs,
+			reset_expansion: true,
+			expand_symbols: true,
+		});
+		app.select_def(alpha);
+		app.focus_usages(alpha);
+		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
+
+		app.select_def(beta);
+
+		assert_eq!(
+			app.usage_lens().map(|focus| focus.label.as_str()),
+			Some("BetaService")
+		);
+		assert_eq!(app.focus_region(), FocusRegion::Navigator);
+	}
+
+	#[test]
+	fn primary_navigation_to_non_definition_preserves_open_usage_lens() {
 		let mut app = fixture_app();
 		let alpha = def_named(&app, "AlphaService");
 		let visible_defs = app.store().all_navigable_defs();
@@ -409,8 +434,11 @@ mod tests {
 		});
 
 		assert!(app.primary_selected().is_none());
-		assert!(app.usage_lens().is_none());
-		assert!(app.navigation().usage_view().is_none());
+		assert_eq!(
+			app.usage_lens().map(|focus| focus.label.as_str()),
+			Some("AlphaService")
+		);
+		assert!(app.navigation().usage_view().is_some());
 		assert_eq!(app.focus_region(), FocusRegion::Navigator);
 	}
 
@@ -438,5 +466,15 @@ mod tests {
 			app.usage_lens().map(|focus| focus.label.as_str()),
 			Some("AlphaService")
 		);
+	}
+
+	#[test]
+	fn usage_lens_alone_is_not_a_clearable_scope() {
+		let mut app = fixture_app();
+		let alpha = def_named(&app, "AlphaService");
+		app.focus_usages(alpha);
+		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
+
+		assert!(!app.has_clearable_scope());
 	}
 }

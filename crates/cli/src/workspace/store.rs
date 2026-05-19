@@ -309,9 +309,11 @@ fn build_change_usage_refs(
 	let mut cache = FxHashMap::default();
 	for change in &change_index.entries {
 		cache.entry(change.moniker.clone()).or_insert_with(|| {
-			linkage
-				.incoming_refs(&change.moniker, index)
-				.into_iter()
+			let refs = change.loc.map_or_else(
+				|| linkage.incoming_refs(&change.moniker, index),
+				|loc| linkage.incoming_refs_for_def(&loc, index),
+			);
+			refs.into_iter()
 				.filter(|ref_loc| change_ref_is_outside_changed_symbol(index, change, ref_loc))
 				.collect()
 		});
@@ -457,7 +459,7 @@ impl IndexStore for WorkspaceStore {
 		let incoming = self
 			.snapshot
 			.linkage
-			.incoming_refs(moniker, &self.snapshot.index);
+			.incoming_refs_for_def(loc, &self.snapshot.index);
 		SymbolReferences {
 			symbol,
 			incoming: self.reference_set(&incoming, ReferenceDirection::Incoming),
@@ -583,7 +585,10 @@ impl IndexStore for WorkspaceStore {
 		let target = self.raw_def(&loc).moniker.clone();
 		let label = last_name(&target);
 		let compact_moniker = compact_moniker(&target);
-		let refs = self.refs_matching_target(&target);
+		let refs = self
+			.snapshot
+			.linkage
+			.incoming_refs_for_def(&loc, &self.snapshot.index);
 		let contexts = self.usage_contexts(&refs);
 		let references = self.reference_set(&refs, ReferenceDirection::Incoming);
 		UsageFocus {

@@ -15,7 +15,6 @@ impl App {
 
 	pub(in crate::ui) fn refresh_usage_lens_for_primary_selection(&mut self) {
 		let Some(loc) = self.primary_selected() else {
-			self.clear_usage_lens_for_primary_selection();
 			return;
 		};
 		let focus = self.store().usage_focus(loc);
@@ -23,12 +22,6 @@ impl App {
 		self.set_status(format!(
 			"usage lens for {label}: {refs_len} reference(s), {contexts_len} navigable context(s)"
 		));
-	}
-
-	fn clear_usage_lens_for_primary_selection(&mut self) {
-		self.dispatch_shell(ShellAction::SetUsageLens(None));
-		self.dispatch_navigation(NavigationAction::ClearUsageLens);
-		self.set_status("usage lens cleared; select a declaration to inspect usages");
 	}
 
 	fn set_usage_lens(
