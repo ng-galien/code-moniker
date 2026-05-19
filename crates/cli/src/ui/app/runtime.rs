@@ -226,14 +226,19 @@ impl App {
 			Msg::MoveUp => self.apply_vertical_navigation(-1),
 			Msg::Home => self.apply_positional_navigation(true),
 			Msg::End => self.apply_positional_navigation(false),
-			Msg::ToggleNode if self.focus_region() != FocusRegion::Panel => {
-				self.toggle_selected_nav();
+			Msg::ToggleNode if self.focus_region() == FocusRegion::Panel => {
+				self.ensure_active_panel_selection();
+				self.toggle_panel_tree_node();
 			}
-			Msg::OpenNode if self.focus_region() != FocusRegion::Panel => {
-				self.open_selected_nav();
+			Msg::ToggleNode => self.toggle_selected_nav(),
+			Msg::OpenNode if self.focus_region() == FocusRegion::Panel => {
+				self.ensure_active_panel_selection();
+				self.open_panel_tree_node();
 			}
+			Msg::OpenNode => self.open_selected_nav(),
 			Msg::CloseNode if self.focus_region() == FocusRegion::Panel => {
-				self.toggle_focus_region();
+				self.ensure_active_panel_selection();
+				self.close_panel_tree_node();
 			}
 			Msg::CloseNode => {
 				if !self.close_selected_nav() && self.has_clearable_scope() {
@@ -263,7 +268,10 @@ impl App {
 					TreePaneAction::MoveUp
 				},
 			}),
-			FocusRegion::Panel => self.move_panel_selection(direction),
+			FocusRegion::Panel => {
+				self.ensure_active_panel_selection();
+				self.move_panel_selection(direction);
+			}
 		}
 	}
 
@@ -285,7 +293,10 @@ impl App {
 					TreePaneAction::End
 				},
 			}),
-			FocusRegion::Panel => self.move_panel_to_edge(home),
+			FocusRegion::Panel => {
+				self.ensure_active_panel_selection();
+				self.move_panel_to_edge(home);
+			}
 		}
 	}
 

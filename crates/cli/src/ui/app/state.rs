@@ -54,6 +54,7 @@ pub(in crate::ui) enum View {
 	Overview,
 	Tree,
 	Refs,
+	Unresolved,
 	Check,
 	Change,
 }
@@ -100,6 +101,7 @@ pub(in crate::ui) struct PanelNavigationState {
 	pub(in crate::ui) component: Option<ComponentId>,
 	pub(in crate::ui) selected: Option<usize>,
 	pub(in crate::ui) scroll: usize,
+	pub(in crate::ui) expanded: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -458,7 +460,7 @@ impl AppState {
 			},
 			Msg::Help => {
 				self.set_status(
-					"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, PgUp/PgDn scroll panel, d changes, u usages, y copy panel, 1-5 panels, c check, q quit",
+					"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, PgUp/PgDn scroll panel, d changes, u usages, y copy panel, 1-6 panels, c check, q quit",
 				);
 				Transition::changed()
 			}

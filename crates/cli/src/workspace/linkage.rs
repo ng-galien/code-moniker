@@ -19,6 +19,8 @@ pub(crate) struct LinkageIndex {
 	refs_by_target_projectless_ancestor: FxHashMap<PathKey, Vec<RefLocation>>,
 	refs_by_callable_name: FxHashMap<Vec<u8>, Vec<RefLocation>>,
 	resolved_defs_by_ref: FxHashMap<RefLocation, Vec<DefLocation>>,
+	unresolved_refs: Vec<RefLocation>,
+	manifest_blocked_refs: Vec<RefLocation>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -63,10 +65,12 @@ impl LinkageIndex {
 					linkage.resolved_defs_by_ref.insert(loc, resolved);
 				} else if resolution.manifest_blocked {
 					linkage.stats.manifest_blocked_refs += 1;
+					linkage.manifest_blocked_refs.push(loc);
 				} else if ref_is_external(reference) {
 					linkage.stats.external_refs += 1;
 				} else {
 					linkage.stats.unresolved_refs += 1;
+					linkage.unresolved_refs.push(loc);
 				}
 			}
 		}
@@ -79,6 +83,14 @@ impl LinkageIndex {
 
 	pub(crate) fn outgoing_refs(&self, source: &Moniker) -> &[RefLocation] {
 		self.refs_by_source.get(source).map_or(&[], Vec::as_slice)
+	}
+
+	pub(crate) fn unresolved_refs(&self) -> &[RefLocation] {
+		&self.unresolved_refs
+	}
+
+	pub(crate) fn manifest_blocked_refs(&self) -> &[RefLocation] {
+		&self.manifest_blocked_refs
 	}
 
 	pub(crate) fn incoming_refs(&self, target: &Moniker, index: &SessionIndex) -> Vec<RefLocation> {

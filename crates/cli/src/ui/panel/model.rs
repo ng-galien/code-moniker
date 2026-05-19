@@ -1,5 +1,6 @@
 use super::super::render::component::ComponentId;
 use super::super::render::text::{Column, FitMode};
+use super::super::render::tree::TreeRowVm;
 
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct SourceLineVm {
@@ -102,6 +103,10 @@ impl PanelVm {
 			.push(PanelSection::Bullet { text: text.into() });
 	}
 
+	pub(in crate::ui) fn tree_rows(&mut self, rows: Vec<TreeRowVm>) {
+		self.sections.push(PanelSection::TreeRows(rows));
+	}
+
 	pub(in crate::ui) fn source_snippet(&mut self, lines: Vec<SourceLineVm>) {
 		self.sections.push(PanelSection::SourceSnippet(lines));
 	}
@@ -147,6 +152,7 @@ pub(super) enum PanelSection {
 	Bullet {
 		text: String,
 	},
+	TreeRows(Vec<TreeRowVm>),
 	SourceSnippet(Vec<SourceLineVm>),
 	ReferenceGroups {
 		groups: Vec<ReferenceGroupVm>,
@@ -160,6 +166,7 @@ impl PanelSection {
 	fn navigation_len(&self) -> usize {
 		match self {
 			Self::Table { rows, .. } => rows.len(),
+			Self::TreeRows(rows) => rows.len(),
 			Self::SourceSnippet(lines) => lines.len(),
 			Self::ReferenceGroups { groups, limit } => groups.len().min(*limit),
 			Self::Heading { .. }

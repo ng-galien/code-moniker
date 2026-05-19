@@ -2,9 +2,12 @@ use crate::ui::app::{App, ChangePanelMode, CheckState, FocusRegion, View};
 use crate::ui::panel::{PanelVm, ReferenceGroupVm, SourceLineVm};
 use crate::ui::render::component::ComponentId;
 use crate::ui::render::text::{Column, FitMode};
+use crate::ui::render::tree::TreeRowVm;
 use crate::ui::store::navigation::NavigationPane;
 use crate::ui::store::navigation_tree::NavNodeKind;
-use crate::workspace::{DefLocation, IndexStore, ReferenceGroup, ReferenceSet, UsageFocus};
+use crate::workspace::{
+	DefLocation, IndexStore, ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct ActivePanelNav {
@@ -17,6 +20,7 @@ pub(super) fn active_panel(app: &App) -> PanelVm {
 		View::Overview => overview_panel(app),
 		View::Tree => outline_panel(app),
 		View::Refs => refs_panel(app),
+		View::Unresolved => unresolved_panel(app),
 		View::Check => check_panel(app),
 		View::Change => change_panel(app),
 	}
@@ -27,11 +31,33 @@ pub(super) fn active_panel_nav(app: &App) -> ActivePanelNav {
 		View::Overview => overview_panel_nav(app),
 		View::Tree => outline_panel_nav(app),
 		View::Refs => refs_panel_nav(app),
+		View::Unresolved => unresolved_panel_nav(app),
 		View::Check => ActivePanelNav {
 			component: ComponentId::PanelCheck,
 			navigation_len: 0,
 		},
 		View::Change => change_panel_nav(app),
+	}
+}
+
+pub(super) fn active_panel_tree_rows(app: &App) -> Vec<TreeRowVm> {
+	active_panel_tree_rows_with_expanded(app, &app.panel_navigation().expanded)
+}
+
+pub(super) fn active_panel_tree_rows_with_expanded(
+	app: &App,
+	expanded: &std::collections::BTreeSet<String>,
+) -> Vec<TreeRowVm> {
+	match app.view() {
+		View::Unresolved => unresolved_panel_tree_rows(app, expanded),
+		_ => Vec::new(),
+	}
+}
+
+pub(super) fn active_panel_default_expanded(app: &App) -> std::collections::BTreeSet<String> {
+	match app.view() {
+		View::Unresolved => unresolved_panel_default_expanded(app),
+		_ => std::collections::BTreeSet::new(),
 	}
 }
 
@@ -260,6 +286,175 @@ fn refs_panel_nav(app: &App) -> ActivePanelNav {
 		navigation_len: reference_group_nav_len(&refs.incoming, 30)
 			+ reference_group_nav_len(&refs.outgoing, 30),
 	}
+}
+
+const UNRESOLVED_FILE_LIMIT: usize = 40;
+const UNRESOLVED_SAMPLES_PER_FILE: usize = 3;
+
+fn unresolved_panel_nav(app: &App) -> ActivePanelNav {
+	ActivePanelNav {
+		component: ComponentId::PanelUnresolved,
+		navigation_len: unresolved_panel_tree_rows(app, &app.panel_navigation().expanded).len(),
+	}
+}
+
+fn unresolved_panel(app: &App) -> PanelVm {
+	let report = app
+		.store()
+		.unresolved_linkage_report(UNRESOLVED_FILE_LIMIT, UNRESOLVED_SAMPLES_PER_FILE);
+	let mut vm = PanelVm::new("unresolved", ComponentId::PanelUnresolved);
+	vm.section("summary");
+	vm.kv(
+		"unresolved",
+		report.unresolved_refs.to_string(),
+		FitMode::Tail,
+	);
+	vm.kv(
+		"blocked",
+		report.manifest_blocked_refs.to_string(),
+		FitMode::Tail,
+	);
+	vm.kv("files", report.files.to_string(), FitMode::Tail);
+	vm.kv("shown", report.shown_files.to_string(), FitMode::Tail);
+	vm.blank();
+	vm.section("by file");
+	if report.groups.is_empty() {
+		vm.muted("none");
+		return vm;
+	}
+	vm.tree_rows(unresolved_tree_rows(
+		&report,
+		&app.panel_navigation().expanded,
+	));
+	if report.files > report.shown_files {
+		vm.blank();
+		vm.muted(format!(
+			"... {} more file group(s)",
+			report.files - report.shown_files
+		));
+	}
+	vm
+}
+
+fn unresolved_panel_tree_rows(
+	app: &App,
+	expanded: &std::collections::BTreeSet<String>,
+) -> Vec<TreeRowVm> {
+	let report = app
+		.store()
+		.unresolved_linkage_report(UNRESOLVED_FILE_LIMIT, UNRESOLVED_SAMPLES_PER_FILE);
+	unresolved_tree_rows(&report, expanded)
+}
+
+fn unresolved_panel_default_expanded(app: &App) -> std::collections::BTreeSet<String> {
+	let report = app
+		.store()
+		.unresolved_linkage_report(UNRESOLVED_FILE_LIMIT, UNRESOLVED_SAMPLES_PER_FILE);
+	let mut expanded = std::collections::BTreeSet::new();
+	for group in report.groups {
+		expanded.insert(unresolved_lang_key(group.lang.tag()));
+		expanded.insert(unresolved_file_key(group.lang.tag(), &group.file_path));
+	}
+	expanded
+}
+
+fn unresolved_tree_rows(
+	report: &UnresolvedLinkageReport,
+	expanded: &std::collections::BTreeSet<String>,
+) -> Vec<TreeRowVm> {
+	let mut groups = report.groups.iter().collect::<Vec<_>>();
+	groups.sort_by(|left, right| {
+		left.lang.tag().cmp(right.lang.tag()).then_with(|| {
+			let left_total = left.unresolved_refs + left.manifest_blocked_refs;
+			let right_total = right.unresolved_refs + right.manifest_blocked_refs;
+			right_total
+				.cmp(&left_total)
+				.then_with(|| left.file_path.cmp(&right.file_path))
+		})
+	});
+	let mut rows = Vec::new();
+	let mut current_lang = None;
+	for group in groups {
+		if current_lang != Some(group.lang) {
+			current_lang = Some(group.lang);
+			let lang_groups = report
+				.groups
+				.iter()
+				.filter(|candidate| candidate.lang == group.lang)
+				.collect::<Vec<_>>();
+			let unresolved = lang_groups
+				.iter()
+				.map(|candidate| candidate.unresolved_refs)
+				.sum::<usize>();
+			let blocked = lang_groups
+				.iter()
+				.map(|candidate| candidate.manifest_blocked_refs)
+				.sum::<usize>();
+			let key = unresolved_lang_key(group.lang.tag());
+			let is_expanded = expanded.contains(&key);
+			rows.push(
+				TreeRowVm::new(key, 0, format!("{}/", group.lang.tag()))
+					.branch(is_expanded)
+					.meta(format!(
+						"{} files  unresolved {}  blocked {}",
+						lang_groups.len(),
+						unresolved,
+						blocked
+					)),
+			);
+		}
+		if !expanded.contains(&unresolved_lang_key(group.lang.tag())) {
+			continue;
+		}
+		let file_key = unresolved_file_key(group.lang.tag(), &group.file_path);
+		let file_expanded = expanded.contains(&file_key);
+		rows.push(
+			TreeRowVm::new(file_key, 1, group.file_path.display().to_string())
+				.branch(file_expanded)
+				.meta(format!(
+					"unresolved {}  blocked {}",
+					group.unresolved_refs, group.manifest_blocked_refs
+				)),
+		);
+		if !file_expanded {
+			continue;
+		}
+		for sample in &group.samples {
+			rows.push(
+				TreeRowVm::new(
+					format!(
+						"unresolved:{}:{}:{}:{}",
+						group.lang.tag(),
+						group.file_path.display(),
+						sample.reason,
+						sample.target
+					),
+					2,
+					format!("{} {}", sample.reason, short_target(&sample.target)),
+				)
+				.detail(format!(
+					"from {} at {} ({})",
+					sample.source, sample.location, sample.kind
+				)),
+			);
+		}
+	}
+	rows
+}
+
+fn unresolved_lang_key(lang: &str) -> String {
+	format!("unresolved:{lang}")
+}
+
+fn unresolved_file_key(lang: &str, path: &std::path::Path) -> String {
+	format!("unresolved:{lang}:{}", path.display())
+}
+
+fn short_target(target: &str) -> &str {
+	target
+		.rsplit(['/', ':'])
+		.find(|segment| !segment.is_empty())
+		.unwrap_or(target)
 }
 
 fn source_snippet(app: &App, loc: &DefLocation, context: u32) -> Vec<SourceLineVm> {
@@ -554,6 +749,7 @@ mod tests {
 			View::Overview,
 			View::Tree,
 			View::Refs,
+			View::Unresolved,
 			View::Check,
 			View::Change,
 		] {

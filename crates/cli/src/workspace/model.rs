@@ -137,6 +137,33 @@ pub(crate) struct UsageFocus {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct UnresolvedLinkageReport {
+	pub(crate) unresolved_refs: usize,
+	pub(crate) manifest_blocked_refs: usize,
+	pub(crate) files: usize,
+	pub(crate) shown_files: usize,
+	pub(crate) groups: Vec<UnresolvedLinkageGroup>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct UnresolvedLinkageGroup {
+	pub(crate) lang: Lang,
+	pub(crate) file_path: PathBuf,
+	pub(crate) unresolved_refs: usize,
+	pub(crate) manifest_blocked_refs: usize,
+	pub(crate) samples: Vec<UnresolvedLinkageSample>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct UnresolvedLinkageSample {
+	pub(crate) reason: &'static str,
+	pub(crate) kind: String,
+	pub(crate) target: String,
+	pub(crate) source: String,
+	pub(crate) location: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SearchHit {
 	pub(crate) loc: DefLocation,
 	pub(crate) score: u32,

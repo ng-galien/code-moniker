@@ -50,9 +50,7 @@ impl App {
 		match next {
 			FocusRegion::Panel => {
 				self.ensure_active_panel_selection();
-				self.set_status(
-					"panel focused; up/down moves within panel, Esc returns to navigator",
-				);
+				self.set_status("panel focused; up/down moves within panel, Tab moves focus");
 			}
 			FocusRegion::UsageLens => {
 				self.set_status("usage tree focused; Tab moves to panel, Esc returns to navigator");
@@ -81,10 +79,16 @@ impl App {
 		} else {
 			0
 		};
+		let expanded = if self.panel_navigation().component == Some(component) {
+			self.panel_navigation().expanded.clone()
+		} else {
+			explorer::active_panel_default_expanded(self)
+		};
 		self.dispatch_shell(ShellAction::SetPanelNavigation(PanelNavigationState {
 			component: Some(component),
 			selected,
 			scroll,
+			expanded,
 		}));
 	}
 
@@ -111,6 +115,7 @@ impl App {
 			component: Some(component),
 			selected: Some(selected),
 			scroll: self.panel_scroll(),
+			expanded: self.panel_navigation().expanded.clone(),
 		}));
 		self.set_status(format!("panel item {}/{}", selected + 1, count));
 	}
@@ -130,6 +135,7 @@ impl App {
 			component: Some(component),
 			selected,
 			scroll: if home { 0 } else { self.panel_scroll() },
+			expanded: self.panel_navigation().expanded.clone(),
 		}));
 		if count == 0 {
 			self.set_status("panel has no navigable item");
@@ -149,5 +155,180 @@ impl App {
 			self.panel_scroll().saturating_sub(1)
 		};
 		self.dispatch_shell(ShellAction::SetPanelScroll(next));
+	}
+
+	pub(in crate::ui) fn toggle_panel_tree_node(&mut self) {
+		let Some(row) = self.selected_panel_tree_row() else {
+			self.set_status("panel item has no child node");
+			return;
+		};
+		if !row.has_children {
+			self.set_status("panel item has no child node");
+			return;
+		}
+		let mut expanded = self.panel_navigation().expanded.clone();
+		let opened = if expanded.remove(&row.key) {
+			false
+		} else {
+			expanded.insert(row.key.clone());
+			true
+		};
+		self.apply_panel_expanded(expanded, None);
+		self.set_status(format!(
+			"{} panel node {}",
+			if opened { "opened" } else { "closed" },
+			row.label
+		));
+	}
+
+	pub(in crate::ui) fn open_panel_tree_node(&mut self) {
+		let Some(row) = self.selected_panel_tree_row() else {
+			self.set_status("panel item has no child node");
+			return;
+		};
+		if !row.has_children {
+			self.set_status("panel item has no child node");
+			return;
+		}
+		if row.expanded {
+			self.set_status(format!("panel node already open: {}", row.label));
+			return;
+		}
+		let mut expanded = self.panel_navigation().expanded.clone();
+		expanded.insert(row.key.clone());
+		self.apply_panel_expanded(expanded, None);
+		self.set_status(format!("opened panel node {}", row.label));
+	}
+
+	pub(in crate::ui) fn close_panel_tree_node(&mut self) {
+		let Some(row) = self.selected_panel_tree_row() else {
+			self.set_status("panel focused; Tab moves focus");
+			return;
+		};
+		if row.has_children && row.expanded {
+			let mut expanded = self.panel_navigation().expanded.clone();
+			expanded.remove(&row.key);
+			self.apply_panel_expanded(expanded, None);
+			self.set_status(format!("closed panel node {}", row.label));
+			return;
+		}
+		if row.depth == 0 {
+			self.set_status("panel focused; Tab moves focus");
+			return;
+		}
+		let rows = explorer::active_panel_tree_rows(self);
+		let selected = self
+			.panel_navigation()
+			.selected
+			.unwrap_or(0)
+			.min(rows.len() - 1);
+		let parent_depth = row.depth - 1;
+		let parent = rows[..selected]
+			.iter()
+			.rposition(|candidate| candidate.depth == parent_depth);
+		self.apply_panel_expanded(self.panel_navigation().expanded.clone(), parent);
+		self.set_status("panel parent selected");
+	}
+
+	fn selected_panel_tree_row(&self) -> Option<crate::ui::render::tree::TreeRowVm> {
+		let rows = explorer::active_panel_tree_rows(self);
+		let selected = self.panel_navigation().selected?;
+		rows.get(selected).cloned()
+	}
+
+	fn apply_panel_expanded(
+		&mut self,
+		expanded: std::collections::BTreeSet<String>,
+		selected: Option<usize>,
+	) {
+		let panel = explorer::active_panel_nav(self);
+		let count = explorer::active_panel_tree_rows_with_expanded(self, &expanded).len();
+		let selected = selected.or(self.panel_navigation().selected).map(|idx| {
+			if count == 0 {
+				0
+			} else {
+				idx.min(count.saturating_sub(1))
+			}
+		});
+		self.dispatch_shell(ShellAction::SetPanelNavigation(PanelNavigationState {
+			component: Some(panel.component),
+			selected,
+			scroll: self.panel_scroll(),
+			expanded,
+		}));
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use std::path::Path;
+
+	use super::*;
+	use crate::ui::app::{AppAction, View};
+	use crate::ui::events::Msg;
+	use crate::ui::render::component::ComponentId;
+	use crate::workspace::{SessionOptions, WorkspaceStore};
+
+	fn write(root: &Path, rel: &str, body: &str) {
+		let path = root.join(rel);
+		if let Some(parent) = path.parent() {
+			std::fs::create_dir_all(parent).unwrap();
+		}
+		std::fs::write(path, body).unwrap();
+	}
+
+	fn fixture_app() -> App {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/app.ts",
+			"export function run() { return MissingService.create(); }\n",
+		);
+		let store = WorkspaceStore::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		App::new(
+			store,
+			"default".to_string(),
+			tmp.path().join("rules.toml"),
+			None,
+		)
+	}
+
+	#[test]
+	fn close_node_keeps_focus_inside_panel() {
+		let mut app = fixture_app();
+		app.set_view(View::Unresolved, crate::ui::app::PanelPolicy::Manual);
+		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Panel));
+		app.ensure_active_panel_selection();
+
+		app.update(AppAction::Ui(Msg::CloseNode));
+
+		assert_eq!(app.focus_region(), FocusRegion::Panel);
+		assert_eq!(app.status(), "closed panel node ts/");
+		assert_eq!(
+			app.panel_navigation().component,
+			Some(ComponentId::PanelUnresolved)
+		);
+		assert_eq!(app.panel_navigation().selected, Some(0));
+		assert_eq!(explorer::active_panel_tree_rows(&app).len(), 1);
+	}
+
+	#[test]
+	fn open_node_expands_panel_tree_without_touching_navigator_focus() {
+		let mut app = fixture_app();
+		app.set_view(View::Unresolved, crate::ui::app::PanelPolicy::Manual);
+		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Panel));
+		app.ensure_active_panel_selection();
+		app.update(AppAction::Ui(Msg::CloseNode));
+
+		app.update(AppAction::Ui(Msg::OpenNode));
+
+		assert_eq!(app.focus_region(), FocusRegion::Panel);
+		assert_eq!(app.status(), "opened panel node ts/");
+		assert!(explorer::active_panel_tree_rows(&app).len() > 1);
 	}
 }

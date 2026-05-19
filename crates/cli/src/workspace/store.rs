@@ -16,7 +16,8 @@ use super::linkage::{LinkageIndex, LinkageStats};
 use super::model::{
 	ChangeBadge, ChangeDetail, ChangeId, ChangeOverview, ChangeSummary, FileSummary,
 	GitResourceSummary, ReferenceDirection, ReferenceGroup, ReferenceSet, ReferenceSetSummary,
-	SourceLine, SymbolDetail, SymbolReferences, SymbolSummary, UsageFocus,
+	SourceLine, SymbolDetail, SymbolReferences, SymbolSummary, UnresolvedLinkageGroup,
+	UnresolvedLinkageReport, UnresolvedLinkageSample, UsageFocus,
 };
 use super::snapshot::{
 	CoverageOverlay, GitOverlay, PlanOverlay, SearchDoc, SearchIndex, WorkspaceSnapshot,
@@ -58,6 +59,11 @@ pub(crate) trait IndexStore {
 	fn change_detail_for_symbol(&self, loc: &DefLocation) -> Option<ChangeDetail>;
 	fn change_count_for_file(&self, file_idx: usize) -> usize;
 	fn usage_focus(&self, loc: DefLocation) -> UsageFocus;
+	fn unresolved_linkage_report(
+		&self,
+		file_limit: usize,
+		samples_per_file: usize,
+	) -> UnresolvedLinkageReport;
 	fn check_summary(
 		&self,
 		rules: &Path,
@@ -601,6 +607,14 @@ impl IndexStore for WorkspaceStore {
 		}
 	}
 
+	fn unresolved_linkage_report(
+		&self,
+		file_limit: usize,
+		samples_per_file: usize,
+	) -> UnresolvedLinkageReport {
+		self.unresolved_linkage_report(file_limit, samples_per_file)
+	}
+
 	fn check_summary(
 		&self,
 		rules: &Path,
@@ -612,6 +626,93 @@ impl IndexStore for WorkspaceStore {
 }
 
 impl WorkspaceStore {
+	fn unresolved_linkage_report(
+		&self,
+		file_limit: usize,
+		samples_per_file: usize,
+	) -> UnresolvedLinkageReport {
+		let mut groups_by_file: FxHashMap<usize, UnresolvedLinkageGroup> = FxHashMap::default();
+		for loc in self.snapshot.linkage.unresolved_refs() {
+			self.push_unresolved_linkage_ref(
+				&mut groups_by_file,
+				loc,
+				"unresolved",
+				samples_per_file,
+			);
+		}
+		for loc in self.snapshot.linkage.manifest_blocked_refs() {
+			self.push_unresolved_linkage_ref(&mut groups_by_file, loc, "blocked", samples_per_file);
+		}
+		let mut groups = groups_by_file.into_values().collect::<Vec<_>>();
+		groups.sort_by(|a, b| {
+			let a_total = a.unresolved_refs + a.manifest_blocked_refs;
+			let b_total = b.unresolved_refs + b.manifest_blocked_refs;
+			b_total
+				.cmp(&a_total)
+				.then_with(|| a.lang.tag().cmp(b.lang.tag()))
+				.then_with(|| a.file_path.cmp(&b.file_path))
+		});
+		let files = groups.len();
+		groups.truncate(file_limit);
+		UnresolvedLinkageReport {
+			unresolved_refs: self.snapshot.linkage.stats().unresolved_refs,
+			manifest_blocked_refs: self.snapshot.linkage.stats().manifest_blocked_refs,
+			files,
+			shown_files: groups.len(),
+			groups,
+		}
+	}
+
+	fn push_unresolved_linkage_ref(
+		&self,
+		groups_by_file: &mut FxHashMap<usize, UnresolvedLinkageGroup>,
+		loc: &RefLocation,
+		reason: &'static str,
+		samples_per_file: usize,
+	) {
+		let file = self.raw_file(loc.file);
+		let entry = groups_by_file
+			.entry(loc.file)
+			.or_insert_with(|| UnresolvedLinkageGroup {
+				lang: file.lang,
+				file_path: file.rel_path.clone(),
+				unresolved_refs: 0,
+				manifest_blocked_refs: 0,
+				samples: Vec::new(),
+			});
+		match reason {
+			"blocked" => entry.manifest_blocked_refs += 1,
+			_ => entry.unresolved_refs += 1,
+		}
+		let same_reason_samples = entry
+			.samples
+			.iter()
+			.filter(|sample| sample.reason == reason)
+			.count();
+		if same_reason_samples >= samples_per_file {
+			return;
+		}
+		entry
+			.samples
+			.push(self.unresolved_linkage_sample(loc, reason));
+	}
+
+	fn unresolved_linkage_sample(
+		&self,
+		loc: &RefLocation,
+		reason: &'static str,
+	) -> UnresolvedLinkageSample {
+		let reference = self.raw_reference(loc);
+		let source = self.raw_file(loc.file).graph.def_at(reference.source);
+		UnresolvedLinkageSample {
+			reason,
+			kind: ref_kind(reference),
+			target: compact_moniker(&reference.target),
+			source: last_name(&source.moniker),
+			location: self.reference_location(loc),
+		}
+	}
+
 	fn search_symbols_matching(
 		&self,
 		query: &str,
@@ -1147,6 +1248,32 @@ mod tests {
 		assert!(refs.incoming.summary.contexts > 0);
 		assert_eq!(focus.refs.len(), refs.incoming.summary.refs);
 		assert_eq!(focus.contexts.len(), refs.incoming.summary.contexts);
+	}
+
+	#[test]
+	fn unresolved_linkage_report_groups_unresolved_refs_by_file() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/app.ts",
+			"export function run() { return MissingService.create(); }\n",
+		);
+
+		let store = WorkspaceStore::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+
+		let report = store.unresolved_linkage_report(10, 2);
+
+		assert!(report.unresolved_refs > 0);
+		assert_eq!(report.files, 1);
+		assert_eq!(report.shown_files, 1);
+		assert_eq!(report.groups[0].file_path, PathBuf::from("src/app.ts"));
+		assert!(!report.groups[0].samples.is_empty());
+		assert_eq!(report.groups[0].samples[0].reason, "unresolved");
 	}
 
 	#[test]

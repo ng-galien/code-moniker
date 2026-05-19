@@ -17,6 +17,7 @@ use super::kinds::definition_kind_group;
 use super::scroll::{ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin};
 use super::text::{FitMode, fit_text, visible_len};
 use super::theme::THEME;
+use super::tree;
 
 const SEARCH_WIDGET_HEIGHT: u16 = 5;
 
@@ -409,20 +410,7 @@ fn render_nav_block(frame: &mut ratatui::Frame<'_>, area: Rect, pane: &NavPaneVm
 }
 
 pub(in crate::ui) fn nav_row_line(row: &NavRowVm, selected: bool) -> Line<'static> {
-	let marker = if selected { ">" } else { " " };
-	let indent = "  ".repeat(row.depth);
-	let twisty = if row.has_children {
-		if row.expanded { "▾" } else { "▸" }
-	} else {
-		" "
-	};
-	let mut spans = vec![
-		Span::styled(marker, Style::default().fg(THEME.nav.marker)),
-		Span::raw(" "),
-		Span::raw(indent),
-		Span::styled(twisty, Style::default().fg(THEME.nav.twisty)),
-		Span::raw(" "),
-	];
+	let mut spans = tree::prefix_spans(row.depth, row.has_children, row.expanded, Some(selected));
 	match &row.kind {
 		NavRowVmKind::Lang => {
 			let label = if row.has_children {

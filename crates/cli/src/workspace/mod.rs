@@ -19,7 +19,9 @@ pub use index::{
 	SessionStats, ViewFilter,
 };
 #[cfg(feature = "tui")]
-pub(crate) use model::{ChangeDetail, ChangeId, ReferenceGroup, ReferenceSet, UsageFocus};
+pub(crate) use model::{
+	ChangeDetail, ChangeId, ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus,
+};
 #[cfg(feature = "tui")]
 pub(crate) use store::{
 	GitOverlayRefresh, GitOverlayRefreshInput, IndexStore, StoreWatchRoot, WorkspaceStore,

@@ -11,6 +11,7 @@ use super::super::render::scroll::{
 };
 use super::super::render::text::{FitMode, fit_text, visible_len};
 use super::super::render::theme::{SourceTheme, THEME};
+use super::super::render::tree;
 use super::SourceLineVm;
 use super::model::{
 	MessageTone, PanelRenderState, PanelSection, PanelVm, ReferenceGroupVm, WrapMode,
@@ -170,6 +171,16 @@ fn panel_lines(panel: &PanelVm, width: usize, state: PanelRenderState) -> Render
 				}
 			}),
 			PanelSection::Bullet { text } => rendered.push(panel::bullet(text.clone())),
+			PanelSection::TreeRows(rows) => {
+				for row in rows {
+					rendered.push_navigable(
+						tree::panel_tree_row(row, width),
+						state.selected == Some(nav_idx),
+						state.focused,
+					);
+					nav_idx += 1;
+				}
+			}
 			PanelSection::SourceSnippet(snippet) => {
 				for line in source_snippet_lines(snippet) {
 					rendered.push_navigable(line, state.selected == Some(nav_idx), state.focused);

@@ -323,6 +323,7 @@ mod tests {
 			component: Some(ComponentId::PanelOverview),
 			selected: Some(2),
 			scroll: 8,
+			expanded: Default::default(),
 		}));
 
 		app.apply_navigation(NavigationAction::Pane {
