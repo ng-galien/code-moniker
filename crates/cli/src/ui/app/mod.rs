@@ -2,6 +2,7 @@ mod action;
 mod effect;
 mod header_search;
 mod navigation;
+mod panel_focus;
 mod state;
 mod store;
 
