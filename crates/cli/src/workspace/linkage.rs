@@ -8,6 +8,10 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::index::{DefLocation, RefLocation, SessionIndex};
 
+mod strategy;
+
+use strategy::{CandidateDef, CandidateKeys, LinkageQuery, UnresolvedClassification};
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct LinkageIndex {
 	stats: LinkageStats,
@@ -19,6 +23,7 @@ pub(crate) struct LinkageIndex {
 	refs_by_target_projectless_ancestor: FxHashMap<PathKey, Vec<RefLocation>>,
 	refs_by_callable_name: FxHashMap<Vec<u8>, Vec<RefLocation>>,
 	resolved_defs_by_ref: FxHashMap<RefLocation, Vec<DefLocation>>,
+	refs_by_resolved_def: FxHashMap<DefLocation, Vec<RefLocation>>,
 	unresolved_refs: Vec<RefLocation>,
 	manifest_blocked_refs: Vec<RefLocation>,
 }
@@ -62,11 +67,22 @@ impl LinkageIndex {
 					if resolved.len() > 1 {
 						linkage.stats.ambiguous_refs += 1;
 					}
+					for def in &resolved {
+						linkage
+							.refs_by_resolved_def
+							.entry(*def)
+							.or_default()
+							.push(loc);
+					}
 					linkage.resolved_defs_by_ref.insert(loc, resolved);
 				} else if resolution.manifest_blocked {
 					linkage.stats.manifest_blocked_refs += 1;
 					linkage.manifest_blocked_refs.push(loc);
-				} else if ref_is_external(reference) {
+				} else if ref_is_external(reference)
+					|| matches!(
+						resolution.classification,
+						UnresolvedClassification::External | UnresolvedClassification::Suppressed
+					) {
 					linkage.stats.external_refs += 1;
 				} else {
 					linkage.stats.unresolved_refs += 1;
@@ -147,10 +163,35 @@ impl LinkageIndex {
 		index: &SessionIndex,
 	) -> Vec<RefLocation> {
 		let target_moniker = &index.def(target).moniker;
-		self.incoming_refs(target_moniker, index)
+		let mut seen = FxHashSet::default();
+		let mut refs = self.incoming_refs(target_moniker, index);
+		if let Some(resolved_refs) = self.refs_by_resolved_def.get(target) {
+			refs.extend(resolved_refs.iter().copied());
+		}
+		let mut out = refs
 			.into_iter()
 			.filter(|loc| {
 				let reference = index.reference(loc);
+				if reference.kind == b"method_call"
+					&& matches!(reference.receiver_hint.as_slice(), b"call" | b"member")
+				{
+					if let Some(resolved_defs) = self.resolved_defs_by_ref.get(loc) {
+						return resolved_defs.iter().any(|def| def == target);
+					}
+					return false;
+				}
+				if matches!(reference.kind.as_slice(), b"calls" | b"method_call")
+					&& !target_moniker.bind_match(&reference.target)
+					&& !moniker_matches_without_project(target_moniker, &reference.target)
+					&& !target_moniker.is_ancestor_of(&reference.target)
+					&& !moniker_is_ancestor_without_project(target_moniker, &reference.target)
+					&& !self
+						.resolved_defs_by_ref
+						.get(loc)
+						.is_some_and(|defs| defs.iter().any(|def| def == target))
+				{
+					return false;
+				}
 				let source = index.files[loc.file].graph.def_at(reference.source);
 				if target_moniker.is_ancestor_of(&reference.target)
 					&& !target_moniker.bind_match(&reference.target)
@@ -165,7 +206,10 @@ impl LinkageIndex {
 						target,
 					)
 			})
-			.collect()
+			.filter(|loc| seen.insert(*loc))
+			.collect::<Vec<_>>();
+		out.sort_by_key(|loc| (index.files[loc.file].rel_path.clone(), loc.reference));
+		out
 	}
 
 	#[allow(dead_code)]
@@ -247,6 +291,7 @@ fn defs_by_link_key(
 struct RefResolution {
 	defs: Vec<DefLocation>,
 	manifest_blocked: bool,
+	classification: UnresolvedClassification,
 }
 
 fn resolve_reference(
@@ -259,18 +304,47 @@ fn resolve_reference(
 ) -> RefResolution {
 	let mut out = Vec::new();
 	let mut blocked = false;
-	collect_resolved_candidates(
+	let source_file = &index.files[loc.file];
+	let query = LinkageQuery {
 		index,
-		defs_by_key.get(&LinkKey::from_moniker(&reference.target)),
 		reference,
-		&mut out,
-	);
-	collect_resolved_candidates(
-		index,
-		projectless_defs_by_key.get(&LinkKey::projectless(&reference.target)),
-		reference,
-		&mut out,
-	);
+		source_file_idx: loc.file,
+		source_file,
+	};
+	let strategy = strategy::for_lang(source_file.lang);
+	if strategy.allow_generic_candidates(&query) {
+		collect_resolved_candidates(
+			index,
+			defs_by_key.get(&LinkKey::from_moniker(&reference.target)),
+			reference,
+			&mut out,
+		);
+		collect_resolved_candidates(
+			index,
+			projectless_defs_by_key.get(&LinkKey::projectless(&reference.target)),
+			reference,
+			&mut out,
+		);
+	}
+	let mut strategy_keys = CandidateKeys::default();
+	strategy.candidate_keys(&query, &mut strategy_keys);
+	for key in &strategy_keys.exact {
+		collect_resolved_candidates(index, defs_by_key.get(key), reference, &mut out);
+	}
+	for key in &strategy_keys.projectless {
+		collect_resolved_candidates(index, projectless_defs_by_key.get(key), reference, &mut out);
+	}
+	let mut strategy_defs = Vec::new();
+	strategy.candidate_defs(&query, &mut strategy_defs);
+	for CandidateDef { loc } in strategy_defs {
+		let def = index.def(&loc);
+		if reference.target.bind_match(&def.moniker)
+			|| moniker_matches_without_project(&reference.target, &def.moniker)
+			|| strategy.def_matches(&query, &loc)
+		{
+			out.push(loc);
+		}
+	}
 	out.retain(|def| {
 		let allowed = loc.file == def.file
 			|| manifests.source_can_link_to_def(index, index.files[loc.file].source_root, def);
@@ -281,9 +355,15 @@ fn resolve_reference(
 	});
 	out.sort_by_key(|def| (def.file, def.def));
 	out.dedup();
+	let classification = if out.is_empty() && !blocked {
+		strategy.classify_unresolved(&query)
+	} else {
+		UnresolvedClassification::Actionable
+	};
 	RefResolution {
 		defs: out,
 		manifest_blocked: blocked,
+		classification,
 	}
 }
 
@@ -325,6 +405,18 @@ impl LinkKey {
 
 	fn projectless(moniker: &Moniker) -> Self {
 		Self::new(moniker, false)
+	}
+
+	fn from_parts(
+		project: Option<Vec<u8>>,
+		parents: Vec<(Vec<u8>, Vec<u8>)>,
+		bare_last_name: Vec<u8>,
+	) -> Self {
+		Self {
+			project,
+			parents,
+			bare_last_name,
+		}
 	}
 
 	fn new(moniker: &Moniker, include_project: bool) -> Self {
@@ -731,6 +823,1014 @@ mod tests {
 		assert!(
 			linkage.stats().resolved_refs > 0,
 			"cross-project import should contribute to resolved linkage stats"
+		);
+	}
+
+	#[test]
+	fn resolves_java_same_package_top_level_types() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/CustomerProfile.java",
+			"package com.acme; public record CustomerProfile(String id) {}\n",
+		);
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/CustomerResolver.java",
+			"package com.acme; public interface CustomerResolver { CustomerProfile resolveCustomer(String id); }\n",
+		);
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/CustomerDirectory.java",
+			"package com.acme; public class CustomerDirectory implements CustomerResolver { public CustomerProfile resolveCustomer(String id) { return new CustomerProfile(id); } }\n",
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let profile = index
+			.defs_by_name
+			.get("CustomerProfile")
+			.and_then(|locs| {
+				locs.iter().find(|loc| {
+					last_name(&index.def(loc).moniker) == "CustomerProfile"
+						&& index.def(loc).kind == b"record"
+				})
+			})
+			.copied()
+			.expect("CustomerProfile record def");
+		let resolver = index
+			.defs_by_name
+			.get("CustomerResolver")
+			.and_then(|locs| {
+				locs.iter().find(|loc| {
+					last_name(&index.def(loc).moniker) == "CustomerResolver"
+						&& index.def(loc).kind == b"interface"
+				})
+			})
+			.copied()
+			.expect("CustomerResolver interface def");
+
+		let profile_refs = linkage.incoming_refs_for_def(&profile, &index);
+		let resolver_refs = linkage.incoming_refs_for_def(&resolver, &index);
+
+		assert!(
+			profile_refs.iter().any(|loc| index.files[loc.file]
+				.rel_path
+				.ends_with("CustomerDirectory.java")),
+			"same-package CustomerProfile refs should resolve to the sibling record"
+		);
+		assert!(
+			resolver_refs.iter().any(|loc| index.files[loc.file]
+				.rel_path
+				.ends_with("CustomerDirectory.java")),
+			"same-package implements ref should resolve to the sibling interface"
+		);
+	}
+
+	#[test]
+	fn classifies_java_lang_annotation_as_external() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/Foo.java",
+			"package com.acme; public class Foo { @Override public String toString() { return \"x\"; } }\n",
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+
+		assert_eq!(linkage.stats().unresolved_refs, 0);
+		assert!(
+			linkage.stats().external_refs > 0,
+			"@Override and String should classify as external Java platform refs"
+		);
+	}
+
+	#[test]
+	fn resolves_java_member_calls_on_typed_receivers() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"common/src/main/java/com/acme/common/CustomerProfile.java",
+			"package com.acme.common; public record CustomerProfile(String displayName) {}\n",
+		);
+		write(
+			tmp.path(),
+			"common/src/main/java/com/acme/common/CustomerResolver.java",
+			"package com.acme.common; public interface CustomerResolver { CustomerProfile resolveCustomer(String id); }\n",
+		);
+		write(
+			tmp.path(),
+			"common/src/main/java/com/acme/common/CustomerDirectory.java",
+			"package com.acme.common; public class CustomerDirectory implements CustomerResolver { public CustomerProfile resolveCustomer(String id) { return new CustomerProfile(id); } }\n",
+		);
+		write(
+			tmp.path(),
+			"common/src/main/java/com/acme/common/MoneyFormatter.java",
+			"package com.acme.common; public class MoneyFormatter { public String formatForInvoice(CustomerProfile profile) { return profile.displayName(); } }\n",
+		);
+		write(
+			tmp.path(),
+			"billing/src/main/java/com/acme/billing/BillingApplication.java",
+			"package com.acme.billing; import com.acme.common.CustomerDirectory; import com.acme.common.CustomerProfile; import com.acme.common.CustomerResolver; import com.acme.common.MoneyFormatter; public class BillingApplication { private final CustomerResolver customerResolver = new CustomerDirectory(); private final MoneyFormatter moneyFormatter = new MoneyFormatter(); public String invoiceLine(String id) { CustomerProfile profile = customerResolver.resolveCustomer(id); return moneyFormatter.formatForInvoice(profile); } }\n",
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let resolve_customer = index
+			.defs_by_name
+			.get("resolveCustomer(id:String)")
+			.and_then(|locs| {
+				locs.iter().find(|loc| {
+					index.def(loc).kind == b"method"
+						&& index.files[loc.file]
+							.rel_path
+							.ends_with("CustomerResolver.java")
+				})
+			})
+			.copied()
+			.expect("CustomerResolver.resolveCustomer def");
+		let format_for_invoice = index
+			.defs_by_name
+			.get("formatForInvoice(profile:CustomerProfile)")
+			.and_then(|locs| locs.first())
+			.copied()
+			.expect("MoneyFormatter.formatForInvoice def");
+
+		let resolver_refs = linkage.incoming_refs_for_def(&resolve_customer, &index);
+		let formatter_refs = linkage.incoming_refs_for_def(&format_for_invoice, &index);
+
+		assert!(
+			resolver_refs.iter().any(|loc| index.files[loc.file]
+				.rel_path
+				.ends_with("BillingApplication.java")),
+			"field receiver customerResolver should resolve to CustomerResolver.resolveCustomer"
+		);
+		assert!(
+			formatter_refs.iter().any(|loc| index.files[loc.file]
+				.rel_path
+				.ends_with("BillingApplication.java")),
+			"field receiver moneyFormatter should resolve to MoneyFormatter.formatForInvoice"
+		);
+	}
+
+	#[test]
+	fn resolves_java_member_calls_on_imported_cross_package_receivers() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"common-lib/src/main/java/com/acme/common/customer/CustomerProfile.java",
+			"package com.acme.common.customer; public record CustomerProfile(String id, String displayName, String segment) {}\n",
+		);
+		write(
+			tmp.path(),
+			"common-lib/src/main/java/com/acme/common/customer/CustomerResolver.java",
+			"package com.acme.common.customer; public interface CustomerResolver { CustomerProfile resolveCustomer(String customerId); }\n",
+		);
+		write(
+			tmp.path(),
+			"common-lib/src/main/java/com/acme/common/customer/CustomerDirectory.java",
+			"package com.acme.common.customer; public class CustomerDirectory implements CustomerResolver { public CustomerProfile resolveCustomer(String customerId) { return new CustomerProfile(customerId, customerId, \"premium\"); } }\n",
+		);
+		write(
+			tmp.path(),
+			"common-lib/src/main/java/com/acme/common/customer/RiskPolicy.java",
+			"package com.acme.common.customer; public class RiskPolicy { public boolean isPriority(CustomerProfile profile) { return profile.displayName().startsWith(\"VIP\"); } }\n",
+		);
+		write(
+			tmp.path(),
+			"common-lib/src/main/java/com/acme/common/money/MoneyFormatter.java",
+			"package com.acme.common.money; import com.acme.common.customer.CustomerProfile; public class MoneyFormatter { public String formatForInvoice(CustomerProfile profile, long cents) { return profile.displayName(); } }\n",
+		);
+		write(
+			tmp.path(),
+			"billing-service/src/main/java/com/acme/billing/BillingApplication.java",
+			"package com.acme.billing; import com.acme.common.customer.CustomerDirectory; import com.acme.common.customer.CustomerProfile; import com.acme.common.customer.CustomerResolver; import com.acme.common.money.MoneyFormatter; public class BillingApplication { private final CustomerResolver customerResolver = new CustomerDirectory(); private final MoneyFormatter moneyFormatter = new MoneyFormatter(); public String invoiceLine(String customerId, long cents) { CustomerProfile profile = customerResolver.resolveCustomer(customerId); return moneyFormatter.formatForInvoice(profile, cents); } }\n",
+		);
+		write(
+			tmp.path(),
+			"order-service/src/main/java/com/acme/order/OrderApplication.java",
+			"package com.acme.order; import com.acme.common.customer.CustomerDirectory; import com.acme.common.customer.CustomerProfile; import com.acme.common.customer.CustomerResolver; import com.acme.common.customer.RiskPolicy; public class OrderApplication { private final CustomerResolver customerResolver = new CustomerDirectory(); private final RiskPolicy riskPolicy = new RiskPolicy(); public String routeOrder(String customerId) { CustomerProfile profile = customerResolver.resolveCustomer(customerId); return riskPolicy.isPriority(profile) ? \"priority\" : \"standard\"; } }\n",
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| {
+				let reference = index.reference(loc);
+				format!(
+					"{}:{}",
+					index.files[loc.file].rel_path.display(),
+					last_name(&reference.target)
+				)
+			})
+			.collect::<Vec<_>>();
+
+		assert!(
+			!unresolved
+				.iter()
+				.any(|entry| entry.contains("resolveCustomer")),
+			"resolveCustomer should resolve through imported CustomerResolver: {unresolved:?}"
+		);
+		assert!(
+			!unresolved
+				.iter()
+				.any(|entry| entry.contains("formatForInvoice")),
+			"formatForInvoice should resolve through imported MoneyFormatter: {unresolved:?}"
+		);
+		assert!(
+			!unresolved.iter().any(|entry| entry.contains("isPriority")),
+			"isPriority should resolve through imported RiskPolicy: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn resolves_java_record_component_reads_and_accessor_calls() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/CustomerProfile.java",
+			"package com.acme; public record CustomerProfile(String displayName, String segment) { public boolean premium() { return \"premium\".equalsIgnoreCase(segment); } }\n",
+		);
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/RiskPolicy.java",
+			"package com.acme; public class RiskPolicy { public boolean isPriority(CustomerProfile profile) { return profile.premium() || profile.displayName().startsWith(\"VIP\"); } }\n",
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let segment = index
+			.defs_by_name
+			.get("segment")
+			.and_then(|locs| locs.iter().find(|loc| index.def(loc).kind == b"field"))
+			.copied()
+			.expect("segment field def");
+		let premium = index
+			.defs_by_name
+			.get("premium()")
+			.and_then(|locs| locs.first())
+			.copied()
+			.expect("premium accessor def");
+		let display_name = index
+			.defs_by_name
+			.get("displayName()")
+			.and_then(|locs| locs.first())
+			.copied()
+			.expect("displayName accessor def");
+
+		let segment_refs = linkage.incoming_refs_for_def(&segment, &index);
+		let premium_refs = linkage.incoming_refs_for_def(&premium, &index);
+		let display_name_refs = linkage.incoming_refs_for_def(&display_name, &index);
+
+		assert!(
+			segment_refs.iter().any(|loc| index.files[loc.file]
+				.rel_path
+				.ends_with("CustomerProfile.java")),
+			"record component read should resolve to the component field"
+		);
+		assert!(
+			premium_refs
+				.iter()
+				.any(|loc| index.files[loc.file].rel_path.ends_with("RiskPolicy.java")),
+			"profile.premium() should resolve through the parameter type"
+		);
+		assert!(
+			display_name_refs
+				.iter()
+				.any(|loc| index.files[loc.file].rel_path.ends_with("RiskPolicy.java")),
+			"profile.displayName() should resolve through the parameter type"
+		);
+	}
+
+	#[test]
+	fn resolves_java_member_calls_on_multiline_parameter_receivers() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/CustomerProfile.java",
+			r#"package com.acme;
+
+public record CustomerProfile(String displayName, String segment) {
+    public boolean premium() {
+        return "premium".equalsIgnoreCase(segment);
+    }
+}
+"#,
+		);
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/RiskPolicy.java",
+			r#"package com.acme;
+
+public class RiskPolicy {
+    public boolean isPriority(CustomerProfile profile) {
+        return profile.premium() || profile.displayName().startsWith("VIP");
+    }
+}
+"#,
+		);
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/CustomerDirectory.java",
+			r#"package com.acme;
+
+public class CustomerDirectory {
+    public String findPreferredSegment(CustomerProfile profile) {
+        return profile.premium() ? "high-touch" : "standard";
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			!unresolved
+				.iter()
+				.any(|name| matches!(name.as_str(), "premium" | "displayName")),
+			"parameter receiver calls should resolve in multiline Java methods: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn resolves_java_member_calls_on_new_instance_receivers() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/BillingApplication.java",
+			r#"package com.acme;
+
+public class BillingApplication {
+    public String invoiceLine(String id, long cents) {
+        return id + cents;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(new BillingApplication().invoiceLine("c-100", 1299));
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			!unresolved
+				.iter()
+				.any(|name| matches!(name.as_str(), "invoiceLine" | "out")),
+			"new BillingApplication().invoiceLine and System.out should not be actionable unresolved refs: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn resolves_java_member_calls_through_chained_return_types() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/Chain.java",
+			r#"package com.acme;
+
+class First {
+    Second second() { return new Second(); }
+}
+
+class Second {
+    Third third() { return new Third(); }
+}
+
+class Third {
+    String code() { return "ok"; }
+}
+
+public class Chain {
+    First first() { return new First(); }
+
+    String run() {
+        return this.first().second().third().code();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			!unresolved
+				.iter()
+				.any(|name| matches!(name.as_str(), "second" | "third" | "code")),
+			"calls in this.first().second().third().code() should resolve by return type: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_chained_call_does_not_fallback_to_argument_call_return_type() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+class First {
+    Second second() { return new Second(); }
+}
+
+class Second {
+    String third() { return "wrong"; }
+}
+
+public class App {
+    First first = new First();
+
+    String run() {
+        return factory.wrap(first.second()).third();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			unresolved.iter().any(|name| name == "third"),
+			"unresolved factory.wrap(...) should not let third() resolve through argument first.second(): {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_chained_call_does_not_fallback_past_unresolved_immediate_call() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+class Factory {
+    Wrapper wrap() { return new Wrapper(); }
+}
+
+class Wrapper {
+    String third() { return "wrong"; }
+}
+
+public class App {
+    Factory factory = new Factory();
+
+    String run() {
+        return factory.wrap().second().third();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			unresolved.iter().any(|name| name == "third"),
+			"third() should remain unresolved when its immediate receiver second() is unresolved: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_new_receiver_does_not_fallback_past_unresolved_immediate_call() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+class A {
+    String run() { return "wrong"; }
+}
+
+public class App {
+    String go() {
+        return new A().missing().run();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			unresolved.iter().any(|name| name == "run"),
+			"run() should remain unresolved when its immediate receiver missing() is unresolved: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_member_chain_does_not_infer_receiver_from_prefix_owner() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+class Address {}
+
+class Customer {
+    Address address;
+
+    String displayName() { return "wrong"; }
+}
+
+public class App {
+    String run(Customer customer) {
+        return customer.address.displayName();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let display_name = index
+			.defs_by_name
+			.get("displayName()")
+			.and_then(|locs| locs.first())
+			.copied()
+			.expect("Customer.displayName def");
+		let display_name_refs = linkage.incoming_refs_for_def(&display_name, &index);
+
+		assert!(
+			!display_name_refs
+				.iter()
+				.any(|loc| index.files[loc.file].rel_path.ends_with("App.java")),
+			"customer.address.displayName() must not link to Customer.displayName()"
+		);
+	}
+
+	#[test]
+	fn java_receiver_local_out_of_block_does_not_shadow_field() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+class Service {
+    String run() { return "service"; }
+}
+
+class Other {
+    String run() { return "other"; }
+}
+
+public class App {
+    private final Service service = new Service();
+
+    String go(boolean flag) {
+        if (flag) {
+            Other service = new Other();
+            service.run();
+        }
+        return service.run();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let service_run = index
+			.defs_by_name
+			.get("run()")
+			.and_then(|locs| {
+				locs.iter().find(|loc| {
+					index
+						.def(loc)
+						.moniker
+						.as_view()
+						.segments()
+						.any(|segment| segment.kind == b"class" && segment.name == b"Service")
+				})
+			})
+			.copied()
+			.expect("Service.run def");
+		let refs = linkage.incoming_refs_for_def(&service_run, &index);
+
+		assert!(
+			refs.iter().any(|loc| {
+				let reference = index.reference(loc);
+				reference.position.is_some_and(|position| position.0 > 300)
+			}),
+			"service.run() after the if block should resolve to the field's Service.run()"
+		);
+	}
+
+	#[test]
+	fn java_for_initializer_local_out_of_loop_does_not_shadow_field() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+class Service {
+    String run() { return "service"; }
+}
+
+class Other {
+    String run() { return "other"; }
+}
+
+public class App {
+    private final Service service = new Service();
+
+    String go(boolean flag) {
+        for (Other service = new Other(); flag; flag = false) {
+            service.run();
+        }
+        return service.run();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let service_run = index
+			.defs_by_name
+			.get("run()")
+			.and_then(|locs| {
+				locs.iter().find(|loc| {
+					index
+						.def(loc)
+						.moniker
+						.as_view()
+						.segments()
+						.any(|segment| segment.kind == b"class" && segment.name == b"Service")
+				})
+			})
+			.copied()
+			.expect("Service.run def");
+		let refs = linkage.incoming_refs_for_def(&service_run, &index);
+
+		assert!(
+			refs.iter().any(|loc| {
+				let reference = index.reference(loc);
+				reference.position.is_some_and(|position| position.0 > 330)
+			}),
+			"service.run() after the for loop should resolve to the field's Service.run()"
+		);
+	}
+
+	#[test]
+	fn java_new_arguments_do_not_infer_the_outer_call_receiver() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/CustomerProfile.java",
+			r#"package com.acme;
+
+public class CustomerProfile {
+    public String create() { return "wrong"; }
+}
+"#,
+		);
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+public class App {
+    public String run() {
+        return factory.create(new CustomerProfile());
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			unresolved.iter().any(|name| name == "create"),
+			"factory.create(new CustomerProfile()) must not resolve create through the argument type: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_unknown_receiver_common_method_names_remain_unresolved() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+public class App {
+    public String run() {
+        return customer.format();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			unresolved.iter().any(|name| name == "format"),
+			"customer.format() should remain actionable with an unknown project receiver: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_lang_receiver_methods_are_external() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+public class App {
+    public String normalize(String rawSegment) {
+        return rawSegment == null ? "unknown" : rawSegment.trim().toLowerCase();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			!unresolved
+				.iter()
+				.any(|name| matches!(name.as_str(), "trim" | "toLowerCase")),
+			"java.lang.String receiver methods should not be actionable unresolved refs: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_lang_chained_receiver_methods_are_external() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+public class App {
+    public boolean ok(String raw) {
+        return raw.substring(1).isBlank();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			!unresolved
+				.iter()
+				.any(|name| matches!(name.as_str(), "substring" | "isBlank")),
+			"chained java.lang.String methods should not be actionable unresolved refs: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_lang_deep_chained_receiver_methods_are_external() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+public class App {
+    public boolean ok(String raw) {
+        return raw.strip().substring(1).isBlank();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			!unresolved
+				.iter()
+				.any(|name| matches!(name.as_str(), "strip" | "substring" | "isBlank")),
+			"deep chained java.lang.String methods should not be actionable unresolved refs: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_lang_methods_after_project_string_return_are_external() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+record CustomerProfile(String displayName) {}
+
+public class App {
+    public boolean ok(CustomerProfile profile) {
+        return profile.displayName().isBlank();
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let unresolved = linkage
+			.unresolved_refs()
+			.iter()
+			.map(|loc| last_name(&index.reference(loc).target))
+			.collect::<Vec<_>>();
+
+		assert!(
+			!unresolved.iter().any(|name| name == "isBlank"),
+			"java.lang.String methods after a project method returning String should not be actionable unresolved refs: {unresolved:?}"
+		);
+	}
+
+	#[test]
+	fn java_receiverless_call_does_not_infer_receiver_from_argument() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(
+			tmp.path(),
+			"src/main/java/com/acme/App.java",
+			r#"package com.acme;
+
+class Customer {
+    String helper(Customer customer) { return "wrong"; }
+}
+
+public class App {
+    String run(Customer customer) {
+        return helper(customer);
+    }
+}
+"#,
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let customer_helper = index
+			.defs_by_name
+			.get("helper(customer:Customer)")
+			.and_then(|locs| locs.first())
+			.copied()
+			.expect("Customer.helper def");
+		let refs = linkage.incoming_refs_for_def(&customer_helper, &index);
+
+		assert!(
+			!refs
+				.iter()
+				.any(|loc| index.files[loc.file].rel_path.ends_with("App.java")),
+			"helper(customer) must not resolve to Customer.helper just because customer is an argument"
 		);
 	}
 
