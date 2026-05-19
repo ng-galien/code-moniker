@@ -56,6 +56,20 @@ fn overview_panel(app: &App) -> PanelVm {
 	vm.kv("scan", format!("{} ms", stats.scan_ms), FitMode::Tail);
 	vm.kv("extract", format!("{} ms", stats.extract_ms), FitMode::Tail);
 	vm.kv("index", format!("{} ms", stats.index_ms), FitMode::Tail);
+	let linkage = app.store().linkage_stats();
+	vm.blank();
+	vm.section("linkage");
+	vm.kv("resolved", linkage.resolved_refs.to_string(), FitMode::Tail);
+	vm.kv(
+		"unresolved",
+		linkage.unresolved_refs.to_string(),
+		FitMode::Tail,
+	);
+	vm.kv(
+		"ambiguous",
+		linkage.ambiguous_refs.to_string(),
+		FitMode::Tail,
+	);
 	vm.blank();
 	vm.section("languages");
 	vm.table(

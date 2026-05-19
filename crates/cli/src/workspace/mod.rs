@@ -2,6 +2,8 @@
 pub mod git;
 pub mod index;
 #[cfg(feature = "tui")]
+mod linkage;
+#[cfg(feature = "tui")]
 mod model;
 #[cfg(feature = "tui")]
 mod snapshot;

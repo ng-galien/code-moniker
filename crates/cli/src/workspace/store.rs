@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
-use code_moniker_core::core::moniker::{Moniker, Segment};
+use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
@@ -12,6 +12,7 @@ use super::git::{ChangeEntry, ChangeFile, ChangeIndex, ChangeRoot, ChangeScan};
 use super::index::{
 	CheckSummary, DefLocation, IndexedFile, RefLocation, SessionIndex, SessionOptions, SessionStats,
 };
+use super::linkage::{LinkageIndex, LinkageStats};
 use super::model::{
 	ChangeBadge, ChangeDetail, ChangeId, ChangeOverview, ChangeSummary, FileSummary,
 	GitResourceSummary, ReferenceDirection, ReferenceGroup, ReferenceSet, ReferenceSetSummary,
@@ -29,6 +30,7 @@ pub(crate) use super::model::SearchHit;
 pub(crate) trait IndexStore {
 	fn root(&self) -> &str;
 	fn stats(&self) -> &SessionStats;
+	fn linkage_stats(&self) -> &LinkageStats;
 	fn file_count(&self) -> usize;
 	fn file_summary(&self, file_idx: usize) -> FileSummary;
 	fn all_navigable_defs(&self) -> Vec<DefLocation>;
@@ -79,6 +81,7 @@ pub(crate) struct WorkspaceStore {
 
 pub(crate) struct GitOverlayRefreshInput {
 	index: Arc<SessionIndex>,
+	linkage: Arc<LinkageIndex>,
 }
 
 pub(crate) struct GitOverlayRefresh {
@@ -124,11 +127,12 @@ impl WorkspaceStore {
 	pub(crate) fn git_overlay_refresh_input(&self) -> GitOverlayRefreshInput {
 		GitOverlayRefreshInput {
 			index: Arc::clone(&self.snapshot.index),
+			linkage: Arc::clone(&self.snapshot.linkage),
 		}
 	}
 
 	pub(crate) fn build_git_overlay_refresh(input: GitOverlayRefreshInput) -> GitOverlayRefresh {
-		let git = build_git_overlay(&input.index);
+		let git = build_git_overlay(&input.index, &input.linkage);
 		GitOverlayRefresh {
 			index: input.index,
 			git,
@@ -141,6 +145,7 @@ impl WorkspaceStore {
 		}
 		self.snapshot = Arc::new(WorkspaceSnapshot {
 			index: Arc::clone(&self.snapshot.index),
+			linkage: Arc::clone(&self.snapshot.linkage),
 			search: Arc::clone(&self.snapshot.search),
 			git: refresh.git,
 			coverage: self.snapshot.coverage.clone(),
@@ -176,9 +181,10 @@ impl WorkspaceStore {
 	}
 
 	pub(crate) fn refresh_git_overlay(&mut self) {
-		let git = build_git_overlay(&self.snapshot.index);
+		let git = build_git_overlay(&self.snapshot.index, &self.snapshot.linkage);
 		self.snapshot = Arc::new(WorkspaceSnapshot {
 			index: Arc::clone(&self.snapshot.index),
+			linkage: Arc::clone(&self.snapshot.linkage),
 			search: Arc::clone(&self.snapshot.search),
 			git,
 			coverage: self.snapshot.coverage.clone(),
@@ -235,9 +241,11 @@ fn build_snapshot(index: SessionIndex) -> WorkspaceSnapshot {
 		docs: build_search_docs(&index),
 	});
 	let index = Arc::new(index);
-	let git = build_git_overlay(&index);
+	let linkage = Arc::new(LinkageIndex::build(&index));
+	let git = build_git_overlay(&index, &linkage);
 	WorkspaceSnapshot {
 		index,
+		linkage,
 		search,
 		git,
 		coverage: CoverageOverlay::default(),
@@ -248,6 +256,7 @@ fn build_snapshot(index: SessionIndex) -> WorkspaceSnapshot {
 fn build_catalog_snapshot(index: SessionIndex) -> WorkspaceSnapshot {
 	WorkspaceSnapshot {
 		index: Arc::new(index),
+		linkage: Arc::new(LinkageIndex::default()),
 		search: Arc::new(SearchIndex::default()),
 		git: GitOverlay::default(),
 		coverage: CoverageOverlay::default(),
@@ -255,9 +264,9 @@ fn build_catalog_snapshot(index: SessionIndex) -> WorkspaceSnapshot {
 	}
 }
 
-fn build_git_overlay(index: &SessionIndex) -> GitOverlay {
+fn build_git_overlay(index: &SessionIndex, linkage: &LinkageIndex) -> GitOverlay {
 	let change_index = build_change_index(index);
-	let change_usage_refs = build_change_usage_refs(index, &change_index);
+	let change_usage_refs = build_change_usage_refs(index, linkage, &change_index);
 	GitOverlay {
 		change_index,
 		change_usage_refs,
@@ -294,28 +303,20 @@ fn build_change_index(index: &SessionIndex) -> ChangeIndex {
 
 fn build_change_usage_refs(
 	index: &SessionIndex,
+	linkage: &LinkageIndex,
 	change_index: &ChangeIndex,
 ) -> FxHashMap<Moniker, Vec<RefLocation>> {
 	let mut cache = FxHashMap::default();
 	for change in &change_index.entries {
 		cache.entry(change.moniker.clone()).or_insert_with(|| {
-			refs_matching_target_in_index(index, &change.moniker)
+			linkage
+				.incoming_refs(&change.moniker, index)
 				.into_iter()
 				.filter(|ref_loc| change_ref_is_outside_changed_symbol(index, change, ref_loc))
 				.collect()
 		});
 	}
 	cache
-}
-
-fn refs_matching_target_in_index(index: &SessionIndex, target: &Moniker) -> Vec<RefLocation> {
-	let mut refs = Vec::new();
-	for (candidate, locs) in &index.refs_by_target {
-		if usage_target_matches(target, candidate) {
-			refs.extend(locs.iter().copied());
-		}
-	}
-	refs
 }
 
 fn change_ref_is_outside_changed_symbol(
@@ -338,6 +339,10 @@ impl IndexStore for WorkspaceStore {
 
 	fn stats(&self) -> &SessionStats {
 		&self.snapshot.index.stats
+	}
+
+	fn linkage_stats(&self) -> &LinkageStats {
+		self.snapshot.linkage.stats()
 	}
 
 	fn file_count(&self) -> usize {
@@ -449,14 +454,15 @@ impl IndexStore for WorkspaceStore {
 	fn symbol_references(&self, loc: &DefLocation) -> SymbolReferences {
 		let symbol = self.symbol_summary_for_loc(loc);
 		let moniker = &self.raw_def(loc).moniker;
+		let incoming = self
+			.snapshot
+			.linkage
+			.incoming_refs(moniker, &self.snapshot.index);
 		SymbolReferences {
 			symbol,
-			incoming: self.reference_set(
-				self.snapshot.index.incoming_refs(moniker),
-				ReferenceDirection::Incoming,
-			),
+			incoming: self.reference_set(&incoming, ReferenceDirection::Incoming),
 			outgoing: self.reference_set(
-				self.snapshot.index.outgoing_refs(moniker),
+				self.snapshot.linkage.outgoing_refs(moniker),
 				ReferenceDirection::Outgoing,
 			),
 		}
@@ -828,7 +834,9 @@ impl WorkspaceStore {
 	}
 
 	fn refs_matching_target(&self, target: &Moniker) -> Vec<RefLocation> {
-		refs_matching_target_in_index(&self.snapshot.index, target)
+		self.snapshot
+			.linkage
+			.incoming_refs(target, &self.snapshot.index)
 	}
 
 	fn usage_contexts(&self, refs: &[RefLocation]) -> Vec<DefLocation> {
@@ -999,61 +1007,10 @@ fn fallback_order_for_shape(shape: Shape) -> u16 {
 	}
 }
 
-fn usage_target_matches(selected: &Moniker, reference_target: &Moniker) -> bool {
-	selected.bind_match(reference_target)
-		|| selected.is_ancestor_of(reference_target)
-		|| moniker_matches_without_project(selected, reference_target)
-		|| moniker_is_ancestor_without_project(selected, reference_target)
-		|| callable_last_segment_matches(selected, reference_target)
-}
-
-fn moniker_matches_without_project(left: &Moniker, right: &Moniker) -> bool {
-	let left_segments: Vec<_> = left.as_view().segments().collect();
-	let right_segments: Vec<_> = right.as_view().segments().collect();
-	if left_segments.len() != right_segments.len() || left_segments.is_empty() {
-		return false;
-	}
-	let last_idx = left_segments.len() - 1;
-	left_segments[..last_idx] == right_segments[..last_idx]
-		&& segment_names_match(left_segments[last_idx], right_segments[last_idx])
-}
-
-fn moniker_is_ancestor_without_project(parent: &Moniker, child: &Moniker) -> bool {
-	let parent_segments: Vec<_> = parent.as_view().segments().collect();
-	let child_segments: Vec<_> = child.as_view().segments().collect();
-	if parent_segments.is_empty() || parent_segments.len() >= child_segments.len() {
-		return false;
-	}
-	child_segments.starts_with(&parent_segments)
-}
-
-fn segment_names_match(left: Segment<'_>, right: Segment<'_>) -> bool {
-	left.name == right.name || bare_callable_name(left.name) == bare_callable_name(right.name)
-}
-
-fn callable_last_segment_matches(selected: &Moniker, reference_target: &Moniker) -> bool {
-	let Some(selected_segment) = selected.as_view().segments().last() else {
-		return false;
-	};
-	let Some(target_segment) = reference_target.as_view().segments().last() else {
-		return false;
-	};
-	let kind = std::str::from_utf8(selected_segment.kind).unwrap_or("");
-	if !matches!(kind, "method" | "function" | "func" | "constructor") {
-		return false;
-	}
-	bare_callable_name(selected_segment.name) == bare_callable_name(target_segment.name)
-}
-
-fn bare_callable_name(name: &[u8]) -> &[u8] {
-	name.iter()
-		.position(|b| *b == b'(')
-		.map_or(name, |idx| &name[..idx])
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::process::Command;
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let p = root.join(rel);
@@ -1061,6 +1018,32 @@ mod tests {
 			std::fs::create_dir_all(parent).unwrap();
 		}
 		std::fs::write(p, body).unwrap();
+	}
+
+	fn git(root: &Path, args: &[&str]) {
+		let output = Command::new("git")
+			.arg("-C")
+			.arg(root)
+			.args(args)
+			.output()
+			.unwrap_or_else(|e| panic!("cannot run git {args:?}: {e}"));
+		assert!(
+			output.status.success(),
+			"git {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+			String::from_utf8_lossy(&output.stdout),
+			String::from_utf8_lossy(&output.stderr)
+		);
+	}
+
+	fn def_named(store: &WorkspaceStore, name: &str) -> DefLocation {
+		store
+			.snapshot
+			.index
+			.defs_by_name
+			.get(name)
+			.and_then(|locs| locs.first())
+			.copied()
+			.unwrap_or_else(|| panic!("missing def {name}"))
 	}
 
 	#[test]
@@ -1132,6 +1115,76 @@ mod tests {
 		assert_eq!(store.stats().files, 1);
 		assert!(store.snapshot.search.docs.is_empty());
 		assert_eq!(store.change_overview().change_count, 0);
+	}
+
+	#[test]
+	fn symbol_references_and_usage_focus_use_linkage_resolution() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(tmp.path(), "src/lib.ts", "export class Lib {}\n");
+		write(
+			tmp.path(),
+			"src/app.ts",
+			"import { Lib } from './lib'; export const value = Lib;\n",
+		);
+
+		let store = WorkspaceStore::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let lib = def_named(&store, "Lib");
+
+		let refs = store.symbol_references(&lib);
+		let focus = store.usage_focus(lib);
+
+		assert!(refs.incoming.summary.refs > 0);
+		assert!(refs.incoming.summary.contexts > 0);
+		assert_eq!(focus.refs.len(), refs.incoming.summary.refs);
+		assert_eq!(focus.contexts.len(), refs.incoming.summary.contexts);
+	}
+
+	#[test]
+	fn change_blast_radius_uses_linkage_resolution() {
+		let tmp = tempfile::tempdir().unwrap();
+		git(tmp.path(), &["init"]);
+		git(
+			tmp.path(),
+			&["config", "user.email", "code-moniker@example.test"],
+		);
+		git(tmp.path(), &["config", "user.name", "Code Moniker"]);
+		write(
+			tmp.path(),
+			"src/lib.ts",
+			"export function makeLib() { return 1; }\n",
+		);
+		write(
+			tmp.path(),
+			"src/app.ts",
+			"import { makeLib } from './lib'; export const value = makeLib();\n",
+		);
+		git(tmp.path(), &["add", "."]);
+		git(tmp.path(), &["commit", "-m", "initial"]);
+		write(
+			tmp.path(),
+			"src/lib.ts",
+			"export function makeLib() { return 2; }\n",
+		);
+
+		let store = WorkspaceStore::load(&SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let lib = def_named(&store, "makeLib()");
+		let change = store
+			.change_detail_for_symbol(&lib)
+			.expect("makeLib change detail");
+
+		assert!(change.summary.usage_count > 0);
+		assert!(change.blast_radius.summary.refs > 0);
+		assert!(change.blast_radius.summary.contexts > 0);
 	}
 
 	#[test]

@@ -5,10 +5,12 @@ use rustc_hash::FxHashMap;
 
 use super::git::ChangeIndex;
 use super::index::{DefLocation, RefLocation, SessionIndex};
+use super::linkage::LinkageIndex;
 
 #[derive(Clone)]
 pub(crate) struct WorkspaceSnapshot {
 	pub(crate) index: Arc<SessionIndex>,
+	pub(crate) linkage: Arc<LinkageIndex>,
 	pub(crate) search: Arc<SearchIndex>,
 	pub(crate) git: GitOverlay,
 	pub(crate) coverage: CoverageOverlay,
