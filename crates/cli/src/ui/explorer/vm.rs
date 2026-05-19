@@ -1,6 +1,9 @@
 use code_moniker_core::lang::Lang;
 
-use crate::ui::app::{FocusRegion, PanelNavigationState, VisualizationMode};
+use crate::ui::app::{
+	FocusRegion, PanelNavigationState, VisualizationMode, display_filter, kind_filter_summary,
+	lang_filter_summary,
+};
 use crate::ui::events::{HeaderSearchFocus, UiMode};
 use crate::ui::panel::PanelVm;
 use crate::ui::render::component::ComponentId;
@@ -8,7 +11,7 @@ use crate::ui::store::navigation::NavigationPaneView;
 use crate::ui::store::navigation_tree::{NavNodeKind, NavRow};
 use crate::workspace::{ChangeStatus, DefLocation, IndexStore};
 
-use crate::ui::{App, display_filter, kind_filter_summary, lang_filter_summary};
+use crate::ui::App;
 
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct ExplorerVm {
