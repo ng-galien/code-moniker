@@ -8,7 +8,7 @@ use crate::workspace::ChangeStatus;
 use super::DEFAULT_PANEL_SNAPSHOT_WIDTH;
 use super::component::{ComponentId, focused_block_title, marker, raw_marker};
 use super::events::HeaderSearchFocus;
-use super::features::explorer::{
+use super::explorer::{
 	ExplorerVm, FooterVm, HeaderVm, NavPaneVm, NavRowVm, NavRowVmKind, SearchBarVm, SearchPopupVm,
 };
 use super::kinds::definition_kind_group;

@@ -15,7 +15,7 @@ use crate::{DEFAULT_SCHEME, Exit};
 use super::{EventSource, ShellEvent};
 use crate::ui::App;
 use crate::ui::app::AppAction;
-use crate::ui::features::explorer::ExplorerFeature;
+use crate::ui::explorer::ExplorerFeature;
 use crate::ui::live::StoreEvent;
 use crate::ui::view;
 

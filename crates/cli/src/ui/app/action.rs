@@ -6,7 +6,7 @@ use crate::ui::app::state::{
 };
 use crate::ui::clipboard::ClipboardResult;
 use crate::ui::events::{HeaderSearchFocus, Msg};
-use crate::ui::features::explorer::HeaderSearchResults;
+use crate::ui::explorer::HeaderSearchResults;
 use crate::ui::live::StoreEvent;
 use crate::ui::route::Route;
 use crate::ui::runtime::{TaskId, TaskResult, WorkKind};

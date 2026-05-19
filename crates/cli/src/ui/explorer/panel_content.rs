@@ -1,11 +1,11 @@
-use super::super::super::App;
-use super::super::super::app::{ChangePanelMode, CheckState, FocusRegion, View};
-use super::super::super::component::ComponentId;
-use super::super::super::navigator::NavNodeKind;
-use super::super::super::panel::{PanelVm, ReferenceGroupVm};
-use super::super::super::source::source_snippet;
-use super::super::super::store::navigation::NavigationPane;
-use super::super::super::text::{Column, FitMode};
+use crate::ui::App;
+use crate::ui::app::{ChangePanelMode, CheckState, FocusRegion, View};
+use crate::ui::component::ComponentId;
+use crate::ui::navigator::NavNodeKind;
+use crate::ui::panel::{PanelVm, ReferenceGroupVm};
+use crate::ui::source::source_snippet;
+use crate::ui::store::navigation::NavigationPane;
+use crate::ui::text::{Column, FitMode};
 use crate::workspace::{DefLocation, IndexStore, ReferenceGroup, ReferenceSet, UsageFocus};
 
 pub(super) fn active_panel(app: &App) -> PanelVm {

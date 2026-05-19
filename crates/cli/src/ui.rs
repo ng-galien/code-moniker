@@ -18,7 +18,7 @@ mod app;
 mod clipboard;
 mod component;
 mod events;
-mod features;
+mod explorer;
 mod kinds;
 mod live;
 mod navigator;
@@ -40,7 +40,7 @@ use app::{
 	ShellAction, TaskCompletion, View, VisualizationMode,
 };
 use events::{HeaderSearchFocus, UiMode, key_to_msg};
-use features::explorer::{
+use explorer::{
 	ExplorerFeature, header_search_options, header_search_results as explorer_header_search_results,
 };
 use live::StoreEvent;

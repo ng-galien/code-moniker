@@ -6,7 +6,7 @@ use crate::ui::app::action::ShellAction;
 use crate::ui::app::{HeaderKindFilter, HeaderSearchState};
 use crate::ui::component::ComponentId;
 use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
-use crate::ui::features::explorer::{
+use crate::ui::explorer::{
 	ExplorerFeature, HeaderSearchResults, ROUTE_CHANGE, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW,
 	ROUTE_REFS,
 };
