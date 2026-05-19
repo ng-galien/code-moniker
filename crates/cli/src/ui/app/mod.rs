@@ -5,6 +5,7 @@ mod navigation;
 mod panel_focus;
 mod state;
 mod store;
+mod usage_lens;
 
 pub(in crate::ui) use action::{AppAction, ShellAction};
 pub(in crate::ui) use effect::Effect;
