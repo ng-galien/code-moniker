@@ -33,27 +33,3 @@ impl Route {
 		}
 	}
 }
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::ui) struct NavItem {
-	pub(in crate::ui) label: String,
-	pub(in crate::ui) route: Route,
-	pub(in crate::ui) group: Option<String>,
-	pub(in crate::ui) order: i32,
-}
-
-impl NavItem {
-	pub(in crate::ui) fn new(
-		label: impl Into<String>,
-		route: Route,
-		group: Option<String>,
-		order: i32,
-	) -> Self {
-		Self {
-			label: label.into(),
-			route,
-			group,
-			order,
-		}
-	}
-}

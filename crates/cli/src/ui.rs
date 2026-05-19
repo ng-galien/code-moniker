@@ -18,7 +18,6 @@ mod app;
 mod clipboard;
 mod component;
 mod components;
-mod contracts;
 mod events;
 mod features;
 mod kinds;
@@ -27,6 +26,7 @@ mod navigator;
 mod panel;
 mod panels;
 mod reactive;
+mod route;
 mod runtime;
 mod scroll;
 mod shell;
@@ -41,13 +41,13 @@ use app::{
 	HeaderKindFilter, HeaderSearchResults, HeaderSearchState, PanelNavigationState, PanelPolicy,
 	ShellAction, TaskCompletion, View, VisualizationMode,
 };
-use contracts::Route;
 use events::{HeaderSearchFocus, UiMode, key_to_msg};
 use features::explorer::{
 	ExplorerFeature, header_search_options, header_search_results as explorer_header_search_results,
 };
 use live::StoreEvent;
 use navigator::{NavNodeKind, NavRow, build_change_navigator, build_navigator};
+use route::Route;
 use runtime::{TaskOutcome, TaskRuntime};
 use shell::ShellEvent;
 use store::navigation::{
@@ -97,7 +97,6 @@ struct App {
 impl App {
 	fn new(store: WorkspaceStore, scheme: String, rules: PathBuf, profile: Option<String>) -> Self {
 		let route = ExplorerFeature::initial_route();
-		let nav_count = ExplorerFeature::navigation().len();
 		let navigator = build_navigator(&store);
 		let change_navigator = build_change_navigator(&store);
 		let mut app_store = AppStore::from_workspace_store(store);
@@ -114,7 +113,7 @@ impl App {
 		app.refresh_header_search_options();
 		app.dispatch_shell(ShellAction::SetRoute(route));
 		app.set_status(format!(
-			"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits ({nav_count} nav items)"
+			"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits"
 		));
 		app.refresh_results(false);
 		app

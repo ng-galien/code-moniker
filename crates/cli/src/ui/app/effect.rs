@@ -1,4 +1,4 @@
-use crate::ui::contracts::Route;
+use crate::ui::route::Route;
 use crate::ui::store::navigation::NavigationAction;
 
 #[derive(Debug)]

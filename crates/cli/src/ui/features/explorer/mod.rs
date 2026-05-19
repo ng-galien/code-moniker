@@ -3,8 +3,8 @@ mod search;
 mod vm;
 
 use crate::ui::App;
-use crate::ui::contracts::{NavItem, Route};
 use crate::ui::panels::PanelVm;
+use crate::ui::route::Route;
 
 pub(in crate::ui) use search::{HeaderSearchResults, header_search_options, header_search_results};
 pub(in crate::ui) use vm::{
@@ -36,36 +36,6 @@ impl ExplorerFeature {
 
 	pub(in crate::ui) fn view_model(app: &App) -> ExplorerVm {
 		ExplorerVm::from_app(app)
-	}
-
-	pub(in crate::ui) fn navigation() -> Vec<NavItem> {
-		vec![
-			NavItem::new(
-				"Overview",
-				Self::route(ROUTE_OVERVIEW),
-				Some("Explorer".into()),
-				10,
-			),
-			NavItem::new(
-				"Outline",
-				Self::route(ROUTE_OUTLINE),
-				Some("Explorer".into()),
-				20,
-			),
-			NavItem::new("Refs", Self::route(ROUTE_REFS), Some("Explorer".into()), 30),
-			NavItem::new(
-				"Check",
-				Self::route(ROUTE_CHECK),
-				Some("Explorer".into()),
-				40,
-			),
-			NavItem::new(
-				"Change",
-				Self::route(ROUTE_CHANGE),
-				Some("Explorer".into()),
-				50,
-			),
-		]
 	}
 
 	pub(in crate::ui) fn can_open(route: &Route) -> bool {

@@ -5,7 +5,6 @@ use code_moniker_core::lang::Lang;
 use crate::ui::app::action::ShellAction;
 use crate::ui::component::ComponentId;
 use crate::ui::components::search_bar::{HeaderKindFilter, HeaderSearchState};
-use crate::ui::contracts::Route;
 use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
 use crate::ui::features::explorer::{
 	ExplorerFeature, HeaderSearchResults, ROUTE_CHANGE, ROUTE_CHECK, ROUTE_OUTLINE, ROUTE_OVERVIEW,
@@ -13,6 +12,7 @@ use crate::ui::features::explorer::{
 };
 use crate::ui::live::StoreEvent;
 use crate::ui::reactive::Transition;
+use crate::ui::route::Route;
 use crate::ui::runtime::{TaskId, TaskOutcome, TaskResult, WorkKind};
 use crate::ui::store::navigation::{
 	NavigationAction, NavigationPane, NavigationState, TreePaneAction,
