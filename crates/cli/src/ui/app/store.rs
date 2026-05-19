@@ -141,11 +141,8 @@ impl Reduce<&AppAction> for AppState {
 				Transition::changed()
 			}
 			AppAction::TaskCompleted(result) => {
-				if self.complete_task(result).accepted() {
-					Transition::changed()
-				} else {
-					Transition::changed()
-				}
+				self.complete_task(result);
+				Transition::changed()
 			}
 			AppAction::Clipboard(_) => Transition::unchanged(),
 		}

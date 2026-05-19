@@ -200,12 +200,6 @@ pub(in crate::ui) enum TaskCompletion {
 	Ignored,
 }
 
-impl TaskCompletion {
-	pub(in crate::ui) fn accepted(self) -> bool {
-		self == Self::Accepted
-	}
-}
-
 impl AppState {
 	pub(in crate::ui) fn new() -> Self {
 		Self::default()

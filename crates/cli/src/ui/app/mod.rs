@@ -61,9 +61,9 @@ impl App {
 			watch_roots_update: None,
 		};
 		app.refresh_header_search_options();
-		app.set_status(format!(
-			"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits"
-		));
+		app.set_status(
+			"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits",
+		);
 		app.refresh_results(false);
 		app
 	}
