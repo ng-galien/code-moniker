@@ -271,7 +271,8 @@ mod tests {
 	use std::path::Path;
 
 	use super::*;
-	use crate::ui::app::{App, PanelNavigationState, ShellAction};
+	use crate::ui::app::{App, AppAction, PanelNavigationState, ShellAction};
+	use crate::ui::events::Msg;
 	use crate::ui::render::component::ComponentId;
 	use crate::ui::store::tree_pane_action::TreePaneAction;
 	use crate::workspace::{SessionOptions, WorkspaceStore};
@@ -357,6 +358,10 @@ mod tests {
 			reset_expansion: true,
 			expand_symbols: true,
 		});
+		app.apply_navigation(NavigationAction::Select {
+			pane: NavigationPane::Primary,
+			target: NavigationSelection::Def(alpha),
+		});
 		app.focus_usages(alpha);
 		assert_eq!(
 			app.usage_lens().map(|focus| focus.label.as_str()),
@@ -375,6 +380,63 @@ mod tests {
 		assert_eq!(
 			app.navigation().usage_view().map(|pane| pane.rows.len()),
 			Some(focus.contexts.len())
+		);
+	}
+
+	#[test]
+	fn primary_navigation_to_non_definition_clears_open_usage_lens() {
+		let mut app = fixture_app();
+		let alpha = def_named(&app, "AlphaService");
+		let visible_defs = app.store().all_navigable_defs();
+		app.dispatch_navigation(NavigationAction::SetScope {
+			scope: NavigationScope::Filtered,
+			visible_defs,
+			reset_expansion: true,
+			expand_symbols: true,
+		});
+		app.focus_usages(alpha);
+		assert!(app.usage_lens().is_some());
+		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
+		app.apply_navigation(NavigationAction::Select {
+			pane: NavigationPane::Primary,
+			target: NavigationSelection::Def(alpha),
+		});
+		assert_eq!(app.primary_selected(), Some(alpha));
+
+		app.apply_navigation(NavigationAction::Pane {
+			pane: NavigationPane::Primary,
+			action: TreePaneAction::CloseSelected,
+		});
+
+		assert!(app.primary_selected().is_none());
+		assert!(app.usage_lens().is_none());
+		assert!(app.navigation().usage_view().is_none());
+		assert_eq!(app.focus_region(), FocusRegion::Navigator);
+	}
+
+	#[test]
+	fn ui_move_down_refreshes_open_usage_lens_through_runtime_path() {
+		let mut app = fixture_app();
+		let alpha = def_named(&app, "AlphaService");
+		let visible_defs = app.store().all_navigable_defs();
+		app.dispatch_navigation(NavigationAction::SetScope {
+			scope: NavigationScope::Filtered,
+			visible_defs,
+			reset_expansion: true,
+			expand_symbols: true,
+		});
+		app.focus_usages(alpha);
+		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
+		app.apply_navigation(NavigationAction::Select {
+			pane: NavigationPane::Primary,
+			target: NavigationSelection::Def(alpha),
+		});
+
+		app.update(AppAction::Ui(Msg::MoveDown));
+
+		assert_ne!(
+			app.usage_lens().map(|focus| focus.label.as_str()),
+			Some("AlphaService")
 		);
 	}
 }
