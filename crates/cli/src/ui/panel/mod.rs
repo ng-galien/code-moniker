@@ -57,7 +57,7 @@ pub(super) fn bullet(text: impl Into<String>) -> Line<'static> {
 }
 
 pub(super) fn kv(label: &str, value: &str, width: usize, mode: FitMode) -> Line<'static> {
-	let prefix = format!("{label:<10}");
+	let prefix = format!("{label:<10} ");
 	let value_width = width.saturating_sub(visible_len(&prefix));
 	Line::from(vec![
 		Span::styled(prefix, Style::default().fg(THEME.panel.label)),
