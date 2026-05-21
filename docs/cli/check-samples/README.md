@@ -15,6 +15,7 @@ Available samples:
 | Language | Sample |
 | -------- | ------ |
 | Architecture patterns | [architecture.toml](architecture.toml) |
+| Test guardrails | [test-guardrails.toml](test-guardrails.toml) |
 | TypeScript / JavaScript | [typescript.toml](typescript.toml) |
 | Rust | [rust.toml](rust.toml) |
 | Java | [java.toml](java.toml) |
@@ -22,6 +23,16 @@ Available samples:
 | Go | [go.toml](go.toml) |
 | C# | [csharp.toml](csharp.toml) |
 | SQL / PL/pgSQL | [sql.toml](sql.toml) |
+
+Literature-inspired samples — community-authored encodings of structural
+rules from canonical software engineering literature. Attribution sits at
+the top of each file; the authors did not endorse these encodings.
+
+| Source | Sample |
+| ------ | ------ |
+| Robert C. Martin, *Clean Architecture* (2017) | [clean-architecture.toml](clean-architecture.toml) |
+| Martin Fowler, *Patterns of Enterprise Application Architecture* (2002) | [fowler-eaa.toml](fowler-eaa.toml) |
+| Martin Fowler, *Refactoring* (1999/2018) | [fowler-refactoring.toml](fowler-refactoring.toml) |
 
 Use `code-moniker langs <tag>` to inspect the exact kind and visibility
 vocabulary for a language.

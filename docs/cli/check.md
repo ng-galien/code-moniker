@@ -344,6 +344,7 @@ samples:
 | Language | Sample |
 | -------- | ------ |
 | Architecture patterns | [architecture.toml](check-samples/architecture.toml) |
+| Test guardrails | [test-guardrails.toml](check-samples/test-guardrails.toml) |
 | TypeScript / JavaScript | [typescript.toml](check-samples/typescript.toml) |
 | Rust | [rust.toml](check-samples/rust.toml) |
 | Java | [java.toml](check-samples/java.toml) |
@@ -351,6 +352,16 @@ samples:
 | Go | [go.toml](check-samples/go.toml) |
 | C# | [csharp.toml](check-samples/csharp.toml) |
 | SQL / PL/pgSQL | [sql.toml](check-samples/sql.toml) |
+
+Literature-inspired samples encode structural rules from canonical software
+engineering literature. They are community-authored examples; attribution and
+non-endorsement notes sit at the top of each file.
+
+| Source | Sample |
+| ------ | ------ |
+| Robert C. Martin, *Clean Architecture* (2017) | [clean-architecture.toml](check-samples/clean-architecture.toml) |
+| Martin Fowler, *Patterns of Enterprise Application Architecture* (2002) | [fowler-eaa.toml](check-samples/fowler-eaa.toml) |
+| Martin Fowler, *Refactoring* (1999/2018) | [fowler-refactoring.toml](check-samples/fowler-refactoring.toml) |
 
 ### Layer boundary
 

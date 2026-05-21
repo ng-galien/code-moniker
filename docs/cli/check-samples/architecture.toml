@@ -7,22 +7,13 @@
 # - MVC boundaries
 # - DDD boundaries
 # - Hexagonal architecture boundaries
-# - TDD guardrails that `check` can enforce
 #
-# Important TDD limitation:
-# `code-moniker check` analyzes the current graph. It cannot prove the
-# temporal fact "the test was written before the production code". Enforce
-# that part through your agent harness / review workflow. The rules below
-# enforce static guardrails that support TDD: test naming, test-only code
-# isolation, and production/test source separation.
+# For test guardrails, see test-guardrails.toml.
 
 default_rules = false
 
 [aliases]
 # Def-scope aliases. Use these inside [[<lang>.<kind>.where]] rules.
-main_src = "moniker ~ '**/srcset:main/**' OR moniker ~ '**/dir:src/**'"
-test_src = "moniker ~ '**/srcset:test/**' OR moniker ~ '**/dir:test/**' OR moniker ~ '**/dir:tests/**'"
-
 mvc_controller = "moniker ~ '**/dir:controller/**' OR moniker ~ '**/package:controller/**' OR moniker ~ '**/package:api/**' OR moniker ~ '**/package:web/**'"
 mvc_service = "moniker ~ '**/dir:service/**' OR moniker ~ '**/package:service/**' OR moniker ~ '**/package:application/**'"
 mvc_model = "moniker ~ '**/dir:model/**' OR moniker ~ '**/package:model/**' OR moniker ~ '**/package:domain/**'"
@@ -43,7 +34,6 @@ src_domain = "source ~ '**/dir:domain/**' OR source ~ '**/package:domain/**'"
 src_application = "source ~ '**/dir:application/**' OR source ~ '**/package:application/**'"
 src_infrastructure = "source ~ '**/dir:infrastructure/**' OR source ~ '**/package:infrastructure/**' OR source ~ '**/dir:infra/**' OR source ~ '**/package:infra/**'"
 src_adapter = "source ~ '**/dir:adapter/**' OR source ~ '**/package:adapter/**'"
-src_test = "source ~ '**/srcset:test/**' OR source ~ '**/dir:test/**' OR source ~ '**/dir:tests/**'"
 
 tgt_controller = "target ~ '**/dir:controller/**' OR target ~ '**/package:controller/**' OR target ~ '**/package:api/**' OR target ~ '**/package:web/**'"
 tgt_service = "target ~ '**/dir:service/**' OR target ~ '**/package:service/**' OR target ~ '**/package:application/**'"
@@ -54,7 +44,6 @@ tgt_application = "target ~ '**/dir:application/**' OR target ~ '**/package:appl
 tgt_infrastructure = "target ~ '**/dir:infrastructure/**' OR target ~ '**/package:infrastructure/**' OR target ~ '**/dir:infra/**' OR target ~ '**/package:infra/**'"
 tgt_port = "target ~ '**/dir:port/**' OR target ~ '**/package:port/**' OR target.name =~ Port$"
 tgt_adapter = "target ~ '**/dir:adapter/**' OR target ~ '**/package:adapter/**' OR target.name =~ Adapter$"
-tgt_test = "target ~ '**/srcset:test/**' OR target ~ '**/dir:test/**' OR target ~ '**/dir:tests/**'"
 
 # MVC -----------------------------------------------------------------------
 
@@ -131,39 +120,6 @@ id = "hex-adapter-class-name"
 # Adapter implementations should be visibly named *Adapter.
 expr = "$hex_adapter => name =~ Adapter$"
 message = "Hexagonal adapter class `{name}` should end with Adapter."
-
-# TDD guardrails ------------------------------------------------------------
-
-[[refs.where]]
-id = "tdd-production-does-not-depend-on-tests"
-# Production code must never import/call test code. This catches accidental
-# coupling introduced while moving fast in an agent loop.
-expr = "NOT $src_test => NOT $tgt_test"
-message = "Production code must not depend on test code."
-
-[[default.class.where]]
-id = "tdd-test-doubles-live-in-tests"
-# Test doubles should not ship in production source sets.
-expr = "name =~ (Stub|Fake|Mock|Builder)$ => $test_src"
-message = "Test double `{name}` must live in test sources."
-
-[[default.function.where]]
-id = "tdd-test-functions-are-named-like-tests"
-# For languages that expose test functions as `function`, keep test names
-# readable. Rust has a dedicated `test` kind; see rust.toml.
-expr = "$test_src => name =~ ^(test|should|it_)"
-message = "Test function `{name}` should read like a test."
-
-[profiles.agent-tdd]
-# Use this profile from an agent harness. It keeps only fast, local rules
-# that support a test-first workflow. The actual temporal rule "write the
-# failing test before production code" must be enforced by the harness prompt
-# and review process, not by static graph analysis.
-enable = [
-  "^refs\\.tdd-production-does-not-depend-on-tests$",
-  "^default\\.class\\.tdd-test-doubles-live-in-tests$",
-  "^default\\.function\\.tdd-test-functions-are-named-like-tests$",
-]
 
 [profiles.architecture]
 # CI / pre-commit profile for structural boundaries.
