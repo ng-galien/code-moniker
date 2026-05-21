@@ -12,17 +12,18 @@ code-moniker rules show [ROOT] [--rules <PATH>] [--profile <NAME>] [--default-ru
 code-moniker rules learn [SAMPLE] [--format text|json]
 code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
 code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
+code-moniker harness gemini [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
 ```
 
 Use it for local architecture checks, pre-commit hooks, CI jobs, or
 per-file edit hooks. Use [`extract`](extract.md) when you only want to
 inspect the graph.
 
-Use `code-moniker harness codex` or `code-moniker harness claude` to
-generate project-local `PostToolUse` hooks that run `code-moniker check`
-after local write tools. By default, harnesses check `.` with the root
-`.code-moniker.toml`; use `--profile` and `--scope` for a narrower
-edit-time rule set.
+Use `code-moniker harness codex`, `code-moniker harness claude`, or
+`code-moniker harness gemini` to generate project-local hooks that run
+`code-moniker check` after local write tools. By default, harnesses check
+`.` with the root `.code-moniker.toml`; use `--profile` and `--scope` for
+a narrower edit-time rule set.
 
 ## Mental model
 

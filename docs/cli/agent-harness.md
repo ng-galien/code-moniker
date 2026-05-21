@@ -8,8 +8,8 @@
 | `1`  | rule violation or per-file read error during project scan |
 | `2`  | usage or configuration error |
 
-That makes it usable anywhere exit codes matter: editor hooks,
-Codex or Claude Code `PostToolUse`, Git pre-commit, or CI.
+That makes it usable anywhere exit codes matter: editor hooks, Codex or
+Claude Code `PostToolUse`, Gemini CLI `AfterTool`, Git pre-commit, or CI.
 
 For command behavior and rule syntax, see [`check`](check.md) and the
 [Rule DSL](check-dsl.md).
@@ -39,6 +39,7 @@ code-moniker check .
 | ---- | -------- | ------------- |
 | Give Codex a live check harness from project rules | [Install a Codex live harness](#install-a-codex-live-harness) | `.code-moniker.toml`, `.codex/hooks.json`, `.codex/hooks/` |
 | Give Claude Code the same project-local check harness | [Install a Claude Code live harness](#install-a-claude-code-live-harness) | `.code-moniker.toml`, `.claude/settings.json`, `.claude/hooks/` |
+| Give Gemini CLI the same project-local check harness | [Install a Gemini CLI live harness](#install-a-gemini-cli-live-harness) | `.code-moniker.toml`, `.gemini/settings.json`, `.gemini/hooks/` |
 | Stop the agent from adding prose comments inside Rust code | [Block prose comments inside code bodies](#block-prose-comments-inside-code-bodies) | `.code-moniker.toml`, `.claude/hooks/code-moniker-check.sh`, `.claude/settings.json` |
 | Stop agent edits that cross a forbidden layer boundary | [Keep an agent inside a layer](#keep-an-agent-inside-a-layer) | `.code-moniker.toml`, `.claude/settings.json` |
 | Make the agent split oversized TypeScript classes immediately | [Enforce small TypeScript classes after each edit](#enforce-small-typescript-classes-after-each-edit) | `.code-moniker.toml`, `.claude/settings.json` |
@@ -213,6 +214,60 @@ calls `$HOME/.cargo/bin/code-moniker` directly.
 `PostToolUse` runs after the edit is applied, so this is repair feedback
 for the agent, not a guarantee that the write never happened. Keep
 pre-commit and CI checks for repository guarantees.
+
+### Install a Gemini CLI live harness
+
+Use this when Gemini CLI should run the same project-local check after
+tool edits.
+
+```sh
+code-moniker harness gemini .
+# or, for a named profile and narrower scope:
+code-moniker harness gemini . --profile architecture --scope src --max-violations 10
+```
+
+Generated harnesses pass `code-moniker check --max-violations 10` by
+default. Gemini CLI project settings live in `.gemini/settings.json`, and
+the generated hook is registered under `hooks.AfterTool`.
+
+Without `--profile`, the command installs a root check:
+
+- `.gemini/hooks/code-moniker-check.sh`
+- `.gemini/settings.json`
+- `.gemini/code-moniker-performance.md`
+
+When `--profile architecture` is provided, the command verifies that
+`[profiles.architecture]` exists and names the hook from the profile:
+
+- `.gemini/hooks/code-moniker-architecture.sh`
+- `.gemini/settings.json`
+- `.gemini/code-moniker-performance.md`
+
+Recommended Gemini CLI hook entry for the default install:
+
+```json
+{
+  "hooks": {
+    "AfterTool": [
+      {
+        "matcher": "write_file|replace|edit",
+        "hooks": [
+          {
+            "name": "code-moniker-check",
+            "type": "command",
+            "command": "sh -c 'root=\"${GEMINI_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.gemini/hooks/code-moniker-check.sh\"'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Gemini CLI hooks expect JSON on `stdout`; the generated script therefore
+returns `{"decision":"allow"}` when `check` passes. When `check` reports
+violations, the script writes the bounded diagnostics to `stderr` and exits
+with code `2`, which Gemini CLI treats as a blocking hook failure.
 
 ### Block prose comments inside code bodies
 

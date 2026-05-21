@@ -157,6 +157,8 @@ pub enum HarnessCommand {
 	Codex(CodexHarnessArgs),
 	#[command(about = "Install a project-local Claude Code PostToolUse hook.")]
 	Claude(CodexHarnessArgs),
+	#[command(about = "Install a project-local Gemini CLI AfterTool hook.")]
+	Gemini(CodexHarnessArgs),
 }
 
 #[derive(Debug, ClapArgs)]

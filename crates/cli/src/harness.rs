@@ -10,17 +10,20 @@ use crate::args::{CodexHarnessArgs, HarnessArgs, HarnessCommand};
 
 const CODEX_MATCHER: &str = "apply_patch|Write|Edit|MultiEdit";
 const CLAUDE_MATCHER: &str = "Edit|Write|MultiEdit";
+const GEMINI_MATCHER: &str = "write_file|replace|edit";
 
 #[derive(Copy, Clone)]
 enum HarnessBackend {
 	Codex,
 	Claude,
+	Gemini,
 }
 
 pub fn run<W1: Write, W2: Write>(args: &HarnessArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	let result = match &args.command {
 		HarnessCommand::Codex(args) => install(args, HarnessBackend::Codex, stdout),
 		HarnessCommand::Claude(args) => install(args, HarnessBackend::Claude, stdout),
+		HarnessCommand::Gemini(args) => install(args, HarnessBackend::Gemini, stdout),
 	};
 	match result {
 		Ok(()) => Exit::Match,
@@ -75,11 +78,14 @@ fn install<W: Write>(
 	let config_path = project_dir.join(backend.config_file());
 	let config = read_json_object(&config_path)?;
 	let hook_command = hook_path.display().to_string();
-	let config = upsert_post_tool_use_hook(
+	let settings_command = backend.settings_command(&hook_command);
+	let config = upsert_tool_hook(
 		config,
 		&config_path,
-		&hook_command,
+		&settings_command,
+		backend.hook_event(),
 		backend.matcher(),
+		backend.hook_name(&settings_command),
 		backend.project_dir(),
 	)?;
 	fs::write(&config_path, serde_json::to_vec_pretty(&config)?)
@@ -119,6 +125,7 @@ impl HarnessBackend {
 		match self {
 			Self::Codex => "Codex",
 			Self::Claude => "Claude",
+			Self::Gemini => "Gemini CLI",
 		}
 	}
 
@@ -126,13 +133,14 @@ impl HarnessBackend {
 		match self {
 			Self::Codex => ".codex",
 			Self::Claude => ".claude",
+			Self::Gemini => ".gemini",
 		}
 	}
 
 	fn config_file(self) -> &'static str {
 		match self {
 			Self::Codex => "hooks.json",
-			Self::Claude => "settings.json",
+			Self::Claude | Self::Gemini => "settings.json",
 		}
 	}
 
@@ -140,6 +148,14 @@ impl HarnessBackend {
 		match self {
 			Self::Codex => "CODEX_PROJECT_DIR",
 			Self::Claude => "CLAUDE_PROJECT_DIR",
+			Self::Gemini => "GEMINI_PROJECT_DIR",
+		}
+	}
+
+	fn hook_event(self) -> &'static str {
+		match self {
+			Self::Codex | Self::Claude => "PostToolUse",
+			Self::Gemini => "AfterTool",
 		}
 	}
 
@@ -147,15 +163,41 @@ impl HarnessBackend {
 		match self {
 			Self::Codex => CODEX_MATCHER,
 			Self::Claude => CLAUDE_MATCHER,
+			Self::Gemini => GEMINI_MATCHER,
+		}
+	}
+
+	fn hook_name(self, command: &str) -> Option<String> {
+		match self {
+			Self::Codex | Self::Claude => None,
+			Self::Gemini => Some(hook_name_from_command(command)),
+		}
+	}
+
+	fn settings_command(self, hook_command: &str) -> String {
+		match self {
+			Self::Codex | Self::Claude => hook_command.to_string(),
+			Self::Gemini => format!(
+				"sh -c 'root=\"${{GEMINI_PROJECT_DIR:-$(pwd)}}\"; exec \"$root/{}\"'",
+				relative_hook_path(Self::Gemini, hook_command)
+			),
 		}
 	}
 
 	fn check_format_arg(self) -> &'static str {
 		match self {
 			Self::Codex => " --format codex-hook",
-			Self::Claude => "",
+			Self::Claude | Self::Gemini => "",
 		}
 	}
+}
+
+fn relative_hook_path(backend: HarnessBackend, hook_command: &str) -> String {
+	Path::new(hook_command)
+		.file_name()
+		.and_then(|name| name.to_str())
+		.map(|file| format!("{}/hooks/{file}", backend.project_dir()))
+		.unwrap_or_else(|| hook_command.to_string())
 }
 
 fn resolve_from_root(root: &Path, path: &Path) -> PathBuf {
@@ -252,6 +294,30 @@ fi
 exit "$status"
 "#
 		),
+		HarnessBackend::Gemini => format!(
+			r#"#!/usr/bin/env sh
+set -eu
+
+{root_expr}
+cd "$root"
+
+set +e
+output=$({command} 2>&1)
+status=$?
+set -e
+
+if [ "$status" -eq 0 ]; then
+	printf '%s\n' '{{"decision":"allow"}}'
+	exit 0
+fi
+
+if [ -n "$output" ]; then
+	printf '%s\n' "$output" >&2
+fi
+
+exit 2
+"#
+		),
 	}
 }
 
@@ -275,11 +341,13 @@ fn read_json_object(path: &Path) -> anyhow::Result<Value> {
 	}
 }
 
-fn upsert_post_tool_use_hook(
+fn upsert_tool_hook(
 	mut settings: Value,
 	path: &Path,
 	command: &str,
+	hook_event: &str,
 	matcher: &str,
+	hook_name: Option<String>,
 	project_dir: &str,
 ) -> anyhow::Result<Value> {
 	let root = settings.as_object_mut().expect("settings object");
@@ -288,28 +356,45 @@ fn upsert_post_tool_use_hook(
 		.or_insert_with(|| Value::Object(Map::new()))
 		.as_object_mut()
 		.with_context(|| format!("`{}` field `hooks` must be a JSON object", path.display()))?;
-	let post = hooks
-		.entry("PostToolUse")
+	let event_hooks = hooks
+		.entry(hook_event)
 		.or_insert_with(|| Value::Array(Vec::new()))
 		.as_array_mut()
 		.with_context(|| {
 			format!(
-				"`{}` field `hooks.PostToolUse` must be a JSON array",
-				path.display()
+				"`{}` field `hooks.{hook_event}` must be a JSON array",
+				path.display(),
 			)
 		})?;
 
-	post.retain(|entry| !entry_contains_generated_harness_command(entry, project_dir));
-	post.push(json!({
+	event_hooks.retain(|entry| !entry_contains_generated_harness_command(entry, project_dir));
+	let mut hook = json!({
+		"type": "command",
+		"command": command
+	});
+	if let Some(hook_name) = hook_name
+		&& let Some(hook) = hook.as_object_mut()
+	{
+		hook.insert("name".to_string(), Value::String(hook_name));
+	}
+	event_hooks.push(json!({
 		"matcher": matcher,
-		"hooks": [
-			{
-				"type": "command",
-				"command": command
-			}
-		]
+		"hooks": [hook]
 	}));
 	Ok(settings)
+}
+
+fn hook_name_from_command(command: &str) -> String {
+	let script = command
+		.split('/')
+		.next_back()
+		.and_then(|tail| tail.split('"').next())
+		.unwrap_or(command);
+	Path::new(script)
+		.file_stem()
+		.and_then(|stem| stem.to_str())
+		.unwrap_or("code-moniker-check")
+		.to_string()
 }
 
 fn entry_contains_generated_harness_command(entry: &Value, project_dir: &str) -> bool {
@@ -740,6 +825,107 @@ enable = [".*"]
 		assert!(String::from_utf8(output.stdout).unwrap().is_empty());
 		assert_eq!(
 			String::from_utf8(output.stderr).unwrap().trim(),
+			"violation from fake checker"
+		);
+	}
+
+	#[test]
+	fn gemini_harness_installs_project_local_settings_and_hook() {
+		let tmp = tempdir().unwrap();
+		let root = tmp.path().join("space project");
+		std::fs::create_dir(&root).unwrap();
+		write_architecture_profile(&root);
+		let cli = Cli::parse_from(["code-moniker", "harness", "gemini", root.to_str().unwrap()]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+
+		let script =
+			std::fs::read_to_string(root.join(".gemini/hooks/code-moniker-check.sh")).unwrap();
+		assert!(script.contains("GEMINI_PROJECT_DIR"));
+		assert!(script.contains("\"$HOME/.cargo/bin/code-moniker\" check"));
+		assert!(script.contains("--max-violations 10"));
+		assert!(script.contains(r#"{"decision":"allow"}"#));
+		assert!(script.contains("exit 2"));
+
+		let settings: serde_json::Value = serde_json::from_str(
+			&std::fs::read_to_string(root.join(".gemini/settings.json")).unwrap(),
+		)
+		.unwrap();
+		assert_eq!(
+			settings["hooks"]["AfterTool"][0]["matcher"],
+			"write_file|replace|edit"
+		);
+		assert_eq!(
+			settings["hooks"]["AfterTool"][0]["hooks"][0]["name"],
+			"code-moniker-check"
+		);
+		assert_eq!(
+			settings["hooks"]["AfterTool"][0]["hooks"][0]["type"],
+			"command"
+		);
+		assert_eq!(
+			settings["hooks"]["AfterTool"][0]["hooks"][0]["command"],
+			"sh -c 'root=\"${GEMINI_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.gemini/hooks/code-moniker-check.sh\"'"
+		);
+	}
+
+	#[test]
+	fn gemini_harness_maps_clean_and_violating_runs_to_hook_contract() {
+		use std::process::Command;
+
+		let dir = tempdir().unwrap();
+		write_architecture_profile(dir.path());
+		let bin_dir = dir.path().join(".cargo/bin");
+		std::fs::create_dir_all(&bin_dir).unwrap();
+		let fake = bin_dir.join("code-moniker");
+		std::fs::write(
+			&fake,
+			r#"#!/usr/bin/env sh
+if [ "${CODE_MONIKER_FAKE_FAIL:-}" = "1" ]; then
+	echo 'violation from fake checker'
+	exit 1
+fi
+echo 'clean summary that must not reach hook stdout'
+exit 0
+"#,
+		)
+		.unwrap();
+		super::make_executable(&fake).unwrap();
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"harness",
+			"gemini",
+			dir.path().to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let script = dir.path().join(".gemini/hooks/code-moniker-check.sh");
+
+		let clean = Command::new(&script)
+			.env("GEMINI_PROJECT_DIR", dir.path())
+			.env("HOME", dir.path())
+			.output()
+			.unwrap();
+		assert_eq!(clean.status.code(), Some(0));
+		assert_eq!(
+			String::from_utf8(clean.stdout).unwrap().trim(),
+			r#"{"decision":"allow"}"#
+		);
+		assert!(String::from_utf8(clean.stderr).unwrap().is_empty());
+
+		let blocked = Command::new(&script)
+			.env("GEMINI_PROJECT_DIR", dir.path())
+			.env("HOME", dir.path())
+			.env("CODE_MONIKER_FAKE_FAIL", "1")
+			.output()
+			.unwrap();
+		assert_eq!(blocked.status.code(), Some(2));
+		assert!(String::from_utf8(blocked.stdout).unwrap().is_empty());
+		assert_eq!(
+			String::from_utf8(blocked.stderr).unwrap().trim(),
 			"violation from fake checker"
 		);
 	}
