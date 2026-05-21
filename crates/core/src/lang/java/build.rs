@@ -37,10 +37,12 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, PomXmlError> {
 
 	let mut out = Vec::new();
 
-	let group = direct_child_text(root, "groupId");
+	let group = direct_child_text(root, "groupId").or_else(|| parent_child_text(root, "groupId"));
 	let artifact = direct_child_text(root, "artifactId");
 	if let Some(artifact) = artifact {
-		let version = direct_child_text(root, "version").map(str::to_string);
+		let version = direct_child_text(root, "version")
+			.or_else(|| parent_child_text(root, "version"))
+			.map(str::to_string);
 		let coord = coord(group.unwrap_or(""), artifact);
 		out.push(Dep {
 			name: coord.clone(),
@@ -103,6 +105,10 @@ fn direct_child<'a, 'input>(parent: Node<'a, 'input>, name: &str) -> Option<Node
 
 fn direct_child_text<'a>(parent: Node<'a, '_>, name: &str) -> Option<&'a str> {
 	direct_child(parent, name).and_then(|n| n.text().map(str::trim).filter(|s| !s.is_empty()))
+}
+
+fn parent_child_text<'a>(root: Node<'a, '_>, name: &str) -> Option<&'a str> {
+	direct_child(root, "parent").and_then(|parent| direct_child_text(parent, name))
 }
 
 #[cfg(test)]
@@ -191,6 +197,30 @@ mod tests {
         "#;
 		let deps = parse(xml).unwrap();
 		assert!(deps.iter().any(|d| d.name == "orphan"));
+	}
+
+	#[test]
+	fn parse_project_inherits_parent_group_and_version() {
+		let xml = r#"
+            <project>
+                <parent>
+                    <groupId>com.example</groupId>
+                    <artifactId>platform</artifactId>
+                    <version>1.2.3</version>
+                </parent>
+                <artifactId>worker</artifactId>
+            </project>
+        "#;
+		let deps = parse(xml).unwrap();
+		assert_eq!(
+			deps,
+			vec![Dep {
+				name: "com.example:worker".into(),
+				version: Some("1.2.3".into()),
+				dep_kind: "package".into(),
+				import_root: "com.example:worker".into(),
+			}]
+		);
 	}
 
 	#[test]

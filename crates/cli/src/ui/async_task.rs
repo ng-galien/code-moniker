@@ -252,13 +252,18 @@ impl TaskOutcome {
 				let stats = store.stats();
 				let linkage = store.linkage_stats();
 				format!(
-					"files={} defs={} refs={} scan_ms={} extract_ms={} index_ms={} resolved_refs={} unresolved_refs={}",
+					"files={} defs={} refs={} scan_ms={} extract_ms={} index_ms={} linkage_score={} eligible_refs={} resolved_refs={} unresolved_refs={}",
 					stats.files,
 					stats.defs,
 					stats.refs,
 					stats.scan_ms,
 					stats.extract_ms,
 					stats.index_ms,
+					linkage
+						.score_percent()
+						.map(|score| format!("{score}%"))
+						.unwrap_or_else(|| "n/a".to_string()),
+					linkage.eligible_refs(),
 					linkage.resolved_refs,
 					linkage.unresolved_refs
 				)

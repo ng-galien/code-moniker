@@ -287,7 +287,24 @@ fn build_snapshot(index: SessionIndex) -> WorkspaceSnapshot {
 	let started = Instant::now();
 	let index = Arc::new(index);
 	let linkage = Arc::new(LinkageIndex::build(&index));
-	perf::record("workspace.snapshot.linkage", started.elapsed(), &detail);
+	perf::record(
+		"workspace.snapshot.linkage",
+		started.elapsed(),
+		format!(
+			"{detail} score={} eligible_refs={} resolved_refs={} unresolved_refs={} blocked_refs={} external_refs={} ambiguous_refs={}",
+			linkage
+				.stats()
+				.score_percent()
+				.map(|score| format!("{score}%"))
+				.unwrap_or_else(|| "n/a".to_string()),
+			linkage.stats().eligible_refs(),
+			linkage.stats().resolved_refs,
+			linkage.stats().unresolved_refs,
+			linkage.stats().manifest_blocked_refs,
+			linkage.stats().external_refs,
+			linkage.stats().ambiguous_refs
+		),
+	);
 	let started = Instant::now();
 	let git = build_git_overlay(&index, &linkage);
 	perf::record("workspace.snapshot.git_overlay", started.elapsed(), &detail);

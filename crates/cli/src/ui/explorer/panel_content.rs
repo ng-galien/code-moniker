@@ -85,6 +85,19 @@ fn overview_panel(app: &App) -> PanelVm {
 	let linkage = app.store().linkage_stats();
 	vm.blank();
 	vm.section("linkage");
+	vm.kv(
+		"score",
+		linkage
+			.score_percent()
+			.map(|score| format!("{score}%"))
+			.unwrap_or_else(|| "n/a".to_string()),
+		FitMode::Tail,
+	);
+	vm.kv(
+		"eligible",
+		linkage.eligible_refs().to_string(),
+		FitMode::Tail,
+	);
 	vm.kv("resolved", linkage.resolved_refs.to_string(), FitMode::Tail);
 	vm.kv("external", linkage.external_refs.to_string(), FitMode::Tail);
 	vm.kv(

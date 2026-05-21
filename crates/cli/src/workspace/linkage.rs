@@ -218,11 +218,9 @@ impl LinkageIndex {
 					return false;
 				}
 				loc.file == target.file
-					|| self.manifests.source_can_link_to_def(
-						index,
-						index.files[loc.file].source_root,
-						target,
-					)
+					|| self
+						.manifests
+						.source_can_link_to_def(index, loc.file, target)
 			})
 			.filter(|loc| seen.insert(*loc))
 			.collect::<Vec<_>>();
@@ -285,6 +283,17 @@ impl LinkageIndex {
 				}
 			}
 		}
+	}
+}
+
+impl LinkageStats {
+	pub(crate) fn eligible_refs(&self) -> usize {
+		self.resolved_refs + self.manifest_blocked_refs + self.unresolved_refs
+	}
+
+	pub(crate) fn score_percent(&self) -> Option<u32> {
+		let eligible = self.eligible_refs();
+		(eligible > 0).then(|| ((self.resolved_refs * 100) / eligible) as u32)
 	}
 }
 
@@ -366,8 +375,8 @@ fn resolve_reference(
 	}
 	let started = trace.now();
 	out.retain(|def| {
-		let allowed = loc.file == def.file
-			|| manifests.source_can_link_to_def(index, index.files[loc.file].source_root, def);
+		let allowed =
+			loc.file == def.file || manifests.source_can_link_to_def(index, loc.file, def);
 		if !allowed {
 			blocked = true;
 		}
@@ -644,8 +653,15 @@ impl PathKey {
 
 #[derive(Clone, Debug, Default)]
 struct ManifestLinkage {
-	root_packages: FxHashMap<usize, FxHashSet<String>>,
-	deps_by_root: FxHashMap<usize, FxHashSet<String>>,
+	entries_by_root: FxHashMap<usize, Vec<ManifestEntry>>,
+}
+
+#[derive(Clone, Debug)]
+struct ManifestEntry {
+	path: std::path::PathBuf,
+	manifest: Manifest,
+	packages: FxHashSet<String>,
+	deps: FxHashSet<String>,
 }
 
 impl ManifestLinkage {
@@ -663,21 +679,26 @@ impl ManifestLinkage {
 				let Ok(deps) = parse_manifest(manifest, project.as_bytes(), &content) else {
 					continue;
 				};
+				let mut entry = ManifestEntry {
+					path: manifest_path,
+					manifest,
+					packages: FxHashSet::default(),
+					deps: FxHashSet::default(),
+				};
 				for dep in deps {
 					if dep.dep_kind == "package" {
-						linkage
-							.root_packages
-							.entry(root_idx)
-							.or_default()
+						entry
+							.packages
 							.insert(package_id(manifest, &dep.import_root));
 					} else {
-						linkage
-							.deps_by_root
-							.entry(root_idx)
-							.or_default()
-							.insert(package_id(manifest, &dep.import_root));
+						entry.deps.insert(package_id(manifest, &dep.import_root));
 					}
 				}
+				linkage
+					.entries_by_root
+					.entry(root_idx)
+					.or_default()
+					.push(entry);
 			}
 		}
 		linkage
@@ -686,32 +707,66 @@ impl ManifestLinkage {
 	fn source_can_link_to_def(
 		&self,
 		index: &SessionIndex,
-		source_root: usize,
+		source_file: usize,
 		def: &DefLocation,
 	) -> bool {
-		let target_root = index.files[def.file].source_root;
-		if source_root == target_root {
+		let source_entry = self.entry_for_file(index, source_file);
+		let target_entry = self.entry_for_file(index, def.file);
+		if source_entry.map(|entry| &entry.path) == target_entry.map(|entry| &entry.path) {
 			return true;
 		}
-		let Some(packages) = self.root_packages.get(&target_root) else {
-			return true;
-		};
 		let Some(target_manifest) = manifest_for_lang(index.files[def.file].lang) else {
 			return true;
 		};
+		let Some(target_entry) = target_entry else {
+			return true;
+		};
 		let package_prefix = package_id_prefix(target_manifest);
-		let matching_packages = packages
+		let matching_packages = target_entry
+			.packages
 			.iter()
 			.filter(|package| package.starts_with(&package_prefix))
 			.collect::<Vec<_>>();
 		if matching_packages.is_empty() {
 			return true;
 		}
-		self.deps_by_root.get(&source_root).is_some_and(|deps| {
-			matching_packages
+		let Some(source_entry) = source_entry else {
+			return false;
+		};
+		source_entry.manifest == target_manifest
+			&& matching_packages
 				.iter()
-				.any(|package| deps.contains(*package))
-		})
+				.any(|package| source_entry.deps.contains(*package))
+	}
+
+	fn entry_for_file<'a>(
+		&'a self,
+		index: &'a SessionIndex,
+		file_idx: usize,
+	) -> Option<&'a ManifestEntry> {
+		let file = &index.files[file_idx];
+		let entries = self.entries_by_root.get(&file.source_root)?;
+		entries
+			.iter()
+			.filter(|entry| {
+				entry
+					.path
+					.parent()
+					.is_some_and(|dir| file.path.starts_with(dir))
+			})
+			.max_by_key(|entry| entry.path.components().count())
+	}
+}
+
+#[cfg(test)]
+impl ManifestLinkage {
+	fn root_packages_for_test(&self, root_idx: usize) -> FxHashSet<String> {
+		self.entries_by_root
+			.get(&root_idx)
+			.into_iter()
+			.flat_map(|entries| entries.iter())
+			.flat_map(|entry| entry.packages.iter().cloned())
+			.collect()
 	}
 }
 
@@ -747,6 +802,17 @@ fn manifest_candidates(root: &std::path::Path) -> Vec<std::path::PathBuf> {
 		let path = root.join(name);
 		if path.is_file() {
 			out.push(path);
+		}
+	}
+	let root_pom = root.join("pom.xml");
+	if root_pom.is_file()
+		&& let Ok(entries) = std::fs::read_dir(root)
+	{
+		for entry in entries.flatten() {
+			let path = entry.path().join("pom.xml");
+			if path.is_file() {
+				out.push(path);
+			}
 		}
 	}
 	if let Ok(entries) = std::fs::read_dir(root) {
@@ -2138,6 +2204,107 @@ public class App {
 	}
 
 	#[test]
+	fn maven_reactor_module_dependencies_unlock_java_defs() {
+		let tmp = tempfile::tempdir().unwrap();
+		let common = tmp.path().join("common-lib");
+		let reactor = tmp.path().join("loyalty-platform");
+		write(&common, "pom.xml", &pom("com.acme", "common-lib", &[]));
+		write(
+			&common,
+			"src/main/java/com/acme/common/customer/CustomerProfile.java",
+			"package com.acme.common.customer; public class CustomerProfile {}\n",
+		);
+		write(
+			&reactor,
+			"pom.xml",
+			r#"<project>
+  <groupId>com.acme</groupId>
+  <artifactId>loyalty-platform</artifactId>
+  <version>1.0.0</version>
+  <packaging>pom</packaging>
+  <modules>
+    <module>loyalty-api</module>
+    <module>loyalty-worker</module>
+  </modules>
+</project>"#,
+		);
+		write(
+			&reactor,
+			"loyalty-api/pom.xml",
+			r#"<project>
+  <parent>
+    <groupId>com.acme</groupId>
+    <artifactId>loyalty-platform</artifactId>
+    <version>1.0.0</version>
+  </parent>
+  <artifactId>loyalty-api</artifactId>
+  <dependencies>
+    <dependency>
+      <groupId>com.acme</groupId>
+      <artifactId>common-lib</artifactId>
+    </dependency>
+  </dependencies>
+</project>"#,
+		);
+		write(
+			&reactor,
+			"loyalty-worker/pom.xml",
+			r#"<project>
+  <parent>
+    <groupId>com.acme</groupId>
+    <artifactId>loyalty-platform</artifactId>
+    <version>1.0.0</version>
+  </parent>
+  <artifactId>loyalty-worker</artifactId>
+</project>"#,
+		);
+		write(
+			&reactor,
+			"loyalty-api/src/main/java/com/acme/loyalty/LoyaltyApplication.java",
+			"package com.acme.loyalty; import com.acme.common.customer.CustomerProfile; public class LoyaltyApplication { CustomerProfile p; }\n",
+		);
+		write(
+			&reactor,
+			"loyalty-worker/src/main/java/com/acme/loyalty/LoyaltyWorker.java",
+			"package com.acme.loyalty; import com.acme.common.customer.CustomerProfile; public class LoyaltyWorker { CustomerProfile p; }\n",
+		);
+		let index = SessionIndex::load(&SessionOptions {
+			paths: vec![common, reactor],
+			project: None,
+			cache_dir: None,
+		})
+		.unwrap();
+		let linkage = LinkageIndex::build(&index);
+		let profile = index
+			.defs_by_name
+			.get("CustomerProfile")
+			.and_then(|locs| {
+				locs.iter()
+					.find(|loc| index.files[loc.file].source_root == 0)
+			})
+			.copied()
+			.expect("CustomerProfile class def");
+		let refs = linkage.incoming_refs_for_def(&profile, &index);
+
+		assert!(
+			refs.iter().any(|loc| index.files[loc.file]
+				.rel_path
+				.starts_with("loyalty-platform/loyalty-api/")),
+			"module pom dependency should authorize Java linkage from declaring module"
+		);
+		assert!(
+			refs.iter().all(|loc| !index.files[loc.file]
+				.rel_path
+				.starts_with("loyalty-platform/loyalty-worker/")),
+			"sibling module without dependency must not inherit another module's dependency"
+		);
+		assert!(
+			linkage.stats().manifest_blocked_refs > 0,
+			"sibling module without dependency should report blocked refs"
+		);
+	}
+
+	#[test]
 	fn incoming_refs_for_method_excludes_own_descendant_local_reads() {
 		let tmp = tempfile::tempdir().unwrap();
 		write(
@@ -2239,7 +2406,7 @@ public class App {
 		});
 
 		let manifests = ManifestLinkage::build(&index);
-		let packages = manifests.root_packages.get(&0).expect("root packages");
+		let packages = manifests.root_packages_for_test(0);
 
 		assert!(packages.contains(&package_id(Manifest::PomXml, "com.acme:java-lib")));
 		assert!(packages.contains(&package_id(Manifest::PackageJson, "web-lib")));
