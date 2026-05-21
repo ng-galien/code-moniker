@@ -29,6 +29,7 @@ pub mod workspace;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "tui")]
 pub use args::UiArgs;
@@ -395,6 +396,7 @@ fn check_inner<W: Write, E: Write>(
 	stdout: &mut W,
 	stderr: &mut E,
 ) -> anyhow::Result<CheckOutcome> {
+	let started = Instant::now();
 	let path: &Path = &args.path;
 	let mut cfg = check::load_with_options(Some(&args.rules), args.default_rules.enabled())?;
 	if let Some(name) = &args.profile {
@@ -424,10 +426,11 @@ fn check_inner<W: Write, E: Write>(
 		);
 	}
 	let any_violation = reports.iter().any(|r| !r.violations.is_empty());
+	let elapsed = started.elapsed();
 	match args.format {
-		CheckFormat::Text => write_reports_text(stdout, &reports, &errors, args.report)?,
-		CheckFormat::Json => write_reports_json(stdout, &reports, &errors, args.report)?,
-		CheckFormat::CodexHook => write_reports_codex_hook(stdout, &reports, &errors)?,
+		CheckFormat::Text => write_reports_text(stdout, &reports, &errors, args.report, elapsed)?,
+		CheckFormat::Json => write_reports_json(stdout, &reports, &errors, args.report, elapsed)?,
+		CheckFormat::CodexHook => write_reports_codex_hook(stdout, &reports, &errors, elapsed)?,
 	}
 	Ok(CheckOutcome {
 		any_violation,
@@ -564,6 +567,7 @@ fn write_reports_text<W: Write>(
 	reports: &[FileReport],
 	errors: &[FileError],
 	include_rule_report: bool,
+	elapsed: Duration,
 ) -> std::io::Result<()> {
 	let mut total = 0usize;
 	let mut files_with = 0usize;
@@ -594,8 +598,9 @@ fn write_reports_text<W: Write>(
 	if !single_clean {
 		write!(
 			w,
-			"\n{total} violation(s) across {files_with} file(s) ({} scanned",
-			reports.len()
+			"\n{total} violation(s) across {files_with} file(s) ({} scanned, elapsed {} ms",
+			reports.len(),
+			duration_ms(elapsed)
 		)?;
 		if !errors.is_empty() {
 			write!(w, ", {} file(s) errored", errors.len())?;
@@ -704,6 +709,7 @@ fn write_reports_json<W: Write>(
 	reports: &[FileReport],
 	errors: &[FileError],
 	include_rule_report: bool,
+	elapsed: Duration,
 ) -> anyhow::Result<()> {
 	#[derive(serde::Serialize)]
 	struct FileEntry<'a> {
@@ -722,6 +728,7 @@ fn write_reports_json<W: Write>(
 		total_violations: usize,
 		files_with_errors: usize,
 		total_errors: usize,
+		elapsed_ms: u64,
 		failed_rules: Vec<FailedRuleSummary>,
 	}
 	#[derive(serde::Serialize)]
@@ -756,6 +763,7 @@ fn write_reports_json<W: Write>(
 			total_violations: total,
 			files_with_errors: err_entries.len(),
 			total_errors: err_entries.len(),
+			elapsed_ms: duration_ms(elapsed),
 			failed_rules: failed_rule_summary(reports),
 		},
 		files,
@@ -775,12 +783,13 @@ fn write_reports_codex_hook<W: Write>(
 	w: &mut W,
 	reports: &[FileReport],
 	errors: &[FileError],
+	elapsed: Duration,
 ) -> anyhow::Result<()> {
 	let any_violation = reports.iter().any(|report| !report.violations.is_empty());
 	if !any_violation {
 		return Ok(());
 	}
-	let reason = codex_hook_reason(reports, errors)?;
+	let reason = codex_hook_reason(reports, errors, elapsed)?;
 	serde_json::to_writer(
 		&mut *w,
 		&serde_json::json!({
@@ -792,14 +801,22 @@ fn write_reports_codex_hook<W: Write>(
 	Ok(())
 }
 
-fn codex_hook_reason(reports: &[FileReport], errors: &[FileError]) -> anyhow::Result<String> {
+fn codex_hook_reason(
+	reports: &[FileReport],
+	errors: &[FileError],
+	elapsed: Duration,
+) -> anyhow::Result<String> {
 	let mut reason = Vec::new();
 	writeln!(
 		&mut reason,
 		"code-moniker architecture check failed. Fix the reported rule violation(s):"
 	)?;
-	write_reports_text(&mut reason, reports, errors, false)?;
+	write_reports_text(&mut reason, reports, errors, false, elapsed)?;
 	Ok(String::from_utf8(reason)?)
+}
+
+fn duration_ms(duration: Duration) -> u64 {
+	duration.as_millis().try_into().unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]
@@ -839,7 +856,7 @@ mod tests {
 		}];
 		let mut out = Vec::new();
 
-		write_reports_codex_hook(&mut out, &reports, &[]).unwrap();
+		write_reports_codex_hook(&mut out, &reports, &[], Duration::from_millis(12)).unwrap();
 
 		let feedback: serde_json::Value = serde_json::from_slice(&out).unwrap();
 		assert_eq!(feedback["decision"], "block");
@@ -859,7 +876,7 @@ mod tests {
 		}];
 		let mut out = Vec::new();
 
-		write_reports_codex_hook(&mut out, &reports, &[]).unwrap();
+		write_reports_codex_hook(&mut out, &reports, &[], Duration::from_millis(12)).unwrap();
 
 		assert!(out.is_empty());
 	}

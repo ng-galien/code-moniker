@@ -256,6 +256,7 @@ fn binary_check_reports_text_json_and_usage_errors() {
 	let json: serde_json::Value = serde_json::from_str(&out.stdout).expect("check JSON");
 	assert_eq!(json["summary"]["files_scanned"], 1);
 	assert_eq!(json["summary"]["files_with_violations"], 1);
+	assert!(json["summary"]["elapsed_ms"].as_u64().is_some());
 	assert_eq!(
 		json["files"][0]["violations"][0]["rule_id"],
 		"ts.class.name-pascalcase"

@@ -5,8 +5,8 @@ one directory.
 
 ```sh
 code-moniker check <PATH> [--rules <PATH>] [--default-rules on|off] [--format text|json] [--profile <NAME>] [--report]
-code-moniker harness codex <ROOT> [--profile architecture] [--scope src]
-code-moniker harness claude <ROOT> [--profile architecture] [--scope src]
+code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>]
+code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>]
 ```
 
 Use it for local architecture checks, pre-commit hooks, CI jobs, or
@@ -14,8 +14,10 @@ per-file edit hooks. Use [`extract`](extract.md) when you only want to
 inspect the graph.
 
 Use `code-moniker harness codex` or `code-moniker harness claude` to
-generate project-local `PostToolUse` hooks that run an architecture
-profile after local write tools.
+generate project-local `PostToolUse` hooks that run `code-moniker check`
+after local write tools. By default, harnesses check `.` with the root
+`.code-moniker.toml`; use `--profile` and `--scope` for a narrower
+edit-time rule set.
 
 ## Mental model
 
@@ -442,7 +444,7 @@ src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =
 Project scans end with a summary:
 
 ```text
-3 violation(s) across 2 file(s) (42 scanned).
+3 violation(s) across 2 file(s) (42 scanned, elapsed 18 ms).
 Failed rules:
 - ts.class.name-pascalcase: 2 violation(s)
 - refs.domain-no-infra: 1 violation(s)
@@ -472,6 +474,7 @@ The top-level shape is:
     "total_violations": 3,
     "files_with_errors": 1,
     "total_errors": 1,
+    "elapsed_ms": 18,
     "failed_rules": [
       {
         "rule_id": "ts.class.name-pascalcase",
@@ -520,10 +523,11 @@ The top-level shape is:
 
 `summary` and `files` are always present for supported inputs. `files`
 contains every scanned source file, including clean files with an empty
-`violations` array. `summary.failed_rules` is sorted by descending
-violation count, then by rule id. `errors` is present only when project
-mode could not read one or more files. `rule_report` is present only with
-`--report` and is omitted when empty.
+`violations` array. `summary.elapsed_ms` is the wall-clock runtime of the
+`check` command in milliseconds. `summary.failed_rules` is sorted by
+descending violation count, then by rule id. `errors` is present only when
+project mode could not read one or more files. `rule_report` is present
+only with `--report` and is omitted when empty.
 
 Violation fields:
 

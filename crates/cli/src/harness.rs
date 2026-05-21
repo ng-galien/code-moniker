@@ -43,12 +43,12 @@ fn install<W: Write>(
 	let rules = resolve_from_root(&root, &args.rules);
 	let scope = normalize_relative(&args.scope);
 	let cfg = crate::check::config::load_with_overrides(Some(&rules))?;
-	if !cfg.profiles.contains_key(&args.profile) {
+	if let Some(profile) = &args.profile
+		&& !cfg.profiles.contains_key(profile)
+	{
 		bail!(
-			"profile `{}` is not defined in `{}`; add [profiles.{}] before installing the live harness",
-			args.profile,
-			rules.display(),
-			args.profile
+			"profile `{profile}` is not defined in `{}`; add [profiles.{profile}] before installing the live harness",
+			rules.display()
 		);
 	}
 
@@ -57,11 +57,11 @@ fn install<W: Write>(
 	fs::create_dir_all(&hooks_dir)
 		.with_context(|| format!("cannot create `{}`", hooks_dir.display()))?;
 
-	let hook_file = hook_file_name(&args.profile);
+	let hook_file = hook_file_name(args.profile.as_deref());
 	let hook_path = hooks_dir.join(&hook_file);
 	fs::write(
 		&hook_path,
-		hook_script(&args.profile, &args.rules, &scope, backend),
+		hook_script(args.profile.as_deref(), &args.rules, &scope, backend),
 	)
 	.with_context(|| format!("cannot write `{}`", hook_path.display()))?;
 	make_executable(&hook_path)?;
@@ -69,22 +69,35 @@ fn install<W: Write>(
 	let config_path = project_dir.join(backend.config_file());
 	let config = read_json_object(&config_path)?;
 	let hook_command = hook_path.display().to_string();
-	let config = upsert_post_tool_use_hook(config, &config_path, &hook_command, backend.matcher())?;
+	let config = upsert_post_tool_use_hook(
+		config,
+		&config_path,
+		&hook_command,
+		backend.matcher(),
+		backend.project_dir(),
+	)?;
 	fs::write(&config_path, serde_json::to_vec_pretty(&config)?)
 		.with_context(|| format!("cannot write `{}`", config_path.display()))?;
 	fs::write(
 		project_dir.join("code-moniker-performance.md"),
-		performance_report(&args.profile, &scope, backend),
+		performance_report(args.profile.as_deref(), &scope, backend),
 	)
 	.with_context(|| format!("cannot write {} hook performance template", backend.name()))?;
 
-	writeln!(
-		stdout,
-		"Installed {} live harness for profile `{}` on `{}`.",
-		backend.name(),
-		args.profile,
-		scope.display()
-	)?;
+	match args.profile.as_deref() {
+		Some(profile) => writeln!(
+			stdout,
+			"Installed {} live harness for profile `{profile}` on `{}`.",
+			backend.name(),
+			scope.display()
+		)?,
+		None => writeln!(
+			stdout,
+			"Installed {} live harness on `{}`.",
+			backend.name(),
+			scope.display()
+		)?,
+	}
 	writeln!(stdout, "Hook: {}", hook_path.display())?;
 	writeln!(
 		stdout,
@@ -151,8 +164,9 @@ fn normalize_relative(path: &Path) -> PathBuf {
 	path.components().collect()
 }
 
-fn hook_file_name(profile: &str) -> String {
-	let slug: String = profile
+fn hook_file_name(profile: Option<&str>) -> String {
+	let slug_src = profile.unwrap_or("check");
+	let slug: String = slug_src
 		.chars()
 		.map(|c| {
 			if c.is_ascii_alphanumeric() {
@@ -172,15 +186,23 @@ fn hook_file_name(profile: &str) -> String {
 	format!("code-moniker-{slug}.sh")
 }
 
-fn hook_script(profile: &str, rules: &Path, scope: &Path, backend: HarnessBackend) -> String {
+fn hook_script(
+	profile: Option<&str>,
+	rules: &Path,
+	scope: &Path,
+	backend: HarnessBackend,
+) -> String {
 	let root_expr = format!(
 		r#"root="${{{}:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}}""#,
 		backend.env_var()
 	);
+	let profile_arg = profile
+		.map(|profile| format!(" --profile {}", sh_quote(profile)))
+		.unwrap_or_default();
 	let command = format!(
-		r#""$HOME/.cargo/bin/code-moniker" check --rules {} --profile {}{} {}"#,
+		r#""$HOME/.cargo/bin/code-moniker" check --rules {}{}{} {}"#,
 		sh_quote(&rules.display().to_string()),
-		sh_quote(profile),
+		profile_arg,
 		backend.check_format_arg(),
 		sh_quote(&scope.display().to_string())
 	);
@@ -250,6 +272,7 @@ fn upsert_post_tool_use_hook(
 	path: &Path,
 	command: &str,
 	matcher: &str,
+	project_dir: &str,
 ) -> anyhow::Result<Value> {
 	let root = settings.as_object_mut().expect("settings object");
 	let hooks = root
@@ -268,7 +291,7 @@ fn upsert_post_tool_use_hook(
 			)
 		})?;
 
-	post.retain(|entry| !entry_contains_command(entry, command));
+	post.retain(|entry| !entry_contains_generated_harness_command(entry, project_dir));
 	post.push(json!({
 		"matcher": matcher,
 		"hooks": [
@@ -281,24 +304,31 @@ fn upsert_post_tool_use_hook(
 	Ok(settings)
 }
 
-fn entry_contains_command(entry: &Value, command: &str) -> bool {
+fn entry_contains_generated_harness_command(entry: &Value, project_dir: &str) -> bool {
+	let marker = format!("/{project_dir}/hooks/code-moniker-");
 	entry
 		.get("hooks")
 		.and_then(Value::as_array)
 		.is_some_and(|hooks| {
-			hooks
-				.iter()
-				.any(|hook| hook.get("command").and_then(Value::as_str) == Some(command))
+			hooks.iter().any(|hook| {
+				hook.get("command")
+					.and_then(Value::as_str)
+					.is_some_and(|command| command.contains(&marker) && command.ends_with(".sh"))
+			})
 		})
 }
 
-fn performance_report(profile: &str, scope: &Path, backend: HarnessBackend) -> String {
+fn performance_report(profile: Option<&str>, scope: &Path, backend: HarnessBackend) -> String {
+	let profile_arg = profile
+		.map(|profile| format!(" --profile {}", sh_quote(profile)))
+		.unwrap_or_default();
+	let scope_arg = sh_quote(&scope.display().to_string());
 	format!(
-		"# code-moniker {} hook overhead\n\n| Date | Machine | Scope | Command | p50 | p95 | Notes |\n| ---- | ------- | ----- | ------- | --- | --- | ----- |\n| YYYY-MM-DD | dev laptop | {} | `code-moniker check --profile {} {}` |  |  |  |\n",
+		"# code-moniker {} hook overhead\n\n| Date | Machine | Scope | Command | p50 | p95 | Notes |\n| ---- | ------- | ----- | ------- | --- | --- | ----- |\n| YYYY-MM-DD | dev laptop | {} | `code-moniker check{} {}` |  |  |  |\n",
 		backend.name(),
 		scope.display(),
-		profile,
-		scope.display()
+		profile_arg,
+		scope_arg
 	)
 }
 
@@ -352,15 +382,14 @@ enable = [".*"]
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 
 		let script =
-			std::fs::read_to_string(dir.path().join(".codex/hooks/code-moniker-architecture.sh"))
-				.unwrap();
+			std::fs::read_to_string(dir.path().join(".codex/hooks/code-moniker-check.sh")).unwrap();
 		assert!(script.contains("\"$HOME/.cargo/bin/code-moniker\" check"));
 		assert!(script.contains("--format codex-hook"));
 		assert!(!script.contains("hookSpecificOutput"));
 		assert!(!script.contains("python3"));
 		assert!(script.contains("$HOME/.cargo/bin/code-moniker"));
-		assert!(script.contains("--profile 'architecture'"));
-		assert!(script.contains("'src'"));
+		assert!(!script.contains("--profile"));
+		assert!(script.contains("'.'"));
 		assert!(!script.contains("npm"));
 	}
 
@@ -389,7 +418,7 @@ enable = [".*"]
 		let mut stderr = Vec::new();
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 
-		let output = Command::new(dir.path().join(".codex/hooks/code-moniker-architecture.sh"))
+		let output = Command::new(dir.path().join(".codex/hooks/code-moniker-check.sh"))
 			.env("CODEX_PROJECT_DIR", dir.path())
 			.env("HOME", dir.path())
 			.output()
@@ -411,6 +440,8 @@ enable = [".*"]
 			"harness",
 			"codex",
 			dir.path().to_str().unwrap(),
+			"--profile",
+			"architecture",
 		]);
 		let mut stdout = Vec::new();
 		let mut stderr = Vec::new();
@@ -481,6 +512,69 @@ enable = [".*"]
 	}
 
 	#[test]
+	fn codex_harness_replaces_previous_generated_harness_entry() {
+		let dir = tempdir().unwrap();
+		write_architecture_profile(dir.path());
+		std::fs::create_dir(dir.path().join(".codex")).unwrap();
+		let old_hook = dir
+			.path()
+			.join(".codex/hooks/code-moniker-architecture.sh")
+			.display()
+			.to_string();
+		std::fs::write(
+			dir.path().join(".codex/hooks.json"),
+			format!(
+				r#"{{
+  "hooks": {{
+    "PostToolUse": [
+      {{
+        "matcher": "Read",
+        "hooks": [
+          {{
+            "type": "command",
+            "command": "echo read"
+          }}
+        ]
+      }},
+      {{
+        "matcher": "apply_patch|Write|Edit|MultiEdit",
+        "hooks": [
+          {{
+            "type": "command",
+            "command": "{old_hook}"
+          }}
+        ]
+      }}
+    ]
+  }}
+}}"#
+			),
+		)
+		.unwrap();
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"harness",
+			"codex",
+			dir.path().to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+
+		let settings: serde_json::Value = serde_json::from_str(
+			&std::fs::read_to_string(dir.path().join(".codex/hooks.json")).unwrap(),
+		)
+		.unwrap();
+		let post = settings["hooks"]["PostToolUse"].as_array().unwrap();
+		assert_eq!(post.len(), 2);
+		assert_eq!(post[0]["hooks"][0]["command"], "echo read");
+		let command = post[1]["hooks"][0]["command"].as_str().unwrap();
+		assert!(command.ends_with(".codex/hooks/code-moniker-check.sh"));
+		assert!(!command.contains("code-moniker-architecture.sh"));
+	}
+
+	#[test]
 	fn codex_harness_quotes_shell_arguments_and_uses_profile_script_name() {
 		let dir = tempdir().unwrap();
 		std::fs::write(
@@ -515,6 +609,12 @@ enable = [".*"]
 		assert!(script.contains("--rules 'rules $x.toml'"));
 		assert!(script.contains("--profile 'fast profile'"));
 		assert!(script.contains("'src $x'"));
+		let performance =
+			std::fs::read_to_string(dir.path().join(".codex/code-moniker-performance.md")).unwrap();
+		assert!(
+			performance.contains("`code-moniker check --profile 'fast profile' 'src $x'`"),
+			"{performance}"
+		);
 		let hooks: serde_json::Value = serde_json::from_str(
 			&std::fs::read_to_string(dir.path().join(".codex/hooks.json")).unwrap(),
 		)
@@ -539,6 +639,8 @@ enable = [".*"]
 			"harness",
 			"codex",
 			dir.path().to_str().unwrap(),
+			"--profile",
+			"architecture",
 		]);
 		let mut stdout = Vec::new();
 		let mut stderr = Vec::new();
@@ -563,11 +665,9 @@ enable = [".*"]
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 
-		let script = std::fs::read_to_string(
-			dir.path()
-				.join(".claude/hooks/code-moniker-architecture.sh"),
-		)
-		.unwrap();
+		let script =
+			std::fs::read_to_string(dir.path().join(".claude/hooks/code-moniker-check.sh"))
+				.unwrap();
 		assert!(script.contains("CLAUDE_PROJECT_DIR"));
 		assert!(script.contains("\"$HOME/.cargo/bin/code-moniker\" check"));
 		assert!(script.contains("exit 2"));
@@ -584,7 +684,7 @@ enable = [".*"]
 		assert_eq!(
 			settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"],
 			dir.path()
-				.join(".claude/hooks/code-moniker-architecture.sh")
+				.join(".claude/hooks/code-moniker-check.sh")
 				.canonicalize()
 				.unwrap()
 				.display()
@@ -617,14 +717,11 @@ enable = [".*"]
 		let mut stderr = Vec::new();
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 
-		let output = Command::new(
-			dir.path()
-				.join(".claude/hooks/code-moniker-architecture.sh"),
-		)
-		.env("CLAUDE_PROJECT_DIR", dir.path())
-		.env("HOME", dir.path())
-		.output()
-		.unwrap();
+		let output = Command::new(dir.path().join(".claude/hooks/code-moniker-check.sh"))
+			.env("CLAUDE_PROJECT_DIR", dir.path())
+			.env("HOME", dir.path())
+			.output()
+			.unwrap();
 
 		assert_eq!(output.status.code(), Some(2));
 		assert!(String::from_utf8(output.stdout).unwrap().is_empty());

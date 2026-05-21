@@ -74,15 +74,14 @@ pub struct CodexHarnessArgs {
 	#[arg(
 		long,
 		value_name = "NAME",
-		default_value = "architecture",
-		help = "profile that the live harness must run"
+		help = "optional profile that the live harness must run"
 	)]
-	pub profile: String,
+	pub profile: Option<String>,
 
 	#[arg(
 		long,
 		value_name = "PATH",
-		default_value = "src",
+		default_value = ".",
 		help = "project scope checked by the hook, resolved from ROOT"
 	)]
 	pub scope: PathBuf,

@@ -37,8 +37,8 @@ code-moniker check .
 
 | Need | Use case | Configs shown |
 | ---- | -------- | ------------- |
-| Give Codex a live architecture harness from the project profile | [Install a Codex live harness](#install-a-codex-live-harness) | `.code-moniker.toml`, `.codex/hooks.json`, `.codex/hooks/` |
-| Give Claude Code the same project-local architecture harness | [Install a Claude Code live harness](#install-a-claude-code-live-harness) | `.code-moniker.toml`, `.claude/settings.json`, `.claude/hooks/` |
+| Give Codex a live check harness from project rules | [Install a Codex live harness](#install-a-codex-live-harness) | `.code-moniker.toml`, `.codex/hooks.json`, `.codex/hooks/` |
+| Give Claude Code the same project-local check harness | [Install a Claude Code live harness](#install-a-claude-code-live-harness) | `.code-moniker.toml`, `.claude/settings.json`, `.claude/hooks/` |
 | Stop the agent from adding prose comments inside Rust code | [Block prose comments inside code bodies](#block-prose-comments-inside-code-bodies) | `.code-moniker.toml`, `.claude/hooks/code-moniker-check.sh`, `.claude/settings.json` |
 | Stop agent edits that cross a forbidden layer boundary | [Keep an agent inside a layer](#keep-an-agent-inside-a-layer) | `.code-moniker.toml`, `.claude/settings.json` |
 | Make the agent split oversized TypeScript classes immediately | [Enforce small TypeScript classes after each edit](#enforce-small-typescript-classes-after-each-edit) | `.code-moniker.toml`, `.claude/settings.json` |
@@ -48,10 +48,22 @@ code-moniker check .
 
 ### Install a Codex live harness
 
-Use this when a repository has a fast architecture profile and Codex
-should reject local write-tool edits immediately.
+Use this when Codex should run `code-moniker check` after local write-tool
+edits. With no extra flags, the harness checks the project root with the
+root `.code-moniker.toml`:
 
-`.code-moniker.toml`:
+```sh
+code-moniker harness codex .
+```
+
+That writes:
+
+- `.codex/hooks/code-moniker-check.sh`
+- `.codex/hooks.json`
+- `.codex/code-moniker-performance.md`
+
+Use `--profile` and `--scope` when you want a narrower, fast edit-time
+rule set:
 
 ```toml
 [profiles.architecture]
@@ -64,13 +76,14 @@ Install project-local Codex configuration:
 code-moniker harness codex . --profile architecture --scope src
 ```
 
-The command verifies that `[profiles.architecture]` exists, then writes:
+When `--profile architecture` is provided, the command verifies that
+`[profiles.architecture]` exists and names the hook from the profile:
 
 - `.codex/hooks/code-moniker-architecture.sh`
 - `.codex/hooks.json`
 - `.codex/code-moniker-performance.md`
 
-Recommended Codex hook entry:
+Recommended Codex hook entry for the default install:
 
 ```json
 {
@@ -81,7 +94,7 @@ Recommended Codex hook entry:
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'root=\"${CODEX_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.codex/hooks/code-moniker-architecture.sh\"'"
+            "command": "sh -c 'root=\"${CODEX_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.codex/hooks/code-moniker-check.sh\"'"
           }
         ]
       }
@@ -90,6 +103,9 @@ Recommended Codex hook entry:
 }
 ```
 
+For a profiled install, the generated configuration points to the profiled
+script name, for example `.codex/hooks/code-moniker-architecture.sh`.
+
 The generated script calls the binary directly. `--format codex-hook`
 maps architecture violations to Codex `PostToolUse` JSON feedback. Plain
 text on `stdout` is ignored by Codex for this event, so failures are
@@ -97,10 +113,9 @@ emitted as a structured `decision: "block"` payload carrying the exact
 `code-moniker check` diagnostics:
 
 ```sh
-code-moniker check --rules ".code-moniker.toml" \
-  --profile "architecture" \
-  --format codex-hook \
-  "src"
+code-moniker check --rules ".code-moniker.toml" --format codex-hook "."
+# with --profile architecture --scope src:
+code-moniker check --rules ".code-moniker.toml" --profile "architecture" --format codex-hook "src"
 ```
 
 The generated script assumes `code-moniker` was installed with Cargo and
@@ -120,20 +135,29 @@ Publish hook overhead before enabling it for a team:
 
 ### Install a Claude Code live harness
 
-Use this when the same architecture profile should run from Claude Code
-without any global configuration writes.
+Use this when Claude Code should run the same project-local check without
+any global configuration writes.
 
 ```sh
-code-moniker harness claude . --profile architecture --scope .
+code-moniker harness claude .
+# or, for a named profile and narrower scope:
+code-moniker harness claude . --profile architecture --scope src
 ```
 
-The command verifies that `[profiles.architecture]` exists, then writes:
+Without `--profile`, the command installs a root check:
+
+- `.claude/hooks/code-moniker-check.sh`
+- `.claude/settings.json`
+- `.claude/code-moniker-performance.md`
+
+When `--profile architecture` is provided, the command verifies that
+`[profiles.architecture]` exists and names the hook from the profile:
 
 - `.claude/hooks/code-moniker-architecture.sh`
 - `.claude/settings.json`
 - `.claude/code-moniker-performance.md`
 
-Recommended Claude Code hook entry:
+Recommended Claude Code hook entry for the default install:
 
 ```json
 {
@@ -144,7 +168,7 @@ Recommended Claude Code hook entry:
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'root=\"${CLAUDE_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.claude/hooks/code-moniker-architecture.sh\"'"
+            "command": "sh -c 'root=\"${CLAUDE_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.claude/hooks/code-moniker-check.sh\"'"
           }
         ]
       }
@@ -153,11 +177,14 @@ Recommended Claude Code hook entry:
 }
 ```
 
+For a profiled install, the generated configuration points to the profiled
+script name, for example `.claude/hooks/code-moniker-architecture.sh`.
+
 The generated script maps `code-moniker` violations to Claude's `exit 2`
 feedback status and writes the diagnostic to `stderr`:
 
 ```sh
-output=$(code-moniker check --rules ".code-moniker.toml" --profile "architecture" "." 2>&1)
+output=$(code-moniker check --rules ".code-moniker.toml" "." 2>&1)
 status=$?
 
 if [ -n "$output" ] && [ "$status" -ne 0 ]; then

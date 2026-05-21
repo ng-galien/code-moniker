@@ -795,6 +795,7 @@ fn check_project_clean_returns_match() {
 	]);
 	assert_eq!(exit, Exit::Match);
 	assert!(out.contains("0 violation(s)"), "{out}");
+	assert!(out.contains("elapsed "), "{out}");
 }
 
 #[test]
@@ -817,6 +818,7 @@ fn check_project_json_has_summary_and_files() {
 	assert_eq!(v["summary"]["files_with_violations"], 1);
 	assert_eq!(v["summary"]["total_violations"], 1);
 	assert_eq!(v["summary"]["total_errors"], 0);
+	assert!(v["summary"]["elapsed_ms"].as_u64().is_some());
 	let failed_rules = v["summary"]["failed_rules"].as_array().unwrap();
 	assert_eq!(failed_rules.len(), 1);
 	assert_eq!(failed_rules[0]["rule_id"], "ts.class.name-pascalcase");
