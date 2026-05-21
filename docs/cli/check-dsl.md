@@ -45,11 +45,10 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
 <predicate> ::=
     <string_projection> ( = | != ) <string_value_or_projection>
   | <string_projection> ( =~ | !~ ) <regex>
-  | <number_projection> <number_operator> <number>
+  | <number_expr> <number_operator> <number_expr>
   | <moniker_projection> ( = | != ) <moniker_value_or_projection>
   | <moniker_projection> <moniker_relation_operator> <moniker_uri>
   | <moniker_projection> ~ '<path_pattern>'
-  | count( <domain> [, <expr> ] ) <number_operator> <number>
   | any( <domain>, <expr> )
   | all( <domain>, <expr> )
   | none( <domain>, <expr> )
@@ -67,6 +66,11 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
 
 <number_projection> ::=
     lines | depth
+
+<number_expr> ::=
+    <number>
+  | <number_projection>
+  | count( <domain> [, <expr> ] )
 
 <moniker_projection> ::=
     moniker | source | source.parent | target | target.parent
@@ -151,9 +155,8 @@ to override.
 
 `<string_value_or_projection>`
 : A string literal or another string projection. For `=` and `!=`, a
+  quoted right-hand value is always a string literal. An unquoted
   right-hand token that names a projection is evaluated as that projection.
-  Use a regex such as `=~ ^target$` when a literal would conflict with a
-  projection name.
 
 `<regex>`
 : A Rust regular expression used by `=~` and `!~`.
@@ -219,7 +222,8 @@ The op set is the moniker algebra plus comparison and regex:
 
 ### Quantifiers
 
-`count(<domain>, <expr>?) <op> <number>` returns a cardinal.
+`count(<domain>, <expr>?)` returns a cardinal and can be used anywhere a
+number expression is accepted, including against another `count(...)`.
 `any(<domain>, <expr>)`, `all(<domain>, <expr>)`, `none(<domain>, <expr>)`
 return booleans.
 

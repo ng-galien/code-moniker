@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::check::config::{Config, ConfigError, KindRules, config_section};
 use crate::check::expr::{
-	self, Atom, Domain, Lhs, LhsExpr, Node, Op, QuantKind, Rhs, SegmentScope,
+	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
 };
 use crate::lines::line_range;
 use crate::render_uri;
@@ -680,10 +680,17 @@ fn eval_ref_atom(
 			}
 			SegmentScope::Target => Value::Str(first_segment_name(&r.target, kind.as_bytes())),
 		},
+		LhsExpr::Number(_) => return AtomOutcome::NotApplicable,
 		_ => return AtomOutcome::NotApplicable,
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
 		let Some(rhs_val) = resolve_ref_lhs(*other, r, ctx) else {
+			return AtomOutcome::NotApplicable;
+		};
+		return apply_op_values(&value, atom.op, &rhs_val);
+	}
+	if let Rhs::Number(expr) = &atom.rhs {
+		let Some(rhs_val) = eval_number_expr_ref(expr, r, ctx).map(Value::Number) else {
 			return AtomOutcome::NotApplicable;
 		};
 		return apply_op_values(&value, atom.op, &rhs_val);
@@ -761,7 +768,7 @@ fn resolve_local_def<'g>(
 fn describe_lhs(lhs: &LhsExpr) -> &str {
 	match lhs {
 		LhsExpr::Attr(a) => a.as_str(),
-		LhsExpr::Count { .. } => "count",
+		LhsExpr::Number(n) => number_expr_label(n),
 		LhsExpr::SegmentOf { .. } => "segment",
 	}
 }
@@ -957,6 +964,46 @@ fn eval_count(
 		Domain::Segments => count_segments(d, filter),
 		Domain::OutRefs => count_out_refs(d, def_idx, filter, ctx),
 		Domain::InRefs => count_in_refs(d, filter, ctx),
+	}
+}
+
+fn eval_number_expr_def(
+	expr: &NumberExpr,
+	d: &DefRecord,
+	def_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<u32> {
+	match expr {
+		NumberExpr::Literal(n) => Some(*n),
+		NumberExpr::Projection(lhs) => match resolve_def_lhs(*lhs, d, ctx)? {
+			Value::Number(n) => Some(n),
+			_ => None,
+		},
+		NumberExpr::Count { domain, filter } => {
+			Some(eval_count(domain, filter.as_deref(), d, def_idx, ctx))
+		}
+	}
+}
+
+fn eval_number_expr_ref(
+	expr: &NumberExpr,
+	r: &code_moniker_core::core::code_graph::RefRecord,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<u32> {
+	match expr {
+		NumberExpr::Literal(n) => Some(*n),
+		NumberExpr::Projection(lhs) => match resolve_ref_lhs(*lhs, r, ctx)? {
+			Value::Number(n) => Some(n),
+			_ => None,
+		},
+		NumberExpr::Count { .. } => None,
+	}
+}
+
+fn eval_number_expr_segment(expr: &NumberExpr) -> Option<u32> {
+	match expr {
+		NumberExpr::Literal(n) => Some(*n),
+		NumberExpr::Projection(_) | NumberExpr::Count { .. } => None,
 	}
 }
 
@@ -1167,6 +1214,12 @@ fn eval_atom_segment(atom: &Atom, seg_kind: &[u8], seg_name: &[u8]) -> AtomOutco
 		};
 		return apply_op_values(&value, atom.op, &rhs_val);
 	}
+	if let Rhs::Number(expr) = &atom.rhs {
+		let Some(rhs_val) = eval_number_expr_segment(expr).map(Value::Number) else {
+			return AtomOutcome::NotApplicable;
+		};
+		return apply_op_values(&value, atom.op, &rhs_val);
+	}
 	apply_op(&value, atom)
 }
 
@@ -1257,9 +1310,11 @@ fn eval_atom(atom: &Atom, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 			| Lhs::SegmentName
 			| Lhs::SegmentKind,
 		) => return AtomOutcome::NotApplicable,
-		LhsExpr::Count { domain, filter } => {
-			let c = eval_count(domain, filter.as_deref(), d, def_idx, ctx);
-			Value::Number(c)
+		LhsExpr::Number(expr) => {
+			let Some(n) = eval_number_expr_def(expr, d, def_idx, ctx) else {
+				return AtomOutcome::NotApplicable;
+			};
+			Value::Number(n)
 		}
 		LhsExpr::SegmentOf { scope, kind } => match scope {
 			SegmentScope::Def => Value::Str(first_segment_name(&d.moniker, kind.as_bytes())),
@@ -1270,6 +1325,12 @@ fn eval_atom(atom: &Atom, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
 		let Some(rhs_val) = resolve_def_lhs(*other, d, ctx) else {
+			return AtomOutcome::NotApplicable;
+		};
+		return apply_op_values(&value, atom.op, &rhs_val);
+	}
+	if let Rhs::Number(expr) = &atom.rhs {
+		let Some(rhs_val) = eval_number_expr_def(expr, d, def_idx, ctx).map(Value::Number) else {
 			return AtomOutcome::NotApplicable;
 		};
 		return apply_op_values(&value, atom.op, &rhs_val);
@@ -1326,12 +1387,6 @@ fn apply_op(value: &Value, atom: &Atom) -> AtomOutcome {
 		}
 		(Value::Str(s), Eq, Rhs::Str(t)) => s == t,
 		(Value::Str(s), Ne, Rhs::Str(t)) => s != t,
-		(Value::Number(a), Eq, Rhs::Number(b)) => a == b,
-		(Value::Number(a), Ne, Rhs::Number(b)) => a != b,
-		(Value::Number(a), Lt, Rhs::Number(b)) => a < b,
-		(Value::Number(a), Le, Rhs::Number(b)) => a <= b,
-		(Value::Number(a), Gt, Rhs::Number(b)) => a > b,
-		(Value::Number(a), Ge, Rhs::Number(b)) => a >= b,
 		(Value::Moniker(m), Eq, Rhs::Moniker(t)) => m == t,
 		(Value::Moniker(m), Ne, Rhs::Moniker(t)) => m != t,
 		(Value::Moniker(m), AncestorOf, Rhs::Moniker(t)) => m.is_ancestor_of(t),
@@ -1360,11 +1415,32 @@ fn render_value(v: &Value) -> String {
 fn render_rhs(r: &Rhs) -> String {
 	match r {
 		Rhs::Str(s) => s.clone(),
-		Rhs::Number(n) => n.to_string(),
+		Rhs::Number(expr) => render_number_expr(expr),
 		Rhs::RegexStr(s) => s.clone(),
 		Rhs::Moniker(m) => format!("{}b moniker", m.as_bytes().len()),
 		Rhs::PathPattern(p) => format!("path `{}`", p.raw),
 		Rhs::Projection(l) => l.as_str().to_string(),
+	}
+}
+
+fn number_expr_label(expr: &NumberExpr) -> &'static str {
+	match expr {
+		NumberExpr::Literal(_) => "number",
+		NumberExpr::Projection(lhs) => lhs.as_str(),
+		NumberExpr::Count { .. } => "count",
+	}
+}
+
+fn render_number_expr(expr: &NumberExpr) -> String {
+	match expr {
+		NumberExpr::Literal(n) => n.to_string(),
+		NumberExpr::Projection(lhs) => lhs.as_str().to_string(),
+		NumberExpr::Count { domain, .. } => match domain {
+			Domain::Children(kind) => format!("count({kind})"),
+			Domain::Segments => "count(segment)".to_string(),
+			Domain::OutRefs => "count(out_refs)".to_string(),
+			Domain::InRefs => "count(in_refs)".to_string(),
+		},
 	}
 }
 
@@ -1551,6 +1627,25 @@ mod tests {
 	}
 
 	#[test]
+	fn quoted_count_like_rhs_is_a_string_literal() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "literal-name"
+			expr = "name = 'count(method)'"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let cls = child(&module, b"class", b"Other");
+		g.add_def(cls, b"class", &module, Some((0, 10))).unwrap();
+		let v = evaluate(&g, "anything\n", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1);
+		assert_eq!(v[0].rule_id, "ts.class.literal-name");
+		assert!(v[0].message.contains("expected count(method)"), "{v:?}");
+	}
+
+	#[test]
 	fn auto_id_when_user_omits_one() {
 		let cfg = cfg_from(
 			r#"
@@ -1651,6 +1746,66 @@ mod tests {
 		let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
 		assert_eq!(v.len(), 1, "Foo violates, Bar passes: {v:?}");
 		assert!(v[0].moniker.contains("class:Foo"));
+	}
+
+	#[test]
+	fn numeric_projection_rhs_is_evaluated() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.function.where]]
+			id   = "lines-fit-depth"
+			expr = "lines <= depth"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let f = child(&module, b"function", b"foo");
+		g.add_def(f, b"function", &module, Some((0, 8))).unwrap();
+		let v = evaluate(&g, "a\nb\nc\nd\n", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1);
+		assert!(v[0].message.contains("lines = 4"), "{v:?}");
+		assert!(v[0].message.contains("expected 3"), "{v:?}");
+	}
+
+	#[test]
+	fn count_rhs_is_evaluated() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id   = "methods-vs-fields"
+			expr = "count(method) <= count(field)"
+			"#,
+		);
+		let module = build_module(b"a");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let foo = child(&module, b"class", b"Foo");
+		g.add_def(foo.clone(), b"class", &module, Some((0, 50)))
+			.unwrap();
+		g.add_def(child(&foo, b"method", b"a"), b"method", &foo, Some((1, 5)))
+			.unwrap();
+		g.add_def(child(&foo, b"method", b"b"), b"method", &foo, Some((6, 10)))
+			.unwrap();
+		g.add_def(child(&foo, b"field", b"x"), b"field", &foo, Some((11, 12)))
+			.unwrap();
+		let bar = child(&module, b"class", b"Bar");
+		g.add_def(bar.clone(), b"class", &module, Some((20, 50)))
+			.unwrap();
+		g.add_def(
+			child(&bar, b"method", b"m"),
+			b"method",
+			&bar,
+			Some((21, 25)),
+		)
+		.unwrap();
+		g.add_def(child(&bar, b"field", b"y"), b"field", &bar, Some((26, 27)))
+			.unwrap();
+		g.add_def(child(&bar, b"field", b"z"), b"field", &bar, Some((28, 29)))
+			.unwrap();
+		let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "Foo violates, Bar passes: {v:?}");
+		assert!(v[0].moniker.contains("class:Foo"));
+		assert!(v[0].message.contains("count = 2"), "{v:?}");
+		assert!(v[0].message.contains("expected 1"), "{v:?}");
 	}
 
 	#[test]

@@ -73,13 +73,17 @@ pub(super) const TWO_CHAR_OPS: &[&str] = &["<=", ">=", "!=", "=~", "!~", "<@", "
 #[derive(Debug, Clone)]
 pub(super) enum LhsExpr {
 	Attr(Lhs),
+	Number(NumberExpr),
+	SegmentOf { scope: SegmentScope, kind: String },
+}
+
+#[derive(Debug, Clone)]
+pub(super) enum NumberExpr {
+	Literal(u32),
+	Projection(Lhs),
 	Count {
 		domain: Domain,
 		filter: Option<Box<Node>>,
-	},
-	SegmentOf {
-		scope: SegmentScope,
-		kind: String,
 	},
 }
 
@@ -123,7 +127,7 @@ pub(super) enum Op {
 
 #[derive(Debug, Clone)]
 pub(super) enum Rhs {
-	Number(u32),
+	Number(NumberExpr),
 	RegexStr(String),
 	Moniker(Moniker),
 	Str(String),
@@ -275,7 +279,7 @@ impl<'a> Parser<'a> {
 			});
 		}
 		let atom_str = &self.input[self.pos..atom_end];
-		let atom = parse_atom(atom_str, self.scheme, self.raw)?;
+		let atom = parse_atom(atom_str, self.scheme, self.allowed_kinds, self.raw)?;
 		self.pos = atom_end;
 		Ok(Node::Atom(atom))
 	}
@@ -332,7 +336,7 @@ impl<'a> Parser<'a> {
 				msg: "empty RHS after `segment(...)` op".to_string(),
 			});
 		}
-		let rhs = parse_rhs(rhs_str, op, self.scheme, self.raw)?;
+		let rhs = parse_rhs(rhs_str, op, self.scheme, self.allowed_kinds, self.raw)?;
 		let regex = match (&op, &rhs) {
 			(Op::RegexMatch | Op::RegexNoMatch, Rhs::RegexStr(p)) => {
 				Some(Regex::new(p).map_err(|e| ParseError::BadExpr {
@@ -368,8 +372,7 @@ impl<'a> Parser<'a> {
 			return Ok(None);
 		}
 		let raw_start = self.pos;
-		self.pos += "count".len();
-		let (domain, filter) = self.parse_quantifier_body()?;
+		let lhs = self.parse_number_expr()?;
 		self.skip_ws();
 		let (op_str, op_len) = self.eat_op().ok_or_else(|| ParseError::BadExpr {
 			expr: self.raw.to_string(),
@@ -380,30 +383,74 @@ impl<'a> Parser<'a> {
 		})?;
 		self.pos += op_len;
 		let op = parse_op(op_str, self.raw)?;
-		self.skip_ws();
-		let num_start = self.pos;
-		let bytes = self.input.as_bytes();
-		while self.pos < bytes.len() && bytes[self.pos].is_ascii_digit() {
-			self.pos += 1;
+		if !numeric_op(op) {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("count(...) only accepts numeric operators, got {op:?}"),
+			});
 		}
-		let num_str = &self.input[num_start..self.pos];
-		let n: u32 = num_str.parse().map_err(|_| ParseError::BadExpr {
-			expr: self.raw.to_string(),
-			msg: format!(
-				"expected number after `count(...) {op_str}` at byte {num_start}, got `{num_str}`"
-			),
-		})?;
+		self.skip_ws();
+		let rhs_start = self.pos;
+		let rhs_end = self.find_atom_end();
+		let rhs_str = self.input[rhs_start..rhs_end].trim();
+		let rhs = parse_number_rhs(rhs_str, self.scheme, self.allowed_kinds, self.raw)?;
+		self.pos = rhs_end;
 		let raw = self.input[raw_start..self.pos].to_string();
 		Ok(Some(Atom {
-			lhs: LhsExpr::Count {
-				domain,
-				filter: filter.map(Box::new),
-			},
+			lhs: LhsExpr::Number(lhs),
 			op,
-			rhs: Rhs::Number(n),
+			rhs: Rhs::Number(rhs),
 			raw,
 			regex: None,
 		}))
+	}
+
+	fn parse_number_expr(&mut self) -> Result<NumberExpr, ParseError> {
+		self.skip_ws();
+		if self.input[self.pos..].starts_with("count(") {
+			self.pos += "count".len();
+			let (domain, filter) = self.parse_quantifier_body()?;
+			return Ok(NumberExpr::Count {
+				domain,
+				filter: filter.map(Box::new),
+			});
+		}
+
+		let bytes = self.input.as_bytes();
+		let start = self.pos;
+		while self.pos < bytes.len() && bytes[self.pos].is_ascii_digit() {
+			self.pos += 1;
+		}
+		if self.pos > start {
+			let raw = &self.input[start..self.pos];
+			let n = raw.parse::<u32>().map_err(|e| ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected number, got `{raw}`: {e}"),
+			})?;
+			return Ok(NumberExpr::Literal(n));
+		}
+
+		while self.pos < bytes.len()
+			&& (bytes[self.pos].is_ascii_alphabetic()
+				|| bytes[self.pos] == b'_'
+				|| bytes[self.pos] == b'.')
+		{
+			self.pos += 1;
+		}
+		let raw = &self.input[start..self.pos];
+		let Some(lhs) = projection_name_to_lhs(raw) else {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected number expression, got `{raw}`"),
+			});
+		};
+		if !number_projection(lhs) {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("projection `{raw}` is not numeric"),
+			});
+		}
+		Ok(NumberExpr::Projection(lhs))
 	}
 
 	fn try_parse_quantifier(&mut self) -> Result<Option<Node>, ParseError> {
@@ -583,7 +630,12 @@ impl<'a> Parser<'a> {
 	}
 }
 
-fn parse_atom(input: &str, scheme: &str, full: &str) -> Result<Atom, ParseError> {
+fn parse_atom(
+	input: &str,
+	scheme: &str,
+	allowed_kinds: &[&str],
+	full: &str,
+) -> Result<Atom, ParseError> {
 	let raw = input.trim().to_string();
 	if let Some(atom) = parse_has_segment(&raw, full)? {
 		return Ok(atom);
@@ -592,7 +644,7 @@ fn parse_atom(input: &str, scheme: &str, full: &str) -> Result<Atom, ParseError>
 	let lhs = parse_lhs(lhs_str, full)?;
 	let op = parse_op(op_str, full)?;
 	check_type(&lhs, op, full)?;
-	let rhs = parse_rhs(rhs_str, op, scheme, full)?;
+	let rhs = parse_rhs(rhs_str, op, scheme, allowed_kinds, full)?;
 	let regex = match (&op, &rhs) {
 		(Op::RegexMatch | Op::RegexNoMatch, Rhs::RegexStr(p)) => {
 			Some(Regex::new(p).map_err(|e| ParseError::BadExpr {
@@ -761,6 +813,7 @@ fn parse_lhs(s: &str, full: &str) -> Result<LhsExpr, ParseError> {
 		});
 	}
 	match projection_name_to_lhs(s) {
+		Some(lhs) if number_projection(lhs) => Ok(LhsExpr::Number(NumberExpr::Projection(lhs))),
 		Some(lhs) => Ok(LhsExpr::Attr(lhs)),
 		None => Err(ParseError::BadExpr {
 			expr: full.to_string(),
@@ -797,12 +850,12 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 	use Op::*;
 	let lhs_attr = match lhs {
 		LhsExpr::Attr(a) => *a,
-		LhsExpr::Count { .. } => {
+		LhsExpr::Number(_) => {
 			return match op {
 				Lt | Le | Gt | Ge | Eq | Ne => Ok(()),
 				_ => Err(ParseError::BadExpr {
 					expr: full.to_string(),
-					msg: format!("count(...) only accepts numeric operators, got {op:?}"),
+					msg: format!("number expressions only accept numeric operators, got {op:?}"),
 				}),
 			};
 		}
@@ -848,15 +901,17 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 	Ok(())
 }
 
-fn parse_rhs(s: &str, op: Op, scheme: &str, full: &str) -> Result<Rhs, ParseError> {
+fn parse_rhs(
+	s: &str,
+	op: Op,
+	scheme: &str,
+	allowed_kinds: &[&str],
+	full: &str,
+) -> Result<Rhs, ParseError> {
 	let s = s.trim();
-	let s = if (s.starts_with('"') && s.ends_with('"') && s.len() >= 2)
-		|| (s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2)
-	{
-		&s[1..s.len() - 1]
-	} else {
-		s
-	};
+	let quoted = (s.starts_with('"') && s.ends_with('"') && s.len() >= 2)
+		|| (s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2);
+	let s = if quoted { &s[1..s.len() - 1] } else { s };
 	Ok(match op {
 		Op::RegexMatch | Op::RegexNoMatch => Rhs::RegexStr(s.to_string()),
 		Op::PathMatch => {
@@ -875,15 +930,13 @@ fn parse_rhs(s: &str, op: Op, scheme: &str, full: &str) -> Result<Rhs, ParseErro
 			Rhs::Moniker(m)
 		}
 		Op::Lt | Op::Le | Op::Gt | Op::Ge => {
-			let n: u32 = s.parse().map_err(|_| ParseError::BadExpr {
-				expr: full.to_string(),
-				msg: format!("expected number, got `{s}`"),
-			})?;
-			Rhs::Number(n)
+			Rhs::Number(parse_number_rhs(s, scheme, allowed_kinds, full)?)
 		}
 		Op::Eq | Op::Ne => {
-			if let Ok(n) = s.parse::<u32>() {
-				Rhs::Number(n)
+			if quoted {
+				Rhs::Str(s.to_string())
+			} else if let Ok(expr) = parse_number_rhs(s, scheme, allowed_kinds, full) {
+				Rhs::Number(expr)
 			} else if s.contains("+moniker://") {
 				let cfg = UriConfig { scheme };
 				let m = from_uri(s, &cfg).map_err(|e| ParseError::BadExpr {
@@ -898,6 +951,41 @@ fn parse_rhs(s: &str, op: Op, scheme: &str, full: &str) -> Result<Rhs, ParseErro
 			}
 		}
 	})
+}
+
+fn parse_number_rhs(
+	s: &str,
+	scheme: &str,
+	allowed_kinds: &[&str],
+	full: &str,
+) -> Result<NumberExpr, ParseError> {
+	let mut p = Parser {
+		input: s,
+		pos: 0,
+		scheme,
+		allowed_kinds,
+		raw: full,
+	};
+	let expr = p.parse_number_expr()?;
+	p.skip_ws();
+	if p.pos < p.input.len() {
+		return Err(ParseError::BadExpr {
+			expr: full.to_string(),
+			msg: format!(
+				"trailing input in number expression `{}`",
+				&p.input[p.pos..]
+			),
+		});
+	}
+	Ok(expr)
+}
+
+fn numeric_op(op: Op) -> bool {
+	matches!(op, Op::Eq | Op::Ne | Op::Lt | Op::Le | Op::Gt | Op::Ge)
+}
+
+fn number_projection(lhs: Lhs) -> bool {
+	matches!(lhs, Lhs::Lines | Lhs::Depth)
 }
 
 #[cfg(test)]
@@ -975,7 +1063,11 @@ mod tests {
 		let e = parse("lines <= 60", TS, KINDS).unwrap();
 		let a = solo(&e);
 		match (&a.lhs, &a.op, &a.rhs) {
-			(LhsExpr::Attr(Lhs::Lines), Op::Le, Rhs::Number(60)) => {}
+			(
+				LhsExpr::Number(NumberExpr::Projection(Lhs::Lines)),
+				Op::Le,
+				Rhs::Number(NumberExpr::Literal(60)),
+			) => {}
 			other => panic!("unexpected: {other:?}"),
 		}
 	}
@@ -996,12 +1088,12 @@ mod tests {
 		let a = solo(&e);
 		match (&a.lhs, &a.op, &a.rhs) {
 			(
-				LhsExpr::Count {
+				LhsExpr::Number(NumberExpr::Count {
 					domain: Domain::Children(k),
 					filter: None,
-				},
+				}),
 				Op::Le,
-				Rhs::Number(20),
+				Rhs::Number(NumberExpr::Literal(20)),
 			) if k == "method" => {}
 			other => panic!("unexpected: {other:?}"),
 		}
@@ -1013,12 +1105,46 @@ mod tests {
 		let a = solo(&e);
 		match (&a.lhs, &a.op) {
 			(
-				LhsExpr::Count {
+				LhsExpr::Number(NumberExpr::Count {
 					domain: Domain::Children(k),
 					filter: Some(_),
-				},
+				}),
 				Op::Le,
 			) if k == "method" => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_numeric_projection_rhs_for_ordering() {
+		let e = parse("lines <= depth", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Number(NumberExpr::Projection(Lhs::Lines)),
+				Op::Le,
+				Rhs::Number(NumberExpr::Projection(Lhs::Depth)),
+			) => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_count_rhs_for_ordering() {
+		let e = parse("count(method) <= count(function)", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Number(NumberExpr::Count {
+					domain: Domain::Children(left),
+					filter: None,
+				}),
+				Op::Le,
+				Rhs::Number(NumberExpr::Count {
+					domain: Domain::Children(right),
+					filter: None,
+				}),
+			) if left == "method" && right == "function" => {}
 			other => panic!("unexpected: {other:?}"),
 		}
 	}
@@ -1161,6 +1287,15 @@ mod tests {
 		let e = parse("name =~ \"^foo$\"", TS, KINDS).unwrap();
 		match &solo(&e).rhs {
 			Rhs::RegexStr(s) => assert_eq!(s, "^foo$"),
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn quoted_count_like_rhs_stays_string_literal() {
+		let e = parse("name = 'count(method)'", TS, KINDS).unwrap();
+		match &solo(&e).rhs {
+			Rhs::Str(s) => assert_eq!(s, "count(method)"),
 			other => panic!("unexpected: {other:?}"),
 		}
 	}
