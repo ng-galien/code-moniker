@@ -29,44 +29,166 @@ block for that kind — per-language rules win over the default.
 
 ## Grammar
 
+Expressions are written in the `expr = "..."` string of a `where` rule.
+
+### Synopsis
+
 ```text
-expr        := implication
-implication := disjunction ( "=>" disjunction )?
-disjunction := conjunction ( "OR" conjunction )*
-conjunction := negation ( "AND" negation )*
-negation    := "NOT" negation | primary
-primary     := atom | "(" expr ")"
+<expr> ::=
+    <predicate>
+  | NOT <expr>
+  | <expr> AND <expr>
+  | <expr> OR <expr>
+  | <expr> => <expr>
+  | ( <expr> )
 
-atom        := projection op rhs
-             | quantifier "(" domain ( "," expr )? ")"
-             | path_match
-             | "$" IDENT                         # alias reference
+<predicate> ::=
+    <string_projection> ( = | != ) <string_value_or_projection>
+  | <string_projection> ( =~ | !~ ) <regex>
+  | <number_projection> <number_operator> <number>
+  | <moniker_projection> ( = | != ) <moniker_value_or_projection>
+  | <moniker_projection> <moniker_relation_operator> <moniker_uri>
+  | <moniker_projection> ~ '<path_pattern>'
+  | count( <domain> [, <expr> ] ) <number_operator> <number>
+  | any( <domain>, <expr> )
+  | all( <domain>, <expr> )
+  | none( <domain>, <expr> )
+  | <segment_lookup> ( = | != ) <string_value_or_projection>
+  | <segment_lookup> ( =~ | !~ ) <regex>
+  | has_segment( '<segment_kind>', '<segment_name>' )
+  | $<alias_name>
 
-quantifier  := "count" | "any" | "all" | "none"
-domain      := KIND_IDENT | "segment" | "out_refs" | "in_refs"
+<string_projection> ::=
+    name | kind | shape | visibility | text | confidence
+  | parent.name | parent.kind | parent.shape
+  | source.name | source.kind | source.shape | source.visibility
+  | target.name | target.kind | target.shape | target.visibility
+  | segment.name | segment.kind
 
-projection  := scope_prefix? attribute
-scope_prefix:= ( "source" | "target" | "parent" | "segment" ) "."
-attribute   := "name" | "kind" | "shape" | "visibility" | "lines"
-             | "depth" | "moniker"
+<number_projection> ::=
+    lines | depth
 
-path_match  := projection? "~" PATH_STRING
-PATH_STRING := "'" path "'"
-path        := step ( "/" step )*
-step        := <kind>":"<name>                   # literal
-             | <kind>":*"                        # any name of that kind
-             | "*:"<name>                        # any kind, that name
-             | "*"                               # any single segment
-             | <kind>":/"<regex>"/"              # regex on name
-             | "**"                              # 0+ segments
+<moniker_projection> ::=
+    moniker | source | target
 
-op          := "=" | "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~"
-             | "@>" | "<@" | "?="
-rhs         := NUMBER | STRING | MONIKER_URI | PROJECTION
+<segment_lookup> ::=
+    segment( '<segment_kind>' )
+  | source.segment( '<segment_kind>' )
+  | target.segment( '<segment_kind>' )
+
+<domain> ::=
+    <kind>
+  | segment
+  | out_refs
+  | in_refs
+
+<string_value_or_projection>  ::= <string_value> | <string_projection>
+<moniker_value_or_projection> ::= <moniker_uri> | <moniker_projection>
+
+<number_operator>            ::= = | != | < | <= | > | >=
+<moniker_relation_operator>  ::= @> | <@ | ?=
+
+<path_pattern> ::=
+    <path_step> [ / <path_step> ... ]
+
+<path_step> ::=
+    <kind>:<name>
+  | <kind>:*
+  | *:<name>
+  | *
+  | <kind>:/<regex>/
+  | **
 ```
 
 Operator precedence (loosest first): `=>`, `OR`, `AND`, `NOT`. Use parens
 to override.
+
+### Parameters
+
+`<expr>`
+: A boolean assertion evaluated for one def or one ref, depending on the
+  rule scope. A rule emits a violation when `<expr>` is false.
+
+`<predicate>`
+: A single test. It can compare a projection, count a domain, evaluate a
+  quantifier, match a moniker path, check for a moniker segment, or expand
+  an alias.
+
+`<string_projection>`
+: A projection that yields text. `name`, `visibility`, `text`,
+  `parent.*`, and `segment.*` are def-scope projections. Unprefixed
+  `kind` is the current def kind in def scope and the ref kind in ref
+  scope. Unprefixed `shape` is the current def shape in def scope and the
+  source def shape in ref scope. `confidence`, `source.*`, and `target.*`
+  are ref-scope projections.
+
+`<number_projection>`
+: A numeric projection. `lines` is the 1-indexed line span of the current
+  def body. `depth` is the number of segments in the current def moniker.
+
+`<moniker_projection>`
+: A projection that yields a moniker. In def scope, `moniker` is the
+  current def. In ref scope, `moniker` and `source` are the ref source def;
+  `target` is the ref target.
+
+`<segment_lookup>`
+: Returns the first segment name with the requested kind, or `""` when the
+  segment is absent. Use `segment(...)` in def scope and
+  `source.segment(...)` / `target.segment(...)` in ref scope.
+
+`<domain>`
+: The collection inspected by `count`, `any`, `all`, or `none`.
+  `<kind>` means direct child defs of that kind. `segment` means moniker
+  segments. `out_refs` and `in_refs` mean refs whose source or target is
+  the current def.
+
+`<kind>`
+: A def kind accepted by the current language, such as `class`, `method`,
+  `function`, `field`, or `enum_constant`, plus internal kinds such as
+  `module`, `comment`, `param`, and `local`. Use `code-moniker langs
+  <lang>` to inspect the vocabulary.
+
+`<string_value_or_projection>`
+: A string literal or another string projection. For `=` and `!=`, a
+  right-hand token that names a projection is evaluated as that projection.
+  Use a regex such as `=~ ^target$` when a literal would conflict with a
+  projection name.
+
+`<regex>`
+: A Rust regular expression used by `=~` and `!~`.
+
+`<number_operator>`
+: Numeric comparison against an unsigned integer literal.
+
+`<moniker_value_or_projection>`
+: A full moniker URI or another moniker projection. `moniker = target`
+  compares the current/source moniker to the ref target moniker.
+
+`<moniker_relation_operator>`
+: Moniker relationship comparison. `@>` means the left moniker is an
+  ancestor of the right moniker, `<@` means descendant, and `?=` performs
+  asymmetric `bind_match` for cross-file symbol resolution.
+
+`<string_value>`
+: A bare or quoted string. Quote values that contain whitespace or boolean
+  boundary tokens such as `AND`, `OR`, or `=>`.
+
+`<moniker_uri>`
+: A full moniker URI parsed with the CLI scheme, usually
+  `code+moniker://`.
+
+`<path_pattern>`
+: A slash-separated moniker path pattern. `**` matches zero or more
+  segments; `*` matches one segment; `<kind>:/<regex>/` matches one segment
+  of a fixed kind whose name matches the regex.
+
+`has_segment( '<segment_kind>', '<segment_name>' )`
+: Sugar for `moniker ~ '**/<segment_kind>:<segment_name>/**'`. In ref
+  scope, `moniker` means the ref source def.
+
+`$<alias_name>`
+: Textual alias expansion from the top-level `[aliases]` table. The
+  expanded expression is wrapped in parentheses before parsing.
 
 ## Semantics
 
