@@ -914,6 +914,45 @@ fn check_default_rules_can_be_disabled() {
 }
 
 #[test]
+fn check_default_rules_can_be_disabled_from_config() {
+	let dir = write_fixture("a.ts", "function helper() {}\n");
+	let rules_path = dir.path().join(".code-moniker.toml");
+	std::fs::write(&rules_path, "default_rules = false\n").unwrap();
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	assert!(
+		out.trim().is_empty(),
+		"no embedded default rules should run: {out}"
+	);
+}
+
+#[test]
+fn check_default_rules_on_overrides_disabled_config() {
+	let dir = write_fixture("a.ts", "function helper() {}\n");
+	let rules_path = dir.path().join(".code-moniker.toml");
+	std::fs::write(&rules_path, "default_rules = false\n").unwrap();
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--default-rules",
+		"on",
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(out.contains("ts.function.no-placeholder-names"), "{out}");
+}
+
+#[test]
 fn check_user_overlay_keeps_default_forbid_when_changing_max_lines() {
 	let dir = write_fixture("a.ts", "function helper() {}\n");
 	let rules_path = dir.path().join("rules.toml");

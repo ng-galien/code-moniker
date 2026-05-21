@@ -29,6 +29,8 @@ pub enum Command {
 	Stats(StatsArgs),
 	#[command(about = "Lint a path against .code-moniker.toml rules.")]
 	Check(CheckArgs),
+	#[command(about = "Create and toggle the project rules file.")]
+	Rules(RulesArgs),
 	#[cfg(feature = "tui")]
 	#[command(about = "Open a read-only terminal architecture explorer.")]
 	Ui(UiArgs),
@@ -48,6 +50,36 @@ pub enum Command {
 pub struct HarnessArgs {
 	#[command(subcommand)]
 	pub command: HarnessCommand,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct RulesArgs {
+	#[command(subcommand)]
+	pub command: RulesCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RulesCommand {
+	#[command(about = "Create a project .code-moniker.toml with detected aliases.")]
+	Init(RulesFileArgs),
+	#[command(about = "Disable embedded default rules in .code-moniker.toml.")]
+	Disable(RulesFileArgs),
+	#[command(about = "Enable embedded default rules in .code-moniker.toml.")]
+	Enable(RulesFileArgs),
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct RulesFileArgs {
+	#[arg(value_name = "ROOT", default_value = ".")]
+	pub root: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "PATH",
+		default_value = ".code-moniker.toml",
+		help = "project rules file, resolved from ROOT unless absolute"
+	)]
+	pub rules: PathBuf,
 }
 
 #[derive(Debug, Subcommand)]
@@ -130,10 +162,9 @@ pub struct CheckArgs {
 	#[arg(
 		long = "default-rules",
 		value_enum,
-		default_value_t = DefaultRules::On,
-		help = "load embedded default rules before applying --rules"
+		help = "override whether embedded default rules are loaded before applying --rules"
 	)]
-	pub default_rules: DefaultRules,
+	pub default_rules: Option<DefaultRules>,
 
 	#[arg(
 		long,
@@ -729,6 +760,7 @@ mod tests {
 			Command::Check(c) => {
 				assert_eq!(c.rules, PathBuf::from("my-rules.toml"));
 				assert_eq!(c.format, CheckFormat::Json);
+				assert_eq!(c.default_rules, None);
 				assert!(!c.report);
 			}
 			other => panic!("expected Check, got {other:?}"),

@@ -16,6 +16,7 @@ pub mod lines;
 pub mod manifest;
 pub(crate) mod perf;
 pub mod predicate;
+pub mod rules;
 pub mod sources;
 pub mod stats;
 #[cfg(feature = "pretty")]
@@ -36,7 +37,7 @@ pub use args::UiArgs;
 pub use args::{
 	CheckArgs, CheckFormat, Cli, CodexHarnessArgs, Command, DefaultRules, ExtractArgs, HarnessArgs,
 	HarnessCommand, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, OutputFormat, OutputMode,
-	ShapesArgs, StatsArgs, StatsFormat,
+	RulesArgs, RulesCommand, RulesFileArgs, ShapesArgs, StatsArgs, StatsFormat,
 };
 pub use lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};
@@ -88,6 +89,7 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Extract(args) => run_extract(args, stdout, stderr),
 		Command::Stats(args) => stats::run(args, stdout, stderr),
 		Command::Check(args) => run_check(args, stdout, stderr),
+		Command::Rules(args) => rules::run(args, stdout, stderr),
 		Command::Harness(args) => harness::run(args, stdout, stderr),
 		#[cfg(feature = "tui")]
 		Command::Ui(args) => ui::run(args, stdout, stderr),
@@ -398,7 +400,10 @@ fn check_inner<W: Write, E: Write>(
 ) -> anyhow::Result<CheckOutcome> {
 	let started = Instant::now();
 	let path: &Path = &args.path;
-	let mut cfg = check::load_with_options(Some(&args.rules), args.default_rules.enabled())?;
+	let mut cfg = check::load_with_cli_default_rules(
+		Some(&args.rules),
+		args.default_rules.map(DefaultRules::enabled),
+	)?;
 	if let Some(name) = &args.profile {
 		cfg.apply_profile(name)?;
 	}

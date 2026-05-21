@@ -7,7 +7,8 @@ pub mod path;
 pub mod suppress;
 
 pub use config::{
-	Config, KindRules, LangRules, load_default, load_with_options, load_with_overrides,
+	Config, KindRules, LangRules, load_default, load_with_cli_default_rules, load_with_options,
+	load_with_overrides,
 };
 pub use eval::{
 	CompiledRules, RuleReport, Violation, compile_rules, evaluate, evaluate_compiled,

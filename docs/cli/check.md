@@ -5,6 +5,9 @@ one directory.
 
 ```sh
 code-moniker check <PATH> [--rules <PATH>] [--default-rules on|off] [--format text|json] [--profile <NAME>] [--report]
+code-moniker rules init [ROOT] [--rules <PATH>]
+code-moniker rules disable [ROOT] [--rules <PATH>]
+code-moniker rules enable [ROOT] [--rules <PATH>]
 code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>]
 code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>]
 ```
@@ -104,10 +107,25 @@ By default, `check` starts with the embedded default rule pack. If the
 rules file exists, it is merged on top. The default path is
 `.code-moniker.toml`.
 
+Use `code-moniker rules init` to create `.code-moniker.toml` at the project
+root. It detects common project manifests such as `pom.xml`, `Cargo.toml`,
+`package.json`, `pyproject.toml`, `go.mod`, and `*.csproj`, then seeds a
+small `[aliases]` block for path-oriented project rules.
+
 Use `--default-rules off` when the TOML file should be the complete rule
 set. If the rules file is missing in that mode, no rules run. Use
 `--default-rules on` explicitly when a script should document that it wants
 the embedded preset.
+
+The same behavior can be stored in the rules file:
+
+```toml
+default_rules = false
+```
+
+`code-moniker rules disable` writes that flag. `code-moniker rules enable`
+switches it back to `true`. An explicit command-line `--default-rules on`
+or `--default-rules off` wins for that invocation.
 
 The embedded defaults cover conservative naming rules. Project policies
 such as layer boundaries, maximum class size, or mandatory doc comments

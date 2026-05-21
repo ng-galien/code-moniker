@@ -19,6 +19,8 @@ const RESERVED_LANG_KEYS: &[&str] = &["refs"];
 #[serde(deny_unknown_fields)]
 pub struct Config {
 	#[serde(default)]
+	pub default_rules: Option<bool>,
+	#[serde(default)]
 	pub aliases: HashMap<String, String>,
 	#[serde(default)]
 	pub refs: RefsRules,
@@ -140,6 +142,22 @@ pub fn load_with_overrides(user_path: Option<&Path>) -> Result<Config, ConfigErr
 	load_with_options(user_path, true)
 }
 
+/// Load rule config with explicit CLI precedence for `--default-rules`.
+/// `Some(on|off)` wins over the user config flag; `None` lets the user config
+/// decide and defaults to enabled.
+pub fn load_with_cli_default_rules(
+	user_path: Option<&Path>,
+	default_rules: Option<bool>,
+) -> Result<Config, ConfigError> {
+	let user = read_user_config(user_path)?;
+	let include_defaults = default_rules.unwrap_or_else(|| {
+		user.as_ref()
+			.and_then(|cfg| cfg.default_rules)
+			.unwrap_or(true)
+	});
+	load_with_user(user, include_defaults)
+}
+
 /// Load rule config, optionally starting from the embedded defaults.
 /// Missing user config is not an error: with defaults enabled they stand
 /// alone; with defaults disabled the resulting config is empty.
@@ -147,27 +165,45 @@ pub fn load_with_options(
 	user_path: Option<&Path>,
 	include_defaults: bool,
 ) -> Result<Config, ConfigError> {
+	let user = read_user_config(user_path)?;
+	let include_defaults = include_defaults
+		&& user
+			.as_ref()
+			.and_then(|cfg| cfg.default_rules)
+			.unwrap_or(true);
+	load_with_user(user, include_defaults)
+}
+
+fn load_with_user(user: Option<Config>, include_defaults: bool) -> Result<Config, ConfigError> {
 	let mut cfg = if include_defaults {
 		load_default()?
 	} else {
 		Config::default()
 	};
-	if let Some(p) = user_path {
-		if !p.exists() {
-			return Ok(cfg);
-		}
-		let raw = std::fs::read_to_string(p).map_err(|error| ConfigError::Io {
-			path: p.display().to_string(),
-			error,
-		})?;
-		let user: Config = toml::from_str(&raw).map_err(|error| ConfigError::UserConfig {
-			path: p.display().to_string(),
-			error,
-		})?;
-		validate(&user, &p.display().to_string())?;
+	cfg.default_rules = Some(include_defaults);
+	if let Some(user) = user {
 		merge_into(&mut cfg, user);
 	}
 	Ok(cfg)
+}
+
+fn read_user_config(user_path: Option<&Path>) -> Result<Option<Config>, ConfigError> {
+	let Some(p) = user_path else {
+		return Ok(None);
+	};
+	if !p.exists() {
+		return Ok(None);
+	}
+	let raw = std::fs::read_to_string(p).map_err(|error| ConfigError::Io {
+		path: p.display().to_string(),
+		error,
+	})?;
+	let user: Config = toml::from_str(&raw).map_err(|error| ConfigError::UserConfig {
+		path: p.display().to_string(),
+		error,
+	})?;
+	validate(&user, &p.display().to_string())?;
+	Ok(Some(user))
 }
 
 fn merge_into(base: &mut Config, ov: Config) {
@@ -803,6 +839,32 @@ mod tests {
 			.expect("missing file is still accepted without defaults");
 		assert!(cfg.refs.rules.is_empty());
 		assert!(cfg.ts.kinds.is_empty());
+	}
+
+	#[test]
+	fn user_config_can_disable_embedded_default_rules() {
+		let dir = tempfile::tempdir().unwrap();
+		let p = dir.path().join(".code-moniker.toml");
+		std::fs::write(&p, "default_rules = false\n").unwrap();
+
+		let cfg = load_with_overrides(Some(&p)).expect("config loads");
+
+		assert!(cfg.refs.rules.is_empty());
+		assert!(cfg.ts.kinds.is_empty());
+		assert_eq!(cfg.default_rules, Some(false));
+	}
+
+	#[test]
+	fn command_line_default_rules_off_wins_over_config_flag() {
+		let dir = tempfile::tempdir().unwrap();
+		let p = dir.path().join(".code-moniker.toml");
+		std::fs::write(&p, "default_rules = true\n").unwrap();
+
+		let cfg = load_with_options(Some(&p), false).expect("config loads");
+
+		assert!(cfg.refs.rules.is_empty());
+		assert!(cfg.ts.kinds.is_empty());
+		assert_eq!(cfg.default_rules, Some(false));
 	}
 
 	#[test]
