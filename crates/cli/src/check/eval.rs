@@ -199,7 +199,7 @@ pub fn rule_report_compiled(
 		}
 	}
 	for rule in &compiled.refs {
-		let mut report = RuleReport::new(format!("refs.{}", rule.id), "refs".to_string(), rule);
+		let mut report = RuleReport::new(rule.rule_id.clone(), "refs".to_string(), rule);
 		for r in graph.refs() {
 			report.evaluated += 1;
 			let premise = implication_premise(rule).map(|premise| eval_ref_node(premise, r, &ctx));
@@ -282,7 +282,9 @@ struct EvalCtx<'g, 'src> {
 #[derive(Debug)]
 struct CompiledRule {
 	id: String,
+	rule_id: String,
 	raw_expr: String,
+	expanded_expr: String,
 	root: Node,
 	message: Option<String>,
 }
@@ -296,6 +298,18 @@ struct CompiledKindRules {
 pub struct CompiledRules {
 	by_kind: HashMap<String, CompiledKindRules>,
 	refs: Vec<CompiledRule>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CompiledRuleSpec {
+	pub rule_id: String,
+	pub lang: String,
+	pub domain: String,
+	pub kind: Option<String>,
+	pub expr: String,
+	pub expanded_expr: String,
+	pub message: Option<String>,
+	pub require_doc_comment: Option<String>,
 }
 
 impl CompiledRules {
@@ -319,6 +333,9 @@ impl CompiledRules {
 			if kind == "refs" {
 				continue;
 			}
+			if !allowed.contains(&kind.as_str()) {
+				continue;
+			}
 			if !by_kind.contains_key(kind.as_str()) {
 				by_kind.insert(
 					kind.clone(),
@@ -339,7 +356,9 @@ impl CompiledRules {
 			})?;
 			refs.push(CompiledRule {
 				id,
+				rule_id: at,
 				raw_expr: entry.expr.clone(),
+				expanded_expr: expanded,
 				root: parsed.root,
 				message: entry.message.clone(),
 			});
@@ -356,7 +375,9 @@ impl CompiledRules {
 			})?;
 			refs.push(CompiledRule {
 				id,
+				rule_id: at,
 				raw_expr: entry.expr.clone(),
+				expanded_expr: expanded,
 				root: parsed.root,
 				message: entry.message.clone(),
 			});
@@ -366,6 +387,50 @@ impl CompiledRules {
 
 	fn for_kind(&self, kind: &str) -> Option<&CompiledKindRules> {
 		self.by_kind.get(kind)
+	}
+
+	pub fn specs(&self, lang: Lang) -> Vec<CompiledRuleSpec> {
+		let mut out = Vec::new();
+		for (kind, rules) in &self.by_kind {
+			for rule in &rules.rules {
+				out.push(CompiledRuleSpec {
+					rule_id: rule_id(lang, kind, &rule.id),
+					lang: lang.tag().to_string(),
+					domain: format!("{kind} defs"),
+					kind: Some(kind.clone()),
+					expr: rule.raw_expr.clone(),
+					expanded_expr: rule.expanded_expr.clone(),
+					message: rule.message.clone(),
+					require_doc_comment: None,
+				});
+			}
+			if let Some(value) = &rules.require_doc_for_vis {
+				out.push(CompiledRuleSpec {
+					rule_id: rule_id(lang, kind, "require_doc_comment"),
+					lang: lang.tag().to_string(),
+					domain: format!("{kind} defs"),
+					kind: Some(kind.clone()),
+					expr: format!("require_doc_comment = \"{value}\""),
+					expanded_expr: format!("require_doc_comment = \"{value}\""),
+					message: None,
+					require_doc_comment: Some(value.clone()),
+				});
+			}
+		}
+		for rule in &self.refs {
+			out.push(CompiledRuleSpec {
+				rule_id: rule.rule_id.clone(),
+				lang: lang.tag().to_string(),
+				domain: "refs".to_string(),
+				kind: None,
+				expr: rule.raw_expr.clone(),
+				expanded_expr: rule.expanded_expr.clone(),
+				message: rule.message.clone(),
+				require_doc_comment: None,
+			});
+		}
+		out.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+		out
 	}
 }
 
@@ -390,7 +455,9 @@ fn compile(
 		})?;
 		compiled.push(CompiledRule {
 			id,
+			rule_id: at,
 			raw_expr: entry.expr.clone(),
+			expanded_expr: expanded,
 			root: parsed.root,
 			message: entry.message.clone(),
 		});
@@ -507,7 +574,7 @@ fn eval_ref_rule(
 		"ref {ref_kind} {source_uri} → {target_uri} fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})"
 	);
 	out.push(Violation {
-		rule_id: format!("refs.{}", rule.id),
+		rule_id: rule.rule_id.clone(),
 		moniker: target_uri,
 		kind: ref_kind.to_string(),
 		lines: (start_line, end_line),
@@ -1908,7 +1975,7 @@ mod tests {
 			.unwrap();
 		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
 		assert_eq!(v.len(), 1, "per-lang refs rule fires: {v:?}");
-		assert_eq!(v[0].rule_id, "refs.no-domain-import");
+		assert_eq!(v[0].rule_id, "ts.refs.no-domain-import");
 	}
 
 	// ─── quantifiers ────────────────────────────────────────────────────

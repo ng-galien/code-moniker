@@ -4,14 +4,20 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 
-use crate::Exit;
-use crate::args::{RulesArgs, RulesCommand, RulesFileArgs};
+use code_moniker_core::lang::Lang;
+use serde::Serialize;
+
+use crate::args::{
+	DefaultRules, RulesArgs, RulesCommand, RulesFileArgs, RulesShowArgs, RulesShowFormat,
+};
+use crate::{Exit, check};
 
 pub fn run<W1: Write, W2: Write>(args: &RulesArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	let result = match &args.command {
 		RulesCommand::Init(args) => init(args, stdout),
 		RulesCommand::Disable(args) => set_default_rules(args, false, stdout),
 		RulesCommand::Enable(args) => set_default_rules(args, true, stdout),
+		RulesCommand::Show(args) => show(args, stdout),
 	};
 	match result {
 		Ok(()) => Exit::Match,
@@ -20,6 +26,93 @@ pub fn run<W1: Write, W2: Write>(args: &RulesArgs, stdout: &mut W1, stderr: &mut
 			Exit::UsageError
 		}
 	}
+}
+
+fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
+	let root = args
+		.root
+		.canonicalize()
+		.with_context(|| format!("cannot resolve project root `{}`", args.root.display()))?;
+	let path = resolve_from_root(&root, &args.rules);
+	let mut cfg = check::load_with_cli_default_rules(
+		Some(&path),
+		args.default_rules.map(DefaultRules::enabled),
+	)?;
+	if let Some(profile) = &args.profile {
+		cfg.apply_profile(profile)?;
+	}
+	let mut langs = Vec::new();
+	for lang in Lang::ALL {
+		let compiled = check::compile_rules(&cfg, *lang, crate::DEFAULT_SCHEME)?;
+		let rules = compiled.specs(*lang);
+		langs.push(ShowLang {
+			lang: lang.tag().to_string(),
+			rules,
+		});
+	}
+	let total_rules = langs.iter().map(|lang| lang.rules.len()).sum();
+	let report = ShowReport {
+		rules_file: path.display().to_string(),
+		default_rules: cfg.default_rules.unwrap_or(true),
+		profile: args.profile.clone(),
+		total_rules,
+		langs,
+	};
+	match args.format {
+		RulesShowFormat::Text => write_show_text(stdout, &report)?,
+		RulesShowFormat::Json => {
+			serde_json::to_writer_pretty(&mut *stdout, &report)?;
+			stdout.write_all(b"\n")?;
+		}
+	}
+	Ok(())
+}
+
+#[derive(Serialize)]
+struct ShowReport {
+	rules_file: String,
+	default_rules: bool,
+	profile: Option<String>,
+	total_rules: usize,
+	langs: Vec<ShowLang>,
+}
+
+#[derive(Serialize)]
+struct ShowLang {
+	lang: String,
+	rules: Vec<check::CompiledRuleSpec>,
+}
+
+fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<()> {
+	writeln!(w, "rules file: {}", report.rules_file)?;
+	writeln!(w, "default rules: {}", report.default_rules)?;
+	writeln!(
+		w,
+		"profile: {}",
+		report.profile.as_deref().unwrap_or("<none>")
+	)?;
+	writeln!(w, "compiled rules: {}", report.total_rules)?;
+	for lang in &report.langs {
+		writeln!(w)?;
+		writeln!(w, "[{}] {} rule(s)", lang.lang, lang.rules.len())?;
+		for rule in &lang.rules {
+			writeln!(w, "- {} ({})", rule.rule_id, rule.domain)?;
+			if rule.expr == rule.expanded_expr {
+				writeln!(w, "  expr: {}", one_line(&rule.expr))?;
+			} else {
+				writeln!(w, "  expr: {}", one_line(&rule.expr))?;
+				writeln!(w, "  expanded: {}", one_line(&rule.expanded_expr))?;
+			}
+			if let Some(message) = &rule.message {
+				writeln!(w, "  message: {}", one_line(message))?;
+			}
+		}
+	}
+	Ok(())
+}
+
+fn one_line(value: &str) -> String {
+	value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn init<W: Write>(args: &RulesFileArgs, stdout: &mut W) -> anyhow::Result<()> {
@@ -304,5 +397,145 @@ mod tests {
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let config = std::fs::read_to_string(dir.path().join(".code-moniker.toml")).unwrap();
 		assert!(config.contains("default_rules = true\n"));
+	}
+
+	#[test]
+	fn rules_show_prints_effective_profiled_rules() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[aliases]
+			src = "moniker ~ '**/dir:src/**'"
+
+			[[ts.class.where]]
+			id = "keep"
+			expr = "$src => name =~ ^[A-Z]"
+			message = "keep this rule"
+
+			[[ts.class.where]]
+			id = "drop"
+			expr = "name =~ ^X"
+
+			[profiles.only-keep]
+			enable = ["^ts\\.class\\.keep$"]
+			"#,
+		)
+		.unwrap();
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--profile",
+			"only-keep",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out = String::from_utf8(stdout).unwrap();
+		assert!(out.contains("default rules: false"), "{out}");
+		assert!(out.contains("profile: only-keep"), "{out}");
+		assert!(out.contains("ts.class.keep"), "{out}");
+		assert!(
+			out.contains("expanded: (moniker ~ '**/dir:src/**') => name =~ ^[A-Z]"),
+			"{out}"
+		);
+		assert!(!out.contains("ts.class.drop"), "{out}");
+	}
+
+	#[test]
+	fn rules_show_json_reports_compiled_rules() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[[refs.where]]
+			id = "domain-no-infra"
+			expr = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infra/**'"
+			"#,
+		)
+		.unwrap();
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--format",
+			"json",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(out["default_rules"], false);
+		assert!(out["total_rules"].as_u64().unwrap() >= 1);
+		assert!(
+			out["langs"]
+				.as_array()
+				.unwrap()
+				.iter()
+				.any(|lang| lang["lang"] == "ts"
+					&& lang["rules"]
+						.as_array()
+						.unwrap()
+						.iter()
+						.any(|rule| rule["rule_id"] == "refs.domain-no-infra")),
+			"{out:#}"
+		);
+	}
+
+	#[test]
+	fn rules_show_skips_default_kinds_not_emitted_by_lang() {
+		let dir = tempdir().unwrap();
+		std::fs::write(
+			dir.path().join(".code-moniker.toml"),
+			r#"
+			default_rules = false
+
+			[[default.class.where]]
+			id = "class-rule"
+			expr = "name =~ ^[A-Z]"
+
+			[[default.function.where]]
+			id = "function-rule"
+			expr = "name =~ ^[a-z]"
+			"#,
+		)
+		.unwrap();
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"show",
+			dir.path().to_str().unwrap(),
+			"--format",
+			"json",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		let langs = out["langs"].as_array().unwrap();
+		let rust_ids: Vec<_> = langs.iter().find(|lang| lang["lang"] == "rs").unwrap()["rules"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|rule| rule["rule_id"].as_str().unwrap().to_string())
+			.collect();
+		assert!(
+			!rust_ids.iter().any(|id| id == "rs.class.class-rule"),
+			"Rust cannot emit class defs: {rust_ids:?}"
+		);
+		assert!(
+			!rust_ids.iter().any(|id| id == "rs.function.function-rule"),
+			"Rust cannot emit function defs: {rust_ids:?}"
+		);
 	}
 }

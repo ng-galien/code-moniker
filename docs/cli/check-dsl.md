@@ -376,6 +376,9 @@ loaded as the complete config.
 
 Worked examples for layer boundaries, DDD contracts, adapters, test modules,
 and doc comments live in the [recipes section of check](check.md#recipes).
+Copyable, commented TOML samples live in
+[check-samples](check-samples/README.md), with one file per supported
+language.
 Suppression directives live in [suppressions](check.md#suppressions). They
 use this grammar; no new construct is introduced.
 

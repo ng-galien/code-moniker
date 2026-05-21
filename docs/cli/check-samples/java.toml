@@ -1,0 +1,137 @@
+# Java check sample.
+# Copy to `.code-moniker.toml` and adapt package/layer names.
+
+default_rules = false
+
+[aliases]
+# Java canonicalization uses package segments, so Maven/Gradle source roots
+# are represented with `srcset`.
+java_main = "moniker ~ '**/srcset:main/**'"
+java_test = "moniker ~ '**/srcset:test/**'"
+
+api_pkg = "moniker ~ '**/package:api/**'"
+domain_pkg = "moniker ~ '**/package:domain/**'"
+infra_pkg = "moniker ~ '**/package:infrastructure/**'"
+
+src_domain = "source ~ '**/package:domain/**'"
+tgt_infra = "target ~ '**/package:infrastructure/**'"
+
+[[java.class.where]]
+id = "class-pascalcase"
+# Java classes should use PascalCase.
+expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+message = "Class `{name}` must use PascalCase."
+
+[[java.method.where]]
+id = "package-junit-methods-start-with-test"
+# In test source sets, package-visible JUnit methods annotated with @Test
+# should start with `test`.
+expr = """
+  $java_test
+  AND visibility = 'package'
+  AND any(out_refs, kind = 'annotates' AND target.name = 'Test')
+  => name =~ ^test
+"""
+message = "Package-visible JUnit method `{name}` must start with test."
+
+[[java.class.where]]
+id = "main-classes-not-test-suffixed"
+# Production classes should not look like test classes.
+expr = "$java_main => name !~ Test$"
+message = "Production class `{name}` must not end with Test."
+
+[[java.class.where]]
+id = "class-budget"
+# Limit class size through direct child methods.
+expr = "count(method) <= 25 AND all(method, lines <= 80)"
+message = "Class `{name}` is too large."
+
+[[java.refs.where]]
+id = "domain-no-infra"
+# Direct refs from domain packages to infrastructure packages are forbidden.
+expr = "$src_domain => NOT $tgt_infra"
+message = "Domain code must not depend directly on infrastructure."
+
+# Spring examples -----------------------------------------------------------
+#
+# These examples encode common Spring layering conventions. They are useful as
+# starting points, but package names and suffixes should be adapted to your
+# application.
+
+[[java.class.where]]
+id = "spring-controller-suffix"
+# Classes annotated with @Controller or @RestController should be named
+# *Controller. The Java extractor emits annotations as `annotates` refs.
+expr = """
+  any(out_refs,
+    kind = 'annotates'
+    AND (target.name = 'Controller' OR target.name = 'RestController')
+  )
+  => name =~ Controller$
+"""
+message = "Spring controller `{name}` should end with Controller."
+
+[[java.class.where]]
+id = "spring-controller-package"
+# Controllers should live in an API/web/controller package.
+expr = """
+  any(out_refs,
+    kind = 'annotates'
+    AND (target.name = 'Controller' OR target.name = 'RestController')
+  )
+  => moniker ~ '**/package:api/**'
+     OR moniker ~ '**/package:web/**'
+     OR moniker ~ '**/package:controller/**'
+"""
+message = "Spring controller `{name}` should live in an API, web, or controller package."
+
+[[java.class.where]]
+id = "spring-service-suffix"
+# Classes annotated with @Service should be named *Service.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Service')
+  => name =~ Service$
+"""
+message = "Spring service `{name}` should end with Service."
+
+[[java.class.where]]
+id = "spring-repository-suffix"
+# Classes annotated with @Repository should be named *Repository.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Repository')
+  => name =~ Repository$
+"""
+message = "Spring repository `{name}` should end with Repository."
+
+[[java.class.where]]
+id = "spring-transactional-not-controller"
+# Keep @Transactional away from presentation classes. Transaction boundaries
+# are usually easier to reason about in service-layer beans.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+  => NOT any(out_refs,
+       kind = 'annotates'
+       AND (target.name = 'Controller' OR target.name = 'RestController')
+     )
+"""
+message = "Spring controller `{name}` should not be annotated @Transactional."
+
+[[java.class.where]]
+id = "spring-webmvc-test-suffix"
+# MVC slice tests annotated with @WebMvcTest should use a clear test suffix.
+expr = """
+  $java_test
+  AND any(out_refs, kind = 'annotates' AND target.name = 'WebMvcTest')
+  => name =~ (ControllerTest|ControllerTests|WebMvcTest|WebMvcTests)$
+"""
+message = "Spring MVC slice test `{name}` should use an explicit controller/WebMvc test suffix."
+
+[[java.class.where]]
+id = "spring-boot-test-not-controller-slice"
+# @SpringBootTest loads a broader application context. Avoid mixing it with
+# @WebMvcTest on the same test class.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'SpringBootTest')
+  => NOT any(out_refs, kind = 'annotates' AND target.name = 'WebMvcTest')
+"""
+message = "Use either @SpringBootTest or @WebMvcTest on `{name}`, not both."

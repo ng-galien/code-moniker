@@ -8,6 +8,7 @@ code-moniker check <PATH> [--rules <PATH>] [--default-rules on|off] [--format te
 code-moniker rules init [ROOT] [--rules <PATH>]
 code-moniker rules disable [ROOT] [--rules <PATH>]
 code-moniker rules enable [ROOT] [--rules <PATH>]
+code-moniker rules show [ROOT] [--rules <PATH>] [--profile <NAME>] [--default-rules on|off] [--format text|json]
 code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>]
 code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>]
 ```
@@ -154,6 +155,19 @@ An explicit command-line `--default-rules on` or `--default-rules off` wins
 for that invocation. The `rules enable` / `rules disable` commands do not
 touch `[profiles.*]`; they only update the top-level `default_rules` flag.
 
+Use `rules show` when you need to see what `check` will actually run after
+loading embedded defaults, merging the project file, applying the optional
+profile, resolving aliases, and compiling expressions:
+
+```sh
+code-moniker rules show .
+code-moniker rules show . --profile agent-edit
+code-moniker rules show . --default-rules off --format json
+```
+
+Text output groups compiled rules by language. JSON output includes
+`expr` and `expanded_expr`, so alias expansion is visible.
+
 The embedded defaults cover conservative naming rules. Project policies
 such as layer boundaries, maximum class size, or mandatory doc comments
 belong in your overlay.
@@ -295,6 +309,20 @@ class-size budgets, naming/location contracts, implementation contracts,
 test-only fixtures, doc comments, profiles, and suppressions. The DSL does
 not compute transitive dependency closure or cycles; use SQL over an
 ingested `code_graph` for those corpus-level checks.
+
+For copyable language-specific starting points, see the commented TOML
+samples:
+
+| Language | Sample |
+| -------- | ------ |
+| Architecture patterns | [architecture.toml](check-samples/architecture.toml) |
+| TypeScript / JavaScript | [typescript.toml](check-samples/typescript.toml) |
+| Rust | [rust.toml](check-samples/rust.toml) |
+| Java | [java.toml](check-samples/java.toml) |
+| Python | [python.toml](check-samples/python.toml) |
+| Go | [go.toml](check-samples/go.toml) |
+| C# | [csharp.toml](check-samples/csharp.toml) |
+| SQL / PL/pgSQL | [sql.toml](check-samples/sql.toml) |
 
 ### Layer boundary
 

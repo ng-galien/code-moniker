@@ -1,0 +1,175 @@
+# Architecture pattern check sample.
+#
+# This file is language-agnostic where possible. It uses moniker path
+# patterns, so adapt folder/package names to your repository before using it.
+#
+# It covers:
+# - MVC boundaries
+# - DDD boundaries
+# - Hexagonal architecture boundaries
+# - TDD guardrails that `check` can enforce
+#
+# Important TDD limitation:
+# `code-moniker check` analyzes the current graph. It cannot prove the
+# temporal fact "the test was written before the production code". Enforce
+# that part through your agent harness / review workflow. The rules below
+# enforce static guardrails that support TDD: test naming, test-only code
+# isolation, and production/test source separation.
+
+default_rules = false
+
+[aliases]
+# Def-scope aliases. Use these inside [[<lang>.<kind>.where]] rules.
+main_src = "moniker ~ '**/srcset:main/**' OR moniker ~ '**/dir:src/**'"
+test_src = "moniker ~ '**/srcset:test/**' OR moniker ~ '**/dir:test/**' OR moniker ~ '**/dir:tests/**'"
+
+mvc_controller = "moniker ~ '**/dir:controller/**' OR moniker ~ '**/package:controller/**' OR moniker ~ '**/package:api/**' OR moniker ~ '**/package:web/**'"
+mvc_service = "moniker ~ '**/dir:service/**' OR moniker ~ '**/package:service/**' OR moniker ~ '**/package:application/**'"
+mvc_model = "moniker ~ '**/dir:model/**' OR moniker ~ '**/package:model/**' OR moniker ~ '**/package:domain/**'"
+mvc_view = "moniker ~ '**/dir:view/**' OR moniker ~ '**/package:view/**' OR moniker ~ '**/package:ui/**'"
+
+ddd_domain = "moniker ~ '**/dir:domain/**' OR moniker ~ '**/package:domain/**'"
+ddd_application = "moniker ~ '**/dir:application/**' OR moniker ~ '**/package:application/**'"
+ddd_infrastructure = "moniker ~ '**/dir:infrastructure/**' OR moniker ~ '**/package:infrastructure/**' OR moniker ~ '**/dir:infra/**' OR moniker ~ '**/package:infra/**'"
+
+hex_core = "moniker ~ '**/dir:domain/**' OR moniker ~ '**/package:domain/**' OR moniker ~ '**/dir:application/**' OR moniker ~ '**/package:application/**'"
+hex_port = "moniker ~ '**/dir:port/**' OR moniker ~ '**/package:port/**' OR name =~ Port$"
+hex_adapter = "moniker ~ '**/dir:adapter/**' OR moniker ~ '**/package:adapter/**' OR name =~ Adapter$"
+
+# Ref-scope aliases. Use these inside [[refs.where]] or [[<lang>.refs.where]].
+src_controller = "source ~ '**/dir:controller/**' OR source ~ '**/package:controller/**' OR source ~ '**/package:api/**' OR source ~ '**/package:web/**'"
+src_service = "source ~ '**/dir:service/**' OR source ~ '**/package:service/**' OR source ~ '**/package:application/**'"
+src_domain = "source ~ '**/dir:domain/**' OR source ~ '**/package:domain/**'"
+src_application = "source ~ '**/dir:application/**' OR source ~ '**/package:application/**'"
+src_infrastructure = "source ~ '**/dir:infrastructure/**' OR source ~ '**/package:infrastructure/**' OR source ~ '**/dir:infra/**' OR source ~ '**/package:infra/**'"
+src_adapter = "source ~ '**/dir:adapter/**' OR source ~ '**/package:adapter/**'"
+src_test = "source ~ '**/srcset:test/**' OR source ~ '**/dir:test/**' OR source ~ '**/dir:tests/**'"
+
+tgt_controller = "target ~ '**/dir:controller/**' OR target ~ '**/package:controller/**' OR target ~ '**/package:api/**' OR target ~ '**/package:web/**'"
+tgt_service = "target ~ '**/dir:service/**' OR target ~ '**/package:service/**' OR target ~ '**/package:application/**'"
+tgt_model = "target ~ '**/dir:model/**' OR target ~ '**/package:model/**' OR target ~ '**/package:domain/**'"
+tgt_view = "target ~ '**/dir:view/**' OR target ~ '**/package:view/**' OR target ~ '**/package:ui/**'"
+tgt_domain = "target ~ '**/dir:domain/**' OR target ~ '**/package:domain/**'"
+tgt_application = "target ~ '**/dir:application/**' OR target ~ '**/package:application/**'"
+tgt_infrastructure = "target ~ '**/dir:infrastructure/**' OR target ~ '**/package:infrastructure/**' OR target ~ '**/dir:infra/**' OR target ~ '**/package:infra/**'"
+tgt_port = "target ~ '**/dir:port/**' OR target ~ '**/package:port/**' OR target.name =~ Port$"
+tgt_adapter = "target ~ '**/dir:adapter/**' OR target ~ '**/package:adapter/**' OR target.name =~ Adapter$"
+tgt_test = "target ~ '**/srcset:test/**' OR target ~ '**/dir:test/**' OR target ~ '**/dir:tests/**'"
+
+# MVC -----------------------------------------------------------------------
+
+[[refs.where]]
+id = "mvc-controller-does-not-call-view"
+# Controllers should orchestrate application/services and return view models
+# or responses; direct controller -> view dependency is usually a smell.
+expr = "$src_controller => NOT $tgt_view"
+message = "MVC controller code must not depend directly on view code."
+
+[[refs.where]]
+id = "mvc-view-does-not-call-service"
+# Views should not call services directly. Route through controllers or
+# presentation models.
+expr = "source ~ '**/dir:view/**' OR source ~ '**/package:view/**' OR source ~ '**/package:ui/**' => NOT $tgt_service"
+message = "MVC view code must not depend directly on service/application code."
+
+[[refs.where]]
+id = "mvc-model-does-not-depend-on-controller"
+# Model/domain code should not know presentation controllers.
+expr = "$tgt_controller => NOT ($src_domain OR source ~ '**/dir:model/**' OR source ~ '**/package:model/**')"
+message = "MVC model/domain code must not depend on controllers."
+
+# DDD -----------------------------------------------------------------------
+
+[[refs.where]]
+id = "ddd-domain-is-pure"
+# Domain code should not depend directly on application or infrastructure.
+expr = "$src_domain => NOT ($tgt_application OR $tgt_infrastructure)"
+message = "DDD domain code must not depend on application or infrastructure layers."
+
+[[refs.where]]
+id = "ddd-application-depends-inward"
+# Application services may depend on domain, but not directly on infrastructure.
+expr = "$src_application => NOT $tgt_infrastructure"
+message = "Application layer code must not depend directly on infrastructure."
+
+[[refs.where]]
+id = "ddd-infrastructure-may-depend-inward-only"
+# Infrastructure may implement ports and call domain/application APIs, but
+# should not depend on controllers/presentation.
+expr = "$src_infrastructure => NOT $tgt_controller"
+message = "Infrastructure code must not depend on presentation controllers."
+
+[[default.class.where]]
+id = "ddd-entity-name"
+# Entity classes should be visibly named. Adapt or delete if your project
+# does not use suffix conventions.
+expr = "$ddd_domain AND name =~ Entity$ => $ddd_domain"
+message = "DDD entity `{name}` should live in the domain layer."
+
+# Hexagonal architecture ----------------------------------------------------
+
+[[refs.where]]
+id = "hex-core-does-not-depend-on-adapters"
+# Core domain/application code should depend on ports, not adapters.
+expr = "(source ~ '**/dir:domain/**' OR source ~ '**/package:domain/**' OR source ~ '**/dir:application/**' OR source ~ '**/package:application/**') => NOT $tgt_adapter"
+message = "Hexagonal core must not depend on adapters."
+
+[[refs.where]]
+id = "hex-adapter-depends-on-port-not-peer-adapter"
+# Adapters should not depend on other adapters directly.
+expr = "$src_adapter => NOT $tgt_adapter"
+message = "Adapters must not depend directly on other adapters."
+
+[[default.interface.where]]
+id = "hex-port-interface-name"
+# Ports are usually interfaces named *Port.
+expr = "$hex_port => name =~ Port$"
+message = "Hexagonal port interface `{name}` should end with Port."
+
+[[default.class.where]]
+id = "hex-adapter-class-name"
+# Adapter implementations should be visibly named *Adapter.
+expr = "$hex_adapter => name =~ Adapter$"
+message = "Hexagonal adapter class `{name}` should end with Adapter."
+
+# TDD guardrails ------------------------------------------------------------
+
+[[refs.where]]
+id = "tdd-production-does-not-depend-on-tests"
+# Production code must never import/call test code. This catches accidental
+# coupling introduced while moving fast in an agent loop.
+expr = "NOT $src_test => NOT $tgt_test"
+message = "Production code must not depend on test code."
+
+[[default.class.where]]
+id = "tdd-test-doubles-live-in-tests"
+# Test doubles should not ship in production source sets.
+expr = "name =~ (Stub|Fake|Mock|Builder)$ => $test_src"
+message = "Test double `{name}` must live in test sources."
+
+[[default.function.where]]
+id = "tdd-test-functions-are-named-like-tests"
+# For languages that expose test functions as `function`, keep test names
+# readable. Rust has a dedicated `test` kind; see rust.toml.
+expr = "$test_src => name =~ ^(test|should|it_)"
+message = "Test function `{name}` should read like a test."
+
+[profiles.agent-tdd]
+# Use this profile from an agent harness. It keeps only fast, local rules
+# that support a test-first workflow. The actual temporal rule "write the
+# failing test before production code" must be enforced by the harness prompt
+# and review process, not by static graph analysis.
+enable = [
+  "^refs\\.tdd-production-does-not-depend-on-tests$",
+  "^default\\.class\\.tdd-test-doubles-live-in-tests$",
+  "^default\\.function\\.tdd-test-functions-are-named-like-tests$",
+]
+
+[profiles.architecture]
+# CI / pre-commit profile for structural boundaries.
+enable = [
+  "^refs\\.mvc-",
+  "^refs\\.ddd-",
+  "^refs\\.hex-",
+  "^default\\.(class|interface)\\.hex-",
+]

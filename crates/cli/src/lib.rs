@@ -14,6 +14,7 @@ pub mod inspect;
 pub mod lang;
 pub mod lines;
 pub mod manifest;
+#[cfg(feature = "tui")]
 pub(crate) mod perf;
 pub mod predicate;
 pub mod rules;
@@ -37,7 +38,8 @@ pub use args::UiArgs;
 pub use args::{
 	CheckArgs, CheckFormat, Cli, CodexHarnessArgs, Command, DefaultRules, ExtractArgs, HarnessArgs,
 	HarnessCommand, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, OutputFormat, OutputMode,
-	RulesArgs, RulesCommand, RulesFileArgs, ShapesArgs, StatsArgs, StatsFormat,
+	RulesArgs, RulesCommand, RulesFileArgs, RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs,
+	StatsFormat,
 };
 pub use lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};

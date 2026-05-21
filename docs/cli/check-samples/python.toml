@@ -1,0 +1,43 @@
+# Python check sample.
+# Copy to `.code-moniker.toml` and adapt package names.
+
+default_rules = false
+
+[aliases]
+src = "moniker ~ '**/dir:src/**' OR moniker ~ '**/package:src/**'"
+tests = "moniker ~ '**/dir:test/**' OR moniker ~ '**/dir:tests/**'"
+domain = "moniker ~ '**/package:domain/**'"
+infra = "moniker ~ '**/package:infrastructure/**'"
+
+src_domain = "source ~ '**/package:domain/**'"
+tgt_infra = "target ~ '**/package:infrastructure/**'"
+
+[[python.class.where]]
+id = "class-pascalcase"
+# Python classes should use PascalCase.
+expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+message = "Class `{name}` must use PascalCase."
+
+[[python.function.where]]
+id = "function-snakecase"
+# Module-level functions should use snake_case.
+expr = "name =~ ^[a-z_][a-z0-9_]*$"
+message = "Function `{name}` must use snake_case."
+
+[[python.method.where]]
+id = "private-methods-underscore"
+# Private methods should be visibly private by name too.
+expr = "visibility = 'private' => name =~ ^_"
+message = "Private method `{name}` must start with underscore."
+
+[[python.class.where]]
+id = "class-budget"
+# Avoid large classes.
+expr = "count(method) <= 20 AND all(method, lines <= 60)"
+message = "Class `{name}` is too large."
+
+[[python.refs.where]]
+id = "domain-no-infra"
+# Direct refs from domain packages to infrastructure packages are forbidden.
+expr = "$src_domain => NOT $tgt_infra"
+message = "Domain code must not depend directly on infrastructure."

@@ -712,9 +712,12 @@ fn check_project_uses_source_context_in_monikers_without_indexing() {
 	std::fs::write(
 		&rules_path,
 		r#"
+		[aliases]
+		java_test = "moniker ~ '**/srcset:test/**'"
+
 		[[java.class.where]]
 		id      = "test-class-pascalcase"
-		expr    = "moniker ~ '**/srcset:test/**' => name =~ ^[A-Z][A-Za-z0-9]*$"
+		expr    = "$java_test => name =~ ^[A-Z][A-Za-z0-9]*$"
 		message = "Test class names must be PascalCase."
 		"#,
 	)
@@ -1026,6 +1029,41 @@ fn check_default_rules_on_overrides_disabled_config() {
 	]);
 	assert_eq!(exit, Exit::NoMatch);
 	assert!(out.contains("ts.function.no-placeholder-names"), "{out}");
+}
+
+#[test]
+fn check_report_keeps_per_lang_ref_rule_ids() {
+	let dir = write_fixture("a.ts", "import { Foo } from './foo';\nclass GoodName {}\n");
+	let path = dir.path().join("a.ts");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[[refs.where]]
+		id = "same"
+		expr = "kind != 'imports_symbol'"
+
+		[[ts.refs.where]]
+		id = "same"
+		expr = "kind != 'imports_symbol'"
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--default-rules",
+		"off",
+		"--report",
+	]);
+
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(out.contains("refs.same"), "{out}");
+	assert!(out.contains("ts.refs.same"), "{out}");
 }
 
 #[test]

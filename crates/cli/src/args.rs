@@ -66,6 +66,8 @@ pub enum RulesCommand {
 	Disable(RulesFileArgs),
 	#[command(about = "Enable embedded default rules in .code-moniker.toml.")]
 	Enable(RulesFileArgs),
+	#[command(about = "Show the effective compiled rules after defaults, overlay, and profile.")]
+	Show(RulesShowArgs),
 }
 
 #[derive(Debug, ClapArgs)]
@@ -80,6 +82,48 @@ pub struct RulesFileArgs {
 		help = "project rules file, resolved from ROOT unless absolute"
 	)]
 	pub rules: PathBuf,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct RulesShowArgs {
+	#[arg(value_name = "ROOT", default_value = ".")]
+	pub root: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "PATH",
+		default_value = ".code-moniker.toml",
+		help = "project rules file, resolved from ROOT unless absolute"
+	)]
+	pub rules: PathBuf,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = RulesShowFormat::Text,
+		help = "output format"
+	)]
+	pub format: RulesShowFormat,
+
+	#[arg(
+		long = "default-rules",
+		value_enum,
+		help = "override whether embedded default rules are loaded before applying --rules"
+	)]
+	pub default_rules: Option<DefaultRules>,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "filter rules through a named profile from .code-moniker.toml"
+	)]
+	pub profile: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum RulesShowFormat {
+	Text,
+	Json,
 }
 
 #[derive(Debug, Subcommand)]

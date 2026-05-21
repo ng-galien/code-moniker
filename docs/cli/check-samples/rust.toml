@@ -1,0 +1,43 @@
+# Rust check sample.
+# Copy to `.code-moniker.toml` and adapt the folder aliases to your crate.
+
+default_rules = false
+
+[aliases]
+src = "moniker ~ '**/dir:src/**'"
+tests = "moniker ~ '**/dir:tests/**'"
+domain = "moniker ~ '**/dir:domain/**'"
+infra = "moniker ~ '**/dir:infra/**' OR moniker ~ '**/dir:infrastructure/**'"
+
+src_domain = "source ~ '**/dir:domain/**'"
+tgt_infra = "target ~ '**/dir:infra/**' OR target ~ '**/dir:infrastructure/**'"
+
+[[rust.trait.where]]
+id = "trait-pascalcase"
+# Public traits should use PascalCase.
+expr = "visibility = 'public' => name =~ ^[A-Z][A-Za-z0-9]*$"
+message = "Public trait `{name}` must use PascalCase."
+
+[[rust.struct.where]]
+id = "struct-pascalcase"
+# Public structs should use PascalCase.
+expr = "visibility = 'public' => name =~ ^[A-Z][A-Za-z0-9]*$"
+message = "Public struct `{name}` must use PascalCase."
+
+[[rust.fn.where]]
+id = "public-fn-small"
+# Public free functions should stay short.
+expr = "visibility = 'public' => lines <= 80"
+message = "Public function `{name}` is too long."
+
+[[rust.test.where]]
+id = "tests-start-with-describes-or_should"
+# Extracted Rust test functions can have their own kind: `test`.
+expr = "name =~ ^(test_|should_|it_)"
+message = "Rust test `{name}` should start with test_, should_, or it_."
+
+[[rust.refs.where]]
+id = "domain-no-infra"
+# Direct refs from domain Rust code to infrastructure Rust code are forbidden.
+expr = "$src_domain => NOT $tgt_infra"
+message = "Domain code must not depend directly on infrastructure."
