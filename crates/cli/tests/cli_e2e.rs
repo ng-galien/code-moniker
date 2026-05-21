@@ -153,6 +153,34 @@ fn extract_text_can_emit_full_moniker_uris() {
 }
 
 #[test]
+fn extract_uri_adds_srcset_segment_for_common_source_layouts() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	let path = dir.path().join("src/test/java/com/acme/FooTest.java");
+	write_under(
+		dir.path(),
+		"src/test/java/com/acme/FooTest.java",
+		"package com.acme;\nclass FooTest {}\n",
+	);
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--kind",
+		"class",
+		"--moniker-format",
+		"uri",
+	]);
+
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(
+		out.contains(
+			"code+moniker://./srcset:test/lang:java/package:com/package:acme/module:FooTest/class:FooTest"
+		),
+		"{out}"
+	);
+}
+
+#[test]
 fn count_only_prints_an_integer() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let path = dir.path().join("a.ts");
@@ -662,6 +690,54 @@ fn check_project_path_in_moniker_gates_a_rule() {
 	assert!(
 		!out.contains("lax/b.ts"),
 		"lax/ exempt by path-in-moniker gate: {out}"
+	);
+}
+
+#[test]
+fn check_project_uses_source_context_in_monikers_without_indexing() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::create_dir_all(dir.path().join("src/test/java/com/acme")).unwrap();
+	std::fs::create_dir_all(dir.path().join("src/main/java/com/acme")).unwrap();
+	std::fs::write(
+		dir.path().join("src/test/java/com/acme/lower_bad.java"),
+		"package com.acme;\nclass lower_bad {}\n",
+	)
+	.unwrap();
+	std::fs::write(
+		dir.path().join("src/main/java/com/acme/lower_bad.java"),
+		"package com.acme;\nclass lower_bad {}\n",
+	)
+	.unwrap();
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[[java.class.where]]
+		id      = "test-class-pascalcase"
+		expr    = "moniker ~ '**/srcset:test/**' => name =~ ^[A-Z][A-Za-z0-9]*$"
+		message = "Test class names must be PascalCase."
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--default-rules",
+		"off",
+	]);
+
+	assert_eq!(exit, Exit::NoMatch, "test source set should violate: {out}");
+	assert!(
+		out.contains("src/test/java/com/acme/lower_bad.java"),
+		"{out}"
+	);
+	assert!(
+		!out.contains("src/main/java/com/acme/lower_bad.java"),
+		"main source set must not be covered by the test alias: {out}"
 	);
 }
 

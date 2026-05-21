@@ -608,7 +608,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		let confidence = external_or_imported(&pieces);
 
 		if wildcard {
-			let target = wildcard_target(self.module.as_view().project(), &pieces, confidence);
+			let target = wildcard_target(&self.module, &pieces, confidence);
 			let attrs = RefAttrs {
 				confidence,
 				..RefAttrs::default()
@@ -617,7 +617,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			return;
 		}
 
-		let target = symbol_target(self.module.as_view().project(), &pieces, confidence);
+		let target = symbol_target(&self.module, &pieces, confidence);
 		if let Some(last) = pieces.last().copied() {
 			let last_bytes = last.as_bytes();
 			self.imports
@@ -1141,7 +1141,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 		if is_java_lang_class(name) {
 			let target = symbol_target(
-				self.module.as_view().project(),
+				&self.module,
 				&["java", "lang", std::str::from_utf8(name).unwrap_or("")],
 				kinds::CONF_EXTERNAL,
 			);
@@ -1208,7 +1208,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 		if is_java_lang_class(name) {
 			let target = symbol_target(
-				self.module.as_view().project(),
+				&self.module,
 				&["java", "lang", std::str::from_utf8(name).unwrap_or("")],
 				kinds::CONF_EXTERNAL,
 			);
@@ -1261,14 +1261,14 @@ pub(super) fn collect_type_table<'src>(
 pub(super) fn collect_import_tables(
 	node: Node<'_>,
 	source: &[u8],
-	project: &[u8],
+	module: &Moniker,
 	imports: &mut ImportConfidenceTable,
 	import_targets: &mut ImportTargetTable,
 ) {
 	let mut cursor = node.walk();
 	for child in node.children(&mut cursor) {
 		if child.kind() != "import_declaration" {
-			collect_import_tables(child, source, project, imports, import_targets);
+			collect_import_tables(child, source, module, imports, import_targets);
 			continue;
 		}
 		let Some((pieces, confidence, wildcard)) = import_parts(child, source) else {
@@ -1277,7 +1277,7 @@ pub(super) fn collect_import_tables(
 		if wildcard {
 			continue;
 		}
-		let target = symbol_target(project, &pieces, confidence);
+		let target = symbol_target(module, &pieces, confidence);
 		if let Some(last) = pieces.last().copied() {
 			let last_bytes = last.as_bytes().to_vec();
 			imports.insert(last_bytes.clone(), confidence);
@@ -1725,7 +1725,7 @@ fn type_target_for_name(
 	}
 	if is_java_lang_class(name) {
 		let target = symbol_target(
-			module.as_view().project(),
+			module,
 			&["java", "lang", std::str::from_utf8(name).unwrap_or("")],
 			kinds::CONF_EXTERNAL,
 		);
@@ -1971,23 +1971,34 @@ fn generic_type_short<'a>(node: Node<'_>, source: &'a [u8]) -> &'a str {
 	""
 }
 
-fn wildcard_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Moniker {
+fn project_regime_builder(module: &Moniker) -> MonikerBuilder {
+	let view = module.as_view();
+	let mut b = MonikerBuilder::new();
+	b.project(view.project());
+	for segment in view.segments() {
+		if segment.kind == crate::lang::kinds::LANG {
+			break;
+		}
+		b.segment(segment.kind, segment.name);
+	}
+	b
+}
+
+fn wildcard_target(module: &Moniker, pieces: &[&str], confidence: &[u8]) -> Moniker {
 	if confidence == kinds::CONF_IMPORTED && !pieces.is_empty() {
-		let mut b = MonikerBuilder::new();
-		b.project(project);
+		let mut b = project_regime_builder(module);
 		b.segment(crate::lang::kinds::LANG, b"java");
 		for piece in pieces {
 			b.segment(kinds::PACKAGE, piece.as_bytes());
 		}
 		return b.build();
 	}
-	external_package_target(project, pieces)
+	external_package_target(module.as_view().project(), pieces)
 }
 
-fn symbol_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Moniker {
+fn symbol_target(module: &Moniker, pieces: &[&str], confidence: &[u8]) -> Moniker {
 	if confidence == kinds::CONF_IMPORTED && !pieces.is_empty() {
-		let mut b = MonikerBuilder::new();
-		b.project(project);
+		let mut b = project_regime_builder(module);
 		b.segment(crate::lang::kinds::LANG, b"java");
 		let last = pieces.len() - 1;
 		for (i, piece) in pieces.iter().enumerate() {
@@ -2001,7 +2012,7 @@ fn symbol_target(project: &[u8], pieces: &[&str], confidence: &[u8]) -> Moniker 
 		b.segment(kinds::PATH, pieces[last].as_bytes());
 		return b.build();
 	}
-	external_package_target(project, pieces)
+	external_package_target(module.as_view().project(), pieces)
 }
 
 fn external_package_target(project: &[u8], pieces: &[&str]) -> Moniker {

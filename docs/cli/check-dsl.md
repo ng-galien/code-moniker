@@ -254,6 +254,12 @@ In **def scope**, the bare attribute refers to the current def:
 | `parent.shape`  | shape of the moniker's penultimate segment   |
 | `segment(<K>)`  | name of the first segment of kind `K`, or `""` |
 
+Files under common build layouts such as `src/main/...` and `src/test/...`
+also carry a `srcset:main` or `srcset:test` segment near the start
+of the moniker. This is useful for rules that apply only to production or
+test sources, including languages such as Java where package canonicalization
+otherwise replaces most path directories.
+
 In **ref scope**, every projection is prefixed by `source.` or `target.`,
 and an unprefixed `kind` refers to the ref kind (e.g. `calls`, `imports`,
 `uses_type`, `implements`, `annotates`). Available projections on each

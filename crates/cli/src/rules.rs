@@ -192,8 +192,8 @@ fn initial_config(detected: &DetectedProject) -> String {
 	if detected.java {
 		wrote = true;
 		out.push_str(
-			"java_main = \"moniker ~ '**/dir:src/dir:main/dir:java/**'\"\n\
-			 java_test = \"moniker ~ '**/dir:src/dir:test/dir:java/**'\"\n",
+			"java_main = \"moniker ~ '**/srcset:main/**'\"\n\
+			 java_test = \"moniker ~ '**/srcset:test/**'\"\n",
 		);
 	}
 	if detected.ts {
@@ -266,7 +266,8 @@ mod tests {
 
 		let config = std::fs::read_to_string(dir.path().join(".code-moniker.toml")).unwrap();
 		assert!(config.contains("default_rules = true"));
-		assert!(config.contains("java_main"));
+		assert!(config.contains("java_main = \"moniker ~ '**/srcset:main/**'\""));
+		assert!(config.contains("java_test = \"moniker ~ '**/srcset:test/**'\""));
 		assert!(!config.contains("code-moniker.toml"));
 	}
 

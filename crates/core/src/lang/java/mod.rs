@@ -70,7 +70,7 @@ pub fn extract(
 	collect_import_tables(
 		tree.root_node(),
 		source.as_bytes(),
-		module.as_view().project(),
+		&module,
 		&mut imports,
 		&mut import_targets,
 	);
@@ -166,6 +166,13 @@ mod tests {
 
 	fn make_anchor() -> Moniker {
 		MonikerBuilder::new().project(b"app").build()
+	}
+
+	fn make_srcset_anchor() -> Moniker {
+		MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"srcset", b"main")
+			.build()
 	}
 
 	fn extract_default(uri: &str, source: &str, anchor: &Moniker, deep: bool) -> CodeGraph {
@@ -567,6 +574,45 @@ mod tests {
 			.build();
 		assert_eq!(r.target, expected);
 		assert_eq!(r.confidence, b"imported");
+	}
+
+	#[test]
+	fn imported_targets_preserve_project_regime_anchor() {
+		let src = r#"
+            package com.acme.common.money;
+            import com.acme.common.customer.CustomerProfile;
+            class MoneyFormatter {
+                String formatForInvoice(CustomerProfile profile) {
+                    return profile.displayName();
+                }
+            }
+        "#;
+		let g = extract_default("MoneyFormatter.java", src, &make_srcset_anchor(), false);
+		let expected_import = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"srcset", b"main")
+			.segment(b"lang", b"java")
+			.segment(b"package", b"com")
+			.segment(b"package", b"acme")
+			.segment(b"package", b"common")
+			.segment(b"package", b"customer")
+			.segment(b"module", b"CustomerProfile")
+			.segment(b"path", b"CustomerProfile")
+			.build();
+		let import_ref = g
+			.refs()
+			.find(|r| r.kind == b"imports_symbol")
+			.expect("imports_symbol ref");
+		assert_eq!(import_ref.target, expected_import);
+
+		let expected_call = MonikerBuilder::from_view(expected_import.as_view())
+			.segment(b"method", b"displayName()")
+			.build();
+		let call_ref = g
+			.refs()
+			.find(|r| r.kind == b"method_call" && r.receiver_hint == b"profile")
+			.expect("method_call on profile");
+		assert_eq!(call_ref.target, expected_call);
 	}
 
 	#[test]

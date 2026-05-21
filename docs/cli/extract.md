@@ -144,11 +144,11 @@ Comment defs carry only position. Pass `--with-text` to re-read the source and p
 
 ## `--cache <DIR>`
 
-Opt-in on-disk cache of extracted graphs, also via `CODE_MONIKER_CACHE_DIR`. Keyed on `(absolute path, mtime, size, anchor hash)`. Mtime/size change invalidates the entry. Disabled by default.
+Opt-in on-disk cache of extracted graphs, also via `CODE_MONIKER_CACHE_DIR`. Keyed on `(absolute path, mtime, size, anchor hash, context hash)`. Mtime/size, anchor, or extraction context changes invalidate the entry. Disabled by default.
 
 Layout:
 ```
-<DIR>/v{LAYOUT_VERSION}_{CACHE_FORMAT_VERSION}/<path-hash[0..2]>/<path-hash>_<anchor-hash>.bin
+<DIR>/v{LAYOUT_VERSION}_{CACHE_FORMAT_VERSION}/<path-hash[0..2]>/<path-hash>_<anchor-hash>_<context-hash>.bin
 ```
 
 Body bytes are byte-identical to what the PG extension stores in a `code_graph` Datum. Typical 4× speedup on agent edit/hook cycles over a warm cache.

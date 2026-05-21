@@ -19,7 +19,7 @@ pub fn extract(lang: Lang, source: &str, path: &Path) -> CodeGraph {
 pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> CodeGraph {
 	let uri = path.to_str().unwrap_or("single-file");
 	let project = ctx.project.as_deref().map(str::as_bytes).unwrap_or(b".");
-	let anchor = anchor_moniker(project);
+	let anchor = anchor_moniker(project, srcset(path).map(str::as_bytes));
 	let deep = true;
 	match lang {
 		Lang::Ts => {
@@ -74,10 +74,28 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 	}
 }
 
-fn anchor_moniker(project: &[u8]) -> Moniker {
+fn anchor_moniker(project: &[u8], srcset: Option<&[u8]>) -> Moniker {
 	let mut b = MonikerBuilder::new();
 	b.project(project);
+	if let Some(srcset) = srcset {
+		b.segment(b"srcset", srcset);
+	}
 	b.build()
+}
+
+fn srcset(path: &Path) -> Option<&'static str> {
+	let parts: Vec<_> = path
+		.components()
+		.filter_map(|component| component.as_os_str().to_str())
+		.collect();
+	for window in parts.windows(2) {
+		match window {
+			["src", "main"] => return Some("main"),
+			["src", "test"] | ["src", "tests"] => return Some("test"),
+			_ => {}
+		}
+	}
+	None
 }
 
 pub fn file_uri(path: &Path) -> String {

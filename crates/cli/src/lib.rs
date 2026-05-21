@@ -508,6 +508,32 @@ fn check_one_compiled(
 	})
 }
 
+fn check_source_file_compiled(
+	file: &sources::SourceFile,
+	ctx: &extract::Context,
+	compiled: &check::CompiledRules,
+	report: bool,
+) -> anyhow::Result<FileReport> {
+	let source = std::fs::read_to_string(&file.path)
+		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", file.path.display()))?;
+	let graph = extract::extract_with(file.lang, &source, &file.anchor, ctx);
+	let raw = check::evaluate_compiled(&graph, &source, file.lang, DEFAULT_SCHEME, compiled);
+	let violations = check::apply_suppressions(&graph, &source, raw);
+	let rule_reports = if report {
+		let mut rule_reports =
+			check::rule_report_compiled(&graph, &source, file.lang, DEFAULT_SCHEME, compiled);
+		align_report_violations_with_suppressions(&mut rule_reports, &violations);
+		rule_reports
+	} else {
+		Vec::new()
+	};
+	Ok(FileReport {
+		path: file.path.clone(),
+		violations,
+		rule_reports,
+	})
+}
+
 /// Project-mode scan. Per-file I/O errors are accumulated in `Vec<FileError>`
 /// rather than aborting the scan. Rules are compiled once per language and
 /// shared across the parallel pool.
@@ -518,20 +544,21 @@ fn check_project(
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	use rayon::prelude::*;
 	use std::collections::HashMap;
-	let paths = walk::walk_lang_files(root);
+	let source_set = sources::discover(&[root.to_path_buf()], None)?;
 	let mut compiled: HashMap<code_moniker_core::lang::Lang, check::CompiledRules> = HashMap::new();
-	for f in &paths {
+	for f in &source_set.files {
 		if compiled.contains_key(&f.lang) {
 			continue;
 		}
 		compiled.insert(f.lang, check::compile_rules(cfg, f.lang, DEFAULT_SCHEME)?);
 	}
-	let outcomes: Vec<Result<FileReport, FileError>> = paths
+	let outcomes: Vec<Result<FileReport, FileError>> = source_set
+		.files
 		.par_iter()
 		.map(|f| {
 			let rules = &compiled[&f.lang];
-			let rel = f.path.strip_prefix(root).unwrap_or(&f.path);
-			check_one_compiled(&f.path, Some(rel), f.lang, rules, report).map_err(|e| FileError {
+			let ctx = &source_set.roots[f.source].ctx;
+			check_source_file_compiled(f, ctx, rules, report).map_err(|e| FileError {
 				path: f.path.clone(),
 				error: format!("{e:#}"),
 			})
