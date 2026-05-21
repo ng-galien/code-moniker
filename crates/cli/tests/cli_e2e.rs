@@ -745,6 +745,109 @@ fn check_project_uses_source_context_in_monikers_without_indexing() {
 }
 
 #[test]
+fn check_java_spring_proxy_self_invocation_on_real_extraction() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(
+		dir.path(),
+		"src/main/java/com/acme/service/InvoiceService.java",
+		r#"
+		package com.acme.service;
+
+		import org.springframework.stereotype.Service;
+		import org.springframework.transaction.annotation.Transactional;
+
+		@Service
+		public class InvoiceService {
+			public void createBatch() {
+				createInvoice();
+			}
+
+			@Transactional
+			public void createInvoice() {}
+		}
+		"#,
+	);
+	write_under(
+		dir.path(),
+		"src/main/java/com/acme/service/AccountService.java",
+		r#"
+		package com.acme.service;
+
+		import org.springframework.stereotype.Service;
+		import org.springframework.transaction.annotation.Transactional;
+
+		@Service
+		@Transactional
+		public class AccountService {
+			public void open() {
+				audit();
+			}
+
+			public void audit() {}
+		}
+		"#,
+	);
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		[[java.method.where]]
+		id = "spring-proxy-method-no-self-invocation"
+		expr = """
+		  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+		  => none(in_refs,
+		       (kind = 'method_call' OR kind = 'calls')
+		       AND source.parent = target.parent
+		     )
+		"""
+		message = "method proxy bypass"
+
+		[[java.class.where]]
+		id = "spring-proxy-class-no-self-invocation"
+		expr = """
+		  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+		  => none(method,
+		       any(in_refs,
+		         (kind = 'method_call' OR kind = 'calls')
+		         AND source.parent = target.parent
+		       )
+		     )
+		"""
+		message = "class proxy bypass"
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--default-rules",
+		"off",
+	]);
+
+	assert_eq!(exit, Exit::NoMatch, "stdout={out}\nstderr={err}");
+	assert!(
+		out.contains("java.method.spring-proxy-method-no-self-invocation"),
+		"{out}"
+	);
+	assert!(
+		out.contains("method `createInvoice`"),
+		"method-level annotation should be flagged: {out}"
+	);
+	assert!(
+		out.contains("java.class.spring-proxy-class-no-self-invocation"),
+		"{out}"
+	);
+	assert!(
+		out.contains("class `AccountService`"),
+		"class-level annotation should be flagged: {out}"
+	);
+}
+
+#[test]
 fn check_project_cross_layer_import_violation() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	std::fs::create_dir_all(dir.path().join("src/core")).unwrap();

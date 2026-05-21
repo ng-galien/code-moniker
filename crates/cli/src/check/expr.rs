@@ -24,11 +24,13 @@ pub(super) enum Lhs {
 	SourceShape,
 	SourceVisibility,
 	SourceMoniker,
+	SourceParentMoniker,
 	TargetName,
 	TargetKind,
 	TargetShape,
 	TargetVisibility,
 	TargetMoniker,
+	TargetParentMoniker,
 	SegmentName,
 	SegmentKind,
 }
@@ -53,11 +55,13 @@ impl Lhs {
 			Self::SourceShape => "source.shape",
 			Self::SourceVisibility => "source.visibility",
 			Self::SourceMoniker => "source",
+			Self::SourceParentMoniker => "source.parent",
 			Self::TargetName => "target.name",
 			Self::TargetKind => "target.kind",
 			Self::TargetShape => "target.shape",
 			Self::TargetVisibility => "target.visibility",
 			Self::TargetMoniker => "target",
+			Self::TargetParentMoniker => "target.parent",
 			Self::SegmentName => "segment.name",
 			Self::SegmentKind => "segment.kind",
 		}
@@ -663,11 +667,13 @@ fn projection_name_to_lhs(s: &str) -> Option<Lhs> {
 		"source.kind" => Lhs::SourceKind,
 		"source.shape" => Lhs::SourceShape,
 		"source.visibility" => Lhs::SourceVisibility,
+		"source.parent" => Lhs::SourceParentMoniker,
 		"target" => Lhs::TargetMoniker,
 		"target.name" => Lhs::TargetName,
 		"target.kind" => Lhs::TargetKind,
 		"target.shape" => Lhs::TargetShape,
 		"target.visibility" => Lhs::TargetVisibility,
+		"target.parent" => Lhs::TargetParentMoniker,
 		"segment.name" => Lhs::SegmentName,
 		"segment.kind" => Lhs::SegmentKind,
 		_ => return None,
@@ -810,27 +816,29 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 			};
 		}
 	};
-	let ok =
-		matches!(
-			(lhs_attr, op),
-			(
-				Name | Kind
-					| Shape | Visibility
-					| Text | Confidence
-					| ParentName | ParentKind
-					| ParentShape | SourceName
-					| SourceKind | SourceShape
-					| SourceVisibility
-					| TargetName | TargetKind
-					| TargetShape | TargetVisibility
-					| SegmentName | SegmentKind,
-				Eq | Ne | RegexMatch | RegexNoMatch,
-			) | (Lines | Depth, Lt | Le | Gt | Ge | Eq | Ne)
-				| (
-					Moniker | SourceMoniker | TargetMoniker,
-					Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch,
-				)
-		);
+	let ok = matches!(
+		(lhs_attr, op),
+		(
+			Name | Kind
+				| Shape | Visibility
+				| Text | Confidence
+				| ParentName | ParentKind
+				| ParentShape
+				| SourceName | SourceKind
+				| SourceShape
+				| SourceVisibility
+				| TargetName | TargetKind
+				| TargetShape
+				| TargetVisibility
+				| SegmentName
+				| SegmentKind,
+			Eq | Ne | RegexMatch | RegexNoMatch,
+		) | (Lines | Depth, Lt | Le | Gt | Ge | Eq | Ne)
+			| (
+				Moniker | SourceMoniker | SourceParentMoniker | TargetMoniker | TargetParentMoniker,
+				Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch,
+			)
+	);
 	if !ok {
 		return Err(ParseError::BadExpr {
 			expr: full.to_string(),
@@ -1050,6 +1058,19 @@ mod tests {
 				domain: Domain::OutRefs,
 				..
 			} => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_source_target_parent_moniker_projection() {
+		let e = parse("source.parent = target.parent", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.rhs) {
+			(
+				LhsExpr::Attr(Lhs::SourceParentMoniker),
+				Rhs::Projection(Lhs::TargetParentMoniker),
+			) => {}
 			other => panic!("unexpected: {other:?}"),
 		}
 	}

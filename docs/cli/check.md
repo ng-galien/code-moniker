@@ -390,6 +390,57 @@ This rule is intentionally scoped to `imports_symbol` refs. Method calls to
 framework objects already imported elsewhere need a separate rule or a SQL
 query over the graph.
 
+### Spring proxy self-invocation
+
+Spring AOP advice in proxy mode only runs when a call enters through the
+proxy. A same-class call to a `@Transactional`, `@Async`, `@Cacheable`, or
+method-security annotated method bypasses the advice even though the code
+looks like an ordinary method call.
+
+This is a useful check example because the mistake is not local to one
+syntax node. The rule first selects advised methods from annotation refs,
+then looks at incoming call refs, and finally compares caller/callee parent
+monikers to distinguish same-class calls from normal calls through another
+component.
+
+Method-level advice:
+
+```toml
+[[java.method.where]]
+id = "spring-proxy-method-no-self-invocation"
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+  => none(in_refs,
+       (kind = 'method_call' OR kind = 'calls')
+       AND source.parent = target.parent
+     )
+"""
+message = "Spring proxy-advised method `{name}` should not be called from the same class."
+```
+
+Class-level `@Transactional` defaults:
+
+```toml
+[[java.class.where]]
+id = "spring-proxy-class-no-self-invocation"
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+  => none(method,
+       any(in_refs,
+         (kind = 'method_call' OR kind = 'calls')
+         AND source.parent = target.parent
+       )
+     )
+"""
+message = "Spring proxy-advised class `{name}` should not make same-class calls to advised methods."
+```
+
+The Java sample expands the annotation list beyond `@Transactional`.
+Projects using AspectJ weaving or deliberate self-injected proxy references
+should relax or remove these rules. See the Spring Framework reference for
+the proxy-mode caveat:
+<https://docs.spring.io/spring-framework/reference/core/aop/proxying.html>.
+
 ### Keep classes small
 
 ```toml

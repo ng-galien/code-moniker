@@ -12,6 +12,9 @@ java_test = "moniker ~ '**/srcset:test/**'"
 api_pkg = "moniker ~ '**/package:api/**'"
 domain_pkg = "moniker ~ '**/package:domain/**'"
 infra_pkg = "moniker ~ '**/package:infrastructure/**'"
+service_pkg = "moniker ~ '**/package:service/**' OR moniker ~ '**/package:application/**' OR moniker ~ '**/package:domain/**'"
+repository_pkg = "moniker ~ '**/package:repository/**' OR moniker ~ '**/package:persistence/**' OR moniker ~ '**/package:infrastructure/**'"
+config_pkg = "moniker ~ '**/package:config/**' OR moniker ~ '**/package:configuration/**'"
 
 src_domain = "source ~ '**/package:domain/**'"
 tgt_infra = "target ~ '**/package:infrastructure/**'"
@@ -95,6 +98,15 @@ expr = """
 message = "Spring service `{name}` should end with Service."
 
 [[java.class.where]]
+id = "spring-service-package"
+# Services should live in a service, application, or domain package.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Service')
+  => $service_pkg
+"""
+message = "Spring service `{name}` should live in a service, application, or domain package."
+
+[[java.class.where]]
 id = "spring-repository-suffix"
 # Classes annotated with @Repository should be named *Repository.
 expr = """
@@ -102,6 +114,33 @@ expr = """
   => name =~ Repository$
 """
 message = "Spring repository `{name}` should end with Repository."
+
+[[java.class.where]]
+id = "spring-repository-package"
+# Repositories should live in persistence-facing packages.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Repository')
+  => $repository_pkg
+"""
+message = "Spring repository `{name}` should live in a repository, persistence, or infrastructure package."
+
+[[java.class.where]]
+id = "spring-configuration-suffix"
+# Configuration classes should be named clearly.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Configuration')
+  => name =~ (Config|Configuration)$
+"""
+message = "Spring configuration `{name}` should end with Config or Configuration."
+
+[[java.class.where]]
+id = "spring-configuration-package"
+# Configuration classes should be isolated from feature code.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Configuration')
+  => $config_pkg
+"""
+message = "Spring configuration `{name}` should live in a config or configuration package."
 
 [[java.class.where]]
 id = "spring-transactional-not-controller"
@@ -117,6 +156,132 @@ expr = """
 message = "Spring controller `{name}` should not be annotated @Transactional."
 
 [[java.class.where]]
+id = "spring-controller-no-repository-direct"
+# Controllers should depend on application/service APIs, not repositories or
+# low-level persistence APIs directly.
+expr = """
+  any(out_refs,
+    kind = 'annotates'
+    AND (target.name = 'Controller' OR target.name = 'RestController')
+  )
+  => none(out_refs,
+       target.name =~ Repository$
+       OR target.name = 'EntityManager'
+       OR target.name = 'JdbcTemplate'
+       OR target.name = 'DSLContext'
+     )
+"""
+message = "Spring controller `{name}` should not depend directly on repositories or persistence APIs."
+
+[[java.class.where]]
+id = "spring-service-no-web"
+# Services should not depend back on controllers or web adapters.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Service')
+  => none(out_refs,
+       target.name =~ Controller$
+       OR target ~ '**/package:api/**'
+       OR target ~ '**/package:web/**'
+       OR target ~ '**/package:controller/**'
+     )
+"""
+message = "Spring service `{name}` should not depend on controllers or web packages."
+
+[[java.class.where]]
+id = "spring-repository-no-web"
+# Repositories should stay below the web layer.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Repository')
+  => none(out_refs,
+       target.name =~ Controller$
+       OR target ~ '**/package:api/**'
+       OR target ~ '**/package:web/**'
+       OR target ~ '**/package:controller/**'
+     )
+"""
+message = "Spring repository `{name}` should not depend on controllers or web packages."
+
+[[java.field.where]]
+id = "spring-no-field-injection"
+# Prefer constructor injection over @Autowired fields.
+expr = "none(out_refs, kind = 'annotates' AND target.name = 'Autowired')"
+message = "Spring field `{name}` should not use @Autowired field injection; prefer constructor injection."
+
+[[java.method.where]]
+id = "spring-bean-methods-in-configuration"
+# @Bean factory methods should be grouped under configuration classes.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Bean')
+  => parent.name =~ (Config|Configuration)$
+"""
+message = "Spring @Bean method `{name}` should live on a configuration class."
+
+[[java.method.where]]
+id = "spring-transactional-methods-in-service"
+# Method-level transaction boundaries should live in the service/application
+# layer rather than controllers or infrastructure helpers.
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+  => parent.name =~ Service$
+     OR moniker ~ '**/package:service/**'
+     OR moniker ~ '**/package:application/**'
+"""
+message = "Spring @Transactional method `{name}` should live in the service/application layer."
+
+[[java.method.where]]
+id = "spring-proxy-method-no-self-invocation"
+# Spring AOP proxy advice only runs for calls that enter through the proxy.
+# A same-class call to a method annotated with proxy-backed advice bypasses
+# @Transactional/@Async/@Cacheable/etc. in proxy mode. Delete or relax this
+# rule if the project intentionally uses AspectJ weaving or self-injected
+# proxy references.
+#
+# The important part is the incoming-ref check: after selecting advised
+# methods, it asks whether a caller method declared on the same class reaches
+# them directly.
+# See: https://docs.spring.io/spring-framework/reference/core/aop/proxying.html
+expr = """
+  any(out_refs,
+    kind = 'annotates'
+    AND (target.name = 'Transactional'
+         OR target.name = 'Async'
+         OR target.name = 'Cacheable'
+         OR target.name = 'CachePut'
+         OR target.name = 'CacheEvict'
+         OR target.name = 'Caching'
+         OR target.name = 'Retryable'
+         OR target.name = 'ConcurrencyLimit'
+         OR target.name = 'PreAuthorize'
+         OR target.name = 'PostAuthorize'
+         OR target.name = 'PreFilter'
+         OR target.name = 'PostFilter'
+         OR target.name = 'Secured'
+         OR target.name = 'RolesAllowed')
+  )
+  => none(in_refs,
+       (kind = 'method_call' OR kind = 'calls')
+       AND source.parent = target.parent
+     )
+"""
+message = "Spring proxy-advised method `{name}` should not be called from the same class; the call bypasses proxy advice."
+
+[[java.class.where]]
+id = "spring-proxy-class-no-self-invocation"
+# Class-level @Transactional is a default for methods declared in the class.
+# Same-class calls to those methods still bypass proxy advice in proxy mode.
+# See: https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html
+expr = """
+  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+  => none(method,
+       any(in_refs,
+         (kind = 'method_call' OR kind = 'calls')
+         AND source.parent = target.parent
+       )
+     )
+"""
+message = "Spring proxy-advised class `{name}` should not make same-class calls to advised methods; the call bypasses proxy advice."
+
+[[java.class.where]]
 id = "spring-webmvc-test-suffix"
 # MVC slice tests annotated with @WebMvcTest should use a clear test suffix.
 expr = """
@@ -125,6 +290,26 @@ expr = """
   => name =~ (ControllerTest|ControllerTests|WebMvcTest|WebMvcTests)$
 """
 message = "Spring MVC slice test `{name}` should use an explicit controller/WebMvc test suffix."
+
+[[java.class.where]]
+id = "spring-datajpa-test-suffix"
+# JPA slice tests should make the repository/persistence scope explicit.
+expr = """
+  $java_test
+  AND any(out_refs, kind = 'annotates' AND target.name = 'DataJpaTest')
+  => name =~ (RepositoryTest|RepositoryTests|DataJpaTest|DataJpaTests)$
+"""
+message = "Spring Data JPA slice test `{name}` should use an explicit repository/DataJpa test suffix."
+
+[[java.class.where]]
+id = "spring-boot-test-suffix"
+# Full application-context tests should be visibly test classes.
+expr = """
+  $java_test
+  AND any(out_refs, kind = 'annotates' AND target.name = 'SpringBootTest')
+  => name =~ (Test|Tests|IT)$
+"""
+message = "Spring Boot test `{name}` should use a Test, Tests, or IT suffix."
 
 [[java.class.where]]
 id = "spring-boot-test-not-controller-slice"

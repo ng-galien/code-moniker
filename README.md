@@ -26,6 +26,20 @@ same graph through two surfaces:
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
 Python, Go, C#, SQL, and PL/pgSQL.
 
+Extractor maturity is uneven by design. `code-moniker` is a fast symbol graph
+extractor, not a replacement for each language compiler or type checker.
+
+| Language | Maturity | Honest limit |
+| -------- | -------- | ------------ |
+| TypeScript / JavaScript | Good | No TypeScript compiler type-checking. |
+| Java | Good | No `javac` semantic model. |
+| Rust | Good | No macro expansion or rustc name resolution. |
+| C# | Usable | No Roslyn semantic model. |
+| Python | Usable | Dynamic runtime behaviour is best-effort. |
+| Go | Usable | No `go/types` semantic pass. |
+| SQL / PLpgSQL | Focused | Narrow dialect and no catalog-aware planner semantics. |
+| C | Planned | Not extracted today. |
+
 ## At a glance
 
 ```mermaid

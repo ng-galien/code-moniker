@@ -25,3 +25,8 @@ Available samples:
 
 Use `code-moniker langs <tag>` to inspect the exact kind and visibility
 vocabulary for a language.
+
+The Java sample also includes Spring AOP proxy self-invocation checks. They
+cover a framework behavior trap: advised methods are selected through
+annotation refs, direct callers through incoming call refs, and same-class
+calls through caller/callee parent monikers.

@@ -612,7 +612,15 @@ fn eval_ref_atom(
 		LhsExpr::Attr(Lhs::Moniker) | LhsExpr::Attr(Lhs::SourceMoniker) => {
 			Value::Moniker(source_def.moniker.clone())
 		}
+		LhsExpr::Attr(Lhs::SourceParentMoniker) => match source_def.moniker.parent() {
+			Some(parent) => Value::Moniker(parent),
+			None => return AtomOutcome::NotApplicable,
+		},
 		LhsExpr::Attr(Lhs::TargetMoniker) => Value::Moniker(r.target.clone()),
+		LhsExpr::Attr(Lhs::TargetParentMoniker) => match r.target.parent() {
+			Some(parent) => Value::Moniker(parent),
+			None => return AtomOutcome::NotApplicable,
+		},
 		LhsExpr::Attr(Lhs::SourceName) => match name_of(&source_def.moniker) {
 			Some(n) => Value::Str(n),
 			None => return AtomOutcome::NotApplicable,
@@ -694,7 +702,9 @@ fn resolve_ref_lhs(
 		Lhs::Kind => Value::Str(std::str::from_utf8(&r.kind).ok()?.to_string()),
 		Lhs::Confidence => Value::Str(std::str::from_utf8(&r.confidence).ok()?.to_string()),
 		Lhs::Moniker | Lhs::SourceMoniker => Value::Moniker(source_def.moniker.clone()),
+		Lhs::SourceParentMoniker => Value::Moniker(source_def.moniker.parent()?),
 		Lhs::TargetMoniker => Value::Moniker(r.target.clone()),
+		Lhs::TargetParentMoniker => Value::Moniker(r.target.parent()?),
 		Lhs::SourceName => Value::Str(name_of(&source_def.moniker)?),
 		Lhs::TargetName => Value::Str(name_of(&r.target)?),
 		Lhs::SourceKind => Value::Str(last_segment_kind(&source_def.moniker)?),
@@ -913,11 +923,13 @@ fn resolve_def_lhs(lhs: Lhs, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<Val
 		| Lhs::SourceShape
 		| Lhs::SourceVisibility
 		| Lhs::SourceMoniker
+		| Lhs::SourceParentMoniker
 		| Lhs::TargetName
 		| Lhs::TargetKind
 		| Lhs::TargetShape
 		| Lhs::TargetVisibility
 		| Lhs::TargetMoniker
+		| Lhs::TargetParentMoniker
 		| Lhs::SegmentName
 		| Lhs::SegmentKind => return None,
 	};
@@ -1235,11 +1247,13 @@ fn eval_atom(atom: &Atom, d: &DefRecord, def_idx: usize, ctx: &EvalCtx<'_, '_>) 
 			| Lhs::SourceShape
 			| Lhs::SourceVisibility
 			| Lhs::SourceMoniker
+			| Lhs::SourceParentMoniker
 			| Lhs::TargetName
 			| Lhs::TargetKind
 			| Lhs::TargetShape
 			| Lhs::TargetVisibility
 			| Lhs::TargetMoniker
+			| Lhs::TargetParentMoniker
 			| Lhs::SegmentName
 			| Lhs::SegmentKind,
 		) => return AtomOutcome::NotApplicable,
@@ -2042,6 +2056,82 @@ mod tests {
 		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
 		assert_eq!(v.len(), 1, "PayUseCase lacks execute: {v:?}");
 		assert!(v[0].moniker.contains("PayUseCase"));
+	}
+
+	#[test]
+	fn same_class_call_to_proxy_advised_method_is_flagged() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.method.where]]
+			id = "proxy-method-no-self-invocation"
+			expr = """
+			  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+			  => none(in_refs,
+			       (kind = 'method_call' OR kind = 'calls')
+			       AND source.parent = target.parent
+			     )
+			"""
+			"#,
+		);
+		let module = build_module(b"billing");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let service = child(&module, b"class", b"InvoiceService");
+		g.add_def(service.clone(), b"class", &module, Some((0, 100)))
+			.unwrap();
+		let caller = child(&service, b"method", b"createBatch()");
+		g.add_def(caller.clone(), b"method", &service, Some((10, 30)))
+			.unwrap();
+		let target = child(&service, b"method", b"createInvoice()");
+		g.add_def(target.clone(), b"method", &service, Some((40, 70)))
+			.unwrap();
+		let annotation = child(&module, b"path", b"Transactional");
+		g.add_ref(&target, annotation, b"annotates", Some((40, 50)))
+			.unwrap();
+		g.add_ref(&caller, target, b"calls", Some((20, 25)))
+			.unwrap();
+
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "same-class proxy self-invocation: {v:?}");
+		assert!(v[0].moniker.contains("createInvoice"));
+	}
+
+	#[test]
+	fn same_class_call_to_class_level_proxy_advised_method_is_flagged() {
+		let cfg = cfg_from(
+			r#"
+			[[ts.class.where]]
+			id = "proxy-class-no-self-invocation"
+			expr = """
+			  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+			  => none(method,
+			       any(in_refs,
+			         (kind = 'method_call' OR kind = 'calls')
+			         AND source.parent = target.parent
+			       )
+			     )
+			"""
+			"#,
+		);
+		let module = build_module(b"billing");
+		let mut g = CodeGraph::new(module.clone(), b"module");
+		let service = child(&module, b"class", b"InvoiceService");
+		g.add_def(service.clone(), b"class", &module, Some((0, 100)))
+			.unwrap();
+		let annotation = child(&module, b"path", b"Transactional");
+		g.add_ref(&service, annotation, b"annotates", Some((0, 10)))
+			.unwrap();
+		let caller = child(&service, b"method", b"createBatch()");
+		g.add_def(caller.clone(), b"method", &service, Some((10, 30)))
+			.unwrap();
+		let target = child(&service, b"method", b"createInvoice()");
+		g.add_def(target.clone(), b"method", &service, Some((40, 70)))
+			.unwrap();
+		g.add_ref(&caller, target, b"calls", Some((20, 25)))
+			.unwrap();
+
+		let v = evaluate(&g, "x", Lang::Ts, &cfg, SCHEME).unwrap();
+		assert_eq!(v.len(), 1, "class-level proxy self-invocation: {v:?}");
+		assert!(v[0].moniker.contains("InvoiceService"));
 	}
 
 	#[test]

@@ -69,7 +69,7 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
     lines | depth
 
 <moniker_projection> ::=
-    moniker | source | target
+    moniker | source | source.parent | target | target.parent
 
 <segment_lookup> ::=
     segment( '<segment_kind>' )
@@ -129,7 +129,8 @@ to override.
 `<moniker_projection>`
 : A projection that yields a moniker. In def scope, `moniker` is the
   current def. In ref scope, `moniker` and `source` are the ref source def;
-  `target` is the ref target.
+  `source.parent` is the source def parent; `target` is the ref target;
+  `target.parent` is the target moniker parent.
 
 `<segment_lookup>`
 : Returns the first segment name with the requested kind, or `""` when the
