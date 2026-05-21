@@ -106,6 +106,52 @@ about symbols and relationships:
   differs across import and definition sites?
 - Can this rule run after every edit, before commit, or in CI?
 
+## Agentic development
+
+### Challenge
+
+Agentic development needs a stable contract between the repository and
+the model. In practice, that contract is usually carried as prose:
+`AGENTS.md`, prompt reminders, review comments, architecture notes, or
+grep snippets. The agent must read it, keep it in context, and spend
+extra turns validating boundaries that the repository could enforce
+directly.
+
+That approach breaks down in predictable ways: prompts can be missed,
+grep only matches text, and review passes surface violations after the
+diff already exists. In modular monorepos, agents may widen their write
+scope while trying to be useful. In code bodies, they may leave narrative
+comments about micro-decisions, temporary reasoning, or AI-generated
+provenance, turning the code itself into noisy context for future
+sessions.
+
+### Executable contract
+
+`code-moniker check` encodes that contract as rules over symbols, refs,
+paths, and comments. Run it after writes, before commit, or in CI, and a
+failure becomes a concrete repair target before the agent treats the task
+as done.
+
+| Agent overhead | Executable guardrail |
+| -------------- | -------------------- |
+| Long prompt rules | keep repository invariants in `.code-moniker.toml` |
+| Grep-based sanity checks | evaluate symbol and reference relationships |
+| Review agents for known rules | fail fast in the edit hook |
+| Repeated inspect-then-fix turns | return concrete violations after each write |
+| Unbounded monorepo edits | enforce write scope by module, package, or owner boundary |
+| Architecture drift | block forbidden refs, imports, and layer crossings |
+| Ownership ambiguity | require symbols to live under the expected path |
+| Agent prose in code | reject low-value comments, temporary reasoning traces, or `AI generated` text |
+
+This removes whole sanity-check flows: review agents, grep probes,
+repeated prompt instructions, and inspect-then-fix turns. Tokens go to
+the actual change instead of revalidating invariants the repository
+already knows. The same contract applies to humans, agents, hooks, and
+CI.
+
+See [Agent harness](docs/cli/agent-harness.md) for Codex, Claude Code,
+and Gemini CLI hooks.
+
 ## How extraction works
 
 The unit of identity is a `moniker`: a URI-like path made of typed
@@ -269,7 +315,7 @@ Start with the page that matches the task:
 | Inspect symbols from the CLI | [Extract](docs/cli/extract.md) |
 | Lint a repository with rules | [Check](docs/cli/check.md) |
 | Write rule expressions | [Rule DSL](docs/cli/check-dsl.md) |
-| Wire the linter into hooks or CI | [Agent harness](docs/cli/agent-harness.md) |
+| Wire checks into agent hooks or CI | [Agent harness](docs/cli/agent-harness.md) |
 | Query graphs in PostgreSQL | [Postgres usage](docs/postgres/usage.md) |
 | Look up SQL functions and operators | [Postgres reference](docs/postgres/reference.md) |
 | Understand moniker URI syntax | [Moniker URI](docs/design/moniker-uri.md) |
