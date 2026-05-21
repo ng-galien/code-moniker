@@ -99,6 +99,71 @@ fn extract_tsv_still_emits_table_rows() {
 }
 
 #[test]
+fn extract_text_limit_warns_with_next_cursor() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--limit",
+		"1",
+	]);
+	assert_eq!(exit, Exit::Match);
+	assert_eq!(out.lines().count(), 1, "{out}");
+	assert!(err.contains("more results"), "{err}");
+	assert!(err.contains("use --after 'code+moniker://"), "{err}");
+	assert!(err.contains("or --all"), "{err}");
+}
+
+#[test]
+fn extract_json_limit_emits_next_cursor_and_after_resumes() {
+	let dir = write_fixture("a.ts", TS_FIXTURE);
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--format",
+		"json",
+		"--limit",
+		"1",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	assert!(
+		err.is_empty(),
+		"json should carry pagination metadata: {err}"
+	);
+	let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+	assert_eq!(json_match_count(&v), 1);
+	let cursor = v["next_cursor"].as_str().expect("next cursor");
+	assert!(cursor.starts_with("code+moniker://"), "{cursor}");
+	assert!(v["remaining"].as_u64().is_some_and(|n| n > 0));
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		path.to_str().unwrap(),
+		"--format",
+		"json",
+		"--limit",
+		"1",
+		"--after",
+		cursor,
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+	assert_eq!(json_match_count(&v), 1);
+	assert_ne!(v["next_cursor"].as_str(), Some(cursor));
+}
+
+fn json_match_count(v: &serde_json::Value) -> usize {
+	let defs = v["matches"]["defs"].as_array().map_or(0, |defs| defs.len());
+	let refs = v["matches"]["refs"].as_array().map_or(0, |refs| refs.len());
+	defs + refs
+}
+
+#[test]
 fn extract_text_accepts_txt_alias() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let path = dir.path().join("a.ts");
@@ -194,6 +259,35 @@ fn count_only_prints_an_integer() {
 	let trimmed = out.trim();
 	let n: usize = trimmed.parse().expect("expected integer, got {trimmed}");
 	assert!(n > 0);
+}
+
+#[test]
+fn extract_directory_json_is_match_output_not_summary() {
+	let dir = tempfile::tempdir().unwrap();
+	write_under(dir.path(), "src/a.ts", TS_FIXTURE);
+	write_under(dir.path(), "src/b.ts", "export class Beta {}\n");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		dir.path().to_str().unwrap(),
+		"--format",
+		"json",
+		"--all",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+	assert!(v.get("summary").is_none(), "{out}");
+	let files = v["files"].as_array().expect("files array");
+	assert!(
+		files.iter().any(|file| file["matches"]["defs"].is_array()),
+		"directory extract JSON should expose per-file matches: {out}"
+	);
+	assert!(
+		files
+			.iter()
+			.all(|file| file.get("by_def_kind").is_none() && file.get("by_ref_kind").is_none()),
+		"directory extract should not return stats summaries: {out}"
+	);
 }
 
 #[test]

@@ -6,16 +6,17 @@ Extract a moniker graph from a file or a directory.
 code-moniker extract <PATH> [--where '<op> <uri>']... [--kind <name>]...
                             [--name <regex>]... [--shape <shape>]...
                             [--format text|tsv|json|tree] [--count] [--quiet]
+                            [--limit <N>] [--after <MONIKER_URI>] [--all]
                             [--moniker-format compact|uri]
                             [--color auto|always|never] [--charset utf8|ascii]
                             [--with-text] [--scheme <SCHEME>] [--project <NAME>]
                             [--cache <DIR>]
 ```
 
-| `<PATH>`     | Output                                                  |
-| ------------ | ------------------------------------------------------- |
-| file         | full graph for that file                                |
-| directory    | per-file summary (no filter) or filtered list           |
+| `<PATH>`  | Output                                  |
+| --------- | --------------------------------------- |
+| file      | matched graph records for that file     |
+| directory | matched graph records grouped by file   |
 
 The walker honors `.gitignore`. `--scheme` overrides the `code+moniker://` URI prefix (matches the PG GUC `code_moniker.scheme`). `--project <NAME>` sets the project component of every emitted moniker (default `.`); the cache shards by anchor hash, so caches keyed at different projects coexist on disk without collision.
 
@@ -109,6 +110,10 @@ CLI-specific shape: `{uri, lang, matches: {defs, refs}}`. Not the same shape as 
 
 Empty attributes are omitted (not `null`). `source` on a ref is self-contained — consumers don't need to re-extract to resolve it.
 
+When output is truncated, JSON adds top-level `next_cursor` and `remaining`
+fields. Resume with `--after '<next_cursor>'`, or pass `--all` to bypass the
+cap.
+
 ### Tree (`--format tree`)
 
 Human-readable outline built from moniker segments, defs ordered by source position. Refs render under their source def. Available only when the binary is built with `--features pretty` (the default for `cargo install code-moniker` and release builds).
@@ -126,17 +131,32 @@ Explicit color flags use the same precedence as text output.
 
 `--count` prints a single integer to stdout. `--quiet` writes nothing — read the exit code. Mutually exclusive.
 
+### `--limit`, `--after`, `--all`
+
+Default output is capped at 1000 matched graph records to keep agent probes
+bounded. `--limit <N>` changes the cap; `--all` disables it. `--after
+<MONIKER_URI>` resumes after the moniker cursor returned by the previous page.
+Treat returned cursors as opaque; refs with repeated target monikers may use an
+internal `cursor:` segment so pagination can remain strict without skipping
+duplicates.
+
+For non-JSON formats, a truncated page writes a stderr notice:
+
+```
+code-moniker: ... N more results, use --after '<uri>' or --all
+```
+
+`--count` and `--quiet` are not paginated.
+
 ## Directory mode
 
-Without filters: one row per file with totals + top kinds.
+Directory mode uses the same match semantics as single-file mode. Text emits
+one moniker per line across all files. TSV prefixes each row with the relative
+file path. JSON uses `{emitted_files, emitted_defs, emitted_refs, files}`,
+where each file entry has `{file, lang, matches}`. Tree renders a filesystem
+tree and then the moniker outline under each file.
 
-```
-<file><TAB><lang><TAB><defs><TAB><refs><TAB><kind:count, …>
-```
-
-`--format json` adds full `by_def_kind` / `by_ref_kind` breakdowns.
-
-With `--kind`/`--shape`/`--where`: same match shape as single-file, prefixed by the file path.
+Use [`stats`](stats.md) for per-file counts, top kinds, and extraction metrics.
 
 ## `--with-text`
 
@@ -184,8 +204,8 @@ code-moniker extract . --kind interface --name 'Resolver$' --format tree
 # TODOs across a tree
 code-moniker extract src --kind comment --with-text | grep -i todo
 
-# Per-file summary
-code-moniker extract src
+# Per-file extraction metrics
+code-moniker stats src
 ```
 
 ## See also

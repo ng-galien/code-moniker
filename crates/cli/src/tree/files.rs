@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 
-use code_moniker_core::core::shape::Shape;
-
 use super::outline::write_tree_with_prefix;
 use super::style::TreeOpts;
 use crate::args::ExtractArgs;
@@ -86,22 +84,6 @@ fn collapsed_leaf_label<'a, T>(name: &str, node: &'a LeafTrie<T>) -> (String, &'
 	(names.join("/"), current)
 }
 
-pub(crate) fn render_dir_tree<W: Write>(
-	w: &mut W,
-	entries: &[(String, String)],
-	args: &ExtractArgs,
-) -> std::io::Result<()> {
-	let opts = TreeOpts::from_args(args);
-	let mut root: PathNode = PathNode::default();
-	for (path, label) in entries {
-		let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-		root.insert(&segs, label.clone());
-	}
-	render_path_node(w, &root, "", &opts)
-}
-
-type PathNode = LeafTrie<String>;
-
 struct LeafTrie<T> {
 	leaf: Option<T>,
 	children: BTreeMap<String, LeafTrie<T>>,
@@ -127,50 +109,6 @@ impl<T> LeafTrie<T> {
 			.or_default()
 			.insert(rest, val);
 	}
-}
-
-fn render_path_node<W: Write>(
-	w: &mut W,
-	node: &PathNode,
-	prefix: &str,
-	opts: &TreeOpts,
-) -> std::io::Result<()> {
-	let total = node.children.len();
-	for (i, (seg, child)) in node.children.iter().enumerate() {
-		let last = i + 1 == total;
-		let (label_seg, rendered_child) = collapsed_leaf_label(seg, child);
-		let branch = if last {
-			opts.glyph.last
-		} else {
-			opts.glyph.tee
-		};
-		let cont = if last {
-			opts.glyph.skip_last
-		} else {
-			opts.glyph.skip_mid
-		};
-		let label = match &rendered_child.leaf {
-			Some(l) => format!(
-				"{npre}{label_seg}{npost} {dpre}{l}{dpost}",
-				npre = opts.palette.name.render(),
-				npost = opts.palette.name.render_reset(),
-				dpre = opts.palette.dim.render(),
-				dpost = opts.palette.dim.render_reset(),
-			),
-			None => format!(
-				"{kpre}{label_seg}/{kpost}",
-				kpre = opts.palette.kind_style(Some(Shape::Namespace)).render(),
-				kpost = opts
-					.palette
-					.kind_style(Some(Shape::Namespace))
-					.render_reset(),
-			),
-		};
-		writeln!(w, "{prefix}{branch} {label}")?;
-		let next_prefix = format!("{prefix}{cont}");
-		render_path_node(w, rendered_child, &next_prefix, opts)?;
-	}
-	Ok(())
 }
 
 #[cfg(test)]
@@ -224,19 +162,6 @@ mod tests {
 		}];
 		let mut buf = Vec::new();
 		write_files_tree(&mut buf, &files, &base_args(), "code+moniker://").unwrap();
-		let s = String::from_utf8(buf).unwrap();
-		assert!(s.contains("src/main/java/Foo.java"), "{s}");
-		assert!(!s.contains("src/\n"), "{s}");
-	}
-
-	#[test]
-	fn directory_summary_tree_collapses_linear_directory_chain() {
-		let entries = [(
-			"src/main/java/Foo.java".to_string(),
-			"files=1 defs=1 refs=0".to_string(),
-		)];
-		let mut buf = Vec::new();
-		render_dir_tree(&mut buf, &entries, &base_args()).unwrap();
 		let s = String::from_utf8(buf).unwrap();
 		assert!(s.contains("src/main/java/Foo.java"), "{s}");
 		assert!(!s.contains("src/\n"), "{s}");

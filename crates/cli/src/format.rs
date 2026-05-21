@@ -165,19 +165,26 @@ fn paint(color: bool, code: &str, text: &str) -> String {
 	}
 }
 
-pub fn write_json<W: Write>(
+pub(crate) struct JsonContext<'a> {
+	pub(crate) lang: Lang,
+	pub(crate) path: &'a Path,
+	pub(crate) scheme: &'a str,
+	pub(crate) page: &'a crate::page::PageInfo,
+}
+
+pub(crate) fn write_json<W: Write>(
 	w: &mut W,
 	matches: &MatchSet<'_>,
 	source: &str,
 	args: &ExtractArgs,
-	lang: Lang,
-	path: &Path,
-	scheme: &str,
+	ctx: JsonContext<'_>,
 ) -> anyhow::Result<()> {
 	let out = JsonOutput {
-		uri: extract::file_uri(path),
-		lang: lang.tag(),
-		matches: build_matches(matches, source, args, scheme),
+		uri: extract::file_uri(ctx.path),
+		lang: ctx.lang.tag(),
+		matches: build_matches(matches, source, args, ctx.scheme),
+		next_cursor: ctx.page.next_cursor.as_deref(),
+		remaining: (ctx.page.remaining > 0).then_some(ctx.page.remaining),
 	};
 	serde_json::to_writer_pretty(&mut *w, &out)?;
 	w.write_all(b"\n")?;
@@ -219,6 +226,10 @@ struct JsonOutput<'a> {
 	uri: String,
 	lang: &'a str,
 	matches: Matches<'a>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	next_cursor: Option<&'a str>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	remaining: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -567,9 +578,12 @@ mod tests {
 			&matches,
 			"",
 			&args(),
-			Lang::Ts,
-			Path::new("a.ts"),
-			"code+moniker://",
+			JsonContext {
+				lang: Lang::Ts,
+				path: Path::new("a.ts"),
+				scheme: "code+moniker://",
+				page: &crate::page::PageInfo::unbounded(matches.defs.len() + matches.refs.len()),
+			},
 		)
 		.unwrap();
 		let v: serde_json::Value = serde_json::from_slice(&buf).unwrap();
@@ -604,9 +618,12 @@ mod tests {
 			&matches,
 			source,
 			&args(),
-			Lang::Ts,
-			Path::new("a.ts"),
-			"code+moniker://",
+			JsonContext {
+				lang: Lang::Ts,
+				path: Path::new("a.ts"),
+				scheme: "code+moniker://",
+				page: &crate::page::PageInfo::unbounded(matches.defs.len() + matches.refs.len()),
+			},
 		)
 		.unwrap();
 		let v: serde_json::Value = serde_json::from_slice(&buf).unwrap();
@@ -629,9 +646,12 @@ mod tests {
 			&matches,
 			"",
 			&args(),
-			Lang::Ts,
-			Path::new("a.ts"),
-			"code+moniker://",
+			JsonContext {
+				lang: Lang::Ts,
+				path: Path::new("a.ts"),
+				scheme: "code+moniker://",
+				page: &crate::page::PageInfo::unbounded(matches.defs.len() + matches.refs.len()),
+			},
 		)
 		.unwrap();
 		let v: serde_json::Value = serde_json::from_slice(&buf).unwrap();

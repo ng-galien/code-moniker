@@ -8,6 +8,6 @@ mod outline;
 mod style;
 
 #[cfg(feature = "pretty")]
-pub(crate) use files::{FileEntry, render_dir_tree, write_files_tree};
+pub(crate) use files::{FileEntry, write_files_tree};
 #[cfg(feature = "pretty")]
 pub(crate) use outline::write_tree;

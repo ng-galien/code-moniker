@@ -8,7 +8,7 @@ repository    = "https://github.com/ng-galien/code-moniker"
 homepage      = "https://github.com/ng-galien/code-moniker"
 documentation = "https://docs.rs/code-moniker"
 readme        = "../../README.md"
-description   = "Standalone CLI / linter for the code-moniker symbol graph: per-file probe, directory summary, project-wide architecture rules."
+description   = "Standalone CLI / linter for the code-moniker symbol graph: file and directory probes, project-wide architecture rules."
 keywords      = ["code-search", "linter", "ast", "tree-sitter", "cli"]
 categories    = ["command-line-utilities", "development-tools"]
 

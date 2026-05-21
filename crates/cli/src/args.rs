@@ -418,6 +418,31 @@ pub struct ExtractArgs {
 
 	#[arg(
 		long,
+		value_name = "N",
+		default_value_t = 1000,
+		value_parser = parse_positive_usize,
+		conflicts_with_all = ["all", "count", "quiet"],
+		help = "maximum matched monikers to emit; use --all to bypass"
+	)]
+	pub limit: usize,
+
+	#[arg(
+		long,
+		value_name = "MONIKER_URI",
+		conflicts_with_all = ["all", "count", "quiet"],
+		help = "resume after this moniker URI"
+	)]
+	pub after: Option<String>,
+
+	#[arg(
+		long,
+		conflicts_with_all = ["count", "quiet"],
+		help = "emit all matched monikers, bypassing --limit"
+	)]
+	pub all: bool,
+
+	#[arg(
+		long,
 		value_enum,
 		default_value_t = MonikerFormat::Compact,
 		help = "moniker rendering for text and TSV output"
@@ -573,6 +598,9 @@ impl ExtractArgs {
 			name: vec![],
 			shape: vec![],
 			format: OutputFormat::Text,
+			limit: 1000,
+			after: None,
+			all: false,
 			moniker_format: MonikerFormat::Compact,
 			color: ColorChoice::Never,
 			charset: Charset::Utf8,
@@ -611,6 +639,16 @@ fn shape_parser() -> impl TypedValueParser<Value = Shape> {
 		s.parse::<Shape>()
 			.expect("PossibleValuesParser pre-validated")
 	})
+}
+
+fn parse_positive_usize(raw: &str) -> Result<usize, String> {
+	let n = raw
+		.parse::<usize>()
+		.map_err(|e| format!("expected positive integer: {e}"))?;
+	if n == 0 {
+		return Err("expected positive integer greater than zero".to_string());
+	}
+	Ok(n)
 }
 
 /// CLI predicate ops are the moniker subset of `expr::TWO_CHAR_OPS` — regex
@@ -751,6 +789,39 @@ mod tests {
 		assert_eq!(
 			extract(&["a.ts", "--format", "json"]).format,
 			OutputFormat::Json
+		);
+	}
+
+	#[test]
+	fn extract_pagination_defaults_and_flags() {
+		let a = extract(&["a.ts"]);
+		assert_eq!(a.limit, 1000);
+		assert!(a.after.is_none());
+		assert!(!a.all);
+
+		let a = extract(&[
+			"a.ts",
+			"--limit",
+			"25",
+			"--after",
+			"code+moniker://./class:Foo",
+		]);
+		assert_eq!(a.limit, 25);
+		assert_eq!(a.after.as_deref(), Some("code+moniker://./class:Foo"));
+	}
+
+	#[test]
+	fn extract_all_conflicts_with_limit_and_after() {
+		assert!(parse(&["extract", "a.ts", "--all", "--limit", "10"]).is_err());
+		assert!(
+			parse(&[
+				"extract",
+				"a.ts",
+				"--all",
+				"--after",
+				"code+moniker://./class:Foo"
+			])
+			.is_err()
 		);
 	}
 

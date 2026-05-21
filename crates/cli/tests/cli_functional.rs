@@ -36,6 +36,16 @@ fn write_file(dir: &Path, name: &str, body: &str) -> PathBuf {
 	path
 }
 
+fn write_under(root: &Path, rel: &str, body: &str) -> PathBuf {
+	let path = root.join(rel);
+	if let Some(parent) = path.parent() {
+		std::fs::create_dir_all(parent).expect("create fixture dir");
+	}
+	let mut f = std::fs::File::create(&path).expect("create fixture");
+	f.write_all(body.as_bytes()).expect("write fixture");
+	path
+}
+
 fn assert_code(out: &CmdOut, code: i32) {
 	assert_eq!(
 		out.status.code(),
@@ -185,6 +195,63 @@ fn binary_extracts_filters_formats_and_sets_exit_codes() {
 	]);
 	assert_code(&out, 0);
 	assert!(out.stdout.contains("method:bar"), "{}", out.stdout);
+}
+
+#[test]
+fn binary_extract_directory_tsv_paginates_with_after_cursor() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(
+		dir.path(),
+		"src/sample.ts",
+		"class Foo {}\nclass Alpha extends Foo {}\nclass Beta extends Foo {}\n",
+	);
+
+	let first = run([
+		"extract".as_ref(),
+		dir.path().as_os_str(),
+		"--format".as_ref(),
+		"tsv".as_ref(),
+		"--shape".as_ref(),
+		"ref".as_ref(),
+		"--limit".as_ref(),
+		"1".as_ref(),
+	]);
+	assert_code(&first, 0);
+	assert_eq!(first.stdout.lines().count(), 1, "{}", first.stdout);
+	let cursor = extract_stderr_cursor(&first.stderr);
+	assert!(
+		cursor.contains("/cursor:"),
+		"duplicate ref target pages should use an opaque cursor: {cursor}"
+	);
+
+	let second = run([
+		"extract".as_ref(),
+		dir.path().as_os_str(),
+		"--format".as_ref(),
+		"tsv".as_ref(),
+		"--shape".as_ref(),
+		"ref".as_ref(),
+		"--limit".as_ref(),
+		"1".as_ref(),
+		"--after".as_ref(),
+		cursor.as_ref(),
+	]);
+	assert_code(&second, 0);
+	assert_eq!(second.stdout.lines().count(), 1, "{}", second.stdout);
+	assert_ne!(second.stdout, first.stdout);
+}
+
+fn extract_stderr_cursor(stderr: &str) -> String {
+	let marker = "use --after '";
+	let start = stderr
+		.find(marker)
+		.map(|idx| idx + marker.len())
+		.unwrap_or_else(|| panic!("missing cursor in stderr: {stderr}"));
+	let rest = &stderr[start..];
+	let end = rest
+		.find('\'')
+		.unwrap_or_else(|| panic!("unterminated cursor in stderr: {stderr}"));
+	rest[..end].to_string()
 }
 
 #[test]
