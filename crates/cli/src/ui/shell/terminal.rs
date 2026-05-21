@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::time::Instant;
 
 use crossterm::event::{Event, KeyEventKind};
 use crossterm::execute;
@@ -13,6 +14,7 @@ use crate::workspace::SessionOptions;
 use crate::{DEFAULT_SCHEME, Exit};
 
 use super::{EventSource, ShellEvent};
+use crate::perf;
 use crate::ui::app::{App, AppAction};
 use crate::ui::live::StoreEvent;
 use crate::ui::render::view;
@@ -70,7 +72,7 @@ fn app_loop<W: Write>(
 		app.set_status(status);
 	}
 	app.queue_startup_load();
-	terminal.draw(|frame| draw_app(frame, app))?;
+	draw_terminal(terminal, app, "initial")?;
 	loop {
 		let batch = events.recv_batch()?;
 		if handle_app_events(batch, app)? {
@@ -81,13 +83,28 @@ fn app_loop<W: Write>(
 				app.append_status(status);
 			}
 		}
-		terminal.draw(|frame| draw_app(frame, app))?;
+		draw_terminal(terminal, app, "after_event")?;
 	}
 }
 
+fn draw_terminal<W: Write>(
+	terminal: &mut Terminal<CrosstermBackend<&mut W>>,
+	app: &mut App,
+	label: &str,
+) -> anyhow::Result<()> {
+	let started = Instant::now();
+	terminal.draw(|frame| draw_app(frame, app))?;
+	perf::record("terminal.draw", started.elapsed(), label);
+	Ok(())
+}
+
 fn draw_app(frame: &mut ratatui::Frame<'_>, app: &mut App) {
+	let started = Instant::now();
 	let vm = crate::ui::explorer::view_model(app);
+	perf::record("draw.view_model", started.elapsed(), app.status());
+	let started = Instant::now();
 	view::render_shell(frame, frame.area(), &vm);
+	perf::record("draw.render_shell", started.elapsed(), app.status());
 }
 
 fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<bool> {

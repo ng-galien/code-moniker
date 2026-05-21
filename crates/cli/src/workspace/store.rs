@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::Moniker;
@@ -24,6 +25,7 @@ use super::snapshot::{
 };
 use super::symbols::{compact_moniker, def_kind, is_navigable_def, last_name, ref_kind};
 use crate::lines::line_range;
+use crate::perf;
 use crate::sources;
 
 pub(crate) use super::model::SearchHit;
@@ -97,15 +99,44 @@ pub(crate) struct GitOverlayRefresh {
 
 impl WorkspaceStore {
 	pub(crate) fn load(opts: &SessionOptions) -> anyhow::Result<Self> {
-		Ok(Self::new(SessionIndex::load(opts)?, opts.clone()))
+		let started = Instant::now();
+		let index = SessionIndex::load(opts)?;
+		perf::record(
+			"workspace.load.session_index",
+			started.elapsed(),
+			format!(
+				"files={} defs={} refs={} scan_ms={} extract_ms={} index_ms={}",
+				index.stats.files,
+				index.stats.defs,
+				index.stats.refs,
+				index.stats.scan_ms,
+				index.stats.extract_ms,
+				index.stats.index_ms
+			),
+		);
+		let started = Instant::now();
+		let store = Self::new(index, opts.clone());
+		perf::record("workspace.load.new_store", started.elapsed(), store.root());
+		Ok(store)
 	}
 
 	pub(crate) fn catalog(opts: &SessionOptions) -> anyhow::Result<Self> {
+		let started = Instant::now();
 		let sources = sources::discover(&opts.paths, opts.project.clone())?;
-		Ok(Self::from_catalog_index(
-			SessionIndex::catalog(sources),
-			opts.clone(),
-		))
+		perf::record(
+			"workspace.catalog.discover",
+			started.elapsed(),
+			format!("files={}", sources.files.len()),
+		);
+		let started = Instant::now();
+		let file_count = sources.files.len();
+		let store = Self::from_catalog_index(SessionIndex::catalog(sources), opts.clone());
+		perf::record(
+			"workspace.catalog.new_store",
+			started.elapsed(),
+			format!("files={file_count}"),
+		);
+		Ok(store)
 	}
 
 	pub(crate) fn empty(opts: SessionOptions) -> Self {
@@ -243,12 +274,24 @@ fn absolute_path(path: &Path) -> PathBuf {
 }
 
 fn build_snapshot(index: SessionIndex) -> WorkspaceSnapshot {
+	let total_started = Instant::now();
+	let detail = format!(
+		"files={} defs={} refs={}",
+		index.stats.files, index.stats.defs, index.stats.refs
+	);
+	let started = Instant::now();
 	let search = Arc::new(SearchIndex {
 		docs: build_search_docs(&index),
 	});
+	perf::record("workspace.snapshot.search_docs", started.elapsed(), &detail);
+	let started = Instant::now();
 	let index = Arc::new(index);
 	let linkage = Arc::new(LinkageIndex::build(&index));
+	perf::record("workspace.snapshot.linkage", started.elapsed(), &detail);
+	let started = Instant::now();
 	let git = build_git_overlay(&index, &linkage);
+	perf::record("workspace.snapshot.git_overlay", started.elapsed(), &detail);
+	perf::record("workspace.snapshot.total", total_started.elapsed(), &detail);
 	WorkspaceSnapshot {
 		index,
 		linkage,
@@ -260,19 +303,35 @@ fn build_snapshot(index: SessionIndex) -> WorkspaceSnapshot {
 }
 
 fn build_catalog_snapshot(index: SessionIndex) -> WorkspaceSnapshot {
-	WorkspaceSnapshot {
+	let started = Instant::now();
+	let detail = format!("files={}", index.stats.files);
+	let snapshot = WorkspaceSnapshot {
 		index: Arc::new(index),
 		linkage: Arc::new(LinkageIndex::default()),
 		search: Arc::new(SearchIndex::default()),
 		git: GitOverlay::default(),
 		coverage: CoverageOverlay::default(),
 		plan: PlanOverlay::default(),
-	}
+	};
+	perf::record("workspace.snapshot.catalog", started.elapsed(), detail);
+	snapshot
 }
 
 fn build_git_overlay(index: &SessionIndex, linkage: &LinkageIndex) -> GitOverlay {
+	let detail = format!(
+		"files={} defs={} refs={}",
+		index.stats.files, index.stats.defs, index.stats.refs
+	);
+	let started = Instant::now();
 	let change_index = build_change_index(index);
+	perf::record("workspace.git.change_index", started.elapsed(), &detail);
+	let started = Instant::now();
 	let change_usage_refs = build_change_usage_refs(index, linkage, &change_index);
+	perf::record(
+		"workspace.git.change_usage_refs",
+		started.elapsed(),
+		&detail,
+	);
 	GitOverlay {
 		change_index,
 		change_usage_refs,

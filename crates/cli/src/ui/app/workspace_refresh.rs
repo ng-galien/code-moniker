@@ -1,3 +1,6 @@
+use std::time::Instant;
+
+use crate::perf;
 use crate::ui::app::{ActiveFilter, App, ShellAction};
 use crate::ui::async_task::TaskSpec;
 use crate::ui::live::StoreEvent;
@@ -59,28 +62,81 @@ impl App {
 	}
 
 	fn refresh_ui_after_store_change(&mut self, kind: StoreChangeKind, status: String) {
+		let total_started = Instant::now();
 		if matches!(
 			kind,
 			StoreChangeKind::FileCatalog | StoreChangeKind::Reloaded
 		) {
+			let started = Instant::now();
 			self.watch_roots_update = Some(self.store().watch_roots());
 			self.refresh_header_search_options();
+			perf::record(
+				"store_refresh.watch_search",
+				started.elapsed(),
+				status.as_str(),
+			);
 		}
 		let reset = matches!(self.active_filter(), ActiveFilter::Change)
 			&& self.app_store.navigation().primary_view().rows.is_empty();
 		if matches!(kind, StoreChangeKind::Reloaded) {
+			let started = Instant::now();
 			self.refresh_active_filter_after_store_reload();
+			perf::record(
+				"store_refresh.active_filter",
+				started.elapsed(),
+				status.as_str(),
+			);
 		}
-		self.dispatch_navigation(NavigationAction::ReplaceModels {
-			explorer: build_navigator(self.store()),
-			change: build_change_navigator(self.store()),
-		});
+		let started = Instant::now();
+		let explorer = build_navigator(self.store());
+		perf::record(
+			"store_refresh.build_navigator",
+			started.elapsed(),
+			status.as_str(),
+		);
+		let started = Instant::now();
+		let change = build_change_navigator(self.store());
+		perf::record(
+			"store_refresh.build_change_navigator",
+			started.elapsed(),
+			status.as_str(),
+		);
+		let started = Instant::now();
+		self.dispatch_navigation(NavigationAction::ReplaceModels { explorer, change });
+		perf::record(
+			"store_refresh.replace_models",
+			started.elapsed(),
+			status.as_str(),
+		);
+		let started = Instant::now();
 		self.refresh_results(matches!(kind, StoreChangeKind::FileCatalog) || reset);
+		perf::record(
+			"store_refresh.refresh_results",
+			started.elapsed(),
+			status.as_str(),
+		);
 		if reset && !matches!(kind, StoreChangeKind::FileCatalog) {
+			let started = Instant::now();
 			self.select_first_change();
+			perf::record(
+				"store_refresh.select_first_change",
+				started.elapsed(),
+				status.as_str(),
+			);
 		}
+		let started = Instant::now();
 		self.sync_contextual_view();
+		perf::record(
+			"store_refresh.sync_contextual_view",
+			started.elapsed(),
+			status.as_str(),
+		);
 		self.set_status(status);
+		perf::record(
+			"store_refresh.total",
+			total_started.elapsed(),
+			self.status(),
+		);
 	}
 
 	fn refresh_active_filter_after_store_reload(&mut self) {

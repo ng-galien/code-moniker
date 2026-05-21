@@ -5,8 +5,10 @@ use code_moniker_core::lang::{
 	build_manifest::{Manifest, parse as parse_manifest},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::time::{Duration, Instant};
 
 use super::index::{DefLocation, RefLocation, SessionIndex};
+use crate::perf;
 
 mod strategy;
 
@@ -39,20 +41,32 @@ pub(crate) struct LinkageStats {
 
 impl LinkageIndex {
 	pub(crate) fn build(index: &SessionIndex) -> Self {
+		let mut trace = LinkageBuildTrace::new(perf::enabled());
 		let mut linkage = Self::default();
+		let started = Instant::now();
 		let defs_by_key = defs_by_link_key(index, true);
+		trace.record_phase("defs_by_key", started.elapsed());
+		let started = Instant::now();
 		let projectless_defs_by_key = defs_by_link_key(index, false);
+		trace.record_phase("projectless_defs_by_key", started.elapsed());
+		let started = Instant::now();
 		let manifests = ManifestLinkage::build(index);
+		trace.record_phase("manifests", started.elapsed());
 		linkage.manifests = manifests.clone();
+		let loop_started = Instant::now();
 		for (file_idx, file) in index.files.iter().enumerate() {
 			for (ref_idx, reference) in file.graph.refs().enumerate() {
 				let loc = RefLocation {
 					file: file_idx,
 					reference: ref_idx,
 				};
+				trace.record_ref_kind(reference);
 				let source = file.graph.def_at(reference.source).moniker.clone();
 				linkage.refs_by_source.entry(source).or_default().push(loc);
+				let started = trace.now();
 				linkage.index_target_reference(&reference.target, loc);
+				trace.record_index_target(reference, started);
+				let started = trace.now();
 				let resolution = resolve_reference(
 					index,
 					&defs_by_key,
@@ -60,7 +74,9 @@ impl LinkageIndex {
 					&manifests,
 					loc,
 					reference,
+					&mut trace,
 				);
+				trace.record_resolve(reference, started);
 				let resolved = resolution.defs;
 				if !resolved.is_empty() {
 					linkage.stats.resolved_refs += 1;
@@ -90,6 +106,8 @@ impl LinkageIndex {
 				}
 			}
 		}
+		trace.record_phase("ref_loop", loop_started.elapsed());
+		trace.flush(index);
 		linkage
 	}
 
@@ -301,6 +319,7 @@ fn resolve_reference(
 	manifests: &ManifestLinkage,
 	loc: RefLocation,
 	reference: &RefRecord,
+	trace: &mut LinkageBuildTrace,
 ) -> RefResolution {
 	let mut out = Vec::new();
 	let mut blocked = false;
@@ -313,6 +332,7 @@ fn resolve_reference(
 	};
 	let strategy = strategy::for_lang(source_file.lang);
 	if strategy.allow_generic_candidates(&query) {
+		let started = trace.now();
 		collect_resolved_candidates(
 			index,
 			defs_by_key.get(&LinkKey::from_moniker(&reference.target)),
@@ -325,7 +345,9 @@ fn resolve_reference(
 			reference,
 			&mut out,
 		);
+		trace.record_resolve_part(reference, ResolvePart::GenericCandidates, started);
 	}
+	let started = trace.now();
 	let mut strategy_keys = CandidateKeys::default();
 	strategy.candidate_keys(&query, &mut strategy_keys);
 	for key in &strategy_keys.exact {
@@ -334,17 +356,15 @@ fn resolve_reference(
 	for key in &strategy_keys.projectless {
 		collect_resolved_candidates(index, projectless_defs_by_key.get(key), reference, &mut out);
 	}
+	trace.record_resolve_part(reference, ResolvePart::StrategyKeys, started);
+	let started = trace.now();
 	let mut strategy_defs = Vec::new();
 	strategy.candidate_defs(&query, &mut strategy_defs);
+	trace.record_strategy_defs(reference, started, strategy_defs.len());
 	for CandidateDef { loc } in strategy_defs {
-		let def = index.def(&loc);
-		if reference.target.bind_match(&def.moniker)
-			|| moniker_matches_without_project(&reference.target, &def.moniker)
-			|| strategy.def_matches(&query, &loc)
-		{
-			out.push(loc);
-		}
+		out.push(loc);
 	}
+	let started = trace.now();
 	out.retain(|def| {
 		let allowed = loc.file == def.file
 			|| manifests.source_can_link_to_def(index, index.files[loc.file].source_root, def);
@@ -355,15 +375,157 @@ fn resolve_reference(
 	});
 	out.sort_by_key(|def| (def.file, def.def));
 	out.dedup();
+	trace.record_resolve_part(reference, ResolvePart::FilterDedup, started);
+	let started = trace.now();
 	let classification = if out.is_empty() && !blocked {
 		strategy.classify_unresolved(&query)
 	} else {
 		UnresolvedClassification::Actionable
 	};
+	trace.record_resolve_part(reference, ResolvePart::Classify, started);
 	RefResolution {
 		defs: out,
 		manifest_blocked: blocked,
 		classification,
+	}
+}
+
+#[derive(Default)]
+struct LinkageBuildTrace {
+	enabled: bool,
+	phases: Vec<(&'static str, Duration)>,
+	by_kind: FxHashMap<String, LinkageKindTrace>,
+}
+
+#[derive(Default)]
+struct LinkageKindTrace {
+	refs: usize,
+	index_target: Duration,
+	resolve: Duration,
+	generic_candidates: Duration,
+	strategy_keys: Duration,
+	strategy_defs: Duration,
+	filter_dedup: Duration,
+	classify: Duration,
+	strategy_defs_returned: usize,
+}
+
+#[derive(Clone, Copy)]
+enum ResolvePart {
+	GenericCandidates,
+	StrategyKeys,
+	FilterDedup,
+	Classify,
+}
+
+impl LinkageBuildTrace {
+	fn new(enabled: bool) -> Self {
+		Self {
+			enabled,
+			..Self::default()
+		}
+	}
+
+	fn now(&self) -> Option<Instant> {
+		self.enabled.then(Instant::now)
+	}
+
+	fn record_phase(&mut self, name: &'static str, duration: Duration) {
+		if self.enabled {
+			self.phases.push((name, duration));
+		}
+	}
+
+	fn record_ref_kind(&mut self, reference: &RefRecord) {
+		if self.enabled {
+			self.kind_mut(reference).refs += 1;
+		}
+	}
+
+	fn record_index_target(&mut self, reference: &RefRecord, started: Option<Instant>) {
+		if let Some(started) = started {
+			self.kind_mut(reference).index_target += started.elapsed();
+		}
+	}
+
+	fn record_resolve(&mut self, reference: &RefRecord, started: Option<Instant>) {
+		if let Some(started) = started {
+			self.kind_mut(reference).resolve += started.elapsed();
+		}
+	}
+
+	fn record_resolve_part(
+		&mut self,
+		reference: &RefRecord,
+		part: ResolvePart,
+		started: Option<Instant>,
+	) {
+		let Some(started) = started else {
+			return;
+		};
+		let elapsed = started.elapsed();
+		let kind = self.kind_mut(reference);
+		match part {
+			ResolvePart::GenericCandidates => kind.generic_candidates += elapsed,
+			ResolvePart::StrategyKeys => kind.strategy_keys += elapsed,
+			ResolvePart::FilterDedup => kind.filter_dedup += elapsed,
+			ResolvePart::Classify => kind.classify += elapsed,
+		}
+	}
+
+	fn record_strategy_defs(
+		&mut self,
+		reference: &RefRecord,
+		started: Option<Instant>,
+		returned: usize,
+	) {
+		let Some(started) = started else {
+			return;
+		};
+		let kind = self.kind_mut(reference);
+		kind.strategy_defs += started.elapsed();
+		kind.strategy_defs_returned += returned;
+	}
+
+	fn flush(&mut self, index: &SessionIndex) {
+		if !self.enabled {
+			return;
+		}
+		for (phase, duration) in &self.phases {
+			perf::record(
+				"workspace.linkage.phase",
+				*duration,
+				format!(
+					"phase={phase} files={} defs={} refs={}",
+					index.stats.files, index.stats.defs, index.stats.refs
+				),
+			);
+		}
+		let mut kinds = self.by_kind.iter().collect::<Vec<_>>();
+		kinds.sort_by_key(|(_, trace)| std::cmp::Reverse(trace.resolve));
+		for (kind, trace) in kinds.into_iter().take(20) {
+			perf::record(
+				"workspace.linkage.ref_kind",
+				trace.resolve,
+				format!(
+					"kind={kind} refs={} index_target_ms={} generic_ms={} strategy_keys_ms={} strategy_defs_ms={} filter_dedup_ms={} classify_ms={} strategy_defs_returned={}",
+					trace.refs,
+					trace.index_target.as_millis(),
+					trace.generic_candidates.as_millis(),
+					trace.strategy_keys.as_millis(),
+					trace.strategy_defs.as_millis(),
+					trace.filter_dedup.as_millis(),
+					trace.classify.as_millis(),
+					trace.strategy_defs_returned
+				),
+			);
+		}
+	}
+
+	fn kind_mut(&mut self, reference: &RefRecord) -> &mut LinkageKindTrace {
+		self.by_kind
+			.entry(String::from_utf8_lossy(&reference.kind).into_owned())
+			.or_default()
 	}
 }
 

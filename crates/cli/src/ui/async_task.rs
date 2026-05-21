@@ -1,7 +1,9 @@
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
+use crate::perf;
 use crate::workspace::{
 	CheckSummary, GitOverlayRefresh, GitOverlayRefreshInput, IndexStore, SessionOptions,
 	WorkspaceStore,
@@ -109,8 +111,10 @@ impl TaskSpec {
 	}
 
 	fn execute(self) -> TaskResult {
+		let started = Instant::now();
 		let work = self.work_kind();
 		let generation = self.generation;
+		let label = self.label;
 		let outcome = match self.kind {
 			TaskKind::LoadFileCatalog { opts } => match WorkspaceStore::catalog(&opts) {
 				Ok(store) => TaskOutcome::FileCatalogLoaded(Box::new(store)),
@@ -133,11 +137,21 @@ impl TaskSpec {
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
 		};
+		let outcome_label = outcome.label();
+		let outcome_detail = outcome.detail();
+		perf::record(
+			"task.execute",
+			started.elapsed(),
+			format!(
+				"id={} label={label} work={work:?} outcome={outcome_label} {outcome_detail}",
+				self.id
+			),
+		);
 		TaskResult {
 			id: self.id,
 			work,
 			generation,
-			label: self.label,
+			label,
 			outcome,
 		}
 	}
@@ -217,6 +231,41 @@ impl fmt::Debug for TaskOutcome {
 			Self::GitOverlayRefreshed(_) => f.write_str("GitOverlayRefreshed(..)"),
 			Self::CheckCompleted(_) => f.write_str("CheckCompleted(..)"),
 			Self::Failed(error) => f.debug_tuple("Failed").field(error).finish(),
+		}
+	}
+}
+
+impl TaskOutcome {
+	fn label(&self) -> &'static str {
+		match self {
+			Self::FileCatalogLoaded(_) => "file_catalog_loaded",
+			Self::StoreReloaded(_) => "store_reloaded",
+			Self::GitOverlayRefreshed(_) => "git_overlay_refreshed",
+			Self::CheckCompleted(_) => "check_completed",
+			Self::Failed(_) => "failed",
+		}
+	}
+
+	fn detail(&self) -> String {
+		match self {
+			Self::FileCatalogLoaded(store) | Self::StoreReloaded(store) => {
+				let stats = store.stats();
+				let linkage = store.linkage_stats();
+				format!(
+					"files={} defs={} refs={} scan_ms={} extract_ms={} index_ms={} resolved_refs={} unresolved_refs={}",
+					stats.files,
+					stats.defs,
+					stats.refs,
+					stats.scan_ms,
+					stats.extract_ms,
+					stats.index_ms,
+					linkage.resolved_refs,
+					linkage.unresolved_refs
+				)
+			}
+			Self::GitOverlayRefreshed(_) | Self::CheckCompleted(_) | Self::Failed(_) => {
+				String::new()
+			}
 		}
 	}
 }

@@ -40,19 +40,6 @@ impl LinkageStrategy for JavaLinkageStrategy {
 		}
 	}
 
-	fn def_matches(&self, ctx: &LinkageQuery<'_>, def: &DefLocation) -> bool {
-		if is_java_type_ref(ctx.reference) && self.same_package_type_def_matches(ctx, def) {
-			return true;
-		}
-		if ctx.reference.kind == kinds::READS && self.enclosing_field_def_matches(ctx, def) {
-			return true;
-		}
-		if ctx.reference.kind == kinds::METHOD_CALL && self.receiver_member_def_matches(ctx, def) {
-			return true;
-		}
-		false
-	}
-
 	fn classify_unresolved(&self, ctx: &LinkageQuery<'_>) -> UnresolvedClassification {
 		if java_external_target(&ctx.reference.target) {
 			return UnresolvedClassification::External;
@@ -95,25 +82,6 @@ impl JavaLinkageStrategy {
 		}
 	}
 
-	fn same_package_type_def_matches(&self, ctx: &LinkageQuery<'_>, def: &DefLocation) -> bool {
-		let Some((package, name)) = same_package_type_target(ctx) else {
-			return false;
-		};
-		let file = &ctx.index.files[def.file];
-		if file.lang != Lang::Java || !java_file_package_matches(file, &package) {
-			return false;
-		}
-		let def = ctx.index.def(def);
-		if !is_java_top_level_type(&def.kind) {
-			return false;
-		}
-		def.moniker
-			.as_view()
-			.segments()
-			.last()
-			.is_some_and(|segment| segment.name == name)
-	}
-
 	fn enclosing_field_defs(&self, ctx: &LinkageQuery<'_>, out: &mut Vec<CandidateDef>) {
 		let Some(name) = last_segment_name(&ctx.reference.target) else {
 			return;
@@ -121,15 +89,6 @@ impl JavaLinkageStrategy {
 		for loc in java_enclosing_field_defs(ctx, name) {
 			out.push(CandidateDef { loc });
 		}
-	}
-
-	fn enclosing_field_def_matches(&self, ctx: &LinkageQuery<'_>, def: &DefLocation) -> bool {
-		let Some(name) = last_segment_name(&ctx.reference.target) else {
-			return false;
-		};
-		java_enclosing_field_defs(ctx, name)
-			.into_iter()
-			.any(|loc| loc == *def)
 	}
 
 	fn receiver_member_defs(&self, ctx: &LinkageQuery<'_>, out: &mut Vec<CandidateDef>) {
@@ -143,21 +102,6 @@ impl JavaLinkageStrategy {
 				out.push(CandidateDef { loc });
 			}
 		}
-	}
-
-	fn receiver_member_def_matches(&self, ctx: &LinkageQuery<'_>, def: &DefLocation) -> bool {
-		let Some(method_name) = last_segment_name(&ctx.reference.target) else {
-			return false;
-		};
-		let method_name = bare_callable_name(method_name);
-		let arity = reference_arity(ctx.reference);
-		receiver_type_defs(ctx, ctx.reference, 0)
-			.into_iter()
-			.any(|type_def| {
-				java_type_member_methods(ctx.index, type_def, method_name, arity)
-					.into_iter()
-					.any(|loc| loc == *def)
-			})
 	}
 }
 
@@ -379,39 +323,38 @@ fn method_owner_target(reference: &RefRecord) -> Option<Moniker> {
 
 fn java_type_defs_for_target(ctx: &LinkageQuery<'_>, target: &Moniker) -> Vec<DefLocation> {
 	let mut out = Vec::new();
-	for (file_idx, file) in ctx.index.files.iter().enumerate() {
+	let Some(name) = last_segment_name(target).and_then(|name| std::str::from_utf8(name).ok())
+	else {
+		return out;
+	};
+	let same_package_target = same_package_type_target_for_moniker(ctx.source_file, target);
+	let Some(candidates) = ctx.index.defs_by_name.get(name) else {
+		return out;
+	};
+	for loc in candidates {
+		let file = &ctx.index.files[loc.file];
 		if file.lang != Lang::Java {
 			continue;
 		}
-		for (def_idx, def) in file.graph.defs().enumerate() {
-			if !is_java_top_level_type(&def.kind) {
-				continue;
-			}
-			if target.bind_match(&def.moniker)
-				|| moniker_matches_without_project(target, &def.moniker)
-			{
-				out.push(DefLocation {
-					file: file_idx,
-					def: def_idx,
-				});
-				continue;
-			}
-			if same_package_type_target_for_moniker(ctx.source_file, target).is_some_and(
-				|(package, name)| {
-					java_file_package_matches(file, &package)
-						&& def
-							.moniker
-							.as_view()
-							.segments()
-							.last()
-							.is_some_and(|segment| segment.name == name)
-				},
-			) {
-				out.push(DefLocation {
-					file: file_idx,
-					def: def_idx,
-				});
-			}
+		let def = ctx.index.def(loc);
+		if !is_java_top_level_type(&def.kind) {
+			continue;
+		}
+		if target.bind_match(&def.moniker) || moniker_matches_without_project(target, &def.moniker)
+		{
+			out.push(*loc);
+			continue;
+		}
+		if same_package_target.as_ref().is_some_and(|(package, name)| {
+			java_file_package_matches(file, &package)
+				&& def
+					.moniker
+					.as_view()
+					.segments()
+					.last()
+					.is_some_and(|segment| segment.name == *name)
+		}) {
+			out.push(*loc);
 		}
 	}
 	out

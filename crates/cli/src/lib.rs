@@ -14,6 +14,7 @@ pub mod inspect;
 pub mod lang;
 pub mod lines;
 pub mod manifest;
+pub(crate) mod perf;
 pub mod predicate;
 pub mod sources;
 pub mod stats;

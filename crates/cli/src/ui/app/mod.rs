@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
+use std::time::Instant;
 
+use crate::perf;
 use crate::ui::events::UiMode;
 use crate::ui::shell::ShellEvent;
 use crate::ui::store::navigation::NavigationState;
@@ -48,8 +50,13 @@ impl App {
 		rules: PathBuf,
 		profile: Option<String>,
 	) -> Self {
+		let started = Instant::now();
 		let navigator = build_navigator(&store);
+		perf::record("app.new.build_navigator", started.elapsed(), "");
+		let started = Instant::now();
 		let change_navigator = build_change_navigator(&store);
+		perf::record("app.new.build_change_navigator", started.elapsed(), "");
+		let started = Instant::now();
 		let mut app_store = AppStore::from_workspace_store(store);
 		app_store.set_navigation(NavigationState::new(navigator, change_navigator));
 		let mut app = Self {
@@ -66,6 +73,7 @@ impl App {
 			"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits",
 		);
 		app.refresh_results(false);
+		perf::record("app.new.finish", started.elapsed(), app.status());
 		app
 	}
 

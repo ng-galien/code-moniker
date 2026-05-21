@@ -15,10 +15,6 @@ pub(super) trait LinkageStrategy: Sync {
 
 	fn candidate_defs(&self, _ctx: &LinkageQuery<'_>, _out: &mut Vec<CandidateDef>) {}
 
-	fn def_matches(&self, _ctx: &LinkageQuery<'_>, _def: &DefLocation) -> bool {
-		false
-	}
-
 	fn classify_unresolved(&self, _ctx: &LinkageQuery<'_>) -> UnresolvedClassification {
 		UnresolvedClassification::Actionable
 	}

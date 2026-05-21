@@ -24,6 +24,17 @@ Use `--cache DIR` for repeated scans. The cache format is shared with
 `stats` and stores extracted `CodeGraph` records keyed by source metadata
 and moniker anchor.
 
+For startup profiling, set `CODE_MONIKER_UI_TIMINGS` to a TSV output path
+before launching the UI:
+
+```sh
+CODE_MONIKER_UI_TIMINGS=/tmp/code-moniker-ui-timings.tsv code-moniker ui .
+```
+
+The trace records wall-clock timings for background tasks, workspace
+snapshot phases, UI model refreshes, and terminal draws. A value of `1`
+writes to `/tmp/code-moniker-ui-timings.tsv`.
+
 ## Views
 
 | View | Purpose |
