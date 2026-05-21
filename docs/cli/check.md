@@ -9,6 +9,7 @@ code-moniker rules init [ROOT] [--rules <PATH>]
 code-moniker rules disable [ROOT] [--rules <PATH>]
 code-moniker rules enable [ROOT] [--rules <PATH>]
 code-moniker rules show [ROOT] [--rules <PATH>] [--profile <NAME>] [--default-rules on|off] [--format text|json]
+code-moniker rules learn [SAMPLE] [--format text|json]
 code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>]
 code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>]
 ```
@@ -167,6 +168,20 @@ code-moniker rules show . --default-rules off --format json
 
 Text output groups compiled rules by language. JSON output includes
 `expr` and `expanded_expr`, so alias expansion is visible.
+
+Use `rules learn` to print the example rule packs embedded in the binary.
+This is intended for agents and local tooling: they can inspect language
+and architecture examples without fetching docs from GitHub or depending
+on a checkout of the repository.
+
+```sh
+code-moniker rules learn
+code-moniker rules learn java
+code-moniker rules learn architecture --format json
+```
+
+Known samples are `architecture`, `csharp`, `go`, `java`, `python`,
+`rust`, `sql`, and `typescript`.
 
 The embedded defaults cover conservative naming rules. Project policies
 such as layer boundaries, maximum class size, or mandatory doc comments

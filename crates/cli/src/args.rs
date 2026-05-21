@@ -68,6 +68,8 @@ pub enum RulesCommand {
 	Enable(RulesFileArgs),
 	#[command(about = "Show the effective compiled rules after defaults, overlay, and profile.")]
 	Show(RulesShowArgs),
+	#[command(about = "Print embedded check rule examples from the documentation.")]
+	Learn(RulesLearnArgs),
 }
 
 #[derive(Debug, ClapArgs)]
@@ -120,8 +122,31 @@ pub struct RulesShowArgs {
 	pub profile: Option<String>,
 }
 
+#[derive(Debug, ClapArgs)]
+pub struct RulesLearnArgs {
+	#[arg(
+		value_name = "SAMPLE",
+		help = "sample name to print, for example java, architecture, or typescript; omit to print every sample"
+	)]
+	pub sample: Option<String>,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = RulesLearnFormat::Text,
+		help = "output format"
+	)]
+	pub format: RulesLearnFormat,
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 pub enum RulesShowFormat {
+	Text,
+	Json,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum RulesLearnFormat {
 	Text,
 	Json,
 }

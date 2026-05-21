@@ -8,7 +8,8 @@ use code_moniker_core::lang::Lang;
 use serde::Serialize;
 
 use crate::args::{
-	DefaultRules, RulesArgs, RulesCommand, RulesFileArgs, RulesShowArgs, RulesShowFormat,
+	DefaultRules, RulesArgs, RulesCommand, RulesFileArgs, RulesLearnArgs, RulesLearnFormat,
+	RulesShowArgs, RulesShowFormat,
 };
 use crate::{Exit, check};
 
@@ -18,6 +19,7 @@ pub fn run<W1: Write, W2: Write>(args: &RulesArgs, stdout: &mut W1, stderr: &mut
 		RulesCommand::Disable(args) => set_default_rules(args, false, stdout),
 		RulesCommand::Enable(args) => set_default_rules(args, true, stdout),
 		RulesCommand::Show(args) => show(args, stdout),
+		RulesCommand::Learn(args) => learn(args, stdout),
 	};
 	match result {
 		Ok(()) => Exit::Match,
@@ -26,6 +28,122 @@ pub fn run<W1: Write, W2: Write>(args: &RulesArgs, stdout: &mut W1, stderr: &mut
 			Exit::UsageError
 		}
 	}
+}
+
+const LEARN_SAMPLES: &[LearnSample] = &[
+	LearnSample {
+		name: "architecture",
+		path: "docs/cli/check-samples/architecture.toml",
+		content: include_str!("../../../docs/cli/check-samples/architecture.toml"),
+	},
+	LearnSample {
+		name: "csharp",
+		path: "docs/cli/check-samples/csharp.toml",
+		content: include_str!("../../../docs/cli/check-samples/csharp.toml"),
+	},
+	LearnSample {
+		name: "go",
+		path: "docs/cli/check-samples/go.toml",
+		content: include_str!("../../../docs/cli/check-samples/go.toml"),
+	},
+	LearnSample {
+		name: "java",
+		path: "docs/cli/check-samples/java.toml",
+		content: include_str!("../../../docs/cli/check-samples/java.toml"),
+	},
+	LearnSample {
+		name: "python",
+		path: "docs/cli/check-samples/python.toml",
+		content: include_str!("../../../docs/cli/check-samples/python.toml"),
+	},
+	LearnSample {
+		name: "rust",
+		path: "docs/cli/check-samples/rust.toml",
+		content: include_str!("../../../docs/cli/check-samples/rust.toml"),
+	},
+	LearnSample {
+		name: "sql",
+		path: "docs/cli/check-samples/sql.toml",
+		content: include_str!("../../../docs/cli/check-samples/sql.toml"),
+	},
+	LearnSample {
+		name: "typescript",
+		path: "docs/cli/check-samples/typescript.toml",
+		content: include_str!("../../../docs/cli/check-samples/typescript.toml"),
+	},
+];
+
+#[derive(Serialize)]
+struct LearnSample {
+	name: &'static str,
+	path: &'static str,
+	content: &'static str,
+}
+
+#[derive(Serialize)]
+struct LearnReport {
+	samples: Vec<&'static LearnSample>,
+}
+
+fn learn<W: Write>(args: &RulesLearnArgs, stdout: &mut W) -> anyhow::Result<()> {
+	let samples = selected_learn_samples(args.sample.as_deref())?;
+	match args.format {
+		RulesLearnFormat::Text => write_learn_text(stdout, &samples)?,
+		RulesLearnFormat::Json => {
+			serde_json::to_writer_pretty(&mut *stdout, &LearnReport { samples })?;
+			stdout.write_all(b"\n")?;
+		}
+	}
+	Ok(())
+}
+
+fn selected_learn_samples(sample: Option<&str>) -> anyhow::Result<Vec<&'static LearnSample>> {
+	let Some(sample) = sample else {
+		return Ok(LEARN_SAMPLES.iter().collect());
+	};
+	let normalized = sample
+		.strip_suffix(".toml")
+		.unwrap_or(sample)
+		.to_ascii_lowercase();
+	LEARN_SAMPLES
+		.iter()
+		.find(|candidate| candidate.name == normalized)
+		.map(|sample| vec![sample])
+		.with_context(|| {
+			format!(
+				"unknown rules sample `{sample}` (known: {})",
+				LEARN_SAMPLES
+					.iter()
+					.map(|sample| sample.name)
+					.collect::<Vec<_>>()
+					.join(", ")
+			)
+		})
+}
+
+fn write_learn_text<W: Write>(w: &mut W, samples: &[&'static LearnSample]) -> std::io::Result<()> {
+	writeln!(
+		w,
+		"# Embedded code-moniker check rule samples. Copy the relevant TOML blocks into .code-moniker.toml."
+	)?;
+	writeln!(
+		w,
+		"# Samples: {}",
+		LEARN_SAMPLES
+			.iter()
+			.map(|sample| sample.name)
+			.collect::<Vec<_>>()
+			.join(", ")
+	)?;
+	for sample in samples {
+		writeln!(w)?;
+		writeln!(w, "# --- {} ({}) ---", sample.name, sample.path)?;
+		write!(w, "{}", sample.content)?;
+		if !sample.content.ends_with('\n') {
+			writeln!(w)?;
+		}
+	}
+	Ok(())
 }
 
 fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
@@ -445,6 +563,60 @@ mod tests {
 			"{out}"
 		);
 		assert!(!out.contains("ts.class.drop"), "{out}");
+	}
+
+	#[test]
+	fn rules_learn_prints_embedded_sample() {
+		let cli = Cli::parse_from(["code-moniker", "rules", "learn", "java"]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out = String::from_utf8(stdout).unwrap();
+		assert!(out.contains("# --- java (docs/cli/check-samples/java.toml) ---"));
+		assert!(out.contains("[aliases]"), "{out}");
+		assert!(out.contains("[[java.class.where]]"), "{out}");
+		assert!(!out.contains("# --- typescript"), "{out}");
+	}
+
+	#[test]
+	fn rules_learn_json_reports_samples() {
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"learn",
+			"rust.toml",
+			"--format",
+			"json",
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		let samples = out["samples"].as_array().unwrap();
+		assert_eq!(samples.len(), 1);
+		assert_eq!(samples[0]["name"], "rust");
+		assert_eq!(samples[0]["path"], "docs/cli/check-samples/rust.toml");
+		assert!(
+			samples[0]["content"]
+				.as_str()
+				.unwrap()
+				.contains("[[rust.fn.where]]"),
+			"{out:#}"
+		);
+	}
+
+	#[test]
+	fn rules_learn_rejects_unknown_sample() {
+		let cli = Cli::parse_from(["code-moniker", "rules", "learn", "kotlin"]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::UsageError);
+		let err = String::from_utf8(stderr).unwrap();
+		assert!(err.contains("unknown rules sample `kotlin`"), "{err}");
+		assert!(err.contains("java"), "{err}");
 	}
 
 	#[test]
