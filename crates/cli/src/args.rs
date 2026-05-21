@@ -121,12 +121,20 @@ pub struct CheckArgs {
 		long,
 		value_name = "PATH",
 		default_value = ".code-moniker.toml",
-		help = "user TOML overlay; missing file falls back to embedded defaults"
+		help = "user TOML rules file; missing file is ignored"
 	)]
 	pub rules: PathBuf,
 
 	#[arg(long, value_enum, default_value_t = CheckFormat::Text)]
 	pub format: CheckFormat,
+
+	#[arg(
+		long = "default-rules",
+		value_enum,
+		default_value_t = DefaultRules::On,
+		help = "load embedded default rules before applying --rules"
+	)]
+	pub default_rules: DefaultRules,
 
 	#[arg(
 		long,
@@ -147,6 +155,18 @@ pub enum CheckFormat {
 	Text,
 	Json,
 	CodexHook,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum DefaultRules {
+	On,
+	Off,
+}
+
+impl DefaultRules {
+	pub fn enabled(self) -> bool {
+		matches!(self, Self::On)
+	}
 }
 
 #[cfg(feature = "tui")]

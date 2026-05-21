@@ -877,6 +877,26 @@ fn check_default_preset_flags_helper_function_name() {
 }
 
 #[test]
+fn check_default_rules_can_be_disabled() {
+	let dir = write_fixture("a.ts", "function helper() {}\n");
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--default-rules",
+		"off",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	assert!(
+		out.trim().is_empty(),
+		"no embedded default rules should run: {out}"
+	);
+}
+
+#[test]
 fn check_user_overlay_keeps_default_forbid_when_changing_max_lines() {
 	let dir = write_fixture("a.ts", "function helper() {}\n");
 	let rules_path = dir.path().join("rules.toml");
@@ -904,6 +924,33 @@ fn check_user_overlay_keeps_default_forbid_when_changing_max_lines() {
 		out.contains("ts.function.no-placeholder-names"),
 		"merge regression — preset forbid_name_patterns lost when max_lines override applied: {out}"
 	);
+}
+
+#[test]
+fn check_java_default_allows_screaming_field_constants() {
+	let dir = write_fixture(
+		"App.java",
+		r#"
+		public class App {
+			private static final String DEFAULT_REGION = "EU";
+			private int retryCount;
+
+			public String displayName() {
+				return DEFAULT_REGION + retryCount;
+			}
+		}
+		"#,
+	);
+	let path = dir.path().join("App.java");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	assert!(!out.contains("java.field"), "{out}");
 }
 
 #[test]

@@ -154,8 +154,10 @@ spells its keywords.
 | `annotation`   | `comment`                                                                       |
 
 ```toml
-# Single rule that fires on any type-shape def across all 7 languages.
+# This block still iterates only over TypeScript classes, but the
+# expression can speak in structural terms.
 [[ts.class.where]]
+id   = "class-name-pascalcase"
 expr = "shape = 'type' => name =~ ^[A-Z][A-Za-z0-9]*$"
 
 # Cross-language architectural rule expressed in shapes, not kinds.
@@ -163,6 +165,10 @@ expr = "shape = 'type' => name =~ ^[A-Z][A-Za-z0-9]*$"
 id   = "annotations-only-annotate"
 expr = "source.shape = 'annotation' => kind = 'annotates'"
 ```
+
+There is no top-level "all defs" scope. To cover several kinds or
+languages, add a rule for each relevant kind block, or use
+`[[default.<kind>.where]]` when a shared fallback rule is acceptable.
 
 The mapping table lives in `crates/core/src/core/shape.rs` and is the same one
 exposed as the `shape` column of `graph_defs(code_graph)` in SQL — rules
@@ -232,10 +238,11 @@ message = "..."                            # optional; templates are rendered fo
 require_doc_comment = "public"             # spatial rule, outside `where`
 ```
 
-Merge: user TOML overrides the embedded preset by rule id (replace in
-place) or appends new rules. `require_doc_comment` overrides if set.
-Aliases from the user merge on top of embedded ones with the same
-replace-by-name rule.
+Merge: with `--default-rules on`, user TOML overrides the embedded preset
+by rule id (replace in place) or appends new rules. `require_doc_comment`
+overrides if set. Aliases from the user merge on top of embedded ones with
+the same replace-by-name rule. With `--default-rules off`, the user TOML is
+loaded as the complete config.
 
 ## Recipes and suppression directives
 

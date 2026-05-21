@@ -137,7 +137,21 @@ pub fn load_default() -> Result<Config, ConfigError> {
 /// Load the embedded defaults and merge `user_path` on top if it exists.
 /// Missing user config is not an error — defaults stand alone.
 pub fn load_with_overrides(user_path: Option<&Path>) -> Result<Config, ConfigError> {
-	let mut cfg = load_default()?;
+	load_with_options(user_path, true)
+}
+
+/// Load rule config, optionally starting from the embedded defaults.
+/// Missing user config is not an error: with defaults enabled they stand
+/// alone; with defaults disabled the resulting config is empty.
+pub fn load_with_options(
+	user_path: Option<&Path>,
+	include_defaults: bool,
+) -> Result<Config, ConfigError> {
+	let mut cfg = if include_defaults {
+		load_default()?
+	} else {
+		Config::default()
+	};
 	if let Some(p) = user_path {
 		if !p.exists() {
 			return Ok(cfg);
@@ -781,6 +795,14 @@ mod tests {
 		let cfg = load_with_overrides(Some(Path::new("/no/such/file.toml")))
 			.expect("missing file falls back to defaults");
 		assert!(cfg.ts.kinds.contains_key("class"));
+	}
+
+	#[test]
+	fn missing_user_file_without_defaults_is_empty() {
+		let cfg = load_with_options(Some(Path::new("/no/such/file.toml")), false)
+			.expect("missing file is still accepted without defaults");
+		assert!(cfg.refs.rules.is_empty());
+		assert!(cfg.ts.kinds.is_empty());
 	}
 
 	#[test]

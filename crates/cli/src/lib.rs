@@ -33,7 +33,7 @@ use std::process::ExitCode;
 #[cfg(feature = "tui")]
 pub use args::UiArgs;
 pub use args::{
-	CheckArgs, CheckFormat, Cli, CodexHarnessArgs, Command, ExtractArgs, HarnessArgs,
+	CheckArgs, CheckFormat, Cli, CodexHarnessArgs, Command, DefaultRules, ExtractArgs, HarnessArgs,
 	HarnessCommand, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, OutputFormat, OutputMode,
 	ShapesArgs, StatsArgs, StatsFormat,
 };
@@ -396,7 +396,7 @@ fn check_inner<W: Write, E: Write>(
 	stderr: &mut E,
 ) -> anyhow::Result<CheckOutcome> {
 	let path: &Path = &args.path;
-	let mut cfg = check::load_with_overrides(Some(&args.rules))?;
+	let mut cfg = check::load_with_options(Some(&args.rules), args.default_rules.enabled())?;
 	if let Some(name) = &args.profile {
 		cfg.apply_profile(name)?;
 	}

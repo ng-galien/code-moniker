@@ -4,7 +4,7 @@
 one directory.
 
 ```sh
-code-moniker check <PATH> [--rules <PATH>] [--format text|json] [--profile <NAME>] [--report]
+code-moniker check <PATH> [--rules <PATH>] [--default-rules on|off] [--format text|json] [--profile <NAME>] [--report]
 code-moniker harness codex <ROOT> [--profile architecture] [--scope src]
 code-moniker harness claude <ROOT> [--profile architecture] [--scope src]
 ```
@@ -16,6 +16,20 @@ inspect the graph.
 Use `code-moniker harness codex` or `code-moniker harness claude` to
 generate project-local `PostToolUse` hooks that run an architecture
 profile after local write tools.
+
+## Mental model
+
+`check` builds the same symbol graph as `extract`, loads the rule config,
+and evaluates each rule on one scope: one def, one ref, or one direct child
+collection. By default, the rule config is the embedded defaults merged
+with your TOML overlay; `--default-rules off` makes the TOML file the
+complete config.
+
+A `where` expression is an assertion. When it evaluates to `false`,
+`check` emits a violation. Most architecture rules should therefore use
+implication: `A => B` means "when A is true, B must also be true". Without
+the implication, a rule that starts with `A AND ...` will also fail every
+symbol where `A` is false.
 
 ## Run
 
@@ -37,6 +51,12 @@ Use a rule file other than `.code-moniker.toml`:
 code-moniker check src/ --rules arch.toml
 ```
 
+Run only the rules from your project file:
+
+```sh
+code-moniker check src/ --rules arch.toml --default-rules off
+```
+
 Machine-readable output:
 
 ```sh
@@ -53,6 +73,18 @@ code-moniker check src/ --profile architecture --report
 also prints `antecedent_matches`; `0` means the left-hand side never
 matched any scanned def or ref.
 
+Debug a rule that does not fire in this order:
+
+```sh
+code-moniker check src/ --profile architecture --report
+code-moniker extract src/domain/order.ts --format tree
+code-moniker langs ts
+```
+
+Use `--report` to see whether the rule was evaluated, `extract` to verify
+the real moniker/kind names, and `langs` to confirm the kinds emitted by a
+language.
+
 Exit codes:
 
 | Code | Meaning |
@@ -66,8 +98,14 @@ output. This keeps edit hooks quiet for docs, configs, and generated files.
 
 ## Configuration
 
-`check` always starts with the embedded default rule pack. If the rules
-file exists, it is merged on top. The default path is `.code-moniker.toml`.
+By default, `check` starts with the embedded default rule pack. If the
+rules file exists, it is merged on top. The default path is
+`.code-moniker.toml`.
+
+Use `--default-rules off` when the TOML file should be the complete rule
+set. If the rules file is missing in that mode, no rules run. Use
+`--default-rules on` explicitly when a script should document that it wants
+the embedded preset.
 
 The embedded defaults cover conservative naming rules. Project policies
 such as layer boundaries, maximum class size, or mandatory doc comments
@@ -93,6 +131,14 @@ expr = "name =~ Repository$ => moniker ~ '**/dir:domain/**'"
 
 Rule ids are built from the TOML path: `ts.class.no-god-class`,
 `refs.domain-no-infra`, and so on.
+
+The three examples above cover the common rule shapes:
+
+| Rule | What it checks |
+| ---- | -------------- |
+| `refs.domain-no-infra` | a direct dependency from one layer to another |
+| `ts.class.no-god-class` | a class budget using direct child methods |
+| `ts.interface.repository-lives-in-domain` | a naming convention tied to location |
 
 ## Scopes
 
@@ -197,6 +243,12 @@ code-moniker extract src/order.ts --format tree
 
 ## Recipes
 
+The recipes cover direct dependency boundaries, external framework imports,
+class-size budgets, naming/location contracts, implementation contracts,
+test-only fixtures, doc comments, profiles, and suppressions. The DSL does
+not compute transitive dependency closure or cycles; use SQL over an
+ingested `code_graph` for those corpus-level checks.
+
 ### Layer boundary
 
 ```toml
@@ -214,6 +266,10 @@ expr = """
 """
 ```
 
+This catches direct refs from `application` to forbidden layers, or from
+`domain` to anything outside `domain`. It does not flag an indirect path
+such as `domain -> application -> infrastructure`.
+
 ### Framework imports stay out of domain
 
 ```toml
@@ -226,6 +282,10 @@ expr = """
           OR target ~ '**/external_pkg:typeorm/**')
 """
 ```
+
+This rule is intentionally scoped to `imports_symbol` refs. Method calls to
+framework objects already imported elsewhere need a separate rule or a SQL
+query over the graph.
 
 ### Keep classes small
 
@@ -275,7 +335,7 @@ expr = """
 [[ts.class.where]]
 id   = "fixtures-only-in-tests"
 expr = """
-  name =~ ^(Stub|Mock|Fake|Builder)$
+  name =~ (Stub|Mock|Fake|Builder)$
   => any(segment, segment.kind = 'dir'
                   AND segment.name =~ (^tests?$|_test$))
 """

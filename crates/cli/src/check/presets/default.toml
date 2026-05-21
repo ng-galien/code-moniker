@@ -82,9 +82,11 @@ expr = "$pascal"
 id   = "name-camelcase"
 expr = "$camel"
 
+# Java fields include both regular fields and `static final` constants in the
+# extracted graph, so the conservative default accepts both conventions.
 [[java.field.where]]
 id   = "name-camelcase"
-expr = "$camel"
+expr = "$camel OR $screaming"
 
 [[java.enum_constant.where]]
 id   = "name-screaming"
