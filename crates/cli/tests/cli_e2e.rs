@@ -779,6 +779,54 @@ fn check_project_cross_layer_import_violation() {
 }
 
 #[test]
+fn check_max_violations_prints_largest_rule_group_by_path() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(dir.path(), "src/c.ts", "class Charlie {}\n");
+	write_under(dir.path(), "src/a.ts", "class Alpha {}\n");
+	write_under(dir.path(), "lib/b.ts", "class Bravo {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[ts.class.where]]
+		id = "large"
+		expr = "name =~ ^Never$"
+
+		[[ts.class.where]]
+		id = "small"
+		expr = "moniker ~ '**/dir:src/**' => name =~ ^Never$"
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--max-violations",
+		"2",
+	]);
+
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(
+		out.contains("Showing 2 of 5 violation(s) from largest rule group `ts.class.large`."),
+		"{out}"
+	);
+	let lib_b = out.find("lib/b.ts").expect("first selected path");
+	let src_a = out.find("src/a.ts").expect("second selected path");
+	assert!(lib_b < src_a, "{out}");
+	assert!(!out.contains("src/c.ts:L1-L1 [ts.class.large]"), "{out}");
+	assert!(!out.contains("[ts.class.small]"), "{out}");
+	assert!(out.contains("5 violation(s) across 3 file(s)"), "{out}");
+	assert!(out.contains("- ts.class.large: 3 violation(s)"), "{out}");
+	assert!(out.contains("- ts.class.small: 2 violation(s)"), "{out}");
+}
+
+#[test]
 fn check_report_warns_when_implication_antecedent_never_matches() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	std::fs::create_dir_all(dir.path().join("src/core")).unwrap();

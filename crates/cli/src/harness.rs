@@ -61,7 +61,13 @@ fn install<W: Write>(
 	let hook_path = hooks_dir.join(&hook_file);
 	fs::write(
 		&hook_path,
-		hook_script(args.profile.as_deref(), &args.rules, &scope, backend),
+		hook_script(
+			args.profile.as_deref(),
+			&args.rules,
+			&scope,
+			args.max_violations,
+			backend,
+		),
 	)
 	.with_context(|| format!("cannot write `{}`", hook_path.display()))?;
 	make_executable(&hook_path)?;
@@ -190,6 +196,7 @@ fn hook_script(
 	profile: Option<&str>,
 	rules: &Path,
 	scope: &Path,
+	max_violations: usize,
 	backend: HarnessBackend,
 ) -> String {
 	let root_expr = format!(
@@ -200,10 +207,11 @@ fn hook_script(
 		.map(|profile| format!(" --profile {}", sh_quote(profile)))
 		.unwrap_or_default();
 	let command = format!(
-		r#""$HOME/.cargo/bin/code-moniker" check --rules {}{}{} {}"#,
+		r#""$HOME/.cargo/bin/code-moniker" check --rules {}{}{} --max-violations {} {}"#,
 		sh_quote(&rules.display().to_string()),
 		profile_arg,
 		backend.check_format_arg(),
+		max_violations,
 		sh_quote(&scope.display().to_string())
 	);
 	match backend {
@@ -385,6 +393,7 @@ enable = [".*"]
 			std::fs::read_to_string(dir.path().join(".codex/hooks/code-moniker-check.sh")).unwrap();
 		assert!(script.contains("\"$HOME/.cargo/bin/code-moniker\" check"));
 		assert!(script.contains("--format codex-hook"));
+		assert!(script.contains("--max-violations 10"));
 		assert!(!script.contains("hookSpecificOutput"));
 		assert!(!script.contains("python3"));
 		assert!(script.contains("$HOME/.cargo/bin/code-moniker"));
@@ -428,6 +437,7 @@ enable = [".*"]
 		assert!(String::from_utf8(output.stderr).unwrap().is_empty());
 		let stdout = String::from_utf8(output.stdout).unwrap();
 		assert!(stdout.contains("--format codex-hook"), "{stdout}");
+		assert!(stdout.contains("--max-violations 10"), "{stdout}");
 		assert!(stdout.contains("violation from fake checker"), "{stdout}");
 	}
 
@@ -597,6 +607,8 @@ enable = [".*"]
 			"fast profile",
 			"--scope",
 			"src $x",
+			"--max-violations",
+			"3",
 		]);
 		let mut stdout = Vec::new();
 		let mut stderr = Vec::new();
@@ -608,6 +620,7 @@ enable = [".*"]
 				.unwrap();
 		assert!(script.contains("--rules 'rules $x.toml'"));
 		assert!(script.contains("--profile 'fast profile'"));
+		assert!(script.contains("--max-violations 3"));
 		assert!(script.contains("'src $x'"));
 		let performance =
 			std::fs::read_to_string(dir.path().join(".codex/code-moniker-performance.md")).unwrap();

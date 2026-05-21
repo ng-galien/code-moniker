@@ -73,8 +73,13 @@ enable = ["^architecture\\."]
 Install project-local Codex configuration:
 
 ```sh
-code-moniker harness codex . --profile architecture --scope src
+code-moniker harness codex . --profile architecture --scope src --max-violations 10
 ```
+
+Generated harnesses pass `code-moniker check --max-violations 10` by
+default. This keeps prompt feedback bounded by showing the first 10
+violations from the largest failed rule group, ordered by path and line.
+Use `--max-violations N` at install time to change that limit.
 
 When `--profile architecture` is provided, the command verifies that
 `[profiles.architecture]` exists and names the hook from the profile:
@@ -113,9 +118,9 @@ emitted as a structured `decision: "block"` payload carrying the exact
 `code-moniker check` diagnostics:
 
 ```sh
-code-moniker check --rules ".code-moniker.toml" --format codex-hook "."
+code-moniker check --rules ".code-moniker.toml" --format codex-hook --max-violations 10 "."
 # with --profile architecture --scope src:
-code-moniker check --rules ".code-moniker.toml" --profile "architecture" --format codex-hook "src"
+code-moniker check --rules ".code-moniker.toml" --profile "architecture" --format codex-hook --max-violations 10 "src"
 ```
 
 The generated script assumes `code-moniker` was installed with Cargo and
@@ -141,8 +146,12 @@ any global configuration writes.
 ```sh
 code-moniker harness claude .
 # or, for a named profile and narrower scope:
-code-moniker harness claude . --profile architecture --scope src
+code-moniker harness claude . --profile architecture --scope src --max-violations 10
 ```
+
+Generated harnesses pass `code-moniker check --max-violations 10` by
+default. Use `--max-violations N` at install time when a project needs a
+smaller or larger edit-time feedback window.
 
 Without `--profile`, the command installs a root check:
 

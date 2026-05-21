@@ -435,9 +435,18 @@ fn check_inner<W: Write, E: Write>(
 	let any_violation = reports.iter().any(|r| !r.violations.is_empty());
 	let elapsed = started.elapsed();
 	match args.format {
-		CheckFormat::Text => write_reports_text(stdout, &reports, &errors, args.report, elapsed)?,
+		CheckFormat::Text => write_reports_text(
+			stdout,
+			&reports,
+			&errors,
+			args.report,
+			elapsed,
+			args.max_violations,
+		)?,
 		CheckFormat::Json => write_reports_json(stdout, &reports, &errors, args.report, elapsed)?,
-		CheckFormat::CodexHook => write_reports_codex_hook(stdout, &reports, &errors, elapsed)?,
+		CheckFormat::CodexHook => {
+			write_reports_codex_hook(stdout, &reports, &errors, elapsed, args.max_violations)?
+		}
 	}
 	Ok(CheckOutcome {
 		any_violation,
@@ -466,6 +475,11 @@ struct CheckOutcome {
 struct FailedRuleSummary {
 	rule_id: String,
 	violations: usize,
+}
+
+struct ViolationEntry<'a> {
+	path: &'a Path,
+	violation: &'a check::Violation,
 }
 
 fn check_one_file(
@@ -602,6 +616,7 @@ fn write_reports_text<W: Write>(
 	errors: &[FileError],
 	include_rule_report: bool,
 	elapsed: Duration,
+	max_violations: Option<usize>,
 ) -> std::io::Result<()> {
 	let mut total = 0usize;
 	let mut files_with = 0usize;
@@ -611,20 +626,24 @@ fn write_reports_text<W: Write>(
 		}
 		files_with += 1;
 		total += r.violations.len();
-		for v in &r.violations {
+	}
+	let selected = max_violations.map(|max| largest_violation_group(reports, max));
+	if let Some(selected) = &selected {
+		if let Some(first) = selected.first() {
 			writeln!(
 				w,
-				"{}:L{}-L{} [{}] {}",
-				r.path.display(),
-				v.lines.0,
-				v.lines.1,
-				v.rule_id,
-				v.message
+				"Showing {} of {total} violation(s) from largest rule group `{}`.",
+				selected.len(),
+				first.violation.rule_id
 			)?;
-			if let Some(explanation) = &v.explanation {
-				for line in explanation.trim().lines() {
-					writeln!(w, "  → {line}")?;
-				}
+		}
+		for entry in selected {
+			write_violation_text(w, entry.path, entry.violation)?;
+		}
+	} else {
+		for r in reports {
+			for v in &r.violations {
+				write_violation_text(w, &r.path, v)?;
 			}
 		}
 	}
@@ -649,6 +668,63 @@ fn write_reports_text<W: Write>(
 		write_rule_report_text(w, reports)?;
 	}
 	Ok(())
+}
+
+fn write_violation_text<W: Write>(
+	w: &mut W,
+	path: &Path,
+	v: &check::Violation,
+) -> std::io::Result<()> {
+	writeln!(
+		w,
+		"{}:L{}-L{} [{}] {}",
+		path.display(),
+		v.lines.0,
+		v.lines.1,
+		v.rule_id,
+		v.message
+	)?;
+	if let Some(explanation) = &v.explanation {
+		for line in explanation.trim().lines() {
+			writeln!(w, "  → {line}")?;
+		}
+	}
+	Ok(())
+}
+
+fn largest_violation_group<'a>(reports: &'a [FileReport], max: usize) -> Vec<ViolationEntry<'a>> {
+	use std::collections::BTreeMap;
+	let mut by_rule: BTreeMap<&str, Vec<ViolationEntry<'a>>> = BTreeMap::new();
+	for report in reports {
+		for violation in &report.violations {
+			by_rule
+				.entry(violation.rule_id.as_str())
+				.or_default()
+				.push(ViolationEntry {
+					path: &report.path,
+					violation,
+				});
+		}
+	}
+	let Some((_, mut group)) =
+		by_rule
+			.into_iter()
+			.max_by(|(left_rule, left), (right_rule, right)| {
+				left.len()
+					.cmp(&right.len())
+					.then_with(|| right_rule.cmp(left_rule))
+			})
+	else {
+		return Vec::new();
+	};
+	group.sort_by(|a, b| {
+		a.path
+			.cmp(b.path)
+			.then_with(|| a.violation.lines.cmp(&b.violation.lines))
+			.then_with(|| a.violation.message.cmp(&b.violation.message))
+	});
+	group.truncate(max);
+	group
 }
 
 fn write_failed_rules_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::io::Result<()> {
@@ -818,12 +894,13 @@ fn write_reports_codex_hook<W: Write>(
 	reports: &[FileReport],
 	errors: &[FileError],
 	elapsed: Duration,
+	max_violations: Option<usize>,
 ) -> anyhow::Result<()> {
 	let any_violation = reports.iter().any(|report| !report.violations.is_empty());
 	if !any_violation {
 		return Ok(());
 	}
-	let reason = codex_hook_reason(reports, errors, elapsed)?;
+	let reason = codex_hook_reason(reports, errors, elapsed, max_violations)?;
 	serde_json::to_writer(
 		&mut *w,
 		&serde_json::json!({
@@ -839,13 +916,14 @@ fn codex_hook_reason(
 	reports: &[FileReport],
 	errors: &[FileError],
 	elapsed: Duration,
+	max_violations: Option<usize>,
 ) -> anyhow::Result<String> {
 	let mut reason = Vec::new();
 	writeln!(
 		&mut reason,
 		"code-moniker architecture check failed. Fix the reported rule violation(s):"
 	)?;
-	write_reports_text(&mut reason, reports, errors, false, elapsed)?;
+	write_reports_text(&mut reason, reports, errors, false, elapsed, max_violations)?;
 	Ok(String::from_utf8(reason)?)
 }
 
@@ -856,6 +934,17 @@ fn duration_ms(duration: Duration) -> u64 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	fn violation(rule_id: &str, line: u32, message: &str) -> check::Violation {
+		check::Violation {
+			rule_id: rule_id.to_string(),
+			moniker: "code+moniker://./lang:rs/module:ui".to_string(),
+			kind: "imports_symbol".to_string(),
+			lines: (line, line),
+			message: message.to_string(),
+			explanation: None,
+		}
+	}
 
 	#[test]
 	fn exit_codes_are_stable() {
@@ -875,6 +964,50 @@ mod tests {
 	}
 
 	#[test]
+	fn max_violations_picks_largest_rule_group_by_path() {
+		let reports = vec![
+			FileReport {
+				path: PathBuf::from("src/b.rs"),
+				violations: vec![
+					violation("refs.large", 20, "second by path"),
+					violation("refs.small", 1, "ignored smaller group"),
+				],
+				rule_reports: Vec::new(),
+			},
+			FileReport {
+				path: PathBuf::from("src/a.rs"),
+				violations: vec![violation("refs.large", 30, "third by line")],
+				rule_reports: Vec::new(),
+			},
+			FileReport {
+				path: PathBuf::from("src/a.rs"),
+				violations: vec![violation("refs.large", 10, "first by line")],
+				rule_reports: Vec::new(),
+			},
+			FileReport {
+				path: PathBuf::from("src/c.rs"),
+				violations: vec![
+					violation("refs.small", 2, "ignored smaller group"),
+					violation("refs.other", 3, "ignored smaller group"),
+				],
+				rule_reports: Vec::new(),
+			},
+		];
+		let selected = largest_violation_group(&reports, 2);
+
+		assert_eq!(selected.len(), 2);
+		assert_eq!(selected[0].path, Path::new("src/a.rs"));
+		assert_eq!(selected[0].violation.lines, (10, 10));
+		assert_eq!(selected[1].path, Path::new("src/a.rs"));
+		assert_eq!(selected[1].violation.lines, (30, 30));
+		assert!(
+			selected
+				.iter()
+				.all(|entry| entry.violation.rule_id == "refs.large")
+		);
+	}
+
+	#[test]
 	fn codex_hook_format_emits_block_json_with_rule_diagnostic() {
 		let reports = vec![FileReport {
 			path: PathBuf::from("src/lib.rs"),
@@ -890,7 +1023,7 @@ mod tests {
 		}];
 		let mut out = Vec::new();
 
-		write_reports_codex_hook(&mut out, &reports, &[], Duration::from_millis(12)).unwrap();
+		write_reports_codex_hook(&mut out, &reports, &[], Duration::from_millis(12), None).unwrap();
 
 		let feedback: serde_json::Value = serde_json::from_slice(&out).unwrap();
 		assert_eq!(feedback["decision"], "block");
@@ -910,7 +1043,7 @@ mod tests {
 		}];
 		let mut out = Vec::new();
 
-		write_reports_codex_hook(&mut out, &reports, &[], Duration::from_millis(12)).unwrap();
+		write_reports_codex_hook(&mut out, &reports, &[], Duration::from_millis(12), None).unwrap();
 
 		assert!(out.is_empty());
 	}

@@ -4,14 +4,14 @@
 one directory.
 
 ```sh
-code-moniker check <PATH> [--rules <PATH>] [--default-rules on|off] [--format text|json] [--profile <NAME>] [--report]
+code-moniker check <PATH> [--rules <PATH>] [--default-rules on|off] [--format text|json|codex-hook] [--profile <NAME>] [--report] [--max-violations <N>]
 code-moniker rules init [ROOT] [--rules <PATH>]
 code-moniker rules disable [ROOT] [--rules <PATH>]
 code-moniker rules enable [ROOT] [--rules <PATH>]
 code-moniker rules show [ROOT] [--rules <PATH>] [--profile <NAME>] [--default-rules on|off] [--format text|json]
 code-moniker rules learn [SAMPLE] [--format text|json]
-code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>]
-code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>]
+code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
+code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
 ```
 
 Use it for local architecture checks, pre-commit hooks, CI jobs, or
@@ -91,6 +91,18 @@ code-moniker langs ts
 Use `--report` to see whether the rule was evaluated, `extract` to verify
 the real moniker/kind names, and `langs` to confirm the kinds emitted by a
 language.
+
+Limit text feedback when a repository has many violations:
+
+```sh
+code-moniker check src/ --profile architecture --max-violations 10
+```
+
+`--max-violations` keeps the summary and failed-rule counts complete, but
+prints only violations from the largest failed rule group. Within that
+group, entries are ordered by path and line, then the first `N` are shown.
+Generated agent harnesses pass `--max-violations 10` by default so edit
+feedback stays small enough for an agent prompt.
 
 Exit codes:
 

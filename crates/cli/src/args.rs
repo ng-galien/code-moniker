@@ -186,6 +186,14 @@ pub struct CodexHarnessArgs {
 		help = "project scope checked by the hook, resolved from ROOT"
 	)]
 	pub scope: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "N",
+		default_value_t = 10,
+		help = "maximum violations printed by the generated live harness check"
+	)]
+	pub max_violations: usize,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -247,6 +255,13 @@ pub struct CheckArgs {
 		help = "filter rules through a named profile from .code-moniker.toml"
 	)]
 	pub profile: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "N",
+		help = "maximum violations to print in text/codex-hook output; selects the largest failed rule group and shows the first N by path"
+	)]
+	pub max_violations: Option<usize>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
