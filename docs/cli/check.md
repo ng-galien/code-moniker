@@ -443,7 +443,15 @@ Project scans end with a summary:
 
 ```text
 3 violation(s) across 2 file(s) (42 scanned).
+Failed rules:
+- ts.class.name-pascalcase: 2 violation(s)
+- refs.domain-no-infra: 1 violation(s)
+Read errors: 1 file(s).
 ```
+
+`Failed rules` and `Read errors` are printed only when present. The failed
+rule list counts unsuppressed violations, so suppressions are already
+reflected in the summary.
 
 ### JSON
 
@@ -462,7 +470,18 @@ The top-level shape is:
     "files_scanned": 2,
     "files_with_violations": 1,
     "total_violations": 3,
-    "files_with_errors": 1
+    "files_with_errors": 1,
+    "total_errors": 1,
+    "failed_rules": [
+      {
+        "rule_id": "ts.class.name-pascalcase",
+        "violations": 2
+      },
+      {
+        "rule_id": "refs.domain-no-infra",
+        "violations": 1
+      }
+    ]
   },
   "files": [
     {
@@ -501,9 +520,10 @@ The top-level shape is:
 
 `summary` and `files` are always present for supported inputs. `files`
 contains every scanned source file, including clean files with an empty
-`violations` array. `errors` is present only when project mode could not
-read one or more files. `rule_report` is present only with `--report` and
-is omitted when empty.
+`violations` array. `summary.failed_rules` is sorted by descending
+violation count, then by rule id. `errors` is present only when project
+mode could not read one or more files. `rule_report` is present only with
+`--report` and is omitted when empty.
 
 Violation fields:
 

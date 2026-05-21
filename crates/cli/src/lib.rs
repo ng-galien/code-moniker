@@ -452,6 +452,12 @@ struct CheckOutcome {
 	any_error: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+struct FailedRuleSummary {
+	rule_id: String,
+	violations: usize,
+}
+
 fn check_one_file(
 	path: &Path,
 	cfg: &check::Config,
@@ -595,11 +601,50 @@ fn write_reports_text<W: Write>(
 			write!(w, ", {} file(s) errored", errors.len())?;
 		}
 		writeln!(w, ").")?;
+		write_failed_rules_text(w, reports)?;
+		if !errors.is_empty() {
+			writeln!(w, "Read errors: {} file(s).", errors.len())?;
+		}
 	}
 	if include_rule_report {
 		write_rule_report_text(w, reports)?;
 	}
 	Ok(())
+}
+
+fn write_failed_rules_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::io::Result<()> {
+	let failed_rules = failed_rule_summary(reports);
+	if failed_rules.is_empty() {
+		return Ok(());
+	}
+	writeln!(w, "Failed rules:")?;
+	for item in failed_rules {
+		writeln!(w, "- {}: {} violation(s)", item.rule_id, item.violations)?;
+	}
+	Ok(())
+}
+
+fn failed_rule_summary(reports: &[FileReport]) -> Vec<FailedRuleSummary> {
+	use std::collections::BTreeMap;
+	let mut by_rule: BTreeMap<String, usize> = BTreeMap::new();
+	for report in reports {
+		for violation in &report.violations {
+			*by_rule.entry(violation.rule_id.clone()).or_default() += 1;
+		}
+	}
+	let mut out: Vec<_> = by_rule
+		.into_iter()
+		.map(|(rule_id, violations)| FailedRuleSummary {
+			rule_id,
+			violations,
+		})
+		.collect();
+	out.sort_by(|a, b| {
+		b.violations
+			.cmp(&a.violations)
+			.then_with(|| a.rule_id.cmp(&b.rule_id))
+	});
+	out
 }
 
 fn write_rule_report_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::io::Result<()> {
@@ -676,6 +721,8 @@ fn write_reports_json<W: Write>(
 		files_with_violations: usize,
 		total_violations: usize,
 		files_with_errors: usize,
+		total_errors: usize,
+		failed_rules: Vec<FailedRuleSummary>,
 	}
 	#[derive(serde::Serialize)]
 	struct Out<'a> {
@@ -708,6 +755,8 @@ fn write_reports_json<W: Write>(
 			files_with_violations: files_with,
 			total_violations: total,
 			files_with_errors: err_entries.len(),
+			total_errors: err_entries.len(),
+			failed_rules: failed_rule_summary(reports),
 		},
 		files,
 		errors: err_entries,

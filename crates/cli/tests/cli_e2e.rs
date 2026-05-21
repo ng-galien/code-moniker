@@ -543,6 +543,11 @@ fn check_project_walks_directory_and_aggregates() {
 	assert!(!out.contains("good.ts"), "{out}");
 	assert!(out.contains("ts.class.name-pascalcase"), "{out}");
 	assert!(out.contains("violation(s) across 1 file(s)"), "{out}");
+	assert!(out.contains("Failed rules:"), "{out}");
+	assert!(
+		out.contains("- ts.class.name-pascalcase: 1 violation(s)"),
+		"{out}"
+	);
 }
 
 #[test]
@@ -595,6 +600,10 @@ fn check_project_continues_on_per_file_errors() {
 		out.contains("1 file(s) errored"),
 		"footer mentions errors: {out}"
 	);
+	assert!(
+		out.contains("Read errors: 1 file(s)."),
+		"summary mentions read error count: {out}"
+	);
 }
 
 #[test]
@@ -614,6 +623,7 @@ fn check_project_json_includes_errors_array() {
 	assert_eq!(exit, Exit::NoMatch);
 	let v: serde_json::Value = serde_json::from_str(&out).expect("json output");
 	assert_eq!(v["summary"]["files_with_errors"], 1);
+	assert_eq!(v["summary"]["total_errors"], 1);
 	let errors = v["errors"].as_array().unwrap();
 	assert_eq!(errors.len(), 1);
 	assert!(errors[0]["file"].as_str().unwrap().ends_with("broken.ts"));
@@ -806,6 +816,11 @@ fn check_project_json_has_summary_and_files() {
 	assert_eq!(v["summary"]["files_scanned"], 2);
 	assert_eq!(v["summary"]["files_with_violations"], 1);
 	assert_eq!(v["summary"]["total_violations"], 1);
+	assert_eq!(v["summary"]["total_errors"], 0);
+	let failed_rules = v["summary"]["failed_rules"].as_array().unwrap();
+	assert_eq!(failed_rules.len(), 1);
+	assert_eq!(failed_rules[0]["rule_id"], "ts.class.name-pascalcase");
+	assert_eq!(failed_rules[0]["violations"], 1);
 }
 
 #[test]
