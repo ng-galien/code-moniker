@@ -608,7 +608,10 @@ For a workspace that already builds the local crate, avoid reinstalling:
 
 ## Profiles
 
-Profiles let hooks use different rule subsets.
+Profiles let hooks use different subsets of the rules that `check` already
+loaded. They do not toggle the embedded default rules; use
+`default_rules = false`, `code-moniker rules disable`, or
+`--default-rules off` for that.
 
 ```toml
 [profiles.fast]
@@ -622,6 +625,11 @@ enable = ["^refs\\.", "^ts\\."]
 code-moniker check src/ --profile fast
 code-moniker check src/ --profile release
 ```
+
+Profile `enable` and `disable` values are regexes over full rule ids such
+as `refs.domain-no-infra` or `ts.class.class-budget`. If `enable` is empty,
+all loaded rules are candidates. If `enable` is present, only matching
+rules are candidates. `disable` then removes matching candidates.
 
 ## Operational guidance
 

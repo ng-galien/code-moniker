@@ -112,10 +112,21 @@ root. It detects common project manifests such as `pom.xml`, `Cargo.toml`,
 `package.json`, `pyproject.toml`, `go.mod`, and `*.csproj`, then seeds a
 small `[aliases]` block for path-oriented project rules.
 
+### Embedded defaults
+
+`default_rules` controls only the embedded default rule pack shipped in the
+binary. It does not enable or disable rules written in your
+`.code-moniker.toml`.
+
+| Setting | Effect |
+| ------- | ------ |
+| missing / `true` | run embedded defaults, then merge project rules on top |
+| `false` | run only rules from `.code-moniker.toml` |
+| `--default-rules on` | force embedded defaults for this invocation |
+| `--default-rules off` | force project-only rules for this invocation |
+
 Use `--default-rules off` when the TOML file should be the complete rule
-set. If the rules file is missing in that mode, no rules run. Use
-`--default-rules on` explicitly when a script should document that it wants
-the embedded preset.
+set. If the rules file is missing in that mode, no rules run.
 
 The same behavior can be stored in the rules file:
 
@@ -123,9 +134,25 @@ The same behavior can be stored in the rules file:
 default_rules = false
 ```
 
-`code-moniker rules disable` writes that flag. `code-moniker rules enable`
-switches it back to `true`. An explicit command-line `--default-rules on`
-or `--default-rules off` wins for that invocation.
+`code-moniker rules disable` writes `default_rules = false`.
+`code-moniker rules enable` writes `default_rules = true`.
+
+```sh
+code-moniker rules disable .
+code-moniker check .
+# project rules only
+
+code-moniker rules enable .
+code-moniker check .
+# embedded defaults + project rules
+
+code-moniker check . --default-rules off
+# project rules only, even if the file says default_rules = true
+```
+
+An explicit command-line `--default-rules on` or `--default-rules off` wins
+for that invocation. The `rules enable` / `rules disable` commands do not
+touch `[profiles.*]`; they only update the top-level `default_rules` flag.
 
 The embedded defaults cover conservative naming rules. Project policies
 such as layer boundaries, maximum class size, or mandatory doc comments
@@ -381,7 +408,28 @@ before the decorator.
 
 ## Profiles
 
-Profiles select a subset of rules by regex over full rule ids.
+Profiles select a subset of the already-loaded rules. They do not decide
+whether embedded defaults are loaded; `default_rules` and
+`--default-rules` do that first.
+
+Evaluation order:
+
+1. Load embedded defaults unless disabled.
+2. Merge `.code-moniker.toml` on top.
+3. If `--profile <name>` is passed, filter the resulting rule set.
+
+Profiles use regexes over full rule ids. Full ids are built from the TOML
+path:
+
+| TOML rule | Full id |
+| --------- | ------- |
+| `[[refs.where]] id = "domain-no-infra"` | `refs.domain-no-infra` |
+| `[[ts.class.where]] id = "class-budget"` | `ts.class.class-budget` |
+| `[[default.module.where]] id = "max-lines"` | `default.module.max-lines` |
+| `[[java.refs.where]] id = "no-spring"` | `java.refs.no-spring` |
+
+Rules without an `id` get generated ids such as `where_0`, but profiles
+are clearer and more stable when every profiled rule has an explicit `id`.
 
 ```toml
 [profiles.bugfix]
@@ -389,6 +437,10 @@ enable = ["^ts\\.class\\.", "^refs\\.domain-no-infra$"]
 
 [profiles.naming-only]
 disable = ["\\.class-budget$", "\\.domain-"]
+
+[profiles.agent-edit]
+enable = ["\\.naming$", "^refs\\.direct-layer-boundary$"]
+disable = ["^java\\.class\\.slow-report$"]
 ```
 
 Run a profile:
@@ -404,6 +456,25 @@ Selection rule:
 AND no disable pattern matches
 ```
 
+So:
+
+| Profile field | Meaning |
+| ------------- | ------- |
+| no `enable`, no `disable` | keep every loaded rule |
+| only `enable` | keep only matching rule ids |
+| only `disable` | keep every rule except matching ids |
+| both | keep matching `enable` ids, then remove matching `disable` ids |
+
+`disable` wins when a rule id matches both lists.
+
+Profiles are selected only by the command line or by a generated harness:
+
+```sh
+code-moniker check . --profile agent-edit
+code-moniker harness claude . --profile agent-edit --scope src
+```
+
+Defining `[profiles.agent-edit]` in TOML does not activate it by itself.
 Unknown profile names and bad regexes exit `2`.
 
 ## Suppressions
