@@ -445,7 +445,141 @@ Project scans end with a summary:
 3 violation(s) across 2 file(s) (42 scanned).
 ```
 
-JSON output contains a `summary` object and one entry per scanned file.
+### JSON
+
+Use JSON when a hook or CI job needs to compute its own summary:
+
+```sh
+code-moniker check src/ --format json
+code-moniker check src/ --format json --report
+```
+
+The top-level shape is:
+
+```json
+{
+  "summary": {
+    "files_scanned": 2,
+    "files_with_violations": 1,
+    "total_violations": 3,
+    "files_with_errors": 1
+  },
+  "files": [
+    {
+      "file": "src/widget.ts",
+      "violations": [
+        {
+          "rule_id": "ts.class.name-pascalcase",
+          "moniker": "code+moniker://./lang:ts/module:widget/class:lower_bad",
+          "kind": "class",
+          "lines": [12, 18],
+          "message": "class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$`",
+          "explanation": "Class names must be PascalCase. Rename `lower_bad`."
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "file": "src/unreadable.ts",
+      "error": "cannot read src/unreadable.ts: permission denied"
+    }
+  ],
+  "rule_report": [
+    {
+      "rule_id": "refs.domain-no-infra",
+      "domain": "refs",
+      "evaluated": 42,
+      "matches": 42,
+      "violations": 0,
+      "antecedent_matches": 0,
+      "warning": "antecedent never matched"
+    }
+  ]
+}
+```
+
+`summary` and `files` are always present for supported inputs. `files`
+contains every scanned source file, including clean files with an empty
+`violations` array. `errors` is present only when project mode could not
+read one or more files. `rule_report` is present only with `--report` and
+is omitted when empty.
+
+Violation fields:
+
+| Field | Meaning |
+| ----- | ------- |
+| `rule_id` | full rule id, such as `ts.class.name-pascalcase` or `refs.domain-no-infra` |
+| `moniker` | full moniker of the failing def or ref source |
+| `kind` | failing def kind, or ref kind for ref-scoped rules |
+| `lines` | `[start, end]`, 1-indexed inclusive line range |
+| `message` | primary diagnostic text |
+| `explanation` | optional custom rule message, when configured |
+
+Rule report fields:
+
+| Field | Meaning |
+| ----- | ------- |
+| `rule_id` | full rule id |
+| `domain` | evaluated domain, such as `class`, `method`, or `refs` |
+| `evaluated` | number of defs or refs considered by the rule |
+| `matches` | number of evaluations where the assertion passed |
+| `violations` | number of unsuppressed violations |
+| `antecedent_matches` | optional count for implication rules (`A => B`) |
+| `warning` | optional report warning, for example when an antecedent never matched |
+
+### JSON summaries with `jq`
+
+Print the built-in summary:
+
+```sh
+code-moniker check src/ --format json | jq '.summary'
+```
+
+List files that have violations:
+
+```sh
+code-moniker check src/ --format json \
+  | jq -r '.files[] | select(.violations | length > 0) | "\(.file)\t\(.violations | length)"'
+```
+
+Count violations by rule:
+
+```sh
+code-moniker check src/ --format json \
+  | jq -r '[.files[].violations[]]
+           | group_by(.rule_id)[]
+           | "\(length)\t\(.[0].rule_id)"'
+```
+
+Print compiler-style diagnostics:
+
+```sh
+code-moniker check src/ --format json \
+  | jq -r '.files[] as $file
+           | $file.violations[]
+           | "\($file.file):\(.lines[0]): [\(.rule_id)] \(.message)"'
+```
+
+Show the top rules with one sample location:
+
+```sh
+code-moniker check src/ --format json \
+  | jq -r '[.files[] as $file
+            | $file.violations[]
+            | {rule_id, file: $file.file, lines}]
+           | group_by(.rule_id)[]
+           | "\(length)\t\(.[0].rule_id)\t\(.[0].file):L\(.[0].lines[0])-\(.[0].lines[1])"'
+```
+
+Find rules whose implication antecedent never matched:
+
+```sh
+code-moniker check src/ --format json --report \
+  | jq -r '.rule_report[]?
+           | select(.antecedent_matches == 0)
+           | "\(.rule_id)\t\(.domain)\tantecedent never matched"'
+```
 
 ## Next
 
