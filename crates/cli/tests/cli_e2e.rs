@@ -788,6 +788,181 @@ fn check_project_path_in_moniker_gates_a_rule() {
 }
 
 #[test]
+fn check_project_file_filter_checks_only_touched_files_with_project_anchors() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::create_dir(dir.path().join("strict")).unwrap();
+	std::fs::create_dir(dir.path().join("lax")).unwrap();
+	std::fs::write(dir.path().join("strict/a.ts"), "class lower_case {}\n").unwrap();
+	std::fs::write(dir.path().join("lax/b.ts"), "class lower_case {}\n").unwrap();
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[ts.class.where]]
+		id      = "strict-name"
+		expr    = "moniker ~ '**/dir:strict/**' => name =~ ^[A-Z][A-Za-z0-9]*$"
+		message = "Strict layer requires PascalCase."
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--format",
+		"json",
+		"--file",
+		"lax/b.ts",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	let json: serde_json::Value = serde_json::from_str(&out).expect("check JSON");
+	assert_eq!(json["summary"]["files_scanned"], 1);
+	assert_eq!(json["summary"]["total_violations"], 0);
+	assert!(
+		json["files"][0]["file"]
+			.as_str()
+			.unwrap()
+			.ends_with("lax/b.ts"),
+		"{out}"
+	);
+
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--file",
+		"strict/a.ts",
+	]);
+	assert_eq!(exit, Exit::NoMatch, "strict/a.ts should violate: {out}");
+	assert!(out.contains("strict/a.ts"), "{out}");
+	assert!(!out.contains("lax/b.ts"), "{out}");
+	assert!(out.contains("1 scanned"), "{out}");
+}
+
+#[cfg(unix)]
+#[test]
+fn check_project_file_filter_does_not_read_unfiltered_sources() {
+	use std::os::unix::fs::PermissionsExt;
+
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::write(dir.path().join("touched.ts"), "class GoodName {}\n").unwrap();
+	std::fs::write(dir.path().join("unfiltered.ts"), "class lower_case {}\n").unwrap();
+	let mut perms = std::fs::metadata(dir.path().join("unfiltered.ts"))
+		.unwrap()
+		.permissions();
+	perms.set_mode(0o000);
+	std::fs::set_permissions(dir.path().join("unfiltered.ts"), perms).unwrap();
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[ts.class.where]]
+		id      = "name-pascalcase"
+		expr    = "name =~ ^[A-Z][A-Za-z0-9]*$"
+		message = "Class names must be PascalCase."
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--file",
+		"touched.ts",
+	]);
+
+	let mut perms = std::fs::metadata(dir.path().join("unfiltered.ts"))
+		.unwrap()
+		.permissions();
+	perms.set_mode(0o644);
+	std::fs::set_permissions(dir.path().join("unfiltered.ts"), perms).unwrap();
+
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(
+		out.is_empty(),
+		"clean single filtered file should stay quiet: {out}"
+	);
+	assert!(err.is_empty(), "unfiltered unreadable file was read: {err}");
+}
+
+#[test]
+fn check_project_file_filter_ignores_unsupported_missing_and_out_of_scope_files_quietly() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::write(dir.path().join("README.md"), "not a source file\n").unwrap();
+	let outside = tempfile::NamedTempFile::new().unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--file",
+		"README.md",
+		"--file",
+		"missing.ts",
+		"--file",
+		outside.path().to_str().unwrap(),
+	]);
+
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(
+		out.is_empty(),
+		"unsupported touched files stay quiet: {out}"
+	);
+	assert!(err.is_empty(), "stderr={err}");
+}
+
+#[test]
+fn check_project_file_filter_respects_gitignore() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	std::fs::create_dir(dir.path().join(".git")).unwrap();
+	std::fs::write(dir.path().join(".gitignore"), "ignored.ts\n").unwrap();
+	std::fs::write(dir.path().join("ignored.ts"), TS_BAD_NAMING).unwrap();
+	std::fs::write(dir.path().join("kept.ts"), TS_BAD_NAMING).unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--file",
+		"ignored.ts",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(
+		out.is_empty(),
+		"ignored touched file should be quiet: {out}"
+	);
+
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--file",
+		"kept.ts",
+	]);
+	assert_eq!(exit, Exit::NoMatch, "kept file should be checked: {out}");
+	assert!(out.contains("kept.ts"), "{out}");
+	assert!(!out.contains("ignored.ts"), "{out}");
+}
+
+#[test]
 fn check_project_uses_source_context_in_monikers_without_indexing() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	std::fs::create_dir_all(dir.path().join("src/test/java/com/acme")).unwrap();
@@ -835,6 +1010,212 @@ fn check_project_uses_source_context_in_monikers_without_indexing() {
 	assert!(
 		!out.contains("src/main/java/com/acme/lower_bad.java"),
 		"main source set must not be covered by the test alias: {out}"
+	);
+}
+
+#[test]
+fn check_project_file_filter_preserves_java_srcset_discrimination() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(
+		dir.path(),
+		"src/main/java/com/acme/lower_bad.java",
+		"package com.acme;\nclass lower_bad {}\n",
+	);
+	write_under(
+		dir.path(),
+		"src/test/java/com/acme/lower_bad.java",
+		"package com.acme;\nclass lower_bad {}\n",
+	);
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[aliases]
+		java_test = "moniker ~ '**/srcset:test/**'"
+
+		[[java.class.where]]
+		id      = "test-class-pascalcase"
+		expr    = "$java_test => name =~ ^[A-Z][A-Za-z0-9]*$"
+		message = "Test class names must be PascalCase."
+		"#,
+	)
+	.unwrap();
+
+	let src_scope = dir.path().join("src");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		src_scope.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--file",
+		dir.path()
+			.join("src/main/java/com/acme/lower_bad.java")
+			.to_str()
+			.unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(
+		out.is_empty(),
+		"main source file must not match srcset:test: {out}"
+	);
+
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		src_scope.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--file",
+		"src/test/java/com/acme/lower_bad.java",
+	]);
+	assert_eq!(exit, Exit::NoMatch, "test source set should violate: {out}");
+	assert!(
+		out.contains("src/test/java/com/acme/lower_bad.java"),
+		"{out}"
+	);
+	assert!(
+		!out.contains("src/main/java/com/acme/lower_bad.java"),
+		"main source set must not be checked or flagged: {out}"
+	);
+	assert!(out.contains("java.class.test-class-pascalcase"), "{out}");
+}
+
+#[test]
+fn check_project_file_filter_does_not_take_srcset_from_parent_directories() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	let project = dir.path().join("outer/src/test/project");
+	write_under(
+		&project,
+		"src/main/java/com/acme/lower_bad.java",
+		"package com.acme;\nclass lower_bad {}\n",
+	);
+	let rules_path = project.join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[aliases]
+		java_test = "moniker ~ '**/srcset:test/**'"
+
+		[[java.class.where]]
+		id      = "test-class-pascalcase"
+		expr    = "$java_test => name =~ ^[A-Z][A-Za-z0-9]*$"
+		message = "Test class names must be PascalCase."
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		project.join("src").to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--file",
+		project
+			.join("src/main/java/com/acme/lower_bad.java")
+			.to_str()
+			.unwrap(),
+	]);
+
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(
+		out.is_empty(),
+		"src/main file must not inherit srcset:test from parent path: {out}"
+	);
+}
+
+#[test]
+fn check_project_file_filter_prefers_project_relative_scope_prefixed_path() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(dir.path(), "src/order.ts", "class lower_bad {}\n");
+	write_under(dir.path(), "src/src/order.ts", "class GoodName {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[ts.class.where]]
+		id      = "name-pascalcase"
+		expr    = "name =~ ^[A-Z][A-Za-z0-9]*$"
+		message = "Class names must be PascalCase."
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().join("src").to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--file",
+		"src/order.ts",
+	]);
+
+	assert_eq!(
+		exit,
+		Exit::NoMatch,
+		"root-relative src/order.ts should be checked instead of src/src/order.ts: {out}"
+	);
+	assert!(out.contains("src/order.ts"), "{out}");
+	assert!(!out.contains("src/src/order.ts"), "{out}");
+	assert!(out.contains("1 scanned"), "{out}");
+}
+
+#[test]
+fn check_project_file_filter_keeps_absolute_tool_paths_project_anchored() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(
+		dir.path(),
+		"crates/cli/src/probe.rs",
+		"use code_moniker_pg::declare::DeclareSpec;\n",
+	);
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[aliases]
+		cli = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
+
+		[[refs.where]]
+		id      = "cli-no-pg"
+		expr    = "$cli AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
+		message = "CLI must not import PG."
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--file",
+		dir.path().join("crates/cli/src/probe.rs").to_str().unwrap(),
+	]);
+
+	assert_eq!(
+		exit,
+		Exit::NoMatch,
+		"absolute tool path should violate: {out}"
+	);
+	assert!(out.contains("refs.cli-no-pg"), "{out}");
+	assert!(
+		out.contains("dir:crates/dir:cli/dir:src/module:probe"),
+		"source moniker must stay project-relative: {out}"
+	);
+	assert!(
+		!out.contains("dir:Users"),
+		"absolute filesystem path leaked into source moniker: {out}"
 	);
 }
 

@@ -43,9 +43,10 @@ use code_moniker_core::core::moniker::Moniker;
 pub use args::UiArgs;
 pub use args::{
 	CheckArgs, CheckFormat, Cli, CodexHarnessArgs, Command, DefaultRules, ExtractArgs, HarnessArgs,
-	HarnessCommand, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat, OutputFormat, OutputMode,
-	RulesArgs, RulesCommand, RulesFileArgs, RulesLearnArgs, RulesLearnFormat, RulesShowArgs,
-	RulesShowFormat, ShapesArgs, StatsArgs, StatsFormat,
+	HarnessCommand, HarnessToolBackend, HarnessToolFilesArgs, LangsArgs, LangsFormat, ManifestArgs,
+	ManifestFormat, OutputFormat, OutputMode, RulesArgs, RulesCommand, RulesFileArgs,
+	RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs,
+	StatsFormat,
 };
 pub use lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};
@@ -618,8 +619,15 @@ fn check_inner<W: Write, E: Write>(
 	let meta = std::fs::metadata(path)
 		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
 	let (reports, errors) = if meta.is_dir() {
-		check_project(path, &cfg, args.report)?
+		if args.files.is_empty() {
+			check_project(path, &cfg, args.report)?
+		} else {
+			check_project_files(path, &args.files, &cfg, args.report)?
+		}
 	} else {
+		if !args.files.is_empty() {
+			anyhow::bail!("--file can only be used when check PATH is a directory");
+		}
 		match check_one_file(path, &cfg, args.report)? {
 			Some(report) => (vec![report], Vec::new()),
 			None => {
@@ -630,6 +638,12 @@ fn check_inner<W: Write, E: Write>(
 			}
 		}
 	};
+	if !args.files.is_empty() && reports.is_empty() && errors.is_empty() {
+		return Ok(CheckOutcome {
+			any_violation: false,
+			any_error: false,
+		});
+	}
 	for e in &errors {
 		let _ = writeln!(
 			stderr,
@@ -764,9 +778,27 @@ fn check_project(
 	cfg: &check::Config,
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
+	let source_set = sources::discover(&[root.to_path_buf()], None)?;
+	check_source_set(&source_set, cfg, report)
+}
+
+fn check_project_files(
+	root: &Path,
+	files: &[PathBuf],
+	cfg: &check::Config,
+	report: bool,
+) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
+	let source_set = sources::discover_files(root, files, None)?;
+	check_source_set(&source_set, cfg, report)
+}
+
+fn check_source_set(
+	source_set: &sources::SourceSet,
+	cfg: &check::Config,
+	report: bool,
+) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	use rayon::prelude::*;
 	use std::collections::HashMap;
-	let source_set = sources::discover(&[root.to_path_buf()], None)?;
 	let mut compiled: HashMap<code_moniker_core::lang::Lang, check::CompiledRules> = HashMap::new();
 	for f in &source_set.files {
 		if compiled.contains_key(&f.lang) {

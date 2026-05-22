@@ -7,9 +7,11 @@ macOS 26.2, arm64.
 
 ## Single file — agent hook latency
 
-`code-moniker check <file>` is what a Claude Code `PostToolUse` hook
-runs after each edit. Cost is dominated by process startup, not by
-the extractor.
+`code-moniker check <root> --file <file>` is what generated live harnesses
+run after each edit. It keeps project-mode moniker anchors but skips the
+full tree walk. Cost is dominated by process startup, not by the extractor.
+When a tool touches several source files, the harness repeats `--file`; when
+it touches no supported source file, it exits without running a broad scan.
 
 | File                                      | Bytes  | Time   |
 |-------------------------------------------|--------|--------|
@@ -109,7 +111,7 @@ single-run scans, the cache hurts more than it helps — leave it off.
 
 - `check crates/` is fast enough to gate every commit and every CI
   job up to several thousand source files in well under a second.
-- Per-file mode in a `PostToolUse` hook adds <15 ms of latency to
+- Filtered per-file mode in a `PostToolUse` hook adds <15 ms of latency to
   an agent edit cycle.
 - Large generated or multi-language repositories are a different tier:
   full-root scans can take several seconds. Scope hooks to changed files

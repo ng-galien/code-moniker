@@ -4,7 +4,7 @@
 one directory.
 
 ```sh
-code-moniker check <PATH> [--rules <PATH>] [--default-rules on|off] [--format text|json|codex-hook] [--profile <NAME>] [--report] [--max-violations <N>]
+code-moniker check <PATH> [--file <PATH>]... [--rules <PATH>] [--default-rules on|off] [--format text|json|codex-hook] [--profile <NAME>] [--report] [--max-violations <N>]
 code-moniker rules init [ROOT] [--rules <PATH>]
 code-moniker rules disable [ROOT] [--rules <PATH>]
 code-moniker rules enable [ROOT] [--rules <PATH>]
@@ -52,6 +52,32 @@ Check a project:
 ```sh
 code-moniker check src/
 ```
+
+Check only files touched by an edit hook, while keeping project-mode
+moniker anchors and rule behavior:
+
+```sh
+code-moniker check . --file src/order.ts --file src/invoice.ts
+```
+
+`--file` is a directory-scan filter, not a replacement for `<PATH>`.
+This is the mode generated live harnesses use after Codex, Claude Code, or
+Gemini write tools. The command loads rules exactly like a normal project
+check on `<PATH>`, including profile handling and project/source-set
+heuristics, but it only extracts and evaluates supported source files named
+by `--file` that still exist under the checked directory. Multiple touched
+files become multiple `--file` flags. Unsupported, missing, or out-of-scope
+touched files produce no output and exit `0`, matching edit-hook behavior.
+
+For example, a harness installed with `--scope src --profile architecture`
+runs the equivalent of:
+
+```sh
+code-moniker check --profile architecture src --file src/order.ts
+```
+
+That keeps the `src` project scope and rule behavior, while filtering the
+hook invocation to `src/order.ts`.
 
 Use a rule file other than `.code-moniker.toml`:
 

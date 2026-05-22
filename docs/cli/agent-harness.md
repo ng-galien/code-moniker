@@ -14,6 +14,39 @@ Claude Code `PostToolUse`, Gemini CLI `AfterTool`, Git pre-commit, or CI.
 For command behavior and rule syntax, see [`check`](check.md) and the
 [Rule DSL](check-dsl.md).
 
+## Harness filtering model
+
+Generated live harnesses are edit-time filters, not full project scans.
+After each matched write tool call, the hook:
+
+1. reads the tool payload from `stdin`;
+2. extracts the file paths touched by that tool call;
+3. keeps only existing, supported source files;
+4. runs one normal project-mode check on the configured scope with one
+   `--file` flag per touched source file.
+
+For a default install this is equivalent to:
+
+```sh
+code-moniker check --rules ".code-moniker.toml" "." --file "src/order.ts" --file "src/invoice.ts"
+```
+
+For a scoped, profiled install it is equivalent to:
+
+```sh
+code-moniker check --rules ".code-moniker.toml" --profile "architecture" "src" --file "src/order.ts"
+```
+
+The `<scope>` argument still controls rule loading context, moniker anchors,
+source-set heuristics, and what counts as in scope. The `--file` arguments
+only filter the files extracted and evaluated for that hook invocation. If
+the tool call touched no existing supported source files under the scope, the
+hook exits `0` without running a broad check.
+
+This keeps agent feedback fast while preserving the same behavior as the
+corresponding project check for the files that were touched. Use pre-commit
+or CI for full-tree guarantees.
+
 ## Install
 
 ```sh
@@ -50,8 +83,9 @@ code-moniker check .
 ### Install a Codex live harness
 
 Use this when Codex should run `code-moniker check` after local write-tool
-edits. With no extra flags, the harness checks the project root with the
-root `.code-moniker.toml`:
+edits. With no extra flags, the harness uses the project root as the rule
+scope. The generated hook still filters each invocation to the files touched
+by the Codex tool payload:
 
 ```sh
 code-moniker harness codex .
@@ -77,10 +111,12 @@ Install project-local Codex configuration:
 code-moniker harness codex . --profile architecture --scope src --max-violations 10
 ```
 
-Generated harnesses pass `code-moniker check --max-violations 10` by
-default. This keeps prompt feedback bounded by showing the first 10
-violations from the largest failed rule group, ordered by path and line.
-Use `--max-violations N` at install time to change that limit.
+Generated harnesses pass one `--file` flag per touched source file and
+`--max-violations 10` by default. The `--file` filtering keeps the hook from
+rescanning the whole tree after every write tool call; `--max-violations`
+keeps prompt feedback bounded by showing the first 10 violations from the
+largest failed rule group, ordered by path and line. Use `--max-violations
+N` at install time to change that limit.
 
 When `--profile architecture` is provided, the command verifies that
 `[profiles.architecture]` exists and names the hook from the profile:
@@ -119,9 +155,9 @@ emitted as a structured `decision: "block"` payload carrying the exact
 `code-moniker check` diagnostics:
 
 ```sh
-code-moniker check --rules ".code-moniker.toml" --format codex-hook --max-violations 10 "."
+code-moniker check --rules ".code-moniker.toml" --format codex-hook --max-violations 10 "." --file "src/order.ts"
 # with --profile architecture --scope src:
-code-moniker check --rules ".code-moniker.toml" --profile "architecture" --format codex-hook --max-violations 10 "src"
+code-moniker check --rules ".code-moniker.toml" --profile "architecture" --format codex-hook --max-violations 10 "src" --file "src/order.ts"
 ```
 
 The generated script assumes `code-moniker` was installed with Cargo and
@@ -133,16 +169,25 @@ after measuring their payload shape and cost. This live harness catches
 agent-local writes early, but it is not a substitute for pre-commit hooks
 or CI gates.
 
+The generated script extracts touched files from Codex hook JSON by reading
+`tool_input.command` for `apply_patch` and collecting `*** Add File`,
+`*** Update File`, `*** Delete File`, and `*** Move to` patch headers.
+It also accepts JSON operation shapes that expose `operation.path`.
+Only the extracted touched files are passed as `--file`; if the payload does
+not expose a source file path, the hook stays silent and exits `0`.
+
 Publish hook overhead before enabling it for a team:
 
 | Date | Machine | Scope | Command | p50 | p95 | Notes |
 | ---- | ------- | ----- | ------- | --- | --- | ----- |
-| 2026-05-14 | M3 Pro | `src` | `code-moniker check --profile architecture src` | 35 ms | 44 ms | warm cache |
+| 2026-05-14 | M3 Pro | `src` | `code-moniker check --profile architecture src --file src/order.ts` | 35 ms | 44 ms | warm cache |
 
 ### Install a Claude Code live harness
 
 Use this when Claude Code should run the same project-local check without
-any global configuration writes.
+any global configuration writes. The generated script reads
+`tool_input.file_path` from `Write`, `Edit`, and `MultiEdit` payloads and
+passes each touched source file as `--file`.
 
 ```sh
 code-moniker harness claude .
@@ -150,9 +195,9 @@ code-moniker harness claude .
 code-moniker harness claude . --profile architecture --scope src --max-violations 10
 ```
 
-Generated harnesses pass `code-moniker check --max-violations 10` by
-default. Use `--max-violations N` at install time when a project needs a
-smaller or larger edit-time feedback window.
+Generated harnesses pass one `--file` flag per touched source file and
+`--max-violations 10` by default. Use `--max-violations N` at install time
+when a project needs a smaller or larger edit-time feedback window.
 
 Without `--profile`, the command installs a root check:
 
@@ -194,7 +239,7 @@ The generated script maps `code-moniker` violations to Claude's `exit 2`
 feedback status and writes the diagnostic to `stderr`:
 
 ```sh
-output=$(code-moniker check --rules ".code-moniker.toml" "." 2>&1)
+output=$(code-moniker check --rules ".code-moniker.toml" "." --file "$TOUCHED_FILE" 2>&1)
 status=$?
 
 if [ -n "$output" ] && [ "$status" -ne 0 ]; then
@@ -218,7 +263,9 @@ pre-commit and CI checks for repository guarantees.
 ### Install a Gemini CLI live harness
 
 Use this when Gemini CLI should run the same project-local check after
-tool edits.
+tool edits. The generated script reads `tool_input.file_path` from
+`write_file`, `replace`, and `edit` payloads and passes each touched source
+file as `--file`.
 
 ```sh
 code-moniker harness gemini .
@@ -226,9 +273,10 @@ code-moniker harness gemini .
 code-moniker harness gemini . --profile architecture --scope src --max-violations 10
 ```
 
-Generated harnesses pass `code-moniker check --max-violations 10` by
-default. Gemini CLI project settings live in `.gemini/settings.json`, and
-the generated hook is registered under `hooks.AfterTool`.
+Generated harnesses pass one `--file` flag per touched source file and
+`--max-violations 10` by default. Gemini CLI project settings live in
+`.gemini/settings.json`, and the generated hook is registered under
+`hooks.AfterTool`.
 
 Without `--profile`, the command installs a root check:
 
@@ -302,7 +350,7 @@ root="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 cd "$root"
 
 set +e
-output=$(cargo run --quiet -p code-moniker --bin code-moniker -- check "$file_path" 2>&1)
+output=$(cargo run --quiet -p code-moniker --bin code-moniker -- check . --file "$file_path" 2>&1)
 status=$?
 set -e
 
@@ -363,7 +411,7 @@ message = "Domain code must not depend on infrastructure."
         "hooks": [
           {
             "type": "command",
-            "command": "code-moniker check \"$CLAUDE_FILE_PATH\""
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/code-moniker-check.sh"
           }
         ]
       }
@@ -396,7 +444,7 @@ message = "Class `{name}` is too large for the project budget."
         "hooks": [
           {
             "type": "command",
-            "command": "code-moniker check \"$CLAUDE_FILE_PATH\""
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/code-moniker-check.sh"
           }
         ]
       }
@@ -445,7 +493,7 @@ enable = ["^refs\\.", "^ts\\."]
         "hooks": [
           {
             "type": "command",
-            "command": "code-moniker check \"$CLAUDE_FILE_PATH\" --profile agent-edit"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/code-moniker-agent-edit.sh"
           }
         ]
       }
@@ -541,7 +589,7 @@ Agent hook:
         "hooks": [
           {
             "type": "command",
-            "command": "code-moniker check \"$CLAUDE_FILE_PATH\" --profile agent-edit"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/code-moniker-agent-edit.sh"
           }
         ]
       }
@@ -589,7 +637,7 @@ Run `check` after source edits by adding a hook to `.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "code-moniker check \"$CLAUDE_FILE_PATH\""
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/code-moniker-check.sh"
           }
         ]
       }

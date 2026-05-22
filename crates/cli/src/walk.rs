@@ -21,6 +21,18 @@ pub fn walk_lang_files(root: &Path) -> Vec<WalkedFile> {
 		.collect()
 }
 
+pub fn explicit_lang_file(path: &Path) -> Option<WalkedFile> {
+	ignore::WalkBuilder::new(path)
+		.build()
+		.filter_map(|entry| entry.ok())
+		.filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+		.find_map(|e| {
+			let p = e.into_path();
+			let lang = path_to_lang(&p).ok()?;
+			Some(WalkedFile { path: p, lang })
+		})
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -69,5 +81,15 @@ mod tests {
 			.map(|f| f.path.strip_prefix(root).unwrap().to_string_lossy().into())
 			.collect();
 		assert_eq!(files, vec!["kept.ts".to_string()]);
+	}
+
+	#[test]
+	fn explicit_file_accepts_supported_file() {
+		let tmp = tempfile::tempdir().unwrap();
+		let root = tmp.path();
+		write(root, "kept.ts", "");
+
+		assert!(explicit_lang_file(&root.join("kept.ts")).is_some());
+		assert!(explicit_lang_file(&root.join("kept.txt")).is_none());
 	}
 }

@@ -159,6 +159,8 @@ pub enum HarnessCommand {
 	Claude(CodexHarnessArgs),
 	#[command(about = "Install a project-local Gemini CLI AfterTool hook.")]
 	Gemini(CodexHarnessArgs),
+	#[command(hide = true)]
+	ToolFiles(HarnessToolFilesArgs),
 }
 
 #[derive(Debug, ClapArgs)]
@@ -196,6 +198,22 @@ pub struct CodexHarnessArgs {
 		help = "maximum violations printed by the generated live harness check"
 	)]
 	pub max_violations: usize,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct HarnessToolFilesArgs {
+	#[arg(value_enum)]
+	pub backend: HarnessToolBackend,
+
+	#[arg(value_name = "HOOK_INPUT_JSON")]
+	pub input: PathBuf,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum HarnessToolBackend {
+	Codex,
+	Claude,
+	Gemini,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -264,6 +282,13 @@ pub struct CheckArgs {
 		help = "maximum violations to print in text/codex-hook output; selects the largest failed rule group and shows the first N by path"
 	)]
 	pub max_violations: Option<usize>,
+
+	#[arg(
+		long = "file",
+		value_name = "PATH",
+		help = "when PATH is a directory, check only this touched file; repeatable"
+	)]
+	pub files: Vec<PathBuf>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
