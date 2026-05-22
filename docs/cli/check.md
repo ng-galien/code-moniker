@@ -435,48 +435,30 @@ method-security annotated method bypasses the advice even though the code
 looks like an ordinary method call.
 
 This is a useful check example because the mistake is not local to one
-syntax node. The rule first selects advised methods from annotation refs,
-then looks at incoming call refs, and finally compares caller/callee parent
+syntax node. The executable Java sample is the copy-paste source of truth:
+[check-samples/java.toml](check-samples/java.toml). It contains the
+method-level and class-level proxy checks with the same annotation set.
+
+Those rules first select proxy-advised declarations from annotation refs,
+then inspect incoming call refs, and finally compare caller/callee parent
 monikers to distinguish same-class calls from normal calls through another
-component.
+component. Projects using AspectJ weaving or deliberate self-injected proxy
+references should relax or remove these rules.
 
-Method-level advice:
+Source references:
 
-```toml
-[[java.method.where]]
-id = "spring-proxy-method-no-self-invocation"
-expr = """
-  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
-  => none(in_refs,
-       (kind = 'method_call' OR kind = 'calls')
-       AND source.parent = target.parent
-     )
-"""
-message = "Spring proxy-advised method `{name}` should not be called from the same class."
-```
-
-Class-level `@Transactional` defaults:
-
-```toml
-[[java.class.where]]
-id = "spring-proxy-class-no-self-invocation"
-expr = """
-  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
-  => none(method,
-       any(in_refs,
-         (kind = 'method_call' OR kind = 'calls')
-         AND source.parent = target.parent
-       )
-     )
-"""
-message = "Spring proxy-advised class `{name}` should not make same-class calls to advised methods."
-```
-
-The Java sample expands the annotation list beyond `@Transactional`.
-Projects using AspectJ weaving or deliberate self-injected proxy references
-should relax or remove these rules. See the Spring Framework reference for
-the proxy-mode caveat:
-<https://docs.spring.io/spring-framework/reference/core/aop/proxying.html>.
+- Spring AOP proxying and self-invocation:
+  <https://docs.spring.io/spring-framework/reference/core/aop/proxying.html>
+- Declarative transaction annotations:
+  <https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html>
+- Cache annotations and proxy/aspectj mode:
+  <https://docs.spring.io/spring-framework/reference/integration/cache/annotations.html>
+- Async annotation support:
+  <https://docs.spring.io/spring-framework/reference/integration/scheduling.html#scheduling-annotation-support-async>
+- Spring Security method security annotations:
+  <https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html>
+- Spring Framework resilience annotations:
+  <https://docs.spring.io/spring-framework/reference/core/resilience.html>
 
 ### Keep classes small
 

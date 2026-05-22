@@ -35,9 +35,6 @@ the top of each file; the authors did not endorse these encodings.
 | Martin Fowler, *Refactoring* (1999/2018) | [fowler-refactoring.toml](fowler-refactoring.toml) |
 
 Use `code-moniker langs <tag>` to inspect the exact kind and visibility
-vocabulary for a language.
-
-The Java sample also includes Spring AOP proxy self-invocation checks. They
-cover a framework behavior trap: advised methods are selected through
-annotation refs, direct callers through incoming call refs, and same-class
-calls through caller/callee parent monikers.
+vocabulary for a language. The Java sample includes Spring AOP proxy
+self-invocation checks; rationale and source links live in
+[check.md](../check.md#spring-proxy-self-invocation).

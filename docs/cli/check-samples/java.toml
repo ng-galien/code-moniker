@@ -230,16 +230,8 @@ message = "Spring @Transactional method `{name}` should live in the service/appl
 
 [[java.method.where]]
 id = "spring-proxy-method-no-self-invocation"
-# Spring AOP proxy advice only runs for calls that enter through the proxy.
-# A same-class call to a method annotated with proxy-backed advice bypasses
-# @Transactional/@Async/@Cacheable/etc. in proxy mode. Delete or relax this
-# rule if the project intentionally uses AspectJ weaving or self-injected
-# proxy references.
-#
-# The important part is the incoming-ref check: after selecting advised
-# methods, it asks whether a caller method declared on the same class reaches
-# them directly.
-# See: https://docs.spring.io/spring-framework/reference/core/aop/proxying.html
+# Rationale and source links:
+# docs/cli/check.md#spring-proxy-self-invocation
 expr = """
   any(out_refs,
     kind = 'annotates'
@@ -267,11 +259,26 @@ message = "Spring proxy-advised method `{name}` should not be called from the sa
 
 [[java.class.where]]
 id = "spring-proxy-class-no-self-invocation"
-# Class-level @Transactional is a default for methods declared in the class.
-# Same-class calls to those methods still bypass proxy advice in proxy mode.
-# See: https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/annotations.html
+# Rationale and source links:
+# docs/cli/check.md#spring-proxy-self-invocation
 expr = """
-  any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
+  any(out_refs,
+    kind = 'annotates'
+    AND (target.name = 'Transactional'
+         OR target.name = 'Async'
+         OR target.name = 'Cacheable'
+         OR target.name = 'CachePut'
+         OR target.name = 'CacheEvict'
+         OR target.name = 'Caching'
+         OR target.name = 'Retryable'
+         OR target.name = 'ConcurrencyLimit'
+         OR target.name = 'PreAuthorize'
+         OR target.name = 'PostAuthorize'
+         OR target.name = 'PreFilter'
+         OR target.name = 'PostFilter'
+         OR target.name = 'Secured'
+         OR target.name = 'RolesAllowed')
+  )
   => none(method,
        any(in_refs,
          (kind = 'method_call' OR kind = 'calls')
