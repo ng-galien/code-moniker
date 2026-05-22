@@ -224,34 +224,35 @@ expr    = "$tests OR $rust_inline_tests OR $example OR text =~ '^//\\s*SAFETY:' 
 message = "Doc/block comment is {value} lines (cap = 4). Move prose to docs/ — see CLAUDE.md comment sobriety."
 
 # ─── Walker shape — canonical extractor contract ───────────────────────
-# Every `src/lang/<X>/walker.rs` mirrors the same moniker shape:
-#   struct:Walker / method:walk / method:dispatch
-# `walk` iterates children and calls dispatch; `dispatch` matches on
-# `node.kind()` with `_ => self.walk(...)` as catch-all. Drop-arm
-# `_ => {}` is forbidden — it silently loses sub-trees.
+# `crates/core/src/lang/canonical_walker.rs` owns the shared extractor walk.
+# `walk` iterates children and recurses on `NodeShape::Recurse`; `dispatch`
+# applies the same classification to one node and must call `self.walk(...)`
+# for recurse cases. Drop-arm `_ => {}` is forbidden — it silently loses
+# sub-trees.
 
 [[rust.module.where]]
 id      = "walker-struct-exists"
-expr    = "moniker ~ '**/dir:lang/**/module:walker' => any(struct, name = 'Walker')"
-message = "`walker.rs` must define a `Walker` struct (state + dispatch methods)."
+expr    = "moniker ~ '**/dir:lang/module:canonical_walker' => any(struct, name = 'CanonicalWalker')"
+message = "`canonical_walker.rs` must define `CanonicalWalker` (state + dispatch methods)."
 
 [[rust.struct.where]]
 id      = "walker-has-walk-method"
-expr    = "name = 'Walker' AND moniker ~ '**/module:walker/struct:Walker' => any(method, name = 'walk')"
-message = "Walker must expose `walk(node, scope, graph)` — iterates children, calls dispatch on each."
+expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'walk')"
+message = "CanonicalWalker must expose `walk(node, scope, graph)` — iterates children and recurses on NodeShape::Recurse."
 
 [[rust.struct.where]]
 id      = "walker-has-dispatch-method"
-expr    = "name = 'Walker' AND moniker ~ '**/module:walker/struct:Walker' => any(method, name = 'dispatch')"
-message = "Walker must expose `dispatch(node, scope, graph)` — kind dispatch with `_ => self.walk(...)` catch-all."
+expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'dispatch')"
+message = "CanonicalWalker must expose `dispatch(node, scope, graph)` — single-node classification with recurse fallback."
 
-# Behavioral rule: dispatch must call self.walk in its catch-all arm.
+# Behavioral rule: dispatch must call self.walk for recurse cases.
 # Symbolically: dispatch must emit at least one out_ref method_call → walk.
-# Whitelist-with-`_ => {}` divergence has no such ref and trips the rule.
+# Whitelist-with-`NodeShape::Recurse => {}` divergence has no such ref and
+# trips the rule.
 [[rust.method.where]]
 id      = "walker-dispatch-recurses-into-walk"
 expr    = """
-  parent.name = 'Walker' AND name = 'dispatch'
+  parent.name = 'CanonicalWalker' AND name = 'dispatch'
   => any(out_refs, kind = 'method_call' AND target.name = 'walk')
 """
-message = "Walker.dispatch must call `self.walk(...)` (typically as catch-all). Missing this drops sub-trees."
+message = "CanonicalWalker.dispatch must call `self.walk(...)` for recurse cases. Missing this drops sub-trees."
