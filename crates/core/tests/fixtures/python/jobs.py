@@ -36,6 +36,7 @@ class Worker:
 
     # cm: def Worker.run_once
     async def run_once(self) -> bool:
+        # cm: ref Worker.run_once.calls.JobStore.reserve
         job = await self._store.reserve()
         if job is None:
             return False
@@ -43,5 +44,6 @@ class Worker:
         async with worker_span(job):
             # cm: ref Worker.run_once.calls.asyncio.sleep
             await asyncio.sleep(0)
+            # cm: ref Worker.run_once.calls.JobStore.complete
             await self._store.complete(job.id)
         return True

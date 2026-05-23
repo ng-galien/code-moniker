@@ -1,0 +1,151 @@
+root = "code+moniker://app/lang:python/module:payments"
+
+[[defs]]
+label = "Metadata"
+kind = "type"
+moniker = "code+moniker://app/lang:python/module:payments/type:Metadata"
+visibility = "public"
+
+[[defs]]
+label = "WebhookPayload"
+kind = "type"
+moniker = "code+moniker://app/lang:python/module:payments/type:WebhookPayload"
+visibility = "public"
+
+[[defs]]
+label = "PaymentStatus"
+kind = "class"
+moniker = "code+moniker://app/lang:python/module:payments/class:PaymentStatus"
+visibility = "public"
+
+[[defs]]
+label = "PaymentEvent"
+kind = "class"
+moniker = "code+moniker://app/lang:python/module:payments/class:PaymentEvent"
+visibility = "public"
+
+[[defs]]
+label = "Payment"
+kind = "class"
+moniker = "code+moniker://app/lang:python/module:payments/class:Payment"
+visibility = "public"
+
+[[defs]]
+label = "PaymentGateway"
+kind = "class"
+moniker = "code+moniker://app/lang:python/module:payments/class:PaymentGateway"
+visibility = "public"
+
+[[defs]]
+label = "AuditSink"
+kind = "type"
+moniker = "code+moniker://app/lang:python/module:payments/type:AuditSink"
+visibility = "public"
+
+[[defs]]
+label = "PaymentService.authorize_order"
+kind = "method"
+moniker = "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])"
+parent = "code+moniker://app/lang:python/module:payments/class:PaymentService"
+signature = "order_id:str,amount:Decimal,tags:Sequence[str]"
+
+[[defs]]
+label = "PaymentService.capture"
+kind = "method"
+moniker = "code+moniker://app/lang:python/module:payments/class:PaymentService/method:capture(payment:Payment)"
+parent = "code+moniker://app/lang:python/module:payments/class:PaymentService"
+signature = "payment:Payment"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:python/module:payments/type:Metadata"
+to = "code+moniker://app/external_pkg:collections/path:abc/function:Mapping"
+confidence = "external"
+
+[[refs]]
+kind = "extends"
+from = "code+moniker://app/lang:python/module:payments/class:PaymentStatus"
+to = "code+moniker://app/external_pkg:enum/function:StrEnum"
+confidence = "external"
+
+[[refs]]
+kind = "extends"
+from = "code+moniker://app/lang:python/module:payments/class:PaymentEvent"
+to = "code+moniker://app/external_pkg:typing/function:TypedDict"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:python/module:payments/class:PaymentEvent"
+to = "code+moniker://app/lang:python/module:payments/type:Metadata"
+confidence = "resolved"
+
+[[refs]]
+kind = "annotates"
+from = "code+moniker://app/lang:python/module:payments/class:Payment"
+to = "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:python/module:payments/class:Payment"
+to = "code+moniker://app/external_pkg:decimal/function:Decimal"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:python/module:payments/class:Payment"
+to = "code+moniker://app/lang:python/module:payments/class:PaymentStatus"
+confidence = "resolved"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:python/module:payments/class:Payment"
+to = "code+moniker://app/lang:python/module:payments/type:Metadata"
+confidence = "resolved"
+
+[[refs]]
+kind = "extends"
+from = "code+moniker://app/lang:python/module:payments/class:PaymentGateway"
+to = "code+moniker://app/external_pkg:typing/function:Protocol"
+confidence = "external"
+
+[[refs]]
+kind = "uses_type"
+from = "code+moniker://app/lang:python/module:payments/type:AuditSink"
+to = "code+moniker://app/lang:python/module:payments/class:PaymentEvent"
+confidence = "resolved"
+
+[[refs]]
+label = "PaymentService.authorize_order.instantiates.Payment"
+kind = "instantiates"
+from = "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])"
+to = "code+moniker://app/lang:python/module:payments/class:Payment"
+confidence = "resolved"
+
+[[refs]]
+label = "PaymentService.authorize_order.calls.PaymentGateway.authorize"
+kind = "method_call"
+from = "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])"
+to = "code+moniker://app/lang:python/module:payments/class:PaymentGateway/method:authorize(payment:Payment)"
+confidence = "resolved"
+receiver_hint = "member"
+
+[[refs]]
+label = "PaymentService.authorize_order.calls.AuditSink"
+kind = "calls"
+from = "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])"
+to = "code+moniker://app/lang:python/module:payments/type:AuditSink"
+confidence = "resolved"
+receiver_hint = "self"
+
+[[refs]]
+label = "PaymentService.capture.calls.PaymentGateway.capture"
+kind = "method_call"
+from = "code+moniker://app/lang:python/module:payments/class:PaymentService/method:capture(payment:Payment)"
+to = "code+moniker://app/lang:python/module:payments/class:PaymentGateway/method:capture(payment_id:str)"
+confidence = "resolved"
+receiver_hint = "member"
+
+[[absent.defs]]
+kind = "local"

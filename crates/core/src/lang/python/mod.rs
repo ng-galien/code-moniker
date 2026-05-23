@@ -16,7 +16,10 @@ mod kinds;
 mod strategy;
 
 use canonicalize::compute_module_moniker;
-use strategy::{CallableEntry, Strategy, collect_callable_table, collect_type_table};
+use strategy::{
+	CallableEntry, Strategy, collect_callable_table, collect_instance_attr_types,
+	collect_type_table,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
@@ -43,11 +46,12 @@ pub fn extract(
 	let module = compute_module_moniker(anchor, uri);
 	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
 	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
-	let mut type_table: HashMap<&[u8], Moniker> = HashMap::new();
+	let mut type_table: strategy::TypeTable = HashMap::new();
 	collect_type_table(
 		tree.root_node(),
 		source.as_bytes(),
 		&module,
+		false,
 		&mut type_table,
 	);
 	let mut callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry> = HashMap::new();
@@ -58,6 +62,15 @@ pub fn extract(
 		false,
 		&mut callable_table,
 	);
+	let mut instance_attr_types: HashMap<(Moniker, Vec<u8>), Moniker> = HashMap::new();
+	collect_instance_attr_types(
+		tree.root_node(),
+		source.as_bytes(),
+		&module,
+		false,
+		&type_table,
+		&mut instance_attr_types,
+	);
 	let strat = Strategy {
 		module: module.clone(),
 		source_bytes: source.as_bytes(),
@@ -65,6 +78,8 @@ pub fn extract(
 		imports: RefCell::new(HashMap::<Vec<u8>, &'static [u8]>::new()),
 		import_targets: RefCell::new(HashMap::<Vec<u8>, _>::new()),
 		local_scope: RefCell::new(Vec::new()),
+		local_types: RefCell::new(Vec::new()),
+		instance_attr_types: RefCell::new(instance_attr_types),
 		type_table,
 		callable_table,
 	};
@@ -78,10 +93,11 @@ pub fn extract(
 
 pub struct Lang;
 
-const DEF_KINDS: &[&str] = &["class", "function", "method", "async_function"];
+const DEF_KINDS: &[&str] = &["class", "type", "function", "method", "async_function"];
 
 const DEF_KIND_SPECS: &[KindSpec] = &[
 	KindSpec::new("class", Shape::Type, 20, "class"),
+	KindSpec::new("type", Shape::Type, 21, "type"),
 	KindSpec::new("function", Shape::Callable, 40, "function"),
 	KindSpec::new("async_function", Shape::Callable, 41, "async_function"),
 	KindSpec::new("method", Shape::Callable, 42, "method"),
@@ -338,6 +354,156 @@ mod tests {
 			.collect();
 		assert!(params.contains(&&b"x"[..]));
 		assert!(params.contains(&&b"y"[..]));
+	}
+
+	#[test]
+	fn extract_async_function_tracks_local_assignments() {
+		let src = "async def f():\n    x = 1\n    return x\n";
+		let g = extract_default("m.py", src, &make_anchor(), true);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"reads" && r.target.as_view().segments().last().unwrap().name == b"x"
+			})
+			.expect("reads x");
+		assert_eq!(r.confidence, b"local".to_vec());
+	}
+
+	#[test]
+	fn extract_imported_identifier_read_targets_import_moniker() {
+		let src = "import asyncio\nasync def f():\n    return asyncio\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"reads" && r.confidence == b"external")
+			.expect("external read");
+		let segs: Vec<_> = r.target.as_view().segments().collect();
+		assert_eq!(segs[0].kind, b"external_pkg");
+		assert_eq!(segs[0].name, b"asyncio");
+	}
+
+	#[test]
+	fn extract_self_member_call_resolves_via_typed_constructor_param() {
+		let src = "class Store:\n    def reserve(self) -> None:\n        pass\n\nclass Worker:\n    def __init__(self, store: Store) -> None:\n        self._store = store\n\n    def run(self) -> None:\n        self._store.reserve()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"reserve()"
+			})
+			.expect("method_call Store.reserve");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+		let parent = r.target.parent().expect("method parent");
+		assert_eq!(parent.as_view().segments().last().unwrap().name, b"Store");
+	}
+
+	#[test]
+	fn extract_self_member_call_uses_constructor_type_independent_of_method_order() {
+		let src = "class Store:\n    def reserve(self) -> None:\n        pass\n\nclass Other:\n    def reserve(self) -> None:\n        pass\n\nclass Worker:\n    def before_init(self) -> None:\n        self._store.reserve()\n\n    def __init__(self, store: Store) -> None:\n        self._store = store\n\n    def retarget(self, other: Other) -> None:\n        self._store = other\n\n    def after_retarget(self) -> None:\n        self._store.reserve()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let targets: Vec<Moniker> = g
+			.refs()
+			.filter(|r| {
+				r.kind == b"method_call"
+					&& r.target.as_view().segments().last().unwrap().name == b"reserve()"
+			})
+			.map(|r| r.target.clone())
+			.collect();
+		assert_eq!(targets.len(), 2);
+		for target in targets {
+			let parent = target.parent().expect("method parent");
+			assert_eq!(parent.as_view().segments().last().unwrap().name, b"Store");
+		}
+	}
+
+	#[test]
+	fn extract_self_callable_attr_call_targets_attribute_type_alias() {
+		let src = "from collections.abc import Callable\nfrom typing import TypeAlias\n\nCallback: TypeAlias = Callable[[], None]\n\nclass Worker:\n    def __init__(self, cb: Callback) -> None:\n        self._cb = cb\n\n    def run(self) -> None:\n        self._cb()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| {
+				r.kind == b"calls"
+					&& r.target.as_view().segments().last().unwrap().name == b"Callback"
+			})
+			.expect("calls Callback type alias");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+		assert!(!g.refs().any(|r| {
+			r.kind == b"method_call" && r.target.as_view().segments().last().unwrap().name == b"_cb"
+		}));
+	}
+
+	#[test]
+	fn extract_type_alias_emits_type_def_and_rhs_uses_type() {
+		let src = "from typing import TypeAlias\n\nclass User:\n    pass\n\nUserMap: TypeAlias = dict[str, User]\ntype UserResult = User | None\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let type_names: Vec<&[u8]> = g
+			.defs()
+			.filter(|d| d.kind == b"type")
+			.map(|d| d.moniker.as_view().segments().last().unwrap().name)
+			.collect();
+		assert!(type_names.contains(&&b"UserMap"[..]));
+		assert!(type_names.contains(&&b"UserResult"[..]));
+		assert!(g.refs().any(|r| {
+			r.kind == b"uses_type"
+				&& r.target.as_view().segments().last().unwrap().name == b"User"
+				&& r.confidence == b"resolved"
+		}));
+		assert!(!g.refs().any(|r| {
+			r.kind == b"uses_type"
+				&& matches!(
+					r.target.as_view().segments().last().unwrap().name,
+					b"dict" | b"str" | b"None"
+				)
+		}));
+	}
+
+	#[test]
+	fn extract_local_class_call_emits_instantiates() {
+		let src = "class User:\n    pass\n\ndef make() -> User:\n    return User()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"instantiates")
+			.expect("instantiates User");
+		assert_eq!(r.confidence, b"resolved".to_vec());
+		assert_eq!(r.target.as_view().segments().last().unwrap().name, b"User");
+	}
+
+	#[test]
+	fn extract_local_class_call_prefers_function_scoped_type() {
+		let src = "class Local:\n    pass\n\ndef make():\n    class Local:\n        pass\n    return Local()\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		let r = g
+			.refs()
+			.find(|r| r.kind == b"instantiates")
+			.expect("instantiates local Local");
+		let target_last = r.target.as_view().segments().last().unwrap();
+		assert_eq!(target_last.kind, b"class");
+		assert_eq!(target_last.name, b"Local");
+		let parent = r.target.parent().expect("class parent");
+		let parent_last = parent.as_view().segments().last().unwrap();
+		assert_eq!(parent_last.kind, b"function");
+		assert_eq!(parent_last.name, b"make()");
+	}
+
+	#[test]
+	fn extract_keyword_argument_names_are_not_reads() {
+		let src = "def save(value):\n    return dict(id=value)\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		assert!(!g.refs().any(|r| {
+			r.kind == b"reads" && r.target.as_view().segments().last().unwrap().name == b"id"
+		}));
+	}
+
+	#[test]
+	fn extract_attribute_tail_is_not_a_bare_read() {
+		let src = "def f(payment):\n    return payment.id\n";
+		let g = extract_default("m.py", src, &make_anchor(), false);
+		assert!(!g.refs().any(|r| {
+			r.kind == b"reads" && r.target.as_view().segments().last().unwrap().name == b"id"
+		}));
 	}
 
 	#[test]

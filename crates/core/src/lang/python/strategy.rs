@@ -22,9 +22,13 @@ pub(super) struct Strategy<'src> {
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
 	pub(super) import_targets: RefCell<HashMap<Vec<u8>, Moniker>>,
 	pub(super) local_scope: RefCell<Vec<HashSet<Vec<u8>>>>,
-	pub(super) type_table: HashMap<&'src [u8], Moniker>,
+	pub(super) local_types: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
+	pub(super) instance_attr_types: RefCell<HashMap<(Moniker, Vec<u8>), Moniker>>,
+	pub(super) type_table: TypeTable,
 	pub(super) callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry>,
 }
+
+pub(super) type TypeTable = HashMap<Vec<u8>, Vec<Moniker>>;
 
 #[derive(Clone)]
 pub(super) struct CallableEntry {
@@ -54,13 +58,26 @@ impl<'a> LangStrategy for Strategy<'a> {
 			}
 			"decorated_definition" => self.classify_decorated(node, scope, source, graph),
 			"class_definition" => self.classify_class(node, scope, source, graph, &[]),
+			"type_alias_statement" => self.classify_type_alias(node, scope),
 			"function_definition" => self.classify_function(node, scope, source, graph, &[]),
 			"call" => {
 				self.handle_call(node, scope, graph);
 				NodeShape::Skip
 			}
 			"assignment" => {
-				self.handle_assignment(node, scope, graph);
+				if let Some(symbol) = self.classify_type_alias_assignment(node, scope, graph) {
+					NodeShape::Symbol(symbol)
+				} else {
+					self.handle_assignment(node, scope, graph);
+					NodeShape::Skip
+				}
+			}
+			"keyword_argument" => {
+				self.handle_keyword_argument(node, scope, graph);
+				NodeShape::Skip
+			}
+			"attribute" => {
+				self.handle_attribute(node, scope, graph);
 				NodeShape::Skip
 			}
 			"identifier" => {
@@ -172,10 +189,10 @@ impl<'src_lang> Strategy<'src_lang> {
 
 		let mut annotated_by: Vec<RefSpec> = Vec::new();
 		if let Some(supers) = node.child_by_field_name("superclasses") {
-			self.collect_base_class_refs(supers, &mut annotated_by);
+			self.collect_base_class_refs(supers, scope, &mut annotated_by);
 		}
 		for d in decorators {
-			self.collect_decorator_refs(*d, &mut annotated_by);
+			self.collect_decorator_refs(*d, scope, &mut annotated_by);
 		}
 
 		NodeShape::Symbol(Symbol {
@@ -184,6 +201,66 @@ impl<'src_lang> Strategy<'src_lang> {
 			visibility: visibility_from_name(name),
 			signature: None,
 			body: node.child_by_field_name("body"),
+			position: node_position(node),
+			annotated_by,
+		})
+	}
+
+	fn classify_type_alias<'src>(&self, node: Node<'src>, scope: &Moniker) -> NodeShape<'src> {
+		let Some(left) = node.child_by_field_name("left") else {
+			return NodeShape::Recurse;
+		};
+		let Some(name_node) = type_alias_name_node(left) else {
+			return NodeShape::Recurse;
+		};
+		let name = node_slice(name_node, self.source_bytes);
+		if name.is_empty() {
+			return NodeShape::Recurse;
+		}
+		let moniker = extend_segment(scope, kinds::TYPE, name);
+		let mut annotated_by = Vec::new();
+		if let Some(right) = node.child_by_field_name("right") {
+			self.collect_uses_type_refs(right, scope, &mut annotated_by);
+		}
+		NodeShape::Symbol(Symbol {
+			moniker,
+			kind: kinds::TYPE,
+			visibility: visibility_from_name(name),
+			signature: None,
+			body: None,
+			position: node_position(node),
+			annotated_by,
+		})
+	}
+
+	fn classify_type_alias_assignment<'src>(
+		&self,
+		node: Node<'src>,
+		scope: &Moniker,
+		graph: &mut CodeGraph,
+	) -> Option<Symbol<'src>> {
+		let type_node = node.child_by_field_name("type")?;
+		if !type_annotation_has_name(type_node, self.source_bytes, b"TypeAlias") {
+			return None;
+		}
+		let left = node.child_by_field_name("left")?;
+		let name_node = assignment_alias_name_node(left)?;
+		let name = node_slice(name_node, self.source_bytes);
+		if name.is_empty() {
+			return None;
+		}
+		self.emit_uses_type(type_node, scope, graph);
+		let moniker = extend_segment(scope, kinds::TYPE, name);
+		let mut annotated_by = Vec::new();
+		if let Some(right) = node.child_by_field_name("right") {
+			self.collect_uses_type_refs(right, scope, &mut annotated_by);
+		}
+		Some(Symbol {
+			moniker,
+			kind: kinds::TYPE,
+			visibility: visibility_from_name(name),
+			signature: None,
+			body: None,
 			position: node_position(node),
 			annotated_by,
 		})
@@ -218,12 +295,12 @@ impl<'src_lang> Strategy<'src_lang> {
 
 		let mut annotated_by: Vec<RefSpec> = Vec::new();
 		for d in decorators {
-			self.collect_decorator_refs(*d, &mut annotated_by);
+			self.collect_decorator_refs(*d, scope, &mut annotated_by);
 		}
 
 		self.push_local_scope();
 		if let Some(params) = node.child_by_field_name("parameters") {
-			self.record_param_locals(params, source);
+			self.record_param_locals(params, source, &moniker);
 		}
 		let _ = graph;
 
@@ -238,16 +315,21 @@ impl<'src_lang> Strategy<'src_lang> {
 		})
 	}
 
-	fn record_param_locals(&self, params: Node<'_>, source: &[u8]) {
+	fn record_param_locals(&self, params: Node<'_>, source: &[u8], scope: &Moniker) {
 		let mut cursor = params.walk();
 		for child in params.named_children(&mut cursor) {
-			let (name_node, _type_node) = parameter_name_and_type(child);
+			let (name_node, type_node) = parameter_name_and_type(child);
 			let Some(name_node) = name_node else { continue };
 			let name = node_slice(name_node, source);
 			if name.is_empty() {
 				continue;
 			}
 			self.record_local(name);
+			if let Some(type_node) = type_node
+				&& let Some(target) = self.infer_type_target(type_node, scope)
+			{
+				self.record_local_type(name, target);
+			}
 		}
 	}
 
@@ -277,12 +359,21 @@ impl<'src_lang> Strategy<'src_lang> {
 	}
 
 	fn handle_assignment(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		let inferred_type = node
+			.child_by_field_name("type")
+			.and_then(|t| self.infer_type_target(t, scope));
 		if let Some(t) = node.child_by_field_name("type") {
 			self.emit_uses_type(t, scope, graph);
 		}
 		let inside_callable = is_callable_scope(scope, &self.module);
 		if inside_callable && let Some(left) = node.child_by_field_name("left") {
 			self.record_local_pattern(left);
+			self.record_assignment_type(
+				scope,
+				left,
+				node.child_by_field_name("right"),
+				inferred_type,
+			);
 			if self.deep {
 				self.emit_local_pattern(left, scope, graph);
 			}
@@ -333,6 +424,18 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.pop_local_scope();
 	}
 
+	fn handle_keyword_argument(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		if let Some(value) = node.child_by_field_name("value") {
+			self.recurse_subtree(value, scope, graph);
+		}
+	}
+
+	fn handle_attribute(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		if let Some(obj) = node.child_by_field_name("object") {
+			self.recurse_subtree(obj, scope, graph);
+		}
+	}
+
 	fn handle_call(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let pos = node_position(node);
 		let Some(callee) = node.child_by_field_name("function") else {
@@ -349,12 +452,19 @@ impl<'src_lang> Strategy<'src_lang> {
 						None => self.name_confidence(name),
 					};
 					if let Some(confidence) = confidence {
-						let target = if confidence == kinds::CONF_LOCAL {
-							extend_segment(scope, kinds::LOCAL, name)
+						let (target, kind, confidence) = if confidence == kinds::CONF_LOCAL {
+							(
+								extend_segment(scope, kinds::LOCAL, name),
+								kinds::CALLS,
+								confidence,
+							)
 						} else if let Some(m) = self.lookup_import_target(name) {
-							m
+							(m, kinds::CALLS, confidence)
+						} else if let Some(m) = self.lookup_type_target(scope, name) {
+							(m, kinds::INSTANTIATES, kinds::CONF_RESOLVED)
 						} else {
-							self.lookup_callable_in_scope(scope, name, kinds::METHOD)
+							let target = self
+								.lookup_callable_in_scope(scope, name, kinds::METHOD)
 								.or_else(|| {
 									self.lookup_callable_in_scope(scope, name, kinds::FUNCTION)
 								})
@@ -367,13 +477,14 @@ impl<'src_lang> Strategy<'src_lang> {
 								})
 								.unwrap_or_else(|| {
 									extend_segment(&self.module, kinds::FUNCTION, name)
-								})
+								});
+							(target, kinds::CALLS, confidence)
 						};
 						let attrs = RefAttrs {
 							confidence,
 							..RefAttrs::default()
 						};
-						let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
+						let _ = graph.add_ref_attrs(scope, target, kind, Some(pos), &attrs);
 					}
 				}
 			}
@@ -384,40 +495,45 @@ impl<'src_lang> Strategy<'src_lang> {
 					let hint = receiver
 						.map(|r| receiver_hint(r, self.source_bytes))
 						.unwrap_or(b"");
-					let (target, confidence, kind) = if let Some(receiver) = receiver
+					let resolved = if let Some(receiver) = receiver
 						&& receiver.kind() == "identifier"
 						&& let Some(import_target) =
 							self.lookup_import_target(node_slice(receiver, self.source_bytes))
 					{
-						(
+						Some((
 							extend_segment(&import_target, kinds::FUNCTION, name.as_bytes()),
 							self.import_confidence_for(node_slice(receiver, self.source_bytes))
 								.unwrap_or(kinds::CONF_NAME_MATCH),
 							kinds::CALLS,
-						)
+						))
+					} else if let Some(receiver) = receiver
+						&& let Some(target) =
+							self.lookup_method_on_typed_receiver(scope, receiver, name.as_bytes())
+					{
+						Some((target, kinds::CONF_RESOLVED, kinds::METHOD_CALL))
+					} else if matches!(hint, b"self" | b"cls")
+						&& let Some(target) =
+							self.lookup_self_named_attr_type(scope, name.as_bytes())
+					{
+						Some((target, kinds::CONF_RESOLVED, kinds::CALLS))
 					} else if matches!(hint, b"self" | b"cls") {
 						self.lookup_callable_in_scope(scope, name.as_bytes(), kinds::METHOD)
 							.map(|target| (target, kinds::CONF_RESOLVED, kinds::METHOD_CALL))
-							.unwrap_or_else(|| {
-								(
-									extend_segment(&self.module, kinds::METHOD, name.as_bytes()),
-									kinds::CONF_NAME_MATCH,
-									kinds::METHOD_CALL,
-								)
-							})
 					} else {
-						(
+						Some((
 							extend_segment(&self.module, kinds::METHOD, name.as_bytes()),
 							kinds::CONF_NAME_MATCH,
 							kinds::METHOD_CALL,
-						)
+						))
 					};
-					let attrs = RefAttrs {
-						receiver_hint: hint,
-						confidence,
-						..RefAttrs::default()
-					};
-					let _ = graph.add_ref_attrs(scope, target, kind, Some(pos), &attrs);
+					if let Some((target, confidence, kind)) = resolved {
+						let attrs = RefAttrs {
+							receiver_hint: hint,
+							confidence,
+							..RefAttrs::default()
+						};
+						let _ = graph.add_ref_attrs(scope, target, kind, Some(pos), &attrs);
+					}
 				}
 				if let Some(obj) = callee.child_by_field_name("object") {
 					self.recurse_subtree(obj, scope, graph);
@@ -443,10 +559,25 @@ impl<'src_lang> Strategy<'src_lang> {
 		let Some(confidence) = confidence else {
 			return;
 		};
+		let resolved_type =
+			if confidence != kinds::CONF_LOCAL && self.import_confidence_for(name).is_none() {
+				self.lookup_type_target(scope, name)
+			} else {
+				None
+			};
 		let target = if confidence == kinds::CONF_LOCAL {
 			extend_segment(scope, kinds::LOCAL, name)
+		} else if let Some(m) = self.lookup_import_target(name) {
+			m
+		} else if let Some(m) = resolved_type.clone() {
+			m
 		} else {
 			extend_segment(&self.module, kinds::FUNCTION, name)
+		};
+		let confidence = if resolved_type.is_some() {
+			kinds::CONF_RESOLVED
+		} else {
+			confidence
 		};
 		let attrs = RefAttrs {
 			confidence,
@@ -571,7 +702,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn collect_base_class_refs(&self, supers: Node<'_>, out: &mut Vec<RefSpec>) {
+	fn collect_base_class_refs(&self, supers: Node<'_>, scope: &Moniker, out: &mut Vec<RefSpec>) {
 		let mut cursor = supers.walk();
 		for child in supers.named_children(&mut cursor) {
 			let name = match child.kind() {
@@ -591,7 +722,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			if name.is_empty() {
 				continue;
 			}
-			let (target, confidence) = self.resolve_type_target(&name, kinds::CLASS);
+			let (target, confidence) = self.resolve_type_target(scope, &name, kinds::CLASS);
 			out.push(RefSpec {
 				kind: kinds::EXTENDS,
 				target,
@@ -603,7 +734,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn collect_decorator_refs(&self, node: Node<'_>, out: &mut Vec<RefSpec>) {
+	fn collect_decorator_refs(&self, node: Node<'_>, scope: &Moniker, out: &mut Vec<RefSpec>) {
 		let mut cursor = node.walk();
 		for c in node.named_children(&mut cursor) {
 			let (name, name_node) = match c.kind() {
@@ -624,7 +755,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			if name.is_empty() {
 				continue;
 			}
-			let (target, confidence) = self.resolve_type_target(&name, kinds::CLASS);
+			let (target, confidence) = self.resolve_type_target(scope, &name, kinds::CLASS);
 			out.push(RefSpec {
 				kind: kinds::ANNOTATES,
 				target,
@@ -633,6 +764,61 @@ impl<'src_lang> Strategy<'src_lang> {
 				receiver_hint: b"",
 				alias: b"",
 			});
+		}
+	}
+
+	fn collect_uses_type_refs(&self, node: Node<'_>, scope: &Moniker, out: &mut Vec<RefSpec>) {
+		match node.kind() {
+			"type"
+			| "subscript"
+			| "generic_type"
+			| "type_parameter"
+			| "member_type"
+			| "constrained_type"
+			| "splat_type"
+			| "tuple"
+			| "list"
+			| "union_type"
+			| "binary_operator"
+			| "expression_list"
+			| "parenthesized_expression" => {
+				let mut cursor = node.walk();
+				for c in node.named_children(&mut cursor) {
+					self.collect_uses_type_refs(c, scope, out);
+				}
+			}
+			"identifier" => {
+				let name = node_slice(node, self.source_bytes);
+				if should_skip_type_name(name) {
+					return;
+				}
+				let (target, confidence) = self.resolve_type_target(scope, name, kinds::CLASS);
+				out.push(RefSpec {
+					kind: kinds::USES_TYPE,
+					target,
+					confidence,
+					position: node_position(node),
+					receiver_hint: b"",
+					alias: b"",
+				});
+			}
+			"attribute" => {
+				let name = last_attribute(node, self.source_bytes);
+				if should_skip_type_name(name.as_bytes()) {
+					return;
+				}
+				let (target, confidence) =
+					self.resolve_type_target(scope, name.as_bytes(), kinds::CLASS);
+				out.push(RefSpec {
+					kind: kinds::USES_TYPE,
+					target,
+					confidence,
+					position: node_position(node),
+					receiver_hint: b"",
+					alias: b"",
+				});
+			}
+			_ => {}
 		}
 	}
 
@@ -646,10 +832,10 @@ impl<'src_lang> Strategy<'src_lang> {
 			}
 			"identifier" => {
 				let name = node_slice(node, self.source_bytes);
-				if name.is_empty() {
+				if should_skip_type_name(name) {
 					return;
 				}
-				let (target, confidence) = self.resolve_type_target(name, kinds::CLASS);
+				let (target, confidence) = self.resolve_type_target(scope, name, kinds::CLASS);
 				let attrs = RefAttrs {
 					confidence,
 					..RefAttrs::default()
@@ -664,10 +850,11 @@ impl<'src_lang> Strategy<'src_lang> {
 			}
 			"attribute" => {
 				let name = last_attribute(node, self.source_bytes);
-				if name.is_empty() {
+				if should_skip_type_name(name.as_bytes()) {
 					return;
 				}
-				let (target, confidence) = self.resolve_type_target(name.as_bytes(), kinds::CLASS);
+				let (target, confidence) =
+					self.resolve_type_target(scope, name.as_bytes(), kinds::CLASS);
 				let attrs = RefAttrs {
 					confidence,
 					..RefAttrs::default()
@@ -688,8 +875,17 @@ impl<'src_lang> Strategy<'src_lang> {
 					}
 				}
 			}
-			"generic_type" | "type_parameter" | "member_type" | "constrained_type"
-			| "splat_type" | "tuple" | "list" => {
+			"generic_type"
+			| "type_parameter"
+			| "member_type"
+			| "constrained_type"
+			| "splat_type"
+			| "tuple"
+			| "list"
+			| "union_type"
+			| "binary_operator"
+			| "expression_list"
+			| "parenthesized_expression" => {
 				let mut cursor = node.walk();
 				for c in node.named_children(&mut cursor) {
 					self.emit_uses_type(c, scope, graph);
@@ -743,16 +939,142 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	pub(super) fn push_local_scope(&self) {
 		self.local_scope.borrow_mut().push(HashSet::new());
+		self.local_types.borrow_mut().push(HashMap::new());
 	}
 
 	pub(super) fn pop_local_scope(&self) {
 		self.local_scope.borrow_mut().pop();
+		self.local_types.borrow_mut().pop();
 	}
 
 	fn record_local(&self, name: &[u8]) {
 		if let Some(top) = self.local_scope.borrow_mut().last_mut() {
 			top.insert(name.to_vec());
 		}
+	}
+
+	fn record_local_type(&self, name: &[u8], target: Moniker) {
+		if let Some(top) = self.local_types.borrow_mut().last_mut() {
+			top.insert(name.to_vec(), target);
+		}
+	}
+
+	fn lookup_local_type(&self, name: &[u8]) -> Option<Moniker> {
+		self.local_types
+			.borrow()
+			.iter()
+			.rev()
+			.find_map(|frame| frame.get(name).cloned())
+	}
+
+	fn record_assignment_type(
+		&self,
+		scope: &Moniker,
+		left: Node<'_>,
+		right: Option<Node<'_>>,
+		inferred_type: Option<Moniker>,
+	) {
+		let right_type = right.and_then(|node| self.infer_assignment_value_type(node, scope));
+		let target = inferred_type.or(right_type);
+		match left.kind() {
+			"identifier" => {
+				let Some(target) = target else { return };
+				let name = node_slice(left, self.source_bytes);
+				if !name.is_empty() {
+					self.record_local_type(name, target);
+				}
+			}
+			"attribute" => {
+				let Some(target) = target else { return };
+				let Some((class, attr)) = self.self_attr_key(scope, left) else {
+					return;
+				};
+				self.instance_attr_types
+					.borrow_mut()
+					.entry((class, attr))
+					.or_insert(target);
+			}
+			_ => {}
+		}
+	}
+
+	fn infer_assignment_value_type(&self, node: Node<'_>, scope: &Moniker) -> Option<Moniker> {
+		match node.kind() {
+			"identifier" => self.lookup_local_type(node_slice(node, self.source_bytes)),
+			"call" => {
+				let callee = node.child_by_field_name("function")?;
+				match callee.kind() {
+					"identifier" => {
+						let name = node_slice(callee, self.source_bytes);
+						self.lookup_type_target(scope, name)
+					}
+					_ => None,
+				}
+			}
+			"await" => {
+				let mut cursor = node.walk();
+				node.named_children(&mut cursor)
+					.find_map(|child| self.infer_assignment_value_type(child, scope))
+			}
+			_ => None,
+		}
+	}
+
+	fn infer_type_target(&self, node: Node<'_>, scope: &Moniker) -> Option<Moniker> {
+		match node.kind() {
+			"identifier" => {
+				let name = node_slice(node, self.source_bytes);
+				if should_skip_type_name(name) || is_typing_container(name) {
+					return None;
+				}
+				let (target, _) = self.resolve_type_target(scope, name, kinds::CLASS);
+				Some(target)
+			}
+			"attribute" => {
+				let name = last_attribute(node, self.source_bytes);
+				if should_skip_type_name(name.as_bytes()) || is_typing_container(name.as_bytes()) {
+					return None;
+				}
+				let (target, _) = self.resolve_type_target(scope, name.as_bytes(), kinds::CLASS);
+				Some(target)
+			}
+			"type"
+			| "subscript"
+			| "generic_type"
+			| "type_parameter"
+			| "member_type"
+			| "constrained_type"
+			| "splat_type"
+			| "tuple"
+			| "list"
+			| "union_type"
+			| "binary_operator"
+			| "expression_list"
+			| "parenthesized_expression" => {
+				let mut cursor = node.walk();
+				node.named_children(&mut cursor)
+					.find_map(|child| self.infer_type_target(child, scope))
+			}
+			_ => None,
+		}
+	}
+
+	fn self_attr_key(&self, scope: &Moniker, node: Node<'_>) -> Option<(Moniker, Vec<u8>)> {
+		if node.kind() != "attribute" {
+			return None;
+		}
+		let obj = node.child_by_field_name("object")?;
+		if obj.kind() != "identifier"
+			|| !matches!(node_slice(obj, self.source_bytes), b"self" | b"cls")
+		{
+			return None;
+		}
+		let class = enclosing_class(scope, &self.module)?;
+		let attr = last_attribute(node, self.source_bytes).as_bytes().to_vec();
+		if attr.is_empty() {
+			return None;
+		}
+		Some((class, attr))
 	}
 
 	fn record_local_static(&self, name: &[u8]) {
@@ -791,9 +1113,18 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.imports.borrow().get(name).copied()
 	}
 
-	fn resolve_type_target(&self, name: &[u8], fallback_kind: &[u8]) -> (Moniker, &'static [u8]) {
-		if let Some(m) = self.type_table.get(name) {
-			return (m.clone(), kinds::CONF_RESOLVED);
+	fn lookup_type_target(&self, scope: &Moniker, name: &[u8]) -> Option<Moniker> {
+		lookup_type_target(&self.type_table, scope, name)
+	}
+
+	fn resolve_type_target(
+		&self,
+		scope: &Moniker,
+		name: &[u8],
+		fallback_kind: &[u8],
+	) -> (Moniker, &'static [u8]) {
+		if let Some(m) = self.lookup_type_target(scope, name) {
+			return (m, kinds::CONF_RESOLVED);
 		}
 		if let Some(m) = self.lookup_import_target(name) {
 			let confidence = self
@@ -828,6 +1159,63 @@ impl<'src_lang> Strategy<'src_lang> {
 			}
 		}
 		None
+	}
+
+	fn lookup_method_on_typed_receiver(
+		&self,
+		scope: &Moniker,
+		receiver: Node<'_>,
+		name: &[u8],
+	) -> Option<Moniker> {
+		let target_type = match receiver.kind() {
+			"identifier" => self.lookup_local_type(node_slice(receiver, self.source_bytes)),
+			"attribute" => self.lookup_self_attr_type(scope, receiver),
+			_ => None,
+		}?;
+		self.lookup_callable_on_type(&target_type, name, kinds::METHOD)
+	}
+
+	fn lookup_self_attr_type(&self, scope: &Moniker, receiver: Node<'_>) -> Option<Moniker> {
+		if receiver.kind() != "attribute" {
+			return None;
+		}
+		let obj = receiver.child_by_field_name("object")?;
+		if obj.kind() != "identifier"
+			|| !matches!(node_slice(obj, self.source_bytes), b"self" | b"cls")
+		{
+			return None;
+		}
+		let class = enclosing_class(scope, &self.module)?;
+		let attr = last_attribute(receiver, self.source_bytes)
+			.as_bytes()
+			.to_vec();
+		self.instance_attr_types
+			.borrow()
+			.get(&(class, attr))
+			.cloned()
+	}
+
+	fn lookup_self_named_attr_type(&self, scope: &Moniker, attr: &[u8]) -> Option<Moniker> {
+		let class = enclosing_class(scope, &self.module)?;
+		self.instance_attr_types
+			.borrow()
+			.get(&(class, attr.to_vec()))
+			.cloned()
+	}
+
+	fn lookup_callable_on_type(
+		&self,
+		type_moniker: &Moniker,
+		name: &[u8],
+		kind: &[u8],
+	) -> Option<Moniker> {
+		let entry = self
+			.callable_table
+			.get(&(type_moniker.clone(), name.to_vec()))?;
+		if entry.kind != kind {
+			return None;
+		}
+		Some(extend_segment(type_moniker, kind, &entry.segment))
 	}
 }
 
@@ -916,35 +1304,405 @@ pub(super) fn collect_type_table<'src>(
 	node: Node<'src>,
 	source: &'src [u8],
 	parent: &Moniker,
-	out: &mut HashMap<&'src [u8], Moniker>,
+	is_class_scope: bool,
+	out: &mut TypeTable,
 ) {
 	let mut cursor = node.walk();
 	for child in node.children(&mut cursor) {
-		let class_node = match child.kind() {
-			"class_definition" => Some(child),
-			"decorated_definition" => child.child_by_field_name("definition").and_then(|d| {
-				if d.kind() == "class_definition" {
-					Some(d)
-				} else {
-					None
+		if child.kind() == "type_alias_statement" {
+			if let Some(left) = child.child_by_field_name("left")
+				&& let Some(name_node) = type_alias_name_node(left)
+			{
+				let name = node_slice(name_node, source);
+				if !name.is_empty() {
+					let m = extend_segment(parent, kinds::TYPE, name);
+					record_type_candidate(out, name, m);
 				}
+			}
+			continue;
+		}
+		if child.kind() == "assignment"
+			&& child
+				.child_by_field_name("type")
+				.is_some_and(|n| type_annotation_has_name(n, source, b"TypeAlias"))
+		{
+			if let Some(left) = child.child_by_field_name("left")
+				&& let Some(name_node) = assignment_alias_name_node(left)
+			{
+				let name = node_slice(name_node, source);
+				if !name.is_empty() {
+					let m = extend_segment(parent, kinds::TYPE, name);
+					record_type_candidate(out, name, m);
+				}
+			}
+			continue;
+		}
+		let (class_node, function_node) = match child.kind() {
+			"class_definition" => (Some(child), None),
+			"function_definition" => (None, Some(child)),
+			"decorated_definition" => match decorated_definition_node(child).map(|d| d.kind()) {
+				Some("class_definition") => (decorated_definition_node(child), None),
+				Some("function_definition") => (None, decorated_definition_node(child)),
+				_ => (None, None),
+			},
+			_ => (None, None),
+		};
+		if let Some(class_node) = class_node {
+			let Some(name_node) = class_node.child_by_field_name("name") else {
+				continue;
+			};
+			let name = node_slice(name_node, source);
+			let m = extend_segment(parent, kinds::CLASS, name);
+			record_type_candidate(out, name, m.clone());
+			if let Some(body) = class_node.child_by_field_name("body") {
+				collect_type_table(body, source, &m, true, out);
+			}
+		} else if let Some(function_node) = function_node {
+			let Some(function_scope) =
+				function_scope_moniker(function_node, source, parent, is_class_scope)
+			else {
+				continue;
+			};
+			if let Some(body) = function_node.child_by_field_name("body") {
+				collect_type_table(body, source, &function_scope, false, out);
+			}
+		} else {
+			collect_type_table(child, source, parent, is_class_scope, out);
+		}
+	}
+}
+
+pub(super) fn collect_instance_attr_types(
+	node: Node<'_>,
+	source: &[u8],
+	parent: &Moniker,
+	is_class_scope: bool,
+	type_table: &TypeTable,
+	out: &mut HashMap<(Moniker, Vec<u8>), Moniker>,
+) {
+	let mut cursor = node.walk();
+	for child in node.children(&mut cursor) {
+		let (class_node, function_node) = match child.kind() {
+			"class_definition" => (Some(child), None),
+			"function_definition" => (None, Some(child)),
+			"decorated_definition" => match decorated_definition_node(child).map(|d| d.kind()) {
+				Some("class_definition") => (decorated_definition_node(child), None),
+				Some("function_definition") => (None, decorated_definition_node(child)),
+				_ => (None, None),
+			},
+			_ => (None, None),
+		};
+		if let Some(class_node) = class_node {
+			let Some(name_node) = class_node.child_by_field_name("name") else {
+				continue;
+			};
+			let name = node_slice(name_node, source);
+			let class_scope = extend_segment(parent, kinds::CLASS, name);
+			collect_class_init_attr_types(class_node, source, &class_scope, type_table, out);
+			if let Some(body) = class_node.child_by_field_name("body") {
+				collect_instance_attr_types(body, source, &class_scope, true, type_table, out);
+			}
+		} else if let Some(function_node) = function_node {
+			let Some(function_scope) =
+				function_scope_moniker(function_node, source, parent, is_class_scope)
+			else {
+				continue;
+			};
+			if let Some(body) = function_node.child_by_field_name("body") {
+				collect_instance_attr_types(body, source, &function_scope, false, type_table, out);
+			}
+		} else {
+			collect_instance_attr_types(child, source, parent, is_class_scope, type_table, out);
+		}
+	}
+}
+
+fn collect_class_init_attr_types(
+	class_node: Node<'_>,
+	source: &[u8],
+	class_scope: &Moniker,
+	type_table: &TypeTable,
+	out: &mut HashMap<(Moniker, Vec<u8>), Moniker>,
+) {
+	let Some(body) = class_node.child_by_field_name("body") else {
+		return;
+	};
+	let mut cursor = body.walk();
+	for child in body.named_children(&mut cursor) {
+		let function_node = match child.kind() {
+			"function_definition" => Some(child),
+			"decorated_definition" => decorated_definition_node(child).filter(|d| {
+				d.kind() == "function_definition"
+					&& d.child_by_field_name("name")
+						.is_some_and(|n| node_slice(n, source) == b"__init__")
 			}),
 			_ => None,
 		};
-		let Some(class_node) = class_node else {
-			collect_type_table(child, source, parent, out);
+		let Some(function_node) = function_node else {
 			continue;
 		};
-		let Some(name_node) = class_node.child_by_field_name("name") else {
+		let Some(name_node) = function_node.child_by_field_name("name") else {
+			continue;
+		};
+		if node_slice(name_node, source) != b"__init__" {
+			continue;
+		}
+		let Some(method_scope) = function_scope_moniker(function_node, source, class_scope, true)
+		else {
+			continue;
+		};
+		let params = function_node
+			.child_by_field_name("parameters")
+			.map(|params| collect_param_type_bindings(params, source, &method_scope, type_table))
+			.unwrap_or_default();
+		if let Some(body) = function_node.child_by_field_name("body") {
+			collect_init_attr_assignments(
+				body,
+				source,
+				class_scope,
+				&method_scope,
+				&params,
+				type_table,
+				out,
+			);
+		}
+	}
+}
+
+fn collect_param_type_bindings(
+	params: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	type_table: &TypeTable,
+) -> HashMap<Vec<u8>, Moniker> {
+	let mut out = HashMap::new();
+	let mut cursor = params.walk();
+	for child in params.named_children(&mut cursor) {
+		let (name_node, type_node) = parameter_name_and_type(child);
+		let (Some(name_node), Some(type_node)) = (name_node, type_node) else {
 			continue;
 		};
 		let name = node_slice(name_node, source);
-		let m = extend_segment(parent, kinds::CLASS, name);
-		out.entry(name).or_insert_with(|| m.clone());
-		if let Some(body) = class_node.child_by_field_name("body") {
-			collect_type_table(body, source, &m, out);
+		if matches!(name, b"self" | b"cls") {
+			continue;
+		}
+		if let Some(target) = static_infer_type_target(type_node, source, scope, type_table) {
+			out.insert(name.to_vec(), target);
 		}
 	}
+	out
+}
+
+fn collect_init_attr_assignments(
+	node: Node<'_>,
+	source: &[u8],
+	class_scope: &Moniker,
+	method_scope: &Moniker,
+	params: &HashMap<Vec<u8>, Moniker>,
+	type_table: &TypeTable,
+	out: &mut HashMap<(Moniker, Vec<u8>), Moniker>,
+) {
+	if node.kind() == "function_definition" || node.kind() == "class_definition" {
+		return;
+	}
+	if node.kind() == "assignment"
+		&& let Some(left) = node.child_by_field_name("left")
+		&& let Some(attr) = self_attr_name(left, source)
+	{
+		let annotation_type = node
+			.child_by_field_name("type")
+			.and_then(|t| static_infer_type_target(t, source, method_scope, type_table));
+		let right_type = node.child_by_field_name("right").and_then(|right| {
+			static_assignment_value_type(right, source, method_scope, params, type_table)
+		});
+		if let Some(target) = annotation_type.or(right_type) {
+			out.entry((class_scope.clone(), attr)).or_insert(target);
+		}
+	}
+	let mut cursor = node.walk();
+	for child in node.named_children(&mut cursor) {
+		collect_init_attr_assignments(
+			child,
+			source,
+			class_scope,
+			method_scope,
+			params,
+			type_table,
+			out,
+		);
+	}
+}
+
+fn static_assignment_value_type(
+	node: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	params: &HashMap<Vec<u8>, Moniker>,
+	type_table: &TypeTable,
+) -> Option<Moniker> {
+	match node.kind() {
+		"identifier" => params.get(node_slice(node, source)).cloned(),
+		"call" => {
+			let callee = node.child_by_field_name("function")?;
+			if callee.kind() == "identifier" {
+				lookup_type_target(type_table, scope, node_slice(callee, source))
+			} else {
+				None
+			}
+		}
+		"await" => {
+			let mut cursor = node.walk();
+			node.named_children(&mut cursor).find_map(|child| {
+				static_assignment_value_type(child, source, scope, params, type_table)
+			})
+		}
+		_ => None,
+	}
+}
+
+fn static_infer_type_target(
+	node: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	type_table: &TypeTable,
+) -> Option<Moniker> {
+	match node.kind() {
+		"identifier" => {
+			let name = node_slice(node, source);
+			if should_skip_type_name(name) || is_typing_container(name) {
+				return None;
+			}
+			lookup_type_target(type_table, scope, name)
+		}
+		"attribute" => {
+			let name = last_attribute(node, source).as_bytes();
+			if should_skip_type_name(name) || is_typing_container(name) {
+				return None;
+			}
+			lookup_type_target(type_table, scope, name)
+		}
+		"type"
+		| "subscript"
+		| "generic_type"
+		| "type_parameter"
+		| "member_type"
+		| "constrained_type"
+		| "splat_type"
+		| "tuple"
+		| "list"
+		| "union_type"
+		| "binary_operator"
+		| "expression_list"
+		| "parenthesized_expression" => {
+			let mut cursor = node.walk();
+			node.named_children(&mut cursor)
+				.find_map(|child| static_infer_type_target(child, source, scope, type_table))
+		}
+		_ => None,
+	}
+}
+
+fn lookup_type_target(type_table: &TypeTable, scope: &Moniker, name: &[u8]) -> Option<Moniker> {
+	type_table
+		.get(name)?
+		.iter()
+		.filter(|candidate| type_candidate_visible(candidate, scope))
+		.max_by_key(|candidate| type_candidate_depth(candidate))
+		.cloned()
+}
+
+fn type_candidate_visible(candidate: &Moniker, scope: &Moniker) -> bool {
+	candidate
+		.parent()
+		.is_some_and(|parent| parent.as_view().is_ancestor_of(&scope.as_view()))
+}
+
+fn type_candidate_depth(candidate: &Moniker) -> u16 {
+	candidate
+		.parent()
+		.map(|parent| parent.as_view().segment_count())
+		.unwrap_or_default()
+}
+
+fn record_type_candidate(out: &mut TypeTable, name: &[u8], moniker: Moniker) {
+	if name.is_empty() {
+		return;
+	}
+	out.entry(name.to_vec()).or_default().push(moniker);
+}
+
+fn decorated_definition_node(node: Node<'_>) -> Option<Node<'_>> {
+	let mut cursor = node.walk();
+	node.children(&mut cursor)
+		.find(|child| matches!(child.kind(), "class_definition" | "function_definition"))
+}
+
+fn function_scope_moniker(
+	function_node: Node<'_>,
+	source: &[u8],
+	parent: &Moniker,
+	is_class_scope: bool,
+) -> Option<Moniker> {
+	let name_node = function_node.child_by_field_name("name")?;
+	let name = node_slice(name_node, source);
+	let slots = collect_param_slots(function_node, source, is_class_scope);
+	let kind = if is_class_scope {
+		kinds::METHOD
+	} else if is_async_function(function_node) {
+		kinds::ASYNC_FUNCTION
+	} else {
+		kinds::FUNCTION
+	};
+	Some(extend_callable_slots(parent, kind, name, &slots))
+}
+
+fn self_attr_name(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
+	if node.kind() != "attribute" {
+		return None;
+	}
+	let obj = node.child_by_field_name("object")?;
+	if obj.kind() != "identifier" || !matches!(node_slice(obj, source), b"self" | b"cls") {
+		return None;
+	}
+	let attr = last_attribute(node, source).as_bytes().to_vec();
+	if attr.is_empty() { None } else { Some(attr) }
+}
+
+fn type_alias_name_node(alias_type: Node<'_>) -> Option<Node<'_>> {
+	match alias_type.kind() {
+		"identifier" => Some(alias_type),
+		"type" | "generic_type" | "member_type" => {
+			let mut cursor = alias_type.walk();
+			alias_type
+				.named_children(&mut cursor)
+				.find_map(type_alias_name_node)
+		}
+		_ => None,
+	}
+}
+
+fn assignment_alias_name_node(left: Node<'_>) -> Option<Node<'_>> {
+	match left.kind() {
+		"identifier" => Some(left),
+		"pattern" => {
+			let mut cursor = left.walk();
+			left.named_children(&mut cursor)
+				.find_map(assignment_alias_name_node)
+		}
+		_ => None,
+	}
+}
+
+fn type_annotation_has_name(node: Node<'_>, source: &[u8], expected: &[u8]) -> bool {
+	if node.kind() == "identifier" && node_slice(node, source) == expected {
+		return true;
+	}
+	if node.kind() == "attribute" && last_attribute(node, source).as_bytes() == expected {
+		return true;
+	}
+	let mut cursor = node.walk();
+	node.named_children(&mut cursor)
+		.any(|child| type_annotation_has_name(child, source, expected))
 }
 
 fn parameter_name_and_type<'tree>(
@@ -1223,6 +1981,51 @@ fn external_or_imported(pieces: &[&str]) -> &'static [u8] {
 	kinds::CONF_IMPORTED
 }
 
+fn should_skip_type_name(name: &[u8]) -> bool {
+	name.is_empty() || BUILTIN_TYPE_NAMES.binary_search(&name).is_ok()
+}
+
+fn is_typing_container(name: &[u8]) -> bool {
+	TYPING_CONTAINER_NAMES.binary_search(&name).is_ok()
+}
+
+const BUILTIN_TYPE_NAMES: &[&[u8]] = &[
+	b"None",
+	b"TypeAlias",
+	b"bool",
+	b"bytes",
+	b"complex",
+	b"dict",
+	b"float",
+	b"frozenset",
+	b"int",
+	b"list",
+	b"object",
+	b"set",
+	b"str",
+	b"tuple",
+];
+
+const TYPING_CONTAINER_NAMES: &[&[u8]] = &[
+	b"Annotated",
+	b"AsyncIterator",
+	b"Awaitable",
+	b"Callable",
+	b"ClassVar",
+	b"Final",
+	b"FrozenSet",
+	b"Iterable",
+	b"Iterator",
+	b"Literal",
+	b"Mapping",
+	b"MutableMapping",
+	b"Optional",
+	b"Protocol",
+	b"Sequence",
+	b"TypeAlias",
+	b"Union",
+];
+
 const STDLIB_PACKAGES: &[&str] = &[
 	"abc",
 	"argparse",
@@ -1314,7 +2117,7 @@ fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
 	let Some(last) = scope.as_view().segments().last() else {
 		return false;
 	};
-	last.kind == kinds::FUNCTION || last.kind == kinds::METHOD
+	last.kind == kinds::FUNCTION || last.kind == kinds::ASYNC_FUNCTION || last.kind == kinds::METHOD
 }
 
 fn is_class_scope(scope: &Moniker) -> bool {

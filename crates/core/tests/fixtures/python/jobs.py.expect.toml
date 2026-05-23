@@ -62,5 +62,21 @@ from = "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once(
 to = "code+moniker://app/external_pkg:asyncio/function:sleep"
 confidence = "external"
 
+[[refs]]
+label = "Worker.run_once.calls.JobStore.reserve"
+kind = "method_call"
+from = "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()"
+to = "code+moniker://app/lang:python/module:jobs/class:JobStore/method:reserve()"
+confidence = "resolved"
+receiver_hint = "member"
+
+[[refs]]
+label = "Worker.run_once.calls.JobStore.complete"
+kind = "method_call"
+from = "code+moniker://app/lang:python/module:jobs/class:Worker/method:run_once()"
+to = "code+moniker://app/lang:python/module:jobs/class:JobStore/method:complete(job_id:str)"
+confidence = "resolved"
+receiver_hint = "member"
+
 [[absent.defs]]
 kind = "local"

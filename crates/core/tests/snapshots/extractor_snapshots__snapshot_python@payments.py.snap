@@ -1,0 +1,896 @@
+---
+source: crates/core/tests/extractor_snapshots.rs
+expression: body
+input_file: crates/core/tests/fixtures/python/payments.py
+---
+{
+  "defs": [
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/comment:298",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        298,
+        316
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:python/module:payments/type:Metadata",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        317,
+        353
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/comment:355",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        355,
+        379
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:python/module:payments/type:WebhookPayload",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        380,
+        425
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/comment:428",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        428,
+        451
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentStatus",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        452,
+        531
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/comment:534",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        534,
+        556
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentEvent",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        557,
+        651
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        695,
+        820
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/comment:823",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        823,
+        847
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentGateway",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        848,
+        1014
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentGateway/method:authorize(payment:Payment)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentGateway",
+      "position": [
+        884,
+        948
+      ],
+      "signature": "payment:Payment",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentGateway/method:capture(payment_id:str)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentGateway",
+      "position": [
+        953,
+        1014
+      ],
+      "signature": "payment_id:str",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/comment:1017",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        1017,
+        1036
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "type",
+      "moniker": "code+moniker://app/lang:python/module:payments/type:AuditSink",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        1037,
+        1101
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "class",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentService",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        1104,
+        2263
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:__init__(gateway:PaymentGateway,audit:AuditSink)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentService",
+      "position": [
+        1130,
+        1260
+      ],
+      "signature": "gateway:PaymentGateway,audit:AuditSink",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentService/comment:1266",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentService",
+      "position": [
+        1266,
+        1306
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentService",
+      "position": [
+        1311,
+        1946
+      ],
+      "signature": "order_id:str,amount:Decimal,tags:Sequence[str]",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])/comment:1699",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "position": [
+        1699,
+        1770
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])/comment:1834",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "position": [
+        1834,
+        1890
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentService/comment:1952",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentService",
+      "position": [
+        1952,
+        1984
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:capture(payment:Payment)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentService",
+      "position": [
+        1989,
+        2263
+      ],
+      "signature": "payment:Payment",
+      "visibility": "public"
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:capture(payment:Payment)/comment:2147",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:capture(payment:Payment)",
+      "position": [
+        2147,
+        2208
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:python/module:payments/comment:0",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments",
+      "position": [
+        0,
+        47
+      ],
+      "signature": "",
+      "visibility": ""
+    }
+  ],
+  "refs": [
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "reads",
+      "position": [
+        72,
+        83
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/function:annotations"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        85,
+        151
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Awaitable"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        85,
+        151
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Callable"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        85,
+        151
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Mapping"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        85,
+        151
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Sequence"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        152,
+        192
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        152,
+        192
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:field"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        193,
+        220
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:decimal/function:Decimal"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        221,
+        245
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:enum/function:StrEnum"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        246,
+        295
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        246,
+        295
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:TypeAlias"
+    },
+    {
+      "alias": "",
+      "binding": "import",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments",
+      "kind": "imports_symbol",
+      "position": [
+        246,
+        295
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:TypedDict"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/type:Metadata",
+      "kind": "uses_type",
+      "position": [
+        333,
+        340
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Mapping"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentStatus",
+      "kind": "extends",
+      "position": [
+        472,
+        479
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:enum/function:StrEnum"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentEvent",
+      "kind": "extends",
+      "position": [
+        576,
+        585
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:TypedDict"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentEvent",
+      "kind": "uses_type",
+      "position": [
+        643,
+        651
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/type:Metadata"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "kind": "annotates",
+      "position": [
+        655,
+        664
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "kind": "uses_type",
+      "position": [
+        734,
+        741
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:decimal/function:Decimal"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "kind": "uses_type",
+      "position": [
+        754,
+        767
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentStatus"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "kind": "uses_type",
+      "position": [
+        782,
+        790
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/type:Metadata"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "kind": "calls",
+      "position": [
+        793,
+        820
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:field"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "kind": "reads",
+      "position": [
+        815,
+        819
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/function:dict"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentGateway",
+      "kind": "extends",
+      "position": [
+        869,
+        877
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:typing/function:Protocol"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentGateway/method:authorize(payment:Payment)",
+      "kind": "uses_type",
+      "position": [
+        931,
+        943
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentEvent"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentGateway/method:authorize(payment:Payment)",
+      "kind": "uses_type",
+      "position": [
+        919,
+        926
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:Payment"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentGateway/method:capture(payment_id:str)",
+      "kind": "uses_type",
+      "position": [
+        997,
+        1009
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentEvent"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/type:AuditSink",
+      "kind": "uses_type",
+      "position": [
+        1060,
+        1068
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Callable"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/type:AuditSink",
+      "kind": "uses_type",
+      "position": [
+        1070,
+        1082
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentEvent"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/type:AuditSink",
+      "kind": "uses_type",
+      "position": [
+        1085,
+        1094
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Awaitable"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:__init__(gateway:PaymentGateway,audit:AuditSink)",
+      "kind": "uses_type",
+      "position": [
+        1158,
+        1172
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentGateway"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:__init__(gateway:PaymentGateway,audit:AuditSink)",
+      "kind": "uses_type",
+      "position": [
+        1181,
+        1190
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/type:AuditSink"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "kind": "uses_type",
+      "position": [
+        1438,
+        1445
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:Payment"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "kind": "uses_type",
+      "position": [
+        1391,
+        1398
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:decimal/function:Decimal"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "kind": "uses_type",
+      "position": [
+        1414,
+        1422
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:collections/path:abc/function:Sequence"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "kind": "instantiates",
+      "position": [
+        1535,
+        1690
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:Payment"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "kind": "reads",
+      "position": [
+        1615,
+        1628
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentStatus"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "name_match",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "kind": "calls",
+      "position": [
+        1668,
+        1678
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/function:list"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "kind": "method_call",
+      "position": [
+        1793,
+        1825
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentGateway/method:authorize(payment:Payment)"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
+      "kind": "calls",
+      "position": [
+        1905,
+        1923
+      ],
+      "receiver_hint": "self",
+      "to": "code+moniker://app/lang:python/module:payments/type:AuditSink"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:capture(payment:Payment)",
+      "kind": "uses_type",
+      "position": [
+        2034,
+        2046
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentEvent"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:capture(payment:Payment)",
+      "kind": "uses_type",
+      "position": [
+        2022,
+        2029
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:Payment"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:capture(payment:Payment)",
+      "kind": "reads",
+      "position": [
+        2077,
+        2090
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentStatus"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:capture(payment:Payment)",
+      "kind": "method_call",
+      "position": [
+        2230,
+        2263
+      ],
+      "receiver_hint": "member",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentGateway/method:capture(payment_id:str)"
+    }
+  ],
+  "root": "code+moniker://app/lang:python/module:payments"
+}
