@@ -262,6 +262,8 @@ Each rule belongs to one scope:
 | TOML path | Evaluated against |
 | --------- | ----------------- |
 | `[[<lang>.<kind>.where]]` | defs of one language and kind |
+| `[[<lang>.shape.<shape>.where]]` | defs of one language and canonical shape |
+| `[[shape.<shape>.where]]` | defs of one canonical shape in any language |
 | `[[default.<kind>.where]]` | defs of one kind in any language, unless that language has its own kind block |
 | `[[refs.where]]` | every ref in every supported language |
 | `[[<lang>.refs.where]]` | refs emitted by one language |
@@ -313,10 +315,12 @@ Quantifiers:
 count(method) <= 20
 all(method, lines <= 60)
 any(out_refs, kind = 'implements' AND target.name =~ Port$)
+count(shape:callable) <= 20
 none(field, visibility = 'public')
 ```
 
 Domains are direct child defs (`method`, `field`, `class`, etc.),
+direct child defs by shape (`shape:callable`, `shape:value`, etc.),
 `segment`, `out_refs`, and `in_refs`.
 
 Full grammar: [Rule DSL](check-dsl.md).
@@ -551,6 +555,8 @@ path:
 | --------- | ------- |
 | `[[refs.where]] id = "domain-no-infra"` | `refs.domain-no-infra` |
 | `[[ts.class.where]] id = "class-budget"` | `ts.class.class-budget` |
+| `[[shape.callable.where]] id = "max-lines"` | `shape.callable.max-lines` |
+| `[[rust.shape.callable.where]] id = "max-lines"` | `rust.shape.callable.max-lines` |
 | `[[default.module.where]] id = "max-lines"` | `default.module.max-lines` |
 | `[[java.refs.where]] id = "no-spring"` | `java.refs.no-spring` |
 
@@ -638,7 +644,14 @@ Def-scoped rules support message templates:
 | `{expected}` | right-hand literal |
 | `{pattern}` `{lines}` `{limit}` `{count}` | aliases for `{expected}` or `{value}` |
 
-Ref-scoped `message` values are emitted as literal explanatory text.
+Ref-scoped rules also render templates:
+
+| Token | Value |
+| ----- | ----- |
+| `{kind}` | ref kind |
+| `{source.name}` `{source.kind}` `{source.shape}` `{source.moniker}` | source def fields |
+| `{target.name}` `{target.kind}` `{target.shape}` `{target.moniker}` | target moniker fields |
+| `{atom}` `{actual}` `{expected}` | failing atom and values |
 
 ## Output
 

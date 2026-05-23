@@ -5,6 +5,7 @@ use regex::Regex;
 use serde::Deserialize;
 use thiserror::Error;
 
+use code_moniker_core::core::shape::Shape;
 use code_moniker_core::lang::Lang;
 
 const DEFAULT_PRESET: &str = include_str!("presets/default.toml");
@@ -24,6 +25,8 @@ pub struct Config {
 	pub aliases: HashMap<String, String>,
 	#[serde(default)]
 	pub refs: RefsRules,
+	#[serde(default)]
+	pub shape: HashMap<String, KindRules>,
 	#[serde(default)]
 	pub default: LangRules,
 	#[serde(default)]
@@ -62,6 +65,8 @@ pub struct RefsRules {
 
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct LangRules {
+	#[serde(default)]
+	pub shape: HashMap<String, KindRules>,
 	#[serde(flatten)]
 	pub kinds: HashMap<String, KindRules>,
 }
@@ -106,6 +111,16 @@ pub enum ConfigError {
 		kind: String,
 		allowed: String,
 	},
+	#[error("unknown shape `{shape}` under `[{section}]` (allowed: {allowed})")]
+	UnknownShape {
+		section: String,
+		shape: String,
+		allowed: String,
+	},
+	#[error(
+		"shape rules under `[default.shape]` are not supported; use top-level `[shape]` for cross-language shape rules"
+	)]
+	DefaultShapeUnsupported,
 	#[error(
 		"require_doc_comment = `{value}` under `[{section}.{kind}]` is not a recognised visibility for that language (allowed: {allowed})"
 	)]
@@ -214,6 +229,7 @@ fn merge_into(base: &mut Config, ov: Config) {
 		base.profiles.insert(k, v);
 	}
 	merge_refs(&mut base.refs, ov.refs);
+	merge_shape_map(&mut base.shape, ov.shape);
 	merge_lang(&mut base.default, ov.default);
 	merge_lang(&mut base.ts, ov.ts);
 	merge_lang(&mut base.rust, ov.rust);
@@ -238,11 +254,23 @@ fn merge_refs(base: &mut RefsRules, ov: RefsRules) {
 }
 
 fn merge_lang(base: &mut LangRules, ov: LangRules) {
+	merge_shape_map(&mut base.shape, ov.shape);
 	for (kind, ov_rules) in ov.kinds {
 		match base.kinds.get_mut(&kind) {
 			Some(base_rules) => merge_kind(base_rules, ov_rules),
 			None => {
 				base.kinds.insert(kind, ov_rules);
+			}
+		}
+	}
+}
+
+fn merge_shape_map(base: &mut HashMap<String, KindRules>, ov: HashMap<String, KindRules>) {
+	for (shape, ov_rules) in ov {
+		match base.get_mut(&shape) {
+			Some(base_rules) => merge_kind(base_rules, ov_rules),
+			None => {
+				base.insert(shape, ov_rules);
 			}
 		}
 	}
@@ -383,6 +411,10 @@ pub(crate) fn substitute_aliases(
 /// Aliases are resolved first so cycles surface before any kind / visibility check.
 fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 	resolve_aliases(&cfg.aliases)?;
+	validate_shape_section(&cfg.shape, "shape", None)?;
+	if !cfg.default.shape.is_empty() {
+		return Err(ConfigError::DefaultShapeUnsupported);
+	}
 	validate_lang_section(
 		&cfg.default,
 		"default",
@@ -403,6 +435,34 @@ fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 	Ok(())
 }
 
+fn validate_shape_section(
+	rules: &HashMap<String, KindRules>,
+	section: &str,
+	lang: Option<Lang>,
+) -> Result<(), ConfigError> {
+	for (shape, kr) in rules {
+		if !allowed_def_shape_names().contains(&shape.as_str()) {
+			return Err(ConfigError::UnknownShape {
+				section: section.to_string(),
+				shape: shape.clone(),
+				allowed: allowed_def_shape_names().join(", "),
+			});
+		}
+		if let Some(value) = &kr.require_doc_comment {
+			let allowed_vis = lang.map_or_else(allowed_doc_vis_any_lang, allowed_doc_vis_for);
+			if !allowed_vis.contains(&value.as_str()) {
+				return Err(ConfigError::UnknownDocVisibility {
+					section: section.to_string(),
+					kind: shape.clone(),
+					value: value.clone(),
+					allowed: allowed_vis.join(", "),
+				});
+			}
+		}
+	}
+	Ok(())
+}
+
 fn allowed_kinds_set(lang: Option<Lang>) -> Vec<&'static str> {
 	let mut out: Vec<&'static str> = INTERNAL_KINDS.to_vec();
 	if let Some(l) = lang {
@@ -417,6 +477,15 @@ fn allowed_kinds_set(lang: Option<Lang>) -> Vec<&'static str> {
 	out
 }
 
+fn allowed_def_shape_names() -> Vec<&'static str> {
+	Shape::ALL
+		.iter()
+		.copied()
+		.filter(|shape| *shape != Shape::Ref)
+		.map(Shape::as_str)
+		.collect()
+}
+
 /// Kinds legitimately usable in DSL `count(<kind>)` for `lang` — `lang`'s
 /// extractor vocabulary plus internal kinds (`module`, `local`, `param`,
 /// `comment`).
@@ -429,6 +498,16 @@ pub(crate) fn allowed_kinds_for(lang: Lang) -> Vec<&'static str> {
 fn allowed_doc_vis_for(lang: Lang) -> Vec<&'static str> {
 	let mut out: Vec<&'static str> = vec!["any"];
 	out.extend(lang.allowed_visibilities().iter().copied());
+	out
+}
+
+fn allowed_doc_vis_any_lang() -> Vec<&'static str> {
+	let mut out: Vec<&'static str> = vec!["any"];
+	for lang in Lang::ALL {
+		out.extend(lang.allowed_visibilities().iter().copied());
+	}
+	out.sort();
+	out.dedup();
 	out
 }
 
@@ -448,6 +527,7 @@ fn validate_lang_section(
 	lang: Option<Lang>,
 	_path: &str,
 ) -> Result<(), ConfigError> {
+	validate_shape_section(&lr.shape, &format!("{section}.shape"), lang)?;
 	for (kind, kr) in lr.kinds.iter() {
 		if RESERVED_LANG_KEYS.contains(&kind.as_str()) {
 			continue;
@@ -518,6 +598,7 @@ impl Config {
 		let enable = compile_patterns(&profile.enable, name, "enable")?;
 		let disable = compile_patterns(&profile.disable, name, "disable")?;
 		filter_rules(&mut self.refs.rules, "refs", &enable, &disable);
+		filter_shape_map(&mut self.shape, "shape", &enable, &disable);
 		filter_lang(&mut self.default, "default", &enable, &disable);
 		for lang in Lang::ALL {
 			filter_lang(
@@ -562,8 +643,21 @@ fn compile_patterns(
 }
 
 fn filter_lang(lr: &mut LangRules, section: &str, enable: &[Regex], disable: &[Regex]) {
+	filter_shape_map(&mut lr.shape, &format!("{section}.shape"), enable, disable);
 	for (kind, kr) in lr.kinds.iter_mut() {
 		let prefix = format!("{section}.{kind}");
+		filter_rules(&mut kr.rules, &prefix, enable, disable);
+	}
+}
+
+fn filter_shape_map(
+	rules: &mut HashMap<String, KindRules>,
+	section: &str,
+	enable: &[Regex],
+	disable: &[Regex],
+) {
+	for (shape, kr) in rules.iter_mut() {
+		let prefix = format!("{section}.{shape}");
 		filter_rules(&mut kr.rules, &prefix, enable, disable);
 	}
 }
@@ -626,6 +720,51 @@ mod tests {
 			.expect("falls back to default.module");
 		assert_eq!(r.rules.len(), 1);
 		assert_eq!(r.rules[0].id.as_deref(), Some("stub"));
+	}
+
+	#[test]
+	fn parses_top_level_and_lang_shape_scopes() {
+		let cfg = parse(
+			r#"
+			[[shape.callable.where]]
+			id   = "max-lines"
+			expr = "lines <= 60"
+
+			[[rust.shape.callable.where]]
+			id   = "max-lines"
+			expr = "lines <= 120"
+			"#,
+		)
+		.unwrap();
+		assert_eq!(cfg.shape["callable"].rules.len(), 1);
+		assert_eq!(cfg.rust.shape["callable"].rules.len(), 1);
+	}
+
+	#[test]
+	fn unknown_shape_scope_is_rejected() {
+		let r = parse(
+			r#"
+			[[shape.ref.where]]
+			id   = "nope"
+			expr = "lines <= 1"
+			"#,
+		);
+		match r {
+			Err(ConfigError::UnknownShape { shape, .. }) => assert_eq!(shape, "ref"),
+			other => panic!("expected UnknownShape, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn default_shape_scope_is_rejected() {
+		let r = parse(
+			r#"
+			[[default.shape.callable.where]]
+			id   = "nope"
+			expr = "lines <= 1"
+			"#,
+		);
+		assert!(matches!(r, Err(ConfigError::DefaultShapeUnsupported)));
 	}
 
 	#[test]
@@ -995,6 +1134,33 @@ mod tests {
 		let r = cfg.ts.kinds.get("refs").unwrap();
 		assert_eq!(r.rules.len(), 1);
 		assert_eq!(r.rules[0].id.as_deref(), Some("stay"));
+	}
+
+	#[test]
+	fn profile_filters_shape_scopes() {
+		let mut cfg = parse(
+			r#"
+			[[shape.callable.where]]
+			id   = "stay"
+			expr = "lines <= 99"
+
+			[[shape.callable.where]]
+			id   = "go"
+			expr = "lines <= 99"
+
+			[[ts.shape.type.where]]
+			id   = "go"
+			expr = "lines <= 99"
+
+			[profiles.p]
+			disable = ["^shape\\.callable\\.go$", "^ts\\.shape\\.type\\.go$"]
+			"#,
+		)
+		.unwrap();
+		cfg.apply_profile("p").unwrap();
+		assert_eq!(cfg.shape["callable"].rules.len(), 1);
+		assert_eq!(cfg.shape["callable"].rules[0].id.as_deref(), Some("stay"));
+		assert!(cfg.ts.shape["type"].rules.is_empty());
 	}
 
 	#[test]

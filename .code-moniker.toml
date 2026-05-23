@@ -27,6 +27,20 @@ ui_contracts      = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contrac
 ui_screen_contract     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/module:screen'"
 ui_msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:action' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:runtime'"
 ui_app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:effect'"
+check_expr       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:expr' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:expr/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/**'"
+check_expr_atom   = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:atom' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:atom/**'"
+check_expr_domain = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:domain' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:domain/**'"
+check_expr_number = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:number' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:number/**'"
+check_expr_parse  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:parse' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:parse/**'"
+check_expr_value  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value/**'"
+check_expr_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection/**'"
+check_expr_pairs  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs/**'"
+check_eval       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/**'"
+check_eval_local = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local/**'"
+check_eval_value = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value/**'"
+check_eval_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection/**'"
+check_eval_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics/**'"
+check_config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config'"
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
@@ -174,19 +188,170 @@ expr    = """
 """
 message = "`core` is the foundation submodule; it must not depend on `lang`, `declare`, or the standalone crates."
 
+# ─── Check DSL architecture ──────────────────────────────────────────
+# Parser code owns syntax and expression shape. Evaluation owns local
+# CodeGraph semantics. Config owns TOML/profile/alias loading.
+
+[[refs.where]]
+id      = "check-expr-parser-only"
+expr    = """
+  $check_expr AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/module:config/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::expr` owns DSL syntax only; evaluation, config loading, and workspace/project indexes stay outside the parser."
+
+[[refs.where]]
+id      = "check-eval-local-graph-only"
+expr    = """
+  $check_eval AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:LinkageIndex')
+"""
+message = "`check::eval` evaluates local `CodeGraph` facts only; project-wide indexes and linkage stay out of the local DSL evaluator."
+
+[[refs.where]]
+id      = "check-config-no-runtime-eval"
+expr    = """
+  $check_config AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::config` owns TOML/profile/alias loading; it must not evaluate rules or reach workspace indexes."
+
+[[refs.where]]
+id      = "check-expr-parse-no-number-rhs-direct"
+expr    = """
+  $check_expr_parse AND kind = 'imports_symbol'
+  => NOT target ~ '**/dir:check/dir:expr/module:number/path:parse_number_rhs'
+"""
+message = "`check::expr::parse` still imports `number::parse_number_rhs`; numeric RHS parsing leaks through the boolean parser boundary."
+
+[[refs.where]]
+id      = "check-expr-number-no-filter-parser-callback"
+expr    = """
+  $check_expr_number AND kind = 'method_call'
+  => NOT target ~ '**/method:parse_domain_filter_body'
+"""
+message = "`check::expr::number` still parses `count(...)` filters through the domain/filter parser callback; numeric parsing remains coupled to boolean expression parsing."
+
+[[refs.where]]
+id      = "check-expr-specialized-atoms-tail-helper"
+expr    = """
+  $check_expr_parse
+  AND kind = 'method_call'
+  AND moniker ~ '**/method:/^try_parse_(segment|number|mode)_atom\\(\\)$/'
+  => NOT (target ~ '**/method:eat_op'
+       OR target ~ '**/method:find_atom_end')
+"""
+message = "`check::expr::parse` still repeats comparison-tail parsing in specialized atom parsers; move op/RHS/raw handling behind one helper."
+
+[[refs.where]]
+id      = "check-expr-scanners-owned-by-cursor"
+expr    = """
+  ($check_expr_atom OR $check_expr_domain OR $check_expr_number)
+  AND kind = 'method_call'
+  => NOT (target ~ '**/method:as_bytes'
+       OR target ~ '**/method:is_ascii_digit'
+       OR target ~ '**/method:is_ascii_alphabetic'
+       OR target ~ '**/method:is_ascii_alphanumeric')
+"""
+message = "`check::expr` still has local byte/token scanners outside `cursor`; lexical scanning should have a single owner."
+
+# Couche 1 — agrégateurs locaux sur domaine.
+# `number` owns numeric syntax, `value` owns domain value expressions used by
+# `mode` / `entropy`, and `eval::local` owns the local CodeGraph analytics.
+
+[[refs.where]]
+id      = "check-dsl-layer1-mode-body-owned-by-value-parser"
+expr    = """
+  $check_expr_parse
+  AND kind = 'method_call'
+  AND moniker ~ '**/method:/^try_parse_mode_atom\\(\\)$/'
+  => NOT target ~ '**/method:parse_domain_value_call_body'
+"""
+message = "`mode(...)` parsing should delegate domain/value body parsing to `check::expr::value`; `parse` only owns boolean precedence and comparison tails."
+
+[[refs.where]]
+id      = "check-dsl-layer1-number-parser-stays-numeric"
+expr    = """
+  $check_expr_number AND kind = 'method_call'
+  => NOT target ~ '**/method:parse_mode_lhs'
+"""
+message = "`check::expr::number` must stay numeric; value-returning aggregators such as `mode` belong to `check::expr::value`."
+
+[[refs.where]]
+id      = "check-dsl-layer1-eval-value-is-graph-free"
+expr    = """
+  $check_eval_value AND kind = 'imports_symbol'
+  => NOT (target ~ '**/path:CodeGraph'
+       OR target ~ '**/path:DefRecord'
+       OR target ~ '**/path:RefRecord'
+       OR target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**')
+"""
+message = "`check::eval::value` is the typed comparison/rendering layer; local graph traversal belongs to `check::eval::local`."
+
+# Couche 2 — multisets et opérations ensemblistes.
+# These rules are intentionally dormant until `collection` modules exist.
+
+[[refs.where]]
+id      = "check-dsl-layer2-expr-collection-parser-isolated"
+expr    = """
+  $check_expr_collection AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/module:config/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::expr::collection` must remain syntax/AST only; multiset evaluation belongs outside the parser."
+
+[[refs.where]]
+id      = "check-dsl-layer2-eval-collection-local-only"
+expr    = """
+  $check_eval_collection AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:LinkageIndex')
+"""
+message = "`check::eval::collection` must evaluate local multisets only; project-wide linkage stays outside local analysis."
+
+# Couche 3 — itération sur paires.
+
+[[refs.where]]
+id      = "check-dsl-layer3-pairs-parser-isolated"
+expr    = """
+  $check_expr_pairs AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/module:config/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::expr::pairs` must only parse pair domains/bindings; evaluation and graph traversal stay outside the parser."
+
+# Couche 4 — métriques nommées locales.
+
+[[refs.where]]
+id      = "check-dsl-layer4-metrics-local-only"
+expr    = """
+  $check_eval_metrics AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:LinkageIndex')
+"""
+message = "`check::eval::metrics` must compute named metrics from the local `CodeGraph`; cross-file/project indexes remain out of scope."
+
 # ─── Naming hygiene per layer ────────────────────────────────────────
 # These extend / refine the embedded preset that already enforces
 # PascalCase / snake_case on the obvious cases.
 
-[[rust.fn.where]]
+[[rust.shape.callable.where]]
 id      = "max-lines"
 expr    = "lines <= 120"
-message = "Function `{name}` is {value} lines (project cap = {expected}). Split it before its host file approaches the 600-line cap."
-
-[[rust.method.where]]
-id      = "max-lines"
-expr    = "lines <= 120"
-message = "Method `{name}` is {value} lines (project cap = {expected})."
+message = "{kind} `{name}` is {value} lines (project cap = {expected}). Split it before its host file approaches the 600-line cap."
 
 [[rust.fn.where]]
 id      = "no-placeholder-names"

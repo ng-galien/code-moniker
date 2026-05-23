@@ -1,0 +1,445 @@
+use super::ast::*;
+use super::cursor::Parser;
+use super::error::ParseError;
+
+impl<'a> Parser<'a> {
+	pub(super) fn next_starts_number_call(&self) -> bool {
+		let rest = &self.input[self.pos..];
+		[
+			"count(",
+			"sum(",
+			"max(",
+			"min(",
+			"avg(",
+			"median(",
+			"percentile(",
+			"stddev(",
+			"var(",
+			"cv(",
+			"gini(",
+			"fan_in(",
+			"fan_out(",
+			"entropy(",
+		]
+		.iter()
+		.any(|prefix| rest.starts_with(prefix))
+	}
+
+	pub(super) fn parse_number_expr(&mut self) -> Result<NumberExpr, ParseError> {
+		self.skip_ws();
+		if let Some(expr) = self.try_parse_count_expr()? {
+			return Ok(expr);
+		}
+		if let Some(expr) = self.try_parse_aggregate_expr()? {
+			return Ok(expr);
+		}
+		if self.input[self.pos..].starts_with("fan_in(") {
+			self.pos += "fan_in".len();
+			return Ok(NumberExpr::FanIn(self.parse_binding_call_body()?));
+		}
+		if self.input[self.pos..].starts_with("fan_out(") {
+			self.pos += "fan_out".len();
+			return Ok(NumberExpr::FanOut(self.parse_binding_call_body()?));
+		}
+		if self.input[self.pos..].starts_with("entropy(") {
+			self.pos += "entropy".len();
+			return Ok(NumberExpr::Entropy(self.parse_domain_value_call_body()?));
+		}
+
+		let raw = self.take_number_literal();
+		if !raw.is_empty() {
+			let n = raw.parse::<f64>().map_err(|e| ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected number, got `{raw}`: {e}"),
+			})?;
+			return Ok(NumberExpr::Literal(n));
+		}
+
+		let raw = self.take_projection_token();
+		let Some(lhs) = Lhs::from_projection_name(raw) else {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected number expression, got `{raw}`"),
+			});
+		};
+		if !lhs.is_number_projection() {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("projection `{raw}` is not numeric"),
+			});
+		}
+		Ok(NumberExpr::Projection(lhs))
+	}
+
+	fn try_parse_aggregate_expr(&mut self) -> Result<Option<NumberExpr>, ParseError> {
+		let Some((name, kind)) = self.aggregate_prefix() else {
+			return Ok(None);
+		};
+		self.pos += name.len();
+		if self.peek_byte() != Some(b'(') {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected `(` after `{name}`"),
+			});
+		}
+		self.pos += 1;
+		self.skip_ws();
+		let domain = self.parse_domain_ident()?;
+		self.skip_ws();
+		if self.peek_byte() != Some(b',') {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("`{name}` requires `<domain>, <expr>`"),
+			});
+		}
+		self.pos += 1;
+		let expr = self.parse_number_expr()?;
+		self.skip_ws();
+		let percentile = if kind == AggregateKind::Percentile {
+			if self.peek_byte() != Some(b',') {
+				return Err(ParseError::BadExpr {
+					expr: self.raw.to_string(),
+					msg: "percentile requires a third numeric argument".to_string(),
+				});
+			}
+			self.pos += 1;
+			self.skip_ws();
+			Some(self.parse_number_literal()?)
+		} else {
+			None
+		};
+		self.skip_ws();
+		if self.peek_byte() != Some(b')') {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("missing `)` for `{name}` at byte {}", self.pos),
+			});
+		}
+		self.pos += 1;
+		Ok(Some(NumberExpr::Aggregate {
+			kind,
+			domain,
+			expr: Box::new(expr),
+			percentile,
+		}))
+	}
+
+	fn aggregate_prefix(&self) -> Option<(&'static str, AggregateKind)> {
+		let rest = &self.input[self.pos..];
+		[
+			("percentile", AggregateKind::Percentile),
+			("median", AggregateKind::Median),
+			("stddev", AggregateKind::Stddev),
+			("sum", AggregateKind::Sum),
+			("max", AggregateKind::Max),
+			("min", AggregateKind::Min),
+			("avg", AggregateKind::Avg),
+			("var", AggregateKind::Var),
+			("cv", AggregateKind::Cv),
+			("gini", AggregateKind::Gini),
+		]
+		.into_iter()
+		.find(|(name, _)| rest.starts_with(&format!("{name}(")))
+	}
+
+	fn parse_binding_call_body(&mut self) -> Result<Binding, ParseError> {
+		if self.peek_byte() != Some(b'(') {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected `(` at byte {}", self.pos),
+			});
+		}
+		self.pos += 1;
+		self.skip_ws();
+		let raw = self.take_alpha_token();
+		let binding = match raw {
+			"self" => Binding::Self_,
+			"each" => Binding::Each,
+			_ => {
+				return Err(ParseError::BadExpr {
+					expr: self.raw.to_string(),
+					msg: format!("unknown binding `{raw}` (allowed: self, each)"),
+				});
+			}
+		};
+		self.skip_ws();
+		if self.peek_byte() != Some(b')') {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("missing `)` at byte {}", self.pos),
+			});
+		}
+		self.pos += 1;
+		Ok(binding)
+	}
+
+	fn parse_number_literal(&mut self) -> Result<f64, ParseError> {
+		let start = self.pos;
+		let raw = self.take_number_literal();
+		if raw.is_empty() {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!("expected number at byte {}", start),
+			});
+		}
+		raw.parse::<f64>().map_err(|e| ParseError::BadExpr {
+			expr: self.raw.to_string(),
+			msg: format!("expected number, got `{raw}`: {e}"),
+		})
+	}
+}
+
+pub(super) fn parse_number_rhs(
+	s: &str,
+	scheme: &str,
+	allowed_kinds: &[&str],
+	full: &str,
+) -> Result<NumberExpr, ParseError> {
+	let mut p = Parser::new(s, scheme, allowed_kinds, full);
+	let expr = p.parse_number_expr()?;
+	p.skip_ws();
+	if p.pos < p.input.len() {
+		return Err(ParseError::BadExpr {
+			expr: full.to_string(),
+			msg: format!(
+				"trailing input in number expression `{}`",
+				&p.input[p.pos..]
+			),
+		});
+	}
+	Ok(expr)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::super::parse;
+	use super::super::test_support::{KINDS, TS, solo};
+	use super::super::*;
+
+	#[test]
+	fn parses_lines_le() {
+		let e = parse("lines <= 60", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Number(NumberExpr::Projection(Lhs::Lines)),
+				Op::Le,
+				Rhs::Number(NumberExpr::Literal(60.0)),
+			) => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_count() {
+		let e = parse("count(method) <= 20", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Number(NumberExpr::Count {
+					domain: Domain::Children(k),
+					filter: None,
+				}),
+				Op::Le,
+				Rhs::Number(NumberExpr::Literal(20.0)),
+			) if k == "method" => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_count_with_filter() {
+		let e = parse("count(method, name =~ ^get) <= 5", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op) {
+			(
+				LhsExpr::Number(NumberExpr::Count {
+					domain: Domain::Children(k),
+					filter: Some(_),
+				}),
+				Op::Le,
+			) if k == "method" => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_count_by_shape_domain() {
+		let e = parse("count(shape:callable, lines <= 20) <= 5", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op) {
+			(
+				LhsExpr::Number(NumberExpr::Count {
+					domain: Domain::ChildrenByShape(shape),
+					filter: Some(_),
+				}),
+				Op::Le,
+			) if shape == "callable" => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn rejects_unknown_shape_domain() {
+		let r = parse("count(shape:ref) <= 1", TS, KINDS);
+		match r {
+			Err(ParseError::BadExpr { msg, .. }) => {
+				assert!(msg.contains("unknown shape domain"), "{msg}");
+			}
+			other => panic!("expected BadExpr, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_numeric_projection_rhs_for_ordering() {
+		let e = parse("lines <= depth", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Number(NumberExpr::Projection(Lhs::Lines)),
+				Op::Le,
+				Rhs::Number(NumberExpr::Projection(Lhs::Depth)),
+			) => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_count_rhs_for_ordering() {
+		let e = parse("count(method) <= count(function)", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Number(NumberExpr::Count {
+					domain: Domain::Children(left),
+					filter: None,
+				}),
+				Op::Le,
+				Rhs::Number(NumberExpr::Count {
+					domain: Domain::Children(right),
+					filter: None,
+				}),
+			) if left == "method" && right == "function" => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_cv_over_domain_fan_out() {
+		let e = parse("cv(method, fan_out(each)) <= 0.6", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Number(NumberExpr::Aggregate {
+					kind: AggregateKind::Cv,
+					domain: Domain::Children(kind),
+					expr,
+					percentile: None,
+				}),
+				Op::Le,
+				Rhs::Number(NumberExpr::Literal(0.6)),
+			) if kind == "method" && matches!(**expr, NumberExpr::FanOut(Binding::Each)) => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_mode_projection_comparison() {
+		let e = parse("mode(out_refs.target.parent) = source.parent", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Mode(DomainValueExpr {
+					domain: Domain::OutRefs,
+					expr,
+				}),
+				Op::Eq,
+				Rhs::Projection(Lhs::SourceParentMoniker),
+			) if matches!(
+				expr.as_ref(),
+				ValueExpr::Projection(Lhs::TargetParentMoniker)
+			) => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_entropy_inside_average() {
+		let e = parse("avg(field, entropy(in_refs.source)) >= 0.5", TS, KINDS).unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Number(NumberExpr::Aggregate {
+					kind: AggregateKind::Avg,
+					domain: Domain::Children(kind),
+					expr,
+					..
+				}),
+				Op::Ge,
+				Rhs::Number(NumberExpr::Literal(0.5)),
+			) if kind == "field" => match expr.as_ref() {
+				NumberExpr::Entropy(DomainValueExpr {
+					domain: Domain::InRefs,
+					expr,
+				}) if matches!(expr.as_ref(), ValueExpr::Projection(Lhs::SourceMoniker)) => {}
+				other => panic!("unexpected aggregate expr: {other:?}"),
+			},
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_gini_over_count_with_ref_filter() {
+		let e = parse(
+			"gini(field, count(in_refs, source.parent = target.parent)) <= 0.7",
+			TS,
+			KINDS,
+		)
+		.unwrap();
+		let a = solo(&e);
+		match (&a.lhs, &a.op, &a.rhs) {
+			(
+				LhsExpr::Number(NumberExpr::Aggregate {
+					kind: AggregateKind::Gini,
+					domain: Domain::Children(kind),
+					expr,
+					..
+				}),
+				Op::Le,
+				Rhs::Number(NumberExpr::Literal(0.7)),
+			) if kind == "field"
+				&& matches!(
+					**expr,
+					NumberExpr::Count {
+						domain: Domain::InRefs,
+						filter: Some(_)
+					}
+				) => {}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn rejects_count_with_regex_op() {
+		let r = parse("count(method) =~ foo", TS, KINDS);
+		assert!(r.is_err());
+	}
+
+	#[test]
+	fn rejects_count_kind_typo() {
+		let r = parse("count(methdo) <= 20", TS, KINDS);
+		match r {
+			Err(ParseError::BadExpr { msg, .. }) => {
+				assert!(msg.contains("methdo"), "{msg}");
+				assert!(msg.contains("unknown domain"), "{msg}");
+			}
+			other => panic!("expected BadExpr, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn rejects_non_numeric_for_lines() {
+		let r = parse("lines <= forty", TS, KINDS);
+		assert!(r.is_err());
+	}
+}

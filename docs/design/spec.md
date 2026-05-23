@@ -413,7 +413,7 @@ schema restrict only `kind` and `visibility` enumerations:
 | `ts`     | class, interface, type, function, method, const, enum, constructor, field, enum_constant, namespace | public, private, protected, module      |
 | `rs`     | struct, enum, trait, impl, fn, method, const, static, type                                          | public, private, module                 |
 | `java`   | class, interface, enum, record, annotation_type, method, constructor, field, enum_constant          | public, protected, package, private     |
-| `python` | class, function, method, async_function                                                             | public, private, module                 |
+| `python` | class, type, function, method, async_function                                                       | public, private, module                 |
 | `go`     | type, struct, interface, func, method, var, const                                                   | public, module                          |
 | `cs`     | class, interface, struct, record, enum, delegate, method, constructor, field, property, event       | public, protected, package, private     |
 | `sql`    | function, procedure, view, table, schema                                                            | (visibility ignored)                    |

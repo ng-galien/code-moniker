@@ -144,7 +144,7 @@
         "symbols": {
           "items": {
             "properties": {
-              "kind":       { "enum": ["class", "function", "method", "async_function"] },
+              "kind":       { "enum": ["class", "type", "function", "method", "async_function"] },
               "visibility": { "enum": ["public", "private", "module"] }
             }
           }

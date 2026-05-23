@@ -8,11 +8,13 @@ evaluates to **false** on a given def or ref.
 
 ## Scopes
 
-A rule is anchored to one of four **scopes** by its TOML path:
+A rule is anchored to a **scope** by its TOML path:
 
 | TOML path                           | Scope             | Iterates over    |
 | ----------------------------------- | ----------------- | ---------------- |
 | `[[<lang>.<kind>.where]]`           | Def of that kind  | `graph.defs()` filtered by lang + kind |
+| `[[<lang>.shape.<shape>.where]]`    | Def of that shape | `graph.defs()` filtered by lang + canonical shape |
+| `[[shape.<shape>.where]]`           | Def of that shape, **any lang** | `graph.defs()` filtered by canonical shape |
 | `[[default.<kind>.where]]`          | Def of that kind, **any lang** | fallback when no `[<lang>.<kind>]` entry exists for the file's language |
 | `[[refs.where]]`                    | Ref (poly-lang)   | `graph.refs()`   |
 | `[[<lang>.refs.where]]`             | Ref (per lang)    | `graph.refs()` filtered by lang of source |
@@ -26,6 +28,10 @@ genuinely language-specific (e.g. `kind = 'reexports'` only exists in TS/JS).
 exists in several languages (`class`, `method`, `function`). It only
 applies to a file when the file's language has **no** `[<lang>.<kind>]`
 block for that kind — per-language rules win over the default.
+
+Shape scopes are additive. A `[[shape.callable.where]]` rule and a
+`[[rust.fn.where]]` rule can both evaluate on a Rust `fn`. If both define
+the same `id`, the kind-specific rule wins for that kind.
 
 ## Grammar
 
@@ -82,6 +88,7 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
 
 <domain> ::=
     <kind>
+  | shape:<shape>
   | segment
   | out_refs
   | in_refs
@@ -143,9 +150,10 @@ to override.
 
 `<domain>`
 : The collection inspected by `count`, `any`, `all`, or `none`.
-  `<kind>` means direct child defs of that kind. `segment` means moniker
-  segments. `out_refs` and `in_refs` mean refs whose source or target is
-  the current def.
+  `<kind>` means direct child defs of that kind. `shape:<shape>` means
+  direct child defs whose kind maps to the canonical shape. `segment`
+  means moniker segments. `out_refs` and `in_refs` mean refs whose source
+  or target is the current def.
 
 `<kind>`
 : A def kind accepted by the current language, such as `class`, `method`,
@@ -232,6 +240,7 @@ Domains:
 | Domain      | Iterates over (relative to the current def/ref) |
 | ----------- | ----------------------------------------------- |
 | `<KIND>`    | direct children defs of that kind               |
+| `shape:<S>` | direct children defs of shape `S`               |
 | `segment`   | segments of the moniker (top-down)              |
 | `out_refs`  | refs whose source is the current def            |
 | `in_refs`   | refs whose target is the current def            |
@@ -299,9 +308,10 @@ id   = "annotations-only-annotate"
 expr = "source.shape = 'annotation' => kind = 'annotates'"
 ```
 
-There is no top-level "all defs" scope. To cover several kinds or
-languages, add a rule for each relevant kind block, or use
-`[[default.<kind>.where]]` when a shared fallback rule is acceptable.
+There is no top-level "all defs" scope. To cover several related kinds, use
+a shape scope such as `[[shape.callable.where]]`; for one exact kind across
+languages, use `[[default.<kind>.where]]` when a shared fallback rule is
+acceptable.
 
 The mapping table lives in `crates/core/src/core/shape.rs` and is the same one
 exposed as the `shape` column of `graph_defs(code_graph)` in SQL — rules
@@ -362,8 +372,10 @@ explicitly, or define separate aliases per scope (`src_domain`,
 [[<lang>.<kind>.where]]                    # def-scoped, lang-specific
 id      = "..."
 expr    = "..."
-message = "..."                            # optional; templates are rendered for def rules
+message = "..."                            # optional; templates are rendered
 
+[[shape.<shape>.where]]                    # def-scoped, cross-language shape
+[[<lang>.shape.<shape>.where]]             # def-scoped, lang-specific shape
 [[refs.where]]                             # ref-scoped, poly-lang
 [[<lang>.refs.where]]                      # ref-scoped, lang-specific
 
@@ -376,6 +388,13 @@ by rule id (replace in place) or appends new rules. `require_doc_comment`
 overrides if set. Aliases from the user merge on top of embedded ones with
 the same replace-by-name rule. With `--default-rules off`, the user TOML is
 loaded as the complete config.
+
+`message` is rendered as the optional violation explanation. Def rules can
+use `{name}`, `{kind}`, `{moniker}`, `{expr}`, `{value}`, `{expected}` and
+the aliases `{pattern}`, `{lines}`, `{limit}`, `{count}`. Ref rules can use
+`{kind}`, `{source.name}`, `{source.kind}`, `{source.shape}`,
+`{source.moniker}`, `{target.name}`, `{target.kind}`, `{target.shape}`,
+`{target.moniker}`, `{atom}`, `{actual}`, and `{expected}`.
 
 ## Recipes and suppression directives
 
