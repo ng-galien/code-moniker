@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::check::expr::{
-	AggregateKind, Atom, Binding, Domain, DomainValueExpr, NumberExpr, Op, Rhs, ValueExpr,
+	AggregateKind, Atom, Binding, CollectionExpr, CollectionOp, Domain, DomainValueExpr,
+	NumberExpr, Op, PairProjection, PairSide, Rhs, ValueExpr,
 };
 use code_moniker_core::core::moniker::Moniker;
 
@@ -101,6 +102,8 @@ fn render_rhs(r: &Rhs) -> String {
 		Rhs::Moniker(m) => format!("{}b moniker", m.as_bytes().len()),
 		Rhs::PathPattern(p) => format!("path `{}`", p.raw),
 		Rhs::Projection(l) => l.as_str().to_string(),
+		Rhs::PairProjection(projection) => pair_projection_label(*projection),
+		Rhs::Collection(collection) => collection_label(collection),
 	}
 }
 
@@ -110,9 +113,9 @@ pub(super) fn number_expr_label(expr: &NumberExpr) -> &'static str {
 		NumberExpr::Projection(lhs) => lhs.as_str(),
 		NumberExpr::Count { .. } => "count",
 		NumberExpr::Aggregate { kind, .. } => aggregate_label(*kind),
-		NumberExpr::FanIn(_) => "fan_in",
-		NumberExpr::FanOut(_) => "fan_out",
+		NumberExpr::Metric { kind, .. } => kind.as_str(),
 		NumberExpr::Entropy(_) => "entropy",
+		NumberExpr::Size(_) => "size",
 	}
 }
 
@@ -123,6 +126,7 @@ pub(super) fn render_number_expr(expr: &NumberExpr) -> String {
 		NumberExpr::Count { domain, .. } => match domain {
 			Domain::Children(kind) => format!("count({kind})"),
 			Domain::ChildrenByShape(shape) => format!("count(shape:{shape})"),
+			Domain::Pairs(inner) => format!("count(pairs({}))", domain_label(inner)),
 			Domain::Segments => "count(segment)".to_string(),
 			Domain::OutRefs => "count(out_refs)".to_string(),
 			Domain::InRefs => "count(in_refs)".to_string(),
@@ -130,9 +134,11 @@ pub(super) fn render_number_expr(expr: &NumberExpr) -> String {
 		NumberExpr::Aggregate { kind, domain, .. } => {
 			format!("{}({})", aggregate_label(*kind), domain_label(domain))
 		}
-		NumberExpr::FanIn(binding) => format!("fan_in({})", binding_label(*binding)),
-		NumberExpr::FanOut(binding) => format!("fan_out({})", binding_label(*binding)),
+		NumberExpr::Metric { kind, binding } => {
+			format!("{}({})", kind.as_str(), binding_label(*binding))
+		}
 		NumberExpr::Entropy(collection) => format!("entropy({})", domain_value_label(collection)),
+		NumberExpr::Size(collection) => format!("size({})", collection_label(collection)),
 	}
 }
 
@@ -178,9 +184,47 @@ fn domain_label(domain: &Domain) -> String {
 	match domain {
 		Domain::Children(kind) => kind.clone(),
 		Domain::ChildrenByShape(shape) => format!("shape:{shape}"),
+		Domain::Pairs(inner) => format!("pairs({})", domain_label(inner)),
 		Domain::Segments => "segment".to_string(),
 		Domain::OutRefs => "out_refs".to_string(),
 		Domain::InRefs => "in_refs".to_string(),
+	}
+}
+
+pub(super) fn pair_projection_label(projection: PairProjection) -> String {
+	let side = match projection.side {
+		PairSide::A => "a",
+		PairSide::B => "b",
+	};
+	format!("{side}.{}", projection.lhs.as_str())
+}
+
+fn collection_label(collection: &CollectionExpr) -> String {
+	match collection {
+		CollectionExpr::Projection(projection) => {
+			if projection.path.is_empty() {
+				domain_label(&projection.domain)
+			} else {
+				format!(
+					"{}.{}",
+					domain_label(&projection.domain),
+					projection.path.join(".")
+				)
+			}
+		}
+		CollectionExpr::Unique(inner) => format!("unique({})", collection_label(inner)),
+		CollectionExpr::Binary { op, left, right } => {
+			let op = match op {
+				CollectionOp::Intersect => "intersect",
+				CollectionOp::Union => "union",
+				CollectionOp::Difference => "diff",
+			};
+			format!(
+				"{} {op} {}",
+				collection_label(left),
+				collection_label(right)
+			)
+		}
 	}
 }
 
@@ -192,7 +236,7 @@ pub(super) enum ValueKey {
 }
 
 impl ValueKey {
-	fn from_value(value: Value) -> Self {
+	pub(super) fn from_value(value: Value) -> Self {
 		match value {
 			Value::Str(s) => Self::Str(s),
 			Value::Number(n) => Self::Number(n.to_bits()),
@@ -200,7 +244,7 @@ impl ValueKey {
 		}
 	}
 
-	fn into_value(self) -> Value {
+	pub(super) fn into_value(self) -> Value {
 		match self {
 			Self::Str(s) => Value::Str(s),
 			Self::Number(bits) => Value::Number(f64::from_bits(bits)),

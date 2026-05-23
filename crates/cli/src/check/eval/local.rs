@@ -1,31 +1,11 @@
-use crate::check::expr::{
-	AggregateKind, Binding, Domain, DomainValueExpr, Lhs, NumberExpr, ValueExpr,
-};
+use crate::check::expr::{AggregateKind, Domain, DomainValueExpr, Lhs, NumberExpr, ValueExpr};
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 
 use super::value::{Value, mode_value, value_counts};
 use super::{
-	EvalCtx, count_in_refs, def_has_shape, eval_number_expr_def, eval_number_expr_ref,
-	eval_number_expr_segment, resolve_def_lhs, resolve_ref_lhs,
+	EvalCtx, def_has_shape, eval_number_expr_def, eval_number_expr_ref, eval_number_expr_segment,
+	resolve_def_lhs, resolve_ref_lhs,
 };
-
-pub(super) fn resolve_binding_idx(binding: Binding, def_idx: usize, self_idx: usize) -> usize {
-	match binding {
-		Binding::Self_ => self_idx,
-		Binding::Each => def_idx,
-	}
-}
-
-pub(super) fn fan_out(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
-	ctx.out_refs_by_source
-		.get(&def_idx)
-		.map_or(0, |refs| refs.len() as u32)
-}
-
-pub(super) fn fan_in(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
-	let d = ctx.graph.def_at(def_idx);
-	count_in_refs(d, None, ctx)
-}
 
 pub(super) fn eval_aggregate(
 	kind: AggregateKind,
@@ -171,13 +151,14 @@ fn normalized_entropy(values: &[Value]) -> Option<f64> {
 	Some(entropy / (counts.len() as f64).log2())
 }
 
-enum DomainItem<'a> {
+#[derive(Clone, Copy)]
+pub(super) enum DomainItem<'a> {
 	Def { idx: usize, def: &'a DefRecord },
 	Ref { record: &'a RefRecord },
 	Segment { kind: &'a [u8], name: &'a [u8] },
 }
 
-fn domain_items<'a>(
+pub(super) fn domain_items<'a>(
 	domain: &Domain,
 	def_idx: usize,
 	ctx: &'a EvalCtx<'_, '_>,
@@ -204,6 +185,7 @@ fn domain_items<'a>(
 				def_has_shape(def, shape).then_some(DomainItem::Def { idx: *idx, def })
 			})
 			.collect(),
+		Domain::Pairs(_) => Vec::new(),
 		Domain::Segments => ctx
 			.graph
 			.def_at(def_idx)
@@ -282,13 +264,21 @@ fn project_item_value(item: DomainItem<'_>, ctx: &EvalCtx<'_, '_>) -> Option<Val
 	}
 }
 
-fn project_lhs_value(item: DomainItem<'_>, lhs: Lhs, ctx: &EvalCtx<'_, '_>) -> Option<Value> {
+pub(super) fn project_lhs_value(
+	item: DomainItem<'_>,
+	lhs: Lhs,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<Value> {
 	match item {
 		DomainItem::Def { def, .. } => resolve_def_lhs(lhs, def, ctx),
 		DomainItem::Ref { record } => resolve_ref_lhs(lhs, record, ctx),
 		DomainItem::Segment { kind, name } => match lhs {
-			Lhs::SegmentKind => Some(Value::Str(std::str::from_utf8(kind).ok()?.to_string())),
-			Lhs::SegmentName => Some(Value::Str(std::str::from_utf8(name).ok()?.to_string())),
+			Lhs::Kind | Lhs::SegmentKind => {
+				Some(Value::Str(std::str::from_utf8(kind).ok()?.to_string()))
+			}
+			Lhs::Name | Lhs::SegmentName => {
+				Some(Value::Str(std::str::from_utf8(name).ok()?.to_string()))
+			}
 			_ => None,
 		},
 	}

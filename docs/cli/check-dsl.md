@@ -52,12 +52,14 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
     <string_projection> ( = | != ) <string_value_or_projection>
   | <string_projection> ( =~ | !~ ) <regex>
   | <number_expr> <number_operator> <number_expr>
+  | mode( <domain_value_expr> ) ( = | != ) <value_or_projection>
+  | <collection_expr> subset <collection_expr>
   | <moniker_projection> ( = | != ) <moniker_value_or_projection>
   | <moniker_projection> <moniker_relation_operator> <moniker_uri>
   | <moniker_projection> ~ '<path_pattern>'
-  | any( <domain>, <expr> )
-  | all( <domain>, <expr> )
-  | none( <domain>, <expr> )
+  | any( <count_domain>, <expr> )
+  | all( <count_domain>, <expr> )
+  | none( <count_domain>, <expr> )
   | <segment_lookup> ( = | != ) <string_value_or_projection>
   | <segment_lookup> ( =~ | !~ ) <regex>
   | has_segment( '<segment_kind>', '<segment_name>' )
@@ -76,25 +78,60 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
 <number_expr> ::=
     <number>
   | <number_projection>
-  | count( <domain> [, <expr> ] )
+  | count( <count_domain> [, <expr> ] )
+  | ( sum | max | min | avg | median | stddev | var | cv | gini )
+      ( <item_domain>, <number_expr> )
+  | percentile( <item_domain>, <number_expr>, <number> )
+  | entropy( <domain_value_expr> )
+  | size( <collection_expr> )
+  | <metric_name>( self | each )
+
+<domain_value_expr> ::=
+    <item_domain>
+  | <item_domain>, <value_expr>
+  | <item_domain>.<projection_path>
+
+<value_expr> ::=
+    <string_projection>
+  | <moniker_projection>
+  | <number_expr>
+
+<collection_expr> ::=
+    <collection_projection>
+  | unique( <collection_expr> )
+  | <collection_expr> ( intersect | union | diff ) <collection_expr>
+
+<collection_projection> ::=
+    <item_domain>[.<projection_path>]
 
 <moniker_projection> ::=
     moniker | source | source.parent | target | target.parent
+
+<pair_projection> ::=
+    ( a | b )[.<projection_path>]
 
 <segment_lookup> ::=
     segment( '<segment_kind>' )
   | source.segment( '<segment_kind>' )
   | target.segment( '<segment_kind>' )
 
-<domain> ::=
+<count_domain> ::=
+    <item_domain>
+  | pairs( <item_domain> )
+
+<item_domain> ::=
     <kind>
   | shape:<shape>
   | segment
   | out_refs
   | in_refs
 
-<string_value_or_projection>  ::= <string_value> | <string_projection>
-<moniker_value_or_projection> ::= <moniker_uri> | <moniker_projection>
+<metric_name> ::=
+    lcom4 | cbo | rfc | wmc | dit | noc | fan_in | fan_out
+
+<string_value_or_projection>  ::= <string_value> | <string_projection> | <pair_projection>
+<moniker_value_or_projection> ::= <moniker_uri> | <moniker_projection> | <pair_projection>
+<value_or_projection>         ::= <string_value> | <string_projection> | <moniker_projection> | <pair_projection>
 
 <number_operator>            ::= = | != | < | <= | > | >=
 <moniker_relation_operator>  ::= @> | <@ | ?=
@@ -137,6 +174,31 @@ to override.
 : A numeric projection. `lines` is the 1-indexed line span of the current
   def body. `depth` is the number of segments in the current def moniker.
 
+`<number_expr>`
+: A numeric literal, projection, cardinality, aggregate, collection size,
+  entropy, or named metric. Numeric expressions can appear on either side
+  of numeric operators and inside numeric aggregators.
+
+`<domain_value_expr>`
+: A domain plus the value extracted from each item. `mode` returns the most
+  frequent value and `entropy` returns the normalized entropy of the value
+  distribution. The preferred spelling is `mode(out_refs, target.parent)`;
+  legacy projection spelling such as `mode(out_refs.target.parent)` is also
+  accepted.
+
+`<collection_expr>`
+: A multiset expression. A projection such as `method.name` evaluates the
+  path for each item in the domain. `unique(...)` removes duplicates.
+  `intersect`, `union`, and `diff` perform multiset algebra. Use
+  `size(...)` to turn a collection into a number, or `subset` to compare
+  two collections as multisets.
+
+`<pair_projection>`
+: A projection bound inside `pairs(...)` filters. `a` and `b` refer to the
+  two items of the current pair. `a.name = b.name` compares their projected
+  values; `a` or `b` without a suffix means the item's moniker when the
+  item is a def or ref-backed value.
+
 `<moniker_projection>`
 : A projection that yields a moniker. In def scope, `moniker` is the
   current def. In ref scope, `moniker` and `source` are the ref source def;
@@ -148,12 +210,23 @@ to override.
   segment is absent. Use `segment(...)` in def scope and
   `source.segment(...)` / `target.segment(...)` in ref scope.
 
-`<domain>`
+`<count_domain>`
 : The collection inspected by `count`, `any`, `all`, or `none`.
+  It accepts every `<item_domain>`, plus `pairs(D)`.
+
+`<item_domain>`
+: A collection of concrete local graph items.
   `<kind>` means direct child defs of that kind. `shape:<shape>` means
-  direct child defs whose kind maps to the canonical shape. `segment`
-  means moniker segments. `out_refs` and `in_refs` mean refs whose source
-  or target is the current def.
+  direct child defs whose kind maps to the canonical shape. `segment` means
+  moniker segments. `out_refs` and `in_refs` mean refs whose source or
+  target is the current def. Aggregates, domain-value expressions, and
+  collection projections use item domains; `pairs(D)` is only valid for
+  `count`, `any`, `all`, and `none`.
+
+`<metric_name>`
+: One of the local named metrics. `self` binds to the rule's owner def.
+  `each` binds to the item currently evaluated by an aggregate; outside an
+  aggregate, `self` and `each` both point to the current def.
 
 `<kind>`
 : A def kind accepted by the current language, such as `class`, `method`,
@@ -170,7 +243,7 @@ to override.
 : A Rust regular expression used by `=~` and `!~`.
 
 `<number_operator>`
-: Numeric comparison against an unsigned integer literal.
+: Numeric comparison between numeric expressions.
 
 `<moniker_value_or_projection>`
 : A full moniker URI or another moniker projection. `moniker = target`
@@ -206,7 +279,8 @@ to override.
 
 ### Operators
 
-The op set is the moniker algebra plus comparison and regex:
+The op set is the moniker algebra plus comparison, regex, and collection
+subset:
 
 | Op    | Domain                | Meaning                                  |
 | ----- | --------------------- | ---------------------------------------- |
@@ -217,6 +291,7 @@ The op set is the moniker algebra plus comparison and regex:
 | `<@`  | moniker               | left is a descendant of right            |
 | `?=`  | moniker               | asymmetric `bind_match` (per-lang arm)   |
 | `~`   | moniker + path        | moniker matches the path pattern         |
+| `subset` | collection         | left multiset is contained in right multiset |
 
 ### Booleans and implication
 
@@ -230,10 +305,10 @@ The op set is the moniker algebra plus comparison and regex:
 
 ### Quantifiers
 
-`count(<domain>, <expr>?)` returns a cardinal and can be used anywhere a
+`count(<count_domain>, <expr>?)` returns a cardinal and can be used anywhere a
 number expression is accepted, including against another `count(...)`.
-`any(<domain>, <expr>)`, `all(<domain>, <expr>)`, `none(<domain>, <expr>)`
-return booleans.
+`any(<count_domain>, <expr>)`, `all(<count_domain>, <expr>)`, and
+`none(<count_domain>, <expr>)` return booleans.
 
 Domains:
 
@@ -241,6 +316,7 @@ Domains:
 | ----------- | ----------------------------------------------- |
 | `<KIND>`    | direct children defs of that kind               |
 | `shape:<S>` | direct children defs of shape `S`               |
+| `pairs(D)`  | unordered pairs of distinct items from domain `D` |
 | `segment`   | segments of the moniker (top-down)              |
 | `out_refs`  | refs whose source is the current def            |
 | `in_refs`   | refs whose target is the current def            |
@@ -249,6 +325,129 @@ The optional `<expr>` is evaluated with **the iterated item** as context,
 so its projections refer to that item's attributes. For `segment`, only
 `segment.kind` and `segment.name` are available. For `out_refs` / `in_refs`,
 the full ref scope (`kind`, `source.*`, `target.*`) is in scope.
+
+### Numeric analytics
+
+Numeric aggregators evaluate a numeric expression once for each item of a
+domain:
+
+| Function | Meaning |
+| -------- | ------- |
+| `sum(D, E)` | sum of numeric values |
+| `max(D, E)` / `min(D, E)` | maximum / minimum |
+| `avg(D, E)` | arithmetic mean |
+| `median(D, E)` | 50th percentile |
+| `percentile(D, E, P)` | percentile `P`, from `0` to `100` |
+| `stddev(D, E)` / `var(D, E)` | population standard deviation / variance |
+| `cv(D, E)` | coefficient of variation, `stddev / abs(mean)` |
+| `gini(D, E)` | Gini coefficient over non-negative numeric values |
+
+Inside an aggregate, `each` binds to the iterated domain item and `self`
+keeps pointing to the rule owner. This is useful for skew rules:
+
+```toml
+[[rust.struct.where]]
+id   = "balanced-method-fanout"
+expr = "count(method) >= 5 => cv(method, fan_out(each)) <= 0.6"
+```
+
+`entropy(D, E)` computes normalized entropy over any value expression,
+not only numbers. `mode(D, E)` returns the most frequent value and can be
+compared with `=` or `!=`.
+
+```toml
+[[rust.struct.where]]
+id   = "shared-field-usage"
+expr = "count(field) >= 3 => avg(field, entropy(in_refs, source)) >= 0.5"
+
+[[rust.method.where]]
+id   = "feature-envy"
+expr = "count(out_refs) >= 5 => mode(out_refs, target.parent) = source.parent"
+```
+
+### Collections and multisets
+
+A collection projection such as `method.name`, `out_refs.target.parent`,
+or `field.in_refs.source.parent` returns a multiset. Duplicates are kept
+unless `unique(...)` is used.
+
+Available collection operations:
+
+| Expression | Meaning |
+| ---------- | ------- |
+| `unique(M)` | remove duplicate values |
+| `size(M)` | multiset cardinality as a number |
+| `M1 intersect M2` | multiset intersection, minimum count per value |
+| `M1 union M2` | multiset union, maximum count per value |
+| `M1 diff M2` | multiset difference, saturating count subtraction |
+| `M1 subset M2` | true when every value count in `M1` is present in `M2` |
+
+The DSL deliberately uses ASCII keywords for collection algebra.
+
+```toml
+[[ts.class.where]]
+id   = "unique-method-names"
+expr = "size(unique(method.name)) = size(method.name)"
+
+[[ts.class.where]]
+id   = "fields-have-matching-methods"
+expr = "field.name subset method.name"
+```
+
+Collection projections are local. `field.in_refs.source.parent` starts
+from each direct field, follows that field's local incoming refs, and then
+projects the parent of each ref source.
+
+### Pair domains
+
+`pairs(D)` is accepted in `count`, `any`, `all`, and `none`. It enumerates
+unordered pairs of distinct items from `D`. Within the filter, `a` and `b`
+bind the two pair items.
+
+```toml
+[[ts.class.where]]
+id   = "no-duplicate-method-names"
+expr = "count(pairs(method), a.name = b.name) = 0"
+
+[[ts.class.where]]
+id   = "method-pairs-owned-by-class"
+expr = "all(pairs(method), a.parent = self AND b.parent = self)"
+```
+
+For a domain with zero or one item, `count(pairs(D))` is `0`; `all` over
+the pair domain is vacuously true, and `any` is false.
+
+### Named local metrics
+
+Named metrics are numeric expressions with an explicit binding:
+
+| Metric | Local formula |
+| ------ | ------------- |
+| `fan_in(X)` | refs whose target is `X` |
+| `fan_out(X)` | refs whose source is `X` |
+| `wmc(X)` | direct callable children, weight 1 per callable |
+| `rfc(X)` | direct callables plus distinct targets called by those callables |
+| `cbo(X)` | distinct external namespace/type buckets coupled through refs of `X` or descendants |
+| `lcom4(X)` | connected components among direct callables, linked by method calls or shared direct field use |
+| `dit(X)` | longest local inheritance chain through `extends`, `inherits`, `inheritance`, or `subclasses` refs |
+| `noc(X)` | local children that inherit from `X` through those same ref kinds |
+
+`X` is either `self` or `each`. Metrics are local to the file graph under
+check. They do not use project-wide linkage or cross-file resolution.
+
+```toml
+[[rust.struct.where]]
+id   = "low-lack-of-cohesion"
+expr = "count(method) >= 4 => lcom4(self) <= 1"
+
+[[java.class.where]]
+id   = "lanza-marinescu-bounds"
+expr = "cbo(self) <= 14 AND rfc(self) <= 50 AND wmc(self) <= 47"
+
+[[java.class.where]]
+id   = "inheritance-bounds"
+expr = "dit(self) <= 5 AND noc(self) <= 10"
+```
 
 ### Projections
 
@@ -319,10 +518,10 @@ written in shape terms transfer verbatim to ad-hoc queries against an
 ingested `code_graph` corpus.
 
 `target.visibility` requires that the ref's target is **resolved locally**
-in the file under check; if the target is external (cross-file), the rule
-errors out at evaluation rather than skipping silently. Use `target.name`
-or `target ~ '<path>'` for rules that should hold regardless of resolution
-status.
+in the file under check. If the target is external (cross-file), that
+projection is not applicable for the current ref and the atom is skipped
+by the trivalent evaluator. Use `target.name` or `target ~ '<path>'` for
+rules that should hold regardless of resolution status.
 
 ### Path patterns
 
@@ -408,8 +607,11 @@ use this grammar; no new construct is introduced.
 
 ## Beyond direct refs
 
-The DSL evaluates per def or per ref, looking at direct refs of the
-current node. Transitive closure (`X indirectly calls Y`), cycle
-detection, and dataflow / taint propagation are expressed as SQL on
-`code_graph`, not as rules. Cross-file invariants belong to a separate
-SQL query that runs in CI or against an ingested code_graph corpus.
+The DSL evaluates per def or per ref inside the local file graph. It can
+derive local aggregates, multisets, pair checks, and named metrics from
+the direct local defs/refs that were extracted for that file.
+
+It still does not perform project-wide linkage, cross-file closure, call
+graph transitive closure, cycle detection, or dataflow / taint
+propagation. Those checks belong to SQL on an ingested `code_graph` corpus
+or to a higher-level analysis pipeline.

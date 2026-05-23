@@ -54,6 +54,9 @@ impl<'a> Parser<'a> {
 	}
 
 	pub(super) fn parse_domain_ident(&mut self) -> Result<Domain, ParseError> {
+		if self.input[self.pos..].starts_with("pairs(") {
+			return self.parse_pair_domain();
+		}
 		let start = self.pos;
 		let domain_ident = self.take_domain_ident();
 		if domain_ident.is_empty() {
@@ -92,5 +95,21 @@ impl<'a> Parser<'a> {
 				Domain::Children(other.to_string())
 			}
 		})
+	}
+
+	pub(super) fn reject_pair_domain(
+		&self,
+		domain: &Domain,
+		context: &str,
+	) -> Result<(), ParseError> {
+		if matches!(domain, Domain::Pairs(_)) {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: format!(
+					"`pairs(...)` domains are only supported by count/any/all/none, not {context}"
+				),
+			});
+		}
+		Ok(())
 	}
 }

@@ -3,9 +3,11 @@ use regex::Regex;
 use code_moniker_core::core::uri::{UriConfig, from_uri};
 
 use super::ast::*;
+use super::collection::parse_collection_rhs;
 use super::cursor::{lhs_token_end, operator_at};
 use super::error::ParseError;
 use super::number::parse_number_rhs;
+use super::pairs::parse_pair_projection;
 use crate::check::path;
 
 pub(super) fn parse_atom(
@@ -129,6 +131,9 @@ fn parse_lhs(s: &str, full: &str) -> Result<LhsExpr, ParseError> {
 				.to_string(),
 		});
 	}
+	if let Some(projection) = parse_pair_projection(s, full)? {
+		return Ok(LhsExpr::PairProjection(projection));
+	}
 	match Lhs::from_projection_name(s) {
 		Some(lhs) if lhs.is_number_projection() => Ok(LhsExpr::Number(NumberExpr::Projection(lhs))),
 		Some(lhs) => Ok(LhsExpr::Attr(lhs)),
@@ -153,6 +158,7 @@ pub(super) fn parse_op(s: &str, full: &str) -> Result<Op, ParseError> {
 		"<@" => Op::DescendantOf,
 		"?=" => Op::BindMatch,
 		"~" => Op::PathMatch,
+		"subset" => Op::Subset,
 		other => {
 			return Err(ParseError::BadExpr {
 				expr: full.to_string(),
@@ -163,7 +169,6 @@ pub(super) fn parse_op(s: &str, full: &str) -> Result<Op, ParseError> {
 }
 
 fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
-	use Lhs::*;
 	use Op::*;
 	let lhs_attr = match lhs {
 		LhsExpr::Attr(a) => *a,
@@ -176,6 +181,16 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 				}),
 			};
 		}
+		LhsExpr::Collection(_) => {
+			return match op {
+				Subset => Ok(()),
+				_ => Err(ParseError::BadExpr {
+					expr: full.to_string(),
+					msg: format!("collection expressions only accept subset operators, got {op:?}"),
+				}),
+			};
+		}
+		LhsExpr::PairProjection(projection) => projection.lhs,
 		LhsExpr::Mode(_) => {
 			return match op {
 				Eq | Ne => Ok(()),
@@ -195,31 +210,7 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 			};
 		}
 	};
-	let ok =
-		matches!(
-			(lhs_attr, op),
-			(
-				Name | Kind
-					| Shape | Visibility
-					| Text | Confidence
-					| ParentName | ParentKind
-					| ParentShape | SourceName
-					| SourceKind | SourceShape
-					| SourceVisibility
-					| TargetName | TargetKind
-					| TargetShape | TargetVisibility
-					| SegmentName | SegmentKind,
-				Eq | Ne | RegexMatch | RegexNoMatch,
-			) | (Lines | Depth, Lt | Le | Gt | Ge | Eq | Ne)
-				| (
-					Moniker
-						| ParentMoniker | SourceMoniker
-						| SourceParentMoniker
-						| TargetMoniker | TargetParentMoniker,
-					Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch,
-				)
-		);
-	if !ok {
+	if !lhs_attr.accepts_op(op) {
 		return Err(ParseError::BadExpr {
 			expr: full.to_string(),
 			msg: format!("operator {op:?} not valid for lhs {lhs_attr:?}"),
@@ -229,10 +220,17 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 }
 
 fn check_rhs_type(lhs: &LhsExpr, rhs: &Rhs, full: &str) -> Result<(), ParseError> {
-	if matches!(lhs, LhsExpr::Number(_)) && !matches!(rhs, Rhs::Number(_)) {
+	if matches!(lhs, LhsExpr::Number(_)) && !matches!(rhs, Rhs::Number(_) | Rhs::PairProjection(_))
+	{
 		return Err(ParseError::BadExpr {
 			expr: full.to_string(),
 			msg: "number expressions require numeric RHS".to_string(),
+		});
+	}
+	if matches!(lhs, LhsExpr::Collection(_)) && !matches!(rhs, Rhs::Collection(_)) {
+		return Err(ParseError::BadExpr {
+			expr: full.to_string(),
+			msg: "collection expressions require collection RHS".to_string(),
 		});
 	}
 	Ok(())
@@ -267,11 +265,18 @@ pub(super) fn parse_rhs(
 			Rhs::Moniker(m)
 		}
 		Op::Lt | Op::Le | Op::Gt | Op::Ge => {
-			Rhs::Number(parse_number_rhs(s, scheme, allowed_kinds, full)?)
+			if let Some(projection) = parse_pair_projection(s, full)? {
+				Rhs::PairProjection(projection)
+			} else {
+				Rhs::Number(parse_number_rhs(s, scheme, allowed_kinds, full)?)
+			}
 		}
+		Op::Subset => Rhs::Collection(parse_collection_rhs(s, scheme, allowed_kinds, full)?),
 		Op::Eq | Op::Ne => {
 			if quoted {
 				Rhs::Str(s.to_string())
+			} else if let Some(projection) = parse_pair_projection(s, full)? {
+				Rhs::PairProjection(projection)
 			} else if let Ok(expr) = parse_number_rhs(s, scheme, allowed_kinds, full) {
 				Rhs::Number(expr)
 			} else if s.contains("+moniker://") {

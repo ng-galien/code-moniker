@@ -102,13 +102,66 @@ impl Lhs {
 	pub(in crate::check) fn is_number_projection(self) -> bool {
 		matches!(self, Self::Lines | Self::Depth)
 	}
+
+	pub(in crate::check) fn accepts_op(self, op: Op) -> bool {
+		use LhsProjectionKind::*;
+		use Op::*;
+		match self.projection_kind() {
+			Text => matches!(op, Eq | Ne | RegexMatch | RegexNoMatch),
+			Number => matches!(op, Lt | Le | Gt | Ge | Eq | Ne),
+			Moniker => matches!(
+				op,
+				Eq | Ne | AncestorOf | DescendantOf | BindMatch | PathMatch
+			),
+		}
+	}
+
+	fn projection_kind(self) -> LhsProjectionKind {
+		match self {
+			Self::Lines | Self::Depth => LhsProjectionKind::Number,
+			Self::Moniker
+			| Self::ParentMoniker
+			| Self::SourceMoniker
+			| Self::SourceParentMoniker
+			| Self::TargetMoniker
+			| Self::TargetParentMoniker => LhsProjectionKind::Moniker,
+			Self::Name
+			| Self::Kind
+			| Self::Shape
+			| Self::Visibility
+			| Self::Text
+			| Self::Confidence
+			| Self::ParentName
+			| Self::ParentKind
+			| Self::ParentShape
+			| Self::SourceName
+			| Self::SourceKind
+			| Self::SourceShape
+			| Self::SourceVisibility
+			| Self::TargetName
+			| Self::TargetKind
+			| Self::TargetShape
+			| Self::TargetVisibility
+			| Self::SegmentName
+			| Self::SegmentKind => LhsProjectionKind::Text,
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum LhsProjectionKind {
+	Text,
+	Number,
+	Moniker,
 }
 
 #[derive(Debug, Clone)]
 pub(in crate::check) enum LhsExpr {
 	Attr(Lhs),
 	Number(NumberExpr),
+	Collection(CollectionExpr),
 	Mode(DomainValueExpr),
+	PairProjection(PairProjection),
 	SegmentOf { scope: SegmentScope, kind: String },
 }
 
@@ -126,9 +179,12 @@ pub(in crate::check) enum NumberExpr {
 		expr: Box<NumberExpr>,
 		percentile: Option<f64>,
 	},
-	FanIn(Binding),
-	FanOut(Binding),
+	Metric {
+		kind: MetricKind,
+		binding: Binding,
+	},
 	Entropy(DomainValueExpr),
+	Size(CollectionExpr),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -151,6 +207,33 @@ pub(in crate::check) enum Binding {
 	Each,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(in crate::check) enum MetricKind {
+	Lcom4,
+	Cbo,
+	Rfc,
+	Wmc,
+	Dit,
+	Noc,
+	FanIn,
+	FanOut,
+}
+
+impl MetricKind {
+	pub(in crate::check) fn as_str(self) -> &'static str {
+		match self {
+			Self::Lcom4 => "lcom4",
+			Self::Cbo => "cbo",
+			Self::Rfc => "rfc",
+			Self::Wmc => "wmc",
+			Self::Dit => "dit",
+			Self::Noc => "noc",
+			Self::FanIn => "fan_in",
+			Self::FanOut => "fan_out",
+		}
+	}
+}
+
 #[derive(Debug, Clone)]
 pub(in crate::check) struct DomainValueExpr {
 	pub(in crate::check) domain: Domain,
@@ -164,6 +247,42 @@ pub(in crate::check) enum ValueExpr {
 	Number(NumberExpr),
 }
 
+#[derive(Debug, Clone)]
+pub(in crate::check) enum CollectionExpr {
+	Projection(CollectionProjection),
+	Unique(Box<CollectionExpr>),
+	Binary {
+		op: CollectionOp,
+		left: Box<CollectionExpr>,
+		right: Box<CollectionExpr>,
+	},
+}
+
+#[derive(Debug, Clone)]
+pub(in crate::check) struct CollectionProjection {
+	pub(in crate::check) domain: Domain,
+	pub(in crate::check) path: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(in crate::check) enum CollectionOp {
+	Intersect,
+	Union,
+	Difference,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(in crate::check) enum PairSide {
+	A,
+	B,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(in crate::check) struct PairProjection {
+	pub(in crate::check) side: PairSide,
+	pub(in crate::check) lhs: Lhs,
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(in crate::check) enum SegmentScope {
 	Def,
@@ -175,6 +294,7 @@ pub(in crate::check) enum SegmentScope {
 pub(in crate::check) enum Domain {
 	Children(String),
 	ChildrenByShape(String),
+	Pairs(Box<Domain>),
 	Segments,
 	OutRefs,
 	InRefs,
@@ -201,6 +321,7 @@ pub(in crate::check) enum Op {
 	DescendantOf,
 	BindMatch,
 	PathMatch,
+	Subset,
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +332,8 @@ pub(in crate::check) enum Rhs {
 	Str(String),
 	PathPattern(crate::check::path::Pattern),
 	Projection(Lhs),
+	PairProjection(PairProjection),
+	Collection(CollectionExpr),
 }
 
 #[derive(Debug, Clone)]

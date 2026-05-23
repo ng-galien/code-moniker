@@ -17,12 +17,12 @@ impl<'a> Parser<'a> {
 			"var(",
 			"cv(",
 			"gini(",
-			"fan_in(",
-			"fan_out(",
 			"entropy(",
+			"size(",
 		]
 		.iter()
 		.any(|prefix| rest.starts_with(prefix))
+			|| self.starts_metric_call()
 	}
 
 	pub(super) fn parse_number_expr(&mut self) -> Result<NumberExpr, ParseError> {
@@ -33,17 +33,16 @@ impl<'a> Parser<'a> {
 		if let Some(expr) = self.try_parse_aggregate_expr()? {
 			return Ok(expr);
 		}
-		if self.input[self.pos..].starts_with("fan_in(") {
-			self.pos += "fan_in".len();
-			return Ok(NumberExpr::FanIn(self.parse_binding_call_body()?));
-		}
-		if self.input[self.pos..].starts_with("fan_out(") {
-			self.pos += "fan_out".len();
-			return Ok(NumberExpr::FanOut(self.parse_binding_call_body()?));
+		if let Some(expr) = self.try_parse_metric_expr()? {
+			return Ok(expr);
 		}
 		if self.input[self.pos..].starts_with("entropy(") {
 			self.pos += "entropy".len();
 			return Ok(NumberExpr::Entropy(self.parse_domain_value_call_body()?));
+		}
+		if self.input[self.pos..].starts_with("size(") {
+			self.pos += "size".len();
+			return Ok(NumberExpr::Size(self.parse_collection_call_body("size")?));
 		}
 
 		let raw = self.take_number_literal();
@@ -85,6 +84,7 @@ impl<'a> Parser<'a> {
 		self.pos += 1;
 		self.skip_ws();
 		let domain = self.parse_domain_ident()?;
+		self.reject_pair_domain(&domain, name)?;
 		self.skip_ws();
 		if self.peek_byte() != Some(b',') {
 			return Err(ParseError::BadExpr {
@@ -140,37 +140,6 @@ impl<'a> Parser<'a> {
 		]
 		.into_iter()
 		.find(|(name, _)| rest.starts_with(&format!("{name}(")))
-	}
-
-	fn parse_binding_call_body(&mut self) -> Result<Binding, ParseError> {
-		if self.peek_byte() != Some(b'(') {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!("expected `(` at byte {}", self.pos),
-			});
-		}
-		self.pos += 1;
-		self.skip_ws();
-		let raw = self.take_alpha_token();
-		let binding = match raw {
-			"self" => Binding::Self_,
-			"each" => Binding::Each,
-			_ => {
-				return Err(ParseError::BadExpr {
-					expr: self.raw.to_string(),
-					msg: format!("unknown binding `{raw}` (allowed: self, each)"),
-				});
-			}
-		};
-		self.skip_ws();
-		if self.peek_byte() != Some(b')') {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!("missing `)` at byte {}", self.pos),
-			});
-		}
-		self.pos += 1;
-		Ok(binding)
 	}
 
 	fn parse_number_literal(&mut self) -> Result<f64, ParseError> {
@@ -338,9 +307,22 @@ mod tests {
 				}),
 				Op::Le,
 				Rhs::Number(NumberExpr::Literal(0.6)),
-			) if kind == "method" && matches!(**expr, NumberExpr::FanOut(Binding::Each)) => {}
+			) if kind == "method"
+				&& matches!(
+					**expr,
+					NumberExpr::Metric {
+						kind: MetricKind::FanOut,
+						binding: Binding::Each
+					}
+				) => {}
 			other => panic!("unexpected: {other:?}"),
 		}
+	}
+
+	#[test]
+	fn rejects_pair_domain_in_numeric_aggregate() {
+		let r = parse("sum(pairs(method), lines) = 0", TS, KINDS);
+		assert!(r.is_err());
 	}
 
 	#[test]

@@ -18,6 +18,7 @@ impl<'a> Parser<'a> {
 		self.pos += 1;
 		self.skip_ws();
 		let domain = self.parse_domain_ident()?;
+		self.reject_pair_domain(&domain, "domain value expressions")?;
 		self.skip_ws();
 		let expr = if self.peek_byte() == Some(b',') {
 			self.pos += 1;
@@ -144,5 +145,11 @@ mod tests {
 			},
 			other => panic!("unexpected: {other:?}"),
 		}
+	}
+
+	#[test]
+	fn rejects_pair_domain_in_domain_value_expression() {
+		let r = parse("mode(pairs(method), name) = name", TS, KINDS);
+		assert!(r.is_err());
 	}
 }

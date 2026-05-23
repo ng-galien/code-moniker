@@ -89,6 +89,9 @@ impl<'a> Parser<'a> {
 		if let Some(q) = self.try_parse_quantifier()? {
 			return Ok(q);
 		}
+		if let Some(atom) = self.try_parse_collection_subset_atom()? {
+			return Ok(Node::Atom(atom));
+		}
 		if let Some(atom) = self.try_parse_number_atom()? {
 			return Ok(Node::Atom(atom));
 		}

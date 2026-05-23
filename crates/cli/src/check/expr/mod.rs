@@ -2,10 +2,13 @@
 
 mod ast;
 mod atom;
+mod collection;
 mod cursor;
 mod domain;
 mod error;
+mod metrics;
 mod number;
+mod pairs;
 mod parse;
 mod value;
 

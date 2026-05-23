@@ -307,6 +307,7 @@ Operators:
 | `~` | moniker path pattern match |
 | `<@` `@>` | descendant / ancestor |
 | `?=` | `bind_match`, used for cross-file symbol resolution |
+| `subset` | multiset containment |
 | `AND` `OR` `NOT` `=>` | boolean logic; `A => B` means "when A, require B" |
 
 Quantifiers:
@@ -316,12 +317,24 @@ count(method) <= 20
 all(method, lines <= 60)
 any(out_refs, kind = 'implements' AND target.name =~ Port$)
 count(shape:callable) <= 20
+count(pairs(method), a.name = b.name) = 0
 none(field, visibility = 'public')
 ```
 
 Domains are direct child defs (`method`, `field`, `class`, etc.),
 direct child defs by shape (`shape:callable`, `shape:value`, etc.),
-`segment`, `out_refs`, and `in_refs`.
+`segment`, `out_refs`, and `in_refs`. `pairs(D)` is supported by
+`count`, `any`, `all`, and `none`.
+
+The rule language also supports local numeric analytics:
+
+```toml
+cv(method, fan_out(each)) <= 0.6
+size(unique(method.name)) = size(method.name)
+field.name subset method.name
+lcom4(self) <= 1
+cbo(self) <= 14 AND rfc(self) <= 50 AND wmc(self) <= 47
+```
 
 Full grammar: [Rule DSL](check-dsl.md).
 

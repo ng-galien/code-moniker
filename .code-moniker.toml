@@ -35,10 +35,12 @@ check_expr_parse  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr
 check_expr_value  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value/**'"
 check_expr_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection/**'"
 check_expr_pairs  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs/**'"
+check_expr_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics/**'"
 check_eval       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/**'"
 check_eval_local = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local/**'"
 check_eval_value = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value/**'"
 check_eval_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection/**'"
+check_eval_pairs = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs/**'"
 check_eval_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics/**'"
 check_config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config'"
 # Per-crate integration tests / examples.
@@ -296,7 +298,8 @@ expr    = """
 message = "`check::eval::value` is the typed comparison/rendering layer; local graph traversal belongs to `check::eval::local`."
 
 # Couche 2 — multisets et opérations ensemblistes.
-# These rules are intentionally dormant until `collection` modules exist.
+# `expr::collection` owns collection syntax (`size`, `unique`, set ops,
+# subset atoms). `eval::collection` owns multiset algebra over local facts.
 
 [[refs.where]]
 id      = "check-dsl-layer2-expr-collection-parser-isolated"
@@ -319,7 +322,41 @@ expr    = """
 """
 message = "`check::eval::collection` must evaluate local multisets only; project-wide linkage stays outside local analysis."
 
-# Couche 3 — itération sur paires.
+[[refs.where]]
+id      = "check-dsl-layer2-boolean-parser-delegates-collection"
+expr    = """
+  $check_expr_parse
+  AND kind = 'method_call'
+  AND moniker ~ '**/method:/^parse_primary\\(\\)$/'
+  => NOT target ~ '**/method:parse_collection_expr'
+"""
+message = "`check::expr::parse` must delegate multiset syntax to `check::expr::collection`; boolean precedence stays separate from collection grammar."
+
+[[refs.where]]
+id      = "check-dsl-layer2-number-parser-size-only"
+expr    = """
+  $check_expr_number
+  AND kind = 'method_call'
+  => NOT target ~ '**/method:try_parse_collection_subset_atom'
+"""
+message = "`check::expr::number` may parse `size(...)`, but subset/set boolean syntax belongs to `check::expr::collection`."
+
+[[refs.where]]
+id      = "check-dsl-layer2-eval-local-does-not-own-multiset-algebra"
+expr    = """
+  $check_eval_local
+  AND kind = 'method_call'
+  => NOT (target ~ '**/method:unique'
+       OR target ~ '**/method:intersect'
+       OR target ~ '**/method:union'
+       OR target ~ '**/method:difference'
+       OR target ~ '**/method:is_subset')
+"""
+message = "`check::eval::local` owns domain traversal and numeric local metrics; multiset algebra belongs to `check::eval::collection`."
+
+# Couche 3 — itération locale sur paires.
+# `expr::pairs` owns `pairs(D)` and `a.*` / `b.*` binding syntax.
+# `eval::pairs` owns pair enumeration/evaluation over local domain items.
 
 [[refs.where]]
 id      = "check-dsl-layer3-pairs-parser-isolated"
@@ -331,7 +368,58 @@ expr    = """
 """
 message = "`check::expr::pairs` must only parse pair domains/bindings; evaluation and graph traversal stay outside the parser."
 
+[[refs.where]]
+id      = "check-dsl-layer3-eval-pairs-local-only"
+expr    = """
+  $check_eval_pairs AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:LinkageIndex')
+"""
+message = "`check::eval::pairs` must evaluate pair domains from the local `CodeGraph`; project-wide linkage stays outside local analysis."
+
+[[refs.where]]
+id      = "check-dsl-layer3-domain-parser-does-not-own-pair-bindings"
+expr    = """
+  $check_expr_domain
+  AND kind = 'method_call'
+  => NOT target ~ '**/method:parse_pair_projection'
+"""
+message = "`check::expr::domain` may delegate `pairs(D)`, but `a.*` / `b.*` binding syntax belongs to `check::expr::pairs`."
+
+[[refs.where]]
+id      = "check-dsl-layer3-eval-local-does-not-own-pair-iteration"
+expr    = """
+  $check_eval_local
+  AND kind = 'method_call'
+  => NOT (target ~ '**/method:eval_pair_count'
+       OR target ~ '**/method:eval_pair_quantifier')
+"""
+message = "`check::eval::local` owns domain traversal and numeric local metrics; pair iteration belongs to `check::eval::pairs`."
+
 # Couche 4 — métriques nommées locales.
+# `expr::metrics` owns named metric calls such as `lcom4(self)` and
+# `eval::metrics` owns metric formulas over the local `CodeGraph`.
+
+[[refs.where]]
+id      = "check-dsl-layer4-expr-metrics-parser-isolated"
+expr    = """
+  $check_expr_metrics AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/module:config/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::expr::metrics` must only parse named metric calls; metric formulas belong outside the parser."
+
+[[refs.where]]
+id      = "check-dsl-layer4-number-parser-delegates-metrics"
+expr    = """
+  $check_expr_number
+  AND kind = 'method_call'
+  => NOT target ~ '**/method:parse_metric_call_body'
+"""
+message = "`check::expr::number` may parse numeric comparisons, but named metric call bodies belong to `check::expr::metrics`."
 
 [[refs.where]]
 id      = "check-dsl-layer4-metrics-local-only"
@@ -343,6 +431,23 @@ expr    = """
        OR target ~ '**/path:LinkageIndex')
 """
 message = "`check::eval::metrics` must compute named metrics from the local `CodeGraph`; cross-file/project indexes remain out of scope."
+
+[[refs.where]]
+id      = "check-dsl-layer4-eval-local-does-not-own-named-metrics"
+expr    = """
+  $check_eval_local
+  AND kind = 'method_call'
+  => NOT (target ~ '**/method:eval_metric'
+       OR target ~ '**/method:lcom4'
+       OR target ~ '**/method:cbo'
+       OR target ~ '**/method:rfc'
+       OR target ~ '**/method:wmc'
+       OR target ~ '**/method:dit'
+       OR target ~ '**/method:noc'
+       OR target ~ '**/method:fan_in'
+       OR target ~ '**/method:fan_out')
+"""
+message = "`check::eval::local` owns reusable local traversal/stat helpers; named metric formulas belong to `check::eval::metrics`."
 
 # ─── Naming hygiene per layer ────────────────────────────────────────
 # These extend / refine the embedded preset that already enforces

@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
+mod collection;
 mod local;
+mod metrics;
+mod pairs;
 mod value;
 
 use crate::check::config::{Config, ConfigError, KindRules, config_section};
 use crate::check::expr::{
-	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, QuantKind, Rhs, SegmentScope,
+	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
 };
 use crate::lines::line_range;
 use crate::render_uri;
@@ -16,7 +19,10 @@ use code_moniker_core::core::shape::Shape;
 use code_moniker_core::core::uri::UriConfig;
 use code_moniker_core::lang::Lang;
 
-use local::{eval_aggregate, eval_entropy, eval_mode, fan_in, fan_out, resolve_binding_idx};
+use collection::{eval_collection_size, eval_collection_subset};
+use local::{eval_aggregate, eval_entropy, eval_mode};
+use metrics::eval_metric;
+use pairs::{eval_pair_count, eval_pair_quantifier};
 use value::{Value, apply_op, apply_op_values, number_expr_label};
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -1096,7 +1102,9 @@ fn describe_lhs(lhs: &LhsExpr) -> &str {
 	match lhs {
 		LhsExpr::Attr(a) => a.as_str(),
 		LhsExpr::Number(n) => number_expr_label(n),
+		LhsExpr::Collection(_) => "collection",
 		LhsExpr::Mode(_) => "mode",
+		LhsExpr::PairProjection(_) => "pair",
 		LhsExpr::SegmentOf { .. } => "segment",
 	}
 }
@@ -1306,6 +1314,7 @@ fn eval_count(
 		Domain::ChildrenByShape(shape) => {
 			count_children_by_shape(def_idx, self_idx, shape, filter, ctx)
 		}
+		Domain::Pairs(inner) => eval_pair_count(inner, filter, def_idx, self_idx, ctx),
 		Domain::Segments => count_segments(d, filter),
 		Domain::OutRefs => count_out_refs(d, def_idx, filter, ctx),
 		Domain::InRefs => count_in_refs(d, filter, ctx),
@@ -1334,13 +1343,13 @@ fn eval_number_expr_def(
 			expr,
 			percentile,
 		} => eval_aggregate(*kind, domain, expr, *percentile, def_idx, self_idx, ctx),
-		NumberExpr::FanIn(binding) => {
-			Some(fan_in(resolve_binding_idx(*binding, def_idx, self_idx), ctx) as f64)
-		}
-		NumberExpr::FanOut(binding) => {
-			Some(fan_out(resolve_binding_idx(*binding, def_idx, self_idx), ctx) as f64)
+		NumberExpr::Metric { kind, binding } => {
+			eval_metric(*kind, *binding, def_idx, self_idx, ctx)
 		}
 		NumberExpr::Entropy(collection) => eval_entropy(collection, def_idx, self_idx, ctx),
+		NumberExpr::Size(collection) => {
+			Some(eval_collection_size(collection, def_idx, self_idx, ctx) as f64)
+		}
 	}
 }
 
@@ -1357,9 +1366,9 @@ fn eval_number_expr_ref(
 		},
 		NumberExpr::Count { .. }
 		| NumberExpr::Aggregate { .. }
-		| NumberExpr::FanIn(_)
-		| NumberExpr::FanOut(_)
-		| NumberExpr::Entropy(_) => None,
+		| NumberExpr::Metric { .. }
+		| NumberExpr::Entropy(_)
+		| NumberExpr::Size(_) => None,
 	}
 }
 
@@ -1369,9 +1378,9 @@ fn eval_number_expr_segment(expr: &NumberExpr) -> Option<f64> {
 		NumberExpr::Projection(_)
 		| NumberExpr::Count { .. }
 		| NumberExpr::Aggregate { .. }
-		| NumberExpr::FanIn(_)
-		| NumberExpr::FanOut(_)
-		| NumberExpr::Entropy(_) => None,
+		| NumberExpr::Metric { .. }
+		| NumberExpr::Entropy(_)
+		| NumberExpr::Size(_) => None,
 	}
 }
 
@@ -1537,6 +1546,9 @@ fn eval_quantifier_def(
 				}
 			}
 		}
+		Domain::Pairs(inner) => {
+			return eval_pair_quantifier(kind, inner, filter, def_idx, self_idx, ctx);
+		}
 		Domain::Segments => {
 			for seg in d.moniker.as_view().segments() {
 				total += 1;
@@ -1652,6 +1664,18 @@ fn eval_atom(
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> AtomOutcome {
+	if let (LhsExpr::Collection(left), Op::Subset, Rhs::Collection(right)) =
+		(&atom.lhs, atom.op, &atom.rhs)
+	{
+		return if eval_collection_subset(left, right, def_idx, self_idx, ctx) {
+			AtomOutcome::Pass
+		} else {
+			AtomOutcome::Fail {
+				actual: "not subset".to_string(),
+				expected: "subset".to_string(),
+			}
+		};
+	}
 	let value: Value = match &atom.lhs {
 		LhsExpr::Attr(lhs) => {
 			let Some(value) = resolve_def_lhs(*lhs, d, ctx) else {
@@ -1671,12 +1695,14 @@ fn eval_atom(
 			};
 			value
 		}
+		LhsExpr::PairProjection(_) => return AtomOutcome::NotApplicable,
 		LhsExpr::SegmentOf { scope, kind } => match scope {
 			SegmentScope::Def => Value::Str(first_segment_name(&d.moniker, kind.as_bytes())),
 			SegmentScope::Source | SegmentScope::Target => {
 				return AtomOutcome::NotApplicable;
 			}
 		},
+		LhsExpr::Collection(_) => return AtomOutcome::NotApplicable,
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
 		let Some(rhs_val) = resolve_def_lhs(*other, d, ctx) else {

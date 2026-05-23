@@ -177,7 +177,7 @@ impl<'a> Parser<'a> {
 					i += 1;
 				}
 				_ => {
-					if depth == 0 && self.boundary_at(i) {
+					if depth == 0 && self.input.is_char_boundary(i) && self.boundary_at(i) {
 						return i;
 					}
 					i += 1;

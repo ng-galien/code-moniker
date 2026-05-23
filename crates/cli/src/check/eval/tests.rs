@@ -864,6 +864,287 @@ fn gini_counts_filtered_in_refs_per_field() {
 }
 
 #[test]
+fn collection_size_unique_detects_duplicate_method_names() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "unique-method-names"
+		expr = "size(unique(method.name)) = size(method.name)"
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(foo.clone(), b"class", &module, Some((0, 50)))
+		.unwrap();
+	for name in [b"run()".as_slice(), b"run(x:int)".as_slice()] {
+		g.add_def(child(&foo, b"method", name), b"method", &foo, Some((1, 5)))
+			.unwrap();
+	}
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(
+		v.len(),
+		1,
+		"duplicate bare method names should violate: {v:?}"
+	);
+	assert_eq!(v[0].rule_id, "ts.class.unique-method-names");
+}
+
+#[test]
+fn collection_subset_compares_projected_multisets() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "fields-have-method-name"
+		expr = "field.name subset method.name"
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(foo.clone(), b"class", &module, Some((0, 50)))
+		.unwrap();
+	g.add_def(child(&foo, b"field", b"seen"), b"field", &foo, Some((1, 2)))
+		.unwrap();
+	g.add_def(
+		child(&foo, b"field", b"missing"),
+		b"field",
+		&foo,
+		Some((3, 4)),
+	)
+	.unwrap();
+	g.add_def(
+		child(&foo, b"method", b"seen()"),
+		b"method",
+		&foo,
+		Some((5, 8)),
+	)
+	.unwrap();
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(
+		v.len(),
+		1,
+		"missing field name should not be in methods: {v:?}"
+	);
+	assert_eq!(v[0].rule_id, "ts.class.fields-have-method-name");
+}
+
+#[test]
+fn collection_projection_can_follow_nested_ref_domains() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "field-readers-local"
+		expr = "size(unique(field.in_refs.source.parent)) = 1"
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(foo.clone(), b"class", &module, Some((0, 50)))
+		.unwrap();
+	let field = child(&foo, b"field", b"value");
+	g.add_def(field.clone(), b"field", &foo, Some((1, 2)))
+		.unwrap();
+	for name in [b"a()", b"b()"] {
+		let method = child(&foo, b"method", name);
+		g.add_def(method.clone(), b"method", &foo, Some((5, 10)))
+			.unwrap();
+		g.add_ref(&method, field.clone(), b"reads", Some((6, 7)))
+			.unwrap();
+	}
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert!(v.is_empty(), "all field readers are methods of Foo: {v:?}");
+}
+
+#[test]
+fn pair_count_detects_duplicate_method_names() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "no-overloaded-method-names"
+		expr = "count(pairs(method), a.name = b.name) = 0"
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(foo.clone(), b"class", &module, Some((0, 50)))
+		.unwrap();
+	for name in [
+		b"run()".as_slice(),
+		b"run(x:int)".as_slice(),
+		b"stop()".as_slice(),
+	] {
+		g.add_def(child(&foo, b"method", name), b"method", &foo, Some((1, 5)))
+			.unwrap();
+	}
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(v.len(), 1, "duplicate pair should violate: {v:?}");
+	assert_eq!(v[0].rule_id, "ts.class.no-overloaded-method-names");
+}
+
+#[test]
+fn pair_quantifier_binds_self_to_owner() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "method-pairs-owned-by-class"
+		expr = "all(pairs(method), a.parent = self AND b.parent = self)"
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(foo.clone(), b"class", &module, Some((0, 50)))
+		.unwrap();
+	g.add_def(
+		child(&foo, b"method", b"a()"),
+		b"method",
+		&foo,
+		Some((1, 5)),
+	)
+	.unwrap();
+	g.add_def(
+		child(&foo, b"method", b"b()"),
+		b"method",
+		&foo,
+		Some((6, 10)),
+	)
+	.unwrap();
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert!(v.is_empty(), "pair self binding should point to Foo: {v:?}");
+}
+
+#[test]
+fn named_metrics_evaluate_local_class_metrics() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "local-class-metrics"
+		expr = """
+		  name != 'Foo'
+		  OR (wmc(self) = 2 AND rfc(self) = 3 AND cbo(self) = 2 AND fan_in(self) = 1)
+		"""
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	let bar = child(&module, b"class", b"Bar");
+	let baz = child(&module, b"class", b"Baz");
+	g.add_def(foo.clone(), b"class", &module, Some((0, 50)))
+		.unwrap();
+	g.add_def(bar.clone(), b"class", &module, Some((60, 90)))
+		.unwrap();
+	g.add_def(baz.clone(), b"class", &module, Some((100, 130)))
+		.unwrap();
+	let run = child(&foo, b"method", b"run()");
+	let stop = child(&foo, b"method", b"stop()");
+	let value = child(&foo, b"field", b"value");
+	let helper = child(&bar, b"method", b"helper()");
+	g.add_def(run.clone(), b"method", &foo, Some((1, 5)))
+		.unwrap();
+	g.add_def(stop, b"method", &foo, Some((6, 10))).unwrap();
+	g.add_def(value.clone(), b"field", &foo, Some((11, 12)))
+		.unwrap();
+	g.add_def(helper.clone(), b"method", &bar, Some((61, 65)))
+		.unwrap();
+	g.add_ref(&run, helper, b"calls", Some((2, 3))).unwrap();
+	g.add_ref(&run, value, b"reads", Some((4, 5))).unwrap();
+	g.add_ref(&baz, foo.clone(), b"uses", Some((101, 102)))
+		.unwrap();
+
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert!(
+		v.is_empty(),
+		"metrics should match local graph facts: {v:?}"
+	);
+}
+
+#[test]
+fn inheritance_metrics_use_local_extends_refs() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "inheritance-bounds"
+		expr = """
+		  (name != 'Base' OR noc(self) <= 1)
+		  AND (name != 'Grand' OR dit(self) <= 1)
+		"""
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let base = child(&module, b"class", b"Base");
+	let child1 = child(&module, b"class", b"Child1");
+	let child2 = child(&module, b"class", b"Child2");
+	let grand = child(&module, b"class", b"Grand");
+	for class in [&base, &child1, &child2, &grand] {
+		g.add_def(class.clone(), b"class", &module, Some((0, 10)))
+			.unwrap();
+	}
+	g.add_ref(&child1, base.clone(), b"extends", Some((1, 2)))
+		.unwrap();
+	g.add_ref(&child2, base, b"extends", Some((3, 4))).unwrap();
+	g.add_ref(&grand, child1, b"extends", Some((5, 6))).unwrap();
+
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(v.len(), 2, "Base NOC and Grand DIT should violate: {v:?}");
+	assert!(v.iter().any(|violation| violation.moniker.contains("Base")));
+	assert!(
+		v.iter()
+			.any(|violation| violation.moniker.contains("Grand"))
+	);
+}
+
+#[test]
+fn lcom4_detects_disconnected_method_groups() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "cohesive-methods"
+		expr = "name != 'Split' OR lcom4(self) <= 1"
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let split = child(&module, b"class", b"Split");
+	g.add_def(split.clone(), b"class", &module, Some((0, 80)))
+		.unwrap();
+	let x = child(&split, b"field", b"x");
+	let y = child(&split, b"field", b"y");
+	g.add_def(x.clone(), b"field", &split, Some((1, 2)))
+		.unwrap();
+	g.add_def(y.clone(), b"field", &split, Some((3, 4)))
+		.unwrap();
+	let methods = [
+		child(&split, b"method", b"a()"),
+		child(&split, b"method", b"b()"),
+		child(&split, b"method", b"c()"),
+		child(&split, b"method", b"d()"),
+	];
+	for method in &methods {
+		g.add_def(method.clone(), b"method", &split, Some((10, 12)))
+			.unwrap();
+	}
+	g.add_ref(&methods[0], x.clone(), b"reads", Some((11, 12)))
+		.unwrap();
+	g.add_ref(&methods[1], x, b"reads", Some((13, 14))).unwrap();
+	g.add_ref(&methods[2], y.clone(), b"reads", Some((15, 16)))
+		.unwrap();
+	g.add_ref(&methods[3], y, b"reads", Some((17, 18))).unwrap();
+
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(
+		v.len(),
+		1,
+		"two method/field components should violate: {v:?}"
+	);
+	assert_eq!(v[0].rule_id, "ts.class.cohesive-methods");
+}
+
+#[test]
 fn any_quantifier_children() {
 	let cfg = cfg_from(
 		r#"
