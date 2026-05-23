@@ -1,0 +1,115 @@
+# Local code-smell warning pack.
+#
+# These rules encode executable local heuristics inspired by Fowler's code
+# smell catalogue and Lanza/Marinescu-style OO metrics. They are all warnings:
+# a failure should create a review candidate, not fail the build by itself.
+#
+# Copy into a project overlay, or run directly:
+#
+#   code-moniker check . --rules docs/cli/check-samples/code-smells-local.toml --default-rules off --report
+
+default_rules = false
+
+# Callable-level smells -----------------------------------------------------
+
+[[shape.callable.where]]
+id       = "smell-long-callable"
+severity = "warn"
+expr     = "lines <= 120"
+message  = "Long Method/Function candidate: `{name}` is {value} lines."
+rationale = "Local Fowler-style Long Method guard. Tune the threshold per project and language."
+
+[[shape.callable.where]]
+id       = "smell-long-parameter-list"
+severity = "warn"
+expr     = "count(param) <= 6"
+message  = "Long Parameter List candidate: `{name}` has too many direct parameters."
+rationale = "A long parameter list often points to a missing parameter object, context object, or better domain abstraction."
+
+[[shape.callable.where]]
+id       = "smell-feature-envy-local"
+severity = "warn"
+expr     = "count(out_refs) >= 5 => mode(out_refs, target.parent) = source.parent"
+message  = "Feature Envy candidate: `{name}` mostly reaches into another owner."
+rationale = "When a callable has enough outgoing refs, its dominant target parent should normally be its own owner."
+
+[[shape.callable.where]]
+id       = "smell-caller-concentration"
+severity = "warn"
+expr     = "count(in_refs) >= 5 => entropy(in_refs, source.parent) >= 0.5"
+message  = "Caller concentration candidate: `{name}` is mainly used by one local owner."
+rationale = "Low normalized entropy over incoming-ref owners can expose accidental APIs or misplaced helper code."
+
+# Type-level smells ---------------------------------------------------------
+
+[[shape.type.where]]
+id       = "smell-large-type"
+severity = "warn"
+expr     = "count(shape:callable) <= 30 AND count(shape:value) <= 40"
+message  = "Large Class/Type candidate: `{name}` has too many direct members."
+rationale = "Broad size guard for classes, structs, records, interfaces, traits, tables, and views."
+
+[[shape.type.where]]
+id       = "smell-lazy-type"
+severity = "warn"
+expr     = "count(shape:callable) >= 2 OR count(shape:value) >= 2"
+message  = "Lazy Class/Type candidate: `{name}` has very little local substance."
+rationale = "Small types are sometimes useful, but they are worth reviewing when they add indirection without behavior."
+
+[[shape.type.where]]
+id       = "smell-god-type-local-metrics"
+severity = "warn"
+expr     = "count(shape:callable) >= 8 => wmc(self) <= 47 AND cbo(self) <= 14 AND lcom4(self) <= 2"
+message  = "God Class/Type candidate: `{name}` exceeds local OO metric bounds."
+rationale = "Local approximation of Lanza/Marinescu-style complexity, coupling, and cohesion bounds."
+
+[[shape.type.where]]
+id       = "smell-inheritance-abuse-local"
+severity = "warn"
+expr     = "dit(self) <= 5 AND noc(self) <= 10"
+message  = "Inheritance abuse candidate: `{name}` has a deep or broad local inheritance shape."
+rationale = "Local inheritance metrics are cheap warning signals; cross-file hierarchy checks belong to corpus analysis."
+
+[[shape.type.where]]
+id       = "smell-harmonious-method-size"
+severity = "warn"
+expr     = "count(shape:callable) >= 5 => cv(shape:callable, lines) <= 0.6"
+message  = "Distribution smell: method sizes under `{name}` are highly uneven."
+rationale = "The coefficient of variation catches a type dominated by one or two much larger methods."
+
+[[shape.type.where]]
+id       = "smell-balanced-method-fanout"
+severity = "warn"
+expr     = "count(shape:callable) >= 5 => gini(shape:callable, fan_out(each)) <= 0.55"
+message  = "Distribution smell: fan-out under `{name}` is concentrated in a few methods."
+rationale = "A high Gini coefficient over method fan-out can reveal a hidden coupling hotspot."
+
+[[shape.type.where]]
+id       = "smell-middle-man-strict"
+severity = "warn"
+expr     = "count(shape:callable) < 3 OR any(shape:callable, count(out_refs) >= 2)"
+message  = "Middle Man candidate: methods under `{name}` look like thin delegators."
+rationale = "Strict local approximation until arithmetic or fraction(D, F) supports delegation ratios."
+
+[[shape.type.where]]
+id       = "smell-duplicate-callable-names"
+severity = "warn"
+expr     = "size(unique(shape:callable.name)) = size(shape:callable.name)"
+message  = "Duplicate callable-name candidate under `{name}`."
+rationale = "Duplicate direct child names are often accidental overloads or unclear local vocabulary."
+
+# Comment smells ------------------------------------------------------------
+
+[[shape.annotation.where]]
+id       = "smell-long-comment-block"
+severity = "warn"
+expr     = "lines <= 8"
+message  = "Comment smell candidate: this comment block is long."
+rationale = "Long inline prose should usually move to docs or become clearer names and structure."
+
+[[shape.annotation.where]]
+id       = "smell-todo-comment"
+severity = "warn"
+expr     = "text !~ (?i)\\b(todo|fixme|hack)\\b"
+message  = "Comment smell candidate: TODO/FIXME/HACK marker found."
+rationale = "Open-ended comment markers are review prompts; projects can allow-list deliberate debt tracking patterns."

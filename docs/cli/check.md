@@ -444,6 +444,7 @@ samples:
 | -------- | ------ |
 | Architecture patterns | [architecture.toml](check-samples/architecture.toml) |
 | Test guardrails | [test-guardrails.toml](check-samples/test-guardrails.toml) |
+| Local code smell warnings | [code-smells-local.toml](check-samples/code-smells-local.toml) |
 | TypeScript / JavaScript | [typescript.toml](check-samples/typescript.toml) |
 | Rust | [rust.toml](check-samples/rust.toml) |
 | Java | [java.toml](check-samples/java.toml) |
@@ -461,6 +462,10 @@ non-endorsement notes sit at the top of each file.
 | Robert C. Martin, *Clean Architecture* (2017) | [clean-architecture.toml](check-samples/clean-architecture.toml) |
 | Martin Fowler, *Patterns of Enterprise Application Architecture* (2002) | [fowler-eaa.toml](check-samples/fowler-eaa.toml) |
 | Martin Fowler, *Refactoring* (1999/2018) | [fowler-refactoring.toml](check-samples/fowler-refactoring.toml) |
+
+See [Code smell review](code-smell-review.md) for the executable local
+coverage model, current operator gaps, and the warning-first review
+workflow.
 
 ### Layer boundary
 

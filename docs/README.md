@@ -14,6 +14,7 @@ details.
 | List declared deps with their package moniker | [Manifest](cli/manifest.md) |
 | Run architecture and naming rules | [Check](cli/check.md) |
 | Write rule expressions | [Rule DSL](cli/check-dsl.md) |
+| Review local code smell warnings | [Code smell review](cli/code-smell-review.md) |
 | Discover supported language tags, kinds, and shapes | [Discovery](cli/langs.md) |
 | Connect `check` to hooks, pre-commit, or CI | [Agent harness](cli/agent-harness.md) |
 

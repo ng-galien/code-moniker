@@ -8,9 +8,15 @@ This is a Rust 2024 Cargo workspace with three crates:
 - `crates/cli`: the `code-moniker` binary, CLI parsing, formatting, rule checking, and integration tests in `crates/cli/tests/`.
 - `crates/pg`: the `code-moniker-pg` pgrx PostgreSQL extension, SQL types, extractors, indexes, and extension metadata.
 
-Supporting material lives in `docs/`, pgTAP tests in `pgtap/sql/`, dogfood/regression tooling in `scripts/dogfood/`, and property-test regressions in `proptest-regressions/`.
+Supporting material lives in `docs/`, pgTAP tests in `pgtap/sql/`,
+dogfood/regression tooling in `scripts/dogfood/`, and property-test
+regressions in `proptest-regressions/`.
 
-Use `bug/` for confirmed incorrect behavior with a minimal reproducer. Use `evolutions/` for product or DX improvements discovered while dogfooding, especially ESAC harness feedback that is not a strict correctness bug. When working from another repository such as ESAC, do not implement code-moniker changes opportunistically; only deposit bugs or evolutions here for the code-moniker agent to handle.
+Use `bug/` for confirmed incorrect behavior with a minimal reproducer. Use
+`evolutions/` for product or DX improvements that cannot yet be expressed
+as executable code or check rules. When a finding, difficulty, or gotcha
+looks repeatable, first try to consolidate it as a `code-moniker check`
+DSL rule or sample rule before writing prose-only guidance.
 
 ## Build, Test, and Development Commands
 
@@ -64,6 +70,47 @@ Before commit on non-release work, run the full gate once after review fixes:
 only when `crates/pg`, SQL types, or extension behavior changed. Install the
 binary with `cargo install --path crates/cli` only when CLI/TUI behavior changed
 or when the user will test the installed executable.
+
+## Refactoring Workflow
+
+Start refactoring work by invoking the code-smell review agent/skill
+(`$code-moniker-smell-review`) or by running the local warning pack:
+
+```sh
+code-moniker check <target> \
+  --rules docs/cli/check-samples/code-smells-local.toml \
+  --default-rules off \
+  --report
+```
+
+Use that pass to explore the target module, identify review candidates, and
+choose a bounded module or feature slice. Keep smell rules at
+`severity = "warn"` while refactoring so they guide the work without
+blocking unrelated progress. For the chosen module, fix or consciously
+retune every relevant warning until the target goes green. Once the module
+is clean and the thresholds are credible, promote those module-specific
+rules to `severity = "error"` so the smell does not regress.
+
+Refactor in functional units. After a unit is complete, run the narrowest
+meaningful validation plus the relevant smell check, then commit that unit
+with a Conventional Commit message. Do not batch unrelated smell fixes into
+one commit simply because they were discovered by the same review pass.
+
+## Normal Workflow
+
+During ordinary implementation, treat every surprising finding, recurring
+difficulty, harness gotcha, or review comment as a candidate for executable
+knowledge. Before adding prose to `AGENTS.md`, `CLAUDE.md`, or docs, ask
+whether it can become:
+
+- a project rule in `.code-moniker.toml` or a `code-moniker.fragment.toml`;
+- a reusable sample in `docs/cli/check-samples/`;
+- a missing DSL/operator evolution in `evolutions/`;
+- a focused test that preserves the discovered behavior.
+
+Prefer a DSL rule when the condition is structural and locally observable.
+Use documentation only for judgment calls, process intent, or behavior that
+the current DSL cannot express.
 
 ## CI & Release Workflow
 
