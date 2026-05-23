@@ -19,6 +19,7 @@ eval_value = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module
 eval_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection/**'"
 eval_pairs = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs/**'"
 eval_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics/**'"
+config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:config/**'"
 
 [[refs.where]]
 id      = "expr-parser-only"
@@ -41,6 +42,30 @@ expr    = """
        OR target ~ '**/path:LinkageIndex')
 """
 message = "`check::eval` evaluates local `CodeGraph` facts only; project-wide indexes and linkage stay out of the local DSL evaluator."
+
+# Config loading owns TOML/profile/alias/fragment merge semantics. Keep it
+# free of runtime rule evaluation and keep fragment internals behind the
+# public config loading API.
+
+[[refs.where]]
+id      = "config-no-runtime-eval"
+expr    = """
+  $config AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/dir:eval/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::config` owns TOML/profile/alias loading; it must not evaluate rules or reach workspace indexes."
+
+[[refs.where]]
+id      = "config-fragments-private"
+expr    = """
+  (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND (target ~ '**/dir:check/dir:config/module:fragments'
+       OR target ~ '**/dir:check/dir:config/module:fragments/**')
+  => $config OR $rust_inline_tests
+"""
+message = "`check::config::fragments` is loader internals; callers should use the public `check::config` loading API."
 
 [[refs.where]]
 id      = "expr-parse-no-number-rhs-direct"

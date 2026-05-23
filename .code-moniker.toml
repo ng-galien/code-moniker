@@ -8,16 +8,11 @@
 # Aliases below pin patterns to that encoding.
 
 [aliases]
-# Submodules of the `code_moniker_core` crate. Anchored on `dir:src/dir:<name>`
-# so they don't collide with the enclosing crate dir (`dir:crates/dir:core`).
-core    = "moniker ~ '**/dir:src/dir:core/**'"
-declare = "moniker ~ '**/dir:src/dir:declare/**'"
-lang    = "moniker ~ '**/dir:src/dir:lang/**'"
 # Standalone crates (each at `crates/<name>/`). The crate dirs are unique
 # top-level names, so anchoring on `dir:crates/dir:<name>` is unambiguous.
-cli     = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
-pg      = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
-check_config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:config/**'"
+crate_core = "moniker ~ '**/dir:crates/dir:core/dir:src/**'"
+crate_cli  = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
+crate_pg   = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
@@ -27,76 +22,29 @@ example           = "moniker ~ '**/dir:examples/**'"
 enable = [".*"]
 
 # ─── Hex / Layering ─────────────────────────────────────────────────
-# Cross-crate boundaries (cli → pg, lang → cli) are also enforced by cargo
-# via the dependency graph; these rules are defence-in-depth and catch
-# accidental adds before they reach a build break.
-#
-# Intra-crate boundaries (core/ submodule must not import lang/, etc.) are
-# NOT enforced by cargo — only by these rules.
+# Cross-crate refs encode the dependent crate as `external_pkg:<name>` in the
+# target moniker. Cargo also enforces these edges, but the rules keep the crate
+# dependency matrix explicit in `code-moniker` reports and review tooling.
 
 [[refs.where]]
-id      = "core-no-pgrx"
-expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
-message = "Module `core` is parser-agnostic by contract; pgrx belongs to the `code-moniker-pg` crate."
+id      = "core-crate-no-cli"
+expr    = "$crate_core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
+message = "`code-moniker-core` is the foundation library; it must not depend on the CLI crate."
 
 [[refs.where]]
-id      = "core-no-tree-sitter"
-expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:tree_sitter/**'"
-message = "Module `core` is parser-agnostic; tree-sitter belongs under `crates/core/src/lang/`."
+id      = "core-crate-no-pg"
+expr    = "$crate_core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
+message = "`code-moniker-core` is shared by CLI and PG; it must not depend on the PostgreSQL extension crate."
 
-[[refs.where]]
-id      = "lang-extractors-isolated"
-expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
-message = "Per-language extractors are pure Rust; pgrx belongs to the `code-moniker-pg` crate."
-
-# Cross-crate refs encode the dependent crate as `external_pkg:<name>` in
-# the target moniker. Intra-crate refs use `module:<name>` / `dir:<name>`.
 [[refs.where]]
 id      = "cli-no-pg"
-expr    = "$cli AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
+expr    = "$crate_cli AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
 message = "`cli` is the standalone binary; importing from `code-moniker-pg` pulls pgrx into the cli build."
 
 [[refs.where]]
-id      = "lang-no-cli"
-expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
-message = "`lang` extractors are pure libraries consumed by the CLI / PG crates; they must not depend back on the CLI surface."
-
-# Intra-crate: core/ submodule must not depend on its sibling submodules
-# (lang/, declare/) nor on the standalone crates.
-[[refs.where]]
-id      = "core-no-upper"
-expr    = """
-  $core AND kind = 'imports_symbol'
-  => NOT (target ~ '**/dir:lang/**'    OR target ~ '**/module:lang/**'
-       OR target ~ '**/dir:declare/**' OR target ~ '**/module:declare/**'
-       OR target ~ '**/external_pkg:code_moniker_cli/**'
-       OR target ~ '**/external_pkg:code_moniker_pg/**')
-"""
-message = "`core` is the foundation submodule; it must not depend on `lang`, `declare`, or the standalone crates."
-
-# ─── Config loader bootstrap ─────────────────────────────────────────
-# Fragment loading is implemented by `check::config`; keep the bootstrapping
-# boundary global so a broken fragment loader cannot hide its own guardrails.
-
-[[refs.where]]
-id      = "check-config-no-runtime-eval"
-expr    = """
-  $check_config AND kind = 'imports_symbol'
-  => NOT (target ~ '**/module:eval/**'
-       OR target ~ '**/dir:eval/**'
-       OR target ~ '**/dir:workspace/**')
-"""
-message = "`check::config` owns TOML/profile/alias loading; it must not evaluate rules or reach workspace indexes."
-
-[[refs.where]]
-id      = "check-config-fragments-private"
-expr    = """
-  (kind = 'imports_symbol' OR kind = 'imports_module')
-  AND (target ~ '**/dir:check/dir:config/module:fragments'
-       OR target ~ '**/dir:check/dir:config/module:fragments/**')
-  => $check_config OR $rust_inline_tests
-"""
-message = "`check::config::fragments` is loader internals; callers should use the public `check::config` loading API."
+id      = "pg-no-cli"
+expr    = "$crate_pg AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
+message = "`code-moniker-pg` is the PostgreSQL extension; it must not depend on CLI/TUI code."
 
 # ─── Naming hygiene per layer ────────────────────────────────────────
 # These extend / refine the embedded preset that already enforces
@@ -141,37 +89,3 @@ message = "Do not add comments inside functions, methods, structs, enums, traits
 id      = "comment-max-lines"
 expr    = "$tests OR $rust_inline_tests OR $example OR text =~ '^//\\s*SAFETY:' OR text =~ '^//!' OR lines <= 4"
 message = "Doc/block comment is {value} lines (cap = 4). Move prose to docs/ — see CLAUDE.md comment sobriety."
-
-# ─── Walker shape — canonical extractor contract ───────────────────────
-# `crates/core/src/lang/canonical_walker.rs` owns the shared extractor walk.
-# `walk` iterates children and recurses on `NodeShape::Recurse`; `dispatch`
-# applies the same classification to one node and must call `self.walk(...)`
-# for recurse cases. Drop-arm `_ => {}` is forbidden — it silently loses
-# sub-trees.
-
-[[rust.module.where]]
-id      = "walker-struct-exists"
-expr    = "moniker ~ '**/dir:lang/module:canonical_walker' => any(struct, name = 'CanonicalWalker')"
-message = "`canonical_walker.rs` must define `CanonicalWalker` (state + dispatch methods)."
-
-[[rust.struct.where]]
-id      = "walker-has-walk-method"
-expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'walk')"
-message = "CanonicalWalker must expose `walk(node, scope, graph)` — iterates children and recurses on NodeShape::Recurse."
-
-[[rust.struct.where]]
-id      = "walker-has-dispatch-method"
-expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'dispatch')"
-message = "CanonicalWalker must expose `dispatch(node, scope, graph)` — single-node classification with recurse fallback."
-
-# Behavioral rule: dispatch must call self.walk for recurse cases.
-# Symbolically: dispatch must emit at least one out_ref method_call → walk.
-# Whitelist-with-`NodeShape::Recurse => {}` divergence has no such ref and
-# trips the rule.
-[[rust.method.where]]
-id      = "walker-dispatch-recurses-into-walk"
-expr    = """
-  parent.name = 'CanonicalWalker' AND name = 'dispatch'
-  => any(out_refs, kind = 'method_call' AND target.name = 'walk')
-"""
-message = "CanonicalWalker.dispatch must call `self.walk(...)` for recurse cases. Missing this drops sub-trees."

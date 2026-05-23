@@ -1,0 +1,67 @@
+fragment = "core"
+
+# `code_moniker_core` owns the pure model, declaration layer, and language
+# extractors. Keep these rules colocated with the crate-level architecture
+# they protect.
+
+[aliases]
+core    = "moniker ~ '**/dir:src/dir:core/**'"
+declare = "moniker ~ '**/dir:src/dir:declare/**'"
+lang    = "moniker ~ '**/dir:src/dir:lang/**'"
+canonical_walker = "moniker ~ '**/dir:lang/module:canonical_walker'"
+
+[[refs.where]]
+id      = "core-no-pgrx"
+expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
+message = "Module `core` is parser-agnostic by contract; pgrx belongs to the `code-moniker-pg` crate."
+
+[[refs.where]]
+id      = "core-no-tree-sitter"
+expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:tree_sitter/**'"
+message = "Module `core` is parser-agnostic; tree-sitter belongs under `crates/core/src/lang/`."
+
+[[refs.where]]
+id      = "lang-extractors-isolated"
+expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
+message = "Per-language extractors are pure Rust; pgrx belongs to the `code-moniker-pg` crate."
+
+[[refs.where]]
+id      = "core-no-upper"
+expr    = """
+  $core AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:lang/**'    OR target ~ '**/module:lang/**'
+       OR target ~ '**/dir:declare/**' OR target ~ '**/module:declare/**')
+"""
+message = "`core` is the foundation submodule; it must not depend on sibling `lang` or `declare` internals."
+
+# `canonical_walker.rs` owns the shared extractor walk. `walk` iterates
+# children and recurses on `NodeShape::Recurse`; `dispatch` applies the same
+# classification to one node and must call `self.walk(...)` for recurse cases.
+# Drop-arm `_ => {}` is forbidden because it silently loses sub-trees.
+
+[[rust.module.where]]
+id      = "walker-struct-exists"
+expr    = "$canonical_walker => any(struct, name = 'CanonicalWalker')"
+message = "`canonical_walker.rs` must define `CanonicalWalker` (state + dispatch methods)."
+
+[[rust.struct.where]]
+id      = "walker-has-walk-method"
+expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'walk')"
+message = "CanonicalWalker must expose `walk(node, scope, graph)` — iterates children and recurses on NodeShape::Recurse."
+
+[[rust.struct.where]]
+id      = "walker-has-dispatch-method"
+expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'dispatch')"
+message = "CanonicalWalker must expose `dispatch(node, scope, graph)` — single-node classification with recurse fallback."
+
+# Behavioral rule: dispatch must call self.walk for recurse cases.
+# Symbolically: dispatch must emit at least one out_ref method_call → walk.
+# Whitelist-with-`NodeShape::Recurse => {}` divergence has no such ref and
+# trips the rule.
+[[rust.method.where]]
+id      = "walker-dispatch-recurses-into-walk"
+expr    = """
+  parent.name = 'CanonicalWalker' AND name = 'dispatch'
+  => any(out_refs, kind = 'method_call' AND target.name = 'walk')
+"""
+message = "CanonicalWalker.dispatch must call `self.walk(...)` for recurse cases. Missing this drops sub-trees."
