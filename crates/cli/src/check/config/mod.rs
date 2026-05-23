@@ -100,9 +100,38 @@ pub struct RuleEntry {
 	pub id: Option<String>,
 	pub expr: String,
 	#[serde(default)]
+	pub severity: RuleSeverity,
+	#[serde(default)]
 	pub message: Option<String>,
 	#[serde(default)]
 	pub rationale: Option<String>,
+}
+
+#[derive(
+	Debug, Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, serde::Serialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleSeverity {
+	Warn,
+	#[default]
+	Error,
+}
+
+impl RuleSeverity {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Warn => "warn",
+			Self::Error => "error",
+		}
+	}
+
+	pub fn is_error(self) -> bool {
+		matches!(self, Self::Error)
+	}
+
+	pub fn is_warn(self) -> bool {
+		matches!(self, Self::Warn)
+	}
 }
 
 #[derive(Debug, Error)]

@@ -31,6 +31,7 @@ expr    = """
        OR target ~ '**/dir:workspace/**')
 """
 message = "`check::expr` owns DSL syntax only; evaluation, config loading, and workspace/project indexes stay outside the parser."
+rationale = "The parser should produce syntax and AST shapes that are deterministic from the rule text. Pulling runtime evaluation or workspace data into parsing would make rule loading stateful and harder to test in isolation."
 
 [[refs.where]]
 id      = "eval-local-graph-only"
@@ -42,6 +43,7 @@ expr    = """
        OR target ~ '**/path:LinkageIndex')
 """
 message = "`check::eval` evaluates local `CodeGraph` facts only; project-wide indexes and linkage stay out of the local DSL evaluator."
+rationale = "Rule expressions currently evaluate against one local graph item at a time. Keeping project indexes out of this layer preserves predictable cost and leaves cross-file semantics to explicit higher-level features."
 
 # Config loading owns TOML/profile/alias/fragment merge semantics. Keep it
 # free of runtime rule evaluation and keep fragment internals behind the
@@ -56,6 +58,7 @@ expr    = """
        OR target ~ '**/dir:workspace/**')
 """
 message = "`check::config` owns TOML/profile/alias loading; it must not evaluate rules or reach workspace indexes."
+rationale = "Config loading must stay a pure compilation step from TOML to rule specs. If it starts evaluating against workspaces, `rules show`, hooks, and tests inherit runtime dependencies they do not need."
 
 [[refs.where]]
 id      = "config-fragments-private"
@@ -66,6 +69,7 @@ expr    = """
   => $config OR $rust_inline_tests
 """
 message = "`check::config::fragments` is loader internals; callers should use the public `check::config` loading API."
+rationale = "Fragment discovery and namespacing are merge internals. Keeping callers on the public config API lets the loader change fragment mechanics without leaking partial or unmerged rule state."
 
 [[refs.where]]
 id      = "expr-parse-no-number-rhs-direct"
@@ -74,6 +78,7 @@ expr    = """
   => NOT target ~ '**/dir:check/dir:expr/module:number/path:parse_number_rhs'
 """
 message = "`check::expr::parse` still imports `number::parse_number_rhs`; numeric RHS parsing leaks through the boolean parser boundary."
+rationale = "This is a temporary coupling guard: the boolean parser should assemble expression structure while numeric parsing owns numeric RHS details. The rule marks the remaining dependency until the parser split is complete."
 
 [[refs.where]]
 id      = "expr-number-no-filter-parser-callback"
@@ -82,6 +87,7 @@ expr    = """
   => NOT target ~ '**/method:parse_domain_filter_body'
 """
 message = "`check::expr::number` still parses `count(...)` filters through the domain/filter parser callback; numeric parsing remains coupled to boolean expression parsing."
+rationale = "`count(domain, filter)` crosses numeric syntax and boolean filter syntax. The desired boundary is a narrow delegated parser API, not a callback that makes the numeric parser understand boolean internals."
 
 [[refs.where]]
 id      = "expr-specialized-atoms-tail-helper"
@@ -93,6 +99,7 @@ expr    = """
        OR target ~ '**/method:find_atom_end')
 """
 message = "`check::expr::parse` still repeats comparison-tail parsing in specialized atom parsers; move op/RHS/raw handling behind one helper."
+rationale = "Specialized atom parsers should identify their left-hand side and delegate comparison-tail parsing. Duplicated tail scanning makes precedence and diagnostic behavior drift between atom forms."
 
 [[refs.where]]
 id      = "expr-scanners-owned-by-cursor"
@@ -105,6 +112,7 @@ expr    = """
        OR target ~ '**/method:is_ascii_alphanumeric')
 """
 message = "`check::expr` still has local byte/token scanners outside `cursor`; lexical scanning should have a single owner."
+rationale = "The cursor is the lexical boundary for the DSL parser. Direct byte and ASCII scans in atom modules recreate tokenizer behavior and make edge cases such as regexes, quotes, and identifiers diverge."
 
 # Couche 1 — agrégateurs locaux sur domaine.
 # `number` owns numeric syntax, `value` owns domain value expressions used by
@@ -119,6 +127,7 @@ expr    = """
   => NOT target ~ '**/method:parse_domain_value_call_body'
 """
 message = "`mode(...)` parsing should delegate domain/value body parsing to `check::expr::value`; `parse` only owns boolean precedence and comparison tails."
+rationale = "`mode` returns a value rather than a number. The parser split keeps value-producing domain expressions separate from boolean precedence so future value aggregators do not grow the top-level parser."
 
 [[refs.where]]
 id      = "dsl-layer1-number-parser-stays-numeric"
@@ -127,6 +136,7 @@ expr    = """
   => NOT target ~ '**/method:parse_mode_lhs'
 """
 message = "`check::expr::number` must stay numeric; value-returning aggregators such as `mode` belong to `check::expr::value`."
+rationale = "Numeric parsing should only own expressions that can participate in numeric comparisons. Mixing value-returning aggregators into it obscures type expectations in the DSL."
 
 [[refs.where]]
 id      = "dsl-layer1-eval-value-is-graph-free"
@@ -139,6 +149,7 @@ expr    = """
        OR target ~ '**/module:linkage/**')
 """
 message = "`check::eval::value` is the typed comparison/rendering layer; local graph traversal belongs to `check::eval::local`."
+rationale = "Value evaluation should compare and render already-projected values. Keeping raw graph traversal out of it avoids a second traversal owner beside `eval::local`."
 
 # Couche 2 — multisets et opérations ensemblistes.
 # `expr::collection` owns collection syntax (`size`, `unique`, set ops,
@@ -154,6 +165,7 @@ expr    = """
        OR target ~ '**/dir:workspace/**')
 """
 message = "`check::expr::collection` must remain syntax/AST only; multiset evaluation belongs outside the parser."
+rationale = "Collection syntax is part of rule parsing, but collection contents are runtime facts. Keeping the parser AST-only lets `rules show` and config validation run without workspace data."
 
 [[refs.where]]
 id      = "dsl-layer2-eval-collection-local-only"
@@ -165,6 +177,7 @@ expr    = """
        OR target ~ '**/path:LinkageIndex')
 """
 message = "`check::eval::collection` must evaluate local multisets only; project-wide linkage stays outside local analysis."
+rationale = "Multiset operators should be predictable local analytics over the current graph item. Project-wide linkage would change their cost model and blur the boundary with impact/linkage indexes."
 
 [[refs.where]]
 id      = "dsl-layer2-boolean-parser-delegates-collection"
@@ -175,6 +188,7 @@ expr    = """
   => NOT target ~ '**/method:parse_collection_expr'
 """
 message = "`check::expr::parse` must delegate multiset syntax to `check::expr::collection`; boolean precedence stays separate from collection grammar."
+rationale = "The top-level parser should route to feature parsers, not grow every grammar feature directly. This keeps boolean precedence stable while collection syntax evolves."
 
 [[refs.where]]
 id      = "dsl-layer2-number-parser-size-only"
@@ -184,6 +198,7 @@ expr    = """
   => NOT target ~ '**/method:try_parse_collection_subset_atom'
 """
 message = "`check::expr::number` may parse `size(...)`, but subset/set boolean syntax belongs to `check::expr::collection`."
+rationale = "`size(collection)` is numeric, while `subset` and set algebra are collection semantics. The split prevents the numeric parser from becoming the owner of collection grammar."
 
 [[refs.where]]
 id      = "dsl-layer2-eval-local-does-not-own-multiset-algebra"
@@ -197,6 +212,7 @@ expr    = """
        OR target ~ '**/method:is_subset')
 """
 message = "`check::eval::local` owns domain traversal and numeric local metrics; multiset algebra belongs to `check::eval::collection`."
+rationale = "Local evaluation may enumerate domains, but set operations need their own algebra and equality semantics. Centralizing them in `eval::collection` avoids duplicate multiset behavior."
 
 # Couche 3 — itération locale sur paires.
 # `expr::pairs` owns `pairs(D)` and `a.*` / `b.*` binding syntax.
@@ -212,6 +228,7 @@ expr    = """
        OR target ~ '**/dir:workspace/**')
 """
 message = "`check::expr::pairs` must only parse pair domains/bindings; evaluation and graph traversal stay outside the parser."
+rationale = "`pairs(D)` introduces binding syntax for `a.*` and `b.*`. Parsing those bindings separately keeps pair grammar explicit without making the parser depend on graph contents."
 
 [[refs.where]]
 id      = "dsl-layer3-eval-pairs-local-only"
@@ -223,6 +240,7 @@ expr    = """
        OR target ~ '**/path:LinkageIndex')
 """
 message = "`check::eval::pairs` must evaluate pair domains from the local `CodeGraph`; project-wide linkage stays outside local analysis."
+rationale = "Pair rules are combinatorial even when local. Keeping them local protects hook latency and avoids accidental all-project pair scans."
 
 [[refs.where]]
 id      = "dsl-layer3-domain-parser-does-not-own-pair-bindings"
@@ -232,6 +250,7 @@ expr    = """
   => NOT target ~ '**/method:parse_pair_projection'
 """
 message = "`check::expr::domain` may delegate `pairs(D)`, but `a.*` / `b.*` binding syntax belongs to `check::expr::pairs`."
+rationale = "Domain parsing names the item collection; pair parsing owns the additional binding surface. This keeps ordinary domain projections from inheriting pair-specific syntax."
 
 [[refs.where]]
 id      = "dsl-layer3-eval-local-does-not-own-pair-iteration"
@@ -242,6 +261,7 @@ expr    = """
        OR target ~ '**/method:eval_pair_quantifier')
 """
 message = "`check::eval::local` owns domain traversal and numeric local metrics; pair iteration belongs to `check::eval::pairs`."
+rationale = "Pair iteration has different cardinality and binding rules from ordinary domain traversal. Isolating it makes cost and diagnostics easier to reason about."
 
 # Couche 4 — métriques nommées locales.
 # `expr::metrics` owns named metric calls such as `lcom4(self)` and
@@ -257,6 +277,7 @@ expr    = """
        OR target ~ '**/dir:workspace/**')
 """
 message = "`check::expr::metrics` must only parse named metric calls; metric formulas belong outside the parser."
+rationale = "Named metrics are syntax in the parser and algorithms in evaluation. Separating the two keeps metric parsing cheap and prevents formulas from affecting rule loading."
 
 [[refs.where]]
 id      = "dsl-layer4-number-parser-delegates-metrics"
@@ -266,6 +287,7 @@ expr    = """
   => NOT target ~ '**/method:parse_metric_call_body'
 """
 message = "`check::expr::number` may parse numeric comparisons, but named metric call bodies belong to `check::expr::metrics`."
+rationale = "Metrics are numeric expressions, but their call grammar and allowed receivers are a distinct DSL feature. The number parser should delegate rather than own metric syntax."
 
 [[refs.where]]
 id      = "dsl-layer4-metrics-local-only"
@@ -277,6 +299,7 @@ expr    = """
        OR target ~ '**/path:LinkageIndex')
 """
 message = "`check::eval::metrics` must compute named metrics from the local `CodeGraph`; cross-file/project indexes remain out of scope."
+rationale = "Current metrics are local structural signals. Keeping them project-index-free makes their meaning stable in per-file hooks and full project checks."
 
 [[refs.where]]
 id      = "dsl-layer4-eval-local-does-not-own-named-metrics"
@@ -294,3 +317,4 @@ expr    = """
        OR target ~ '**/method:fan_out')
 """
 message = "`check::eval::local` owns reusable local traversal/stat helpers; named metric formulas belong to `check::eval::metrics`."
+rationale = "Named metrics have domain-specific formulas and should be discoverable in one module. Leaving them in `eval::local` would turn the shared traversal layer into a metrics grab bag."

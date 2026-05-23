@@ -135,9 +135,13 @@ Exit codes:
 
 | Code | Meaning |
 | ---- | ------- |
-| `0`  | no violations |
-| `1`  | at least one violation, or a per-file read error during project scan |
+| `0`  | no error-severity violations; warning-severity violations may be present |
+| `1`  | at least one error-severity violation, or a per-file read error during project scan |
 | `2`  | usage error: bad path, invalid TOML, bad expression, unknown profile |
+
+`--format codex-hook` is the exception: rule failures are emitted as a
+Codex block payload on stdout and the process exits `0`; usage errors still
+exit `2`.
 
 In single-file mode, unsupported extensions return `0` and produce no
 output. This keeps edit hooks quiet for docs, configs, and generated files.
@@ -285,15 +289,19 @@ message = "Class `{name}` exceeds the class budget."
 
 [[ts.interface.where]]
 id   = "repository-lives-in-domain"
+severity = "warn"
 expr = "name =~ Repository$ => moniker ~ '**/dir:domain/**'"
 ```
 
 Rule ids are built from the TOML path: `ts.class.no-god-class`,
 `refs.domain-no-infra`, and so on.
 
-`message` is the short diagnostic shown with a violation. `rationale` is
-optional rule metadata for the architectural decision behind the rule; it
-is shown by `rules show` but not by `check` violation output.
+`message` is the short diagnostic shown with a violation. `severity` is
+optional and accepts `"error"` or `"warn"`; omitted rules default to
+`"error"`. Warning rules are reported in text and JSON output but do not
+make `check` exit `1` by themselves. `rationale` is optional rule metadata
+for the architectural decision behind the rule; it is shown by `rules show`
+but not by `check` violation output.
 
 The three examples above cover the common rule shapes:
 
@@ -736,10 +744,11 @@ src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =
 Project scans end with a summary:
 
 ```text
-3 violation(s) across 2 file(s) (42 scanned, elapsed 18 ms).
+4 violation(s) across 2 file(s) (42 scanned, elapsed 18 ms, 3 error violation(s), 1 warning(s), 1 file(s) errored).
 Failed rules:
 - ts.class.name-pascalcase: 2 violation(s)
 - refs.domain-no-infra: 1 violation(s)
+- ts.class.repository-lives-in-domain: 1 warning(s)
 Read errors: 1 file(s).
 ```
 
@@ -764,16 +773,20 @@ The top-level shape is:
     "files_scanned": 2,
     "files_with_violations": 1,
     "total_violations": 3,
+    "total_rule_errors": 2,
+    "total_warnings": 1,
     "files_with_errors": 1,
     "total_errors": 1,
     "elapsed_ms": 18,
     "failed_rules": [
       {
         "rule_id": "ts.class.name-pascalcase",
+        "severity": "error",
         "violations": 2
       },
       {
         "rule_id": "refs.domain-no-infra",
+        "severity": "error",
         "violations": 1
       }
     ]
@@ -784,6 +797,7 @@ The top-level shape is:
       "violations": [
         {
           "rule_id": "ts.class.name-pascalcase",
+          "severity": "error",
           "moniker": "code+moniker://./lang:ts/module:widget/class:lower_bad",
           "kind": "class",
           "lines": [12, 18],
@@ -802,6 +816,7 @@ The top-level shape is:
   "rule_report": [
     {
       "rule_id": "refs.domain-no-infra",
+      "severity": "error",
       "domain": "refs",
       "evaluated": 42,
       "matches": 42,
@@ -826,6 +841,7 @@ Violation fields:
 | Field | Meaning |
 | ----- | ------- |
 | `rule_id` | full rule id, such as `ts.class.name-pascalcase` or `refs.domain-no-infra` |
+| `severity` | `error` or `warn`; warning violations do not fail `check` by themselves |
 | `moniker` | full moniker of the failing def or ref source |
 | `kind` | failing def kind, or ref kind for ref-scoped rules |
 | `lines` | `[start, end]`, 1-indexed inclusive line range |
@@ -837,6 +853,7 @@ Rule report fields:
 | Field | Meaning |
 | ----- | ------- |
 | `rule_id` | full rule id |
+| `severity` | `error` or `warn` |
 | `domain` | evaluated domain, such as `class`, `method`, or `refs` |
 | `evaluated` | number of defs or refs considered by the rule |
 | `matches` | number of evaluations where the assertion passed |

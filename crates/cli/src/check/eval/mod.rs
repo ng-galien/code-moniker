@@ -6,7 +6,7 @@ mod metrics;
 mod pairs;
 mod value;
 
-use crate::check::config::{Config, ConfigError, KindRules, config_section};
+use crate::check::config::{Config, ConfigError, KindRules, RuleSeverity, config_section};
 use crate::check::expr::{
 	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
 };
@@ -28,6 +28,7 @@ use value::{Value, apply_op, apply_op_values, number_expr_label};
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Violation {
 	pub rule_id: String,
+	pub severity: RuleSeverity,
 	pub moniker: String,
 	pub kind: String,
 	#[serde(serialize_with = "serialize_lines")]
@@ -152,6 +153,7 @@ pub fn evaluate_compiled(
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RuleReport {
 	pub rule_id: String,
+	pub severity: RuleSeverity,
 	pub domain: String,
 	pub evaluated: usize,
 	pub matches: usize,
@@ -354,6 +356,7 @@ impl RuleReport {
 	fn new(rule_id: String, domain: String, rule: &CompiledRule) -> Self {
 		Self {
 			rule_id,
+			severity: rule.severity,
 			domain,
 			evaluated: 0,
 			matches: 0,
@@ -366,6 +369,7 @@ impl RuleReport {
 	fn new_require_doc(rule_id: String, domain: String) -> Self {
 		Self {
 			rule_id,
+			severity: RuleSeverity::Error,
 			domain,
 			evaluated: 0,
 			matches: 0,
@@ -425,6 +429,7 @@ struct CompiledRule {
 	raw_expr: String,
 	expanded_expr: String,
 	root: Node,
+	severity: RuleSeverity,
 	message: Option<String>,
 	rationale: Option<String>,
 }
@@ -445,6 +450,7 @@ pub struct CompiledRules {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CompiledRuleSpec {
 	pub rule_id: String,
+	pub severity: RuleSeverity,
 	pub lang: String,
 	pub domain: String,
 	pub kind: Option<String>,
@@ -523,6 +529,7 @@ impl CompiledRules {
 				expanded_expr: expanded,
 				root: parsed.root,
 				message: entry.message.clone(),
+				severity: entry.severity,
 				rationale: entry.rationale.clone(),
 			});
 		}
@@ -544,6 +551,7 @@ impl CompiledRules {
 				expanded_expr: expanded,
 				root: parsed.root,
 				message: entry.message.clone(),
+				severity: entry.severity,
 				rationale: entry.rationale.clone(),
 			});
 		}
@@ -574,6 +582,7 @@ impl CompiledRules {
 					expr: rule.raw_expr.clone(),
 					expanded_expr: rule.expanded_expr.clone(),
 					message: rule.message.clone(),
+					severity: rule.severity,
 					rationale: rule.rationale.clone(),
 					require_doc_comment: None,
 				});
@@ -587,6 +596,7 @@ impl CompiledRules {
 					expr: format!("require_doc_comment = \"{value}\""),
 					expanded_expr: format!("require_doc_comment = \"{value}\""),
 					message: None,
+					severity: RuleSeverity::Error,
 					rationale: None,
 					require_doc_comment: Some(value.clone()),
 				});
@@ -602,6 +612,7 @@ impl CompiledRules {
 					expr: rule.raw_expr.clone(),
 					expanded_expr: rule.expanded_expr.clone(),
 					message: rule.message.clone(),
+					severity: rule.severity,
 					rationale: rule.rationale.clone(),
 					require_doc_comment: None,
 				});
@@ -617,6 +628,7 @@ impl CompiledRules {
 					expr: format!("require_doc_comment = \"{value}\""),
 					expanded_expr: format!("require_doc_comment = \"{value}\""),
 					message: None,
+					severity: RuleSeverity::Error,
 					rationale: None,
 					require_doc_comment: Some(value.clone()),
 				});
@@ -631,6 +643,7 @@ impl CompiledRules {
 				expr: rule.raw_expr.clone(),
 				expanded_expr: rule.expanded_expr.clone(),
 				message: rule.message.clone(),
+				severity: rule.severity,
 				rationale: rule.rationale.clone(),
 				require_doc_comment: None,
 			});
@@ -667,6 +680,7 @@ fn compile(
 			expanded_expr: expanded,
 			root: parsed.root,
 			message: entry.message.clone(),
+			severity: entry.severity,
 			rationale: entry.rationale.clone(),
 		});
 	}
@@ -830,6 +844,7 @@ fn eval_rule_with_id(
 	});
 	out.push(Violation {
 		rule_id,
+		severity: rule.severity,
 		moniker,
 		kind: kind.to_string(),
 		lines: (start_line, end_line),
@@ -892,6 +907,7 @@ fn eval_ref_rule(
 	});
 	out.push(Violation {
 		rule_id: rule.rule_id.clone(),
+		severity: rule.severity,
 		moniker: target_uri,
 		kind: ref_kind.to_string(),
 		lines: (start_line, end_line),
@@ -1848,6 +1864,7 @@ fn check_require_doc_comment_with_id(
 	let (start_line, end_line) = lines_of(d, ctx.source);
 	out.push(Violation {
 		rule_id,
+		severity: RuleSeverity::Error,
 		moniker,
 		kind: kind.to_string(),
 		lines: (start_line, end_line),

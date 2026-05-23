@@ -645,6 +645,58 @@ fn check_json_format_is_structured() {
 	assert!(files[0]["file"].as_str().unwrap().ends_with("a.ts"));
 	let viols = files[0]["violations"].as_array().unwrap();
 	assert_eq!(viols[0]["rule_id"], "ts.class.name-pascalcase");
+	assert_eq!(viols[0]["severity"], "error");
+}
+
+#[test]
+fn check_warn_severity_reports_without_failing() {
+	let dir = write_fixture("a.ts", TS_BAD_NAMING);
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[ts.class.where]]
+		id       = "soft-name"
+		severity = "warn"
+		expr     = "name =~ ^[A-Z][A-Za-z0-9]*$"
+		message  = "Class names should be PascalCase."
+		"#,
+	)
+	.unwrap();
+	let path = dir.path().join("a.ts");
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(out.contains("[ts.class.soft-name] warning:"), "{out}");
+	assert!(out.contains("1 warning(s)"), "{out}");
+	assert!(out.contains("- ts.class.soft-name: 1 warning(s)"), "{out}");
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	let v: serde_json::Value = serde_json::from_str(&out).expect("json output");
+	assert_eq!(v["summary"]["total_violations"], 1);
+	assert_eq!(v["summary"]["total_rule_errors"], 0);
+	assert_eq!(v["summary"]["total_warnings"], 1);
+	let violation = &v["files"][0]["violations"][0];
+	assert_eq!(violation["rule_id"], "ts.class.soft-name");
+	assert_eq!(violation["severity"], "warn");
+	assert_eq!(v["summary"]["failed_rules"][0]["severity"], "warn");
 }
 
 #[test]

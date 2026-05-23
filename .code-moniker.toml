@@ -54,6 +54,7 @@ message = "`code-moniker-pg` is the PostgreSQL extension; it must not depend on 
 id      = "max-lines"
 expr    = "lines <= 120"
 message = "{kind} `{name}` is {value} lines (project cap = {expected}). Split it before its host file approaches the 600-line cap."
+rationale = "Long callable bodies are hard for agents and reviewers to localize. Keep the symbol-level budget lower than the file-level budget so extraction, review, and follow-up edits stay focused."
 
 [[rust.fn.where]]
 id      = "no-placeholder-names"
@@ -79,6 +80,7 @@ message = "Function names use camelCase. Rename `{name}`."
 id      = "no-nested-comments"
 expr    = "$tests OR $rust_inline_tests OR $example OR parent.kind = 'module' OR text =~ '^//\\s*SAFETY:'"
 message = "Do not add comments inside functions, methods, structs, enums, traits, or impls. Keep code self-explanatory; only module-boundary and `SAFETY:` comments are allowed."
+rationale = "Most nested comments become stale micro-rationales or agent narration. Module comments and unsafe-code `SAFETY:` notes carry durable context; body comments should usually become clearer code or external docs."
 
 # Adjacent line/doc-comments are collapsed into one `comment` def by the
 # extractor (see `crates/core/src/lang/canonical_walker.rs`), so `lines`
@@ -89,3 +91,4 @@ message = "Do not add comments inside functions, methods, structs, enums, traits
 id      = "comment-max-lines"
 expr    = "$tests OR $rust_inline_tests OR $example OR text =~ '^//\\s*SAFETY:' OR text =~ '^//!' OR lines <= 4"
 message = "Doc/block comment is {value} lines (cap = 4). Move prose to docs/ — see CLAUDE.md comment sobriety."
+rationale = "Inline prose should explain only the local contract. Longer rationale belongs in docs or ADR-style material where future agent sessions can read it deliberately instead of carrying it inside code bodies."

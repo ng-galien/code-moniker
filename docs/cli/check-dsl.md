@@ -582,6 +582,7 @@ explicitly, or define separate aliases per scope (`src_domain`,
 [[<lang>.<kind>.where]]                    # def-scoped, lang-specific
 id      = "..."
 expr    = "..."
+severity = "error"                         # optional; "error" (default) or "warn"
 message = "..."                            # optional; templates are rendered
 rationale = "..."                          # optional; rules-show metadata
 
@@ -622,9 +623,12 @@ gets the fragment id injected before it enters the effective config, so
 the example rule id is `refs.ui.panels-ratatui-free`. Disabled fragments
 remain visible in `rules show` but contribute no active rules or aliases.
 
-`message` is rendered as the optional violation explanation. `rationale`
-is optional architectural context shown by `rules show`; it is not emitted
-as a check violation explanation. Def rule messages can use `{name}`,
+`message` is rendered as the optional violation explanation. `severity`
+accepts `"error"` or `"warn"` and defaults to `"error"` when omitted.
+Warning rules are reported but do not make `check` exit `1` unless another
+error-severity rule fails or a file read error occurs. `rationale` is
+optional architectural context shown by `rules show`; it is not emitted as
+a check violation explanation. Def rule messages can use `{name}`,
 `{kind}`, `{moniker}`, `{expr}`, `{value}`, `{expected}` and the aliases
 `{pattern}`, `{lines}`, `{limit}`, `{count}`. Ref rule messages can use
 `{kind}`, `{source.name}`, `{source.kind}`, `{source.shape}`,

@@ -262,6 +262,9 @@ fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<
 			if let Some(message) = &rule.message {
 				writeln!(w, "  message: {}", one_line(message))?;
 			}
+			if rule.severity.is_warn() {
+				writeln!(w, "  severity: warn")?;
+			}
 			if let Some(rationale) = &rule.rationale {
 				writeln!(w, "  rationale: {}", one_line(rationale))?;
 			}
@@ -571,6 +574,7 @@ mod tests {
 
 			[[ts.class.where]]
 			id = "keep"
+			severity = "warn"
 			expr = "$src => name =~ ^[A-Z]"
 			message = "keep this rule"
 			rationale = "ADR-001: generated types are exempt, but source classes stay PascalCase."
@@ -610,6 +614,7 @@ mod tests {
 			),
 			"{out}"
 		);
+		assert!(out.contains("severity: warn"), "{out}");
 		assert!(!out.contains("ts.class.drop"), "{out}");
 	}
 
@@ -721,6 +726,7 @@ mod tests {
 			rule["rationale"],
 			"ADR-002: the domain layer must stay independent from infrastructure details."
 		);
+		assert_eq!(rule["severity"], "error");
 	}
 
 	#[test]
