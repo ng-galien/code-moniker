@@ -61,6 +61,7 @@ impl RawFragmentConfig {
 		Config {
 			default_rules: None,
 			aliases: self.aliases,
+			exclude: Default::default(),
 			refs: self.refs,
 			shape: self.shape,
 			default: self.default,

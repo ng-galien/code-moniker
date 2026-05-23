@@ -26,6 +26,8 @@ pub struct Config {
 	#[serde(default)]
 	pub aliases: HashMap<String, String>,
 	#[serde(default)]
+	pub exclude: ExcludeRules,
+	#[serde(default)]
 	pub refs: RefsRules,
 	#[serde(default)]
 	pub shape: HashMap<String, KindRules>,
@@ -49,6 +51,13 @@ pub struct Config {
 	pub profiles: HashMap<String, Profile>,
 	#[serde(skip)]
 	pub fragments: Vec<FragmentInfo>,
+}
+
+#[derive(Debug, Default, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct ExcludeRules {
+	#[serde(default)]
+	pub uris: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -353,6 +362,7 @@ fn merge_into(base: &mut Config, ov: Config) {
 	for (k, v) in ov.aliases {
 		base.aliases.insert(k, v);
 	}
+	base.exclude.uris.extend(ov.exclude.uris);
 	for (k, v) in ov.profiles {
 		base.profiles.insert(k, v);
 	}

@@ -6,6 +6,23 @@ one or more `<lhs> <op> <rhs>` assertions combined with booleans and
 implications. A rule fires (= a violation is emitted) when its assertion
 evaluates to **false** on a given def or ref.
 
+## Global File Exclusions
+
+`[exclude].uris` keeps files outside a rule pack's review surface. In CLI
+project checks, it is evaluated before extraction and rule evaluation:
+
+```toml
+[exclude]
+uris = [
+  "**/crates/core/tests/fixtures/**",
+]
+```
+
+These are URI/path globs, not boolean rule expressions. They match against
+the checked file's `file://...` URI plus normalized filesystem path forms.
+Use `*` for one path segment, `?` for one character inside a segment, and
+`**` for any number of path segments.
+
 ## Scopes
 
 A rule is anchored to a **scope** by its TOML path:

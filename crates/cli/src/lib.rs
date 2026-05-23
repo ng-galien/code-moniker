@@ -629,8 +629,10 @@ fn check_inner<W: Write, E: Write>(
 		if !args.files.is_empty() {
 			anyhow::bail!("--file can only be used when check PATH is a directory");
 		}
+		let excluded = check::UriExclusionMatcher::new(&cfg.exclude.uris).matches_path(path);
 		match check_one_file(path, &cfg, args.report)? {
 			Some(report) => (vec![report], Vec::new()),
+			None if excluded && args.format == CheckFormat::Json => (Vec::new(), Vec::new()),
 			None => {
 				return Ok(CheckOutcome {
 					any_error_violation: false,
@@ -639,7 +641,11 @@ fn check_inner<W: Write, E: Write>(
 			}
 		}
 	};
-	if !args.files.is_empty() && reports.is_empty() && errors.is_empty() {
+	if !args.files.is_empty()
+		&& reports.is_empty()
+		&& errors.is_empty()
+		&& args.format != CheckFormat::Json
+	{
 		return Ok(CheckOutcome {
 			any_error_violation: false,
 			any_error: false,
@@ -724,6 +730,10 @@ fn check_one_file(
 	let Ok(lang) = path_to_lang(path) else {
 		return Ok(None);
 	};
+	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
+	if excludes.matches_path(path) {
+		return Ok(None);
+	}
 	let compiled = check::compile_rules(cfg, lang, DEFAULT_SCHEME)?;
 	check_one_compiled(path, None, lang, &compiled, report).map(Some)
 }
@@ -813,17 +823,23 @@ fn check_source_set(
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	use rayon::prelude::*;
 	use std::collections::HashMap;
+	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
 	let mut compiled: HashMap<code_moniker_core::lang::Lang, check::CompiledRules> = HashMap::new();
-	for f in &source_set.files {
+	let files: Vec<&sources::SourceFile> = source_set
+		.files
+		.iter()
+		.filter(|f| !excludes.matches_path(&f.path))
+		.collect();
+	for f in &files {
 		if compiled.contains_key(&f.lang) {
 			continue;
 		}
 		compiled.insert(f.lang, check::compile_rules(cfg, f.lang, DEFAULT_SCHEME)?);
 	}
-	let outcomes: Vec<Result<FileReport, FileError>> = source_set
-		.files
+	let outcomes: Vec<Result<FileReport, FileError>> = files
 		.par_iter()
 		.map(|f| {
+			let f = *f;
 			let rules = &compiled[&f.lang];
 			let ctx = &source_set.roots[f.source].ctx;
 			check_source_file_compiled(f, ctx, rules, report).map_err(|e| FileError {

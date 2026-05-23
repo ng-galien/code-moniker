@@ -719,6 +719,10 @@ fn rules_show_loads_code_smells_sample() {
 	]);
 	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
 	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
+	assert_eq!(
+		json["exclude"]["uris"][0],
+		"**/crates/core/tests/fixtures/**"
+	);
 	assert!(
 		json["langs"]
 			.as_array()
@@ -731,6 +735,94 @@ fn rules_show_loads_code_smells_sample() {
 			),
 		"{json:#}"
 	);
+}
+
+#[test]
+fn check_project_excludes_configured_uri_globs() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	let rules_path = dir.path().join(".code-moniker.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[exclude]
+		uris = [
+		  "**/crates/core/tests/fixtures/**",
+		]
+
+		[[ts.class.where]]
+		id = "name-pascalcase"
+		expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+		"#,
+	)
+	.unwrap();
+	write_under(dir.path(), "src/good.ts", "class GoodName {}\n");
+	write_under(
+		dir.path(),
+		"crates/core/tests/fixtures/ts/bad.ts",
+		TS_BAD_NAMING,
+	);
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	let json: serde_json::Value = serde_json::from_str(&out).expect("check JSON");
+	assert_eq!(json["summary"]["files_scanned"], 1);
+	assert_eq!(json["summary"]["total_violations"], 0);
+	let files = json["files"].as_array().unwrap();
+	assert_eq!(files.len(), 1, "{json:#}");
+	assert!(files[0]["file"].as_str().unwrap().ends_with("src/good.ts"));
+	assert!(
+		!out.contains("fixtures/ts/bad.ts"),
+		"excluded fixture should not be reported: {out}"
+	);
+}
+
+#[test]
+fn check_excluded_single_file_json_is_structured() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	let rules_path = dir.path().join(".code-moniker.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[exclude]
+		uris = [
+		  "**/fixtures/**",
+		]
+
+		[[ts.class.where]]
+		id = "name-pascalcase"
+		expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
+		"#,
+	)
+	.unwrap();
+	let excluded = dir.path().join("fixtures/bad.ts");
+	write_under(dir.path(), "fixtures/bad.ts", TS_BAD_NAMING);
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		excluded.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	let json: serde_json::Value = serde_json::from_str(&out).expect("check JSON");
+	assert_eq!(json["summary"]["files_scanned"], 0);
+	assert_eq!(json["summary"]["total_violations"], 0);
+	assert!(json["files"].as_array().unwrap().is_empty(), "{json:#}");
 }
 
 #[test]

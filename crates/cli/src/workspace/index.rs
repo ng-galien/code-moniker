@@ -308,17 +308,23 @@ impl SessionIndex {
 		if let Some(profile) = profile {
 			cfg.apply_profile(profile)?;
 		}
+		let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
+		let checked_files: Vec<_> = self
+			.files
+			.iter()
+			.filter(|file| !excludes.matches_path(&file.path))
+			.collect();
 		let mut compiled: FxHashMap<Lang, check::CompiledRules> = FxHashMap::default();
-		for file in &self.files {
+		for file in &checked_files {
 			if let Entry::Vacant(entry) = compiled.entry(file.lang) {
 				entry.insert(check::compile_rules(&cfg, file.lang, scheme)?);
 			}
 		}
 		let mut summary = CheckSummary {
-			files_scanned: self.files.len(),
+			files_scanned: checked_files.len(),
 			..CheckSummary::default()
 		};
-		for file in &self.files {
+		for file in checked_files {
 			let Some(rules) = compiled.get(&file.lang) else {
 				continue;
 			};
@@ -492,6 +498,42 @@ mod tests {
 			tmp.path(),
 			".code-moniker.toml",
 			r#"
+[[ts.class.where]]
+id = "max-lines"
+expr = "lines <= 0"
+message = "class too long"
+"#,
+		);
+		let idx = SessionIndex::load(&SessionOptions {
+			paths: vec![tmp.path().join("src")],
+			project: Some("app".into()),
+			cache_dir: None,
+		})
+		.unwrap();
+		let summary = idx
+			.check_summary(
+				&tmp.path().join(".code-moniker.toml"),
+				None,
+				"code+moniker://",
+			)
+			.unwrap();
+		assert_eq!(summary.files_scanned, 1);
+		assert_eq!(summary.total_violations, 1);
+		assert_eq!(summary.files_with_violations, 1);
+	}
+
+	#[test]
+	fn check_summary_omits_excluded_loaded_files() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(tmp.path(), "src/included.ts", "export class Included {}\n");
+		write(tmp.path(), "src/excluded.ts", "export class Excluded {}\n");
+		write(
+			tmp.path(),
+			".code-moniker.toml",
+			r#"
+[exclude]
+uris = ["**/src/excluded.ts"]
+
 [[ts.class.where]]
 id = "max-lines"
 expr = "lines <= 0"

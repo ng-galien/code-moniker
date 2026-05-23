@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod eval;
+pub mod exclude;
 pub mod expr;
 pub mod path;
 pub mod suppress;
@@ -14,4 +15,5 @@ pub use eval::{
 	CompiledRuleSpec, CompiledRules, RuleReport, Violation, compile_rules, evaluate,
 	evaluate_compiled, rule_report_compiled,
 };
+pub use exclude::UriExclusionMatcher;
 pub use suppress::apply as apply_suppressions;

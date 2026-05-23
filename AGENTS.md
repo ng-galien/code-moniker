@@ -80,6 +80,7 @@ Start refactoring work by invoking the code-smell review agent/skill
 code-moniker check <target> \
   --rules docs/cli/check-samples/code-smells-local.toml \
   --default-rules off \
+  --max-violations 50 \
   --report
 ```
 
@@ -111,6 +112,12 @@ whether it can become:
 Prefer a DSL rule when the condition is structural and locally observable.
 Use documentation only for judgment calls, process intent, or behavior that
 the current DSL cannot express.
+
+When running `code-moniker check` on a broad scope, always pass
+`--max-violations <N>` before retrieving output in the agent context. For
+full JSON analysis, redirect the output to a temporary file and inspect only
+targeted summaries with tools such as `jq`; do not paste or capture the full
+violation stream into the conversation.
 
 When you believe development is complete but before committing, inspect the
 impacted files symbolically with `code-moniker extract`/`code-moniker stats`

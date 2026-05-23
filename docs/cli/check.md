@@ -199,6 +199,29 @@ An explicit command-line `--default-rules on` or `--default-rules off` wins
 for that invocation. The `rules enable` / `rules disable` commands do not
 touch `[profiles.*]`; they only update the top-level `default_rules` flag.
 
+### Global exclusions
+
+Use `[exclude].uris` to keep files outside a rule pack's review surface.
+In CLI project checks, excluded files are skipped before extraction and
+rule evaluation. Patterns are slash-normalized URI globs matched against
+the file URI and normalized filesystem path. `*` matches one path segment,
+`?` matches one character inside a segment, and `**` matches across path
+segments.
+
+```toml
+[exclude]
+uris = [
+  "**/crates/core/tests/fixtures/**",
+]
+```
+
+Excluded files are not counted in `summary.files_scanned`, do not appear in
+the JSON `files` array, and do not produce read errors during CLI checks.
+In the TUI, exclusions apply to the check summary for the already loaded
+workspace graph. This is intended for generated sources, vendored trees,
+fixtures, and other files that should be outside a rule pack's review
+surface.
+
 Use `rules show` when you need to see what `check` will actually run after
 loading embedded defaults, merging the project file, applying the optional
 profile, resolving aliases, and compiling expressions:

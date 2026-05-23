@@ -10,6 +10,11 @@
 
 default_rules = false
 
+[exclude]
+uris = [
+  "**/crates/core/tests/fixtures/**",
+]
+
 # Callable-level smells -----------------------------------------------------
 
 [[shape.callable.where]]

@@ -172,6 +172,9 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 	let report = ShowReport {
 		rules_file: path.display().to_string(),
 		default_rules: cfg.default_rules.unwrap_or(true),
+		exclude: ShowExclude {
+			uris: cfg.exclude.uris.clone(),
+		},
 		fragments: cfg
 			.fragments
 			.iter()
@@ -201,10 +204,16 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 struct ShowReport {
 	rules_file: String,
 	default_rules: bool,
+	exclude: ShowExclude,
 	fragments: Vec<ShowFragment>,
 	profile: Option<String>,
 	total_rules: usize,
 	langs: Vec<ShowLang>,
+}
+
+#[derive(Serialize)]
+struct ShowExclude {
+	uris: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -225,6 +234,14 @@ struct ShowLang {
 fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<()> {
 	writeln!(w, "rules file: {}", report.rules_file)?;
 	writeln!(w, "default rules: {}", report.default_rules)?;
+	if report.exclude.uris.is_empty() {
+		writeln!(w, "exclude.uris: <none>")?;
+	} else {
+		writeln!(w, "exclude.uris:")?;
+		for uri in &report.exclude.uris {
+			writeln!(w, "- {uri}")?;
+		}
+	}
 	if report.fragments.is_empty() {
 		writeln!(w, "fragments: <none>")?;
 	} else {
