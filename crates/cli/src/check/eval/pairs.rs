@@ -1,5 +1,6 @@
 use crate::check::expr::{Atom, Domain, LhsExpr, Node, PairProjection, PairSide, QuantKind, Rhs};
 
+use super::collection::{eval_pair_collection_size, eval_pair_collection_subset};
 use super::local::{DomainItem, domain_items, eval_mode, project_lhs_value};
 use super::value::{Value, apply_op, apply_op_values};
 use super::{
@@ -84,26 +85,19 @@ fn eval_pair_atom(
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> AtomOutcome {
-	if let LhsExpr::PairProjection(projection) = &atom.lhs {
-		return eval_pair_lhs_atom(*projection, atom, a, b, def_idx, self_idx, ctx);
+	if let (LhsExpr::Collection(left), crate::check::expr::Op::Subset, Rhs::Collection(right)) =
+		(&atom.lhs, atom.op, &atom.rhs)
+	{
+		return match eval_pair_collection_subset(left, right, a, b, def_idx, self_idx, ctx) {
+			Some(true) => AtomOutcome::Pass,
+			Some(false) => AtomOutcome::Fail {
+				actual: "not subset".to_string(),
+				expected: "subset".to_string(),
+			},
+			None => AtomOutcome::NotApplicable,
+		};
 	}
-	if let Rhs::PairProjection(projection) = &atom.rhs {
-		return eval_owner_lhs_against_pair(*projection, atom, a, b, def_idx, self_idx, ctx);
-	}
-	let owner = ctx.graph.def_at(def_idx);
-	super::eval_atom(atom, owner, def_idx, self_idx, ctx)
-}
-
-fn eval_pair_lhs_atom(
-	projection: PairProjection,
-	atom: &Atom,
-	a: DomainItem<'_>,
-	b: DomainItem<'_>,
-	def_idx: usize,
-	self_idx: usize,
-	ctx: &EvalCtx<'_, '_>,
-) -> AtomOutcome {
-	let Some(value) = pair_projection_value(projection, a, b, ctx) else {
+	let Some(value) = pair_lhs_value(&atom.lhs, a, b, def_idx, self_idx, ctx) else {
 		return AtomOutcome::NotApplicable;
 	};
 	if let Some(rhs_val) = pair_rhs_value(&atom.rhs, a, b, def_idx, self_idx, ctx) {
@@ -112,22 +106,18 @@ fn eval_pair_lhs_atom(
 	apply_op(&value, atom)
 }
 
-fn eval_owner_lhs_against_pair(
-	projection: PairProjection,
-	atom: &Atom,
+fn pair_lhs_value(
+	lhs: &LhsExpr,
 	a: DomainItem<'_>,
 	b: DomainItem<'_>,
 	def_idx: usize,
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
-) -> AtomOutcome {
-	let Some(lhs_val) = owner_lhs_value(&atom.lhs, def_idx, self_idx, ctx) else {
-		return AtomOutcome::NotApplicable;
-	};
-	let Some(rhs_val) = pair_projection_value(projection, a, b, ctx) else {
-		return AtomOutcome::NotApplicable;
-	};
-	apply_op_values(&lhs_val, atom.op, &rhs_val)
+) -> Option<Value> {
+	match lhs {
+		LhsExpr::PairProjection(projection) => pair_projection_value(*projection, a, b, ctx),
+		_ => owner_lhs_value(lhs, a, b, def_idx, self_idx, ctx),
+	}
 }
 
 fn pair_rhs_value(
@@ -142,8 +132,7 @@ fn pair_rhs_value(
 		Rhs::PairProjection(projection) => pair_projection_value(*projection, a, b, ctx),
 		Rhs::Projection(lhs) => resolve_def_lhs(*lhs, ctx.graph.def_at(def_idx), ctx),
 		Rhs::Number(expr) => {
-			eval_number_expr_def(expr, ctx.graph.def_at(def_idx), def_idx, self_idx, ctx)
-				.map(Value::Number)
+			eval_pair_number_expr(expr, a, b, def_idx, self_idx, ctx).map(Value::Number)
 		}
 		_ => None,
 	}
@@ -164,6 +153,8 @@ fn pair_projection_value(
 
 fn owner_lhs_value(
 	lhs: &LhsExpr,
+	a: DomainItem<'_>,
+	b: DomainItem<'_>,
 	def_idx: usize,
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
@@ -172,10 +163,27 @@ fn owner_lhs_value(
 	match lhs {
 		LhsExpr::Attr(lhs) => resolve_def_lhs(*lhs, owner, ctx),
 		LhsExpr::Number(expr) => {
-			eval_number_expr_def(expr, owner, def_idx, self_idx, ctx).map(Value::Number)
+			eval_pair_number_expr(expr, a, b, def_idx, self_idx, ctx).map(Value::Number)
 		}
 		LhsExpr::Mode(collection) => eval_mode(collection, def_idx, self_idx, ctx),
 		_ => None,
+	}
+}
+
+fn eval_pair_number_expr(
+	expr: &crate::check::expr::NumberExpr,
+	a: DomainItem<'_>,
+	b: DomainItem<'_>,
+	def_idx: usize,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<f64> {
+	match expr {
+		crate::check::expr::NumberExpr::Size(collection) => {
+			eval_pair_collection_size(collection, a, b, def_idx, self_idx, ctx)
+				.map(|size| size as f64)
+		}
+		_ => eval_number_expr_def(expr, ctx.graph.def_at(def_idx), def_idx, self_idx, ctx),
 	}
 }
 

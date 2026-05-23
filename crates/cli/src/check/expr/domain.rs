@@ -37,7 +37,12 @@ impl<'a> Parser<'a> {
 		self.skip_ws();
 		let filter = if self.peek_byte() == Some(b',') {
 			self.pos += 1;
-			let filter = parse_filter(self)?;
+			let previous_pair_bindings_allowed = self.pair_bindings_allowed;
+			self.pair_bindings_allowed =
+				previous_pair_bindings_allowed || matches!(domain, Domain::Pairs(_));
+			let filter = parse_filter(self);
+			self.pair_bindings_allowed = previous_pair_bindings_allowed;
+			let filter = filter?;
 			self.skip_ws();
 			Some(filter)
 		} else {

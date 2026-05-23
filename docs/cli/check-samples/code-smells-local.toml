@@ -92,6 +92,13 @@ message  = "Middle Man candidate: methods under `{name}` look like thin delegato
 rationale = "Strict local approximation until arithmetic or fraction(D, F) supports delegation ratios."
 
 [[shape.type.where]]
+id       = "smell-data-clumps-param-names"
+severity = "warn"
+expr     = "count(shape:callable) < 2 OR count(pairs(shape:callable), size(a.param.name intersect b.param.name) >= 3) = 0"
+message  = "Data Clumps candidate: repeated parameter-name groups appear under `{name}`."
+rationale = "Pair-bound collection projections compare callable parameter names without requiring cross-file or type analysis."
+
+[[shape.type.where]]
 id       = "smell-duplicate-callable-names"
 severity = "warn"
 expr     = "size(unique(shape:callable.name)) = size(shape:callable.name)"

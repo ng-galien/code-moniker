@@ -109,7 +109,13 @@ impl<'a> Parser<'a> {
 			});
 		}
 		let atom_str = &self.input[self.pos..atom_end];
-		let atom = parse_atom(atom_str, self.scheme, self.allowed_kinds, self.raw)?;
+		let atom = parse_atom(
+			atom_str,
+			self.scheme,
+			self.allowed_kinds,
+			self.raw,
+			self.pair_bindings_allowed,
+		)?;
 		self.pos = atom_end;
 		Ok(Node::Atom(atom))
 	}
@@ -226,7 +232,14 @@ impl<'a> Parser<'a> {
 				msg: "empty RHS after comparison op".to_string(),
 			});
 		}
-		let rhs = parse_rhs(rhs_str, op, self.scheme, self.allowed_kinds, self.raw)?;
+		let rhs = parse_rhs(
+			rhs_str,
+			op,
+			self.scheme,
+			self.allowed_kinds,
+			self.raw,
+			self.pair_bindings_allowed,
+		)?;
 		self.pos = rhs_end;
 		let raw = self.input[raw_start..self.pos].to_string();
 		build_atom(lhs, op, rhs, raw, self.raw)

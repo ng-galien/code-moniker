@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::check::expr::{CollectionExpr, CollectionOp, CollectionProjection, Domain, Lhs};
+use crate::check::expr::{
+	CollectionExpr, CollectionOp, CollectionProjection, Domain, Lhs, PairCollectionProjection,
+	PairSide,
+};
 
 use super::local::{DomainItem, domain_items};
 use super::value::{Value, ValueKey, value_counts};
@@ -12,6 +15,7 @@ pub(super) fn eval_collection_size(
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> usize {
+	debug_assert!(!collection_has_pair_binding(collection));
 	eval_collection(collection, def_idx, self_idx, ctx).len()
 }
 
@@ -22,9 +26,47 @@ pub(super) fn eval_collection_subset(
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> bool {
+	debug_assert!(!collection_has_pair_binding(left));
+	debug_assert!(!collection_has_pair_binding(right));
 	let left = eval_collection(left, def_idx, self_idx, ctx);
 	let right = eval_collection(right, def_idx, self_idx, ctx);
 	is_subset(&left, &right)
+}
+
+pub(super) fn collection_has_pair_binding(collection: &CollectionExpr) -> bool {
+	match collection {
+		CollectionExpr::Projection(_) => false,
+		CollectionExpr::PairProjection(_) => true,
+		CollectionExpr::Unique(inner) => collection_has_pair_binding(inner),
+		CollectionExpr::Binary { left, right, .. } => {
+			collection_has_pair_binding(left) || collection_has_pair_binding(right)
+		}
+	}
+}
+
+pub(super) fn eval_pair_collection_size(
+	collection: &CollectionExpr,
+	a: DomainItem<'_>,
+	b: DomainItem<'_>,
+	def_idx: usize,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<usize> {
+	eval_pair_collection(collection, a, b, def_idx, self_idx, ctx).map(|values| values.len())
+}
+
+pub(super) fn eval_pair_collection_subset(
+	left: &CollectionExpr,
+	right: &CollectionExpr,
+	a: DomainItem<'_>,
+	b: DomainItem<'_>,
+	def_idx: usize,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<bool> {
+	let left = eval_pair_collection(left, a, b, def_idx, self_idx, ctx)?;
+	let right = eval_pair_collection(right, a, b, def_idx, self_idx, ctx)?;
+	Some(is_subset(&left, &right))
 }
 
 fn eval_collection(
@@ -37,6 +79,7 @@ fn eval_collection(
 		CollectionExpr::Projection(projection) => {
 			collect_projection(projection, def_idx, self_idx, ctx)
 		}
+		CollectionExpr::PairProjection(_) => Vec::new(),
 		CollectionExpr::Unique(inner) => unique(eval_collection(inner, def_idx, self_idx, ctx)),
 		CollectionExpr::Binary { op, left, right } => {
 			let left = eval_collection(left, def_idx, self_idx, ctx);
@@ -50,6 +93,36 @@ fn eval_collection(
 	}
 }
 
+fn eval_pair_collection(
+	collection: &CollectionExpr,
+	a: DomainItem<'_>,
+	b: DomainItem<'_>,
+	def_idx: usize,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<Vec<Value>> {
+	match collection {
+		CollectionExpr::Projection(projection) => {
+			Some(collect_projection(projection, def_idx, self_idx, ctx))
+		}
+		CollectionExpr::PairProjection(projection) => {
+			Some(collect_pair_projection(projection, a, b, self_idx, ctx))
+		}
+		CollectionExpr::Unique(inner) => {
+			eval_pair_collection(inner, a, b, def_idx, self_idx, ctx).map(unique)
+		}
+		CollectionExpr::Binary { op, left, right } => {
+			let left = eval_pair_collection(left, a, b, def_idx, self_idx, ctx)?;
+			let right = eval_pair_collection(right, a, b, def_idx, self_idx, ctx)?;
+			Some(match op {
+				CollectionOp::Intersect => intersect(&left, &right),
+				CollectionOp::Union => union(&left, &right),
+				CollectionOp::Difference => difference(&left, &right),
+			})
+		}
+	}
+}
+
 fn collect_projection(
 	projection: &CollectionProjection,
 	def_idx: usize,
@@ -59,6 +132,26 @@ fn collect_projection(
 	let mut values = Vec::new();
 	for item in domain_items(&projection.domain, def_idx, ctx) {
 		values.extend(project_item_path(item, &projection.path, self_idx, ctx));
+	}
+	values
+}
+
+fn collect_pair_projection(
+	projection: &PairCollectionProjection,
+	a: DomainItem<'_>,
+	b: DomainItem<'_>,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> Vec<Value> {
+	let DomainItem::Def { idx, .. } = (match projection.side {
+		PairSide::A => a,
+		PairSide::B => b,
+	}) else {
+		return Vec::new();
+	};
+	let mut values = Vec::new();
+	for nested in domain_items(&projection.domain, idx, ctx) {
+		values.extend(project_item_path(nested, &projection.path, self_idx, ctx));
 	}
 	values
 }

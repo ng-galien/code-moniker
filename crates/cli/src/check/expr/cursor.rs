@@ -4,6 +4,7 @@ pub(super) struct Parser<'a> {
 	pub(super) scheme: &'a str,
 	pub(super) allowed_kinds: &'a [&'a str],
 	pub(super) raw: &'a str,
+	pub(super) pair_bindings_allowed: bool,
 }
 
 const TWO_CHAR_OPS: &[&str] = &["<=", ">=", "!=", "=~", "!~", "<@", "@>", "?="];
@@ -64,6 +65,7 @@ impl<'a> Parser<'a> {
 			scheme,
 			allowed_kinds,
 			raw,
+			pair_bindings_allowed: false,
 		}
 	}
 

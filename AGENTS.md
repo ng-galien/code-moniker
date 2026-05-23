@@ -112,6 +112,14 @@ Prefer a DSL rule when the condition is structural and locally observable.
 Use documentation only for judgment calls, process intent, or behavior that
 the current DSL cannot express.
 
+When you believe development is complete but before committing, inspect the
+impacted files symbolically with `code-moniker extract`/`code-moniker stats`
+or an equivalent symbol outline. Verify that the ubiquitous language is
+consistent with the module's domain vocabulary and that new or touched
+functions have explicit, behavior-bearing names. Then launch an independent
+review agent on the diff or touched module and address its actionable
+findings before staging the commit.
+
 ## CI & Release Workflow
 
 GitHub CI lives in `.github/workflows/ci.yml`. It runs on `main` pushes

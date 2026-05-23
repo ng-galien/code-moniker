@@ -34,6 +34,7 @@ impl<'a> Parser<'a> {
 pub(super) fn parse_pair_projection(
 	s: &str,
 	full: &str,
+	pair_bindings_allowed: bool,
 ) -> Result<Option<PairProjection>, ParseError> {
 	let s = s.trim();
 	let (side_raw, projection_raw) = match s.split_once('.') {
@@ -45,6 +46,12 @@ pub(super) fn parse_pair_projection(
 		"b" => PairSide::B,
 		_ => return Ok(None),
 	};
+	if !pair_bindings_allowed {
+		return Err(ParseError::BadExpr {
+			expr: full.to_string(),
+			msg: format!("pair binding `{side_raw}` is only valid inside `pairs(...)` filters"),
+		});
+	}
 	if projection_raw.is_empty() {
 		return Err(ParseError::BadExpr {
 			expr: full.to_string(),
@@ -106,5 +113,11 @@ mod tests {
 			}
 			other => panic!("unexpected: {other:?}"),
 		}
+	}
+
+	#[test]
+	fn rejects_pair_projection_outside_pairs_filter() {
+		let r = parse("a.name = b.name", TS, KINDS);
+		assert!(r.is_err());
 	}
 }

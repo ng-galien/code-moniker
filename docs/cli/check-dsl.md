@@ -98,11 +98,15 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
 
 <collection_expr> ::=
     <collection_projection>
+  | <pair_collection_projection>
   | unique( <collection_expr> )
   | <collection_expr> ( intersect | union | diff ) <collection_expr>
 
 <collection_projection> ::=
     <item_domain>[.<projection_path>]
+
+<pair_collection_projection> ::=
+    ( a | b ).<item_domain>[.<projection_path>]
 
 <moniker_projection> ::=
     moniker | source | source.parent | target | target.parent
@@ -197,7 +201,9 @@ to override.
 : A projection bound inside `pairs(...)` filters. `a` and `b` refer to the
   two items of the current pair. `a.name = b.name` compares their projected
   values; `a` or `b` without a suffix means the item's moniker when the
-  item is a def or ref-backed value.
+  item is a def or ref-backed value. Collection expressions inside a
+  `pairs(...)` filter may also start from a pair binding. For example,
+  `a.param.name` means the names of `param` children under pair item `a`.
 
 `<moniker_projection>`
 : A projection that yields a moniker. In def scope, `moniker` is the
@@ -412,6 +418,10 @@ expr = "count(pairs(method), a.name = b.name) = 0"
 [[ts.class.where]]
 id   = "method-pairs-owned-by-class"
 expr = "all(pairs(method), a.parent = self AND b.parent = self)"
+
+[[ts.class.where]]
+id   = "no-data-clumps"
+expr = "count(pairs(method), size(a.param.name intersect b.param.name) >= 3) = 0"
 ```
 
 For a domain with zero or one item, `count(pairs(D))` is `0`; `all` over

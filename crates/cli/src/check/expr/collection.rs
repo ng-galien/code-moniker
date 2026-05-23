@@ -20,8 +20,20 @@ impl<'a> Parser<'a> {
 				msg: "collection subset requires `<collection> subset <collection>`".to_string(),
 			});
 		}
-		let lhs = parse_collection_expr_full(lhs_src, self.scheme, self.allowed_kinds, self.raw)?;
-		let rhs = parse_collection_expr_full(rhs_src, self.scheme, self.allowed_kinds, self.raw)?;
+		let lhs = parse_collection_expr_full(
+			lhs_src,
+			self.scheme,
+			self.allowed_kinds,
+			self.raw,
+			self.pair_bindings_allowed,
+		)?;
+		let rhs = parse_collection_expr_full(
+			rhs_src,
+			self.scheme,
+			self.allowed_kinds,
+			self.raw,
+			self.pair_bindings_allowed,
+		)?;
 		self.pos = atom_end;
 		Ok(Some(build_atom(
 			LhsExpr::Collection(lhs),
@@ -93,6 +105,9 @@ impl<'a> Parser<'a> {
 			self.pos += 1;
 			return Ok(expr);
 		}
+		if let Some(expr) = self.try_parse_pair_collection_projection()? {
+			return Ok(expr);
+		}
 		let domain = self.parse_domain_ident()?;
 		self.reject_pair_domain(&domain, "collection projections")?;
 		let mut path = Vec::new();
@@ -119,6 +134,51 @@ impl<'a> Parser<'a> {
 			domain,
 			path,
 		}))
+	}
+
+	fn try_parse_pair_collection_projection(
+		&mut self,
+	) -> Result<Option<CollectionExpr>, ParseError> {
+		let side = if self.input[self.pos..].starts_with("a.") {
+			PairSide::A
+		} else if self.input[self.pos..].starts_with("b.") {
+			PairSide::B
+		} else {
+			return Ok(None);
+		};
+		if !self.pair_bindings_allowed {
+			return Err(ParseError::BadExpr {
+				expr: self.raw.to_string(),
+				msg: "pair-bound collection projections are only valid inside `pairs(...)` filters"
+					.to_string(),
+			});
+		}
+		self.pos += 2;
+		let domain = self.parse_domain_ident()?;
+		self.reject_pair_domain(&domain, "pair collection projections")?;
+		let mut path = Vec::new();
+		loop {
+			self.skip_ws();
+			if self.peek_byte() != Some(b'.') {
+				break;
+			}
+			self.pos += 1;
+			let segment = self.take_projection_segment();
+			if segment.is_empty() {
+				return Err(ParseError::BadExpr {
+					expr: self.raw.to_string(),
+					msg: format!(
+						"expected pair collection projection segment at byte {}",
+						self.pos
+					),
+				});
+			}
+			path.push(segment.to_string());
+		}
+		validate_collection_projection_path(&domain, &path, self.raw)?;
+		Ok(Some(CollectionExpr::PairProjection(
+			PairCollectionProjection { side, domain, path },
+		)))
 	}
 
 	fn eat_collection_op(&mut self) -> Option<CollectionOp> {
@@ -195,8 +255,9 @@ pub(super) fn parse_collection_rhs(
 	scheme: &str,
 	allowed_kinds: &[&str],
 	full: &str,
+	pair_bindings_allowed: bool,
 ) -> Result<CollectionExpr, ParseError> {
-	parse_collection_expr_full(s, scheme, allowed_kinds, full)
+	parse_collection_expr_full(s, scheme, allowed_kinds, full, pair_bindings_allowed)
 }
 
 fn parse_collection_expr_full(
@@ -204,8 +265,10 @@ fn parse_collection_expr_full(
 	scheme: &str,
 	allowed_kinds: &[&str],
 	full: &str,
+	pair_bindings_allowed: bool,
 ) -> Result<CollectionExpr, ParseError> {
 	let mut p = Parser::new(s, scheme, allowed_kinds, full);
+	p.pair_bindings_allowed = pair_bindings_allowed;
 	let expr = p.parse_collection_expr()?;
 	p.skip_ws();
 	if p.pos < p.input.len() {
@@ -345,5 +408,77 @@ mod tests {
 	fn rejects_pair_domain_as_collection_projection() {
 		let r = parse("size(pairs(method)) = 0", TS, KINDS);
 		assert!(r.is_err());
+	}
+
+	#[test]
+	fn parses_pair_bound_collection_projection() {
+		let e = parse(
+			"count(pairs(method), size(a.param.name intersect b.param.name) >= 3) = 0",
+			TS,
+			KINDS,
+		)
+		.unwrap();
+		let a = solo(&e);
+		match &a.lhs {
+			LhsExpr::Number(NumberExpr::Count {
+				domain: Domain::Pairs(inner),
+				filter: Some(filter),
+			}) if matches!(inner.as_ref(), Domain::Children(kind) if kind == "method") => {
+				match filter.as_ref() {
+					Node::Atom(Atom {
+						lhs:
+							LhsExpr::Number(NumberExpr::Size(CollectionExpr::Binary {
+								op: CollectionOp::Intersect,
+								left,
+								right,
+							})),
+						..
+					}) => {
+						assert!(matches!(
+							left.as_ref(),
+							CollectionExpr::PairProjection(PairCollectionProjection {
+								side: PairSide::A,
+								domain: Domain::Children(kind),
+								path,
+							}) if kind == "param" && path == &["name"]
+						));
+						assert!(matches!(
+							right.as_ref(),
+							CollectionExpr::PairProjection(PairCollectionProjection {
+								side: PairSide::B,
+								domain: Domain::Children(kind),
+								path,
+							}) if kind == "param" && path == &["name"]
+						));
+					}
+					other => panic!("unexpected filter: {other:?}"),
+				}
+			}
+			other => panic!("unexpected: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn rejects_pair_bound_collection_projection_outside_pairs_filter() {
+		let r = parse("size(a.param.name) >= 1", TS, KINDS);
+		assert!(r.is_err());
+	}
+
+	#[test]
+	fn parses_pair_bound_collection_projection_on_numeric_rhs() {
+		let e = parse(
+			"count(pairs(method), lines <= size(a.param.name intersect b.param.name)) = 0",
+			TS,
+			KINDS,
+		)
+		.unwrap();
+		let a = solo(&e);
+		assert!(matches!(
+			&a.lhs,
+			LhsExpr::Number(NumberExpr::Count {
+				domain: Domain::Pairs(_),
+				filter: Some(_),
+			})
+		));
 	}
 }

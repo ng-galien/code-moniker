@@ -250,6 +250,7 @@ pub(in crate::check) enum ValueExpr {
 #[derive(Debug, Clone)]
 pub(in crate::check) enum CollectionExpr {
 	Projection(CollectionProjection),
+	PairProjection(PairCollectionProjection),
 	Unique(Box<CollectionExpr>),
 	Binary {
 		op: CollectionOp,
@@ -260,6 +261,13 @@ pub(in crate::check) enum CollectionExpr {
 
 #[derive(Debug, Clone)]
 pub(in crate::check) struct CollectionProjection {
+	pub(in crate::check) domain: Domain,
+	pub(in crate::check) path: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(in crate::check) struct PairCollectionProjection {
+	pub(in crate::check) side: PairSide,
 	pub(in crate::check) domain: Domain,
 	pub(in crate::check) path: Vec<String>,
 }

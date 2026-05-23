@@ -19,7 +19,7 @@ use code_moniker_core::core::shape::Shape;
 use code_moniker_core::core::uri::UriConfig;
 use code_moniker_core::lang::Lang;
 
-use collection::{eval_collection_size, eval_collection_subset};
+use collection::{collection_has_pair_binding, eval_collection_size, eval_collection_subset};
 use local::{eval_aggregate, eval_entropy, eval_mode};
 use metrics::eval_metric;
 use pairs::{eval_pair_count, eval_pair_quantifier};
@@ -1375,6 +1375,9 @@ fn eval_number_expr_def(
 		}
 		NumberExpr::Entropy(collection) => eval_entropy(collection, def_idx, self_idx, ctx),
 		NumberExpr::Size(collection) => {
+			if collection_has_pair_binding(collection) {
+				return None;
+			}
 			Some(eval_collection_size(collection, def_idx, self_idx, ctx) as f64)
 		}
 	}
@@ -1694,6 +1697,9 @@ fn eval_atom(
 	if let (LhsExpr::Collection(left), Op::Subset, Rhs::Collection(right)) =
 		(&atom.lhs, atom.op, &atom.rhs)
 	{
+		if collection_has_pair_binding(left) || collection_has_pair_binding(right) {
+			return AtomOutcome::NotApplicable;
+		}
 		return if eval_collection_subset(left, right, def_idx, self_idx, ctx) {
 			AtomOutcome::Pass
 		} else {

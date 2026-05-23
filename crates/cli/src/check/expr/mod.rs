@@ -21,7 +21,7 @@ mod test_support {
 	use super::*;
 
 	pub(super) const TS: &str = "code+moniker://";
-	pub(super) const KINDS: &[&str] = &["class", "method", "function", "module", "field"];
+	pub(super) const KINDS: &[&str] = &["class", "method", "function", "module", "field", "param"];
 
 	pub(super) fn solo(e: &Expr) -> &Atom {
 		match &e.root {

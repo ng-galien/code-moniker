@@ -163,8 +163,10 @@ pub(super) fn parse_number_rhs(
 	scheme: &str,
 	allowed_kinds: &[&str],
 	full: &str,
+	pair_bindings_allowed: bool,
 ) -> Result<NumberExpr, ParseError> {
 	let mut p = Parser::new(s, scheme, allowed_kinds, full);
+	p.pair_bindings_allowed = pair_bindings_allowed;
 	let expr = p.parse_number_expr()?;
 	p.skip_ws();
 	if p.pos < p.input.len() {

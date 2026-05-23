@@ -15,15 +15,23 @@ pub(super) fn parse_atom(
 	scheme: &str,
 	allowed_kinds: &[&str],
 	full: &str,
+	pair_bindings_allowed: bool,
 ) -> Result<Atom, ParseError> {
 	let raw = input.trim().to_string();
 	if let Some(atom) = parse_has_segment(&raw, full)? {
 		return Ok(atom);
 	}
 	let (lhs_str, op_str, rhs_str) = split_atom(&raw, full)?;
-	let lhs = parse_lhs(lhs_str, full)?;
+	let lhs = parse_lhs(lhs_str, full, pair_bindings_allowed)?;
 	let op = parse_op(op_str, full)?;
-	let rhs = parse_rhs(rhs_str, op, scheme, allowed_kinds, full)?;
+	let rhs = parse_rhs(
+		rhs_str,
+		op,
+		scheme,
+		allowed_kinds,
+		full,
+		pair_bindings_allowed,
+	)?;
 	build_atom(lhs, op, rhs, raw, full)
 }
 
@@ -123,7 +131,7 @@ fn split_atom<'a>(s: &'a str, full: &str) -> Result<(&'a str, &'a str, &'a str),
 	Err(bail())
 }
 
-fn parse_lhs(s: &str, full: &str) -> Result<LhsExpr, ParseError> {
+fn parse_lhs(s: &str, full: &str, pair_bindings_allowed: bool) -> Result<LhsExpr, ParseError> {
 	if s.starts_with("count(") {
 		return Err(ParseError::BadExpr {
 			expr: full.to_string(),
@@ -131,7 +139,7 @@ fn parse_lhs(s: &str, full: &str) -> Result<LhsExpr, ParseError> {
 				.to_string(),
 		});
 	}
-	if let Some(projection) = parse_pair_projection(s, full)? {
+	if let Some(projection) = parse_pair_projection(s, full, pair_bindings_allowed)? {
 		return Ok(LhsExpr::PairProjection(projection));
 	}
 	match Lhs::from_projection_name(s) {
@@ -242,6 +250,7 @@ pub(super) fn parse_rhs(
 	scheme: &str,
 	allowed_kinds: &[&str],
 	full: &str,
+	pair_bindings_allowed: bool,
 ) -> Result<Rhs, ParseError> {
 	let s = s.trim();
 	let quoted = (s.starts_with('"') && s.ends_with('"') && s.len() >= 2)
@@ -265,19 +274,34 @@ pub(super) fn parse_rhs(
 			Rhs::Moniker(m)
 		}
 		Op::Lt | Op::Le | Op::Gt | Op::Ge => {
-			if let Some(projection) = parse_pair_projection(s, full)? {
+			if let Some(projection) = parse_pair_projection(s, full, pair_bindings_allowed)? {
 				Rhs::PairProjection(projection)
 			} else {
-				Rhs::Number(parse_number_rhs(s, scheme, allowed_kinds, full)?)
+				Rhs::Number(parse_number_rhs(
+					s,
+					scheme,
+					allowed_kinds,
+					full,
+					pair_bindings_allowed,
+				)?)
 			}
 		}
-		Op::Subset => Rhs::Collection(parse_collection_rhs(s, scheme, allowed_kinds, full)?),
+		Op::Subset => Rhs::Collection(parse_collection_rhs(
+			s,
+			scheme,
+			allowed_kinds,
+			full,
+			pair_bindings_allowed,
+		)?),
 		Op::Eq | Op::Ne => {
 			if quoted {
 				Rhs::Str(s.to_string())
-			} else if let Some(projection) = parse_pair_projection(s, full)? {
+			} else if let Some(projection) = parse_pair_projection(s, full, pair_bindings_allowed)?
+			{
 				Rhs::PairProjection(projection)
-			} else if let Ok(expr) = parse_number_rhs(s, scheme, allowed_kinds, full) {
+			} else if let Ok(expr) =
+				parse_number_rhs(s, scheme, allowed_kinds, full, pair_bindings_allowed)
+			{
 				Rhs::Number(expr)
 			} else if s.contains("+moniker://") {
 				let cfg = UriConfig { scheme };

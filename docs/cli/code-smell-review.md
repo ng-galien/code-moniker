@@ -38,6 +38,7 @@ These smells can be encoded as local warning rules today.
 | Feature Envy | `count(out_refs) >= 5 => mode(out_refs, target.parent) = source.parent` | local approximation of external access concentration |
 | God Class / Brain Class approximation | guarded `wmc`, `cbo`, `lcom4` bounds | local Lanza/Marinescu-style thresholds |
 | Inheritance abuse | `dit(self) <= 5 AND noc(self) <= 10` | local inheritance only |
+| Data Clumps | `count(pairs(method), size(a.param.name intersect b.param.name) >= 3) = 0` | pair-bound collection projections compare repeated parameter groups |
 | Distribution disharmony | `cv(shape:callable, lines)` and `gini(shape:callable, fan_out(each))` | captures uneven method sizes or a hidden coupling hub |
 | Caller concentration | `entropy(in_refs, source.parent) >= 0.5` after a volume guard | low entropy means one owner dominates local use |
 | Duplicate child names | `size(unique(shape:callable.name)) = size(shape:callable.name)` | local naming invariant |
@@ -56,7 +57,6 @@ Document them as evolutions instead of writing invalid TOML.
 | --- | --------------- | ----------------- |
 | Numeric arithmetic in `number_expr` | Data Class ratios, Middle Man ratios, LAA/BUR/BOvR-style metrics | the grammar accepts numeric expressions but not `+`, `-`, `*`, `/` operators |
 | `fraction(D, F)` sugar | Data Class and Middle Man without general arithmetic | not implemented |
-| Pair-bound collection projections such as `a.param.name` | Data Clumps via pairwise parameter-name intersections | `pairs(D)` currently binds scalar pair projections for filters, not collection projections off `a`/`b` |
 | `param.type` / `field.type` projections | Primitive Obsession and typed Data Clumps | type data is not exposed through check projections |
 | `cyclo` and `max_nesting` | Brain Method / Brain Class refinements | requires extractor-side AST metrics per language |
 | Corpus-wide baselines | Lanza/Marinescu Few/Many/High/Very High thresholds | the CLI model is per-file; project baselines fit better in SQL over ingested graphs |

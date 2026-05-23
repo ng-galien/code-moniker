@@ -212,6 +212,21 @@ fn collection_label(collection: &CollectionExpr) -> String {
 				)
 			}
 		}
+		CollectionExpr::PairProjection(projection) => {
+			let side = match projection.side {
+				PairSide::A => "a",
+				PairSide::B => "b",
+			};
+			if projection.path.is_empty() {
+				format!("{side}.{}", domain_label(&projection.domain))
+			} else {
+				format!(
+					"{side}.{}.{}",
+					domain_label(&projection.domain),
+					projection.path.join(".")
+				)
+			}
+		}
 		CollectionExpr::Unique(inner) => format!("unique({})", collection_label(inner)),
 		CollectionExpr::Binary { op, left, right } => {
 			let op = match op {

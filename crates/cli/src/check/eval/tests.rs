@@ -1017,6 +1017,47 @@ fn pair_quantifier_binds_self_to_owner() {
 }
 
 #[test]
+fn pair_filter_compares_child_collection_intersection() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id   = "no-data-clumps"
+		expr = "count(pairs(method), size(a.param.name intersect b.param.name) >= 3) = 0"
+		"#,
+	);
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(foo.clone(), b"class", &module, Some((0, 80)))
+		.unwrap();
+	let create = child(&foo, b"method", b"create()");
+	let update = child(&foo, b"method", b"update()");
+	let archive = child(&foo, b"method", b"archive()");
+	for method in [&create, &update, &archive] {
+		g.add_def(method.clone(), b"method", &foo, Some((1, 10)))
+			.unwrap();
+	}
+	for (method, names) in [
+		(&create, ["customer_id", "street", "zip"]),
+		(&update, ["customer_id", "street", "zip"]),
+		(&archive, ["customer_id", "reason", "dry_run"]),
+	] {
+		for name in names {
+			g.add_def(
+				child(method, b"param", name.as_bytes()),
+				b"param",
+				method,
+				Some((1, 1)),
+			)
+			.unwrap();
+		}
+	}
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(v.len(), 1, "shared param clump should violate: {v:?}");
+	assert_eq!(v[0].rule_id, "ts.class.no-data-clumps");
+}
+
+#[test]
 fn named_metrics_evaluate_local_class_metrics() {
 	let cfg = cfg_from(
 		r#"

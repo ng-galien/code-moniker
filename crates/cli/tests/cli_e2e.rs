@@ -700,6 +700,40 @@ fn check_warn_severity_reports_without_failing() {
 }
 
 #[test]
+fn rules_show_loads_code_smells_sample() {
+	let rules_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+		.join("../../docs/cli/check-samples/code-smells-local.toml")
+		.canonicalize()
+		.expect("code-smells sample path");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"rules",
+		"show",
+		".",
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--default-rules",
+		"off",
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
+	assert!(
+		json["langs"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.flat_map(|lang| lang["rules"].as_array().unwrap())
+			.any(
+				|rule| rule["rule_id"] == "shape.type.smell-data-clumps-param-names"
+					&& rule["severity"] == "warn"
+			),
+		"{json:#}"
+	);
+}
+
+#[test]
 fn check_project_walks_directory_and_aggregates() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	std::fs::write(dir.path().join("good.ts"), "class GoodName {}\n").unwrap();
