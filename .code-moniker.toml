@@ -17,32 +17,7 @@ lang    = "moniker ~ '**/dir:src/dir:lang/**'"
 # top-level names, so anchoring on `dir:crates/dir:<name>` is unambiguous.
 cli     = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 pg      = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
-ui      = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/**'"
-ui_view           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:view'"
-ui_terminal_shell = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:shell/module:terminal'"
-ui_panels         = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/**'"
-ui_panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:render'"
-ui_components     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:components/**'"
-ui_contracts      = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/**'"
-ui_screen_contract     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/module:screen'"
-ui_msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:action' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:runtime'"
-ui_app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:effect'"
-check_expr       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:expr' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:expr/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/**'"
-check_expr_atom   = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:atom' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:atom/**'"
-check_expr_domain = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:domain' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:domain/**'"
-check_expr_number = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:number' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:number/**'"
-check_expr_parse  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:parse' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:parse/**'"
-check_expr_value  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value/**'"
-check_expr_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection/**'"
-check_expr_pairs  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs/**'"
-check_expr_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics/**'"
-check_eval       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/**'"
-check_eval_local = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local/**'"
-check_eval_value = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value/**'"
-check_eval_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection/**'"
-check_eval_pairs = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs/**'"
-check_eval_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics/**'"
-check_config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config'"
+check_config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:config/**'"
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
@@ -86,97 +61,6 @@ id      = "lang-no-cli"
 expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
 message = "`lang` extractors are pure libraries consumed by the CLI / PG crates; they must not depend back on the CLI surface."
 
-[[refs.where]]
-id      = "ui-store-boundary"
-expr    = """
-  $ui AND kind = 'imports_symbol'
-  => NOT (target ~ '**/path:SessionIndex'
-       OR target ~ '**/path:IndexedFile'
-       OR target ~ '**/path:CodeGraph'
-       OR target ~ '**/path:DefRecord'
-       OR target ~ '**/path:RefRecord'
-       OR target ~ '**/path:ChangeIndex'
-       OR target ~ '**/path:ChangeEntry')
-"""
-message = "`code-moniker ui` must consume workspace read models; raw graph/index/Git records stay inside `workspace`."
-
-[[refs.where]]
-id      = "ui-panels-ratatui-renderers-only"
-expr    = """
-  $ui_panels AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => ($ui_panel_renderer OR NOT target ~ '**/external_pkg:ratatui/**')
-"""
-message = "`ui::panels` view models and builders must stay ratatui-free; only panel renderers may import ratatui."
-
-[[refs.where]]
-id      = "ui-components-ratatui-free"
-expr    = """
-  $ui_components AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT target ~ '**/external_pkg:ratatui/**'
-"""
-message = "`ui::components` own reusable interaction state; ratatui rendering stays in view/panel renderers."
-
-[[refs.where]]
-id      = "ui-components-workspace-free"
-expr    = """
-  $ui_components AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT target ~ '**/dir:workspace/**'
-"""
-message = "`ui::components` must stay domain-neutral; workspace semantics belong to feature/navigation selectors."
-
-[[refs.where]]
-id      = "ui-view-renders-view-models-only"
-expr    = """
-  $ui_view AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT (target ~ '**/path:App'
-       OR target ~ '**/path:ExplorerFeature'
-       OR target ~ '**/dir:contracts/**')
-"""
-message = "`ui::view` renders feature view-models; App/Feature/Screen orchestration belongs outside the renderer."
-
-[[refs.where]]
-id      = "ui-terminal-backend-owned-by-shell-terminal"
-expr    = """
-  $ui AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => ($ui_terminal_shell OR $rust_inline_tests
-      OR NOT (target ~ '**/path:CrosstermBackend'
-           OR target ~ '**/path:EnterAlternateScreen'
-           OR target ~ '**/path:LeaveAlternateScreen'
-           OR target ~ '**/path:enable_raw_mode'
-           OR target ~ '**/path:disable_raw_mode'))
-"""
-message = "Terminal backend setup belongs to `ui::shell::terminal`; UI root/app code should not own terminal raw-mode or alternate-screen wiring."
-
-[[refs.where]]
-id      = "ui-screen-render-contract-only"
-expr    = """
-  $ui_screen_contract AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT (target ~ '**/path:Msg'
-       OR target ~ '**/path:Effect'
-       OR target ~ '**/path:AppCommand'
-       OR target ~ '**/module:events/**'
-       OR target ~ '**/module:app/**'
-       OR target ~ '**/dir:app/**')
-"""
-message = "`ui::contracts::Screen` is a render-only contract; input messages, effects, and app commands belong to the Elm orchestration layer."
-
-[[refs.where]]
-id      = "ui-contracts-do-not-depend-on-app"
-expr    = """
-  $ui_contracts AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT (target ~ '**/module:app/**' OR target ~ '**/dir:app/**')
-"""
-message = "`ui::contracts` must stay app-neutral; app commands and effects belong to `ui::app`."
-
-[[refs.where]]
-id      = "ui-elm-orchestration-boundary"
-expr    = """
-  $ui AND kind = 'imports_symbol'
-  => (NOT target ~ '**/path:Msg' OR $ui_msg_owner OR $rust_inline_tests)
-     AND (NOT target ~ '**/path:AppCommand' OR $ui_app_command_boundary OR $rust_inline_tests)
-"""
-message = "`Msg` is owned by `ui::events` and reduced in `ui::app`; `AppCommand` is emitted by the reducer and interpreted by the runtime shell."
-
 # Intra-crate: core/ submodule must not depend on its sibling submodules
 # (lang/, declare/) nor on the standalone crates.
 [[refs.where]]
@@ -190,264 +74,29 @@ expr    = """
 """
 message = "`core` is the foundation submodule; it must not depend on `lang`, `declare`, or the standalone crates."
 
-# ─── Check DSL architecture ──────────────────────────────────────────
-# Parser code owns syntax and expression shape. Evaluation owns local
-# CodeGraph semantics. Config owns TOML/profile/alias loading.
-
-[[refs.where]]
-id      = "check-expr-parser-only"
-expr    = """
-  $check_expr AND kind = 'imports_symbol'
-  => NOT (target ~ '**/module:eval/**'
-       OR target ~ '**/module:config/**'
-       OR target ~ '**/dir:workspace/**')
-"""
-message = "`check::expr` owns DSL syntax only; evaluation, config loading, and workspace/project indexes stay outside the parser."
-
-[[refs.where]]
-id      = "check-eval-local-graph-only"
-expr    = """
-  $check_eval AND kind = 'imports_symbol'
-  => NOT (target ~ '**/dir:workspace/**'
-       OR target ~ '**/module:linkage/**'
-       OR target ~ '**/path:SessionIndex'
-       OR target ~ '**/path:LinkageIndex')
-"""
-message = "`check::eval` evaluates local `CodeGraph` facts only; project-wide indexes and linkage stay out of the local DSL evaluator."
+# ─── Config loader bootstrap ─────────────────────────────────────────
+# Fragment loading is implemented by `check::config`; keep the bootstrapping
+# boundary global so a broken fragment loader cannot hide its own guardrails.
 
 [[refs.where]]
 id      = "check-config-no-runtime-eval"
 expr    = """
   $check_config AND kind = 'imports_symbol'
   => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/dir:eval/**'
        OR target ~ '**/dir:workspace/**')
 """
 message = "`check::config` owns TOML/profile/alias loading; it must not evaluate rules or reach workspace indexes."
 
 [[refs.where]]
-id      = "check-expr-parse-no-number-rhs-direct"
+id      = "check-config-fragments-private"
 expr    = """
-  $check_expr_parse AND kind = 'imports_symbol'
-  => NOT target ~ '**/dir:check/dir:expr/module:number/path:parse_number_rhs'
+  (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND (target ~ '**/dir:check/dir:config/module:fragments'
+       OR target ~ '**/dir:check/dir:config/module:fragments/**')
+  => $check_config OR $rust_inline_tests
 """
-message = "`check::expr::parse` still imports `number::parse_number_rhs`; numeric RHS parsing leaks through the boolean parser boundary."
-
-[[refs.where]]
-id      = "check-expr-number-no-filter-parser-callback"
-expr    = """
-  $check_expr_number AND kind = 'method_call'
-  => NOT target ~ '**/method:parse_domain_filter_body'
-"""
-message = "`check::expr::number` still parses `count(...)` filters through the domain/filter parser callback; numeric parsing remains coupled to boolean expression parsing."
-
-[[refs.where]]
-id      = "check-expr-specialized-atoms-tail-helper"
-expr    = """
-  $check_expr_parse
-  AND kind = 'method_call'
-  AND moniker ~ '**/method:/^try_parse_(segment|number|mode)_atom\\(\\)$/'
-  => NOT (target ~ '**/method:eat_op'
-       OR target ~ '**/method:find_atom_end')
-"""
-message = "`check::expr::parse` still repeats comparison-tail parsing in specialized atom parsers; move op/RHS/raw handling behind one helper."
-
-[[refs.where]]
-id      = "check-expr-scanners-owned-by-cursor"
-expr    = """
-  ($check_expr_atom OR $check_expr_domain OR $check_expr_number)
-  AND kind = 'method_call'
-  => NOT (target ~ '**/method:as_bytes'
-       OR target ~ '**/method:is_ascii_digit'
-       OR target ~ '**/method:is_ascii_alphabetic'
-       OR target ~ '**/method:is_ascii_alphanumeric')
-"""
-message = "`check::expr` still has local byte/token scanners outside `cursor`; lexical scanning should have a single owner."
-
-# Couche 1 — agrégateurs locaux sur domaine.
-# `number` owns numeric syntax, `value` owns domain value expressions used by
-# `mode` / `entropy`, and `eval::local` owns the local CodeGraph analytics.
-
-[[refs.where]]
-id      = "check-dsl-layer1-mode-body-owned-by-value-parser"
-expr    = """
-  $check_expr_parse
-  AND kind = 'method_call'
-  AND moniker ~ '**/method:/^try_parse_mode_atom\\(\\)$/'
-  => NOT target ~ '**/method:parse_domain_value_call_body'
-"""
-message = "`mode(...)` parsing should delegate domain/value body parsing to `check::expr::value`; `parse` only owns boolean precedence and comparison tails."
-
-[[refs.where]]
-id      = "check-dsl-layer1-number-parser-stays-numeric"
-expr    = """
-  $check_expr_number AND kind = 'method_call'
-  => NOT target ~ '**/method:parse_mode_lhs'
-"""
-message = "`check::expr::number` must stay numeric; value-returning aggregators such as `mode` belong to `check::expr::value`."
-
-[[refs.where]]
-id      = "check-dsl-layer1-eval-value-is-graph-free"
-expr    = """
-  $check_eval_value AND kind = 'imports_symbol'
-  => NOT (target ~ '**/path:CodeGraph'
-       OR target ~ '**/path:DefRecord'
-       OR target ~ '**/path:RefRecord'
-       OR target ~ '**/dir:workspace/**'
-       OR target ~ '**/module:linkage/**')
-"""
-message = "`check::eval::value` is the typed comparison/rendering layer; local graph traversal belongs to `check::eval::local`."
-
-# Couche 2 — multisets et opérations ensemblistes.
-# `expr::collection` owns collection syntax (`size`, `unique`, set ops,
-# subset atoms). `eval::collection` owns multiset algebra over local facts.
-
-[[refs.where]]
-id      = "check-dsl-layer2-expr-collection-parser-isolated"
-expr    = """
-  $check_expr_collection AND kind = 'imports_symbol'
-  => NOT (target ~ '**/module:eval/**'
-       OR target ~ '**/module:config/**'
-       OR target ~ '**/dir:workspace/**')
-"""
-message = "`check::expr::collection` must remain syntax/AST only; multiset evaluation belongs outside the parser."
-
-[[refs.where]]
-id      = "check-dsl-layer2-eval-collection-local-only"
-expr    = """
-  $check_eval_collection AND kind = 'imports_symbol'
-  => NOT (target ~ '**/dir:workspace/**'
-       OR target ~ '**/module:linkage/**'
-       OR target ~ '**/path:SessionIndex'
-       OR target ~ '**/path:LinkageIndex')
-"""
-message = "`check::eval::collection` must evaluate local multisets only; project-wide linkage stays outside local analysis."
-
-[[refs.where]]
-id      = "check-dsl-layer2-boolean-parser-delegates-collection"
-expr    = """
-  $check_expr_parse
-  AND kind = 'method_call'
-  AND moniker ~ '**/method:/^parse_primary\\(\\)$/'
-  => NOT target ~ '**/method:parse_collection_expr'
-"""
-message = "`check::expr::parse` must delegate multiset syntax to `check::expr::collection`; boolean precedence stays separate from collection grammar."
-
-[[refs.where]]
-id      = "check-dsl-layer2-number-parser-size-only"
-expr    = """
-  $check_expr_number
-  AND kind = 'method_call'
-  => NOT target ~ '**/method:try_parse_collection_subset_atom'
-"""
-message = "`check::expr::number` may parse `size(...)`, but subset/set boolean syntax belongs to `check::expr::collection`."
-
-[[refs.where]]
-id      = "check-dsl-layer2-eval-local-does-not-own-multiset-algebra"
-expr    = """
-  $check_eval_local
-  AND kind = 'method_call'
-  => NOT (target ~ '**/method:unique'
-       OR target ~ '**/method:intersect'
-       OR target ~ '**/method:union'
-       OR target ~ '**/method:difference'
-       OR target ~ '**/method:is_subset')
-"""
-message = "`check::eval::local` owns domain traversal and numeric local metrics; multiset algebra belongs to `check::eval::collection`."
-
-# Couche 3 — itération locale sur paires.
-# `expr::pairs` owns `pairs(D)` and `a.*` / `b.*` binding syntax.
-# `eval::pairs` owns pair enumeration/evaluation over local domain items.
-
-[[refs.where]]
-id      = "check-dsl-layer3-pairs-parser-isolated"
-expr    = """
-  $check_expr_pairs AND kind = 'imports_symbol'
-  => NOT (target ~ '**/module:eval/**'
-       OR target ~ '**/module:config/**'
-       OR target ~ '**/dir:workspace/**')
-"""
-message = "`check::expr::pairs` must only parse pair domains/bindings; evaluation and graph traversal stay outside the parser."
-
-[[refs.where]]
-id      = "check-dsl-layer3-eval-pairs-local-only"
-expr    = """
-  $check_eval_pairs AND kind = 'imports_symbol'
-  => NOT (target ~ '**/dir:workspace/**'
-       OR target ~ '**/module:linkage/**'
-       OR target ~ '**/path:SessionIndex'
-       OR target ~ '**/path:LinkageIndex')
-"""
-message = "`check::eval::pairs` must evaluate pair domains from the local `CodeGraph`; project-wide linkage stays outside local analysis."
-
-[[refs.where]]
-id      = "check-dsl-layer3-domain-parser-does-not-own-pair-bindings"
-expr    = """
-  $check_expr_domain
-  AND kind = 'method_call'
-  => NOT target ~ '**/method:parse_pair_projection'
-"""
-message = "`check::expr::domain` may delegate `pairs(D)`, but `a.*` / `b.*` binding syntax belongs to `check::expr::pairs`."
-
-[[refs.where]]
-id      = "check-dsl-layer3-eval-local-does-not-own-pair-iteration"
-expr    = """
-  $check_eval_local
-  AND kind = 'method_call'
-  => NOT (target ~ '**/method:eval_pair_count'
-       OR target ~ '**/method:eval_pair_quantifier')
-"""
-message = "`check::eval::local` owns domain traversal and numeric local metrics; pair iteration belongs to `check::eval::pairs`."
-
-# Couche 4 — métriques nommées locales.
-# `expr::metrics` owns named metric calls such as `lcom4(self)` and
-# `eval::metrics` owns metric formulas over the local `CodeGraph`.
-
-[[refs.where]]
-id      = "check-dsl-layer4-expr-metrics-parser-isolated"
-expr    = """
-  $check_expr_metrics AND kind = 'imports_symbol'
-  => NOT (target ~ '**/module:eval/**'
-       OR target ~ '**/module:config/**'
-       OR target ~ '**/dir:workspace/**')
-"""
-message = "`check::expr::metrics` must only parse named metric calls; metric formulas belong outside the parser."
-
-[[refs.where]]
-id      = "check-dsl-layer4-number-parser-delegates-metrics"
-expr    = """
-  $check_expr_number
-  AND kind = 'method_call'
-  => NOT target ~ '**/method:parse_metric_call_body'
-"""
-message = "`check::expr::number` may parse numeric comparisons, but named metric call bodies belong to `check::expr::metrics`."
-
-[[refs.where]]
-id      = "check-dsl-layer4-metrics-local-only"
-expr    = """
-  $check_eval_metrics AND kind = 'imports_symbol'
-  => NOT (target ~ '**/dir:workspace/**'
-       OR target ~ '**/module:linkage/**'
-       OR target ~ '**/path:SessionIndex'
-       OR target ~ '**/path:LinkageIndex')
-"""
-message = "`check::eval::metrics` must compute named metrics from the local `CodeGraph`; cross-file/project indexes remain out of scope."
-
-[[refs.where]]
-id      = "check-dsl-layer4-eval-local-does-not-own-named-metrics"
-expr    = """
-  $check_eval_local
-  AND kind = 'method_call'
-  => NOT (target ~ '**/method:eval_metric'
-       OR target ~ '**/method:lcom4'
-       OR target ~ '**/method:cbo'
-       OR target ~ '**/method:rfc'
-       OR target ~ '**/method:wmc'
-       OR target ~ '**/method:dit'
-       OR target ~ '**/method:noc'
-       OR target ~ '**/method:fan_in'
-       OR target ~ '**/method:fan_out')
-"""
-message = "`check::eval::local` owns reusable local traversal/stat helpers; named metric formulas belong to `check::eval::metrics`."
+message = "`check::config::fragments` is loader internals; callers should use the public `check::config` loading API."
 
 # ─── Naming hygiene per layer ────────────────────────────────────────
 # These extend / refine the embedded preset that already enforces

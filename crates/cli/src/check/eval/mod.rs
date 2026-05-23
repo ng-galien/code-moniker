@@ -426,6 +426,7 @@ struct CompiledRule {
 	expanded_expr: String,
 	root: Node,
 	message: Option<String>,
+	rationale: Option<String>,
 }
 
 #[derive(Default)]
@@ -450,6 +451,8 @@ pub struct CompiledRuleSpec {
 	pub expr: String,
 	pub expanded_expr: String,
 	pub message: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub rationale: Option<String>,
 	pub require_doc_comment: Option<String>,
 }
 
@@ -520,6 +523,7 @@ impl CompiledRules {
 				expanded_expr: expanded,
 				root: parsed.root,
 				message: entry.message.clone(),
+				rationale: entry.rationale.clone(),
 			});
 		}
 		for (idx, entry) in per_lang_refs.iter().enumerate() {
@@ -540,6 +544,7 @@ impl CompiledRules {
 				expanded_expr: expanded,
 				root: parsed.root,
 				message: entry.message.clone(),
+				rationale: entry.rationale.clone(),
 			});
 		}
 		Ok(Self {
@@ -569,6 +574,7 @@ impl CompiledRules {
 					expr: rule.raw_expr.clone(),
 					expanded_expr: rule.expanded_expr.clone(),
 					message: rule.message.clone(),
+					rationale: rule.rationale.clone(),
 					require_doc_comment: None,
 				});
 			}
@@ -581,6 +587,7 @@ impl CompiledRules {
 					expr: format!("require_doc_comment = \"{value}\""),
 					expanded_expr: format!("require_doc_comment = \"{value}\""),
 					message: None,
+					rationale: None,
 					require_doc_comment: Some(value.clone()),
 				});
 			}
@@ -595,6 +602,7 @@ impl CompiledRules {
 					expr: rule.raw_expr.clone(),
 					expanded_expr: rule.expanded_expr.clone(),
 					message: rule.message.clone(),
+					rationale: rule.rationale.clone(),
 					require_doc_comment: None,
 				});
 			}
@@ -609,6 +617,7 @@ impl CompiledRules {
 					expr: format!("require_doc_comment = \"{value}\""),
 					expanded_expr: format!("require_doc_comment = \"{value}\""),
 					message: None,
+					rationale: None,
 					require_doc_comment: Some(value.clone()),
 				});
 			}
@@ -622,6 +631,7 @@ impl CompiledRules {
 				expr: rule.raw_expr.clone(),
 				expanded_expr: rule.expanded_expr.clone(),
 				message: rule.message.clone(),
+				rationale: rule.rationale.clone(),
 				require_doc_comment: None,
 			});
 		}
@@ -657,6 +667,7 @@ fn compile(
 			expanded_expr: expanded,
 			root: parsed.root,
 			message: entry.message.clone(),
+			rationale: entry.rationale.clone(),
 		});
 	}
 	Ok(CompiledKindRules {

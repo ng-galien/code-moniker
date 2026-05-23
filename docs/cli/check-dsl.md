@@ -272,8 +272,8 @@ to override.
   scope, `moniker` means the ref source def.
 
 `$<alias_name>`
-: Textual alias expansion from the top-level `[aliases]` table. The
-  expanded expression is wrapped in parentheses before parsing.
+: Textual alias expansion from the effective alias table. The expanded
+  expression is wrapped in parentheses before parsing.
 
 ## Semantics
 
@@ -550,9 +550,20 @@ port   = "moniker ~ '**/interface:/Port$/'"
 ```
 
 A `$name` reference is substituted **textually** (wrapped in parens to
-preserve precedence) before parsing. Aliases may reference other
-aliases provided there is no cycle; unknown aliases and cycles are
-reported at config load time.
+preserve precedence) before parsing. Aliases may reference other aliases
+provided there is no cycle; unknown aliases and cycles are reported at
+config load time.
+
+The root `.code-moniker.toml` defines global aliases. A
+`code-moniker.fragment.toml` can also define `[aliases]`; those names are
+local to the fragment source file and are namespaced during merge. For a
+fragment `fragment = "ui"`, local alias `panels` is stored as effective
+alias `ui_panels`, and `$panels` in that fragment's rules or aliases is
+rewritten to `$ui_panels`. Fragment aliases may reference global aliases.
+They may also reference other local aliases. A fragment alias cannot
+shadow an existing alias name, and its effective namespaced key cannot
+collide with another alias. Aliases shared by several fragments should be
+defined in the root `.code-moniker.toml`.
 
 Because substitution is textual, an alias bundles **both** its
 projection and its right-hand side. An alias written for def scope
@@ -572,6 +583,7 @@ explicitly, or define separate aliases per scope (`src_domain`,
 id      = "..."
 expr    = "..."
 message = "..."                            # optional; templates are rendered
+rationale = "..."                          # optional; rules-show metadata
 
 [[shape.<shape>.where]]                    # def-scoped, cross-language shape
 [[<lang>.shape.<shape>.where]]             # def-scoped, lang-specific shape
@@ -588,9 +600,33 @@ overrides if set. Aliases from the user merge on top of embedded ones with
 the same replace-by-name rule. With `--default-rules off`, the user TOML is
 loaded as the complete config.
 
-`message` is rendered as the optional violation explanation. Def rules can
-use `{name}`, `{kind}`, `{moniker}`, `{expr}`, `{value}`, `{expected}` and
-the aliases `{pattern}`, `{lines}`, `{limit}`, `{count}`. Ref rules can use
+Fragments use the file name `code-moniker.fragment.toml` below the root
+rules file directory:
+
+```toml
+fragment = "ui"                             # required
+enabled = true                              # optional, default true
+
+[aliases]                                  # optional, local to this fragment
+panels = "moniker ~ '**/dir:ui/dir:panels/**'"
+
+[[refs.where]]
+id      = "panels-ratatui-free"            # required in fragments
+expr    = "$panels => NOT target ~ '**/external_pkg:ratatui/**'"
+message = "`ui::panels` should stay renderer-free."
+```
+
+Fragments are merged after `.code-moniker.toml`. They do not support
+overrides: a rule collision is an error. A fragment rule id is local and
+gets the fragment id injected before it enters the effective config, so
+the example rule id is `refs.ui.panels-ratatui-free`. Disabled fragments
+remain visible in `rules show` but contribute no active rules or aliases.
+
+`message` is rendered as the optional violation explanation. `rationale`
+is optional architectural context shown by `rules show`; it is not emitted
+as a check violation explanation. Def rule messages can use `{name}`,
+`{kind}`, `{moniker}`, `{expr}`, `{value}`, `{expected}` and the aliases
+`{pattern}`, `{lines}`, `{limit}`, `{count}`. Ref rule messages can use
 `{kind}`, `{source.name}`, `{source.kind}`, `{source.shape}`,
 `{source.moniker}`, `{target.name}`, `{target.kind}`, `{target.shape}`,
 `{target.moniker}`, `{atom}`, `{actual}`, and `{expected}`.

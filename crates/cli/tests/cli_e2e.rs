@@ -769,6 +769,7 @@ fn check_project_path_in_moniker_gates_a_rule() {
 		id      = "name-pascalcase"
 		expr    = "moniker ~ '**/dir:strict/**' => name =~ ^[A-Z][A-Za-z0-9]*$"
 		message = "Strict layer requires PascalCase."
+		rationale = "ADR-001: strict layer names are part of the public architecture contract."
 		"#,
 	)
 	.unwrap();
@@ -784,6 +785,10 @@ fn check_project_path_in_moniker_gates_a_rule() {
 	assert!(
 		!out.contains("lax/b.ts"),
 		"lax/ exempt by path-in-moniker gate: {out}"
+	);
+	assert!(
+		!out.contains("ADR-001"),
+		"rationale is rules-show metadata, not check output: {out}"
 	);
 }
 
@@ -1655,6 +1660,151 @@ fn check_default_rules_on_overrides_disabled_config() {
 	]);
 	assert_eq!(exit, Exit::NoMatch);
 	assert!(out.contains("ts.function.no-placeholder-names"), "{out}");
+}
+
+#[test]
+fn check_loads_enabled_fragment_rules_from_rules_root() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(dir.path(), "src/a.ts", "class Foo {}\n");
+	write_under(
+		dir.path(),
+		".code-moniker.toml",
+		r#"
+		default_rules = false
+		"#,
+	);
+	write_under(
+		dir.path(),
+		"src/code-moniker.fragment.toml",
+		r#"
+		fragment = "local"
+
+		[aliases]
+		target_class = "name = 'X'"
+
+		[[ts.class.where]]
+		id = "class-name-x"
+		expr = "$target_class"
+		"#,
+	);
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		dir.path().join(".code-moniker.toml").to_str().unwrap(),
+	]);
+
+	assert_eq!(exit, Exit::NoMatch, "stdout={out}\nstderr={err}");
+	assert!(out.contains("ts.class.local.class-name-x"), "{out}");
+}
+
+#[test]
+fn check_ignores_disabled_fragment_rules_but_rules_show_reports_them() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(dir.path(), "src/a.ts", "class Foo {}\n");
+	write_under(
+		dir.path(),
+		".code-moniker.toml",
+		r#"
+		default_rules = false
+		"#,
+	);
+	write_under(
+		dir.path(),
+		"src/code-moniker.fragment.toml",
+		r#"
+		fragment = "local"
+		enabled = false
+
+		[[ts.class.where]]
+		id = "class-name-x"
+		expr = "name = 'X'"
+		"#,
+	);
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		dir.path().join(".code-moniker.toml").to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	assert!(
+		out.trim().is_empty(),
+		"disabled fragment should not run: {out}"
+	);
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"rules",
+		"show",
+		dir.path().to_str().unwrap(),
+		"--format",
+		"json",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
+	let fragment = &json["fragments"].as_array().unwrap()[0];
+	assert_eq!(fragment["id"], "local");
+	assert_eq!(fragment["enabled"], false);
+	assert_eq!(fragment["declared_rules"], 1);
+	assert_eq!(fragment["active_rules"], 0);
+	assert!(
+		!json["langs"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.flat_map(|lang| lang["rules"].as_array().unwrap())
+			.any(|rule| rule["rule_id"] == "ts.class.local.class-name-x"),
+		"{json:#}"
+	);
+}
+
+#[test]
+fn rules_show_profile_recomputes_fragment_active_rules() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(
+		dir.path(),
+		".code-moniker.toml",
+		r#"
+		default_rules = false
+
+		[profiles.none]
+		disable = ["^ts\\.class\\.local\\.class-name-x$"]
+		"#,
+	);
+	write_under(
+		dir.path(),
+		"src/code-moniker.fragment.toml",
+		r#"
+		fragment = "local"
+
+		[[ts.class.where]]
+		id = "class-name-x"
+		expr = "name = 'X'"
+		"#,
+	);
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"rules",
+		"show",
+		dir.path().to_str().unwrap(),
+		"--profile",
+		"none",
+		"--format",
+		"json",
+	]);
+
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
+	let fragment = &json["fragments"].as_array().unwrap()[0];
+	assert_eq!(fragment["declared_rules"], 1);
+	assert_eq!(fragment["active_rules"], 0);
+	assert_eq!(json["total_rules"], 0);
 }
 
 #[test]

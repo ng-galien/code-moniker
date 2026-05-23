@@ -1,5 +1,7 @@
-use std::collections::HashMap;
-use std::path::Path;
+mod fragments;
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use regex::Regex;
 use serde::Deserialize;
@@ -45,6 +47,18 @@ pub struct Config {
 	pub sql: LangRules,
 	#[serde(default)]
 	pub profiles: HashMap<String, Profile>,
+	#[serde(skip)]
+	pub fragments: Vec<FragmentInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FragmentInfo {
+	pub id: String,
+	pub path: PathBuf,
+	pub enabled: bool,
+	pub declared_rules: usize,
+	pub active_rules: usize,
+	pub(crate) rule_keys: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -87,6 +101,8 @@ pub struct RuleEntry {
 	pub expr: String,
 	#[serde(default)]
 	pub message: Option<String>,
+	#[serde(default)]
+	pub rationale: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -95,6 +111,11 @@ pub enum ConfigError {
 	DefaultPresetInvalid(toml::de::Error),
 	#[error("user config `{path}`: {error}")]
 	UserConfig {
+		path: String,
+		error: toml::de::Error,
+	},
+	#[error("fragment config `{path}`: {error}")]
+	FragmentConfig {
 		path: String,
 		error: toml::de::Error,
 	},
@@ -143,6 +164,62 @@ pub enum ConfigError {
 		pattern: String,
 		error: regex::Error,
 	},
+	#[error("invalid fragment id `{id}` in `{path}`; use ASCII letters, digits, `_`, or `-`")]
+	InvalidFragmentId { path: String, id: String },
+	#[error(
+		"invalid alias id `{alias}` in fragment `{fragment}` at `{path}`; use ASCII letters, digits, or `_`"
+	)]
+	InvalidFragmentAliasId {
+		path: String,
+		fragment: String,
+		alias: String,
+	},
+	#[error("duplicate fragment id `{id}` in `{first}` and `{second}`")]
+	DuplicateFragment {
+		id: String,
+		first: String,
+		second: String,
+	},
+	#[error("alias `{alias}` from fragment `{fragment}` in `{path}` shadows an existing alias")]
+	FragmentAliasShadowsExisting {
+		path: String,
+		fragment: String,
+		alias: String,
+	},
+	#[error("alias `{alias}` from `{path}` collides with alias from `{existing}`")]
+	FragmentAliasCollision {
+		alias: String,
+		path: String,
+		existing: String,
+	},
+	#[error("fragment `{fragment}` in `{path}` has a rule without an explicit id under `{at}`")]
+	FragmentRuleMissingId {
+		path: String,
+		fragment: String,
+		at: String,
+	},
+	#[error(
+		"invalid rule id `{id}` in fragment `{fragment}` at `{path}`; use ASCII letters, digits, `_`, or `-`"
+	)]
+	InvalidFragmentRuleId {
+		path: String,
+		fragment: String,
+		id: String,
+	},
+	#[error(
+		"fragment `{fragment}` in `{path}` uses unsupported `require_doc_comment` under `{at}`"
+	)]
+	FragmentRequireDocUnsupported {
+		path: String,
+		fragment: String,
+		at: String,
+	},
+	#[error("rule `{rule_id}` from `{path}` collides with rule from `{existing}`")]
+	FragmentRuleCollision {
+		rule_id: String,
+		path: String,
+		existing: String,
+	},
 }
 
 pub fn load_default() -> Result<Config, ConfigError> {
@@ -164,13 +241,15 @@ pub fn load_with_cli_default_rules(
 	user_path: Option<&Path>,
 	default_rules: Option<bool>,
 ) -> Result<Config, ConfigError> {
-	let user = read_user_config(user_path)?;
+	let project = read_project_config(user_path)?;
 	let include_defaults = default_rules.unwrap_or_else(|| {
-		user.as_ref()
+		project
+			.root
+			.as_ref()
 			.and_then(|cfg| cfg.default_rules)
 			.unwrap_or(true)
 	});
-	load_with_user(user, include_defaults)
+	load_with_project(project, include_defaults)
 }
 
 /// Load rule config, optionally starting from the embedded defaults.
@@ -180,26 +259,46 @@ pub fn load_with_options(
 	user_path: Option<&Path>,
 	include_defaults: bool,
 ) -> Result<Config, ConfigError> {
-	let user = read_user_config(user_path)?;
+	let project = read_project_config(user_path)?;
 	let include_defaults = include_defaults
-		&& user
+		&& project
+			.root
 			.as_ref()
 			.and_then(|cfg| cfg.default_rules)
 			.unwrap_or(true);
-	load_with_user(user, include_defaults)
+	load_with_project(project, include_defaults)
 }
 
-fn load_with_user(user: Option<Config>, include_defaults: bool) -> Result<Config, ConfigError> {
+struct ProjectConfig {
+	root: Option<Config>,
+	fragments: Vec<fragments::FragmentFile>,
+}
+
+fn load_with_project(
+	project: ProjectConfig,
+	include_defaults: bool,
+) -> Result<Config, ConfigError> {
 	let mut cfg = if include_defaults {
 		load_default()?
 	} else {
 		Config::default()
 	};
 	cfg.default_rules = Some(include_defaults);
-	if let Some(user) = user {
+	if let Some(user) = project.root {
 		merge_into(&mut cfg, user);
 	}
+	fragments::merge_into(&mut cfg, project.fragments)?;
 	Ok(cfg)
+}
+
+fn read_project_config(user_path: Option<&Path>) -> Result<ProjectConfig, ConfigError> {
+	let root = read_user_config(user_path)?;
+	let fragments = if root.is_some() {
+		fragments::read(user_path)?
+	} else {
+		Vec::new()
+	};
+	Ok(ProjectConfig { root, fragments })
 }
 
 fn read_user_config(user_path: Option<&Path>) -> Result<Option<Config>, ConfigError> {
@@ -411,6 +510,10 @@ pub(crate) fn substitute_aliases(
 /// Aliases are resolved first so cycles surface before any kind / visibility check.
 fn validate(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 	resolve_aliases(&cfg.aliases)?;
+	validate_structure(cfg, path)
+}
+
+fn validate_structure(cfg: &Config, path: &str) -> Result<(), ConfigError> {
 	validate_shape_section(&cfg.shape, "shape", None)?;
 	if !cfg.default.shape.is_empty() {
 		return Err(ConfigError::DefaultShapeUnsupported);
@@ -608,6 +711,7 @@ impl Config {
 				&disable,
 			);
 		}
+		self.refresh_fragment_active_rules();
 		Ok(())
 	}
 
@@ -615,6 +719,24 @@ impl Config {
 		let mut names: Vec<&str> = self.profiles.keys().map(|s| s.as_str()).collect();
 		names.sort();
 		names.join(", ")
+	}
+
+	fn refresh_fragment_active_rules(&mut self) {
+		if self.fragments.is_empty() {
+			return;
+		}
+		let active_keys = collect_rule_keys(self);
+		for fragment in &mut self.fragments {
+			fragment.active_rules = if fragment.enabled {
+				fragment
+					.rule_keys
+					.iter()
+					.filter(|key| active_keys.contains(key.as_str()))
+					.count()
+			} else {
+				0
+			};
+		}
 	}
 }
 
@@ -673,6 +795,36 @@ fn filter_rules(rules: &mut Vec<RuleEntry>, prefix: &str, enable: &[Regex], disa
 		(enable.is_empty() || enable.iter().any(|re| re.is_match(&full)))
 			&& !disable.iter().any(|re| re.is_match(&full))
 	});
+}
+
+fn collect_rule_keys(cfg: &Config) -> HashSet<String> {
+	let mut out = HashSet::new();
+	collect_rule_list_keys("refs", &cfg.refs.rules, &mut out);
+	for (shape, rules) in &cfg.shape {
+		collect_rule_list_keys(&format!("shape.{shape}"), &rules.rules, &mut out);
+	}
+	collect_lang_rule_keys("default", &cfg.default, &mut out);
+	for lang in Lang::ALL {
+		collect_lang_rule_keys(config_section(*lang), cfg.for_lang(*lang), &mut out);
+	}
+	out
+}
+
+fn collect_lang_rule_keys(section: &str, rules: &LangRules, out: &mut HashSet<String>) {
+	for (shape, kind_rules) in &rules.shape {
+		collect_rule_list_keys(&format!("{section}.shape.{shape}"), &kind_rules.rules, out);
+	}
+	for (kind, kind_rules) in &rules.kinds {
+		collect_rule_list_keys(&format!("{section}.{kind}"), &kind_rules.rules, out);
+	}
+}
+
+fn collect_rule_list_keys(prefix: &str, rules: &[RuleEntry], out: &mut HashSet<String>) {
+	for rule in rules {
+		if let Some(id) = &rule.id {
+			out.insert(format!("{prefix}.{id}"));
+		}
+	}
 }
 
 #[cfg(test)]
@@ -981,6 +1133,29 @@ mod tests {
 	}
 
 	#[test]
+	fn missing_user_file_does_not_discover_fragments() {
+		let dir = tempfile::tempdir().unwrap();
+		let missing_root = dir.path().join(".code-moniker.toml");
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[[rust.fn.where]]
+			id = "parked"
+			expr = "lines <= 10"
+			"#,
+		);
+
+		let cfg = load_with_options(Some(&missing_root), false).expect("missing root loads empty");
+
+		assert!(cfg.refs.rules.is_empty());
+		assert!(cfg.rust.kinds.is_empty());
+		assert!(cfg.fragments.is_empty());
+	}
+
+	#[test]
 	fn user_config_can_disable_embedded_default_rules() {
 		let dir = tempfile::tempdir().unwrap();
 		let p = dir.path().join(".code-moniker.toml");
@@ -1014,6 +1189,522 @@ mod tests {
 		match load_with_overrides(Some(&p)) {
 			Err(ConfigError::UserConfig { .. }) => {}
 			other => panic!("expected UserConfig error, got {other:?}"),
+		}
+	}
+
+	fn write_fragment(root: &Path, rel_dir: &str, body: &str) -> std::path::PathBuf {
+		let dir = root.join(rel_dir);
+		std::fs::create_dir_all(&dir).unwrap();
+		let path = dir.join("code-moniker.fragment.toml");
+		std::fs::write(&path, body).unwrap();
+		path
+	}
+
+	#[test]
+	fn fragment_rules_are_loaded_with_fragment_namespace() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root,
+			r#"
+			default_rules = false
+
+			[aliases]
+			local_name = "name =~ ^[a-z_]"
+			"#,
+		)
+		.unwrap();
+		let fragment_path = write_fragment(
+			dir.path(),
+			"crates/cli/src/check",
+			r#"
+			fragment = "check"
+
+			[[rust.fn.where]]
+			id = "parser-only"
+			expr = "$local_name"
+			"#,
+		);
+
+		let cfg = load_with_overrides(Some(&root)).expect("fragment config loads");
+
+		assert_eq!(cfg.fragments.len(), 1);
+		assert_eq!(cfg.fragments[0].id, "check");
+		assert_eq!(cfg.fragments[0].path, fragment_path);
+		assert!(cfg.fragments[0].enabled);
+		assert_eq!(cfg.fragments[0].declared_rules, 1);
+		assert_eq!(cfg.fragments[0].active_rules, 1);
+		let compiled = crate::check::compile_rules(&cfg, Lang::Rs, "code+moniker://").unwrap();
+		let ids: Vec<_> = compiled
+			.specs(Lang::Rs)
+			.into_iter()
+			.map(|rule| rule.rule_id)
+			.collect();
+		assert!(
+			ids.iter().any(|id| id == "rust.fn.check.parser-only"),
+			"{ids:?}"
+		);
+	}
+
+	#[test]
+	fn disabled_fragment_is_reported_but_not_merged() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+			enabled = false
+
+			[[rust.fn.where]]
+			id = "parked"
+			expr = "$missing_while_disabled"
+			"#,
+		);
+
+		let cfg = load_with_overrides(Some(&root)).expect("disabled fragment loads");
+
+		assert_eq!(cfg.fragments.len(), 1);
+		assert_eq!(cfg.fragments[0].id, "local");
+		assert!(!cfg.fragments[0].enabled);
+		assert_eq!(cfg.fragments[0].declared_rules, 1);
+		assert_eq!(cfg.fragments[0].active_rules, 0);
+		let compiled = crate::check::compile_rules(&cfg, Lang::Rs, "code+moniker://").unwrap();
+		let ids: Vec<_> = compiled
+			.specs(Lang::Rs)
+			.into_iter()
+			.map(|rule| rule.rule_id)
+			.collect();
+		assert!(
+			!ids.iter().any(|id| id == "rust.fn.local.parked"),
+			"{ids:?}"
+		);
+	}
+
+	#[test]
+	fn profile_recomputes_fragment_active_rules() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root,
+			r#"
+			default_rules = false
+
+			[profiles.none]
+			disable = ["^rust\\.fn\\.local\\.parked$"]
+			"#,
+		)
+		.unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[[rust.fn.where]]
+			id = "parked"
+			expr = "lines <= 10"
+			"#,
+		);
+		let mut cfg = load_with_overrides(Some(&root)).expect("fragment config loads");
+
+		cfg.apply_profile("none").expect("profile applies");
+
+		assert_eq!(cfg.fragments[0].declared_rules, 1);
+		assert_eq!(cfg.fragments[0].active_rules, 0);
+	}
+
+	#[test]
+	fn disabled_fragment_still_rejects_missing_rule_ids() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+			enabled = false
+
+			[[rust.fn.where]]
+			expr = "lines <= 10"
+			"#,
+		);
+
+		match load_with_overrides(Some(&root)) {
+			Err(ConfigError::FragmentRuleMissingId { fragment, at, .. }) => {
+				assert_eq!(fragment, "local");
+				assert_eq!(at, "rust.fn");
+			}
+			other => panic!("expected FragmentRuleMissingId error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn fragment_local_aliases_are_namespaced_and_usable() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[aliases]
+			local_name = "name = 'Ok'"
+
+			[[rust.fn.where]]
+			id = "uses-local"
+			expr = "$local_name"
+			"#,
+		);
+
+		let cfg = load_with_overrides(Some(&root)).expect("fragment config loads");
+
+		assert_eq!(
+			cfg.aliases.get("local_local_name").map(|s| s.as_str()),
+			Some("name = 'Ok'")
+		);
+		let compiled = crate::check::compile_rules(&cfg, Lang::Rs, "code+moniker://").unwrap();
+		let specs = compiled.specs(Lang::Rs);
+		let rule = specs
+			.iter()
+			.find(|rule| rule.rule_id == "rust.fn.local.uses-local")
+			.expect("fragment rule is compiled");
+		assert!(
+			rule.expanded_expr.contains("name = 'Ok'"),
+			"{}",
+			rule.expanded_expr
+		);
+	}
+
+	#[test]
+	fn fragment_local_alias_can_reference_global_alias() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root,
+			r#"
+			default_rules = false
+
+			[aliases]
+			global_name = "name = 'Ok'"
+			"#,
+		)
+		.unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[aliases]
+			local_name = "$global_name"
+
+			[[rust.fn.where]]
+			id = "uses-local"
+			expr = "$local_name"
+			"#,
+		);
+
+		let cfg = load_with_overrides(Some(&root)).expect("fragment config loads");
+		let resolved = resolve_aliases(&cfg.aliases).expect("aliases resolve");
+		assert_eq!(
+			resolved.get("local_local_name").map(|s| s.as_str()),
+			Some("(name = 'Ok')")
+		);
+	}
+
+	#[test]
+	fn fragment_local_alias_can_reference_another_local_alias() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[aliases]
+			leaf = "name = 'Ok'"
+			composed = "$leaf AND lines <= 10"
+
+			[[rust.fn.where]]
+			id = "uses-composed"
+			expr = "$composed"
+			"#,
+		);
+
+		let cfg = load_with_overrides(Some(&root)).expect("fragment config loads");
+
+		assert_eq!(
+			cfg.aliases.get("local_composed").map(|s| s.as_str()),
+			Some("$local_leaf AND lines <= 10")
+		);
+		let compiled = crate::check::compile_rules(&cfg, Lang::Rs, "code+moniker://").unwrap();
+		let specs = compiled.specs(Lang::Rs);
+		let rule = specs
+			.iter()
+			.find(|rule| rule.rule_id == "rust.fn.local.uses-composed")
+			.expect("fragment rule is compiled");
+		assert!(
+			rule.expanded_expr.contains("name = 'Ok'"),
+			"{}",
+			rule.expanded_expr
+		);
+		assert!(
+			rule.expanded_expr.contains("lines <= 10"),
+			"{}",
+			rule.expanded_expr
+		);
+	}
+
+	#[test]
+	fn fragment_aliases_cannot_reference_other_fragments() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"a",
+			r#"
+			fragment = "first"
+
+			[aliases]
+			shared = "name = 'Shared'"
+			"#,
+		);
+		write_fragment(
+			dir.path(),
+			"b",
+			r#"
+			fragment = "second"
+
+			[aliases]
+			local = "$first_shared"
+
+			[[rust.fn.where]]
+			id = "uses-local"
+			expr = "$local"
+			"#,
+		);
+
+		match load_with_overrides(Some(&root)) {
+			Err(ConfigError::UnknownAlias { name, at }) => {
+				assert_eq!(name, "first_shared");
+				assert_eq!(at, "alias `second_local`");
+			}
+			other => panic!("expected UnknownAlias error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn fragment_alias_local_name_must_not_shadow_existing_alias() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root,
+			r#"
+			default_rules = false
+
+			[aliases]
+			shared = "name = 'Global'"
+			"#,
+		)
+		.unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[aliases]
+			shared = "name = 'Local'"
+			"#,
+		);
+
+		match load_with_overrides(Some(&root)) {
+			Err(ConfigError::FragmentAliasShadowsExisting {
+				fragment, alias, ..
+			}) => {
+				assert_eq!(fragment, "local");
+				assert_eq!(alias, "shared");
+			}
+			other => panic!("expected FragmentAliasShadowsExisting error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn fragment_alias_effective_key_collision_is_rejected() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root,
+			r#"
+			default_rules = false
+
+			[aliases]
+			local_shared = "name = 'Global'"
+			"#,
+		)
+		.unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[aliases]
+			shared = "name = 'Local'"
+			"#,
+		);
+
+		match load_with_overrides(Some(&root)) {
+			Err(ConfigError::FragmentAliasCollision {
+				alias, existing, ..
+			}) => {
+				assert_eq!(alias, "local_shared");
+				assert_eq!(existing, "<effective config>");
+			}
+			other => panic!("expected FragmentAliasCollision error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn fragment_alias_ids_must_match_reference_grammar() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[aliases]
+			"bad-name" = "name = 'X'"
+			"#,
+		);
+
+		match load_with_overrides(Some(&root)) {
+			Err(ConfigError::InvalidFragmentAliasId {
+				fragment, alias, ..
+			}) => {
+				assert_eq!(fragment, "local");
+				assert_eq!(alias, "bad-name");
+			}
+			other => panic!("expected InvalidFragmentAliasId error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn duplicate_fragment_ids_are_rejected() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(dir.path(), "a", "fragment = \"local\"\n");
+		write_fragment(dir.path(), "b", "fragment = \"local\"\n");
+
+		match load_with_overrides(Some(&root)) {
+			Err(ConfigError::DuplicateFragment { id, first, second }) => {
+				assert_eq!(id, "local");
+				assert!(first.ends_with("a/code-moniker.fragment.toml"), "{first}");
+				assert!(second.ends_with("b/code-moniker.fragment.toml"), "{second}");
+			}
+			other => panic!("expected DuplicateFragment error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn fragment_rules_must_have_explicit_ids() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[[rust.fn.where]]
+			expr = "lines <= 10"
+			"#,
+		);
+
+		match load_with_overrides(Some(&root)) {
+			Err(ConfigError::FragmentRuleMissingId { fragment, at, .. }) => {
+				assert_eq!(fragment, "local");
+				assert_eq!(at, "rust.fn");
+			}
+			other => panic!("expected FragmentRuleMissingId error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn fragment_rule_collisions_are_rejected() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(
+			&root,
+			r#"
+			default_rules = false
+
+			[[rust.fn.where]]
+			id = "local.small"
+			expr = "lines <= 10"
+			"#,
+		)
+		.unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[[rust.fn.where]]
+			id = "small"
+			expr = "lines <= 20"
+			"#,
+		);
+
+		match load_with_overrides(Some(&root)) {
+			Err(ConfigError::FragmentRuleCollision {
+				rule_id, existing, ..
+			}) => {
+				assert_eq!(rule_id, "rust.fn.local.small");
+				assert_eq!(existing, "<effective config>");
+			}
+			other => panic!("expected FragmentRuleCollision error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn fragment_unknown_alias_is_reported_at_fragment_rule() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join(".code-moniker.toml");
+		std::fs::write(&root, "default_rules = false\n").unwrap();
+		write_fragment(
+			dir.path(),
+			"src",
+			r#"
+			fragment = "local"
+
+			[[rust.fn.where]]
+			id = "uses-alias"
+			expr = "$missing_alias"
+			"#,
+		);
+
+		match load_with_overrides(Some(&root)) {
+			Err(ConfigError::UnknownAlias { name, at }) => {
+				assert_eq!(name, "missing_alias");
+				assert!(at.contains("code-moniker.fragment.toml:rust.fn.local.uses-alias"));
+			}
+			other => panic!("expected UnknownAlias error, got {other:?}"),
 		}
 	}
 

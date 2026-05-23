@@ -1,0 +1,104 @@
+fragment = "ui"
+
+[aliases]
+root    = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/**'"
+view           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:view'"
+terminal_shell = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:shell/module:terminal'"
+panels         = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/**'"
+panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:render'"
+components     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:components/**'"
+contracts      = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/**'"
+screen_contract     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/module:screen'"
+msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:action' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:runtime'"
+app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:effect'"
+
+[[refs.where]]
+id      = "store-boundary"
+expr    = """
+  $root AND kind = 'imports_symbol'
+  => NOT (target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:IndexedFile'
+       OR target ~ '**/path:CodeGraph'
+       OR target ~ '**/path:DefRecord'
+       OR target ~ '**/path:RefRecord'
+       OR target ~ '**/path:ChangeIndex'
+       OR target ~ '**/path:ChangeEntry')
+"""
+message = "`code-moniker ui` must consume workspace read models; raw graph/index/Git records stay inside `workspace`."
+
+[[refs.where]]
+id      = "panels-ratatui-renderers-only"
+expr    = """
+  $panels AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => ($panel_renderer OR NOT target ~ '**/external_pkg:ratatui/**')
+"""
+message = "`ui::panels` view models and builders must stay ratatui-free; only panel renderers may import ratatui."
+
+[[refs.where]]
+id      = "components-ratatui-free"
+expr    = """
+  $components AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT target ~ '**/external_pkg:ratatui/**'
+"""
+message = "`ui::components` own reusable interaction state; ratatui rendering stays in view/panel renderers."
+
+[[refs.where]]
+id      = "components-workspace-free"
+expr    = """
+  $components AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT target ~ '**/dir:workspace/**'
+"""
+message = "`ui::components` must stay domain-neutral; workspace semantics belong to feature/navigation selectors."
+
+[[refs.where]]
+id      = "view-renders-view-models-only"
+expr    = """
+  $view AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT (target ~ '**/path:App'
+       OR target ~ '**/path:ExplorerFeature'
+       OR target ~ '**/dir:contracts/**')
+"""
+message = "`ui::view` renders feature view-models; App/Feature/Screen orchestration belongs outside the renderer."
+
+[[refs.where]]
+id      = "terminal-backend-owned-by-shell-terminal"
+expr    = """
+  $root AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => ($terminal_shell OR $rust_inline_tests
+      OR NOT (target ~ '**/path:CrosstermBackend'
+           OR target ~ '**/path:EnterAlternateScreen'
+           OR target ~ '**/path:LeaveAlternateScreen'
+           OR target ~ '**/path:enable_raw_mode'
+           OR target ~ '**/path:disable_raw_mode'))
+"""
+message = "Terminal backend setup belongs to `ui::shell::terminal`; UI root/app code should not own terminal raw-mode or alternate-screen wiring."
+
+[[refs.where]]
+id      = "screen-render-contract-only"
+expr    = """
+  $screen_contract AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT (target ~ '**/path:Msg'
+       OR target ~ '**/path:Effect'
+       OR target ~ '**/path:AppCommand'
+       OR target ~ '**/module:events/**'
+       OR target ~ '**/module:app/**'
+       OR target ~ '**/dir:app/**')
+"""
+message = "`ui::contracts::Screen` is a render-only contract; input messages, effects, and app commands belong to the Elm orchestration layer."
+
+[[refs.where]]
+id      = "contracts-do-not-depend-on-app"
+expr    = """
+  $contracts AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT (target ~ '**/module:app/**' OR target ~ '**/dir:app/**')
+"""
+message = "`ui::contracts` must stay app-neutral; app commands and effects belong to `ui::app`."
+
+[[refs.where]]
+id      = "elm-orchestration-boundary"
+expr    = """
+  $root AND kind = 'imports_symbol'
+  => (NOT target ~ '**/path:Msg' OR $msg_owner OR $rust_inline_tests)
+     AND (NOT target ~ '**/path:AppCommand' OR $app_command_boundary OR $rust_inline_tests)
+"""
+message = "`Msg` is owned by `ui::events` and reduced in `ui::app`; `AppCommand` is emitted by the reducer and interpreted by the runtime shell."

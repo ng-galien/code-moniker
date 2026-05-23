@@ -206,7 +206,47 @@ code-moniker rules show . --default-rules off --format json
 ```
 
 Text output groups compiled rules by language. JSON output includes
-`expr` and `expanded_expr`, so alias expansion is visible.
+`expr`, `expanded_expr`, and optional `rationale`, so alias expansion and
+rule intent are visible without running a check.
+
+### Rule fragments
+
+Large projects can split local rule policy into colocated fragments. The
+root `.code-moniker.toml` stays the global entrypoint; when it exists,
+`check` also discovers every `code-moniker.fragment.toml` below the same
+directory and merges enabled fragments after the root file.
+
+Each fragment must declare a stable id:
+
+```toml
+fragment = "check"
+enabled = true # optional; defaults to true
+
+[aliases]
+expr_parse = "moniker ~ '**/dir:check/dir:expr/module:parse/**'"
+
+[[refs.where]]
+id      = "parse-no-eval"
+expr    = "$expr_parse => NOT target ~ '**/module:eval/**'"
+message = "`check::expr::parse` must stay parser-only."
+```
+
+Fragment rule ids are local in the file and must be explicit. At merge
+time, the fragment id is injected into the effective rule id. The example
+above becomes `refs.check.parse-no-eval`. Fragments cannot override root
+rules or each other; a duplicate effective rule id is a config error.
+
+Fragment aliases are local for readability. `$expr_parse` inside fragment
+`check` is stored as the effective alias `check_expr_parse`; local aliases
+can reference global aliases and other local aliases, but a fragment alias
+cannot shadow an existing alias or collide with an effective alias name.
+Aliases shared by more than one fragment belong in the root file. Alias
+names in fragments use ASCII letters, digits, and `_`.
+
+`enabled = false` keeps the fragment discoverable but does not merge its
+rules or aliases. `rules show` lists every declared fragment and reports
+`active_rules` separately from `declared_rules`, so disabled fragments and
+profile-filtered rules do not disappear silently.
 
 Use `rules learn` to print the example rule packs embedded in the binary.
 This is intended for agents and local tooling: they can inspect language
@@ -233,6 +273,10 @@ Minimal overlay:
 id      = "domain-no-infra"
 expr    = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infrastructure/**'"
 message = "Domain code must not depend on infrastructure."
+rationale = """
+ADR-003: domain code is the stable core of the application.
+Infrastructure changes must not force domain changes.
+"""
 
 [[ts.class.where]]
 id      = "no-god-class"
@@ -246,6 +290,10 @@ expr = "name =~ Repository$ => moniker ~ '**/dir:domain/**'"
 
 Rule ids are built from the TOML path: `ts.class.no-god-class`,
 `refs.domain-no-infra`, and so on.
+
+`message` is the short diagnostic shown with a violation. `rationale` is
+optional rule metadata for the architectural decision behind the rule; it
+is shown by `rules show` but not by `check` violation output.
 
 The three examples above cover the common rule shapes:
 
@@ -559,7 +607,9 @@ Evaluation order:
 
 1. Load embedded defaults unless disabled.
 2. Merge `.code-moniker.toml` on top.
-3. If `--profile <name>` is passed, filter the resulting rule set.
+3. Discover and merge enabled `code-moniker.fragment.toml` files below the
+   rules file directory.
+4. If `--profile <name>` is passed, filter the resulting rule set.
 
 Profiles use regexes over full rule ids. Full ids are built from the TOML
 path:
@@ -572,6 +622,7 @@ path:
 | `[[rust.shape.callable.where]] id = "max-lines"` | `rust.shape.callable.max-lines` |
 | `[[default.module.where]] id = "max-lines"` | `default.module.max-lines` |
 | `[[java.refs.where]] id = "no-spring"` | `java.refs.no-spring` |
+| `fragment = "ui"` + `[[refs.where]] id = "store-boundary"` | `refs.ui.store-boundary` |
 
 Rules without an `id` get generated ids such as `where_0`, but profiles
 are clearer and more stable when every profiled rule has an explicit `id`.
@@ -674,8 +725,8 @@ Text output prints one violation per line:
 src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$` (name = lower_bad, expected ^[A-Z][A-Za-z0-9]*$)
 ```
 
-If a custom message is present, it is printed as the explanation below the
-violation:
+If a custom `message` is present, it is printed as the explanation below
+the violation. `rationale` is intentionally omitted from `check` output:
 
 ```text
 src/widget.ts:L12-L18 [ts.class.name-pascalcase] class `lower_bad` fails `name =~ ^[A-Z][A-Za-z0-9]*$` (name = lower_bad, expected ^[A-Z][A-Za-z0-9]*$)

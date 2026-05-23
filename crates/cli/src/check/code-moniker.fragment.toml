@@ -1,0 +1,271 @@
+fragment = "check"
+
+# Parser code owns syntax and expression shape. Evaluation owns local
+# CodeGraph semantics. Config owns TOML/profile/alias loading.
+
+[aliases]
+expr       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:expr' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:expr/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/**'"
+expr_atom   = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:atom' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:atom/**'"
+expr_domain = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:domain' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:domain/**'"
+expr_number = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:number' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:number/**'"
+expr_parse  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:parse' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:parse/**'"
+expr_value  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value/**'"
+expr_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection/**'"
+expr_pairs  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs/**'"
+expr_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics/**'"
+eval       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/**'"
+eval_local = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local/**'"
+eval_value = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value/**'"
+eval_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection/**'"
+eval_pairs = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs/**'"
+eval_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics/**'"
+
+[[refs.where]]
+id      = "expr-parser-only"
+expr    = """
+  $expr AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/module:config/**'
+       OR target ~ '**/dir:config/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::expr` owns DSL syntax only; evaluation, config loading, and workspace/project indexes stay outside the parser."
+
+[[refs.where]]
+id      = "eval-local-graph-only"
+expr    = """
+  $eval AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:LinkageIndex')
+"""
+message = "`check::eval` evaluates local `CodeGraph` facts only; project-wide indexes and linkage stay out of the local DSL evaluator."
+
+[[refs.where]]
+id      = "expr-parse-no-number-rhs-direct"
+expr    = """
+  $expr_parse AND kind = 'imports_symbol'
+  => NOT target ~ '**/dir:check/dir:expr/module:number/path:parse_number_rhs'
+"""
+message = "`check::expr::parse` still imports `number::parse_number_rhs`; numeric RHS parsing leaks through the boolean parser boundary."
+
+[[refs.where]]
+id      = "expr-number-no-filter-parser-callback"
+expr    = """
+  $expr_number AND kind = 'method_call'
+  => NOT target ~ '**/method:parse_domain_filter_body'
+"""
+message = "`check::expr::number` still parses `count(...)` filters through the domain/filter parser callback; numeric parsing remains coupled to boolean expression parsing."
+
+[[refs.where]]
+id      = "expr-specialized-atoms-tail-helper"
+expr    = """
+  $expr_parse
+  AND kind = 'method_call'
+  AND moniker ~ '**/method:/^try_parse_(segment|number|mode)_atom\\(\\)$/'
+  => NOT (target ~ '**/method:eat_op'
+       OR target ~ '**/method:find_atom_end')
+"""
+message = "`check::expr::parse` still repeats comparison-tail parsing in specialized atom parsers; move op/RHS/raw handling behind one helper."
+
+[[refs.where]]
+id      = "expr-scanners-owned-by-cursor"
+expr    = """
+  ($expr_atom OR $expr_domain OR $expr_number)
+  AND kind = 'method_call'
+  => NOT (target ~ '**/method:as_bytes'
+       OR target ~ '**/method:is_ascii_digit'
+       OR target ~ '**/method:is_ascii_alphabetic'
+       OR target ~ '**/method:is_ascii_alphanumeric')
+"""
+message = "`check::expr` still has local byte/token scanners outside `cursor`; lexical scanning should have a single owner."
+
+# Couche 1 — agrégateurs locaux sur domaine.
+# `number` owns numeric syntax, `value` owns domain value expressions used by
+# `mode` / `entropy`, and `eval::local` owns the local CodeGraph analytics.
+
+[[refs.where]]
+id      = "dsl-layer1-mode-body-owned-by-value-parser"
+expr    = """
+  $expr_parse
+  AND kind = 'method_call'
+  AND moniker ~ '**/method:/^try_parse_mode_atom\\(\\)$/'
+  => NOT target ~ '**/method:parse_domain_value_call_body'
+"""
+message = "`mode(...)` parsing should delegate domain/value body parsing to `check::expr::value`; `parse` only owns boolean precedence and comparison tails."
+
+[[refs.where]]
+id      = "dsl-layer1-number-parser-stays-numeric"
+expr    = """
+  $expr_number AND kind = 'method_call'
+  => NOT target ~ '**/method:parse_mode_lhs'
+"""
+message = "`check::expr::number` must stay numeric; value-returning aggregators such as `mode` belong to `check::expr::value`."
+
+[[refs.where]]
+id      = "dsl-layer1-eval-value-is-graph-free"
+expr    = """
+  $eval_value AND kind = 'imports_symbol'
+  => NOT (target ~ '**/path:CodeGraph'
+       OR target ~ '**/path:DefRecord'
+       OR target ~ '**/path:RefRecord'
+       OR target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**')
+"""
+message = "`check::eval::value` is the typed comparison/rendering layer; local graph traversal belongs to `check::eval::local`."
+
+# Couche 2 — multisets et opérations ensemblistes.
+# `expr::collection` owns collection syntax (`size`, `unique`, set ops,
+# subset atoms). `eval::collection` owns multiset algebra over local facts.
+
+[[refs.where]]
+id      = "dsl-layer2-expr-collection-parser-isolated"
+expr    = """
+  $expr_collection AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/module:config/**'
+       OR target ~ '**/dir:config/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::expr::collection` must remain syntax/AST only; multiset evaluation belongs outside the parser."
+
+[[refs.where]]
+id      = "dsl-layer2-eval-collection-local-only"
+expr    = """
+  $eval_collection AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:LinkageIndex')
+"""
+message = "`check::eval::collection` must evaluate local multisets only; project-wide linkage stays outside local analysis."
+
+[[refs.where]]
+id      = "dsl-layer2-boolean-parser-delegates-collection"
+expr    = """
+  $expr_parse
+  AND kind = 'method_call'
+  AND moniker ~ '**/method:/^parse_primary\\(\\)$/'
+  => NOT target ~ '**/method:parse_collection_expr'
+"""
+message = "`check::expr::parse` must delegate multiset syntax to `check::expr::collection`; boolean precedence stays separate from collection grammar."
+
+[[refs.where]]
+id      = "dsl-layer2-number-parser-size-only"
+expr    = """
+  $expr_number
+  AND kind = 'method_call'
+  => NOT target ~ '**/method:try_parse_collection_subset_atom'
+"""
+message = "`check::expr::number` may parse `size(...)`, but subset/set boolean syntax belongs to `check::expr::collection`."
+
+[[refs.where]]
+id      = "dsl-layer2-eval-local-does-not-own-multiset-algebra"
+expr    = """
+  $eval_local
+  AND kind = 'method_call'
+  => NOT (target ~ '**/method:unique'
+       OR target ~ '**/method:intersect'
+       OR target ~ '**/method:union'
+       OR target ~ '**/method:difference'
+       OR target ~ '**/method:is_subset')
+"""
+message = "`check::eval::local` owns domain traversal and numeric local metrics; multiset algebra belongs to `check::eval::collection`."
+
+# Couche 3 — itération locale sur paires.
+# `expr::pairs` owns `pairs(D)` and `a.*` / `b.*` binding syntax.
+# `eval::pairs` owns pair enumeration/evaluation over local domain items.
+
+[[refs.where]]
+id      = "dsl-layer3-pairs-parser-isolated"
+expr    = """
+  $expr_pairs AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/module:config/**'
+       OR target ~ '**/dir:config/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::expr::pairs` must only parse pair domains/bindings; evaluation and graph traversal stay outside the parser."
+
+[[refs.where]]
+id      = "dsl-layer3-eval-pairs-local-only"
+expr    = """
+  $eval_pairs AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:LinkageIndex')
+"""
+message = "`check::eval::pairs` must evaluate pair domains from the local `CodeGraph`; project-wide linkage stays outside local analysis."
+
+[[refs.where]]
+id      = "dsl-layer3-domain-parser-does-not-own-pair-bindings"
+expr    = """
+  $expr_domain
+  AND kind = 'method_call'
+  => NOT target ~ '**/method:parse_pair_projection'
+"""
+message = "`check::expr::domain` may delegate `pairs(D)`, but `a.*` / `b.*` binding syntax belongs to `check::expr::pairs`."
+
+[[refs.where]]
+id      = "dsl-layer3-eval-local-does-not-own-pair-iteration"
+expr    = """
+  $eval_local
+  AND kind = 'method_call'
+  => NOT (target ~ '**/method:eval_pair_count'
+       OR target ~ '**/method:eval_pair_quantifier')
+"""
+message = "`check::eval::local` owns domain traversal and numeric local metrics; pair iteration belongs to `check::eval::pairs`."
+
+# Couche 4 — métriques nommées locales.
+# `expr::metrics` owns named metric calls such as `lcom4(self)` and
+# `eval::metrics` owns metric formulas over the local `CodeGraph`.
+
+[[refs.where]]
+id      = "dsl-layer4-expr-metrics-parser-isolated"
+expr    = """
+  $expr_metrics AND kind = 'imports_symbol'
+  => NOT (target ~ '**/module:eval/**'
+       OR target ~ '**/module:config/**'
+       OR target ~ '**/dir:config/**'
+       OR target ~ '**/dir:workspace/**')
+"""
+message = "`check::expr::metrics` must only parse named metric calls; metric formulas belong outside the parser."
+
+[[refs.where]]
+id      = "dsl-layer4-number-parser-delegates-metrics"
+expr    = """
+  $expr_number
+  AND kind = 'method_call'
+  => NOT target ~ '**/method:parse_metric_call_body'
+"""
+message = "`check::expr::number` may parse numeric comparisons, but named metric call bodies belong to `check::expr::metrics`."
+
+[[refs.where]]
+id      = "dsl-layer4-metrics-local-only"
+expr    = """
+  $eval_metrics AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:workspace/**'
+       OR target ~ '**/module:linkage/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:LinkageIndex')
+"""
+message = "`check::eval::metrics` must compute named metrics from the local `CodeGraph`; cross-file/project indexes remain out of scope."
+
+[[refs.where]]
+id      = "dsl-layer4-eval-local-does-not-own-named-metrics"
+expr    = """
+  $eval_local
+  AND kind = 'method_call'
+  => NOT (target ~ '**/method:eval_metric'
+       OR target ~ '**/method:lcom4'
+       OR target ~ '**/method:cbo'
+       OR target ~ '**/method:rfc'
+       OR target ~ '**/method:wmc'
+       OR target ~ '**/method:dit'
+       OR target ~ '**/method:noc'
+       OR target ~ '**/method:fan_in'
+       OR target ~ '**/method:fan_out')
+"""
+message = "`check::eval::local` owns reusable local traversal/stat helpers; named metric formulas belong to `check::eval::metrics`."

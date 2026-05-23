@@ -172,6 +172,17 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 	let report = ShowReport {
 		rules_file: path.display().to_string(),
 		default_rules: cfg.default_rules.unwrap_or(true),
+		fragments: cfg
+			.fragments
+			.iter()
+			.map(|fragment| ShowFragment {
+				id: fragment.id.clone(),
+				path: fragment.path.display().to_string(),
+				enabled: fragment.enabled,
+				declared_rules: fragment.declared_rules,
+				active_rules: fragment.active_rules,
+			})
+			.collect(),
 		profile: args.profile.clone(),
 		total_rules,
 		langs,
@@ -190,9 +201,19 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 struct ShowReport {
 	rules_file: String,
 	default_rules: bool,
+	fragments: Vec<ShowFragment>,
 	profile: Option<String>,
 	total_rules: usize,
 	langs: Vec<ShowLang>,
+}
+
+#[derive(Serialize)]
+struct ShowFragment {
+	id: String,
+	path: String,
+	enabled: bool,
+	declared_rules: usize,
+	active_rules: usize,
 }
 
 #[derive(Serialize)]
@@ -204,6 +225,23 @@ struct ShowLang {
 fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<()> {
 	writeln!(w, "rules file: {}", report.rules_file)?;
 	writeln!(w, "default rules: {}", report.default_rules)?;
+	if report.fragments.is_empty() {
+		writeln!(w, "fragments: <none>")?;
+	} else {
+		writeln!(w, "fragments: {}", report.fragments.len())?;
+		for fragment in &report.fragments {
+			let state = if fragment.enabled {
+				"enabled"
+			} else {
+				"disabled"
+			};
+			writeln!(
+				w,
+				"- {} ({state}): {} active / {} declared rule(s) from {}",
+				fragment.id, fragment.active_rules, fragment.declared_rules, fragment.path
+			)?;
+		}
+	}
 	writeln!(
 		w,
 		"profile: {}",
@@ -223,6 +261,9 @@ fn write_show_text<W: Write>(w: &mut W, report: &ShowReport) -> std::io::Result<
 			}
 			if let Some(message) = &rule.message {
 				writeln!(w, "  message: {}", one_line(message))?;
+			}
+			if let Some(rationale) = &rule.rationale {
+				writeln!(w, "  rationale: {}", one_line(rationale))?;
 			}
 		}
 	}
@@ -532,6 +573,7 @@ mod tests {
 			id = "keep"
 			expr = "$src => name =~ ^[A-Z]"
 			message = "keep this rule"
+			rationale = "ADR-001: generated types are exempt, but source classes stay PascalCase."
 
 			[[ts.class.where]]
 			id = "drop"
@@ -560,6 +602,12 @@ mod tests {
 		assert!(out.contains("ts.class.keep"), "{out}");
 		assert!(
 			out.contains("expanded: (moniker ~ '**/dir:src/**') => name =~ ^[A-Z]"),
+			"{out}"
+		);
+		assert!(
+			out.contains(
+				"rationale: ADR-001: generated types are exempt, but source classes stay PascalCase."
+			),
 			"{out}"
 		);
 		assert!(!out.contains("ts.class.drop"), "{out}");
@@ -630,6 +678,7 @@ mod tests {
 			[[refs.where]]
 			id = "domain-no-infra"
 			expr = "source ~ '**/dir:domain/**' => NOT target ~ '**/dir:infra/**'"
+			rationale = "ADR-002: the domain layer must stay independent from infrastructure details."
 			"#,
 		)
 		.unwrap();
@@ -660,6 +709,17 @@ mod tests {
 						.iter()
 						.any(|rule| rule["rule_id"] == "refs.domain-no-infra")),
 			"{out:#}"
+		);
+		let rule = out["langs"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.flat_map(|lang| lang["rules"].as_array().unwrap())
+			.find(|rule| rule["rule_id"] == "refs.domain-no-infra")
+			.expect("domain rule is present");
+		assert_eq!(
+			rule["rationale"],
+			"ADR-002: the domain layer must stay independent from infrastructure details."
 		);
 	}
 
