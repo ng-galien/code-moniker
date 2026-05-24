@@ -1,13 +1,13 @@
 use super::ast::*;
 use super::collection::parse_collection_call_body;
-use super::cursor::Parser;
+use super::cursor::{self, ParseResult, ParserState};
 use super::domain::{parse_domain_ident, reject_pair_domain, try_parse_count_expr};
 use super::error::ParseError;
 use super::metrics::{starts_metric_call, try_parse_metric_expr};
 use super::value::parse_domain_value_call_body;
 
-pub(super) fn next_starts_number_call(p: &Parser<'_>) -> bool {
-	let rest = &p.input[p.pos..];
+pub(super) fn next_starts_number_call(state: &ParserState<'_>) -> bool {
+	let rest = cursor::rest(state);
 	[
 		"count(",
 		"sum(",
@@ -25,110 +25,118 @@ pub(super) fn next_starts_number_call(p: &Parser<'_>) -> bool {
 	]
 	.iter()
 	.any(|prefix| rest.starts_with(prefix))
-		|| starts_metric_call(p)
+		|| starts_metric_call(state)
 }
 
-pub(super) fn parse_number_expr(p: &mut Parser<'_>) -> Result<NumberExpr, ParseError> {
-	p.skip_ws();
-	if let Some(expr) = try_parse_count_expr(p)? {
-		return Ok(expr);
+pub(super) fn parse_number_expr<'a>(state: ParserState<'a>) -> ParseResult<'a, NumberExpr> {
+	let state = cursor::skip_ws(state);
+	let (expr, state) = try_parse_count_expr(state)?;
+	if let Some(expr) = expr {
+		return Ok((expr, state));
 	}
-	if let Some(expr) = try_parse_aggregate_expr(p)? {
-		return Ok(expr);
+	let (expr, state) = try_parse_aggregate_expr(state)?;
+	if let Some(expr) = expr {
+		return Ok((expr, state));
 	}
-	if let Some(expr) = try_parse_metric_expr(p)? {
-		return Ok(expr);
+	let (expr, state) = try_parse_metric_expr(state)?;
+	if let Some(expr) = expr {
+		return Ok((expr, state));
 	}
-	if p.input[p.pos..].starts_with("entropy(") {
-		p.pos += "entropy".len();
-		return Ok(NumberExpr::Entropy(parse_domain_value_call_body(p)?));
+	if cursor::starts_with(&state, "entropy(") {
+		let state = cursor::advance(state, "entropy".len());
+		let (body, state) = parse_domain_value_call_body(state)?;
+		return Ok((NumberExpr::Entropy(body), state));
 	}
-	if p.input[p.pos..].starts_with("size(") {
-		p.pos += "size".len();
-		return Ok(NumberExpr::Size(parse_collection_call_body(p, "size")?));
+	if cursor::starts_with(&state, "size(") {
+		let state = cursor::advance(state, "size".len());
+		let (body, state) = parse_collection_call_body(state, "size")?;
+		return Ok((NumberExpr::Size(body), state));
 	}
 
-	let raw = p.take_number_literal();
+	let (raw, state) = cursor::take_number_literal(state);
 	if !raw.is_empty() {
 		let n = raw.parse::<f64>().map_err(|e| ParseError::BadExpr {
-			expr: p.raw.to_string(),
+			expr: cursor::raw(&state).to_string(),
 			msg: format!("expected number, got `{raw}`: {e}"),
 		})?;
-		return Ok(NumberExpr::Literal(n));
+		return Ok((NumberExpr::Literal(n), state));
 	}
 
-	let raw = p.take_projection_token();
+	let (raw, state) = cursor::take_projection_token(state);
 	let Some(lhs) = Lhs::from_projection_name(raw) else {
 		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
+			expr: cursor::raw(&state).to_string(),
 			msg: format!("expected number expression, got `{raw}`"),
 		});
 	};
 	if !lhs.is_number_projection() {
 		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
+			expr: cursor::raw(&state).to_string(),
 			msg: format!("projection `{raw}` is not numeric"),
 		});
 	}
-	Ok(NumberExpr::Projection(lhs))
+	Ok((NumberExpr::Projection(lhs), state))
 }
 
-fn try_parse_aggregate_expr(p: &mut Parser<'_>) -> Result<Option<NumberExpr>, ParseError> {
-	let Some((name, kind)) = aggregate_prefix(p) else {
-		return Ok(None);
+fn try_parse_aggregate_expr<'a>(state: ParserState<'a>) -> ParseResult<'a, Option<NumberExpr>> {
+	let Some((name, kind)) = aggregate_prefix(&state) else {
+		return Ok((None, state));
 	};
-	p.pos += name.len();
-	if p.peek_byte() != Some(b'(') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("expected `(` after `{name}`"),
-		});
+	let state = cursor::advance(state, name.len());
+	if cursor::peek_byte(&state) != Some(b'(') {
+		return Err(cursor::bail(&state, format!("expected `(` after `{name}`")));
 	}
-	p.pos += 1;
-	p.skip_ws();
-	let domain = parse_domain_ident(p)?;
-	reject_pair_domain(p, &domain, name)?;
-	p.skip_ws();
-	if p.peek_byte() != Some(b',') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("`{name}` requires `<domain>, <expr>`"),
-		});
+	let state = cursor::advance(state, 1);
+	let state = cursor::skip_ws(state);
+	let (domain, state) = parse_domain_ident(state)?;
+	reject_pair_domain(&state, &domain, name)?;
+	let state = cursor::skip_ws(state);
+	if cursor::peek_byte(&state) != Some(b',') {
+		return Err(cursor::bail(
+			&state,
+			format!("`{name}` requires `<domain>, <expr>`"),
+		));
 	}
-	p.pos += 1;
-	let expr = parse_number_expr(p)?;
-	p.skip_ws();
-	let percentile = if kind == AggregateKind::Percentile {
-		if p.peek_byte() != Some(b',') {
-			return Err(ParseError::BadExpr {
-				expr: p.raw.to_string(),
-				msg: "percentile requires a third numeric argument".to_string(),
-			});
+	let state = cursor::advance(state, 1);
+	let (expr, state) = parse_number_expr(state)?;
+	let state = cursor::skip_ws(state);
+	let (percentile, state) = if kind == AggregateKind::Percentile {
+		if cursor::peek_byte(&state) != Some(b',') {
+			return Err(cursor::bail(
+				&state,
+				"percentile requires a third numeric argument",
+			));
 		}
-		p.pos += 1;
-		p.skip_ws();
-		Some(parse_number_literal(p)?)
+		let state = cursor::advance(state, 1);
+		let state = cursor::skip_ws(state);
+		let (percentile, state) = parse_number_literal(state)?;
+		(Some(percentile), state)
 	} else {
-		None
+		(None, state)
 	};
-	p.skip_ws();
-	if p.peek_byte() != Some(b')') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("missing `)` for `{name}` at byte {}", p.pos),
-		});
+	let state = cursor::skip_ws(state);
+	if cursor::peek_byte(&state) != Some(b')') {
+		return Err(cursor::bail(
+			&state,
+			format!(
+				"missing `)` for `{name}` at byte {}",
+				cursor::position(&state)
+			),
+		));
 	}
-	p.pos += 1;
-	Ok(Some(NumberExpr::Aggregate {
-		kind,
-		domain,
-		expr: Box::new(expr),
-		percentile,
-	}))
+	Ok((
+		Some(NumberExpr::Aggregate {
+			kind,
+			domain,
+			expr: Box::new(expr),
+			percentile,
+		}),
+		cursor::advance(state, 1),
+	))
 }
 
-fn aggregate_prefix(p: &Parser<'_>) -> Option<(&'static str, AggregateKind)> {
-	let rest = &p.input[p.pos..];
+fn aggregate_prefix(state: &ParserState<'_>) -> Option<(&'static str, AggregateKind)> {
+	let rest = cursor::rest(state);
 	[
 		("percentile", AggregateKind::Percentile),
 		("median", AggregateKind::Median),
@@ -145,19 +153,20 @@ fn aggregate_prefix(p: &Parser<'_>) -> Option<(&'static str, AggregateKind)> {
 	.find(|(name, _)| rest.starts_with(&format!("{name}(")))
 }
 
-fn parse_number_literal(p: &mut Parser<'_>) -> Result<f64, ParseError> {
-	let start = p.pos;
-	let raw = p.take_number_literal();
+fn parse_number_literal<'a>(state: ParserState<'a>) -> ParseResult<'a, f64> {
+	let start = cursor::position(&state);
+	let (raw, state) = cursor::take_number_literal(state);
 	if raw.is_empty() {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("expected number at byte {}", start),
-		});
+		return Err(cursor::bail(
+			&state,
+			format!("expected number at byte {}", start),
+		));
 	}
-	raw.parse::<f64>().map_err(|e| ParseError::BadExpr {
-		expr: p.raw.to_string(),
+	let number = raw.parse::<f64>().map_err(|e| ParseError::BadExpr {
+		expr: cursor::raw(&state).to_string(),
 		msg: format!("expected number, got `{raw}`: {e}"),
-	})
+	})?;
+	Ok((number, state))
 }
 
 pub(super) fn parse_number_rhs(
@@ -167,16 +176,18 @@ pub(super) fn parse_number_rhs(
 	full: &str,
 	pair_bindings_allowed: bool,
 ) -> Result<NumberExpr, ParseError> {
-	let mut p = Parser::new(s, scheme, allowed_kinds, full);
-	p.pair_bindings_allowed = pair_bindings_allowed;
-	let expr = parse_number_expr(&mut p)?;
-	p.skip_ws();
-	if p.pos < p.input.len() {
+	let state = cursor::with_pair_bindings_allowed(
+		ParserState::new(s, scheme, allowed_kinds, full),
+		pair_bindings_allowed,
+	);
+	let (expr, state) = parse_number_expr(state)?;
+	let state = cursor::skip_ws(state);
+	if !cursor::is_at_end(&state) {
 		return Err(ParseError::BadExpr {
 			expr: full.to_string(),
 			msg: format!(
 				"trailing input in number expression `{}`",
-				&p.input[p.pos..]
+				cursor::rest(&state)
 			),
 		});
 	}

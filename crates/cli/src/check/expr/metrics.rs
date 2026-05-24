@@ -1,22 +1,24 @@
 use super::ast::*;
-use super::cursor::Parser;
+use super::cursor::{self, ParseResult, ParserState};
 use super::error::ParseError;
 
-pub(super) fn starts_metric_call(p: &Parser<'_>) -> bool {
-	metric_prefix(p).is_some()
+pub(super) fn starts_metric_call(state: &ParserState<'_>) -> bool {
+	metric_prefix(state).is_some()
 }
 
-pub(super) fn try_parse_metric_expr(p: &mut Parser<'_>) -> Result<Option<NumberExpr>, ParseError> {
-	let Some((name, kind)) = metric_prefix(p) else {
-		return Ok(None);
+pub(super) fn try_parse_metric_expr<'a>(
+	state: ParserState<'a>,
+) -> ParseResult<'a, Option<NumberExpr>> {
+	let Some((name, kind)) = metric_prefix(&state) else {
+		return Ok((None, state));
 	};
-	p.pos += name.len();
-	let binding = parse_metric_call_body(p, name)?;
-	Ok(Some(NumberExpr::Metric { kind, binding }))
+	let state = cursor::advance(state, name.len());
+	let (binding, state) = parse_metric_call_body(state, name)?;
+	Ok((Some(NumberExpr::Metric { kind, binding }), state))
 }
 
-fn metric_prefix(p: &Parser<'_>) -> Option<(&'static str, MetricKind)> {
-	let rest = &p.input[p.pos..];
+fn metric_prefix(state: &ParserState<'_>) -> Option<(&'static str, MetricKind)> {
+	let rest = cursor::rest(state);
 	[
 		("fan_out", MetricKind::FanOut),
 		("fan_in", MetricKind::FanIn),
@@ -34,35 +36,34 @@ fn metric_prefix(p: &Parser<'_>) -> Option<(&'static str, MetricKind)> {
 	})
 }
 
-fn parse_metric_call_body(p: &mut Parser<'_>, name: &str) -> Result<Binding, ParseError> {
-	if p.peek_byte() != Some(b'(') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("expected `(` after `{name}`"),
-		});
+fn parse_metric_call_body<'a>(state: ParserState<'a>, name: &str) -> ParseResult<'a, Binding> {
+	if cursor::peek_byte(&state) != Some(b'(') {
+		return Err(cursor::bail(&state, format!("expected `(` after `{name}`")));
 	}
-	p.pos += 1;
-	p.skip_ws();
-	let raw = p.take_alpha_token();
+	let state = cursor::advance(state, 1);
+	let state = cursor::skip_ws(state);
+	let (raw, state) = cursor::take_alpha_token(state);
 	let binding = match raw {
 		"self" => Binding::Self_,
 		"each" => Binding::Each,
 		_ => {
 			return Err(ParseError::BadExpr {
-				expr: p.raw.to_string(),
+				expr: cursor::raw(&state).to_string(),
 				msg: format!("unknown metric binding `{raw}` (allowed: self, each)"),
 			});
 		}
 	};
-	p.skip_ws();
-	if p.peek_byte() != Some(b')') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("missing `)` for `{name}` at byte {}", p.pos),
-		});
+	let state = cursor::skip_ws(state);
+	if cursor::peek_byte(&state) != Some(b')') {
+		return Err(cursor::bail(
+			&state,
+			format!(
+				"missing `)` for `{name}` at byte {}",
+				cursor::position(&state)
+			),
+		));
 	}
-	p.pos += 1;
-	Ok(binding)
+	Ok((binding, cursor::advance(state, 1)))
 }
 
 #[cfg(test)]

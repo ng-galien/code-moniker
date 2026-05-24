@@ -1,91 +1,103 @@
 use super::ast::*;
-use super::cursor::Parser;
+use super::cursor::{self, ParseResult, ParserState};
 use super::domain::{parse_domain_ident, reject_pair_domain};
 use super::error::ParseError;
 use super::number::{next_starts_number_call, parse_number_expr};
 
-pub(super) fn parse_mode_lhs(p: &mut Parser<'_>) -> Result<LhsExpr, ParseError> {
-	p.pos += "mode".len();
-	Ok(LhsExpr::Mode(parse_domain_value_call_body(p)?))
+pub(super) fn parse_mode_lhs<'a>(state: ParserState<'a>) -> ParseResult<'a, LhsExpr> {
+	let state = cursor::advance(state, "mode".len());
+	let (body, state) = parse_domain_value_call_body(state)?;
+	Ok((LhsExpr::Mode(body), state))
 }
 
-pub(super) fn parse_domain_value_call_body(
-	p: &mut Parser<'_>,
-) -> Result<DomainValueExpr, ParseError> {
-	if p.peek_byte() != Some(b'(') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("expected `(` at byte {}", p.pos),
-		});
+pub(super) fn parse_domain_value_call_body<'a>(
+	state: ParserState<'a>,
+) -> ParseResult<'a, DomainValueExpr> {
+	if cursor::peek_byte(&state) != Some(b'(') {
+		return Err(cursor::bail(
+			&state,
+			format!("expected `(` at byte {}", cursor::position(&state)),
+		));
 	}
-	p.pos += 1;
-	p.skip_ws();
-	let domain = parse_domain_ident(p)?;
-	reject_pair_domain(p, &domain, "domain value expressions")?;
-	p.skip_ws();
-	let expr = if p.peek_byte() == Some(b',') {
-		p.pos += 1;
-		parse_value_expr(p)?
+	let state = cursor::advance(state, 1);
+	let state = cursor::skip_ws(state);
+	let (domain, state) = parse_domain_ident(state)?;
+	reject_pair_domain(&state, &domain, "domain value expressions")?;
+	let state = cursor::skip_ws(state);
+	let (expr, state) = if cursor::peek_byte(&state) == Some(b',') {
+		parse_value_expr(cursor::advance(state, 1))?
 	} else {
-		parse_legacy_projection_value(p)?
+		parse_legacy_projection_value(state)?
 	};
-	p.skip_ws();
-	if p.peek_byte() != Some(b')') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("missing `)` for domain value expression at byte {}", p.pos),
-		});
+	let state = cursor::skip_ws(state);
+	if cursor::peek_byte(&state) != Some(b')') {
+		return Err(cursor::bail(
+			&state,
+			format!(
+				"missing `)` for domain value expression at byte {}",
+				cursor::position(&state)
+			),
+		));
 	}
-	p.pos += 1;
-	Ok(DomainValueExpr {
-		domain,
-		expr: Box::new(expr),
-	})
+	Ok((
+		DomainValueExpr {
+			domain,
+			expr: Box::new(expr),
+		},
+		cursor::advance(state, 1),
+	))
 }
 
-fn parse_legacy_projection_value(p: &mut Parser<'_>) -> Result<ValueExpr, ParseError> {
+fn parse_legacy_projection_value<'a>(state: ParserState<'a>) -> ParseResult<'a, ValueExpr> {
 	let mut projection = Vec::new();
+	let mut state = state;
 	loop {
-		p.skip_ws();
-		if p.peek_byte() != Some(b'.') {
+		state = cursor::skip_ws(state);
+		if cursor::peek_byte(&state) != Some(b'.') {
 			break;
 		}
-		p.pos += 1;
-		let segment = p.take_projection_segment();
+		let (segment, next_state) = cursor::take_projection_segment(cursor::advance(state, 1));
+		state = next_state;
 		if segment.is_empty() {
-			return Err(ParseError::BadExpr {
-				expr: p.raw.to_string(),
-				msg: format!("expected projection segment at byte {}", p.pos),
-			});
+			return Err(cursor::bail(
+				&state,
+				format!(
+					"expected projection segment at byte {}",
+					cursor::position(&state)
+				),
+			));
 		}
 		projection.push(segment.to_string());
 	}
 	if projection.is_empty() {
-		return Ok(ValueExpr::Item);
+		return Ok((ValueExpr::Item, state));
 	}
 	let raw = projection.join(".");
 	let Some(lhs) = Lhs::from_projection_name(&raw) else {
 		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
+			expr: cursor::raw(&state).to_string(),
 			msg: format!("unknown projection `{raw}`"),
 		});
 	};
-	Ok(ValueExpr::Projection(lhs))
+	Ok((ValueExpr::Projection(lhs), state))
 }
 
-fn parse_value_expr(p: &mut Parser<'_>) -> Result<ValueExpr, ParseError> {
-	p.skip_ws();
-	if next_starts_number_call(p) || p.peek_byte().is_some_and(|b| b.is_ascii_digit()) {
-		return parse_number_expr(p).map(ValueExpr::Number);
+fn parse_value_expr<'a>(state: ParserState<'a>) -> ParseResult<'a, ValueExpr> {
+	let state = cursor::skip_ws(state);
+	if next_starts_number_call(&state)
+		|| cursor::peek_byte(&state).is_some_and(|b| b.is_ascii_digit())
+	{
+		let (number, state) = parse_number_expr(state)?;
+		return Ok((ValueExpr::Number(number), state));
 	}
-	let raw = p.take_projection_token();
+	let (raw, state) = cursor::take_projection_token(state);
 	let Some(lhs) = Lhs::from_projection_name(raw) else {
 		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
+			expr: cursor::raw(&state).to_string(),
 			msg: format!("expected value expression, got `{raw}`"),
 		});
 	};
-	Ok(ValueExpr::Projection(lhs))
+	Ok((ValueExpr::Projection(lhs), state))
 }
 
 #[cfg(test)]

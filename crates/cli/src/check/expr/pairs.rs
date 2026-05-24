@@ -1,33 +1,35 @@
 use super::ast::*;
-use super::cursor::Parser;
+use super::cursor::{self, ParseResult, ParserState};
 use super::domain::parse_domain_ident;
 use super::error::ParseError;
 
-pub(super) fn parse_pair_domain(p: &mut Parser<'_>) -> Result<Domain, ParseError> {
-	if !p.input[p.pos..].starts_with("pairs(") {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("expected `pairs(` at byte {}", p.pos),
-		});
+pub(super) fn parse_pair_domain<'a>(state: ParserState<'a>) -> ParseResult<'a, Domain> {
+	if !cursor::starts_with(&state, "pairs(") {
+		return Err(cursor::bail(
+			&state,
+			format!("expected `pairs(` at byte {}", cursor::position(&state)),
+		));
 	}
-	p.pos += "pairs(".len();
-	p.skip_ws();
-	let inner = parse_domain_ident(p)?;
+	let state = cursor::advance(state, "pairs(".len());
+	let state = cursor::skip_ws(state);
+	let (inner, state) = parse_domain_ident(state)?;
 	if matches!(inner, Domain::Pairs(_)) {
 		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
+			expr: cursor::raw(&state).to_string(),
 			msg: "nested `pairs(...)` domains are not supported".to_string(),
 		});
 	}
-	p.skip_ws();
-	if p.peek_byte() != Some(b')') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("missing `)` for `pairs(...)` at byte {}", p.pos),
-		});
+	let state = cursor::skip_ws(state);
+	if cursor::peek_byte(&state) != Some(b')') {
+		return Err(cursor::bail(
+			&state,
+			format!(
+				"missing `)` for `pairs(...)` at byte {}",
+				cursor::position(&state)
+			),
+		));
 	}
-	p.pos += 1;
-	Ok(Domain::Pairs(Box::new(inner)))
+	Ok((Domain::Pairs(Box::new(inner)), cursor::advance(state, 1)))
 }
 
 pub(super) fn parse_pair_projection(

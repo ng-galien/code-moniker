@@ -1,5 +1,5 @@
 use super::ast::*;
-use super::cursor::Parser;
+use super::cursor::{self, ParseResult, ParserState};
 use super::error::ParseError;
 use super::pairs::parse_pair_domain;
 use super::parse::parse_expr;
@@ -10,68 +10,76 @@ fn is_def_shape_name(name: &str) -> bool {
 	DEF_SHAPE_NAMES.contains(&name)
 }
 
-pub(super) fn try_parse_count_expr(p: &mut Parser<'_>) -> Result<Option<NumberExpr>, ParseError> {
-	if !p.input[p.pos..].starts_with("count(") {
-		return Ok(None);
+pub(super) fn try_parse_count_expr<'a>(
+	state: ParserState<'a>,
+) -> ParseResult<'a, Option<NumberExpr>> {
+	if !cursor::starts_with(&state, "count(") {
+		return Ok((None, state));
 	}
-	p.pos += "count".len();
-	let (domain, filter) = parse_domain_filter_body(p, parse_expr)?;
-	Ok(Some(NumberExpr::Count {
-		domain,
-		filter: filter.map(Box::new),
-	}))
+	let state = cursor::advance(state, "count".len());
+	let ((domain, filter), state) = parse_domain_filter_body(state, parse_expr)?;
+	Ok((
+		Some(NumberExpr::Count {
+			domain,
+			filter: filter.map(Box::new),
+		}),
+		state,
+	))
 }
 
-pub(super) fn parse_domain_filter_body(
-	p: &mut Parser<'_>,
-	parse_filter: impl FnOnce(&mut Parser<'_>) -> Result<Node, ParseError>,
-) -> Result<(Domain, Option<Node>), ParseError> {
-	if p.peek_byte() != Some(b'(') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("expected `(` at byte {}", p.pos),
-		});
+pub(super) fn parse_domain_filter_body<'a>(
+	state: ParserState<'a>,
+	parse_filter: impl FnOnce(ParserState<'a>) -> ParseResult<'a, Node>,
+) -> ParseResult<'a, (Domain, Option<Node>)> {
+	if cursor::peek_byte(&state) != Some(b'(') {
+		return Err(cursor::bail(
+			&state,
+			format!("expected `(` at byte {}", cursor::position(&state)),
+		));
 	}
-	p.pos += 1;
-	p.skip_ws();
-	let domain = parse_domain_ident(p)?;
-	p.skip_ws();
-	let filter = if p.peek_byte() == Some(b',') {
-		p.pos += 1;
-		let previous_pair_bindings_allowed = p.pair_bindings_allowed;
-		p.pair_bindings_allowed =
-			previous_pair_bindings_allowed || matches!(domain, Domain::Pairs(_));
-		let filter = parse_filter(p);
-		p.pair_bindings_allowed = previous_pair_bindings_allowed;
-		let filter = filter?;
-		p.skip_ws();
-		Some(filter)
+	let state = cursor::advance(state, 1);
+	let state = cursor::skip_ws(state);
+	let (domain, state) = parse_domain_ident(state)?;
+	let state = cursor::skip_ws(state);
+	let (filter, state) = if cursor::peek_byte(&state) == Some(b',') {
+		let state = cursor::advance(state, 1);
+		let previous_pair_bindings_allowed = cursor::pair_bindings_allowed(&state);
+		let filter_state = cursor::with_pair_bindings_allowed(
+			state,
+			previous_pair_bindings_allowed || matches!(domain, Domain::Pairs(_)),
+		);
+		let (filter, state) = parse_filter(filter_state)?;
+		let state = cursor::with_pair_bindings_allowed(state, previous_pair_bindings_allowed);
+		let state = cursor::skip_ws(state);
+		(Some(filter), state)
 	} else {
-		None
+		(None, state)
 	};
-	if p.peek_byte() != Some(b')') {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("missing `)` for quantifier at byte {}", p.pos),
-		});
+	if cursor::peek_byte(&state) != Some(b')') {
+		return Err(cursor::bail(
+			&state,
+			format!(
+				"missing `)` for quantifier at byte {}",
+				cursor::position(&state)
+			),
+		));
 	}
-	p.pos += 1;
-	Ok((domain, filter))
+	Ok(((domain, filter), cursor::advance(state, 1)))
 }
 
-pub(super) fn parse_domain_ident(p: &mut Parser<'_>) -> Result<Domain, ParseError> {
-	if p.input[p.pos..].starts_with("pairs(") {
-		return parse_pair_domain(p);
+pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, Domain> {
+	if cursor::starts_with(&state, "pairs(") {
+		return parse_pair_domain(state);
 	}
-	let start = p.pos;
-	let domain_ident = p.take_domain_ident();
+	let start = cursor::position(&state);
+	let (domain_ident, state) = cursor::take_domain_ident(state);
 	if domain_ident.is_empty() {
-		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
-			msg: format!("expected domain identifier at byte {}", start),
-		});
+		return Err(cursor::bail(
+			&state,
+			format!("expected domain identifier at byte {}", start),
+		));
 	}
-	Ok(match domain_ident {
+	let domain = match domain_ident {
 		"segment" => Domain::Segments,
 		"out_refs" => Domain::OutRefs,
 		"in_refs" => Domain::InRefs,
@@ -79,7 +87,7 @@ pub(super) fn parse_domain_ident(p: &mut Parser<'_>) -> Result<Domain, ParseErro
 			let shape_name = shape.trim_start_matches("shape:");
 			if !is_def_shape_name(shape_name) {
 				return Err(ParseError::BadExpr {
-					expr: p.raw.to_string(),
+					expr: cursor::raw(&state).to_string(),
 					msg: format!(
 						"unknown shape domain `{shape_name}` (allowed: {})",
 						DEF_SHAPE_NAMES.join(", ")
@@ -89,28 +97,29 @@ pub(super) fn parse_domain_ident(p: &mut Parser<'_>) -> Result<Domain, ParseErro
 			Domain::ChildrenByShape(shape_name.to_string())
 		}
 		other => {
-			if !p.allowed_kinds.contains(&other) {
+			if !cursor::allowed_kinds(&state).contains(&other) {
 				return Err(ParseError::BadExpr {
-					expr: p.raw.to_string(),
+					expr: cursor::raw(&state).to_string(),
 					msg: format!(
 						"unknown domain `{other}` (allowed: segment, out_refs, in_refs, or one of {})",
-						p.allowed_kinds.join(", ")
+						cursor::allowed_kinds(&state).join(", ")
 					),
 				});
 			}
 			Domain::Children(other.to_string())
 		}
-	})
+	};
+	Ok((domain, state))
 }
 
 pub(super) fn reject_pair_domain(
-	p: &Parser<'_>,
+	state: &ParserState<'_>,
 	domain: &Domain,
 	context: &str,
 ) -> Result<(), ParseError> {
 	if matches!(domain, Domain::Pairs(_)) {
 		return Err(ParseError::BadExpr {
-			expr: p.raw.to_string(),
+			expr: cursor::raw(state).to_string(),
 			msg: format!(
 				"`pairs(...)` domains are only supported by count/any/all/none, not {context}"
 			),
