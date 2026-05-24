@@ -68,7 +68,7 @@ jobs:
           # CREATE EXTENSION pgtap works out of the box.
           ./pgtap/run.sh
 
-  arch-check:
+  moniker-check:
     name: code-moniker self-lint (dogfood)
     runs-on: ubuntu-latest
     steps:
@@ -83,4 +83,4 @@ jobs:
           shared-key: cli
 
       - name: code-moniker check src/
-        run: cargo arch-check
+        run: cargo moniker-check

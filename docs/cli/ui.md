@@ -7,7 +7,7 @@ inspection on large repositories without leaving the terminal.
 ```sh
 code-moniker ui .
 code-moniker ui . --cache .code-moniker-cache
-code-moniker ui src --rules .code-moniker.toml --profile architecture
+code-moniker ui src --rules .code-moniker.toml --profile agent
 ```
 
 ## What It Loads

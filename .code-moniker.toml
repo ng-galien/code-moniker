@@ -23,7 +23,7 @@ uris = [
   "**/crates/core/tests/fixtures/**",
 ]
 
-[profiles.architecture]
+[profiles.agent]
 enable = [".*"]
 
 [profiles.smells]

@@ -27,7 +27,7 @@ DSL rule or sample rule before writing prose-only guidance.
 - `cargo test --features pg17 --no-default-features --lib`: run CI-style library tests.
 - `cargo pgrx install --manifest-path crates/pg/Cargo.toml --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config`: install the extension locally.
 - `./pgtap/run.sh`: run SQL extension tests after installing the extension.
-- `cargo arch-check`: run this project’s own architecture rules.
+- `cargo moniker-check`: run this project’s own agent guardrail rules.
 
 ## Validation Workflow
 
@@ -37,7 +37,7 @@ stable. Do not repeat the full workspace suite after every small edit.
 
 Recent warm-cache timings on this repository are a useful order of
 magnitude, not a contract: `fmt --check` ~0.4s, `cargo check` ~0.5s, all UI
-tests ~1s, `cargo arch-check` ~1s when release artifacts are hot but ~40s
+tests ~1s, `cargo moniker-check` ~1s when release artifacts are hot but ~40s
 after a release rebuild, `cargo test --features pg17 --no-default-features
 --lib` ~2s, workspace tests ~5-6s, and `cargo install --path crates/cli`
 ~45s when it recompiles. Optimize for feedback latency: avoid cold
@@ -50,7 +50,7 @@ Iteration loop examples:
 - CLI behavior: `cargo test -p code-moniker --test cli_e2e <test_name>`.
 - Extractor behavior: run the focused language unit test, then the relevant
   `cargo test -p code-moniker-core snapshot_<lang>` or conformance test.
-- Architecture rules: run `cargo arch-check` only when touching UI/store
+- Agent guardrail rules: run `cargo moniker-check` only when touching UI/store
   boundaries, rules, imports, module organization, or before commit.
 
 Before code review, use a short gate:
@@ -58,7 +58,7 @@ Before code review, use a short gate:
 - `cargo fmt --all -- --check`
 - `cargo check --workspace --exclude code-moniker-pg --all-targets`
 - the focused test group for the changed surface
-- `cargo arch-check` when architectural boundaries are involved
+- `cargo moniker-check` when architectural boundaries are involved
 
 For documentation-only changes, use `git diff --check`; do not run Rust
 builds unless the docs include generated examples that need verification.
@@ -90,7 +90,7 @@ and record whether the signal is usable or noisy. A low volume does not mean
 high volume means analyze scope, thresholds, and justified exclusions instead
 of deleting the rule.
 
-The `architecture` profile is the active guardrail. Do not leave a promoted
+The `agent` profile is the active guardrail. Do not leave a promoted
 smell rule excluded from that profile. While a rule is still in adoption, keep
 it out of the hook/guardrail path to save tokens and run it explicitly with
 `--profile smells`. When a later refactoring pass targets a module, fix or
@@ -141,7 +141,7 @@ and pull requests, installs PostgreSQL 17 + pgTAP, then executes
 `cargo fmt --all -- --check`, `cargo clippy --features pg17
 --no-default-features --tests --no-deps -- -D warnings`, `cargo test
 --features pg17 --no-default-features --lib`, installs the pgrx
-extension, runs `./pgtap/run.sh`, and finishes with `cargo arch-check`.
+extension, runs `./pgtap/run.sh`, and finishes with `cargo moniker-check`.
 
 The release workflow is `.github/workflows/release.yml` and only starts
 when a `v*.*.*` tag is pushed. It verifies the tag matches the crates.io
@@ -168,11 +168,55 @@ Model durable shell state in `ui/app` before rendering it, but do not mirror wor
 
 Keep terminal input, store notifications, and background task completions as distinct shell events. Filesystem or Git watcher events should enter through the shell event source and explicit store refresh methods, not as synthetic key events or render-side checks. Long-running UI work should be expressed as typed effects and task specs; use the UI runtime/Rayon bridge rather than blocking reducers or render functions.
 
-Keep panel view-model construction with the feature that owns the user journey. Shared panel modules should define pure VM/rendering primitives; feature modules decide which panel VM is appropriate for their routes and modes. Use component markers as stable vocabulary for collaboration. They make feedback and bug reports unambiguous, but business behavior should not depend on rendered labels. Add focused tests for state transitions, route/effect behavior, and store boundaries; use `code-moniker extract`/`stats` plus `cargo arch-check` to keep new UI modules understandable.
+Keep panel view-model construction with the feature that owns the user journey. Shared panel modules should define pure VM/rendering primitives; feature modules decide which panel VM is appropriate for their routes and modes. Use component markers as stable vocabulary for collaboration. They make feedback and bug reports unambiguous, but business behavior should not depend on rendered labels. Add focused tests for state transitions, route/effect behavior, and store boundaries; use `code-moniker extract`/`stats` plus `cargo moniker-check` to keep new UI modules understandable.
+
+## Module Boundary Rules & Tests
+
+For any module that belongs to an identifiable problem class, architecture
+rules should first define the module boundary: what the module may consume,
+what it may expose, what it owns, and what must stay outside. Tests should
+exercise that boundary through the module's durable contract, not through the
+current implementation structure.
+
+Behavioral coverage should use black-box fixtures, corpus tests, snapshots,
+or integration-style tests over stable public outputs: returned values,
+diagnostics, persisted effects, emitted records, or other observable contract
+results. Snapshot payloads must expose only the stable public model; do not
+snapshot mutable state, wiring, helper types, cursors, transition objects, or
+other accidental implementation details.
+
+Robustness coverage should be separate from behavioral coverage and expressed
+as property or fuzz tests over invariants: does not panic, terminates, rejects
+without corrupting state, preserves a round-trip, stays within a bound, or
+maintains a declared consistency property.
+
+Tests that lock the current internal structure are disallowed when they
+compete with the module's boundary contract. Internal tests are acceptable
+only when they target a named sub-component whose local contract is itself
+stable and intentionally exposed inside the module design. Treat that
+sub-component as a smaller boundary with its own problem class, contract, and
+rules.
+
+Adopt boundary rules the same way as other guardrails: start at
+`severity = "warn"`, inspect signal and noise, migrate code or tests toward
+the contract, then promote to `severity = "error"` once the module is green
+and the invariant is credible. Prefer executable `code-moniker check` rules
+for observable boundaries, and use prose only for design judgment that the DSL
+cannot yet express.
 
 ## Testing Guidelines
 
-Place Rust unit tests next to the code under `#[cfg(test)] mod tests`; use `crates/cli/tests/` for CLI behavior. SQL surface coverage belongs in numbered `pgtap/sql/*.sql` files and runs through `./pgtap/run.sh`. When changing extractors, include focused fixtures under `crates/core/tests/fixtures/` where useful and update proptest regressions intentionally.
+Choose the test shape from the module boundary. Use black-box fixtures,
+corpus/snapshot tests, integration tests, or property tests when behavior is
+observable through a durable contract. Place Rust unit tests next to the code
+under `#[cfg(test)] mod tests` only for named sub-components with stable local
+contracts.
+
+Use `crates/cli/tests/` for CLI behavior. SQL surface coverage belongs in
+numbered `pgtap/sql/*.sql` files and runs through `./pgtap/run.sh`. When
+changing extractors, include focused fixtures under
+`crates/core/tests/fixtures/` where useful and update proptest regressions
+intentionally.
 
 ## Commit & Pull Request Guidelines
 

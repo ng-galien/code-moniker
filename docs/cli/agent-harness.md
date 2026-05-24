@@ -34,7 +34,7 @@ code-moniker check --rules ".code-moniker.toml" "." --file "src/order.ts" --file
 For a scoped, profiled install it is equivalent to:
 
 ```sh
-code-moniker check --rules ".code-moniker.toml" --profile "architecture" "src" --file "src/order.ts"
+code-moniker check --rules ".code-moniker.toml" --profile "agent" "src" --file "src/order.ts"
 ```
 
 The `<scope>` argument still controls rule loading context, moniker anchors,
@@ -77,7 +77,7 @@ code-moniker check .
 | Stop agent edits that cross a forbidden layer boundary | [Keep an agent inside a layer](#keep-an-agent-inside-a-layer) | `.code-moniker.toml`, `.claude/settings.json` |
 | Make the agent split oversized TypeScript classes immediately | [Enforce small TypeScript classes after each edit](#enforce-small-typescript-classes-after-each-edit) | `.code-moniker.toml`, `.claude/settings.json` |
 | Run a smaller rule set in edit hooks than in CI | [Run only fast edit-time rules for the agent](#run-only-fast-edit-time-rules-for-the-agent) | `.code-moniker.toml`, `.claude/settings.json`, CI command |
-| Check the whole tree before commit | [Gate commits on architecture rules](#gate-commits-on-architecture-rules) | `.code-moniker.toml`, `cargo arch-check`, `.githooks/pre-commit` |
+| Check the whole tree before commit | [Gate commits on agent guardrail rules](#gate-commits-on-agent-guardrail-rules) | `.code-moniker.toml`, `cargo moniker-check`, `.githooks/pre-commit` |
 | Introduce rules in a legacy repo without blocking everything | [Roll out rules in a legacy repository](#roll-out-rules-in-a-legacy-repository) | `.code-moniker.toml`, `.claude/settings.json`, non-blocking CI |
 
 ### Install a Codex live harness
@@ -101,14 +101,14 @@ Use `--profile` and `--scope` when you want a narrower, fast edit-time
 rule set:
 
 ```toml
-[profiles.architecture]
+[profiles.agent]
 enable = ["^architecture\\."]
 ```
 
 Install project-local Codex configuration:
 
 ```sh
-code-moniker harness codex . --profile architecture --scope src --max-violations 10
+code-moniker harness codex . --profile agent --scope src --max-violations 10
 ```
 
 Generated harnesses pass one `--file` flag per touched source file and
@@ -118,10 +118,10 @@ keeps prompt feedback bounded by showing the first 10 violations from the
 largest failed rule group, ordered by path and line. Use `--max-violations
 N` at install time to change that limit.
 
-When `--profile architecture` is provided, the command verifies that
-`[profiles.architecture]` exists and names the hook from the profile:
+When `--profile agent` is provided, the command verifies that
+`[profiles.agent]` exists and names the hook from the profile:
 
-- `.codex/hooks/code-moniker-architecture.sh`
+- `.codex/hooks/code-moniker-agent.sh`
 - `.codex/hooks.json`
 - `.codex/code-moniker-performance.md`
 
@@ -146,18 +146,18 @@ Recommended Codex hook entry for the default install:
 ```
 
 For a profiled install, the generated configuration points to the profiled
-script name, for example `.codex/hooks/code-moniker-architecture.sh`.
+script name, for example `.codex/hooks/code-moniker-agent.sh`.
 
 The generated script calls the binary directly. `--format codex-hook`
-maps architecture violations to Codex `PostToolUse` JSON feedback. Plain
+maps agent guardrail violations to Codex `PostToolUse` JSON feedback. Plain
 text on `stdout` is ignored by Codex for this event, so failures are
 emitted as a structured `decision: "block"` payload carrying the exact
 `code-moniker check` diagnostics:
 
 ```sh
 code-moniker check --rules ".code-moniker.toml" --format codex-hook --max-violations 10 "." --file "src/order.ts"
-# with --profile architecture --scope src:
-code-moniker check --rules ".code-moniker.toml" --profile "architecture" --format codex-hook --max-violations 10 "src" --file "src/order.ts"
+# with --profile agent --scope src:
+code-moniker check --rules ".code-moniker.toml" --profile "agent" --format codex-hook --max-violations 10 "src" --file "src/order.ts"
 ```
 
 The generated script assumes `code-moniker` was installed with Cargo and
@@ -180,7 +180,7 @@ Publish hook overhead before enabling it for a team:
 
 | Date | Machine | Scope | Command | p50 | p95 | Notes |
 | ---- | ------- | ----- | ------- | --- | --- | ----- |
-| 2026-05-14 | M3 Pro | `src` | `code-moniker check --profile architecture src --file src/order.ts` | 35 ms | 44 ms | warm cache |
+| 2026-05-14 | M3 Pro | `src` | `code-moniker check --profile agent src --file src/order.ts` | 35 ms | 44 ms | warm cache |
 
 ### Install a Claude Code live harness
 
@@ -192,7 +192,7 @@ passes each touched source file as `--file`.
 ```sh
 code-moniker harness claude .
 # or, for a named profile and narrower scope:
-code-moniker harness claude . --profile architecture --scope src --max-violations 10
+code-moniker harness claude . --profile agent --scope src --max-violations 10
 ```
 
 Generated harnesses pass one `--file` flag per touched source file and
@@ -205,10 +205,10 @@ Without `--profile`, the command installs a root check:
 - `.claude/settings.json`
 - `.claude/code-moniker-performance.md`
 
-When `--profile architecture` is provided, the command verifies that
-`[profiles.architecture]` exists and names the hook from the profile:
+When `--profile agent` is provided, the command verifies that
+`[profiles.agent]` exists and names the hook from the profile:
 
-- `.claude/hooks/code-moniker-architecture.sh`
+- `.claude/hooks/code-moniker-agent.sh`
 - `.claude/settings.json`
 - `.claude/code-moniker-performance.md`
 
@@ -233,7 +233,7 @@ Recommended Claude Code hook entry for the default install:
 ```
 
 For a profiled install, the generated configuration points to the profiled
-script name, for example `.claude/hooks/code-moniker-architecture.sh`.
+script name, for example `.claude/hooks/code-moniker-agent.sh`.
 
 The generated script maps `code-moniker` violations to Claude's `exit 2`
 feedback status and writes the diagnostic to `stderr`:
@@ -270,7 +270,7 @@ file as `--file`.
 ```sh
 code-moniker harness gemini .
 # or, for a named profile and narrower scope:
-code-moniker harness gemini . --profile architecture --scope src --max-violations 10
+code-moniker harness gemini . --profile agent --scope src --max-violations 10
 ```
 
 Generated harnesses pass one `--file` flag per touched source file and
@@ -284,10 +284,10 @@ Without `--profile`, the command installs a root check:
 - `.gemini/settings.json`
 - `.gemini/code-moniker-performance.md`
 
-When `--profile architecture` is provided, the command verifies that
-`[profiles.architecture]` exists and names the hook from the profile:
+When `--profile agent` is provided, the command verifies that
+`[profiles.agent]` exists and names the hook from the profile:
 
-- `.gemini/hooks/code-moniker-architecture.sh`
+- `.gemini/hooks/code-moniker-agent.sh`
 - `.gemini/settings.json`
 - `.gemini/code-moniker-performance.md`
 
@@ -508,7 +508,7 @@ CI can use the full profile:
 code-moniker check src/ --profile full
 ```
 
-### Gate commits on architecture rules
+### Gate commits on agent guardrail rules
 
 Use this when per-edit feedback is too narrow and every commit should check
 the whole source tree.
@@ -533,7 +533,7 @@ expr = "source ~ '**/dir:domain/**' => target ~ '**/dir:domain/**'"
 
 ```toml
 [alias]
-arch-check = "run --release -p code-moniker -- check ."
+moniker-check = "run --release -p code-moniker -- check ."
 ```
 
 `.githooks/pre-commit`:
@@ -543,7 +543,7 @@ arch-check = "run --release -p code-moniker -- check ."
 set -euo pipefail
 
 if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^src/'; then
-  cargo arch-check
+  cargo moniker-check
 fi
 ```
 
@@ -669,7 +669,7 @@ Add a cargo alias:
 ```toml
 # .cargo/config.toml
 [alias]
-arch-check = "run --release -p code-moniker -- check src/"
+moniker-check = "run --release -p code-moniker -- check src/"
 ```
 
 Create a hook:
@@ -680,7 +680,7 @@ Create a hook:
 set -euo pipefail
 
 if git diff --cached --name-only --diff-filter=ACMR | grep -qE '^src/'; then
-  cargo arch-check
+  cargo moniker-check
 fi
 ```
 
@@ -695,7 +695,7 @@ git config core.hooksPath .githooks
 GitHub Actions example:
 
 ```yaml
-name: architecture
+name: agent
 
 on:
   pull_request:
