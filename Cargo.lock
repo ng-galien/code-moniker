@@ -348,6 +348,7 @@ dependencies = [
  "ignore",
  "insta",
  "notify",
+ "proptest",
  "ratatui",
  "rayon",
  "regex",

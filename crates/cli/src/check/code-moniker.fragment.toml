@@ -31,9 +31,13 @@ rationale = "The parser should produce syntax and AST shapes that are determinis
 [[rust.shape.callable.where]]
 id       = "expr-parser-tests-use-corpus-snapshots"
 severity = "error"
-expr     = "$expr AND kind = 'test' => moniker ~ '**/module:snapshots/**'"
-message  = "`check::expr` parser test `{name}` is an internal unit test; parser behavior should be covered by corpus/snapshot tests."
-rationale = "Parser tests should survive refactors of grammar functions and parser state. Keeping parser tests in the corpus/snapshot module exercises the public parse contract instead of locking internal parser structure."
+expr     = """
+  $expr AND kind = 'test'
+  => moniker ~ '**/module:snapshots/**'
+  OR moniker ~ '**/module:fuzz/**'
+"""
+message  = "`check::expr` parser test `{name}` is an internal unit test; parser behavior should be covered by corpus/snapshot tests or parser fuzz properties."
+rationale = "Parser tests should survive refactors of grammar functions and parser state. Corpus snapshots cover expected AST and diagnostics; fuzz tests cover robustness properties without coupling to parser internals."
 
 [[rust.shape.callable.where]]
 id       = "expr-parser-snapshot-tests-use-insta"
@@ -45,6 +49,27 @@ expr     = """
 """
 message  = "`check::expr::snapshots` test `{name}` must use `insta::assert_json_snapshot!`."
 rationale = "Parser corpus tests should produce reviewable golden diffs through insta. This keeps parser tests black-box and prevents hand-written assertions from re-coupling the suite to parser internals."
+
+[[rust.module.where]]
+id       = "expr-parser-fuzz-tests-use-proptest"
+severity = "error"
+expr     = """
+  moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:fuzz'
+  => any(out_refs, kind = 'calls' AND target ~ '**/macro:proptest')
+"""
+message  = "`check::expr::fuzz` must define parser fuzz properties through `proptest!`."
+rationale = "Parser fuzz coverage should express generated-input robustness properties. Keeping those tests behind `proptest!` separates them from example-based corpus snapshots and ordinary unit tests."
+
+[[rust.shape.callable.where]]
+id       = "expr-parser-fuzz-tests-are-robustness-properties"
+severity = "error"
+expr     = """
+  moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:fuzz/**'
+  AND kind = 'test'
+  => name =~ never_panics
+"""
+message  = "`check::expr::fuzz` test `{name}` should assert parser robustness, not parser internals."
+rationale = "Fuzz tests are allowed outside the corpus snapshot module only for generated-input robustness checks. Expected AST shape and diagnostics belong in the snapshot corpus."
 
 [[refs.where]]
 id      = "eval-local-graph-only"

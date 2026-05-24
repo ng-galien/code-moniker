@@ -46,4 +46,5 @@ notify        = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta    = { workspace = true }
+proptest = { workspace = true }
 tempfile = { workspace = true }

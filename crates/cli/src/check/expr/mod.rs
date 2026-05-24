@@ -17,6 +17,9 @@ pub use error::ParseError;
 pub(in crate::check) use parse::parse;
 
 #[cfg(test)]
+mod fuzz;
+
+#[cfg(test)]
 mod snapshots;
 
 #[cfg(test)]
