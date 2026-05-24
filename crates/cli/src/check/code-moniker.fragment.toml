@@ -13,6 +13,8 @@ expr_value  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/modul
 expr_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection/**'"
 expr_pairs  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs/**'"
 expr_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics/**'"
+expr_cursor = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:cursor' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:cursor/**'"
+expr_grammar = "$expr_parse OR $expr_domain OR $expr_number OR $expr_value OR $expr_collection OR $expr_pairs OR $expr_metrics"
 eval       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/**'"
 eval_local = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local/**'"
 eval_value = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value/**'"
@@ -20,6 +22,38 @@ eval_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/m
 eval_pairs = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs/**'"
 eval_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics/**'"
 config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:config/**'"
+
+[[rust.module.where]]
+id       = "expr-parser-has-explicit-state"
+severity = "warn"
+expr     = "$expr_cursor => count(shape:type, name = 'ParserState') >= 1"
+message  = "`check::expr` parser target design expects an explicit `ParserState` type in the cursor/state boundary."
+rationale = "The target parser design is pure grammar transitions over explicit state. A named state type makes cursor position, mode, token stream, and diagnostics a data contract instead of hidden mutation behind `&mut Parser`."
+
+[[rust.module.where]]
+id       = "expr-parser-has-transition-result"
+severity = "warn"
+expr     = "$expr_cursor => count(shape:type, name = 'ParseResult') >= 1"
+message  = "`check::expr` parser target design expects a `ParseResult`/transition result type in the cursor/state boundary."
+rationale = "Pure parser functions need a return contract carrying the parsed value, next parser state, and diagnostics. Without that result type, grammar code keeps mutating shared parser state in place."
+
+[[rust.fn.where]]
+id       = "expr-parser-grammar-uses-pure-transitions"
+severity = "warn"
+expr     = "$expr_grammar => NOT moniker ~ '**/fn:/.*&mutParser.*/'"
+message  = "`check::expr` grammar function `{name}` takes `&mut Parser`; target parser grammar should be pure transitions over explicit parser state."
+rationale = "Parser mutation is allowed inside the state machine boundary, but grammar productions should not own cursor mutation. This rule is intentionally red until grammar functions return state transitions instead of mutating `Parser` in place."
+
+[[refs.where]]
+id       = "expr-parser-grammar-does-not-import-mutable-cursor"
+severity = "warn"
+expr     = """
+  $expr_grammar
+  AND kind = 'imports_symbol'
+  => NOT target ~ '**/dir:check/dir:expr/module:cursor/path:Parser'
+"""
+message  = "`check::expr` grammar imports the mutable `Parser` cursor; target grammar should depend on state/result contracts, not the mutable cursor bag."
+rationale = "The parser target design separates pure grammar functions from the state machine. Importing `cursor::Parser` in grammar modules keeps the mutable cursor as the parser API."
 
 [[refs.where]]
 id      = "expr-parser-only"
