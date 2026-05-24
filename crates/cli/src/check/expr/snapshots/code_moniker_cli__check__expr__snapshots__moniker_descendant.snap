@@ -1,0 +1,27 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "name": "moniker",
+      "type": "attr"
+    },
+    "op": "descendant_of",
+    "raw": "moniker <@ code+moniker://./class:Foo",
+    "rhs": {
+      "segments": {
+        "project": ".",
+        "segments": [
+          {
+            "kind": "class",
+            "name": "Foo"
+          }
+        ]
+      },
+      "type": "moniker"
+    },
+    "type": "atom"
+  }
+}

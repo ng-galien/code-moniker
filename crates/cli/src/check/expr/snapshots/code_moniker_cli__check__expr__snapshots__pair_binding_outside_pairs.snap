@@ -1,0 +1,8 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `a.name = b.name`: pair binding `a` is only valid inside `pairs(...)` filters",
+  "input": "a.name = b.name"
+}

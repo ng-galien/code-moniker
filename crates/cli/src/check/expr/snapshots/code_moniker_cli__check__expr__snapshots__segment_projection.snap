@@ -1,0 +1,20 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "kind": "module",
+      "scope": "source",
+      "type": "segment_of"
+    },
+    "op": "eq",
+    "raw": "source.segment(\"module\") = 'domain'",
+    "rhs": {
+      "type": "string",
+      "value": "domain"
+    },
+    "type": "atom"
+  }
+}

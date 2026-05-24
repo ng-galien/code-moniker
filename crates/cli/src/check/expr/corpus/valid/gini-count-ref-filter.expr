@@ -1,0 +1,1 @@
+gini(field, count(in_refs, source.parent = target.parent)) <= 0.7

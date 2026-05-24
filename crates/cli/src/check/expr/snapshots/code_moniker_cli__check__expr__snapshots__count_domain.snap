@@ -1,0 +1,29 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "domain": {
+          "kind": "method",
+          "type": "children"
+        },
+        "filter": null,
+        "type": "count"
+      },
+      "type": "number"
+    },
+    "op": "le",
+    "raw": "count(method) <= 20",
+    "rhs": {
+      "expr": {
+        "type": "literal",
+        "value": 20.0
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}

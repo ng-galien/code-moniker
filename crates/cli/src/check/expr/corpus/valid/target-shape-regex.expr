@@ -1,0 +1,1 @@
+target.shape =~ ^(type|callable)$

@@ -1,0 +1,47 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "domain": {
+          "shape": "callable",
+          "type": "children_by_shape"
+        },
+        "filter": {
+          "lhs": {
+            "expr": {
+              "name": "lines",
+              "type": "projection"
+            },
+            "type": "number"
+          },
+          "op": "le",
+          "raw": "lines <= 20",
+          "rhs": {
+            "expr": {
+              "type": "literal",
+              "value": 20.0
+            },
+            "type": "number"
+          },
+          "type": "atom"
+        },
+        "type": "count"
+      },
+      "type": "number"
+    },
+    "op": "le",
+    "raw": "count(shape:callable, lines <= 20) <= 5",
+    "rhs": {
+      "expr": {
+        "type": "literal",
+        "value": 5.0
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}

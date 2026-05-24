@@ -1,0 +1,46 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "expr": {
+          "expr": {
+            "domain": {
+              "kind": "method",
+              "type": "children"
+            },
+            "path": [
+              "name"
+            ],
+            "type": "projection"
+          },
+          "type": "unique"
+        },
+        "type": "size"
+      },
+      "type": "number"
+    },
+    "op": "eq",
+    "raw": "size(unique(method.name)) = size(method.name)",
+    "rhs": {
+      "expr": {
+        "expr": {
+          "domain": {
+            "kind": "method",
+            "type": "children"
+          },
+          "path": [
+            "name"
+          ],
+          "type": "projection"
+        },
+        "type": "size"
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}

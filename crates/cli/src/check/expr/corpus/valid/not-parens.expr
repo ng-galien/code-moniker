@@ -1,0 +1,1 @@
+NOT (kind = 'test' OR shape = 'annotation')

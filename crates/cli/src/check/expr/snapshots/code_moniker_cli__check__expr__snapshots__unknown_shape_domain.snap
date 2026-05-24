@@ -1,0 +1,8 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `count(shape:ref) <= 1`: unknown shape domain `ref` (allowed: namespace, type, callable, value, annotation)",
+  "input": "count(shape:ref) <= 1"
+}

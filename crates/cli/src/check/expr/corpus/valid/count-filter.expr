@@ -1,0 +1,1 @@
+count(method, name =~ ^get) <= 5

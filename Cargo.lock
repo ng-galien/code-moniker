@@ -346,6 +346,7 @@ dependencies = [
  "crossterm",
  "gix",
  "ignore",
+ "insta",
  "notify",
  "ratatui",
  "rayon",

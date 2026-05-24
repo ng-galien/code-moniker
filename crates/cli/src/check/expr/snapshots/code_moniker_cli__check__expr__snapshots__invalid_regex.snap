@@ -1,0 +1,8 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `name =~ [`: invalid regex `[`: regex parse error:\n    [\n    ^\nerror: unclosed character class",
+  "input": "name =~ ["
+}

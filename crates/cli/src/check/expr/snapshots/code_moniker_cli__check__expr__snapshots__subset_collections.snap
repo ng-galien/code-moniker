@@ -1,0 +1,35 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "domain": {
+          "type": "out_refs"
+        },
+        "path": [
+          "target"
+        ],
+        "type": "projection"
+      },
+      "type": "collection"
+    },
+    "op": "subset",
+    "raw": "out_refs.target subset in_refs.source",
+    "rhs": {
+      "expr": {
+        "domain": {
+          "type": "in_refs"
+        },
+        "path": [
+          "source"
+        ],
+        "type": "projection"
+      },
+      "type": "collection"
+    },
+    "type": "atom"
+  }
+}

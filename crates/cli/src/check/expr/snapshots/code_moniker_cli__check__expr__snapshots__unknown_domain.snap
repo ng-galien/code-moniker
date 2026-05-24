@@ -1,0 +1,8 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `count(service) <= 1`: unknown domain `service` (allowed: segment, out_refs, in_refs, or one of class, method, function, module, field, param)",
+  "input": "count(service) <= 1"
+}

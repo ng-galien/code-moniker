@@ -1,0 +1,1 @@
+size(unique(method.name)) = size(method.name)

@@ -1,0 +1,55 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "nodes": [
+      {
+        "nodes": [
+          {
+            "lhs": {
+              "name": "name",
+              "type": "attr"
+            },
+            "op": "eq",
+            "raw": "name = 'execute'",
+            "rhs": {
+              "type": "string",
+              "value": "execute"
+            },
+            "type": "atom"
+          },
+          {
+            "lhs": {
+              "name": "kind",
+              "type": "attr"
+            },
+            "op": "eq",
+            "raw": "kind = 'method'",
+            "rhs": {
+              "type": "string",
+              "value": "method"
+            },
+            "type": "atom"
+          }
+        ],
+        "type": "and"
+      },
+      {
+        "lhs": {
+          "name": "shape",
+          "type": "attr"
+        },
+        "op": "eq",
+        "raw": "shape = 'callable'",
+        "rhs": {
+          "type": "string",
+          "value": "callable"
+        },
+        "type": "atom"
+      }
+    ],
+    "type": "or"
+  }
+}

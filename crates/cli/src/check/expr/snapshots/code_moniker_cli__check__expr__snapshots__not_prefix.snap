@@ -1,0 +1,22 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "node": {
+      "lhs": {
+        "name": "name",
+        "type": "attr"
+      },
+      "op": "eq",
+      "raw": "name = 'Foo'",
+      "rhs": {
+        "type": "string",
+        "value": "Foo"
+      },
+      "type": "atom"
+    },
+    "type": "not"
+  }
+}

@@ -1,0 +1,8 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `(name = 'X'`: missing `)` at byte 11",
+  "input": "(name = 'X'"
+}

@@ -1,0 +1,19 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "name": "moniker",
+      "type": "attr"
+    },
+    "op": "path_match",
+    "raw": "moniker ~ '**/class:/Port$/'",
+    "rhs": {
+      "pattern": "**/class:/Port$/",
+      "type": "path_pattern"
+    },
+    "type": "atom"
+  }
+}

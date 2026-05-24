@@ -1,0 +1,77 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "nodes": [
+        {
+          "lhs": {
+            "name": "name",
+            "type": "attr"
+          },
+          "op": "eq",
+          "raw": "name = 'X'",
+          "rhs": {
+            "type": "string",
+            "value": "X"
+          },
+          "type": "atom"
+        },
+        {
+          "lhs": {
+            "name": "name",
+            "type": "attr"
+          },
+          "op": "eq",
+          "raw": "name = 'Y'",
+          "rhs": {
+            "type": "string",
+            "value": "Y"
+          },
+          "type": "atom"
+        }
+      ],
+      "type": "or"
+    },
+    "rhs": {
+      "nodes": [
+        {
+          "lhs": {
+            "expr": {
+              "name": "lines",
+              "type": "projection"
+            },
+            "type": "number"
+          },
+          "op": "le",
+          "raw": "lines <= 10",
+          "rhs": {
+            "expr": {
+              "type": "literal",
+              "value": 10.0
+            },
+            "type": "number"
+          },
+          "type": "atom"
+        },
+        {
+          "lhs": {
+            "name": "kind",
+            "type": "attr"
+          },
+          "op": "eq",
+          "raw": "kind = 'class'",
+          "rhs": {
+            "type": "string",
+            "value": "class"
+          },
+          "type": "atom"
+        }
+      ],
+      "type": "and"
+    },
+    "type": "implies"
+  }
+}

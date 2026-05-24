@@ -1,0 +1,1 @@
+name = 'X' OR name = 'Y' => lines <= 10 AND kind = 'class'

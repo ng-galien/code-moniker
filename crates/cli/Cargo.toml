@@ -45,4 +45,5 @@ crossterm     = { workspace = true, optional = true }
 notify        = { workspace = true, optional = true }
 
 [dev-dependencies]
+insta    = { workspace = true }
 tempfile = { workspace = true }

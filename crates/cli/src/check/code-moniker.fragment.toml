@@ -5,16 +5,9 @@ fragment = "check"
 
 [aliases]
 expr       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:expr' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:expr/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/**'"
-expr_atom   = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:atom' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:atom/**'"
-expr_domain = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:domain' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:domain/**'"
-expr_number = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:number' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:number/**'"
-expr_parse  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:parse' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:parse/**'"
-expr_value  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:value/**'"
 expr_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection/**'"
 expr_pairs  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs/**'"
 expr_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics/**'"
-expr_cursor = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:cursor' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:cursor/**'"
-expr_grammar = "$expr_parse OR $expr_domain OR $expr_number OR $expr_value OR $expr_collection OR $expr_pairs OR $expr_metrics"
 eval       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:eval/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/**'"
 eval_local = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local/**'"
 eval_value = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value/**'"
@@ -22,38 +15,6 @@ eval_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/m
 eval_pairs = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs/**'"
 eval_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics/**'"
 config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:config/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:config/**'"
-
-[[rust.module.where]]
-id       = "expr-parser-has-explicit-state"
-severity = "warn"
-expr     = "$expr_cursor => count(shape:type, name = 'ParserState') >= 1"
-message  = "`check::expr` parser target design expects an explicit `ParserState` type in the cursor/state boundary."
-rationale = "The target parser design is pure grammar transitions over explicit state. A named state type makes cursor position, mode, token stream, and diagnostics a data contract instead of hidden mutation behind `&mut Parser`."
-
-[[rust.module.where]]
-id       = "expr-parser-has-transition-result"
-severity = "warn"
-expr     = "$expr_cursor => count(shape:type, name = 'ParseResult') >= 1"
-message  = "`check::expr` parser target design expects a `ParseResult`/transition result type in the cursor/state boundary."
-rationale = "Pure parser functions need a return contract carrying the parsed value, next parser state, and diagnostics. Without that result type, grammar code keeps mutating shared parser state in place."
-
-[[rust.fn.where]]
-id       = "expr-parser-grammar-uses-pure-transitions"
-severity = "warn"
-expr     = "$expr_grammar => NOT moniker ~ '**/fn:/.*&mutParser.*/'"
-message  = "`check::expr` grammar function `{name}` takes `&mut Parser`; target parser grammar should be pure transitions over explicit parser state."
-rationale = "Parser mutation is allowed inside the state machine boundary, but grammar productions should not own cursor mutation. This rule is intentionally red until grammar functions return state transitions instead of mutating `Parser` in place."
-
-[[refs.where]]
-id       = "expr-parser-grammar-does-not-import-mutable-cursor"
-severity = "warn"
-expr     = """
-  $expr_grammar
-  AND kind = 'imports_symbol'
-  => NOT target ~ '**/dir:check/dir:expr/module:cursor/path:Parser'
-"""
-message  = "`check::expr` grammar imports the mutable `Parser` cursor; target grammar should depend on state/result contracts, not the mutable cursor bag."
-rationale = "The parser target design separates pure grammar functions from the state machine. Importing `cursor::Parser` in grammar modules keeps the mutable cursor as the parser API."
 
 [[refs.where]]
 id      = "expr-parser-only"
@@ -66,6 +27,24 @@ expr    = """
 """
 message = "`check::expr` owns DSL syntax only; evaluation, config loading, and workspace/project indexes stay outside the parser."
 rationale = "The parser should produce syntax and AST shapes that are deterministic from the rule text. Pulling runtime evaluation or workspace data into parsing would make rule loading stateful and harder to test in isolation."
+
+[[rust.shape.callable.where]]
+id       = "expr-parser-tests-use-corpus-snapshots"
+severity = "error"
+expr     = "$expr AND kind = 'test' => moniker ~ '**/module:snapshots/**'"
+message  = "`check::expr` parser test `{name}` is an internal unit test; parser behavior should be covered by corpus/snapshot tests."
+rationale = "Parser tests should survive refactors of grammar functions and parser state. Keeping parser tests in the corpus/snapshot module exercises the public parse contract instead of locking internal parser structure."
+
+[[rust.shape.callable.where]]
+id       = "expr-parser-snapshot-tests-use-insta"
+severity = "error"
+expr     = """
+  moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:snapshots/**'
+  AND kind = 'test'
+  => any(out_refs, kind = 'calls' AND target ~ '**/macro:assert_json_snapshot')
+"""
+message  = "`check::expr::snapshots` test `{name}` must use `insta::assert_json_snapshot!`."
+rationale = "Parser corpus tests should produce reviewable golden diffs through insta. This keeps parser tests black-box and prevents hand-written assertions from re-coupling the suite to parser internals."
 
 [[refs.where]]
 id      = "eval-local-graph-only"
@@ -105,82 +84,9 @@ expr    = """
 message = "`check::config::fragments` is loader internals; callers should use the public `check::config` loading API."
 rationale = "Fragment discovery and namespacing are merge internals. Keeping callers on the public config API lets the loader change fragment mechanics without leaking partial or unmerged rule state."
 
-[[refs.where]]
-id      = "expr-parse-no-number-rhs-direct"
-expr    = """
-  $expr_parse AND kind = 'imports_symbol'
-  => NOT target ~ '**/dir:check/dir:expr/module:number/path:parse_number_rhs'
-"""
-message = "`check::expr::parse` still imports `number::parse_number_rhs`; numeric RHS parsing leaks through the boolean parser boundary."
-rationale = "This is a temporary coupling guard: the boolean parser should assemble expression structure while numeric parsing owns numeric RHS details. The rule marks the remaining dependency until the parser split is complete."
-
-[[refs.where]]
-id      = "expr-number-no-filter-parser-callback"
-expr    = """
-  $expr_number AND (kind = 'method_call' OR kind = 'calls')
-  => NOT (target ~ '**/method:parse_domain_filter_body'
-       OR target ~ '**/fn:/^parse_domain_filter_body\\(/'
-       OR target ~ '**/path:parse_domain_filter_body')
-"""
-message = "`check::expr::number` still parses `count(...)` filters through the domain/filter parser callback; numeric parsing remains coupled to boolean expression parsing."
-rationale = "`count(domain, filter)` crosses numeric syntax and boolean filter syntax. The desired boundary is a narrow delegated parser API, not a callback that makes the numeric parser understand boolean internals."
-
-[[refs.where]]
-id      = "expr-specialized-atoms-tail-helper"
-expr    = """
-  $expr_parse
-  AND (kind = 'method_call' OR kind = 'calls')
-  AND (moniker ~ '**/method:/^try_parse_(segment|number|mode)_atom\\(\\)$/'
-       OR moniker ~ '**/fn:/^try_parse_(segment|number|mode)_atom\\(/')
-  => NOT (target ~ '**/method:eat_op'
-       OR target ~ '**/method:find_atom_end'
-       OR target ~ '**/fn:/^operator_at\\(/'
-       OR target ~ '**/path:operator_at')
-"""
-message = "`check::expr::parse` still repeats comparison-tail parsing in specialized atom parsers; move op/RHS/raw handling behind one helper."
-rationale = "Specialized atom parsers should identify their left-hand side and delegate comparison-tail parsing. Duplicated tail scanning makes precedence and diagnostic behavior drift between atom forms."
-
-[[refs.where]]
-id      = "expr-scanners-owned-by-cursor"
-expr    = """
-  ($expr_atom OR $expr_domain OR $expr_number)
-  AND kind = 'method_call'
-  => NOT (target ~ '**/method:as_bytes'
-       OR target ~ '**/method:is_ascii_digit'
-       OR target ~ '**/method:is_ascii_alphabetic'
-       OR target ~ '**/method:is_ascii_alphanumeric')
-"""
-message = "`check::expr` still has local byte/token scanners outside `cursor`; lexical scanning should have a single owner."
-rationale = "The cursor is the lexical boundary for the DSL parser. Direct byte and ASCII scans in atom modules recreate tokenizer behavior and make edge cases such as regexes, quotes, and identifiers diverge."
-
 # Couche 1 — agrégateurs locaux sur domaine.
-# `number` owns numeric syntax, `value` owns domain value expressions used by
-# `mode` / `entropy`, and `eval::local` owns the local CodeGraph analytics.
-
-[[refs.where]]
-id      = "dsl-layer1-mode-body-owned-by-value-parser"
-expr    = """
-  $expr_parse
-  AND (kind = 'method_call' OR kind = 'calls')
-  AND (moniker ~ '**/method:/^try_parse_mode_atom\\(\\)$/'
-       OR moniker ~ '**/fn:/^try_parse_mode_atom\\(/')
-  => NOT (target ~ '**/method:parse_domain_value_call_body'
-       OR target ~ '**/fn:/^parse_domain_value_call_body\\(/'
-       OR target ~ '**/path:parse_domain_value_call_body')
-"""
-message = "`mode(...)` parsing should delegate domain/value body parsing to `check::expr::value`; `parse` only owns boolean precedence and comparison tails."
-rationale = "`mode` returns a value rather than a number. The parser split keeps value-producing domain expressions separate from boolean precedence so future value aggregators do not grow the top-level parser."
-
-[[refs.where]]
-id      = "dsl-layer1-number-parser-stays-numeric"
-expr    = """
-  $expr_number AND (kind = 'method_call' OR kind = 'calls')
-  => NOT (target ~ '**/method:parse_mode_lhs'
-       OR target ~ '**/fn:/^parse_mode_lhs\\(/'
-       OR target ~ '**/path:parse_mode_lhs')
-"""
-message = "`check::expr::number` must stay numeric; value-returning aggregators such as `mode` belong to `check::expr::value`."
-rationale = "Numeric parsing should only own expressions that can participate in numeric comparisons. Mixing value-returning aggregators into it obscures type expectations in the DSL."
+# Value evaluation stays graph-free; local graph traversal belongs to
+# `eval::local`.
 
 [[refs.where]]
 id      = "dsl-layer1-eval-value-is-graph-free"
@@ -196,8 +102,8 @@ message = "`check::eval::value` is the typed comparison/rendering layer; local g
 rationale = "Value evaluation should compare and render already-projected values. Keeping raw graph traversal out of it avoids a second traversal owner beside `eval::local`."
 
 # Couche 2 — multisets et opérations ensemblistes.
-# `expr::collection` owns collection syntax (`size`, `unique`, set ops,
-# subset atoms). `eval::collection` owns multiset algebra over local facts.
+# `expr::collection` stays syntax-only. `eval::collection` owns multiset
+# algebra over local facts.
 
 [[refs.where]]
 id      = "dsl-layer2-expr-collection-parser-isolated"
@@ -224,32 +130,6 @@ message = "`check::eval::collection` must evaluate local multisets only; project
 rationale = "Multiset operators should be predictable local analytics over the current graph item. Project-wide linkage would change their cost model and blur the boundary with impact/linkage indexes."
 
 [[refs.where]]
-id      = "dsl-layer2-boolean-parser-delegates-collection"
-expr    = """
-  $expr_parse
-  AND (kind = 'method_call' OR kind = 'calls')
-  AND (moniker ~ '**/method:/^parse_primary\\(\\)$/'
-       OR moniker ~ '**/fn:/^parse_primary\\(/')
-  => NOT (target ~ '**/method:parse_collection_expr'
-       OR target ~ '**/fn:/^parse_collection_expr\\(/'
-       OR target ~ '**/path:parse_collection_expr')
-"""
-message = "`check::expr::parse` must delegate multiset syntax to `check::expr::collection`; boolean precedence stays separate from collection grammar."
-rationale = "The top-level parser should route to feature parsers, not grow every grammar feature directly. This keeps boolean precedence stable while collection syntax evolves."
-
-[[refs.where]]
-id      = "dsl-layer2-number-parser-size-only"
-expr    = """
-  $expr_number
-  AND (kind = 'method_call' OR kind = 'calls')
-  => NOT (target ~ '**/method:try_parse_collection_subset_atom'
-       OR target ~ '**/fn:/^try_parse_collection_subset_atom\\(/'
-       OR target ~ '**/path:try_parse_collection_subset_atom')
-"""
-message = "`check::expr::number` may parse `size(...)`, but subset/set boolean syntax belongs to `check::expr::collection`."
-rationale = "`size(collection)` is numeric, while `subset` and set algebra are collection semantics. The split prevents the numeric parser from becoming the owner of collection grammar."
-
-[[refs.where]]
 id      = "dsl-layer2-eval-local-does-not-own-multiset-algebra"
 expr    = """
   $eval_local
@@ -264,8 +144,8 @@ message = "`check::eval::local` owns domain traversal and numeric local metrics;
 rationale = "Local evaluation may enumerate domains, but set operations need their own algebra and equality semantics. Centralizing them in `eval::collection` avoids duplicate multiset behavior."
 
 # Couche 3 — itération locale sur paires.
-# `expr::pairs` owns `pairs(D)` and `a.*` / `b.*` binding syntax.
-# `eval::pairs` owns pair enumeration/evaluation over local domain items.
+# `expr::pairs` stays syntax-only. `eval::pairs` owns pair enumeration and
+# evaluation over local domain items.
 
 [[refs.where]]
 id      = "dsl-layer3-pairs-parser-isolated"
@@ -292,18 +172,6 @@ message = "`check::eval::pairs` must evaluate pair domains from the local `CodeG
 rationale = "Pair rules are combinatorial even when local. Keeping them local protects hook latency and avoids accidental all-project pair scans."
 
 [[refs.where]]
-id      = "dsl-layer3-domain-parser-does-not-own-pair-bindings"
-expr    = """
-  $expr_domain
-  AND (kind = 'method_call' OR kind = 'calls')
-  => NOT (target ~ '**/method:parse_pair_projection'
-       OR target ~ '**/fn:/^parse_pair_projection\\(/'
-       OR target ~ '**/path:parse_pair_projection')
-"""
-message = "`check::expr::domain` may delegate `pairs(D)`, but `a.*` / `b.*` binding syntax belongs to `check::expr::pairs`."
-rationale = "Domain parsing names the item collection; pair parsing owns the additional binding surface. This keeps ordinary domain projections from inheriting pair-specific syntax."
-
-[[refs.where]]
 id      = "dsl-layer3-eval-local-does-not-own-pair-iteration"
 expr    = """
   $eval_local
@@ -315,8 +183,8 @@ message = "`check::eval::local` owns domain traversal and numeric local metrics;
 rationale = "Pair iteration has different cardinality and binding rules from ordinary domain traversal. Isolating it makes cost and diagnostics easier to reason about."
 
 # Couche 4 — métriques nommées locales.
-# `expr::metrics` owns named metric calls such as `lcom4(self)` and
-# `eval::metrics` owns metric formulas over the local `CodeGraph`.
+# `expr::metrics` stays syntax-only. `eval::metrics` owns metric formulas over
+# the local `CodeGraph`.
 
 [[refs.where]]
 id      = "dsl-layer4-expr-metrics-parser-isolated"
@@ -329,18 +197,6 @@ expr    = """
 """
 message = "`check::expr::metrics` must only parse named metric calls; metric formulas belong outside the parser."
 rationale = "Named metrics are syntax in the parser and algorithms in evaluation. Separating the two keeps metric parsing cheap and prevents formulas from affecting rule loading."
-
-[[refs.where]]
-id      = "dsl-layer4-number-parser-delegates-metrics"
-expr    = """
-  $expr_number
-  AND (kind = 'method_call' OR kind = 'calls')
-  => NOT (target ~ '**/method:parse_metric_call_body'
-       OR target ~ '**/fn:/^parse_metric_call_body\\(/'
-       OR target ~ '**/path:parse_metric_call_body')
-"""
-message = "`check::expr::number` may parse numeric comparisons, but named metric call bodies belong to `check::expr::metrics`."
-rationale = "Metrics are numeric expressions, but their call grammar and allowed receivers are a distinct DSL feature. The number parser should delegate rather than own metric syntax."
 
 [[refs.where]]
 id      = "dsl-layer4-metrics-local-only"

@@ -1,0 +1,42 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "domain": {
+          "kind": "field",
+          "type": "children"
+        },
+        "expr": {
+          "expr": {
+            "domain": {
+              "type": "in_refs"
+            },
+            "expr": {
+              "name": "source",
+              "type": "projection"
+            }
+          },
+          "type": "entropy"
+        },
+        "kind": "avg",
+        "percentile": null,
+        "type": "aggregate"
+      },
+      "type": "number"
+    },
+    "op": "ge",
+    "raw": "avg(field, entropy(in_refs.source)) >= 0.5",
+    "rhs": {
+      "expr": {
+        "type": "literal",
+        "value": 0.5
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}

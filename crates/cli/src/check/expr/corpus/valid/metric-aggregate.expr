@@ -1,0 +1,1 @@
+cv(method, fan_out(each)) <= 0.6
