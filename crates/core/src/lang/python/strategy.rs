@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-harmonious-method-size, smell-large-type]
+// TODO(smell): split Python Strategy into classification, import/type/call resolution, local-scope tracking, and graph emission phases before enabling these guardrails here.
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 

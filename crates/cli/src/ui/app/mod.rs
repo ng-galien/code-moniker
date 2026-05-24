@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-god-type-local-metrics, smell-harmonious-method-size]
+// TODO(smell): split App shell construction from runtime dispatch, workspace refresh, navigation, and panel orchestration before enabling these guardrails here.
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Instant;

@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-god-type-local-metrics]
+// TODO(smell): keep code_graph as the pgrx SQL type facade; split datum ABI, IO funcs, and iterators if extension behavior grows here.
 use std::error::Error;
 use std::sync::OnceLock;
 

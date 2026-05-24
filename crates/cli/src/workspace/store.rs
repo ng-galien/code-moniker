@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-god-type-local-metrics, smell-harmonious-method-size, smell-large-type]
+// TODO(smell): split WorkspaceStore read models into navigation, search, references, change, linkage, and check-summary query services before enabling these guardrails here.
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

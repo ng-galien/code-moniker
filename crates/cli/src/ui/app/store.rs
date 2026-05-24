@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-god-type-local-metrics]
+// TODO(smell): split AppStore shell-state reduction from workspace ownership and transition application before enabling this guardrail here.
 use crate::ui::app::action::AppAction;
 use crate::ui::app::state::{AppState, CheckState, ShellSlice, TaskCompletion};
 use crate::ui::async_task::{TaskResult, TaskSpec};

@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-long-parameter-list]
+// TODO(smell): introduce a file-tree rendering context that groups args, output, path prefix, and style settings before enabling this guardrail here.
 use std::collections::BTreeMap;
 use std::io::Write;
 

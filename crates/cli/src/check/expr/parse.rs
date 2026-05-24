@@ -1,7 +1,11 @@
 use super::ast::*;
 use super::atom::{build_atom, parse_atom, parse_op, parse_rhs, unquote};
-use super::cursor::Parser;
+use super::collection::try_parse_collection_subset_atom;
+use super::cursor::{Parser, operator_at};
+use super::domain::parse_domain_filter_body;
 use super::error::ParseError;
+use super::number::{next_starts_number_call, parse_number_expr};
+use super::value::parse_mode_lhs;
 
 pub(in crate::check) fn parse(
 	input: &str,
@@ -10,7 +14,7 @@ pub(in crate::check) fn parse(
 ) -> Result<Expr, ParseError> {
 	let raw = input.to_string();
 	let mut p = Parser::new(input, scheme, allowed_kinds, &raw);
-	let root = p.parse_expr()?;
+	let root = parse_expr(&mut p)?;
 	p.skip_ws();
 	if p.pos < p.input.len() {
 		let msg = format!("trailing input at byte {}: `{}`", p.pos, &p.input[p.pos..]);
@@ -19,231 +23,232 @@ pub(in crate::check) fn parse(
 	Ok(Expr { root })
 }
 
-impl<'a> Parser<'a> {
-	pub(super) fn parse_expr(&mut self) -> Result<Node, ParseError> {
-		let lhs = self.parse_or()?;
-		self.skip_ws();
-		if self.eat_keyword("=>") {
-			let rhs = self.parse_or()?;
-			return Ok(Node::Implies(Box::new(lhs), Box::new(rhs)));
-		}
-		Ok(lhs)
+pub(super) fn parse_expr(p: &mut Parser<'_>) -> Result<Node, ParseError> {
+	let lhs = parse_or(p)?;
+	p.skip_ws();
+	if p.eat_keyword("=>") {
+		let rhs = parse_or(p)?;
+		return Ok(Node::Implies(Box::new(lhs), Box::new(rhs)));
 	}
+	Ok(lhs)
+}
 
-	fn parse_or(&mut self) -> Result<Node, ParseError> {
-		let mut nodes = vec![self.parse_and()?];
-		loop {
-			self.skip_ws();
-			if !self.eat_keyword("OR") {
-				break;
-			}
-			nodes.push(self.parse_and()?);
+fn parse_or(p: &mut Parser<'_>) -> Result<Node, ParseError> {
+	let mut nodes = vec![parse_and(p)?];
+	loop {
+		p.skip_ws();
+		if !p.eat_keyword("OR") {
+			break;
 		}
-		Ok(if nodes.len() == 1 {
-			nodes.pop().unwrap()
-		} else {
-			Node::Or(nodes)
-		})
+		nodes.push(parse_and(p)?);
 	}
+	Ok(if nodes.len() == 1 {
+		nodes.pop().unwrap()
+	} else {
+		Node::Or(nodes)
+	})
+}
 
-	fn parse_and(&mut self) -> Result<Node, ParseError> {
-		let mut nodes = vec![self.parse_not()?];
-		loop {
-			self.skip_ws();
-			if !self.eat_keyword("AND") {
-				break;
-			}
-			nodes.push(self.parse_not()?);
+fn parse_and(p: &mut Parser<'_>) -> Result<Node, ParseError> {
+	let mut nodes = vec![parse_not(p)?];
+	loop {
+		p.skip_ws();
+		if !p.eat_keyword("AND") {
+			break;
 		}
-		Ok(if nodes.len() == 1 {
-			nodes.pop().unwrap()
-		} else {
-			Node::And(nodes)
-		})
+		nodes.push(parse_not(p)?);
 	}
+	Ok(if nodes.len() == 1 {
+		nodes.pop().unwrap()
+	} else {
+		Node::And(nodes)
+	})
+}
 
-	fn parse_not(&mut self) -> Result<Node, ParseError> {
-		self.skip_ws();
-		if self.eat_keyword("NOT") {
-			let inner = self.parse_not()?;
-			return Ok(Node::Not(Box::new(inner)));
-		}
-		self.parse_primary()
+fn parse_not(p: &mut Parser<'_>) -> Result<Node, ParseError> {
+	p.skip_ws();
+	if p.eat_keyword("NOT") {
+		let inner = parse_not(p)?;
+		return Ok(Node::Not(Box::new(inner)));
 	}
+	parse_primary(p)
+}
 
-	fn parse_primary(&mut self) -> Result<Node, ParseError> {
-		self.skip_ws();
-		if self.peek_byte() == Some(b'(') {
-			self.pos += 1;
-			let inner = self.parse_expr()?;
-			self.skip_ws();
-			if self.peek_byte() != Some(b')') {
-				return Err(ParseError::BadExpr {
-					expr: self.raw.to_string(),
-					msg: format!("missing `)` at byte {}", self.pos),
-				});
-			}
-			self.pos += 1;
-			return Ok(inner);
-		}
-		if let Some(q) = self.try_parse_quantifier()? {
-			return Ok(q);
-		}
-		if let Some(atom) = self.try_parse_collection_subset_atom()? {
-			return Ok(Node::Atom(atom));
-		}
-		if let Some(atom) = self.try_parse_number_atom()? {
-			return Ok(Node::Atom(atom));
-		}
-		if let Some(atom) = self.try_parse_mode_atom()? {
-			return Ok(Node::Atom(atom));
-		}
-		if let Some(atom) = self.try_parse_segment_atom()? {
-			return Ok(Node::Atom(atom));
-		}
-		let atom_end = self.find_atom_end();
-		if atom_end == self.pos {
+fn parse_primary(p: &mut Parser<'_>) -> Result<Node, ParseError> {
+	p.skip_ws();
+	if p.peek_byte() == Some(b'(') {
+		p.pos += 1;
+		let inner = parse_expr(p)?;
+		p.skip_ws();
+		if p.peek_byte() != Some(b')') {
 			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!("expected atom at byte {}", self.pos),
+				expr: p.raw.to_string(),
+				msg: format!("missing `)` at byte {}", p.pos),
 			});
 		}
-		let atom_str = &self.input[self.pos..atom_end];
-		let atom = parse_atom(
-			atom_str,
-			self.scheme,
-			self.allowed_kinds,
-			self.raw,
-			self.pair_bindings_allowed,
-		)?;
-		self.pos = atom_end;
-		Ok(Node::Atom(atom))
+		p.pos += 1;
+		return Ok(inner);
 	}
+	if let Some(q) = try_parse_quantifier(p)? {
+		return Ok(q);
+	}
+	if let Some(atom) = try_parse_collection_subset_atom(p)? {
+		return Ok(Node::Atom(atom));
+	}
+	if let Some(atom) = try_parse_number_atom(p)? {
+		return Ok(Node::Atom(atom));
+	}
+	if let Some(atom) = try_parse_mode_atom(p)? {
+		return Ok(Node::Atom(atom));
+	}
+	if let Some(atom) = try_parse_segment_atom(p)? {
+		return Ok(Node::Atom(atom));
+	}
+	let atom_end = p.find_atom_end();
+	if atom_end == p.pos {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: format!("expected atom at byte {}", p.pos),
+		});
+	}
+	let atom_str = &p.input[p.pos..atom_end];
+	let atom = parse_atom(
+		atom_str,
+		p.scheme,
+		p.allowed_kinds,
+		p.raw,
+		p.pair_bindings_allowed,
+	)?;
+	p.pos = atom_end;
+	Ok(Node::Atom(atom))
+}
 
-	fn try_parse_segment_atom(&mut self) -> Result<Option<Atom>, ParseError> {
-		self.skip_ws();
-		let rest = &self.input[self.pos..];
-		let (scope, prefix_len) = if rest.starts_with("source.segment(") {
-			(SegmentScope::Source, "source.segment(".len())
-		} else if rest.starts_with("target.segment(") {
-			(SegmentScope::Target, "target.segment(".len())
-		} else if rest.starts_with("segment(") {
-			(SegmentScope::Def, "segment(".len())
-		} else {
-			return Ok(None);
-		};
-		let raw_start = self.pos;
-		self.pos += prefix_len;
-		let arg = self
-			.take_until_byte(b')')
-			.ok_or_else(|| ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: "unclosed `segment(...)` projection".to_string(),
-			})?
-			.trim();
-		let kind = unquote(arg).to_string();
-		if kind.is_empty() {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: "segment(<kind>) needs a kind argument".to_string(),
-			});
-		}
-		self.pos += 1;
-		Ok(Some(self.parse_comparison_tail(
-			raw_start,
-			LhsExpr::SegmentOf { scope, kind },
-			"expected `<op> <rhs>` after `segment(...)`",
-		)?))
+fn try_parse_segment_atom(p: &mut Parser<'_>) -> Result<Option<Atom>, ParseError> {
+	p.skip_ws();
+	let rest = &p.input[p.pos..];
+	let (scope, prefix_len) = if rest.starts_with("source.segment(") {
+		(SegmentScope::Source, "source.segment(".len())
+	} else if rest.starts_with("target.segment(") {
+		(SegmentScope::Target, "target.segment(".len())
+	} else if rest.starts_with("segment(") {
+		(SegmentScope::Def, "segment(".len())
+	} else {
+		return Ok(None);
+	};
+	let raw_start = p.pos;
+	p.pos += prefix_len;
+	let arg = p
+		.take_until_byte(b')')
+		.ok_or_else(|| ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: "unclosed `segment(...)` projection".to_string(),
+		})?
+		.trim();
+	let kind = unquote(arg).to_string();
+	if kind.is_empty() {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: "segment(<kind>) needs a kind argument".to_string(),
+		});
 	}
+	p.pos += 1;
+	Ok(Some(parse_comparison_tail(
+		p,
+		raw_start,
+		LhsExpr::SegmentOf { scope, kind },
+		"expected `<op> <rhs>` after `segment(...)`",
+	)?))
+}
 
-	fn try_parse_number_atom(&mut self) -> Result<Option<Atom>, ParseError> {
-		self.skip_ws();
-		if !self.next_starts_number_call() {
-			return Ok(None);
-		}
-		let raw_start = self.pos;
-		let lhs = self.parse_number_expr()?;
-		Ok(Some(self.parse_comparison_tail(
-			raw_start,
-			LhsExpr::Number(lhs),
-			"expected numeric comparison after number expression",
-		)?))
+fn try_parse_number_atom(p: &mut Parser<'_>) -> Result<Option<Atom>, ParseError> {
+	p.skip_ws();
+	if !next_starts_number_call(p) {
+		return Ok(None);
 	}
+	let raw_start = p.pos;
+	let lhs = parse_number_expr(p)?;
+	Ok(Some(parse_comparison_tail(
+		p,
+		raw_start,
+		LhsExpr::Number(lhs),
+		"expected numeric comparison after number expression",
+	)?))
+}
 
-	fn try_parse_mode_atom(&mut self) -> Result<Option<Atom>, ParseError> {
-		self.skip_ws();
-		if !self.input[self.pos..].starts_with("mode(") {
-			return Ok(None);
-		}
-		let raw_start = self.pos;
-		let lhs = self.parse_mode_lhs()?;
-		Ok(Some(self.parse_comparison_tail(
-			raw_start,
-			lhs,
-			"expected comparison after `mode(...)`",
-		)?))
+fn try_parse_mode_atom(p: &mut Parser<'_>) -> Result<Option<Atom>, ParseError> {
+	p.skip_ws();
+	if !p.input[p.pos..].starts_with("mode(") {
+		return Ok(None);
 	}
+	let raw_start = p.pos;
+	let lhs = parse_mode_lhs(p)?;
+	Ok(Some(parse_comparison_tail(
+		p,
+		raw_start,
+		lhs,
+		"expected comparison after `mode(...)`",
+	)?))
+}
 
-	fn try_parse_quantifier(&mut self) -> Result<Option<Node>, ParseError> {
-		self.skip_ws();
-		for (kw, qk) in [
-			("any", QuantKind::Any),
-			("all", QuantKind::All),
-			("none", QuantKind::None),
-		] {
-			if let Some(rest) = self.input[self.pos..].strip_prefix(kw)
-				&& rest.starts_with('(')
-			{
-				self.pos += kw.len();
-				let (domain, filter) = self.parse_domain_filter_body(Parser::parse_expr)?;
-				let filter = filter.ok_or_else(|| ParseError::BadExpr {
-					expr: self.raw.to_string(),
-					msg: format!("`{kw}` requires a filter expression: `{kw}(<domain>, <expr>)`"),
-				})?;
-				return Ok(Some(Node::Quantifier {
-					kind: qk,
-					domain,
-					filter: Box::new(filter),
-				}));
-			}
+fn try_parse_quantifier(p: &mut Parser<'_>) -> Result<Option<Node>, ParseError> {
+	p.skip_ws();
+	for (kw, qk) in [
+		("any", QuantKind::Any),
+		("all", QuantKind::All),
+		("none", QuantKind::None),
+	] {
+		if let Some(rest) = p.input[p.pos..].strip_prefix(kw)
+			&& rest.starts_with('(')
+		{
+			p.pos += kw.len();
+			let (domain, filter) = parse_domain_filter_body(p, parse_expr)?;
+			let filter = filter.ok_or_else(|| ParseError::BadExpr {
+				expr: p.raw.to_string(),
+				msg: format!("`{kw}` requires a filter expression: `{kw}(<domain>, <expr>)`"),
+			})?;
+			return Ok(Some(Node::Quantifier {
+				kind: qk,
+				domain,
+				filter: Box::new(filter),
+			}));
 		}
-		Ok(None)
 	}
+	Ok(None)
+}
 
-	fn parse_comparison_tail(
-		&mut self,
-		raw_start: usize,
-		lhs: LhsExpr,
-		missing_op_msg: &str,
-	) -> Result<Atom, ParseError> {
-		self.skip_ws();
-		let (op_str, op_len) = self.eat_op().ok_or_else(|| ParseError::BadExpr {
-			expr: self.raw.to_string(),
-			msg: format!("{missing_op_msg} at byte {}", self.pos),
-		})?;
-		self.pos += op_len;
-		let op = parse_op(op_str, self.raw)?;
-		self.skip_ws();
-		let rhs_end = self.find_atom_end();
-		let rhs_str = self.input[self.pos..rhs_end].trim();
-		if rhs_str.is_empty() {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: "empty RHS after comparison op".to_string(),
-			});
-		}
-		let rhs = parse_rhs(
-			rhs_str,
-			op,
-			self.scheme,
-			self.allowed_kinds,
-			self.raw,
-			self.pair_bindings_allowed,
-		)?;
-		self.pos = rhs_end;
-		let raw = self.input[raw_start..self.pos].to_string();
-		build_atom(lhs, op, rhs, raw, self.raw)
+fn parse_comparison_tail(
+	p: &mut Parser<'_>,
+	raw_start: usize,
+	lhs: LhsExpr,
+	missing_op_msg: &str,
+) -> Result<Atom, ParseError> {
+	p.skip_ws();
+	let (op_str, op_len) = operator_at(&p.input[p.pos..]).ok_or_else(|| ParseError::BadExpr {
+		expr: p.raw.to_string(),
+		msg: format!("{missing_op_msg} at byte {}", p.pos),
+	})?;
+	p.pos += op_len;
+	let op = parse_op(op_str, p.raw)?;
+	p.skip_ws();
+	let rhs_end = p.find_atom_end();
+	let rhs_str = p.input[p.pos..rhs_end].trim();
+	if rhs_str.is_empty() {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: "empty RHS after comparison op".to_string(),
+		});
 	}
+	let rhs = parse_rhs(
+		rhs_str,
+		op,
+		p.scheme,
+		p.allowed_kinds,
+		p.raw,
+		p.pair_bindings_allowed,
+	)?;
+	p.pos = rhs_end;
+	let raw = p.input[raw_start..p.pos].to_string();
+	build_atom(lhs, op, rhs, raw, p.raw)
 }
 
 #[cfg(test)]

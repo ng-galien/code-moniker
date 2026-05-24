@@ -94,10 +94,10 @@ impl<'a> Parser<'a> {
 
 	pub(super) fn take_number_literal(&mut self) -> &'a str {
 		let start = self.pos;
-		self.take_ascii_digits();
+		take_ascii_digits(self);
 		if self.peek_byte() == Some(b'.') {
 			self.pos += 1;
-			self.take_ascii_digits();
+			take_ascii_digits(self);
 		}
 		&self.input[start..self.pos]
 	}
@@ -179,7 +179,7 @@ impl<'a> Parser<'a> {
 					i += 1;
 				}
 				_ => {
-					if depth == 0 && self.input.is_char_boundary(i) && self.boundary_at(i) {
+					if depth == 0 && self.input.is_char_boundary(i) && boundary_at(self.input, i) {
 						return i;
 					}
 					i += 1;
@@ -187,10 +187,6 @@ impl<'a> Parser<'a> {
 			}
 		}
 		i
-	}
-
-	pub(super) fn eat_op(&self) -> Option<(&'static str, usize)> {
-		operator_at(&self.input[self.pos..])
 	}
 
 	pub(super) fn eat_keyword(&mut self, kw: &str) -> bool {
@@ -206,21 +202,21 @@ impl<'a> Parser<'a> {
 		}
 		false
 	}
+}
 
-	fn boundary_at(&self, i: usize) -> bool {
-		let rest = &self.input[i..];
-		rest.starts_with(" AND ")
-			|| rest.starts_with(" OR ")
-			|| rest.starts_with(" => ")
-			|| rest.starts_with(" AND\t")
-			|| rest.starts_with(" OR\t")
-			|| rest.starts_with(" =>\t")
-	}
+fn boundary_at(input: &str, i: usize) -> bool {
+	let rest = &input[i..];
+	rest.starts_with(" AND ")
+		|| rest.starts_with(" OR ")
+		|| rest.starts_with(" => ")
+		|| rest.starts_with(" AND\t")
+		|| rest.starts_with(" OR\t")
+		|| rest.starts_with(" =>\t")
+}
 
-	fn take_ascii_digits(&mut self) {
-		let bytes = self.input.as_bytes();
-		while self.pos < bytes.len() && bytes[self.pos].is_ascii_digit() {
-			self.pos += 1;
-		}
+fn take_ascii_digits(p: &mut Parser<'_>) {
+	let bytes = p.input.as_bytes();
+	while p.pos < bytes.len() && bytes[p.pos].is_ascii_digit() {
+		p.pos += 1;
 	}
 }

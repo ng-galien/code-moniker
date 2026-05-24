@@ -1,3 +1,6 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-large-type]
+// TODO(smell): split Java Strategy into classification, graph emission, type resolution, and table-building phases before enabling these guardrails here.
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 

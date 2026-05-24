@@ -23,7 +23,6 @@ Available samples:
 | Go | [go.toml](go.toml) |
 | C# | [csharp.toml](csharp.toml) |
 | SQL / PL/pgSQL | [sql.toml](sql.toml) |
-| Local code smell warnings | [code-smells-local.toml](code-smells-local.toml) |
 
 Literature-inspired samples — community-authored encodings of structural
 rules from canonical software engineering literature. Attribution sits at

@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-god-type-local-metrics, smell-harmonious-method-size]
+// TODO(smell): split SessionIndex construction into source discovery, extraction, statistics, check summary, and lookup index rebuild services before enabling these guardrails here.
 use std::collections::{BTreeMap, hash_map::Entry};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

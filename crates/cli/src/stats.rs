@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list]
+// TODO(smell): split stats collection, per-file extraction, aggregate reporting, and tree-row rendering before enabling these guardrails here.
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;

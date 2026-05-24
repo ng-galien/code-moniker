@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-god-type-local-metrics]
+// TODO(smell): split TreePaneState row storage, expansion state, selection movement, and action reduction before enabling this guardrail here.
 use std::collections::BTreeSet;
 
 use crate::ui::store::ids::NodeId;

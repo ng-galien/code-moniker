@@ -7,23 +7,25 @@ use super::{
 	resolve_def_lhs, resolve_ref_lhs,
 };
 
-pub(super) fn eval_aggregate(
-	kind: AggregateKind,
-	domain: &Domain,
-	expr: &NumberExpr,
-	percentile: Option<f64>,
-	def_idx: usize,
-	self_idx: usize,
-	ctx: &EvalCtx<'_, '_>,
-) -> Option<f64> {
-	let values = collect_domain_numbers(domain, expr, def_idx, self_idx, ctx);
-	match kind {
+pub(super) struct AggregateEval<'a> {
+	pub(super) kind: AggregateKind,
+	pub(super) domain: &'a Domain,
+	pub(super) expr: &'a NumberExpr,
+	pub(super) percentile: Option<f64>,
+	pub(super) def_idx: usize,
+	pub(super) self_idx: usize,
+}
+
+pub(super) fn eval_aggregate(input: AggregateEval<'_>, ctx: &EvalCtx<'_, '_>) -> Option<f64> {
+	let values =
+		collect_domain_numbers(input.domain, input.expr, input.def_idx, input.self_idx, ctx);
+	match input.kind {
 		AggregateKind::Sum => Some(values.iter().sum()),
 		AggregateKind::Max => values.into_iter().reduce(f64::max),
 		AggregateKind::Min => values.into_iter().reduce(f64::min),
 		AggregateKind::Avg => average(&values),
 		AggregateKind::Median => percentile_value(values, 50.0),
-		AggregateKind::Percentile => percentile_value(values, percentile?),
+		AggregateKind::Percentile => percentile_value(values, input.percentile?),
 		AggregateKind::Stddev => variance(&values).map(f64::sqrt),
 		AggregateKind::Var => variance(&values),
 		AggregateKind::Cv => {

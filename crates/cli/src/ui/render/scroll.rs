@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local]
+// TODO(smell): keep ScrollViewport as a small geometry helper; revisit this suppression if visible-line styling or layout policy moves here.
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 

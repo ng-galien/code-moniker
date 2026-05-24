@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list, smell-god-type-local-metrics, smell-harmonious-method-size, smell-large-type]
+// TODO(smell): split AppState reducers into shell actions, UI messages, task completion, and header-search option state before enabling these guardrails here.
 use std::collections::{BTreeMap, BTreeSet};
 
 use code_moniker_core::lang::Lang;

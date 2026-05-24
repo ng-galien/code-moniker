@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-long-parameter-list]
+// TODO(smell): keep extract_typescript aligned with the SQL function signature; introduce a Rust-side options object if PG extraction options grow further.
 use pgrx::prelude::*;
 
 use crate::code_graph::code_graph;

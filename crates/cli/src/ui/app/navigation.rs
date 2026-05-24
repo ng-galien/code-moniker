@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-god-type-local-metrics]
+// TODO(smell): split App navigation helpers into focused-tree actions, route selection, and panel policy transitions before enabling this guardrail here.
 use crate::workspace::{ChangeDetail, DefLocation, IndexStore};
 
 use crate::ui::app::{

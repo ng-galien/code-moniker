@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-harmonious-method-size]
+// TODO(smell): split workspace refresh handling into store-change classification, navigator rebuild, panel refresh, and task scheduling before enabling these guardrails here.
 use std::time::Instant;
 
 use crate::perf;

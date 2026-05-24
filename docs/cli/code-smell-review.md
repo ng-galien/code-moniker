@@ -9,6 +9,11 @@ The review stance is conservative: smell rules are heuristic review
 signals. Encode them as `severity = "warn"` unless a project deliberately
 wants to enforce one as an error.
 
+Do not treat smell checks as a universal rule pack. A smell rule only becomes
+useful once it is tuned to a project, its language mix, and its current
+refactoring target. Keep executable rules in the project overlay and use
+profiles to separate in-adoption warning checks from hook/guardrail checks.
+
 ## DSL model
 
 The rule DSL is a first-order algebra over a local code graph with three
@@ -44,9 +49,9 @@ These smells can be encoded as local warning rules today.
 | Duplicate child names | `size(unique(shape:callable.name)) = size(shape:callable.name)` | local naming invariant |
 | Comments smell | `shape.annotation` checks over `lines` or `text` | project-specific thresholds |
 
-Use the sample warning pack at
-[code-smells-local.toml](check-samples/code-smells-local.toml) as the
-copyable starting point.
+When a warning stabilizes and the target module is clean, promote the
+project-specific rule to an enforced project rule. Until then, keep it as a
+warning so it remains a review candidate instead of a build gate.
 
 ## Important current gaps
 
@@ -78,23 +83,22 @@ checks.
 
 ## Review workflow
 
-Validate the warning pack before a broad run:
+Validate the project-specific smell rules before a broad run:
 
 ```sh
-code-moniker rules show . \
-  --rules docs/cli/check-samples/code-smells-local.toml \
-  --default-rules off
+code-moniker rules show . --profile smells
 ```
 
 Run the review:
 
 ```sh
 code-moniker check . \
-  --rules docs/cli/check-samples/code-smells-local.toml \
-  --default-rules off \
+  --profile smells \
   --report \
   --max-violations 50
 ```
 
-Interpret failures as review candidates. A warning says "inspect this
-symbol", not "this symbol is wrong".
+Interpret warning-severity failures as review candidates. Once a project
+promotes a smell rule to `severity = "error"`, it is a guardrail: existing
+debt should be fixed or justified with source-level suppressions, and new
+unjustified violations should fail the check.

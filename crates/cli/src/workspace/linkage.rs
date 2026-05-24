@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list, smell-harmonious-method-size]
+// TODO(smell): split linkage build into key indexing, manifest policy, reference resolution, and trace collection before enabling these guardrails here.
 use code_moniker_core::core::code_graph::RefRecord;
 use code_moniker_core::core::moniker::{Moniker, Segment};
 use code_moniker_core::lang::{

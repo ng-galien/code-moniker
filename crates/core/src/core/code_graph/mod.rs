@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-harmonious-method-size]
+// TODO(smell): split CodeGraph into records, mutation builder, lookup indexes, cache handling, and read-only query APIs before enabling these guardrails here.
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock};

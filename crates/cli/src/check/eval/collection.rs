@@ -9,27 +9,34 @@ use super::local::{DomainItem, domain_items};
 use super::value::{Value, ValueKey, value_counts};
 use super::{EvalCtx, resolve_def_lhs, resolve_ref_lhs};
 
+#[derive(Clone, Copy)]
+pub(super) struct PairCollectionScope<'a> {
+	pub(super) a: DomainItem<'a>,
+	pub(super) b: DomainItem<'a>,
+	pub(super) def_idx: usize,
+}
+
 pub(super) fn eval_collection_size(
 	collection: &CollectionExpr,
 	def_idx: usize,
-	self_idx: usize,
+	_self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> usize {
 	debug_assert!(!collection_has_pair_binding(collection));
-	eval_collection(collection, def_idx, self_idx, ctx).len()
+	eval_collection(collection, def_idx, ctx).len()
 }
 
 pub(super) fn eval_collection_subset(
 	left: &CollectionExpr,
 	right: &CollectionExpr,
 	def_idx: usize,
-	self_idx: usize,
+	_self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> bool {
 	debug_assert!(!collection_has_pair_binding(left));
 	debug_assert!(!collection_has_pair_binding(right));
-	let left = eval_collection(left, def_idx, self_idx, ctx);
-	let right = eval_collection(right, def_idx, self_idx, ctx);
+	let left = eval_collection(left, def_idx, ctx);
+	let right = eval_collection(right, def_idx, ctx);
 	is_subset(&left, &right)
 }
 
@@ -46,44 +53,35 @@ pub(super) fn collection_has_pair_binding(collection: &CollectionExpr) -> bool {
 
 pub(super) fn eval_pair_collection_size(
 	collection: &CollectionExpr,
-	a: DomainItem<'_>,
-	b: DomainItem<'_>,
-	def_idx: usize,
-	self_idx: usize,
+	scope: PairCollectionScope<'_>,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Option<usize> {
-	eval_pair_collection(collection, a, b, def_idx, self_idx, ctx).map(|values| values.len())
+	eval_pair_collection(collection, scope, ctx).map(|values| values.len())
 }
 
 pub(super) fn eval_pair_collection_subset(
 	left: &CollectionExpr,
 	right: &CollectionExpr,
-	a: DomainItem<'_>,
-	b: DomainItem<'_>,
-	def_idx: usize,
-	self_idx: usize,
+	scope: PairCollectionScope<'_>,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Option<bool> {
-	let left = eval_pair_collection(left, a, b, def_idx, self_idx, ctx)?;
-	let right = eval_pair_collection(right, a, b, def_idx, self_idx, ctx)?;
+	let left = eval_pair_collection(left, scope, ctx)?;
+	let right = eval_pair_collection(right, scope, ctx)?;
 	Some(is_subset(&left, &right))
 }
 
 fn eval_collection(
 	collection: &CollectionExpr,
 	def_idx: usize,
-	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Vec<Value> {
 	match collection {
-		CollectionExpr::Projection(projection) => {
-			collect_projection(projection, def_idx, self_idx, ctx)
-		}
+		CollectionExpr::Projection(projection) => collect_projection(projection, def_idx, ctx),
 		CollectionExpr::PairProjection(_) => Vec::new(),
-		CollectionExpr::Unique(inner) => unique(eval_collection(inner, def_idx, self_idx, ctx)),
+		CollectionExpr::Unique(inner) => unique(eval_collection(inner, def_idx, ctx)),
 		CollectionExpr::Binary { op, left, right } => {
-			let left = eval_collection(left, def_idx, self_idx, ctx);
-			let right = eval_collection(right, def_idx, self_idx, ctx);
+			let left = eval_collection(left, def_idx, ctx);
+			let right = eval_collection(right, def_idx, ctx);
 			match op {
 				CollectionOp::Intersect => intersect(&left, &right),
 				CollectionOp::Union => union(&left, &right),
@@ -95,25 +93,20 @@ fn eval_collection(
 
 fn eval_pair_collection(
 	collection: &CollectionExpr,
-	a: DomainItem<'_>,
-	b: DomainItem<'_>,
-	def_idx: usize,
-	self_idx: usize,
+	scope: PairCollectionScope<'_>,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Option<Vec<Value>> {
 	match collection {
 		CollectionExpr::Projection(projection) => {
-			Some(collect_projection(projection, def_idx, self_idx, ctx))
+			Some(collect_projection(projection, scope.def_idx, ctx))
 		}
 		CollectionExpr::PairProjection(projection) => {
-			Some(collect_pair_projection(projection, a, b, self_idx, ctx))
+			Some(collect_pair_projection(projection, scope.a, scope.b, ctx))
 		}
-		CollectionExpr::Unique(inner) => {
-			eval_pair_collection(inner, a, b, def_idx, self_idx, ctx).map(unique)
-		}
+		CollectionExpr::Unique(inner) => eval_pair_collection(inner, scope, ctx).map(unique),
 		CollectionExpr::Binary { op, left, right } => {
-			let left = eval_pair_collection(left, a, b, def_idx, self_idx, ctx)?;
-			let right = eval_pair_collection(right, a, b, def_idx, self_idx, ctx)?;
+			let left = eval_pair_collection(left, scope, ctx)?;
+			let right = eval_pair_collection(right, scope, ctx)?;
 			Some(match op {
 				CollectionOp::Intersect => intersect(&left, &right),
 				CollectionOp::Union => union(&left, &right),
@@ -126,12 +119,11 @@ fn eval_pair_collection(
 fn collect_projection(
 	projection: &CollectionProjection,
 	def_idx: usize,
-	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Vec<Value> {
 	let mut values = Vec::new();
 	for item in domain_items(&projection.domain, def_idx, ctx) {
-		values.extend(project_item_path(item, &projection.path, self_idx, ctx));
+		values.extend(project_item_path(item, &projection.path, ctx));
 	}
 	values
 }
@@ -140,7 +132,6 @@ fn collect_pair_projection(
 	projection: &PairCollectionProjection,
 	a: DomainItem<'_>,
 	b: DomainItem<'_>,
-	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Vec<Value> {
 	let DomainItem::Def { idx, .. } = (match projection.side {
@@ -151,17 +142,12 @@ fn collect_pair_projection(
 	};
 	let mut values = Vec::new();
 	for nested in domain_items(&projection.domain, idx, ctx) {
-		values.extend(project_item_path(nested, &projection.path, self_idx, ctx));
+		values.extend(project_item_path(nested, &projection.path, ctx));
 	}
 	values
 }
 
-fn project_item_path(
-	item: DomainItem<'_>,
-	path: &[String],
-	self_idx: usize,
-	ctx: &EvalCtx<'_, '_>,
-) -> Vec<Value> {
+fn project_item_path(item: DomainItem<'_>, path: &[String], ctx: &EvalCtx<'_, '_>) -> Vec<Value> {
 	match item {
 		DomainItem::Def { idx, def } => {
 			if let Some((head, tail)) = path.split_first()
@@ -169,7 +155,7 @@ fn project_item_path(
 			{
 				let mut values = Vec::new();
 				for nested in domain_items(&domain, idx, ctx) {
-					values.extend(project_item_path(nested, tail, self_idx, ctx));
+					values.extend(project_item_path(nested, tail, ctx));
 				}
 				return values;
 			}

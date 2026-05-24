@@ -1,6 +1,8 @@
 use crate::check::expr::{Atom, Domain, LhsExpr, Node, PairProjection, PairSide, QuantKind, Rhs};
 
-use super::collection::{eval_pair_collection_size, eval_pair_collection_subset};
+use super::collection::{
+	PairCollectionScope, eval_pair_collection_size, eval_pair_collection_subset,
+};
 use super::local::{DomainItem, domain_items, eval_mode, project_lhs_value};
 use super::value::{Value, apply_op, apply_op_values};
 use super::{
@@ -88,7 +90,8 @@ fn eval_pair_atom(
 	if let (LhsExpr::Collection(left), crate::check::expr::Op::Subset, Rhs::Collection(right)) =
 		(&atom.lhs, atom.op, &atom.rhs)
 	{
-		return match eval_pair_collection_subset(left, right, a, b, def_idx, self_idx, ctx) {
+		let scope = PairCollectionScope { a, b, def_idx };
+		return match eval_pair_collection_subset(left, right, scope, ctx) {
 			Some(true) => AtomOutcome::Pass,
 			Some(false) => AtomOutcome::Fail {
 				actual: "not subset".to_string(),
@@ -180,8 +183,8 @@ fn eval_pair_number_expr(
 ) -> Option<f64> {
 	match expr {
 		crate::check::expr::NumberExpr::Size(collection) => {
-			eval_pair_collection_size(collection, a, b, def_idx, self_idx, ctx)
-				.map(|size| size as f64)
+			let scope = PairCollectionScope { a, b, def_idx };
+			eval_pair_collection_size(collection, scope, ctx).map(|size| size as f64)
 		}
 		_ => eval_number_expr_def(expr, ctx.graph.def_at(def_idx), def_idx, self_idx, ctx),
 	}

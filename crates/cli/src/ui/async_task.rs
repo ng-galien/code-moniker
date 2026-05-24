@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-harmonious-method-size]
+// TODO(smell): split TaskSpec construction from task execution and result normalization before enabling this guardrail here.
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};

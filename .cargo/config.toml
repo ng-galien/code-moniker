@@ -5,4 +5,4 @@
 rustflags = ["-Clink-arg=-undefined", "-Clink-arg=dynamic_lookup"]
 
 [alias]
-arch-check = "run --release -p code-moniker -- check ."
+arch-check = "run --release -p code-moniker -- check . --profile architecture"

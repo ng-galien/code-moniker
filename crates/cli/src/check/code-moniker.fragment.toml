@@ -83,8 +83,10 @@ rationale = "This is a temporary coupling guard: the boolean parser should assem
 [[refs.where]]
 id      = "expr-number-no-filter-parser-callback"
 expr    = """
-  $expr_number AND kind = 'method_call'
-  => NOT target ~ '**/method:parse_domain_filter_body'
+  $expr_number AND (kind = 'method_call' OR kind = 'calls')
+  => NOT (target ~ '**/method:parse_domain_filter_body'
+       OR target ~ '**/fn:/^parse_domain_filter_body\\(/'
+       OR target ~ '**/path:parse_domain_filter_body')
 """
 message = "`check::expr::number` still parses `count(...)` filters through the domain/filter parser callback; numeric parsing remains coupled to boolean expression parsing."
 rationale = "`count(domain, filter)` crosses numeric syntax and boolean filter syntax. The desired boundary is a narrow delegated parser API, not a callback that makes the numeric parser understand boolean internals."
@@ -93,10 +95,13 @@ rationale = "`count(domain, filter)` crosses numeric syntax and boolean filter s
 id      = "expr-specialized-atoms-tail-helper"
 expr    = """
   $expr_parse
-  AND kind = 'method_call'
-  AND moniker ~ '**/method:/^try_parse_(segment|number|mode)_atom\\(\\)$/'
+  AND (kind = 'method_call' OR kind = 'calls')
+  AND (moniker ~ '**/method:/^try_parse_(segment|number|mode)_atom\\(\\)$/'
+       OR moniker ~ '**/fn:/^try_parse_(segment|number|mode)_atom\\(/')
   => NOT (target ~ '**/method:eat_op'
-       OR target ~ '**/method:find_atom_end')
+       OR target ~ '**/method:find_atom_end'
+       OR target ~ '**/fn:/^operator_at\\(/'
+       OR target ~ '**/path:operator_at')
 """
 message = "`check::expr::parse` still repeats comparison-tail parsing in specialized atom parsers; move op/RHS/raw handling behind one helper."
 rationale = "Specialized atom parsers should identify their left-hand side and delegate comparison-tail parsing. Duplicated tail scanning makes precedence and diagnostic behavior drift between atom forms."
@@ -122,9 +127,12 @@ rationale = "The cursor is the lexical boundary for the DSL parser. Direct byte 
 id      = "dsl-layer1-mode-body-owned-by-value-parser"
 expr    = """
   $expr_parse
-  AND kind = 'method_call'
-  AND moniker ~ '**/method:/^try_parse_mode_atom\\(\\)$/'
-  => NOT target ~ '**/method:parse_domain_value_call_body'
+  AND (kind = 'method_call' OR kind = 'calls')
+  AND (moniker ~ '**/method:/^try_parse_mode_atom\\(\\)$/'
+       OR moniker ~ '**/fn:/^try_parse_mode_atom\\(/')
+  => NOT (target ~ '**/method:parse_domain_value_call_body'
+       OR target ~ '**/fn:/^parse_domain_value_call_body\\(/'
+       OR target ~ '**/path:parse_domain_value_call_body')
 """
 message = "`mode(...)` parsing should delegate domain/value body parsing to `check::expr::value`; `parse` only owns boolean precedence and comparison tails."
 rationale = "`mode` returns a value rather than a number. The parser split keeps value-producing domain expressions separate from boolean precedence so future value aggregators do not grow the top-level parser."
@@ -132,8 +140,10 @@ rationale = "`mode` returns a value rather than a number. The parser split keeps
 [[refs.where]]
 id      = "dsl-layer1-number-parser-stays-numeric"
 expr    = """
-  $expr_number AND kind = 'method_call'
-  => NOT target ~ '**/method:parse_mode_lhs'
+  $expr_number AND (kind = 'method_call' OR kind = 'calls')
+  => NOT (target ~ '**/method:parse_mode_lhs'
+       OR target ~ '**/fn:/^parse_mode_lhs\\(/'
+       OR target ~ '**/path:parse_mode_lhs')
 """
 message = "`check::expr::number` must stay numeric; value-returning aggregators such as `mode` belong to `check::expr::value`."
 rationale = "Numeric parsing should only own expressions that can participate in numeric comparisons. Mixing value-returning aggregators into it obscures type expectations in the DSL."
@@ -183,9 +193,12 @@ rationale = "Multiset operators should be predictable local analytics over the c
 id      = "dsl-layer2-boolean-parser-delegates-collection"
 expr    = """
   $expr_parse
-  AND kind = 'method_call'
-  AND moniker ~ '**/method:/^parse_primary\\(\\)$/'
-  => NOT target ~ '**/method:parse_collection_expr'
+  AND (kind = 'method_call' OR kind = 'calls')
+  AND (moniker ~ '**/method:/^parse_primary\\(\\)$/'
+       OR moniker ~ '**/fn:/^parse_primary\\(/')
+  => NOT (target ~ '**/method:parse_collection_expr'
+       OR target ~ '**/fn:/^parse_collection_expr\\(/'
+       OR target ~ '**/path:parse_collection_expr')
 """
 message = "`check::expr::parse` must delegate multiset syntax to `check::expr::collection`; boolean precedence stays separate from collection grammar."
 rationale = "The top-level parser should route to feature parsers, not grow every grammar feature directly. This keeps boolean precedence stable while collection syntax evolves."
@@ -194,8 +207,10 @@ rationale = "The top-level parser should route to feature parsers, not grow ever
 id      = "dsl-layer2-number-parser-size-only"
 expr    = """
   $expr_number
-  AND kind = 'method_call'
-  => NOT target ~ '**/method:try_parse_collection_subset_atom'
+  AND (kind = 'method_call' OR kind = 'calls')
+  => NOT (target ~ '**/method:try_parse_collection_subset_atom'
+       OR target ~ '**/fn:/^try_parse_collection_subset_atom\\(/'
+       OR target ~ '**/path:try_parse_collection_subset_atom')
 """
 message = "`check::expr::number` may parse `size(...)`, but subset/set boolean syntax belongs to `check::expr::collection`."
 rationale = "`size(collection)` is numeric, while `subset` and set algebra are collection semantics. The split prevents the numeric parser from becoming the owner of collection grammar."
@@ -246,8 +261,10 @@ rationale = "Pair rules are combinatorial even when local. Keeping them local pr
 id      = "dsl-layer3-domain-parser-does-not-own-pair-bindings"
 expr    = """
   $expr_domain
-  AND kind = 'method_call'
-  => NOT target ~ '**/method:parse_pair_projection'
+  AND (kind = 'method_call' OR kind = 'calls')
+  => NOT (target ~ '**/method:parse_pair_projection'
+       OR target ~ '**/fn:/^parse_pair_projection\\(/'
+       OR target ~ '**/path:parse_pair_projection')
 """
 message = "`check::expr::domain` may delegate `pairs(D)`, but `a.*` / `b.*` binding syntax belongs to `check::expr::pairs`."
 rationale = "Domain parsing names the item collection; pair parsing owns the additional binding surface. This keeps ordinary domain projections from inheriting pair-specific syntax."
@@ -283,8 +300,10 @@ rationale = "Named metrics are syntax in the parser and algorithms in evaluation
 id      = "dsl-layer4-number-parser-delegates-metrics"
 expr    = """
   $expr_number
-  AND kind = 'method_call'
-  => NOT target ~ '**/method:parse_metric_call_body'
+  AND (kind = 'method_call' OR kind = 'calls')
+  => NOT (target ~ '**/method:parse_metric_call_body'
+       OR target ~ '**/fn:/^parse_metric_call_body\\(/'
+       OR target ~ '**/path:parse_metric_call_body')
 """
 message = "`check::expr::number` may parse numeric comparisons, but named metric call bodies belong to `check::expr::metrics`."
 rationale = "Metrics are numeric expressions, but their call grammar and allowed receivers are a distinct DSL feature. The number parser should delegate rather than own metric syntax."

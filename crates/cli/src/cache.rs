@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-harmonious-method-size]
+// TODO(smell): keep CacheKey as a narrow cache-identity value object; revisit this suppression if hashing, path metadata, or graph IO responsibilities grow further.
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};

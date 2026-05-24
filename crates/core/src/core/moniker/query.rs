@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-caller-concentration]
+// TODO(smell): keep bare_callable_name as a moniker query helper shared by local DSL evaluation; revisit if additional callers need a broader query facade.
 use super::{Moniker, MonikerBuilder};
 
 impl Moniker {

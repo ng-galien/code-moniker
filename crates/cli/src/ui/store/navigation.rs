@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-data-clumps-param-names, smell-god-type-local-metrics]
+// TODO(smell): split NavigationState updates into tree selection, pane state, scope filtering, and expansion policies before enabling these guardrails here.
 use std::collections::BTreeSet;
 
 use crate::ui::store::reducer::{Reduce, Transition};

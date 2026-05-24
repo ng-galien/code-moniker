@@ -700,16 +700,30 @@ fn check_warn_severity_reports_without_failing() {
 }
 
 #[test]
-fn rules_show_loads_code_smells_sample() {
-	let rules_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-		.join("../../docs/cli/check-samples/code-smells-local.toml")
-		.canonicalize()
-		.expect("code-smells sample path");
+fn rules_show_reports_exclude_uri_globs() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	let rules_path = dir.path().join(".code-moniker.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[exclude]
+		uris = ["**/fixtures/**"]
+
+		[[ts.class.where]]
+		id = "soft-name"
+		severity = "warn"
+		expr = "name =~ ^Soft"
+		message = "soft class name"
+		"#,
+	)
+	.unwrap();
 	let (exit, out, err) = run_with(vec![
 		"code-moniker",
 		"rules",
 		"show",
-		".",
+		dir.path().to_str().unwrap(),
 		"--rules",
 		rules_path.to_str().unwrap(),
 		"--default-rules",
@@ -719,20 +733,14 @@ fn rules_show_loads_code_smells_sample() {
 	]);
 	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
 	let json: serde_json::Value = serde_json::from_str(&out).expect("rules show json");
-	assert_eq!(
-		json["exclude"]["uris"][0],
-		"**/crates/core/tests/fixtures/**"
-	);
+	assert_eq!(json["exclude"]["uris"][0], "**/fixtures/**");
 	assert!(
 		json["langs"]
 			.as_array()
 			.unwrap()
 			.iter()
 			.flat_map(|lang| lang["rules"].as_array().unwrap())
-			.any(
-				|rule| rule["rule_id"] == "shape.type.smell-data-clumps-param-names"
-					&& rule["severity"] == "warn"
-			),
+			.any(|rule| rule["rule_id"] == "ts.class.soft-name" && rule["severity"] == "warn"),
 		"{json:#}"
 	);
 }

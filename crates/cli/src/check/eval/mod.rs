@@ -20,7 +20,7 @@ use code_moniker_core::core::uri::UriConfig;
 use code_moniker_core::lang::Lang;
 
 use collection::{collection_has_pair_binding, eval_collection_size, eval_collection_subset};
-use local::{eval_aggregate, eval_entropy, eval_mode};
+use local::{AggregateEval, eval_aggregate, eval_entropy, eval_mode};
 use metrics::eval_metric;
 use pairs::{eval_pair_count, eval_pair_quantifier};
 use value::{Value, apply_op, apply_op_values, number_expr_label};
@@ -108,10 +108,14 @@ pub fn evaluate_compiled(
 		};
 		let kind_rules = compiled.for_kind(kind_str);
 		if let Some(rules) = kind_rules {
+			let target = RuleTarget {
+				scope: DefScope { record: d, idx },
+				kind: kind_str,
+			};
 			for rule in &rules.rules {
 				eval_rule(rule, d, idx, kind_str, &ctx, &mut out);
 			}
-			check_require_doc_comment(d, kind_str, idx, rules, &ctx, &mut out);
+			check_require_doc_comment(target, rules, &ctx, &mut out);
 		}
 		if let Some(shape) = d.shape()
 			&& let Some(rules) = compiled.for_shape(shape)
@@ -127,10 +131,12 @@ pub fn evaluate_compiled(
 			}
 			if kind_rules.is_none_or(|kind_rules| kind_rules.require_doc_for_vis.is_none()) {
 				if let Some(rule_id) = &rules.require_doc_rule_id {
+					let target = RuleTarget {
+						scope: DefScope { record: d, idx },
+						kind: kind_str,
+					};
 					check_require_doc_comment_with_id(
-						d,
-						kind_str,
-						idx,
+						target,
 						rules,
 						rule_id.clone(),
 						&ctx,
@@ -464,102 +470,7 @@ pub struct CompiledRuleSpec {
 
 impl CompiledRules {
 	fn for_lang(cfg: &Config, lang: Lang, scheme: &str) -> Result<Self, ConfigError> {
-		let section = config_section(lang);
-		let allowed = crate::check::config::allowed_kinds_for(lang);
-		let aliases = crate::check::config::resolve_aliases(&cfg.aliases)?;
-		let mut by_kind: HashMap<String, CompiledKindRules> = HashMap::new();
-		let mut by_shape: HashMap<String, CompiledKindRules> = HashMap::new();
-		let mut per_lang_refs: Vec<&crate::check::config::RuleEntry> = Vec::new();
-		for (kind, rules) in cfg.for_lang(lang).kinds.iter() {
-			if kind == "refs" {
-				per_lang_refs.extend(rules.rules.iter());
-				continue;
-			}
-			by_kind.insert(
-				kind.clone(),
-				compile(rules, section, kind, scheme, &allowed, &aliases)?,
-			);
-		}
-		for (kind, rules) in cfg.default.kinds.iter() {
-			if kind == "refs" {
-				continue;
-			}
-			if !allowed.contains(&kind.as_str()) {
-				continue;
-			}
-			if !by_kind.contains_key(kind.as_str()) {
-				by_kind.insert(
-					kind.clone(),
-					compile(rules, "default", kind, scheme, &allowed, &aliases)?,
-				);
-			}
-		}
-		compile_shape_rules_into(
-			&mut by_shape,
-			&cfg.shape,
-			"shape",
-			scheme,
-			&allowed,
-			&aliases,
-		)?;
-		compile_shape_rules_into(
-			&mut by_shape,
-			&cfg.for_lang(lang).shape,
-			&format!("{section}.shape"),
-			scheme,
-			&allowed,
-			&aliases,
-		)?;
-		let mut refs = Vec::with_capacity(cfg.refs.rules.len() + per_lang_refs.len());
-		for (idx, entry) in cfg.refs.rules.iter().enumerate() {
-			let id = entry.fallback_id(idx);
-			let at = format!("refs.{id}");
-			let expanded = crate::check::config::substitute_aliases(&entry.expr, &aliases, &at)?;
-			let parsed = expr::parse(&expanded, scheme, &allowed).map_err(|error| {
-				ConfigError::InvalidExpr {
-					at: at.clone(),
-					error,
-				}
-			})?;
-			refs.push(CompiledRule {
-				id,
-				explicit_id: entry.id.is_some(),
-				rule_id: at,
-				raw_expr: entry.expr.clone(),
-				expanded_expr: expanded,
-				root: parsed.root,
-				message: entry.message.clone(),
-				severity: entry.severity,
-				rationale: entry.rationale.clone(),
-			});
-		}
-		for (idx, entry) in per_lang_refs.iter().enumerate() {
-			let id = entry.fallback_id(idx);
-			let at = format!("{section}.refs.{id}");
-			let expanded = crate::check::config::substitute_aliases(&entry.expr, &aliases, &at)?;
-			let parsed = expr::parse(&expanded, scheme, &allowed).map_err(|error| {
-				ConfigError::InvalidExpr {
-					at: at.clone(),
-					error,
-				}
-			})?;
-			refs.push(CompiledRule {
-				id,
-				explicit_id: entry.id.is_some(),
-				rule_id: at,
-				raw_expr: entry.expr.clone(),
-				expanded_expr: expanded,
-				root: parsed.root,
-				message: entry.message.clone(),
-				severity: entry.severity,
-				rationale: entry.rationale.clone(),
-			});
-		}
-		Ok(Self {
-			by_kind,
-			by_shape,
-			refs,
-		})
+		compile_rules_for_lang(cfg, lang, scheme)
 	}
 
 	fn for_kind(&self, kind: &str) -> Option<&CompiledKindRules> {
@@ -571,74 +482,121 @@ impl CompiledRules {
 	}
 
 	pub fn specs(&self, lang: Lang) -> Vec<CompiledRuleSpec> {
-		let mut out = Vec::new();
-		for (kind, rules) in &self.by_kind {
-			for rule in &rules.rules {
-				out.push(CompiledRuleSpec {
-					rule_id: rule_id(lang, kind, &rule.id),
-					lang: lang.tag().to_string(),
-					domain: format!("{kind} defs"),
-					kind: Some(kind.clone()),
-					expr: rule.raw_expr.clone(),
-					expanded_expr: rule.expanded_expr.clone(),
-					message: rule.message.clone(),
-					severity: rule.severity,
-					rationale: rule.rationale.clone(),
-					require_doc_comment: None,
-				});
-			}
-			if let Some(value) = &rules.require_doc_for_vis {
-				out.push(CompiledRuleSpec {
-					rule_id: rule_id(lang, kind, "require_doc_comment"),
-					lang: lang.tag().to_string(),
-					domain: format!("{kind} defs"),
-					kind: Some(kind.clone()),
-					expr: format!("require_doc_comment = \"{value}\""),
-					expanded_expr: format!("require_doc_comment = \"{value}\""),
-					message: None,
-					severity: RuleSeverity::Error,
-					rationale: None,
-					require_doc_comment: Some(value.clone()),
-				});
-			}
+		compiled_rule_specs(self, lang)
+	}
+}
+
+fn compile_rules_for_lang(
+	cfg: &Config,
+	lang: Lang,
+	scheme: &str,
+) -> Result<CompiledRules, ConfigError> {
+	let section = config_section(lang);
+	let allowed = crate::check::config::allowed_kinds_for(lang);
+	let aliases = crate::check::config::resolve_aliases(&cfg.aliases)?;
+	let mut by_kind: HashMap<String, CompiledKindRules> = HashMap::new();
+	let mut by_shape: HashMap<String, CompiledKindRules> = HashMap::new();
+	let mut per_lang_refs: Vec<&crate::check::config::RuleEntry> = Vec::new();
+	for (kind, rules) in cfg.for_lang(lang).kinds.iter() {
+		if kind == "refs" {
+			per_lang_refs.extend(rules.rules.iter());
+			continue;
 		}
-		for (shape, rules) in &self.by_shape {
-			for rule in &rules.rules {
-				out.push(CompiledRuleSpec {
-					rule_id: rule.rule_id.clone(),
-					lang: lang.tag().to_string(),
-					domain: format!("shape:{shape} defs"),
-					kind: None,
-					expr: rule.raw_expr.clone(),
-					expanded_expr: rule.expanded_expr.clone(),
-					message: rule.message.clone(),
-					severity: rule.severity,
-					rationale: rule.rationale.clone(),
-					require_doc_comment: None,
-				});
-			}
-			if let (Some(value), Some(rule_id)) =
-				(&rules.require_doc_for_vis, &rules.require_doc_rule_id)
-			{
-				out.push(CompiledRuleSpec {
-					rule_id: rule_id.clone(),
-					lang: lang.tag().to_string(),
-					domain: format!("shape:{shape} defs"),
-					kind: None,
-					expr: format!("require_doc_comment = \"{value}\""),
-					expanded_expr: format!("require_doc_comment = \"{value}\""),
-					message: None,
-					severity: RuleSeverity::Error,
-					rationale: None,
-					require_doc_comment: Some(value.clone()),
-				});
-			}
+		by_kind.insert(
+			kind.clone(),
+			compile(rules, section, kind, scheme, &allowed, &aliases)?,
+		);
+	}
+	for (kind, rules) in cfg.default.kinds.iter() {
+		if kind == "refs" {
+			continue;
 		}
-		for rule in &self.refs {
+		if !allowed.contains(&kind.as_str()) {
+			continue;
+		}
+		if !by_kind.contains_key(kind.as_str()) {
+			by_kind.insert(
+				kind.clone(),
+				compile(rules, "default", kind, scheme, &allowed, &aliases)?,
+			);
+		}
+	}
+	compile_shape_rules_into(
+		&mut by_shape,
+		&cfg.shape,
+		"shape",
+		scheme,
+		&allowed,
+		&aliases,
+	)?;
+	compile_shape_rules_into(
+		&mut by_shape,
+		&cfg.for_lang(lang).shape,
+		&format!("{section}.shape"),
+		scheme,
+		&allowed,
+		&aliases,
+	)?;
+	let mut refs = Vec::with_capacity(cfg.refs.rules.len() + per_lang_refs.len());
+	for (idx, entry) in cfg.refs.rules.iter().enumerate() {
+		let id = entry.fallback_id(idx);
+		let at = format!("refs.{id}");
+		refs.push(compile_rule_entry(
+			entry, id, at, scheme, &allowed, &aliases,
+		)?);
+	}
+	for (idx, entry) in per_lang_refs.iter().enumerate() {
+		let id = entry.fallback_id(idx);
+		let at = format!("{section}.refs.{id}");
+		refs.push(compile_rule_entry(
+			entry, id, at, scheme, &allowed, &aliases,
+		)?);
+	}
+	Ok(CompiledRules {
+		by_kind,
+		by_shape,
+		refs,
+	})
+}
+
+fn compiled_rule_specs(rules: &CompiledRules, lang: Lang) -> Vec<CompiledRuleSpec> {
+	let mut out = Vec::new();
+	for (kind, rules) in &rules.by_kind {
+		for rule in &rules.rules {
+			out.push(CompiledRuleSpec {
+				rule_id: rule_id(lang, kind, &rule.id),
+				lang: lang.tag().to_string(),
+				domain: format!("{kind} defs"),
+				kind: Some(kind.clone()),
+				expr: rule.raw_expr.clone(),
+				expanded_expr: rule.expanded_expr.clone(),
+				message: rule.message.clone(),
+				severity: rule.severity,
+				rationale: rule.rationale.clone(),
+				require_doc_comment: None,
+			});
+		}
+		if let Some(value) = &rules.require_doc_for_vis {
+			out.push(CompiledRuleSpec {
+				rule_id: rule_id(lang, kind, "require_doc_comment"),
+				lang: lang.tag().to_string(),
+				domain: format!("{kind} defs"),
+				kind: Some(kind.clone()),
+				expr: format!("require_doc_comment = \"{value}\""),
+				expanded_expr: format!("require_doc_comment = \"{value}\""),
+				message: None,
+				severity: RuleSeverity::Error,
+				rationale: None,
+				require_doc_comment: Some(value.clone()),
+			});
+		}
+	}
+	for (shape, rules) in &rules.by_shape {
+		for rule in &rules.rules {
 			out.push(CompiledRuleSpec {
 				rule_id: rule.rule_id.clone(),
 				lang: lang.tag().to_string(),
-				domain: "refs".to_string(),
+				domain: format!("shape:{shape} defs"),
 				kind: None,
 				expr: rule.raw_expr.clone(),
 				expanded_expr: rule.expanded_expr.clone(),
@@ -648,9 +606,67 @@ impl CompiledRules {
 				require_doc_comment: None,
 			});
 		}
-		out.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
-		out
+		if let (Some(value), Some(rule_id)) =
+			(&rules.require_doc_for_vis, &rules.require_doc_rule_id)
+		{
+			out.push(CompiledRuleSpec {
+				rule_id: rule_id.clone(),
+				lang: lang.tag().to_string(),
+				domain: format!("shape:{shape} defs"),
+				kind: None,
+				expr: format!("require_doc_comment = \"{value}\""),
+				expanded_expr: format!("require_doc_comment = \"{value}\""),
+				message: None,
+				severity: RuleSeverity::Error,
+				rationale: None,
+				require_doc_comment: Some(value.clone()),
+			});
+		}
 	}
+	for rule in &rules.refs {
+		out.push(CompiledRuleSpec {
+			rule_id: rule.rule_id.clone(),
+			lang: lang.tag().to_string(),
+			domain: "refs".to_string(),
+			kind: None,
+			expr: rule.raw_expr.clone(),
+			expanded_expr: rule.expanded_expr.clone(),
+			message: rule.message.clone(),
+			severity: rule.severity,
+			rationale: rule.rationale.clone(),
+			require_doc_comment: None,
+		});
+	}
+	out.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+	out
+}
+
+fn compile_rule_entry(
+	entry: &crate::check::config::RuleEntry,
+	id: String,
+	at: String,
+	scheme: &str,
+	allowed_kinds: &[&str],
+	aliases: &HashMap<String, String>,
+) -> Result<CompiledRule, ConfigError> {
+	let expanded = crate::check::config::substitute_aliases(&entry.expr, aliases, &at)?;
+	let parsed = expr::parse(&expanded, scheme, allowed_kinds).map_err(|error| {
+		ConfigError::InvalidExpr {
+			at: at.clone(),
+			error,
+		}
+	})?;
+	Ok(CompiledRule {
+		id,
+		explicit_id: entry.id.is_some(),
+		rule_id: at,
+		raw_expr: entry.expr.clone(),
+		expanded_expr: expanded,
+		root: parsed.root,
+		message: entry.message.clone(),
+		severity: entry.severity,
+		rationale: entry.rationale.clone(),
+	})
 }
 
 fn compile(
@@ -771,6 +787,18 @@ fn render_template(tpl: &str, vars: &[(&str, &str)]) -> String {
 	out
 }
 
+#[derive(Clone, Copy)]
+struct DefScope<'a> {
+	record: &'a DefRecord,
+	idx: usize,
+}
+
+#[derive(Clone, Copy)]
+struct RuleTarget<'a> {
+	scope: DefScope<'a>,
+	kind: &'a str,
+}
+
 fn eval_rule(
 	rule: &CompiledRule,
 	d: &DefRecord,
@@ -779,15 +807,14 @@ fn eval_rule(
 	ctx: &EvalCtx<'_, '_>,
 	out: &mut Vec<Violation>,
 ) {
-	eval_rule_with_id(
-		rule,
-		d,
-		def_idx,
+	let target = RuleTarget {
+		scope: DefScope {
+			record: d,
+			idx: def_idx,
+		},
 		kind,
-		rule_id(ctx.lang, kind, &rule.id),
-		ctx,
-		out,
-	);
+	};
+	eval_rule_with_id(rule, target, rule_id(ctx.lang, kind, &rule.id), ctx, out);
 }
 
 fn eval_shape_rule(
@@ -798,14 +825,19 @@ fn eval_shape_rule(
 	ctx: &EvalCtx<'_, '_>,
 	out: &mut Vec<Violation>,
 ) {
-	eval_rule_with_id(rule, d, def_idx, kind, rule.rule_id.clone(), ctx, out);
+	let target = RuleTarget {
+		scope: DefScope {
+			record: d,
+			idx: def_idx,
+		},
+		kind,
+	};
+	eval_rule_with_id(rule, target, rule.rule_id.clone(), ctx, out);
 }
 
 fn eval_rule_with_id(
 	rule: &CompiledRule,
-	d: &DefRecord,
-	def_idx: usize,
-	kind: &str,
+	target: RuleTarget<'_>,
 	rule_id: String,
 	ctx: &EvalCtx<'_, '_>,
 	out: &mut Vec<Violation>,
@@ -815,22 +847,23 @@ fn eval_rule_with_id(
 		lhs_label,
 		actual,
 		expected,
-	} = match eval_node(&rule.root, d, def_idx, ctx) {
+	} = match eval_node(&rule.root, target.scope.record, target.scope.idx, ctx) {
 		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
 		NodeOutcome::Fail(f) => f,
 	};
-	let name = def_name(d).unwrap_or_default();
-	let moniker = render_uri(&d.moniker, &ctx.uri_cfg);
-	let (start_line, end_line) = lines_of(d, ctx.source);
+	let name = def_name(target.scope.record).unwrap_or_default();
+	let moniker = render_uri(&target.scope.record.moniker, &ctx.uri_cfg);
+	let (start_line, end_line) = lines_of(target.scope.record, ctx.source);
 	let message = format!(
-		"{kind} `{name}` fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})",
+		"{} `{name}` fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})",
+		target.kind,
 	);
 	let explanation = rule.message.as_ref().map(|tpl| {
 		render_template(
 			tpl,
 			&[
 				("name", &name),
-				("kind", kind),
+				("kind", target.kind),
 				("moniker", &moniker),
 				("expr", &rule.raw_expr),
 				("value", &actual),
@@ -846,7 +879,7 @@ fn eval_rule_with_id(
 		rule_id,
 		severity: rule.severity,
 		moniker,
-		kind: kind.to_string(),
+		kind: target.kind.to_string(),
 		lines: (start_line, end_line),
 		message,
 		explanation,
@@ -1247,7 +1280,17 @@ fn eval_node_with_self(
 		node,
 		&|a| eval_atom(a, d, def_idx, self_idx, ctx),
 		&|kind, domain, filter| {
-			eval_quantifier_def(kind, domain, filter, d, def_idx, self_idx, ctx)
+			eval_quantifier_def(
+				kind,
+				domain,
+				filter,
+				DefScope {
+					record: d,
+					idx: def_idx,
+				},
+				self_idx,
+				ctx,
+			)
 		},
 	)
 }
@@ -1369,7 +1412,17 @@ fn eval_number_expr_def(
 			domain,
 			expr,
 			percentile,
-		} => eval_aggregate(*kind, domain, expr, *percentile, def_idx, self_idx, ctx),
+		} => eval_aggregate(
+			AggregateEval {
+				kind: *kind,
+				domain,
+				expr,
+				percentile: *percentile,
+				def_idx,
+				self_idx,
+			},
+			ctx,
+		),
 		NumberExpr::Metric { kind, binding } => {
 			eval_metric(*kind, *binding, def_idx, self_idx, ctx)
 		}
@@ -1534,8 +1587,7 @@ fn eval_quantifier_def(
 	kind: QuantKind,
 	domain: &Domain,
 	filter: &Node,
-	d: &DefRecord,
-	def_idx: usize,
+	scope: DefScope<'_>,
 	self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> NodeOutcome {
@@ -1544,7 +1596,7 @@ fn eval_quantifier_def(
 	match domain {
 		Domain::Children(child_kind) => {
 			let empty = Vec::new();
-			let child_idxs = ctx.children_by_parent.get(&def_idx).unwrap_or(&empty);
+			let child_idxs = ctx.children_by_parent.get(&scope.idx).unwrap_or(&empty);
 			for &ci in child_idxs {
 				let cd = ctx.graph.def_at(ci);
 				if cd.kind.as_slice() != child_kind.as_bytes() {
@@ -1561,7 +1613,7 @@ fn eval_quantifier_def(
 		}
 		Domain::ChildrenByShape(shape) => {
 			let empty = Vec::new();
-			let child_idxs = ctx.children_by_parent.get(&def_idx).unwrap_or(&empty);
+			let child_idxs = ctx.children_by_parent.get(&scope.idx).unwrap_or(&empty);
 			for &ci in child_idxs {
 				let cd = ctx.graph.def_at(ci);
 				if !def_has_shape(cd, shape) {
@@ -1577,10 +1629,10 @@ fn eval_quantifier_def(
 			}
 		}
 		Domain::Pairs(inner) => {
-			return eval_pair_quantifier(kind, inner, filter, def_idx, self_idx, ctx);
+			return eval_pair_quantifier(kind, inner, filter, scope.idx, self_idx, ctx);
 		}
 		Domain::Segments => {
-			for seg in d.moniker.as_view().segments() {
+			for seg in scope.record.moniker.as_view().segments() {
 				total += 1;
 				if matches!(
 					eval_node_segment(filter, seg.kind, seg.name),
@@ -1592,7 +1644,7 @@ fn eval_quantifier_def(
 		}
 		Domain::OutRefs => {
 			let empty = Vec::new();
-			let ref_idxs = ctx.out_refs_by_source.get(&def_idx).unwrap_or(&empty);
+			let ref_idxs = ctx.out_refs_by_source.get(&scope.idx).unwrap_or(&empty);
 			for &ri in ref_idxs {
 				let r = ctx.graph.ref_at(ri);
 				total += 1;
@@ -1602,7 +1654,7 @@ fn eval_quantifier_def(
 			}
 		}
 		Domain::InRefs => {
-			let key = d.moniker.as_bytes();
+			let key = scope.record.moniker.as_bytes();
 			let empty = Vec::new();
 			let ref_idxs = ctx.in_refs_by_target.get(key).unwrap_or(&empty);
 			for &ri in ref_idxs {
@@ -1834,47 +1886,44 @@ fn comment_attaches_to(source: &str, comment_end: u32, header_start: u32) -> boo
 }
 
 fn check_require_doc_comment(
-	d: &DefRecord,
-	kind: &str,
-	def_idx: usize,
+	target: RuleTarget<'_>,
 	rules: &CompiledKindRules,
 	ctx: &EvalCtx<'_, '_>,
 	out: &mut Vec<Violation>,
 ) {
 	check_require_doc_comment_with_id(
-		d,
-		kind,
-		def_idx,
+		target,
 		rules,
-		rule_id(ctx.lang, kind, "require_doc_comment"),
+		rule_id(ctx.lang, target.kind, "require_doc_comment"),
 		ctx,
 		out,
 	);
 }
 
 fn check_require_doc_comment_with_id(
-	d: &DefRecord,
-	kind: &str,
-	def_idx: usize,
+	target: RuleTarget<'_>,
 	rules: &CompiledKindRules,
 	rule_id: String,
 	ctx: &EvalCtx<'_, '_>,
 	out: &mut Vec<Violation>,
 ) {
-	if eval_require_doc_comment(d, def_idx, rules, ctx) != Some(false) {
+	if eval_require_doc_comment(target.scope.record, target.scope.idx, rules, ctx) != Some(false) {
 		return;
 	}
 
-	let moniker = render_uri(&d.moniker, &ctx.uri_cfg);
-	let name = def_name(d).unwrap_or_default();
-	let (start_line, end_line) = lines_of(d, ctx.source);
+	let moniker = render_uri(&target.scope.record.moniker, &ctx.uri_cfg);
+	let name = def_name(target.scope.record).unwrap_or_default();
+	let (start_line, end_line) = lines_of(target.scope.record, ctx.source);
 	out.push(Violation {
 		rule_id,
 		severity: RuleSeverity::Error,
 		moniker,
-		kind: kind.to_string(),
+		kind: target.kind.to_string(),
 		lines: (start_line, end_line),
-		message: format!("{kind} `{name}` is missing a doc comment immediately before it"),
+		message: format!(
+			"{} `{name}` is missing a doc comment immediately before it",
+			target.kind
+		),
 		explanation: None,
 	});
 }

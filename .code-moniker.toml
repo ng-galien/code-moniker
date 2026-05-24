@@ -18,8 +18,16 @@ tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
 example           = "moniker ~ '**/dir:examples/**'"
 
+[exclude]
+uris = [
+  "**/crates/core/tests/fixtures/**",
+]
+
 [profiles.architecture]
 enable = [".*"]
+
+[profiles.smells]
+enable = ["\\.smell-"]
 
 # ─── Hex / Layering ─────────────────────────────────────────────────
 # Cross-crate refs encode the dependent crate as `external_pkg:<name>` in the
@@ -73,6 +81,76 @@ message = "Rust trait `{name}` starts with `I` — drop the prefix (`Extractor`,
 id      = "name-camelcase"
 expr    = "$tests OR $camel"
 message = "Function names use camelCase. Rename `{name}`."
+
+# ─── Code smell adoption ───────────────────────────────────────────────
+# Smell rules are project-local review signals, not a generic rule pack.
+# During adoption, keep a new smell rule at `severity = "warn"` and exclude it
+# from guardrail profiles if the volume is not yet understood. Adopted smell
+# rules below are `error` guardrails; debt is documented with source-level
+# `code-moniker: ignore-file[...]` plus `TODO(smell)` suppressions. Run the
+# smell-only view explicitly with:
+#
+#   code-moniker check . --profile smells --report --max-violations 50
+#
+# Adopt them one by one: measure the volume, tune scope, thresholds, and exclusions
+# when needed, and promote a rule to `severity = "error"` only after the
+# targeted module is green or has justified suppressions.
+
+[[rust.shape.callable.where]]
+id        = "smell-long-parameter-list"
+severity  = "error"
+expr      = "count(param) <= 6"
+message   = "Long Parameter List candidate: `{name}` has too many direct parameters."
+rationale = "In code-moniker, wide signatures usually mean a missing request/context object or a boundary that should expose a typed read model."
+
+[[rust.shape.callable.where]]
+id        = "smell-feature-envy-local"
+severity  = "error"
+expr      = "$tests OR $rust_inline_tests OR $example OR kind = 'test' OR kind != 'method' OR count(out_refs) < 40 OR mode(out_refs, target.parent) = source.parent"
+message   = "Feature Envy candidate: `{name}` mostly reaches into another local owner."
+rationale = "A Rust method with many local outgoing references should usually collaborate through its own owner boundary instead of concentrating work around another owner. Tests, examples, and free functions are excluded while this rule is in adoption."
+
+[[rust.shape.callable.where]]
+id        = "smell-caller-concentration"
+severity  = "error"
+expr      = "$tests OR $rust_inline_tests OR $example OR kind = 'test' OR visibility != 'public' OR count(in_refs) < 6 OR entropy(in_refs, source.parent) >= 0.5"
+message   = "Caller concentration candidate: `{name}` is mainly used by one local owner."
+rationale = "Low incoming-reference entropy is useful for public APIs that look broadly reusable but are mainly consumed by one local owner. Tests, examples, and private helpers are excluded while this rule is in adoption."
+
+[[rust.shape.type.where]]
+id        = "smell-large-type"
+severity  = "error"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) <= 25 AND count(shape:value) <= 40"
+message   = "Large Type candidate: `{name}` has many direct members."
+rationale = "Large Rust structs/enums/impl owners tend to hide multiple UI, workspace, or check responsibilities in one local owner."
+
+[[rust.shape.type.where]]
+id        = "smell-god-type-local-metrics"
+severity  = "error"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 12 OR wmc(self) <= 47 AND cbo(self) <= 14 AND lcom4(self) <= 2"
+message   = "God Type candidate: `{name}` exceeds local OO metric bounds."
+rationale = "The thresholds are heuristic, but they give a stable dogfood signal for complexity, coupling, and cohesion hotspots."
+
+[[rust.shape.type.where]]
+id        = "smell-harmonious-method-size"
+severity  = "error"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 6 OR cv(shape:callable, lines) <= 0.9"
+message   = "Distribution smell: method sizes under `{name}` are highly uneven."
+rationale = "A high coefficient of variation often means one method carries the real behavior while siblings are small adapters. The threshold is intentionally loose while this project rule is in adoption."
+
+[[rust.shape.type.where]]
+id        = "smell-balanced-method-fanout"
+severity  = "error"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 6 OR gini(shape:callable, fan_out(each)) <= 0.65"
+message   = "Distribution smell: fan-out under `{name}` is concentrated in a few methods."
+rationale = "A high fan-out Gini coefficient exposes a hidden coupling hub inside an otherwise ordinary owner."
+
+[[rust.shape.type.where]]
+id        = "smell-data-clumps-param-names"
+severity  = "error"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 2 OR count(pairs(shape:callable), size(a.param.name intersect b.param.name) >= 4) = 0"
+message   = "Data Clumps candidate: repeated parameter-name groups appear under `{name}`."
+rationale = "Pair-bound collection projections are used here to catch repeated local signatures that should become explicit types. Four shared names avoids flagging the common tree-sitter `(node, source, parent)` pattern by itself."
 
 # ─── Comment hygiene ────────────────────────────────────────────────────
 

@@ -1,92 +1,91 @@
 use super::ast::*;
 use super::cursor::Parser;
+use super::domain::{parse_domain_ident, reject_pair_domain};
 use super::error::ParseError;
+use super::number::{next_starts_number_call, parse_number_expr};
 
-impl<'a> Parser<'a> {
-	pub(super) fn parse_mode_lhs(&mut self) -> Result<LhsExpr, ParseError> {
-		self.pos += "mode".len();
-		Ok(LhsExpr::Mode(self.parse_domain_value_call_body()?))
+pub(super) fn parse_mode_lhs(p: &mut Parser<'_>) -> Result<LhsExpr, ParseError> {
+	p.pos += "mode".len();
+	Ok(LhsExpr::Mode(parse_domain_value_call_body(p)?))
+}
+
+pub(super) fn parse_domain_value_call_body(
+	p: &mut Parser<'_>,
+) -> Result<DomainValueExpr, ParseError> {
+	if p.peek_byte() != Some(b'(') {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: format!("expected `(` at byte {}", p.pos),
+		});
 	}
+	p.pos += 1;
+	p.skip_ws();
+	let domain = parse_domain_ident(p)?;
+	reject_pair_domain(p, &domain, "domain value expressions")?;
+	p.skip_ws();
+	let expr = if p.peek_byte() == Some(b',') {
+		p.pos += 1;
+		parse_value_expr(p)?
+	} else {
+		parse_legacy_projection_value(p)?
+	};
+	p.skip_ws();
+	if p.peek_byte() != Some(b')') {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: format!("missing `)` for domain value expression at byte {}", p.pos),
+		});
+	}
+	p.pos += 1;
+	Ok(DomainValueExpr {
+		domain,
+		expr: Box::new(expr),
+	})
+}
 
-	pub(super) fn parse_domain_value_call_body(&mut self) -> Result<DomainValueExpr, ParseError> {
-		if self.peek_byte() != Some(b'(') {
+fn parse_legacy_projection_value(p: &mut Parser<'_>) -> Result<ValueExpr, ParseError> {
+	let mut projection = Vec::new();
+	loop {
+		p.skip_ws();
+		if p.peek_byte() != Some(b'.') {
+			break;
+		}
+		p.pos += 1;
+		let segment = p.take_projection_segment();
+		if segment.is_empty() {
 			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!("expected `(` at byte {}", self.pos),
+				expr: p.raw.to_string(),
+				msg: format!("expected projection segment at byte {}", p.pos),
 			});
 		}
-		self.pos += 1;
-		self.skip_ws();
-		let domain = self.parse_domain_ident()?;
-		self.reject_pair_domain(&domain, "domain value expressions")?;
-		self.skip_ws();
-		let expr = if self.peek_byte() == Some(b',') {
-			self.pos += 1;
-			self.parse_value_expr()?
-		} else {
-			self.parse_legacy_projection_value()?
-		};
-		self.skip_ws();
-		if self.peek_byte() != Some(b')') {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!(
-					"missing `)` for domain value expression at byte {}",
-					self.pos
-				),
-			});
-		}
-		self.pos += 1;
-		Ok(DomainValueExpr {
-			domain,
-			expr: Box::new(expr),
-		})
+		projection.push(segment.to_string());
 	}
+	if projection.is_empty() {
+		return Ok(ValueExpr::Item);
+	}
+	let raw = projection.join(".");
+	let Some(lhs) = Lhs::from_projection_name(&raw) else {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: format!("unknown projection `{raw}`"),
+		});
+	};
+	Ok(ValueExpr::Projection(lhs))
+}
 
-	fn parse_legacy_projection_value(&mut self) -> Result<ValueExpr, ParseError> {
-		let mut projection = Vec::new();
-		loop {
-			self.skip_ws();
-			if self.peek_byte() != Some(b'.') {
-				break;
-			}
-			self.pos += 1;
-			let segment = self.take_projection_segment();
-			if segment.is_empty() {
-				return Err(ParseError::BadExpr {
-					expr: self.raw.to_string(),
-					msg: format!("expected projection segment at byte {}", self.pos),
-				});
-			}
-			projection.push(segment.to_string());
-		}
-		if projection.is_empty() {
-			return Ok(ValueExpr::Item);
-		}
-		let raw = projection.join(".");
-		let Some(lhs) = Lhs::from_projection_name(&raw) else {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!("unknown projection `{raw}`"),
-			});
-		};
-		Ok(ValueExpr::Projection(lhs))
+fn parse_value_expr(p: &mut Parser<'_>) -> Result<ValueExpr, ParseError> {
+	p.skip_ws();
+	if next_starts_number_call(p) || p.peek_byte().is_some_and(|b| b.is_ascii_digit()) {
+		return parse_number_expr(p).map(ValueExpr::Number);
 	}
-
-	fn parse_value_expr(&mut self) -> Result<ValueExpr, ParseError> {
-		self.skip_ws();
-		if self.next_starts_number_call() || self.peek_byte().is_some_and(|b| b.is_ascii_digit()) {
-			return self.parse_number_expr().map(ValueExpr::Number);
-		}
-		let raw = self.take_projection_token();
-		let Some(lhs) = Lhs::from_projection_name(raw) else {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!("expected value expression, got `{raw}`"),
-			});
-		};
-		Ok(ValueExpr::Projection(lhs))
-	}
+	let raw = p.take_projection_token();
+	let Some(lhs) = Lhs::from_projection_name(raw) else {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: format!("expected value expression, got `{raw}`"),
+		});
+	};
+	Ok(ValueExpr::Projection(lhs))
 }
 
 #[cfg(test)]

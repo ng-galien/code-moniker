@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-god-type-local-metrics]
+// TODO(smell): keep PanelVm as a pure render contract; split only if it starts owning panel behavior or workspace reads.
 use super::super::render::component::ComponentId;
 use super::super::render::text::{Column, FitMode};
 use super::super::render::tree::TreeRowVm;

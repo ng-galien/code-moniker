@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-harmonious-method-size]
+// TODO(smell): split header-search selector movement, facet selection, query editing, and result application before enabling these guardrails here.
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 

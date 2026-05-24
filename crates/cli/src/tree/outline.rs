@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-long-parameter-list]
+// TODO(smell): introduce an outline render context for args, writer, tree strategy, source, and match state before enabling this guardrail here.
 use std::collections::BTreeMap;
 use std::io::Write;
 

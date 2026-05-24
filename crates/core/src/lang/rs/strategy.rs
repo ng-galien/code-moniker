@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-large-type]
+// TODO(smell): split Rust Strategy into classification, impl/use handling, type/call resolution, and graph emission phases before enabling these guardrails here.
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 

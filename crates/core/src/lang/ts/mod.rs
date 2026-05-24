@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-caller-concentration]
+// TODO(smell): keep TypeScript extract as the public language entrypoint; revisit this suppression if extraction orchestration becomes shared across callers.
 use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;

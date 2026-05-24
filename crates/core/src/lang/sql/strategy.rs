@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-data-clumps-param-names]
+// TODO(smell): introduce a shared SQL extraction context for node, source, scope, and graph parameters before enabling this guardrail here.
 use tree_sitter::{Node, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;

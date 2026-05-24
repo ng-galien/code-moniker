@@ -1,196 +1,193 @@
 use super::ast::*;
 use super::atom::build_atom;
 use super::cursor::Parser;
+use super::domain::{parse_domain_ident, reject_pair_domain};
 use super::error::ParseError;
 
-impl<'a> Parser<'a> {
-	pub(super) fn try_parse_collection_subset_atom(&mut self) -> Result<Option<Atom>, ParseError> {
-		self.skip_ws();
-		let raw_start = self.pos;
-		let atom_end = self.find_atom_end();
-		let raw = &self.input[self.pos..atom_end];
-		let Some((op_idx, op_len)) = find_top_level_subset(raw) else {
-			return Ok(None);
+pub(super) fn try_parse_collection_subset_atom(
+	p: &mut Parser<'_>,
+) -> Result<Option<Atom>, ParseError> {
+	p.skip_ws();
+	let raw_start = p.pos;
+	let atom_end = p.find_atom_end();
+	let raw = &p.input[p.pos..atom_end];
+	let Some((op_idx, op_len)) = find_top_level_subset(raw) else {
+		return Ok(None);
+	};
+	let lhs_src = raw[..op_idx].trim();
+	let rhs_src = raw[op_idx + op_len..].trim();
+	if lhs_src.is_empty() || rhs_src.is_empty() {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: "collection subset requires `<collection> subset <collection>`".to_string(),
+		});
+	}
+	let lhs = parse_collection_expr_full(
+		lhs_src,
+		p.scheme,
+		p.allowed_kinds,
+		p.raw,
+		p.pair_bindings_allowed,
+	)?;
+	let rhs = parse_collection_expr_full(
+		rhs_src,
+		p.scheme,
+		p.allowed_kinds,
+		p.raw,
+		p.pair_bindings_allowed,
+	)?;
+	p.pos = atom_end;
+	Ok(Some(build_atom(
+		LhsExpr::Collection(lhs),
+		Op::Subset,
+		Rhs::Collection(rhs),
+		p.input[raw_start..p.pos].to_string(),
+		p.raw,
+	)?))
+}
+
+pub(super) fn parse_collection_call_body(
+	p: &mut Parser<'_>,
+	name: &str,
+) -> Result<CollectionExpr, ParseError> {
+	if p.peek_byte() != Some(b'(') {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: format!("expected `(` after `{name}`"),
+		});
+	}
+	p.pos += 1;
+	let expr = parse_collection_expr(p)?;
+	p.skip_ws();
+	if p.peek_byte() != Some(b')') {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: format!("missing `)` for `{name}` at byte {}", p.pos),
+		});
+	}
+	p.pos += 1;
+	Ok(expr)
+}
+
+fn parse_collection_expr(p: &mut Parser<'_>) -> Result<CollectionExpr, ParseError> {
+	let mut expr = parse_collection_primary(p)?;
+	loop {
+		p.skip_ws();
+		let Some(op) = eat_collection_op(p) else {
+			break;
 		};
-		let lhs_src = raw[..op_idx].trim();
-		let rhs_src = raw[op_idx + op_len..].trim();
-		if lhs_src.is_empty() || rhs_src.is_empty() {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: "collection subset requires `<collection> subset <collection>`".to_string(),
-			});
-		}
-		let lhs = parse_collection_expr_full(
-			lhs_src,
-			self.scheme,
-			self.allowed_kinds,
-			self.raw,
-			self.pair_bindings_allowed,
-		)?;
-		let rhs = parse_collection_expr_full(
-			rhs_src,
-			self.scheme,
-			self.allowed_kinds,
-			self.raw,
-			self.pair_bindings_allowed,
-		)?;
-		self.pos = atom_end;
-		Ok(Some(build_atom(
-			LhsExpr::Collection(lhs),
-			Op::Subset,
-			Rhs::Collection(rhs),
-			self.input[raw_start..self.pos].to_string(),
-			self.raw,
-		)?))
-	}
-
-	pub(super) fn parse_collection_call_body(
-		&mut self,
-		name: &str,
-	) -> Result<CollectionExpr, ParseError> {
-		if self.peek_byte() != Some(b'(') {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!("expected `(` after `{name}`"),
-			});
-		}
-		self.pos += 1;
-		let expr = self.parse_collection_expr()?;
-		self.skip_ws();
-		if self.peek_byte() != Some(b')') {
-			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: format!("missing `)` for `{name}` at byte {}", self.pos),
-			});
-		}
-		self.pos += 1;
-		Ok(expr)
-	}
-
-	fn parse_collection_expr(&mut self) -> Result<CollectionExpr, ParseError> {
-		let mut expr = self.parse_collection_primary()?;
-		loop {
-			self.skip_ws();
-			let Some(op) = self.eat_collection_op() else {
-				break;
-			};
-			let right = self.parse_collection_primary()?;
-			expr = CollectionExpr::Binary {
-				op,
-				left: Box::new(expr),
-				right: Box::new(right),
-			};
-		}
-		Ok(expr)
-	}
-
-	fn parse_collection_primary(&mut self) -> Result<CollectionExpr, ParseError> {
-		self.skip_ws();
-		if self.input[self.pos..].starts_with("unique(") {
-			self.pos += "unique".len();
-			return self
-				.parse_collection_call_body("unique")
-				.map(|expr| CollectionExpr::Unique(Box::new(expr)));
-		}
-		if self.peek_byte() == Some(b'(') {
-			self.pos += 1;
-			let expr = self.parse_collection_expr()?;
-			self.skip_ws();
-			if self.peek_byte() != Some(b')') {
-				return Err(ParseError::BadExpr {
-					expr: self.raw.to_string(),
-					msg: format!("missing `)` in collection expression at byte {}", self.pos),
-				});
-			}
-			self.pos += 1;
-			return Ok(expr);
-		}
-		if let Some(expr) = self.try_parse_pair_collection_projection()? {
-			return Ok(expr);
-		}
-		let domain = self.parse_domain_ident()?;
-		self.reject_pair_domain(&domain, "collection projections")?;
-		let mut path = Vec::new();
-		loop {
-			self.skip_ws();
-			if self.peek_byte() != Some(b'.') {
-				break;
-			}
-			self.pos += 1;
-			let segment = self.take_projection_segment();
-			if segment.is_empty() {
-				return Err(ParseError::BadExpr {
-					expr: self.raw.to_string(),
-					msg: format!(
-						"expected collection projection segment at byte {}",
-						self.pos
-					),
-				});
-			}
-			path.push(segment.to_string());
-		}
-		validate_collection_projection_path(&domain, &path, self.raw)?;
-		Ok(CollectionExpr::Projection(CollectionProjection {
-			domain,
-			path,
-		}))
-	}
-
-	fn try_parse_pair_collection_projection(
-		&mut self,
-	) -> Result<Option<CollectionExpr>, ParseError> {
-		let side = if self.input[self.pos..].starts_with("a.") {
-			PairSide::A
-		} else if self.input[self.pos..].starts_with("b.") {
-			PairSide::B
-		} else {
-			return Ok(None);
+		let right = parse_collection_primary(p)?;
+		expr = CollectionExpr::Binary {
+			op,
+			left: Box::new(expr),
+			right: Box::new(right),
 		};
-		if !self.pair_bindings_allowed {
+	}
+	Ok(expr)
+}
+
+fn parse_collection_primary(p: &mut Parser<'_>) -> Result<CollectionExpr, ParseError> {
+	p.skip_ws();
+	if p.input[p.pos..].starts_with("unique(") {
+		p.pos += "unique".len();
+		return parse_collection_call_body(p, "unique")
+			.map(|expr| CollectionExpr::Unique(Box::new(expr)));
+	}
+	if p.peek_byte() == Some(b'(') {
+		p.pos += 1;
+		let expr = parse_collection_expr(p)?;
+		p.skip_ws();
+		if p.peek_byte() != Some(b')') {
 			return Err(ParseError::BadExpr {
-				expr: self.raw.to_string(),
-				msg: "pair-bound collection projections are only valid inside `pairs(...)` filters"
-					.to_string(),
+				expr: p.raw.to_string(),
+				msg: format!("missing `)` in collection expression at byte {}", p.pos),
 			});
 		}
-		self.pos += 2;
-		let domain = self.parse_domain_ident()?;
-		self.reject_pair_domain(&domain, "pair collection projections")?;
-		let mut path = Vec::new();
-		loop {
-			self.skip_ws();
-			if self.peek_byte() != Some(b'.') {
-				break;
-			}
-			self.pos += 1;
-			let segment = self.take_projection_segment();
-			if segment.is_empty() {
-				return Err(ParseError::BadExpr {
-					expr: self.raw.to_string(),
-					msg: format!(
-						"expected pair collection projection segment at byte {}",
-						self.pos
-					),
-				});
-			}
-			path.push(segment.to_string());
-		}
-		validate_collection_projection_path(&domain, &path, self.raw)?;
-		Ok(Some(CollectionExpr::PairProjection(
-			PairCollectionProjection { side, domain, path },
-		)))
+		p.pos += 1;
+		return Ok(expr);
 	}
-
-	fn eat_collection_op(&mut self) -> Option<CollectionOp> {
-		if self.eat_keyword("intersect") {
-			Some(CollectionOp::Intersect)
-		} else if self.eat_keyword("union") {
-			Some(CollectionOp::Union)
-		} else if self.eat_keyword("diff") {
-			Some(CollectionOp::Difference)
-		} else {
-			None
+	if let Some(expr) = try_parse_pair_collection_projection(p)? {
+		return Ok(expr);
+	}
+	let domain = parse_domain_ident(p)?;
+	reject_pair_domain(p, &domain, "collection projections")?;
+	let mut path = Vec::new();
+	loop {
+		p.skip_ws();
+		if p.peek_byte() != Some(b'.') {
+			break;
 		}
+		p.pos += 1;
+		let segment = p.take_projection_segment();
+		if segment.is_empty() {
+			return Err(ParseError::BadExpr {
+				expr: p.raw.to_string(),
+				msg: format!("expected collection projection segment at byte {}", p.pos),
+			});
+		}
+		path.push(segment.to_string());
+	}
+	validate_collection_projection_path(&domain, &path, p.raw)?;
+	Ok(CollectionExpr::Projection(CollectionProjection {
+		domain,
+		path,
+	}))
+}
+
+fn try_parse_pair_collection_projection(
+	p: &mut Parser<'_>,
+) -> Result<Option<CollectionExpr>, ParseError> {
+	let side = if p.input[p.pos..].starts_with("a.") {
+		PairSide::A
+	} else if p.input[p.pos..].starts_with("b.") {
+		PairSide::B
+	} else {
+		return Ok(None);
+	};
+	if !p.pair_bindings_allowed {
+		return Err(ParseError::BadExpr {
+			expr: p.raw.to_string(),
+			msg: "pair-bound collection projections are only valid inside `pairs(...)` filters"
+				.to_string(),
+		});
+	}
+	p.pos += 2;
+	let domain = parse_domain_ident(p)?;
+	reject_pair_domain(p, &domain, "pair collection projections")?;
+	let mut path = Vec::new();
+	loop {
+		p.skip_ws();
+		if p.peek_byte() != Some(b'.') {
+			break;
+		}
+		p.pos += 1;
+		let segment = p.take_projection_segment();
+		if segment.is_empty() {
+			return Err(ParseError::BadExpr {
+				expr: p.raw.to_string(),
+				msg: format!(
+					"expected pair collection projection segment at byte {}",
+					p.pos
+				),
+			});
+		}
+		path.push(segment.to_string());
+	}
+	validate_collection_projection_path(&domain, &path, p.raw)?;
+	Ok(Some(CollectionExpr::PairProjection(
+		PairCollectionProjection { side, domain, path },
+	)))
+}
+
+fn eat_collection_op(p: &mut Parser<'_>) -> Option<CollectionOp> {
+	if p.eat_keyword("intersect") {
+		Some(CollectionOp::Intersect)
+	} else if p.eat_keyword("union") {
+		Some(CollectionOp::Union)
+	} else if p.eat_keyword("diff") {
+		Some(CollectionOp::Difference)
+	} else {
+		None
 	}
 }
 
@@ -269,7 +266,7 @@ fn parse_collection_expr_full(
 ) -> Result<CollectionExpr, ParseError> {
 	let mut p = Parser::new(s, scheme, allowed_kinds, full);
 	p.pair_bindings_allowed = pair_bindings_allowed;
-	let expr = p.parse_collection_expr()?;
+	let expr = parse_collection_expr(&mut p)?;
 	p.skip_ws();
 	if p.pos < p.input.len() {
 		return Err(ParseError::BadExpr {

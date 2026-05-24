@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local]
+// TODO(smell): keep TreeOpts as the local tree-style facade; revisit this suppression if ANSI/color resolution expands beyond style mapping.
 use anstyle::{AnsiColor, Style};
 use code_moniker_core::core::shape::Shape;
 

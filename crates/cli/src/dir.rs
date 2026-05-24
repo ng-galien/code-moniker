@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list]
+// TODO(smell): introduce filter input/context objects and split directory filtering from row computation before enabling these guardrails here.
 use std::cmp::Ordering;
 use std::io::Write;
 use std::path::{Path, PathBuf};

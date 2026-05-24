@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-god-type-local-metrics]
+// TODO(smell): keep moniker as the pgrx SQL type facade; split datum ABI, IO funcs, and registry lookup if extension behavior grows here.
 use core::ffi::CStr;
 use core::ptr::addr_of_mut;
 use std::error::Error;

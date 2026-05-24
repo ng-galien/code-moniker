@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-god-type-local-metrics]
+// TODO(smell): split App runtime into terminal event handling, task polling, effect dispatch, and shell-event application before enabling this guardrail here.
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;

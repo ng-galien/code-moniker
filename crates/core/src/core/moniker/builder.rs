@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-harmonious-method-size]
+// TODO(smell): keep MonikerBuilder as the encoded-moniker construction boundary; revisit this suppression if parsing or query behavior moves here.
 use super::encoding::{HEADER_FIXED_LEN, VERSION, write_u16};
 use super::{Moniker, MonikerView};
 

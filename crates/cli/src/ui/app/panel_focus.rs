@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-god-type-local-metrics]
+// TODO(smell): split App panel-focus helpers into scrolling, selection, clipboard, and detail-opening commands before enabling this guardrail here.
 use crate::ui::app::{App, FocusRegion, PanelNavigationState, ShellAction};
 use crate::ui::render::view;
 use crate::ui::shell::ShellEvent;

@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-data-clumps-param-names]
+// TODO(smell): keep LangStrategy explicit about node, scope, source, and graph until a typed extraction context exists for all language strategies.
 use tree_sitter::Node;
 
 use crate::core::code_graph::{CodeGraph, Position};

@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-balanced-method-fanout, smell-harmonious-method-size]
+// TODO(smell): split MonikerView parsing, segment traversal, and display/query helpers before enabling these guardrails here.
 use super::encoding::{EncodingError, HEADER_FIXED_LEN, VERSION, read_u16};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

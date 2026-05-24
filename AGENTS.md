@@ -74,23 +74,30 @@ or when the user will test the installed executable.
 ## Refactoring Workflow
 
 Start refactoring work by invoking the code-smell review agent/skill
-(`$code-moniker-smell-review`) or by running the local warning pack:
+(`$code-moniker-smell-review`) or by running the project smell profile:
 
 ```sh
 code-moniker check <target> \
-  --rules docs/cli/check-samples/code-smells-local.toml \
-  --default-rules off \
+  --profile smells \
   --max-violations 50 \
   --report
 ```
 
-Use that pass to explore the target module, identify review candidates, and
-choose a bounded module or feature slice. Keep smell rules at
-`severity = "warn"` while refactoring so they guide the work without
-blocking unrelated progress. For the chosen module, fix or consciously
-retune every relevant warning until the target goes green. Once the module
-is clean and the thresholds are credible, promote those module-specific
-rules to `severity = "error"` so the smell does not regress.
+Adopt smell rules in `.code-moniker.toml` one by one. Keep a new rule at
+`severity = "warn"` during adoption, measure its volume with bounded output,
+and record whether the signal is usable or noisy. A low volume does not mean
+"fix now"; it only means the finding set is small enough to inspect later. A
+high volume means analyze scope, thresholds, and justified exclusions instead
+of deleting the rule.
+
+The `architecture` profile is the active guardrail. Do not leave a promoted
+smell rule excluded from that profile. While a rule is still in adoption, keep
+it out of the hook/guardrail path to save tokens and run it explicitly with
+`--profile smells`. When a later refactoring pass targets a module, fix or
+consciously suppress the relevant warnings until that module is green. Once
+the module is clean and thresholds are credible, promote the rule in
+`.code-moniker.toml` to `severity = "error"` and remove any profile exclusion
+that would prevent the guardrail from seeing it.
 
 Refactor in functional units. After a unit is complete, run the narrowest
 meaningful validation plus the relevant smell check, then commit that unit

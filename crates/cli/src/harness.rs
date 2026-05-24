@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-long-parameter-list]
+// TODO(smell): introduce a hook upsert request for backend, matcher, command, and output file settings before enabling this guardrail here.
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};

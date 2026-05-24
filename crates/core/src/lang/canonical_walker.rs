@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names]
+// TODO(smell): split canonical walking into traversal, annotation buffering, symbol emission, and test strategy fixtures before enabling these guardrails here.
 use tree_sitter::Node;
 
 use crate::core::code_graph::{CodeGraph, DefAttrs, RefAttrs};
