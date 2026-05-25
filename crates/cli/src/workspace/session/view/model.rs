@@ -98,10 +98,3 @@ pub struct UnresolvedLinkageReport {
 	pub unresolved_refs: usize,
 	pub sources: BTreeMap<SourceId, usize>,
 }
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DiagnosticsSummary {
-	pub errors: usize,
-	pub warnings: usize,
-	pub total: usize,
-}

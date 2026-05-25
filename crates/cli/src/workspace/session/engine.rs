@@ -1,43 +1,36 @@
-use super::contracts::{
-	ChangeOverlayPort, CodeIndexPort, LinkagePort, RuleDiagnosticsPort, SourceCatalogPort,
-};
+use super::contracts::{ChangeOverlayPort, CodeIndexPort, LinkagePort, SourceCatalogPort};
 use super::model::{
 	ResourceGeneration, WorkspaceRequest, WorkspaceResult, WorkspaceSnapshot, WorkspaceTransition,
 };
 
-pub struct WorkspaceSession<Sources, Index, Linkage, Changes, Diagnostics> {
+pub struct WorkspaceSession<Sources, Index, Linkage, Changes> {
 	source_catalog: Sources,
 	code_index: Index,
 	linkage: Linkage,
 	change_overlay: Changes,
-	rule_diagnostics: Diagnostics,
 	next_generation: u64,
 	snapshot: Option<WorkspaceSnapshot>,
 	last_failure: Option<super::model::WorkspaceFailure>,
 }
 
-impl<Sources, Index, Linkage, Changes, Diagnostics>
-	WorkspaceSession<Sources, Index, Linkage, Changes, Diagnostics>
+impl<Sources, Index, Linkage, Changes> WorkspaceSession<Sources, Index, Linkage, Changes>
 where
 	Sources: SourceCatalogPort,
 	Index: CodeIndexPort,
 	Linkage: LinkagePort,
 	Changes: ChangeOverlayPort,
-	Diagnostics: RuleDiagnosticsPort,
 {
 	pub fn new(
 		source_catalog: Sources,
 		code_index: Index,
 		linkage: Linkage,
 		change_overlay: Changes,
-		rule_diagnostics: Diagnostics,
 	) -> Self {
 		Self {
 			source_catalog,
 			code_index,
 			linkage,
 			change_overlay,
-			rule_diagnostics,
 			next_generation: 1,
 			snapshot: None,
 			last_failure: None,
@@ -79,9 +72,6 @@ where
 		let changes = self
 			.change_overlay
 			.build_change_overlay(&catalog, &index, &linkage)?;
-		let diagnostics = self
-			.rule_diagnostics
-			.collect_rule_diagnostics(&index, &linkage)?;
 		let generation = self.allocate_generation();
 		Ok(WorkspaceSnapshot {
 			generation,
@@ -89,7 +79,6 @@ where
 			index,
 			linkage,
 			changes,
-			diagnostics,
 		})
 	}
 
@@ -107,8 +96,8 @@ mod tests {
 
 	use super::*;
 	use crate::workspace::session::{
-		ChangeOverlay, CodeIndex, LinkageGraph, RuleDiagnostics, SourceCatalog, SourceUnit,
-		SymbolId, SymbolRecord, WorkspaceFailure, WorkspaceResource,
+		ChangeOverlay, CodeIndex, LinkageGraph, SourceCatalog, SourceUnit, SymbolId, SymbolRecord,
+		WorkspaceFailure, WorkspaceResource,
 	};
 
 	#[derive(Default)]
@@ -207,31 +196,6 @@ mod tests {
 		}
 	}
 
-	#[derive(Clone)]
-	struct FakeRuleDiagnostics {
-		state: SharedState,
-	}
-
-	impl RuleDiagnosticsPort for FakeRuleDiagnostics {
-		fn collect_rule_diagnostics(
-			&mut self,
-			index: &CodeIndex,
-			linkage: &LinkageGraph,
-		) -> WorkspaceResult<RuleDiagnostics> {
-			self.state.borrow_mut().log.push(format!(
-				"diagnostics:index@{}:linkage@{}",
-				index.generation.value(),
-				linkage.generation.value()
-			));
-			Ok(RuleDiagnostics::new(
-				ResourceGeneration::new(50),
-				index.generation,
-				0,
-				2,
-			))
-		}
-	}
-
 	struct Fixture {
 		state: SharedState,
 	}
@@ -249,13 +213,7 @@ mod tests {
 
 		fn session(
 			&self,
-		) -> WorkspaceSession<
-			FakeSourceCatalog,
-			FakeCodeIndex,
-			FakeLinkage,
-			FakeChangeOverlay,
-			FakeRuleDiagnostics,
-		> {
+		) -> WorkspaceSession<FakeSourceCatalog, FakeCodeIndex, FakeLinkage, FakeChangeOverlay> {
 			WorkspaceSession::new(
 				FakeSourceCatalog {
 					state: Rc::clone(&self.state),
@@ -267,9 +225,6 @@ mod tests {
 					state: Rc::clone(&self.state),
 				},
 				FakeChangeOverlay {
-					state: Rc::clone(&self.state),
-				},
-				FakeRuleDiagnostics {
 					state: Rc::clone(&self.state),
 				},
 			)
@@ -311,7 +266,6 @@ mod tests {
 				"index:catalog@10",
 				"linkage:index@20",
 				"changes:catalog@10:index@20:linkage@30",
-				"diagnostics:index@20:linkage@30",
 			]
 		);
 	}

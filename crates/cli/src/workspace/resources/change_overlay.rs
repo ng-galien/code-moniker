@@ -1,12 +1,10 @@
-use code_moniker_core::core::moniker::Moniker;
-use code_moniker_core::core::uri::{UriConfig, to_uri};
-
 use crate::workspace::git::{ChangeFile, ChangeRoot, ChangeScan};
-use crate::workspace::resources::material::{LocalResourceCache, symbol_id};
+use crate::workspace::resources::change_analyzer::ChangeAnalyzer;
+use crate::workspace::resources::material::LocalResourceCache;
+use crate::workspace::resources::symbol_provider::CodeIndexSymbolProvider;
 use crate::workspace::session::{
-	ChangeId, ChangeOverlay, ChangeOverlayPort, ChangeOverlayReport, ChangeRecord,
-	ChangeRecordFields, ChangeResource, ChangeStatus, CodeIndex, LinkageGraph, SourceCatalog,
-	WorkspaceFailure, WorkspaceResource, WorkspaceResult,
+	ChangeOverlay, ChangeOverlayPort, ChangeOverlayReport, ChangeResource, CodeIndex, LinkageGraph,
+	SourceCatalog, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };
 
 pub struct LocalChangeOverlay {
@@ -84,7 +82,8 @@ fn change_report(
 	change_index: crate::workspace::git::ChangeIndex,
 	material: &crate::workspace::resources::material::CodeIndexMaterial,
 ) -> ChangeOverlayReport {
-	let changes = change_records(&change_index.entries, material);
+	let provider = CodeIndexSymbolProvider::new(material);
+	let changes = ChangeAnalyzer::new(&provider).analyze(&change_index.entries);
 	ChangeOverlayReport {
 		generation,
 		catalog_generation,
@@ -102,53 +101,4 @@ fn change_report(
 		diagnostics: change_index.diagnostics,
 		changes,
 	}
-}
-
-fn change_records(
-	entries: &[crate::workspace::git::ChangeEntry],
-	material: &crate::workspace::resources::material::CodeIndexMaterial,
-) -> Vec<ChangeRecord> {
-	entries
-		.iter()
-		.enumerate()
-		.map(|(idx, entry)| {
-			let symbol = entry
-				.loc
-				.map(|loc| symbol_id(loc.file, loc.def))
-				.or_else(|| material.symbols_by_moniker.get(&entry.moniker).cloned());
-			let source = entry
-				.loc
-				.and_then(|loc| material.files.get(loc.file))
-				.map(|file| file.source_id.clone());
-			ChangeRecord::from_fields(ChangeRecordFields {
-				id: ChangeId::new(format!("change:{idx}")),
-				status: change_status(entry.status),
-				source,
-				symbol,
-				identity: moniker_identity(&entry.moniker),
-				name: entry.name.clone(),
-				kind: entry.kind.clone(),
-				line_range: entry.line_range,
-				hunk_count: entry.hunk_count,
-			})
-		})
-		.collect()
-}
-
-fn change_status(status: crate::workspace::git::ChangeStatus) -> ChangeStatus {
-	match status {
-		crate::workspace::git::ChangeStatus::Added => ChangeStatus::Added,
-		crate::workspace::git::ChangeStatus::Modified => ChangeStatus::Modified,
-		crate::workspace::git::ChangeStatus::Removed => ChangeStatus::Removed,
-	}
-}
-
-fn moniker_identity(moniker: &Moniker) -> String {
-	to_uri(
-		moniker,
-		&UriConfig {
-			scheme: crate::DEFAULT_SCHEME,
-		},
-	)
-	.unwrap_or_else(|_| String::from_utf8_lossy(moniker.as_bytes()).to_string())
 }

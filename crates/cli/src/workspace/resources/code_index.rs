@@ -1,13 +1,12 @@
 use std::path::PathBuf;
 
 use code_moniker_core::core::moniker::Moniker;
-use code_moniker_core::core::uri::{UriConfig, to_uri};
 
 use crate::cache;
 use crate::lines::line_range;
+use crate::workspace::resources::identity::LocalIdentityResolver;
 use crate::workspace::resources::material::{
-	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, SourceCatalogMaterial, reference_id,
-	source_id, symbol_id,
+	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, SourceCatalogMaterial,
 };
 use crate::workspace::session::{
 	CodeIndex, CodeIndexFields, CodeIndexPort, ReferenceRecord, SourceCatalog, SourceFileRecord,
@@ -45,10 +44,12 @@ impl CodeIndexPort for LocalCodeIndex {
 		let files = extract_source_files(&source_material, self.options.cache_dir.as_deref())?;
 		let (symbols, references, material) = build_semantic_index(source_material, files);
 		let sources = source_records(&material.files);
+		let identity_scheme = material.identity.scheme().to_string();
 		self.cache.insert_index(generation, material);
 		Ok(CodeIndex::from_fields(CodeIndexFields {
 			generation,
 			catalog_generation: catalog.generation,
+			identity_scheme,
 			sources,
 			symbols,
 			references,
@@ -83,12 +84,20 @@ fn extract_source_files(
 						format!("cannot extract {}: {err}", file.path.display()),
 					)
 				})?;
-		let source = extracted_source.unwrap_or_else(|| {
-			std::fs::read_to_string(&file.path).unwrap_or_else(|_| String::new())
-		});
+		let source = match extracted_source {
+			Some(source) => source,
+			None => std::fs::read_to_string(&file.path).map_err(|err| {
+				WorkspaceFailure::new(
+					WorkspaceResource::CodeIndex,
+					format!("cannot read {}: {err}", file.path.display()),
+				)
+			})?,
+		};
 		files.push(IndexedSourceFile {
 			source_root: file.source,
-			source_id: source_id(file_idx, &file.rel_path),
+			source_id: source_material.identity.source_id(file_idx, &file.rel_path),
+			source_uri: source_material.identity.source_uri(&file.rel_path),
+			identity: source_material.identity.clone(),
 			path: file.path.clone(),
 			rel_path: file.rel_path.clone(),
 			anchor: file.anchor.clone(),
@@ -109,6 +118,7 @@ fn build_semantic_index(
 	let mut symbols_by_moniker = rustc_hash::FxHashMap::default();
 	let mut symbol_monikers = rustc_hash::FxHashMap::default();
 	let mut reference_targets = rustc_hash::FxHashMap::default();
+	let identity = source_material.identity.clone();
 	for (file_idx, file) in files.iter().enumerate() {
 		collect_symbols(
 			file_idx,
@@ -122,6 +132,7 @@ fn build_semantic_index(
 	let material = CodeIndexMaterial {
 		source_catalog: source_material,
 		files,
+		identity,
 		symbols_by_moniker,
 		symbol_monikers,
 		reference_targets,
@@ -137,14 +148,16 @@ fn collect_symbols(
 	symbol_monikers: &mut rustc_hash::FxHashMap<crate::workspace::session::SymbolId, Moniker>,
 ) {
 	for (def_idx, def) in file.graph.defs().enumerate() {
-		let id = symbol_id(file_idx, def_idx);
-		let parent = def.parent.map(|parent_idx| symbol_id(file_idx, parent_idx));
+		let id = file.graph_identity().symbol_id(file_idx, def_idx);
+		let parent = def
+			.parent
+			.map(|parent_idx| file.graph_identity().symbol_id(file_idx, parent_idx));
 		symbols_by_moniker.insert(def.moniker.clone(), id.clone());
 		symbol_monikers.insert(id.clone(), def.moniker.clone());
 		symbols.push(SymbolRecord::from_fields(SymbolRecordFields {
 			id,
 			source: file.source_id.clone(),
-			identity: moniker_identity(&def.moniker),
+			identity: file.graph_identity().moniker_uri(&def.moniker),
 			name: last_name(&def.moniker),
 			kind: def_kind(def),
 			signature: String::from_utf8_lossy(&def.signature).to_string(),
@@ -164,15 +177,15 @@ fn collect_references(
 	reference_targets: &mut rustc_hash::FxHashMap<crate::workspace::session::ReferenceId, Moniker>,
 ) {
 	for (ref_idx, reference) in file.graph.refs().enumerate() {
-		let id = reference_id(file_idx, ref_idx);
-		let source_symbol = symbol_id(file_idx, reference.source);
+		let id = file.graph_identity().reference_id(file_idx, ref_idx);
+		let source_symbol = file.graph_identity().symbol_id(file_idx, reference.source);
 		reference_targets.insert(id.clone(), reference.target.clone());
 		references.push(
 			ReferenceRecord::new(
 				id.as_str(),
 				file.source_id.clone(),
 				source_symbol,
-				moniker_identity(&reference.target),
+				file.graph_identity().moniker_uri(&reference.target),
 				ref_kind(reference),
 				reference
 					.position
@@ -193,6 +206,7 @@ fn source_records(files: &[IndexedSourceFile]) -> Vec<SourceFileRecord> {
 		.map(|file| {
 			SourceFileRecord::from_fields(SourceFileRecordFields {
 				id: file.source_id.clone(),
+				uri: file.source_uri.clone(),
 				source_root: file.source_root,
 				path: file.path.display().to_string(),
 				rel_path: file.rel_path.display().to_string(),
@@ -204,16 +218,6 @@ fn source_records(files: &[IndexedSourceFile]) -> Vec<SourceFileRecord> {
 		.collect()
 }
 
-fn moniker_identity(moniker: &Moniker) -> String {
-	to_uri(
-		moniker,
-		&UriConfig {
-			scheme: crate::DEFAULT_SCHEME,
-		},
-	)
-	.unwrap_or_else(|_| String::from_utf8_lossy(moniker.as_bytes()).to_string())
-}
-
 fn ref_attr(bytes: &[u8]) -> Option<String> {
 	if bytes.is_empty() {
 		return None;
@@ -222,4 +226,14 @@ fn ref_attr(bytes: &[u8]) -> Option<String> {
 		.ok()
 		.filter(|value| !value.is_empty())
 		.map(ToOwned::to_owned)
+}
+
+trait IndexedSourceIdentity {
+	fn graph_identity(&self) -> &LocalIdentityResolver;
+}
+
+impl IndexedSourceIdentity for IndexedSourceFile {
+	fn graph_identity(&self) -> &LocalIdentityResolver {
+		&self.identity
+	}
 }

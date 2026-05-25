@@ -1,6 +1,5 @@
 use super::model::{
-	ChangeOverlay, CodeIndex, LinkageGraph, RuleDiagnostics, SourceCatalog, WorkspaceRequest,
-	WorkspaceResult,
+	ChangeOverlay, CodeIndex, LinkageGraph, SourceCatalog, WorkspaceRequest, WorkspaceResult,
 };
 
 pub trait SourceCatalogPort {
@@ -22,12 +21,4 @@ pub trait ChangeOverlayPort {
 		index: &CodeIndex,
 		linkage: &LinkageGraph,
 	) -> WorkspaceResult<ChangeOverlay>;
-}
-
-pub trait RuleDiagnosticsPort {
-	fn collect_rule_diagnostics(
-		&mut self,
-		index: &CodeIndex,
-		linkage: &LinkageGraph,
-	) -> WorkspaceResult<RuleDiagnostics>;
 }

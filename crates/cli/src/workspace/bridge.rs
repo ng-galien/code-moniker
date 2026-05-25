@@ -22,8 +22,8 @@ use super::model::{
 	UnresolvedLinkageGroup, UnresolvedLinkageReport, UnresolvedLinkageSample, UsageFocus,
 };
 use super::resources::{
-	LocalChangeOverlay, LocalCodeIndex, LocalCodeIndexOptions, LocalLinkage, LocalResourceCache,
-	LocalRuleDiagnostics, LocalRuleDiagnosticsOptions, LocalSourceCatalog,
+	LocalChangeOverlay, LocalCheckRunner, LocalCheckRunnerOptions, LocalCodeIndex,
+	LocalCodeIndexOptions, LocalLinkage, LocalResourceCache, LocalSourceCatalog,
 	LocalSourceCatalogOptions,
 };
 use super::session::{
@@ -37,6 +37,7 @@ pub struct SessionStoreBridge {
 	opts: SessionOptions,
 	root: String,
 	snapshot: WorkspaceSnapshot,
+	cache: Option<LocalResourceCache>,
 	stats: SessionStats,
 	linkage_stats: LinkageStats,
 	symbols_by_loc: FxHashMap<DefLocation, SymbolId>,
@@ -44,12 +45,7 @@ pub struct SessionStoreBridge {
 }
 
 impl SessionStoreBridge {
-	pub fn load(
-		opts: SessionOptions,
-		rules: PathBuf,
-		profile: Option<String>,
-		scheme: impl Into<String>,
-	) -> anyhow::Result<Self> {
+	pub fn load(opts: SessionOptions) -> anyhow::Result<Self> {
 		let cache = LocalResourceCache::default();
 		let mut session = WorkspaceSession::new(
 			LocalSourceCatalog::new(
@@ -62,10 +58,6 @@ impl SessionStoreBridge {
 			),
 			LocalLinkage::new(cache.clone()),
 			LocalChangeOverlay::new(cache.clone()),
-			LocalRuleDiagnostics::new(
-				LocalRuleDiagnosticsOptions::new(rules, profile, scheme),
-				cache,
-			),
 		);
 		match session.refresh(WorkspaceRequest::new("workspace")) {
 			WorkspaceTransition::Ready { .. } => {
@@ -73,13 +65,21 @@ impl SessionStoreBridge {
 					.snapshot()
 					.expect("ready transition has snapshot")
 					.clone();
-				Ok(Self::from_snapshot(opts, snapshot))
+				Ok(Self::from_snapshot_with_cache(opts, snapshot, Some(cache)))
 			}
 			WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 		}
 	}
 
 	pub fn from_snapshot(opts: SessionOptions, snapshot: WorkspaceSnapshot) -> Self {
+		Self::from_snapshot_with_cache(opts, snapshot, None)
+	}
+
+	fn from_snapshot_with_cache(
+		opts: SessionOptions,
+		snapshot: WorkspaceSnapshot,
+		cache: Option<LocalResourceCache>,
+	) -> Self {
 		let root = display_boot_path(&opts.paths);
 		let stats = build_stats(&snapshot);
 		let linkage_stats = LinkageStats {
@@ -107,6 +107,7 @@ impl SessionStoreBridge {
 			opts,
 			root,
 			snapshot,
+			cache,
 			stats,
 			linkage_stats,
 			symbols_by_loc,
@@ -414,12 +415,13 @@ impl SessionStoreBridge {
 			status: legacy_change_status(change.status),
 			lang: source
 				.map(|source| self.source_lang(source))
+				.or_else(|| Lang::from_tag(&change.language))
 				.unwrap_or(Lang::Rs),
 			kind: change.kind.clone(),
 			name: change.name.clone(),
 			file_path: source
 				.map(|source| PathBuf::from(&source.rel_path))
-				.unwrap_or_default(),
+				.unwrap_or_else(|| PathBuf::from(&change.file_path)),
 			compact_moniker: self.compact_identity(&change.identity),
 			line_range: change.line_range,
 			hunk_count: change.hunk_count,
@@ -445,6 +447,14 @@ impl SessionStoreBridge {
 			.find(|candidate| &candidate.id == source)
 	}
 
+	fn source_file_index_by_id(&self, source: &SourceId) -> Option<usize> {
+		self.snapshot
+			.index
+			.sources
+			.iter()
+			.position(|candidate| &candidate.id == source)
+	}
+
 	fn symbol_by_id(&self, id: &SymbolId) -> Option<&SymbolRecord> {
 		self.snapshot
 			.index
@@ -457,7 +467,7 @@ impl SessionStoreBridge {
 		from_uri(
 			identity,
 			&UriConfig {
-				scheme: crate::DEFAULT_SCHEME,
+				scheme: &self.snapshot.index.identity_scheme,
 			},
 		)
 		.ok()
@@ -620,7 +630,7 @@ impl IndexStore for SessionStoreBridge {
 			.changes
 			.changes
 			.iter()
-			.filter_map(|change| change.source.clone())
+			.map(|change| change.file_path.clone())
 			.collect::<BTreeSet<_>>()
 			.len();
 		ChangeOverview {
@@ -697,7 +707,7 @@ impl IndexStore for SessionStoreBridge {
 				change
 					.source
 					.as_ref()
-					.and_then(source_file_idx)
+					.and_then(|source| self.source_file_index_by_id(source))
 					.is_some_and(|source_idx| source_idx == file_idx)
 			})
 			.count()
@@ -752,13 +762,26 @@ impl IndexStore for SessionStoreBridge {
 
 	fn check_summary(
 		&self,
-		_rules: &Path,
-		_profile: Option<&str>,
-		_scheme: &str,
+		rules: &Path,
+		profile: Option<&str>,
+		scheme: &str,
 	) -> anyhow::Result<CheckSummary> {
-		let files_with_violations = self
-			.snapshot
-			.diagnostics
+		let cache = self
+			.cache
+			.clone()
+			.ok_or_else(|| anyhow::anyhow!("bridge snapshot has no check runner context"))?;
+		let mut runner = LocalCheckRunner::new(
+			LocalCheckRunnerOptions::new(
+				rules.to_path_buf(),
+				profile.map(ToOwned::to_owned),
+				scheme,
+			),
+			cache,
+		);
+		let diagnostics = runner
+			.run_check(&self.snapshot.index, &self.snapshot.linkage)
+			.map_err(|failure| anyhow::anyhow!(failure.message))?;
+		let files_with_violations = diagnostics
 			.diagnostics
 			.iter()
 			.filter_map(|diagnostic| diagnostic.symbol.as_ref())
@@ -769,7 +792,7 @@ impl IndexStore for SessionStoreBridge {
 		Ok(CheckSummary {
 			files_scanned: self.snapshot.index.sources.len(),
 			files_with_violations,
-			total_violations: self.snapshot.diagnostics.diagnostics.len(),
+			total_violations: diagnostics.diagnostics.len(),
 			errors: Vec::new(),
 		})
 	}
@@ -986,14 +1009,6 @@ fn loc_for_reference_id(id: &ReferenceId) -> Option<RefLocation> {
 			file: file.parse().ok()?,
 			reference: reference.parse().ok()?,
 		}),
-		_ => None,
-	}
-}
-
-fn source_file_idx(source: &SourceId) -> Option<usize> {
-	let mut parts = source.as_str().split(':');
-	match (parts.next(), parts.next()) {
-		(Some("source"), Some(file)) => file.parse().ok(),
 		_ => None,
 	}
 }

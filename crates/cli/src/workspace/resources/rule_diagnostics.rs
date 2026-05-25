@@ -5,20 +5,21 @@ use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
 use crate::check;
+use crate::workspace::resources::identity::LocalIdentityResolver;
 use crate::workspace::resources::material::LocalResourceCache;
 use crate::workspace::session::{
-	CodeIndex, LinkageGraph, RuleDiagnostic, RuleDiagnosticSeverity, RuleDiagnostics,
-	RuleDiagnosticsPort, SymbolId, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
+	CodeIndex, LinkageGraph, RuleDiagnostic, RuleDiagnosticSeverity, RuleDiagnostics, SymbolId,
+	WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LocalRuleDiagnosticsOptions {
+pub struct LocalCheckRunnerOptions {
 	pub rules: PathBuf,
 	pub profile: Option<String>,
 	pub scheme: String,
 }
 
-impl LocalRuleDiagnosticsOptions {
+impl LocalCheckRunnerOptions {
 	pub fn new(rules: PathBuf, profile: Option<String>, scheme: impl Into<String>) -> Self {
 		Self {
 			rules,
@@ -28,19 +29,17 @@ impl LocalRuleDiagnosticsOptions {
 	}
 }
 
-pub struct LocalRuleDiagnostics {
-	options: LocalRuleDiagnosticsOptions,
+pub struct LocalCheckRunner {
+	options: LocalCheckRunnerOptions,
 	cache: LocalResourceCache,
 }
 
-impl LocalRuleDiagnostics {
-	pub fn new(options: LocalRuleDiagnosticsOptions, cache: LocalResourceCache) -> Self {
+impl LocalCheckRunner {
+	pub fn new(options: LocalCheckRunnerOptions, cache: LocalResourceCache) -> Self {
 		Self { options, cache }
 	}
-}
 
-impl RuleDiagnosticsPort for LocalRuleDiagnostics {
-	fn collect_rule_diagnostics(
+	pub fn run_check(
 		&mut self,
 		index: &CodeIndex,
 		_linkage: &LinkageGraph,
@@ -50,7 +49,7 @@ impl RuleDiagnosticsPort for LocalRuleDiagnostics {
 			.index_material(index.generation)
 			.ok_or_else(|| diagnostic_failure("code index material is unavailable".to_string()))?;
 		let generation = self.cache.next_generation();
-		let diagnostics = collect_diagnostics(index, &material, &self.options)?;
+		let diagnostics = collect_diagnostics(&material, &self.options)?;
 		Ok(RuleDiagnostics::with_diagnostics(
 			generation,
 			index.generation,
@@ -60,16 +59,16 @@ impl RuleDiagnosticsPort for LocalRuleDiagnostics {
 }
 
 fn collect_diagnostics(
-	index: &CodeIndex,
 	material: &crate::workspace::resources::material::CodeIndexMaterial,
-	options: &LocalRuleDiagnosticsOptions,
+	options: &LocalCheckRunnerOptions,
 ) -> WorkspaceResult<Vec<RuleDiagnostic>> {
 	let cfg = load_config(options)?;
 	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
-	let symbol_by_identity = index
-		.symbols
+	let identity = LocalIdentityResolver::new(options.scheme.clone());
+	let symbol_by_identity = material
+		.symbol_monikers
 		.iter()
-		.map(|symbol| (symbol.identity.clone(), symbol.id.clone()))
+		.map(|(id, moniker)| (identity.moniker_uri(moniker), id.clone()))
 		.collect::<std::collections::BTreeMap<_, _>>();
 	let mut compiled: FxHashMap<Lang, check::CompiledRules> = FxHashMap::default();
 	let mut diagnostics = Vec::new();
@@ -97,7 +96,7 @@ fn collect_diagnostics(
 	Ok(diagnostics)
 }
 
-fn load_config(options: &LocalRuleDiagnosticsOptions) -> WorkspaceResult<check::Config> {
+fn load_config(options: &LocalCheckRunnerOptions) -> WorkspaceResult<check::Config> {
 	let mut cfg = check::load_with_overrides(Some(&options.rules))
 		.map_err(|err| diagnostic_failure(err.to_string()))?;
 	if let Some(profile) = &options.profile {
@@ -108,7 +107,7 @@ fn load_config(options: &LocalRuleDiagnosticsOptions) -> WorkspaceResult<check::
 }
 
 fn diagnostic_failure(message: String) -> WorkspaceFailure {
-	WorkspaceFailure::new(WorkspaceResource::RuleDiagnostics, message)
+	WorkspaceFailure::new(WorkspaceResource::RuleCheck, message)
 }
 
 fn diagnostic_from_violation(

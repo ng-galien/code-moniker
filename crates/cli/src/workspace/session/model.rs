@@ -220,6 +220,7 @@ impl ReferenceRecord {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceFileRecord {
 	pub id: SourceId,
+	pub uri: String,
 	pub source_root: usize,
 	pub path: String,
 	pub rel_path: String,
@@ -230,6 +231,7 @@ pub struct SourceFileRecord {
 
 pub struct SourceFileRecordFields {
 	pub id: SourceId,
+	pub uri: String,
 	pub source_root: usize,
 	pub path: String,
 	pub rel_path: String,
@@ -242,6 +244,7 @@ impl SourceFileRecord {
 	pub fn from_fields(fields: SourceFileRecordFields) -> Self {
 		Self {
 			id: fields.id,
+			uri: fields.uri,
 			source_root: fields.source_root,
 			path: fields.path,
 			rel_path: fields.rel_path,
@@ -256,6 +259,7 @@ impl SourceFileRecord {
 pub struct CodeIndex {
 	pub generation: ResourceGeneration,
 	pub catalog_generation: ResourceGeneration,
+	pub identity_scheme: String,
 	pub sources: Vec<SourceFileRecord>,
 	pub symbols: Vec<SymbolRecord>,
 	pub references: Vec<ReferenceRecord>,
@@ -264,6 +268,7 @@ pub struct CodeIndex {
 pub struct CodeIndexFields {
 	pub generation: ResourceGeneration,
 	pub catalog_generation: ResourceGeneration,
+	pub identity_scheme: String,
 	pub sources: Vec<SourceFileRecord>,
 	pub symbols: Vec<SymbolRecord>,
 	pub references: Vec<ReferenceRecord>,
@@ -278,6 +283,7 @@ impl CodeIndex {
 		Self {
 			generation,
 			catalog_generation,
+			identity_scheme: crate::DEFAULT_SCHEME.to_string(),
 			sources: Vec::new(),
 			symbols,
 			references: Vec::new(),
@@ -293,6 +299,7 @@ impl CodeIndex {
 		Self {
 			generation,
 			catalog_generation,
+			identity_scheme: crate::DEFAULT_SCHEME.to_string(),
 			sources: Vec::new(),
 			symbols,
 			references,
@@ -303,6 +310,7 @@ impl CodeIndex {
 		Self {
 			generation: fields.generation,
 			catalog_generation: fields.catalog_generation,
+			identity_scheme: fields.identity_scheme,
 			sources: fields.sources,
 			symbols: fields.symbols,
 			references: fields.references,
@@ -505,8 +513,11 @@ pub struct ChangeRecord {
 	pub id: ChangeId,
 	pub status: ChangeStatus,
 	pub source: Option<SourceId>,
+	pub source_uri: Option<String>,
 	pub symbol: Option<SymbolId>,
 	pub identity: String,
+	pub language: String,
+	pub file_path: String,
 	pub name: String,
 	pub kind: String,
 	pub line_range: Option<(u32, u32)>,
@@ -518,8 +529,24 @@ pub struct ChangeRecordFields {
 	pub id: ChangeId,
 	pub status: ChangeStatus,
 	pub source: Option<SourceId>,
+	pub source_uri: Option<String>,
 	pub symbol: Option<SymbolId>,
 	pub identity: String,
+	pub language: String,
+	pub file_path: String,
+	pub name: String,
+	pub kind: String,
+	pub line_range: Option<(u32, u32)>,
+	pub hunk_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChangeRecordCoreFields {
+	pub id: ChangeId,
+	pub status: ChangeStatus,
+	pub identity: String,
+	pub language: String,
+	pub file_path: String,
 	pub name: String,
 	pub kind: String,
 	pub line_range: Option<(u32, u32)>,
@@ -527,13 +554,44 @@ pub struct ChangeRecordFields {
 }
 
 impl ChangeRecord {
+	pub fn new(fields: ChangeRecordCoreFields) -> Self {
+		Self {
+			id: fields.id,
+			status: fields.status,
+			source: None,
+			source_uri: None,
+			symbol: None,
+			identity: fields.identity,
+			language: fields.language,
+			file_path: fields.file_path,
+			name: fields.name,
+			kind: fields.kind,
+			line_range: fields.line_range,
+			hunk_count: fields.hunk_count,
+		}
+	}
+
+	pub fn with_source(mut self, source: SourceId, source_uri: impl Into<String>) -> Self {
+		self.source = Some(source);
+		self.source_uri = Some(source_uri.into());
+		self
+	}
+
+	pub fn with_symbol(mut self, symbol: SymbolId) -> Self {
+		self.symbol = Some(symbol);
+		self
+	}
+
 	pub fn from_fields(fields: ChangeRecordFields) -> Self {
 		Self {
 			id: fields.id,
 			status: fields.status,
 			source: fields.source,
+			source_uri: fields.source_uri,
 			symbol: fields.symbol,
 			identity: fields.identity,
+			language: fields.language,
+			file_path: fields.file_path,
 			name: fields.name,
 			kind: fields.kind,
 			line_range: fields.line_range,
@@ -627,7 +685,6 @@ pub struct WorkspaceSnapshot {
 	pub index: CodeIndex,
 	pub linkage: LinkageGraph,
 	pub changes: ChangeOverlay,
-	pub diagnostics: RuleDiagnostics,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -636,7 +693,7 @@ pub enum WorkspaceResource {
 	CodeIndex,
 	LinkageGraph,
 	ChangeOverlay,
-	RuleDiagnostics,
+	RuleCheck,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

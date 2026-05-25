@@ -1,5 +1,4 @@
 mod changes;
-mod diagnostics;
 mod linkage;
 mod model;
 mod references;
@@ -10,12 +9,11 @@ mod symbols;
 use super::model::WorkspaceSnapshot;
 
 pub use changes::ChangeView;
-pub use diagnostics::DiagnosticsView;
 pub use linkage::LinkageView;
 pub use model::{
-	ChangeDetail, ChangeSummary, DiagnosticsSummary, ReferenceDirection, ReferenceSet,
-	ReferenceSetSummary, ReferenceSummary, SearchHit, SourceSummary, SymbolDetail,
-	SymbolReferences, SymbolSummary, UnresolvedLinkageReport,
+	ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet, ReferenceSetSummary,
+	ReferenceSummary, SearchHit, SourceSummary, SymbolDetail, SymbolReferences, SymbolSummary,
+	UnresolvedLinkageReport,
 };
 pub use references::ReferenceView;
 pub use search::SearchView;
@@ -53,9 +51,5 @@ impl<'a> WorkspaceView<'a> {
 
 	pub fn linkage(&self) -> LinkageView<'a> {
 		LinkageView::new(self.snapshot)
-	}
-
-	pub fn diagnostics(&self) -> DiagnosticsView<'a> {
-		DiagnosticsView::new(self.snapshot)
 	}
 }

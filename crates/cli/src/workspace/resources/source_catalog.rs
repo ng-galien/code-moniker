@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use crate::sources;
-use crate::workspace::resources::material::{LocalResourceCache, SourceCatalogMaterial, source_id};
+use crate::workspace::resources::identity::LocalIdentityResolver;
+use crate::workspace::resources::material::{LocalResourceCache, SourceCatalogMaterial};
 use crate::workspace::session::{
 	SourceCatalog, SourceCatalogPort, SourceUnit, WorkspaceFailure, WorkspaceRequest,
 	WorkspaceResource, WorkspaceResult,
@@ -11,11 +12,21 @@ use crate::workspace::session::{
 pub struct LocalSourceCatalogOptions {
 	pub paths: Vec<PathBuf>,
 	pub project: Option<String>,
+	pub identity: LocalIdentityResolver,
 }
 
 impl LocalSourceCatalogOptions {
 	pub fn new(paths: Vec<PathBuf>, project: Option<String>) -> Self {
-		Self { paths, project }
+		Self {
+			paths,
+			project,
+			identity: LocalIdentityResolver::default(),
+		}
+	}
+
+	pub fn with_identity(mut self, identity: LocalIdentityResolver) -> Self {
+		self.identity = identity;
+		self
 	}
 }
 
@@ -43,14 +54,22 @@ impl SourceCatalogPort for LocalSourceCatalog {
 			.enumerate()
 			.map(|(file_idx, file)| {
 				SourceUnit::with_language(
-					source_id(file_idx, &file.rel_path).as_str(),
+					self.options
+						.identity
+						.source_id(file_idx, &file.rel_path)
+						.as_str(),
 					file.rel_path.display().to_string(),
 					file.lang.tag(),
 				)
 			})
 			.collect::<Vec<_>>();
-		self.cache
-			.insert_sources(generation, SourceCatalogMaterial { sources });
+		self.cache.insert_sources(
+			generation,
+			SourceCatalogMaterial {
+				sources,
+				identity: self.options.identity.clone(),
+			},
+		);
 		Ok(SourceCatalog::new(generation, units))
 	}
 }

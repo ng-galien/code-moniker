@@ -8,6 +8,7 @@ use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
 use crate::sources;
+use crate::workspace::resources::identity::LocalIdentityResolver;
 use crate::workspace::session::{ReferenceId, SourceId, SymbolId};
 
 #[derive(Clone, Default)]
@@ -91,12 +92,14 @@ impl Default for LocalResourceMaterial {
 #[derive(Clone)]
 pub(super) struct SourceCatalogMaterial {
 	pub(super) sources: sources::SourceSet,
+	pub(super) identity: LocalIdentityResolver,
 }
 
 #[derive(Clone)]
 pub(super) struct CodeIndexMaterial {
 	pub(super) source_catalog: SourceCatalogMaterial,
 	pub(super) files: Vec<IndexedSourceFile>,
+	pub(super) identity: LocalIdentityResolver,
 	pub(super) symbols_by_moniker: FxHashMap<Moniker, SymbolId>,
 	pub(super) symbol_monikers: FxHashMap<SymbolId, Moniker>,
 	pub(super) reference_targets: FxHashMap<ReferenceId, Moniker>,
@@ -106,22 +109,12 @@ pub(super) struct CodeIndexMaterial {
 pub(super) struct IndexedSourceFile {
 	pub(super) source_root: usize,
 	pub(super) source_id: SourceId,
+	pub(super) source_uri: String,
+	pub(super) identity: LocalIdentityResolver,
 	pub(super) path: PathBuf,
 	pub(super) rel_path: PathBuf,
 	pub(super) anchor: PathBuf,
 	pub(super) lang: Lang,
 	pub(super) graph: CodeGraph,
 	pub(super) source: String,
-}
-
-pub(super) fn source_id(file_idx: usize, rel_path: &std::path::Path) -> SourceId {
-	SourceId::new(format!("source:{file_idx}:{}", rel_path.display()))
-}
-
-pub(super) fn symbol_id(file_idx: usize, def_idx: usize) -> SymbolId {
-	SymbolId::new(format!("symbol:{file_idx}:{def_idx}"))
-}
-
-pub(super) fn reference_id(file_idx: usize, ref_idx: usize) -> ReferenceId {
-	ReferenceId::new(format!("reference:{file_idx}:{ref_idx}"))
 }
