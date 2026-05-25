@@ -11,6 +11,7 @@
 # Standalone crates (each at `crates/<name>/`). The crate dirs are unique
 # top-level names, so anchoring on `dir:crates/dir:<name>` is unambiguous.
 crate_core = "moniker ~ '**/dir:crates/dir:core/dir:src/**'"
+crate_workspace = "moniker ~ '**/dir:crates/dir:workspace/dir:src/**'"
 crate_cli  = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 crate_pg   = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
 # Per-crate integration tests / examples.
@@ -43,6 +44,16 @@ message = "`code-moniker-core` is the foundation library; it must not depend on 
 id      = "core-crate-no-pg"
 expr    = "$crate_core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
 message = "`code-moniker-core` is shared by CLI and PG; it must not depend on the PostgreSQL extension crate."
+
+[[refs.where]]
+id      = "workspace-crate-no-cli"
+expr    = "$crate_workspace AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
+message = "`code-moniker-workspace` is a reusable workspace engine; it must not depend on the CLI crate."
+
+[[refs.where]]
+id      = "workspace-crate-no-pg"
+expr    = "$crate_workspace AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
+message = "`code-moniker-workspace` is shared by CLI/TUI and future MCP adapters; it must not depend on the PostgreSQL extension crate."
 
 [[refs.where]]
 id      = "cli-no-pg"

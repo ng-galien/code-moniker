@@ -1,18 +1,11 @@
 #[cfg(feature = "tui")]
-pub mod changes;
-#[cfg(feature = "tui")]
-pub mod code;
-#[cfg(feature = "tui")]
 mod compat;
-#[cfg(feature = "tui")]
-pub mod facade;
 mod legacy;
+#[cfg(all(feature = "tui", test))]
+mod target_tests;
+
 #[cfg(feature = "tui")]
-pub mod linkage;
-#[cfg(feature = "tui")]
-pub mod snapshot;
-#[cfg(feature = "tui")]
-pub mod source;
+pub use code_moniker_workspace::{changes, code, facade, linkage, snapshot, source};
 
 #[cfg(feature = "tui")]
 pub mod git {

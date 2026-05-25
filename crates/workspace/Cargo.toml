@@ -1,0 +1,23 @@
+[package]
+name          = "code-moniker-workspace"
+version.workspace = true
+edition       = "2024"
+rust-version  = "1.86"
+license       = "MIT OR Apache-2.0"
+repository    = "https://github.com/ng-galien/code-moniker"
+homepage      = "https://github.com/ng-galien/code-moniker"
+description   = "Workspace model, ports, snapshots, linkage, and change analysis for code-moniker."
+
+[dependencies]
+code-moniker-core = { workspace = true, features = ["serde"] }
+
+anyhow     = { workspace = true }
+thiserror  = { workspace = true }
+ignore     = { workspace = true }
+gix        = { workspace = true }
+rustc-hash = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

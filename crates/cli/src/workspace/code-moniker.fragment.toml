@@ -8,10 +8,19 @@ changes_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:c
 snapshot_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:snapshot' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:snapshot/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/**'"
 snapshot_model = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/module:model' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/dir:model/**'"
 snapshot_view = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/module:view' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/module:view/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/dir:view/**'"
+environment_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:environment' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:environment/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:environment/**'"
 facade_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:facade' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:facade/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:facade/**'"
 compat_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:compat' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:compat/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:compat/**'"
 workspace_root_facade = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:workspace'"
 check_workspace = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:workspace' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:workspace/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:workspace/**'"
+cli_host_target = """
+  target ~ '**/dir:crates/dir:cli/dir:src/module:sources'
+  OR target ~ '**/dir:crates/dir:cli/dir:src/module:cache'
+  OR target ~ '**/dir:crates/dir:cli/dir:src/module:extract'
+  OR target ~ '**/dir:crates/dir:cli/dir:src/module:lang'
+  OR target ~ '**/dir:crates/dir:cli/dir:src/module:lines'
+  OR target ~ '**/dir:crates/dir:cli/dir:src/module:format'
+"""
 test_module = "moniker ~ '**/module:tests' OR moniker ~ '**/module:tests/**'"
 check_workspace_target = """
   target ~ '**/dir:check/module:workspace'
@@ -98,10 +107,10 @@ legacy_target = """
 # Target layout:
 #
 # The final workspace tree should expose the problem vocabulary directly:
-# sources, code, linkage, changes, snapshots/read models, the injectable
-# facade, compatibility, and legacy debt. Names such as `session`,
-# `resources`, and `local` are implementation vocabulary; they do not say
-# what problem the module solves.
+# sources, code, linkage, changes, snapshots/read models, the host
+# environment adapter, the injectable facade, compatibility, and legacy debt.
+# Names such as `session`, `resources`, and `local` are implementation
+# vocabulary; they do not say what problem the module solves.
 
 [[rust.module.where]]
 id       = "target-layout-uses-domain-vocabulary"
@@ -269,6 +278,18 @@ expr     = """
 """
 message  = "`workspace::facade` may wire target workspace ports, but must not depend on compat, legacy, or check."
 rationale = "The workspace facade is the crate-extraction boundary for CLI, TUI, and future MCP clients. It can expose injected source, code, linkage, change, and snapshot services; legacy adaptation and rule execution remain separate consumers."
+
+[[refs.where]]
+id       = "target-workspace-uses-environment-for-cli-host-services"
+severity = "warn"
+expr     = """
+  ($source_layer OR $code_layer OR $linkage_layer OR $changes_layer OR $snapshot_layer OR $facade_layer)
+  AND NOT ($environment_layer OR $test_module)
+  AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT $cli_host_target
+"""
+message  = "Target workspace modules must use `workspace::environment` instead of importing CLI host services directly."
+rationale = "The future workspace crate cannot depend on CLI modules such as source discovery, cache, extraction, line mapping, or formatting. Until extraction, those dependencies are isolated behind the environment adapter so domain modules keep a crate-ready boundary."
 
 [[refs.where]]
 id       = "check-workspace-consumes-workspace"

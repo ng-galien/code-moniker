@@ -26,6 +26,7 @@ tui     = ["pretty", "dep:ratatui", "dep:crossterm", "dep:notify"]
 
 [dependencies]
 code-moniker-core = { workspace = true, features = ["serde"] }
+code-moniker-workspace = { workspace = true }
 
 clap      = { workspace = true }
 serde     = { workspace = true }

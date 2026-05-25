@@ -343,6 +343,7 @@ dependencies = [
  "anyhow",
  "clap",
  "code-moniker-core",
+ "code-moniker-workspace",
  "crossterm",
  "gix",
  "ignore",
@@ -393,6 +394,21 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_json",
+]
+
+[[package]]
+name = "code-moniker-workspace"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "code-moniker-core",
+ "gix",
+ "ignore",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
