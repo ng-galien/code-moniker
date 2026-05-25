@@ -4,6 +4,8 @@ pub mod changes;
 pub mod code;
 #[cfg(feature = "tui")]
 mod compat;
+#[cfg(feature = "tui")]
+pub mod facade;
 mod legacy;
 #[cfg(feature = "tui")]
 pub mod linkage;
@@ -33,6 +35,8 @@ pub(crate) mod store {
 
 #[cfg(feature = "tui")]
 pub use compat::SessionStoreBridge;
+#[cfg(feature = "tui")]
+pub use facade::{LocalWorkspaceFacade, LocalWorkspaceOptions, WorkspaceFacade, WorkspacePorts};
 #[cfg(feature = "tui")]
 pub(crate) use git::ChangeStatus;
 pub use index::{

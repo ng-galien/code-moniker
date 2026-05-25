@@ -13,6 +13,7 @@ use crate::workspace::code::{
 	CodeIndexPort, CodeIndexSymbolProvider, LocalCodeIndex, LocalCodeIndexOptions,
 	NormalizedSource, NormalizedSymbol, SymbolProvider,
 };
+use crate::workspace::facade::{LocalWorkspaceFacade, LocalWorkspaceOptions};
 use crate::workspace::git;
 use crate::workspace::linkage::{LinkagePort, LocalLinkage};
 use crate::workspace::snapshot::{
@@ -182,6 +183,27 @@ fn local_session_builds_complete_snapshot_from_real_resources() {
 			.any(|symbol| symbol.name.contains("caller"))
 	);
 	assert!(snapshot.linkage.resolved_refs > 0);
+}
+
+#[test]
+fn workspace_facade_builds_snapshot_from_injected_local_services() {
+	let fixture = LocalFixture::new();
+	let mut workspace = LocalWorkspaceFacade::local(LocalWorkspaceOptions::new(
+		vec![fixture.dir.path().to_path_buf()],
+		Some("demo".into()),
+	));
+
+	let transition = workspace.refresh(WorkspaceRequest::new("local"));
+	let view = workspace.view().expect("workspace view is published");
+
+	assert!(matches!(transition, WorkspaceTransition::Ready { .. }));
+	assert_eq!(view.sources().all().len(), 1);
+	assert!(
+		view.symbols()
+			.all()
+			.iter()
+			.any(|symbol| symbol.name.contains("caller"))
+	);
 }
 
 #[test]

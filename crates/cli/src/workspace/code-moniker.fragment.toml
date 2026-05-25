@@ -8,6 +8,7 @@ changes_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:c
 snapshot_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:snapshot' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:snapshot/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/**'"
 snapshot_model = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/module:model' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/dir:model/**'"
 snapshot_view = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/module:view' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/module:view/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/dir:view/**'"
+facade_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:facade' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:facade/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:facade/**'"
 compat_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:compat' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:compat/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:compat/**'"
 workspace_root_facade = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:workspace'"
 check_workspace = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:workspace' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:workspace/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:workspace/**'"
@@ -61,6 +62,13 @@ snapshot_view_target = """
   OR target ~ '**/module:workspace/path:snapshot/path:view'
   OR target ~ '**/module:workspace/path:snapshot/path:view/**'
 """
+facade_target = """
+  target ~ '**/dir:workspace/module:facade'
+  OR target ~ '**/dir:workspace/module:facade/**'
+  OR target ~ '**/dir:workspace/dir:facade/**'
+  OR target ~ '**/module:workspace/path:facade'
+  OR target ~ '**/module:workspace/path:facade/**'
+"""
 compat_target = """
   target ~ '**/dir:workspace/module:compat'
   OR target ~ '**/dir:workspace/module:compat/**'
@@ -90,9 +98,10 @@ legacy_target = """
 # Target layout:
 #
 # The final workspace tree should expose the problem vocabulary directly:
-# sources, code, linkage, changes, snapshots/read models, compatibility, and
-# legacy debt. Names such as `session`, `resources`, and `local` are
-# implementation vocabulary; they do not say what problem the module solves.
+# sources, code, linkage, changes, snapshots/read models, the injectable
+# facade, compatibility, and legacy debt. Names such as `session`,
+# `resources`, and `local` are implementation vocabulary; they do not say
+# what problem the module solves.
 
 [[rust.module.where]]
 id       = "target-layout-uses-domain-vocabulary"
@@ -246,6 +255,20 @@ expr     = """
 """
 message  = "`workspace::snapshot` refresh orchestration may assemble workspace resources, but must not own compat, legacy, or check concerns."
 rationale = "Refresh is allowed to orchestrate source, code, linkage, and changes into a snapshot. Compatibility adapters and rule diagnostics are consumers of that snapshot, not part of building it."
+
+[[refs.where]]
+id       = "workspace-facade-does-not-own-compat-or-check"
+severity = "warn"
+expr     = """
+  $facade_layer
+  AND NOT $test_module
+  AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT ($compat_target
+       OR $legacy_target
+       OR $check_workspace_target)
+"""
+message  = "`workspace::facade` may wire target workspace ports, but must not depend on compat, legacy, or check."
+rationale = "The workspace facade is the crate-extraction boundary for CLI, TUI, and future MCP clients. It can expose injected source, code, linkage, change, and snapshot services; legacy adaptation and rule execution remain separate consumers."
 
 [[refs.where]]
 id       = "check-workspace-consumes-workspace"
