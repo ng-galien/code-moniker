@@ -7,16 +7,17 @@ use code_moniker_core::lang::Lang;
 
 use crate::check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions};
 use crate::workspace::SessionStoreBridge;
-use crate::workspace::changes::LocalChangeOverlay;
 use crate::workspace::changes::analyzer::ChangeAnalyzer;
+use crate::workspace::changes::{ChangeOverlayPort, LocalChangeOverlay};
 use crate::workspace::code::{
-	CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions, NormalizedSource, NormalizedSymbol,
-	SymbolProvider,
+	CodeIndexPort, CodeIndexSymbolProvider, LocalCodeIndex, LocalCodeIndexOptions,
+	NormalizedSource, NormalizedSymbol, SymbolProvider,
 };
 use crate::workspace::git;
 use crate::workspace::linkage::{LinkagePort, LocalLinkage};
 use crate::workspace::snapshot::{
-	SymbolLocation, WorkspaceRequest, WorkspaceSnapshotRefresh, WorkspaceTransition, WorkspaceView,
+	ChangeStatus, CodeIndex, LinkageGraph, SymbolLocation, WorkspaceRequest,
+	WorkspaceSnapshotRefresh, WorkspaceTransition, WorkspaceView,
 };
 use crate::workspace::source::{
 	LocalIdentityResolver, LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions,
@@ -101,6 +102,47 @@ fn source_catalog_resolves_canonical_uri_for_known_paths() {
 
 	assert_eq!(from_absolute, from_relative);
 	assert!(from_absolute.starts_with(crate::DEFAULT_SCHEME));
+}
+
+#[test]
+fn symbol_provider_loads_rule_derived_source_outside_eager_index() {
+	let fixture = LazyJavaFixture::new();
+	let cache = LocalResourceCache::default();
+	let mut catalog_port = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(vec![fixture.root.clone()], Some("lazy-java".into()))
+			.with_files(vec![fixture.main_source.clone()]),
+		cache.clone(),
+	);
+	let mut index_port = LocalCodeIndex::new(LocalCodeIndexOptions::default(), cache.clone());
+
+	let catalog = catalog_port
+		.load_catalog(&WorkspaceRequest::new("lazy-java"))
+		.expect("catalog loads eager source");
+	let index = index_port.build_index(&catalog).expect("index builds");
+	let material = cache
+		.index_material(index.generation)
+		.expect("index material cached");
+	let provider = CodeIndexSymbolProvider::new(&material);
+	let lazy_source = provider
+		.source_for_path(&fixture.test_source)
+		.expect("rule-derived test source resolves");
+	let lazy_symbols = provider
+		.symbols_for_path(&fixture.test_source)
+		.expect("rule-derived test symbols load");
+
+	assert_eq!(index.sources.len(), 1);
+	assert_eq!(lazy_source.language, Lang::Java);
+	assert!(lazy_source.uri.starts_with(crate::DEFAULT_SCHEME));
+	assert!(
+		lazy_source
+			.rel_path
+			.ends_with("src/test/java/acme/FooTest.java")
+	);
+	assert!(
+		lazy_symbols
+			.iter()
+			.any(|symbol| symbol.identity.contains("FooTest"))
+	);
 }
 
 #[test]
@@ -425,6 +467,43 @@ fn change_analyzer_preserves_metadata_without_current_symbol() {
 }
 
 #[test]
+fn local_change_overlay_reports_modified_and_removed_symbols_from_git() {
+	let fixture = GitChangeFixture::new();
+	let cache = LocalResourceCache::default();
+	let mut catalog_port = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(vec![fixture.root.clone()], Some("git-change".into())),
+		cache.clone(),
+	);
+	let mut index_port = LocalCodeIndex::new(LocalCodeIndexOptions::default(), cache.clone());
+	let mut linkage_port = LocalLinkage::new(cache.clone());
+	let mut change_port = LocalChangeOverlay::new(cache);
+
+	let catalog = catalog_port
+		.load_catalog(&WorkspaceRequest::new("git-change"))
+		.expect("catalog loads");
+	let index = index_port.build_index(&catalog).expect("index builds");
+	let linkage = linkage_port
+		.resolve_linkage(&index)
+		.expect("linkage resolves");
+	let changes = change_port
+		.build_change_overlay(&catalog, &index, &linkage)
+		.expect("change overlay builds");
+
+	assert!(
+		changes
+			.changes
+			.iter()
+			.any(|change| change.status == ChangeStatus::Modified && change.name == "kept()")
+	);
+	assert!(
+		changes
+			.changes
+			.iter()
+			.any(|change| change.status == ChangeStatus::Removed && change.name == "removed()")
+	);
+}
+
+#[test]
 fn bridge_load_does_not_compile_check_rules() {
 	let fixture = LocalFixture::new();
 	let invalid_rules = fixture.invalid_rules();
@@ -467,10 +546,105 @@ fn java_multiprojet_source_folder_has_complete_new_linkage() {
 	assert_eq!(linkage.manifest_blocked_refs, 0);
 }
 
+#[test]
+fn java_linkage_reports_manifest_blocked_cross_project_reference() {
+	let fixture = JavaLinkageFixture::new();
+	let common = fixture.root.join("common-lib");
+	let app = fixture.root.join("app");
+	write_file(
+		&common,
+		PathBuf::from("pom.xml").as_path(),
+		&pom("com.acme", "common-lib", &[]),
+	);
+	write_file(
+		&common,
+		PathBuf::from("src/main/java/com/acme/common/Shared.java").as_path(),
+		"package com.acme.common;\npublic class Shared {}\n",
+	);
+	write_file(
+		&app,
+		PathBuf::from("pom.xml").as_path(),
+		&pom("com.acme", "app", &[]),
+	);
+	write_file(
+		&app,
+		PathBuf::from("src/main/java/com/acme/app/App.java").as_path(),
+		"package com.acme.app;\nimport com.acme.common.Shared;\npublic class App { private final Shared shared = new Shared(); }\n",
+	);
+
+	let (_index, linkage) = workspace_index_and_linkage(vec![common, app], Some("blocked"));
+
+	assert!(linkage.manifest_blocked_refs > 0);
+	assert_eq!(linkage.unresolved_refs, 0);
+}
+
+#[test]
+fn java_linkage_reports_ambiguous_reference_candidates() {
+	let fixture = JavaLinkageFixture::new();
+	write_file(
+		&fixture.root,
+		PathBuf::from("src/main/java/acme/one/Dupe.java").as_path(),
+		"package acme;\npublic class Dupe {}\n",
+	);
+	write_file(
+		&fixture.root,
+		PathBuf::from("src/main/java/acme/two/Dupe.java").as_path(),
+		"package acme;\npublic class Dupe {}\n",
+	);
+	write_file(
+		&fixture.root,
+		PathBuf::from("src/main/java/acme/App.java").as_path(),
+		"package acme;\npublic class App { private Dupe dupe; }\n",
+	);
+
+	let (_index, linkage) =
+		workspace_index_and_linkage(vec![fixture.root.clone()], Some("ambiguous"));
+
+	assert!(linkage.ambiguous_refs > 0);
+	assert_eq!(linkage.unresolved_refs, 0);
+}
+
+#[test]
+fn java_linkage_resolves_projectless_cross_project_reference_by_manifest() {
+	let fixture = JavaLinkageFixture::new();
+	let common = fixture.root.join("common-lib");
+	let app = fixture.root.join("app");
+	write_file(
+		&common,
+		PathBuf::from("pom.xml").as_path(),
+		&pom("com.acme", "common-lib", &[]),
+	);
+	write_file(
+		&common,
+		PathBuf::from("src/main/java/com/acme/common/Shared.java").as_path(),
+		"package com.acme.common;\npublic class Shared {}\n",
+	);
+	write_file(
+		&app,
+		PathBuf::from("pom.xml").as_path(),
+		&pom("com.acme", "app", &[("com.acme", "common-lib")]),
+	);
+	write_file(
+		&app,
+		PathBuf::from("src/main/java/com/acme/app/App.java").as_path(),
+		"package com.acme.app;\nimport com.acme.common.Shared;\npublic class App { private final Shared shared = new Shared(); }\n",
+	);
+
+	let (_index, linkage) = workspace_index_and_linkage(vec![common, app], None);
+
+	assert!(linkage.resolved_refs > 0);
+	assert_eq!(linkage.manifest_blocked_refs, 0);
+	assert_eq!(linkage.unresolved_refs, 0);
+}
+
 struct EmptySymbolProvider;
 
 impl SymbolProvider for EmptySymbolProvider {
 	fn source_at(&self, _file_idx: usize) -> Option<NormalizedSource> {
+		None
+	}
+
+	fn source_for_path(&self, _path: &std::path::Path) -> Option<NormalizedSource> {
 		None
 	}
 
@@ -479,6 +653,10 @@ impl SymbolProvider for EmptySymbolProvider {
 	}
 
 	fn symbol_for_moniker(&self, _moniker: &Moniker) -> Option<NormalizedSymbol> {
+		None
+	}
+
+	fn symbols_for_path(&self, _path: &std::path::Path) -> Option<Vec<NormalizedSymbol>> {
 		None
 	}
 
@@ -497,6 +675,148 @@ fn sample_moniker(name: &str) -> Moniker {
 struct LocalFixture {
 	dir: tempfile::TempDir,
 	rules: std::path::PathBuf,
+}
+
+struct LazyJavaFixture {
+	_dir: tempfile::TempDir,
+	root: PathBuf,
+	main_source: PathBuf,
+	test_source: PathBuf,
+}
+
+impl LazyJavaFixture {
+	fn new() -> Self {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = dir.path().to_path_buf();
+		let main_source = PathBuf::from("src/main/java/acme/Foo.java");
+		let test_source = root.join("src/test/java/acme/FooTest.java");
+		write_file(
+			&root,
+			main_source.as_path(),
+			"package acme;\npublic class Foo {}\n",
+		);
+		write_file(
+			&root,
+			PathBuf::from("src/test/java/acme/FooTest.java").as_path(),
+			"package acme;\npublic class FooTest {}\n",
+		);
+		Self {
+			_dir: dir,
+			root,
+			main_source,
+			test_source,
+		}
+	}
+}
+
+struct JavaLinkageFixture {
+	_dir: tempfile::TempDir,
+	root: PathBuf,
+}
+
+impl JavaLinkageFixture {
+	fn new() -> Self {
+		let dir = tempfile::tempdir().expect("tempdir");
+		Self {
+			root: dir.path().to_path_buf(),
+			_dir: dir,
+		}
+	}
+}
+
+struct GitChangeFixture {
+	_dir: tempfile::TempDir,
+	root: PathBuf,
+}
+
+impl GitChangeFixture {
+	fn new() -> Self {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = dir.path().to_path_buf();
+		write_file(
+			&root,
+			PathBuf::from("src/lib.rs").as_path(),
+			"pub fn kept() {}\npub fn removed() {}\n",
+		);
+		run_git(&root, &["init"]);
+		run_git(&root, &["add", "."]);
+		run_git(
+			&root,
+			&[
+				"-c",
+				"user.name=Code Moniker",
+				"-c",
+				"user.email=code-moniker@example.invalid",
+				"commit",
+				"-m",
+				"initial",
+			],
+		);
+		write_file(
+			&root,
+			PathBuf::from("src/lib.rs").as_path(),
+			"pub fn kept() { let value = 1; let _ = value; }\npub fn added() {}\n",
+		);
+		Self { _dir: dir, root }
+	}
+}
+
+fn write_file(root: &std::path::Path, rel: &std::path::Path, body: &str) {
+	let path = root.join(rel);
+	if let Some(parent) = path.parent() {
+		fs::create_dir_all(parent).expect("fixture parent");
+	}
+	fs::write(path, body).expect("fixture source");
+}
+
+fn run_git(root: &std::path::Path, args: &[&str]) {
+	let output = std::process::Command::new("git")
+		.arg("-C")
+		.arg(root)
+		.args(args)
+		.output()
+		.unwrap_or_else(|err| panic!("cannot run git {args:?}: {err}"));
+	assert!(
+		output.status.success(),
+		"git {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+		String::from_utf8_lossy(&output.stdout),
+		String::from_utf8_lossy(&output.stderr)
+	);
+}
+
+fn workspace_index_and_linkage(
+	paths: Vec<PathBuf>,
+	project: Option<&str>,
+) -> (CodeIndex, LinkageGraph) {
+	let cache = LocalResourceCache::default();
+	let mut catalog_port = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(paths, project.map(ToOwned::to_owned)),
+		cache.clone(),
+	);
+	let mut index_port = LocalCodeIndex::new(LocalCodeIndexOptions::default(), cache.clone());
+	let mut linkage_port = LocalLinkage::new(cache);
+	let catalog = catalog_port
+		.load_catalog(&WorkspaceRequest::new("linkage"))
+		.expect("catalog loads");
+	let index = index_port.build_index(&catalog).expect("index builds");
+	let linkage = linkage_port
+		.resolve_linkage(&index)
+		.expect("linkage resolves");
+	(index, linkage)
+}
+
+fn pom(group: &str, artifact: &str, deps: &[(&str, &str)]) -> String {
+	let dependencies = deps
+		.iter()
+		.map(|(dep_group, dep_artifact)| {
+			format!(
+				r#"<dependency><groupId>{dep_group}</groupId><artifactId>{dep_artifact}</artifactId><version>1.0.0</version></dependency>"#
+			)
+		})
+		.collect::<String>();
+	format!(
+		r#"<project><modelVersion>4.0.0</modelVersion><groupId>{group}</groupId><artifactId>{artifact}</artifactId><version>1.0.0</version><dependencies>{dependencies}</dependencies></project>"#
+	)
 }
 
 impl LocalFixture {

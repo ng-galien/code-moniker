@@ -7,6 +7,7 @@ use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
+use crate::lang::path_to_lang;
 use crate::sources;
 use crate::workspace::snapshot::{ReferenceId, SourceId, SymbolId};
 
@@ -107,6 +108,11 @@ impl SourceCatalogMaterial {
 			.map(|rel_path| self.identity.source_uri(rel_path))
 	}
 
+	#[allow(dead_code)]
+	pub(crate) fn resolve_source(&self, path: &Path) -> Option<ResolvedSourceResource> {
+		SourceResourceLookup::new(self).resolve(path)
+	}
+
 	fn source_rel_path(&self, path: &Path) -> Option<&Path> {
 		let normalized = normalize_path(path);
 		self.sources
@@ -119,6 +125,104 @@ impl SourceCatalogMaterial {
 			})
 			.map(|file| file.rel_path.as_path())
 	}
+
+	#[allow(dead_code)]
+	fn root_for_path(&self, path: &Path) -> Option<(usize, &sources::SourceRoot)> {
+		self.sources
+			.roots
+			.iter()
+			.enumerate()
+			.filter_map(|(root_idx, root)| {
+				let absolute = absolute_path_against_root(&root.path, path);
+				let root_path = normalize_path(&root.path);
+				normalize_path(&absolute)
+					.starts_with(&root_path)
+					.then_some((root_idx, root, root_path.components().count()))
+			})
+			.max_by_key(|(_, _, depth)| *depth)
+			.map(|(root_idx, root, _)| (root_idx, root))
+	}
+}
+
+#[allow(dead_code)]
+struct SourceResourceLookup<'a> {
+	material: &'a SourceCatalogMaterial,
+}
+
+impl<'a> SourceResourceLookup<'a> {
+	fn new(material: &'a SourceCatalogMaterial) -> Self {
+		Self { material }
+	}
+
+	fn resolve(&self, path: &Path) -> Option<ResolvedSourceResource> {
+		self.indexed(path).or_else(|| self.lazy(path))
+	}
+
+	fn indexed(&self, path: &Path) -> Option<ResolvedSourceResource> {
+		let normalized = normalize_path(path);
+		let (file_idx, file) =
+			self.material
+				.sources
+				.files
+				.iter()
+				.enumerate()
+				.find(|(_, file)| {
+					normalize_path(&file.path) == normalized
+						|| normalize_path(&file.rel_path) == normalized
+				})?;
+		Some(ResolvedSourceResource {
+			source_root: file.source,
+			source_id: self.material.identity.source_id(file_idx, &file.rel_path),
+			source_uri: self.material.identity.source_uri(&file.rel_path),
+			path: file.path.clone(),
+			rel_path: file.rel_path.clone(),
+			anchor: file.anchor.clone(),
+			lang: file.lang,
+			eager_index: Some(file_idx),
+		})
+	}
+
+	fn lazy(&self, path: &Path) -> Option<ResolvedSourceResource> {
+		let (source_root, root) = self.material.root_for_path(path)?;
+		let abs_path = absolute_path_against_root(&root.path, path);
+		if !abs_path.is_file() {
+			return None;
+		}
+		let lang = path_to_lang(&abs_path).ok()?;
+		let rel = abs_path.strip_prefix(&root.path).ok()?.to_path_buf();
+		let rel_path = self.rel_path(root, &rel);
+		Some(ResolvedSourceResource {
+			source_root,
+			source_id: SourceId::new(format!("source:lazy:{}", rel_path.display())),
+			source_uri: self.material.identity.source_uri(&rel_path),
+			path: abs_path,
+			rel_path,
+			anchor: rel,
+			lang,
+			eager_index: None,
+		})
+	}
+
+	fn rel_path(&self, root: &sources::SourceRoot, rel: &Path) -> PathBuf {
+		if self.material.sources.multi {
+			PathBuf::from(&root.label).join(rel)
+		} else {
+			rel.to_path_buf()
+		}
+	}
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub(crate) struct ResolvedSourceResource {
+	pub(crate) source_root: usize,
+	pub(crate) source_id: SourceId,
+	pub(crate) source_uri: String,
+	pub(crate) path: PathBuf,
+	pub(crate) rel_path: PathBuf,
+	pub(crate) anchor: PathBuf,
+	pub(crate) lang: Lang,
+	pub(crate) eager_index: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -157,4 +261,13 @@ fn normalize_path(path: &Path) -> PathBuf {
 		}
 	}
 	out
+}
+
+#[allow(dead_code)]
+fn absolute_path_against_root(root: &Path, path: &Path) -> PathBuf {
+	if path.is_absolute() {
+		normalize_path(path)
+	} else {
+		normalize_path(&root.join(path))
+	}
 }

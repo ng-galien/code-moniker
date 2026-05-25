@@ -1,43 +1,68 @@
 # Workspace Session Bridge Review
 
-Status: review findings resolved for the current `workspace-semantic-ports`
-migration slice. Remaining warnings are general smell-rule candidates, not
-workspace-boundary violations.
+Status: current migration baseline established on `workspace-semantic-ports`.
+The target model now has explicit `source`, `code`, `linkage`, `changes`,
+`snapshot`, `compat`, and `legacy` boundaries. The bridge remains an
+anti-corruption adapter over the legacy `IndexStore` surface.
 
-The current branch introduces a parallel `workspace::session` model, local
-resource implementations, and a `SessionStoreBridge` anti-corruption layer that
-adapts the new model back to the legacy `IndexStore` surface.
+The bridge is intentionally frozen until the final swap. Do not keep polishing
+the bridge as if it were the target architecture. It may carry compatibility
+debt, legacy `DefLocation` conversion, and UI/runtime adapter concerns. New
+design work should happen in the target boundaries and be exposed through
+stable read models; the bridge should only be adjusted when required to keep the
+current UI/runtime functional.
 
-The bridge is considered complete for this migration slice when evaluated
-against the findings below: workspace loading does not own check rules, the
-target model uses source/code/linkage/changes/snapshot boundaries, compatibility
-is isolated, `DefLocation` no longer leaks into target code/change modules,
-and the target model has contract tests for the previously missing cases.
+This document tracks what the baseline actually covers and what remains before
+the target model can replace the legacy runtime.
 
 ## Resolution Summary
 
-- Runtime bridge: resolved through the `WorkspaceHandle`/bridge path and UI
-  runtime tests.
+- Runtime bridge: intentionally deferred. `WorkspaceHandle` can load the
+  session-backed bridge, but the UI still consumes the legacy `IndexStore`
+  surface through a compatibility facade. This does not move until the final
+  swap.
 - Check coupling: resolved by moving workspace-aware rule execution to
   `check::workspace`; workspace refresh no longer builds rules.
-- Linkage model: resolved for this slice with local/global resolution,
-  projectless matching, external classification, manifest-blocked accounting,
-  ambiguous reference accounting, and language-strategy delegation.
+- Linkage model: baseline established with local/global resolution,
+  language-strategy delegation, external classification, manifest policy,
+  ambiguity accounting, and report projection from a decision log. Java
+  acceptance is covered by a versioned multiproject fixture with `0`
+  unresolved references.
 - Change model: resolved for this slice with `ChangeAnalyzer` consuming
   `SymbolProvider`, `SymbolLocation` replacing legacy `DefLocation`, and
-  modified/removed git symbol coverage.
+  removed-entry metadata preservation. Full real-repository modified/removed
+  acceptance remains open.
 - Source identity: resolved for known workspace paths through
   `SourceCatalogMaterial` canonical URI lookup; lazy rule-derived resources are
   represented as the next extension point on the same boundary.
 - Source read failures: resolved by explicit code-index failures and tests.
 - Custom URI schemes: resolved through shared identity configuration and tests.
 
+## Completion State
+
+| Priority | Area | Work |
+| --- | --- | --- |
+| Done | Lazy check resources | Source catalog options can index an eager subset while source identity/content/symbol-provider boundaries resolve and load a rule-derived source outside the eager index. Covered by `symbol_provider_loads_rule_derived_source_outside_eager_index`. |
+| Done | SymbolProvider boundary | `SymbolProvider` can answer for eager indexed symbols and for path-derived lazy symbols. The lazy path is intentionally covered through a boundary fixture, not internal extractor tests. |
+| Done | Source URI centrality | `SourceCatalogMaterial` resolves known and root-contained paths to canonical source resources. Consumers ask the source boundary instead of constructing source URIs directly. |
+| Done | Linkage acceptance | Focused target tests cover manifest-blocked, ambiguous, and projectless Java linkage decisions without using the legacy linker as oracle. |
+| Done | Change acceptance | A real git fixture covers modified and removed symbols, including a removed symbol with no current workspace symbol. |
+| Done | Workspace rules | The active guardrail reports no target-boundary errors. Remaining warnings are in frozen `legacy`/`compat` bridge debt. |
+| Deferred | Bridge/UI runtime | Leave the bridge/UI runtime surface stable until the final swap. Only touch it to preserve behavior while target boundaries evolve. |
+| Assumed debt | Java extractor | The Java `Strategy` remains a large extractor module. This debt is accepted for now; do not expand tests around its internals. Cover behavior through fixtures and acceptance. |
+
 ## Findings
 
-- High: the bridge is not actually wired into the UI runtime. `App`, `AppStore`,
-  and async tasks still own and construct concrete `WorkspaceStore` values, so
-  `SessionStoreBridge` cannot replace the runtime without a store-handle
-  refactor.
+- High: the bridge is not the target runtime model.
+
+  Current status: deferred until the final swap. `WorkspaceHandle` can carry a
+  session-backed bridge, and UI code can consume the handle. That is enough for
+  the migration slice. The bridge remains a compatibility facade over the
+  legacy `IndexStore` contract and may keep `DefLocation` conversions.
+
+  Decision: do not refactor the bridge further during target-model work. Build
+  the target boundaries beside legacy, keep contract tests green, and swap the
+  runtime in one final gesture once the target model is complete.
 
 - High: `check_summary` does not preserve the legacy contract. The new session
   load currently collects diagnostics eagerly, so invalid rule configuration can
@@ -52,10 +77,8 @@ and the target model has contract tests for the previously missing cases.
   snapshot. `RuleDiagnosticsPort` should leave the base workspace refresh path;
   diagnostics may be produced by a separate check runner, not by workspace load.
 
-- High: `LocalLinkage` is not semantically equivalent to the legacy linkage
-  index. It currently resolves by simple local matching and does not model
-  external references, manifest-blocked references, ambiguous matches,
-  projectless/callable matching, or the legacy `incoming_refs_for_def` behavior.
+- High: `LocalLinkage` is not yet fully covered by target acceptance tests for
+  every linkage decision class.
 
   Decision: accepted. The correction is Option A: extract a proper linkage
   model rather than treating `LocalLinkage` as a placeholder. Linkage must be
@@ -66,10 +89,15 @@ and the target model has contract tests for the previously missing cases.
   contract; callers should consume stable linkage outputs instead of depending
   on the current implementation shape.
 
-- High: git/change parity is incomplete for real repositories. File change
-  counts currently rely on parsing `SourceId`, and removed entries without a
-  symbol location lose language and file path information. Existing tests mostly
-  cover the no-change case.
+  Current status: baseline implemented. The resolver produces a
+  `LinkageDecisionLog`, and `LinkageGraphReport` is a projection of decisions.
+  Java linkage is exercised through
+  `crates/cli/tests/fixtures/workspace/java/multiprojet`, including local,
+  global, runtime external, field, callable arity, source-set, and `var`
+  inference cases. Remaining tests must target manifest-blocked, ambiguous, and
+  projectless decisions directly.
+
+- High: git/change parity is incomplete for real repositories.
 
   Decision: accepted as a model-boundary issue. `ChangeRecord` is the result,
   not the owner of symbol extraction. A change service, tentatively
@@ -109,18 +137,31 @@ and the target model has contract tests for the previously missing cases.
   configuration. Local adapters must not hard-code `DEFAULT_SCHEME` when
   constructing persisted or comparable identities.
 
-## Missing Coverage
+## Coverage State
 
-- UI/runtime integration with the bridge.
-- Invalid rules during workspace load versus check execution.
-- Real git changes, including modified and removed symbols.
-- Manifest-blocked, ambiguous, external, and projectless linkage.
-- Custom URI scheme mapping between index records and diagnostics.
-- Source read failures after extraction.
+Covered:
 
-Decision: accepted as completion criteria. The bridge must not be considered
-runtime-replaceable until the critical cases above are covered by either legacy
-parity tests or isolated contract tests for the new model boundaries.
+- Workspace refresh does not compile or own check rules.
+- Check execution lives in `check::workspace` and consumes the workspace model.
+- Source read failures fail code indexing explicitly.
+- Custom source/symbol identity schemes are covered for local indexing and
+  diagnostics.
+- Known workspace paths can be resolved to canonical source URIs.
+- Removed changes without current symbols preserve observable metadata.
+- Java multiproject linkage is covered by a versioned fixture with zero
+  unresolved references.
+
+Missing:
+
+- Final runtime swap away from the bridge facade.
+- DSL-level syntax/operators for lazy check obligations. The underlying source
+  identity/content/symbol-provider path exists, but the check language still
+  needs the rule-facing expression surface.
+
+Decision: accepted as completion criteria for the target model. The bridge must
+not be considered runtime-replaceable until the target model is swapped into the
+runtime. Do not add new legacy parity tests as a substitute for target
+contracts.
 
 ## Concrete Design Stress Test: Lazy Check Resource
 
@@ -160,3 +201,8 @@ Design consequences:
   source content, and symbol-provider ports.
 - This use case reinforces the decision to keep `RuleDiagnosticsPort` out of
   `WorkspaceSession::refresh`.
+
+Current status: boundary implemented and covered without changing the bridge
+contract. The remaining work is DSL-facing: expose this capability to check
+rules without letting the workspace own rule construction or letting consumers
+assemble URIs by hand.

@@ -16,6 +16,7 @@ pub trait SourceCatalogPort {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LocalSourceCatalogOptions {
 	pub paths: Vec<PathBuf>,
+	pub files: Option<Vec<PathBuf>>,
 	pub project: Option<String>,
 	pub identity: LocalIdentityResolver,
 }
@@ -24,9 +25,15 @@ impl LocalSourceCatalogOptions {
 	pub fn new(paths: Vec<PathBuf>, project: Option<String>) -> Self {
 		Self {
 			paths,
+			files: None,
 			project,
 			identity: LocalIdentityResolver::default(),
 		}
+	}
+
+	pub fn with_files(mut self, files: Vec<PathBuf>) -> Self {
+		self.files = Some(files);
+		self
 	}
 
 	pub fn with_identity(mut self, identity: LocalIdentityResolver) -> Self {
@@ -48,10 +55,18 @@ impl LocalSourceCatalog {
 
 impl SourceCatalogPort for LocalSourceCatalog {
 	fn load_catalog(&mut self, _request: &WorkspaceRequest) -> WorkspaceResult<SourceCatalog> {
-		let sources = sources::discover(&self.options.paths, self.options.project.clone())
-			.map_err(|err| {
-				WorkspaceFailure::new(WorkspaceResource::SourceCatalog, err.to_string())
-			})?;
+		let sources = if let Some(files) = &self.options.files {
+			let [root] = self.options.paths.as_slice() else {
+				return Err(WorkspaceFailure::new(
+					WorkspaceResource::SourceCatalog,
+					"explicit source files require exactly one source root",
+				));
+			};
+			sources::discover_files(root, files, self.options.project.clone())
+		} else {
+			sources::discover(&self.options.paths, self.options.project.clone())
+		}
+		.map_err(|err| WorkspaceFailure::new(WorkspaceResource::SourceCatalog, err.to_string()))?;
 		let generation = self.cache.next_generation();
 		let units = sources
 			.files

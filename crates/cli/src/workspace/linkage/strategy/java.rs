@@ -24,9 +24,6 @@ fn java_path_target_matches_type_def(
 	if target_segments.len() != candidate_segments.len() || target_segments.is_empty() {
 		return false;
 	}
-	if query.target.as_view().project() != candidate.moniker.as_view().project() {
-		return false;
-	}
 	target_segments
 		.iter()
 		.zip(candidate_segments.iter())

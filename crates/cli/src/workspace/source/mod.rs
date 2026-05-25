@@ -6,4 +6,6 @@ pub use catalog::{LocalSourceCatalog, LocalSourceCatalogOptions, SourceCatalogPo
 pub use content::LocalResourceCache;
 pub use identity::LocalIdentityResolver;
 
-pub(crate) use content::{CodeIndexMaterial, IndexedSourceFile, SourceCatalogMaterial};
+pub(crate) use content::{
+	CodeIndexMaterial, IndexedSourceFile, ResolvedSourceResource, SourceCatalogMaterial,
+};
