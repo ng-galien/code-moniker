@@ -1,0 +1,124 @@
+# code-moniker rules for the multi-project Java sandbox.
+# The root contains several independent Maven projects plus one nested reactor.
+# Rules are written on package/srcset monikers so they remain stable when files
+# are checked through the live edit harness with --file.
+
+default_rules = false
+
+[aliases]
+code_main = "moniker ~ '**/srcset:main/**'"
+code_test = "moniker ~ '**/srcset:test/**'"
+source_main = "source ~ '**/srcset:main/**'"
+source_test = "source ~ '**/srcset:test/**'"
+target_main = "target ~ '**/srcset:main/**'"
+target_test = "target ~ '**/srcset:test/**'"
+
+source_common = "source ~ '**/package:common/**'"
+source_order = "source ~ '**/package:order/**'"
+source_billing = "source ~ '**/package:billing/**'"
+source_inventory = "source ~ '**/package:inventory/**'"
+source_loyalty_api = "source ~ '**/package:loyalty/package:api/**'"
+source_loyalty_worker = "source ~ '**/package:loyalty/package:worker/**'"
+
+source_order_test = "$source_test AND $source_order"
+source_billing_test = "$source_test AND $source_billing"
+source_inventory_test = "$source_test AND $source_inventory"
+source_loyalty_api_test = "$source_test AND $source_loyalty_api"
+source_loyalty_worker_test = "$source_test AND $source_loyalty_worker"
+
+target_common = "target ~ '**/package:common/**'"
+target_order = "target ~ '**/package:order/**'"
+target_billing = "target ~ '**/package:billing/**'"
+target_inventory = "target ~ '**/package:inventory/**'"
+target_loyalty_api = "target ~ '**/package:loyalty/package:api/**'"
+target_loyalty_worker = "target ~ '**/package:loyalty/package:worker/**'"
+
+target_order_main = "$target_main AND $target_order"
+target_billing_main = "$target_main AND $target_billing"
+target_inventory_main = "$target_main AND $target_inventory"
+target_loyalty_api_main = "$target_main AND $target_loyalty_api"
+target_loyalty_worker_main = "$target_main AND $target_loyalty_worker"
+
+target_order_test = "$target_test AND $target_order"
+target_billing_test = "$target_test AND $target_billing"
+target_inventory_test = "$target_test AND $target_inventory"
+target_loyalty_api_test = "$target_test AND $target_loyalty_api"
+target_loyalty_worker_test = "$target_test AND $target_loyalty_worker"
+
+[profiles.agent-edit]
+enable = [".*"]
+
+[profiles.code]
+enable = [
+  '^refs\.common-no-service-imports$',
+  '^refs\.order-main-no-other-service-imports$',
+  '^refs\.billing-main-no-other-service-imports$',
+  '^refs\.inventory-main-no-other-service-imports$',
+  '^refs\.loyalty-api-no-worker-imports$',
+  '^refs\.loyalty-worker-no-api-imports$',
+  '^java\.class\.code-class-method-budget$',
+]
+
+[profiles.tests]
+enable = ['^refs\..*-tests-no-peer-modules$']
+
+
+[[java.class.where]]
+id = "code-class-method-budget"
+expr = "$code_main => count(method) <= 10"
+message = "Production Java class `{name}` must not declare more than 10 methods."
+
+[[refs.where]]
+id = "common-no-service-imports"
+expr = "$source_common AND kind = 'imports_symbol' => NOT ($target_order OR $target_billing OR $target_inventory OR $target_loyalty_api OR $target_loyalty_worker)"
+message = "common-lib must stay reusable; it must not import service or loyalty modules."
+
+[[refs.where]]
+id = "order-main-no-other-service-imports"
+expr = "$source_main AND $source_order AND kind = 'imports_symbol' => NOT ($target_billing_main OR $target_inventory_main OR $target_loyalty_api_main OR $target_loyalty_worker_main)"
+message = "order-service production code may depend on common-lib only, not on peer service production code."
+
+[[refs.where]]
+id = "billing-main-no-other-service-imports"
+expr = "$source_main AND $source_billing AND kind = 'imports_symbol' => NOT ($target_order_main OR $target_inventory_main OR $target_loyalty_api_main OR $target_loyalty_worker_main)"
+message = "billing-service production code may depend on common-lib only, not on peer service production code."
+
+[[refs.where]]
+id = "inventory-main-no-other-service-imports"
+expr = "$source_main AND $source_inventory AND kind = 'imports_symbol' => NOT ($target_order_main OR $target_billing_main OR $target_loyalty_api_main OR $target_loyalty_worker_main)"
+message = "inventory-service production code may depend on common-lib only, not on peer service production code."
+
+[[refs.where]]
+id = "loyalty-api-no-worker-imports"
+expr = "$source_main AND $source_loyalty_api AND kind = 'imports_symbol' => NOT $target_loyalty_worker_main"
+message = "loyalty-api is the inbound module; it must not import loyalty-worker production code."
+
+[[refs.where]]
+id = "loyalty-worker-no-api-imports"
+expr = "$source_main AND $source_loyalty_worker AND kind = 'imports_symbol' => NOT $target_loyalty_api_main"
+message = "loyalty-worker must not depend on loyalty-api entrypoint code."
+
+[[refs.where]]
+id = "order-tests-no-peer-modules"
+expr = "$source_order_test AND kind = 'imports_symbol' => NOT ($target_billing OR $target_inventory OR $target_loyalty_api OR $target_loyalty_worker)"
+message = "order-service tests may use order-service and common-lib support only, not peer modules."
+
+[[refs.where]]
+id = "billing-tests-no-peer-modules"
+expr = "$source_billing_test AND kind = 'imports_symbol' => NOT ($target_order OR $target_inventory OR $target_loyalty_api OR $target_loyalty_worker)"
+message = "billing-service tests may use billing-service and common-lib support only, not peer modules."
+
+[[refs.where]]
+id = "inventory-tests-no-peer-modules"
+expr = "$source_inventory_test AND kind = 'imports_symbol' => NOT ($target_order OR $target_billing OR $target_loyalty_api OR $target_loyalty_worker)"
+message = "inventory-service tests may use inventory-service and common-lib support only, not peer modules."
+
+[[refs.where]]
+id = "loyalty-api-tests-no-peer-modules"
+expr = "$source_loyalty_api_test AND kind = 'imports_symbol' => NOT ($target_order OR $target_billing OR $target_inventory OR $target_loyalty_worker)"
+message = "loyalty-api tests may use loyalty-api and common-lib support only, not peer modules."
+
+[[refs.where]]
+id = "loyalty-worker-tests-no-peer-modules"
+expr = "$source_loyalty_worker_test AND kind = 'imports_symbol' => NOT ($target_order OR $target_billing OR $target_inventory OR $target_loyalty_api)"
+message = "loyalty-worker tests may use loyalty-worker and common-lib support only, not peer modules."

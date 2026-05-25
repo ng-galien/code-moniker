@@ -443,10 +443,7 @@ fn bridge_load_does_not_compile_check_rules() {
 #[test]
 fn java_multiprojet_source_folder_has_complete_new_linkage() {
 	let root =
-		PathBuf::from("/Users/alexandreboyer/dev/projects/code-moniker-sandbox/java/multiprojet");
-	if !root.exists() {
-		return;
-	}
+		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/workspace/java/multiprojet");
 	let cache = LocalResourceCache::default();
 	let mut catalog_port = LocalSourceCatalog::new(
 		LocalSourceCatalogOptions::new(vec![root], Some("multiprojet".into())),
@@ -465,7 +462,7 @@ fn java_multiprojet_source_folder_has_complete_new_linkage() {
 
 	assert_eq!(index.sources.len(), 14);
 	assert_eq!(index.symbols.len(), 121);
-	assert_eq!(index.references.len(), 257);
+	assert_eq!(index.references.len(), 251);
 	assert_eq!(linkage.unresolved_refs, 0);
 	assert_eq!(linkage.manifest_blocked_refs, 0);
 }

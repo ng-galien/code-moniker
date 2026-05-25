@@ -1,14 +1,26 @@
-use crate::workspace::snapshot::{LinkageEdge, ReferenceRecord, SymbolId, UnresolvedReference};
+use crate::workspace::snapshot::{
+	LinkageEdge, LinkageGraphReport, ReferenceRecord, ResourceGeneration, SymbolId,
+	UnresolvedReference,
+};
 
 #[derive(Default)]
-pub(super) struct LinkageOutcome {
-	pub(super) resolved_refs: usize,
-	pub(super) external_refs: usize,
-	pub(super) manifest_blocked_refs: usize,
-	pub(super) unresolved_refs: usize,
-	pub(super) ambiguous_refs: usize,
-	pub(super) resolved: Vec<LinkageEdge>,
-	pub(super) unresolved: Vec<UnresolvedReference>,
+pub(super) struct LinkageDecisionLog {
+	decisions: Vec<ReferenceLinkageDecision>,
+}
+
+impl LinkageDecisionLog {
+	pub(super) fn new(decisions: Vec<ReferenceLinkageDecision>) -> Self {
+		Self { decisions }
+	}
+
+	pub(super) fn project_report(
+		self,
+		generation: ResourceGeneration,
+		index_generation: ResourceGeneration,
+	) -> LinkageGraphReport {
+		LinkageReportProjection::from_decisions(self.decisions)
+			.into_report(generation, index_generation)
+	}
 }
 
 pub(super) enum ReferenceLinkageDecision {
@@ -100,84 +112,67 @@ impl ReferenceLinkageDecision {
 	}
 }
 
-impl FromIterator<ReferenceLinkageDecision> for LinkageOutcome {
-	fn from_iter<T: IntoIterator<Item = ReferenceLinkageDecision>>(iter: T) -> Self {
-		let contributions = iter
+#[derive(Default)]
+struct LinkageReportProjection {
+	resolved: ResolvedLinkProjection,
+	external: ExternalLinkProjection,
+	unresolved: UnresolvedLinkProjection,
+}
+
+impl LinkageReportProjection {
+	fn from_decisions(decisions: Vec<ReferenceLinkageDecision>) -> Self {
+		decisions
 			.into_iter()
-			.map(LinkageContribution::from)
-			.collect::<Vec<_>>();
-		Self {
-			resolved_refs: contributions
-				.iter()
-				.filter(|contribution| matches!(contribution, LinkageContribution::Resolved { .. }))
-				.count(),
-			external_refs: contributions
-				.iter()
-				.filter(|contribution| matches!(contribution, LinkageContribution::External))
-				.count(),
-			manifest_blocked_refs: contributions
-				.iter()
-				.filter(|contribution| {
-					matches!(contribution, LinkageContribution::ManifestBlocked(_))
-				})
-				.count(),
-			unresolved_refs: contributions
-				.iter()
-				.filter(|contribution| matches!(contribution, LinkageContribution::Unresolved(_)))
-				.count(),
-			ambiguous_refs: contributions
-				.iter()
-				.filter(|contribution| {
-					matches!(
-						contribution,
-						LinkageContribution::Resolved {
-							ambiguous: true,
-							..
-						}
-					)
-				})
-				.count(),
-			resolved: contributions
-				.iter()
-				.flat_map(LinkageContribution::resolved_edges)
-				.cloned()
-				.collect(),
-			unresolved: contributions
-				.iter()
-				.filter_map(LinkageContribution::unresolved_reference)
-				.cloned()
-				.collect(),
+			.map(LinkageDecisionProjection::from)
+			.fold(Self::default(), Self::collect)
+	}
+
+	fn collect(mut self, decision: LinkageDecisionProjection) -> Self {
+		match decision {
+			LinkageDecisionProjection::Resolved(resolved) => self.resolved.collect(resolved),
+			LinkageDecisionProjection::External => self.external.collect(),
+			LinkageDecisionProjection::ManifestBlocked(reference) => {
+				self.unresolved.collect_manifest_blocked(reference)
+			}
+			LinkageDecisionProjection::Unresolved(reference) => self.unresolved.collect(reference),
+		}
+		self
+	}
+
+	fn into_report(
+		self,
+		generation: ResourceGeneration,
+		index_generation: ResourceGeneration,
+	) -> LinkageGraphReport {
+		LinkageGraphReport {
+			generation,
+			index_generation,
+			resolved_refs: self.resolved.resolved_refs,
+			external_refs: self.external.external_refs,
+			manifest_blocked_refs: self.unresolved.manifest_blocked_refs,
+			unresolved_refs: self.unresolved.unresolved_refs,
+			ambiguous_refs: self.resolved.ambiguous_refs,
+			resolved: self.resolved.edges,
+			unresolved: self.unresolved.references,
 		}
 	}
 }
 
-enum LinkageContribution {
-	Resolved {
-		ambiguous: bool,
-		edges: Vec<LinkageEdge>,
-	},
+enum LinkageDecisionProjection {
+	Resolved(ResolvedReferenceProjection),
 	External,
 	ManifestBlocked(UnresolvedReference),
 	Unresolved(UnresolvedReference),
 }
 
-impl From<ReferenceLinkageDecision> for LinkageContribution {
+impl From<ReferenceLinkageDecision> for LinkageDecisionProjection {
 	fn from(decision: ReferenceLinkageDecision) -> Self {
 		match decision {
 			ReferenceLinkageDecision::Resolved {
 				scope: _scope,
 				reference,
 				targets,
-			} => {
-				let ambiguous = targets.len() > 1;
-				Self::Resolved {
-					ambiguous,
-					edges: targets
-						.into_iter()
-						.map(|target| LinkageEdge::new(reference.id.clone(), target))
-						.collect(),
-				}
-			}
+			} => Self::Resolved(ResolvedReferenceProjection::new(reference, targets)),
 			ReferenceLinkageDecision::Blocked {
 				reason: BlockReason::ManifestPolicy,
 				reference,
@@ -198,19 +193,67 @@ impl From<ReferenceLinkageDecision> for LinkageContribution {
 	}
 }
 
-impl LinkageContribution {
-	fn resolved_edges(&self) -> &[LinkageEdge] {
-		match self {
-			Self::Resolved { edges, .. } => edges,
-			Self::External | Self::ManifestBlocked(_) | Self::Unresolved(_) => &[],
+struct ResolvedReferenceProjection {
+	ambiguous: bool,
+	edges: Vec<LinkageEdge>,
+}
+
+impl ResolvedReferenceProjection {
+	fn new(reference: ReferenceRecord, targets: Vec<SymbolId>) -> Self {
+		Self {
+			ambiguous: targets.len() > 1,
+			edges: targets
+				.into_iter()
+				.map(|target| LinkageEdge::new(reference.id.clone(), target))
+				.collect(),
 		}
 	}
+}
 
-	fn unresolved_reference(&self) -> Option<&UnresolvedReference> {
-		match self {
-			Self::ManifestBlocked(reference) | Self::Unresolved(reference) => Some(reference),
-			Self::Resolved { .. } | Self::External => None,
+#[derive(Default)]
+struct ResolvedLinkProjection {
+	resolved_refs: usize,
+	ambiguous_refs: usize,
+	edges: Vec<LinkageEdge>,
+}
+
+impl ResolvedLinkProjection {
+	fn collect(&mut self, resolved: ResolvedReferenceProjection) {
+		self.resolved_refs += 1;
+		if resolved.ambiguous {
+			self.ambiguous_refs += 1;
 		}
+		self.edges.extend(resolved.edges);
+	}
+}
+
+#[derive(Default)]
+struct ExternalLinkProjection {
+	external_refs: usize,
+}
+
+impl ExternalLinkProjection {
+	fn collect(&mut self) {
+		self.external_refs += 1;
+	}
+}
+
+#[derive(Default)]
+struct UnresolvedLinkProjection {
+	manifest_blocked_refs: usize,
+	unresolved_refs: usize,
+	references: Vec<UnresolvedReference>,
+}
+
+impl UnresolvedLinkProjection {
+	fn collect_manifest_blocked(&mut self, reference: UnresolvedReference) {
+		self.manifest_blocked_refs += 1;
+		self.references.push(reference);
+	}
+
+	fn collect(&mut self, reference: UnresolvedReference) {
+		self.unresolved_refs += 1;
+		self.references.push(reference);
 	}
 }
 

@@ -1,13 +1,12 @@
 use crate::workspace::linkage::candidate::CandidateCatalog;
 use crate::workspace::linkage::decision::{
-	ExternalOrigin, LinkageOutcome, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
+	ExternalOrigin, LinkageDecisionLog, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
 use crate::workspace::linkage::manifest::ManifestPolicy;
 use crate::workspace::linkage::query::LinkageQuery;
 use crate::workspace::linkage::scope::{GlobalScopeResolver, LocalScopeResolver};
 use crate::workspace::snapshot::{
-	CodeIndex, LinkageGraph, LinkageGraphReport, ReferenceRecord, WorkspaceFailure,
-	WorkspaceResource, WorkspaceResult,
+	CodeIndex, LinkageGraph, ReferenceRecord, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };
 use crate::workspace::source::{CodeIndexMaterial, LocalResourceCache};
 
@@ -35,18 +34,10 @@ impl LinkagePort for LocalLinkage {
 		})?;
 		let generation = self.cache.next_generation();
 		let resolver = LinkageResolver::new(&material);
-		let outcome = resolver.resolve(index);
-		Ok(LinkageGraph::from_report(LinkageGraphReport {
-			generation,
-			index_generation: index.generation,
-			resolved_refs: outcome.resolved_refs,
-			external_refs: outcome.external_refs,
-			manifest_blocked_refs: outcome.manifest_blocked_refs,
-			unresolved_refs: outcome.unresolved_refs,
-			ambiguous_refs: outcome.ambiguous_refs,
-			resolved: outcome.resolved,
-			unresolved: outcome.unresolved,
-		}))
+		let decision_log = resolver.resolve(index);
+		Ok(LinkageGraph::from_report(
+			decision_log.project_report(generation, index.generation),
+		))
 	}
 }
 
@@ -65,14 +56,16 @@ impl<'a> LinkageResolver<'a> {
 		}
 	}
 
-	fn resolve(&self, index: &CodeIndex) -> LinkageOutcome {
+	fn resolve(&self, index: &CodeIndex) -> LinkageDecisionLog {
 		let candidates = CandidateCatalog::new(self.material);
 		let manifests = ManifestPolicy::build(self.material);
-		index
-			.references
-			.iter()
-			.map(|reference| self.resolve_reference(reference, &candidates, &manifests))
-			.collect()
+		LinkageDecisionLog::new(
+			index
+				.references
+				.iter()
+				.map(|reference| self.resolve_reference(reference, &candidates, &manifests))
+				.collect(),
+		)
 	}
 
 	fn resolve_reference(

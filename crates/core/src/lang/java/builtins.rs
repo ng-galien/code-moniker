@@ -10,6 +10,10 @@ pub(super) fn is_java_lang_type(name: &[u8]) -> bool {
 		.is_ok()
 }
 
+pub(super) fn is_inferred_local_type(name: &[u8]) -> bool {
+	name == b"var"
+}
+
 const JAVA_PRIMITIVE_TYPES: &[&str] = &[
 	"boolean", "byte", "char", "double", "float", "int", "long", "short", "void",
 ];

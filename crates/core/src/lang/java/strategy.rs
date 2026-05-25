@@ -465,12 +465,16 @@ impl<'src_lang> Strategy<'src_lang> {
 	}
 
 	fn handle_local_variable(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let declared_type = if let Some(t) = node.child_by_field_name("type") {
+		let type_node = node.child_by_field_name("type");
+		let declared_type = if let Some(t) = type_node {
 			self.emit_uses_type(t, scope, graph);
 			self.type_target_for_node(t)
 		} else {
 			None
 		};
+		let infer_local_type = type_node
+			.and_then(|node| type_name_bytes(node, self.source_bytes))
+			.is_some_and(|name| builtins::is_inferred_local_type(&name));
 		let inside_callable = is_callable_scope(scope, &self.module);
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
@@ -482,7 +486,14 @@ impl<'src_lang> Strategy<'src_lang> {
 			};
 			let name = node_slice(name_node, self.source_bytes);
 			if inside_callable {
-				self.record_local_type(name, declared_type.clone());
+				let local_type = if infer_local_type {
+					child
+						.child_by_field_name("value")
+						.and_then(|value| self.expression_type_target(scope, value))
+				} else {
+					declared_type.clone()
+				};
+				self.record_local_type(name, local_type);
 				if self.deep {
 					let m = extend_segment(scope, kinds::LOCAL, name);
 					let _ = graph.add_def(m, kinds::LOCAL, scope, Some(node_position(child)));
@@ -1042,7 +1053,10 @@ impl<'src_lang> Strategy<'src_lang> {
 				return;
 			}
 		};
-		if name.is_empty() || builtins::is_primitive_type(name.as_bytes()) {
+		if name.is_empty()
+			|| builtins::is_primitive_type(name.as_bytes())
+			|| builtins::is_inferred_local_type(name.as_bytes())
+		{
 			return;
 		}
 		let (target, confidence) = self.resolve_type_target(name.as_bytes(), kinds::CLASS);
@@ -1262,7 +1276,10 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn type_target_for_node(&self, node: Node<'_>) -> Option<Moniker> {
 		let name = type_name_bytes(node, self.source_bytes)?;
-		if name.is_empty() || builtins::is_primitive_type(&name) {
+		if name.is_empty()
+			|| builtins::is_primitive_type(&name)
+			|| builtins::is_inferred_local_type(&name)
+		{
 			return None;
 		}
 		Some(self.resolve_type_target(&name, kinds::CLASS).0)
@@ -1277,6 +1294,9 @@ impl<'src_lang> Strategy<'src_lang> {
 		match node.kind() {
 			"identifier" => self.lookup_value_type(scope, node_slice(node, self.source_bytes)),
 			"this" | "super" => enclosing_class(scope),
+			"cast_expression" => node
+				.child_by_field_name("type")
+				.and_then(|type_node| self.type_target_for_node(type_node)),
 			"object_creation_expression" => self.type_target_for_object_creation(node),
 			"method_invocation" => self.method_invocation_return_type(scope, node),
 			_ => None,
@@ -1906,7 +1926,10 @@ fn type_target_for_name(
 	type_table: &HashMap<&[u8], Moniker>,
 	import_targets: &ImportTargetTable,
 ) -> Option<Moniker> {
-	if name.is_empty() || builtins::is_primitive_type(name) {
+	if name.is_empty()
+		|| builtins::is_primitive_type(name)
+		|| builtins::is_inferred_local_type(name)
+	{
 		return None;
 	}
 	if let Some(target) = type_table.get(name) {
