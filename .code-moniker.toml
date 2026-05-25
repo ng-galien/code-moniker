@@ -152,6 +152,34 @@ expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) <
 message   = "Data Clumps candidate: repeated parameter-name groups appear under `{name}`."
 rationale = "Pair-bound collection projections are used here to catch repeated local signatures that should become explicit types. Four shared names avoids flagging the common tree-sitter `(node, source, parent)` pattern by itself."
 
+[[rust.shape.callable.where]]
+id        = "smell-brain-method"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR kind != 'method' OR lines <= 65 OR fan_out(self) <= 7"
+message   = "Brain Method candidate: `{name}` is large and couples to many targets."
+rationale = "A method that concentrates both length and outward reach tends to own the central decision of its type. Splitting it isolates the dispatching table from the per-case logic, which is what review and downstream agent edits need. Free functions are exempted because the Brain Method smell is defined against a host class. CYCLO/MAXNESTING/NOAV are not available in the local graph, so the detection uses lines + fan_out as a coarser proxy."
+
+[[rust.shape.callable.where]]
+id        = "smell-intensive-coupling-method"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR kind != 'method' OR count(out_refs, target.parent != source.parent AND (kind = 'calls' OR kind = 'method_call')) <= 20 OR size(unique(out_refs.target.parent)) >= 6"
+message   = "Intensive Coupling candidate: `{name}` funnels many calls into a small set of external owners."
+rationale = "A method whose outgoing calls cross owner boundaries in volume but stay concentrated on a few external owners is orchestrating work that belongs to those owners. CINT is filtered to ref kinds `calls` and `method_call` so constructors, type uses, and enum-variant reads do not inflate the count — only actual invocations register. CDISP is approximated by the count of distinct external owners; under six keeps the rule on the intensive branch (one method driving a small ring of collaborators) and off the dispersed one (a different smell). The 20-call threshold is recalibrated above the published L&M Very-High band of 11 because Rust's file-per-module convention raises baseline cross-owner call counts; tree-sitter AST visitors and similar dispatcher patterns will still surface and need to be judged on review."
+
+[[rust.shape.type.where]]
+id        = "smell-response-for-class"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 6 OR rfc(self) <= 50"
+message   = "High Response For Class candidate: `{name}` has rfc={value}."
+rationale = "A high response surface means a single incoming call can fan out into a large local subprogram. The cost shows up in testing in isolation, in keeping the public interface narrow, and in the cognitive load of tracing a single message. The 50 threshold is the looser end of the Chidamber-Kemerer / Lanza-Marinescu Very-High band; it is conservative for Rust where trait impls amplify the response count."
+
+[[rust.shape.type.where]]
+id        = "smell-brain-class"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 12 OR wmc(self) <= 47 OR max(shape:callable, lines) <= 65"
+message   = "Brain Class candidate: `{name}` is large and contains a dominant method."
+rationale = "A type that combines many methods, high weighted complexity, and at least one dominant method is the program's local center of gravity. The combination is harder to refactor in pieces than either factor alone, so flag the conjunction explicitly. TCC is not available; cohesion is not tested here and the conjunction with the God Class metrics is left to `smell-god-type-local-metrics` on the same target."
+
 # ─── Comment hygiene ────────────────────────────────────────────────────
 
 [[rust.comment.where]]
