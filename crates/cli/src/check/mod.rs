@@ -6,6 +6,8 @@ pub mod exclude;
 pub mod expr;
 pub mod path;
 pub mod suppress;
+#[cfg(feature = "tui")]
+pub mod workspace;
 
 pub use config::{
 	Config, KindRules, LangRules, RuleSeverity, load_default, load_with_cli_default_rules,

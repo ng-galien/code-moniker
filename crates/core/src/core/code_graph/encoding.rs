@@ -10,6 +10,8 @@
 //!   [u32 start_or_MAX][u32 end_or_MAX]
 //!   [u8  vis_len]     [vis_bytes]
 //!   [u16 sig_len]     [sig_bytes]
+//!   [u8  call_name_len][call_name_bytes]
+//!   [u16 call_arity_or_MAX]
 //!   [u8  bind_len]    [bind_bytes]
 //!   [u8  origin_len]  [origin_bytes]
 //! refs section, each ref contiguously:
@@ -20,6 +22,8 @@
 //!   [u8  receiver_hint_len] [receiver_hint_bytes]
 //!   [u8  alias_len]   [alias_bytes]
 //!   [u8  conf_len]    [conf_bytes]
+//!   [u8  call_name_len][call_name_bytes]
+//!   [u16 call_arity_or_MAX]
 //!   [u8  bind_len]    [bind_bytes]
 //! ```
 //!
@@ -30,7 +34,7 @@ use std::fmt;
 use crate::core::code_graph::{CodeGraph, DefRecord, Position, RefRecord};
 use crate::core::moniker::Moniker;
 
-pub const LAYOUT_VERSION: u16 = 2;
+pub const LAYOUT_VERSION: u16 = 3;
 const VERSION_BYTES: usize = 2;
 const RESERVED_BYTES: usize = 2;
 const DEF_COUNT_BYTES: usize = 4;
@@ -88,6 +92,8 @@ pub fn encode(graph: &CodeGraph) -> Result<Vec<u8>, EncodingError> {
 		write_opt_pos(&mut out, d.position);
 		write_short_bytes(&mut out, &d.visibility, "def visibility")?;
 		write_medium_bytes(&mut out, &d.signature, "def signature")?;
+		write_short_bytes(&mut out, &d.call_name, "def call_name")?;
+		write_opt_u16(&mut out, d.call_arity, "def call_arity")?;
 		write_short_bytes(&mut out, &d.binding, "def binding")?;
 		write_short_bytes(&mut out, &d.origin, "def origin")?;
 	}
@@ -104,6 +110,8 @@ pub fn encode(graph: &CodeGraph) -> Result<Vec<u8>, EncodingError> {
 		write_short_bytes(&mut out, &r.receiver_hint, "ref receiver_hint")?;
 		write_short_bytes(&mut out, &r.alias, "ref alias")?;
 		write_short_bytes(&mut out, &r.confidence, "ref confidence")?;
+		write_short_bytes(&mut out, &r.call_name, "ref call_name")?;
+		write_opt_u16(&mut out, r.call_arity, "ref call_arity")?;
 		write_short_bytes(&mut out, &r.binding, "ref binding")?;
 	}
 
@@ -161,6 +169,8 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 		let position = cur.read_opt_pos()?;
 		let visibility = cur.read_short_bytes("def visibility")?.to_vec();
 		let signature = cur.read_medium_bytes("def signature")?.to_vec();
+		let call_name = cur.read_short_bytes("def call_name")?.to_vec();
+		let call_arity = cur.read_opt_u16("def call_arity")?;
 		let binding = cur.read_short_bytes("def binding")?.to_vec();
 		let origin = cur.read_short_bytes("def origin")?.to_vec();
 		def_records.push(DefRecord {
@@ -170,6 +180,8 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 			position,
 			visibility,
 			signature,
+			call_name,
+			call_arity,
 			binding,
 			origin,
 		});
@@ -187,6 +199,8 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 		let receiver_hint = cur.read_short_bytes("ref receiver_hint")?.to_vec();
 		let alias = cur.read_short_bytes("ref alias")?.to_vec();
 		let confidence = cur.read_short_bytes("ref confidence")?.to_vec();
+		let call_name = cur.read_short_bytes("ref call_name")?.to_vec();
+		let call_arity = cur.read_opt_u16("ref call_arity")?;
 		let binding = cur.read_short_bytes("ref binding")?.to_vec();
 		ref_records.push(RefRecord {
 			source,
@@ -196,6 +210,8 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 			receiver_hint,
 			alias,
 			confidence,
+			call_name,
+			call_arity,
 			binding,
 		});
 	}
@@ -257,6 +273,21 @@ fn write_opt_pos(out: &mut Vec<u8>, pos: Option<Position>) {
 	};
 	out.extend_from_slice(&s.to_le_bytes());
 	out.extend_from_slice(&e.to_le_bytes());
+}
+
+fn write_opt_u16(
+	out: &mut Vec<u8>,
+	value: Option<usize>,
+	what: &'static str,
+) -> Result<(), EncodingError> {
+	let value = match value {
+		None => u16::MAX,
+		Some(value) => value
+			.try_into()
+			.map_err(|_| EncodingError::LengthOverflow(what))?,
+	};
+	out.extend_from_slice(&value.to_le_bytes());
+	Ok(())
 }
 
 struct Cursor<'a> {
@@ -339,6 +370,11 @@ impl<'a> Cursor<'a> {
 		} else {
 			Some((s, e))
 		})
+	}
+
+	fn read_opt_u16(&mut self, what: &'static str) -> Result<Option<usize>, EncodingError> {
+		let value = self.read_u16(what)?;
+		Ok((value != u16::MAX).then_some(value as usize))
 	}
 }
 

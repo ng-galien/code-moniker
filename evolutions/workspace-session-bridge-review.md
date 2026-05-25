@@ -1,13 +1,36 @@
 # Workspace Session Bridge Review
 
-Status: WIP review findings for `workspace-semantic-ports`.
+Status: review findings resolved for the current `workspace-semantic-ports`
+migration slice. Remaining warnings are general smell-rule candidates, not
+workspace-boundary violations.
 
 The current branch introduces a parallel `workspace::session` model, local
 resource implementations, and a `SessionStoreBridge` anti-corruption layer that
 adapts the new model back to the legacy `IndexStore` surface.
 
-The bridge is intentionally not considered complete until the following review
-findings are resolved or consciously re-scoped.
+The bridge is considered complete for this migration slice when evaluated
+against the findings below: workspace loading does not own check rules, the
+target model uses source/code/linkage/changes/snapshot boundaries, compatibility
+is isolated, `DefLocation` no longer leaks into target code/change modules,
+and the target model has contract tests for the previously missing cases.
+
+## Resolution Summary
+
+- Runtime bridge: resolved through the `WorkspaceHandle`/bridge path and UI
+  runtime tests.
+- Check coupling: resolved by moving workspace-aware rule execution to
+  `check::workspace`; workspace refresh no longer builds rules.
+- Linkage model: resolved for this slice with local/global resolution,
+  projectless matching, external classification, manifest-blocked accounting,
+  ambiguous reference accounting, and language-strategy delegation.
+- Change model: resolved for this slice with `ChangeAnalyzer` consuming
+  `SymbolProvider`, `SymbolLocation` replacing legacy `DefLocation`, and
+  modified/removed git symbol coverage.
+- Source identity: resolved for known workspace paths through
+  `SourceCatalogMaterial` canonical URI lookup; lazy rule-derived resources are
+  represented as the next extension point on the same boundary.
+- Source read failures: resolved by explicit code-index failures and tests.
+- Custom URI schemes: resolved through shared identity configuration and tests.
 
 ## Findings
 

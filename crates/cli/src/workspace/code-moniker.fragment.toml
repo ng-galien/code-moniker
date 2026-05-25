@@ -1,48 +1,262 @@
 fragment = "workspace"
 
 [aliases]
-session_model = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:session' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:session/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:session/**'"
-resources = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:resources' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:resources/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:resources/**'"
+source_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:source' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:source/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:source/**'"
+code_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:code' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:code/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:code/**'"
+linkage_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:linkage' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:linkage/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:linkage/**'"
+changes_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:changes' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:changes/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:changes/**'"
+snapshot_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:snapshot' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:snapshot/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/**'"
+snapshot_model = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/module:model' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/dir:model/**'"
+snapshot_view = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/module:view' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/module:view/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:snapshot/dir:view/**'"
+compat_layer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:compat' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:compat/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:compat/**'"
+workspace_root_facade = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:workspace'"
+check_workspace = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:workspace' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/module:workspace/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:workspace/**'"
+test_module = "moniker ~ '**/module:tests' OR moniker ~ '**/module:tests/**'"
+check_workspace_target = """
+  target ~ '**/dir:check/module:workspace'
+  OR target ~ '**/dir:check/module:workspace/**'
+  OR target ~ '**/dir:check/dir:workspace/**'
+  OR target ~ '**/module:check/path:workspace'
+  OR target ~ '**/module:check/path:workspace/**'
+"""
+source_target = """
+  target ~ '**/dir:workspace/module:source'
+  OR target ~ '**/dir:workspace/module:source/**'
+  OR target ~ '**/dir:workspace/dir:source/**'
+  OR target ~ '**/module:workspace/path:source'
+  OR target ~ '**/module:workspace/path:source/**'
+"""
+code_target = """
+  target ~ '**/dir:workspace/module:code'
+  OR target ~ '**/dir:workspace/module:code/**'
+  OR target ~ '**/dir:workspace/dir:code/**'
+  OR target ~ '**/module:workspace/path:code'
+  OR target ~ '**/module:workspace/path:code/**'
+"""
+linkage_target = """
+  target ~ '**/dir:workspace/module:linkage'
+  OR target ~ '**/dir:workspace/module:linkage/**'
+  OR target ~ '**/dir:workspace/dir:linkage/**'
+  OR target ~ '**/module:workspace/path:linkage'
+  OR target ~ '**/module:workspace/path:linkage/**'
+"""
+changes_target = """
+  target ~ '**/dir:workspace/module:changes'
+  OR target ~ '**/dir:workspace/module:changes/**'
+  OR target ~ '**/dir:workspace/dir:changes/**'
+  OR target ~ '**/module:workspace/path:changes'
+  OR target ~ '**/module:workspace/path:changes/**'
+"""
+snapshot_target = """
+  target ~ '**/dir:workspace/module:snapshot'
+  OR target ~ '**/dir:workspace/module:snapshot/**'
+  OR target ~ '**/dir:workspace/dir:snapshot/**'
+  OR target ~ '**/module:workspace/path:snapshot'
+  OR target ~ '**/module:workspace/path:snapshot/**'
+"""
+snapshot_view_target = """
+  target ~ '**/dir:workspace/dir:snapshot/module:view'
+  OR target ~ '**/dir:workspace/dir:snapshot/module:view/**'
+  OR target ~ '**/dir:workspace/dir:snapshot/dir:view/**'
+  OR target ~ '**/module:workspace/path:snapshot/path:view'
+  OR target ~ '**/module:workspace/path:snapshot/path:view/**'
+"""
+compat_target = """
+  target ~ '**/dir:workspace/module:compat'
+  OR target ~ '**/dir:workspace/module:compat/**'
+  OR target ~ '**/dir:workspace/dir:compat/**'
+  OR target ~ '**/module:workspace/path:compat'
+  OR target ~ '**/module:workspace/path:compat/**'
+"""
+legacy_target = """
+  target ~ '**/dir:workspace/dir:legacy/**'
+  OR target ~ '**/dir:workspace/module:git'
+  OR target ~ '**/dir:workspace/module:git/**'
+  OR target ~ '**/dir:workspace/module:index'
+  OR target ~ '**/dir:workspace/module:index/**'
+  OR target ~ '**/dir:workspace/module:model'
+  OR target ~ '**/dir:workspace/module:model/**'
+  OR target ~ '**/dir:workspace/module:store'
+  OR target ~ '**/dir:workspace/module:store/**'
+  OR target ~ '**/dir:workspace/module:symbols'
+  OR target ~ '**/dir:workspace/module:symbols/**'
+  OR target ~ '**/module:workspace/path:git'
+  OR target ~ '**/module:workspace/path:index'
+  OR target ~ '**/module:workspace/path:model'
+  OR target ~ '**/module:workspace/path:store'
+  OR target ~ '**/module:workspace/path:symbols'
+"""
 
-[[refs.where]]
-id       = "session-model-stays-off-legacy"
+# Target layout:
+#
+# The final workspace tree should expose the problem vocabulary directly:
+# sources, code, linkage, changes, snapshots/read models, compatibility, and
+# legacy debt. Names such as `session`, `resources`, and `local` are
+# implementation vocabulary; they do not say what problem the module solves.
+
+[[rust.module.where]]
+id       = "target-layout-uses-domain-vocabulary"
 severity = "warn"
 expr     = """
-  $session_model AND kind = 'imports_symbol'
-  => NOT (target ~ '**/dir:workspace/module:index/**'
-       OR target ~ '**/dir:workspace/module:store/**'
-       OR target ~ '**/dir:workspace/module:git/**'
-       OR target ~ '**/dir:workspace/module:linkage/**'
-       OR target ~ '**/dir:workspace/module:snapshot/**'
-       OR target ~ '**/dir:crates/dir:cli/dir:src/module:sources'
-       OR target ~ '**/dir:crates/dir:cli/dir:src/module:sources/**'
-       OR target ~ '**/path:SessionIndex'
-       OR target ~ '**/path:WorkspaceStore'
-       OR target ~ '**/path:CodeGraph'
-       OR target ~ '**/path:DefRecord'
-       OR target ~ '**/path:RefRecord'
-       OR target ~ '**/path:Path'
-       OR target ~ '**/path:PathBuf'
+  NOT (moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:session'
+    OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:session/module:mod'
+    OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:resources'
+    OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:resources/module:mod'
+    OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:local'
+    OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:local/module:mod')
+"""
+message  = "`workspace` top-level modules should use domain vocabulary (`source`, `code`, `linkage`, `changes`, `snapshot`, `compat`, `legacy`)."
+rationale = "The workspace tree should explain the problem by its directory names. `session`, `resources`, and `local` describe architecture mechanics, not the domain work: discovering sources, indexing code, linking references, localizing changes, and exposing snapshots."
+
+[[rust.module.where]]
+id       = "rule-diagnostics-live-in-check"
+severity = "warn"
+expr     = "NOT moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/**/module:rule_diagnostics'"
+message  = "Rule diagnostics belong to `check`, not to `workspace`."
+rationale = "The workspace owns sources, code facts, linkage, changes, and snapshots. Rule compilation and diagnostic production are check concerns that consume workspace read models; putting them under workspace couples loading the workspace to evaluating rules."
+
+[[rust.module.where]]
+id       = "legacy-bridge-lives-in-compat"
+severity = "warn"
+expr     = "NOT moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:bridge'"
+message  = "The legacy store bridge should live under `workspace::compat`, for example `workspace::compat::legacy_store_bridge`."
+rationale = "The bridge is intentionally an anti-corruption layer around the old store shape. Keeping it as a root workspace module makes temporary compatibility look like a first-class workspace concern instead of visible removable debt."
+
+[[refs.where]]
+id       = "target-domain-imports-stay-off-legacy"
+severity = "warn"
+expr     = """
+  ($source_layer OR $code_layer OR $linkage_layer OR $changes_layer OR $snapshot_layer OR $check_workspace)
+  AND NOT $test_module
+  AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT $legacy_target
+"""
+message  = "Target workspace domain modules must not import legacy workspace modules."
+rationale = "Legacy code is isolated debt. New domain modules (`source`, `code`, `linkage`, `changes`, `snapshot`) and workspace-aware check code must not depend on legacy shims directly; any required translation belongs in `compat`, where the coupling is visible and removable."
+
+[[refs.where]]
+id       = "source-layer-stays-source-only"
+severity = "warn"
+expr     = """
+  $source_layer AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND NOT $test_module
+  => NOT ($code_target
+       OR $linkage_target
+       OR $changes_target
+       OR $snapshot_view_target
+       OR $compat_target
+       OR $legacy_target
+       OR $check_workspace_target)
+"""
+message  = "`workspace::source` owns source identity, discovery, and content; it must not depend on code, linkage, changes, snapshot views, compat, or check."
+rationale = "Source is the base resource boundary. Higher layers may ask for sources, but source discovery and identity should not know how code is indexed, linked, changed, checked, or adapted to legacy APIs. Stable snapshot model ids and records are allowed as the shared workspace contract."
+
+[[refs.where]]
+id       = "code-layer-stays-before-linkage-and-changes"
+severity = "warn"
+expr     = """
+  $code_layer AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND NOT $test_module
+  => NOT ($linkage_target
+       OR $changes_target
+       OR $snapshot_view_target
+       OR $compat_target
+       OR $legacy_target
+       OR $check_workspace_target)
+"""
+message  = "`workspace::code` owns extracted symbols and references; it must not depend on linkage, changes, snapshot views, compat, legacy, or check."
+rationale = "The code layer projects source content into code facts. Linkage and change localization consume those facts later; importing them back into code would make extraction depend on downstream analysis."
+
+[[refs.where]]
+id       = "linkage-layer-stays-linkage-only"
+severity = "warn"
+expr     = """
+  $linkage_layer AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND NOT $test_module
+  => NOT ($changes_target
+       OR $snapshot_view_target
+       OR $compat_target
+       OR $legacy_target
+       OR $check_workspace_target)
+"""
+message  = "`workspace::linkage` owns reference resolution; it must not depend on changes, snapshot views, compat, legacy, or check."
+rationale = "Linkage is the evolving resolution model between references and symbols. It may consume source/code facts, but it should not know about diff overlays, UI/read projections, rule diagnostics, or legacy store wiring."
+
+[[refs.where]]
+id       = "changes-layer-stays-change-only"
+severity = "warn"
+expr     = """
+  $changes_layer AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND NOT $test_module
+  => NOT ($snapshot_view_target
+       OR $compat_target
+       OR $legacy_target
+       OR $check_workspace_target)
+"""
+message  = "`workspace::changes` owns diff and change localization; it must not depend on snapshot views, compat, legacy, or check."
+rationale = "Change analysis may consume source, code, and linkage facts, then emit change records. Read-model projection, legacy adaptation, and rule diagnostics are downstream consumers and should not shape the change model."
+
+[[refs.where]]
+id       = "snapshot-model-is-pure-workspace-state"
+severity = "warn"
+expr     = """
+  $snapshot_model AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND NOT $test_module
+  => NOT ($source_target
+       OR $code_target
+       OR $linkage_target
+       OR $changes_target
+       OR $compat_target
+       OR $legacy_target
+       OR $check_workspace_target
        OR target ~ '**/external_pkg:std/module:fs/**'
        OR target ~ '**/external_pkg:std/module:process/**')
 """
-message  = "`workspace::session` is the parallel target model; it must not import legacy workspace resources or material adapters before the final swap."
-rationale = "The new workspace model should be validated through semantic traits and fakes. Wiring it back to `SessionIndex`, `WorkspaceStore`, filesystem, or git adapters during construction recreates the legacy coupling behind cleaner names."
+message  = "`workspace::snapshot::model` must stay pure state, without adapters, filesystem/process access, legacy, or check dependencies."
+rationale = "The snapshot model is the durable observable contract of the workspace. It should define ids, records, failures, and transitions, not construct sources, index code, resolve linkage, read the filesystem, evaluate rules, or adapt to legacy consumers."
 
 [[refs.where]]
-id       = "resource-implementations-stay-off-legacy-store"
+id       = "snapshot-view-reads-snapshot-only"
 severity = "warn"
 expr     = """
-  $resources AND kind = 'imports_symbol'
-  AND NOT (moniker ~ '**/module:tests' OR moniker ~ '**/module:tests/**')
-  => NOT (target ~ '**/dir:workspace/module:store/**'
-       OR target ~ '**/dir:workspace/module:snapshot/**'
-       OR target ~ '**/path:SessionIndex'
-       OR target ~ '**/path:WorkspaceStore'
-       OR target ~ '**/path:WorkspaceSnapshot')
+  $snapshot_view AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND NOT $test_module
+  => NOT ($source_target
+       OR $code_target
+       OR $linkage_target
+       OR $changes_target
+       OR $compat_target
+       OR $legacy_target
+       OR $check_workspace_target)
 """
-message  = "`workspace::resources` implements semantic resources; it must not rebuild itself through the legacy store/session snapshot."
-rationale = "Local adapters may use material mechanisms such as source discovery, extraction, git, and rule evaluation, but they must produce the new session model directly. Calling `WorkspaceStore` or `SessionIndex` would hide the old orchestration behind the new traits."
+message  = "`workspace::snapshot::view` must project stable snapshot records, not reach back into sources, code, linkage, changes, compat, legacy, or check."
+rationale = "Read models should be deterministic projections of a loaded snapshot. If a view reaches into adapters or analysis services, consumers can no longer trust the snapshot as the stable boundary."
+
+[[refs.where]]
+id       = "snapshot-refresh-does-not-own-compat-or-check"
+severity = "warn"
+expr     = """
+  $snapshot_layer
+  AND NOT ($snapshot_model OR $snapshot_view)
+  AND NOT $test_module
+  AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT ($compat_target
+       OR $legacy_target
+       OR $check_workspace_target)
+"""
+message  = "`workspace::snapshot` refresh orchestration may assemble workspace resources, but must not own compat, legacy, or check concerns."
+rationale = "Refresh is allowed to orchestrate source, code, linkage, and changes into a snapshot. Compatibility adapters and rule diagnostics are consumers of that snapshot, not part of building it."
+
+[[refs.where]]
+id       = "check-workspace-consumes-workspace"
+severity = "warn"
+expr     = """
+  $check_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND NOT $test_module
+  => NOT ($compat_target OR $legacy_target)
+"""
+message  = "`check::workspace` may consume workspace contracts, but must not depend on compat or legacy."
+rationale = "Workspace-aware rule execution belongs in `check`, but it should consume the target workspace model and lazy source/symbol boundaries. Depending on compat or legacy would make new check features inherit the old store shape."
 
 [[rust.module.where]]
 id       = "no-global-workspace-ports-module"

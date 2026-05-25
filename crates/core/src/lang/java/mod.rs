@@ -11,6 +11,7 @@ use crate::lang::KindSpec;
 use crate::lang::canonical_walker::CanonicalWalker;
 
 pub mod build;
+mod builtins;
 mod canonicalize;
 mod kinds;
 mod strategy;

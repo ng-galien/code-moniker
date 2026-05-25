@@ -676,6 +676,8 @@ mod tests {
 			position: Some((6, 14)),
 			visibility: vec![],
 			signature: vec![],
+			call_name: vec![],
+			call_arity: None,
 			binding: vec![],
 			origin: vec![],
 		};

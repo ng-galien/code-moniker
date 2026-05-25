@@ -16,7 +16,7 @@ use crate::lang::callable::{
 use crate::lang::strategy::{LangStrategy, NodeShape, RefSpec, Symbol};
 use crate::lang::tree_util::{node_position, node_slice};
 
-use super::kinds;
+use super::{builtins, kinds};
 
 pub(super) type CallableTable = HashMap<(Moniker, Vec<u8>, usize), Vec<u8>>;
 pub(super) type ReturnTypeTable = HashMap<(Moniker, Vec<u8>, usize), Moniker>;
@@ -153,6 +153,25 @@ impl<'a> LangStrategy for Strategy<'a> {
 		if kind == kinds::METHOD || kind == kinds::CONSTRUCTOR {
 			self.pop_local_scope();
 		}
+	}
+
+	fn on_symbol_emitted(
+		&self,
+		node: Node<'_>,
+		sym_kind: &[u8],
+		sym_moniker: &Moniker,
+		source: &[u8],
+		graph: &mut CodeGraph,
+	) {
+		if !matches!(sym_kind, kinds::METHOD | kinds::CONSTRUCTOR) {
+			return;
+		}
+		let Some(name_node) = node.child_by_field_name("name") else {
+			return;
+		};
+		let name = node_slice(name_node, source);
+		let arity = formal_parameter_slots(node, source).len();
+		graph.set_def_call_metadata(sym_moniker, name, arity);
 	}
 }
 
@@ -327,6 +346,8 @@ impl<'src_lang> Strategy<'src_lang> {
 			let accessor = extend_callable_slots(parent, kinds::METHOD, name, &[]);
 			let accessor_attrs = DefAttrs {
 				visibility: kinds::VIS_PUBLIC,
+				call_name: name,
+				call_arity: Some(0),
 				..DefAttrs::default()
 			};
 			let _ = graph.add_def_attrs(
@@ -659,6 +680,8 @@ impl<'src_lang> Strategy<'src_lang> {
 			let attrs = RefAttrs {
 				receiver_hint: receiver_hint(obj, self.source_bytes),
 				confidence,
+				call_name: name,
+				call_arity: Some(arity),
 				..RefAttrs::default()
 			};
 			let _ = graph.add_ref_attrs(scope, target, kinds::METHOD_CALL, Some(pos), &attrs);
@@ -679,6 +702,8 @@ impl<'src_lang> Strategy<'src_lang> {
 				};
 				let attrs = RefAttrs {
 					confidence,
+					call_name: name,
+					call_arity: Some(arity),
 					..RefAttrs::default()
 				};
 				let _ = graph.add_ref_attrs(scope, target, kinds::CALLS, Some(pos), &attrs);
@@ -728,6 +753,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			let attrs = RefAttrs {
 				receiver_hint: receiver_hint(receiver, self.source_bytes),
 				confidence: kinds::CONF_NAME_MATCH,
+				call_name: method_name,
 				..RefAttrs::default()
 			};
 			let target = extend_segment(&self.module, kinds::METHOD, method_name);
@@ -740,6 +766,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		let attrs = RefAttrs {
 			receiver_hint: receiver_hint(receiver, self.source_bytes),
 			confidence,
+			call_name: method_name,
 			..RefAttrs::default()
 		};
 		let _ = graph.add_ref_attrs(scope, target, kinds::METHOD_CALL, Some(pos), &attrs);
@@ -816,6 +843,9 @@ impl<'src_lang> Strategy<'src_lang> {
 					let confidence = self.type_owner_confidence(&owner);
 					return (extend_arity_call(&owner, kind, name, arity), confidence);
 				}
+				if let Some((owner, confidence)) = self.lookup_known_type_name(receiver_name) {
+					return (extend_arity_call(&owner, kind, name, arity), confidence);
+				}
 				let confidence = self
 					.import_confidence_for(receiver_name)
 					.unwrap_or(kinds::CONF_NAME_MATCH);
@@ -842,11 +872,33 @@ impl<'src_lang> Strategy<'src_lang> {
 					let confidence = self.type_owner_confidence(&owner);
 					return (extend_arity_call(&owner, kind, name, arity), confidence);
 				}
+				if let Some(owner) = self.expression_external_owner(scope, *receiver) {
+					return (
+						extend_arity_call(&owner, kind, name, arity),
+						kinds::CONF_EXTERNAL,
+					);
+				}
+				(
+					extend_arity_call(&self.module, kind, name, arity),
+					kinds::CONF_EXTERNAL,
+				)
+			}
+			"field_access" | "scoped_identifier" => {
+				if let Some(owner) = self.expression_external_owner(scope, *receiver) {
+					return (
+						extend_arity_call(&owner, kind, name, arity),
+						kinds::CONF_EXTERNAL,
+					);
+				}
 				(
 					extend_segment(&self.module, kind, name),
 					kinds::CONF_NAME_MATCH,
 				)
 			}
+			"string_literal" => (
+				extend_arity_call(&self.java_lang_type_target(b"String"), kind, name, arity),
+				kinds::CONF_EXTERNAL,
+			),
 			_ => (
 				extend_segment(&self.module, kind, name),
 				kinds::CONF_NAME_MATCH,
@@ -990,7 +1042,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				return;
 			}
 		};
-		if name.is_empty() || is_java_primitive(name.as_bytes()) {
+		if name.is_empty() || builtins::is_primitive_type(name.as_bytes()) {
 			return;
 		}
 		let (target, confidence) = self.resolve_type_target(name.as_bytes(), kinds::CLASS);
@@ -1010,6 +1062,50 @@ impl<'src_lang> Strategy<'src_lang> {
 	fn handle_identifier(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
 		let name = node_slice(node, self.source_bytes);
 		if name.is_empty() {
+			return;
+		}
+		if let Some(target) = self.external_field_access_target(scope, node) {
+			let attrs = RefAttrs {
+				confidence: kinds::CONF_EXTERNAL,
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(
+				scope,
+				target,
+				kinds::READS,
+				Some(node_position(node)),
+				&attrs,
+			);
+			return;
+		}
+		if let Some((target, confidence)) = self.lookup_known_type_name(name)
+			&& confidence == kinds::CONF_EXTERNAL
+		{
+			let attrs = RefAttrs {
+				confidence,
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(
+				scope,
+				target,
+				kinds::READS,
+				Some(node_position(node)),
+				&attrs,
+			);
+			return;
+		}
+		if let Some(target) = self.lookup_field(scope, name) {
+			let attrs = RefAttrs {
+				confidence: kinds::CONF_RESOLVED,
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(
+				scope,
+				target,
+				kinds::READS,
+				Some(node_position(node)),
+				&attrs,
+			);
 			return;
 		}
 		let confidence = match self.import_confidence_for(name) {
@@ -1107,6 +1203,13 @@ impl<'src_lang> Strategy<'src_lang> {
 		self.field_types.get(&(cls, name.to_vec())).cloned()
 	}
 
+	fn lookup_field(&self, scope: &Moniker, name: &[u8]) -> Option<Moniker> {
+		let cls = enclosing_class(scope)?;
+		self.field_types
+			.contains_key(&(cls.clone(), name.to_vec()))
+			.then(|| extend_segment(&cls, kinds::FIELD, name))
+	}
+
 	fn method_reference_receiver_target(
 		&self,
 		scope: &Moniker,
@@ -1123,7 +1226,7 @@ impl<'src_lang> Strategy<'src_lang> {
 			}
 			"type_identifier" | "scoped_type_identifier" | "generic_type" | "array_type" => {
 				let name = type_name_bytes(receiver, self.source_bytes)?;
-				if name.is_empty() || is_java_primitive(&name) {
+				if name.is_empty() || builtins::is_primitive_type(&name) {
 					return None;
 				}
 				Some(self.resolve_type_target(&name, kinds::CLASS))
@@ -1142,7 +1245,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				.unwrap_or(kinds::CONF_NAME_MATCH);
 			return Some((target, confidence));
 		}
-		if is_java_lang_class(name) {
+		if builtins::is_java_lang_type(name) {
 			let target = symbol_target(
 				&self.module,
 				&["java", "lang", std::str::from_utf8(name).unwrap_or("")],
@@ -1159,7 +1262,7 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn type_target_for_node(&self, node: Node<'_>) -> Option<Moniker> {
 		let name = type_name_bytes(node, self.source_bytes)?;
-		if name.is_empty() || is_java_primitive(&name) {
+		if name.is_empty() || builtins::is_primitive_type(&name) {
 			return None;
 		}
 		Some(self.resolve_type_target(&name, kinds::CLASS).0)
@@ -1178,6 +1281,66 @@ impl<'src_lang> Strategy<'src_lang> {
 			"method_invocation" => self.method_invocation_return_type(scope, node),
 			_ => None,
 		}
+	}
+
+	fn expression_external_owner(&self, scope: &Moniker, node: Node<'_>) -> Option<Moniker> {
+		match node.kind() {
+			"identifier" => {
+				let name = node_slice(node, self.source_bytes);
+				if let Some(target) = self.lookup_value_type(scope, name)
+					&& java_external_target_shape(&target)
+				{
+					return Some(target);
+				}
+				match self.lookup_known_type_name(name) {
+					Some((target, kinds::CONF_EXTERNAL)) => Some(target),
+					_ => None,
+				}
+			}
+			"string_literal" => Some(self.java_lang_type_target(b"String")),
+			"type_identifier" | "scoped_type_identifier" | "generic_type" | "array_type" => {
+				let name = type_name_bytes(node, self.source_bytes)?;
+				let (target, confidence) = self.resolve_type_target(&name, kinds::CLASS);
+				(confidence == kinds::CONF_EXTERNAL).then_some(target)
+			}
+			"field_access" | "scoped_identifier" => node
+				.child_by_field_name("object")
+				.and_then(|object| self.expression_external_owner(scope, object)),
+			"method_invocation" => self
+				.expression_type_target(scope, node)
+				.filter(java_external_target_shape)
+				.or_else(|| {
+					node.child_by_field_name("object")
+						.and_then(|object| self.expression_external_owner(scope, object))
+				}),
+			_ => None,
+		}
+	}
+
+	fn external_field_access_target(&self, scope: &Moniker, node: Node<'_>) -> Option<Moniker> {
+		let parent = node.parent()?;
+		if parent.kind() != "field_access" && parent.kind() != "scoped_identifier" {
+			return None;
+		}
+		let field = parent.child_by_field_name("field")?;
+		if !same_node(field, node) {
+			return None;
+		}
+		let object = parent.child_by_field_name("object")?;
+		let owner = self.expression_external_owner(scope, object)?;
+		Some(extend_segment(
+			&owner,
+			kinds::FIELD,
+			node_slice(node, self.source_bytes),
+		))
+	}
+
+	fn java_lang_type_target(&self, name: &[u8]) -> Moniker {
+		symbol_target(
+			&self.module,
+			&["java", "lang", std::str::from_utf8(name).unwrap_or("")],
+			kinds::CONF_EXTERNAL,
+		)
 	}
 
 	fn method_invocation_return_type(&self, scope: &Moniker, node: Node<'_>) -> Option<Moniker> {
@@ -1209,7 +1372,7 @@ impl<'src_lang> Strategy<'src_lang> {
 				.unwrap_or(kinds::CONF_NAME_MATCH);
 			return (m, confidence);
 		}
-		if is_java_lang_class(name) {
+		if builtins::is_java_lang_type(name) {
 			let target = symbol_target(
 				&self.module,
 				&["java", "lang", std::str::from_utf8(name).unwrap_or("")],
@@ -1617,7 +1780,7 @@ pub(super) fn collect_return_type_table<'src>(
 				};
 				let name = node_slice(name_node, source);
 				let arity = formal_parameter_slots(child, source).len();
-				out.insert((parent.clone(), name.to_vec(), arity), type_target);
+				insert_return_type_aliases(out, parent, module, name, arity, type_target);
 			}
 			_ => {
 				collect_return_type_table(
@@ -1670,8 +1833,34 @@ fn collect_record_accessor_return_types<'src>(
 		else {
 			continue;
 		};
-		out.insert((parent.clone(), name.to_vec(), 0), type_target);
+		insert_return_type_aliases(out, parent, module, name, 0, type_target);
 	}
+}
+
+fn insert_return_type_aliases(
+	out: &mut ReturnTypeTable,
+	owner: &Moniker,
+	module: &Moniker,
+	name: &[u8],
+	arity: usize,
+	type_target: Moniker,
+) {
+	out.insert((owner.clone(), name.to_vec(), arity), type_target.clone());
+	if let Some(alias) = same_package_type_alias(module, owner) {
+		out.insert((alias, name.to_vec(), arity), type_target);
+	}
+}
+
+fn same_package_type_alias(module: &Moniker, owner: &Moniker) -> Option<Moniker> {
+	let segment = owner.as_view().segments().last()?;
+	is_java_type_kind(segment.kind).then(|| same_package_symbol_target(module, segment.name))
+}
+
+fn is_java_type_kind(kind: &[u8]) -> bool {
+	matches!(
+		kind,
+		kinds::CLASS | kinds::INTERFACE | kinds::RECORD | kinds::ENUM | kinds::ANNOTATION_TYPE
+	)
 }
 
 fn collect_record_accessors<'src>(
@@ -1717,7 +1906,7 @@ fn type_target_for_name(
 	type_table: &HashMap<&[u8], Moniker>,
 	import_targets: &ImportTargetTable,
 ) -> Option<Moniker> {
-	if name.is_empty() || is_java_primitive(name) {
+	if name.is_empty() || builtins::is_primitive_type(name) {
 		return None;
 	}
 	if let Some(target) = type_table.get(name) {
@@ -1726,7 +1915,7 @@ fn type_target_for_name(
 	if let Some(target) = import_targets.get(name) {
 		return Some(target.clone());
 	}
-	if is_java_lang_class(name) {
+	if builtins::is_java_lang_type(name) {
 		let target = symbol_target(
 			module,
 			&["java", "lang", std::str::from_utf8(name).unwrap_or("")],
@@ -1769,65 +1958,6 @@ fn explicit_no_arg_methods(record_node: Node<'_>, source: &[u8]) -> HashSet<Vec<
 		}
 	}
 	out
-}
-
-fn is_java_primitive(name: &[u8]) -> bool {
-	matches!(
-		name,
-		b"boolean"
-			| b"byte" | b"char"
-			| b"short"
-			| b"int" | b"long"
-			| b"float"
-			| b"double"
-			| b"void"
-	)
-}
-
-fn is_java_lang_class(name: &[u8]) -> bool {
-	matches!(
-		name,
-		b"Object"
-			| b"String"
-			| b"StringBuilder"
-			| b"StringBuffer"
-			| b"CharSequence"
-			| b"Integer"
-			| b"Long" | b"Short"
-			| b"Byte" | b"Float"
-			| b"Double"
-			| b"Boolean"
-			| b"Character"
-			| b"Number"
-			| b"Math" | b"Class"
-			| b"ClassLoader"
-			| b"System"
-			| b"Runtime"
-			| b"Thread"
-			| b"ThreadGroup"
-			| b"ThreadLocal"
-			| b"Throwable"
-			| b"Exception"
-			| b"RuntimeException"
-			| b"Error"
-			| b"AssertionError"
-			| b"IllegalArgumentException"
-			| b"IllegalStateException"
-			| b"NullPointerException"
-			| b"IndexOutOfBoundsException"
-			| b"ArithmeticException"
-			| b"ClassCastException"
-			| b"UnsupportedOperationException"
-			| b"NumberFormatException"
-			| b"Iterable"
-			| b"Comparable"
-			| b"Cloneable"
-			| b"Runnable"
-			| b"AutoCloseable"
-			| b"Enum" | b"Record"
-			| b"Void" | b"Process"
-			| b"ProcessBuilder"
-	)
 }
 
 fn modifier_visibility(node: Node<'_>) -> &'static [u8] {
@@ -1873,6 +2003,12 @@ fn receiver_hint<'a>(obj: Node<'a>, source: &'a [u8]) -> &'a [u8] {
 		"scoped_identifier" => HINT_MEMBER,
 		_ => b"",
 	}
+}
+
+fn same_node(left: Node<'_>, right: Node<'_>) -> bool {
+	left.start_byte() == right.start_byte()
+		&& left.end_byte() == right.end_byte()
+		&& left.kind_id() == right.kind_id()
 }
 
 fn import_parts<'a>(

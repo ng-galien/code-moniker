@@ -19,6 +19,8 @@ pub struct DefRecord {
 	pub position: Option<Position>,
 	pub visibility: Vec<u8>,
 	pub signature: Vec<u8>,
+	pub call_name: Vec<u8>,
+	pub call_arity: Option<usize>,
 	pub binding: Vec<u8>,
 	pub origin: Vec<u8>,
 }
@@ -43,6 +45,8 @@ pub struct RefRecord {
 	pub receiver_hint: Vec<u8>,
 	pub alias: Vec<u8>,
 	pub confidence: Vec<u8>,
+	pub call_name: Vec<u8>,
+	pub call_arity: Option<usize>,
 	pub binding: Vec<u8>,
 }
 
@@ -50,6 +54,8 @@ pub struct RefRecord {
 pub struct DefAttrs<'a> {
 	pub visibility: &'a [u8],
 	pub signature: &'a [u8],
+	pub call_name: &'a [u8],
+	pub call_arity: Option<usize>,
 	pub binding: &'a [u8],
 	pub origin: &'a [u8],
 }
@@ -59,6 +65,8 @@ pub struct RefAttrs<'a> {
 	pub receiver_hint: &'a [u8],
 	pub alias: &'a [u8],
 	pub confidence: &'a [u8],
+	pub call_name: &'a [u8],
+	pub call_arity: Option<usize>,
 	pub binding: &'a [u8],
 }
 
@@ -152,6 +160,8 @@ impl CodeGraph {
 			position: None,
 			visibility: Vec::new(),
 			signature: Vec::new(),
+			call_name: Vec::new(),
+			call_arity: None,
 			binding: BIND_EXPORT.to_vec(),
 			origin: ORIGIN_EXTRACTED.to_vec(),
 		});
@@ -216,6 +226,8 @@ impl CodeGraph {
 			position,
 			visibility: attrs.visibility.to_vec(),
 			signature: attrs.signature.to_vec(),
+			call_name: attrs.call_name.to_vec(),
+			call_arity: attrs.call_arity,
 			binding: binding.to_vec(),
 			origin: origin.to_vec(),
 		});
@@ -258,6 +270,8 @@ impl CodeGraph {
 			receiver_hint: attrs.receiver_hint.to_vec(),
 			alias: attrs.alias.to_vec(),
 			confidence: attrs.confidence.to_vec(),
+			call_name: attrs.call_name.to_vec(),
+			call_arity: attrs.call_arity,
 			binding: binding.to_vec(),
 		});
 		self.ref_targets_cache
@@ -269,6 +283,21 @@ impl CodeGraph {
 
 	pub fn root(&self) -> &Moniker {
 		&self.defs[0].moniker
+	}
+
+	pub fn set_def_call_metadata(
+		&mut self,
+		moniker: &Moniker,
+		call_name: &[u8],
+		call_arity: usize,
+	) {
+		let Some(idx) = self.find_def(moniker) else {
+			return;
+		};
+		let def = &mut self.defs[idx];
+		def.call_name.clear();
+		def.call_name.extend_from_slice(call_name);
+		def.call_arity = Some(call_arity);
 	}
 
 	pub fn contains(&self, m: &Moniker) -> bool {

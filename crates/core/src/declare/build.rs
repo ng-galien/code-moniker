@@ -41,6 +41,7 @@ pub fn build_graph(spec: &DeclareSpec) -> Result<CodeGraph, DeclareError> {
 			signature: sym.signature.as_deref().unwrap_or("").as_bytes(),
 			binding: b"",
 			origin: ORIGIN_DECLARED,
+			..DefAttrs::default()
 		};
 		graph
 			.add_def_attrs(

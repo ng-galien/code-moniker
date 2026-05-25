@@ -1,25 +1,38 @@
 #[cfg(feature = "tui")]
-mod bridge;
+pub mod changes;
 #[cfg(feature = "tui")]
-pub mod git;
-pub mod index;
+pub mod code;
 #[cfg(feature = "tui")]
-mod linkage;
+mod compat;
+mod legacy;
 #[cfg(feature = "tui")]
-mod model;
+pub mod linkage;
 #[cfg(feature = "tui")]
-pub mod resources;
+pub mod snapshot;
 #[cfg(feature = "tui")]
-pub mod session;
-#[cfg(feature = "tui")]
-mod snapshot;
-#[cfg(feature = "tui")]
-mod store;
-#[cfg(feature = "tui")]
-mod symbols;
+pub mod source;
 
 #[cfg(feature = "tui")]
-pub use bridge::SessionStoreBridge;
+pub mod git {
+	pub(crate) use super::changes::diff::*;
+}
+
+pub mod index {
+	pub use super::legacy::index::*;
+}
+
+#[cfg(feature = "tui")]
+pub(crate) mod model {
+	pub(crate) use super::legacy::model::*;
+}
+
+#[cfg(feature = "tui")]
+pub(crate) mod store {
+	pub(crate) use super::legacy::store::*;
+}
+
+#[cfg(feature = "tui")]
+pub use compat::SessionStoreBridge;
 #[cfg(feature = "tui")]
 pub(crate) use git::ChangeStatus;
 pub use index::{
