@@ -1,0 +1,55 @@
+fragment = "workspace"
+
+[aliases]
+session_model = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:session' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:session/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:session/**'"
+resources = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:resources' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:resources/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:resources/**'"
+
+[[refs.where]]
+id       = "session-model-stays-off-legacy"
+severity = "warn"
+expr     = """
+  $session_model AND kind = 'imports_symbol'
+  => NOT (target ~ '**/dir:workspace/module:index/**'
+       OR target ~ '**/dir:workspace/module:store/**'
+       OR target ~ '**/dir:workspace/module:git/**'
+       OR target ~ '**/dir:workspace/module:linkage/**'
+       OR target ~ '**/dir:workspace/module:snapshot/**'
+       OR target ~ '**/dir:crates/dir:cli/dir:src/module:sources'
+       OR target ~ '**/dir:crates/dir:cli/dir:src/module:sources/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:WorkspaceStore'
+       OR target ~ '**/path:CodeGraph'
+       OR target ~ '**/path:DefRecord'
+       OR target ~ '**/path:RefRecord'
+       OR target ~ '**/path:Path'
+       OR target ~ '**/path:PathBuf'
+       OR target ~ '**/external_pkg:std/module:fs/**'
+       OR target ~ '**/external_pkg:std/module:process/**')
+"""
+message  = "`workspace::session` is the parallel target model; it must not import legacy workspace resources or material adapters before the final swap."
+rationale = "The new workspace model should be validated through semantic traits and fakes. Wiring it back to `SessionIndex`, `WorkspaceStore`, filesystem, or git adapters during construction recreates the legacy coupling behind cleaner names."
+
+[[refs.where]]
+id       = "resource-implementations-stay-off-legacy-store"
+severity = "warn"
+expr     = """
+  $resources AND kind = 'imports_symbol'
+  AND NOT (moniker ~ '**/module:tests' OR moniker ~ '**/module:tests/**')
+  => NOT (target ~ '**/dir:workspace/module:store/**'
+       OR target ~ '**/dir:workspace/module:snapshot/**'
+       OR target ~ '**/path:SessionIndex'
+       OR target ~ '**/path:WorkspaceStore'
+       OR target ~ '**/path:WorkspaceSnapshot')
+"""
+message  = "`workspace::resources` implements semantic resources; it must not rebuild itself through the legacy store/session snapshot."
+rationale = "Local adapters may use material mechanisms such as source discovery, extraction, git, and rule evaluation, but they must produce the new session model directly. Calling `WorkspaceStore` or `SessionIndex` would hide the old orchestration behind the new traits."
+
+[[rust.module.where]]
+id       = "no-global-workspace-ports-module"
+severity = "warn"
+expr     = """
+  NOT (moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:ports'
+    OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:ports/**')
+"""
+message  = "Do not add a global `workspace::ports` module that reconcentrates source, index, linkage, changes, and diagnostics behind one owner."
+rationale = "Semantic ports are useful only when they belong to the resource model they describe. A global ports module becomes an orchestrator duplicate and lets the legacy design pass rules without isolating responsibilities."

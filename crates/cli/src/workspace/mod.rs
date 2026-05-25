@@ -1,4 +1,6 @@
 #[cfg(feature = "tui")]
+mod bridge;
+#[cfg(feature = "tui")]
 pub mod git;
 pub mod index;
 #[cfg(feature = "tui")]
@@ -6,12 +8,18 @@ mod linkage;
 #[cfg(feature = "tui")]
 mod model;
 #[cfg(feature = "tui")]
+pub mod resources;
+#[cfg(feature = "tui")]
+pub mod session;
+#[cfg(feature = "tui")]
 mod snapshot;
 #[cfg(feature = "tui")]
 mod store;
 #[cfg(feature = "tui")]
 mod symbols;
 
+#[cfg(feature = "tui")]
+pub use bridge::SessionStoreBridge;
 #[cfg(feature = "tui")]
 pub(crate) use git::ChangeStatus;
 pub use index::{
