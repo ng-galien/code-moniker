@@ -32,5 +32,6 @@ pub(crate) use model::{
 };
 #[cfg(feature = "tui")]
 pub(crate) use store::{
-	GitOverlayRefresh, GitOverlayRefreshInput, IndexStore, StoreWatchRoot, WorkspaceStore,
+	GitOverlayRefresh, GitOverlayRefreshInput, IndexStore, StoreWatchRoot, WorkspaceHandle,
+	WorkspaceStore,
 };

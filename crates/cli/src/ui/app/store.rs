@@ -6,11 +6,11 @@ use crate::ui::async_task::{TaskResult, TaskSpec};
 use crate::ui::live::StoreEvent;
 use crate::ui::store::navigation::{NavigationAction, NavigationState};
 use crate::ui::store::reducer::{Reduce, ReducerStore, Transition};
-use crate::workspace::WorkspaceStore;
+use crate::workspace::WorkspaceHandle;
 
 pub(in crate::ui) struct AppStore {
 	inner: ReducerStore<AppState>,
-	workspace: Option<WorkspaceStore>,
+	workspace: Option<WorkspaceHandle>,
 }
 
 impl AppStore {
@@ -21,7 +21,7 @@ impl AppStore {
 		}
 	}
 
-	pub(in crate::ui) fn from_workspace_store(store: WorkspaceStore) -> Self {
+	pub(in crate::ui) fn from_workspace_handle(store: WorkspaceHandle) -> Self {
 		let mut app_store = Self::new();
 		app_store.workspace = Some(store);
 		app_store
@@ -39,19 +39,19 @@ impl AppStore {
 		task
 	}
 
-	pub(in crate::ui) fn workspace(&self) -> &WorkspaceStore {
+	pub(in crate::ui) fn workspace(&self) -> &WorkspaceHandle {
 		self.workspace
 			.as_ref()
 			.expect("workspace store initialized")
 	}
 
-	pub(in crate::ui) fn workspace_mut(&mut self) -> &mut WorkspaceStore {
+	pub(in crate::ui) fn workspace_mut(&mut self) -> &mut WorkspaceHandle {
 		self.workspace
 			.as_mut()
 			.expect("workspace store initialized")
 	}
 
-	pub(in crate::ui) fn replace_workspace(&mut self, store: WorkspaceStore) {
+	pub(in crate::ui) fn replace_workspace(&mut self, store: WorkspaceHandle) {
 		self.workspace = Some(store);
 	}
 

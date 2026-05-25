@@ -26,9 +26,11 @@ impl App {
 
 	fn queue_store_task(&mut self, event: StoreEvent) -> bool {
 		let task = match event {
-			StoreEvent::GitOverlay => {
-				TaskSpec::refresh_git_overlay(self.store().git_overlay_refresh_input())
-			}
+			StoreEvent::GitOverlay => self
+				.store()
+				.git_overlay_refresh_input()
+				.map(TaskSpec::refresh_git_overlay)
+				.unwrap_or_else(|| TaskSpec::reload_store(self.store().options())),
 			StoreEvent::FullIndex => TaskSpec::reload_store(self.store().options()),
 		};
 		self.queue_task(task)

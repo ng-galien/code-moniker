@@ -9,7 +9,7 @@ use crate::ui::events::UiMode;
 use crate::ui::shell::ShellEvent;
 use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
-use crate::workspace::{SessionOptions, StoreWatchRoot, UsageFocus, WorkspaceStore};
+use crate::workspace::{SessionOptions, StoreWatchRoot, UsageFocus, WorkspaceHandle};
 
 mod action;
 mod change_mode;
@@ -47,11 +47,12 @@ pub(in crate::ui) struct App {
 
 impl App {
 	pub(in crate::ui) fn new(
-		store: WorkspaceStore,
+		store: impl Into<WorkspaceHandle>,
 		scheme: String,
 		rules: PathBuf,
 		profile: Option<String>,
 	) -> Self {
+		let store = store.into();
 		let started = Instant::now();
 		let navigator = build_navigator(&store);
 		perf::record("app.new.build_navigator", started.elapsed(), "");
@@ -59,7 +60,7 @@ impl App {
 		let change_navigator = build_change_navigator(&store);
 		perf::record("app.new.build_change_navigator", started.elapsed(), "");
 		let started = Instant::now();
-		let mut app_store = AppStore::from_workspace_store(store);
+		let mut app_store = AppStore::from_workspace_handle(store);
 		app_store.set_navigation(NavigationState::new(navigator, change_navigator));
 		let mut app = Self {
 			app_store,
@@ -85,7 +86,7 @@ impl App {
 		rules: PathBuf,
 		profile: Option<String>,
 	) -> Self {
-		let mut app = Self::new(WorkspaceStore::empty(opts), scheme, rules, profile);
+		let mut app = Self::new(WorkspaceHandle::empty(opts), scheme, rules, profile);
 		app.startup_load_pending = true;
 		app.set_status("loading index...");
 		app
@@ -170,15 +171,15 @@ impl App {
 		self.profile.as_deref()
 	}
 
-	pub(in crate::ui) fn store(&self) -> &WorkspaceStore {
+	pub(in crate::ui) fn store(&self) -> &WorkspaceHandle {
 		self.app_store.workspace()
 	}
 
-	pub(in crate::ui) fn store_mut(&mut self) -> &mut WorkspaceStore {
+	pub(in crate::ui) fn store_mut(&mut self) -> &mut WorkspaceHandle {
 		self.app_store.workspace_mut()
 	}
 
-	pub(in crate::ui) fn replace_store(&mut self, store: WorkspaceStore) {
+	pub(in crate::ui) fn replace_store(&mut self, store: WorkspaceHandle) {
 		self.app_store.replace_workspace(store);
 	}
 }

@@ -33,6 +33,7 @@ use super::session::{
 use super::store::IndexStore;
 use super::symbols::compact_moniker;
 
+#[derive(Clone)]
 pub struct SessionStoreBridge {
 	opts: SessionOptions,
 	root: String,
@@ -117,6 +118,28 @@ impl SessionStoreBridge {
 
 	pub fn options(&self) -> SessionOptions {
 		self.opts.clone()
+	}
+
+	pub(crate) fn usage_focus_for_target(&self, target: Moniker, label: String) -> UsageFocus {
+		let compact_moniker = compact_moniker(&target);
+		let refs = self
+			.snapshot
+			.index
+			.symbols
+			.iter()
+			.find(|symbol| self.moniker_for_identity(&symbol.identity).as_ref() == Some(&target))
+			.map(|symbol| self.incoming_refs_for_symbol(&symbol.id))
+			.unwrap_or_default();
+		let contexts = self.usage_contexts(&refs);
+		let references = self.reference_set(&refs, ReferenceDirection::Incoming);
+		UsageFocus {
+			target,
+			label,
+			compact_moniker,
+			contexts,
+			references,
+			refs,
+		}
 	}
 
 	fn source_file(&self, file_idx: usize) -> &SourceFileRecord {

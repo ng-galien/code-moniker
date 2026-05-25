@@ -11,6 +11,7 @@ use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
+use super::bridge::SessionStoreBridge;
 use super::git::{ChangeEntry, ChangeFile, ChangeIndex, ChangeRoot, ChangeScan};
 use super::index::{
 	CheckSummary, DefLocation, IndexedFile, RefLocation, SessionIndex, SessionOptions, SessionStats,
@@ -89,6 +90,12 @@ pub(crate) struct WorkspaceStore {
 	snapshot: Arc<WorkspaceSnapshot>,
 }
 
+#[derive(Clone)]
+pub(crate) enum WorkspaceHandle {
+	Legacy(WorkspaceStore),
+	Session(SessionStoreBridge),
+}
+
 pub(crate) struct GitOverlayRefreshInput {
 	index: Arc<SessionIndex>,
 	linkage: Arc<LinkageIndex>,
@@ -97,6 +104,103 @@ pub(crate) struct GitOverlayRefreshInput {
 pub(crate) struct GitOverlayRefresh {
 	index: Arc<SessionIndex>,
 	git: GitOverlay,
+}
+
+impl WorkspaceHandle {
+	pub(crate) fn load(opts: &SessionOptions) -> anyhow::Result<Self> {
+		Self::load_with_backend(opts, WorkspaceBackend::current())
+	}
+
+	fn load_with_backend(opts: &SessionOptions, backend: WorkspaceBackend) -> anyhow::Result<Self> {
+		match backend {
+			WorkspaceBackend::Session => SessionStoreBridge::load(opts.clone()).map(Self::Session),
+			WorkspaceBackend::Legacy => WorkspaceStore::load(opts).map(Self::Legacy),
+		}
+	}
+
+	pub(crate) fn catalog(opts: &SessionOptions) -> anyhow::Result<Self> {
+		WorkspaceStore::catalog(opts).map(Self::Legacy)
+	}
+
+	pub(crate) fn empty(opts: SessionOptions) -> Self {
+		Self::Legacy(WorkspaceStore::empty(opts))
+	}
+
+	pub(crate) fn options(&self) -> SessionOptions {
+		match self {
+			Self::Legacy(store) => store.options(),
+			Self::Session(store) => store.options(),
+		}
+	}
+
+	pub(crate) fn git_overlay_refresh_input(&self) -> Option<GitOverlayRefreshInput> {
+		match self {
+			Self::Legacy(store) => Some(store.git_overlay_refresh_input()),
+			Self::Session(_) => None,
+		}
+	}
+
+	pub(crate) fn apply_git_overlay_refresh(&mut self, refresh: GitOverlayRefresh) -> bool {
+		match self {
+			Self::Legacy(store) => store.apply_git_overlay_refresh(refresh),
+			Self::Session(_) => false,
+		}
+	}
+
+	pub(crate) fn watch_roots(&self) -> Vec<StoreWatchRoot> {
+		match self {
+			Self::Legacy(store) => store.watch_roots(),
+			Self::Session(store) => watch_roots_for_options(&store.options()),
+		}
+	}
+
+	pub(crate) fn refresh_git_overlay(&mut self) {
+		match self {
+			Self::Legacy(store) => store.refresh_git_overlay(),
+			Self::Session(_) => {
+				let _ = self.reload();
+			}
+		}
+	}
+
+	pub(crate) fn reload(&mut self) -> anyhow::Result<()> {
+		match (WorkspaceBackend::current(), self) {
+			(WorkspaceBackend::Legacy, Self::Legacy(store)) => store.reload(),
+			(_, handle) => {
+				let opts = handle.options();
+				*handle = Self::load(&opts)?;
+				Ok(())
+			}
+		}
+	}
+
+	pub(crate) fn usage_focus_for_target(&self, target: Moniker, label: String) -> UsageFocus {
+		match self {
+			Self::Legacy(store) => store.usage_focus_for_target(target, label),
+			Self::Session(store) => store.usage_focus_for_target(target, label),
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorkspaceBackend {
+	Session,
+	Legacy,
+}
+
+impl WorkspaceBackend {
+	fn current() -> Self {
+		match std::env::var("CODE_MONIKER_WORKSPACE_BACKEND") {
+			Ok(value) if value == "legacy" => Self::Legacy,
+			_ => Self::Session,
+		}
+	}
+}
+
+impl From<WorkspaceStore> for WorkspaceHandle {
+	fn from(store: WorkspaceStore) -> Self {
+		Self::Legacy(store)
+	}
 }
 
 impl WorkspaceStore {
@@ -250,6 +354,228 @@ impl WorkspaceStore {
 			contexts,
 			references,
 		}
+	}
+}
+
+impl IndexStore for WorkspaceHandle {
+	fn root(&self) -> &str {
+		match self {
+			Self::Legacy(store) => store.root(),
+			Self::Session(store) => store.root(),
+		}
+	}
+
+	fn stats(&self) -> &SessionStats {
+		match self {
+			Self::Legacy(store) => store.stats(),
+			Self::Session(store) => store.stats(),
+		}
+	}
+
+	fn linkage_stats(&self) -> &LinkageStats {
+		match self {
+			Self::Legacy(store) => store.linkage_stats(),
+			Self::Session(store) => store.linkage_stats(),
+		}
+	}
+
+	fn file_count(&self) -> usize {
+		match self {
+			Self::Legacy(store) => store.file_count(),
+			Self::Session(store) => store.file_count(),
+		}
+	}
+
+	fn file_summary(&self, file_idx: usize) -> FileSummary {
+		match self {
+			Self::Legacy(store) => store.file_summary(file_idx),
+			Self::Session(store) => store.file_summary(file_idx),
+		}
+	}
+
+	fn all_navigable_defs(&self) -> Vec<DefLocation> {
+		match self {
+			Self::Legacy(store) => store.all_navigable_defs(),
+			Self::Session(store) => store.all_navigable_defs(),
+		}
+	}
+
+	fn root_defs(&self, file_idx: usize) -> Vec<DefLocation> {
+		match self {
+			Self::Legacy(store) => store.root_defs(file_idx),
+			Self::Session(store) => store.root_defs(file_idx),
+		}
+	}
+
+	fn child_defs(&self, parent: &DefLocation) -> Vec<DefLocation> {
+		match self {
+			Self::Legacy(store) => store.child_defs(parent),
+			Self::Session(store) => store.child_defs(parent),
+		}
+	}
+
+	fn compare_defs_for_navigation(&self, left: &DefLocation, right: &DefLocation) -> Ordering {
+		match self {
+			Self::Legacy(store) => store.compare_defs_for_navigation(left, right),
+			Self::Session(store) => store.compare_defs_for_navigation(left, right),
+		}
+	}
+
+	fn is_navigable_symbol(&self, loc: &DefLocation) -> bool {
+		match self {
+			Self::Legacy(store) => store.is_navigable_symbol(loc),
+			Self::Session(store) => store.is_navigable_symbol(loc),
+		}
+	}
+
+	fn symbol_summary(&self, loc: &DefLocation) -> SymbolSummary {
+		match self {
+			Self::Legacy(store) => store.symbol_summary(loc),
+			Self::Session(store) => store.symbol_summary(loc),
+		}
+	}
+
+	fn symbol_detail(&self, loc: &DefLocation) -> SymbolDetail {
+		match self {
+			Self::Legacy(store) => store.symbol_detail(loc),
+			Self::Session(store) => store.symbol_detail(loc),
+		}
+	}
+
+	fn symbol_references(&self, loc: &DefLocation) -> SymbolReferences {
+		match self {
+			Self::Legacy(store) => store.symbol_references(loc),
+			Self::Session(store) => store.symbol_references(loc),
+		}
+	}
+
+	fn source_snippet(&self, loc: &DefLocation, context: u32) -> Vec<SourceLine> {
+		match self {
+			Self::Legacy(store) => store.source_snippet(loc, context),
+			Self::Session(store) => store.source_snippet(loc, context),
+		}
+	}
+
+	fn search_symbols_filtered(
+		&self,
+		query: &str,
+		limit: usize,
+		langs: &[Lang],
+		kinds: &[String],
+		shapes: &[Shape],
+	) -> Vec<SearchHit> {
+		match self {
+			Self::Legacy(store) => {
+				store.search_symbols_filtered(query, limit, langs, kinds, shapes)
+			}
+			Self::Session(store) => {
+				store.search_symbols_filtered(query, limit, langs, kinds, shapes)
+			}
+		}
+	}
+
+	fn change_overview(&self) -> ChangeOverview {
+		match self {
+			Self::Legacy(store) => store.change_overview(),
+			Self::Session(store) => store.change_overview(),
+		}
+	}
+
+	fn change_rows(&self) -> Vec<ChangeSummary> {
+		match self {
+			Self::Legacy(store) => store.change_rows(),
+			Self::Session(store) => store.change_rows(),
+		}
+	}
+
+	fn change_summary(&self, change: ChangeId) -> Option<ChangeSummary> {
+		match self {
+			Self::Legacy(store) => store.change_summary(change),
+			Self::Session(store) => store.change_summary(change),
+		}
+	}
+
+	fn change_detail(&self, change: ChangeId) -> Option<ChangeDetail> {
+		match self {
+			Self::Legacy(store) => store.change_detail(change),
+			Self::Session(store) => store.change_detail(change),
+		}
+	}
+
+	fn changed_defs(&self) -> Vec<DefLocation> {
+		match self {
+			Self::Legacy(store) => store.changed_defs(),
+			Self::Session(store) => store.changed_defs(),
+		}
+	}
+
+	fn change_detail_for_symbol(&self, loc: &DefLocation) -> Option<ChangeDetail> {
+		match self {
+			Self::Legacy(store) => store.change_detail_for_symbol(loc),
+			Self::Session(store) => store.change_detail_for_symbol(loc),
+		}
+	}
+
+	fn change_count_for_file(&self, file_idx: usize) -> usize {
+		match self {
+			Self::Legacy(store) => store.change_count_for_file(file_idx),
+			Self::Session(store) => store.change_count_for_file(file_idx),
+		}
+	}
+
+	fn usage_focus(&self, loc: DefLocation) -> UsageFocus {
+		match self {
+			Self::Legacy(store) => store.usage_focus(loc),
+			Self::Session(store) => store.usage_focus(loc),
+		}
+	}
+
+	fn unresolved_linkage_report(
+		&self,
+		file_limit: usize,
+		samples_per_file: usize,
+	) -> UnresolvedLinkageReport {
+		match self {
+			Self::Legacy(store) => store.unresolved_linkage_report(file_limit, samples_per_file),
+			Self::Session(store) => store.unresolved_linkage_report(file_limit, samples_per_file),
+		}
+	}
+
+	fn check_summary(
+		&self,
+		rules: &Path,
+		profile: Option<&str>,
+		scheme: &str,
+	) -> anyhow::Result<CheckSummary> {
+		match self {
+			Self::Legacy(store) => store.check_summary(rules, profile, scheme),
+			Self::Session(store) => store.check_summary(rules, profile, scheme),
+		}
+	}
+}
+
+fn watch_roots_for_options(opts: &SessionOptions) -> Vec<StoreWatchRoot> {
+	let ignored_paths = opts
+		.cache_dir
+		.as_ref()
+		.map(|path| vec![absolute_path(path)])
+		.unwrap_or_default();
+	opts.paths
+		.iter()
+		.map(|path| StoreWatchRoot {
+			path: watch_path(path),
+			git_root: None,
+			ignored_paths: ignored_paths.clone(),
+		})
+		.collect()
+}
+
+fn watch_path(path: &Path) -> PathBuf {
+	let path = absolute_path(path);
+	if path.is_file() {
+		path.parent().map(Path::to_path_buf).unwrap_or(path)
+	} else {
+		path
 	}
 }
 
@@ -1228,6 +1554,28 @@ mod tests {
 			.and_then(|locs| locs.first())
 			.copied()
 			.unwrap_or_else(|| panic!("missing def {name}"))
+	}
+
+	#[test]
+	fn workspace_handle_session_backend_loads_bridge() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(tmp.path(), "src/lib.rs", "fn indexed() {}\n");
+		let opts = SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		};
+
+		let handle = WorkspaceHandle::load_with_backend(&opts, WorkspaceBackend::Session).unwrap();
+
+		assert!(matches!(handle, WorkspaceHandle::Session(_)));
+		assert_eq!(handle.file_count(), 1);
+		assert!(
+			handle
+				.all_navigable_defs()
+				.iter()
+				.any(|loc| handle.symbol_summary(loc).name.contains("indexed"))
+		);
 	}
 
 	#[test]

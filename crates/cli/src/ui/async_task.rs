@@ -8,7 +8,7 @@ use std::time::Instant;
 use crate::perf;
 use crate::workspace::{
 	CheckSummary, GitOverlayRefresh, GitOverlayRefreshInput, IndexStore, SessionOptions,
-	WorkspaceStore,
+	WorkspaceHandle, WorkspaceStore,
 };
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
@@ -77,7 +77,7 @@ impl TaskSpec {
 	}
 
 	pub(in crate::ui) fn run_check(
-		store: WorkspaceStore,
+		store: WorkspaceHandle,
 		rules: PathBuf,
 		profile: Option<String>,
 		scheme: String,
@@ -118,11 +118,11 @@ impl TaskSpec {
 		let generation = self.generation;
 		let label = self.label;
 		let outcome = match self.kind {
-			TaskKind::LoadFileCatalog { opts } => match WorkspaceStore::catalog(&opts) {
+			TaskKind::LoadFileCatalog { opts } => match WorkspaceHandle::catalog(&opts) {
 				Ok(store) => TaskOutcome::FileCatalogLoaded(Box::new(store)),
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
-			TaskKind::ReloadStore { opts } => match WorkspaceStore::load(&opts) {
+			TaskKind::ReloadStore { opts } => match WorkspaceHandle::load(&opts) {
 				Ok(store) => TaskOutcome::StoreReloaded(Box::new(store)),
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
@@ -170,7 +170,7 @@ enum TaskKind {
 		input: GitOverlayRefreshInput,
 	},
 	RunCheck {
-		store: WorkspaceStore,
+		store: WorkspaceHandle,
 		rules: PathBuf,
 		profile: Option<String>,
 		scheme: String,
@@ -218,8 +218,8 @@ pub(in crate::ui) struct TaskResult {
 }
 
 pub(in crate::ui) enum TaskOutcome {
-	FileCatalogLoaded(Box<WorkspaceStore>),
-	StoreReloaded(Box<WorkspaceStore>),
+	FileCatalogLoaded(Box<WorkspaceHandle>),
+	StoreReloaded(Box<WorkspaceHandle>),
 	GitOverlayRefreshed(Box<GitOverlayRefresh>),
 	CheckCompleted(Box<CheckSummary>),
 	Failed(String),
