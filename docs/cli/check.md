@@ -68,6 +68,9 @@ heuristics, but it only extracts and evaluates supported source files named
 by `--file` that still exist under the checked directory. Multiple touched
 files become multiple `--file` flags. Unsupported, missing, or out-of-scope
 touched files produce no output and exit `0`, matching edit-hook behavior.
+Rules that use `require(...)` may lazily inspect the concrete target file
+derived from the current symbol, but `--file` does not become a full
+workspace scan.
 
 For example, a harness installed with `--scope src --profile architecture`
 runs the equivalent of:
@@ -364,7 +367,8 @@ Common def projections:
 | `shape` | cross-language group: `namespace`, `type`, `callable`, `value`, `annotation` |
 | `visibility` | language visibility, when the extractor supports it |
 | `lines` | line count for the def body |
-| `moniker` | full moniker |
+| `uri` | full moniker URI; prefer this spelling in new rules |
+| `moniker` | compatibility alias for `uri` |
 | `parent.name` | bare name of the parent segment |
 
 Common ref projections:
@@ -422,10 +426,25 @@ Full grammar: [Rule DSL](check-dsl.md).
 Path patterns match moniker segments, not filesystem strings.
 
 ```toml
-moniker ~ '**/dir:domain/**'
+uri     ~ '**/dir:domain/**'
 source  ~ '**/dir:application/**'
 target  ~ '**/interface:/Port$/'
 ```
+
+Use `require("<uri-pattern>")` when the current symbol implies that another
+symbol or resource must exist. The pattern can use `{name}` and
+`{name.snake}` placeholders from the current def:
+
+```toml
+uri ~ '**/module:args/enum:Command' => all(enum_constant,
+  require("**/dir:crates/dir:cli/dir:src/dir:{name.snake}/module:mod")
+)
+```
+
+This example says that each `args::Command` enum constant must have a
+matching command module directory. In file-scoped hook checks, `require`
+resolves only the derived target file when possible; repo-scoped checks
+remain the broader safety net.
 
 Project scans anchor each file at its path relative to the scanned root.
 For example, `code-moniker check src/` sees `src/core/order.ts` as
@@ -736,6 +755,7 @@ Def-scoped rules support message templates:
 | Token | Value |
 | ----- | ----- |
 | `{name}` | bare def name |
+| `{name.snake}` | bare def name converted from PascalCase/camelCase to snake_case |
 | `{kind}` | def kind |
 | `{moniker}` | full def moniker |
 | `{expr}` | raw expression |

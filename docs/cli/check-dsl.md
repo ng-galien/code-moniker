@@ -1,10 +1,10 @@
 # `code-moniker check` rule DSL
 
 Reference for the rule grammar used by the `check` subcommand. The DSL is
-declarative, side-effect-free, and lives entirely in TOML — each rule is
-one or more `<lhs> <op> <rhs>` assertions combined with booleans and
-implications. A rule fires (= a violation is emitted) when its assertion
-evaluates to **false** on a given def or ref.
+declarative and lives entirely in TOML — each rule is one or more
+`<lhs> <op> <rhs>` assertions combined with booleans and implications. A
+rule fires (= a violation is emitted) when its assertion evaluates to
+**false** on a given def or ref.
 
 ## Global File Exclusions
 
@@ -80,6 +80,7 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
   | <segment_lookup> ( = | != ) <string_value_or_projection>
   | <segment_lookup> ( =~ | !~ ) <regex>
   | has_segment( '<segment_kind>', '<segment_name>' )
+  | require( '<uri_pattern>' )
   | $<alias_name>
 
 <string_projection> ::=
@@ -126,7 +127,7 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
     ( a | b ).<item_domain>[.<projection_path>]
 
 <moniker_projection> ::=
-    moniker | source | source.parent | target | target.parent
+    uri | moniker | source | source.parent | target | target.parent
 
 <pair_projection> ::=
     ( a | b )[.<projection_path>]
@@ -160,6 +161,9 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
 <path_pattern> ::=
     <path_step> [ / <path_step> ... ]
 
+<uri_pattern> ::=
+    <path_pattern_with_template_placeholders>
+
 <path_step> ::=
     <kind>:<name>
   | <kind>:*
@@ -180,8 +184,8 @@ to override.
 
 `<predicate>`
 : A single test. It can compare a projection, count a domain, evaluate a
-  quantifier, match a moniker path, check for a moniker segment, or expand
-  an alias.
+  quantifier, match a moniker path, require a derived URI, check for a
+  moniker segment, or expand an alias.
 
 `<string_projection>`
 : A projection that yields text. `name`, `visibility`, `text`,
@@ -223,10 +227,12 @@ to override.
   `a.param.name` means the names of `param` children under pair item `a`.
 
 `<moniker_projection>`
-: A projection that yields a moniker. In def scope, `moniker` is the
-  current def. In ref scope, `moniker` and `source` are the ref source def;
-  `source.parent` is the source def parent; `target` is the ref target;
-  `target.parent` is the target moniker parent.
+: A projection that yields a moniker URI. In def scope, `uri` and
+  `moniker` are the current def. In ref scope, `uri`, `moniker`, and
+  `source` are the ref source def; `source.parent` is the source def
+  parent; `target` is the ref target; `target.parent` is the target
+  moniker parent. Prefer `uri` in new rules and documentation; `moniker`
+  remains accepted for compatibility with older rule packs.
 
 `<segment_lookup>`
 : Returns the first segment name with the requested kind, or `""` when the
@@ -552,8 +558,10 @@ rules that should hold regardless of resolution status.
 
 ### Path patterns
 
-`moniker ~ '<path>'` (or `source ~ '...'`, `target ~ '...'`) matches a
-moniker against a glob-like pattern composed of segments separated by `/`:
+`uri ~ '<path>'` (or `source ~ '...'`, `target ~ '...'`) matches a
+moniker URI against a glob-like pattern composed of segments separated by
+`/`. `moniker ~ '<path>'` is accepted as a compatibility alias for
+`uri ~ '<path>'`:
 
 | Step                 | Matches                                       |
 | -------------------- | --------------------------------------------- |
@@ -567,13 +575,41 @@ moniker against a glob-like pattern composed of segments separated by `/`:
 A pattern is anchored at the moniker's root unless it starts with `**/`.
 `<@ <uri>` (subtree) is equivalent to `~ '<segments-of-uri>/**'`.
 
+### Derived requirements
+
+`require('<uri-pattern>')` asserts that a derived URI exists. It is meant
+for correlated-existence rules: the current symbol determines the address
+of another required resource or symbol.
+
+```toml
+[[rust.enum.where]]
+id = "command-variants-have-command-modules"
+expr = """
+uri ~ '**/module:args/enum:Command' => all(enum_constant,
+  require("**/dir:crates/dir:cli/dir:src/dir:{name.snake}/module:mod")
+)
+"""
+message = "CLI command variant `{name}` must have an owning module."
+```
+
+The pattern is rendered in the current item context. Supported template
+placeholders are `{name}` and `{name.snake}`. In the example above, enum
+constant `Stats` requires a `dir:stats/module:mod` URI.
+
+`require(...)` is declarative from the rule author's point of view, but
+the runner may resolve the expected URI lazily. In `check --file` mode, it
+must not turn the invocation into a full project scan; it should resolve
+only the concrete target files implied by the rendered requirement. A
+repo-scoped `check` remains the completeness gate for edits that do not
+touch the source symbol that drives the rule.
+
 ### Aliases
 
 ```toml
 [aliases]
-domain = "moniker ~ '**/module:domain/**'"
-infra  = "moniker ~ '**/module:infrastructure/**'"
-port   = "moniker ~ '**/interface:/Port$/'"
+domain = "uri ~ '**/module:domain/**'"
+infra  = "uri ~ '**/module:infrastructure/**'"
+port   = "uri ~ '**/interface:/Port$/'"
 ```
 
 A `$name` reference is substituted **textually** (wrapped in parens to
@@ -594,8 +630,8 @@ defined in the root `.code-moniker.toml`.
 
 Because substitution is textual, an alias bundles **both** its
 projection and its right-hand side. An alias written for def scope
-(`moniker ~ '...'`) can't be reused in ref scope by writing
-`source $domain` — that would expand to `source (moniker ~ '...')`
+(`uri ~ '...'`) can't be reused in ref scope by writing
+`source $domain` — that would expand to `source (uri ~ '...')`
 which is malformed. For ref-scope rules, write `source ~ '...'`
 explicitly, or define separate aliases per scope (`src_domain`,
 `tgt_domain`).
@@ -636,7 +672,7 @@ fragment = "ui"                             # required
 enabled = true                              # optional, default true
 
 [aliases]                                  # optional, local to this fragment
-panels = "moniker ~ '**/dir:ui/dir:panels/**'"
+panels = "uri ~ '**/dir:ui/dir:panels/**'"
 
 [[refs.where]]
 id      = "panels-ratatui-free"            # required in fragments
@@ -656,9 +692,9 @@ Warning rules are reported but do not make `check` exit `1` unless another
 error-severity rule fails or a file read error occurs. `rationale` is
 optional architectural context shown by `rules show`; it is not emitted as
 a check violation explanation. Def rule messages can use `{name}`,
-`{kind}`, `{moniker}`, `{expr}`, `{value}`, `{expected}` and the aliases
-`{pattern}`, `{lines}`, `{limit}`, `{count}`. Ref rule messages can use
-`{kind}`, `{source.name}`, `{source.kind}`, `{source.shape}`,
+`{name.snake}`, `{kind}`, `{moniker}`, `{expr}`, `{value}`, `{expected}`
+and the aliases `{pattern}`, `{lines}`, `{limit}`, `{count}`. Ref rule
+messages can use `{kind}`, `{source.name}`, `{source.kind}`, `{source.shape}`,
 `{source.moniker}`, `{target.name}`, `{target.kind}`, `{target.shape}`,
 `{target.moniker}`, `{atom}`, `{actual}`, and `{expected}`.
 
