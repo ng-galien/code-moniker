@@ -29,7 +29,8 @@ use crate::workspace::model::{
 	UnresolvedLinkageGroup, UnresolvedLinkageReport, UnresolvedLinkageSample, UsageFocus,
 };
 use crate::workspace::snapshot::{
-	ChangeRecord, ChangeStatus, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId,
+	ChangeOverlay, ChangeRecord, ChangeStatus, CodeIndex, LinkageGraph, ReferenceId,
+	ReferenceRecord, ResourceGeneration, SourceCatalog, SourceFileRecord, SourceId, SymbolId,
 	SymbolRecord, WorkspaceRequest, WorkspaceSnapshot, WorkspaceSnapshotRefresh,
 	WorkspaceTransition,
 };
@@ -77,6 +78,31 @@ impl SessionStoreBridge {
 
 	pub fn from_snapshot(opts: SessionOptions, snapshot: WorkspaceSnapshot) -> Self {
 		Self::from_snapshot_with_cache(opts, snapshot, None)
+	}
+
+	pub fn empty(opts: SessionOptions) -> Self {
+		let generation = ResourceGeneration::new(0);
+		let catalog = SourceCatalog::new(generation, Vec::new());
+		let index = CodeIndex::from_fields(crate::workspace::snapshot::CodeIndexFields {
+			generation,
+			catalog_generation: generation,
+			identity_scheme: crate::DEFAULT_SCHEME.to_string(),
+			sources: Vec::new(),
+			symbols: Vec::new(),
+			references: Vec::new(),
+		});
+		let linkage = LinkageGraph::new(generation, generation, 0, 0);
+		let changes = ChangeOverlay::new(generation, generation, generation, Vec::new());
+		Self::from_snapshot(
+			opts,
+			WorkspaceSnapshot {
+				generation,
+				catalog,
+				index,
+				linkage,
+				changes,
+			},
+		)
 	}
 
 	fn from_snapshot_with_cache(

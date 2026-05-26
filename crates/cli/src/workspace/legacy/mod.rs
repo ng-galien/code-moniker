@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod index;
 #[cfg(feature = "tui")]
 pub(crate) mod linkage;

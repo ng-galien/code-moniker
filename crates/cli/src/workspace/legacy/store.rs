@@ -109,22 +109,15 @@ pub(crate) struct GitOverlayRefresh {
 
 impl WorkspaceHandle {
 	pub(crate) fn load(opts: &SessionOptions) -> anyhow::Result<Self> {
-		Self::load_with_backend(opts, WorkspaceBackend::current())
-	}
-
-	fn load_with_backend(opts: &SessionOptions, backend: WorkspaceBackend) -> anyhow::Result<Self> {
-		match backend {
-			WorkspaceBackend::Session => SessionStoreBridge::load(opts.clone()).map(Self::Session),
-			WorkspaceBackend::Legacy => WorkspaceStore::load(opts).map(Self::Legacy),
-		}
+		SessionStoreBridge::load(opts.clone()).map(Self::Session)
 	}
 
 	pub(crate) fn catalog(opts: &SessionOptions) -> anyhow::Result<Self> {
-		WorkspaceStore::catalog(opts).map(Self::Legacy)
+		SessionStoreBridge::load(opts.clone()).map(Self::Session)
 	}
 
 	pub(crate) fn empty(opts: SessionOptions) -> Self {
-		Self::Legacy(WorkspaceStore::empty(opts))
+		Self::Session(SessionStoreBridge::empty(opts))
 	}
 
 	pub(crate) fn options(&self) -> SessionOptions {
@@ -165,35 +158,15 @@ impl WorkspaceHandle {
 	}
 
 	pub(crate) fn reload(&mut self) -> anyhow::Result<()> {
-		match (WorkspaceBackend::current(), self) {
-			(WorkspaceBackend::Legacy, Self::Legacy(store)) => store.reload(),
-			(_, handle) => {
-				let opts = handle.options();
-				*handle = Self::load(&opts)?;
-				Ok(())
-			}
-		}
+		let opts = self.options();
+		*self = Self::load(&opts)?;
+		Ok(())
 	}
 
 	pub(crate) fn usage_focus_for_target(&self, target: Moniker, label: String) -> UsageFocus {
 		match self {
 			Self::Legacy(store) => store.usage_focus_for_target(target, label),
 			Self::Session(store) => store.usage_focus_for_target(target, label),
-		}
-	}
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum WorkspaceBackend {
-	Session,
-	Legacy,
-}
-
-impl WorkspaceBackend {
-	fn current() -> Self {
-		match std::env::var("CODE_MONIKER_WORKSPACE_BACKEND") {
-			Ok(value) if value == "legacy" => Self::Legacy,
-			_ => Self::Session,
 		}
 	}
 }
@@ -1591,7 +1564,7 @@ mod tests {
 			cache_dir: None,
 		};
 
-		let handle = WorkspaceHandle::load_with_backend(&opts, WorkspaceBackend::Session).unwrap();
+		let handle = WorkspaceHandle::load(&opts).unwrap();
 
 		assert!(matches!(handle, WorkspaceHandle::Session(_)));
 		assert_eq!(handle.file_count(), 1);
@@ -1601,6 +1574,24 @@ mod tests {
 				.iter()
 				.any(|loc| handle.symbol_summary(loc).name.contains("indexed"))
 		);
+	}
+
+	#[test]
+	fn workspace_handle_empty_and_catalog_use_session_runtime() {
+		let tmp = tempfile::tempdir().unwrap();
+		write(tmp.path(), "src/lib.rs", "fn indexed() {}\n");
+		let opts = SessionOptions {
+			paths: vec![tmp.path().to_path_buf()],
+			project: Some("app".into()),
+			cache_dir: None,
+		};
+
+		let empty = WorkspaceHandle::empty(opts.clone());
+		let catalog = WorkspaceHandle::catalog(&opts).unwrap();
+
+		assert!(matches!(empty, WorkspaceHandle::Session(_)));
+		assert!(matches!(catalog, WorkspaceHandle::Session(_)));
+		assert_eq!(catalog.file_count(), 1);
 	}
 
 	#[test]
