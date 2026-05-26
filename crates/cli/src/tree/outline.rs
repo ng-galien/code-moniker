@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-long-parameter-list]
-// TODO(smell): introduce an outline render context for args, writer, tree strategy, source, and match state before enabling this guardrail here.
 use std::collections::BTreeMap;
 use std::io::Write;
 
@@ -85,7 +83,13 @@ pub fn write_tree_with_prefix<W: Write>(
 		}
 	}
 
-	render(w, &root, prefix, true, &opts, &cfg, source)
+	OutlineRenderer {
+		w,
+		opts: &opts,
+		cfg: &cfg,
+		source,
+	}
+	.render(&root, prefix, true)
 }
 
 #[derive(Default)]
@@ -114,39 +118,41 @@ impl<'a> Node<'a> {
 	}
 }
 
-fn render<W: Write>(
-	w: &mut W,
-	node: &Node<'_>,
-	prefix: &str,
-	is_top: bool,
-	opts: &TreeOpts,
-	cfg: &UriConfig<'_>,
-	source: &str,
-) -> std::io::Result<()> {
-	let mut entries: Vec<(&String, &Node<'_>)> = node.children.iter().collect();
-	entries.sort_by_key(|entry| tree_sort_key(entry.0, entry.1));
+struct OutlineRenderer<'a, W> {
+	w: &'a mut W,
+	opts: &'a TreeOpts,
+	cfg: &'a UriConfig<'a>,
+	source: &'a str,
+}
 
-	let total = entries.len() + node.refs.len();
-	let mut i = 0usize;
+impl<W: Write> OutlineRenderer<'_, W> {
+	fn render(&mut self, node: &Node<'_>, prefix: &str, is_top: bool) -> std::io::Result<()> {
+		let mut entries: Vec<(&String, &Node<'_>)> = node.children.iter().collect();
+		entries.sort_by_key(|entry| tree_sort_key(entry.0, entry.1));
 
-	for (seg, child) in &entries {
-		let last = i + 1 == total;
-		let (branch, cont) = branch_glyphs(is_top, last, opts);
-		let (label, rendered_child) = collapsed_outline_label(seg, child, source, opts);
-		writeln!(w, "{prefix}{branch}{label}")?;
-		let next_prefix = format!("{prefix}{cont}");
-		render(w, rendered_child, &next_prefix, false, opts, cfg, source)?;
-		i += 1;
+		let total = entries.len() + node.refs.len();
+		let mut i = 0usize;
+
+		for (seg, child) in &entries {
+			let last = i + 1 == total;
+			let (branch, cont) = branch_glyphs(is_top, last, self.opts);
+			let (label, rendered_child) =
+				collapsed_outline_label(seg, child, self.source, self.opts);
+			writeln!(self.w, "{prefix}{branch}{label}")?;
+			let next_prefix = format!("{prefix}{cont}");
+			self.render(rendered_child, &next_prefix, false)?;
+			i += 1;
+		}
+
+		for r in &node.refs {
+			let last = i + 1 == total;
+			let (branch, _) = branch_glyphs(is_top, last, self.opts);
+			let label = format_ref_label(r, self.cfg, self.opts);
+			writeln!(self.w, "{prefix}{branch}{label}")?;
+			i += 1;
+		}
+		Ok(())
 	}
-
-	for r in &node.refs {
-		let last = i + 1 == total;
-		let (branch, _) = branch_glyphs(is_top, last, opts);
-		let label = format_ref_label(r, cfg, opts);
-		writeln!(w, "{prefix}{branch}{label}")?;
-		i += 1;
-	}
-	Ok(())
 }
 
 #[derive(Eq, PartialEq, Ord, PartialOrd)]
