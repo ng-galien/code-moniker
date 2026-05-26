@@ -2,7 +2,6 @@
 //! and `docs/cli/check.md` (project linter).
 
 pub mod args;
-pub mod cache;
 pub mod check;
 pub(crate) mod color;
 pub mod dir;
@@ -10,21 +9,17 @@ pub mod format;
 pub mod harness;
 #[deprecated(note = "use code_moniker_cli::workspace::index instead")]
 pub mod inspect;
-pub mod lang;
-pub mod lines;
 pub mod manifest;
 pub(crate) mod page;
 #[cfg(feature = "tui")]
 pub(crate) mod perf;
 pub mod predicate;
 pub mod rules;
-pub mod sources;
 pub mod stats;
 #[cfg(feature = "pretty")]
 pub(crate) mod tree;
 #[cfg(feature = "tui")]
 pub mod ui;
-pub mod walk;
 pub mod workspace;
 
 use std::cmp::Ordering;
@@ -36,7 +31,7 @@ use std::time::{Duration, Instant};
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::kinds::{KIND_COMMENT, KIND_LOCAL, KIND_PARAM};
 use code_moniker_core::core::moniker::Moniker;
-use code_moniker_workspace::{extract, tsconfig};
+use code_moniker_workspace::{cache, extract, sources, tsconfig};
 
 #[cfg(feature = "tui")]
 pub use args::UiArgs;
@@ -47,7 +42,7 @@ pub use args::{
 	RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs,
 	StatsFormat,
 };
-pub use lang::{LangError, path_to_lang};
+pub use code_moniker_workspace::lang::{LangError, path_to_lang};
 pub use predicate::{MatchSet, Predicate};
 
 pub(crate) const DEFAULT_SCHEME: &str = "code+moniker://";

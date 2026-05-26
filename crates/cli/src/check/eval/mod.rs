@@ -10,7 +10,6 @@ use crate::check::config::{Config, ConfigError, KindRules, RuleSeverity, config_
 use crate::check::expr::{
 	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
 };
-use crate::lines::line_range;
 use crate::render_uri;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::core::kinds::KIND_COMMENT;
@@ -18,6 +17,7 @@ use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::shape::Shape;
 use code_moniker_core::core::uri::UriConfig;
 use code_moniker_core::lang::Lang;
+use code_moniker_workspace::lines::line_range;
 
 use collection::{collection_has_pair_binding, eval_collection_size, eval_collection_subset};
 use local::{AggregateEval, eval_aggregate, eval_entropy, eval_mode};
@@ -907,7 +907,7 @@ fn eval_ref_rule(
 	let target_uri = render_uri(&r.target, &ctx.uri_cfg);
 	let ref_kind = std::str::from_utf8(&r.kind).unwrap_or_default();
 	let (start_line, end_line) = match r.position {
-		Some((s, e)) => crate::lines::line_range(ctx.source, s, e),
+		Some((s, e)) => line_range(ctx.source, s, e),
 		None => (0, 0),
 	};
 	let message = format!(

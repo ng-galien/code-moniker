@@ -15,10 +15,10 @@ use crate::Exit;
 #[cfg(feature = "pretty")]
 use crate::args::Charset;
 use crate::args::{StatsArgs, StatsFormat};
-use crate::cache;
 #[cfg(feature = "pretty")]
 use crate::color::resolve_color;
-use crate::sources::{self, SourceFile, SourceSet};
+use code_moniker_workspace::cache;
+use code_moniker_workspace::sources::{self, SourceFile, SourceSet};
 
 pub fn run<W1: Write, W2: Write>(args: &StatsArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match stats_inner(args, stdout) {

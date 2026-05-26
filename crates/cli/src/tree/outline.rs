@@ -9,12 +9,12 @@ use rustc_hash::FxHashMap;
 use super::strategy::TreeStrategy;
 use super::style::{Palette, TreeOpts};
 use crate::args::ExtractArgs;
-use crate::lines::line_range;
 use crate::predicate::{MatchSet, RefMatch};
 use crate::render_uri;
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::kinds::{KIND_COMMENT, KIND_LOCAL, KIND_PARAM};
 use code_moniker_core::core::uri::UriConfig;
+use code_moniker_workspace::lines::line_range;
 
 const NOISE_KINDS: &[&[u8]] = &[KIND_LOCAL, KIND_PARAM, KIND_COMMENT];
 

@@ -89,11 +89,14 @@ fn collect_directives(graph: &CodeGraph, source: &str) -> Vec<Directive> {
 }
 
 fn target_lines_for(graph: &CodeGraph, source: &str, dir: &Directive) -> Option<(u32, u32)> {
-	let directive_lines =
-		crate::lines::line_range(source, dir.comment_start_byte, dir.comment_end_byte);
+	let directive_lines = code_moniker_workspace::lines::line_range(
+		source,
+		dir.comment_start_byte,
+		dir.comment_end_byte,
+	);
 	let target_lines = next_def_after(graph, dir.comment_end_byte)
 		.and_then(|t| t.position)
-		.map(|(s, e)| crate::lines::line_range(source, s, e));
+		.map(|(s, e)| code_moniker_workspace::lines::line_range(source, s, e));
 	Some(match target_lines {
 		Some(t) => (directive_lines.0.min(t.0), directive_lines.1.max(t.1)),
 		None => directive_lines,
