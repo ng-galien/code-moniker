@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-feature-envy-local]
-// TODO(smell): keep TreeOpts as the local tree-style facade; revisit this suppression if ANSI/color resolution expands beyond style mapping.
 use anstyle::{AnsiColor, Style};
 use code_moniker_core::core::shape::Shape;
 
@@ -76,45 +74,39 @@ pub(super) struct Palette {
 impl Palette {
 	fn none() -> Self {
 		Self {
-			namespace_kind: Style::new(),
-			type_kind: Style::new(),
-			callable_kind: Style::new(),
-			value_kind: Style::new(),
-			meta_kind: Style::new(),
-			unknown_kind: Style::new(),
-			name: Style::new(),
-			range: Style::new(),
-			arrow: Style::new(),
-			ref_kind: Style::new(),
-			dim: Style::new(),
-			punct: Style::new(),
-			arg_name: Style::new(),
-			arg_type: Style::new(),
+			namespace_kind: plain(),
+			type_kind: plain(),
+			callable_kind: plain(),
+			value_kind: plain(),
+			meta_kind: plain(),
+			unknown_kind: plain(),
+			name: plain(),
+			range: plain(),
+			arrow: plain(),
+			ref_kind: plain(),
+			dim: plain(),
+			punct: plain(),
+			arg_name: plain(),
+			arg_type: plain(),
 		}
 	}
 
 	fn ansi() -> Self {
 		Self {
-			namespace_kind: Style::new().fg_color(Some(AnsiColor::Cyan.into())),
-			type_kind: Style::new().fg_color(Some(AnsiColor::Blue.into())).bold(),
-			callable_kind: Style::new().fg_color(Some(AnsiColor::Green.into())),
-			value_kind: Style::new().fg_color(Some(AnsiColor::Yellow.into())),
-			meta_kind: Style::new()
-				.fg_color(Some(AnsiColor::BrightBlack.into()))
-				.dimmed(),
-			unknown_kind: Style::new().fg_color(Some(AnsiColor::Cyan.into())),
-			name: Style::new().bold(),
-			range: Style::new().fg_color(Some(AnsiColor::Green.into())),
-			arrow: Style::new()
-				.fg_color(Some(AnsiColor::BrightBlack.into()))
-				.dimmed(),
-			ref_kind: Style::new().fg_color(Some(AnsiColor::Magenta.into())),
-			dim: Style::new()
-				.fg_color(Some(AnsiColor::BrightBlack.into()))
-				.dimmed(),
-			punct: Style::new().fg_color(Some(AnsiColor::BrightBlack.into())),
-			arg_name: Style::new().fg_color(Some(AnsiColor::Yellow.into())),
-			arg_type: Style::new().fg_color(Some(AnsiColor::Blue.into())),
+			namespace_kind: fg(AnsiColor::Cyan),
+			type_kind: bold_fg(AnsiColor::Blue),
+			callable_kind: fg(AnsiColor::Green),
+			value_kind: fg(AnsiColor::Yellow),
+			meta_kind: dim_fg(AnsiColor::BrightBlack),
+			unknown_kind: fg(AnsiColor::Cyan),
+			name: bold(),
+			range: fg(AnsiColor::Green),
+			arrow: dim_fg(AnsiColor::BrightBlack),
+			ref_kind: fg(AnsiColor::Magenta),
+			dim: dim_fg(AnsiColor::BrightBlack),
+			punct: fg(AnsiColor::BrightBlack),
+			arg_name: fg(AnsiColor::Yellow),
+			arg_type: fg(AnsiColor::Blue),
 		}
 	}
 
@@ -129,4 +121,24 @@ impl Palette {
 			None => self.unknown_kind,
 		}
 	}
+}
+
+fn plain() -> Style {
+	Style::new()
+}
+
+fn bold() -> Style {
+	plain().bold()
+}
+
+fn fg(color: AnsiColor) -> Style {
+	plain().fg_color(Some(color.into()))
+}
+
+fn bold_fg(color: AnsiColor) -> Style {
+	fg(color).bold()
+}
+
+fn dim_fg(color: AnsiColor) -> Style {
+	fg(color).dimmed()
 }
