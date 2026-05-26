@@ -10,10 +10,12 @@ use code_moniker_core::core::moniker::Moniker;
 use code_moniker_workspace::environment;
 
 use crate::args::{ExtractArgs, OutputFormat, OutputMode};
-use crate::predicate::MatchSet;
-use crate::{Exit, format, page, path_to_lang, predicate};
+use crate::{Exit, format, language_kinds, page, path_to_lang};
 
 mod directory;
+pub(crate) mod filter;
+
+pub use filter::{MatchSet, Predicate, RefMatch};
 
 pub fn run<W1: Write, W2: Write>(args: &ExtractArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match extract_inner(args, stdout, stderr) {
@@ -49,9 +51,9 @@ fn extract_inner<W1: Write, W2: Write>(
 	}
 	let lang = path_to_lang(path)?;
 	let predicates = args.compiled_predicates(&scheme)?;
-	let names = predicate::compile_name_filters(&args.name)?;
-	let known = predicate::known_kinds(std::iter::once(&lang));
-	let unknown = predicate::unknown_kinds(&args.kind, &known);
+	let names = filter::compile_name_filters(&args.name)?;
+	let known = language_kinds::known_kinds(std::iter::once(&lang));
+	let unknown = language_kinds::unknown_kinds(&args.kind, &known);
 	if !unknown.is_empty() {
 		return Err(crate::unknown_kinds_error(&unknown, &[lang], &known));
 	}
@@ -74,7 +76,7 @@ fn extract_inner<W1: Write, W2: Write>(
 		None => std::fs::read_to_string(path)
 			.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?,
 	};
-	let matches = predicate::filter(&graph, &predicates, &args.kind, &names, &args.shape);
+	let matches = filter::filter(&graph, &predicates, &args.kind, &names, &args.shape);
 	match args.mode() {
 		OutputMode::Default => {
 			let visible;
@@ -134,7 +136,7 @@ fn tree_visible_match_set<'g>(matches: &MatchSet<'g>, args: &ExtractArgs) -> Mat
 			refs: matches
 				.refs
 				.iter()
-				.map(|r| predicate::RefMatch {
+				.map(|r| RefMatch {
 					record: r.record,
 					source: r.source,
 				})
@@ -265,9 +267,7 @@ fn paginate_match_set<'g>(
 	for item in items.into_iter().take(page_len) {
 		match item.record {
 			MatchRecord::Def(def) => defs.push(def),
-			MatchRecord::Ref { record, source } => {
-				refs.push(predicate::RefMatch { record, source })
-			}
+			MatchRecord::Ref { record, source } => refs.push(RefMatch { record, source }),
 		}
 	}
 	Ok((MatchSet { defs, refs }, info))

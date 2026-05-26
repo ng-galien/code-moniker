@@ -8,11 +8,11 @@ pub mod extract;
 pub mod format;
 pub mod harness;
 pub mod langs;
+pub(crate) mod language_kinds;
 pub mod manifest;
 pub(crate) mod page;
 #[cfg(feature = "tui")]
 pub(crate) mod perf;
-pub mod predicate;
 pub mod rules;
 pub mod session;
 pub mod shapes;
@@ -35,7 +35,7 @@ pub use args::{
 	StatsFormat,
 };
 pub use code_moniker_workspace::lang::{LangError, path_to_lang};
-pub use predicate::{MatchSet, Predicate};
+pub use extract::{MatchSet, Predicate};
 
 pub(crate) const DEFAULT_SCHEME: &str = "code+moniker://";
 

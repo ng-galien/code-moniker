@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::args::{LangsArgs, LangsFormat};
-use crate::{Exit, predicate};
+use crate::{Exit, language_kinds};
 
 pub fn run<W1: Write, W2: Write>(args: &LangsArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match langs_inner(args, stdout) {
@@ -17,7 +17,7 @@ fn collect_kinds(
 	lang: code_moniker_core::lang::Lang,
 ) -> Vec<(&'static str, code_moniker_core::core::shape::Shape)> {
 	use code_moniker_core::core::shape::Shape;
-	predicate::known_kinds(std::iter::once(&lang))
+	language_kinds::known_kinds(std::iter::once(&lang))
 		.into_iter()
 		.map(|k| (k, Shape::for_kind(k.as_bytes())))
 		.collect()

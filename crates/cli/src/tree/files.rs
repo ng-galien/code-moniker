@@ -6,7 +6,7 @@ use std::io::Write;
 use super::outline::write_tree_with_prefix;
 use super::style::TreeOpts;
 use crate::args::ExtractArgs;
-use crate::predicate::MatchSet;
+use crate::extract::MatchSet;
 
 pub(crate) struct FileEntry<'a> {
 	pub(crate) rel_path: String,

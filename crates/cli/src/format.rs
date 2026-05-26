@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::args::{ExtractArgs, MonikerFormat};
 use crate::color::resolve_color;
-use crate::predicate::{MatchSet, RefMatch};
+use crate::extract::{MatchSet, RefMatch};
 use crate::render_uri;
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::kinds::KIND_COMMENT;
@@ -373,7 +373,7 @@ fn escape_tsv(s: &str) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::predicate::MatchSet;
+	use crate::extract::MatchSet;
 	use code_moniker_core::core::code_graph::CodeGraph;
 	use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 

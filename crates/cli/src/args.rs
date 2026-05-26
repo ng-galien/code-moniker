@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 
-use crate::predicate::Predicate;
+use crate::extract::Predicate;
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::shape::Shape;
 use code_moniker_core::core::uri::{UriConfig, from_uri};

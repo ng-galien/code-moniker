@@ -10,12 +10,14 @@ use serde::Serialize;
 
 use crate::args::{ExtractArgs, OutputFormat, OutputMode};
 use crate::format;
+use crate::language_kinds;
 use crate::page::{PageInfo, PageSpec};
-use crate::predicate::{self, MatchSet, Predicate, RefMatch};
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::environment::{self, SourceFile, SourceFileSet};
+
+use super::filter::{self, MatchSet, Predicate, RefMatch};
 
 pub fn run<W1: Write, W2: Write>(
 	args: &ExtractArgs,
@@ -37,12 +39,12 @@ fn run_filter<W1: Write, W2: Write>(
 	scheme: &str,
 ) -> anyhow::Result<bool> {
 	let predicates = args.compiled_predicates(scheme)?;
-	let names = predicate::compile_name_filters(&args.name)?;
+	let names = filter::compile_name_filters(&args.name)?;
 	let mut langs: Vec<Lang> = sources.files.iter().map(|f| f.lang).collect();
 	langs.sort_by_key(|l| l.tag());
 	langs.dedup();
-	let known = predicate::known_kinds(langs.iter());
-	let unknown = predicate::unknown_kinds(&args.kind, &known);
+	let known = language_kinds::known_kinds(langs.iter());
+	let unknown = language_kinds::unknown_kinds(&args.kind, &known);
 	if !unknown.is_empty() {
 		return Err(crate::unknown_kinds_error(&unknown, &langs, &known));
 	}
@@ -136,7 +138,7 @@ impl FilterRow {
 			ctx,
 		)
 		.ok()?;
-		let matches = predicate::filter(&graph, predicates, kinds, names, shapes);
+		let matches = filter::filter(&graph, predicates, kinds, names, shapes);
 		if matches.defs.is_empty() && matches.refs.is_empty() {
 			return None;
 		}
