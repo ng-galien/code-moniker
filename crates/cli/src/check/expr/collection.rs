@@ -216,7 +216,6 @@ fn validate_collection_projection_path(
 ) -> Result<(), ParseError> {
 	let valid = match domain {
 		Domain::Children(_) | Domain::ChildrenByShape(_) => valid_def_collection_path(path),
-		Domain::ProjectDefs => valid_def_collection_path(path),
 		Domain::OutRefs | Domain::InRefs => valid_ref_collection_path(path),
 		Domain::Segments => valid_segment_collection_path(path),
 		Domain::Pairs(_) => false,

@@ -1,0 +1,1 @@
+all(enum_constant, require("**/dir:crates/dir:cli/dir:src/dir:{name.snake}/module:mod"))

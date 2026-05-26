@@ -25,5 +25,13 @@ mod snapshots;
 #[cfg(test)]
 mod test_support {
 	pub(super) const TS: &str = "code+moniker://";
-	pub(super) const KINDS: &[&str] = &["class", "method", "function", "module", "field", "param"];
+	pub(super) const KINDS: &[&str] = &[
+		"class",
+		"method",
+		"function",
+		"module",
+		"field",
+		"param",
+		"enum_constant",
+	];
 }

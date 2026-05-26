@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 mod collection;
 mod local;
@@ -8,7 +8,7 @@ mod value;
 
 use crate::check::config::{Config, ConfigError, KindRules, RuleSeverity, config_section};
 use crate::check::expr::{
-	self, Atom, Domain, Lhs, LhsExpr, MatchKey, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
+	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
 };
 use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
@@ -20,7 +20,7 @@ use code_moniker_core::lang::Lang;
 use code_moniker_workspace::lines::line_range;
 
 use collection::{collection_has_pair_binding, eval_collection_size, eval_collection_subset};
-use local::{AggregateEval, DomainItem, domain_items, eval_aggregate, eval_entropy, eval_mode};
+use local::{AggregateEval, eval_aggregate, eval_entropy, eval_mode};
 use metrics::eval_metric;
 use pairs::{eval_pair_count, eval_pair_quantifier};
 use value::{Value, apply_op, apply_op_values, number_expr_label};
@@ -72,16 +72,20 @@ pub fn evaluate_compiled(
 	scheme: &str,
 	compiled: &CompiledRules,
 ) -> Vec<Violation> {
-	evaluate_compiled_with_project(graph, source, lang, scheme, compiled, None)
+	evaluate_compiled_with_requirements(graph, source, lang, scheme, compiled, None)
 }
 
-pub fn evaluate_compiled_with_project(
+pub trait RequirementResolver: Sync {
+	fn exists(&self, pattern: &str, source: &DefRecord, scheme: &str) -> bool;
+}
+
+pub fn evaluate_compiled_with_requirements(
 	graph: &CodeGraph,
 	source: &str,
 	lang: Lang,
 	scheme: &str,
 	compiled: &CompiledRules,
-	project_graph: Option<&CodeGraph>,
+	requirements: Option<&dyn RequirementResolver>,
 ) -> Vec<Violation> {
 	let need_doc_anchors = compiled
 		.by_kind
@@ -93,7 +97,7 @@ pub fn evaluate_compiled_with_project(
 			.any(|r| r.require_doc_for_vis.is_some());
 	let ctx = EvalCtx {
 		graph,
-		project_graph,
+		requirements,
 		source,
 		lang,
 		uri_cfg: UriConfig { scheme },
@@ -199,7 +203,7 @@ pub fn rule_report_compiled(
 			.any(|r| r.require_doc_for_vis.is_some());
 	let ctx = EvalCtx {
 		graph,
-		project_graph: None,
+		requirements: None,
 		source,
 		lang,
 		uri_cfg: UriConfig { scheme },
@@ -270,6 +274,7 @@ fn push_kind_rule_reports(
 									lhs_label: "doc_comment".to_string(),
 									actual: "missing".to_string(),
 									expected: "present".to_string(),
+									def_idx: None,
 								})
 							}
 						},
@@ -341,6 +346,7 @@ fn push_shape_rule_reports(
 									lhs_label: "doc_comment".to_string(),
 									actual: "missing".to_string(),
 									expected: "present".to_string(),
+									def_idx: None,
 								})
 							}
 						},
@@ -429,7 +435,7 @@ fn implication_premise(rule: &CompiledRule) -> Option<&Node> {
 
 struct EvalCtx<'g, 'src> {
 	graph: &'g CodeGraph,
-	project_graph: Option<&'g CodeGraph>,
+	requirements: Option<&'g dyn RequirementResolver>,
 	source: &'src str,
 	lang: Lang,
 	uri_cfg: UriConfig<'src>,
@@ -861,23 +867,29 @@ fn eval_rule_with_id(
 		lhs_label,
 		actual,
 		expected,
+		def_idx,
 	} = match eval_node(&rule.root, target.scope.record, target.scope.idx, ctx) {
 		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
 		NodeOutcome::Fail(f) => f,
 	};
-	let name = def_name(target.scope.record).unwrap_or_default();
-	let moniker = render_uri(&target.scope.record.moniker, &ctx.uri_cfg);
-	let (start_line, end_line) = lines_of(target.scope.record, ctx.source);
+	let diagnostic = def_idx
+		.map(|idx| ctx.graph.def_at(idx))
+		.unwrap_or(target.scope.record);
+	let diagnostic_kind = std::str::from_utf8(&diagnostic.kind).unwrap_or(target.kind);
+	let name = def_name(diagnostic).unwrap_or_default();
+	let name_snake = to_snake_case(&name);
+	let moniker = render_uri(&diagnostic.moniker, &ctx.uri_cfg);
+	let (start_line, end_line) = lines_of(diagnostic, ctx.source);
 	let message = format!(
-		"{} `{name}` fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})",
-		target.kind,
+		"{diagnostic_kind} `{name}` fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})",
 	);
 	let explanation = rule.message.as_ref().map(|tpl| {
 		render_template(
 			tpl,
 			&[
 				("name", &name),
-				("kind", target.kind),
+				("name.snake", &name_snake),
+				("kind", diagnostic_kind),
 				("moniker", &moniker),
 				("expr", &rule.raw_expr),
 				("value", &actual),
@@ -893,7 +905,7 @@ fn eval_rule_with_id(
 		rule_id,
 		severity: rule.severity,
 		moniker,
-		kind: target.kind.to_string(),
+		kind: diagnostic_kind.to_string(),
 		lines: (start_line, end_line),
 		message,
 		explanation,
@@ -912,6 +924,7 @@ fn eval_ref_rule(
 		lhs_label,
 		actual,
 		expected,
+		def_idx: _,
 	} = match eval_ref_node(&rule.root, r, ctx) {
 		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
 		NodeOutcome::Fail(f) => f,
@@ -972,7 +985,7 @@ fn eval_ref_node(
 		node,
 		&|a| eval_ref_atom(a, r, ctx),
 		&|_, _, _| NodeOutcome::NotApplicable,
-		&|_, _, _, _, _| NodeOutcome::NotApplicable,
+		&|_| NodeOutcome::NotApplicable,
 	)
 }
 
@@ -1192,6 +1205,7 @@ struct Failure {
 	lhs_label: String,
 	actual: String,
 	expected: String,
+	def_idx: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -1210,11 +1224,11 @@ enum AtomOutcome {
 /// Trivalent-logic walker shared by def/ref/segment evaluators. `atom_eval`
 /// produces the atom leaf outcome; `quant_eval` handles `Node::Quantifier`
 /// (scopes that can't iterate, like ref and segment, return NotApplicable).
-fn walk_node<A, Q, M>(node: &Node, atom_eval: &A, quant_eval: &Q, match_eval: &M) -> NodeOutcome
+fn walk_node<A, Q, R>(node: &Node, atom_eval: &A, quant_eval: &Q, require_eval: &R) -> NodeOutcome
 where
 	A: Fn(&Atom) -> AtomOutcome,
 	Q: Fn(QuantKind, &Domain, &Node) -> NodeOutcome,
-	M: Fn(&Domain, &Domain, MatchKey, MatchKey, &Node) -> NodeOutcome,
+	R: Fn(&str) -> NodeOutcome,
 {
 	match node {
 		Node::Atom(atom) => match atom_eval(atom) {
@@ -1224,13 +1238,14 @@ where
 				lhs_label: describe_lhs(&atom.lhs).to_string(),
 				actual,
 				expected,
+				def_idx: None,
 			}),
 			AtomOutcome::NotApplicable => NodeOutcome::NotApplicable,
 		},
 		Node::And(children) => {
 			let mut na = false;
 			for c in children {
-				match walk_node(c, atom_eval, quant_eval, match_eval) {
+				match walk_node(c, atom_eval, quant_eval, require_eval) {
 					NodeOutcome::Pass => {}
 					NodeOutcome::Fail(f) => return NodeOutcome::Fail(f),
 					NodeOutcome::NotApplicable => na = true,
@@ -1246,7 +1261,7 @@ where
 			let mut last_fail: Option<Failure> = None;
 			let mut na = false;
 			for c in children {
-				match walk_node(c, atom_eval, quant_eval, match_eval) {
+				match walk_node(c, atom_eval, quant_eval, require_eval) {
 					NodeOutcome::Pass => return NodeOutcome::Pass,
 					NodeOutcome::Fail(f) => last_fail = Some(f),
 					NodeOutcome::NotApplicable => na = true,
@@ -1260,39 +1275,28 @@ where
 				NodeOutcome::NotApplicable
 			}
 		}
-		Node::Not(inner) => match walk_node(inner, atom_eval, quant_eval, match_eval) {
+		Node::Not(inner) => match walk_node(inner, atom_eval, quant_eval, require_eval) {
 			NodeOutcome::Pass => NodeOutcome::Fail(Failure {
 				atom_raw: "NOT (...)".to_string(),
 				lhs_label: "NOT".to_string(),
 				actual: "true".to_string(),
 				expected: "false".to_string(),
+				def_idx: None,
 			}),
 			NodeOutcome::Fail(_) => NodeOutcome::Pass,
 			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
 		},
-		Node::Implies(prem, cons) => match walk_node(prem, atom_eval, quant_eval, match_eval) {
-			NodeOutcome::Pass => walk_node(cons, atom_eval, quant_eval, match_eval),
+		Node::Implies(prem, cons) => match walk_node(prem, atom_eval, quant_eval, require_eval) {
+			NodeOutcome::Pass => walk_node(cons, atom_eval, quant_eval, require_eval),
 			NodeOutcome::Fail(_) => NodeOutcome::Pass,
 			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
 		},
+		Node::Require(pattern) => require_eval(pattern),
 		Node::Quantifier {
 			kind,
 			domain,
 			filter,
 		} => quant_eval(*kind, domain, filter),
-		Node::Match {
-			left_domain,
-			right_domain,
-			left_key,
-			right_key,
-			right_filter,
-		} => match_eval(
-			left_domain,
-			right_domain,
-			*left_key,
-			*right_key,
-			right_filter,
-		),
 	}
 }
 
@@ -1323,119 +1327,46 @@ fn eval_node_with_self(
 				ctx,
 			)
 		},
-		&|left_domain, right_domain, left_key, right_key, right_filter| {
-			let spec = MatchSpec {
-				left_domain,
-				right_domain,
-				left_key,
-				right_key,
-				right_filter,
-			};
-			eval_match(spec, MatchScope { def_idx, self_idx }, ctx)
-		},
+		&|pattern| eval_require(pattern, d, ctx),
 	)
 }
 
-struct MatchSpec<'a> {
-	left_domain: &'a Domain,
-	right_domain: &'a Domain,
-	left_key: MatchKey,
-	right_key: MatchKey,
-	right_filter: &'a Node,
-}
-
-#[derive(Clone, Copy)]
-struct MatchScope {
-	def_idx: usize,
-	self_idx: usize,
-}
-
-#[derive(Clone, Copy)]
-struct KeySource<'a> {
-	domain: &'a Domain,
-	key: MatchKey,
-	apply_filter: bool,
-}
-
-fn eval_match(spec: MatchSpec<'_>, scope: MatchScope, ctx: &EvalCtx<'_, '_>) -> NodeOutcome {
-	let left = key_set(
-		KeySource {
-			domain: spec.left_domain,
-			key: spec.left_key,
-			apply_filter: false,
-		},
-		spec.right_filter,
-		scope,
-		ctx,
-	);
-	let right = key_set(
-		KeySource {
-			domain: spec.right_domain,
-			key: spec.right_key,
-			apply_filter: true,
-		},
-		spec.right_filter,
-		scope,
-		ctx,
-	);
-	match (left, right) {
-		(Some(left), Some(right)) if left == right => NodeOutcome::Pass,
-		(Some(left), Some(right)) => NodeOutcome::Fail(Failure {
-			atom_raw: "match(...)".to_string(),
-			lhs_label: "match".to_string(),
-			actual: format_set(&right),
-			expected: format_set(&left),
-		}),
-		_ => NodeOutcome::NotApplicable,
+fn eval_require(pattern: &str, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> NodeOutcome {
+	let Some(rendered) = render_requirement_pattern(pattern, d) else {
+		return NodeOutcome::NotApplicable;
+	};
+	if local_requirement_exists(&rendered, ctx)
+		|| ctx
+			.requirements
+			.is_some_and(|resolver| resolver.exists(&rendered, d, ctx.uri_cfg.scheme))
+	{
+		return NodeOutcome::Pass;
 	}
+	NodeOutcome::Fail(Failure {
+		atom_raw: format!("require(\"{pattern}\")"),
+		lhs_label: "require".to_string(),
+		actual: "missing".to_string(),
+		expected: rendered,
+		def_idx: None,
+	})
 }
 
-fn key_set(
-	source: KeySource<'_>,
-	filter: &Node,
-	scope: MatchScope,
-	ctx: &EvalCtx<'_, '_>,
-) -> Option<BTreeSet<String>> {
-	let mut keys = BTreeSet::new();
-	for item in domain_items(source.domain, scope.def_idx, ctx) {
-		if source.apply_filter
-			&& !matches!(
-				item,
-				DomainItem::Def { idx, def }
-					if matches!(eval_node_with_self(filter, def, idx, scope.self_idx, ctx), NodeOutcome::Pass)
-			) {
-			continue;
-		}
-		keys.insert(match_key(item, source.key)?);
-	}
-	Some(keys)
+fn local_requirement_exists(pattern: &str, ctx: &EvalCtx<'_, '_>) -> bool {
+	let Ok(pattern) = crate::check::path::parse(pattern) else {
+		return false;
+	};
+	ctx.graph
+		.defs()
+		.any(|def| crate::check::path::matches(&pattern, &def.moniker))
 }
 
-fn match_key(item: DomainItem<'_>, key: MatchKey) -> Option<String> {
-	match (item, key) {
-		(DomainItem::Def { def, .. }, MatchKey::EachName | MatchKey::CandidateName) => {
-			def_name(def)
-		}
-		(DomainItem::Def { def, .. }, MatchKey::SnakeCaseEachName) => {
-			def_name(def).map(|name| to_snake_case(&name))
-		}
-		(DomainItem::Def { def, .. }, MatchKey::ModuleDirCandidateMoniker) => module_dir_name(def),
-		_ => None,
-	}
-}
-
-fn module_dir_name(def: &DefRecord) -> Option<String> {
-	let segments: Vec<_> = def.moniker.as_view().segments().collect();
-	let module_pos = segments
-		.iter()
-		.position(|seg| seg.kind == b"module" && seg.name == b"mod")?;
-	let dir = module_pos
-		.checked_sub(1)
-		.and_then(|idx| segments.get(idx))?;
-	if dir.kind != b"dir" {
-		return None;
-	}
-	std::str::from_utf8(dir.name).ok().map(str::to_string)
+fn render_requirement_pattern(pattern: &str, d: &DefRecord) -> Option<String> {
+	let name = def_name(d)?;
+	Some(
+		pattern
+			.replace("{name}", &name)
+			.replace("{name.snake}", &to_snake_case(&name)),
+	)
 }
 
 fn to_snake_case(name: &str) -> String {
@@ -1451,11 +1382,6 @@ fn to_snake_case(name: &str) -> String {
 		}
 	}
 	out
-}
-
-fn format_set(set: &BTreeSet<String>) -> String {
-	let values = set.iter().cloned().collect::<Vec<_>>().join(", ");
-	format!("{{{values}}}")
 }
 
 fn resolve_def_lhs(lhs: Lhs, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<Value> {
@@ -1547,39 +1473,11 @@ fn eval_count(
 		Domain::ChildrenByShape(shape) => {
 			count_children_by_shape(def_idx, self_idx, shape, filter, ctx)
 		}
-		Domain::ProjectDefs => count_domain_items(domain, filter, def_idx, self_idx, ctx),
 		Domain::Pairs(inner) => eval_pair_count(inner, filter, def_idx, self_idx, ctx),
 		Domain::Segments => count_segments(d, filter),
 		Domain::OutRefs => count_out_refs(d, def_idx, filter, ctx),
 		Domain::InRefs => count_in_refs(d, filter, ctx),
 	}
-}
-
-fn count_domain_items(
-	domain: &Domain,
-	filter: Option<&Node>,
-	def_idx: usize,
-	self_idx: usize,
-	ctx: &EvalCtx<'_, '_>,
-) -> u32 {
-	domain_items(domain, def_idx, ctx)
-		.into_iter()
-		.filter(|item| match (filter, item) {
-			(None, _) => true,
-			(Some(node), DomainItem::Def { idx, def }) => {
-				matches!(
-					eval_node_with_self(node, def, *idx, self_idx, ctx),
-					NodeOutcome::Pass
-				)
-			}
-			(Some(node), DomainItem::Ref { record }) => {
-				matches!(eval_ref_node(node, record, ctx), NodeOutcome::Pass)
-			}
-			(Some(node), DomainItem::Segment { kind, name }) => {
-				matches!(eval_node_segment(node, kind, name), NodeOutcome::Pass)
-			}
-		})
-		.count() as u32
 }
 
 fn eval_number_expr_def(
@@ -1794,11 +1692,13 @@ fn eval_quantifier_def(
 					continue;
 				}
 				total += 1;
-				if matches!(
-					eval_node_with_self(filter, cd, ci, self_idx, ctx),
-					NodeOutcome::Pass
-				) {
-					passes += 1;
+				match eval_node_with_self(filter, cd, ci, self_idx, ctx) {
+					NodeOutcome::Pass => passes += 1,
+					NodeOutcome::Fail(mut failure) if kind == QuantKind::All => {
+						failure.def_idx.get_or_insert(ci);
+						return NodeOutcome::Fail(failure);
+					}
+					NodeOutcome::Fail(_) | NodeOutcome::NotApplicable => {}
 				}
 			}
 		}
@@ -1811,19 +1711,15 @@ fn eval_quantifier_def(
 					continue;
 				}
 				total += 1;
-				if matches!(
-					eval_node_with_self(filter, cd, ci, self_idx, ctx),
-					NodeOutcome::Pass
-				) {
-					passes += 1;
+				match eval_node_with_self(filter, cd, ci, self_idx, ctx) {
+					NodeOutcome::Pass => passes += 1,
+					NodeOutcome::Fail(mut failure) if kind == QuantKind::All => {
+						failure.def_idx.get_or_insert(ci);
+						return NodeOutcome::Fail(failure);
+					}
+					NodeOutcome::Fail(_) | NodeOutcome::NotApplicable => {}
 				}
 			}
-		}
-		Domain::ProjectDefs => {
-			let (domain_total, domain_passes) =
-				quantifier_project_def_counts(domain, filter, scope.idx, self_idx, ctx);
-			total += domain_total;
-			passes += domain_passes;
 		}
 		Domain::Pairs(inner) => {
 			return eval_pair_quantifier(kind, inner, filter, scope.idx, self_idx, ctx);
@@ -1885,6 +1781,7 @@ fn eval_quantifier_def(
 				QuantKind::All => "all match".to_string(),
 				QuantKind::None => "zero matches".to_string(),
 			},
+			def_idx: None,
 		})
 	}
 }
@@ -1894,32 +1791,8 @@ fn eval_node_segment(node: &Node, seg_kind: &[u8], seg_name: &[u8]) -> NodeOutco
 		node,
 		&|a| eval_atom_segment(a, seg_kind, seg_name),
 		&|_, _, _| NodeOutcome::NotApplicable,
-		&|_, _, _, _, _| NodeOutcome::NotApplicable,
+		&|_| NodeOutcome::NotApplicable,
 	)
-}
-
-fn quantifier_project_def_counts(
-	domain: &Domain,
-	filter: &Node,
-	def_idx: usize,
-	self_idx: usize,
-	ctx: &EvalCtx<'_, '_>,
-) -> (u32, u32) {
-	let mut total = 0;
-	let mut passes = 0;
-	for item in domain_items(domain, def_idx, ctx) {
-		let DomainItem::Def { idx, def } = item else {
-			continue;
-		};
-		total += 1;
-		if matches!(
-			eval_node_with_self(filter, def, idx, self_idx, ctx),
-			NodeOutcome::Pass
-		) {
-			passes += 1;
-		}
-	}
-	(total, passes)
 }
 
 fn eval_atom_segment(atom: &Atom, seg_kind: &[u8], seg_name: &[u8]) -> AtomOutcome {

@@ -1,13 +1,12 @@
-use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use code_moniker_core::core::code_graph::CodeGraph;
+use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_workspace::environment;
 
 use crate::args::{CheckArgs, CheckFormat, DefaultRules};
-use crate::{DEFAULT_SCHEME, Exit, path_to_lang};
+use crate::{DEFAULT_SCHEME, Exit, check, path_to_lang};
 
 pub fn run<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match check_inner(args, stdout, stderr) {
@@ -34,7 +33,7 @@ fn check_inner<W: Write, E: Write>(
 ) -> anyhow::Result<CheckOutcome> {
 	let started = Instant::now();
 	let path: &Path = &args.path;
-	let mut cfg = crate::check::load_with_cli_default_rules(
+	let mut cfg = check::load_with_cli_default_rules(
 		Some(&args.rules),
 		args.default_rules.map(DefaultRules::enabled),
 	)?;
@@ -53,7 +52,7 @@ fn check_inner<W: Write, E: Write>(
 		if !args.files.is_empty() {
 			anyhow::bail!("--file can only be used when check PATH is a directory");
 		}
-		let excluded = crate::check::UriExclusionMatcher::new(&cfg.exclude.uris).matches_path(path);
+		let excluded = check::UriExclusionMatcher::new(&cfg.exclude.uris).matches_path(path);
 		match check_one_file(path, &cfg, args.report)? {
 			Some(report) => (vec![report], Vec::new()),
 			None if excluded && args.format == CheckFormat::Json => (Vec::new(), Vec::new()),
@@ -111,8 +110,8 @@ fn check_inner<W: Write, E: Write>(
 
 struct FileReport {
 	path: PathBuf,
-	violations: Vec<crate::check::Violation>,
-	rule_reports: Vec<crate::check::RuleReport>,
+	violations: Vec<check::Violation>,
+	rule_reports: Vec<check::RuleReport>,
 }
 
 struct FileError {
@@ -129,13 +128,13 @@ struct CheckOutcome {
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 struct FailedRuleSummary {
 	rule_id: String,
-	severity: crate::check::RuleSeverity,
+	severity: check::RuleSeverity,
 	violations: usize,
 }
 
 struct ViolationEntry<'a> {
 	path: &'a Path,
-	violation: &'a crate::check::Violation,
+	violation: &'a check::Violation,
 }
 
 #[derive(Default)]
@@ -148,17 +147,17 @@ struct ViolationCounts {
 
 fn check_one_file(
 	path: &Path,
-	cfg: &crate::check::Config,
+	cfg: &check::Config,
 	report: bool,
 ) -> anyhow::Result<Option<FileReport>> {
 	let Ok(lang) = path_to_lang(path) else {
 		return Ok(None);
 	};
-	let excludes = crate::check::UriExclusionMatcher::new(&cfg.exclude.uris);
+	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
 	if excludes.matches_path(path) {
 		return Ok(None);
 	}
-	let compiled = crate::check::compile_rules(cfg, lang, DEFAULT_SCHEME)?;
+	let compiled = check::compile_rules(cfg, lang, DEFAULT_SCHEME)?;
 	check_one_compiled(path, None, lang, &compiled, report).map(Some)
 }
 
@@ -169,7 +168,7 @@ fn check_one_compiled(
 	fs_path: &Path,
 	moniker_anchor: Option<&Path>,
 	lang: code_moniker_core::lang::Lang,
-	compiled: &crate::check::CompiledRules,
+	compiled: &check::CompiledRules,
 	report: bool,
 ) -> anyhow::Result<FileReport> {
 	let source = std::fs::read_to_string(fs_path)
@@ -180,11 +179,11 @@ fn check_one_compiled(
 		moniker_anchor.unwrap_or(fs_path),
 		&environment::ExtractContext::default(),
 	);
-	let raw = crate::check::evaluate_compiled(&graph, &source, lang, DEFAULT_SCHEME, compiled);
-	let violations = crate::check::apply_suppressions(&graph, &source, raw);
+	let raw = check::evaluate_compiled(&graph, &source, lang, DEFAULT_SCHEME, compiled);
+	let violations = check::apply_suppressions(&graph, &source, raw);
 	let rule_reports = if report {
 		let mut rule_reports =
-			crate::check::rule_report_compiled(&graph, &source, lang, DEFAULT_SCHEME, compiled);
+			check::rule_report_compiled(&graph, &source, lang, DEFAULT_SCHEME, compiled);
 		align_report_violations_with_suppressions(&mut rule_reports, &violations);
 		rule_reports
 	} else {
@@ -200,30 +199,25 @@ fn check_one_compiled(
 fn check_source_file_compiled(
 	file: &environment::SourceFile,
 	ctx: &environment::ExtractContext,
-	compiled: &crate::check::CompiledRules,
+	compiled: &check::CompiledRules,
 	report: bool,
-	project_graph: Option<&CodeGraph>,
+	requirements: Option<&dyn check::RequirementResolver>,
 ) -> anyhow::Result<FileReport> {
 	let source = std::fs::read_to_string(&file.path)
 		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", file.path.display()))?;
 	let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
-	let raw = crate::check::evaluate_compiled_with_project(
+	let raw = check::evaluate_compiled_with_requirements(
 		&graph,
 		&source,
 		file.lang,
 		DEFAULT_SCHEME,
 		compiled,
-		project_graph,
+		requirements,
 	);
-	let violations = crate::check::apply_suppressions(&graph, &source, raw);
+	let violations = check::apply_suppressions(&graph, &source, raw);
 	let rule_reports = if report {
-		let mut rule_reports = crate::check::rule_report_compiled(
-			&graph,
-			&source,
-			file.lang,
-			DEFAULT_SCHEME,
-			compiled,
-		);
+		let mut rule_reports =
+			check::rule_report_compiled(&graph, &source, file.lang, DEFAULT_SCHEME, compiled);
 		align_report_violations_with_suppressions(&mut rule_reports, &violations);
 		rule_reports
 	} else {
@@ -241,34 +235,35 @@ fn check_source_file_compiled(
 /// shared across the parallel pool.
 fn check_project(
 	root: &Path,
-	cfg: &crate::check::Config,
+	cfg: &check::Config,
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	let source_set = environment::discover_sources(&[root.to_path_buf()], None)?;
-	check_source_set(&source_set, &source_set, cfg, report)
+	let requirements = FileRequirementResolver::new(root.to_path_buf());
+	check_source_set(&source_set, cfg, report, Some(&requirements))
 }
 
 fn check_project_files(
 	root: &Path,
 	files: &[PathBuf],
-	cfg: &crate::check::Config,
+	cfg: &check::Config,
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	let source_set = environment::discover_source_files(root, files, None)?;
-	let project_source_set = environment::discover_sources(&[root.to_path_buf()], None)?;
-	check_source_set(&source_set, &project_source_set, cfg, report)
+	let requirements = FileRequirementResolver::new(root.to_path_buf());
+	check_source_set(&source_set, cfg, report, Some(&requirements))
 }
 
 fn check_source_set(
 	source_set: &environment::SourceFileSet,
-	project_source_set: &environment::SourceFileSet,
-	cfg: &crate::check::Config,
+	cfg: &check::Config,
 	report: bool,
+	requirements: Option<&dyn check::RequirementResolver>,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	use rayon::prelude::*;
-	let excludes = crate::check::UriExclusionMatcher::new(&cfg.exclude.uris);
-	let mut compiled: HashMap<code_moniker_core::lang::Lang, crate::check::CompiledRules> =
-		HashMap::new();
+	use std::collections::HashMap;
+	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
+	let mut compiled: HashMap<code_moniker_core::lang::Lang, check::CompiledRules> = HashMap::new();
 	let files: Vec<&environment::SourceFile> = source_set
 		.files
 		.iter()
@@ -278,29 +273,17 @@ fn check_source_set(
 		if compiled.contains_key(&f.lang) {
 			continue;
 		}
-		compiled.insert(
-			f.lang,
-			crate::check::compile_rules(cfg, f.lang, DEFAULT_SCHEME)?,
-		);
+		compiled.insert(f.lang, check::compile_rules(cfg, f.lang, DEFAULT_SCHEME)?);
 	}
-	let project_files: Vec<&environment::SourceFile> = project_source_set
-		.files
-		.iter()
-		.filter(|f| !excludes.matches_path(&f.path))
-		.collect();
-	let project_graphs = build_project_graphs(&project_files, project_source_set);
 	let outcomes: Vec<Result<FileReport, FileError>> = files
 		.par_iter()
 		.map(|f| {
 			let f = *f;
 			let rules = &compiled[&f.lang];
 			let ctx = &source_set.roots[f.source].ctx;
-			let project_graph = project_graphs.get(&f.lang);
-			check_source_file_compiled(f, ctx, rules, report, project_graph).map_err(|e| {
-				FileError {
-					path: f.path.clone(),
-					error: format!("{e:#}"),
-				}
+			check_source_file_compiled(f, ctx, rules, report, requirements).map_err(|e| FileError {
+				path: f.path.clone(),
+				error: format!("{e:#}"),
 			})
 		})
 		.collect();
@@ -317,37 +300,87 @@ fn check_source_set(
 	Ok((reports, errors))
 }
 
-fn build_project_graphs(
-	files: &[&environment::SourceFile],
-	source_set: &environment::SourceFileSet,
-) -> HashMap<code_moniker_core::lang::Lang, CodeGraph> {
-	let mut records: HashMap<code_moniker_core::lang::Lang, (Vec<_>, Vec<_>)> = HashMap::new();
-	for file in files {
-		let Ok(source) = std::fs::read_to_string(&file.path) else {
-			continue;
-		};
-		let ctx = &source_set.roots[file.source].ctx;
-		let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
-		let (defs, refs) = records.entry(file.lang).or_default();
-		let def_offset = defs.len();
-		defs.extend(graph.defs().cloned().map(|mut def| {
-			def.parent = def.parent.map(|idx| idx + def_offset);
-			def
-		}));
-		refs.extend(graph.refs().cloned().map(|mut reference| {
-			reference.source += def_offset;
-			reference
-		}));
+struct FileRequirementResolver {
+	root: PathBuf,
+}
+
+impl FileRequirementResolver {
+	fn new(root: PathBuf) -> Self {
+		Self { root }
 	}
-	records
-		.into_iter()
-		.map(|(lang, (defs, refs))| (lang, CodeGraph::from_records(defs, refs)))
-		.collect()
+}
+
+impl check::RequirementResolver for FileRequirementResolver {
+	fn exists(&self, pattern: &str, _source: &DefRecord, _scheme: &str) -> bool {
+		let Some(candidates) = source_candidates_from_requirement(&self.root, pattern) else {
+			return false;
+		};
+		let Ok(path_pattern) = check::path::parse(pattern) else {
+			return false;
+		};
+		for path in candidates {
+			if !path.exists() {
+				continue;
+			}
+			let Ok(lang) = path_to_lang(&path) else {
+				continue;
+			};
+			let Ok(source) = std::fs::read_to_string(&path) else {
+				continue;
+			};
+			let graph = environment::extract_source_with(
+				lang,
+				&source,
+				&anchor_for_requirement(&self.root, &path),
+				&environment::ExtractContext::default(),
+			);
+			if graph
+				.defs()
+				.any(|def| check::path::matches(&path_pattern, &def.moniker))
+			{
+				return true;
+			}
+		}
+		false
+	}
+}
+
+fn source_candidates_from_requirement(root: &Path, pattern: &str) -> Option<Vec<PathBuf>> {
+	let mut dirs = Vec::new();
+	let mut module = None;
+	for step in pattern.split('/') {
+		if let Some(dir) = literal_step_name(step, "dir") {
+			dirs.push(dir.to_string());
+		} else if let Some(name) = literal_step_name(step, "module") {
+			module = Some(name.to_string());
+		}
+	}
+	let module = module?;
+	let base = dirs
+		.iter()
+		.fold(root.to_path_buf(), |path, dir| path.join(dir));
+	if module == "mod" {
+		Some(vec![base.join("mod.rs")])
+	} else {
+		Some(vec![
+			base.join(format!("{module}.rs")),
+			base.join(module).join("mod.rs"),
+		])
+	}
+}
+
+fn literal_step_name<'a>(step: &'a str, kind: &str) -> Option<&'a str> {
+	let (step_kind, name) = step.split_once(':')?;
+	(step_kind == kind && !name.contains(['*', '{', '}', '/'])).then_some(name)
+}
+
+fn anchor_for_requirement(root: &Path, path: &Path) -> PathBuf {
+	path.strip_prefix(root).unwrap_or(path).to_path_buf()
 }
 
 fn align_report_violations_with_suppressions(
-	rule_reports: &mut [crate::check::RuleReport],
-	violations: &[crate::check::Violation],
+	rule_reports: &mut [check::RuleReport],
+	violations: &[check::Violation],
 ) {
 	use std::collections::HashMap;
 	let mut counts: HashMap<&str, usize> = HashMap::new();
@@ -433,7 +466,7 @@ fn write_reports_text<W: Write>(
 fn write_violation_text<W: Write>(
 	w: &mut W,
 	path: &Path,
-	v: &crate::check::Violation,
+	v: &check::Violation,
 ) -> std::io::Result<()> {
 	let severity_prefix = if v.severity.is_warn() {
 		"warning: "
@@ -539,7 +572,7 @@ fn write_failed_rules_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::
 
 fn failed_rule_summary(reports: &[FileReport]) -> Vec<FailedRuleSummary> {
 	use std::collections::BTreeMap;
-	let mut by_rule: BTreeMap<(String, crate::check::RuleSeverity), usize> = BTreeMap::new();
+	let mut by_rule: BTreeMap<(String, check::RuleSeverity), usize> = BTreeMap::new();
 	for report in reports {
 		for violation in &report.violations {
 			*by_rule
@@ -590,9 +623,9 @@ fn write_rule_report_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::i
 	Ok(())
 }
 
-fn aggregate_rule_reports(reports: &[FileReport]) -> Vec<crate::check::RuleReport> {
+fn aggregate_rule_reports(reports: &[FileReport]) -> Vec<check::RuleReport> {
 	use std::collections::BTreeMap;
-	let mut by_rule: BTreeMap<String, crate::check::RuleReport> = BTreeMap::new();
+	let mut by_rule: BTreeMap<String, check::RuleReport> = BTreeMap::new();
 	for report in reports {
 		for item in &report.rule_reports {
 			by_rule
@@ -629,7 +662,7 @@ fn write_reports_json<W: Write>(
 	#[derive(serde::Serialize)]
 	struct FileEntry<'a> {
 		file: String,
-		violations: &'a [crate::check::Violation],
+		violations: &'a [check::Violation],
 	}
 	#[derive(serde::Serialize)]
 	struct ErrorEntry<'a> {
@@ -655,7 +688,7 @@ fn write_reports_json<W: Write>(
 		#[serde(skip_serializing_if = "Vec::is_empty")]
 		errors: Vec<ErrorEntry<'a>>,
 		#[serde(skip_serializing_if = "Vec::is_empty")]
-		rule_report: Vec<crate::check::RuleReport>,
+		rule_report: Vec<check::RuleReport>,
 	}
 	let files: Vec<FileEntry> = reports
 		.iter()
@@ -704,7 +737,7 @@ fn write_reports_codex_hook<W: Write>(
 	elapsed: Duration,
 	max_violations: Option<usize>,
 ) -> anyhow::Result<()> {
-	let error_reports = reports_with_severity(reports, crate::check::RuleSeverity::Error);
+	let error_reports = reports_with_severity(reports, check::RuleSeverity::Error);
 	let any_error_violation = error_reports
 		.iter()
 		.any(|report| !report.violations.is_empty());
@@ -738,10 +771,7 @@ fn codex_hook_reason(
 	Ok(String::from_utf8(reason)?)
 }
 
-fn reports_with_severity(
-	reports: &[FileReport],
-	severity: crate::check::RuleSeverity,
-) -> Vec<FileReport> {
+fn reports_with_severity(reports: &[FileReport], severity: check::RuleSeverity) -> Vec<FileReport> {
 	reports
 		.iter()
 		.map(|report| FileReport {

@@ -79,6 +79,7 @@ const DEF_KINDS: &[&str] = &[
 	"struct",
 	"record",
 	"enum",
+	"enum_constant",
 	"delegate",
 	"method",
 	"constructor",
@@ -96,9 +97,10 @@ const DEF_KIND_SPECS: &[KindSpec] = &[
 	KindSpec::new("delegate", Shape::Type, 25, "delegate"),
 	KindSpec::new("constructor", Shape::Callable, 40, "constructor"),
 	KindSpec::new("method", Shape::Callable, 41, "method"),
-	KindSpec::new("property", Shape::Value, 60, "property"),
-	KindSpec::new("field", Shape::Value, 61, "field"),
-	KindSpec::new("event", Shape::Value, 62, "event"),
+	KindSpec::new("enum_constant", Shape::Value, 60, "enum_constant"),
+	KindSpec::new("property", Shape::Value, 61, "property"),
+	KindSpec::new("field", Shape::Value, 62, "field"),
+	KindSpec::new("event", Shape::Value, 63, "event"),
 ];
 
 impl crate::lang::LangExtractor for Lang {
@@ -159,6 +161,28 @@ mod tests {
 			e.moniker.as_view().segments().last().unwrap().name,
 			b"Color"
 		);
+	}
+
+	#[test]
+	fn extract_enum_emits_enum_constants() {
+		let src = "namespace Foo;\npublic enum Color { Red, Green }\n";
+		let g = extract_default("F.cs", src, &make_anchor(), false);
+		let red = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"cs")
+			.segment(b"module", b"F")
+			.segment(b"enum", b"Color")
+			.segment(b"enum_constant", b"Red")
+			.build();
+		let green = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"lang", b"cs")
+			.segment(b"module", b"F")
+			.segment(b"enum", b"Color")
+			.segment(b"enum_constant", b"Green")
+			.build();
+		assert!(g.contains(&red), "missing enum_constant:Red");
+		assert!(g.contains(&green), "missing enum_constant:Green");
 	}
 
 	#[test]

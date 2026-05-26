@@ -1,0 +1,19 @@
+---
+source: crates/cli/src/check/expr/snapshots.rs
+assertion_line: 14
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "domain": {
+      "kind": "enum_constant",
+      "type": "children"
+    },
+    "filter": {
+      "pattern": "**/dir:crates/dir:cli/dir:src/dir:{name.snake}/module:mod",
+      "type": "require"
+    },
+    "kind": "all",
+    "type": "quantifier"
+  }
+}

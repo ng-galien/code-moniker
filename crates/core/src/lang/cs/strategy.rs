@@ -94,6 +94,10 @@ impl<'a> LangStrategy for Strategy<'a> {
 		_source: &[u8],
 		graph: &mut CodeGraph,
 	) {
+		if kind == kinds::ENUM {
+			self.emit_enum_constants(node, moniker, graph);
+			return;
+		}
 		if kind == kinds::METHOD || kind == kinds::CONSTRUCTOR {
 			if let Some(rt) = node.child_by_field_name("returns") {
 				self.emit_uses_type(rt, moniker, graph);
@@ -165,6 +169,38 @@ impl<'src_lang> Strategy<'src_lang> {
 			position: node_position(node),
 			annotated_by,
 		})
+	}
+
+	fn emit_enum_constants(&self, enum_node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
+		let Some(body) = enum_node
+			.child_by_field_name("body")
+			.or_else(|| find_named_child(enum_node, "enum_member_declaration_list"))
+		else {
+			return;
+		};
+		let mut cursor = body.walk();
+		for member in body.named_children(&mut cursor) {
+			if member.kind() != "enum_member_declaration" {
+				continue;
+			}
+			let Some(name_node) = member
+				.child_by_field_name("name")
+				.or_else(|| member.named_child(0))
+			else {
+				continue;
+			};
+			let name = node_slice(name_node, self.source_bytes);
+			if name.is_empty() {
+				continue;
+			}
+			let moniker = extend_segment(parent, kinds::ENUM_CONSTANT, name);
+			let _ = graph.add_def(
+				moniker,
+				kinds::ENUM_CONSTANT,
+				parent,
+				Some(node_position(member)),
+			);
+		}
 	}
 
 	fn classify_record<'src>(
