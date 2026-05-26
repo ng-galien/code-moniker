@@ -10,8 +10,9 @@ use crate::ui::explorer::{
 	header_search_results as explorer_header_search_results,
 };
 use crate::ui::store::navigation::{NavigationAction, NavigationScope};
-use crate::workspace::DefLocation;
-use crate::workspace::IndexStore;
+use crate::ui::workspace_state::WorkspaceState;
+use code_moniker_workspace::snapshot::SymbolId;
+type DefLocation = SymbolId;
 
 use super::action::{AppAction, ShellAction};
 
@@ -198,7 +199,7 @@ impl HeaderSearchDecision {
 
 fn decide_apply_header_search(
 	header: &HeaderSearchState,
-	store: &impl IndexStore,
+	store: &WorkspaceState,
 	generation: Option<u64>,
 	return_focus: bool,
 ) -> HeaderSearchDecision {
@@ -231,7 +232,7 @@ fn decide_apply_header_search(
 	let match_count = results.matches.len();
 	let visible_defs = results.matches.clone();
 	let expand_symbols = visible_defs.len() <= 200;
-	let select = results.matches.first().copied();
+	let select = results.matches.first().cloned();
 	let status = if return_focus {
 		format!(
 			"search applied: {} ({}/{})",
@@ -446,9 +447,10 @@ mod tests {
 	use code_moniker_core::lang::Lang;
 
 	use super::*;
+	use crate::session::SessionOptions;
 	use crate::ui::app::{ActiveFilter, App, VisualizationMode};
 	use crate::ui::events::{FilterEdit, Msg};
-	use crate::workspace::{IndexStore, SessionOptions, WorkspaceHandle};
+	use crate::ui::workspace_state::WorkspaceState;
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -470,7 +472,7 @@ mod tests {
 			"src/pkg/main.go",
 			"package pkg\n\nfunc BuildBeta() {}\n",
 		);
-		let store = WorkspaceHandle::load(&SessionOptions {
+		let store = WorkspaceState::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,

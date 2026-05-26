@@ -5,9 +5,12 @@ use crate::ui::render::text::{Column, FitMode};
 use crate::ui::render::tree::TreeRowVm;
 use crate::ui::store::navigation::NavigationPane;
 use crate::ui::store::navigation_tree::NavNodeKind;
-use crate::workspace::{
-	DefLocation, IndexStore, ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus,
+use crate::ui::workspace_state::{
+	ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus,
 };
+use code_moniker_workspace::snapshot::SymbolId;
+
+type DefLocation = SymbolId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct ActivePanelNav {
@@ -567,7 +570,7 @@ fn change_overview_panel(app: &App) -> PanelVm {
 	vm
 }
 
-fn change_diff_panel(change: &crate::workspace::ChangeDetail) -> PanelVm {
+fn change_diff_panel(change: &crate::ui::workspace_state::ChangeDetail) -> PanelVm {
 	let summary = &change.summary;
 	let mut vm = PanelVm::new("change", ComponentId::PanelChange);
 	vm.section("changed symbol");
@@ -596,7 +599,7 @@ fn change_diff_panel(change: &crate::workspace::ChangeDetail) -> PanelVm {
 	vm
 }
 
-fn change_usage_panel(change: &crate::workspace::ChangeDetail) -> PanelVm {
+fn change_usage_panel(change: &crate::ui::workspace_state::ChangeDetail) -> PanelVm {
 	let mut vm = PanelVm::new("change", ComponentId::PanelChange);
 	push_blast_radius_summary(&mut vm, &change.blast_radius);
 	vm.blank();
@@ -665,7 +668,7 @@ fn check_panel(app: &App) -> PanelVm {
 	vm
 }
 
-fn push_change_summary(vm: &mut PanelVm, change: &crate::workspace::ChangeDetail) {
+fn push_change_summary(vm: &mut PanelVm, change: &crate::ui::workspace_state::ChangeDetail) {
 	vm.section("change");
 	vm.kv("status", change.summary.status.label(), FitMode::Tail);
 	vm.kv(
@@ -722,8 +725,9 @@ mod tests {
 	use std::path::Path;
 
 	use super::*;
+	use crate::session::SessionOptions;
 	use crate::ui::app::App;
-	use crate::workspace::{SessionOptions, WorkspaceHandle};
+	use crate::ui::workspace_state::WorkspaceState;
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -740,7 +744,7 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService { run() { return 1; } }\nexport function betaFactory() { return new AlphaService(); }\n",
 		);
-		let store = WorkspaceHandle::load(&SessionOptions {
+		let store = WorkspaceState::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,

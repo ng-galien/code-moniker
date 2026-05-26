@@ -1,5 +1,3 @@
-use crate::workspace::IndexStore;
-
 use crate::ui::app::{App, ChangePanelMode, PanelPolicy, ShellAction, View, VisualizationMode};
 
 impl App {
@@ -42,8 +40,9 @@ impl App {
 mod tests {
 	use std::path::Path;
 
+	use crate::session::SessionOptions;
 	use crate::ui::app::{ActiveFilter, App, ChangePanelMode, VisualizationMode};
-	use crate::workspace::{SessionOptions, WorkspaceHandle};
+	use crate::ui::workspace_state::WorkspaceState;
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -60,7 +59,7 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService {}\n",
 		);
-		let store = WorkspaceHandle::load(&SessionOptions {
+		let store = WorkspaceState::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,

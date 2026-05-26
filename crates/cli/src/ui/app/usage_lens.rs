@@ -1,11 +1,15 @@
-use crate::workspace::{DefLocation, IndexStore};
+use code_moniker_workspace::snapshot::SymbolId;
+type DefLocation = SymbolId;
 
 use crate::ui::app::{App, ShellAction, VisualizationMode};
 use crate::ui::store::navigation::NavigationAction;
 
 impl App {
 	pub(in crate::ui) fn focus_usages(&mut self, loc: DefLocation) {
-		let focus = self.store().usage_focus(loc);
+		let Some(focus) = self.store().usage_focus(loc) else {
+			self.set_status("selected declaration has no usage information");
+			return;
+		};
 		let (label, refs_len, contexts_len) = self.set_usage_lens(focus, true);
 		self.sync_contextual_view();
 		self.set_status(format!(
@@ -17,7 +21,9 @@ impl App {
 		let Some(loc) = self.primary_selected() else {
 			return;
 		};
-		let focus = self.store().usage_focus(loc);
+		let Some(focus) = self.store().usage_focus(loc) else {
+			return;
+		};
 		let (label, refs_len, contexts_len) = self.set_usage_lens(focus, false);
 		self.set_status(format!(
 			"usage lens for {label}: {refs_len} reference(s), {contexts_len} navigable context(s)"
@@ -26,7 +32,7 @@ impl App {
 
 	fn set_usage_lens(
 		&mut self,
-		focus: crate::workspace::UsageFocus,
+		focus: crate::ui::workspace_state::UsageFocus,
 		move_focus: bool,
 	) -> (String, usize, usize) {
 		let label = focus.label.clone();
@@ -79,8 +85,9 @@ impl App {
 mod tests {
 	use std::path::Path;
 
+	use crate::session::SessionOptions;
 	use crate::ui::app::App;
-	use crate::workspace::{SessionOptions, WorkspaceHandle};
+	use crate::ui::workspace_state::WorkspaceState;
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -97,7 +104,7 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService {}\n",
 		);
-		let store = WorkspaceHandle::load(&SessionOptions {
+		let store = WorkspaceState::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,

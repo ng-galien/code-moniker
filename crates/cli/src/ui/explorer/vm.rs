@@ -10,7 +10,9 @@ use crate::ui::render::component::ComponentId;
 use crate::ui::store::navigation::NavigationPaneView;
 use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::navigation_tree::{NavNodeKind, NavRow};
-use crate::workspace::{ChangeStatus, DefLocation, IndexStore, UsageFocus};
+use crate::ui::workspace_state::{UsageFocus, WorkspaceState};
+use code_moniker_workspace::snapshot::{ChangeStatus, SymbolId};
+type DefLocation = SymbolId;
 
 use crate::ui::app::App;
 
@@ -114,7 +116,7 @@ pub(in crate::ui) struct ExplorerVmContext<'a> {
 	focus_region: FocusRegion,
 	usage_lens: Option<&'a UsageFocus>,
 	filtered: bool,
-	workspace: &'a dyn IndexStore,
+	workspace: &'a WorkspaceState,
 	status: &'a str,
 }
 
@@ -311,12 +313,12 @@ fn nav_row_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow, pane: NavigationPaneVie
 }
 
 fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
-	match row.kind {
+	match &row.kind {
 		NavNodeKind::Root => NavRowVmKind::Root,
 		NavNodeKind::Lang => NavRowVmKind::Lang,
 		NavNodeKind::Dir => NavRowVmKind::Dir,
 		NavNodeKind::File(file_idx) => NavRowVmKind::File {
-			change_count: file_change_count(ctx.workspace, file_idx),
+			change_count: file_change_count(ctx.workspace, *file_idx),
 		},
 		NavNodeKind::ChangeFile => NavRowVmKind::ChangeFile,
 		NavNodeKind::Def(loc) => {
@@ -334,17 +336,19 @@ fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
 			}
 		}
 		NavNodeKind::Change(id) => {
-			NavRowVmKind::Change(ctx.workspace.change_summary(id).map(|change| NavChangeVm {
-				lang: change.lang,
-				kind: change.kind,
-				status: change.status,
-				usage_count: change.usage_count,
+			NavRowVmKind::Change(ctx.workspace.change_summary(id.clone()).map(|change| {
+				NavChangeVm {
+					lang: change.lang,
+					kind: change.kind,
+					status: change.status,
+					usage_count: change.usage_count,
+				}
 			}))
 		}
 	}
 }
 
-fn file_change_count(workspace: &dyn IndexStore, file_idx: usize) -> Option<usize> {
+fn file_change_count(workspace: &WorkspaceState, file_idx: usize) -> Option<usize> {
 	let count = workspace.change_count_for_file(file_idx);
 	(count > 0).then_some(count)
 }
@@ -359,8 +363,5 @@ fn footer_prefix(mode: UiMode) -> &'static str {
 }
 
 fn matched_file_count(defs: &[DefLocation]) -> usize {
-	defs.iter()
-		.map(|loc| loc.file)
-		.collect::<std::collections::BTreeSet<_>>()
-		.len()
+	defs.len()
 }

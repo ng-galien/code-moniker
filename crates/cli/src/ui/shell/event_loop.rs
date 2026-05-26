@@ -3,10 +3,10 @@ use std::thread::{self, JoinHandle};
 
 use crossterm::event::{self, Event};
 
+use crate::session::StoreWatchRoot;
 use crate::ui::async_task::TaskResult;
 use crate::ui::clipboard::ClipboardResult;
 use crate::ui::live::{LiveStoreWatcher, StoreEvent};
-use crate::workspace::StoreWatchRoot;
 
 pub(in crate::ui) enum ShellEvent {
 	Terminal(Event),

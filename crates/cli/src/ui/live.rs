@@ -3,7 +3,7 @@ use std::path::{Component, Path, PathBuf};
 use notify::event::{AccessKind, AccessMode};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use crate::workspace::StoreWatchRoot;
+use crate::session::StoreWatchRoot;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum StoreEvent {

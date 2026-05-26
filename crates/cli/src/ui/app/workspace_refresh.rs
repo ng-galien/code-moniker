@@ -155,9 +155,12 @@ impl App {
 		let Some(focus) = self.usage_lens().cloned() else {
 			return;
 		};
-		let focus = self
+		let Some(focus) = self
 			.store()
-			.usage_focus_for_target(focus.target, focus.label);
+			.usage_focus_for_target(focus.target, focus.label)
+		else {
+			return;
+		};
 		let visible_defs = focus.contexts.clone();
 		let expand_symbols = visible_defs.len() <= 200;
 		self.dispatch_shell(ShellAction::SetUsageLens(Some(focus)));

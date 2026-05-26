@@ -5,11 +5,12 @@ use std::sync::mpsc::Sender;
 use std::time::Instant;
 
 use crate::perf;
+use crate::session::{SessionOptions, StoreWatchRoot};
 use crate::ui::events::UiMode;
 use crate::ui::shell::ShellEvent;
 use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
-use crate::workspace::{SessionOptions, StoreWatchRoot, UsageFocus, WorkspaceHandle};
+use crate::ui::workspace_state::{UsageFocus, WorkspaceState};
 
 mod action;
 mod change_mode;
@@ -47,7 +48,7 @@ pub(in crate::ui) struct App {
 
 impl App {
 	pub(in crate::ui) fn new(
-		store: impl Into<WorkspaceHandle>,
+		store: impl Into<WorkspaceState>,
 		scheme: String,
 		rules: PathBuf,
 		profile: Option<String>,
@@ -86,7 +87,7 @@ impl App {
 		rules: PathBuf,
 		profile: Option<String>,
 	) -> Self {
-		let mut app = Self::new(WorkspaceHandle::empty(opts), scheme, rules, profile);
+		let mut app = Self::new(WorkspaceState::empty(opts), scheme, rules, profile);
 		app.startup_load_pending = true;
 		app.set_status("loading index...");
 		app
@@ -171,15 +172,15 @@ impl App {
 		self.profile.as_deref()
 	}
 
-	pub(in crate::ui) fn store(&self) -> &WorkspaceHandle {
+	pub(in crate::ui) fn store(&self) -> &WorkspaceState {
 		self.app_store.workspace()
 	}
 
-	pub(in crate::ui) fn store_mut(&mut self) -> &mut WorkspaceHandle {
+	pub(in crate::ui) fn store_mut(&mut self) -> &mut WorkspaceState {
 		self.app_store.workspace_mut()
 	}
 
-	pub(in crate::ui) fn replace_store(&mut self, store: WorkspaceHandle) {
+	pub(in crate::ui) fn replace_store(&mut self, store: WorkspaceState) {
 		self.app_store.replace_workspace(store);
 	}
 }

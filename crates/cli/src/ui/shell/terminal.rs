@@ -10,7 +10,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 use crate::args::UiArgs;
-use crate::workspace::SessionOptions;
+use crate::session::SessionOptions;
 use crate::{DEFAULT_SCHEME, Exit};
 
 use super::{EventSource, ShellEvent};

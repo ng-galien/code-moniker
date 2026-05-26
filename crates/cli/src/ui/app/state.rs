@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use code_moniker_core::lang::Lang;
 
+use crate::session::CheckSummary;
 use crate::ui::app::action::ShellAction;
 use crate::ui::app::{HeaderKindFilter, HeaderSearchState};
 use crate::ui::async_task::{TaskId, TaskOutcome, TaskResult, WorkKind};
@@ -13,7 +14,7 @@ use crate::ui::live::StoreEvent;
 use crate::ui::render::component::ComponentId;
 use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::reducer::Transition;
-use crate::workspace::{CheckSummary, UsageFocus};
+use crate::ui::workspace_state::UsageFocus;
 
 use super::Effect;
 

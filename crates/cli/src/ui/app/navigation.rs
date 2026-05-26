@@ -1,6 +1,8 @@
 // code-moniker: ignore-file[smell-god-type-local-metrics]
 // TODO(smell): split App navigation helpers into focused-tree actions, route selection, and panel policy transitions before enabling this guardrail here.
-use crate::workspace::{ChangeDetail, DefLocation, IndexStore};
+use crate::ui::workspace_state::ChangeDetail;
+use code_moniker_workspace::snapshot::SymbolId;
+type DefLocation = SymbolId;
 
 use crate::ui::app::{
 	ActiveFilter, App, FocusRegion, PanelPolicy, ShellAction, View, VisualizationMode,
@@ -38,23 +40,23 @@ pub(in crate::ui) struct NavigationDispatchOutcome {
 
 impl App {
 	pub(in crate::ui) fn selected(&self) -> Option<DefLocation> {
-		self.selected_nav_row().and_then(|row| match row.kind {
-			NavNodeKind::Def(loc) => Some(loc),
+		self.selected_nav_row().and_then(|row| match &row.kind {
+			NavNodeKind::Def(loc) => Some(loc.clone()),
 			_ => None,
 		})
 	}
 
 	pub(in crate::ui) fn primary_selected(&self) -> Option<DefLocation> {
 		self.primary_selected_nav_row()
-			.and_then(|row| match row.kind {
-				NavNodeKind::Def(loc) => Some(loc),
+			.and_then(|row| match &row.kind {
+				NavNodeKind::Def(loc) => Some(loc.clone()),
 				_ => None,
 			})
 	}
 
 	pub(in crate::ui) fn selected_change_detail(&self) -> Option<ChangeDetail> {
-		self.selected_nav_row().and_then(|row| match row.kind {
-			NavNodeKind::Change(id) => self.store().change_detail(id),
+		self.selected_nav_row().and_then(|row| match &row.kind {
+			NavNodeKind::Change(id) => self.store().change_detail(id.clone()),
 			NavNodeKind::Def(loc) => self.store().change_detail_for_symbol(&loc),
 			_ => None,
 		})
@@ -273,11 +275,12 @@ mod tests {
 	use std::path::Path;
 
 	use super::*;
+	use crate::session::SessionOptions;
 	use crate::ui::app::{App, AppAction, PanelNavigationState, ShellAction};
 	use crate::ui::events::Msg;
 	use crate::ui::render::component::ComponentId;
 	use crate::ui::store::tree_pane_action::TreePaneAction;
-	use crate::workspace::{SessionOptions, WorkspaceHandle};
+	use crate::ui::workspace_state::WorkspaceState;
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -294,7 +297,7 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService {}\nexport class BetaService {}\nexport function useAlpha() { return new AlphaService(); }\nexport function useBeta() { return new BetaService(); }\n",
 		);
-		let store = WorkspaceHandle::load(&SessionOptions {
+		let store = WorkspaceState::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,
@@ -363,9 +366,9 @@ mod tests {
 		});
 		app.apply_navigation(NavigationAction::Select {
 			pane: NavigationPane::Primary,
-			target: NavigationSelection::Def(alpha),
+			target: NavigationSelection::Def(alpha.clone()),
 		});
-		app.focus_usages(alpha);
+		app.focus_usages(alpha.clone());
 		assert_eq!(
 			app.usage_lens().map(|focus| focus.label.as_str()),
 			Some("AlphaService")
@@ -398,7 +401,7 @@ mod tests {
 			reset_expansion: true,
 			expand_symbols: true,
 		});
-		app.select_def(alpha);
+		app.select_def(alpha.clone());
 		app.focus_usages(alpha);
 		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
 
@@ -422,12 +425,12 @@ mod tests {
 			reset_expansion: true,
 			expand_symbols: true,
 		});
-		app.focus_usages(alpha);
+		app.focus_usages(alpha.clone());
 		assert!(app.usage_lens().is_some());
 		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
 		app.apply_navigation(NavigationAction::Select {
 			pane: NavigationPane::Primary,
-			target: NavigationSelection::Def(alpha),
+			target: NavigationSelection::Def(alpha.clone()),
 		});
 		assert_eq!(app.primary_selected(), Some(alpha));
 
@@ -456,7 +459,7 @@ mod tests {
 			reset_expansion: true,
 			expand_symbols: true,
 		});
-		app.focus_usages(alpha);
+		app.focus_usages(alpha.clone());
 		app.dispatch_shell(ShellAction::SetFocusRegion(FocusRegion::Navigator));
 		app.apply_navigation(NavigationAction::Select {
 			pane: NavigationPane::Primary,

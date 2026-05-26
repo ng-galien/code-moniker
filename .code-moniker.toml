@@ -14,6 +14,35 @@ crate_core = "moniker ~ '**/dir:crates/dir:core/dir:src/**'"
 crate_workspace = "moniker ~ '**/dir:crates/dir:workspace/dir:src/**'"
 crate_cli  = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 crate_pg   = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
+workspace_public_boundary_target = """
+  target ~ '**/external_pkg:code_moniker_workspace/module:cache'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:cache/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:changes'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:changes/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:code'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:code/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:extract'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:extract/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:facade'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:facade/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:lang'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:lang/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:lines'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:lines/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:linkage'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:linkage/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:snapshot'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:snapshot/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:source'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:source/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:sources'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:sources/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:tsconfig'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:tsconfig/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:walk'
+  OR target ~ '**/external_pkg:code_moniker_workspace/module:walk/**'
+"""
+workspace_crate_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
@@ -26,6 +55,9 @@ uris = [
 
 [profiles.agent]
 enable = [".*"]
+disable = [
+  "^refs\\.cli-consumes-workspace-public-boundaries$",
+]
 
 [profiles.smells]
 enable = ["\\.smell-"]
@@ -59,6 +91,13 @@ message = "`code-moniker-workspace` is shared by CLI/TUI and future MCP adapters
 id      = "cli-no-pg"
 expr    = "$crate_cli AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
 message = "`cli` is the standalone binary; importing from `code-moniker-pg` pulls pgrx into the cli build."
+
+[[refs.where]]
+id        = "cli-consumes-workspace-public-boundaries"
+severity  = "error"
+expr      = "$crate_cli AND (kind = 'imports_symbol' OR kind = 'imports_module') AND $workspace_crate_target => $workspace_public_boundary_target"
+message   = "`cli` may only import the declared public boundaries of `code-moniker-workspace`."
+rationale = "The workspace crate exposes a reusable engine for CLI/TUI and future MCP adapters. CLI code should consume the crate through explicit public boundary modules; importing any other workspace module creates an accidental API and makes internal workspace layout part of the CLI contract."
 
 [[refs.where]]
 id      = "pg-no-cli"

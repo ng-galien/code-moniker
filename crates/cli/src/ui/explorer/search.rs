@@ -4,7 +4,9 @@ use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::{HeaderKindFilter, HeaderSearchState, header_search_label};
-use crate::workspace::{DefLocation, IndexStore};
+use crate::ui::workspace_state::WorkspaceState;
+use code_moniker_workspace::snapshot::SymbolId;
+type DefLocation = SymbolId;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct HeaderSearchResults {
@@ -30,7 +32,7 @@ pub(in crate::ui) struct HeaderSearchOptions {
 }
 
 pub(in crate::ui) fn header_search_results(
-	store: &impl IndexStore,
+	store: &WorkspaceState,
 	text: &str,
 	langs: &[Lang],
 	kind_filters: &[HeaderKindFilter],
@@ -61,7 +63,7 @@ pub(in crate::ui) fn header_search_results(
 }
 
 pub(in crate::ui) fn header_search_options(
-	store: &impl IndexStore,
+	store: &WorkspaceState,
 	state: &HeaderSearchState,
 ) -> HeaderSearchOptions {
 	let available_langs = compute_lang_options(store);
@@ -79,7 +81,7 @@ pub(in crate::ui) fn header_search_options(
 	}
 }
 
-fn compute_lang_options(store: &impl IndexStore) -> Vec<Lang> {
+fn compute_lang_options(store: &WorkspaceState) -> Vec<Lang> {
 	Lang::ALL
 		.iter()
 		.copied()
@@ -87,7 +89,7 @@ fn compute_lang_options(store: &impl IndexStore) -> Vec<Lang> {
 		.collect()
 }
 
-fn compute_kind_filter_options(store: &impl IndexStore, langs: &[Lang]) -> Vec<HeaderKindFilter> {
+fn compute_kind_filter_options(store: &WorkspaceState, langs: &[Lang]) -> Vec<HeaderKindFilter> {
 	if langs.len() == 1 {
 		return available_kinds_for_lang(store, langs[0])
 			.into_iter()
@@ -100,7 +102,7 @@ fn compute_kind_filter_options(store: &impl IndexStore, langs: &[Lang]) -> Vec<H
 		.collect()
 }
 
-fn available_kinds_for_lang(store: &impl IndexStore, lang: Lang) -> Vec<String> {
+fn available_kinds_for_lang(store: &WorkspaceState, lang: Lang) -> Vec<String> {
 	let mut kinds = BTreeSet::new();
 	for loc in store.all_navigable_defs() {
 		let symbol = store.symbol_summary(&loc);
@@ -111,7 +113,7 @@ fn available_kinds_for_lang(store: &impl IndexStore, lang: Lang) -> Vec<String> 
 	kinds.into_iter().collect()
 }
 
-fn available_shapes(store: &impl IndexStore, langs: &[Lang]) -> Vec<Shape> {
+fn available_shapes(store: &WorkspaceState, langs: &[Lang]) -> Vec<Shape> {
 	let mut shapes = Vec::new();
 	for loc in store.all_navigable_defs() {
 		let symbol = store.symbol_summary(&loc);

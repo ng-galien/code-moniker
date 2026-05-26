@@ -4,7 +4,8 @@ use std::collections::BTreeSet;
 
 use crate::ui::store::reducer::{Reduce, Transition};
 use crate::ui::store::tree_pane_state::TreePaneState;
-use crate::workspace::DefLocation;
+use code_moniker_workspace::snapshot::SymbolId;
+type DefLocation = SymbolId;
 
 use super::ids::NodeId;
 use super::navigation_tree::{
@@ -53,7 +54,7 @@ pub(in crate::ui) enum NavigationAction {
 	},
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) enum NavigationSelection {
 	Def(DefLocation),
 	FirstChange,
@@ -419,7 +420,7 @@ fn select_in_pane(pane: &mut TreePaneState, target: NavigationSelection) {
 	match target {
 		NavigationSelection::Def(loc) => {
 			pane.select_first_matching(
-				|row| matches!(row.kind, NavNodeKind::Def(row_loc) if row_loc == loc),
+				|row| matches!(&row.kind, NavNodeKind::Def(row_loc) if row_loc == &loc),
 			);
 		}
 		NavigationSelection::FirstChange => {

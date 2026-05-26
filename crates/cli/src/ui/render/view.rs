@@ -3,7 +3,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 
-use crate::workspace::ChangeStatus;
+use code_moniker_workspace::snapshot::ChangeStatus;
 
 use super::super::DEFAULT_PANEL_SNAPSHOT_WIDTH;
 use super::super::events::HeaderSearchFocus;
@@ -520,9 +520,17 @@ fn change_count_span(count: usize) -> Span<'static> {
 
 fn change_marker_span(status: ChangeStatus) -> Span<'static> {
 	Span::styled(
-		status.marker().to_string(),
+		change_status_marker(status).to_string(),
 		Style::default().fg(change_status_color(status)),
 	)
+}
+
+fn change_status_marker(status: ChangeStatus) -> &'static str {
+	match status {
+		ChangeStatus::Added => "+",
+		ChangeStatus::Modified => "~",
+		ChangeStatus::Removed => "-",
+	}
 }
 
 fn change_status_color(status: ChangeStatus) -> ratatui::style::Color {

@@ -6,7 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use crate::perf;
-use crate::workspace::{CheckSummary, IndexStore, SessionOptions, WorkspaceHandle};
+use crate::session::{CheckSummary, SessionOptions};
+use crate::ui::workspace_state::{WorkspaceCheckContext, WorkspaceState};
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -65,7 +66,7 @@ impl TaskSpec {
 	}
 
 	pub(in crate::ui) fn run_check(
-		store: WorkspaceHandle,
+		context: WorkspaceCheckContext,
 		rules: PathBuf,
 		profile: Option<String>,
 		scheme: String,
@@ -75,7 +76,7 @@ impl TaskSpec {
 			generation: 0,
 			label: "run check".to_string(),
 			kind: TaskKind::RunCheck {
-				store,
+				context,
 				rules,
 				profile,
 				scheme,
@@ -106,20 +107,20 @@ impl TaskSpec {
 		let generation = self.generation;
 		let label = self.label;
 		let outcome = match self.kind {
-			TaskKind::LoadFileCatalog { opts } => match WorkspaceHandle::catalog(&opts) {
+			TaskKind::LoadFileCatalog { opts } => match WorkspaceState::catalog(&opts) {
 				Ok(store) => TaskOutcome::FileCatalogLoaded(Box::new(store)),
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
-			TaskKind::ReloadStore { opts } => match WorkspaceHandle::load(&opts) {
+			TaskKind::ReloadStore { opts } => match WorkspaceState::load(&opts) {
 				Ok(store) => TaskOutcome::StoreReloaded(Box::new(store)),
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
 			TaskKind::RunCheck {
-				store,
+				context,
 				rules,
 				profile,
 				scheme,
-			} => match store.check_summary(&rules, profile.as_deref(), &scheme) {
+			} => match context.check_summary(&rules, profile.as_deref(), &scheme) {
 				Ok(summary) => TaskOutcome::CheckCompleted(Box::new(summary)),
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
@@ -152,7 +153,7 @@ enum TaskKind {
 		opts: SessionOptions,
 	},
 	RunCheck {
-		store: WorkspaceHandle,
+		context: WorkspaceCheckContext,
 		rules: PathBuf,
 		profile: Option<String>,
 		scheme: String,
@@ -198,8 +199,8 @@ pub(in crate::ui) struct TaskResult {
 }
 
 pub(in crate::ui) enum TaskOutcome {
-	FileCatalogLoaded(Box<WorkspaceHandle>),
-	StoreReloaded(Box<WorkspaceHandle>),
+	FileCatalogLoaded(Box<WorkspaceState>),
+	StoreReloaded(Box<WorkspaceState>),
 	CheckCompleted(Box<CheckSummary>),
 	Failed(String),
 }

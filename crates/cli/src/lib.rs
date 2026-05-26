@@ -7,20 +7,18 @@ pub(crate) mod color;
 pub mod dir;
 pub mod format;
 pub mod harness;
-#[deprecated(note = "use code_moniker_cli::workspace::index instead")]
-pub mod inspect;
 pub mod manifest;
 pub(crate) mod page;
 #[cfg(feature = "tui")]
 pub(crate) mod perf;
 pub mod predicate;
 pub mod rules;
+pub mod session;
 pub mod stats;
 #[cfg(feature = "pretty")]
 pub(crate) mod tree;
 #[cfg(feature = "tui")]
 pub mod ui;
-pub mod workspace;
 
 use std::cmp::Ordering;
 use std::io::Write;

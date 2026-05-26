@@ -1,25 +1,11 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use code_moniker_core::core::shape::Shape;
-
 #[derive(Clone, Debug)]
 pub struct SessionOptions {
 	pub paths: Vec<PathBuf>,
 	pub project: Option<String>,
 	pub cache_dir: Option<PathBuf>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct DefLocation {
-	pub file: usize,
-	pub def: usize,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct RefLocation {
-	pub file: usize,
-	pub reference: usize,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -44,13 +30,6 @@ pub struct LangTotals {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ViewFilter {
-	pub kind: Option<String>,
-	pub name: Option<String>,
-	pub shape: Option<Shape>,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CheckSummary {
 	pub files_scanned: usize,
 	pub files_with_violations: usize,
@@ -62,4 +41,48 @@ pub struct CheckSummary {
 pub struct CheckError {
 	pub path: PathBuf,
 	pub error: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoreWatchRoot {
+	pub path: PathBuf,
+	pub git_root: Option<PathBuf>,
+	pub ignored_paths: Vec<PathBuf>,
+}
+
+pub fn watch_roots_for_options(opts: &SessionOptions) -> Vec<StoreWatchRoot> {
+	let ignored_paths = opts
+		.cache_dir
+		.as_ref()
+		.map(|path| vec![absolute_path(path)])
+		.unwrap_or_default();
+	opts.paths
+		.iter()
+		.map(|path| StoreWatchRoot {
+			path: watch_path(path),
+			git_root: None,
+			ignored_paths: ignored_paths.clone(),
+		})
+		.collect()
+}
+
+fn watch_path(path: &std::path::Path) -> PathBuf {
+	let path = absolute_path(path);
+	if path.is_file() {
+		path.parent()
+			.map(std::path::Path::to_path_buf)
+			.unwrap_or(path)
+	} else {
+		path
+	}
+}
+
+fn absolute_path(path: &std::path::Path) -> PathBuf {
+	if path.is_absolute() {
+		path.to_path_buf()
+	} else {
+		std::env::current_dir()
+			.map(|cwd| cwd.join(path))
+			.unwrap_or_else(|_| path.to_path_buf())
+	}
 }

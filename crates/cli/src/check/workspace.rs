@@ -5,8 +5,10 @@ use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
 use crate::check;
-use crate::workspace::snapshot::{CodeIndex, LinkageGraph, ResourceGeneration, SymbolId};
-use crate::workspace::source::{CodeIndexMaterial, LocalIdentityResolver, LocalResourceCache};
+use code_moniker_workspace::snapshot::{CodeIndex, LinkageGraph, ResourceGeneration, SymbolId};
+use code_moniker_workspace::source::{
+	CodeIndexMaterial, LocalIdentityResolver, LocalResourceCache,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkspaceCheckRunnerOptions {

@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
-use crate::workspace::{ChangeId, DefLocation};
+use code_moniker_workspace::snapshot::{ChangeId, SymbolId};
+type DefLocation = SymbolId;
 
 use crate::ui::store::ids::NodeId;
-use crate::workspace::IndexStore;
+use crate::ui::workspace_state::WorkspaceState;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) enum NavNodeKind {
 	Root,
 	Lang,
@@ -50,7 +51,7 @@ impl NavNode {
 	}
 }
 
-pub(in crate::ui) fn build_navigator(store: &impl IndexStore) -> NavNode {
+pub(in crate::ui) fn build_navigator(store: &WorkspaceState) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("explorer"), "root", NavNodeKind::Root);
 	for file_idx in 0..store.file_count() {
 		let file = store.file_summary(file_idx);
@@ -101,7 +102,7 @@ pub(in crate::ui) fn build_navigator(store: &impl IndexStore) -> NavNode {
 	root
 }
 
-pub(in crate::ui) fn build_change_navigator(store: &impl IndexStore) -> NavNode {
+pub(in crate::ui) fn build_change_navigator(store: &WorkspaceState) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("change"), "root", NavNodeKind::Root);
 	for change in store.change_rows() {
 		let lang = child_mut(
@@ -211,7 +212,7 @@ fn compute_nav_counts(node: &mut NavNode) -> (usize, usize) {
 }
 
 fn symbol_children(
-	store: &impl IndexStore,
+	store: &WorkspaceState,
 	file_idx: usize,
 	parent: Option<DefLocation>,
 ) -> Vec<NavNode> {
@@ -223,17 +224,17 @@ fn symbol_children(
 	out
 }
 
-fn sort_symbol_nodes(store: &impl IndexStore, nodes: &mut [NavNode]) {
-	nodes.sort_by(|a, b| match (a.kind, b.kind) {
+fn sort_symbol_nodes(store: &WorkspaceState, nodes: &mut [NavNode]) {
+	nodes.sort_by(|a, b| match (&a.kind, &b.kind) {
 		(NavNodeKind::Def(left), NavNodeKind::Def(right)) => {
-			store.compare_defs_for_navigation(&left, &right)
+			store.compare_defs_for_navigation(left, right)
 		}
 		_ => nav_sort_key(a).cmp(&nav_sort_key(b)),
 	});
 }
 
 fn collect_symbol_node(
-	store: &impl IndexStore,
+	store: &WorkspaceState,
 	file_idx: usize,
 	loc: DefLocation,
 	out: &mut Vec<NavNode>,
@@ -243,7 +244,7 @@ fn collect_symbol_node(
 		let mut node = NavNode::new(
 			NodeId::def(&symbol.compact_moniker),
 			symbol.name,
-			NavNodeKind::Def(loc),
+			NavNodeKind::Def(loc.clone()),
 		);
 		node.children = symbol_children(store, file_idx, Some(loc));
 		out.push(node);
@@ -253,7 +254,7 @@ fn collect_symbol_node(
 }
 
 fn direct_children(
-	store: &impl IndexStore,
+	store: &WorkspaceState,
 	file_idx: usize,
 	parent: Option<DefLocation>,
 ) -> Vec<DefLocation> {
@@ -296,7 +297,7 @@ fn flatten_compact_nav(
 	rows.push(NavRow {
 		key: rendered.key.clone(),
 		label,
-		kind: rendered.kind,
+		kind: rendered.kind.clone(),
 		depth,
 		has_children: !rendered.children.is_empty(),
 		file_count: node.file_count,
@@ -366,7 +367,7 @@ fn filter_node(node: &NavNode, matches: &[DefLocation]) -> Option<NavNode> {
 	Some(NavNode {
 		key: node.key.clone(),
 		label: node.label.clone(),
-		kind: node.kind,
+		kind: node.kind.clone(),
 		children,
 		file_count: files,
 		def_count: defs,
@@ -398,10 +399,10 @@ fn collect_filtered_expanded_keys(
 }
 
 fn node_matches(node: &NavNode, matches: &[DefLocation]) -> bool {
-	let NavNodeKind::Def(loc) = node.kind else {
+	let NavNodeKind::Def(loc) = &node.kind else {
 		return false;
 	};
-	matches.contains(&loc)
+	matches.contains(loc)
 }
 
 pub(in crate::ui) fn all_expanded_keys(node: &NavNode) -> BTreeSet<NodeId> {

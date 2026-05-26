@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crossterm::event::KeyEvent;
 
+use crate::session::StoreWatchRoot;
 use crate::ui::app::App;
 use crate::ui::app::{
 	AppAction, CheckState, Effect, FocusRegion, PanelPolicy, TaskCompletion, View,
@@ -17,22 +18,23 @@ use crate::ui::live::StoreEvent;
 use crate::ui::shell::ShellEvent;
 use crate::ui::store::navigation::{NavigationAction, NavigationPane};
 use crate::ui::store::tree_pane_action::TreePaneAction;
-use crate::workspace::{IndexStore, StoreWatchRoot};
 
 const HEADER_SEARCH_DEBOUNCE_MS: u64 = 180;
 
 impl App {
 	pub(in crate::ui) fn run_check(&mut self) {
 		self.set_view(View::Check, PanelPolicy::Manual);
-		let task = TaskSpec::run_check(
-			self.store().clone(),
-			self.rules.clone(),
-			self.profile.clone(),
-			self.scheme.clone(),
-		);
-		if self.queue_task(task) {
-			self.set_status("check queued in background");
-			return;
+		if let Ok(context) = self.store().check_context() {
+			let task = TaskSpec::run_check(
+				context,
+				self.rules.clone(),
+				self.profile.clone(),
+				self.scheme.clone(),
+			);
+			if self.queue_task(task) {
+				self.set_status("check queued in background");
+				return;
+			}
 		}
 		match self
 			.store()
