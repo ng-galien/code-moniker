@@ -17,8 +17,7 @@ use crate::args::Charset;
 use crate::args::{StatsArgs, StatsFormat};
 #[cfg(feature = "pretty")]
 use crate::color::resolve_color;
-use code_moniker_workspace::cache;
-use code_moniker_workspace::sources::{self, SourceFile, SourceSet};
+use code_moniker_workspace::environment::{self, SourceFile, SourceFileSet};
 
 pub fn run<W1: Write, W2: Write>(args: &StatsArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match stats_inner(args, stdout) {
@@ -39,7 +38,7 @@ pub fn run<W1: Write, W2: Write>(args: &StatsArgs, stdout: &mut W1, stderr: &mut
 fn stats_inner<W: Write>(args: &StatsArgs, stdout: &mut W) -> anyhow::Result<bool> {
 	let started = Instant::now();
 	let scan_started = Instant::now();
-	let sources = sources::discover(&args.paths, args.project.clone())?;
+	let sources = environment::discover_sources(&args.paths, args.project.clone())?;
 	let scan_elapsed = scan_started.elapsed();
 	let extract_started = Instant::now();
 	let cache_dir = args.cache.as_deref();
@@ -158,13 +157,18 @@ struct FileStats {
 impl FileStats {
 	fn compute(
 		file: &SourceFile,
-		sources: &SourceSet,
+		sources: &SourceFileSet,
 		cache_dir: Option<&Path>,
 	) -> anyhow::Result<Self> {
 		let ctx = &sources.roots[file.source].ctx;
-		let (graph, _) =
-			cache::load_or_extract_result(&file.path, &file.anchor, file.lang, cache_dir, ctx)
-				.map_err(|e| anyhow::anyhow!("cannot extract {}: {e}", file.path.display()))?;
+		let (graph, _) = environment::load_or_extract_source(
+			&file.path,
+			&file.anchor,
+			file.lang,
+			cache_dir,
+			ctx,
+		)
+		.map_err(|e| anyhow::anyhow!("cannot extract {}: {e}", file.path.display()))?;
 		let mut defs = 0usize;
 		let mut refs = 0usize;
 		let mut by_shape: BTreeMap<&'static str, usize> = Shape::ALL

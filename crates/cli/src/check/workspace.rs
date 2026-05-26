@@ -5,10 +5,10 @@ use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
 use crate::check;
-use code_moniker_workspace::snapshot::{CodeIndex, LinkageGraph, ResourceGeneration, SymbolId};
-use code_moniker_workspace::source::{
-	CodeIndexMaterial, LocalIdentityResolver, LocalResourceCache,
+use code_moniker_workspace::environment::{
+	self, IdentityResolver, IndexedSourceMaterial, ResourceCache,
 };
+use code_moniker_workspace::snapshot::{CodeIndex, LinkageGraph, ResourceGeneration, SymbolId};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkspaceCheckRunnerOptions {
@@ -29,11 +29,11 @@ impl WorkspaceCheckRunnerOptions {
 
 pub struct WorkspaceCheckRunner {
 	options: WorkspaceCheckRunnerOptions,
-	cache: LocalResourceCache,
+	cache: ResourceCache,
 }
 
 impl WorkspaceCheckRunner {
-	pub fn new(options: WorkspaceCheckRunnerOptions, cache: LocalResourceCache) -> Self {
+	pub fn new(options: WorkspaceCheckRunnerOptions, cache: ResourceCache) -> Self {
 		Self { options, cache }
 	}
 
@@ -42,11 +42,9 @@ impl WorkspaceCheckRunner {
 		index: &CodeIndex,
 		_linkage: &LinkageGraph,
 	) -> anyhow::Result<WorkspaceRuleDiagnostics> {
-		let material = self
-			.cache
-			.index_material(index.generation)
+		let material = environment::cached_index_material(&self.cache, index.generation)
 			.ok_or_else(|| anyhow::anyhow!("code index material is unavailable"))?;
-		let generation = self.cache.next_generation();
+		let generation = environment::next_resource_generation(&self.cache);
 		let diagnostics = collect_diagnostics(&material, &self.options)?;
 		Ok(WorkspaceRuleDiagnostics::with_diagnostics(
 			generation,
@@ -57,12 +55,12 @@ impl WorkspaceCheckRunner {
 }
 
 fn collect_diagnostics(
-	material: &CodeIndexMaterial,
+	material: &IndexedSourceMaterial,
 	options: &WorkspaceCheckRunnerOptions,
 ) -> anyhow::Result<Vec<WorkspaceRuleDiagnostic>> {
 	let cfg = load_config(options)?;
 	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
-	let identity = LocalIdentityResolver::new(options.scheme.clone());
+	let identity = IdentityResolver::new(options.scheme.clone());
 	let symbol_by_identity = material
 		.symbol_monikers
 		.iter()

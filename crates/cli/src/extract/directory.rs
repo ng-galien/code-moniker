@@ -15,7 +15,7 @@ use crate::predicate::{self, MatchSet, Predicate, RefMatch};
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
-use code_moniker_workspace::{cache, extract, tsconfig, walk};
+use code_moniker_workspace::environment::{self, SourceFile, SourceFileSet};
 
 pub fn run<W1: Write, W2: Write>(
 	args: &ExtractArgs,
@@ -24,26 +24,21 @@ pub fn run<W1: Write, W2: Write>(
 	root: &Path,
 	scheme: &str,
 ) -> anyhow::Result<bool> {
-	let files = walk::walk_lang_files(root);
-	let ctx = extract::Context {
-		ts: tsconfig::load(root),
-		project: args.project.clone(),
-	};
-	run_filter(args, stdout, stderr, &files, root, scheme, &ctx)
+	let sources = environment::discover_sources(&[root.to_path_buf()], args.project.clone())?;
+	run_filter(args, stdout, stderr, &sources, root, scheme)
 }
 
 fn run_filter<W1: Write, W2: Write>(
 	args: &ExtractArgs,
 	stdout: &mut W1,
 	stderr: &mut W2,
-	files: &[walk::WalkedFile],
+	sources: &SourceFileSet,
 	root: &Path,
 	scheme: &str,
-	ctx: &extract::Context,
 ) -> anyhow::Result<bool> {
 	let predicates = args.compiled_predicates(scheme)?;
 	let names = predicate::compile_name_filters(&args.name)?;
-	let mut langs: Vec<Lang> = files.iter().map(|f| f.lang).collect();
+	let mut langs: Vec<Lang> = sources.files.iter().map(|f| f.lang).collect();
 	langs.sort_by_key(|l| l.tag());
 	langs.dedup();
 	let known = predicate::known_kinds(langs.iter());
@@ -52,19 +47,19 @@ fn run_filter<W1: Write, W2: Write>(
 		return Err(crate::unknown_kinds_error(&unknown, &langs, &known));
 	}
 	let cache_dir = args.cache.as_deref();
-	let mut rows: Vec<FilterRow> = files
+	let mut rows: Vec<FilterRow> = sources
+		.files
 		.par_iter()
 		.filter_map(|f| {
 			FilterRow::compute(
-				&f.path,
-				f.lang,
+				f,
+				sources,
 				root,
 				&predicates,
 				&args.kind,
 				&names,
 				&args.shape,
 				cache_dir,
-				ctx,
 			)
 		})
 		.collect();
@@ -74,7 +69,7 @@ fn run_filter<W1: Write, W2: Write>(
 	let any = total_defs + total_refs > 0;
 	match args.mode() {
 		OutputMode::Default => {
-			if crate::uses_tree_visibility(args) {
+			if super::uses_tree_visibility(args) {
 				apply_tree_visibility(&mut rows, args);
 			}
 			let page = paginate_rows(&mut rows, args, scheme)?;
@@ -85,7 +80,7 @@ fn run_filter<W1: Write, W2: Write>(
 				#[cfg(feature = "pretty")]
 				OutputFormat::Tree => write_filter_tree(stdout, &rows, args, scheme)?,
 			}
-			crate::write_page_notice(stderr, args, &page)?;
+			super::write_page_notice(stderr, args, &page)?;
 			Ok(page.emitted > 0)
 		}
 		OutputMode::Count => {
@@ -102,7 +97,7 @@ fn apply_tree_visibility(rows: &mut [FilterRow], args: &ExtractArgs) {
 	}
 	for row in rows {
 		row.defs
-			.retain(|def| crate::tree_visible_def_kind(&def.kind));
+			.retain(|def| super::tree_visible_def_kind(&def.kind));
 		row.refs.clear();
 	}
 }
@@ -118,25 +113,36 @@ struct FilterRow {
 impl FilterRow {
 	#[allow(clippy::too_many_arguments)]
 	fn compute(
-		path: &Path,
-		lang: Lang,
+		file: &SourceFile,
+		sources: &SourceFileSet,
 		root: &Path,
 		predicates: &[Predicate],
 		kinds: &[String],
 		names: &[Regex],
 		shapes: &[code_moniker_core::core::shape::Shape],
 		cache_dir: Option<&Path>,
-		ctx: &extract::Context,
 	) -> Option<Self> {
-		let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
-		let (graph, extracted_source) = cache::load_or_extract(path, &rel, lang, cache_dir, ctx)?;
+		let ctx = &sources.roots[file.source].ctx;
+		let rel = file
+			.path
+			.strip_prefix(root)
+			.unwrap_or(&file.path)
+			.to_path_buf();
+		let (graph, extracted_source) = environment::load_or_extract_source(
+			&file.path,
+			&file.anchor,
+			file.lang,
+			cache_dir,
+			ctx,
+		)
+		.ok()?;
 		let matches = predicate::filter(&graph, predicates, kinds, names, shapes);
 		if matches.defs.is_empty() && matches.refs.is_empty() {
 			return None;
 		}
 		let source = match extracted_source {
 			Some(s) => s,
-			None => std::fs::read_to_string(path).ok()?,
+			None => std::fs::read_to_string(&file.path).ok()?,
 		};
 		let defs = matches.defs.into_iter().cloned().collect();
 		let refs = matches
@@ -146,7 +152,7 @@ impl FilterRow {
 			.collect();
 		Some(Self {
 			rel,
-			lang,
+			lang: file.lang,
 			source,
 			defs,
 			refs,
@@ -397,20 +403,13 @@ mod tests {
 		let tmp = tempfile::tempdir().unwrap();
 		let root = tmp.path();
 		write_file(root, "a.ts", "export class Foo {}\nfunction bar() {}\n");
-		let files = walk::walk_lang_files(root);
-		let f = files.iter().find(|f| f.path.ends_with("a.ts")).unwrap();
-		let row = FilterRow::compute(
-			&f.path,
-			f.lang,
-			root,
-			&[],
-			&[],
-			&[],
-			&[],
-			None,
-			&extract::Context::default(),
-		)
-		.unwrap();
+		let sources = environment::discover_sources(&[root.to_path_buf()], None).unwrap();
+		let f = sources
+			.files
+			.iter()
+			.find(|f| f.path.ends_with("a.ts"))
+			.unwrap();
+		let row = FilterRow::compute(f, &sources, root, &[], &[], &[], &[], None).unwrap();
 		assert!(row.defs.len() >= 2, "a.ts should have defs");
 	}
 
@@ -420,22 +419,11 @@ mod tests {
 		let root = tmp.path();
 		write_file(root, "a.ts", "export class Alpha {}\n");
 		write_file(root, "b.ts", "export class Beta {}\n");
-		let files = walk::walk_lang_files(root);
-		let mut rows: Vec<FilterRow> = files
+		let sources = environment::discover_sources(&[root.to_path_buf()], None).unwrap();
+		let mut rows: Vec<FilterRow> = sources
+			.files
 			.iter()
-			.filter_map(|f| {
-				FilterRow::compute(
-					&f.path,
-					f.lang,
-					root,
-					&[],
-					&[],
-					&[],
-					&[],
-					None,
-					&extract::Context::default(),
-				)
-			})
+			.filter_map(|f| FilterRow::compute(f, &sources, root, &[], &[], &[], &[], None))
 			.collect();
 		let mut args = ExtractArgs::for_tests();
 		args.limit = 1;

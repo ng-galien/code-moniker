@@ -5,18 +5,22 @@ use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::uri::{UriConfig, to_uri};
 use code_moniker_core::lang::Lang;
 
-pub(crate) type ExtractContext = crate::extract::Context;
-pub(crate) type SourceFileSet = crate::sources::SourceSet;
-pub(crate) type SourceRoot = crate::sources::SourceRoot;
+pub type ExtractContext = crate::extract::Context;
+pub type IdentityResolver = crate::source::LocalIdentityResolver;
+pub type IndexedSourceMaterial = crate::source::CodeIndexMaterial;
+pub type ResourceCache = crate::source::LocalResourceCache;
+pub type SourceFile = crate::sources::SourceFile;
+pub type SourceFileSet = crate::sources::SourceSet;
+pub type SourceRoot = crate::sources::SourceRoot;
 
-pub(crate) fn discover_sources(
+pub fn discover_sources(
 	paths: &[PathBuf],
 	project: Option<String>,
 ) -> anyhow::Result<SourceFileSet> {
 	crate::sources::discover(paths, project)
 }
 
-pub(crate) fn discover_source_files(
+pub fn discover_source_files(
 	root: &Path,
 	files: &[PathBuf],
 	project: Option<String>,
@@ -24,11 +28,11 @@ pub(crate) fn discover_source_files(
 	crate::sources::discover_files(root, files, project)
 }
 
-pub(crate) fn language_for_path(path: &Path) -> anyhow::Result<Lang> {
+pub fn language_for_path(path: &Path) -> anyhow::Result<Lang> {
 	Ok(crate::lang::path_to_lang(path)?)
 }
 
-pub(crate) fn load_or_extract_source(
+pub fn load_or_extract_source(
 	path: &Path,
 	anchor: &Path,
 	lang: Lang,
@@ -40,12 +44,23 @@ pub(crate) fn load_or_extract_source(
 	)?)
 }
 
+pub fn cached_index_material(
+	cache: &ResourceCache,
+	generation: crate::snapshot::ResourceGeneration,
+) -> Option<IndexedSourceMaterial> {
+	cache.index_material(generation)
+}
+
+pub fn next_resource_generation(cache: &ResourceCache) -> crate::snapshot::ResourceGeneration {
+	cache.next_generation()
+}
+
 #[cfg(test)]
-pub(crate) fn extract_source(lang: Lang, source: &str, path: &Path) -> CodeGraph {
+pub fn extract_source(lang: Lang, source: &str, path: &Path) -> CodeGraph {
 	crate::extract::extract(lang, source, path)
 }
 
-pub(crate) fn extract_source_with(
+pub fn extract_source_with(
 	lang: Lang,
 	source: &str,
 	path: &Path,
@@ -54,11 +69,11 @@ pub(crate) fn extract_source_with(
 	crate::extract::extract_with(lang, source, path, ctx)
 }
 
-pub(crate) fn line_range(source: &str, start: u32, end: u32) -> (u32, u32) {
+pub fn line_range(source: &str, start: u32, end: u32) -> (u32, u32) {
 	crate::lines::line_range(source, start, end)
 }
 
-pub(crate) fn compact_moniker(moniker: &Moniker, scheme: &str) -> String {
+pub fn compact_moniker(moniker: &Moniker, scheme: &str) -> String {
 	render_compact_moniker(moniker).unwrap_or_else(|| {
 		to_uri(moniker, &UriConfig { scheme }).unwrap_or_else(|_| non_utf8(moniker))
 	})

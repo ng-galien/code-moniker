@@ -4,7 +4,7 @@
 pub mod args;
 pub mod check;
 pub(crate) mod color;
-pub mod dir;
+pub mod extract;
 pub mod format;
 pub mod harness;
 pub mod manifest;
@@ -20,16 +20,12 @@ pub(crate) mod tree;
 #[cfg(feature = "tui")]
 pub mod ui;
 
-use std::cmp::Ordering;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
-use code_moniker_core::core::kinds::{KIND_COMMENT, KIND_LOCAL, KIND_PARAM};
-use code_moniker_core::core::moniker::Moniker;
-use code_moniker_workspace::{cache, extract, sources, tsconfig};
+use code_moniker_workspace::environment;
 
 #[cfg(feature = "tui")]
 pub use args::UiArgs;
@@ -87,7 +83,7 @@ impl From<Exit> for ExitCode {
 
 pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match &cli.command {
-		Command::Extract(args) => run_extract(args, stdout, stderr),
+		Command::Extract(args) => extract::run(args, stdout, stderr),
 		Command::Stats(args) => stats::run(args, stdout, stderr),
 		Command::Check(args) => run_check(args, stdout, stderr),
 		Command::Rules(args) => rules::run(args, stdout, stderr),
@@ -312,271 +308,6 @@ fn write_langs_json<W: Write>(
 	Ok(())
 }
 
-fn run_extract<W1: Write, W2: Write>(args: &ExtractArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
-	match extract_inner(args, stdout, stderr) {
-		Ok(any) => {
-			if any {
-				Exit::Match
-			} else {
-				Exit::NoMatch
-			}
-		}
-		Err(e) => {
-			let _ = writeln!(stderr, "code-moniker: {e:#}");
-			Exit::UsageError
-		}
-	}
-}
-
-fn extract_inner<W1: Write, W2: Write>(
-	args: &ExtractArgs,
-	stdout: &mut W1,
-	stderr: &mut W2,
-) -> anyhow::Result<bool> {
-	let path: &Path = &args.path;
-	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
-	let meta = std::fs::metadata(path)
-		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
-	if meta.is_dir() {
-		return dir::run(args, stdout, stderr, path, &scheme);
-	}
-	let lang = path_to_lang(path)?;
-	let predicates = args.compiled_predicates(&scheme)?;
-	let names = predicate::compile_name_filters(&args.name)?;
-	let known = predicate::known_kinds(std::iter::once(&lang));
-	let unknown = predicate::unknown_kinds(&args.kind, &known);
-	if !unknown.is_empty() {
-		return Err(unknown_kinds_error(&unknown, &[lang], &known));
-	}
-	let ctx = extract::Context {
-		ts: tsconfig::load(path.parent().unwrap_or_else(|| Path::new("."))),
-		project: args.project.clone(),
-	};
-	let (graph, extracted_source) =
-		cache::load_or_extract(path, path, lang, args.cache.as_deref(), &ctx)
-			.ok_or_else(|| anyhow::anyhow!("cannot read {}", path.display()))?;
-	let source = match extracted_source {
-		Some(s) => s,
-		None => std::fs::read_to_string(path)
-			.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?,
-	};
-	let matches = predicate::filter(&graph, &predicates, &args.kind, &names, &args.shape);
-	match args.mode() {
-		OutputMode::Default => {
-			let visible;
-			let page_source = if uses_tree_visibility(args) {
-				visible = tree_visible_match_set(&matches, args);
-				&visible
-			} else {
-				&matches
-			};
-			let (paged, page) = paginate_match_set(page_source, args, &scheme)?;
-			match args.format {
-				OutputFormat::Text => format::write_text(stdout, &paged, args, &scheme)?,
-				OutputFormat::Tsv => format::write_tsv(stdout, &paged, &source, args, &scheme)?,
-				OutputFormat::Json => format::write_json(
-					stdout,
-					&paged,
-					&source,
-					args,
-					format::JsonContext {
-						lang,
-						path,
-						scheme: &scheme,
-						page: &page,
-					},
-				)?,
-				#[cfg(feature = "pretty")]
-				OutputFormat::Tree => tree::write_tree(stdout, &paged, &source, args, &scheme)?,
-			}
-			write_page_notice(stderr, args, &page)?;
-			Ok(page.emitted > 0)
-		}
-		OutputMode::Count => {
-			let n = matches.defs.len() + matches.refs.len();
-			writeln!(stdout, "{n}")?;
-			Ok(n > 0)
-		}
-		OutputMode::Quiet => Ok(!matches.defs.is_empty() || !matches.refs.is_empty()),
-	}
-}
-
-pub(crate) fn uses_tree_visibility(args: &ExtractArgs) -> bool {
-	#[cfg(feature = "pretty")]
-	{
-		args.format == OutputFormat::Tree
-	}
-	#[cfg(not(feature = "pretty"))]
-	{
-		let _ = args;
-		false
-	}
-}
-
-fn tree_visible_match_set<'g>(matches: &MatchSet<'g>, args: &ExtractArgs) -> MatchSet<'g> {
-	if !args.kind.is_empty() {
-		return MatchSet {
-			defs: matches.defs.clone(),
-			refs: matches
-				.refs
-				.iter()
-				.map(|r| predicate::RefMatch {
-					record: r.record,
-					source: r.source,
-				})
-				.collect(),
-		};
-	}
-	MatchSet {
-		defs: matches
-			.defs
-			.iter()
-			.copied()
-			.filter(|def| tree_visible_def_kind(&def.kind))
-			.collect(),
-		refs: Vec::new(),
-	}
-}
-
-pub(crate) fn tree_visible_def_kind(kind: &[u8]) -> bool {
-	!matches!(kind, KIND_LOCAL | KIND_PARAM | KIND_COMMENT)
-}
-
-struct MatchItem<'g> {
-	cursor: Moniker,
-	record: MatchRecord<'g>,
-}
-
-enum MatchRecord<'g> {
-	Def(&'g DefRecord),
-	Ref {
-		record: &'g RefRecord,
-		source: &'g Moniker,
-	},
-}
-
-impl<'g> MatchItem<'g> {
-	fn cursor_moniker(&self) -> &Moniker {
-		&self.cursor
-	}
-
-	fn rank(&self) -> u8 {
-		match &self.record {
-			MatchRecord::Def(_) => 0,
-			MatchRecord::Ref { .. } => 1,
-		}
-	}
-
-	fn source_bytes(&self) -> &'g [u8] {
-		match &self.record {
-			MatchRecord::Def(_) => &[],
-			MatchRecord::Ref { source, .. } => source.as_bytes(),
-		}
-	}
-
-	fn kind(&self) -> &'g [u8] {
-		match &self.record {
-			MatchRecord::Def(def) => &def.kind,
-			MatchRecord::Ref { record, .. } => &record.kind,
-		}
-	}
-
-	fn position(&self) -> Option<(u32, u32)> {
-		match &self.record {
-			MatchRecord::Def(def) => def.position,
-			MatchRecord::Ref { record, .. } => record.position,
-		}
-	}
-}
-
-fn cmp_match_item(a: &MatchItem<'_>, b: &MatchItem<'_>) -> Ordering {
-	a.cursor_moniker()
-		.as_bytes()
-		.cmp(b.cursor_moniker().as_bytes())
-		.then_with(|| a.rank().cmp(&b.rank()))
-		.then_with(|| a.source_bytes().cmp(b.source_bytes()))
-		.then_with(|| a.kind().cmp(b.kind()))
-		.then_with(|| a.position().cmp(&b.position()))
-}
-
-fn paginate_match_set<'g>(
-	matches: &MatchSet<'g>,
-	args: &ExtractArgs,
-	scheme: &str,
-) -> anyhow::Result<(MatchSet<'g>, page::PageInfo)> {
-	let spec = page::PageSpec::from_args(args, scheme)?;
-	let mut items = Vec::with_capacity(matches.defs.len() + matches.refs.len());
-	let mut ordinal = 0usize;
-	for &def in &matches.defs {
-		let cursor = page::def_cursor_moniker(&def.moniker, &[], &def.kind, def.position, ordinal);
-		if spec.allows(&cursor) {
-			items.push(MatchItem {
-				cursor,
-				record: MatchRecord::Def(def),
-			});
-		}
-		ordinal += 1;
-	}
-	for r in &matches.refs {
-		let cursor = page::ref_cursor_moniker(
-			&r.record.target,
-			&[],
-			r.source,
-			&r.record.kind,
-			r.record.position,
-			ordinal,
-		);
-		if spec.allows(&cursor) {
-			items.push(MatchItem {
-				cursor,
-				record: MatchRecord::Ref {
-					record: r.record,
-					source: r.source,
-				},
-			});
-		}
-		ordinal += 1;
-	}
-	items.sort_by(cmp_match_item);
-
-	let total = items.len();
-	let page_len = spec.page_len(total);
-	let last = page_len
-		.checked_sub(1)
-		.and_then(|idx| items.get(idx))
-		.map(MatchItem::cursor_moniker);
-	let info = spec.info(total, page_len, last, scheme);
-	let mut defs = Vec::new();
-	let mut refs = Vec::new();
-	for item in items.into_iter().take(page_len) {
-		match item.record {
-			MatchRecord::Def(def) => defs.push(def),
-			MatchRecord::Ref { record, source } => {
-				refs.push(predicate::RefMatch { record, source })
-			}
-		}
-	}
-	Ok((MatchSet { defs, refs }, info))
-}
-
-pub(crate) fn write_page_notice<W: Write>(
-	stderr: &mut W,
-	args: &ExtractArgs,
-	page: &page::PageInfo,
-) -> std::io::Result<()> {
-	if args.format == OutputFormat::Json {
-		return Ok(());
-	}
-	if let Some(cursor) = &page.next_cursor {
-		writeln!(
-			stderr,
-			"code-moniker: ... {} more results, use --after '{}' or --all",
-			page.remaining, cursor
-		)?;
-	}
-	Ok(())
-}
-
 fn run_check<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match check_inner(args, stdout, stderr) {
 		Ok(outcome) => {
@@ -742,7 +473,12 @@ fn check_one_compiled(
 ) -> anyhow::Result<FileReport> {
 	let source = std::fs::read_to_string(fs_path)
 		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", fs_path.display()))?;
-	let graph = extract::extract(lang, &source, moniker_anchor.unwrap_or(fs_path));
+	let graph = environment::extract_source_with(
+		lang,
+		&source,
+		moniker_anchor.unwrap_or(fs_path),
+		&environment::ExtractContext::default(),
+	);
 	let raw = check::evaluate_compiled(&graph, &source, lang, DEFAULT_SCHEME, compiled);
 	let violations = check::apply_suppressions(&graph, &source, raw);
 	let rule_reports = if report {
@@ -761,14 +497,14 @@ fn check_one_compiled(
 }
 
 fn check_source_file_compiled(
-	file: &sources::SourceFile,
-	ctx: &extract::Context,
+	file: &environment::SourceFile,
+	ctx: &environment::ExtractContext,
 	compiled: &check::CompiledRules,
 	report: bool,
 ) -> anyhow::Result<FileReport> {
 	let source = std::fs::read_to_string(&file.path)
 		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", file.path.display()))?;
-	let graph = extract::extract_with(file.lang, &source, &file.anchor, ctx);
+	let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
 	let raw = check::evaluate_compiled(&graph, &source, file.lang, DEFAULT_SCHEME, compiled);
 	let violations = check::apply_suppressions(&graph, &source, raw);
 	let rule_reports = if report {
@@ -794,7 +530,7 @@ fn check_project(
 	cfg: &check::Config,
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
-	let source_set = sources::discover(&[root.to_path_buf()], None)?;
+	let source_set = environment::discover_sources(&[root.to_path_buf()], None)?;
 	check_source_set(&source_set, cfg, report)
 }
 
@@ -804,12 +540,12 @@ fn check_project_files(
 	cfg: &check::Config,
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
-	let source_set = sources::discover_files(root, files, None)?;
+	let source_set = environment::discover_source_files(root, files, None)?;
 	check_source_set(&source_set, cfg, report)
 }
 
 fn check_source_set(
-	source_set: &sources::SourceSet,
+	source_set: &environment::SourceFileSet,
 	cfg: &check::Config,
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
@@ -817,7 +553,7 @@ fn check_source_set(
 	use std::collections::HashMap;
 	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
 	let mut compiled: HashMap<code_moniker_core::lang::Lang, check::CompiledRules> = HashMap::new();
-	let files: Vec<&sources::SourceFile> = source_set
+	let files: Vec<&environment::SourceFile> = source_set
 		.files
 		.iter()
 		.filter(|f| !excludes.matches_path(&f.path))
@@ -1264,183 +1000,4 @@ fn reports_with_severity(reports: &[FileReport], severity: check::RuleSeverity) 
 
 fn duration_ms(duration: Duration) -> u64 {
 	duration.as_millis().try_into().unwrap_or(u64::MAX)
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	fn violation(rule_id: &str, line: u32, message: &str) -> check::Violation {
-		check::Violation {
-			rule_id: rule_id.to_string(),
-			severity: check::RuleSeverity::Error,
-			moniker: "code+moniker://./lang:rs/module:ui".to_string(),
-			kind: "imports_symbol".to_string(),
-			lines: (line, line),
-			message: message.to_string(),
-			explanation: None,
-		}
-	}
-
-	fn warning(rule_id: &str, line: u32, message: &str) -> check::Violation {
-		check::Violation {
-			rule_id: rule_id.to_string(),
-			severity: check::RuleSeverity::Warn,
-			moniker: "code+moniker://./lang:rs/module:ui".to_string(),
-			kind: "imports_symbol".to_string(),
-			lines: (line, line),
-			message: message.to_string(),
-			explanation: None,
-		}
-	}
-
-	#[test]
-	fn exit_codes_are_stable() {
-		assert_eq!(ExitCode::from(Exit::Match), ExitCode::SUCCESS);
-		assert_eq!(ExitCode::from(Exit::NoMatch), ExitCode::from(1));
-		assert_eq!(ExitCode::from(Exit::UsageError), ExitCode::from(2));
-	}
-
-	#[test]
-	fn shape_description_exists_for_every_canonical_shape() {
-		for shape in code_moniker_core::core::shape::Shape::ALL {
-			assert!(
-				!shape_description(*shape).is_empty(),
-				"missing description for {shape:?}"
-			);
-		}
-	}
-
-	#[test]
-	fn max_violations_picks_largest_rule_group_by_path() {
-		let reports = vec![
-			FileReport {
-				path: PathBuf::from("src/b.rs"),
-				violations: vec![
-					violation("refs.large", 20, "second by path"),
-					violation("refs.small", 1, "ignored smaller group"),
-				],
-				rule_reports: Vec::new(),
-			},
-			FileReport {
-				path: PathBuf::from("src/a.rs"),
-				violations: vec![violation("refs.large", 30, "third by line")],
-				rule_reports: Vec::new(),
-			},
-			FileReport {
-				path: PathBuf::from("src/a.rs"),
-				violations: vec![violation("refs.large", 10, "first by line")],
-				rule_reports: Vec::new(),
-			},
-			FileReport {
-				path: PathBuf::from("src/c.rs"),
-				violations: vec![
-					violation("refs.small", 2, "ignored smaller group"),
-					violation("refs.other", 3, "ignored smaller group"),
-				],
-				rule_reports: Vec::new(),
-			},
-		];
-		let selected = largest_violation_group(&reports, 2);
-
-		assert_eq!(selected.len(), 2);
-		assert_eq!(selected[0].path, Path::new("src/a.rs"));
-		assert_eq!(selected[0].violation.lines, (10, 10));
-		assert_eq!(selected[1].path, Path::new("src/a.rs"));
-		assert_eq!(selected[1].violation.lines, (30, 30));
-		assert!(
-			selected
-				.iter()
-				.all(|entry| entry.violation.rule_id == "refs.large")
-		);
-	}
-
-	#[test]
-	fn max_violations_prefers_error_group_over_larger_warning_group() {
-		let reports = vec![
-			FileReport {
-				path: PathBuf::from("src/a.rs"),
-				violations: vec![
-					warning("refs.warning", 1, "warning one"),
-					warning("refs.warning", 2, "warning two"),
-					violation("refs.error", 3, "blocking error"),
-				],
-				rule_reports: Vec::new(),
-			},
-			FileReport {
-				path: PathBuf::from("src/b.rs"),
-				violations: vec![warning("refs.warning", 4, "warning three")],
-				rule_reports: Vec::new(),
-			},
-		];
-		let selected = largest_violation_group(&reports, 10);
-
-		assert_eq!(selected.len(), 1);
-		assert_eq!(selected[0].violation.rule_id, "refs.error");
-		assert_eq!(selected[0].violation.severity, check::RuleSeverity::Error);
-	}
-
-	#[test]
-	fn codex_hook_format_emits_block_json_with_rule_diagnostic() {
-		let reports = vec![FileReport {
-			path: PathBuf::from("src/lib.rs"),
-			violations: vec![check::Violation {
-				rule_id: "refs.ui-store-boundary".to_string(),
-				severity: check::RuleSeverity::Error,
-				moniker: "code+moniker://./lang:rs/module:ui".to_string(),
-				kind: "imports_symbol".to_string(),
-				lines: (11, 11),
-				message: "`code-moniker ui` must consume workspace read models".to_string(),
-				explanation: Some("raw graph/index/Git records stay inside workspace".to_string()),
-			}],
-			rule_reports: Vec::new(),
-		}];
-		let mut out = Vec::new();
-
-		write_reports_codex_hook(&mut out, &reports, &[], Duration::from_millis(12), None).unwrap();
-
-		let feedback: serde_json::Value = serde_json::from_slice(&out).unwrap();
-		assert_eq!(feedback["decision"], "block");
-		let reason = feedback["reason"].as_str().unwrap();
-		assert!(reason.contains("code-moniker architecture check failed"));
-		assert!(reason.contains("src/lib.rs:L11-L11 [refs.ui-store-boundary]"));
-		assert!(reason.contains("`code-moniker ui` must consume workspace read models"));
-		assert!(feedback.get("hookSpecificOutput").is_none());
-	}
-
-	#[test]
-	fn codex_hook_format_stays_silent_when_clean() {
-		let reports = vec![FileReport {
-			path: PathBuf::from("src/lib.rs"),
-			violations: Vec::new(),
-			rule_reports: Vec::new(),
-		}];
-		let mut out = Vec::new();
-
-		write_reports_codex_hook(&mut out, &reports, &[], Duration::from_millis(12), None).unwrap();
-
-		assert!(out.is_empty());
-	}
-
-	#[test]
-	fn codex_hook_format_stays_silent_for_warnings() {
-		let reports = vec![FileReport {
-			path: PathBuf::from("src/lib.rs"),
-			violations: vec![check::Violation {
-				rule_id: "refs.soft-boundary".to_string(),
-				severity: check::RuleSeverity::Warn,
-				moniker: "code+moniker://./lang:rs/module:ui".to_string(),
-				kind: "imports_symbol".to_string(),
-				lines: (11, 11),
-				message: "soft boundary warning".to_string(),
-				explanation: None,
-			}],
-			rule_reports: Vec::new(),
-		}];
-		let mut out = Vec::new();
-
-		write_reports_codex_hook(&mut out, &reports, &[], Duration::from_millis(12), None).unwrap();
-
-		assert!(out.is_empty());
-	}
 }

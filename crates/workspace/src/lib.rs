@@ -1,7 +1,7 @@
 pub mod cache;
 pub mod changes;
 pub mod code;
-pub(crate) mod environment;
+pub mod environment;
 pub mod extract;
 pub mod facade;
 pub mod lang;
