@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list]
-// TODO(smell): split stats collection, per-file extraction, aggregate reporting, and tree-row rendering before enabling these guardrails here.
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
@@ -41,14 +39,17 @@ fn stats_inner<W: Write>(args: &StatsArgs, stdout: &mut W) -> anyhow::Result<boo
 	let sources = environment::discover_sources(&args.paths, args.project.clone())?;
 	let scan_elapsed = scan_started.elapsed();
 	let extract_started = Instant::now();
-	let cache_dir = args.cache.as_deref();
+	let collector = StatsCollector {
+		sources: &sources,
+		cache_dir: args.cache.as_deref(),
+	};
 	let file_stats: Vec<FileStats> = sources
 		.files
 		.par_iter()
-		.map(|f| FileStats::compute(f, &sources, cache_dir))
+		.map(|file| collect_file_stats(&collector, file))
 		.collect::<anyhow::Result<Vec<_>>>()?;
 	let extract_elapsed = extract_started.elapsed();
-	let report = StatsReport::from_files(
+	let report = build_stats_report(
 		sources.display_path(),
 		file_stats,
 		scan_elapsed,
@@ -80,48 +81,46 @@ struct StatsReport {
 	by_kind: KindStats,
 }
 
-impl StatsReport {
-	fn from_files(
-		path: String,
-		files: Vec<FileStats>,
-		scan_elapsed: Duration,
-		extract_elapsed: Duration,
-		total_elapsed: Duration,
-	) -> Self {
-		let mut by_lang: BTreeMap<&'static str, LangStats> = BTreeMap::new();
-		let mut by_shape: BTreeMap<&'static str, usize> = Shape::ALL
-			.iter()
-			.map(|shape| (shape.as_str(), 0usize))
-			.collect();
-		let mut by_kind = KindStats::default();
-		let mut total_defs = 0usize;
-		let mut total_refs = 0usize;
-		for file in &files {
-			let lang = by_lang.entry(file.lang).or_default();
-			lang.files += 1;
-			lang.defs += file.defs;
-			lang.refs += file.refs;
-			total_defs += file.defs;
-			total_refs += file.refs;
-			merge_counts(&mut by_shape, &file.by_shape);
-			merge_counts(&mut by_kind.defs, &file.by_def_kind);
-			merge_counts(&mut by_kind.refs, &file.by_ref_kind);
-		}
-		Self {
-			path,
-			total_files: files.len(),
-			total_defs,
-			total_refs,
-			total_records: total_defs + total_refs,
-			timings: Timings {
-				scan_ms: millis(scan_elapsed),
-				extract_ms: millis(extract_elapsed),
-				total_ms: millis(total_elapsed),
-			},
-			by_lang,
-			by_shape,
-			by_kind,
-		}
+fn build_stats_report(
+	path: String,
+	files: Vec<FileStats>,
+	scan_elapsed: Duration,
+	extract_elapsed: Duration,
+	total_elapsed: Duration,
+) -> StatsReport {
+	let mut by_lang: BTreeMap<&'static str, LangStats> = BTreeMap::new();
+	let mut by_shape: BTreeMap<&'static str, usize> = Shape::ALL
+		.iter()
+		.map(|shape| (shape.as_str(), 0usize))
+		.collect();
+	let mut by_kind = KindStats::default();
+	let mut total_defs = 0usize;
+	let mut total_refs = 0usize;
+	for file in &files {
+		let lang = by_lang.entry(file.lang).or_default();
+		lang.files += 1;
+		lang.defs += file.defs;
+		lang.refs += file.refs;
+		total_defs += file.defs;
+		total_refs += file.refs;
+		merge_counts(&mut by_shape, &file.by_shape);
+		merge_counts(&mut by_kind.defs, &file.by_def_kind);
+		merge_counts(&mut by_kind.refs, &file.by_ref_kind);
+	}
+	StatsReport {
+		path,
+		total_files: files.len(),
+		total_defs,
+		total_refs,
+		total_records: total_defs + total_refs,
+		timings: Timings {
+			scan_ms: millis(scan_elapsed),
+			extract_ms: millis(extract_elapsed),
+			total_ms: millis(total_elapsed),
+		},
+		by_lang,
+		by_shape,
+		by_kind,
 	}
 }
 
@@ -154,49 +153,51 @@ struct FileStats {
 	by_ref_kind: BTreeMap<String, usize>,
 }
 
-impl FileStats {
-	fn compute(
-		file: &SourceFile,
-		sources: &SourceFileSet,
-		cache_dir: Option<&Path>,
-	) -> anyhow::Result<Self> {
-		let ctx = &sources.roots[file.source].ctx;
-		let (graph, _) = environment::load_or_extract_source(
-			&file.path,
-			&file.anchor,
-			file.lang,
-			cache_dir,
-			ctx,
-		)
-		.map_err(|e| anyhow::anyhow!("cannot extract {}: {e}", file.path.display()))?;
-		let mut defs = 0usize;
-		let mut refs = 0usize;
-		let mut by_shape: BTreeMap<&'static str, usize> = Shape::ALL
-			.iter()
-			.map(|shape| (shape.as_str(), 0usize))
-			.collect();
-		let mut by_def_kind = BTreeMap::new();
-		let mut by_ref_kind = BTreeMap::new();
-		for def in graph.defs() {
-			defs += 1;
-			let shape = Shape::for_kind(&def.kind).as_str();
-			*by_shape.entry(shape).or_default() += 1;
-			bump_kind(&mut by_def_kind, &def.kind);
-		}
-		for reference in graph.refs() {
-			refs += 1;
-			*by_shape.entry(Shape::Ref.as_str()).or_default() += 1;
-			bump_kind(&mut by_ref_kind, &reference.kind);
-		}
-		Ok(Self {
-			lang: file.lang.tag(),
-			defs,
-			refs,
-			by_shape,
-			by_def_kind,
-			by_ref_kind,
-		})
+struct StatsCollector<'a> {
+	sources: &'a SourceFileSet,
+	cache_dir: Option<&'a Path>,
+}
+
+fn collect_file_stats(
+	collector: &StatsCollector<'_>,
+	file: &SourceFile,
+) -> anyhow::Result<FileStats> {
+	let ctx = &collector.sources.roots[file.source].ctx;
+	let (graph, _) = environment::load_or_extract_source(
+		&file.path,
+		&file.anchor,
+		file.lang,
+		collector.cache_dir,
+		ctx,
+	)
+	.map_err(|e| anyhow::anyhow!("cannot extract {}: {e}", file.path.display()))?;
+	let mut defs = 0usize;
+	let mut refs = 0usize;
+	let mut by_shape: BTreeMap<&'static str, usize> = Shape::ALL
+		.iter()
+		.map(|shape| (shape.as_str(), 0usize))
+		.collect();
+	let mut by_def_kind = BTreeMap::new();
+	let mut by_ref_kind = BTreeMap::new();
+	for def in graph.defs() {
+		defs += 1;
+		let shape = Shape::for_kind(&def.kind).as_str();
+		*by_shape.entry(shape).or_default() += 1;
+		bump_kind(&mut by_def_kind, &def.kind);
 	}
+	for reference in graph.refs() {
+		refs += 1;
+		*by_shape.entry(Shape::Ref.as_str()).or_default() += 1;
+		bump_kind(&mut by_ref_kind, &reference.kind);
+	}
+	Ok(FileStats {
+		lang: file.lang.tag(),
+		defs,
+		refs,
+		by_shape,
+		by_def_kind,
+		by_ref_kind,
+	})
 }
 
 fn write_tsv<W: Write>(w: &mut W, report: &StatsReport) -> std::io::Result<()> {
@@ -258,7 +259,17 @@ fn write_tree<W: Write>(w: &mut W, report: &StatsReport, args: &StatsArgs) -> st
 	];
 	for (idx, (label, value, detail)) in rows.iter().enumerate() {
 		let last = idx + 1 == rows.len() && report.by_lang.is_empty();
-		write_metric_row(w, "", last, label, value, detail.as_deref(), &opts)?;
+		write_metric_row(
+			w,
+			&opts,
+			MetricRow {
+				prefix: "",
+				last,
+				label,
+				value,
+				detail: detail.as_deref(),
+			},
+		)?;
 	}
 	write_section(
 		w,
@@ -296,12 +307,14 @@ fn write_section<W: Write>(
 	for (idx, (label, value, detail)) in rows.iter().enumerate() {
 		write_metric_row(
 			w,
-			&child_prefix,
-			idx + 1 == rows.len(),
-			label,
-			value,
-			detail.as_deref(),
 			opts,
+			MetricRow {
+				prefix: &child_prefix,
+				last: idx + 1 == rows.len(),
+				label,
+				value,
+				detail: detail.as_deref(),
+			},
 		)?;
 	}
 	Ok(())
@@ -323,23 +336,28 @@ fn write_count_section<W: Write, K: AsRef<str>>(
 }
 
 #[cfg(feature = "pretty")]
+struct MetricRow<'a> {
+	prefix: &'a str,
+	last: bool,
+	label: &'a str,
+	value: &'a str,
+	detail: Option<&'a str>,
+}
+
+#[cfg(feature = "pretty")]
 fn write_metric_row<W: Write>(
 	w: &mut W,
-	prefix: &str,
-	last: bool,
-	label: &str,
-	value: &str,
-	detail: Option<&str>,
 	opts: &StatsTreeOpts,
+	row: MetricRow<'_>,
 ) -> std::io::Result<()> {
-	let (branch, _) = branch(prefix, last, opts);
+	let (branch, _) = branch(row.prefix, row.last, opts);
 	write!(
 		w,
 		"{branch}{} {}",
-		style(&opts.palette.label, label),
-		style(&opts.palette.value, value)
+		style(&opts.palette.label, row.label),
+		style(&opts.palette.value, row.value)
 	)?;
-	if let Some(detail) = detail {
+	if let Some(detail) = row.detail {
 		write!(w, " {}", style(&opts.palette.dim, detail))?;
 	}
 	writeln!(w)
