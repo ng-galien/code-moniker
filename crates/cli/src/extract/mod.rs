@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-feature-envy-local]
-// TODO(smell): split single-file extraction, pagination, and tree visibility.
 use std::cmp::Ordering;
 use std::io::Write;
 use std::path::Path;
