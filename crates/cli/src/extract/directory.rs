@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list]
-// TODO(smell): introduce filter input/context objects and split directory filtering from row computation before enabling these guardrails here.
 use std::cmp::Ordering;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -48,22 +46,19 @@ fn run_filter<W1: Write, W2: Write>(
 	if !unknown.is_empty() {
 		return Err(super::unknown_kinds_error(&unknown, &langs, &known));
 	}
-	let cache_dir = args.cache.as_deref();
+	let filter = DirectoryFilter {
+		sources,
+		root,
+		predicates: &predicates,
+		kinds: &args.kind,
+		names: &names,
+		shapes: &args.shape,
+		cache_dir: args.cache.as_deref(),
+	};
 	let mut rows: Vec<FilterRow> = sources
 		.files
 		.par_iter()
-		.filter_map(|f| {
-			FilterRow::compute(
-				f,
-				sources,
-				root,
-				&predicates,
-				&args.kind,
-				&names,
-				&args.shape,
-				cache_dir,
-			)
-		})
+		.filter_map(|file| compute_filter_row(&filter, file))
 		.collect();
 	rows.sort_by(|a, b| a.rel.cmp(&b.rel));
 	let total_defs: usize = rows.iter().map(|r| r.defs.len()).sum();
@@ -112,55 +107,61 @@ struct FilterRow {
 	refs: Vec<(RefRecord, Moniker)>,
 }
 
-impl FilterRow {
-	#[allow(clippy::too_many_arguments)]
-	fn compute(
-		file: &SourceFile,
-		sources: &SourceFileSet,
-		root: &Path,
-		predicates: &[Predicate],
-		kinds: &[String],
-		names: &[Regex],
-		shapes: &[code_moniker_core::core::shape::Shape],
-		cache_dir: Option<&Path>,
-	) -> Option<Self> {
-		let ctx = &sources.roots[file.source].ctx;
-		let rel = file
-			.path
-			.strip_prefix(root)
-			.unwrap_or(&file.path)
-			.to_path_buf();
-		let (graph, extracted_source) = environment::load_or_extract_source(
-			&file.path,
-			&file.anchor,
-			file.lang,
-			cache_dir,
-			ctx,
-		)
-		.ok()?;
-		let matches = filter::filter(&graph, predicates, kinds, names, shapes);
-		if matches.defs.is_empty() && matches.refs.is_empty() {
-			return None;
-		}
-		let source = match extracted_source {
-			Some(s) => s,
-			None => std::fs::read_to_string(&file.path).ok()?,
-		};
-		let defs = matches.defs.into_iter().cloned().collect();
-		let refs = matches
-			.refs
-			.into_iter()
-			.map(|rm| (rm.record.clone(), rm.source.clone()))
-			.collect();
-		Some(Self {
-			rel,
-			lang: file.lang,
-			source,
-			defs,
-			refs,
-		})
-	}
+struct DirectoryFilter<'a> {
+	sources: &'a SourceFileSet,
+	root: &'a Path,
+	predicates: &'a [Predicate],
+	kinds: &'a [String],
+	names: &'a [Regex],
+	shapes: &'a [code_moniker_core::core::shape::Shape],
+	cache_dir: Option<&'a Path>,
+}
 
+fn compute_filter_row(filter: &DirectoryFilter<'_>, file: &SourceFile) -> Option<FilterRow> {
+	let ctx = &filter.sources.roots[file.source].ctx;
+	let rel = file
+		.path
+		.strip_prefix(filter.root)
+		.unwrap_or(&file.path)
+		.to_path_buf();
+	let (graph, extracted_source) = environment::load_or_extract_source(
+		&file.path,
+		&file.anchor,
+		file.lang,
+		filter.cache_dir,
+		ctx,
+	)
+	.ok()?;
+	let matches = filter::filter(
+		&graph,
+		filter.predicates,
+		filter.kinds,
+		filter.names,
+		filter.shapes,
+	);
+	if matches.defs.is_empty() && matches.refs.is_empty() {
+		return None;
+	}
+	let source = match extracted_source {
+		Some(s) => s,
+		None => std::fs::read_to_string(&file.path).ok()?,
+	};
+	let defs = matches.defs.into_iter().cloned().collect();
+	let refs = matches
+		.refs
+		.into_iter()
+		.map(|rm| (rm.record.clone(), rm.source.clone()))
+		.collect();
+	Some(FilterRow {
+		rel,
+		lang: file.lang,
+		source,
+		defs,
+		refs,
+	})
+}
+
+impl FilterRow {
 	fn match_set(&self) -> MatchSet<'_> {
 		MatchSet {
 			defs: self.defs.iter().collect(),
@@ -400,18 +401,31 @@ mod tests {
 		fs::write(p, body).unwrap();
 	}
 
+	fn test_filter<'a>(sources: &'a SourceFileSet, root: &'a Path) -> DirectoryFilter<'a> {
+		DirectoryFilter {
+			sources,
+			root,
+			predicates: &[],
+			kinds: &[],
+			names: &[],
+			shapes: &[],
+			cache_dir: None,
+		}
+	}
+
 	#[test]
 	fn filter_row_computes_file_matches() {
 		let tmp = tempfile::tempdir().unwrap();
 		let root = tmp.path();
 		write_file(root, "a.ts", "export class Foo {}\nfunction bar() {}\n");
 		let sources = environment::discover_sources(&[root.to_path_buf()], None).unwrap();
+		let filter = test_filter(&sources, root);
 		let f = sources
 			.files
 			.iter()
 			.find(|f| f.path.ends_with("a.ts"))
 			.unwrap();
-		let row = FilterRow::compute(f, &sources, root, &[], &[], &[], &[], None).unwrap();
+		let row = compute_filter_row(&filter, f).unwrap();
 		assert!(row.defs.len() >= 2, "a.ts should have defs");
 	}
 
@@ -422,10 +436,11 @@ mod tests {
 		write_file(root, "a.ts", "export class Alpha {}\n");
 		write_file(root, "b.ts", "export class Beta {}\n");
 		let sources = environment::discover_sources(&[root.to_path_buf()], None).unwrap();
+		let filter = test_filter(&sources, root);
 		let mut rows: Vec<FilterRow> = sources
 			.files
 			.iter()
-			.filter_map(|f| FilterRow::compute(f, &sources, root, &[], &[], &[], &[], None))
+			.filter_map(|f| compute_filter_row(&filter, f))
 			.collect();
 		let mut args = ExtractArgs::for_tests();
 		args.limit = 1;
