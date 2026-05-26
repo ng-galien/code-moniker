@@ -302,6 +302,7 @@ pub(in crate::check) enum SegmentScope {
 pub(in crate::check) enum Domain {
 	Children(String),
 	ChildrenByShape(String),
+	ProjectDefs,
 	Pairs(Box<Domain>),
 	Segments,
 	OutRefs,
@@ -313,6 +314,14 @@ pub(in crate::check) enum QuantKind {
 	Any,
 	All,
 	None,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(in crate::check) enum MatchKey {
+	EachName,
+	CandidateName,
+	SnakeCaseEachName,
+	ModuleDirCandidateMoniker,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -364,6 +373,13 @@ pub(in crate::check) enum Node {
 		kind: QuantKind,
 		domain: Domain,
 		filter: Box<Node>,
+	},
+	Match {
+		left_domain: Domain,
+		right_domain: Domain,
+		left_key: MatchKey,
+		right_key: MatchKey,
+		right_filter: Box<Node>,
 	},
 }
 

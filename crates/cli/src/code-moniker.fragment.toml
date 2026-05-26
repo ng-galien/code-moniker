@@ -6,6 +6,58 @@ fragment = "cli"
 
 [aliases]
 lib = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:lib' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:lib/**'"
+cli_command_source = """
+  source ~ '**/dir:crates/dir:cli/dir:src/dir:extract/**'
+  OR source ~ '**/dir:crates/dir:cli/dir:src/dir:stats/**'
+  OR source ~ '**/dir:crates/dir:cli/dir:src/dir:check/**'
+  OR source ~ '**/dir:crates/dir:cli/dir:src/dir:rules/**'
+  OR source ~ '**/dir:crates/dir:cli/dir:src/dir:harness/**'
+  OR source ~ '**/dir:crates/dir:cli/dir:src/dir:langs/**'
+  OR source ~ '**/dir:crates/dir:cli/dir:src/dir:shapes/**'
+  OR source ~ '**/dir:crates/dir:cli/dir:src/dir:manifest/**'
+"""
+cli_command_target = """
+  target ~ '**/lang:rs/path:extract'
+  OR target ~ '**/lang:rs/path:extract/**'
+  OR target ~ '**/lang:rs/path:stats'
+  OR target ~ '**/lang:rs/path:stats/**'
+  OR target ~ '**/lang:rs/path:check'
+  OR target ~ '**/lang:rs/path:check/**'
+  OR target ~ '**/lang:rs/path:rules'
+  OR target ~ '**/lang:rs/path:rules/**'
+  OR target ~ '**/lang:rs/path:harness'
+  OR target ~ '**/lang:rs/path:harness/**'
+  OR target ~ '**/lang:rs/path:langs'
+  OR target ~ '**/lang:rs/path:langs/**'
+  OR target ~ '**/lang:rs/path:shapes'
+  OR target ~ '**/lang:rs/path:shapes/**'
+  OR target ~ '**/lang:rs/path:manifest'
+  OR target ~ '**/lang:rs/path:manifest/**'
+"""
+
+[[refs.where]]
+id       = "command-modules-do-not-import-other-commands"
+severity = "error"
+expr     = "$cli_command_source AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT $cli_command_target"
+message  = "CLI command modules must not import another command module; move shared behavior to a non-command module."
+rationale = "Each CLI command module owns one user-facing command. Command-to-command imports make one command's implementation an accidental shared API; reusable behavior should live in neutral support modules such as formatting, paging, language vocabulary, or workspace-facing services."
+
+[[rust.enum.where]]
+id       = "command-enum-matches-command-modules"
+severity = "error"
+expr     = """
+moniker ~ '**/dir:crates/dir:cli/dir:src/module:args/enum:Command' => match(
+  enum_constant,
+  project.def,
+  snake_case(each.name),
+  module_dir(candidate.moniker),
+  kind = 'module'
+    AND moniker ~ '**/dir:crates/dir:cli/dir:src/dir:*/module:mod'
+    AND NOT moniker ~ '**/dir:crates/dir:cli/dir:src/dir:tree/module:mod'
+)
+"""
+message  = "CLI command enum variants must match command modules under crates/cli/src/<command>/mod.rs."
+rationale = "The command enum is the CLI command registry. The filesystem layout is part of the same boundary: adding a command variant must add its module, and renaming a command module must be reflected in the registry."
 
 [[rust.shape.callable.where]]
 id       = "lib-only-dispatches-commands"

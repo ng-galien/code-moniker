@@ -17,7 +17,7 @@ pub use config::{
 };
 pub use eval::{
 	CompiledRuleSpec, CompiledRules, RuleReport, Violation, compile_rules, evaluate,
-	evaluate_compiled, rule_report_compiled,
+	evaluate_compiled, evaluate_compiled_with_project, rule_report_compiled,
 };
 pub use exclude::UriExclusionMatcher;
 pub use suppress::apply as apply_suppressions;

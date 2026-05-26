@@ -91,6 +91,20 @@ fn snapshot_node(node: &Node) -> Value {
 			"domain": snapshot_domain(domain),
 			"filter": snapshot_node(filter),
 		}),
+		Node::Match {
+			left_domain,
+			right_domain,
+			left_key,
+			right_key,
+			right_filter,
+		} => json!({
+			"type": "match",
+			"left_domain": snapshot_domain(left_domain),
+			"right_domain": snapshot_domain(right_domain),
+			"left_key": snapshot_match_key(*left_key),
+			"right_key": snapshot_match_key(*right_key),
+			"right_filter": snapshot_node(right_filter),
+		}),
 	}
 }
 
@@ -273,6 +287,9 @@ fn snapshot_domain(domain: &Domain) -> Value {
 			"type": "children_by_shape",
 			"shape": shape,
 		}),
+		Domain::ProjectDefs => json!({
+			"type": "project_defs",
+		}),
 		Domain::Pairs(domain) => json!({
 			"type": "pairs",
 			"domain": snapshot_domain(domain),
@@ -286,6 +303,15 @@ fn snapshot_domain(domain: &Domain) -> Value {
 		Domain::InRefs => json!({
 			"type": "in_refs",
 		}),
+	}
+}
+
+fn snapshot_match_key(key: MatchKey) -> &'static str {
+	match key {
+		MatchKey::EachName => "each.name",
+		MatchKey::CandidateName => "candidate.name",
+		MatchKey::SnakeCaseEachName => "snake_case(each.name)",
+		MatchKey::ModuleDirCandidateMoniker => "module_dir(candidate.moniker)",
 	}
 }
 

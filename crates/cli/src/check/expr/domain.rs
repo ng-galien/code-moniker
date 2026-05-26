@@ -71,6 +71,12 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 	if cursor::starts_with(&state, "pairs(") {
 		return parse_pair_domain(state);
 	}
+	if cursor::starts_with(&state, "project.def") {
+		return Ok((
+			Domain::ProjectDefs,
+			cursor::advance(state, "project.def".len()),
+		));
+	}
 	let start = cursor::position(&state);
 	let (domain_ident, state) = cursor::take_domain_ident(state);
 	if domain_ident.is_empty() {
@@ -83,6 +89,7 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 		"segment" => Domain::Segments,
 		"out_refs" => Domain::OutRefs,
 		"in_refs" => Domain::InRefs,
+		"project.def" => Domain::ProjectDefs,
 		shape if shape.starts_with("shape:") => {
 			let shape_name = shape.trim_start_matches("shape:");
 			if !is_def_shape_name(shape_name) {
@@ -101,7 +108,7 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 				return Err(ParseError::BadExpr {
 					expr: cursor::raw(&state).to_string(),
 					msg: format!(
-						"unknown domain `{other}` (allowed: segment, out_refs, in_refs, or one of {})",
+						"unknown domain `{other}` (allowed: segment, out_refs, in_refs, project.def, or one of {})",
 						cursor::allowed_kinds(&state).join(", ")
 					),
 				});

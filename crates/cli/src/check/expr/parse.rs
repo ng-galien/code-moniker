@@ -2,7 +2,7 @@ use super::ast::*;
 use super::atom::{build_atom, parse_atom, parse_op, parse_rhs, unquote};
 use super::collection::try_parse_collection_subset_atom;
 use super::cursor::{self, ParseResult, ParserState};
-use super::domain::parse_domain_filter_body;
+use super::domain::{parse_domain_filter_body, parse_domain_ident};
 use super::error::ParseError;
 use super::number::{next_starts_number_call, parse_number_expr};
 use super::value::parse_mode_lhs;
@@ -109,6 +109,10 @@ fn parse_primary<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
 	let (q, state) = try_parse_quantifier(state)?;
 	if let Some(q) = q {
 		return Ok((q, state));
+	}
+	let (m, state) = try_parse_match(state)?;
+	if let Some(m) = m {
+		return Ok((m, state));
 	}
 	let (atom, state) = try_parse_collection_subset_atom(state)?;
 	if let Some(atom) = atom {
@@ -239,6 +243,129 @@ fn try_parse_quantifier<'a>(state: ParserState<'a>) -> ParseResult<'a, Option<No
 		}
 	}
 	Ok((None, state))
+}
+
+fn try_parse_match<'a>(state: ParserState<'a>) -> ParseResult<'a, Option<Node>> {
+	let state = cursor::skip_ws(state);
+	if !cursor::starts_with(&state, "match(") {
+		return Ok((None, state));
+	}
+	let raw_start = cursor::position(&state);
+	let rest = cursor::rest(&state);
+	let (args, consumed) = split_call_args(rest, "match")?;
+	if args.len() != 5 {
+		return Err(cursor::bail(
+			&state,
+			format!(
+				"`match` expects 5 arguments: match(<left-domain>, <right-domain>, <left-key>, <right-key>, <right-filter>), got {}",
+				args.len()
+			),
+		));
+	}
+	let left_domain = parse_domain_arg(args[0], &state)?;
+	let right_domain = parse_domain_arg(args[1], &state)?;
+	let left_key = parse_match_key(args[2].trim(), &state)?;
+	let right_key = parse_match_key(args[3].trim(), &state)?;
+	let filter_state = ParserState::new(
+		args[4].trim(),
+		cursor::scheme(&state),
+		cursor::allowed_kinds(&state),
+		cursor::raw(&state),
+	);
+	let (right_filter, filter_state) = parse_expr(filter_state)?;
+	if !cursor::is_at_end(&cursor::skip_ws(filter_state)) {
+		return Err(cursor::bail(
+			&state,
+			"`match` right filter has trailing input",
+		));
+	}
+	let state = cursor::advance(state, consumed);
+	let _raw = cursor::slice_from(&state, raw_start);
+	Ok((
+		Some(Node::Match {
+			left_domain,
+			right_domain,
+			left_key,
+			right_key,
+			right_filter: Box::new(right_filter),
+		}),
+		state,
+	))
+}
+
+fn parse_domain_arg(arg: &str, outer: &ParserState<'_>) -> Result<Domain, ParseError> {
+	let state = ParserState::new(
+		arg.trim(),
+		cursor::scheme(outer),
+		cursor::allowed_kinds(outer),
+		cursor::raw(outer),
+	);
+	let (domain, state) = parse_domain_ident(state)?;
+	if !cursor::is_at_end(&cursor::skip_ws(state)) {
+		return Err(ParseError::BadExpr {
+			expr: cursor::raw(outer).to_string(),
+			msg: format!("invalid `match` domain argument `{}`", arg.trim()),
+		});
+	}
+	Ok(domain)
+}
+
+fn parse_match_key(key: &str, state: &ParserState<'_>) -> Result<MatchKey, ParseError> {
+	match key {
+		"each.name" => Ok(MatchKey::EachName),
+		"candidate.name" => Ok(MatchKey::CandidateName),
+		"snake_case(each.name)" => Ok(MatchKey::SnakeCaseEachName),
+		"module_dir(candidate.moniker)" => Ok(MatchKey::ModuleDirCandidateMoniker),
+		other => Err(ParseError::BadExpr {
+			expr: cursor::raw(state).to_string(),
+			msg: format!(
+				"unknown `match` key `{other}` (allowed: each.name, candidate.name, snake_case(each.name), module_dir(candidate.moniker))"
+			),
+		}),
+	}
+}
+
+fn split_call_args<'a>(input: &'a str, name: &str) -> Result<(Vec<&'a str>, usize), ParseError> {
+	let prefix = format!("{name}(");
+	let mut args = Vec::new();
+	let bytes = input.as_bytes();
+	let mut depth = 0usize;
+	let mut quote: Option<u8> = None;
+	let mut start = prefix.len();
+	let mut i = prefix.len();
+	while i < bytes.len() {
+		let b = bytes[i];
+		if let Some(q) = quote {
+			if b == b'\\' {
+				i += 2;
+				continue;
+			}
+			if b == q {
+				quote = None;
+			}
+			i += 1;
+			continue;
+		}
+		match b {
+			b'\'' | b'"' => quote = Some(b),
+			b'(' | b'[' | b'{' => depth += 1,
+			b')' if depth == 0 => {
+				args.push(input[start..i].trim());
+				return Ok((args, i + 1));
+			}
+			b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+			b',' if depth == 0 => {
+				args.push(input[start..i].trim());
+				start = i + 1;
+			}
+			_ => {}
+		}
+		i += 1;
+	}
+	Err(ParseError::BadExpr {
+		expr: input.to_string(),
+		msg: format!("unclosed `{name}(...)` call"),
+	})
 }
 
 fn parse_comparison_tail<'a>(

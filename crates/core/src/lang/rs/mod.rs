@@ -77,7 +77,17 @@ pub fn extract(
 pub struct Lang;
 
 const DEF_KINDS: &[&str] = &[
-	"struct", "enum", "trait", "impl", "fn", "method", "test", "const", "static", "type",
+	"struct",
+	"enum",
+	"enum_constant",
+	"trait",
+	"impl",
+	"fn",
+	"method",
+	"test",
+	"const",
+	"static",
+	"type",
 ];
 
 const DEF_KIND_SPECS: &[KindSpec] = &[
@@ -89,8 +99,9 @@ const DEF_KIND_SPECS: &[KindSpec] = &[
 	KindSpec::new("fn", Shape::Callable, 40, "fn"),
 	KindSpec::new("method", Shape::Callable, 41, "method"),
 	KindSpec::new("test", Shape::Callable, 42, "test"),
-	KindSpec::new("const", Shape::Value, 60, "const"),
-	KindSpec::new("static", Shape::Value, 61, "static"),
+	KindSpec::new("enum_constant", Shape::Value, 60, "enum_constant"),
+	KindSpec::new("const", Shape::Value, 61, "const"),
+	KindSpec::new("static", Shape::Value, 62, "static"),
 ];
 
 impl crate::lang::LangExtractor for Lang {

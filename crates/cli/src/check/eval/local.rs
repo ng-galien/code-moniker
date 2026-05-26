@@ -187,6 +187,13 @@ pub(super) fn domain_items<'a>(
 				def_has_shape(def, shape).then_some(DomainItem::Def { idx: *idx, def })
 			})
 			.collect(),
+		Domain::ProjectDefs => ctx
+			.project_graph
+			.unwrap_or(ctx.graph)
+			.defs()
+			.enumerate()
+			.map(|(idx, def)| DomainItem::Def { idx, def })
+			.collect(),
 		Domain::Pairs(_) => Vec::new(),
 		Domain::Segments => ctx
 			.graph
