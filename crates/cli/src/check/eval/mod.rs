@@ -10,7 +10,7 @@ use crate::check::config::{Config, ConfigError, KindRules, RuleSeverity, config_
 use crate::check::expr::{
 	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
 };
-use crate::render_uri;
+use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::core::kinds::KIND_COMMENT;
 use code_moniker_core::core::moniker::query::bare_callable_name;

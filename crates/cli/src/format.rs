@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::args::{ExtractArgs, MonikerFormat};
 use crate::color::resolve_color;
 use crate::extract::{MatchSet, RefMatch};
-use crate::render_uri;
+use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::kinds::KIND_COMMENT;
 use code_moniker_core::core::uri::UriConfig;

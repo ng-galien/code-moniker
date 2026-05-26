@@ -10,7 +10,7 @@ use super::strategy::TreeStrategy;
 use super::style::{Palette, TreeOpts};
 use crate::args::ExtractArgs;
 use crate::extract::{MatchSet, RefMatch};
-use crate::render_uri;
+use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::kinds::{KIND_COMMENT, KIND_LOCAL, KIND_PARAM};
 use code_moniker_core::core::uri::UriConfig;

@@ -17,6 +17,21 @@ pub(crate) mod filter;
 
 pub use filter::{MatchSet, Predicate, RefMatch};
 
+fn unknown_kinds_error(
+	unknown: &[String],
+	langs: &[code_moniker_core::lang::Lang],
+	known: &std::collections::BTreeSet<&'static str>,
+) -> anyhow::Error {
+	let lang_tags: Vec<&str> = langs.iter().map(|l| l.tag()).collect();
+	let known_list: Vec<&str> = known.iter().copied().collect();
+	anyhow::anyhow!(
+		"unknown --kind {} (langs in scope: {}; known kinds: {})",
+		unknown.join(", "),
+		lang_tags.join(", "),
+		known_list.join(", "),
+	)
+}
+
 pub fn run<W1: Write, W2: Write>(args: &ExtractArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match extract_inner(args, stdout, stderr) {
 		Ok(any) => {
@@ -55,7 +70,7 @@ fn extract_inner<W1: Write, W2: Write>(
 	let known = language_kinds::known_kinds(std::iter::once(&lang));
 	let unknown = language_kinds::unknown_kinds(&args.kind, &known);
 	if !unknown.is_empty() {
-		return Err(crate::unknown_kinds_error(&unknown, &[lang], &known));
+		return Err(unknown_kinds_error(&unknown, &[lang], &known));
 	}
 	let sources = environment::discover_sources(&[path.to_path_buf()], args.project.clone())?;
 	let file = sources

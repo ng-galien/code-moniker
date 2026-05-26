@@ -10,6 +10,7 @@ pub mod harness;
 pub mod langs;
 pub(crate) mod language_kinds;
 pub mod manifest;
+pub(crate) mod moniker_render;
 pub(crate) mod page;
 #[cfg(feature = "tui")]
 pub(crate) mod perf;
@@ -38,29 +39,6 @@ pub use code_moniker_workspace::lang::{LangError, path_to_lang};
 pub use extract::{MatchSet, Predicate};
 
 pub(crate) const DEFAULT_SCHEME: &str = "code+moniker://";
-
-pub(crate) fn unknown_kinds_error(
-	unknown: &[String],
-	langs: &[code_moniker_core::lang::Lang],
-	known: &std::collections::BTreeSet<&'static str>,
-) -> anyhow::Error {
-	let lang_tags: Vec<&str> = langs.iter().map(|l| l.tag()).collect();
-	let known_list: Vec<&str> = known.iter().copied().collect();
-	anyhow::anyhow!(
-		"unknown --kind {} (langs in scope: {}; known kinds: {})",
-		unknown.join(", "),
-		lang_tags.join(", "),
-		known_list.join(", "),
-	)
-}
-
-pub(crate) fn render_uri(
-	m: &code_moniker_core::core::moniker::Moniker,
-	cfg: &code_moniker_core::core::uri::UriConfig<'_>,
-) -> String {
-	code_moniker_core::core::uri::to_uri(m, cfg)
-		.unwrap_or_else(|_| format!("<non-utf8:{}b>", m.as_bytes().len()))
-}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Exit {

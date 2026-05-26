@@ -1,5 +1,5 @@
 use crate::args::ExtractArgs;
-use crate::render_uri;
+use crate::moniker_render::render_uri;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::core::uri::{UriConfig, from_uri};
 

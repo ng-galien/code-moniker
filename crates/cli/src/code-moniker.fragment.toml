@@ -1,0 +1,29 @@
+fragment = "cli"
+
+# CLI crate boundary:
+# - `lib.rs` is the crate surface and command dispatcher.
+# - command execution belongs to each command module's `run`.
+
+[aliases]
+lib = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:lib' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:lib/**'"
+
+[[rust.shape.callable.where]]
+id       = "lib-only-dispatches-commands"
+severity = "error"
+expr     = "$lib => name =~ ^(run|from)$"
+message  = "`lib.rs` callable `{name}` is not part of the CLI dispatch surface. Keep command runtime in the owning command module's `run`."
+rationale = "`lib.rs` is the crate surface that routes `Command::*` to command modules. Allowing extra helpers or command runtime there turns the crate root back into a hidden command implementation."
+
+[[rust.shape.callable.where]]
+id       = "lib-has-no-inline-tests"
+severity = "error"
+expr     = "$lib => kind != 'test'"
+message  = "`lib.rs` must not host inline test `{name}`; test command behavior through command modules or integration tests."
+rationale = "The crate root is a dispatch surface. Inline tests there tend to lock helper functions and make command relocation harder."
+
+[[rust.shape.callable.where]]
+id       = "lib-run-has-no-local-state"
+severity = "error"
+expr     = "$lib AND name = 'run' => count(shape:value) = 3"
+message  = "`lib::run` must not introduce local state; delegate each `Command::*` branch directly to the owning command module."
+rationale = "`lib::run` owns the command dispatch boundary only. Its stable symbol shape is the three dispatcher parameters; additional local values are a strong signal that command logic is being added inline instead of staying in the command module."

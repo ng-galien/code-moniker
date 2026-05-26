@@ -46,7 +46,7 @@ fn run_filter<W1: Write, W2: Write>(
 	let known = language_kinds::known_kinds(langs.iter());
 	let unknown = language_kinds::unknown_kinds(&args.kind, &known);
 	if !unknown.is_empty() {
-		return Err(crate::unknown_kinds_error(&unknown, &langs, &known));
+		return Err(super::unknown_kinds_error(&unknown, &langs, &known));
 	}
 	let cache_dir = args.cache.as_deref();
 	let mut rows: Vec<FilterRow> = sources
