@@ -9,7 +9,7 @@ use crate::ui::clipboard::ClipboardResult;
 use crate::ui::events::{HeaderSearchFocus, Msg};
 use crate::ui::explorer::HeaderSearchResults;
 use crate::ui::live::StoreEvent;
-use crate::ui::workspace_state::UsageFocus;
+use crate::ui::workspace_read::UsageFocus;
 
 #[derive(Debug)]
 pub(in crate::ui) enum AppAction {

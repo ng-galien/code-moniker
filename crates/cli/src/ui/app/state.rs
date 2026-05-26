@@ -14,7 +14,7 @@ use crate::ui::live::StoreEvent;
 use crate::ui::render::component::ComponentId;
 use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::reducer::Transition;
-use crate::ui::workspace_state::UsageFocus;
+use crate::ui::workspace_read::UsageFocus;
 
 use super::Effect;
 

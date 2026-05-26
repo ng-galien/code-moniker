@@ -8,6 +8,7 @@ use crate::ui::async_task::TaskSpec;
 use crate::ui::live::StoreEvent;
 use crate::ui::store::navigation::NavigationAction;
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
+use crate::ui::workspace_read::WorkspaceRead;
 
 #[derive(Clone, Copy)]
 enum StoreChangeKind {
@@ -26,8 +27,8 @@ impl App {
 
 	fn queue_store_task(&mut self, event: StoreEvent) -> bool {
 		let task = match event {
-			StoreEvent::GitOverlay => TaskSpec::reload_store(self.store().options()),
-			StoreEvent::FullIndex => TaskSpec::reload_store(self.store().options()),
+			StoreEvent::GitOverlay => TaskSpec::reload_store(self.store_options()),
+			StoreEvent::FullIndex => TaskSpec::reload_store(self.store_options()),
 		};
 		self.queue_task(task)
 	}
@@ -35,17 +36,21 @@ impl App {
 	pub(in crate::ui) fn handle_store_event_sync(&mut self, event: StoreEvent) {
 		match event {
 			StoreEvent::GitOverlay => {
-				self.store_mut().refresh_git_overlay();
+				let _ = crate::ui::workspace_read::refresh_workspace(self.store_mut());
 				self.apply_refreshed_change_store("git overlay refreshed".to_string());
 			}
-			StoreEvent::FullIndex => match self.store_mut().reload() {
-				Ok(()) => {
-					self.apply_reloaded_store("store reloaded after filesystem change".to_string());
+			StoreEvent::FullIndex => {
+				match crate::ui::workspace_read::refresh_workspace(self.store_mut()) {
+					Ok(()) => {
+						self.apply_reloaded_store(
+							"store reloaded after filesystem change".to_string(),
+						);
+					}
+					Err(error) => {
+						self.set_status(format!("store reload failed: {error:#}"));
+					}
 				}
-				Err(error) => {
-					self.set_status(format!("store reload failed: {error:#}"));
-				}
-			},
+			}
 		}
 	}
 
@@ -68,7 +73,7 @@ impl App {
 			StoreChangeKind::FileCatalog | StoreChangeKind::Reloaded
 		) {
 			let started = Instant::now();
-			self.watch_roots_update = Some(self.store().watch_roots());
+			self.watch_roots_update = Some(self.store_watch_roots());
 			self.refresh_header_search_options();
 			perf::record(
 				"store_refresh.watch_search",

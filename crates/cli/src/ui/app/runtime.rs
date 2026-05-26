@@ -24,7 +24,7 @@ const HEADER_SEARCH_DEBOUNCE_MS: u64 = 180;
 impl App {
 	pub(in crate::ui) fn run_check(&mut self) {
 		self.set_view(View::Check, PanelPolicy::Manual);
-		if let Ok(context) = self.store().check_context() {
+		if let Ok(context) = self.store_check_context() {
 			let task = TaskSpec::run_check(
 				context,
 				self.rules.clone(),
@@ -36,10 +36,9 @@ impl App {
 				return;
 			}
 		}
-		match self
-			.store()
-			.check_summary(&self.rules, self.profile.as_deref(), &self.scheme)
-		{
+		match self.store_check_context().and_then(|context| {
+			context.check_summary(&self.rules, self.profile.as_deref(), &self.scheme)
+		}) {
 			Ok(summary) => {
 				self.set_status(format!(
 					"check complete: {} violation(s) across {} file(s)",
@@ -63,7 +62,7 @@ impl App {
 			return;
 		}
 		self.startup_load_pending = false;
-		if self.queue_task(TaskSpec::load_file_catalog(self.store().options())) {
+		if self.queue_task(TaskSpec::load_file_catalog(self.store_options())) {
 			self.set_status("loading file tree in background");
 		} else {
 			self.handle_store_event_sync(StoreEvent::FullIndex);
@@ -91,14 +90,16 @@ impl App {
 	fn handle_task_result(&mut self, result: TaskResult) {
 		match result.outcome {
 			TaskOutcome::FileCatalogLoaded(store) => {
-				self.replace_store(*store);
+				let (store, cache, options) = *store;
+				self.replace_store(store, cache, options);
 				self.apply_file_catalog_store("file tree ready".to_string());
-				if self.queue_task(TaskSpec::reload_store(self.store().options())) {
+				if self.queue_task(TaskSpec::reload_store(self.store_options())) {
 					self.set_status("file tree ready; loading symbols in background");
 				}
 			}
 			TaskOutcome::StoreReloaded(store) => {
-				self.replace_store(*store);
+				let (store, cache, options) = *store;
+				self.replace_store(store, cache, options);
 				self.apply_reloaded_store(format!("{} completed", result.label));
 			}
 			TaskOutcome::CheckCompleted(summary) => {

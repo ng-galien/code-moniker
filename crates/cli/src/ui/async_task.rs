@@ -7,7 +7,12 @@ use std::time::Instant;
 
 use crate::perf;
 use crate::session::{CheckSummary, SessionOptions};
-use crate::ui::workspace_state::{WorkspaceCheckContext, WorkspaceState};
+use crate::ui::workspace_read::{
+	LocalWorkspaceFacade, WorkspaceCheckContext, WorkspaceRead, load_local_workspace,
+};
+use code_moniker_workspace::source::LocalResourceCache;
+
+type LoadedWorkspace = (LocalWorkspaceFacade, LocalResourceCache, SessionOptions);
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -107,12 +112,14 @@ impl TaskSpec {
 		let generation = self.generation;
 		let label = self.label;
 		let outcome = match self.kind {
-			TaskKind::LoadFileCatalog { opts } => match WorkspaceState::catalog(&opts) {
-				Ok(store) => TaskOutcome::FileCatalogLoaded(Box::new(store)),
+			TaskKind::LoadFileCatalog { opts } => match load_local_workspace(&opts) {
+				Ok((store, cache)) => {
+					TaskOutcome::FileCatalogLoaded(Box::new((store, cache, opts)))
+				}
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
-			TaskKind::ReloadStore { opts } => match WorkspaceState::load(&opts) {
-				Ok(store) => TaskOutcome::StoreReloaded(Box::new(store)),
+			TaskKind::ReloadStore { opts } => match load_local_workspace(&opts) {
+				Ok((store, cache)) => TaskOutcome::StoreReloaded(Box::new((store, cache, opts))),
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
 			TaskKind::RunCheck {
@@ -199,8 +206,8 @@ pub(in crate::ui) struct TaskResult {
 }
 
 pub(in crate::ui) enum TaskOutcome {
-	FileCatalogLoaded(Box<WorkspaceState>),
-	StoreReloaded(Box<WorkspaceState>),
+	FileCatalogLoaded(Box<LoadedWorkspace>),
+	StoreReloaded(Box<LoadedWorkspace>),
 	CheckCompleted(Box<CheckSummary>),
 	Failed(String),
 }
@@ -229,8 +236,8 @@ impl TaskOutcome {
 	fn detail(&self) -> String {
 		match self {
 			Self::FileCatalogLoaded(store) | Self::StoreReloaded(store) => {
-				let stats = store.stats();
-				let linkage = store.linkage_stats();
+				let stats = store.0.stats();
+				let linkage = store.0.linkage_stats();
 				format!(
 					"files={} defs={} refs={} scan_ms={} extract_ms={} index_ms={} linkage_score={} eligible_refs={} resolved_refs={} unresolved_refs={}",
 					stats.files,

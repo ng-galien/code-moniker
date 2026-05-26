@@ -66,7 +66,7 @@ fn app_loop<W: Write>(
 	terminal: &mut Terminal<CrosstermBackend<&mut W>>,
 	app: &mut App,
 ) -> anyhow::Result<()> {
-	let mut events = EventSource::start(app.store().watch_roots());
+	let mut events = EventSource::start(app.store_watch_roots());
 	app.set_event_sender(events.sender());
 	if let Some(status) = events.status.as_deref() {
 		app.set_status(status);

@@ -3,6 +3,7 @@ type DefLocation = SymbolId;
 
 use crate::ui::app::{App, ShellAction, VisualizationMode};
 use crate::ui::store::navigation::NavigationAction;
+use crate::ui::workspace_read::WorkspaceRead;
 
 impl App {
 	pub(in crate::ui) fn focus_usages(&mut self, loc: DefLocation) {
@@ -32,7 +33,7 @@ impl App {
 
 	fn set_usage_lens(
 		&mut self,
-		focus: crate::ui::workspace_state::UsageFocus,
+		focus: crate::ui::workspace_read::UsageFocus,
 		move_focus: bool,
 	) -> (String, usize, usize) {
 		let label = focus.label.clone();
@@ -87,7 +88,7 @@ mod tests {
 
 	use crate::session::SessionOptions;
 	use crate::ui::app::App;
-	use crate::ui::workspace_state::WorkspaceState;
+	use crate::ui::workspace_read::load_local_workspace;
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -104,14 +105,16 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService {}\n",
 		);
-		let store = WorkspaceState::load(&SessionOptions {
+		let opts = SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,
-		})
-		.unwrap();
+		};
+		let (store, cache) = load_local_workspace(&opts).unwrap();
 		App::new(
 			store,
+			cache,
+			opts,
 			"default".to_string(),
 			tmp.path().join("rules.toml"),
 			None,

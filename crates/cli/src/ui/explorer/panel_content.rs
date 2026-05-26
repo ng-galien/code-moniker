@@ -5,8 +5,8 @@ use crate::ui::render::text::{Column, FitMode};
 use crate::ui::render::tree::TreeRowVm;
 use crate::ui::store::navigation::NavigationPane;
 use crate::ui::store::navigation_tree::NavNodeKind;
-use crate::ui::workspace_state::{
-	ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus,
+use crate::ui::workspace_read::{
+	ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus, WorkspaceRead,
 };
 use code_moniker_workspace::snapshot::SymbolId;
 
@@ -77,7 +77,7 @@ fn overview_panel(app: &App) -> PanelVm {
 	let total_ms = stats.scan_ms + stats.extract_ms + stats.index_ms;
 	let mut vm = PanelVm::new("overview", ComponentId::PanelOverview);
 	vm.section("summary");
-	vm.kv("root", app.store().root(), FitMode::Tail);
+	vm.kv("root", app.store_root_label(), FitMode::Tail);
 	vm.kv("files", stats.files.to_string(), FitMode::Tail);
 	vm.kv("defs", stats.defs.to_string(), FitMode::Tail);
 	vm.kv("refs", stats.refs.to_string(), FitMode::Tail);
@@ -570,7 +570,7 @@ fn change_overview_panel(app: &App) -> PanelVm {
 	vm
 }
 
-fn change_diff_panel(change: &crate::ui::workspace_state::ChangeDetail) -> PanelVm {
+fn change_diff_panel(change: &crate::ui::workspace_read::ChangeDetail) -> PanelVm {
 	let summary = &change.summary;
 	let mut vm = PanelVm::new("change", ComponentId::PanelChange);
 	vm.section("changed symbol");
@@ -599,7 +599,7 @@ fn change_diff_panel(change: &crate::ui::workspace_state::ChangeDetail) -> Panel
 	vm
 }
 
-fn change_usage_panel(change: &crate::ui::workspace_state::ChangeDetail) -> PanelVm {
+fn change_usage_panel(change: &crate::ui::workspace_read::ChangeDetail) -> PanelVm {
 	let mut vm = PanelVm::new("change", ComponentId::PanelChange);
 	push_blast_radius_summary(&mut vm, &change.blast_radius);
 	vm.blank();
@@ -668,7 +668,7 @@ fn check_panel(app: &App) -> PanelVm {
 	vm
 }
 
-fn push_change_summary(vm: &mut PanelVm, change: &crate::ui::workspace_state::ChangeDetail) {
+fn push_change_summary(vm: &mut PanelVm, change: &crate::ui::workspace_read::ChangeDetail) {
 	vm.section("change");
 	vm.kv("status", change.summary.status.label(), FitMode::Tail);
 	vm.kv(
@@ -727,7 +727,7 @@ mod tests {
 	use super::*;
 	use crate::session::SessionOptions;
 	use crate::ui::app::App;
-	use crate::ui::workspace_state::WorkspaceState;
+	use crate::ui::workspace_read::load_local_workspace;
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -744,14 +744,16 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService { run() { return 1; } }\nexport function betaFactory() { return new AlphaService(); }\n",
 		);
-		let store = WorkspaceState::load(&SessionOptions {
+		let opts = SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,
-		})
-		.unwrap();
+		};
+		let (store, cache) = load_local_workspace(&opts).unwrap();
 		App::new(
 			store,
+			cache,
+			opts,
 			"default".to_string(),
 			tmp.path().join("rules.toml"),
 			None,

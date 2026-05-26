@@ -4,7 +4,7 @@ use code_moniker_workspace::snapshot::{ChangeId, SymbolId};
 type DefLocation = SymbolId;
 
 use crate::ui::store::ids::NodeId;
-use crate::ui::workspace_state::WorkspaceState;
+use crate::ui::workspace_read::{LocalWorkspaceFacade, WorkspaceRead};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) enum NavNodeKind {
@@ -51,7 +51,7 @@ impl NavNode {
 	}
 }
 
-pub(in crate::ui) fn build_navigator(store: &WorkspaceState) -> NavNode {
+pub(in crate::ui) fn build_navigator(store: &LocalWorkspaceFacade) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("explorer"), "root", NavNodeKind::Root);
 	for file_idx in 0..store.file_count() {
 		let file = store.file_summary(file_idx);
@@ -102,7 +102,7 @@ pub(in crate::ui) fn build_navigator(store: &WorkspaceState) -> NavNode {
 	root
 }
 
-pub(in crate::ui) fn build_change_navigator(store: &WorkspaceState) -> NavNode {
+pub(in crate::ui) fn build_change_navigator(store: &LocalWorkspaceFacade) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("change"), "root", NavNodeKind::Root);
 	for change in store.change_rows() {
 		let lang = child_mut(
@@ -212,7 +212,7 @@ fn compute_nav_counts(node: &mut NavNode) -> (usize, usize) {
 }
 
 fn symbol_children(
-	store: &WorkspaceState,
+	store: &LocalWorkspaceFacade,
 	file_idx: usize,
 	parent: Option<DefLocation>,
 ) -> Vec<NavNode> {
@@ -224,7 +224,7 @@ fn symbol_children(
 	out
 }
 
-fn sort_symbol_nodes(store: &WorkspaceState, nodes: &mut [NavNode]) {
+fn sort_symbol_nodes(store: &LocalWorkspaceFacade, nodes: &mut [NavNode]) {
 	nodes.sort_by(|a, b| match (&a.kind, &b.kind) {
 		(NavNodeKind::Def(left), NavNodeKind::Def(right)) => {
 			store.compare_defs_for_navigation(left, right)
@@ -234,7 +234,7 @@ fn sort_symbol_nodes(store: &WorkspaceState, nodes: &mut [NavNode]) {
 }
 
 fn collect_symbol_node(
-	store: &WorkspaceState,
+	store: &LocalWorkspaceFacade,
 	file_idx: usize,
 	loc: DefLocation,
 	out: &mut Vec<NavNode>,
@@ -254,7 +254,7 @@ fn collect_symbol_node(
 }
 
 fn direct_children(
-	store: &WorkspaceState,
+	store: &LocalWorkspaceFacade,
 	file_idx: usize,
 	parent: Option<DefLocation>,
 ) -> Vec<DefLocation> {

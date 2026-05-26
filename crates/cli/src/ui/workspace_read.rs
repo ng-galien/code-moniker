@@ -1,5 +1,5 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-god-type-local-metrics, smell-large-type]
-// TODO(smell): split workspace-backed TUI projections by panel/read-model once the old CLI workspace bridge deletion is complete.
+// code-moniker: ignore-file[smell-feature-envy-local, smell-god-type-local-metrics, smell-harmonious-method-size, smell-large-type]
+// TODO(smell): split workspace-backed TUI projections by panel/read-model; the UI now consumes LocalWorkspaceFacade directly, but these projections are still too aggregated.
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -20,11 +20,9 @@ use code_moniker_workspace::source::LocalResourceCache;
 use rustc_hash::FxHashMap;
 
 use crate::check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions};
-use crate::session::{
-	CheckSummary, SessionOptions, SessionStats, StoreWatchRoot, watch_roots_for_options,
-};
+use crate::session::{CheckSummary, SessionOptions, SessionStats};
 
-type LocalFacade = code_moniker_workspace::LocalWorkspaceFacade;
+pub(in crate::ui) type LocalWorkspaceFacade = code_moniker_workspace::LocalWorkspaceFacade;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct LinkageStats {
@@ -44,15 +42,6 @@ impl LinkageStats {
 		let eligible = self.eligible_refs();
 		(eligible > 0).then(|| ((self.resolved_refs * 100) / eligible) as u32)
 	}
-}
-
-pub(in crate::ui) struct WorkspaceState {
-	opts: SessionOptions,
-	cache: LocalResourceCache,
-	facade: LocalFacade,
-	root: String,
-	stats: SessionStats,
-	linkage_stats: LinkageStats,
 }
 
 #[derive(Clone)]
@@ -102,84 +91,149 @@ impl WorkspaceCheckContext {
 	}
 }
 
-impl WorkspaceState {
-	pub(in crate::ui) fn empty(opts: SessionOptions) -> Self {
-		Self::new_unloaded(opts)
+pub(in crate::ui) fn new_local_workspace(
+	opts: &SessionOptions,
+) -> (
+	code_moniker_workspace::LocalWorkspaceFacade,
+	LocalResourceCache,
+) {
+	let cache = LocalResourceCache::default();
+	let facade = WorkspaceFacade::new(local_workspace_ports(
+		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
+			.with_cache_dir(opts.cache_dir.clone()),
+		cache.clone(),
+	));
+	(facade, cache)
+}
+
+pub(in crate::ui) fn load_local_workspace(
+	opts: &SessionOptions,
+) -> anyhow::Result<(
+	code_moniker_workspace::LocalWorkspaceFacade,
+	LocalResourceCache,
+)> {
+	let (mut facade, cache) = new_local_workspace(opts);
+	refresh_workspace(&mut facade)?;
+	Ok((facade, cache))
+}
+
+pub(in crate::ui) fn refresh_workspace(
+	facade: &mut code_moniker_workspace::LocalWorkspaceFacade,
+) -> anyhow::Result<()> {
+	match facade.refresh(WorkspaceRequest::new("workspace")) {
+		WorkspaceTransition::Ready { .. } => Ok(()),
+		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
+	}
+}
+
+pub(in crate::ui) fn workspace_check_context(
+	facade: &code_moniker_workspace::LocalWorkspaceFacade,
+	cache: &LocalResourceCache,
+) -> anyhow::Result<WorkspaceCheckContext> {
+	Ok(WorkspaceCheckContext {
+		cache: cache.clone(),
+		snapshot: facade
+			.snapshot()
+			.ok_or_else(|| anyhow::anyhow!("workspace snapshot is unavailable"))?
+			.clone(),
+	})
+}
+
+pub(in crate::ui) trait WorkspaceRead {
+	fn stats(&self) -> SessionStats;
+	fn linkage_stats(&self) -> LinkageStats;
+	fn file_count(&self) -> usize;
+	fn file_summary(&self, file_idx: usize) -> FileSummary;
+	fn all_navigable_defs(&self) -> Vec<SymbolId>;
+	fn root_defs(&self, file_idx: usize) -> Vec<SymbolId>;
+	fn child_defs(&self, parent: &SymbolId) -> Vec<SymbolId>;
+	fn compare_defs_for_navigation(&self, left: &SymbolId, right: &SymbolId) -> Ordering;
+	fn is_navigable_symbol(&self, symbol: &SymbolId) -> bool;
+	fn symbol_summary(&self, symbol: &SymbolId) -> SymbolSummary;
+	fn symbol_detail(&self, symbol: &SymbolId) -> SymbolDetail;
+	fn symbol_references(&self, symbol: &SymbolId) -> SymbolReferences;
+	fn source_snippet(&self, symbol: &SymbolId, context: u32) -> Vec<SourceLine>;
+	fn search_symbols_filtered(
+		&self,
+		query: &str,
+		limit: usize,
+		langs: &[Lang],
+		kinds: &[String],
+		shapes: &[Shape],
+	) -> Vec<SearchHit>;
+	fn change_overview(&self) -> ChangeOverview;
+	fn change_rows(&self) -> Vec<ChangeSummary>;
+	fn change_summary(&self, change: ChangeId) -> Option<ChangeSummary>;
+	fn change_detail(&self, change: ChangeId) -> Option<ChangeDetail>;
+	fn changed_defs(&self) -> Vec<SymbolId>;
+	fn change_detail_for_symbol(&self, symbol: &SymbolId) -> Option<ChangeDetail>;
+	fn change_count_for_file(&self, file_idx: usize) -> usize;
+	fn usage_focus(&self, symbol: SymbolId) -> Option<UsageFocus>;
+	fn usage_focus_for_target(&self, target: Moniker, label: String) -> Option<UsageFocus>;
+	fn unresolved_linkage_report(
+		&self,
+		file_limit: usize,
+		samples_per_file: usize,
+	) -> UnresolvedLinkageReport;
+	fn source_file(&self, file_idx: usize) -> Option<&SourceFileRecord>;
+	fn source_file_by_id(&self, source: &SourceId) -> Option<&SourceFileRecord>;
+	fn symbol_by_id(&self, id: &SymbolId) -> Option<&SymbolRecord>;
+	fn reference_by_id(
+		&self,
+		id: &ReferenceId,
+	) -> Option<&code_moniker_workspace::snapshot::ReferenceRecord>;
+	fn symbol_lang(&self, symbol: &SymbolRecord) -> Lang;
+	fn symbol_source_path(&self, symbol: &SymbolRecord) -> PathBuf;
+	fn incoming_refs_for_symbol(&self, symbol: &SymbolId) -> Vec<ReferenceId>;
+	fn outgoing_refs_for_symbol(&self, symbol: &SymbolId) -> Vec<ReferenceId>;
+	fn reference_set(&self, refs: &[ReferenceId], endpoint_label: &'static str) -> ReferenceSet;
+	fn reference_set_from_view(
+		&self,
+		refs: code_moniker_workspace::snapshot::ReferenceSet,
+	) -> ReferenceSet;
+	fn reference_group(
+		&self,
+		reference: &code_moniker_workspace::snapshot::ReferenceRecord,
+		endpoint_label: &'static str,
+	) -> ReferenceGroup;
+	fn reference_location(
+		&self,
+		reference: &code_moniker_workspace::snapshot::ReferenceRecord,
+	) -> String;
+	fn usage_contexts(&self, refs: &[ReferenceId]) -> Vec<SymbolId>;
+	fn change_badge_for_symbol(&self, symbol: &SymbolId) -> Option<ChangeBadge>;
+	fn change_summary_from_view(
+		&self,
+		summary: code_moniker_workspace::snapshot::ChangeSummary,
+	) -> ChangeSummary;
+	fn moniker_for_identity(&self, identity: &str) -> Option<Moniker>;
+	fn compact_identity(&self, identity: &str) -> String;
+	fn sort_defs_for_navigation(&self, symbols: &mut [SymbolId]);
+}
+
+impl WorkspaceRead for code_moniker_workspace::LocalWorkspaceFacade {
+	fn stats(&self) -> SessionStats {
+		self.snapshot().map(build_stats).unwrap_or_default()
 	}
 
-	pub(in crate::ui) fn catalog(opts: &SessionOptions) -> anyhow::Result<Self> {
-		Self::load(opts)
+	fn linkage_stats(&self) -> LinkageStats {
+		self.snapshot()
+			.map(|snapshot| LinkageStats {
+				resolved_refs: snapshot.linkage.resolved_refs,
+				external_refs: snapshot.linkage.external_refs,
+				manifest_blocked_refs: snapshot.linkage.manifest_blocked_refs,
+				unresolved_refs: snapshot.linkage.unresolved_refs,
+				ambiguous_refs: snapshot.linkage.ambiguous_refs,
+			})
+			.unwrap_or_default()
 	}
 
-	pub(in crate::ui) fn load(opts: &SessionOptions) -> anyhow::Result<Self> {
-		let mut state = Self::new_unloaded(opts.clone());
-		state.refresh()?;
-		Ok(state)
-	}
-
-	fn new_unloaded(opts: SessionOptions) -> Self {
-		let cache = LocalResourceCache::default();
-		let facade = WorkspaceFacade::new(local_workspace_ports(
-			LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
-				.with_cache_dir(opts.cache_dir.clone()),
-			cache.clone(),
-		));
-		let root = display_boot_path(&opts.paths);
-		Self {
-			opts,
-			cache,
-			facade,
-			root,
-			stats: SessionStats::default(),
-			linkage_stats: LinkageStats::default(),
-		}
-	}
-
-	pub(in crate::ui) fn refresh(&mut self) -> anyhow::Result<()> {
-		match self.facade.refresh(WorkspaceRequest::new("workspace")) {
-			WorkspaceTransition::Ready { .. } => {
-				self.recompute_stats();
-				Ok(())
-			}
-			WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
-		}
-	}
-
-	pub(in crate::ui) fn reload(&mut self) -> anyhow::Result<()> {
-		*self = Self::load(&self.opts)?;
-		Ok(())
-	}
-
-	pub(in crate::ui) fn options(&self) -> SessionOptions {
-		self.opts.clone()
-	}
-
-	pub(in crate::ui) fn watch_roots(&self) -> Vec<StoreWatchRoot> {
-		watch_roots_for_options(&self.opts)
-	}
-
-	pub(in crate::ui) fn refresh_git_overlay(&mut self) {
-		let _ = self.reload();
-	}
-
-	pub(in crate::ui) fn root(&self) -> &str {
-		&self.root
-	}
-
-	pub(in crate::ui) fn stats(&self) -> &SessionStats {
-		&self.stats
-	}
-
-	pub(in crate::ui) fn linkage_stats(&self) -> &LinkageStats {
-		&self.linkage_stats
-	}
-
-	pub(in crate::ui) fn file_count(&self) -> usize {
+	fn file_count(&self) -> usize {
 		self.snapshot()
 			.map_or(0, |snapshot| snapshot.index.sources.len())
 	}
 
-	pub(in crate::ui) fn file_summary(&self, file_idx: usize) -> FileSummary {
+	fn file_summary(&self, file_idx: usize) -> FileSummary {
 		let source = self.source_file(file_idx);
 		FileSummary {
 			index: file_idx,
@@ -195,7 +249,7 @@ impl WorkspaceState {
 		}
 	}
 
-	pub(in crate::ui) fn all_navigable_defs(&self) -> Vec<SymbolId> {
+	fn all_navigable_defs(&self) -> Vec<SymbolId> {
 		let Some(snapshot) = self.snapshot() else {
 			return Vec::new();
 		};
@@ -208,7 +262,7 @@ impl WorkspaceState {
 			.collect()
 	}
 
-	pub(in crate::ui) fn root_defs(&self, file_idx: usize) -> Vec<SymbolId> {
+	fn root_defs(&self, file_idx: usize) -> Vec<SymbolId> {
 		let Some(source) = self.source_file(file_idx) else {
 			return Vec::new();
 		};
@@ -217,7 +271,13 @@ impl WorkspaceState {
 			.into_iter()
 			.flat_map(|snapshot| &snapshot.index.symbols)
 			.filter(|symbol| {
-				symbol.navigable && symbol.source == source.id && symbol.parent.is_none()
+				symbol.navigable
+					&& symbol.source == source.id
+					&& symbol.parent.as_ref().is_none_or(|parent| {
+						self.symbol_by_id(parent).is_none_or(|parent| {
+							!parent.navigable || parent.source != symbol.source
+						})
+					})
 			})
 			.map(|symbol| symbol.id.clone())
 			.collect::<Vec<_>>();
@@ -225,7 +285,7 @@ impl WorkspaceState {
 		roots
 	}
 
-	pub(in crate::ui) fn child_defs(&self, parent: &SymbolId) -> Vec<SymbolId> {
+	fn child_defs(&self, parent: &SymbolId) -> Vec<SymbolId> {
 		let mut children = self
 			.snapshot()
 			.into_iter()
@@ -237,11 +297,7 @@ impl WorkspaceState {
 		children
 	}
 
-	pub(in crate::ui) fn compare_defs_for_navigation(
-		&self,
-		left: &SymbolId,
-		right: &SymbolId,
-	) -> Ordering {
+	fn compare_defs_for_navigation(&self, left: &SymbolId, right: &SymbolId) -> Ordering {
 		let left_symbol = self.symbol_by_id(left);
 		let right_symbol = self.symbol_by_id(right);
 		match (left_symbol, right_symbol) {
@@ -253,12 +309,12 @@ impl WorkspaceState {
 		}
 	}
 
-	pub(in crate::ui) fn is_navigable_symbol(&self, symbol: &SymbolId) -> bool {
+	fn is_navigable_symbol(&self, symbol: &SymbolId) -> bool {
 		self.symbol_by_id(symbol)
 			.is_some_and(|symbol| symbol.navigable)
 	}
 
-	pub(in crate::ui) fn symbol_summary(&self, symbol: &SymbolId) -> SymbolSummary {
+	fn symbol_summary(&self, symbol: &SymbolId) -> SymbolSummary {
 		let Some(record) = self.symbol_by_id(symbol) else {
 			return SymbolSummary::missing(symbol.clone());
 		};
@@ -275,7 +331,7 @@ impl WorkspaceState {
 		}
 	}
 
-	pub(in crate::ui) fn symbol_detail(&self, symbol: &SymbolId) -> SymbolDetail {
+	fn symbol_detail(&self, symbol: &SymbolId) -> SymbolDetail {
 		SymbolDetail {
 			symbol: self.symbol_summary(symbol),
 			children: self
@@ -286,7 +342,7 @@ impl WorkspaceState {
 		}
 	}
 
-	pub(in crate::ui) fn symbol_references(&self, symbol: &SymbolId) -> SymbolReferences {
+	fn symbol_references(&self, symbol: &SymbolId) -> SymbolReferences {
 		SymbolReferences {
 			symbol: self.symbol_summary(symbol),
 			incoming: self.reference_set(&self.incoming_refs_for_symbol(symbol), "source"),
@@ -294,7 +350,7 @@ impl WorkspaceState {
 		}
 	}
 
-	pub(in crate::ui) fn source_snippet(&self, symbol: &SymbolId, context: u32) -> Vec<SourceLine> {
+	fn source_snippet(&self, symbol: &SymbolId, context: u32) -> Vec<SourceLine> {
 		let Some(record) = self.symbol_by_id(symbol) else {
 			return Vec::new();
 		};
@@ -321,7 +377,7 @@ impl WorkspaceState {
 			.collect()
 	}
 
-	pub(in crate::ui) fn search_symbols_filtered(
+	fn search_symbols_filtered(
 		&self,
 		query: &str,
 		limit: usize,
@@ -330,7 +386,6 @@ impl WorkspaceState {
 		shapes: &[Shape],
 	) -> Vec<SearchHit> {
 		let mut hits = self
-			.facade
 			.view()
 			.map(|view| view.search().search_symbols(query, limit.saturating_mul(4)))
 			.unwrap_or_default()
@@ -349,7 +404,7 @@ impl WorkspaceState {
 		hits
 	}
 
-	pub(in crate::ui) fn change_overview(&self) -> ChangeOverview {
+	fn change_overview(&self) -> ChangeOverview {
 		let Some(snapshot) = self.snapshot() else {
 			return ChangeOverview::default();
 		};
@@ -378,9 +433,8 @@ impl WorkspaceState {
 		}
 	}
 
-	pub(in crate::ui) fn change_rows(&self) -> Vec<ChangeSummary> {
-		self.facade
-			.view()
+	fn change_rows(&self) -> Vec<ChangeSummary> {
+		self.view()
 			.map(|view| {
 				view.changes()
 					.summaries()
@@ -391,32 +445,28 @@ impl WorkspaceState {
 			.unwrap_or_default()
 	}
 
-	pub(in crate::ui) fn change_summary(&self, change: ChangeId) -> Option<ChangeSummary> {
-		self.facade
-			.view()?
+	fn change_summary(&self, change: ChangeId) -> Option<ChangeSummary> {
+		self.view()?
 			.changes()
 			.detail(&change)
 			.map(|detail| self.change_summary_from_view(detail.summary))
 	}
 
-	pub(in crate::ui) fn change_detail(&self, change: ChangeId) -> Option<ChangeDetail> {
-		let detail = self.facade.view()?.changes().detail(&change)?;
+	fn change_detail(&self, change: ChangeId) -> Option<ChangeDetail> {
+		let detail = self.view()?.changes().detail(&change)?;
 		Some(ChangeDetail {
 			summary: self.change_summary_from_view(detail.summary),
 			blast_radius: self.reference_set_from_view(detail.blast_radius),
 		})
 	}
 
-	pub(in crate::ui) fn changed_defs(&self) -> Vec<SymbolId> {
+	fn changed_defs(&self) -> Vec<SymbolId> {
 		self.snapshot()
 			.map(|snapshot| snapshot.changes.changed_symbols.clone())
 			.unwrap_or_default()
 	}
 
-	pub(in crate::ui) fn change_detail_for_symbol(
-		&self,
-		symbol: &SymbolId,
-	) -> Option<ChangeDetail> {
+	fn change_detail_for_symbol(&self, symbol: &SymbolId) -> Option<ChangeDetail> {
 		let change = self
 			.snapshot()?
 			.changes
@@ -428,7 +478,7 @@ impl WorkspaceState {
 		self.change_detail(change)
 	}
 
-	pub(in crate::ui) fn change_count_for_file(&self, file_idx: usize) -> usize {
+	fn change_count_for_file(&self, file_idx: usize) -> usize {
 		let Some(source) = self.source_file(file_idx) else {
 			return 0;
 		};
@@ -444,7 +494,7 @@ impl WorkspaceState {
 			.unwrap_or(0)
 	}
 
-	pub(in crate::ui) fn usage_focus(&self, symbol: SymbolId) -> Option<UsageFocus> {
+	fn usage_focus(&self, symbol: SymbolId) -> Option<UsageFocus> {
 		let record = self.symbol_by_id(&symbol)?;
 		let target = self
 			.moniker_for_identity(&record.identity)
@@ -460,11 +510,7 @@ impl WorkspaceState {
 		})
 	}
 
-	pub(in crate::ui) fn usage_focus_for_target(
-		&self,
-		target: Moniker,
-		label: String,
-	) -> Option<UsageFocus> {
+	fn usage_focus_for_target(&self, target: Moniker, label: String) -> Option<UsageFocus> {
 		let symbol = self
 			.snapshot()?
 			.index
@@ -478,7 +524,7 @@ impl WorkspaceState {
 		Some(focus)
 	}
 
-	pub(in crate::ui) fn unresolved_linkage_report(
+	fn unresolved_linkage_report(
 		&self,
 		file_limit: usize,
 		samples_per_file: usize,
@@ -533,47 +579,6 @@ impl WorkspaceState {
 			shown_files: groups.len(),
 			groups,
 		}
-	}
-
-	pub(in crate::ui) fn check_summary(
-		&self,
-		rules: &Path,
-		profile: Option<&str>,
-		scheme: &str,
-	) -> anyhow::Result<CheckSummary> {
-		self.check_context()?.check_summary(rules, profile, scheme)
-	}
-
-	pub(in crate::ui) fn check_context(&self) -> anyhow::Result<WorkspaceCheckContext> {
-		Ok(WorkspaceCheckContext {
-			cache: self.cache.clone(),
-			snapshot: self
-				.snapshot()
-				.ok_or_else(|| anyhow::anyhow!("workspace snapshot is unavailable"))?
-				.clone(),
-		})
-	}
-
-	fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
-		self.facade.snapshot()
-	}
-
-	fn recompute_stats(&mut self) {
-		let Some(snapshot) = self.snapshot() else {
-			self.stats = SessionStats::default();
-			self.linkage_stats = LinkageStats::default();
-			return;
-		};
-		let stats = build_stats(snapshot);
-		let linkage_stats = LinkageStats {
-			resolved_refs: snapshot.linkage.resolved_refs,
-			external_refs: snapshot.linkage.external_refs,
-			manifest_blocked_refs: snapshot.linkage.manifest_blocked_refs,
-			unresolved_refs: snapshot.linkage.unresolved_refs,
-			ambiguous_refs: snapshot.linkage.ambiguous_refs,
-		};
-		self.stats = stats;
-		self.linkage_stats = LinkageStats { ..linkage_stats };
 	}
 
 	fn source_file(&self, file_idx: usize) -> Option<&SourceFileRecord> {
@@ -970,7 +975,7 @@ pub(in crate::ui) struct SourceLine {
 }
 
 fn search_filters_match(
-	store: &WorkspaceState,
+	store: &LocalWorkspaceFacade,
 	symbol: &SymbolRecord,
 	langs: &[Lang],
 	kinds: &[String],
@@ -1024,18 +1029,6 @@ fn build_stats(snapshot: &WorkspaceSnapshot) -> SessionStats {
 		*stats.by_ref_kind.entry(reference.kind.clone()).or_default() += 1;
 	}
 	stats
-}
-
-fn display_boot_path(paths: &[PathBuf]) -> String {
-	match paths {
-		[] => "<empty>".to_string(),
-		[path] => path.display().to_string(),
-		paths => paths
-			.iter()
-			.map(|path| path.display().to_string())
-			.collect::<Vec<_>>()
-			.join(", "),
-	}
 }
 
 fn definition_kind_order(lang: Lang, kind: &str) -> u16 {

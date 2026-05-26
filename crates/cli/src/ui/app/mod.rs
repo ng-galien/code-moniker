@@ -10,7 +10,10 @@ use crate::ui::events::UiMode;
 use crate::ui::shell::ShellEvent;
 use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
-use crate::ui::workspace_state::{UsageFocus, WorkspaceState};
+use crate::ui::workspace_read::{
+	LocalWorkspaceFacade, UsageFocus, new_local_workspace, workspace_check_context,
+};
+use code_moniker_workspace::source::LocalResourceCache;
 
 mod action;
 mod change_mode;
@@ -48,12 +51,13 @@ pub(in crate::ui) struct App {
 
 impl App {
 	pub(in crate::ui) fn new(
-		store: impl Into<WorkspaceState>,
+		store: LocalWorkspaceFacade,
+		cache: LocalResourceCache,
+		options: SessionOptions,
 		scheme: String,
 		rules: PathBuf,
 		profile: Option<String>,
 	) -> Self {
-		let store = store.into();
 		let started = Instant::now();
 		let navigator = build_navigator(&store);
 		perf::record("app.new.build_navigator", started.elapsed(), "");
@@ -61,7 +65,7 @@ impl App {
 		let change_navigator = build_change_navigator(&store);
 		perf::record("app.new.build_change_navigator", started.elapsed(), "");
 		let started = Instant::now();
-		let mut app_store = AppStore::from_workspace_handle(store);
+		let mut app_store = AppStore::from_workspace(store, cache, options);
 		app_store.set_navigation(NavigationState::new(navigator, change_navigator));
 		let mut app = Self {
 			app_store,
@@ -87,7 +91,8 @@ impl App {
 		rules: PathBuf,
 		profile: Option<String>,
 	) -> Self {
-		let mut app = Self::new(WorkspaceState::empty(opts), scheme, rules, profile);
+		let (store, cache) = new_local_workspace(&opts);
+		let mut app = Self::new(store, cache, opts, scheme, rules, profile);
 		app.startup_load_pending = true;
 		app.set_status("loading index...");
 		app
@@ -172,15 +177,46 @@ impl App {
 		self.profile.as_deref()
 	}
 
-	pub(in crate::ui) fn store(&self) -> &WorkspaceState {
+	pub(in crate::ui) fn store(&self) -> &LocalWorkspaceFacade {
 		self.app_store.workspace()
 	}
 
-	pub(in crate::ui) fn store_mut(&mut self) -> &mut WorkspaceState {
+	pub(in crate::ui) fn store_mut(&mut self) -> &mut LocalWorkspaceFacade {
 		self.app_store.workspace_mut()
 	}
 
-	pub(in crate::ui) fn replace_store(&mut self, store: WorkspaceState) {
-		self.app_store.replace_workspace(store);
+	pub(in crate::ui) fn store_options(&self) -> SessionOptions {
+		self.app_store.workspace_options().clone()
+	}
+
+	pub(in crate::ui) fn store_root_label(&self) -> String {
+		match self.app_store.workspace_options().paths.as_slice() {
+			[] => "<empty>".to_string(),
+			[path] => path.display().to_string(),
+			paths => paths
+				.iter()
+				.map(|path| path.display().to_string())
+				.collect::<Vec<_>>()
+				.join(", "),
+		}
+	}
+
+	pub(in crate::ui) fn store_watch_roots(&self) -> Vec<StoreWatchRoot> {
+		crate::session::watch_roots_for_options(self.app_store.workspace_options())
+	}
+
+	pub(in crate::ui) fn store_check_context(
+		&self,
+	) -> anyhow::Result<crate::ui::workspace_read::WorkspaceCheckContext> {
+		workspace_check_context(self.store(), self.app_store.workspace_cache())
+	}
+
+	pub(in crate::ui) fn replace_store(
+		&mut self,
+		store: LocalWorkspaceFacade,
+		cache: LocalResourceCache,
+		options: SessionOptions,
+	) {
+		self.app_store.replace_workspace(store, cache, options);
 	}
 }

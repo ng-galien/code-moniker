@@ -1,16 +1,20 @@
 // code-moniker: ignore-file[smell-god-type-local-metrics]
 // TODO(smell): split AppStore shell-state reduction from workspace ownership and transition application before enabling this guardrail here.
+use crate::session::SessionOptions;
 use crate::ui::app::action::AppAction;
 use crate::ui::app::state::{AppState, CheckState, ShellSlice, TaskCompletion};
 use crate::ui::async_task::{TaskResult, TaskSpec};
 use crate::ui::live::StoreEvent;
 use crate::ui::store::navigation::{NavigationAction, NavigationState};
 use crate::ui::store::reducer::{Reduce, ReducerStore, Transition};
-use crate::ui::workspace_state::WorkspaceState;
+use crate::ui::workspace_read::LocalWorkspaceFacade;
+use code_moniker_workspace::source::LocalResourceCache;
 
 pub(in crate::ui) struct AppStore {
 	inner: ReducerStore<AppState>,
-	workspace: Option<WorkspaceState>,
+	workspace: Option<LocalWorkspaceFacade>,
+	workspace_cache: Option<LocalResourceCache>,
+	workspace_options: Option<SessionOptions>,
 }
 
 impl AppStore {
@@ -18,12 +22,20 @@ impl AppStore {
 		Self {
 			inner: ReducerStore::new(AppState::new()),
 			workspace: None,
+			workspace_cache: None,
+			workspace_options: None,
 		}
 	}
 
-	pub(in crate::ui) fn from_workspace_handle(store: WorkspaceState) -> Self {
+	pub(in crate::ui) fn from_workspace(
+		store: LocalWorkspaceFacade,
+		cache: LocalResourceCache,
+		options: SessionOptions,
+	) -> Self {
 		let mut app_store = Self::new();
 		app_store.workspace = Some(store);
+		app_store.workspace_cache = Some(cache);
+		app_store.workspace_options = Some(options);
 		app_store
 	}
 
@@ -39,20 +51,39 @@ impl AppStore {
 		task
 	}
 
-	pub(in crate::ui) fn workspace(&self) -> &WorkspaceState {
+	pub(in crate::ui) fn workspace(&self) -> &LocalWorkspaceFacade {
 		self.workspace
 			.as_ref()
 			.expect("workspace store initialized")
 	}
 
-	pub(in crate::ui) fn workspace_mut(&mut self) -> &mut WorkspaceState {
+	pub(in crate::ui) fn workspace_mut(&mut self) -> &mut LocalWorkspaceFacade {
 		self.workspace
 			.as_mut()
 			.expect("workspace store initialized")
 	}
 
-	pub(in crate::ui) fn replace_workspace(&mut self, store: WorkspaceState) {
+	pub(in crate::ui) fn workspace_cache(&self) -> &LocalResourceCache {
+		self.workspace_cache
+			.as_ref()
+			.expect("workspace cache initialized")
+	}
+
+	pub(in crate::ui) fn workspace_options(&self) -> &SessionOptions {
+		self.workspace_options
+			.as_ref()
+			.expect("workspace options initialized")
+	}
+
+	pub(in crate::ui) fn replace_workspace(
+		&mut self,
+		store: LocalWorkspaceFacade,
+		cache: LocalResourceCache,
+		options: SessionOptions,
+	) {
 		self.workspace = Some(store);
+		self.workspace_cache = Some(cache);
+		self.workspace_options = Some(options);
 	}
 
 	pub(in crate::ui) fn complete_task(&mut self, result: &TaskResult) -> TaskCompletion {

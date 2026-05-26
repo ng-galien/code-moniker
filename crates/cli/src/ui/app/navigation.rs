@@ -1,6 +1,6 @@
 // code-moniker: ignore-file[smell-god-type-local-metrics]
 // TODO(smell): split App navigation helpers into focused-tree actions, route selection, and panel policy transitions before enabling this guardrail here.
-use crate::ui::workspace_state::ChangeDetail;
+use crate::ui::workspace_read::{ChangeDetail, WorkspaceRead};
 use code_moniker_workspace::snapshot::SymbolId;
 type DefLocation = SymbolId;
 
@@ -280,7 +280,7 @@ mod tests {
 	use crate::ui::events::Msg;
 	use crate::ui::render::component::ComponentId;
 	use crate::ui::store::tree_pane_action::TreePaneAction;
-	use crate::ui::workspace_state::WorkspaceState;
+	use crate::ui::workspace_read::load_local_workspace;
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -297,14 +297,16 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService {}\nexport class BetaService {}\nexport function useAlpha() { return new AlphaService(); }\nexport function useBeta() { return new BetaService(); }\n",
 		);
-		let store = WorkspaceState::load(&SessionOptions {
+		let opts = SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,
-		})
-		.unwrap();
+		};
+		let (store, cache) = load_local_workspace(&opts).unwrap();
 		App::new(
 			store,
+			cache,
+			opts,
 			"default".to_string(),
 			tmp.path().join("rules.toml"),
 			None,
