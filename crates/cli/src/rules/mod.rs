@@ -34,42 +34,42 @@ const LEARN_SAMPLES: &[LearnSample] = &[
 	LearnSample {
 		name: "architecture",
 		path: "docs/cli/check-samples/architecture.toml",
-		content: include_str!("../../../docs/cli/check-samples/architecture.toml"),
+		content: include_str!("../../../../docs/cli/check-samples/architecture.toml"),
 	},
 	LearnSample {
 		name: "csharp",
 		path: "docs/cli/check-samples/csharp.toml",
-		content: include_str!("../../../docs/cli/check-samples/csharp.toml"),
+		content: include_str!("../../../../docs/cli/check-samples/csharp.toml"),
 	},
 	LearnSample {
 		name: "go",
 		path: "docs/cli/check-samples/go.toml",
-		content: include_str!("../../../docs/cli/check-samples/go.toml"),
+		content: include_str!("../../../../docs/cli/check-samples/go.toml"),
 	},
 	LearnSample {
 		name: "java",
 		path: "docs/cli/check-samples/java.toml",
-		content: include_str!("../../../docs/cli/check-samples/java.toml"),
+		content: include_str!("../../../../docs/cli/check-samples/java.toml"),
 	},
 	LearnSample {
 		name: "python",
 		path: "docs/cli/check-samples/python.toml",
-		content: include_str!("../../../docs/cli/check-samples/python.toml"),
+		content: include_str!("../../../../docs/cli/check-samples/python.toml"),
 	},
 	LearnSample {
 		name: "rust",
 		path: "docs/cli/check-samples/rust.toml",
-		content: include_str!("../../../docs/cli/check-samples/rust.toml"),
+		content: include_str!("../../../../docs/cli/check-samples/rust.toml"),
 	},
 	LearnSample {
 		name: "sql",
 		path: "docs/cli/check-samples/sql.toml",
-		content: include_str!("../../../docs/cli/check-samples/sql.toml"),
+		content: include_str!("../../../../docs/cli/check-samples/sql.toml"),
 	},
 	LearnSample {
 		name: "typescript",
 		path: "docs/cli/check-samples/typescript.toml",
-		content: include_str!("../../../docs/cli/check-samples/typescript.toml"),
+		content: include_str!("../../../../docs/cli/check-samples/typescript.toml"),
 	},
 ];
 

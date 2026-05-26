@@ -3,24 +3,25 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::Exit;
 use crate::args::{ManifestArgs, ManifestFormat, OutputMode};
 use code_moniker_core::core::uri::UriConfig;
 use code_moniker_core::lang::build_manifest::{Dep, Manifest, parse};
 
 const DEFAULT_PROJECT: &[u8] = b".";
 
-pub fn run<W1: Write, W2: Write>(args: &ManifestArgs, stdout: &mut W1, stderr: &mut W2) -> i32 {
+pub fn run<W1: Write, W2: Write>(args: &ManifestArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	match run_inner(args, stdout) {
 		Ok(any) => {
 			if any {
-				0
+				Exit::Match
 			} else {
-				1
+				Exit::NoMatch
 			}
 		}
 		Err(e) => {
 			let _ = writeln!(stderr, "code-moniker: {e:#}");
-			2
+			Exit::UsageError
 		}
 	}
 }
@@ -266,7 +267,7 @@ mod tests {
 		let args = args_for(p, ManifestFormat::Tsv);
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 0);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::Match);
 		let text = String::from_utf8(out).unwrap();
 		assert!(text.contains("code+moniker://./external_pkg:demo"));
 		assert!(text.contains("code+moniker://./external_pkg:react"));
@@ -286,7 +287,7 @@ mod tests {
 		let args = args_for(p, ManifestFormat::Json);
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 0);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::Match);
 		let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
 		let rows = v.as_array().expect("array");
 		assert!(rows.iter().any(|r| r["import_root"] == "serde_json"
@@ -313,7 +314,7 @@ serde = "1"
 		let args = args_for(p, ManifestFormat::Json);
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 0);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::Match);
 		let rows: Vec<serde_json::Value> = serde_json::from_slice(&out).unwrap();
 		assert!(rows.iter().any(|r| {
 			r["name"] == "crates/core"
@@ -357,7 +358,7 @@ version = "0.2.0"
 		let args = args_for(root.to_path_buf(), ManifestFormat::Json);
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 0);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::Match);
 		let rows: Vec<serde_json::Value> = serde_json::from_slice(&out).unwrap();
 		let member = rows
 			.iter()
@@ -391,7 +392,7 @@ version = "0.2.0"
 		let args = args_for(root.to_path_buf(), ManifestFormat::Tsv);
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 0);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::Match);
 		let text = String::from_utf8(out).unwrap();
 		assert!(text.contains("\tpackage.json\t"));
 		assert!(text.contains("\tsub/Cargo.toml\t"));
@@ -407,7 +408,7 @@ version = "0.2.0"
 		let args = args_for(p, ManifestFormat::Tsv);
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 2);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::UsageError);
 		let err_text = String::from_utf8(err).unwrap();
 		assert!(err_text.contains("filename not recognised"));
 	}
@@ -418,7 +419,7 @@ version = "0.2.0"
 		let args = args_for(tmp.path().to_path_buf(), ManifestFormat::Tsv);
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 1);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::NoMatch);
 	}
 
 	#[test]
@@ -430,7 +431,7 @@ version = "0.2.0"
 		args.count = true;
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 0);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::Match);
 		assert_eq!(String::from_utf8(out).unwrap(), "3\n");
 	}
 
@@ -443,7 +444,7 @@ version = "0.2.0"
 		args.quiet = true;
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 0);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::Match);
 		assert!(out.is_empty());
 	}
 
@@ -460,7 +461,7 @@ version = "0.2.0"
 		let args = args_for(p, ManifestFormat::Tree);
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 0);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::Match);
 		let text = String::from_utf8(out).unwrap();
 		assert!(text.contains("package.json\n"), "{text}");
 		assert!(text.contains("react"), "{text}");
@@ -481,7 +482,7 @@ version = "0.2.0"
 		args.scheme = Some("acme://".into());
 		let mut out = Vec::new();
 		let mut err = Vec::new();
-		assert_eq!(run(&args, &mut out, &mut err), 0);
+		assert_eq!(run(&args, &mut out, &mut err), Exit::Match);
 		let text = String::from_utf8(out).unwrap();
 		assert!(text.contains("acme://./external_pkg:react"));
 	}

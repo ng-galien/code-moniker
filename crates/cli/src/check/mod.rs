@@ -1,5 +1,6 @@
 //! Live rules engine for agent harnesses. See `docs/cli/check.md`.
 
+pub mod command;
 pub mod config;
 pub mod eval;
 pub mod exclude;
@@ -9,6 +10,7 @@ pub mod suppress;
 #[cfg(feature = "tui")]
 pub mod workspace;
 
+pub use command::run;
 pub use config::{
 	Config, KindRules, LangRules, RuleSeverity, load_default, load_with_cli_default_rules,
 	load_with_options, load_with_overrides,
