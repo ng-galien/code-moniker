@@ -11,8 +11,8 @@ use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::core::code_graph::encoding::{self, LAYOUT_VERSION};
 use rustc_hash::FxHasher;
 
-use crate::extract;
 use code_moniker_core::lang::Lang;
+use code_moniker_workspace::extract;
 
 const CACHE_MAGIC: u32 = 0xC0DE_2106;
 // Bump when cached graph semantics change, even if the binary layout stays stable.

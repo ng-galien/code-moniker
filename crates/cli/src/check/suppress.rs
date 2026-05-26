@@ -137,8 +137,8 @@ mod tests {
 	use super::*;
 	use crate::check::config::Config;
 	use crate::check::evaluate;
-	use crate::extract;
 	use code_moniker_core::lang::Lang;
+	use code_moniker_workspace::extract;
 
 	fn run(source: &str, cfg: &Config) -> Vec<Violation> {
 		let graph = extract::extract(Lang::Ts, source, std::path::Path::new("test.ts"));

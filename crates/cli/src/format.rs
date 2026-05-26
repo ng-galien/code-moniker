@@ -6,7 +6,6 @@ use serde::Serialize;
 
 use crate::args::{ExtractArgs, MonikerFormat};
 use crate::color::resolve_color;
-use crate::extract;
 use crate::lines::line_range;
 use crate::predicate::{MatchSet, RefMatch};
 use crate::render_uri;
@@ -14,6 +13,7 @@ use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::kinds::KIND_COMMENT;
 use code_moniker_core::core::uri::UriConfig;
 use code_moniker_core::lang::Lang;
+use code_moniker_workspace::extract;
 
 pub fn write_tsv<W: Write>(
 	w: &mut W,

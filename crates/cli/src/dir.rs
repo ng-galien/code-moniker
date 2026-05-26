@@ -10,15 +10,14 @@ use serde::Serialize;
 
 use crate::args::{ExtractArgs, OutputFormat, OutputMode};
 use crate::cache;
-use crate::extract;
 use crate::format;
 use crate::page::{PageInfo, PageSpec};
 use crate::predicate::{self, MatchSet, Predicate, RefMatch};
-use crate::tsconfig;
 use crate::walk;
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
+use code_moniker_workspace::{extract, tsconfig};
 
 pub fn run<W1: Write, W2: Write>(
 	args: &ExtractArgs,

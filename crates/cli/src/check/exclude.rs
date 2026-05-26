@@ -2,7 +2,7 @@ use std::path::Path;
 
 use regex::Regex;
 
-use crate::extract;
+use code_moniker_workspace::extract;
 
 #[derive(Debug, Clone)]
 pub struct UriExclusionMatcher {

@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Component;
 use std::path::{Path, PathBuf};
 
-use crate::extract;
 use crate::lang::path_to_lang;
-use crate::tsconfig::{self, TsResolution};
 use crate::walk::{self, WalkedFile};
+use code_moniker_workspace::extract;
+use code_moniker_workspace::tsconfig::{self, TsResolution};
 
 #[derive(Clone, Debug)]
 pub struct SourceSet {
