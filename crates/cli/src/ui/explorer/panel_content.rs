@@ -723,7 +723,7 @@ mod tests {
 
 	use super::*;
 	use crate::ui::app::App;
-	use crate::workspace::{SessionOptions, WorkspaceStore};
+	use crate::workspace::{SessionOptions, WorkspaceHandle};
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -740,7 +740,7 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService { run() { return 1; } }\nexport function betaFactory() { return new AlphaService(); }\n",
 		);
-		let store = WorkspaceStore::load(&SessionOptions {
+		let store = WorkspaceHandle::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,

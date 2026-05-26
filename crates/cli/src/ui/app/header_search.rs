@@ -448,7 +448,7 @@ mod tests {
 	use super::*;
 	use crate::ui::app::{ActiveFilter, App, VisualizationMode};
 	use crate::ui::events::{FilterEdit, Msg};
-	use crate::workspace::{IndexStore, SessionOptions, WorkspaceStore};
+	use crate::workspace::{IndexStore, SessionOptions, WorkspaceHandle};
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -470,7 +470,7 @@ mod tests {
 			"src/pkg/main.go",
 			"package pkg\n\nfunc BuildBeta() {}\n",
 		);
-		let store = WorkspaceStore::load(&SessionOptions {
+		let store = WorkspaceHandle::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,

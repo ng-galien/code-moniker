@@ -1,7 +1,7 @@
 // code-moniker: ignore-file[smell-feature-envy-local, smell-god-type-local-metrics, smell-large-type]
-// Compatibility bridge for the legacy `IndexStore` surface. The target session
+// Compatibility bridge for the UI `IndexStore` surface. The target session
 // model stays independent; this anti-corruption layer is the only module that
-// translates the new contract back into legacy UI read-model types.
+// translates the new contract back into current UI read-model types.
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -16,17 +16,16 @@ use crate::check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions}
 use crate::workspace::changes::LocalChangeOverlay;
 use crate::workspace::code::compact_moniker;
 use crate::workspace::code::{LocalCodeIndex, LocalCodeIndexOptions};
-use crate::workspace::git::ChangeStatus as LegacyChangeStatus;
+use crate::workspace::git::ChangeStatus as UiChangeStatus;
 use crate::workspace::index::{
 	CheckSummary, DefLocation, RefLocation, SessionOptions, SessionStats,
 };
-use crate::workspace::legacy::linkage::LinkageStats;
 use crate::workspace::linkage::LocalLinkage;
 use crate::workspace::model::{
-	ChangeBadge, ChangeDetail, ChangeId as LegacyChangeId, ChangeOverview, ChangeSummary,
-	FileSummary, GitResourceSummary, ReferenceDirection, ReferenceGroup, ReferenceSet,
-	ReferenceSetSummary, SearchHit, SourceLine, SymbolDetail, SymbolReferences, SymbolSummary,
-	UnresolvedLinkageGroup, UnresolvedLinkageReport, UnresolvedLinkageSample, UsageFocus,
+	ChangeBadge, ChangeDetail, ChangeId as UiChangeId, ChangeOverview, ChangeSummary, FileSummary,
+	GitResourceSummary, ReferenceDirection, ReferenceGroup, ReferenceSet, ReferenceSetSummary,
+	SearchHit, SourceLine, SymbolDetail, SymbolReferences, SymbolSummary, UnresolvedLinkageGroup,
+	UnresolvedLinkageReport, UnresolvedLinkageSample, UsageFocus,
 };
 use crate::workspace::snapshot::{
 	ChangeOverlay, ChangeRecord, ChangeStatus, CodeIndex, LinkageGraph, ReferenceId,
@@ -35,7 +34,7 @@ use crate::workspace::snapshot::{
 	WorkspaceTransition,
 };
 use crate::workspace::source::{LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions};
-use crate::workspace::store::IndexStore;
+use crate::workspace::store::{IndexStore, LinkageStats};
 
 #[derive(Clone)]
 pub struct SessionStoreBridge {
@@ -439,7 +438,7 @@ impl SessionStoreBridge {
 			.iter()
 			.find(|change| change.symbol.as_ref() == Some(symbol))?;
 		Some(ChangeBadge {
-			status: legacy_change_status(change.status),
+			status: ui_change_status(change.status),
 			usage_count: self.change_usage_refs(change).len(),
 		})
 	}
@@ -463,8 +462,8 @@ impl SessionStoreBridge {
 			.as_ref()
 			.and_then(|source| self.source_file_by_id(source));
 		ChangeSummary {
-			id: LegacyChangeId::new(idx),
-			status: legacy_change_status(change.status),
+			id: UiChangeId::new(idx),
+			status: ui_change_status(change.status),
 			lang: source
 				.map(|source| self.source_lang(source))
 				.or_else(|| Lang::from_tag(&change.language))
@@ -714,7 +713,7 @@ impl IndexStore for SessionStoreBridge {
 			.collect()
 	}
 
-	fn change_summary(&self, change: LegacyChangeId) -> Option<ChangeSummary> {
+	fn change_summary(&self, change: UiChangeId) -> Option<ChangeSummary> {
 		self.snapshot
 			.changes
 			.changes
@@ -722,7 +721,7 @@ impl IndexStore for SessionStoreBridge {
 			.map(|record| self.change_summary_for_record(change.index(), record))
 	}
 
-	fn change_detail(&self, change: LegacyChangeId) -> Option<ChangeDetail> {
+	fn change_detail(&self, change: UiChangeId) -> Option<ChangeDetail> {
 		self.snapshot
 			.changes
 			.changes
@@ -1077,11 +1076,11 @@ fn display_boot_path(paths: &[PathBuf]) -> String {
 	}
 }
 
-fn legacy_change_status(status: ChangeStatus) -> LegacyChangeStatus {
+fn ui_change_status(status: ChangeStatus) -> UiChangeStatus {
 	match status {
-		ChangeStatus::Added => LegacyChangeStatus::Added,
-		ChangeStatus::Modified => LegacyChangeStatus::Modified,
-		ChangeStatus::Removed => LegacyChangeStatus::Removed,
+		ChangeStatus::Added => UiChangeStatus::Added,
+		ChangeStatus::Modified => UiChangeStatus::Modified,
+		ChangeStatus::Removed => UiChangeStatus::Removed,
 	}
 }
 

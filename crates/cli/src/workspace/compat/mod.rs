@@ -1,3 +1,3 @@
-mod legacy_store_bridge;
+mod index_store_bridge;
 
-pub use legacy_store_bridge::SessionStoreBridge;
+pub use index_store_bridge::SessionStoreBridge;

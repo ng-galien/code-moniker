@@ -277,7 +277,7 @@ mod tests {
 	use crate::ui::events::Msg;
 	use crate::ui::render::component::ComponentId;
 	use crate::ui::store::tree_pane_action::TreePaneAction;
-	use crate::workspace::{SessionOptions, WorkspaceStore};
+	use crate::workspace::{SessionOptions, WorkspaceHandle};
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -294,7 +294,7 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService {}\nexport class BetaService {}\nexport function useAlpha() { return new AlphaService(); }\nexport function useBeta() { return new BetaService(); }\n",
 		);
-		let store = WorkspaceStore::load(&SessionOptions {
+		let store = WorkspaceHandle::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,

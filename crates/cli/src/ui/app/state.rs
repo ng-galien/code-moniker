@@ -571,11 +571,6 @@ impl AppState {
 				self.work.pending.remove(&WorkKind::ImpactIndex);
 				self.work.pending.remove(&WorkKind::PanelData);
 			}
-			TaskOutcome::GitOverlayRefreshed(_) => {
-				self.work.pending.remove(&WorkKind::GitOverlay);
-				self.work.pending.remove(&WorkKind::ImpactIndex);
-				self.work.pending.remove(&WorkKind::PanelData);
-			}
 			TaskOutcome::FileCatalogLoaded(_) => {
 				self.work.pending.remove(&WorkKind::ProjectLoad);
 				self.work.pending.remove(&WorkKind::FileCatalog);
@@ -594,7 +589,6 @@ impl AppState {
 			status: match &result.outcome {
 				TaskOutcome::FileCatalogLoaded(_) => TaskStatus::Completed,
 				TaskOutcome::StoreReloaded(_) => TaskStatus::Completed,
-				TaskOutcome::GitOverlayRefreshed(_) => TaskStatus::Completed,
 				TaskOutcome::CheckCompleted(_) => TaskStatus::Completed,
 				TaskOutcome::Failed(_) => TaskStatus::Failed,
 			},

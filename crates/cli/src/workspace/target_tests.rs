@@ -2,7 +2,6 @@ use std::fs;
 use std::path::PathBuf;
 
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
-use code_moniker_core::core::shape::Shape;
 use code_moniker_core::lang::Lang;
 
 use crate::check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions};
@@ -24,7 +23,7 @@ use crate::workspace::source::{
 	LocalIdentityResolver, LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions,
 	SourceCatalogPort,
 };
-use crate::workspace::store::{IndexStore, WorkspaceStore};
+use crate::workspace::store::IndexStore;
 
 #[test]
 fn local_resources_extract_sources_symbols_and_linkage() {
@@ -249,160 +248,60 @@ fn local_session_view_exposes_contract_read_models() {
 }
 
 #[test]
-fn local_session_view_matches_legacy_core_contracts() {
+fn session_store_bridge_exposes_index_store_surface() {
 	let fixture = LocalFixture::new();
-	let legacy = WorkspaceStore::load(&fixture.session_options()).expect("legacy store loads");
-	let mut session = fixture.workspace_session(LocalResourceCache::default());
-
-	session.refresh(WorkspaceRequest::new("local"));
-	let snapshot = session.snapshot().expect("snapshot is published");
-	let view = WorkspaceView::new(snapshot);
-	let symbols = view.symbols().all();
-	let legacy_symbols = legacy.all_navigable_defs();
-	let new_callee = symbols
-		.iter()
-		.find(|symbol| symbol.name.contains("callee"))
-		.expect("new callee");
-	let legacy_callee = legacy_symbols
-		.iter()
-		.find(|loc| legacy.symbol_summary(loc).name.contains("callee"))
-		.expect("legacy callee");
-
-	assert_eq!(view.sources().all().len(), legacy.file_count());
-	assert_eq!(symbols.len(), legacy_symbols.len());
-	assert_eq!(
-		view.references()
-			.for_symbol(&new_callee.id)
-			.expect("new callee references")
-			.incoming
-			.summary
-			.refs,
-		legacy
-			.symbol_references(legacy_callee)
-			.incoming
-			.summary
-			.refs
-	);
-	assert_eq!(
-		view.search().search_symbols("caller", 10).len(),
-		legacy
-			.search_symbols_filtered("caller", 10, &[], &[], &[])
-			.len()
-	);
-	assert_eq!(view.changes().summaries().len(), legacy.change_rows().len());
-}
-
-#[test]
-fn session_store_bridge_matches_legacy_index_store_surface() {
-	let fixture = LocalFixture::new();
-	let legacy = WorkspaceStore::load(&fixture.session_options()).expect("legacy store loads");
 	let bridge = SessionStoreBridge::load(fixture.session_options()).expect("session bridge loads");
-	let legacy_callee = legacy_def_named(&legacy, "callee");
 	let bridge_callee = bridge_def_named(&bridge, "callee");
-	let legacy_caller = legacy_def_named(&legacy, "caller");
 	let bridge_caller = bridge_def_named(&bridge, "caller");
-	let legacy_check = legacy
-		.check_summary(&fixture.rules, None, crate::DEFAULT_SCHEME)
-		.expect("legacy check summary");
 	let bridge_check = bridge
 		.check_summary(&fixture.rules, None, crate::DEFAULT_SCHEME)
 		.expect("bridge check summary");
 
-	assert_eq!(bridge.root(), legacy.root());
-	assert_eq!(bridge.stats().files, legacy.stats().files);
-	assert_eq!(bridge.stats().defs, legacy.stats().defs);
-	assert_eq!(bridge.stats().refs, legacy.stats().refs);
-	assert_eq!(
-		bridge.linkage_stats().resolved_refs,
-		legacy.linkage_stats().resolved_refs
+	assert!(
+		bridge
+			.root()
+			.contains(fixture.dir.path().to_string_lossy().as_ref())
 	);
-	assert_eq!(bridge.file_count(), legacy.file_count());
-	assert_eq!(bridge.file_summary(0), legacy.file_summary(0));
-	assert_eq!(
-		bridge.all_navigable_defs().len(),
-		legacy.all_navigable_defs().len()
+	assert_eq!(bridge.stats().files, 1);
+	assert!(bridge.stats().defs >= 2);
+	assert!(bridge.stats().refs > 0);
+	assert!(bridge.linkage_stats().resolved_refs > 0);
+	assert_eq!(bridge.file_count(), 1);
+	assert!(bridge.file_summary(0).rel_path.ends_with("src/lib.rs"));
+	assert!(bridge.all_navigable_defs().len() >= 2);
+	assert!(!bridge.root_defs(0).is_empty());
+	assert!(bridge.is_navigable_symbol(&bridge_callee));
+	assert!(
+		bridge
+			.symbol_summary(&bridge_callee)
+			.name
+			.contains("callee")
 	);
-	assert_eq!(bridge.root_defs(0).len(), legacy.root_defs(0).len());
-	assert_eq!(
-		bridge.is_navigable_symbol(&bridge_callee),
-		legacy.is_navigable_symbol(&legacy_callee)
+	assert!(
+		bridge
+			.symbol_summary(&bridge_caller)
+			.name
+			.contains("caller")
 	);
-	assert_eq!(
-		bridge.symbol_summary(&bridge_callee).name,
-		legacy.symbol_summary(&legacy_callee).name
-	);
-	assert_eq!(
-		bridge.symbol_detail(&bridge_caller).children.len(),
-		legacy.symbol_detail(&legacy_caller).children.len()
-	);
+	assert!(!bridge.source_snippet(&bridge_caller, 1).is_empty());
 	assert_eq!(
 		bridge
 			.symbol_references(&bridge_callee)
 			.incoming
 			.summary
 			.refs,
-		legacy
-			.symbol_references(&legacy_callee)
-			.incoming
-			.summary
-			.refs
+		1
 	);
-	assert_eq!(
-		bridge
-			.symbol_references(&bridge_caller)
-			.outgoing
-			.summary
-			.refs,
-		legacy
-			.symbol_references(&legacy_caller)
-			.outgoing
-			.summary
-			.refs
-	);
-	assert_eq!(
-		bridge.source_snippet(&bridge_caller, 1).len(),
-		legacy.source_snippet(&legacy_caller, 1).len()
-	);
-	assert_eq!(
+	assert!(
 		bridge
 			.search_symbols_filtered("caller", 10, &[], &[], &[])
-			.len(),
-		legacy
-			.search_symbols_filtered("caller", 10, &[], &[], &[])
-			.len()
+			.iter()
+			.any(|hit| hit.loc == bridge_caller)
 	);
-	assert_eq!(
-		bridge
-			.search_symbols_filtered("caller", 10, &[], &["function".to_string()], &[])
-			.len(),
-		legacy
-			.search_symbols_filtered("caller", 10, &[], &["function".to_string()], &[])
-			.len()
-	);
-	assert_eq!(
-		bridge
-			.search_symbols_filtered("caller", 10, &[], &[], &[Shape::Callable])
-			.len(),
-		legacy
-			.search_symbols_filtered("caller", 10, &[], &[], &[Shape::Callable])
-			.len()
-	);
-	assert_eq!(bridge.change_overview(), legacy.change_overview());
-	assert_eq!(bridge.change_rows(), legacy.change_rows());
-	assert_eq!(bridge.changed_defs(), legacy.changed_defs());
-	assert_eq!(
-		bridge.change_count_for_file(0),
-		legacy.change_count_for_file(0)
-	);
-	assert_eq!(
-		bridge.usage_focus(bridge_callee).references.summary.refs,
-		legacy.usage_focus(legacy_callee).references.summary.refs
-	);
-	assert_eq!(
-		bridge.unresolved_linkage_report(10, 3).unresolved_refs,
-		legacy.unresolved_linkage_report(10, 3).unresolved_refs
-	);
-	assert_eq!(bridge_check.total_violations, legacy_check.total_violations);
+	assert!(bridge.change_overview().change_count <= bridge.change_rows().len());
+	assert!(bridge.usage_focus(bridge_callee).references.summary.refs > 0);
+	assert_eq!(bridge.unresolved_linkage_report(10, 3).unresolved_refs, 0);
+	assert!(bridge_check.total_violations > 0);
 }
 
 #[test]
@@ -925,14 +824,6 @@ message = "function is visible to workspace session diagnostics"
 			LocalChangeOverlay::new(cache.clone()),
 		)
 	}
-}
-
-fn legacy_def_named(store: &WorkspaceStore, name: &str) -> crate::workspace::DefLocation {
-	store
-		.all_navigable_defs()
-		.into_iter()
-		.find(|loc| store.symbol_summary(loc).name.contains(name))
-		.expect("legacy symbol")
 }
 
 fn bridge_def_named(store: &SessionStoreBridge, name: &str) -> crate::workspace::DefLocation {

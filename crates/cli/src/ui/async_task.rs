@@ -6,10 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use crate::perf;
-use crate::workspace::{
-	CheckSummary, GitOverlayRefresh, GitOverlayRefreshInput, IndexStore, SessionOptions,
-	WorkspaceHandle, WorkspaceStore,
-};
+use crate::workspace::{CheckSummary, IndexStore, SessionOptions, WorkspaceHandle};
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -67,15 +64,6 @@ impl TaskSpec {
 		}
 	}
 
-	pub(in crate::ui) fn refresh_git_overlay(input: GitOverlayRefreshInput) -> Self {
-		Self {
-			id: TaskId::next(),
-			generation: 0,
-			label: "refresh git overlay".to_string(),
-			kind: TaskKind::RefreshGitOverlay { input },
-		}
-	}
-
 	pub(in crate::ui) fn run_check(
 		store: WorkspaceHandle,
 		rules: PathBuf,
@@ -126,9 +114,6 @@ impl TaskSpec {
 				Ok(store) => TaskOutcome::StoreReloaded(Box::new(store)),
 				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 			},
-			TaskKind::RefreshGitOverlay { input } => TaskOutcome::GitOverlayRefreshed(Box::new(
-				WorkspaceStore::build_git_overlay_refresh(input),
-			)),
 			TaskKind::RunCheck {
 				store,
 				rules,
@@ -166,9 +151,6 @@ enum TaskKind {
 	ReloadStore {
 		opts: SessionOptions,
 	},
-	RefreshGitOverlay {
-		input: GitOverlayRefreshInput,
-	},
 	RunCheck {
 		store: WorkspaceHandle,
 		rules: PathBuf,
@@ -193,7 +175,6 @@ impl TaskKind {
 		match self {
 			Self::LoadFileCatalog { .. } => "load_file_catalog",
 			Self::ReloadStore { .. } => "reload_store",
-			Self::RefreshGitOverlay { .. } => "refresh_git_overlay",
 			Self::RunCheck { .. } => "run_check",
 		}
 	}
@@ -202,7 +183,6 @@ impl TaskKind {
 		match self {
 			Self::LoadFileCatalog { .. } => WorkKind::FileCatalog,
 			Self::ReloadStore { .. } => WorkKind::GraphIndex,
-			Self::RefreshGitOverlay { .. } => WorkKind::GitOverlay,
 			Self::RunCheck { .. } => WorkKind::CheckPanel,
 		}
 	}
@@ -220,7 +200,6 @@ pub(in crate::ui) struct TaskResult {
 pub(in crate::ui) enum TaskOutcome {
 	FileCatalogLoaded(Box<WorkspaceHandle>),
 	StoreReloaded(Box<WorkspaceHandle>),
-	GitOverlayRefreshed(Box<GitOverlayRefresh>),
 	CheckCompleted(Box<CheckSummary>),
 	Failed(String),
 }
@@ -230,7 +209,6 @@ impl fmt::Debug for TaskOutcome {
 		match self {
 			Self::FileCatalogLoaded(_) => f.write_str("FileCatalogLoaded(..)"),
 			Self::StoreReloaded(_) => f.write_str("StoreReloaded(..)"),
-			Self::GitOverlayRefreshed(_) => f.write_str("GitOverlayRefreshed(..)"),
 			Self::CheckCompleted(_) => f.write_str("CheckCompleted(..)"),
 			Self::Failed(error) => f.debug_tuple("Failed").field(error).finish(),
 		}
@@ -242,7 +220,6 @@ impl TaskOutcome {
 		match self {
 			Self::FileCatalogLoaded(_) => "file_catalog_loaded",
 			Self::StoreReloaded(_) => "store_reloaded",
-			Self::GitOverlayRefreshed(_) => "git_overlay_refreshed",
 			Self::CheckCompleted(_) => "check_completed",
 			Self::Failed(_) => "failed",
 		}
@@ -270,9 +247,7 @@ impl TaskOutcome {
 					linkage.unresolved_refs
 				)
 			}
-			Self::GitOverlayRefreshed(_) | Self::CheckCompleted(_) | Self::Failed(_) => {
-				String::new()
-			}
+			Self::CheckCompleted(_) | Self::Failed(_) => String::new(),
 		}
 	}
 }

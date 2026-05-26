@@ -1,6 +1,10 @@
 #[cfg(feature = "tui")]
 mod compat;
-mod legacy;
+pub mod index;
+#[cfg(feature = "tui")]
+pub(crate) mod model;
+#[cfg(feature = "tui")]
+pub(crate) mod store;
 #[cfg(all(feature = "tui", test))]
 mod target_tests;
 
@@ -12,36 +16,16 @@ pub mod git {
 	pub(crate) use super::changes::diff::*;
 }
 
-pub mod index {
-	pub use super::legacy::index::*;
-}
-
-#[cfg(feature = "tui")]
-pub(crate) mod model {
-	pub(crate) use super::legacy::model::*;
-}
-
-#[cfg(feature = "tui")]
-pub(crate) mod store {
-	pub(crate) use super::legacy::store::*;
-}
-
 #[cfg(feature = "tui")]
 pub use compat::SessionStoreBridge;
 #[cfg(feature = "tui")]
 pub use facade::{LocalWorkspaceFacade, LocalWorkspaceOptions, WorkspaceFacade, WorkspacePorts};
 #[cfg(feature = "tui")]
 pub(crate) use git::ChangeStatus;
-pub use index::{
-	CheckSummary, DefLocation, IndexedFile, IndexedRoot, RefLocation, SessionIndex, SessionOptions,
-	SessionStats, ViewFilter,
-};
+pub use index::{CheckSummary, DefLocation, RefLocation, SessionOptions, SessionStats, ViewFilter};
 #[cfg(feature = "tui")]
 pub(crate) use model::{
 	ChangeDetail, ChangeId, ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus,
 };
 #[cfg(feature = "tui")]
-pub(crate) use store::{
-	GitOverlayRefresh, GitOverlayRefreshInput, IndexStore, StoreWatchRoot, WorkspaceHandle,
-	WorkspaceStore,
-};
+pub(crate) use store::{IndexStore, StoreWatchRoot, WorkspaceHandle};

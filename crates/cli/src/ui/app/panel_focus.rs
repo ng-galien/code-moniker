@@ -269,7 +269,7 @@ mod tests {
 	use crate::ui::app::{AppAction, View};
 	use crate::ui::events::Msg;
 	use crate::ui::render::component::ComponentId;
-	use crate::workspace::{SessionOptions, WorkspaceStore};
+	use crate::workspace::{SessionOptions, WorkspaceHandle};
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -286,7 +286,7 @@ mod tests {
 			"src/app.ts",
 			"export function run() { return MissingService.create(); }\n",
 		);
-		let store = WorkspaceStore::load(&SessionOptions {
+		let store = WorkspaceHandle::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,

@@ -43,7 +43,7 @@ mod tests {
 	use std::path::Path;
 
 	use crate::ui::app::{ActiveFilter, App, ChangePanelMode, VisualizationMode};
-	use crate::workspace::{SessionOptions, WorkspaceStore};
+	use crate::workspace::{SessionOptions, WorkspaceHandle};
 
 	fn write(root: &Path, rel: &str, body: &str) {
 		let path = root.join(rel);
@@ -60,7 +60,7 @@ mod tests {
 			"src/services.ts",
 			"export class AlphaService {}\n",
 		);
-		let store = WorkspaceStore::load(&SessionOptions {
+		let store = WorkspaceHandle::load(&SessionOptions {
 			paths: vec![tmp.path().to_path_buf()],
 			project: Some("app".into()),
 			cache_dir: None,

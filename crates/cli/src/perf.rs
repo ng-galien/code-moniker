@@ -6,10 +6,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static TRACE: OnceLock<Option<Mutex<File>>> = OnceLock::new();
 
-pub(crate) fn enabled() -> bool {
-	trace_file().is_some()
-}
-
 pub(crate) fn record(event: &str, duration: Duration, detail: impl AsRef<str>) {
 	let Some(file) = trace_file() else {
 		return;

@@ -85,9 +85,8 @@ compat_target = """
   OR target ~ '**/module:workspace/path:compat'
   OR target ~ '**/module:workspace/path:compat/**'
 """
-legacy_target = """
-  target ~ '**/dir:workspace/dir:legacy/**'
-  OR target ~ '**/dir:workspace/module:git'
+ui_read_model_target = """
+  target ~ '**/dir:workspace/module:git'
   OR target ~ '**/dir:workspace/module:git/**'
   OR target ~ '**/dir:workspace/module:index'
   OR target ~ '**/dir:workspace/module:index/**'
@@ -108,7 +107,7 @@ legacy_target = """
 #
 # The final workspace tree should expose the problem vocabulary directly:
 # sources, code, linkage, changes, snapshots/read models, the host
-# environment adapter, the injectable facade, compatibility, and legacy debt.
+# environment adapter, the injectable facade, and compatibility.
 # Names such as `session`, `resources`, and `local` are implementation
 # vocabulary; they do not say what problem the module solves.
 
@@ -123,7 +122,7 @@ expr     = """
     OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:local'
     OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:local/module:mod')
 """
-message  = "`workspace` top-level modules should use domain vocabulary (`source`, `code`, `linkage`, `changes`, `snapshot`, `compat`, `legacy`)."
+message  = "`workspace` top-level modules should use domain vocabulary (`source`, `code`, `linkage`, `changes`, `snapshot`, `compat`)."
 rationale = "The workspace tree should explain the problem by its directory names. `session`, `resources`, and `local` describe architecture mechanics, not the domain work: discovering sources, indexing code, linking references, localizing changes, and exposing snapshots."
 
 [[rust.module.where]]
@@ -134,23 +133,23 @@ message  = "Rule diagnostics belong to `check`, not to `workspace`."
 rationale = "The workspace owns sources, code facts, linkage, changes, and snapshots. Rule compilation and diagnostic production are check concerns that consume workspace read models; putting them under workspace couples loading the workspace to evaluating rules."
 
 [[rust.module.where]]
-id       = "legacy-bridge-lives-in-compat"
+id       = "index-store-bridge-lives-in-compat"
 severity = "warn"
 expr     = "NOT moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/module:bridge'"
-message  = "The legacy store bridge should live under `workspace::compat`, for example `workspace::compat::legacy_store_bridge`."
-rationale = "The bridge is intentionally an anti-corruption layer around the old store shape. Keeping it as a root workspace module makes temporary compatibility look like a first-class workspace concern instead of visible removable debt."
+message  = "The UI `IndexStore` bridge should live under `workspace::compat`, for example `workspace::compat::index_store_bridge`."
+rationale = "The bridge is intentionally an anti-corruption layer around the current UI store shape. Keeping it as a root workspace module makes temporary compatibility look like a first-class workspace concern instead of visible removable debt."
 
 [[refs.where]]
-id       = "target-domain-imports-stay-off-legacy"
+id       = "target-domain-imports-stay-off-ui-read-models"
 severity = "warn"
 expr     = """
   ($source_layer OR $code_layer OR $linkage_layer OR $changes_layer OR $snapshot_layer OR $check_workspace)
   AND NOT $test_module
   AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT $legacy_target
+  => NOT $ui_read_model_target
 """
-message  = "Target workspace domain modules must not import legacy workspace modules."
-rationale = "Legacy code is isolated debt. New domain modules (`source`, `code`, `linkage`, `changes`, `snapshot`) and workspace-aware check code must not depend on legacy shims directly; any required translation belongs in `compat`, where the coupling is visible and removable."
+message  = "Target workspace domain modules must not import CLI workspace read-model adapters."
+rationale = "The reusable workspace model should not depend on CLI/UI read-model shims directly; any required translation belongs in `compat`, where the coupling is visible and removable."
 
 [[refs.where]]
 id       = "source-layer-stays-source-only"
@@ -163,11 +162,11 @@ expr     = """
        OR $changes_target
        OR $snapshot_view_target
        OR $compat_target
-       OR $legacy_target
+       OR $ui_read_model_target
        OR $check_workspace_target)
 """
 message  = "`workspace::source` owns source identity, discovery, and content; it must not depend on code, linkage, changes, snapshot views, compat, or check."
-rationale = "Source is the base resource boundary. Higher layers may ask for sources, but source discovery and identity should not know how code is indexed, linked, changed, checked, or adapted to legacy APIs. Stable snapshot model ids and records are allowed as the shared workspace contract."
+rationale = "Source is the base resource boundary. Higher layers may ask for sources, but source discovery and identity should not know how code is indexed, linked, changed, checked, or adapted to UI APIs. Stable snapshot model ids and records are allowed as the shared workspace contract."
 
 [[refs.where]]
 id       = "code-layer-stays-before-linkage-and-changes"
@@ -179,10 +178,10 @@ expr     = """
        OR $changes_target
        OR $snapshot_view_target
        OR $compat_target
-       OR $legacy_target
+       OR $ui_read_model_target
        OR $check_workspace_target)
 """
-message  = "`workspace::code` owns extracted symbols and references; it must not depend on linkage, changes, snapshot views, compat, legacy, or check."
+message  = "`workspace::code` owns extracted symbols and references; it must not depend on linkage, changes, snapshot views, compat, UI read models, or check."
 rationale = "The code layer projects source content into code facts. Linkage and change localization consume those facts later; importing them back into code would make extraction depend on downstream analysis."
 
 [[refs.where]]
@@ -194,11 +193,11 @@ expr     = """
   => NOT ($changes_target
        OR $snapshot_view_target
        OR $compat_target
-       OR $legacy_target
+       OR $ui_read_model_target
        OR $check_workspace_target)
 """
-message  = "`workspace::linkage` owns reference resolution; it must not depend on changes, snapshot views, compat, legacy, or check."
-rationale = "Linkage is the evolving resolution model between references and symbols. It may consume source/code facts, but it should not know about diff overlays, UI/read projections, rule diagnostics, or legacy store wiring."
+message  = "`workspace::linkage` owns reference resolution; it must not depend on changes, snapshot views, compat, UI read models, or check."
+rationale = "Linkage is the evolving resolution model between references and symbols. It may consume source/code facts, but it should not know about diff overlays, UI/read projections, rule diagnostics, or store wiring."
 
 [[refs.where]]
 id       = "changes-layer-stays-change-only"
@@ -208,11 +207,11 @@ expr     = """
   AND NOT $test_module
   => NOT ($snapshot_view_target
        OR $compat_target
-       OR $legacy_target
+       OR $ui_read_model_target
        OR $check_workspace_target)
 """
-message  = "`workspace::changes` owns diff and change localization; it must not depend on snapshot views, compat, legacy, or check."
-rationale = "Change analysis may consume source, code, and linkage facts, then emit change records. Read-model projection, legacy adaptation, and rule diagnostics are downstream consumers and should not shape the change model."
+message  = "`workspace::changes` owns diff and change localization; it must not depend on snapshot views, compat, UI read models, or check."
+rationale = "Change analysis may consume source, code, and linkage facts, then emit change records. Read-model projection, UI adaptation, and rule diagnostics are downstream consumers and should not shape the change model."
 
 [[refs.where]]
 id       = "snapshot-model-is-pure-workspace-state"
@@ -225,13 +224,13 @@ expr     = """
        OR $linkage_target
        OR $changes_target
        OR $compat_target
-       OR $legacy_target
+       OR $ui_read_model_target
        OR $check_workspace_target
        OR target ~ '**/external_pkg:std/module:fs/**'
        OR target ~ '**/external_pkg:std/module:process/**')
 """
-message  = "`workspace::snapshot::model` must stay pure state, without adapters, filesystem/process access, legacy, or check dependencies."
-rationale = "The snapshot model is the durable observable contract of the workspace. It should define ids, records, failures, and transitions, not construct sources, index code, resolve linkage, read the filesystem, evaluate rules, or adapt to legacy consumers."
+message  = "`workspace::snapshot::model` must stay pure state, without adapters, filesystem/process access, UI read models, or check dependencies."
+rationale = "The snapshot model is the durable observable contract of the workspace. It should define ids, records, failures, and transitions, not construct sources, index code, resolve linkage, read the filesystem, evaluate rules, or adapt to UI consumers."
 
 [[refs.where]]
 id       = "snapshot-view-reads-snapshot-only"
@@ -244,10 +243,10 @@ expr     = """
        OR $linkage_target
        OR $changes_target
        OR $compat_target
-       OR $legacy_target
+       OR $ui_read_model_target
        OR $check_workspace_target)
 """
-message  = "`workspace::snapshot::view` must project stable snapshot records, not reach back into sources, code, linkage, changes, compat, legacy, or check."
+message  = "`workspace::snapshot::view` must project stable snapshot records, not reach back into sources, code, linkage, changes, compat, UI read models, or check."
 rationale = "Read models should be deterministic projections of a loaded snapshot. If a view reaches into adapters or analysis services, consumers can no longer trust the snapshot as the stable boundary."
 
 [[refs.where]]
@@ -259,10 +258,10 @@ expr     = """
   AND NOT $test_module
   AND (kind = 'imports_symbol' OR kind = 'imports_module')
   => NOT ($compat_target
-       OR $legacy_target
+       OR $ui_read_model_target
        OR $check_workspace_target)
 """
-message  = "`workspace::snapshot` refresh orchestration may assemble workspace resources, but must not own compat, legacy, or check concerns."
+message  = "`workspace::snapshot` refresh orchestration may assemble workspace resources, but must not own compat, UI read-model, or check concerns."
 rationale = "Refresh is allowed to orchestrate source, code, linkage, and changes into a snapshot. Compatibility adapters and rule diagnostics are consumers of that snapshot, not part of building it."
 
 [[refs.where]]
@@ -273,11 +272,11 @@ expr     = """
   AND NOT $test_module
   AND (kind = 'imports_symbol' OR kind = 'imports_module')
   => NOT ($compat_target
-       OR $legacy_target
+       OR $ui_read_model_target
        OR $check_workspace_target)
 """
-message  = "`workspace::facade` may wire target workspace ports, but must not depend on compat, legacy, or check."
-rationale = "The workspace facade is the crate-extraction boundary for CLI, TUI, and future MCP clients. It can expose injected source, code, linkage, change, and snapshot services; legacy adaptation and rule execution remain separate consumers."
+message  = "`workspace::facade` may wire target workspace ports, but must not depend on compat, UI read models, or check."
+rationale = "The workspace facade is the crate-extraction boundary for CLI, TUI, and future MCP clients. It can expose injected source, code, linkage, change, and snapshot services; UI adaptation and rule execution remain separate consumers."
 
 [[refs.where]]
 id       = "target-workspace-uses-environment-for-cli-host-services"
@@ -297,10 +296,10 @@ severity = "warn"
 expr     = """
   $check_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module')
   AND NOT $test_module
-  => NOT ($compat_target OR $legacy_target)
+  => NOT ($compat_target OR $ui_read_model_target)
 """
-message  = "`check::workspace` may consume workspace contracts, but must not depend on compat or legacy."
-rationale = "Workspace-aware rule execution belongs in `check`, but it should consume the target workspace model and lazy source/symbol boundaries. Depending on compat or legacy would make new check features inherit the old store shape."
+message  = "`check::workspace` may consume workspace contracts, but must not depend on compat or UI read models."
+rationale = "Workspace-aware rule execution belongs in `check`, but it should consume the target workspace model and lazy source/symbol boundaries. Depending on compat or UI read models would make new check features inherit the current UI store shape."
 
 [[rust.module.where]]
 id       = "no-global-workspace-ports-module"
@@ -310,4 +309,4 @@ expr     = """
     OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:workspace/dir:ports/**')
 """
 message  = "Do not add a global `workspace::ports` module that reconcentrates source, index, linkage, changes, and diagnostics behind one owner."
-rationale = "Semantic ports are useful only when they belong to the resource model they describe. A global ports module becomes an orchestrator duplicate and lets the legacy design pass rules without isolating responsibilities."
+rationale = "Semantic ports are useful only when they belong to the resource model they describe. A global ports module becomes an orchestrator duplicate and lets an old coupled design pass rules without isolating responsibilities."

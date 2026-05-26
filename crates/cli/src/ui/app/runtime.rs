@@ -99,13 +99,6 @@ impl App {
 				self.replace_store(*store);
 				self.apply_reloaded_store(format!("{} completed", result.label));
 			}
-			TaskOutcome::GitOverlayRefreshed(store) => {
-				if self.store_mut().apply_git_overlay_refresh(*store) {
-					self.apply_refreshed_change_store(format!("{} completed", result.label));
-				} else {
-					self.set_status(format!("ignored stale {} result", result.label));
-				}
-			}
 			TaskOutcome::CheckCompleted(summary) => {
 				self.set_status(format!(
 					"check complete: {} violation(s) across {} file(s)",
