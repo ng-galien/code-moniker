@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-long-parameter-list]
-// TODO(smell): introduce a file-tree rendering context that groups args, output, path prefix, and style settings before enabling this guardrail here.
 use std::collections::BTreeMap;
 use std::io::Write;
 
@@ -26,51 +24,67 @@ pub(crate) fn write_files_tree<W: Write>(
 		let segs: Vec<&str> = f.rel_path.split('/').filter(|s| !s.is_empty()).collect();
 		trie.insert(&segs, i);
 	}
-	render_file_trie(w, &trie, "", files, args, scheme, &opts)
+	FileTreeRenderer {
+		w,
+		files,
+		args,
+		scheme,
+		opts: &opts,
+	}
+	.render(&trie, "")
 }
 
 type FileTrie = LeafTrie<usize>;
 
-fn render_file_trie<W: Write>(
-	w: &mut W,
-	node: &FileTrie,
-	prefix: &str,
-	files: &[FileEntry<'_>],
-	args: &ExtractArgs,
-	scheme: &str,
-	opts: &TreeOpts,
-) -> std::io::Result<()> {
-	let total = node.children.len();
-	for (i, (name, child)) in node.children.iter().enumerate() {
-		let last = i + 1 == total;
-		let branch = if last {
-			opts.glyph.last
-		} else {
-			opts.glyph.tee
-		};
-		let cont = if last {
-			opts.glyph.skip_last
-		} else {
-			opts.glyph.skip_mid
-		};
-		let (label_name, rendered_child) = collapsed_leaf_label(name, child);
-		let is_dir = rendered_child.leaf.is_none();
-		let suffix = if is_dir { "/" } else { "" };
-		writeln!(
-			w,
-			"{prefix}{branch} {hpre}{label_name}{suffix}{hpost}",
-			hpre = opts.palette.name.render(),
-			hpost = opts.palette.name.render_reset(),
-		)?;
-		let sub_prefix = format!("{prefix}{cont}");
-		if let Some(idx) = rendered_child.leaf {
-			let f = &files[idx];
-			write_tree_with_prefix(w, &f.matches, f.source, args, scheme, &sub_prefix)?;
-		} else {
-			render_file_trie(w, rendered_child, &sub_prefix, files, args, scheme, opts)?;
+struct FileTreeRenderer<'a, W> {
+	w: &'a mut W,
+	files: &'a [FileEntry<'a>],
+	args: &'a ExtractArgs,
+	scheme: &'a str,
+	opts: &'a TreeOpts,
+}
+
+impl<W: Write> FileTreeRenderer<'_, W> {
+	fn render(&mut self, node: &FileTrie, prefix: &str) -> std::io::Result<()> {
+		let total = node.children.len();
+		for (i, (name, child)) in node.children.iter().enumerate() {
+			let last = i + 1 == total;
+			let branch = if last {
+				self.opts.glyph.last
+			} else {
+				self.opts.glyph.tee
+			};
+			let cont = if last {
+				self.opts.glyph.skip_last
+			} else {
+				self.opts.glyph.skip_mid
+			};
+			let (label_name, rendered_child) = collapsed_leaf_label(name, child);
+			let is_dir = rendered_child.leaf.is_none();
+			let suffix = if is_dir { "/" } else { "" };
+			writeln!(
+				self.w,
+				"{prefix}{branch} {hpre}{label_name}{suffix}{hpost}",
+				hpre = self.opts.palette.name.render(),
+				hpost = self.opts.palette.name.render_reset(),
+			)?;
+			let sub_prefix = format!("{prefix}{cont}");
+			if let Some(idx) = rendered_child.leaf {
+				let f = &self.files[idx];
+				write_tree_with_prefix(
+					self.w,
+					&f.matches,
+					f.source,
+					self.args,
+					self.scheme,
+					&sub_prefix,
+				)?;
+			} else {
+				self.render(rendered_child, &sub_prefix)?;
+			}
 		}
+		Ok(())
 	}
-	Ok(())
 }
 
 fn collapsed_leaf_label<'a, T>(name: &str, node: &'a LeafTrie<T>) -> (String, &'a LeafTrie<T>) {
