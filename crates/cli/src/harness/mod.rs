@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-long-parameter-list]
-// TODO(smell): introduce a hook upsert request for backend, matcher, command, and output file settings before enabling this guardrail here.
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -86,12 +84,14 @@ fn install<W: Write>(
 	let settings_command = backend.settings_command(&hook_command);
 	let config = upsert_tool_hook(
 		config,
-		&config_path,
-		&settings_command,
-		backend.hook_event(),
-		backend.matcher(),
-		backend.hook_name(&settings_command),
-		backend.project_dir(),
+		ToolHookUpsert {
+			path: &config_path,
+			command: &settings_command,
+			event: backend.hook_event(),
+			matcher: backend.matcher(),
+			name: backend.hook_name(&settings_command),
+			project_dir: backend.project_dir(),
+		},
 	)?;
 	fs::write(&config_path, serde_json::to_vec_pretty(&config)?)
 		.with_context(|| format!("cannot write `{}`", config_path.display()))?;
@@ -518,44 +518,52 @@ fn read_json_object(path: &Path) -> anyhow::Result<Value> {
 	}
 }
 
-fn upsert_tool_hook(
-	mut settings: Value,
-	path: &Path,
-	command: &str,
-	hook_event: &str,
-	matcher: &str,
-	hook_name: Option<String>,
-	project_dir: &str,
-) -> anyhow::Result<Value> {
+struct ToolHookUpsert<'a> {
+	path: &'a Path,
+	command: &'a str,
+	event: &'a str,
+	matcher: &'a str,
+	name: Option<String>,
+	project_dir: &'a str,
+}
+
+fn upsert_tool_hook(mut settings: Value, request: ToolHookUpsert<'_>) -> anyhow::Result<Value> {
 	let root = settings.as_object_mut().expect("settings object");
 	let hooks = root
 		.entry("hooks")
 		.or_insert_with(|| Value::Object(Map::new()))
 		.as_object_mut()
-		.with_context(|| format!("`{}` field `hooks` must be a JSON object", path.display()))?;
+		.with_context(|| {
+			format!(
+				"`{}` field `hooks` must be a JSON object",
+				request.path.display()
+			)
+		})?;
 	let event_hooks = hooks
-		.entry(hook_event)
+		.entry(request.event)
 		.or_insert_with(|| Value::Array(Vec::new()))
 		.as_array_mut()
 		.with_context(|| {
 			format!(
-				"`{}` field `hooks.{hook_event}` must be a JSON array",
-				path.display(),
+				"`{}` field `hooks.{}` must be a JSON array",
+				request.path.display(),
+				request.event,
 			)
 		})?;
 
-	event_hooks.retain(|entry| !entry_contains_generated_harness_command(entry, project_dir));
+	event_hooks
+		.retain(|entry| !entry_contains_generated_harness_command(entry, request.project_dir));
 	let mut hook = json!({
 		"type": "command",
-		"command": command
+		"command": request.command
 	});
-	if let Some(hook_name) = hook_name
+	if let Some(hook_name) = request.name
 		&& let Some(hook) = hook.as_object_mut()
 	{
 		hook.insert("name".to_string(), Value::String(hook_name));
 	}
 	event_hooks.push(json!({
-		"matcher": matcher,
+		"matcher": request.matcher,
 		"hooks": [hook]
 	}));
 	Ok(settings)
