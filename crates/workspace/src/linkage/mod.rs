@@ -6,4 +6,4 @@ mod resolver;
 mod scope;
 mod strategy;
 
-pub use resolver::{LinkagePort, LocalLinkage};
+pub use resolver::{LinkagePort, LinkageTimings, LocalLinkage, TimedLinkageGraph};

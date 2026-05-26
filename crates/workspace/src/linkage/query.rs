@@ -8,8 +8,10 @@ use crate::source::CodeIndexMaterial;
 pub(super) struct LinkageQuery<'a> {
 	pub(super) material: &'a CodeIndexMaterial,
 	pub(super) target: &'a Moniker,
+	pub(super) reference_kind: &'a str,
 	pub(super) call_name: Option<&'a str>,
 	pub(super) call_arity: Option<usize>,
+	pub(super) confidence: Option<&'a str>,
 	pub(super) source_file: usize,
 	strategy: &'static dyn LanguageLinkageStrategy,
 }
@@ -25,8 +27,10 @@ impl<'a> LinkageQuery<'a> {
 		Some(Self {
 			material,
 			target,
+			reference_kind: reference.kind.as_str(),
 			call_name: reference.call_name.as_deref(),
 			call_arity: reference.call_arity,
+			confidence: reference.confidence.as_deref(),
 			source_file,
 			strategy: language_strategy(lang),
 		})

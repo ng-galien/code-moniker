@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use crate::linkage::candidate::CandidateCatalog;
 use crate::linkage::decision::{
 	ExternalOrigin, LinkageDecisionLog, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
@@ -14,6 +16,20 @@ pub trait LinkagePort {
 	fn resolve_linkage(&mut self, index: &CodeIndex) -> WorkspaceResult<LinkageGraph>;
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LinkageTimings {
+	pub candidate_index: Duration,
+	pub manifest_policy: Duration,
+	pub resolve_references: Duration,
+	pub project_report: Duration,
+	pub total: Duration,
+}
+
+pub struct TimedLinkageGraph {
+	pub graph: LinkageGraph,
+	pub timings: LinkageTimings,
+}
+
 pub struct LocalLinkage {
 	cache: LocalResourceCache,
 }
@@ -26,6 +42,16 @@ impl LocalLinkage {
 
 impl LinkagePort for LocalLinkage {
 	fn resolve_linkage(&mut self, index: &CodeIndex) -> WorkspaceResult<LinkageGraph> {
+		Ok(self.resolve_linkage_with_timings(index)?.graph)
+	}
+}
+
+impl LocalLinkage {
+	pub fn resolve_linkage_with_timings(
+		&mut self,
+		index: &CodeIndex,
+	) -> WorkspaceResult<TimedLinkageGraph> {
+		let total_timer = Instant::now();
 		let material = self.cache.index_material(index.generation).ok_or_else(|| {
 			WorkspaceFailure::new(
 				WorkspaceResource::LinkageGraph,
@@ -34,10 +60,16 @@ impl LinkagePort for LocalLinkage {
 		})?;
 		let generation = self.cache.next_generation();
 		let resolver = LinkageResolver::new(&material);
-		let decision_log = resolver.resolve(index);
-		Ok(LinkageGraph::from_report(
-			decision_log.project_report(generation, index.generation),
-		))
+		let LinkageResolution {
+			decision_log,
+			mut timings,
+		} = resolver.resolve(index);
+		let report_timer = Instant::now();
+		let graph =
+			LinkageGraph::from_report(decision_log.project_report(generation, index.generation));
+		timings.project_report = report_timer.elapsed();
+		timings.total = total_timer.elapsed();
+		Ok(TimedLinkageGraph { graph, timings })
 	}
 }
 
@@ -56,16 +88,27 @@ impl<'a> LinkageResolver<'a> {
 		}
 	}
 
-	fn resolve(&self, index: &CodeIndex) -> LinkageDecisionLog {
+	fn resolve(&self, index: &CodeIndex) -> LinkageResolution {
+		let mut timings = LinkageTimings::default();
+		let candidate_timer = Instant::now();
 		let candidates = CandidateCatalog::new(self.material);
+		timings.candidate_index = candidate_timer.elapsed();
+		let manifest_timer = Instant::now();
 		let manifests = ManifestPolicy::build(self.material);
-		LinkageDecisionLog::new(
+		timings.manifest_policy = manifest_timer.elapsed();
+		let resolve_timer = Instant::now();
+		let decision_log = LinkageDecisionLog::new(
 			index
 				.references
 				.iter()
 				.map(|reference| self.resolve_reference(reference, &candidates, &manifests))
 				.collect(),
-		)
+		);
+		timings.resolve_references = resolve_timer.elapsed();
+		LinkageResolution {
+			decision_log,
+			timings,
+		}
 	}
 
 	fn resolve_reference(
@@ -101,4 +144,9 @@ impl<'a> LinkageResolver<'a> {
 		}
 		ReferenceLinkageDecision::unknown(UnknownReason::NoCandidate, reference)
 	}
+}
+
+struct LinkageResolution {
+	decision_log: LinkageDecisionLog,
+	timings: LinkageTimings,
 }

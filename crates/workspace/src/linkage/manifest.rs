@@ -46,7 +46,7 @@ impl ManifestPolicy {
 					deps: FxHashSet::default(),
 				};
 				for dep in deps {
-					if dep.dep_kind == "package" {
+					if matches!(dep.dep_kind.as_str(), "package" | "workspace_member") {
 						entry
 							.packages
 							.insert(package_id(manifest, &dep.import_root));
@@ -74,6 +74,11 @@ impl ManifestPolicy {
 			let Some((target_file, _)) = query.material.identity.symbol_location(&symbol) else {
 				continue;
 			};
+			if let Some(import_root) = external_import_root(query)
+				&& !self.target_file_declares_import_root(query.material, target_file, import_root)
+			{
+				continue;
+			}
 			match self.source_can_link_to_file(query.material, query.source_file, target_file) {
 				LinkPermission::Allowed => policy.allowed.push(symbol),
 				LinkPermission::Blocked => policy.blocked = true,
@@ -148,6 +153,26 @@ impl ManifestPolicy {
 			})
 			.max_by_key(|entry| entry.path.components().count())
 	}
+
+	fn target_file_declares_import_root(
+		&self,
+		material: &CodeIndexMaterial,
+		target_file: usize,
+		import_root: &str,
+	) -> bool {
+		let Some(target_lang) = material.files.get(target_file).map(|file| file.lang) else {
+			return false;
+		};
+		let Some(target_manifest) = manifest_for_lang(target_lang) else {
+			return false;
+		};
+		let Some(target_entry) = self.entry_for_file(material, target_file) else {
+			return false;
+		};
+		target_entry
+			.packages
+			.contains(&package_id(target_manifest, import_root))
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -218,4 +243,12 @@ fn manifest_candidates(root: &Path) -> Vec<PathBuf> {
 		}
 	}
 	out
+}
+
+fn external_import_root<'a>(query: &'a LinkageQuery<'_>) -> Option<&'a str> {
+	let head = query.target.as_view().segments().next()?;
+	if head.kind != code_moniker_core::lang::kinds::EXTERNAL_PKG {
+		return None;
+	}
+	std::str::from_utf8(head.name).ok()
 }

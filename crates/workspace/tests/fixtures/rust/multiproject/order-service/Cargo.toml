@@ -1,0 +1,14 @@
+[package]
+name = "order-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+common-model = { path = "../common-model" }
+serde = { version = "1", features = ["derive"] }
+tree-sitter = "0.25"
+
+[lib]
+name = "order_service"
+path = "src/lib.rs"

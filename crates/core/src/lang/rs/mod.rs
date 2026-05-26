@@ -63,11 +63,14 @@ pub fn extract(
 		deep,
 		local_mods,
 		local_scope: std::cell::RefCell::new(Vec::new()),
+		local_types: std::cell::RefCell::new(Vec::new()),
 		type_params: std::cell::RefCell::new(Vec::new()),
 		callable_table,
 		type_table,
 		in_trait_impl: std::cell::Cell::new(false),
 		imported_modules: std::cell::RefCell::new(std::collections::HashSet::new()),
+		imported_symbols: std::cell::RefCell::new(std::collections::HashMap::new()),
+		imported_wildcard_modules: std::cell::RefCell::new(std::collections::HashMap::new()),
 	};
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
