@@ -416,7 +416,8 @@ fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
 	use crate::core::kinds::{
 		BIND_IMPORT, BIND_INJECT, BIND_LOCAL, BIND_NONE, REF_ANNOTATES, REF_CALLS, REF_DI_REGISTER,
 		REF_DI_REQUIRE, REF_EXTENDS, REF_IMPLEMENTS, REF_IMPORTS_MODULE, REF_IMPORTS_SYMBOL,
-		REF_INSTANTIATES, REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_USES_TYPE,
+		REF_INSTANTIATES, REF_METHOD_CALL, REF_READS, REF_REEXPORTS, REF_RETURNS_TYPE,
+		REF_USES_TYPE,
 	};
 	if kind == REF_IMPORTS_SYMBOL || kind == REF_IMPORTS_MODULE || kind == REF_REEXPORTS {
 		return BIND_IMPORT;
@@ -428,6 +429,7 @@ fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
 		|| kind == REF_METHOD_CALL
 		|| kind == REF_READS
 		|| kind == REF_USES_TYPE
+		|| kind == REF_RETURNS_TYPE
 		|| kind == REF_INSTANTIATES
 		|| kind == REF_EXTENDS
 		|| kind == REF_IMPLEMENTS

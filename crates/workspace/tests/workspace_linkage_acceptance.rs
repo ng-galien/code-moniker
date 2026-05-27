@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use code_moniker_workspace::extract::JavaExtractionPipeline;
 use code_moniker_workspace::snapshot::{ReferenceRecord, WorkspaceRequest, WorkspaceSnapshot};
 use code_moniker_workspace::{LocalWorkspaceFacade, LocalWorkspaceOptions};
 
@@ -10,8 +11,11 @@ fn fixture_path(path: impl AsRef<Path>) -> PathBuf {
 }
 
 fn load_workspace(path: impl AsRef<Path>) -> WorkspaceSnapshot {
-	let root = fixture_path(path);
-	let mut workspace = LocalWorkspaceFacade::local(LocalWorkspaceOptions::new(vec![root], None));
+	load_workspace_with_options(LocalWorkspaceOptions::new(vec![fixture_path(path)], None))
+}
+
+fn load_workspace_with_options(options: LocalWorkspaceOptions) -> WorkspaceSnapshot {
+	let mut workspace = LocalWorkspaceFacade::local(options);
 	let transition = workspace.refresh(WorkspaceRequest::new("linkage-acceptance"));
 	assert!(
 		matches!(
@@ -33,6 +37,32 @@ fn rust_multiproject_links_public_cross_crate_symbols() {
 	assert_no_unresolved(&snapshot);
 	assert_cross_crate_links(&snapshot);
 	assert_local_rust_links(&snapshot);
+}
+
+#[test]
+fn java_sdk_multiproject_classifies_platform_refs_as_external() {
+	let snapshot = load_workspace_with_options(
+		LocalWorkspaceOptions::new(vec![fixture_path("projects/java/multiprojet")], None)
+			.with_java_pipeline(JavaExtractionPipeline::Sdk),
+	);
+
+	assert_eq!(snapshot.linkage.external_refs, 89);
+	assert_eq!(
+		snapshot.linkage.unresolved_refs,
+		0,
+		"unexpected unresolved references:\n{}",
+		unresolved_report(&snapshot)
+	);
+	assert_external_reference(
+		&snapshot,
+		"method_call",
+		"external_pkg:java/path:lang/path:System/method:println",
+	);
+	assert_external_reference(
+		&snapshot,
+		"method_call",
+		"external_pkg:java/path:lang/path:String/method:trim",
+	);
 }
 
 fn assert_no_unresolved(snapshot: &WorkspaceSnapshot) {
@@ -187,6 +217,26 @@ fn assert_linked_to(
 		reference.target_identity,
 		target_identities.join(", "),
 		symbol_identity
+	);
+}
+
+fn assert_external_reference(snapshot: &WorkspaceSnapshot, kind: &str, reference_target: &str) {
+	let reference = find_reference(snapshot, kind, reference_target)
+		.unwrap_or_else(|| panic!("missing {kind} reference matching `{reference_target}`"));
+	let linked = snapshot
+		.linkage
+		.resolved
+		.iter()
+		.any(|edge| edge.reference.as_str() == reference.id.as_str());
+	let unresolved = snapshot
+		.linkage
+		.unresolved
+		.iter()
+		.any(|item| item.reference.as_str() == reference.id.as_str());
+	assert!(
+		!linked && !unresolved,
+		"reference `{}` should be classified external, linked={linked}, unresolved={unresolved}",
+		reference.target_identity
 	);
 }
 

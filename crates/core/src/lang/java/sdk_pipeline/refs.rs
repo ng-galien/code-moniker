@@ -324,10 +324,51 @@ fn receiver_owner(
 			.child_by_field_name("type")
 			.and_then(|ty| type_expr(state, ty))
 			.and_then(|ty| ty.receiver_owner().cloned()),
+		"field_access" | "scoped_identifier" => {
+			expression_external_owner(state, receiver, owner, env)
+		}
 		"method_invocation" => {
 			infer_call_type(state, receiver, owner, env).and_then(|ty| ty.receiver_owner().cloned())
 		}
 		"string_literal" => Some(java_lang_target(&state.root, b"String")),
+		_ => None,
+	}
+}
+
+fn expression_external_owner(
+	state: &JavaDiscover<'_>,
+	node: Node<'_>,
+	owner: &Moniker,
+	env: &TypeEnv,
+) -> Option<Moniker> {
+	match node.kind() {
+		"identifier" => {
+			let name = node_slice(node, state.source);
+			env.resolve_local(name)
+				.and_then(TypeExpr::receiver_owner)
+				.filter(|target| java_external_target_shape(target))
+				.cloned()
+				.or_else(|| match lookup_known_type_name(state, name) {
+					Some((target, kinds::CONF_EXTERNAL)) => Some(target),
+					_ => None,
+				})
+		}
+		"string_literal" => Some(java_lang_target(&state.root, b"String")),
+		"type_identifier" | "scoped_type_identifier" | "generic_type" | "array_type" => {
+			let name = type_name(node, state.source)?;
+			let (target, confidence) = resolve_type_target(state, &name, kinds::CLASS);
+			(confidence == kinds::CONF_EXTERNAL).then_some(target)
+		}
+		"field_access" | "scoped_identifier" => node
+			.child_by_field_name("object")
+			.and_then(|object| expression_external_owner(state, object, owner, env)),
+		"method_invocation" => infer_call_type(state, node, owner, env)
+			.and_then(|ty| ty.receiver_owner().cloned())
+			.filter(java_external_target_shape)
+			.or_else(|| {
+				node.child_by_field_name("object")
+					.and_then(|object| expression_external_owner(state, object, owner, env))
+			}),
 		_ => None,
 	}
 }

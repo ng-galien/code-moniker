@@ -6,7 +6,7 @@ use crate::lang::callable::{
 	CallableSlot, callable_segment_slots, extend_callable_slots, extend_segment,
 	join_bytes_with_comma, normalize_type_text,
 };
-use crate::lang::sdk::{DiscoveredDef, Namespace};
+use crate::lang::sdk::{DiscoveredDef, Namespace, RefHints, ResolvedRef, TypeExpr};
 use crate::lang::tree_util::{node_position, node_slice};
 
 use super::super::kinds;
@@ -116,6 +116,14 @@ fn record_component_def(
 	}));
 	if !explicit_accessors.iter().any(|accessor| accessor == name) {
 		push_record_accessor(state, record, name, component);
+		if let Some(ty) = ty {
+			push_returns_type_ref(
+				state,
+				&extend_callable_slots(record, kinds::METHOD, name, &[]),
+				ty,
+				component,
+			);
+		}
 	}
 }
 
@@ -205,6 +213,12 @@ fn callable_def(
 		call_name: name.to_vec(),
 		call_arity: Some(slots.len()),
 	}));
+	if let Some(ty) = node
+		.child_by_field_name("type")
+		.and_then(|node| type_expr(state, node))
+	{
+		push_returns_type_ref(state, &moniker, ty, node);
+	}
 	if state.deep
 		&& let Some(params) = node.child_by_field_name("parameters")
 	{
@@ -213,6 +227,25 @@ fn callable_def(
 	if let Some(body) = node.child_by_field_name("body") {
 		local_defs(state, body, &moniker);
 	}
+}
+
+fn push_returns_type_ref(
+	state: &mut JavaDiscover<'_>,
+	source: &Moniker,
+	ty: TypeExpr,
+	node: Node<'_>,
+) {
+	let Some(target) = ty.receiver_owner().cloned() else {
+		return;
+	};
+	state.push_ref(ResolvedRef {
+		source: source.clone(),
+		target,
+		kind: kinds::RETURNS_TYPE,
+		position: Some(node_position(node)),
+		confidence: kinds::CONF_RESOLVED,
+		hints: RefHints::default(),
+	});
 }
 
 fn param_defs(state: &mut JavaDiscover<'_>, params: Node<'_>, callable: &Moniker) {

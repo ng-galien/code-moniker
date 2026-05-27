@@ -2,6 +2,7 @@ use crate::snapshot::{
 	LinkageEdge, LinkageGraphReport, ReferenceRecord, ResourceGeneration, SymbolId,
 	UnresolvedReference,
 };
+use code_moniker_core::core::moniker::Moniker;
 
 #[derive(Default)]
 pub(super) struct LinkageDecisionLog {
@@ -23,6 +24,7 @@ impl LinkageDecisionLog {
 	}
 }
 
+#[derive(Clone)]
 pub(super) enum ReferenceLinkageDecision {
 	Resolved {
 		scope: ResolutionScope,
@@ -32,6 +34,7 @@ pub(super) enum ReferenceLinkageDecision {
 	External {
 		origin: ExternalOrigin,
 		reference: ReferenceRecord,
+		target: Option<Moniker>,
 	},
 	Blocked {
 		reason: BlockReason,
@@ -108,6 +111,19 @@ impl ReferenceLinkageDecision {
 		Self::External {
 			origin,
 			reference: reference.clone(),
+			target: None,
+		}
+	}
+
+	pub(super) fn external_target(
+		origin: ExternalOrigin,
+		reference: &ReferenceRecord,
+		target: Moniker,
+	) -> Self {
+		Self::External {
+			origin,
+			reference: reference.clone(),
+			target: Some(target),
 		}
 	}
 }
@@ -188,6 +204,7 @@ impl From<ReferenceLinkageDecision> for LinkageDecisionProjection {
 			ReferenceLinkageDecision::External {
 				origin: _origin,
 				reference: _reference,
+				target: _target,
 			} => Self::External,
 		}
 	}

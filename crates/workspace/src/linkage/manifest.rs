@@ -75,10 +75,18 @@ impl ManifestPolicy {
 
 	fn can_classify_as_declared_external(&self, query: &LinkageQuery<'_>) -> bool {
 		if let Some(import_root) = external_import_root(query) {
-			return is_builtin_external_root(import_root)
+			return self.source_builtin_external_root(query, import_root)
 				|| self.source_declares_import_root(query, import_root);
 		}
 		self.is_rust_proc_macro_annotation(query) && self.source_declares_dependencies(query)
+	}
+
+	fn source_builtin_external_root(&self, query: &LinkageQuery<'_>, import_root: &str) -> bool {
+		query
+			.material
+			.files
+			.get(query.source_file)
+			.is_some_and(|file| is_builtin_external_root(file.lang, import_root))
 	}
 
 	fn source_can_link_to_file(
@@ -358,8 +366,12 @@ fn external_import_root<'a>(query: &'a LinkageQuery<'_>) -> Option<&'a str> {
 	std::str::from_utf8(head.name).ok()
 }
 
-fn is_builtin_external_root(root: &str) -> bool {
-	matches!(root, "std" | "core" | "alloc" | "proc_macro")
+pub(super) fn is_builtin_external_root(lang: Lang, root: &str) -> bool {
+	match lang {
+		Lang::Rs => matches!(root, "std" | "core" | "alloc" | "proc_macro"),
+		Lang::Java => root == "java",
+		_ => false,
+	}
 }
 
 fn confidence(value: &[u8]) -> &str {

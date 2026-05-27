@@ -7,6 +7,7 @@ use crate::linkage::decision::{
 use crate::linkage::manifest::ManifestPolicy;
 use crate::linkage::query::LinkageQuery;
 use crate::linkage::scope::{GlobalScopeResolver, LocalScopeResolver};
+use crate::linkage::semantic::SemanticLinkage;
 use crate::snapshot::{
 	CodeIndex, LinkageGraph, ReferenceRecord, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };
@@ -97,13 +98,13 @@ impl<'a> LinkageResolver<'a> {
 		let manifests = ManifestPolicy::build(self.material);
 		timings.manifest_policy = manifest_timer.elapsed();
 		let resolve_timer = Instant::now();
-		let decision_log = LinkageDecisionLog::new(
-			index
-				.references
-				.iter()
-				.map(|reference| self.resolve_reference(reference, &candidates, &manifests))
-				.collect(),
-		);
+		let mut decisions = index
+			.references
+			.iter()
+			.map(|reference| self.resolve_reference(reference, &candidates, &manifests))
+			.collect::<Vec<_>>();
+		SemanticLinkage::new(self.material).enhance(&mut decisions);
+		let decision_log = LinkageDecisionLog::new(decisions);
 		timings.resolve_references = resolve_timer.elapsed();
 		LinkageResolution {
 			decision_log,
