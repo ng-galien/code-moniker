@@ -5,7 +5,8 @@ use crate::lang::callable::{CallableSlot, extend_callable_slots, extend_segment}
 use crate::lang::sdk::{RefHints, ResolvedRef, TypeEnv, TypeExpr};
 use crate::lang::tree_util::{node_position, node_slice};
 
-use super::super::{builtins, kinds};
+use super::super::kinds;
+use super::builtins;
 use super::defs::formal_parameter_slots;
 use super::discover::JavaDiscover;
 use super::imports::{java_external_target_shape, java_lang_target, same_package_symbol_target};
@@ -229,10 +230,12 @@ fn method_call_ref(
 				Vec::new(),
 			)
 		};
-	let mut hints = RefHints::default();
-	hints.receiver_hint = receiver_hint;
-	hints.call_name = name.to_vec();
-	hints.call_arity = Some(arity);
+	let hints = RefHints {
+		receiver_hint,
+		call_name: name.to_vec(),
+		call_arity: Some(arity),
+		..RefHints::default()
+	};
 	state.push_ref(ResolvedRef {
 		source: source.clone(),
 		target,

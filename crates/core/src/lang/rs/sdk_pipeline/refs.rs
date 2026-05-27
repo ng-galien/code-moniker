@@ -2067,7 +2067,7 @@ fn local_import_base<'a>(scope: &Moniker, path: &'a [Vec<u8>]) -> (Moniker, &'a 
 
 fn unqualified_import_base(scope: &Moniker) -> Moniker {
 	let segments = scope.as_view().segments().collect::<Vec<_>>();
-	let Some((last_index, last)) = segments.iter().enumerate().last() else {
+	let Some((last_index, last)) = segments.iter().enumerate().next_back() else {
 		return scope.clone();
 	};
 	if last.kind == kinds::MODULE && last.name == b"mod" {

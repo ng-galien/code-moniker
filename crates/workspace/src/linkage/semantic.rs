@@ -30,11 +30,10 @@ impl<'a> SemanticLinkage<'a> {
 			let mut changed = false;
 			for decision in decisions.iter_mut() {
 				let replacement = match decision {
-					ReferenceLinkageDecision::Unknown { reason, reference }
-						if matches!(reason, UnknownReason::NoCandidate) =>
-					{
-						resolve_receiver_chain(self, reference, &statuses)
-					}
+					ReferenceLinkageDecision::Unknown {
+						reason: UnknownReason::NoCandidate,
+						reference,
+					} => resolve_receiver_chain(self, reference, &statuses),
 					_ => None,
 				};
 				if let Some(replacement) = replacement {

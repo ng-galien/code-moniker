@@ -152,6 +152,7 @@ impl TaskSpec {
 	}
 }
 
+#[allow(clippy::large_enum_variant)]
 enum TaskKind {
 	LoadFileCatalog {
 		opts: SessionOptions,

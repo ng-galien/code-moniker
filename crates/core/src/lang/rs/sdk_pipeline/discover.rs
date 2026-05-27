@@ -2,14 +2,13 @@ use tree_sitter::Node;
 
 use crate::core::code_graph::Position;
 use crate::core::moniker::Moniker;
-use crate::lang::callable::extend_segment;
+use crate::lang::callable::{CallableSlot, extend_segment};
 use crate::lang::sdk::{
 	DiscoveredDef, ImportLeafKind, Namespace, ResolvedRef, flatten_import_tree,
 	import_leaf_binding_name,
 };
 use crate::lang::tree_util::{node_position, node_slice};
 
-use super::super::canonicalize::{function_param_slots, impl_type_name};
 use super::super::kinds;
 use super::defs::{
 	CallableDefInput, DefEnv, callable_def, enum_constant_def, inferred_struct_def,
@@ -539,6 +538,53 @@ fn function_moniker(
 		)
 		.moniker,
 	)
+}
+
+fn function_param_slots(node: Node<'_>, source: &[u8]) -> Vec<CallableSlot> {
+	let Some(params) = node.child_by_field_name("parameters") else {
+		return Vec::new();
+	};
+	let mut out = Vec::new();
+	let mut cursor = params.walk();
+	for child in params.named_children(&mut cursor) {
+		match child.kind() {
+			"parameter" => {
+				let r#type = child
+					.child_by_field_name("type")
+					.and_then(|n| n.utf8_text(source).ok())
+					.map(crate::lang::callable::normalize_type_text)
+					.unwrap_or_default();
+				let name = child
+					.child_by_field_name("pattern")
+					.filter(|p| p.kind() == "identifier")
+					.and_then(|p| p.utf8_text(source).ok())
+					.map(|s| s.as_bytes().to_vec())
+					.unwrap_or_default();
+				out.push(CallableSlot { name, r#type });
+			}
+			"variadic_parameter" => out.push(CallableSlot {
+				name: Vec::new(),
+				r#type: b"...".to_vec(),
+			}),
+			"self_parameter" => {}
+			_ => {}
+		}
+	}
+	out
+}
+
+fn impl_type_name<'a>(node: Node<'a>, source: &'a [u8]) -> Option<&'a str> {
+	let target = match node.kind() {
+		"generic_type" => node.child_by_field_name("type")?,
+		_ => node,
+	};
+	match target.kind() {
+		"type_identifier" | "primitive_type" => target.utf8_text(source).ok(),
+		"scoped_type_identifier" => target
+			.child_by_field_name("name")
+			.and_then(|n| n.utf8_text(source).ok()),
+		_ => target.utf8_text(source).ok(),
+	}
 }
 
 fn module_moniker(state: &RustDiscover<'_>, node: Node<'_>, scope: &Moniker) -> Option<Moniker> {

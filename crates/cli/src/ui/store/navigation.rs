@@ -26,6 +26,7 @@ pub(in crate::ui) enum NavigationPane {
 	UsageLens,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) enum NavigationAction {
 	ReplaceModels {

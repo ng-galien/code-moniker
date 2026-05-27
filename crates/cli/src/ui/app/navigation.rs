@@ -57,7 +57,7 @@ impl App {
 	pub(in crate::ui) fn selected_change_detail(&self) -> Option<ChangeDetail> {
 		self.selected_nav_row().and_then(|row| match &row.kind {
 			NavNodeKind::Change(id) => self.store().change_detail(id.clone()),
-			NavNodeKind::Def(loc) => self.store().change_detail_for_symbol(&loc),
+			NavNodeKind::Def(loc) => self.store().change_detail_for_symbol(loc),
 			_ => None,
 		})
 	}

@@ -8,15 +8,15 @@ use crate::tsconfig::TsResolution;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum RustExtractionPipeline {
-	#[default]
 	Legacy,
+	#[default]
 	Sdk,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum JavaExtractionPipeline {
-	#[default]
 	Legacy,
+	#[default]
 	Sdk,
 }
 
@@ -46,13 +46,9 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 			ts::extract(uri, source, &anchor, deep, &presets)
 		}
 		Lang::Rs => match ctx.rust_pipeline {
-			RustExtractionPipeline::Legacy => code_moniker_core::lang::rs::extract(
-				uri,
-				source,
-				&anchor,
-				deep,
-				&code_moniker_core::lang::rs::Presets::default(),
-			),
+			RustExtractionPipeline::Legacy => {
+				panic!("Rust legacy extraction pipeline was removed; use the SDK pipeline")
+			}
 			RustExtractionPipeline::Sdk => code_moniker_core::lang::rs::extract_sdk(
 				uri,
 				source,
@@ -62,13 +58,9 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 			),
 		},
 		Lang::Java => match ctx.java_pipeline {
-			JavaExtractionPipeline::Legacy => code_moniker_core::lang::java::extract(
-				uri,
-				source,
-				&anchor,
-				deep,
-				&code_moniker_core::lang::java::Presets::default(),
-			),
+			JavaExtractionPipeline::Legacy => {
+				panic!("Java legacy extraction pipeline was removed; use the SDK pipeline")
+			}
 			JavaExtractionPipeline::Sdk => code_moniker_core::lang::java::extract_sdk(
 				uri,
 				source,
@@ -135,4 +127,41 @@ fn srcset(path: &Path) -> Option<&'static str> {
 pub fn file_uri(path: &Path) -> String {
 	let abs = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 	format!("file://{}", abs.display())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn rust_and_java_default_to_sdk_pipeline() {
+		assert_eq!(
+			RustExtractionPipeline::default(),
+			RustExtractionPipeline::Sdk
+		);
+		assert_eq!(
+			JavaExtractionPipeline::default(),
+			JavaExtractionPipeline::Sdk
+		);
+	}
+
+	#[test]
+	#[should_panic(expected = "Rust legacy extraction pipeline was removed")]
+	fn rust_legacy_pipeline_panics() {
+		let ctx = Context {
+			rust_pipeline: RustExtractionPipeline::Legacy,
+			..Context::default()
+		};
+		let _ = extract_with(Lang::Rs, "fn main() {}", Path::new("main.rs"), &ctx);
+	}
+
+	#[test]
+	#[should_panic(expected = "Java legacy extraction pipeline was removed")]
+	fn java_legacy_pipeline_panics() {
+		let ctx = Context {
+			java_pipeline: JavaExtractionPipeline::Legacy,
+			..Context::default()
+		};
+		let _ = extract_with(Lang::Java, "class Main {}", Path::new("Main.java"), &ctx);
+	}
 }

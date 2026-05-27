@@ -70,6 +70,7 @@ const SHAPE_TABLE: &[(&[u8], Shape, bool)] = &[
 	(b"constructor", Shape::Callable, true),
 	(b"fn", Shape::Callable, true),
 	(b"func", Shape::Callable, true),
+	(b"macro", Shape::Callable, true),
 	(b"procedure", Shape::Callable, true),
 	(b"async_function", Shape::Callable, true),
 	(b"test", Shape::Callable, true),

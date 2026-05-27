@@ -109,7 +109,7 @@ fn assert_no_unresolved(snapshot: &WorkspaceSnapshot) {
 		snapshot.linkage.unresolved_refs,
 		0,
 		"unexpected unresolved references:\n{}",
-		unresolved_report(&snapshot)
+		unresolved_report(snapshot)
 	);
 }
 

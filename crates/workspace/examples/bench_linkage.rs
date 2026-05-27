@@ -222,8 +222,8 @@ impl Default for BenchOptions {
 			project: None,
 			cache_dir: None,
 			lang: None,
-			rust_pipeline: RustExtractionPipeline::Legacy,
-			java_pipeline: JavaExtractionPipeline::Legacy,
+			rust_pipeline: RustExtractionPipeline::Sdk,
+			java_pipeline: JavaExtractionPipeline::Sdk,
 			exclude_path_fragments: Vec::new(),
 			unresolved_groups: None,
 			debug_calls: Vec::new(),
@@ -312,7 +312,7 @@ fn print_unresolved_groups(
 		}
 	}
 	let mut groups = groups.into_iter().collect::<Vec<_>>();
-	groups.sort_by(|(_, left), (_, right)| right.count.cmp(&left.count));
+	groups.sort_by_key(|(_, group)| std::cmp::Reverse(group.count));
 	println!();
 	println!("unresolved_group\tcount\tsamples");
 	for (key, group) in groups.into_iter().take(limit) {

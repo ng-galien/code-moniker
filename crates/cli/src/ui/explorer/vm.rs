@@ -322,7 +322,7 @@ fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
 		},
 		NavNodeKind::ChangeFile => NavRowVmKind::ChangeFile,
 		NavNodeKind::Def(loc) => {
-			let symbol = ctx.workspace.symbol_summary(&loc);
+			let symbol = ctx.workspace.symbol_summary(loc);
 			let kind = symbol.kind.clone();
 			NavRowVmKind::Def {
 				lang: symbol.lang,

@@ -287,9 +287,7 @@ fn visibility_of(node: Node<'_>, scope: &Moniker, trait_impl: bool) -> &'static 
 	let has_pub = node
 		.children(&mut cursor)
 		.any(|child| child.kind() == "visibility_modifier");
-	if has_pub {
-		kinds::VIS_PUBLIC
-	} else if trait_impl || scope.last_kind().as_deref() == Some(kinds::TRAIT) {
+	if has_pub || trait_impl || scope.last_kind().as_deref() == Some(kinds::TRAIT) {
 		kinds::VIS_PUBLIC
 	} else {
 		kinds::VIS_PRIVATE

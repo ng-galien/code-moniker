@@ -67,9 +67,9 @@ impl Manifest {
 
 #[derive(Debug)]
 pub enum ManifestError {
-	Cargo(rs::build::CargoError),
+	Cargo(rs::cargo_manifest::CargoError),
 	PackageJson(ts::build::PackageJsonError),
-	PomXml(java::build::PomXmlError),
+	PomXml(java::pom_manifest::PomXmlError),
 	Pyproject(python::build::PyprojectError),
 	GoMod(go::build::GoModError),
 	Csproj(cs::build::CsprojError),
@@ -103,7 +103,7 @@ impl std::error::Error for ManifestError {
 
 pub fn parse(manifest: Manifest, project: &[u8], content: &str) -> Result<Vec<Dep>, ManifestError> {
 	match manifest {
-		Manifest::Cargo => rs::build::parse(content)
+		Manifest::Cargo => rs::cargo_manifest::parse(content)
 			.map_err(ManifestError::Cargo)
 			.map(|v| {
 				v.into_iter()
@@ -117,7 +117,7 @@ pub fn parse(manifest: Manifest, project: &[u8], content: &str) -> Result<Vec<De
 					.map(|d| project_into(manifest, project, d))
 					.collect()
 			}),
-		Manifest::PomXml => java::build::parse(content)
+		Manifest::PomXml => java::pom_manifest::parse(content)
 			.map_err(ManifestError::PomXml)
 			.map(|v| {
 				v.into_iter()
@@ -150,9 +150,9 @@ pub fn parse(manifest: Manifest, project: &[u8], content: &str) -> Result<Vec<De
 
 pub fn package_moniker(manifest: Manifest, project: &[u8], import_root: &str) -> Moniker {
 	match manifest {
-		Manifest::Cargo => rs::build::package_moniker(project, import_root),
+		Manifest::Cargo => rs::cargo_manifest::package_moniker(project, import_root),
 		Manifest::PackageJson => ts::build::package_moniker(project, import_root),
-		Manifest::PomXml => java::build::package_moniker(project, import_root),
+		Manifest::PomXml => java::pom_manifest::package_moniker(project, import_root),
 		Manifest::Pyproject => python::build::package_moniker(project, import_root),
 		Manifest::GoMod => go::build::package_moniker(project, import_root),
 		Manifest::Csproj => cs::build::package_moniker(project, import_root),
@@ -187,7 +187,7 @@ macro_rules! impl_into_dep {
 	};
 }
 
-impl IntoDep for rs::build::Dep {
+impl IntoDep for rs::cargo_manifest::Dep {
 	fn into_dep(self, manifest: Manifest, project: &[u8]) -> Dep {
 		let package_moniker = package_moniker(manifest, project, &self.import_root);
 		Dep {
@@ -203,7 +203,7 @@ impl IntoDep for rs::build::Dep {
 
 impl_into_dep!(
 	ts::build::Dep,
-	java::build::Dep,
+	java::pom_manifest::Dep,
 	python::build::Dep,
 	go::build::Dep,
 	cs::build::Dep,

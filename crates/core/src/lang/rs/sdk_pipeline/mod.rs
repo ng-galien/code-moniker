@@ -1,5 +1,5 @@
 use crate::core::code_graph::CodeGraph;
-use crate::core::moniker::Moniker;
+use crate::core::moniker::{Moniker, MonikerBuilder};
 use crate::lang::sdk::{DiscoveredFile, GraphEmitter, ImportTable, ScopeTree};
 
 mod defs;
@@ -10,7 +10,6 @@ mod syntax;
 
 use discover::RustDiscover;
 
-use super::canonicalize::compute_module_moniker;
 use super::kinds;
 use super::{Presets, parse};
 
@@ -33,4 +32,17 @@ pub fn extract(
 		ImportTable::default(),
 	);
 	GraphEmitter::emit(&discovered, &discovered_parts.refs).expect("Rust SDK graph emission")
+}
+
+fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
+	let stem = uri.strip_suffix(".rs").unwrap_or(uri);
+	let mut builder = MonikerBuilder::from_view(anchor.as_view());
+	builder.segment(crate::lang::kinds::LANG, b"rs");
+	crate::lang::callable::append_dir_module_segments(
+		&mut builder,
+		stem,
+		kinds::DIR,
+		kinds::MODULE,
+	);
+	builder.build()
 }

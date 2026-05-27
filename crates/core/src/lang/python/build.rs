@@ -90,7 +90,7 @@ pub fn parse(content: &str) -> Result<Vec<Dep>, PyprojectError> {
 				if name == "python" {
 					continue;
 				}
-				let version = crate::lang::rs::build::extract_version(spec);
+				let version = crate::lang::rs::cargo_manifest::extract_version(spec);
 				out.push(Dep {
 					name: name.clone(),
 					version,

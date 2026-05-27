@@ -19,7 +19,7 @@ fn main() {
 	let root = env::args().nth(2).unwrap_or_else(|| {
 		"crates/workspace/tests/fixtures/projects/rust/multiproject".to_string()
 	});
-	let mode = env::args().nth(3).unwrap_or_else(|| "both".to_string());
+	let mode = env::args().nth(3).unwrap_or_else(|| "sdk".to_string());
 	let root = PathBuf::from(root)
 		.canonicalize()
 		.expect("fixture root should exist");
@@ -31,7 +31,6 @@ fn main() {
 
 	for file in &files {
 		let _ = rs::extract(&file.rel, &file.source, &anchor, true, &presets);
-		let _ = rs::extract_sdk(&file.rel, &file.source, &anchor, true, &presets);
 	}
 
 	println!("root:              {}", root.display());
@@ -43,33 +42,13 @@ fn main() {
 	);
 
 	match mode.as_str() {
-		"legacy" => {
-			let legacy = time_extract(iters, &files, |file| {
-				rs::extract(&file.rel, &file.source, &anchor, true, &presets)
-			});
-			print_result("legacy", &legacy, iters, files.len());
-		}
 		"sdk" => {
 			let sdk = time_extract(iters, &files, |file| {
-				rs::extract_sdk(&file.rel, &file.source, &anchor, true, &presets)
-			});
-			print_result("sdk", &sdk, iters, files.len());
-		}
-		"both" => {
-			let legacy = time_extract(iters, &files, |file| {
 				rs::extract(&file.rel, &file.source, &anchor, true, &presets)
 			});
-			let sdk = time_extract(iters, &files, |file| {
-				rs::extract_sdk(&file.rel, &file.source, &anchor, true, &presets)
-			});
-			print_result("legacy", &legacy, iters, files.len());
 			print_result("sdk", &sdk, iters, files.len());
-			println!(
-				"ratio sdk/legacy:  {:.2}x",
-				sdk.elapsed.as_secs_f64() / legacy.elapsed.as_secs_f64()
-			);
 		}
-		other => panic!("unknown mode {other}; expected legacy, sdk, or both"),
+		other => panic!("unknown mode {other}; expected sdk"),
 	}
 }
 
