@@ -10,6 +10,7 @@ use crate::lang::canonical_walker::CanonicalWalker;
 pub mod build;
 mod canonicalize;
 mod kinds;
+mod sdk_pipeline;
 mod strategy;
 
 use std::collections::HashMap;
@@ -75,6 +76,16 @@ pub fn extract(
 	let walker = CanonicalWalker::new(&strat, source.as_bytes());
 	walker.walk(tree.root_node(), &module, &mut graph);
 	graph
+}
+
+pub fn extract_sdk(
+	uri: &str,
+	source: &str,
+	anchor: &Moniker,
+	deep: bool,
+	presets: &Presets,
+) -> CodeGraph {
+	sdk_pipeline::extract(uri, source, anchor, deep, presets)
 }
 
 pub struct Lang;

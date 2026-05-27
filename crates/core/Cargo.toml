@@ -51,3 +51,7 @@ path = "examples/bench_codegraph.rs"
 [[example]]
 name = "bench_extract"
 path = "examples/bench_extract.rs"
+
+[[example]]
+name = "bench_rust_sdk_compare"
+path = "examples/bench_rust_sdk_compare.rs"
