@@ -83,13 +83,13 @@ pub fn write_tree_with_prefix<W: Write>(
 		}
 	}
 
-	OutlineRenderer {
+	let mut renderer = OutlineRenderer {
 		w,
 		opts: &opts,
 		cfg: &cfg,
 		source,
-	}
-	.render(&root, prefix, true)
+	};
+	render_outline(&mut renderer, &root, prefix, true)
 }
 
 #[derive(Default)]
@@ -125,34 +125,37 @@ struct OutlineRenderer<'a, W> {
 	source: &'a str,
 }
 
-impl<W: Write> OutlineRenderer<'_, W> {
-	fn render(&mut self, node: &Node<'_>, prefix: &str, is_top: bool) -> std::io::Result<()> {
-		let mut entries: Vec<(&String, &Node<'_>)> = node.children.iter().collect();
-		entries.sort_by_key(|entry| tree_sort_key(entry.0, entry.1));
+fn render_outline<W: Write>(
+	renderer: &mut OutlineRenderer<'_, W>,
+	node: &Node<'_>,
+	prefix: &str,
+	is_top: bool,
+) -> std::io::Result<()> {
+	let mut entries: Vec<(&String, &Node<'_>)> = node.children.iter().collect();
+	entries.sort_by_key(|entry| tree_sort_key(entry.0, entry.1));
 
-		let total = entries.len() + node.refs.len();
-		let mut i = 0usize;
+	let total = entries.len() + node.refs.len();
+	let mut i = 0usize;
 
-		for (seg, child) in &entries {
-			let last = i + 1 == total;
-			let (branch, cont) = branch_glyphs(is_top, last, self.opts);
-			let (label, rendered_child) =
-				collapsed_outline_label(seg, child, self.source, self.opts);
-			writeln!(self.w, "{prefix}{branch}{label}")?;
-			let next_prefix = format!("{prefix}{cont}");
-			self.render(rendered_child, &next_prefix, false)?;
-			i += 1;
-		}
-
-		for r in &node.refs {
-			let last = i + 1 == total;
-			let (branch, _) = branch_glyphs(is_top, last, self.opts);
-			let label = format_ref_label(r, self.cfg, self.opts);
-			writeln!(self.w, "{prefix}{branch}{label}")?;
-			i += 1;
-		}
-		Ok(())
+	for (seg, child) in &entries {
+		let last = i + 1 == total;
+		let (branch, cont) = branch_glyphs(is_top, last, renderer.opts);
+		let (label, rendered_child) =
+			collapsed_outline_label(seg, child, renderer.source, renderer.opts);
+		writeln!(renderer.w, "{prefix}{branch}{label}")?;
+		let next_prefix = format!("{prefix}{cont}");
+		render_outline(renderer, rendered_child, &next_prefix, false)?;
+		i += 1;
 	}
+
+	for r in &node.refs {
+		let last = i + 1 == total;
+		let (branch, _) = branch_glyphs(is_top, last, renderer.opts);
+		let label = format_ref_label(r, renderer.cfg, renderer.opts);
+		writeln!(renderer.w, "{prefix}{branch}{label}")?;
+		i += 1;
+	}
+	Ok(())
 }
 
 #[derive(Eq, PartialEq, Ord, PartialOrd)]

@@ -58,7 +58,7 @@ fn install<W: Write>(
 		);
 	}
 
-	let project_dir = root.join(backend.project_dir());
+	let project_dir = root.join(backend_project_dir(backend));
 	let hooks_dir = project_dir.join("hooks");
 	fs::create_dir_all(&hooks_dir)
 		.with_context(|| format!("cannot create `{}`", hooks_dir.display()))?;
@@ -78,19 +78,19 @@ fn install<W: Write>(
 	.with_context(|| format!("cannot write `{}`", hook_path.display()))?;
 	make_executable(&hook_path)?;
 
-	let config_path = project_dir.join(backend.config_file());
+	let config_path = project_dir.join(backend_config_file(backend));
 	let config = read_json_object(&config_path)?;
 	let hook_command = hook_path.display().to_string();
-	let settings_command = backend.settings_command(&hook_command);
+	let settings_command = backend_settings_command(backend, &hook_command);
 	let config = upsert_tool_hook(
 		config,
 		ToolHookUpsert {
 			path: &config_path,
 			command: &settings_command,
-			event: backend.hook_event(),
-			matcher: backend.matcher(),
-			name: backend.hook_name(&settings_command),
-			project_dir: backend.project_dir(),
+			event: backend_hook_event(backend),
+			matcher: backend_matcher(backend),
+			name: backend_hook_name(backend, &settings_command),
+			project_dir: backend_project_dir(backend),
 		},
 	)?;
 	fs::write(&config_path, serde_json::to_vec_pretty(&config)?)
@@ -99,19 +99,24 @@ fn install<W: Write>(
 		project_dir.join("code-moniker-performance.md"),
 		performance_report(args.profile.as_deref(), &scope, backend),
 	)
-	.with_context(|| format!("cannot write {} hook performance template", backend.name()))?;
+	.with_context(|| {
+		format!(
+			"cannot write {} hook performance template",
+			backend_name(backend)
+		)
+	})?;
 
 	match args.profile.as_deref() {
 		Some(profile) => writeln!(
 			stdout,
 			"Installed {} live harness for profile `{profile}` on `{}`.",
-			backend.name(),
+			backend_name(backend),
 			scope.display()
 		)?,
 		None => writeln!(
 			stdout,
 			"Installed {} live harness on `{}`.",
-			backend.name(),
+			backend_name(backend),
 			scope.display()
 		)?,
 	}
@@ -119,87 +124,85 @@ fn install<W: Write>(
 	writeln!(
 		stdout,
 		"{} config: {}",
-		backend.name(),
+		backend_name(backend),
 		config_path.display()
 	)?;
 	Ok(())
 }
 
-impl HarnessBackend {
-	fn name(self) -> &'static str {
-		match self {
-			Self::Codex => "Codex",
-			Self::Claude => "Claude",
-			Self::Gemini => "Gemini CLI",
-		}
+fn backend_name(backend: HarnessBackend) -> &'static str {
+	match backend {
+		HarnessBackend::Codex => "Codex",
+		HarnessBackend::Claude => "Claude",
+		HarnessBackend::Gemini => "Gemini CLI",
 	}
+}
 
-	fn project_dir(self) -> &'static str {
-		match self {
-			Self::Codex => ".codex",
-			Self::Claude => ".claude",
-			Self::Gemini => ".gemini",
-		}
+fn backend_project_dir(backend: HarnessBackend) -> &'static str {
+	match backend {
+		HarnessBackend::Codex => ".codex",
+		HarnessBackend::Claude => ".claude",
+		HarnessBackend::Gemini => ".gemini",
 	}
+}
 
-	fn config_file(self) -> &'static str {
-		match self {
-			Self::Codex => "hooks.json",
-			Self::Claude | Self::Gemini => "settings.json",
-		}
+fn backend_config_file(backend: HarnessBackend) -> &'static str {
+	match backend {
+		HarnessBackend::Codex => "hooks.json",
+		HarnessBackend::Claude | HarnessBackend::Gemini => "settings.json",
 	}
+}
 
-	fn env_var(self) -> &'static str {
-		match self {
-			Self::Codex => "CODEX_PROJECT_DIR",
-			Self::Claude => "CLAUDE_PROJECT_DIR",
-			Self::Gemini => "GEMINI_PROJECT_DIR",
-		}
+fn backend_env_var(backend: HarnessBackend) -> &'static str {
+	match backend {
+		HarnessBackend::Codex => "CODEX_PROJECT_DIR",
+		HarnessBackend::Claude => "CLAUDE_PROJECT_DIR",
+		HarnessBackend::Gemini => "GEMINI_PROJECT_DIR",
 	}
+}
 
-	fn hook_event(self) -> &'static str {
-		match self {
-			Self::Codex | Self::Claude => "PostToolUse",
-			Self::Gemini => "AfterTool",
-		}
+fn backend_hook_event(backend: HarnessBackend) -> &'static str {
+	match backend {
+		HarnessBackend::Codex | HarnessBackend::Claude => "PostToolUse",
+		HarnessBackend::Gemini => "AfterTool",
 	}
+}
 
-	fn matcher(self) -> &'static str {
-		match self {
-			Self::Codex => CODEX_MATCHER,
-			Self::Claude => CLAUDE_MATCHER,
-			Self::Gemini => GEMINI_MATCHER,
-		}
+fn backend_matcher(backend: HarnessBackend) -> &'static str {
+	match backend {
+		HarnessBackend::Codex => CODEX_MATCHER,
+		HarnessBackend::Claude => CLAUDE_MATCHER,
+		HarnessBackend::Gemini => GEMINI_MATCHER,
 	}
+}
 
-	fn hook_name(self, command: &str) -> Option<String> {
-		match self {
-			Self::Codex | Self::Claude => None,
-			Self::Gemini => Some(hook_name_from_command(command)),
-		}
+fn backend_hook_name(backend: HarnessBackend, command: &str) -> Option<String> {
+	match backend {
+		HarnessBackend::Codex | HarnessBackend::Claude => None,
+		HarnessBackend::Gemini => Some(hook_name_from_command(command)),
 	}
+}
 
-	fn settings_command(self, hook_command: &str) -> String {
-		format!(
-			"sh -c 'root=\"${{{}:-$(pwd)}}\"; exec \"$root/{}\"'",
-			self.env_var(),
-			relative_hook_path(self, hook_command)
-		)
+fn backend_settings_command(backend: HarnessBackend, hook_command: &str) -> String {
+	format!(
+		"sh -c 'root=\"${{{}:-$(pwd)}}\"; exec \"$root/{}\"'",
+		backend_env_var(backend),
+		relative_hook_path(backend, hook_command)
+	)
+}
+
+fn backend_check_format_arg(backend: HarnessBackend) -> &'static str {
+	match backend {
+		HarnessBackend::Codex => " --format codex-hook",
+		HarnessBackend::Claude | HarnessBackend::Gemini => "",
 	}
+}
 
-	fn check_format_arg(self) -> &'static str {
-		match self {
-			Self::Codex => " --format codex-hook",
-			Self::Claude | Self::Gemini => "",
-		}
-	}
-
-	fn tool_backend_arg(self) -> &'static str {
-		match self {
-			Self::Codex => "codex",
-			Self::Claude => "claude",
-			Self::Gemini => "gemini",
-		}
+fn backend_tool_backend_arg(backend: HarnessBackend) -> &'static str {
+	match backend {
+		HarnessBackend::Codex => "codex",
+		HarnessBackend::Claude => "claude",
+		HarnessBackend::Gemini => "gemini",
 	}
 }
 
@@ -207,7 +210,7 @@ fn relative_hook_path(backend: HarnessBackend, hook_command: &str) -> String {
 	Path::new(hook_command)
 		.file_name()
 		.and_then(|name| name.to_str())
-		.map(|file| format!("{}/hooks/{file}", backend.project_dir()))
+		.map(|file| format!("{}/hooks/{file}", backend_project_dir(backend)))
 		.unwrap_or_else(|| hook_command.to_string())
 }
 
@@ -254,7 +257,7 @@ fn hook_script(
 ) -> String {
 	let root_expr = format!(
 		r#"root="${{{}:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}}""#,
-		backend.env_var()
+		backend_env_var(backend)
 	);
 	let files_setup = hook_files_setup(scope, backend);
 	let no_files = hook_no_files(backend);
@@ -352,7 +355,7 @@ done <<CODE_MONIKER_FILES
 $files
 CODE_MONIKER_FILES
 "#,
-		backend.tool_backend_arg()
+		backend_tool_backend_arg(backend)
 	)
 }
 
@@ -385,7 +388,7 @@ fn hook_check_command(
 		r#""$HOME/.cargo/bin/code-moniker" check --rules {}{}{} --max-violations {} "$@""#,
 		sh_quote(&rules.display().to_string()),
 		profile_arg,
-		backend.check_format_arg(),
+		backend_check_format_arg(backend),
 		max_violations,
 	)
 }
@@ -603,7 +606,7 @@ fn performance_report(profile: Option<&str>, scope: &Path, backend: HarnessBacke
 	let scope_arg = sh_quote(&scope.display().to_string());
 	format!(
 		"# code-moniker {} hook overhead\n\n| Date | Machine | Scope | Command | p50 | p95 | Notes |\n| ---- | ------- | ----- | ------- | --- | --- | ----- |\n| YYYY-MM-DD | dev laptop | {} | `code-moniker check{} {} --file <touched-file>` |  |  |  |\n",
-		backend.name(),
+		backend_name(backend),
 		scope.display(),
 		profile_arg,
 		scope_arg
