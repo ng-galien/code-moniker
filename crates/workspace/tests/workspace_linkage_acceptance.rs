@@ -40,13 +40,13 @@ fn rust_multiproject_links_public_cross_crate_symbols() {
 }
 
 #[test]
-fn java_sdk_multiproject_classifies_platform_refs_as_external() {
+fn java_sdk_multiproject_links_spring_and_platform_refs() {
 	let snapshot = load_workspace_with_options(
 		LocalWorkspaceOptions::new(vec![fixture_path("projects/java/multiprojet")], None)
 			.with_java_pipeline(JavaExtractionPipeline::Sdk),
 	);
 
-	assert_eq!(snapshot.linkage.external_refs, 89);
+	assert_eq!(snapshot.linkage.external_refs, 117);
 	assert_eq!(
 		snapshot.linkage.unresolved_refs,
 		0,
@@ -62,6 +62,39 @@ fn java_sdk_multiproject_classifies_platform_refs_as_external() {
 		&snapshot,
 		"method_call",
 		"external_pkg:java/path:lang/path:String/method:trim",
+	);
+	assert_external_reference(
+		&snapshot,
+		"annotates",
+		"package:org/package:springframework/package:stereotype/module:Service/path:Service",
+	);
+	assert_external_reference(
+		&snapshot,
+		"method_call",
+		"package:org/package:springframework/package:http/module:ResponseEntity/path:ResponseEntity/method:ok",
+	);
+	assert_external_reference(
+		&snapshot,
+		"method_call",
+		"package:org/package:springframework/package:boot/module:SpringApplication/path:SpringApplication/method:run",
+	);
+	assert_linked_to(
+		&snapshot,
+		"method_call",
+		"package:com/package:acme/package:springedge/package:app/module:SpringCustomerService/path:SpringCustomerService/method:loadProfile",
+		"package:com/package:acme/package:springedge/package:app/module:SpringCustomerService/class:SpringCustomerService/method:loadProfile(customerId:String)",
+	);
+	assert_linked_to(
+		&snapshot,
+		"method_call",
+		"package:com/package:acme/package:springedge/package:app/module:CustomerProfileDto/path:CustomerProfileDto/method:from",
+		"package:com/package:acme/package:springedge/package:app/module:CustomerProfileDto/record:CustomerProfileDto/method:from(profile:CustomerProfile)",
+	);
+	assert_linked_to(
+		&snapshot,
+		"method_call",
+		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/path:RiskPolicy/method:isPriority",
+		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/class:RiskPolicy/method:isPriority(profile:CustomerProfile)",
 	);
 }
 

@@ -78,6 +78,9 @@ impl ManifestPolicy {
 			return self.source_builtin_external_root(query, import_root)
 				|| self.source_declares_import_root(query, import_root);
 		}
+		if source_declares_java_package_target(self, query) {
+			return true;
+		}
 		self.is_rust_proc_macro_annotation(query) && self.source_declares_dependencies(query)
 	}
 
@@ -227,6 +230,58 @@ impl ManifestPolicy {
 	}
 }
 
+fn source_declares_java_package_target(policy: &ManifestPolicy, query: &LinkageQuery<'_>) -> bool {
+	let Some(source_lang) = query
+		.material
+		.files
+		.get(query.source_file)
+		.map(|file| file.lang)
+	else {
+		return false;
+	};
+	if source_lang != Lang::Java {
+		return false;
+	}
+	let Some(package_prefix) = java_package_prefix(query.target) else {
+		return false;
+	};
+	policy
+		.entry_for_file(query.source_file)
+		.is_some_and(|entry| {
+			JavaDependencyPolicy::new(&policy.entries_by_root)
+				.entry_declares_external_package(entry, &package_prefix)
+		})
+}
+
+struct JavaDependencyPolicy<'a> {
+	entries_by_root: &'a FxHashMap<usize, Vec<ManifestEntry>>,
+}
+
+impl<'a> JavaDependencyPolicy<'a> {
+	fn new(entries_by_root: &'a FxHashMap<usize, Vec<ManifestEntry>>) -> Self {
+		Self { entries_by_root }
+	}
+
+	fn entry_declares_external_package(&self, entry: &ManifestEntry, package_prefix: &str) -> bool {
+		entry.manifest == Manifest::PomXml
+			&& entry.deps.iter().any(|dep| {
+				!self.workspace_declares_package(dep)
+					&& java_dep_group(dep).is_some_and(|group| {
+						package_prefix == group
+							|| package_prefix
+								.strip_prefix(group)
+								.is_some_and(|tail| tail.starts_with('.'))
+					})
+			})
+	}
+
+	fn workspace_declares_package(&self, package: &str) -> bool {
+		self.entries_by_root
+			.values()
+			.any(|entries| entries.iter().any(|entry| entry.packages.contains(package)))
+	}
+}
+
 fn manifest_entries_for_root(root: &SourceRoot) -> Vec<ManifestEntry> {
 	manifest_candidates(&root.path)
 		.into_iter()
@@ -364,6 +419,31 @@ fn external_import_root<'a>(query: &'a LinkageQuery<'_>) -> Option<&'a str> {
 		return None;
 	}
 	std::str::from_utf8(head.name).ok()
+}
+
+fn java_package_prefix(target: &code_moniker_core::core::moniker::Moniker) -> Option<String> {
+	let mut pieces = Vec::new();
+	let mut in_java = false;
+	for segment in target.as_view().segments() {
+		if segment.kind == code_moniker_core::lang::kinds::LANG && segment.name == b"java" {
+			in_java = true;
+			continue;
+		}
+		if !in_java {
+			continue;
+		}
+		if segment.kind == code_moniker_core::lang::kinds::PACKAGE {
+			pieces.push(std::str::from_utf8(segment.name).ok()?);
+		} else if !pieces.is_empty() {
+			break;
+		}
+	}
+	(!pieces.is_empty()).then(|| pieces.join("."))
+}
+
+fn java_dep_group(package: &str) -> Option<&str> {
+	let coord = package.strip_prefix(&package_id_prefix(Manifest::PomXml))?;
+	coord.split_once(':').map(|(group, _)| group)
 }
 
 pub(super) fn is_builtin_external_root(lang: Lang, root: &str) -> bool {
