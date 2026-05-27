@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::environment;
-use crate::extract::RustExtractionPipeline;
+use crate::extract::{JavaExtractionPipeline, RustExtractionPipeline};
 use crate::snapshot::{
 	SourceCatalog, SourceUnit, WorkspaceFailure, WorkspaceRequest, WorkspaceResource,
 	WorkspaceResult,
@@ -21,6 +21,7 @@ pub struct LocalSourceCatalogOptions {
 	pub project: Option<String>,
 	pub identity: LocalIdentityResolver,
 	pub rust_pipeline: RustExtractionPipeline,
+	pub java_pipeline: JavaExtractionPipeline,
 }
 
 impl LocalSourceCatalogOptions {
@@ -31,6 +32,7 @@ impl LocalSourceCatalogOptions {
 			project,
 			identity: LocalIdentityResolver::default(),
 			rust_pipeline: RustExtractionPipeline::default(),
+			java_pipeline: JavaExtractionPipeline::default(),
 		}
 	}
 
@@ -46,6 +48,11 @@ impl LocalSourceCatalogOptions {
 
 	pub fn with_rust_pipeline(mut self, rust_pipeline: RustExtractionPipeline) -> Self {
 		self.rust_pipeline = rust_pipeline;
+		self
+	}
+
+	pub fn with_java_pipeline(mut self, java_pipeline: JavaExtractionPipeline) -> Self {
+		self.java_pipeline = java_pipeline;
 		self
 	}
 }
@@ -77,6 +84,7 @@ impl SourceCatalogPort for LocalSourceCatalog {
 		.map_err(|err| WorkspaceFailure::new(WorkspaceResource::SourceCatalog, err.to_string()))?;
 		for root in &mut sources.roots {
 			root.ctx.rust_pipeline = self.options.rust_pipeline;
+			root.ctx.java_pipeline = self.options.java_pipeline;
 		}
 		let generation = self.cache.next_generation();
 		let units = sources

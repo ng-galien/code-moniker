@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
-use code_moniker_workspace::extract::RustExtractionPipeline;
+use code_moniker_workspace::extract::{JavaExtractionPipeline, RustExtractionPipeline};
 use code_moniker_workspace::linkage::LocalLinkage;
 use code_moniker_workspace::snapshot::WorkspaceRequest;
 use code_moniker_workspace::source::{
@@ -100,6 +100,7 @@ struct BenchOptions {
 	cache_dir: Option<PathBuf>,
 	lang: Option<Lang>,
 	rust_pipeline: RustExtractionPipeline,
+	java_pipeline: JavaExtractionPipeline,
 	exclude_path_fragments: Vec<String>,
 	unresolved_groups: Option<usize>,
 	debug_calls: Vec<String>,
@@ -133,6 +134,10 @@ impl BenchOptions {
 					options.rust_pipeline =
 						parse_rust_pipeline(&next_value(&mut args, "--rust-pipeline")?)?;
 				}
+				"--java-pipeline" => {
+					options.java_pipeline =
+						parse_java_pipeline(&next_value(&mut args, "--java-pipeline")?)?;
+				}
 				"--unresolved-groups" => {
 					options.unresolved_groups =
 						Some(next_value(&mut args, "--unresolved-groups")?.parse()?);
@@ -160,7 +165,8 @@ impl BenchOptions {
 
 	fn source_options(&self) -> anyhow::Result<LocalSourceCatalogOptions> {
 		let mut options = LocalSourceCatalogOptions::new(self.paths.clone(), self.project.clone())
-			.with_rust_pipeline(self.rust_pipeline);
+			.with_rust_pipeline(self.rust_pipeline)
+			.with_java_pipeline(self.java_pipeline);
 		if self.lang.is_some() || !self.exclude_path_fragments.is_empty() {
 			let files = self.filtered_files()?;
 			options = options.with_files(files);
@@ -217,6 +223,7 @@ impl Default for BenchOptions {
 			cache_dir: None,
 			lang: None,
 			rust_pipeline: RustExtractionPipeline::Legacy,
+			java_pipeline: JavaExtractionPipeline::Legacy,
 			exclude_path_fragments: Vec::new(),
 			unresolved_groups: None,
 			debug_calls: Vec::new(),
@@ -237,9 +244,17 @@ fn parse_rust_pipeline(value: &str) -> anyhow::Result<RustExtractionPipeline> {
 	}
 }
 
+fn parse_java_pipeline(value: &str) -> anyhow::Result<JavaExtractionPipeline> {
+	match value {
+		"legacy" => Ok(JavaExtractionPipeline::Legacy),
+		"sdk" => Ok(JavaExtractionPipeline::Sdk),
+		other => anyhow::bail!("unknown Java pipeline `{other}`; expected legacy or sdk"),
+	}
+}
+
 fn print_usage() {
 	println!(
-		"bench_linkage [--project NAME] [--cache-dir PATH] [--lang TAG] [--rust-pipeline legacy|sdk] [--exclude PATH_FRAGMENT] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
+		"bench_linkage [--project NAME] [--cache-dir PATH] [--lang TAG] [--rust-pipeline legacy|sdk] [--java-pipeline legacy|sdk] [--exclude PATH_FRAGMENT] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
 	);
 }
 

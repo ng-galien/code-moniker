@@ -13,11 +13,19 @@ pub enum RustExtractionPipeline {
 	Sdk,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub enum JavaExtractionPipeline {
+	#[default]
+	Legacy,
+	Sdk,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Context {
 	pub ts: TsResolution,
 	pub project: Option<String>,
 	pub rust_pipeline: RustExtractionPipeline,
+	pub java_pipeline: JavaExtractionPipeline,
 }
 
 pub fn extract(lang: Lang, source: &str, path: &Path) -> CodeGraph {
@@ -53,13 +61,22 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 				&code_moniker_core::lang::rs::Presets::default(),
 			),
 		},
-		Lang::Java => code_moniker_core::lang::java::extract(
-			uri,
-			source,
-			&anchor,
-			deep,
-			&code_moniker_core::lang::java::Presets::default(),
-		),
+		Lang::Java => match ctx.java_pipeline {
+			JavaExtractionPipeline::Legacy => code_moniker_core::lang::java::extract(
+				uri,
+				source,
+				&anchor,
+				deep,
+				&code_moniker_core::lang::java::Presets::default(),
+			),
+			JavaExtractionPipeline::Sdk => code_moniker_core::lang::java::extract_sdk(
+				uri,
+				source,
+				&anchor,
+				deep,
+				&code_moniker_core::lang::java::Presets::default(),
+			),
+		},
 		Lang::Python => code_moniker_core::lang::python::extract(
 			uri,
 			source,
