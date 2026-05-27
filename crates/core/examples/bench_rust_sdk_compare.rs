@@ -16,9 +16,9 @@ fn main() {
 		.nth(1)
 		.and_then(|value| value.parse().ok())
 		.unwrap_or(200);
-	let root = env::args()
-		.nth(2)
-		.unwrap_or_else(|| "crates/workspace/tests/fixtures/rust/multiproject".to_string());
+	let root = env::args().nth(2).unwrap_or_else(|| {
+		"crates/workspace/tests/fixtures/projects/rust/multiproject".to_string()
+	});
 	let mode = env::args().nth(3).unwrap_or_else(|| "both".to_string());
 	let root = PathBuf::from(root)
 		.canonicalize()

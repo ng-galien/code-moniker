@@ -370,13 +370,25 @@ macro_rules! expectation_lang {
 	};
 }
 
-expectation_lang!(expect_ts, "fixtures/ts/*.{ts,tsx,jsx}", lang::ts::Lang);
-expectation_lang!(expect_rs, "fixtures/rs/*.rs", lang::rs::Lang);
-expectation_lang!(expect_python, "fixtures/python/*.py", lang::python::Lang);
-expectation_lang!(expect_go, "fixtures/go/*.go", lang::go::Lang);
-expectation_lang!(expect_java, "fixtures/java/*.java", lang::java::Lang);
-expectation_lang!(expect_cs, "fixtures/cs/*.cs", lang::cs::Lang);
-expectation_lang!(expect_sql, "fixtures/sql/*.sql", lang::sql::Lang);
+expectation_lang!(
+	expect_ts,
+	"fixtures/extractors/ts/*.{ts,tsx,jsx}",
+	lang::ts::Lang
+);
+expectation_lang!(expect_rs, "fixtures/extractors/rs/*.rs", lang::rs::Lang);
+expectation_lang!(
+	expect_python,
+	"fixtures/extractors/python/*.py",
+	lang::python::Lang
+);
+expectation_lang!(expect_go, "fixtures/extractors/go/*.go", lang::go::Lang);
+expectation_lang!(
+	expect_java,
+	"fixtures/extractors/java/*.java",
+	lang::java::Lang
+);
+expectation_lang!(expect_cs, "fixtures/extractors/cs/*.cs", lang::cs::Lang);
+expectation_lang!(expect_sql, "fixtures/extractors/sql/*.sql", lang::sql::Lang);
 
 #[test]
 fn rejects_unknown_expectation_fields() {

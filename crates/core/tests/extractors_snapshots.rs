@@ -117,10 +117,26 @@ macro_rules! snapshot_lang {
 	};
 }
 
-snapshot_lang!(snapshot_ts, "fixtures/ts/*.{ts,tsx,jsx}", lang::ts::Lang);
-snapshot_lang!(snapshot_rs, "fixtures/rs/*.rs", lang::rs::Lang);
-snapshot_lang!(snapshot_python, "fixtures/python/*.py", lang::python::Lang);
-snapshot_lang!(snapshot_go, "fixtures/go/*.go", lang::go::Lang);
-snapshot_lang!(snapshot_java, "fixtures/java/*.java", lang::java::Lang);
-snapshot_lang!(snapshot_cs, "fixtures/cs/*.cs", lang::cs::Lang);
-snapshot_lang!(snapshot_sql, "fixtures/sql/*.sql", lang::sql::Lang);
+snapshot_lang!(
+	snapshot_ts,
+	"fixtures/extractors/ts/*.{ts,tsx,jsx}",
+	lang::ts::Lang
+);
+snapshot_lang!(snapshot_rs, "fixtures/extractors/rs/*.rs", lang::rs::Lang);
+snapshot_lang!(
+	snapshot_python,
+	"fixtures/extractors/python/*.py",
+	lang::python::Lang
+);
+snapshot_lang!(snapshot_go, "fixtures/extractors/go/*.go", lang::go::Lang);
+snapshot_lang!(
+	snapshot_java,
+	"fixtures/extractors/java/*.java",
+	lang::java::Lang
+);
+snapshot_lang!(snapshot_cs, "fixtures/extractors/cs/*.cs", lang::cs::Lang);
+snapshot_lang!(
+	snapshot_sql,
+	"fixtures/extractors/sql/*.sql",
+	lang::sql::Lang
+);

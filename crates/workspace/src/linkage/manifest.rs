@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use code_moniker_core::lang::{
 	Lang,
 	build_manifest::{Manifest, parse as parse_manifest},
+	kinds,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -10,10 +11,12 @@ use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope};
 use crate::linkage::query::LinkageQuery;
 use crate::snapshot::{ReferenceRecord, SymbolId};
 use crate::source::CodeIndexMaterial;
+use crate::sources::SourceRoot;
 
 #[derive(Default)]
 pub(super) struct ManifestPolicy {
 	entries_by_root: FxHashMap<usize, Vec<ManifestEntry>>,
+	entry_by_file: FxHashMap<usize, ManifestEntryLocation>,
 }
 
 #[derive(Clone, Debug)]
@@ -24,43 +27,22 @@ struct ManifestEntry {
 	deps: FxHashSet<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ManifestEntryLocation {
+	source_root: usize,
+	entry: usize,
+}
+
 impl ManifestPolicy {
 	pub(super) fn build(material: &CodeIndexMaterial) -> Self {
 		let mut policy = Self::default();
 		for (root_idx, root) in material.source_catalog.sources.roots.iter().enumerate() {
-			for manifest_path in manifest_candidates(&root.path) {
-				let Some(manifest) = Manifest::for_filename(&manifest_path) else {
-					continue;
-				};
-				let Ok(content) = std::fs::read_to_string(&manifest_path) else {
-					continue;
-				};
-				let project = root.ctx.project.as_deref().unwrap_or(&root.label);
-				let Ok(deps) = parse_manifest(manifest, project.as_bytes(), &content) else {
-					continue;
-				};
-				let mut entry = ManifestEntry {
-					path: manifest_path,
-					manifest,
-					packages: FxHashSet::default(),
-					deps: FxHashSet::default(),
-				};
-				for dep in deps {
-					if matches!(dep.dep_kind.as_str(), "package" | "workspace_member") {
-						entry
-							.packages
-							.insert(package_id(manifest, &dep.import_root));
-					} else {
-						entry.deps.insert(package_id(manifest, &dep.import_root));
-					}
-				}
-				policy
-					.entries_by_root
-					.entry(root_idx)
-					.or_default()
-					.push(entry);
+			let entries = manifest_entries_for_root(root);
+			if !entries.is_empty() {
+				policy.entries_by_root.insert(root_idx, entries);
 			}
 		}
+		policy.index_files(material);
 		policy
 	}
 
@@ -69,7 +51,10 @@ impl ManifestPolicy {
 		query: &LinkageQuery<'_>,
 		candidates: Vec<SymbolId>,
 	) -> GlobalTargetPolicy {
-		let mut policy = GlobalTargetPolicy::default();
+		let mut policy = GlobalTargetPolicy {
+			external_dependency: self.can_classify_as_declared_external(query),
+			..GlobalTargetPolicy::default()
+		};
 		for symbol in candidates {
 			let Some((target_file, _)) = query.material.identity.symbol_location(&symbol) else {
 				continue;
@@ -88,6 +73,14 @@ impl ManifestPolicy {
 		policy
 	}
 
+	fn can_classify_as_declared_external(&self, query: &LinkageQuery<'_>) -> bool {
+		if let Some(import_root) = external_import_root(query) {
+			return is_builtin_external_root(import_root)
+				|| self.source_declares_import_root(query, import_root);
+		}
+		self.is_rust_proc_macro_annotation(query) && self.source_declares_dependencies(query)
+	}
+
 	fn source_can_link_to_file(
 		&self,
 		material: &CodeIndexMaterial,
@@ -97,8 +90,8 @@ impl ManifestPolicy {
 		if source_file == target_file {
 			return LinkPermission::Allowed;
 		}
-		let source_entry = self.entry_for_file(material, source_file);
-		let target_entry = self.entry_for_file(material, target_file);
+		let source_entry = self.entry_for_file(source_file);
+		let target_entry = self.entry_for_file(target_file);
 		if source_entry.map(|entry| &entry.path) == target_entry.map(|entry| &entry.path) {
 			return LinkPermission::Allowed;
 		}
@@ -136,24 +129,41 @@ impl ManifestPolicy {
 		}
 	}
 
-	fn entry_for_file<'a>(
-		&'a self,
-		material: &'a CodeIndexMaterial,
-		file_idx: usize,
-	) -> Option<&'a ManifestEntry> {
-		let file = material.files.get(file_idx)?;
-		let entries = self.entries_by_root.get(&file.source_root)?;
-		entries
-			.iter()
-			.filter(|entry| {
-				entry
-					.path
-					.parent()
-					.is_some_and(|dir| file.path.starts_with(dir))
-			})
-			.max_by_key(|entry| entry.path.components().count())
+	fn entry_for_file(&self, file_idx: usize) -> Option<&ManifestEntry> {
+		let location = self.entry_by_file.get(&file_idx)?;
+		self.entries_by_root
+			.get(&location.source_root)?
+			.get(location.entry)
 	}
 
+	fn index_files(&mut self, material: &CodeIndexMaterial) {
+		for (file_idx, file) in material.files.iter().enumerate() {
+			let file_path = absolute_path(&file.path);
+			let Some(entries) = self.entries_by_root.get(&file.source_root) else {
+				continue;
+			};
+			let Some((entry_idx, _)) = entries
+				.iter()
+				.enumerate()
+				.filter(|(_, entry)| {
+					entry
+						.path
+						.parent()
+						.is_some_and(|dir| file_path.starts_with(dir))
+				})
+				.max_by_key(|(_, entry)| entry.path.components().count())
+			else {
+				continue;
+			};
+			self.entry_by_file.insert(
+				file_idx,
+				ManifestEntryLocation {
+					source_root: file.source_root,
+					entry: entry_idx,
+				},
+			);
+		}
+	}
 	fn target_file_declares_import_root(
 		&self,
 		material: &CodeIndexMaterial,
@@ -166,13 +176,77 @@ impl ManifestPolicy {
 		let Some(target_manifest) = manifest_for_lang(target_lang) else {
 			return false;
 		};
-		let Some(target_entry) = self.entry_for_file(material, target_file) else {
+		let Some(target_entry) = self.entry_for_file(target_file) else {
 			return false;
 		};
 		target_entry
 			.packages
 			.contains(&package_id(target_manifest, import_root))
 	}
+
+	fn is_rust_proc_macro_annotation(&self, query: &LinkageQuery<'_>) -> bool {
+		query
+			.material
+			.files
+			.get(query.source_file)
+			.is_some_and(|file| file.lang == Lang::Rs)
+			&& query.reference_kind.as_bytes() == kinds::ANNOTATES
+			&& query.confidence == Some(confidence(kinds::CONF_NAME_MATCH))
+	}
+
+	fn source_declares_dependencies(&self, query: &LinkageQuery<'_>) -> bool {
+		self.entry_for_file(query.source_file)
+			.is_some_and(|entry| entry.manifest == Manifest::Cargo && !entry.deps.is_empty())
+	}
+
+	fn source_declares_import_root(&self, query: &LinkageQuery<'_>, import_root: &str) -> bool {
+		let Some(source_lang) = query
+			.material
+			.files
+			.get(query.source_file)
+			.map(|file| file.lang)
+		else {
+			return false;
+		};
+		let Some(source_manifest) = manifest_for_lang(source_lang) else {
+			return false;
+		};
+		self.entry_for_file(query.source_file).is_some_and(|entry| {
+			entry
+				.deps
+				.contains(&package_id(source_manifest, import_root))
+		})
+	}
+}
+
+fn manifest_entries_for_root(root: &SourceRoot) -> Vec<ManifestEntry> {
+	manifest_candidates(&root.path)
+		.into_iter()
+		.filter_map(|path| manifest_entry(root, &path))
+		.collect()
+}
+
+fn manifest_entry(root: &SourceRoot, manifest_path: &Path) -> Option<ManifestEntry> {
+	let manifest = Manifest::for_filename(manifest_path)?;
+	let content = std::fs::read_to_string(manifest_path).ok()?;
+	let project = root.ctx.project.as_deref().unwrap_or(&root.label);
+	let deps = parse_manifest(manifest, project.as_bytes(), &content).ok()?;
+	let mut entry = ManifestEntry {
+		path: absolute_path(manifest_path),
+		manifest,
+		packages: FxHashSet::default(),
+		deps: FxHashSet::default(),
+	};
+	for dep in deps {
+		if matches!(dep.dep_kind.as_str(), "package" | "workspace_member") {
+			entry
+				.packages
+				.insert(package_id(manifest, &dep.import_root));
+		} else {
+			entry.deps.insert(package_id(manifest, &dep.import_root));
+		}
+	}
+	Some(entry)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -187,6 +261,7 @@ pub(super) struct GlobalTargetPolicy {
 	allowed: Vec<SymbolId>,
 	blocked: bool,
 	unknown: bool,
+	external_dependency: bool,
 }
 
 impl GlobalTargetPolicy {
@@ -203,6 +278,12 @@ impl GlobalTargetPolicy {
 		}
 		if self.blocked && !self.unknown {
 			return Some(ReferenceLinkageDecision::manifest_blocked(reference));
+		}
+		if self.external_dependency {
+			return Some(ReferenceLinkageDecision::external(
+				crate::linkage::decision::ExternalOrigin::Dependency,
+				reference,
+			));
 		}
 		None
 	}
@@ -229,17 +310,41 @@ fn manifest_for_lang(lang: Lang) -> Option<Manifest> {
 }
 
 fn manifest_candidates(root: &Path) -> Vec<PathBuf> {
-	let mut out = Vec::new();
-	for name in [
-		"Cargo.toml",
-		"package.json",
-		"pom.xml",
-		"pyproject.toml",
-		"go.mod",
-	] {
-		let path = root.join(name);
-		if path.is_file() {
-			out.push(path);
+	let mut out = ignore::WalkBuilder::new(root)
+		.build()
+		.filter_map(|entry| entry.ok())
+		.filter(|entry| {
+			entry
+				.file_type()
+				.is_some_and(|file_type| file_type.is_file())
+		})
+		.map(|entry| entry.into_path())
+		.filter(|path| Manifest::for_filename(path).is_some())
+		.collect::<Vec<_>>();
+	out.sort();
+	out
+}
+
+fn absolute_path(path: &Path) -> PathBuf {
+	let path = if path.is_absolute() {
+		path.to_path_buf()
+	} else {
+		std::env::current_dir()
+			.map(|cwd| cwd.join(path))
+			.unwrap_or_else(|_| path.to_path_buf())
+	};
+	normalize_path(&path)
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+	let mut out = PathBuf::new();
+	for component in path.components() {
+		match component {
+			std::path::Component::CurDir => {}
+			std::path::Component::ParentDir => {
+				out.pop();
+			}
+			_ => out.push(component.as_os_str()),
 		}
 	}
 	out
@@ -251,4 +356,12 @@ fn external_import_root<'a>(query: &'a LinkageQuery<'_>) -> Option<&'a str> {
 		return None;
 	}
 	std::str::from_utf8(head.name).ok()
+}
+
+fn is_builtin_external_root(root: &str) -> bool {
+	matches!(root, "std" | "core" | "alloc" | "proc_macro")
+}
+
+fn confidence(value: &[u8]) -> &str {
+	std::str::from_utf8(value).expect("confidence constants are utf-8")
 }

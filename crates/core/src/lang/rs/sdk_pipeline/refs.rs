@@ -5,8 +5,8 @@ use crate::core::moniker::{Moniker, MonikerBuilder};
 use crate::lang::callable::extend_segment;
 use crate::lang::kinds::{HINT_CALL, HINT_MEMBER, HINT_SELF};
 use crate::lang::sdk::{
-	DiscoveredDef, ImportLeaf, ImportLeafKind, RefHints, ResolvedRef, flatten_import_tree,
-	import_leaf_binding_name, importable_parent,
+	DiscoveredDef, ImportLeaf, ImportLeafKind, RefHints, ResolvedRef, TypeEnv, TypeExpr,
+	flatten_import_tree, import_leaf_binding_name, importable_parent,
 };
 use crate::lang::tree_util::{node_position, node_slice};
 
@@ -35,12 +35,6 @@ pub(super) struct ImportExpansion {
 	pub refs: Vec<ResolvedRef>,
 	pub symbols: Vec<ImportedSymbol>,
 	pub wildcard_modules: Vec<Moniker>,
-}
-
-#[derive(Clone, Debug)]
-struct LocalTypeBinding {
-	name: Vec<u8>,
-	target: Moniker,
 }
 
 pub(super) fn macro_call_ref(
@@ -86,9 +80,10 @@ pub(super) fn type_refs_from_type_node(
 	env: RefEnv<'_>,
 	node: Node<'_>,
 	source: &Moniker,
+	type_params: &[Vec<u8>],
 ) -> Vec<ResolvedRef> {
 	let mut refs = Vec::new();
-	type_refs_from_node(&env, node, source, &[], &mut refs);
+	type_refs_from_node(&env, node, source, type_params, &mut refs);
 	refs
 }
 
@@ -276,7 +271,7 @@ fn trait_refs_from_node_into(
 	}
 }
 
-fn type_parameters(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
+pub(super) fn type_parameters(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
 	let Some(params) = node.child_by_field_name("type_parameters") else {
 		return Vec::new();
 	};
@@ -296,14 +291,14 @@ fn should_skip_type_ref(name: &[u8], type_params: &[Vec<u8>]) -> bool {
 
 fn collect_expr_refs(
 	env: &RefEnv<'_>,
-	local_types: &[LocalTypeBinding],
+	type_env: &TypeEnv,
 	node: Node<'_>,
 	function: &Moniker,
 	out: &mut Vec<ResolvedRef>,
 ) {
 	match node.kind() {
 		"call_expression" => {
-			call_expression_ref(env, local_types, node, function, out);
+			call_expression_ref(env, type_env, node, function, out);
 			return;
 		}
 		"macro_invocation" => {
@@ -315,14 +310,14 @@ fn collect_expr_refs(
 				if macro_node.is_some_and(|macro_node| same_syntax_node(macro_node, child)) {
 					continue;
 				}
-				collect_expr_refs(env, local_types, child, function, out);
+				collect_expr_refs(env, type_env, child, function, out);
 			}
 			return;
 		}
 		"struct_expression" => {
 			struct_instantiation_ref(env, node, function, out);
 			for child in named_children(node) {
-				collect_expr_refs(env, local_types, child, function, out);
+				collect_expr_refs(env, type_env, child, function, out);
 			}
 			return;
 		}
@@ -339,14 +334,14 @@ fn collect_expr_refs(
 				type_refs_from_node(env, ty, function, &[], out);
 			}
 			if let Some(value) = node.child_by_field_name("value") {
-				collect_expr_refs(env, local_types, value, function, out);
+				collect_expr_refs(env, type_env, value, function, out);
 			}
 			return;
 		}
 		_ => {}
 	}
 	for child in named_children(node) {
-		collect_expr_refs(env, local_types, child, function, out);
+		collect_expr_refs(env, type_env, child, function, out);
 	}
 }
 
@@ -387,7 +382,7 @@ fn scoped_read(env: &RefEnv<'_>, node: Node<'_>, function: &Moniker, out: &mut V
 
 fn call_expression_ref(
 	env: &RefEnv<'_>,
-	local_types: &[LocalTypeBinding],
+	type_env: &TypeEnv,
 	call: Node<'_>,
 	function: &Moniker,
 	out: &mut Vec<ResolvedRef>,
@@ -395,22 +390,83 @@ fn call_expression_ref(
 	let Some(func) = call.child_by_field_name("function") else {
 		return;
 	};
+	let external_callback_origin = external_method_call_target(env, type_env, func, function);
 	match func.kind() {
-		"field_expression" => method_call_ref(env, local_types, call, func, function, out),
+		"field_expression" => method_call_ref(env, type_env, call, func, function, out),
 		"identifier" => free_fn_call_ref(env, call, func, function, out),
 		"scoped_identifier" => path_call_ref(env, call, func, function, out),
 		_ => {}
 	}
 	if let Some(args) = call.child_by_field_name("arguments") {
 		for child in named_children(args) {
-			collect_expr_refs(env, local_types, child, function, out);
+			collect_call_arg_refs(
+				env,
+				type_env,
+				child,
+				function,
+				external_callback_origin.as_ref(),
+				out,
+			);
 		}
+	}
+}
+
+fn collect_call_arg_refs(
+	env: &RefEnv<'_>,
+	type_env: &TypeEnv,
+	arg: Node<'_>,
+	function: &Moniker,
+	external_callback_origin: Option<&Moniker>,
+	out: &mut Vec<ResolvedRef>,
+) {
+	if arg.kind() == "closure_expression"
+		&& let Some(origin) = external_callback_origin
+	{
+		let mut closure_env = type_env.clone();
+		bind_closure_params(env, arg, function, &mut closure_env, origin);
+		if let Some(body) = arg.child_by_field_name("body") {
+			collect_expr_refs(env, &closure_env, body, function, out);
+		}
+		return;
+	}
+	collect_expr_refs(env, type_env, arg, function, out);
+}
+
+fn bind_closure_params(
+	env: &RefEnv<'_>,
+	closure: Node<'_>,
+	function: &Moniker,
+	type_env: &mut TypeEnv,
+	external_origin: &Moniker,
+) {
+	let Some(params) = closure.child_by_field_name("parameters") else {
+		return;
+	};
+	for param in named_children(params) {
+		let (pattern, ty) = if param.kind() == "parameter" {
+			(
+				param.child_by_field_name("pattern"),
+				param.child_by_field_name("type"),
+			)
+		} else {
+			(Some(param), None)
+		};
+		let Some(pattern) = pattern else {
+			continue;
+		};
+		let Some(name) = binding_name(pattern, env.source) else {
+			continue;
+		};
+		let ty = ty
+			.and_then(|ty| type_node_expr(env, ty, function, type_env))
+			.unwrap_or_else(|| TypeExpr::external_opaque(external_origin.clone()));
+		type_env.bind_local(name, ty);
 	}
 }
 
 fn method_call_ref(
 	env: &RefEnv<'_>,
-	local_types: &[LocalTypeBinding],
+	type_env: &TypeEnv,
 	call: Node<'_>,
 	func: Node<'_>,
 	function: &Moniker,
@@ -427,10 +483,8 @@ fn method_call_ref(
 		enclosing_type(function)
 			.map(|target| resolve_callable(env, &target, kinds::METHOD, name))
 			.unwrap_or_else(|| unresolved_method(function, name))
-	} else if let Some(receiver_type) = receiver_type_target(env, local_types, receiver, function) {
+	} else if let Some(receiver_type) = receiver_type_target(env, type_env, receiver, function) {
 		resolve_receiver_method_target(env, &receiver_type, name)
-	} else if let Some(target) = rust_known_external_method(function, name) {
-		(target, kinds::CONF_EXTERNAL)
 	} else if is_common_std_method(name) {
 		(
 			common_std_method_target(function, name),
@@ -451,7 +505,22 @@ fn method_call_ref(
 			receiver: receiver_hint(receiver, env.source),
 		}),
 	));
-	collect_expr_refs(env, local_types, receiver, function, out);
+	collect_expr_refs(env, type_env, receiver, function, out);
+}
+
+fn external_method_call_target(
+	env: &RefEnv<'_>,
+	type_env: &TypeEnv,
+	func: Node<'_>,
+	function: &Moniker,
+) -> Option<Moniker> {
+	(func.kind() == "field_expression").then_some(())?;
+	let receiver = func.child_by_field_name("value")?;
+	let field = func.child_by_field_name("field")?;
+	let receiver_type = receiver_type_target(env, type_env, receiver, function)?;
+	let (target, confidence) =
+		resolve_receiver_method_target(env, &receiver_type, node_slice(field, env.source));
+	(confidence == kinds::CONF_EXTERNAL).then_some(target)
 }
 
 fn free_fn_call_ref(
@@ -605,8 +674,11 @@ fn local_type_bindings(
 	function_node: Node<'_>,
 	body: Node<'_>,
 	function: &Moniker,
-) -> Vec<LocalTypeBinding> {
-	let mut bindings = Vec::new();
+) -> TypeEnv {
+	let mut type_env = TypeEnv::default();
+	for param in type_parameters(function_node, env.source) {
+		type_env.bind_type_param(param);
+	}
 	if let Some(params) = function_node.child_by_field_name("parameters") {
 		for param in named_children(params).filter(|child| child.kind() == "parameter") {
 			let Some(pattern) = param.child_by_field_name("pattern") else {
@@ -618,23 +690,20 @@ fn local_type_bindings(
 			let Some(name) = binding_name(pattern, env.source) else {
 				continue;
 			};
-			if let Some(target) = type_node_target(env, ty, function) {
-				bindings.push(LocalTypeBinding {
-					name: name.to_vec(),
-					target,
-				});
+			if let Some(ty) = type_node_expr(env, ty, function, &type_env) {
+				type_env.bind_local(name, ty);
 			}
 		}
 	}
-	collect_local_type_bindings(env, body, function, &mut bindings);
-	bindings
+	collect_local_type_bindings(env, body, function, &mut type_env);
+	type_env
 }
 
 fn collect_local_type_bindings(
 	env: &RefEnv<'_>,
 	node: Node<'_>,
 	function: &Moniker,
-	bindings: &mut Vec<LocalTypeBinding>,
+	type_env: &mut TypeEnv,
 ) {
 	if node.kind() == "let_declaration" {
 		let Some(pattern) = node.child_by_field_name("pattern") else {
@@ -645,80 +714,182 @@ fn collect_local_type_bindings(
 		};
 		let target = node
 			.child_by_field_name("type")
-			.and_then(|ty| type_node_target(env, ty, function))
+			.and_then(|ty| type_node_expr(env, ty, function, type_env))
 			.or_else(|| {
 				node.child_by_field_name("value")
-					.and_then(|value| infer_value_type_target(env, bindings, value, function))
+					.and_then(|value| infer_value_type_expr(env, type_env, value, function))
 			});
-		if let Some(target) = target {
-			bindings.push(LocalTypeBinding {
-				name: name.to_vec(),
-				target,
-			});
+		if let Some(ty) = target {
+			type_env.bind_local(name, ty);
+		}
+		return;
+	}
+	if node.kind() == "for_expression" {
+		bind_for_item_type(env, node, function, type_env);
+		if let Some(body) = node.child_by_field_name("body") {
+			collect_local_type_bindings(env, body, function, type_env);
 		}
 		return;
 	}
 	for child in named_children(node) {
-		collect_local_type_bindings(env, child, function, bindings);
+		collect_local_type_bindings(env, child, function, type_env);
 	}
+}
+
+fn bind_for_item_type(
+	env: &RefEnv<'_>,
+	node: Node<'_>,
+	function: &Moniker,
+	type_env: &mut TypeEnv,
+) {
+	let Some(pattern) = node.child_by_field_name("pattern") else {
+		return;
+	};
+	let Some(name) = binding_name(pattern, env.source) else {
+		return;
+	};
+	let Some(value) = node.child_by_field_name("value") else {
+		return;
+	};
+	let Some(ty) = infer_value_type_expr(env, type_env, value, function) else {
+		return;
+	};
+	let item_ty = ty.iterable_item().cloned().unwrap_or(ty);
+	type_env.bind_local(name, item_ty);
 }
 
 fn binding_name<'a>(pattern: Node<'a>, source: &'a [u8]) -> Option<&'a [u8]> {
 	(pattern.kind() == "identifier").then(|| node_slice(pattern, source))
 }
 
-fn type_node_target(env: &RefEnv<'_>, node: Node<'_>, source: &Moniker) -> Option<Moniker> {
+fn type_node_expr(
+	env: &RefEnv<'_>,
+	node: Node<'_>,
+	source: &Moniker,
+	type_env: &TypeEnv,
+) -> Option<TypeExpr> {
 	match node.kind() {
-		"reference_type" | "mutable_reference_type" | "pointer_type" | "generic_type" => node
-			.child_by_field_name("type")
-			.and_then(|inner| type_node_target(env, inner, source)),
-		"type_identifier" => Some(resolve_type_name(env, source, node_slice(node, env.source)).0),
-		"scoped_type_identifier" => {
-			Some(resolve_type_path(env, source, &path_pieces(node, env.source)).0)
+		"reference_type" | "mutable_reference_type" => carrier_type_node(node)
+			.and_then(|inner| type_node_expr(env, inner, source, type_env))
+			.map(|ty| TypeExpr::Ref(Box::new(ty))),
+		"pointer_type" => carrier_type_node(node)
+			.and_then(|inner| type_node_expr(env, inner, source, type_env))
+			.map(|ty| TypeExpr::Pointer(Box::new(ty))),
+		"array_type" => node
+			.child_by_field_name("element")
+			.and_then(|inner| type_node_expr(env, inner, source, type_env))
+			.map(|ty| TypeExpr::Array(Box::new(ty))),
+		"generic_type" => {
+			let base = carrier_type_node(node)
+				.and_then(|inner| type_node_expr(env, inner, source, type_env))?;
+			Some(TypeExpr::Generic {
+				base: Box::new(base),
+				args: generic_type_args(env, node, source, type_env),
+			})
 		}
-		_ => named_children(node).find_map(|child| type_node_target(env, child, source)),
+		"type_identifier" => {
+			let name = node_slice(node, env.source);
+			if type_env.is_type_param(name) {
+				Some(TypeExpr::TypeParam(name.to_vec()))
+			} else {
+				Some(TypeExpr::resolved(resolve_type_name(env, source, name).0))
+			}
+		}
+		"scoped_type_identifier" => {
+			let pieces = path_pieces(node, env.source);
+			Some(TypeExpr::resolved(
+				resolve_type_path(env, source, &pieces).0,
+			))
+		}
+		"tuple_type" => Some(TypeExpr::Tuple(
+			named_children(node)
+				.filter_map(|child| type_node_expr(env, child, source, type_env))
+				.collect(),
+		)),
+		"type_binding" => node
+			.child_by_field_name("type")
+			.and_then(|ty| type_node_expr(env, ty, source, type_env)),
+		_ => named_children(node).find_map(|child| type_node_expr(env, child, source, type_env)),
 	}
 }
 
-fn infer_value_type_target(
+fn generic_type_args(
 	env: &RefEnv<'_>,
-	local_types: &[LocalTypeBinding],
+	node: Node<'_>,
+	source: &Moniker,
+	type_env: &TypeEnv,
+) -> Vec<TypeExpr> {
+	node.child_by_field_name("type_arguments")
+		.into_iter()
+		.flat_map(named_children)
+		.filter_map(|arg| type_node_expr(env, arg, source, type_env))
+		.collect()
+}
+
+fn carrier_type_node(node: Node<'_>) -> Option<Node<'_>> {
+	node.child_by_field_name("type").or_else(|| {
+		named_children(node).find(|child| {
+			matches!(
+				child.kind(),
+				"type_identifier"
+					| "scoped_type_identifier"
+					| "generic_type"
+					| "reference_type"
+					| "mutable_reference_type"
+					| "pointer_type"
+			)
+		})
+	})
+}
+
+fn infer_value_type_expr(
+	env: &RefEnv<'_>,
+	type_env: &TypeEnv,
 	value: Node<'_>,
 	function: &Moniker,
-) -> Option<Moniker> {
+) -> Option<TypeExpr> {
 	match value.kind() {
-		"call_expression" => infer_call_type_target(env, local_types, value, function),
+		"call_expression" => infer_call_type_expr(env, type_env, value, function),
 		"struct_expression" => {
 			let name = value.child_by_field_name("name")?;
-			Some(resolve_type_path(env, function, &path_pieces(name, env.source)).0)
+			Some(TypeExpr::resolved(
+				resolve_type_path(env, function, &path_pieces(name, env.source)).0,
+			))
 		}
-		"identifier" => local_type_binding(local_types, node_slice(value, env.source)).cloned(),
+		"identifier" => type_env
+			.resolve_local(node_slice(value, env.source))
+			.cloned(),
 		_ => None,
 	}
 }
 
-fn infer_call_type_target(
+fn infer_call_type_expr(
 	env: &RefEnv<'_>,
-	local_types: &[LocalTypeBinding],
+	type_env: &TypeEnv,
 	call: Node<'_>,
 	function: &Moniker,
-) -> Option<Moniker> {
+) -> Option<TypeExpr> {
 	let func = call.child_by_field_name("function")?;
 	match func.kind() {
 		"scoped_identifier" => {
 			let pieces = path_pieces(func, env.source);
 			let (_, type_pieces) = pieces.split_last()?;
-			resolve_associated_type_target(env, function, type_pieces).map(|(target, _)| target)
+			resolve_associated_type_target(env, function, type_pieces)
+				.map(|(target, _)| TypeExpr::resolved(target))
 		}
 		"field_expression" => {
 			let receiver = func.child_by_field_name("value")?;
-			let target = receiver_type_target(env, local_types, receiver, function)?;
-			external_root(&target).is_some().then_some(target)
+			let field = func.child_by_field_name("field")?;
+			let name = node_slice(field, env.source);
+			let receiver_type = receiver_type_target(env, type_env, receiver, function)?;
+			let (target, confidence) = resolve_receiver_method_target(env, &receiver_type, name);
+			(confidence == kinds::CONF_EXTERNAL).then(|| TypeExpr::external_opaque(target))
 		}
 		"identifier" => {
 			let name = node_slice(func, env.source);
-			starts_uppercase(name)
-				.then(|| resolve_constructor_target(env, function, kinds::STRUCT, name).0)
+			starts_uppercase(name).then(|| {
+				TypeExpr::resolved(resolve_constructor_target(env, function, kinds::STRUCT, name).0)
+			})
 		}
 		_ => None,
 	}
@@ -726,23 +897,19 @@ fn infer_call_type_target(
 
 fn receiver_type_target(
 	env: &RefEnv<'_>,
-	local_types: &[LocalTypeBinding],
+	type_env: &TypeEnv,
 	receiver: Node<'_>,
 	function: &Moniker,
 ) -> Option<Moniker> {
 	match receiver.kind() {
-		"identifier" => local_type_binding(local_types, node_slice(receiver, env.source)).cloned(),
-		"call_expression" => infer_call_type_target(env, local_types, receiver, function),
+		"identifier" => type_env
+			.resolve_local(node_slice(receiver, env.source))
+			.and_then(TypeExpr::receiver_owner)
+			.cloned(),
+		"call_expression" => infer_call_type_expr(env, type_env, receiver, function)
+			.and_then(|ty| ty.receiver_owner().cloned()),
 		_ => None,
 	}
-}
-
-fn local_type_binding<'a>(local_types: &'a [LocalTypeBinding], name: &[u8]) -> Option<&'a Moniker> {
-	local_types
-		.iter()
-		.rev()
-		.find(|binding| binding.name == name)
-		.map(|binding| &binding.target)
 }
 
 fn resolve_local_binding(
@@ -928,9 +1095,6 @@ fn resolve_macro_target(
 	if let Some(target) = rust_builtin_macro(scope, name) {
 		return (target, kinds::CONF_EXTERNAL);
 	}
-	if let Some(target) = rust_known_external_macro(scope, name) {
-		return (target, kinds::CONF_EXTERNAL);
-	}
 	if pieces.len() > 1 {
 		let head = &pieces[0];
 		if let Some(import) = direct_imported_symbol(env, scope, head) {
@@ -989,9 +1153,6 @@ fn resolve_path_call_target(
 	pieces: &[Vec<u8>],
 ) -> (Moniker, &'static [u8]) {
 	if let Some(target) = rust_std_associated_path(function, pieces) {
-		return (target, kinds::CONF_EXTERNAL);
-	}
-	if let Some(target) = rust_known_associated_call(function, pieces) {
 		return (target, kinds::CONF_EXTERNAL);
 	}
 	let Some((call_name, type_pieces)) = pieces.split_last() else {
@@ -1157,7 +1318,7 @@ fn expand_import_leaf(
 	if leaf.path.is_empty() {
 		return;
 	}
-	let refs = if is_external_import_root(&leaf.path[0]) {
+	let refs = if import_leaf_is_external(env, scope, &leaf) {
 		external_import_refs(scope, node, &leaf)
 	} else {
 		local_import_refs(env, scope, node, &leaf)
@@ -1172,6 +1333,14 @@ fn expand_import_leaf(
 		expansion.wildcard_modules.push(module_ref.target.clone());
 	}
 	expansion.refs.extend(refs);
+}
+
+fn import_leaf_is_external(env: &RefEnv<'_>, scope: &Moniker, leaf: &ImportLeaf) -> bool {
+	let Some(head) = leaf.path.first() else {
+		return false;
+	};
+	(is_external_import_root(head) || is_rust_builtin_external_root(head))
+		&& !local_module_exists(env, scope, head)
 }
 
 fn external_import_refs(scope: &Moniker, node: Node<'_>, leaf: &ImportLeaf) -> Vec<ResolvedRef> {
@@ -1352,8 +1521,11 @@ fn find_local_type(defs: &[DiscoveredDef], scope: &Moniker, name: &[u8]) -> Opti
 }
 
 fn local_module_exists(env: &RefEnv<'_>, scope: &Moniker, name: &[u8]) -> bool {
-	let module = extend_segment(&enclosing_module(scope), kinds::MODULE, name);
-	env.defs.iter().any(|def| def.moniker == module)
+	let file_module = local_module_target(scope, &[name.to_vec()]);
+	let lexical_module = extend_segment(scope, kinds::MODULE, name);
+	env.defs
+		.iter()
+		.any(|def| def.moniker == file_module || def.moniker == lexical_module)
 }
 
 fn same_syntax_node(left: Node<'_>, right: Node<'_>) -> bool {
@@ -1563,8 +1735,6 @@ fn rust_known_attribute(scope: &Moniker, name: &[u8]) -> Option<Moniker> {
 	let root = match name {
 		b"allow" | b"cfg" | b"cfg_attr" | b"default" | b"derive" | b"doc" | b"should_panic"
 		| b"test" => b"std".as_slice(),
-		b"commutator" | b"negator" | b"opname" | b"pg_operator" => b"pgrx".as_slice(),
-		b"serde" => b"serde".as_slice(),
 		_ => return None,
 	};
 	Some(external_attribute(scope, root, name))
@@ -1653,19 +1823,6 @@ fn rust_std_associated_path(scope: &Moniker, pieces: &[Vec<u8>]) -> Option<Monik
 	Some(external_crate_path(scope, b"std", pieces))
 }
 
-fn rust_known_associated_call(scope: &Moniker, pieces: &[Vec<u8>]) -> Option<Moniker> {
-	let method = pieces.last()?;
-	let root = match method.as_slice() {
-		b"parse" | b"parse_from" | b"try_parse" | b"try_parse_from" => b"clap".as_slice(),
-		_ => return None,
-	};
-	Some(external_crate_item(
-		scope,
-		root,
-		&[(kinds::PATH, b"Parser".as_slice()), (kinds::METHOD, method)],
-	))
-}
-
 fn rust_builtin_macro(scope: &Moniker, name: &[u8]) -> Option<Moniker> {
 	let builtin =
 		matches!(
@@ -1697,45 +1854,6 @@ fn rust_builtin_macro(scope: &Moniker, name: &[u8]) -> Option<Moniker> {
 			&[(kinds::PATH, b"macros".as_slice()), (kinds::MACRO, name)],
 		)
 	})
-}
-
-fn rust_known_external_macro(scope: &Moniker, name: &[u8]) -> Option<Moniker> {
-	let root = match name {
-		b"error" => b"pgrx".as_slice(),
-		b"proptest" => b"proptest".as_slice(),
-		_ => return None,
-	};
-	Some(external_crate_item(
-		scope,
-		root,
-		&[(kinds::PATH, b"macros".as_slice()), (kinds::MACRO, name)],
-	))
-}
-
-fn rust_known_external_method(scope: &Moniker, name: &[u8]) -> Option<Moniker> {
-	let (root, type_name) = match name {
-		b"with_context" => (b"anyhow".as_slice(), b"Context".as_slice()),
-		b"bg" => (b"ratatui".as_slice(), b"Style".as_slice()),
-		b"render_widget" => (b"ratatui".as_slice(), b"Frame".as_slice()),
-		b"descendants" | b"tag_name" => (b"roxmltree".as_slice(), b"Node".as_slice()),
-		b"as_array" => (b"serde_json".as_slice(), b"Value".as_slice()),
-		b"parse" | b"set_language" => (b"tree_sitter".as_slice(), b"Parser".as_slice()),
-		b"child_by_field_name"
-		| b"children"
-		| b"end_byte"
-		| b"kind"
-		| b"named_children"
-		| b"root_node"
-		| b"start_byte"
-		| b"utf8_text"
-		| b"walk" => (b"tree_sitter".as_slice(), b"Node".as_slice()),
-		_ => return None,
-	};
-	Some(external_crate_item(
-		scope,
-		root,
-		&[(kinds::PATH, type_name), (kinds::METHOD, name)],
-	))
 }
 
 fn common_std_method_target(scope: &Moniker, name: &[u8]) -> Moniker {
@@ -1943,8 +2061,21 @@ fn local_import_base<'a>(scope: &Moniker, path: &'a [Vec<u8>]) -> (Moniker, &'a 
 			rust_parent_module(scope).unwrap_or_else(|| scope.clone()),
 			&path[1..],
 		),
-		_ => (scope.clone(), path),
+		_ => (unqualified_import_base(scope), path),
 	}
+}
+
+fn unqualified_import_base(scope: &Moniker) -> Moniker {
+	let segments = scope.as_view().segments().collect::<Vec<_>>();
+	let Some((last_index, last)) = segments.iter().enumerate().last() else {
+		return scope.clone();
+	};
+	if last.kind == kinds::MODULE && last.name == b"mod" {
+		let mut builder = MonikerBuilder::from_view(scope.as_view());
+		builder.truncate(last_index);
+		return builder.build();
+	}
+	scope.clone()
 }
 
 fn append_symbol_path(builder: &mut MonikerBuilder, pieces: &[Vec<u8>]) {

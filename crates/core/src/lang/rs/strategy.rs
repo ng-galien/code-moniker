@@ -1938,7 +1938,8 @@ impl<'src_lang> Strategy<'src_lang> {
 
 	fn resolve_wildcard_imported_type(&self, scope: &Moniker, name: &[u8]) -> Option<Moniker> {
 		let modules = self.wildcard_modules_for_scope(scope);
-		unambiguous_wildcard_module(&modules).map(|module| extend_segment(module, kinds::PATH, name))
+		unambiguous_wildcard_module(&modules)
+			.map(|module| extend_segment(module, kinds::PATH, name))
 	}
 
 	fn wildcard_modules_for_scope(&self, scope: &Moniker) -> Vec<Moniker> {
@@ -3007,13 +3008,7 @@ fn rust_prelude_trait_target(module: &Moniker, name: &[u8]) -> Option<Moniker> {
 
 fn rust_known_attribute_target(module: &Moniker, name: &[u8]) -> Option<Moniker> {
 	let root = match name {
-		b"allow"
-		| b"cfg"
-		| b"cfg_attr"
-		| b"default"
-		| b"derive"
-		| b"doc"
-		| b"should_panic"
+		b"allow" | b"cfg" | b"cfg_attr" | b"default" | b"derive" | b"doc" | b"should_panic"
 		| b"test" => "std",
 		b"arg" | b"command" | b"group" | b"value" => "clap",
 		b"bikeshed_postgres_type_manually_impl_from_into_datum"

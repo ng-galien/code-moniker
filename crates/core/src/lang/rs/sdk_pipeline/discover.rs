@@ -3,7 +3,10 @@ use tree_sitter::Node;
 use crate::core::code_graph::Position;
 use crate::core::moniker::Moniker;
 use crate::lang::callable::extend_segment;
-use crate::lang::sdk::{DiscoveredDef, Namespace, ResolvedRef};
+use crate::lang::sdk::{
+	DiscoveredDef, ImportLeafKind, Namespace, ResolvedRef, flatten_import_tree,
+	import_leaf_binding_name,
+};
 use crate::lang::tree_util::{node_position, node_slice};
 
 use super::super::canonicalize::{function_param_slots, impl_type_name};
@@ -13,12 +16,13 @@ use super::defs::{
 	local_binding_def, nested_type_def, proptest_def, reexport_path_def, simple_def,
 	synthetic_enum_constant_def, synthetic_lang_enum_def,
 };
+use super::imports::import_tree;
 use super::refs::{
 	ImportedSymbol, RefEnv, attribute_refs, expand_import, macro_call_ref, read_refs,
-	trait_refs_from_node, type_refs_from_signature, type_refs_from_type_node,
+	trait_refs_from_node, type_parameters, type_refs_from_signature, type_refs_from_type_node,
 };
 use super::syntax::{
-	is_test_function, language_macro_variants, named_children, path_pieces, should_skip_binding,
+	is_test_function, language_macro_variants, named_children, should_skip_binding,
 };
 
 pub(super) struct DiscoveredRustFile {
@@ -205,11 +209,18 @@ fn use_declaration(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker
 	let Some(argument) = node.child_by_field_name("argument") else {
 		return;
 	};
-	let pieces = path_pieces(argument, state.source);
-	let Some(name) = pieces.last() else {
+	let Some(tree) = import_tree(argument, state.source) else {
 		return;
 	};
-	state.push_def(reexport_path_def(state.def_env(), node, scope, name));
+	for leaf in flatten_import_tree(&tree) {
+		if leaf.kind == ImportLeafKind::Wildcard {
+			continue;
+		}
+		let Some(name) = import_leaf_binding_name(&leaf) else {
+			continue;
+		};
+		state.push_def(reexport_path_def(state.def_env(), node, scope, name));
+	}
 }
 
 fn impl_items(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
@@ -240,9 +251,6 @@ fn impl_items(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 }
 
 fn module_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
-	let Some(body) = node.child_by_field_name("body") else {
-		return;
-	};
 	let Some(def) = simple_def(
 		state.def_env(),
 		node,
@@ -255,7 +263,9 @@ fn module_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	};
 	let module = def.moniker.clone();
 	state.push_def(def);
-	walk_items(state, body, &module, false);
+	if let Some(body) = node.child_by_field_name("body") {
+		walk_items(state, body, &module, false);
+	}
 }
 
 fn macro_invocation(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
@@ -337,14 +347,29 @@ fn collect_struct_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Mon
 }
 
 fn collect_field_type_refs(state: &mut RustDiscover<'_>, node: Node<'_>, source: &Moniker) {
+	let type_params = type_parameters(node, state.source);
+	collect_field_type_refs_with_params(state, node, source, &type_params);
+}
+
+fn collect_field_type_refs_with_params(
+	state: &mut RustDiscover<'_>,
+	node: Node<'_>,
+	source: &Moniker,
+	type_params: &[Vec<u8>],
+) {
 	for child in named_children(node) {
 		if child.kind() == "field_declaration"
 			&& let Some(ty) = child.child_by_field_name("type")
 		{
-			state.extend_refs(type_refs_from_type_node(state.ref_env(), ty, source));
+			state.extend_refs(type_refs_from_type_node(
+				state.ref_env(),
+				ty,
+				source,
+				type_params,
+			));
 			continue;
 		}
-		collect_field_type_refs(state, child, source);
+		collect_field_type_refs_with_params(state, child, source, type_params);
 	}
 }
 

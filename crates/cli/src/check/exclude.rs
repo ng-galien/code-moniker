@@ -99,13 +99,16 @@ mod tests {
 	fn double_star_slash_can_match_no_prefix() {
 		let matcher = UriExclusionMatcher::new(&["**/crates/core/tests/fixtures/**".to_string()]);
 
-		assert!(matcher.matches_path(Path::new("crates/core/tests/fixtures/rs/accounts.rs")));
+		assert!(matcher.matches_path(Path::new(
+			"crates/core/tests/fixtures/extractors/rs/accounts.rs"
+		)));
 	}
 
 	#[test]
 	fn uri_pattern_matches_absolute_file_uri_candidate() {
 		let matcher = UriExclusionMatcher::new(&["**/crates/core/tests/fixtures/**".to_string()]);
-		let path = Path::new("/tmp/project/crates/core/tests/fixtures/java/UserService.java");
+		let path =
+			Path::new("/tmp/project/crates/core/tests/fixtures/extractors/java/UserService.java");
 
 		assert!(matcher.matches_path(path));
 	}
@@ -115,6 +118,8 @@ mod tests {
 		let matcher = UriExclusionMatcher::new(&["**/fixtures/*.rs".to_string()]);
 
 		assert!(matcher.matches_path(Path::new("crates/core/tests/fixtures/accounts.rs")));
-		assert!(!matcher.matches_path(Path::new("crates/core/tests/fixtures/rs/accounts.rs")));
+		assert!(!matcher.matches_path(Path::new(
+			"crates/core/tests/fixtures/extractors/rs/accounts.rs"
+		)));
 	}
 }

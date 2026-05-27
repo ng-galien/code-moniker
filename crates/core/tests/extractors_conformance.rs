@@ -28,14 +28,38 @@ macro_rules! conformance_lang {
 	};
 }
 
-conformance_lang!(conformance_ts, "fixtures/ts/*.{ts,tsx,jsx}", lang::ts::Lang);
-conformance_lang!(conformance_rs, "fixtures/rs/*.rs", lang::rs::Lang);
+conformance_lang!(
+	conformance_ts,
+	"fixtures/extractors/ts/*.{ts,tsx,jsx}",
+	lang::ts::Lang
+);
+conformance_lang!(
+	conformance_rs,
+	"fixtures/extractors/rs/*.rs",
+	lang::rs::Lang
+);
 conformance_lang!(
 	conformance_python,
-	"fixtures/python/*.py",
+	"fixtures/extractors/python/*.py",
 	lang::python::Lang
 );
-conformance_lang!(conformance_go, "fixtures/go/*.go", lang::go::Lang);
-conformance_lang!(conformance_java, "fixtures/java/*.java", lang::java::Lang);
-conformance_lang!(conformance_cs, "fixtures/cs/*.cs", lang::cs::Lang);
-conformance_lang!(conformance_sql, "fixtures/sql/*.sql", lang::sql::Lang);
+conformance_lang!(
+	conformance_go,
+	"fixtures/extractors/go/*.go",
+	lang::go::Lang
+);
+conformance_lang!(
+	conformance_java,
+	"fixtures/extractors/java/*.java",
+	lang::java::Lang
+);
+conformance_lang!(
+	conformance_cs,
+	"fixtures/extractors/cs/*.cs",
+	lang::cs::Lang
+);
+conformance_lang!(
+	conformance_sql,
+	"fixtures/extractors/sql/*.sql",
+	lang::sql::Lang
+);

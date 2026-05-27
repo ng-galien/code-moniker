@@ -6,10 +6,18 @@ use code_moniker_core::lang::{Lang, ts};
 
 use crate::tsconfig::TsResolution;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub enum RustExtractionPipeline {
+	#[default]
+	Legacy,
+	Sdk,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Context {
 	pub ts: TsResolution,
 	pub project: Option<String>,
+	pub rust_pipeline: RustExtractionPipeline,
 }
 
 pub fn extract(lang: Lang, source: &str, path: &Path) -> CodeGraph {
@@ -29,13 +37,22 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 			};
 			ts::extract(uri, source, &anchor, deep, &presets)
 		}
-		Lang::Rs => code_moniker_core::lang::rs::extract(
-			uri,
-			source,
-			&anchor,
-			deep,
-			&code_moniker_core::lang::rs::Presets::default(),
-		),
+		Lang::Rs => match ctx.rust_pipeline {
+			RustExtractionPipeline::Legacy => code_moniker_core::lang::rs::extract(
+				uri,
+				source,
+				&anchor,
+				deep,
+				&code_moniker_core::lang::rs::Presets::default(),
+			),
+			RustExtractionPipeline::Sdk => code_moniker_core::lang::rs::extract_sdk(
+				uri,
+				source,
+				&anchor,
+				deep,
+				&code_moniker_core::lang::rs::Presets::default(),
+			),
+		},
 		Lang::Java => code_moniker_core::lang::java::extract(
 			uri,
 			source,

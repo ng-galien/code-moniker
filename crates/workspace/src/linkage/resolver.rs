@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::linkage::candidate::CandidateCatalog;
 use crate::linkage::decision::{
-	ExternalOrigin, LinkageDecisionLog, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
+	LinkageDecisionLog, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
 use crate::linkage::manifest::ManifestPolicy;
 use crate::linkage::query::LinkageQuery;
@@ -118,9 +118,6 @@ impl<'a> LinkageResolver<'a> {
 		manifests: &ManifestPolicy,
 	) -> ReferenceLinkageDecision {
 		let Some(query) = LinkageQuery::new(reference, self.material) else {
-			if reference.confidence.as_deref() == Some("external") {
-				return ReferenceLinkageDecision::external(ExternalOrigin::Dependency, reference);
-			}
 			return ReferenceLinkageDecision::unknown(UnknownReason::MissingQuery, reference);
 		};
 
@@ -139,9 +136,6 @@ impl<'a> LinkageResolver<'a> {
 			return decision;
 		}
 
-		if reference.confidence.as_deref() == Some("external") {
-			return ReferenceLinkageDecision::external(ExternalOrigin::Dependency, reference);
-		}
 		ReferenceLinkageDecision::unknown(UnknownReason::NoCandidate, reference)
 	}
 }

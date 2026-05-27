@@ -10,6 +10,7 @@ mod imports;
 mod model;
 mod resolve;
 mod scope;
+mod types;
 
 pub use emit::{EmitError, GraphEmitter};
 pub use imports::{
@@ -22,3 +23,4 @@ pub use model::{
 };
 pub use resolve::{LangResolverStrategy, LocalResolver, Resolution};
 pub use scope::{Namespace, Rib, Scope, ScopeId, ScopeTree};
+pub use types::{TypeEnv, TypeExpr};

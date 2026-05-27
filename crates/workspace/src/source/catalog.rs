@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::environment;
+use crate::extract::RustExtractionPipeline;
 use crate::snapshot::{
 	SourceCatalog, SourceUnit, WorkspaceFailure, WorkspaceRequest, WorkspaceResource,
 	WorkspaceResult,
@@ -19,6 +20,7 @@ pub struct LocalSourceCatalogOptions {
 	pub files: Option<Vec<PathBuf>>,
 	pub project: Option<String>,
 	pub identity: LocalIdentityResolver,
+	pub rust_pipeline: RustExtractionPipeline,
 }
 
 impl LocalSourceCatalogOptions {
@@ -28,6 +30,7 @@ impl LocalSourceCatalogOptions {
 			files: None,
 			project,
 			identity: LocalIdentityResolver::default(),
+			rust_pipeline: RustExtractionPipeline::default(),
 		}
 	}
 
@@ -38,6 +41,11 @@ impl LocalSourceCatalogOptions {
 
 	pub fn with_identity(mut self, identity: LocalIdentityResolver) -> Self {
 		self.identity = identity;
+		self
+	}
+
+	pub fn with_rust_pipeline(mut self, rust_pipeline: RustExtractionPipeline) -> Self {
+		self.rust_pipeline = rust_pipeline;
 		self
 	}
 }
@@ -55,7 +63,7 @@ impl LocalSourceCatalog {
 
 impl SourceCatalogPort for LocalSourceCatalog {
 	fn load_catalog(&mut self, _request: &WorkspaceRequest) -> WorkspaceResult<SourceCatalog> {
-		let sources = if let Some(files) = &self.options.files {
+		let mut sources = if let Some(files) = &self.options.files {
 			let [root] = self.options.paths.as_slice() else {
 				return Err(WorkspaceFailure::new(
 					WorkspaceResource::SourceCatalog,
@@ -67,6 +75,9 @@ impl SourceCatalogPort for LocalSourceCatalog {
 			environment::discover_sources(&self.options.paths, self.options.project.clone())
 		}
 		.map_err(|err| WorkspaceFailure::new(WorkspaceResource::SourceCatalog, err.to_string()))?;
+		for root in &mut sources.roots {
+			root.ctx.rust_pipeline = self.options.rust_pipeline;
+		}
 		let generation = self.cache.next_generation();
 		let units = sources
 			.files

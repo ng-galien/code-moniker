@@ -163,6 +163,7 @@ fn discover_scopes(paths: &[PathBuf], project: Option<String>) -> anyhow::Result
 				ctx: extract::Context {
 					ts,
 					project: source_project,
+					..extract::Context::default()
 				},
 			},
 		});

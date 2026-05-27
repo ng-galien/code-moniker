@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use code_moniker_core::lang::Lang;
 use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
+use code_moniker_workspace::extract::RustExtractionPipeline;
 use code_moniker_workspace::linkage::LocalLinkage;
 use code_moniker_workspace::snapshot::WorkspaceRequest;
 use code_moniker_workspace::source::{
@@ -11,10 +13,8 @@ use code_moniker_workspace::source::{
 fn main() -> anyhow::Result<()> {
 	let options = BenchOptions::parse()?;
 	let cache = LocalResourceCache::default();
-	let mut catalog_port = LocalSourceCatalog::new(
-		LocalSourceCatalogOptions::new(options.paths, options.project),
-		cache.clone(),
-	);
+	let source_options = options.source_options()?;
+	let mut catalog_port = LocalSourceCatalog::new(source_options, cache.clone());
 	let mut index_port =
 		LocalCodeIndex::new(LocalCodeIndexOptions::new(options.cache_dir), cache.clone());
 	let debug_cache = cache.clone();
@@ -75,6 +75,15 @@ fn main() -> anyhow::Result<()> {
 	println!("manifest_blocked_refs\t{}", linkage.manifest_blocked_refs);
 	println!("unresolved_refs\t{}", linkage.unresolved_refs);
 	println!("ambiguous_refs\t{}", linkage.ambiguous_refs);
+	println!("eligible_refs\t{}", eligible_refs(&linkage));
+	println!(
+		"linkage_score_percent\t{:.2}",
+		linkage_score_percent(&linkage)
+	);
+	println!(
+		"single_target_score_percent\t{:.2}",
+		single_target_score_percent(&linkage)
+	);
 	for call_name in &options.debug_calls {
 		print_call_defs(&index, &debug_cache, call_name);
 	}
@@ -84,11 +93,14 @@ fn main() -> anyhow::Result<()> {
 	Ok(())
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct BenchOptions {
 	paths: Vec<PathBuf>,
 	project: Option<String>,
 	cache_dir: Option<PathBuf>,
+	lang: Option<Lang>,
+	rust_pipeline: RustExtractionPipeline,
+	exclude_path_fragments: Vec<String>,
 	unresolved_groups: Option<usize>,
 	debug_calls: Vec<String>,
 }
@@ -104,6 +116,22 @@ impl BenchOptions {
 				}
 				"--cache-dir" => {
 					options.cache_dir = Some(PathBuf::from(next_value(&mut args, "--cache-dir")?));
+				}
+				"--lang" => {
+					let tag = next_value(&mut args, "--lang")?;
+					options.lang = Some(
+						Lang::from_tag(&tag)
+							.ok_or_else(|| anyhow::anyhow!("unknown language tag `{tag}`"))?,
+					);
+				}
+				"--exclude" => {
+					options
+						.exclude_path_fragments
+						.push(next_value(&mut args, "--exclude")?);
+				}
+				"--rust-pipeline" => {
+					options.rust_pipeline =
+						parse_rust_pipeline(&next_value(&mut args, "--rust-pipeline")?)?;
 				}
 				"--unresolved-groups" => {
 					options.unresolved_groups =
@@ -129,6 +157,71 @@ impl BenchOptions {
 		}
 		Ok(options)
 	}
+
+	fn source_options(&self) -> anyhow::Result<LocalSourceCatalogOptions> {
+		let mut options = LocalSourceCatalogOptions::new(self.paths.clone(), self.project.clone())
+			.with_rust_pipeline(self.rust_pipeline);
+		if self.lang.is_some() || !self.exclude_path_fragments.is_empty() {
+			let files = self.filtered_files()?;
+			options = options.with_files(files);
+		}
+		Ok(options)
+	}
+
+	fn filtered_files(&self) -> anyhow::Result<Vec<PathBuf>> {
+		let [root] = self.paths.as_slice() else {
+			anyhow::bail!("--lang/--exclude filters require exactly one benchmark root");
+		};
+		if !root.is_dir() {
+			anyhow::bail!("--lang/--exclude filters require a directory benchmark root");
+		}
+		let mut files = Vec::new();
+		for entry in ignore::WalkBuilder::new(root)
+			.build()
+			.filter_map(|entry| entry.ok())
+		{
+			if !entry
+				.file_type()
+				.is_some_and(|file_type| file_type.is_file())
+			{
+				continue;
+			}
+			let path = entry.into_path();
+			let Ok(lang) = code_moniker_workspace::lang::path_to_lang(&path) else {
+				continue;
+			};
+			if self.lang.is_some_and(|expected| expected != lang) {
+				continue;
+			}
+			let rel = path.strip_prefix(root).unwrap_or(&path);
+			let normalized = rel.to_string_lossy().replace('\\', "/");
+			if self
+				.exclude_path_fragments
+				.iter()
+				.any(|fragment| normalized.contains(fragment))
+			{
+				continue;
+			}
+			files.push(rel.to_path_buf());
+		}
+		files.sort();
+		Ok(files)
+	}
+}
+
+impl Default for BenchOptions {
+	fn default() -> Self {
+		Self {
+			paths: Vec::new(),
+			project: None,
+			cache_dir: None,
+			lang: None,
+			rust_pipeline: RustExtractionPipeline::Legacy,
+			exclude_path_fragments: Vec::new(),
+			unresolved_groups: None,
+			debug_calls: Vec::new(),
+		}
+	}
 }
 
 fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> anyhow::Result<String> {
@@ -136,14 +229,43 @@ fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> anyhow::Re
 		.ok_or_else(|| anyhow::anyhow!("{flag} expects a value"))
 }
 
+fn parse_rust_pipeline(value: &str) -> anyhow::Result<RustExtractionPipeline> {
+	match value {
+		"legacy" => Ok(RustExtractionPipeline::Legacy),
+		"sdk" => Ok(RustExtractionPipeline::Sdk),
+		other => anyhow::bail!("unknown Rust pipeline `{other}`; expected legacy or sdk"),
+	}
+}
+
 fn print_usage() {
 	println!(
-		"bench_linkage [--project NAME] [--cache-dir PATH] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
+		"bench_linkage [--project NAME] [--cache-dir PATH] [--lang TAG] [--rust-pipeline legacy|sdk] [--exclude PATH_FRAGMENT] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
 	);
 }
 
 fn millis(duration: Duration) -> f64 {
 	duration.as_secs_f64() * 1000.0
+}
+
+fn eligible_refs(linkage: &code_moniker_workspace::snapshot::LinkageGraph) -> usize {
+	linkage.resolved_refs + linkage.manifest_blocked_refs + linkage.unresolved_refs
+}
+
+fn linkage_score_percent(linkage: &code_moniker_workspace::snapshot::LinkageGraph) -> f64 {
+	let eligible = eligible_refs(linkage);
+	if eligible == 0 {
+		return 0.0;
+	}
+	(linkage.resolved_refs as f64 * 100.0) / eligible as f64
+}
+
+fn single_target_score_percent(linkage: &code_moniker_workspace::snapshot::LinkageGraph) -> f64 {
+	let eligible = eligible_refs(linkage);
+	if eligible == 0 {
+		return 0.0;
+	}
+	let single_target = linkage.resolved_refs.saturating_sub(linkage.ambiguous_refs);
+	(single_target as f64 * 100.0) / eligible as f64
 }
 
 fn print_unresolved_groups(

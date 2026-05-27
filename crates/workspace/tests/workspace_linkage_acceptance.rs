@@ -28,7 +28,7 @@ fn load_workspace(path: impl AsRef<Path>) -> WorkspaceSnapshot {
 
 #[test]
 fn rust_multiproject_links_public_cross_crate_symbols() {
-	let snapshot = load_workspace("rust/multiproject");
+	let snapshot = load_workspace("projects/rust/multiproject");
 
 	assert_no_unresolved(&snapshot);
 	assert_cross_crate_links(&snapshot);

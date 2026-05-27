@@ -8,7 +8,7 @@ use code_moniker_core::lang::rs;
 
 fn fixture_root() -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR"))
-		.join("tests/fixtures/rust/multiproject")
+		.join("tests/fixtures/projects/rust/multiproject")
 		.canonicalize()
 		.expect("fixture root")
 }

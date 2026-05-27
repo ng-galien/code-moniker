@@ -768,7 +768,7 @@ fn check_project_excludes_configured_uri_globs() {
 	write_under(dir.path(), "src/good.ts", "class GoodName {}\n");
 	write_under(
 		dir.path(),
-		"crates/core/tests/fixtures/ts/bad.ts",
+		"crates/core/tests/fixtures/extractors/ts/bad.ts",
 		TS_BAD_NAMING,
 	);
 
@@ -789,7 +789,7 @@ fn check_project_excludes_configured_uri_globs() {
 	assert_eq!(files.len(), 1, "{json:#}");
 	assert!(files[0]["file"].as_str().unwrap().ends_with("src/good.ts"));
 	assert!(
-		!out.contains("fixtures/ts/bad.ts"),
+		!out.contains("fixtures/extractors/ts/bad.ts"),
 		"excluded fixture should not be reported: {out}"
 	);
 }
