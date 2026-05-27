@@ -1,0 +1,187 @@
+use std::path::{Path, PathBuf};
+
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
+
+use crate::session::SessionOptions;
+use crate::ui::app::{App, handle_key, new_app, toggle_selected_nav};
+use crate::ui::render::view;
+use crate::ui::workspace_read::load_local_workspace;
+
+const MULTIPROJECT_FIXTURE: &str = "../workspace/tests/fixtures/projects/java/multiprojet";
+
+struct TuiAcceptance {
+	app: App,
+	_cache_dir: tempfile::TempDir,
+}
+
+impl TuiAcceptance {
+	fn load_multiproject() -> Self {
+		Self::load_multiproject_with_profile(None)
+	}
+
+	fn load_multiproject_with_profile(profile: Option<&str>) -> Self {
+		let cache_dir = tempfile::tempdir().expect("cache dir");
+		let fixture = multiproject_fixture();
+		let opts = SessionOptions {
+			paths: vec![fixture.clone()],
+			project: Some("multiprojet".to_string()),
+			cache_dir: Some(cache_dir.path().to_path_buf()),
+		};
+		let (store, cache) = load_local_workspace(&opts).expect("load Java multiproject fixture");
+		let app = new_app(
+			store,
+			cache,
+			opts,
+			"default".to_string(),
+			fixture.join(".code-moniker.toml"),
+			profile.map(ToOwned::to_owned),
+		);
+		Self {
+			app,
+			_cache_dir: cache_dir,
+		}
+	}
+
+	fn render_text(&self, width: u16, height: u16) -> String {
+		let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
+		terminal
+			.draw(|frame| {
+				let vm = crate::ui::explorer::view_model(&self.app);
+				view::render_shell(frame, frame.area(), &vm);
+			})
+			.expect("draw TUI");
+		format!("{}", terminal.backend())
+	}
+
+	fn press(&mut self, code: KeyCode) {
+		handle_key(&mut self.app, KeyEvent::new(code, KeyModifiers::NONE)).expect("handle key");
+	}
+
+	fn press_n(&mut self, code: KeyCode, count: usize) {
+		for _ in 0..count {
+			self.press(code);
+		}
+	}
+
+	fn type_text(&mut self, text: &str) {
+		for ch in text.chars() {
+			self.press(KeyCode::Char(ch));
+		}
+	}
+
+	fn search(&mut self, text: &str) {
+		self.press(KeyCode::Char('s'));
+		self.type_text(text);
+		self.press(KeyCode::Enter);
+	}
+
+	fn navigate_to_risk_policy_class(&mut self) {
+		self.press(KeyCode::Enter); // java/
+		self.press_n(KeyCode::Down, 2);
+		self.press(KeyCode::Enter); // common-lib/src/main/java/com/acme/common/
+		self.press(KeyCode::Down);
+		self.press(KeyCode::Enter); // customer/
+		self.press_n(KeyCode::Down, 4);
+		self.press(KeyCode::Enter); // RiskPolicy.java
+		self.press(KeyCode::Down); // class RiskPolicy
+	}
+}
+
+#[test]
+fn multiproject_initial_screen_exposes_navigation_contract() {
+	let mut harness = TuiAcceptance::load_multiproject();
+	toggle_selected_nav(&mut harness.app);
+	let screen = harness.render_text(120, 32);
+
+	assert_visible(&screen, "code-moniker");
+	assert_visible(&screen, "multiprojet");
+	assert_visible(&screen, "search");
+	assert_visible(&screen, "java");
+	assert_visible(&screen, "common-lib");
+	assert_visible(&screen, "order-service");
+}
+
+#[test]
+fn multiproject_header_search_filters_visible_symbols() {
+	let mut harness = TuiAcceptance::load_multiproject();
+
+	harness.search("RiskPolicy");
+	let screen = harness.render_text(120, 32);
+
+	assert_visible(&screen, "search");
+	assert_visible(&screen, "RiskPolicy");
+	assert_visible(&screen, "filtered");
+	assert_visible(&screen, "common-lib");
+}
+
+#[test]
+fn multiproject_check_panel_reports_clean_rule_run() {
+	let mut harness = TuiAcceptance::load_multiproject_with_profile(Some("code"));
+
+	harness.press(KeyCode::Char('c'));
+	let screen = harness.render_text(120, 32);
+
+	assert_visible(&screen, "check");
+	assert_visible(&screen, "check summary");
+	assert_visible(&screen, "files");
+	assert_visible(&screen, "20");
+	assert_visible(&screen, "flagged");
+	assert_visible(&screen, "violations");
+	assert_visible(&screen, "0");
+	assert_visible(&screen, "check complete: 0 violation(s) across 0 file(s)");
+}
+
+#[test]
+fn multiproject_usage_lens_requires_selected_declaration() {
+	let mut harness = TuiAcceptance::load_multiproject();
+
+	harness.press(KeyCode::Char('u'));
+	let screen = harness.render_text(120, 32);
+
+	assert_visible(&screen, "overview");
+	assert_visible(&screen, "select a declaration before focusing usages");
+}
+
+#[test]
+fn multiproject_usage_lens_shows_cross_module_references() {
+	let mut harness = TuiAcceptance::load_multiproject();
+
+	harness.navigate_to_risk_policy_class();
+	harness.press(KeyCode::Char('u'));
+	let screen = harness.render_text(160, 45);
+
+	assert_visible(&screen, "usages");
+	assert_visible(&screen, "usage focus");
+	assert_visible(&screen, "RiskPolicy");
+	assert_visible(&screen, "refs");
+	assert_visible(&screen, "28");
+	assert_visible(&screen, "contexts");
+	assert_visible(&screen, "15");
+	assert_visible(&screen, "references");
+	assert_visible(&screen, "OrderApplication");
+	assert_visible(&screen, "LoyaltyApplication");
+	assert_visible(&screen, "SpringCustomerService");
+	assert_visible(
+		&screen,
+		"usage lens for RiskPolicy: 28 reference(s), 15 navigable context(s)",
+	);
+}
+
+fn multiproject_fixture() -> PathBuf {
+	let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(MULTIPROJECT_FIXTURE);
+	path.canonicalize().unwrap_or_else(|error| {
+		panic!(
+			"missing multiproject fixture at {}: {error}",
+			path.display()
+		)
+	})
+}
+
+fn assert_visible(screen: &str, expected: &str) {
+	assert!(
+		screen.contains(expected),
+		"expected visible text `{expected}` in TUI screen:\n{screen}"
+	);
+}

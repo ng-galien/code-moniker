@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-harmonious-method-size]
-// TODO(smell): split TaskSpec construction from task execution and result normalization before enabling this guardrail here.
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,7 +6,7 @@ use std::time::Instant;
 use crate::perf;
 use crate::session::{CheckSummary, SessionOptions};
 use crate::ui::workspace_read::{
-	LocalWorkspaceFacade, WorkspaceCheckContext, WorkspaceRead, load_local_workspace,
+	self, LocalWorkspaceFacade, WorkspaceCheckContext, load_local_workspace,
 };
 use code_moniker_workspace::source::LocalResourceCache;
 
@@ -105,51 +103,6 @@ impl TaskSpec {
 		self.generation = generation;
 		self
 	}
-
-	fn execute(self) -> TaskResult {
-		let started = Instant::now();
-		let work = self.work_kind();
-		let generation = self.generation;
-		let label = self.label;
-		let outcome = match self.kind {
-			TaskKind::LoadFileCatalog { opts } => match load_local_workspace(&opts) {
-				Ok((store, cache)) => {
-					TaskOutcome::FileCatalogLoaded(Box::new((store, cache, opts)))
-				}
-				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
-			},
-			TaskKind::ReloadStore { opts } => match load_local_workspace(&opts) {
-				Ok((store, cache)) => TaskOutcome::StoreReloaded(Box::new((store, cache, opts))),
-				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
-			},
-			TaskKind::RunCheck {
-				context,
-				rules,
-				profile,
-				scheme,
-			} => match context.check_summary(&rules, profile.as_deref(), &scheme) {
-				Ok(summary) => TaskOutcome::CheckCompleted(Box::new(summary)),
-				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
-			},
-		};
-		let outcome_label = outcome.label();
-		let outcome_detail = outcome.detail();
-		perf::record(
-			"task.execute",
-			started.elapsed(),
-			format!(
-				"id={} label={label} work={work:?} outcome={outcome_label} {outcome_detail}",
-				self.id
-			),
-		);
-		TaskResult {
-			id: self.id,
-			work,
-			generation,
-			label,
-			outcome,
-		}
-	}
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -237,8 +190,8 @@ impl TaskOutcome {
 	fn detail(&self) -> String {
 		match self {
 			Self::FileCatalogLoaded(store) | Self::StoreReloaded(store) => {
-				let stats = store.0.stats();
-				let linkage = store.0.linkage_stats();
+				let stats = workspace_read::stats(&store.0);
+				let linkage = workspace_read::linkage_stats(&store.0);
 				format!(
 					"files={} defs={} refs={} scan_ms={} extract_ms={} index_ms={} linkage_score={} eligible_refs={} resolved_refs={} unresolved_refs={}",
 					stats.files,
@@ -266,7 +219,54 @@ pub(in crate::ui) struct TaskRunner;
 impl TaskRunner {
 	pub(in crate::ui) fn spawn(spec: TaskSpec, publish: impl FnOnce(TaskResult) + Send + 'static) {
 		rayon::spawn(move || {
-			publish(spec.execute());
+			publish(execute_task(spec));
 		});
+	}
+}
+
+fn execute_task(spec: TaskSpec) -> TaskResult {
+	let started = Instant::now();
+	let work = spec.work_kind();
+	let generation = spec.generation;
+	let label = spec.label;
+	let outcome = execute_task_kind(spec.kind);
+	let outcome_label = outcome.label();
+	let outcome_detail = outcome.detail();
+	perf::record(
+		"task.execute",
+		started.elapsed(),
+		format!(
+			"id={} label={label} work={work:?} outcome={outcome_label} {outcome_detail}",
+			spec.id
+		),
+	);
+	TaskResult {
+		id: spec.id,
+		work,
+		generation,
+		label,
+		outcome,
+	}
+}
+
+fn execute_task_kind(kind: TaskKind) -> TaskOutcome {
+	match kind {
+		TaskKind::LoadFileCatalog { opts } => match load_local_workspace(&opts) {
+			Ok((store, cache)) => TaskOutcome::FileCatalogLoaded(Box::new((store, cache, opts))),
+			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
+		},
+		TaskKind::ReloadStore { opts } => match load_local_workspace(&opts) {
+			Ok((store, cache)) => TaskOutcome::StoreReloaded(Box::new((store, cache, opts))),
+			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
+		},
+		TaskKind::RunCheck {
+			context,
+			rules,
+			profile,
+			scheme,
+		} => match context.check_summary(&rules, profile.as_deref(), &scheme) {
+			Ok(summary) => TaskOutcome::CheckCompleted(Box::new(summary)),
+			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
+		},
 	}
 }

@@ -4,7 +4,7 @@ use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::{HeaderKindFilter, HeaderSearchState, header_search_label};
-use crate::ui::workspace_read::{LocalWorkspaceFacade, WorkspaceRead};
+use crate::ui::workspace_read::{self, LocalWorkspaceFacade};
 use code_moniker_workspace::snapshot::SymbolId;
 type DefLocation = SymbolId;
 
@@ -40,17 +40,16 @@ pub(in crate::ui) fn header_search_results(
 	let raw = text.trim().to_string();
 	let (kind_names, shapes) = split_kind_filters(kind_filters);
 	let mut matches = if raw.is_empty() {
-		store.all_navigable_defs()
+		workspace_read::all_navigable_defs(store)
 	} else {
-		store
-			.search_symbols_filtered(&raw, 500, langs, &kind_names, &shapes)
+		workspace_read::search_symbols_filtered(store, &raw, 500, langs, &kind_names, &shapes)
 			.into_iter()
 			.map(|hit| hit.loc)
 			.collect()
 	};
 	matches.retain(|loc| {
-		let symbol = store.symbol_summary(loc);
-		store.is_navigable_symbol(loc)
+		let symbol = workspace_read::symbol_summary(store, loc);
+		workspace_read::is_navigable_symbol(store, loc)
 			&& lang_filter_matches(langs, symbol.lang)
 			&& kind_filter_matches(kind_filters, &symbol.kind)
 	});
@@ -85,7 +84,11 @@ fn compute_lang_options(store: &LocalWorkspaceFacade) -> Vec<Lang> {
 	Lang::ALL
 		.iter()
 		.copied()
-		.filter(|lang| store.stats().by_lang.contains_key(lang.tag()))
+		.filter(|lang| {
+			workspace_read::stats(store)
+				.by_lang
+				.contains_key(lang.tag())
+		})
 		.collect()
 }
 
@@ -107,8 +110,8 @@ fn compute_kind_filter_options(
 
 fn available_kinds_for_lang(store: &LocalWorkspaceFacade, lang: Lang) -> Vec<String> {
 	let mut kinds = BTreeSet::new();
-	for loc in store.all_navigable_defs() {
-		let symbol = store.symbol_summary(&loc);
+	for loc in workspace_read::all_navigable_defs(store) {
+		let symbol = workspace_read::symbol_summary(store, &loc);
 		if symbol.lang == lang {
 			kinds.insert(symbol.kind);
 		}
@@ -118,8 +121,8 @@ fn available_kinds_for_lang(store: &LocalWorkspaceFacade, lang: Lang) -> Vec<Str
 
 fn available_shapes(store: &LocalWorkspaceFacade, langs: &[Lang]) -> Vec<Shape> {
 	let mut shapes = Vec::new();
-	for loc in store.all_navigable_defs() {
-		let symbol = store.symbol_summary(&loc);
+	for loc in workspace_read::all_navigable_defs(store) {
+		let symbol = workspace_read::symbol_summary(store, &loc);
 		if lang_filter_matches(langs, symbol.lang)
 			&& let Some(shape) = shape_of(symbol.kind.as_bytes())
 			&& !shapes.contains(&shape)

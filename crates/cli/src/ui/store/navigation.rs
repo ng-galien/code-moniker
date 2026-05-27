@@ -1,9 +1,12 @@
-// code-moniker: ignore-file[smell-data-clumps-param-names, smell-god-type-local-metrics]
-// TODO(smell): split NavigationState updates into tree selection, pane state, scope filtering, and expansion policies before enabling these guardrails here.
 use std::collections::BTreeSet;
 
 use crate::ui::store::reducer::{Reduce, Transition};
-use crate::ui::store::tree_pane_state::TreePaneState;
+use crate::ui::store::tree_pane_state::{
+	TreePaneState, tree_pane_apply, tree_pane_expanded, tree_pane_replace_rows,
+	tree_pane_reset_selection, tree_pane_retain_expanded, tree_pane_rows,
+	tree_pane_select_first_matching, tree_pane_selected_key, tree_pane_selection,
+	tree_pane_set_expanded,
+};
 use code_moniker_workspace::snapshot::SymbolId;
 type DefLocation = SymbolId;
 
@@ -89,9 +92,9 @@ pub(in crate::ui) struct NavigationPaneView<'a> {
 impl<'a> NavigationPaneView<'a> {
 	fn from_pane(pane: &'a TreePaneState) -> Self {
 		Self {
-			rows: pane.rows(),
-			selection: pane.selection(),
-			expanded: pane.expanded(),
+			rows: tree_pane_rows(pane),
+			selection: tree_pane_selection(pane),
+			expanded: tree_pane_expanded(pane),
 		}
 	}
 
@@ -116,253 +119,277 @@ pub(in crate::ui) struct NavigationSelectionView<'a> {
 
 impl NavigationState {
 	pub(in crate::ui) fn new(explorer: NavNode, change: NavNode) -> Self {
-		let mut state = Self {
-			explorer,
-			change,
-			explorer_pane: TreePaneState::new(),
-			scoped_pane: TreePaneState::new(),
-			visible_defs: Vec::new(),
-			scope: NavigationScope::Explorer,
-			last_notice: TreePaneNotice::Noop,
-			usage_lens: None,
-		};
-		state.refresh_primary_rows(None);
+		new_navigation_state(explorer, change)
+	}
+}
+
+pub(in crate::ui) fn navigation_primary_view(state: &NavigationState) -> NavigationPaneView<'_> {
+	NavigationPaneView::from_pane(active_primary_pane(state))
+}
+
+pub(in crate::ui) fn navigation_visible_defs(state: &NavigationState) -> &[DefLocation] {
+	&state.visible_defs
+}
+
+pub(in crate::ui) fn navigation_usage_view(
+	state: &NavigationState,
+) -> Option<NavigationPaneView<'_>> {
+	state
+		.usage_lens
+		.as_ref()
+		.map(|lens| NavigationPaneView::from_pane(&lens.pane))
+}
+
+pub(in crate::ui) fn navigation_pane_view(
+	state: &NavigationState,
+	pane: NavigationPane,
+) -> Option<NavigationPaneView<'_>> {
+	match pane {
+		NavigationPane::Primary => Some(navigation_primary_view(state)),
+		NavigationPane::UsageLens => navigation_usage_view(state),
+	}
+}
+
+pub(in crate::ui) fn navigation_explorer_def_count(state: &NavigationState) -> usize {
+	state.explorer.def_count
+}
+
+pub(in crate::ui) fn navigation_last_notice(state: &NavigationState) -> &TreePaneNotice {
+	&state.last_notice
+}
+
+fn new_navigation_state(explorer: NavNode, change: NavNode) -> NavigationState {
+	let mut state = NavigationState {
+		explorer,
+		change,
+		explorer_pane: TreePaneState::new(),
+		scoped_pane: TreePaneState::new(),
+		visible_defs: Vec::new(),
+		scope: NavigationScope::Explorer,
+		last_notice: TreePaneNotice::Noop,
+		usage_lens: None,
+	};
+	refresh_primary_rows(&mut state, None);
+	state
+}
+
+fn active_primary_pane(state: &NavigationState) -> &TreePaneState {
+	if is_scoped(state) {
+		&state.scoped_pane
+	} else {
+		&state.explorer_pane
+	}
+}
+
+fn active_primary_pane_mut(state: &mut NavigationState) -> &mut TreePaneState {
+	if is_scoped(state) {
+		&mut state.scoped_pane
+	} else {
+		&mut state.explorer_pane
+	}
+}
+
+fn is_scoped(state: &NavigationState) -> bool {
+	matches!(
+		state.scope,
+		NavigationScope::Filtered | NavigationScope::Change
+	)
+}
+
+fn replace_models(state: &mut NavigationState, explorer: NavNode, change: NavNode) {
+	let primary_key = tree_pane_selected_key(active_primary_pane(state));
+	let usage_key = state
+		.usage_lens
+		.as_ref()
+		.and_then(|lens| tree_pane_selected_key(&lens.pane));
+	state.explorer = explorer;
+	state.change = change;
+	retain_valid_expansion(state);
+	refresh_primary_rows(state, primary_key.as_ref());
+	refresh_usage_rows(state, usage_key.as_ref());
+}
+
+fn set_scope(
+	state: &mut NavigationState,
+	scope: NavigationScope,
+	visible_defs: Vec<DefLocation>,
+	reset_expansion: bool,
+	expand_symbols: bool,
+) {
+	state.scope = scope;
+	state.visible_defs = visible_defs;
+	let selected_key = if reset_expansion {
+		None
+	} else {
+		tree_pane_selected_key(active_primary_pane(state))
+	};
+	if reset_expansion {
+		reset_active_scope(state, expand_symbols);
+	}
+	refresh_primary_rows(state, selected_key.as_ref());
+}
+
+fn reset_active_scope(state: &mut NavigationState, expand_symbols: bool) {
+	tree_pane_reset_selection(active_primary_pane_mut(state));
+	match state.scope {
+		NavigationScope::Explorer => {}
+		NavigationScope::Filtered => {
+			tree_pane_set_expanded(
+				&mut state.scoped_pane,
+				filtered_expanded_keys(&state.explorer, &state.visible_defs, expand_symbols),
+			);
+		}
+		NavigationScope::Change => {
+			tree_pane_set_expanded(&mut state.scoped_pane, all_expanded_keys(&state.change));
+		}
+	}
+}
+
+fn set_usage_lens(
+	state: &mut NavigationState,
+	visible_defs: Vec<DefLocation>,
+	reset_expansion: bool,
+	expand_symbols: bool,
+) {
+	let mut pane = if reset_expansion {
+		TreePaneState::new()
+	} else {
 		state
-	}
-
-	pub(in crate::ui) fn primary_view(&self) -> NavigationPaneView<'_> {
-		NavigationPaneView::from_pane(self.active_primary_pane())
-	}
-
-	pub(in crate::ui) fn visible_defs(&self) -> &[DefLocation] {
-		&self.visible_defs
-	}
-
-	pub(in crate::ui) fn usage_view(&self) -> Option<NavigationPaneView<'_>> {
-		self.usage_lens
-			.as_ref()
-			.map(|lens| NavigationPaneView::from_pane(&lens.pane))
-	}
-
-	pub(in crate::ui) fn pane_view(&self, pane: NavigationPane) -> Option<NavigationPaneView<'_>> {
-		match pane {
-			NavigationPane::Primary => Some(self.primary_view()),
-			NavigationPane::UsageLens => self.usage_view(),
-		}
-	}
-
-	pub(in crate::ui) fn explorer_def_count(&self) -> usize {
-		self.explorer.def_count
-	}
-
-	pub(in crate::ui) fn last_notice(&self) -> &TreePaneNotice {
-		&self.last_notice
-	}
-
-	fn active_primary_pane(&self) -> &TreePaneState {
-		if self.is_scoped() {
-			&self.scoped_pane
-		} else {
-			&self.explorer_pane
-		}
-	}
-
-	fn active_primary_pane_mut(&mut self) -> &mut TreePaneState {
-		if self.is_scoped() {
-			&mut self.scoped_pane
-		} else {
-			&mut self.explorer_pane
-		}
-	}
-
-	fn is_scoped(&self) -> bool {
-		matches!(
-			self.scope,
-			NavigationScope::Filtered | NavigationScope::Change
-		)
-	}
-
-	fn replace_models(&mut self, explorer: NavNode, change: NavNode) {
-		let primary_key = self.active_primary_pane().selected_key();
-		let usage_key = self
 			.usage_lens
 			.as_ref()
-			.and_then(|lens| lens.pane.selected_key());
-		self.explorer = explorer;
-		self.change = change;
-		self.retain_valid_expansion();
-		self.refresh_primary_rows(primary_key.as_ref());
-		self.refresh_usage_rows(usage_key.as_ref());
-	}
-
-	fn set_scope(
-		&mut self,
-		scope: NavigationScope,
-		visible_defs: Vec<DefLocation>,
-		reset_expansion: bool,
-		expand_symbols: bool,
-	) {
-		self.scope = scope;
-		self.visible_defs = visible_defs;
-		let selected_key = if reset_expansion {
-			None
-		} else {
-			self.active_primary_pane().selected_key()
-		};
-		if reset_expansion {
-			self.reset_active_scope(expand_symbols);
-		}
-		self.refresh_primary_rows(selected_key.as_ref());
-	}
-
-	fn reset_active_scope(&mut self, expand_symbols: bool) {
-		self.active_primary_pane_mut().reset_selection();
-		match self.scope {
-			NavigationScope::Explorer => {}
-			NavigationScope::Filtered => {
-				self.scoped_pane.set_expanded(filtered_expanded_keys(
-					&self.explorer,
-					&self.visible_defs,
-					expand_symbols,
-				));
-			}
-			NavigationScope::Change => {
-				self.scoped_pane
-					.set_expanded(all_expanded_keys(&self.change));
-			}
-		}
-	}
-
-	fn set_usage_lens(
-		&mut self,
-		visible_defs: Vec<DefLocation>,
-		reset_expansion: bool,
-		expand_symbols: bool,
-	) {
-		let mut pane = if reset_expansion {
-			TreePaneState::new()
-		} else {
-			self.usage_lens
-				.as_ref()
-				.map(|lens| lens.pane.clone())
-				.unwrap_or_else(TreePaneState::new)
-		};
-		let selected_key = if reset_expansion {
-			None
-		} else {
-			pane.selected_key()
-		};
-		if reset_expansion {
-			pane.set_expanded(filtered_expanded_keys(
-				&self.explorer,
-				&visible_defs,
-				expand_symbols,
-			));
-			pane.reset_selection();
-		}
-		self.usage_lens = Some(UsageLensNavigationState { pane, visible_defs });
-		self.refresh_usage_rows(selected_key.as_ref());
-	}
-
-	fn clear_usage_lens(&mut self) {
-		self.usage_lens = None;
-	}
-
-	fn apply_pane_action(&mut self, pane: NavigationPane, action: TreePaneAction) -> Transition {
-		let before = self.pane_selection(pane);
-		let notice = match pane {
-			NavigationPane::Primary => self.apply_primary_pane_action(action),
-			NavigationPane::UsageLens => self.apply_usage_pane_action(action),
-		};
-		self.last_notice = notice;
-		let changed = self.pane_selection(pane) != before
-			|| !matches!(self.last_notice, TreePaneNotice::Noop);
-		if changed {
-			Transition::changed()
-		} else {
-			Transition::unchanged()
-		}
-	}
-
-	fn apply_selection(&mut self, pane: NavigationPane, target: NavigationSelection) -> Transition {
-		let before = self.pane_selection(pane);
-		match pane {
-			NavigationPane::Primary => select_in_pane(self.active_primary_pane_mut(), target),
-			NavigationPane::UsageLens => {
-				if let Some(lens) = &mut self.usage_lens {
-					select_in_pane(&mut lens.pane, target);
-				}
-			}
-		}
-		if self.pane_selection(pane) == before {
-			Transition::unchanged()
-		} else {
-			Transition::changed()
-		}
-	}
-
-	fn apply_primary_pane_action(&mut self, action: TreePaneAction) -> TreePaneNotice {
-		let notice = self.active_primary_pane_mut().apply(action);
-		let selected_key = self.active_primary_pane().selected_key();
-		self.refresh_primary_rows(selected_key.as_ref());
-		notice
-	}
-
-	fn apply_usage_pane_action(&mut self, action: TreePaneAction) -> TreePaneNotice {
-		let Some(lens) = &mut self.usage_lens else {
-			return TreePaneNotice::Noop;
-		};
-		let notice = lens.pane.apply(action);
-		let selected_key = lens.pane.selected_key();
-		self.refresh_usage_rows(selected_key.as_ref());
-		notice
-	}
-
-	fn pane_selection(&self, pane: NavigationPane) -> usize {
-		match pane {
-			NavigationPane::Primary => self.primary_view().selection,
-			NavigationPane::UsageLens => self.usage_view().map_or(0, |view| view.selection),
-		}
-	}
-
-	fn refresh_primary_rows(&mut self, selected_key: Option<&NodeId>) {
-		let rows = match self.scope {
-			NavigationScope::Explorer => {
-				rows_for(&self.explorer, self.explorer_pane.expanded(), None)
-			}
-			NavigationScope::Filtered => rows_for(
-				&self.explorer,
-				self.scoped_pane.expanded(),
-				Some(self.visible_defs.as_slice()),
-			),
-			NavigationScope::Change => rows_for(&self.change, self.scoped_pane.expanded(), None),
-		};
-		self.active_primary_pane_mut()
-			.replace_rows(rows, selected_key);
-	}
-
-	fn refresh_usage_rows(&mut self, selected_key: Option<&NodeId>) {
-		let Some(lens) = &self.usage_lens else {
-			return;
-		};
-		let rows = rows_for(
-			&self.explorer,
-			lens.pane.expanded(),
-			Some(lens.visible_defs.as_slice()),
+			.map(|lens| lens.pane.clone())
+			.unwrap_or_else(TreePaneState::new)
+	};
+	let selected_key = if reset_expansion {
+		None
+	} else {
+		tree_pane_selected_key(&pane)
+	};
+	if reset_expansion {
+		tree_pane_set_expanded(
+			&mut pane,
+			filtered_expanded_keys(&state.explorer, &visible_defs, expand_symbols),
 		);
-		if let Some(lens) = &mut self.usage_lens {
-			lens.pane.replace_rows(rows, selected_key);
+		tree_pane_reset_selection(&mut pane);
+	}
+	state.usage_lens = Some(UsageLensNavigationState { pane, visible_defs });
+	refresh_usage_rows(state, selected_key.as_ref());
+}
+
+fn clear_usage_lens(state: &mut NavigationState) {
+	state.usage_lens = None;
+}
+
+fn apply_pane_action(
+	state: &mut NavigationState,
+	pane: NavigationPane,
+	action: TreePaneAction,
+) -> Transition {
+	let before = pane_selection(state, pane);
+	let notice = match pane {
+		NavigationPane::Primary => apply_primary_pane_action(state, action),
+		NavigationPane::UsageLens => apply_usage_pane_action(state, action),
+	};
+	state.last_notice = notice;
+	let changed =
+		pane_selection(state, pane) != before || !matches!(state.last_notice, TreePaneNotice::Noop);
+	if changed {
+		Transition::changed()
+	} else {
+		Transition::unchanged()
+	}
+}
+
+fn apply_selection(
+	state: &mut NavigationState,
+	pane: NavigationPane,
+	target: NavigationSelection,
+) -> Transition {
+	let before = pane_selection(state, pane);
+	match pane {
+		NavigationPane::Primary => select_in_pane(active_primary_pane_mut(state), target),
+		NavigationPane::UsageLens => {
+			if let Some(lens) = &mut state.usage_lens {
+				select_in_pane(&mut lens.pane, target);
+			}
 		}
 	}
+	if pane_selection(state, pane) == before {
+		Transition::unchanged()
+	} else {
+		Transition::changed()
+	}
+}
 
-	fn retain_valid_expansion(&mut self) {
-		let valid_explorer = all_expanded_keys(&self.explorer);
-		self.explorer_pane.retain_expanded(&valid_explorer);
-		self.scoped_pane
-			.retain_expanded(&valid_for_scoped(&self.explorer, &self.change));
-		if let Some(lens) = &mut self.usage_lens {
-			lens.pane.retain_expanded(&valid_explorer);
+fn apply_primary_pane_action(
+	state: &mut NavigationState,
+	action: TreePaneAction,
+) -> TreePaneNotice {
+	let notice = tree_pane_apply(active_primary_pane_mut(state), action);
+	let selected_key = tree_pane_selected_key(active_primary_pane(state));
+	refresh_primary_rows(state, selected_key.as_ref());
+	notice
+}
+
+fn apply_usage_pane_action(state: &mut NavigationState, action: TreePaneAction) -> TreePaneNotice {
+	let Some(lens) = &mut state.usage_lens else {
+		return TreePaneNotice::Noop;
+	};
+	let notice = tree_pane_apply(&mut lens.pane, action);
+	let selected_key = tree_pane_selected_key(&lens.pane);
+	refresh_usage_rows(state, selected_key.as_ref());
+	notice
+}
+
+fn pane_selection(state: &NavigationState, pane: NavigationPane) -> usize {
+	match pane {
+		NavigationPane::Primary => navigation_primary_view(state).selection,
+		NavigationPane::UsageLens => navigation_usage_view(state).map_or(0, |view| view.selection),
+	}
+}
+
+fn refresh_primary_rows(state: &mut NavigationState, selected_key: Option<&NodeId>) {
+	let rows = match state.scope {
+		NavigationScope::Explorer => rows_for(
+			&state.explorer,
+			tree_pane_expanded(&state.explorer_pane),
+			None,
+		),
+		NavigationScope::Filtered => rows_for(
+			&state.explorer,
+			tree_pane_expanded(&state.scoped_pane),
+			Some(state.visible_defs.as_slice()),
+		),
+		NavigationScope::Change => {
+			rows_for(&state.change, tree_pane_expanded(&state.scoped_pane), None)
 		}
+	};
+	tree_pane_replace_rows(active_primary_pane_mut(state), rows, selected_key);
+}
+
+fn refresh_usage_rows(state: &mut NavigationState, selected_key: Option<&NodeId>) {
+	let Some(lens) = &state.usage_lens else {
+		return;
+	};
+	let rows = rows_for(
+		&state.explorer,
+		tree_pane_expanded(&lens.pane),
+		Some(lens.visible_defs.as_slice()),
+	);
+	if let Some(lens) = &mut state.usage_lens {
+		tree_pane_replace_rows(&mut lens.pane, rows, selected_key);
+	}
+}
+
+fn retain_valid_expansion(state: &mut NavigationState) {
+	let valid_explorer = all_expanded_keys(&state.explorer);
+	tree_pane_retain_expanded(&mut state.explorer_pane, &valid_explorer);
+	tree_pane_retain_expanded(
+		&mut state.scoped_pane,
+		&valid_for_scoped(&state.explorer, &state.change),
+	);
+	if let Some(lens) = &mut state.usage_lens {
+		tree_pane_retain_expanded(&mut lens.pane, &valid_explorer);
 	}
 }
 
@@ -387,7 +414,7 @@ impl Reduce<NavigationAction> for NavigationState {
 		self.last_notice = TreePaneNotice::Noop;
 		match action {
 			NavigationAction::ReplaceModels { explorer, change } => {
-				self.replace_models(explorer, change);
+				replace_models(self, explorer, change);
 				Transition::changed()
 			}
 			NavigationAction::SetScope {
@@ -396,7 +423,7 @@ impl Reduce<NavigationAction> for NavigationState {
 				reset_expansion,
 				expand_symbols,
 			} => {
-				self.set_scope(scope, visible_defs, reset_expansion, expand_symbols);
+				set_scope(self, scope, visible_defs, reset_expansion, expand_symbols);
 				Transition::changed()
 			}
 			NavigationAction::SetUsageLens {
@@ -404,15 +431,15 @@ impl Reduce<NavigationAction> for NavigationState {
 				reset_expansion,
 				expand_symbols,
 			} => {
-				self.set_usage_lens(visible_defs, reset_expansion, expand_symbols);
+				set_usage_lens(self, visible_defs, reset_expansion, expand_symbols);
 				Transition::changed()
 			}
 			NavigationAction::ClearUsageLens => {
-				self.clear_usage_lens();
+				clear_usage_lens(self);
 				Transition::changed()
 			}
-			NavigationAction::Select { pane, target } => self.apply_selection(pane, target),
-			NavigationAction::Pane { pane, action } => self.apply_pane_action(pane, action),
+			NavigationAction::Select { pane, target } => apply_selection(self, pane, target),
+			NavigationAction::Pane { pane, action } => apply_pane_action(self, pane, action),
 		}
 	}
 }
@@ -420,12 +447,13 @@ impl Reduce<NavigationAction> for NavigationState {
 fn select_in_pane(pane: &mut TreePaneState, target: NavigationSelection) {
 	match target {
 		NavigationSelection::Def(loc) => {
-			pane.select_first_matching(
+			tree_pane_select_first_matching(
+				pane,
 				|row| matches!(&row.kind, NavNodeKind::Def(row_loc) if row_loc == &loc),
 			);
 		}
 		NavigationSelection::FirstChange => {
-			pane.select_first_matching(|row| matches!(row.kind, NavNodeKind::Change(_)));
+			tree_pane_select_first_matching(pane, |row| matches!(row.kind, NavNodeKind::Change(_)));
 		}
 	}
 }

@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list, smell-god-type-local-metrics, smell-harmonious-method-size, smell-large-type]
-// TODO(smell): split AppState reducers into shell actions, UI messages, task completion, and header-search option state before enabling these guardrails here.
 use std::collections::{BTreeMap, BTreeSet};
 
 use code_moniker_core::lang::Lang;
@@ -156,6 +154,15 @@ impl Default for ShellSlice {
 	}
 }
 
+struct HeaderSearchOptionsUpdate<'a> {
+	langs: &'a [Lang],
+	kind_filters: &'a [HeaderKindFilter],
+	available_langs: &'a [Lang],
+	available_kind_filters: &'a [HeaderKindFilter],
+	lang_cursor: usize,
+	kind_cursor: usize,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) enum CheckState {
 	#[default]
@@ -204,533 +211,541 @@ pub(in crate::ui) enum TaskCompletion {
 	Ignored,
 }
 
-impl AppState {
-	pub(in crate::ui) fn new() -> Self {
-		Self::default()
-	}
+pub(in crate::ui) fn status(state: &AppState) -> &str {
+	&state.shell.status
+}
 
-	pub(in crate::ui) fn status(&self) -> &str {
-		&self.shell.status
-	}
+pub(in crate::ui) fn set_status(state: &mut AppState, status: impl Into<String>) {
+	bump(state);
+	state.shell.generation += 1;
+	state.shell.status = status.into();
+}
 
-	pub(in crate::ui) fn set_status(&mut self, status: impl Into<String>) {
-		self.bump();
-		self.shell.generation += 1;
-		self.shell.status = status.into();
+pub(in crate::ui) fn append_status(state: &mut AppState, suffix: impl AsRef<str>) {
+	let suffix = suffix.as_ref();
+	bump(state);
+	state.shell.generation += 1;
+	if state.shell.status.is_empty() {
+		state.shell.status = suffix.to_string();
+	} else {
+		state.shell.status = format!("{}; {suffix}", state.shell.status);
 	}
+}
 
-	pub(in crate::ui) fn append_status(&mut self, suffix: impl AsRef<str>) {
-		let suffix = suffix.as_ref();
-		self.bump();
-		self.shell.generation += 1;
-		if self.shell.status.is_empty() {
-			self.shell.status = suffix.to_string();
-		} else {
-			self.shell.status = format!("{}; {suffix}", self.shell.status);
+pub(in crate::ui) fn check_state(state: &AppState) -> &CheckState {
+	&state.check.state
+}
+
+pub(in crate::ui) fn set_check_state(state: &mut AppState, check: CheckState) {
+	bump(state);
+	state.work.bump_epoch(WorkKind::CheckPanel);
+	state.check.state = check;
+}
+
+pub(in crate::ui) fn set_navigation(state: &mut AppState, navigation: NavigationState) {
+	bump(state);
+	state.navigation.generation += 1;
+	state.navigation.state = Some(navigation);
+}
+
+pub(in crate::ui) fn reduce_header_search_debounced(
+	_state: &mut AppState,
+	_generation: u64,
+) -> Transition {
+	Transition::unchanged()
+}
+
+pub(in crate::ui) fn generation_for_work(state: &AppState, work: WorkKind) -> u64 {
+	state.work.epoch(work)
+}
+
+pub(in crate::ui) fn start_task(state: &mut AppState, id: TaskId, kind: WorkKind, generation: u64) {
+	bump(state);
+	state.work.pending.remove(&kind);
+	state
+		.work
+		.running
+		.insert(id, RunningTask { kind, generation });
+	if kind == WorkKind::CheckPanel {
+		state.check.state = CheckState::Pending;
+	}
+}
+
+pub(in crate::ui) fn invalidate_for_store_event(state: &mut AppState, event: StoreEvent) {
+	bump(state);
+	match event {
+		StoreEvent::FullIndex => invalidate_full_index(state),
+		StoreEvent::GitOverlay => invalidate_git_overlay(state),
+	}
+}
+
+pub(in crate::ui) fn complete_task(state: &mut AppState, result: &TaskResult) -> TaskCompletion {
+	let accepted = accepts_task_result(state, result);
+	bump(state);
+	state.work.running.remove(&result.id);
+	if !accepted {
+		return TaskCompletion::Ignored;
+	}
+	match &result.outcome {
+		TaskOutcome::StoreReloaded(_) => {
+			state.work.pending.remove(&WorkKind::ProjectLoad);
+			state.work.pending.remove(&WorkKind::FileCatalog);
+			state.work.pending.remove(&WorkKind::GraphIndex);
+			state.work.pending.remove(&WorkKind::SearchIndex);
+			state.work.pending.remove(&WorkKind::GitOverlay);
+			state.work.pending.remove(&WorkKind::ImpactIndex);
+			state.work.pending.remove(&WorkKind::PanelData);
+		}
+		TaskOutcome::FileCatalogLoaded(_) => {
+			state.work.pending.remove(&WorkKind::ProjectLoad);
+			state.work.pending.remove(&WorkKind::FileCatalog);
+		}
+		TaskOutcome::CheckCompleted(summary) => {
+			state.check.state = CheckState::Ready((**summary).clone());
+			state.work.pending.remove(&WorkKind::CheckPanel);
+		}
+		TaskOutcome::Failed(error) => {
+			mark_failed(state, result.work, error.clone());
 		}
 	}
+	state.last_task = Some(TaskSummary {
+		id: result.id,
+		label: result.label.clone(),
+		status: match &result.outcome {
+			TaskOutcome::FileCatalogLoaded(_) => TaskStatus::Completed,
+			TaskOutcome::StoreReloaded(_) => TaskStatus::Completed,
+			TaskOutcome::CheckCompleted(_) => TaskStatus::Completed,
+			TaskOutcome::Failed(_) => TaskStatus::Failed,
+		},
+	});
+	TaskCompletion::Accepted
+}
 
-	pub(in crate::ui) fn check_state(&self) -> &CheckState {
-		&self.check.state
-	}
+fn scroll_panel(state: &mut AppState, direction: i8) -> Transition {
+	update_shell(state, |shell| shell_scroll_panel(shell, direction));
+	Transition::changed()
+}
 
-	pub(in crate::ui) fn set_check_state(&mut self, state: CheckState) {
-		self.bump();
-		self.work.bump_epoch(WorkKind::CheckPanel);
-		self.check.state = state;
-	}
+fn accepts_task_result(state: &AppState, result: &TaskResult) -> bool {
+	state.work.running.get(&result.id).is_some_and(|running| {
+		running.kind == result.work
+			&& running.generation == result.generation
+			&& generation_for_work(state, result.work) == result.generation
+	})
+}
 
-	pub(in crate::ui) fn set_navigation(&mut self, navigation: NavigationState) {
-		self.bump();
-		self.navigation.generation += 1;
-		self.navigation.state = Some(navigation);
-	}
+fn invalidate_full_index(state: &mut AppState) {
+	state.check.state = CheckState::Pending;
+	state.work.bump_epochs(&[
+		WorkKind::ProjectLoad,
+		WorkKind::FileCatalog,
+		WorkKind::GraphIndex,
+		WorkKind::SearchIndex,
+		WorkKind::GitOverlay,
+		WorkKind::ImpactIndex,
+		WorkKind::PanelData,
+		WorkKind::CheckPanel,
+		WorkKind::CoverageIndex,
+	]);
+}
 
-	pub(in crate::ui) fn reduce_shell_action(&mut self, action: &ShellAction) -> Transition {
-		match action {
-			ShellAction::SetStatus(status) => {
-				self.set_status(status.clone());
-				Transition::changed()
-			}
-			ShellAction::AppendStatus(status) => {
-				self.append_status(status);
-				Transition::changed()
-			}
-			ShellAction::SetCheckState(state) => {
-				self.set_check_state(state.clone());
-				Transition::changed()
-			}
-			ShellAction::SetView { view, policy } => self.set_view_action(*view, *policy),
-			ShellAction::ApplyHeaderSearch {
-				results,
-				return_focus,
-			} => self.apply_header_search_action(results, *return_focus),
-			ShellAction::SetHeaderSearchFilters {
-				langs,
-				kind_filters,
-			} => self.set_header_search_filters_action(langs, kind_filters),
-			ShellAction::SetHeaderSearchOptions {
-				langs,
-				kind_filters,
-				available_langs,
-				available_kind_filters,
-				lang_cursor,
-				kind_cursor,
-			} => self.set_header_search_options_action(
-				langs,
-				kind_filters,
-				available_langs,
-				available_kind_filters,
-				*lang_cursor,
-				*kind_cursor,
-			),
-			ShellAction::SetHeaderSearchCursor { focus, cursor } => {
-				self.set_header_search_cursor_action(*focus, *cursor)
-			}
-			ShellAction::ClearFilter { return_focus } => self.clear_filter_action(*return_focus),
-			ShellAction::SetUsageLens(focus) => self.set_usage_lens_action(focus),
-			ShellAction::ReplaceUsageLens(focus) => self.replace_usage_lens_action(focus.clone()),
-			ShellAction::EnterChangeMode => {
-				self.update_shell(|shell| {
-					shell.mode = UiMode::Normal;
-					shell.focus_region = FocusRegion::Navigator;
-					shell.active_filter = ActiveFilter::Change;
-					shell.usage_lens = None;
-					shell.view_mode = VisualizationMode::Change;
-					shell.panel_policy = PanelPolicy::Contextual;
-					shell.change_panel = ChangePanelMode::Diff;
-					shell.panel_navigation = PanelNavigationState::default();
-					shell.header_search.reset();
-					shell.header_search.pending_generation = None;
-				});
-				Transition::changed()
-			}
-			ShellAction::ReplaceActiveFilter(active_filter) => {
-				self.update_shell(|shell| shell.active_filter = active_filter.clone());
-				Transition::changed()
-			}
-			ShellAction::SetChangePanel(change_panel) => {
-				self.set_change_panel_action(*change_panel)
-			}
-			ShellAction::SetFocusRegion(region) => {
-				self.update_shell(|shell| {
-					shell.mode = UiMode::Normal;
-					shell.focus_region = *region;
-				});
-				Transition::changed()
-			}
-			ShellAction::SetPanelScroll(offset) => {
-				self.update_shell(|shell| shell.panel_navigation.scroll = *offset);
-				Transition::changed()
-			}
-			ShellAction::SetPanelNavigation(state) => {
-				self.update_shell(|shell| shell.panel_navigation = state.clone());
-				Transition::changed()
-			}
-		}
-	}
+fn invalidate_git_overlay(state: &mut AppState) {
+	state.work.bump_epochs(&[
+		WorkKind::GitOverlay,
+		WorkKind::ImpactIndex,
+		WorkKind::PanelData,
+	]);
+}
 
-	fn set_view_action(&mut self, view: View, policy: PanelPolicy) -> Transition {
-		self.update_shell(|shell| {
-			if shell.view != view {
-				shell.panel_navigation = PanelNavigationState::default();
-			}
-			shell.view = view;
-			shell.panel_policy = policy;
-		});
-		Transition::changed()
-	}
+fn bump(state: &mut AppState) {
+	state.generation += 1;
+}
 
-	fn clear_filter_action(&mut self, return_focus: bool) -> Transition {
-		self.update_shell(|shell| {
-			if return_focus {
-				shell.mode = UiMode::Normal;
-			}
-			shell.focus_region = FocusRegion::Navigator;
-			shell.active_filter = ActiveFilter::None;
-			shell.view_mode = VisualizationMode::Explorer;
-			shell.panel_policy = PanelPolicy::Contextual;
-			shell.change_panel = ChangePanelMode::Diff;
-			shell.panel_navigation = PanelNavigationState::default();
-			shell.header_search.reset();
-			shell.header_search.pending_generation = None;
-		});
-		Transition::changed()
+fn mark_failed(state: &mut AppState, kind: WorkKind, error: String) {
+	if kind == WorkKind::CheckPanel {
+		state.check.state = CheckState::Error(error);
 	}
+}
 
-	fn set_usage_lens_action(&mut self, focus: &Option<UsageFocus>) -> Transition {
-		self.update_shell(|shell| {
-			shell.mode = UiMode::Normal;
-			shell.focus_region = if focus.is_some() {
-				FocusRegion::UsageLens
-			} else {
-				FocusRegion::Navigator
-			};
-			shell.usage_lens = focus.clone();
-			shell.panel_policy = PanelPolicy::Contextual;
-			shell.panel_navigation = PanelNavigationState::default();
-		});
-		Transition::changed()
-	}
-
-	fn replace_usage_lens_action(&mut self, focus: UsageFocus) -> Transition {
-		self.update_shell(|shell| {
-			shell.usage_lens = Some(focus);
-			shell.panel_policy = PanelPolicy::Contextual;
-			shell.panel_navigation = PanelNavigationState::default();
-		});
-		Transition::changed()
-	}
-
-	fn set_change_panel_action(&mut self, change_panel: ChangePanelMode) -> Transition {
-		self.update_shell(|shell| {
-			if shell.change_panel != change_panel {
-				shell.panel_navigation = PanelNavigationState::default();
-			}
-			shell.change_panel = change_panel;
-		});
-		Transition::changed()
-	}
-
-	fn scroll_panel(&mut self, direction: i8) -> Transition {
-		self.update_shell(|shell| {
-			if direction > 0 {
-				shell.panel_navigation.scroll = shell
-					.panel_navigation
-					.scroll
-					.saturating_add(PANEL_SCROLL_STEP);
-			} else {
-				shell.panel_navigation.scroll = shell
-					.panel_navigation
-					.scroll
-					.saturating_sub(PANEL_SCROLL_STEP);
-			}
-		});
-		Transition::changed()
-	}
-
-	pub(in crate::ui) fn reduce_ui_msg(&mut self, msg: &Msg) -> Transition {
-		match msg {
-			Msg::Quit => Transition::unchanged().with_effect(Effect::Quit),
-			Msg::ShowView(view) => Transition::unchanged().with_effect(Effect::ShowView(*view)),
-			Msg::ToggleHeaderSearch => self.toggle_header_search(),
-			Msg::ToggleFocusRegion => Transition::unchanged(),
-			Msg::HeaderSearchNextField => {
-				let focus = match self.shell.mode {
-					UiMode::HeaderSearch(focus) => focus.next(),
-					UiMode::Normal => HeaderSearchFocus::Text,
-				};
-				self.update_shell(|shell| {
-					shell.header_search.focus = focus;
-					shell.header_search.combo_open = false;
-					shell.mode = UiMode::HeaderSearch(focus);
-				});
-				self.shell.status = match focus {
-					HeaderSearchFocus::Text => "search text focused".to_string(),
-					HeaderSearchFocus::Lang => "language selector focused".to_string(),
-					HeaderSearchFocus::Kind => "kind selector focused".to_string(),
-				};
-				Transition::changed()
-			}
-			Msg::HeaderSearchInput(edit) => {
-				let generation = self.edit_header_search_input(*edit);
-				let text = display_filter_text(&self.shell.header_search.text);
-				self.shell.status = format!("search draft: {text}");
-				Transition::changed().with_effect(Effect::DebounceHeaderSearch(generation))
-			}
-			Msg::HeaderSearchSelectNext => Transition::unchanged(),
-			Msg::HeaderSearchSelectPrevious => Transition::unchanged(),
-			Msg::HeaderSearchToggleSelection => Transition::unchanged(),
-			Msg::HeaderSearchReset => {
-				self.reset_header_search();
-				self.shell.status = "search filters reset".to_string();
-				Transition::changed()
-			}
-			Msg::HeaderSearchApply => match self.shell.mode {
-				UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal => {
-					Transition::unchanged()
-				}
-				UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind)
-					if self.shell.header_search.combo_open =>
-				{
-					self.update_shell(|shell| shell.header_search.combo_open = false);
-					Transition::changed()
-				}
-				UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind) => {
-					self.update_shell(|shell| shell.header_search.combo_open = true);
-					Transition::changed()
-				}
-			},
-			Msg::Help => {
-				self.set_status(
-					"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, PgUp/PgDn scroll panel, d changes, u usages, y copy panel, 1-6 panels, c check, q quit",
-				);
-				Transition::changed()
-			}
-			Msg::FocusUsages => Transition::unchanged(),
-			Msg::ToggleChangeMode => Transition::unchanged(),
-			Msg::CopyPanelSnapshot => emit_effect(Effect::CopyPanelSnapshot),
-			Msg::RunCheck => emit_effect(Effect::RunCheck),
-			Msg::MoveDown => Transition::unchanged(),
-			Msg::MoveUp => Transition::unchanged(),
-			Msg::Home => Transition::unchanged(),
-			Msg::End => Transition::unchanged(),
-			Msg::PanelScrollDown => self.scroll_panel(1),
-			Msg::PanelScrollUp => self.scroll_panel(-1),
-			Msg::ToggleNode | Msg::OpenNode if self.shell.focus_region == FocusRegion::Panel => {
-				Transition::unchanged()
-			}
-			Msg::ToggleNode => Transition::unchanged(),
-			Msg::OpenNode => Transition::unchanged(),
-			Msg::CloseNode if self.shell.focus_region == FocusRegion::UsageLens => {
-				Transition::unchanged()
-			}
-			Msg::CloseNode if self.shell.focus_region == FocusRegion::Panel => {
-				Transition::unchanged()
-			}
-			Msg::CloseNode => Transition::unchanged(),
-			Msg::Noop => Transition::unchanged(),
-		}
-	}
-
-	fn toggle_header_search(&mut self) -> Transition {
-		let next = match self.shell.mode {
-			UiMode::Normal => UiMode::HeaderSearch(self.shell.header_search.focus),
-			UiMode::HeaderSearch(_) => UiMode::Normal,
-		};
-		self.update_shell(|shell| {
-			shell.mode = next;
-			shell.header_search.combo_open = false;
-			if matches!(next, UiMode::Normal) {
-				shell.focus_region = FocusRegion::Navigator;
-			}
-		});
-		self.shell.status = match next {
-			UiMode::Normal => "search focus returned to navigator".to_string(),
-			UiMode::HeaderSearch(HeaderSearchFocus::Text) => {
-				"type to search; Tab selects lang".to_string()
-			}
-			UiMode::HeaderSearch(HeaderSearchFocus::Lang) => {
-				"select language; Tab selects kind".to_string()
-			}
-			UiMode::HeaderSearch(HeaderSearchFocus::Kind) => {
-				"select kind; Tab returns to text".to_string()
-			}
-		};
-		Transition::changed()
-	}
-
-	pub(in crate::ui) fn reduce_header_search_debounced(&mut self, _generation: u64) -> Transition {
-		Transition::unchanged()
-	}
-
-	pub(in crate::ui) fn generation_for_work(&self, work: WorkKind) -> u64 {
-		self.work.epoch(work)
-	}
-
-	pub(in crate::ui) fn start_task(&mut self, id: TaskId, kind: WorkKind, generation: u64) {
-		self.bump();
-		self.work.pending.remove(&kind);
-		self.work
-			.running
-			.insert(id, RunningTask { kind, generation });
-		if kind == WorkKind::CheckPanel {
-			self.check.state = CheckState::Pending;
-		}
-	}
-
-	pub(in crate::ui) fn invalidate_for_store_event(&mut self, event: StoreEvent) {
-		self.bump();
-		match event {
-			StoreEvent::FullIndex => self.invalidate_full_index(),
-			StoreEvent::GitOverlay => self.invalidate_git_overlay(),
-		}
-	}
-
-	pub(in crate::ui) fn accepts_task_result(&self, result: &TaskResult) -> bool {
-		self.work.running.get(&result.id).is_some_and(|running| {
-			running.kind == result.work
-				&& running.generation == result.generation
-				&& self.generation_for_work(result.work) == result.generation
-		})
-	}
-
-	pub(in crate::ui) fn complete_task(&mut self, result: &TaskResult) -> TaskCompletion {
-		let accepted = self.accepts_task_result(result);
-		self.bump();
-		self.work.running.remove(&result.id);
-		if !accepted {
-			return TaskCompletion::Ignored;
-		}
-		match &result.outcome {
-			TaskOutcome::StoreReloaded(_) => {
-				self.work.pending.remove(&WorkKind::ProjectLoad);
-				self.work.pending.remove(&WorkKind::FileCatalog);
-				self.work.pending.remove(&WorkKind::GraphIndex);
-				self.work.pending.remove(&WorkKind::SearchIndex);
-				self.work.pending.remove(&WorkKind::GitOverlay);
-				self.work.pending.remove(&WorkKind::ImpactIndex);
-				self.work.pending.remove(&WorkKind::PanelData);
-			}
-			TaskOutcome::FileCatalogLoaded(_) => {
-				self.work.pending.remove(&WorkKind::ProjectLoad);
-				self.work.pending.remove(&WorkKind::FileCatalog);
-			}
-			TaskOutcome::CheckCompleted(summary) => {
-				self.check.state = CheckState::Ready((**summary).clone());
-				self.work.pending.remove(&WorkKind::CheckPanel);
-			}
-			TaskOutcome::Failed(error) => {
-				self.mark_failed(result.work, error.clone());
-			}
-		}
-		self.last_task = Some(TaskSummary {
-			id: result.id,
-			label: result.label.clone(),
-			status: match &result.outcome {
-				TaskOutcome::FileCatalogLoaded(_) => TaskStatus::Completed,
-				TaskOutcome::StoreReloaded(_) => TaskStatus::Completed,
-				TaskOutcome::CheckCompleted(_) => TaskStatus::Completed,
-				TaskOutcome::Failed(_) => TaskStatus::Failed,
-			},
-		});
-		TaskCompletion::Accepted
-	}
-
-	fn invalidate_full_index(&mut self) {
-		self.check.state = CheckState::Pending;
-		self.work.bump_epochs(&[
-			WorkKind::ProjectLoad,
-			WorkKind::FileCatalog,
-			WorkKind::GraphIndex,
-			WorkKind::SearchIndex,
-			WorkKind::GitOverlay,
-			WorkKind::ImpactIndex,
-			WorkKind::PanelData,
-			WorkKind::CheckPanel,
-			WorkKind::CoverageIndex,
-		]);
-	}
-
-	fn invalidate_git_overlay(&mut self) {
-		self.work.bump_epochs(&[
-			WorkKind::GitOverlay,
-			WorkKind::ImpactIndex,
-			WorkKind::PanelData,
-		]);
-	}
-
-	fn bump(&mut self) {
-		self.generation += 1;
-	}
-
-	fn mark_failed(&mut self, kind: WorkKind, error: String) {
-		if kind == WorkKind::CheckPanel {
-			self.check.state = CheckState::Error(error);
-		}
-	}
-
-	fn update_shell(&mut self, update: impl FnOnce(&mut ShellSlice)) {
-		self.bump();
-		self.shell.generation += 1;
-		update(&mut self.shell);
-	}
-
-	fn apply_header_search_action(
-		&mut self,
-		results: &HeaderSearchResults,
-		return_focus: bool,
-	) -> Transition {
-		self.update_shell(|shell| {
-			if return_focus {
-				shell.mode = UiMode::Normal;
-				shell.header_search.combo_open = false;
-				shell.focus_region = FocusRegion::Navigator;
-			}
-			shell.active_filter = ActiveFilter::HeaderSearch(results.clone());
-			shell.view_mode = VisualizationMode::Search;
-			shell.panel_policy = PanelPolicy::Contextual;
-			shell.panel_navigation = PanelNavigationState::default();
-			shell.header_search.text = results.text.clone();
-			shell.header_search.langs = results.langs.clone();
-			shell.header_search.kind_filters = results.kind_filters.clone();
-			shell.header_search.pending_generation = None;
-		});
-		Transition::changed()
-	}
-
-	fn set_header_search_filters_action(
-		&mut self,
-		langs: &[Lang],
-		kind_filters: &[HeaderKindFilter],
-	) -> Transition {
-		let mut generation = self.shell.header_search.generation;
-		self.update_shell(|shell| {
-			shell.header_search.langs = langs.to_vec();
-			shell.header_search.kind_filters = kind_filters.to_vec();
-			generation = shell.header_search.bump_pending();
-		});
-		Transition::changed().with_effect(Effect::DebounceHeaderSearch(generation))
-	}
-
-	fn set_header_search_options_action(
-		&mut self,
-		langs: &[Lang],
-		kind_filters: &[HeaderKindFilter],
-		available_langs: &[Lang],
-		available_kind_filters: &[HeaderKindFilter],
-		lang_cursor: usize,
-		kind_cursor: usize,
-	) -> Transition {
-		self.update_shell(|shell| {
-			shell.header_search.langs = langs.to_vec();
-			shell.header_search.kind_filters = kind_filters.to_vec();
-			shell.header_search.available_langs = available_langs.to_vec();
-			shell.header_search.available_kind_filters = available_kind_filters.to_vec();
-			shell.header_search.lang_cursor = lang_cursor;
-			shell.header_search.kind_cursor = kind_cursor;
-		});
-		Transition::changed()
-	}
-
-	fn set_header_search_cursor_action(
-		&mut self,
-		focus: HeaderSearchFocus,
-		cursor: usize,
-	) -> Transition {
-		self.update_shell(|shell| match focus {
-			HeaderSearchFocus::Text => {}
-			HeaderSearchFocus::Lang => shell.header_search.lang_cursor = cursor,
-			HeaderSearchFocus::Kind => shell.header_search.kind_cursor = cursor,
-		});
-		Transition::changed()
-	}
-
-	fn edit_header_search_input(&mut self, edit: FilterEdit) -> u64 {
-		let mut generation = self.shell.header_search.generation;
-		self.update_shell(|shell| {
-			match edit {
-				FilterEdit::Push(c) => shell.header_search.text.push(c),
-				FilterEdit::Backspace => {
-					shell.header_search.text.pop();
-				}
-				FilterEdit::Clear => shell.header_search.text.clear(),
-			}
-			generation = shell.header_search.bump_pending();
-		});
-		generation
-	}
-
-	fn reset_header_search(&mut self) {
-		self.update_shell(|shell| {
-			shell.header_search.reset();
-			shell.header_search.bump_pending();
-		});
-	}
+fn update_shell(state: &mut AppState, update: impl FnOnce(&mut ShellSlice)) {
+	bump(state);
+	state.shell.generation += 1;
+	update(&mut state.shell);
 }
 
 fn display_filter_text(filter: &str) -> &str {
 	if filter.is_empty() { "<empty>" } else { filter }
+}
+
+fn shell_set_view(shell: &mut ShellSlice, view: View, policy: PanelPolicy) {
+	if shell.view != view {
+		shell.panel_navigation = PanelNavigationState::default();
+	}
+	shell.view = view;
+	shell.panel_policy = policy;
+}
+
+fn shell_clear_filter(shell: &mut ShellSlice, return_focus: bool) {
+	if return_focus {
+		shell.mode = UiMode::Normal;
+	}
+	shell.focus_region = FocusRegion::Navigator;
+	shell.active_filter = ActiveFilter::None;
+	shell.view_mode = VisualizationMode::Explorer;
+	shell.panel_policy = PanelPolicy::Contextual;
+	shell.change_panel = ChangePanelMode::Diff;
+	shell.panel_navigation = PanelNavigationState::default();
+	shell.header_search.reset();
+	shell.header_search.pending_generation = None;
+}
+
+fn shell_enter_change_mode(shell: &mut ShellSlice) {
+	shell.mode = UiMode::Normal;
+	shell.focus_region = FocusRegion::Navigator;
+	shell.active_filter = ActiveFilter::Change;
+	shell.usage_lens = None;
+	shell.view_mode = VisualizationMode::Change;
+	shell.panel_policy = PanelPolicy::Contextual;
+	shell.change_panel = ChangePanelMode::Diff;
+	shell.panel_navigation = PanelNavigationState::default();
+	shell.header_search.reset();
+	shell.header_search.pending_generation = None;
+}
+
+fn shell_set_usage_lens(shell: &mut ShellSlice, focus: Option<UsageFocus>) {
+	shell.mode = UiMode::Normal;
+	shell.focus_region = if focus.is_some() {
+		FocusRegion::UsageLens
+	} else {
+		FocusRegion::Navigator
+	};
+	shell.usage_lens = focus;
+	shell.panel_policy = PanelPolicy::Contextual;
+	shell.panel_navigation = PanelNavigationState::default();
+}
+
+fn shell_replace_usage_lens(shell: &mut ShellSlice, focus: UsageFocus) {
+	shell.usage_lens = Some(focus);
+	shell.panel_policy = PanelPolicy::Contextual;
+	shell.panel_navigation = PanelNavigationState::default();
+}
+
+fn shell_set_change_panel(shell: &mut ShellSlice, change_panel: ChangePanelMode) {
+	if shell.change_panel != change_panel {
+		shell.panel_navigation = PanelNavigationState::default();
+	}
+	shell.change_panel = change_panel;
+}
+
+fn shell_set_focus_region(shell: &mut ShellSlice, region: FocusRegion) {
+	shell.mode = UiMode::Normal;
+	shell.focus_region = region;
+}
+
+fn shell_scroll_panel(shell: &mut ShellSlice, direction: i8) {
+	if direction > 0 {
+		shell.panel_navigation.scroll = shell
+			.panel_navigation
+			.scroll
+			.saturating_add(PANEL_SCROLL_STEP);
+	} else {
+		shell.panel_navigation.scroll = shell
+			.panel_navigation
+			.scroll
+			.saturating_sub(PANEL_SCROLL_STEP);
+	}
+}
+
+fn shell_toggle_header_search(shell: &mut ShellSlice) {
+	let next = match shell.mode {
+		UiMode::Normal => UiMode::HeaderSearch(shell.header_search.focus),
+		UiMode::HeaderSearch(_) => UiMode::Normal,
+	};
+	shell.mode = next;
+	shell.header_search.combo_open = false;
+	if matches!(next, UiMode::Normal) {
+		shell.focus_region = FocusRegion::Navigator;
+	}
+	shell.status = match next {
+		UiMode::Normal => "search focus returned to navigator".to_string(),
+		UiMode::HeaderSearch(HeaderSearchFocus::Text) => {
+			"type to search; Tab selects lang".to_string()
+		}
+		UiMode::HeaderSearch(HeaderSearchFocus::Lang) => {
+			"select language; Tab selects kind".to_string()
+		}
+		UiMode::HeaderSearch(HeaderSearchFocus::Kind) => {
+			"select kind; Tab returns to text".to_string()
+		}
+	};
+}
+
+fn shell_focus_next_header_search_field(shell: &mut ShellSlice) {
+	let focus = match shell.mode {
+		UiMode::HeaderSearch(focus) => focus.next(),
+		UiMode::Normal => HeaderSearchFocus::Text,
+	};
+	shell.header_search.focus = focus;
+	shell.header_search.combo_open = false;
+	shell.mode = UiMode::HeaderSearch(focus);
+	shell.status = match focus {
+		HeaderSearchFocus::Text => "search text focused".to_string(),
+		HeaderSearchFocus::Lang => "language selector focused".to_string(),
+		HeaderSearchFocus::Kind => "kind selector focused".to_string(),
+	};
+}
+
+fn shell_edit_header_search_input(shell: &mut ShellSlice, edit: FilterEdit) -> u64 {
+	match edit {
+		FilterEdit::Push(c) => shell.header_search.text.push(c),
+		FilterEdit::Backspace => {
+			shell.header_search.text.pop();
+		}
+		FilterEdit::Clear => shell.header_search.text.clear(),
+	}
+	let generation = shell.header_search.bump_pending();
+	let text = display_filter_text(&shell.header_search.text);
+	shell.status = format!("search draft: {text}");
+	generation
+}
+
+fn shell_reset_header_search(shell: &mut ShellSlice) {
+	shell.header_search.reset();
+	shell.header_search.bump_pending();
+	shell.status = "search filters reset".to_string();
+}
+
+fn shell_apply_header_search(
+	shell: &mut ShellSlice,
+	results: &HeaderSearchResults,
+	return_focus: bool,
+) {
+	if return_focus {
+		shell.mode = UiMode::Normal;
+		shell.header_search.combo_open = false;
+		shell.focus_region = FocusRegion::Navigator;
+	}
+	shell.active_filter = ActiveFilter::HeaderSearch(results.clone());
+	shell.view_mode = VisualizationMode::Search;
+	shell.panel_policy = PanelPolicy::Contextual;
+	shell.panel_navigation = PanelNavigationState::default();
+	shell.header_search.text = results.text.clone();
+	shell.header_search.langs = results.langs.clone();
+	shell.header_search.kind_filters = results.kind_filters.clone();
+	shell.header_search.pending_generation = None;
+}
+
+fn shell_set_header_search_filters(
+	shell: &mut ShellSlice,
+	langs: &[Lang],
+	kind_filters: &[HeaderKindFilter],
+) -> u64 {
+	shell.header_search.langs = langs.to_vec();
+	shell.header_search.kind_filters = kind_filters.to_vec();
+	shell.header_search.bump_pending()
+}
+
+fn shell_set_header_search_options(shell: &mut ShellSlice, options: HeaderSearchOptionsUpdate<'_>) {
+	shell.header_search.langs = options.langs.to_vec();
+	shell.header_search.kind_filters = options.kind_filters.to_vec();
+	shell.header_search.available_langs = options.available_langs.to_vec();
+	shell.header_search.available_kind_filters = options.available_kind_filters.to_vec();
+	shell.header_search.lang_cursor = options.lang_cursor;
+	shell.header_search.kind_cursor = options.kind_cursor;
+}
+
+fn shell_set_header_search_cursor(shell: &mut ShellSlice, focus: HeaderSearchFocus, cursor: usize) {
+	match focus {
+		HeaderSearchFocus::Text => {}
+		HeaderSearchFocus::Lang => shell.header_search.lang_cursor = cursor,
+		HeaderSearchFocus::Kind => shell.header_search.kind_cursor = cursor,
+	}
+}
+
+fn shell_toggle_header_search_combo(shell: &mut ShellSlice) {
+	match shell.mode {
+		UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal => {}
+		UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind)
+			if shell.header_search.combo_open =>
+		{
+			shell.header_search.combo_open = false;
+		}
+		UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind) => {
+			shell.header_search.combo_open = true;
+		}
+	}
+}
+
+pub(in crate::ui) fn reduce_shell_action(state: &mut AppState, action: &ShellAction) -> Transition {
+	match action {
+		ShellAction::SetStatus(status) => {
+			set_status(state, status.clone());
+			Transition::changed()
+		}
+		ShellAction::AppendStatus(status) => {
+			append_status(state, status);
+			Transition::changed()
+		}
+		ShellAction::SetCheckState(check_state) => {
+			set_check_state(state, check_state.clone());
+			Transition::changed()
+		}
+		ShellAction::SetView { view, policy } => {
+			update_shell(state, |shell| shell_set_view(shell, *view, *policy));
+			Transition::changed()
+		}
+		ShellAction::ApplyHeaderSearch {
+			results,
+			return_focus,
+		} => {
+			update_shell(state, |shell| {
+				shell_apply_header_search(shell, results, *return_focus);
+			});
+			Transition::changed()
+		}
+		ShellAction::SetHeaderSearchFilters {
+			langs,
+			kind_filters,
+		} => {
+			let mut generation = 0;
+			update_shell(state, |shell| {
+				generation = shell_set_header_search_filters(shell, langs, kind_filters);
+			});
+			Transition::changed().with_effect(Effect::DebounceHeaderSearch(generation))
+		}
+		ShellAction::SetHeaderSearchOptions {
+			langs,
+			kind_filters,
+			available_langs,
+			available_kind_filters,
+			lang_cursor,
+			kind_cursor,
+		} => {
+			let options = HeaderSearchOptionsUpdate {
+				langs,
+				kind_filters,
+				available_langs,
+				available_kind_filters,
+				lang_cursor: *lang_cursor,
+				kind_cursor: *kind_cursor,
+			};
+			update_shell(state, |shell| {
+				shell_set_header_search_options(shell, options)
+			});
+			Transition::changed()
+		}
+		ShellAction::SetHeaderSearchCursor { focus, cursor } => {
+			update_shell(state, |shell| {
+				shell_set_header_search_cursor(shell, *focus, *cursor);
+			});
+			Transition::changed()
+		}
+		ShellAction::ClearFilter { return_focus } => {
+			update_shell(state, |shell| shell_clear_filter(shell, *return_focus));
+			Transition::changed()
+		}
+		ShellAction::SetUsageLens(focus) => {
+			update_shell(state, |shell| shell_set_usage_lens(shell, focus.clone()));
+			Transition::changed()
+		}
+		ShellAction::ReplaceUsageLens(focus) => {
+			update_shell(state, |shell| {
+				shell_replace_usage_lens(shell, focus.clone())
+			});
+			Transition::changed()
+		}
+		ShellAction::EnterChangeMode => {
+			update_shell(state, shell_enter_change_mode);
+			Transition::changed()
+		}
+		ShellAction::ReplaceActiveFilter(active_filter) => {
+			update_shell(state, |shell| shell.active_filter = active_filter.clone());
+			Transition::changed()
+		}
+		ShellAction::SetChangePanel(change_panel) => {
+			update_shell(state, |shell| shell_set_change_panel(shell, *change_panel));
+			Transition::changed()
+		}
+		ShellAction::SetFocusRegion(region) => {
+			update_shell(state, |shell| shell_set_focus_region(shell, *region));
+			Transition::changed()
+		}
+		ShellAction::SetPanelScroll(offset) => {
+			update_shell(state, |shell| shell.panel_navigation.scroll = *offset);
+			Transition::changed()
+		}
+		ShellAction::SetPanelNavigation(panel_state) => {
+			update_shell(state, |shell| shell.panel_navigation = panel_state.clone());
+			Transition::changed()
+		}
+	}
+}
+
+pub(in crate::ui) fn reduce_ui_msg(state: &mut AppState, msg: &Msg) -> Transition {
+	match msg {
+		Msg::Quit => Transition::unchanged().with_effect(Effect::Quit),
+		Msg::ShowView(view) => Transition::unchanged().with_effect(Effect::ShowView(*view)),
+		Msg::ToggleHeaderSearch => {
+			update_shell(state, shell_toggle_header_search);
+			Transition::changed()
+		}
+		Msg::ToggleFocusRegion => Transition::unchanged(),
+		Msg::HeaderSearchNextField => {
+			update_shell(state, shell_focus_next_header_search_field);
+			Transition::changed()
+		}
+		Msg::HeaderSearchInput(edit) => {
+			let mut generation = 0;
+			update_shell(state, |shell| {
+				generation = shell_edit_header_search_input(shell, *edit);
+			});
+			Transition::changed().with_effect(Effect::DebounceHeaderSearch(generation))
+		}
+		Msg::HeaderSearchSelectNext => Transition::unchanged(),
+		Msg::HeaderSearchSelectPrevious => Transition::unchanged(),
+		Msg::HeaderSearchToggleSelection => Transition::unchanged(),
+		Msg::HeaderSearchReset => {
+			update_shell(state, shell_reset_header_search);
+			Transition::changed()
+		}
+		Msg::HeaderSearchApply => match state.shell.mode {
+			UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal => {
+				Transition::unchanged()
+			}
+			UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind) => {
+				update_shell(state, shell_toggle_header_search_combo);
+				Transition::changed()
+			}
+		},
+		Msg::Help => {
+			set_status(
+				state,
+				"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, PgUp/PgDn scroll panel, d changes, u usages, y copy panel, 1-6 panels, c check, q quit",
+			);
+			Transition::changed()
+		}
+		Msg::FocusUsages => Transition::unchanged(),
+		Msg::ToggleChangeMode => Transition::unchanged(),
+		Msg::CopyPanelSnapshot => emit_effect(Effect::CopyPanelSnapshot),
+		Msg::RunCheck => emit_effect(Effect::RunCheck),
+		Msg::MoveDown => Transition::unchanged(),
+		Msg::MoveUp => Transition::unchanged(),
+		Msg::Home => Transition::unchanged(),
+		Msg::End => Transition::unchanged(),
+		Msg::PanelScrollDown => scroll_panel(state, 1),
+		Msg::PanelScrollUp => scroll_panel(state, -1),
+		Msg::ToggleNode | Msg::OpenNode if state.shell.focus_region == FocusRegion::Panel => {
+			Transition::unchanged()
+		}
+		Msg::ToggleNode => Transition::unchanged(),
+		Msg::OpenNode => Transition::unchanged(),
+		Msg::CloseNode if state.shell.focus_region == FocusRegion::UsageLens => {
+			Transition::unchanged()
+		}
+		Msg::CloseNode if state.shell.focus_region == FocusRegion::Panel => Transition::unchanged(),
+		Msg::CloseNode => Transition::unchanged(),
+		Msg::Noop => Transition::unchanged(),
+	}
 }
 
 fn emit_effect(effect: Effect) -> Transition {

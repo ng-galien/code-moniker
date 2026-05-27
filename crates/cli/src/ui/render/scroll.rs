@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-feature-envy-local]
-// TODO(smell): keep ScrollViewport as a small geometry helper; revisit this suppression if visible-line styling or layout policy moves here.
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
@@ -38,33 +36,6 @@ impl ScrollViewport {
 		} else {
 			selection.saturating_sub(selected_row)
 		};
-		Self::from_offset(content_len, viewport_len, offset)
-	}
-
-	pub(in crate::ui) fn for_visible_line(
-		content_len: usize,
-		viewport_len: usize,
-		current_offset: usize,
-		line: Option<usize>,
-		margin: usize,
-	) -> Self {
-		let mut offset = clamp_offset(current_offset, content_len, viewport_len);
-		let Some(line) = line else {
-			return Self::from_offset(content_len, viewport_len, offset);
-		};
-		if viewport_len == 0 {
-			return Self::from_offset(content_len, viewport_len, 0);
-		}
-		let margin = margin.min(viewport_len.saturating_sub(1) / 2);
-		let upper = offset.saturating_add(margin);
-		let lower = offset
-			.saturating_add(viewport_len)
-			.saturating_sub(1 + margin);
-		if line < upper {
-			offset = line.saturating_sub(margin);
-		} else if line > lower {
-			offset = line.saturating_sub(viewport_len.saturating_sub(1 + margin));
-		}
 		Self::from_offset(content_len, viewport_len, offset)
 	}
 
@@ -111,6 +82,33 @@ impl ScrollViewport {
 			end: start + thumb_len,
 		})
 	}
+}
+
+pub(in crate::ui) fn scroll_viewport_for_visible_line(
+	content_len: usize,
+	viewport_len: usize,
+	current_offset: usize,
+	line: Option<usize>,
+	margin: usize,
+) -> ScrollViewport {
+	let mut offset = clamp_offset(current_offset, content_len, viewport_len);
+	let Some(line) = line else {
+		return ScrollViewport::from_offset(content_len, viewport_len, offset);
+	};
+	if viewport_len == 0 {
+		return ScrollViewport::from_offset(content_len, viewport_len, 0);
+	}
+	let margin = margin.min(viewport_len.saturating_sub(1) / 2);
+	let upper = offset.saturating_add(margin);
+	let lower = offset
+		.saturating_add(viewport_len)
+		.saturating_sub(1 + margin);
+	if line < upper {
+		offset = line.saturating_sub(margin);
+	} else if line > lower {
+		offset = line.saturating_sub(viewport_len.saturating_sub(1 + margin));
+	}
+	ScrollViewport::from_offset(content_len, viewport_len, offset)
 }
 
 pub(in crate::ui) fn viewport_comfort_margin(viewport_len: usize) -> usize {
@@ -190,21 +188,21 @@ mod tests {
 
 	#[test]
 	fn selected_line_inside_comfort_zone_keeps_current_offset() {
-		let viewport = ScrollViewport::for_visible_line(100, 10, 20, Some(25), 2);
+		let viewport = scroll_viewport_for_visible_line(100, 10, 20, Some(25), 2);
 
 		assert_eq!(viewport.offset, 20);
 	}
 
 	#[test]
 	fn selected_line_below_comfort_zone_scrolls_down() {
-		let viewport = ScrollViewport::for_visible_line(100, 10, 20, Some(29), 2);
+		let viewport = scroll_viewport_for_visible_line(100, 10, 20, Some(29), 2);
 
 		assert_eq!(viewport.offset, 22);
 	}
 
 	#[test]
 	fn selected_line_above_comfort_zone_scrolls_up() {
-		let viewport = ScrollViewport::for_visible_line(100, 10, 20, Some(21), 2);
+		let viewport = scroll_viewport_for_visible_line(100, 10, 20, Some(21), 2);
 
 		assert_eq!(viewport.offset, 19);
 	}

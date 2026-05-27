@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-god-type-local-metrics]
-// TODO(smell): keep PanelVm as a pure render contract; split only if it starts owning panel behavior or workspace reads.
 use super::super::render::component::ComponentId;
 use super::super::render::text::{Column, FitMode};
 use super::super::render::tree::TreeRowVm;
@@ -51,76 +49,79 @@ impl PanelVm {
 	pub(in crate::ui) fn navigation_len(&self) -> usize {
 		self.sections.iter().map(PanelSection::navigation_len).sum()
 	}
+}
 
-	pub(in crate::ui) fn section(&mut self, label: impl Into<String>) {
-		self.sections.push(PanelSection::Heading {
-			label: label.into(),
-		});
-	}
+pub(in crate::ui) fn panel_section(vm: &mut PanelVm, label: impl Into<String>) {
+	vm.sections.push(PanelSection::Heading {
+		label: label.into(),
+	});
+}
 
-	pub(in crate::ui) fn component_section(
-		&mut self,
-		label: impl Into<String>,
-		component: ComponentId,
-	) {
-		self.sections.push(PanelSection::ComponentHeading {
-			label: label.into(),
-			component,
-		});
-	}
+pub(in crate::ui) fn panel_component_section(
+	vm: &mut PanelVm,
+	label: impl Into<String>,
+	component: ComponentId,
+) {
+	vm.sections.push(PanelSection::ComponentHeading {
+		label: label.into(),
+		component,
+	});
+}
 
-	pub(in crate::ui) fn kv(
-		&mut self,
-		label: &'static str,
-		value: impl Into<String>,
-		fit: FitMode,
-	) {
-		self.sections.push(PanelSection::KeyValue {
-			label,
-			value: value.into(),
-			fit,
-		});
-	}
+pub(in crate::ui) fn panel_kv(
+	vm: &mut PanelVm,
+	label: &'static str,
+	value: impl Into<String>,
+	fit: FitMode,
+) {
+	vm.sections.push(PanelSection::KeyValue {
+		label,
+		value: value.into(),
+		fit,
+	});
+}
 
-	pub(in crate::ui) fn table(&mut self, columns: Vec<Column>, rows: Vec<Vec<String>>) {
-		self.sections.push(PanelSection::Table { columns, rows });
-	}
+pub(in crate::ui) fn panel_table(vm: &mut PanelVm, columns: Vec<Column>, rows: Vec<Vec<String>>) {
+	vm.sections.push(PanelSection::Table { columns, rows });
+}
 
-	pub(in crate::ui) fn muted(&mut self, text: impl Into<String>) {
-		self.sections.push(PanelSection::Message {
-			text: text.into(),
-			tone: MessageTone::Muted,
-		});
-	}
+pub(in crate::ui) fn panel_muted(vm: &mut PanelVm, text: impl Into<String>) {
+	vm.sections.push(PanelSection::Message {
+		text: text.into(),
+		tone: MessageTone::Muted,
+	});
+}
 
-	pub(in crate::ui) fn danger(&mut self, text: impl Into<String>) {
-		self.sections.push(PanelSection::Message {
-			text: text.into(),
-			tone: MessageTone::Danger,
-		});
-	}
+pub(in crate::ui) fn panel_danger(vm: &mut PanelVm, text: impl Into<String>) {
+	vm.sections.push(PanelSection::Message {
+		text: text.into(),
+		tone: MessageTone::Danger,
+	});
+}
 
-	pub(in crate::ui) fn bullet(&mut self, text: impl Into<String>) {
-		self.sections
-			.push(PanelSection::Bullet { text: text.into() });
-	}
+pub(in crate::ui) fn panel_bullet(vm: &mut PanelVm, text: impl Into<String>) {
+	vm.sections.push(PanelSection::Bullet { text: text.into() });
+}
 
-	pub(in crate::ui) fn tree_rows(&mut self, rows: Vec<TreeRowVm>) {
-		self.sections.push(PanelSection::TreeRows(rows));
-	}
+pub(in crate::ui) fn panel_tree_rows(vm: &mut PanelVm, rows: Vec<TreeRowVm>) {
+	vm.sections.push(PanelSection::TreeRows(rows));
+}
 
-	pub(in crate::ui) fn source_snippet(&mut self, lines: Vec<SourceLineVm>) {
-		self.sections.push(PanelSection::SourceSnippet(lines));
-	}
+pub(in crate::ui) fn panel_source_snippet(vm: &mut PanelVm, lines: Vec<SourceLineVm>) {
+	vm.sections.push(PanelSection::SourceSnippet(lines));
+}
 
-	pub(in crate::ui) fn reference_groups(&mut self, groups: Vec<ReferenceGroupVm>, limit: usize) {
-		self.sections
-			.push(PanelSection::ReferenceGroups { groups, limit });
-	}
+pub(in crate::ui) fn panel_reference_groups(
+	vm: &mut PanelVm,
+	groups: Vec<ReferenceGroupVm>,
+	limit: usize,
+) {
+	vm.sections
+		.push(PanelSection::ReferenceGroups { groups, limit });
+}
 
-	pub(in crate::ui) fn blank(&mut self) {
-		self.sections.push(PanelSection::Blank);
-	}
+pub(in crate::ui) fn panel_blank(vm: &mut PanelVm) {
+	vm.sections.push(PanelSection::Blank);
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

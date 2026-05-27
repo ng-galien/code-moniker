@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-god-type-local-metrics]
-// TODO(smell): split App runtime into terminal event handling, task polling, effect dispatch, and shell-event application before enabling this guardrail here.
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
@@ -10,6 +8,11 @@ use crate::session::StoreWatchRoot;
 use crate::ui::app::App;
 use crate::ui::app::{
 	AppAction, CheckState, Effect, FocusRegion, PanelPolicy, TaskCompletion, View,
+	apply_file_catalog_store, apply_navigation, apply_reloaded_store, close_panel_tree_node,
+	close_selected_nav, copy_panel_snapshot, ensure_active_panel_selection, handle_store_event,
+	handle_store_event_sync, has_clearable_scope, move_panel_selection, move_panel_to_edge,
+	open_panel_tree_node, open_selected_nav, set_view, toggle_focus_region, toggle_panel_tree_node,
+	toggle_selected_nav,
 };
 use crate::ui::async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
 use crate::ui::clipboard;
@@ -21,306 +24,341 @@ use crate::ui::store::tree_pane_action::TreePaneAction;
 
 const HEADER_SEARCH_DEBOUNCE_MS: u64 = 180;
 
-impl App {
-	pub(in crate::ui) fn run_check(&mut self) {
-		self.set_view(View::Check, PanelPolicy::Manual);
-		if let Ok(context) = self.store_check_context() {
-			let task = TaskSpec::run_check(
-				context,
-				self.rules.clone(),
-				self.profile.clone(),
-				self.scheme.clone(),
-			);
-			if self.queue_task(task) {
-				self.set_status("check queued in background");
-				return;
-			}
-		}
-		match self.store_check_context().and_then(|context| {
-			context.check_summary(&self.rules, self.profile.as_deref(), &self.scheme)
-		}) {
-			Ok(summary) => {
-				self.set_status(format!(
-					"check complete: {} violation(s) across {} file(s)",
-					summary.total_violations, summary.files_with_violations
-				));
-				self.set_check_state(CheckState::Ready(summary));
-			}
-			Err(e) => {
-				self.set_status("check failed");
-				self.set_check_state(CheckState::Error(e.to_string()));
-			}
-		}
-	}
-
-	pub(in crate::ui) fn set_event_sender(&mut self, tx: Sender<ShellEvent>) {
-		self.event_tx = Some(tx);
-	}
-
-	pub(in crate::ui) fn queue_startup_load(&mut self) {
-		if !self.startup_load_pending {
+pub(in crate::ui) fn run_check(app: &mut App) {
+	set_view(app, View::Check, PanelPolicy::Manual);
+	if let Ok(context) = crate::ui::app::store_check_context(app) {
+		let task = TaskSpec::run_check(
+			context,
+			app.check.rules.clone(),
+			app.check.profile.clone(),
+			app.check.scheme.clone(),
+		);
+		if queue_task(app, task) {
+			crate::ui::app::set_status(app, "check queued in background");
 			return;
 		}
-		self.startup_load_pending = false;
-		if self.queue_task(TaskSpec::load_file_catalog(self.store_options())) {
-			self.set_status("loading file tree in background");
-		} else {
-			self.handle_store_event_sync(StoreEvent::FullIndex);
-		}
 	}
-
-	pub(in crate::ui) fn take_watch_roots_update(&mut self) -> Option<Vec<StoreWatchRoot>> {
-		self.watch_roots_update.take()
-	}
-
-	fn handle_clipboard_result(&mut self, result: clipboard::ClipboardResult) {
-		match result.result {
-			Ok(()) => {
-				self.set_status(format!("copied {} snapshot to clipboard", result.component));
-			}
-			Err(error) => {
-				self.set_status(format!(
-					"clipboard copy failed for {}: {error}",
-					result.component
-				));
-			}
-		}
-	}
-
-	fn handle_task_result(&mut self, result: TaskResult) {
-		match result.outcome {
-			TaskOutcome::FileCatalogLoaded(store) => {
-				let (store, cache, options) = *store;
-				self.replace_store(store, cache, options);
-				self.apply_file_catalog_store("file tree ready".to_string());
-				if self.queue_task(TaskSpec::reload_store(self.store_options())) {
-					self.set_status("file tree ready; loading symbols in background");
-				}
-			}
-			TaskOutcome::StoreReloaded(store) => {
-				let (store, cache, options) = *store;
-				self.replace_store(store, cache, options);
-				self.apply_reloaded_store(format!("{} completed", result.label));
-			}
-			TaskOutcome::CheckCompleted(summary) => {
-				self.set_status(format!(
+	match crate::ui::app::store_check_context(app).and_then(|context| {
+		context.check_summary(
+			&app.check.rules,
+			app.check.profile.as_deref(),
+			&app.check.scheme,
+		)
+	}) {
+		Ok(summary) => {
+			crate::ui::app::set_status(
+				app,
+				format!(
 					"check complete: {} violation(s) across {} file(s)",
 					summary.total_violations, summary.files_with_violations
-				));
-			}
-			TaskOutcome::Failed(error) => {
-				self.set_status(format!("{} failed: {error}", result.label));
-			}
+				),
+			);
+			crate::ui::app::set_check_state(app, CheckState::Ready(summary));
+		}
+		Err(e) => {
+			crate::ui::app::set_status(app, "check failed");
+			crate::ui::app::set_check_state(app, CheckState::Error(e.to_string()));
 		}
 	}
+}
 
-	pub(in crate::ui) fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-		Ok(self.update(AppAction::Ui(key_to_msg(self.mode(), key))))
+pub(in crate::ui) fn set_event_sender(app: &mut App, tx: Sender<ShellEvent>) {
+	app.runtime.event_tx = Some(tx);
+}
+
+pub(in crate::ui) fn queue_startup_load(app: &mut App) {
+	if !app.runtime.startup_load_pending {
+		return;
 	}
+	app.runtime.startup_load_pending = false;
+	if queue_task(
+		app,
+		TaskSpec::load_file_catalog(crate::ui::app::store_options(app)),
+	) {
+		crate::ui::app::set_status(app, "loading file tree in background");
+	} else {
+		handle_store_event_sync(app, StoreEvent::FullIndex);
+	}
+}
 
-	pub(in crate::ui) fn update(&mut self, action: AppAction) -> bool {
-		let action = match action {
-			AppAction::TaskCompleted(result) => {
-				match self.app_store.complete_task(&result) {
-					TaskCompletion::Accepted => self.handle_task_result(result),
-					TaskCompletion::Ignored => {
-						self.set_status(format!("ignored stale task result: {}", result.label));
-					}
+pub(in crate::ui) fn take_watch_roots_update(app: &mut App) -> Option<Vec<StoreWatchRoot>> {
+	app.runtime.watch_roots_update.take()
+}
+
+fn handle_clipboard_result(app: &mut App, result: clipboard::ClipboardResult) {
+	match result.result {
+		Ok(()) => {
+			crate::ui::app::set_status(
+				app,
+				format!("copied {} snapshot to clipboard", result.component),
+			);
+		}
+		Err(error) => {
+			crate::ui::app::set_status(
+				app,
+				format!("clipboard copy failed for {}: {error}", result.component),
+			);
+		}
+	}
+}
+
+fn handle_task_result(app: &mut App, result: TaskResult) {
+	match result.outcome {
+		TaskOutcome::FileCatalogLoaded(store) => {
+			let (store, cache, options) = *store;
+			crate::ui::app::replace_store(app, store, cache, options);
+			apply_file_catalog_store(app, "file tree ready".to_string());
+			if queue_task(
+				app,
+				TaskSpec::reload_store(crate::ui::app::store_options(app)),
+			) {
+				crate::ui::app::set_status(app, "file tree ready; loading symbols in background");
+			}
+		}
+		TaskOutcome::StoreReloaded(store) => {
+			let (store, cache, options) = *store;
+			crate::ui::app::replace_store(app, store, cache, options);
+			apply_reloaded_store(app, format!("{} completed", result.label));
+		}
+		TaskOutcome::CheckCompleted(summary) => {
+			crate::ui::app::set_status(
+				app,
+				format!(
+					"check complete: {} violation(s) across {} file(s)",
+					summary.total_violations, summary.files_with_violations
+				),
+			);
+		}
+		TaskOutcome::Failed(error) => {
+			crate::ui::app::set_status(app, format!("{} failed: {error}", result.label));
+		}
+	}
+}
+
+pub(in crate::ui) fn handle_key(app: &mut App, key: KeyEvent) -> anyhow::Result<bool> {
+	Ok(update(
+		app,
+		AppAction::Ui(key_to_msg(crate::ui::app::mode(app), key)),
+	))
+}
+
+pub(in crate::ui) fn update(app: &mut App, action: AppAction) -> bool {
+	let action = match action {
+		AppAction::TaskCompleted(result) => {
+			match app.app_store.complete_task(&result) {
+				TaskCompletion::Accepted => handle_task_result(app, result),
+				TaskCompletion::Ignored => {
+					crate::ui::app::set_status(
+						app,
+						format!("ignored stale task result: {}", result.label),
+					);
 				}
-				return false;
 			}
-			AppAction::HeaderSearchDebounced(generation) => {
-				if self.header_search().pending_generation == Some(generation) {
-					self.apply_header_search(Some(generation), false);
-				}
-				return false;
+			return false;
+		}
+		AppAction::HeaderSearchDebounced(generation) => {
+			if crate::ui::app::header_search(app).pending_generation == Some(generation) {
+				app.apply_header_search(Some(generation), false);
 			}
-			AppAction::Ui(msg) if self.handle_ui_transition_msg(&msg) => {
-				return false;
-			}
-			action => action,
-		};
-		if self.dispatch_and_apply(&action) {
+			return false;
+		}
+		AppAction::Ui(msg) if handle_ui_transition_msg(app, &msg) => {
+			return false;
+		}
+		action => action,
+	};
+	if dispatch_and_apply(app, &action) {
+		return true;
+	}
+	match action {
+		AppAction::Ui(_) => false,
+		AppAction::HeaderSearchDebounced(_) => false,
+		AppAction::Shell(_) => false,
+		AppAction::Store(event) => {
+			handle_store_event(app, event);
+			false
+		}
+		AppAction::TaskStarted { .. } => false,
+		AppAction::TaskCompleted(_) => unreachable!("task completion handled before dispatch"),
+		AppAction::Clipboard(result) => {
+			handle_clipboard_result(app, result);
+			false
+		}
+	}
+}
+
+pub(in crate::ui) fn dispatch_and_apply(app: &mut App, action: &AppAction) -> bool {
+	let effects = {
+		let transition = app.app_store.dispatch(action);
+		transition.take_effects()
+	};
+	apply_effects(app, effects)
+}
+
+pub(in crate::ui) fn apply_effects(app: &mut App, effects: Vec<Effect>) -> bool {
+	for effect in effects {
+		if apply_effect(app, effect) {
 			return true;
 		}
-		match action {
-			AppAction::Ui(_) => false,
-			AppAction::HeaderSearchDebounced(_) => false,
-			AppAction::Shell(_) => false,
-			AppAction::Store(event) => {
-				self.handle_store_event(event);
-				false
-			}
-			AppAction::TaskStarted { .. } => false,
-			AppAction::TaskCompleted(_) => unreachable!("task completion handled before dispatch"),
-			AppAction::Clipboard(result) => {
-				self.handle_clipboard_result(result);
-				false
+	}
+	false
+}
+
+fn apply_effect(app: &mut App, effect: Effect) -> bool {
+	match effect {
+		Effect::ShowView(view) => set_view(app, view, PanelPolicy::Manual),
+		Effect::Quit => return true,
+		Effect::DebounceHeaderSearch(generation) => {
+			queue_header_search_debounce(app, generation);
+		}
+		Effect::CopyPanelSnapshot => copy_panel_snapshot(app),
+		Effect::RunCheck => run_check(app),
+	}
+	false
+}
+
+fn handle_ui_transition_msg(app: &mut App, msg: &Msg) -> bool {
+	match msg {
+		Msg::ToggleFocusRegion => toggle_focus_region(app),
+		Msg::HeaderSearchSelectNext => app.cycle_header_search_selector(1),
+		Msg::HeaderSearchSelectPrevious => app.cycle_header_search_selector(-1),
+		Msg::HeaderSearchToggleSelection => app.toggle_header_search_selection(),
+		Msg::HeaderSearchReset => {
+			let return_focus = matches!(crate::ui::app::mode(app), UiMode::Normal);
+			dispatch_and_apply(app, &AppAction::Ui(msg.clone()));
+			app.apply_header_search(None, return_focus);
+		}
+		Msg::HeaderSearchApply => {
+			let should_apply = matches!(
+				crate::ui::app::mode(app),
+				UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal
+			) || matches!(
+				crate::ui::app::mode(app),
+				UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind)
+			) && crate::ui::app::header_search(app).combo_open;
+			let return_focus = matches!(
+				crate::ui::app::mode(app),
+				UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal
+			);
+			dispatch_and_apply(app, &AppAction::Ui(msg.clone()));
+			if should_apply {
+				app.apply_header_search(None, return_focus);
 			}
 		}
-	}
-
-	pub(in crate::ui) fn dispatch_and_apply(&mut self, action: &AppAction) -> bool {
-		let effects = {
-			let transition = self.app_store.dispatch(action);
-			transition.take_effects()
-		};
-		self.apply_effects(effects)
-	}
-
-	pub(in crate::ui) fn apply_effects(&mut self, effects: Vec<Effect>) -> bool {
-		for effect in effects {
-			if self.apply_effect(effect) {
-				return true;
+		Msg::FocusUsages => app.focus_usages_of_selected(),
+		Msg::ToggleChangeMode => app.toggle_change_mode(),
+		Msg::MoveDown => apply_vertical_navigation(app, 1),
+		Msg::MoveUp => apply_vertical_navigation(app, -1),
+		Msg::Home => apply_positional_navigation(app, true),
+		Msg::End => apply_positional_navigation(app, false),
+		Msg::ToggleNode if crate::ui::app::focus_region(app) == FocusRegion::Panel => {
+			ensure_active_panel_selection(app);
+			toggle_panel_tree_node(app);
+		}
+		Msg::ToggleNode => toggle_selected_nav(app),
+		Msg::OpenNode if crate::ui::app::focus_region(app) == FocusRegion::Panel => {
+			ensure_active_panel_selection(app);
+			open_panel_tree_node(app);
+		}
+		Msg::OpenNode => open_selected_nav(app),
+		Msg::CloseNode if crate::ui::app::focus_region(app) == FocusRegion::Panel => {
+			ensure_active_panel_selection(app);
+			close_panel_tree_node(app);
+		}
+		Msg::CloseNode => {
+			if !close_selected_nav(app) && has_clearable_scope(app) {
+				app.clear_filter();
 			}
 		}
-		false
+		_ => return false,
 	}
+	true
+}
 
-	fn apply_effect(&mut self, effect: Effect) -> bool {
-		match effect {
-			Effect::ShowView(view) => self.set_view(view, PanelPolicy::Manual),
-			Effect::Quit => return true,
-			Effect::DebounceHeaderSearch(generation) => {
-				self.queue_header_search_debounce(generation);
-			}
-			Effect::CopyPanelSnapshot => self.copy_panel_snapshot(),
-			Effect::RunCheck => self.run_check(),
-		}
-		false
-	}
-
-	fn handle_ui_transition_msg(&mut self, msg: &Msg) -> bool {
-		match msg {
-			Msg::ToggleFocusRegion => self.toggle_focus_region(),
-			Msg::HeaderSearchSelectNext => self.cycle_header_search_selector(1),
-			Msg::HeaderSearchSelectPrevious => self.cycle_header_search_selector(-1),
-			Msg::HeaderSearchToggleSelection => self.toggle_header_search_selection(),
-			Msg::HeaderSearchReset => {
-				let return_focus = matches!(self.mode(), UiMode::Normal);
-				self.dispatch_and_apply(&AppAction::Ui(msg.clone()));
-				self.apply_header_search(None, return_focus);
-			}
-			Msg::HeaderSearchApply => {
-				let should_apply = matches!(
-					self.mode(),
-					UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal
-				) || matches!(
-					self.mode(),
-					UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind)
-				) && self.header_search().combo_open;
-				let return_focus = matches!(
-					self.mode(),
-					UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal
-				);
-				self.dispatch_and_apply(&AppAction::Ui(msg.clone()));
-				if should_apply {
-					self.apply_header_search(None, return_focus);
-				}
-			}
-			Msg::FocusUsages => self.focus_usages_of_selected(),
-			Msg::ToggleChangeMode => self.toggle_change_mode(),
-			Msg::MoveDown => self.apply_vertical_navigation(1),
-			Msg::MoveUp => self.apply_vertical_navigation(-1),
-			Msg::Home => self.apply_positional_navigation(true),
-			Msg::End => self.apply_positional_navigation(false),
-			Msg::ToggleNode if self.focus_region() == FocusRegion::Panel => {
-				self.ensure_active_panel_selection();
-				self.toggle_panel_tree_node();
-			}
-			Msg::ToggleNode => self.toggle_selected_nav(),
-			Msg::OpenNode if self.focus_region() == FocusRegion::Panel => {
-				self.ensure_active_panel_selection();
-				self.open_panel_tree_node();
-			}
-			Msg::OpenNode => self.open_selected_nav(),
-			Msg::CloseNode if self.focus_region() == FocusRegion::Panel => {
-				self.ensure_active_panel_selection();
-				self.close_panel_tree_node();
-			}
-			Msg::CloseNode => {
-				if !self.close_selected_nav() && self.has_clearable_scope() {
-					self.clear_filter();
-				}
-			}
-			_ => return false,
-		}
-		true
-	}
-
-	fn apply_vertical_navigation(&mut self, direction: i8) {
-		match self.focus_region() {
-			FocusRegion::Navigator => self.apply_navigation(NavigationAction::Pane {
+fn apply_vertical_navigation(app: &mut App, direction: i8) {
+	match crate::ui::app::focus_region(app) {
+		FocusRegion::Navigator => apply_navigation(
+			app,
+			NavigationAction::Pane {
 				pane: NavigationPane::Primary,
 				action: if direction > 0 {
 					TreePaneAction::MoveDown
 				} else {
 					TreePaneAction::MoveUp
 				},
-			}),
-			FocusRegion::UsageLens => self.apply_navigation(NavigationAction::Pane {
+			},
+		),
+		FocusRegion::UsageLens => apply_navigation(
+			app,
+			NavigationAction::Pane {
 				pane: NavigationPane::UsageLens,
 				action: if direction > 0 {
 					TreePaneAction::MoveDown
 				} else {
 					TreePaneAction::MoveUp
 				},
-			}),
-			FocusRegion::Panel => {
-				self.ensure_active_panel_selection();
-				self.move_panel_selection(direction);
-			}
+			},
+		),
+		FocusRegion::Panel => {
+			ensure_active_panel_selection(app);
+			move_panel_selection(app, direction);
 		}
 	}
+}
 
-	fn apply_positional_navigation(&mut self, home: bool) {
-		match self.focus_region() {
-			FocusRegion::Navigator => self.apply_navigation(NavigationAction::Pane {
+fn apply_positional_navigation(app: &mut App, home: bool) {
+	match crate::ui::app::focus_region(app) {
+		FocusRegion::Navigator => apply_navigation(
+			app,
+			NavigationAction::Pane {
 				pane: NavigationPane::Primary,
 				action: if home {
 					TreePaneAction::Home
 				} else {
 					TreePaneAction::End
 				},
-			}),
-			FocusRegion::UsageLens => self.apply_navigation(NavigationAction::Pane {
+			},
+		),
+		FocusRegion::UsageLens => apply_navigation(
+			app,
+			NavigationAction::Pane {
 				pane: NavigationPane::UsageLens,
 				action: if home {
 					TreePaneAction::Home
 				} else {
 					TreePaneAction::End
 				},
-			}),
-			FocusRegion::Panel => {
-				self.ensure_active_panel_selection();
-				self.move_panel_to_edge(home);
-			}
+			},
+		),
+		FocusRegion::Panel => {
+			ensure_active_panel_selection(app);
+			move_panel_to_edge(app, home);
 		}
 	}
+}
 
-	pub(in crate::ui) fn queue_task(&mut self, task: TaskSpec) -> bool {
-		let Some(tx) = self.event_tx.clone() else {
-			let label = task.label().to_string();
-			self.set_status(format!("task runtime unavailable for {label}"));
-			return false;
-		};
-		let task = self.app_store.register_task(task);
+pub(in crate::ui) fn queue_task(app: &mut App, task: TaskSpec) -> bool {
+	let Some(tx) = app.runtime.event_tx.clone() else {
 		let label = task.label().to_string();
-		let id = task.id();
-		TaskRunner::spawn(task, move |result| {
-			let _ = tx.send(ShellEvent::TaskCompleted(result));
-		});
-		self.set_status(format!("task queued: {label} ({id})"));
-		true
-	}
+		crate::ui::app::set_status(app, format!("task runtime unavailable for {label}"));
+		return false;
+	};
+	let task = app.app_store.register_task(task);
+	let label = task.label().to_string();
+	let id = task.id();
+	TaskRunner::spawn(task, move |result| {
+		let _ = tx.send(ShellEvent::TaskCompleted(result));
+	});
+	crate::ui::app::set_status(app, format!("task queued: {label} ({id})"));
+	true
+}
 
-	fn queue_header_search_debounce(&mut self, generation: u64) {
-		let Some(tx) = self.event_tx.clone() else {
-			return;
-		};
-		thread::spawn(move || {
-			thread::sleep(Duration::from_millis(HEADER_SEARCH_DEBOUNCE_MS));
-			let _ = tx.send(ShellEvent::HeaderSearchDebounced(generation));
-		});
-	}
+fn queue_header_search_debounce(app: &mut App, generation: u64) {
+	let Some(tx) = app.runtime.event_tx.clone() else {
+		return;
+	};
+	thread::spawn(move || {
+		thread::sleep(Duration::from_millis(HEADER_SEARCH_DEBOUNCE_MS));
+		let _ = tx.send(ShellEvent::HeaderSearchDebounced(generation));
+	});
 }

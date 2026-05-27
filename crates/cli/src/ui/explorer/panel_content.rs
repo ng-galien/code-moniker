@@ -1,12 +1,19 @@
-use crate::ui::app::{App, ChangePanelMode, CheckState, FocusRegion, View};
-use crate::ui::panel::{PanelVm, ReferenceGroupVm, SourceLineVm};
+use crate::ui::app::{
+	App, ChangePanelMode, CheckState, FocusRegion, View, app_profile_name, app_rules_path,
+	filter_label, is_filtered, selected, selected_change_detail,
+};
+use crate::ui::panel::{
+	PanelVm, ReferenceGroupVm, SourceLineVm, panel_blank, panel_bullet, panel_component_section,
+	panel_danger, panel_kv, panel_muted, panel_reference_groups, panel_section,
+	panel_source_snippet, panel_table, panel_tree_rows,
+};
 use crate::ui::render::component::ComponentId;
 use crate::ui::render::text::{Column, FitMode};
 use crate::ui::render::tree::TreeRowVm;
-use crate::ui::store::navigation::NavigationPane;
+use crate::ui::store::navigation::{NavigationPane, navigation_pane_view};
 use crate::ui::store::navigation_tree::NavNodeKind;
 use crate::ui::workspace_read::{
-	ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus, WorkspaceRead,
+	self, ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus,
 };
 use code_moniker_workspace::snapshot::SymbolId;
 
@@ -19,7 +26,7 @@ pub(in crate::ui) struct ActivePanelNav {
 }
 
 pub(super) fn active_panel(app: &App) -> PanelVm {
-	match app.view() {
+	match crate::ui::app::view(app) {
 		View::Overview => overview_panel(app),
 		View::Tree => outline_panel(app),
 		View::Refs => refs_panel(app),
@@ -30,7 +37,7 @@ pub(super) fn active_panel(app: &App) -> PanelVm {
 }
 
 pub(super) fn active_panel_nav(app: &App) -> ActivePanelNav {
-	match app.view() {
+	match crate::ui::app::view(app) {
 		View::Overview => overview_panel_nav(app),
 		View::Tree => outline_panel_nav(app),
 		View::Refs => refs_panel_nav(app),
@@ -44,28 +51,28 @@ pub(super) fn active_panel_nav(app: &App) -> ActivePanelNav {
 }
 
 pub(super) fn active_panel_tree_rows(app: &App) -> Vec<TreeRowVm> {
-	active_panel_tree_rows_with_expanded(app, &app.panel_navigation().expanded)
+	active_panel_tree_rows_with_expanded(app, &app.app_store.shell().panel_navigation.expanded)
 }
 
 pub(super) fn active_panel_tree_rows_with_expanded(
 	app: &App,
 	expanded: &std::collections::BTreeSet<String>,
 ) -> Vec<TreeRowVm> {
-	match app.view() {
+	match crate::ui::app::view(app) {
 		View::Unresolved => unresolved_panel_tree_rows(app, expanded),
 		_ => Vec::new(),
 	}
 }
 
 pub(super) fn active_panel_default_expanded(app: &App) -> std::collections::BTreeSet<String> {
-	match app.view() {
+	match crate::ui::app::view(app) {
 		View::Unresolved => unresolved_panel_default_expanded(app),
 		_ => std::collections::BTreeSet::new(),
 	}
 }
 
 fn overview_panel_nav(app: &App) -> ActivePanelNav {
-	let stats = app.store().stats();
+	let stats = workspace_read::stats(crate::ui::app::store(app));
 	ActivePanelNav {
 		component: ComponentId::PanelOverview,
 		navigation_len: stats.by_lang.len() + stats.by_shape.len(),
@@ -73,22 +80,43 @@ fn overview_panel_nav(app: &App) -> ActivePanelNav {
 }
 
 fn overview_panel(app: &App) -> PanelVm {
-	let stats = app.store().stats();
+	let stats = workspace_read::stats(crate::ui::app::store(app));
 	let total_ms = stats.scan_ms + stats.extract_ms + stats.index_ms;
 	let mut vm = PanelVm::new("overview", ComponentId::PanelOverview);
-	vm.section("summary");
-	vm.kv("root", app.store_root_label(), FitMode::Tail);
-	vm.kv("files", stats.files.to_string(), FitMode::Tail);
-	vm.kv("defs", stats.defs.to_string(), FitMode::Tail);
-	vm.kv("refs", stats.refs.to_string(), FitMode::Tail);
-	vm.kv("time", format!("{total_ms} ms"), FitMode::Tail);
-	vm.kv("scan", format!("{} ms", stats.scan_ms), FitMode::Tail);
-	vm.kv("extract", format!("{} ms", stats.extract_ms), FitMode::Tail);
-	vm.kv("index", format!("{} ms", stats.index_ms), FitMode::Tail);
-	let linkage = app.store().linkage_stats();
-	vm.blank();
-	vm.section("linkage");
-	vm.kv(
+	panel_section(&mut vm, "summary");
+	panel_kv(
+		&mut vm,
+		"root",
+		crate::ui::app::store_root_label(app),
+		FitMode::Tail,
+	);
+	panel_kv(&mut vm, "files", stats.files.to_string(), FitMode::Tail);
+	panel_kv(&mut vm, "defs", stats.defs.to_string(), FitMode::Tail);
+	panel_kv(&mut vm, "refs", stats.refs.to_string(), FitMode::Tail);
+	panel_kv(&mut vm, "time", format!("{total_ms} ms"), FitMode::Tail);
+	panel_kv(
+		&mut vm,
+		"scan",
+		format!("{} ms", stats.scan_ms),
+		FitMode::Tail,
+	);
+	panel_kv(
+		&mut vm,
+		"extract",
+		format!("{} ms", stats.extract_ms),
+		FitMode::Tail,
+	);
+	panel_kv(
+		&mut vm,
+		"index",
+		format!("{} ms", stats.index_ms),
+		FitMode::Tail,
+	);
+	let linkage = workspace_read::linkage_stats(crate::ui::app::store(app));
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "linkage");
+	panel_kv(
+		&mut vm,
 		"score",
 		linkage
 			.score_percent()
@@ -96,31 +124,46 @@ fn overview_panel(app: &App) -> PanelVm {
 			.unwrap_or_else(|| "n/a".to_string()),
 		FitMode::Tail,
 	);
-	vm.kv(
+	panel_kv(
+		&mut vm,
 		"eligible",
 		linkage.eligible_refs().to_string(),
 		FitMode::Tail,
 	);
-	vm.kv("resolved", linkage.resolved_refs.to_string(), FitMode::Tail);
-	vm.kv("external", linkage.external_refs.to_string(), FitMode::Tail);
-	vm.kv(
+	panel_kv(
+		&mut vm,
+		"resolved",
+		linkage.resolved_refs.to_string(),
+		FitMode::Tail,
+	);
+	panel_kv(
+		&mut vm,
+		"external",
+		linkage.external_refs.to_string(),
+		FitMode::Tail,
+	);
+	panel_kv(
+		&mut vm,
 		"blocked",
 		linkage.manifest_blocked_refs.to_string(),
 		FitMode::Tail,
 	);
-	vm.kv(
+	panel_kv(
+		&mut vm,
 		"unresolved",
 		linkage.unresolved_refs.to_string(),
 		FitMode::Tail,
 	);
-	vm.kv(
+	panel_kv(
+		&mut vm,
 		"ambiguous",
 		linkage.ambiguous_refs.to_string(),
 		FitMode::Tail,
 	);
-	vm.blank();
-	vm.section("languages");
-	vm.table(
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "languages");
+	panel_table(
+		&mut vm,
 		vec![
 			Column::left("lang", 10),
 			Column::right("files", 7),
@@ -140,9 +183,10 @@ fn overview_panel(app: &App) -> PanelVm {
 			})
 			.collect(),
 	);
-	vm.blank();
-	vm.section("shapes");
-	vm.table(
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "shapes");
+	panel_table(
+		&mut vm,
 		vec![Column::left("shape", 12), Column::right("count", 8)],
 		stats
 			.by_shape
@@ -154,10 +198,10 @@ fn overview_panel(app: &App) -> PanelVm {
 }
 
 fn outline_panel_nav(app: &App) -> ActivePanelNav {
-	let navigation_len = app.selected().map_or(0, |loc| {
-		let detail = app.store().symbol_detail(&loc);
+	let navigation_len = selected(app).map_or(0, |loc| {
+		let detail = workspace_read::symbol_detail(crate::ui::app::store(app), &loc);
 		let children = detail.children.len().min(40);
-		let source = app.store().source_snippet(&loc, 3).len();
+		let source = workspace_read::source_snippet(crate::ui::app::store(app), &loc, 3).len();
 		children + source
 	});
 	ActivePanelNav {
@@ -167,31 +211,39 @@ fn outline_panel_nav(app: &App) -> ActivePanelNav {
 }
 
 fn outline_panel(app: &App) -> PanelVm {
-	let Some(loc) = app.selected() else {
+	let Some(loc) = selected(app) else {
 		return nav_selection_panel(app);
 	};
-	let detail = app.store().symbol_detail(&loc);
+	let detail = workspace_read::symbol_detail(crate::ui::app::store(app), &loc);
 	let symbol = &detail.symbol;
 	let mut vm = PanelVm::new("outline", ComponentId::PanelOutline).unwrapped();
-	vm.section("selected");
-	vm.kv("kind", symbol.kind.clone(), FitMode::Tail);
-	vm.kv("name", symbol.name.clone(), FitMode::Middle);
-	vm.kv(
+	panel_section(&mut vm, "selected");
+	panel_kv(&mut vm, "kind", symbol.kind.clone(), FitMode::Tail);
+	panel_kv(&mut vm, "name", symbol.name.clone(), FitMode::Middle);
+	panel_kv(
+		&mut vm,
 		"file",
 		symbol.file_path.display().to_string(),
 		FitMode::Tail,
 	);
-	vm.kv("moniker", symbol.compact_moniker.clone(), FitMode::Middle);
-	if let Some(change) = app.store().change_detail_for_symbol(&loc) {
-		vm.blank();
+	panel_kv(
+		&mut vm,
+		"moniker",
+		symbol.compact_moniker.clone(),
+		FitMode::Middle,
+	);
+	if let Some(change) = workspace_read::change_detail_for_symbol(crate::ui::app::store(app), &loc)
+	{
+		panel_blank(&mut vm);
 		push_change_summary(&mut vm, &change);
 	}
-	vm.blank();
-	vm.section("children");
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "children");
 	if detail.children.is_empty() {
-		vm.muted("none");
+		panel_muted(&mut vm, "none");
 	} else {
-		vm.table(
+		panel_table(
+			&mut vm,
 			vec![Column::left("kind", 12), Column::left("name", 40)],
 			detail
 				.children
@@ -201,40 +253,38 @@ fn outline_panel(app: &App) -> PanelVm {
 				.collect(),
 		);
 		if detail.children.len() > 40 {
-			vm.muted(format!("... {} more", detail.children.len() - 40));
+			panel_muted(&mut vm, format!("... {} more", detail.children.len() - 40));
 		}
 	}
-	vm.blank();
-	vm.component_section("source", ComponentId::SourceSnippet);
+	panel_blank(&mut vm);
+	panel_component_section(&mut vm, "source", ComponentId::SourceSnippet);
 	let snippet = source_snippet(app, &loc, 3);
 	if snippet.is_empty() {
-		vm.muted("no source position");
+		panel_muted(&mut vm, "no source position");
 	} else {
-		vm.source_snippet(snippet);
+		panel_source_snippet(&mut vm, snippet);
 	}
 	vm
 }
 
 fn nav_selection_panel(app: &App) -> PanelVm {
 	let mut vm = PanelVm::new("outline", ComponentId::PanelOutline).unwrapped();
-	let pane = if app.focus_region() == FocusRegion::UsageLens {
+	let pane = if crate::ui::app::focus_region(app) == FocusRegion::UsageLens {
 		NavigationPane::UsageLens
 	} else {
 		NavigationPane::Primary
 	};
-	let Some(selection) = app
-		.navigation()
-		.pane_view(pane)
+	let Some(selection) = navigation_pane_view(crate::ui::app::navigation(app), pane)
 		.and_then(|pane| pane.selected_context())
 	else {
-		if app.is_filtered() {
-			vm.section("filtered navigator");
-			vm.kv("filter", app.filter_label(), FitMode::Tail);
-			vm.kv("matches", "0", FitMode::Tail);
-			vm.blank();
-			vm.muted("x clears the filter");
+		if is_filtered(app) {
+			panel_section(&mut vm, "filtered navigator");
+			panel_kv(&mut vm, "filter", filter_label(app), FitMode::Tail);
+			panel_kv(&mut vm, "matches", "0", FitMode::Tail);
+			panel_blank(&mut vm);
+			panel_muted(&mut vm, "x clears the filter");
 		} else {
-			vm.muted("navigator is empty");
+			panel_muted(&mut vm, "navigator is empty");
 		}
 		return vm;
 	};
@@ -247,56 +297,56 @@ fn nav_selection_panel(app: &App) -> PanelVm {
 		NavNodeKind::Def(_) => "declaration",
 		NavNodeKind::Change(_) => "change",
 	};
-	vm.section("navigator");
-	vm.kv("kind", kind, FitMode::Tail);
-	vm.kv("name", row.label.clone(), FitMode::Middle);
-	vm.kv("files", row.file_count.to_string(), FitMode::Tail);
-	vm.kv("defs", row.def_count.to_string(), FitMode::Tail);
-	vm.blank();
+	panel_section(&mut vm, "navigator");
+	panel_kv(&mut vm, "kind", kind, FitMode::Tail);
+	panel_kv(&mut vm, "name", row.label.clone(), FitMode::Middle);
+	panel_kv(&mut vm, "files", row.file_count.to_string(), FitMode::Tail);
+	panel_kv(&mut vm, "defs", row.def_count.to_string(), FitMode::Tail);
+	panel_blank(&mut vm);
 	if row.has_children {
 		let state = if selection.expanded {
 			"opened"
 		} else {
 			"closed"
 		};
-		vm.kv("state", state, FitMode::Tail);
-		vm.muted("Enter toggles, right opens, left closes");
+		panel_kv(&mut vm, "state", state, FitMode::Tail);
+		panel_muted(&mut vm, "Enter toggles, right opens, left closes");
 	} else {
-		vm.muted("no child node");
+		panel_muted(&mut vm, "no child node");
 	}
 	vm
 }
 
 fn refs_panel(app: &App) -> PanelVm {
-	if let Some(focus) = app.usage_lens()
-		&& (app.focus_region() != FocusRegion::UsageLens || app.selected().is_none())
+	if let Some(focus) = crate::ui::app::usage_lens(app)
+		&& (crate::ui::app::focus_region(app) != FocusRegion::UsageLens || selected(app).is_none())
 	{
 		return usage_focus_panel(focus);
 	}
-	let Some(loc) = app.selected() else {
+	let Some(loc) = selected(app) else {
 		let mut vm = PanelVm::new("refs", ComponentId::PanelRefs);
-		vm.muted("select a declaration to inspect refs");
+		panel_muted(&mut vm, "select a declaration to inspect refs");
 		return vm;
 	};
 	refs_for_symbol_panel(app, loc)
 }
 
 fn refs_panel_nav(app: &App) -> ActivePanelNav {
-	if let Some(focus) = app.usage_lens()
-		&& (app.focus_region() != FocusRegion::UsageLens || app.selected().is_none())
+	if let Some(focus) = crate::ui::app::usage_lens(app)
+		&& (crate::ui::app::focus_region(app) != FocusRegion::UsageLens || selected(app).is_none())
 	{
 		return ActivePanelNav {
 			component: ComponentId::PanelUsages,
 			navigation_len: reference_group_nav_len(&focus.references, 40),
 		};
 	}
-	let Some(loc) = app.selected() else {
+	let Some(loc) = selected(app) else {
 		return ActivePanelNav {
 			component: ComponentId::PanelRefs,
 			navigation_len: 0,
 		};
 	};
-	let refs = app.store().symbol_references(&loc);
+	let refs = workspace_read::symbol_references(crate::ui::app::store(app), &loc);
 	ActivePanelNav {
 		component: ComponentId::PanelRefs,
 		navigation_len: reference_group_nav_len(&refs.incoming, 30)
@@ -310,44 +360,60 @@ const UNRESOLVED_SAMPLES_PER_FILE: usize = 3;
 fn unresolved_panel_nav(app: &App) -> ActivePanelNav {
 	ActivePanelNav {
 		component: ComponentId::PanelUnresolved,
-		navigation_len: unresolved_panel_tree_rows(app, &app.panel_navigation().expanded).len(),
+		navigation_len: unresolved_panel_tree_rows(
+			app,
+			&app.app_store.shell().panel_navigation.expanded,
+		)
+		.len(),
 	}
 }
 
 fn unresolved_panel(app: &App) -> PanelVm {
-	let report = app
-		.store()
-		.unresolved_linkage_report(UNRESOLVED_FILE_LIMIT, UNRESOLVED_SAMPLES_PER_FILE);
+	let report = workspace_read::unresolved_linkage_report(
+		crate::ui::app::store(app),
+		UNRESOLVED_FILE_LIMIT,
+		UNRESOLVED_SAMPLES_PER_FILE,
+	);
 	let mut vm = PanelVm::new("unresolved", ComponentId::PanelUnresolved);
-	vm.section("summary");
-	vm.kv(
+	panel_section(&mut vm, "summary");
+	panel_kv(
+		&mut vm,
 		"unresolved",
 		report.unresolved_refs.to_string(),
 		FitMode::Tail,
 	);
-	vm.kv(
+	panel_kv(
+		&mut vm,
 		"blocked",
 		report.manifest_blocked_refs.to_string(),
 		FitMode::Tail,
 	);
-	vm.kv("files", report.files.to_string(), FitMode::Tail);
-	vm.kv("shown", report.shown_files.to_string(), FitMode::Tail);
-	vm.blank();
-	vm.section("by file");
+	panel_kv(&mut vm, "files", report.files.to_string(), FitMode::Tail);
+	panel_kv(
+		&mut vm,
+		"shown",
+		report.shown_files.to_string(),
+		FitMode::Tail,
+	);
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "by file");
 	if report.groups.is_empty() {
-		vm.muted("none");
+		panel_muted(&mut vm, "none");
 		return vm;
 	}
-	vm.tree_rows(unresolved_tree_rows(
-		&report,
-		&app.panel_navigation().expanded,
-	));
+	panel_tree_rows(
+		&mut vm,
+		unresolved_tree_rows(&report, &app.app_store.shell().panel_navigation.expanded),
+	);
 	if report.files > report.shown_files {
-		vm.blank();
-		vm.muted(format!(
-			"... {} more file group(s)",
-			report.files - report.shown_files
-		));
+		panel_blank(&mut vm);
+		panel_muted(
+			&mut vm,
+			format!(
+				"... {} more file group(s)",
+				report.files - report.shown_files
+			),
+		);
 	}
 	vm
 }
@@ -356,16 +422,20 @@ fn unresolved_panel_tree_rows(
 	app: &App,
 	expanded: &std::collections::BTreeSet<String>,
 ) -> Vec<TreeRowVm> {
-	let report = app
-		.store()
-		.unresolved_linkage_report(UNRESOLVED_FILE_LIMIT, UNRESOLVED_SAMPLES_PER_FILE);
+	let report = workspace_read::unresolved_linkage_report(
+		crate::ui::app::store(app),
+		UNRESOLVED_FILE_LIMIT,
+		UNRESOLVED_SAMPLES_PER_FILE,
+	);
 	unresolved_tree_rows(&report, expanded)
 }
 
 fn unresolved_panel_default_expanded(app: &App) -> std::collections::BTreeSet<String> {
-	let report = app
-		.store()
-		.unresolved_linkage_report(UNRESOLVED_FILE_LIMIT, UNRESOLVED_SAMPLES_PER_FILE);
+	let report = workspace_read::unresolved_linkage_report(
+		crate::ui::app::store(app),
+		UNRESOLVED_FILE_LIMIT,
+		UNRESOLVED_SAMPLES_PER_FILE,
+	);
 	let mut expanded = std::collections::BTreeSet::new();
 	for group in report.groups {
 		expanded.insert(unresolved_lang_key(group.lang.tag()));
@@ -474,7 +544,7 @@ fn short_target(target: &str) -> &str {
 }
 
 fn source_snippet(app: &App, loc: &DefLocation, context: u32) -> Vec<SourceLineVm> {
-	let snippet = app.store().source_snippet(loc, context);
+	let snippet = workspace_read::source_snippet(crate::ui::app::store(app), loc, context);
 	let width = snippet
 		.iter()
 		.map(|line| line.number.to_string().len())
@@ -493,31 +563,37 @@ fn source_snippet(app: &App, loc: &DefLocation, context: u32) -> Vec<SourceLineV
 }
 
 pub(super) fn refs_for_symbol_panel(app: &App, loc: DefLocation) -> PanelVm {
-	let refs = app.store().symbol_references(&loc);
+	let refs = workspace_read::symbol_references(crate::ui::app::store(app), &loc);
 	let mut vm = PanelVm::new("refs", ComponentId::PanelRefs);
-	vm.section("selected");
-	vm.kv("kind", refs.symbol.kind, FitMode::Tail);
-	vm.kv("name", refs.symbol.name, FitMode::Middle);
-	vm.kv(
+	panel_section(&mut vm, "selected");
+	panel_kv(&mut vm, "kind", refs.symbol.kind, FitMode::Tail);
+	panel_kv(&mut vm, "name", refs.symbol.name, FitMode::Middle);
+	panel_kv(
+		&mut vm,
 		"file",
 		refs.symbol.file_path.display().to_string(),
 		FitMode::Tail,
 	);
-	vm.kv("moniker", refs.symbol.compact_moniker, FitMode::Middle);
-	vm.blank();
-	vm.section("incoming impact");
-	vm.muted(reference_summary(&refs.incoming));
-	vm.reference_groups(reference_group_vms(&refs.incoming.groups), 30);
-	vm.blank();
-	vm.section("outgoing dependencies");
-	vm.muted(reference_summary(&refs.outgoing));
-	vm.reference_groups(reference_group_vms(&refs.outgoing.groups), 30);
+	panel_kv(
+		&mut vm,
+		"moniker",
+		refs.symbol.compact_moniker,
+		FitMode::Middle,
+	);
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "incoming impact");
+	panel_muted(&mut vm, reference_summary(&refs.incoming));
+	panel_reference_groups(&mut vm, reference_group_vms(&refs.incoming.groups), 30);
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "outgoing dependencies");
+	panel_muted(&mut vm, reference_summary(&refs.outgoing));
+	panel_reference_groups(&mut vm, reference_group_vms(&refs.outgoing.groups), 30);
 	vm
 }
 
 fn change_panel_nav(app: &App) -> ActivePanelNav {
-	let navigation_len = app.selected_change_detail().map_or(0, |change| {
-		if app.change_panel() == ChangePanelMode::Usages {
+	let navigation_len = selected_change_detail(app).map_or(0, |change| {
+		if crate::ui::app::change_panel(app) == ChangePanelMode::Usages {
 			reference_group_nav_len(&change.blast_radius, 40)
 		} else {
 			0
@@ -530,30 +606,41 @@ fn change_panel_nav(app: &App) -> ActivePanelNav {
 }
 
 fn change_panel(app: &App) -> PanelVm {
-	let Some(change) = app.selected_change_detail() else {
+	let Some(change) = selected_change_detail(app) else {
 		return change_overview_panel(app);
 	};
-	match app.change_panel() {
+	match crate::ui::app::change_panel(app) {
 		ChangePanelMode::Diff => change_diff_panel(&change),
 		ChangePanelMode::Usages => change_usage_panel(&change),
 	}
 }
 
 fn change_overview_panel(app: &App) -> PanelVm {
-	let changes = app.store().change_overview();
+	let changes = workspace_read::change_overview(crate::ui::app::store(app));
 	let mut vm = PanelVm::new("change", ComponentId::PanelChange);
-	vm.section("change scope");
-	vm.kv("scope", changes.scope, FitMode::Tail);
-	vm.kv("changes", changes.change_count.to_string(), FitMode::Tail);
-	vm.kv("files", changes.file_count.to_string(), FitMode::Tail);
-	vm.blank();
-	vm.section("git resources");
+	panel_section(&mut vm, "change scope");
+	panel_kv(&mut vm, "scope", changes.scope, FitMode::Tail);
+	panel_kv(
+		&mut vm,
+		"changes",
+		changes.change_count.to_string(),
+		FitMode::Tail,
+	);
+	panel_kv(
+		&mut vm,
+		"files",
+		changes.file_count.to_string(),
+		FitMode::Tail,
+	);
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "git resources");
 	if changes.resources.is_empty() {
-		vm.muted("none");
+		panel_muted(&mut vm, "none");
 	} else {
 		for resource in changes.resources {
 			let status = if resource.available { "git" } else { "no git" };
-			vm.kv(
+			panel_kv(
+				&mut vm,
 				status,
 				format!("{}: {}", resource.label, resource.message),
 				FitMode::Middle,
@@ -561,10 +648,10 @@ fn change_overview_panel(app: &App) -> PanelVm {
 		}
 	}
 	if !changes.diagnostics.is_empty() {
-		vm.blank();
-		vm.danger("diagnostics");
+		panel_blank(&mut vm);
+		panel_danger(&mut vm, "diagnostics");
 		for diagnostic in changes.diagnostics {
-			vm.bullet(diagnostic);
+			panel_bullet(&mut vm, diagnostic);
 		}
 	}
 	vm
@@ -573,105 +660,143 @@ fn change_overview_panel(app: &App) -> PanelVm {
 fn change_diff_panel(change: &crate::ui::workspace_read::ChangeDetail) -> PanelVm {
 	let summary = &change.summary;
 	let mut vm = PanelVm::new("change", ComponentId::PanelChange);
-	vm.section("changed symbol");
-	vm.kv("status", summary.status.label(), FitMode::Tail);
-	vm.kv("kind", summary.kind.clone(), FitMode::Tail);
-	vm.kv("symbol", summary.name.clone(), FitMode::Middle);
-	vm.kv(
+	panel_section(&mut vm, "changed symbol");
+	panel_kv(&mut vm, "status", summary.status.label(), FitMode::Tail);
+	panel_kv(&mut vm, "kind", summary.kind.clone(), FitMode::Tail);
+	panel_kv(&mut vm, "symbol", summary.name.clone(), FitMode::Middle);
+	panel_kv(
+		&mut vm,
 		"file",
 		summary.file_path.display().to_string(),
 		FitMode::Tail,
 	);
-	vm.kv("moniker", summary.compact_moniker.clone(), FitMode::Middle);
+	panel_kv(
+		&mut vm,
+		"moniker",
+		summary.compact_moniker.clone(),
+		FitMode::Middle,
+	);
 	if let Some((start, end)) = summary.line_range {
 		let range = if start == end {
 			format!("L{start}")
 		} else {
 			format!("L{start}-L{end}")
 		};
-		vm.kv("range", range, FitMode::Tail);
+		panel_kv(&mut vm, "range", range, FitMode::Tail);
 	}
-	vm.kv("hunks", summary.hunk_count.to_string(), FitMode::Tail);
-	vm.blank();
+	panel_kv(
+		&mut vm,
+		"hunks",
+		summary.hunk_count.to_string(),
+		FitMode::Tail,
+	);
+	panel_blank(&mut vm);
 	push_blast_radius_summary(&mut vm, &change.blast_radius);
-	vm.blank();
-	vm.muted("u toggles blast radius details");
+	panel_blank(&mut vm);
+	panel_muted(&mut vm, "u toggles blast radius details");
 	vm
 }
 
 fn change_usage_panel(change: &crate::ui::workspace_read::ChangeDetail) -> PanelVm {
 	let mut vm = PanelVm::new("change", ComponentId::PanelChange);
 	push_blast_radius_summary(&mut vm, &change.blast_radius);
-	vm.blank();
-	vm.section("references");
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "references");
 	if change.blast_radius.summary.refs == 0 {
-		vm.muted("none");
+		panel_muted(&mut vm, "none");
 	} else {
-		vm.reference_groups(reference_group_vms(&change.blast_radius.groups), 40);
+		panel_reference_groups(
+			&mut vm,
+			reference_group_vms(&change.blast_radius.groups),
+			40,
+		);
 	}
 	vm
 }
 
 fn usage_focus_panel(focus: &UsageFocus) -> PanelVm {
 	let mut vm = PanelVm::new("usages", ComponentId::PanelUsages);
-	vm.section("usage focus");
-	vm.kv("symbol", focus.label.clone(), FitMode::Middle);
-	vm.kv("moniker", focus.compact_moniker.clone(), FitMode::Middle);
-	vm.kv("refs", focus.refs.len().to_string(), FitMode::Tail);
-	vm.kv("contexts", focus.contexts.len().to_string(), FitMode::Tail);
-	vm.blank();
-	vm.section("references");
+	panel_section(&mut vm, "usage focus");
+	panel_kv(&mut vm, "symbol", focus.label.clone(), FitMode::Middle);
+	panel_kv(
+		&mut vm,
+		"moniker",
+		focus.compact_moniker.clone(),
+		FitMode::Middle,
+	);
+	panel_kv(&mut vm, "refs", focus.refs.len().to_string(), FitMode::Tail);
+	panel_kv(
+		&mut vm,
+		"contexts",
+		focus.contexts.len().to_string(),
+		FitMode::Tail,
+	);
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "references");
 	if focus.refs.is_empty() {
-		vm.muted("none");
+		panel_muted(&mut vm, "none");
 	} else {
-		vm.reference_groups(reference_group_vms(&focus.references.groups), 40);
+		panel_reference_groups(&mut vm, reference_group_vms(&focus.references.groups), 40);
 	}
 	vm
 }
 
 fn check_panel(app: &App) -> PanelVm {
 	let mut vm = PanelVm::new("check", ComponentId::PanelCheck);
-	match app.check_state() {
+	match crate::ui::app::check_state(app) {
 		CheckState::Pending => {
-			vm.section("check");
-			vm.muted("press c to run .code-moniker.toml rules on the loaded graph");
-			vm.kv(
+			panel_section(&mut vm, "check");
+			panel_muted(
+				&mut vm,
+				"press c to run .code-moniker.toml rules on the loaded graph",
+			);
+			panel_kv(
+				&mut vm,
 				"rules",
-				app.rules_path().display().to_string(),
+				app_rules_path(app).display().to_string(),
 				FitMode::Tail,
 			);
-			vm.kv(
+			panel_kv(
+				&mut vm,
 				"profile",
-				app.profile_name().unwrap_or("<none>"),
+				app_profile_name(app).unwrap_or("<none>"),
 				FitMode::Tail,
 			);
 		}
 		CheckState::Ready(summary) => {
-			vm.section("check summary");
-			vm.kv("files", summary.files_scanned.to_string(), FitMode::Tail);
-			vm.kv(
+			panel_section(&mut vm, "check summary");
+			panel_kv(
+				&mut vm,
+				"files",
+				summary.files_scanned.to_string(),
+				FitMode::Tail,
+			);
+			panel_kv(
+				&mut vm,
 				"flagged",
 				summary.files_with_violations.to_string(),
 				FitMode::Tail,
 			);
-			vm.kv(
+			panel_kv(
+				&mut vm,
 				"violations",
 				summary.total_violations.to_string(),
 				FitMode::Tail,
 			);
 		}
 		CheckState::Error(error) => {
-			vm.danger("check failed");
-			vm.bullet(error.clone());
+			panel_danger(&mut vm, "check failed");
+			panel_bullet(&mut vm, error.clone());
 		}
 	}
 	vm
 }
 
 fn push_change_summary(vm: &mut PanelVm, change: &crate::ui::workspace_read::ChangeDetail) {
-	vm.section("change");
-	vm.kv("status", change.summary.status.label(), FitMode::Tail);
-	vm.kv(
+	panel_section(vm, "change");
+	panel_kv(vm, "status", change.summary.status.label(), FitMode::Tail);
+	panel_kv(
+		vm,
 		"usages",
 		change.summary.usage_count.to_string(),
 		FitMode::Tail,
@@ -679,13 +804,19 @@ fn push_change_summary(vm: &mut PanelVm, change: &crate::ui::workspace_read::Cha
 }
 
 fn push_blast_radius_summary(vm: &mut PanelVm, refs: &ReferenceSet) {
-	vm.section("blast radius");
-	vm.kv(
+	panel_section(vm, "blast radius");
+	panel_kv(
+		vm,
 		"direct",
 		format!("{} direct usage(s)", refs.summary.refs),
 		FitMode::Tail,
 	);
-	vm.kv("contexts", refs.summary.contexts.to_string(), FitMode::Tail);
+	panel_kv(
+		vm,
+		"contexts",
+		refs.summary.contexts.to_string(),
+		FitMode::Tail,
+	);
 }
 
 fn reference_summary(refs: &ReferenceSet) -> String {
@@ -750,7 +881,7 @@ mod tests {
 			cache_dir: None,
 		};
 		let (store, cache) = load_local_workspace(&opts).unwrap();
-		App::new(
+		crate::ui::app::new_app(
 			store,
 			cache,
 			opts,
@@ -772,7 +903,7 @@ mod tests {
 			View::Check,
 			View::Change,
 		] {
-			app.set_view(view, crate::ui::app::PanelPolicy::Manual);
+			crate::ui::app::set_view(&mut app, view, crate::ui::app::PanelPolicy::Manual);
 			let panel = active_panel(&app);
 			let nav = active_panel_nav(&app);
 			assert_eq!(nav.component, panel.component(), "{view:?}");

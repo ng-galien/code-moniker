@@ -15,7 +15,10 @@ use crate::{DEFAULT_SCHEME, Exit};
 
 use super::{EventSource, ShellEvent};
 use crate::perf;
-use crate::ui::app::{App, AppAction};
+use crate::ui::app::{
+	App, AppAction, boot_app, handle_key, queue_startup_load, set_event_sender,
+	take_watch_roots_update, update,
+};
 use crate::ui::live::StoreEvent;
 use crate::ui::render::view;
 
@@ -40,7 +43,7 @@ fn run_inner<W: Write>(args: &UiArgs, stdout: &mut W) -> anyhow::Result<()> {
 		project: args.project.clone(),
 		cache_dir: args.cache.clone(),
 	};
-	let app = App::boot(opts, scheme, args.rules.clone(), args.profile.clone());
+	let app = boot_app(opts, scheme, args.rules.clone(), args.profile.clone());
 	run_terminal(stdout, app)
 }
 
@@ -66,21 +69,21 @@ fn app_loop<W: Write>(
 	terminal: &mut Terminal<CrosstermBackend<&mut W>>,
 	app: &mut App,
 ) -> anyhow::Result<()> {
-	let mut events = EventSource::start(app.store_watch_roots());
-	app.set_event_sender(events.sender());
+	let mut events = EventSource::start(crate::ui::app::store_watch_roots(app));
+	set_event_sender(app, events.sender());
 	if let Some(status) = events.status.as_deref() {
-		app.set_status(status);
+		crate::ui::app::set_status(app, status);
 	}
-	app.queue_startup_load();
+	queue_startup_load(app);
 	draw_terminal(terminal, app, "initial")?;
 	loop {
 		let batch = events.recv_batch()?;
 		if handle_app_events(batch, app)? {
 			return Ok(());
 		}
-		if let Some(watch_roots) = app.take_watch_roots_update() {
+		if let Some(watch_roots) = take_watch_roots_update(app) {
 			if let Some(status) = events.replace_watch_roots(watch_roots) {
-				app.append_status(status);
+				crate::ui::app::append_status(app, status);
 			}
 		}
 		draw_terminal(terminal, app, "after_event")?;
@@ -101,10 +104,18 @@ fn draw_terminal<W: Write>(
 fn draw_app(frame: &mut ratatui::Frame<'_>, app: &mut App) {
 	let started = Instant::now();
 	let vm = crate::ui::explorer::view_model(app);
-	perf::record("draw.view_model", started.elapsed(), app.status());
+	perf::record(
+		"draw.view_model",
+		started.elapsed(),
+		crate::ui::app::status(app),
+	);
 	let started = Instant::now();
 	view::render_shell(frame, frame.area(), &vm);
-	perf::record("draw.render_shell", started.elapsed(), app.status());
+	perf::record(
+		"draw.render_shell",
+		started.elapsed(),
+		crate::ui::app::status(app),
+	);
 }
 
 fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<bool> {
@@ -112,7 +123,7 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 	for event in events {
 		match event {
 			ShellEvent::Terminal(Event::Key(key)) if key.kind == KeyEventKind::Press => {
-				if app.handle_key(key)? {
+				if handle_key(app, key)? {
 					return Ok(true);
 				}
 			}
@@ -124,17 +135,17 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 				});
 			}
 			ShellEvent::TaskCompleted(result) => {
-				if app.update(AppAction::TaskCompleted(result)) {
+				if update(app, AppAction::TaskCompleted(result)) {
 					return Ok(true);
 				}
 			}
 			ShellEvent::HeaderSearchDebounced(generation) => {
-				if app.update(AppAction::HeaderSearchDebounced(generation)) {
+				if update(app, AppAction::HeaderSearchDebounced(generation)) {
 					return Ok(true);
 				}
 			}
 			ShellEvent::Clipboard(result) => {
-				if app.update(AppAction::Clipboard(result)) {
+				if update(app, AppAction::Clipboard(result)) {
 					return Ok(true);
 				}
 			}
@@ -142,7 +153,7 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 		}
 	}
 	if let Some(event) = store_event
-		&& app.update(AppAction::Store(event))
+		&& update(app, AppAction::Store(event))
 	{
 		return Ok(true);
 	}

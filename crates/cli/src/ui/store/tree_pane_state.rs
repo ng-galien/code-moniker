@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-god-type-local-metrics]
-// TODO(smell): split TreePaneState row storage, expansion state, selection movement, and action reduction before enabling this guardrail here.
 use std::collections::BTreeSet;
 
 use crate::ui::store::ids::NodeId;
@@ -14,6 +12,12 @@ pub(in crate::ui) struct TreePaneState {
 	selection: usize,
 }
 
+impl Default for TreePaneState {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl TreePaneState {
 	pub(in crate::ui) fn new() -> Self {
 		Self {
@@ -22,144 +26,154 @@ impl TreePaneState {
 			selection: 0,
 		}
 	}
+}
 
-	pub(in crate::ui) fn rows(&self) -> &[NavRow] {
-		&self.rows
-	}
+pub(in crate::ui) fn tree_pane_rows(pane: &TreePaneState) -> &[NavRow] {
+	&pane.rows
+}
 
-	pub(in crate::ui) fn selection(&self) -> usize {
-		self.selection
-	}
+pub(in crate::ui) fn tree_pane_selection(pane: &TreePaneState) -> usize {
+	pane.selection
+}
 
-	pub(in crate::ui) fn selected_row(&self) -> Option<&NavRow> {
-		self.rows.get(self.selection)
-	}
+pub(in crate::ui) fn tree_pane_selected_row(pane: &TreePaneState) -> Option<&NavRow> {
+	pane.rows.get(pane.selection)
+}
 
-	pub(in crate::ui) fn selected_key(&self) -> Option<NodeId> {
-		self.selected_row().map(|row| row.key.clone())
-	}
+pub(in crate::ui) fn tree_pane_selected_key(pane: &TreePaneState) -> Option<NodeId> {
+	tree_pane_selected_row(pane).map(|row| row.key.clone())
+}
 
-	pub(in crate::ui) fn expanded(&self) -> &BTreeSet<NodeId> {
-		&self.expanded
-	}
+pub(in crate::ui) fn tree_pane_expanded(pane: &TreePaneState) -> &BTreeSet<NodeId> {
+	&pane.expanded
+}
 
-	pub(in crate::ui) fn set_expanded(&mut self, expanded: BTreeSet<NodeId>) {
-		self.expanded = expanded;
-	}
+pub(in crate::ui) fn tree_pane_set_expanded(pane: &mut TreePaneState, expanded: BTreeSet<NodeId>) {
+	pane.expanded = expanded;
+}
 
-	pub(in crate::ui) fn retain_expanded(&mut self, valid: &BTreeSet<NodeId>) {
-		self.expanded.retain(|key| valid.contains(key));
-	}
+pub(in crate::ui) fn tree_pane_retain_expanded(pane: &mut TreePaneState, valid: &BTreeSet<NodeId>) {
+	pane.expanded.retain(|key| valid.contains(key));
+}
 
-	pub(in crate::ui) fn reset_selection(&mut self) {
-		self.selection = 0;
-	}
+pub(in crate::ui) fn tree_pane_reset_selection(pane: &mut TreePaneState) {
+	pane.selection = 0;
+}
 
-	pub(in crate::ui) fn replace_rows(&mut self, rows: Vec<NavRow>, selected_key: Option<&NodeId>) {
-		self.rows = rows;
-		self.restore_selection(selected_key);
-	}
+pub(in crate::ui) fn tree_pane_replace_rows(
+	pane: &mut TreePaneState,
+	rows: Vec<NavRow>,
+	selected_key: Option<&NodeId>,
+) {
+	pane.rows = rows;
+	restore_selection(pane, selected_key);
+}
 
-	pub(in crate::ui) fn select_first_matching(&mut self, predicate: impl FnMut(&NavRow) -> bool) {
-		if let Some(idx) = self.rows.iter().position(predicate) {
-			self.selection = idx;
-		}
+pub(in crate::ui) fn tree_pane_select_first_matching(
+	pane: &mut TreePaneState,
+	predicate: impl FnMut(&NavRow) -> bool,
+) {
+	if let Some(idx) = pane.rows.iter().position(predicate) {
+		pane.selection = idx;
 	}
+}
 
-	pub(in crate::ui) fn apply(&mut self, action: TreePaneAction) -> TreePaneNotice {
-		match action {
-			TreePaneAction::MoveDown => self.move_down(),
-			TreePaneAction::MoveUp => self.move_up(),
-			TreePaneAction::Home => self.home(),
-			TreePaneAction::End => self.end(),
-			TreePaneAction::ToggleSelected => return self.toggle_selected(),
-			TreePaneAction::OpenSelected => return self.open_selected(),
-			TreePaneAction::CloseSelected => return self.close_selected(),
-		}
-		TreePaneNotice::Noop
+pub(in crate::ui) fn tree_pane_apply(
+	pane: &mut TreePaneState,
+	action: TreePaneAction,
+) -> TreePaneNotice {
+	match action {
+		TreePaneAction::MoveDown => move_down(pane),
+		TreePaneAction::MoveUp => move_up(pane),
+		TreePaneAction::Home => home(pane),
+		TreePaneAction::End => end(pane),
+		TreePaneAction::ToggleSelected => return toggle_selected(pane),
+		TreePaneAction::OpenSelected => return open_selected(pane),
+		TreePaneAction::CloseSelected => return close_selected(pane),
 	}
+	TreePaneNotice::Noop
+}
 
-	fn restore_selection(&mut self, key: Option<&NodeId>) {
-		let Some(key) = key else {
-			self.clamp_selection();
-			return;
-		};
-		if let Some(idx) = self.rows.iter().position(|row| &row.key == key) {
-			self.selection = idx;
-		} else {
-			self.clamp_selection();
-		}
+fn restore_selection(pane: &mut TreePaneState, key: Option<&NodeId>) {
+	let Some(key) = key else {
+		clamp_selection(pane);
+		return;
+	};
+	if let Some(idx) = pane.rows.iter().position(|row| &row.key == key) {
+		pane.selection = idx;
+	} else {
+		clamp_selection(pane);
 	}
+}
 
-	fn clamp_selection(&mut self) {
-		clamp_index(&mut self.selection, self.rows.len());
-	}
+fn clamp_selection(pane: &mut TreePaneState) {
+	clamp_index(&mut pane.selection, pane.rows.len());
+}
 
-	fn move_down(&mut self) {
-		if self.selection + 1 < self.rows.len() {
-			self.selection += 1;
-		}
+fn move_down(pane: &mut TreePaneState) {
+	if pane.selection + 1 < pane.rows.len() {
+		pane.selection += 1;
 	}
+}
 
-	fn move_up(&mut self) {
-		self.selection = self.selection.saturating_sub(1);
-	}
+fn move_up(pane: &mut TreePaneState) {
+	pane.selection = pane.selection.saturating_sub(1);
+}
 
-	fn home(&mut self) {
-		self.selection = 0;
-	}
+fn home(pane: &mut TreePaneState) {
+	pane.selection = 0;
+}
 
-	fn end(&mut self) {
-		self.selection = self.rows.len().saturating_sub(1);
-	}
+fn end(pane: &mut TreePaneState) {
+	pane.selection = pane.rows.len().saturating_sub(1);
+}
 
-	fn toggle_selected(&mut self) -> TreePaneNotice {
-		let Some(row) = self.selected_row().cloned() else {
-			return TreePaneNotice::Noop;
-		};
-		if !row.has_children {
-			return TreePaneNotice::Noop;
-		}
-		if self.expanded.remove(&row.key) {
-			TreePaneNotice::Closed(row.label)
-		} else {
-			self.expanded.insert(row.key);
-			TreePaneNotice::Opened(row.label)
-		}
+fn toggle_selected(pane: &mut TreePaneState) -> TreePaneNotice {
+	let Some(row) = tree_pane_selected_row(pane).cloned() else {
+		return TreePaneNotice::Noop;
+	};
+	if !row.has_children {
+		return TreePaneNotice::Noop;
 	}
+	if pane.expanded.remove(&row.key) {
+		TreePaneNotice::Closed(row.label)
+	} else {
+		pane.expanded.insert(row.key);
+		TreePaneNotice::Opened(row.label)
+	}
+}
 
-	fn open_selected(&mut self) -> TreePaneNotice {
-		let Some(row) = self.selected_row().cloned() else {
-			return TreePaneNotice::Noop;
-		};
-		if row.has_children && !self.expanded.contains(&row.key) {
-			self.expanded.insert(row.key);
-			return TreePaneNotice::Opened(row.label);
-		}
-		TreePaneNotice::Noop
+fn open_selected(pane: &mut TreePaneState) -> TreePaneNotice {
+	let Some(row) = tree_pane_selected_row(pane).cloned() else {
+		return TreePaneNotice::Noop;
+	};
+	if row.has_children && !pane.expanded.contains(&row.key) {
+		pane.expanded.insert(row.key);
+		return TreePaneNotice::Opened(row.label);
 	}
+	TreePaneNotice::Noop
+}
 
-	fn close_selected(&mut self) -> TreePaneNotice {
-		let Some(row) = self.selected_row().cloned() else {
-			return TreePaneNotice::Noop;
-		};
-		if row.has_children && self.expanded.contains(&row.key) {
-			self.expanded.remove(&row.key);
-			return TreePaneNotice::Closed(row.label);
-		}
-		if row.depth == 0 {
-			return TreePaneNotice::Noop;
-		}
-		let parent_depth = row.depth - 1;
-		if let Some(parent) = self.rows[..self.selection]
-			.iter()
-			.rposition(|candidate| candidate.depth == parent_depth)
-		{
-			self.selection = parent;
-			return TreePaneNotice::MovedToParent;
-		}
-		TreePaneNotice::Noop
+fn close_selected(pane: &mut TreePaneState) -> TreePaneNotice {
+	let Some(row) = tree_pane_selected_row(pane).cloned() else {
+		return TreePaneNotice::Noop;
+	};
+	if row.has_children && pane.expanded.contains(&row.key) {
+		pane.expanded.remove(&row.key);
+		return TreePaneNotice::Closed(row.label);
 	}
+	if row.depth == 0 {
+		return TreePaneNotice::Noop;
+	}
+	let parent_depth = row.depth - 1;
+	if let Some(parent) = pane.rows[..pane.selection]
+		.iter()
+		.rposition(|candidate| candidate.depth == parent_depth)
+	{
+		pane.selection = parent;
+		return TreePaneNotice::MovedToParent;
+	}
+	TreePaneNotice::Noop
 }
 
 fn clamp_index(selection: &mut usize, len: usize) {

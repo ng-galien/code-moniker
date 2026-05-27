@@ -2,6 +2,8 @@ use crate::Exit;
 use crate::args::UiArgs;
 use std::io::Write;
 
+#[cfg(test)]
+mod acceptance;
 mod app;
 mod async_task;
 mod clipboard;

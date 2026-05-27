@@ -2,15 +2,17 @@ use code_moniker_core::lang::Lang;
 
 use crate::ui::app::{
 	FocusRegion, HeaderSearchState, PanelNavigationState, VisualizationMode, display_filter,
-	kind_filter_summary, lang_filter_summary,
+	is_filtered, kind_filter_summary, lang_filter_summary, scope_label,
 };
 use crate::ui::events::{HeaderSearchFocus, UiMode};
 use crate::ui::panel::PanelVm;
 use crate::ui::render::component::ComponentId;
-use crate::ui::store::navigation::NavigationPaneView;
-use crate::ui::store::navigation::NavigationState;
+use crate::ui::store::navigation::{
+	NavigationPaneView, NavigationState, navigation_explorer_def_count, navigation_primary_view,
+	navigation_usage_view, navigation_visible_defs,
+};
 use crate::ui::store::navigation_tree::{NavNodeKind, NavRow};
-use crate::ui::workspace_read::{LocalWorkspaceFacade, UsageFocus, WorkspaceRead};
+use crate::ui::workspace_read::{self, LocalWorkspaceFacade, UsageFocus};
 use code_moniker_workspace::snapshot::{ChangeStatus, SymbolId};
 type DefLocation = SymbolId;
 
@@ -123,18 +125,18 @@ pub(in crate::ui) struct ExplorerVmContext<'a> {
 impl ExplorerVm {
 	pub(in crate::ui) fn from_app(app: &App) -> Self {
 		let ctx = ExplorerVmContext {
-			mode: app.mode(),
-			view_mode: app.view_mode(),
-			scope: app.scope_label(),
-			header_search: app.header_search(),
-			navigation: app.navigation(),
+			mode: crate::ui::app::mode(app),
+			view_mode: crate::ui::app::view_mode(app),
+			scope: scope_label(app),
+			header_search: crate::ui::app::header_search(app),
+			navigation: crate::ui::app::navigation(app),
 			panel: super::active_panel(app),
-			panel_navigation: app.panel_navigation(),
-			focus_region: app.focus_region(),
-			usage_lens: app.usage_lens(),
-			filtered: app.is_filtered(),
-			workspace: app.store(),
-			status: app.status(),
+			panel_navigation: &app.app_store.shell().panel_navigation,
+			focus_region: crate::ui::app::focus_region(app),
+			usage_lens: crate::ui::app::usage_lens(app),
+			filtered: is_filtered(app),
+			workspace: crate::ui::app::store(app),
+			status: crate::ui::app::status(app),
 		};
 		Self::from_context(ctx)
 	}
@@ -244,8 +246,8 @@ fn search_popup_vm(
 
 fn primary_nav_vm(ctx: &ExplorerVmContext<'_>) -> NavPaneVm {
 	let navigation = ctx.navigation;
-	let visible_defs = navigation.visible_defs();
-	let pane = navigation.primary_view();
+	let visible_defs = navigation_visible_defs(navigation);
+	let pane = navigation_primary_view(navigation);
 	let title = if ctx.filtered {
 		if ctx.view_mode == VisualizationMode::Change {
 			format!(
@@ -263,8 +265,8 @@ fn primary_nav_vm(ctx: &ExplorerVmContext<'_>) -> NavPaneVm {
 	} else {
 		format!(
 			" navigator {} files {} defs ",
-			ctx.workspace.stats().files,
-			ctx.navigation.explorer_def_count()
+			workspace_read::stats(ctx.workspace).files,
+			navigation_explorer_def_count(ctx.navigation)
 		)
 	};
 	NavPaneVm {
@@ -278,7 +280,7 @@ fn primary_nav_vm(ctx: &ExplorerVmContext<'_>) -> NavPaneVm {
 
 fn usage_nav_vm(ctx: &ExplorerVmContext<'_>) -> Option<NavPaneVm> {
 	let focus = ctx.usage_lens?;
-	let pane = ctx.navigation.usage_view()?;
+	let pane = navigation_usage_view(ctx.navigation)?;
 	Some(NavPaneVm {
 		title: format!(
 			" usages {}  {} files {} defs ",
@@ -322,7 +324,7 @@ fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
 		},
 		NavNodeKind::ChangeFile => NavRowVmKind::ChangeFile,
 		NavNodeKind::Def(loc) => {
-			let symbol = ctx.workspace.symbol_summary(loc);
+			let symbol = workspace_read::symbol_summary(ctx.workspace, loc);
 			let kind = symbol.kind.clone();
 			NavRowVmKind::Def {
 				lang: symbol.lang,
@@ -335,21 +337,19 @@ fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
 				}),
 			}
 		}
-		NavNodeKind::Change(id) => {
-			NavRowVmKind::Change(ctx.workspace.change_summary(id.clone()).map(|change| {
-				NavChangeVm {
-					lang: change.lang,
-					kind: change.kind,
-					status: change.status,
-					usage_count: change.usage_count,
-				}
-			}))
-		}
+		NavNodeKind::Change(id) => NavRowVmKind::Change(
+			workspace_read::change_summary(ctx.workspace, id.clone()).map(|change| NavChangeVm {
+				lang: change.lang,
+				kind: change.kind,
+				status: change.status,
+				usage_count: change.usage_count,
+			}),
+		),
 	}
 }
 
 fn file_change_count(workspace: &LocalWorkspaceFacade, file_idx: usize) -> Option<usize> {
-	let count = workspace.change_count_for_file(file_idx);
+	let count = workspace_read::change_count_for_file(workspace, file_idx);
 	(count > 0).then_some(count)
 }
 

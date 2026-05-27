@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-god-type-local-metrics, smell-harmonious-method-size, smell-large-type]
-// TODO(smell): split workspace-backed TUI projections by panel/read-model; the UI now consumes LocalWorkspaceFacade directly, but these projections are still too aggregated.
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -22,7 +20,7 @@ use rustc_hash::FxHashMap;
 use crate::check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions};
 use crate::session::{CheckSummary, SessionOptions, SessionStats};
 
-pub(in crate::ui) type LocalWorkspaceFacade = code_moniker_workspace::LocalWorkspaceFacade;
+pub(in crate::ui) use code_moniker_workspace::LocalWorkspaceFacade;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct LinkageStats {
@@ -139,671 +137,648 @@ pub(in crate::ui) fn workspace_check_context(
 	})
 }
 
-pub(in crate::ui) trait WorkspaceRead {
-	fn stats(&self) -> SessionStats;
-	fn linkage_stats(&self) -> LinkageStats;
-	fn file_count(&self) -> usize;
-	fn file_summary(&self, file_idx: usize) -> FileSummary;
-	fn all_navigable_defs(&self) -> Vec<SymbolId>;
-	fn root_defs(&self, file_idx: usize) -> Vec<SymbolId>;
-	fn child_defs(&self, parent: &SymbolId) -> Vec<SymbolId>;
-	fn compare_defs_for_navigation(&self, left: &SymbolId, right: &SymbolId) -> Ordering;
-	fn is_navigable_symbol(&self, symbol: &SymbolId) -> bool;
-	fn symbol_summary(&self, symbol: &SymbolId) -> SymbolSummary;
-	fn symbol_detail(&self, symbol: &SymbolId) -> SymbolDetail;
-	fn symbol_references(&self, symbol: &SymbolId) -> SymbolReferences;
-	fn source_snippet(&self, symbol: &SymbolId, context: u32) -> Vec<SourceLine>;
-	fn search_symbols_filtered(
-		&self,
-		query: &str,
-		limit: usize,
-		langs: &[Lang],
-		kinds: &[String],
-		shapes: &[Shape],
-	) -> Vec<SearchHit>;
-	fn change_overview(&self) -> ChangeOverview;
-	fn change_rows(&self) -> Vec<ChangeSummary>;
-	fn change_summary(&self, change: ChangeId) -> Option<ChangeSummary>;
-	fn change_detail(&self, change: ChangeId) -> Option<ChangeDetail>;
-	fn changed_defs(&self) -> Vec<SymbolId>;
-	fn change_detail_for_symbol(&self, symbol: &SymbolId) -> Option<ChangeDetail>;
-	fn change_count_for_file(&self, file_idx: usize) -> usize;
-	fn usage_focus(&self, symbol: SymbolId) -> Option<UsageFocus>;
-	fn usage_focus_for_target(&self, target: Moniker, label: String) -> Option<UsageFocus>;
-	fn unresolved_linkage_report(
-		&self,
-		file_limit: usize,
-		samples_per_file: usize,
-	) -> UnresolvedLinkageReport;
-	fn source_file(&self, file_idx: usize) -> Option<&SourceFileRecord>;
-	fn source_file_by_id(&self, source: &SourceId) -> Option<&SourceFileRecord>;
-	fn symbol_by_id(&self, id: &SymbolId) -> Option<&SymbolRecord>;
-	fn reference_by_id(
-		&self,
-		id: &ReferenceId,
-	) -> Option<&code_moniker_workspace::snapshot::ReferenceRecord>;
-	fn symbol_lang(&self, symbol: &SymbolRecord) -> Lang;
-	fn symbol_source_path(&self, symbol: &SymbolRecord) -> PathBuf;
-	fn incoming_refs_for_symbol(&self, symbol: &SymbolId) -> Vec<ReferenceId>;
-	fn outgoing_refs_for_symbol(&self, symbol: &SymbolId) -> Vec<ReferenceId>;
-	fn reference_set(&self, refs: &[ReferenceId], endpoint_label: &'static str) -> ReferenceSet;
-	fn reference_set_from_view(
-		&self,
-		refs: code_moniker_workspace::snapshot::ReferenceSet,
-	) -> ReferenceSet;
-	fn reference_group(
-		&self,
-		reference: &code_moniker_workspace::snapshot::ReferenceRecord,
-		endpoint_label: &'static str,
-	) -> ReferenceGroup;
-	fn reference_location(
-		&self,
-		reference: &code_moniker_workspace::snapshot::ReferenceRecord,
-	) -> String;
-	fn usage_contexts(&self, refs: &[ReferenceId]) -> Vec<SymbolId>;
-	fn change_badge_for_symbol(&self, symbol: &SymbolId) -> Option<ChangeBadge>;
-	fn change_summary_from_view(
-		&self,
-		summary: code_moniker_workspace::snapshot::ChangeSummary,
-	) -> ChangeSummary;
-	fn moniker_for_identity(&self, identity: &str) -> Option<Moniker>;
-	fn compact_identity(&self, identity: &str) -> String;
-	fn sort_defs_for_navigation(&self, symbols: &mut [SymbolId]);
+pub(in crate::ui) fn stats(store: &LocalWorkspaceFacade) -> SessionStats {
+	store.snapshot().map(build_stats).unwrap_or_default()
 }
 
-impl WorkspaceRead for code_moniker_workspace::LocalWorkspaceFacade {
-	fn stats(&self) -> SessionStats {
-		self.snapshot().map(build_stats).unwrap_or_default()
-	}
-
-	fn linkage_stats(&self) -> LinkageStats {
-		self.snapshot()
-			.map(|snapshot| LinkageStats {
-				resolved_refs: snapshot.linkage.resolved_refs,
-				external_refs: snapshot.linkage.external_refs,
-				manifest_blocked_refs: snapshot.linkage.manifest_blocked_refs,
-				unresolved_refs: snapshot.linkage.unresolved_refs,
-				ambiguous_refs: snapshot.linkage.ambiguous_refs,
-			})
-			.unwrap_or_default()
-	}
-
-	fn file_count(&self) -> usize {
-		self.snapshot()
-			.map_or(0, |snapshot| snapshot.index.sources.len())
-	}
-
-	fn file_summary(&self, file_idx: usize) -> FileSummary {
-		let source = self.source_file(file_idx);
-		FileSummary {
-			index: file_idx,
-			lang: source
-				.and_then(|source| Lang::from_tag(&source.language))
-				.unwrap_or(Lang::Rs),
-			rel_path: source
-				.map(|source| PathBuf::from(&source.rel_path))
-				.unwrap_or_default(),
-			anchor: source
-				.map(|source| PathBuf::from(&source.anchor))
-				.unwrap_or_default(),
-		}
-	}
-
-	fn all_navigable_defs(&self) -> Vec<SymbolId> {
-		let Some(snapshot) = self.snapshot() else {
-			return Vec::new();
-		};
-		snapshot
-			.index
-			.symbols
-			.iter()
-			.filter(|symbol| symbol.navigable)
-			.map(|symbol| symbol.id.clone())
-			.collect()
-	}
-
-	fn root_defs(&self, file_idx: usize) -> Vec<SymbolId> {
-		let Some(source) = self.source_file(file_idx) else {
-			return Vec::new();
-		};
-		let mut roots = self
-			.snapshot()
-			.into_iter()
-			.flat_map(|snapshot| &snapshot.index.symbols)
-			.filter(|symbol| {
-				symbol.navigable
-					&& symbol.source == source.id
-					&& symbol.parent.as_ref().is_none_or(|parent| {
-						self.symbol_by_id(parent).is_none_or(|parent| {
-							!parent.navigable || parent.source != symbol.source
-						})
-					})
-			})
-			.map(|symbol| symbol.id.clone())
-			.collect::<Vec<_>>();
-		self.sort_defs_for_navigation(&mut roots);
-		roots
-	}
-
-	fn child_defs(&self, parent: &SymbolId) -> Vec<SymbolId> {
-		let mut children = self
-			.snapshot()
-			.into_iter()
-			.flat_map(|snapshot| &snapshot.index.symbols)
-			.filter(|symbol| symbol.navigable && symbol.parent.as_ref() == Some(parent))
-			.map(|symbol| symbol.id.clone())
-			.collect::<Vec<_>>();
-		self.sort_defs_for_navigation(&mut children);
-		children
-	}
-
-	fn compare_defs_for_navigation(&self, left: &SymbolId, right: &SymbolId) -> Ordering {
-		let left_symbol = self.symbol_by_id(left);
-		let right_symbol = self.symbol_by_id(right);
-		match (left_symbol, right_symbol) {
-			(Some(left), Some(right)) => definition_kind_order(self.symbol_lang(left), &left.kind)
-				.cmp(&definition_kind_order(self.symbol_lang(right), &right.kind))
-				.then_with(|| left.line_range.cmp(&right.line_range))
-				.then_with(|| left.name.cmp(&right.name)),
-			_ => left.as_str().cmp(right.as_str()),
-		}
-	}
-
-	fn is_navigable_symbol(&self, symbol: &SymbolId) -> bool {
-		self.symbol_by_id(symbol)
-			.is_some_and(|symbol| symbol.navigable)
-	}
-
-	fn symbol_summary(&self, symbol: &SymbolId) -> SymbolSummary {
-		let Some(record) = self.symbol_by_id(symbol) else {
-			return SymbolSummary::missing(symbol.clone());
-		};
-		SymbolSummary {
-			id: record.id.clone(),
-			lang: self.symbol_lang(record),
-			kind: record.kind.clone(),
-			name: record.name.clone(),
-			file_path: self.symbol_source_path(record),
-			compact_moniker: self.compact_identity(&record.identity),
-			line_range: record.line_range,
-			child_count: self.child_defs(&record.id).len(),
-			change: self.change_badge_for_symbol(&record.id),
-		}
-	}
-
-	fn symbol_detail(&self, symbol: &SymbolId) -> SymbolDetail {
-		SymbolDetail {
-			symbol: self.symbol_summary(symbol),
-			children: self
-				.child_defs(symbol)
-				.iter()
-				.map(|child| self.symbol_summary(child))
-				.collect(),
-		}
-	}
-
-	fn symbol_references(&self, symbol: &SymbolId) -> SymbolReferences {
-		SymbolReferences {
-			symbol: self.symbol_summary(symbol),
-			incoming: self.reference_set(&self.incoming_refs_for_symbol(symbol), "source"),
-			outgoing: self.reference_set(&self.outgoing_refs_for_symbol(symbol), "target"),
-		}
-	}
-
-	fn source_snippet(&self, symbol: &SymbolId, context: u32) -> Vec<SourceLine> {
-		let Some(record) = self.symbol_by_id(symbol) else {
-			return Vec::new();
-		};
-		let Some((start_line, end_line)) = record.line_range else {
-			return Vec::new();
-		};
-		let Some(source) = self.source_file_by_id(&record.source) else {
-			return Vec::new();
-		};
-		let first = start_line.saturating_sub(context).max(1);
-		let last = end_line.saturating_add(context);
-		source
-			.text
-			.lines()
-			.enumerate()
-			.filter_map(|(idx, text)| {
-				let number = idx as u32 + 1;
-				(first <= number && number <= last).then(|| SourceLine {
-					number,
-					text: text.to_string(),
-					active: start_line <= number && number <= end_line,
-				})
-			})
-			.collect()
-	}
-
-	fn search_symbols_filtered(
-		&self,
-		query: &str,
-		limit: usize,
-		langs: &[Lang],
-		kinds: &[String],
-		shapes: &[Shape],
-	) -> Vec<SearchHit> {
-		let mut hits = self
-			.view()
-			.map(|view| view.search().search_symbols(query, limit.saturating_mul(4)))
-			.unwrap_or_default()
-			.into_iter()
-			.filter(|hit| {
-				self.symbol_by_id(&hit.symbol)
-					.is_some_and(|symbol| search_filters_match(self, symbol, langs, kinds, shapes))
-			})
-			.map(|hit| SearchHit {
-				loc: hit.symbol,
-				score: hit.score,
-				reason: hit.reason,
-			})
-			.collect::<Vec<_>>();
-		hits.truncate(limit);
-		hits
-	}
-
-	fn change_overview(&self) -> ChangeOverview {
-		let Some(snapshot) = self.snapshot() else {
-			return ChangeOverview::default();
-		};
-		let changed_files = snapshot
-			.changes
-			.changes
-			.iter()
-			.map(|change| change.file_path.clone())
-			.collect::<BTreeSet<_>>()
-			.len();
-		ChangeOverview {
-			scope: snapshot.changes.scope.clone(),
-			change_count: snapshot.changes.changes.len(),
-			file_count: changed_files,
-			resources: snapshot
-				.changes
-				.resources
-				.iter()
-				.map(|resource| GitResourceSummary {
-					available: resource.available,
-					label: resource.label.clone(),
-					message: resource.message.clone(),
-				})
-				.collect(),
-			diagnostics: snapshot.changes.diagnostics.clone(),
-		}
-	}
-
-	fn change_rows(&self) -> Vec<ChangeSummary> {
-		self.view()
-			.map(|view| {
-				view.changes()
-					.summaries()
-					.into_iter()
-					.map(|summary| self.change_summary_from_view(summary))
-					.collect()
-			})
-			.unwrap_or_default()
-	}
-
-	fn change_summary(&self, change: ChangeId) -> Option<ChangeSummary> {
-		self.view()?
-			.changes()
-			.detail(&change)
-			.map(|detail| self.change_summary_from_view(detail.summary))
-	}
-
-	fn change_detail(&self, change: ChangeId) -> Option<ChangeDetail> {
-		let detail = self.view()?.changes().detail(&change)?;
-		Some(ChangeDetail {
-			summary: self.change_summary_from_view(detail.summary),
-			blast_radius: self.reference_set_from_view(detail.blast_radius),
-		})
-	}
-
-	fn changed_defs(&self) -> Vec<SymbolId> {
-		self.snapshot()
-			.map(|snapshot| snapshot.changes.changed_symbols.clone())
-			.unwrap_or_default()
-	}
-
-	fn change_detail_for_symbol(&self, symbol: &SymbolId) -> Option<ChangeDetail> {
-		let change = self
-			.snapshot()?
-			.changes
-			.changes
-			.iter()
-			.find(|change| change.symbol.as_ref() == Some(symbol))?
-			.id
-			.clone();
-		self.change_detail(change)
-	}
-
-	fn change_count_for_file(&self, file_idx: usize) -> usize {
-		let Some(source) = self.source_file(file_idx) else {
-			return 0;
-		};
-		self.snapshot()
-			.map(|snapshot| {
-				snapshot
-					.changes
-					.changes
-					.iter()
-					.filter(|change| change.source.as_ref() == Some(&source.id))
-					.count()
-			})
-			.unwrap_or(0)
-	}
-
-	fn usage_focus(&self, symbol: SymbolId) -> Option<UsageFocus> {
-		let record = self.symbol_by_id(&symbol)?;
-		let target = self
-			.moniker_for_identity(&record.identity)
-			.unwrap_or_else(|| Moniker::from_canonical_bytes(record.identity.as_bytes().to_vec()));
-		let refs = self.incoming_refs_for_symbol(&symbol);
-		Some(UsageFocus {
-			target,
-			label: record.name.clone(),
-			compact_moniker: self.compact_identity(&record.identity),
-			refs: refs.clone(),
-			contexts: self.usage_contexts(&refs),
-			references: self.reference_set(&refs, "source"),
-		})
-	}
-
-	fn usage_focus_for_target(&self, target: Moniker, label: String) -> Option<UsageFocus> {
-		let symbol = self
-			.snapshot()?
-			.index
-			.symbols
-			.iter()
-			.find(|symbol| self.moniker_for_identity(&symbol.identity).as_ref() == Some(&target))
-			.map(|symbol| symbol.id.clone())?;
-		let mut focus = self.usage_focus(symbol)?;
-		focus.target = target;
-		focus.label = label;
-		Some(focus)
-	}
-
-	fn unresolved_linkage_report(
-		&self,
-		file_limit: usize,
-		samples_per_file: usize,
-	) -> UnresolvedLinkageReport {
-		let Some(snapshot) = self.snapshot() else {
-			return UnresolvedLinkageReport::default();
-		};
-		let mut groups_by_file = FxHashMap::<SourceId, UnresolvedLinkageGroup>::default();
-		for unresolved in &snapshot.linkage.unresolved {
-			let Some(reference) = self.reference_by_id(&unresolved.reference) else {
-				continue;
-			};
-			let Some(source) = self.source_file_by_id(&reference.source) else {
-				continue;
-			};
-			let entry = groups_by_file
-				.entry(reference.source.clone())
-				.or_insert_with(|| UnresolvedLinkageGroup {
-					lang: Lang::from_tag(&source.language).unwrap_or(Lang::Rs),
-					file_path: PathBuf::from(&source.rel_path),
-					unresolved_refs: 0,
-					manifest_blocked_refs: 0,
-					samples: Vec::new(),
-				});
-			entry.unresolved_refs += 1;
-			if entry.samples.len() < samples_per_file {
-				entry.samples.push(UnresolvedLinkageSample {
-					reason: "unresolved",
-					kind: reference.kind.clone(),
-					target: self.compact_identity(&reference.target_identity),
-					source: self
-						.symbol_by_id(&reference.source_symbol)
-						.map(|symbol| symbol.name.clone())
-						.unwrap_or_else(|| reference.source_symbol.as_str().to_string()),
-					location: self.reference_location(reference),
-				});
-			}
-		}
-		let mut groups = groups_by_file.into_values().collect::<Vec<_>>();
-		groups.sort_by(|left, right| {
-			right
-				.unresolved_refs
-				.cmp(&left.unresolved_refs)
-				.then_with(|| left.file_path.cmp(&right.file_path))
-		});
-		let files = groups.len();
-		groups.truncate(file_limit);
-		UnresolvedLinkageReport {
-			unresolved_refs: snapshot.linkage.unresolved_refs,
+pub(in crate::ui) fn linkage_stats(store: &LocalWorkspaceFacade) -> LinkageStats {
+	store
+		.snapshot()
+		.map(|snapshot| LinkageStats {
+			resolved_refs: snapshot.linkage.resolved_refs,
+			external_refs: snapshot.linkage.external_refs,
 			manifest_blocked_refs: snapshot.linkage.manifest_blocked_refs,
-			files,
-			shown_files: groups.len(),
-			groups,
-		}
-	}
-
-	fn source_file(&self, file_idx: usize) -> Option<&SourceFileRecord> {
-		self.snapshot()?.index.sources.get(file_idx)
-	}
-
-	fn source_file_by_id(&self, source: &SourceId) -> Option<&SourceFileRecord> {
-		self.snapshot()?
-			.index
-			.sources
-			.iter()
-			.find(|candidate| &candidate.id == source)
-	}
-
-	fn symbol_by_id(&self, id: &SymbolId) -> Option<&SymbolRecord> {
-		self.snapshot()?
-			.index
-			.symbols
-			.iter()
-			.find(|symbol| &symbol.id == id)
-	}
-
-	fn reference_by_id(
-		&self,
-		id: &ReferenceId,
-	) -> Option<&code_moniker_workspace::snapshot::ReferenceRecord> {
-		self.snapshot()?
-			.index
-			.references
-			.iter()
-			.find(|reference| &reference.id == id)
-	}
-
-	fn symbol_lang(&self, symbol: &SymbolRecord) -> Lang {
-		self.source_file_by_id(&symbol.source)
-			.and_then(|source| Lang::from_tag(&source.language))
-			.unwrap_or(Lang::Rs)
-	}
-
-	fn symbol_source_path(&self, symbol: &SymbolRecord) -> PathBuf {
-		self.source_file_by_id(&symbol.source)
-			.map(|source| PathBuf::from(&source.rel_path))
-			.unwrap_or_default()
-	}
-
-	fn incoming_refs_for_symbol(&self, symbol: &SymbolId) -> Vec<ReferenceId> {
-		self.snapshot()
-			.map(|snapshot| {
-				snapshot
-					.linkage
-					.resolved
-					.iter()
-					.filter(|edge| &edge.target == symbol)
-					.map(|edge| edge.reference.clone())
-					.collect()
-			})
-			.unwrap_or_default()
-	}
-
-	fn outgoing_refs_for_symbol(&self, symbol: &SymbolId) -> Vec<ReferenceId> {
-		self.snapshot()
-			.map(|snapshot| {
-				snapshot
-					.index
-					.references
-					.iter()
-					.filter(|reference| &reference.source_symbol == symbol)
-					.map(|reference| reference.id.clone())
-					.collect()
-			})
-			.unwrap_or_default()
-	}
-
-	fn reference_set(&self, refs: &[ReferenceId], endpoint_label: &'static str) -> ReferenceSet {
-		let groups = refs
-			.iter()
-			.filter_map(|id| self.reference_by_id(id))
-			.map(|reference| self.reference_group(reference, endpoint_label))
-			.collect::<Vec<_>>();
-		let files = groups
-			.iter()
-			.map(|group| group.location.clone())
-			.collect::<BTreeSet<_>>()
-			.len();
-		let contexts = self.usage_contexts(refs).len();
-		ReferenceSet {
-			summary: ReferenceSetSummary {
-				refs: groups.len(),
-				files,
-				contexts,
-			},
-			groups,
-		}
-	}
-
-	fn reference_set_from_view(
-		&self,
-		refs: code_moniker_workspace::snapshot::ReferenceSet,
-	) -> ReferenceSet {
-		let ids = refs
-			.groups
-			.into_iter()
-			.map(|reference| reference.reference)
-			.collect::<Vec<_>>();
-		self.reference_set(&ids, "source")
-	}
-
-	fn reference_group(
-		&self,
-		reference: &code_moniker_workspace::snapshot::ReferenceRecord,
-		endpoint_label: &'static str,
-	) -> ReferenceGroup {
-		let source = self.symbol_by_id(&reference.source_symbol);
-		ReferenceGroup {
-			kinds: vec![reference.kind.clone()],
-			actor: source
-				.map(|symbol| symbol.name.clone())
-				.unwrap_or_else(|| reference.source_symbol.as_str().to_string()),
-			location: self.reference_location(reference),
-			endpoint_label,
-			endpoint: self.compact_identity(&reference.target_identity),
-			confidence: reference
-				.confidence
-				.clone()
-				.unwrap_or_else(|| "-".to_string()),
-			receiver: reference.receiver.clone(),
-			alias: reference.alias.clone(),
-		}
-	}
-
-	fn reference_location(
-		&self,
-		reference: &code_moniker_workspace::snapshot::ReferenceRecord,
-	) -> String {
-		let path = self
-			.source_file_by_id(&reference.source)
-			.map(|source| source.rel_path.as_str())
-			.unwrap_or("<source>");
-		let lines = reference
-			.line_range
-			.map(|(start, end)| {
-				if start == end {
-					format!("L{start}")
-				} else {
-					format!("L{start}-L{end}")
-				}
-			})
-			.unwrap_or_else(|| "L?".to_string());
-		format!("{path}:{lines}")
-	}
-
-	fn usage_contexts(&self, refs: &[ReferenceId]) -> Vec<SymbolId> {
-		refs.iter()
-			.filter_map(|id| self.reference_by_id(id))
-			.map(|reference| reference.source_symbol.clone())
-			.fold(Vec::new(), |mut out, symbol| {
-				if !out.contains(&symbol) {
-					out.push(symbol);
-				}
-				out
-			})
-	}
-
-	fn change_badge_for_symbol(&self, symbol: &SymbolId) -> Option<ChangeBadge> {
-		let change = self
-			.snapshot()?
-			.changes
-			.changes
-			.iter()
-			.find(|change| change.symbol.as_ref() == Some(symbol))?;
-		Some(ChangeBadge {
-			status: change.status,
-			usage_count: self.incoming_refs_for_symbol(symbol).len(),
+			unresolved_refs: snapshot.linkage.unresolved_refs,
+			ambiguous_refs: snapshot.linkage.ambiguous_refs,
 		})
-	}
+		.unwrap_or_default()
+}
 
-	fn change_summary_from_view(
-		&self,
-		summary: code_moniker_workspace::snapshot::ChangeSummary,
-	) -> ChangeSummary {
-		let source = summary
-			.source
-			.as_ref()
-			.and_then(|id| self.source_file_by_id(id));
-		ChangeSummary {
-			id: summary.id,
-			status: summary.status,
-			lang: source
-				.and_then(|source| Lang::from_tag(&source.language))
-				.unwrap_or(Lang::Rs),
-			kind: summary.kind,
-			name: summary.name,
-			file_path: source
-				.map(|source| PathBuf::from(&source.rel_path))
-				.unwrap_or_default(),
-			compact_moniker: self.compact_identity(&summary.identity),
-			line_range: summary.line_range,
-			hunk_count: summary.hunk_count,
-			usage_count: summary.usage_count,
+pub(in crate::ui) fn file_count(store: &LocalWorkspaceFacade) -> usize {
+	store
+		.snapshot()
+		.map_or(0, |snapshot| snapshot.index.sources.len())
+}
+
+pub(in crate::ui) fn file_summary(store: &LocalWorkspaceFacade, file_idx: usize) -> FileSummary {
+	let source = source_file(store, file_idx);
+	FileSummary {
+		index: file_idx,
+		lang: source
+			.and_then(|source| Lang::from_tag(&source.language))
+			.unwrap_or(Lang::Rs),
+		rel_path: source
+			.map(|source| PathBuf::from(&source.rel_path))
+			.unwrap_or_default(),
+		anchor: source
+			.map(|source| PathBuf::from(&source.anchor))
+			.unwrap_or_default(),
+	}
+}
+
+pub(in crate::ui) fn all_navigable_defs(store: &LocalWorkspaceFacade) -> Vec<SymbolId> {
+	let Some(snapshot) = store.snapshot() else {
+		return Vec::new();
+	};
+	snapshot
+		.index
+		.symbols
+		.iter()
+		.filter(|symbol| symbol.navigable)
+		.map(|symbol| symbol.id.clone())
+		.collect()
+}
+
+pub(in crate::ui) fn root_defs(store: &LocalWorkspaceFacade, file_idx: usize) -> Vec<SymbolId> {
+	let Some(source) = source_file(store, file_idx) else {
+		return Vec::new();
+	};
+	let mut roots = store
+		.snapshot()
+		.into_iter()
+		.flat_map(|snapshot| &snapshot.index.symbols)
+		.filter(|symbol| {
+			symbol.navigable
+				&& symbol.source == source.id
+				&& symbol.parent.as_ref().is_none_or(|parent| {
+					symbol_by_id(store, parent)
+						.is_none_or(|parent| !parent.navigable || parent.source != symbol.source)
+				})
+		})
+		.map(|symbol| symbol.id.clone())
+		.collect::<Vec<_>>();
+	sort_defs_for_navigation(store, &mut roots);
+	roots
+}
+
+pub(in crate::ui) fn child_defs(store: &LocalWorkspaceFacade, parent: &SymbolId) -> Vec<SymbolId> {
+	let mut children = store
+		.snapshot()
+		.into_iter()
+		.flat_map(|snapshot| &snapshot.index.symbols)
+		.filter(|symbol| symbol.navigable && symbol.parent.as_ref() == Some(parent))
+		.map(|symbol| symbol.id.clone())
+		.collect::<Vec<_>>();
+	sort_defs_for_navigation(store, &mut children);
+	children
+}
+
+pub(in crate::ui) fn compare_defs_for_navigation(
+	store: &LocalWorkspaceFacade,
+	left: &SymbolId,
+	right: &SymbolId,
+) -> Ordering {
+	let left_symbol = symbol_by_id(store, left);
+	let right_symbol = symbol_by_id(store, right);
+	match (left_symbol, right_symbol) {
+		(Some(left), Some(right)) => definition_kind_order(symbol_lang(store, left), &left.kind)
+			.cmp(&definition_kind_order(
+				symbol_lang(store, right),
+				&right.kind,
+			))
+			.then_with(|| left.line_range.cmp(&right.line_range))
+			.then_with(|| left.name.cmp(&right.name)),
+		_ => left.as_str().cmp(right.as_str()),
+	}
+}
+
+pub(in crate::ui) fn is_navigable_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> bool {
+	symbol_by_id(store, symbol).is_some_and(|symbol| symbol.navigable)
+}
+
+pub(in crate::ui) fn symbol_summary(
+	store: &LocalWorkspaceFacade,
+	symbol: &SymbolId,
+) -> SymbolSummary {
+	let Some(record) = symbol_by_id(store, symbol) else {
+		return SymbolSummary::missing(symbol.clone());
+	};
+	SymbolSummary {
+		id: record.id.clone(),
+		lang: symbol_lang(store, record),
+		kind: record.kind.clone(),
+		name: record.name.clone(),
+		file_path: symbol_source_path(store, record),
+		compact_moniker: compact_identity(store, &record.identity),
+		line_range: record.line_range,
+		child_count: child_defs(store, &record.id).len(),
+		change: change_badge_for_symbol(store, &record.id),
+	}
+}
+
+pub(in crate::ui) fn symbol_detail(
+	store: &LocalWorkspaceFacade,
+	symbol: &SymbolId,
+) -> SymbolDetail {
+	SymbolDetail {
+		symbol: symbol_summary(store, symbol),
+		children: child_defs(store, symbol)
+			.iter()
+			.map(|child| symbol_summary(store, child))
+			.collect(),
+	}
+}
+
+pub(in crate::ui) fn symbol_references(
+	store: &LocalWorkspaceFacade,
+	symbol: &SymbolId,
+) -> SymbolReferences {
+	SymbolReferences {
+		symbol: symbol_summary(store, symbol),
+		incoming: reference_set(store, &incoming_refs_for_symbol(store, symbol), "source"),
+		outgoing: reference_set(store, &outgoing_refs_for_symbol(store, symbol), "target"),
+	}
+}
+
+pub(in crate::ui) fn source_snippet(
+	store: &LocalWorkspaceFacade,
+	symbol: &SymbolId,
+	context: u32,
+) -> Vec<SourceLine> {
+	let Some(record) = symbol_by_id(store, symbol) else {
+		return Vec::new();
+	};
+	let Some((start_line, end_line)) = record.line_range else {
+		return Vec::new();
+	};
+	let Some(source) = source_file_by_id(store, &record.source) else {
+		return Vec::new();
+	};
+	let first = start_line.saturating_sub(context).max(1);
+	let last = end_line.saturating_add(context);
+	source
+		.text
+		.lines()
+		.enumerate()
+		.filter_map(|(idx, text)| {
+			let number = idx as u32 + 1;
+			(first <= number && number <= last).then(|| SourceLine {
+				number,
+				text: text.to_string(),
+				active: start_line <= number && number <= end_line,
+			})
+		})
+		.collect()
+}
+
+pub(in crate::ui) fn search_symbols_filtered(
+	store: &LocalWorkspaceFacade,
+	query: &str,
+	limit: usize,
+	langs: &[Lang],
+	kinds: &[String],
+	shapes: &[Shape],
+) -> Vec<SearchHit> {
+	let mut hits = store
+		.view()
+		.map(|view| view.search().search_symbols(query, limit.saturating_mul(4)))
+		.unwrap_or_default()
+		.into_iter()
+		.filter(|hit| {
+			symbol_by_id(store, &hit.symbol)
+				.is_some_and(|symbol| search_filters_match(store, symbol, langs, kinds, shapes))
+		})
+		.map(|hit| SearchHit {
+			loc: hit.symbol,
+			score: hit.score,
+			reason: hit.reason,
+		})
+		.collect::<Vec<_>>();
+	hits.truncate(limit);
+	hits
+}
+
+pub(in crate::ui) fn change_overview(store: &LocalWorkspaceFacade) -> ChangeOverview {
+	let Some(snapshot) = store.snapshot() else {
+		return ChangeOverview::default();
+	};
+	let changed_files = snapshot
+		.changes
+		.changes
+		.iter()
+		.map(|change| change.file_path.clone())
+		.collect::<BTreeSet<_>>()
+		.len();
+	ChangeOverview {
+		scope: snapshot.changes.scope.clone(),
+		change_count: snapshot.changes.changes.len(),
+		file_count: changed_files,
+		resources: snapshot
+			.changes
+			.resources
+			.iter()
+			.map(|resource| GitResourceSummary {
+				available: resource.available,
+				label: resource.label.clone(),
+				message: resource.message.clone(),
+			})
+			.collect(),
+		diagnostics: snapshot.changes.diagnostics.clone(),
+	}
+}
+
+pub(in crate::ui) fn change_rows(store: &LocalWorkspaceFacade) -> Vec<ChangeSummary> {
+	store
+		.view()
+		.map(|view| {
+			view.changes()
+				.summaries()
+				.into_iter()
+				.map(|summary| change_summary_from_view(store, summary))
+				.collect()
+		})
+		.unwrap_or_default()
+}
+
+pub(in crate::ui) fn change_summary(
+	store: &LocalWorkspaceFacade,
+	change: ChangeId,
+) -> Option<ChangeSummary> {
+	store
+		.view()?
+		.changes()
+		.detail(&change)
+		.map(|detail| change_summary_from_view(store, detail.summary))
+}
+
+pub(in crate::ui) fn change_detail(
+	store: &LocalWorkspaceFacade,
+	change: ChangeId,
+) -> Option<ChangeDetail> {
+	let detail = store.view()?.changes().detail(&change)?;
+	Some(ChangeDetail {
+		summary: change_summary_from_view(store, detail.summary),
+		blast_radius: reference_set_from_view(store, detail.blast_radius),
+	})
+}
+
+pub(in crate::ui) fn changed_defs(store: &LocalWorkspaceFacade) -> Vec<SymbolId> {
+	store
+		.snapshot()
+		.map(|snapshot| snapshot.changes.changed_symbols.clone())
+		.unwrap_or_default()
+}
+
+pub(in crate::ui) fn change_detail_for_symbol(
+	store: &LocalWorkspaceFacade,
+	symbol: &SymbolId,
+) -> Option<ChangeDetail> {
+	let change = store
+		.snapshot()?
+		.changes
+		.changes
+		.iter()
+		.find(|change| change.symbol.as_ref() == Some(symbol))?
+		.id
+		.clone();
+	change_detail(store, change)
+}
+
+pub(in crate::ui) fn change_count_for_file(store: &LocalWorkspaceFacade, file_idx: usize) -> usize {
+	let Some(source) = source_file(store, file_idx) else {
+		return 0;
+	};
+	store
+		.snapshot()
+		.map(|snapshot| {
+			snapshot
+				.changes
+				.changes
+				.iter()
+				.filter(|change| change.source.as_ref() == Some(&source.id))
+				.count()
+		})
+		.unwrap_or(0)
+}
+
+pub(in crate::ui) fn usage_focus(
+	store: &LocalWorkspaceFacade,
+	symbol: SymbolId,
+) -> Option<UsageFocus> {
+	let record = symbol_by_id(store, &symbol)?;
+	let target = moniker_for_identity(store, &record.identity)
+		.unwrap_or_else(|| Moniker::from_canonical_bytes(record.identity.as_bytes().to_vec()));
+	let refs = incoming_refs_for_symbol(store, &symbol);
+	Some(UsageFocus {
+		target,
+		label: record.name.clone(),
+		compact_moniker: compact_identity(store, &record.identity),
+		refs: refs.clone(),
+		contexts: usage_contexts(store, &refs),
+		references: reference_set(store, &refs, "source"),
+	})
+}
+
+pub(in crate::ui) fn usage_focus_for_target(
+	store: &LocalWorkspaceFacade,
+	target: Moniker,
+	label: String,
+) -> Option<UsageFocus> {
+	let symbol = store
+		.snapshot()?
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| moniker_for_identity(store, &symbol.identity).as_ref() == Some(&target))
+		.map(|symbol| symbol.id.clone())?;
+	let mut focus = usage_focus(store, symbol)?;
+	focus.target = target;
+	focus.label = label;
+	Some(focus)
+}
+
+pub(in crate::ui) fn unresolved_linkage_report(
+	store: &LocalWorkspaceFacade,
+	file_limit: usize,
+	samples_per_file: usize,
+) -> UnresolvedLinkageReport {
+	let Some(snapshot) = store.snapshot() else {
+		return UnresolvedLinkageReport::default();
+	};
+	let mut groups_by_file = FxHashMap::<SourceId, UnresolvedLinkageGroup>::default();
+	for unresolved in &snapshot.linkage.unresolved {
+		let Some(reference) = reference_by_id(store, &unresolved.reference) else {
+			continue;
+		};
+		let Some(source) = source_file_by_id(store, &reference.source) else {
+			continue;
+		};
+		let entry = groups_by_file
+			.entry(reference.source.clone())
+			.or_insert_with(|| UnresolvedLinkageGroup {
+				lang: Lang::from_tag(&source.language).unwrap_or(Lang::Rs),
+				file_path: PathBuf::from(&source.rel_path),
+				unresolved_refs: 0,
+				manifest_blocked_refs: 0,
+				samples: Vec::new(),
+			});
+		entry.unresolved_refs += 1;
+		if entry.samples.len() < samples_per_file {
+			entry.samples.push(UnresolvedLinkageSample {
+				reason: "unresolved",
+				kind: reference.kind.clone(),
+				target: compact_identity(store, &reference.target_identity),
+				source: symbol_by_id(store, &reference.source_symbol)
+					.map(|symbol| symbol.name.clone())
+					.unwrap_or_else(|| reference.source_symbol.as_str().to_string()),
+				location: reference_location(store, reference),
+			});
 		}
 	}
-
-	fn moniker_for_identity(&self, identity: &str) -> Option<Moniker> {
-		from_uri(
-			identity,
-			&UriConfig {
-				scheme: self
-					.snapshot()
-					.map(|snapshot| snapshot.index.identity_scheme.as_str())
-					.unwrap_or(crate::DEFAULT_SCHEME),
-			},
-		)
-		.ok()
+	let mut groups = groups_by_file.into_values().collect::<Vec<_>>();
+	groups.sort_by(|left, right| {
+		right
+			.unresolved_refs
+			.cmp(&left.unresolved_refs)
+			.then_with(|| left.file_path.cmp(&right.file_path))
+	});
+	let files = groups.len();
+	groups.truncate(file_limit);
+	UnresolvedLinkageReport {
+		unresolved_refs: snapshot.linkage.unresolved_refs,
+		manifest_blocked_refs: snapshot.linkage.manifest_blocked_refs,
+		files,
+		shown_files: groups.len(),
+		groups,
 	}
+}
 
-	fn compact_identity(&self, identity: &str) -> String {
-		self.moniker_for_identity(identity)
-			.as_ref()
-			.map(compact_moniker)
-			.unwrap_or_else(|| identity.to_string())
-	}
+pub(in crate::ui) fn source_file(
+	store: &LocalWorkspaceFacade,
+	file_idx: usize,
+) -> Option<&SourceFileRecord> {
+	store.snapshot()?.index.sources.get(file_idx)
+}
 
-	fn sort_defs_for_navigation(&self, symbols: &mut [SymbolId]) {
-		symbols.sort_by(|left, right| self.compare_defs_for_navigation(left, right));
+fn source_file_by_id<'a>(
+	store: &'a LocalWorkspaceFacade,
+	source: &SourceId,
+) -> Option<&'a SourceFileRecord> {
+	store
+		.snapshot()?
+		.index
+		.sources
+		.iter()
+		.find(|candidate| &candidate.id == source)
+}
+
+fn symbol_by_id<'a>(store: &'a LocalWorkspaceFacade, id: &SymbolId) -> Option<&'a SymbolRecord> {
+	store
+		.snapshot()?
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| &symbol.id == id)
+}
+
+fn reference_by_id<'a>(
+	store: &'a LocalWorkspaceFacade,
+	id: &ReferenceId,
+) -> Option<&'a code_moniker_workspace::snapshot::ReferenceRecord> {
+	store
+		.snapshot()?
+		.index
+		.references
+		.iter()
+		.find(|reference| &reference.id == id)
+}
+
+fn symbol_lang(store: &LocalWorkspaceFacade, symbol: &SymbolRecord) -> Lang {
+	source_file_by_id(store, &symbol.source)
+		.and_then(|source| Lang::from_tag(&source.language))
+		.unwrap_or(Lang::Rs)
+}
+
+fn symbol_source_path(store: &LocalWorkspaceFacade, symbol: &SymbolRecord) -> PathBuf {
+	source_file_by_id(store, &symbol.source)
+		.map(|source| PathBuf::from(&source.rel_path))
+		.unwrap_or_default()
+}
+
+fn incoming_refs_for_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> Vec<ReferenceId> {
+	store
+		.snapshot()
+		.map(|snapshot| {
+			snapshot
+				.linkage
+				.resolved
+				.iter()
+				.filter(|edge| &edge.target == symbol)
+				.map(|edge| edge.reference.clone())
+				.collect()
+		})
+		.unwrap_or_default()
+}
+
+fn outgoing_refs_for_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> Vec<ReferenceId> {
+	store
+		.snapshot()
+		.map(|snapshot| {
+			snapshot
+				.index
+				.references
+				.iter()
+				.filter(|reference| &reference.source_symbol == symbol)
+				.map(|reference| reference.id.clone())
+				.collect()
+		})
+		.unwrap_or_default()
+}
+
+fn reference_set(
+	store: &LocalWorkspaceFacade,
+	refs: &[ReferenceId],
+	endpoint_label: &'static str,
+) -> ReferenceSet {
+	let groups = refs
+		.iter()
+		.filter_map(|id| reference_by_id(store, id))
+		.map(|reference| reference_group(store, reference, endpoint_label))
+		.collect::<Vec<_>>();
+	let files = groups
+		.iter()
+		.map(|group| group.location.clone())
+		.collect::<BTreeSet<_>>()
+		.len();
+	let contexts = usage_contexts(store, refs).len();
+	ReferenceSet {
+		summary: ReferenceSetSummary {
+			refs: groups.len(),
+			files,
+			contexts,
+		},
+		groups,
 	}
+}
+
+fn reference_set_from_view(
+	store: &LocalWorkspaceFacade,
+	refs: code_moniker_workspace::snapshot::ReferenceSet,
+) -> ReferenceSet {
+	let ids = refs
+		.groups
+		.into_iter()
+		.map(|reference| reference.reference)
+		.collect::<Vec<_>>();
+	reference_set(store, &ids, "source")
+}
+
+fn reference_group(
+	store: &LocalWorkspaceFacade,
+	reference: &code_moniker_workspace::snapshot::ReferenceRecord,
+	endpoint_label: &'static str,
+) -> ReferenceGroup {
+	let source = symbol_by_id(store, &reference.source_symbol);
+	ReferenceGroup {
+		kinds: vec![reference.kind.clone()],
+		actor: source
+			.map(|symbol| symbol.name.clone())
+			.unwrap_or_else(|| reference.source_symbol.as_str().to_string()),
+		location: reference_location(store, reference),
+		endpoint_label,
+		endpoint: compact_identity(store, &reference.target_identity),
+		confidence: reference
+			.confidence
+			.clone()
+			.unwrap_or_else(|| "-".to_string()),
+		receiver: reference.receiver.clone(),
+		alias: reference.alias.clone(),
+	}
+}
+
+fn reference_location(
+	store: &LocalWorkspaceFacade,
+	reference: &code_moniker_workspace::snapshot::ReferenceRecord,
+) -> String {
+	let path = source_file_by_id(store, &reference.source)
+		.map(|source| source.rel_path.as_str())
+		.unwrap_or("<source>");
+	let lines = reference
+		.line_range
+		.map(|(start, end)| {
+			if start == end {
+				format!("L{start}")
+			} else {
+				format!("L{start}-L{end}")
+			}
+		})
+		.unwrap_or_else(|| "L?".to_string());
+	format!("{path}:{lines}")
+}
+
+fn usage_contexts(store: &LocalWorkspaceFacade, refs: &[ReferenceId]) -> Vec<SymbolId> {
+	refs.iter()
+		.filter_map(|id| reference_by_id(store, id))
+		.map(|reference| reference.source_symbol.clone())
+		.fold(Vec::new(), |mut out, symbol| {
+			if !out.contains(&symbol) {
+				out.push(symbol);
+			}
+			out
+		})
+}
+
+fn change_badge_for_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> Option<ChangeBadge> {
+	let change = store
+		.snapshot()?
+		.changes
+		.changes
+		.iter()
+		.find(|change| change.symbol.as_ref() == Some(symbol))?;
+	Some(ChangeBadge {
+		status: change.status,
+		usage_count: incoming_refs_for_symbol(store, symbol).len(),
+	})
+}
+
+fn change_summary_from_view(
+	store: &LocalWorkspaceFacade,
+	summary: code_moniker_workspace::snapshot::ChangeSummary,
+) -> ChangeSummary {
+	let source = summary
+		.source
+		.as_ref()
+		.and_then(|id| source_file_by_id(store, id));
+	ChangeSummary {
+		id: summary.id,
+		status: summary.status,
+		lang: source
+			.and_then(|source| Lang::from_tag(&source.language))
+			.unwrap_or(Lang::Rs),
+		kind: summary.kind,
+		name: summary.name,
+		file_path: source
+			.map(|source| PathBuf::from(&source.rel_path))
+			.unwrap_or_default(),
+		compact_moniker: compact_identity(store, &summary.identity),
+		line_range: summary.line_range,
+		hunk_count: summary.hunk_count,
+		usage_count: summary.usage_count,
+	}
+}
+
+fn moniker_for_identity(store: &LocalWorkspaceFacade, identity: &str) -> Option<Moniker> {
+	from_uri(
+		identity,
+		&UriConfig {
+			scheme: store
+				.snapshot()
+				.map(|snapshot| snapshot.index.identity_scheme.as_str())
+				.unwrap_or(crate::DEFAULT_SCHEME),
+		},
+	)
+	.ok()
+}
+
+fn compact_identity(store: &LocalWorkspaceFacade, identity: &str) -> String {
+	moniker_for_identity(store, identity)
+		.as_ref()
+		.map(compact_moniker)
+		.unwrap_or_else(|| identity.to_string())
+}
+
+fn sort_defs_for_navigation(store: &LocalWorkspaceFacade, symbols: &mut [SymbolId]) {
+	symbols.sort_by(|left, right| compare_defs_for_navigation(store, left, right));
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -981,7 +956,7 @@ fn search_filters_match(
 	kinds: &[String],
 	shapes: &[Shape],
 ) -> bool {
-	let lang_matches = langs.is_empty() || langs.contains(&store.symbol_lang(symbol));
+	let lang_matches = langs.is_empty() || langs.contains(&symbol_lang(store, symbol));
 	let has_kind_filter = !kinds.is_empty() || !shapes.is_empty();
 	let kind_matches = !kinds.is_empty() && kinds.iter().any(|filter| filter == &symbol.kind);
 	let shape_matches = !shapes.is_empty()

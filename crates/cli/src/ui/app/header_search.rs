@@ -1,16 +1,16 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-harmonious-method-size]
-// TODO(smell): split header-search selector movement, facet selection, query editing, and result application before enabling these guardrails here.
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 
-use crate::ui::app::App;
+use crate::ui::app::{
+	App, apply_navigation, dispatch_and_apply, refresh_results, select_def, sync_contextual_view,
+};
 use crate::ui::events::{HeaderSearchFocus, UiMode};
 use crate::ui::explorer::{
 	HeaderSearchResults, header_search_options,
 	header_search_results as explorer_header_search_results,
 };
 use crate::ui::store::navigation::{NavigationAction, NavigationScope};
-use crate::ui::workspace_read::{LocalWorkspaceFacade, WorkspaceRead};
+use crate::ui::workspace_read::{self, LocalWorkspaceFacade};
 use code_moniker_workspace::snapshot::SymbolId;
 type DefLocation = SymbolId;
 
@@ -197,6 +197,152 @@ impl HeaderSearchDecision {
 	}
 }
 
+struct HeaderSelectorDecision {
+	shell: Vec<ShellAction>,
+	status: Option<String>,
+	apply_search: bool,
+}
+
+impl HeaderSelectorDecision {
+	fn status(status: impl Into<String>) -> Self {
+		Self {
+			shell: Vec::new(),
+			status: Some(status.into()),
+			apply_search: false,
+		}
+	}
+
+	fn shell(shell: ShellAction, status: impl Into<String>) -> Self {
+		Self {
+			shell: vec![shell],
+			status: Some(status.into()),
+			apply_search: false,
+		}
+	}
+
+	fn apply_search() -> Self {
+		Self {
+			shell: Vec::new(),
+			status: None,
+			apply_search: true,
+		}
+	}
+}
+
+fn cycle_header_search_selector_decision(
+	mode: UiMode,
+	header: &HeaderSearchState,
+	direction: i8,
+) -> HeaderSelectorDecision {
+	match header_focus(mode) {
+		HeaderSearchFocus::Text => {
+			HeaderSelectorDecision::status("type text or press Tab to edit language")
+		}
+		HeaderSearchFocus::Lang if !header.combo_open => HeaderSelectorDecision::status(
+			"press Enter to open the selector, Space toggles an option",
+		),
+		HeaderSearchFocus::Lang => {
+			let cursor = cycle_index(
+				header.lang_cursor,
+				header.available_langs.len() + 1,
+				direction,
+			);
+			HeaderSelectorDecision::shell(
+				ShellAction::SetHeaderSearchCursor {
+					focus: HeaderSearchFocus::Lang,
+					cursor,
+				},
+				format!(
+					"language option: {}",
+					lang_selector_option_label(&header.langs, &header.available_langs, cursor)
+				),
+			)
+		}
+		HeaderSearchFocus::Kind => {
+			let cursor = cycle_index(
+				header.kind_cursor,
+				header.available_kind_filters.len() + 1,
+				direction,
+			);
+			HeaderSelectorDecision::shell(
+				ShellAction::SetHeaderSearchCursor {
+					focus: HeaderSearchFocus::Kind,
+					cursor,
+				},
+				format!(
+					"kind option: {}",
+					kind_selector_option_label(
+						&header.kind_filters,
+						&header.available_kind_filters,
+						cursor
+					)
+				),
+			)
+		}
+	}
+}
+
+fn toggle_header_search_selection_decision(
+	mode: UiMode,
+	header: &HeaderSearchState,
+) -> HeaderSelectorDecision {
+	match header_focus(mode) {
+		HeaderSearchFocus::Text => HeaderSelectorDecision::apply_search(),
+		HeaderSearchFocus::Lang if !header.combo_open => HeaderSelectorDecision::status(
+			"press Enter to open the selector, Space toggles an option",
+		),
+		HeaderSearchFocus::Lang => toggle_header_lang_selection(header),
+		HeaderSearchFocus::Kind if !header.combo_open => HeaderSelectorDecision::status(
+			"press Enter to open the selector, Space toggles an option",
+		),
+		HeaderSearchFocus::Kind => toggle_header_kind_selection(header),
+	}
+}
+
+fn toggle_header_lang_selection(header: &HeaderSearchState) -> HeaderSelectorDecision {
+	let cursor = header.lang_cursor.min(header.available_langs.len());
+	let mut langs = header.langs.clone();
+	if cursor == 0 {
+		langs.clear();
+	} else {
+		toggle_value(&mut langs, header.available_langs[cursor - 1]);
+	}
+	HeaderSelectorDecision::shell(
+		ShellAction::SetHeaderSearchFilters {
+			langs: langs.clone(),
+			kind_filters: header.kind_filters.clone(),
+		},
+		format!("language filter: {}", lang_filter_summary(&langs)),
+	)
+}
+
+fn toggle_header_kind_selection(header: &HeaderSearchState) -> HeaderSelectorDecision {
+	let cursor = header.kind_cursor.min(header.available_kind_filters.len());
+	let mut filters = header.kind_filters.clone();
+	if cursor == 0 {
+		filters.clear();
+	} else {
+		toggle_value(
+			&mut filters,
+			header.available_kind_filters[cursor - 1].clone(),
+		);
+	}
+	HeaderSelectorDecision::shell(
+		ShellAction::SetHeaderSearchFilters {
+			langs: header.langs.clone(),
+			kind_filters: filters.clone(),
+		},
+		format!("kind filter: {}", kind_filter_summary(&filters)),
+	)
+}
+
+fn header_focus(mode: UiMode) -> HeaderSearchFocus {
+	match mode {
+		UiMode::HeaderSearch(focus) => focus,
+		UiMode::Normal => HeaderSearchFocus::Text,
+	}
+}
+
 fn decide_apply_header_search(
 	header: &HeaderSearchState,
 	store: &LocalWorkspaceFacade,
@@ -207,7 +353,7 @@ fn decide_apply_header_search(
 		return HeaderSearchDecision::stale();
 	}
 	if !header.has_filter() {
-		let visible_defs = store.all_navigable_defs();
+		let visible_defs = workspace_read::all_navigable_defs(store);
 		let expand_symbols = visible_defs.len() <= 200;
 		return HeaderSearchDecision {
 			shell: vec![ShellAction::ClearFilter { return_focus }],
@@ -238,14 +384,14 @@ fn decide_apply_header_search(
 			"search applied: {} ({}/{})",
 			results.label(),
 			match_count,
-			store.stats().defs
+			workspace_read::stats(store).defs
 		)
 	} else {
 		format!(
 			"search: {} ({}/{})",
 			results.label(),
 			match_count,
-			store.stats().defs
+			workspace_read::stats(store).defs
 		)
 	};
 
@@ -273,25 +419,25 @@ impl App {
 		return_focus: bool,
 	) {
 		let decision = decide_apply_header_search(
-			self.header_search(),
-			self.store(),
+			crate::ui::app::header_search(self),
+			crate::ui::app::store(self),
 			generation,
 			return_focus,
 		);
 		for action in decision.shell {
-			self.dispatch_shell(action);
+			crate::ui::app::dispatch_shell(self, action);
 		}
 		for action in decision.navigation {
-			self.apply_navigation(action);
+			apply_navigation(self, action);
 		}
 		if let Some(loc) = decision.select {
-			self.select_def(loc);
+			select_def(self, loc);
 		}
 		if decision.sync_contextual_view {
-			self.sync_contextual_view();
+			sync_contextual_view(self);
 		}
 		if let Some(status) = decision.status {
-			self.set_status(status);
+			crate::ui::app::set_status(self, status);
 		}
 	}
 
@@ -301,131 +447,54 @@ impl App {
 		langs: &[Lang],
 		kind_filters: &[HeaderKindFilter],
 	) -> HeaderSearchResults {
-		explorer_header_search_results(self.store(), text, langs, kind_filters)
+		explorer_header_search_results(crate::ui::app::store(self), text, langs, kind_filters)
 	}
 
 	pub(in crate::ui) fn cycle_header_search_selector(&mut self, direction: i8) {
-		let focus = match self.mode() {
-			UiMode::HeaderSearch(focus) => focus,
-			UiMode::Normal => HeaderSearchFocus::Text,
-		};
-		match focus {
-			HeaderSearchFocus::Text => {
-				self.dispatch_shell(ShellAction::SetStatus(
-					"type text or press Tab to edit language".to_string(),
-				));
-			}
-			HeaderSearchFocus::Lang => {
-				if !self.header_search().combo_open {
-					self.set_status("press Enter to open the selector, Space toggles an option");
-					return;
-				}
-				let options = self.available_header_langs();
-				let cursor = cycle_index(
-					self.header_search().lang_cursor,
-					options.len() + 1,
-					direction,
-				);
-				self.dispatch_shell(ShellAction::SetHeaderSearchCursor {
-					focus: HeaderSearchFocus::Lang,
-					cursor,
-				});
-				self.set_status(format!(
-					"language option: {}",
-					lang_selector_option_label(&self.header_search().langs, &options, cursor)
-				));
-			}
-			HeaderSearchFocus::Kind => {
-				let options = self.available_header_kind_filters();
-				let cursor = cycle_index(
-					self.header_search().kind_cursor,
-					options.len() + 1,
-					direction,
-				);
-				self.dispatch_shell(ShellAction::SetHeaderSearchCursor {
-					focus: HeaderSearchFocus::Kind,
-					cursor,
-				});
-				self.set_status(format!(
-					"kind option: {}",
-					kind_selector_option_label(
-						&self.header_search().kind_filters,
-						&options,
-						cursor
-					)
-				));
-			}
-		}
+		let decision = cycle_header_search_selector_decision(
+			crate::ui::app::mode(self),
+			crate::ui::app::header_search(self),
+			direction,
+		);
+		self.apply_header_selector_decision(decision);
 	}
 
 	pub(in crate::ui) fn toggle_header_search_selection(&mut self) {
-		let focus = match self.mode() {
-			UiMode::HeaderSearch(focus) => focus,
-			UiMode::Normal => HeaderSearchFocus::Text,
-		};
-		match focus {
-			HeaderSearchFocus::Text => {
-				self.apply_header_search(None, true);
-			}
-			HeaderSearchFocus::Lang => {
-				if !self.header_search().combo_open {
-					self.set_status("press Enter to open the selector, Space toggles an option");
-					return;
-				}
-				let options = self.available_header_langs();
-				let cursor = self.header_search().lang_cursor.min(options.len());
-				let mut langs = self.header_search().langs.clone();
-				if cursor == 0 {
-					langs.clear();
-				} else {
-					toggle_value(&mut langs, options[cursor - 1]);
-				}
-				self.dispatch_shell(ShellAction::SetHeaderSearchFilters {
-					langs: langs.clone(),
-					kind_filters: self.header_search().kind_filters.clone(),
-				});
-				self.set_status(format!("language filter: {}", lang_filter_summary(&langs)));
-			}
-			HeaderSearchFocus::Kind => {
-				if !self.header_search().combo_open {
-					self.set_status("press Enter to open the selector, Space toggles an option");
-					return;
-				}
-				let options = self.available_header_kind_filters();
-				let cursor = self.header_search().kind_cursor.min(options.len());
-				let mut filters = self.header_search().kind_filters.clone();
-				if cursor == 0 {
-					filters.clear();
-				} else {
-					toggle_value(&mut filters, options[cursor - 1].clone());
-				}
-				self.dispatch_shell(ShellAction::SetHeaderSearchFilters {
-					langs: self.header_search().langs.clone(),
-					kind_filters: filters.clone(),
-				});
-				self.set_status(format!("kind filter: {}", kind_filter_summary(&filters)));
-			}
+		let decision = toggle_header_search_selection_decision(
+			crate::ui::app::mode(self),
+			crate::ui::app::header_search(self),
+		);
+		if decision.apply_search {
+			self.apply_header_search(None, true);
 		}
-	}
-
-	pub(in crate::ui) fn available_header_langs(&self) -> Vec<Lang> {
-		self.header_search().available_langs.clone()
-	}
-
-	pub(in crate::ui) fn available_header_kind_filters(&self) -> Vec<HeaderKindFilter> {
-		self.header_search().available_kind_filters.clone()
+		self.apply_header_selector_decision(decision);
 	}
 
 	pub(in crate::ui) fn refresh_header_search_options(&mut self) {
-		let options = header_search_options(self.store(), self.header_search());
-		self.dispatch_and_apply(&AppAction::Shell(ShellAction::SetHeaderSearchOptions {
-			langs: options.langs,
-			kind_filters: options.kind_filters,
-			available_langs: options.available_langs,
-			available_kind_filters: options.available_kind_filters,
-			lang_cursor: options.lang_cursor,
-			kind_cursor: options.kind_cursor,
-		}));
+		let options = header_search_options(
+			crate::ui::app::store(self),
+			crate::ui::app::header_search(self),
+		);
+		dispatch_and_apply(
+			self,
+			&AppAction::Shell(ShellAction::SetHeaderSearchOptions {
+				langs: options.langs,
+				kind_filters: options.kind_filters,
+				available_langs: options.available_langs,
+				available_kind_filters: options.available_kind_filters,
+				lang_cursor: options.lang_cursor,
+				kind_cursor: options.kind_cursor,
+			}),
+		);
+	}
+
+	fn apply_header_selector_decision(&mut self, decision: HeaderSelectorDecision) {
+		for action in decision.shell {
+			crate::ui::app::dispatch_shell(self, action);
+		}
+		if let Some(status) = decision.status {
+			crate::ui::app::set_status(self, status);
+		}
 	}
 
 	pub(in crate::ui) fn clear_filter(&mut self) {
@@ -433,198 +502,9 @@ impl App {
 	}
 
 	pub(in crate::ui) fn clear_filter_with_focus(&mut self, return_focus: bool) {
-		self.dispatch_shell(ShellAction::ClearFilter { return_focus });
-		self.refresh_results(true);
-		self.sync_contextual_view();
-		self.set_status("filter cleared");
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use std::path::Path;
-
-	use code_moniker_core::lang::Lang;
-
-	use super::*;
-	use crate::session::SessionOptions;
-	use crate::ui::app::{ActiveFilter, App, VisualizationMode};
-	use crate::ui::events::{FilterEdit, Msg};
-	use crate::ui::workspace_read::load_local_workspace;
-
-	fn write(root: &Path, rel: &str, body: &str) {
-		let path = root.join(rel);
-		if let Some(parent) = path.parent() {
-			std::fs::create_dir_all(parent).unwrap();
-		}
-		std::fs::write(path, body).unwrap();
-	}
-
-	fn fixture_app() -> App {
-		let tmp = tempfile::tempdir().unwrap();
-		write(
-			tmp.path(),
-			"src/services.ts",
-			"export class AlphaService {}\nexport class BetaService {}\nexport function betaFactory() { return new BetaService(); }\n",
-		);
-		write(
-			tmp.path(),
-			"src/pkg/main.go",
-			"package pkg\n\nfunc BuildBeta() {}\n",
-		);
-		let opts = SessionOptions {
-			paths: vec![tmp.path().to_path_buf()],
-			project: Some("app".into()),
-			cache_dir: None,
-		};
-		let (store, cache) = load_local_workspace(&opts).unwrap();
-		App::new(
-			store,
-			cache,
-			opts,
-			"default".to_string(),
-			tmp.path().join("rules.toml"),
-			None,
-		)
-	}
-
-	fn input_search(app: &mut App, text: &str) -> u64 {
-		app.update(crate::ui::app::AppAction::Ui(Msg::ToggleHeaderSearch));
-		let mut generation = app.header_search().generation;
-		for ch in text.chars() {
-			app.update(crate::ui::app::AppAction::Ui(Msg::HeaderSearchInput(
-				FilterEdit::Push(ch),
-			)));
-			generation = app.header_search().pending_generation.unwrap();
-		}
-		generation
-	}
-
-	fn selected_name(app: &App) -> Option<String> {
-		app.selected()
-			.map(|loc| app.store().symbol_summary(&loc).name)
-	}
-
-	fn primary_selected_name(app: &App) -> Option<String> {
-		app.primary_selected()
-			.map(|loc| app.store().symbol_summary(&loc).name)
-	}
-
-	fn def_named(app: &App, name: &str) -> DefLocation {
-		app.store()
-			.all_navigable_defs()
-			.into_iter()
-			.find(|loc| app.store().symbol_summary(loc).name == name)
-			.unwrap_or_else(|| panic!("missing def {name}"))
-	}
-
-	#[test]
-	fn empty_header_search_clears_filter_and_restores_unfiltered_results() {
-		let mut app = fixture_app();
-		let generation = input_search(&mut app, "Alpha");
-		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
-		assert!(matches!(app.active_filter(), ActiveFilter::HeaderSearch(_)));
-
-		app.update(crate::ui::app::AppAction::Ui(Msg::HeaderSearchReset));
-
-		assert!(matches!(app.active_filter(), ActiveFilter::None));
-		assert_eq!(app.view_mode(), VisualizationMode::Explorer);
-		assert!(!app.is_filtered());
-		assert_eq!(
-			app.navigation().visible_defs().len(),
-			app.store().all_navigable_defs().len()
-		);
-	}
-
-	#[test]
-	fn applying_header_search_selects_the_first_match() {
-		let mut app = fixture_app();
-		let generation = input_search(&mut app, "Alpha");
-
-		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
-
-		let ActiveFilter::HeaderSearch(results) = app.active_filter() else {
-			panic!("expected active header search filter");
-		};
-		assert_eq!(results.label(), "search:Alpha");
-		assert_eq!(results.matches.len(), 1);
-		assert_eq!(selected_name(&app).as_deref(), Some("AlphaService"));
-		assert_eq!(app.view_mode(), VisualizationMode::Search);
-	}
-
-	#[test]
-	fn applying_header_search_refreshes_open_usage_lens_to_selected_def() {
-		let mut app = fixture_app();
-		let alpha = def_named(&app, "AlphaService");
-		app.focus_usages(alpha);
-		let generation = input_search(&mut app, "Beta");
-
-		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
-
-		let selected = primary_selected_name(&app).expect("selected search match");
-		assert_eq!(
-			app.usage_lens().map(|focus| focus.label.as_str()),
-			Some(selected.as_str())
-		);
-	}
-
-	#[test]
-	fn empty_header_search_preserves_open_usage_lens() {
-		let mut app = fixture_app();
-		let alpha = def_named(&app, "AlphaService");
-		let generation = input_search(&mut app, "Alpha");
-		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
-		app.focus_usages(alpha);
-
-		app.update(crate::ui::app::AppAction::Ui(Msg::HeaderSearchReset));
-
-		assert!(matches!(app.active_filter(), ActiveFilter::None));
-		assert_eq!(
-			app.usage_lens().map(|focus| focus.label.as_str()),
-			Some("AlphaService")
-		);
-	}
-
-	#[test]
-	fn stale_header_search_debounce_does_not_apply_old_draft() {
-		let mut app = fixture_app();
-		let stale_generation = input_search(&mut app, "Alpha");
-		app.update(crate::ui::app::AppAction::Ui(Msg::HeaderSearchInput(
-			FilterEdit::Clear,
-		)));
-		let current_generation = input_search(&mut app, "Beta");
-
-		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(
-			stale_generation,
-		));
-
-		assert!(matches!(app.active_filter(), ActiveFilter::None));
-		assert_eq!(
-			app.header_search().pending_generation,
-			Some(current_generation)
-		);
-	}
-
-	#[test]
-	fn lang_and_kind_filters_constrain_header_search_results() {
-		let mut app = fixture_app();
-		app.dispatch_shell(ShellAction::SetHeaderSearchFilters {
-			langs: vec![Lang::Ts],
-			kind_filters: vec![HeaderKindFilter::Kind("function".to_string())],
-		});
-		let generation = input_search(&mut app, "beta");
-
-		app.update(crate::ui::app::AppAction::HeaderSearchDebounced(generation));
-
-		let ActiveFilter::HeaderSearch(results) = app.active_filter() else {
-			panic!("expected active header search filter");
-		};
-		let names = results
-			.matches
-			.iter()
-			.map(|loc| app.store().symbol_summary(loc).name)
-			.collect::<Vec<_>>();
-		assert_eq!(results.label(), "search:beta lang:ts kind:function");
-		assert_eq!(names, vec!["betaFactory()"]);
+		crate::ui::app::dispatch_shell(self, ShellAction::ClearFilter { return_focus });
+		refresh_results(self, true);
+		sync_contextual_view(self);
+		crate::ui::app::set_status(self, "filter cleared");
 	}
 }

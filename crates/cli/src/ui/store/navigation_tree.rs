@@ -4,7 +4,7 @@ use code_moniker_workspace::snapshot::{ChangeId, SymbolId};
 type DefLocation = SymbolId;
 
 use crate::ui::store::ids::NodeId;
-use crate::ui::workspace_read::{LocalWorkspaceFacade, WorkspaceRead};
+use crate::ui::workspace_read::{self, LocalWorkspaceFacade};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) enum NavNodeKind {
@@ -53,8 +53,8 @@ impl NavNode {
 
 pub(in crate::ui) fn build_navigator(store: &LocalWorkspaceFacade) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("explorer"), "root", NavNodeKind::Root);
-	for file_idx in 0..store.file_count() {
-		let file = store.file_summary(file_idx);
+	for file_idx in 0..workspace_read::file_count(store) {
+		let file = workspace_read::file_summary(store, file_idx);
 		let lang = child_mut(
 			&mut root,
 			NodeId::lang("explorer", file.lang.tag()),
@@ -104,7 +104,7 @@ pub(in crate::ui) fn build_navigator(store: &LocalWorkspaceFacade) -> NavNode {
 
 pub(in crate::ui) fn build_change_navigator(store: &LocalWorkspaceFacade) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("change"), "root", NavNodeKind::Root);
-	for change in store.change_rows() {
+	for change in workspace_read::change_rows(store) {
 		let lang = child_mut(
 			&mut root,
 			NodeId::lang("change", change.lang.tag()),
@@ -227,7 +227,7 @@ fn symbol_children(
 fn sort_symbol_nodes(store: &LocalWorkspaceFacade, nodes: &mut [NavNode]) {
 	nodes.sort_by(|a, b| match (&a.kind, &b.kind) {
 		(NavNodeKind::Def(left), NavNodeKind::Def(right)) => {
-			store.compare_defs_for_navigation(left, right)
+			workspace_read::compare_defs_for_navigation(store, left, right)
 		}
 		_ => nav_sort_key(a).cmp(&nav_sort_key(b)),
 	});
@@ -239,8 +239,8 @@ fn collect_symbol_node(
 	loc: DefLocation,
 	out: &mut Vec<NavNode>,
 ) {
-	if store.is_navigable_symbol(&loc) {
-		let symbol = store.symbol_summary(&loc);
+	if workspace_read::is_navigable_symbol(store, &loc) {
+		let symbol = workspace_read::symbol_summary(store, &loc);
 		let mut node = NavNode::new(
 			NodeId::def(&symbol.compact_moniker),
 			symbol.name,
@@ -259,9 +259,9 @@ fn direct_children(
 	parent: Option<DefLocation>,
 ) -> Vec<DefLocation> {
 	if let Some(parent) = parent {
-		store.child_defs(&parent)
+		workspace_read::child_defs(store, &parent)
 	} else {
-		store.root_defs(file_idx)
+		workspace_read::root_defs(store, file_idx)
 	}
 }
 

@@ -7,7 +7,8 @@ use super as panel;
 use super::super::render::component::{focused_block_title, marker};
 use super::super::render::kinds::reference_kind_group;
 use super::super::render::scroll::{
-	ScrollViewport, render_vertical_scrollbar, viewport_comfort_margin,
+	ScrollViewport, render_vertical_scrollbar, scroll_viewport_for_visible_line,
+	viewport_comfort_margin,
 };
 use super::super::render::text::{FitMode, fit_text, visible_len};
 use super::super::render::theme::{SourceTheme, THEME};
@@ -76,7 +77,7 @@ pub(super) fn render_panel_vm(
 	let selected_line = state
 		.selected
 		.and_then(|selected| lines.navigable_lines.get(selected).copied());
-	let viewport = ScrollViewport::for_visible_line(
+	let viewport = scroll_viewport_for_visible_line(
 		lines.lines.len(),
 		usize::from(inner.height),
 		state.scroll,
