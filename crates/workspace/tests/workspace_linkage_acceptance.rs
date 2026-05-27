@@ -46,7 +46,7 @@ fn java_sdk_multiproject_links_spring_and_platform_refs() {
 			.with_java_pipeline(JavaExtractionPipeline::Sdk),
 	);
 
-	assert_eq!(snapshot.linkage.external_refs, 117);
+	assert_eq!(snapshot.linkage.external_refs, 118);
 	assert_eq!(
 		snapshot.linkage.unresolved_refs,
 		0,
@@ -77,6 +77,12 @@ fn java_sdk_multiproject_links_spring_and_platform_refs() {
 		&snapshot,
 		"method_call",
 		"package:org/package:springframework/package:boot/module:SpringApplication/path:SpringApplication/method:run",
+	);
+	assert_reference_from_symbol(
+		&snapshot,
+		"annotates",
+		"package:com/package:acme/package:springedge/package:api/module:CustomerController/class:CustomerController/method:getCustomer(customerId:String)/param:customerId",
+		"package:org/package:springframework/package:web/package:bind/package:annotation/module:PathVariable/path:PathVariable",
 	);
 	assert_linked_to(
 		&snapshot,
@@ -269,6 +275,44 @@ fn assert_external_reference(snapshot: &WorkspaceSnapshot, kind: &str, reference
 	assert!(
 		!linked && !unresolved,
 		"reference `{}` should be classified external, linked={linked}, unresolved={unresolved}",
+		reference.target_identity
+	);
+}
+
+fn assert_reference_from_symbol(
+	snapshot: &WorkspaceSnapshot,
+	kind: &str,
+	source_identity: &str,
+	target_identity: &str,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == kind
+				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.target_identity.contains(target_identity)
+		})
+		.unwrap_or_else(|| {
+			panic!(
+				"missing {kind} reference from `{}` to target containing `{target_identity}`",
+				source.identity
+			)
+		});
+	assert!(
+		snapshot
+			.linkage
+			.unresolved
+			.iter()
+			.all(|item| item.reference.as_str() != reference.id.as_str()),
+		"reference `{}` should not be unresolved",
 		reference.target_identity
 	);
 }

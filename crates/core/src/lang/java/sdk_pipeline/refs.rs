@@ -67,6 +67,9 @@ fn callable_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) 
 			if let Some(ty) = param.child_by_field_name("type") {
 				emit_type_refs(state, ty, &callable);
 			}
+			if state.deep {
+				param_annotations(state, param, &callable);
+			}
 		}
 	}
 	if let Some(body) = node.child_by_field_name("body") {
@@ -540,6 +543,18 @@ fn annotations(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Moniker) {
 			}
 		}
 	}
+}
+
+fn param_annotations(state: &mut JavaDiscover<'_>, param: Node<'_>, callable: &Moniker) {
+	let Some(name_node) = param.child_by_field_name("name") else {
+		return;
+	};
+	let name = node_slice(name_node, state.source);
+	if name.is_empty() {
+		return;
+	}
+	let source = extend_segment(callable, kinds::PARAM, name);
+	annotations(state, param, &source);
 }
 
 fn annotation_ref(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Moniker) {
