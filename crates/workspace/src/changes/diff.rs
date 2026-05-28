@@ -1,11 +1,13 @@
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
-use rustc_hash::FxHashMap;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::code::{def_kind, is_navigable_def, last_name};
 use crate::environment::{self, ExtractContext};
@@ -207,20 +209,14 @@ pub fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 		}
 	}
 	let mut entries = Vec::new();
+	let relevant_diffs = scan.relevant_diffs(&diffs);
 	for file in &scan.files {
-		let file_path = normalize_path(file.path);
-		let Some(diff) = diffs
-			.iter()
-			.find(|diff| normalize_path(&diff_path(diff)) == file_path)
-		else {
+		let Some(diff) = relevant_diffs.for_file(file.path) else {
 			continue;
 		};
 		entries.extend(changed_entries_for_file(&scan, file, diff));
 	}
-	for diff in diffs
-		.iter()
-		.filter(|diff| diff.status == FileDiffStatus::Deleted)
-	{
+	for diff in relevant_diffs.deleted {
 		match removed_entries_for_deleted_file(&scan, diff) {
 			Ok(mut removed) => entries.append(&mut removed),
 			Err(error) => changes.diagnostics.push(error.to_string()),
@@ -235,6 +231,112 @@ pub fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 	changes.entries = entries;
 	changes.rebuild_lookups();
 	changes
+}
+
+struct RelevantDiffs<'a> {
+	by_path: FxHashMap<PathBuf, &'a FileDiff>,
+	deleted: Vec<&'a FileDiff>,
+}
+
+struct SourceVisibility {
+	current_paths: FxHashSet<PathBuf>,
+	deleted_roots: Vec<DeletedSourceRoot>,
+}
+
+struct DeletedSourceRoot {
+	path: PathBuf,
+	gitignore: Gitignore,
+}
+
+impl<'scan> ChangeScan<'scan> {
+	fn relevant_diffs<'diff>(&self, diffs: &'diff [FileDiff]) -> RelevantDiffs<'diff> {
+		let visibility = self.source_visibility();
+		let mut by_path = FxHashMap::default();
+		let mut deleted = Vec::new();
+		for diff in diffs {
+			let path = normalize_path(&diff_path(diff));
+			match diff.status {
+				FileDiffStatus::Deleted => {
+					if visibility.accepts_deleted_path(&path) {
+						deleted.push(diff);
+					}
+				}
+				FileDiffStatus::Tracked | FileDiffStatus::Added => {
+					if visibility.current_paths.contains(&path) {
+						by_path.insert(path, diff);
+					}
+				}
+			}
+		}
+		RelevantDiffs { by_path, deleted }
+	}
+
+	fn source_visibility(&self) -> SourceVisibility {
+		SourceVisibility {
+			current_paths: self
+				.files
+				.iter()
+				.map(|file| normalize_path(file.path))
+				.collect(),
+			deleted_roots: self
+				.roots
+				.iter()
+				.map(|root| DeletedSourceRoot::new(root.path))
+				.collect(),
+		}
+	}
+}
+
+impl SourceVisibility {
+	fn accepts_deleted_path(&self, path: &Path) -> bool {
+		environment::language_for_path(path).is_ok()
+			&& self.deleted_roots.iter().any(|root| root.accepts(path))
+	}
+}
+
+impl DeletedSourceRoot {
+	fn new(path: &Path) -> Self {
+		let path = normalize_path(path);
+		Self {
+			gitignore: root_gitignore(&path),
+			path,
+		}
+	}
+
+	fn accepts(&self, path: &Path) -> bool {
+		let Ok(rel) = path.strip_prefix(&self.path) else {
+			return false;
+		};
+		!has_hidden_component(rel)
+			&& !self
+				.gitignore
+				.matched_path_or_any_parents(path, false)
+				.is_ignore()
+	}
+}
+
+impl<'a> RelevantDiffs<'a> {
+	fn for_file(&self, path: &Path) -> Option<&'a FileDiff> {
+		self.by_path.get(&normalize_path(path)).copied()
+	}
+}
+
+fn root_gitignore(root: &Path) -> Gitignore {
+	let mut builder = GitignoreBuilder::new(root);
+	let ignore_file = root.join(".gitignore");
+	if ignore_file.is_file() {
+		let _ = builder.add(ignore_file);
+	}
+	builder.build().unwrap_or_else(|_| Gitignore::empty())
+}
+
+fn has_hidden_component(path: &Path) -> bool {
+	path.components().any(|component| {
+		let name = component.as_os_str();
+		name != OsStr::new(".")
+			&& name != OsStr::new("..")
+			&& name.as_encoded_bytes().first() == Some(&b'.')
+	})
 }
 
 fn changed_entries_for_file(
@@ -687,16 +789,37 @@ mod tests {
 
 	fn committed_repo() -> tempfile::TempDir {
 		let tmp = tempfile::tempdir().unwrap();
-		git(tmp.path(), &["init"]);
-		git(
-			tmp.path(),
-			&["config", "user.email", "code-moniker@example.test"],
-		);
-		git(tmp.path(), &["config", "user.name", "Code Moniker"]);
+		init_git(tmp.path());
 		write(tmp.path(), "src/Foo.java", "class Foo {}\n");
 		git(tmp.path(), &["add", "."]);
 		git(tmp.path(), &["commit", "-m", "initial"]);
 		tmp
+	}
+
+	fn init_git(root: &Path) {
+		git(root, &["init"]);
+		git(root, &["config", "user.email", "code-moniker@example.test"]);
+		git(root, &["config", "user.name", "Code Moniker"]);
+	}
+
+	fn rust_file<'a>(
+		file_idx: usize,
+		source_root: usize,
+		path: &'a Path,
+		rel: &'a str,
+		source: &'a str,
+		graph: &'a CodeGraph,
+	) -> ChangeFile<'a> {
+		ChangeFile {
+			file_idx,
+			source_root,
+			path,
+			rel_path: Path::new(rel),
+			anchor: Path::new(rel),
+			lang: Lang::Rs,
+			graph,
+			source,
+		}
 	}
 
 	fn rust_scan<'a>(
@@ -713,16 +836,7 @@ mod tests {
 				path: root,
 				ctx,
 			}],
-			files: vec![ChangeFile {
-				file_idx: 0,
-				source_root: 0,
-				path,
-				rel_path: Path::new(rel),
-				anchor: Path::new(rel),
-				lang: Lang::Rs,
-				graph,
-				source,
-			}],
+			files: vec![rust_file(0, 0, path, rel, source, graph)],
 		}
 	}
 
@@ -749,12 +863,7 @@ mod tests {
 	#[test]
 	fn build_change_index_reports_modified_symbols() {
 		let tmp = tempfile::tempdir().unwrap();
-		git(tmp.path(), &["init"]);
-		git(
-			tmp.path(),
-			&["config", "user.email", "code-moniker@example.test"],
-		);
-		git(tmp.path(), &["config", "user.name", "Code Moniker"]);
+		init_git(tmp.path());
 		write(tmp.path(), "src/lib.rs", "fn kept() {}\nfn changed() {}\n");
 		git(tmp.path(), &["add", "."]);
 		git(tmp.path(), &["commit", "-m", "initial"]);
@@ -779,14 +888,110 @@ mod tests {
 	}
 
 	#[test]
+	fn build_change_index_reports_untracked_source_files_as_added() {
+		let tmp = committed_repo();
+		let source = "fn added() {}\n";
+		write(tmp.path(), "src/new.rs", source);
+		let path = tmp.path().join("src/new.rs");
+		let ctx = ExtractContext::default();
+		let graph = environment::extract_source(Lang::Rs, source, Path::new("src/new.rs"));
+
+		let index = build_change_index(rust_scan(
+			tmp.path(),
+			&ctx,
+			&path,
+			"src/new.rs",
+			source,
+			&graph,
+		));
+
+		assert!(
+			index
+				.entries
+				.iter()
+				.any(|entry| entry.status == ChangeStatus::Added && entry.name.starts_with("added"))
+		);
+	}
+
+	#[test]
+	fn build_change_index_ignores_untracked_sources_absent_from_catalog() {
+		let tmp = committed_repo();
+		write(tmp.path(), ".code-moniker/generated.rs", "fn cached() {}\n");
+		let ctx = ExtractContext::default();
+		let scan = ChangeScan {
+			roots: vec![ChangeRoot {
+				label: "repo",
+				path: tmp.path(),
+				ctx: &ctx,
+			}],
+			files: Vec::new(),
+		};
+
+		let index = build_change_index(scan);
+
+		assert!(
+			index.entries.is_empty(),
+			"unexpected changes: {:?}",
+			index.entries
+		);
+	}
+
+	#[test]
+	fn build_change_index_limits_diffs_to_the_changed_source_root() {
+		let tmp = tempfile::tempdir().unwrap();
+		init_git(tmp.path());
+		write(tmp.path(), "a/src/lib.rs", "fn changed() {}\n");
+		write(tmp.path(), "b/src/lib.rs", "fn unchanged() {}\n");
+		git(tmp.path(), &["add", "."]);
+		git(tmp.path(), &["commit", "-m", "initial"]);
+		let source_a = "fn changed() { changed(); }\n";
+		let source_b = "fn unchanged() {}\n";
+		write(tmp.path(), "a/src/lib.rs", source_a);
+		let path_a = tmp.path().join("a/src/lib.rs");
+		let path_b = tmp.path().join("b/src/lib.rs");
+		let root_a = tmp.path().join("a");
+		let root_b = tmp.path().join("b");
+		let ctx = ExtractContext::default();
+		let graph_a = environment::extract_source(Lang::Rs, source_a, Path::new("src/lib.rs"));
+		let graph_b = environment::extract_source(Lang::Rs, source_b, Path::new("src/lib.rs"));
+		let scan = ChangeScan {
+			roots: vec![
+				ChangeRoot {
+					label: "a",
+					path: &root_a,
+					ctx: &ctx,
+				},
+				ChangeRoot {
+					label: "b",
+					path: &root_b,
+					ctx: &ctx,
+				},
+			],
+			files: vec![
+				rust_file(0, 0, &path_a, "src/lib.rs", source_a, &graph_a),
+				rust_file(1, 1, &path_b, "src/lib.rs", source_b, &graph_b),
+			],
+		};
+
+		let index = build_change_index(scan);
+
+		assert!(index.entries.iter().any(
+			|entry| entry.status == ChangeStatus::Modified && entry.name.starts_with("changed")
+		));
+		assert!(
+			index
+				.entries
+				.iter()
+				.all(|entry| !entry.name.starts_with("unchanged")),
+			"unexpected changes: {:?}",
+			index.entries
+		);
+	}
+
+	#[test]
 	fn build_change_index_reports_removed_symbols_from_head() {
 		let tmp = tempfile::tempdir().unwrap();
-		git(tmp.path(), &["init"]);
-		git(
-			tmp.path(),
-			&["config", "user.email", "code-moniker@example.test"],
-		);
-		git(tmp.path(), &["config", "user.name", "Code Moniker"]);
+		init_git(tmp.path());
 		write(tmp.path(), "src/lib.rs", "fn removed() {}\n");
 		git(tmp.path(), &["add", "."]);
 		git(tmp.path(), &["commit", "-m", "initial"]);
@@ -806,5 +1011,34 @@ mod tests {
 		assert!(index.entries.iter().any(
 			|entry| entry.status == ChangeStatus::Removed && entry.name.starts_with("removed")
 		));
+	}
+
+	#[test]
+	fn build_change_index_ignores_removed_sources_excluded_from_catalog() {
+		let tmp = tempfile::tempdir().unwrap();
+		init_git(tmp.path());
+		write(tmp.path(), ".gitignore", "target/\n");
+		write(tmp.path(), "target/generated.rs", "fn generated() {}\n");
+		git(tmp.path(), &["add", ".gitignore"]);
+		git(tmp.path(), &["add", "-f", "target/generated.rs"]);
+		git(tmp.path(), &["commit", "-m", "initial"]);
+		std::fs::remove_file(tmp.path().join("target/generated.rs")).expect("remove source");
+		let ctx = ExtractContext::default();
+		let scan = ChangeScan {
+			roots: vec![ChangeRoot {
+				label: "repo",
+				path: tmp.path(),
+				ctx: &ctx,
+			}],
+			files: Vec::new(),
+		};
+
+		let index = build_change_index(scan);
+
+		assert!(
+			index.entries.is_empty(),
+			"unexpected changes: {:?}",
+			index.entries
+		);
 	}
 }

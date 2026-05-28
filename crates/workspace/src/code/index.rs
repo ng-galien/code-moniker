@@ -162,11 +162,11 @@ fn build_semantic_index(
 	source_material: SourceCatalogMaterial,
 	files: Vec<IndexedSourceFile>,
 ) -> (Vec<SymbolRecord>, Vec<ReferenceRecord>, CodeIndexMaterial) {
-	let mut symbols = Vec::new();
-	let mut references = Vec::new();
+	let (symbol_count, reference_count) = graph_record_counts(&files);
+	let mut symbols = Vec::with_capacity(symbol_count);
+	let mut references = Vec::with_capacity(reference_count);
 	let mut symbols_by_moniker = rustc_hash::FxHashMap::default();
-	let mut symbol_monikers = rustc_hash::FxHashMap::default();
-	let mut reference_targets = rustc_hash::FxHashMap::default();
+	symbols_by_moniker.reserve(symbol_count);
 	let mut reference_identity_pool = TargetIdentityPool::default();
 	let identity = source_material.identity.clone();
 	for (file_idx, file) in files.iter().enumerate() {
@@ -177,26 +177,34 @@ fn build_semantic_index(
 			&line_index,
 			&mut symbols,
 			&mut symbols_by_moniker,
-			&mut symbol_monikers,
 		);
 		collect_references(
 			file_idx,
 			file,
 			&line_index,
 			&mut references,
-			&mut reference_targets,
 			&mut reference_identity_pool,
 		);
 	}
+	symbols_by_moniker.shrink_to_fit();
+	let mut files = files;
+	files.shrink_to_fit();
 	let material = CodeIndexMaterial {
 		source_catalog: source_material,
 		files,
 		identity,
 		symbols_by_moniker,
-		symbol_monikers,
-		reference_targets,
 	};
 	(symbols, references, material)
+}
+
+fn graph_record_counts(files: &[IndexedSourceFile]) -> (usize, usize) {
+	files.iter().fold((0usize, 0usize), |(defs, refs), file| {
+		(
+			defs + file.graph.defs().count(),
+			refs + file.graph.refs().count(),
+		)
+	})
 }
 
 fn collect_symbols(
@@ -205,7 +213,6 @@ fn collect_symbols(
 	line_index: &LineIndex,
 	symbols: &mut Vec<SymbolRecord>,
 	symbols_by_moniker: &mut rustc_hash::FxHashMap<Moniker, crate::snapshot::SymbolId>,
-	symbol_monikers: &mut rustc_hash::FxHashMap<crate::snapshot::SymbolId, Moniker>,
 ) {
 	for (def_idx, def) in file.graph.defs().enumerate() {
 		let id = file.graph_identity().symbol_id(file_idx, def_idx);
@@ -213,7 +220,6 @@ fn collect_symbols(
 			.parent
 			.map(|parent_idx| file.graph_identity().symbol_id(file_idx, parent_idx));
 		symbols_by_moniker.insert(def.moniker.clone(), id.clone());
-		symbol_monikers.insert(id.clone(), def.moniker.clone());
 		symbols.push(SymbolRecord::from_fields(SymbolRecordFields {
 			id,
 			source: file.source_id.clone(),
@@ -235,13 +241,11 @@ fn collect_references(
 	file: &IndexedSourceFile,
 	line_index: &LineIndex,
 	references: &mut Vec<ReferenceRecord>,
-	reference_targets: &mut rustc_hash::FxHashMap<crate::snapshot::ReferenceId, Moniker>,
 	reference_identity_pool: &mut TargetIdentityPool,
 ) {
 	for (ref_idx, reference) in file.graph.refs().enumerate() {
 		let id = file.graph_identity().reference_id(file_idx, ref_idx);
 		let source_symbol = file.graph_identity().symbol_id(file_idx, reference.source);
-		reference_targets.insert(id.clone(), reference.target.clone());
 		let target_identity =
 			reference_identity_pool.intern(file.graph_identity(), &reference.target);
 		references.push(

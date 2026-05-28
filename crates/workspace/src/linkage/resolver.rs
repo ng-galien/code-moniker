@@ -70,8 +70,11 @@ impl LocalLinkage {
 			mut timings,
 		} = resolver.resolve(index);
 		let report_timer = Instant::now();
-		let graph =
-			LinkageGraph::from_report(decision_log.project_report(generation, index.generation));
+		let graph = LinkageGraph::from_report(decision_log.project_report(
+			generation,
+			index.generation,
+			&index.references,
+		));
 		timings.project_report = report_timer.elapsed();
 		timings.total = total_timer.elapsed();
 		Ok(TimedLinkageGraph { graph, timings })
@@ -105,14 +108,17 @@ impl<'a> LinkageResolver<'a> {
 		let mut decisions = index
 			.references
 			.par_iter()
-			.map(|reference| self.resolve_reference(reference, &candidates, &manifests))
+			.enumerate()
+			.map(|(reference_idx, reference)| {
+				self.resolve_reference(reference_idx, reference, &candidates, &manifests)
+			})
 			.collect::<Vec<_>>();
 		timings.resolve_references = resolve_timer.elapsed();
 		let semantic_prepare_timer = Instant::now();
 		let semantic_linkage = SemanticLinkage::new(self.material);
 		timings.semantic_prepare = semantic_prepare_timer.elapsed();
 		let semantic_timer = Instant::now();
-		semantic_linkage.enhance(&mut decisions);
+		semantic_linkage.enhance(&mut decisions, &index.references);
 		timings.semantic_enhance = semantic_timer.elapsed();
 		let decision_log = LinkageDecisionLog::new(decisions);
 		LinkageResolution {
@@ -123,30 +129,31 @@ impl<'a> LinkageResolver<'a> {
 
 	fn resolve_reference(
 		&self,
+		reference_idx: usize,
 		reference: &ReferenceRecord,
 		candidates: &CandidateCatalog<'_>,
 		manifests: &ManifestPolicy,
 	) -> ReferenceLinkageDecision {
 		let Some(query) = LinkageQuery::new(reference, self.material) else {
-			return ReferenceLinkageDecision::unknown(UnknownReason::MissingQuery, reference);
+			return ReferenceLinkageDecision::unknown(UnknownReason::MissingQuery, reference_idx);
 		};
 
 		let local_targets = self.local.resolve(&query, candidates);
 		if !local_targets.is_empty() {
 			return ReferenceLinkageDecision::resolved(
 				ResolutionScope::Local,
-				reference,
+				reference_idx,
 				local_targets,
 			);
 		}
 
 		let global_targets = self.global.resolve(&query, candidates);
 		let global_decision = manifests.evaluate_global_targets(&query, global_targets);
-		if let Some(decision) = global_decision.for_reference(reference) {
+		if let Some(decision) = global_decision.for_reference(reference_idx) {
 			return decision;
 		}
 
-		ReferenceLinkageDecision::unknown(UnknownReason::NoCandidate, reference)
+		ReferenceLinkageDecision::unknown(UnknownReason::NoCandidate, reference_idx)
 	}
 }
 

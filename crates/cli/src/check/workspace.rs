@@ -62,9 +62,8 @@ fn collect_diagnostics(
 	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
 	let identity = IdentityResolver::new(options.scheme.clone());
 	let symbol_by_identity = material
-		.symbol_monikers
-		.iter()
-		.map(|(id, moniker)| (identity.moniker_uri(moniker), id.clone()))
+		.symbols()
+		.map(|(id, moniker)| (identity.moniker_uri(moniker), id))
 		.collect::<std::collections::BTreeMap<_, _>>();
 	let mut compiled: FxHashMap<Lang, check::CompiledRules> = FxHashMap::default();
 	let mut diagnostics = Vec::new();

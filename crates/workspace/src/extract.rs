@@ -37,7 +37,7 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 	let project = ctx.project.as_deref().map(str::as_bytes).unwrap_or(b".");
 	let anchor = anchor_moniker(project, srcset(path).map(str::as_bytes));
 	let deep = true;
-	match lang {
+	let mut graph = match lang {
 		Lang::Ts => {
 			let presets = ts::Presets {
 				path_aliases: ctx.ts.aliases.clone(),
@@ -97,7 +97,9 @@ pub fn extract_with(lang: Lang, source: &str, path: &Path, ctx: &Context) -> Cod
 			deep,
 			&code_moniker_core::lang::sql::Presets::default(),
 		),
-	}
+	};
+	graph.shrink_to_fit();
+	graph
 }
 
 fn anchor_moniker(project: &[u8], srcset: Option<&[u8]>) -> Moniker {

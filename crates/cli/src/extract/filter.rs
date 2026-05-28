@@ -181,7 +181,7 @@ mod tests {
 		let g = build_graph();
 		let foo = m(&[(b"class", b"Foo")]);
 		let r = filter(&g, &[Predicate::DescendantOf(foo)], &[], &[], &[]);
-		let names: Vec<&[u8]> = r.defs.iter().map(|d| d.kind.as_slice()).collect();
+		let names: Vec<&[u8]> = r.defs.iter().map(|d| d.kind.as_ref()).collect();
 		assert!(names.contains(&b"class".as_slice()));
 		assert!(names.contains(&b"method".as_slice()));
 		assert_eq!(r.defs.len(), 2);
@@ -212,7 +212,7 @@ mod tests {
 		let g = build_graph();
 		let bar = m(&[(b"class", b"Foo"), (b"method", b"bar")]);
 		let r = filter(&g, &[Predicate::AncestorOf(bar)], &[], &[], &[]);
-		let kinds: Vec<&[u8]> = r.defs.iter().map(|d| d.kind.as_slice()).collect();
+		let kinds: Vec<&[u8]> = r.defs.iter().map(|d| d.kind.as_ref()).collect();
 		assert!(kinds.contains(&b"module".as_slice()));
 		assert!(kinds.contains(&b"class".as_slice()));
 		assert!(kinds.contains(&b"method".as_slice()));

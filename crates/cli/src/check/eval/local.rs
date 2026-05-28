@@ -173,8 +173,7 @@ pub(super) fn domain_items<'a>(
 			.flatten()
 			.filter_map(|idx| {
 				let def = ctx.graph.def_at(*idx);
-				(def.kind.as_slice() == kind.as_bytes())
-					.then_some(DomainItem::Def { idx: *idx, def })
+				(def.kind.as_ref() == kind.as_bytes()).then_some(DomainItem::Def { idx: *idx, def })
 			})
 			.collect(),
 		Domain::ChildrenByShape(shape) => ctx

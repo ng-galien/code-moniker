@@ -6,9 +6,9 @@ use crate::linkage::query::LinkageQuery;
 use crate::snapshot::SymbolId;
 use crate::source::CodeIndexMaterial;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct LinkageCandidate<'a> {
-	pub(super) symbol: &'a SymbolId,
+	pub(super) symbol: SymbolId,
 	pub(super) moniker: &'a Moniker,
 	pub(super) last_segment: Option<Segment<'a>>,
 	pub(super) call_name: Option<&'a [u8]>,
@@ -29,7 +29,7 @@ impl<'a> CandidateCatalog<'a> {
 			by_name: FxHashMap::default(),
 			by_source_name: FxHashMap::default(),
 		};
-		for (symbol, moniker) in &material.symbol_monikers {
+		for (symbol, moniker) in material.symbols() {
 			let Some(candidate) = candidate(material, symbol, moniker) else {
 				continue;
 			};
@@ -85,7 +85,7 @@ impl<'a> CandidateCatalog<'a> {
 		for_query_key(query, |key| {
 			if let Some(indexes) = self.by_name.get(key) {
 				for idx in indexes {
-					let candidate = self.candidates[*idx];
+					let candidate = self.candidates[*idx].clone();
 					if candidate.source_file == query.source_file || !seen.insert(*idx) {
 						continue;
 					}
@@ -104,7 +104,7 @@ impl<'a> CandidateCatalog<'a> {
 	) {
 		for idx in indexes {
 			if seen.insert(*idx) {
-				matches.push(self.candidates[*idx]);
+				matches.push(self.candidates[*idx].clone());
 			}
 		}
 	}
@@ -112,16 +112,16 @@ impl<'a> CandidateCatalog<'a> {
 
 fn candidate<'a>(
 	material: &'a CodeIndexMaterial,
-	symbol: &'a SymbolId,
+	symbol: SymbolId,
 	moniker: &'a Moniker,
 ) -> Option<LinkageCandidate<'a>> {
-	let (source_file, def_idx) = material.identity.symbol_location(symbol)?;
+	let (source_file, def_idx) = material.identity.symbol_location(&symbol)?;
 	let def = material.files.get(source_file)?.graph.defs().nth(def_idx)?;
 	Some(LinkageCandidate {
 		symbol,
 		moniker,
 		last_segment: moniker.as_view().segments().last(),
-		call_name: (!def.call_name.is_empty()).then_some(def.call_name.as_slice()),
+		call_name: (!def.call_name.is_empty()).then_some(def.call_name.as_ref()),
 		call_arity: def.call_arity,
 		source_file,
 	})

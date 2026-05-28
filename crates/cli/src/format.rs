@@ -671,15 +671,15 @@ mod tests {
 		let m = b.build();
 		let d = DefRecord {
 			moniker: m,
-			kind: b"comment".to_vec(),
+			kind: (&b"comment"[..]).into(),
 			parent: Some(0),
 			position: Some((6, 14)),
-			visibility: vec![],
-			signature: vec![],
-			call_name: vec![],
+			visibility: (&b""[..]).into(),
+			signature: (&b""[..]).into(),
+			call_name: (&b""[..]).into(),
 			call_arity: None,
-			binding: vec![],
-			origin: vec![],
+			binding: (&b""[..]).into(),
+			origin: (&b""[..]).into(),
 		};
 		assert_eq!(comment_slice(src, &d), "// hello");
 	}

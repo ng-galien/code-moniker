@@ -10,17 +10,21 @@ pub use view::{MonikerView, Segment, SegmentIter};
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Moniker {
-	bytes: Vec<u8>,
+	bytes: Box<[u8]>,
 }
 
 impl Moniker {
 	pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, EncodingError> {
 		MonikerView::from_bytes(&bytes)?;
-		Ok(Self { bytes })
+		Ok(Self {
+			bytes: bytes.into_boxed_slice(),
+		})
 	}
 
 	pub fn from_canonical_bytes(bytes: Vec<u8>) -> Self {
-		Self { bytes }
+		Self {
+			bytes: bytes.into_boxed_slice(),
+		}
 	}
 
 	pub fn as_view(&self) -> MonikerView<'_> {
@@ -32,7 +36,7 @@ impl Moniker {
 	}
 
 	pub fn into_bytes(self) -> Vec<u8> {
-		self.bytes
+		self.bytes.into_vec()
 	}
 }
 

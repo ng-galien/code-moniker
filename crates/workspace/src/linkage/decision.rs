@@ -3,6 +3,7 @@ use crate::snapshot::{
 	UnresolvedReference,
 };
 use code_moniker_core::core::moniker::Moniker;
+use std::sync::Arc;
 
 #[derive(Default)]
 pub(super) struct LinkageDecisionLog {
@@ -18,8 +19,9 @@ impl LinkageDecisionLog {
 		self,
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
+		references: &[ReferenceRecord],
 	) -> LinkageGraphReport {
-		LinkageReportProjection::from_decisions(self.decisions)
+		LinkageReportProjection::from_decisions(self.decisions, references)
 			.into_report(generation, index_generation)
 	}
 }
@@ -28,21 +30,21 @@ impl LinkageDecisionLog {
 pub(super) enum ReferenceLinkageDecision {
 	Resolved {
 		scope: ResolutionScope,
-		reference: ReferenceRecord,
+		reference_idx: usize,
 		targets: Vec<SymbolId>,
 	},
 	External {
 		origin: ExternalOrigin,
-		reference: ReferenceRecord,
+		reference_idx: usize,
 		target: Option<Moniker>,
 	},
 	Blocked {
 		reason: BlockReason,
-		reference: ReferenceRecord,
+		reference_idx: usize,
 	},
 	Unknown {
 		reason: UnknownReason,
-		reference: ReferenceRecord,
+		reference_idx: usize,
 	},
 }
 
@@ -83,47 +85,56 @@ pub(super) enum UnknownReason {
 impl ReferenceLinkageDecision {
 	pub(super) fn resolved(
 		scope: ResolutionScope,
-		reference: &ReferenceRecord,
+		reference_idx: usize,
 		targets: Vec<SymbolId>,
 	) -> Self {
 		Self::Resolved {
 			scope,
-			reference: reference.clone(),
+			reference_idx,
 			targets,
 		}
 	}
 
-	pub(super) fn unknown(reason: UnknownReason, reference: &ReferenceRecord) -> Self {
+	pub(super) fn unknown(reason: UnknownReason, reference_idx: usize) -> Self {
 		Self::Unknown {
 			reason,
-			reference: reference.clone(),
+			reference_idx,
 		}
 	}
 
-	pub(super) fn manifest_blocked(reference: &ReferenceRecord) -> Self {
+	pub(super) fn manifest_blocked(reference_idx: usize) -> Self {
 		Self::Blocked {
 			reason: BlockReason::ManifestPolicy,
-			reference: reference.clone(),
+			reference_idx,
 		}
 	}
 
-	pub(super) fn external(origin: ExternalOrigin, reference: &ReferenceRecord) -> Self {
+	pub(super) fn external(origin: ExternalOrigin, reference_idx: usize) -> Self {
 		Self::External {
 			origin,
-			reference: reference.clone(),
+			reference_idx,
 			target: None,
 		}
 	}
 
 	pub(super) fn external_target(
 		origin: ExternalOrigin,
-		reference: &ReferenceRecord,
+		reference_idx: usize,
 		target: Moniker,
 	) -> Self {
 		Self::External {
 			origin,
-			reference: reference.clone(),
+			reference_idx,
 			target: Some(target),
+		}
+	}
+
+	pub(super) fn reference_idx(&self) -> usize {
+		match self {
+			Self::Resolved { reference_idx, .. }
+			| Self::External { reference_idx, .. }
+			| Self::Blocked { reference_idx, .. }
+			| Self::Unknown { reference_idx, .. } => *reference_idx,
 		}
 	}
 }
@@ -136,11 +147,23 @@ struct LinkageReportProjection {
 }
 
 impl LinkageReportProjection {
-	fn from_decisions(decisions: Vec<ReferenceLinkageDecision>) -> Self {
+	fn from_decisions(
+		decisions: Vec<ReferenceLinkageDecision>,
+		references: &[ReferenceRecord],
+	) -> Self {
+		let capacity = LinkageProjectionCapacity::from_decisions(&decisions);
 		decisions
 			.into_iter()
-			.map(LinkageDecisionProjection::from)
-			.fold(Self::default(), Self::collect)
+			.map(|decision| LinkageDecisionProjection::from_decision(decision, references))
+			.fold(Self::with_capacity(capacity), Self::collect)
+	}
+
+	fn with_capacity(capacity: LinkageProjectionCapacity) -> Self {
+		Self {
+			resolved: ResolvedLinkProjection::with_capacity(capacity.resolved_edges),
+			external: ExternalLinkProjection::default(),
+			unresolved: UnresolvedLinkProjection::with_capacity(capacity.unresolved_refs),
+		}
 	}
 
 	fn collect(mut self, decision: LinkageDecisionProjection) -> Self {
@@ -174,6 +197,35 @@ impl LinkageReportProjection {
 	}
 }
 
+struct LinkageProjectionCapacity {
+	resolved_edges: usize,
+	unresolved_refs: usize,
+}
+
+impl LinkageProjectionCapacity {
+	fn from_decisions(decisions: &[ReferenceLinkageDecision]) -> Self {
+		decisions.iter().fold(
+			Self {
+				resolved_edges: 0,
+				unresolved_refs: 0,
+			},
+			|mut capacity, decision| {
+				match decision {
+					ReferenceLinkageDecision::Resolved { targets, .. } => {
+						capacity.resolved_edges += targets.len();
+					}
+					ReferenceLinkageDecision::Blocked { .. }
+					| ReferenceLinkageDecision::Unknown { .. } => {
+						capacity.unresolved_refs += 1;
+					}
+					ReferenceLinkageDecision::External { .. } => {}
+				}
+				capacity
+			},
+		)
+	}
+}
+
 enum LinkageDecisionProjection {
 	Resolved(ResolvedReferenceProjection),
 	External,
@@ -181,29 +233,32 @@ enum LinkageDecisionProjection {
 	Unresolved(UnresolvedReference),
 }
 
-impl From<ReferenceLinkageDecision> for LinkageDecisionProjection {
-	fn from(decision: ReferenceLinkageDecision) -> Self {
+impl LinkageDecisionProjection {
+	fn from_decision(decision: ReferenceLinkageDecision, references: &[ReferenceRecord]) -> Self {
 		match decision {
 			ReferenceLinkageDecision::Resolved {
 				scope: _scope,
-				reference,
+				reference_idx,
 				targets,
-			} => Self::Resolved(ResolvedReferenceProjection::new(reference, targets)),
+			} => Self::Resolved(ResolvedReferenceProjection::new(
+				&references[reference_idx],
+				targets,
+			)),
 			ReferenceLinkageDecision::Blocked {
 				reason: BlockReason::ManifestPolicy,
-				reference,
-			} => Self::ManifestBlocked(unresolved_reference(reference)),
+				reference_idx,
+			} => Self::ManifestBlocked(unresolved_reference(&references[reference_idx])),
 			ReferenceLinkageDecision::Blocked {
 				reason: _reason,
-				reference,
-			} => Self::Unresolved(unresolved_reference(reference)),
+				reference_idx,
+			} => Self::Unresolved(unresolved_reference(&references[reference_idx])),
 			ReferenceLinkageDecision::Unknown {
 				reason: _reason,
-				reference,
-			} => Self::Unresolved(unresolved_reference(reference)),
+				reference_idx,
+			} => Self::Unresolved(unresolved_reference(&references[reference_idx])),
 			ReferenceLinkageDecision::External {
 				origin: _origin,
-				reference: _reference,
+				reference_idx: _reference_idx,
 				target: _target,
 			} => Self::External,
 		}
@@ -216,14 +271,15 @@ struct ResolvedReferenceProjection {
 }
 
 impl ResolvedReferenceProjection {
-	fn new(reference: ReferenceRecord, targets: Vec<SymbolId>) -> Self {
-		Self {
-			ambiguous: targets.len() > 1,
-			edges: targets
+	fn new(reference: &ReferenceRecord, targets: Vec<SymbolId>) -> Self {
+		let ambiguous = targets.len() > 1;
+		let mut edges = Vec::with_capacity(targets.len());
+		edges.extend(
+			targets
 				.into_iter()
-				.map(|target| LinkageEdge::new(reference.id.clone(), target))
-				.collect(),
-		}
+				.map(|target| LinkageEdge::new(reference.id.clone(), target)),
+		);
+		Self { ambiguous, edges }
 	}
 }
 
@@ -235,6 +291,14 @@ struct ResolvedLinkProjection {
 }
 
 impl ResolvedLinkProjection {
+	fn with_capacity(capacity: usize) -> Self {
+		Self {
+			resolved_refs: 0,
+			ambiguous_refs: 0,
+			edges: Vec::with_capacity(capacity),
+		}
+	}
+
 	fn collect(&mut self, resolved: ResolvedReferenceProjection) {
 		self.resolved_refs += 1;
 		if resolved.ambiguous {
@@ -263,6 +327,14 @@ struct UnresolvedLinkProjection {
 }
 
 impl UnresolvedLinkProjection {
+	fn with_capacity(capacity: usize) -> Self {
+		Self {
+			manifest_blocked_refs: 0,
+			unresolved_refs: 0,
+			references: Vec::with_capacity(capacity),
+		}
+	}
+
 	fn collect_manifest_blocked(&mut self, reference: UnresolvedReference) {
 		self.manifest_blocked_refs += 1;
 		self.references.push(reference);
@@ -274,6 +346,6 @@ impl UnresolvedLinkProjection {
 	}
 }
 
-fn unresolved_reference(reference: ReferenceRecord) -> UnresolvedReference {
-	UnresolvedReference::new(reference.id, reference.target_identity)
+fn unresolved_reference(reference: &ReferenceRecord) -> UnresolvedReference {
+	UnresolvedReference::new(reference.id.clone(), Arc::clone(&reference.target_identity))
 }

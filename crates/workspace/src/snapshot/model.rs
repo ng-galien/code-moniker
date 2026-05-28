@@ -93,7 +93,8 @@ pub struct SourceCatalog {
 }
 
 impl SourceCatalog {
-	pub fn new(generation: ResourceGeneration, sources: Vec<SourceUnit>) -> Self {
+	pub fn new(generation: ResourceGeneration, mut sources: Vec<SourceUnit>) -> Self {
+		sources.shrink_to_fit();
 		Self {
 			generation,
 			sources,
@@ -327,8 +328,9 @@ impl CodeIndex {
 	pub fn new(
 		generation: ResourceGeneration,
 		catalog_generation: ResourceGeneration,
-		symbols: Vec<SymbolRecord>,
+		mut symbols: Vec<SymbolRecord>,
 	) -> Self {
+		symbols.shrink_to_fit();
 		Self {
 			generation,
 			catalog_generation,
@@ -343,9 +345,11 @@ impl CodeIndex {
 	pub fn with_references(
 		generation: ResourceGeneration,
 		catalog_generation: ResourceGeneration,
-		symbols: Vec<SymbolRecord>,
-		references: Vec<ReferenceRecord>,
+		mut symbols: Vec<SymbolRecord>,
+		mut references: Vec<ReferenceRecord>,
 	) -> Self {
+		symbols.shrink_to_fit();
+		references.shrink_to_fit();
 		Self {
 			generation,
 			catalog_generation,
@@ -357,7 +361,10 @@ impl CodeIndex {
 		}
 	}
 
-	pub fn from_fields(fields: CodeIndexFields) -> Self {
+	pub fn from_fields(mut fields: CodeIndexFields) -> Self {
+		fields.sources.shrink_to_fit();
+		fields.symbols.shrink_to_fit();
+		fields.references.shrink_to_fit();
 		Self {
 			generation: fields.generation,
 			catalog_generation: fields.catalog_generation,
@@ -433,9 +440,11 @@ impl LinkageGraph {
 	pub fn with_refs(
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
-		resolved: Vec<LinkageEdge>,
-		unresolved: Vec<UnresolvedReference>,
+		mut resolved: Vec<LinkageEdge>,
+		mut unresolved: Vec<UnresolvedReference>,
 	) -> Self {
+		resolved.shrink_to_fit();
+		unresolved.shrink_to_fit();
 		Self {
 			generation,
 			index_generation,
@@ -449,7 +458,9 @@ impl LinkageGraph {
 		}
 	}
 
-	pub fn from_report(report: LinkageGraphReport) -> Self {
+	pub fn from_report(mut report: LinkageGraphReport) -> Self {
+		report.resolved.shrink_to_fit();
+		report.unresolved.shrink_to_fit();
 		Self {
 			generation: report.generation,
 			index_generation: report.index_generation,
@@ -503,8 +514,9 @@ impl ChangeOverlay {
 		generation: ResourceGeneration,
 		catalog_generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
-		changed_symbols: Vec<SymbolId>,
+		mut changed_symbols: Vec<SymbolId>,
 	) -> Self {
+		changed_symbols.shrink_to_fit();
 		Self {
 			generation,
 			catalog_generation,
@@ -521,8 +533,9 @@ impl ChangeOverlay {
 		generation: ResourceGeneration,
 		catalog_generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
-		changes: Vec<ChangeRecord>,
+		mut changes: Vec<ChangeRecord>,
 	) -> Self {
+		changes.shrink_to_fit();
 		let changed_symbols = changes
 			.iter()
 			.filter_map(|change| change.symbol.clone())
@@ -532,6 +545,8 @@ impl ChangeOverlay {
 				}
 				out
 			});
+		let mut changed_symbols = changed_symbols;
+		changed_symbols.shrink_to_fit();
 		Self {
 			generation,
 			catalog_generation,
@@ -545,6 +560,10 @@ impl ChangeOverlay {
 	}
 
 	pub fn from_report(report: ChangeOverlayReport) -> Self {
+		let mut resources = report.resources;
+		let mut diagnostics = report.diagnostics;
+		resources.shrink_to_fit();
+		diagnostics.shrink_to_fit();
 		let mut overlay = Self::with_records(
 			report.generation,
 			report.catalog_generation,
@@ -552,8 +571,8 @@ impl ChangeOverlay {
 			report.changes,
 		);
 		overlay.scope = report.scope;
-		overlay.resources = report.resources;
-		overlay.diagnostics = report.diagnostics;
+		overlay.resources = resources;
+		overlay.diagnostics = diagnostics;
 		overlay
 	}
 }

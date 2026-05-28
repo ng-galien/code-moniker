@@ -228,7 +228,7 @@ mod tests {
 	fn extract_import_module_emits_imports_module() {
 		let src = "import os\nimport acme.util as u\n";
 		let g = extract_default("m.py", src, &make_anchor(), false);
-		let kinds: Vec<&[u8]> = g.refs().map(|r| r.kind.as_slice()).collect();
+		let kinds: Vec<&[u8]> = g.refs().map(|r| r.kind.as_ref()).collect();
 		assert_eq!(kinds.iter().filter(|k| **k == b"imports_module").count(), 2);
 	}
 

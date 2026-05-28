@@ -23,7 +23,7 @@ impl<'a> LinkageQuery<'a> {
 		reference: &'a ReferenceRecord,
 		material: &'a CodeIndexMaterial,
 	) -> Option<Self> {
-		let target = material.reference_targets.get(&reference.id)?;
+		let target = material.reference_target(&reference.id)?;
 		let target_segments = target.as_view().segments().collect::<Vec<_>>();
 		let target_last = target_segments.last().copied();
 		let (source_file, _) = material.identity.reference_location(&reference.id)?;

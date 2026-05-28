@@ -24,21 +24,27 @@ impl<'a> SemanticLinkage<'a> {
 		}
 	}
 
-	pub(super) fn enhance(&self, decisions: &mut [ReferenceLinkageDecision]) {
-		let mut statuses = reference_statuses(self.material, decisions);
-		let return_types = collect_return_types(self.material, decisions);
-		let mut pending = pending_receiver_chains(decisions);
-		let receiver_calls = build_receiver_call_index(self.material, decisions, &pending);
+	pub(super) fn enhance(
+		&self,
+		decisions: &mut [ReferenceLinkageDecision],
+		references: &[ReferenceRecord],
+	) {
+		let mut statuses = reference_statuses(self.material, decisions, references);
+		let return_types = collect_return_types(self.material, decisions, references);
+		let mut pending = pending_receiver_chains(decisions, references);
+		let receiver_calls =
+			build_receiver_call_index(self.material, decisions, references, &pending);
 		loop {
 			let replacements = pending
 				.par_iter()
 				.filter_map(|idx| match &decisions[*idx] {
 					ReferenceLinkageDecision::Unknown {
 						reason: UnknownReason::NoCandidate,
-						reference,
+						reference_idx,
 					} => resolve_receiver_chain(
 						self,
-						reference,
+						*reference_idx,
+						&references[*reference_idx],
 						&statuses,
 						&receiver_calls,
 						&return_types,
@@ -51,7 +57,9 @@ impl<'a> SemanticLinkage<'a> {
 				break;
 			}
 			for (idx, replacement) in replacements {
-				if let Some((reference, status)) = reference_status(self.material, &replacement) {
+				if let Some((reference, status)) =
+					reference_status(self.material, &replacement, references)
+				{
 					statuses.insert(reference, status);
 				}
 				decisions[idx] = replacement;
@@ -88,22 +96,24 @@ impl<'a> SemanticLinkage<'a> {
 		symbol: &SymbolId,
 		return_types: &FxHashMap<Moniker, Moniker>,
 	) -> Option<Moniker> {
-		let callable = self.material.symbol_monikers.get(symbol)?;
+		let callable = self.material.symbol_moniker(symbol)?;
 		return_types.get(callable).cloned()
 	}
 }
 
 struct MethodCallReference<'a> {
+	reference_idx: usize,
 	reference: &'a ReferenceRecord,
 	call_name: &'a str,
 }
 
 impl<'a> MethodCallReference<'a> {
-	fn new(reference: &'a ReferenceRecord) -> Option<Self> {
+	fn new(reference_idx: usize, reference: &'a ReferenceRecord) -> Option<Self> {
 		if reference.kind != "method_call" {
 			return None;
 		}
 		Some(Self {
+			reference_idx,
 			reference,
 			call_name: reference.call_name.as_deref()?,
 		})
@@ -124,7 +134,7 @@ impl<'a> MethodCallReference<'a> {
 	fn external_decision(&self, target: Moniker) -> ReferenceLinkageDecision {
 		ReferenceLinkageDecision::external_target(
 			ExternalOrigin::Dependency,
-			self.reference,
+			self.reference_idx,
 			target,
 		)
 	}
@@ -134,7 +144,7 @@ impl<'a> MethodCallReference<'a> {
 		scope: ResolutionScope,
 		targets: Vec<SymbolId>,
 	) -> ReferenceLinkageDecision {
-		ReferenceLinkageDecision::resolved(scope, self.reference, targets)
+		ReferenceLinkageDecision::resolved(scope, self.reference_idx, targets)
 	}
 }
 
@@ -171,7 +181,7 @@ impl CallableIndex {
 				let owner = file.graph.def_at(parent_idx).moniker.clone();
 				let symbol = file.identity.symbol_id(file_idx, def_idx);
 				by_owner_name_arity
-					.entry((owner, def.call_name.clone(), arity))
+					.entry((owner, def.call_name.to_vec(), arity))
 					.or_default()
 					.push(symbol);
 			}
@@ -200,13 +210,15 @@ impl CallableIndex {
 fn build_receiver_call_index(
 	material: &CodeIndexMaterial,
 	decisions: &[ReferenceLinkageDecision],
+	references: &[ReferenceRecord],
 	pending: &[usize],
 ) -> ReceiverCallIndex {
 	let mut pending_by_file = FxHashMap::<usize, Vec<usize>>::default();
 	for idx in pending {
-		let ReferenceLinkageDecision::Unknown { reference, .. } = &decisions[*idx] else {
+		let ReferenceLinkageDecision::Unknown { reference_idx, .. } = &decisions[*idx] else {
 			continue;
 		};
+		let reference = &references[*reference_idx];
 		let Some((file_idx, ref_idx)) = material.identity.reference_location(&reference.id) else {
 			continue;
 		};
@@ -298,31 +310,35 @@ fn immediate_receiver_call_idx(
 		.map(|candidate| candidate.ref_idx)
 }
 
-fn pending_receiver_chains(decisions: &[ReferenceLinkageDecision]) -> Vec<usize> {
+fn pending_receiver_chains(
+	decisions: &[ReferenceLinkageDecision],
+	references: &[ReferenceRecord],
+) -> Vec<usize> {
 	decisions
 		.iter()
 		.enumerate()
 		.filter_map(|(idx, decision)| {
 			let ReferenceLinkageDecision::Unknown {
 				reason: UnknownReason::NoCandidate,
-				reference,
+				reference_idx,
 			} = decision
 			else {
 				return None;
 			};
-			MethodCallReference::new(reference).map(|_| idx)
+			MethodCallReference::new(*reference_idx, &references[*reference_idx]).map(|_| idx)
 		})
 		.collect()
 }
 
 fn resolve_receiver_chain(
 	linkage: &SemanticLinkage<'_>,
+	reference_idx: usize,
 	reference: &ReferenceRecord,
 	statuses: &FxHashMap<ReferenceId, ReferenceStatus>,
 	receiver_calls: &ReceiverCallIndex,
 	return_types: &FxHashMap<Moniker, Moniker>,
 ) -> Option<ReferenceLinkageDecision> {
-	let method_call = MethodCallReference::new(reference)?;
+	let method_call = MethodCallReference::new(reference_idx, reference)?;
 	let (source_file, ref_idx) = linkage
 		.material
 		.identity
@@ -355,17 +371,18 @@ enum ReferenceStatus {
 fn collect_return_types(
 	material: &CodeIndexMaterial,
 	decisions: &[ReferenceLinkageDecision],
+	references: &[ReferenceRecord],
 ) -> FxHashMap<Moniker, Moniker> {
 	let mut out = FxHashMap::default();
 	for decision in decisions {
-		let reference = decision_reference(decision);
+		let reference = decision_reference(decision, references);
 		if reference.kind != "returns_type" {
 			continue;
 		}
-		let Some(source) = material.symbol_monikers.get(&reference.source_symbol) else {
+		let Some(source) = material.symbol_moniker(&reference.source_symbol) else {
 			continue;
 		};
-		let Some(target) = decision_target(material, decision) else {
+		let Some(target) = decision_target(material, decision, references) else {
 			continue;
 		};
 		out.insert(source.clone(), target);
@@ -373,28 +390,31 @@ fn collect_return_types(
 	out
 }
 
-fn decision_reference(decision: &ReferenceLinkageDecision) -> &ReferenceRecord {
-	match decision {
-		ReferenceLinkageDecision::Resolved { reference, .. }
-		| ReferenceLinkageDecision::External { reference, .. }
-		| ReferenceLinkageDecision::Blocked { reference, .. }
-		| ReferenceLinkageDecision::Unknown { reference, .. } => reference,
-	}
+fn decision_reference<'a>(
+	decision: &ReferenceLinkageDecision,
+	references: &'a [ReferenceRecord],
+) -> &'a ReferenceRecord {
+	&references[decision.reference_idx()]
 }
 
 fn decision_target(
 	material: &CodeIndexMaterial,
 	decision: &ReferenceLinkageDecision,
+	references: &[ReferenceRecord],
 ) -> Option<Moniker> {
 	match decision {
 		ReferenceLinkageDecision::Resolved { targets, .. } if targets.len() == 1 => {
-			material.symbol_monikers.get(&targets[0]).cloned()
+			material.symbol_moniker(&targets[0]).cloned()
 		}
 		ReferenceLinkageDecision::External {
-			reference, target, ..
-		} => target
-			.clone()
-			.or_else(|| material.reference_targets.get(&reference.id).cloned()),
+			reference_idx,
+			target,
+			..
+		} => target.clone().or_else(|| {
+			material
+				.reference_target(&references[*reference_idx].id)
+				.cloned()
+		}),
 		_ => None,
 	}
 }
@@ -402,10 +422,11 @@ fn decision_target(
 fn reference_statuses(
 	material: &CodeIndexMaterial,
 	decisions: &[ReferenceLinkageDecision],
+	references: &[ReferenceRecord],
 ) -> FxHashMap<ReferenceId, ReferenceStatus> {
 	let mut out = FxHashMap::default();
 	for decision in decisions {
-		if let Some((reference, status)) = reference_status(material, decision) {
+		if let Some((reference, status)) = reference_status(material, decision, references) {
 			out.insert(reference, status);
 		}
 	}
@@ -415,22 +436,27 @@ fn reference_statuses(
 fn reference_status(
 	material: &CodeIndexMaterial,
 	decision: &ReferenceLinkageDecision,
+	references: &[ReferenceRecord],
 ) -> Option<(ReferenceId, ReferenceStatus)> {
 	match decision {
 		ReferenceLinkageDecision::Resolved {
-			reference, targets, ..
+			reference_idx,
+			targets,
+			..
 		} => Some((
-			reference.id.clone(),
+			references[*reference_idx].id.clone(),
 			ReferenceStatus::Resolved(targets.clone()),
 		)),
 		ReferenceLinkageDecision::External {
-			reference, target, ..
+			reference_idx,
+			target,
+			..
 		} => target
 			.as_ref()
-			.or_else(|| material.reference_targets.get(&reference.id))
+			.or_else(|| material.reference_target(&references[*reference_idx].id))
 			.map(|target| {
 				(
-					reference.id.clone(),
+					references[*reference_idx].id.clone(),
 					ReferenceStatus::External(target.clone()),
 				)
 			}),

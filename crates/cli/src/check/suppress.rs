@@ -63,7 +63,7 @@ fn collect_directives(graph: &CodeGraph, source: &str) -> Vec<Directive> {
 		.map(|d| (d.comment_start_byte, d.comment_end_byte, d.file_scope))
 		.collect();
 	for d in graph.defs() {
-		if d.kind.as_slice() != KIND_COMMENT {
+		if d.kind.as_ref() != KIND_COMMENT {
 			continue;
 		}
 		let Some((s, e)) = d.position else { continue };
@@ -140,7 +140,7 @@ fn target_lines_for(graph: &CodeGraph, source: &str, dir: &Directive) -> Option<
 fn next_def_after(graph: &CodeGraph, after_byte: u32) -> Option<&DefRecord> {
 	let mut best: Option<&DefRecord> = None;
 	for d in graph.defs() {
-		if d.kind.as_slice() == KIND_COMMENT {
+		if d.kind.as_ref() == KIND_COMMENT {
 			continue;
 		}
 		let Some((s, _)) = d.position else { continue };

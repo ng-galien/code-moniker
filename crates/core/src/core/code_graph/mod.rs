@@ -2,6 +2,7 @@
 // TODO(smell): split CodeGraph into records, mutation builder, lookup indexes, cache handling, and read-only query APIs before enabling these guardrails here.
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 use crate::core::moniker::Moniker;
@@ -10,19 +11,79 @@ pub mod encoding;
 
 pub type Position = (u32, u32);
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Bytes(Box<[u8]>);
+
+impl AsRef<[u8]> for Bytes {
+	fn as_ref(&self) -> &[u8] {
+		&self.0
+	}
+}
+
+impl Deref for Bytes {
+	type Target = [u8];
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
+
+impl From<&[u8]> for Bytes {
+	fn from(value: &[u8]) -> Self {
+		Self(value.into())
+	}
+}
+
+impl From<Vec<u8>> for Bytes {
+	fn from(value: Vec<u8>) -> Self {
+		Self(value.into_boxed_slice())
+	}
+}
+
+impl From<Box<[u8]>> for Bytes {
+	fn from(value: Box<[u8]>) -> Self {
+		Self(value)
+	}
+}
+
+impl<const N: usize> PartialEq<&[u8; N]> for Bytes {
+	fn eq(&self, other: &&[u8; N]) -> bool {
+		self.as_ref() == other.as_slice()
+	}
+}
+
+impl<const N: usize> PartialEq<[u8; N]> for Bytes {
+	fn eq(&self, other: &[u8; N]) -> bool {
+		self.as_ref() == other.as_slice()
+	}
+}
+
+impl PartialEq<Vec<u8>> for Bytes {
+	fn eq(&self, other: &Vec<u8>) -> bool {
+		self.as_ref() == other.as_slice()
+	}
+}
+
+impl PartialEq<&[u8]> for Bytes {
+	fn eq(&self, other: &&[u8]) -> bool {
+		self.as_ref() == *other
+	}
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DefRecord {
 	pub moniker: Moniker,
-	pub kind: Vec<u8>,
+	pub kind: Bytes,
 	pub parent: Option<usize>,
 	pub position: Option<Position>,
-	pub visibility: Vec<u8>,
-	pub signature: Vec<u8>,
-	pub call_name: Vec<u8>,
+	pub visibility: Bytes,
+	pub signature: Bytes,
+	pub call_name: Bytes,
 	pub call_arity: Option<usize>,
-	pub binding: Vec<u8>,
-	pub origin: Vec<u8>,
+	pub binding: Bytes,
+	pub origin: Bytes,
 }
 
 impl DefRecord {
@@ -40,14 +101,14 @@ impl DefRecord {
 pub struct RefRecord {
 	pub source: usize,
 	pub target: Moniker,
-	pub kind: Vec<u8>,
+	pub kind: Bytes,
 	pub position: Option<Position>,
-	pub receiver_hint: Vec<u8>,
-	pub alias: Vec<u8>,
-	pub confidence: Vec<u8>,
-	pub call_name: Vec<u8>,
+	pub receiver_hint: Bytes,
+	pub alias: Bytes,
+	pub confidence: Bytes,
+	pub call_name: Bytes,
 	pub call_arity: Option<usize>,
-	pub binding: Vec<u8>,
+	pub binding: Bytes,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -128,12 +189,15 @@ impl Hash for CodeGraph {
 }
 
 impl CodeGraph {
-	pub fn from_records(defs: Vec<DefRecord>, refs: Vec<RefRecord>) -> Self {
+	pub fn from_records(mut defs: Vec<DefRecord>, mut refs: Vec<RefRecord>) -> Self {
 		let mut index: FxHashMap<Moniker, usize> = FxHashMap::default();
 		index.reserve(defs.len());
 		for (i, d) in defs.iter().enumerate() {
 			index.insert(d.moniker.clone(), i);
 		}
+		defs.shrink_to_fit();
+		refs.shrink_to_fit();
+		index.shrink_to_fit();
 		Self {
 			defs,
 			refs,
@@ -155,15 +219,15 @@ impl CodeGraph {
 		let mut defs = Vec::with_capacity(def_cap.max(1));
 		defs.push(DefRecord {
 			moniker: root,
-			kind: root_kind.to_vec(),
+			kind: bytes(root_kind),
 			parent: None,
 			position: None,
-			visibility: Vec::new(),
-			signature: Vec::new(),
-			call_name: Vec::new(),
+			visibility: bytes(&[]),
+			signature: bytes(&[]),
+			call_name: bytes(&[]),
 			call_arity: None,
-			binding: BIND_EXPORT.to_vec(),
-			origin: ORIGIN_EXTRACTED.to_vec(),
+			binding: bytes(BIND_EXPORT),
+			origin: bytes(ORIGIN_EXTRACTED),
 		});
 		Self {
 			defs,
@@ -221,15 +285,15 @@ impl CodeGraph {
 		};
 		self.defs.push(DefRecord {
 			moniker,
-			kind: kind.to_vec(),
+			kind: bytes(kind),
 			parent: Some(parent_idx),
 			position,
-			visibility: attrs.visibility.to_vec(),
-			signature: attrs.signature.to_vec(),
-			call_name: attrs.call_name.to_vec(),
+			visibility: bytes(attrs.visibility),
+			signature: bytes(attrs.signature),
+			call_name: bytes(attrs.call_name),
 			call_arity: attrs.call_arity,
-			binding: binding.to_vec(),
-			origin: origin.to_vec(),
+			binding: bytes(binding),
+			origin: bytes(origin),
 		});
 		self.def_monikers_cache
 			.write()
@@ -265,14 +329,14 @@ impl CodeGraph {
 		self.refs.push(RefRecord {
 			source: source_idx,
 			target,
-			kind: kind.to_vec(),
+			kind: bytes(kind),
 			position,
-			receiver_hint: attrs.receiver_hint.to_vec(),
-			alias: attrs.alias.to_vec(),
-			confidence: attrs.confidence.to_vec(),
-			call_name: attrs.call_name.to_vec(),
+			receiver_hint: bytes(attrs.receiver_hint),
+			alias: bytes(attrs.alias),
+			confidence: bytes(attrs.confidence),
+			call_name: bytes(attrs.call_name),
 			call_arity: attrs.call_arity,
-			binding: binding.to_vec(),
+			binding: bytes(binding),
 		});
 		self.ref_targets_cache
 			.write()
@@ -295,9 +359,17 @@ impl CodeGraph {
 			return;
 		};
 		let def = &mut self.defs[idx];
-		def.call_name.clear();
-		def.call_name.extend_from_slice(call_name);
+		def.call_name = bytes(call_name);
 		def.call_arity = Some(call_arity);
+	}
+
+	pub fn shrink_to_fit(&mut self) {
+		self.defs.shrink_to_fit();
+		self.refs.shrink_to_fit();
+		self.index
+			.write()
+			.expect("code graph index lock poisoned")
+			.shrink_to_fit();
 	}
 
 	pub fn contains(&self, m: &Moniker) -> bool {
@@ -389,6 +461,10 @@ impl CodeGraph {
 	}
 }
 
+fn bytes(value: &[u8]) -> Bytes {
+	value.into()
+}
+
 fn default_def_binding(kind: &[u8], visibility: &[u8]) -> &'static [u8] {
 	use crate::core::kinds::{
 		BIND_EXPORT, BIND_LOCAL, BIND_NONE, KIND_COMMENT, KIND_LOCAL, KIND_MODULE, KIND_PARAM,
@@ -447,7 +523,7 @@ pub fn assert_local_refs_closed(g: &CodeGraph) {
 	let render = |m: &Moniker| to_uri(m, &cfg).unwrap_or_else(|_| format!("{:?}", m.as_bytes()));
 	let defs: Vec<&Moniker> = g.defs().map(|d| &d.moniker).collect();
 	for r in g.refs() {
-		if r.confidence != b"local" {
+		if r.confidence.as_ref() != b"local" {
 			continue;
 		}
 		let resolved = defs.iter().any(|d| d.bind_match(&r.target));

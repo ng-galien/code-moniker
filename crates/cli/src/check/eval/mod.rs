@@ -241,7 +241,7 @@ fn push_kind_rule_reports(
 		for rule in &rules.rules {
 			let mut report = RuleReport::new(rule_id(lang, kind, &rule.id), kind.clone(), rule);
 			for (idx, d) in graph.defs().enumerate() {
-				if d.kind.as_slice() != kind.as_bytes() {
+				if d.kind.as_ref() != kind.as_bytes() {
 					continue;
 				}
 				report.evaluated += 1;
@@ -258,7 +258,7 @@ fn push_kind_rule_reports(
 				kind.clone(),
 			);
 			for (idx, d) in graph.defs().enumerate() {
-				if d.kind.as_slice() != kind.as_bytes() {
+				if d.kind.as_ref() != kind.as_bytes() {
 					continue;
 				}
 				report.evaluated += 1;
@@ -1570,7 +1570,7 @@ fn count_children_filtered(
 	let mut n = 0;
 	for &ci in child_idxs {
 		let cd = ctx.graph.def_at(ci);
-		if cd.kind.as_slice() != kind.as_bytes() {
+		if cd.kind.as_ref() != kind.as_bytes() {
 			continue;
 		}
 		if let NodeOutcome::Pass = eval_node_with_self(filter, cd, ci, self_idx, ctx) {
@@ -1688,7 +1688,7 @@ fn eval_quantifier_def(
 			let child_idxs = ctx.children_by_parent.get(&scope.idx).unwrap_or(&empty);
 			for &ci in child_idxs {
 				let cd = ctx.graph.def_at(ci);
-				if cd.kind.as_slice() != child_kind.as_bytes() {
+				if cd.kind.as_ref() != child_kind.as_bytes() {
 					continue;
 				}
 				total += 1;
@@ -1931,7 +1931,7 @@ fn parent_counts_by_kind(graph: &CodeGraph) -> HashMap<(usize, &[u8]), u32> {
 	let mut m: HashMap<(usize, &[u8]), u32> = HashMap::new();
 	for d in graph.defs() {
 		if let Some(p) = d.parent {
-			*m.entry((p, d.kind.as_slice())).or_insert(0) += 1;
+			*m.entry((p, d.kind.as_ref())).or_insert(0) += 1;
 		}
 	}
 	m
@@ -1940,7 +1940,7 @@ fn parent_counts_by_kind(graph: &CodeGraph) -> HashMap<(usize, &[u8]), u32> {
 fn comment_end_bytes(graph: &CodeGraph) -> Vec<u32> {
 	let mut v: Vec<u32> = graph
 		.defs()
-		.filter(|d| d.kind.as_slice() == KIND_COMMENT)
+		.filter(|d| d.kind.as_ref() == KIND_COMMENT)
 		.filter_map(|d| d.position.map(|(_, e)| e))
 		.collect();
 	v.sort_unstable();

@@ -226,8 +226,28 @@ pub struct CodeIndexMaterial {
 	pub files: Vec<IndexedSourceFile>,
 	pub identity: LocalIdentityResolver,
 	pub symbols_by_moniker: FxHashMap<Moniker, SymbolId>,
-	pub symbol_monikers: FxHashMap<SymbolId, Moniker>,
-	pub reference_targets: FxHashMap<ReferenceId, Moniker>,
+}
+
+impl CodeIndexMaterial {
+	pub fn symbol_moniker(&self, symbol: &SymbolId) -> Option<&Moniker> {
+		let (file_idx, def_idx) = self.identity.symbol_location(symbol)?;
+		let graph = &self.files.get(file_idx)?.graph;
+		(def_idx < graph.def_count()).then(|| &graph.def_at(def_idx).moniker)
+	}
+
+	pub fn reference_target(&self, reference: &ReferenceId) -> Option<&Moniker> {
+		let (file_idx, ref_idx) = self.identity.reference_location(reference)?;
+		let graph = &self.files.get(file_idx)?.graph;
+		(ref_idx < graph.ref_count()).then(|| &graph.ref_at(ref_idx).target)
+	}
+
+	pub fn symbols(&self) -> impl Iterator<Item = (SymbolId, &Moniker)> + '_ {
+		self.files.iter().enumerate().flat_map(|(file_idx, file)| {
+			file.graph.defs().enumerate().map(move |(def_idx, def)| {
+				(file.identity.symbol_id(file_idx, def_idx), &def.moniker)
+			})
+		})
+	}
 }
 
 #[derive(Clone)]
@@ -264,5 +284,85 @@ fn absolute_path_against_root(root: &Path, path: &Path) -> PathBuf {
 		normalize_path(path)
 	} else {
 		normalize_path(&root.join(path))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use code_moniker_core::core::moniker::MonikerBuilder;
+	use code_moniker_core::lang::Lang;
+
+	#[test]
+	fn symbol_moniker_returns_none_for_out_of_range_symbol_id() {
+		let (material, root, _) = material_with_one_reference();
+
+		assert_eq!(
+			material.symbol_moniker(&SymbolId::new("symbol:0:0")),
+			Some(&root)
+		);
+		assert!(
+			material
+				.symbol_moniker(&SymbolId::new("symbol:0:999999"))
+				.is_none()
+		);
+	}
+
+	#[test]
+	fn reference_target_returns_none_for_out_of_range_reference_id() {
+		let (material, _, target) = material_with_one_reference();
+
+		assert_eq!(
+			material.reference_target(&ReferenceId::new("reference:0:0")),
+			Some(&target)
+		);
+		assert!(
+			material
+				.reference_target(&ReferenceId::new("reference:0:999999"))
+				.is_none()
+		);
+	}
+
+	fn material_with_one_reference() -> (CodeIndexMaterial, Moniker, Moniker) {
+		let identity = LocalIdentityResolver::default();
+		let root = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"module", b"main")
+			.build();
+		let target = MonikerBuilder::new()
+			.project(b"app")
+			.segment(b"module", b"other")
+			.build();
+		let mut graph = CodeGraph::new(root.clone(), b"module");
+		graph
+			.add_ref(&root, target.clone(), b"calls", None)
+			.expect("test graph ref must be valid");
+		let rel_path = PathBuf::from("main.rs");
+		let file = IndexedSourceFile {
+			source_root: 0,
+			source_id: identity.source_id(0, &rel_path),
+			source_uri: identity.source_uri(&rel_path),
+			identity: identity.clone(),
+			path: rel_path.clone(),
+			rel_path: rel_path.clone(),
+			anchor: rel_path,
+			lang: Lang::Rs,
+			graph,
+			source: String::new(),
+		};
+		let material = CodeIndexMaterial {
+			source_catalog: SourceCatalogMaterial {
+				sources: SourceFileSet {
+					roots: Vec::new(),
+					files: Vec::new(),
+					multi: false,
+				},
+				identity: identity.clone(),
+			},
+			files: vec![file],
+			identity,
+			symbols_by_moniker: FxHashMap::default(),
+		};
+		(material, root, target)
 	}
 }

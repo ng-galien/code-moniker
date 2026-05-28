@@ -107,6 +107,31 @@ each file edit, the toolchain re-scans, and only one file misses while
 the rest are hits served from the OS page cache (warm). For ad-hoc
 single-run scans, the cache hurts more than it helps — leave it off.
 
+## Workspace memory
+
+Use the workspace memory bench before choosing memory optimizations. It loads
+the same source catalog, semantic index, linkage, and change overlay used by
+the workspace facade, then reports native process RSS after each phase plus a
+model-level retained heap estimate by domain structure.
+
+```sh
+cargo run --release -p code-moniker-workspace --example bench_memory -- <path>
+```
+
+Useful variants:
+
+```sh
+cargo run --release -p code-moniker-workspace --example bench_memory -- --lang java <path>
+cargo run --release -p code-moniker-workspace --example bench_memory -- --skip-changes <path>
+cargo run -p code-moniker-workspace --features heap-profile --example bench_memory -- <path>
+```
+
+`rss_mib` is the observed resident set. `estimated_heap_mib` is deliberately a
+lower bound over retained workspace data: snapshot records, index material,
+code graphs, source text, linkage edges, and change records. A large gap
+between both numbers means the next investigation should use the heap-profile
+feature or Instruments/heaptrack rather than guessing from record counts.
+
 ## Implications
 
 - `check crates/` is fast enough to gate every commit and every CI

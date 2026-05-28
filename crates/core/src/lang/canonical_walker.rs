@@ -251,7 +251,7 @@ mod tests {
 		let w = CanonicalWalker::new(&RustToyStrategy, src);
 		w.walk(tree.root_node(), &root, &mut g);
 
-		let kinds: Vec<&[u8]> = g.defs().map(|d| d.kind.as_slice()).collect();
+		let kinds: Vec<&[u8]> = g.defs().map(|d| d.kind.as_ref()).collect();
 		assert!(kinds.contains(&b"struct".as_slice()));
 		assert!(kinds.contains(&b"fn".as_slice()));
 	}

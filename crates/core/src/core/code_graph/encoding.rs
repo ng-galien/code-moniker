@@ -31,7 +31,7 @@
 
 use std::fmt;
 
-use crate::core::code_graph::{CodeGraph, DefRecord, Position, RefRecord};
+use crate::core::code_graph::{Bytes, CodeGraph, DefRecord, Position, RefRecord};
 use crate::core::moniker::Moniker;
 
 pub const LAYOUT_VERSION: u16 = 3;
@@ -159,7 +159,7 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 	let mut def_records: Vec<DefRecord> = Vec::with_capacity(def_count);
 	for _ in 0..def_count {
 		let moniker = cur.read_moniker()?;
-		let kind = cur.read_short_bytes("def kind")?.to_vec();
+		let kind = boxed(cur.read_short_bytes("def kind")?);
 		let parent = cur.read_opt_idx()?;
 		if let Some(p) = parent
 			&& p >= def_count
@@ -167,12 +167,12 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 			return Err(EncodingError::InvalidIndex("def parent"));
 		}
 		let position = cur.read_opt_pos()?;
-		let visibility = cur.read_short_bytes("def visibility")?.to_vec();
-		let signature = cur.read_medium_bytes("def signature")?.to_vec();
-		let call_name = cur.read_short_bytes("def call_name")?.to_vec();
+		let visibility = boxed(cur.read_short_bytes("def visibility")?);
+		let signature = boxed(cur.read_medium_bytes("def signature")?);
+		let call_name = boxed(cur.read_short_bytes("def call_name")?);
 		let call_arity = cur.read_opt_u16("def call_arity")?;
-		let binding = cur.read_short_bytes("def binding")?.to_vec();
-		let origin = cur.read_short_bytes("def origin")?.to_vec();
+		let binding = boxed(cur.read_short_bytes("def binding")?);
+		let origin = boxed(cur.read_short_bytes("def origin")?);
 		def_records.push(DefRecord {
 			moniker,
 			kind,
@@ -194,14 +194,14 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 			return Err(EncodingError::InvalidIndex("ref source"));
 		}
 		let target = cur.read_moniker()?;
-		let kind = cur.read_short_bytes("ref kind")?.to_vec();
+		let kind = boxed(cur.read_short_bytes("ref kind")?);
 		let position = cur.read_opt_pos()?;
-		let receiver_hint = cur.read_short_bytes("ref receiver_hint")?.to_vec();
-		let alias = cur.read_short_bytes("ref alias")?.to_vec();
-		let confidence = cur.read_short_bytes("ref confidence")?.to_vec();
-		let call_name = cur.read_short_bytes("ref call_name")?.to_vec();
+		let receiver_hint = boxed(cur.read_short_bytes("ref receiver_hint")?);
+		let alias = boxed(cur.read_short_bytes("ref alias")?);
+		let confidence = boxed(cur.read_short_bytes("ref confidence")?);
+		let call_name = boxed(cur.read_short_bytes("ref call_name")?);
 		let call_arity = cur.read_opt_u16("ref call_arity")?;
-		let binding = cur.read_short_bytes("ref binding")?.to_vec();
+		let binding = boxed(cur.read_short_bytes("ref binding")?);
 		ref_records.push(RefRecord {
 			source,
 			target,
@@ -217,6 +217,10 @@ pub fn decode(buf: &[u8]) -> Result<CodeGraph, EncodingError> {
 	}
 
 	Ok(CodeGraph::from_records(def_records, ref_records))
+}
+
+fn boxed(bytes: &[u8]) -> Bytes {
+	bytes.into()
 }
 
 fn write_moniker(out: &mut Vec<u8>, m: &Moniker) -> Result<(), EncodingError> {
