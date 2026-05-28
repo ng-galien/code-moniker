@@ -25,7 +25,11 @@ expr    = """
        OR target ~ '**/path:ChangeEntry')
 """
 message = "`code-moniker ui` must consume workspace read models; raw graph/index/Git records stay inside `workspace`."
-rationale = "The UI shell should render stable workspace read models, not internal extraction or Git records. That keeps navigation state independent from storage details and lets workspace refreshes reconcile data without panel code knowing graph internals."
+rationale = """
+The UI shell should render stable workspace read models, not internal extraction or Git
+records. That keeps navigation state independent from storage details and lets workspace
+refreshes reconcile data without panel code knowing graph internals.
+"""
 
 [[refs.where]]
 id      = "panels-ratatui-renderers-only"
@@ -34,7 +38,10 @@ expr    = """
   => ($panel_renderer OR NOT target ~ '**/external_pkg:ratatui/**')
 """
 message = "`ui::panels` view models and builders must stay ratatui-free; only panel renderers may import ratatui."
-rationale = "Panel construction should be testable as plain view-model logic. Restricting ratatui to renderers keeps feature code from depending on terminal widgets."
+rationale = """
+Panel construction should be testable as plain view-model logic. Restricting ratatui to
+renderers keeps feature code from depending on terminal widgets.
+"""
 
 [[refs.where]]
 id      = "components-ratatui-free"
@@ -43,7 +50,10 @@ expr    = """
   => NOT target ~ '**/external_pkg:ratatui/**'
 """
 message = "`ui::components` own reusable interaction state; ratatui rendering stays in view/panel renderers."
-rationale = "Components are shared state and behavior primitives. If they import ratatui directly, reusable UI logic becomes coupled to one rendering backend."
+rationale = """
+Components are shared state and behavior primitives. If they import ratatui directly,
+reusable UI logic becomes coupled to one rendering backend.
+"""
 
 [[refs.where]]
 id      = "components-workspace-free"
@@ -52,7 +62,10 @@ expr    = """
   => NOT target ~ '**/dir:workspace/**'
 """
 message = "`ui::components` must stay domain-neutral; workspace semantics belong to feature/navigation selectors."
-rationale = "Reusable components should not know code-moniker workspace concepts. Feature selectors translate workspace data into component state at the boundary."
+rationale = """
+Reusable components should not know code-moniker workspace concepts. Feature selectors
+translate workspace data into component state at the boundary.
+"""
 
 [[refs.where]]
 id      = "view-renders-view-models-only"
@@ -63,7 +76,10 @@ expr    = """
        OR target ~ '**/dir:contracts/**')
 """
 message = "`ui::view` renders feature view-models; App/Feature/Screen orchestration belongs outside the renderer."
-rationale = "The renderer should be a terminal presentation layer. Importing app or feature orchestration would make rendering own navigation and lifecycle decisions."
+rationale = """
+The renderer should be a terminal presentation layer. Importing app or feature orchestration
+would make rendering own navigation and lifecycle decisions.
+"""
 
 [[refs.where]]
 id      = "terminal-backend-owned-by-shell-terminal"
@@ -77,7 +93,10 @@ expr    = """
            OR target ~ '**/path:disable_raw_mode'))
 """
 message = "Terminal backend setup belongs to `ui::shell::terminal`; UI root/app code should not own terminal raw-mode or alternate-screen wiring."
-rationale = "Terminal mode setup is global process state. Keeping it in one shell module avoids scattered raw-mode cleanup paths and makes UI tests less dependent on terminal side effects."
+rationale = """
+Terminal mode setup is global process state. Keeping it in one shell module avoids scattered
+raw-mode cleanup paths and makes UI tests less dependent on terminal side effects.
+"""
 
 [[refs.where]]
 id      = "screen-render-contract-only"
@@ -91,7 +110,10 @@ expr    = """
        OR target ~ '**/dir:app/**')
 """
 message = "`ui::contracts::Screen` is a render-only contract; input messages, effects, and app commands belong to the Elm orchestration layer."
-rationale = "Screen contracts describe what can be rendered. Letting them import messages or effects would turn render contracts into input controllers and bypass the reducer/effect boundary."
+rationale = """
+Screen contracts describe what can be rendered. Letting them import messages or effects
+would turn render contracts into input controllers and bypass the reducer/effect boundary.
+"""
 
 [[refs.where]]
 id      = "contracts-do-not-depend-on-app"
@@ -100,7 +122,10 @@ expr    = """
   => NOT (target ~ '**/module:app/**' OR target ~ '**/dir:app/**')
 """
 message = "`ui::contracts` must stay app-neutral; app commands and effects belong to `ui::app`."
-rationale = "Contracts are shared vocabulary between features and renderers. Keeping them app-neutral prevents circular ownership between declarations, state reduction, and effect execution."
+rationale = """
+Contracts are shared vocabulary between features and renderers. Keeping them app-neutral
+prevents circular ownership between declarations, state reduction, and effect execution.
+"""
 
 [[refs.where]]
 id      = "elm-orchestration-boundary"
@@ -110,4 +135,7 @@ expr    = """
      AND (NOT target ~ '**/path:AppCommand' OR $app_command_boundary OR $rust_inline_tests)
 """
 message = "`Msg` is owned by `ui::events` and reduced in `ui::app`; `AppCommand` is emitted by the reducer and interpreted by the runtime shell."
-rationale = "The TUI follows a typed reducer/effect flow. Restricting `Msg` and `AppCommand` imports keeps event creation, state reduction, and runtime interpretation in their intended layers."
+rationale = """
+The TUI follows a typed reducer/effect flow. Restricting `Msg` and `AppCommand` imports
+keeps event creation, state reduction, and runtime interpretation in their intended layers.
+"""

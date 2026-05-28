@@ -33,35 +33,43 @@ expr    = """
        OR target ~ '**/dir:declare/**' OR target ~ '**/module:declare/**')
 """
 message = "`core` is the foundation submodule; it must not depend on sibling `lang` or `declare` internals."
-rationale = "The core model must stay reusable by every extractor and surface. Letting it import language or declaration internals would invert the dependency graph and make later language additions affect the base model."
+rationale = """
+The core model must stay reusable by every extractor and surface. Letting it import language
+or declaration internals would invert the dependency graph and make later language additions
+affect the base model.
+"""
 
-# `canonical_walker.rs` owns the shared extractor walk. `walk` iterates
-# children and recurses on `NodeShape::Recurse`; `dispatch` applies the same
-# classification to one node and must call `self.walk(...)` for recurse cases.
-# Drop-arm `_ => {}` is forbidden because it silently loses sub-trees.
+# Shared extractor walker contract.
 
 [[rust.module.where]]
 id      = "walker-struct-exists"
 expr    = "$canonical_walker => any(struct, name = 'CanonicalWalker')"
 message = "`canonical_walker.rs` must define `CanonicalWalker` (state + dispatch methods)."
-rationale = "Extractor traversal has one shared coordination point so language strategies inherit the same recursion and graph-building behavior instead of each reimplementing traversal policy."
+rationale = """
+Extractor traversal has one shared coordination point so language strategies inherit the
+same recursion and graph-building behavior instead of each reimplementing traversal policy.
+"""
 
 [[rust.struct.where]]
 id      = "walker-has-walk-method"
 expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'walk')"
 message = "CanonicalWalker must expose `walk(node, scope, graph)` — iterates children and recurses on NodeShape::Recurse."
-rationale = "`walk` is the recursive traversal entrypoint. Keeping it explicit makes the fallback path inspectable and prevents dispatch-only refactors from silently dropping child nodes."
+rationale = """
+`walk` is the recursive traversal entrypoint. Keeping it explicit makes the fallback path
+inspectable and prevents dispatch-only refactors from silently dropping child nodes.
+"""
 
 [[rust.struct.where]]
 id      = "walker-has-dispatch-method"
 expr    = "name = 'CanonicalWalker' AND moniker ~ '**/module:canonical_walker/struct:CanonicalWalker' => any(method, name = 'dispatch')"
 message = "CanonicalWalker must expose `dispatch(node, scope, graph)` — single-node classification with recurse fallback."
-rationale = "`dispatch` centralizes node classification. Language strategy changes should extend classification behavior without hiding recursion or splitting the walker contract across helpers."
+rationale = """
+`dispatch` centralizes node classification. Language strategy changes should extend
+classification behavior without hiding recursion or splitting the walker contract across
+helpers.
+"""
 
-# Behavioral rule: dispatch must call self.walk for recurse cases.
-# Symbolically: dispatch must emit at least one out_ref method_call → walk.
-# Whitelist-with-`NodeShape::Recurse => {}` divergence has no such ref and
-# trips the rule.
+# Walker recursion invariant.
 [[rust.method.where]]
 id      = "walker-dispatch-recurses-into-walk"
 expr    = """
@@ -69,4 +77,7 @@ expr    = """
   => any(out_refs, kind = 'method_call' AND target.name = 'walk')
 """
 message = "CanonicalWalker.dispatch must call `self.walk(...)` for recurse cases. Missing this drops sub-trees."
-rationale = "A previous class of extractor regressions comes from treating unknown or recurse-shaped nodes as empty. The rule checks the symbolic call edge that keeps recursive descent alive."
+rationale = """
+A previous class of extractor regressions comes from treating unknown or recurse-shaped
+nodes as empty. The rule checks the symbolic call edge that keeps recursive descent alive.
+"""

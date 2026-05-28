@@ -100,7 +100,12 @@ id        = "cli-consumes-workspace-public-boundaries"
 severity  = "error"
 expr      = "$crate_cli AND (kind = 'imports_symbol' OR kind = 'imports_module') AND $workspace_crate_target => $workspace_public_boundary_target"
 message   = "`cli` may only import the declared public boundaries of `code-moniker-workspace`."
-rationale = "The workspace crate exposes a reusable engine for CLI/TUI and future MCP adapters. CLI code should consume the crate through explicit public boundary modules; importing any other workspace module creates an accidental API and makes internal workspace layout part of the CLI contract."
+rationale = """
+The workspace crate exposes a reusable engine for CLI/TUI and future MCP adapters. CLI code
+should consume the crate through explicit public boundary modules; importing any other
+workspace module creates an accidental API and makes internal workspace layout part of the
+CLI contract.
+"""
 
 [[refs.where]]
 id      = "pg-no-cli"
@@ -115,7 +120,11 @@ message = "`code-moniker-pg` is the PostgreSQL extension; it must not depend on 
 id      = "max-lines"
 expr    = "lines <= 120"
 message = "{kind} `{name}` is {value} lines (project cap = {expected}). Split it before its host file approaches the 600-line cap."
-rationale = "Long callable bodies are hard for agents and reviewers to localize. Keep the symbol-level budget lower than the file-level budget so extraction, review, and follow-up edits stay focused."
+rationale = """
+Long callable bodies are hard for agents and reviewers to localize. Keep the symbol-level
+budget lower than the file-level budget so extraction, review, and follow-up edits stay
+focused.
+"""
 
 [[rust.fn.where]]
 id      = "no-placeholder-names"
@@ -154,84 +163,159 @@ id        = "smell-long-parameter-list"
 severity  = "error"
 expr      = "count(param) <= 6"
 message   = "Long Parameter List candidate: `{name}` has too many direct parameters."
-rationale = "In code-moniker, wide signatures usually mean a missing request/context object or a boundary that should expose a typed read model."
+rationale = """
+In code-moniker, wide signatures usually mean a missing request/context object or a boundary
+that should expose a typed read model.
+"""
 
 [[rust.shape.callable.where]]
 id        = "smell-feature-envy-local"
 severity  = "error"
 expr      = "$tests OR $rust_inline_tests OR $example OR kind = 'test' OR kind != 'method' OR count(out_refs) < 40 OR mode(out_refs, target.parent) = source.parent"
 message   = "Feature Envy candidate: `{name}` mostly reaches into another local owner."
-rationale = "A Rust method with many local outgoing references should usually collaborate through its own owner boundary instead of concentrating work around another owner. Tests, examples, and free functions are excluded while this rule is in adoption."
+rationale = """
+A Rust method with many local outgoing references should usually collaborate through its own
+owner boundary instead of concentrating work around another owner. Tests, examples, and free
+functions are excluded while this rule is in adoption.
+"""
 
 [[rust.shape.callable.where]]
 id        = "smell-caller-concentration"
 severity  = "error"
 expr      = "$tests OR $rust_inline_tests OR $example OR kind = 'test' OR visibility != 'public' OR count(in_refs) < 6 OR entropy(in_refs, source.parent) >= 0.5"
 message   = "Caller concentration candidate: `{name}` is mainly used by one local owner."
-rationale = "Low incoming-reference entropy is useful for public APIs that look broadly reusable but are mainly consumed by one local owner. Tests, examples, and private helpers are excluded while this rule is in adoption."
+rationale = """
+Low incoming-reference entropy is useful for public APIs that look broadly reusable but are
+mainly consumed by one local owner. Tests, examples, and private helpers are excluded while
+this rule is in adoption.
+"""
 
 [[rust.shape.type.where]]
 id        = "smell-large-type"
 severity  = "error"
 expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) <= 25 AND count(shape:value) <= 40"
 message   = "Large Type candidate: `{name}` has many direct members."
-rationale = "Large Rust structs/enums/impl owners tend to hide multiple UI, workspace, or check responsibilities in one local owner."
+rationale = """
+Large Rust structs/enums/impl owners tend to hide multiple UI, workspace, or check
+responsibilities in one local owner.
+"""
 
 [[rust.shape.type.where]]
 id        = "smell-god-type-local-metrics"
 severity  = "error"
 expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 12 OR wmc(self) <= 47 AND cbo(self) <= 14 AND lcom4(self) <= 2"
 message   = "God Type candidate: `{name}` exceeds local OO metric bounds."
-rationale = "The thresholds are heuristic, but they give a stable dogfood signal for complexity, coupling, and cohesion hotspots."
+rationale = """
+The thresholds are heuristic, but they give a stable dogfood signal for complexity,
+coupling, and cohesion hotspots.
+"""
 
 [[rust.shape.type.where]]
 id        = "smell-harmonious-method-size"
 severity  = "error"
 expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 6 OR cv(shape:callable, lines) <= 0.9"
 message   = "Distribution smell: method sizes under `{name}` are highly uneven."
-rationale = "A high coefficient of variation often means one method carries the real behavior while siblings are small adapters. The threshold is intentionally loose while this project rule is in adoption."
+rationale = """
+A high coefficient of variation often means one method carries the real behavior while
+siblings are small adapters. The threshold is intentionally loose while this project rule is
+in adoption.
+"""
 
 [[rust.shape.type.where]]
 id        = "smell-balanced-method-fanout"
 severity  = "error"
 expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 6 OR gini(shape:callable, fan_out(each)) <= 0.65"
 message   = "Distribution smell: fan-out under `{name}` is concentrated in a few methods."
-rationale = "A high fan-out Gini coefficient exposes a hidden coupling hub inside an otherwise ordinary owner."
+rationale = """
+A high fan-out Gini coefficient exposes a hidden coupling hub inside an otherwise ordinary
+owner.
+"""
 
 [[rust.shape.type.where]]
 id        = "smell-data-clumps-param-names"
 severity  = "error"
 expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 2 OR count(pairs(shape:callable), size(a.param.name intersect b.param.name) >= 4) = 0"
 message   = "Data Clumps candidate: repeated parameter-name groups appear under `{name}`."
-rationale = "Pair-bound collection projections are used here to catch repeated local signatures that should become explicit types. Four shared names avoids flagging the common tree-sitter `(node, source, parent)` pattern by itself."
+rationale = """
+Pair-bound collection projections are used here to catch repeated local signatures that
+should become explicit types. Four shared names avoids flagging the common tree-sitter
+`(node, source, parent)` pattern by itself.
+"""
 
 [[rust.shape.callable.where]]
 id        = "smell-brain-method"
 severity  = "warn"
 expr      = "$tests OR $rust_inline_tests OR $example OR kind != 'method' OR lines <= 65 OR fan_out(self) <= 7"
 message   = "Brain Method candidate: `{name}` is large and couples to many targets."
-rationale = "A method that concentrates both length and outward reach tends to own the central decision of its type. Splitting it isolates the dispatching table from the per-case logic, which is what review and downstream agent edits need. Free functions are exempted because the Brain Method smell is defined against a host class. CYCLO/MAXNESTING/NOAV are not available in the local graph, so the detection uses lines + fan_out as a coarser proxy."
+rationale = """
+A method that concentrates both length and outward reach tends to own the central decision
+of its type. Splitting it isolates the dispatching table from the per-case logic, which is
+what review and downstream agent edits need. Free functions are exempted because the Brain
+Method smell is defined against a host class. CYCLO/MAXNESTING/NOAV are not available in the
+local graph, so the detection uses lines + fan_out as a coarser proxy.
+"""
 
 [[rust.shape.callable.where]]
 id        = "smell-intensive-coupling-method"
 severity  = "warn"
 expr      = "$tests OR $rust_inline_tests OR $example OR kind != 'method' OR count(out_refs, target.parent != source.parent AND (kind = 'calls' OR kind = 'method_call')) <= 20 OR size(unique(out_refs.target.parent)) >= 6"
 message   = "Intensive Coupling candidate: `{name}` funnels many calls into a small set of external owners."
-rationale = "A method whose outgoing calls cross owner boundaries in volume but stay concentrated on a few external owners is orchestrating work that belongs to those owners. CINT is filtered to ref kinds `calls` and `method_call` so constructors, type uses, and enum-variant reads do not inflate the count — only actual invocations register. CDISP is approximated by the count of distinct external owners; under six keeps the rule on the intensive branch (one method driving a small ring of collaborators) and off the dispersed one (a different smell). The 20-call threshold is recalibrated above the published L&M Very-High band of 11 because Rust's file-per-module convention raises baseline cross-owner call counts; tree-sitter AST visitors and similar dispatcher patterns will still surface and need to be judged on review."
+rationale = """
+A method whose outgoing calls cross owner boundaries in volume but stay concentrated on a
+few external owners is orchestrating work that belongs to those owners. CINT is filtered to
+ref kinds `calls` and `method_call` so constructors, type uses, and enum-variant reads do
+not inflate the count — only actual invocations register. CDISP is approximated by the count
+of distinct external owners; under six keeps the rule on the intensive branch (one method
+driving a small ring of collaborators) and off the dispersed one (a different smell). The
+20-call threshold is recalibrated above the published L&M Very-High band of 11 because
+Rust's file-per-module convention raises baseline cross-owner call counts; tree-sitter AST
+visitors and similar dispatcher patterns will still surface and need to be judged on review.
+"""
 
 [[rust.shape.type.where]]
 id        = "smell-response-for-class"
 severity  = "warn"
 expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 6 OR rfc(self) <= 50"
 message   = "High Response For Class candidate: `{name}` has rfc={value}."
-rationale = "A high response surface means a single incoming call can fan out into a large local subprogram. The cost shows up in testing in isolation, in keeping the public interface narrow, and in the cognitive load of tracing a single message. The 50 threshold is the looser end of the Chidamber-Kemerer / Lanza-Marinescu Very-High band; it is conservative for Rust where trait impls amplify the response count."
+rationale = """
+A high response surface means a single incoming call can fan out into a large local
+subprogram. The cost shows up in testing in isolation, in keeping the public interface
+narrow, and in the cognitive load of tracing a single message. The 50 threshold is the
+looser end of the Chidamber-Kemerer / Lanza-Marinescu Very-High band; it is conservative for
+Rust where trait impls amplify the response count.
+"""
 
 [[rust.shape.type.where]]
 id        = "smell-brain-class"
 severity  = "warn"
 expr      = "$tests OR $rust_inline_tests OR $example OR count(shape:callable) < 12 OR wmc(self) <= 47 OR max(shape:callable, lines) <= 65"
 message   = "Brain Class candidate: `{name}` is large and contains a dominant method."
-rationale = "A type that combines many methods, high weighted complexity, and at least one dominant method is the program's local center of gravity. The combination is harder to refactor in pieces than either factor alone, so flag the conjunction explicitly. TCC is not available; cohesion is not tested here and the conjunction with the God Class metrics is left to `smell-god-type-local-metrics` on the same target."
+rationale = """
+A type that combines many methods, high weighted complexity, and at least one dominant
+method is the program's local center of gravity. The combination is harder to refactor in
+pieces than either factor alone, so flag the conjunction explicitly. TCC is not available;
+cohesion is not tested here and the conjunction with the God Class metrics is left to
+`smell-god-type-local-metrics` on the same target.
+"""
+
+[[rust.module.where]]
+id        = "smell-low-cohesion-module"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(fn) <= 40 OR sum(shape:type, count(shape:callable)) >= 30"
+message   = "Module `{name}` holds many free `fn` items with little behavior anchored to its local types (type-owned callables = {value}); move helpers onto the structs/enums/traits they conceptually belong to, or split the module along those owners."
+rationale = """
+Module-scope analogue of the procedural-vs-anchored tension that Fowler describes for
+entities (Anemic Domain Model, 2003) and Riel for classes (Object-Oriented Design
+Heuristics, 1996, #4: 'all data should be hidden within its class'). A module dominated by
+free `fn` items whose local types carry no methods sits near the 'coincidental' end of the
+Stevens-Myers-Constantine cohesion scale (Structured Design, 1974) -- grouped by file
+proximity, not by purpose. Two complementary signals so the rule is structural rather than a
+size cap: count(fn) > 40 (enough free callables that a missing host is meaningful, not just
+a small helper module) AND sum(shape:type, count(shape:callable)) < 30 (the local
+structs/enums/traits collectively carry too little behavior to be the host). Strategy-style
+modules with many methods on one host type pass cleanly; junk-drawer modules of free helpers
+do not. Cutoffs are calibrated on this repo.
+"""
 
 # ─── Comment hygiene ────────────────────────────────────────────────────
 
@@ -239,15 +323,18 @@ rationale = "A type that combines many methods, high weighted complexity, and at
 id      = "no-nested-comments"
 expr    = "$tests OR $rust_inline_tests OR $example OR parent.kind = 'module' OR text =~ '^//\\s*SAFETY:'"
 message = "Do not add comments inside functions, methods, structs, enums, traits, or impls. Keep code self-explanatory; only module-boundary and `SAFETY:` comments are allowed."
-rationale = "Most nested comments become stale micro-rationales or agent narration. Module comments and unsafe-code `SAFETY:` notes carry durable context; body comments should usually become clearer code or external docs."
+rationale = """
+Most nested comments become stale micro-rationales or agent narration. Module comments and
+unsafe-code `SAFETY:` notes carry durable context; body comments should usually become
+clearer code or external docs.
+"""
 
-# Adjacent line/doc-comments are collapsed into one `comment` def by the
-# extractor (see `crates/core/src/lang/canonical_walker.rs`), so `lines`
-# is the cardinal of a docstring block. Cap to keep doc prose short
-# per CLAUDE.md comment sobriety. Exempt module-level `//!` (which
-# document modules / formats / contracts) and `SAFETY:` narratives.
 [[rust.comment.where]]
 id      = "comment-max-lines"
 expr    = "$tests OR $rust_inline_tests OR $example OR text =~ '^//\\s*SAFETY:' OR text =~ '^//!' OR lines <= 4"
 message = "Doc/block comment is {value} lines (cap = 4). Move prose to docs/ — see CLAUDE.md comment sobriety."
-rationale = "Inline prose should explain only the local contract. Longer rationale belongs in docs or ADR-style material where future agent sessions can read it deliberately instead of carrying it inside code bodies."
+rationale = """
+The extractor collapses adjacent comments into one block, so `lines` measures the length of
+that prose block. Inline prose should explain only the local contract; longer rationale belongs
+in docs or ADR-style material where future agent sessions can read it deliberately.
+"""
