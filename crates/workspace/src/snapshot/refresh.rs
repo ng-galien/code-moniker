@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::changes::ChangeOverlayPort;
@@ -25,7 +26,7 @@ struct WorkspaceSnapshotPorts<Sources, Index, Linkage, Changes> {
 
 struct WorkspaceSnapshotState {
 	next_generation: u64,
-	snapshot: Option<WorkspaceSnapshot>,
+	snapshot: Option<Arc<WorkspaceSnapshot>>,
 	last_failure: Option<super::model::WorkspaceFailure>,
 }
 
@@ -99,8 +100,16 @@ where
 		self.state.replace_snapshot(snapshot);
 	}
 
+	pub fn replace_snapshot_arc(&mut self, snapshot: Arc<WorkspaceSnapshot>) {
+		self.state.replace_snapshot_arc(snapshot);
+	}
+
 	pub fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
 		self.state.snapshot()
+	}
+
+	pub fn snapshot_arc(&self) -> Option<Arc<WorkspaceSnapshot>> {
+		self.state.snapshot_arc()
 	}
 
 	pub fn last_failure(&self) -> Option<&super::model::WorkspaceFailure> {
@@ -141,7 +150,7 @@ impl WorkspaceSnapshotState {
 		match result {
 			Ok(snapshot) => {
 				let generation = snapshot.generation;
-				self.snapshot = Some(snapshot);
+				self.snapshot = Some(Arc::new(snapshot));
 				self.last_failure = None;
 				WorkspaceTransition::Ready { generation }
 			}
@@ -158,12 +167,21 @@ impl WorkspaceSnapshotState {
 	}
 
 	fn replace_snapshot(&mut self, snapshot: WorkspaceSnapshot) {
+		self.snapshot = Some(Arc::new(snapshot));
+		self.last_failure = None;
+	}
+
+	fn replace_snapshot_arc(&mut self, snapshot: Arc<WorkspaceSnapshot>) {
 		self.snapshot = Some(snapshot);
 		self.last_failure = None;
 	}
 
 	fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
-		self.snapshot.as_ref()
+		self.snapshot.as_deref()
+	}
+
+	fn snapshot_arc(&self) -> Option<Arc<WorkspaceSnapshot>> {
+		self.snapshot.clone()
 	}
 
 	fn last_failure(&self) -> Option<&super::model::WorkspaceFailure> {

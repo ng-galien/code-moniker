@@ -1,5 +1,6 @@
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -74,7 +75,7 @@ impl TaskSpec {
 	pub(in crate::ui) fn resolve_linkage(
 		opts: SessionOptions,
 		cache: LocalResourceCache,
-		snapshot: WorkspaceSnapshot,
+		snapshot: Arc<WorkspaceSnapshot>,
 	) -> Self {
 		Self {
 			id: TaskId::next(),
@@ -136,7 +137,7 @@ enum TaskKind {
 	ResolveLinkage {
 		opts: SessionOptions,
 		cache: LocalResourceCache,
-		snapshot: WorkspaceSnapshot,
+		snapshot: Arc<WorkspaceSnapshot>,
 	},
 	RunCheck {
 		context: WorkspaceCheckContext,
@@ -190,7 +191,7 @@ pub(in crate::ui) enum TaskOutcome {
 	FileCatalogLoaded(Box<LoadedWorkspace>),
 	SymbolIndexLoaded {
 		workspace: Box<LoadedWorkspace>,
-		linkage_seed: Box<WorkspaceSnapshot>,
+		linkage_seed: Arc<WorkspaceSnapshot>,
 	},
 	LinkageResolved(Box<LoadedWorkspace>),
 	CheckCompleted(Box<CheckSummary>),
@@ -295,10 +296,10 @@ fn execute_task_kind(kind: TaskKind) -> TaskOutcome {
 			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 		},
 		TaskKind::LoadSymbolIndex { opts } => match load_local_symbol_index(&opts) {
-			Ok((store, cache)) => match store.snapshot().cloned() {
+			Ok((store, cache)) => match store.snapshot_arc() {
 				Some(snapshot) => TaskOutcome::SymbolIndexLoaded {
 					workspace: Box::new((store, cache, opts)),
-					linkage_seed: Box::new(snapshot),
+					linkage_seed: snapshot,
 				},
 				None => TaskOutcome::Failed("symbol index snapshot is unavailable".to_string()),
 			},

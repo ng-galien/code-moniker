@@ -127,7 +127,7 @@ fn handle_task_result(app: &mut App, result: TaskResult) {
 			apply_reloaded_store(app, "symbols ready; linkage pending".to_string());
 			if queue_task(
 				app,
-				TaskSpec::resolve_linkage(linkage_options, linkage_cache, *linkage_seed),
+				TaskSpec::resolve_linkage(linkage_options, linkage_cache, linkage_seed),
 			) {
 				crate::ui::app::set_status(app, "symbols ready; resolving linkage in background");
 			}

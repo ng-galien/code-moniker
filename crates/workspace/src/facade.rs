@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::changes::{ChangeOverlayPort, LocalChangeOverlay};
 use crate::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
@@ -78,8 +79,16 @@ where
 		self.refresh.replace_snapshot(snapshot);
 	}
 
+	pub fn replace_snapshot_arc(&mut self, snapshot: Arc<WorkspaceSnapshot>) {
+		self.refresh.replace_snapshot_arc(snapshot);
+	}
+
 	pub fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
 		self.refresh.snapshot()
+	}
+
+	pub fn snapshot_arc(&self) -> Option<Arc<WorkspaceSnapshot>> {
+		self.refresh.snapshot_arc()
 	}
 
 	pub fn view(&self) -> Option<WorkspaceView<'_>> {

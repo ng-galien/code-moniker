@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::shape::{Shape, shape_of};
@@ -46,7 +47,7 @@ impl LinkageStats {
 #[derive(Clone)]
 pub(in crate::ui) struct WorkspaceCheckContext {
 	cache: LocalResourceCache,
-	snapshot: WorkspaceSnapshot,
+	snapshot: Arc<WorkspaceSnapshot>,
 }
 
 impl WorkspaceCheckContext {
@@ -156,13 +157,13 @@ pub(in crate::ui) fn load_local_symbol_index(
 pub(in crate::ui) fn resolve_local_linkage(
 	opts: &SessionOptions,
 	cache: LocalResourceCache,
-	snapshot: WorkspaceSnapshot,
+	snapshot: Arc<WorkspaceSnapshot>,
 ) -> anyhow::Result<(
 	code_moniker_workspace::LocalWorkspaceFacade,
 	LocalResourceCache,
 )> {
 	let (mut facade, cache) = new_local_workspace_with_cache(opts, cache);
-	facade.replace_snapshot(snapshot);
+	facade.replace_snapshot_arc(snapshot);
 	match facade.resolve_linkage(WorkspaceRequest::new("linkage")) {
 		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
@@ -185,9 +186,8 @@ pub(in crate::ui) fn workspace_check_context(
 	Ok(WorkspaceCheckContext {
 		cache: cache.clone(),
 		snapshot: facade
-			.snapshot()
-			.ok_or_else(|| anyhow::anyhow!("workspace snapshot is unavailable"))?
-			.clone(),
+			.snapshot_arc()
+			.ok_or_else(|| anyhow::anyhow!("workspace snapshot is unavailable"))?,
 	})
 }
 
