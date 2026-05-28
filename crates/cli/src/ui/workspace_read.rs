@@ -96,6 +96,16 @@ pub(in crate::ui) fn new_local_workspace(
 	LocalResourceCache,
 ) {
 	let cache = LocalResourceCache::default();
+	new_local_workspace_with_cache(opts, cache)
+}
+
+fn new_local_workspace_with_cache(
+	opts: &SessionOptions,
+	cache: LocalResourceCache,
+) -> (
+	code_moniker_workspace::LocalWorkspaceFacade,
+	LocalResourceCache,
+) {
 	let facade = WorkspaceFacade::new(local_workspace_ports(
 		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
 			.with_cache_dir(opts.cache_dir.clone()),
@@ -104,6 +114,7 @@ pub(in crate::ui) fn new_local_workspace(
 	(facade, cache)
 }
 
+#[cfg(test)]
 pub(in crate::ui) fn load_local_workspace(
 	opts: &SessionOptions,
 ) -> anyhow::Result<(
@@ -123,6 +134,35 @@ pub(in crate::ui) fn load_local_file_catalog(
 )> {
 	let (mut facade, cache) = new_local_workspace(opts);
 	match facade.load_catalog(WorkspaceRequest::new("file-catalog")) {
+		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
+		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
+	}
+}
+
+pub(in crate::ui) fn load_local_symbol_index(
+	opts: &SessionOptions,
+) -> anyhow::Result<(
+	code_moniker_workspace::LocalWorkspaceFacade,
+	LocalResourceCache,
+)> {
+	let (mut facade, cache) = new_local_workspace(opts);
+	match facade.load_index(WorkspaceRequest::new("symbol-index")) {
+		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
+		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
+	}
+}
+
+pub(in crate::ui) fn resolve_local_linkage(
+	opts: &SessionOptions,
+	cache: LocalResourceCache,
+	snapshot: WorkspaceSnapshot,
+) -> anyhow::Result<(
+	code_moniker_workspace::LocalWorkspaceFacade,
+	LocalResourceCache,
+)> {
+	let (mut facade, cache) = new_local_workspace_with_cache(opts, cache);
+	facade.replace_snapshot(snapshot);
+	match facade.resolve_linkage(WorkspaceRequest::new("linkage")) {
 		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 	}
@@ -167,28 +207,6 @@ pub(in crate::ui) fn linkage_stats(store: &LocalWorkspaceFacade) -> LinkageStats
 		.unwrap_or_default()
 }
 
-pub(in crate::ui) fn file_count(store: &LocalWorkspaceFacade) -> usize {
-	store
-		.snapshot()
-		.map_or(0, |snapshot| snapshot.index.sources.len())
-}
-
-pub(in crate::ui) fn file_summary(store: &LocalWorkspaceFacade, file_idx: usize) -> FileSummary {
-	let source = source_file(store, file_idx);
-	FileSummary {
-		index: file_idx,
-		lang: source
-			.and_then(|source| Lang::from_tag(&source.language))
-			.unwrap_or(Lang::Rs),
-		rel_path: source
-			.map(|source| PathBuf::from(&source.rel_path))
-			.unwrap_or_default(),
-		anchor: source
-			.map(|source| PathBuf::from(&source.anchor))
-			.unwrap_or_default(),
-	}
-}
-
 pub(in crate::ui) fn all_navigable_defs(store: &LocalWorkspaceFacade) -> Vec<SymbolId> {
 	let Some(snapshot) = store.snapshot() else {
 		return Vec::new();
@@ -200,28 +218,6 @@ pub(in crate::ui) fn all_navigable_defs(store: &LocalWorkspaceFacade) -> Vec<Sym
 		.filter(|symbol| symbol.navigable)
 		.map(|symbol| symbol.id.clone())
 		.collect()
-}
-
-pub(in crate::ui) fn root_defs(store: &LocalWorkspaceFacade, file_idx: usize) -> Vec<SymbolId> {
-	let Some(source) = source_file(store, file_idx) else {
-		return Vec::new();
-	};
-	let mut roots = store
-		.snapshot()
-		.into_iter()
-		.flat_map(|snapshot| &snapshot.index.symbols)
-		.filter(|symbol| {
-			symbol.navigable
-				&& symbol.source == source.id
-				&& symbol.parent.as_ref().is_none_or(|parent| {
-					symbol_by_id(store, parent)
-						.is_none_or(|parent| !parent.navigable || parent.source != symbol.source)
-				})
-		})
-		.map(|symbol| symbol.id.clone())
-		.collect::<Vec<_>>();
-	sort_defs_for_navigation(store, &mut roots);
-	roots
 }
 
 pub(in crate::ui) fn child_defs(store: &LocalWorkspaceFacade, parent: &SymbolId) -> Vec<SymbolId> {
@@ -795,14 +791,6 @@ fn sort_defs_for_navigation(store: &LocalWorkspaceFacade, symbols: &mut [SymbolI
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::ui) struct FileSummary {
-	pub(in crate::ui) index: usize,
-	pub(in crate::ui) lang: Lang,
-	pub(in crate::ui) rel_path: PathBuf,
-	pub(in crate::ui) anchor: PathBuf,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) struct SymbolSummary {
 	pub(in crate::ui) id: SymbolId,
 	pub(in crate::ui) lang: Lang,
@@ -978,10 +966,19 @@ fn search_filters_match(
 }
 
 fn build_stats(snapshot: &WorkspaceSnapshot) -> SessionStats {
+	fn millis(duration: std::time::Duration) -> u64 {
+		duration.as_millis().try_into().unwrap_or(u64::MAX)
+	}
+
 	let mut stats = SessionStats {
 		files: snapshot.index.sources.len(),
 		defs: snapshot.index.symbols.len(),
 		refs: snapshot.index.references.len(),
+		scan_ms: millis(snapshot.timings.source_catalog),
+		extract_ms: millis(snapshot.timings.extract_sources),
+		index_ms: millis(snapshot.timings.semantic_index),
+		linkage_ms: millis(snapshot.timings.linkage),
+		changes_ms: millis(snapshot.timings.change_overlay),
 		..SessionStats::default()
 	};
 	for source in &snapshot.index.sources {

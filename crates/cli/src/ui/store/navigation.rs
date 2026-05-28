@@ -326,8 +326,10 @@ fn apply_primary_pane_action(
 	action: TreePaneAction,
 ) -> TreePaneNotice {
 	let notice = tree_pane_apply(active_primary_pane_mut(state), action);
-	let selected_key = tree_pane_selected_key(active_primary_pane(state));
-	refresh_primary_rows(state, selected_key.as_ref());
+	if notice_changes_rows(&notice) {
+		let selected_key = tree_pane_selected_key(active_primary_pane(state));
+		refresh_primary_rows(state, selected_key.as_ref());
+	}
 	notice
 }
 
@@ -336,9 +338,18 @@ fn apply_usage_pane_action(state: &mut NavigationState, action: TreePaneAction) 
 		return TreePaneNotice::Noop;
 	};
 	let notice = tree_pane_apply(&mut lens.pane, action);
-	let selected_key = tree_pane_selected_key(&lens.pane);
-	refresh_usage_rows(state, selected_key.as_ref());
+	if notice_changes_rows(&notice) {
+		let selected_key = tree_pane_selected_key(&lens.pane);
+		refresh_usage_rows(state, selected_key.as_ref());
+	}
 	notice
+}
+
+fn notice_changes_rows(notice: &TreePaneNotice) -> bool {
+	matches!(
+		notice,
+		TreePaneNotice::Opened(_) | TreePaneNotice::Closed(_)
+	)
 }
 
 fn pane_selection(state: &NavigationState, pane: NavigationPane) -> usize {

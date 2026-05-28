@@ -144,6 +144,11 @@ fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<b
 					return Ok(true);
 				}
 			}
+			ShellEvent::UsageLensDebounced(generation) => {
+				if update(app, AppAction::UsageLensDebounced(generation)) {
+					return Ok(true);
+				}
+			}
 			ShellEvent::Clipboard(result) => {
 				if update(app, AppAction::Clipboard(result)) {
 					return Ok(true);

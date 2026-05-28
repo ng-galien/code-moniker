@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use crate::changes::ChangeOverlayPort;
 use crate::code::CodeIndexPort;
 use crate::linkage::LinkagePort;
@@ -5,15 +7,23 @@ use crate::source::SourceCatalogPort;
 
 use super::model::{
 	ChangeOverlay, CodeIndex, CodeIndexFields, LinkageGraph, ResourceGeneration, SourceCatalog,
-	SourceFileRecord, SourceFileRecordFields, WorkspaceRequest, WorkspaceResult, WorkspaceSnapshot,
-	WorkspaceTransition,
+	SourceFileRecord, SourceFileRecordFields, WorkspaceFailure, WorkspaceRequest,
+	WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings, WorkspaceTransition,
 };
 
 pub struct WorkspaceSnapshotRefresh<Sources, Index, Linkage, Changes> {
+	ports: WorkspaceSnapshotPorts<Sources, Index, Linkage, Changes>,
+	state: WorkspaceSnapshotState,
+}
+
+struct WorkspaceSnapshotPorts<Sources, Index, Linkage, Changes> {
 	source_catalog: Sources,
 	code_index: Index,
 	linkage: Linkage,
 	change_overlay: Changes,
+}
+
+struct WorkspaceSnapshotState {
 	next_generation: u64,
 	snapshot: Option<WorkspaceSnapshot>,
 	last_failure: Option<super::model::WorkspaceFailure>,
@@ -33,102 +43,92 @@ where
 		change_overlay: Changes,
 	) -> Self {
 		Self {
-			source_catalog,
-			code_index,
-			linkage,
-			change_overlay,
-			next_generation: 1,
-			snapshot: None,
-			last_failure: None,
+			ports: WorkspaceSnapshotPorts {
+				source_catalog,
+				code_index,
+				linkage,
+				change_overlay,
+			},
+			state: WorkspaceSnapshotState::new(),
 		}
 	}
 
 	pub fn refresh(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
-		match self.build_snapshot(request) {
-			Ok(snapshot) => {
-				let generation = snapshot.generation;
-				self.snapshot = Some(snapshot);
-				self.last_failure = None;
-				WorkspaceTransition::Ready { generation }
-			}
-			Err(failure) => {
-				let preserved_generation =
-					self.snapshot.as_ref().map(|snapshot| snapshot.generation);
-				self.last_failure = Some(failure.clone());
-				WorkspaceTransition::Failed {
-					failure,
-					preserved_generation,
-				}
-			}
-		}
+		self.run_phase(|ports, _current, generation| {
+			build_complete_snapshot(
+				&mut ports.source_catalog,
+				&mut ports.code_index,
+				&mut ports.linkage,
+				&mut ports.change_overlay,
+				request,
+				generation,
+			)
+		})
 	}
 
 	pub fn load_catalog(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
-		match self.build_catalog_snapshot(request) {
-			Ok(snapshot) => {
-				let generation = snapshot.generation;
-				self.snapshot = Some(snapshot);
-				self.last_failure = None;
-				WorkspaceTransition::Ready { generation }
-			}
-			Err(failure) => {
-				let preserved_generation =
-					self.snapshot.as_ref().map(|snapshot| snapshot.generation);
-				self.last_failure = Some(failure.clone());
-				WorkspaceTransition::Failed {
-					failure,
-					preserved_generation,
-				}
-			}
-		}
+		self.run_phase(|ports, _current, generation| {
+			build_catalog_snapshot(&mut ports.source_catalog, request, generation)
+		})
+	}
+
+	pub fn load_index(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
+		self.run_phase(|ports, _current, generation| {
+			build_index_only_snapshot(
+				&mut ports.source_catalog,
+				&mut ports.code_index,
+				request,
+				generation,
+			)
+		})
+	}
+
+	pub fn resolve_linkage(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
+		self.run_phase(|ports, current, generation| {
+			build_linkage_snapshot(
+				current,
+				&mut ports.linkage,
+				&mut ports.change_overlay,
+				request,
+				generation,
+			)
+		})
+	}
+
+	pub fn replace_snapshot(&mut self, snapshot: WorkspaceSnapshot) {
+		self.state.replace_snapshot(snapshot);
 	}
 
 	pub fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
-		self.snapshot.as_ref()
+		self.state.snapshot()
 	}
 
 	pub fn last_failure(&self) -> Option<&super::model::WorkspaceFailure> {
-		self.last_failure.as_ref()
+		self.state.last_failure()
 	}
 
-	fn build_snapshot(&mut self, request: WorkspaceRequest) -> WorkspaceResult<WorkspaceSnapshot> {
-		let catalog = self.source_catalog.load_catalog(&request)?;
-		let index = self.code_index.build_index(&catalog)?;
-		let linkage = self.linkage.resolve_linkage(&index)?;
-		let changes = self
-			.change_overlay
-			.build_change_overlay(&catalog, &index, &linkage)?;
-		let generation = self.allocate_generation();
-		Ok(WorkspaceSnapshot {
-			generation,
-			catalog,
-			index,
-			linkage,
-			changes,
-		})
-	}
-
-	fn build_catalog_snapshot(
+	fn run_phase(
 		&mut self,
-		request: WorkspaceRequest,
-	) -> WorkspaceResult<WorkspaceSnapshot> {
-		let catalog = self.source_catalog.load_catalog(&request)?;
-		let generation = self.allocate_generation();
-		let index = catalog_index(&catalog);
-		let linkage = LinkageGraph::new(catalog.generation, index.generation, 0, 0);
-		let changes = ChangeOverlay::new(
-			catalog.generation,
-			catalog.generation,
-			index.generation,
-			Vec::new(),
-		);
-		Ok(WorkspaceSnapshot {
-			generation,
-			catalog,
-			index,
-			linkage,
-			changes,
-		})
+		phase: impl FnOnce(
+			&mut WorkspaceSnapshotPorts<Sources, Index, Linkage, Changes>,
+			Option<&WorkspaceSnapshot>,
+			ResourceGeneration,
+		) -> WorkspaceResult<WorkspaceSnapshot>,
+	) -> WorkspaceTransition {
+		let generation = self.state.allocate_generation();
+		let current = self.state.snapshot();
+		let result = phase(&mut self.ports, current, generation);
+		self.state.publish(result)
+	}
+}
+
+impl WorkspaceSnapshotState {
+	fn new() -> Self {
+		Self {
+			next_generation: 1,
+			snapshot: None,
+			last_failure: None,
+		}
 	}
 
 	fn allocate_generation(&mut self) -> ResourceGeneration {
@@ -136,6 +136,183 @@ where
 		self.next_generation += 1;
 		generation
 	}
+
+	fn publish(&mut self, result: WorkspaceResult<WorkspaceSnapshot>) -> WorkspaceTransition {
+		match result {
+			Ok(snapshot) => {
+				let generation = snapshot.generation;
+				self.snapshot = Some(snapshot);
+				self.last_failure = None;
+				WorkspaceTransition::Ready { generation }
+			}
+			Err(failure) => {
+				let preserved_generation =
+					self.snapshot.as_ref().map(|snapshot| snapshot.generation);
+				self.last_failure = Some(failure.clone());
+				WorkspaceTransition::Failed {
+					failure,
+					preserved_generation,
+				}
+			}
+		}
+	}
+
+	fn replace_snapshot(&mut self, snapshot: WorkspaceSnapshot) {
+		self.snapshot = Some(snapshot);
+		self.last_failure = None;
+	}
+
+	fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
+		self.snapshot.as_ref()
+	}
+
+	fn last_failure(&self) -> Option<&super::model::WorkspaceFailure> {
+		self.last_failure.as_ref()
+	}
+}
+
+fn build_complete_snapshot(
+	source_catalog: &mut impl SourceCatalogPort,
+	code_index: &mut impl CodeIndexPort,
+	linkage: &mut impl LinkagePort,
+	change_overlay: &mut impl ChangeOverlayPort,
+	request: WorkspaceRequest,
+	generation: ResourceGeneration,
+) -> WorkspaceResult<WorkspaceSnapshot> {
+	let total_timer = Instant::now();
+	let catalog_timer = Instant::now();
+	let catalog = source_catalog.load_catalog(&request)?;
+	let catalog_elapsed = catalog_timer.elapsed();
+	let index_timer = Instant::now();
+	let index = code_index.build_index(&catalog)?;
+	let index_elapsed = index_timer.elapsed();
+	let linkage_timer = Instant::now();
+	let linkage = linkage.resolve_linkage(&index)?;
+	let linkage_elapsed = linkage_timer.elapsed();
+	let changes_timer = Instant::now();
+	let changes = change_overlay.build_change_overlay(&catalog, &index, &linkage)?;
+	let changes_elapsed = changes_timer.elapsed();
+	let timings = timings(
+		catalog_elapsed,
+		&index,
+		index_elapsed,
+		linkage_elapsed,
+		changes_elapsed,
+		total_timer.elapsed(),
+	);
+	Ok(WorkspaceSnapshot {
+		generation,
+		catalog,
+		index,
+		linkage,
+		changes,
+		timings,
+	})
+}
+
+fn build_index_only_snapshot(
+	source_catalog: &mut impl SourceCatalogPort,
+	code_index: &mut impl CodeIndexPort,
+	request: WorkspaceRequest,
+	generation: ResourceGeneration,
+) -> WorkspaceResult<WorkspaceSnapshot> {
+	let total_timer = Instant::now();
+	let catalog_timer = Instant::now();
+	let catalog = source_catalog.load_catalog(&request)?;
+	let catalog_elapsed = catalog_timer.elapsed();
+	let index_timer = Instant::now();
+	let index = code_index.build_index(&catalog)?;
+	let index_elapsed = index_timer.elapsed();
+	let linkage = empty_linkage(&catalog, &index);
+	let changes = empty_changes(&catalog, &index);
+	let timings = timings(
+		catalog_elapsed,
+		&index,
+		index_elapsed,
+		Duration::ZERO,
+		Duration::ZERO,
+		total_timer.elapsed(),
+	);
+	Ok(WorkspaceSnapshot {
+		generation,
+		catalog,
+		index,
+		linkage,
+		changes,
+		timings,
+	})
+}
+
+fn build_linkage_snapshot(
+	current: Option<&WorkspaceSnapshot>,
+	linkage: &mut impl LinkagePort,
+	change_overlay: &mut impl ChangeOverlayPort,
+	request: WorkspaceRequest,
+	generation: ResourceGeneration,
+) -> WorkspaceResult<WorkspaceSnapshot> {
+	let current = current.ok_or_else(|| {
+		WorkspaceFailure::new(
+			WorkspaceResource::LinkageGraph,
+			format!("{} requires an indexed workspace snapshot", request.label),
+		)
+	})?;
+	let linkage_timer = Instant::now();
+	let linkage = linkage.resolve_linkage(&current.index)?;
+	let linkage_elapsed = linkage_timer.elapsed();
+	let changes_timer = Instant::now();
+	let changes =
+		change_overlay.build_change_overlay(&current.catalog, &current.index, &linkage)?;
+	let changes_elapsed = changes_timer.elapsed();
+	let total = current.timings.source_catalog
+		+ current.timings.code_index
+		+ linkage_elapsed
+		+ changes_elapsed;
+	let timings = timings(
+		current.timings.source_catalog,
+		&current.index,
+		current.timings.code_index,
+		linkage_elapsed,
+		changes_elapsed,
+		total,
+	);
+	Ok(WorkspaceSnapshot {
+		generation,
+		catalog: current.catalog.clone(),
+		index: current.index.clone(),
+		linkage,
+		changes,
+		timings,
+	})
+}
+
+fn build_catalog_snapshot(
+	source_catalog: &mut impl SourceCatalogPort,
+	request: WorkspaceRequest,
+	generation: ResourceGeneration,
+) -> WorkspaceResult<WorkspaceSnapshot> {
+	let total_timer = Instant::now();
+	let catalog_timer = Instant::now();
+	let catalog = source_catalog.load_catalog(&request)?;
+	let catalog_elapsed = catalog_timer.elapsed();
+	let index = catalog_index(&catalog);
+	let linkage = empty_linkage(&catalog, &index);
+	let changes = empty_changes(&catalog, &index);
+	let timings = timings(
+		catalog_elapsed,
+		&index,
+		Duration::ZERO,
+		Duration::ZERO,
+		Duration::ZERO,
+		total_timer.elapsed(),
+	);
+	Ok(WorkspaceSnapshot {
+		generation,
+		catalog,
+		index,
+		linkage,
+		changes,
+		timings,
+	})
 }
 
 fn catalog_index(catalog: &SourceCatalog) -> CodeIndex {
@@ -162,7 +339,40 @@ fn catalog_index(catalog: &SourceCatalog) -> CodeIndex {
 			.collect(),
 		symbols: Vec::new(),
 		references: Vec::new(),
+		timings: Default::default(),
 	})
+}
+
+fn empty_linkage(catalog: &SourceCatalog, index: &CodeIndex) -> LinkageGraph {
+	LinkageGraph::new(catalog.generation, index.generation, 0, 0)
+}
+
+fn empty_changes(catalog: &SourceCatalog, index: &CodeIndex) -> ChangeOverlay {
+	ChangeOverlay::new(
+		catalog.generation,
+		catalog.generation,
+		index.generation,
+		Vec::new(),
+	)
+}
+
+fn timings(
+	source_catalog: Duration,
+	index: &CodeIndex,
+	code_index: Duration,
+	linkage: Duration,
+	change_overlay: Duration,
+	total: Duration,
+) -> WorkspaceTimings {
+	WorkspaceTimings {
+		source_catalog,
+		extract_sources: index.timings.extract_sources,
+		semantic_index: index.timings.semantic_index,
+		code_index,
+		linkage,
+		change_overlay,
+		total,
+	}
 }
 
 #[cfg(test)]
@@ -371,6 +581,59 @@ mod tests {
 		assert!(snapshot.index.symbols.is_empty());
 		assert!(snapshot.index.references.is_empty());
 		assert_eq!(snapshot.linkage.resolved_refs, 0);
+	}
+
+	#[test]
+	fn load_index_publishes_symbols_without_linkage() {
+		let fixture = Fixture::new();
+		let mut session = fixture.session();
+
+		let transition = session.load_index(WorkspaceRequest::new("index"));
+		let snapshot = session.snapshot().expect("index snapshot");
+
+		assert_eq!(
+			transition,
+			WorkspaceTransition::Ready {
+				generation: ResourceGeneration::new(1)
+			}
+		);
+		assert_eq!(fixture.log(), vec!["catalog:index", "index:catalog@10"]);
+		assert_eq!(snapshot.index.symbols.len(), 1);
+		assert_eq!(snapshot.linkage.resolved_refs, 0);
+		assert!(snapshot.changes.changed_symbols.is_empty());
+	}
+
+	#[test]
+	fn resolve_linkage_reuses_published_index_snapshot() {
+		let fixture = Fixture::new();
+		let mut session = fixture.session();
+
+		session.load_index(WorkspaceRequest::new("index"));
+		let transition = session.resolve_linkage(WorkspaceRequest::new("linkage"));
+		let snapshot = session.snapshot().expect("linked snapshot");
+
+		assert_eq!(
+			transition,
+			WorkspaceTransition::Ready {
+				generation: ResourceGeneration::new(2)
+			}
+		);
+		assert_eq!(
+			fixture.log(),
+			vec![
+				"catalog:index",
+				"index:catalog@10",
+				"linkage:index@20",
+				"changes:catalog@10:index@20:linkage@30",
+			]
+		);
+		assert_eq!(snapshot.catalog.generation, ResourceGeneration::new(10));
+		assert_eq!(snapshot.index.generation, ResourceGeneration::new(20));
+		assert_eq!(snapshot.linkage.resolved_refs, 3);
+		assert_eq!(
+			snapshot.changes.changed_symbols,
+			vec![SymbolId::new("symbol:main")]
+		);
 	}
 
 	#[test]

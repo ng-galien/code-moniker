@@ -1,11 +1,13 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use code_moniker_core::core::moniker::Moniker;
+use rayon::prelude::*;
 
 use crate::code::{def_kind, is_navigable_def, last_name, ref_kind};
 use crate::environment;
 use crate::snapshot::{
-	CodeIndex, CodeIndexFields, ReferenceRecord, SourceCatalog, SourceFileRecord,
+	CodeIndex, CodeIndexFields, CodeIndexTimings, ReferenceRecord, SourceCatalog, SourceFileRecord,
 	SourceFileRecordFields, SymbolRecord, SymbolRecordFields, WorkspaceFailure, WorkspaceResource,
 	WorkspaceResult,
 };
@@ -43,22 +45,40 @@ impl LocalCodeIndex {
 
 impl CodeIndexPort for LocalCodeIndex {
 	fn build_index(&mut self, catalog: &SourceCatalog) -> WorkspaceResult<CodeIndex> {
-		let source_material = source_material(&self.cache, catalog)?;
-		let generation = self.cache.next_generation();
-		let files = extract_source_files(&source_material, self.options.cache_dir.as_deref())?;
-		let (symbols, references, material) = build_semantic_index(source_material, files);
-		let sources = source_records(&material.files);
-		let identity_scheme = material.identity.scheme().to_string();
-		self.cache.insert_index(generation, material);
-		Ok(CodeIndex::from_fields(CodeIndexFields {
-			generation,
-			catalog_generation: catalog.generation,
-			identity_scheme,
-			sources,
-			symbols,
-			references,
-		}))
+		build_local_code_index(&self.cache, &self.options, catalog)
 	}
+}
+
+fn build_local_code_index(
+	cache: &LocalResourceCache,
+	options: &LocalCodeIndexOptions,
+	catalog: &SourceCatalog,
+) -> WorkspaceResult<CodeIndex> {
+	let total_timer = Instant::now();
+	let source_material = source_material(cache, catalog)?;
+	let generation = cache.next_generation();
+	let extract_timer = Instant::now();
+	let files = extract_source_files(&source_material, options.cache_dir.as_deref())?;
+	let extract_sources = extract_timer.elapsed();
+	let semantic_timer = Instant::now();
+	let (symbols, references, material) = build_semantic_index(source_material, files);
+	let semantic_index = semantic_timer.elapsed();
+	let sources = source_records(&material.files);
+	let identity_scheme = material.identity.scheme().to_string();
+	cache.insert_index(generation, material);
+	Ok(CodeIndex::from_fields(CodeIndexFields {
+		generation,
+		catalog_generation: catalog.generation,
+		identity_scheme,
+		sources,
+		symbols,
+		references,
+		timings: CodeIndexTimings {
+			extract_sources,
+			semantic_index,
+			total: total_timer.elapsed(),
+		},
+	}))
 }
 
 fn source_material(
@@ -77,59 +97,63 @@ fn extract_source_files(
 	source_material: &SourceCatalogMaterial,
 	cache_dir: Option<&std::path::Path>,
 ) -> WorkspaceResult<Vec<IndexedSourceFile>> {
-	let mut files = Vec::new();
-	for (file_idx, file) in source_material.sources.files.iter().enumerate() {
-		let ctx = &source_material.sources.roots[file.source].ctx;
-		let (graph, extracted_source) = environment::load_or_extract_source(
-			&file.path,
-			&file.anchor,
-			file.lang,
-			cache_dir,
-			ctx,
-		)
-		.map_err(|err| {
-			WorkspaceFailure::new(
-				WorkspaceResource::CodeIndex,
-				format!("cannot extract {}: {err}", file.path.display()),
+	source_material
+		.sources
+		.files
+		.par_iter()
+		.enumerate()
+		.map(|(file_idx, file)| {
+			let ctx = &source_material.sources.roots[file.source].ctx;
+			let (graph, extracted_source) = environment::load_or_extract_source(
+				&file.path,
+				&file.anchor,
+				file.lang,
+				cache_dir,
+				ctx,
 			)
-		})?;
-		let source = match extracted_source {
-			Some(source) => source,
-			None => std::fs::read_to_string(&file.path).map_err(|err| {
+			.map_err(|err| {
 				WorkspaceFailure::new(
 					WorkspaceResource::CodeIndex,
-					format!("cannot read {}: {err}", file.path.display()),
+					format!("cannot extract {}: {err}", file.path.display()),
 				)
-			})?,
-		};
-		files.push(IndexedSourceFile {
-			source_root: file.source,
-			source_id: source_material
-				.source_id_for_file(file_idx)
-				.ok_or_else(|| {
+			})?;
+			let source = match extracted_source {
+				Some(source) => source,
+				None => std::fs::read_to_string(&file.path).map_err(|err| {
 					WorkspaceFailure::new(
 						WorkspaceResource::CodeIndex,
-						format!("source id is unavailable for {}", file.rel_path.display()),
+						format!("cannot read {}: {err}", file.path.display()),
 					)
 				})?,
-			source_uri: source_material
-				.source_uri_for_path(&file.path)
-				.ok_or_else(|| {
-					WorkspaceFailure::new(
-						WorkspaceResource::CodeIndex,
-						format!("source uri is unavailable for {}", file.path.display()),
-					)
-				})?,
-			identity: source_material.identity.clone(),
-			path: file.path.clone(),
-			rel_path: file.rel_path.clone(),
-			anchor: file.anchor.clone(),
-			lang: file.lang,
-			graph,
-			source,
-		});
-	}
-	Ok(files)
+			};
+			Ok(IndexedSourceFile {
+				source_root: file.source,
+				source_id: source_material
+					.source_id_for_file(file_idx)
+					.ok_or_else(|| {
+						WorkspaceFailure::new(
+							WorkspaceResource::CodeIndex,
+							format!("source id is unavailable for {}", file.rel_path.display()),
+						)
+					})?,
+				source_uri: source_material
+					.source_uri_for_path(&file.path)
+					.ok_or_else(|| {
+						WorkspaceFailure::new(
+							WorkspaceResource::CodeIndex,
+							format!("source uri is unavailable for {}", file.path.display()),
+						)
+					})?,
+				identity: source_material.identity.clone(),
+				path: file.path.clone(),
+				rel_path: file.rel_path.clone(),
+				anchor: file.anchor.clone(),
+				lang: file.lang,
+				graph,
+				source,
+			})
+		})
+		.collect()
 }
 
 fn build_semantic_index(

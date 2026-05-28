@@ -13,6 +13,7 @@ pub(in crate::ui) enum ShellEvent {
 	Store(StoreEvent),
 	TaskCompleted(TaskResult),
 	HeaderSearchDebounced(u64),
+	UsageLensDebounced(u64),
 	Clipboard(ClipboardResult),
 	Error(String),
 }

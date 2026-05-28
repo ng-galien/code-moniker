@@ -44,8 +44,8 @@ pub(in crate::ui) use panel_focus::{
 	toggle_panel_tree_node,
 };
 pub(in crate::ui) use runtime::{
-	dispatch_and_apply, handle_key, queue_startup_load, queue_task, set_event_sender,
-	take_watch_roots_update, update,
+	dispatch_and_apply, handle_key, queue_startup_load, queue_task, queue_usage_lens_refresh,
+	set_event_sender, take_watch_roots_update, update,
 };
 pub(in crate::ui) use state::{
 	ActiveFilter, ChangePanelMode, CheckState, FocusRegion, PanelNavigationState, PanelPolicy,
@@ -74,6 +74,7 @@ pub(in crate::ui) struct AppRuntime {
 	event_tx: Option<Sender<ShellEvent>>,
 	startup_load_pending: bool,
 	watch_roots_update: Option<Vec<StoreWatchRoot>>,
+	usage_lens_generation: u64,
 }
 
 pub(in crate::ui) fn boot_app(
@@ -232,6 +233,7 @@ pub(in crate::ui) fn new_app(
 			event_tx: None,
 			startup_load_pending: false,
 			watch_roots_update: None,
+			usage_lens_generation: 0,
 		},
 	};
 	app.refresh_header_search_options();

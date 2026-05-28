@@ -164,6 +164,7 @@ impl Reduce<&AppAction> for AppState {
 			AppAction::HeaderSearchDebounced(generation) => {
 				reduce_header_search_debounced(self, *generation)
 			}
+			AppAction::UsageLensDebounced(_) => Transition::unchanged(),
 			AppAction::Shell(action) => reduce_shell_action(self, action),
 			AppAction::Store(event) => {
 				invalidate_for_store_event(self, *event);

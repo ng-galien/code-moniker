@@ -1,3 +1,4 @@
+use crate::session::SessionStats;
 use crate::ui::app::{
 	App, ChangePanelMode, CheckState, FocusRegion, View, app_profile_name, app_rules_path,
 	filter_label, is_filtered, selected, selected_change_detail,
@@ -81,42 +82,60 @@ fn overview_panel_nav(app: &App) -> ActivePanelNav {
 
 fn overview_panel(app: &App) -> PanelVm {
 	let stats = workspace_read::stats(crate::ui::app::store(app));
-	let total_ms = stats.scan_ms + stats.extract_ms + stats.index_ms;
 	let mut vm = PanelVm::new("overview", ComponentId::PanelOverview);
-	panel_section(&mut vm, "summary");
+	overview_summary_section(&mut vm, app, &stats);
+	overview_timing_section(&mut vm, &stats);
+	overview_linkage_section(&mut vm, app);
+	overview_languages_section(&mut vm, &stats);
+	overview_shapes_section(&mut vm, &stats);
+	vm
+}
+
+fn overview_summary_section(vm: &mut PanelVm, app: &App, stats: &SessionStats) {
+	panel_section(vm, "summary");
 	panel_kv(
-		&mut vm,
+		vm,
 		"root",
 		crate::ui::app::store_root_label(app),
 		FitMode::Tail,
 	);
-	panel_kv(&mut vm, "files", stats.files.to_string(), FitMode::Tail);
-	panel_kv(&mut vm, "defs", stats.defs.to_string(), FitMode::Tail);
-	panel_kv(&mut vm, "refs", stats.refs.to_string(), FitMode::Tail);
-	panel_kv(&mut vm, "time", format!("{total_ms} ms"), FitMode::Tail);
+	panel_kv(vm, "files", stats.files.to_string(), FitMode::Tail);
+	panel_kv(vm, "defs", stats.defs.to_string(), FitMode::Tail);
+	panel_kv(vm, "refs", stats.refs.to_string(), FitMode::Tail);
+}
+
+fn overview_timing_section(vm: &mut PanelVm, stats: &SessionStats) {
+	let total_ms =
+		stats.scan_ms + stats.extract_ms + stats.index_ms + stats.linkage_ms + stats.changes_ms;
+	panel_kv(vm, "time", format!("{total_ms} ms"), FitMode::Tail);
+	panel_kv(vm, "scan", format!("{} ms", stats.scan_ms), FitMode::Tail);
 	panel_kv(
-		&mut vm,
-		"scan",
-		format!("{} ms", stats.scan_ms),
-		FitMode::Tail,
-	);
-	panel_kv(
-		&mut vm,
+		vm,
 		"extract",
 		format!("{} ms", stats.extract_ms),
 		FitMode::Tail,
 	);
+	panel_kv(vm, "index", format!("{} ms", stats.index_ms), FitMode::Tail);
 	panel_kv(
-		&mut vm,
-		"index",
-		format!("{} ms", stats.index_ms),
+		vm,
+		"linkage",
+		format!("{} ms", stats.linkage_ms),
 		FitMode::Tail,
 	);
-	let linkage = workspace_read::linkage_stats(crate::ui::app::store(app));
-	panel_blank(&mut vm);
-	panel_section(&mut vm, "linkage");
 	panel_kv(
-		&mut vm,
+		vm,
+		"changes",
+		format!("{} ms", stats.changes_ms),
+		FitMode::Tail,
+	);
+}
+
+fn overview_linkage_section(vm: &mut PanelVm, app: &App) {
+	let linkage = workspace_read::linkage_stats(crate::ui::app::store(app));
+	panel_blank(vm);
+	panel_section(vm, "linkage");
+	panel_kv(
+		vm,
 		"score",
 		linkage
 			.score_percent()
@@ -125,45 +144,48 @@ fn overview_panel(app: &App) -> PanelVm {
 		FitMode::Tail,
 	);
 	panel_kv(
-		&mut vm,
+		vm,
 		"eligible",
 		linkage.eligible_refs().to_string(),
 		FitMode::Tail,
 	);
 	panel_kv(
-		&mut vm,
+		vm,
 		"resolved",
 		linkage.resolved_refs.to_string(),
 		FitMode::Tail,
 	);
 	panel_kv(
-		&mut vm,
+		vm,
 		"external",
 		linkage.external_refs.to_string(),
 		FitMode::Tail,
 	);
 	panel_kv(
-		&mut vm,
+		vm,
 		"blocked",
 		linkage.manifest_blocked_refs.to_string(),
 		FitMode::Tail,
 	);
 	panel_kv(
-		&mut vm,
+		vm,
 		"unresolved",
 		linkage.unresolved_refs.to_string(),
 		FitMode::Tail,
 	);
 	panel_kv(
-		&mut vm,
+		vm,
 		"ambiguous",
 		linkage.ambiguous_refs.to_string(),
 		FitMode::Tail,
 	);
-	panel_blank(&mut vm);
-	panel_section(&mut vm, "languages");
+}
+
+fn overview_languages_section(vm: &mut PanelVm, stats: &SessionStats) {
+	panel_blank(vm);
+	panel_section(vm, "languages");
 	panel_table(
-		&mut vm,
+		vm,
 		vec![
 			Column::left("lang", 10),
 			Column::right("files", 7),
@@ -183,10 +205,13 @@ fn overview_panel(app: &App) -> PanelVm {
 			})
 			.collect(),
 	);
-	panel_blank(&mut vm);
-	panel_section(&mut vm, "shapes");
+}
+
+fn overview_shapes_section(vm: &mut PanelVm, stats: &SessionStats) {
+	panel_blank(vm);
+	panel_section(vm, "shapes");
 	panel_table(
-		&mut vm,
+		vm,
 		vec![Column::left("shape", 12), Column::right("count", 8)],
 		stats
 			.by_shape
@@ -194,7 +219,6 @@ fn overview_panel(app: &App) -> PanelVm {
 			.map(|(shape, count)| vec![shape.to_string(), count.to_string()])
 			.collect(),
 	);
-	vm
 }
 
 fn outline_panel_nav(app: &App) -> ActivePanelNav {

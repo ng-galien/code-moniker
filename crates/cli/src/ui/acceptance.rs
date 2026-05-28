@@ -106,14 +106,14 @@ impl TuiAcceptance {
 	}
 
 	fn navigate_to_risk_policy_class(&mut self) {
-		self.press(KeyCode::Enter); // java/
+		self.press(KeyCode::Enter);
 		self.press_n(KeyCode::Down, 2);
-		self.press(KeyCode::Enter); // common-lib/src/main/java/com/acme/common/
+		self.press(KeyCode::Enter);
 		self.press(KeyCode::Down);
-		self.press(KeyCode::Enter); // customer/
+		self.press(KeyCode::Enter);
 		self.press_n(KeyCode::Down, 4);
-		self.press(KeyCode::Enter); // RiskPolicy.java
-		self.press(KeyCode::Down); // class RiskPolicy
+		self.press(KeyCode::Enter);
+		self.press(KeyCode::Down);
 	}
 }
 
@@ -154,7 +154,7 @@ fn multiproject_multiple_paths_behave_like_virtual_parent() {
 	assert_visible(&screen, "spring-edge");
 	assert_visible(&screen, "files      24");
 	assert_visible(&screen, "defs       220");
-	assert_visible(&screen, "refs       492");
+	assert_visible(&screen, "refs       497");
 }
 
 #[test]

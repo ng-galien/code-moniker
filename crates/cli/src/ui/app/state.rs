@@ -287,18 +287,19 @@ pub(in crate::ui) fn complete_task(state: &mut AppState, result: &TaskResult) ->
 		return TaskCompletion::Ignored;
 	}
 	match &result.outcome {
-		TaskOutcome::StoreReloaded(_) => {
-			state.work.pending.remove(&WorkKind::ProjectLoad);
-			state.work.pending.remove(&WorkKind::FileCatalog);
-			state.work.pending.remove(&WorkKind::GraphIndex);
-			state.work.pending.remove(&WorkKind::SearchIndex);
-			state.work.pending.remove(&WorkKind::GitOverlay);
-			state.work.pending.remove(&WorkKind::ImpactIndex);
-			state.work.pending.remove(&WorkKind::PanelData);
-		}
 		TaskOutcome::FileCatalogLoaded(_) => {
 			state.work.pending.remove(&WorkKind::ProjectLoad);
 			state.work.pending.remove(&WorkKind::FileCatalog);
+		}
+		TaskOutcome::SymbolIndexLoaded { .. } => {
+			state.work.pending.remove(&WorkKind::GraphIndex);
+			state.work.pending.insert(WorkKind::LinkageGraph);
+		}
+		TaskOutcome::LinkageResolved(_) => {
+			state.work.pending.remove(&WorkKind::LinkageGraph);
+			state.work.pending.remove(&WorkKind::GitOverlay);
+			state.work.pending.remove(&WorkKind::ImpactIndex);
+			state.work.pending.remove(&WorkKind::PanelData);
 		}
 		TaskOutcome::CheckCompleted(summary) => {
 			state.check.state = CheckState::Ready((**summary).clone());
@@ -313,7 +314,8 @@ pub(in crate::ui) fn complete_task(state: &mut AppState, result: &TaskResult) ->
 		label: result.label.clone(),
 		status: match &result.outcome {
 			TaskOutcome::FileCatalogLoaded(_) => TaskStatus::Completed,
-			TaskOutcome::StoreReloaded(_) => TaskStatus::Completed,
+			TaskOutcome::SymbolIndexLoaded { .. } => TaskStatus::Completed,
+			TaskOutcome::LinkageResolved(_) => TaskStatus::Completed,
 			TaskOutcome::CheckCompleted(_) => TaskStatus::Completed,
 			TaskOutcome::Failed(_) => TaskStatus::Failed,
 		},
@@ -340,8 +342,10 @@ fn invalidate_full_index(state: &mut AppState) {
 		WorkKind::ProjectLoad,
 		WorkKind::FileCatalog,
 		WorkKind::GraphIndex,
+		WorkKind::LinkageGraph,
 		WorkKind::SearchIndex,
 		WorkKind::GitOverlay,
+		WorkKind::LinkageGraph,
 		WorkKind::ImpactIndex,
 		WorkKind::PanelData,
 		WorkKind::CheckPanel,

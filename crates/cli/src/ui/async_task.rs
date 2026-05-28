@@ -7,8 +7,9 @@ use crate::perf;
 use crate::session::{CheckSummary, SessionOptions};
 use crate::ui::workspace_read::{
 	self, LocalWorkspaceFacade, WorkspaceCheckContext, load_local_file_catalog,
-	load_local_workspace,
+	load_local_symbol_index, resolve_local_linkage,
 };
+use code_moniker_workspace::snapshot::WorkspaceSnapshot;
 use code_moniker_workspace::source::LocalResourceCache;
 
 type LoadedWorkspace = (LocalWorkspaceFacade, LocalResourceCache, SessionOptions);
@@ -20,6 +21,7 @@ pub(in crate::ui) enum WorkKind {
 	ProjectLoad,
 	FileCatalog,
 	GraphIndex,
+	LinkageGraph,
 	SearchIndex,
 	GitOverlay,
 	ImpactIndex,
@@ -51,21 +53,38 @@ pub(in crate::ui) struct TaskSpec {
 }
 
 impl TaskSpec {
-	pub(in crate::ui) fn reload_store(opts: SessionOptions) -> Self {
-		Self {
-			id: TaskId::next(),
-			generation: 0,
-			label: "reload index".to_string(),
-			kind: TaskKind::ReloadStore { opts },
-		}
-	}
-
 	pub(in crate::ui) fn load_file_catalog(opts: SessionOptions) -> Self {
 		Self {
 			id: TaskId::next(),
 			generation: 0,
 			label: "load file tree".to_string(),
 			kind: TaskKind::LoadFileCatalog { opts },
+		}
+	}
+
+	pub(in crate::ui) fn load_symbol_index(opts: SessionOptions) -> Self {
+		Self {
+			id: TaskId::next(),
+			generation: 0,
+			label: "load symbols".to_string(),
+			kind: TaskKind::LoadSymbolIndex { opts },
+		}
+	}
+
+	pub(in crate::ui) fn resolve_linkage(
+		opts: SessionOptions,
+		cache: LocalResourceCache,
+		snapshot: WorkspaceSnapshot,
+	) -> Self {
+		Self {
+			id: TaskId::next(),
+			generation: 0,
+			label: "resolve linkage".to_string(),
+			kind: TaskKind::ResolveLinkage {
+				opts,
+				cache,
+				snapshot,
+			},
 		}
 	}
 
@@ -111,8 +130,13 @@ enum TaskKind {
 	LoadFileCatalog {
 		opts: SessionOptions,
 	},
-	ReloadStore {
+	LoadSymbolIndex {
 		opts: SessionOptions,
+	},
+	ResolveLinkage {
+		opts: SessionOptions,
+		cache: LocalResourceCache,
+		snapshot: WorkspaceSnapshot,
 	},
 	RunCheck {
 		context: WorkspaceCheckContext,
@@ -137,7 +161,8 @@ impl TaskKind {
 	fn label(&self) -> &'static str {
 		match self {
 			Self::LoadFileCatalog { .. } => "load_file_catalog",
-			Self::ReloadStore { .. } => "reload_store",
+			Self::LoadSymbolIndex { .. } => "load_symbol_index",
+			Self::ResolveLinkage { .. } => "resolve_linkage",
 			Self::RunCheck { .. } => "run_check",
 		}
 	}
@@ -145,7 +170,8 @@ impl TaskKind {
 	fn work_kind(&self) -> WorkKind {
 		match self {
 			Self::LoadFileCatalog { .. } => WorkKind::FileCatalog,
-			Self::ReloadStore { .. } => WorkKind::GraphIndex,
+			Self::LoadSymbolIndex { .. } => WorkKind::GraphIndex,
+			Self::ResolveLinkage { .. } => WorkKind::LinkageGraph,
 			Self::RunCheck { .. } => WorkKind::CheckPanel,
 		}
 	}
@@ -162,7 +188,11 @@ pub(in crate::ui) struct TaskResult {
 
 pub(in crate::ui) enum TaskOutcome {
 	FileCatalogLoaded(Box<LoadedWorkspace>),
-	StoreReloaded(Box<LoadedWorkspace>),
+	SymbolIndexLoaded {
+		workspace: Box<LoadedWorkspace>,
+		linkage_seed: Box<WorkspaceSnapshot>,
+	},
+	LinkageResolved(Box<LoadedWorkspace>),
 	CheckCompleted(Box<CheckSummary>),
 	Failed(String),
 }
@@ -171,7 +201,8 @@ impl fmt::Debug for TaskOutcome {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Self::FileCatalogLoaded(_) => f.write_str("FileCatalogLoaded(..)"),
-			Self::StoreReloaded(_) => f.write_str("StoreReloaded(..)"),
+			Self::SymbolIndexLoaded { .. } => f.write_str("SymbolIndexLoaded(..)"),
+			Self::LinkageResolved(_) => f.write_str("LinkageResolved(..)"),
 			Self::CheckCompleted(_) => f.write_str("CheckCompleted(..)"),
 			Self::Failed(error) => f.debug_tuple("Failed").field(error).finish(),
 		}
@@ -182,7 +213,8 @@ impl TaskOutcome {
 	fn label(&self) -> &'static str {
 		match self {
 			Self::FileCatalogLoaded(_) => "file_catalog_loaded",
-			Self::StoreReloaded(_) => "store_reloaded",
+			Self::SymbolIndexLoaded { .. } => "symbol_index_loaded",
+			Self::LinkageResolved(_) => "linkage_resolved",
 			Self::CheckCompleted(_) => "check_completed",
 			Self::Failed(_) => "failed",
 		}
@@ -190,17 +222,23 @@ impl TaskOutcome {
 
 	fn detail(&self) -> String {
 		match self {
-			Self::FileCatalogLoaded(store) | Self::StoreReloaded(store) => {
+			Self::FileCatalogLoaded(store)
+			| Self::LinkageResolved(store)
+			| Self::SymbolIndexLoaded {
+				workspace: store, ..
+			} => {
 				let stats = workspace_read::stats(&store.0);
 				let linkage = workspace_read::linkage_stats(&store.0);
 				format!(
-					"files={} defs={} refs={} scan_ms={} extract_ms={} index_ms={} linkage_score={} eligible_refs={} resolved_refs={} unresolved_refs={}",
+					"files={} defs={} refs={} scan_ms={} extract_ms={} index_ms={} linkage_ms={} changes_ms={} linkage_score={} eligible_refs={} resolved_refs={} unresolved_refs={}",
 					stats.files,
 					stats.defs,
 					stats.refs,
 					stats.scan_ms,
 					stats.extract_ms,
 					stats.index_ms,
+					stats.linkage_ms,
+					stats.changes_ms,
 					linkage
 						.score_percent()
 						.map(|score| format!("{score}%"))
@@ -256,8 +294,22 @@ fn execute_task_kind(kind: TaskKind) -> TaskOutcome {
 			Ok((store, cache)) => TaskOutcome::FileCatalogLoaded(Box::new((store, cache, opts))),
 			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 		},
-		TaskKind::ReloadStore { opts } => match load_local_workspace(&opts) {
-			Ok((store, cache)) => TaskOutcome::StoreReloaded(Box::new((store, cache, opts))),
+		TaskKind::LoadSymbolIndex { opts } => match load_local_symbol_index(&opts) {
+			Ok((store, cache)) => match store.snapshot().cloned() {
+				Some(snapshot) => TaskOutcome::SymbolIndexLoaded {
+					workspace: Box::new((store, cache, opts)),
+					linkage_seed: Box::new(snapshot),
+				},
+				None => TaskOutcome::Failed("symbol index snapshot is unavailable".to_string()),
+			},
+			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
+		},
+		TaskKind::ResolveLinkage {
+			opts,
+			cache,
+			snapshot,
+		} => match resolve_local_linkage(&opts, cache, snapshot) {
+			Ok((store, cache)) => TaskOutcome::LinkageResolved(Box::new((store, cache, opts))),
 			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 		},
 		TaskKind::RunCheck {

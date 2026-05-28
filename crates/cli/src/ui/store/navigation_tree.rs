@@ -1,6 +1,11 @@
 use std::collections::BTreeSet;
 
-use code_moniker_workspace::snapshot::{ChangeId, SymbolId};
+use code_moniker_core::core::shape::{Shape, shape_of};
+use code_moniker_core::lang::Lang;
+use code_moniker_workspace::snapshot::{
+	ChangeId, SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceSnapshot,
+};
+use rustc_hash::FxHashMap;
 type DefLocation = SymbolId;
 
 use crate::ui::store::ids::NodeId;
@@ -53,53 +58,80 @@ impl NavNode {
 
 pub(in crate::ui) fn build_navigator(store: &LocalWorkspaceFacade) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("explorer"), "root", NavNodeKind::Root);
-	for file_idx in 0..workspace_read::file_count(store) {
-		let file = workspace_read::file_summary(store, file_idx);
+	let Some(snapshot) = store.snapshot() else {
+		return root;
+	};
+	let symbols = SymbolNavIndex::new(snapshot);
+	for (file_idx, file) in snapshot.index.sources.iter().enumerate() {
+		let lang = Lang::from_tag(&file.language).unwrap_or(Lang::Rs);
 		let lang = child_mut(
 			&mut root,
-			NodeId::lang("explorer", file.lang.tag()),
-			file.lang.tag().to_string(),
+			NodeId::lang("explorer", lang.tag()),
+			lang.tag().to_string(),
 			NavNodeKind::Lang,
 		);
-		let mut parent = lang;
-		let path_parts: Vec<String> = file
-			.rel_path
-			.parent()
-			.into_iter()
-			.flat_map(|path| path.components())
-			.filter_map(|component| component.as_os_str().to_str())
-			.map(ToOwned::to_owned)
-			.collect();
-		let mut path_key = String::new();
-		for part in path_parts {
-			if !path_key.is_empty() {
-				path_key.push('/');
-			}
-			path_key.push_str(&part);
-			parent = child_mut(
-				parent,
-				NodeId::dir("explorer", file.lang.tag(), &path_key),
-				part,
-				NavNodeKind::Dir,
-			);
-		}
-		let file_label = file
-			.rel_path
-			.file_name()
-			.and_then(|name| name.to_str())
-			.unwrap_or_else(|| file.rel_path.to_str().unwrap_or("<file>"))
-			.to_string();
-		let mut file_node = NavNode::new(
-			NodeId::file(&file.anchor),
-			file_label,
-			NavNodeKind::File(file.index),
-		);
-		file_node.children = symbol_children(store, file.index, None);
-		parent.children.push(file_node);
+		append_source_file(lang, file_idx, file, &symbols);
 	}
 	sort_nav(&mut root);
 	compute_nav_counts(&mut root);
 	root
+}
+
+fn append_source_file(
+	lang_node: &mut NavNode,
+	file_idx: usize,
+	file: &SourceFileRecord,
+	symbols: &SymbolNavIndex<'_>,
+) {
+	let lang = Lang::from_tag(&file.language).unwrap_or(Lang::Rs);
+	let rel_path = std::path::Path::new(&file.rel_path);
+	let anchor = std::path::Path::new(&file.anchor);
+	let parent = append_path_dirs(lang_node, lang, rel_path);
+	let mut file_node = NavNode::new(
+		NodeId::file(anchor),
+		source_file_label(rel_path),
+		NavNodeKind::File(file_idx),
+	);
+	file_node.children = symbols.children_for(&file.id, None);
+	parent.children.push(file_node);
+}
+
+fn append_path_dirs<'a>(
+	lang_node: &'a mut NavNode,
+	lang: Lang,
+	rel_path: &std::path::Path,
+) -> &'a mut NavNode {
+	let mut parent = lang_node;
+	let mut path_key = String::new();
+	for part in path_parts(rel_path) {
+		if !path_key.is_empty() {
+			path_key.push('/');
+		}
+		path_key.push_str(&part);
+		parent = child_mut(
+			parent,
+			NodeId::dir("explorer", lang.tag(), &path_key),
+			part,
+			NavNodeKind::Dir,
+		);
+	}
+	parent
+}
+
+fn path_parts(path: &std::path::Path) -> impl Iterator<Item = String> + '_ {
+	path.parent()
+		.into_iter()
+		.flat_map(|path| path.components())
+		.filter_map(|component| component.as_os_str().to_str())
+		.map(ToOwned::to_owned)
+}
+
+fn source_file_label(rel_path: &std::path::Path) -> String {
+	rel_path
+		.file_name()
+		.and_then(|name| name.to_str())
+		.unwrap_or_else(|| rel_path.to_str().unwrap_or("<file>"))
+		.to_string()
 }
 
 pub(in crate::ui) fn build_change_navigator(store: &LocalWorkspaceFacade) -> NavNode {
@@ -211,57 +243,116 @@ fn compute_nav_counts(node: &mut NavNode) -> (usize, usize) {
 	(files, defs)
 }
 
-fn symbol_children(
-	store: &LocalWorkspaceFacade,
-	file_idx: usize,
-	parent: Option<DefLocation>,
-) -> Vec<NavNode> {
-	let mut out = Vec::new();
-	for loc in direct_children(store, file_idx, parent) {
-		collect_symbol_node(store, file_idx, loc, &mut out);
-	}
-	sort_symbol_nodes(store, &mut out);
-	out
+struct SymbolNavIndex<'a> {
+	by_parent: FxHashMap<(SourceId, Option<SymbolId>), Vec<&'a SymbolRecord>>,
 }
 
-fn sort_symbol_nodes(store: &LocalWorkspaceFacade, nodes: &mut [NavNode]) {
-	nodes.sort_by(|a, b| match (&a.kind, &b.kind) {
-		(NavNodeKind::Def(left), NavNodeKind::Def(right)) => {
-			workspace_read::compare_defs_for_navigation(store, left, right)
+impl<'a> SymbolNavIndex<'a> {
+	fn new(snapshot: &'a WorkspaceSnapshot) -> Self {
+		let by_id = symbols_by_id(&snapshot.index.symbols);
+		let source_langs = source_langs(snapshot);
+		let mut by_parent = FxHashMap::default();
+		for symbol in &snapshot.index.symbols {
+			if !symbol.navigable {
+				continue;
+			}
+			let parent = navigable_parent(symbol, &by_id);
+			by_parent
+				.entry((symbol.source.clone(), parent))
+				.or_insert_with(Vec::new)
+				.push(symbol);
 		}
-		_ => nav_sort_key(a).cmp(&nav_sort_key(b)),
-	});
-}
+		sort_symbol_groups(&mut by_parent, &source_langs);
+		Self { by_parent }
+	}
 
-fn collect_symbol_node(
-	store: &LocalWorkspaceFacade,
-	file_idx: usize,
-	loc: DefLocation,
-	out: &mut Vec<NavNode>,
-) {
-	if workspace_read::is_navigable_symbol(store, &loc) {
-		let symbol = workspace_read::symbol_summary(store, &loc);
+	fn children_for(&self, source: &SourceId, parent: Option<&SymbolId>) -> Vec<NavNode> {
+		let key = (source.clone(), parent.cloned());
+		self.by_parent
+			.get(&key)
+			.into_iter()
+			.flat_map(|symbols| symbols.iter())
+			.map(|symbol| self.symbol_node(source, symbol))
+			.collect()
+	}
+
+	fn symbol_node(&self, source: &SourceId, symbol: &SymbolRecord) -> NavNode {
 		let mut node = NavNode::new(
-			NodeId::def(&symbol.compact_moniker),
-			symbol.name,
-			NavNodeKind::Def(loc.clone()),
+			NodeId::def(symbol.id.as_str()),
+			symbol.name.clone(),
+			NavNodeKind::Def(symbol.id.clone()),
 		);
-		node.children = symbol_children(store, file_idx, Some(loc));
-		out.push(node);
-	} else {
-		out.extend(symbol_children(store, file_idx, Some(loc)));
+		node.children = self.children_for(source, Some(&symbol.id));
+		node
 	}
 }
 
-fn direct_children(
-	store: &LocalWorkspaceFacade,
-	file_idx: usize,
-	parent: Option<DefLocation>,
-) -> Vec<DefLocation> {
-	if let Some(parent) = parent {
-		workspace_read::child_defs(store, &parent)
-	} else {
-		workspace_read::root_defs(store, file_idx)
+fn symbols_by_id(symbols: &[SymbolRecord]) -> FxHashMap<SymbolId, &SymbolRecord> {
+	symbols
+		.iter()
+		.map(|symbol| (symbol.id.clone(), symbol))
+		.collect()
+}
+
+fn source_langs(snapshot: &WorkspaceSnapshot) -> FxHashMap<SourceId, Lang> {
+	snapshot
+		.index
+		.sources
+		.iter()
+		.map(|source| {
+			(
+				source.id.clone(),
+				Lang::from_tag(&source.language).unwrap_or(Lang::Rs),
+			)
+		})
+		.collect()
+}
+
+fn navigable_parent(
+	symbol: &SymbolRecord,
+	by_id: &FxHashMap<SymbolId, &SymbolRecord>,
+) -> Option<SymbolId> {
+	let parent_id = symbol.parent.as_ref()?;
+	let parent = by_id.get(parent_id)?;
+	(parent.navigable && parent.source == symbol.source).then(|| parent_id.clone())
+}
+
+fn sort_symbol_groups(
+	by_parent: &mut FxHashMap<(SourceId, Option<SymbolId>), Vec<&SymbolRecord>>,
+	source_langs: &FxHashMap<SourceId, Lang>,
+) {
+	for ((source, _), symbols) in by_parent {
+		let lang = source_langs.get(source).copied().unwrap_or(Lang::Rs);
+		symbols.sort_by(|left, right| compare_symbols_for_navigation(lang, left, right));
+	}
+}
+
+fn compare_symbols_for_navigation(
+	lang: Lang,
+	left: &SymbolRecord,
+	right: &SymbolRecord,
+) -> std::cmp::Ordering {
+	definition_kind_order(lang, &left.kind)
+		.cmp(&definition_kind_order(lang, &right.kind))
+		.then_with(|| left.line_range.cmp(&right.line_range))
+		.then_with(|| left.name.cmp(&right.name))
+}
+
+fn definition_kind_order(lang: Lang, kind: &str) -> u16 {
+	lang.kind_spec(kind)
+		.map(|spec| spec.order)
+		.or_else(|| shape_of(kind.as_bytes()).map(fallback_order_for_shape))
+		.unwrap_or(u16::MAX)
+}
+
+fn fallback_order_for_shape(shape: Shape) -> u16 {
+	match shape {
+		Shape::Namespace => 10,
+		Shape::Type => 20,
+		Shape::Callable => 30,
+		Shape::Value => 50,
+		Shape::Annotation => 60,
+		Shape::Ref => u16::MAX,
 	}
 }
 

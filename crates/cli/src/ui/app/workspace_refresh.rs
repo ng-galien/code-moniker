@@ -27,10 +27,24 @@ pub(in crate::ui) fn handle_store_event(app: &mut App, event: StoreEvent) {
 
 fn queue_store_task(app: &mut App, event: StoreEvent) -> bool {
 	let task = match event {
-		StoreEvent::GitOverlay => TaskSpec::reload_store(crate::ui::app::store_options(app)),
-		StoreEvent::FullIndex => TaskSpec::reload_store(crate::ui::app::store_options(app)),
+		StoreEvent::GitOverlay => linkage_or_index_task(app),
+		StoreEvent::FullIndex => TaskSpec::load_symbol_index(crate::ui::app::store_options(app)),
 	};
 	queue_task(app, task)
+}
+
+fn linkage_or_index_task(app: &App) -> TaskSpec {
+	let Some(snapshot) = crate::ui::app::store(app).snapshot().cloned() else {
+		return TaskSpec::load_symbol_index(crate::ui::app::store_options(app));
+	};
+	if snapshot.index.symbols.is_empty() {
+		return TaskSpec::load_symbol_index(crate::ui::app::store_options(app));
+	}
+	TaskSpec::resolve_linkage(
+		crate::ui::app::store_options(app),
+		app.workspace.cache().clone(),
+		snapshot,
+	)
 }
 
 pub(in crate::ui) fn handle_store_event_sync(app: &mut App, event: StoreEvent) {

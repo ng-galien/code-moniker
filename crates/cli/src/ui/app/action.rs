@@ -15,6 +15,7 @@ use crate::ui::workspace_read::UsageFocus;
 pub(in crate::ui) enum AppAction {
 	Ui(Msg),
 	HeaderSearchDebounced(u64),
+	UsageLensDebounced(u64),
 	Shell(ShellAction),
 	Store(StoreEvent),
 	TaskStarted {

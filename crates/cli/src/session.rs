@@ -20,6 +20,8 @@ pub struct SessionStats {
 	pub scan_ms: u64,
 	pub extract_ms: u64,
 	pub index_ms: u64,
+	pub linkage_ms: u64,
+	pub changes_ms: u64,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

@@ -4,6 +4,7 @@ type DefLocation = SymbolId;
 
 use crate::ui::app::{
 	ActiveFilter, App, FocusRegion, PanelPolicy, ShellAction, View, VisualizationMode,
+	queue_usage_lens_refresh,
 };
 use crate::ui::events::UiMode;
 use crate::ui::store::navigation::{
@@ -233,7 +234,7 @@ pub(in crate::ui) fn close_selected_nav(app: &mut App) -> bool {
 pub(in crate::ui) fn apply_navigation(app: &mut App, action: NavigationAction) {
 	let outcome = app.app_store.dispatch_navigation(action);
 	if outcome.primary_selection_changed && crate::ui::app::usage_lens(app).is_some() {
-		app.refresh_usage_lens_for_primary_selection();
+		queue_usage_lens_refresh(app);
 	}
 	if outcome.changed {
 		sync_contextual_view(app);

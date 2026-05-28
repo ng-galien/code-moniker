@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct ResourceGeneration(u64);
 
@@ -283,6 +285,7 @@ pub struct CodeIndex {
 	pub sources: Vec<SourceFileRecord>,
 	pub symbols: Vec<SymbolRecord>,
 	pub references: Vec<ReferenceRecord>,
+	pub timings: CodeIndexTimings,
 }
 
 pub struct CodeIndexFields {
@@ -292,6 +295,14 @@ pub struct CodeIndexFields {
 	pub sources: Vec<SourceFileRecord>,
 	pub symbols: Vec<SymbolRecord>,
 	pub references: Vec<ReferenceRecord>,
+	pub timings: CodeIndexTimings,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CodeIndexTimings {
+	pub extract_sources: Duration,
+	pub semantic_index: Duration,
+	pub total: Duration,
 }
 
 impl CodeIndex {
@@ -307,6 +318,7 @@ impl CodeIndex {
 			sources: Vec::new(),
 			symbols,
 			references: Vec::new(),
+			timings: CodeIndexTimings::default(),
 		}
 	}
 
@@ -323,6 +335,7 @@ impl CodeIndex {
 			sources: Vec::new(),
 			symbols,
 			references,
+			timings: CodeIndexTimings::default(),
 		}
 	}
 
@@ -334,6 +347,7 @@ impl CodeIndex {
 			sources: fields.sources,
 			symbols: fields.symbols,
 			references: fields.references,
+			timings: fields.timings,
 		}
 	}
 }
@@ -662,6 +676,18 @@ pub struct WorkspaceSnapshot {
 	pub index: CodeIndex,
 	pub linkage: LinkageGraph,
 	pub changes: ChangeOverlay,
+	pub timings: WorkspaceTimings,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WorkspaceTimings {
+	pub source_catalog: Duration,
+	pub extract_sources: Duration,
+	pub semantic_index: Duration,
+	pub code_index: Duration,
+	pub linkage: Duration,
+	pub change_overlay: Duration,
+	pub total: Duration,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

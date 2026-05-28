@@ -66,6 +66,18 @@ where
 		self.refresh.load_catalog(request)
 	}
 
+	pub fn load_index(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
+		self.refresh.load_index(request)
+	}
+
+	pub fn resolve_linkage(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
+		self.refresh.resolve_linkage(request)
+	}
+
+	pub fn replace_snapshot(&mut self, snapshot: WorkspaceSnapshot) {
+		self.refresh.replace_snapshot(snapshot);
+	}
+
 	pub fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
 		self.refresh.snapshot()
 	}

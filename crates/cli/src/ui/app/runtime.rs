@@ -11,8 +11,8 @@ use crate::ui::app::{
 	apply_file_catalog_store, apply_navigation, apply_reloaded_store, close_panel_tree_node,
 	close_selected_nav, copy_panel_snapshot, ensure_active_panel_selection, handle_store_event,
 	handle_store_event_sync, has_clearable_scope, move_panel_selection, move_panel_to_edge,
-	open_panel_tree_node, open_selected_nav, set_view, toggle_focus_region, toggle_panel_tree_node,
-	toggle_selected_nav,
+	open_panel_tree_node, open_selected_nav, set_view, sync_contextual_view, toggle_focus_region,
+	toggle_panel_tree_node, toggle_selected_nav,
 };
 use crate::ui::async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
 use crate::ui::clipboard;
@@ -23,6 +23,7 @@ use crate::ui::store::navigation::{NavigationAction, NavigationPane};
 use crate::ui::store::tree_pane_action::TreePaneAction;
 
 const HEADER_SEARCH_DEBOUNCE_MS: u64 = 180;
+const USAGE_LENS_DEBOUNCE_MS: u64 = 120;
 
 pub(in crate::ui) fn run_check(app: &mut App) {
 	set_view(app, View::Check, PanelPolicy::Manual);
@@ -110,12 +111,28 @@ fn handle_task_result(app: &mut App, result: TaskResult) {
 			apply_file_catalog_store(app, "file tree ready".to_string());
 			if queue_task(
 				app,
-				TaskSpec::reload_store(crate::ui::app::store_options(app)),
+				TaskSpec::load_symbol_index(crate::ui::app::store_options(app)),
 			) {
 				crate::ui::app::set_status(app, "file tree ready; loading symbols in background");
 			}
 		}
-		TaskOutcome::StoreReloaded(store) => {
+		TaskOutcome::SymbolIndexLoaded {
+			workspace,
+			linkage_seed,
+		} => {
+			let (store, cache, options) = *workspace;
+			let linkage_cache = cache.clone();
+			let linkage_options = options.clone();
+			crate::ui::app::replace_store(app, store, cache, options);
+			apply_reloaded_store(app, "symbols ready; linkage pending".to_string());
+			if queue_task(
+				app,
+				TaskSpec::resolve_linkage(linkage_options, linkage_cache, *linkage_seed),
+			) {
+				crate::ui::app::set_status(app, "symbols ready; resolving linkage in background");
+			}
+		}
+		TaskOutcome::LinkageResolved(store) => {
 			let (store, cache, options) = *store;
 			crate::ui::app::replace_store(app, store, cache, options);
 			apply_reloaded_store(app, format!("{} completed", result.label));
@@ -162,6 +179,13 @@ pub(in crate::ui) fn update(app: &mut App, action: AppAction) -> bool {
 			}
 			return false;
 		}
+		AppAction::UsageLensDebounced(generation) => {
+			if app.runtime.usage_lens_generation == generation {
+				app.refresh_usage_lens_for_primary_selection();
+				sync_contextual_view(app);
+			}
+			return false;
+		}
 		AppAction::Ui(msg) if handle_ui_transition_msg(app, &msg) => {
 			return false;
 		}
@@ -173,6 +197,7 @@ pub(in crate::ui) fn update(app: &mut App, action: AppAction) -> bool {
 	match action {
 		AppAction::Ui(_) => false,
 		AppAction::HeaderSearchDebounced(_) => false,
+		AppAction::UsageLensDebounced(_) => false,
 		AppAction::Shell(_) => false,
 		AppAction::Store(event) => {
 			handle_store_event(app, event);
@@ -360,5 +385,19 @@ fn queue_header_search_debounce(app: &mut App, generation: u64) {
 	thread::spawn(move || {
 		thread::sleep(Duration::from_millis(HEADER_SEARCH_DEBOUNCE_MS));
 		let _ = tx.send(ShellEvent::HeaderSearchDebounced(generation));
+	});
+}
+
+pub(in crate::ui) fn queue_usage_lens_refresh(app: &mut App) {
+	app.runtime.usage_lens_generation += 1;
+	let generation = app.runtime.usage_lens_generation;
+	let Some(tx) = app.runtime.event_tx.clone() else {
+		app.refresh_usage_lens_for_primary_selection();
+		sync_contextual_view(app);
+		return;
+	};
+	thread::spawn(move || {
+		thread::sleep(Duration::from_millis(USAGE_LENS_DEBOUNCE_MS));
+		let _ = tx.send(ShellEvent::UsageLensDebounced(generation));
 	});
 }
