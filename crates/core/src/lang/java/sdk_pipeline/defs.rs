@@ -11,8 +11,8 @@ use crate::lang::tree_util::{node_position, node_slice};
 
 use super::super::kinds;
 use super::discover::JavaDiscover;
-use super::refs::type_expr;
-use super::syntax::named_children;
+use super::syntax::{named_children, type_parameters};
+use super::type_resolution::type_expr;
 
 pub(super) fn collect_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	for child in named_children(node) {
@@ -40,6 +40,7 @@ fn type_def(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker, kind:
 		.type_table
 		.entry(name.to_vec())
 		.or_insert(moniker.clone());
+	register_type_parameters(state, node, &moniker);
 	state.push_def(def_record(DefInput {
 		moniker: moniker.clone(),
 		parent: scope.clone(),
@@ -93,7 +94,7 @@ fn record_component_def(
 	}
 	let ty = component
 		.child_by_field_name("type")
-		.and_then(|node| type_expr(state, node));
+		.and_then(|node| type_expr(state, node, record));
 	if let Some(ty) = ty.clone() {
 		state
 			.field_types
@@ -189,13 +190,14 @@ fn callable_def(
 	let signature =
 		join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
 	let moniker = extend_callable_slots(scope, kind, name, &slots);
+	register_type_parameters(state, node, &moniker);
 	state.callables.insert(
 		(scope.clone(), name.to_vec(), slots.len()),
 		callable_segment_slots(name, &slots),
 	);
 	if let Some(ty) = node
 		.child_by_field_name("type")
-		.and_then(|node| type_expr(state, node))
+		.and_then(|node| type_expr(state, node, &moniker))
 	{
 		state
 			.return_types
@@ -215,7 +217,7 @@ fn callable_def(
 	}));
 	if let Some(ty) = node
 		.child_by_field_name("type")
-		.and_then(|node| type_expr(state, node))
+		.and_then(|node| type_expr(state, node, &moniker))
 	{
 		push_returns_type_ref(state, &moniker, ty, node);
 	}
@@ -294,7 +296,7 @@ fn local_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, callable: &Moniker) 
 fn field_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	let ty = node
 		.child_by_field_name("type")
-		.and_then(|node| type_expr(state, node));
+		.and_then(|node| type_expr(state, node, scope));
 	for declarator in named_children(node).filter(|child| child.kind() == "variable_declarator") {
 		let Some(name_node) = declarator.child_by_field_name("name") else {
 			continue;
@@ -346,6 +348,13 @@ fn def_record(input: DefInput) -> DiscoveredDef {
 		position: input.position,
 		call_name: input.call_name,
 		call_arity: input.call_arity,
+	}
+}
+
+fn register_type_parameters(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
+	let params = type_parameters(node, state.source);
+	if !params.is_empty() {
+		state.type_params.insert(scope.clone(), params);
 	}
 }
 

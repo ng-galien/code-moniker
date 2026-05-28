@@ -13,6 +13,7 @@ pub(super) struct ImportedSymbol {
 	pub name: Vec<u8>,
 	pub target: Moniker,
 	pub confidence: &'static [u8],
+	pub is_static: bool,
 }
 
 pub(super) fn collect_imports(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
@@ -27,10 +28,15 @@ pub(super) fn collect_imports(state: &mut JavaDiscover<'_>, node: Node<'_>, scop
 
 fn import_declaration(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	let mut wildcard = false;
+	let mut static_import = false;
 	let mut path_node = None;
-	for child in named_children(node) {
+	for index in 0..node.child_count() {
+		let Some(child) = node.child(index as u32) else {
+			continue;
+		};
 		match child.kind() {
 			"asterisk" => wildcard = true,
+			"static" => static_import = true,
 			"identifier" | "scoped_identifier" => path_node = Some(child),
 			_ => {}
 		}
@@ -68,8 +74,13 @@ fn import_declaration(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moni
 	if !wildcard && let Some(name) = pieces.last() {
 		state.imports.push(ImportedSymbol {
 			name: name.clone(),
-			target,
+			target: if static_import {
+				static_owner_target(&state.root, &str_pieces, confidence).unwrap_or(target)
+			} else {
+				target
+			},
 			confidence,
+			is_static: static_import,
 		});
 	}
 }
@@ -103,6 +114,28 @@ pub(super) fn symbol_target(module: &Moniker, pieces: &[&str], confidence: &[u8]
 		return builder.build();
 	}
 	external_package_target(module.as_view().project(), pieces)
+}
+
+fn static_owner_target(module: &Moniker, pieces: &[&str], confidence: &[u8]) -> Option<Moniker> {
+	let owner = pieces.get(..pieces.len().checked_sub(1)?)?;
+	if owner.is_empty() {
+		return None;
+	}
+	if confidence == kinds::CONF_IMPORTED {
+		let mut builder = project_regime_builder(module);
+		builder.segment(crate::lang::kinds::LANG, b"java");
+		let last = owner.len() - 1;
+		for (index, piece) in owner.iter().enumerate() {
+			let kind = if index == last {
+				kinds::MODULE
+			} else {
+				kinds::PACKAGE
+			};
+			builder.segment(kind, piece.as_bytes());
+		}
+		return Some(builder.build());
+	}
+	Some(external_package_target(module.as_view().project(), owner))
 }
 
 pub(super) fn same_package_symbol_target(module: &Moniker, name: &[u8]) -> Moniker {

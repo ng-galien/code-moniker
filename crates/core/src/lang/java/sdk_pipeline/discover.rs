@@ -12,6 +12,7 @@ use super::refs::collect_refs;
 pub(super) type CallableTable = HashMap<(Moniker, Vec<u8>, usize), Vec<u8>>;
 pub(super) type ReturnTypeTable = HashMap<(Moniker, Vec<u8>, usize), TypeExpr>;
 pub(super) type FieldTypeTable = HashMap<(Moniker, Vec<u8>), TypeExpr>;
+pub(super) type TypeParamTable = HashMap<Moniker, Vec<Vec<u8>>>;
 
 pub(super) struct DiscoveredJavaFile {
 	pub root: Moniker,
@@ -30,6 +31,7 @@ pub(super) struct JavaDiscover<'src> {
 	pub(super) return_types: ReturnTypeTable,
 	pub(super) field_types: FieldTypeTable,
 	pub(super) type_table: HashMap<Vec<u8>, Moniker>,
+	pub(super) type_params: TypeParamTable,
 }
 
 impl<'src> JavaDiscover<'src> {
@@ -50,6 +52,7 @@ impl<'src> JavaDiscover<'src> {
 			return_types: HashMap::new(),
 			field_types: HashMap::new(),
 			type_table: HashMap::new(),
+			type_params: HashMap::new(),
 		};
 		collect_imports(&mut discover, root_node, &root);
 		collect_defs(&mut discover, root_node, &root);

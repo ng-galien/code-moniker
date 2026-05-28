@@ -38,10 +38,33 @@ pub(super) fn type_name(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
 		"scoped_type_identifier" => Some(last_identifier(node, source)),
 		"generic_type" => node
 			.child_by_field_name("type")
+			.or_else(|| {
+				named_children(node).find(|child| {
+					matches!(child.kind(), "type_identifier" | "scoped_type_identifier")
+				})
+			})
 			.and_then(|ty| type_name(ty, source)),
 		"array_type" => node
 			.child_by_field_name("element")
 			.and_then(|element| type_name(element, source)),
 		_ => None,
 	}
+}
+
+pub(super) fn type_parameters(node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>> {
+	let Some(params) = node
+		.child_by_field_name("type_parameters")
+		.or_else(|| named_children(node).find(|child| child.kind() == "type_parameters"))
+	else {
+		return Vec::new();
+	};
+	named_children(params)
+		.filter(|child| child.kind() == "type_parameter")
+		.filter_map(|child| {
+			child
+				.child_by_field_name("name")
+				.or_else(|| named_children(child).find(|inner| inner.kind() == "type_identifier"))
+		})
+		.map(|name| node_slice(name, source).to_vec())
+		.collect()
 }

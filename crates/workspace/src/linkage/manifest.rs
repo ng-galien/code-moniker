@@ -248,8 +248,11 @@ fn source_declares_java_package_target(policy: &ManifestPolicy, query: &LinkageQ
 	policy
 		.entry_for_file(query.source_file)
 		.is_some_and(|entry| {
-			JavaDependencyPolicy::new(&policy.entries_by_root)
-				.entry_declares_external_package(entry, &package_prefix)
+			JavaDependencyPolicy::new(&policy.entries_by_root).entry_declares_external_package(
+				entry,
+				&package_prefix,
+				query.confidence,
+			)
 		})
 }
 
@@ -262,17 +265,31 @@ impl<'a> JavaDependencyPolicy<'a> {
 		Self { entries_by_root }
 	}
 
-	fn entry_declares_external_package(&self, entry: &ManifestEntry, package_prefix: &str) -> bool {
-		entry.manifest == Manifest::PomXml
-			&& entry.deps.iter().any(|dep| {
-				!self.workspace_declares_package(dep)
-					&& java_dep_group(dep).is_some_and(|group| {
-						package_prefix == group
-							|| package_prefix
-								.strip_prefix(group)
-								.is_some_and(|tail| tail.starts_with('.'))
-					})
-			})
+	fn entry_declares_external_package(
+		&self,
+		entry: &ManifestEntry,
+		package_prefix: &str,
+		query_confidence: Option<&str>,
+	) -> bool {
+		if entry.manifest != Manifest::PomXml {
+			return false;
+		}
+		let has_external_dependency = entry
+			.deps
+			.iter()
+			.any(|dep| !self.workspace_declares_package(dep));
+		if query_confidence == Some(confidence(kinds::CONF_IMPORTED)) && has_external_dependency {
+			return true;
+		}
+		entry.deps.iter().any(|dep| {
+			!self.workspace_declares_package(dep)
+				&& java_dep_group(dep).is_some_and(|group| {
+					package_prefix == group
+						|| package_prefix
+							.strip_prefix(group)
+							.is_some_and(|tail| tail.starts_with('.'))
+				})
+		})
 	}
 
 	fn workspace_declares_package(&self, package: &str) -> bool {

@@ -11,7 +11,15 @@ public class OrderApplication {
 
     public String routeOrder(String customerId) {
         var profile = customerResolver.resolveCustomer(customerId);
-        return riskPolicy.isPriority(profile) ? "priority-lane" : "standard-lane";
+        var boxedProfile = new TypedOrderBox<CustomerProfile>(profile);
+        Object rawBox = boxedProfile;
+        var castProfile = ((TypedOrderBox<CustomerProfile>) rawBox).castValue();
+        var routedProfile = boxedProfile.echo(castProfile);
+        var stableProfile = TypedOrderBox.identity(routedProfile);
+        GenericCreator creator = TypedOrderBox.creator(boxedProfile);
+        TypedOrderBox<CustomerProfile> anonymousBox = creator.create(stableProfile);
+        var anonymousProfile = anonymousBox.value();
+        return riskPolicy.isPriority(anonymousProfile) ? "priority-lane" : "standard-lane";
     }
 
     public static void main(String[] args) {

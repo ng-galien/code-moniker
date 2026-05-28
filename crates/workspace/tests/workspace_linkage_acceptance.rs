@@ -46,62 +46,151 @@ fn java_sdk_multiproject_links_spring_and_platform_refs() {
 			.with_java_pipeline(JavaExtractionPipeline::Sdk),
 	);
 
-	assert_eq!(snapshot.linkage.external_refs, 118);
-	assert_eq!(
-		snapshot.linkage.unresolved_refs,
-		0,
-		"unexpected unresolved references:\n{}",
-		unresolved_report(&snapshot)
-	);
+	assert_eq!(snapshot.linkage.external_refs, 130);
+	assert_no_unresolved(&snapshot);
+	assert_java_platform_refs(&snapshot);
+	assert_java_spring_refs(&snapshot);
+	assert_java_generic_refs(&snapshot);
+}
+
+fn assert_java_platform_refs(snapshot: &WorkspaceSnapshot) {
 	assert_external_reference(
-		&snapshot,
+		snapshot,
 		"method_call",
 		"external_pkg:java/path:lang/path:System/method:println",
 	);
 	assert_external_reference(
-		&snapshot,
+		snapshot,
 		"method_call",
 		"external_pkg:java/path:lang/path:String/method:trim",
 	);
 	assert_external_reference(
-		&snapshot,
+		snapshot,
+		"imports_symbol",
+		"package:com/package:google/package:common/package:truth/package:Truth/module:assertThat/path:assertThat",
+	);
+	assert_external_reference(
+		snapshot,
+		"imports_symbol",
+		"package:org/package:junit/module:Test/path:Test",
+	);
+	assert_external_reference(
+		snapshot,
+		"annotates",
+		"package:org/package:junit/module:Test/path:Test",
+	);
+	assert_external_reference(
+		snapshot,
+		"annotates",
+		"external_pkg:java/path:lang/path:Deprecated",
+	);
+	assert_external_reference(
+		snapshot,
+		"annotates",
+		"external_pkg:java/path:lang/path:SuppressWarnings",
+	);
+	assert_external_reference(
+		snapshot,
+		"calls",
+		"package:com/package:google/package:common/package:truth/module:Truth/method:assertThat",
+	);
+	assert_external_reference(
+		snapshot,
+		"method_call",
+		"package:com/package:google/package:common/package:truth/module:Truth/method:assertThat(_)/method:isEqualTo",
+	);
+	assert_external_reference(
+		snapshot,
+		"method_call",
+		"package:com/package:google/package:common/package:truth/module:Truth/method:assertThat(_)/method:isTrue",
+	);
+}
+
+fn assert_java_spring_refs(snapshot: &WorkspaceSnapshot) {
+	assert_external_reference(
+		snapshot,
 		"annotates",
 		"package:org/package:springframework/package:stereotype/module:Service/path:Service",
 	);
 	assert_external_reference(
-		&snapshot,
+		snapshot,
 		"method_call",
 		"package:org/package:springframework/package:http/module:ResponseEntity/path:ResponseEntity/method:ok",
 	);
 	assert_external_reference(
-		&snapshot,
+		snapshot,
 		"method_call",
 		"package:org/package:springframework/package:boot/module:SpringApplication/path:SpringApplication/method:run",
 	);
 	assert_reference_from_symbol(
-		&snapshot,
+		snapshot,
 		"annotates",
 		"package:com/package:acme/package:springedge/package:api/module:CustomerController/class:CustomerController/method:getCustomer(customerId:String)/param:customerId",
 		"package:org/package:springframework/package:web/package:bind/package:annotation/module:PathVariable/path:PathVariable",
 	);
 	assert_linked_to(
-		&snapshot,
+		snapshot,
 		"method_call",
 		"package:com/package:acme/package:springedge/package:app/module:SpringCustomerService/path:SpringCustomerService/method:loadProfile",
 		"package:com/package:acme/package:springedge/package:app/module:SpringCustomerService/class:SpringCustomerService/method:loadProfile(customerId:String)",
 	);
 	assert_linked_to(
-		&snapshot,
+		snapshot,
 		"method_call",
 		"package:com/package:acme/package:springedge/package:app/module:CustomerProfileDto/path:CustomerProfileDto/method:from",
 		"package:com/package:acme/package:springedge/package:app/module:CustomerProfileDto/record:CustomerProfileDto/method:from(profile:CustomerProfile)",
 	);
 	assert_linked_to(
-		&snapshot,
+		snapshot,
 		"method_call",
 		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/path:RiskPolicy/method:isPriority",
 		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/class:RiskPolicy/method:isPriority(profile:CustomerProfile)",
 	);
+}
+
+fn assert_java_generic_refs(snapshot: &WorkspaceSnapshot) {
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:order/module:TypedOrderBox/path:TypedOrderBox/method:value",
+		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:value()",
+	);
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:order/module:TypedOrderBox/path:TypedOrderBox/method:castValue",
+		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:castValue()",
+	);
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:order/module:TypedOrderBox/path:TypedOrderBox/method:echo",
+		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:echo(value:E)",
+	);
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:order/module:TypedOrderBox/path:TypedOrderBox/method:identity",
+		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:identity(value:S)",
+	);
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:order/module:TypedOrderBox/path:TypedOrderBox/method:creator",
+		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:creator(ignored:TypedOrderBox<O>)",
+	);
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:order/module:GenericCreator/path:GenericCreator/method:create",
+		"package:com/package:acme/package:order/module:GenericCreator/interface:GenericCreator/method:create(value:U)",
+	);
+	assert_no_reference_containing(snapshot, "uses_type", "module:T/path:T");
+	assert_no_reference_containing(snapshot, "uses_type", "module:E/path:E");
+	assert_no_reference_containing(snapshot, "uses_type", "module:S/path:S");
+	assert_no_reference_containing(snapshot, "uses_type", "module:O/path:O");
+	assert_no_reference_containing(snapshot, "uses_type", "module:I/path:I");
+	assert_no_reference_containing(snapshot, "uses_type", "module:U/path:U");
 }
 
 fn assert_no_unresolved(snapshot: &WorkspaceSnapshot) {
@@ -325,6 +414,15 @@ fn find_reference<'a>(
 	snapshot.index.references.iter().find(|reference| {
 		reference.kind == kind && reference.target_identity.contains(target_identity)
 	})
+}
+
+fn assert_no_reference_containing(snapshot: &WorkspaceSnapshot, kind: &str, target_identity: &str) {
+	assert!(
+		snapshot.index.references.iter().all(|reference| {
+			reference.kind != kind || !reference.target_identity.contains(target_identity)
+		}),
+		"unexpected {kind} reference containing `{target_identity}`"
+	);
 }
 
 fn linked_symbol_identities(

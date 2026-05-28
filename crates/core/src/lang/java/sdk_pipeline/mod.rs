@@ -9,6 +9,7 @@ mod discover;
 mod imports;
 mod refs;
 mod syntax;
+mod type_resolution;
 
 use discover::JavaDiscover;
 

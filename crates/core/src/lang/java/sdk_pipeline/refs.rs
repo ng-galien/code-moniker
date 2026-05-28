@@ -9,8 +9,12 @@ use super::super::kinds;
 use super::builtins;
 use super::defs::formal_parameter_slots;
 use super::discover::JavaDiscover;
-use super::imports::{java_external_target_shape, java_lang_target, same_package_symbol_target};
-use super::syntax::{last_identifier, named_children, type_name};
+use super::imports::{java_external_target_shape, java_lang_target};
+use super::syntax::{last_identifier, named_children, type_name, type_parameters};
+use super::type_resolution::{
+	is_type_param_in_scope, lookup_known_type_name, resolve_type_target, same_package_type_target,
+	type_env_for_scope, type_expr,
+};
 
 pub(super) fn collect_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	for child in named_children(node) {
@@ -59,6 +63,7 @@ fn callable_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) 
 	};
 	let slots = formal_parameter_slots(node, state.source);
 	let callable = extend_callable_slots(scope, kind, node_slice(name_node, state.source), &slots);
+	register_callable_type_parameters(state, node, &callable);
 	annotations(state, node, &callable);
 	if let Some(ty) = node.child_by_field_name("type") {
 		emit_type_refs(state, ty, &callable);
@@ -74,8 +79,19 @@ fn callable_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) 
 		}
 	}
 	if let Some(body) = node.child_by_field_name("body") {
-		let type_env = callable_type_env(state, node, body, scope);
+		let type_env = callable_type_env(state, node, body, &callable);
 		expr_refs(state, body, &callable, scope, &type_env);
+	}
+}
+
+fn register_callable_type_parameters(
+	state: &mut JavaDiscover<'_>,
+	node: Node<'_>,
+	callable: &Moniker,
+) {
+	let params = type_parameters(node, state.source);
+	if !params.is_empty() {
+		state.type_params.entry(callable.clone()).or_insert(params);
 	}
 }
 
@@ -83,9 +99,10 @@ fn field_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	if let Some(ty) = node.child_by_field_name("type") {
 		emit_type_refs(state, ty, scope);
 	}
+	let type_env = type_env_for_scope(state, scope);
 	for declarator in named_children(node).filter(|child| child.kind() == "variable_declarator") {
 		if let Some(value) = declarator.child_by_field_name("value") {
-			expr_refs(state, value, scope, scope, &TypeEnv::default());
+			expr_refs(state, value, scope, scope, &type_env);
 		}
 	}
 }
@@ -96,7 +113,7 @@ fn callable_type_env(
 	body: Node<'_>,
 	owner: &Moniker,
 ) -> TypeEnv {
-	let mut env = TypeEnv::default();
+	let mut env = type_env_for_scope(state, owner);
 	if let Some(params) = callable.child_by_field_name("parameters") {
 		for param in named_children(params) {
 			let Some(name_node) = param.child_by_field_name("name") else {
@@ -104,7 +121,7 @@ fn callable_type_env(
 			};
 			let Some(ty) = param
 				.child_by_field_name("type")
-				.and_then(|node| type_expr(state, node))
+				.and_then(|node| type_expr(state, node, owner))
 			else {
 				continue;
 			};
@@ -123,7 +140,7 @@ fn collect_local_types(
 ) {
 	if node.kind() == "local_variable_declaration" {
 		let type_node = node.child_by_field_name("type");
-		let declared_type = type_node.and_then(|node| type_expr(state, node));
+		let declared_type = type_node.and_then(|node| type_expr(state, node, owner));
 		let infer_var = type_node
 			.and_then(|node| type_name(node, state.source))
 			.is_some_and(|name| builtins::is_inferred_local_type(&name));
@@ -169,6 +186,9 @@ fn expr_refs(
 			}
 			return;
 		}
+		"method_declaration" | "constructor_declaration" => {
+			return;
+		}
 		"object_creation_expression" => object_creation_ref(state, node, source),
 		"local_variable_declaration" => {
 			if let Some(ty) = node.child_by_field_name("type") {
@@ -205,31 +225,34 @@ fn method_call_ref(
 		.child_by_field_name("arguments")
 		.map(argument_count)
 		.unwrap_or(0);
-	let (target, confidence, receiver_hint) =
-		if let Some(object) = node.child_by_field_name("object") {
-			let receiver_owner = receiver_owner(state, object, owner, env);
-			let target = receiver_owner
-				.as_ref()
-				.map(|owner| method_target(state, owner, name, arity))
-				.unwrap_or_else(|| extend_arity_call(&state.root, kinds::METHOD, name, arity));
-			let confidence = receiver_owner
-				.as_ref()
-				.map(|owner| owner_confidence(state, owner))
-				.unwrap_or(kinds::CONF_NAME_MATCH);
-			(
-				target,
-				confidence,
-				receiver_hint_bytes(object, state.source).to_vec(),
-			)
-		} else if let Some(target) = lookup_callable(state, owner, name, arity) {
-			(target, kinds::CONF_RESOLVED, Vec::new())
-		} else {
-			(
-				extend_arity_call(owner, kinds::METHOD, name, arity),
-				kinds::CONF_NAME_MATCH,
-				Vec::new(),
-			)
-		};
+	let (target, confidence, receiver_hint) = if let Some(object) =
+		node.child_by_field_name("object")
+	{
+		let receiver_owner = receiver_owner(state, object, owner, env);
+		let target = receiver_owner
+			.as_ref()
+			.map(|owner| method_target(state, owner, name, arity))
+			.unwrap_or_else(|| extend_arity_call(&state.root, kinds::METHOD, name, arity));
+		let confidence = receiver_owner
+			.as_ref()
+			.map(|owner| owner_confidence(state, owner))
+			.unwrap_or(kinds::CONF_NAME_MATCH);
+		(
+			target,
+			confidence,
+			receiver_hint_bytes(object, state.source).to_vec(),
+		)
+	} else if let Some(target) = lookup_callable(state, owner, name, arity) {
+		(target, kinds::CONF_RESOLVED, Vec::new())
+	} else if let Some((target, confidence)) = lookup_static_imported_callable(state, name, arity) {
+		(target, confidence, Vec::new())
+	} else {
+		(
+			extend_arity_call(owner, kinds::METHOD, name, arity),
+			kinds::CONF_NAME_MATCH,
+			Vec::new(),
+		)
+	};
 	let hints = RefHints {
 		receiver_hint,
 		call_name: name.to_vec(),
@@ -325,10 +348,11 @@ fn receiver_owner(
 						.and_then(|ty| ty.receiver_owner().cloned())
 				})
 				.or_else(|| lookup_known_type_name(state, name).map(|(target, _)| target))
+				.or_else(|| same_package_type_target(state, name))
 		}
 		"object_creation_expression" => receiver
 			.child_by_field_name("type")
-			.and_then(|ty| type_expr(state, ty))
+			.and_then(|ty| type_expr(state, ty, owner))
 			.and_then(|ty| ty.receiver_owner().cloned()),
 		"field_access" | "scoped_identifier" => {
 			expression_external_owner(state, receiver, owner, env)
@@ -336,9 +360,32 @@ fn receiver_owner(
 		"method_invocation" => {
 			infer_call_type(state, receiver, owner, env).and_then(|ty| ty.receiver_owner().cloned())
 		}
+		"cast_expression" => cast_receiver_owner(state, receiver, owner),
+		"parenthesized_expression" => parenthesized_receiver_owner(state, receiver, owner, env),
 		"string_literal" => Some(java_lang_target(&state.root, b"String")),
 		_ => None,
 	}
+}
+
+fn cast_receiver_owner(
+	state: &JavaDiscover<'_>,
+	cast: Node<'_>,
+	owner: &Moniker,
+) -> Option<Moniker> {
+	cast.child_by_field_name("type")
+		.and_then(|ty| type_expr(state, ty, owner))
+		.and_then(|ty| ty.receiver_owner().cloned())
+}
+
+fn parenthesized_receiver_owner(
+	state: &JavaDiscover<'_>,
+	node: Node<'_>,
+	owner: &Moniker,
+	env: &TypeEnv,
+) -> Option<Moniker> {
+	named_children(node)
+		.next()
+		.and_then(|expr| receiver_owner(state, expr, owner, env))
 }
 
 fn expression_external_owner(
@@ -388,10 +435,10 @@ fn infer_value_type(
 	match value.kind() {
 		"object_creation_expression" => value
 			.child_by_field_name("type")
-			.and_then(|ty| type_expr(state, ty)),
+			.and_then(|ty| type_expr(state, ty, owner)),
 		"cast_expression" => value
 			.child_by_field_name("type")
-			.and_then(|ty| type_expr(state, ty)),
+			.and_then(|ty| type_expr(state, ty, owner)),
 		"method_invocation" => infer_call_type(state, value, owner, env),
 		"identifier" => env.resolve_local(node_slice(value, state.source)).cloned(),
 		_ => None,
@@ -410,6 +457,11 @@ fn infer_call_type(
 		.child_by_field_name("arguments")
 		.map(argument_count)
 		.unwrap_or(0);
+	if call.child_by_field_name("object").is_none()
+		&& let Some((target, _)) = lookup_static_imported_callable(state, name, arity)
+	{
+		return Some(TypeExpr::external_opaque(target));
+	}
 	let receiver = call
 		.child_by_field_name("object")
 		.and_then(|object| receiver_owner(state, object, owner, env))
@@ -452,49 +504,21 @@ fn owner_confidence(state: &JavaDiscover<'_>, owner: &Moniker) -> &'static [u8] 
 	}
 }
 
-fn lookup_known_type_name(
+fn lookup_static_imported_callable(
 	state: &JavaDiscover<'_>,
 	name: &[u8],
+	arity: usize,
 ) -> Option<(Moniker, &'static [u8])> {
-	if let Some(target) = state.type_table.get(name) {
-		return Some((target.clone(), kinds::CONF_RESOLVED));
-	}
-	if let Some(import) = state.imports.iter().find(|import| import.name == name) {
-		return Some((import.target.clone(), import.confidence));
-	}
-	if builtins::is_java_lang_type(name) {
-		return Some((java_lang_target(&state.root, name), kinds::CONF_EXTERNAL));
-	}
-	None
-}
-
-fn resolve_type_target(
-	state: &JavaDiscover<'_>,
-	name: &[u8],
-	fallback_kind: &'static [u8],
-) -> (Moniker, &'static [u8]) {
-	if let Some(found) = lookup_known_type_name(state, name) {
-		return found;
-	}
-	if builtins::is_primitive_type(name) || builtins::is_inferred_local_type(name) {
-		return (state.root.clone(), kinds::CONF_RESOLVED);
-	}
-	let target = if fallback_kind == kinds::ANNOTATION_TYPE {
-		extend_segment(&state.root, fallback_kind, name)
-	} else {
-		same_package_symbol_target(&state.root, name)
-	};
-	(target, kinds::CONF_NAME_MATCH)
-}
-
-pub(super) fn type_expr(state: &JavaDiscover<'_>, node: Node<'_>) -> Option<TypeExpr> {
-	let name = type_name(node, state.source)?;
-	if builtins::is_primitive_type(&name) || builtins::is_inferred_local_type(&name) {
-		return None;
-	}
-	Some(TypeExpr::resolved(
-		resolve_type_target(state, &name, kinds::CLASS).0,
-	))
+	state
+		.imports
+		.iter()
+		.find(|import| import.is_static && import.name == name)
+		.map(|import| {
+			(
+				extend_arity_call(&import.target, kinds::METHOD, name, arity),
+				import.confidence,
+			)
+		})
 }
 
 fn emit_type_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Moniker) {
@@ -504,6 +528,7 @@ fn emit_type_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Moniker
 				if name.is_empty()
 					|| builtins::is_primitive_type(&name)
 					|| builtins::is_inferred_local_type(&name)
+					|| is_type_param_in_scope(state, source, &name)
 				{
 					return;
 				}
