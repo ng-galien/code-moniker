@@ -8,6 +8,7 @@ import com.acme.common.customer.RiskPolicy;
 public class OrderApplication {
     private final CustomerResolver customerResolver = new CustomerDirectory();
     private final RiskPolicy riskPolicy = new RiskPolicy();
+    private final OrderContainer orderContainer = new OrderContainer();
 
     public String routeOrder(String customerId) {
         var profile = customerResolver.resolveCustomer(customerId);
@@ -19,8 +20,11 @@ public class OrderApplication {
         GenericCreator creator = TypedOrderBox.creator(boxedProfile);
         TypedOrderBox<CustomerProfile> anonymousBox = creator.create(stableProfile);
         var anonymousProfile = anonymousBox.value();
+        var chainedProfile = TypedOrderBox.creator(boxedProfile).create(stableProfile).value();
+        OrderContainer.OrderToken token = orderContainer.token(chainedProfile);
+        var entry = orderContainer.entryFor(token.profile());
         OrderLane lane = this.selectLane(anonymousProfile);
-        return lane.route();
+        return orderContainer.entryRoute(entry) + ":" + orderContainer.tokenTypeLabel() + ":" + lane.route();
     }
 
     private OrderLane selectLane(CustomerProfile profile) {

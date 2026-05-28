@@ -1,14 +1,16 @@
 use tree_sitter::Node;
 
-use crate::core::moniker::Moniker;
+use crate::core::moniker::{Moniker, MonikerBuilder};
 use crate::lang::callable::extend_segment;
 use crate::lang::sdk::{TypeEnv, TypeExpr};
 
 use super::super::kinds;
 use super::builtins;
 use super::discover::JavaDiscover;
-use super::imports::{java_lang_target, same_package_symbol_target};
-use super::syntax::type_name;
+use super::imports::{
+	external_or_imported, external_package_target, java_lang_target, same_package_symbol_target,
+};
+use super::syntax::type_path;
 
 pub(super) fn type_env_for_scope(state: &JavaDiscover<'_>, scope: &Moniker) -> TypeEnv {
 	let mut env = TypeEnv::default();
@@ -76,23 +78,61 @@ pub(super) fn resolve_type_target(
 	(target, kinds::CONF_NAME_MATCH)
 }
 
+pub(super) fn resolve_type_path(
+	state: &JavaDiscover<'_>,
+	pieces: &[Vec<u8>],
+	fallback_kind: &'static [u8],
+) -> (Moniker, &'static [u8]) {
+	let Some((head, tail)) = pieces.split_first() else {
+		return (state.root.clone(), kinds::CONF_NAME_MATCH);
+	};
+	if tail.is_empty() {
+		return resolve_type_target(state, head, fallback_kind);
+	}
+	if let Some((base, confidence)) = lookup_known_type_name(state, head) {
+		return (append_path_segments(&base, tail), confidence);
+	}
+	if head.first().is_some_and(u8::is_ascii_uppercase) {
+		let base = same_package_symbol_target(&state.root, head);
+		return (append_path_segments(&base, tail), kinds::CONF_NAME_MATCH);
+	}
+	let as_str = pieces
+		.iter()
+		.map(|piece| std::str::from_utf8(piece).unwrap_or(""))
+		.collect::<Vec<_>>();
+	let confidence = external_or_imported(&as_str);
+	(
+		external_package_target(state.root.as_view().project(), &as_str),
+		confidence,
+	)
+}
+
 pub(super) fn type_expr(
 	state: &JavaDiscover<'_>,
 	node: Node<'_>,
 	scope: &Moniker,
 ) -> Option<TypeExpr> {
-	let name = type_name(node, state.source)?;
-	if builtins::is_primitive_type(&name) || builtins::is_inferred_local_type(&name) {
+	let path = type_path(node, state.source)?;
+	let name = path.last()?;
+	if builtins::is_primitive_type(name) || builtins::is_inferred_local_type(name) {
 		return None;
 	}
-	if is_type_param_in_scope(state, scope, &name) {
-		return Some(TypeExpr::TypeParam(name));
+	if path.len() == 1 && is_type_param_in_scope(state, scope, name) {
+		return Some(TypeExpr::TypeParam(name.clone()));
 	}
 	Some(TypeExpr::resolved(
-		resolve_type_target(state, &name, kinds::CLASS).0,
+		resolve_type_path(state, &path, kinds::CLASS).0,
 	))
 }
 
 fn type_param_scope_visible(owner: &Moniker, scope: &Moniker) -> bool {
 	owner == scope || owner.as_view().is_ancestor_of(&scope.as_view())
+}
+
+fn append_path_segments(base: &Moniker, tail: &[Vec<u8>]) -> Moniker {
+	let mut builder = MonikerBuilder::from_view(base.as_view());
+	for piece in tail {
+		builder.segment(kinds::PATH, piece);
+	}
+	builder.build()
 }

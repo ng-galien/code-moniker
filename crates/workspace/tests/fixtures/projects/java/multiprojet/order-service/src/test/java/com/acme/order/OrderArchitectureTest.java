@@ -27,5 +27,6 @@ public class OrderArchitectureTest {
     public void routesPremiumCustomerThroughPriorityLane() {
         assertThat(actualRouteForPremiumCustomer()).isEqualTo(expectedRouteForPremiumCustomer());
         assertThat(riskPolicy.isPriority(customerDirectory.resolveCustomer("c-200"))).isTrue();
+        assertThat(new IllegalStateException("blocked")).hasMessageThat().startsWith("blocked");
     }
 }

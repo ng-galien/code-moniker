@@ -1,5 +1,5 @@
 use code_moniker_core::core::code_graph::RefRecord;
-use code_moniker_core::core::kinds::{REF_CALLS, REF_METHOD_CALL, REF_RETURNS_TYPE};
+use code_moniker_core::core::kinds::{REF_CALLS, REF_METHOD_CALL};
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::kinds;
 use rayon::prelude::*;
@@ -8,25 +8,25 @@ use rustc_hash::FxHashMap;
 use crate::linkage::decision::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
-use crate::linkage::manifest::is_builtin_external_root;
 use crate::snapshot::{ReferenceId, ReferenceRecord, SymbolId};
 use crate::source::CodeIndexMaterial;
 
 pub(super) struct SemanticLinkage<'a> {
 	material: &'a CodeIndexMaterial,
-	return_types: FxHashMap<Moniker, Moniker>,
+	callables: CallableIndex,
 }
 
 impl<'a> SemanticLinkage<'a> {
 	pub(super) fn new(material: &'a CodeIndexMaterial) -> Self {
 		Self {
 			material,
-			return_types: collect_return_types(material),
+			callables: CallableIndex::build(material),
 		}
 	}
 
 	pub(super) fn enhance(&self, decisions: &mut [ReferenceLinkageDecision]) {
 		let mut statuses = reference_statuses(self.material, decisions);
+		let return_types = collect_return_types(self.material, decisions);
 		let mut pending = pending_receiver_chains(decisions);
 		let receiver_calls = build_receiver_call_index(self.material, decisions, &pending);
 		loop {
@@ -36,8 +36,14 @@ impl<'a> SemanticLinkage<'a> {
 					ReferenceLinkageDecision::Unknown {
 						reason: UnknownReason::NoCandidate,
 						reference,
-					} => resolve_receiver_chain(self, reference, &statuses, &receiver_calls)
-						.map(|replacement| (*idx, replacement)),
+					} => resolve_receiver_chain(
+						self,
+						reference,
+						&statuses,
+						&receiver_calls,
+						&return_types,
+					)
+					.map(|replacement| (*idx, replacement)),
 					_ => None,
 				})
 				.collect::<Vec<_>>();
@@ -68,24 +74,22 @@ impl<'a> SemanticLinkage<'a> {
 		method_call: MethodCallReference<'_>,
 	) -> Option<ReferenceLinkageDecision> {
 		let target = method_target(owner, method_call.call_name(), method_call.call_arity());
-		self.material.symbols_by_moniker.get(&target).map(|symbol| {
-			method_call.resolved_decision(ResolutionScope::Global, vec![symbol.clone()])
-		})
+		if let Some(symbol) = self.material.symbols_by_moniker.get(&target) {
+			return Some(
+				method_call.resolved_decision(ResolutionScope::Global, vec![symbol.clone()]),
+			);
+		}
+		let targets = self.callables.resolve(owner, &method_call)?;
+		Some(method_call.resolved_decision(ResolutionScope::Global, targets))
 	}
 
-	fn resolved_return_owner(&self, symbol: &SymbolId) -> Option<Moniker> {
+	fn resolved_return_owner(
+		&self,
+		symbol: &SymbolId,
+		return_types: &FxHashMap<Moniker, Moniker>,
+	) -> Option<Moniker> {
 		let callable = self.material.symbol_monikers.get(symbol)?;
-		self.return_types.get(callable).cloned()
-	}
-
-	fn is_builtin_external(&self, source_file: usize, target: &Moniker) -> bool {
-		let Some(root) = external_target_root(target) else {
-			return false;
-		};
-		self.material
-			.files
-			.get(source_file)
-			.is_some_and(|file| is_builtin_external_root(file.lang, root))
+		return_types.get(callable).cloned()
 	}
 }
 
@@ -142,6 +146,54 @@ struct ReceiverCallIndex {
 impl ReceiverCallIndex {
 	fn get(&self, file_idx: usize, ref_idx: usize) -> Option<&ReferenceId> {
 		self.by_reference.get(&(file_idx, ref_idx))
+	}
+}
+
+struct CallableIndex {
+	by_owner_name_arity: FxHashMap<(Moniker, Vec<u8>, usize), Vec<SymbolId>>,
+}
+
+impl CallableIndex {
+	fn build(material: &CodeIndexMaterial) -> Self {
+		let mut by_owner_name_arity =
+			FxHashMap::<(Moniker, Vec<u8>, usize), Vec<SymbolId>>::default();
+		for (file_idx, file) in material.files.iter().enumerate() {
+			for (def_idx, def) in file.graph.defs().enumerate() {
+				let Some(arity) = def.call_arity else {
+					continue;
+				};
+				if def.call_name.is_empty() {
+					continue;
+				}
+				let Some(parent_idx) = def.parent else {
+					continue;
+				};
+				let owner = file.graph.def_at(parent_idx).moniker.clone();
+				let symbol = file.identity.symbol_id(file_idx, def_idx);
+				by_owner_name_arity
+					.entry((owner, def.call_name.clone(), arity))
+					.or_default()
+					.push(symbol);
+			}
+		}
+		Self {
+			by_owner_name_arity,
+		}
+	}
+
+	fn resolve(
+		&self,
+		owner: &Moniker,
+		method_call: &MethodCallReference<'_>,
+	) -> Option<Vec<SymbolId>> {
+		let arity = method_call.call_arity()?;
+		let key = (
+			owner.clone(),
+			method_call.call_name().as_bytes().to_vec(),
+			arity,
+		);
+		let targets = self.by_owner_name_arity.get(&key)?;
+		(targets.len() == 1).then(|| targets.clone())
 	}
 }
 
@@ -268,6 +320,7 @@ fn resolve_receiver_chain(
 	reference: &ReferenceRecord,
 	statuses: &FxHashMap<ReferenceId, ReferenceStatus>,
 	receiver_calls: &ReceiverCallIndex,
+	return_types: &FxHashMap<Moniker, Moniker>,
 ) -> Option<ReferenceLinkageDecision> {
 	let method_call = MethodCallReference::new(reference)?;
 	let (source_file, ref_idx) = linkage
@@ -277,16 +330,18 @@ fn resolve_receiver_chain(
 	let receiver = receiver_calls.get(source_file, ref_idx)?;
 	let owner = match statuses.get(&receiver)? {
 		ReferenceStatus::Resolved(symbols) if symbols.len() == 1 => {
-			linkage.resolved_return_owner(&symbols[0])?
+			linkage.resolved_return_owner(&symbols[0], return_types)?
 		}
-		ReferenceStatus::External(target) => external_callable_owner(target)?,
+		ReferenceStatus::External(target) => {
+			let owner = callable_owner(target)?;
+			let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
+			return Some(method_call.external_decision(target));
+		}
 		ReferenceStatus::Resolved(_) => return None,
 	};
 	if external_target_shape(&owner) {
 		let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
-		return linkage
-			.is_builtin_external(source_file, &owner)
-			.then(|| method_call.external_decision(target));
+		return Some(method_call.external_decision(target));
 	}
 	linkage.resolved_method_decision(&owner, method_call)
 }
@@ -297,19 +352,51 @@ enum ReferenceStatus {
 	External(Moniker),
 }
 
-fn collect_return_types(material: &CodeIndexMaterial) -> FxHashMap<Moniker, Moniker> {
+fn collect_return_types(
+	material: &CodeIndexMaterial,
+	decisions: &[ReferenceLinkageDecision],
+) -> FxHashMap<Moniker, Moniker> {
 	let mut out = FxHashMap::default();
-	for file in &material.files {
-		for reference in file
-			.graph
-			.refs()
-			.filter(|reference| reference.kind == REF_RETURNS_TYPE)
-		{
-			let source = file.graph.def_at(reference.source).moniker.clone();
-			out.insert(source, reference.target.clone());
+	for decision in decisions {
+		let reference = decision_reference(decision);
+		if reference.kind != "returns_type" {
+			continue;
 		}
+		let Some(source) = material.symbol_monikers.get(&reference.source_symbol) else {
+			continue;
+		};
+		let Some(target) = decision_target(material, decision) else {
+			continue;
+		};
+		out.insert(source.clone(), target);
 	}
 	out
+}
+
+fn decision_reference(decision: &ReferenceLinkageDecision) -> &ReferenceRecord {
+	match decision {
+		ReferenceLinkageDecision::Resolved { reference, .. }
+		| ReferenceLinkageDecision::External { reference, .. }
+		| ReferenceLinkageDecision::Blocked { reference, .. }
+		| ReferenceLinkageDecision::Unknown { reference, .. } => reference,
+	}
+}
+
+fn decision_target(
+	material: &CodeIndexMaterial,
+	decision: &ReferenceLinkageDecision,
+) -> Option<Moniker> {
+	match decision {
+		ReferenceLinkageDecision::Resolved { targets, .. } if targets.len() == 1 => {
+			material.symbol_monikers.get(&targets[0]).cloned()
+		}
+		ReferenceLinkageDecision::External {
+			reference, target, ..
+		} => target
+			.clone()
+			.or_else(|| material.reference_targets.get(&reference.id).cloned()),
+		_ => None,
+	}
 }
 
 fn reference_statuses(
@@ -376,10 +463,7 @@ fn method_target(owner: &Moniker, call_name: &str, call_arity: Option<usize>) ->
 		.build()
 }
 
-fn external_callable_owner(target: &Moniker) -> Option<Moniker> {
-	if !external_target_shape(target) {
-		return None;
-	}
+fn callable_owner(target: &Moniker) -> Option<Moniker> {
 	let Some(last) = target.as_view().segments().last() else {
 		return Some(target.clone());
 	};
@@ -394,12 +478,4 @@ fn external_target_shape(target: &Moniker) -> bool {
 		.as_view()
 		.segments()
 		.any(|segment| segment.kind == kinds::EXTERNAL_PKG)
-}
-
-fn external_target_root(target: &Moniker) -> Option<&str> {
-	let head = target.as_view().segments().next()?;
-	if head.kind != kinds::EXTERNAL_PKG {
-		return None;
-	}
-	std::str::from_utf8(head.name).ok()
 }

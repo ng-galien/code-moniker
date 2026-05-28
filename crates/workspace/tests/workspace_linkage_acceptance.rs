@@ -46,11 +46,13 @@ fn java_sdk_multiproject_links_spring_and_platform_refs() {
 			.with_java_pipeline(JavaExtractionPipeline::Sdk),
 	);
 
-	assert_eq!(snapshot.linkage.external_refs, 134);
+	assert_eq!(snapshot.linkage.external_refs, 151);
 	assert_no_unresolved(&snapshot);
 	assert_java_platform_refs(&snapshot);
 	assert_java_spring_refs(&snapshot);
 	assert_java_generic_refs(&snapshot);
+	assert_java_nested_type_refs(&snapshot);
+	assert_java_external_fluent_refs(&snapshot);
 	assert_java_switch_refs(&snapshot);
 }
 
@@ -104,6 +106,20 @@ fn assert_java_platform_refs(snapshot: &WorkspaceSnapshot) {
 		snapshot,
 		"method_call",
 		"package:com/package:google/package:common/package:truth/module:Truth/method:assertThat(_)/method:isTrue",
+	);
+}
+
+fn assert_java_external_fluent_refs(snapshot: &WorkspaceSnapshot) {
+	assert_external_reference(
+		snapshot,
+		"method_call",
+		"package:com/package:google/package:common/package:truth/module:Truth/method:assertThat(_)/method:hasMessageThat",
+	);
+	assert_external_call(
+		snapshot,
+		"package:com/package:acme/package:order/module:OrderArchitectureTest/class:OrderArchitectureTest/method:routesPremiumCustomerThroughPriorityLane()",
+		"startsWith",
+		1,
 	);
 }
 
@@ -186,12 +202,66 @@ fn assert_java_generic_refs(snapshot: &WorkspaceSnapshot) {
 		"package:com/package:acme/package:order/module:GenericCreator/path:GenericCreator/method:create",
 		"package:com/package:acme/package:order/module:GenericCreator/interface:GenericCreator/method:create(value:U)",
 	);
+	assert_call_linked_to(
+		snapshot,
+		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:routeOrder(customerId:String)",
+		"create",
+		1,
+		"package:com/package:acme/package:order/module:GenericCreator/interface:GenericCreator/method:create(value:U)",
+	);
+	assert_call_linked_to(
+		snapshot,
+		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:routeOrder(customerId:String)",
+		"value",
+		0,
+		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:value()",
+	);
 	assert_no_reference_containing(snapshot, "uses_type", "module:T/path:T");
 	assert_no_reference_containing(snapshot, "uses_type", "module:E/path:E");
 	assert_no_reference_containing(snapshot, "uses_type", "module:S/path:S");
 	assert_no_reference_containing(snapshot, "uses_type", "module:O/path:O");
 	assert_no_reference_containing(snapshot, "uses_type", "module:I/path:I");
 	assert_no_reference_containing(snapshot, "uses_type", "module:U/path:U");
+}
+
+fn assert_java_nested_type_refs(snapshot: &WorkspaceSnapshot) {
+	assert_external_reference(
+		snapshot,
+		"uses_type",
+		"external_pkg:java/path:util/path:Map/path:Entry",
+	);
+	assert_external_reference(
+		snapshot,
+		"method_call",
+		"external_pkg:java/path:util/path:Map/method:entry",
+	);
+	assert_external_reference(
+		snapshot,
+		"method_call",
+		"external_pkg:java/path:util/path:Map/path:Entry/method:getKey",
+	);
+	assert_external_reference(
+		snapshot,
+		"method_call",
+		"external_pkg:java/path:util/path:Map/path:Entry/method:getValue",
+	);
+	assert_external_reference(
+		snapshot,
+		"method_call",
+		"external_pkg:java/path:lang/path:Class/method:getSimpleName",
+	);
+	assert_linked_to(
+		snapshot,
+		"uses_type",
+		"package:com/package:acme/package:order/module:OrderContainer/path:OrderContainer/path:OrderToken",
+		"package:com/package:acme/package:order/module:OrderContainer/class:OrderContainer/class:OrderToken",
+	);
+	assert_linked_to(
+		snapshot,
+		"instantiates",
+		"package:com/package:acme/package:order/module:OrderContainer/class:OrderContainer/path:OrderToken",
+		"package:com/package:acme/package:order/module:OrderContainer/class:OrderContainer/class:OrderToken",
+	);
 }
 
 fn assert_java_switch_refs(snapshot: &WorkspaceSnapshot) {
@@ -400,9 +470,84 @@ fn assert_linked_to(
 	);
 }
 
+fn assert_call_linked_to(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	call_arity: usize,
+	symbol_identity: &str,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call"
+				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.collect::<Vec<_>>();
+	assert!(
+		references
+			.iter()
+			.any(|reference| linked_symbol_identities(snapshot, reference)
+				.iter()
+				.any(|identity| identity.contains(symbol_identity))),
+		"no `{call_name}`/{call_arity} call from `{}` was linked to `{symbol_identity}`",
+		source.identity
+	);
+}
+
+fn assert_external_call(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	call_arity: usize,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call"
+				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.collect::<Vec<_>>();
+	assert!(
+		references
+			.iter()
+			.any(|reference| reference_is_external(snapshot, reference)),
+		"no `{call_name}`/{call_arity} call from `{}` was classified external",
+		source.identity
+	);
+}
+
 fn assert_external_reference(snapshot: &WorkspaceSnapshot, kind: &str, reference_target: &str) {
 	let reference = find_reference(snapshot, kind, reference_target)
 		.unwrap_or_else(|| panic!("missing {kind} reference matching `{reference_target}`"));
+	assert!(
+		reference_is_external(snapshot, reference),
+		"reference `{}` should be classified external",
+		reference.target_identity
+	);
+}
+
+fn reference_is_external(snapshot: &WorkspaceSnapshot, reference: &ReferenceRecord) -> bool {
 	let linked = snapshot
 		.linkage
 		.resolved
@@ -413,11 +558,7 @@ fn assert_external_reference(snapshot: &WorkspaceSnapshot, kind: &str, reference
 		.unresolved
 		.iter()
 		.any(|item| item.reference.as_str() == reference.id.as_str());
-	assert!(
-		!linked && !unresolved,
-		"reference `{}` should be classified external, linked={linked}, unresolved={unresolved}",
-		reference.target_identity
-	);
+	!linked && !unresolved
 }
 
 fn assert_reference_from_symbol(

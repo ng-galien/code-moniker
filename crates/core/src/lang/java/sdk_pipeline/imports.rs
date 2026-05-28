@@ -181,7 +181,7 @@ fn project_regime_builder(module: &Moniker) -> MonikerBuilder {
 	builder
 }
 
-fn external_package_target(project: &[u8], pieces: &[&str]) -> Moniker {
+pub(super) fn external_package_target(project: &[u8], pieces: &[&str]) -> Moniker {
 	let mut builder = MonikerBuilder::new();
 	builder.project(project);
 	if let Some((head, tail)) = pieces.split_first() {
@@ -193,7 +193,7 @@ fn external_package_target(project: &[u8], pieces: &[&str]) -> Moniker {
 	builder.build()
 }
 
-fn external_or_imported(pieces: &[&str]) -> &'static [u8] {
+pub(super) fn external_or_imported(pieces: &[&str]) -> &'static [u8] {
 	if pieces.is_empty() {
 		return kinds::CONF_IMPORTED;
 	}

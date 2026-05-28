@@ -10,10 +10,10 @@ use super::builtins;
 use super::defs::formal_parameter_slots;
 use super::discover::JavaDiscover;
 use super::imports::{java_external_target_shape, java_lang_target};
-use super::syntax::{last_identifier, named_children, type_name, type_parameters};
+use super::syntax::{last_identifier, named_children, type_name, type_parameters, type_path};
 use super::type_resolution::{
-	is_type_param_in_scope, lookup_known_type_name, resolve_type_target, same_package_type_target,
-	type_env_for_scope, type_expr,
+	is_type_param_in_scope, lookup_known_type_name, resolve_type_path, resolve_type_target,
+	same_package_type_target, type_env_for_scope, type_expr,
 };
 
 pub(super) fn collect_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
@@ -280,10 +280,10 @@ fn object_creation_ref(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Mo
 	let Some(ty) = node.child_by_field_name("type") else {
 		return;
 	};
-	let Some(name) = type_name(ty, state.source) else {
+	let Some(path) = type_path(ty, state.source) else {
 		return;
 	};
-	let (target, confidence) = resolve_type_target(state, &name, kinds::CLASS);
+	let (target, confidence) = resolve_type_path(state, &path, kinds::CLASS);
 	state.push_ref(ResolvedRef {
 		source: source.clone(),
 		target,
@@ -350,6 +350,9 @@ fn static_member_read_ref(
 	else {
 		return;
 	};
+	if node_slice(member, state.source) == b"class" {
+		return;
+	}
 	let Some(type_owner) = static_type_owner(state, object, owner) else {
 		return;
 	};
@@ -409,12 +412,12 @@ fn receiver_owner(
 			.child_by_field_name("type")
 			.and_then(|ty| type_expr(state, ty, owner))
 			.and_then(|ty| ty.receiver_owner().cloned()),
-		"field_access" | "scoped_identifier" => {
-			expression_external_owner(state, receiver, owner, env)
-		}
+		"field_access" | "scoped_identifier" => class_literal_owner(state, receiver)
+			.or_else(|| expression_external_owner(state, receiver, owner, env)),
 		"method_invocation" => {
 			infer_call_type(state, receiver, owner, env).and_then(|ty| ty.receiver_owner().cloned())
 		}
+		"class_literal" => Some(java_lang_target(&state.root, b"Class")),
 		"cast_expression" => cast_receiver_owner(state, receiver, owner),
 		"parenthesized_expression" => parenthesized_receiver_owner(state, receiver, owner, env),
 		"string_literal" => Some(java_lang_target(&state.root, b"String")),
@@ -463,13 +466,20 @@ fn expression_external_owner(
 		}
 		"string_literal" => Some(java_lang_target(&state.root, b"String")),
 		"type_identifier" | "scoped_type_identifier" | "generic_type" | "array_type" => {
-			let name = type_name(node, state.source)?;
-			let (target, confidence) = resolve_type_target(state, &name, kinds::CLASS);
+			let path = type_path(node, state.source)?;
+			let (target, confidence) = resolve_type_path(state, &path, kinds::CLASS);
 			(confidence == kinds::CONF_EXTERNAL).then_some(target)
 		}
+		"class_literal" => Some(java_lang_target(&state.root, b"Class")),
 		"field_access" | "scoped_identifier" => node
-			.child_by_field_name("object")
-			.and_then(|object| expression_external_owner(state, object, owner, env)),
+			.child_by_field_name("field")
+			.or_else(|| node.child_by_field_name("name"))
+			.and_then(|field| (node_slice(field, state.source) == b"class").then_some(()))
+			.map(|_| java_lang_target(&state.root, b"Class"))
+			.or_else(|| {
+				node.child_by_field_name("object")
+					.and_then(|object| expression_external_owner(state, object, owner, env))
+			}),
 		"method_invocation" => infer_call_type(state, node, owner, env)
 			.and_then(|ty| ty.receiver_owner().cloned())
 			.filter(java_external_target_shape)
@@ -479,6 +489,13 @@ fn expression_external_owner(
 			}),
 		_ => None,
 	}
+}
+
+fn class_literal_owner(state: &JavaDiscover<'_>, node: Node<'_>) -> Option<Moniker> {
+	node.child_by_field_name("field")
+		.or_else(|| node.child_by_field_name("name"))
+		.and_then(|field| (node_slice(field, state.source) == b"class").then_some(()))
+		.map(|_| java_lang_target(&state.root, b"Class"))
 }
 
 fn infer_value_type(
@@ -579,15 +596,18 @@ fn lookup_static_imported_callable(
 fn emit_type_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, source: &Moniker) {
 	match node.kind() {
 		"type_identifier" | "scoped_type_identifier" | "generic_type" => {
-			if let Some(name) = type_name(node, state.source) {
+			if let Some(path) = type_path(node, state.source) {
+				let Some(name) = path.last() else {
+					return;
+				};
 				if name.is_empty()
-					|| builtins::is_primitive_type(&name)
-					|| builtins::is_inferred_local_type(&name)
-					|| is_type_param_in_scope(state, source, &name)
+					|| builtins::is_primitive_type(name)
+					|| builtins::is_inferred_local_type(name)
+					|| (path.len() == 1 && is_type_param_in_scope(state, source, name))
 				{
 					return;
 				}
-				let (target, confidence) = resolve_type_target(state, &name, kinds::CLASS);
+				let (target, confidence) = resolve_type_path(state, &path, kinds::CLASS);
 				state.push_ref(ResolvedRef {
 					source: source.clone(),
 					target,
@@ -670,7 +690,7 @@ fn heritage_refs(
 			child.kind(),
 			"type_identifier" | "scoped_type_identifier" | "generic_type"
 		) {
-			let Some(name) = type_name(child, state.source) else {
+			let Some(path) = type_path(child, state.source) else {
 				continue;
 			};
 			let target_kind = if kind == kinds::IMPLEMENTS {
@@ -678,7 +698,7 @@ fn heritage_refs(
 			} else {
 				kinds::CLASS
 			};
-			let (target, confidence) = resolve_type_target(state, &name, target_kind);
+			let (target, confidence) = resolve_type_path(state, &path, target_kind);
 			state.push_ref(ResolvedRef {
 				source: source.clone(),
 				target,

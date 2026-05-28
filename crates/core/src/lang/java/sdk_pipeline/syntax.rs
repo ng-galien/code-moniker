@@ -33,9 +33,13 @@ pub(super) fn last_identifier(node: Node<'_>, source: &[u8]) -> Vec<u8> {
 }
 
 pub(super) fn type_name(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
+	type_path(node, source).map(|mut pieces| pieces.pop().unwrap_or_default())
+}
+
+pub(super) fn type_path(node: Node<'_>, source: &[u8]) -> Option<Vec<Vec<u8>>> {
 	match node.kind() {
-		"type_identifier" => Some(node_slice(node, source).to_vec()),
-		"scoped_type_identifier" => Some(last_identifier(node, source)),
+		"type_identifier" => Some(vec![node_slice(node, source).to_vec()]),
+		"scoped_type_identifier" => Some(path_pieces(node, source)),
 		"generic_type" => node
 			.child_by_field_name("type")
 			.or_else(|| {
@@ -43,10 +47,10 @@ pub(super) fn type_name(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
 					matches!(child.kind(), "type_identifier" | "scoped_type_identifier")
 				})
 			})
-			.and_then(|ty| type_name(ty, source)),
+			.and_then(|ty| type_path(ty, source)),
 		"array_type" => node
 			.child_by_field_name("element")
-			.and_then(|element| type_name(element, source)),
+			.and_then(|element| type_path(element, source)),
 		_ => None,
 	}
 }
