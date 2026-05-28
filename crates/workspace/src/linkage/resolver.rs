@@ -74,6 +74,7 @@ impl LocalLinkage {
 			generation,
 			index.generation,
 			&index.references,
+			&material.identity,
 		));
 		timings.project_report = report_timer.elapsed();
 		timings.total = total_timer.elapsed();

@@ -1,5 +1,6 @@
 ---
 source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 132
 expression: body
 input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
 ---
@@ -41,7 +42,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         205,
         215
       ],
-      "signature": "",
+      "signature": "final OrderRepository",
       "visibility": "private"
     },
     {
@@ -54,7 +55,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         238,
         243
       ],
-      "signature": "",
+      "signature": "final Clock",
       "visibility": "private"
     },
     {
@@ -210,7 +211,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         838,
         847
       ],
-      "signature": "",
+      "signature": "String",
       "visibility": "private"
     },
     {
@@ -236,7 +237,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         849,
         862
       ],
-      "signature": "",
+      "signature": "Status",
       "visibility": "private"
     },
     {
@@ -262,7 +263,7 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
         864,
         881
       ],
-      "signature": "",
+      "signature": "Instant",
       "visibility": "private"
     },
     {

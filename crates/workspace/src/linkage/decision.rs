@@ -1,7 +1,8 @@
 use crate::snapshot::{
-	LinkageEdge, LinkageGraphReport, ReferenceRecord, ResourceGeneration, SymbolId,
-	UnresolvedReference,
+	ExternalReference, LinkageEdge, LinkageGraphReport, ReferenceRecord, ResourceGeneration,
+	SymbolId, UnresolvedReference,
 };
+use crate::source::LocalIdentityResolver;
 use code_moniker_core::core::moniker::Moniker;
 use std::sync::Arc;
 
@@ -20,8 +21,9 @@ impl LinkageDecisionLog {
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
 		references: &[ReferenceRecord],
+		identity: &LocalIdentityResolver,
 	) -> LinkageGraphReport {
-		LinkageReportProjection::from_decisions(self.decisions, references)
+		LinkageReportProjection::from_decisions(self.decisions, references, identity)
 			.into_report(generation, index_generation)
 	}
 }
@@ -61,6 +63,7 @@ pub(super) enum ResolutionScope {
 #[allow(dead_code)]
 pub(super) enum ExternalOrigin {
 	Dependency,
+	Injected,
 	UnknownExternal,
 }
 
@@ -150,18 +153,21 @@ impl LinkageReportProjection {
 	fn from_decisions(
 		decisions: Vec<ReferenceLinkageDecision>,
 		references: &[ReferenceRecord],
+		identity: &LocalIdentityResolver,
 	) -> Self {
 		let capacity = LinkageProjectionCapacity::from_decisions(&decisions);
 		decisions
 			.into_iter()
-			.map(|decision| LinkageDecisionProjection::from_decision(decision, references))
+			.map(|decision| {
+				LinkageDecisionProjection::from_decision(decision, references, identity)
+			})
 			.fold(Self::with_capacity(capacity), Self::collect)
 	}
 
 	fn with_capacity(capacity: LinkageProjectionCapacity) -> Self {
 		Self {
 			resolved: ResolvedLinkProjection::with_capacity(capacity.resolved_edges),
-			external: ExternalLinkProjection::default(),
+			external: ExternalLinkProjection::with_capacity(capacity.external_refs),
 			unresolved: UnresolvedLinkProjection::with_capacity(capacity.unresolved_refs),
 		}
 	}
@@ -169,7 +175,7 @@ impl LinkageReportProjection {
 	fn collect(mut self, decision: LinkageDecisionProjection) -> Self {
 		match decision {
 			LinkageDecisionProjection::Resolved(resolved) => self.resolved.collect(resolved),
-			LinkageDecisionProjection::External => self.external.collect(),
+			LinkageDecisionProjection::External(external) => self.external.collect(external),
 			LinkageDecisionProjection::ManifestBlocked(reference) => {
 				self.unresolved.collect_manifest_blocked(reference)
 			}
@@ -192,6 +198,7 @@ impl LinkageReportProjection {
 			unresolved_refs: self.unresolved.unresolved_refs,
 			ambiguous_refs: self.resolved.ambiguous_refs,
 			resolved: self.resolved.edges,
+			external: self.external.references,
 			unresolved: self.unresolved.references,
 		}
 	}
@@ -199,6 +206,7 @@ impl LinkageReportProjection {
 
 struct LinkageProjectionCapacity {
 	resolved_edges: usize,
+	external_refs: usize,
 	unresolved_refs: usize,
 }
 
@@ -207,6 +215,7 @@ impl LinkageProjectionCapacity {
 		decisions.iter().fold(
 			Self {
 				resolved_edges: 0,
+				external_refs: 0,
 				unresolved_refs: 0,
 			},
 			|mut capacity, decision| {
@@ -218,7 +227,9 @@ impl LinkageProjectionCapacity {
 					| ReferenceLinkageDecision::Unknown { .. } => {
 						capacity.unresolved_refs += 1;
 					}
-					ReferenceLinkageDecision::External { .. } => {}
+					ReferenceLinkageDecision::External { .. } => {
+						capacity.external_refs += 1;
+					}
 				}
 				capacity
 			},
@@ -228,13 +239,17 @@ impl LinkageProjectionCapacity {
 
 enum LinkageDecisionProjection {
 	Resolved(ResolvedReferenceProjection),
-	External,
+	External(ExternalReference),
 	ManifestBlocked(UnresolvedReference),
 	Unresolved(UnresolvedReference),
 }
 
 impl LinkageDecisionProjection {
-	fn from_decision(decision: ReferenceLinkageDecision, references: &[ReferenceRecord]) -> Self {
+	fn from_decision(
+		decision: ReferenceLinkageDecision,
+		references: &[ReferenceRecord],
+		identity: &LocalIdentityResolver,
+	) -> Self {
 		match decision {
 			ReferenceLinkageDecision::Resolved {
 				scope: _scope,
@@ -257,10 +272,15 @@ impl LinkageDecisionProjection {
 				reference_idx,
 			} => Self::Unresolved(unresolved_reference(&references[reference_idx])),
 			ReferenceLinkageDecision::External {
-				origin: _origin,
-				reference_idx: _reference_idx,
-				target: _target,
-			} => Self::External,
+				origin,
+				reference_idx,
+				target,
+			} => Self::External(external_reference(
+				&references[reference_idx],
+				origin,
+				target.as_ref(),
+				identity,
+			)),
 		}
 	}
 }
@@ -311,11 +331,20 @@ impl ResolvedLinkProjection {
 #[derive(Default)]
 struct ExternalLinkProjection {
 	external_refs: usize,
+	references: Vec<ExternalReference>,
 }
 
 impl ExternalLinkProjection {
-	fn collect(&mut self) {
+	fn with_capacity(capacity: usize) -> Self {
+		Self {
+			external_refs: 0,
+			references: Vec::with_capacity(capacity),
+		}
+	}
+
+	fn collect(&mut self, reference: ExternalReference) {
 		self.external_refs += 1;
+		self.references.push(reference);
 	}
 }
 
@@ -348,4 +377,27 @@ impl UnresolvedLinkProjection {
 
 fn unresolved_reference(reference: &ReferenceRecord) -> UnresolvedReference {
 	UnresolvedReference::new(reference.id.clone(), Arc::clone(&reference.target_identity))
+}
+
+fn external_reference(
+	reference: &ReferenceRecord,
+	origin: ExternalOrigin,
+	target: Option<&Moniker>,
+	identity: &LocalIdentityResolver,
+) -> ExternalReference {
+	ExternalReference::new(
+		reference.id.clone(),
+		target
+			.map(|target| identity.moniker_uri(target))
+			.unwrap_or_else(|| reference.target_identity.to_string()),
+		external_origin_label(origin),
+	)
+}
+
+fn external_origin_label(origin: ExternalOrigin) -> &'static str {
+	match origin {
+		ExternalOrigin::Dependency => "dependency",
+		ExternalOrigin::Injected => "injected",
+		ExternalOrigin::UnknownExternal => "unknown_external",
+	}
 }

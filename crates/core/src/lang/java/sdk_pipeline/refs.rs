@@ -110,6 +110,13 @@ fn field_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	}
 	let type_env = type_env_for_scope(state, scope);
 	for declarator in named_children(node).filter(|child| child.kind() == "variable_declarator") {
+		if let Some(name_node) = declarator.child_by_field_name("name") {
+			let name = node_slice(name_node, state.source);
+			if !name.is_empty() {
+				let field = extend_segment(scope, kinds::FIELD, name);
+				annotations(state, node, &field);
+			}
+		}
 		if let Some(value) = declarator.child_by_field_name("value") {
 			expr_refs(state, value, scope, scope, &type_env);
 		}

@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 use crate::linkage::decision::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
+use crate::linkage::lombok::LombokSemantics;
 use crate::snapshot::{ReferenceId, ReferenceRecord, SymbolId};
 use crate::source::CodeIndexMaterial;
 
@@ -29,51 +30,9 @@ impl<'a> SemanticLinkage<'a> {
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &[ReferenceRecord],
 	) {
-		let mut statuses = reference_statuses(self.material, decisions, references);
-		let return_types = collect_return_types(self.material, decisions, references);
-		let mut pending = pending_receiver_chains(decisions, references);
-		let receiver_calls =
-			build_receiver_call_index(self.material, decisions, references, &pending);
-		loop {
-			let replacements = pending
-				.par_iter()
-				.filter_map(|idx| match &decisions[*idx] {
-					ReferenceLinkageDecision::Unknown {
-						reason: UnknownReason::NoCandidate,
-						reference_idx,
-					} => resolve_receiver_chain(
-						self,
-						*reference_idx,
-						&references[*reference_idx],
-						&statuses,
-						&receiver_calls,
-						&return_types,
-					)
-					.map(|replacement| (*idx, replacement)),
-					_ => None,
-				})
-				.collect::<Vec<_>>();
-			if replacements.is_empty() {
-				break;
-			}
-			for (idx, replacement) in replacements {
-				if let Some((reference, status)) =
-					reference_status(self.material, &replacement, references)
-				{
-					statuses.insert(reference, status);
-				}
-				decisions[idx] = replacement;
-			}
-			pending.retain(|idx| {
-				matches!(
-					decisions[*idx],
-					ReferenceLinkageDecision::Unknown {
-						reason: UnknownReason::NoCandidate,
-						..
-					}
-				)
-			});
-		}
+		let lombok = LombokSemantics::build(self.material, references);
+		apply_lombok_semantics(decisions, references, &lombok);
+		enhance_receiver_chains(self, decisions, references);
 	}
 
 	fn resolved_method_decision(
@@ -98,6 +57,77 @@ impl<'a> SemanticLinkage<'a> {
 	) -> Option<Moniker> {
 		let callable = self.material.symbol_moniker(symbol)?;
 		return_types.get(callable).cloned()
+	}
+}
+
+fn apply_lombok_semantics(
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &[ReferenceRecord],
+	lombok: &LombokSemantics<'_>,
+) {
+	let replacements = decisions
+		.par_iter()
+		.enumerate()
+		.filter_map(|(idx, decision)| {
+			lombok
+				.resolve_reference(decision, references)
+				.map(|replacement| (idx, replacement))
+		})
+		.collect::<Vec<_>>();
+	for (idx, replacement) in replacements {
+		decisions[idx] = replacement;
+	}
+}
+
+fn enhance_receiver_chains(
+	linkage: &SemanticLinkage<'_>,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &[ReferenceRecord],
+) {
+	let mut statuses = reference_statuses(linkage.material, decisions, references);
+	let return_types = collect_return_types(linkage.material, decisions, references);
+	let mut pending = pending_receiver_chains(decisions, references);
+	let receiver_calls =
+		build_receiver_call_index(linkage.material, decisions, references, &pending);
+	loop {
+		let replacements = pending
+			.par_iter()
+			.filter_map(|idx| match &decisions[*idx] {
+				ReferenceLinkageDecision::Unknown {
+					reason: UnknownReason::NoCandidate,
+					reference_idx,
+				} => resolve_receiver_chain(
+					linkage,
+					*reference_idx,
+					&references[*reference_idx],
+					&statuses,
+					&receiver_calls,
+					&return_types,
+				)
+				.map(|replacement| (*idx, replacement)),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		if replacements.is_empty() {
+			break;
+		}
+		for (idx, replacement) in replacements {
+			if let Some((reference, status)) =
+				reference_status(linkage.material, &replacement, references)
+			{
+				statuses.insert(reference, status);
+			}
+			decisions[idx] = replacement;
+		}
+		pending.retain(|idx| {
+			matches!(
+				decisions[*idx],
+				ReferenceLinkageDecision::Unknown {
+					reason: UnknownReason::NoCandidate,
+					..
+				}
+			)
+		});
 	}
 }
 

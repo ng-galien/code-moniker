@@ -390,6 +390,27 @@ impl LinkageEdge {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExternalReference {
+	pub reference: ReferenceId,
+	pub target_identity: Arc<str>,
+	pub origin: String,
+}
+
+impl ExternalReference {
+	pub fn new(
+		reference: ReferenceId,
+		target_identity: impl Into<Arc<str>>,
+		origin: impl Into<String>,
+	) -> Self {
+		Self {
+			reference,
+			target_identity: target_identity.into(),
+			origin: origin.into(),
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnresolvedReference {
 	pub reference: ReferenceId,
 	pub target_identity: Arc<str>,
@@ -414,6 +435,7 @@ pub struct LinkageGraph {
 	pub unresolved_refs: usize,
 	pub ambiguous_refs: usize,
 	pub resolved: Vec<LinkageEdge>,
+	pub external: Vec<ExternalReference>,
 	pub unresolved: Vec<UnresolvedReference>,
 }
 
@@ -433,6 +455,7 @@ impl LinkageGraph {
 			unresolved_refs,
 			ambiguous_refs: 0,
 			resolved: Vec::new(),
+			external: Vec::new(),
 			unresolved: Vec::new(),
 		}
 	}
@@ -454,12 +477,14 @@ impl LinkageGraph {
 			unresolved_refs: unresolved.len(),
 			ambiguous_refs: 0,
 			resolved,
+			external: Vec::new(),
 			unresolved,
 		}
 	}
 
 	pub fn from_report(mut report: LinkageGraphReport) -> Self {
 		report.resolved.shrink_to_fit();
+		report.external.shrink_to_fit();
 		report.unresolved.shrink_to_fit();
 		Self {
 			generation: report.generation,
@@ -470,6 +495,7 @@ impl LinkageGraph {
 			unresolved_refs: report.unresolved_refs,
 			ambiguous_refs: report.ambiguous_refs,
 			resolved: report.resolved,
+			external: report.external,
 			unresolved: report.unresolved,
 		}
 	}
@@ -484,6 +510,7 @@ pub struct LinkageGraphReport {
 	pub unresolved_refs: usize,
 	pub ambiguous_refs: usize,
 	pub resolved: Vec<LinkageEdge>,
+	pub external: Vec<ExternalReference>,
 	pub unresolved: Vec<UnresolvedReference>,
 }
 

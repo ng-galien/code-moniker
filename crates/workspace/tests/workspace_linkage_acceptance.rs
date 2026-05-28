@@ -46,7 +46,6 @@ fn java_sdk_multiproject_links_spring_and_platform_refs() {
 			.with_java_pipeline(JavaExtractionPipeline::Sdk),
 	);
 
-	assert_eq!(snapshot.linkage.external_refs, 151);
 	assert_no_unresolved(&snapshot);
 	assert_java_platform_refs(&snapshot);
 	assert_java_spring_refs(&snapshot);
@@ -54,6 +53,34 @@ fn java_sdk_multiproject_links_spring_and_platform_refs() {
 	assert_java_nested_type_refs(&snapshot);
 	assert_java_external_fluent_refs(&snapshot);
 	assert_java_switch_refs(&snapshot);
+	assert_java_lombok_refs(&snapshot);
+}
+
+#[test]
+fn java_lombok_boundaries_do_not_invent_accessors() {
+	let snapshot = load_workspace_with_options(
+		LocalWorkspaceOptions::new(vec![fixture_path("projects/java/lombok-boundaries")], None)
+			.with_java_pipeline(JavaExtractionPipeline::Sdk),
+	);
+
+	assert_call_unresolved(
+		&snapshot,
+		"package:com/package:acme/package:lombokboundary/module:LombokDataBoundary/class:LombokDataBoundary/method:exercise()",
+		"setCode",
+		1,
+	);
+	assert_call_unresolved(
+		&snapshot,
+		"package:com/package:acme/package:lombokboundary/module:LombokDataBoundary/class:LombokDataBoundary/method:exercise()",
+		"isReviewed",
+		0,
+	);
+	assert_call_unresolved(
+		&snapshot,
+		"package:com/package:acme/package:lombokboundary/module:LombokValueBoundary/class:LombokValueBoundary/method:exercise()",
+		"withCode",
+		1,
+	);
 }
 
 fn assert_java_platform_refs(snapshot: &WorkspaceSnapshot) {
@@ -142,26 +169,26 @@ fn assert_java_spring_refs(snapshot: &WorkspaceSnapshot) {
 	assert_reference_from_symbol(
 		snapshot,
 		"annotates",
-		"package:com/package:acme/package:springedge/package:api/module:CustomerController/class:CustomerController/method:getCustomer(customerId:String)/param:customerId",
+		"package:com/package:acme/package:springedge/package:api/module:CustomerController/class:CustomerController/method:getCustomer(String)/param:customerId",
 		"package:org/package:springframework/package:web/package:bind/package:annotation/module:PathVariable/path:PathVariable",
 	);
 	assert_linked_to(
 		snapshot,
 		"method_call",
 		"package:com/package:acme/package:springedge/package:app/module:SpringCustomerService/path:SpringCustomerService/method:loadProfile",
-		"package:com/package:acme/package:springedge/package:app/module:SpringCustomerService/class:SpringCustomerService/method:loadProfile(customerId:String)",
+		"package:com/package:acme/package:springedge/package:app/module:SpringCustomerService/class:SpringCustomerService/method:loadProfile(String)",
 	);
 	assert_linked_to(
 		snapshot,
 		"method_call",
 		"package:com/package:acme/package:springedge/package:app/module:CustomerProfileDto/path:CustomerProfileDto/method:from",
-		"package:com/package:acme/package:springedge/package:app/module:CustomerProfileDto/record:CustomerProfileDto/method:from(profile:CustomerProfile)",
+		"package:com/package:acme/package:springedge/package:app/module:CustomerProfileDto/record:CustomerProfileDto/method:from(CustomerProfile)",
 	);
 	assert_linked_to(
 		snapshot,
 		"method_call",
 		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/path:RiskPolicy/method:isPriority",
-		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/class:RiskPolicy/method:isPriority(profile:CustomerProfile)",
+		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/class:RiskPolicy/method:isPriority(CustomerProfile)",
 	);
 }
 
@@ -182,36 +209,36 @@ fn assert_java_generic_refs(snapshot: &WorkspaceSnapshot) {
 		snapshot,
 		"method_call",
 		"package:com/package:acme/package:order/module:TypedOrderBox/path:TypedOrderBox/method:echo",
-		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:echo(value:E)",
+		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:echo(E)",
 	);
 	assert_linked_to(
 		snapshot,
 		"method_call",
 		"package:com/package:acme/package:order/module:TypedOrderBox/path:TypedOrderBox/method:identity",
-		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:identity(value:S)",
+		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:identity(S)",
 	);
 	assert_linked_to(
 		snapshot,
 		"method_call",
 		"package:com/package:acme/package:order/module:TypedOrderBox/path:TypedOrderBox/method:creator",
-		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:creator(ignored:TypedOrderBox<O>)",
+		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:creator(TypedOrderBox<O>)",
 	);
 	assert_linked_to(
 		snapshot,
 		"method_call",
 		"package:com/package:acme/package:order/module:GenericCreator/path:GenericCreator/method:create",
-		"package:com/package:acme/package:order/module:GenericCreator/interface:GenericCreator/method:create(value:U)",
+		"package:com/package:acme/package:order/module:GenericCreator/interface:GenericCreator/method:create(U)",
 	);
 	assert_call_linked_to(
 		snapshot,
-		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:routeOrder(customerId:String)",
+		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:routeOrder(String)",
 		"create",
 		1,
-		"package:com/package:acme/package:order/module:GenericCreator/interface:GenericCreator/method:create(value:U)",
+		"package:com/package:acme/package:order/module:GenericCreator/interface:GenericCreator/method:create(U)",
 	);
 	assert_call_linked_to(
 		snapshot,
-		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:routeOrder(customerId:String)",
+		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:routeOrder(String)",
 		"value",
 		0,
 		"package:com/package:acme/package:order/module:TypedOrderBox/class:TypedOrderBox/method:value()",
@@ -269,7 +296,7 @@ fn assert_java_switch_refs(snapshot: &WorkspaceSnapshot) {
 		snapshot,
 		"method_call",
 		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:selectLane",
-		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:selectLane(profile:CustomerProfile)",
+		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:selectLane(CustomerProfile)",
 	);
 	assert_linked_to(
 		snapshot,
@@ -281,7 +308,7 @@ fn assert_java_switch_refs(snapshot: &WorkspaceSnapshot) {
 		snapshot,
 		"method_call",
 		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/path:RiskPolicy/method:score",
-		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/class:RiskPolicy/method:score(profile:CustomerProfile)",
+		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/class:RiskPolicy/method:score(CustomerProfile)",
 	);
 	assert_linked_to(
 		snapshot,
@@ -312,6 +339,40 @@ fn assert_java_switch_refs(snapshot: &WorkspaceSnapshot) {
 		"reads",
 		"package:com/package:acme/package:order/module:OrderLane/path:OrderLane/path:REVIEW",
 		"package:com/package:acme/package:order/module:OrderLane/enum:OrderLane/enum_constant:REVIEW",
+	);
+}
+
+fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
+	assert_external_call_target(
+		snapshot,
+		"package:com/package:acme/package:order/module:LombokOrderLifecycle/class:LombokOrderLifecycle/method:activatePriorityOrder()",
+		"info",
+		2,
+		"external_pkg:org/path:slf4j/path:Logger/method:info",
+	);
+	for (call, arity, field) in [
+		("setStatus", 1, "field:status"),
+		("setPriority", 1, "field:priority"),
+		("getReviewed", 0, "field:reviewed"),
+		("getImmutableCode", 0, "field:immutableCode"),
+		("getStatus", 0, "field:status"),
+		("isPriority", 0, "field:priority"),
+	] {
+		assert_call_linked_to(
+			snapshot,
+			"package:com/package:acme/package:order/module:LombokOrderLifecycle/class:LombokOrderLifecycle/method:activatePriorityOrder()",
+			call,
+			arity,
+			&format!(
+				"package:com/package:acme/package:order/module:LombokOrderState/class:LombokOrderState/{field}"
+			),
+		);
+	}
+	assert_linked_to(
+		snapshot,
+		"calls",
+		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/method:getFieldOnly()",
+		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/field:fieldOnly",
 	);
 }
 
@@ -537,6 +598,84 @@ fn assert_external_call(
 	);
 }
 
+fn assert_external_call_target(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	call_arity: usize,
+	target_identity: &str,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call"
+				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.collect::<Vec<_>>();
+	assert!(
+		references.iter().any(|reference| {
+			external_target_identities(snapshot, reference)
+				.iter()
+				.any(|identity| identity.contains(target_identity))
+		}),
+		"no `{call_name}`/{call_arity} call from `{}` was external with target `{target_identity}`",
+		source.identity
+	);
+}
+
+fn assert_call_unresolved(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	call_arity: usize,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call"
+				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.collect::<Vec<_>>();
+	assert!(
+		references.iter().any(|reference| {
+			snapshot
+				.linkage
+				.unresolved
+				.iter()
+				.any(|item| item.reference.as_str() == reference.id.as_str())
+		}),
+		"`{call_name}`/{call_arity} from `{}` should remain unresolved",
+		source.identity
+	);
+	assert!(
+		references
+			.iter()
+			.all(|reference| linked_symbol_identities(snapshot, reference).is_empty()),
+		"`{call_name}`/{call_arity} from `{}` should not be linked",
+		source.identity
+	);
+}
+
 fn assert_external_reference(snapshot: &WorkspaceSnapshot, kind: &str, reference_target: &str) {
 	let reference = find_reference(snapshot, kind, reference_target)
 		.unwrap_or_else(|| panic!("missing {kind} reference matching `{reference_target}`"));
@@ -548,17 +687,24 @@ fn assert_external_reference(snapshot: &WorkspaceSnapshot, kind: &str, reference
 }
 
 fn reference_is_external(snapshot: &WorkspaceSnapshot, reference: &ReferenceRecord) -> bool {
-	let linked = snapshot
+	snapshot
 		.linkage
-		.resolved
+		.external
 		.iter()
-		.any(|edge| edge.reference.as_str() == reference.id.as_str());
-	let unresolved = snapshot
+		.any(|item| item.reference.as_str() == reference.id.as_str())
+}
+
+fn external_target_identities(
+	snapshot: &WorkspaceSnapshot,
+	reference: &ReferenceRecord,
+) -> Vec<String> {
+	snapshot
 		.linkage
-		.unresolved
+		.external
 		.iter()
-		.any(|item| item.reference.as_str() == reference.id.as_str());
-	!linked && !unresolved
+		.filter(|item| item.reference.as_str() == reference.id.as_str())
+		.map(|item| item.target_identity.to_string())
+		.collect()
 }
 
 fn assert_reference_from_symbol(

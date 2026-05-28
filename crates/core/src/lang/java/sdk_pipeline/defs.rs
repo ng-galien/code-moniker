@@ -166,7 +166,7 @@ fn record_component_def(
 		name: name.to_vec(),
 		kind: kinds::FIELD,
 		visibility: kinds::VIS_PRIVATE,
-		signature: Vec::new(),
+		signature: field_type_signature(component, state.source),
 		position: Some(node_position(component)),
 		call_name: Vec::new(),
 		call_arity: None,
@@ -399,6 +399,7 @@ fn field_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	let ty = node
 		.child_by_field_name("type")
 		.and_then(|node| type_expr(state, node, scope));
+	let signature = field_declaration_signature(node, state.source);
 	for declarator in named_children(node).filter(|child| child.kind() == "variable_declarator") {
 		let Some(name_node) = declarator.child_by_field_name("name") else {
 			continue;
@@ -417,12 +418,34 @@ fn field_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 			name: name.to_vec(),
 			kind: kinds::FIELD,
 			visibility: visibility_of(node),
-			signature: Vec::new(),
+			signature: signature.clone(),
 			position: Some(node_position(declarator)),
 			call_name: Vec::new(),
 			call_arity: None,
 		}));
 	}
+}
+
+fn field_declaration_signature(node: Node<'_>, source: &[u8]) -> Vec<u8> {
+	let mut signature = Vec::new();
+	if has_modifier(node, "final") {
+		signature.extend_from_slice(b"final");
+	}
+	let ty = field_type_signature(node, source);
+	if !ty.is_empty() {
+		if !signature.is_empty() {
+			signature.push(b' ');
+		}
+		signature.extend_from_slice(&ty);
+	}
+	signature
+}
+
+fn field_type_signature(node: Node<'_>, source: &[u8]) -> Vec<u8> {
+	node.child_by_field_name("type")
+		.and_then(|ty| ty.utf8_text(source).ok())
+		.map(normalize_type_text)
+		.unwrap_or_default()
 }
 
 struct DefInput {
@@ -540,4 +563,15 @@ fn visibility_of(node: Node<'_>) -> &'static [u8] {
 		}
 	}
 	kinds::VIS_PACKAGE
+}
+
+fn has_modifier(node: Node<'_>, modifier_kind: &str) -> bool {
+	named_children(node)
+		.filter(|child| child.kind() == "modifiers")
+		.any(|child| {
+			let mut cursor = child.walk();
+			child
+				.children(&mut cursor)
+				.any(|modifier| modifier.kind() == modifier_kind)
+		})
 }

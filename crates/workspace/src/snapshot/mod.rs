@@ -10,7 +10,7 @@ mod view;
 pub use model::{
 	ChangeId, ChangeOverlay, ChangeOverlayReport, ChangeRecord, ChangeRecordCoreFields,
 	ChangeRecordFields, ChangeResource, ChangeStatus, CodeIndex, CodeIndexFields, CodeIndexTimings,
-	LinkageEdge, LinkageGraph, LinkageGraphReport, ReferenceId, ReferenceRecord,
+	ExternalReference, LinkageEdge, LinkageGraph, LinkageGraphReport, ReferenceId, ReferenceRecord,
 	ResourceGeneration, SourceCatalog, SourceFileRecord, SourceFileRecordFields, SourceId,
 	SourceUnit, SymbolId, SymbolLocation, SymbolRecord, SymbolRecordFields, UnresolvedReference,
 	WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult, WorkspaceSnapshot,

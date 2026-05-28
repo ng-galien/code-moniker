@@ -1,5 +1,6 @@
 mod candidate;
 mod decision;
+mod lombok;
 mod manifest;
 mod query;
 mod resolver;

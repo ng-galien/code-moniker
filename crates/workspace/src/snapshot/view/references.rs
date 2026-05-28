@@ -92,6 +92,7 @@ fn reference_summary(
 	let symbols = SymbolView::new(snapshot);
 	let source_symbol = symbols.find(&reference.source_symbol);
 	let resolved_target = resolved_target(snapshot, &reference.id);
+	let external_target = external_target(snapshot, &reference.id);
 	ReferenceSummary {
 		reference: reference.id.clone(),
 		source: Some(reference.source.clone()),
@@ -107,6 +108,7 @@ fn reference_summary(
 			.as_ref()
 			.and_then(|symbol| symbols.find(symbol))
 			.map(|symbol| symbol.identity.clone())
+			.or(external_target)
 			.unwrap_or_else(|| reference.target_identity.to_string()),
 		kind: reference.kind.clone(),
 		line_range: reference.line_range,
@@ -120,4 +122,13 @@ fn resolved_target(snapshot: &WorkspaceSnapshot, reference: &ReferenceId) -> Opt
 		.iter()
 		.find(|edge| &edge.reference == reference)
 		.map(|edge| edge.target.clone())
+}
+
+fn external_target(snapshot: &WorkspaceSnapshot, reference: &ReferenceId) -> Option<String> {
+	snapshot
+		.linkage
+		.external
+		.iter()
+		.find(|external| &external.reference == reference)
+		.map(|external| external.target_identity.to_string())
 }
