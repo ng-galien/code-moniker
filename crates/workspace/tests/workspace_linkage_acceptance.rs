@@ -46,11 +46,12 @@ fn java_sdk_multiproject_links_spring_and_platform_refs() {
 			.with_java_pipeline(JavaExtractionPipeline::Sdk),
 	);
 
-	assert_eq!(snapshot.linkage.external_refs, 130);
+	assert_eq!(snapshot.linkage.external_refs, 134);
 	assert_no_unresolved(&snapshot);
 	assert_java_platform_refs(&snapshot);
 	assert_java_spring_refs(&snapshot);
 	assert_java_generic_refs(&snapshot);
+	assert_java_switch_refs(&snapshot);
 }
 
 fn assert_java_platform_refs(snapshot: &WorkspaceSnapshot) {
@@ -191,6 +192,57 @@ fn assert_java_generic_refs(snapshot: &WorkspaceSnapshot) {
 	assert_no_reference_containing(snapshot, "uses_type", "module:O/path:O");
 	assert_no_reference_containing(snapshot, "uses_type", "module:I/path:I");
 	assert_no_reference_containing(snapshot, "uses_type", "module:U/path:U");
+}
+
+fn assert_java_switch_refs(snapshot: &WorkspaceSnapshot) {
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:selectLane",
+		"package:com/package:acme/package:order/module:OrderApplication/class:OrderApplication/method:selectLane(profile:CustomerProfile)",
+	);
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:order/module:OrderLane/path:OrderLane/method:route",
+		"package:com/package:acme/package:order/module:OrderLane/enum:OrderLane/method:route()",
+	);
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/path:RiskPolicy/method:score",
+		"package:com/package:acme/package:common/package:customer/module:RiskPolicy/class:RiskPolicy/method:score(profile:CustomerProfile)",
+	);
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:common/package:customer/module:CustomerProfile/path:CustomerProfile/method:segment",
+		"package:com/package:acme/package:common/package:customer/module:CustomerProfile/record:CustomerProfile/method:segment()",
+	);
+	assert_linked_to(
+		snapshot,
+		"method_call",
+		"package:com/package:acme/package:order/module:OrderLane/path:OrderLane/method:requiresReview",
+		"package:com/package:acme/package:order/module:OrderLane/enum:OrderLane/method:requiresReview()",
+	);
+	assert_linked_to(
+		snapshot,
+		"reads",
+		"package:com/package:acme/package:order/module:OrderLane/path:OrderLane/path:PRIORITY",
+		"package:com/package:acme/package:order/module:OrderLane/enum:OrderLane/enum_constant:PRIORITY",
+	);
+	assert_linked_to(
+		snapshot,
+		"reads",
+		"package:com/package:acme/package:order/module:OrderLane/path:OrderLane/path:STANDARD",
+		"package:com/package:acme/package:order/module:OrderLane/enum:OrderLane/enum_constant:STANDARD",
+	);
+	assert_linked_to(
+		snapshot,
+		"reads",
+		"package:com/package:acme/package:order/module:OrderLane/path:OrderLane/path:REVIEW",
+		"package:com/package:acme/package:order/module:OrderLane/enum:OrderLane/enum_constant:REVIEW",
+	);
 }
 
 fn assert_no_unresolved(snapshot: &WorkspaceSnapshot) {

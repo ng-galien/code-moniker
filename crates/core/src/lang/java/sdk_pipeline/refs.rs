@@ -195,6 +195,9 @@ fn expr_refs(
 				emit_type_refs(state, ty, source);
 			}
 		}
+		"field_access" | "scoped_identifier" => {
+			static_member_read_ref(state, node, source, owner);
+		}
 		"identifier" => {
 			identifier_ref(state, node, source, owner, env);
 			return;
@@ -326,6 +329,58 @@ fn identifier_ref(
 			confidence: kinds::CONF_RESOLVED,
 			hints: RefHints::default(),
 		});
+	}
+}
+
+fn static_member_read_ref(
+	state: &mut JavaDiscover<'_>,
+	node: Node<'_>,
+	source: &Moniker,
+	owner: &Moniker,
+) {
+	let Some(object) = node
+		.child_by_field_name("object")
+		.or_else(|| node.child_by_field_name("scope"))
+	else {
+		return;
+	};
+	let Some(member) = node
+		.child_by_field_name("field")
+		.or_else(|| node.child_by_field_name("name"))
+	else {
+		return;
+	};
+	let Some(type_owner) = static_type_owner(state, object, owner) else {
+		return;
+	};
+	if java_external_target_shape(&type_owner) {
+		return;
+	}
+	state.push_ref(ResolvedRef {
+		source: source.clone(),
+		target: extend_segment(&type_owner, kinds::PATH, node_slice(member, state.source)),
+		kind: kinds::READS,
+		position: Some(node_position(node)),
+		confidence: owner_confidence(state, &type_owner),
+		hints: RefHints::default(),
+	});
+}
+
+fn static_type_owner(state: &JavaDiscover<'_>, node: Node<'_>, owner: &Moniker) -> Option<Moniker> {
+	match node.kind() {
+		"identifier" => {
+			let name = node_slice(node, state.source);
+			name.first()
+				.is_some_and(u8::is_ascii_uppercase)
+				.then_some(())?;
+			lookup_known_type_name(state, name)
+				.map(|(target, _)| target)
+				.or_else(|| same_package_type_target(state, name))
+		}
+		"type_identifier" | "scoped_type_identifier" | "generic_type" | "array_type" => {
+			type_expr(state, node, owner).and_then(|ty| ty.receiver_owner().cloned())
+		}
+		_ => None,
 	}
 }
 

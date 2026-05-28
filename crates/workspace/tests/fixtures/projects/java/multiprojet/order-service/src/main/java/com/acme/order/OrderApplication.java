@@ -19,7 +19,24 @@ public class OrderApplication {
         GenericCreator creator = TypedOrderBox.creator(boxedProfile);
         TypedOrderBox<CustomerProfile> anonymousBox = creator.create(stableProfile);
         var anonymousProfile = anonymousBox.value();
-        return riskPolicy.isPriority(anonymousProfile) ? "priority-lane" : "standard-lane";
+        OrderLane lane = this.selectLane(anonymousProfile);
+        return lane.route();
+    }
+
+    private OrderLane selectLane(CustomerProfile profile) {
+        OrderLane scoredLane = switch (riskPolicy.score(profile)) {
+            case 90 -> OrderLane.PRIORITY;
+            case 30 -> OrderLane.STANDARD;
+            default -> OrderLane.REVIEW;
+        };
+
+        switch (profile.segment()) {
+            case "premium":
+            case "gold":
+                return scoredLane;
+            default:
+                return scoredLane.requiresReview() ? OrderLane.REVIEW : OrderLane.STANDARD;
+        }
     }
 
     public static void main(String[] args) {

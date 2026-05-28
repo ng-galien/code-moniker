@@ -45,7 +45,8 @@ fn java_segment_matches(
 		return java_segment_name_matches(query, candidate, target, candidate_segment);
 	}
 	target.kind == kinds::PATH
-		&& is_java_type_kind(candidate_segment.kind)
+		&& (is_java_type_kind(candidate_segment.kind)
+			|| is_java_static_value_kind(candidate_segment.kind))
 		&& target.name == candidate_segment.name
 }
 
@@ -73,6 +74,10 @@ fn is_java_type_kind(kind: &[u8]) -> bool {
 
 fn is_java_callable_kind(kind: &[u8]) -> bool {
 	matches!(kind, kinds::METHOD | kinds::CONSTRUCTOR)
+}
+
+fn is_java_static_value_kind(kind: &[u8]) -> bool {
+	matches!(kind, kinds::ENUM_CONSTANT | kinds::FIELD)
 }
 
 fn is_java_source_set_segment(segment: Segment<'_>) -> bool {
