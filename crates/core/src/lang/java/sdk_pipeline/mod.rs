@@ -8,6 +8,7 @@ mod defs;
 mod discover;
 mod imports;
 mod refs;
+mod symbols;
 mod syntax;
 mod type_resolution;
 

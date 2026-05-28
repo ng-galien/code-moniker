@@ -12,7 +12,7 @@ parent = "code+moniker://app/lang:java/package:app/package:user/module:UserServi
 
 [[defs]]
 kind = "method"
-moniker = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)"
+moniker = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(String,String,List<String>)"
 parent = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService"
 
 [[refs]]
@@ -29,16 +29,15 @@ confidence = "resolved"
 
 [[refs]]
 kind = "instantiates"
-from = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)"
+from = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(String,String,List<String>)"
 to = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/record:User"
 confidence = "resolved"
 
 [[refs]]
 kind = "calls"
-from = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(email:String,name:String,tags:List<String>)"
-to = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(email:String)"
-confidence = "name_match"
+from = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:create(String,String,List<String>)"
+to = "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/method:makeId(String)"
+confidence = "resolved"
 
 [[absent.defs]]
 kind = "local"
-

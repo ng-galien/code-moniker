@@ -10,7 +10,7 @@ use super::discover::JavaDiscover;
 use super::imports::{
 	external_or_imported, external_package_target, java_lang_target, same_package_symbol_target,
 };
-use super::syntax::type_path;
+use super::syntax::{named_children, type_path};
 
 pub(super) fn type_env_for_scope(state: &JavaDiscover<'_>, scope: &Moniker) -> TypeEnv {
 	let mut env = TypeEnv::default();
@@ -112,6 +112,16 @@ pub(super) fn type_expr(
 	node: Node<'_>,
 	scope: &Moniker,
 ) -> Option<TypeExpr> {
+	match node.kind() {
+		"array_type" => {
+			return node
+				.child_by_field_name("element")
+				.and_then(|element| type_expr(state, element, scope))
+				.map(|element| TypeExpr::Array(Box::new(element)));
+		}
+		"generic_type" => return generic_type_expr(state, node, scope),
+		_ => {}
+	}
 	let path = type_path(node, state.source)?;
 	let name = path.last()?;
 	if builtins::is_primitive_type(name) || builtins::is_inferred_local_type(name) {
@@ -123,6 +133,29 @@ pub(super) fn type_expr(
 	Some(TypeExpr::resolved(
 		resolve_type_path(state, &path, kinds::CLASS).0,
 	))
+}
+
+fn generic_type_expr(
+	state: &JavaDiscover<'_>,
+	node: Node<'_>,
+	scope: &Moniker,
+) -> Option<TypeExpr> {
+	let base_node = node.child_by_field_name("type").or_else(|| {
+		named_children(node)
+			.find(|child| matches!(child.kind(), "type_identifier" | "scoped_type_identifier"))
+	})?;
+	let base = type_expr(state, base_node, scope)?;
+	let args = node
+		.child_by_field_name("type_arguments")
+		.or_else(|| named_children(node).find(|child| child.kind() == "type_arguments"))
+		.into_iter()
+		.flat_map(named_children)
+		.filter_map(|arg| type_expr(state, arg, scope))
+		.collect::<Vec<_>>();
+	Some(TypeExpr::Generic {
+		base: Box::new(base),
+		args,
+	})
 }
 
 fn type_param_scope_visible(owner: &Moniker, scope: &Moniker) -> bool {

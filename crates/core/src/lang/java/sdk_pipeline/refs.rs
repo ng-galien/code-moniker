@@ -184,13 +184,18 @@ fn expr_refs(
 ) {
 	match node.kind() {
 		"method_invocation" => {
+			let lambda_input = lambda_argument_input_type(state, node, owner, env);
 			method_call_ref(state, node, source, owner, env);
 			if let Some(object) = node.child_by_field_name("object") {
 				expr_refs(state, object, source, owner, env);
 			}
 			if let Some(arguments) = node.child_by_field_name("arguments") {
 				for arg in named_children(arguments) {
-					expr_refs(state, arg, source, owner, env);
+					if arg.kind() == "lambda_expression" {
+						lambda_expr_refs(state, arg, source, owner, env, lambda_input.clone());
+					} else {
+						expr_refs(state, arg, source, owner, env);
+					}
 				}
 			}
 			return;
@@ -402,57 +407,66 @@ fn receiver_owner(
 	owner: &Moniker,
 	env: &TypeEnv,
 ) -> Option<Moniker> {
+	receiver_type_expr(state, receiver, owner, env).and_then(|ty| ty.receiver_owner().cloned())
+}
+
+fn receiver_type_expr(
+	state: &JavaDiscover<'_>,
+	receiver: Node<'_>,
+	owner: &Moniker,
+	env: &TypeEnv,
+) -> Option<TypeExpr> {
 	match receiver.kind() {
-		"this" | "super" => enclosing_type(owner),
+		"this" | "super" => enclosing_type(owner).map(TypeExpr::resolved),
 		"identifier" => {
 			let name = node_slice(receiver, state.source);
 			env.resolve_local(name)
-				.and_then(TypeExpr::receiver_owner)
 				.cloned()
 				.or_else(|| {
 					enclosing_type(owner)
 						.and_then(|cls| state.field_types.get(&(cls, name.to_vec())).cloned())
-						.and_then(|ty| ty.receiver_owner().cloned())
 				})
-				.or_else(|| lookup_known_type_name(state, name).map(|(target, _)| target))
-				.or_else(|| same_package_type_target(state, name))
+				.or_else(|| {
+					lookup_known_type_name(state, name)
+						.map(|(target, _)| TypeExpr::resolved(target))
+				})
+				.or_else(|| same_package_type_target(state, name).map(TypeExpr::resolved))
 		}
 		"object_creation_expression" => receiver
 			.child_by_field_name("type")
-			.and_then(|ty| type_expr(state, ty, owner))
-			.and_then(|ty| ty.receiver_owner().cloned()),
+			.and_then(|ty| type_expr(state, ty, owner)),
 		"field_access" | "scoped_identifier" => class_literal_owner(state, receiver)
-			.or_else(|| expression_external_owner(state, receiver, owner, env)),
-		"method_invocation" => {
-			infer_call_type(state, receiver, owner, env).and_then(|ty| ty.receiver_owner().cloned())
-		}
-		"class_literal" => Some(java_lang_target(&state.root, b"Class")),
-		"cast_expression" => cast_receiver_owner(state, receiver, owner),
-		"parenthesized_expression" => parenthesized_receiver_owner(state, receiver, owner, env),
-		"string_literal" => Some(java_lang_target(&state.root, b"String")),
+			.map(TypeExpr::resolved)
+			.or_else(|| {
+				expression_external_owner(state, receiver, owner, env).map(TypeExpr::resolved)
+			}),
+		"method_invocation" => infer_call_type(state, receiver, owner, env),
+		"class_literal" => Some(TypeExpr::resolved(java_lang_target(&state.root, b"Class"))),
+		"cast_expression" => cast_receiver_type(state, receiver, owner),
+		"parenthesized_expression" => parenthesized_receiver_type(state, receiver, owner, env),
+		"string_literal" => Some(TypeExpr::resolved(java_lang_target(&state.root, b"String"))),
 		_ => None,
 	}
 }
 
-fn cast_receiver_owner(
+fn cast_receiver_type(
 	state: &JavaDiscover<'_>,
 	cast: Node<'_>,
 	owner: &Moniker,
-) -> Option<Moniker> {
+) -> Option<TypeExpr> {
 	cast.child_by_field_name("type")
 		.and_then(|ty| type_expr(state, ty, owner))
-		.and_then(|ty| ty.receiver_owner().cloned())
 }
 
-fn parenthesized_receiver_owner(
+fn parenthesized_receiver_type(
 	state: &JavaDiscover<'_>,
 	node: Node<'_>,
 	owner: &Moniker,
 	env: &TypeEnv,
-) -> Option<Moniker> {
+) -> Option<TypeExpr> {
 	named_children(node)
 		.next()
-		.and_then(|expr| receiver_owner(state, expr, owner, env))
+		.and_then(|expr| receiver_type_expr(state, expr, owner, env))
 }
 
 fn expression_external_owner(
@@ -556,6 +570,92 @@ fn infer_call_type(
 				TypeExpr::external_opaque(extend_arity_call(&receiver, kinds::METHOD, name, arity))
 			})
 		})
+}
+
+fn lambda_argument_input_type(
+	state: &JavaDiscover<'_>,
+	call: Node<'_>,
+	owner: &Moniker,
+	env: &TypeEnv,
+) -> Option<TypeExpr> {
+	let name = call.child_by_field_name("name")?;
+	if node_slice(name, state.source) != b"forEach" {
+		return None;
+	}
+	let receiver = call.child_by_field_name("object")?;
+	receiver_type_expr(state, receiver, owner, env)?
+		.iterable_item()
+		.cloned()
+}
+
+fn lambda_expr_refs(
+	state: &mut JavaDiscover<'_>,
+	lambda: Node<'_>,
+	source: &Moniker,
+	owner: &Moniker,
+	env: &TypeEnv,
+	expected_input: Option<TypeExpr>,
+) {
+	let mut lambda_env = env.clone();
+	bind_lambda_parameters(state, lambda, owner, &mut lambda_env, expected_input);
+	if let Some(body) = lambda.child_by_field_name("body") {
+		expr_refs(state, body, source, owner, &lambda_env);
+	}
+}
+
+fn bind_lambda_parameters(
+	state: &JavaDiscover<'_>,
+	lambda: Node<'_>,
+	owner: &Moniker,
+	env: &mut TypeEnv,
+	expected_input: Option<TypeExpr>,
+) {
+	let Some(parameters) = lambda.child_by_field_name("parameters") else {
+		return;
+	};
+	let params = lambda_parameter_nodes(parameters);
+	for param in &params {
+		let Some(name) = lambda_parameter_name(*param, state.source) else {
+			continue;
+		};
+		let explicit_type = lambda_parameter_type(state, *param, owner);
+		let inferred_type = (params.len() == 1)
+			.then(|| expected_input.clone())
+			.flatten();
+		if let Some(ty) = explicit_type.or(inferred_type) {
+			env.bind_local(name, ty);
+		}
+	}
+}
+
+fn lambda_parameter_nodes(parameters: Node<'_>) -> Vec<Node<'_>> {
+	if parameters.kind() == "identifier" {
+		return vec![parameters];
+	}
+	named_children(parameters).collect()
+}
+
+fn lambda_parameter_name<'src>(param: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
+	match param.kind() {
+		"identifier" => Some(node_slice(param, source)),
+		"formal_parameter" | "spread_parameter" => param
+			.child_by_field_name("name")
+			.map(|name| node_slice(name, source)),
+		_ => None,
+	}
+}
+
+fn lambda_parameter_type(
+	state: &JavaDiscover<'_>,
+	param: Node<'_>,
+	owner: &Moniker,
+) -> Option<TypeExpr> {
+	match param.kind() {
+		"formal_parameter" | "spread_parameter" => param
+			.child_by_field_name("type")
+			.and_then(|ty| type_expr(state, ty, owner)),
+		_ => None,
+	}
 }
 
 fn method_target(state: &JavaDiscover<'_>, owner: &Moniker, name: &[u8], arity: usize) -> Moniker {

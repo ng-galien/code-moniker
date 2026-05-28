@@ -19,6 +19,8 @@ public final class OrderWorkflow implements Runnable {
 	public void run() {
 		// cm: ref OrderWorkflow.run.calls.findExpired
 		List<Order> expired = repository.findExpired(clock.instant());
+		// cm: ref OrderWorkflow.run.calls.cancel
+		// cm: ref OrderWorkflow.run.calls.orderId
 		expired.forEach(order -> repository.cancel(order.id()));
 	}
 

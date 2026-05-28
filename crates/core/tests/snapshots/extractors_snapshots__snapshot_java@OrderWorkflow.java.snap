@@ -1,8 +1,7 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
-assertion_line: 124
+source: crates/core/tests/extractors_snapshots.rs
 expression: body
-input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
+input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
 ---
 {
   "defs": [
@@ -27,7 +26,7 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow",
       "position": [
         119,
-        946
+        1035
       ],
       "signature": "",
       "visibility": "public"
@@ -61,14 +60,14 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
     {
       "binding": "export",
       "kind": "constructor",
-      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:OrderRepository,clock:Clock)",
+      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow",
       "position": [
         247,
         367
       ],
-      "signature": "repository:OrderRepository,clock:Clock",
+      "signature": "OrderRepository,Clock",
       "visibility": "public"
     },
     {
@@ -79,7 +78,7 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow",
       "position": [
         370,
-        606
+        695
       ],
       "signature": "",
       "visibility": "public"
@@ -100,12 +99,25 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
     {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/comment:609",
+      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()/comment:547",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
+      "position": [
+        547,
+        633
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/comment:698",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow",
       "position": [
-        609,
-        640
+        698,
+        729
       ],
       "signature": "",
       "visibility": ""
@@ -117,60 +129,60 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow",
       "position": [
-        642,
-        694
+        731,
+        783
       ],
       "signature": "",
       "visibility": "public"
     },
     {
-      "binding": "local",
+      "binding": "export",
       "kind": "enum_constant",
       "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status/enum_constant:DRAFT",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status",
       "position": [
-        665,
-        670
+        754,
+        759
       ],
       "signature": "",
-      "visibility": ""
+      "visibility": "public"
     },
     {
-      "binding": "local",
+      "binding": "export",
       "kind": "enum_constant",
       "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status/enum_constant:PAID",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status",
       "position": [
-        674,
-        678
+        763,
+        767
       ],
       "signature": "",
-      "visibility": ""
+      "visibility": "public"
     },
     {
-      "binding": "local",
+      "binding": "export",
       "kind": "enum_constant",
       "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status/enum_constant:CANCELLED",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status",
       "position": [
-        682,
-        691
+        771,
+        780
       ],
       "signature": "",
-      "visibility": ""
+      "visibility": "public"
     },
     {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/comment:697",
+      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/comment:786",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow",
       "position": [
-        697,
-        727
+        786,
+        816
       ],
       "signature": "",
       "visibility": ""
@@ -182,8 +194,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow",
       "position": [
-        729,
-        796
+        818,
+        885
       ],
       "signature": "",
       "visibility": "public"
@@ -195,8 +207,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order",
       "position": [
-        749,
-        758
+        838,
+        847
       ],
       "signature": "",
       "visibility": "private"
@@ -208,8 +220,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order",
       "position": [
-        749,
-        758
+        838,
+        847
       ],
       "signature": "",
       "visibility": "public"
@@ -221,8 +233,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order",
       "position": [
-        760,
-        773
+        849,
+        862
       ],
       "signature": "",
       "visibility": "private"
@@ -234,8 +246,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order",
       "position": [
-        760,
-        773
+        849,
+        862
       ],
       "signature": "",
       "visibility": "public"
@@ -247,8 +259,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order",
       "position": [
-        775,
-        792
+        864,
+        881
       ],
       "signature": "",
       "visibility": "private"
@@ -260,8 +272,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order",
       "position": [
-        775,
-        792
+        864,
+        881
       ],
       "signature": "",
       "visibility": "public"
@@ -269,12 +281,12 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
     {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/comment:799",
+      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/comment:888",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow",
       "position": [
-        799,
-        839
+        888,
+        928
       ],
       "signature": "",
       "visibility": ""
@@ -286,8 +298,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow",
       "position": [
-        841,
-        944
+        930,
+        1033
       ],
       "signature": "",
       "visibility": "public"
@@ -295,27 +307,27 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
     {
       "binding": "export",
       "kind": "method",
-      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(now:Instant)",
+      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(Instant)",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository",
       "position": [
-        878,
-        915
+        967,
+        1004
       ],
-      "signature": "now:Instant",
+      "signature": "Instant",
       "visibility": "package"
     },
     {
       "binding": "export",
       "kind": "method",
-      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:cancel(id:String)",
+      "moniker": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:cancel(String)",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository",
       "position": [
-        918,
-        941
+        1007,
+        1030
       ],
-      "signature": "id:String",
+      "signature": "String",
       "visibility": "package"
     }
   ],
@@ -355,6 +367,58 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "position": [
         70,
         92
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:List"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order/method:id()",
+      "kind": "returns_type",
+      "position": [
+        838,
+        847
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order/method:status()",
+      "kind": "returns_type",
+      "position": [
+        849,
+        862
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order/method:createdAt()",
+      "kind": "returns_type",
+      "position": [
+        864,
+        881
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:time/path:Instant"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(Instant)",
+      "kind": "returns_type",
+      "position": [
+        967,
+        1004
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:List"
@@ -402,7 +466,7 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "alias": "",
       "binding": "local",
       "confidence": "resolved",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:OrderRepository,clock:Clock)",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)",
       "kind": "uses_type",
       "position": [
         268,
@@ -415,7 +479,7 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(repository:OrderRepository,clock:Clock)",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)",
       "kind": "uses_type",
       "position": [
         296,
@@ -427,7 +491,59 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "local",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)",
+      "kind": "reads",
+      "position": [
+        318,
+        328
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)/local:repository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "local",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)",
+      "kind": "reads",
+      "position": [
+        331,
+        341
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)/local:repository"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "local",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)",
+      "kind": "reads",
+      "position": [
+        350,
+        355
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)/local:clock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "local",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)",
+      "kind": "reads",
+      "position": [
+        358,
+        363
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/constructor:OrderWorkflow(OrderRepository,Clock)/local:clock"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
       "kind": "annotates",
       "position": [
@@ -435,7 +551,7 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
         379
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/annotation_type:Override"
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:Override"
     },
     {
       "alias": "",
@@ -453,6 +569,19 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
     {
       "alias": "",
       "binding": "local",
+      "confidence": "local",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
+      "kind": "reads",
+      "position": [
+        494,
+        501
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()/local:expired"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
       "kind": "method_call",
@@ -461,12 +590,12 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
         543
       ],
       "receiver_hint": "repository",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(now:Instant)"
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(Instant)"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
       "kind": "reads",
       "position": [
@@ -474,7 +603,7 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
         514
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/field:repository"
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/field:repository"
     },
     {
       "alias": "",
@@ -492,7 +621,7 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
       "kind": "reads",
       "position": [
@@ -500,7 +629,7 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
         532
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/field:clock"
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/field:clock"
     },
     {
       "alias": "",
@@ -509,8 +638,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
       "kind": "method_call",
       "position": [
-        547,
-        602
+        636,
+        691
       ],
       "receiver_hint": "expired",
       "to": "code+moniker://app/external_pkg:java/path:util/path:List/method:forEach(_)"
@@ -518,80 +647,67 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
     {
       "alias": "",
       "binding": "local",
+      "confidence": "local",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
+      "kind": "reads",
+      "position": [
+        636,
+        643
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()/local:expired"
+    },
+    {
+      "alias": "",
+      "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
       "kind": "method_call",
       "position": [
-        572,
-        601
+        661,
+        690
       ],
       "receiver_hint": "repository",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:cancel(id:String)"
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:cancel(String)"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
       "kind": "reads",
       "position": [
-        572,
-        582
+        661,
+        671
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/field:repository"
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/field:repository"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
       "kind": "method_call",
       "position": [
-        590,
-        600
+        679,
+        689
       ],
       "receiver_hint": "order",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/method:id"
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order/method:id()"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status",
+      "confidence": "local",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()",
       "kind": "reads",
       "position": [
-        665,
-        670
+        679,
+        684
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/field:DRAFT"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status",
-      "kind": "reads",
-      "position": [
-        674,
-        678
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/field:PAID"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status",
-      "kind": "reads",
-      "position": [
-        682,
-        691
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/field:CANCELLED"
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()/local:order"
     },
     {
       "alias": "",
@@ -600,21 +716,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order",
       "kind": "uses_type",
       "position": [
-        749,
-        755
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "external",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order/method:id()",
-      "kind": "uses_type",
-      "position": [
-        749,
-        755
+        838,
+        844
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
@@ -626,21 +729,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order",
       "kind": "uses_type",
       "position": [
-        760,
-        766
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "resolved",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order/method:status()",
-      "kind": "uses_type",
-      "position": [
-        760,
-        766
+        849,
+        855
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/enum:Status"
@@ -652,8 +742,8 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order",
       "kind": "uses_type",
       "position": [
-        775,
-        782
+        864,
+        871
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:time/path:Instant"
@@ -662,24 +752,11 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order/method:createdAt()",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(Instant)",
       "kind": "uses_type",
       "position": [
-        775,
-        782
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:java/path:time/path:Instant"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "external",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(now:Instant)",
-      "kind": "uses_type",
-      "position": [
-        878,
-        889
+        967,
+        978
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:List"
@@ -688,11 +765,11 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(now:Instant)",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(Instant)",
       "kind": "uses_type",
       "position": [
-        902,
-        909
+        991,
+        998
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:time/path:Instant"
@@ -701,11 +778,11 @@ input_file: crates/core/tests/fixtures/java/OrderWorkflow.java
       "alias": "",
       "binding": "local",
       "confidence": "external",
-      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:cancel(id:String)",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:cancel(String)",
       "kind": "uses_type",
       "position": [
-        930,
-        936
+        1019,
+        1025
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:lang/path:String"

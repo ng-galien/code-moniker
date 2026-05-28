@@ -492,11 +492,10 @@ pub(super) fn formal_parameter_slots(callable: Node<'_>, source: &[u8]) -> Vec<C
 				.and_then(|ty| ty.utf8_text(source).ok())
 				.map(normalize_type_text)
 				.unwrap_or_default();
-			let name = child
-				.child_by_field_name("name")
-				.map(|name| node_slice(name, source).to_vec())
-				.unwrap_or_default();
-			CallableSlot { name, r#type }
+			CallableSlot {
+				name: Vec::new(),
+				r#type,
+			}
 		})
 		.collect()
 }

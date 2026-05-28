@@ -52,7 +52,21 @@ confidence = "external"
 label = "OrderWorkflow.run.calls.findExpired"
 kind = "method_call"
 from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()"
-to = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(now:Instant)"
+to = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:findExpired(Instant)"
+confidence = "resolved"
+
+[[refs]]
+label = "OrderWorkflow.run.calls.cancel"
+kind = "method_call"
+from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()"
+to = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository/method:cancel(String)"
+confidence = "resolved"
+
+[[refs]]
+label = "OrderWorkflow.run.calls.orderId"
+kind = "method_call"
+from = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/method:run()"
+to = "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order/method:id()"
 confidence = "resolved"
 
 [[absent.defs]]

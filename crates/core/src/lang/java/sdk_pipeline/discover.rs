@@ -8,6 +8,7 @@ use crate::lang::sdk::{DiscoveredDef, ResolvedRef, TypeExpr};
 use super::defs::collect_defs;
 use super::imports::{ImportedSymbol, collect_imports};
 use super::refs::collect_refs;
+use super::symbols::predeclare_types;
 
 pub(super) type CallableTable = HashMap<(Moniker, Vec<u8>, usize), Vec<u8>>;
 pub(super) type ReturnTypeTable = HashMap<(Moniker, Vec<u8>, usize), TypeExpr>;
@@ -55,6 +56,7 @@ impl<'src> JavaDiscover<'src> {
 			type_params: HashMap::new(),
 		};
 		collect_imports(&mut discover, root_node, &root);
+		predeclare_types(&mut discover, root_node, &root);
 		collect_defs(&mut discover, root_node, &root);
 		collect_refs(&mut discover, root_node, &root);
 		DiscoveredJavaFile {
