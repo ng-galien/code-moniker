@@ -124,7 +124,7 @@ fn multiproject_catalog_phase_renders_file_tree_before_symbols() {
 	let screen = harness.render_text(160, 45);
 
 	assert_visible(&screen, "multiprojet");
-	assert_visible(&screen, "navigator 24 files");
+	assert_visible(&screen, "navigator 27 files");
 	assert_visible(&screen, "java");
 	assert_visible(&screen, "billing-service");
 	assert_visible(&screen, "common-lib");
@@ -132,7 +132,7 @@ fn multiproject_catalog_phase_renders_file_tree_before_symbols() {
 	assert_visible(&screen, "loyalty-platform");
 	assert_visible(&screen, "order-service");
 	assert_visible(&screen, "spring-edge");
-	assert_visible(&screen, "files      24");
+	assert_visible(&screen, "files      27");
 	assert_visible(&screen, "defs       0");
 	assert_visible(&screen, "refs       0");
 }
@@ -144,7 +144,7 @@ fn multiproject_multiple_paths_behave_like_virtual_parent() {
 	let screen = harness.render_text(160, 45);
 
 	assert_visible(&screen, "multiprojet");
-	assert_visible(&screen, "navigator 24 files");
+	assert_visible(&screen, "navigator 27 files");
 	assert_visible(&screen, "java");
 	assert_visible(&screen, "billing-service");
 	assert_visible(&screen, "common-lib");
@@ -152,9 +152,9 @@ fn multiproject_multiple_paths_behave_like_virtual_parent() {
 	assert_visible(&screen, "loyalty-platform");
 	assert_visible(&screen, "order-service");
 	assert_visible(&screen, "spring-edge");
-	assert_visible(&screen, "files      24");
-	assert_visible(&screen, "defs       220");
-	assert_visible(&screen, "refs       497");
+	assert_visible(&screen, "files      27");
+	assert_visible(&screen, "defs       236");
+	assert_visible(&screen, "refs       538");
 }
 
 #[test]
@@ -194,7 +194,7 @@ fn multiproject_check_panel_reports_clean_rule_run() {
 	assert_visible(&screen, "check");
 	assert_visible(&screen, "check summary");
 	assert_visible(&screen, "files");
-	assert_visible(&screen, "24");
+	assert_visible(&screen, "27");
 	assert_visible(&screen, "flagged");
 	assert_visible(&screen, "violations");
 	assert_visible(&screen, "0");
@@ -235,6 +235,24 @@ fn multiproject_usage_lens_shows_cross_module_references() {
 		&screen,
 		"usage lens for RiskPolicy: 28 reference(s), 15 navigable context(s)",
 	);
+}
+
+#[test]
+fn multiproject_usage_lens_shows_cross_project_java_interface_implementations() {
+	let mut harness = TuiAcceptance::load_multiproject();
+
+	harness.search("CustomerResolver");
+	harness.press(KeyCode::Down);
+	harness.press(KeyCode::Char('u'));
+	let screen = harness.render_text(160, 45);
+
+	assert_visible(&screen, "usages");
+	assert_visible(&screen, "usage focus");
+	assert_visible(&screen, "CustomerResolver");
+	assert_visible(&screen, "references");
+	assert_visible(&screen, "CustomerDirectory");
+	assert_visible(&screen, "SpringCustomerRepository");
+	assert_visible(&screen, "implements");
 }
 
 fn multiproject_fixture() -> PathBuf {

@@ -258,7 +258,7 @@ fn set_usage_lens(
 			.usage_lens
 			.as_ref()
 			.map(|lens| lens.pane.clone())
-			.unwrap_or_else(TreePaneState::new)
+			.unwrap_or_default()
 	};
 	let selected_key = if reset_expansion {
 		None

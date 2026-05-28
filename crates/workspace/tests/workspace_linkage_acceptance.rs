@@ -54,6 +54,7 @@ fn java_sdk_multiproject_links_spring_and_platform_refs() {
 	assert_java_external_fluent_refs(&snapshot);
 	assert_java_switch_refs(&snapshot);
 	assert_java_lombok_refs(&snapshot);
+	assert_java_cross_project_interface_implementations(&snapshot);
 }
 
 #[test]
@@ -373,6 +374,21 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 		"calls",
 		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/method:getFieldOnly()",
 		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/field:fieldOnly",
+	);
+}
+
+fn assert_java_cross_project_interface_implementations(snapshot: &WorkspaceSnapshot) {
+	assert_linked_to(
+		snapshot,
+		"implements",
+		"package:com/package:acme/package:common/package:customer/module:CustomerResolver/path:CustomerResolver",
+		"package:com/package:acme/package:common/package:customer/module:CustomerResolver/interface:CustomerResolver",
+	);
+	assert_reference_from_symbol(
+		snapshot,
+		"implements",
+		"package:com/package:acme/package:springedge/package:app/module:SpringCustomerRepository/class:SpringCustomerRepository",
+		"package:com/package:acme/package:common/package:customer/module:CustomerResolver/path:CustomerResolver",
 	);
 }
 

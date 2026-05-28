@@ -758,11 +758,12 @@ fn reference_set(
 	refs: &[ReferenceId],
 	endpoint_label: &'static str,
 ) -> ReferenceSet {
-	let groups = refs
+	let mut groups = refs
 		.iter()
 		.filter_map(|id| reference_by_id(store, id))
 		.map(|reference| reference_group(store, reference, endpoint_label))
 		.collect::<Vec<_>>();
+	groups.sort_by(reference_group_order);
 	let files = groups
 		.iter()
 		.map(|group| group.location.clone())
@@ -812,6 +813,29 @@ fn reference_group(
 		receiver: reference.receiver.clone(),
 		alias: reference.alias.clone(),
 	}
+}
+
+fn reference_group_order(left: &ReferenceGroup, right: &ReferenceGroup) -> Ordering {
+	reference_group_priority(left)
+		.cmp(&reference_group_priority(right))
+		.then_with(|| left.actor.cmp(&right.actor))
+		.then_with(|| left.location.cmp(&right.location))
+}
+
+fn reference_group_priority(group: &ReferenceGroup) -> u8 {
+	group
+		.kinds
+		.iter()
+		.map(|kind| match kind.as_str() {
+			"implements" | "extends" => 0,
+			"method_call" | "calls" => 10,
+			"instantiates" => 20,
+			"reads" | "uses_type" | "returns_type" | "annotates" => 30,
+			"imports_symbol" | "imports_module" => 40,
+			_ => 50,
+		})
+		.min()
+		.unwrap_or(50)
 }
 
 fn reference_location(
