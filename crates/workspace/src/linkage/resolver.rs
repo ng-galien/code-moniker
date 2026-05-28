@@ -1,5 +1,7 @@
 use std::time::{Duration, Instant};
 
+use rayon::prelude::*;
+
 use crate::linkage::candidate::CandidateCatalog;
 use crate::linkage::decision::{
 	LinkageDecisionLog, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
@@ -22,6 +24,8 @@ pub struct LinkageTimings {
 	pub candidate_index: Duration,
 	pub manifest_policy: Duration,
 	pub resolve_references: Duration,
+	pub semantic_prepare: Duration,
+	pub semantic_enhance: Duration,
 	pub project_report: Duration,
 	pub total: Duration,
 }
@@ -100,12 +104,17 @@ impl<'a> LinkageResolver<'a> {
 		let resolve_timer = Instant::now();
 		let mut decisions = index
 			.references
-			.iter()
+			.par_iter()
 			.map(|reference| self.resolve_reference(reference, &candidates, &manifests))
 			.collect::<Vec<_>>();
-		SemanticLinkage::new(self.material).enhance(&mut decisions);
-		let decision_log = LinkageDecisionLog::new(decisions);
 		timings.resolve_references = resolve_timer.elapsed();
+		let semantic_prepare_timer = Instant::now();
+		let semantic_linkage = SemanticLinkage::new(self.material);
+		timings.semantic_prepare = semantic_prepare_timer.elapsed();
+		let semantic_timer = Instant::now();
+		semantic_linkage.enhance(&mut decisions);
+		timings.semantic_enhance = semantic_timer.elapsed();
+		let decision_log = LinkageDecisionLog::new(decisions);
 		LinkageResolution {
 			decision_log,
 			timings,

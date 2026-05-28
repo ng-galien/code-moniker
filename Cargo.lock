@@ -404,6 +404,7 @@ dependencies = [
  "code-moniker-core",
  "gix",
  "ignore",
+ "rayon",
  "rustc-hash",
  "serde",
  "serde_json",

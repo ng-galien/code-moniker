@@ -1,5 +1,5 @@
-use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::moniker::query::bare_callable_name;
+use code_moniker_core::core::moniker::{Moniker, Segment};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::linkage::query::LinkageQuery;
@@ -10,6 +10,7 @@ use crate::source::CodeIndexMaterial;
 pub(super) struct LinkageCandidate<'a> {
 	pub(super) symbol: &'a SymbolId,
 	pub(super) moniker: &'a Moniker,
+	pub(super) last_segment: Option<Segment<'a>>,
 	pub(super) call_name: Option<&'a [u8]>,
 	pub(super) call_arity: Option<usize>,
 	pub(super) source_file: usize,
@@ -18,7 +19,7 @@ pub(super) struct LinkageCandidate<'a> {
 pub(super) struct CandidateCatalog<'a> {
 	candidates: Vec<LinkageCandidate<'a>>,
 	by_name: FxHashMap<Vec<u8>, Vec<usize>>,
-	by_source_name: FxHashMap<(usize, Vec<u8>), Vec<usize>>,
+	by_source_name: FxHashMap<usize, FxHashMap<Vec<u8>, Vec<usize>>>,
 }
 
 impl<'a> CandidateCatalog<'a> {
@@ -33,11 +34,13 @@ impl<'a> CandidateCatalog<'a> {
 				continue;
 			};
 			let idx = catalog.candidates.len();
-			for key in candidate_keys(candidate.moniker, candidate.call_name) {
+			for key in candidate_keys(&candidate) {
 				catalog.by_name.entry(key.clone()).or_default().push(idx);
 				catalog
 					.by_source_name
-					.entry((candidate.source_file, key))
+					.entry(candidate.source_file)
+					.or_default()
+					.entry(key)
 					.or_default()
 					.push(idx);
 			}
@@ -46,47 +49,50 @@ impl<'a> CandidateCatalog<'a> {
 		catalog
 	}
 
-	pub(super) fn local_matches(&self, query: &LinkageQuery<'_>) -> Vec<LinkageCandidate<'a>> {
+	pub(super) fn local_symbols(&self, query: &LinkageQuery<'_>) -> Vec<SymbolId> {
 		self.lookup_local(query)
 			.into_iter()
 			.filter(|candidate| query.matches(candidate))
+			.map(|candidate| candidate.symbol.clone())
 			.collect()
 	}
 
-	pub(super) fn global_matches(&self, query: &LinkageQuery<'_>) -> Vec<LinkageCandidate<'a>> {
+	pub(super) fn global_symbols(&self, query: &LinkageQuery<'_>) -> Vec<SymbolId> {
 		self.lookup_global(query)
 			.into_iter()
 			.filter(|candidate| query.matches(candidate))
+			.map(|candidate| candidate.symbol.clone())
 			.collect()
 	}
 
 	fn lookup_local(&self, query: &LinkageQuery<'_>) -> Vec<LinkageCandidate<'a>> {
+		let Some(source_candidates) = self.by_source_name.get(&query.source_file) else {
+			return Vec::new();
+		};
 		let mut seen = FxHashSet::default();
 		let mut matches = Vec::new();
-		for key in query_keys(query) {
-			let Some(indexes) = self.by_source_name.get(&(query.source_file, key)) else {
-				continue;
-			};
-			self.push_candidates(indexes, &mut seen, &mut matches);
-		}
+		for_query_key(query, |key| {
+			if let Some(indexes) = source_candidates.get(key) {
+				self.push_candidates(indexes, &mut seen, &mut matches);
+			}
+		});
 		matches
 	}
 
 	fn lookup_global(&self, query: &LinkageQuery<'_>) -> Vec<LinkageCandidate<'a>> {
 		let mut seen = FxHashSet::default();
 		let mut matches = Vec::new();
-		for key in query_keys(query) {
-			let Some(indexes) = self.by_name.get(&key) else {
-				continue;
-			};
-			for idx in indexes {
-				let candidate = self.candidates[*idx];
-				if candidate.source_file == query.source_file || !seen.insert(*idx) {
-					continue;
+		for_query_key(query, |key| {
+			if let Some(indexes) = self.by_name.get(key) {
+				for idx in indexes {
+					let candidate = self.candidates[*idx];
+					if candidate.source_file == query.source_file || !seen.insert(*idx) {
+						continue;
+					}
+					matches.push(candidate);
 				}
-				matches.push(candidate);
 			}
-		}
+		});
 		matches
 	}
 
@@ -104,13 +110,6 @@ impl<'a> CandidateCatalog<'a> {
 	}
 }
 
-pub(super) fn candidate_symbols(candidates: Vec<LinkageCandidate<'_>>) -> Vec<SymbolId> {
-	candidates
-		.into_iter()
-		.map(|candidate| candidate.symbol.clone())
-		.collect()
-}
-
 fn candidate<'a>(
 	material: &'a CodeIndexMaterial,
 	symbol: &'a SymbolId,
@@ -121,43 +120,44 @@ fn candidate<'a>(
 	Some(LinkageCandidate {
 		symbol,
 		moniker,
+		last_segment: moniker.as_view().segments().last(),
 		call_name: (!def.call_name.is_empty()).then_some(def.call_name.as_slice()),
 		call_arity: def.call_arity,
 		source_file,
 	})
 }
 
-fn query_keys(query: &LinkageQuery<'_>) -> Vec<Vec<u8>> {
-	let mut keys = Vec::new();
+fn for_query_key(query: &LinkageQuery<'_>, mut visit: impl FnMut(&[u8])) {
+	let mut first = None;
 	if let Some(name) = query.call_name {
-		push_key(&mut keys, name.as_bytes());
+		let key = name.as_bytes();
+		if !key.is_empty() {
+			first = Some(key);
+			visit(key);
+		}
 	}
-	if let Some(name) = last_segment_name(query.target) {
-		push_key(&mut keys, name);
-	}
-	keys
-}
-
-fn candidate_keys(moniker: &Moniker, call_name: Option<&[u8]>) -> Vec<Vec<u8>> {
-	let mut keys = Vec::new();
-	if let Some(name) = call_name {
-		push_key(&mut keys, name);
-	}
-	if let Some(name) = last_segment_name(moniker) {
-		push_key(&mut keys, name);
-	}
-	if let Some(name) = rust_mod_rs_module_name(moniker) {
-		push_key(&mut keys, name);
-	}
-	keys
-}
-
-fn last_segment_name(moniker: &Moniker) -> Option<&[u8]> {
-	moniker
-		.as_view()
-		.segments()
-		.last()
+	if let Some(name) = query
+		.target_last
 		.map(|segment| bare_callable_name(segment.name))
+	{
+		if !name.is_empty() && first != Some(name) {
+			visit(name);
+		}
+	}
+}
+
+fn candidate_keys(candidate: &LinkageCandidate<'_>) -> Vec<Vec<u8>> {
+	let mut keys = Vec::new();
+	if let Some(name) = candidate.call_name {
+		push_key(&mut keys, name);
+	}
+	if let Some(segment) = candidate.last_segment {
+		push_key(&mut keys, bare_callable_name(segment.name));
+	}
+	if let Some(name) = rust_mod_rs_module_name(candidate.moniker) {
+		push_key(&mut keys, name);
+	}
+	keys
 }
 
 fn rust_mod_rs_module_name(moniker: &Moniker) -> Option<&[u8]> {

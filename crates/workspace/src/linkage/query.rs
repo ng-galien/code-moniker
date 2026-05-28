@@ -1,4 +1,4 @@
-use code_moniker_core::core::moniker::Moniker;
+use code_moniker_core::core::moniker::{Moniker, Segment};
 
 use crate::linkage::candidate::LinkageCandidate;
 use crate::linkage::strategy::{LanguageLinkageStrategy, language_strategy};
@@ -8,6 +8,8 @@ use crate::source::CodeIndexMaterial;
 pub(super) struct LinkageQuery<'a> {
 	pub(super) material: &'a CodeIndexMaterial,
 	pub(super) target: &'a Moniker,
+	pub(super) target_segments: Vec<Segment<'a>>,
+	pub(super) target_last: Option<Segment<'a>>,
 	pub(super) reference_kind: &'a str,
 	pub(super) call_name: Option<&'a str>,
 	pub(super) call_arity: Option<usize>,
@@ -22,11 +24,15 @@ impl<'a> LinkageQuery<'a> {
 		material: &'a CodeIndexMaterial,
 	) -> Option<Self> {
 		let target = material.reference_targets.get(&reference.id)?;
-		let source_file = material.identity.source_index(&reference.source)?;
+		let target_segments = target.as_view().segments().collect::<Vec<_>>();
+		let target_last = target_segments.last().copied();
+		let (source_file, _) = material.identity.reference_location(&reference.id)?;
 		let lang = material.files.get(source_file)?.lang;
 		Some(Self {
 			material,
 			target,
+			target_segments,
+			target_last,
 			reference_kind: reference.kind.as_str(),
 			call_name: reference.call_name.as_deref(),
 			call_arity: reference.call_arity,

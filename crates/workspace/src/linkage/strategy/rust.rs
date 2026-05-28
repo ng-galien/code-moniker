@@ -26,9 +26,8 @@ fn rust_path_target_matches_def(
 	{
 		return false;
 	}
-	let target_segments = query.target.as_view().segments().collect::<Vec<_>>();
 	let candidate_segments = candidate.moniker.as_view().segments().collect::<Vec<_>>();
-	let target_segments = normalized_rust_segments(&target_segments);
+	let target_segments = normalized_rust_segments(&query.target_segments);
 	let candidate_segments = normalized_rust_segments(&candidate_segments);
 	if target_segments.len() != candidate_segments.len() || target_segments.is_empty() {
 		return false;
@@ -92,10 +91,10 @@ fn rust_contextual_name_matches_def(
 	if !can_use_contextual_name_match(query) {
 		return false;
 	}
-	let Some(target) = query.target.as_view().segments().last() else {
+	let Some(target) = query.target_last else {
 		return false;
 	};
-	let Some(candidate_segment) = candidate.moniker.as_view().segments().last() else {
+	let Some(candidate_segment) = candidate.last_segment else {
 		return false;
 	};
 	if !rust_name_matches(query, candidate, target, candidate_segment) {

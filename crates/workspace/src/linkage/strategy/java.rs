@@ -19,12 +19,12 @@ fn java_path_target_matches_type_def(
 	query: &LinkageQuery<'_>,
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
-	let target_segments = query.target.as_view().segments().collect::<Vec<_>>();
 	let candidate_segments = candidate.moniker.as_view().segments().collect::<Vec<_>>();
-	if target_segments.len() != candidate_segments.len() || target_segments.is_empty() {
+	if query.target_segments.len() != candidate_segments.len() || query.target_segments.is_empty() {
 		return false;
 	}
-	target_segments
+	query
+		.target_segments
 		.iter()
 		.zip(candidate_segments.iter())
 		.all(|(target, candidate_segment)| {

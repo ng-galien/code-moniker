@@ -2,6 +2,7 @@ use code_moniker_core::core::code_graph::RefRecord;
 use code_moniker_core::core::kinds::{REF_CALLS, REF_METHOD_CALL, REF_RETURNS_TYPE};
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::kinds;
+use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 
 use crate::linkage::decision::{
@@ -25,25 +26,39 @@ impl<'a> SemanticLinkage<'a> {
 	}
 
 	pub(super) fn enhance(&self, decisions: &mut [ReferenceLinkageDecision]) {
+		let mut statuses = reference_statuses(self.material, decisions);
+		let mut pending = pending_receiver_chains(decisions);
+		let receiver_calls = build_receiver_call_index(self.material, decisions, &pending);
 		loop {
-			let statuses = reference_statuses(self.material, decisions);
-			let mut changed = false;
-			for decision in decisions.iter_mut() {
-				let replacement = match decision {
+			let replacements = pending
+				.par_iter()
+				.filter_map(|idx| match &decisions[*idx] {
 					ReferenceLinkageDecision::Unknown {
 						reason: UnknownReason::NoCandidate,
 						reference,
-					} => resolve_receiver_chain(self, reference, &statuses),
+					} => resolve_receiver_chain(self, reference, &statuses, &receiver_calls)
+						.map(|replacement| (*idx, replacement)),
 					_ => None,
-				};
-				if let Some(replacement) = replacement {
-					*decision = replacement;
-					changed = true;
-				}
-			}
-			if !changed {
+				})
+				.collect::<Vec<_>>();
+			if replacements.is_empty() {
 				break;
 			}
+			for (idx, replacement) in replacements {
+				if let Some((reference, status)) = reference_status(self.material, &replacement) {
+					statuses.insert(reference, status);
+				}
+				decisions[idx] = replacement;
+			}
+			pending.retain(|idx| {
+				matches!(
+					decisions[*idx],
+					ReferenceLinkageDecision::Unknown {
+						reason: UnknownReason::NoCandidate,
+						..
+					}
+				)
+			});
 		}
 	}
 
@@ -61,25 +76,6 @@ impl<'a> SemanticLinkage<'a> {
 	fn resolved_return_owner(&self, symbol: &SymbolId) -> Option<Moniker> {
 		let callable = self.material.symbol_monikers.get(symbol)?;
 		self.return_types.get(callable).cloned()
-	}
-
-	fn immediate_receiver_call(&self, file_idx: usize, ref_idx: usize) -> Option<ReferenceId> {
-		let file = self.material.files.get(file_idx)?;
-		let current = file.graph.ref_at(ref_idx);
-		let current_position = current.position?;
-		(0..file.graph.ref_count())
-			.filter(|candidate_idx| *candidate_idx != ref_idx)
-			.filter_map(|candidate_idx| {
-				let candidate = file.graph.ref_at(candidate_idx);
-				if !is_call_ref(candidate) || candidate.source != current.source {
-					return None;
-				}
-				let position = candidate.position?;
-				contains_position(current_position, position)
-					.then_some((candidate_idx, position.1.saturating_sub(position.0)))
-			})
-			.max_by_key(|(_, width)| *width)
-			.map(|(candidate_idx, _)| self.material.identity.reference_id(file_idx, candidate_idx))
 	}
 
 	fn is_builtin_external(&self, source_file: usize, target: &Moniker) -> bool {
@@ -138,17 +134,147 @@ impl<'a> MethodCallReference<'a> {
 	}
 }
 
+#[derive(Default)]
+struct ReceiverCallIndex {
+	by_reference: FxHashMap<(usize, usize), ReferenceId>,
+}
+
+impl ReceiverCallIndex {
+	fn get(&self, file_idx: usize, ref_idx: usize) -> Option<&ReferenceId> {
+		self.by_reference.get(&(file_idx, ref_idx))
+	}
+}
+
+fn build_receiver_call_index(
+	material: &CodeIndexMaterial,
+	decisions: &[ReferenceLinkageDecision],
+	pending: &[usize],
+) -> ReceiverCallIndex {
+	let mut pending_by_file = FxHashMap::<usize, Vec<usize>>::default();
+	for idx in pending {
+		let ReferenceLinkageDecision::Unknown { reference, .. } = &decisions[*idx] else {
+			continue;
+		};
+		let Some((file_idx, ref_idx)) = material.identity.reference_location(&reference.id) else {
+			continue;
+		};
+		pending_by_file
+			.entry(file_idx)
+			.or_insert_with(Vec::new)
+			.push(ref_idx);
+	}
+
+	let mut index = ReceiverCallIndex::default();
+	for (file_idx, pending_refs) in pending_by_file {
+		index_file_receiver_calls(material, file_idx, &pending_refs, &mut index);
+	}
+	index
+}
+
+fn index_file_receiver_calls(
+	material: &CodeIndexMaterial,
+	file_idx: usize,
+	pending_refs: &[usize],
+	index: &mut ReceiverCallIndex,
+) {
+	let Some(file) = material.files.get(file_idx) else {
+		return;
+	};
+	let calls_by_source = sorted_call_spans_by_source(file);
+	for ref_idx in pending_refs {
+		let current = file.graph.ref_at(*ref_idx);
+		let Some(calls) = calls_by_source.get(current.source) else {
+			continue;
+		};
+		let Some(receiver_idx) = immediate_receiver_call_idx(file, *ref_idx, calls) else {
+			continue;
+		};
+		index.by_reference.insert(
+			(file_idx, *ref_idx),
+			material.identity.reference_id(file_idx, receiver_idx),
+		);
+	}
+}
+
+#[derive(Clone, Copy)]
+struct CallSpan {
+	ref_idx: usize,
+	start: u32,
+	end: u32,
+	width: u32,
+}
+
+fn sorted_call_spans_by_source(file: &crate::source::IndexedSourceFile) -> Vec<Vec<CallSpan>> {
+	let mut by_source = vec![Vec::new(); file.graph.def_count()];
+	for ref_idx in 0..file.graph.ref_count() {
+		let reference = file.graph.ref_at(ref_idx);
+		if !is_call_ref(reference) {
+			continue;
+		}
+		let Some((start, end)) = reference.position else {
+			continue;
+		};
+		let Some(source_calls) = by_source.get_mut(reference.source) else {
+			continue;
+		};
+		source_calls.push(CallSpan {
+			ref_idx,
+			start,
+			end,
+			width: end.saturating_sub(start),
+		});
+	}
+	for source_calls in &mut by_source {
+		source_calls.sort_by_key(|call| std::cmp::Reverse(call.width));
+	}
+	by_source
+}
+
+fn immediate_receiver_call_idx(
+	file: &crate::source::IndexedSourceFile,
+	ref_idx: usize,
+	calls: &[CallSpan],
+) -> Option<usize> {
+	let current = file.graph.ref_at(ref_idx);
+	let current_position = current.position?;
+	calls
+		.iter()
+		.find(|candidate| {
+			candidate.ref_idx != ref_idx
+				&& contains_position(current_position, (candidate.start, candidate.end))
+		})
+		.map(|candidate| candidate.ref_idx)
+}
+
+fn pending_receiver_chains(decisions: &[ReferenceLinkageDecision]) -> Vec<usize> {
+	decisions
+		.iter()
+		.enumerate()
+		.filter_map(|(idx, decision)| {
+			let ReferenceLinkageDecision::Unknown {
+				reason: UnknownReason::NoCandidate,
+				reference,
+			} = decision
+			else {
+				return None;
+			};
+			MethodCallReference::new(reference).map(|_| idx)
+		})
+		.collect()
+}
+
 fn resolve_receiver_chain(
 	linkage: &SemanticLinkage<'_>,
 	reference: &ReferenceRecord,
 	statuses: &FxHashMap<ReferenceId, ReferenceStatus>,
+	receiver_calls: &ReceiverCallIndex,
 ) -> Option<ReferenceLinkageDecision> {
 	let method_call = MethodCallReference::new(reference)?;
 	let (source_file, ref_idx) = linkage
 		.material
 		.identity
 		.reference_location(method_call.reference_id())?;
-	let receiver = linkage.immediate_receiver_call(source_file, ref_idx)?;
+	let receiver = receiver_calls.get(source_file, ref_idx)?;
 	let owner = match statuses.get(&receiver)? {
 		ReferenceStatus::Resolved(symbols) if symbols.len() == 1 => {
 			linkage.resolved_return_owner(&symbols[0])?
@@ -192,32 +318,37 @@ fn reference_statuses(
 ) -> FxHashMap<ReferenceId, ReferenceStatus> {
 	let mut out = FxHashMap::default();
 	for decision in decisions {
-		match decision {
-			ReferenceLinkageDecision::Resolved {
-				reference, targets, ..
-			} => {
-				out.insert(
-					reference.id.clone(),
-					ReferenceStatus::Resolved(targets.clone()),
-				);
-			}
-			ReferenceLinkageDecision::External {
-				reference, target, ..
-			} => {
-				if let Some(target) = target
-					.as_ref()
-					.or_else(|| material.reference_targets.get(&reference.id))
-				{
-					out.insert(
-						reference.id.clone(),
-						ReferenceStatus::External(target.clone()),
-					);
-				}
-			}
-			_ => {}
+		if let Some((reference, status)) = reference_status(material, decision) {
+			out.insert(reference, status);
 		}
 	}
 	out
+}
+
+fn reference_status(
+	material: &CodeIndexMaterial,
+	decision: &ReferenceLinkageDecision,
+) -> Option<(ReferenceId, ReferenceStatus)> {
+	match decision {
+		ReferenceLinkageDecision::Resolved {
+			reference, targets, ..
+		} => Some((
+			reference.id.clone(),
+			ReferenceStatus::Resolved(targets.clone()),
+		)),
+		ReferenceLinkageDecision::External {
+			reference, target, ..
+		} => target
+			.as_ref()
+			.or_else(|| material.reference_targets.get(&reference.id))
+			.map(|target| {
+				(
+					reference.id.clone(),
+					ReferenceStatus::External(target.clone()),
+				)
+			}),
+		_ => None,
+	}
 }
 
 fn is_call_ref(reference: &RefRecord) -> bool {
