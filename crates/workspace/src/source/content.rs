@@ -30,11 +30,9 @@ impl LocalResourceCache {
 		generation: crate::snapshot::ResourceGeneration,
 		material: SourceCatalogMaterial,
 	) {
-		self.inner
-			.lock()
-			.expect("local resource cache poisoned")
-			.sources
-			.insert(generation.value(), material);
+		let mut inner = self.inner.lock().expect("local resource cache poisoned");
+		inner.sources.clear();
+		inner.sources.insert(generation.value(), material);
 	}
 
 	pub fn source_material(
@@ -54,17 +52,15 @@ impl LocalResourceCache {
 		generation: crate::snapshot::ResourceGeneration,
 		material: CodeIndexMaterial,
 	) {
-		self.inner
-			.lock()
-			.expect("local resource cache poisoned")
-			.indexes
-			.insert(generation.value(), material);
+		let mut inner = self.inner.lock().expect("local resource cache poisoned");
+		inner.indexes.clear();
+		inner.indexes.insert(generation.value(), Arc::new(material));
 	}
 
 	pub fn index_material(
 		&self,
 		generation: crate::snapshot::ResourceGeneration,
-	) -> Option<CodeIndexMaterial> {
+	) -> Option<Arc<CodeIndexMaterial>> {
 		self.inner
 			.lock()
 			.expect("local resource cache poisoned")
@@ -77,7 +73,7 @@ impl LocalResourceCache {
 struct LocalResourceMaterial {
 	next_generation: u64,
 	sources: BTreeMap<u64, SourceCatalogMaterial>,
-	indexes: BTreeMap<u64, CodeIndexMaterial>,
+	indexes: BTreeMap<u64, Arc<CodeIndexMaterial>>,
 }
 
 impl Default for LocalResourceMaterial {

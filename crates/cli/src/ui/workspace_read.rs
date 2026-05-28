@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
 use code_moniker_core::core::moniker::Moniker;
@@ -315,17 +316,40 @@ pub(in crate::ui) fn source_snippet(
 	};
 	let first = start_line.saturating_sub(context).max(1);
 	let last = end_line.saturating_add(context);
-	source
-		.text
-		.lines()
-		.enumerate()
-		.filter_map(|(idx, text)| {
-			let number = idx as u32 + 1;
-			(first <= number && number <= last).then(|| SourceLine {
-				number,
-				text: text.to_string(),
-				active: start_line <= number && number <= end_line,
+	source_lines(source, first, last)
+		.into_iter()
+		.map(|(number, text)| SourceLine {
+			number,
+			text,
+			active: start_line <= number && number <= end_line,
+		})
+		.collect()
+}
+
+fn source_lines(source: &SourceFileRecord, first: u32, last: u32) -> Vec<(u32, String)> {
+	if !source.text.is_empty() {
+		return source
+			.text
+			.lines()
+			.enumerate()
+			.filter_map(|(idx, text)| {
+				let number = idx as u32 + 1;
+				(first <= number && number <= last).then(|| (number, text.to_string()))
 			})
+			.collect();
+	}
+	let Ok(file) = std::fs::File::open(&source.path) else {
+		return Vec::new();
+	};
+	std::io::BufReader::new(file)
+		.lines()
+		.take(last as usize)
+		.enumerate()
+		.filter_map(|(idx, line)| {
+			let number = idx as u32 + 1;
+			(first <= number)
+				.then(|| line.ok().map(|text| (number, text)))
+				.flatten()
 		})
 		.collect()
 }

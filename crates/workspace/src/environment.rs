@@ -47,7 +47,7 @@ pub fn load_or_extract_source(
 pub fn cached_index_material(
 	cache: &ResourceCache,
 	generation: crate::snapshot::ResourceGeneration,
-) -> Option<IndexedSourceMaterial> {
+) -> Option<std::sync::Arc<IndexedSourceMaterial>> {
 	cache.index_material(generation)
 }
 

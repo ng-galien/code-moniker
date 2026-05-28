@@ -260,7 +260,7 @@ fn source_records(files: &[IndexedSourceFile]) -> Vec<SourceFileRecord> {
 				rel_path: file.rel_path.display().to_string(),
 				anchor: file.anchor.display().to_string(),
 				language: file.lang.tag().to_string(),
-				text: file.source.clone(),
+				text: String::new(),
 			})
 		})
 		.collect()
