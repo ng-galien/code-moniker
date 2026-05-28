@@ -41,7 +41,7 @@ kind = "test"
 moniker = "code+moniker://app/lang:rs/module:rust_tests/test:ignored_property(value)"
 
 [[refs]]
-label = "proptest macro unresolved"
+label = "proptest macro external"
 kind = "calls"
-to = "code+moniker://app/lang:rs/module:rust_tests/macro:proptest"
-confidence = "unresolved"
+to = "code+moniker://app/external_pkg:proptest/path:proptest"
+confidence = "external"

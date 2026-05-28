@@ -4,7 +4,7 @@ use crate::core::code_graph::Position;
 use crate::core::moniker::Moniker;
 use crate::lang::callable::{
 	CallableSlot, callable_segment_slots, extend_callable_slots, extend_segment,
-	join_bytes_with_comma, normalize_type_text,
+	extend_segment_u32, join_bytes_with_comma, normalize_type_text,
 };
 use crate::lang::sdk::{DiscoveredDef, Namespace, RefHints, ResolvedRef, TypeExpr};
 use crate::lang::tree_util::{node_position, node_slice};
@@ -15,7 +15,17 @@ use super::syntax::{named_children, type_parameters};
 use super::type_resolution::type_expr;
 
 pub(super) fn collect_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
-	for child in named_children(node) {
+	let mut cursor = node.walk();
+	let mut pending_comment = None;
+	for child in node.children(&mut cursor) {
+		if is_comment(child.kind()) {
+			extend_or_flush_comment(state, &mut pending_comment, child, scope);
+			continue;
+		}
+		flush_comment(state, &mut pending_comment, scope);
+		if !child.is_named() {
+			continue;
+		}
 		match child.kind() {
 			"class_declaration" => type_def(state, child, scope, kinds::CLASS),
 			"interface_declaration" => type_def(state, child, scope, kinds::INTERFACE),
@@ -28,6 +38,52 @@ pub(super) fn collect_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: 
 			_ => collect_defs(state, child, scope),
 		}
 	}
+	flush_comment(state, &mut pending_comment, scope);
+}
+
+struct PendingComment {
+	start_byte: u32,
+	end_byte: u32,
+	end_row: usize,
+}
+
+fn extend_or_flush_comment(
+	state: &mut JavaDiscover<'_>,
+	pending: &mut Option<PendingComment>,
+	node: Node<'_>,
+	scope: &Moniker,
+) {
+	let start_row = node.start_position().row;
+	let end_row = node.end_position().row;
+	let start_byte = node.start_byte() as u32;
+	let end_byte = node.end_byte() as u32;
+	if let Some(comment) = pending.as_mut() {
+		if start_row <= comment.end_row + 1 {
+			comment.end_byte = end_byte;
+			comment.end_row = end_row;
+			return;
+		}
+		state.push_def(comment_def(scope, comment.start_byte, comment.end_byte));
+	}
+	*pending = Some(PendingComment {
+		start_byte,
+		end_byte,
+		end_row,
+	});
+}
+
+fn flush_comment(
+	state: &mut JavaDiscover<'_>,
+	pending: &mut Option<PendingComment>,
+	scope: &Moniker,
+) {
+	if let Some(comment) = pending.take() {
+		state.push_def(comment_def(scope, comment.start_byte, comment.end_byte));
+	}
+}
+
+fn is_comment(kind: &str) -> bool {
+	matches!(kind, "line_comment" | "block_comment")
 }
 
 fn type_def(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker, kind: &'static [u8]) {
@@ -176,6 +232,21 @@ fn enum_constants(state: &mut JavaDiscover<'_>, node: Node<'_>, enum_moniker: &M
 	}
 }
 
+fn comment_def(scope: &Moniker, start_byte: u32, end_byte: u32) -> DiscoveredDef {
+	def_record(DefInput {
+		moniker: extend_segment_u32(scope, kinds::COMMENT, start_byte),
+		parent: scope.clone(),
+		namespace: Namespace::Custom("annotation"),
+		name: start_byte.to_string().into_bytes(),
+		kind: kinds::COMMENT,
+		visibility: kinds::VIS_NONE,
+		signature: Vec::new(),
+		position: Some((start_byte, end_byte)),
+		call_name: Vec::new(),
+		call_arity: None,
+	})
+}
+
 fn callable_def(
 	state: &mut JavaDiscover<'_>,
 	node: Node<'_>,
@@ -227,7 +298,11 @@ fn callable_def(
 		param_defs(state, params, &moniker);
 	}
 	if let Some(body) = node.child_by_field_name("body") {
-		local_defs(state, body, &moniker);
+		if state.deep {
+			local_defs(state, body, &moniker);
+		} else {
+			comment_defs(state, body, &moniker);
+		}
 	}
 }
 
@@ -288,9 +363,36 @@ fn local_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, callable: &Moniker) 
 			}
 		}
 	}
-	for child in named_children(node) {
+	let mut cursor = node.walk();
+	let mut pending_comment = None;
+	for child in node.children(&mut cursor) {
+		if is_comment(child.kind()) {
+			extend_or_flush_comment(state, &mut pending_comment, child, callable);
+			continue;
+		}
+		flush_comment(state, &mut pending_comment, callable);
+		if !child.is_named() {
+			continue;
+		}
 		local_defs(state, child, callable);
 	}
+	flush_comment(state, &mut pending_comment, callable);
+}
+
+fn comment_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
+	let mut cursor = node.walk();
+	let mut pending_comment = None;
+	for child in node.children(&mut cursor) {
+		if is_comment(child.kind()) {
+			extend_or_flush_comment(state, &mut pending_comment, child, scope);
+			continue;
+		}
+		flush_comment(state, &mut pending_comment, scope);
+		if child.is_named() {
+			comment_defs(state, child, scope);
+		}
+	}
+	flush_comment(state, &mut pending_comment, scope);
 }
 
 fn field_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
@@ -428,7 +530,8 @@ fn explicit_no_arg_methods(record_node: Node<'_>, source: &[u8]) -> Vec<Vec<u8>>
 
 fn visibility_of(node: Node<'_>) -> &'static [u8] {
 	for child in named_children(node).filter(|child| child.kind() == "modifiers") {
-		for modifier in named_children(child) {
+		let mut cursor = child.walk();
+		for modifier in child.children(&mut cursor) {
 			match modifier.kind() {
 				"public" => return kinds::VIS_PUBLIC,
 				"protected" => return kinds::VIS_PROTECTED,

@@ -2,11 +2,14 @@ use tree_sitter::Node;
 
 use crate::core::code_graph::Position;
 use crate::core::moniker::Moniker;
-use crate::lang::callable::{CallableSlot, callable_segment_slots, extend_segment};
+use crate::lang::callable::{
+	CallableSlot, callable_segment_slots, extend_segment, extend_segment_u32,
+};
 use crate::lang::sdk::{DiscoveredDef, Namespace};
-use crate::lang::tree_util::{node_position, node_slice};
+use crate::lang::tree_util::{find_descendant, node_position, node_slice};
 
 use super::super::kinds;
+use super::syntax::path_pieces;
 
 pub(super) struct DefEnv<'a> {
 	pub root: &'a Moniker,
@@ -48,7 +51,7 @@ fn definition_name_node(node: Node<'_>) -> Option<Node<'_>> {
 pub(super) fn callable_def(env: DefEnv<'_>, input: CallableDefInput<'_>) -> DiscoveredDef {
 	let name = node_slice(input.name_node, env.source);
 	let signature = if input.kind == kinds::TEST {
-		test_signature(name)
+		test_signature(input.node, env.source, name)
 	} else {
 		Vec::new()
 	};
@@ -95,6 +98,7 @@ pub(super) fn proptest_def(
 	scope: &Moniker,
 	name: &[u8],
 	param_name: &[u8],
+	ignore: Option<&str>,
 ) -> DiscoveredDef {
 	let mut moniker_name = name.to_vec();
 	moniker_name.extend_from_slice(b"(");
@@ -108,7 +112,7 @@ pub(super) fn proptest_def(
 		kind: kinds::TEST,
 		visibility: kinds::VIS_PRIVATE,
 		position: Some(node_position(node)),
-		signature: proptest_signature(name),
+		signature: proptest_signature(name, ignore),
 		call_name: Vec::new(),
 		call_arity: None,
 	})
@@ -222,6 +226,21 @@ pub(super) fn local_binding_def(
 	})
 }
 
+pub(super) fn comment_def(scope: &Moniker, start_byte: u32, end_byte: u32) -> DiscoveredDef {
+	def_record(DefRecordInput {
+		moniker: extend_segment_u32(scope, kinds::COMMENT, start_byte),
+		parent: scope.clone(),
+		namespace: Namespace::Custom("annotation"),
+		name: start_byte.to_string().into_bytes(),
+		kind: kinds::COMMENT,
+		visibility: kinds::VIS_NONE,
+		signature: Vec::new(),
+		position: Some((start_byte, end_byte)),
+		call_name: Vec::new(),
+		call_arity: None,
+	})
+}
+
 fn child_value_def(
 	node: Node<'_>,
 	parent: &Moniker,
@@ -257,15 +276,54 @@ fn def_record(input: DefRecordInput) -> DiscoveredDef {
 	}
 }
 
-fn test_signature(name: &[u8]) -> Vec<u8> {
+fn test_signature(node: Node<'_>, source: &[u8], name: &[u8]) -> Vec<u8> {
+	let ignore = test_ignore_reason(node, source);
 	let mut signature = b"framework=rust-test;enabled=true;display=".to_vec();
+	if ignore.is_some() {
+		signature = b"framework=rust-test;enabled=false;display=".to_vec();
+	}
 	signature.extend_from_slice(name);
+	if let Some(reason) = ignore.filter(|reason| !reason.is_empty()) {
+		signature.extend_from_slice(b";ignore=");
+		signature.extend_from_slice(reason.as_bytes());
+	}
 	signature
 }
 
-fn proptest_signature(name: &[u8]) -> Vec<u8> {
-	let mut signature = b"framework=proptest;enabled=true;display=".to_vec();
+fn test_ignore_reason(node: Node<'_>, source: &[u8]) -> Option<String> {
+	let mut sibling = node.prev_named_sibling();
+	while let Some(previous) = sibling {
+		if previous.kind() != "attribute_item" {
+			break;
+		}
+		if let Some(reason) = ignore_reason(previous, source) {
+			return Some(reason);
+		}
+		sibling = previous.prev_named_sibling();
+	}
+	None
+}
+
+fn ignore_reason(attribute: Node<'_>, source: &[u8]) -> Option<String> {
+	if path_pieces(attribute, source) != vec![b"ignore".to_vec()] {
+		return None;
+	}
+	find_descendant(attribute, "string_content")
+		.map(|reason| String::from_utf8_lossy(node_slice(reason, source)).into_owned())
+		.or_else(|| Some(String::new()))
+}
+
+fn proptest_signature(name: &[u8], ignore: Option<&str>) -> Vec<u8> {
+	let mut signature = if ignore.is_some() {
+		b"framework=proptest;enabled=false;display=".to_vec()
+	} else {
+		b"framework=proptest;enabled=true;display=".to_vec()
+	};
 	signature.extend_from_slice(name);
+	if let Some(reason) = ignore.filter(|reason| !reason.is_empty()) {
+		signature.extend_from_slice(b";ignore=");
+		signature.extend_from_slice(reason.as_bytes());
+	}
 	signature
 }
 

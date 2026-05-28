@@ -21,11 +21,11 @@ mod gist;
 mod index;
 mod query;
 
-// code-moniker: ignore[name-pascalcase] — pgrx maps the Rust struct name 1:1 to the SQL type name, which must be `moniker`.
 #[allow(non_camel_case_types)]
 #[derive(PostgresType, Debug)]
 #[inoutfuncs]
 #[bikeshed_postgres_type_manually_impl_from_into_datum]
+// code-moniker: ignore[rust.struct.name-pascalcase] — pgrx maps the Rust struct name 1:1 to the SQL type name, which must be `moniker`.
 pub struct moniker {
 	storage: MonikerStorage,
 }

@@ -31,7 +31,7 @@ mod integration_style {
 #[tokio::test]
 async fn async_runtime_test_is_not_builtin_rust_test() {}
 
-// cm: ref proptest macro unresolved
+// cm: ref proptest macro external
 proptest::proptest! {
 	// cm: def proptest generated test
 	#[test]

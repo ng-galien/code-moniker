@@ -2,7 +2,7 @@ use tree_sitter::Node;
 
 use crate::core::code_graph::Position;
 use crate::core::moniker::Moniker;
-use crate::lang::callable::{CallableSlot, extend_segment};
+use crate::lang::callable::{CallableSlot, extend_segment, join_bytes_with_comma};
 use crate::lang::sdk::{
 	DiscoveredDef, ImportLeafKind, Namespace, ResolvedRef, flatten_import_tree,
 	import_leaf_binding_name,
@@ -11,7 +11,7 @@ use crate::lang::tree_util::{node_position, node_slice};
 
 use super::super::kinds;
 use super::defs::{
-	CallableDefInput, DefEnv, callable_def, enum_constant_def, inferred_struct_def,
+	CallableDefInput, DefEnv, callable_def, comment_def, enum_constant_def, inferred_struct_def,
 	local_binding_def, nested_type_def, proptest_def, reexport_path_def, simple_def,
 	synthetic_enum_constant_def, synthetic_lang_enum_def,
 };
@@ -21,7 +21,8 @@ use super::refs::{
 	trait_refs_from_node, type_parameters, type_refs_from_signature, type_refs_from_type_node,
 };
 use super::syntax::{
-	is_test_function, language_macro_variants, named_children, should_skip_binding,
+	children, is_test_function, language_macro_variants, named_children, path_pieces,
+	should_skip_binding, token_tree_body,
 };
 
 pub(super) struct DiscoveredRustFile {
@@ -108,10 +109,66 @@ impl<'src> RustDiscover<'src> {
 	}
 }
 
+struct PendingComment {
+	start_byte: u32,
+	end_byte: u32,
+	end_row: usize,
+}
+
 fn walk_items(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, trait_impl: bool) {
-	for child in named_children(node) {
+	let mut cursor = node.walk();
+	let mut pending_comment = None;
+	for child in node.children(&mut cursor) {
+		if is_comment(child.kind()) {
+			extend_or_flush_comment(state, &mut pending_comment, child, scope);
+			continue;
+		}
+		flush_comment(state, &mut pending_comment, scope);
+		if !child.is_named() {
+			continue;
+		}
 		visit_item(state, child, scope, trait_impl);
 	}
+	flush_comment(state, &mut pending_comment, scope);
+}
+
+fn extend_or_flush_comment(
+	state: &mut RustDiscover<'_>,
+	pending: &mut Option<PendingComment>,
+	node: Node<'_>,
+	scope: &Moniker,
+) {
+	let start_row = node.start_position().row;
+	let end_row = node.end_position().row;
+	let start_byte = node.start_byte() as u32;
+	let end_byte = node.end_byte() as u32;
+	if let Some(comment) = pending.as_mut() {
+		if start_row <= comment.end_row + 1 {
+			comment.end_byte = end_byte;
+			comment.end_row = end_row;
+			return;
+		}
+		state.push_def(comment_def(scope, comment.start_byte, comment.end_byte));
+	}
+	*pending = Some(PendingComment {
+		start_byte,
+		end_byte,
+		end_row,
+	});
+}
+
+fn flush_comment(
+	state: &mut RustDiscover<'_>,
+	pending: &mut Option<PendingComment>,
+	scope: &Moniker,
+) {
+	if let Some(comment) = pending.take() {
+		state.push_def(comment_def(scope, comment.start_byte, comment.end_byte));
+	}
+}
+
+fn is_comment(kind: &str) -> bool {
+	matches!(kind, "line_comment" | "block_comment")
 }
 
 fn visit_item(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, trait_impl: bool) {
@@ -151,7 +208,17 @@ fn enum_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 		return;
 	};
 	if let Some(body) = node.child_by_field_name("body") {
-		for child in named_children(body).filter(|child| child.kind() == "enum_variant") {
+		let mut cursor = body.walk();
+		let mut pending_comment = None;
+		for child in body.children(&mut cursor) {
+			if is_comment(child.kind()) {
+				extend_or_flush_comment(state, &mut pending_comment, child, &enum_moniker);
+				continue;
+			}
+			flush_comment(state, &mut pending_comment, &enum_moniker);
+			if child.kind() != "enum_variant" {
+				continue;
+			}
 			if let Some(name_node) = child.child_by_field_name("name") {
 				state.push_def(enum_constant_def(
 					state.def_env(),
@@ -161,6 +228,7 @@ fn enum_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 				));
 			}
 		}
+		flush_comment(state, &mut pending_comment, &enum_moniker);
 	}
 }
 
@@ -198,6 +266,8 @@ fn function_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, t
 		if let Some(body) = node.child_by_field_name("body") {
 			local_defs(state, body, &function);
 		}
+	} else if let Some(body) = node.child_by_field_name("body") {
+		comment_defs(state, body, &function);
 	}
 }
 
@@ -268,43 +338,184 @@ fn module_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 }
 
 fn macro_invocation(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
-	let text = node.utf8_text(state.source).unwrap_or_default();
-	if text.trim_start().starts_with("proptest!") {
+	if is_proptest_macro(node, state.source) {
 		proptest_macro(state, node, scope);
 		return;
 	}
-	if !text.trim_start().starts_with("define_languages!") {
+	if !is_define_languages_macro(node, state.source) {
 		return;
 	}
 	let enum_moniker = extend_segment(scope, kinds::ENUM, b"Lang");
 	state.push_def(synthetic_lang_enum_def(node, scope, &enum_moniker));
-	for variant in language_macro_variants(text) {
-		state.push_def(synthetic_enum_constant_def(
-			node,
-			&enum_moniker,
-			variant.into_bytes(),
-		));
+	for variant in language_macro_variants(node, state.source) {
+		state.push_def(synthetic_enum_constant_def(node, &enum_moniker, variant));
 	}
 }
 
 fn proptest_macro(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
-	let text = node.utf8_text(state.source).unwrap_or_default();
-	let Some(test_pos) = text.find("fn ") else {
-		return;
+	for test in proptest_tests(node, state.source) {
+		state.push_def(proptest_def(
+			node,
+			scope,
+			&test.name,
+			&test.params,
+			test.ignore.as_deref(),
+		));
+	}
+}
+
+fn is_proptest_macro(node: Node<'_>, source: &[u8]) -> bool {
+	let Some(macro_node) = node.child_by_field_name("macro") else {
+		return false;
 	};
-	let rest = &text[test_pos + 3..];
-	let Some((name, after_name)) = rest.split_once('(') else {
-		return;
+	let pieces = path_pieces(macro_node, source);
+	matches!(
+		pieces.as_slice(),
+		[proptest] if proptest == b"proptest"
+	) || matches!(
+		pieces.as_slice(),
+		[package, macro_name] if package == b"proptest" && macro_name == b"proptest"
+	)
+}
+
+fn is_define_languages_macro(node: Node<'_>, source: &[u8]) -> bool {
+	let Some(macro_node) = node.child_by_field_name("macro") else {
+		return false;
 	};
-	let Some((param, _)) = after_name.split_once(" in ") else {
-		return;
+	path_pieces(macro_node, source) == vec![b"define_languages".to_vec()]
+}
+
+struct ProptestTest {
+	name: Vec<u8>,
+	params: Vec<u8>,
+	ignore: Option<String>,
+}
+
+fn proptest_tests(node: Node<'_>, source: &[u8]) -> Vec<ProptestTest> {
+	let Some(body) = token_tree_body(node) else {
+		return Vec::new();
 	};
-	state.push_def(proptest_def(
-		node,
-		scope,
-		name.trim().as_bytes(),
-		param.trim().as_bytes(),
-	));
+	let mut out = Vec::new();
+	let body_children = children(body);
+	let mut pending_attrs = Vec::new();
+	for (index, child) in body_children.iter().enumerate() {
+		if child.kind() == "#"
+			&& let Some(attribute) = body_children
+				.get(index + 1)
+				.copied()
+				.filter(|candidate| token_tree_delimiter(*candidate) == Some("["))
+		{
+			pending_attrs.push(attribute);
+			continue;
+		}
+		if child.kind() != "fn" {
+			continue;
+		}
+		let Some(name) = next_identifier(&body_children[index + 1..], source) else {
+			pending_attrs.clear();
+			continue;
+		};
+		let Some(params_node) = next_params_tree(&body_children[index + 1..]) else {
+			pending_attrs.clear();
+			continue;
+		};
+		let params = proptest_param_names(params_node, source);
+		if !params.is_empty() && has_macro_test_attribute(&pending_attrs, source) {
+			out.push(ProptestTest {
+				name,
+				params,
+				ignore: macro_ignore_reason(&pending_attrs, source),
+			});
+		}
+		pending_attrs.clear();
+	}
+	out
+}
+
+fn has_macro_test_attribute(attrs: &[Node<'_>], source: &[u8]) -> bool {
+	attrs
+		.iter()
+		.any(|attribute| macro_attribute_name(*attribute, source) == Some(b"test".as_slice()))
+}
+
+fn macro_ignore_reason(attrs: &[Node<'_>], source: &[u8]) -> Option<String> {
+	attrs
+		.iter()
+		.find(|attribute| macro_attribute_name(**attribute, source) == Some(b"ignore".as_slice()))
+		.map(|attribute| {
+			find_string_content(*attribute, source)
+				.map(|reason| String::from_utf8_lossy(node_slice(reason, source)).into_owned())
+				.unwrap_or_default()
+		})
+}
+
+fn macro_attribute_name<'src>(attribute: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
+	children(attribute)
+		.into_iter()
+		.find(|child| child.kind() == "identifier")
+		.map(|child| node_slice(child, source))
+}
+
+fn find_string_content<'tree>(node: Node<'tree>, source: &[u8]) -> Option<Node<'tree>> {
+	if node.kind() == "string_content" {
+		return Some(node);
+	}
+	for child in children(node) {
+		if node_slice(child, source) == b"\"" {
+			continue;
+		}
+		if let Some(found) = find_string_content(child, source) {
+			return Some(found);
+		}
+	}
+	None
+}
+
+fn next_identifier(nodes: &[Node<'_>], source: &[u8]) -> Option<Vec<u8>> {
+	nodes
+		.iter()
+		.find(|node| node.kind() == "identifier")
+		.map(|node| node_slice(*node, source).to_vec())
+}
+
+fn next_params_tree<'tree>(nodes: &'tree [Node<'tree>]) -> Option<Node<'tree>> {
+	nodes
+		.iter()
+		.copied()
+		.find(|node| token_tree_delimiter(*node) == Some("("))
+}
+
+fn proptest_param_names(params: Node<'_>, source: &[u8]) -> Vec<u8> {
+	let mut names = Vec::new();
+	let mut previous_identifier = None;
+	for child in children(params) {
+		match child.kind() {
+			"identifier" if node_slice(child, source) == b"in" => {
+				if let Some(name) = previous_identifier.take() {
+					names.push(name);
+				}
+			}
+			"identifier" => previous_identifier = Some(node_slice(child, source).to_vec()),
+			"," => previous_identifier = None,
+			_ => {}
+		}
+	}
+	join_bytes_with_comma(&names)
+}
+
+fn token_tree_delimiter(node: Node<'_>) -> Option<&'static str> {
+	if node.kind() != "token_tree" {
+		return None;
+	}
+	children(node)
+		.into_iter()
+		.next()
+		.and_then(|child| match child.kind() {
+			"(" => Some("("),
+			"[" => Some("["),
+			"{" => Some("{"),
+			_ => None,
+		})
 }
 
 fn collect_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, trait_impl: bool) {
@@ -391,9 +602,7 @@ fn collect_function_refs(
 		return;
 	};
 	state.extend_refs(type_refs_from_signature(state.ref_env(), node, &function));
-	if state.deep
-		&& let Some(body) = node.child_by_field_name("body")
-	{
+	if let Some(body) = node.child_by_field_name("body") {
 		collect_body_use_refs(state, body, &function);
 		state.extend_refs(read_refs(state.ref_env(), node, body, &function));
 		collect_local_ref_items(state, body, &function);
@@ -651,7 +860,17 @@ fn has_visibility(node: Node<'_>) -> bool {
 }
 
 fn local_defs(state: &mut RustDiscover<'_>, node: Node<'_>, function: &Moniker) {
-	for child in named_children(node) {
+	let mut cursor = node.walk();
+	let mut pending_comment = None;
+	for child in node.children(&mut cursor) {
+		if is_comment(child.kind()) {
+			extend_or_flush_comment(state, &mut pending_comment, child, function);
+			continue;
+		}
+		flush_comment(state, &mut pending_comment, function);
+		if !child.is_named() {
+			continue;
+		}
 		match local_item_kind(child.kind()) {
 			LocalItemKind::Let => let_defs(state, child, function),
 			LocalItemKind::For => for_defs(state, child, function),
@@ -660,6 +879,23 @@ fn local_defs(state: &mut RustDiscover<'_>, node: Node<'_>, function: &Moniker) 
 			LocalItemKind::Recurse => local_defs(state, child, function),
 		}
 	}
+	flush_comment(state, &mut pending_comment, function);
+}
+
+fn comment_defs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
+	let mut cursor = node.walk();
+	let mut pending_comment = None;
+	for child in node.children(&mut cursor) {
+		if is_comment(child.kind()) {
+			extend_or_flush_comment(state, &mut pending_comment, child, scope);
+			continue;
+		}
+		flush_comment(state, &mut pending_comment, scope);
+		if child.is_named() {
+			comment_defs(state, child, scope);
+		}
+	}
+	flush_comment(state, &mut pending_comment, scope);
 }
 
 fn let_defs(state: &mut RustDiscover<'_>, node: Node<'_>, function: &Moniker) {

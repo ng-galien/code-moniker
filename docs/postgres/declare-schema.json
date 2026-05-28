@@ -116,7 +116,7 @@
         "symbols": {
           "items": {
             "properties": {
-              "kind":       { "enum": ["struct", "enum", "trait", "impl", "fn", "method", "test", "const", "static", "type"] },
+              "kind":       { "enum": ["struct", "enum", "enum_constant", "trait", "impl", "fn", "macro", "method", "test", "const", "static", "path", "type"] },
               "visibility": { "enum": ["public", "private", "module"] }
             }
           }
@@ -172,7 +172,7 @@
         "symbols": {
           "items": {
             "properties": {
-              "kind":       { "enum": ["class", "interface", "struct", "record", "enum", "delegate", "method", "constructor", "field", "property", "event"] },
+              "kind":       { "enum": ["class", "interface", "struct", "record", "enum", "enum_constant", "delegate", "method", "constructor", "field", "property", "event"] },
               "visibility": { "enum": ["public", "protected", "package", "private"] }
             }
           }

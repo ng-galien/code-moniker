@@ -66,6 +66,28 @@ pub fn watch_roots_for_options(opts: &SessionOptions) -> Vec<StoreWatchRoot> {
 		.collect()
 }
 
+pub fn root_label_for_options(opts: &SessionOptions) -> String {
+	match opts.paths.as_slice() {
+		[] => "<empty>".to_string(),
+		[path] => path.display().to_string(),
+		paths => sibling_parent(paths)
+			.map(|parent| parent.display().to_string())
+			.unwrap_or_else(|| {
+				paths
+					.iter()
+					.map(|path| path.display().to_string())
+					.collect::<Vec<_>>()
+					.join(", ")
+			}),
+	}
+}
+
+fn sibling_parent(paths: &[PathBuf]) -> Option<&std::path::Path> {
+	let mut parents = paths.iter().map(|path| path.parent());
+	let first = parents.next()??;
+	parents.all(|parent| parent == Some(first)).then_some(first)
+}
+
 fn watch_path(path: &std::path::Path) -> PathBuf {
 	let path = absolute_path(path);
 	if path.is_file() {

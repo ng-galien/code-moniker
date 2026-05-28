@@ -328,7 +328,7 @@ fn resolve_receiver_chain(
 		.identity
 		.reference_location(method_call.reference_id())?;
 	let receiver = receiver_calls.get(source_file, ref_idx)?;
-	let owner = match statuses.get(&receiver)? {
+	let owner = match statuses.get(receiver)? {
 		ReferenceStatus::Resolved(symbols) if symbols.len() == 1 => {
 			linkage.resolved_return_owner(&symbols[0], return_types)?
 		}

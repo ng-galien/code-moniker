@@ -47,6 +47,15 @@ fn type_refs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker, kind
 			_ => {}
 		}
 	}
+	if kind == kinds::RECORD
+		&& let Some(params) = node.child_by_field_name("parameters")
+	{
+		for param in named_children(params) {
+			if let Some(ty) = param.child_by_field_name("type") {
+				emit_type_refs(state, ty, &type_scope);
+			}
+		}
+	}
 	if let Some(body) = node.child_by_field_name("body") {
 		collect_refs(state, body, &type_scope);
 	}

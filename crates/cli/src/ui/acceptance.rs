@@ -7,7 +7,7 @@ use ratatui::backend::TestBackend;
 use crate::session::SessionOptions;
 use crate::ui::app::{App, handle_key, new_app, toggle_selected_nav};
 use crate::ui::render::view;
-use crate::ui::workspace_read::load_local_workspace;
+use crate::ui::workspace_read::{load_local_file_catalog, load_local_workspace};
 
 const MULTIPROJECT_FIXTURE: &str = "../workspace/tests/fixtures/projects/java/multiprojet";
 
@@ -22,10 +22,14 @@ impl TuiAcceptance {
 	}
 
 	fn load_multiproject_with_profile(profile: Option<&str>) -> Self {
+		Self::load_multiproject_paths(vec![multiproject_fixture()], profile)
+	}
+
+	fn load_multiproject_paths(paths: Vec<PathBuf>, profile: Option<&str>) -> Self {
 		let cache_dir = tempfile::tempdir().expect("cache dir");
 		let fixture = multiproject_fixture();
 		let opts = SessionOptions {
-			paths: vec![fixture.clone()],
+			paths,
 			project: Some("multiprojet".to_string()),
 			cache_dir: Some(cache_dir.path().to_path_buf()),
 		};
@@ -37,6 +41,30 @@ impl TuiAcceptance {
 			"default".to_string(),
 			fixture.join(".code-moniker.toml"),
 			profile.map(ToOwned::to_owned),
+		);
+		Self {
+			app,
+			_cache_dir: cache_dir,
+		}
+	}
+
+	fn load_multiproject_catalog_only() -> Self {
+		let cache_dir = tempfile::tempdir().expect("cache dir");
+		let fixture = multiproject_fixture();
+		let opts = SessionOptions {
+			paths: vec![fixture.clone()],
+			project: Some("multiprojet".to_string()),
+			cache_dir: Some(cache_dir.path().to_path_buf()),
+		};
+		let (store, cache) =
+			load_local_file_catalog(&opts).expect("load Java multiproject file catalog");
+		let app = new_app(
+			store,
+			cache,
+			opts,
+			"default".to_string(),
+			fixture.join(".code-moniker.toml"),
+			None,
 		);
 		Self {
 			app,
@@ -90,6 +118,46 @@ impl TuiAcceptance {
 }
 
 #[test]
+fn multiproject_catalog_phase_renders_file_tree_before_symbols() {
+	let mut harness = TuiAcceptance::load_multiproject_catalog_only();
+	toggle_selected_nav(&mut harness.app);
+	let screen = harness.render_text(160, 45);
+
+	assert_visible(&screen, "multiprojet");
+	assert_visible(&screen, "navigator 24 files");
+	assert_visible(&screen, "java");
+	assert_visible(&screen, "billing-service");
+	assert_visible(&screen, "common-lib");
+	assert_visible(&screen, "inventory-service");
+	assert_visible(&screen, "loyalty-platform");
+	assert_visible(&screen, "order-service");
+	assert_visible(&screen, "spring-edge");
+	assert_visible(&screen, "files      24");
+	assert_visible(&screen, "defs       0");
+	assert_visible(&screen, "refs       0");
+}
+
+#[test]
+fn multiproject_multiple_paths_behave_like_virtual_parent() {
+	let mut harness = TuiAcceptance::load_multiproject_paths(multiproject_project_paths(), None);
+	toggle_selected_nav(&mut harness.app);
+	let screen = harness.render_text(160, 45);
+
+	assert_visible(&screen, "multiprojet");
+	assert_visible(&screen, "navigator 24 files");
+	assert_visible(&screen, "java");
+	assert_visible(&screen, "billing-service");
+	assert_visible(&screen, "common-lib");
+	assert_visible(&screen, "inventory-service");
+	assert_visible(&screen, "loyalty-platform");
+	assert_visible(&screen, "order-service");
+	assert_visible(&screen, "spring-edge");
+	assert_visible(&screen, "files      24");
+	assert_visible(&screen, "defs       220");
+	assert_visible(&screen, "refs       492");
+}
+
+#[test]
 fn multiproject_initial_screen_exposes_navigation_contract() {
 	let mut harness = TuiAcceptance::load_multiproject();
 	toggle_selected_nav(&mut harness.app);
@@ -126,7 +194,7 @@ fn multiproject_check_panel_reports_clean_rule_run() {
 	assert_visible(&screen, "check");
 	assert_visible(&screen, "check summary");
 	assert_visible(&screen, "files");
-	assert_visible(&screen, "20");
+	assert_visible(&screen, "24");
 	assert_visible(&screen, "flagged");
 	assert_visible(&screen, "violations");
 	assert_visible(&screen, "0");
@@ -177,6 +245,21 @@ fn multiproject_fixture() -> PathBuf {
 			path.display()
 		)
 	})
+}
+
+fn multiproject_project_paths() -> Vec<PathBuf> {
+	let fixture = multiproject_fixture();
+	[
+		"billing-service",
+		"common-lib",
+		"inventory-service",
+		"loyalty-platform",
+		"order-service",
+		"spring-edge",
+	]
+	.into_iter()
+	.map(|name| fixture.join(name))
+	.collect()
 }
 
 fn assert_visible(screen: &str, expected: &str) {

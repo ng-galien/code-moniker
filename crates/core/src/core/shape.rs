@@ -80,6 +80,7 @@ const SHAPE_TABLE: &[(&[u8], Shape, bool)] = &[
 	(b"enum_constant", Shape::Value, false),
 	(b"const", Shape::Value, false),
 	(b"static", Shape::Value, false),
+	(b"path", Shape::Value, false),
 	(b"var", Shape::Value, false),
 	(b"param", Shape::Value, false),
 	(b"local", Shape::Value, false),

@@ -173,15 +173,7 @@ pub(in crate::ui) fn store_options(app: &App) -> SessionOptions {
 }
 
 pub(in crate::ui) fn store_root_label(app: &App) -> String {
-	match app.workspace.options().paths.as_slice() {
-		[] => "<empty>".to_string(),
-		[path] => path.display().to_string(),
-		paths => paths
-			.iter()
-			.map(|path| path.display().to_string())
-			.collect::<Vec<_>>()
-			.join(", "),
-	}
+	crate::session::root_label_for_options(app.workspace.options())
 }
 
 pub(in crate::ui) fn store_watch_roots(app: &App) -> Vec<StoreWatchRoot> {

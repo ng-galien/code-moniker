@@ -1,4 +1,6 @@
-use regex::Regex;
+use std::collections::HashSet;
+
+use regex::{Captures, Regex};
 
 use crate::check::eval::Violation;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
@@ -55,7 +57,11 @@ fn directive_re() -> &'static Regex {
 }
 
 fn collect_directives(graph: &CodeGraph, source: &str) -> Vec<Directive> {
-	let mut out = Vec::new();
+	let mut out = collect_source_directives(source);
+	let mut seen: HashSet<(u32, u32, bool)> = out
+		.iter()
+		.map(|d| (d.comment_start_byte, d.comment_end_byte, d.file_scope))
+		.collect();
 	for d in graph.defs() {
 		if d.kind.as_slice() != KIND_COMMENT {
 			continue;
@@ -67,25 +73,53 @@ fn collect_directives(graph: &CodeGraph, source: &str) -> Vec<Directive> {
 		let Some(caps) = directive_re().captures(text) else {
 			continue;
 		};
-		let file_scope = caps.get(1).is_some();
-		let rule_filters = caps
-			.get(2)
-			.map(|m| {
-				m.as_str()
-					.split(',')
-					.map(|s| s.trim().to_string())
-					.filter(|s| !s.is_empty())
-					.collect()
-			})
-			.unwrap_or_default();
-		out.push(Directive {
-			comment_start_byte: s,
-			comment_end_byte: e,
-			file_scope,
-			rule_filters,
-		});
+		let directive = directive_from_captures(s, e, &caps);
+		if seen.insert((
+			directive.comment_start_byte,
+			directive.comment_end_byte,
+			directive.file_scope,
+		)) {
+			out.push(directive);
+		}
 	}
 	out
+}
+
+fn collect_source_directives(source: &str) -> Vec<Directive> {
+	let mut out = Vec::new();
+	let mut line_start = 0usize;
+	for line in source.split_inclusive('\n') {
+		let line_end = line_start + line.trim_end_matches(['\r', '\n']).len();
+		if let Some(caps) = directive_re().captures(line) {
+			out.push(directive_from_captures(
+				line_start as u32,
+				line_end as u32,
+				&caps,
+			));
+		}
+		line_start += line.len();
+	}
+	out
+}
+
+fn directive_from_captures(start: u32, end: u32, caps: &Captures<'_>) -> Directive {
+	let file_scope = caps.get(1).is_some();
+	let rule_filters = caps
+		.get(2)
+		.map(|m| {
+			m.as_str()
+				.split(',')
+				.map(|s| s.trim().to_string())
+				.filter(|s| !s.is_empty())
+				.collect()
+		})
+		.unwrap_or_default();
+	Directive {
+		comment_start_byte: start,
+		comment_end_byte: end,
+		file_scope,
+		rule_filters,
+	}
 }
 
 fn target_lines_for(graph: &CodeGraph, source: &str, dir: &Directive) -> Option<(u32, u32)> {
@@ -146,6 +180,13 @@ mod tests {
 	fn run(source: &str, cfg: &Config) -> Vec<Violation> {
 		let graph = extract::extract(Lang::Ts, source, std::path::Path::new("test.ts"));
 		let violations = evaluate(&graph, source, Lang::Ts, cfg, "code+moniker://")
+			.expect("test config compiles");
+		apply(&graph, source, violations)
+	}
+
+	fn run_rust(source: &str, cfg: &Config) -> Vec<Violation> {
+		let graph = extract::extract(Lang::Rs, source, std::path::Path::new("test.rs"));
+		let violations = evaluate(&graph, source, Lang::Rs, cfg, "code+moniker://")
 			.expect("test config compiles");
 		apply(&graph, source, violations)
 	}
@@ -286,5 +327,16 @@ mod tests {
 		// own comment def (cap fine), and still suppresses the class.
 		let source = "// code-moniker: ignore\nclass lower_bad {}\n";
 		assert!(run(source, &cfg).is_empty());
+	}
+
+	#[test]
+	fn ignore_after_attribute_suppresses_next_rust_def() {
+		let cfg = cfg(r#"
+			[[rust.fn.where]]
+			id   = "name-snakecase"
+			expr = "name =~ ^[a-z_][a-z0-9_]*$"
+			"#);
+		let source = "#[allow(non_snake_case)]\n// code-moniker: ignore[rust.fn.name-snakecase]\nfn _PG_init() {}\n";
+		assert!(run_rust(source, &cfg).is_empty());
 	}
 }

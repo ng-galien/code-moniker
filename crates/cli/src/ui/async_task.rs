@@ -6,7 +6,8 @@ use std::time::Instant;
 use crate::perf;
 use crate::session::{CheckSummary, SessionOptions};
 use crate::ui::workspace_read::{
-	self, LocalWorkspaceFacade, WorkspaceCheckContext, load_local_workspace,
+	self, LocalWorkspaceFacade, WorkspaceCheckContext, load_local_file_catalog,
+	load_local_workspace,
 };
 use code_moniker_workspace::source::LocalResourceCache;
 
@@ -251,7 +252,7 @@ fn execute_task(spec: TaskSpec) -> TaskResult {
 
 fn execute_task_kind(kind: TaskKind) -> TaskOutcome {
 	match kind {
-		TaskKind::LoadFileCatalog { opts } => match load_local_workspace(&opts) {
+		TaskKind::LoadFileCatalog { opts } => match load_local_file_catalog(&opts) {
 			Ok((store, cache)) => TaskOutcome::FileCatalogLoaded(Box::new((store, cache, opts))),
 			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 		},

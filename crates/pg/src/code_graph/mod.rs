@@ -15,11 +15,11 @@ use crate::util::resolve_type_oid;
 use code_moniker_core::core::code_graph::encoding;
 use code_moniker_core::core::code_graph::{CodeGraph as CoreGraph, Position};
 
-// code-moniker: ignore[name-pascalcase] — pgrx maps the Rust struct name 1:1 to the SQL type name, which must be `code_graph`.
 #[allow(non_camel_case_types)]
 #[derive(PostgresType, Debug)]
 #[inoutfuncs]
 #[bikeshed_postgres_type_manually_impl_from_into_datum]
+// code-moniker: ignore[rust.struct.name-pascalcase] — pgrx maps the Rust struct name 1:1 to the SQL type name, which must be `code_graph`.
 pub struct code_graph {
 	storage: GraphStorage,
 }

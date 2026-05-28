@@ -4,7 +4,9 @@ use crate::linkage::LinkagePort;
 use crate::source::SourceCatalogPort;
 
 use super::model::{
-	ResourceGeneration, WorkspaceRequest, WorkspaceResult, WorkspaceSnapshot, WorkspaceTransition,
+	ChangeOverlay, CodeIndex, CodeIndexFields, LinkageGraph, ResourceGeneration, SourceCatalog,
+	SourceFileRecord, SourceFileRecordFields, WorkspaceRequest, WorkspaceResult, WorkspaceSnapshot,
+	WorkspaceTransition,
 };
 
 pub struct WorkspaceSnapshotRefresh<Sources, Index, Linkage, Changes> {
@@ -61,6 +63,26 @@ where
 		}
 	}
 
+	pub fn load_catalog(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
+		match self.build_catalog_snapshot(request) {
+			Ok(snapshot) => {
+				let generation = snapshot.generation;
+				self.snapshot = Some(snapshot);
+				self.last_failure = None;
+				WorkspaceTransition::Ready { generation }
+			}
+			Err(failure) => {
+				let preserved_generation =
+					self.snapshot.as_ref().map(|snapshot| snapshot.generation);
+				self.last_failure = Some(failure.clone());
+				WorkspaceTransition::Failed {
+					failure,
+					preserved_generation,
+				}
+			}
+		}
+	}
+
 	pub fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
 		self.snapshot.as_ref()
 	}
@@ -86,11 +108,61 @@ where
 		})
 	}
 
+	fn build_catalog_snapshot(
+		&mut self,
+		request: WorkspaceRequest,
+	) -> WorkspaceResult<WorkspaceSnapshot> {
+		let catalog = self.source_catalog.load_catalog(&request)?;
+		let generation = self.allocate_generation();
+		let index = catalog_index(&catalog);
+		let linkage = LinkageGraph::new(catalog.generation, index.generation, 0, 0);
+		let changes = ChangeOverlay::new(
+			catalog.generation,
+			catalog.generation,
+			index.generation,
+			Vec::new(),
+		);
+		Ok(WorkspaceSnapshot {
+			generation,
+			catalog,
+			index,
+			linkage,
+			changes,
+		})
+	}
+
 	fn allocate_generation(&mut self) -> ResourceGeneration {
 		let generation = ResourceGeneration::new(self.next_generation);
 		self.next_generation += 1;
 		generation
 	}
+}
+
+fn catalog_index(catalog: &SourceCatalog) -> CodeIndex {
+	CodeIndex::from_fields(CodeIndexFields {
+		generation: catalog.generation,
+		catalog_generation: catalog.generation,
+		identity_scheme: crate::DEFAULT_IDENTITY_SCHEME.to_string(),
+		sources: catalog
+			.sources
+			.iter()
+			.enumerate()
+			.map(|(idx, source)| {
+				SourceFileRecord::from_fields(SourceFileRecordFields {
+					id: source.id.clone(),
+					uri: source.id.as_str().to_string(),
+					source_root: idx,
+					path: source.display_name.clone(),
+					rel_path: source.display_name.clone(),
+					anchor: source.display_name.clone(),
+					language: source.language.clone().unwrap_or_default(),
+					text: String::new(),
+				})
+			})
+			.collect(),
+		symbols: Vec::new(),
+		references: Vec::new(),
+	})
 }
 
 #[cfg(test)]
@@ -277,6 +349,28 @@ mod tests {
 				"changes:catalog@10:index@20:linkage@30",
 			]
 		);
+	}
+
+	#[test]
+	fn load_catalog_publishes_file_tree_without_indexing() {
+		let fixture = Fixture::new();
+		let mut session = fixture.session();
+
+		let transition = session.load_catalog(WorkspaceRequest::new("catalog"));
+		let snapshot = session.snapshot().expect("catalog snapshot");
+
+		assert_eq!(
+			transition,
+			WorkspaceTransition::Ready {
+				generation: ResourceGeneration::new(1)
+			}
+		);
+		assert_eq!(fixture.log(), vec!["catalog:catalog"]);
+		assert_eq!(snapshot.index.sources.len(), 1);
+		assert_eq!(snapshot.index.sources[0].rel_path, "src/main.rs");
+		assert!(snapshot.index.symbols.is_empty());
+		assert!(snapshot.index.references.is_empty());
+		assert_eq!(snapshot.linkage.resolved_refs, 0);
 	}
 
 	#[test]

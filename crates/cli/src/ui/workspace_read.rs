@@ -115,6 +115,19 @@ pub(in crate::ui) fn load_local_workspace(
 	Ok((facade, cache))
 }
 
+pub(in crate::ui) fn load_local_file_catalog(
+	opts: &SessionOptions,
+) -> anyhow::Result<(
+	code_moniker_workspace::LocalWorkspaceFacade,
+	LocalResourceCache,
+)> {
+	let (mut facade, cache) = new_local_workspace(opts);
+	match facade.load_catalog(WorkspaceRequest::new("file-catalog")) {
+		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
+		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
+	}
+}
+
 pub(in crate::ui) fn refresh_workspace(
 	facade: &mut code_moniker_workspace::LocalWorkspaceFacade,
 ) -> anyhow::Result<()> {

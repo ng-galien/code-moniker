@@ -148,7 +148,7 @@ fn discover_scopes(paths: &[PathBuf], project: Option<String>) -> anyhow::Result
 				.to_path_buf()
 		};
 		let label = labels[source_idx].clone();
-		let source_project = project.clone().or_else(|| multi.then(|| label.clone()));
+		let source_project = project.clone();
 		let mut ts = tsconfig::load(&root);
 		if multi {
 			prefix_ts_aliases(&mut ts, &label);
@@ -404,8 +404,8 @@ mod tests {
 
 		assert!(set.multi);
 		assert_eq!(set.roots[0].label, "service-a");
-		assert_eq!(set.roots[0].ctx.project.as_deref(), Some("service-a"));
-		assert_eq!(set.roots[1].ctx.project.as_deref(), Some("service-b"));
+		assert_eq!(set.roots[0].ctx.project, None);
+		assert_eq!(set.roots[1].ctx.project, None);
 		assert!(set.display_path().contains("service-a"));
 		assert!(set.display_path().contains("service-b"));
 		assert!(

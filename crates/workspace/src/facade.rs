@@ -62,6 +62,10 @@ where
 		self.refresh.refresh(request)
 	}
 
+	pub fn load_catalog(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
+		self.refresh.load_catalog(request)
+	}
+
 	pub fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
 		self.refresh.snapshot()
 	}
