@@ -75,8 +75,12 @@ where
 
 	pub fn load_index(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
 		self.run_phase(|ports, current, generation| {
+			let catalog_source = request
+				.should_reuse_current_catalog()
+				.then_some(current)
+				.flatten();
 			build_index_only_snapshot(
-				current,
+				catalog_source,
 				&mut ports.source_catalog,
 				&mut ports.code_index,
 				request,
@@ -168,11 +172,13 @@ impl WorkspaceSnapshotState {
 	}
 
 	fn replace_snapshot(&mut self, snapshot: WorkspaceSnapshot) {
+		self.next_generation = self.next_generation.max(snapshot.generation.value() + 1);
 		self.snapshot = Some(Arc::new(snapshot));
 		self.last_failure = None;
 	}
 
 	fn replace_snapshot_arc(&mut self, snapshot: Arc<WorkspaceSnapshot>) {
+		self.next_generation = self.next_generation.max(snapshot.generation.value() + 1);
 		self.snapshot = Some(snapshot);
 		self.last_failure = None;
 	}
@@ -634,7 +640,7 @@ mod tests {
 		let mut session = fixture.session();
 
 		session.load_catalog(WorkspaceRequest::new("catalog"));
-		let transition = session.load_index(WorkspaceRequest::new("index"));
+		let transition = session.load_index(WorkspaceRequest::new("index").reuse_current_catalog());
 		let snapshot = session.snapshot().expect("index snapshot");
 
 		assert_eq!(
@@ -650,6 +656,53 @@ mod tests {
 			ResourceGeneration::new(10)
 		);
 		assert_eq!(snapshot.timings.source_catalog, Duration::ZERO);
+	}
+
+	#[test]
+	fn load_index_refreshes_catalog_by_default() {
+		let fixture = Fixture::new();
+		let mut session = fixture.session();
+
+		session.load_catalog(WorkspaceRequest::new("catalog"));
+		fixture.set_catalog(11, "src/other.rs");
+		let transition = session.load_index(WorkspaceRequest::new("index"));
+		let snapshot = session.snapshot().expect("index snapshot");
+
+		assert_eq!(
+			transition,
+			WorkspaceTransition::Ready {
+				generation: ResourceGeneration::new(2)
+			}
+		);
+		assert_eq!(
+			fixture.log(),
+			vec!["catalog:catalog", "catalog:index", "index:catalog@11"]
+		);
+		assert_eq!(snapshot.catalog.generation, ResourceGeneration::new(11));
+		assert_eq!(
+			snapshot.index.catalog_generation,
+			ResourceGeneration::new(11)
+		);
+	}
+
+	#[test]
+	fn replacing_snapshot_advances_next_generation() {
+		let fixture = Fixture::new();
+		let mut producer = fixture.session();
+
+		producer.load_catalog(WorkspaceRequest::new("catalog"));
+		let seed = producer.snapshot_arc().expect("catalog snapshot");
+		let mut consumer = fixture.session();
+		consumer.replace_snapshot_arc(seed);
+		let transition =
+			consumer.load_index(WorkspaceRequest::new("index").reuse_current_catalog());
+
+		assert_eq!(
+			transition,
+			WorkspaceTransition::Ready {
+				generation: ResourceGeneration::new(2)
+			}
+		);
 	}
 
 	#[test]

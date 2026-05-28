@@ -167,7 +167,7 @@ fn build_semantic_index(
 	let mut symbols_by_moniker = rustc_hash::FxHashMap::default();
 	let mut symbol_monikers = rustc_hash::FxHashMap::default();
 	let mut reference_targets = rustc_hash::FxHashMap::default();
-	let mut reference_identity_pool = TextPool::default();
+	let mut reference_identity_pool = TargetIdentityPool::default();
 	let identity = source_material.identity.clone();
 	for (file_idx, file) in files.iter().enumerate() {
 		let line_index = LineIndex::new(&file.source);
@@ -236,14 +236,14 @@ fn collect_references(
 	line_index: &LineIndex,
 	references: &mut Vec<ReferenceRecord>,
 	reference_targets: &mut rustc_hash::FxHashMap<crate::snapshot::ReferenceId, Moniker>,
-	reference_identity_pool: &mut TextPool,
+	reference_identity_pool: &mut TargetIdentityPool,
 ) {
 	for (ref_idx, reference) in file.graph.refs().enumerate() {
 		let id = file.graph_identity().reference_id(file_idx, ref_idx);
 		let source_symbol = file.graph_identity().symbol_id(file_idx, reference.source);
 		reference_targets.insert(id.clone(), reference.target.clone());
 		let target_identity =
-			reference_identity_pool.intern(file.graph_identity().moniker_uri(&reference.target));
+			reference_identity_pool.intern(file.graph_identity(), &reference.target);
 		references.push(
 			ReferenceRecord::new(
 				id.as_str(),
@@ -266,17 +266,17 @@ fn collect_references(
 }
 
 #[derive(Default)]
-struct TextPool {
-	values: rustc_hash::FxHashMap<String, Arc<str>>,
+struct TargetIdentityPool {
+	values: rustc_hash::FxHashMap<Moniker, Arc<str>>,
 }
 
-impl TextPool {
-	fn intern(&mut self, value: String) -> Arc<str> {
-		if let Some(existing) = self.values.get(value.as_str()) {
+impl TargetIdentityPool {
+	fn intern(&mut self, identity: &LocalIdentityResolver, target: &Moniker) -> Arc<str> {
+		if let Some(existing) = self.values.get(target) {
 			return Arc::clone(existing);
 		}
-		let shared = Arc::<str>::from(value.as_str());
-		self.values.insert(value, Arc::clone(&shared));
+		let shared = Arc::<str>::from(identity.moniker_uri(target));
+		self.values.insert(target.clone(), Arc::clone(&shared));
 		shared
 	}
 }

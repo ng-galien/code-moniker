@@ -164,7 +164,7 @@ pub(in crate::ui) fn load_local_symbol_index_from_catalog(
 )> {
 	let (mut facade, cache) = new_local_workspace_with_cache(opts, cache);
 	facade.replace_snapshot_arc(snapshot);
-	match facade.load_index(WorkspaceRequest::new("symbol-index")) {
+	match facade.load_index(WorkspaceRequest::new("symbol-index").reuse_current_catalog()) {
 		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 	}

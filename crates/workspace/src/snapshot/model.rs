@@ -17,13 +17,30 @@ impl ResourceGeneration {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkspaceRequest {
 	pub label: String,
+	pub catalog: CatalogRequest,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CatalogRequest {
+	Refresh,
+	ReuseCurrent,
 }
 
 impl WorkspaceRequest {
 	pub fn new(label: impl Into<String>) -> Self {
 		Self {
 			label: label.into(),
+			catalog: CatalogRequest::Refresh,
 		}
+	}
+
+	pub fn reuse_current_catalog(mut self) -> Self {
+		self.catalog = CatalogRequest::ReuseCurrent;
+		self
+	}
+
+	pub fn should_reuse_current_catalog(&self) -> bool {
+		self.catalog == CatalogRequest::ReuseCurrent
 	}
 }
 
