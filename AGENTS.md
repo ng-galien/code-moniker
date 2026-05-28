@@ -42,6 +42,13 @@ after a release rebuild, `cargo test --features pg17 --no-default-features
 --lib` ~2s, workspace tests ~5-6s, and `cargo install --path crates/cli`
 ~45s when it recompiles. Optimize for feedback latency: avoid cold
 `cargo install` and repeated full workspace gates while iterating.
+Run Cargo validations sequentially unless there is a concrete reason to do
+otherwise: parallel `cargo check`/`cargo test`/`cargo clippy` commands contend
+on the same build directory and make the feedback loop look slower than it is.
+Treat `cargo moniker-check` as a targeted guardrail during iteration because
+it can pay a cold release-build cost; prefer focused `code-moniker check
+--file ...` calls when only a small touched surface needs architectural
+validation.
 
 Iteration loop examples:
 
