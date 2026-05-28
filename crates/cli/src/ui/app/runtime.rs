@@ -107,12 +107,18 @@ fn handle_task_result(app: &mut App, result: TaskResult) {
 	match result.outcome {
 		TaskOutcome::FileCatalogLoaded(store) => {
 			let (store, cache, options) = *store;
+			let symbol_cache = cache.clone();
+			let symbol_options = options.clone();
+			let catalog_seed = store.snapshot_arc();
 			crate::ui::app::replace_store(app, store, cache, options);
 			apply_file_catalog_store(app, "file tree ready".to_string());
-			if queue_task(
-				app,
-				TaskSpec::load_symbol_index(crate::ui::app::store_options(app)),
-			) {
+			let task = catalog_seed.map_or_else(
+				|| TaskSpec::load_symbol_index(crate::ui::app::store_options(app)),
+				|snapshot| {
+					TaskSpec::load_symbol_index_from_catalog(symbol_options, symbol_cache, snapshot)
+				},
+			);
+			if queue_task(app, task) {
 				crate::ui::app::set_status(app, "file tree ready; loading symbols in background");
 			}
 		}

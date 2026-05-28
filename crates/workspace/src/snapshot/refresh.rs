@@ -74,8 +74,9 @@ where
 	}
 
 	pub fn load_index(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
-		self.run_phase(|ports, _current, generation| {
+		self.run_phase(|ports, current, generation| {
 			build_index_only_snapshot(
+				current,
 				&mut ports.source_catalog,
 				&mut ports.code_index,
 				request,
@@ -229,15 +230,21 @@ fn build_complete_snapshot(
 }
 
 fn build_index_only_snapshot(
+	current: Option<&WorkspaceSnapshot>,
 	source_catalog: &mut impl SourceCatalogPort,
 	code_index: &mut impl CodeIndexPort,
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
 	let total_timer = Instant::now();
-	let catalog_timer = Instant::now();
-	let catalog = source_catalog.load_catalog(&request)?;
-	let catalog_elapsed = catalog_timer.elapsed();
+	let (catalog, catalog_elapsed) = match current {
+		Some(snapshot) => (snapshot.catalog.clone(), Duration::ZERO),
+		None => {
+			let catalog_timer = Instant::now();
+			let catalog = source_catalog.load_catalog(&request)?;
+			(catalog, catalog_timer.elapsed())
+		}
+	};
 	let index_timer = Instant::now();
 	let index = code_index.build_index(&catalog)?;
 	let index_elapsed = index_timer.elapsed();
@@ -619,6 +626,30 @@ mod tests {
 		assert_eq!(snapshot.index.symbols.len(), 1);
 		assert_eq!(snapshot.linkage.resolved_refs, 0);
 		assert!(snapshot.changes.changed_symbols.is_empty());
+	}
+
+	#[test]
+	fn load_index_reuses_published_catalog_snapshot() {
+		let fixture = Fixture::new();
+		let mut session = fixture.session();
+
+		session.load_catalog(WorkspaceRequest::new("catalog"));
+		let transition = session.load_index(WorkspaceRequest::new("index"));
+		let snapshot = session.snapshot().expect("index snapshot");
+
+		assert_eq!(
+			transition,
+			WorkspaceTransition::Ready {
+				generation: ResourceGeneration::new(2)
+			}
+		);
+		assert_eq!(fixture.log(), vec!["catalog:catalog", "index:catalog@10"]);
+		assert_eq!(snapshot.catalog.generation, ResourceGeneration::new(10));
+		assert_eq!(
+			snapshot.index.catalog_generation,
+			ResourceGeneration::new(10)
+		);
+		assert_eq!(snapshot.timings.source_catalog, Duration::ZERO);
 	}
 
 	#[test]

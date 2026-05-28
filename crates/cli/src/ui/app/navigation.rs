@@ -89,7 +89,7 @@ pub(in crate::ui) fn matching_defs(app: &App) -> Vec<DefLocation> {
 	match crate::ui::app::active_filter(app) {
 		ActiveFilter::HeaderSearch(results) => results.matches.clone(),
 		ActiveFilter::Change => workspace_read::changed_defs(crate::ui::app::store(app)),
-		ActiveFilter::None => workspace_read::all_navigable_defs(crate::ui::app::store(app)),
+		ActiveFilter::None => Vec::new(),
 	}
 }
 

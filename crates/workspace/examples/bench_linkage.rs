@@ -316,7 +316,7 @@ fn print_unresolved_groups(
 		let group = groups.entry(key).or_default();
 		group.count += 1;
 		if group.samples.len() < 3 {
-			group.samples.push(unresolved.target_identity.clone());
+			group.samples.push(unresolved.target_identity.to_string());
 		}
 	}
 	let mut groups = groups.into_iter().collect::<Vec<_>>();

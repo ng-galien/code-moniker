@@ -14,6 +14,38 @@ pub fn line_range(source: &str, start: u32, end: u32) -> (u32, u32) {
 	(start_line, end_line)
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LineIndex {
+	source_len: usize,
+	line_starts: Vec<usize>,
+}
+
+impl LineIndex {
+	pub fn new(source: &str) -> Self {
+		let mut line_starts = vec![0];
+		for (idx, byte) in source.as_bytes().iter().enumerate() {
+			if *byte == b'\n' {
+				line_starts.push(idx + 1);
+			}
+		}
+		Self {
+			source_len: source.len(),
+			line_starts,
+		}
+	}
+
+	pub fn line_range(&self, start: u32, end: u32) -> (u32, u32) {
+		let s = (start as usize).min(self.source_len);
+		let e = (end as usize).min(self.source_len).max(s);
+		let last = if e > s { e - 1 } else { s };
+		(self.line_at(s), self.line_at(last.min(self.source_len)))
+	}
+
+	fn line_at(&self, offset: usize) -> u32 {
+		self.line_starts.partition_point(|start| *start <= offset) as u32
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -52,5 +84,20 @@ mod tests {
 	fn end_before_start_collapses_to_start() {
 		let s = "a\nb\nc\n";
 		assert_eq!(line_range(s, 4, 2), (3, 3));
+	}
+
+	#[test]
+	fn line_index_matches_line_range() {
+		let s = "alpha\nbeta\ngamma\n";
+		let index = LineIndex::new(s);
+		for start in 0..=s.len() as u32 + 2 {
+			for end in 0..=s.len() as u32 + 2 {
+				assert_eq!(
+					index.line_range(start, end),
+					line_range(s, start, end),
+					"range {start}..{end}"
+				);
+			}
+		}
 	}
 }

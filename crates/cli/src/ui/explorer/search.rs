@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 
@@ -39,20 +37,14 @@ pub(in crate::ui) fn header_search_results(
 ) -> HeaderSearchResults {
 	let raw = text.trim().to_string();
 	let (kind_names, shapes) = split_kind_filters(kind_filters);
-	let mut matches = if raw.is_empty() {
-		workspace_read::all_navigable_defs(store)
+	let matches = if raw.is_empty() {
+		workspace_read::navigable_defs_filtered(store, langs, &kind_names, &shapes)
 	} else {
 		workspace_read::search_symbols_filtered(store, &raw, 500, langs, &kind_names, &shapes)
 			.into_iter()
 			.map(|hit| hit.loc)
 			.collect()
 	};
-	matches.retain(|loc| {
-		let symbol = workspace_read::symbol_summary(store, loc);
-		workspace_read::is_navigable_symbol(store, loc)
-			&& lang_filter_matches(langs, symbol.lang)
-			&& kind_filter_matches(kind_filters, &symbol.kind)
-	});
 	HeaderSearchResults {
 		text: raw,
 		langs: langs.to_vec(),
@@ -65,7 +57,7 @@ pub(in crate::ui) fn header_search_options(
 	store: &LocalWorkspaceFacade,
 	state: &HeaderSearchState,
 ) -> HeaderSearchOptions {
-	let available_langs = compute_lang_options(store);
+	let available_langs = workspace_read::available_langs(store);
 	let langs = normalize_langs(state.langs.clone(), &available_langs);
 	let available_kind_filters = compute_kind_filter_options(store, &langs);
 	let kind_filters =
@@ -80,60 +72,19 @@ pub(in crate::ui) fn header_search_options(
 	}
 }
 
-fn compute_lang_options(store: &LocalWorkspaceFacade) -> Vec<Lang> {
-	Lang::ALL
-		.iter()
-		.copied()
-		.filter(|lang| {
-			workspace_read::stats(store)
-				.by_lang
-				.contains_key(lang.tag())
-		})
-		.collect()
-}
-
 fn compute_kind_filter_options(
 	store: &LocalWorkspaceFacade,
 	langs: &[Lang],
 ) -> Vec<HeaderKindFilter> {
 	if langs.len() == 1 {
-		return available_kinds_for_lang(store, langs[0])
+		return workspace_read::available_kinds_for_lang(store, langs[0])
 			.into_iter()
 			.map(HeaderKindFilter::Kind)
 			.collect();
 	}
-	available_shapes(store, langs)
+	workspace_read::available_shapes(store, langs)
 		.into_iter()
 		.map(HeaderKindFilter::Shape)
-		.collect()
-}
-
-fn available_kinds_for_lang(store: &LocalWorkspaceFacade, lang: Lang) -> Vec<String> {
-	let mut kinds = BTreeSet::new();
-	for loc in workspace_read::all_navigable_defs(store) {
-		let symbol = workspace_read::symbol_summary(store, &loc);
-		if symbol.lang == lang {
-			kinds.insert(symbol.kind);
-		}
-	}
-	kinds.into_iter().collect()
-}
-
-fn available_shapes(store: &LocalWorkspaceFacade, langs: &[Lang]) -> Vec<Shape> {
-	let mut shapes = Vec::new();
-	for loc in workspace_read::all_navigable_defs(store) {
-		let symbol = workspace_read::symbol_summary(store, &loc);
-		if lang_filter_matches(langs, symbol.lang)
-			&& let Some(shape) = shape_of(symbol.kind.as_bytes())
-			&& !shapes.contains(&shape)
-		{
-			shapes.push(shape);
-		}
-	}
-	Shape::ALL
-		.iter()
-		.copied()
-		.filter(|shape| shapes.contains(shape))
 		.collect()
 }
 
@@ -196,14 +147,6 @@ fn split_kind_filters(filters: &[HeaderKindFilter]) -> (Vec<String>, Vec<Shape>)
 		}
 	}
 	(kinds, shapes)
-}
-
-fn lang_filter_matches(langs: &[Lang], lang: Lang) -> bool {
-	langs.is_empty() || langs.contains(&lang)
-}
-
-fn kind_filter_matches(filters: &[HeaderKindFilter], kind: &str) -> bool {
-	filters.is_empty() || filters.iter().any(|filter| filter.matches_kind(kind))
 }
 
 fn push_unique<T: Eq>(values: &mut Vec<T>, value: T) {

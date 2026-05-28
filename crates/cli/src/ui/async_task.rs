@@ -8,7 +8,7 @@ use crate::perf;
 use crate::session::{CheckSummary, SessionOptions};
 use crate::ui::workspace_read::{
 	self, LocalWorkspaceFacade, WorkspaceCheckContext, load_local_file_catalog,
-	load_local_symbol_index, resolve_local_linkage,
+	load_local_symbol_index, load_local_symbol_index_from_catalog, resolve_local_linkage,
 };
 use code_moniker_workspace::snapshot::WorkspaceSnapshot;
 use code_moniker_workspace::source::LocalResourceCache;
@@ -68,7 +68,28 @@ impl TaskSpec {
 			id: TaskId::next(),
 			generation: 0,
 			label: "load symbols".to_string(),
-			kind: TaskKind::LoadSymbolIndex { opts },
+			kind: TaskKind::LoadSymbolIndex {
+				opts,
+				cache: None,
+				snapshot: None,
+			},
+		}
+	}
+
+	pub(in crate::ui) fn load_symbol_index_from_catalog(
+		opts: SessionOptions,
+		cache: LocalResourceCache,
+		snapshot: Arc<WorkspaceSnapshot>,
+	) -> Self {
+		Self {
+			id: TaskId::next(),
+			generation: 0,
+			label: "load symbols".to_string(),
+			kind: TaskKind::LoadSymbolIndex {
+				opts,
+				cache: Some(cache),
+				snapshot: Some(snapshot),
+			},
 		}
 	}
 
@@ -133,6 +154,8 @@ enum TaskKind {
 	},
 	LoadSymbolIndex {
 		opts: SessionOptions,
+		cache: Option<LocalResourceCache>,
+		snapshot: Option<Arc<WorkspaceSnapshot>>,
 	},
 	ResolveLinkage {
 		opts: SessionOptions,
@@ -295,16 +318,28 @@ fn execute_task_kind(kind: TaskKind) -> TaskOutcome {
 			Ok((store, cache)) => TaskOutcome::FileCatalogLoaded(Box::new((store, cache, opts))),
 			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 		},
-		TaskKind::LoadSymbolIndex { opts } => match load_local_symbol_index(&opts) {
-			Ok((store, cache)) => match store.snapshot_arc() {
-				Some(snapshot) => TaskOutcome::SymbolIndexLoaded {
-					workspace: Box::new((store, cache, opts)),
-					linkage_seed: snapshot,
+		TaskKind::LoadSymbolIndex {
+			opts,
+			cache,
+			snapshot,
+		} => {
+			let loaded = match (cache, snapshot) {
+				(Some(cache), Some(snapshot)) => {
+					load_local_symbol_index_from_catalog(&opts, cache, snapshot)
+				}
+				_ => load_local_symbol_index(&opts),
+			};
+			match loaded {
+				Ok((store, cache)) => match store.snapshot_arc() {
+					Some(snapshot) => TaskOutcome::SymbolIndexLoaded {
+						workspace: Box::new((store, cache, opts)),
+						linkage_seed: snapshot,
+					},
+					None => TaskOutcome::Failed("symbol index snapshot is unavailable".to_string()),
 				},
-				None => TaskOutcome::Failed("symbol index snapshot is unavailable".to_string()),
-			},
-			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
-		},
+				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
+			}
+		}
 		TaskKind::ResolveLinkage {
 			opts,
 			cache,

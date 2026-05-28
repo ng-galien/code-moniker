@@ -107,7 +107,7 @@ fn reference_summary(
 			.as_ref()
 			.and_then(|symbol| symbols.find(symbol))
 			.map(|symbol| symbol.identity.clone())
-			.unwrap_or_else(|| reference.target_identity.clone()),
+			.unwrap_or_else(|| reference.target_identity.to_string()),
 		kind: reference.kind.clone(),
 		line_range: reference.line_range,
 	}

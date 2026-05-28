@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -182,7 +183,7 @@ pub struct ReferenceRecord {
 	pub id: ReferenceId,
 	pub source: SourceId,
 	pub source_symbol: SymbolId,
-	pub target_identity: String,
+	pub target_identity: Arc<str>,
 	pub kind: String,
 	pub call_name: Option<String>,
 	pub call_arity: Option<usize>,
@@ -197,7 +198,7 @@ impl ReferenceRecord {
 		id: impl Into<String>,
 		source: SourceId,
 		source_symbol: SymbolId,
-		target_identity: impl Into<String>,
+		target_identity: impl Into<Arc<str>>,
 		kind: impl Into<String>,
 		line_range: Option<(u32, u32)>,
 	) -> Self {
@@ -367,11 +368,11 @@ impl LinkageEdge {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnresolvedReference {
 	pub reference: ReferenceId,
-	pub target_identity: String,
+	pub target_identity: Arc<str>,
 }
 
 impl UnresolvedReference {
-	pub fn new(reference: ReferenceId, target_identity: impl Into<String>) -> Self {
+	pub fn new(reference: ReferenceId, target_identity: impl Into<Arc<str>>) -> Self {
 		Self {
 			reference,
 			target_identity: target_identity.into(),

@@ -1,4 +1,4 @@
-use code_moniker_core::core::shape::{Shape, shape_of};
+use code_moniker_core::core::shape::Shape;
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::{
@@ -63,13 +63,6 @@ impl HeaderKindFilter {
 		match self {
 			Self::Kind(kind) => kind.clone(),
 			Self::Shape(shape) => format!("shape:{}", shape.as_str()),
-		}
-	}
-
-	pub(in crate::ui) fn matches_kind(&self, kind: &str) -> bool {
-		match self {
-			Self::Kind(filter) => filter == kind,
-			Self::Shape(shape) => shape_of(kind.as_bytes()) == Some(*shape),
 		}
 	}
 }
@@ -353,15 +346,13 @@ fn decide_apply_header_search(
 		return HeaderSearchDecision::stale();
 	}
 	if !header.has_filter() {
-		let visible_defs = workspace_read::all_navigable_defs(store);
-		let expand_symbols = visible_defs.len() <= 200;
 		return HeaderSearchDecision {
 			shell: vec![ShellAction::ClearFilter { return_focus }],
 			navigation: vec![NavigationAction::SetScope {
 				scope: NavigationScope::Explorer,
-				visible_defs,
+				visible_defs: Vec::new(),
 				reset_expansion: true,
-				expand_symbols,
+				expand_symbols: false,
 			}],
 			select: None,
 			status: Some(if return_focus {

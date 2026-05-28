@@ -17,7 +17,7 @@ use code_moniker_workspace::snapshot::{
 	WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition,
 };
 use code_moniker_workspace::source::LocalResourceCache;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions};
 use crate::session::{CheckSummary, SessionOptions, SessionStats};
@@ -154,6 +154,22 @@ pub(in crate::ui) fn load_local_symbol_index(
 	}
 }
 
+pub(in crate::ui) fn load_local_symbol_index_from_catalog(
+	opts: &SessionOptions,
+	cache: LocalResourceCache,
+	snapshot: Arc<WorkspaceSnapshot>,
+) -> anyhow::Result<(
+	code_moniker_workspace::LocalWorkspaceFacade,
+	LocalResourceCache,
+)> {
+	let (mut facade, cache) = new_local_workspace_with_cache(opts, cache);
+	facade.replace_snapshot_arc(snapshot);
+	match facade.load_index(WorkspaceRequest::new("symbol-index")) {
+		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
+		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
+	}
+}
+
 pub(in crate::ui) fn resolve_local_linkage(
 	opts: &SessionOptions,
 	cache: LocalResourceCache,
@@ -208,16 +224,88 @@ pub(in crate::ui) fn linkage_stats(store: &LocalWorkspaceFacade) -> LinkageStats
 		.unwrap_or_default()
 }
 
-pub(in crate::ui) fn all_navigable_defs(store: &LocalWorkspaceFacade) -> Vec<SymbolId> {
+pub(in crate::ui) fn navigable_defs_filtered(
+	store: &LocalWorkspaceFacade,
+	langs: &[Lang],
+	kinds: &[String],
+	shapes: &[Shape],
+) -> Vec<SymbolId> {
 	let Some(snapshot) = store.snapshot() else {
 		return Vec::new();
 	};
+	let source_langs = source_lang_index(snapshot);
 	snapshot
 		.index
 		.symbols
 		.iter()
-		.filter(|symbol| symbol.navigable)
+		.filter(|symbol| {
+			symbol.navigable && symbol_matches_filters(symbol, &source_langs, langs, kinds, shapes)
+		})
 		.map(|symbol| symbol.id.clone())
+		.collect()
+}
+
+pub(in crate::ui) fn available_langs(store: &LocalWorkspaceFacade) -> Vec<Lang> {
+	let Some(snapshot) = store.snapshot() else {
+		return Vec::new();
+	};
+	let present = snapshot
+		.index
+		.sources
+		.iter()
+		.filter_map(|source| Lang::from_tag(&source.language))
+		.collect::<FxHashSet<_>>();
+	Lang::ALL
+		.iter()
+		.copied()
+		.filter(|lang| present.contains(lang))
+		.collect()
+}
+
+pub(in crate::ui) fn available_kinds_for_lang(
+	store: &LocalWorkspaceFacade,
+	lang: Lang,
+) -> Vec<String> {
+	let Some(snapshot) = store.snapshot() else {
+		return Vec::new();
+	};
+	let source_langs = source_lang_index(snapshot);
+	let mut kinds = BTreeSet::new();
+	for symbol in &snapshot.index.symbols {
+		if symbol.navigable && source_langs.get(&symbol.source) == Some(&lang) {
+			kinds.insert(symbol.kind.clone());
+		}
+	}
+	kinds.into_iter().collect()
+}
+
+pub(in crate::ui) fn available_shapes(store: &LocalWorkspaceFacade, langs: &[Lang]) -> Vec<Shape> {
+	let Some(snapshot) = store.snapshot() else {
+		return Vec::new();
+	};
+	let source_langs = source_lang_index(snapshot);
+	let selected = langs.iter().copied().collect::<FxHashSet<_>>();
+	let mut present = Vec::new();
+	for symbol in &snapshot.index.symbols {
+		if !symbol.navigable {
+			continue;
+		}
+		let Some(lang) = source_langs.get(&symbol.source).copied() else {
+			continue;
+		};
+		if !selected.is_empty() && !selected.contains(&lang) {
+			continue;
+		}
+		if let Some(shape) = shape_of(symbol.kind.as_bytes())
+			&& !present.contains(&shape)
+		{
+			present.push(shape);
+		}
+	}
+	Shape::ALL
+		.iter()
+		.copied()
+		.filter(|shape| present.contains(shape))
 		.collect()
 }
 
@@ -250,10 +338,6 @@ pub(in crate::ui) fn compare_defs_for_navigation(
 			.then_with(|| left.name.cmp(&right.name)),
 		_ => left.as_str().cmp(right.as_str()),
 	}
-}
-
-pub(in crate::ui) fn is_navigable_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> bool {
-	symbol_by_id(store, symbol).is_some_and(|symbol| symbol.navigable)
 }
 
 pub(in crate::ui) fn symbol_summary(
@@ -362,14 +446,25 @@ pub(in crate::ui) fn search_symbols_filtered(
 	kinds: &[String],
 	shapes: &[Shape],
 ) -> Vec<SearchHit> {
+	let Some(snapshot) = store.snapshot() else {
+		return Vec::new();
+	};
+	let source_langs = source_lang_index(snapshot);
+	let symbols_by_id = snapshot
+		.index
+		.symbols
+		.iter()
+		.map(|symbol| (symbol.id.clone(), symbol))
+		.collect::<FxHashMap<_, _>>();
 	let mut hits = store
 		.view()
 		.map(|view| view.search().search_symbols(query, limit.saturating_mul(4)))
 		.unwrap_or_default()
 		.into_iter()
 		.filter(|hit| {
-			symbol_by_id(store, &hit.symbol)
-				.is_some_and(|symbol| search_filters_match(store, symbol, langs, kinds, shapes))
+			symbols_by_id.get(&hit.symbol).is_some_and(|symbol| {
+				symbol_matches_filters(symbol, &source_langs, langs, kinds, shapes)
+			})
 		})
 		.map(|hit| SearchHit {
 			loc: hit.symbol,
@@ -974,14 +1069,17 @@ pub(in crate::ui) struct SourceLine {
 	pub(in crate::ui) active: bool,
 }
 
-fn search_filters_match(
-	store: &LocalWorkspaceFacade,
+fn symbol_matches_filters(
 	symbol: &SymbolRecord,
+	source_langs: &FxHashMap<SourceId, Lang>,
 	langs: &[Lang],
 	kinds: &[String],
 	shapes: &[Shape],
 ) -> bool {
-	let lang_matches = langs.is_empty() || langs.contains(&symbol_lang(store, symbol));
+	let lang_matches = langs.is_empty()
+		|| source_langs
+			.get(&symbol.source)
+			.is_some_and(|lang| langs.contains(lang));
 	let has_kind_filter = !kinds.is_empty() || !shapes.is_empty();
 	let kind_matches = !kinds.is_empty() && kinds.iter().any(|filter| filter == &symbol.kind);
 	let shape_matches = !shapes.is_empty()
@@ -994,6 +1092,7 @@ fn build_stats(snapshot: &WorkspaceSnapshot) -> SessionStats {
 		duration.as_millis().try_into().unwrap_or(u64::MAX)
 	}
 
+	let source_langs = source_lang_index(snapshot);
 	let mut stats = SessionStats {
 		files: snapshot.index.sources.len(),
 		defs: snapshot.index.symbols.len(),
@@ -1005,19 +1104,11 @@ fn build_stats(snapshot: &WorkspaceSnapshot) -> SessionStats {
 		changes_ms: millis(snapshot.timings.change_overlay),
 		..SessionStats::default()
 	};
-	for source in &snapshot.index.sources {
-		if let Some(lang) = Lang::from_tag(&source.language) {
-			stats.by_lang.entry(lang.tag()).or_default().files += 1;
-		}
+	for lang in source_langs.values() {
+		stats.by_lang.entry(lang.tag()).or_default().files += 1;
 	}
 	for symbol in &snapshot.index.symbols {
-		if let Some(source) = snapshot
-			.index
-			.sources
-			.iter()
-			.find(|source| source.id == symbol.source)
-			&& let Some(lang) = Lang::from_tag(&source.language)
-		{
+		if let Some(lang) = source_langs.get(&symbol.source) {
 			stats.by_lang.entry(lang.tag()).or_default().defs += 1;
 		}
 		*stats.by_def_kind.entry(symbol.kind.clone()).or_default() += 1;
@@ -1026,18 +1117,21 @@ fn build_stats(snapshot: &WorkspaceSnapshot) -> SessionStats {
 		}
 	}
 	for reference in &snapshot.index.references {
-		if let Some(source) = snapshot
-			.index
-			.sources
-			.iter()
-			.find(|source| source.id == reference.source)
-			&& let Some(lang) = Lang::from_tag(&source.language)
-		{
+		if let Some(lang) = source_langs.get(&reference.source) {
 			stats.by_lang.entry(lang.tag()).or_default().refs += 1;
 		}
 		*stats.by_ref_kind.entry(reference.kind.clone()).or_default() += 1;
 	}
 	stats
+}
+
+fn source_lang_index(snapshot: &WorkspaceSnapshot) -> FxHashMap<SourceId, Lang> {
+	snapshot
+		.index
+		.sources
+		.iter()
+		.filter_map(|source| Lang::from_tag(&source.language).map(|lang| (source.id.clone(), lang)))
+		.collect()
 }
 
 fn definition_kind_order(lang: Lang, kind: &str) -> u16 {

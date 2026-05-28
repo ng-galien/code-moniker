@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use code_moniker_core::core::moniker::Moniker;
@@ -6,6 +7,7 @@ use rayon::prelude::*;
 
 use crate::code::{def_kind, is_navigable_def, last_name, ref_kind};
 use crate::environment;
+use crate::lines::LineIndex;
 use crate::snapshot::{
 	CodeIndex, CodeIndexFields, CodeIndexTimings, ReferenceRecord, SourceCatalog, SourceFileRecord,
 	SourceFileRecordFields, SymbolRecord, SymbolRecordFields, WorkspaceFailure, WorkspaceResource,
@@ -165,16 +167,26 @@ fn build_semantic_index(
 	let mut symbols_by_moniker = rustc_hash::FxHashMap::default();
 	let mut symbol_monikers = rustc_hash::FxHashMap::default();
 	let mut reference_targets = rustc_hash::FxHashMap::default();
+	let mut reference_identity_pool = TextPool::default();
 	let identity = source_material.identity.clone();
 	for (file_idx, file) in files.iter().enumerate() {
+		let line_index = LineIndex::new(&file.source);
 		collect_symbols(
 			file_idx,
 			file,
+			&line_index,
 			&mut symbols,
 			&mut symbols_by_moniker,
 			&mut symbol_monikers,
 		);
-		collect_references(file_idx, file, &mut references, &mut reference_targets);
+		collect_references(
+			file_idx,
+			file,
+			&line_index,
+			&mut references,
+			&mut reference_targets,
+			&mut reference_identity_pool,
+		);
 	}
 	let material = CodeIndexMaterial {
 		source_catalog: source_material,
@@ -190,6 +202,7 @@ fn build_semantic_index(
 fn collect_symbols(
 	file_idx: usize,
 	file: &IndexedSourceFile,
+	line_index: &LineIndex,
 	symbols: &mut Vec<SymbolRecord>,
 	symbols_by_moniker: &mut rustc_hash::FxHashMap<Moniker, crate::snapshot::SymbolId>,
 	symbol_monikers: &mut rustc_hash::FxHashMap<crate::snapshot::SymbolId, Moniker>,
@@ -211,7 +224,7 @@ fn collect_symbols(
 			navigable: is_navigable_def(file.lang, def),
 			line_range: def
 				.position
-				.map(|(start, end)| environment::line_range(&file.source, start, end)),
+				.map(|(start, end)| line_index.line_range(start, end)),
 			parent,
 		}));
 	}
@@ -220,23 +233,27 @@ fn collect_symbols(
 fn collect_references(
 	file_idx: usize,
 	file: &IndexedSourceFile,
+	line_index: &LineIndex,
 	references: &mut Vec<ReferenceRecord>,
 	reference_targets: &mut rustc_hash::FxHashMap<crate::snapshot::ReferenceId, Moniker>,
+	reference_identity_pool: &mut TextPool,
 ) {
 	for (ref_idx, reference) in file.graph.refs().enumerate() {
 		let id = file.graph_identity().reference_id(file_idx, ref_idx);
 		let source_symbol = file.graph_identity().symbol_id(file_idx, reference.source);
 		reference_targets.insert(id.clone(), reference.target.clone());
+		let target_identity =
+			reference_identity_pool.intern(file.graph_identity().moniker_uri(&reference.target));
 		references.push(
 			ReferenceRecord::new(
 				id.as_str(),
 				file.source_id.clone(),
 				source_symbol,
-				file.graph_identity().moniker_uri(&reference.target),
+				target_identity,
 				ref_kind(reference),
 				reference
 					.position
-					.map(|(start, end)| environment::line_range(&file.source, start, end)),
+					.map(|(start, end)| line_index.line_range(start, end)),
 			)
 			.with_call_metadata(ref_attr(&reference.call_name), reference.call_arity)
 			.with_metadata(
@@ -245,6 +262,22 @@ fn collect_references(
 				ref_attr(&reference.alias),
 			),
 		);
+	}
+}
+
+#[derive(Default)]
+struct TextPool {
+	values: rustc_hash::FxHashMap<String, Arc<str>>,
+}
+
+impl TextPool {
+	fn intern(&mut self, value: String) -> Arc<str> {
+		if let Some(existing) = self.values.get(value.as_str()) {
+			return Arc::clone(existing);
+		}
+		let shared = Arc::<str>::from(value.as_str());
+		self.values.insert(value, Arc::clone(&shared));
+		shared
 	}
 }
 
