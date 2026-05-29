@@ -1,13 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use code_moniker_core::lang::{
-	Lang,
-	build_manifest::{Manifest, parse as parse_manifest},
-	kinds,
-};
+use code_moniker_core::lang::build_manifest::{Manifest, parse as parse_manifest};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope};
+use crate::linkage::language;
 use crate::linkage::query::LinkageQuery;
 use crate::snapshot::SymbolId;
 use crate::source::CodeIndexMaterial;
@@ -78,10 +75,10 @@ impl ManifestPolicy {
 			return self.source_builtin_external_root(query, import_root)
 				|| self.source_declares_import_root(query, import_root);
 		}
-		if source_declares_java_package_target(self, query) {
+		if source_declares_language_package_target(self, query) {
 			return true;
 		}
-		self.is_rust_proc_macro_annotation(query) && self.source_declares_dependencies(query)
+		language::proc_macro_annotation(query) && self.source_declares_dependencies(query)
 	}
 
 	fn source_builtin_external_root(&self, query: &LinkageQuery<'_>, import_root: &str) -> bool {
@@ -89,7 +86,7 @@ impl ManifestPolicy {
 			.material
 			.files
 			.get(query.source_file)
-			.is_some_and(|file| is_builtin_external_root(file.lang, import_root))
+			.is_some_and(|file| language::builtin_external_root(file.lang, import_root))
 	}
 
 	fn source_can_link_to_file(
@@ -109,7 +106,7 @@ impl ManifestPolicy {
 		let Some(target_lang) = material.files.get(target_file).map(|file| file.lang) else {
 			return LinkPermission::Unknown;
 		};
-		let Some(target_manifest) = manifest_for_lang(target_lang) else {
+		let Some(target_manifest) = language::manifest_for_lang(target_lang) else {
 			return LinkPermission::Unknown;
 		};
 		let Some(target_entry) = target_entry else {
@@ -184,7 +181,7 @@ impl ManifestPolicy {
 		let Some(target_lang) = material.files.get(target_file).map(|file| file.lang) else {
 			return false;
 		};
-		let Some(target_manifest) = manifest_for_lang(target_lang) else {
+		let Some(target_manifest) = language::manifest_for_lang(target_lang) else {
 			return false;
 		};
 		let Some(target_entry) = self.entry_for_file(target_file) else {
@@ -193,16 +190,6 @@ impl ManifestPolicy {
 		target_entry
 			.packages
 			.contains(&package_id(target_manifest, import_root))
-	}
-
-	fn is_rust_proc_macro_annotation(&self, query: &LinkageQuery<'_>) -> bool {
-		query
-			.material
-			.files
-			.get(query.source_file)
-			.is_some_and(|file| file.lang == Lang::Rs)
-			&& query.reference_kind.as_bytes() == kinds::ANNOTATES
-			&& query.confidence == Some(confidence(kinds::CONF_NAME_MATCH))
 	}
 
 	fn source_declares_dependencies(&self, query: &LinkageQuery<'_>) -> bool {
@@ -219,7 +206,7 @@ impl ManifestPolicy {
 		else {
 			return false;
 		};
-		let Some(source_manifest) = manifest_for_lang(source_lang) else {
+		let Some(source_manifest) = language::manifest_for_lang(source_lang) else {
 			return false;
 		};
 		self.entry_for_file(query.source_file).is_some_and(|entry| {
@@ -228,9 +215,18 @@ impl ManifestPolicy {
 				.contains(&package_id(source_manifest, import_root))
 		})
 	}
+
+	fn workspace_declares_package(&self, package: &str) -> bool {
+		self.entries_by_root
+			.values()
+			.any(|entries| entries.iter().any(|entry| entry.packages.contains(package)))
+	}
 }
 
-fn source_declares_java_package_target(policy: &ManifestPolicy, query: &LinkageQuery<'_>) -> bool {
+fn source_declares_language_package_target(
+	policy: &ManifestPolicy,
+	query: &LinkageQuery<'_>,
+) -> bool {
 	let Some(source_lang) = query
 		.material
 		.files
@@ -239,64 +235,22 @@ fn source_declares_java_package_target(policy: &ManifestPolicy, query: &LinkageQ
 	else {
 		return false;
 	};
-	if source_lang != Lang::Java {
-		return false;
-	}
-	let Some(package_prefix) = java_package_prefix(query.target) else {
+	let Some(package_prefix) = language::package_prefix_for_target(source_lang, query.target)
+	else {
 		return false;
 	};
 	policy
 		.entry_for_file(query.source_file)
 		.is_some_and(|entry| {
-			JavaDependencyPolicy::new(&policy.entries_by_root).entry_declares_external_package(
-				entry,
+			language::source_declares_external_package(
+				source_lang,
+				entry.manifest,
+				&entry.deps,
 				&package_prefix,
 				query.confidence,
+				|package| policy.workspace_declares_package(package),
 			)
 		})
-}
-
-struct JavaDependencyPolicy<'a> {
-	entries_by_root: &'a FxHashMap<usize, Vec<ManifestEntry>>,
-}
-
-impl<'a> JavaDependencyPolicy<'a> {
-	fn new(entries_by_root: &'a FxHashMap<usize, Vec<ManifestEntry>>) -> Self {
-		Self { entries_by_root }
-	}
-
-	fn entry_declares_external_package(
-		&self,
-		entry: &ManifestEntry,
-		package_prefix: &str,
-		query_confidence: Option<&str>,
-	) -> bool {
-		if entry.manifest != Manifest::PomXml {
-			return false;
-		}
-		let has_external_dependency = entry
-			.deps
-			.iter()
-			.any(|dep| !self.workspace_declares_package(dep));
-		if query_confidence == Some(confidence(kinds::CONF_IMPORTED)) && has_external_dependency {
-			return true;
-		}
-		entry.deps.iter().any(|dep| {
-			!self.workspace_declares_package(dep)
-				&& java_dep_group(dep).is_some_and(|group| {
-					package_prefix == group
-						|| package_prefix
-							.strip_prefix(group)
-							.is_some_and(|tail| tail.starts_with('.'))
-				})
-		})
-	}
-
-	fn workspace_declares_package(&self, package: &str) -> bool {
-		self.entries_by_root
-			.values()
-			.any(|entries| entries.iter().any(|entry| entry.packages.contains(package)))
-	}
 }
 
 fn manifest_entries_for_root(root: &SourceRoot) -> Vec<ManifestEntry> {
@@ -374,18 +328,6 @@ fn package_id_prefix(manifest: Manifest) -> String {
 	format!("{}\0", manifest.tag())
 }
 
-fn manifest_for_lang(lang: Lang) -> Option<Manifest> {
-	match lang {
-		Lang::Ts => Some(Manifest::PackageJson),
-		Lang::Rs => Some(Manifest::Cargo),
-		Lang::Java => Some(Manifest::PomXml),
-		Lang::Python => Some(Manifest::Pyproject),
-		Lang::Go => Some(Manifest::GoMod),
-		Lang::Cs => Some(Manifest::Csproj),
-		Lang::Sql => None,
-	}
-}
-
 fn manifest_candidates(root: &Path) -> Vec<PathBuf> {
 	let mut out = ignore::WalkBuilder::new(root)
 		.build()
@@ -433,41 +375,4 @@ fn external_import_root<'a>(query: &'a LinkageQuery<'_>) -> Option<&'a str> {
 		return None;
 	}
 	std::str::from_utf8(head.name).ok()
-}
-
-fn java_package_prefix(target: &code_moniker_core::core::moniker::Moniker) -> Option<String> {
-	let mut pieces = Vec::new();
-	let mut in_java = false;
-	for segment in target.as_view().segments() {
-		if segment.kind == code_moniker_core::lang::kinds::LANG && segment.name == b"java" {
-			in_java = true;
-			continue;
-		}
-		if !in_java {
-			continue;
-		}
-		if segment.kind == code_moniker_core::lang::kinds::PACKAGE {
-			pieces.push(std::str::from_utf8(segment.name).ok()?);
-		} else if !pieces.is_empty() {
-			break;
-		}
-	}
-	(!pieces.is_empty()).then(|| pieces.join("."))
-}
-
-fn java_dep_group(package: &str) -> Option<&str> {
-	let coord = package.strip_prefix(&package_id_prefix(Manifest::PomXml))?;
-	coord.split_once(':').map(|(group, _)| group)
-}
-
-pub(super) fn is_builtin_external_root(lang: Lang, root: &str) -> bool {
-	match lang {
-		Lang::Rs => matches!(root, "std" | "core" | "alloc" | "proc_macro"),
-		Lang::Java => root == "java",
-		_ => false,
-	}
-}
-
-fn confidence(value: &[u8]) -> &str {
-	std::str::from_utf8(value).expect("confidence constants are utf-8")
 }

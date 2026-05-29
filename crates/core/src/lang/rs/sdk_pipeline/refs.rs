@@ -1483,6 +1483,14 @@ fn rust_importable_namespace(target: &Moniker) -> bool {
 }
 
 fn append_path_segments(mut target: Moniker, pieces: &[Vec<u8>]) -> Moniker {
+	let Some(last_kind) = target.last_kind() else {
+		return target;
+	};
+	if last_kind.as_slice() == kinds::MODULE {
+		let mut builder = MonikerBuilder::from_view(target.as_view());
+		append_symbol_path(&mut builder, pieces);
+		return builder.build();
+	}
 	for piece in pieces {
 		target = extend_segment(&target, kinds::PATH, piece);
 	}
@@ -2040,9 +2048,7 @@ fn local_crate_path_target(scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
 
 fn local_relative_path_target(scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
 	let mut builder = MonikerBuilder::from_view(scope.as_view());
-	for piece in path {
-		builder.segment(kinds::PATH, piece);
-	}
+	append_symbol_path(&mut builder, path);
 	builder.build()
 }
 
@@ -2083,23 +2089,16 @@ fn append_symbol_path(builder: &mut MonikerBuilder, pieces: &[Vec<u8>]) {
 	for (index, piece) in pieces.iter().enumerate() {
 		let kind = if n == 1 || index == n - 1 {
 			kinds::PATH
-		} else if index == n - 2 {
-			kinds::MODULE
 		} else {
-			kinds::DIR
+			kinds::MODULE
 		};
 		builder.segment(kind, piece);
 	}
 }
 
 fn append_module_path(builder: &mut MonikerBuilder, pieces: &[Vec<u8>]) {
-	for (index, piece) in pieces.iter().enumerate() {
-		let kind = if index == pieces.len() - 1 {
-			kinds::MODULE
-		} else {
-			kinds::DIR
-		};
-		builder.segment(kind, piece);
+	for piece in pieces {
+		builder.segment(kinds::MODULE, piece);
 	}
 }
 

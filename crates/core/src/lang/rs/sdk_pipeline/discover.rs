@@ -1,10 +1,10 @@
 use tree_sitter::Node;
 
 use crate::core::code_graph::Position;
-use crate::core::moniker::Moniker;
+use crate::core::moniker::{Moniker, MonikerBuilder};
 use crate::lang::callable::{CallableSlot, extend_segment, join_bytes_with_comma};
 use crate::lang::sdk::{
-	DiscoveredDef, ImportLeafKind, Namespace, ResolvedRef, flatten_import_tree,
+	DiscoveredDef, ImportLeafKind, Namespace, RefHints, ResolvedRef, flatten_import_tree,
 	import_leaf_binding_name,
 };
 use crate::lang::tree_util::{node_position, node_slice};
@@ -320,6 +320,9 @@ fn impl_items(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 }
 
 fn module_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
+	if node.child_by_field_name("body").is_none() {
+		return;
+	}
 	let Some(def) = simple_def(
 		state.def_env(),
 		node,
@@ -332,9 +335,10 @@ fn module_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	};
 	let module = def.moniker.clone();
 	state.push_def(def);
-	if let Some(body) = node.child_by_field_name("body") {
-		walk_items(state, body, &module, false);
-	}
+	let body = node
+		.child_by_field_name("body")
+		.expect("module body checked before emitting inline module def");
+	walk_items(state, body, &module, false);
 }
 
 fn macro_invocation(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
@@ -698,6 +702,8 @@ fn collect_module_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Mon
 	};
 	if let Some(body) = node.child_by_field_name("body") {
 		collect_refs(state, body, &module, false);
+	} else {
+		state.push_ref(module_declaration_ref(node, scope, module));
 	}
 }
 
@@ -797,15 +803,56 @@ fn impl_type_name<'a>(node: Node<'a>, source: &'a [u8]) -> Option<&'a str> {
 }
 
 fn module_moniker(state: &RustDiscover<'_>, node: Node<'_>, scope: &Moniker) -> Option<Moniker> {
-	simple_def(
+	let def = simple_def(
 		state.def_env(),
 		node,
 		scope,
 		kinds::MODULE,
 		Namespace::Module,
 		false,
-	)
-	.map(|def| def.moniker)
+	)?;
+	if node.child_by_field_name("body").is_some() {
+		Some(def.moniker)
+	} else {
+		Some(module_declaration_target(scope, &def.name))
+	}
+}
+
+fn module_declaration_ref(node: Node<'_>, scope: &Moniker, target: Moniker) -> ResolvedRef {
+	ResolvedRef {
+		source: scope.clone(),
+		target,
+		kind: if has_visibility(node) {
+			kinds::REEXPORTS
+		} else {
+			kinds::IMPORTS_MODULE
+		},
+		position: Some(node_position(node)),
+		confidence: kinds::CONF_IMPORTED,
+		hints: RefHints::default(),
+	}
+}
+
+fn module_declaration_target(scope: &Moniker, module_name: &[u8]) -> Moniker {
+	let base = module_declaration_base(scope);
+	extend_segment(&base, kinds::MODULE, module_name)
+}
+
+fn module_declaration_base(scope: &Moniker) -> Moniker {
+	let segments = scope.as_view().segments().collect::<Vec<_>>();
+	let Some((last_idx, last)) = segments.iter().enumerate().next_back() else {
+		return scope.clone();
+	};
+	let crate_root_file = last.kind == kinds::MODULE && matches!(last.name, b"lib" | b"main");
+	let parent_is_src = last_idx > 0
+		&& segments[last_idx - 1].kind == kinds::DIR
+		&& segments[last_idx - 1].name == b"src";
+	if !(crate_root_file && parent_is_src) {
+		return scope.clone();
+	}
+	let mut builder = MonikerBuilder::from_view(scope.as_view());
+	builder.truncate(last_idx);
+	builder.build()
 }
 
 fn named_def_moniker(

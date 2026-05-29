@@ -9,21 +9,10 @@ core    = "moniker ~ '**/dir:src/dir:core/**'"
 declare = "moniker ~ '**/dir:src/dir:declare/**'"
 lang    = "moniker ~ '**/dir:src/dir:lang/**'"
 canonical_walker = "moniker ~ '**/dir:lang/module:canonical_walker'"
-tree_sitter_sdk_extractor = "uri ~ '**/dir:src/dir:lang/dir:*/dir:sdk_pipeline/**'"
+tree_sitter_sdk_extractor = "moniker ~ '**/dir:src/*:lang/*/*:sdk_pipeline/**'"
 text_mini_parser_call = """
   kind = 'method_call'
-  AND (target.name = 'find'
-       OR target.name = 'rfind'
-       OR target.name = 'split'
-       OR target.name = 'split_once'
-       OR target.name = 'lines'
-       OR target.name = 'chars'
-       OR target.name = 'char_indices'
-       OR target.name = 'contains'
-       OR target.name = 'starts_with'
-       OR target.name = 'trim'
-       OR target.name = 'trim_start'
-       OR target.name = 'trim_end')
+  AND target.name =~ ^(find|rfind|split|split_once|lines|chars|char_indices|contains|starts_with|trim|trim_start|trim_end)$
 """
 
 [[refs.where]]
@@ -69,8 +58,7 @@ opaque macro payload.
 id      = "core-no-upper"
 expr    = """
   $core AND kind = 'imports_symbol'
-  => NOT (target ~ '**/dir:lang/**'    OR target ~ '**/module:lang/**'
-       OR target ~ '**/dir:declare/**' OR target ~ '**/module:declare/**')
+  => NOT target ~ '**/*:/^(lang|declare)$/**'
 """
 message = "`core` is the foundation submodule; it must not depend on sibling `lang` or `declare` internals."
 rationale = """

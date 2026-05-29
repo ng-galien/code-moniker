@@ -10,11 +10,11 @@ default_rules = false
 
 [aliases]
 # Def-scope alias. Use inside [[<lang>.<kind>.where]] rules.
-test_src = "moniker ~ '**/srcset:test/**' OR moniker ~ '**/dir:test/**' OR moniker ~ '**/dir:tests/**'"
+test_src = "moniker ~ '**/*:/^tests?$/**'"
 
 # Ref-scope aliases. Use inside [[refs.where]] rules.
-src_test = "source ~ '**/srcset:test/**' OR source ~ '**/dir:test/**' OR source ~ '**/dir:tests/**'"
-tgt_test = "target ~ '**/srcset:test/**' OR target ~ '**/dir:test/**' OR target ~ '**/dir:tests/**'"
+src_test = "source ~ '**/*:/^tests?$/**'"
+tgt_test = "target ~ '**/*:/^tests?$/**'"
 
 # Production / test source separation ---------------------------------------
 

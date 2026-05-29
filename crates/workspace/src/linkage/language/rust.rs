@@ -3,8 +3,8 @@ use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::lang::kinds;
 
 use crate::linkage::candidate::LinkageCandidate;
+use crate::linkage::language::LanguageLinkageStrategy;
 use crate::linkage::query::LinkageQuery;
-use crate::linkage::strategy::LanguageLinkageStrategy;
 
 pub(super) struct RustLanguageLinkageStrategy;
 
@@ -165,6 +165,20 @@ fn external_root<'a>(query: &'a LinkageQuery<'_>) -> Option<&'a [u8]> {
 
 fn is_builtin_external_root(root: &[u8]) -> bool {
 	matches!(root, b"std" | b"core" | b"alloc" | b"proc_macro")
+}
+
+pub(super) fn builtin_external_root(root: &str) -> bool {
+	matches!(root, "std" | "core" | "alloc" | "proc_macro")
+}
+
+pub(super) fn proc_macro_annotation(query: &LinkageQuery<'_>) -> bool {
+	query
+		.material
+		.files
+		.get(query.source_file)
+		.is_some_and(|file| file.lang == code_moniker_core::lang::Lang::Rs)
+		&& query.reference_kind.as_bytes() == kinds::ANNOTATES
+		&& query.confidence == Some(confidence(kinds::CONF_NAME_MATCH))
 }
 
 fn is_rust_exportable_kind(kind: &[u8]) -> bool {

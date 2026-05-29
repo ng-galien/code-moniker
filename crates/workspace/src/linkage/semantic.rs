@@ -8,7 +8,7 @@ use rustc_hash::FxHashMap;
 use crate::linkage::decision::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
-use crate::linkage::lombok::LombokSemantics;
+use crate::linkage::language;
 use crate::snapshot::{ReferenceId, ReferenceRecord, SymbolId};
 use crate::source::CodeIndexMaterial;
 
@@ -30,8 +30,7 @@ impl<'a> SemanticLinkage<'a> {
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &[ReferenceRecord],
 	) {
-		let lombok = LombokSemantics::build(self.material, references);
-		apply_lombok_semantics(decisions, references, &lombok);
+		language::enhance_reference_semantics(self.material, decisions, references);
 		enhance_receiver_chains(self, decisions, references);
 	}
 
@@ -57,25 +56,6 @@ impl<'a> SemanticLinkage<'a> {
 	) -> Option<Moniker> {
 		let callable = self.material.symbol_moniker(symbol)?;
 		return_types.get(callable).cloned()
-	}
-}
-
-fn apply_lombok_semantics(
-	decisions: &mut [ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
-	lombok: &LombokSemantics<'_>,
-) {
-	let replacements = decisions
-		.par_iter()
-		.enumerate()
-		.filter_map(|(idx, decision)| {
-			lombok
-				.resolve_reference(decision, references)
-				.map(|replacement| (idx, replacement))
-		})
-		.collect::<Vec<_>>();
-	for (idx, replacement) in replacements {
-		decisions[idx] = replacement;
 	}
 }
 

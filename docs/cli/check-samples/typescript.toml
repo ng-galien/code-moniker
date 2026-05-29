@@ -8,7 +8,7 @@ default_rules = false
 [aliases]
 # Def-scope aliases use `moniker`.
 src = "moniker ~ '**/dir:src/**'"
-tests = "moniker ~ '**/dir:test/**' OR moniker ~ '**/dir:tests/**'"
+tests = "moniker ~ '**/dir:/^tests?$/**'"
 domain = "moniker ~ '**/dir:domain/**'"
 infra = "moniker ~ '**/dir:infrastructure/**'"
 
@@ -47,7 +47,5 @@ id = "no-framework-imports-in-domain"
 # Domain files must not import framework packages directly.
 expr = """
   $src_domain AND kind = 'imports_symbol'
-  => NOT (target ~ '**/external_pkg:express/**'
-          OR target ~ '**/external_pkg:nestjs/**'
-          OR target ~ '**/external_pkg:typeorm/**')
+  => NOT target ~ '**/external_pkg:/^(express|nestjs|typeorm)$/**'
 """

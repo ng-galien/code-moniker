@@ -6,7 +6,7 @@ default_rules = false
 [aliases]
 domain = "moniker ~ '**/package:Domain/**'"
 infra = "moniker ~ '**/package:Infrastructure/**'"
-tests = "moniker ~ '**/dir:Tests/**' OR moniker ~ '**/dir:tests/**'"
+tests = "moniker ~ '**/dir:/^[Tt]ests$/**'"
 
 src_domain = "source ~ '**/package:Domain/**'"
 tgt_infra = "target ~ '**/package:Infrastructure/**'"

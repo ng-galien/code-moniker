@@ -4,8 +4,8 @@
 default_rules = false
 
 [aliases]
-src = "moniker ~ '**/dir:src/**' OR moniker ~ '**/package:src/**'"
-tests = "moniker ~ '**/dir:test/**' OR moniker ~ '**/dir:tests/**'"
+src = "moniker ~ '**/*:src/**'"
+tests = "moniker ~ '**/dir:/^tests?$/**'"
 domain = "moniker ~ '**/package:domain/**'"
 infra = "moniker ~ '**/package:infrastructure/**'"
 

@@ -38,11 +38,27 @@ fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	let stem = uri.strip_suffix(".rs").unwrap_or(uri);
 	let mut builder = MonikerBuilder::from_view(anchor.as_view());
 	builder.segment(crate::lang::kinds::LANG, b"rs");
-	crate::lang::callable::append_dir_module_segments(
-		&mut builder,
-		stem,
-		kinds::DIR,
-		kinds::MODULE,
-	);
+	append_rust_module_path(&mut builder, stem);
 	builder.build()
+}
+
+fn append_rust_module_path(builder: &mut MonikerBuilder, path: &str) {
+	let pieces = path
+		.split('/')
+		.filter(|piece| !piece.is_empty() && *piece != ".")
+		.collect::<Vec<_>>();
+	let Some(src_idx) = pieces.iter().rposition(|piece| *piece == "src") else {
+		crate::lang::callable::append_dir_module_segments(builder, path, kinds::DIR, kinds::MODULE);
+		return;
+	};
+	for piece in &pieces[..=src_idx] {
+		builder.segment(kinds::DIR, piece.as_bytes());
+	}
+	let mut modules = &pieces[src_idx + 1..];
+	if modules.last().copied() == Some("mod") {
+		modules = &modules[..modules.len().saturating_sub(1)];
+	}
+	for piece in modules {
+		builder.segment(kinds::MODULE, piece.as_bytes());
+	}
 }

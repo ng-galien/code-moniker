@@ -6,10 +6,10 @@ default_rules = false
 [aliases]
 internal = "moniker ~ '**/package:internal/**'"
 domain = "moniker ~ '**/package:domain/**'"
-infra = "moniker ~ '**/package:infra/**' OR moniker ~ '**/package:infrastructure/**'"
+infra = "moniker ~ '**/package:/^(infra|infrastructure)$/**'"
 
 src_domain = "source ~ '**/package:domain/**'"
-tgt_infra = "target ~ '**/package:infra/**' OR target ~ '**/package:infrastructure/**'"
+tgt_infra = "target ~ '**/package:/^(infra|infrastructure)$/**'"
 
 [[go.interface.where]]
 id = "interface-small"

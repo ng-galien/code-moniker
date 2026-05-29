@@ -40,6 +40,39 @@ fn rust_multiproject_links_public_cross_crate_symbols() {
 }
 
 #[test]
+fn rust_multiproject_canonicalizes_mod_rs_modules() {
+	let snapshot = load_workspace("projects/rust/multiproject");
+
+	assert_linked_once_to(
+		&snapshot,
+		"imports_symbol",
+		"dir:order-service/dir:src/module:module_group/module:nested",
+		"dir:order-service/dir:src/module:module_group/module:nested",
+	);
+	assert_linked_once_from_symbol(
+		&snapshot,
+		"reexports",
+		"dir:order-service/dir:src/module:lib",
+		"dir:order-service/dir:src/module:module_group",
+		"dir:order-service/dir:src/module:module_group",
+	);
+	assert_no_reference_containing(
+		&snapshot,
+		"reexports",
+		"dir:order-service/dir:src/module:lib/module:module_group",
+	);
+	assert_no_symbol_containing(
+		&snapshot,
+		"dir:order-service/dir:src/dir:module_group/dir:nested/module:mod",
+	);
+	assert_symbol_count_containing(
+		&snapshot,
+		"dir:order-service/dir:src/module:module_group/module:nested",
+		1,
+	);
+}
+
+#[test]
 fn java_sdk_multiproject_links_spring_and_platform_refs() {
 	let snapshot = load_workspace_with_options(
 		LocalWorkspaceOptions::new(vec![fixture_path("projects/java/multiprojet")], None)
@@ -507,11 +540,32 @@ fn assert_local_rust_links(snapshot: &WorkspaceSnapshot) {
 		"dir:order-service/dir:src/module:lib/struct:LocalGraph/method:add_def",
 		"dir:order-service/dir:src/module:lib/struct:LocalGraph/method:add_def",
 	);
-	assert_linked_to(
+	assert_linked_once_to(
 		snapshot,
 		"imports_symbol",
-		"dir:order-service/dir:src/dir:module_group/module:nested",
+		"dir:order-service/dir:src/module:module_group/module:nested",
+		"dir:order-service/dir:src/module:module_group/module:nested",
+	);
+	assert_linked_once_from_symbol(
+		snapshot,
+		"reexports",
+		"dir:order-service/dir:src/module:lib",
+		"dir:order-service/dir:src/module:module_group",
+		"dir:order-service/dir:src/module:module_group",
+	);
+	assert_no_reference_containing(
+		snapshot,
+		"reexports",
+		"dir:order-service/dir:src/module:lib/module:module_group",
+	);
+	assert_no_symbol_containing(
+		snapshot,
 		"dir:order-service/dir:src/dir:module_group/dir:nested/module:mod",
+	);
+	assert_symbol_count_containing(
+		snapshot,
+		"dir:order-service/dir:src/module:module_group/module:nested",
+		1,
 	);
 	assert_linked_to(
 		snapshot,
@@ -543,6 +597,76 @@ fn assert_linked_to(
 		"reference `{}` was linked to [{}], expected target containing `{}`",
 		reference.target_identity,
 		target_identities.join(", "),
+		symbol_identity
+	);
+}
+
+fn assert_linked_once_to(
+	snapshot: &WorkspaceSnapshot,
+	kind: &str,
+	reference_target: &str,
+	symbol_identity: &str,
+) {
+	let reference = find_reference(snapshot, kind, reference_target)
+		.unwrap_or_else(|| panic!("missing {kind} reference matching `{reference_target}`"));
+	let target_identities = linked_symbol_identities(snapshot, reference);
+	assert_eq!(
+		target_identities.len(),
+		1,
+		"reference `{}` should resolve to exactly one target, got [{}]",
+		reference.target_identity,
+		target_identities.join(", "),
+	);
+	assert!(
+		target_identities[0].contains(symbol_identity),
+		"reference `{}` was linked to `{}`, expected target containing `{}`",
+		reference.target_identity,
+		target_identities[0],
+		symbol_identity
+	);
+}
+
+fn assert_linked_once_from_symbol(
+	snapshot: &WorkspaceSnapshot,
+	kind: &str,
+	source_identity: &str,
+	reference_target: &str,
+	symbol_identity: &str,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == kind
+				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.target_identity.contains(reference_target)
+		})
+		.unwrap_or_else(|| {
+			panic!(
+				"missing {kind} reference from `{}` to target containing `{reference_target}`",
+				source.identity
+			)
+		});
+	let target_identities = linked_symbol_identities(snapshot, reference);
+	assert_eq!(
+		target_identities.len(),
+		1,
+		"reference `{}` should resolve to exactly one target, got [{}]",
+		reference.target_identity,
+		target_identities.join(", "),
+	);
+	assert!(
+		target_identities[0].contains(symbol_identity),
+		"reference `{}` was linked to `{}`, expected target containing `{}`",
+		reference.target_identity,
+		target_identities[0],
 		symbol_identity
 	);
 }
@@ -778,6 +902,27 @@ fn assert_no_reference_containing(snapshot: &WorkspaceSnapshot, kind: &str, targ
 		}),
 		"unexpected {kind} reference containing `{target_identity}`"
 	);
+}
+
+fn assert_no_symbol_containing(snapshot: &WorkspaceSnapshot, identity: &str) {
+	assert!(
+		snapshot
+			.index
+			.symbols
+			.iter()
+			.all(|symbol| !symbol.identity.contains(identity)),
+		"unexpected symbol containing `{identity}`"
+	);
+}
+
+fn assert_symbol_count_containing(snapshot: &WorkspaceSnapshot, identity: &str, expected: usize) {
+	let count = snapshot
+		.index
+		.symbols
+		.iter()
+		.filter(|symbol| symbol.identity.ends_with(identity))
+		.count();
+	assert_eq!(count, expected, "unexpected symbol count for `{identity}`");
 }
 
 fn linked_symbol_identities(

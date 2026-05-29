@@ -7,10 +7,10 @@ default_rules = false
 src = "moniker ~ '**/dir:src/**'"
 tests = "moniker ~ '**/dir:tests/**'"
 domain = "moniker ~ '**/dir:domain/**'"
-infra = "moniker ~ '**/dir:infra/**' OR moniker ~ '**/dir:infrastructure/**'"
+infra = "moniker ~ '**/dir:/^(infra|infrastructure)$/**'"
 
 src_domain = "source ~ '**/dir:domain/**'"
-tgt_infra = "target ~ '**/dir:infra/**' OR target ~ '**/dir:infrastructure/**'"
+tgt_infra = "target ~ '**/dir:/^(infra|infrastructure)$/**'"
 
 [[rust.trait.where]]
 id = "trait-pascalcase"

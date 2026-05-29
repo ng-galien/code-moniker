@@ -1,6 +1,6 @@
 //! Path patterns matched against the segments of a moniker.
 //!
-//! `'module:domain'`, `'**/class:*'`, `'class:/^[A-Z].*Port$/'`, `'**/module:a/**'`.
+//! `'module:domain'`, `'**/class:*'`, `'class:/^[A-Z].*Port$/'`, `'*:/^(api|web)$/'`, `'**/module:a/**'`.
 //! `**` matches zero or more segments ; the other step forms match exactly one.
 
 use regex::Regex;
@@ -13,7 +13,7 @@ pub enum Step {
 	KindWildcard(Vec<u8>),
 	NameWildcard(Vec<u8>),
 	AnySegment,
-	Regex { kind: Vec<u8>, re: Regex },
+	Regex { kind: Option<Vec<u8>>, re: Regex },
 	DoubleStar,
 }
 
@@ -109,21 +109,21 @@ fn parse_step(s: &str, full: &str) -> Result<Step, PatternError> {
 			msg: format!("step `{s}` has empty name"),
 		});
 	}
-	if kind == "*" {
-		return Ok(Step::NameWildcard(name.as_bytes().to_vec()));
-	}
-	if name == "*" {
-		return Ok(Step::KindWildcard(kind.as_bytes().to_vec()));
-	}
 	if let Some(stripped) = name.strip_prefix('/').and_then(|r| r.strip_suffix('/')) {
 		let re = Regex::new(stripped).map_err(|e| PatternError::Bad {
 			pattern: full.to_string(),
 			msg: format!("invalid regex `{stripped}`: {e}"),
 		})?;
 		return Ok(Step::Regex {
-			kind: kind.as_bytes().to_vec(),
+			kind: (kind != "*").then(|| kind.as_bytes().to_vec()),
 			re,
 		});
+	}
+	if kind == "*" {
+		return Ok(Step::NameWildcard(name.as_bytes().to_vec()));
+	}
+	if name == "*" {
+		return Ok(Step::KindWildcard(kind.as_bytes().to_vec()));
 	}
 	Ok(Step::Literal {
 		kind: kind.as_bytes().to_vec(),
@@ -158,7 +158,7 @@ fn match_step(step: &Step, seg: &(&[u8], &[u8])) -> bool {
 		Step::NameWildcard(name) => n == name.as_slice(),
 		Step::AnySegment => true,
 		Step::Regex { kind, re } => {
-			k == kind.as_slice() && {
+			kind.as_ref().is_none_or(|kind| k == kind.as_slice()) && {
 				match std::str::from_utf8(n) {
 					Ok(s) => re.is_match(s),
 					Err(_) => false,
@@ -245,6 +245,17 @@ mod tests {
 		let m = build(&[(b"class", b"UserPort")]);
 		assert_match("class:/Port$/", &m);
 		assert_no_match("class:/Adapter$/", &m);
+	}
+
+	#[test]
+	fn regex_step_can_match_any_kind_name() {
+		let module = build(&[(b"module", b"java")]);
+		let path = build(&[(b"path", b"rust")]);
+		let other = build(&[(b"path", b"kotlin")]);
+
+		assert_match("*:/^(java|rust)$/", &module);
+		assert_match("*:/^(java|rust)$/", &path);
+		assert_no_match("*:/^(java|rust)$/", &other);
 	}
 
 	#[test]

@@ -393,6 +393,13 @@ Operators:
 | `subset` | multiset containment |
 | `AND` `OR` `NOT` `=>` | boolean logic; `A => B` means "when A, require B" |
 
+Path patterns used by `~` are segment-aware. `kind:name` matches one exact
+segment, `kind:*` matches any name of that kind, `*:name` matches any kind
+with that name, and `*:/regex/` matches any segment kind whose name matches
+the regex. Prefer a segment regex such as `target ~ '**/*:/^(api|web)$/**'`
+over long repeated `OR target ~ ...` chains when the alternatives are the
+same structural path with only the segment name changing.
+
 Quantifiers:
 
 ```toml

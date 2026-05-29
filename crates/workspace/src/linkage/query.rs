@@ -1,7 +1,7 @@
 use code_moniker_core::core::moniker::{Moniker, Segment};
 
 use crate::linkage::candidate::LinkageCandidate;
-use crate::linkage::strategy::{LanguageLinkageStrategy, language_strategy};
+use crate::linkage::language::{LanguageLinkageStrategy, language_strategy};
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 

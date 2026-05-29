@@ -14,36 +14,36 @@ default_rules = false
 
 [aliases]
 # Def-scope aliases. Use these inside [[<lang>.<kind>.where]] rules.
-mvc_controller = "moniker ~ '**/dir:controller/**' OR moniker ~ '**/package:controller/**' OR moniker ~ '**/package:api/**' OR moniker ~ '**/package:web/**'"
-mvc_service = "moniker ~ '**/dir:service/**' OR moniker ~ '**/package:service/**' OR moniker ~ '**/package:application/**'"
-mvc_model = "moniker ~ '**/dir:model/**' OR moniker ~ '**/package:model/**' OR moniker ~ '**/package:domain/**'"
-mvc_view = "moniker ~ '**/dir:view/**' OR moniker ~ '**/package:view/**' OR moniker ~ '**/package:ui/**'"
+mvc_controller = "moniker ~ '**/*:/^(controller|api|web)$/**'"
+mvc_service = "moniker ~ '**/*:/^(service|application)$/**'"
+mvc_model = "moniker ~ '**/*:/^(model|domain)$/**'"
+mvc_view = "moniker ~ '**/*:/^(view|ui)$/**'"
 
-ddd_domain = "moniker ~ '**/dir:domain/**' OR moniker ~ '**/package:domain/**'"
-ddd_application = "moniker ~ '**/dir:application/**' OR moniker ~ '**/package:application/**'"
-ddd_infrastructure = "moniker ~ '**/dir:infrastructure/**' OR moniker ~ '**/package:infrastructure/**' OR moniker ~ '**/dir:infra/**' OR moniker ~ '**/package:infra/**'"
+ddd_domain = "moniker ~ '**/*:domain/**'"
+ddd_application = "moniker ~ '**/*:application/**'"
+ddd_infrastructure = "moniker ~ '**/*:/^(infrastructure|infra)$/**'"
 
-hex_core = "moniker ~ '**/dir:domain/**' OR moniker ~ '**/package:domain/**' OR moniker ~ '**/dir:application/**' OR moniker ~ '**/package:application/**'"
-hex_port = "moniker ~ '**/dir:port/**' OR moniker ~ '**/package:port/**' OR name =~ Port$"
-hex_adapter = "moniker ~ '**/dir:adapter/**' OR moniker ~ '**/package:adapter/**' OR name =~ Adapter$"
+hex_core = "moniker ~ '**/*:/^(domain|application)$/**'"
+hex_port = "moniker ~ '**/*:port/**' OR name =~ Port$"
+hex_adapter = "moniker ~ '**/*:adapter/**' OR name =~ Adapter$"
 
 # Ref-scope aliases. Use these inside [[refs.where]] or [[<lang>.refs.where]].
-src_controller = "source ~ '**/dir:controller/**' OR source ~ '**/package:controller/**' OR source ~ '**/package:api/**' OR source ~ '**/package:web/**'"
-src_service = "source ~ '**/dir:service/**' OR source ~ '**/package:service/**' OR source ~ '**/package:application/**'"
-src_domain = "source ~ '**/dir:domain/**' OR source ~ '**/package:domain/**'"
-src_application = "source ~ '**/dir:application/**' OR source ~ '**/package:application/**'"
-src_infrastructure = "source ~ '**/dir:infrastructure/**' OR source ~ '**/package:infrastructure/**' OR source ~ '**/dir:infra/**' OR source ~ '**/package:infra/**'"
-src_adapter = "source ~ '**/dir:adapter/**' OR source ~ '**/package:adapter/**'"
+src_controller = "source ~ '**/*:/^(controller|api|web)$/**'"
+src_service = "source ~ '**/*:/^(service|application)$/**'"
+src_domain = "source ~ '**/*:domain/**'"
+src_application = "source ~ '**/*:application/**'"
+src_infrastructure = "source ~ '**/*:/^(infrastructure|infra)$/**'"
+src_adapter = "source ~ '**/*:adapter/**'"
 
-tgt_controller = "target ~ '**/dir:controller/**' OR target ~ '**/package:controller/**' OR target ~ '**/package:api/**' OR target ~ '**/package:web/**'"
-tgt_service = "target ~ '**/dir:service/**' OR target ~ '**/package:service/**' OR target ~ '**/package:application/**'"
-tgt_model = "target ~ '**/dir:model/**' OR target ~ '**/package:model/**' OR target ~ '**/package:domain/**'"
-tgt_view = "target ~ '**/dir:view/**' OR target ~ '**/package:view/**' OR target ~ '**/package:ui/**'"
-tgt_domain = "target ~ '**/dir:domain/**' OR target ~ '**/package:domain/**'"
-tgt_application = "target ~ '**/dir:application/**' OR target ~ '**/package:application/**'"
-tgt_infrastructure = "target ~ '**/dir:infrastructure/**' OR target ~ '**/package:infrastructure/**' OR target ~ '**/dir:infra/**' OR target ~ '**/package:infra/**'"
-tgt_port = "target ~ '**/dir:port/**' OR target ~ '**/package:port/**' OR target.name =~ Port$"
-tgt_adapter = "target ~ '**/dir:adapter/**' OR target ~ '**/package:adapter/**' OR target.name =~ Adapter$"
+tgt_controller = "target ~ '**/*:/^(controller|api|web)$/**'"
+tgt_service = "target ~ '**/*:/^(service|application)$/**'"
+tgt_model = "target ~ '**/*:/^(model|domain)$/**'"
+tgt_view = "target ~ '**/*:/^(view|ui)$/**'"
+tgt_domain = "target ~ '**/*:domain/**'"
+tgt_application = "target ~ '**/*:application/**'"
+tgt_infrastructure = "target ~ '**/*:/^(infrastructure|infra)$/**'"
+tgt_port = "target ~ '**/*:port/**' OR target.name =~ Port$"
+tgt_adapter = "target ~ '**/*:adapter/**' OR target.name =~ Adapter$"
 
 # MVC -----------------------------------------------------------------------
 
@@ -58,13 +58,13 @@ message = "MVC controller code must not depend directly on view code."
 id = "mvc-view-does-not-call-service"
 # Views should not call services directly. Route through controllers or
 # presentation models.
-expr = "source ~ '**/dir:view/**' OR source ~ '**/package:view/**' OR source ~ '**/package:ui/**' => NOT $tgt_service"
+expr = "source ~ '**/*:/^(view|ui)$/**' => NOT $tgt_service"
 message = "MVC view code must not depend directly on service/application code."
 
 [[refs.where]]
 id = "mvc-model-does-not-depend-on-controller"
 # Model/domain code should not know presentation controllers.
-expr = "$tgt_controller => NOT ($src_domain OR source ~ '**/dir:model/**' OR source ~ '**/package:model/**')"
+expr = "$tgt_controller => NOT ($src_domain OR source ~ '**/*:model/**')"
 message = "MVC model/domain code must not depend on controllers."
 
 # DDD -----------------------------------------------------------------------
@@ -100,7 +100,7 @@ message = "DDD entity `{name}` should live in the domain layer."
 [[refs.where]]
 id = "hex-core-does-not-depend-on-adapters"
 # Core domain/application code should depend on ports, not adapters.
-expr = "(source ~ '**/dir:domain/**' OR source ~ '**/package:domain/**' OR source ~ '**/dir:application/**' OR source ~ '**/package:application/**') => NOT $tgt_adapter"
+expr = "source ~ '**/*:/^(domain|application)$/**' => NOT $tgt_adapter"
 message = "Hexagonal core must not depend on adapters."
 
 [[refs.where]]

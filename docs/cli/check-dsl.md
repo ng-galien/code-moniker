@@ -570,10 +570,15 @@ moniker URI against a glob-like pattern composed of segments separated by
 | `*:Foo`              | any kind with that name                       |
 | `*`                  | exactly one segment, anything                 |
 | `class:/^[A-Z][a-z]+Port$/` | regex on the name (kind fixed)         |
+| `*:/^(api|web)$/`    | regex on the name, regardless of segment kind |
 | `**`                 | zero or more segments (positional wildcard)   |
 
 A pattern is anchored at the moniker's root unless it starts with `**/`.
 `<@ <uri>` (subtree) is equivalent to `~ '<segments-of-uri>/**'`.
+Use segment regexes to collapse repeated path-pattern ORs when only the
+segment name varies, for example
+`target ~ '**/*:/^(api|web|controller)$/**'` instead of three separate
+`target ~ ...` arms.
 
 ### Derived requirements
 

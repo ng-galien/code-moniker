@@ -16,21 +16,21 @@ default_rules = false
 
 [aliases]
 # Def-scope aliases.
-presentation = "moniker ~ '**/package:presentation/**' OR moniker ~ '**/package:web/**' OR moniker ~ '**/package:controller/**' OR moniker ~ '**/package:api/**'"
-service      = "moniker ~ '**/package:service/**' OR moniker ~ '**/package:application/**'"
-domain       = "moniker ~ '**/package:domain/**' OR moniker ~ '**/package:model/**'"
-data         = "moniker ~ '**/package:data/**' OR moniker ~ '**/package:persistence/**' OR moniker ~ '**/package:repository/**' OR moniker ~ '**/package:infrastructure/**'"
+presentation = "moniker ~ '**/package:/^(presentation|web|controller|api)$/**'"
+service      = "moniker ~ '**/package:/^(service|application)$/**'"
+domain       = "moniker ~ '**/package:/^(domain|model)$/**'"
+data         = "moniker ~ '**/package:/^(data|persistence|repository|infrastructure)$/**'"
 
 # Ref-scope aliases.
-src_presentation = "source ~ '**/package:presentation/**' OR source ~ '**/package:web/**' OR source ~ '**/package:controller/**' OR source ~ '**/package:api/**'"
-src_service      = "source ~ '**/package:service/**' OR source ~ '**/package:application/**'"
-src_domain       = "source ~ '**/package:domain/**' OR source ~ '**/package:model/**'"
-src_data         = "source ~ '**/package:data/**' OR source ~ '**/package:persistence/**' OR source ~ '**/package:repository/**' OR source ~ '**/package:infrastructure/**'"
+src_presentation = "source ~ '**/package:/^(presentation|web|controller|api)$/**'"
+src_service      = "source ~ '**/package:/^(service|application)$/**'"
+src_domain       = "source ~ '**/package:/^(domain|model)$/**'"
+src_data         = "source ~ '**/package:/^(data|persistence|repository|infrastructure)$/**'"
 
-tgt_presentation = "target ~ '**/package:presentation/**' OR target ~ '**/package:web/**' OR target ~ '**/package:controller/**' OR target ~ '**/package:api/**'"
-tgt_service      = "target ~ '**/package:service/**' OR target ~ '**/package:application/**'"
-tgt_domain       = "target ~ '**/package:domain/**' OR target ~ '**/package:model/**'"
-tgt_data         = "target ~ '**/package:data/**' OR target ~ '**/package:persistence/**' OR target ~ '**/package:repository/**' OR target ~ '**/package:infrastructure/**'"
+tgt_presentation = "target ~ '**/package:/^(presentation|web|controller|api)$/**'"
+tgt_service      = "target ~ '**/package:/^(service|application)$/**'"
+tgt_domain       = "target ~ '**/package:/^(domain|model)$/**'"
+tgt_data         = "target ~ '**/package:/^(data|persistence|repository|infrastructure)$/**'"
 
 # Layered Architecture ------------------------------------------------------
 # Chapter 1. Higher layers depend on lower; lower layers must not depend

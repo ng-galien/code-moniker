@@ -1,9 +1,16 @@
-use code_moniker_core::core::moniker::Segment;
-use code_moniker_core::lang::kinds;
+use code_moniker_core::core::moniker::{Moniker, Segment};
+use code_moniker_core::lang::{build_manifest::Manifest, kinds};
+use rayon::prelude::*;
+use rustc_hash::FxHashSet;
 
 use crate::linkage::candidate::LinkageCandidate;
+use crate::linkage::decision::ReferenceLinkageDecision;
+use crate::linkage::language::LanguageLinkageStrategy;
 use crate::linkage::query::LinkageQuery;
-use crate::linkage::strategy::LanguageLinkageStrategy;
+use crate::snapshot::ReferenceRecord;
+use crate::source::CodeIndexMaterial;
+
+mod lombok;
 
 pub(super) struct JavaLanguageLinkageStrategy;
 
@@ -86,4 +93,84 @@ fn is_java_source_set_segment(segment: Segment<'_>) -> bool {
 
 fn java_source_set_can_read(source_set: &[u8], candidate_source_set: &[u8]) -> bool {
 	source_set == candidate_source_set || (source_set == b"test" && candidate_source_set == b"main")
+}
+
+pub(super) fn package_prefix(target: &Moniker) -> Option<String> {
+	let mut pieces = Vec::new();
+	let mut in_java = false;
+	for segment in target.as_view().segments() {
+		if segment.kind == kinds::LANG && segment.name == b"java" {
+			in_java = true;
+			continue;
+		}
+		if !in_java {
+			continue;
+		}
+		if segment.kind == kinds::PACKAGE {
+			pieces.push(std::str::from_utf8(segment.name).ok()?);
+		} else if !pieces.is_empty() {
+			break;
+		}
+	}
+	(!pieces.is_empty()).then(|| pieces.join("."))
+}
+
+pub(super) fn builtin_external_root(root: &str) -> bool {
+	root == "java"
+}
+
+pub(super) fn source_declares_external_package(
+	manifest: Manifest,
+	deps: &FxHashSet<String>,
+	package_prefix: &str,
+	query_confidence: Option<&str>,
+	workspace_declares_package: impl Fn(&str) -> bool,
+) -> bool {
+	if manifest != Manifest::PomXml {
+		return false;
+	}
+	let has_external_dependency = deps.iter().any(|dep| !workspace_declares_package(dep));
+	if query_confidence == Some(confidence(kinds::CONF_IMPORTED)) && has_external_dependency {
+		return true;
+	}
+	deps.iter().any(|dep| {
+		!workspace_declares_package(dep)
+			&& dependency_group(dep).is_some_and(|group| {
+				package_prefix == group
+					|| package_prefix
+						.strip_prefix(group)
+						.is_some_and(|tail| tail.starts_with('.'))
+			})
+	})
+}
+
+fn dependency_group(package: &str) -> Option<&str> {
+	let coord = package
+		.strip_prefix(Manifest::PomXml.tag())?
+		.strip_prefix('\0')?;
+	coord.split_once(':').map(|(group, _)| group)
+}
+
+pub(super) fn enhance_reference_semantics(
+	material: &CodeIndexMaterial,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &[ReferenceRecord],
+) {
+	let lombok = lombok::LombokSemantics::build(material, references);
+	let replacements = decisions
+		.par_iter()
+		.enumerate()
+		.filter_map(|(idx, decision)| {
+			lombok
+				.resolve_reference(decision, references)
+				.map(|replacement| (idx, replacement))
+		})
+		.collect::<Vec<_>>();
+	for (idx, replacement) in replacements {
+		decisions[idx] = replacement;
+	}
+}
+
+fn confidence(value: &[u8]) -> &str {
+	std::str::from_utf8(value).expect("confidence constants are utf-8")
 }

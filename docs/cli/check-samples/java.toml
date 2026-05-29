@@ -12,9 +12,9 @@ java_test = "moniker ~ '**/srcset:test/**'"
 api_pkg = "moniker ~ '**/package:api/**'"
 domain_pkg = "moniker ~ '**/package:domain/**'"
 infra_pkg = "moniker ~ '**/package:infrastructure/**'"
-service_pkg = "moniker ~ '**/package:service/**' OR moniker ~ '**/package:application/**' OR moniker ~ '**/package:domain/**'"
-repository_pkg = "moniker ~ '**/package:repository/**' OR moniker ~ '**/package:persistence/**' OR moniker ~ '**/package:infrastructure/**'"
-config_pkg = "moniker ~ '**/package:config/**' OR moniker ~ '**/package:configuration/**'"
+service_pkg = "moniker ~ '**/package:/^(service|application|domain)$/**'"
+repository_pkg = "moniker ~ '**/package:/^(repository|persistence|infrastructure)$/**'"
+config_pkg = "moniker ~ '**/package:/^(config|configuration)$/**'"
 
 src_domain = "source ~ '**/package:domain/**'"
 tgt_infra = "target ~ '**/package:infrastructure/**'"
@@ -68,7 +68,7 @@ id = "spring-controller-suffix"
 expr = """
   any(out_refs,
     kind = 'annotates'
-    AND (target.name = 'Controller' OR target.name = 'RestController')
+    AND target.name =~ ^(Controller|RestController)$
   )
   => name =~ Controller$
 """
@@ -80,11 +80,9 @@ id = "spring-controller-package"
 expr = """
   any(out_refs,
     kind = 'annotates'
-    AND (target.name = 'Controller' OR target.name = 'RestController')
+    AND target.name =~ ^(Controller|RestController)$
   )
-  => moniker ~ '**/package:api/**'
-     OR moniker ~ '**/package:web/**'
-     OR moniker ~ '**/package:controller/**'
+  => moniker ~ '**/package:/^(api|web|controller)$/**'
 """
 message = "Spring controller `{name}` should live in an API, web, or controller package."
 
@@ -150,7 +148,7 @@ expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
   => NOT any(out_refs,
        kind = 'annotates'
-       AND (target.name = 'Controller' OR target.name = 'RestController')
+       AND target.name =~ ^(Controller|RestController)$
      )
 """
 message = "Spring controller `{name}` should not be annotated @Transactional."
@@ -162,13 +160,11 @@ id = "spring-controller-no-repository-direct"
 expr = """
   any(out_refs,
     kind = 'annotates'
-    AND (target.name = 'Controller' OR target.name = 'RestController')
+    AND target.name =~ ^(Controller|RestController)$
   )
   => none(out_refs,
        target.name =~ Repository$
-       OR target.name = 'EntityManager'
-       OR target.name = 'JdbcTemplate'
-       OR target.name = 'DSLContext'
+       OR target.name =~ ^(EntityManager|JdbcTemplate|DSLContext)$
      )
 """
 message = "Spring controller `{name}` should not depend directly on repositories or persistence APIs."
@@ -180,9 +176,7 @@ expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Service')
   => none(out_refs,
        target.name =~ Controller$
-       OR target ~ '**/package:api/**'
-       OR target ~ '**/package:web/**'
-       OR target ~ '**/package:controller/**'
+       OR target ~ '**/package:/^(api|web|controller)$/**'
      )
 """
 message = "Spring service `{name}` should not depend on controllers or web packages."
@@ -194,9 +188,7 @@ expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Repository')
   => none(out_refs,
        target.name =~ Controller$
-       OR target ~ '**/package:api/**'
-       OR target ~ '**/package:web/**'
-       OR target ~ '**/package:controller/**'
+       OR target ~ '**/package:/^(api|web|controller)$/**'
      )
 """
 message = "Spring repository `{name}` should not depend on controllers or web packages."
@@ -223,8 +215,7 @@ id = "spring-transactional-methods-in-service"
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
   => parent.name =~ Service$
-     OR moniker ~ '**/package:service/**'
-     OR moniker ~ '**/package:application/**'
+     OR moniker ~ '**/package:/^(service|application)$/**'
 """
 message = "Spring @Transactional method `{name}` should live in the service/application layer."
 
@@ -235,20 +226,7 @@ id = "spring-proxy-method-no-self-invocation"
 expr = """
   any(out_refs,
     kind = 'annotates'
-    AND (target.name = 'Transactional'
-         OR target.name = 'Async'
-         OR target.name = 'Cacheable'
-         OR target.name = 'CachePut'
-         OR target.name = 'CacheEvict'
-         OR target.name = 'Caching'
-         OR target.name = 'Retryable'
-         OR target.name = 'ConcurrencyLimit'
-         OR target.name = 'PreAuthorize'
-         OR target.name = 'PostAuthorize'
-         OR target.name = 'PreFilter'
-         OR target.name = 'PostFilter'
-         OR target.name = 'Secured'
-         OR target.name = 'RolesAllowed')
+    AND target.name =~ ^(Transactional|Async|Cacheable|CachePut|CacheEvict|Caching|Retryable|ConcurrencyLimit|PreAuthorize|PostAuthorize|PreFilter|PostFilter|Secured|RolesAllowed)$
   )
   => none(in_refs,
        (kind = 'method_call' OR kind = 'calls')
@@ -264,20 +242,7 @@ id = "spring-proxy-class-no-self-invocation"
 expr = """
   any(out_refs,
     kind = 'annotates'
-    AND (target.name = 'Transactional'
-         OR target.name = 'Async'
-         OR target.name = 'Cacheable'
-         OR target.name = 'CachePut'
-         OR target.name = 'CacheEvict'
-         OR target.name = 'Caching'
-         OR target.name = 'Retryable'
-         OR target.name = 'ConcurrencyLimit'
-         OR target.name = 'PreAuthorize'
-         OR target.name = 'PostAuthorize'
-         OR target.name = 'PreFilter'
-         OR target.name = 'PostFilter'
-         OR target.name = 'Secured'
-         OR target.name = 'RolesAllowed')
+    AND target.name =~ ^(Transactional|Async|Cacheable|CachePut|CacheEvict|Caching|Retryable|ConcurrencyLimit|PreAuthorize|PostAuthorize|PreFilter|PostFilter|Secured|RolesAllowed)$
   )
   => none(method,
        any(in_refs,

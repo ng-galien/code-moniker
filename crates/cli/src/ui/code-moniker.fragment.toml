@@ -1,28 +1,22 @@
 fragment = "ui"
 
 [aliases]
-root    = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/**'"
+root    = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/**'"
 view           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:view'"
 terminal_shell = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:shell/module:terminal'"
 panels         = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/**'"
-panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:render'"
+panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:/^(mod|render)$/'"
 components     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:components/**'"
 contracts      = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/**'"
 screen_contract     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/module:screen'"
-msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:action' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:runtime'"
-app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:mod' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:state' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:effect'"
+msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:/^(action|state|runtime)$/'"
+app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:/^(mod|state|effect)$/'"
 
 [[refs.where]]
 id      = "store-boundary"
 expr    = """
   $root AND kind = 'imports_symbol'
-  => NOT (target ~ '**/path:SessionIndex'
-       OR target ~ '**/path:IndexedFile'
-       OR target ~ '**/path:CodeGraph'
-       OR target ~ '**/path:DefRecord'
-       OR target ~ '**/path:RefRecord'
-       OR target ~ '**/path:ChangeIndex'
-       OR target ~ '**/path:ChangeEntry')
+  => NOT target ~ '**/path:/^(SessionIndex|IndexedFile|CodeGraph|DefRecord|RefRecord|ChangeIndex|ChangeEntry)$/'
 """
 message = "`code-moniker ui` must consume workspace read models; raw graph/index/Git records stay inside `workspace`."
 rationale = """
@@ -71,8 +65,7 @@ translate workspace data into component state at the boundary.
 id      = "view-renders-view-models-only"
 expr    = """
   $view AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT (target ~ '**/path:App'
-       OR target ~ '**/path:ExplorerFeature'
+  => NOT (target ~ '**/path:/^(App|ExplorerFeature)$/'
        OR target ~ '**/dir:contracts/**')
 """
 message = "`ui::view` renders feature view-models; App/Feature/Screen orchestration belongs outside the renderer."
@@ -86,11 +79,7 @@ id      = "terminal-backend-owned-by-shell-terminal"
 expr    = """
   $root AND (kind = 'imports_symbol' OR kind = 'imports_module')
   => ($terminal_shell OR $rust_inline_tests
-      OR NOT (target ~ '**/path:CrosstermBackend'
-           OR target ~ '**/path:EnterAlternateScreen'
-           OR target ~ '**/path:LeaveAlternateScreen'
-           OR target ~ '**/path:enable_raw_mode'
-           OR target ~ '**/path:disable_raw_mode'))
+      OR NOT target ~ '**/path:/^(CrosstermBackend|EnterAlternateScreen|LeaveAlternateScreen|enable_raw_mode|disable_raw_mode)$/')
 """
 message = "Terminal backend setup belongs to `ui::shell::terminal`; UI root/app code should not own terminal raw-mode or alternate-screen wiring."
 rationale = """
@@ -102,12 +91,8 @@ raw-mode cleanup paths and makes UI tests less dependent on terminal side effect
 id      = "screen-render-contract-only"
 expr    = """
   $screen_contract AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT (target ~ '**/path:Msg'
-       OR target ~ '**/path:Effect'
-       OR target ~ '**/path:AppCommand'
-       OR target ~ '**/module:events/**'
-       OR target ~ '**/module:app/**'
-       OR target ~ '**/dir:app/**')
+  => NOT (target ~ '**/path:/^(Msg|Effect|AppCommand)$/'
+       OR target ~ '**/*:/^(events|app)$/**')
 """
 message = "`ui::contracts::Screen` is a render-only contract; input messages, effects, and app commands belong to the Elm orchestration layer."
 rationale = """
@@ -119,7 +104,7 @@ would turn render contracts into input controllers and bypass the reducer/effect
 id      = "contracts-do-not-depend-on-app"
 expr    = """
   $contracts AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT (target ~ '**/module:app/**' OR target ~ '**/dir:app/**')
+  => NOT target ~ '**/*:app/**'
 """
 message = "`ui::contracts` must stay app-neutral; app commands and effects belong to `ui::app`."
 rationale = """

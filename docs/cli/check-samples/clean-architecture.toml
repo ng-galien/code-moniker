@@ -16,19 +16,19 @@ default_rules = false
 
 [aliases]
 # Def-scope aliases.
-entities    = "moniker ~ '**/package:entities/**' OR moniker ~ '**/package:domain/**' OR moniker ~ '**/dir:entities/**' OR moniker ~ '**/dir:domain/**'"
-use_cases   = "moniker ~ '**/package:usecases/**' OR moniker ~ '**/package:use_cases/**' OR moniker ~ '**/package:application/**' OR moniker ~ '**/dir:usecases/**' OR moniker ~ '**/dir:application/**'"
-adapters    = "moniker ~ '**/package:adapters/**' OR moniker ~ '**/package:interface_adapters/**' OR moniker ~ '**/dir:adapters/**'"
-frameworks  = "moniker ~ '**/package:frameworks/**' OR moniker ~ '**/package:infrastructure/**' OR moniker ~ '**/dir:frameworks/**' OR moniker ~ '**/dir:infrastructure/**'"
+entities    = "moniker ~ '**/*:/^(entities|domain)$/**'"
+use_cases   = "moniker ~ '**/*:/^(usecases|use_cases|application)$/**'"
+adapters    = "moniker ~ '**/*:/^(adapters|interface_adapters)$/**'"
+frameworks  = "moniker ~ '**/*:/^(frameworks|infrastructure)$/**'"
 
 # Ref-scope aliases.
-src_entities   = "source ~ '**/package:entities/**' OR source ~ '**/package:domain/**' OR source ~ '**/dir:entities/**' OR source ~ '**/dir:domain/**'"
-src_use_cases  = "source ~ '**/package:usecases/**' OR source ~ '**/package:use_cases/**' OR source ~ '**/package:application/**' OR source ~ '**/dir:usecases/**' OR source ~ '**/dir:application/**'"
-src_adapters   = "source ~ '**/package:adapters/**' OR source ~ '**/package:interface_adapters/**' OR source ~ '**/dir:adapters/**'"
+src_entities   = "source ~ '**/*:/^(entities|domain)$/**'"
+src_use_cases  = "source ~ '**/*:/^(usecases|use_cases|application)$/**'"
+src_adapters   = "source ~ '**/*:/^(adapters|interface_adapters)$/**'"
 
-tgt_use_cases  = "target ~ '**/package:usecases/**' OR target ~ '**/package:use_cases/**' OR target ~ '**/package:application/**' OR target ~ '**/dir:usecases/**' OR target ~ '**/dir:application/**'"
-tgt_adapters   = "target ~ '**/package:adapters/**' OR target ~ '**/package:interface_adapters/**' OR target ~ '**/dir:adapters/**'"
-tgt_frameworks = "target ~ '**/package:frameworks/**' OR target ~ '**/package:infrastructure/**' OR target ~ '**/dir:frameworks/**' OR target ~ '**/dir:infrastructure/**'"
+tgt_use_cases  = "target ~ '**/*:/^(usecases|use_cases|application)$/**'"
+tgt_adapters   = "target ~ '**/*:/^(adapters|interface_adapters)$/**'"
+tgt_frameworks = "target ~ '**/*:/^(frameworks|infrastructure)$/**'"
 
 # Framework annotations that should not bleed into inner rings. Extend the
 # list with framework markers used in your stack.

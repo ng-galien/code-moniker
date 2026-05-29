@@ -154,18 +154,7 @@ fn candidate_keys(candidate: &LinkageCandidate<'_>) -> Vec<Vec<u8>> {
 	if let Some(segment) = candidate.last_segment {
 		push_key(&mut keys, bare_callable_name(segment.name));
 	}
-	if let Some(name) = rust_mod_rs_module_name(candidate.moniker) {
-		push_key(&mut keys, name);
-	}
 	keys
-}
-
-fn rust_mod_rs_module_name(moniker: &Moniker) -> Option<&[u8]> {
-	let segments = moniker.as_view().segments().collect::<Vec<_>>();
-	let [.., parent, leaf] = segments.as_slice() else {
-		return None;
-	};
-	(parent.kind == b"dir" && leaf.kind == b"module" && leaf.name == b"mod").then_some(parent.name)
 }
 
 fn push_key(keys: &mut Vec<Vec<u8>>, key: &[u8]) {

@@ -2,16 +2,18 @@ fragment = "workspace-crate"
 
 [aliases]
 workspace_crate = "moniker ~ '**/dir:crates/dir:workspace/dir:src/**'"
-source_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/module:source' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/module:source/**' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/dir:source/**'"
-code_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/module:code' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/module:code/**' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/dir:code/**'"
-linkage_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/module:linkage' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/module:linkage/**' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/dir:linkage/**'"
-changes_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/module:changes' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/module:changes/**' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/dir:changes/**'"
-snapshot_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/module:snapshot' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/module:snapshot/**' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/dir:snapshot/**'"
-facade_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/module:facade' OR moniker ~ '**/dir:crates/dir:workspace/dir:src/module:facade/**'"
-test_module = "moniker ~ '**/module:tests' OR moniker ~ '**/module:tests/**'"
+source_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:source/**'"
+code_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:code/**'"
+linkage_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/**'"
+linkage_language_domain = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:language/**'"
+linkage_language_private_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:language/*:/^(java|rust)$/**'"
+changes_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:changes/**'"
+snapshot_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:snapshot/**'"
+facade_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/module:facade/**'"
+test_module = "moniker ~ '**/module:tests/**'"
 cli_target = "target ~ '**/external_pkg:code_moniker_cli/**'"
 pg_target = "target ~ '**/external_pkg:code_moniker_pg/**'"
-compat_or_legacy_name = "moniker ~ '**/module:compat' OR moniker ~ '**/dir:compat/**' OR moniker ~ '**/module:legacy' OR moniker ~ '**/dir:legacy/**'"
+compat_or_legacy_name = "moniker ~ '**/*:/^(compat|legacy)$/**'"
 
 [[rust.module.where]]
 id       = "workspace-crate-has-no-compat-or-legacy-modules"
@@ -31,6 +33,24 @@ message  = "`code-moniker-workspace` must stay independent from CLI and PG crate
 rationale = """
 The crate is intended for CLI/TUI today and MCP later. Importing CLI or PG would make it an
 adapter implementation instead of the reusable workspace engine.
+"""
+
+[[refs.where]]
+id       = "workspace-linkage-language-domains-are-private"
+severity = "error"
+expr     = """
+  $linkage_layer
+  AND NOT $linkage_language_domain
+  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call' OR kind = 'implements')
+  => NOT $linkage_language_private_target
+"""
+message  = "`workspace::linkage` must consume language-specific linkage through `linkage::language`, not `language::{java,rust}`."
+rationale = """
+The generic linkage pipeline owns candidate search, manifest policy, query construction,
+semantic enhancement, and decision reduction. Java and Rust details are implementation
+domains below `linkage::language`; the rest of linkage must depend on the language facade
+only. Otherwise language-specific heuristics can leak back into generic orchestration and
+recreate the coupling this module split removed.
 """
 
 [[refs.where]]

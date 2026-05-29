@@ -3,7 +3,7 @@ fragment = "cli"
 # CLI command dispatcher boundary.
 
 [aliases]
-lib = "uri ~ '**/dir:crates/dir:cli/dir:src/module:lib' OR uri ~ '**/dir:crates/dir:cli/dir:src/module:lib/**'"
+lib = "uri ~ '**/dir:crates/dir:cli/dir:src/module:lib/**'"
 
 [[rust.enum.where]]
 id       = "command-variants-have-command-modules"
