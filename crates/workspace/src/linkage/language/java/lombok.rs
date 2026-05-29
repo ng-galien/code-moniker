@@ -259,13 +259,14 @@ fn field_owner(file: &IndexedSourceFile, parent_idx: Option<usize>) -> Option<&M
 }
 
 fn field_key(moniker: &Moniker) -> Option<(Moniker, Vec<u8>)> {
-	moniker
-		.as_view()
-		.segments()
-		.last()
-		.filter(|segment| segment.kind == kinds::FIELD)
-		.map(|segment| segment.name.to_vec())
-		.and_then(|name| moniker.parent().map(|owner| (owner, name)))
+	moniker.parent().zip(
+		moniker
+			.as_view()
+			.segments()
+			.last()
+			.filter(|segment| segment.kind == kinds::FIELD)
+			.map(|segment| segment.name.to_vec()),
+	)
 }
 
 #[derive(Default)]
