@@ -10,6 +10,8 @@ pub mod harness;
 pub mod langs;
 pub(crate) mod language_kinds;
 pub mod manifest;
+#[cfg(feature = "tui")]
+pub(crate) mod mcp;
 pub(crate) mod moniker_render;
 pub(crate) mod page;
 #[cfg(feature = "tui")]

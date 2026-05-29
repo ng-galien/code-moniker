@@ -6,11 +6,12 @@ Extract a moniker graph from a file or a directory.
 code-moniker extract <PATH> [--where '<op> <uri>']... [--kind <name>]...
                             [--name <regex>]... [--shape <shape>]...
                             [--format text|tsv|json|tree] [--count] [--quiet]
-                            [--limit <N>] [--after <MONIKER_URI>] [--all]
+                            [--limit <N>|--max-symbols <N>]
+                            [--after <MONIKER_URI>] [--all]
                             [--moniker-format compact|uri]
                             [--color auto|always|never] [--charset utf8|ascii]
-                            [--with-text] [--scheme <SCHEME>] [--project <NAME>]
-                            [--cache <DIR>]
+                            [--with-text] [--path <GLOB>]...
+                            [--scheme <SCHEME>] [--project <NAME>] [--cache <DIR>]
 ```
 
 | `<PATH>`  | Output                                  |
@@ -44,8 +45,18 @@ Unknown extension exits `2`.
 | `--kind <name>`       | —    | concrete kind (e.g. `class`, `fn`, `calls`)            |
 | `--name <regex>`      | —    | regex on the last moniker segment name                 |
 | `--shape <shape>`     | —    | kind family (`namespace`, `type`, `callable`, …)       |
+| `--path <glob>`       | —    | directory mode file glob, relative to `<PATH>`         |
 
 `--where` is repeatable, AND-combined. `--kind` and `--shape` are repeatable or comma-separated (OR within); `--name` is repeatable but is not comma-separated because commas are valid inside regex quantifiers. These filters are AND-combined with each other. `--name` uses Rust regex syntax and matches the last moniker segment name; callable signatures are matched on their bare name. A `def` matches when its moniker satisfies every predicate; a `ref` matches when its **target** does.
+
+`--path` is repeatable and OR-combined. It filters files before extraction
+without changing the root used to build monikers. Use it when you need the
+same moniker context as a repo-scoped `check` but only want to inspect a
+subtree:
+
+```bash
+code-moniker extract . --path 'crates/cli/src/mcp/**' --format json --max-symbols 80
+```
 
 Discover valid kinds with `code-moniker langs <TAG>`; the shape vocabulary lives in `code-moniker shapes`. Unknown `--kind` exits `2` with the valid set; unknown `--shape` is rejected at parse time by clap.
 
@@ -134,8 +145,9 @@ Explicit color flags use the same precedence as text output.
 ### `--limit`, `--after`, `--all`
 
 Default output is capped at 1000 matched graph records to keep agent probes
-bounded. `--limit <N>` changes the cap; `--all` disables it. `--after
-<MONIKER_URI>` resumes after the moniker cursor returned by the previous page.
+bounded. `--limit <N>` changes the cap; `--max-symbols <N>` is an explicit
+alias for the same cap. `--all` disables it. `--after <MONIKER_URI>` resumes
+after the moniker cursor returned by the previous page.
 Treat returned cursors as opaque; refs with repeated target monikers may use an
 internal `cursor:` segment so pagination can remain strict without skipping
 duplicates.

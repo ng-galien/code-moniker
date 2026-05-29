@@ -352,6 +352,21 @@ pub struct UiArgs {
 		help = "filter check rules through a named profile from .code-moniker.toml"
 	)]
 	pub profile: Option<String>,
+
+	#[arg(
+		long,
+		help = "start a local stateless MCP HTTP endpoint for this UI workspace"
+	)]
+	pub mcp: bool,
+
+	#[arg(
+		long,
+		value_name = "PORT",
+		default_value_t = 3210,
+		requires = "mcp",
+		help = "TCP port for --mcp"
+	)]
+	pub mcp_port: u16,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -443,6 +458,7 @@ pub struct ExtractArgs {
 
 	#[arg(
 		long,
+		visible_alias = "max-symbols",
 		value_name = "N",
 		default_value_t = 1000,
 		value_parser = parse_positive_usize,
@@ -505,6 +521,13 @@ pub struct ExtractArgs {
 
 	#[arg(long = "with-text", help = "include comment text (re-reads source)")]
 	pub with_text: bool,
+
+	#[arg(
+		long = "path",
+		value_name = "GLOB",
+		help = "only extract files whose path relative to PATH matches this glob; repeatable, OR-combined"
+	)]
+	pub path_filter: Vec<String>,
 
 	#[arg(
 		long,
@@ -632,6 +655,7 @@ impl ExtractArgs {
 			count: false,
 			quiet: false,
 			with_text: false,
+			path_filter: Vec::new(),
 			scheme: None,
 			project: None,
 			cache: None,
@@ -836,8 +860,15 @@ mod tests {
 	}
 
 	#[test]
+	fn extract_max_symbols_aliases_limit() {
+		let a = extract(&["a.ts", "--max-symbols", "25"]);
+		assert_eq!(a.limit, 25);
+	}
+
+	#[test]
 	fn extract_all_conflicts_with_limit_and_after() {
 		assert!(parse(&["extract", "a.ts", "--all", "--limit", "10"]).is_err());
+		assert!(parse(&["extract", "a.ts", "--all", "--max-symbols", "10"]).is_err());
 		assert!(
 			parse(&[
 				"extract",
@@ -864,6 +895,24 @@ mod tests {
 	#[test]
 	fn with_text_flag() {
 		assert!(extract(&["a.ts", "--with-text"]).with_text);
+	}
+
+	#[test]
+	fn path_filter_is_repeatable() {
+		let a = extract(&[
+			".",
+			"--path",
+			"crates/cli/src/mcp/**",
+			"--path",
+			"crates/cli/src/check/**",
+		]);
+		assert_eq!(
+			a.path_filter,
+			vec![
+				"crates/cli/src/mcp/**".to_string(),
+				"crates/cli/src/check/**".to_string()
+			]
+		);
 	}
 
 	#[test]

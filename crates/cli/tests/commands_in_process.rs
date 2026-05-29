@@ -157,6 +157,33 @@ fn extract_json_limit_emits_next_cursor_and_after_resumes() {
 	assert_ne!(v["next_cursor"].as_str(), Some(cursor));
 }
 
+#[test]
+fn extract_directory_path_filter_preserves_root_monikers() {
+	let dir = tempfile::tempdir().unwrap();
+	write_under(dir.path(), "pkg/src/a.ts", "export class Alpha {}\n");
+	write_under(dir.path(), "other/b.ts", "export class Beta {}\n");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"extract",
+		dir.path().to_str().unwrap(),
+		"--path",
+		"pkg/src/**",
+		"--format",
+		"json",
+		"--max-symbols",
+		"10",
+	]);
+	assert_eq!(exit, Exit::Match, "stderr={err}");
+	let value: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+	assert_eq!(value["emitted_files"], 1);
+	assert_eq!(value["files"][0]["file"], "pkg/src/a.ts");
+	assert!(
+		out.contains("dir:pkg/dir:src"),
+		"filtered extraction must keep root-relative monikers: {out}"
+	);
+	assert!(!out.contains("other/b.ts"), "{out}");
+}
+
 fn json_match_count(v: &serde_json::Value) -> usize {
 	let defs = v["matches"]["defs"].as_array().map_or(0, |defs| defs.len());
 	let refs = v["matches"]["refs"].as_array().map_or(0, |refs| refs.len());

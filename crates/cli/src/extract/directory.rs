@@ -38,12 +38,18 @@ fn run_filter<W1: Write, W2: Write>(
 ) -> anyhow::Result<bool> {
 	let predicates = args.compiled_predicates(scheme)?;
 	let names = filter::compile_name_filters(&args.name)?;
-	let mut langs: Vec<Lang> = sources.files.iter().map(|f| f.lang).collect();
+	let path_filter = FilePathFilter::compile(&args.path_filter)?;
+	let scoped_files: Vec<&SourceFile> = sources
+		.files
+		.iter()
+		.filter(|file| path_filter.matches(&file.rel_path))
+		.collect();
+	let mut langs: Vec<Lang> = scoped_files.iter().map(|f| f.lang).collect();
 	langs.sort_by_key(|l| l.tag());
 	langs.dedup();
 	let known = language_kinds::known_kinds(langs.iter());
 	let unknown = language_kinds::unknown_kinds(&args.kind, &known);
-	if !unknown.is_empty() {
+	if !scoped_files.is_empty() && !unknown.is_empty() {
 		return Err(super::unknown_kinds_error(&unknown, &langs, &known));
 	}
 	let filter = DirectoryFilter {
@@ -55,8 +61,7 @@ fn run_filter<W1: Write, W2: Write>(
 		shapes: &args.shape,
 		cache_dir: args.cache.as_deref(),
 	};
-	let mut rows: Vec<FilterRow> = sources
-		.files
+	let mut rows: Vec<FilterRow> = scoped_files
 		.par_iter()
 		.filter_map(|file| compute_filter_row(&filter, file))
 		.collect();
@@ -86,6 +91,70 @@ fn run_filter<W1: Write, W2: Write>(
 		}
 		OutputMode::Quiet => Ok(any),
 	}
+}
+
+struct FilePathFilter {
+	patterns: Vec<Regex>,
+}
+
+impl FilePathFilter {
+	fn compile(patterns: &[String]) -> anyhow::Result<Self> {
+		patterns
+			.iter()
+			.map(|pattern| {
+				let normalized = normalize_path_pattern(pattern)?;
+				Regex::new(&glob_to_regex(&normalized))
+					.map_err(|err| anyhow::anyhow!("invalid --path `{pattern}`: {err}"))
+			})
+			.collect::<anyhow::Result<Vec<_>>>()
+			.map(|patterns| Self { patterns })
+	}
+
+	fn matches(&self, rel_path: &Path) -> bool {
+		if self.patterns.is_empty() {
+			return true;
+		}
+		let rel = rel_path.to_string_lossy().replace('\\', "/");
+		self.patterns.iter().any(|pattern| pattern.is_match(&rel))
+	}
+}
+
+fn normalize_path_pattern(pattern: &str) -> anyhow::Result<String> {
+	let trimmed = pattern.trim();
+	if trimmed.is_empty() {
+		anyhow::bail!("--path pattern must not be empty");
+	}
+	Ok(trimmed
+		.trim_start_matches("./")
+		.trim_start_matches('/')
+		.replace('\\', "/"))
+}
+
+fn glob_to_regex(pattern: &str) -> String {
+	let mut out = String::from("^");
+	let mut chars = pattern.chars().peekable();
+	while let Some(ch) = chars.next() {
+		match ch {
+			'*' if chars.peek() == Some(&'*') => {
+				chars.next();
+				if chars.peek() == Some(&'/') {
+					chars.next();
+					out.push_str("(?:.*/)?");
+				} else {
+					out.push_str(".*");
+				}
+			}
+			'*' => out.push_str("[^/]*"),
+			'?' => out.push_str("[^/]"),
+			'.' | '+' | '(' | ')' | '|' | '^' | '$' | '[' | ']' | '{' | '}' | '\\' => {
+				out.push('\\');
+				out.push(ch);
+			}
+			_ => out.push(ch),
+		}
+	}
+	out.push('$');
+	out
 }
 
 fn apply_tree_visibility(rows: &mut [FilterRow], args: &ExtractArgs) {
@@ -427,6 +496,35 @@ mod tests {
 			.unwrap();
 		let row = compute_filter_row(&filter, f).unwrap();
 		assert!(row.defs.len() >= 2, "a.ts should have defs");
+	}
+
+	#[test]
+	fn path_filter_matches_relative_glob() {
+		let filter = FilePathFilter::compile(&["pkg/src/**".to_string()]).unwrap();
+		assert!(filter.matches(Path::new("pkg/src/a.ts")));
+		assert!(filter.matches(Path::new("pkg/src/nested/a.ts")));
+		assert!(!filter.matches(Path::new("pkg/test/a.ts")));
+	}
+
+	#[test]
+	fn path_filter_keeps_root_context_while_limiting_files() {
+		let tmp = tempfile::tempdir().unwrap();
+		let root = tmp.path();
+		write_file(root, "pkg/src/a.ts", "export class Alpha {}\n");
+		write_file(root, "other/b.ts", "export class Beta {}\n");
+		let sources = environment::discover_sources(&[root.to_path_buf()], None).unwrap();
+		let mut args = ExtractArgs::for_tests();
+		args.path = root.to_path_buf();
+		args.format = OutputFormat::Json;
+		args.path_filter = vec!["pkg/src/**".to_string()];
+		let mut out = Vec::new();
+		let mut err = Vec::new();
+		let any = run_filter(&args, &mut out, &mut err, &sources, root, "code+moniker://").unwrap();
+		assert!(any);
+		let text = String::from_utf8(out).unwrap();
+		assert!(text.contains("\"file\": \"pkg/src/a.ts\""), "{text}");
+		assert!(!text.contains("other/b.ts"), "{text}");
+		assert!(text.contains("dir:pkg/dir:src"), "{text}");
 	}
 
 	#[test]

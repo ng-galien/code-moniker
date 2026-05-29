@@ -1,0 +1,273 @@
+use std::path::Path;
+
+use code_moniker_core::core::shape::Shape;
+use regex::Regex;
+use serde_json::Value;
+
+pub(super) const DEFAULT_LIMIT: usize = 80;
+pub(super) const MAX_LIMIT: usize = 500;
+
+#[derive(Clone, Debug, Default)]
+pub(in crate::mcp) struct ScopeFilter {
+	pub(super) paths: Vec<String>,
+	pub(super) langs: Vec<String>,
+	path_filter: FilePathFilter,
+}
+
+impl ScopeFilter {
+	pub(in crate::mcp) fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		let paths = string_list(arguments, "path")?;
+		let langs = string_list(arguments, "lang")?
+			.into_iter()
+			.map(|lang| lang.to_ascii_lowercase())
+			.collect::<Vec<_>>();
+		let path_filter = FilePathFilter::compile(&paths)?;
+		Ok(Self {
+			paths,
+			langs,
+			path_filter,
+		})
+	}
+
+	pub(super) fn matches_file(&self, rel_path: &str, language: Option<&str>) -> bool {
+		self.path_filter.matches(rel_path)
+			&& (self.langs.is_empty()
+				|| language.is_some_and(|lang| self.langs.iter().any(|allowed| allowed == lang)))
+	}
+
+	pub(super) fn describe(&self) -> Vec<String> {
+		let mut lines = Vec::new();
+		if !self.paths.is_empty() {
+			lines.push(format!("  path: {}", self.paths.join(", ")));
+		}
+		if !self.langs.is_empty() {
+			lines.push(format!("  lang: {}", self.langs.join(", ")));
+		}
+		if lines.is_empty() {
+			lines.push("  path: *".to_string());
+			lines.push("  lang: *".to_string());
+		}
+		lines
+	}
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::mcp) struct SymbolScopeFilter {
+	pub(super) files: ScopeFilter,
+	pub(super) kinds: Vec<String>,
+	pub(super) shapes: Vec<Shape>,
+	name: Option<Regex>,
+	include_non_navigable: bool,
+}
+
+impl SymbolScopeFilter {
+	pub(in crate::mcp) fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		let files = ScopeFilter::from_arguments(arguments)?;
+		let kinds = string_list(arguments, "kind")?;
+		let shapes = string_list(arguments, "shape")?
+			.into_iter()
+			.map(|shape| {
+				shape
+					.parse::<Shape>()
+					.map_err(|err| anyhow::anyhow!("invalid shape `{shape}`: {err}"))
+			})
+			.collect::<anyhow::Result<Vec<_>>>()?;
+		let name = arguments
+			.get("name")
+			.and_then(Value::as_str)
+			.map(Regex::new)
+			.transpose()
+			.map_err(|err| anyhow::anyhow!("invalid name regex: {err}"))?;
+		let include_non_navigable = arguments
+			.get("include_non_navigable")
+			.and_then(Value::as_bool)
+			.unwrap_or(false);
+		Ok(Self {
+			files,
+			kinds,
+			shapes,
+			name,
+			include_non_navigable,
+		})
+	}
+
+	pub(super) fn matches_symbol(&self, name: &str, kind: &str, navigable: bool) -> bool {
+		(self.include_non_navigable || navigable)
+			&& (self.kinds.is_empty() || self.kinds.iter().any(|allowed| allowed == kind))
+			&& (self.shapes.is_empty()
+				|| self
+					.shapes
+					.iter()
+					.any(|shape| *shape == Shape::for_kind(kind.as_bytes())))
+			&& self.name.as_ref().is_none_or(|regex| regex.is_match(name))
+	}
+
+	pub(super) fn describe(&self) -> Vec<String> {
+		let mut lines = self.files.describe();
+		if !self.kinds.is_empty() {
+			lines.push(format!("  kind: {}", self.kinds.join(", ")));
+		}
+		if !self.shapes.is_empty() {
+			let shapes = self
+				.shapes
+				.iter()
+				.map(|shape| shape.as_str())
+				.collect::<Vec<_>>();
+			lines.push(format!("  shape: {}", shapes.join(", ")));
+		}
+		if let Some(name) = &self.name {
+			lines.push(format!("  name: {}", name.as_str()));
+		}
+		lines
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::mcp) struct Paging {
+	pub(in crate::mcp) cursor: usize,
+	pub(in crate::mcp) limit: usize,
+}
+
+impl Paging {
+	pub(super) fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		let cursor = number_argument(arguments, "cursor")?.unwrap_or(0);
+		let limit = number_argument(arguments, "limit")?
+			.unwrap_or(DEFAULT_LIMIT)
+			.min(MAX_LIMIT);
+		Ok(Self { cursor, limit })
+	}
+
+	pub(super) fn window<T>(&self, items: &[T]) -> (usize, usize, Option<usize>) {
+		let start = self.cursor.min(items.len());
+		let end = start.saturating_add(self.limit).min(items.len());
+		let next = (end < items.len()).then_some(end);
+		(start, end, next)
+	}
+}
+
+#[derive(Clone, Debug, Default)]
+struct FilePathFilter {
+	patterns: Vec<Regex>,
+}
+
+impl FilePathFilter {
+	fn compile(patterns: &[String]) -> anyhow::Result<Self> {
+		patterns
+			.iter()
+			.map(|pattern| {
+				let normalized = normalize_path_pattern(pattern)?;
+				Regex::new(&glob_to_regex(&normalized))
+					.map_err(|err| anyhow::anyhow!("invalid path glob `{pattern}`: {err}"))
+			})
+			.collect::<anyhow::Result<Vec<_>>>()
+			.map(|patterns| Self { patterns })
+	}
+
+	fn matches(&self, rel_path: &str) -> bool {
+		self.patterns.is_empty()
+			|| self
+				.patterns
+				.iter()
+				.any(|pattern| pattern.is_match(&rel_path.replace('\\', "/")))
+	}
+}
+
+pub(super) fn string_list(arguments: &Value, key: &str) -> anyhow::Result<Vec<String>> {
+	let Some(value) = arguments.get(key) else {
+		return Ok(Vec::new());
+	};
+	match value {
+		Value::String(value) => Ok(split_csv(value)),
+		Value::Array(values) => values
+			.iter()
+			.map(|value| {
+				value
+					.as_str()
+					.map(split_csv)
+					.ok_or_else(|| anyhow::anyhow!("`{key}` entries must be strings"))
+			})
+			.collect::<anyhow::Result<Vec<_>>>()
+			.map(|nested| nested.into_iter().flatten().collect()),
+		_ => anyhow::bail!("`{key}` must be a string or string array"),
+	}
+}
+
+fn split_csv(value: &str) -> Vec<String> {
+	value
+		.split(',')
+		.map(str::trim)
+		.filter(|part| !part.is_empty())
+		.map(ToOwned::to_owned)
+		.collect()
+}
+
+fn number_argument(arguments: &Value, key: &str) -> anyhow::Result<Option<usize>> {
+	let Some(value) = arguments.get(key) else {
+		return Ok(None);
+	};
+	match value {
+		Value::Number(number) => number
+			.as_u64()
+			.map(|n| Some(n as usize))
+			.ok_or_else(|| anyhow::anyhow!("`{key}` must be a positive integer")),
+		Value::String(raw) => raw
+			.parse::<usize>()
+			.map(Some)
+			.map_err(|err| anyhow::anyhow!("invalid `{key}` value `{raw}`: {err}")),
+		_ => anyhow::bail!("`{key}` must be an integer"),
+	}
+}
+
+fn normalize_path_pattern(pattern: &str) -> anyhow::Result<String> {
+	let trimmed = pattern.trim();
+	if trimmed.is_empty() {
+		anyhow::bail!("path glob must not be empty");
+	}
+	Ok(trimmed
+		.trim_start_matches("./")
+		.trim_start_matches(std::path::MAIN_SEPARATOR)
+		.trim_start_matches('/')
+		.replace('\\', "/"))
+}
+
+fn glob_to_regex(pattern: &str) -> String {
+	let mut out = String::from("^");
+	let mut chars = pattern.chars().peekable();
+	while let Some(ch) = chars.next() {
+		match ch {
+			'*' if chars.peek() == Some(&'*') => {
+				chars.next();
+				if chars.peek() == Some(&'/') {
+					chars.next();
+					out.push_str("(?:.*/)?");
+				} else {
+					out.push_str(".*");
+				}
+			}
+			'*' => out.push_str("[^/]*"),
+			'?' => out.push_str("[^/]"),
+			'.' | '+' | '(' | ')' | '|' | '^' | '$' | '[' | ']' | '{' | '}' | '\\' => {
+				out.push('\\');
+				out.push(ch);
+			}
+			_ => out.push(ch),
+		}
+	}
+	out.push('$');
+	out
+}
+
+pub(super) fn path_prefix(rel_path: &str) -> String {
+	let mut parts = Path::new(rel_path)
+		.components()
+		.filter_map(|component| component.as_os_str().to_str())
+		.take(2)
+		.collect::<Vec<_>>();
+	if parts.is_empty() {
+		"<root>".to_string()
+	} else if parts.len() == 1 {
+		parts.remove(0).to_string()
+	} else {
+		parts.join("/")
+	}
+}

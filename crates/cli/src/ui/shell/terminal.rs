@@ -27,7 +27,7 @@ pub(in crate::ui) fn run<W1: Write, W2: Write>(
 	stdout: &mut W1,
 	stderr: &mut W2,
 ) -> Exit {
-	match run_inner(args, stdout) {
+	match run_inner(args, stdout, stderr) {
 		Ok(()) => Exit::Match,
 		Err(e) => {
 			let _ = writeln!(stderr, "code-moniker: {e:#}");
@@ -36,12 +36,23 @@ pub(in crate::ui) fn run<W1: Write, W2: Write>(
 	}
 }
 
-fn run_inner<W: Write>(args: &UiArgs, stdout: &mut W) -> anyhow::Result<()> {
+fn run_inner<W1: Write, W2: Write>(
+	args: &UiArgs,
+	stdout: &mut W1,
+	stderr: &mut W2,
+) -> anyhow::Result<()> {
 	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
 	let opts = SessionOptions {
 		paths: args.paths.clone(),
 		project: args.project.clone(),
 		cache_dir: args.cache.clone(),
+	};
+	let _mcp: Option<crate::mcp::McpServer> = if args.mcp {
+		let server = crate::mcp::start(opts.clone(), scheme.clone(), args.mcp_port)?;
+		writeln!(stderr, "code-moniker mcp: {}", server.endpoint())?;
+		Some(server)
+	} else {
+		None
 	};
 	let app = boot_app(opts, scheme, args.rules.clone(), args.profile.clone());
 	run_terminal(stdout, app)

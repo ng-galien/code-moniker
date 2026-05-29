@@ -1,0 +1,73 @@
+fragment = "cli-mcp"
+
+[aliases]
+mcp_root = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/**'"
+mcp_server = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:server/**'"
+mcp_transport = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:transport/**'"
+mcp_dispatch = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:dispatch/**'"
+mcp_tools = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tools/**'"
+mcp_tests = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tests/**'"
+workspace_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
+http_runtime_target = "target ~ '**/path:/^(TcpListener|TcpStream|AtomicBool|JoinHandle)$/'"
+
+[[refs.where]]
+id       = "mcp-transport-has-no-workspace-knowledge"
+severity = "error"
+expr     = """
+  $mcp_transport
+  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
+  => NOT $workspace_target
+"""
+message  = "`cli::mcp::transport` must remain HTTP framing only; workspace reads belong to tools."
+rationale = """
+The MCP server will grow several tools. HTTP request parsing, response headers, and CORS
+must not learn about workspace resources, otherwise each new tool would add protocol-level
+coupling and make the transport impossible to swap for a real SDK transport later.
+"""
+
+[[refs.where]]
+id       = "mcp-dispatch-has-no-workspace-knowledge"
+severity = "error"
+expr     = """
+  $mcp_dispatch
+  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
+  => NOT $workspace_target
+"""
+message  = "`cli::mcp::dispatch` routes JSON-RPC to tools; it must not read workspace data directly."
+rationale = """
+JSON-RPC dispatch owns MCP methods such as initialize, tools/list, and tools/call. Workspace
+access is a tool concern so each tool can state its URI contract, LMNAV shape, and required
+workspace resource explicitly.
+"""
+
+[[refs.where]]
+id       = "mcp-server-owns-runtime-wiring"
+severity = "error"
+expr     = """
+  $mcp_root
+  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type')
+  AND $http_runtime_target
+  => $mcp_server OR $mcp_transport OR $mcp_tests
+"""
+message  = "MCP socket/thread runtime wiring belongs to `cli::mcp::server` and HTTP framing to `cli::mcp::transport`."
+rationale = """
+The CLI/TUI may opt in to MCP, but socket lifetime and stream framing are global runtime
+concerns. Keeping those imports in server/transport prevents individual tools from opening
+listeners or depending on TCP details.
+"""
+
+[[refs.where]]
+id       = "mcp-workspace-access-is-tool-owned"
+severity = "error"
+expr     = """
+  $mcp_root
+  AND NOT ($mcp_tools OR $mcp_tests)
+  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
+  => NOT $workspace_target
+"""
+message  = "`cli::mcp` workspace access must be owned by concrete tools, not by server/dispatch/runtime modules."
+rationale = """
+MCP is a tool surface over code-moniker. The context and runtime can carry options, but only
+tools should decide whether they need catalog, index, linkage, checks, or future lazy
+resources. This keeps new tools additive instead of turning the server into another facade.
+"""

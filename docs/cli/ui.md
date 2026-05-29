@@ -8,6 +8,7 @@ inspection on large repositories without leaving the terminal.
 code-moniker ui .
 code-moniker ui . --cache .code-moniker-cache
 code-moniker ui src --rules .code-moniker.toml --profile agent
+code-moniker ui . --mcp --mcp-port 3210
 ```
 
 ## What It Loads
@@ -36,6 +37,29 @@ snapshot phases, UI model refreshes, terminal draws, and linkage score
 details. A value of `1` writes to `/tmp/code-moniker-ui-timings.tsv`.
 The linkage score is `resolved / (resolved + unresolved + blocked)`;
 refs classified as external are reported but do not lower the score.
+
+## MCP Endpoint
+
+`--mcp` starts a local stateless MCP HTTP endpoint for the same workspace
+options passed to the UI:
+
+```sh
+code-moniker ui . --mcp --mcp-port 3210
+```
+
+The endpoint is `http://127.0.0.1:<port>/mcp`. It exposes compact LMNAV
+text responses rather than JSON dumps:
+
+- `code_moniker_read`: workspace discovery. At `workspace` it returns file
+  totals, language distribution, concentration by path prefix, language kind
+  hints, a paged explorer tree, and follow-up calls.
+- `code_moniker_symbols`: paged symbol rows. It accepts `path`, `lang`,
+  `kind`, `shape`, `name`, `limit`, and `cursor` so agents can narrow the
+  read before loading broad symbol output.
+
+Use `path` globs relative to the UI root, for example
+`crates/cli/src/mcp/**`. `limit` caps output rows and `cursor` resumes from
+the next page returned in the `next:` section.
 
 ## Views
 

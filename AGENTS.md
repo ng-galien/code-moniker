@@ -60,6 +60,26 @@ Iteration loop examples:
 - Agent guardrail rules: run `cargo moniker-check` only when touching UI/store
   boundaries, rules, imports, module organization, or before commit.
 
+MCP behavior should be dogfooded against the Java multiproject fixture. Start
+the TUI/MCP pair in tmux, then probe the streamable HTTP endpoint with compact
+JSON-RPC calls:
+
+```sh
+tmux new-session -d -s cm-mcp-dogfood 'cargo run -p code-moniker -- ui crates/workspace/tests/fixtures/projects/java/multiprojet --mcp --mcp-port 33210'
+tmux capture-pane -t cm-mcp-dogfood -p
+curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}'
+curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"code_moniker_read","arguments":{"uri":"workspace","depth":3,"limit":12}}}'
+curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"code_moniker_symbols","arguments":{"uri":"workspace","lang":"java","kind":"method","limit":5}}}'
+tmux kill-session -t cm-mcp-dogfood
+```
+
+The TUI capture should first show the file tree, then symbol/linkage completion.
+RPC responses must expose LMNAV-shaped text with `uri`, `completeness`,
+`summary`/`explorer` or `results`, and `next` when paging applies. Also check at
+least one scoped read (`path` + `lang`) and one cursor follow-up before accepting
+MCP changes.
+
 Before code review, use a short gate:
 
 - `cargo fmt --all -- --check`

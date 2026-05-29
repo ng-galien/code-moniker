@@ -62,6 +62,9 @@ fn extract_inner<W1: Write, W2: Write>(
 	if meta.is_dir() {
 		return directory::run(args, stdout, stderr, path, &scheme);
 	}
+	if !args.path_filter.is_empty() {
+		anyhow::bail!("--path requires a directory extraction root");
+	}
 	let lang = path_to_lang(path)?;
 	let predicates = args.compiled_predicates(&scheme)?;
 	let names = filter::compile_name_filters(&args.name)?;
