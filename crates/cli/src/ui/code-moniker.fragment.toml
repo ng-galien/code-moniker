@@ -2,15 +2,12 @@ fragment = "ui"
 
 [aliases]
 root    = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/**'"
-view           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:view'"
-terminal_shell = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:shell/module:terminal'"
-panels         = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/**'"
-panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:panels/module:/^(mod|render)$/'"
-components     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:components/**'"
-contracts      = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/**'"
-screen_contract     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:contracts/module:screen'"
-msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/module:events' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:/^(action|state|runtime)$/'"
-app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/dir:ui/dir:app/module:/^(mod|state|effect)$/'"
+view           = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:render/*:view/**'"
+terminal_shell = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:shell/*:terminal/**'"
+panels         = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:panel/**'"
+panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:panel' OR moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:panel/*:render'"
+msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:events/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:app/*:/^(action|state|runtime)$/'"
+app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:app/*:/^(mod|state|effect)$/'"
 
 [[refs.where]]
 id      = "store-boundary"
@@ -38,35 +35,11 @@ renderers keeps feature code from depending on terminal widgets.
 """
 
 [[refs.where]]
-id      = "components-ratatui-free"
-expr    = """
-  $components AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT target ~ '**/external_pkg:ratatui/**'
-"""
-message = "`ui::components` own reusable interaction state; ratatui rendering stays in view/panel renderers."
-rationale = """
-Components are shared state and behavior primitives. If they import ratatui directly,
-reusable UI logic becomes coupled to one rendering backend.
-"""
-
-[[refs.where]]
-id      = "components-workspace-free"
-expr    = """
-  $components AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT target ~ '**/dir:workspace/**'
-"""
-message = "`ui::components` must stay domain-neutral; workspace semantics belong to feature/navigation selectors."
-rationale = """
-Reusable components should not know code-moniker workspace concepts. Feature selectors
-translate workspace data into component state at the boundary.
-"""
-
-[[refs.where]]
 id      = "view-renders-view-models-only"
 expr    = """
   $view AND (kind = 'imports_symbol' OR kind = 'imports_module')
   => NOT (target ~ '**/path:/^(App|ExplorerFeature)$/'
-       OR target ~ '**/dir:contracts/**')
+       OR target ~ '**/*:contracts/**')
 """
 message = "`ui::view` renders feature view-models; App/Feature/Screen orchestration belongs outside the renderer."
 rationale = """
@@ -85,31 +58,6 @@ message = "Terminal backend setup belongs to `ui::shell::terminal`; UI root/app 
 rationale = """
 Terminal mode setup is global process state. Keeping it in one shell module avoids scattered
 raw-mode cleanup paths and makes UI tests less dependent on terminal side effects.
-"""
-
-[[refs.where]]
-id      = "screen-render-contract-only"
-expr    = """
-  $screen_contract AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT (target ~ '**/path:/^(Msg|Effect|AppCommand)$/'
-       OR target ~ '**/*:/^(events|app)$/**')
-"""
-message = "`ui::contracts::Screen` is a render-only contract; input messages, effects, and app commands belong to the Elm orchestration layer."
-rationale = """
-Screen contracts describe what can be rendered. Letting them import messages or effects
-would turn render contracts into input controllers and bypass the reducer/effect boundary.
-"""
-
-[[refs.where]]
-id      = "contracts-do-not-depend-on-app"
-expr    = """
-  $contracts AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT target ~ '**/*:app/**'
-"""
-message = "`ui::contracts` must stay app-neutral; app commands and effects belong to `ui::app`."
-rationale = """
-Contracts are shared vocabulary between features and renderers. Keeping them app-neutral
-prevents circular ownership between declarations, state reduction, and effect execution.
 """
 
 [[refs.where]]

@@ -3,17 +3,17 @@ fragment = "check"
 # Check DSL module boundaries.
 
 [aliases]
-expr       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/*:expr/**'"
-expr_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:collection/**'"
-expr_pairs  = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:pairs/**'"
-expr_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:metrics/**'"
-eval       = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/*:eval/**'"
-eval_local = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:local/**'"
-eval_value = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:value/**'"
-eval_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:collection/**'"
-eval_pairs = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:pairs/**'"
-eval_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:eval/module:metrics/**'"
-config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/*:config/**'"
+expr       = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:expr/**'"
+expr_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:expr/*:collection/**'"
+expr_pairs  = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:expr/*:pairs/**'"
+expr_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:expr/*:metrics/**'"
+eval       = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:eval/**'"
+eval_local = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:eval/*:local/**'"
+eval_value = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:eval/*:value/**'"
+eval_collection = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:eval/*:collection/**'"
+eval_pairs = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:eval/*:pairs/**'"
+eval_metrics = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:eval/*:metrics/**'"
+config     = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:config/**'"
 
 [[refs.where]]
 id      = "expr-parser-only"
@@ -46,9 +46,9 @@ coupling to parser internals.
 id       = "expr-parser-snapshot-tests-use-insta"
 severity = "error"
 expr     = """
-  moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:snapshots/**'
+  moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:expr/*:snapshots/**'
   AND kind = 'test'
-  => any(out_refs, kind = 'calls' AND target ~ '**/macro:assert_json_snapshot')
+  => any(out_refs, kind = 'calls' AND target.name = 'assert_json_snapshot')
 """
 message  = "`check::expr::snapshots` test `{name}` must use `insta::assert_json_snapshot!`."
 rationale = """
@@ -61,7 +61,7 @@ internals.
 id       = "expr-parser-fuzz-tests-use-proptest"
 severity = "error"
 expr     = """
-  moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:fuzz'
+  moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:expr/*:fuzz'
   => any(out_refs, kind = 'calls' AND target ~ '**/macro:proptest')
 """
 message  = "`check::expr::fuzz` must define parser fuzz properties through `proptest!`."
@@ -75,7 +75,7 @@ unit tests.
 id       = "expr-parser-fuzz-tests-are-robustness-properties"
 severity = "error"
 expr     = """
-  moniker ~ '**/dir:crates/dir:cli/dir:src/dir:check/dir:expr/module:fuzz/**'
+  moniker ~ '**/dir:crates/dir:cli/dir:src/*:check/*:expr/*:fuzz/**'
   AND kind = 'test'
   => name =~ never_panics
 """
@@ -116,7 +116,7 @@ they do not need.
 id      = "config-fragments-private"
 expr    = """
   (kind = 'imports_symbol' OR kind = 'imports_module')
-  AND target ~ '**/dir:check/dir:config/module:fragments/**'
+  AND target ~ '**/*:check/*:config/*:fragments/**'
   => $config OR $rust_inline_tests
 """
 message = "`check::config::fragments` is loader internals; callers should use the public `check::config` loading API."

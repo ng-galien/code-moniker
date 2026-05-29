@@ -222,7 +222,6 @@ fn path_bytes(p: &Path) -> &[u8] {
 
 #[cfg(not(unix))]
 fn path_bytes(p: &Path) -> &[u8] {
-	// non-unix fallback; PG-supported hosts are all unix
 	p.to_str().map(|s| s.as_bytes()).unwrap_or(&[])
 }
 

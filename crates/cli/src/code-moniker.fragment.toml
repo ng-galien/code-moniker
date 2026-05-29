@@ -10,7 +10,7 @@ id       = "command-variants-have-command-modules"
 severity = "error"
 expr     = """
 uri ~ '**/dir:crates/dir:cli/dir:src/module:args/enum:Command' => all(enum_constant,
-  require("**/dir:crates/dir:cli/dir:src/dir:{name.snake}/module:mod")
+  require("**/dir:crates/dir:cli/dir:src/module:{name.snake}")
 )
 """
 message  = "CLI command variant `{name}` must have an owning module at `crates/cli/src/{name.snake}/mod.rs`."

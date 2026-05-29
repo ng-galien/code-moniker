@@ -1,4 +1,5 @@
 // code-moniker: ignore-file[smell-god-type-local-metrics]
+// code-moniker: ignore-file[rust.shape.callable.smell-caller-concentration] — pgrx SQL type facade intentionally centralizes byte access through `as_bytes`.
 // TODO(smell): keep moniker as the pgrx SQL type facade; split datum ABI, IO funcs, and registry lookup if extension behavior grows here.
 use core::ffi::CStr;
 use core::ptr::addr_of_mut;

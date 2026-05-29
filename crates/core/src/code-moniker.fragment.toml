@@ -5,10 +5,10 @@ fragment = "core"
 # they protect.
 
 [aliases]
-core    = "moniker ~ '**/dir:src/dir:core/**'"
-declare = "moniker ~ '**/dir:src/dir:declare/**'"
-lang    = "moniker ~ '**/dir:src/dir:lang/**'"
-canonical_walker = "moniker ~ '**/dir:lang/module:canonical_walker'"
+core    = "moniker ~ '**/dir:src/*:core/**'"
+declare = "moniker ~ '**/dir:src/*:declare/**'"
+lang    = "moniker ~ '**/dir:src/*:lang/**'"
+canonical_walker = "moniker ~ '**/*:lang/*:canonical_walker'"
 tree_sitter_sdk_extractor = "moniker ~ '**/dir:src/*:lang/*/*:sdk_pipeline/**'"
 text_mini_parser_call = """
   kind = 'method_call'
