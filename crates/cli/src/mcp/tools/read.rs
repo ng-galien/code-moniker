@@ -4,7 +4,8 @@ use code_moniker_workspace::facade::{
 	LocalWorkspaceOptions, WorkspaceFacade, local_workspace_ports,
 };
 use code_moniker_workspace::snapshot::{
-	SourceCatalog, SourceUnit, WorkspaceRequest, WorkspaceTransition,
+	SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord, WorkspaceRequest,
+	WorkspaceTransition,
 };
 use code_moniker_workspace::source::LocalResourceCache;
 use serde_json::{Value, json};
@@ -24,11 +25,12 @@ impl ReadTool {
 
 	const DESCRIPTION: &'static str = concat!(
 		"When to use: default entry point to explore the current code-moniker UI workspace. ",
-		"The same verb starts at the workspace root and expands an explorer tree by depth.\n",
+		"The same verb starts at the workspace root, expands an explorer tree, or reads code from an exact symbol URI.\n",
 		"\n",
 		"Read from code-moniker.\n",
 		"  workspace                — workspace summary, language vocabulary, concentration indicators, and explorer page\n",
 		"  code+moniker://workspace — same root with an explicit URI\n",
+		"  code+moniker://...       — symbol URI returned by code_moniker_symbols; reads the source slice around that symbol\n",
 		"Use path/lang to scope discovery, depth to expand the explorer, and limit/cursor for paging. Pair with code_moniker_symbols when you need symbol rows."
 	);
 
@@ -38,7 +40,7 @@ impl ReadTool {
 			"properties": {
 				"uri": {
 					"type": "string",
-					"description": "workspace | code+moniker://workspace"
+					"description": "workspace | code+moniker://workspace | exact symbol URI returned by code_moniker_symbols"
 				},
 				"depth": {
 					"type": "integer",
@@ -69,6 +71,12 @@ impl ReadTool {
 				"cursor": {
 					"oneOf": [{ "type": "integer" }, { "type": "string" }],
 					"description": "Opaque row offset returned in next calls."
+				},
+				"context_lines": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 20,
+					"description": "Extra lines around a symbol source slice."
 				}
 			},
 			"required": ["uri"],
@@ -87,20 +95,67 @@ impl McpTool for ReadTool {
 	}
 
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
-		let uri = arguments
-			.get("uri")
-			.and_then(Value::as_str)
-			.unwrap_or(DEFAULT_READ_URI);
-		let depth = arguments.get("depth").and_then(Value::as_u64).unwrap_or(2) as usize;
-		let scope = ScopeFilter::from_arguments(arguments).map_err(ToolError::failed)?;
-		let paging = Paging::from_arguments(arguments).map_err(ToolError::failed)?;
-		let text = read_workspace(context, uri, depth.min(MAX_DEPTH), &scope, paging)
-			.map_err(ToolError::failed)?;
+		let request = ReadRequest::from_arguments(arguments).map_err(ToolError::failed)?;
+		let text = read_resource(
+			context,
+			&request.uri,
+			request.depth,
+			request.context_lines,
+			&request.scope,
+			request.paging,
+		)
+		.map_err(ToolError::failed)?;
 		Ok(ToolResult {
 			text,
 			is_error: false,
 		})
 	}
+}
+
+struct ReadRequest {
+	uri: String,
+	depth: usize,
+	context_lines: usize,
+	scope: ScopeFilter,
+	paging: Paging,
+}
+
+impl ReadRequest {
+	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		Ok(Self {
+			uri: arguments
+				.get("uri")
+				.and_then(Value::as_str)
+				.unwrap_or(DEFAULT_READ_URI)
+				.to_string(),
+			depth: arguments
+				.get("depth")
+				.and_then(Value::as_u64)
+				.unwrap_or(2)
+				.min(MAX_DEPTH as u64) as usize,
+			context_lines: arguments
+				.get("context_lines")
+				.and_then(Value::as_u64)
+				.unwrap_or(2)
+				.min(20) as usize,
+			scope: ScopeFilter::from_arguments(arguments)?,
+			paging: Paging::from_arguments(arguments)?,
+		})
+	}
+}
+
+fn read_resource(
+	context: &McpContext,
+	uri: &str,
+	depth: usize,
+	context_lines: usize,
+	scope: &ScopeFilter,
+	paging: Paging,
+) -> anyhow::Result<String> {
+	if is_workspace_uri(uri, context.scheme()) {
+		return read_workspace(context, uri, depth, scope, paging);
+	}
+	read_symbol(context, uri, context_lines)
 }
 
 fn read_workspace(
@@ -110,12 +165,6 @@ fn read_workspace(
 	scope: &ScopeFilter,
 	paging: Paging,
 ) -> anyhow::Result<String> {
-	if !is_workspace_uri(uri, context.scheme()) {
-		anyhow::bail!(
-			"unsupported URI; use workspace or {}workspace",
-			context.scheme()
-		);
-	}
 	let opts = context.opts();
 	let mut workspace = WorkspaceFacade::new(local_workspace_ports(
 		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
@@ -140,6 +189,44 @@ fn read_workspace(
 	}
 }
 
+fn read_symbol(context: &McpContext, uri: &str, context_lines: usize) -> anyhow::Result<String> {
+	let opts = context.opts();
+	let mut workspace = WorkspaceFacade::new(local_workspace_ports(
+		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
+			.with_cache_dir(opts.cache_dir.clone()),
+		LocalResourceCache::default(),
+	));
+	match workspace.load_index(WorkspaceRequest::new("mcp-read-symbol")) {
+		WorkspaceTransition::Ready { .. } => {
+			let Some(snapshot) = workspace.snapshot() else {
+				anyhow::bail!("workspace index snapshot is unavailable");
+			};
+			let symbol = snapshot
+				.index
+				.symbols
+				.iter()
+				.find(|symbol| symbol.identity == uri || symbol.id.as_str() == uri)
+				.ok_or_else(|| anyhow::anyhow!("symbol URI not found: {uri}"))?;
+			let source = snapshot
+				.index
+				.sources
+				.iter()
+				.find(|source| source.id == symbol.source)
+				.ok_or_else(|| anyhow::anyhow!("source not found for symbol: {uri}"))?;
+			let source_text = std::fs::read_to_string(&source.path)
+				.map_err(|err| anyhow::anyhow!("cannot read {}: {err}", source.path))?;
+			Ok(render_symbol_source_lmnav(
+				context.scheme(),
+				symbol,
+				source,
+				&source_text,
+				context_lines,
+			))
+		}
+		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
+	}
+}
+
 fn is_workspace_uri(uri: &str, scheme: &str) -> bool {
 	let value = uri.trim();
 	value.is_empty()
@@ -147,6 +234,57 @@ fn is_workspace_uri(uri: &str, scheme: &str) -> bool {
 		|| value == format!("{scheme}workspace")
 		|| value == format!("{scheme}.")
 		|| value == scheme.trim_end_matches('/')
+}
+
+pub(in crate::mcp) fn render_symbol_source_lmnav(
+	scheme: &str,
+	symbol: &SymbolRecord,
+	source: &SourceFileRecord,
+	source_text: &str,
+	context_lines: usize,
+) -> String {
+	let total_lines = source_text.lines().count().max(1);
+	let (raw_start, raw_end) = symbol
+		.line_range
+		.map(|(start, end)| (start.max(1) as usize, end.max(start).max(1) as usize))
+		.unwrap_or((1, total_lines.min(80)));
+	let target_start = raw_start.min(total_lines);
+	let target_end = raw_end.min(total_lines).max(target_start);
+	let slice_start = target_start.saturating_sub(context_lines).max(1);
+	let slice_end = target_end.saturating_add(context_lines).min(total_lines);
+	let mut output = String::new();
+	output.push_str(&format!("uri: {}\n", symbol.identity));
+	if symbol.line_range.is_some() {
+		output.push_str("completeness: full\n");
+	} else {
+		output.push_str(
+			"completeness: partial (symbol has no line range; showing first available lines)\n",
+		);
+	}
+	output.push_str(&format!("file: {}\n", source.rel_path));
+	output.push_str(&format!("language: {}\n", source.language));
+	output.push_str(&format!("kind: {}\n", symbol.kind));
+	output.push_str(&format!("name: {}\n", symbol.name));
+	output.push_str(&format!("range: {target_start}-{target_end}\n"));
+	output.push_str(&format!("slice: {slice_start}-{slice_end}\n\n"));
+	output.push_str("code:\n");
+	for (line_number, line) in source_text.lines().enumerate() {
+		let line_number = line_number + 1;
+		if line_number < slice_start || line_number > slice_end {
+			continue;
+		}
+		output.push_str(&format!("  {line_number:>4} | {line}\n"));
+	}
+	output.push_str("\nnext:\n");
+	output.push_str(&format!(
+		"  - code_moniker_symbols uri=\"{scheme}workspace\" name=\"{}\" limit=20\n",
+		symbol.name
+	));
+	output.push_str(&format!(
+		"  - code_moniker_symbols uri=\"{scheme}workspace\" path=\"{}\" limit=50\n",
+		source.rel_path
+	));
+	output
 }
 
 pub(in crate::mcp) fn render_explorer_lmnav(

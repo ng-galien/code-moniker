@@ -71,14 +71,19 @@ curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' 
 curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"code_moniker_read","arguments":{"uri":"workspace","depth":3,"limit":12}}}'
 curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"code_moniker_symbols","arguments":{"uri":"workspace","lang":"java","kind":"method","limit":5}}}'
+curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"code_moniker_symbols","arguments":{"uri":"workspace","action":"insights","lang":"java","limit":6}}}'
+curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"code_moniker_rules","arguments":{"uri":"workspace","action":"list","lang":"java","limit":5}}}'
 tmux kill-session -t cm-mcp-dogfood
 ```
 
 The TUI capture should first show the file tree, then symbol/linkage completion.
 RPC responses must expose LMNAV-shaped text with `uri`, `completeness`,
 `summary`/`explorer` or `results`, and `next` when paging applies. Also check at
-least one scoped read (`path` + `lang`) and one cursor follow-up before accepting
-MCP changes.
+least one scoped read (`path` + `lang`), one cursor follow-up, one
+`action:"insights"` call, and one `code_moniker_read` call against a symbol URI
+returned by `code_moniker_symbols` before accepting MCP changes. For rules
+changes, also run `code_moniker_rules action:"list"` and a bounded
+`code_moniker_rules action:"run"` call.
 
 Before code review, use a short gate:
 

@@ -52,10 +52,18 @@ text responses rather than JSON dumps:
 
 - `code_moniker_read`: workspace discovery. At `workspace` it returns file
   totals, language distribution, concentration by path prefix, language kind
-  hints, a paged explorer tree, and follow-up calls.
+  hints, a paged explorer tree, and follow-up calls. When called with an exact
+  symbol URI returned by `code_moniker_symbols`, it reads the source slice for
+  that symbol with optional `context_lines`.
 - `code_moniker_symbols`: paged symbol rows. It accepts `path`, `lang`,
   `kind`, `shape`, `name`, `limit`, and `cursor` so agents can narrow the
-  read before loading broad symbol output.
+  read before loading broad symbol output. Use `action = "insights"` for
+  symbolic metrics: kind/shape distribution, navigable symbol count, and files
+  concentrated by symbol or reference volume.
+- `code_moniker_rules`: project rule domain. Use `action = "list"` to inspect
+  compiled rules, messages, severities, and rationales for the workspace
+  languages. Use `action = "run"` to execute `code-moniker check` from the UI
+  workspace, optionally with `profile`, `file`, `rules`, and `limit`.
 
 Use `path` globs relative to the UI root, for example
 `crates/cli/src/mcp/**`. `limit` caps output rows and `cursor` resumes from

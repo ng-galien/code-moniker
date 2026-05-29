@@ -1,4 +1,5 @@
 pub(super) mod read;
+pub(super) mod rules;
 pub(in crate::mcp) mod scope;
 pub(in crate::mcp) mod symbols;
 
@@ -6,6 +7,7 @@ use serde_json::Value;
 
 use super::context::McpContext;
 use read::ReadTool;
+use rules::RulesTool;
 use symbols::SymbolsTool;
 
 pub(super) struct ToolDescriptor {
@@ -83,6 +85,7 @@ enum ToolErrorKind {
 
 pub(super) struct ToolRegistry {
 	read: ReadTool,
+	rules: RulesTool,
 	symbols: SymbolsTool,
 }
 
@@ -90,6 +93,7 @@ impl ToolRegistry {
 	pub(super) fn new() -> Self {
 		Self {
 			read: ReadTool,
+			rules: RulesTool,
 			symbols: SymbolsTool,
 		}
 	}
@@ -98,6 +102,7 @@ impl ToolRegistry {
 		vec![
 			self.read.descriptor().into_mcp_value(),
 			self.symbols.descriptor().into_mcp_value(),
+			self.rules.descriptor().into_mcp_value(),
 		]
 	}
 
@@ -110,6 +115,7 @@ impl ToolRegistry {
 		match name {
 			ReadTool::NAME => self.read.call(context, arguments),
 			SymbolsTool::NAME => self.symbols.call(context, arguments),
+			RulesTool::NAME => self.rules.call(context, arguments),
 			_ => Err(ToolError::unknown_tool(name)),
 		}
 	}
