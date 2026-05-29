@@ -41,12 +41,12 @@ fn read_root_summarizes_workspace_and_limits_explorer() {
 	let text = render_explorer_lmnav(
 		"code+moniker://",
 		"workspace",
-		2,
+		4,
 		&catalog,
-		&ScopeFilter::default(),
+		&ScopeFilter::from_arguments(&json!({"path": "root/src/**", "lang": "java"})).unwrap(),
 		Paging {
 			cursor: 0,
-			limit: 2,
+			limit: 1,
 		},
 	);
 	assert!(text.contains("uri: code+moniker://workspace"));
@@ -56,8 +56,12 @@ fn read_root_summarizes_workspace_and_limits_explorer() {
 	assert!(text.contains("java kinds:"));
 	assert!(text.contains("root/"));
 	assert!(text.contains("src/"));
-	assert!(!text.contains("App.java"));
-	assert!(text.contains("cursor=2"));
+	assert!(text.contains("cursor=1"));
+	assert!(text.contains("path=\"root/src/**\""));
+	assert!(text.contains("lang=\"java\""));
+	assert!(
+		text.contains("code_moniker_symbols uri=\"code+moniker://workspace\" path=\"root/src/**\" lang=\"java\" limit=50")
+	);
 }
 
 #[test]
@@ -104,6 +108,28 @@ fn registry_dispatches_read_tool() {
 }
 
 #[test]
+fn tool_limit_zero_is_rejected() {
+	let registry = ToolRegistry::new();
+	let context = McpContext::new(
+		SessionOptions {
+			paths: vec![PathBuf::from(".")],
+			project: None,
+			cache_dir: None,
+		},
+		"code+moniker://".to_string(),
+	);
+	let error = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({"uri": "workspace", "limit": 0}),
+		)
+		.unwrap_err();
+	assert!(error.to_string().contains("limit"));
+	assert!(error.to_string().contains("greater than zero"));
+}
+
+#[test]
 fn rules_tool_runs_check_on_workspace() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir");
@@ -138,11 +164,77 @@ fn rules_tool_runs_check_on_workspace() {
 }
 
 #[test]
+fn rules_tool_runs_check_on_multi_root_workspace() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let first = temp.path().join("first");
+	let second = temp.path().join("second");
+	std::fs::create_dir_all(first.join("src/main/java")).expect("mkdir first");
+	std::fs::create_dir_all(second.join("src/main/java")).expect("mkdir second");
+	std::fs::write(first.join("src/main/java/App.java"), "class App {}\n").expect("write first");
+	std::fs::write(second.join("src/main/java/Other.java"), "class Other {}\n")
+		.expect("write second");
+	std::fs::write(
+		temp.path().join(".code-moniker.toml"),
+		r#"
+		default_rules = false
+
+		[[java.class.where]]
+		id = "mcp-multiroot-class-rule"
+		expr = "name =~ ^[A-Z]"
+		message = "classes are pascal case"
+		"#,
+	)
+	.expect("write rules");
+	let registry = ToolRegistry::new();
+	let context = McpContext::new(
+		SessionOptions {
+			paths: vec![first.clone(), second.clone()],
+			project: None,
+			cache_dir: None,
+		},
+		"code+moniker://".to_string(),
+	);
+	let result = registry
+		.call(
+			&context,
+			"code_moniker_rules",
+			&json!({
+				"uri": "workspace",
+				"action": "run",
+				"limit": 5,
+				"report": false
+			}),
+		)
+		.expect("rules run");
+	assert!(!result.is_error);
+	assert!(result.text.contains("exit: match"));
+	assert!(result.text.contains(&format!("root: {}", first.display())));
+	assert!(result.text.contains(&format!("root: {}", second.display())));
+}
+
+#[test]
 fn rules_tool_lists_project_rules() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir");
 	std::fs::write(temp.path().join("src/main/java/App.java"), "class App {}\n")
 		.expect("write fixture");
+	std::fs::write(
+		temp.path().join(".code-moniker.toml"),
+		r#"
+		default_rules = false
+
+		[[java.class.where]]
+		id = "mcp-root-class-rule"
+		expr = "name =~ ^App$"
+		message = "loaded from workspace root"
+
+		[[java.method.where]]
+		id = "mcp-root-method-rule"
+		expr = "name =~ ^[a-z]"
+		message = "second rule for pagination"
+		"#,
+	)
+	.expect("write rules");
 	let registry = ToolRegistry::new();
 	let context = McpContext::new(
 		SessionOptions {
@@ -160,14 +252,20 @@ fn rules_tool_lists_project_rules() {
 				"uri": "workspace",
 				"action": "list",
 				"lang": "java",
-				"limit": 5
+				"severity": "error",
+				"limit": 1
 			}),
 		)
 		.expect("rules list");
 	assert!(!result.is_error);
 	assert!(result.text.contains("rules:"));
 	assert!(result.text.contains("scope:"));
+	assert!(result.text.contains("mcp-root-class-rule"));
+	assert!(result.text.contains("loaded from workspace root"));
 	assert!(result.text.contains("next:"));
+	assert!(result.text.contains("lang=\"java\""));
+	assert!(result.text.contains("severity=\"error\""));
+	assert!(result.text.contains("cursor=1"));
 }
 
 #[test]
@@ -197,7 +295,7 @@ fn symbols_tool_filters_and_pages_symbols() {
 		}),
 		SymbolRecord::from_fields(SymbolRecordFields {
 			id: SymbolId::new("symbol:2"),
-			source: source_id,
+			source: source_id.clone(),
 			identity: "code+moniker://./lang:java/package:src/class:App/method:run()".to_string(),
 			name: "run".to_string(),
 			kind: "method".to_string(),
@@ -206,9 +304,25 @@ fn symbols_tool_filters_and_pages_symbols() {
 			line_range: Some((4, 5)),
 			parent: None,
 		}),
+		SymbolRecord::from_fields(SymbolRecordFields {
+			id: SymbolId::new("symbol:3"),
+			source: source_id,
+			identity: "code+moniker://./lang:java/package:src/class:App/method:retry()".to_string(),
+			name: "retry".to_string(),
+			kind: "method".to_string(),
+			signature: String::new(),
+			navigable: true,
+			line_range: Some((6, 7)),
+			parent: None,
+		}),
 	];
-	let scope =
-		SymbolScopeFilter::from_arguments(&json!({"path": "src/**", "kind": "method"})).unwrap();
+	let scope = SymbolScopeFilter::from_arguments(&json!({
+		"path": "src/**",
+		"lang": "java",
+		"kind": "method",
+		"name": "^r"
+	}))
+	.unwrap();
 	let text = render_symbols_lmnav(
 		"code+moniker://",
 		"workspace",
@@ -224,9 +338,20 @@ fn symbols_tool_filters_and_pages_symbols() {
 		},
 		SymbolAction::List,
 	);
-	assert!(text.contains("symbols: 1"), "{text}");
+	assert!(text.contains("symbols: 2"), "{text}");
 	assert!(text.contains("method run src/App.java:4-5"), "{text}");
 	assert!(!text.contains("class App"), "{text}");
+	assert!(text.contains("path=\"src/**\""), "{text}");
+	assert!(text.contains("lang=\"java\""), "{text}");
+	assert!(text.contains("kind=\"method\""), "{text}");
+	assert!(text.contains("name=\"^r\""), "{text}");
+	assert!(text.contains("cursor=1"), "{text}");
+	assert!(
+		text.contains(
+			"code_moniker_read uri=\"code+moniker://workspace\" path=\"src/**\" lang=\"java\" depth=2"
+		),
+		"{text}"
+	);
 }
 
 #[test]
@@ -372,4 +497,72 @@ fn http_tool_call_reads_workspace_explorer() {
 	assert!(response.contains("HTTP/1.1 200 OK"));
 	assert!(response.contains("uri: code+moniker://workspace"));
 	assert!(response.contains("App.java [java]"));
+}
+
+#[test]
+fn http_cors_allows_only_loopback_origins() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir");
+	std::fs::write(temp.path().join("src/main/java/App.java"), "class App {}\n")
+		.expect("write fixture");
+	let server = start(
+		SessionOptions {
+			paths: vec![temp.path().to_path_buf()],
+			project: None,
+			cache_dir: None,
+		},
+		"code+moniker://".to_string(),
+		0,
+	)
+	.expect("server");
+	let allowed = post_rpc(
+		server_addr(&server),
+		Some("http://localhost:3000"),
+		&json!({
+			"jsonrpc": "2.0",
+			"id": 8,
+			"method": "tools/list"
+		}),
+	);
+	assert!(allowed.contains("HTTP/1.1 200 OK"));
+	assert!(allowed.contains("Access-Control-Allow-Origin: http://localhost:3000"));
+	let forbidden = post_rpc(
+		server_addr(&server),
+		Some("https://evil.example"),
+		&json!({
+			"jsonrpc": "2.0",
+			"id": 9,
+			"method": "tools/list"
+		}),
+	);
+	assert!(forbidden.contains("HTTP/1.1 403 Forbidden"));
+	assert!(!forbidden.contains("Access-Control-Allow-Origin"));
+	let forged_loopback = post_rpc(
+		server_addr(&server),
+		Some("http://localhost:3000.evil.example"),
+		&json!({
+			"jsonrpc": "2.0",
+			"id": 10,
+			"method": "tools/list"
+		}),
+	);
+	assert!(forged_loopback.contains("HTTP/1.1 403 Forbidden"));
+	assert!(!forged_loopback.contains("Access-Control-Allow-Origin"));
+}
+
+fn post_rpc(addr: std::net::SocketAddr, origin: Option<&str>, body: &serde_json::Value) -> String {
+	let body = body.to_string();
+	let mut stream = TcpStream::connect(addr).expect("connect");
+	write!(
+		stream,
+		"POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n"
+	)
+	.expect("request head");
+	if let Some(origin) = origin {
+		write!(stream, "Origin: {origin}\r\n").expect("origin");
+	}
+	write!(stream, "Content-Length: {}\r\n\r\n{}", body.len(), body).expect("request body");
+	let mut response = String::new();
+	stream.read_to_string(&mut response).expect("response");
+	response
 }

@@ -1,14 +1,22 @@
 use crate::session::SessionOptions;
 
+use super::tools::workspace::McpWorkspace;
+
 #[derive(Clone)]
 pub(super) struct McpContext {
 	opts: SessionOptions,
 	scheme: String,
+	workspace: McpWorkspace,
 }
 
 impl McpContext {
 	pub(super) fn new(opts: SessionOptions, scheme: String) -> Self {
-		Self { opts, scheme }
+		let workspace = McpWorkspace::new(&opts);
+		Self {
+			opts,
+			scheme,
+			workspace,
+		}
 	}
 
 	pub(super) fn opts(&self) -> &SessionOptions {
@@ -17,5 +25,9 @@ impl McpContext {
 
 	pub(super) fn scheme(&self) -> &str {
 		&self.scheme
+	}
+
+	pub(super) fn workspace(&self) -> &McpWorkspace {
+		&self.workspace
 	}
 }

@@ -52,7 +52,10 @@ pub(crate) fn start(opts: SessionOptions, scheme: String, port: u16) -> anyhow::
 fn serve(listener: TcpListener, running: Arc<AtomicBool>, context: McpContext) {
 	while running.load(Ordering::Acquire) {
 		match listener.accept() {
-			Ok((stream, _)) => handle_stream(stream, &context),
+			Ok((stream, _)) => {
+				let context = context.clone();
+				thread::spawn(move || handle_stream(stream, &context));
+			}
 			Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
 				thread::sleep(Duration::from_millis(25));
 			}
@@ -62,6 +65,8 @@ fn serve(listener: TcpListener, running: Arc<AtomicBool>, context: McpContext) {
 }
 
 fn handle_stream(mut stream: TcpStream, context: &McpContext) {
+	let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+	let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
 	let response = transport::read_http_request(&mut stream)
 		.and_then(|request| handle_http_request(request, context))
 		.unwrap_or_else(transport::error_response);
@@ -73,18 +78,26 @@ fn handle_http_request(
 	request: transport::HttpRequest,
 	context: &McpContext,
 ) -> anyhow::Result<String> {
+	let origin = request.origin.as_deref();
+	if origin.is_some_and(|origin| !transport::is_allowed_origin(origin)) {
+		return Ok(transport::http_json(
+			403,
+			json!({"error": "forbidden_origin"}),
+		));
+	}
 	if request.method == "OPTIONS" {
-		return Ok(transport::http_response(204, ""));
+		return Ok(transport::http_response(204, "", origin));
 	}
 	if request.method != "POST" || request.path != transport::MCP_PATH {
-		return Ok(transport::http_json(
+		return Ok(transport::http_json_with_origin(
 			404,
 			json!({"error": "not_found", "path": request.path}),
+			origin,
 		));
 	}
 	let request: Value = serde_json::from_slice(&request.body)?;
 	let response = dispatch::handle_json_rpc(&request, context);
-	Ok(transport::http_json(200, response))
+	Ok(transport::http_json_with_origin(200, response, origin))
 }
 
 #[cfg(test)]

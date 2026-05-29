@@ -1,16 +1,9 @@
 use std::collections::BTreeMap;
 
-use code_moniker_workspace::facade::{
-	LocalWorkspaceOptions, WorkspaceFacade, local_workspace_ports,
-};
-use code_moniker_workspace::snapshot::{
-	ReferenceRecord, SourceFileRecord, SourceId, SymbolRecord, WorkspaceRequest,
-	WorkspaceTransition,
-};
-use code_moniker_workspace::source::LocalResourceCache;
+use code_moniker_workspace::snapshot::{ReferenceRecord, SourceFileRecord, SourceId, SymbolRecord};
 use serde_json::{Value, json};
 
-use super::scope::{Paging, SymbolScopeFilter};
+use super::scope::{Paging, SymbolScopeFilter, append_call_number_arg, append_call_string_arg};
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
@@ -167,32 +160,19 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 			context.scheme()
 		);
 	}
-	let opts = context.opts();
-	let mut workspace = WorkspaceFacade::new(local_workspace_ports(
-		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
-			.with_cache_dir(opts.cache_dir.clone()),
-		LocalResourceCache::default(),
-	));
-	match workspace.load_index(WorkspaceRequest::new("mcp-symbols")) {
-		WorkspaceTransition::Ready { .. } => {
-			let Some(snapshot) = workspace.snapshot() else {
-				anyhow::bail!("workspace index snapshot is unavailable");
-			};
-			Ok(render_symbols_lmnav(
-				context.scheme(),
-				uri,
-				&request.scope,
-				request.paging,
-				SymbolIndexView {
-					sources: &snapshot.index.sources,
-					symbols: &snapshot.index.symbols,
-					references: &snapshot.index.references,
-				},
-				request.action,
-			))
-		}
-		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
-	}
+	let snapshot = context.workspace().load_index_snapshot("mcp-symbols")?;
+	Ok(render_symbols_lmnav(
+		context.scheme(),
+		uri,
+		&request.scope,
+		request.paging,
+		SymbolIndexView {
+			sources: &snapshot.index.sources,
+			symbols: &snapshot.index.symbols,
+			references: &snapshot.index.references,
+		},
+		request.action,
+	))
 }
 
 fn is_workspace_uri(uri: &str, scheme: &str) -> bool {
@@ -294,17 +274,17 @@ fn render_symbol_list_lmnav(
 	}
 	output.push_str("\nnext:\n");
 	if let Some(next) = next {
-		output.push_str(&format!(
-			"  - code_moniker_symbols uri=\"{scheme}workspace\" action=\"list\" limit={} cursor={next}\n",
-			paging.limit
-		));
+		append_symbols_next_call(
+			&mut output,
+			scheme,
+			scope,
+			SymbolAction::List,
+			paging.limit,
+			Some(next),
+		);
 	}
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\" action=\"insights\" limit=20\n"
-	));
-	output.push_str(&format!(
-		"  - code_moniker_read uri=\"{scheme}workspace\" depth=2\n"
-	));
+	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::Insights, 20, None);
+	append_read_call(&mut output, scheme, scope, 2);
 	output
 }
 
@@ -356,13 +336,43 @@ fn render_symbol_insights_lmnav(
 	output.push('\n');
 	metrics.render(&mut output, paging.limit);
 	output.push_str("next:\n");
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\" action=\"list\" limit=50\n"
-	));
-	output.push_str(&format!(
-		"  - code_moniker_read uri=\"{scheme}workspace\" depth=3\n"
-	));
+	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::List, 50, None);
+	append_read_call(&mut output, scheme, scope, 3);
 	output
+}
+
+fn append_symbols_next_call(
+	output: &mut String,
+	scheme: &str,
+	scope: &SymbolScopeFilter,
+	action: SymbolAction,
+	limit: usize,
+	cursor: Option<usize>,
+) {
+	output.push_str(&format!(
+		"  - code_moniker_symbols uri=\"{scheme}workspace\""
+	));
+	append_call_string_arg(
+		output,
+		"action",
+		match action {
+			SymbolAction::List => "list",
+			SymbolAction::Insights => "insights",
+		},
+	);
+	scope.append_call_args(output);
+	append_call_number_arg(output, "limit", limit);
+	if let Some(cursor) = cursor {
+		append_call_number_arg(output, "cursor", cursor);
+	}
+	output.push('\n');
+}
+
+fn append_read_call(output: &mut String, scheme: &str, scope: &SymbolScopeFilter, depth: usize) {
+	output.push_str(&format!("  - code_moniker_read uri=\"{scheme}workspace\""));
+	scope.files.append_call_args(output);
+	append_call_number_arg(output, "depth", depth);
+	output.push('\n');
 }
 
 #[derive(Default)]

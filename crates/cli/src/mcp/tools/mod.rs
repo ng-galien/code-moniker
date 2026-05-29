@@ -2,6 +2,7 @@ pub(super) mod read;
 pub(super) mod rules;
 pub(in crate::mcp) mod scope;
 pub(in crate::mcp) mod symbols;
+pub(super) mod workspace;
 
 use serde_json::Value;
 

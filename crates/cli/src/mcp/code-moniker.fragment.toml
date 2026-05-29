@@ -1,12 +1,42 @@
 fragment = "cli-mcp"
 
 [aliases]
-mcp_root = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/**'"
-mcp_server = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:server/**'"
-mcp_transport = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:transport/**'"
-mcp_dispatch = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:dispatch/**'"
-mcp_tools = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tools/**'"
-mcp_tests = "source ~ '**/dir:crates/dir:cli/dir:src/module:mcp/module:tests/**'"
+mcp_root = """
+  source ~ '**/module:mcp'
+  OR source ~ '**/module:mcp/**'
+  OR source ~ '**/lang:rs/module:/^(context|dispatch|lmnav|mod|server|tests|transport)$/'
+  OR source ~ '**/lang:rs/module:/^(context|dispatch|lmnav|mod|server|tests|transport)$/**'
+  OR source ~ '**/lang:rs/dir:tools/**'
+"""
+mcp_server = """
+  source ~ '**/module:mcp/module:server'
+  OR source ~ '**/module:mcp/module:server/**'
+  OR source ~ '**/lang:rs/module:server'
+  OR source ~ '**/lang:rs/module:server/**'
+"""
+mcp_transport = """
+  source ~ '**/module:mcp/module:transport'
+  OR source ~ '**/module:mcp/module:transport/**'
+  OR source ~ '**/lang:rs/module:transport'
+  OR source ~ '**/lang:rs/module:transport/**'
+"""
+mcp_dispatch = """
+  source ~ '**/module:mcp/module:dispatch'
+  OR source ~ '**/module:mcp/module:dispatch/**'
+  OR source ~ '**/lang:rs/module:dispatch'
+  OR source ~ '**/lang:rs/module:dispatch/**'
+"""
+mcp_tools = """
+  source ~ '**/module:mcp/module:tools'
+  OR source ~ '**/module:mcp/module:tools/**'
+  OR source ~ '**/lang:rs/dir:tools/**'
+"""
+mcp_tests = """
+  source ~ '**/module:mcp/module:tests'
+  OR source ~ '**/module:mcp/module:tests/**'
+  OR source ~ '**/lang:rs/module:tests'
+  OR source ~ '**/lang:rs/module:tests/**'
+"""
 workspace_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
 http_runtime_target = "target ~ '**/path:/^(TcpListener|TcpStream|AtomicBool|JoinHandle)$/'"
 

@@ -49,6 +49,11 @@ impl ScopeFilter {
 		}
 		lines
 	}
+
+	pub(super) fn append_call_args(&self, output: &mut String) {
+		append_repeated_call_args(output, "path", &self.paths);
+		append_repeated_call_args(output, "lang", &self.langs);
+	}
 }
 
 #[derive(Clone, Debug)]
@@ -120,6 +125,23 @@ impl SymbolScopeFilter {
 		}
 		lines
 	}
+
+	pub(super) fn append_call_args(&self, output: &mut String) {
+		self.files.append_call_args(output);
+		append_repeated_call_args(output, "kind", &self.kinds);
+		let shapes = self
+			.shapes
+			.iter()
+			.map(|shape| shape.as_str().to_string())
+			.collect::<Vec<_>>();
+		append_repeated_call_args(output, "shape", &shapes);
+		if let Some(name) = &self.name {
+			append_call_string_arg(output, "name", name.as_str());
+		}
+		if self.include_non_navigable {
+			append_call_bool_arg(output, "include_non_navigable", true);
+		}
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -131,7 +153,7 @@ pub(in crate::mcp) struct Paging {
 impl Paging {
 	pub(super) fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
 		let cursor = number_argument(arguments, "cursor")?.unwrap_or(0);
-		let limit = number_argument(arguments, "limit")?
+		let limit = positive_number_argument(arguments, "limit")?
 			.unwrap_or(DEFAULT_LIMIT)
 			.min(MAX_LIMIT);
 		Ok(Self { cursor, limit })
@@ -192,6 +214,40 @@ pub(super) fn string_list(arguments: &Value, key: &str) -> anyhow::Result<Vec<St
 	}
 }
 
+pub(super) fn append_call_string_arg(output: &mut String, key: &str, value: &str) {
+	output.push(' ');
+	output.push_str(key);
+	output.push_str("=\"");
+	for ch in value.chars() {
+		match ch {
+			'\\' => output.push_str("\\\\"),
+			'"' => output.push_str("\\\""),
+			_ => output.push(ch),
+		}
+	}
+	output.push('"');
+}
+
+pub(super) fn append_call_number_arg(output: &mut String, key: &str, value: usize) {
+	output.push(' ');
+	output.push_str(key);
+	output.push('=');
+	output.push_str(&value.to_string());
+}
+
+pub(super) fn append_call_bool_arg(output: &mut String, key: &str, value: bool) {
+	output.push(' ');
+	output.push_str(key);
+	output.push('=');
+	output.push_str(if value { "true" } else { "false" });
+}
+
+pub(super) fn append_repeated_call_args(output: &mut String, key: &str, values: &[String]) {
+	for value in values {
+		append_call_string_arg(output, key, value);
+	}
+}
+
 fn split_csv(value: &str) -> Vec<String> {
 	value
 		.split(',')
@@ -216,6 +272,14 @@ fn number_argument(arguments: &Value, key: &str) -> anyhow::Result<Option<usize>
 			.map_err(|err| anyhow::anyhow!("invalid `{key}` value `{raw}`: {err}")),
 		_ => anyhow::bail!("`{key}` must be an integer"),
 	}
+}
+
+fn positive_number_argument(arguments: &Value, key: &str) -> anyhow::Result<Option<usize>> {
+	let value = number_argument(arguments, key)?;
+	if matches!(value, Some(0)) {
+		anyhow::bail!("`{key}` must be greater than zero");
+	}
+	Ok(value)
 }
 
 fn normalize_path_pattern(pattern: &str) -> anyhow::Result<String> {

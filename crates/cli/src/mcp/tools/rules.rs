@@ -1,14 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use code_moniker_core::lang::Lang;
-use code_moniker_workspace::facade::{
-	LocalWorkspaceOptions, WorkspaceFacade, local_workspace_ports,
-};
-use code_moniker_workspace::snapshot::{WorkspaceRequest, WorkspaceTransition};
-use code_moniker_workspace::source::LocalResourceCache;
 use serde_json::{Value, json};
 
-use super::scope::{Paging, string_list};
+use super::scope::{
+	Paging, append_call_bool_arg, append_call_number_arg, append_call_string_arg, string_list,
+};
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::args::{CheckArgs, CheckFormat};
 use crate::check::{self, RuleSeverity};
@@ -194,7 +191,8 @@ fn rules_action_from_arguments(arguments: &Value) -> anyhow::Result<RulesAction>
 fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<String> {
 	ensure_workspace_uri(&request.uri, context.scheme())?;
 	let langs = workspace_languages(context, &request.langs)?;
-	let mut config = check::load_with_cli_default_rules(Some(&request.rules), None)?;
+	let rules_path = resolve_rules_path(context, &request.rules)?;
+	let mut config = check::load_with_cli_default_rules(Some(&rules_path), None)?;
 	if let Some(profile) = &request.profile {
 		config.apply_profile(profile)?;
 	}
@@ -204,11 +202,7 @@ fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<St
 		specs.extend(compiled.specs(lang));
 	}
 	specs.retain(|spec| {
-		request.severities.is_empty()
-			|| request
-				.severities
-				.iter()
-				.any(|severity| *severity == spec.severity)
+		request.severities.is_empty() || request.severities.contains(&spec.severity)
 	});
 	specs.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
 	let (start, end, next) = request.paging.window(&specs);
@@ -235,25 +229,83 @@ fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<St
 	}
 	output.push_str("\nnext:\n");
 	if let Some(next) = next {
-		output.push_str(&format!(
-			"  - code_moniker_rules uri=\"{}workspace\" action=\"list\" limit={} cursor={next}\n",
+		append_rules_next_call(
+			&mut output,
 			context.scheme(),
-			request.paging.limit
-		));
+			request,
+			RulesAction::List,
+			request.paging.limit,
+			Some(next),
+		);
 	}
-	output.push_str(&format!(
-		"  - code_moniker_rules uri=\"{}workspace\" action=\"run\" limit=20\n",
-		context.scheme()
-	));
+	append_rules_next_call(
+		&mut output,
+		context.scheme(),
+		request,
+		RulesAction::Run,
+		20,
+		None,
+	);
 	Ok(output)
 }
 
 fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<String> {
 	ensure_workspace_uri(&request.uri, context.scheme())?;
-	let root = single_workspace_root(context)?;
+	let rules_path = resolve_rules_path(context, &request.rules)?;
+	let outcomes = run_rules_for_roots(context, request, &rules_path);
+	let exit = aggregate_exit(&outcomes);
+	let mut output = String::new();
+	output.push_str(&format!("uri: {}\n", normalize_rules_uri(context.scheme())));
+	output.push_str("completeness: full\n");
+	output.push_str("action: run\n");
+	output.push_str(&format!("exit: {}\n", exit_label(exit)));
+	output.push_str(&format!("limit: {}\n\n", request.paging.limit));
+	render_rules_scope(&mut output, request);
+	output.push_str("report:\n");
+	for outcome in &outcomes {
+		output.push_str(&format!("  root: {}\n", outcome.root.display()));
+		render_prefixed_block(&mut output, outcome.stdout.trim_end(), "    ");
+		if !outcome.stderr.trim().is_empty() {
+			output.push_str("  stderr:\n");
+			render_prefixed_block(&mut output, outcome.stderr.trim_end(), "    ");
+		}
+	}
+	output.push_str("\nnext:\n");
+	append_rules_next_call(
+		&mut output,
+		context.scheme(),
+		request,
+		RulesAction::List,
+		50,
+		None,
+	);
+	Ok(output)
+}
+
+struct RulesRunOutcome {
+	root: PathBuf,
+	exit: Exit,
+	stdout: String,
+	stderr: String,
+}
+
+fn run_rules_for_roots(
+	context: &McpContext,
+	request: &RulesRequest,
+	rules_path: &Path,
+) -> Vec<RulesRunOutcome> {
+	context
+		.opts()
+		.paths
+		.iter()
+		.map(|root| run_rules_for_root(root, request, rules_path))
+		.collect()
+}
+
+fn run_rules_for_root(root: &Path, request: &RulesRequest, rules_path: &Path) -> RulesRunOutcome {
 	let args = CheckArgs {
-		path: root,
-		rules: request.rules.clone(),
+		path: root.to_path_buf(),
+		rules: rules_path.to_path_buf(),
 		format: CheckFormat::Text,
 		default_rules: None::<DefaultRules>,
 		report: request.report,
@@ -264,66 +316,40 @@ fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<Str
 	let mut stdout = Vec::new();
 	let mut stderr = Vec::new();
 	let exit = check::run(&args, &mut stdout, &mut stderr);
-	let report = String::from_utf8_lossy(&stdout);
-	let errors = String::from_utf8_lossy(&stderr);
-	let mut output = String::new();
-	output.push_str(&format!("uri: {}\n", normalize_rules_uri(context.scheme())));
-	output.push_str("completeness: full\n");
-	output.push_str("action: run\n");
-	output.push_str(&format!("exit: {}\n", exit_label(exit)));
-	output.push_str(&format!("limit: {}\n\n", request.paging.limit));
-	render_rules_scope(&mut output, request);
-	output.push_str("report:\n");
-	render_indented_block(&mut output, report.trim_end());
-	if !errors.trim().is_empty() {
-		output.push_str("stderr:\n");
-		render_indented_block(&mut output, errors.trim_end());
+	RulesRunOutcome {
+		root: root.to_path_buf(),
+		exit,
+		stdout: String::from_utf8_lossy(&stdout).to_string(),
+		stderr: String::from_utf8_lossy(&stderr).to_string(),
 	}
-	output.push_str("\nnext:\n");
-	output.push_str(&format!(
-		"  - code_moniker_rules uri=\"{}workspace\" action=\"list\" limit=50\n",
-		context.scheme()
-	));
-	Ok(output)
+}
+
+fn aggregate_exit(outcomes: &[RulesRunOutcome]) -> Exit {
+	if outcomes
+		.iter()
+		.any(|outcome| outcome.exit == Exit::UsageError)
+	{
+		Exit::UsageError
+	} else if outcomes.iter().any(|outcome| outcome.exit == Exit::NoMatch) {
+		Exit::NoMatch
+	} else {
+		Exit::Match
+	}
 }
 
 fn workspace_languages(context: &McpContext, filter: &[String]) -> anyhow::Result<Vec<Lang>> {
-	let opts = context.opts();
-	let mut workspace = WorkspaceFacade::new(local_workspace_ports(
-		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
-			.with_cache_dir(opts.cache_dir.clone()),
-		LocalResourceCache::default(),
-	));
-	match workspace.load_catalog(WorkspaceRequest::new("mcp-rules")) {
-		WorkspaceTransition::Ready { .. } => {
-			let Some(snapshot) = workspace.snapshot() else {
-				anyhow::bail!("workspace catalog snapshot is unavailable");
-			};
-			let mut langs = snapshot
-				.catalog
-				.sources
-				.iter()
-				.filter_map(|source| source.language.as_deref())
-				.filter(|tag| filter.is_empty() || filter.iter().any(|allowed| allowed == tag))
-				.filter_map(Lang::from_tag)
-				.collect::<Vec<_>>();
-			langs.sort_by_key(|lang| lang.tag());
-			langs.dedup();
-			Ok(langs)
-		}
-		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
-	}
-}
-
-fn single_workspace_root(context: &McpContext) -> anyhow::Result<PathBuf> {
-	let paths = &context.opts().paths;
-	match paths.as_slice() {
-		[root] => Ok(root.clone()),
-		[] => anyhow::bail!("rules run requires one workspace root"),
-		_ => anyhow::bail!(
-			"rules run currently requires one workspace root; use file-scoped calls per root"
-		),
-	}
+	let snapshot = context.workspace().load_catalog_snapshot("mcp-rules")?;
+	let mut langs = snapshot
+		.catalog
+		.sources
+		.iter()
+		.filter_map(|source| source.language.as_deref())
+		.filter(|tag| filter.is_empty() || filter.iter().any(|allowed| allowed == tag))
+		.filter_map(Lang::from_tag)
+		.collect::<Vec<_>>();
+	langs.sort_by_key(|lang| lang.tag());
+	langs.dedup();
+	Ok(langs)
 }
 
 fn ensure_workspace_uri(uri: &str, scheme: &str) -> anyhow::Result<()> {
@@ -337,6 +363,42 @@ fn ensure_workspace_uri(uri: &str, scheme: &str) -> anyhow::Result<()> {
 		return Ok(());
 	}
 	anyhow::bail!("unsupported URI; use workspace or {scheme}workspace")
+}
+
+fn resolve_rules_path(context: &McpContext, rules: &Path) -> anyhow::Result<PathBuf> {
+	if rules.is_absolute() {
+		return Ok(rules.to_path_buf());
+	}
+	Ok(workspace_config_root(context)?.join(rules))
+}
+
+fn workspace_config_root(context: &McpContext) -> anyhow::Result<PathBuf> {
+	let roots = context
+		.opts()
+		.paths
+		.iter()
+		.map(|path| {
+			if path.is_dir() {
+				path.clone()
+			} else {
+				path.parent()
+					.unwrap_or_else(|| Path::new("."))
+					.to_path_buf()
+			}
+		})
+		.collect::<Vec<_>>();
+	let Some(first) = roots.first() else {
+		anyhow::bail!("rules require at least one workspace root");
+	};
+	let mut common = first.clone();
+	for root in roots.iter().skip(1) {
+		while !root.starts_with(&common) {
+			if !common.pop() {
+				anyhow::bail!("cannot find common root for MCP rules");
+			}
+		}
+	}
+	Ok(common)
 }
 
 fn normalize_rules_uri(scheme: &str) -> String {
@@ -380,6 +442,54 @@ fn render_rules_scope(output: &mut String, request: &RulesRequest) {
 	output.push('\n');
 }
 
+fn append_rules_next_call(
+	output: &mut String,
+	scheme: &str,
+	request: &RulesRequest,
+	action: RulesAction,
+	limit: usize,
+	cursor: Option<usize>,
+) {
+	output.push_str(&format!("  - code_moniker_rules uri=\"{scheme}workspace\""));
+	append_call_string_arg(
+		output,
+		"action",
+		match action {
+			RulesAction::List => "list",
+			RulesAction::Run => "run",
+		},
+	);
+	if let Some(profile) = &request.profile {
+		append_call_string_arg(output, "profile", profile);
+	}
+	if request.rules != Path::new(".code-moniker.toml") {
+		append_call_string_arg(output, "rules", &request.rules.display().to_string());
+	}
+	match action {
+		RulesAction::List => {
+			for lang in &request.langs {
+				append_call_string_arg(output, "lang", lang);
+			}
+			for severity in &request.severities {
+				append_call_string_arg(output, "severity", severity.as_str());
+			}
+		}
+		RulesAction::Run => {
+			for file in &request.files {
+				append_call_string_arg(output, "file", &file.display().to_string());
+			}
+			if !request.report {
+				append_call_bool_arg(output, "report", false);
+			}
+		}
+	}
+	append_call_number_arg(output, "limit", limit);
+	if let Some(cursor) = cursor {
+		append_call_number_arg(output, "cursor", cursor);
+	}
+	output.push('\n');
+}
+
 fn render_rule_spec(output: &mut String, spec: &check::CompiledRuleSpec) {
 	output.push_str(&format!(
 		"  - {} [{}] domain={}\n",
@@ -397,12 +507,17 @@ fn render_rule_spec(output: &mut String, spec: &check::CompiledRuleSpec) {
 }
 
 fn render_indented_block(output: &mut String, text: &str) {
+	render_prefixed_block(output, text, "  ");
+}
+
+fn render_prefixed_block(output: &mut String, text: &str, prefix: &str) {
 	if text.is_empty() {
-		output.push_str("  <empty>\n");
+		output.push_str(prefix);
+		output.push_str("<empty>\n");
 		return;
 	}
 	for line in text.lines() {
-		output.push_str("  ");
+		output.push_str(prefix);
 		output.push_str(line);
 		output.push('\n');
 	}

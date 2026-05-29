@@ -1,16 +1,11 @@
 use std::collections::BTreeMap;
 
-use code_moniker_workspace::facade::{
-	LocalWorkspaceOptions, WorkspaceFacade, local_workspace_ports,
-};
-use code_moniker_workspace::snapshot::{
-	SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord, WorkspaceRequest,
-	WorkspaceTransition,
-};
-use code_moniker_workspace::source::LocalResourceCache;
+use code_moniker_workspace::snapshot::{SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord};
 use serde_json::{Value, json};
 
-use super::scope::{Paging, ScopeFilter, path_prefix};
+use super::scope::{
+	Paging, ScopeFilter, append_call_number_arg, append_call_string_arg, path_prefix,
+};
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::language_kinds;
 use crate::mcp::context::McpContext;
@@ -165,66 +160,40 @@ fn read_workspace(
 	scope: &ScopeFilter,
 	paging: Paging,
 ) -> anyhow::Result<String> {
-	let opts = context.opts();
-	let mut workspace = WorkspaceFacade::new(local_workspace_ports(
-		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
-			.with_cache_dir(opts.cache_dir.clone()),
-		LocalResourceCache::default(),
-	));
-	match workspace.load_catalog(WorkspaceRequest::new("mcp-read")) {
-		WorkspaceTransition::Ready { .. } => {
-			let Some(snapshot) = workspace.snapshot() else {
-				anyhow::bail!("workspace catalog snapshot is unavailable");
-			};
-			Ok(render_explorer_lmnav(
-				context.scheme(),
-				uri,
-				depth,
-				&snapshot.catalog,
-				scope,
-				paging,
-			))
-		}
-		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
-	}
+	let snapshot = context.workspace().load_catalog_snapshot("mcp-read")?;
+	Ok(render_explorer_lmnav(
+		context.scheme(),
+		uri,
+		depth,
+		&snapshot.catalog,
+		scope,
+		paging,
+	))
 }
 
 fn read_symbol(context: &McpContext, uri: &str, context_lines: usize) -> anyhow::Result<String> {
-	let opts = context.opts();
-	let mut workspace = WorkspaceFacade::new(local_workspace_ports(
-		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
-			.with_cache_dir(opts.cache_dir.clone()),
-		LocalResourceCache::default(),
-	));
-	match workspace.load_index(WorkspaceRequest::new("mcp-read-symbol")) {
-		WorkspaceTransition::Ready { .. } => {
-			let Some(snapshot) = workspace.snapshot() else {
-				anyhow::bail!("workspace index snapshot is unavailable");
-			};
-			let symbol = snapshot
-				.index
-				.symbols
-				.iter()
-				.find(|symbol| symbol.identity == uri || symbol.id.as_str() == uri)
-				.ok_or_else(|| anyhow::anyhow!("symbol URI not found: {uri}"))?;
-			let source = snapshot
-				.index
-				.sources
-				.iter()
-				.find(|source| source.id == symbol.source)
-				.ok_or_else(|| anyhow::anyhow!("source not found for symbol: {uri}"))?;
-			let source_text = std::fs::read_to_string(&source.path)
-				.map_err(|err| anyhow::anyhow!("cannot read {}: {err}", source.path))?;
-			Ok(render_symbol_source_lmnav(
-				context.scheme(),
-				symbol,
-				source,
-				&source_text,
-				context_lines,
-			))
-		}
-		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
-	}
+	let snapshot = context.workspace().load_index_snapshot("mcp-read-symbol")?;
+	let symbol = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity == uri || symbol.id.as_str() == uri)
+		.ok_or_else(|| anyhow::anyhow!("symbol URI not found: {uri}"))?;
+	let source = snapshot
+		.index
+		.sources
+		.iter()
+		.find(|source| source.id == symbol.source)
+		.ok_or_else(|| anyhow::anyhow!("source not found for symbol: {uri}"))?;
+	let source_text = std::fs::read_to_string(&source.path)
+		.map_err(|err| anyhow::anyhow!("cannot read {}: {err}", source.path))?;
+	Ok(render_symbol_source_lmnav(
+		context.scheme(),
+		symbol,
+		source,
+		&source_text,
+		context_lines,
+	))
 }
 
 fn is_workspace_uri(uri: &str, scheme: &str) -> bool {
@@ -277,13 +246,17 @@ pub(in crate::mcp) fn render_symbol_source_lmnav(
 	}
 	output.push_str("\nnext:\n");
 	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\" name=\"{}\" limit=20\n",
-		symbol.name
+		"  - code_moniker_symbols uri=\"{scheme}workspace\""
 	));
+	append_call_string_arg(&mut output, "name", &symbol.name);
+	append_call_number_arg(&mut output, "limit", 20);
+	output.push('\n');
 	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\" path=\"{}\" limit=50\n",
-		source.rel_path
+		"  - code_moniker_symbols uri=\"{scheme}workspace\""
 	));
+	append_call_string_arg(&mut output, "path", &source.rel_path);
+	append_call_number_arg(&mut output, "limit", 50);
+	output.push('\n');
 	output
 }
 
@@ -334,25 +307,51 @@ pub(in crate::mcp) fn render_explorer_lmnav(
 		output.push_str("  <empty>\n");
 	} else {
 		for line in lines.iter().take(end).skip(start) {
-			output.push_str(&line);
+			output.push_str(line);
 			output.push('\n');
 		}
 	}
 	output.push_str("\nnext:\n");
 	if let Some(next) = next {
-		output.push_str(&format!(
-			"  - code_moniker_read uri=\"{scheme}workspace\" depth={depth} limit={} cursor={next}\n",
-			paging.limit
-		));
+		append_read_next_call(&mut output, scheme, scope, depth, paging.limit, Some(next));
 	}
-	output.push_str(&format!(
-		"  - code_moniker_read uri=\"{scheme}workspace\" depth={}\n",
-		(depth + 1).min(MAX_DEPTH)
-	));
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\" limit=50\n"
-	));
+	append_read_next_call(
+		&mut output,
+		scheme,
+		scope,
+		(depth + 1).min(MAX_DEPTH),
+		paging.limit,
+		None,
+	);
+	append_symbols_call(&mut output, scheme, scope, 50);
 	output
+}
+
+fn append_read_next_call(
+	output: &mut String,
+	scheme: &str,
+	scope: &ScopeFilter,
+	depth: usize,
+	limit: usize,
+	cursor: Option<usize>,
+) {
+	output.push_str(&format!("  - code_moniker_read uri=\"{scheme}workspace\""));
+	scope.append_call_args(output);
+	append_call_number_arg(output, "depth", depth);
+	append_call_number_arg(output, "limit", limit);
+	if let Some(cursor) = cursor {
+		append_call_number_arg(output, "cursor", cursor);
+	}
+	output.push('\n');
+}
+
+fn append_symbols_call(output: &mut String, scheme: &str, scope: &ScopeFilter, limit: usize) {
+	output.push_str(&format!(
+		"  - code_moniker_symbols uri=\"{scheme}workspace\""
+	));
+	scope.append_call_args(output);
+	append_call_number_arg(output, "limit", limit);
+	output.push('\n');
 }
 
 fn normalize_workspace_uri(scheme: &str, request_uri: &str) -> String {
@@ -449,6 +448,13 @@ impl WorkspaceSummary {
 
 	fn render(&self, output: &mut String) {
 		output.push_str("summary:\n");
+		self.render_languages(output);
+		self.render_concentration(output);
+		self.render_hints(output);
+		output.push('\n');
+	}
+
+	fn render_languages(&self, output: &mut String) {
 		output.push_str("  languages:\n");
 		if self.languages.is_empty() {
 			output.push_str("    <empty>\n");
@@ -457,19 +463,21 @@ impl WorkspaceSummary {
 				output.push_str(&format!("    {language}: {count}\n"));
 			}
 		}
+	}
+
+	fn render_concentration(&self, output: &mut String) {
 		output.push_str("  concentration:\n");
 		if self.prefixes.is_empty() {
 			output.push_str("    <empty>\n");
 		} else {
 			for (prefix, count) in &self.prefixes {
-				let percent = if self.scoped_files == 0 {
-					0
-				} else {
-					(count * 100) / self.scoped_files
-				};
+				let percent = (count * 100).checked_div(self.scoped_files).unwrap_or(0);
 				output.push_str(&format!("    {prefix}: {count} files ({percent}%)\n"));
 			}
 		}
+	}
+
+	fn render_hints(&self, output: &mut String) {
 		output.push_str("  hints:\n");
 		output.push_str("    start with code_moniker_symbols using path/lang/kind/shape filters before broad symbol reads\n");
 		for (language, _) in self.languages.iter().take(4) {
@@ -481,6 +489,5 @@ impl WorkspaceSummary {
 				output.push_str(&format!("    {language} kinds: {}\n", kinds.join(", ")));
 			}
 		}
-		output.push('\n');
 	}
 }
