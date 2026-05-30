@@ -26,6 +26,12 @@ mcp_dispatch = """
   OR source ~ '**/lang:rs/module:dispatch'
   OR source ~ '**/lang:rs/module:dispatch/**'
 """
+mcp_context = """
+  source ~ '**/module:mcp/module:context'
+  OR source ~ '**/module:mcp/module:context/**'
+  OR source ~ '**/lang:rs/module:context'
+  OR source ~ '**/lang:rs/module:context/**'
+"""
 mcp_tools = """
   source ~ '**/module:mcp/module:tools'
   OR source ~ '**/module:mcp/module:tools/**'
@@ -38,6 +44,15 @@ mcp_tests = """
   OR source ~ '**/lang:rs/module:tests/**'
 """
 workspace_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
+workspace_runtime_target = """
+  target ~ '**/external_pkg:code_moniker_workspace/path:facade/path:LocalWorkspaceFacade'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:facade/path:LocalWorkspaceOptions'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:facade/path:local_workspace_ports'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:snapshot/path:WorkspaceRequest'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:snapshot/path:WorkspaceTransition'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:source/path:LocalResourceCache'
+"""
+shared_index_contract_target = "target ~ '**/module:workspace_index/**'"
 http_runtime_target = "target ~ '**/path:/^(TcpListener|TcpStream|AtomicBool|JoinHandle)$/'"
 
 [[refs.where]]
@@ -101,3 +116,173 @@ MCP is a tool surface over code-moniker. The context and runtime can carry optio
 tools should decide whether they need catalog, index, linkage, checks, or future lazy
 resources. This keeps new tools additive instead of turning the server into another facade.
 """
+
+[[refs.where]]
+id       = "mcp-does-not-own-workspace-runtime"
+severity = "error"
+expr     = """
+  $mcp_root
+  AND NOT $mcp_tests
+  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
+  => NOT $workspace_runtime_target
+"""
+message  = "MCP must consume the shared workspace index contract; it must not construct or refresh workspace runtime resources."
+rationale = """
+When `code-moniker ui --mcp` is enabled, the TUI and MCP are two projections over one
+workspace index. MCP may read `SharedWorkspaceIndex`; it must not construct
+`LocalWorkspaceFacade`, create source caches, or drive `WorkspaceRequest`, otherwise the same
+filesystem/index work is loaded twice and the two projections can diverge.
+"""
+
+[[refs.where]]
+id       = "mcp-shared-index-contract-is-context-only"
+severity = "error"
+expr     = """
+  $mcp_root
+  AND NOT $mcp_tests
+  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
+  AND $shared_index_contract_target
+  => $mcp_server OR $mcp_context
+"""
+message  = "`SharedWorkspaceIndex` is injected into MCP context; tools must use `context.index()` instead of wrapping the contract."
+rationale = """
+The shared index is the boundary between UI-owned workspace loading and MCP reads. Server
+receives the contract from the UI shell and context exposes it to tools. If each tool imports
+or wraps `SharedWorkspaceIndex`, MCP grows local facades and recreates the coupling this
+contract exists to remove.
+"""
+
+[[views]]
+id = "cli-mcp"
+title = "CLI MCP agent surface"
+scope = "."
+intent = "Understand the MCP runtime and tool boundaries before changing the agent-facing protocol surface."
+summary = """
+The MCP module exposes code-moniker workspace facts to agents. Runtime wiring, JSON-RPC
+dispatch, transport framing, and workspace-backed tools are separate boundaries; new
+features should extend a concrete tool domain instead of teaching the server or dispatch
+layer about workspace resources.
+"""
+
+[[views.boundaries]]
+id = "runtime"
+owns = [
+  "server lifetime",
+  "listener startup",
+  "HTTP stream ownership",
+]
+forbids = [
+  "tool-specific workspace reads",
+]
+rationale = """
+The runtime starts and owns the stream loop. It may carry context, but tool semantics must
+stay behind the registry so stream transport stays replaceable.
+"""
+symbols = [
+  "module:server/fn:start",
+  "module:server/fn:serve",
+  "module:server/struct:McpServer",
+]
+rules = [
+  "mcp-does-not-own-workspace-runtime",
+  "mcp-server-owns-runtime-wiring",
+  "mcp-shared-index-contract-is-context-only",
+  "mcp-workspace-access-is-tool-owned",
+]
+
+[[views.boundaries]]
+id = "transport"
+owns = [
+  "HTTP request parsing",
+  "HTTP response formatting",
+  "CORS validation",
+]
+forbids = [
+  "workspace/index/catalog access",
+  "tool routing decisions",
+]
+rationale = """
+Transport is protocol framing only. Keeping workspace imports out of this boundary prevents
+every new tool from adding coupling to stream parsing and response construction.
+"""
+symbols = [
+  "module:transport/fn:read_http_request",
+  "module:transport/fn:is_allowed_origin",
+  "module:transport/struct:HttpRequest",
+]
+rules = [
+  "mcp-transport-has-no-workspace-knowledge",
+]
+
+[[views.boundaries]]
+id = "dispatch"
+owns = [
+  "JSON-RPC method routing",
+  "MCP response envelopes",
+]
+forbids = [
+  "workspace/index/catalog access",
+]
+rationale = """
+Dispatch maps MCP methods to tools and protocol responses. It should not learn how a tool
+loads workspace data, otherwise tools stop being independently evolvable domains.
+"""
+symbols = [
+  "module:dispatch/fn:handle_json_rpc",
+  "module:dispatch/fn:tool_call_response",
+]
+rules = [
+  "mcp-dispatch-has-no-workspace-knowledge",
+]
+
+[[views.boundaries]]
+id = "tools"
+owns = [
+  "tool registry",
+  "workspace-backed LMNAV rendering",
+  "paging and scope arguments",
+]
+rationale = """
+Tools are the only MCP components allowed to decide which workspace resource they need.
+Adding a feature usually means enriching an existing tool domain rather than adding runtime
+knowledge to server or dispatch.
+"""
+symbols = [
+  "module:tools/trait:McpTool",
+  "module:tools/struct:ToolRegistry",
+  "module:tools/module:read/struct:ReadTool",
+  "module:tools/module:symbols/struct:SymbolsTool",
+  "module:tools/module:rules/struct:RulesTool",
+]
+rules = [
+  "mcp-does-not-own-workspace-runtime",
+  "mcp-shared-index-contract-is-context-only",
+  "mcp-workspace-access-is-tool-owned",
+]
+
+[[views.gotchas]]
+id = "paging-preserves-scope"
+rationale = """
+Every paged LMNAV output must preserve its scope arguments in the next call. If a cursor drops
+path, language, kind, name, profile, rule, or severity filters, an agent silently changes the
+question while following pagination.
+"""
+symbols = [
+  "module:tools/module:scope/struct:Paging",
+  "module:tools/module:read/fn:append_read_next_call",
+  "module:tools/module:symbols/fn:append_symbols_next_call",
+  "module:tools/module:rules/fn:append_rules_next_call",
+]
+check = "cargo test -p code-moniker mcp::tests --lib"
+
+[[views.gotchas]]
+id = "view-moniker-display-is-opt-in"
+rationale = """
+Views are a map for agents, not a dump of internal state. Evidence may expose monikers when
+explicitly requested with moniker_format, but the default output should stay readable and
+focused on the boundary.
+"""
+symbols = [
+  "module:tools/module:read/struct:ReadRequest",
+  "module:tools/module:read/fn:read_resource",
+]

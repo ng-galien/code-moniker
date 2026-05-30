@@ -8,6 +8,20 @@ panels         = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:panel/**'"
 panel_renderer = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:panel' OR moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:panel/*:render'"
 msg_owner           = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:events/**' OR moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:app/*:/^(action|state|runtime)$/'"
 app_command_boundary = "moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui' OR moniker ~ '**/dir:crates/dir:cli/dir:src/*:ui/*:app/*:/^(mod|state|effect)$/'"
+mcp_target = "target ~ '**/dir:crates/dir:cli/dir:src/module:mcp/**'"
+
+[[refs.where]]
+id      = "ui-does-not-consume-mcp"
+expr    = """
+  $root AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
+  => NOT $mcp_target
+"""
+message = "`code-moniker ui` must not depend on MCP modules; shared runtime state belongs in an explicit CLI-level contract."
+rationale = """
+The TUI is one projection over the workspace and MCP is another. Sharing the index through a
+neutral CLI contract keeps the UI from treating MCP as a facade and prevents MCP-specific
+wrappers from leaking into the human interface.
+"""
 
 [[refs.where]]
 id      = "store-boundary"

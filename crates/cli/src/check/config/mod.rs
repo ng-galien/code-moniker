@@ -49,6 +49,8 @@ pub struct Config {
 	pub sql: LangRules,
 	#[serde(default)]
 	pub profiles: HashMap<String, Profile>,
+	#[serde(default)]
+	pub views: Vec<toml::Value>,
 	#[serde(skip)]
 	pub fragments: Vec<FragmentInfo>,
 }
@@ -366,6 +368,7 @@ fn merge_into(base: &mut Config, ov: Config) {
 	for (k, v) in ov.profiles {
 		base.profiles.insert(k, v);
 	}
+	base.views.extend(ov.views);
 	merge_refs(&mut base.refs, ov.refs);
 	merge_shape_map(&mut base.shape, ov.shape);
 	merge_lang(&mut base.default, ov.default);

@@ -50,6 +50,8 @@ struct RawFragmentConfig {
 	cs: LangRules,
 	#[serde(default)]
 	sql: LangRules,
+	#[serde(default)]
+	views: Vec<toml::Value>,
 }
 
 fn default_enabled() -> bool {
@@ -72,6 +74,7 @@ impl RawFragmentConfig {
 			go: self.go,
 			cs: self.cs,
 			sql: self.sql,
+			views: self.views,
 			profiles: HashMap::new(),
 			fragments: Vec::new(),
 		}

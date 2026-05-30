@@ -338,7 +338,7 @@ fn aggregate_exit(outcomes: &[RulesRunOutcome]) -> Exit {
 }
 
 fn workspace_languages(context: &McpContext, filter: &[String]) -> anyhow::Result<Vec<Lang>> {
-	let snapshot = context.workspace().load_catalog_snapshot("mcp-rules")?;
+	let snapshot = context.index().catalog_snapshot()?;
 	let mut langs = snapshot
 		.catalog
 		.sources

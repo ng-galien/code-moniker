@@ -1,0 +1,114 @@
+fragment = "cli-views"
+
+[aliases]
+views_root = """
+  source ~ '**/module:views'
+  OR source ~ '**/module:views/**'
+  OR source ~ '**/lang:rs/module:/^(config|model|render|resolve)$/'
+  OR source ~ '**/lang:rs/module:/^(config|model|render|resolve)$/**'
+  OR source ~ '**/lang:rs/dir:views/**'
+"""
+renderer_target = """
+  target ~ '**/module:/^(mcp|ui)$/'
+  OR target ~ '**/module:/^(mcp|ui)$/**'
+  OR target ~ '**/lang:rs/dir:/^(mcp|ui)$/**'
+"""
+
+[[refs.where]]
+id = "views-are-renderer-independent"
+severity = "error"
+expr = """
+  $views_root
+  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
+  => NOT $renderer_target
+"""
+message = "`cli::views` must stay independent from MCP and TUI renderers."
+rationale = """
+The views DSL works on workspace/index facts and can be rendered by MCP today and TUI later.
+If it imports MCP or UI code directly, it stops being the shared presentation layer and
+becomes another protocol-specific facade.
+"""
+
+[[views]]
+id = "cli-views"
+title = "CLI view DSL"
+scope = "."
+intent = "Understand the shared view DSL before changing agent or future TUI contextual views."
+summary = """
+The views module parses strict project-defined view specs from code-moniker fragments, resolves
+their symbol and rule evidence against the workspace snapshot, and renders LMNAV text for MCP.
+It must stay independent from MCP and TUI so other renderers can reuse the same view model.
+"""
+
+[[views.boundaries]]
+id = "model"
+owns = [
+  "view spec shape",
+  "render options",
+  "moniker display policy",
+]
+rationale = """
+The model is the stable contract between fragment TOML and renderers. It should describe view
+data, not how a particular transport returns it.
+"""
+symbols = [
+  "module:model/struct:ViewSpec",
+  "module:model/struct:BoundarySpec",
+  "module:model/struct:GotchaSpec",
+  "module:model/enum:MonikerDisplay",
+]
+rules = [
+  "views-are-renderer-independent",
+]
+
+[[views.boundaries]]
+id = "config"
+owns = [
+  "fragment discovery",
+  "view TOML parsing",
+  "view validation",
+]
+rationale = """
+View files are anchored to code-moniker fragments. Discovery and validation live here so MCP
+only asks for available views instead of knowing fragment layout details.
+"""
+symbols = [
+  "module:config/fn:load",
+  "module:config/fn:discover_view_files",
+  "module:config/fn:validate_view",
+]
+
+[[views.boundaries]]
+id = "resolve"
+owns = [
+  "symbol evidence lookup",
+  "rule evidence lookup",
+  "source excerpts",
+]
+rationale = """
+Resolution turns strict selectors into current workspace facts. This is where views cross from
+declarative TOML into indexed code evidence.
+"""
+symbols = [
+  "module:resolve/fn:resolve_symbols",
+  "module:resolve/fn:resolve_rules",
+  "module:resolve/struct:SymbolEvidence",
+  "module:resolve/struct:RuleEvidence",
+]
+
+[[views.boundaries]]
+id = "render"
+owns = [
+  "LMNAV output",
+  "view list rendering",
+  "view detail rendering",
+]
+rationale = """
+The first renderer is LMNAV because MCP consumes text. Keeping it behind the shared view model
+leaves room for a future TUI renderer without changing the DSL.
+"""
+symbols = [
+  "module:render/fn:render_lmnav",
+  "module:render/fn:render_view_list",
+  "module:render/fn:render_view_detail",
+]

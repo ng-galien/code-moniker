@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::session::SessionOptions;
+use crate::workspace_index::SharedWorkspaceIndex;
 
 use super::context::McpContext;
 use super::{dispatch, transport};
@@ -34,13 +35,18 @@ impl Drop for McpServer {
 	}
 }
 
-pub(crate) fn start(opts: SessionOptions, scheme: String, port: u16) -> anyhow::Result<McpServer> {
+pub(crate) fn start(
+	opts: SessionOptions,
+	scheme: String,
+	port: u16,
+	index: SharedWorkspaceIndex,
+) -> anyhow::Result<McpServer> {
 	let listener = TcpListener::bind(("127.0.0.1", port))?;
 	listener.set_nonblocking(true)?;
 	let addr = listener.local_addr()?;
 	let running = Arc::new(AtomicBool::new(true));
 	let thread_running = Arc::clone(&running);
-	let context = McpContext::new(opts, scheme);
+	let context = McpContext::new(opts, scheme, index);
 	let thread = thread::spawn(move || serve(listener, thread_running, context));
 	Ok(McpServer {
 		addr,

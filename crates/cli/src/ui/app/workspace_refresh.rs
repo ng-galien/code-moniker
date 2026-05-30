@@ -50,12 +50,16 @@ fn linkage_or_index_task(app: &App) -> TaskSpec {
 pub(in crate::ui) fn handle_store_event_sync(app: &mut App, event: StoreEvent) {
 	match event {
 		StoreEvent::GitOverlay => {
-			let _ = crate::ui::workspace_read::refresh_workspace(crate::ui::app::store_mut(app));
+			if crate::ui::workspace_read::refresh_workspace(crate::ui::app::store_mut(app)).is_ok()
+			{
+				crate::ui::app::publish_workspace_snapshot(app);
+			}
 			apply_refreshed_change_store(app, "git overlay refreshed".to_string());
 		}
 		StoreEvent::FullIndex => {
 			match crate::ui::workspace_read::refresh_workspace(crate::ui::app::store_mut(app)) {
 				Ok(()) => {
+					crate::ui::app::publish_workspace_snapshot(app);
 					apply_reloaded_store(app, "store reloaded after filesystem change".to_string());
 				}
 				Err(error) => {

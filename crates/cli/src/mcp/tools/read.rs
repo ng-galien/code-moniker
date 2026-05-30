@@ -9,6 +9,7 @@ use super::scope::{
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::language_kinds;
 use crate::mcp::context::McpContext;
+use crate::views::{self, MonikerDisplay, RenderOptions};
 
 const DEFAULT_READ_URI: &str = "workspace";
 const MAX_DEPTH: usize = 20;
@@ -24,9 +25,10 @@ impl ReadTool {
 		"\n",
 		"Read from code-moniker.\n",
 		"  workspace                — workspace summary, language vocabulary, concentration indicators, and explorer page\n",
+		"  workspace/views          — project-defined contextual views for agents\n",
 		"  code+moniker://workspace — same root with an explicit URI\n",
 		"  code+moniker://...       — symbol URI returned by code_moniker_symbols; reads the source slice around that symbol\n",
-		"Use path/lang to scope discovery, depth to expand the explorer, and limit/cursor for paging. Pair with code_moniker_symbols when you need symbol rows."
+		"Use path/lang to scope discovery, depth to expand the explorer, limit/cursor for paging, and moniker_format when a view should expose resolved monikers. Pair with code_moniker_symbols when you need symbol rows."
 	);
 
 	fn input_schema() -> Value {
@@ -72,6 +74,11 @@ impl ReadTool {
 					"minimum": 0,
 					"maximum": 20,
 					"description": "Extra lines around a symbol source slice."
+				},
+				"moniker_format": {
+					"type": "string",
+					"enum": ["none", "compact", "uri"],
+					"description": "For workspace/views reads, optionally display resolved evidence monikers."
 				}
 			},
 			"required": ["uri"],
@@ -91,15 +98,7 @@ impl McpTool for ReadTool {
 
 	fn call(&self, context: &McpContext, arguments: &Value) -> Result<ToolResult, ToolError> {
 		let request = ReadRequest::from_arguments(arguments).map_err(ToolError::failed)?;
-		let text = read_resource(
-			context,
-			&request.uri,
-			request.depth,
-			request.context_lines,
-			&request.scope,
-			request.paging,
-		)
-		.map_err(ToolError::failed)?;
+		let text = read_resource(context, &request).map_err(ToolError::failed)?;
 		Ok(ToolResult {
 			text,
 			is_error: false,
@@ -111,6 +110,7 @@ struct ReadRequest {
 	uri: String,
 	depth: usize,
 	context_lines: usize,
+	moniker_display: MonikerDisplay,
 	scope: ScopeFilter,
 	paging: Paging,
 }
@@ -133,24 +133,34 @@ impl ReadRequest {
 				.and_then(Value::as_u64)
 				.unwrap_or(2)
 				.min(20) as usize,
+			moniker_display: MonikerDisplay::parse(
+				arguments.get("moniker_format").and_then(Value::as_str),
+			)?,
 			scope: ScopeFilter::from_arguments(arguments)?,
 			paging: Paging::from_arguments(arguments)?,
 		})
 	}
 }
 
-fn read_resource(
-	context: &McpContext,
-	uri: &str,
-	depth: usize,
-	context_lines: usize,
-	scope: &ScopeFilter,
-	paging: Paging,
-) -> anyhow::Result<String> {
-	if is_workspace_uri(uri, context.scheme()) {
-		return read_workspace(context, uri, depth, scope, paging);
+fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<String> {
+	if is_workspace_uri(&request.uri, context.scheme()) {
+		return read_workspace(
+			context,
+			&request.uri,
+			request.depth,
+			&request.scope,
+			request.paging,
+		);
 	}
-	read_symbol(context, uri, context_lines)
+	if views::is_views_uri(&request.uri, context.scheme()) {
+		return read_view(
+			context,
+			&request.uri,
+			request.context_lines,
+			request.moniker_display,
+		);
+	}
+	read_symbol(context, &request.uri, request.context_lines)
 }
 
 fn read_workspace(
@@ -160,7 +170,7 @@ fn read_workspace(
 	scope: &ScopeFilter,
 	paging: Paging,
 ) -> anyhow::Result<String> {
-	let snapshot = context.workspace().load_catalog_snapshot("mcp-read")?;
+	let snapshot = context.index().catalog_snapshot()?;
 	Ok(render_explorer_lmnav(
 		context.scheme(),
 		uri,
@@ -172,7 +182,7 @@ fn read_workspace(
 }
 
 fn read_symbol(context: &McpContext, uri: &str, context_lines: usize) -> anyhow::Result<String> {
-	let snapshot = context.workspace().load_index_snapshot("mcp-read-symbol")?;
+	let snapshot = context.index().index_snapshot()?;
 	let symbol = snapshot
 		.index
 		.symbols
@@ -194,6 +204,25 @@ fn read_symbol(context: &McpContext, uri: &str, context_lines: usize) -> anyhow:
 		&source_text,
 		context_lines,
 	))
+}
+
+fn read_view(
+	context: &McpContext,
+	uri: &str,
+	context_lines: usize,
+	moniker_display: MonikerDisplay,
+) -> anyhow::Result<String> {
+	let snapshot = context.index().index_snapshot()?;
+	views::render_lmnav(
+		uri,
+		&context.opts().paths,
+		context.scheme(),
+		&snapshot,
+		RenderOptions {
+			moniker_display,
+			context_lines,
+		},
+	)
 }
 
 fn is_workspace_uri(uri: &str, scheme: &str) -> bool {

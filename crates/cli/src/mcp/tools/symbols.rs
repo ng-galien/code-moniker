@@ -160,7 +160,7 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 			context.scheme()
 		);
 	}
-	let snapshot = context.workspace().load_index_snapshot("mcp-symbols")?;
+	let snapshot = context.index().index_snapshot()?;
 	Ok(render_symbols_lmnav(
 		context.scheme(),
 		uri,

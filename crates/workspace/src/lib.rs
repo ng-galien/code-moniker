@@ -7,6 +7,7 @@ pub mod facade;
 pub mod lang;
 pub mod lines;
 pub mod linkage;
+pub mod registry;
 pub mod snapshot;
 pub mod source;
 pub mod sources;

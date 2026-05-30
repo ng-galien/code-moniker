@@ -24,6 +24,10 @@ pub mod stats;
 pub(crate) mod tree;
 #[cfg(feature = "tui")]
 pub mod ui;
+#[cfg(feature = "tui")]
+pub(crate) mod views;
+#[cfg(feature = "tui")]
+pub(crate) mod workspace_index;
 
 use std::io::Write;
 use std::process::ExitCode;

@@ -1,0 +1,120 @@
+fragment = "workspace-registry"
+
+[aliases]
+registry_source = """
+  source ~ '**/dir:crates/dir:workspace/dir:src/module:registry'
+  OR source ~ '**/dir:crates/dir:workspace/dir:src/module:registry/**'
+  OR source ~ '**/dir:crates/dir:workspace/dir:src/dir:registry/**'
+"""
+consumer_target = """
+  target ~ '**/external_pkg:code_moniker_cli/**'
+  OR target ~ '**/external_pkg:code_moniker_pg/**'
+  OR target ~ '**/external_pkg:ratatui/**'
+"""
+runtime_resource_target = """
+  target ~ '**/dir:crates/dir:workspace/dir:src/module:facade/**'
+  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:source/**'
+  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:code/**'
+  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:linkage/**'
+  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:changes/**'
+  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:snapshot/module:refresh/**'
+"""
+workspace_ref = """
+  kind = 'imports_symbol'
+  OR kind = 'imports_module'
+  OR kind = 'uses_type'
+  OR kind = 'calls'
+  OR kind = 'method_call'
+  OR kind = 'implements'
+"""
+
+[[refs.where]]
+id       = "registry-is-consumer-independent-port-catalog"
+severity = "warn"
+expr     = """
+  $registry_source
+  AND ($workspace_ref)
+  => NOT $consumer_target
+"""
+message  = "`workspace::registry` is a workspace port catalog; it must not import consumer-facing models."
+rationale = """
+WorkspaceRegistry is the public catalog of workspace ports. It is consumed by extract, stats,
+check, UI, MCP, and manifest, so it must not depend on any consumer representation such as
+terminal widgets, LMNAV, CLI command models, or PG adapter types.
+
+Topology:
+
+                              +--------------------+
+                              | WorkspaceRuntime   |
+                              | owns resources     |
+                              | owns state/jobs    |
+                              | publishes versions |
+                              +---------+----------+
+                                        |
+                                        v
+                              +--------------------+
+                              | WorkspaceRegistry  |
+                              | catalog of ports   |
+                              +---------+----------+
+                                        |
+        +-------------------------------+-------------------------------+
+        |                               |                               |
+        v                               v                               v
++------------------+           +------------------+           +------------------+
+| Command ports    |           | Query ports      |           | Event ports      |
+| trigger work     |           | read facts       |           | subscribe        |
++--------+---------+           +--------+---------+           +--------+---------+
+         |                              |                              |
+         v                              v                              v
++------------------+           +------------------+           +------------------+
+| WorkspaceCommand |           | WorkspaceFacts   |           | WorkspaceEvent   |
+| scope_uri        |           | scope_uri        |           | scope_uri        |
+| command_id       |           | generation       |           | generation       |
+| kind             |           | canonical data   |           | kind             |
++------------------+           +------------------+           +------------------+
+                                        ^                              |
+                                        |                              | invalidates / signals
+                                        |                              v
+                              +--------------------+
+                              | Consumer adapters  |
+                              | build local reps   |
+                              +---------+----------+
+                                        |
+          +-----------------------------+-----------------------------+
+          |                             |                             |
+          v                             v                             v
+   +------------+                +------------+                +------------+
+   | extract    |                | ui         |                | mcp        |
+   | output rows|                | panels/nav |                | LMNAV      |
+   +------------+                +------------+                +------------+
+          v                             v                             v
+   +------------+                +------------+                +------------+
+   | stats      |                | check      |                | manifest   |
+   | reports    |                | diagnostics|                | deps output|
+   +------------+                +------------+                +------------+
+
+Event contract:
+
+- `WorkspaceCommand` carries `scope_uri`, `command_id`, and command kind.
+- `WorkspaceFacts` are read through query ports and carry `scope_uri` plus `generation`.
+- `WorkspaceEvent` carries `scope_uri`, `generation`, and event kind.
+- Events are signals only. They do not carry changed symbols, references, or consumer view
+  models. A consumer checks whether the event scope overlaps its own scope, then rereads
+  canonical facts through the query ports it composes.
+"""
+
+[[refs.where]]
+id       = "registry-does-not-own-runtime-resource-implementations"
+severity = "warn"
+expr     = """
+  $registry_source
+  AND ($workspace_ref)
+  => NOT $runtime_resource_target
+"""
+message  = "`workspace::registry` names the port catalog; concrete runtime resource ownership stays behind the runtime."
+rationale = """
+The registry is not a replacement god object for `WorkspaceFacade`. It names the ports that
+consumers compose; the runtime owns filesystem/source discovery, extraction, code index,
+linkage, changes, cache, scheduling, and snapshot publication. If the registry imports those
+implementation modules directly, the catalog collapses back into a facade.
+"""

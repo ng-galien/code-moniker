@@ -187,13 +187,23 @@ pub(in crate::ui) fn store_check_context(
 	workspace_check_context(store(app), app.workspace.cache())
 }
 
+pub(in crate::ui) fn shared_workspace_index(
+	app: &App,
+) -> crate::workspace_index::SharedWorkspaceIndex {
+	app.workspace.shared_index()
+}
+
+pub(in crate::ui) fn publish_workspace_snapshot(app: &App) {
+	app.workspace.publish_current_snapshot();
+}
+
 pub(in crate::ui) fn replace_store(
 	app: &mut App,
 	store: LocalWorkspaceFacade,
 	cache: LocalResourceCache,
 	options: SessionOptions,
 ) {
-	app.workspace = WorkspaceSession::new(store, cache, options);
+	app.workspace.replace(store, cache, options);
 }
 
 pub(in crate::ui) fn app_rules_path(app: &App) -> &std::path::Path {

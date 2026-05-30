@@ -2,10 +2,15 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 
+use code_moniker_workspace::facade::{
+	LocalWorkspaceFacade, LocalWorkspaceOptions, local_workspace_ports,
+};
 use code_moniker_workspace::snapshot::{
 	ReferenceRecord, ResourceGeneration, SourceCatalog, SourceFileRecord, SourceFileRecordFields,
-	SourceId, SourceUnit, SymbolId, SymbolRecord, SymbolRecordFields,
+	SourceId, SourceUnit, SymbolId, SymbolRecord, SymbolRecordFields, WorkspaceRequest,
+	WorkspaceTransition,
 };
+use code_moniker_workspace::source::LocalResourceCache;
 use serde_json::json;
 
 use super::context::McpContext;
@@ -17,6 +22,45 @@ use super::tools::symbols::{SymbolAction, SymbolIndexView, render_symbols_lmnav}
 use super::tools::{McpTool, ToolRegistry};
 use super::{start, tools};
 use crate::session::SessionOptions;
+use crate::workspace_index::SharedWorkspaceIndex;
+
+fn empty_context(paths: Vec<PathBuf>) -> McpContext {
+	let opts = SessionOptions {
+		paths,
+		project: None,
+		cache_dir: None,
+	};
+	McpContext::new(
+		opts,
+		"code+moniker://".to_string(),
+		SharedWorkspaceIndex::new(None),
+	)
+}
+
+fn loaded_context(paths: Vec<PathBuf>) -> McpContext {
+	let opts = SessionOptions {
+		paths,
+		project: None,
+		cache_dir: None,
+	};
+	let index = loaded_index(&opts);
+	McpContext::new(opts, "code+moniker://".to_string(), index)
+}
+
+fn loaded_index(opts: &SessionOptions) -> SharedWorkspaceIndex {
+	let cache = LocalResourceCache::default();
+	let mut workspace = LocalWorkspaceFacade::new(local_workspace_ports(
+		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
+			.with_cache_dir(opts.cache_dir.clone()),
+		cache,
+	));
+	match workspace.refresh(WorkspaceRequest::new("mcp-test")) {
+		WorkspaceTransition::Ready { .. } => SharedWorkspaceIndex::new(workspace.snapshot_arc()),
+		WorkspaceTransition::Failed { failure, .. } => {
+			panic!("mcp test workspace failed: {}", failure.message)
+		}
+	}
+}
 
 #[test]
 fn read_description_matches_esac_style() {
@@ -66,14 +110,7 @@ fn read_root_summarizes_workspace_and_limits_explorer() {
 
 #[test]
 fn tools_list_returns_mcp_shape() {
-	let context = McpContext::new(
-		SessionOptions {
-			paths: vec![PathBuf::from(".")],
-			project: None,
-			cache_dir: None,
-		},
-		"code+moniker://".to_string(),
-	);
+	let context = empty_context(vec![PathBuf::from(".")]);
 	let response = handle_json_rpc(
 		&json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
 		&context,
@@ -95,14 +132,7 @@ fn tools_list_returns_mcp_shape() {
 #[test]
 fn registry_dispatches_read_tool() {
 	let registry = ToolRegistry::new();
-	let context = McpContext::new(
-		SessionOptions {
-			paths: vec![PathBuf::from(".")],
-			project: None,
-			cache_dir: None,
-		},
-		"code+moniker://".to_string(),
-	);
+	let context = empty_context(vec![PathBuf::from(".")]);
 	let result = registry.call(&context, "not_a_tool", &json!({}));
 	assert!(result.unwrap_err().is_unknown_tool());
 }
@@ -110,14 +140,7 @@ fn registry_dispatches_read_tool() {
 #[test]
 fn tool_limit_zero_is_rejected() {
 	let registry = ToolRegistry::new();
-	let context = McpContext::new(
-		SessionOptions {
-			paths: vec![PathBuf::from(".")],
-			project: None,
-			cache_dir: None,
-		},
-		"code+moniker://".to_string(),
-	);
+	let context = empty_context(vec![PathBuf::from(".")]);
 	let error = registry
 		.call(
 			&context,
@@ -136,14 +159,7 @@ fn rules_tool_runs_check_on_workspace() {
 	std::fs::write(temp.path().join("src/main/java/App.java"), "class App {}\n")
 		.expect("write fixture");
 	let registry = ToolRegistry::new();
-	let context = McpContext::new(
-		SessionOptions {
-			paths: vec![temp.path().to_path_buf()],
-			project: None,
-			cache_dir: None,
-		},
-		"code+moniker://".to_string(),
-	);
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
 	let result = registry
 		.call(
 			&context,
@@ -186,14 +202,7 @@ fn rules_tool_runs_check_on_multi_root_workspace() {
 	)
 	.expect("write rules");
 	let registry = ToolRegistry::new();
-	let context = McpContext::new(
-		SessionOptions {
-			paths: vec![first.clone(), second.clone()],
-			project: None,
-			cache_dir: None,
-		},
-		"code+moniker://".to_string(),
-	);
+	let context = loaded_context(vec![first.clone(), second.clone()]);
 	let result = registry
 		.call(
 			&context,
@@ -232,18 +241,15 @@ fn rules_tool_lists_project_rules() {
 		id = "mcp-root-method-rule"
 		expr = "name =~ ^[a-z]"
 		message = "second rule for pagination"
+
+		[[views]]
+		id = "ignored-by-rules-loader"
+		title = "Ignored by rules loader"
 		"#,
 	)
 	.expect("write rules");
 	let registry = ToolRegistry::new();
-	let context = McpContext::new(
-		SessionOptions {
-			paths: vec![temp.path().to_path_buf()],
-			project: None,
-			cache_dir: None,
-		},
-		"code+moniker://".to_string(),
-	);
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
 	let result = registry
 		.call(
 			&context,
@@ -266,6 +272,97 @@ fn rules_tool_lists_project_rules() {
 	assert!(result.text.contains("lang=\"java\""));
 	assert!(result.text.contains("severity=\"error\""));
 	assert!(result.text.contains("cursor=1"));
+}
+
+#[test]
+fn read_views_lists_and_renders_fragment_view() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let source_dir = temp.path().join("src/main/java");
+	std::fs::create_dir_all(&source_dir).expect("mkdir");
+	std::fs::write(
+		source_dir.join("App.java"),
+		"class App {\n  void before() {}\n  void run() {\n    work();\n  }\n}\n",
+	)
+	.expect("write fixture");
+	std::fs::write(
+		temp.path().join(".code-moniker.toml"),
+		r#"
+		default_rules = false
+
+		[[views]]
+		id = "root-map"
+		title = "Root map"
+		"#,
+	)
+	.expect("write root config");
+	std::fs::write(
+		source_dir.join("code-moniker.fragment.toml"),
+		r#"
+		fragment = "java-app"
+
+		[[views]]
+		id = "java-app"
+		title = "Java app"
+		scope = "."
+		intent = "Understand the fixture application."
+		summary = """
+		The fixture view is anchored to the Java source fragment and resolves evidence from
+		the indexed symbols instead of storing code excerpts in TOML.
+		"""
+
+		[[views.boundaries]]
+		id = "entry"
+		owns = ["fixture entry class"]
+		forbids = ["workspace runtime concerns"]
+		rationale = """
+		The entry boundary highlights the class and method an agent should inspect first.
+		"""
+		symbols = ["class:App", "method:run"]
+
+		[[views.gotchas]]
+		id = "method-slice"
+		rationale = "The run method should render a source slice as evidence."
+		symbols = ["method:run"]
+		"#,
+	)
+	.expect("write fragment view");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let list = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({"uri": "workspace/views"}),
+		)
+		.expect("view list");
+	assert!(!list.is_error);
+	assert!(list.text.contains("uri: code+moniker://workspace/views"));
+	assert!(list.text.contains("java-app"));
+	assert!(list.text.contains("root-map"));
+	assert!(
+		list.text
+			.contains("code_moniker_read uri=\"code+moniker://workspace/views/java-app\"")
+	);
+
+	let detail = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"uri": "workspace/views/java-app",
+				"context_lines": 0,
+				"moniker_format": "compact"
+			}),
+		)
+		.expect("view detail");
+	assert!(!detail.is_error);
+	assert!(detail.text.contains("view: java-app"), "{}", detail.text);
+	assert!(detail.text.contains("boundaries:"));
+	assert!(detail.text.contains("gotchas:"));
+	assert!(detail.text.contains("moniker:"));
+	assert!(detail.text.contains("class:App"), "{}", detail.text);
+	assert!(detail.text.contains("method:run"), "{}", detail.text);
+	assert!(detail.text.contains("void run()"), "{}", detail.text);
 }
 
 #[test]
@@ -464,14 +561,16 @@ fn http_tool_call_reads_workspace_explorer() {
 	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir");
 	std::fs::write(temp.path().join("src/main/java/App.java"), "class App {}\n")
 		.expect("write fixture");
+	let opts = SessionOptions {
+		paths: vec![temp.path().to_path_buf()],
+		project: None,
+		cache_dir: None,
+	};
 	let server = start(
-		SessionOptions {
-			paths: vec![temp.path().to_path_buf()],
-			project: None,
-			cache_dir: None,
-		},
+		opts.clone(),
 		"code+moniker://".to_string(),
 		0,
+		loaded_index(&opts),
 	)
 	.expect("server");
 	let body = json!({
@@ -505,14 +604,16 @@ fn http_cors_allows_only_loopback_origins() {
 	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir");
 	std::fs::write(temp.path().join("src/main/java/App.java"), "class App {}\n")
 		.expect("write fixture");
+	let opts = SessionOptions {
+		paths: vec![temp.path().to_path_buf()],
+		project: None,
+		cache_dir: None,
+	};
 	let server = start(
-		SessionOptions {
-			paths: vec![temp.path().to_path_buf()],
-			project: None,
-			cache_dir: None,
-		},
+		opts.clone(),
 		"code+moniker://".to_string(),
 		0,
+		loaded_index(&opts),
 	)
 	.expect("server");
 	let allowed = post_rpc(

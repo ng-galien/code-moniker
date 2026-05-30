@@ -47,14 +47,24 @@ fn run_inner<W1: Write, W2: Write>(
 		project: args.project.clone(),
 		cache_dir: args.cache.clone(),
 	};
+	let app = boot_app(
+		opts.clone(),
+		scheme.clone(),
+		args.rules.clone(),
+		args.profile.clone(),
+	);
 	let _mcp: Option<crate::mcp::McpServer> = if args.mcp {
-		let server = crate::mcp::start(opts.clone(), scheme.clone(), args.mcp_port)?;
+		let server = crate::mcp::start(
+			opts,
+			scheme,
+			args.mcp_port,
+			crate::ui::app::shared_workspace_index(&app),
+		)?;
 		writeln!(stderr, "code-moniker mcp: {}", server.endpoint())?;
 		Some(server)
 	} else {
 		None
 	};
-	let app = boot_app(opts, scheme, args.rules.clone(), args.profile.clone());
 	run_terminal(stdout, app)
 }
 

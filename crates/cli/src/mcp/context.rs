@@ -1,21 +1,19 @@
 use crate::session::SessionOptions;
-
-use super::tools::workspace::McpWorkspace;
+use crate::workspace_index::SharedWorkspaceIndex;
 
 #[derive(Clone)]
 pub(super) struct McpContext {
 	opts: SessionOptions,
 	scheme: String,
-	workspace: McpWorkspace,
+	index: SharedWorkspaceIndex,
 }
 
 impl McpContext {
-	pub(super) fn new(opts: SessionOptions, scheme: String) -> Self {
-		let workspace = McpWorkspace::new(&opts);
+	pub(super) fn new(opts: SessionOptions, scheme: String, index: SharedWorkspaceIndex) -> Self {
 		Self {
 			opts,
 			scheme,
-			workspace,
+			index,
 		}
 	}
 
@@ -27,7 +25,7 @@ impl McpContext {
 		&self.scheme
 	}
 
-	pub(super) fn workspace(&self) -> &McpWorkspace {
-		&self.workspace
+	pub(super) fn index(&self) -> &SharedWorkspaceIndex {
+		&self.index
 	}
 }
