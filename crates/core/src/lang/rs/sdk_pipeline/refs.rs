@@ -20,6 +20,7 @@ pub(super) struct RefEnv<'a> {
 	pub defs: &'a [DiscoveredDef],
 	pub imported_symbols: &'a [ImportedSymbol],
 	pub wildcard_imports: &'a [(Moniker, Moniker)],
+	pub macro_wildcard_imports: &'a [(Moniker, Moniker)],
 }
 
 #[derive(Clone, Debug)]
@@ -35,6 +36,7 @@ pub(super) struct ImportExpansion {
 	pub refs: Vec<ResolvedRef>,
 	pub symbols: Vec<ImportedSymbol>,
 	pub wildcard_modules: Vec<Moniker>,
+	pub macro_wildcard_modules: Vec<Moniker>,
 }
 
 pub(super) fn macro_call_ref(
@@ -1117,6 +1119,12 @@ fn resolve_macro_target(
 	if let Some(import) = direct_imported_symbol(env, scope, name) {
 		return (import.target.clone(), import.confidence);
 	}
+	if let Some(module) = macro_wildcard_module(env, scope) {
+		return (
+			extend_segment(&module, kinds::MACRO, name),
+			kinds::CONF_IMPORTED,
+		);
+	}
 	(
 		extend_segment(&enclosing_module(scope), kinds::MACRO, name),
 		kinds::CONF_UNRESOLVED,
@@ -1327,10 +1335,16 @@ fn expand_import_leaf(
 		expansion.symbols.push(symbol);
 	}
 	if leaf.kind == ImportLeafKind::Wildcard
-		&& let Some(module_ref) = refs.iter().find(|reference| {
-			reference.kind == kinds::IMPORTS_MODULE && reference.confidence != kinds::CONF_EXTERNAL
-		}) {
-		expansion.wildcard_modules.push(module_ref.target.clone());
+		&& let Some(module_ref) = refs
+			.iter()
+			.find(|reference| reference.kind == kinds::IMPORTS_MODULE)
+	{
+		if module_ref.confidence != kinds::CONF_EXTERNAL {
+			expansion.wildcard_modules.push(module_ref.target.clone());
+		}
+		expansion
+			.macro_wildcard_modules
+			.push(module_ref.target.clone());
 	}
 	expansion.refs.extend(refs);
 }
@@ -1521,6 +1535,13 @@ fn wildcard_module(env: &RefEnv<'_>, source: &Moniker) -> Option<Moniker> {
 		.map(|(_, module)| module.clone())
 }
 
+fn macro_wildcard_module(env: &RefEnv<'_>, source: &Moniker) -> Option<Moniker> {
+	env.macro_wildcard_imports
+		.iter()
+		.find(|(scope, _)| scope == source || scope.is_ancestor_of(source))
+		.map(|(_, module)| module.clone())
+}
+
 fn find_local_type(defs: &[DiscoveredDef], scope: &Moniker, name: &[u8]) -> Option<Moniker> {
 	[kinds::ENUM, kinds::TRAIT, kinds::TYPE, kinds::STRUCT]
 		.into_iter()
@@ -1529,8 +1550,9 @@ fn find_local_type(defs: &[DiscoveredDef], scope: &Moniker, name: &[u8]) -> Opti
 }
 
 fn local_module_exists(env: &RefEnv<'_>, scope: &Moniker, name: &[u8]) -> bool {
-	let file_module = local_module_target(scope, &[name.to_vec()]);
-	let lexical_module = extend_segment(scope, kinds::MODULE, name);
+	let module = enclosing_module(scope);
+	let file_module = local_module_target(&module, &[name.to_vec()]);
+	let lexical_module = extend_segment(&module, kinds::MODULE, name);
 	env.defs
 		.iter()
 		.any(|def| def.moniker == file_module || def.moniker == lexical_module)

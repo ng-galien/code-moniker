@@ -9,7 +9,7 @@ use crate::ui::shell::ShellEvent;
 use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
 use crate::ui::workspace_read::{
-	LocalWorkspaceFacade, UsageFocus, new_local_workspace, workspace_check_context,
+	LocalWorkspaceRegistry, UsageFocus, new_local_workspace, workspace_check_context,
 };
 use code_moniker_workspace::source::LocalResourceCache;
 
@@ -161,11 +161,11 @@ pub(in crate::ui) fn navigation(app: &App) -> &NavigationState {
 	app.app_store.navigation()
 }
 
-pub(in crate::ui) fn store(app: &App) -> &LocalWorkspaceFacade {
+pub(in crate::ui) fn store(app: &App) -> &LocalWorkspaceRegistry {
 	app.workspace.store()
 }
 
-pub(in crate::ui) fn store_mut(app: &mut App) -> &mut LocalWorkspaceFacade {
+pub(in crate::ui) fn store_mut(app: &mut App) -> &mut LocalWorkspaceRegistry {
 	app.workspace.store_mut()
 }
 
@@ -199,7 +199,7 @@ pub(in crate::ui) fn publish_workspace_snapshot(app: &App) {
 
 pub(in crate::ui) fn replace_store(
 	app: &mut App,
-	store: LocalWorkspaceFacade,
+	store: LocalWorkspaceRegistry,
 	cache: LocalResourceCache,
 	options: SessionOptions,
 ) {
@@ -215,7 +215,7 @@ pub(in crate::ui) fn app_profile_name(app: &App) -> Option<&str> {
 }
 
 pub(in crate::ui) fn new_app(
-	store: LocalWorkspaceFacade,
+	store: LocalWorkspaceRegistry,
 	cache: LocalResourceCache,
 	options: SessionOptions,
 	scheme: String,

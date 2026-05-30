@@ -109,7 +109,7 @@ fn handle_task_result(app: &mut App, result: TaskResult) {
 			let (store, cache, options) = *store;
 			let symbol_cache = cache.clone();
 			let symbol_options = options.clone();
-			let catalog_seed = store.snapshot_arc();
+			let catalog_seed = store.queries().snapshot_arc();
 			crate::ui::app::replace_store(app, store, cache, options);
 			apply_file_catalog_store(app, "file tree ready".to_string());
 			let task = catalog_seed.map_or_else(

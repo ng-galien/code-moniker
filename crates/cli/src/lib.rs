@@ -25,6 +25,8 @@ pub(crate) mod tree;
 #[cfg(feature = "tui")]
 pub mod ui;
 #[cfg(feature = "tui")]
+pub(crate) mod ui_command;
+#[cfg(feature = "tui")]
 pub(crate) mod views;
 #[cfg(feature = "tui")]
 pub(crate) mod workspace_index;
@@ -71,7 +73,7 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Rules(args) => rules::run(args, stdout, stderr),
 		Command::Harness(args) => harness::run(args, stdout, stderr),
 		#[cfg(feature = "tui")]
-		Command::Ui(args) => ui::run(args, stdout, stderr),
+		Command::Ui(args) => ui_command::run(args, stdout, stderr),
 		Command::Langs(args) => langs::run(args, stdout, stderr),
 		Command::Shapes(args) => shapes::run(args, stdout, stderr),
 		Command::Manifest(args) => manifest::run(args, stdout, stderr),

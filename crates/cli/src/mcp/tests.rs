@@ -2,15 +2,12 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 
-use code_moniker_workspace::facade::{
-	LocalWorkspaceFacade, LocalWorkspaceOptions, local_workspace_ports,
-};
+use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
 	ReferenceRecord, ResourceGeneration, SourceCatalog, SourceFileRecord, SourceFileRecordFields,
 	SourceId, SourceUnit, SymbolId, SymbolRecord, SymbolRecordFields, WorkspaceRequest,
 	WorkspaceTransition,
 };
-use code_moniker_workspace::source::LocalResourceCache;
 use serde_json::json;
 
 use super::context::McpContext;
@@ -48,14 +45,17 @@ fn loaded_context(paths: Vec<PathBuf>) -> McpContext {
 }
 
 fn loaded_index(opts: &SessionOptions) -> SharedWorkspaceIndex {
-	let cache = LocalResourceCache::default();
-	let mut workspace = LocalWorkspaceFacade::new(local_workspace_ports(
+	let mut workspace = LocalWorkspaceRegistry::local(
 		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
 			.with_cache_dir(opts.cache_dir.clone()),
-		cache,
-	));
-	match workspace.refresh(WorkspaceRequest::new("mcp-test")) {
-		WorkspaceTransition::Ready { .. } => SharedWorkspaceIndex::new(workspace.snapshot_arc()),
+	);
+	match workspace
+		.commands()
+		.refresh(WorkspaceRequest::new("mcp-test"))
+	{
+		WorkspaceTransition::Ready { .. } => {
+			SharedWorkspaceIndex::new(workspace.queries().snapshot_arc())
+		}
 		WorkspaceTransition::Failed { failure, .. } => {
 			panic!("mcp test workspace failed: {}", failure.message)
 		}

@@ -26,6 +26,12 @@ pub struct OrderService;
 
 pub struct Cli;
 
+impl Cli {
+	pub fn parse_from<I>(_args: I) -> Self {
+		Self
+	}
+}
+
 pub struct LocalGraph;
 
 impl LocalGraph {
@@ -304,7 +310,7 @@ pub fn contextual_error(flag: bool) -> anyhow::Result<()> {
 }
 
 pub fn external_error_macro() {
-	error!("order failed");
+	let _ = anyhow!("order failed");
 }
 
 pub fn snapshot_macro_path() {

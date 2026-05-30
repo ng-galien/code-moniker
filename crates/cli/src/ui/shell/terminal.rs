@@ -22,6 +22,26 @@ use crate::ui::app::{
 use crate::ui::live::StoreEvent;
 use crate::ui::render::view;
 
+pub(crate) struct UiSession {
+	app: App,
+	options: SessionOptions,
+	scheme: String,
+}
+
+impl UiSession {
+	pub(crate) fn options(&self) -> &SessionOptions {
+		&self.options
+	}
+
+	pub(crate) fn scheme(&self) -> &str {
+		&self.scheme
+	}
+
+	pub(crate) fn shared_workspace_index(&self) -> crate::workspace_index::SharedWorkspaceIndex {
+		crate::ui::app::shared_workspace_index(&self.app)
+	}
+}
+
 pub(in crate::ui) fn run<W1: Write, W2: Write>(
 	args: &UiArgs,
 	stdout: &mut W1,
@@ -39,8 +59,12 @@ pub(in crate::ui) fn run<W1: Write, W2: Write>(
 fn run_inner<W1: Write, W2: Write>(
 	args: &UiArgs,
 	stdout: &mut W1,
-	stderr: &mut W2,
+	_stderr: &mut W2,
 ) -> anyhow::Result<()> {
+	run_session(stdout, boot(args))
+}
+
+pub(crate) fn boot(args: &UiArgs) -> UiSession {
 	let scheme = args.scheme.as_deref().unwrap_or(DEFAULT_SCHEME).to_string();
 	let opts = SessionOptions {
 		paths: args.paths.clone(),
@@ -53,19 +77,15 @@ fn run_inner<W1: Write, W2: Write>(
 		args.rules.clone(),
 		args.profile.clone(),
 	);
-	let _mcp: Option<crate::mcp::McpServer> = if args.mcp {
-		let server = crate::mcp::start(
-			opts,
-			scheme,
-			args.mcp_port,
-			crate::ui::app::shared_workspace_index(&app),
-		)?;
-		writeln!(stderr, "code-moniker mcp: {}", server.endpoint())?;
-		Some(server)
-	} else {
-		None
-	};
-	run_terminal(stdout, app)
+	UiSession {
+		app,
+		options: opts,
+		scheme,
+	}
+}
+
+pub(crate) fn run_session<W: Write>(stdout: &mut W, session: UiSession) -> anyhow::Result<()> {
+	run_terminal(stdout, session.app)
 }
 
 fn run_terminal<W: Write>(stdout: &mut W, mut app: App) -> anyhow::Result<()> {

@@ -2,7 +2,7 @@ use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::{HeaderKindFilter, HeaderSearchState, header_search_label};
-use crate::ui::workspace_read::{self, LocalWorkspaceFacade};
+use crate::ui::workspace_read::{self, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::SymbolId;
 type DefLocation = SymbolId;
 
@@ -30,7 +30,7 @@ pub(in crate::ui) struct HeaderSearchOptions {
 }
 
 pub(in crate::ui) fn header_search_results(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	text: &str,
 	langs: &[Lang],
 	kind_filters: &[HeaderKindFilter],
@@ -54,7 +54,7 @@ pub(in crate::ui) fn header_search_results(
 }
 
 pub(in crate::ui) fn header_search_options(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	state: &HeaderSearchState,
 ) -> HeaderSearchOptions {
 	let available_langs = workspace_read::available_langs(store);
@@ -73,7 +73,7 @@ pub(in crate::ui) fn header_search_options(
 }
 
 fn compute_kind_filter_options(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	langs: &[Lang],
 ) -> Vec<HeaderKindFilter> {
 	if langs.len() == 1 {

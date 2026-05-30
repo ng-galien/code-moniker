@@ -9,9 +9,7 @@ use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::core::uri::{UriConfig, from_uri};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::code::compact_moniker;
-use code_moniker_workspace::facade::{
-	LocalWorkspaceOptions, WorkspaceFacade, local_workspace_ports,
-};
+use code_moniker_workspace::registry::{LocalWorkspaceOptions, WorkspaceSnapshotPublication};
 use code_moniker_workspace::snapshot::{
 	ChangeId, ChangeStatus, ReferenceId, SourceFileRecord, SourceId, SymbolId, SymbolRecord,
 	WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition,
@@ -22,7 +20,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions};
 use crate::session::{CheckSummary, SessionOptions, SessionStats};
 
-pub(in crate::ui) use code_moniker_workspace::LocalWorkspaceFacade;
+pub(in crate::ui) use code_moniker_workspace::LocalWorkspaceRegistry;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct LinkageStats {
@@ -94,7 +92,7 @@ impl WorkspaceCheckContext {
 pub(in crate::ui) fn new_local_workspace(
 	opts: &SessionOptions,
 ) -> (
-	code_moniker_workspace::LocalWorkspaceFacade,
+	code_moniker_workspace::LocalWorkspaceRegistry,
 	LocalResourceCache,
 ) {
 	let cache = LocalResourceCache::default();
@@ -105,38 +103,41 @@ fn new_local_workspace_with_cache(
 	opts: &SessionOptions,
 	cache: LocalResourceCache,
 ) -> (
-	code_moniker_workspace::LocalWorkspaceFacade,
+	code_moniker_workspace::LocalWorkspaceRegistry,
 	LocalResourceCache,
 ) {
-	let facade = WorkspaceFacade::new(local_workspace_ports(
+	let registry = code_moniker_workspace::LocalWorkspaceRegistry::local_with_cache(
 		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
 			.with_cache_dir(opts.cache_dir.clone()),
 		cache.clone(),
-	));
-	(facade, cache)
+	);
+	(registry, cache)
 }
 
 #[cfg(test)]
 pub(in crate::ui) fn load_local_workspace(
 	opts: &SessionOptions,
 ) -> anyhow::Result<(
-	code_moniker_workspace::LocalWorkspaceFacade,
+	code_moniker_workspace::LocalWorkspaceRegistry,
 	LocalResourceCache,
 )> {
-	let (mut facade, cache) = new_local_workspace(opts);
-	refresh_workspace(&mut facade)?;
-	Ok((facade, cache))
+	let (mut registry, cache) = new_local_workspace(opts);
+	refresh_workspace(&mut registry)?;
+	Ok((registry, cache))
 }
 
 pub(in crate::ui) fn load_local_file_catalog(
 	opts: &SessionOptions,
 ) -> anyhow::Result<(
-	code_moniker_workspace::LocalWorkspaceFacade,
+	code_moniker_workspace::LocalWorkspaceRegistry,
 	LocalResourceCache,
 )> {
-	let (mut facade, cache) = new_local_workspace(opts);
-	match facade.load_catalog(WorkspaceRequest::new("file-catalog")) {
-		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
+	let (mut registry, cache) = new_local_workspace(opts);
+	match registry
+		.commands()
+		.load_catalog(WorkspaceRequest::new("file-catalog"))
+	{
+		WorkspaceTransition::Ready { .. } => Ok((registry, cache)),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 	}
 }
@@ -144,12 +145,15 @@ pub(in crate::ui) fn load_local_file_catalog(
 pub(in crate::ui) fn load_local_symbol_index(
 	opts: &SessionOptions,
 ) -> anyhow::Result<(
-	code_moniker_workspace::LocalWorkspaceFacade,
+	code_moniker_workspace::LocalWorkspaceRegistry,
 	LocalResourceCache,
 )> {
-	let (mut facade, cache) = new_local_workspace(opts);
-	match facade.load_index(WorkspaceRequest::new("symbol-index")) {
-		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
+	let (mut registry, cache) = new_local_workspace(opts);
+	match registry
+		.commands()
+		.load_index(WorkspaceRequest::new("symbol-index"))
+	{
+		WorkspaceTransition::Ready { .. } => Ok((registry, cache)),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 	}
 }
@@ -159,13 +163,21 @@ pub(in crate::ui) fn load_local_symbol_index_from_catalog(
 	cache: LocalResourceCache,
 	snapshot: Arc<WorkspaceSnapshot>,
 ) -> anyhow::Result<(
-	code_moniker_workspace::LocalWorkspaceFacade,
+	code_moniker_workspace::LocalWorkspaceRegistry,
 	LocalResourceCache,
 )> {
-	let (mut facade, cache) = new_local_workspace_with_cache(opts, cache);
-	facade.replace_snapshot_arc(snapshot);
-	match facade.load_index(WorkspaceRequest::new("symbol-index").reuse_current_catalog()) {
-		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
+	let (mut registry, cache) = new_local_workspace_with_cache(opts, cache);
+	registry
+		.commands()
+		.publish_snapshot(WorkspaceSnapshotPublication::workspace(
+			WorkspaceRequest::new("catalog-seed"),
+			snapshot,
+		));
+	match registry
+		.commands()
+		.load_index(WorkspaceRequest::new("symbol-index").reuse_current_catalog())
+	{
+		WorkspaceTransition::Ready { .. } => Ok((registry, cache)),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 	}
 }
@@ -175,44 +187,61 @@ pub(in crate::ui) fn resolve_local_linkage(
 	cache: LocalResourceCache,
 	snapshot: Arc<WorkspaceSnapshot>,
 ) -> anyhow::Result<(
-	code_moniker_workspace::LocalWorkspaceFacade,
+	code_moniker_workspace::LocalWorkspaceRegistry,
 	LocalResourceCache,
 )> {
-	let (mut facade, cache) = new_local_workspace_with_cache(opts, cache);
-	facade.replace_snapshot_arc(snapshot);
-	match facade.resolve_linkage(WorkspaceRequest::new("linkage")) {
-		WorkspaceTransition::Ready { .. } => Ok((facade, cache)),
+	let (mut registry, cache) = new_local_workspace_with_cache(opts, cache);
+	registry
+		.commands()
+		.publish_snapshot(WorkspaceSnapshotPublication::workspace(
+			WorkspaceRequest::new("linkage-seed"),
+			snapshot,
+		));
+	match registry
+		.commands()
+		.resolve_linkage(WorkspaceRequest::new("linkage"))
+	{
+		WorkspaceTransition::Ready { .. } => Ok((registry, cache)),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 	}
 }
 
 pub(in crate::ui) fn refresh_workspace(
-	facade: &mut code_moniker_workspace::LocalWorkspaceFacade,
+	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
 ) -> anyhow::Result<()> {
-	match facade.refresh(WorkspaceRequest::new("workspace")) {
+	match registry
+		.commands()
+		.refresh(WorkspaceRequest::new("workspace"))
+	{
 		WorkspaceTransition::Ready { .. } => Ok(()),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 	}
 }
 
 pub(in crate::ui) fn workspace_check_context(
-	facade: &code_moniker_workspace::LocalWorkspaceFacade,
+	registry: &code_moniker_workspace::LocalWorkspaceRegistry,
 	cache: &LocalResourceCache,
 ) -> anyhow::Result<WorkspaceCheckContext> {
 	Ok(WorkspaceCheckContext {
 		cache: cache.clone(),
-		snapshot: facade
+		snapshot: registry
+			.queries()
 			.snapshot_arc()
 			.ok_or_else(|| anyhow::anyhow!("workspace snapshot is unavailable"))?,
 	})
 }
 
-pub(in crate::ui) fn stats(store: &LocalWorkspaceFacade) -> SessionStats {
-	store.snapshot().map(build_stats).unwrap_or_default()
+pub(in crate::ui) fn stats(store: &LocalWorkspaceRegistry) -> SessionStats {
+	store
+		.queries()
+		.snapshot()
+		.map(build_stats)
+		.unwrap_or_default()
 }
 
-pub(in crate::ui) fn linkage_stats(store: &LocalWorkspaceFacade) -> LinkageStats {
+pub(in crate::ui) fn linkage_stats(store: &LocalWorkspaceRegistry) -> LinkageStats {
 	store
+		.queries()
 		.snapshot()
 		.map(|snapshot| LinkageStats {
 			resolved_refs: snapshot.linkage.resolved_refs,
@@ -225,12 +254,12 @@ pub(in crate::ui) fn linkage_stats(store: &LocalWorkspaceFacade) -> LinkageStats
 }
 
 pub(in crate::ui) fn navigable_defs_filtered(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	langs: &[Lang],
 	kinds: &[String],
 	shapes: &[Shape],
 ) -> Vec<SymbolId> {
-	let Some(snapshot) = store.snapshot() else {
+	let Some(snapshot) = store.queries().snapshot() else {
 		return Vec::new();
 	};
 	let source_langs = source_lang_index(snapshot);
@@ -245,8 +274,8 @@ pub(in crate::ui) fn navigable_defs_filtered(
 		.collect()
 }
 
-pub(in crate::ui) fn available_langs(store: &LocalWorkspaceFacade) -> Vec<Lang> {
-	let Some(snapshot) = store.snapshot() else {
+pub(in crate::ui) fn available_langs(store: &LocalWorkspaceRegistry) -> Vec<Lang> {
+	let Some(snapshot) = store.queries().snapshot() else {
 		return Vec::new();
 	};
 	let present = snapshot
@@ -263,10 +292,10 @@ pub(in crate::ui) fn available_langs(store: &LocalWorkspaceFacade) -> Vec<Lang> 
 }
 
 pub(in crate::ui) fn available_kinds_for_lang(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	lang: Lang,
 ) -> Vec<String> {
-	let Some(snapshot) = store.snapshot() else {
+	let Some(snapshot) = store.queries().snapshot() else {
 		return Vec::new();
 	};
 	let source_langs = source_lang_index(snapshot);
@@ -279,8 +308,11 @@ pub(in crate::ui) fn available_kinds_for_lang(
 	kinds.into_iter().collect()
 }
 
-pub(in crate::ui) fn available_shapes(store: &LocalWorkspaceFacade, langs: &[Lang]) -> Vec<Shape> {
-	let Some(snapshot) = store.snapshot() else {
+pub(in crate::ui) fn available_shapes(
+	store: &LocalWorkspaceRegistry,
+	langs: &[Lang],
+) -> Vec<Shape> {
+	let Some(snapshot) = store.queries().snapshot() else {
 		return Vec::new();
 	};
 	let source_langs = source_lang_index(snapshot);
@@ -309,8 +341,12 @@ pub(in crate::ui) fn available_shapes(store: &LocalWorkspaceFacade, langs: &[Lan
 		.collect()
 }
 
-pub(in crate::ui) fn child_defs(store: &LocalWorkspaceFacade, parent: &SymbolId) -> Vec<SymbolId> {
+pub(in crate::ui) fn child_defs(
+	store: &LocalWorkspaceRegistry,
+	parent: &SymbolId,
+) -> Vec<SymbolId> {
 	let mut children = store
+		.queries()
 		.snapshot()
 		.into_iter()
 		.flat_map(|snapshot| &snapshot.index.symbols)
@@ -322,7 +358,7 @@ pub(in crate::ui) fn child_defs(store: &LocalWorkspaceFacade, parent: &SymbolId)
 }
 
 pub(in crate::ui) fn compare_defs_for_navigation(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	left: &SymbolId,
 	right: &SymbolId,
 ) -> Ordering {
@@ -341,7 +377,7 @@ pub(in crate::ui) fn compare_defs_for_navigation(
 }
 
 pub(in crate::ui) fn symbol_summary(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	symbol: &SymbolId,
 ) -> SymbolSummary {
 	let Some(record) = symbol_by_id(store, symbol) else {
@@ -361,7 +397,7 @@ pub(in crate::ui) fn symbol_summary(
 }
 
 pub(in crate::ui) fn symbol_detail(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	symbol: &SymbolId,
 ) -> SymbolDetail {
 	SymbolDetail {
@@ -374,7 +410,7 @@ pub(in crate::ui) fn symbol_detail(
 }
 
 pub(in crate::ui) fn symbol_references(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	symbol: &SymbolId,
 ) -> SymbolReferences {
 	SymbolReferences {
@@ -385,7 +421,7 @@ pub(in crate::ui) fn symbol_references(
 }
 
 pub(in crate::ui) fn source_snippet(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	symbol: &SymbolId,
 	context: u32,
 ) -> Vec<SourceLine> {
@@ -439,14 +475,14 @@ fn source_lines(source: &SourceFileRecord, first: u32, last: u32) -> Vec<(u32, S
 }
 
 pub(in crate::ui) fn search_symbols_filtered(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	query: &str,
 	limit: usize,
 	langs: &[Lang],
 	kinds: &[String],
 	shapes: &[Shape],
 ) -> Vec<SearchHit> {
-	let Some(snapshot) = store.snapshot() else {
+	let Some(snapshot) = store.queries().snapshot() else {
 		return Vec::new();
 	};
 	let source_langs = source_lang_index(snapshot);
@@ -457,6 +493,7 @@ pub(in crate::ui) fn search_symbols_filtered(
 		.map(|symbol| (symbol.id.clone(), symbol))
 		.collect::<FxHashMap<_, _>>();
 	let mut hits = store
+		.queries()
 		.view()
 		.map(|view| view.search().search_symbols(query, limit.saturating_mul(4)))
 		.unwrap_or_default()
@@ -476,8 +513,8 @@ pub(in crate::ui) fn search_symbols_filtered(
 	hits
 }
 
-pub(in crate::ui) fn change_overview(store: &LocalWorkspaceFacade) -> ChangeOverview {
-	let Some(snapshot) = store.snapshot() else {
+pub(in crate::ui) fn change_overview(store: &LocalWorkspaceRegistry) -> ChangeOverview {
+	let Some(snapshot) = store.queries().snapshot() else {
 		return ChangeOverview::default();
 	};
 	let changed_files = snapshot
@@ -505,8 +542,9 @@ pub(in crate::ui) fn change_overview(store: &LocalWorkspaceFacade) -> ChangeOver
 	}
 }
 
-pub(in crate::ui) fn change_rows(store: &LocalWorkspaceFacade) -> Vec<ChangeSummary> {
+pub(in crate::ui) fn change_rows(store: &LocalWorkspaceRegistry) -> Vec<ChangeSummary> {
 	store
+		.queries()
 		.view()
 		.map(|view| {
 			view.changes()
@@ -519,10 +557,11 @@ pub(in crate::ui) fn change_rows(store: &LocalWorkspaceFacade) -> Vec<ChangeSumm
 }
 
 pub(in crate::ui) fn change_summary(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	change: ChangeId,
 ) -> Option<ChangeSummary> {
 	store
+		.queries()
 		.view()?
 		.changes()
 		.detail(&change)
@@ -530,28 +569,30 @@ pub(in crate::ui) fn change_summary(
 }
 
 pub(in crate::ui) fn change_detail(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	change: ChangeId,
 ) -> Option<ChangeDetail> {
-	let detail = store.view()?.changes().detail(&change)?;
+	let detail = store.queries().view()?.changes().detail(&change)?;
 	Some(ChangeDetail {
 		summary: change_summary_from_view(store, detail.summary),
 		blast_radius: reference_set_from_view(store, detail.blast_radius),
 	})
 }
 
-pub(in crate::ui) fn changed_defs(store: &LocalWorkspaceFacade) -> Vec<SymbolId> {
+pub(in crate::ui) fn changed_defs(store: &LocalWorkspaceRegistry) -> Vec<SymbolId> {
 	store
+		.queries()
 		.snapshot()
 		.map(|snapshot| snapshot.changes.changed_symbols.clone())
 		.unwrap_or_default()
 }
 
 pub(in crate::ui) fn change_detail_for_symbol(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	symbol: &SymbolId,
 ) -> Option<ChangeDetail> {
 	let change = store
+		.queries()
 		.snapshot()?
 		.changes
 		.changes
@@ -562,11 +603,15 @@ pub(in crate::ui) fn change_detail_for_symbol(
 	change_detail(store, change)
 }
 
-pub(in crate::ui) fn change_count_for_file(store: &LocalWorkspaceFacade, file_idx: usize) -> usize {
+pub(in crate::ui) fn change_count_for_file(
+	store: &LocalWorkspaceRegistry,
+	file_idx: usize,
+) -> usize {
 	let Some(source) = source_file(store, file_idx) else {
 		return 0;
 	};
 	store
+		.queries()
 		.snapshot()
 		.map(|snapshot| {
 			snapshot
@@ -580,7 +625,7 @@ pub(in crate::ui) fn change_count_for_file(store: &LocalWorkspaceFacade, file_id
 }
 
 pub(in crate::ui) fn usage_focus(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	symbol: SymbolId,
 ) -> Option<UsageFocus> {
 	let record = symbol_by_id(store, &symbol)?;
@@ -598,11 +643,12 @@ pub(in crate::ui) fn usage_focus(
 }
 
 pub(in crate::ui) fn usage_focus_for_target(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	target: Moniker,
 	label: String,
 ) -> Option<UsageFocus> {
 	let symbol = store
+		.queries()
 		.snapshot()?
 		.index
 		.symbols
@@ -616,11 +662,11 @@ pub(in crate::ui) fn usage_focus_for_target(
 }
 
 pub(in crate::ui) fn unresolved_linkage_report(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	file_limit: usize,
 	samples_per_file: usize,
 ) -> UnresolvedLinkageReport {
-	let Some(snapshot) = store.snapshot() else {
+	let Some(snapshot) = store.queries().snapshot() else {
 		return UnresolvedLinkageReport::default();
 	};
 	let mut groups_by_file = FxHashMap::<SourceId, UnresolvedLinkageGroup>::default();
@@ -672,17 +718,18 @@ pub(in crate::ui) fn unresolved_linkage_report(
 }
 
 pub(in crate::ui) fn source_file(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	file_idx: usize,
 ) -> Option<&SourceFileRecord> {
-	store.snapshot()?.index.sources.get(file_idx)
+	store.queries().snapshot()?.index.sources.get(file_idx)
 }
 
 fn source_file_by_id<'a>(
-	store: &'a LocalWorkspaceFacade,
+	store: &'a LocalWorkspaceRegistry,
 	source: &SourceId,
 ) -> Option<&'a SourceFileRecord> {
 	store
+		.queries()
 		.snapshot()?
 		.index
 		.sources
@@ -690,8 +737,9 @@ fn source_file_by_id<'a>(
 		.find(|candidate| &candidate.id == source)
 }
 
-fn symbol_by_id<'a>(store: &'a LocalWorkspaceFacade, id: &SymbolId) -> Option<&'a SymbolRecord> {
+fn symbol_by_id<'a>(store: &'a LocalWorkspaceRegistry, id: &SymbolId) -> Option<&'a SymbolRecord> {
 	store
+		.queries()
 		.snapshot()?
 		.index
 		.symbols
@@ -700,10 +748,11 @@ fn symbol_by_id<'a>(store: &'a LocalWorkspaceFacade, id: &SymbolId) -> Option<&'
 }
 
 fn reference_by_id<'a>(
-	store: &'a LocalWorkspaceFacade,
+	store: &'a LocalWorkspaceRegistry,
 	id: &ReferenceId,
 ) -> Option<&'a code_moniker_workspace::snapshot::ReferenceRecord> {
 	store
+		.queries()
 		.snapshot()?
 		.index
 		.references
@@ -711,20 +760,21 @@ fn reference_by_id<'a>(
 		.find(|reference| &reference.id == id)
 }
 
-fn symbol_lang(store: &LocalWorkspaceFacade, symbol: &SymbolRecord) -> Lang {
+fn symbol_lang(store: &LocalWorkspaceRegistry, symbol: &SymbolRecord) -> Lang {
 	source_file_by_id(store, &symbol.source)
 		.and_then(|source| Lang::from_tag(&source.language))
 		.unwrap_or(Lang::Rs)
 }
 
-fn symbol_source_path(store: &LocalWorkspaceFacade, symbol: &SymbolRecord) -> PathBuf {
+fn symbol_source_path(store: &LocalWorkspaceRegistry, symbol: &SymbolRecord) -> PathBuf {
 	source_file_by_id(store, &symbol.source)
 		.map(|source| PathBuf::from(&source.rel_path))
 		.unwrap_or_default()
 }
 
-fn incoming_refs_for_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> Vec<ReferenceId> {
+fn incoming_refs_for_symbol(store: &LocalWorkspaceRegistry, symbol: &SymbolId) -> Vec<ReferenceId> {
 	store
+		.queries()
 		.snapshot()
 		.map(|snapshot| {
 			snapshot
@@ -738,8 +788,9 @@ fn incoming_refs_for_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> 
 		.unwrap_or_default()
 }
 
-fn outgoing_refs_for_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> Vec<ReferenceId> {
+fn outgoing_refs_for_symbol(store: &LocalWorkspaceRegistry, symbol: &SymbolId) -> Vec<ReferenceId> {
 	store
+		.queries()
 		.snapshot()
 		.map(|snapshot| {
 			snapshot
@@ -754,7 +805,7 @@ fn outgoing_refs_for_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> 
 }
 
 fn reference_set(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	refs: &[ReferenceId],
 	endpoint_label: &'static str,
 ) -> ReferenceSet {
@@ -781,7 +832,7 @@ fn reference_set(
 }
 
 fn reference_set_from_view(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	refs: code_moniker_workspace::snapshot::ReferenceSet,
 ) -> ReferenceSet {
 	let ids = refs
@@ -793,7 +844,7 @@ fn reference_set_from_view(
 }
 
 fn reference_group(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	reference: &code_moniker_workspace::snapshot::ReferenceRecord,
 	endpoint_label: &'static str,
 ) -> ReferenceGroup {
@@ -839,7 +890,7 @@ fn reference_group_priority(group: &ReferenceGroup) -> u8 {
 }
 
 fn reference_location(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	reference: &code_moniker_workspace::snapshot::ReferenceRecord,
 ) -> String {
 	let path = source_file_by_id(store, &reference.source)
@@ -858,7 +909,7 @@ fn reference_location(
 	format!("{path}:{lines}")
 }
 
-fn usage_contexts(store: &LocalWorkspaceFacade, refs: &[ReferenceId]) -> Vec<SymbolId> {
+fn usage_contexts(store: &LocalWorkspaceRegistry, refs: &[ReferenceId]) -> Vec<SymbolId> {
 	refs.iter()
 		.filter_map(|id| reference_by_id(store, id))
 		.map(|reference| reference.source_symbol.clone())
@@ -870,8 +921,12 @@ fn usage_contexts(store: &LocalWorkspaceFacade, refs: &[ReferenceId]) -> Vec<Sym
 		})
 }
 
-fn change_badge_for_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> Option<ChangeBadge> {
+fn change_badge_for_symbol(
+	store: &LocalWorkspaceRegistry,
+	symbol: &SymbolId,
+) -> Option<ChangeBadge> {
 	let change = store
+		.queries()
 		.snapshot()?
 		.changes
 		.changes
@@ -884,7 +939,7 @@ fn change_badge_for_symbol(store: &LocalWorkspaceFacade, symbol: &SymbolId) -> O
 }
 
 fn change_summary_from_view(
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	summary: code_moniker_workspace::snapshot::ChangeSummary,
 ) -> ChangeSummary {
 	let source = summary
@@ -909,11 +964,12 @@ fn change_summary_from_view(
 	}
 }
 
-fn moniker_for_identity(store: &LocalWorkspaceFacade, identity: &str) -> Option<Moniker> {
+fn moniker_for_identity(store: &LocalWorkspaceRegistry, identity: &str) -> Option<Moniker> {
 	from_uri(
 		identity,
 		&UriConfig {
 			scheme: store
+				.queries()
 				.snapshot()
 				.map(|snapshot| snapshot.index.identity_scheme.as_str())
 				.unwrap_or(crate::DEFAULT_SCHEME),
@@ -922,14 +978,14 @@ fn moniker_for_identity(store: &LocalWorkspaceFacade, identity: &str) -> Option<
 	.ok()
 }
 
-fn compact_identity(store: &LocalWorkspaceFacade, identity: &str) -> String {
+fn compact_identity(store: &LocalWorkspaceRegistry, identity: &str) -> String {
 	moniker_for_identity(store, identity)
 		.as_ref()
 		.map(compact_moniker)
 		.unwrap_or_else(|| identity.to_string())
 }
 
-fn sort_defs_for_navigation(store: &LocalWorkspaceFacade, symbols: &mut [SymbolId]) {
+fn sort_defs_for_navigation(store: &LocalWorkspaceRegistry, symbols: &mut [SymbolId]) {
 	symbols.sort_by(|left, right| compare_defs_for_navigation(store, left, right));
 }
 

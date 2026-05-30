@@ -2,23 +2,26 @@ fragment = "workspace-registry"
 
 [aliases]
 registry_source = """
-  source ~ '**/dir:crates/dir:workspace/dir:src/module:registry'
-  OR source ~ '**/dir:crates/dir:workspace/dir:src/module:registry/**'
-  OR source ~ '**/dir:crates/dir:workspace/dir:src/dir:registry/**'
+  source ~ '**/lang:rs/module:/^(build|command|event|local|mod|ports|runtime|state)$/'
+  OR source ~ '**/lang:rs/module:/^(build|command|event|local|mod|ports|runtime|state)$/**'
+  OR source ~ '**/module:registry'
+  OR source ~ '**/module:registry/**'
+  OR source ~ '**/dir:registry/**'
+"""
+registry_local = """
+  source ~ '**/lang:rs/module:local'
+  OR source ~ '**/lang:rs/module:local/**'
+  OR source ~ '**/module:registry/module:local'
+  OR source ~ '**/module:registry/module:local/**'
+  OR source ~ '**/dir:registry/module:local'
+  OR source ~ '**/dir:registry/module:local/**'
 """
 consumer_target = """
   target ~ '**/external_pkg:code_moniker_cli/**'
   OR target ~ '**/external_pkg:code_moniker_pg/**'
   OR target ~ '**/external_pkg:ratatui/**'
 """
-runtime_resource_target = """
-  target ~ '**/dir:crates/dir:workspace/dir:src/module:facade/**'
-  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:source/**'
-  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:code/**'
-  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:linkage/**'
-  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:changes/**'
-  OR target ~ '**/dir:crates/dir:workspace/dir:src/module:snapshot/module:refresh/**'
-"""
+local_resource_impl_target = "target.name =~ ^(LocalSourceCatalog|LocalSourceCatalogOptions|LocalCodeIndex|LocalCodeIndexOptions|LocalLinkage|LocalChangeOverlay|LocalResourceCache)$"
 workspace_ref = """
   kind = 'imports_symbol'
   OR kind = 'imports_module'
@@ -30,7 +33,7 @@ workspace_ref = """
 
 [[refs.where]]
 id       = "registry-is-consumer-independent-port-catalog"
-severity = "warn"
+severity = "error"
 expr     = """
   $registry_source
   AND ($workspace_ref)
@@ -105,16 +108,18 @@ Event contract:
 
 [[refs.where]]
 id       = "registry-does-not-own-runtime-resource-implementations"
-severity = "warn"
+severity = "error"
 expr     = """
   $registry_source
+  AND NOT $registry_local
   AND ($workspace_ref)
-  => NOT $runtime_resource_target
+  => NOT $local_resource_impl_target
 """
-message  = "`workspace::registry` names the port catalog; concrete runtime resource ownership stays behind the runtime."
+message  = "`workspace::registry` runtime code depends on ports; local implementation assembly stays in `registry::local`."
 rationale = """
-The registry is not a replacement god object for `WorkspaceFacade`. It names the ports that
-consumers compose; the runtime owns filesystem/source discovery, extraction, code index,
-linkage, changes, cache, scheduling, and snapshot publication. If the registry imports those
-implementation modules directly, the catalog collapses back into a facade.
+The registry is not a replacement god object. It names the ports that consumers compose; the
+runtime owns scheduling and snapshot publication, while filesystem/source discovery,
+extraction, code indexing, linkage, changes, and cache behavior stay behind their ports.
+Only `registry::local` may assemble local implementations. If runtime/build code imports
+`Local*` implementations directly, the catalog collapses back into a wired runtime bundle.
 """

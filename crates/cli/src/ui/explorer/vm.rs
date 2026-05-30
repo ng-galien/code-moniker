@@ -12,7 +12,7 @@ use crate::ui::store::navigation::{
 	navigation_usage_view, navigation_visible_defs,
 };
 use crate::ui::store::navigation_tree::{NavNodeKind, NavRow};
-use crate::ui::workspace_read::{self, LocalWorkspaceFacade, UsageFocus};
+use crate::ui::workspace_read::{self, LocalWorkspaceRegistry, UsageFocus};
 use code_moniker_workspace::snapshot::{ChangeStatus, SymbolId};
 type DefLocation = SymbolId;
 
@@ -118,7 +118,7 @@ pub(in crate::ui) struct ExplorerVmContext<'a> {
 	focus_region: FocusRegion,
 	usage_lens: Option<&'a UsageFocus>,
 	filtered: bool,
-	workspace: &'a LocalWorkspaceFacade,
+	workspace: &'a LocalWorkspaceRegistry,
 	status: &'a str,
 }
 
@@ -348,7 +348,7 @@ fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
 	}
 }
 
-fn file_change_count(workspace: &LocalWorkspaceFacade, file_idx: usize) -> Option<usize> {
+fn file_change_count(workspace: &LocalWorkspaceRegistry, file_idx: usize) -> Option<usize> {
 	let count = workspace_read::change_count_for_file(workspace, file_idx);
 	(count > 0).then_some(count)
 }

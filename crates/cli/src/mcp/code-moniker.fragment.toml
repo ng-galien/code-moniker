@@ -45,9 +45,8 @@ mcp_tests = """
 """
 workspace_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
 workspace_runtime_target = """
-  target ~ '**/external_pkg:code_moniker_workspace/path:facade/path:LocalWorkspaceFacade'
-  OR target ~ '**/external_pkg:code_moniker_workspace/path:facade/path:LocalWorkspaceOptions'
-  OR target ~ '**/external_pkg:code_moniker_workspace/path:facade/path:local_workspace_ports'
+  target ~ '**/external_pkg:code_moniker_workspace/path:registry/path:LocalWorkspaceRegistry'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:registry/path:LocalWorkspaceOptions'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:snapshot/path:WorkspaceRequest'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:snapshot/path:WorkspaceTransition'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:source/path:LocalResourceCache'
@@ -130,7 +129,7 @@ message  = "MCP must consume the shared workspace index contract; it must not co
 rationale = """
 When `code-moniker ui --mcp` is enabled, the TUI and MCP are two projections over one
 workspace index. MCP may read `SharedWorkspaceIndex`; it must not construct
-`LocalWorkspaceFacade`, create source caches, or drive `WorkspaceRequest`, otherwise the same
+`LocalWorkspaceRegistry`, create source caches, or drive `WorkspaceRequest`, otherwise the same
 filesystem/index work is loaded twice and the two projections can diverge.
 """
 

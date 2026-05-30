@@ -34,7 +34,7 @@ fn queue_store_task(app: &mut App, event: StoreEvent) -> bool {
 }
 
 fn linkage_or_index_task(app: &App) -> TaskSpec {
-	let Some(snapshot) = crate::ui::app::store(app).snapshot_arc() else {
+	let Some(snapshot) = crate::ui::app::store(app).queries().snapshot_arc() else {
 		return TaskSpec::load_symbol_index(crate::ui::app::store_options(app));
 	};
 	if snapshot.index.symbols.is_empty() {

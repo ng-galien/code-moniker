@@ -10,7 +10,7 @@ use crate::ui::explorer::{
 	header_search_results as explorer_header_search_results,
 };
 use crate::ui::store::navigation::{NavigationAction, NavigationScope};
-use crate::ui::workspace_read::{self, LocalWorkspaceFacade};
+use crate::ui::workspace_read::{self, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::SymbolId;
 type DefLocation = SymbolId;
 
@@ -338,7 +338,7 @@ fn header_focus(mode: UiMode) -> HeaderSearchFocus {
 
 fn decide_apply_header_search(
 	header: &HeaderSearchState,
-	store: &LocalWorkspaceFacade,
+	store: &LocalWorkspaceRegistry,
 	generation: Option<u64>,
 	return_focus: bool,
 ) -> HeaderSearchDecision {

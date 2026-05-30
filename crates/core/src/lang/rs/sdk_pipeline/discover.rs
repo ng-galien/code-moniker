@@ -39,6 +39,7 @@ pub(super) struct RustDiscover<'src> {
 	refs: Vec<ResolvedRef>,
 	imported_symbols: Vec<ImportedSymbol>,
 	wildcard_imports: Vec<(Moniker, Moniker)>,
+	macro_wildcard_imports: Vec<(Moniker, Moniker)>,
 }
 
 impl<'src> RustDiscover<'src> {
@@ -56,6 +57,7 @@ impl<'src> RustDiscover<'src> {
 			refs: Vec::new(),
 			imported_symbols: Vec::new(),
 			wildcard_imports: Vec::new(),
+			macro_wildcard_imports: Vec::new(),
 		};
 		walk_items(&mut discover, root_node, &root, false);
 		collect_refs(&mut discover, root_node, &root, false);
@@ -105,6 +107,7 @@ impl<'src> RustDiscover<'src> {
 			defs: &self.defs,
 			imported_symbols: &self.imported_symbols,
 			wildcard_imports: &self.wildcard_imports,
+			macro_wildcard_imports: &self.macro_wildcard_imports,
 		}
 	}
 }
@@ -663,6 +666,12 @@ fn collect_use_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Monike
 	state.wildcard_imports.extend(
 		expansion
 			.wildcard_modules
+			.into_iter()
+			.map(|module| (scope.clone(), module)),
+	);
+	state.macro_wildcard_imports.extend(
+		expansion
+			.macro_wildcard_modules
 			.into_iter()
 			.map(|module| (scope.clone(), module)),
 	);

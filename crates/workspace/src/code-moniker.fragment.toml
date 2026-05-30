@@ -9,7 +9,6 @@ linkage_language_domain = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:link
 linkage_language_private_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:language/*:/^(java|rust)$/**'"
 changes_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:changes/**'"
 snapshot_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:snapshot/**'"
-facade_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/module:facade/**'"
 test_module = "moniker ~ '**/module:tests/**'"
 cli_target = "target ~ '**/external_pkg:code_moniker_cli/**'"
 pg_target = "target ~ '**/external_pkg:code_moniker_pg/**'"
@@ -22,7 +21,7 @@ expr     = "NOT ($workspace_crate AND $compat_or_legacy_name)"
 message  = "`code-moniker-workspace` must not contain `compat` or `legacy` modules."
 rationale = """
 Compatibility and legacy store adaptation belong to CLI. The workspace crate owns reusable
-source, code, linkage, changes, snapshot, and facade contracts.
+source, code, linkage, changes, snapshot, and registry contracts.
 """
 
 [[refs.where]]
@@ -51,19 +50,4 @@ semantic enhancement, and decision reduction. Java and Rust details are implemen
 domains below `linkage::language`; the rest of linkage must depend on the language facade
 only. Otherwise language-specific heuristics can leak back into generic orchestration and
 recreate the coupling this module split removed.
-"""
-
-[[refs.where]]
-id       = "workspace-facade-does-not-own-compat-or-check"
-severity = "warn"
-expr     = """
-  $facade_layer
-  AND NOT $test_module
-  AND (kind = 'imports_symbol' OR kind = 'imports_module')
-  => NOT ($cli_target OR $pg_target)
-"""
-message  = "`workspace::facade` wires workspace ports only; adapters stay outside the crate."
-rationale = """
-The facade is the extraction boundary used by CLI/TUI and future MCP clients. It should
-expose injected workspace services, not depend on concrete adapters outside this crate.
 """

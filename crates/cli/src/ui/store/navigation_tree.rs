@@ -9,7 +9,7 @@ use rustc_hash::FxHashMap;
 type DefLocation = SymbolId;
 
 use crate::ui::store::ids::NodeId;
-use crate::ui::workspace_read::{self, LocalWorkspaceFacade};
+use crate::ui::workspace_read::{self, LocalWorkspaceRegistry};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::ui) enum NavNodeKind {
@@ -56,9 +56,9 @@ impl NavNode {
 	}
 }
 
-pub(in crate::ui) fn build_navigator(store: &LocalWorkspaceFacade) -> NavNode {
+pub(in crate::ui) fn build_navigator(store: &LocalWorkspaceRegistry) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("explorer"), "root", NavNodeKind::Root);
-	let Some(snapshot) = store.snapshot() else {
+	let Some(snapshot) = store.queries().snapshot() else {
 		return root;
 	};
 	let symbols = SymbolNavIndex::new(snapshot);
@@ -134,7 +134,7 @@ fn source_file_label(rel_path: &std::path::Path) -> String {
 		.to_string()
 }
 
-pub(in crate::ui) fn build_change_navigator(store: &LocalWorkspaceFacade) -> NavNode {
+pub(in crate::ui) fn build_change_navigator(store: &LocalWorkspaceRegistry) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("change"), "root", NavNodeKind::Root);
 	for change in workspace_read::change_rows(store) {
 		let lang = child_mut(

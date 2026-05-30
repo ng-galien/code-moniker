@@ -7,13 +7,13 @@ use std::time::Instant;
 use crate::perf;
 use crate::session::{CheckSummary, SessionOptions};
 use crate::ui::workspace_read::{
-	self, LocalWorkspaceFacade, WorkspaceCheckContext, load_local_file_catalog,
+	self, LocalWorkspaceRegistry, WorkspaceCheckContext, load_local_file_catalog,
 	load_local_symbol_index, load_local_symbol_index_from_catalog, resolve_local_linkage,
 };
 use code_moniker_workspace::snapshot::WorkspaceSnapshot;
 use code_moniker_workspace::source::LocalResourceCache;
 
-type LoadedWorkspace = (LocalWorkspaceFacade, LocalResourceCache, SessionOptions);
+type LoadedWorkspace = (LocalWorkspaceRegistry, LocalResourceCache, SessionOptions);
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -330,7 +330,7 @@ fn execute_task_kind(kind: TaskKind) -> TaskOutcome {
 				_ => load_local_symbol_index(&opts),
 			};
 			match loaded {
-				Ok((store, cache)) => match store.snapshot_arc() {
+				Ok((store, cache)) => match store.queries().snapshot_arc() {
 					Some(snapshot) => TaskOutcome::SymbolIndexLoaded {
 						workspace: Box::new((store, cache, opts)),
 						linkage_seed: snapshot,

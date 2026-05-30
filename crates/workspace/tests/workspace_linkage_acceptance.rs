@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use code_moniker_workspace::extract::JavaExtractionPipeline;
 use code_moniker_workspace::snapshot::{ReferenceRecord, WorkspaceRequest, WorkspaceSnapshot};
-use code_moniker_workspace::{LocalWorkspaceFacade, LocalWorkspaceOptions};
+use code_moniker_workspace::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 
 fn fixture_path(path: impl AsRef<Path>) -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -15,8 +15,10 @@ fn load_workspace(path: impl AsRef<Path>) -> WorkspaceSnapshot {
 }
 
 fn load_workspace_with_options(options: LocalWorkspaceOptions) -> WorkspaceSnapshot {
-	let mut workspace = LocalWorkspaceFacade::local(options);
-	let transition = workspace.refresh(WorkspaceRequest::new("linkage-acceptance"));
+	let mut workspace = LocalWorkspaceRegistry::local(options);
+	let transition = workspace
+		.commands()
+		.refresh(WorkspaceRequest::new("linkage-acceptance"));
 	assert!(
 		matches!(
 			transition,
@@ -25,6 +27,7 @@ fn load_workspace_with_options(options: LocalWorkspaceOptions) -> WorkspaceSnaps
 		"workspace refresh failed: {transition:?}"
 	);
 	workspace
+		.queries()
 		.snapshot()
 		.expect("ready workspace should expose a snapshot")
 		.clone()
@@ -477,7 +480,7 @@ fn assert_local_rust_links(snapshot: &WorkspaceSnapshot) {
 	assert_linked_to(
 		snapshot,
 		"uses_type",
-		"dir:order-service/dir:src/module:lib/path:errors/path:LocalError",
+		"dir:order-service/dir:src/module:lib/module:errors/path:LocalError",
 		"dir:order-service/dir:src/module:lib/module:errors/struct:LocalError",
 	);
 	assert_linked_to(
@@ -525,7 +528,7 @@ fn assert_local_rust_links(snapshot: &WorkspaceSnapshot) {
 	assert_linked_to(
 		snapshot,
 		"reads",
-		"dir:order-service/dir:src/module:lib/path:constants/path:DEFAULT_REGION",
+		"dir:order-service/dir:src/module:lib/module:constants/path:DEFAULT_REGION",
 		"dir:order-service/dir:src/module:lib/module:constants/path:DEFAULT_REGION",
 	);
 	assert_linked_to(

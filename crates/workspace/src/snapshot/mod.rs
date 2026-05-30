@@ -4,7 +4,6 @@
 //! defines the target orchestration model and tests it through semantic ports.
 
 mod model;
-mod refresh;
 mod view;
 
 pub use model::{
@@ -16,7 +15,6 @@ pub use model::{
 	WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult, WorkspaceSnapshot,
 	WorkspaceTimings, WorkspaceTransition,
 };
-pub use refresh::WorkspaceSnapshotRefresh;
 pub use view::{
 	ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet, ReferenceSetSummary,
 	ReferenceSummary, SearchHit, SourceSummary, SymbolDetail, SymbolReferences, SymbolSummary,
