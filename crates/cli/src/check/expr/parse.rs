@@ -2,7 +2,7 @@ use super::ast::*;
 use super::atom::{build_atom, parse_atom, parse_op, parse_rhs, unquote};
 use super::collection::try_parse_collection_subset_atom;
 use super::cursor::{self, ParseResult, ParserState};
-use super::domain::parse_domain_filter_body;
+use super::domain::{parse_domain_filter_body, parse_domain_ident};
 use super::error::ParseError;
 use super::number::{next_starts_number_call, parse_number_expr};
 use super::value::parse_mode_lhs;
@@ -114,6 +114,10 @@ fn parse_primary<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
 	if let Some(require) = require {
 		return Ok((require, state));
 	}
+	let (layout, state) = try_parse_vertical_layout(state)?;
+	if let Some(layout) = layout {
+		return Ok((layout, state));
+	}
 	let (atom, state) = try_parse_collection_subset_atom(state)?;
 	if let Some(atom) = atom {
 		return Ok((Node::Atom(atom), state));
@@ -145,6 +149,109 @@ fn parse_primary<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
 		cursor::pair_bindings_allowed(&state),
 	)?;
 	Ok((Node::Atom(atom), state))
+}
+
+fn try_parse_vertical_layout<'a>(state: ParserState<'a>) -> ParseResult<'a, Option<Node>> {
+	let state = cursor::skip_ws(state);
+	if !cursor::starts_with(&state, "vertical_layout(") {
+		return Ok((None, state));
+	}
+	let raw_start = cursor::position(&state);
+	let state = cursor::advance(state, "vertical_layout".len());
+	if cursor::peek_byte(&state) != Some(b'(') {
+		return Err(cursor::bail(&state, "expected `(` after `vertical_layout`"));
+	}
+	let state = cursor::advance(state, 1);
+	let state = cursor::skip_ws(state);
+	let (domain, mut state) = parse_domain_ident(state)?;
+	let mut public_first = false;
+	let mut private_after_first_use = false;
+	let mut max_gap = 40u32;
+	loop {
+		state = cursor::skip_ws(state);
+		match cursor::peek_byte(&state) {
+			Some(b')') => {
+				state = cursor::advance(state, 1);
+				break;
+			}
+			Some(b',') => {
+				state = cursor::skip_ws(cursor::advance(state, 1));
+			}
+			Some(_) => {
+				return Err(cursor::bail(
+					&state,
+					format!(
+						"expected `,` or `)` in `vertical_layout(...)` at byte {}",
+						cursor::position(&state)
+					),
+				));
+			}
+			None => return Err(cursor::bail(&state, "unclosed `vertical_layout(...)`")),
+		}
+		state = cursor::skip_ws(state);
+		if cursor::peek_byte(&state) == Some(b')') {
+			state = cursor::advance(state, 1);
+			break;
+		}
+		let option_start = cursor::position(&state);
+		let (option, next_state) = cursor::take_projection_segment(state);
+		if option.is_empty() {
+			return Err(cursor::bail(
+				&next_state,
+				format!("expected layout policy at byte {option_start}"),
+			));
+		}
+		state = cursor::skip_ws(next_state);
+		match option {
+			"public_first" => public_first = true,
+			"private_after_first_use" => private_after_first_use = true,
+			"max_gap" => {
+				if cursor::peek_byte(&state) != Some(b'=') {
+					return Err(cursor::bail(
+						&state,
+						"`max_gap` expects `max_gap = <number>`",
+					));
+				}
+				state = cursor::skip_ws(cursor::advance(state, 1));
+				let (number, next_state) = cursor::take_number_literal(state);
+				if number.is_empty() {
+					return Err(cursor::bail(&next_state, "`max_gap` expects a number"));
+				}
+				max_gap = number.parse::<u32>().map_err(|e| {
+					cursor::bail(
+						&next_state,
+						format!("invalid `max_gap` value `{number}`: {e}"),
+					)
+				})?;
+				state = next_state;
+			}
+			other => {
+				return Err(cursor::bail(
+					&state,
+					format!(
+						"unknown vertical layout policy `{other}` (allowed: public_first, private_after_first_use, max_gap)"
+					),
+				));
+			}
+		}
+	}
+	if !public_first && !private_after_first_use {
+		return Err(cursor::bail(
+			&state,
+			"`vertical_layout(...)` needs at least one policy",
+		));
+	}
+	let raw = cursor::slice_from(&state, raw_start).to_string();
+	Ok((
+		Some(Node::VerticalLayout(VerticalLayout {
+			domain,
+			public_first,
+			private_after_first_use,
+			max_gap,
+			raw,
+		})),
+		state,
+	))
 }
 
 fn try_parse_segment_atom<'a>(state: ParserState<'a>) -> ParseResult<'a, Option<Atom>> {

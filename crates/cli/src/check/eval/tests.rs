@@ -22,6 +22,22 @@ fn child(parent: &Moniker, kind: &[u8], name: &[u8]) -> Moniker {
 	b.build()
 }
 
+fn line_span(source: &str, line: u32) -> (u32, u32) {
+	let mut start = 0usize;
+	for _ in 1..line {
+		let next = source[start..]
+			.find('\n')
+			.map(|idx| start + idx + 1)
+			.expect("line must exist in test source");
+		start = next;
+	}
+	let end = source[start..]
+		.find('\n')
+		.map(|idx| start + idx)
+		.unwrap_or(source.len());
+	(start as u32, end as u32)
+}
+
 #[test]
 fn no_rules_means_no_violations() {
 	let cfg: Config = Config::default();
@@ -314,6 +330,134 @@ fn numeric_projection_rhs_is_evaluated() {
 	assert_eq!(v.len(), 1);
 	assert!(v[0].message.contains("lines = 4"), "{v:?}");
 	assert!(v[0].message.contains("expected 3"), "{v:?}");
+}
+
+#[test]
+fn position_projections_are_available_to_rules() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.function.where]]
+		id   = "position"
+		expr = "start_line = 2 AND end_line = 3 AND start_byte = 2"
+		"#,
+	);
+	let source = "a\nbc\nde\n";
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let f = child(&module, b"function", b"foo");
+	g.add_def(f, b"function", &module, Some((2, 7))).unwrap();
+	let v = evaluate(&g, source, Lang::Ts, &cfg, SCHEME).unwrap();
+	assert!(v.is_empty(), "position projections should match: {v:?}");
+}
+
+#[test]
+fn vertical_layout_warns_when_private_helper_is_far_from_first_use() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id       = "vertical-layout"
+		severity = "warn"
+		expr     = "vertical_layout(shape:callable, private_after_first_use, max_gap = 3)"
+		message  = "Callable layout under `{name}` does not match first-use order."
+		"#,
+	);
+	let source = "class Foo\nrun\nother\n\n\n\n\nhelper\n";
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(
+		foo.clone(),
+		b"class",
+		&module,
+		Some((0, source.len() as u32)),
+	)
+	.unwrap();
+	let run = child(&foo, b"method", b"run");
+	g.add_def(run.clone(), b"method", &foo, Some(line_span(source, 2)))
+		.unwrap();
+	g.add_def(
+		child(&foo, b"method", b"other"),
+		b"method",
+		&foo,
+		Some(line_span(source, 3)),
+	)
+	.unwrap();
+	let helper = child(&foo, b"method", b"helper");
+	g.add_def_attrs(
+		helper.clone(),
+		b"method",
+		&foo,
+		Some(line_span(source, 8)),
+		&DefAttrs {
+			visibility: b"private",
+			..DefAttrs::default()
+		},
+	)
+	.unwrap();
+	g.add_ref(&run, helper, b"calls", Some(line_span(source, 2)))
+		.unwrap();
+	let v = evaluate(&g, source, Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(v.len(), 1, "{v:?}");
+	assert_eq!(v[0].severity, RuleSeverity::Warn);
+	let explanation = v[0].explanation.as_deref().unwrap_or_default();
+	assert!(
+		explanation.contains("current: run -> other -> helper"),
+		"{v:?}"
+	);
+	assert!(
+		explanation.contains("ideal: run -> helper -> other"),
+		"{v:?}"
+	);
+	assert!(explanation.contains("move: helper `helper`"), "{v:?}");
+}
+
+#[test]
+fn vertical_layout_allows_private_helper_close_to_first_use() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id       = "vertical-layout"
+		severity = "warn"
+		expr     = "vertical_layout(shape:callable, private_after_first_use, max_gap = 3)"
+		"#,
+	);
+	let source = "class Foo\nrun\n\nhelper\nother\n";
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(
+		foo.clone(),
+		b"class",
+		&module,
+		Some((0, source.len() as u32)),
+	)
+	.unwrap();
+	let run = child(&foo, b"method", b"run");
+	g.add_def(run.clone(), b"method", &foo, Some(line_span(source, 2)))
+		.unwrap();
+	let helper = child(&foo, b"method", b"helper");
+	g.add_def_attrs(
+		helper.clone(),
+		b"method",
+		&foo,
+		Some(line_span(source, 4)),
+		&DefAttrs {
+			visibility: b"private",
+			..DefAttrs::default()
+		},
+	)
+	.unwrap();
+	g.add_def(
+		child(&foo, b"method", b"other"),
+		b"method",
+		&foo,
+		Some(line_span(source, 5)),
+	)
+	.unwrap();
+	g.add_ref(&run, helper, b"calls", Some(line_span(source, 2)))
+		.unwrap();
+	let v = evaluate(&g, source, Lang::Ts, &cfg, SCHEME).unwrap();
+	assert!(v.is_empty(), "helper is within max_gap: {v:?}");
 }
 
 #[test]

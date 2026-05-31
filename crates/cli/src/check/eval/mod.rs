@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 mod collection;
+mod layout;
 mod local;
 mod metrics;
 mod pairs;
@@ -9,6 +10,7 @@ mod value;
 use crate::check::config::{Config, ConfigError, KindRules, RuleSeverity, config_section};
 use crate::check::expr::{
 	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
+	VerticalLayout,
 };
 use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
@@ -20,6 +22,7 @@ use code_moniker_core::lang::Lang;
 use code_moniker_workspace::lines::line_range;
 
 use collection::{collection_has_pair_binding, eval_collection_size, eval_collection_subset};
+use layout::eval_vertical_layout;
 use local::{AggregateEval, eval_aggregate, eval_entropy, eval_mode};
 use metrics::eval_metric;
 use pairs::{eval_pair_count, eval_pair_quantifier};
@@ -280,6 +283,7 @@ fn push_kind_rule_reports(
 									actual: "missing".to_string(),
 									expected: "present".to_string(),
 									def_idx: None,
+									details: None,
 								})
 							}
 						},
@@ -352,6 +356,7 @@ fn push_shape_rule_reports(
 									actual: "missing".to_string(),
 									expected: "present".to_string(),
 									def_idx: None,
+									details: None,
 								})
 							}
 						},
@@ -873,6 +878,7 @@ fn eval_rule_with_id(
 		actual,
 		expected,
 		def_idx,
+		details,
 	} = match eval_node(&rule.root, target.scope.record, target.scope.idx, ctx) {
 		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
 		NodeOutcome::Fail(f) => f,
@@ -888,24 +894,36 @@ fn eval_rule_with_id(
 	let message = format!(
 		"{diagnostic_kind} `{name}` fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})",
 	);
-	let explanation = rule.message.as_ref().map(|tpl| {
-		render_template(
-			tpl,
-			&[
-				("name", &name),
-				("name.snake", &name_snake),
-				("kind", diagnostic_kind),
-				("moniker", &moniker),
-				("expr", &rule.raw_expr),
-				("value", &actual),
-				("expected", &expected),
-				("pattern", &expected),
-				("lines", &actual),
-				("limit", &expected),
-				("count", &actual),
-			],
-		)
-	});
+	let explanation = rule
+		.message
+		.as_ref()
+		.map(|tpl| {
+			let mut rendered = render_template(
+				tpl,
+				&[
+					("name", &name),
+					("name.snake", &name_snake),
+					("kind", diagnostic_kind),
+					("moniker", &moniker),
+					("expr", &rule.raw_expr),
+					("actual", &actual),
+					("value", &actual),
+					("expected", &expected),
+					("pattern", &expected),
+					("lines", &actual),
+					("limit", &expected),
+					("count", &actual),
+				],
+			);
+			if let Some(details) = &details {
+				if !rendered.is_empty() {
+					rendered.push('\n');
+				}
+				rendered.push_str(details);
+			}
+			rendered
+		})
+		.or(details);
 	out.push(Violation {
 		rule_id,
 		severity: rule.severity,
@@ -930,6 +948,7 @@ fn eval_ref_rule(
 		actual,
 		expected,
 		def_idx: _,
+		details,
 	} = match eval_ref_node(&rule.root, r, ctx) {
 		NodeOutcome::Pass | NodeOutcome::NotApplicable => return,
 		NodeOutcome::Fail(f) => f,
@@ -951,25 +970,36 @@ fn eval_ref_rule(
 	let target_name = name_of(&r.target).unwrap_or_default();
 	let target_kind = last_segment_kind(&r.target).unwrap_or_default();
 	let target_shape = shape_name_of_last_segment(&r.target);
-	let explanation = rule.message.as_ref().map(|tpl| {
-		render_template(
-			tpl,
-			&[
-				("kind", ref_kind),
-				("source.name", &source_name),
-				("source.kind", &source_kind),
-				("source.shape", &source_shape),
-				("source.moniker", &source_uri),
-				("target.name", &target_name),
-				("target.kind", &target_kind),
-				("target.shape", &target_shape),
-				("target.moniker", &target_uri),
-				("atom", &atom_raw),
-				("actual", &actual),
-				("expected", &expected),
-			],
-		)
-	});
+	let explanation = rule
+		.message
+		.as_ref()
+		.map(|tpl| {
+			let mut rendered = render_template(
+				tpl,
+				&[
+					("kind", ref_kind),
+					("source.name", &source_name),
+					("source.kind", &source_kind),
+					("source.shape", &source_shape),
+					("source.moniker", &source_uri),
+					("target.name", &target_name),
+					("target.kind", &target_kind),
+					("target.shape", &target_shape),
+					("target.moniker", &target_uri),
+					("atom", &atom_raw),
+					("actual", &actual),
+					("expected", &expected),
+				],
+			);
+			if let Some(details) = &details {
+				if !rendered.is_empty() {
+					rendered.push('\n');
+				}
+				rendered.push_str(details);
+			}
+			rendered
+		})
+		.or(details);
 	out.push(Violation {
 		rule_id: rule.rule_id.clone(),
 		severity: rule.severity,
@@ -990,6 +1020,7 @@ fn eval_ref_node(
 		node,
 		&|a| eval_ref_atom(a, r, ctx),
 		&|_, _, _| NodeOutcome::NotApplicable,
+		&|_| NodeOutcome::NotApplicable,
 		&|_| NodeOutcome::NotApplicable,
 	)
 }
@@ -1083,7 +1114,12 @@ fn eval_ref_atom(
 			}
 			SegmentScope::Target => Value::Str(first_segment_name(&r.target, kind.as_bytes())),
 		},
-		LhsExpr::Number(_) => return AtomOutcome::NotApplicable,
+		LhsExpr::Number(expr) => {
+			let Some(n) = eval_number_expr_ref(expr, r, ctx) else {
+				return AtomOutcome::NotApplicable;
+			};
+			Value::Number(n)
+		}
 		_ => return AtomOutcome::NotApplicable,
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
@@ -1111,6 +1147,24 @@ fn resolve_ref_lhs(
 	Some(match lhs {
 		Lhs::Kind => Value::Str(std::str::from_utf8(&r.kind).ok()?.to_string()),
 		Lhs::Confidence => Value::Str(std::str::from_utf8(&r.confidence).ok()?.to_string()),
+		Lhs::StartLine => {
+			let (s, e) = r.position?;
+			let (sl, _) = line_range(ctx.source, s, e);
+			Value::Number(sl as f64)
+		}
+		Lhs::EndLine => {
+			let (s, e) = r.position?;
+			let (_, el) = line_range(ctx.source, s, e);
+			Value::Number(el as f64)
+		}
+		Lhs::StartByte => {
+			let (s, _) = r.position?;
+			Value::Number(s as f64)
+		}
+		Lhs::EndByte => {
+			let (_, e) = r.position?;
+			Value::Number(e as f64)
+		}
 		Lhs::Moniker | Lhs::SourceMoniker => Value::Moniker(source_def.moniker.clone()),
 		Lhs::ParentMoniker => Value::Moniker(source_def.moniker.parent()?),
 		Lhs::SourceParentMoniker => Value::Moniker(source_def.moniker.parent()?),
@@ -1211,6 +1265,7 @@ struct Failure {
 	actual: String,
 	expected: String,
 	def_idx: Option<usize>,
+	details: Option<String>,
 }
 
 #[derive(Debug)]
@@ -1229,11 +1284,18 @@ enum AtomOutcome {
 /// Trivalent-logic walker shared by def/ref/segment evaluators. `atom_eval`
 /// produces the atom leaf outcome; `quant_eval` handles `Node::Quantifier`
 /// (scopes that can't iterate, like ref and segment, return NotApplicable).
-fn walk_node<A, Q, R>(node: &Node, atom_eval: &A, quant_eval: &Q, require_eval: &R) -> NodeOutcome
+fn walk_node<A, Q, R, L>(
+	node: &Node,
+	atom_eval: &A,
+	quant_eval: &Q,
+	require_eval: &R,
+	layout_eval: &L,
+) -> NodeOutcome
 where
 	A: Fn(&Atom) -> AtomOutcome,
 	Q: Fn(QuantKind, &Domain, &Node) -> NodeOutcome,
 	R: Fn(&str) -> NodeOutcome,
+	L: Fn(&VerticalLayout) -> NodeOutcome,
 {
 	match node {
 		Node::Atom(atom) => match atom_eval(atom) {
@@ -1244,13 +1306,14 @@ where
 				actual,
 				expected,
 				def_idx: None,
+				details: None,
 			}),
 			AtomOutcome::NotApplicable => NodeOutcome::NotApplicable,
 		},
 		Node::And(children) => {
 			let mut na = false;
 			for c in children {
-				match walk_node(c, atom_eval, quant_eval, require_eval) {
+				match walk_node(c, atom_eval, quant_eval, require_eval, layout_eval) {
 					NodeOutcome::Pass => {}
 					NodeOutcome::Fail(f) => return NodeOutcome::Fail(f),
 					NodeOutcome::NotApplicable => na = true,
@@ -1266,7 +1329,7 @@ where
 			let mut last_fail: Option<Failure> = None;
 			let mut na = false;
 			for c in children {
-				match walk_node(c, atom_eval, quant_eval, require_eval) {
+				match walk_node(c, atom_eval, quant_eval, require_eval, layout_eval) {
 					NodeOutcome::Pass => return NodeOutcome::Pass,
 					NodeOutcome::Fail(f) => last_fail = Some(f),
 					NodeOutcome::NotApplicable => na = true,
@@ -1280,23 +1343,31 @@ where
 				NodeOutcome::NotApplicable
 			}
 		}
-		Node::Not(inner) => match walk_node(inner, atom_eval, quant_eval, require_eval) {
-			NodeOutcome::Pass => NodeOutcome::Fail(Failure {
-				atom_raw: "NOT (...)".to_string(),
-				lhs_label: "NOT".to_string(),
-				actual: "true".to_string(),
-				expected: "false".to_string(),
-				def_idx: None,
-			}),
-			NodeOutcome::Fail(_) => NodeOutcome::Pass,
-			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
-		},
-		Node::Implies(prem, cons) => match walk_node(prem, atom_eval, quant_eval, require_eval) {
-			NodeOutcome::Pass => walk_node(cons, atom_eval, quant_eval, require_eval),
-			NodeOutcome::Fail(_) => NodeOutcome::Pass,
-			NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
-		},
+		Node::Not(inner) => {
+			match walk_node(inner, atom_eval, quant_eval, require_eval, layout_eval) {
+				NodeOutcome::Pass => NodeOutcome::Fail(Failure {
+					atom_raw: "NOT (...)".to_string(),
+					lhs_label: "NOT".to_string(),
+					actual: "true".to_string(),
+					expected: "false".to_string(),
+					def_idx: None,
+					details: None,
+				}),
+				NodeOutcome::Fail(_) => NodeOutcome::Pass,
+				NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
+			}
+		}
+		Node::Implies(prem, cons) => {
+			match walk_node(prem, atom_eval, quant_eval, require_eval, layout_eval) {
+				NodeOutcome::Pass => {
+					walk_node(cons, atom_eval, quant_eval, require_eval, layout_eval)
+				}
+				NodeOutcome::Fail(_) => NodeOutcome::Pass,
+				NodeOutcome::NotApplicable => NodeOutcome::NotApplicable,
+			}
+		}
 		Node::Require(pattern) => require_eval(pattern),
+		Node::VerticalLayout(layout) => layout_eval(layout),
 		Node::Quantifier {
 			kind,
 			domain,
@@ -1333,6 +1404,7 @@ fn eval_node_with_self(
 			)
 		},
 		&|pattern| eval_require(pattern, d, ctx),
+		&|layout| eval_vertical_layout(layout, d, def_idx, ctx),
 	)
 }
 
@@ -1353,6 +1425,7 @@ fn eval_require(pattern: &str, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> NodeOutc
 		actual: "missing".to_string(),
 		expected: rendered,
 		def_idx: None,
+		details: None,
 	})
 }
 
@@ -1399,6 +1472,24 @@ fn resolve_def_lhs(lhs: Lhs, d: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<Val
 			let (s, e) = d.position?;
 			let (sl, el) = line_range(source, s, e);
 			Value::Number((el - sl + 1) as f64)
+		}
+		Lhs::StartLine => {
+			let (s, e) = d.position?;
+			let (sl, _) = line_range(source, s, e);
+			Value::Number(sl as f64)
+		}
+		Lhs::EndLine => {
+			let (s, e) = d.position?;
+			let (_, el) = line_range(source, s, e);
+			Value::Number(el as f64)
+		}
+		Lhs::StartByte => {
+			let (s, _) = d.position?;
+			Value::Number(s as f64)
+		}
+		Lhs::EndByte => {
+			let (_, e) = d.position?;
+			Value::Number(e as f64)
 		}
 		Lhs::Text => {
 			let (s, e) = d.position?;
@@ -1787,6 +1878,7 @@ fn eval_quantifier_def(
 				QuantKind::None => "zero matches".to_string(),
 			},
 			def_idx: None,
+			details: None,
 		})
 	}
 }
@@ -1796,6 +1888,7 @@ fn eval_node_segment(node: &Node, seg_kind: &[u8], seg_name: &[u8]) -> NodeOutco
 		node,
 		&|a| eval_atom_segment(a, seg_kind, seg_name),
 		&|_, _, _| NodeOutcome::NotApplicable,
+		&|_| NodeOutcome::NotApplicable,
 		&|_| NodeOutcome::NotApplicable,
 	)
 }

@@ -290,6 +290,17 @@ modules with many methods on one host type pass cleanly; junk-drawer modules of 
 do not. Cutoffs are calibrated on this repo.
 """
 
+[[rust.shape.type.where]]
+id        = "smell-vertical-layout"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR vertical_layout(shape:callable, private_after_first_use, max_gap = 40)"
+message   = "Callable layout under `{name}` does not match first-use order."
+rationale = """
+Clean Code G10 vertical separation signal: private helpers should live close to their first
+same-owner caller. The rule is intentionally a warning while thresholds and legitimate
+grouping exceptions are inspected.
+"""
+
 # ─── Comment hygiene ────────────────────────────────────────────────────
 
 [[rust.comment.where]]

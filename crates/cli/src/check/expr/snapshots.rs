@@ -85,6 +85,14 @@ fn snapshot_node(node: &Node) -> Value {
 			"type": "require",
 			"pattern": pattern,
 		}),
+		Node::VerticalLayout(layout) => json!({
+			"type": "vertical_layout",
+			"domain": snapshot_domain(&layout.domain),
+			"public_first": layout.public_first,
+			"private_after_first_use": layout.private_after_first_use,
+			"max_gap": layout.max_gap,
+			"raw": layout.raw,
+		}),
 		Node::Quantifier {
 			kind,
 			domain,

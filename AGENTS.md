@@ -35,30 +35,54 @@ Prefer the narrowest validation that covers the files you changed. During
 TDD, run focused tests first and only widen the gate when the behavior is
 stable. Do not repeat the full workspace suite after every small edit.
 
-Recent warm-cache timings on this repository are a useful order of
-magnitude, not a contract: `fmt --check` ~0.4s, `cargo check` ~0.5s, all UI
-tests ~1s, `cargo moniker-check` ~1s when release artifacts are hot but ~40s
-after a release rebuild, `cargo test --features pg17 --no-default-features
---lib` ~2s, workspace tests ~5-6s, and `cargo install --path crates/cli`
-~45s when it recompiles. Optimize for feedback latency: avoid cold
-`cargo install` and repeated full workspace gates while iterating.
+Recent local build behavior can be much slower than old warm-cache notes:
+target artifacts are large, release builds use `lto = "fat"` with
+`codegen-units = 1`, and commands that look small can take more than a minute
+after cache invalidation. Optimize for feedback latency: avoid cold
+`cargo install`, `cargo run --release`, `cargo moniker-check`, and repeated
+full workspace gates while iterating.
 Run Cargo validations sequentially unless there is a concrete reason to do
 otherwise: parallel `cargo check`/`cargo test`/`cargo clippy` commands contend
 on the same build directory and make the feedback loop look slower than it is.
-Treat `cargo moniker-check` as a targeted guardrail during iteration because
-it can pay a cold release-build cost; prefer focused `code-moniker check
---file ...` calls when only a small touched surface needs architectural
-validation.
+Keep Cargo feature sets and build options stable during a work session. Do not
+opportunistically add or remove flags such as `--no-default-features`,
+`--features ...`, `--all-targets`, or release/profile switches just because a
+smaller target looks possible: Cargo treats those as distinct artifact graphs
+and can rebuild core crates. Reuse the same command shape that is already warm,
+or avoid Cargo entirely until the next validation batch.
+During rule, DSL, documentation, and extraction work, prefer the already
+installed binary for symbolic checks:
+`/Users/alexandreboyer/.cargo/bin/code-moniker rules show . --profile <name>`
+and `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile <name>
+--max-violations <N>`. This avoids the `cargo moniker-check` alias, which runs
+`cargo run --release` and may trigger an expensive release rebuild.
+
+Fast iteration loop:
+
+- Inspect code shape without compiling:
+  `/Users/alexandreboyer/.cargo/bin/code-moniker extract <file> --shape callable --limit 80`
+  and `/Users/alexandreboyer/.cargo/bin/code-moniker stats <file>`.
+- Format only touched Rust files during iteration:
+  `rustfmt --edition 2024 --config-path rustfmt.toml <files>`.
+- Run one focused Cargo test only after a coherent edit, using the same feature
+  set and command shape as the current warm cache.
+- Do not run `cargo check --workspace`, `cargo test --workspace`, `cargo clippy`,
+  `cargo fmt --all -- --check`, `cargo install --path crates/cli`, or
+  `cargo moniker-check` inside the tight edit loop.
 
 Iteration loop examples:
 
+- Check DSL / rule behavior:
+  `cargo test -p code-moniker check::expr --lib`, or a single focused
+  `check::eval::tests::<test_name>` test.
 - UI behavior: `cargo test -p code-moniker ui::tests::<test_name> --lib`,
   then `cargo test -p code-moniker ui::tests --lib` once the flow works.
 - CLI behavior: `cargo test -p code-moniker --test cli_e2e <test_name>`.
 - Extractor behavior: run the focused language unit test, then the relevant
   `cargo test -p code-moniker-core snapshot_<lang>` or conformance test.
-- Agent guardrail rules: run `cargo moniker-check` only when touching UI/store
-  boundaries, rules, imports, module organization, or before commit.
+- Agent guardrail rules: during iteration, run the installed binary directly;
+  reserve `cargo moniker-check` for the final pre-commit gate if a release
+  rebuild is acceptable.
 
 MCP behavior should be dogfooded against the Java multiproject fixture. Start
 the TUI/MCP pair in tmux, then probe the streamable HTTP endpoint with compact
@@ -87,10 +111,17 @@ changes, also run `code_moniker_rules action:"list"` and a bounded
 
 Before code review, use a short gate:
 
+- `rustfmt --edition 2024 --config-path rustfmt.toml --check <touched-rust-files>`
+- the focused test group for the changed surface
+- `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile agent --max-violations 50`
+  when architectural boundaries are involved
+
+Use the broader gates only once the implementation is stable or before a
+review/commit that truly needs them:
+
 - `cargo fmt --all -- --check`
 - `cargo check --workspace --exclude code-moniker-pg --all-targets`
-- the focused test group for the changed surface
-- `cargo moniker-check` when architectural boundaries are involved
+- `cargo moniker-check`
 
 For documentation-only changes, use `git diff --check`; do not run Rust
 builds unless the docs include generated examples that need verification.

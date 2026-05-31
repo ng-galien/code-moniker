@@ -77,6 +77,7 @@ fn eval_pair_node(
 		&|atom| eval_pair_atom(atom, a, b, def_idx, self_idx, ctx),
 		&|_, _, _| NodeOutcome::NotApplicable,
 		&|_| NodeOutcome::NotApplicable,
+		&|_| NodeOutcome::NotApplicable,
 	)
 }
 
@@ -215,5 +216,6 @@ fn pair_quantifier_outcome(kind: QuantKind, total: u32, passes: u32) -> NodeOutc
 			QuantKind::None => "zero matches".to_string(),
 		},
 		def_idx: None,
+		details: None,
 	})
 }

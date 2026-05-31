@@ -235,7 +235,13 @@ fn valid_def_collection_path(path: &[String]) -> bool {
 		[] => true,
 		[one] => matches!(
 			one.as_str(),
-			"self" | "name" | "kind" | "shape" | "visibility" | "lines" | "depth" | "parent"
+			"self"
+				| "name" | "kind"
+				| "shape" | "visibility"
+				| "lines" | "start_line"
+				| "end_line" | "start_byte"
+				| "end_byte" | "depth"
+				| "parent"
 		),
 		[parent, child] if parent == "parent" => {
 			matches!(child.as_str(), "name" | "kind" | "shape")
@@ -250,7 +256,10 @@ fn valid_def_collection_path(path: &[String]) -> bool {
 fn valid_ref_collection_path(path: &[String]) -> bool {
 	match path {
 		[] => true,
-		[one] => matches!(one.as_str(), "kind" | "source" | "target"),
+		[one] => matches!(
+			one.as_str(),
+			"kind" | "start_line" | "end_line" | "start_byte" | "end_byte" | "source" | "target"
+		),
 		[side, projection] if side == "source" || side == "target" => {
 			matches!(
 				projection.as_str(),

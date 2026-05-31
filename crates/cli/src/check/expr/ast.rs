@@ -6,6 +6,10 @@ use code_moniker_core::core::moniker::Moniker;
 pub(in crate::check) enum Lhs {
 	Name,
 	Lines,
+	StartLine,
+	EndLine,
+	StartByte,
+	EndByte,
 	Kind,
 	Shape,
 	Visibility,
@@ -38,6 +42,10 @@ impl Lhs {
 		match self {
 			Self::Name => "name",
 			Self::Lines => "lines",
+			Self::StartLine => "start_line",
+			Self::EndLine => "end_line",
+			Self::StartByte => "start_byte",
+			Self::EndByte => "end_byte",
 			Self::Kind => "kind",
 			Self::Shape => "shape",
 			Self::Visibility => "visibility",
@@ -70,6 +78,10 @@ impl Lhs {
 		Some(match s {
 			"name" => Self::Name,
 			"lines" => Self::Lines,
+			"start_line" => Self::StartLine,
+			"end_line" => Self::EndLine,
+			"start_byte" => Self::StartByte,
+			"end_byte" => Self::EndByte,
 			"kind" => Self::Kind,
 			"shape" => Self::Shape,
 			"visibility" => Self::Visibility,
@@ -100,7 +112,15 @@ impl Lhs {
 	}
 
 	pub(in crate::check) fn is_number_projection(self) -> bool {
-		matches!(self, Self::Lines | Self::Depth)
+		matches!(
+			self,
+			Self::Lines
+				| Self::StartLine
+				| Self::EndLine
+				| Self::StartByte
+				| Self::EndByte
+				| Self::Depth
+		)
 	}
 
 	pub(in crate::check) fn accepts_op(self, op: Op) -> bool {
@@ -118,7 +138,12 @@ impl Lhs {
 
 	fn projection_kind(self) -> LhsProjectionKind {
 		match self {
-			Self::Lines | Self::Depth => LhsProjectionKind::Number,
+			Self::Lines
+			| Self::StartLine
+			| Self::EndLine
+			| Self::StartByte
+			| Self::EndByte
+			| Self::Depth => LhsProjectionKind::Number,
 			Self::Moniker
 			| Self::ParentMoniker
 			| Self::SourceMoniker
@@ -308,6 +333,15 @@ pub(in crate::check) enum Domain {
 	InRefs,
 }
 
+#[derive(Debug, Clone)]
+pub(in crate::check) struct VerticalLayout {
+	pub(in crate::check) domain: Domain,
+	pub(in crate::check) public_first: bool,
+	pub(in crate::check) private_after_first_use: bool,
+	pub(in crate::check) max_gap: u32,
+	pub(in crate::check) raw: String,
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(in crate::check) enum QuantKind {
 	Any,
@@ -361,6 +395,7 @@ pub(in crate::check) enum Node {
 	Not(Box<Node>),
 	Implies(Box<Node>, Box<Node>),
 	Require(String),
+	VerticalLayout(VerticalLayout),
 	Quantifier {
 		kind: QuantKind,
 		domain: Domain,

@@ -81,6 +81,7 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
   | <segment_lookup> ( =~ | !~ ) <regex>
   | has_segment( '<segment_kind>', '<segment_name>' )
   | require( '<uri_pattern>' )
+  | vertical_layout( <item_domain>, <layout_policy> [, ...] )
   | $<alias_name>
 
 <string_projection> ::=
@@ -91,7 +92,7 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
   | segment.name | segment.kind
 
 <number_projection> ::=
-    lines | depth
+    lines | start_line | end_line | start_byte | end_byte | depth
 
 <number_expr> ::=
     <number>
@@ -197,7 +198,9 @@ to override.
 
 `<number_projection>`
 : A numeric projection. `lines` is the 1-indexed line span of the current
-  def body. `depth` is the number of segments in the current def moniker.
+  def body. `start_line`, `end_line`, `start_byte`, and `end_byte` expose
+  the current def/ref source position when extraction provides one.
+  `depth` is the number of segments in the current def moniker.
 
 `<number_expr>`
 : A numeric literal, projection, cardinality, aggregate, collection size,
@@ -256,6 +259,14 @@ to override.
 : One of the local named metrics. `self` binds to the rule's owner def.
   `each` binds to the item currently evaluated by an aggregate; outside an
   aggregate, `self` and `each` both point to the current def.
+
+`vertical_layout(...)`
+: A dedicated layout predicate for Clean Code G10-style vertical separation.
+  It evaluates direct child declarations from a def domain such as
+  `shape:callable` or `method`. Supported policies are `public_first` and
+  `private_after_first_use`; `max_gap = N` controls how far a private child
+  may sit after its first same-owner caller before the owner is reported.
+  Violations include current order, suggested order, and the first move.
 
 `<kind>`
 : A def kind accepted by the current language, such as `class`, `method`,
