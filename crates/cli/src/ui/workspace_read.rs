@@ -387,6 +387,7 @@ pub(in crate::ui) fn symbol_summary(
 		id: record.id.clone(),
 		lang: symbol_lang(store, record),
 		kind: record.kind.clone(),
+		visibility: record.visibility.clone(),
 		name: record.name.clone(),
 		file_path: symbol_source_path(store, record),
 		compact_moniker: compact_identity(store, &record.identity),
@@ -912,13 +913,24 @@ fn reference_location(
 fn usage_contexts(store: &LocalWorkspaceRegistry, refs: &[ReferenceId]) -> Vec<SymbolId> {
 	refs.iter()
 		.filter_map(|id| reference_by_id(store, id))
-		.map(|reference| reference.source_symbol.clone())
+		.filter_map(|reference| navigable_context_symbol(store, &reference.source_symbol))
 		.fold(Vec::new(), |mut out, symbol| {
 			if !out.contains(&symbol) {
 				out.push(symbol);
 			}
 			out
 		})
+}
+
+fn navigable_context_symbol(store: &LocalWorkspaceRegistry, symbol: &SymbolId) -> Option<SymbolId> {
+	let mut current = symbol_by_id(store, symbol)?;
+	loop {
+		if current.navigable {
+			return Some(current.id.clone());
+		}
+		let parent = current.parent.as_ref()?;
+		current = symbol_by_id(store, parent)?;
+	}
 }
 
 fn change_badge_for_symbol(
@@ -994,6 +1006,7 @@ pub(in crate::ui) struct SymbolSummary {
 	pub(in crate::ui) id: SymbolId,
 	pub(in crate::ui) lang: Lang,
 	pub(in crate::ui) kind: String,
+	pub(in crate::ui) visibility: String,
 	pub(in crate::ui) name: String,
 	pub(in crate::ui) file_path: PathBuf,
 	pub(in crate::ui) compact_moniker: String,
@@ -1008,6 +1021,7 @@ impl SymbolSummary {
 			id,
 			lang: Lang::Rs,
 			kind: String::new(),
+			visibility: String::new(),
 			name: "<missing>".to_string(),
 			file_path: PathBuf::new(),
 			compact_moniker: String::new(),

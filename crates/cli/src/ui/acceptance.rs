@@ -10,6 +10,7 @@ use crate::ui::render::view;
 use crate::ui::workspace_read::{load_local_file_catalog, load_local_workspace};
 
 const MULTIPROJECT_FIXTURE: &str = "../workspace/tests/fixtures/projects/java/multiprojet";
+const RUST_MULTIPROJECT_FIXTURE: &str = "../workspace/tests/fixtures/projects/rust/multiproject";
 
 struct TuiAcceptance {
 	app: App,
@@ -58,6 +59,29 @@ impl TuiAcceptance {
 		};
 		let (store, cache) =
 			load_local_file_catalog(&opts).expect("load Java multiproject file catalog");
+		let app = new_app(
+			store,
+			cache,
+			opts,
+			"default".to_string(),
+			fixture.join(".code-moniker.toml"),
+			None,
+		);
+		Self {
+			app,
+			_cache_dir: cache_dir,
+		}
+	}
+
+	fn load_rust_multiproject() -> Self {
+		let cache_dir = tempfile::tempdir().expect("cache dir");
+		let fixture = rust_multiproject_fixture();
+		let opts = SessionOptions {
+			paths: vec![fixture.clone()],
+			project: Some("rust-multiproject".to_string()),
+			cache_dir: Some(cache_dir.path().to_path_buf()),
+		};
+		let (store, cache) = load_local_workspace(&opts).expect("load Rust multiproject fixture");
 		let app = new_app(
 			store,
 			cache,
@@ -226,14 +250,14 @@ fn multiproject_usage_lens_shows_cross_module_references() {
 	assert_visible(&screen, "refs");
 	assert_visible(&screen, "28");
 	assert_visible(&screen, "contexts");
-	assert_visible(&screen, "15");
+	assert_visible(&screen, "8");
 	assert_visible(&screen, "references");
 	assert_visible(&screen, "OrderApplication");
 	assert_visible(&screen, "LoyaltyApplication");
 	assert_visible(&screen, "SpringCustomerService");
 	assert_visible(
 		&screen,
-		"usage lens for RiskPolicy: 28 reference(s), 15 navigable context(s)",
+		"usage lens for RiskPolicy: 28 reference(s), 8 navigable context(s)",
 	);
 }
 
@@ -255,11 +279,53 @@ fn multiproject_usage_lens_shows_cross_project_java_interface_implementations() 
 	assert_visible(&screen, "implements");
 }
 
+#[test]
+fn rust_usage_lens_shows_imported_const_contexts_in_usage_navigator() {
+	let mut harness = TuiAcceptance::load_rust_multiproject();
+
+	harness.search("DEFAULT_REGION");
+	let filtered = harness.render_text(160, 45);
+	assert_visible(
+		&filtered,
+		"const public common-model/src/lib.rs/DEFAULT_REGION",
+	);
+	assert_visible(
+		&filtered,
+		"path public order-service/src/lib.rs/DEFAULT_REGION",
+	);
+
+	harness.press(KeyCode::Down);
+	harness.press(KeyCode::Char('u'));
+	let screen = harness.render_text(160, 45);
+
+	assert_visible(&screen, "usages DEFAULT_REGION");
+	assert_visible(&screen, "DEFAULT_REGION");
+	assert_visible(&screen, "reexported_region_code");
+	assert_visible(
+		&screen,
+		"fn public rs/order-service/src/lib.rs/reexported_region_code(",
+	);
+	assert_visible(
+		&screen,
+		"usage lens for DEFAULT_REGION: 2 reference(s), 1 navigable context(s)",
+	);
+}
+
 fn multiproject_fixture() -> PathBuf {
 	let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(MULTIPROJECT_FIXTURE);
 	path.canonicalize().unwrap_or_else(|error| {
 		panic!(
 			"missing multiproject fixture at {}: {error}",
+			path.display()
+		)
+	})
+}
+
+fn rust_multiproject_fixture() -> PathBuf {
+	let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(RUST_MULTIPROJECT_FIXTURE);
+	path.canonicalize().unwrap_or_else(|error| {
+		panic!(
+			"missing Rust multiproject fixture at {}: {error}",
 			path.display()
 		)
 	})

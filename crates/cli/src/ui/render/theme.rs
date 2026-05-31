@@ -35,6 +35,7 @@ pub(in crate::ui) struct NavTheme {
 	pub(in crate::ui) directory: Color,
 	pub(in crate::ui) file: Color,
 	pub(in crate::ui) symbol: Color,
+	pub(in crate::ui) visibility: Color,
 	pub(in crate::ui) meta: Color,
 }
 
@@ -133,6 +134,7 @@ pub(in crate::ui) const THEME: UiTheme = UiTheme {
 		directory: Color::Blue,
 		file: Color::Rgb(17, 24, 39),
 		symbol: Color::Rgb(17, 24, 39),
+		visibility: Color::Rgb(180, 83, 9),
 		meta: Color::Rgb(107, 114, 128),
 	},
 	panel: PanelTheme {

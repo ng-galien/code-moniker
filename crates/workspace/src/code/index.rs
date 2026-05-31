@@ -226,6 +226,7 @@ fn collect_symbols(
 			identity: file.graph_identity().moniker_uri(&def.moniker),
 			name: last_name(&def.moniker),
 			kind: def_kind(def),
+			visibility: def_visibility(def),
 			signature: String::from_utf8_lossy(&def.signature).to_string(),
 			navigable: is_navigable_def(file.lang, def),
 			line_range: def
@@ -234,6 +235,12 @@ fn collect_symbols(
 			parent,
 		}));
 	}
+}
+
+fn def_visibility(def: &code_moniker_core::core::code_graph::DefRecord) -> String {
+	std::str::from_utf8(&def.visibility)
+		.unwrap_or("")
+		.to_string()
 }
 
 fn collect_references(

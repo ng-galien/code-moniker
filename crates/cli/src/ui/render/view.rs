@@ -454,12 +454,24 @@ pub(in crate::ui) fn nav_row_line(row: &NavRowVm, selected: bool) -> Line<'stati
 			));
 			spans.push(nav_count_span(row));
 		}
-		NavRowVmKind::Def { lang, kind, change } => {
+		NavRowVmKind::Def {
+			lang,
+			kind,
+			visibility,
+			change,
+		} => {
 			let group = definition_kind_group(*lang, kind);
 			spans.push(Span::styled(
 				kind.clone(),
 				Style::default().fg(THEME.kind.color_for_group(group)),
 			));
+			if !visibility.is_empty() {
+				spans.push(Span::raw(" "));
+				spans.push(Span::styled(
+					visibility.clone(),
+					Style::default().fg(THEME.nav.visibility),
+				));
+			}
 			spans.push(Span::raw(" "));
 			spans.push(Span::styled(
 				row.label.clone(),

@@ -88,6 +88,7 @@ pub(in crate::ui) enum NavRowVmKind {
 	Def {
 		lang: Lang,
 		kind: String,
+		visibility: String,
 		change: Option<NavChangeVm>,
 	},
 	Change(Option<NavChangeVm>),
@@ -329,6 +330,7 @@ fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
 			NavRowVmKind::Def {
 				lang: symbol.lang,
 				kind: kind.clone(),
+				visibility: symbol.visibility,
 				change: symbol.change.map(|change| NavChangeVm {
 					lang: symbol.lang,
 					kind,
