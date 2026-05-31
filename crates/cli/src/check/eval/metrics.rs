@@ -5,7 +5,7 @@ use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::shape::{Shape, shape_of};
 
-use super::EvalCtx;
+use super::{EvalCtx, is_call_ref_kind};
 
 pub(super) fn resolve_binding_idx(binding: Binding, def_idx: usize, self_idx: usize) -> usize {
 	match binding {
@@ -64,7 +64,7 @@ fn rfc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 			.flatten()
 		{
 			let record = ctx.graph.ref_at(*ref_idx);
-			if !is_call_kind(&record.kind) {
+			if !is_call_ref_kind(&record.kind) {
 				continue;
 			}
 			responses.insert(record.target.as_bytes().to_vec());
@@ -278,10 +278,6 @@ fn is_inheritance_kind(kind: &[u8]) -> bool {
 		kind,
 		b"extends" | b"inherits" | b"inheritance" | b"subclasses"
 	)
-}
-
-fn is_call_kind(kind: &[u8]) -> bool {
-	matches!(kind, b"calls" | b"method_call")
 }
 
 fn find_def_idx(target: &Moniker, ctx: &EvalCtx<'_, '_>) -> Option<usize> {

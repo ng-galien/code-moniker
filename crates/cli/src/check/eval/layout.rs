@@ -5,7 +5,7 @@ use code_moniker_workspace::lines::line_range;
 
 use crate::check::expr::{Domain, VerticalLayout};
 
-use super::{EvalCtx, Failure, NodeOutcome, def_has_shape, def_name};
+use super::{EvalCtx, Failure, NodeOutcome, def_has_shape, def_name, is_call_ref_kind};
 
 pub(super) fn eval_vertical_layout(
 	layout: &VerticalLayout,
@@ -100,10 +100,10 @@ fn eval_vertical_layout_group(
 	}
 	let current = order_text(items.iter().map(|item| item.name.as_str()));
 	let ideal_items = suggested_order(&items, &moves);
-	let ideal = order_text(ideal_items.iter().map(|item| item.name.as_str()));
+	let suggested = order_text(ideal_items.iter().map(|item| item.name.as_str()));
 	let first_move = &moves[0];
 	let details = format!(
-		"current: {current}\nideal: {ideal}\nmove: helper `{}` closer to `{}` (decl L{}, ideal after L{}, gap {})\nreason: {}",
+		"current: {current}\nsuggested: {suggested}\nmove: helper `{}` closer to `{}` (decl L{}, suggested after L{}, gap {})\nreason: {}",
 		first_move.symbol,
 		first_move.first_use,
 		first_move.from_line,
@@ -115,7 +115,7 @@ fn eval_vertical_layout_group(
 		atom_raw: layout.raw.clone(),
 		lhs_label: "layout".to_string(),
 		actual: current,
-		expected: ideal,
+		expected: suggested,
 		def_idx: None,
 		details: Some(details),
 	})
@@ -171,8 +171,12 @@ fn layout_items(
 		if !domain_matches(domain, def) {
 			continue;
 		}
-		let (start_byte, _) = def.position?;
-		let (start_line, end_line) = line_range_of(def, ctx)?;
+		let Some((start_byte, _)) = def.position else {
+			continue;
+		};
+		let Some((start_line, end_line)) = line_range_of(def, ctx) else {
+			continue;
+		};
 		items.push(LayoutItem {
 			idx,
 			name: def_name(def).unwrap_or_default(),
@@ -206,6 +210,9 @@ fn first_local_use(
 	refs.iter()
 		.filter_map(|ref_idx| {
 			let record = ctx.graph.ref_at(*ref_idx);
+			if !is_call_ref_kind(&record.kind) {
+				return None;
+			}
 			if record.source == item.idx
 				|| regions_by_idx.get(&record.source) != Some(&item.region)
 				|| !selected.contains(&record.source)

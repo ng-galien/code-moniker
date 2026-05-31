@@ -14,7 +14,7 @@ use crate::check::expr::{
 };
 use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
-use code_moniker_core::core::kinds::KIND_COMMENT;
+use code_moniker_core::core::kinds::{KIND_COMMENT, REF_CALLS, REF_METHOD_CALL};
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::shape::Shape;
 use code_moniker_core::core::uri::UriConfig;
@@ -27,6 +27,10 @@ use local::{AggregateEval, eval_aggregate, eval_entropy, eval_mode};
 use metrics::eval_metric;
 use pairs::{eval_pair_count, eval_pair_quantifier};
 use value::{Value, apply_op, apply_op_values, number_expr_label};
+
+fn is_call_ref_kind(kind: &[u8]) -> bool {
+	matches!(kind, REF_CALLS | REF_METHOD_CALL)
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct Violation {

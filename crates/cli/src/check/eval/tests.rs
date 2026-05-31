@@ -405,7 +405,7 @@ fn vertical_layout_warns_when_private_helper_is_far_from_first_use() {
 		"{v:?}"
 	);
 	assert!(
-		explanation.contains("ideal: run -> helper -> other"),
+		explanation.contains("suggested: run -> helper -> other"),
 		"{v:?}"
 	);
 	assert!(explanation.contains("move: helper `helper`"), "{v:?}");
@@ -506,6 +506,169 @@ fn vertical_layout_skips_callables_in_different_layout_regions() {
 		v.is_empty(),
 		"helpers in another physical layout region cannot be reordered with the caller: {v:?}"
 	);
+}
+
+#[test]
+fn vertical_layout_ignores_non_calling_refs_for_first_use() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id       = "vertical-layout"
+		severity = "warn"
+		expr     = "vertical_layout(shape:callable, private_after_first_use, max_gap = 0)"
+		"#,
+	);
+	let source = "class Foo\nrun\n\nprivate helper()\nother\n";
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(
+		foo.clone(),
+		b"class",
+		&module,
+		Some((0, source.len() as u32)),
+	)
+	.unwrap();
+	let run = child(&foo, b"method", b"run");
+	g.add_def(run.clone(), b"method", &foo, Some(line_span(source, 2)))
+		.unwrap();
+	let helper = child(&foo, b"method", b"helper");
+	g.add_def_attrs(
+		helper.clone(),
+		b"method",
+		&foo,
+		Some(line_span(source, 4)),
+		&DefAttrs {
+			visibility: b"private",
+			..DefAttrs::default()
+		},
+	)
+	.unwrap();
+	g.add_def(
+		child(&foo, b"method", b"other"),
+		b"method",
+		&foo,
+		Some(line_span(source, 5)),
+	)
+	.unwrap();
+	g.add_ref(&run, helper, b"reads", Some(line_span(source, 2)))
+		.unwrap();
+	let v = evaluate(&g, source, Lang::Ts, &cfg, SCHEME).unwrap();
+	assert!(
+		v.is_empty(),
+		"non-calling refs must not enforce first-use ordering: {v:?}"
+	);
+}
+
+#[test]
+fn vertical_layout_warns_when_private_callable_precedes_public_surface() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id       = "vertical-layout"
+		severity = "warn"
+		expr     = "vertical_layout(shape:callable, public_first)"
+		"#,
+	);
+	let source = "class Foo\nhelper\nrun\n";
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(
+		foo.clone(),
+		b"class",
+		&module,
+		Some((0, source.len() as u32)),
+	)
+	.unwrap();
+	let helper = child(&foo, b"method", b"helper");
+	g.add_def_attrs(
+		helper,
+		b"method",
+		&foo,
+		Some(line_span(source, 2)),
+		&DefAttrs {
+			visibility: b"private",
+			..DefAttrs::default()
+		},
+	)
+	.unwrap();
+	let run = child(&foo, b"method", b"run");
+	g.add_def_attrs(
+		run,
+		b"method",
+		&foo,
+		Some(line_span(source, 3)),
+		&DefAttrs {
+			visibility: b"public",
+			..DefAttrs::default()
+		},
+	)
+	.unwrap();
+	let v = evaluate(&g, source, Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(v.len(), 1, "{v:?}");
+	let explanation = v[0].explanation.as_deref().unwrap_or_default();
+	assert!(explanation.contains("suggested: run -> helper"), "{v:?}");
+	assert!(
+		explanation.contains("private declaration appears before visible API"),
+		"{v:?}"
+	);
+}
+
+#[test]
+fn vertical_layout_skips_unpositioned_items_without_disabling_group() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id       = "vertical-layout"
+		severity = "warn"
+		expr     = "vertical_layout(shape:callable, private_after_first_use, max_gap = 3)"
+		"#,
+	);
+	let source = "class Foo\nrun\nother\n\n\n\n\nhelper\n";
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(
+		foo.clone(),
+		b"class",
+		&module,
+		Some((0, source.len() as u32)),
+	)
+	.unwrap();
+	let run = child(&foo, b"method", b"run");
+	g.add_def(run.clone(), b"method", &foo, Some(line_span(source, 2)))
+		.unwrap();
+	g.add_def(
+		child(&foo, b"method", b"unpositioned"),
+		b"method",
+		&foo,
+		None,
+	)
+	.unwrap();
+	g.add_def(
+		child(&foo, b"method", b"other"),
+		b"method",
+		&foo,
+		Some(line_span(source, 3)),
+	)
+	.unwrap();
+	let helper = child(&foo, b"method", b"helper");
+	g.add_def_attrs(
+		helper.clone(),
+		b"method",
+		&foo,
+		Some(line_span(source, 8)),
+		&DefAttrs {
+			visibility: b"private",
+			..DefAttrs::default()
+		},
+	)
+	.unwrap();
+	g.add_ref(&run, helper, b"calls", Some(line_span(source, 2)))
+		.unwrap();
+	let v = evaluate(&g, source, Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(v.len(), 1, "{v:?}");
 }
 
 #[test]
