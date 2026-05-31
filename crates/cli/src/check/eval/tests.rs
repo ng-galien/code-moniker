@@ -470,7 +470,7 @@ fn vertical_layout_skips_callables_in_different_layout_regions() {
 		expr     = "vertical_layout(shape:callable, private_after_first_use, max_gap = 3)"
 		"#,
 	);
-	let source = "class Foo {\nrun\n}\nextension Foo {\nhelper\n}\n";
+	let source = "class Foo {\nrun\n}\nnamespace Foo {\nprivate helper()\n}\n";
 	let module = build_module(b"a");
 	let mut g = CodeGraph::new(module.clone(), b"module");
 	let foo = child(&module, b"class", b"Foo");
@@ -484,11 +484,14 @@ fn vertical_layout_skips_callables_in_different_layout_regions() {
 	let run = child(&foo, b"method", b"run");
 	g.add_def(run.clone(), b"method", &foo, Some(line_span(source, 2)))
 		.unwrap();
-	let helper = child(&foo, b"method", b"helper");
+	let ns = child(&foo, b"namespace", b"Foo");
+	g.add_def(ns.clone(), b"namespace", &foo, Some(line_span(source, 4)))
+		.unwrap();
+	let helper = child(&ns, b"method", b"helper");
 	g.add_def_attrs(
 		helper.clone(),
 		b"method",
-		&foo,
+		&ns,
 		Some(line_span(source, 5)),
 		&DefAttrs {
 			visibility: b"private",

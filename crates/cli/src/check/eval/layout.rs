@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_workspace::lines::line_range;
@@ -24,7 +24,7 @@ pub(super) fn eval_vertical_layout(
 		if group.len() < 2 {
 			continue;
 		}
-		let outcome = eval_vertical_layout_group(layout, owner_idx, ctx, &group);
+		let outcome = eval_vertical_layout_group(layout, ctx, &group);
 		if !matches!(outcome, NodeOutcome::Pass) {
 			return outcome;
 		}
@@ -34,11 +34,12 @@ pub(super) fn eval_vertical_layout(
 
 fn eval_vertical_layout_group(
 	layout: &VerticalLayout,
-	owner_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 	items: &[LayoutItem],
 ) -> NodeOutcome {
 	let selected: HashSet<usize> = items.iter().map(|item| item.idx).collect();
+	let regions_by_idx: HashMap<usize, LayoutRegion> =
+		items.iter().map(|item| (item.idx, item.region)).collect();
 	let mut moves = Vec::new();
 	if layout.public_first {
 		let last_visible = items.iter().rposition(|item| !item.is_private);
@@ -61,7 +62,7 @@ fn eval_vertical_layout_group(
 	}
 	if layout.private_after_first_use {
 		for item in items.iter().filter(|item| item.is_private) {
-			let Some(first_use) = first_local_use(item, owner_idx, &selected, ctx) else {
+			let Some(first_use) = first_local_use(item, &selected, &regions_by_idx, ctx) else {
 				continue;
 			};
 			let caller = ctx.graph.def_at(first_use.source_idx);
@@ -163,7 +164,7 @@ fn layout_items(
 	owner_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Option<Vec<LayoutItem>> {
-	let child_idxs = ctx.children_by_parent.get(&owner_idx)?;
+	let child_idxs = descendant_idxs(owner_idx, ctx)?;
 	let mut items = Vec::new();
 	for (original_order, idx) in child_idxs.iter().copied().enumerate() {
 		let def = ctx.graph.def_at(idx);
@@ -196,8 +197,8 @@ fn domain_matches(domain: &Domain, def: &DefRecord) -> bool {
 
 fn first_local_use(
 	item: &LayoutItem,
-	owner_idx: usize,
 	selected: &HashSet<usize>,
+	regions_by_idx: &HashMap<usize, LayoutRegion>,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Option<FirstUse> {
 	let target = ctx.graph.def_at(item.idx).moniker.as_bytes();
@@ -205,9 +206,8 @@ fn first_local_use(
 	refs.iter()
 		.filter_map(|ref_idx| {
 			let record = ctx.graph.ref_at(*ref_idx);
-			let source = ctx.graph.def_at(record.source);
-			if source.parent != Some(owner_idx)
-				|| record.source == item.idx
+			if record.source == item.idx
+				|| regions_by_idx.get(&record.source) != Some(&item.region)
 				|| !selected.contains(&record.source)
 			{
 				return None;
@@ -226,6 +226,20 @@ fn first_local_use(
 fn line_range_of(def: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<(u32, u32)> {
 	let (start, end) = def.position?;
 	Some(line_range(ctx.source, start, end))
+}
+
+fn descendant_idxs(owner_idx: usize, ctx: &EvalCtx<'_, '_>) -> Option<Vec<usize>> {
+	let mut descendants = Vec::new();
+	let mut todo = VecDeque::new();
+	let direct_children = ctx.children_by_parent.get(&owner_idx)?;
+	todo.extend(direct_children.iter().copied());
+	while let Some(parent_idx) = todo.pop_front() {
+		descendants.push(parent_idx);
+		if let Some(children) = ctx.children_by_parent.get(&parent_idx) {
+			todo.extend(children.iter().copied());
+		}
+	}
+	Some(descendants)
 }
 
 fn layout_groups(items: &[LayoutItem]) -> Vec<Vec<LayoutItem>> {
