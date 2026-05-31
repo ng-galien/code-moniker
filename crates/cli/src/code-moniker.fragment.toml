@@ -38,7 +38,7 @@ visibility), not a name, so it cannot be sidestepped by renaming. Warn-level dur
 
 [[refs.where]]
 id       = "production-macros-must-not-hide-domain-calls"
-severity = "warn"
+severity = "error"
 expr     = """
   kind = 'calls'
   AND source.kind != 'test'
