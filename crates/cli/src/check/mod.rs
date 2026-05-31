@@ -19,5 +19,5 @@ pub use eval::{
 	CompiledRuleSpec, CompiledRules, RequirementResolver, RuleReport, Violation, compile_rules,
 	evaluate, evaluate_compiled, evaluate_compiled_with_requirements, rule_report_compiled,
 };
-pub use exclude::UriExclusionMatcher;
+pub(crate) use exclude::UriExclusionMatcher;
 pub use suppress::apply as apply_suppressions;

@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::args::{ExtractArgs, OutputFormat, OutputMode};
 use crate::format;
+use crate::glob::FilePathFilter;
 use crate::language_kinds;
 use crate::page::{PageInfo, PageSpec};
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
@@ -91,70 +92,6 @@ fn run_filter<W1: Write, W2: Write>(
 		}
 		OutputMode::Quiet => Ok(any),
 	}
-}
-
-struct FilePathFilter {
-	patterns: Vec<Regex>,
-}
-
-impl FilePathFilter {
-	fn compile(patterns: &[String]) -> anyhow::Result<Self> {
-		patterns
-			.iter()
-			.map(|pattern| {
-				let normalized = normalize_path_pattern(pattern)?;
-				Regex::new(&glob_to_regex(&normalized))
-					.map_err(|err| anyhow::anyhow!("invalid --path `{pattern}`: {err}"))
-			})
-			.collect::<anyhow::Result<Vec<_>>>()
-			.map(|patterns| Self { patterns })
-	}
-
-	fn matches(&self, rel_path: &Path) -> bool {
-		if self.patterns.is_empty() {
-			return true;
-		}
-		let rel = rel_path.to_string_lossy().replace('\\', "/");
-		self.patterns.iter().any(|pattern| pattern.is_match(&rel))
-	}
-}
-
-fn normalize_path_pattern(pattern: &str) -> anyhow::Result<String> {
-	let trimmed = pattern.trim();
-	if trimmed.is_empty() {
-		anyhow::bail!("--path pattern must not be empty");
-	}
-	Ok(trimmed
-		.trim_start_matches("./")
-		.trim_start_matches('/')
-		.replace('\\', "/"))
-}
-
-fn glob_to_regex(pattern: &str) -> String {
-	let mut out = String::from("^");
-	let mut chars = pattern.chars().peekable();
-	while let Some(ch) = chars.next() {
-		match ch {
-			'*' if chars.peek() == Some(&'*') => {
-				chars.next();
-				if chars.peek() == Some(&'/') {
-					chars.next();
-					out.push_str("(?:.*/)?");
-				} else {
-					out.push_str(".*");
-				}
-			}
-			'*' => out.push_str("[^/]*"),
-			'?' => out.push_str("[^/]"),
-			'.' | '+' | '(' | ')' | '|' | '^' | '$' | '[' | ']' | '{' | '}' | '\\' => {
-				out.push('\\');
-				out.push(ch);
-			}
-			_ => out.push(ch),
-		}
-	}
-	out.push('$');
-	out
 }
 
 fn apply_tree_visibility(rows: &mut [FilterRow], args: &ExtractArgs) {
@@ -496,14 +433,6 @@ mod tests {
 			.unwrap();
 		let row = compute_filter_row(&filter, f).unwrap();
 		assert!(row.defs.len() >= 2, "a.ts should have defs");
-	}
-
-	#[test]
-	fn path_filter_matches_relative_glob() {
-		let filter = FilePathFilter::compile(&["pkg/src/**".to_string()]).unwrap();
-		assert!(filter.matches(Path::new("pkg/src/a.ts")));
-		assert!(filter.matches(Path::new("pkg/src/nested/a.ts")));
-		assert!(!filter.matches(Path::new("pkg/test/a.ts")));
 	}
 
 	#[test]

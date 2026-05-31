@@ -22,7 +22,6 @@ pub(super) fn eval_collection_size(
 	_self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> usize {
-	debug_assert!(!collection_has_pair_binding(collection));
 	eval_collection(collection, def_idx, ctx).len()
 }
 
@@ -33,8 +32,6 @@ pub(super) fn eval_collection_subset(
 	_self_idx: usize,
 	ctx: &EvalCtx<'_, '_>,
 ) -> bool {
-	debug_assert!(!collection_has_pair_binding(left));
-	debug_assert!(!collection_has_pair_binding(right));
 	let left = eval_collection(left, def_idx, ctx);
 	let right = eval_collection(right, def_idx, ctx);
 	is_subset(&left, &right)

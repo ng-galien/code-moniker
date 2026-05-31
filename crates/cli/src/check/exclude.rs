@@ -5,7 +5,7 @@ use regex::Regex;
 use code_moniker_workspace::extract;
 
 #[derive(Debug, Clone)]
-pub struct UriExclusionMatcher {
+pub(crate) struct UriExclusionMatcher {
 	patterns: Vec<CompiledUriPattern>,
 }
 
@@ -19,15 +19,10 @@ impl UriExclusionMatcher {
 		let patterns = patterns
 			.iter()
 			.map(|raw| CompiledUriPattern {
-				regex: Regex::new(&glob_to_regex(&normalize_uri(raw)))
-					.expect("URI exclusion glob compiler emits valid regex"),
+				regex: crate::glob::compile_glob(&normalize_uri(raw)),
 			})
 			.collect();
 		Self { patterns }
-	}
-
-	pub fn is_empty(&self) -> bool {
-		self.patterns.is_empty()
 	}
 
 	pub fn matches_path(&self, path: &Path) -> bool {
@@ -66,29 +61,6 @@ fn normalize_path(path: &Path) -> String {
 
 fn normalize_uri(value: &str) -> String {
 	value.replace('\\', "/")
-}
-
-fn glob_to_regex(pattern: &str) -> String {
-	let mut out = String::from("^");
-	let mut chars = pattern.chars().peekable();
-	while let Some(ch) = chars.next() {
-		match ch {
-			'*' if chars.peek() == Some(&'*') => {
-				chars.next();
-				if chars.peek() == Some(&'/') {
-					chars.next();
-					out.push_str("(?:.*/)?");
-				} else {
-					out.push_str(".*");
-				}
-			}
-			'*' => out.push_str("[^/]*"),
-			'?' => out.push_str("[^/]"),
-			other => out.push_str(&regex::escape(&other.to_string())),
-		}
-	}
-	out.push('$');
-	out
 }
 
 #[cfg(test)]

@@ -4,6 +4,8 @@ use code_moniker_core::core::shape::Shape;
 use regex::Regex;
 use serde_json::Value;
 
+use crate::glob::FilePathFilter;
+
 pub(super) const DEFAULT_LIMIT: usize = 80;
 pub(super) const MAX_LIMIT: usize = 500;
 
@@ -167,33 +169,6 @@ impl Paging {
 	}
 }
 
-#[derive(Clone, Debug, Default)]
-struct FilePathFilter {
-	patterns: Vec<Regex>,
-}
-
-impl FilePathFilter {
-	fn compile(patterns: &[String]) -> anyhow::Result<Self> {
-		patterns
-			.iter()
-			.map(|pattern| {
-				let normalized = normalize_path_pattern(pattern)?;
-				Regex::new(&glob_to_regex(&normalized))
-					.map_err(|err| anyhow::anyhow!("invalid path glob `{pattern}`: {err}"))
-			})
-			.collect::<anyhow::Result<Vec<_>>>()
-			.map(|patterns| Self { patterns })
-	}
-
-	fn matches(&self, rel_path: &str) -> bool {
-		self.patterns.is_empty()
-			|| self
-				.patterns
-				.iter()
-				.any(|pattern| pattern.is_match(&rel_path.replace('\\', "/")))
-	}
-}
-
 pub(super) fn string_list(arguments: &Value, key: &str) -> anyhow::Result<Vec<String>> {
 	let Some(value) = arguments.get(key) else {
 		return Ok(Vec::new());
@@ -280,45 +255,6 @@ fn positive_number_argument(arguments: &Value, key: &str) -> anyhow::Result<Opti
 		anyhow::bail!("`{key}` must be greater than zero");
 	}
 	Ok(value)
-}
-
-fn normalize_path_pattern(pattern: &str) -> anyhow::Result<String> {
-	let trimmed = pattern.trim();
-	if trimmed.is_empty() {
-		anyhow::bail!("path glob must not be empty");
-	}
-	Ok(trimmed
-		.trim_start_matches("./")
-		.trim_start_matches(std::path::MAIN_SEPARATOR)
-		.trim_start_matches('/')
-		.replace('\\', "/"))
-}
-
-fn glob_to_regex(pattern: &str) -> String {
-	let mut out = String::from("^");
-	let mut chars = pattern.chars().peekable();
-	while let Some(ch) = chars.next() {
-		match ch {
-			'*' if chars.peek() == Some(&'*') => {
-				chars.next();
-				if chars.peek() == Some(&'/') {
-					chars.next();
-					out.push_str("(?:.*/)?");
-				} else {
-					out.push_str(".*");
-				}
-			}
-			'*' => out.push_str("[^/]*"),
-			'?' => out.push_str("[^/]"),
-			'.' | '+' | '(' | ')' | '|' | '^' | '$' | '[' | ']' | '{' | '}' | '\\' => {
-				out.push('\\');
-				out.push(ch);
-			}
-			_ => out.push(ch),
-		}
-	}
-	out.push('$');
-	out
 }
 
 pub(super) fn path_prefix(rel_path: &str) -> String {

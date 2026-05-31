@@ -281,8 +281,7 @@ fn multiproject_project_paths() -> Vec<PathBuf> {
 }
 
 fn assert_visible(screen: &str, expected: &str) {
-	assert!(
-		screen.contains(expected),
-		"expected visible text `{expected}` in TUI screen:\n{screen}"
-	);
+	if !screen.contains(expected) {
+		panic!("expected visible text `{expected}` in TUI screen:\n{screen}");
+	}
 }

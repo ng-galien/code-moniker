@@ -19,6 +19,41 @@ rationale = """
 must resolve to the command module that owns its runtime.
 """
 
+[[rust.shape.type.where]]
+id       = "public-type-needs-external-consumer"
+severity = "warn"
+expr     = """
+  $crate_cli AND visibility = 'public' AND count(in_refs) > 0
+  => count(in_refs, NOT source ~ '**/dir:crates/dir:cli/dir:src/**') > 0
+"""
+message  = "`{name}` is `pub` but every consumer lives in `crates/cli/src`; narrow it to `pub(crate)` (or `pub(in …)`)."
+rationale = """
+`cli` is a leaf binary crate: nothing outside it depends on its library API except integration
+tests and examples (which sit outside `cli/src`). A `pub` type whose incoming references all
+originate inside `cli/src` is exposed crate-wide while consumed only locally — the visibility
+overstates the real boundary, which is what makes the module graph read as fully connected when
+consumption is actually local. The guard is a graph property (in_refs origin vs declared
+visibility), not a name, so it cannot be sidestepped by renaming. Warn-level during adoption.
+"""
+
+[[refs.where]]
+id       = "production-macros-must-not-hide-domain-calls"
+severity = "warn"
+expr     = """
+  kind = 'calls'
+  AND source.kind != 'test'
+  AND NOT source ~ '**/module:tests/**'
+  => NOT target ~ '**/external_pkg:std/path:macros/macro:/^(assert|assert_eq|assert_ne|debug_assert|debug_assert_eq|debug_assert_ne)$/'
+"""
+message  = "Macro `{target}` outside tests can hide domain calls from the Rust extractor; bind the value first or use explicit control flow."
+rationale = """
+Architecture rules depend on a graph-readable production surface. Rust macros can hide calls
+inside token arguments, so a rule based on references may under-count real dependencies. Tests
+are excluded: test assertions are a normal testing idiom and should not drive production
+modularization rules. In production code, bind the domain value before the macro or use explicit
+control flow when the call matters structurally.
+"""
+
 [[rust.shape.callable.where]]
 id       = "lib-only-dispatches-commands"
 severity = "error"
