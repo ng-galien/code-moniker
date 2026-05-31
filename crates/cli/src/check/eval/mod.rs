@@ -26,7 +26,7 @@ use pairs::{eval_pair_count, eval_pair_quantifier};
 use value::{Value, apply_op, apply_op_values, number_expr_label};
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct Violation {
+pub(crate) struct Violation {
 	pub rule_id: String,
 	pub severity: RuleSeverity,
 	pub moniker: String,
@@ -46,7 +46,8 @@ fn serialize_lines<S: serde::Serializer>(v: &(u32, u32), s: S) -> Result<S::Ok, 
 	t.end()
 }
 
-pub fn evaluate(
+#[cfg(test)]
+pub(crate) fn evaluate(
 	graph: &CodeGraph,
 	source: &str,
 	lang: Lang,
@@ -61,11 +62,15 @@ pub fn evaluate(
 /// expression, resolves aliases. Call once per language and reuse across
 /// many files of that language — the eval pipeline is shaped so the heavy
 /// work happens here, not per-file.
-pub fn compile_rules(cfg: &Config, lang: Lang, scheme: &str) -> Result<CompiledRules, ConfigError> {
+pub(crate) fn compile_rules(
+	cfg: &Config,
+	lang: Lang,
+	scheme: &str,
+) -> Result<CompiledRules, ConfigError> {
 	CompiledRules::for_lang(cfg, lang, scheme)
 }
 
-pub fn evaluate_compiled(
+pub(crate) fn evaluate_compiled(
 	graph: &CodeGraph,
 	source: &str,
 	lang: Lang,
@@ -75,11 +80,11 @@ pub fn evaluate_compiled(
 	evaluate_compiled_with_requirements(graph, source, lang, scheme, compiled, None)
 }
 
-pub trait RequirementResolver: Sync {
+pub(crate) trait RequirementResolver: Sync {
 	fn exists(&self, pattern: &str, source: &DefRecord, scheme: &str) -> bool;
 }
 
-pub fn evaluate_compiled_with_requirements(
+pub(crate) fn evaluate_compiled_with_requirements(
 	graph: &CodeGraph,
 	source: &str,
 	lang: Lang,
@@ -173,7 +178,7 @@ pub fn evaluate_compiled_with_requirements(
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct RuleReport {
+pub(crate) struct RuleReport {
 	pub rule_id: String,
 	pub severity: RuleSeverity,
 	pub domain: String,
@@ -186,7 +191,7 @@ pub struct RuleReport {
 	pub warning: Option<String>,
 }
 
-pub fn rule_report_compiled(
+pub(crate) fn rule_report_compiled(
 	graph: &CodeGraph,
 	source: &str,
 	lang: Lang,
@@ -467,14 +472,14 @@ struct CompiledKindRules {
 	require_doc_rule_id: Option<String>,
 }
 
-pub struct CompiledRules {
+pub(crate) struct CompiledRules {
 	by_kind: HashMap<String, CompiledKindRules>,
 	by_shape: HashMap<String, CompiledKindRules>,
 	refs: Vec<CompiledRule>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct CompiledRuleSpec {
+pub(crate) struct CompiledRuleSpec {
 	pub rule_id: String,
 	pub severity: RuleSeverity,
 	pub lang: String,

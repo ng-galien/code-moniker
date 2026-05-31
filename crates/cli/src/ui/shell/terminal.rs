@@ -9,9 +9,9 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
+use crate::DEFAULT_SCHEME;
 use crate::args::UiArgs;
 use crate::session::SessionOptions;
-use crate::{DEFAULT_SCHEME, Exit};
 
 use super::{EventSource, ShellEvent};
 use crate::perf;
@@ -40,28 +40,6 @@ impl UiSession {
 	pub(crate) fn shared_workspace_index(&self) -> crate::workspace_index::SharedWorkspaceIndex {
 		crate::ui::app::shared_workspace_index(&self.app)
 	}
-}
-
-pub(in crate::ui) fn run<W1: Write, W2: Write>(
-	args: &UiArgs,
-	stdout: &mut W1,
-	stderr: &mut W2,
-) -> Exit {
-	match run_inner(args, stdout, stderr) {
-		Ok(()) => Exit::Match,
-		Err(e) => {
-			let _ = writeln!(stderr, "code-moniker: {e:#}");
-			Exit::UsageError
-		}
-	}
-}
-
-fn run_inner<W1: Write, W2: Write>(
-	args: &UiArgs,
-	stdout: &mut W1,
-	_stderr: &mut W2,
-) -> anyhow::Result<()> {
-	run_session(stdout, boot(args))
 }
 
 pub(crate) fn boot(args: &UiArgs) -> UiSession {

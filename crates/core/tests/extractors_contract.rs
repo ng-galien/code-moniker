@@ -391,6 +391,73 @@ expectation_lang!(expect_cs, "fixtures/extractors/cs/*.cs", lang::cs::Lang);
 expectation_lang!(expect_sql, "fixtures/extractors/sql/*.sql", lang::sql::Lang);
 
 #[test]
+fn rust_pub_use_from_declared_crate_module_targets_local_module() {
+	let source = "pub mod args;\npub use args::Cli;\npub use self::args::Command;\npub use crate::args::CheckArgs;\nmod exports { pub use super::args::StatsArgs; }\n";
+	let graph = lang::rs::Lang::extract(
+		"crates/cli/src/lib.rs",
+		source,
+		&anchor(),
+		false,
+		&<lang::rs::Lang as LangExtractor>::Presets::default(),
+	);
+	let reexports: Vec<_> = graph
+		.refs()
+		.filter(|reference| reference.kind == b"reexports")
+		.map(|reference| render(&reference.target))
+		.collect();
+
+	assert!(
+		reexports.iter().any(|target| target
+			== "code+moniker://app/lang:rs/dir:crates/dir:cli/dir:src/module:args/path:Cli"),
+		"pub use of a locally declared module must not be classified as an external crate: {reexports:#?}"
+	);
+	assert!(
+		reexports.iter().any(|target| target
+			== "code+moniker://app/lang:rs/dir:crates/dir:cli/dir:src/module:args/path:Command"),
+		"`self::` reexport must target the declared sibling module: {reexports:#?}"
+	);
+	assert!(
+		reexports.iter().any(|target| target
+			== "code+moniker://app/lang:rs/dir:crates/dir:cli/dir:src/module:args/path:CheckArgs"),
+		"`crate::` reexport must target the declared crate module: {reexports:#?}"
+	);
+	assert!(
+		reexports.iter().any(|target| target
+			== "code+moniker://app/lang:rs/dir:crates/dir:cli/dir:src/module:args/path:StatsArgs"),
+		"`super::` reexport must target the declared parent module: {reexports:#?}"
+	);
+	assert!(
+		reexports
+			.iter()
+			.all(|target| !target.contains("external_pkg:args")),
+		"local module reexports must stay local: {reexports:#?}"
+	);
+}
+
+#[test]
+fn rust_pub_crate_type_is_not_public_visibility() {
+	let source = "pub(crate) struct Internal;\npub struct Boundary;\n";
+	let graph = lang::rs::Lang::extract(
+		"src/lib.rs",
+		source,
+		&anchor(),
+		false,
+		&<lang::rs::Lang as LangExtractor>::Presets::default(),
+	);
+	let internal = graph
+		.defs()
+		.find(|def| render(&def.moniker).ends_with("/struct:Internal"))
+		.expect("internal struct is extracted");
+	let boundary = graph
+		.defs()
+		.find(|def| render(&def.moniker).ends_with("/struct:Boundary"))
+		.expect("public struct is extracted");
+
+	assert_eq!(internal.visibility, b"private");
+	assert_eq!(boundary.visibility, b"public");
+}
+
+#[test]
 fn rejects_unknown_expectation_fields() {
 	let spec_path = Path::new("bad.expect.toml");
 	let value = r#"

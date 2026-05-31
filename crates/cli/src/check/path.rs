@@ -8,7 +8,7 @@ use regex::Regex;
 use code_moniker_core::core::moniker::Moniker;
 
 #[derive(Debug, Clone)]
-pub enum Step {
+pub(crate) enum Step {
 	Literal { kind: Vec<u8>, name: Vec<u8> },
 	KindWildcard(Vec<u8>),
 	NameWildcard(Vec<u8>),
@@ -18,18 +18,18 @@ pub enum Step {
 }
 
 #[derive(Debug, Clone)]
-pub struct Pattern {
+pub(crate) struct Pattern {
 	pub steps: Vec<Step>,
 	pub raw: String,
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum PatternError {
+pub(crate) enum PatternError {
 	#[error("path pattern `{pattern}`: {msg}")]
 	Bad { pattern: String, msg: String },
 }
 
-pub fn parse(input: &str) -> Result<Pattern, PatternError> {
+pub(crate) fn parse(input: &str) -> Result<Pattern, PatternError> {
 	let raw = input.to_string();
 	if input.is_empty() {
 		return Err(PatternError::Bad {
@@ -133,7 +133,7 @@ fn parse_step(s: &str, full: &str) -> Result<Step, PatternError> {
 
 /// Matches `pattern` against the segments of `m`. `**` is greedy non-deterministic
 /// — recursive backtracking, O(2^n) worst case but moniker depth ≤ ~10 in practice.
-pub fn matches(pattern: &Pattern, m: &Moniker) -> bool {
+pub(crate) fn matches(pattern: &Pattern, m: &Moniker) -> bool {
 	let view = m.as_view();
 	let segs: Vec<(&[u8], &[u8])> = view.segments().map(|s| (s.kind, s.name)).collect();
 	match_steps(&pattern.steps, &segs)
@@ -185,12 +185,16 @@ mod tests {
 
 	fn assert_match(pat: &str, m: &Moniker) {
 		let p = parse(pat).expect("pattern parses");
-		assert!(matches(&p, m), "pattern `{pat}` should match {m:?}");
+		if !matches(&p, m) {
+			panic!("pattern `{pat}` should match {m:?}");
+		}
 	}
 
 	fn assert_no_match(pat: &str, m: &Moniker) {
 		let p = parse(pat).expect("pattern parses");
-		assert!(!matches(&p, m), "pattern `{pat}` should NOT match {m:?}");
+		if matches(&p, m) {
+			panic!("pattern `{pat}` should NOT match {m:?}");
+		}
 	}
 
 	#[test]

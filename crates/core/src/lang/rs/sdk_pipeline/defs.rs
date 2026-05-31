@@ -32,7 +32,7 @@ pub(super) fn simple_def(
 		namespace,
 		name: name.to_vec(),
 		kind,
-		visibility: def_visibility(kind, node, scope, trait_impl),
+		visibility: def_visibility(kind, node, env.source, scope, trait_impl),
 		signature: Vec::new(),
 		position: Some(node_position(node)),
 		call_name: Vec::new(),
@@ -65,7 +65,7 @@ pub(super) fn callable_def(env: DefEnv<'_>, input: CallableDefInput<'_>) -> Disc
 		namespace: Namespace::Value,
 		name: name.to_vec(),
 		kind: input.kind,
-		visibility: visibility_of(input.node, input.scope, input.trait_impl),
+		visibility: visibility_of(input.node, env.source, input.scope, input.trait_impl),
 		position: Some(node_position(input.node)),
 		signature,
 		call_name: name.to_vec(),
@@ -198,7 +198,7 @@ pub(super) fn nested_type_def(
 		namespace: Namespace::Type,
 		name: name.to_vec(),
 		kind,
-		visibility: visibility_of(node, function, false),
+		visibility: visibility_of(node, env.source, function, false),
 		signature: Vec::new(),
 		position: Some(node_position(node)),
 		call_name: Vec::new(),
@@ -340,11 +340,16 @@ struct DefRecordInput {
 	call_arity: Option<usize>,
 }
 
-fn visibility_of(node: Node<'_>, scope: &Moniker, trait_impl: bool) -> &'static [u8] {
+fn visibility_of(
+	node: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	trait_impl: bool,
+) -> &'static [u8] {
 	let mut cursor = node.walk();
 	let has_pub = node
 		.children(&mut cursor)
-		.any(|child| child.kind() == "visibility_modifier");
+		.any(|child| child.kind() == "visibility_modifier" && node_slice(child, source) == b"pub");
 	if has_pub || trait_impl || scope.last_kind().as_deref() == Some(kinds::TRAIT) {
 		kinds::VIS_PUBLIC
 	} else {
@@ -352,10 +357,16 @@ fn visibility_of(node: Node<'_>, scope: &Moniker, trait_impl: bool) -> &'static 
 	}
 }
 
-fn def_visibility(kind: &[u8], node: Node<'_>, scope: &Moniker, trait_impl: bool) -> &'static [u8] {
+fn def_visibility(
+	kind: &[u8],
+	node: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	trait_impl: bool,
+) -> &'static [u8] {
 	if kind == kinds::MACRO {
 		kinds::VIS_NONE
 	} else {
-		visibility_of(node, scope, trait_impl)
+		visibility_of(node, source, scope, trait_impl)
 	}
 }

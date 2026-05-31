@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SessionOptions {
+pub(crate) struct SessionOptions {
 	pub paths: Vec<PathBuf>,
 	pub project: Option<String>,
 	pub cache_dir: Option<PathBuf>,
@@ -25,7 +25,7 @@ pub struct SessionStats {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct LangTotals {
+pub(crate) struct LangTotals {
 	pub files: usize,
 	pub defs: usize,
 	pub refs: usize,
@@ -40,19 +40,19 @@ pub struct CheckSummary {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CheckError {
+pub(crate) struct CheckError {
 	pub path: PathBuf,
 	pub error: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StoreWatchRoot {
+pub(crate) struct StoreWatchRoot {
 	pub path: PathBuf,
 	pub git_root: Option<PathBuf>,
 	pub ignored_paths: Vec<PathBuf>,
 }
 
-pub fn watch_roots_for_options(opts: &SessionOptions) -> Vec<StoreWatchRoot> {
+pub(crate) fn watch_roots_for_options(opts: &SessionOptions) -> Vec<StoreWatchRoot> {
 	let ignored_paths = opts
 		.cache_dir
 		.as_ref()
@@ -68,7 +68,7 @@ pub fn watch_roots_for_options(opts: &SessionOptions) -> Vec<StoreWatchRoot> {
 		.collect()
 }
 
-pub fn root_label_for_options(opts: &SessionOptions) -> String {
+pub(crate) fn root_label_for_options(opts: &SessionOptions) -> String {
 	match opts.paths.as_slice() {
 		[] => "<empty>".to_string(),
 		[path] => path.display().to_string(),

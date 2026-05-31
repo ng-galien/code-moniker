@@ -1,30 +1,30 @@
 //! Standalone CLI surface. See `docs/cli/extract.md` (per-file probe)
 //! and `docs/cli/check.md` (project linter).
 
-pub mod args;
-pub mod check;
+pub(crate) mod args;
+pub(crate) mod check;
 pub(crate) mod color;
-pub mod extract;
-pub mod format;
+pub(crate) mod extract;
+pub(crate) mod format;
 pub(crate) mod glob;
-pub mod harness;
-pub mod langs;
+pub(crate) mod harness;
+pub(crate) mod langs;
 pub(crate) mod language_kinds;
-pub mod manifest;
+pub(crate) mod manifest;
 #[cfg(feature = "tui")]
 pub(crate) mod mcp;
 pub(crate) mod moniker_render;
 pub(crate) mod page;
 #[cfg(feature = "tui")]
 pub(crate) mod perf;
-pub mod rules;
-pub mod session;
-pub mod shapes;
-pub mod stats;
+pub(crate) mod rules;
+pub(crate) mod session;
+pub(crate) mod shapes;
+pub(crate) mod stats;
 #[cfg(feature = "pretty")]
 pub(crate) mod tree;
 #[cfg(feature = "tui")]
-pub mod ui;
+pub(crate) mod ui;
 #[cfg(feature = "tui")]
 pub(crate) mod ui_command;
 #[cfg(feature = "tui")]
@@ -38,14 +38,14 @@ use std::process::ExitCode;
 #[cfg(feature = "tui")]
 pub use args::UiArgs;
 pub use args::{
-	CheckArgs, CheckFormat, Cli, CodexHarnessArgs, Command, DefaultRules, ExtractArgs, HarnessArgs,
-	HarnessCommand, HarnessToolBackend, HarnessToolFilesArgs, LangsArgs, LangsFormat, ManifestArgs,
-	ManifestFormat, OutputFormat, OutputMode, RulesArgs, RulesCommand, RulesFileArgs,
-	RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs,
-	StatsFormat,
+	Charset, CheckArgs, CheckFormat, Cli, CodexHarnessArgs, ColorChoice, Command, DefaultRules,
+	ExtractArgs, HarnessArgs, HarnessCommand, HarnessToolBackend, HarnessToolFilesArgs, LangsArgs,
+	LangsFormat, ManifestArgs, ManifestFormat, MonikerFormat, OutputFormat, OutputMode, RulesArgs,
+	RulesCommand, RulesFileArgs, RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat,
+	ShapesArgs, StatsArgs, StatsFormat,
 };
 pub use code_moniker_workspace::lang::{LangError, path_to_lang};
-pub use extract::{MatchSet, Predicate};
+pub use extract::{MatchSet, Predicate, RefMatch};
 
 pub(crate) const DEFAULT_SCHEME: &str = "code+moniker://";
 

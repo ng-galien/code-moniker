@@ -37,6 +37,7 @@ pub(super) struct RustDiscover<'src> {
 	deep: bool,
 	defs: Vec<DiscoveredDef>,
 	refs: Vec<ResolvedRef>,
+	declared_modules: Vec<Moniker>,
 	imported_symbols: Vec<ImportedSymbol>,
 	wildcard_imports: Vec<(Moniker, Moniker)>,
 	macro_wildcard_imports: Vec<(Moniker, Moniker)>,
@@ -55,6 +56,7 @@ impl<'src> RustDiscover<'src> {
 			deep,
 			defs: Vec::new(),
 			refs: Vec::new(),
+			declared_modules: Vec::new(),
 			imported_symbols: Vec::new(),
 			wildcard_imports: Vec::new(),
 			macro_wildcard_imports: Vec::new(),
@@ -88,6 +90,16 @@ impl<'src> RustDiscover<'src> {
 		}
 	}
 
+	fn push_declared_module(&mut self, module: Moniker) {
+		if !self
+			.declared_modules
+			.iter()
+			.any(|existing| *existing == module)
+		{
+			self.declared_modules.push(module);
+		}
+	}
+
 	fn extend_refs(&mut self, refs: Vec<ResolvedRef>) {
 		for reference in refs {
 			self.push_ref(reference);
@@ -105,6 +117,7 @@ impl<'src> RustDiscover<'src> {
 		RefEnv {
 			source: self.source,
 			defs: &self.defs,
+			declared_modules: &self.declared_modules,
 			imported_symbols: &self.imported_symbols,
 			wildcard_imports: &self.wildcard_imports,
 			macro_wildcard_imports: &self.macro_wildcard_imports,
@@ -275,7 +288,7 @@ fn function_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker, t
 }
 
 fn use_declaration(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
-	if !has_visibility(node) {
+	if !has_public_visibility(node, state.source) {
 		return;
 	}
 	let Some(argument) = node.child_by_field_name("argument") else {
@@ -324,6 +337,9 @@ fn impl_items(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 
 fn module_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	if node.child_by_field_name("body").is_none() {
+		if let Some(module) = module_moniker(state, node, scope) {
+			state.push_declared_module(module);
+		}
 		return;
 	}
 	let Some(def) = simple_def(
@@ -652,7 +668,7 @@ fn collect_use_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Monike
 		return;
 	};
 	let mut expansion = expand_import(state.ref_env(), argument, scope);
-	if has_visibility(node) {
+	if has_public_visibility(node, state.source) {
 		for reference in &mut expansion.refs {
 			if reference.kind == kinds::IMPORTS_SYMBOL {
 				reference.kind = kinds::REEXPORTS;
@@ -712,7 +728,7 @@ fn collect_module_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Mon
 	if let Some(body) = node.child_by_field_name("body") {
 		collect_refs(state, body, &module, false);
 	} else {
-		state.push_ref(module_declaration_ref(node, scope, module));
+		state.push_ref(module_declaration_ref(node, state.source, scope, module));
 	}
 }
 
@@ -827,11 +843,16 @@ fn module_moniker(state: &RustDiscover<'_>, node: Node<'_>, scope: &Moniker) -> 
 	}
 }
 
-fn module_declaration_ref(node: Node<'_>, scope: &Moniker, target: Moniker) -> ResolvedRef {
+fn module_declaration_ref(
+	node: Node<'_>,
+	source: &[u8],
+	scope: &Moniker,
+	target: Moniker,
+) -> ResolvedRef {
 	ResolvedRef {
 		source: scope.clone(),
 		target,
-		kind: if has_visibility(node) {
+		kind: if has_public_visibility(node, source) {
 			kinds::REEXPORTS
 		} else {
 			kinds::IMPORTS_MODULE
@@ -909,10 +930,10 @@ fn param_def(source: &[u8], node: Node<'_>, function: &Moniker) -> Option<Discov
 	})
 }
 
-fn has_visibility(node: Node<'_>) -> bool {
+fn has_public_visibility(node: Node<'_>, source: &[u8]) -> bool {
 	let mut cursor = node.walk();
 	node.children(&mut cursor)
-		.any(|child| child.kind() == "visibility_modifier")
+		.any(|child| child.kind() == "visibility_modifier" && node_slice(child, source) == b"pub")
 }
 
 fn local_defs(state: &mut RustDiscover<'_>, node: Node<'_>, function: &Moniker) {

@@ -20,7 +20,7 @@ const RESERVED_LANG_KEYS: &[&str] = &["refs"];
 
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct Config {
+pub(crate) struct Config {
 	#[serde(default)]
 	pub default_rules: Option<bool>,
 	#[serde(default)]
@@ -57,13 +57,13 @@ pub struct Config {
 
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct ExcludeRules {
+pub(crate) struct ExcludeRules {
 	#[serde(default)]
 	pub uris: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct FragmentInfo {
+pub(crate) struct FragmentInfo {
 	pub id: String,
 	pub path: PathBuf,
 	pub enabled: bool,
@@ -74,7 +74,7 @@ pub struct FragmentInfo {
 
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct Profile {
+pub(crate) struct Profile {
 	#[serde(default)]
 	pub enable: Vec<String>,
 	#[serde(default)]
@@ -83,13 +83,13 @@ pub struct Profile {
 
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct RefsRules {
+pub(crate) struct RefsRules {
 	#[serde(default, rename = "where")]
 	pub rules: Vec<RuleEntry>,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
-pub struct LangRules {
+pub(crate) struct LangRules {
 	#[serde(default)]
 	pub shape: HashMap<String, KindRules>,
 	#[serde(flatten)]
@@ -98,7 +98,7 @@ pub struct LangRules {
 
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct KindRules {
+pub(crate) struct KindRules {
 	#[serde(default, rename = "where")]
 	pub rules: Vec<RuleEntry>,
 	pub require_doc_comment: Option<String>,
@@ -106,7 +106,7 @@ pub struct KindRules {
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct RuleEntry {
+pub(crate) struct RuleEntry {
 	#[serde(default)]
 	pub id: Option<String>,
 	pub expr: String,
@@ -122,7 +122,7 @@ pub struct RuleEntry {
 	Debug, Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, serde::Serialize,
 )]
 #[serde(rename_all = "lowercase")]
-pub enum RuleSeverity {
+pub(crate) enum RuleSeverity {
 	Warn,
 	#[default]
 	Error,
@@ -146,7 +146,7 @@ impl RuleSeverity {
 }
 
 #[derive(Debug, Error)]
-pub enum ConfigError {
+pub(crate) enum ConfigError {
 	#[error("default preset embedded in the binary is invalid: {0}")]
 	DefaultPresetInvalid(toml::de::Error),
 	#[error("user config `{path}`: {error}")]
@@ -262,7 +262,7 @@ pub enum ConfigError {
 	},
 }
 
-pub fn load_default() -> Result<Config, ConfigError> {
+pub(crate) fn load_default() -> Result<Config, ConfigError> {
 	let cfg: Config = toml::from_str(DEFAULT_PRESET).map_err(ConfigError::DefaultPresetInvalid)?;
 	validate(&cfg, "<embedded preset>")?;
 	Ok(cfg)
@@ -270,14 +270,14 @@ pub fn load_default() -> Result<Config, ConfigError> {
 
 /// Load the embedded defaults and merge `user_path` on top if it exists.
 /// Missing user config is not an error — defaults stand alone.
-pub fn load_with_overrides(user_path: Option<&Path>) -> Result<Config, ConfigError> {
+pub(crate) fn load_with_overrides(user_path: Option<&Path>) -> Result<Config, ConfigError> {
 	load_with_options(user_path, true)
 }
 
 /// Load rule config with explicit CLI precedence for `--default-rules`.
 /// `Some(on|off)` wins over the user config flag; `None` lets the user config
 /// decide and defaults to enabled.
-pub fn load_with_cli_default_rules(
+pub(crate) fn load_with_cli_default_rules(
 	user_path: Option<&Path>,
 	default_rules: Option<bool>,
 ) -> Result<Config, ConfigError> {
@@ -295,7 +295,7 @@ pub fn load_with_cli_default_rules(
 /// Load rule config, optionally starting from the embedded defaults.
 /// Missing user config is not an error: with defaults enabled they stand
 /// alone; with defaults disabled the resulting config is empty.
-pub fn load_with_options(
+pub(crate) fn load_with_options(
 	user_path: Option<&Path>,
 	include_defaults: bool,
 ) -> Result<Config, ConfigError> {
@@ -724,6 +724,7 @@ impl Config {
 		}
 	}
 
+	#[cfg(test)]
 	pub fn rules_for(&self, lang: Lang, kind: &str) -> Option<&KindRules> {
 		self.for_lang(lang)
 			.kinds

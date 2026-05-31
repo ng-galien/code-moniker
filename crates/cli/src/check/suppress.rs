@@ -15,7 +15,7 @@ use code_moniker_core::core::kinds::KIND_COMMENT;
 /// at or after the comment's end byte. `ignore-file` applies to every
 /// violation in the file. The optional `[id1, id2, ...]` list scopes the
 /// suppression by rule-id suffix; without it, all rules are suppressed.
-pub fn apply(graph: &CodeGraph, source: &str, violations: Vec<Violation>) -> Vec<Violation> {
+pub(crate) fn apply(graph: &CodeGraph, source: &str, violations: Vec<Violation>) -> Vec<Violation> {
 	let directives = collect_directives(graph, source);
 	if directives.is_empty() {
 		return violations;

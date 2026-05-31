@@ -11,7 +11,7 @@ use code_moniker_workspace::environment::{
 use code_moniker_workspace::snapshot::{CodeIndex, LinkageGraph, ResourceGeneration, SymbolId};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WorkspaceCheckRunnerOptions {
+pub(crate) struct WorkspaceCheckRunnerOptions {
 	pub rules: PathBuf,
 	pub profile: Option<String>,
 	pub scheme: String,
@@ -27,7 +27,7 @@ impl WorkspaceCheckRunnerOptions {
 	}
 }
 
-pub struct WorkspaceCheckRunner {
+pub(crate) struct WorkspaceCheckRunner {
 	options: WorkspaceCheckRunnerOptions,
 	cache: ResourceCache,
 }
@@ -118,7 +118,7 @@ fn diagnostic_from_violation(
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WorkspaceRuleDiagnostics {
+pub(crate) struct WorkspaceRuleDiagnostics {
 	pub generation: ResourceGeneration,
 	pub index_generation: ResourceGeneration,
 	pub errors: usize,
@@ -151,13 +151,13 @@ impl WorkspaceRuleDiagnostics {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum WorkspaceRuleDiagnosticSeverity {
+pub(crate) enum WorkspaceRuleDiagnosticSeverity {
 	Error,
 	Warn,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WorkspaceRuleDiagnostic {
+pub(crate) struct WorkspaceRuleDiagnostic {
 	pub rule_id: String,
 	pub severity: WorkspaceRuleDiagnosticSeverity,
 	pub symbol: Option<SymbolId>,

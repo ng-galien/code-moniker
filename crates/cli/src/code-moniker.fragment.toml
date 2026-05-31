@@ -21,28 +21,32 @@ must resolve to the command module that owns its runtime.
 
 [[rust.shape.type.where]]
 id       = "public-type-needs-external-consumer"
-severity = "warn"
+severity = "error"
 expr     = """
-  $crate_cli AND visibility = 'public' AND count(in_refs) > 0
-  => count(in_refs, NOT source ~ '**/dir:crates/dir:cli/dir:src/**') > 0
+  $crate_cli
+  AND NOT uri ~ '**/dir:crates/dir:cli/dir:src/module:lib/*'
+  AND visibility = 'public'
+  AND count(in_refs) > 0
+  => require("**/dir:crates/dir:cli/dir:src/module:lib/path:{name}")
+     OR count(in_refs, NOT source ~ '**/dir:crates/dir:cli/dir:src/**') > 0
 """
-message  = "`{name}` is `pub` but every consumer lives in `crates/cli/src`; narrow it to `pub(crate)` (or `pub(in …)`)."
+message  = "`{name}` is `pub` but it is neither exposed by the crate root nor consumed outside `crates/cli/src`; narrow it to `pub(crate)` (or `pub(in …)`)."
 rationale = """
-`cli` is a leaf binary crate: nothing outside it depends on its library API except integration
-tests and examples (which sit outside `cli/src`). A `pub` type whose incoming references all
-originate inside `cli/src` is exposed crate-wide while consumed only locally — the visibility
-overstates the real boundary, which is what makes the module graph read as fully connected when
-consumption is actually local. The guard is a graph property (in_refs origin vs declared
-visibility), not a name, so it cannot be sidestepped by renaming. Warn-level during adoption.
+`cli` is a leaf binary crate: public types are legitimate when they are part of the crate root
+boundary (`lib.rs` reexport) or when a consumer outside `cli/src` uses them. A `pub` type that has
+only local incoming references and is not exposed at the crate root overstates the real boundary,
+which makes the module graph read as fully connected when consumption is actually local. The
+`require(...)` clause is intentional because check rules evaluate one extracted file graph at a
+time; the crate-root reexport lives in `lib.rs`, not in the defining file.
 """
 
 [[refs.where]]
 id       = "production-macros-must-not-hide-domain-calls"
 severity = "error"
 expr     = """
-  kind = 'calls'
+  $crate_cli
+  AND kind = 'calls'
   AND source.kind != 'test'
-  AND NOT source ~ '**/module:tests/**'
   => NOT target ~ '**/external_pkg:std/path:macros/macro:/^(assert|assert_eq|assert_ne|debug_assert|debug_assert_eq|debug_assert_ne)$/'
 """
 message  = "Macro `{target}` outside tests can hide domain calls from the Rust extractor; bind the value first or use explicit control flow."

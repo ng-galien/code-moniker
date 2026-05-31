@@ -18,6 +18,7 @@ use super::syntax::{named_children, path_pieces};
 pub(super) struct RefEnv<'a> {
 	pub source: &'a [u8],
 	pub defs: &'a [DiscoveredDef],
+	pub declared_modules: &'a [Moniker],
 	pub imported_symbols: &'a [ImportedSymbol],
 	pub wildcard_imports: &'a [(Moniker, Moniker)],
 	pub macro_wildcard_imports: &'a [(Moniker, Moniker)],
@@ -1422,7 +1423,7 @@ fn local_import_refs(
 		)];
 	}
 	if leaf.kind == ImportLeafKind::SelfImport {
-		let target = local_module_target(scope, &leaf.path);
+		let target = local_import_module_target(env, scope, &leaf.path);
 		return vec![
 			import_ref(
 				scope,
@@ -1440,7 +1441,7 @@ fn local_import_refs(
 			),
 		];
 	}
-	let target = local_symbol_target(scope, &leaf.path);
+	let target = local_symbol_target(env, scope, &leaf.path);
 	let mut refs = Vec::new();
 	if let Some(parent) = importable_parent(&target, rust_importable_namespace) {
 		refs.push(import_ref(
@@ -1468,7 +1469,7 @@ fn local_wildcard_target(env: &RefEnv<'_>, scope: &Moniker, path: &[Vec<u8>]) ->
 		}
 		return resolve_type_path(env, scope, path).0;
 	}
-	local_module_target(scope, path)
+	local_import_module_target(env, scope, path)
 }
 
 fn import_symbol_binding(
@@ -1550,6 +1551,9 @@ fn find_local_type(defs: &[DiscoveredDef], scope: &Moniker, name: &[u8]) -> Opti
 }
 
 fn local_module_exists(env: &RefEnv<'_>, scope: &Moniker, name: &[u8]) -> bool {
+	if declared_module_target(env, scope, name).is_some() {
+		return true;
+	}
 	let module = enclosing_module(scope);
 	let file_module = local_module_target(&module, &[name.to_vec()]);
 	let lexical_module = extend_segment(&module, kinds::MODULE, name);
@@ -2054,8 +2058,15 @@ fn is_common_misc_method(name: &[u8]) -> bool {
 	)
 }
 
-fn local_symbol_target(scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
+fn local_symbol_target(env: &RefEnv<'_>, scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
 	let (base, rest) = local_import_base(scope, path);
+	if let Some((head, tail)) = rest.split_first()
+		&& let Some(module) = declared_module_target(env, &base, head)
+	{
+		let mut builder = MonikerBuilder::from_view(module.as_view());
+		append_symbol_path(&mut builder, tail);
+		return builder.build();
+	}
 	let mut builder = MonikerBuilder::from_view(base.as_view());
 	append_symbol_path(&mut builder, rest);
 	builder.build()
@@ -2078,6 +2089,53 @@ fn local_module_target(scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
 	let (base, rest) = local_import_base(scope, path);
 	let mut builder = MonikerBuilder::from_view(base.as_view());
 	append_module_path(&mut builder, rest);
+	builder.build()
+}
+
+fn local_import_module_target(env: &RefEnv<'_>, scope: &Moniker, path: &[Vec<u8>]) -> Moniker {
+	let (base, rest) = local_import_base(scope, path);
+	if let Some((head, tail)) = rest.split_first()
+		&& let Some(module) = declared_module_target(env, &base, head)
+	{
+		let mut builder = MonikerBuilder::from_view(module.as_view());
+		append_module_path(&mut builder, tail);
+		return builder.build();
+	}
+	let mut builder = MonikerBuilder::from_view(base.as_view());
+	append_module_path(&mut builder, rest);
+	builder.build()
+}
+
+fn declared_module_target(env: &RefEnv<'_>, scope: &Moniker, name: &[u8]) -> Option<Moniker> {
+	env.declared_modules
+		.iter()
+		.find(|module| {
+			module
+				.as_view()
+				.segments()
+				.last()
+				.is_some_and(|segment| segment.kind == kinds::MODULE && segment.name == name)
+				&& module
+					.parent()
+					.is_some_and(|parent| parent == module_declaration_base_for_scope(scope))
+		})
+		.cloned()
+}
+
+fn module_declaration_base_for_scope(scope: &Moniker) -> Moniker {
+	let segments = scope.as_view().segments().collect::<Vec<_>>();
+	let Some((last_idx, last)) = segments.iter().enumerate().next_back() else {
+		return scope.clone();
+	};
+	let crate_root_file = last.kind == kinds::MODULE && matches!(last.name, b"lib" | b"main");
+	let parent_is_src = last_idx > 0
+		&& segments[last_idx - 1].kind == kinds::DIR
+		&& segments[last_idx - 1].name == b"src";
+	if !(crate_root_file && parent_is_src) {
+		return scope.clone();
+	}
+	let mut builder = MonikerBuilder::from_view(scope.as_view());
+	builder.truncate(last_idx);
 	builder.build()
 }
 
