@@ -20,6 +20,24 @@ pub(super) fn eval_vertical_layout(
 		return NodeOutcome::Pass;
 	}
 	items.sort_by_key(|item| (item.start_byte, item.original_order));
+	for group in layout_groups(&items) {
+		if group.len() < 2 {
+			continue;
+		}
+		let outcome = eval_vertical_layout_group(layout, owner_idx, ctx, &group);
+		if !matches!(outcome, NodeOutcome::Pass) {
+			return outcome;
+		}
+	}
+	NodeOutcome::Pass
+}
+
+fn eval_vertical_layout_group(
+	layout: &VerticalLayout,
+	owner_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+	items: &[LayoutItem],
+) -> NodeOutcome {
 	let selected: HashSet<usize> = items.iter().map(|item| item.idx).collect();
 	let mut moves = Vec::new();
 	if layout.public_first {
@@ -111,6 +129,7 @@ struct LayoutItem {
 	end_line: u32,
 	is_private: bool,
 	original_order: usize,
+	region: LayoutRegion,
 }
 
 struct FirstUse {
@@ -136,6 +155,9 @@ enum MoveAnchor {
 	PublicSurface,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct LayoutRegion(Option<usize>);
+
 fn layout_items(
 	domain: &Domain,
 	owner_idx: usize,
@@ -158,6 +180,7 @@ fn layout_items(
 			end_line,
 			is_private: def.visibility.as_ref() == b"private",
 			original_order,
+			region: layout_region(ctx, owner_idx, idx),
 		});
 	}
 	Some(items)
@@ -203,6 +226,33 @@ fn first_local_use(
 fn line_range_of(def: &DefRecord, ctx: &EvalCtx<'_, '_>) -> Option<(u32, u32)> {
 	let (start, end) = def.position?;
 	Some(line_range(ctx.source, start, end))
+}
+
+fn layout_groups(items: &[LayoutItem]) -> Vec<Vec<LayoutItem>> {
+	let mut groups: Vec<(LayoutRegion, Vec<LayoutItem>)> = Vec::new();
+	for item in items {
+		if let Some((_, group)) = groups.iter_mut().find(|(region, _)| *region == item.region) {
+			group.push(item.clone());
+		} else {
+			groups.push((item.region, vec![item.clone()]));
+		}
+	}
+	groups.into_iter().map(|(_, items)| items).collect()
+}
+
+fn layout_region(ctx: &EvalCtx<'_, '_>, owner_idx: usize, item_idx: usize) -> LayoutRegion {
+	let mut cursor = Some(item_idx);
+	while let Some(idx) = cursor {
+		if idx == owner_idx {
+			return LayoutRegion(Some(idx));
+		}
+		let def = ctx.graph.def_at(idx);
+		if idx != item_idx && def.opens_scope() {
+			return LayoutRegion(Some(idx));
+		}
+		cursor = def.parent;
+	}
+	LayoutRegion(None)
 }
 
 fn suggested_order<'a>(items: &'a [LayoutItem], moves: &[LayoutMove]) -> Vec<&'a LayoutItem> {
@@ -270,6 +320,7 @@ mod tests {
 			end_line: idx as u32,
 			is_private,
 			original_order: idx,
+			region: LayoutRegion(None),
 		}
 	}
 

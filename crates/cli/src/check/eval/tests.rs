@@ -461,6 +461,51 @@ fn vertical_layout_allows_private_helper_close_to_first_use() {
 }
 
 #[test]
+fn vertical_layout_skips_callables_in_different_layout_regions() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.class.where]]
+		id       = "vertical-layout"
+		severity = "warn"
+		expr     = "vertical_layout(shape:callable, private_after_first_use, max_gap = 3)"
+		"#,
+	);
+	let source = "class Foo {\nrun\n}\nextension Foo {\nhelper\n}\n";
+	let module = build_module(b"a");
+	let mut g = CodeGraph::new(module.clone(), b"module");
+	let foo = child(&module, b"class", b"Foo");
+	g.add_def(
+		foo.clone(),
+		b"class",
+		&module,
+		Some((0, source.len() as u32)),
+	)
+	.unwrap();
+	let run = child(&foo, b"method", b"run");
+	g.add_def(run.clone(), b"method", &foo, Some(line_span(source, 2)))
+		.unwrap();
+	let helper = child(&foo, b"method", b"helper");
+	g.add_def_attrs(
+		helper.clone(),
+		b"method",
+		&foo,
+		Some(line_span(source, 5)),
+		&DefAttrs {
+			visibility: b"private",
+			..DefAttrs::default()
+		},
+	)
+	.unwrap();
+	g.add_ref(&run, helper, b"calls", Some(line_span(source, 2)))
+		.unwrap();
+	let v = evaluate(&g, source, Lang::Ts, &cfg, SCHEME).unwrap();
+	assert!(
+		v.is_empty(),
+		"helpers in another physical layout region cannot be reordered with the caller: {v:?}"
+	);
+}
+
+#[test]
 fn count_rhs_is_evaluated() {
 	let cfg = cfg_from(
 		r#"
