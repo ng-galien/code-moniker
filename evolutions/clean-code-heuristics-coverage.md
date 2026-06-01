@@ -44,12 +44,12 @@ posture:
   adoption", which lets a signal be observed and calibrated before it gates the
   build. New smell signals should follow the same rollout shape.
 
-## What is missing
+## What remains missing
 
-Two of Martin's most load-bearing heuristics have no structural encoding and are
-left to external tools or to reviewers.
+One of Martin's most load-bearing heuristics still has no structural encoding
+and is left to external tools or to reviewers.
 
-### G5 — Duplication
+### G5 — Duplication — done
 
 Martin ranks G5 second only to passing the tests. The rule set covers length,
 coupling, fan-out, cohesion, and naming, but nothing flags "this callable
@@ -82,7 +82,7 @@ methods, test fixtures, intentional parallel structure). The strongest argument
 for the feature is self-application: a tool that catches the duplication in its
 own MCP surface is its own best demonstration.
 
-Status 2026-06-01: first executable slice implemented through the generic
+Done 2026-06-01: first executable slice implemented through the generic
 `descendants(<kind>|shape:<shape>)` domain combinator and the existing lazy
 requirement resolver, not through a single-purpose duplication DSL primitive.
 The MCP fragment now self-applies G5 with pairwise duplicate free-function name
