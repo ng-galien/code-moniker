@@ -98,16 +98,16 @@ impl<'a> NavigationPaneView<'a> {
 		}
 	}
 
-	pub(in crate::ui) fn selected_row(self) -> Option<&'a NavRow> {
-		self.rows.get(self.selection)
-	}
-
 	pub(in crate::ui) fn selected_context(self) -> Option<NavigationSelectionView<'a>> {
 		let row = self.selected_row()?;
 		Some(NavigationSelectionView {
 			row,
 			expanded: self.expanded.contains(&row.key),
 		})
+	}
+
+	pub(in crate::ui) fn selected_row(self) -> Option<&'a NavRow> {
+		self.rows.get(self.selection)
 	}
 }
 

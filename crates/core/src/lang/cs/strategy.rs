@@ -1,4 +1,4 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-large-type]
+// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-large-type, smell-vertical-layout]
 // TODO(smell): split C# Strategy into classification, member/local declaration handling, using resolution, call/type-ref resolution, and graph emission phases before enabling these guardrails here.
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

@@ -32,13 +32,13 @@ pub(in crate::ui) struct LinkageStats {
 }
 
 impl LinkageStats {
-	pub(in crate::ui) fn eligible_refs(&self) -> usize {
-		self.resolved_refs + self.manifest_blocked_refs + self.unresolved_refs
-	}
-
 	pub(in crate::ui) fn score_percent(&self) -> Option<u32> {
 		let eligible = self.eligible_refs();
 		(eligible > 0).then(|| ((self.resolved_refs * 100) / eligible) as u32)
+	}
+
+	pub(in crate::ui) fn eligible_refs(&self) -> usize {
+		self.resolved_refs + self.manifest_blocked_refs + self.unresolved_refs
 	}
 }
 

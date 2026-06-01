@@ -68,8 +68,10 @@ impl CacheKey {
 		hash_path(&self.abs_path)
 	}
 
-	fn shard(&self) -> String {
-		format!("{:02x}", (self.path_hash() & 0xff) as u8)
+	fn full_path(&self, root: &Path) -> PathBuf {
+		root.join(format!("v{LAYOUT_VERSION}_{CACHE_FORMAT_VERSION}"))
+			.join(self.shard())
+			.join(self.filename())
 	}
 
 	fn filename(&self) -> String {
@@ -81,10 +83,8 @@ impl CacheKey {
 		)
 	}
 
-	fn full_path(&self, root: &Path) -> PathBuf {
-		root.join(format!("v{LAYOUT_VERSION}_{CACHE_FORMAT_VERSION}"))
-			.join(self.shard())
-			.join(self.filename())
+	fn shard(&self) -> String {
+		format!("{:02x}", (self.path_hash() & 0xff) as u8)
 	}
 
 	fn abs_path_bytes(&self) -> &[u8] {

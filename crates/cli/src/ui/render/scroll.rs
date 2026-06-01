@@ -39,10 +39,6 @@ impl ScrollViewport {
 		Self::from_offset(content_len, viewport_len, offset)
 	}
 
-	pub(in crate::ui) fn has_overflow(self) -> bool {
-		self.viewport_len > 0 && self.content_len > self.viewport_len
-	}
-
 	pub(in crate::ui) fn content_area(self, area: Rect) -> Rect {
 		if !self.has_overflow() || area.width <= 1 {
 			return area;
@@ -51,6 +47,10 @@ impl ScrollViewport {
 			width: area.width - 1,
 			..area
 		}
+	}
+
+	pub(in crate::ui) fn has_overflow(self) -> bool {
+		self.viewport_len > 0 && self.content_len > self.viewport_len
 	}
 
 	pub(in crate::ui) fn offset_u16(self) -> u16 {

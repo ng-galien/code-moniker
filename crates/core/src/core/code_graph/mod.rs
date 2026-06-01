@@ -312,6 +312,24 @@ impl CodeGraph {
 		self.add_ref_attrs(source, target, kind, position, &RefAttrs::default())
 	}
 
+	fn find_def(&self, m: &Moniker) -> Option<usize> {
+		{
+			let idx = self.index.read().expect("code graph index lock poisoned");
+			if idx.len() == self.defs.len() {
+				return idx.get(m).copied();
+			}
+		}
+		let mut idx = self.index.write().expect("code graph index lock poisoned");
+		if idx.len() != self.defs.len() {
+			idx.clear();
+			idx.reserve(self.defs.len());
+			for (i, d) in self.defs.iter().enumerate() {
+				idx.insert(d.moniker.clone(), i);
+			}
+		}
+		idx.get(m).copied()
+	}
+
 	pub fn add_ref_attrs(
 		&mut self,
 		source: &Moniker,
@@ -440,24 +458,6 @@ impl CodeGraph {
 
 	pub fn ref_count(&self) -> usize {
 		self.refs.len()
-	}
-
-	fn find_def(&self, m: &Moniker) -> Option<usize> {
-		{
-			let idx = self.index.read().expect("code graph index lock poisoned");
-			if idx.len() == self.defs.len() {
-				return idx.get(m).copied();
-			}
-		}
-		let mut idx = self.index.write().expect("code graph index lock poisoned");
-		if idx.len() != self.defs.len() {
-			idx.clear();
-			idx.reserve(self.defs.len());
-			for (i, d) in self.defs.iter().enumerate() {
-				idx.insert(d.moniker.clone(), i);
-			}
-		}
-		idx.get(m).copied()
 	}
 }
 

@@ -272,19 +272,23 @@ impl<'a> SymbolNavIndex<'a> {
 			.get(&key)
 			.into_iter()
 			.flat_map(|symbols| symbols.iter())
-			.map(|symbol| self.symbol_node(source, symbol))
+			.map(|symbol| symbol_nav_node(self, source, symbol))
 			.collect()
 	}
+}
 
-	fn symbol_node(&self, source: &SourceId, symbol: &SymbolRecord) -> NavNode {
-		let mut node = NavNode::new(
-			NodeId::def(symbol.id.as_str()),
-			symbol.name.clone(),
-			NavNodeKind::Def(symbol.id.clone()),
-		);
-		node.children = self.children_for(source, Some(&symbol.id));
-		node
-	}
+fn symbol_nav_node(
+	index: &SymbolNavIndex<'_>,
+	source: &SourceId,
+	symbol: &SymbolRecord,
+) -> NavNode {
+	let mut node = NavNode::new(
+		NodeId::def(symbol.id.as_str()),
+		symbol.name.clone(),
+		NavNodeKind::Def(symbol.id.clone()),
+	);
+	node.children = index.children_for(source, Some(&symbol.id));
+	node
 }
 
 fn symbols_by_id(symbols: &[SymbolRecord]) -> FxHashMap<SymbolId, &SymbolRecord> {

@@ -300,26 +300,10 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-	fn need(&self, n: usize, what: &'static str) -> Result<(), EncodingError> {
-		if self.off + n > self.buf.len() {
-			Err(EncodingError::Truncated(what))
-		} else {
-			Ok(())
-		}
-	}
-
-	fn read_u8(&mut self, what: &'static str) -> Result<u8, EncodingError> {
-		self.need(1, what)?;
-		let v = self.buf[self.off];
-		self.off += 1;
-		Ok(v)
-	}
-
-	fn read_u16(&mut self, what: &'static str) -> Result<u16, EncodingError> {
-		self.need(2, what)?;
-		let v = u16::from_le_bytes([self.buf[self.off], self.buf[self.off + 1]]);
-		self.off += 2;
-		Ok(v)
+	fn read_moniker(&mut self) -> Result<Moniker, EncodingError> {
+		let len = self.read_u32("moniker len")? as usize;
+		let bytes = self.take(len, "moniker bytes")?;
+		Ok(Moniker::from_canonical_bytes(bytes.to_vec()))
 	}
 
 	fn read_u32(&mut self, what: &'static str) -> Result<u32, EncodingError> {
@@ -334,6 +318,14 @@ impl<'a> Cursor<'a> {
 		Ok(v)
 	}
 
+	fn need(&self, n: usize, what: &'static str) -> Result<(), EncodingError> {
+		if self.off + n > self.buf.len() {
+			Err(EncodingError::Truncated(what))
+		} else {
+			Ok(())
+		}
+	}
+
 	fn take(&mut self, n: usize, what: &'static str) -> Result<&'a [u8], EncodingError> {
 		self.need(n, what)?;
 		let s = &self.buf[self.off..self.off + n];
@@ -341,20 +333,28 @@ impl<'a> Cursor<'a> {
 		Ok(s)
 	}
 
-	fn read_moniker(&mut self) -> Result<Moniker, EncodingError> {
-		let len = self.read_u32("moniker len")? as usize;
-		let bytes = self.take(len, "moniker bytes")?;
-		Ok(Moniker::from_canonical_bytes(bytes.to_vec()))
-	}
-
 	fn read_short_bytes(&mut self, what: &'static str) -> Result<&'a [u8], EncodingError> {
 		let len = self.read_u8(what)? as usize;
 		self.take(len, what)
 	}
 
+	fn read_u8(&mut self, what: &'static str) -> Result<u8, EncodingError> {
+		self.need(1, what)?;
+		let v = self.buf[self.off];
+		self.off += 1;
+		Ok(v)
+	}
+
 	fn read_medium_bytes(&mut self, what: &'static str) -> Result<&'a [u8], EncodingError> {
 		let len = self.read_u16(what)? as usize;
 		self.take(len, what)
+	}
+
+	fn read_u16(&mut self, what: &'static str) -> Result<u16, EncodingError> {
+		self.need(2, what)?;
+		let v = u16::from_le_bytes([self.buf[self.off], self.buf[self.off + 1]]);
+		self.off += 2;
+		Ok(v)
 	}
 
 	fn read_opt_idx(&mut self) -> Result<Option<usize>, EncodingError> {

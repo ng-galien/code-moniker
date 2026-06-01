@@ -107,26 +107,16 @@ impl TuiAcceptance {
 		format!("{}", terminal.backend())
 	}
 
-	fn press(&mut self, code: KeyCode) {
-		handle_key(&mut self.app, KeyEvent::new(code, KeyModifiers::NONE)).expect("handle key");
-	}
-
-	fn press_n(&mut self, code: KeyCode, count: usize) {
-		for _ in 0..count {
-			self.press(code);
-		}
+	fn search(&mut self, text: &str) {
+		self.press(KeyCode::Char('s'));
+		self.type_text(text);
+		self.press(KeyCode::Enter);
 	}
 
 	fn type_text(&mut self, text: &str) {
 		for ch in text.chars() {
 			self.press(KeyCode::Char(ch));
 		}
-	}
-
-	fn search(&mut self, text: &str) {
-		self.press(KeyCode::Char('s'));
-		self.type_text(text);
-		self.press(KeyCode::Enter);
 	}
 
 	fn navigate_to_risk_policy_class(&mut self) {
@@ -138,6 +128,16 @@ impl TuiAcceptance {
 		self.press_n(KeyCode::Down, 4);
 		self.press(KeyCode::Enter);
 		self.press(KeyCode::Down);
+	}
+
+	fn press_n(&mut self, code: KeyCode, count: usize) {
+		for _ in 0..count {
+			self.press(code);
+		}
+	}
+
+	fn press(&mut self, code: KeyCode) {
+		handle_key(&mut self.app, KeyEvent::new(code, KeyModifiers::NONE)).expect("handle key");
 	}
 }
 

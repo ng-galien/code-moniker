@@ -80,16 +80,6 @@ impl<'src> RustDiscover<'src> {
 		}
 	}
 
-	fn push_ref(&mut self, reference: ResolvedRef) {
-		if !self
-			.refs
-			.iter()
-			.any(|existing| same_ref(existing, &reference))
-		{
-			self.refs.push(reference);
-		}
-	}
-
 	fn push_declared_module(&mut self, module: Moniker) {
 		if !self
 			.declared_modules
@@ -103,6 +93,16 @@ impl<'src> RustDiscover<'src> {
 	fn extend_refs(&mut self, refs: Vec<ResolvedRef>) {
 		for reference in refs {
 			self.push_ref(reference);
+		}
+	}
+
+	fn push_ref(&mut self, reference: ResolvedRef) {
+		if !self
+			.refs
+			.iter()
+			.any(|existing| same_ref(existing, &reference))
+		{
+			self.refs.push(reference);
 		}
 	}
 

@@ -58,10 +58,6 @@ impl moniker {
 		}
 	}
 
-	pub(super) fn to_core(&self) -> CoreMoniker {
-		CoreMoniker::from_canonical_bytes(self.as_bytes().to_vec())
-	}
-
 	pub(super) fn view(&self) -> MonikerView<'_> {
 		// SAFETY: both storage variants produce canonical bytes upholding from_canonical_bytes' precondition.
 		unsafe { MonikerView::from_canonical_bytes(self.as_bytes()) }
@@ -113,6 +109,12 @@ impl InOutFuncs for moniker {
 		let s = with_current_config(|cfg| to_uri(&m, cfg))
 			.unwrap_or_else(|e| error!("moniker serialize error: {e}"));
 		buffer.push_str(&s);
+	}
+}
+
+impl moniker {
+	pub(super) fn to_core(&self) -> CoreMoniker {
+		CoreMoniker::from_canonical_bytes(self.as_bytes().to_vec())
 	}
 }
 

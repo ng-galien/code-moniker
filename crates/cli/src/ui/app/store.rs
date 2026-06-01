@@ -46,6 +46,10 @@ impl AppStore {
 		task
 	}
 
+	pub(in crate::ui) fn dispatch(&mut self, action: &AppAction) -> &mut Transition {
+		self.inner.dispatch(action)
+	}
+
 	pub(in crate::ui) fn complete_task(&mut self, result: &TaskResult) -> TaskCompletion {
 		let (_, completion) = self.inner.reduce_with_outcome(|state| {
 			let completion = complete_task(state, result);
@@ -90,10 +94,6 @@ impl AppStore {
 			.inner
 			.reduce_with_outcome(|state| reduce_navigation_action(state, action));
 		outcome
-	}
-
-	pub(in crate::ui) fn dispatch(&mut self, action: &AppAction) -> &mut Transition {
-		self.inner.dispatch(action)
 	}
 }
 

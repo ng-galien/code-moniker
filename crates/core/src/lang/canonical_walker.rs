@@ -1,4 +1,4 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names]
+// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names, smell-vertical-layout]
 // TODO(smell): split canonical walking into traversal, annotation buffering, symbol emission, and test strategy fixtures before enabling these guardrails here.
 use tree_sitter::Node;
 
@@ -86,37 +86,6 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 		}
 	}
 
-	pub fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		match self.strategy.classify(node, scope, self.source, graph) {
-			NodeShape::Annotation { kind } => {
-				self.emit_annotation_range(
-					kind,
-					node.start_byte() as u32,
-					node.end_byte() as u32,
-					scope,
-					graph,
-				);
-			}
-			NodeShape::Symbol(sym) => {
-				self.emit_symbol(node, scope, sym, graph);
-			}
-			NodeShape::Skip => {}
-			NodeShape::Recurse => self.walk(node, scope, graph),
-		}
-	}
-
-	fn emit_annotation_range(
-		&self,
-		kind: &'static [u8],
-		start_byte: u32,
-		end_byte: u32,
-		scope: &Moniker,
-		graph: &mut CodeGraph,
-	) {
-		let m = extend_segment_u32(scope, kind, start_byte);
-		let _ = graph.add_def(m, kind, scope, Some((start_byte, end_byte)));
-	}
-
 	fn emit_symbol(
 		&self,
 		node: Node<'_>,
@@ -169,6 +138,37 @@ impl<'a, S: LangStrategy> CanonicalWalker<'a, S> {
 
 		self.strategy
 			.on_symbol_emitted(node, kind, &m, self.source, graph);
+	}
+
+	pub fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+		match self.strategy.classify(node, scope, self.source, graph) {
+			NodeShape::Annotation { kind } => {
+				self.emit_annotation_range(
+					kind,
+					node.start_byte() as u32,
+					node.end_byte() as u32,
+					scope,
+					graph,
+				);
+			}
+			NodeShape::Symbol(sym) => {
+				self.emit_symbol(node, scope, sym, graph);
+			}
+			NodeShape::Skip => {}
+			NodeShape::Recurse => self.walk(node, scope, graph),
+		}
+	}
+
+	fn emit_annotation_range(
+		&self,
+		kind: &'static [u8],
+		start_byte: u32,
+		end_byte: u32,
+		scope: &Moniker,
+		graph: &mut CodeGraph,
+	) {
+		let m = extend_segment_u32(scope, kind, start_byte);
+		let _ = graph.add_def(m, kind, scope, Some((start_byte, end_byte)));
 	}
 }
 

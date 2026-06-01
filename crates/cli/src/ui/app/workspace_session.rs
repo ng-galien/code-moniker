@@ -47,10 +47,6 @@ impl WorkspaceSession {
 		self.index.clone()
 	}
 
-	pub(in crate::ui) fn publish_current_snapshot(&self) {
-		self.index.publish(self.store.queries().snapshot_arc());
-	}
-
 	pub(in crate::ui) fn replace(
 		&mut self,
 		store: LocalWorkspaceRegistry,
@@ -61,6 +57,10 @@ impl WorkspaceSession {
 		self.cache = cache;
 		self.options = options;
 		self.publish_current_snapshot();
+	}
+
+	pub(in crate::ui) fn publish_current_snapshot(&self) {
+		self.index.publish(self.store.queries().snapshot_arc());
 	}
 
 	fn apply_task_store(&mut self, store: LocalWorkspaceRegistry, options: &SessionOptions) {

@@ -31,16 +31,16 @@ impl WorkSlice {
 		self.epochs.get(&work).copied().unwrap_or(0)
 	}
 
-	fn bump_epoch(&mut self, work: WorkKind) {
-		*self.epochs.entry(work).or_default() += 1;
-	}
-
 	fn bump_epochs(&mut self, works: &[WorkKind]) {
 		self.generation += 1;
 		for work in works {
 			self.bump_epoch(*work);
 		}
 		self.pending.extend(works.iter().copied());
+	}
+
+	fn bump_epoch(&mut self, work: WorkKind) {
+		*self.epochs.entry(work).or_default() += 1;
 	}
 }
 

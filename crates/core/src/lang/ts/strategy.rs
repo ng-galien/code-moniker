@@ -1,4 +1,4 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-harmonious-method-size, smell-large-type]
+// code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-harmonious-method-size, smell-large-type, smell-vertical-layout]
 // TODO(smell): split TypeScript Strategy into classification, export/import handling, graph emission, callable/type resolution, and local-binding phases before enabling these guardrails here.
 
 use std::cell::RefCell;

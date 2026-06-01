@@ -133,6 +133,20 @@ where
 		self.run_command(command)
 	}
 
+	fn allocate_command_id(&mut self) -> WorkspaceCommandId {
+		let id = WorkspaceCommandId::new(*self.next_command_id);
+		*self.next_command_id += 1;
+		id
+	}
+
+	fn run_command(&mut self, command: WorkspaceCommand) -> WorkspaceTransition {
+		let generation = self.runtime.state.allocate_generation();
+		let context = WorkspaceEventContext::new(command.scope_uri, generation, command.id);
+		publish_command_started(self.events, &context);
+		let result = run_workspace_command(self.runtime, command.kind, command.request, generation);
+		publish_command_finished(self.runtime, self.events, &context, result)
+	}
+
 	pub fn refresh(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
 		self.execute(WorkspaceCommandSpec::new(
 			WorkspaceCommandKind::Refresh,
@@ -184,20 +198,6 @@ where
 		let transition = self.runtime.state.adopt_snapshot_arc(publication.snapshot);
 		events_for_ready_transition(self.events, &context, &transition);
 		transition
-	}
-
-	fn allocate_command_id(&mut self) -> WorkspaceCommandId {
-		let id = WorkspaceCommandId::new(*self.next_command_id);
-		*self.next_command_id += 1;
-		id
-	}
-
-	fn run_command(&mut self, command: WorkspaceCommand) -> WorkspaceTransition {
-		let generation = self.runtime.state.allocate_generation();
-		let context = WorkspaceEventContext::new(command.scope_uri, generation, command.id);
-		publish_command_started(self.events, &context);
-		let result = run_workspace_command(self.runtime, command.kind, command.request, generation);
-		publish_command_finished(self.runtime, self.events, &context, result)
 	}
 }
 

@@ -46,70 +46,6 @@ impl<'a> LombokSemantics<'a> {
 			.or_else(|| self.resolve_accessor_call(reference_idx, reference))
 	}
 
-	fn index_types_and_fields(&mut self) {
-		for (file_idx, file) in self.material.files.iter().enumerate() {
-			let facts = JavaSymbolFacts::from_file(file_idx, file);
-			self.type_aliases.extend(facts.type_aliases);
-			self.fields.extend(facts.fields);
-		}
-	}
-
-	fn index_annotations(&mut self, references: &[ReferenceRecord]) {
-		for reference in references {
-			if reference.kind != "annotates" {
-				continue;
-			}
-			let Some(target) = self.material.reference_target(&reference.id) else {
-				continue;
-			};
-			let Some(annotation) = lombok_annotation(target) else {
-				continue;
-			};
-			let Some(source) = self.material.symbol_moniker(&reference.source_symbol) else {
-				continue;
-			};
-			if is_java_type_moniker(source) {
-				self.annotated_types
-					.entry(source.clone())
-					.or_default()
-					.add(annotation);
-			} else if let Some((owner, field_name)) = field_key(source)
-				&& let Some(field) = self.fields.get_mut(&(owner, field_name))
-			{
-				field.annotations.add(annotation);
-			}
-		}
-	}
-
-	fn resolve_logger_call(
-		&self,
-		reference_idx: usize,
-		reference: &ReferenceRecord,
-	) -> Option<ReferenceLinkageDecision> {
-		if reference.kind != "method_call" || reference.receiver.as_deref() != Some("log") {
-			return None;
-		}
-		let source = self.material.symbol_moniker(&reference.source_symbol)?;
-		let annotation = self
-			.annotated_types
-			.iter()
-			.find(|(owner, annotations)| {
-				owner.is_ancestor_of(source) && annotations.logger.is_some()
-			})
-			.and_then(|(_, annotations)| annotations.logger)?;
-		let logger_type = annotation.logger_type()?;
-		let target = method_target(
-			&external_type_target(source.as_view().project(), logger_type),
-			reference.call_name.as_deref()?,
-			reference.call_arity,
-		);
-		Some(ReferenceLinkageDecision::external_target(
-			ExternalOrigin::Injected,
-			reference_idx,
-			target,
-		))
-	}
-
 	fn resolve_accessor_call(
 		&self,
 		reference_idx: usize,
@@ -145,6 +81,70 @@ impl<'a> LombokSemantics<'a> {
 			.get(owner)
 			.is_some_and(|annotations| annotations.supports(accessor))
 			|| field.annotations.supports(accessor)
+	}
+
+	fn resolve_logger_call(
+		&self,
+		reference_idx: usize,
+		reference: &ReferenceRecord,
+	) -> Option<ReferenceLinkageDecision> {
+		if reference.kind != "method_call" || reference.receiver.as_deref() != Some("log") {
+			return None;
+		}
+		let source = self.material.symbol_moniker(&reference.source_symbol)?;
+		let annotation = self
+			.annotated_types
+			.iter()
+			.find(|(owner, annotations)| {
+				owner.is_ancestor_of(source) && annotations.logger.is_some()
+			})
+			.and_then(|(_, annotations)| annotations.logger)?;
+		let logger_type = annotation.logger_type()?;
+		let target = method_target(
+			&external_type_target(source.as_view().project(), logger_type),
+			reference.call_name.as_deref()?,
+			reference.call_arity,
+		);
+		Some(ReferenceLinkageDecision::external_target(
+			ExternalOrigin::Injected,
+			reference_idx,
+			target,
+		))
+	}
+
+	fn index_types_and_fields(&mut self) {
+		for (file_idx, file) in self.material.files.iter().enumerate() {
+			let facts = JavaSymbolFacts::from_file(file_idx, file);
+			self.type_aliases.extend(facts.type_aliases);
+			self.fields.extend(facts.fields);
+		}
+	}
+
+	fn index_annotations(&mut self, references: &[ReferenceRecord]) {
+		for reference in references {
+			if reference.kind != "annotates" {
+				continue;
+			}
+			let Some(target) = self.material.reference_target(&reference.id) else {
+				continue;
+			};
+			let Some(annotation) = lombok_annotation(target) else {
+				continue;
+			};
+			let Some(source) = self.material.symbol_moniker(&reference.source_symbol) else {
+				continue;
+			};
+			if is_java_type_moniker(source) {
+				self.annotated_types
+					.entry(source.clone())
+					.or_default()
+					.add(annotation);
+			} else if let Some((owner, field_name)) = field_key(source)
+				&& let Some(field) = self.fields.get_mut(&(owner, field_name))
+			{
+				field.annotations.add(annotation);
+			}
+		}
 	}
 }
 

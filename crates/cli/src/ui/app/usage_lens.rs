@@ -6,21 +6,6 @@ use crate::ui::store::navigation::NavigationAction;
 use crate::ui::workspace_read;
 
 impl App {
-	pub(in crate::ui) fn focus_usages(&mut self, loc: DefLocation) {
-		let Some(focus) = workspace_read::usage_focus(crate::ui::app::store(self), loc) else {
-			crate::ui::app::set_status(self, "selected declaration has no usage information");
-			return;
-		};
-		let (label, refs_len, contexts_len) = self.set_usage_lens(focus, true);
-		sync_contextual_view(self);
-		crate::ui::app::set_status(
-			self,
-			format!(
-				"usage lens for {label}: {refs_len} reference(s), {contexts_len} navigable context(s)"
-			),
-		);
-	}
-
 	pub(in crate::ui) fn refresh_usage_lens_for_primary_selection(&mut self) {
 		let Some(loc) = primary_selected(self) else {
 			return;
@@ -75,6 +60,21 @@ impl App {
 			return;
 		};
 		self.focus_usages(loc);
+	}
+
+	pub(in crate::ui) fn focus_usages(&mut self, loc: DefLocation) {
+		let Some(focus) = workspace_read::usage_focus(crate::ui::app::store(self), loc) else {
+			crate::ui::app::set_status(self, "selected declaration has no usage information");
+			return;
+		};
+		let (label, refs_len, contexts_len) = self.set_usage_lens(focus, true);
+		sync_contextual_view(self);
+		crate::ui::app::set_status(
+			self,
+			format!(
+				"usage lens for {label}: {refs_len} reference(s), {contexts_len} navigable context(s)"
+			),
+		);
 	}
 
 	pub(in crate::ui) fn close_usage_lens(&mut self) {

@@ -404,6 +404,44 @@ fn decide_apply_header_search(
 }
 
 impl App {
+	pub(in crate::ui) fn header_search_results(
+		&self,
+		text: &str,
+		langs: &[Lang],
+		kind_filters: &[HeaderKindFilter],
+	) -> HeaderSearchResults {
+		explorer_header_search_results(crate::ui::app::store(self), text, langs, kind_filters)
+	}
+
+	pub(in crate::ui) fn cycle_header_search_selector(&mut self, direction: i8) {
+		let decision = cycle_header_search_selector_decision(
+			crate::ui::app::mode(self),
+			crate::ui::app::header_search(self),
+			direction,
+		);
+		self.apply_header_selector_decision(decision);
+	}
+
+	fn apply_header_selector_decision(&mut self, decision: HeaderSelectorDecision) {
+		for action in decision.shell {
+			crate::ui::app::dispatch_shell(self, action);
+		}
+		if let Some(status) = decision.status {
+			crate::ui::app::set_status(self, status);
+		}
+	}
+
+	pub(in crate::ui) fn toggle_header_search_selection(&mut self) {
+		let decision = toggle_header_search_selection_decision(
+			crate::ui::app::mode(self),
+			crate::ui::app::header_search(self),
+		);
+		if decision.apply_search {
+			self.apply_header_search(None, true);
+		}
+		self.apply_header_selector_decision(decision);
+	}
+
 	pub(in crate::ui) fn apply_header_search(
 		&mut self,
 		generation: Option<u64>,
@@ -432,35 +470,6 @@ impl App {
 		}
 	}
 
-	pub(in crate::ui) fn header_search_results(
-		&self,
-		text: &str,
-		langs: &[Lang],
-		kind_filters: &[HeaderKindFilter],
-	) -> HeaderSearchResults {
-		explorer_header_search_results(crate::ui::app::store(self), text, langs, kind_filters)
-	}
-
-	pub(in crate::ui) fn cycle_header_search_selector(&mut self, direction: i8) {
-		let decision = cycle_header_search_selector_decision(
-			crate::ui::app::mode(self),
-			crate::ui::app::header_search(self),
-			direction,
-		);
-		self.apply_header_selector_decision(decision);
-	}
-
-	pub(in crate::ui) fn toggle_header_search_selection(&mut self) {
-		let decision = toggle_header_search_selection_decision(
-			crate::ui::app::mode(self),
-			crate::ui::app::header_search(self),
-		);
-		if decision.apply_search {
-			self.apply_header_search(None, true);
-		}
-		self.apply_header_selector_decision(decision);
-	}
-
 	pub(in crate::ui) fn refresh_header_search_options(&mut self) {
 		let options = header_search_options(
 			crate::ui::app::store(self),
@@ -477,15 +486,6 @@ impl App {
 				kind_cursor: options.kind_cursor,
 			}),
 		);
-	}
-
-	fn apply_header_selector_decision(&mut self, decision: HeaderSelectorDecision) {
-		for action in decision.shell {
-			crate::ui::app::dispatch_shell(self, action);
-		}
-		if let Some(status) = decision.status {
-			crate::ui::app::set_status(self, status);
-		}
 	}
 
 	pub(in crate::ui) fn clear_filter(&mut self) {

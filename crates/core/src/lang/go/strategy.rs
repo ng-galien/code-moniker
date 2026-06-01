@@ -1,4 +1,4 @@
-// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-large-type]
+// code-moniker: ignore-file[smell-feature-envy-local, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-large-type, smell-vertical-layout]
 // TODO(smell): split Go Strategy into classification, import/type-spec handling, scope tracking, selector-call resolution, and graph emission phases before enabling these guardrails here.
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

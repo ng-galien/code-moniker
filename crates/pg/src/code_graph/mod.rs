@@ -59,6 +59,10 @@ impl code_graph {
 		}
 	}
 
+	pub(super) fn to_core(&self) -> CoreGraph {
+		encoding::decode(self.as_bytes()).unwrap_or_else(|e| error!("code_graph decode: {e}"))
+	}
+
 	fn as_bytes(&self) -> &[u8] {
 		match self.storage {
 			GraphStorage::Owned(ref v) => v.as_slice(),
@@ -66,10 +70,6 @@ impl code_graph {
 				core::slice::from_raw_parts(ptr, len as usize)
 			},
 		}
-	}
-
-	pub(super) fn to_core(&self) -> CoreGraph {
-		encoding::decode(self.as_bytes()).unwrap_or_else(|e| error!("code_graph decode: {e}"))
 	}
 }
 
