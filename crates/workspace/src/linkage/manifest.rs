@@ -107,9 +107,8 @@ impl ManifestPolicy {
 			return false;
 		};
 		self.entry_for_file(query.source_file).is_some_and(|entry| {
-			entry
-				.deps
-				.contains(&package_id(source_manifest, import_root))
+			let package = package_id(source_manifest, import_root);
+			entry.deps.contains(&package) || source_root_declares_dependency(self, query, &package)
 		})
 	}
 
@@ -252,6 +251,38 @@ fn source_declares_language_package_target(
 				query.confidence,
 				|package| policy.workspace_declares_package(package),
 			)
+		})
+}
+
+fn source_root_declares_dependency(
+	policy: &ManifestPolicy,
+	query: &LinkageQuery<'_>,
+	package: &str,
+) -> bool {
+	let Some(location) = policy.entry_by_file.get(&query.source_file) else {
+		return false;
+	};
+	let Some(root) = query
+		.material
+		.source_catalog
+		.sources
+		.roots
+		.get(location.source_root)
+	else {
+		return false;
+	};
+	let root_path = absolute_path(&root.path);
+	policy
+		.entries_by_root
+		.get(&location.source_root)
+		.into_iter()
+		.flatten()
+		.any(|entry| {
+			entry
+				.path
+				.parent()
+				.is_some_and(|parent| parent == root_path)
+				&& entry.deps.contains(package)
 		})
 }
 

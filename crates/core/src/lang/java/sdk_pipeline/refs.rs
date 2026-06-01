@@ -327,14 +327,16 @@ fn identifier_ref(
 		return;
 	}
 	if env.resolve_local(name).is_some() {
-		state.push_ref(ResolvedRef {
-			source: source.clone(),
-			target: extend_segment(source, kinds::LOCAL, name),
-			kind: kinds::READS,
-			position: Some(node_position(node)),
-			confidence: kinds::CONF_LOCAL,
-			hints: RefHints::default(),
-		});
+		if let Some(target) = local_binding_target(state, source, name) {
+			state.push_ref(ResolvedRef {
+				source: source.clone(),
+				target,
+				kind: kinds::READS,
+				position: Some(node_position(node)),
+				confidence: kinds::CONF_LOCAL,
+				hints: RefHints::default(),
+			});
+		}
 		return;
 	}
 	if let Some(cls) = enclosing_type(owner)
@@ -406,6 +408,22 @@ fn static_type_owner(state: &JavaDiscover<'_>, node: Node<'_>, owner: &Moniker) 
 		}
 		_ => None,
 	}
+}
+
+fn local_binding_target(
+	state: &JavaDiscover<'_>,
+	source: &Moniker,
+	name: &[u8],
+) -> Option<Moniker> {
+	[kinds::PARAM, kinds::LOCAL]
+		.into_iter()
+		.map(|kind| extend_segment(source, kind, name))
+		.find(|candidate| {
+			state
+				.defs
+				.iter()
+				.any(|def| def.moniker.bind_match(candidate))
+		})
 }
 
 fn receiver_owner(

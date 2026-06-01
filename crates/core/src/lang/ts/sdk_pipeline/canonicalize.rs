@@ -2,7 +2,7 @@ use tree_sitter::Node;
 
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-use super::kinds;
+use super::super::kinds;
 
 pub(super) fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {
 	module_builder_for_path(anchor, uri).build()
@@ -85,75 +85,5 @@ fn parameter_pattern_name(node: Node<'_>, source: &[u8]) -> Vec<u8> {
 			node.utf8_text(source).unwrap_or("").as_bytes().to_vec()
 		}
 		_ => Vec::new(),
-	}
-}
-
-pub(super) fn external_pkg_builder(project: &[u8], pkg: &str) -> MonikerBuilder {
-	let (head, tail) = split_package_specifier(pkg);
-	let mut b = MonikerBuilder::new();
-	b.project(project);
-	b.segment(kinds::EXTERNAL_PKG, head.as_bytes());
-	for piece in tail.split('/').filter(|s| !s.is_empty()) {
-		b.segment(kinds::PATH, piece.as_bytes());
-	}
-	b
-}
-
-fn split_package_specifier(spec: &str) -> (&str, &str) {
-	if let Some(after_scope) = spec.strip_prefix('@') {
-		let mut parts = after_scope.splitn(3, '/');
-		let scope = parts.next().unwrap_or("");
-		let name = parts.next().unwrap_or("");
-		let tail = parts.next().unwrap_or("");
-		let head_end = if name.is_empty() {
-			1 + scope.len()
-		} else {
-			1 + scope.len() + 1 + name.len()
-		};
-		(&spec[..head_end], tail)
-	} else {
-		match spec.find('/') {
-			Some(i) => (&spec[..i], &spec[i + 1..]),
-			None => (spec, ""),
-		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn split_specifier_simple_keeps_pkg() {
-		assert_eq!(split_package_specifier("react"), ("react", ""));
-	}
-
-	#[test]
-	fn split_specifier_with_subpath() {
-		assert_eq!(
-			split_package_specifier("lodash/fp/get"),
-			("lodash", "fp/get")
-		);
-	}
-
-	#[test]
-	fn split_specifier_scoped_keeps_full_head() {
-		assert_eq!(split_package_specifier("@scope/pkg"), ("@scope/pkg", ""));
-	}
-
-	#[test]
-	fn split_specifier_scoped_with_subpath() {
-		assert_eq!(
-			split_package_specifier("@scope/pkg/sub/path"),
-			("@scope/pkg", "sub/path")
-		);
-	}
-
-	#[test]
-	fn strip_known_extension_handles_d_ts_first() {
-		assert_eq!(strip_known_extension("types.d.ts"), "types");
-		assert_eq!(strip_known_extension("util.ts"), "util");
-		assert_eq!(strip_known_extension("util.cjs"), "util");
-		assert_eq!(strip_known_extension("util"), "util");
 	}
 }

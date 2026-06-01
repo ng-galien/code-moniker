@@ -1,38 +1,55 @@
 // code-moniker: ignore-file[smell-feature-envy-local, smell-long-parameter-list, smell-data-clumps-param-names, smell-god-type-local-metrics, smell-harmonious-method-size, smell-large-type, smell-vertical-layout]
-// TODO(smell): split TypeScript Strategy into classification, export/import handling, graph emission, callable/type resolution, and local-binding phases before enabling these guardrails here.
+// TODO(smell): split TypeScript SDK discovery into classification, export/import handling, graph emission, callable/type resolution, and local-binding phases before enabling these guardrails here.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tree_sitter::Node;
 
-use crate::core::code_graph::{CodeGraph, RefAttrs};
+use crate::core::code_graph::{DefAttrs, Position, RefAttrs};
 use crate::core::moniker::{Moniker, MonikerBuilder};
 
-use crate::lang::callable::{
-	callable_segment_slots, extend_callable_slots, extend_segment, join_bytes_with_comma,
-	slot_signature_bytes,
-};
-use crate::lang::strategy::{LangStrategy, NodeShape, RefSpec, Symbol};
+use crate::lang::callable::{extend_callable_slots, extend_segment, extend_segment_u32};
+use crate::lang::sdk::{DiscoveredDef, RefHints, ResolvedRef};
 use crate::lang::tree_util::{find_named_child, node_position, node_slice};
 
+use super::super::build::external_pkg_builder;
+use super::super::kinds;
 use super::canonicalize::{
-	anonymous_callback_name, append_module_segments, callable_param_slots, external_pkg_builder,
-	strip_known_extension,
+	anonymous_callback_name, append_module_segments, callable_param_slots, strip_known_extension,
 };
-use super::kinds;
+use super::defs::{
+	CallableEntry, callable_metadata, collect_callable_table, collect_export_ranges,
+	collect_type_table, function_decl_info, namespace_for_kind, visibility_attr,
+};
+use super::refs::{
+	confidence_attr, external_runtime_target, is_global_type, is_global_value, namespace_for_ref,
+	ref_call_metadata,
+};
+use super::syntax::{
+	apply_path_alias, class_member_visibility, collect_binding_names, first_identifier_text,
+	generic_short, import_confidence, is_callable_kind, is_callable_scope, is_intrinsic_jsx_tag,
+	is_relative_specifier, match_path_alias, nested_type_root, nested_type_short, receiver_hint,
+	unquote_string_literal,
+};
+
+pub(super) struct DiscoveredTsFile {
+	pub root: Moniker,
+	pub defs: Vec<DiscoveredDef>,
+	pub refs: Vec<ResolvedRef>,
+}
 
 struct DecoratorCallee<'src> {
 	name: &'src [u8],
 	args: Option<Node<'src>>,
 }
 
-pub(super) struct Strategy<'src> {
+pub(super) struct TsDiscover<'src> {
 	pub(super) module: Moniker,
 	pub(super) anchor: Moniker,
 	pub(super) source_bytes: &'src [u8],
 	pub(super) deep: bool,
-	pub(super) presets: &'src super::Presets,
+	pub(super) presets: &'src super::super::Presets,
 	pub(super) export_ranges: Vec<(u32, u32)>,
 	pub(super) local_scope: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
 	pub(super) imports: RefCell<HashMap<Vec<u8>, &'static [u8]>>,
@@ -42,19 +59,329 @@ pub(super) struct Strategy<'src> {
 	pub(super) nested_funcs: RefCell<Vec<HashMap<Vec<u8>, Moniker>>>,
 }
 
-#[derive(Clone)]
-pub(super) struct CallableEntry {
-	pub(super) kind: &'static [u8],
-	pub(super) segment: Vec<u8>,
+enum NodeShape<'src> {
+	Symbol(Symbol<'src>),
+	Annotation { kind: &'static [u8] },
+	Skip,
+	Recurse,
 }
 
-impl<'a> LangStrategy for Strategy<'a> {
+struct Symbol<'src> {
+	moniker: Moniker,
+	kind: &'static [u8],
+	visibility: &'static [u8],
+	signature: Option<Vec<u8>>,
+	body: Option<Node<'src>>,
+	position: Position,
+	annotated_by: Vec<RefSpec>,
+}
+
+struct RefSpec {
+	kind: &'static [u8],
+	target: Moniker,
+	confidence: &'static [u8],
+	position: Position,
+	receiver_hint: &'static [u8],
+	alias: &'static [u8],
+}
+
+struct SdkBuilder {
+	root: Moniker,
+	defs: Vec<DiscoveredDef>,
+	refs: Vec<ResolvedRef>,
+	seen_defs: HashSet<Moniker>,
+}
+
+impl SdkBuilder {
+	fn new(root: Moniker) -> Self {
+		Self {
+			root,
+			defs: Vec::new(),
+			refs: Vec::new(),
+			seen_defs: HashSet::new(),
+		}
+	}
+
+	fn add_def(
+		&mut self,
+		moniker: Moniker,
+		kind: &'static [u8],
+		parent: &Moniker,
+		position: Option<Position>,
+	) -> Result<(), ()> {
+		self.add_def_attrs(moniker, kind, parent, position, &DefAttrs::default())
+	}
+
+	fn add_def_attrs(
+		&mut self,
+		moniker: Moniker,
+		kind: &'static [u8],
+		parent: &Moniker,
+		position: Option<Position>,
+		attrs: &DefAttrs<'_>,
+	) -> Result<(), ()> {
+		if !self.seen_defs.insert(moniker.clone()) {
+			return Err(());
+		}
+		let name = moniker
+			.as_view()
+			.segments()
+			.last()
+			.map(|segment| segment.name.to_vec())
+			.unwrap_or_default();
+		let (call_name, call_arity) = callable_metadata(kind, &name, attrs);
+		self.defs.push(DiscoveredDef {
+			moniker,
+			parent: parent.clone(),
+			namespace: namespace_for_kind(kind),
+			name,
+			kind,
+			visibility: visibility_attr(attrs.visibility),
+			signature: attrs.signature.to_vec(),
+			position,
+			call_name,
+			call_arity,
+		});
+		Ok(())
+	}
+
+	fn add_ref_attrs(
+		&mut self,
+		source: &Moniker,
+		target: Moniker,
+		kind: &'static [u8],
+		position: Option<Position>,
+		attrs: &RefAttrs<'_>,
+	) -> Result<(), ()> {
+		let (call_name, call_arity) = ref_call_metadata(kind, &target, attrs);
+		self.refs.push(ResolvedRef {
+			source: source.clone(),
+			target,
+			kind,
+			position,
+			confidence: confidence_attr(attrs.confidence),
+			hints: RefHints {
+				receiver_hint: attrs.receiver_hint.to_vec(),
+				alias: attrs.alias.to_vec(),
+				namespace: Some(namespace_for_ref(kind)),
+				call_name,
+				call_arity,
+			},
+		});
+		Ok(())
+	}
+
+	fn contains(&self, moniker: &Moniker) -> bool {
+		moniker == &self.root || self.seen_defs.contains(moniker)
+	}
+
+	fn finish(self) -> DiscoveredTsFile {
+		DiscoveredTsFile {
+			root: self.root,
+			defs: self.defs,
+			refs: self.refs,
+		}
+	}
+}
+
+struct SdkWalker<'a> {
+	discover: &'a TsDiscover<'a>,
+	source: &'a [u8],
+}
+
+struct PendingAnnotation {
+	kind: &'static [u8],
+	start_byte: u32,
+	end_byte: u32,
+	end_row: usize,
+}
+
+impl<'a> SdkWalker<'a> {
+	fn new(discover: &'a TsDiscover<'a>, source: &'a [u8]) -> Self {
+		Self { discover, source }
+	}
+
+	fn walk(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
+		let mut cursor = node.walk();
+		let mut pending: Option<PendingAnnotation> = None;
+		for child in node.children(&mut cursor) {
+			match self.discover.classify(child, scope, self.source, graph) {
+				NodeShape::Annotation { kind } => {
+					self.extend_or_flush(&mut pending, kind, child, scope, graph);
+				}
+				NodeShape::Symbol(sym) => {
+					self.flush_pending(&mut pending, scope, graph);
+					self.emit_symbol(child, scope, sym, graph);
+				}
+				NodeShape::Skip => self.flush_pending(&mut pending, scope, graph),
+				NodeShape::Recurse => {
+					self.flush_pending(&mut pending, scope, graph);
+					self.walk(child, scope, graph);
+				}
+			}
+		}
+		self.flush_pending(&mut pending, scope, graph);
+	}
+
+	fn dispatch(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
+		match self.discover.classify(node, scope, self.source, graph) {
+			NodeShape::Annotation { kind } => self.emit_annotation_range(
+				kind,
+				node.start_byte() as u32,
+				node.end_byte() as u32,
+				scope,
+				graph,
+			),
+			NodeShape::Symbol(sym) => self.emit_symbol(node, scope, sym, graph),
+			NodeShape::Skip => {}
+			NodeShape::Recurse => self.walk(node, scope, graph),
+		}
+	}
+
+	fn extend_or_flush(
+		&self,
+		pending: &mut Option<PendingAnnotation>,
+		kind: &'static [u8],
+		child: Node<'_>,
+		scope: &Moniker,
+		graph: &mut SdkBuilder,
+	) {
+		let start_row = child.start_position().row;
+		let end_row = child.end_position().row;
+		let start_byte = child.start_byte() as u32;
+		let end_byte = child.end_byte() as u32;
+		if let Some(p) = pending.as_mut() {
+			if p.kind == kind && start_row <= p.end_row + 1 {
+				p.end_byte = end_byte;
+				p.end_row = end_row;
+				return;
+			}
+			self.emit_annotation_range(p.kind, p.start_byte, p.end_byte, scope, graph);
+		}
+		*pending = Some(PendingAnnotation {
+			kind,
+			start_byte,
+			end_byte,
+			end_row,
+		});
+	}
+
+	fn flush_pending(
+		&self,
+		pending: &mut Option<PendingAnnotation>,
+		scope: &Moniker,
+		graph: &mut SdkBuilder,
+	) {
+		if let Some(p) = pending.take() {
+			self.emit_annotation_range(p.kind, p.start_byte, p.end_byte, scope, graph);
+		}
+	}
+
+	fn emit_symbol(
+		&self,
+		node: Node<'_>,
+		scope: &Moniker,
+		sym: Symbol<'_>,
+		graph: &mut SdkBuilder,
+	) {
+		let Symbol {
+			moniker: m,
+			kind,
+			visibility,
+			signature,
+			body,
+			position,
+			annotated_by,
+		} = sym;
+
+		let attrs = DefAttrs {
+			visibility,
+			signature: signature.as_deref().unwrap_or_default(),
+			..DefAttrs::default()
+		};
+		let parent = m
+			.parent()
+			.filter(|parent| parent != scope && graph.contains(parent))
+			.unwrap_or_else(|| scope.clone());
+		if graph
+			.add_def_attrs(m.clone(), kind, &parent, Some(position), &attrs)
+			.is_err()
+		{
+			return;
+		}
+
+		for r in annotated_by {
+			let attrs = RefAttrs {
+				confidence: r.confidence,
+				receiver_hint: r.receiver_hint,
+				alias: r.alias,
+				..RefAttrs::default()
+			};
+			let _ = graph.add_ref_attrs(&m, r.target, r.kind, Some(r.position), &attrs);
+		}
+
+		self.discover
+			.before_body(node, kind, &m, self.source, graph);
+		if let Some(body_node) = body {
+			self.walk(body_node, &m, graph);
+		}
+		self.discover.after_body(kind, &m);
+		self.discover
+			.on_symbol_emitted(node, kind, &m, self.source, graph);
+	}
+
+	fn emit_annotation_range(
+		&self,
+		kind: &'static [u8],
+		start_byte: u32,
+		end_byte: u32,
+		scope: &Moniker,
+		graph: &mut SdkBuilder,
+	) {
+		let m = extend_segment_u32(scope, kind, start_byte);
+		let _ = graph.add_def(m, kind, scope, Some((start_byte, end_byte)));
+	}
+}
+
+impl<'a> TsDiscover<'a> {
+	pub(super) fn run(
+		module: Moniker,
+		anchor: Moniker,
+		source_bytes: &'a [u8],
+		deep: bool,
+		presets: &'a super::super::Presets,
+		root: Node<'_>,
+	) -> DiscoveredTsFile {
+		let export_ranges = collect_export_ranges(root);
+		let mut callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry> = HashMap::new();
+		collect_callable_table(root, source_bytes, &module, &mut callable_table);
+		let mut type_table: HashMap<Vec<u8>, Moniker> = HashMap::new();
+		collect_type_table(root, source_bytes, &module, &mut type_table);
+		let discover = Self {
+			module: module.clone(),
+			anchor,
+			source_bytes,
+			deep,
+			presets,
+			export_ranges,
+			local_scope: RefCell::new(Vec::new()),
+			imports: RefCell::new(HashMap::new()),
+			import_targets: RefCell::new(HashMap::new()),
+			type_table,
+			callable_table,
+			nested_funcs: RefCell::new(Vec::new()),
+		};
+		let mut builder = SdkBuilder::new(module.clone());
+		SdkWalker::new(&discover, source_bytes).walk(root, &module, &mut builder);
+		builder.finish()
+	}
+
 	fn classify<'src>(
 		&self,
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
-		graph: &mut CodeGraph,
+		graph: &mut SdkBuilder,
 	) -> NodeShape<'src> {
 		match node.kind() {
 			"comment" => NodeShape::Annotation {
@@ -95,7 +422,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 				NodeShape::Skip
 			}
 			"arrow_function" | "function_expression" => {
-				self.classify_inline_callable(node, scope, source)
+				self.classify_inline_callable(node, scope, source, graph)
 			}
 			"pair" => self.classify_pair(node, scope, source),
 			"catch_clause" => {
@@ -170,7 +497,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 		kind: &[u8],
 		moniker: &Moniker,
 		_source: &[u8],
-		graph: &mut CodeGraph,
+		graph: &mut SdkBuilder,
 	) {
 		if !is_callable_kind(kind) {
 			return;
@@ -198,7 +525,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 		sym_kind: &[u8],
 		sym_moniker: &Moniker,
 		_source: &[u8],
-		graph: &mut CodeGraph,
+		graph: &mut SdkBuilder,
 	) {
 		if sym_kind == kinds::CLASS
 			|| sym_kind == kinds::INTERFACE
@@ -228,7 +555,7 @@ impl<'a> LangStrategy for Strategy<'a> {
 	}
 }
 
-impl<'src_lang> Strategy<'src_lang> {
+impl<'src_lang> TsDiscover<'src_lang> {
 	fn classify_class<'src>(
 		&self,
 		node: Node<'src>,
@@ -337,7 +664,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
-		graph: &mut CodeGraph,
+		graph: &mut SdkBuilder,
 	) -> NodeShape<'src> {
 		let Some(name_node) = node.child_by_field_name("name") else {
 			return NodeShape::Recurse;
@@ -428,6 +755,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
+		graph: &mut SdkBuilder,
 	) -> NodeShape<'src> {
 		if self.deep && is_callable_scope(scope, &self.module) {
 			let name = anonymous_callback_name(node);
@@ -440,8 +768,19 @@ impl<'src_lang> Strategy<'src_lang> {
 				kinds::VIS_NONE,
 			);
 		}
+		self.push_local_scope();
+		if let Some(params) = node.child_by_field_name("parameters") {
+			self.bind_and_emit_params(params, scope, graph);
+		}
+		if let Some(p) = node.child_by_field_name("parameter") {
+			self.bind_and_emit_param_leaf(p, scope, graph);
+		}
+		if let Some(body) = node.child_by_field_name("body") {
+			self.walk_children(body, scope, graph);
+		}
+		self.pop_local_scope();
 		let _ = source;
-		NodeShape::Recurse
+		NodeShape::Skip
 	}
 
 	fn classify_pair<'src>(
@@ -476,7 +815,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		node: Node<'src>,
 		scope: &Moniker,
 		source: &'src [u8],
-		graph: &mut CodeGraph,
+		graph: &mut SdkBuilder,
 	) -> NodeShape<'src> {
 		if node.child_by_field_name("source").is_some() {
 			self.handle_reexport(node, scope, graph);
@@ -531,8 +870,6 @@ impl<'src_lang> Strategy<'src_lang> {
 		visibility: &'static [u8],
 	) -> NodeShape<'src> {
 		let slots = callable_param_slots(callable_node, self.source_bytes);
-		let _signature =
-			join_bytes_with_comma(&slots.iter().map(slot_signature_bytes).collect::<Vec<_>>());
 		let moniker = extend_callable_slots(scope, kind, name, &slots);
 
 		self.push_local_scope();
@@ -552,7 +889,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		})
 	}
 
-	fn emit_enum_constants(&self, enum_node: Node<'_>, parent: &Moniker, graph: &mut CodeGraph) {
+	fn emit_enum_constants(&self, enum_node: Node<'_>, parent: &Moniker, graph: &mut SdkBuilder) {
 		let Some(body) = enum_node.child_by_field_name("body") else {
 			return;
 		};
@@ -575,7 +912,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn bind_and_emit_params(&self, params: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
+	fn bind_and_emit_params(&self, params: Node<'_>, callable: &Moniker, graph: &mut SdkBuilder) {
 		let mut cursor = params.walk();
 		for child in params.named_children(&mut cursor) {
 			match child.kind() {
@@ -595,7 +932,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn bind_and_emit_param_leaf(&self, pat: Node<'_>, callable: &Moniker, graph: &mut CodeGraph) {
+	fn bind_and_emit_param_leaf(&self, pat: Node<'_>, callable: &Moniker, graph: &mut SdkBuilder) {
 		for name in collect_binding_names(pat, self.source_bytes) {
 			let m = extend_segment(callable, kinds::PARAM, &name);
 			self.bind_local(&name, m.clone());
@@ -605,7 +942,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_lexical(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_lexical(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let inside_callable = is_callable_scope(scope, &self.module);
 		let mut cursor = node.walk();
 		for child in node.children(&mut cursor) {
@@ -621,7 +958,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		decl: Node<'_>,
 		scope: &Moniker,
 		inside_callable: bool,
-		graph: &mut CodeGraph,
+		graph: &mut SdkBuilder,
 	) {
 		let Some(name_node) = decl.child_by_field_name("name") else {
 			return;
@@ -683,7 +1020,24 @@ impl<'src_lang> Strategy<'src_lang> {
 					},
 					..crate::core::code_graph::DefAttrs::default()
 				};
-				let _ = graph.add_def_attrs(m, kind, scope, Some(node_position(decl)), &attrs);
+				let _ =
+					graph.add_def_attrs(m.clone(), kind, scope, Some(node_position(decl)), &attrs);
+				if kind == kinds::CONST
+					&& type_annot.is_none()
+					&& let Some((target, confidence)) = self.value_call_target(value, scope)
+				{
+					let ref_attrs = RefAttrs {
+						confidence,
+						..RefAttrs::default()
+					};
+					let _ = graph.add_ref_attrs(
+						&m,
+						target,
+						kinds::RETURNS_TYPE,
+						Some(node_position(decl)),
+						&ref_attrs,
+					);
+				}
 			}
 		}
 
@@ -691,11 +1045,15 @@ impl<'src_lang> Strategy<'src_lang> {
 			self.emit_uses_type_recursive(tp, scope, graph);
 		}
 		if let Some(v) = value {
-			self.recurse_subtree(v, scope, graph);
+			if v.kind() == "identifier" {
+				self.emit_read_at(v, scope, graph);
+			} else {
+				self.recurse_subtree(v, scope, graph);
+			}
 		}
 	}
 
-	fn handle_catch_clause(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_catch_clause(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		if is_callable_scope(scope, &self.module)
 			&& let Some(p) = node.child_by_field_name("parameter")
 		{
@@ -706,25 +1064,89 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_for_in(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_for_in(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		if is_callable_scope(scope, &self.module) {
 			let mut cursor = node.walk();
 			for c in node.named_children(&mut cursor) {
-				if c.kind() == "identifier" {
-					let name = node_slice(c, self.source_bytes);
-					let m = extend_segment(scope, kinds::LOCAL, name);
-					self.bind_local(name, m.clone());
-					if self.deep {
-						let _ = graph.add_def(m, kinds::LOCAL, scope, Some(node_position(c)));
+				let binding_node = match c.kind() {
+					"identifier" | "array_pattern" | "object_pattern" => Some(c),
+					"lexical_declaration" | "variable_declaration" => {
+						let mut decl_cursor = c.walk();
+						c.named_children(&mut decl_cursor)
+							.find(|decl| decl.kind() == "variable_declarator")
+							.and_then(|decl| decl.child_by_field_name("name"))
 					}
-					break;
+					_ => None,
+				};
+				let Some(binding_node) = binding_node else {
+					continue;
+				};
+				for name in collect_binding_names(binding_node, self.source_bytes) {
+					let m = extend_segment(scope, kinds::LOCAL, &name);
+					self.bind_local(&name, m.clone());
+					if self.deep {
+						let _ = graph.add_def(
+							m,
+							kinds::LOCAL,
+							scope,
+							Some(node_position(binding_node)),
+						);
+					}
 				}
+				break;
 			}
 		}
 		self.walk_children(node, scope, graph);
 	}
 
-	fn handle_call(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn call_identifier_target(
+		&self,
+		name: &[u8],
+		scope: &Moniker,
+		confidence: &'static [u8],
+	) -> (Moniker, &'static [u8]) {
+		if confidence == kinds::CONF_LOCAL {
+			let t = self
+				.lookup_local_binding(name)
+				.unwrap_or_else(|| extend_segment(scope, kinds::LOCAL, name));
+			(t, confidence)
+		} else if confidence == kinds::CONF_NAME_MATCH {
+			if let Some(m) = self.lookup_nested_func(name) {
+				(m, kinds::CONF_RESOLVED)
+			} else if let Some(m) = self.lookup_callable(name) {
+				(m, kinds::CONF_RESOLVED)
+			} else if is_global_value(name) {
+				(
+					external_runtime_target(&self.module, kinds::FUNCTION, name),
+					kinds::CONF_EXTERNAL,
+				)
+			} else {
+				(
+					extend_segment(&self.module, kinds::FUNCTION, name),
+					confidence,
+				)
+			}
+		} else {
+			let base = self.import_or_local_module(name);
+			(extend_segment(&base, kinds::FUNCTION, name), confidence)
+		}
+	}
+
+	fn value_call_target(
+		&self,
+		value: Option<Node<'_>>,
+		scope: &Moniker,
+	) -> Option<(Moniker, &'static [u8])> {
+		let call = value.filter(|v| v.kind() == "call_expression")?;
+		let fn_node = call
+			.child_by_field_name("function")
+			.filter(|f| f.kind() == "identifier")?;
+		let name = node_slice(fn_node, self.source_bytes);
+		let confidence = self.name_confidence(name)?;
+		Some(self.call_identifier_target(name, scope, confidence))
+	}
+
+	fn handle_call(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let pos = node_position(node);
 		let Some(fn_node) = node.child_by_field_name("function") else {
 			self.walk_children(node, scope, graph);
@@ -735,26 +1157,8 @@ impl<'src_lang> Strategy<'src_lang> {
 				let name = node_slice(fn_node, self.source_bytes);
 				match self.name_confidence(name) {
 					Some(confidence) => {
-						let (target, confidence) = if confidence == kinds::CONF_LOCAL {
-							let t = self
-								.lookup_local_binding(name)
-								.unwrap_or_else(|| extend_segment(scope, kinds::LOCAL, name));
-							(t, confidence)
-						} else if confidence == kinds::CONF_NAME_MATCH {
-							if let Some(m) = self.lookup_nested_func(name) {
-								(m, kinds::CONF_RESOLVED)
-							} else if let Some(m) = self.lookup_callable(name) {
-								(m, kinds::CONF_RESOLVED)
-							} else {
-								(
-									extend_segment(&self.module, kinds::FUNCTION, name),
-									confidence,
-								)
-							}
-						} else {
-							let base = self.import_or_local_module(name);
-							(extend_segment(&base, kinds::FUNCTION, name), confidence)
-						};
+						let (target, confidence) =
+							self.call_identifier_target(name, scope, confidence);
 						let attrs = RefAttrs {
 							confidence,
 							..RefAttrs::default()
@@ -775,13 +1179,21 @@ impl<'src_lang> Strategy<'src_lang> {
 							.child_by_field_name("object")
 							.filter(|o| o.kind() == "identifier")
 							.map(|o| node_slice(o, self.source_bytes));
-						let target = obj_ident
-							.and_then(|n| self.lookup_import_target(n))
+						let imported_target = obj_ident.and_then(|n| self.lookup_import_target(n));
+						let target = imported_target
+							.clone()
 							.map(|m| extend_segment(&m, kinds::METHOD, name))
-							.unwrap_or_else(|| extend_segment(&self.module, kinds::METHOD, name));
-						let confidence = obj_ident
-							.map(|n| self.ref_confidence(n))
-							.unwrap_or(kinds::CONF_NAME_MATCH);
+							.unwrap_or_else(|| {
+								external_runtime_target(&self.module, kinds::METHOD, name)
+							});
+						let confidence = imported_target
+							.as_ref()
+							.map(|_| {
+								obj_ident
+									.map(|n| self.ref_confidence(n))
+									.unwrap_or(kinds::CONF_EXTERNAL)
+							})
+							.unwrap_or(kinds::CONF_EXTERNAL);
 						let attrs = RefAttrs {
 							receiver_hint: receiver_hint(fn_node, self.source_bytes),
 							confidence,
@@ -798,7 +1210,11 @@ impl<'src_lang> Strategy<'src_lang> {
 					}
 				}
 				if let Some(obj) = fn_node.child_by_field_name("object") {
-					self.recurse_subtree(obj, scope, graph);
+					if obj.kind() == "identifier" {
+						self.emit_read_at(obj, scope, graph);
+					} else {
+						self.recurse_subtree(obj, scope, graph);
+					}
 				}
 			}
 			_ => {}
@@ -809,7 +1225,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_new(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_new(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let pos = node_position(node);
 		if let Some(ctor) = node.child_by_field_name("constructor") {
 			let name = match ctor.kind() {
@@ -839,10 +1255,12 @@ impl<'src_lang> Strategy<'src_lang> {
 					} else if let Some(m) = self.type_table.get(n) {
 						m.clone()
 					} else {
-						extend_segment(&self.module, kinds::CLASS, n)
+						external_runtime_target(&self.module, kinds::CLASS, n)
 					};
 				let attrs = RefAttrs {
-					confidence: if self.type_table.values().any(|m| m == &target)
+					confidence: if is_global_type(n) || !self.type_table.contains_key(n) {
+						kinds::CONF_EXTERNAL
+					} else if self.type_table.values().any(|m| m == &target)
 						|| graph.contains(&target)
 					{
 						kinds::CONF_RESOLVED
@@ -890,7 +1308,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		out
 	}
 
-	fn handle_decorator(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_decorator(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let pos = node_position(node);
 		for callee in self.decorator_callees(node) {
 			let target = extend_segment(&self.module, kinds::FUNCTION, callee.name);
@@ -909,7 +1327,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		&self,
 		decorator: Node<'_>,
 		sym_moniker: &Moniker,
-		graph: &mut CodeGraph,
+		graph: &mut SdkBuilder,
 	) {
 		for callee in self.decorator_callees(decorator) {
 			if let Some(args) = callee.args {
@@ -971,11 +1389,20 @@ impl<'src_lang> Strategy<'src_lang> {
 			let Some(name) = name.filter(|n| !n.is_empty()) else {
 				continue;
 			};
-			let target = extend_segment(&self.module, target_kind, name);
+			let (target, confidence) = if let Some(m) = self.lookup_import_target(name) {
+				(m, self.ref_confidence(name))
+			} else if let Some(m) = self.type_table.get(name) {
+				(m.clone(), self.ref_confidence(name))
+			} else {
+				(
+					external_runtime_target(&self.module, target_kind, name),
+					kinds::CONF_EXTERNAL,
+				)
+			};
 			out.push(RefSpec {
 				kind: edge,
 				target,
-				confidence: self.ref_confidence(name),
+				confidence,
 				position: pos,
 				receiver_hint: b"",
 				alias: b"",
@@ -983,8 +1410,9 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn emit_uses_type_recursive(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn emit_uses_type_recursive(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		match node.kind() {
+			"type_query" => self.emit_type_query_recursive(node, scope, graph),
 			"type_identifier" => {
 				let name = node_slice(node, self.source_bytes);
 				if name.is_empty() {
@@ -993,9 +1421,14 @@ impl<'src_lang> Strategy<'src_lang> {
 				let target = self
 					.lookup_local_binding(name)
 					.or_else(|| self.lookup_import_target(name))
-					.unwrap_or_else(|| extend_segment(&self.module, kinds::CLASS, name));
+					.or_else(|| self.type_table.get(name).cloned())
+					.unwrap_or_else(|| external_runtime_target(&self.module, kinds::CLASS, name));
 				let attrs = RefAttrs {
-					confidence: self.ref_confidence(name),
+					confidence: if is_global_type(name) || !self.type_table.contains_key(name) {
+						kinds::CONF_EXTERNAL
+					} else {
+						self.ref_confidence(name)
+					},
 					..RefAttrs::default()
 				};
 				let _ = graph.add_ref_attrs(
@@ -1012,9 +1445,15 @@ impl<'src_lang> Strategy<'src_lang> {
 					let target = self
 						.lookup_import_target(root)
 						.map(|m| extend_segment(&m, kinds::CLASS, name))
-						.unwrap_or_else(|| extend_segment(&self.module, kinds::CLASS, name));
+						.unwrap_or_else(|| {
+							external_runtime_target(&self.module, kinds::CLASS, name)
+						});
 					let attrs = RefAttrs {
-						confidence: self.ref_confidence(root),
+						confidence: if is_global_type(root) || !self.type_table.contains_key(root) {
+							kinds::CONF_EXTERNAL
+						} else {
+							self.ref_confidence(root)
+						},
 						..RefAttrs::default()
 					};
 					let _ = graph.add_ref_attrs(
@@ -1030,9 +1469,16 @@ impl<'src_lang> Strategy<'src_lang> {
 				if let Some(name) = generic_short(node, self.source_bytes) {
 					let target = self
 						.lookup_import_target(name)
-						.unwrap_or_else(|| extend_segment(&self.module, kinds::CLASS, name));
+						.or_else(|| self.type_table.get(name).cloned())
+						.unwrap_or_else(|| {
+							external_runtime_target(&self.module, kinds::CLASS, name)
+						});
 					let attrs = RefAttrs {
-						confidence: self.ref_confidence(name),
+						confidence: if is_global_type(name) || !self.type_table.contains_key(name) {
+							kinds::CONF_EXTERNAL
+						} else {
+							self.ref_confidence(name)
+						},
 						..RefAttrs::default()
 					};
 					let _ = graph.add_ref_attrs(
@@ -1056,7 +1502,67 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn emit_reads_in_children(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn emit_type_query_recursive(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
+		let Some(identifier) = Self::first_type_query_identifier(node) else {
+			return;
+		};
+		let name = node_slice(identifier, self.source_bytes);
+		if name.is_empty() {
+			return;
+		}
+		let (target, confidence) = self.type_query_value_target(name, graph);
+		let attrs = RefAttrs {
+			confidence,
+			..RefAttrs::default()
+		};
+		let _ = graph.add_ref_attrs(
+			scope,
+			target,
+			kinds::USES_TYPE,
+			Some(node_position(identifier)),
+			&attrs,
+		);
+	}
+
+	fn first_type_query_identifier(node: Node<'_>) -> Option<Node<'_>> {
+		if node.kind() == "identifier" {
+			return Some(node);
+		}
+		let mut cursor = node.walk();
+		for child in node.children(&mut cursor) {
+			if let Some(identifier) = Self::first_type_query_identifier(child) {
+				return Some(identifier);
+			}
+		}
+		None
+	}
+
+	fn type_query_value_target(&self, name: &[u8], graph: &SdkBuilder) -> (Moniker, &'static [u8]) {
+		if let Some(target) = self.lookup_local_binding(name) {
+			return (target, kinds::CONF_LOCAL);
+		}
+		if let Some(target) = self.lookup_import_target(name) {
+			return (target, self.ref_confidence(name));
+		}
+		if is_global_value(name) {
+			return (
+				external_runtime_target(&self.module, kinds::FUNCTION, name),
+				kinds::CONF_EXTERNAL,
+			);
+		}
+		if let Some(target) = self.lookup_callable(name) {
+			return (target, kinds::CONF_RESOLVED);
+		}
+		let target = extend_segment(&self.module, kinds::CONST, name);
+		let confidence = if graph.contains(&target) {
+			kinds::CONF_RESOLVED
+		} else {
+			self.ref_confidence(name)
+		};
+		(target, confidence)
+	}
+
+	fn emit_reads_in_children(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let mut cursor = node.walk();
 		for c in node.children(&mut cursor) {
 			if c.kind() == "identifier" {
@@ -1067,7 +1573,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn emit_read_at(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn emit_read_at(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let name = node_slice(node, self.source_bytes);
 		if name.is_empty() {
 			return;
@@ -1075,11 +1581,31 @@ impl<'src_lang> Strategy<'src_lang> {
 		let Some(confidence) = self.name_confidence(name) else {
 			return;
 		};
-		let target = if confidence == kinds::CONF_LOCAL {
-			self.lookup_local_binding(name)
-				.unwrap_or_else(|| extend_segment(scope, kinds::LOCAL, name))
+		let (target, confidence) = if confidence == kinds::CONF_LOCAL {
+			(
+				self.lookup_local_binding(name)
+					.unwrap_or_else(|| extend_segment(scope, kinds::LOCAL, name)),
+				confidence,
+			)
+		} else if let Some(target) = self.lookup_import_target(name) {
+			(target, confidence)
+		} else if is_global_value(name) {
+			(
+				external_runtime_target(&self.module, kinds::FUNCTION, name),
+				kinds::CONF_EXTERNAL,
+			)
+		} else if let Some(target) = self.lookup_callable(name) {
+			(target, kinds::CONF_RESOLVED)
+		} else if graph.contains(&extend_segment(&self.module, kinds::CONST, name)) {
+			(
+				extend_segment(&self.module, kinds::CONST, name),
+				kinds::CONF_RESOLVED,
+			)
 		} else {
-			extend_segment(&self.module, kinds::FUNCTION, name)
+			(
+				extend_segment(&self.module, kinds::FUNCTION, name),
+				confidence,
+			)
 		};
 		let attrs = RefAttrs {
 			confidence,
@@ -1098,7 +1624,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		&self,
 		node: Node<'_>,
 		scope: &Moniker,
-		graph: &mut CodeGraph,
+		graph: &mut SdkBuilder,
 		fields: &[&str],
 	) {
 		for f in fields {
@@ -1113,7 +1639,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_jsx_element(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_jsx_element(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		if let Some(name) = node.child_by_field_name("name")
 			&& name.kind() == "identifier"
 			&& !is_intrinsic_jsx_tag(node_slice(name, self.source_bytes))
@@ -1134,7 +1660,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_import(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_import(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let Some(src_node) = node.child_by_field_name("source") else {
 			return;
 		};
@@ -1234,7 +1760,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_reexport(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_reexport(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let Some(src_node) = node.child_by_field_name("source") else {
 			return;
 		};
@@ -1293,7 +1819,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn handle_bare_reexport(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
+	fn handle_bare_reexport(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
 		let pos = node_position(node);
 		let mut cursor = node.walk();
 		for c in node.children(&mut cursor) {
@@ -1392,7 +1918,7 @@ impl<'src_lang> Strategy<'src_lang> {
 		call: Node<'_>,
 		callee_name: &[u8],
 		scope: &Moniker,
-		graph: &mut CodeGraph,
+		graph: &mut SdkBuilder,
 		pos: (u32, u32),
 	) {
 		if self.presets.di_register_callees.is_empty() {
@@ -1461,13 +1987,13 @@ impl<'src_lang> Strategy<'src_lang> {
 		}
 	}
 
-	fn recurse_subtree(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let walker = crate::lang::canonical_walker::CanonicalWalker::new(self, self.source_bytes);
+	fn recurse_subtree(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
+		let walker = SdkWalker::new(self, self.source_bytes);
 		walker.dispatch(node, scope, graph);
 	}
 
-	fn walk_children(&self, node: Node<'_>, scope: &Moniker, graph: &mut CodeGraph) {
-		let walker = crate::lang::canonical_walker::CanonicalWalker::new(self, self.source_bytes);
+	fn walk_children(&self, node: Node<'_>, scope: &Moniker, graph: &mut SdkBuilder) {
+		let walker = SdkWalker::new(self, self.source_bytes);
 		walker.walk(node, scope, graph);
 	}
 
@@ -1603,299 +2129,4 @@ impl<'src_lang> Strategy<'src_lang> {
 			kinds::VIS_MODULE
 		}
 	}
-}
-
-fn function_decl_info<'src>(
-	node: Node<'src>,
-	source: &'src [u8],
-) -> Option<(&'src [u8], Vec<crate::lang::callable::CallableSlot>)> {
-	if !matches!(
-		node.kind(),
-		"function_declaration" | "generator_function_declaration"
-	) {
-		return None;
-	}
-	let name_node = node.child_by_field_name("name")?;
-	let name = node_slice(name_node, source);
-	Some((name, callable_param_slots(node, source)))
-}
-
-pub(super) fn collect_callable_table<'src>(
-	root: Node<'src>,
-	source: &'src [u8],
-	module: &Moniker,
-	out: &mut HashMap<(Moniker, Vec<u8>), CallableEntry>,
-) {
-	visit_top_level(root, |child| match child.kind() {
-		"function_declaration" | "generator_function_declaration" => {
-			if let Some((name, slots)) = function_decl_info(child, source) {
-				out.insert(
-					(module.clone(), name.to_vec()),
-					CallableEntry {
-						kind: kinds::FUNCTION,
-						segment: callable_segment_slots(name, &slots),
-					},
-				);
-			}
-		}
-		"lexical_declaration" | "variable_declaration" => {
-			let mut nc = child.walk();
-			for decl in child.named_children(&mut nc) {
-				if decl.kind() != "variable_declarator" {
-					continue;
-				}
-				let Some(name_node) = decl.child_by_field_name("name") else {
-					continue;
-				};
-				if name_node.kind() != "identifier" {
-					continue;
-				}
-				let name = node_slice(name_node, source);
-				let (kind, seg) = match decl.child_by_field_name("value") {
-					Some(v) if matches!(v.kind(), "arrow_function" | "function_expression") => {
-						let slots = callable_param_slots(v, source);
-						(kinds::FUNCTION, callable_segment_slots(name, &slots))
-					}
-					_ => (kinds::CONST, name.to_vec()),
-				};
-				out.insert(
-					(module.clone(), name.to_vec()),
-					CallableEntry { kind, segment: seg },
-				);
-			}
-		}
-		_ => {}
-	});
-}
-
-pub(super) fn collect_type_table<'src>(
-	root: Node<'src>,
-	source: &'src [u8],
-	module: &Moniker,
-	out: &mut HashMap<Vec<u8>, Moniker>,
-) {
-	visit_top_level(root, |child| match child.kind() {
-		"class_declaration" | "abstract_class_declaration" => {
-			if let Some(name_node) = child.child_by_field_name("name") {
-				let name = node_slice(name_node, source);
-				out.insert(name.to_vec(), extend_segment(module, kinds::CLASS, name));
-			}
-		}
-		"interface_declaration" => {
-			if let Some(name_node) = child.child_by_field_name("name") {
-				let name = node_slice(name_node, source);
-				out.insert(
-					name.to_vec(),
-					extend_segment(module, kinds::INTERFACE, name),
-				);
-			}
-		}
-		"enum_declaration" => {
-			if let Some(name_node) = child.child_by_field_name("name") {
-				let name = node_slice(name_node, source);
-				out.insert(name.to_vec(), extend_segment(module, kinds::ENUM, name));
-			}
-		}
-		"type_alias_declaration" => {
-			if let Some(name_node) = child.child_by_field_name("name") {
-				let name = node_slice(name_node, source);
-				out.insert(name.to_vec(), extend_segment(module, kinds::TYPE, name));
-			}
-		}
-		_ => {}
-	});
-}
-
-fn visit_top_level<'src, F: FnMut(Node<'src>)>(root: Node<'src>, mut f: F) {
-	let mut cursor = root.walk();
-	for child in root.children(&mut cursor) {
-		match child.kind() {
-			"export_statement" => {
-				let mut ec = child.walk();
-				for inner in child.named_children(&mut ec) {
-					f(inner);
-				}
-			}
-			_ => f(child),
-		}
-	}
-}
-
-pub(super) fn collect_export_ranges(root: Node<'_>) -> Vec<(u32, u32)> {
-	let mut out = Vec::new();
-	let mut cursor = root.walk();
-	for child in root.children(&mut cursor) {
-		if child.kind() == "export_statement" {
-			out.push(node_position(child));
-		}
-	}
-	out
-}
-
-fn is_callable_kind(kind: &[u8]) -> bool {
-	kind == kinds::FUNCTION || kind == kinds::METHOD || kind == kinds::CONSTRUCTOR
-}
-
-fn is_intrinsic_jsx_tag(name: &[u8]) -> bool {
-	matches!(name.first(), Some(b'a'..=b'z'))
-}
-
-fn match_path_alias<'a>(pattern: &str, spec: &'a str) -> Option<&'a str> {
-	if let Some(star) = pattern.find('*') {
-		let prefix = &pattern[..star];
-		let suffix = &pattern[star + 1..];
-		if spec.len() >= prefix.len() + suffix.len()
-			&& spec.starts_with(prefix)
-			&& spec.ends_with(suffix)
-		{
-			return Some(&spec[prefix.len()..spec.len() - suffix.len()]);
-		}
-		None
-	} else if pattern == spec {
-		Some("")
-	} else {
-		None
-	}
-}
-
-fn apply_path_alias(template: &str, captured: &str) -> String {
-	if let Some(star) = template.find('*') {
-		let mut out = String::with_capacity(template.len() + captured.len());
-		out.push_str(&template[..star]);
-		out.push_str(captured);
-		out.push_str(&template[star + 1..]);
-		out
-	} else {
-		template.to_string()
-	}
-}
-
-fn is_callable_scope(scope: &Moniker, module: &Moniker) -> bool {
-	if scope == module {
-		return false;
-	}
-	let Some(last) = scope.as_view().segments().last() else {
-		return false;
-	};
-	last.kind == kinds::FUNCTION || last.kind == kinds::METHOD || last.kind == kinds::CONSTRUCTOR
-}
-
-fn class_member_visibility(node: Node<'_>, source: &[u8]) -> &'static [u8] {
-	let mut cursor = node.walk();
-	for c in node.children(&mut cursor) {
-		if c.kind() == "accessibility_modifier" {
-			return match c.utf8_text(source).unwrap_or("") {
-				"private" => kinds::VIS_PRIVATE,
-				"protected" => kinds::VIS_PROTECTED,
-				_ => kinds::VIS_PUBLIC,
-			};
-		}
-	}
-	kinds::VIS_PUBLIC
-}
-
-fn collect_binding_names<'src>(pat: Node<'src>, source: &'src [u8]) -> Vec<Vec<u8>> {
-	fn rec<'src>(node: Node<'src>, source: &'src [u8], out: &mut Vec<Vec<u8>>) {
-		match node.kind() {
-			"identifier" | "shorthand_property_identifier_pattern" => {
-				out.push(node_slice(node, source).to_vec());
-			}
-			"object_pattern" | "array_pattern" | "pair_pattern" | "rest_pattern"
-			| "assignment_pattern" => {
-				let mut cursor = node.walk();
-				for c in node.named_children(&mut cursor) {
-					rec(c, source, out);
-				}
-			}
-			_ => {}
-		}
-	}
-	let mut out = Vec::new();
-	rec(pat, source, &mut out);
-	out
-}
-
-fn receiver_hint<'a>(member_expr: Node<'_>, source: &'a [u8]) -> &'a [u8] {
-	use crate::lang::kinds::{HINT_CALL, HINT_MEMBER, HINT_SUBSCRIPT, HINT_SUPER, HINT_THIS};
-	let Some(obj) = member_expr.child_by_field_name("object") else {
-		return b"";
-	};
-	match obj.kind() {
-		"this" => HINT_THIS,
-		"super" => HINT_SUPER,
-		"identifier" => obj.utf8_text(source).unwrap_or("").as_bytes(),
-		"call_expression" => HINT_CALL,
-		"member_expression" => HINT_MEMBER,
-		"subscript_expression" => HINT_SUBSCRIPT,
-		_ => b"",
-	}
-}
-
-fn generic_short<'src>(node: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
-	let inner = node.child_by_field_name("name").or_else(|| {
-		let mut cursor = node.walk();
-		node.named_children(&mut cursor).next()
-	})?;
-	match inner.kind() {
-		"nested_type_identifier" => nested_type_short(inner, source),
-		_ => Some(node_slice(inner, source)),
-	}
-}
-
-fn nested_type_short<'src>(node: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
-	if let Some(name) = node.child_by_field_name("name") {
-		return Some(node_slice(name, source));
-	}
-	let mut cursor = node.walk();
-	let mut last: Option<&'src [u8]> = None;
-	for c in node.named_children(&mut cursor) {
-		if c.kind() == "type_identifier" || c.kind() == "identifier" {
-			last = Some(node_slice(c, source));
-		}
-	}
-	last
-}
-
-fn nested_type_root<'src>(node: Node<'src>, source: &'src [u8]) -> Option<&'src [u8]> {
-	let mut cursor = node.walk();
-	for c in node.named_children(&mut cursor) {
-		match c.kind() {
-			"type_identifier" | "identifier" => return Some(node_slice(c, source)),
-			"nested_type_identifier" => return nested_type_root(c, source),
-			_ => {}
-		}
-	}
-	None
-}
-
-fn is_relative_specifier(spec: &str) -> bool {
-	spec == "." || spec == ".." || spec.starts_with("./") || spec.starts_with("../")
-}
-
-fn import_confidence(spec: &str) -> &'static [u8] {
-	if is_relative_specifier(spec) {
-		kinds::CONF_IMPORTED
-	} else {
-		kinds::CONF_EXTERNAL
-	}
-}
-
-fn first_identifier_text<'src>(node: Node<'src>, source: &'src [u8]) -> &'src [u8] {
-	find_named_child(node, "identifier")
-		.map(|c| node_slice(c, source))
-		.unwrap_or(b"")
-}
-
-fn unquote_string_literal<'src>(node: Node<'_>, source: &'src [u8]) -> &'src str {
-	let mut cursor = node.walk();
-	for c in node.children(&mut cursor) {
-		if c.kind() == "string_fragment"
-			&& let Ok(s) = c.utf8_text(source)
-		{
-			return s;
-		}
-	}
-	node.utf8_text(source)
-		.unwrap_or("")
-		.trim_matches(|c| c == '"' || c == '\'' || c == '`')
 }

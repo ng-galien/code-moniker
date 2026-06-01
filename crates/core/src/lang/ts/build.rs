@@ -1,5 +1,9 @@
 use serde_json::Value;
 
+use crate::core::moniker::{Moniker, MonikerBuilder};
+
+use super::kinds;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Dep {
 	pub name: String,
@@ -72,8 +76,39 @@ pub(crate) fn ts_import_root(name: &str) -> String {
 	name.to_string()
 }
 
-pub fn package_moniker(project: &[u8], import_root: &str) -> crate::core::moniker::Moniker {
-	super::canonicalize::external_pkg_builder(project, import_root).build()
+pub fn package_moniker(project: &[u8], import_root: &str) -> Moniker {
+	external_pkg_builder(project, import_root).build()
+}
+
+pub(in crate::lang::ts) fn external_pkg_builder(project: &[u8], pkg: &str) -> MonikerBuilder {
+	let (head, tail) = split_package_specifier(pkg);
+	let mut b = MonikerBuilder::new();
+	b.project(project);
+	b.segment(kinds::EXTERNAL_PKG, head.as_bytes());
+	for piece in tail.split('/').filter(|s| !s.is_empty()) {
+		b.segment(kinds::PATH, piece.as_bytes());
+	}
+	b
+}
+
+fn split_package_specifier(spec: &str) -> (&str, &str) {
+	if let Some(after_scope) = spec.strip_prefix('@') {
+		let mut parts = after_scope.splitn(3, '/');
+		let scope = parts.next().unwrap_or("");
+		let name = parts.next().unwrap_or("");
+		let tail = parts.next().unwrap_or("");
+		let head_end = if name.is_empty() {
+			1 + scope.len()
+		} else {
+			1 + scope.len() + 1 + name.len()
+		};
+		(&spec[..head_end], tail)
+	} else {
+		match spec.find('/') {
+			Some(i) => (&spec[..i], &spec[i + 1..]),
+			None => (spec, ""),
+		}
+	}
 }
 
 fn extract_version(spec: &Value) -> Option<String> {
@@ -167,6 +202,18 @@ mod tests {
 		let deps = parse(json).unwrap();
 		let scoped = deps.iter().find(|d| d.name == "@scope/pkg").unwrap();
 		assert_eq!(scoped.import_root, "@scope/pkg");
+	}
+
+	#[test]
+	fn package_moniker_keeps_scoped_package_head() {
+		let moniker = package_moniker(b"app", "@scope/pkg/sub/path");
+		let segments = moniker.as_view().segments().collect::<Vec<_>>();
+		assert_eq!(segments[0].kind, b"external_pkg");
+		assert_eq!(segments[0].name, b"@scope/pkg");
+		assert_eq!(segments[1].kind, b"path");
+		assert_eq!(segments[1].name, b"sub");
+		assert_eq!(segments[2].kind, b"path");
+		assert_eq!(segments[2].name, b"path");
 	}
 
 	#[test]

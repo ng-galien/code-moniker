@@ -741,6 +741,113 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 }
 
 #[test]
+fn usages_roll_up_indirect_type_alias_consumers() {
+	let shared_source = SourceId::new("source:shared");
+	let app_source = SourceId::new("source:app");
+	let sources = vec![
+		source_file(shared_source.clone(), "packages/shared/src/ws.ts", "ts"),
+		source_file(app_source.clone(), "packages/client/src/store/ws.ts", "ts"),
+	];
+	let member = symbol_record(
+		"symbol:member",
+		shared_source.clone(),
+		"code+moniker://./lang:ts/dir:packages/dir:shared/dir:src/module:ws/interface:WsStateMessage",
+		"WsStateMessage",
+		"interface",
+		Some((27, 36)),
+	);
+	let union = symbol_record(
+		"symbol:union",
+		shared_source.clone(),
+		"code+moniker://./lang:ts/dir:packages/dir:shared/dir:src/module:ws/type:WsServerMessage",
+		"WsServerMessage",
+		"type",
+		Some((97, 108)),
+	);
+	let handler = symbol_record(
+		"symbol:handler",
+		app_source.clone(),
+		"code+moniker://./lang:ts/dir:packages/dir:client/dir:src/module:ws/function:connect()",
+		"connect()",
+		"function",
+		Some((280, 320)),
+	);
+	let caller = symbol_record(
+		"symbol:caller",
+		app_source.clone(),
+		"code+moniker://./lang:ts/dir:packages/dir:client/dir:src/module:ws/function:start()",
+		"start()",
+		"function",
+		Some((340, 360)),
+	);
+	let references = vec![
+		ReferenceRecord::new(
+			"ref:union-member",
+			shared_source,
+			union.id.clone(),
+			member.identity.as_str(),
+			"uses_type",
+			Some((98, 98)),
+		),
+		ReferenceRecord::new(
+			"ref:consumer",
+			app_source.clone(),
+			handler.id.clone(),
+			union.identity.as_str(),
+			"uses_type",
+			Some((287, 287)),
+		),
+		ReferenceRecord::new(
+			"ref:caller",
+			app_source,
+			caller.id.clone(),
+			handler.identity.as_str(),
+			"calls",
+			Some((345, 345)),
+		),
+	];
+	let linkage = LinkageGraph::with_refs(
+		ResourceGeneration::new(2),
+		ResourceGeneration::new(1),
+		vec![
+			LinkageEdge::new(ReferenceId::new("ref:union-member"), member.id.clone()),
+			LinkageEdge::new(ReferenceId::new("ref:consumer"), union.id.clone()),
+			LinkageEdge::new(ReferenceId::new("ref:caller"), handler.id.clone()),
+		],
+		Vec::new(),
+	);
+	let member_identity = member.identity.clone();
+	let text = render_usages_lmnav(
+		"code+moniker://",
+		UsageQuery {
+			uri: &member_identity,
+			direction: UsageDirection::Incoming,
+			scope: &ScopeFilter::from_arguments(&json!({"lang": "ts"})).unwrap(),
+			paging: Paging {
+				cursor: 0,
+				limit: 20,
+			},
+		},
+		UsageIndexView {
+			sources: &sources,
+			symbols: &[member, union, handler, caller],
+			references: &references,
+			linkage: &linkage,
+		},
+	)
+	.expect("usage render");
+	assert!(text.contains("refs: 2"), "{text}");
+	assert!(text.contains("packages/shared/src/ws.ts:L98"), "{text}");
+	assert!(
+		text.contains("packages/client/src/store/ws.ts:L287"),
+		"{text}"
+	);
+	assert!(text.contains("via: WsServerMessage"), "{text}");
+	assert!(!text.contains("ref:caller"), "{text}");
+	assert!(!text.contains("start()"), "{text}");
+}
+
+#[test]
 fn read_symbol_source_renders_source_slice() {
 	let source_id = SourceId::new("source:1:src/App.java");
 	let source = SourceFileRecord::from_fields(SourceFileRecordFields {

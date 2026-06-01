@@ -1,5 +1,6 @@
 use code_moniker_core::core::code_graph::RefRecord;
-use code_moniker_core::core::kinds::{REF_CALLS, REF_METHOD_CALL};
+use code_moniker_core::core::kinds::{REF_CALLS, REF_METHOD_CALL, REF_READS, REF_REEXPORTS};
+use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::kinds;
 use rayon::prelude::*;
@@ -31,6 +32,7 @@ impl<'a> SemanticLinkage<'a> {
 		references: &[ReferenceRecord],
 	) {
 		language::enhance_reference_semantics(self.material, decisions, references);
+		enhance_reexport_aliases(self, decisions, references);
 		enhance_receiver_chains(self, decisions, references);
 	}
 
@@ -217,6 +219,171 @@ impl CallableIndex {
 	}
 }
 
+fn enhance_reexport_aliases(
+	linkage: &SemanticLinkage<'_>,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &[ReferenceRecord],
+) {
+	let aliases = build_reexport_aliases(linkage.material, decisions, references);
+	if aliases.is_empty() {
+		return;
+	}
+	for decision in decisions.iter_mut() {
+		let reference_idx = match decision {
+			ReferenceLinkageDecision::Unknown {
+				reason: UnknownReason::NoCandidate,
+				reference_idx,
+			} => *reference_idx,
+			_ => continue,
+		};
+		let Some((owner, name)) =
+			reference_target_alias_key(linkage.material, &references[reference_idx])
+		else {
+			continue;
+		};
+		let Some(alias) = aliases.get(&(owner, name)) else {
+			continue;
+		};
+		let requested_target = linkage
+			.material
+			.reference_target(&references[reference_idx].id);
+		*decision = alias.to_decision(reference_idx, requested_target);
+	}
+}
+
+#[derive(Clone)]
+enum ReexportAliasTarget {
+	Resolved {
+		scope: ResolutionScope,
+		targets: Vec<SymbolId>,
+	},
+	External {
+		origin: ExternalOrigin,
+		target: Moniker,
+	},
+}
+
+impl ReexportAliasTarget {
+	fn from_decision(
+		decision: &ReferenceLinkageDecision,
+		fallback_external_target: Option<Moniker>,
+	) -> Option<Self> {
+		match decision {
+			ReferenceLinkageDecision::Resolved { scope, targets, .. } if targets.len() == 1 => {
+				Some(Self::Resolved {
+					scope: *scope,
+					targets: targets.clone(),
+				})
+			}
+			ReferenceLinkageDecision::External { origin, target, .. } => Some(Self::External {
+				origin: *origin,
+				target: target.clone().or(fallback_external_target)?,
+			}),
+			_ => None,
+		}
+	}
+
+	fn to_decision(
+		&self,
+		reference_idx: usize,
+		requested_target: Option<&Moniker>,
+	) -> ReferenceLinkageDecision {
+		match self {
+			Self::Resolved { scope, targets } => {
+				ReferenceLinkageDecision::resolved(*scope, reference_idx, targets.clone())
+			}
+			Self::External { origin, target } => ReferenceLinkageDecision::external_target(
+				*origin,
+				reference_idx,
+				reexport_external_target(target, requested_target),
+			),
+		}
+	}
+}
+
+fn reexport_external_target(alias_target: &Moniker, requested_target: Option<&Moniker>) -> Moniker {
+	let Some(requested_target) = requested_target else {
+		return alias_target.clone();
+	};
+	let Some(alias_last) = alias_target.as_view().segments().last() else {
+		return alias_target.clone();
+	};
+	let Some(requested_last) = requested_target.as_view().segments().last() else {
+		return alias_target.clone();
+	};
+	if bare_callable_name(alias_last.name) != bare_callable_name(requested_last.name) {
+		return alias_target.clone();
+	}
+	let Some(owner) = alias_target.parent() else {
+		return alias_target.clone();
+	};
+	MonikerBuilder::from_view(owner.as_view())
+		.segment(requested_last.kind, requested_last.name)
+		.build()
+}
+
+fn build_reexport_aliases(
+	material: &CodeIndexMaterial,
+	decisions: &[ReferenceLinkageDecision],
+	references: &[ReferenceRecord],
+) -> FxHashMap<(Moniker, Vec<u8>), ReexportAliasTarget> {
+	let mut aliases = FxHashMap::default();
+	for decision in decisions {
+		let reference = decision_reference(decision, references);
+		if reference.kind.as_bytes() != REF_REEXPORTS {
+			continue;
+		}
+		let Some(owner) = material.symbol_moniker(&reference.source_symbol) else {
+			continue;
+		};
+		let Some(name) = reexport_alias_name(material, reference) else {
+			continue;
+		};
+		let fallback_external_target = material.reference_target(&reference.id).cloned();
+		let Some(target) = ReexportAliasTarget::from_decision(decision, fallback_external_target)
+		else {
+			continue;
+		};
+		aliases.insert((owner.clone(), name), target);
+	}
+	aliases
+}
+
+fn reexport_alias_name(
+	material: &CodeIndexMaterial,
+	reference: &ReferenceRecord,
+) -> Option<Vec<u8>> {
+	if let Some(alias) = reference.alias.as_deref().filter(|alias| !alias.is_empty()) {
+		return Some(alias.as_bytes().to_vec());
+	}
+	let target = material.reference_target(&reference.id)?;
+	let last = target.as_view().segments().last()?;
+	if last.kind != kinds::PATH {
+		return None;
+	}
+	Some(bare_callable_name(last.name).to_vec())
+}
+
+fn reference_target_alias_key(
+	material: &CodeIndexMaterial,
+	reference: &ReferenceRecord,
+) -> Option<(Moniker, Vec<u8>)> {
+	let target = material.reference_target(&reference.id)?;
+	let name = reference
+		.call_name
+		.as_deref()
+		.map(|name| name.as_bytes().to_vec())
+		.or_else(|| {
+			target
+				.as_view()
+				.segments()
+				.last()
+				.map(|segment| bare_callable_name(segment.name).to_vec())
+		})?;
+	let owner = target.parent()?;
+	Some((owner, name))
+}
+
 fn build_receiver_call_index(
 	material: &CodeIndexMaterial,
 	decisions: &[ReferenceLinkageDecision],
@@ -260,7 +427,9 @@ fn index_file_receiver_calls(
 		let Some(calls) = calls_by_source.get(current.source) else {
 			continue;
 		};
-		let Some(receiver_idx) = immediate_receiver_call_idx(file, *ref_idx, calls) else {
+		let Some(receiver_idx) = immediate_receiver_call_idx(file, *ref_idx, calls)
+			.or_else(|| immediate_receiver_read_idx(file, *ref_idx))
+		else {
 			continue;
 		};
 		index.by_reference.insert(
@@ -318,6 +487,34 @@ fn immediate_receiver_call_idx(
 				&& contains_position(current_position, (candidate.start, candidate.end))
 		})
 		.map(|candidate| candidate.ref_idx)
+}
+
+fn immediate_receiver_read_idx(
+	file: &crate::source::IndexedSourceFile,
+	ref_idx: usize,
+) -> Option<usize> {
+	let current = file.graph.ref_at(ref_idx);
+	let current_position = current.position?;
+	let receiver_hint = current.receiver_hint.as_ref();
+	if receiver_hint.is_empty() {
+		return None;
+	}
+	(0..file.graph.ref_count())
+		.filter(|&idx| idx != ref_idx)
+		.find(|&idx| {
+			let candidate = file.graph.ref_at(idx);
+			candidate.source == current.source
+				&& candidate.kind.as_ref() == REF_READS
+				&& candidate
+					.position
+					.is_some_and(|pos| contains_position(current_position, pos))
+				&& candidate
+					.target
+					.as_view()
+					.segments()
+					.last()
+					.is_some_and(|seg| seg.name == receiver_hint)
+		})
 }
 
 fn pending_receiver_chains(

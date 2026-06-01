@@ -1,0 +1,7 @@
+{
+	"name": "zustand-manifest-fixture",
+	"version": "1.0.0",
+	"dependencies": {
+		"zustand": "^4.0.0"
+	}
+}

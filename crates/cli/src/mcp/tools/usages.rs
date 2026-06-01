@@ -343,6 +343,9 @@ fn render_usage_rows(output: &mut String, rows: &[UsageRow]) {
 		output.push_str(&format!("    context: {}\n", row.context));
 		output.push_str(&format!("    endpoint: {}\n", row.endpoint));
 		output.push_str(&format!("    reference: {}\n", row.reference.as_str()));
+		if let Some(via) = &row.via {
+			output.push_str(&format!("    via: {via}\n"));
+		}
 	}
 }
 
@@ -351,14 +354,93 @@ fn collect_incoming_rows(
 	target: &SymbolRecord,
 	scope: &ScopeFilter,
 ) -> Vec<UsageRow> {
-	lookup
+	let mut rows = lookup
 		.linkage
 		.resolved
 		.iter()
 		.filter(|edge| edge.target == target.id)
 		.filter_map(|edge| lookup.reference(&edge.reference))
 		.filter_map(|reference| usage_row(lookup, reference, UsageDirection::Incoming, scope))
-		.collect()
+		.collect::<Vec<_>>();
+	let mut seen = rows
+		.iter()
+		.map(|row| row.reference.clone())
+		.collect::<BTreeSet<_>>();
+	let mut visited = BTreeSet::from([target.id.clone()]);
+	let mut collector = IndirectUsageCollector {
+		lookup,
+		scope,
+		visited: &mut visited,
+		seen: &mut seen,
+		rows: &mut rows,
+	};
+	collector.collect(&target.id, 0);
+	rows
+}
+
+struct IndirectUsageCollector<'a, 'b> {
+	lookup: &'a UsageLookup<'a>,
+	scope: &'a ScopeFilter,
+	visited: &'b mut BTreeSet<SymbolId>,
+	seen: &'b mut BTreeSet<ReferenceId>,
+	rows: &'b mut Vec<UsageRow>,
+}
+
+impl IndirectUsageCollector<'_, '_> {
+	fn collect(&mut self, target: &SymbolId, depth: usize) {
+		const MAX_INDIRECT_USAGE_DEPTH: usize = 4;
+		if depth >= MAX_INDIRECT_USAGE_DEPTH {
+			return;
+		}
+		let aliases = self
+			.lookup
+			.linkage
+			.resolved
+			.iter()
+			.filter(|edge| &edge.target == target)
+			.filter_map(|edge| self.lookup.reference(&edge.reference))
+			.filter(|reference| reference.kind == "uses_type")
+			.filter_map(|reference| self.lookup.symbol(&reference.source_symbol))
+			.filter(|symbol| is_indirect_usage_alias(symbol))
+			.filter(|symbol| self.visited.insert(symbol.id.clone()))
+			.cloned()
+			.collect::<Vec<_>>();
+		for alias in aliases {
+			collect_direct_rows_via(self.lookup, &alias, self.scope, self.seen, self.rows);
+			self.collect(&alias.id, depth + 1);
+		}
+	}
+}
+
+fn is_indirect_usage_alias(symbol: &SymbolRecord) -> bool {
+	symbol.kind == "type"
+}
+
+fn collect_direct_rows_via(
+	lookup: &UsageLookup<'_>,
+	alias: &SymbolRecord,
+	scope: &ScopeFilter,
+	seen: &mut BTreeSet<ReferenceId>,
+	rows: &mut Vec<UsageRow>,
+) {
+	for edge in lookup
+		.linkage
+		.resolved
+		.iter()
+		.filter(|edge| edge.target == alias.id)
+	{
+		let Some(reference) = lookup.reference(&edge.reference) else {
+			continue;
+		};
+		if reference.source_symbol == alias.id || !seen.insert(reference.id.clone()) {
+			continue;
+		}
+		let Some(mut row) = usage_row(lookup, reference, UsageDirection::Incoming, scope) else {
+			continue;
+		};
+		row.via = Some(format!("{} ({})", alias.name, alias.identity));
+		rows.push(row);
+	}
 }
 
 fn collect_outgoing_rows(
@@ -407,6 +489,7 @@ fn usage_row(
 		kind: reference.kind.clone(),
 		line_range: reference.line_range,
 		location: reference_location(source, reference),
+		via: None,
 	})
 }
 
@@ -493,6 +576,7 @@ struct UsageRow {
 	kind: String,
 	line_range: Option<(u32, u32)>,
 	location: String,
+	via: Option<String>,
 }
 
 impl UsageRow {

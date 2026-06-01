@@ -120,6 +120,41 @@ fn java_lombok_boundaries_do_not_invent_accessors() {
 	);
 }
 
+#[test]
+fn ts_manifest_declared_zustand_store_api_methods_are_external() {
+	let snapshot = load_workspace("projects/ts/zustand-manifest");
+
+	assert_external_reference(&snapshot, "calls", "external_pkg:zustand/function:create");
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"calls",
+		"module:from_barrel",
+		"external_pkg:zustand/function:create",
+	);
+	assert_external_method_call_target(
+		&snapshot,
+		"getState",
+		"external_pkg:zustand/function:create/method:getState",
+	);
+	assert_external_method_call_target(
+		&snapshot,
+		"setState",
+		"external_pkg:zustand/function:create/method:setState",
+	);
+}
+
+#[test]
+fn ts_manifest_undeclared_package_imports_are_not_external() {
+	let snapshot = load_workspace("projects/ts/undeclared-manifest");
+
+	assert_not_external_reference(
+		&snapshot,
+		"imports_symbol",
+		"external_pkg:zustand/path:create",
+	);
+	assert_not_external_reference(&snapshot, "calls", "external_pkg:zustand/function:create");
+}
+
 fn assert_java_platform_refs(snapshot: &WorkspaceSnapshot) {
 	assert_external_reference(
 		snapshot,
@@ -486,7 +521,7 @@ fn assert_local_rust_links(snapshot: &WorkspaceSnapshot) {
 	assert_linked_to(
 		snapshot,
 		"uses_type",
-		"dir:order-service/dir:src/module:lib/module:types/path:WildcardType",
+		"dir:order-service/dir:src/module:types/path:WildcardType",
 		"dir:order-service/dir:src/module:types/struct:WildcardType",
 	);
 	assert_linked_to(
@@ -579,7 +614,7 @@ fn assert_local_rust_links(snapshot: &WorkspaceSnapshot) {
 	assert_linked_to(
 		snapshot,
 		"imports_module",
-		"dir:order-service/dir:src/module:lib/module:types/path:ImportedState",
+		"dir:order-service/dir:src/module:types/path:ImportedState",
 		"dir:order-service/dir:src/module:types/enum:ImportedState",
 	);
 }
@@ -776,6 +811,29 @@ fn assert_external_call_target(
 	);
 }
 
+fn assert_external_method_call_target(
+	snapshot: &WorkspaceSnapshot,
+	call_name: &str,
+	target_identity: &str,
+) {
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call" && reference.call_name.as_deref() == Some(call_name)
+		})
+		.collect::<Vec<_>>();
+	assert!(
+		references.iter().any(|reference| {
+			external_target_identities(snapshot, reference)
+				.iter()
+				.any(|identity| identity.contains(target_identity))
+		}),
+		"no `{call_name}` method_call was external with target `{target_identity}`",
+	);
+}
+
 fn assert_call_unresolved(
 	snapshot: &WorkspaceSnapshot,
 	source_identity: &str,
@@ -825,6 +883,60 @@ fn assert_external_reference(snapshot: &WorkspaceSnapshot, kind: &str, reference
 	assert!(
 		reference_is_external(snapshot, reference),
 		"reference `{}` should be classified external",
+		reference.target_identity
+	);
+}
+
+fn assert_external_reference_from_symbol(
+	snapshot: &WorkspaceSnapshot,
+	kind: &str,
+	source_identity: &str,
+	reference_target: &str,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.ends_with(source_identity))
+		.or_else(|| {
+			snapshot
+				.index
+				.symbols
+				.iter()
+				.find(|symbol| symbol.identity.contains(source_identity))
+		})
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let reference = snapshot
+		.index
+		.references
+		.iter()
+		.find(|reference| {
+			reference.kind == kind
+				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& external_target_identities(snapshot, reference)
+					.iter()
+					.any(|identity| identity.contains(reference_target))
+		})
+		.unwrap_or_else(|| {
+			panic!(
+				"missing external {kind} reference from `{}` to target containing `{reference_target}`",
+				source.identity
+			)
+		});
+	assert!(
+		reference_is_external(snapshot, reference),
+		"reference `{}` from `{}` should be classified external",
+		reference.target_identity,
+		source.identity
+	);
+}
+
+fn assert_not_external_reference(snapshot: &WorkspaceSnapshot, kind: &str, reference_target: &str) {
+	let reference = find_reference(snapshot, kind, reference_target)
+		.unwrap_or_else(|| panic!("missing {kind} reference matching `{reference_target}`"));
+	assert!(
+		!reference_is_external(snapshot, reference),
+		"reference `{}` should not be classified external",
 		reference.target_identity
 	);
 }

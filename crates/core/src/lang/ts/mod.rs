@@ -1,5 +1,3 @@
-// code-moniker: ignore-file[smell-caller-concentration]
-// TODO(smell): keep TypeScript extract as the public language entrypoint; revisit this suppression if extraction orchestration becomes shared across callers.
 use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
@@ -7,17 +5,10 @@ use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
 
 use crate::lang::KindSpec;
-use crate::lang::canonical_walker::CanonicalWalker;
 
 pub mod build;
-mod canonicalize;
 mod kinds;
-mod strategy;
-
-use canonicalize::compute_module_moniker;
-use strategy::{
-	CallableEntry, Strategy, collect_callable_table, collect_export_ranges, collect_type_table,
-};
+mod sdk_pipeline;
 
 pub fn parse(source: &str) -> Tree {
 	parse_with_uri(source, "")
@@ -61,44 +52,7 @@ pub fn extract(
 	deep: bool,
 	presets: &Presets,
 ) -> CodeGraph {
-	let module = compute_module_moniker(anchor, uri);
-	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
-	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
-	let tree = parse_with_uri(source, uri);
-	let export_ranges = collect_export_ranges(tree.root_node());
-	let mut callable_table: std::collections::HashMap<(Moniker, Vec<u8>), CallableEntry> =
-		std::collections::HashMap::new();
-	collect_callable_table(
-		tree.root_node(),
-		source.as_bytes(),
-		&module,
-		&mut callable_table,
-	);
-	let mut type_table: std::collections::HashMap<Vec<u8>, Moniker> =
-		std::collections::HashMap::new();
-	collect_type_table(
-		tree.root_node(),
-		source.as_bytes(),
-		&module,
-		&mut type_table,
-	);
-	let strat = Strategy {
-		module: module.clone(),
-		anchor: anchor.clone(),
-		source_bytes: source.as_bytes(),
-		deep,
-		presets,
-		export_ranges,
-		local_scope: std::cell::RefCell::new(Vec::new()),
-		imports: std::cell::RefCell::new(std::collections::HashMap::new()),
-		import_targets: std::cell::RefCell::new(std::collections::HashMap::new()),
-		type_table,
-		callable_table,
-		nested_funcs: std::cell::RefCell::new(Vec::new()),
-	};
-	let walker = CanonicalWalker::new(&strat, source.as_bytes());
-	walker.walk(tree.root_node(), &module, &mut graph);
-	graph
+	sdk_pipeline::extract(uri, source, anchor, deep, presets)
 }
 
 pub struct Lang;

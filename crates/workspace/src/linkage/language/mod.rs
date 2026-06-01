@@ -12,6 +12,7 @@ use crate::source::CodeIndexMaterial;
 mod generic;
 mod java;
 mod rust;
+mod ts;
 
 pub(super) trait LanguageLinkageStrategy: Sync {
 	fn matches(&self, query: &LinkageQuery<'_>, candidate: &LinkageCandidate<'_>) -> bool;
@@ -21,12 +22,14 @@ static GENERIC_STRATEGY: generic::GenericLanguageLinkageStrategy =
 	generic::GenericLanguageLinkageStrategy;
 static JAVA_STRATEGY: java::JavaLanguageLinkageStrategy = java::JavaLanguageLinkageStrategy;
 static RUST_STRATEGY: rust::RustLanguageLinkageStrategy = rust::RustLanguageLinkageStrategy;
+static TS_STRATEGY: ts::TsLanguageLinkageStrategy = ts::TsLanguageLinkageStrategy;
 
 pub(super) fn language_strategy(lang: Lang) -> &'static dyn LanguageLinkageStrategy {
 	match lang {
 		Lang::Java => &JAVA_STRATEGY,
 		Lang::Rs => &RUST_STRATEGY,
-		Lang::Ts | Lang::Python | Lang::Go | Lang::Cs | Lang::Sql => &GENERIC_STRATEGY,
+		Lang::Ts => &TS_STRATEGY,
+		Lang::Python | Lang::Go | Lang::Cs | Lang::Sql => &GENERIC_STRATEGY,
 	}
 }
 
@@ -46,6 +49,7 @@ pub(super) fn builtin_external_root(lang: Lang, root: &str) -> bool {
 	match lang {
 		Lang::Rs => rust::builtin_external_root(root),
 		Lang::Java => java::builtin_external_root(root),
+		Lang::Ts => ts::builtin_external_root(root),
 		_ => false,
 	}
 }
@@ -53,6 +57,7 @@ pub(super) fn builtin_external_root(lang: Lang, root: &str) -> bool {
 pub(super) fn package_prefix_for_target(lang: Lang, target: &Moniker) -> Option<String> {
 	match lang {
 		Lang::Java => java::package_prefix(target),
+		Lang::Ts => ts::package_prefix(target),
 		_ => None,
 	}
 }
@@ -67,6 +72,13 @@ pub(super) fn source_declares_external_package(
 ) -> bool {
 	match lang {
 		Lang::Java => java::source_declares_external_package(
+			manifest,
+			deps,
+			package_prefix,
+			query_confidence,
+			workspace_declares_package,
+		),
+		Lang::Ts => ts::source_declares_external_package(
 			manifest,
 			deps,
 			package_prefix,
