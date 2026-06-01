@@ -4,8 +4,8 @@ fragment = "cli-mcp"
 mcp_root = """
   source ~ '**/module:mcp'
   OR source ~ '**/module:mcp/**'
-  OR source ~ '**/lang:rs/module:/^(context|dispatch|lmnav|mod|server|tests|transport)$/'
-  OR source ~ '**/lang:rs/module:/^(context|dispatch|lmnav|mod|server|tests|transport)$/**'
+  OR source ~ '**/lang:rs/module:/^(context|lmnav|mod|server|tests)$/'
+  OR source ~ '**/lang:rs/module:/^(context|lmnav|mod|server|tests)$/**'
   OR source ~ '**/lang:rs/dir:tools/**'
 """
 mcp_server = """
@@ -13,18 +13,6 @@ mcp_server = """
   OR source ~ '**/module:mcp/module:server/**'
   OR source ~ '**/lang:rs/module:server'
   OR source ~ '**/lang:rs/module:server/**'
-"""
-mcp_transport = """
-  source ~ '**/module:mcp/module:transport'
-  OR source ~ '**/module:mcp/module:transport/**'
-  OR source ~ '**/lang:rs/module:transport'
-  OR source ~ '**/lang:rs/module:transport/**'
-"""
-mcp_dispatch = """
-  source ~ '**/module:mcp/module:dispatch'
-  OR source ~ '**/module:mcp/module:dispatch/**'
-  OR source ~ '**/lang:rs/module:dispatch'
-  OR source ~ '**/lang:rs/module:dispatch/**'
 """
 mcp_context = """
   source ~ '**/module:mcp/module:context'
@@ -52,37 +40,7 @@ workspace_runtime_target = """
   OR target ~ '**/external_pkg:code_moniker_workspace/path:source/path:LocalResourceCache'
 """
 shared_index_contract_target = "target ~ '**/module:workspace_index/**'"
-http_runtime_target = "target ~ '**/path:/^(TcpListener|TcpStream|AtomicBool|JoinHandle)$/'"
-
-[[refs.where]]
-id       = "mcp-transport-has-no-workspace-knowledge"
-severity = "error"
-expr     = """
-  $mcp_transport
-  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
-  => NOT $workspace_target
-"""
-message  = "`cli::mcp::transport` must remain HTTP framing only; workspace reads belong to tools."
-rationale = """
-The MCP server will grow several tools. HTTP request parsing, response headers, and CORS
-must not learn about workspace resources, otherwise each new tool would add protocol-level
-coupling and make the transport impossible to swap for a real SDK transport later.
-"""
-
-[[refs.where]]
-id       = "mcp-dispatch-has-no-workspace-knowledge"
-severity = "error"
-expr     = """
-  $mcp_dispatch
-  AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
-  => NOT $workspace_target
-"""
-message  = "`cli::mcp::dispatch` routes JSON-RPC to tools; it must not read workspace data directly."
-rationale = """
-JSON-RPC dispatch owns MCP methods such as initialize, tools/list, and tools/call. Workspace
-access is a tool concern so each tool can state its URI contract, LMNAV shape, and required
-workspace resource explicitly.
-"""
+http_runtime_target = "target ~ '**/path:/^(TcpListener|JoinHandle)$/'"
 
 [[refs.where]]
 id       = "mcp-server-owns-runtime-wiring"
@@ -91,13 +49,13 @@ expr     = """
   $mcp_root
   AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type')
   AND $http_runtime_target
-  => $mcp_server OR $mcp_transport OR $mcp_tests
+  => $mcp_server OR $mcp_tests
 """
-message  = "MCP socket/thread runtime wiring belongs to `cli::mcp::server` and HTTP framing to `cli::mcp::transport`."
+message  = "MCP socket/thread runtime wiring belongs to `cli::mcp::server`."
 rationale = """
-The CLI/TUI may opt in to MCP, but socket lifetime and stream framing are global runtime
-concerns. Keeping those imports in server/transport prevents individual tools from opening
-listeners or depending on TCP details.
+The CLI/TUI may opt in to MCP, but socket lifetime and stream framing are global runtime concerns.
+Keeping those imports in server prevents individual tools from opening listeners or depending on
+TCP details.
 """
 
 [[refs.where]]
@@ -127,10 +85,10 @@ expr     = """
 """
 message  = "MCP must consume the shared workspace index contract; it must not construct or refresh workspace runtime resources."
 rationale = """
-When `code-moniker ui --mcp` is enabled, the TUI and MCP are two projections over one
-workspace index. MCP may read `SharedWorkspaceIndex`; it must not construct
+Standalone MCP loads a workspace snapshot once and publishes it through
+`SharedWorkspaceIndex`. MCP tools may read that shared index; they must not construct
 `LocalWorkspaceRegistry`, create source caches, or drive `WorkspaceRequest`, otherwise the same
-filesystem/index work is loaded twice and the two projections can diverge.
+filesystem/index work is duplicated behind tool calls.
 """
 
 [[refs.where]]
@@ -157,10 +115,9 @@ title = "CLI MCP agent surface"
 scope = "."
 intent = "Understand the MCP runtime and tool boundaries before changing the agent-facing protocol surface."
 summary = """
-The MCP module exposes code-moniker workspace facts to agents. Runtime wiring, JSON-RPC
-dispatch, transport framing, and workspace-backed tools are separate boundaries; new
-features should extend a concrete tool domain instead of teaching the server or dispatch
-layer about workspace resources.
+The MCP module exposes code-moniker workspace facts to agents. The SDK-backed runtime and
+workspace-backed tools are separate boundaries; new features should extend a concrete tool domain
+instead of teaching the server layer about workspace resources.
 """
 
 [[views.boundaries]]
@@ -168,70 +125,24 @@ id = "runtime"
 owns = [
   "server lifetime",
   "listener startup",
-  "HTTP stream ownership",
+  "SDK Streamable HTTP service ownership",
 ]
 forbids = [
   "tool-specific workspace reads",
 ]
 rationale = """
-The runtime starts and owns the stream loop. It may carry context, but tool semantics must
-stay behind the registry so stream transport stays replaceable.
+The runtime starts and owns the SDK service. It may carry context, but tool semantics must stay
+behind the registry so stream transport stays replaceable.
 """
 symbols = [
-  "module:server/fn:start",
-  "module:server/fn:serve",
-  "module:server/struct:McpServer",
+  "module:server/fn:router",
+  "module:server/struct:CodeMonikerMcp",
 ]
 rules = [
-  "mcp-does-not-own-workspace-runtime",
-  "mcp-server-owns-runtime-wiring",
-  "mcp-shared-index-contract-is-context-only",
-  "mcp-workspace-access-is-tool-owned",
-]
-
-[[views.boundaries]]
-id = "transport"
-owns = [
-  "HTTP request parsing",
-  "HTTP response formatting",
-  "CORS validation",
-]
-forbids = [
-  "workspace/index/catalog access",
-  "tool routing decisions",
-]
-rationale = """
-Transport is protocol framing only. Keeping workspace imports out of this boundary prevents
-every new tool from adding coupling to stream parsing and response construction.
-"""
-symbols = [
-  "module:transport/fn:read_http_request",
-  "module:transport/fn:is_allowed_origin",
-  "module:transport/struct:HttpRequest",
-]
-rules = [
-  "mcp-transport-has-no-workspace-knowledge",
-]
-
-[[views.boundaries]]
-id = "dispatch"
-owns = [
-  "JSON-RPC method routing",
-  "MCP response envelopes",
-]
-forbids = [
-  "workspace/index/catalog access",
-]
-rationale = """
-Dispatch maps MCP methods to tools and protocol responses. It should not learn how a tool
-loads workspace data, otherwise tools stop being independently evolvable domains.
-"""
-symbols = [
-  "module:dispatch/fn:handle_json_rpc",
-  "module:dispatch/fn:tool_call_response",
-]
-rules = [
-  "mcp-dispatch-has-no-workspace-knowledge",
+ "mcp-does-not-own-workspace-runtime",
+ "mcp-server-owns-runtime-wiring",
+ "mcp-shared-index-contract-is-context-only",
+ "mcp-workspace-access-is-tool-owned",
 ]
 
 [[views.boundaries]]
@@ -272,7 +183,7 @@ symbols = [
   "module:tools/module:symbols/fn:append_symbols_next_call",
   "module:tools/module:rules/fn:append_rules_next_call",
 ]
-check = "cargo test -p code-moniker mcp::tests --lib"
+check = "cargo test -p code-moniker --features mcp mcp::tests --lib"
 
 [[views.gotchas]]
 id = "view-moniker-display-is-opt-in"

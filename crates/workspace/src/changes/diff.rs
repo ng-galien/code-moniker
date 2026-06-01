@@ -638,34 +638,29 @@ fn parse_name_status(row: &str) -> Result<(FileDiffStatus, PathBuf), String> {
 }
 
 struct GitWorktree {
-	repo: gix::Repository,
 	root: PathBuf,
 }
 
 impl GitWorktree {
 	fn discover(path: &Path) -> Result<Self, String> {
-		let repo = gix::discover(path)
-			.map_err(|_| format!("{} is not inside a Git repository", path.display()))?;
-		let root = repo
-			.workdir()
-			.map(normalize_path)
-			.ok_or_else(|| format!("{} is not inside a Git worktree", path.display()))?;
-		Ok(Self { repo, root })
+		let output = git_cli_command(path)
+			.args(["rev-parse", "--show-toplevel"])
+			.output()
+			.map_err(|e| format!("cannot run git rev-parse in {}: {e}", path.display()))?;
+		if !output.status.success() {
+			return Err(format!("{} is not inside a Git repository", path.display()));
+		}
+		let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+		if root.is_empty() {
+			return Err(format!("{} is not inside a Git worktree", path.display()));
+		}
+		Ok(Self {
+			root: normalize_path(Path::new(&root)),
+		})
 	}
 
 	fn root(&self) -> &Path {
 		&self.root
-	}
-
-	fn head_blob_text(&self, repo_rel: &Path) -> anyhow::Result<String> {
-		let tree = self.repo.head_tree().map_err(|e| {
-			anyhow::anyhow!("cannot read HEAD tree in {}: {e}", self.root.display())
-		})?;
-		let entry = tree
-			.lookup_entry_by_path(repo_rel)?
-			.ok_or_else(|| anyhow::anyhow!("HEAD does not contain {}", repo_rel.display()))?;
-		let blob = entry.object()?.try_into_blob()?;
-		Ok(String::from_utf8_lossy(&blob.data).to_string())
 	}
 }
 
@@ -679,9 +674,11 @@ fn git_cli_lines(git_root: &Path, args: &[&str]) -> Result<Vec<String>, String> 
 }
 
 fn git_show(git_root: &Path, repo_rel: &Path) -> anyhow::Result<String> {
-	GitWorktree::discover(git_root)
-		.map_err(anyhow::Error::msg)?
-		.head_blob_text(repo_rel)
+	git_cli_text(
+		git_root,
+		&["show", &format!("HEAD:{}", path_to_git(repo_rel))],
+	)
+	.map_err(anyhow::Error::msg)
 }
 
 fn git_cli_text(git_root: &Path, args: &[&str]) -> Result<String, String> {
@@ -841,7 +838,7 @@ mod tests {
 	}
 
 	#[test]
-	fn gix_discovers_worktree_root() {
+	fn git_discovers_worktree_root() {
 		let tmp = committed_repo();
 		let nested = tmp.path().join("src");
 
@@ -851,7 +848,7 @@ mod tests {
 	}
 
 	#[test]
-	fn gix_reads_blob_from_head_not_worktree() {
+	fn git_reads_blob_from_head_not_worktree() {
 		let tmp = committed_repo();
 		write(tmp.path(), "src/Foo.java", "class Foo { int changed; }\n");
 

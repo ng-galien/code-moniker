@@ -39,8 +39,9 @@ impl FilePathFilter {
 	pub(crate) fn compile(patterns: &[String]) -> anyhow::Result<Self> {
 		patterns
 			.iter()
-			.map(|pattern| Ok(compile_glob(&normalize_path_pattern(pattern)?)))
+			.map(|pattern| compile_path_pattern(&normalize_path_pattern(pattern)?))
 			.collect::<anyhow::Result<Vec<_>>>()
+			.map(|patterns| patterns.into_iter().flatten().collect())
 			.map(|patterns| Self { patterns })
 	}
 
@@ -56,6 +57,17 @@ impl FilePathFilter {
 		};
 		self.patterns.iter().any(|pattern| pattern.is_match(&rel))
 	}
+}
+
+fn compile_path_pattern(pattern: &str) -> anyhow::Result<Vec<Regex>> {
+	if pattern.contains(['*', '?']) {
+		return Ok(vec![compile_glob(pattern)]);
+	}
+	let escaped = regex::escape(pattern);
+	Ok(vec![
+		Regex::new(&format!("^{escaped}$"))?,
+		Regex::new(&format!("^{escaped}/.*$"))?,
+	])
 }
 
 fn normalize_path_pattern(pattern: &str) -> anyhow::Result<String> {
@@ -85,6 +97,16 @@ mod tests {
 		let filter = FilePathFilter::compile(&["pkg/src/**".to_string()]).unwrap();
 		assert!(filter.matches("pkg/src/a.ts"));
 		assert!(filter.matches("pkg/src/nested/a.ts"));
+		assert!(!filter.matches("pkg/test/a.ts"));
+	}
+
+	#[test]
+	fn plain_directory_scopes_to_subtree() {
+		let filter = FilePathFilter::compile(&["pkg/src".to_string()]).unwrap();
+		assert!(filter.matches("pkg/src"));
+		assert!(filter.matches("pkg/src/a.ts"));
+		assert!(filter.matches("pkg/src/nested/a.ts"));
+		assert!(!filter.matches("pkg/src-other/a.ts"));
 		assert!(!filter.matches("pkg/test/a.ts"));
 	}
 

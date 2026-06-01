@@ -11,7 +11,9 @@ pub(crate) mod suppress;
 pub(crate) mod workspace;
 
 pub(crate) use command::run;
-pub(crate) use config::{Config, RuleSeverity, load_with_cli_default_rules, load_with_overrides};
+#[cfg(feature = "tui")]
+pub(crate) use config::load_with_overrides;
+pub(crate) use config::{Config, RuleSeverity, load_with_cli_default_rules};
 #[cfg(test)]
 pub(crate) use eval::evaluate;
 pub(crate) use eval::{

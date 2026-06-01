@@ -1,143 +1,100 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Structure
 
-This is a Rust 2024 Cargo workspace with three crates:
+- Workspace: Rust 2024.
+- `crates/core`: model, URI, declarations, language extractors.
+- `crates/workspace`: workspace scan, graph, linkage, changes.
+- `crates/cli`: `code-moniker`, CLI, rules, formatting, TUI/MCP.
+- `crates/pg`: `code-moniker-pg` pgrx extension.
+- `crates/cli/tests/`: CLI integration tests.
+- `docs/`: user and developer docs.
+- `pgtap/sql/`: SQL extension tests.
+- `scripts/dogfood/`: dogfood/regression tooling.
+- `proptest-regressions/`: property-test regressions.
+- `bug/`: confirmed bugs with minimal reproducers.
+- `evolutions/`: product/DX ideas not yet executable.
+- Prefer executable knowledge: `.code-moniker.toml`, fragments, samples, tests.
 
-- `crates/core`: pure Rust model, URI handling, declaration logic, and per-language extractors under `src/lang/`.
-- `crates/cli`: the `code-moniker` binary, CLI parsing, formatting, rule checking, and integration tests in `crates/cli/tests/`.
-- `crates/pg`: the `code-moniker-pg` pgrx PostgreSQL extension, SQL types, extractors, indexes, and extension metadata.
+## Commands
 
-Supporting material lives in `docs/`, pgTAP tests in `pgtap/sql/`,
-dogfood/regression tooling in `scripts/dogfood/`, and property-test
-regressions in `proptest-regressions/`.
+- Fast core/CLI check: `cargo check --workspace --exclude code-moniker-pg --all-targets`
+- Core/CLI tests: `cargo test --workspace --exclude code-moniker-pg`
+- Format gate: `cargo fmt --all -- --check`
+- CI clippy: `cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings`
+- CI lib tests: `cargo test --features pg17 --no-default-features --lib`
+- Install pg: `cargo pgrx install --manifest-path crates/pg/Cargo.toml --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config`
+- pgTAP: `./pgtap/run.sh`
+- Agent guardrail: `cargo moniker-check`
 
-Use `bug/` for confirmed incorrect behavior with a minimal reproducer. Use
-`evolutions/` for product or DX improvements that cannot yet be expressed
-as executable code or check rules. When a finding, difficulty, or gotcha
-looks repeatable, first try to consolidate it as a `code-moniker check`
-DSL rule or sample rule before writing prose-only guidance.
+## Build Latency
 
-## Build, Test, and Development Commands
+- Default profile: `dev`.
+- `dev`: `debug = false`, `debug-assertions = false`, `overflow-checks = false`, `panic = "abort"`, `incremental = true`, `codegen-units = 256`.
+- Debug profile: `--profile dev-debug`.
+- Cargo jobs: `.cargo/config.toml` `jobs = 10`.
+- macOS linker: `/opt/homebrew/opt/lld/bin/ld64.lld`.
+- pgrx flags: `-undefined dynamic_lookup`.
+- Cache wrapper: disabled by default.
+- Release speed profile: `release-lto`.
+- Keep one Cargo command active.
+- Keep feature/profile/target flags stable per session.
+- Reuse warm command shapes.
+- Avoid broad gates in tight loops.
 
-- `cargo check --workspace --exclude code-moniker-pg --all-targets`: fast check for core and CLI.
-- `cargo test --workspace --exclude code-moniker-pg`: run Rust unit and integration tests outside pgrx.
-- `cargo fmt --all -- --check`: verify formatting.
-- `cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings`: match CI linting, including pg-facing code.
-- `cargo test --features pg17 --no-default-features --lib`: run CI-style library tests.
-- `cargo pgrx install --manifest-path crates/pg/Cargo.toml --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config`: install the extension locally.
-- `./pgtap/run.sh`: run SQL extension tests after installing the extension.
-- `cargo moniker-check`: run this project’s own agent guardrail rules.
+## Iteration
 
-## Validation Workflow
+- Inspect symbols: `/Users/alexandreboyer/.cargo/bin/code-moniker extract <file> --shape callable --limit 80`
+- Inspect stats: `/Users/alexandreboyer/.cargo/bin/code-moniker stats <file>`
+- Format touched Rust: `rustfmt --edition 2024 --config-path rustfmt.toml <files>`
+- Check rules: `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile <name> --max-violations <N>`
+- Show rules: `/Users/alexandreboyer/.cargo/bin/code-moniker rules show . --profile <name>`
+- DSL tests: `cargo test -p code-moniker check::expr --lib`
+- UI tests: `cargo test -p code-moniker ui::tests::<test_name> --lib`
+- CLI test: `cargo test -p code-moniker --test cli_e2e <test_name>`
+- Extractor tests: focused language test, then relevant `cargo test -p code-moniker-core snapshot_<lang>`.
+- Docs-only validation: `git diff --check`
 
-Prefer the narrowest validation that covers the files you changed. During
-TDD, run focused tests first and only widen the gate when the behavior is
-stable. Do not repeat the full workspace suite after every small edit.
+## Review Gates
 
-Recent local build behavior can be much slower than old warm-cache notes:
-target artifacts are large, release builds use `lto = "fat"` with
-`codegen-units = 1`, and commands that look small can take more than a minute
-after cache invalidation. Optimize for feedback latency: avoid cold
-`cargo install`, `cargo run --release`, `cargo moniker-check`, and repeated
-full workspace gates while iterating.
-Run Cargo validations sequentially unless there is a concrete reason to do
-otherwise: parallel `cargo check`/`cargo test`/`cargo clippy` commands contend
-on the same build directory and make the feedback loop look slower than it is.
-Keep Cargo feature sets and build options stable during a work session. Do not
-opportunistically add or remove flags such as `--no-default-features`,
-`--features ...`, `--all-targets`, or release/profile switches just because a
-smaller target looks possible: Cargo treats those as distinct artifact graphs
-and can rebuild core crates. Reuse the same command shape that is already warm,
-or avoid Cargo entirely until the next validation batch.
-During rule, DSL, documentation, and extraction work, prefer the already
-installed binary for symbolic checks:
-`/Users/alexandreboyer/.cargo/bin/code-moniker rules show . --profile <name>`
-and `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile <name>
---max-violations <N>`. This avoids the `cargo moniker-check` alias, which runs
-`cargo run --release` and may trigger an expensive release rebuild.
+- Short gate:
+  - `rustfmt --edition 2024 --config-path rustfmt.toml --check <touched-rust-files>`
+  - focused test group
+  - `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile agent --max-violations 50`
+- Full non-release gate:
+  - `cargo test --workspace --exclude code-moniker-pg --quiet`
+  - `cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings`
+  - `cargo test --features pg17 --no-default-features --lib`
+- pg gate: `cargo pgrx install ...`, then `./pgtap/run.sh`.
+- CLI/TUI install gate: `cargo install --path crates/cli`.
 
-Fast iteration loop:
+## MCP Dogfood
 
-- Inspect code shape without compiling:
-  `/Users/alexandreboyer/.cargo/bin/code-moniker extract <file> --shape callable --limit 80`
-  and `/Users/alexandreboyer/.cargo/bin/code-moniker stats <file>`.
-- Format only touched Rust files during iteration:
-  `rustfmt --edition 2024 --config-path rustfmt.toml <files>`.
-- Run one focused Cargo test only after a coherent edit, using the same feature
-  set and command shape as the current warm cache.
-- Do not run `cargo check --workspace`, `cargo test --workspace`, `cargo clippy`,
-  `cargo fmt --all -- --check`, `cargo install --path crates/cli`, or
-  `cargo moniker-check` inside the tight edit loop.
-
-Iteration loop examples:
-
-- Check DSL / rule behavior:
-  `cargo test -p code-moniker check::expr --lib`, or a single focused
-  `check::eval::tests::<test_name>` test.
-- UI behavior: `cargo test -p code-moniker ui::tests::<test_name> --lib`,
-  then `cargo test -p code-moniker ui::tests --lib` once the flow works.
-- CLI behavior: `cargo test -p code-moniker --test cli_e2e <test_name>`.
-- Extractor behavior: run the focused language unit test, then the relevant
-  `cargo test -p code-moniker-core snapshot_<lang>` or conformance test.
-- Agent guardrail rules: during iteration, run the installed binary directly;
-  reserve `cargo moniker-check` for the final pre-commit gate if a release
-  rebuild is acceptable.
-
-MCP behavior should be dogfooded against the Java multiproject fixture. Start
-the TUI/MCP pair in tmux, then probe the streamable HTTP endpoint with compact
-JSON-RPC calls:
+- Session tmux: `cm-mcp`.
+- Keep MCP up while working on this repo.
+- Use MCP to explore and analyze code.
+- Treat MCP as the project navigation compass.
+- Restart MCP after crashes or relevant rebuilds.
+- Keep MCP updated after code changes.
+- Rebuild and restart `cm-mcp` after MCP/TUI/CLI changes.
+- Normal use: MCP client tools only.
+- Main tools: `code_moniker_read`, `code_moniker_symbols`, `code_moniker_usages`, `code_moniker_rules`.
+- No JSON-RPC/curl for code exploration.
 
 ```sh
-tmux new-session -d -s cm-mcp-dogfood 'cargo run -p code-moniker -- ui crates/workspace/tests/fixtures/projects/java/multiprojet --mcp --mcp-port 33210'
-tmux capture-pane -t cm-mcp-dogfood -p
-curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}'
-curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
-curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"code_moniker_read","arguments":{"uri":"workspace","depth":3,"limit":12}}}'
-curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"code_moniker_symbols","arguments":{"uri":"workspace","lang":"java","kind":"method","limit":5}}}'
-curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"code_moniker_symbols","arguments":{"uri":"workspace","action":"insights","lang":"java","limit":6}}}'
-curl -sS -X POST http://127.0.0.1:33210/mcp -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"code_moniker_rules","arguments":{"uri":"workspace","action":"list","lang":"java","limit":5}}}'
-tmux kill-session -t cm-mcp-dogfood
+tmux new-session -d -s cm-mcp 'cargo run -p code-moniker --features mcp --no-default-features -- mcp . --port 3210'
+tmux capture-pane -t cm-mcp -p
 ```
 
-The TUI capture should first show the file tree, then symbol/linkage completion.
-RPC responses must expose LMNAV-shaped text with `uri`, `completeness`,
-`summary`/`explorer` or `results`, and `next` when paging applies. Also check at
-least one scoped read (`path` + `lang`), one cursor follow-up, one
-`action:"insights"` call, and one `code_moniker_read` call against a symbol URI
-returned by `code_moniker_symbols` before accepting MCP changes. For rules
-changes, also run `code_moniker_rules action:"list"` and a bounded
-`code_moniker_rules action:"run"` call.
+- TUI capture: file tree, then symbol/linkage completion.
+- MCP text: `uri`, `completeness`, `summary`/`explorer` or `results`.
+- Paging: `next` when applicable.
+- Required probes: scoped read, cursor follow-up, `action:"insights"`, symbol URI read.
+- Rules probes: `action:"list"`, bounded `action:"run"`.
 
-Before code review, use a short gate:
+## Refactoring
 
-- `rustfmt --edition 2024 --config-path rustfmt.toml --check <touched-rust-files>`
-- the focused test group for the changed surface
-- `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile agent --max-violations 50`
-  when architectural boundaries are involved
-
-Use the broader gates only once the implementation is stable or before a
-review/commit that truly needs them:
-
-- `cargo fmt --all -- --check`
-- `cargo check --workspace --exclude code-moniker-pg --all-targets`
-- `cargo moniker-check`
-
-For documentation-only changes, use `git diff --check`; do not run Rust
-builds unless the docs include generated examples that need verification.
-
-Before commit on non-release work, run the full gate once after review fixes:
-`cargo test --workspace --exclude code-moniker-pg --quiet`, `cargo clippy
---features pg17 --no-default-features --tests --no-deps -- -D warnings`, and
-`cargo test --features pg17 --no-default-features --lib`. Run `./pgtap/run.sh`
-only when `crates/pg`, SQL types, or extension behavior changed. Install the
-binary with `cargo install --path crates/cli` only when CLI/TUI behavior changed
-or when the user will test the installed executable.
-
-## Refactoring Workflow
-
-Start refactoring work by invoking the code-smell review agent/skill
-(`$code-moniker-smell-review`) or by running the project smell profile:
+- Start with `$code-moniker-smell-review` or:
 
 ```sh
 code-moniker check <target> \
@@ -146,145 +103,80 @@ code-moniker check <target> \
   --report
 ```
 
-Adopt smell rules in `.code-moniker.toml` one by one. Keep a new rule at
-`severity = "warn"` during adoption, measure its volume with bounded output,
-and record whether the signal is usable or noisy. A low volume does not mean
-"fix now"; it only means the finding set is small enough to inspect later. A
-high volume means analyze scope, thresholds, and justified exclusions instead
-of deleting the rule.
+- Adopt smell rules one by one.
+- New smell rule severity: `warn`.
+- Promote to `error` after signal review and module cleanup.
+- Keep promoted rules visible to `agent`.
+- Refactor by functional unit.
+- Validate each unit narrowly.
+- Commit each unit with Conventional Commit style.
 
-The `agent` profile is the active guardrail. Do not leave a promoted
-smell rule excluded from that profile. While a rule is still in adoption, keep
-it out of the hook/guardrail path to save tokens and run it explicitly with
-`--profile smells`. When a later refactoring pass targets a module, fix or
-consciously suppress the relevant warnings until that module is green. Once
-the module is clean and thresholds are credible, promote the rule in
-`.code-moniker.toml` to `severity = "error"` and remove any profile exclusion
-that would prevent the guardrail from seeing it.
+## Rules Knowledge
 
-Refactor in functional units. After a unit is complete, run the narrowest
-meaningful validation plus the relevant smell check, then commit that unit
-with a Conventional Commit message. Do not batch unrelated smell fixes into
-one commit simply because they were discovered by the same review pass.
+- Structural finding: prefer DSL rule.
+- Reusable example: `docs/cli/check-samples/`.
+- Missing DSL/operator: `evolutions/`.
+- Behavior preservation: focused test.
+- Broad check output: always pass `--max-violations <N>`.
+- JSON analysis: redirect to temp file; inspect with `jq`.
+- Pre-commit symbolic review: `code-moniker extract`/`stats`.
+- Diff review: independent review agent before staging.
 
-## Normal Workflow
+## UI Architecture
 
-During ordinary implementation, treat every surprising finding, recurring
-difficulty, harness gotcha, or review comment as a candidate for executable
-knowledge. Before adding prose to `AGENTS.md`, `CLAUDE.md`, or docs, ask
-whether it can become:
+- Shell owns: terminal loop, layout, routing, navigation registry, effects.
+- Features own: navigation entries, commands, routes, screens, panel VMs.
+- Input path: `ui::events` -> `Msg` -> `AppState::reduce_ui_msg`.
+- Runtime path: `Effect::RunCommand(AppCommand)` -> `App` -> shared dispatch helper.
+- Reducer output: typed outcome.
+- Contracts: render contracts only.
+- Workspace boundary: `workspace::WorkspaceStore`.
+- UI data: workspace read models only.
+- Shell state: `AppState`.
+- Workspace data: `WorkspaceStore`.
+- Async catalog: `ProjectLoad`, `FileCatalog`, `GraphIndex`, `SearchIndex`, `GitOverlay`, `ImpactIndex`, `PanelData`, `CoverageIndex`.
+- Events: terminal input, store notifications, background completions.
+- Long work: typed effects and task specs.
+- Component markers: collaboration vocabulary only.
+- Tests: state transitions, route/effect behavior, store boundaries.
 
-- a project rule in `.code-moniker.toml` or a `code-moniker.fragment.toml`;
-- a reusable sample in `docs/cli/check-samples/`;
-- a missing DSL/operator evolution in `evolutions/`;
-- a focused test that preserves the discovered behavior.
+## Boundaries & Tests
 
-Prefer a DSL rule when the condition is structural and locally observable.
-Use documentation only for judgment calls, process intent, or behavior that
-the current DSL cannot express.
+- Define boundary: consumes, exposes, owns, excludes.
+- Test through durable contract.
+- Behavioral tests: black-box fixtures, corpus, snapshots, integration tests.
+- Snapshot payloads: stable public model only.
+- Robustness tests: properties/fuzz invariants.
+- Internal tests: named stable sub-component only.
+- Boundary rules: start `warn`, inspect, migrate, promote `error`.
 
-When running `code-moniker check` on a broad scope, always pass
-`--max-violations <N>` before retrieving output in the agent context. For
-full JSON analysis, redirect the output to a temporary file and inspect only
-targeted summaries with tools such as `jq`; do not paste or capture the full
-violation stream into the conversation.
+## CI & Release
 
-When you believe development is complete but before committing, inspect the
-impacted files symbolically with `code-moniker extract`/`code-moniker stats`
-or an equivalent symbol outline. Verify that the ubiquitous language is
-consistent with the module's domain vocabulary and that new or touched
-functions have explicit, behavior-bearing names. Then launch an independent
-review agent on the diff or touched module and address its actionable
-findings before staging the commit.
+- CI workflow: `.github/workflows/ci.yml`.
+- CI gates: fmt, clippy, pg17 lib tests, pgrx install, pgTAP, `cargo moniker-check`.
+- Release workflow: `.github/workflows/release.yml`.
+- Release trigger: `v*.*.*` tag.
+- Publish order: `code-moniker-core`, then `code-moniker`.
+- `code-moniker-pg`: `publish = false`.
+- After release: bump `[workspace.package]` version on `main`.
+- Version suffix: no `-snapshot`.
 
-## CI & Release Workflow
+## Style
 
-GitHub CI lives in `.github/workflows/ci.yml`. It runs on `main` pushes
-and pull requests, installs PostgreSQL 17 + pgTAP, then executes
-`cargo fmt --all -- --check`, `cargo clippy --features pg17
---no-default-features --tests --no-deps -- -D warnings`, `cargo test
---features pg17 --no-default-features --lib`, installs the pgrx
-extension, runs `./pgtap/run.sh`, and finishes with `cargo moniker-check`.
+- Formatting: `rustfmt`, `hard_tabs = true`.
+- Extractor path: `crates/core/src/lang/<lang>/`.
+- Extractor files: `mod.rs`, `kinds.rs`, `canonicalize.rs`, `strategy.rs`.
+- Shared public APIs: `pub`.
+- Module focus: one responsibility.
+- Tests: CLI in `crates/cli/tests/`; SQL in `pgtap/sql/*.sql`; extractor fixtures in `crates/core/tests/fixtures/`.
+- Commits: Conventional Commit, short scope.
+- PR evidence: command outputs relevant to changed surface.
+- Screenshots: docs or visual assets only.
 
-The release workflow is `.github/workflows/release.yml` and only starts
-when a `v*.*.*` tag is pushed. It verifies the tag matches the crates.io
-package versions, then publishes `code-moniker-core` before
-`code-moniker`. `code-moniker-pg` is versioned with the workspace for
-extension metadata but is not auto-published (`publish = false`). Pushing
-`main` is a CI action; pushing a version tag such as `v0.3.0` is the
-release action. After a release, bump `main` to the next planned Cargo
-version in `[workspace.package]`; do not use a `-snapshot` suffix.
+## Security
 
-## Coding Style & Naming Conventions
-
-Use `rustfmt`; this repo sets `hard_tabs = true` in `rustfmt.toml`. Keep modules focused by responsibility. Language extractors follow `crates/core/src/lang/<lang>/` with files such as `mod.rs`, `kinds.rs`, `canonicalize.rs`, and `strategy.rs`. Public APIs shared with CLI or PG crates must be `pub`, not `pub(crate)`.
-
-## UI Architecture Working Posture
-
-Treat `code-moniker ui` as a contract-driven TUI shell for code supervision, not as an IDE clone or a pile of ratatui widgets. Before changing UI behavior, identify whether the change belongs to the shell, a feature, a screen, an effect, or the data store.
-
-Keep global concerns in the shell: terminal loop, layout, routing, navigation registry, and effect application. Feature code should declare navigation, commands, routes, and screens; it should not directly own terminal state, mutate global navigation, or bypass shell effects.
-
-Route user input through `ui::events` and typed `Msg` values, then through `AppState::reduce_ui_msg`. The reducer decides by updating state or emitting an app-level `Effect::RunCommand(AppCommand)`; `App` interprets those commands for workspace reads, navigation, clipboard, checks, and async work. Every runtime dispatch from `App` must drain and apply its returned effects through the shared dispatch helper; never call `app_store.dispatch(...)` and ignore the `Transition`. When a reducer must return information to its caller, use a typed reduction outcome instead of a captured local or an `App` flag. `ui::contracts` stays app-neutral: screens are render contracts, not input controllers, and effects belong to `ui::app`. Do not add ad hoc key handling inside render code. Treat `workspace::WorkspaceStore` as the moniker data boundary: UI code should consume workspace read models (`SymbolSummary`, `SymbolDetail`, reference groups, change summaries) instead of reaching into `SessionIndex`, `CodeGraph`, raw `DefRecord`/`RefRecord`, or Git diff internals. Shared UI state should move through the reusable reactive-store pattern (`dispatch` action, reducer transition, selector read) so refreshes can reconcile state instead of resetting navigation or panels.
-
-Model durable shell state in `ui/app` before rendering it, but do not mirror workspace data there. `AppState` owns shell mode, navigation, check state, and async work epochs; `WorkspaceStore` owns moniker data and exposes selectors/read models. The work catalog names asynchronous candidates (`ProjectLoad`, `FileCatalog`, `GraphIndex`, `SearchIndex`, `GitOverlay`, `ImpactIndex`, `PanelData`, `CoverageIndex`) so lazy loading can schedule work explicitly without inventing fake `FileId`/`SymbolId` state. Add new cross-panel state there only when the UI must remember it independently of the workspace snapshot.
-
-Keep terminal input, store notifications, and background task completions as distinct shell events. Filesystem or Git watcher events should enter through the shell event source and explicit store refresh methods, not as synthetic key events or render-side checks. Long-running UI work should be expressed as typed effects and task specs; use the UI runtime/Rayon bridge rather than blocking reducers or render functions.
-
-Keep panel view-model construction with the feature that owns the user journey. Shared panel modules should define pure VM/rendering primitives; feature modules decide which panel VM is appropriate for their routes and modes. Use component markers as stable vocabulary for collaboration. They make feedback and bug reports unambiguous, but business behavior should not depend on rendered labels. Add focused tests for state transitions, route/effect behavior, and store boundaries; use `code-moniker extract`/`stats` plus `cargo moniker-check` to keep new UI modules understandable.
-
-## Module Boundary Rules & Tests
-
-For any module that belongs to an identifiable problem class, architecture
-rules should first define the module boundary: what the module may consume,
-what it may expose, what it owns, and what must stay outside. Tests should
-exercise that boundary through the module's durable contract, not through the
-current implementation structure.
-
-Behavioral coverage should use black-box fixtures, corpus tests, snapshots,
-or integration-style tests over stable public outputs: returned values,
-diagnostics, persisted effects, emitted records, or other observable contract
-results. Snapshot payloads must expose only the stable public model; do not
-snapshot mutable state, wiring, helper types, cursors, transition objects, or
-other accidental implementation details.
-
-Robustness coverage should be separate from behavioral coverage and expressed
-as property or fuzz tests over invariants: does not panic, terminates, rejects
-without corrupting state, preserves a round-trip, stays within a bound, or
-maintains a declared consistency property.
-
-Tests that lock the current internal structure are disallowed when they
-compete with the module's boundary contract. Internal tests are acceptable
-only when they target a named sub-component whose local contract is itself
-stable and intentionally exposed inside the module design. Treat that
-sub-component as a smaller boundary with its own problem class, contract, and
-rules.
-
-Adopt boundary rules the same way as other guardrails: start at
-`severity = "warn"`, inspect signal and noise, migrate code or tests toward
-the contract, then promote to `severity = "error"` once the module is green
-and the invariant is credible. Prefer executable `code-moniker check` rules
-for observable boundaries, and use prose only for design judgment that the DSL
-cannot yet express.
-
-## Testing Guidelines
-
-Choose the test shape from the module boundary. Use black-box fixtures,
-corpus/snapshot tests, integration tests, or property tests when behavior is
-observable through a durable contract. Place Rust unit tests next to the code
-under `#[cfg(test)] mod tests` only for named sub-components with stable local
-contracts.
-
-Use `crates/cli/tests/` for CLI behavior. SQL surface coverage belongs in
-numbered `pgtap/sql/*.sql` files and runs through `./pgtap/run.sh`. When
-changing extractors, include focused fixtures under
-`crates/core/tests/fixtures/` where useful and update proptest regressions
-intentionally.
-
-## Commit & Pull Request Guidelines
-
-Recent history uses Conventional Commit style: `fix(ts): ...`, `test(go): ...`, `docs(changelog): ...`, `refactor(ts): ...`. Keep the scope short and meaningful. PRs should describe the behavioral change, mention affected languages or crates, link issues when available, and include test evidence such as `cargo test ...`, `cargo clippy ...`, or `./pgtap/run.sh`. Include screenshots only for documentation or visual asset changes.
-
-## Security & Configuration Tips
-
-Do not commit generated `target/` output, local dogfood clones, credentials, or machine-specific pgrx paths. Configuration examples should use `.code-moniker.toml` and documented defaults.
+- Never commit `target/`.
+- Never commit local dogfood clones.
+- Never commit credentials.
+- Never commit machine-specific pgrx paths.
+- Config examples: `.code-moniker.toml` and documented defaults.

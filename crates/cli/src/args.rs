@@ -34,6 +34,9 @@ pub enum Command {
 	#[cfg(feature = "tui")]
 	#[command(about = "Open a read-only terminal architecture explorer.")]
 	Ui(UiArgs),
+	#[cfg(feature = "mcp")]
+	#[command(about = "Start a local stateless MCP HTTP endpoint.")]
+	Mcp(McpArgs),
 	#[command(about = "Install live agent harness configuration.")]
 	Harness(HarnessArgs),
 	#[command(about = "List supported languages, or kinds of one.")]
@@ -352,21 +355,44 @@ pub struct UiArgs {
 		help = "filter check rules through a named profile from .code-moniker.toml"
 	)]
 	pub profile: Option<String>,
+}
+
+#[cfg(feature = "mcp")]
+#[derive(Debug, ClapArgs)]
+pub struct McpArgs {
+	#[arg(value_name = "PATH", default_value = ".", num_args = 1..)]
+	pub paths: Vec<PathBuf>,
 
 	#[arg(
 		long,
-		help = "start a local stateless MCP HTTP endpoint for this UI workspace"
+		value_name = "SCHEME",
+		help = "URI scheme; defaults to code+moniker://"
 	)]
-	pub mcp: bool,
+	pub scheme: Option<String>,
 
 	#[arg(
 		long,
+		value_name = "NAME",
+		help = "project component of the anchor moniker; defaults to '.'"
+	)]
+	pub project: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "DIR",
+		env = "CODE_MONIKER_CACHE_DIR",
+		help = "enable on-disk cache of extracted graphs at DIR (empty = disabled)"
+	)]
+	pub cache: Option<PathBuf>,
+
+	#[arg(
+		long,
+		alias = "mcp-port",
 		value_name = "PORT",
 		default_value_t = 3210,
-		requires = "mcp",
-		help = "TCP port for --mcp"
+		help = "TCP port for the MCP endpoint"
 	)]
-	pub mcp_port: u16,
+	pub port: u16,
 }
 
 #[derive(Debug, ClapArgs)]

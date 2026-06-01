@@ -2,13 +2,16 @@ pub(super) mod read;
 pub(super) mod rules;
 pub(in crate::mcp) mod scope;
 pub(in crate::mcp) mod symbols;
+pub(in crate::mcp) mod usages;
 
 use serde_json::Value;
 
 use super::context::McpContext;
 use read::ReadTool;
+use rmcp::model::{JsonObject, Tool};
 use rules::RulesTool;
 use symbols::SymbolsTool;
+use usages::UsagesTool;
 
 pub(super) struct ToolDescriptor {
 	pub(super) name: &'static str,
@@ -17,6 +20,7 @@ pub(super) struct ToolDescriptor {
 }
 
 impl ToolDescriptor {
+	#[cfg(test)]
 	fn into_mcp_value(self) -> Value {
 		serde_json::json!({
 			"name": self.name,
@@ -87,6 +91,7 @@ pub(super) struct ToolRegistry {
 	read: ReadTool,
 	rules: RulesTool,
 	symbols: SymbolsTool,
+	usages: UsagesTool,
 }
 
 impl ToolRegistry {
@@ -95,14 +100,26 @@ impl ToolRegistry {
 			read: ReadTool,
 			rules: RulesTool,
 			symbols: SymbolsTool,
+			usages: UsagesTool,
 		}
 	}
 
+	#[cfg(test)]
 	pub(super) fn descriptors(&self) -> Vec<Value> {
 		vec![
 			self.read.descriptor().into_mcp_value(),
 			self.symbols.descriptor().into_mcp_value(),
+			self.usages.descriptor().into_mcp_value(),
 			self.rules.descriptor().into_mcp_value(),
+		]
+	}
+
+	pub(super) fn tools(&self) -> Vec<Tool> {
+		vec![
+			self.read.descriptor().into_rmcp_tool(),
+			self.symbols.descriptor().into_rmcp_tool(),
+			self.usages.descriptor().into_rmcp_tool(),
+			self.rules.descriptor().into_rmcp_tool(),
 		]
 	}
 
@@ -115,8 +132,26 @@ impl ToolRegistry {
 		match name {
 			ReadTool::NAME => self.read.call(context, arguments),
 			SymbolsTool::NAME => self.symbols.call(context, arguments),
+			UsagesTool::NAME => self.usages.call(context, arguments),
 			RulesTool::NAME => self.rules.call(context, arguments),
 			_ => Err(ToolError::unknown_tool(name)),
 		}
+	}
+}
+
+impl ToolDescriptor {
+	fn into_rmcp_tool(self) -> Tool {
+		Tool::new(
+			self.name,
+			self.description,
+			json_object_schema(self.input_schema),
+		)
+	}
+}
+
+fn json_object_schema(schema: Value) -> JsonObject {
+	match schema {
+		Value::Object(object) => object,
+		_ => JsonObject::new(),
 	}
 }

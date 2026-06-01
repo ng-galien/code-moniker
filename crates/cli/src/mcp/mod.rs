@@ -1,11 +1,10 @@
 mod context;
-mod dispatch;
 mod lmnav;
 mod server;
 mod tools;
-mod transport;
 
-pub(crate) use server::{McpServer, start};
+pub(crate) use context::McpContext;
+pub(crate) use server::router;
 
 #[cfg(test)]
 mod tests;

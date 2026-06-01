@@ -27,8 +27,6 @@ thiserror = "2"
 regex     = "1"
 ignore    = "0.4"
 rayon     = "1"
-gix       = { version = "0.83", default-features = false, features = ["revision", "sha1"] }
-
 rustc-hash             = "2"
 tree-sitter            = "0.26"
 tree-sitter-typescript = "0.23"
@@ -47,6 +45,12 @@ serde_cbor = "0.11"
 proptest   = { version = "1", default-features = false, features = ["std"] }
 tempfile   = "3"
 insta      = { version = "1", features = ["glob", "json"] }
+axum       = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+rmcp       = { version = "1.7", default-features = false, features = ["server", "transport-streamable-http-server"] }
+tokio      = { version = "1", features = ["rt-multi-thread", "net"] }
+tokio-util = "0.7"
+tracing    = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
 anstyle       = "1"
 ratatui       = "0.30"
@@ -54,10 +58,34 @@ crossterm     = "0.29"
 notify        = "8.2"
 
 [profile.dev]
-panic = "unwind"
+panic         = "abort"
+debug         = false
+debug-assertions = false
+overflow-checks = false
+incremental   = true
+codegen-units = 256
+
+[profile.dev.package."*"]
+debug         = false
+
+[profile.dev.build-override]
+debug         = false
+incremental   = true
+codegen-units = 256
+
+[profile.dev-debug]
+inherits = "dev"
+debug = "line-tables-only"
+debug-assertions = true
+overflow-checks = true
 
 [profile.release]
 panic        = "unwind"
 opt-level    = 3
-lto          = "fat"
+lto          = "off"
+codegen-units = 16
+
+[profile.release-lto]
+inherits      = "release"
+lto           = "fat"
 codegen-units = 1

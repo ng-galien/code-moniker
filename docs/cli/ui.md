@@ -8,7 +8,7 @@ inspection on large repositories without leaving the terminal.
 code-moniker ui .
 code-moniker ui . --cache .code-moniker-cache
 code-moniker ui src --rules .code-moniker.toml --profile agent
-code-moniker ui . --mcp --mcp-port 3210
+code-moniker ui .
 ```
 
 ## What It Loads
@@ -40,11 +40,10 @@ refs classified as external are reported but do not lower the score.
 
 ## MCP Endpoint
 
-`--mcp` starts a local stateless MCP HTTP endpoint for the same workspace
-options passed to the UI:
+MCP runs as a standalone command, without the terminal UI dependency graph:
 
 ```sh
-code-moniker ui . --mcp --mcp-port 3210
+cargo run -p code-moniker --features mcp --no-default-features -- mcp . --port 3210
 ```
 
 The endpoint is `http://127.0.0.1:<port>/mcp`. It exposes compact LMNAV

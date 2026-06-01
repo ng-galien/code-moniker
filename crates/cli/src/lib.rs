@@ -1,5 +1,5 @@
 //! Standalone CLI surface. See `docs/cli/extract.md` (per-file probe)
-//! and `docs/cli/check.md` (project linter).
+//! and `docs/cli/check.md` (workspace linter).
 
 pub(crate) mod args;
 pub(crate) mod check;
@@ -11,13 +11,16 @@ pub(crate) mod harness;
 pub(crate) mod langs;
 pub(crate) mod language_kinds;
 pub(crate) mod manifest;
-#[cfg(feature = "tui")]
+#[cfg(feature = "mcp")]
 pub(crate) mod mcp;
+#[cfg(feature = "mcp")]
+pub(crate) mod mcp_command;
 pub(crate) mod moniker_render;
 pub(crate) mod page;
 #[cfg(feature = "tui")]
 pub(crate) mod perf;
 pub(crate) mod rules;
+#[cfg(any(feature = "tui", feature = "mcp"))]
 pub(crate) mod session;
 pub(crate) mod shapes;
 pub(crate) mod stats;
@@ -27,14 +30,16 @@ pub(crate) mod tree;
 pub(crate) mod ui;
 #[cfg(feature = "tui")]
 pub(crate) mod ui_command;
-#[cfg(feature = "tui")]
+#[cfg(any(feature = "tui", feature = "mcp"))]
 pub(crate) mod views;
-#[cfg(feature = "tui")]
+#[cfg(any(feature = "tui", feature = "mcp"))]
 pub(crate) mod workspace_index;
 
 use std::io::Write;
 use std::process::ExitCode;
 
+#[cfg(feature = "mcp")]
+pub use args::McpArgs;
 #[cfg(feature = "tui")]
 pub use args::UiArgs;
 pub use args::{
@@ -75,6 +80,8 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Harness(args) => harness::run(args, stdout, stderr),
 		#[cfg(feature = "tui")]
 		Command::Ui(args) => ui_command::run(args, stdout, stderr),
+		#[cfg(feature = "mcp")]
+		Command::Mcp(args) => mcp_command::run(args, stdout, stderr),
 		Command::Langs(args) => langs::run(args, stdout, stderr),
 		Command::Shapes(args) => shapes::run(args, stdout, stderr),
 		Command::Manifest(args) => manifest::run(args, stdout, stderr),

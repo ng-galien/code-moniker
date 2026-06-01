@@ -1,112 +1,135 @@
-use std::io::Write;
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::Instant;
 
-use serde_json::{Value, json};
-
-use crate::session::SessionOptions;
-use crate::workspace_index::SharedWorkspaceIndex;
+use rmcp::model::{
+	CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
+	PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+};
+use rmcp::service::{RequestContext, RoleServer};
+use rmcp::transport::streamable_http_server::{
+	StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
+};
+use rmcp::{ErrorData as McpError, ServerHandler};
+use serde_json::Value;
 
 use super::context::McpContext;
-use super::{dispatch, transport};
+use super::lmnav;
+use super::tools::{ToolRegistry, ToolResult};
 
-pub(crate) struct McpServer {
-	addr: SocketAddr,
-	running: Arc<AtomicBool>,
-	thread: Option<JoinHandle<()>>,
+pub(crate) fn router(context: McpContext) -> axum::Router<()> {
+	let service: StreamableHttpService<CodeMonikerMcp, NeverSessionManager> =
+		StreamableHttpService::new(
+			move || Ok(CodeMonikerMcp::new(context.clone())),
+			Default::default(),
+			StreamableHttpServerConfig::default()
+				.with_stateful_mode(false)
+				.with_json_response(true)
+				.with_sse_keep_alive(None)
+				.with_allowed_hosts(["localhost".to_string(), "127.0.0.1".to_string()]),
+		);
+	axum::Router::new().nest_service("/mcp", service)
 }
 
-impl McpServer {
-	pub(crate) fn endpoint(&self) -> String {
-		format!("http://{}/mcp", self.addr)
-	}
+#[derive(Clone)]
+struct CodeMonikerMcp {
+	context: McpContext,
+	registry: Arc<ToolRegistry>,
 }
 
-impl Drop for McpServer {
-	fn drop(&mut self) {
-		self.running.store(false, Ordering::Release);
-		let _ = TcpStream::connect(self.addr);
-		if let Some(thread) = self.thread.take() {
-			let _ = thread.join();
+impl CodeMonikerMcp {
+	fn new(context: McpContext) -> Self {
+		Self {
+			context,
+			registry: Arc::new(ToolRegistry::new()),
 		}
 	}
 }
 
-pub(crate) fn start(
-	opts: SessionOptions,
-	scheme: String,
-	port: u16,
-	index: SharedWorkspaceIndex,
-) -> anyhow::Result<McpServer> {
-	let listener = TcpListener::bind(("127.0.0.1", port))?;
-	listener.set_nonblocking(true)?;
-	let addr = listener.local_addr()?;
-	let running = Arc::new(AtomicBool::new(true));
-	let thread_running = Arc::clone(&running);
-	let context = McpContext::new(opts, scheme, index);
-	let thread = thread::spawn(move || serve(listener, thread_running, context));
-	Ok(McpServer {
-		addr,
-		running,
-		thread: Some(thread),
-	})
+impl ServerHandler for CodeMonikerMcp {
+	fn get_info(&self) -> ServerInfo {
+		tracing::info!(event = "initialize_info", "mcp server info requested");
+		ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+			.with_server_info(Implementation::new("code-moniker", env!("CARGO_PKG_VERSION")))
+			.with_instructions("Use code_moniker_read with an LMNAV URI. Responses are compact text with uri, completeness, body, and next sections.")
+	}
+
+	fn list_tools(
+		&self,
+		_request: Option<PaginatedRequestParams>,
+		_context: RequestContext<RoleServer>,
+	) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
+		let started = Instant::now();
+		let tools = self.registry.tools();
+		tracing::info!(
+			event = "tools_list",
+			tools = tools.len(),
+			elapsed_ms = started.elapsed().as_millis(),
+			"mcp tools listed"
+		);
+		std::future::ready(Ok(ListToolsResult::with_all_items(tools)))
+	}
+
+	fn call_tool(
+		&self,
+		request: CallToolRequestParams,
+		_context: RequestContext<RoleServer>,
+	) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
+		let started = Instant::now();
+		let name = request.name.to_string();
+		let arguments = Value::Object(request.arguments.unwrap_or_default());
+		tracing::info!(event = "tool_call_started", tool = %name, "mcp tool call started");
+		let result = self.registry.call(&self.context, &name, &arguments);
+		let status = tool_result_status(&result);
+		let response = call_result(&name, &arguments, result);
+		tracing::info!(
+			event = "tool_call_finished",
+			tool = %name,
+			status,
+			elapsed_ms = started.elapsed().as_millis(),
+			"mcp tool call finished"
+		);
+		std::future::ready(Ok(response))
+	}
+
+	fn get_tool(&self, name: &str) -> Option<Tool> {
+		self.registry
+			.tools()
+			.into_iter()
+			.find(|tool| tool.name == name)
+	}
 }
 
-fn serve(listener: TcpListener, running: Arc<AtomicBool>, context: McpContext) {
-	while running.load(Ordering::Acquire) {
-		match listener.accept() {
-			Ok((stream, _)) => {
-				let context = context.clone();
-				thread::spawn(move || handle_stream(stream, &context));
-			}
-			Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-				thread::sleep(Duration::from_millis(25));
-			}
-			Err(_) => break,
+fn tool_result_status(result: &Result<ToolResult, super::tools::ToolError>) -> &'static str {
+	match result {
+		Ok(result) if result.is_error => "tool_error",
+		Ok(_) => "ok",
+		Err(error) if error.is_unknown_tool() => "unknown_tool",
+		Err(_) => "failed",
+	}
+}
+
+fn call_result(
+	name: &str,
+	arguments: &Value,
+	result: Result<ToolResult, super::tools::ToolError>,
+) -> CallToolResult {
+	match result {
+		Ok(result) if result.is_error => CallToolResult::error(vec![Content::text(result.text)]),
+		Ok(result) => CallToolResult::success(vec![Content::text(result.text)]),
+		Err(error) if error.is_unknown_tool() => {
+			CallToolResult::error(vec![Content::text(format!("unknown tool: {name}"))])
+		}
+		Err(error) => {
+			let uri = arguments
+				.get("uri")
+				.and_then(Value::as_str)
+				.unwrap_or("workspace");
+			CallToolResult::error(vec![Content::text(lmnav::problem(
+				uri,
+				name,
+				&error.to_string(),
+			))])
 		}
 	}
-}
-
-fn handle_stream(mut stream: TcpStream, context: &McpContext) {
-	let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-	let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-	let response = transport::read_http_request(&mut stream)
-		.and_then(|request| handle_http_request(request, context))
-		.unwrap_or_else(transport::error_response);
-	let _ = stream.write_all(response.as_bytes());
-	let _ = stream.flush();
-}
-
-fn handle_http_request(
-	request: transport::HttpRequest,
-	context: &McpContext,
-) -> anyhow::Result<String> {
-	let origin = request.origin.as_deref();
-	if origin.is_some_and(|origin| !transport::is_allowed_origin(origin)) {
-		return Ok(transport::http_json(
-			403,
-			json!({"error": "forbidden_origin"}),
-		));
-	}
-	if request.method == "OPTIONS" {
-		return Ok(transport::http_response(204, "", origin));
-	}
-	if request.method != "POST" || request.path != transport::MCP_PATH {
-		return Ok(transport::http_json_with_origin(
-			404,
-			json!({"error": "not_found", "path": request.path}),
-			origin,
-		));
-	}
-	let request: Value = serde_json::from_slice(&request.body)?;
-	let response = dispatch::handle_json_rpc(&request, context);
-	Ok(transport::http_json_with_origin(200, response, origin))
-}
-
-#[cfg(test)]
-pub(super) fn server_addr(server: &McpServer) -> SocketAddr {
-	server.addr
 }

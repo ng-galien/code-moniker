@@ -270,6 +270,10 @@ fn render_symbol_list_lmnav(
 				line_suffix(symbol)
 			));
 			output.push_str(&format!("    uri: {}\n", symbol.identity));
+			output.push_str("    usages: code_moniker_usages");
+			append_call_string_arg(&mut output, "uri", &symbol.identity);
+			append_call_number_arg(&mut output, "limit", 50);
+			output.push('\n');
 		}
 	}
 	output.push_str("\nnext:\n");

@@ -18,8 +18,8 @@ fn main() -> ExitCode {
 			};
 		}
 	};
-	let mut stdout = io::stdout().lock();
-	let mut stderr = io::stderr().lock();
+	let mut stdout = io::stdout();
+	let mut stderr = io::stderr();
 	let exit = code_moniker_cli::run(&cli, &mut stdout, &mut stderr);
 	let _ = stdout.flush();
 	let _ = stderr.flush();

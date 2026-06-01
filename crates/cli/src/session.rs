@@ -1,3 +1,4 @@
+#[cfg(feature = "tui")]
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -9,6 +10,7 @@ pub(crate) struct SessionOptions {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[cfg(feature = "tui")]
 pub struct SessionStats {
 	pub files: usize,
 	pub defs: usize,
@@ -25,6 +27,7 @@ pub struct SessionStats {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[cfg(feature = "tui")]
 pub(crate) struct LangTotals {
 	pub files: usize,
 	pub defs: usize,
@@ -32,6 +35,7 @@ pub(crate) struct LangTotals {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[cfg(feature = "tui")]
 pub struct CheckSummary {
 	pub files_scanned: usize,
 	pub files_with_violations: usize,
@@ -40,18 +44,21 @@ pub struct CheckSummary {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "tui")]
 pub(crate) struct CheckError {
 	pub path: PathBuf,
 	pub error: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "tui")]
 pub(crate) struct StoreWatchRoot {
 	pub path: PathBuf,
 	pub git_root: Option<PathBuf>,
 	pub ignored_paths: Vec<PathBuf>,
 }
 
+#[cfg(feature = "tui")]
 pub(crate) fn watch_roots_for_options(opts: &SessionOptions) -> Vec<StoreWatchRoot> {
 	let ignored_paths = opts
 		.cache_dir
@@ -68,6 +75,7 @@ pub(crate) fn watch_roots_for_options(opts: &SessionOptions) -> Vec<StoreWatchRo
 		.collect()
 }
 
+#[cfg(feature = "tui")]
 pub(crate) fn root_label_for_options(opts: &SessionOptions) -> String {
 	match opts.paths.as_slice() {
 		[] => "<empty>".to_string(),
@@ -84,12 +92,14 @@ pub(crate) fn root_label_for_options(opts: &SessionOptions) -> String {
 	}
 }
 
+#[cfg(feature = "tui")]
 fn sibling_parent(paths: &[PathBuf]) -> Option<&std::path::Path> {
 	let mut parents = paths.iter().map(|path| path.parent());
 	let first = parents.next()??;
 	parents.all(|parent| parent == Some(first)).then_some(first)
 }
 
+#[cfg(feature = "tui")]
 fn watch_path(path: &std::path::Path) -> PathBuf {
 	let path = absolute_path(path);
 	if path.is_file() {
@@ -101,6 +111,7 @@ fn watch_path(path: &std::path::Path) -> PathBuf {
 	}
 }
 
+#[cfg(feature = "tui")]
 fn absolute_path(path: &std::path::Path) -> PathBuf {
 	if path.is_absolute() {
 		path.to_path_buf()
