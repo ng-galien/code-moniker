@@ -195,9 +195,10 @@ fn read_root_summarizes_workspace_and_limits_explorer() {
 fn tools_list_returns_mcp_shape() {
 	let tools = ToolRegistry::new().descriptors();
 	assert_eq!(tools[0]["name"], "code_moniker_read");
-	assert_eq!(tools[1]["name"], "code_moniker_symbols");
-	assert_eq!(tools[2]["name"], "code_moniker_usages");
-	assert_eq!(tools[3]["name"], "code_moniker_rules");
+	assert_eq!(tools[1]["name"], "code_moniker_search");
+	assert_eq!(tools[2]["name"], "code_moniker_symbols");
+	assert_eq!(tools[3]["name"], "code_moniker_usages");
+	assert_eq!(tools[4]["name"], "code_moniker_rules");
 	assert!(
 		tools[0]["description"]
 			.as_str()
@@ -212,6 +213,78 @@ fn registry_dispatches_read_tool() {
 	let context = empty_context(vec![PathBuf::from(".")]);
 	let result = registry.call(&context, "not_a_tool", &json!({}));
 	assert!(result.unwrap_err().is_unknown_tool());
+}
+
+#[test]
+fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir java");
+	std::fs::create_dir_all(temp.path().join("src/test/java")).expect("mkdir test");
+	std::fs::write(
+		temp.path().join("src/main/java/App.java"),
+		"class App {\n  void run() {\n    work();\n  }\n}\n",
+	)
+	.expect("write app");
+	std::fs::write(
+		temp.path().join("src/main/java/Other.java"),
+		"class Other {\n  void retry() {\n    work();\n  }\n}\n",
+	)
+	.expect("write other");
+	std::fs::write(
+		temp.path().join("src/test/java/AppTest.java"),
+		"class AppTest {\n  void run() {\n    work();\n  }\n}\n",
+	)
+	.expect("write test");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let result = registry
+		.call(
+			&context,
+			"code_moniker_search",
+			&json!({
+				"query": "r",
+				"path": "src/main",
+				"lang": "java",
+				"kind": "interface",
+				"shape": "callable",
+				"context_lines": 0,
+				"limit": 1
+			}),
+		)
+		.expect("search");
+	assert!(!result.is_error);
+	assert!(result.text.contains("uri: code+moniker://workspace/search"));
+	assert!(result.text.contains("hits: 2"), "{}", result.text);
+	assert!(
+		result
+			.text
+			.contains("method run() src/main/java/App.java:2-4"),
+		"{}",
+		result.text
+	);
+	assert!(result.text.contains("reason: name"));
+	assert!(result.text.contains("   2 |   void run() {"));
+	assert!(!result.text.contains("src/test/java/AppTest.java"));
+	assert!(result.text.contains("path=\"src/main\""));
+	assert!(result.text.contains("lang=\"java\""));
+	assert!(result.text.contains("kind=\"interface\""));
+	assert!(result.text.contains("shape=\"callable\""));
+	assert!(result.text.contains("context_lines=0"));
+	assert!(result.text.contains("cursor=1"));
+}
+
+#[test]
+fn search_tool_rejects_invalid_regex() {
+	let registry = ToolRegistry::new();
+	let context = empty_context(vec![PathBuf::from(".")]);
+	let error = registry
+		.call(
+			&context,
+			"code_moniker_search",
+			&json!({"query": "run", "name": "(unclosed"}),
+		)
+		.unwrap_err();
+	assert!(error.to_string().contains("invalid name regex"));
 }
 
 #[test]

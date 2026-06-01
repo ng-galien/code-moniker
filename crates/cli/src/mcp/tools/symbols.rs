@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use code_moniker_workspace::snapshot::{ReferenceRecord, SourceFileRecord, SourceId, SymbolRecord};
 use serde_json::{Value, json};
 
-use super::scope::{Paging, SymbolScopeFilter, append_call_number_arg, append_call_string_arg};
+use super::scope::{
+	Paging, SymbolMatch, SymbolScopeFilter, append_call_number_arg, append_call_string_arg,
+};
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
@@ -228,7 +230,13 @@ fn render_symbol_list_lmnav(
 				.matches_file(&source.rel_path, Some(&source.language))
 				.then_some((symbol, *source))
 		})
-		.filter(|(symbol, _)| scope.matches_symbol(&symbol.name, &symbol.kind, symbol.navigable))
+		.filter(|(symbol, _)| {
+			scope.matches_symbol(SymbolMatch {
+				name: &symbol.name,
+				kind: &symbol.kind,
+				navigable: symbol.navigable,
+			})
+		})
 		.collect::<Vec<_>>();
 	rows.sort_by(|a, b| {
 		a.1.rel_path
@@ -316,7 +324,13 @@ fn render_symbol_insights_lmnav(
 		.symbols
 		.iter()
 		.filter(|symbol| scoped_source_ids.contains(&symbol.source))
-		.filter(|symbol| scope.matches_symbol(&symbol.name, &symbol.kind, symbol.navigable))
+		.filter(|symbol| {
+			scope.matches_symbol(SymbolMatch {
+				name: &symbol.name,
+				kind: &symbol.kind,
+				navigable: symbol.navigable,
+			})
+		})
 		.collect::<Vec<_>>();
 	let scoped_references = index
 		.references

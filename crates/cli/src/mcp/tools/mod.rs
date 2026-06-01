@@ -1,6 +1,7 @@
 pub(super) mod read;
 pub(super) mod rules;
 pub(in crate::mcp) mod scope;
+pub(super) mod search;
 pub(in crate::mcp) mod symbols;
 pub(in crate::mcp) mod usages;
 
@@ -10,6 +11,7 @@ use super::context::McpContext;
 use read::ReadTool;
 use rmcp::model::{JsonObject, Tool};
 use rules::RulesTool;
+use search::SearchTool;
 use symbols::SymbolsTool;
 use usages::UsagesTool;
 
@@ -90,6 +92,7 @@ enum ToolErrorKind {
 pub(super) struct ToolRegistry {
 	read: ReadTool,
 	rules: RulesTool,
+	search: SearchTool,
 	symbols: SymbolsTool,
 	usages: UsagesTool,
 }
@@ -99,6 +102,7 @@ impl ToolRegistry {
 		Self {
 			read: ReadTool,
 			rules: RulesTool,
+			search: SearchTool,
 			symbols: SymbolsTool,
 			usages: UsagesTool,
 		}
@@ -108,6 +112,7 @@ impl ToolRegistry {
 	pub(super) fn descriptors(&self) -> Vec<Value> {
 		vec![
 			self.read.descriptor().into_mcp_value(),
+			self.search.descriptor().into_mcp_value(),
 			self.symbols.descriptor().into_mcp_value(),
 			self.usages.descriptor().into_mcp_value(),
 			self.rules.descriptor().into_mcp_value(),
@@ -117,6 +122,7 @@ impl ToolRegistry {
 	pub(super) fn tools(&self) -> Vec<Tool> {
 		vec![
 			self.read.descriptor().into_rmcp_tool(),
+			self.search.descriptor().into_rmcp_tool(),
 			self.symbols.descriptor().into_rmcp_tool(),
 			self.usages.descriptor().into_rmcp_tool(),
 			self.rules.descriptor().into_rmcp_tool(),
@@ -131,6 +137,7 @@ impl ToolRegistry {
 	) -> Result<ToolResult, ToolError> {
 		match name {
 			ReadTool::NAME => self.read.call(context, arguments),
+			SearchTool::NAME => self.search.call(context, arguments),
 			SymbolsTool::NAME => self.symbols.call(context, arguments),
 			UsagesTool::NAME => self.usages.call(context, arguments),
 			RulesTool::NAME => self.rules.call(context, arguments),

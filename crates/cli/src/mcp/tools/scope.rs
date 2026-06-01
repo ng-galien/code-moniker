@@ -79,12 +79,7 @@ impl SymbolScopeFilter {
 					.map_err(|err| anyhow::anyhow!("invalid shape `{shape}`: {err}"))
 			})
 			.collect::<anyhow::Result<Vec<_>>>()?;
-		let name = arguments
-			.get("name")
-			.and_then(Value::as_str)
-			.map(Regex::new)
-			.transpose()
-			.map_err(|err| anyhow::anyhow!("invalid name regex: {err}"))?;
+		let name = regex_argument(arguments, "name", "name")?;
 		let include_non_navigable = arguments
 			.get("include_non_navigable")
 			.and_then(Value::as_bool)
@@ -98,15 +93,39 @@ impl SymbolScopeFilter {
 		})
 	}
 
-	pub(super) fn matches_symbol(&self, name: &str, kind: &str, navigable: bool) -> bool {
-		(self.include_non_navigable || navigable)
-			&& (self.kinds.is_empty() || self.kinds.iter().any(|allowed| allowed == kind))
+	pub(super) fn matches_symbol(&self, symbol: SymbolMatch<'_>) -> bool {
+		self.matches_symbol_base(symbol) && self.matches_kind_and_shape(symbol.kind)
+	}
+
+	pub(super) fn matches_tui_search_symbol(&self, symbol: SymbolMatch<'_>) -> bool {
+		self.matches_symbol_base(symbol) && self.matches_kind_or_shape(symbol.kind)
+	}
+
+	fn matches_symbol_base(&self, symbol: SymbolMatch<'_>) -> bool {
+		(self.include_non_navigable || symbol.navigable)
+			&& self
+				.name
+				.as_ref()
+				.is_none_or(|regex| regex.is_match(symbol.name))
+	}
+
+	fn matches_kind_and_shape(&self, kind: &str) -> bool {
+		(self.kinds.is_empty() || self.kinds.iter().any(|allowed| allowed == kind))
 			&& (self.shapes.is_empty()
 				|| self
 					.shapes
 					.iter()
 					.any(|shape| *shape == Shape::for_kind(kind.as_bytes())))
-			&& self.name.as_ref().is_none_or(|regex| regex.is_match(name))
+	}
+
+	fn matches_kind_or_shape(&self, kind: &str) -> bool {
+		let has_kind_filter = !self.kinds.is_empty() || !self.shapes.is_empty();
+		!has_kind_filter
+			|| self.kinds.iter().any(|allowed| allowed == kind)
+			|| self
+				.shapes
+				.iter()
+				.any(|shape| *shape == Shape::for_kind(kind.as_bytes()))
 	}
 
 	pub(super) fn describe(&self) -> Vec<String> {
@@ -144,6 +163,13 @@ impl SymbolScopeFilter {
 			append_call_bool_arg(output, "include_non_navigable", true);
 		}
 	}
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct SymbolMatch<'a> {
+	pub(super) name: &'a str,
+	pub(super) kind: &'a str,
+	pub(super) navigable: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -187,6 +213,22 @@ pub(super) fn string_list(arguments: &Value, key: &str) -> anyhow::Result<Vec<St
 			.map(|nested| nested.into_iter().flatten().collect()),
 		_ => anyhow::bail!("`{key}` must be a string or string array"),
 	}
+}
+
+pub(super) fn regex_argument(
+	arguments: &Value,
+	key: &str,
+	label: &str,
+) -> anyhow::Result<Option<Regex>> {
+	let Some(value) = arguments.get(key) else {
+		return Ok(None);
+	};
+	let raw = value
+		.as_str()
+		.ok_or_else(|| anyhow::anyhow!("`{key}` must be a string"))?;
+	Regex::new(raw)
+		.map(Some)
+		.map_err(|err| anyhow::anyhow!("invalid {label} regex: {err}"))
 }
 
 pub(super) fn append_call_string_arg(output: &mut String, key: &str, value: &str) {
