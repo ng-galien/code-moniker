@@ -11,6 +11,15 @@ impl<'a> SearchView<'a> {
 	}
 
 	pub fn search_symbols(&self, query: &str, limit: usize) -> Vec<SearchHit> {
+		self.search_symbols_matching(query, limit, |_| true)
+	}
+
+	pub fn search_symbols_matching(
+		&self,
+		query: &str,
+		limit: usize,
+		mut matches: impl FnMut(&SymbolRecord) -> bool,
+	) -> Vec<SearchHit> {
 		let raw = query.trim().to_ascii_lowercase();
 		let terms = search_terms(&raw);
 		if raw.is_empty() || terms.is_empty() || limit == 0 {
@@ -22,6 +31,7 @@ impl<'a> SearchView<'a> {
 			.symbols
 			.iter()
 			.filter(|symbol| symbol.navigable)
+			.filter(|symbol| matches(symbol))
 			.filter_map(|symbol| {
 				let (score, reason) = score_symbol(symbol, &raw, &terms)?;
 				Some(SearchHit {
@@ -73,11 +83,8 @@ fn score_symbol(symbol: &SymbolRecord, phrase: &str, terms: &[String]) -> Option
 	let mut score = 0;
 	let mut reason = None;
 	for (label, value, exact_score, _) in fields {
-		if value == phrase {
-			score += exact_score * 2;
-			reason.get_or_insert(label);
-		} else if value.contains(phrase) {
-			score += exact_score;
+		if let Some(field_score) = phrase_match_score(value, phrase, exact_score) {
+			score += field_score;
 			reason.get_or_insert(label);
 		}
 	}
@@ -95,4 +102,117 @@ fn score_symbol(symbol: &SymbolRecord, phrase: &str, terms: &[String]) -> Option
 		}
 	}
 	(score > 0).then(|| (score, reason.unwrap_or("match").to_string()))
+}
+
+fn phrase_match_score(value: &str, phrase: &str, exact_score: u32) -> Option<u32> {
+	if value == phrase {
+		return Some(exact_score * 2);
+	}
+	let start = value.find(phrase)?;
+	let extra_len = value.chars().count().saturating_sub(phrase.chars().count()) as u32;
+	let proximity_bonus = 30u32.saturating_sub(extra_len.min(30));
+	let prefix_bonus = if start == 0 { 30 } else { 0 };
+	Some(exact_score + prefix_bonus + proximity_bonus)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::snapshot::model::{
+		ChangeOverlay, CodeIndex, LinkageGraph, ResourceGeneration, SourceCatalog, SourceId,
+		SymbolId, SymbolRecordFields, WorkspaceTimings,
+	};
+
+	fn symbol(id: &str, name: &str, kind: &str, identity: &str) -> SymbolRecord {
+		SymbolRecord::from_fields(SymbolRecordFields {
+			id: SymbolId::new(id),
+			source: SourceId::new("source:test"),
+			identity: identity.to_string(),
+			name: name.to_string(),
+			kind: kind.to_string(),
+			visibility: String::new(),
+			signature: String::new(),
+			navigable: true,
+			line_range: None,
+			parent: None,
+		})
+	}
+
+	fn score(symbol: &SymbolRecord, query: &str) -> u32 {
+		let raw = query.to_ascii_lowercase();
+		let terms = search_terms(&raw);
+		score_symbol(symbol, &raw, &terms)
+			.expect("symbol should match")
+			.0
+	}
+
+	fn snapshot(symbols: Vec<SymbolRecord>) -> WorkspaceSnapshot {
+		WorkspaceSnapshot {
+			generation: ResourceGeneration::new(1),
+			catalog: SourceCatalog::new(ResourceGeneration::new(1), Vec::new()),
+			index: CodeIndex::new(
+				ResourceGeneration::new(1),
+				ResourceGeneration::new(1),
+				symbols,
+			),
+			linkage: LinkageGraph::new(
+				ResourceGeneration::new(1),
+				ResourceGeneration::new(1),
+				0,
+				0,
+			),
+			changes: ChangeOverlay::new(
+				ResourceGeneration::new(1),
+				ResourceGeneration::new(1),
+				ResourceGeneration::new(1),
+				Vec::new(),
+			),
+			timings: WorkspaceTimings::default(),
+		}
+	}
+
+	#[test]
+	fn exact_name_match_still_beats_partial_match() {
+		let exact = symbol("exact", "parse", "fn", "code+moniker://./fn:parse");
+		let partial = symbol(
+			"partial",
+			"parse_fragment",
+			"fn",
+			"code+moniker://./fn:parse_fragment",
+		);
+
+		assert!(score(&exact, "parse") > score(&partial, "parse"));
+	}
+
+	#[test]
+	fn shorter_prefix_match_beats_longer_prefix_match() {
+		let short = symbol("short", "parse_ast", "fn", "code+moniker://./fn:parse_ast");
+		let long = symbol(
+			"long",
+			"parse_fragment_from_source",
+			"fn",
+			"code+moniker://./fn:parse_fragment_from_source",
+		);
+
+		assert!(score(&short, "parse") > score(&long, "parse"));
+	}
+
+	#[test]
+	fn filtered_search_ranks_after_filtering() {
+		let unfiltered_best = symbol("best", "parse", "fn", "code+moniker://./fn:parse");
+		let filtered_hit = symbol(
+			"target",
+			"parse_fragment",
+			"fn",
+			"code+moniker://./module:target/fn:parse_fragment",
+		);
+		let snapshot = snapshot(vec![unfiltered_best, filtered_hit]);
+
+		let hits = SearchView::new(&snapshot).search_symbols_matching("parse", 1, |symbol| {
+			symbol.identity.contains("module:target")
+		});
+
+		assert_eq!(hits.len(), 1);
+		assert_eq!(hits[0].symbol.as_str(), "target");
+	}
 }

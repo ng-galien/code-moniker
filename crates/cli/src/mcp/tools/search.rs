@@ -4,7 +4,8 @@ use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord, Workspace
 use serde_json::{Value, json};
 
 use super::scope::{
-	Paging, SymbolMatch, SymbolScopeFilter, append_call_number_arg, append_call_string_arg,
+	Paging, SymbolMatch, SymbolScopeFilter, append_call_bool_arg, append_call_number_arg,
+	append_call_string_arg,
 };
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
@@ -24,7 +25,7 @@ impl SearchTool {
 		"Search from code-moniker.\n",
 		"  query — fuzzy symbol search text, scored like the TUI search\n",
 		"  path/lang/kind/shape — same filters as code_moniker_symbols\n",
-		"  context_lines — source lines to show around each symbol range\n",
+		"  include_code/context_lines — opt into source lines around each symbol range\n",
 		"Use limit and cursor for paging; next calls preserve the search query and scope."
 	);
 
@@ -68,11 +69,15 @@ impl SearchTool {
 					"type": "string",
 					"description": "Rust regex matched against symbol name after TUI-style search scoring."
 				},
+				"include_code": {
+					"type": "boolean",
+					"description": "Include source lines for each hit. Defaults false for terse search results."
+				},
 				"context_lines": {
 					"type": "integer",
 					"minimum": 0,
 					"maximum": MAX_CONTEXT_LINES,
-					"description": "Source lines to show around each matched symbol range."
+					"description": "Extra source lines around each matched symbol range when include_code is true."
 				},
 				"limit": {
 					"type": "integer",
@@ -114,6 +119,7 @@ struct SearchRequest {
 	query: String,
 	scope: SymbolScopeFilter,
 	paging: Paging,
+	include_code: bool,
 	context_lines: usize,
 }
 
@@ -130,6 +136,10 @@ impl SearchRequest {
 				.to_string(),
 			scope: SymbolScopeFilter::from_arguments(arguments)?,
 			paging: Paging::from_arguments(arguments)?,
+			include_code: arguments
+				.get("include_code")
+				.and_then(Value::as_bool)
+				.unwrap_or(false),
 			context_lines: arguments
 				.get("context_lines")
 				.and_then(Value::as_u64)
@@ -164,31 +174,36 @@ fn search_symbols(context: &McpContext, request: &SearchRequest) -> anyhow::Resu
 	let mut rows = Vec::new();
 	for hit in WorkspaceView::new(snapshot.as_ref())
 		.search()
-		.search_symbols(&request.query, search_candidate_limit(request))
-	{
+		.search_symbols_matching(&request.query, search_candidate_limit(request), |symbol| {
+			let Some(source) = source_by_id.get(&symbol.source) else {
+				return false;
+			};
+			request
+				.scope
+				.files
+				.matches_file(&source.rel_path, Some(&source.language))
+				&& request.scope.matches_tui_search_symbol(SymbolMatch {
+					name: &symbol.name,
+					kind: &symbol.kind,
+					navigable: symbol.navigable,
+				})
+		}) {
 		let Some(symbol) = symbol_by_id.get(&hit.symbol) else {
 			continue;
 		};
 		let Some(source) = source_by_id.get(&symbol.source) else {
 			continue;
 		};
-		if !request
-			.scope
-			.files
-			.matches_file(&source.rel_path, Some(&source.language))
-			|| !request.scope.matches_tui_search_symbol(SymbolMatch {
-				name: &symbol.name,
-				kind: &symbol.kind,
-				navigable: symbol.navigable,
-			}) {
-			continue;
-		}
 		rows.push(SearchRow {
 			symbol,
 			source,
 			score: hit.score,
 			reason: hit.reason,
-			code_lines: symbol_source_lines(source, symbol, request.context_lines),
+			code_lines: if request.include_code {
+				symbol_source_lines(source, symbol, request.context_lines)
+			} else {
+				Vec::new()
+			},
 		});
 	}
 	Ok(render_search_lmnav(context.scheme(), request, &rows))
@@ -199,7 +214,7 @@ fn search_candidate_limit(request: &SearchRequest) -> usize {
 		.paging
 		.cursor
 		.saturating_add(request.paging.limit)
-		.saturating_mul(4)
+		.saturating_add(1)
 }
 
 fn symbol_source_lines(
@@ -297,7 +312,10 @@ fn append_search_next_call(
 	output.push_str("  - code_moniker_search");
 	append_call_string_arg(output, "query", &request.query);
 	request.scope.append_call_args(output);
-	append_call_number_arg(output, "context_lines", request.context_lines);
+	if request.include_code {
+		append_call_bool_arg(output, "include_code", true);
+		append_call_number_arg(output, "context_lines", request.context_lines);
+	}
 	append_call_number_arg(output, "limit", limit);
 	if let Some(cursor) = cursor {
 		append_call_number_arg(output, "cursor", cursor);

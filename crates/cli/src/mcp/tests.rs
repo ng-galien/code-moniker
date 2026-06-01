@@ -247,7 +247,6 @@ fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
 				"lang": "java",
 				"kind": "interface",
 				"shape": "callable",
-				"context_lines": 0,
 				"limit": 1
 			}),
 		)
@@ -263,14 +262,34 @@ fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
 		result.text
 	);
 	assert!(result.text.contains("reason: name"));
-	assert!(result.text.contains("   2 |   void run() {"));
+	assert!(!result.text.contains("code:"));
+	assert!(!result.text.contains("   2 |   void run() {"));
 	assert!(!result.text.contains("src/test/java/AppTest.java"));
 	assert!(result.text.contains("path=\"src/main\""));
 	assert!(result.text.contains("lang=\"java\""));
 	assert!(result.text.contains("kind=\"interface\""));
 	assert!(result.text.contains("shape=\"callable\""));
-	assert!(result.text.contains("context_lines=0"));
 	assert!(result.text.contains("cursor=1"));
+
+	let detail = registry
+		.call(
+			&context,
+			"code_moniker_search",
+			&json!({
+				"query": "run",
+				"path": "src/main",
+				"lang": "java",
+				"kind": "method",
+				"include_code": true,
+				"context_lines": 0,
+				"limit": 1
+			}),
+		)
+		.expect("search with code");
+	assert!(detail.text.contains("code:"), "{}", detail.text);
+	assert!(detail.text.contains("   2 |   void run() {"));
+	assert!(detail.text.contains("include_code=true"));
+	assert!(detail.text.contains("context_lines=0"));
 }
 
 #[test]

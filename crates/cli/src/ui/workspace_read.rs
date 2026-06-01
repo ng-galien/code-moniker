@@ -487,23 +487,17 @@ pub(in crate::ui) fn search_symbols_filtered(
 		return Vec::new();
 	};
 	let source_langs = source_lang_index(snapshot);
-	let symbols_by_id = snapshot
-		.index
-		.symbols
-		.iter()
-		.map(|symbol| (symbol.id.clone(), symbol))
-		.collect::<FxHashMap<_, _>>();
 	let mut hits = store
 		.queries()
 		.view()
-		.map(|view| view.search().search_symbols(query, limit.saturating_mul(4)))
+		.map(|view| {
+			view.search()
+				.search_symbols_matching(query, limit, |symbol| {
+					symbol_matches_filters(symbol, &source_langs, langs, kinds, shapes)
+				})
+		})
 		.unwrap_or_default()
 		.into_iter()
-		.filter(|hit| {
-			symbols_by_id.get(&hit.symbol).is_some_and(|symbol| {
-				symbol_matches_filters(symbol, &source_langs, langs, kinds, shapes)
-			})
-		})
 		.map(|hit| SearchHit {
 			loc: hit.symbol,
 			score: hit.score,
