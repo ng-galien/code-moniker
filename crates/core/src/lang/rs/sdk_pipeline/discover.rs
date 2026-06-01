@@ -81,11 +81,7 @@ impl<'src> RustDiscover<'src> {
 	}
 
 	fn push_declared_module(&mut self, module: Moniker) {
-		if !self
-			.declared_modules
-			.iter()
-			.any(|existing| *existing == module)
-		{
+		if !self.declared_modules.contains(&module) {
 			self.declared_modules.push(module);
 		}
 	}

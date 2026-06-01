@@ -99,7 +99,7 @@ fn eval_vertical_layout_group(
 		return NodeOutcome::Pass;
 	}
 	let current = order_text(items.iter().map(|item| item.name.as_str()));
-	let ideal_items = suggested_order(&items, &moves);
+	let ideal_items = suggested_order(items, &moves);
 	let suggested = order_text(ideal_items.iter().map(|item| item.name.as_str()));
 	let first_move = &moves[0];
 	let details = format!(

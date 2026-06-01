@@ -12,4 +12,4 @@ rustflags = [
 ]
 
 [alias]
-moniker-check = "run --release -p code-moniker -- check . --profile agent"
+moniker-check = "run -p code-moniker -- check . --profile agent"

@@ -58,7 +58,9 @@ crossterm     = "0.29"
 notify        = "8.2"
 
 [profile.dev]
-panic         = "abort"
+# No `panic = "abort"` here: on stable, `cargo test` requires panic=unwind, so
+# setting abort forces a full recompile of the whole graph every time you switch
+# between `cargo run`/`build`/`check` (abort) and `cargo test` (unwind).
 debug         = false
 debug-assertions = false
 overflow-checks = false
