@@ -285,6 +285,10 @@ fn snapshot_domain(domain: &Domain) -> Value {
 			"type": "children_by_shape",
 			"shape": shape,
 		}),
+		Domain::Descendants(domain) => json!({
+			"type": "descendants",
+			"domain": snapshot_domain(domain),
+		}),
 		Domain::Pairs(domain) => json!({
 			"type": "pairs",
 			"domain": snapshot_domain(domain),

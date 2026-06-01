@@ -23,7 +23,10 @@ use code_moniker_workspace::lines::line_range;
 
 use collection::{collection_has_pair_binding, eval_collection_size, eval_collection_subset};
 use layout::eval_vertical_layout;
-use local::{AggregateEval, eval_aggregate, eval_entropy, eval_mode};
+use local::{
+	AggregateEval, DomainItem, domain_items, eval_aggregate, eval_entropy, eval_mode,
+	project_def_lhs_value,
+};
 use metrics::eval_metric;
 use pairs::{eval_pair_count, eval_pair_quantifier};
 use value::{Value, apply_op, apply_op_values, number_expr_label};
@@ -87,11 +90,14 @@ pub(crate) fn evaluate_compiled(
 	evaluate_compiled_with_requirements(graph, source, lang, scheme, compiled, None)
 }
 
-pub(crate) trait RequirementResolver: Sync {
+pub(in crate::check) trait RequirementResolver: Sync {
 	fn exists(&self, pattern: &str, source: &DefRecord, scheme: &str) -> bool;
+	fn descendant_defs<'a>(&'a self, _owner: &DefRecord, _inner: &Domain) -> Vec<&'a DefRecord> {
+		Vec::new()
+	}
 }
 
-pub(crate) fn evaluate_compiled_with_requirements(
+pub(in crate::check) fn evaluate_compiled_with_requirements(
 	graph: &CodeGraph,
 	source: &str,
 	lang: Lang,
@@ -205,6 +211,17 @@ pub(crate) fn rule_report_compiled(
 	scheme: &str,
 	compiled: &CompiledRules,
 ) -> Vec<RuleReport> {
+	rule_report_compiled_with_requirements(graph, source, lang, scheme, compiled, None)
+}
+
+pub(in crate::check) fn rule_report_compiled_with_requirements(
+	graph: &CodeGraph,
+	source: &str,
+	lang: Lang,
+	scheme: &str,
+	compiled: &CompiledRules,
+	requirements: Option<&dyn RequirementResolver>,
+) -> Vec<RuleReport> {
 	let need_doc_anchors = compiled
 		.by_kind
 		.values()
@@ -215,7 +232,7 @@ pub(crate) fn rule_report_compiled(
 			.any(|r| r.require_doc_for_vis.is_some());
 	let ctx = EvalCtx {
 		graph,
-		requirements: None,
+		requirements,
 		source,
 		lang,
 		uri_cfg: UriConfig { scheme },
@@ -1573,11 +1590,48 @@ fn eval_count(
 		Domain::ChildrenByShape(shape) => {
 			count_children_by_shape(def_idx, self_idx, shape, filter, ctx)
 		}
+		Domain::Descendants(_) => count_domain_items(domain, filter, def_idx, self_idx, ctx),
 		Domain::Pairs(inner) => eval_pair_count(inner, filter, def_idx, self_idx, ctx),
 		Domain::Segments => count_segments(d, filter),
 		Domain::OutRefs => count_out_refs(d, def_idx, filter, ctx),
 		Domain::InRefs => count_in_refs(d, filter, ctx),
 	}
+}
+
+fn count_domain_items(
+	domain: &Domain,
+	filter: Option<&Node>,
+	def_idx: usize,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> u32 {
+	let items = domain_items(domain, def_idx, ctx);
+	let Some(node) = filter else {
+		return items.len() as u32;
+	};
+	items
+		.into_iter()
+		.filter(|item| match item {
+			DomainItem::Def {
+				idx: Some(idx),
+				def,
+			} => {
+				matches!(
+					eval_node_with_self(node, def, *idx, self_idx, ctx),
+					NodeOutcome::Pass
+				)
+			}
+			DomainItem::Def { idx: None, def } => {
+				matches!(eval_external_def_node(node, def, ctx), NodeOutcome::Pass)
+			}
+			DomainItem::Ref { record } => {
+				matches!(eval_ref_node(node, record, ctx), NodeOutcome::Pass)
+			}
+			DomainItem::Segment { kind, name } => {
+				matches!(eval_node_segment(node, kind, name), NodeOutcome::Pass)
+			}
+		})
+		.count() as u32
 }
 
 fn eval_number_expr_def(
@@ -1783,42 +1837,13 @@ fn eval_quantifier_def(
 	let mut total = 0u32;
 	let mut passes = 0u32;
 	match domain {
-		Domain::Children(child_kind) => {
-			let empty = Vec::new();
-			let child_idxs = ctx.children_by_parent.get(&scope.idx).unwrap_or(&empty);
-			for &ci in child_idxs {
-				let cd = ctx.graph.def_at(ci);
-				if cd.kind.as_ref() != child_kind.as_bytes() {
-					continue;
+		Domain::Children(_) | Domain::ChildrenByShape(_) | Domain::Descendants(_) => {
+			match eval_def_domain_quantifier(kind, domain, filter, scope.idx, self_idx, ctx) {
+				Ok((domain_total, domain_passes)) => {
+					total = domain_total;
+					passes = domain_passes;
 				}
-				total += 1;
-				match eval_node_with_self(filter, cd, ci, self_idx, ctx) {
-					NodeOutcome::Pass => passes += 1,
-					NodeOutcome::Fail(mut failure) if kind == QuantKind::All => {
-						failure.def_idx.get_or_insert(ci);
-						return NodeOutcome::Fail(failure);
-					}
-					NodeOutcome::Fail(_) | NodeOutcome::NotApplicable => {}
-				}
-			}
-		}
-		Domain::ChildrenByShape(shape) => {
-			let empty = Vec::new();
-			let child_idxs = ctx.children_by_parent.get(&scope.idx).unwrap_or(&empty);
-			for &ci in child_idxs {
-				let cd = ctx.graph.def_at(ci);
-				if !def_has_shape(cd, shape) {
-					continue;
-				}
-				total += 1;
-				match eval_node_with_self(filter, cd, ci, self_idx, ctx) {
-					NodeOutcome::Pass => passes += 1,
-					NodeOutcome::Fail(mut failure) if kind == QuantKind::All => {
-						failure.def_idx.get_or_insert(ci);
-						return NodeOutcome::Fail(failure);
-					}
-					NodeOutcome::Fail(_) | NodeOutcome::NotApplicable => {}
-				}
+				Err(outcome) => return *outcome,
 			}
 		}
 		Domain::Pairs(inner) => {
@@ -1885,6 +1910,66 @@ fn eval_quantifier_def(
 			details: None,
 		})
 	}
+}
+
+fn eval_def_domain_quantifier(
+	kind: QuantKind,
+	domain: &Domain,
+	filter: &Node,
+	def_idx: usize,
+	self_idx: usize,
+	ctx: &EvalCtx<'_, '_>,
+) -> Result<(u32, u32), Box<NodeOutcome>> {
+	let mut total = 0u32;
+	let mut passes = 0u32;
+	for item in domain_items(domain, def_idx, ctx) {
+		let DomainItem::Def { idx, def } = item else {
+			continue;
+		};
+		total += 1;
+		let outcome = match idx {
+			Some(idx) => eval_node_with_self(filter, def, idx, self_idx, ctx),
+			None => eval_external_def_node(filter, def, ctx),
+		};
+		match outcome {
+			NodeOutcome::Pass => passes += 1,
+			NodeOutcome::Fail(mut failure) if kind == QuantKind::All && idx.is_some() => {
+				let idx = idx.expect("checked by guard");
+				failure.def_idx.get_or_insert(idx);
+				return Err(Box::new(NodeOutcome::Fail(failure)));
+			}
+			NodeOutcome::Fail(failure) if kind == QuantKind::All => {
+				return Err(Box::new(NodeOutcome::Fail(failure)));
+			}
+			NodeOutcome::Fail(_) | NodeOutcome::NotApplicable => {}
+		}
+	}
+	Ok((total, passes))
+}
+
+fn eval_external_def_node(node: &Node, def: &DefRecord, ctx: &EvalCtx<'_, '_>) -> NodeOutcome {
+	walk_node(
+		node,
+		&|atom| eval_external_def_atom(atom, def, ctx),
+		&|_, _, _| NodeOutcome::NotApplicable,
+		&|_| NodeOutcome::NotApplicable,
+		&|_| NodeOutcome::NotApplicable,
+	)
+}
+
+fn eval_external_def_atom(atom: &Atom, def: &DefRecord, ctx: &EvalCtx<'_, '_>) -> AtomOutcome {
+	let LhsExpr::Attr(lhs) = &atom.lhs else {
+		return AtomOutcome::NotApplicable;
+	};
+	let Some(value) = project_def_lhs_value(None, def, *lhs, ctx) else {
+		return AtomOutcome::NotApplicable;
+	};
+	if let Rhs::Projection(rhs) = &atom.rhs
+		&& let Some(rhs_value) = project_def_lhs_value(None, def, *rhs, ctx)
+	{
+		return apply_op_values(&value, atom.op, &rhs_value);
+	}
+	apply_op(&value, atom)
 }
 
 fn eval_node_segment(node: &Node, seg_kind: &[u8], seg_name: &[u8]) -> NodeOutcome {

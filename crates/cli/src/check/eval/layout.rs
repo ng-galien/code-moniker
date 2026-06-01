@@ -195,6 +195,7 @@ fn domain_matches(domain: &Domain, def: &DefRecord) -> bool {
 	match domain {
 		Domain::Children(kind) => def.kind.as_ref() == kind.as_bytes(),
 		Domain::ChildrenByShape(shape) => def_has_shape(def, shape),
+		Domain::Descendants(inner) => domain_matches(inner, def),
 		Domain::Pairs(_) | Domain::Segments | Domain::OutRefs | Domain::InRefs => false,
 	}
 }

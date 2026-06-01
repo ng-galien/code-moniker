@@ -1,11 +1,13 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_workspace::environment;
 
 use crate::args::{CheckArgs, CheckFormat, DefaultRules};
+use crate::check::expr::Domain;
 use crate::{DEFAULT_SCHEME, Exit, check, path_to_lang};
 
 pub fn run<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
@@ -216,8 +218,14 @@ fn check_source_file_compiled(
 	);
 	let violations = check::apply_suppressions(&graph, &source, raw);
 	let rule_reports = if report {
-		let mut rule_reports =
-			check::rule_report_compiled(&graph, &source, file.lang, DEFAULT_SCHEME, compiled);
+		let mut rule_reports = check::rule_report_compiled_with_requirements(
+			&graph,
+			&source,
+			file.lang,
+			DEFAULT_SCHEME,
+			compiled,
+			requirements,
+		);
 		align_report_violations_with_suppressions(&mut rule_reports, &violations);
 		rule_reports
 	} else {
@@ -239,7 +247,10 @@ fn check_project(
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	let source_set = environment::discover_sources(&[root.to_path_buf()], None)?;
-	let requirements = FileRequirementResolver::new(root.to_path_buf());
+	let requirements = FileRequirementResolver::new(
+		root.to_path_buf(),
+		Some(filtered_source_set(&source_set, cfg)),
+	);
 	check_source_set(&source_set, cfg, report, Some(&requirements))
 }
 
@@ -250,8 +261,29 @@ fn check_project_files(
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	let source_set = environment::discover_source_files(root, files, None)?;
-	let requirements = FileRequirementResolver::new(root.to_path_buf());
+	let resolver_source_set = environment::discover_sources(&[root.to_path_buf()], None)?;
+	let requirements = FileRequirementResolver::new(
+		root.to_path_buf(),
+		Some(filtered_source_set(&resolver_source_set, cfg)),
+	);
 	check_source_set(&source_set, cfg, report, Some(&requirements))
+}
+
+fn filtered_source_set(
+	source_set: &environment::SourceFileSet,
+	cfg: &check::Config,
+) -> environment::SourceFileSet {
+	let excludes = check::UriExclusionMatcher::new(&cfg.exclude.uris);
+	environment::SourceFileSet {
+		roots: source_set.roots.clone(),
+		files: source_set
+			.files
+			.iter()
+			.filter(|file| !excludes.matches_path(&file.path))
+			.cloned()
+			.collect(),
+		multi: source_set.multi,
+	}
 }
 
 fn check_source_set(
@@ -302,11 +334,22 @@ fn check_source_set(
 
 struct FileRequirementResolver {
 	root: PathBuf,
+	source_set: Option<environment::SourceFileSet>,
+	workspace_defs: OnceLock<Vec<DefRecord>>,
 }
 
 impl FileRequirementResolver {
-	fn new(root: PathBuf) -> Self {
-		Self { root }
+	fn new(root: PathBuf, source_set: Option<environment::SourceFileSet>) -> Self {
+		Self {
+			root,
+			source_set,
+			workspace_defs: OnceLock::new(),
+		}
+	}
+
+	fn workspace_defs(&self) -> &[DefRecord] {
+		self.workspace_defs
+			.get_or_init(|| collect_workspace_defs(self.source_set.as_ref()))
 	}
 }
 
@@ -342,6 +385,44 @@ impl check::RequirementResolver for FileRequirementResolver {
 			}
 		}
 		false
+	}
+
+	fn descendant_defs<'a>(&'a self, owner: &DefRecord, inner: &Domain) -> Vec<&'a DefRecord> {
+		self.workspace_defs()
+			.iter()
+			.filter(|def| {
+				def.moniker != owner.moniker
+					&& owner.moniker.is_ancestor_of(&def.moniker)
+					&& lazy_domain_matches(inner, def)
+			})
+			.collect()
+	}
+}
+
+fn collect_workspace_defs(source_set: Option<&environment::SourceFileSet>) -> Vec<DefRecord> {
+	let Some(source_set) = source_set else {
+		return Vec::new();
+	};
+	let mut defs = Vec::new();
+	for file in &source_set.files {
+		let Ok(source) = std::fs::read_to_string(&file.path) else {
+			continue;
+		};
+		let ctx = &source_set.roots[file.source].ctx;
+		let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
+		defs.extend(graph.defs().cloned());
+	}
+	defs
+}
+
+fn lazy_domain_matches(domain: &Domain, def: &DefRecord) -> bool {
+	match domain {
+		Domain::Children(kind) => def.kind.as_ref() == kind.as_bytes(),
+		Domain::ChildrenByShape(shape) => {
+			def.shape().is_some_and(|actual| actual.as_str() == shape)
+		}
+		Domain::Descendants(inner) => lazy_domain_matches(inner, def),
+		Domain::Pairs(_) | Domain::Segments | Domain::OutRefs | Domain::InRefs => false,
 	}
 }
 

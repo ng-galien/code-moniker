@@ -44,7 +44,7 @@
 
 ## Iteration
 
-- Inspect symbols: `/Users/alexandreboyer/.cargo/bin/code-moniker extract <file> --shape callable --limit 80`
+- Inspect symbols: `/Users/alexandreboyer/.cargo/bin/code-moniker extract . --path <file> --shape callable --limit 80`
 - Inspect stats: `/Users/alexandreboyer/.cargo/bin/code-moniker stats <file>`
 - Format touched Rust: `rustfmt --edition 2024 --config-path rustfmt.toml <files>`
 - Check rules: `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile <name> --max-violations <N>`
@@ -54,6 +54,11 @@
 - CLI test: `cargo test -p code-moniker --test cli_e2e <test_name>`
 - Extractor tests: focused language test, then relevant `cargo test -p code-moniker-core snapshot_<lang>`.
 - Docs-only validation: `git diff --check`
+
+When using `code-moniker extract` for project-local inspection, anchor on the
+workspace root (`.`) and filter with `--path <file>`. Do not run
+`code-moniker extract <file>` for this repo, because it changes the anchor
+moniker and can produce symbol paths that differ from project/index checks.
 
 ## Review Gates
 

@@ -131,7 +131,7 @@ fn collect_pair_projection(
 	b: DomainItem<'_>,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Vec<Value> {
-	let DomainItem::Def { idx, .. } = (match projection.side {
+	let DomainItem::Def { idx: Some(idx), .. } = (match projection.side {
 		PairSide::A => a,
 		PairSide::B => b,
 	}) else {
@@ -149,6 +149,7 @@ fn project_item_path(item: DomainItem<'_>, path: &[String], ctx: &EvalCtx<'_, '_
 		DomainItem::Def { idx, def } => {
 			if let Some((head, tail)) = path.split_first()
 				&& let Some(domain) = nested_domain(head)
+				&& let Some(idx) = idx
 			{
 				let mut values = Vec::new();
 				for nested in domain_items(&domain, idx, ctx) {

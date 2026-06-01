@@ -25,6 +25,7 @@ mcp_tools = """
   OR source ~ '**/module:mcp/module:tools/**'
   OR source ~ '**/lang:rs/dir:tools/**'
 """
+mcp_tools_root_def = "uri ~ '**/module:mcp/module:tools'"
 mcp_tests = """
   source ~ '**/module:mcp/module:tests'
   OR source ~ '**/module:mcp/module:tests/**'
@@ -41,6 +42,24 @@ workspace_runtime_target = """
 """
 shared_index_contract_target = "target ~ '**/module:workspace_index/**'"
 http_runtime_target = "target ~ '**/path:/^(TcpListener|JoinHandle)$/'"
+
+[[rust.module.where]]
+id       = "mcp-tools-avoid-duplicate-descendant-fn-names"
+severity = "warn"
+expr     = """
+  $mcp_tools_root_def
+  => count(
+       pairs(descendants(fn)),
+       a.name = b.name AND a.parent != b.parent
+     ) = 0
+"""
+message  = "MCP tool modules contain duplicate descendant `fn` names across nested owners."
+rationale = """
+Sibling tool modules should not grow parallel private helpers with the same function names.
+Duplicate names inside one owner are allowed for language patterns, but duplicates across owners
+usually indicate a shared helper boundary or intentionally mirrored protocol shape that should
+be documented.
+"""
 
 [[refs.where]]
 id       = "mcp-server-owns-runtime-wiring"

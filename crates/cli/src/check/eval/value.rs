@@ -126,6 +126,7 @@ pub(super) fn render_number_expr(expr: &NumberExpr) -> String {
 		NumberExpr::Count { domain, .. } => match domain {
 			Domain::Children(kind) => format!("count({kind})"),
 			Domain::ChildrenByShape(shape) => format!("count(shape:{shape})"),
+			Domain::Descendants(inner) => format!("count(descendants({}))", domain_label(inner)),
 			Domain::Pairs(inner) => format!("count(pairs({}))", domain_label(inner)),
 			Domain::Segments => "count(segment)".to_string(),
 			Domain::OutRefs => "count(out_refs)".to_string(),
@@ -184,6 +185,7 @@ fn domain_label(domain: &Domain) -> String {
 	match domain {
 		Domain::Children(kind) => kind.clone(),
 		Domain::ChildrenByShape(shape) => format!("shape:{shape}"),
+		Domain::Descendants(inner) => format!("descendants({})", domain_label(inner)),
 		Domain::Pairs(inner) => format!("pairs({})", domain_label(inner)),
 		Domain::Segments => "segment".to_string(),
 		Domain::OutRefs => "out_refs".to_string(),

@@ -17,8 +17,12 @@ pub(crate) use config::{Config, RuleSeverity, load_with_cli_default_rules};
 #[cfg(test)]
 pub(crate) use eval::evaluate;
 pub(crate) use eval::{
-	CompiledRuleSpec, CompiledRules, RequirementResolver, RuleReport, Violation, compile_rules,
-	evaluate_compiled, evaluate_compiled_with_requirements, rule_report_compiled,
+	CompiledRuleSpec, CompiledRules, RuleReport, Violation, compile_rules, evaluate_compiled,
+	rule_report_compiled,
+};
+pub(in crate::check) use eval::{
+	RequirementResolver, evaluate_compiled_with_requirements,
+	rule_report_compiled_with_requirements,
 };
 pub(crate) use exclude::UriExclusionMatcher;
 pub(crate) use suppress::apply as apply_suppressions;

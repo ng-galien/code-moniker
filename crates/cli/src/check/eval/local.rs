@@ -1,5 +1,6 @@
 use crate::check::expr::{AggregateKind, Domain, DomainValueExpr, Lhs, NumberExpr, ValueExpr};
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
+use std::collections::HashSet;
 
 use super::value::{Value, mode_value, value_counts};
 use super::{
@@ -49,11 +50,15 @@ fn collect_domain_numbers(
 	let mut values = Vec::new();
 	for item in domain_items(domain, def_idx, ctx) {
 		match item {
-			DomainItem::Def { idx, def } => {
+			DomainItem::Def {
+				idx: Some(idx),
+				def,
+			} => {
 				if let Some(value) = eval_number_expr_def(expr, def, idx, self_idx, ctx) {
 					values.push(value);
 				}
 			}
+			DomainItem::Def { idx: None, .. } => {}
 			DomainItem::Ref { record } => {
 				if let Some(value) = eval_number_expr_ref(expr, record, ctx) {
 					values.push(value);
@@ -155,9 +160,17 @@ fn normalized_entropy(values: &[Value]) -> Option<f64> {
 
 #[derive(Clone, Copy)]
 pub(super) enum DomainItem<'a> {
-	Def { idx: usize, def: &'a DefRecord },
-	Ref { record: &'a RefRecord },
-	Segment { kind: &'a [u8], name: &'a [u8] },
+	Def {
+		idx: Option<usize>,
+		def: &'a DefRecord,
+	},
+	Ref {
+		record: &'a RefRecord,
+	},
+	Segment {
+		kind: &'a [u8],
+		name: &'a [u8],
+	},
 }
 
 pub(super) fn domain_items<'a>(
@@ -173,7 +186,10 @@ pub(super) fn domain_items<'a>(
 			.flatten()
 			.filter_map(|idx| {
 				let def = ctx.graph.def_at(*idx);
-				(def.kind.as_ref() == kind.as_bytes()).then_some(DomainItem::Def { idx: *idx, def })
+				(def.kind.as_ref() == kind.as_bytes()).then_some(DomainItem::Def {
+					idx: Some(*idx),
+					def,
+				})
 			})
 			.collect(),
 		Domain::ChildrenByShape(shape) => ctx
@@ -183,9 +199,13 @@ pub(super) fn domain_items<'a>(
 			.flatten()
 			.filter_map(|idx| {
 				let def = ctx.graph.def_at(*idx);
-				def_has_shape(def, shape).then_some(DomainItem::Def { idx: *idx, def })
+				def_has_shape(def, shape).then_some(DomainItem::Def {
+					idx: Some(*idx),
+					def,
+				})
 			})
 			.collect(),
+		Domain::Descendants(inner) => descendant_items(inner, def_idx, ctx),
 		Domain::Pairs(_) => Vec::new(),
 		Domain::Segments => ctx
 			.graph
@@ -221,6 +241,47 @@ pub(super) fn domain_items<'a>(
 	}
 }
 
+fn descendant_items<'a>(
+	inner: &Domain,
+	def_idx: usize,
+	ctx: &'a EvalCtx<'_, '_>,
+) -> Vec<DomainItem<'a>> {
+	let root = &ctx.graph.def_at(def_idx).moniker;
+	let mut seen = HashSet::new();
+	let mut items: Vec<_> = ctx
+		.graph
+		.defs()
+		.enumerate()
+		.filter(|(idx, def)| {
+			*idx != def_idx && root.is_ancestor_of(&def.moniker) && def_matches_domain(inner, def)
+		})
+		.map(|(idx, def)| {
+			seen.insert(def.moniker.as_bytes().to_vec());
+			DomainItem::Def {
+				idx: Some(idx),
+				def,
+			}
+		})
+		.collect();
+	if let Some(requirements) = ctx.requirements {
+		let owner = ctx.graph.def_at(def_idx);
+		for def in requirements.descendant_defs(owner, inner) {
+			if seen.insert(def.moniker.as_bytes().to_vec()) && def_matches_domain(inner, def) {
+				items.push(DomainItem::Def { idx: None, def });
+			}
+		}
+	}
+	items
+}
+
+fn def_matches_domain(domain: &Domain, def: &DefRecord) -> bool {
+	match domain {
+		Domain::Children(kind) => def.kind.as_ref() == kind.as_bytes(),
+		Domain::ChildrenByShape(shape) => def_has_shape(def, shape),
+		_ => false,
+	}
+}
+
 fn collect_domain_values(
 	collection: &DomainValueExpr,
 	def_idx: usize,
@@ -246,9 +307,11 @@ fn eval_domain_value_item(
 		ValueExpr::Item => project_item_value(item, ctx),
 		ValueExpr::Projection(lhs) => project_lhs_value(item, *lhs, ctx),
 		ValueExpr::Number(expr) => match item {
-			DomainItem::Def { idx, def } => {
-				eval_number_expr_def(expr, def, idx, self_idx, ctx).map(Value::Number)
-			}
+			DomainItem::Def {
+				idx: Some(idx),
+				def,
+			} => eval_number_expr_def(expr, def, idx, self_idx, ctx).map(Value::Number),
+			DomainItem::Def { idx: None, .. } => None,
 			DomainItem::Ref { record } => {
 				eval_number_expr_ref(expr, record, ctx).map(Value::Number)
 			}
@@ -271,7 +334,7 @@ pub(super) fn project_lhs_value(
 	ctx: &EvalCtx<'_, '_>,
 ) -> Option<Value> {
 	match item {
-		DomainItem::Def { def, .. } => resolve_def_lhs(lhs, def, ctx),
+		DomainItem::Def { idx, def } => project_def_lhs_value(idx, def, lhs, ctx),
 		DomainItem::Ref { record } => resolve_ref_lhs(lhs, record, ctx),
 		DomainItem::Segment { kind, name } => match lhs {
 			Lhs::Kind | Lhs::SegmentKind => {
@@ -283,4 +346,23 @@ pub(super) fn project_lhs_value(
 			_ => None,
 		},
 	}
+}
+
+pub(super) fn project_def_lhs_value(
+	idx: Option<usize>,
+	def: &DefRecord,
+	lhs: Lhs,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<Value> {
+	if idx.is_none() && source_dependent_lhs(lhs) {
+		return None;
+	}
+	resolve_def_lhs(lhs, def, ctx)
+}
+
+fn source_dependent_lhs(lhs: Lhs) -> bool {
+	matches!(
+		lhs,
+		Lhs::Lines | Lhs::StartLine | Lhs::EndLine | Lhs::StartByte | Lhs::EndByte | Lhs::Text
+	)
 }

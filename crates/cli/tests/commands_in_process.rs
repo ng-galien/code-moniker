@@ -1006,6 +1006,162 @@ fn check_project_path_in_moniker_gates_a_rule() {
 }
 
 #[test]
+fn check_project_descendants_domain_resolves_cross_file_defs_lazily() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(dir.path(), "src/tools/mod.rs", "mod read;\nmod symbols;\n");
+	write_under(dir.path(), "src/tools/read.rs", "fn same_helper() {}\n");
+	write_under(dir.path(), "src/tools/symbols.rs", "fn same_helper() {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[rust.module.where]]
+		id       = "duplicate-descendant-fns"
+		severity = "warn"
+		expr     = """
+		  uri ~ '**/dir:src/module:tools'
+		  => count(
+		       pairs(descendants(fn)),
+		       a.name = b.name AND a.parent != b.parent
+		     ) = 0
+		"""
+		message  = "duplicate descendant function names"
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--default-rules",
+		"off",
+		"--max-violations",
+		"10",
+		"--report",
+	]);
+	assert_eq!(
+		exit,
+		Exit::Match,
+		"warn-only rule should not fail: {out}\n{err}"
+	);
+	assert!(out.contains("src/tools/mod.rs"), "{out}");
+	assert!(out.contains("duplicate-descendant-fns"), "{out}");
+	assert!(
+		out.contains("count = 1"),
+		"one cross-file duplicate pair should violate: {out}"
+	);
+	assert!(
+		out.contains("rust.module.duplicate-descendant-fns: domain=module")
+			&& out.contains("violations=1"),
+		"report should use the same lazy resolver as violation evaluation: {out}"
+	);
+}
+
+#[test]
+fn check_project_file_filter_descendants_still_use_project_wide_lazy_defs() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(dir.path(), "src/tools/mod.rs", "mod read;\nmod symbols;\n");
+	write_under(dir.path(), "src/tools/read.rs", "fn same_helper() {}\n");
+	write_under(dir.path(), "src/tools/symbols.rs", "fn same_helper() {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[rust.module.where]]
+		id       = "duplicate-descendant-fns"
+		severity = "warn"
+		expr     = """
+		  uri ~ '**/dir:src/module:tools'
+		  => count(
+		       pairs(descendants(fn)),
+		       a.name = b.name AND a.parent != b.parent
+		     ) = 0
+		"""
+		message  = "duplicate descendant function names"
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--default-rules",
+		"off",
+		"--file",
+		"src/tools/mod.rs",
+	]);
+	assert_eq!(
+		exit,
+		Exit::Match,
+		"warn-only rule should not fail: {out}\n{err}"
+	);
+	assert!(out.contains("src/tools/mod.rs"), "{out}");
+	assert!(out.contains("count = 1"), "{out}");
+}
+
+#[test]
+fn check_project_descendants_respect_excluded_files() {
+	let dir = tempfile::tempdir().expect("tmpdir");
+	write_under(dir.path(), "src/tools/mod.rs", "mod read;\nmod symbols;\n");
+	write_under(dir.path(), "src/tools/read.rs", "fn same_helper() {}\n");
+	write_under(dir.path(), "src/tools/symbols.rs", "fn same_helper() {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[exclude]
+		uris = ["**/src/tools/symbols.rs"]
+
+		[[rust.module.where]]
+		id       = "duplicate-descendant-fns"
+		severity = "warn"
+		expr     = """
+		  uri ~ '**/dir:src/module:tools'
+		  => count(
+		       pairs(descendants(fn)),
+		       a.name = b.name AND a.parent != b.parent
+		     ) = 0
+		"""
+		message  = "duplicate descendant function names"
+		"#,
+	)
+	.unwrap();
+
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		dir.path().to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--default-rules",
+		"off",
+		"--max-violations",
+		"10",
+	]);
+	assert_eq!(
+		exit,
+		Exit::Match,
+		"warn-only rule should not fail: {out}\n{err}"
+	);
+	assert!(
+		!out.contains("duplicate-descendant-fns"),
+		"excluded file should not contribute lazy descendant defs: {out}"
+	);
+}
+
+#[test]
 fn check_project_file_filter_checks_only_touched_files_with_project_anchors() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	std::fs::create_dir(dir.path().join("strict")).unwrap();

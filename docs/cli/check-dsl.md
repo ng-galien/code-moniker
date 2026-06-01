@@ -145,6 +145,7 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
 <item_domain> ::=
     <kind>
   | shape:<shape>
+  | descendants( <kind> | shape:<shape> )
   | segment
   | out_refs
   | in_refs
@@ -249,11 +250,15 @@ to override.
 `<item_domain>`
 : A collection of concrete local graph items.
   `<kind>` means direct child defs of that kind. `shape:<shape>` means
-  direct child defs whose kind maps to the canonical shape. `segment` means
-  moniker segments. `out_refs` and `in_refs` mean refs whose source or
-  target is the current def. Aggregates, domain-value expressions, and
-  collection projections use item domains; `pairs(D)` is only valid for
-  `count`, `any`, `all`, and `none`.
+  direct child defs whose kind maps to the canonical shape.
+  `descendants(D)` walks strict descendant defs matching a kind or shape
+  domain, which lets combinators such as `pairs(descendants(fn))` reason across
+  nested scopes. In project checks, descendant domains may ask the existing lazy
+  resolver for matching defs outside the current file graph. `segment` means
+  moniker segments. `out_refs` and `in_refs` mean refs whose source or target is
+  the current def. Aggregates, domain-value expressions, and collection
+  projections use item domains; `pairs(D)` is only valid for `count`, `any`,
+  `all`, and `none`.
 
 `<metric_name>`
 : One of the local named metrics. `self` binds to the rule's owner def.

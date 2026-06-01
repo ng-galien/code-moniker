@@ -1340,6 +1340,57 @@ fn pair_count_detects_duplicate_method_names() {
 }
 
 #[test]
+fn descendants_domain_supports_pairwise_duplicate_checks() {
+	let cfg = cfg_from(
+		r#"
+		[[ts.module.where]]
+		id   = "no-duplicate-descendant-callables"
+		expr = """
+		  name != 'root'
+		  OR count(
+		    pairs(descendants(shape:callable)),
+		    a.name = b.name AND a.parent != b.parent
+		  ) = 0
+		"""
+		"#,
+	);
+	let root = build_module(b"root");
+	let mut g = CodeGraph::new(root.clone(), b"module");
+	let left = child(&root, b"module", b"left");
+	let right = child(&root, b"module", b"right");
+	g.add_def(left.clone(), b"module", &root, Some((0, 20)))
+		.unwrap();
+	g.add_def(right.clone(), b"module", &root, Some((21, 40)))
+		.unwrap();
+	g.add_def(
+		child(&left, b"function", b"run()"),
+		b"function",
+		&left,
+		Some((1, 5)),
+	)
+	.unwrap();
+	g.add_def(
+		child(&left, b"function", b"local_only()"),
+		b"function",
+		&left,
+		Some((6, 10)),
+	)
+	.unwrap();
+	g.add_def(
+		child(&right, b"function", b"run(input)"),
+		b"function",
+		&right,
+		Some((22, 30)),
+	)
+	.unwrap();
+
+	let v = evaluate(&g, "", Lang::Ts, &cfg, SCHEME).unwrap();
+	assert_eq!(v.len(), 1, "root sees duplicate descendant names: {v:?}");
+	assert_eq!(v[0].rule_id, "ts.module.no-duplicate-descendant-callables");
+	assert!(v[0].moniker.contains("module:root"));
+}
+
+#[test]
 fn pair_quantifier_binds_self_to_owner() {
 	let cfg = cfg_from(
 		r#"

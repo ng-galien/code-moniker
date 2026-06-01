@@ -327,6 +327,7 @@ pub(in crate::check) enum SegmentScope {
 pub(in crate::check) enum Domain {
 	Children(String),
 	ChildrenByShape(String),
+	Descendants(Box<Domain>),
 	Pairs(Box<Domain>),
 	Segments,
 	OutRefs,

@@ -71,6 +71,9 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 	if cursor::starts_with(&state, "pairs(") {
 		return parse_pair_domain(state);
 	}
+	if cursor::starts_with(&state, "descendants(") {
+		return parse_descendants_domain(state);
+	}
 	let start = cursor::position(&state);
 	let (domain_ident, state) = cursor::take_domain_ident(state);
 	if domain_ident.is_empty() {
@@ -112,12 +115,38 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 	Ok((domain, state))
 }
 
+fn parse_descendants_domain<'a>(state: ParserState<'a>) -> ParseResult<'a, Domain> {
+	let state = cursor::advance(state, "descendants(".len());
+	let state = cursor::skip_ws(state);
+	let (inner, state) = parse_domain_ident(state)?;
+	if !matches!(inner, Domain::Children(_) | Domain::ChildrenByShape(_)) {
+		return Err(ParseError::BadExpr {
+			expr: cursor::raw(&state).to_string(),
+			msg: "`descendants(...)` accepts def domains only".to_string(),
+		});
+	}
+	let state = cursor::skip_ws(state);
+	if cursor::peek_byte(&state) != Some(b')') {
+		return Err(cursor::bail(
+			&state,
+			format!(
+				"missing `)` for `descendants(...)` at byte {}",
+				cursor::position(&state)
+			),
+		));
+	}
+	Ok((
+		Domain::Descendants(Box::new(inner)),
+		cursor::advance(state, 1),
+	))
+}
+
 pub(super) fn reject_pair_domain(
 	state: &ParserState<'_>,
 	domain: &Domain,
 	context: &str,
 ) -> Result<(), ParseError> {
-	if matches!(domain, Domain::Pairs(_)) {
+	if contains_pair_domain(domain) {
 		return Err(ParseError::BadExpr {
 			expr: cursor::raw(state).to_string(),
 			msg: format!(
@@ -126,4 +155,12 @@ pub(super) fn reject_pair_domain(
 		});
 	}
 	Ok(())
+}
+
+fn contains_pair_domain(domain: &Domain) -> bool {
+	match domain {
+		Domain::Pairs(_) => true,
+		Domain::Descendants(inner) => contains_pair_domain(inner),
+		_ => false,
+	}
 }
