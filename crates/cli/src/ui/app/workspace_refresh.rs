@@ -1,12 +1,12 @@
 use std::time::Instant;
 
-use crate::perf;
 use crate::ui::app::{
 	ActiveFilter, App, ShellAction, queue_task, refresh_results, select_first_change,
 	sync_contextual_view,
 };
 use crate::ui::async_task::TaskSpec;
 use crate::ui::live::StoreEvent;
+use crate::ui::perf;
 use crate::ui::store::navigation::{NavigationAction, navigation_primary_view};
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
 use crate::ui::workspace_read;

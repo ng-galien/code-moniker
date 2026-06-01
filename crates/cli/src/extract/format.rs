@@ -4,9 +4,9 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use super::{MatchSet, RefMatch};
 use crate::args::{ExtractArgs, MonikerFormat};
 use crate::color::resolve_color;
-use crate::extract::{MatchSet, RefMatch};
 use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::kinds::KIND_COMMENT;

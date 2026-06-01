@@ -4,8 +4,8 @@ fragment = "cli-mcp"
 mcp_root = """
   source ~ '**/module:mcp'
   OR source ~ '**/module:mcp/**'
-  OR source ~ '**/lang:rs/module:/^(context|lmnav|mod|server|tests)$/'
-  OR source ~ '**/lang:rs/module:/^(context|lmnav|mod|server|tests)$/**'
+  OR source ~ '**/lang:rs/module:/^(context|mod|server|tests)$/'
+  OR source ~ '**/lang:rs/module:/^(context|mod|server|tests)$/**'
   OR source ~ '**/lang:rs/dir:tools/**'
 """
 mcp_server = """

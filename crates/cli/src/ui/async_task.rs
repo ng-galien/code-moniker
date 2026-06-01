@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use crate::perf;
 use crate::session::{CheckSummary, SessionOptions};
+use crate::ui::perf;
 use crate::ui::workspace_read::{
 	self, LocalWorkspaceRegistry, WorkspaceCheckContext, load_local_file_catalog,
 	load_local_symbol_index, load_local_symbol_index_from_catalog, resolve_local_linkage,

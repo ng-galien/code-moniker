@@ -1,64 +1,33 @@
 # CLI/MCP Single-Consumer Modules
 
-## CLI Top-Level Modules
+Status: handled on 2026-06-01.
 
-Modules from `crates/cli/src/lib.rs` consumed by exactly one other top-level module:
+## Folded Modules
 
-- `format` -> `extract`
-- `perf` -> `ui`
-- `ui` -> `ui_command`
-- `views` -> `mcp`
+These modules were single-consumer implementation details and have been moved
+under their consumers:
 
-Entrypoint modules with no internal top-level consumer outside `lib.rs` dispatch:
+- `crates/cli/src/format.rs` -> `crates/cli/src/extract/format.rs`
+- `crates/cli/src/perf.rs` -> `crates/cli/src/ui/perf.rs`
 
-- `harness`
-- `langs`
-- `manifest`
-- `mcp_command`
-- `rules`
-- `shapes`
-- `stats`
-- `ui_command`
+The MCP `lmnav` module had only one helper for server error rendering. It was
+folded into `crates/cli/src/mcp/server.rs`.
 
-Shared top-level modules:
+## Deliberately Top-Level
 
-- `args`
-- `check`
-- `color`
-- `extract`
-- `glob`
-- `language_kinds`
-- `mcp`
-- `moniker_render`
-- `page`
-- `session`
-- `tree`
-- `workspace_index`
+These were reviewed and kept as top-level modules because the module boundary
+is intentional:
 
-## MCP Top-Level Modules
+- `ui` stays top-level. `ui_command` is only the CLI dispatch surface; `ui`
+  owns the TUI shell, app state, reducers, runtime, rendering, and workspace
+  read model.
+- `views` stays top-level. Its fragment says the view DSL must stay independent
+  from MCP and TUI renderers, even though MCP is the current consumer.
+- Entrypoint modules such as `harness`, `langs`, `manifest`, `mcp_command`,
+  `rules`, `shapes`, `stats`, and `ui_command` stay top-level command modules.
+- MCP `context` and `tools` stay separate because they are shared across server,
+  tool implementations, command wiring, and tests.
+- MCP tool implementation modules (`read`, `rules`, `symbols`, `usages`) stay
+  registered by `tools/mod.rs`; `scope` remains shared support for those tools.
 
-Modules from `crates/cli/src/mcp/mod.rs` consumed by exactly one MCP top-level module:
-
-- `lmnav` -> `server`
-
-MCP modules with localized but multi-module use:
-
-- `context` -> `server`, `tools`, `mcp_command`, tests
-- `tools` -> `server`, tests
-
-MCP runtime surface:
-
-- `server::router` -> `mcp_command`
-
-## MCP Tools Submodules
-
-Tool implementation modules are registered by `tools/mod.rs`:
-
-- `read`
-- `rules`
-- `symbols`
-- `usages`
-
-Shared MCP tool support:
-
-- `scope` -> `read`, `rules`, `symbols`, `usages`, tests
+No remaining item in this note is an open refactoring task.

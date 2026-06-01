@@ -129,6 +129,13 @@ pub(crate) enum RuleSeverity {
 }
 
 impl RuleSeverity {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Warn => "warn",
+			Self::Error => "error",
+		}
+	}
+
 	pub fn is_error(self) -> bool {
 		matches!(self, Self::Error)
 	}

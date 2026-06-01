@@ -5,7 +5,6 @@ pub(crate) mod args;
 pub(crate) mod check;
 pub(crate) mod color;
 pub(crate) mod extract;
-pub(crate) mod format;
 pub(crate) mod glob;
 pub(crate) mod harness;
 pub(crate) mod langs;
@@ -17,8 +16,6 @@ pub(crate) mod mcp;
 pub(crate) mod mcp_command;
 pub(crate) mod moniker_render;
 pub(crate) mod page;
-#[cfg(feature = "tui")]
-pub(crate) mod perf;
 pub(crate) mod rules;
 #[cfg(any(feature = "tui", feature = "mcp"))]
 pub(crate) mod session;

@@ -14,32 +14,16 @@ use crate::args::UiArgs;
 use crate::session::SessionOptions;
 
 use super::{EventSource, ShellEvent};
-use crate::perf;
 use crate::ui::app::{
 	App, AppAction, boot_app, handle_key, queue_startup_load, set_event_sender,
 	take_watch_roots_update, update,
 };
 use crate::ui::live::StoreEvent;
+use crate::ui::perf;
 use crate::ui::render::view;
 
 pub(crate) struct UiSession {
 	app: App,
-	options: SessionOptions,
-	scheme: String,
-}
-
-impl UiSession {
-	pub(crate) fn options(&self) -> &SessionOptions {
-		&self.options
-	}
-
-	pub(crate) fn scheme(&self) -> &str {
-		&self.scheme
-	}
-
-	pub(crate) fn shared_workspace_index(&self) -> crate::workspace_index::SharedWorkspaceIndex {
-		crate::ui::app::shared_workspace_index(&self.app)
-	}
 }
 
 pub(crate) fn boot(args: &UiArgs) -> UiSession {
@@ -55,11 +39,7 @@ pub(crate) fn boot(args: &UiArgs) -> UiSession {
 		args.rules.clone(),
 		args.profile.clone(),
 	);
-	UiSession {
-		app,
-		options: opts,
-		scheme,
-	}
+	UiSession { app }
 }
 
 pub(crate) fn run_session<W: Write>(stdout: &mut W, session: UiSession) -> anyhow::Result<()> {

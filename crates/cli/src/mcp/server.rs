@@ -14,7 +14,6 @@ use rmcp::{ErrorData as McpError, ServerHandler};
 use serde_json::Value;
 
 use super::context::McpContext;
-use super::lmnav;
 use super::tools::{ToolRegistry, ToolResult};
 
 pub(crate) fn router(context: McpContext) -> axum::Router<()> {
@@ -125,11 +124,17 @@ fn call_result(
 				.get("uri")
 				.and_then(Value::as_str)
 				.unwrap_or("workspace");
-			CallToolResult::error(vec![Content::text(lmnav::problem(
+			CallToolResult::error(vec![Content::text(problem_lmnav(
 				uri,
 				name,
 				&error.to_string(),
 			))])
 		}
 	}
+}
+
+fn problem_lmnav(uri: &str, tool: &str, message: &str) -> String {
+	format!(
+		"uri: {uri}\ncompleteness: partial (error)\n\nproblem: {message}\nwhere: {tool}\nfix_hint: retry with a supported URI and bounded arguments\n"
+	)
 }

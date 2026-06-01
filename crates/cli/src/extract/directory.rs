@@ -7,7 +7,6 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::args::{ExtractArgs, OutputFormat, OutputMode};
-use crate::format;
 use crate::glob::FilePathFilter;
 use crate::language_kinds;
 use crate::page::{PageInfo, PageSpec};
@@ -17,6 +16,7 @@ use code_moniker_core::lang::Lang;
 use code_moniker_workspace::environment::{self, SourceFile, SourceFileSet};
 
 use super::filter::{self, MatchSet, Predicate, RefMatch};
+use super::format;
 
 pub fn run<W1: Write, W2: Write>(
 	args: &ExtractArgs,

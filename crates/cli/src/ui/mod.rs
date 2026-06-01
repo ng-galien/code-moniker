@@ -10,6 +10,7 @@ mod events;
 mod explorer;
 mod live;
 mod panel;
+mod perf;
 mod render;
 mod shell;
 mod store;

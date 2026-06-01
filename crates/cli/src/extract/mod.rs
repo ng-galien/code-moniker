@@ -8,10 +8,11 @@ use code_moniker_core::core::moniker::Moniker;
 use code_moniker_workspace::environment;
 
 use crate::args::{ExtractArgs, OutputFormat, OutputMode};
-use crate::{Exit, format, language_kinds, page, path_to_lang};
+use crate::{Exit, language_kinds, page, path_to_lang};
 
 mod directory;
 pub(crate) mod filter;
+mod format;
 
 pub use filter::{MatchSet, Predicate, RefMatch};
 

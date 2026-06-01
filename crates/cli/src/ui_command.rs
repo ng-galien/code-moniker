@@ -15,7 +15,7 @@ pub(crate) fn run<W1: Write, W2: Write>(args: &UiArgs, stdout: &mut W1, stderr: 
 fn run_inner<W1: Write, W2: Write>(
 	args: &UiArgs,
 	stdout: &mut W1,
-	stderr: &mut W2,
+	_stderr: &mut W2,
 ) -> anyhow::Result<()> {
 	let session = ui::boot(args);
 	ui::run_session(session, stdout)

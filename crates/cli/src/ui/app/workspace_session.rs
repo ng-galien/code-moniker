@@ -43,10 +43,6 @@ impl WorkspaceSession {
 		&self.options
 	}
 
-	pub(in crate::ui) fn shared_index(&self) -> SharedWorkspaceIndex {
-		self.index.clone()
-	}
-
 	pub(in crate::ui) fn replace(
 		&mut self,
 		store: LocalWorkspaceRegistry,

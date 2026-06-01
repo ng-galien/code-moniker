@@ -1,5 +1,4 @@
 mod context;
-mod lmnav;
 mod server;
 mod tools;
 

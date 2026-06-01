@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use crate::perf;
 use crate::session::{SessionOptions, StoreWatchRoot};
 use crate::ui::events::UiMode;
+use crate::ui::perf;
 use crate::ui::shell::ShellEvent;
 use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
@@ -185,12 +185,6 @@ pub(in crate::ui) fn store_check_context(
 	app: &App,
 ) -> anyhow::Result<crate::ui::workspace_read::WorkspaceCheckContext> {
 	workspace_check_context(store(app), app.workspace.cache())
-}
-
-pub(in crate::ui) fn shared_workspace_index(
-	app: &App,
-) -> crate::workspace_index::SharedWorkspaceIndex {
-	app.workspace.shared_index()
 }
 
 pub(in crate::ui) fn publish_workspace_snapshot(app: &App) {
