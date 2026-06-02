@@ -461,6 +461,7 @@ fn render_nav_block(
 pub(in crate::ui) fn nav_row_line(row: &NavRowVm, selected: bool) -> Line<'static> {
 	let mut spans = tree::prefix_spans(row.depth, row.has_children, row.expanded, Some(selected));
 	push_view_marker(row, &mut spans);
+	push_note_marker(row, &mut spans);
 	match &row.kind {
 		NavRowVmKind::Lang => {
 			let label = if row.has_children {
@@ -570,6 +571,18 @@ pub(in crate::ui) fn nav_row_line(row: &NavRowVm, selected: bool) -> Line<'stati
 		NavRowVmKind::Change(None) | NavRowVmKind::Root => {}
 	}
 	Line::from(spans)
+}
+
+fn push_note_marker(row: &NavRowVm, spans: &mut Vec<Span<'static>>) {
+	let Some(marker) = &row.note_marker else {
+		return;
+	};
+	spans.push(Span::styled(
+		format!("{marker} "),
+		Style::default()
+			.fg(THEME.change_modified)
+			.add_modifier(Modifier::BOLD),
+	));
 }
 
 fn push_view_row_spans(row: &NavRowVm, scope: &str, spans: &mut Vec<Span<'static>>) {

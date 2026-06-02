@@ -427,6 +427,7 @@ fn outline_panel(app: &App) -> PanelVm {
 	let detail = workspace_read::symbol_detail(crate::ui::app::store(app), &loc);
 	let symbol = &detail.symbol;
 	let mut vm = PanelVm::new("outline", ComponentId::PanelOutline).unwrapped();
+	push_selected_notes(&mut vm, app, &symbol.identity);
 	panel_section(&mut vm, "selected");
 	panel_kv(&mut vm, "kind", symbol.kind.clone(), FitMode::Tail);
 	panel_kv(&mut vm, "name", symbol.name.clone(), FitMode::Middle);
@@ -475,6 +476,53 @@ fn outline_panel(app: &App) -> PanelVm {
 		panel_source_snippet(&mut vm, snippet);
 	}
 	vm
+}
+
+fn push_selected_notes(vm: &mut PanelVm, app: &App, moniker: &str) {
+	let notes = notes_for_moniker(app, moniker);
+	if notes.is_empty() {
+		return;
+	}
+	panel_section(vm, "notes");
+	for note in notes {
+		panel_bullet(
+			vm,
+			format!(
+				"{} {}  {}",
+				note.status.as_str(),
+				note.kind.as_str(),
+				note.title
+			),
+		);
+		for line in note.body.lines().take(6) {
+			panel_muted(vm, format!("  {line}"));
+		}
+	}
+	panel_blank(vm);
+}
+
+fn notes_for_moniker(app: &App, moniker: &str) -> Vec<crate::notes::model::Note> {
+	let Ok(root) =
+		crate::notes::store::notes_root_for_paths(&crate::ui::app::store_options(app).paths)
+	else {
+		return Vec::new();
+	};
+	let Ok(store) = crate::notes::store::NotesStore::load(&root) else {
+		return Vec::new();
+	};
+	let mut notes = store
+		.notes()
+		.iter()
+		.filter(|note| note.moniker == moniker)
+		.cloned()
+		.collect::<Vec<_>>();
+	notes.sort_by(|left, right| {
+		left.status
+			.cmp(&right.status)
+			.then_with(|| left.updated_at.cmp(&right.updated_at).reverse())
+			.then_with(|| left.id.cmp(&right.id))
+	});
+	notes
 }
 
 fn nav_selection_panel(app: &App) -> PanelVm {

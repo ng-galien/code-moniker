@@ -295,6 +295,26 @@ fn views_lens_marks_tree_nodes_and_tracks_selection() {
 }
 
 #[test]
+fn notes_on_selected_symbol_are_visible_in_navigator_and_outline() {
+	let (mut harness, fixture) = load_notes_fixture();
+	harness.search("App");
+	let moniker = selected_symbol_identity(&harness.app);
+	write_note_fixture(&fixture, &moniker);
+	let notes = crate::notes::store::NotesStore::load(&fixture).expect("load notes");
+	assert_eq!(notes.notes().len(), 1);
+	assert_eq!(notes.notes()[0].moniker, moniker);
+
+	let screen = harness.render_text(120, 32);
+
+	assert_visible(&screen, "[!1]");
+	assert_visible(&screen, "notes");
+	assert_visible(&screen, "pending todo  Check App");
+	assert_visible(&screen, "Agent should inspect App before editing.");
+	assert_visible(&screen, "selected");
+	assert_visible(&screen, "moniker");
+}
+
+#[test]
 fn multiproject_header_search_filters_visible_symbols() {
 	let mut harness = TuiAcceptance::load_multiproject();
 
@@ -525,9 +545,60 @@ fn load_rust_module_reexport_fixture() -> TuiAcceptance {
 	}
 }
 
+fn load_notes_fixture() -> (TuiAcceptance, PathBuf) {
+	let cache_dir = tempfile::tempdir().expect("cache dir");
+	let fixture = cache_dir.path().join("fixture");
+	write_under(&fixture, "src/main/java/App.java", "class App {}\n");
+	let opts = SessionOptions {
+		paths: vec![fixture.clone()],
+		project: Some("notes-fixture".to_string()),
+		cache_dir: Some(cache_dir.path().to_path_buf()),
+	};
+	let (store, cache) = load_local_workspace(&opts).expect("load notes fixture");
+	let app = new_app(
+		store,
+		cache,
+		opts,
+		app_config(fixture.join(".code-moniker.toml"), None, false),
+	);
+	(
+		TuiAcceptance {
+			app,
+			_cache_dir: cache_dir,
+		},
+		fixture,
+	)
+}
+
 fn write_rust_module_reexport_fixture(fixture: &Path) {
 	write_under(fixture, "src/lib.rs", "pub mod api;\n");
 	write_under(fixture, "src/api.rs", "pub struct Api;\n");
+}
+
+fn write_note_fixture(fixture: &Path, moniker: &str) {
+	write_under(
+		fixture,
+		".code-moniker/notes.toml",
+		&format!(
+			r#"
+			[[notes]]
+			id = "note_app"
+			moniker = "{moniker}"
+			kind = "todo"
+			status = "pending"
+			title = "Check App"
+			body = "Agent should inspect App before editing."
+			created_by = "user"
+			created_at = "2026-06-02T00:00:00Z"
+			updated_at = "2026-06-02T00:00:00Z"
+			"#
+		),
+	);
+}
+
+fn selected_symbol_identity(app: &App) -> String {
+	let loc = crate::ui::app::selected(app).expect("selected symbol");
+	crate::ui::workspace_read::symbol_summary(crate::ui::app::store(app), &loc).identity
 }
 
 fn write_views_fixture(fixture: &Path) {

@@ -230,6 +230,35 @@ pub(crate) fn notes_dir(root: &Path) -> PathBuf {
 	root.join(NOTES_DIR)
 }
 
+pub(crate) fn notes_root_for_paths(paths: &[PathBuf]) -> anyhow::Result<PathBuf> {
+	let roots = paths
+		.iter()
+		.map(|path| root_for_path(path.as_path()))
+		.collect::<Vec<_>>();
+	let Some(first) = roots.first() else {
+		anyhow::bail!("notes require at least one workspace root");
+	};
+	let mut common = first.clone();
+	for root in roots.iter().skip(1) {
+		while !root.starts_with(&common) {
+			if !common.pop() {
+				anyhow::bail!("cannot find common root for notes");
+			}
+		}
+	}
+	Ok(common)
+}
+
+fn root_for_path(path: &Path) -> PathBuf {
+	if path.is_dir() {
+		path.to_path_buf()
+	} else {
+		path.parent()
+			.unwrap_or_else(|| Path::new("."))
+			.to_path_buf()
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

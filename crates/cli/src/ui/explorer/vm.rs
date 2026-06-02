@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use code_moniker_core::lang::Lang;
 
 use crate::ui::app::{
@@ -77,6 +79,7 @@ pub(in crate::ui) struct NavRowVm {
 	pub(in crate::ui) file_count: usize,
 	pub(in crate::ui) def_count: usize,
 	pub(in crate::ui) reexport_count: usize,
+	pub(in crate::ui) note_marker: Option<String>,
 	pub(in crate::ui) kind: NavRowVmKind,
 }
 
@@ -110,6 +113,49 @@ pub(in crate::ui) struct NavChangeVm {
 	pub(in crate::ui) usage_count: usize,
 }
 
+#[derive(Clone, Debug, Default)]
+struct NoteIndex {
+	by_moniker: BTreeMap<String, NoteBadge>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct NoteBadge {
+	active: usize,
+	done: usize,
+}
+
+impl NoteIndex {
+	fn load(paths: &[std::path::PathBuf]) -> Self {
+		let Ok(root) = crate::notes::store::notes_root_for_paths(paths) else {
+			return Self::default();
+		};
+		let Ok(store) = crate::notes::store::NotesStore::load(&root) else {
+			return Self::default();
+		};
+		let mut by_moniker = BTreeMap::<String, NoteBadge>::new();
+		for note in store.notes() {
+			let badge = by_moniker.entry(note.moniker.clone()).or_default();
+			if note.status == crate::notes::model::NoteStatus::Done {
+				badge.done += 1;
+			} else {
+				badge.active += 1;
+			}
+		}
+		Self { by_moniker }
+	}
+
+	fn marker_for(&self, moniker: &str) -> Option<String> {
+		let badge = self.by_moniker.get(moniker)?;
+		if badge.active > 0 {
+			Some(format!("[!{}]", badge.active))
+		} else if badge.done > 0 {
+			Some("[done]".to_string())
+		} else {
+			None
+		}
+	}
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct FooterVm {
 	pub(in crate::ui) prefix: &'static str,
@@ -131,6 +177,7 @@ pub(in crate::ui) struct ExplorerVmContext<'a> {
 	workspace: &'a LocalWorkspaceRegistry,
 	status: &'a str,
 	show_component_markers: bool,
+	note_index: NoteIndex,
 }
 
 impl ExplorerVm {
@@ -150,6 +197,7 @@ impl ExplorerVm {
 			workspace: crate::ui::app::store(app),
 			status: crate::ui::app::status(app),
 			show_component_markers: crate::ui::app::debug(app),
+			note_index: NoteIndex::load(&crate::ui::app::store_options(app).paths),
 		};
 		Self::from_context(ctx)
 	}
@@ -327,8 +375,28 @@ fn nav_row_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow, pane: NavigationPaneVie
 		file_count: row.file_count,
 		def_count: row.def_count,
 		reexport_count: row.reexport_count,
+		note_marker: note_marker_for_row(ctx, row),
 		kind: nav_row_kind_vm(ctx, row),
 	}
+}
+
+fn note_marker_for_row(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> Option<String> {
+	let moniker = match &row.kind {
+		NavNodeKind::File(file_idx) => source_moniker(ctx.workspace, *file_idx),
+		NavNodeKind::Def(loc) => Some(workspace_read::symbol_summary(ctx.workspace, loc).identity),
+		_ => None,
+	}?;
+	ctx.note_index.marker_for(&moniker)
+}
+
+fn source_moniker(workspace: &LocalWorkspaceRegistry, file_idx: usize) -> Option<String> {
+	workspace
+		.queries()
+		.snapshot()?
+		.index
+		.sources
+		.get(file_idx)
+		.map(|source| source.uri.clone())
 }
 
 fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {

@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,7 +10,7 @@ use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 use crate::notes::model::{Note, NoteAuthor, NoteId, NoteKind, NoteResolution, NoteStatus};
 use crate::notes::resolve::resolve_notes;
-use crate::notes::store::{NoteChanges, NotesStore};
+use crate::notes::store::{NoteChanges, NotesStore, notes_root_for_paths};
 
 const DEFAULT_NOTES_URI: &str = "workspace/notes";
 
@@ -504,34 +504,7 @@ fn current_timestamp() -> String {
 }
 
 fn notes_workspace_root(context: &McpContext) -> anyhow::Result<PathBuf> {
-	let roots = context
-		.opts()
-		.paths
-		.iter()
-		.map(|path| workspace_root_for_path(path))
-		.collect::<Vec<_>>();
-	let Some(first) = roots.first() else {
-		anyhow::bail!("notes require at least one workspace root");
-	};
-	let mut common = first.clone();
-	for root in roots.iter().skip(1) {
-		while !root.starts_with(&common) {
-			if !common.pop() {
-				anyhow::bail!("cannot find common root for MCP notes");
-			}
-		}
-	}
-	Ok(common)
-}
-
-fn workspace_root_for_path(path: &Path) -> PathBuf {
-	if path.is_dir() {
-		path.to_path_buf()
-	} else {
-		path.parent()
-			.unwrap_or_else(|| Path::new("."))
-			.to_path_buf()
-	}
+	notes_root_for_paths(&context.opts().paths)
 }
 
 fn ensure_notes_uri(uri: &str, scheme: &str) -> anyhow::Result<()> {
