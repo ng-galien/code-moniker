@@ -8,6 +8,10 @@ impl NoteId {
 	pub(crate) fn new(value: impl Into<String>) -> Self {
 		Self(value.into())
 	}
+
+	pub(crate) fn as_str(&self) -> &str {
+		&self.0
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize)]
@@ -28,6 +32,23 @@ pub(crate) enum NoteStatus {
 }
 
 impl NoteStatus {
+	pub(crate) fn parse(value: &str) -> anyhow::Result<Self> {
+		match value {
+			"pending" => Ok(Self::Pending),
+			"ongoing" => Ok(Self::Ongoing),
+			"done" => Ok(Self::Done),
+			_ => anyhow::bail!("unknown note status `{value}`"),
+		}
+	}
+
+	pub(crate) fn as_str(self) -> &'static str {
+		match self {
+			Self::Pending => "pending",
+			Self::Ongoing => "ongoing",
+			Self::Done => "done",
+		}
+	}
+
 	pub(crate) fn can_transition_to(self, target: Self) -> bool {
 		matches!(
 			(self, target),
@@ -45,6 +66,44 @@ impl NoteStatus {
 pub(crate) enum NoteAuthor {
 	User,
 	Agent,
+}
+
+impl NoteKind {
+	pub(crate) fn parse(value: &str) -> anyhow::Result<Self> {
+		match value {
+			"note" => Ok(Self::Note),
+			"todo" => Ok(Self::Todo),
+			"gotcha" => Ok(Self::Gotcha),
+			"request" => Ok(Self::Request),
+			_ => anyhow::bail!("unknown note kind `{value}`"),
+		}
+	}
+
+	pub(crate) fn as_str(self) -> &'static str {
+		match self {
+			Self::Note => "note",
+			Self::Todo => "todo",
+			Self::Gotcha => "gotcha",
+			Self::Request => "request",
+		}
+	}
+}
+
+impl NoteAuthor {
+	pub(crate) fn parse(value: &str) -> anyhow::Result<Self> {
+		match value {
+			"user" => Ok(Self::User),
+			"agent" => Ok(Self::Agent),
+			_ => anyhow::bail!("unknown note author `{value}`"),
+		}
+	}
+
+	pub(crate) fn as_str(self) -> &'static str {
+		match self {
+			Self::User => "user",
+			Self::Agent => "agent",
+		}
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

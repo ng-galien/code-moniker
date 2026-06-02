@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::model::Note;
+use super::model::{Note, NoteKind, NoteStatus};
 
 pub(crate) const NOTES_DIR: &str = ".code-moniker";
 pub(crate) const NOTES_FILE: &str = ".code-moniker/notes.toml";
@@ -13,6 +13,95 @@ pub(crate) const NOTES_FILE: &str = ".code-moniker/notes.toml";
 pub(crate) struct NotesDocument {
 	#[serde(default)]
 	pub(crate) notes: Vec<Note>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct NoteChanges {
+	pub(crate) moniker: Option<String>,
+	pub(crate) kind: Option<NoteKind>,
+	pub(crate) title: Option<String>,
+	pub(crate) body: Option<String>,
+}
+
+impl NotesDocument {
+	pub(crate) fn notes(&self) -> &[Note] {
+		&self.notes
+	}
+
+	pub(crate) fn get(&self, id: &str) -> Option<&Note> {
+		self.notes.iter().find(|note| note.id.as_str() == id)
+	}
+
+	pub(crate) fn insert(&mut self, note: Note) -> anyhow::Result<()> {
+		if self.notes.iter().any(|item| item.id == note.id) {
+			anyhow::bail!("note id `{}` already exists", note.id.0);
+		}
+		self.notes.push(note);
+		self.sort_notes();
+		Ok(())
+	}
+
+	pub(crate) fn update(
+		&mut self,
+		id: &str,
+		changes: NoteChanges,
+		updated_at: impl Into<String>,
+	) -> anyhow::Result<&Note> {
+		let note = self
+			.notes
+			.iter_mut()
+			.find(|note| note.id.as_str() == id)
+			.ok_or_else(|| anyhow::anyhow!("note id `{id}` does not exist"))?;
+		if let Some(moniker) = changes.moniker {
+			note.moniker = moniker;
+		}
+		if let Some(kind) = changes.kind {
+			note.kind = kind;
+		}
+		if let Some(title) = changes.title {
+			note.title = title;
+		}
+		if let Some(body) = changes.body {
+			note.body = body;
+		}
+		note.updated_at = updated_at.into();
+		self.sort_notes();
+		self.get(id)
+			.ok_or_else(|| anyhow::anyhow!("note id `{id}` does not exist after update"))
+	}
+
+	pub(crate) fn transition(
+		&mut self,
+		id: &str,
+		status: NoteStatus,
+		updated_at: impl Into<String>,
+	) -> anyhow::Result<&Note> {
+		let note = self
+			.notes
+			.iter_mut()
+			.find(|note| note.id.as_str() == id)
+			.ok_or_else(|| anyhow::anyhow!("note id `{id}` does not exist"))?;
+		note.transition_to(status, updated_at)?;
+		self.sort_notes();
+		self.get(id)
+			.ok_or_else(|| anyhow::anyhow!("note id `{id}` does not exist after transition"))
+	}
+
+	pub(crate) fn delete(&mut self, id: &str) -> anyhow::Result<Note> {
+		let Some(index) = self.notes.iter().position(|note| note.id.as_str() == id) else {
+			anyhow::bail!("note id `{id}` does not exist");
+		};
+		Ok(self.notes.remove(index))
+	}
+
+	fn sort_notes(&mut self) {
+		self.notes.sort_by(|left, right| {
+			left.status
+				.cmp(&right.status)
+				.then_with(|| left.updated_at.cmp(&right.updated_at).reverse())
+				.then_with(|| left.id.cmp(&right.id))
+		});
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,30 +132,55 @@ impl NotesStore {
 		&self.path
 	}
 
+	pub(crate) fn document(&self) -> &NotesDocument {
+		&self.document
+	}
+
+	pub(crate) fn document_mut(&mut self) -> &mut NotesDocument {
+		&mut self.document
+	}
+
 	pub(crate) fn notes(&self) -> &[Note] {
-		&self.document.notes
+		self.document.notes()
 	}
 
 	pub(crate) fn insert(&mut self, note: Note) -> anyhow::Result<()> {
-		if self.document.notes.iter().any(|item| item.id == note.id) {
-			anyhow::bail!("note id `{}` already exists", note.id.0);
-		}
-		self.document.notes.push(note);
-		self.sort_notes();
-		Ok(())
+		self.document.insert(note)
 	}
 
 	pub(crate) fn save(&mut self) -> anyhow::Result<()> {
-		self.ensure_not_stale()?;
 		if let Some(parent) = self.path.parent() {
 			std::fs::create_dir_all(parent)?;
 		}
+		let _lock = self.acquire_save_lock()?;
+		self.ensure_not_stale()?;
 		let text = toml::to_string_pretty(&self.document)?;
 		let tmp = self.temp_path();
 		std::fs::write(&tmp, text)?;
 		std::fs::rename(&tmp, &self.path)?;
 		self.loaded_modified = std::fs::metadata(&self.path)?.modified().ok();
 		Ok(())
+	}
+
+	fn acquire_save_lock(&self) -> anyhow::Result<SaveLock> {
+		let path = self.lock_path();
+		for _ in 0..50 {
+			match std::fs::OpenOptions::new()
+				.write(true)
+				.create_new(true)
+				.open(&path)
+			{
+				Ok(_file) => return Ok(SaveLock { path }),
+				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+					std::thread::sleep(Duration::from_millis(10));
+				}
+				Err(error) => return Err(error.into()),
+			}
+		}
+		anyhow::bail!(
+			"notes file is locked by another writer: {}",
+			self.path.display()
+		);
 	}
 
 	fn ensure_not_stale(&self) -> anyhow::Result<()> {
@@ -93,13 +207,18 @@ impl NotesStore {
 			.with_extension(format!("toml.{}.{}.tmp", std::process::id(), nonce))
 	}
 
-	fn sort_notes(&mut self) {
-		self.document.notes.sort_by(|left, right| {
-			left.status
-				.cmp(&right.status)
-				.then_with(|| left.updated_at.cmp(&right.updated_at).reverse())
-				.then_with(|| left.id.cmp(&right.id))
-		});
+	fn lock_path(&self) -> PathBuf {
+		self.path.with_extension("toml.lock")
+	}
+}
+
+struct SaveLock {
+	path: PathBuf,
+}
+
+impl Drop for SaveLock {
+	fn drop(&mut self) {
+		let _ = std::fs::remove_file(&self.path);
 	}
 }
 

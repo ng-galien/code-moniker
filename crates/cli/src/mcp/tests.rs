@@ -195,16 +195,306 @@ fn read_root_summarizes_workspace_and_limits_explorer() {
 fn tools_list_returns_mcp_shape() {
 	let tools = ToolRegistry::new().descriptors();
 	assert_eq!(tools[0]["name"], "code_moniker_read");
-	assert_eq!(tools[1]["name"], "code_moniker_search");
-	assert_eq!(tools[2]["name"], "code_moniker_symbols");
-	assert_eq!(tools[3]["name"], "code_moniker_usages");
-	assert_eq!(tools[4]["name"], "code_moniker_rules");
+	assert_eq!(tools[1]["name"], "code_moniker_notes");
+	assert_eq!(tools[2]["name"], "code_moniker_search");
+	assert_eq!(tools[3]["name"], "code_moniker_symbols");
+	assert_eq!(tools[4]["name"], "code_moniker_usages");
+	assert_eq!(tools[5]["name"], "code_moniker_rules");
 	assert!(
 		tools[0]["description"]
 			.as_str()
 			.unwrap()
 			.starts_with("When to use:")
 	);
+}
+
+#[test]
+fn notes_tool_manages_symbol_notes_with_controlled_transitions() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {\n  void run() {}\n}\n");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let moniker = app_symbol_moniker(&context);
+
+	let created = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({
+				"action": "create",
+				"id": "note_acceptance",
+				"moniker": moniker,
+				"kind": "todo",
+				"title": "Check App",
+				"body": "Agent should inspect this symbol.",
+				"created_by": "user"
+			}),
+		)
+		.expect("create note");
+	assert!(!created.is_error);
+	assert!(created.text.contains("action: create"), "{}", created.text);
+	assert!(
+		created.text.contains("resolution: resolved"),
+		"{}",
+		created.text
+	);
+	assert!(created.text.contains("kind: todo"), "{}", created.text);
+	assert!(
+		temp.path().join(".code-moniker/notes.toml").is_file(),
+		"notes file should be persisted"
+	);
+
+	let list = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({"action": "list", "moniker": moniker}),
+		)
+		.expect("list notes");
+	assert!(list.text.contains("notes: 1"), "{}", list.text);
+	assert!(list.text.contains("note_acceptance"), "{}", list.text);
+	assert!(list.text.contains("Check App"), "{}", list.text);
+
+	let ongoing = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({
+				"action": "transition",
+				"id": "note_acceptance",
+				"status": "ongoing"
+			}),
+		)
+		.expect("transition ongoing");
+	assert!(ongoing.text.contains("status: ongoing"), "{}", ongoing.text);
+
+	let done = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({
+				"action": "transition",
+				"id": "note_acceptance",
+				"status": "done"
+			}),
+		)
+		.expect("transition done");
+	assert!(done.text.contains("status: done"), "{}", done.text);
+
+	let rejected = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({
+				"action": "transition",
+				"id": "note_acceptance",
+				"status": "pending"
+			}),
+		)
+		.unwrap_err();
+	assert!(
+		rejected
+			.to_string()
+			.contains("invalid note status transition"),
+		"{rejected}"
+	);
+
+	let hidden_done = registry
+		.call(&context, "code_moniker_notes", &json!({"action": "list"}))
+		.expect("list active notes");
+	assert!(
+		hidden_done.text.contains("notes: 0"),
+		"{}",
+		hidden_done.text
+	);
+
+	let deleted = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({"action": "delete", "id": "note_acceptance"}),
+		)
+		.expect("delete note");
+	assert!(deleted.text.contains("action: delete"), "{}", deleted.text);
+	assert!(deleted.text.contains("note_acceptance"), "{}", deleted.text);
+}
+
+#[test]
+fn notes_tool_flags_orphan_notes() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {}\n");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({
+				"action": "create",
+				"id": "note_orphan",
+				"moniker": "code+moniker://./lang:java/class:Missing",
+				"title": "Missing target"
+			}),
+		)
+		.expect("create orphan note");
+
+	let orphans = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({"action": "list", "orphan": true}),
+		)
+		.expect("list orphans");
+
+	assert!(orphans.text.contains("notes: 1"), "{}", orphans.text);
+	assert!(orphans.text.contains("note_orphan"), "{}", orphans.text);
+	assert!(
+		orphans.text.contains("resolution: orphan"),
+		"{}",
+		orphans.text
+	);
+}
+
+#[test]
+fn notes_tool_rejects_status_update_without_persisting() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {}\n");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let moniker = app_symbol_moniker(&context);
+	registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({
+				"action": "create",
+				"id": "note_update_status",
+				"moniker": moniker,
+				"title": "Status contract"
+			}),
+		)
+		.expect("create note");
+
+	let error = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({
+				"action": "update",
+				"id": "note_update_status",
+				"status": "done",
+				"title": "Ignored status"
+			}),
+		)
+		.unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("status changes require action=transition"),
+		"{error}"
+	);
+
+	let note = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({"action": "get", "id": "note_update_status"}),
+		)
+		.expect("get note");
+	assert!(note.text.contains("status: pending"), "{}", note.text);
+	assert!(note.text.contains("Status contract"), "{}", note.text);
+	assert!(!note.text.contains("Ignored status"), "{}", note.text);
+}
+
+#[test]
+fn notes_tool_does_not_persist_create_when_index_is_unavailable() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let registry = ToolRegistry::new();
+	let context = empty_context(vec![temp.path().to_path_buf()]);
+
+	let error = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({
+				"action": "create",
+				"id": "note_no_index",
+				"moniker": "code+moniker://./file:src/App.java",
+				"title": "No index"
+			}),
+		)
+		.unwrap_err();
+
+	assert!(
+		error.to_string().contains("snapshot is not ready"),
+		"{error}"
+	);
+	assert!(
+		!temp.path().join(".code-moniker/notes.toml").exists(),
+		"failed create must not persist notes"
+	);
+}
+
+#[test]
+fn notes_tool_resolves_file_monikers() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {}\n");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let file_moniker = context
+		.index()
+		.index_snapshot()
+		.expect("snapshot")
+		.index
+		.sources
+		.iter()
+		.find(|source| source.rel_path == "src/main/java/App.java")
+		.expect("app source")
+		.uri
+		.clone();
+
+	let created = registry
+		.call(
+			&context,
+			"code_moniker_notes",
+			&json!({
+				"action": "create",
+				"id": "note_file",
+				"moniker": file_moniker,
+				"title": "File target"
+			}),
+		)
+		.expect("create file note");
+
+	assert!(
+		created.text.contains("target: file src/main/java/App.java"),
+		"{}",
+		created.text
+	);
+	assert!(
+		created.text.contains("file: src/main/java/App.java"),
+		"{}",
+		created.text
+	);
+}
+
+fn write_java_app_fixture(root: &std::path::Path, source: &str) {
+	std::fs::create_dir_all(root.join("src/main/java")).expect("mkdir");
+	std::fs::write(root.join("src/main/java/App.java"), source).expect("write fixture");
+}
+
+fn app_symbol_moniker(context: &McpContext) -> String {
+	context
+		.index()
+		.index_snapshot()
+		.expect("snapshot")
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.name == "App")
+		.expect("app symbol")
+		.identity
+		.clone()
 }
 
 #[test]
