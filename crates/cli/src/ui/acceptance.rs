@@ -5,6 +5,7 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
 use crate::session::SessionOptions;
+use crate::ui::app::main_split_percent;
 use crate::ui::app::{
 	App, AppConfig, FocusRegion, focus_region, handle_key, new_app, toggle_selected_nav,
 };
@@ -193,6 +194,34 @@ fn multiproject_initial_screen_exposes_navigation_contract() {
 	assert_visible(&screen, "java");
 	assert_visible(&screen, "common-lib");
 	assert_visible(&screen, "order-service");
+}
+
+#[test]
+fn main_horizontal_split_resizes_with_control_arrows_and_resets() {
+	let mut harness = TuiAcceptance::load_multiproject();
+	let initial = harness.render_text(160, 45);
+	let initial_width = navigator_border_width(&initial);
+	assert_eq!(main_split_percent(&harness.app), 42);
+
+	press_with_modifiers(&mut harness.app, KeyCode::Right, KeyModifiers::CONTROL);
+	let widened = harness.render_text(160, 45);
+	let widened_width = navigator_border_width(&widened);
+	assert_eq!(main_split_percent(&harness.app), 46);
+	assert!(widened_width > initial_width);
+	assert_visible(&widened, "layout split: 46% navigator / 54% panel");
+
+	harness.press(KeyCode::Char('<'));
+	assert_eq!(main_split_percent(&harness.app), 42);
+
+	harness.press(KeyCode::Char('>'));
+	harness.press(KeyCode::Char('>'));
+	assert_eq!(main_split_percent(&harness.app), 50);
+
+	harness.press(KeyCode::Char('='));
+	let reset = harness.render_text(160, 45);
+	assert_eq!(main_split_percent(&harness.app), 42);
+	assert_eq!(navigator_border_width(&reset), initial_width);
+	assert_visible(&reset, "layout split: 42% navigator / 58% panel");
 }
 
 #[test]
@@ -550,6 +579,20 @@ fn write_under(root: &Path, rel: &str, contents: &str) {
 		std::fs::create_dir_all(parent).expect("mkdir");
 	}
 	std::fs::write(path, contents).expect("write fixture");
+}
+
+fn press_with_modifiers(app: &mut App, code: KeyCode, modifiers: KeyModifiers) {
+	handle_key(app, KeyEvent::new(code, modifiers)).expect("handle key");
+}
+
+fn navigator_border_width(screen: &str) -> usize {
+	screen
+		.lines()
+		.find_map(|line| {
+			line.find("┌navigator")
+				.and_then(|start| line[start..].find('┐').map(|end| end + 1))
+		})
+		.expect("navigator border width")
 }
 
 fn assert_visible(screen: &str, expected: &str) {

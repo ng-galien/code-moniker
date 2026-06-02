@@ -165,6 +165,10 @@ pub(in crate::ui) fn views_show_all(app: &App) -> bool {
 	app.app_store.shell().views_show_all
 }
 
+pub(in crate::ui) fn main_split_percent(app: &App) -> u16 {
+	app.app_store.shell().main_split_percent
+}
+
 pub(in crate::ui) fn active_filter(app: &App) -> &ActiveFilter {
 	&app.app_store.shell().active_filter
 }

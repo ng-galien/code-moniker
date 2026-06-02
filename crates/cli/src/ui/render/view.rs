@@ -354,9 +354,14 @@ fn search_popup_model(search_area: Rect, search: &SearchBarVm) -> Option<(Rect, 
 }
 
 fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, vm: &ExplorerVm) {
+	let left_percent = vm.main_split_percent.min(90);
+	let right_percent = 100u16.saturating_sub(left_percent);
 	let cols = Layout::default()
 		.direction(Direction::Horizontal)
-		.constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
+		.constraints([
+			Constraint::Percentage(left_percent),
+			Constraint::Percentage(right_percent),
+		])
 		.split(area);
 	render_left_pane(frame, cols[0], vm);
 	panel::render_panel(

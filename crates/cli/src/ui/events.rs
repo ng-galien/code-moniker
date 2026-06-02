@@ -52,6 +52,8 @@ pub(super) enum Msg {
 	FocusUsages,
 	ToggleChangeMode,
 	ToggleViewRender,
+	ResizeMainSplit(i8),
+	ResetMainSplit,
 	CopyPanelSnapshot,
 	RunCheck,
 	MoveDown,
@@ -113,6 +115,14 @@ pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
 }
 
 fn normal_key_to_msg(key: KeyEvent) -> Msg {
+	if key.modifiers.contains(KeyModifiers::CONTROL) {
+		return match key.code {
+			KeyCode::Left => Msg::ResizeMainSplit(-1),
+			KeyCode::Right => Msg::ResizeMainSplit(1),
+			KeyCode::Char('0') => Msg::ResetMainSplit,
+			_ => Msg::Noop,
+		};
+	}
 	if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::ALT) {
 		return Msg::Noop;
 	}
@@ -134,6 +144,11 @@ fn normal_key_to_msg(key: KeyEvent) -> Msg {
 		KeyCode::Char('u') => Msg::FocusUsages,
 		KeyCode::Char('d') => Msg::ToggleChangeMode,
 		KeyCode::Char('a') => Msg::ToggleViewRender,
+		KeyCode::Char('[') => Msg::ResizeMainSplit(-1),
+		KeyCode::Char(']') => Msg::ResizeMainSplit(1),
+		KeyCode::Char('<') => Msg::ResizeMainSplit(-1),
+		KeyCode::Char('>') => Msg::ResizeMainSplit(1),
+		KeyCode::Char('=') => Msg::ResetMainSplit,
 		KeyCode::Char('y') => Msg::CopyPanelSnapshot,
 		KeyCode::Char('c') => Msg::RunCheck,
 		KeyCode::Down | KeyCode::Char('j') => Msg::MoveDown,

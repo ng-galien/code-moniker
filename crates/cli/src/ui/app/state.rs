@@ -17,6 +17,10 @@ use crate::ui::workspace_read::UsageFocus;
 use super::Effect;
 
 const PANEL_SCROLL_STEP: usize = 8;
+const MAIN_SPLIT_DEFAULT_PERCENT: u16 = 42;
+const MAIN_SPLIT_MIN_PERCENT: u16 = 24;
+const MAIN_SPLIT_MAX_PERCENT: u16 = 70;
+const MAIN_SPLIT_STEP_PERCENT: u16 = 4;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) struct WorkSlice {
@@ -133,6 +137,7 @@ pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) active_filter: ActiveFilter,
 	pub(in crate::ui) usage_lens: Option<UsageFocus>,
 	pub(in crate::ui) views_show_all: bool,
+	pub(in crate::ui) main_split_percent: u16,
 	pub(in crate::ui) header_search: HeaderSearchState,
 	pub(in crate::ui) panel_navigation: PanelNavigationState,
 }
@@ -151,6 +156,7 @@ impl Default for ShellSlice {
 			active_filter: ActiveFilter::None,
 			usage_lens: None,
 			views_show_all: false,
+			main_split_percent: MAIN_SPLIT_DEFAULT_PERCENT,
 			header_search: HeaderSearchState::default(),
 			panel_navigation: PanelNavigationState::default(),
 		}
@@ -754,6 +760,20 @@ pub(in crate::ui) fn reduce_ui_msg(state: &mut AppState, msg: &Msg) -> Transitio
 		Msg::FocusUsages => Transition::unchanged(),
 		Msg::ToggleChangeMode => Transition::unchanged(),
 		Msg::ToggleViewRender => Transition::unchanged(),
+		Msg::ResizeMainSplit(direction) => {
+			let mut percent = 0;
+			update_shell(state, |shell| {
+				shell_resize_main_split(shell, *direction);
+				percent = shell.main_split_percent;
+			});
+			set_status(state, main_split_status(percent));
+			Transition::changed()
+		}
+		Msg::ResetMainSplit => {
+			update_shell(state, shell_reset_main_split);
+			set_status(state, main_split_status(MAIN_SPLIT_DEFAULT_PERCENT));
+			Transition::changed()
+		}
 		Msg::CopyPanelSnapshot => emit_effect(Effect::CopyPanelSnapshot),
 		Msg::RunCheck => emit_effect(Effect::RunCheck),
 		Msg::MoveDown => Transition::unchanged(),
@@ -778,4 +798,25 @@ pub(in crate::ui) fn reduce_ui_msg(state: &mut AppState, msg: &Msg) -> Transitio
 
 fn emit_effect(effect: Effect) -> Transition {
 	Transition::unchanged().with_effect(effect)
+}
+
+fn shell_resize_main_split(shell: &mut ShellSlice, direction: i8) {
+	let step = MAIN_SPLIT_STEP_PERCENT.saturating_mul(direction.unsigned_abs() as u16);
+	let next = if direction.is_negative() {
+		shell.main_split_percent.saturating_sub(step)
+	} else {
+		shell.main_split_percent.saturating_add(step)
+	};
+	shell.main_split_percent = next.clamp(MAIN_SPLIT_MIN_PERCENT, MAIN_SPLIT_MAX_PERCENT);
+}
+
+fn shell_reset_main_split(shell: &mut ShellSlice) {
+	shell.main_split_percent = MAIN_SPLIT_DEFAULT_PERCENT;
+}
+
+fn main_split_status(left_percent: u16) -> String {
+	format!(
+		"layout split: {left_percent}% navigator / {}% panel",
+		100u16.saturating_sub(left_percent)
+	)
 }
