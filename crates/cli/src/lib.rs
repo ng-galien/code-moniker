@@ -15,6 +15,7 @@ pub(crate) mod mcp;
 #[cfg(feature = "mcp")]
 pub(crate) mod mcp_command;
 pub(crate) mod moniker_render;
+pub(crate) mod notes;
 pub(crate) mod page;
 pub(crate) mod rules;
 #[cfg(any(feature = "tui", feature = "mcp"))]

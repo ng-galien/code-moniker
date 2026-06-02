@@ -1,0 +1,209 @@
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+
+use super::model::Note;
+
+pub(crate) const NOTES_DIR: &str = ".code-moniker";
+pub(crate) const NOTES_FILE: &str = ".code-moniker/notes.toml";
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NotesDocument {
+	#[serde(default)]
+	pub(crate) notes: Vec<Note>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct NotesStore {
+	path: PathBuf,
+	loaded_modified: Option<SystemTime>,
+	document: NotesDocument,
+}
+
+impl NotesStore {
+	pub(crate) fn load(root: &Path) -> anyhow::Result<Self> {
+		let path = notes_path(root);
+		let (document, loaded_modified) = if path.exists() {
+			let loaded_modified = std::fs::metadata(&path)?.modified().ok();
+			let text = std::fs::read_to_string(&path)?;
+			(toml::from_str(&text)?, loaded_modified)
+		} else {
+			(NotesDocument::default(), None)
+		};
+		Ok(Self {
+			path,
+			loaded_modified,
+			document,
+		})
+	}
+
+	pub(crate) fn path(&self) -> &Path {
+		&self.path
+	}
+
+	pub(crate) fn notes(&self) -> &[Note] {
+		&self.document.notes
+	}
+
+	pub(crate) fn insert(&mut self, note: Note) -> anyhow::Result<()> {
+		if self.document.notes.iter().any(|item| item.id == note.id) {
+			anyhow::bail!("note id `{}` already exists", note.id.0);
+		}
+		self.document.notes.push(note);
+		self.sort_notes();
+		Ok(())
+	}
+
+	pub(crate) fn save(&mut self) -> anyhow::Result<()> {
+		self.ensure_not_stale()?;
+		if let Some(parent) = self.path.parent() {
+			std::fs::create_dir_all(parent)?;
+		}
+		let text = toml::to_string_pretty(&self.document)?;
+		let tmp = self.temp_path();
+		std::fs::write(&tmp, text)?;
+		std::fs::rename(&tmp, &self.path)?;
+		self.loaded_modified = std::fs::metadata(&self.path)?.modified().ok();
+		Ok(())
+	}
+
+	fn ensure_not_stale(&self) -> anyhow::Result<()> {
+		let current = match std::fs::metadata(&self.path) {
+			Ok(metadata) => metadata.modified().ok(),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+			Err(error) => return Err(error.into()),
+		};
+		if current != self.loaded_modified {
+			anyhow::bail!(
+				"notes file changed since load: reload `{}` before saving",
+				self.path.display()
+			);
+		}
+		Ok(())
+	}
+
+	fn temp_path(&self) -> PathBuf {
+		let nonce = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.map(|duration| duration.as_nanos())
+			.unwrap_or_default();
+		self.path
+			.with_extension(format!("toml.{}.{}.tmp", std::process::id(), nonce))
+	}
+
+	fn sort_notes(&mut self) {
+		self.document.notes.sort_by(|left, right| {
+			left.status
+				.cmp(&right.status)
+				.then_with(|| left.updated_at.cmp(&right.updated_at).reverse())
+				.then_with(|| left.id.cmp(&right.id))
+		});
+	}
+}
+
+pub(crate) fn notes_path(root: &Path) -> PathBuf {
+	root.join(NOTES_FILE)
+}
+
+pub(crate) fn notes_dir(root: &Path) -> PathBuf {
+	root.join(NOTES_DIR)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::notes::model::{NoteAuthor, NoteId, NoteKind, NoteStatus};
+
+	#[test]
+	fn missing_notes_file_loads_empty_document() {
+		let temp = tempfile::tempdir().expect("tempdir");
+
+		let store = NotesStore::load(temp.path()).expect("load notes");
+
+		assert!(store.notes().is_empty());
+		assert_eq!(store.path(), &notes_path(temp.path()));
+	}
+
+	#[test]
+	fn save_creates_notes_file_and_round_trips() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut store = NotesStore::load(temp.path()).expect("load notes");
+		store.insert(sample_note("note_1")).expect("insert note");
+
+		store.save().expect("save notes");
+		let loaded = NotesStore::load(temp.path()).expect("reload notes");
+
+		assert_eq!(loaded.notes(), store.notes());
+		assert!(notes_dir(temp.path()).is_dir());
+	}
+
+	#[test]
+	fn duplicate_note_ids_are_rejected() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut store = NotesStore::load(temp.path()).expect("load notes");
+		store.insert(sample_note("note_1")).expect("insert note");
+
+		let error = store.insert(sample_note("note_1")).unwrap_err();
+
+		assert!(format!("{error:#}").contains("already exists"));
+	}
+
+	#[test]
+	fn stale_save_is_rejected() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let mut first = NotesStore::load(temp.path()).expect("load first");
+		first.insert(sample_note("note_1")).expect("insert first");
+		first.save().expect("save first");
+		let mut stale = NotesStore::load(temp.path()).expect("load stale");
+		let mut fresh = NotesStore::load(temp.path()).expect("load fresh");
+		fresh.insert(sample_note("note_2")).expect("insert fresh");
+		fresh.save().expect("save fresh");
+		stale.insert(sample_note("note_3")).expect("insert stale");
+
+		let error = stale.save().unwrap_err();
+
+		assert!(format!("{error:#}").contains("changed since load"));
+	}
+
+	#[test]
+	fn invalid_note_kind_is_rejected() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		std::fs::create_dir_all(notes_dir(temp.path())).expect("mkdir");
+		std::fs::write(
+			notes_path(temp.path()),
+			r#"
+			[[notes]]
+			id = "note_1"
+			moniker = "code+moniker://./lang:rs/module:example"
+			kind = "bug"
+			status = "pending"
+			title = "Bad kind"
+			body = "Body"
+			created_by = "user"
+			created_at = "2026-06-02T00:00:00Z"
+			updated_at = "2026-06-02T00:00:00Z"
+			"#,
+		)
+		.expect("write notes");
+
+		let error = NotesStore::load(temp.path()).unwrap_err();
+
+		assert!(format!("{error:#}").contains("unknown variant"));
+	}
+
+	fn sample_note(id: &str) -> Note {
+		Note {
+			id: NoteId::new(id),
+			moniker: "code+moniker://./lang:rs/module:example".to_string(),
+			kind: NoteKind::Todo,
+			status: NoteStatus::Pending,
+			title: "Title".to_string(),
+			body: "Body".to_string(),
+			created_by: NoteAuthor::User,
+			created_at: "2026-06-02T00:00:00Z".to_string(),
+			updated_at: "2026-06-02T00:00:00Z".to_string(),
+		}
+	}
+}
