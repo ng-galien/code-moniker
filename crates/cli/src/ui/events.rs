@@ -24,6 +24,14 @@ impl HeaderSearchFocus {
 			Self::Kind => Self::Text,
 		}
 	}
+
+	pub(super) fn previous(self) -> Self {
+		match self {
+			Self::Text => Self::Kind,
+			Self::Lang => Self::Text,
+			Self::Kind => Self::Lang,
+		}
+	}
 }
 
 #[derive(Clone, Debug)]
@@ -31,8 +39,10 @@ pub(super) enum Msg {
 	Quit,
 	ShowView(View),
 	ToggleHeaderSearch,
-	ToggleFocusRegion,
+	FocusNextRegion,
+	FocusPreviousRegion,
 	HeaderSearchNextField,
+	HeaderSearchPreviousField,
 	HeaderSearchInput(FilterEdit),
 	HeaderSearchSelectNext,
 	HeaderSearchSelectPrevious,
@@ -72,6 +82,7 @@ pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
 			KeyCode::Esc => Msg::ToggleHeaderSearch,
 			KeyCode::Enter => Msg::HeaderSearchApply,
 			KeyCode::Tab => Msg::HeaderSearchNextField,
+			KeyCode::BackTab => Msg::HeaderSearchPreviousField,
 			KeyCode::Backspace => Msg::HeaderSearchInput(FilterEdit::Backspace),
 			KeyCode::Char('x') => Msg::HeaderSearchReset,
 			KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -90,6 +101,7 @@ pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
 			KeyCode::Enter => Msg::HeaderSearchApply,
 			KeyCode::Char(' ') => Msg::HeaderSearchToggleSelection,
 			KeyCode::Tab => Msg::HeaderSearchNextField,
+			KeyCode::BackTab => Msg::HeaderSearchPreviousField,
 			KeyCode::Char('x') => Msg::HeaderSearchReset,
 			KeyCode::Down | KeyCode::Right | KeyCode::Char('j') => Msg::HeaderSearchSelectNext,
 			KeyCode::Up | KeyCode::Left | KeyCode::Char('k') => Msg::HeaderSearchSelectPrevious,
@@ -105,13 +117,15 @@ fn normal_key_to_msg(key: KeyEvent) -> Msg {
 	}
 	match key.code {
 		KeyCode::Esc => Msg::CloseNode,
-		KeyCode::Tab => Msg::ToggleFocusRegion,
+		KeyCode::Tab => Msg::FocusNextRegion,
+		KeyCode::BackTab => Msg::FocusPreviousRegion,
 		KeyCode::Char('1') => Msg::ShowView(View::Overview),
 		KeyCode::Char('2') => Msg::ShowView(View::Tree),
 		KeyCode::Char('3') | KeyCode::Char('r') => Msg::ShowView(View::Refs),
 		KeyCode::Char('4') => Msg::ShowView(View::Unresolved),
 		KeyCode::Char('5') => Msg::ShowView(View::Check),
 		KeyCode::Char('6') => Msg::ShowView(View::Change),
+		KeyCode::Char('7') | KeyCode::Char('v') => Msg::ShowView(View::Views),
 		KeyCode::Char('q') => Msg::Quit,
 		KeyCode::Char('/') => Msg::Noop,
 		KeyCode::Char('s') => Msg::ToggleHeaderSearch,

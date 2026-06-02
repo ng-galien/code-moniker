@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::snapshot::{
-	ChangeId, SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceSnapshot,
+	ChangeId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId, SymbolRecord,
+	WorkspaceSnapshot,
 };
 use rustc_hash::FxHashMap;
 type DefLocation = SymbolId;
@@ -18,6 +20,8 @@ pub(in crate::ui) enum NavNodeKind {
 	Dir,
 	File(usize),
 	Def(DefLocation),
+	View { id: String, scope: String },
+	ViewError,
 	ChangeFile,
 	Change(ChangeId),
 }
@@ -28,8 +32,11 @@ pub(in crate::ui) struct NavNode {
 	pub(in crate::ui) label: String,
 	pub(in crate::ui) kind: NavNodeKind,
 	pub(in crate::ui) children: Vec<NavNode>,
+	pub(in crate::ui) view_ids: Vec<String>,
+	pub(in crate::ui) view_count: usize,
 	pub(in crate::ui) file_count: usize,
 	pub(in crate::ui) def_count: usize,
+	pub(in crate::ui) reexport_count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,8 +46,11 @@ pub(in crate::ui) struct NavRow {
 	pub(in crate::ui) kind: NavNodeKind,
 	pub(in crate::ui) depth: usize,
 	pub(in crate::ui) has_children: bool,
+	pub(in crate::ui) view_ids: Vec<String>,
+	pub(in crate::ui) view_count: usize,
 	pub(in crate::ui) file_count: usize,
 	pub(in crate::ui) def_count: usize,
+	pub(in crate::ui) reexport_count: usize,
 }
 
 impl NavNode {
@@ -50,13 +60,16 @@ impl NavNode {
 			label: label.into(),
 			kind,
 			children: Vec::new(),
+			view_ids: Vec::new(),
+			view_count: 0,
 			file_count: 0,
 			def_count: 0,
+			reexport_count: 0,
 		}
 	}
 }
 
-pub(in crate::ui) fn build_navigator(store: &LocalWorkspaceRegistry) -> NavNode {
+pub(in crate::ui) fn build_navigator(store: &LocalWorkspaceRegistry, roots: &[PathBuf]) -> NavNode {
 	let mut root = NavNode::new(NodeId::root("explorer"), "root", NavNodeKind::Root);
 	let Some(snapshot) = store.queries().snapshot() else {
 		return root;
@@ -72,6 +85,7 @@ pub(in crate::ui) fn build_navigator(store: &LocalWorkspaceRegistry) -> NavNode 
 		);
 		append_source_file(lang, file_idx, file, &symbols);
 	}
+	append_view_nodes(&mut root, roots);
 	sort_nav(&mut root);
 	compute_nav_counts(&mut root);
 	root
@@ -93,6 +107,7 @@ fn append_source_file(
 		NavNodeKind::File(file_idx),
 	);
 	file_node.children = symbols.children_for(&file.id, None);
+	file_node.reexport_count = symbols.reexports_for(&file.id);
 	parent.children.push(file_node);
 }
 
@@ -219,7 +234,9 @@ fn nav_sort_key(node: &NavNode) -> (u8, &str) {
 		NavNodeKind::Lang => 1,
 		NavNodeKind::Dir => 2,
 		NavNodeKind::File(_) | NavNodeKind::ChangeFile => 3,
-		NavNodeKind::Def(_) | NavNodeKind::Change(_) => 4,
+		NavNodeKind::View { .. } => 4,
+		NavNodeKind::ViewError => 5,
+		NavNodeKind::Def(_) | NavNodeKind::Change(_) => 6,
 	};
 	(group, node.label.as_str())
 }
@@ -233,18 +250,98 @@ fn compute_nav_counts(node: &mut NavNode) -> (usize, usize) {
 		node.kind,
 		NavNodeKind::Def(_) | NavNodeKind::Change(_)
 	));
+	let mut view_ids = node.view_ids.clone();
+	let mut view_count = view_ids.len();
+	let mut reexport_count = node.reexport_count;
 	for child in &mut node.children {
 		let (child_files, child_defs) = compute_nav_counts(child);
 		files += child_files;
 		defs += child_defs;
+		view_count += child.view_count;
+		view_ids.extend(child.view_ids.iter().cloned());
+		reexport_count += child.reexport_count;
 	}
+	node.view_ids = view_ids;
+	node.view_count = view_count;
 	node.file_count = files;
 	node.def_count = defs;
+	node.reexport_count = reexport_count;
 	(files, defs)
+}
+
+fn append_view_nodes(root: &mut NavNode, roots: &[PathBuf]) {
+	let views = match crate::views::load_views(roots) {
+		Ok(views) => views,
+		Err(error) => {
+			root.view_count += 1;
+			root.children.push(NavNode::new(
+				NodeId::view("views-error"),
+				format!("views error: {error}"),
+				NavNodeKind::ViewError,
+			));
+			return;
+		}
+	};
+	for view in views {
+		let scope = view.scope_path.trim_matches('/');
+		let id = view.spec.id;
+		if scope.is_empty() || !append_view_to_scope(root, scope, id.clone(), "") {
+			append_view_child(root, id, scope);
+		}
+	}
+}
+
+fn append_view_to_scope(node: &mut NavNode, scope: &str, id: String, path: &str) -> bool {
+	if matches_scope_path(path, scope) {
+		append_view_child(node, id, scope);
+		return true;
+	}
+	for child in &mut node.children {
+		let child_path = child_scope_path(path, child);
+		if append_view_to_scope(child, scope, id.clone(), &child_path) {
+			return true;
+		}
+	}
+	false
+}
+
+fn append_view_child(node: &mut NavNode, id: String, scope: &str) {
+	node.view_ids.push(id.clone());
+	node.view_count += 1;
+	node.children.push(NavNode::new(
+		NodeId::view(&id),
+		id.clone(),
+		NavNodeKind::View {
+			id,
+			scope: scope.to_string(),
+		},
+	));
+}
+
+fn child_scope_path(parent: &str, node: &NavNode) -> String {
+	match node.kind {
+		NavNodeKind::Dir | NavNodeKind::File(_) | NavNodeKind::ChangeFile => {
+			join_scope_path(parent, &node.label)
+		}
+		_ => parent.to_string(),
+	}
+}
+
+fn join_scope_path(parent: &str, label: &str) -> String {
+	if parent.is_empty() {
+		label.to_string()
+	} else {
+		format!("{parent}/{label}")
+	}
+}
+
+fn matches_scope_path(path: &str, scope: &str) -> bool {
+	!path.is_empty() && path == scope
 }
 
 struct SymbolNavIndex<'a> {
 	by_parent: FxHashMap<(SourceId, Option<SymbolId>), Vec<&'a SymbolRecord>>,
+	reexports_by_source: FxHashMap<SourceId, usize>,
 }
 
 impl<'a> SymbolNavIndex<'a> {
@@ -252,6 +349,14 @@ impl<'a> SymbolNavIndex<'a> {
 		let by_id = symbols_by_id(&snapshot.index.symbols);
 		let source_langs = source_langs(snapshot);
 		let mut by_parent = FxHashMap::default();
+		let mut reexports_by_source = FxHashMap::default();
+		for reference in &snapshot.index.references {
+			if is_reexport(reference) {
+				*reexports_by_source
+					.entry(reference.source.clone())
+					.or_insert(0) += 1;
+			}
+		}
 		for symbol in &snapshot.index.symbols {
 			if !symbol.navigable {
 				continue;
@@ -263,7 +368,10 @@ impl<'a> SymbolNavIndex<'a> {
 				.push(symbol);
 		}
 		sort_symbol_groups(&mut by_parent, &source_langs);
-		Self { by_parent }
+		Self {
+			by_parent,
+			reexports_by_source,
+		}
 	}
 
 	fn children_for(&self, source: &SourceId, parent: Option<&SymbolId>) -> Vec<NavNode> {
@@ -275,6 +383,14 @@ impl<'a> SymbolNavIndex<'a> {
 			.map(|symbol| symbol_nav_node(self, source, symbol))
 			.collect()
 	}
+
+	fn reexports_for(&self, source: &SourceId) -> usize {
+		self.reexports_by_source.get(source).copied().unwrap_or(0)
+	}
+}
+
+fn is_reexport(reference: &ReferenceRecord) -> bool {
+	reference.kind == "reexports"
 }
 
 fn symbol_nav_node(
@@ -395,8 +511,11 @@ fn flatten_compact_nav(
 		kind: rendered.kind.clone(),
 		depth,
 		has_children: !rendered.children.is_empty(),
+		view_ids: rendered.view_ids.clone(),
+		view_count: rendered.view_count,
 		file_count: node.file_count,
 		def_count: node.def_count,
+		reexport_count: node.reexport_count,
 	});
 	if !rendered.children.is_empty() && expanded.contains(&rendered.key) {
 		for child in &rendered.children {
@@ -417,6 +536,8 @@ fn compact_chain(node: &NavNode, allow_terminal_compaction: bool) -> (&NavNode, 
 				child.kind,
 				NavNodeKind::File(_)
 					| NavNodeKind::Def(_)
+					| NavNodeKind::View { .. }
+					| NavNodeKind::ViewError
 					| NavNodeKind::ChangeFile
 					| NavNodeKind::Change(_)
 			) {
@@ -464,8 +585,11 @@ fn filter_node(node: &NavNode, matches: &[DefLocation]) -> Option<NavNode> {
 		label: node.label.clone(),
 		kind: node.kind.clone(),
 		children,
+		view_ids: node.view_ids.clone(),
+		view_count: node.view_count,
 		file_count: files,
 		def_count: defs,
+		reexport_count: node.reexport_count,
 	})
 }
 

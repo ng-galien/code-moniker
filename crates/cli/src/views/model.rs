@@ -37,6 +37,8 @@ pub(crate) struct BoundarySpec {
 	#[serde(default)]
 	pub(crate) forbids: Vec<String>,
 	#[serde(default)]
+	pub(crate) forbid_rules: Vec<String>,
+	#[serde(default)]
 	pub(crate) rationale: Option<String>,
 	#[serde(default)]
 	pub(crate) symbols: Vec<String>,

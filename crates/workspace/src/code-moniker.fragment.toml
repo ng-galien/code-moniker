@@ -6,7 +6,7 @@ source_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:source/**'"
 code_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:code/**'"
 linkage_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/**'"
 linkage_language_domain = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:language/**'"
-linkage_language_private_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:language/*:/^(java|rust)$/**'"
+linkage_language_private_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:language/*:/^(java|rust|ts)$/**'"
 changes_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:changes/**'"
 snapshot_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:snapshot/**'"
 test_module = "moniker ~ '**/module:tests/**'"
@@ -43,11 +43,83 @@ expr     = """
   AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call' OR kind = 'implements')
   => NOT $linkage_language_private_target
 """
-message  = "`workspace::linkage` must consume language-specific linkage through `linkage::language`, not `language::{java,rust}`."
+message  = "`workspace::linkage` must consume language-specific linkage through `linkage::language`, not `language::{java,rust,ts}`."
 rationale = """
 The generic linkage pipeline owns candidate search, manifest policy, query construction,
-semantic enhancement, and decision reduction. Java and Rust details are implementation
+semantic enhancement, and decision reduction. Java, Rust, and TS details are implementation
 domains below `linkage::language`; the rest of linkage must depend on the language facade
 only. Otherwise language-specific heuristics can leak back into generic orchestration and
 recreate the coupling this module split removed.
 """
+
+[[views]]
+id = "workspace-linkage-semantic"
+title = "Workspace semantic linkage"
+scope = "linkage"
+intent = "Understand the generic linkage pipeline before changing manifest policy or semantic enhancement."
+summary = """
+The linkage layer turns extracted references into local, global, external, blocked, or unresolved
+decisions. Language-specific behavior stays behind `linkage::language`; generic semantic passes
+may enrich decisions, but they should not grow package-specific heuristics.
+"""
+
+[[views.boundaries]]
+id = "manifest-policy"
+owns = [
+  "declared dependency classification",
+  "workspace package visibility",
+  "manifest blocked references",
+]
+forbids = [
+  "classifying arbitrary external packages without manifest evidence",
+]
+rationale = """
+Manifest policy is the place where package metadata becomes a linkage permission. Language
+extractors may emit external-shaped refs, but dependency trust must be decided from manifests
+and source-root context.
+"""
+symbols = [
+  "module:manifest/struct:ManifestPolicy",
+  "module:manifest/fn:source_declares_language_package_target",
+  "module:language/module:ts/fn:source_declares_external_package",
+]
+
+[[views.boundaries]]
+id = "semantic-enhancement"
+owns = [
+  "receiver-chain external method targets",
+  "reexport alias propagation",
+  "generic post-resolution enrichment",
+]
+forbids = [
+  "hard-coded package behavior in semantic linkage",
+]
+rationale = """
+Semantic enhancement can compose already extracted language facts, such as receiver reads and
+reexport refs. Package-specific behavior belongs in manifests or language domains, not in the
+generic post-pass.
+"""
+symbols = [
+  "module:semantic/struct:SemanticLinkage",
+  "module:semantic/fn:enhance_reexport_aliases",
+  "module:semantic/fn:enhance_receiver_chains",
+]
+rules = [
+  "workspace-linkage-language-domains-are-private",
+]
+
+[[views.gotchas]]
+id = "ts-externals-require-manifest"
+rationale = """
+TS external-shaped refs are not enough. Declared packages may become external dependency refs;
+undeclared packages must stay unresolved so extractor confidence cannot bypass workspace policy.
+"""
+symbols = [
+  "module:language/module:ts/fn:builtin_external_root",
+  "module:language/module:ts/fn:package_prefix",
+  "module:manifest/fn:source_root_declares_dependency",
+]
+rules = [
+  "workspace-linkage-language-domains-are-private",
+]
+check = "cargo test -p code-moniker-workspace --test workspace_linkage_acceptance ts_manifest"

@@ -111,7 +111,10 @@ fn refresh_ui_after_store_change(app: &mut App, kind: StoreChangeKind, status: S
 		);
 	}
 	let started = Instant::now();
-	let explorer = build_navigator(crate::ui::app::store(app));
+	let explorer = build_navigator(
+		crate::ui::app::store(app),
+		&crate::ui::app::store_options(app).paths,
+	);
 	perf::record(
 		"store_refresh.build_navigator",
 		started.elapsed(),

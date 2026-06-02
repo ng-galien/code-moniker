@@ -126,6 +126,15 @@ fn validate_view(
 				view.id
 			);
 		}
+		for rule in &boundary.forbid_rules {
+			if rule.trim().is_empty() {
+				anyhow::bail!(
+					"boundary `{}` in view `{}` has an empty forbid rule",
+					boundary.id,
+					view.id
+				);
+			}
+		}
 	}
 	for gotcha in &view.gotchas {
 		if !is_simple_id(&gotcha.id) {

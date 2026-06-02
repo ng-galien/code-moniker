@@ -58,6 +58,7 @@ pub(in crate::ui) enum View {
 	Unresolved,
 	Check,
 	Change,
+	Views,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -387,6 +388,10 @@ fn shell_set_view(shell: &mut ShellSlice, view: View, policy: PanelPolicy) {
 	}
 	shell.view = view;
 	shell.panel_policy = policy;
+	if view == View::Views {
+		shell.focus_region = FocusRegion::Navigator;
+		shell.usage_lens = None;
+	}
 }
 
 fn shell_clear_filter(shell: &mut ShellSlice, return_focus: bool) {
@@ -473,20 +478,21 @@ fn shell_toggle_header_search(shell: &mut ShellSlice) {
 	shell.status = match next {
 		UiMode::Normal => "search focus returned to navigator".to_string(),
 		UiMode::HeaderSearch(HeaderSearchFocus::Text) => {
-			"type to search; Tab selects lang".to_string()
+			"type to search; Tab selects lang, Shift+Tab selects kind".to_string()
 		}
 		UiMode::HeaderSearch(HeaderSearchFocus::Lang) => {
-			"select language; Tab selects kind".to_string()
+			"select language; Tab selects kind, Shift+Tab returns to text".to_string()
 		}
 		UiMode::HeaderSearch(HeaderSearchFocus::Kind) => {
-			"select kind; Tab returns to text".to_string()
+			"select kind; Tab returns to text, Shift+Tab selects lang".to_string()
 		}
 	};
 }
 
-fn shell_focus_next_header_search_field(shell: &mut ShellSlice) {
+fn shell_focus_header_search_field(shell: &mut ShellSlice, forward: bool) {
 	let focus = match shell.mode {
-		UiMode::HeaderSearch(focus) => focus.next(),
+		UiMode::HeaderSearch(focus) if forward => focus.next(),
+		UiMode::HeaderSearch(focus) => focus.previous(),
 		UiMode::Normal => HeaderSearchFocus::Text,
 	};
 	shell.header_search.focus = focus;
@@ -693,9 +699,13 @@ pub(in crate::ui) fn reduce_ui_msg(state: &mut AppState, msg: &Msg) -> Transitio
 			update_shell(state, shell_toggle_header_search);
 			Transition::changed()
 		}
-		Msg::ToggleFocusRegion => Transition::unchanged(),
+		Msg::FocusNextRegion | Msg::FocusPreviousRegion => Transition::unchanged(),
 		Msg::HeaderSearchNextField => {
-			update_shell(state, shell_focus_next_header_search_field);
+			update_shell(state, |shell| shell_focus_header_search_field(shell, true));
+			Transition::changed()
+		}
+		Msg::HeaderSearchPreviousField => {
+			update_shell(state, |shell| shell_focus_header_search_field(shell, false));
 			Transition::changed()
 		}
 		Msg::HeaderSearchInput(edit) => {
@@ -724,7 +734,7 @@ pub(in crate::ui) fn reduce_ui_msg(state: &mut AppState, msg: &Msg) -> Transitio
 		Msg::Help => {
 			set_status(
 				state,
-				"keys: s search focus, Tab next search field, x reset filters, Enter/right open, Esc/left close, PgUp/PgDn scroll panel, d changes, u usages, y copy panel, 1-6 panels, c check, q quit",
+				"keys: s search focus, Tab/Shift+Tab move focus, x reset filters, Enter/right open, Esc/left close, PgUp/PgDn scroll panel, d changes, u usages, y copy panel, 1-7 panels, c check, q quit",
 			);
 			Transition::changed()
 		}

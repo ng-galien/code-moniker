@@ -355,6 +355,9 @@ pub struct UiArgs {
 		help = "filter check rules through a named profile from .code-moniker.toml"
 	)]
 	pub profile: Option<String>,
+
+	#[arg(long, help = "show TUI component debug markers")]
+	pub debug: bool,
 }
 
 #[cfg(feature = "mcp")]
@@ -842,6 +845,7 @@ mod tests {
 			ui(&["svc-a", "svc-b"]).paths,
 			vec![PathBuf::from("svc-a"), PathBuf::from("svc-b")]
 		);
+		assert!(ui(&["--debug"]).debug);
 	}
 
 	#[test]

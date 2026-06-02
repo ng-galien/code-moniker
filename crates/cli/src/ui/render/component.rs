@@ -17,6 +17,7 @@ pub(in crate::ui) enum ComponentId {
 	PanelUnresolved,
 	PanelCheck,
 	PanelChange,
+	PanelViews,
 	SourceSnippet,
 }
 
@@ -35,6 +36,7 @@ impl ComponentId {
 			Self::PanelUnresolved => "ui.panel.unresolved",
 			Self::PanelCheck => "ui.panel.check",
 			Self::PanelChange => "ui.panel.change",
+			Self::PanelViews => "ui.panel.views",
 			Self::SourceSnippet => "ui.source.snippet",
 		}
 	}
@@ -51,30 +53,37 @@ pub(in crate::ui) fn raw_marker(id: &'static str) -> Span<'static> {
 	)
 }
 
-pub(in crate::ui) fn block_title(label: impl Into<String>, id: ComponentId) -> Line<'static> {
+pub(in crate::ui) fn block_title(
+	label: impl Into<String>,
+	id: ComponentId,
+	show_marker: bool,
+) -> Line<'static> {
 	let label = label.into();
-	Line::from(vec![
-		Span::raw(label.trim().to_string()),
-		Span::raw(" "),
-		marker(id),
-	])
+	let mut spans = vec![Span::raw(label.trim().to_string())];
+	if show_marker {
+		spans.push(Span::raw(" "));
+		spans.push(marker(id));
+	}
+	Line::from(spans)
 }
 
 pub(in crate::ui) fn focused_block_title(
 	label: impl Into<String>,
 	id: ComponentId,
 	focused: bool,
+	show_marker: bool,
 ) -> Line<'static> {
 	if !focused {
-		return block_title(label, id);
+		return block_title(label, id, show_marker);
 	}
 	let label = label.into();
 	let style = Style::default()
 		.fg(THEME.focus.title)
 		.add_modifier(Modifier::BOLD);
-	Line::from(vec![
-		Span::styled(label.trim().to_string(), style),
-		Span::raw(" "),
-		Span::styled(format!("[{}]", id.as_str()), style),
-	])
+	let mut spans = vec![Span::styled(label.trim().to_string(), style)];
+	if show_marker {
+		spans.push(Span::raw(" "));
+		spans.push(Span::styled(format!("[{}]", id.as_str()), style));
+	}
+	Line::from(spans)
 }

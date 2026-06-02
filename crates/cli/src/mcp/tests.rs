@@ -447,54 +447,7 @@ fn rules_tool_lists_project_rules() {
 fn read_views_lists_and_renders_fragment_view() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let source_dir = temp.path().join("src/main/java");
-	std::fs::create_dir_all(&source_dir).expect("mkdir");
-	std::fs::write(
-		source_dir.join("App.java"),
-		"class App {\n  void before() {}\n  void run() {\n    work();\n  }\n}\n",
-	)
-	.expect("write fixture");
-	std::fs::write(
-		temp.path().join(".code-moniker.toml"),
-		r#"
-		default_rules = false
-
-		[[views]]
-		id = "root-map"
-		title = "Root map"
-		"#,
-	)
-	.expect("write root config");
-	std::fs::write(
-		source_dir.join("code-moniker.fragment.toml"),
-		r#"
-		fragment = "java-app"
-
-		[[views]]
-		id = "java-app"
-		title = "Java app"
-		scope = "."
-		intent = "Understand the fixture application."
-		summary = """
-		The fixture view is anchored to the Java source fragment and resolves evidence from
-		the indexed symbols instead of storing code excerpts in TOML.
-		"""
-
-		[[views.boundaries]]
-		id = "entry"
-		owns = ["fixture entry class"]
-		forbids = ["workspace runtime concerns"]
-		rationale = """
-		The entry boundary highlights the class and method an agent should inspect first.
-		"""
-		symbols = ["class:App", "method:run"]
-
-		[[views.gotchas]]
-		id = "method-slice"
-		rationale = "The run method should render a source slice as evidence."
-		symbols = ["method:run"]
-		"#,
-	)
-	.expect("write fragment view");
+	write_fragment_view_fixture(temp.path(), &source_dir);
 	let registry = ToolRegistry::new();
 	let context = loaded_context(vec![temp.path().to_path_buf()]);
 	let list = registry
@@ -526,12 +479,104 @@ fn read_views_lists_and_renders_fragment_view() {
 		.expect("view detail");
 	assert!(!detail.is_error);
 	assert!(detail.text.contains("view: java-app"), "{}", detail.text);
+	assert!(detail.text.contains("rules:"));
+	assert_eq!(
+		detail.text.matches("Boundary rule rationale.").count(),
+		1,
+		"{}",
+		detail.text
+	);
+	assert!(
+		detail.text.contains("view-boundary-rule"),
+		"{}",
+		detail.text
+	);
+	assert!(
+		detail
+			.text
+			.contains("- missing-view-rule [missing] domain=unresolved"),
+		"{}",
+		detail.text
+	);
 	assert!(detail.text.contains("boundaries:"));
+	assert!(
+		detail.text.contains("forbids_status: enforced_by_rules"),
+		"{}",
+		detail.text
+	);
+	assert!(detail.text.contains("forbid_rules:"), "{}", detail.text);
 	assert!(detail.text.contains("gotchas:"));
 	assert!(detail.text.contains("moniker:"));
 	assert!(detail.text.contains("class:App"), "{}", detail.text);
 	assert!(detail.text.contains("method:run"), "{}", detail.text);
-	assert!(detail.text.contains("void run()"), "{}", detail.text);
+	assert!(detail.text.contains("selector: count"), "{}", detail.text);
+	assert!(detail.text.contains("status: missing"), "{}", detail.text);
+	assert!(
+		detail.text.contains("void run(int count)"),
+		"{}",
+		detail.text
+	);
+}
+
+fn write_fragment_view_fixture(root: &std::path::Path, source_dir: &std::path::Path) {
+	std::fs::create_dir_all(source_dir).expect("mkdir");
+	std::fs::write(
+		source_dir.join("App.java"),
+		"class App {\n  void before() {}\n  void run(int count) {\n    work();\n  }\n}\n",
+	)
+	.expect("write fixture");
+	std::fs::write(
+		root.join(".code-moniker.toml"),
+		r#"
+		default_rules = false
+
+		[[java.class.where]]
+		id = "view-boundary-rule"
+		expr = "name =~ ^App$"
+		message = "boundary rule"
+		rationale = """
+		Boundary rule rationale.
+		"""
+
+		[[views]]
+		id = "root-map"
+		title = "Root map"
+		"#,
+	)
+	.expect("write root config");
+	std::fs::write(
+		source_dir.join("code-moniker.fragment.toml"),
+		r#"
+		fragment = "java-app"
+
+		[[views]]
+		id = "java-app"
+		title = "Java app"
+		scope = "."
+		intent = "Understand the fixture application."
+		summary = """
+		The fixture view is anchored to the Java source fragment and resolves evidence from
+		the indexed symbols instead of storing code excerpts in TOML.
+		"""
+
+		[[views.boundaries]]
+		id = "entry"
+		owns = ["fixture entry class"]
+		forbids = ["workspace runtime concerns"]
+		forbid_rules = ["view-boundary-rule"]
+		rationale = """
+		The entry boundary highlights the class and method an agent should inspect first.
+		"""
+		symbols = ["class:App", "method:run", "count"]
+		rules = ["view-boundary-rule", "missing-view-rule"]
+
+		[[views.gotchas]]
+		id = "method-slice"
+		rationale = "The run method should render a source slice as evidence."
+		symbols = ["method:run"]
+		"#,
+	)
+	.expect("write fragment view");
 }
 
 #[test]

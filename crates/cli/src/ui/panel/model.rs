@@ -23,6 +23,7 @@ pub(in crate::ui) struct PanelRenderState {
 	pub(in crate::ui) scroll: usize,
 	pub(in crate::ui) selected: Option<usize>,
 	pub(in crate::ui) focused: bool,
+	pub(in crate::ui) show_component_markers: bool,
 }
 
 impl PanelVm {

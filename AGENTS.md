@@ -97,6 +97,55 @@ tmux capture-pane -t cm-mcp -p
 - Required probes: scoped read, cursor follow-up, `action:"insights"`, symbol URI read.
 - Rules probes: `action:"list"`, bounded `action:"run"`.
 
+## TUI Verification
+
+```sh
+cargo install --path crates/cli --features tui,mcp --no-default-features
+tmux kill-session -t cm-tui-debug
+tmux new-session -d -s cm-tui-debug 'code-moniker ui <source-root>'
+tmux resize-window -t cm-tui-debug -x 160 -y 45
+tmux capture-pane -t cm-tui-debug -p
+```
+
+- Navigate with keys:
+  - `tmux send-keys -t cm-tui-debug Enter`
+  - `tmux send-keys -t cm-tui-debug Down Down Enter`
+  - `tmux send-keys -t cm-tui-debug s R i s k P o l i c y`
+  - `tmux send-keys -t cm-tui-debug Escape`
+- Capture after each navigation step:
+  - `tmux capture-pane -t cm-tui-debug -p`
+- Verify visible contract:
+  - header: `code-moniker [ui.header]`
+  - navigator: `[ui.navigator]`
+  - active panel: `[ui.panel.<name>]`
+  - workspace counts: `files`, `defs`, `refs`
+  - selected row marker: `>`
+  - expanded row marker: `▾`
+  - collapsed row marker: `▸`
+- Verify file tree before symbols:
+  - load catalog-only acceptance test when relevant.
+  - expected: files present, `defs 0`, `refs 0`.
+- Verify symbols after index:
+  - expected: navigator title has nonzero `defs`.
+  - expand to a file with symbols.
+  - expected: visible symbol rows include kind, visibility, path/name.
+- Verify module-only Rust files:
+  - `code-moniker extract <source-root> --path <mod-file> --format json --max-symbols 20`
+  - expected TUI row: `0 defs <N> reexports`.
+- Verify search:
+  - `tmux send-keys -t cm-tui-debug s <query>`
+  - expected: mode `search`, navigator title `filtered`, selected symbol panel `outline`.
+- Verify views:
+  - `tmux send-keys -t cm-tui-debug v`
+  - expected: panel `[ui.panel.views]`, tree markers `[vN]`.
+  - `tmux send-keys -t cm-tui-debug v`
+  - expected: panel returns to `overview`.
+- Verify truncation:
+  - always resize to `160x45` before final capture.
+  - if text is still truncated, navigate to put the target row near center and recapture.
+- Kill debug TUI after verification:
+  - `tmux kill-session -t cm-tui-debug`
+
 ## Refactoring
 
 - Start with `$code-moniker-smell-review` or:

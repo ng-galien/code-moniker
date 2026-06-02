@@ -163,6 +163,10 @@ rules = [
  "mcp-shared-index-contract-is-context-only",
  "mcp-workspace-access-is-tool-owned",
 ]
+forbid_rules = [
+ "mcp-does-not-own-workspace-runtime",
+ "mcp-workspace-access-is-tool-owned",
+]
 
 [[views.boundaries]]
 id = "tools"

@@ -84,6 +84,7 @@ fn render_view_detail(
 	let rules = rule_map(roots, snapshot, view)?;
 	let mut output = String::new();
 	render_view_header(&mut output, scheme, view);
+	render_rule_catalog(&mut output, &rules);
 	render_boundaries(&mut output, snapshot, options, view, &rules);
 	render_gotchas(&mut output, snapshot, options, view, &rules);
 	render_next(&mut output, scheme, view);
@@ -136,12 +137,12 @@ fn render_boundary(
 ) {
 	output.push_str(&format!("  - {}\n", boundary.id));
 	render_list(output, "owns", &boundary.owns, "    ");
-	render_list(output, "forbids", &boundary.forbids, "    ");
+	render_forbids(output, boundary, "    ");
 	if let Some(rationale) = &boundary.rationale {
 		output.push_str("    rationale:\n");
 		render_text_block(output, rationale, "      ");
 	}
-	render_rules(output, &boundary.rules, rules, "    ");
+	render_rule_refs(output, "rules", &boundary.rules, rules, "    ");
 	render_symbols(output, snapshot, options, view, &boundary.symbols, "    ");
 }
 
@@ -176,7 +177,7 @@ fn render_gotcha(
 	if let Some(check) = &gotcha.check {
 		output.push_str(&format!("    check: {check}\n"));
 	}
-	render_rules(output, &gotcha.rules, rules, "    ");
+	render_rule_refs(output, "rules", &gotcha.rules, rules, "    ");
 	render_symbols(output, snapshot, options, view, &gotcha.symbols, "    ");
 }
 
@@ -244,8 +245,26 @@ fn render_symbol_evidence(
 	}
 }
 
-fn render_rules(
+fn render_rule_catalog(output: &mut String, rules: &BTreeMap<String, RuleEvidence>) {
+	if rules.is_empty() {
+		return;
+	}
+	output.push_str("\nrules:\n");
+	for rule in rules.values() {
+		output.push_str(&format!(
+			"  - {} [{}] domain={}\n",
+			rule.id, rule.severity, rule.domain
+		));
+		if let Some(rationale) = &rule.rationale {
+			output.push_str("    rationale:\n");
+			render_text_block(output, rationale, "      ");
+		}
+	}
+}
+
+fn render_rule_refs(
 	output: &mut String,
+	label: &str,
 	rule_ids: &[String],
 	rules: &BTreeMap<String, RuleEvidence>,
 	indent: &str,
@@ -254,23 +273,35 @@ fn render_rules(
 		return;
 	}
 	output.push_str(indent);
-	output.push_str("rules:\n");
+	output.push_str(label);
+	output.push_str(":\n");
 	for rule_id in rule_ids {
-		let Some(rule) = rules.get(rule_id) else {
+		if !rules.contains_key(rule_id) {
 			output.push_str(indent);
 			output.push_str(&format!("  - {rule_id} [missing]\n"));
 			continue;
-		};
-		output.push_str(indent);
-		output.push_str(&format!(
-			"  - {} [{}] domain={}\n",
-			rule.id, rule.severity, rule.domain
-		));
-		if let Some(rationale) = &rule.rationale {
-			output.push_str(indent);
-			output.push_str("    rationale:\n");
-			render_text_block(output, rationale, &format!("{indent}      "));
 		}
+		output.push_str(indent);
+		output.push_str(&format!("  - {rule_id}\n"));
+	}
+}
+
+fn render_forbids(output: &mut String, boundary: &BoundarySpec, indent: &str) {
+	if boundary.forbids.is_empty() {
+		return;
+	}
+	output.push_str(indent);
+	output.push_str("forbids:\n");
+	for value in &boundary.forbids {
+		output.push_str(indent);
+		output.push_str(&format!("  - {value}\n"));
+	}
+	output.push_str(indent);
+	if boundary.forbid_rules.is_empty() {
+		output.push_str("forbids_status: advisory\n");
+	} else {
+		output.push_str("forbids_status: enforced_by_rules\n");
+		render_list(output, "forbid_rules", &boundary.forbid_rules, indent);
 	}
 }
 
@@ -320,6 +351,7 @@ fn collect_rule_ids(view: &ViewDocument) -> Vec<String> {
 	let mut ids = BTreeSet::new();
 	for boundary in &view.spec.boundaries {
 		ids.extend(boundary.rules.iter().cloned());
+		ids.extend(boundary.forbid_rules.iter().cloned());
 	}
 	for gotcha in &view.spec.gotchas {
 		ids.extend(gotcha.rules.iter().cloned());

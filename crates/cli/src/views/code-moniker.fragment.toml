@@ -112,3 +112,20 @@ symbols = [
   "module:render/fn:render_view_list",
   "module:render/fn:render_view_detail",
 ]
+
+[[views.gotchas]]
+id = "views-are-maps-not-dumps"
+rationale = """
+View rendering should preserve orientation signal: rules are explained once, boundaries link to
+rule ids, and symbol evidence should prefer current navigable owners over incidental locals or
+params. If this regresses, the agent-facing view becomes another raw graph dump.
+"""
+symbols = [
+  "module:render/fn:render_rule_catalog",
+  "module:render/fn:render_rule_refs",
+  "module:resolve/fn:select_symbol_evidence",
+]
+rules = [
+  "views-are-renderer-independent",
+]
+check = "cargo test -p code-moniker --features mcp --no-default-features read_views_lists_and_renders_fragment_view --lib"

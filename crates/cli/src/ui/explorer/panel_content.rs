@@ -34,6 +34,7 @@ pub(super) fn active_panel(app: &App) -> PanelVm {
 		View::Unresolved => unresolved_panel(app),
 		View::Check => check_panel(app),
 		View::Change => change_panel(app),
+		View::Views => views_panel(app),
 	}
 }
 
@@ -48,6 +49,10 @@ pub(super) fn active_panel_nav(app: &App) -> ActivePanelNav {
 			navigation_len: 0,
 		},
 		View::Change => change_panel_nav(app),
+		View::Views => ActivePanelNav {
+			component: ComponentId::PanelViews,
+			navigation_len: 0,
+		},
 	}
 }
 
@@ -69,6 +74,108 @@ pub(super) fn active_panel_default_expanded(app: &App) -> std::collections::BTre
 	match crate::ui::app::view(app) {
 		View::Unresolved => unresolved_panel_default_expanded(app),
 		_ => std::collections::BTreeSet::new(),
+	}
+}
+
+fn views_panel(app: &App) -> PanelVm {
+	let mut vm = PanelVm::new("views", ComponentId::PanelViews);
+	let views = match crate::views::load_views(&crate::ui::app::store_options(app).paths) {
+		Ok(views) => views,
+		Err(error) => {
+			panel_section(&mut vm, "views");
+			panel_danger(&mut vm, format!("cannot load views: {error}"));
+			return vm;
+		}
+	};
+	if views.is_empty() {
+		panel_section(&mut vm, "views");
+		panel_muted(&mut vm, "no project views found");
+		return vm;
+	}
+	let selected_view = selected_view_id(app);
+	let view = selected_view
+		.and_then(|id| views.iter().find(|view| view.spec.id == id))
+		.unwrap_or(&views[0]);
+	panel_section(&mut vm, "view lens");
+	panel_kv(&mut vm, "id", view.spec.id.clone(), FitMode::Middle);
+	panel_kv(
+		&mut vm,
+		"title",
+		view.spec.title.clone().unwrap_or_default(),
+		FitMode::Tail,
+	);
+	panel_kv(&mut vm, "fragment", view.fragment.clone(), FitMode::Tail);
+	panel_kv(
+		&mut vm,
+		"scope",
+		if view.scope_path.is_empty() {
+			".".to_string()
+		} else {
+			view.scope_path.clone()
+		},
+		FitMode::Middle,
+	);
+	panel_kv(
+		&mut vm,
+		"moniker",
+		format!("workspace/views/{}", view.spec.id),
+		FitMode::Middle,
+	);
+	if let Some(intent) = &view.spec.intent {
+		panel_blank(&mut vm);
+		panel_section(&mut vm, "intent");
+		panel_muted(&mut vm, intent.trim());
+	}
+	if let Some(summary) = &view.spec.summary {
+		panel_blank(&mut vm);
+		panel_section(&mut vm, "summary");
+		panel_muted(&mut vm, summary.trim());
+	}
+	push_view_boundaries(&mut vm, &view.spec.boundaries);
+	push_view_gotchas(&mut vm, &view.spec.gotchas);
+	vm
+}
+
+fn selected_view_id(app: &App) -> Option<&str> {
+	crate::ui::app::selected_nav_row(app).and_then(|row| match &row.kind {
+		NavNodeKind::View { id, .. } => Some(id.as_str()),
+		_ => row.view_ids.first().map(String::as_str),
+	})
+}
+
+fn push_view_boundaries(vm: &mut PanelVm, boundaries: &[crate::views::BoundarySpec]) {
+	if boundaries.is_empty() {
+		return;
+	}
+	panel_blank(vm);
+	panel_section(vm, "boundaries");
+	for boundary in boundaries {
+		panel_bullet(vm, format!("{} owns {}", boundary.id, boundary.owns.len()));
+		for owns in boundary.owns.iter().take(3) {
+			panel_muted(vm, format!("  owns {owns}"));
+		}
+		for forbids in &boundary.forbids {
+			let status = if boundary.forbid_rules.is_empty() {
+				"advisory"
+			} else {
+				"enforced"
+			};
+			panel_muted(vm, format!("  forbids {forbids} ({status})"));
+		}
+	}
+}
+
+fn push_view_gotchas(vm: &mut PanelVm, gotchas: &[crate::views::GotchaSpec]) {
+	if gotchas.is_empty() {
+		return;
+	}
+	panel_blank(vm);
+	panel_section(vm, "gotchas");
+	for gotcha in gotchas {
+		panel_bullet(vm, gotcha.id.clone());
+		if let Some(check) = &gotcha.check {
+			panel_muted(vm, format!("  check {check}"));
+		}
 	}
 }
 
@@ -319,6 +426,8 @@ fn nav_selection_panel(app: &App) -> PanelVm {
 		NavNodeKind::Dir => "directory",
 		NavNodeKind::File(_) | NavNodeKind::ChangeFile => "file",
 		NavNodeKind::Def(_) => "declaration",
+		NavNodeKind::View { .. } => "view",
+		NavNodeKind::ViewError => "view error",
 		NavNodeKind::Change(_) => "change",
 	};
 	panel_section(&mut vm, "navigator");
@@ -881,7 +990,7 @@ mod tests {
 
 	use super::*;
 	use crate::session::SessionOptions;
-	use crate::ui::app::App;
+	use crate::ui::app::{App, AppConfig};
 	use crate::ui::workspace_read::load_local_workspace;
 
 	fn write(root: &Path, rel: &str, body: &str) {
@@ -909,9 +1018,12 @@ mod tests {
 			store,
 			cache,
 			opts,
-			"default".to_string(),
-			tmp.path().join("rules.toml"),
-			None,
+			AppConfig {
+				scheme: "default".to_string(),
+				rules: tmp.path().join("rules.toml"),
+				profile: None,
+				debug: false,
+			},
 		)
 	}
 
@@ -926,6 +1038,7 @@ mod tests {
 			View::Unresolved,
 			View::Check,
 			View::Change,
+			View::Views,
 		] {
 			crate::ui::app::set_view(&mut app, view, crate::ui::app::PanelPolicy::Manual);
 			let panel = active_panel(&app);

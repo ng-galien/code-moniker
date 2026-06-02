@@ -7,11 +7,11 @@ use crossterm::event::KeyEvent;
 use crate::session::StoreWatchRoot;
 use crate::ui::app::App;
 use crate::ui::app::{
-	AppAction, CheckState, Effect, FocusRegion, PanelPolicy, TaskCompletion, View,
+	AppAction, CheckState, Effect, FocusCycle, FocusRegion, PanelPolicy, TaskCompletion, View,
 	apply_file_catalog_store, apply_navigation, apply_reloaded_store, close_panel_tree_node,
-	close_selected_nav, copy_panel_snapshot, ensure_active_panel_selection, handle_store_event,
-	handle_store_event_sync, has_clearable_scope, move_panel_selection, move_panel_to_edge,
-	open_panel_tree_node, open_selected_nav, set_view, sync_contextual_view, toggle_focus_region,
+	close_selected_nav, copy_panel_snapshot, cycle_focus_region, ensure_active_panel_selection,
+	handle_store_event, handle_store_event_sync, has_clearable_scope, move_panel_selection,
+	move_panel_to_edge, open_panel_tree_node, open_selected_nav, set_view, sync_contextual_view,
 	toggle_panel_tree_node, toggle_selected_nav,
 };
 use crate::ui::async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
@@ -30,9 +30,9 @@ pub(in crate::ui) fn run_check(app: &mut App) {
 	if let Ok(context) = crate::ui::app::store_check_context(app) {
 		let task = TaskSpec::run_check(
 			context,
-			app.check.rules.clone(),
-			app.check.profile.clone(),
-			app.check.scheme.clone(),
+			app.config.rules.clone(),
+			app.config.profile.clone(),
+			app.config.scheme.clone(),
 		);
 		if queue_task(app, task) {
 			crate::ui::app::set_status(app, "check queued in background");
@@ -41,9 +41,9 @@ pub(in crate::ui) fn run_check(app: &mut App) {
 	}
 	match crate::ui::app::store_check_context(app).and_then(|context| {
 		context.check_summary(
-			&app.check.rules,
-			app.check.profile.as_deref(),
-			&app.check.scheme,
+			&app.config.rules,
+			app.config.profile.as_deref(),
+			&app.config.scheme,
 		)
 	}) {
 		Ok(summary) => {
@@ -237,6 +237,9 @@ pub(in crate::ui) fn apply_effects(app: &mut App, effects: Vec<Effect>) -> bool 
 
 fn apply_effect(app: &mut App, effect: Effect) -> bool {
 	match effect {
+		Effect::ShowView(View::Views) if crate::ui::app::view(app) == View::Views => {
+			set_view(app, View::Overview, PanelPolicy::Contextual)
+		}
 		Effect::ShowView(view) => set_view(app, view, PanelPolicy::Manual),
 		Effect::Quit => return true,
 		Effect::DebounceHeaderSearch(generation) => {
@@ -250,7 +253,8 @@ fn apply_effect(app: &mut App, effect: Effect) -> bool {
 
 fn handle_ui_transition_msg(app: &mut App, msg: &Msg) -> bool {
 	match msg {
-		Msg::ToggleFocusRegion => toggle_focus_region(app),
+		Msg::FocusNextRegion => cycle_focus_region(app, FocusCycle::Forward),
+		Msg::FocusPreviousRegion => cycle_focus_region(app, FocusCycle::Backward),
 		Msg::HeaderSearchSelectNext => app.cycle_header_search_selector(1),
 		Msg::HeaderSearchSelectPrevious => app.cycle_header_search_selector(-1),
 		Msg::HeaderSearchToggleSelection => app.toggle_header_search_selection(),

@@ -31,24 +31,40 @@ pub(in crate::ui) fn render_shell(frame: &mut ratatui::Frame<'_>, area: Rect, vm
 			Constraint::Length(1),
 		])
 		.split(area);
-	render_header(frame, rows[0], &vm.header);
-	render_search_bar(frame, rows[1], &vm.search);
+	render_header(frame, rows[0], &vm.header, vm.show_component_markers);
+	render_search_bar(frame, rows[1], &vm.search, vm.show_component_markers);
 	render_body(frame, rows[2], vm);
-	render_footer(frame, rows[3], &vm.footer);
+	render_footer(frame, rows[3], &vm.footer, vm.show_component_markers);
 	render_search_popup(frame, rows[1], &vm.search);
 }
 
-fn render_header(frame: &mut ratatui::Frame<'_>, area: Rect, header: &HeaderVm) {
+fn render_header(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	header: &HeaderVm,
+	show_component_markers: bool,
+) {
 	frame.render_widget(
-		Paragraph::new(header_line(header, usize::from(area.width))),
+		Paragraph::new(header_line(
+			header,
+			usize::from(area.width),
+			show_component_markers,
+		)),
 		area,
 	);
 }
 
-pub(in crate::ui) fn header_line(header: &HeaderVm, width: usize) -> Line<'static> {
+pub(in crate::ui) fn header_line(
+	header: &HeaderVm,
+	width: usize,
+	show_component_markers: bool,
+) -> Line<'static> {
 	let prefix_width = visible_len("code-moniker ")
-		+ visible_len(ComponentId::Header.as_str())
-		+ 2 + visible_len(" mode ")
+		+ if show_component_markers {
+			visible_len(ComponentId::Header.as_str()) + 2
+		} else {
+			0
+		} + visible_len(" mode ")
 		+ visible_len(header.mode)
 		+ visible_len("  scope ");
 	let scope = fit_text(
@@ -56,15 +72,17 @@ pub(in crate::ui) fn header_line(header: &HeaderVm, width: usize) -> Line<'stati
 		width.saturating_sub(prefix_width),
 		FitMode::Middle,
 	);
-	Line::from(vec![
-		Span::styled(
-			"code-moniker ",
-			Style::default()
-				.fg(THEME.brand)
-				.add_modifier(Modifier::BOLD),
-		),
-		marker(ComponentId::Header),
-		Span::raw(" "),
+	let mut spans = vec![Span::styled(
+		"code-moniker ",
+		Style::default()
+			.fg(THEME.brand)
+			.add_modifier(Modifier::BOLD),
+	)];
+	if show_component_markers {
+		spans.push(marker(ComponentId::Header));
+		spans.push(Span::raw(" "));
+	}
+	spans.extend([
 		Span::raw("mode "),
 		Span::styled(
 			header.mode,
@@ -74,15 +92,22 @@ pub(in crate::ui) fn header_line(header: &HeaderVm, width: usize) -> Line<'stati
 		),
 		Span::raw("  scope "),
 		Span::styled(scope, Style::default().fg(THEME.nav.symbol)),
-	])
+	]);
+	Line::from(spans)
 }
 
-fn render_search_bar(frame: &mut ratatui::Frame<'_>, area: Rect, search: &SearchBarVm) {
+fn render_search_bar(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	search: &SearchBarVm,
+	show_component_markers: bool,
+) {
 	let block = Block::default()
 		.title(focused_block_title(
 			" search ",
 			ComponentId::SearchInput,
 			search.focused,
+			show_component_markers,
 		))
 		.borders(Borders::ALL)
 		.border_style(if search.focused {
@@ -94,7 +119,7 @@ fn render_search_bar(frame: &mut ratatui::Frame<'_>, area: Rect, search: &Search
 	let inner = block.inner(area);
 	frame.render_widget(block, area);
 	let regions = search_regions(search, inner);
-	render_search_query(frame, regions.query, search);
+	render_search_query(frame, regions.query, search, show_component_markers);
 	render_search_combo(
 		frame,
 		regions.lang,
@@ -147,9 +172,14 @@ fn combo_width(label: &str, value: &str, min: u16, max: u16) -> u16 {
 	requested.clamp(usize::from(min), usize::from(max)) as u16
 }
 
-fn render_search_query(frame: &mut ratatui::Frame<'_>, area: Rect, search: &SearchBarVm) {
+fn render_search_query(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	search: &SearchBarVm,
+	show_component_markers: bool,
+) {
 	let focused = search.focus == Some(HeaderSearchFocus::Text);
-	let block = search_query_block(focused);
+	let block = search_query_block(focused, show_component_markers);
 	let inner = block.inner(area);
 	frame.render_widget(block, area);
 	frame.render_widget(
@@ -194,14 +224,15 @@ fn search_block(label: &'static str, focused: bool) -> Block<'static> {
 	)
 }
 
-fn search_query_block(focused: bool) -> Block<'static> {
-	search_block_with_title(
-		Line::from(vec![
-			Span::styled(" query ", Style::default().fg(THEME.search.label)),
-			raw_marker("ui.search.input#query"),
-		]),
-		focused,
-	)
+fn search_query_block(focused: bool, show_component_markers: bool) -> Block<'static> {
+	let mut spans = vec![Span::styled(
+		" query ",
+		Style::default().fg(THEME.search.label),
+	)];
+	if show_component_markers {
+		spans.push(raw_marker("ui.search.input#query"));
+	}
+	search_block_with_title(Line::from(spans), focused)
 }
 
 fn search_block_with_title(title: Line<'static>, focused: bool) -> Block<'static> {
@@ -336,42 +367,55 @@ fn render_body(frame: &mut ratatui::Frame<'_>, area: Rect, vm: &ExplorerVm) {
 			scroll: vm.panel_navigation.scroll,
 			selected: vm.panel_navigation.selected,
 			focused: vm.panel_focused,
+			show_component_markers: vm.show_component_markers,
 		},
 	);
 }
 
 fn render_left_pane(frame: &mut ratatui::Frame<'_>, area: Rect, vm: &ExplorerVm) {
 	let Some(usage_nav) = &vm.usage_nav else {
-		render_nav_block(frame, area, &vm.primary_nav);
+		render_nav_block(frame, area, &vm.primary_nav, vm.show_component_markers);
 		return;
 	};
 	let rows = Layout::default()
 		.direction(Direction::Vertical)
 		.constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
 		.split(area);
-	render_nav_block(frame, rows[0], &vm.primary_nav);
-	render_nav_block(frame, rows[1], usage_nav);
+	render_nav_block(frame, rows[0], &vm.primary_nav, vm.show_component_markers);
+	render_nav_block(frame, rows[1], usage_nav, vm.show_component_markers);
 }
 
-fn render_footer(frame: &mut ratatui::Frame<'_>, area: Rect, footer: &FooterVm) {
-	let line = Line::from(vec![
-		Span::styled(
-			format!("{}: ", footer.prefix),
-			Style::default().fg(THEME.status_label),
-		),
-		marker(ComponentId::Status),
-		Span::raw(" "),
-		Span::raw(footer.status.clone()),
-	]);
+fn render_footer(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	footer: &FooterVm,
+	show_component_markers: bool,
+) {
+	let mut spans = vec![Span::styled(
+		format!("{}: ", footer.prefix),
+		Style::default().fg(THEME.status_label),
+	)];
+	if show_component_markers {
+		spans.push(marker(ComponentId::Status));
+		spans.push(Span::raw(" "));
+	}
+	spans.push(Span::raw(footer.status.clone()));
+	let line = Line::from(spans);
 	frame.render_widget(Paragraph::new(line), area);
 }
 
-fn render_nav_block(frame: &mut ratatui::Frame<'_>, area: Rect, pane: &NavPaneVm) {
+fn render_nav_block(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	pane: &NavPaneVm,
+	show_component_markers: bool,
+) {
 	let block = Block::default()
 		.title(focused_block_title(
 			pane.title.clone(),
 			pane.component,
 			pane.focused,
+			show_component_markers,
 		))
 		.borders(Borders::ALL)
 		.border_style(if pane.focused {
@@ -411,6 +455,7 @@ fn render_nav_block(frame: &mut ratatui::Frame<'_>, area: Rect, pane: &NavPaneVm
 
 pub(in crate::ui) fn nav_row_line(row: &NavRowVm, selected: bool) -> Line<'static> {
 	let mut spans = tree::prefix_spans(row.depth, row.has_children, row.expanded, Some(selected));
+	push_view_marker(row, &mut spans);
 	match &row.kind {
 		NavRowVmKind::Lang => {
 			let label = if row.has_children {
@@ -453,6 +498,13 @@ pub(in crate::ui) fn nav_row_line(row: &NavRowVm, selected: bool) -> Line<'stati
 					.add_modifier(Modifier::BOLD),
 			));
 			spans.push(nav_count_span(row));
+		}
+		NavRowVmKind::View { scope, .. } => push_view_row_spans(row, scope, &mut spans),
+		NavRowVmKind::ViewError => {
+			spans.push(Span::styled(
+				row.label.clone(),
+				Style::default().fg(THEME.danger),
+			));
 		}
 		NavRowVmKind::Def {
 			lang,
@@ -515,10 +567,55 @@ pub(in crate::ui) fn nav_row_line(row: &NavRowVm, selected: bool) -> Line<'stati
 	Line::from(spans)
 }
 
+fn push_view_row_spans(row: &NavRowVm, scope: &str, spans: &mut Vec<Span<'static>>) {
+	spans.push(Span::styled(
+		"view",
+		Style::default()
+			.fg(THEME.section)
+			.add_modifier(Modifier::BOLD),
+	));
+	spans.push(Span::raw(" "));
+	spans.push(Span::styled(
+		row.label.clone(),
+		Style::default().fg(THEME.nav.symbol),
+	));
+	spans.push(Span::styled(
+		format!("  workspace/views/{}", row.label),
+		Style::default().fg(THEME.nav.meta),
+	));
+	if !scope.is_empty() {
+		spans.push(Span::styled(
+			format!("  scope {scope}"),
+			Style::default().fg(THEME.nav.directory),
+		));
+	}
+}
+
+fn push_view_marker(row: &NavRowVm, spans: &mut Vec<Span<'static>>) {
+	if row.view_count == 0
+		|| matches!(
+			row.kind,
+			NavRowVmKind::View { .. } | NavRowVmKind::ViewError
+		) {
+		return;
+	}
+	spans.push(Span::styled(
+		format!("[v{}] ", row.view_count),
+		Style::default()
+			.fg(THEME.section)
+			.add_modifier(Modifier::BOLD),
+	));
+}
+
 fn nav_count_span(row: &NavRowVm) -> Span<'static> {
+	let reexports = if row.def_count == 0 && row.reexport_count > 0 {
+		format!("  {} reexports", row.reexport_count)
+	} else {
+		String::new()
+	};
 	let label = match (row.file_count, row.def_count) {
-		(0, defs) => format!("  {defs} defs"),
-		(files, defs) => format!("  {files} files  {defs} defs"),
+		(0, defs) => format!("  {defs} defs{reexports}"),
+		(files, defs) => format!("  {files} files  {defs} defs{reexports}"),
 	};
 	Span::styled(label, Style::default().fg(THEME.nav.meta))
 }

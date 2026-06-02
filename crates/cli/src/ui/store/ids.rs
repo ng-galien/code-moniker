@@ -32,6 +32,10 @@ impl NodeId {
 	pub(in crate::ui) fn change(compact_moniker: &str) -> Self {
 		Self(format!("change:{compact_moniker}"))
 	}
+
+	pub(in crate::ui) fn view(id: &str) -> Self {
+		Self(format!("view:{id}"))
+	}
 }
 
 impl fmt::Display for NodeId {

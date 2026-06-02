@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use code_moniker_core::lang::Lang;
@@ -56,13 +56,15 @@ pub(crate) fn resolve_symbols(
 			});
 			continue;
 		}
-		for (symbol, source) in matches.into_iter().take(3) {
-			resolution.evidence.push(symbol_evidence(
-				selector,
-				symbol,
-				source,
-				options.context_lines,
-			));
+		let evidence = select_symbol_evidence(selector, matches, options.context_lines);
+		if evidence.is_empty() {
+			resolution.missing.push(MissingSymbol {
+				selector: selector.clone(),
+			});
+			continue;
+		}
+		for item in evidence {
+			resolution.evidence.push(item);
 		}
 	}
 	resolution
@@ -110,6 +112,89 @@ fn matching_symbols<'a>(
 		.collect::<Vec<_>>();
 	matches.sort_by(|a, b| a.0.identity.cmp(&b.0.identity));
 	matches
+}
+
+fn select_symbol_evidence(
+	selector: &str,
+	matches: Vec<(&SymbolRecord, &SourceFileRecord)>,
+	context_lines: usize,
+) -> Vec<SymbolEvidence> {
+	const MAX_EVIDENCE_PER_SELECTOR: usize = 3;
+	let matches = exact_suffix_matches(selector, &matches).unwrap_or(matches);
+	let allow_internal = selector_allows_internal(selector);
+	let mut matches = matches
+		.into_iter()
+		.filter(|(symbol, _)| allow_internal || is_view_evidence_symbol(symbol))
+		.collect::<Vec<_>>();
+	if matches.is_empty() {
+		return Vec::new();
+	}
+	matches.sort_by(|left, right| {
+		symbol_rank(selector, left.0)
+			.cmp(&symbol_rank(selector, right.0))
+			.then_with(|| left.0.identity.cmp(&right.0.identity))
+	});
+	let mut selected = Vec::new();
+	let mut seen_slice = HashSet::new();
+	let mut seen_file = BTreeSet::new();
+	let mut seen_kind = BTreeSet::new();
+	for (symbol, source) in matches {
+		let evidence = symbol_evidence(selector, symbol, source, context_lines);
+		if !seen_slice.insert(slice_key(&evidence)) {
+			continue;
+		}
+		let is_diverse =
+			seen_file.insert(evidence.file.clone()) || seen_kind.insert(evidence.label.clone());
+		if selected.is_empty() || is_diverse || selected.len() + 1 == MAX_EVIDENCE_PER_SELECTOR {
+			selected.push(evidence);
+		}
+		if selected.len() == MAX_EVIDENCE_PER_SELECTOR {
+			break;
+		}
+	}
+	selected
+}
+
+fn exact_suffix_matches<'a>(
+	selector: &str,
+	matches: &[(&'a SymbolRecord, &'a SourceFileRecord)],
+) -> Option<Vec<(&'a SymbolRecord, &'a SourceFileRecord)>> {
+	let exact = matches
+		.iter()
+		.copied()
+		.filter(|(symbol, _)| symbol.identity.ends_with(selector))
+		.collect::<Vec<_>>();
+	(!exact.is_empty()).then_some(exact)
+}
+
+fn selector_allows_internal(selector: &str) -> bool {
+	matches!(
+		selector_kind_hint(selector).as_deref(),
+		Some("local" | "param" | "comment")
+	)
+}
+
+fn is_view_evidence_symbol(symbol: &SymbolRecord) -> bool {
+	symbol.navigable && !matches!(symbol.kind.as_str(), "local" | "param" | "comment")
+}
+
+fn symbol_rank(selector: &str, symbol: &SymbolRecord) -> (u8, u8, u8) {
+	let exact = (symbol.identity != selector) as u8;
+	let kind_mismatch = selector_kind_hint(selector)
+		.as_deref()
+		.is_some_and(|kind| kind != symbol.kind.as_str()) as u8;
+	let child_penalty = symbol.parent.is_some() as u8;
+	(exact, kind_mismatch, child_penalty)
+}
+
+fn selector_kind_hint(selector: &str) -> Option<String> {
+	let tail = selector.rsplit('/').next().unwrap_or(selector);
+	let (kind, _) = tail.split_once(':')?;
+	(!kind.is_empty()).then(|| kind.to_string())
+}
+
+fn slice_key(evidence: &SymbolEvidence) -> (String, SourceSlice) {
+	(evidence.file.clone(), evidence.slice)
 }
 
 fn source_in_scope(source: &SourceFileRecord, scope_path: &str) -> bool {

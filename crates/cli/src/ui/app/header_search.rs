@@ -229,7 +229,7 @@ fn cycle_header_search_selector_decision(
 ) -> HeaderSelectorDecision {
 	match header_focus(mode) {
 		HeaderSearchFocus::Text => {
-			HeaderSelectorDecision::status("type text or press Tab to edit language")
+			HeaderSelectorDecision::status("type text or press Tab/Shift+Tab to change field")
 		}
 		HeaderSearchFocus::Lang if !header.combo_open => HeaderSelectorDecision::status(
 			"press Enter to open the selector, Space toggles an option",

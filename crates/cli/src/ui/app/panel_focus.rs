@@ -5,6 +5,12 @@ use crate::ui::render::view;
 use crate::ui::shell::ShellEvent;
 use crate::ui::{clipboard, explorer, panel};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::ui) enum FocusCycle {
+	Forward,
+	Backward,
+}
+
 pub(in crate::ui) fn copy_panel_snapshot(app: &mut App) {
 	let panel = explorer::active_panel(app);
 	let snapshot = panel::panel_snapshot(&panel, view::current_panel_snapshot_width());
@@ -24,13 +30,19 @@ pub(in crate::ui) fn copy_panel_snapshot(app: &mut App) {
 	}
 }
 
-pub(in crate::ui) fn toggle_focus_region(app: &mut App) {
+pub(in crate::ui) fn cycle_focus_region(app: &mut App, direction: FocusCycle) {
 	let usage_open = crate::ui::app::usage_lens(app).is_some();
-	let next = match (crate::ui::app::focus_region(app), usage_open) {
-		(FocusRegion::Navigator, true) => FocusRegion::UsageLens,
-		(FocusRegion::Navigator, false) => FocusRegion::Panel,
-		(FocusRegion::UsageLens, _) => FocusRegion::Panel,
-		(FocusRegion::Panel, _) => FocusRegion::Navigator,
+	let current = crate::ui::app::focus_region(app);
+	let next = match (current, usage_open, direction) {
+		(FocusRegion::Navigator, true, FocusCycle::Forward) => FocusRegion::Panel,
+		(FocusRegion::Panel, true, FocusCycle::Forward) => FocusRegion::UsageLens,
+		(FocusRegion::UsageLens, true, FocusCycle::Forward) => FocusRegion::Navigator,
+		(FocusRegion::Navigator, true, FocusCycle::Backward) => FocusRegion::UsageLens,
+		(FocusRegion::UsageLens, true, FocusCycle::Backward) => FocusRegion::Panel,
+		(FocusRegion::Panel, true, FocusCycle::Backward) => FocusRegion::Navigator,
+		(FocusRegion::Navigator, false, _) => FocusRegion::Panel,
+		(FocusRegion::Panel, false, _) => FocusRegion::Navigator,
+		(FocusRegion::UsageLens, false, _) => FocusRegion::Navigator,
 	};
 	crate::ui::app::dispatch_shell(app, ShellAction::SetFocusRegion(next));
 	match next {
@@ -38,13 +50,13 @@ pub(in crate::ui) fn toggle_focus_region(app: &mut App) {
 			ensure_active_panel_selection(app);
 			crate::ui::app::set_status(
 				app,
-				"panel focused; up/down moves within panel, Tab moves focus",
+				"panel focused; up/down moves within panel, Tab/Shift+Tab moves focus",
 			);
 		}
 		FocusRegion::UsageLens => {
 			crate::ui::app::set_status(
 				app,
-				"usage tree focused; Tab moves to panel, Esc returns to navigator",
+				"usage tree focused; Tab/Shift+Tab moves focus, Esc returns to navigator",
 			);
 			sync_contextual_view(app);
 		}
@@ -213,7 +225,7 @@ pub(in crate::ui) fn open_panel_tree_node(app: &mut App) {
 
 pub(in crate::ui) fn close_panel_tree_node(app: &mut App) {
 	let Some(row) = selected_panel_tree_row(app) else {
-		crate::ui::app::set_status(app, "panel focused; Tab moves focus");
+		crate::ui::app::set_status(app, "panel focused; Tab/Shift+Tab moves focus");
 		return;
 	};
 	if row.has_children && row.expanded {
@@ -224,7 +236,7 @@ pub(in crate::ui) fn close_panel_tree_node(app: &mut App) {
 		return;
 	}
 	if row.depth == 0 {
-		crate::ui::app::set_status(app, "panel focused; Tab moves focus");
+		crate::ui::app::set_status(app, "panel focused; Tab/Shift+Tab moves focus");
 		return;
 	}
 	let rows = explorer::active_panel_tree_rows(app);

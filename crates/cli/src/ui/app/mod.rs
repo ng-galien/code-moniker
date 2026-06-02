@@ -35,12 +35,12 @@ pub(in crate::ui) use header_search::{
 pub(in crate::ui) use navigation::{
 	apply_navigation, close_selected_nav, filter_label, has_clearable_scope, is_filtered,
 	open_selected_nav, primary_selected, refresh_results, scope_label, select_def,
-	select_first_change, selected, selected_change_detail, set_view, sync_contextual_view,
-	toggle_selected_nav,
+	select_first_change, selected, selected_change_detail, selected_nav_row, set_view,
+	sync_contextual_view, toggle_selected_nav,
 };
 pub(in crate::ui) use panel_focus::{
-	close_panel_tree_node, copy_panel_snapshot, ensure_active_panel_selection,
-	move_panel_selection, move_panel_to_edge, open_panel_tree_node, toggle_focus_region,
+	FocusCycle, close_panel_tree_node, copy_panel_snapshot, cycle_focus_region,
+	ensure_active_panel_selection, move_panel_selection, move_panel_to_edge, open_panel_tree_node,
 	toggle_panel_tree_node,
 };
 pub(in crate::ui) use runtime::{
@@ -57,17 +57,18 @@ pub(in crate::ui) use workspace_refresh::{
 };
 use workspace_session::WorkspaceSession;
 
+pub(in crate::ui) struct AppConfig {
+	pub(in crate::ui) scheme: String,
+	pub(in crate::ui) rules: PathBuf,
+	pub(in crate::ui) profile: Option<String>,
+	pub(in crate::ui) debug: bool,
+}
+
 pub(in crate::ui) struct App {
 	pub(in crate::ui) app_store: AppStore,
 	pub(in crate::ui) workspace: WorkspaceSession,
-	pub(in crate::ui) check: AppCheckConfig,
+	pub(in crate::ui) config: AppConfig,
 	pub(in crate::ui) runtime: AppRuntime,
-}
-
-pub(in crate::ui) struct AppCheckConfig {
-	scheme: String,
-	rules: PathBuf,
-	profile: Option<String>,
 }
 
 pub(in crate::ui) struct AppRuntime {
@@ -82,9 +83,20 @@ pub(in crate::ui) fn boot_app(
 	scheme: String,
 	rules: PathBuf,
 	profile: Option<String>,
+	debug: bool,
 ) -> App {
 	let (store, cache) = new_local_workspace(&opts);
-	let mut app = new_app(store, cache, opts, scheme, rules, profile);
+	let mut app = new_app(
+		store,
+		cache,
+		opts,
+		AppConfig {
+			scheme,
+			rules,
+			profile,
+			debug,
+		},
+	);
 	app.runtime.startup_load_pending = true;
 	set_status(&mut app, "loading index...");
 	app
@@ -201,23 +213,25 @@ pub(in crate::ui) fn replace_store(
 }
 
 pub(in crate::ui) fn app_rules_path(app: &App) -> &std::path::Path {
-	&app.check.rules
+	&app.config.rules
 }
 
 pub(in crate::ui) fn app_profile_name(app: &App) -> Option<&str> {
-	app.check.profile.as_deref()
+	app.config.profile.as_deref()
+}
+
+pub(in crate::ui) fn debug(app: &App) -> bool {
+	app.config.debug
 }
 
 pub(in crate::ui) fn new_app(
 	store: LocalWorkspaceRegistry,
 	cache: LocalResourceCache,
 	options: SessionOptions,
-	scheme: String,
-	rules: PathBuf,
-	profile: Option<String>,
+	config: AppConfig,
 ) -> App {
 	let started = Instant::now();
-	let navigator = build_navigator(&store);
+	let navigator = build_navigator(&store, &options.paths);
 	perf::record("app.new.build_navigator", started.elapsed(), "");
 	let started = Instant::now();
 	let change_navigator = build_change_navigator(&store);
@@ -228,11 +242,7 @@ pub(in crate::ui) fn new_app(
 	let mut app = App {
 		app_store,
 		workspace: WorkspaceSession::new(store, cache, options),
-		check: AppCheckConfig {
-			scheme,
-			rules,
-			profile,
-		},
+		config,
 		runtime: AppRuntime {
 			event_tx: None,
 			startup_load_pending: false,

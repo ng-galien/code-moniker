@@ -197,8 +197,11 @@ mod tests {
 			kind: NavNodeKind::Dir,
 			depth,
 			has_children,
+			view_ids: Vec::new(),
+			view_count: 0,
 			file_count: 0,
 			def_count: 0,
+			reexport_count: 0,
 		}
 	}
 

@@ -56,6 +56,7 @@ pub(super) fn render_panel_vm(
 			panel.title,
 			panel.component,
 			state.focused,
+			state.show_component_markers,
 		))
 		.borders(Borders::ALL)
 		.border_style(border_style);
@@ -139,16 +140,17 @@ fn panel_lines(panel: &PanelVm, width: usize, state: PanelRenderState) -> Render
 		match section {
 			PanelSection::Heading { label } => rendered.push(panel::section(label.clone())),
 			PanelSection::ComponentHeading { label, component } => {
-				rendered.push(Line::from(vec![
-					Span::styled(
-						label.clone(),
-						Style::default()
-							.fg(THEME.panel.section)
-							.add_modifier(Modifier::BOLD),
-					),
-					Span::raw(" "),
-					marker(*component),
-				]));
+				let mut spans = vec![Span::styled(
+					label.clone(),
+					Style::default()
+						.fg(THEME.panel.section)
+						.add_modifier(Modifier::BOLD),
+				)];
+				if state.show_component_markers {
+					spans.push(Span::raw(" "));
+					spans.push(marker(*component));
+				}
+				rendered.push(Line::from(spans));
 			}
 			PanelSection::KeyValue { label, value, fit } => {
 				rendered.push(panel::kv(label, value, width, *fit));

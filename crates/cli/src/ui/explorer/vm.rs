@@ -20,6 +20,7 @@ use crate::ui::app::App;
 
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct ExplorerVm {
+	pub(in crate::ui) show_component_markers: bool,
 	pub(in crate::ui) header: HeaderVm,
 	pub(in crate::ui) search: SearchBarVm,
 	pub(in crate::ui) primary_nav: NavPaneVm,
@@ -71,8 +72,10 @@ pub(in crate::ui) struct NavRowVm {
 	pub(in crate::ui) depth: usize,
 	pub(in crate::ui) has_children: bool,
 	pub(in crate::ui) expanded: bool,
+	pub(in crate::ui) view_count: usize,
 	pub(in crate::ui) file_count: usize,
 	pub(in crate::ui) def_count: usize,
+	pub(in crate::ui) reexport_count: usize,
 	pub(in crate::ui) kind: NavRowVmKind,
 }
 
@@ -85,6 +88,10 @@ pub(in crate::ui) enum NavRowVmKind {
 		change_count: Option<usize>,
 	},
 	ChangeFile,
+	View {
+		scope: String,
+	},
+	ViewError,
 	Def {
 		lang: Lang,
 		kind: String,
@@ -121,6 +128,7 @@ pub(in crate::ui) struct ExplorerVmContext<'a> {
 	filtered: bool,
 	workspace: &'a LocalWorkspaceRegistry,
 	status: &'a str,
+	show_component_markers: bool,
 }
 
 impl ExplorerVm {
@@ -138,12 +146,14 @@ impl ExplorerVm {
 			filtered: is_filtered(app),
 			workspace: crate::ui::app::store(app),
 			status: crate::ui::app::status(app),
+			show_component_markers: crate::ui::app::debug(app),
 		};
 		Self::from_context(ctx)
 	}
 
 	pub(in crate::ui) fn from_context(ctx: ExplorerVmContext<'_>) -> Self {
 		Self {
+			show_component_markers: ctx.show_component_markers,
 			header: HeaderVm {
 				mode: ctx.view_mode.label(),
 				scope: ctx.scope.clone(),
@@ -309,8 +319,10 @@ fn nav_row_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow, pane: NavigationPaneVie
 		depth: row.depth,
 		has_children: row.has_children,
 		expanded: pane.expanded.contains(&row.key),
+		view_count: row.view_count,
 		file_count: row.file_count,
 		def_count: row.def_count,
+		reexport_count: row.reexport_count,
 		kind: nav_row_kind_vm(ctx, row),
 	}
 }
@@ -324,6 +336,10 @@ fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
 			change_count: file_change_count(ctx.workspace, *file_idx),
 		},
 		NavNodeKind::ChangeFile => NavRowVmKind::ChangeFile,
+		NavNodeKind::View { scope, .. } => NavRowVmKind::View {
+			scope: scope.clone(),
+		},
+		NavNodeKind::ViewError => NavRowVmKind::ViewError,
 		NavNodeKind::Def(loc) => {
 			let symbol = workspace_read::symbol_summary(ctx.workspace, loc);
 			let kind = symbol.kind.clone();

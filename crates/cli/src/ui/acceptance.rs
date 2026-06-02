@@ -5,7 +5,9 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
 use crate::session::SessionOptions;
-use crate::ui::app::{App, handle_key, new_app, toggle_selected_nav};
+use crate::ui::app::{
+	App, AppConfig, FocusRegion, focus_region, handle_key, new_app, toggle_selected_nav,
+};
 use crate::ui::render::view;
 use crate::ui::workspace_read::{load_local_file_catalog, load_local_workspace};
 
@@ -39,9 +41,11 @@ impl TuiAcceptance {
 			store,
 			cache,
 			opts,
-			"default".to_string(),
-			fixture.join(".code-moniker.toml"),
-			profile.map(ToOwned::to_owned),
+			app_config(
+				fixture.join(".code-moniker.toml"),
+				profile.map(ToOwned::to_owned),
+				false,
+			),
 		);
 		Self {
 			app,
@@ -63,9 +67,7 @@ impl TuiAcceptance {
 			store,
 			cache,
 			opts,
-			"default".to_string(),
-			fixture.join(".code-moniker.toml"),
-			None,
+			app_config(fixture.join(".code-moniker.toml"), None, false),
 		);
 		Self {
 			app,
@@ -86,9 +88,7 @@ impl TuiAcceptance {
 			store,
 			cache,
 			opts,
-			"default".to_string(),
-			fixture.join(".code-moniker.toml"),
-			None,
+			app_config(fixture.join(".code-moniker.toml"), None, false),
 		);
 		Self {
 			app,
@@ -196,6 +196,66 @@ fn multiproject_initial_screen_exposes_navigation_contract() {
 }
 
 #[test]
+fn debug_flag_controls_component_markers() {
+	let mut harness = TuiAcceptance::load_multiproject();
+	toggle_selected_nav(&mut harness.app);
+	let screen = harness.render_text(120, 32);
+
+	assert_hidden(&screen, "[ui.header]");
+	assert_hidden(&screen, "[ui.search.input]");
+	assert_hidden(&screen, "[ui.navigator]");
+	assert_hidden(&screen, "[ui.panel.overview]");
+
+	harness.app.config.debug = true;
+	let screen = harness.render_text(120, 32);
+
+	assert_visible(&screen, "[ui.header]");
+	assert_visible(&screen, "[ui.search.input]");
+	assert_visible(&screen, "[ui.navigator]");
+	assert_visible(&screen, "[ui.panel.overview]");
+}
+
+#[test]
+fn rust_module_only_file_shows_reexports_in_navigator() {
+	let mut harness = load_rust_module_reexport_fixture();
+
+	harness.press(KeyCode::Enter);
+	let screen = harness.render_text(120, 32);
+
+	assert_visible(&screen, "lib.rs  1 files  0 defs  1 reexports");
+}
+
+#[test]
+fn views_lens_marks_tree_nodes_and_tracks_selection() {
+	let mut harness = load_views_fixture();
+
+	harness.press(KeyCode::Char('v'));
+	let screen = harness.render_text(120, 32);
+
+	assert_visible(&screen, "navigator");
+	assert_visible(&screen, "[v2]");
+	assert_visible(&screen, "fixture-map");
+	assert_visible(&screen, "workspace/views/fixture-map");
+	assert_visible(&screen, "view lens");
+	assert_visible(&screen, "entry owns 1");
+	assert_hidden(&screen, "test-map");
+
+	harness.press(KeyCode::Enter);
+	harness.press(KeyCode::Down);
+	harness.press(KeyCode::Down);
+	let screen = harness.render_text(120, 32);
+
+	assert_visible(&screen, "[v1]");
+	assert_visible(&screen, "test-map");
+	assert_visible(&screen, "workspace/views/test-map");
+	assert_visible(&screen, "test-entry owns 1");
+
+	harness.press(KeyCode::Char('v'));
+	let screen = harness.render_text(120, 32);
+	assert_visible(&screen, "overview");
+}
+
+#[test]
 fn multiproject_header_search_filters_visible_symbols() {
 	let mut harness = TuiAcceptance::load_multiproject();
 
@@ -259,6 +319,33 @@ fn multiproject_usage_lens_shows_cross_module_references() {
 		&screen,
 		"usage lens for RiskPolicy: 28 reference(s), 8 navigable context(s)",
 	);
+}
+
+#[test]
+fn usage_lens_tab_cycle_visits_panel_before_usage_lens_and_backtab_reverses() {
+	let mut harness = TuiAcceptance::load_multiproject();
+
+	harness.navigate_to_risk_policy_class();
+	harness.press(KeyCode::Char('u'));
+	assert_eq!(focus_region(&harness.app), FocusRegion::UsageLens);
+
+	harness.press(KeyCode::Tab);
+	assert_eq!(focus_region(&harness.app), FocusRegion::Navigator);
+
+	harness.press(KeyCode::Tab);
+	assert_eq!(focus_region(&harness.app), FocusRegion::Panel);
+
+	harness.press(KeyCode::Tab);
+	assert_eq!(focus_region(&harness.app), FocusRegion::UsageLens);
+
+	harness.press(KeyCode::BackTab);
+	assert_eq!(focus_region(&harness.app), FocusRegion::Panel);
+
+	harness.press(KeyCode::BackTab);
+	assert_eq!(focus_region(&harness.app), FocusRegion::Navigator);
+
+	harness.press(KeyCode::BackTab);
+	assert_eq!(focus_region(&harness.app), FocusRegion::UsageLens);
 }
 
 #[test]
@@ -331,6 +418,15 @@ fn rust_multiproject_fixture() -> PathBuf {
 	})
 }
 
+fn app_config(rules: PathBuf, profile: Option<String>, debug: bool) -> AppConfig {
+	AppConfig {
+		scheme: "default".to_string(),
+		rules,
+		profile,
+		debug,
+	}
+}
+
 fn multiproject_project_paths() -> Vec<PathBuf> {
 	let fixture = multiproject_fixture();
 	[
@@ -346,8 +442,114 @@ fn multiproject_project_paths() -> Vec<PathBuf> {
 	.collect()
 }
 
+fn load_views_fixture() -> TuiAcceptance {
+	let cache_dir = tempfile::tempdir().expect("cache dir");
+	let fixture = cache_dir.path().join("fixture");
+	write_views_fixture(&fixture);
+	let opts = SessionOptions {
+		paths: vec![fixture.clone()],
+		project: Some("views-fixture".to_string()),
+		cache_dir: Some(cache_dir.path().to_path_buf()),
+	};
+	let (store, cache) = load_local_workspace(&opts).expect("load views fixture");
+	let app = new_app(
+		store,
+		cache,
+		opts,
+		app_config(fixture.join(".code-moniker.toml"), None, false),
+	);
+	TuiAcceptance {
+		app,
+		_cache_dir: cache_dir,
+	}
+}
+
+fn load_rust_module_reexport_fixture() -> TuiAcceptance {
+	let cache_dir = tempfile::tempdir().expect("cache dir");
+	let fixture = cache_dir.path().join("fixture");
+	write_rust_module_reexport_fixture(&fixture);
+	let opts = SessionOptions {
+		paths: vec![fixture.clone()],
+		project: Some("rust-reexport-fixture".to_string()),
+		cache_dir: Some(cache_dir.path().to_path_buf()),
+	};
+	let (store, cache) = load_local_workspace(&opts).expect("load Rust reexport fixture");
+	let app = new_app(
+		store,
+		cache,
+		opts,
+		app_config(fixture.join(".code-moniker.toml"), None, false),
+	);
+	TuiAcceptance {
+		app,
+		_cache_dir: cache_dir,
+	}
+}
+
+fn write_rust_module_reexport_fixture(fixture: &Path) {
+	write_under(fixture, "src/lib.rs", "pub mod api;\n");
+	write_under(fixture, "src/api.rs", "pub struct Api;\n");
+}
+
+fn write_views_fixture(fixture: &Path) {
+	write_under(fixture, "src/main/java/App.java", "class App {}\n");
+	write_under(fixture, "src/test/java/AppTest.java", "class AppTest {}\n");
+	write_under(
+		fixture,
+		"src/main/java/code-moniker.fragment.toml",
+		r#"
+		fragment = "fixture-java"
+
+		[[views]]
+		id = "fixture-map"
+		title = "Fixture map"
+		scope = "."
+		intent = "Keep the fixture boundary visible."
+
+		[[views.boundaries]]
+		id = "entry"
+		owns = ["application entry"]
+		forbids = ["runtime ownership"]
+		symbols = ["class:App"]
+		"#,
+	);
+	write_under(
+		fixture,
+		"src/test/java/code-moniker.fragment.toml",
+		r#"
+		fragment = "fixture-test-java"
+
+		[[views]]
+		id = "test-map"
+		title = "Test map"
+		scope = "."
+		intent = "Keep the test boundary visible."
+
+		[[views.boundaries]]
+		id = "test-entry"
+		owns = ["test entrypoint"]
+		forbids = ["production ownership"]
+		symbols = ["class:AppTest"]
+		"#,
+	);
+}
+
+fn write_under(root: &Path, rel: &str, contents: &str) {
+	let path = root.join(rel);
+	if let Some(parent) = path.parent() {
+		std::fs::create_dir_all(parent).expect("mkdir");
+	}
+	std::fs::write(path, contents).expect("write fixture");
+}
+
 fn assert_visible(screen: &str, expected: &str) {
 	if !screen.contains(expected) {
 		panic!("expected visible text `{expected}` in TUI screen:\n{screen}");
+	}
+}
+
+fn assert_hidden(screen: &str, unexpected: &str) {
+	if screen.contains(unexpected) {
+		panic!("expected hidden text `{unexpected}` in TUI screen:\n{screen}");
 	}
 }

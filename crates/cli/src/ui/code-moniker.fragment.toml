@@ -86,3 +86,169 @@ rationale = """
 The TUI follows a typed reducer/effect flow. Restricting `Msg` and `AppCommand` imports
 keeps event creation, state reduction, and runtime interpretation in their intended layers.
 """
+
+[[views]]
+id = "cli-tui-elm"
+title = "CLI TUI Elm architecture"
+scope = "."
+intent = "Understand the TUI event, state, workspace-read, view-model, and render boundaries before changing navigation or panels."
+summary = """
+The TUI is an Elm-style terminal application. Input keys become typed messages, the app reducer
+updates shell state and emits effects, the runtime interprets effects, workspace data is exposed
+through read models, and ratatui rendering consumes view models only.
+"""
+
+[[views.boundaries]]
+id = "events"
+owns = [
+  "terminal key decoding",
+  "typed UI messages",
+]
+forbids = [
+  "state mutation",
+  "workspace reads",
+  "rendering decisions",
+]
+rationale = """
+The events layer translates terminal input into intent. It should not know whether a message
+changes a tree, opens a panel, schedules work, or renders differently.
+"""
+symbols = [
+  "module:events/enum:Msg",
+  "module:events/fn:key_to_msg",
+  "module:events/fn:normal_key_to_msg",
+]
+rules = [
+  "elm-orchestration-boundary",
+]
+
+[[views.boundaries]]
+id = "state-runtime"
+owns = [
+  "AppState transitions",
+  "effect emission",
+  "runtime interpretation",
+  "command dispatch",
+]
+rationale = """
+The reducer owns deterministic state transitions. Runtime code applies the resulting commands
+and side effects, which keeps terminal IO and background work out of pure transition logic.
+"""
+symbols = [
+  "module:app/module:state/fn:reduce_ui_msg",
+  "module:app/module:action/enum:AppAction",
+  "module:app/module:effect/enum:Effect",
+  "module:app/module:runtime/fn:handle_ui_transition_msg",
+  "module:app/module:runtime/fn:dispatch_and_apply",
+]
+rules = [
+  "elm-orchestration-boundary",
+]
+
+[[views.boundaries]]
+id = "workspace-read"
+owns = [
+  "workspace read-model adaptation",
+  "navigation tree construction",
+  "contextual view synchronization",
+]
+forbids = [
+  "raw graph and extraction records in TUI panels",
+]
+rationale = """
+The TUI should consume stable workspace read models and navigation state. Raw graph, linkage,
+and extraction records remain workspace internals so panels stay resilient to index changes.
+"""
+symbols = [
+  "module:workspace_read/fn:symbol_summary",
+  "module:store/module:navigation_tree/fn:build_navigator",
+  "module:app/module:navigation/fn:sync_contextual_view",
+]
+rules = [
+  "store-boundary",
+]
+
+[[views.boundaries]]
+id = "view-model-render"
+owns = [
+  "Explorer view model composition",
+  "active panel view models",
+  "ratatui shell rendering",
+]
+rationale = """
+Feature and panel modules build plain view models; render modules turn them into ratatui
+widgets. Keep this split when adding a visual feature so tests can assert durable screen
+contracts without depending on terminal widget internals.
+"""
+symbols = [
+  "module:explorer/module:vm/struct:ExplorerVm",
+  "module:explorer/module:panel_content/fn:active_panel(app:&App)",
+  "module:render/module:view/fn:render_shell",
+]
+rules = [
+  "panels-ratatui-renderers-only",
+  "view-renders-view-models-only",
+]
+
+[[views.boundaries]]
+id = "terminal-shell"
+owns = [
+  "terminal setup",
+  "event loop",
+  "raw mode cleanup",
+]
+rationale = """
+Terminal raw mode and alternate-screen state are process-wide resources. The shell owns those
+lifetime concerns so app, feature, and renderer code can be exercised without real terminal
+side effects.
+"""
+symbols = [
+  "module:shell/module:terminal/fn:boot",
+  "module:shell/module:terminal/fn:run_session",
+]
+rules = [
+  "terminal-backend-owned-by-shell-terminal",
+]
+
+[[views.gotchas]]
+id = "key-change-crosses-three-layers"
+rationale = """
+A keybinding change usually crosses three contracts: key decoding in `events`, state/effect
+handling in `app`, and an acceptance assertion over visible behavior. Updating only one layer
+creates keys that parse but do nothing, or behavior that cannot be reached from the terminal.
+"""
+symbols = [
+  "module:events/fn:normal_key_to_msg",
+  "module:app/module:runtime/fn:handle_ui_transition_msg",
+  "module:acceptance/test:usage_lens_tab_cycle_visits_panel_before_usage_lens_and_backtab_reverses()",
+]
+rules = [
+  "elm-orchestration-boundary",
+]
+check = "cargo test -p code-moniker --features tui --no-default-features usage_lens_tab_cycle_visits_panel_before_usage_lens_and_backtab_reverses --lib"
+
+[[views.gotchas]]
+id = "focus-is-shell-state"
+rationale = """
+Navigator, panel, usage lens, and view lens focus are shell state. Renderers may style the
+active region, but focus order and focus transitions belong to the app state path.
+"""
+symbols = [
+  "module:app/module:panel_focus/fn:cycle_focus_region",
+  "module:app/module:state/enum:FocusRegion",
+  "module:acceptance/test:usage_lens_tab_cycle_visits_panel_before_usage_lens_and_backtab_reverses()",
+]
+check = "cargo test -p code-moniker --features tui --no-default-features usage_lens_tab_cycle_visits_panel_before_usage_lens_and_backtab_reverses --lib"
+
+[[views.gotchas]]
+id = "acceptance-tests-observe-screen-contracts"
+rationale = """
+TUI tests should assert user-visible contracts through rendered text and interaction flows.
+They should not freeze private renderer composition or ratatui widget structure.
+"""
+symbols = [
+  "module:acceptance/struct:TuiAcceptance",
+  "module:acceptance/struct:TuiAcceptance/method:render_text(width:u16,height:u16)",
+  "module:acceptance/fn:assert_visible(screen:&str,expected:&str)",
+]
+check = "cargo test -p code-moniker --features tui --no-default-features ui::acceptance --lib"

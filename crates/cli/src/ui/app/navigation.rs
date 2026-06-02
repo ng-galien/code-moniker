@@ -145,6 +145,9 @@ pub(in crate::ui) fn contextual_view(app: &App) -> View {
 	match crate::ui::app::view_mode(app) {
 		VisualizationMode::Change => View::Change,
 		VisualizationMode::Explorer | VisualizationMode::Search => {
+			if crate::ui::app::view(app) == View::Views {
+				return View::Views;
+			}
 			if selected(app).is_some() {
 				View::Tree
 			} else if crate::ui::app::usage_lens(app).is_some()
