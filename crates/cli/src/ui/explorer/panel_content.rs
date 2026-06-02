@@ -5,8 +5,8 @@ use crate::ui::app::{
 };
 use crate::ui::panel::{
 	PanelVm, ReferenceGroupVm, SourceLineVm, panel_blank, panel_bullet, panel_component_section,
-	panel_danger, panel_kv, panel_muted, panel_reference_groups, panel_section,
-	panel_source_snippet, panel_table, panel_tree_rows,
+	panel_danger, panel_evidence, panel_info, panel_kv, panel_muted, panel_reference_groups,
+	panel_section, panel_source_snippet, panel_table, panel_tree_rows, panel_warning,
 };
 use crate::ui::render::component::ComponentId;
 use crate::ui::render::text::{Column, FitMode};
@@ -121,6 +121,14 @@ fn views_panel(app: &App) -> PanelVm {
 		format!("workspace/views/{}", view.spec.id),
 		FitMode::Middle,
 	);
+	let show_all = crate::ui::app::views_show_all(app);
+	panel_kv(
+		&mut vm,
+		"render",
+		if show_all { "all" } else { "summary" },
+		FitMode::Tail,
+	);
+	panel_muted(&mut vm, "press a to toggle summary/all");
 	if let Some(intent) = &view.spec.intent {
 		panel_blank(&mut vm);
 		panel_section(&mut vm, "intent");
@@ -131,8 +139,9 @@ fn views_panel(app: &App) -> PanelVm {
 		panel_section(&mut vm, "summary");
 		panel_muted(&mut vm, summary.trim());
 	}
-	push_view_boundaries(&mut vm, &view.spec.boundaries);
-	push_view_gotchas(&mut vm, &view.spec.gotchas);
+	let snapshot = crate::ui::app::store(app).queries().snapshot();
+	push_view_boundaries(&mut vm, view, snapshot, show_all);
+	push_view_gotchas(&mut vm, view, snapshot, show_all);
 	vm
 }
 
@@ -143,7 +152,13 @@ fn selected_view_id(app: &App) -> Option<&str> {
 	})
 }
 
-fn push_view_boundaries(vm: &mut PanelVm, boundaries: &[crate::views::BoundarySpec]) {
+fn push_view_boundaries(
+	vm: &mut PanelVm,
+	view: &crate::views::ViewDocument,
+	snapshot: Option<&code_moniker_workspace::snapshot::WorkspaceSnapshot>,
+	show_all: bool,
+) {
+	let boundaries = &view.spec.boundaries;
 	if boundaries.is_empty() {
 		return;
 	}
@@ -152,7 +167,7 @@ fn push_view_boundaries(vm: &mut PanelVm, boundaries: &[crate::views::BoundarySp
 	for boundary in boundaries {
 		panel_bullet(vm, format!("{} owns {}", boundary.id, boundary.owns.len()));
 		for owns in boundary.owns.iter().take(3) {
-			panel_muted(vm, format!("  owns {owns}"));
+			panel_info(vm, format!("  owns    {owns}"));
 		}
 		for forbids in &boundary.forbids {
 			let status = if boundary.forbid_rules.is_empty() {
@@ -160,12 +175,21 @@ fn push_view_boundaries(vm: &mut PanelVm, boundaries: &[crate::views::BoundarySp
 			} else {
 				"enforced"
 			};
-			panel_muted(vm, format!("  forbids {forbids} ({status})"));
+			panel_warning(vm, format!("  forbids {forbids} ({status})"));
+		}
+		if show_all {
+			push_view_symbols(vm, view, snapshot, &boundary.symbols);
 		}
 	}
 }
 
-fn push_view_gotchas(vm: &mut PanelVm, gotchas: &[crate::views::GotchaSpec]) {
+fn push_view_gotchas(
+	vm: &mut PanelVm,
+	view: &crate::views::ViewDocument,
+	snapshot: Option<&code_moniker_workspace::snapshot::WorkspaceSnapshot>,
+	show_all: bool,
+) {
+	let gotchas = &view.spec.gotchas;
 	if gotchas.is_empty() {
 		return;
 	}
@@ -176,6 +200,61 @@ fn push_view_gotchas(vm: &mut PanelVm, gotchas: &[crate::views::GotchaSpec]) {
 		if let Some(check) = &gotcha.check {
 			panel_muted(vm, format!("  check {check}"));
 		}
+		if show_all {
+			push_view_symbols(vm, view, snapshot, &gotcha.symbols);
+		}
+	}
+}
+
+fn push_view_symbols(
+	vm: &mut PanelVm,
+	view: &crate::views::ViewDocument,
+	snapshot: Option<&code_moniker_workspace::snapshot::WorkspaceSnapshot>,
+	selectors: &[String],
+) {
+	if selectors.is_empty() {
+		return;
+	}
+	let Some(snapshot) = snapshot else {
+		panel_danger(vm, "  evidence unavailable: workspace index is not ready");
+		return;
+	};
+	let resolution = crate::views::resolve_symbols(
+		snapshot,
+		&view.scope_path,
+		selectors,
+		crate::views::RenderOptions {
+			moniker_display: crate::views::MonikerDisplay::None,
+			context_lines: 2,
+			include_code: true,
+		},
+	);
+	push_symbol_resolution(vm, resolution);
+}
+
+fn push_symbol_resolution(vm: &mut PanelVm, resolution: crate::views::SymbolResolution) {
+	for evidence in resolution.evidence {
+		panel_evidence(
+			vm,
+			evidence.label.clone(),
+			evidence.selector.clone(),
+			evidence.file.clone(),
+			evidence.slice,
+		);
+		if !evidence.code.is_empty() {
+			panel_source_snippet(
+				vm,
+				source_lines_vm(evidence.code.iter().map(|(number, text)| {
+					let active = evidence
+						.active_slice
+						.is_some_and(|(start, end)| start <= *number && *number <= end);
+					(*number as u32, text.clone(), active)
+				})),
+			);
+		}
+	}
+	for missing in resolution.missing {
+		panel_danger(vm, format!("  missing selector {}", missing.selector));
 	}
 }
 
@@ -678,19 +757,28 @@ fn short_target(target: &str) -> &str {
 
 fn source_snippet(app: &App, loc: &DefLocation, context: u32) -> Vec<SourceLineVm> {
 	let snippet = workspace_read::source_snippet(crate::ui::app::store(app), loc, context);
-	let width = snippet
+	source_lines_vm(
+		snippet
+			.into_iter()
+			.map(|line| (line.number, line.text, line.active)),
+	)
+}
+
+fn source_lines_vm(lines: impl IntoIterator<Item = (u32, String, bool)>) -> Vec<SourceLineVm> {
+	let lines = lines.into_iter().collect::<Vec<_>>();
+	let width = lines
 		.iter()
-		.map(|line| line.number.to_string().len())
+		.map(|(number, _, _)| number.to_string().len())
 		.max()
 		.unwrap_or(4)
 		.max(4);
-	snippet
+	lines
 		.into_iter()
-		.map(|line| SourceLineVm {
-			number: line.number,
+		.map(|(number, text, active)| SourceLineVm {
+			number,
 			number_width: width,
-			text: line.text,
-			active: line.active,
+			text,
+			active,
 		})
 		.collect()
 }

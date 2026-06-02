@@ -93,6 +93,20 @@ pub(in crate::ui) fn panel_muted(vm: &mut PanelVm, text: impl Into<String>) {
 	});
 }
 
+pub(in crate::ui) fn panel_info(vm: &mut PanelVm, text: impl Into<String>) {
+	vm.sections.push(PanelSection::Message {
+		text: text.into(),
+		tone: MessageTone::Info,
+	});
+}
+
+pub(in crate::ui) fn panel_warning(vm: &mut PanelVm, text: impl Into<String>) {
+	vm.sections.push(PanelSection::Message {
+		text: text.into(),
+		tone: MessageTone::Warning,
+	});
+}
+
 pub(in crate::ui) fn panel_danger(vm: &mut PanelVm, text: impl Into<String>) {
 	vm.sections.push(PanelSection::Message {
 		text: text.into(),
@@ -110,6 +124,21 @@ pub(in crate::ui) fn panel_tree_rows(vm: &mut PanelVm, rows: Vec<TreeRowVm>) {
 
 pub(in crate::ui) fn panel_source_snippet(vm: &mut PanelVm, lines: Vec<SourceLineVm>) {
 	vm.sections.push(PanelSection::SourceSnippet(lines));
+}
+
+pub(in crate::ui) fn panel_evidence(
+	vm: &mut PanelVm,
+	label: impl Into<String>,
+	selector: impl Into<String>,
+	file: impl Into<String>,
+	slice: Option<(usize, usize)>,
+) {
+	vm.sections.push(PanelSection::Evidence {
+		label: label.into(),
+		selector: selector.into(),
+		file: file.into(),
+		slice,
+	});
 }
 
 pub(in crate::ui) fn panel_reference_groups(
@@ -156,6 +185,12 @@ pub(super) enum PanelSection {
 	Bullet {
 		text: String,
 	},
+	Evidence {
+		label: String,
+		selector: String,
+		file: String,
+		slice: Option<(usize, usize)>,
+	},
 	TreeRows(Vec<TreeRowVm>),
 	SourceSnippet(Vec<SourceLineVm>),
 	ReferenceGroups {
@@ -178,6 +213,7 @@ impl PanelSection {
 			| Self::KeyValue { .. }
 			| Self::Message { .. }
 			| Self::Bullet { .. }
+			| Self::Evidence { .. }
 			| Self::Blank => 0,
 		}
 	}
@@ -186,6 +222,8 @@ impl PanelSection {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(super) enum MessageTone {
 	Muted,
+	Info,
+	Warning,
 	Danger,
 }
 

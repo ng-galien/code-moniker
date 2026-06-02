@@ -237,9 +237,19 @@ fn views_lens_marks_tree_nodes_and_tracks_selection() {
 	assert_visible(&screen, "fixture-map");
 	assert_visible(&screen, "workspace/views/fixture-map");
 	assert_visible(&screen, "view lens");
+	assert_visible(&screen, "render     summary");
 	assert_visible(&screen, "entry owns 1");
+	assert_hidden(&screen, "selector class:App");
+	assert_hidden(&screen, "class App {}");
 	assert_hidden(&screen, "test-map");
 
+	harness.press(KeyCode::Char('a'));
+	let screen = harness.render_text(120, 32);
+	assert_visible(&screen, "render     all");
+	assert_visible(&screen, "selector class:App");
+	assert_visible(&screen, "class App {}");
+
+	harness.press(KeyCode::Char('a'));
 	harness.press(KeyCode::Enter);
 	harness.press(KeyCode::Down);
 	harness.press(KeyCode::Down);

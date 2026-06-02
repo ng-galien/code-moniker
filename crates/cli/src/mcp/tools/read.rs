@@ -79,6 +79,10 @@ impl ReadTool {
 					"type": "string",
 					"enum": ["none", "compact", "uri"],
 					"description": "For workspace/views reads, optionally display resolved evidence monikers."
+				},
+				"include_code": {
+					"type": "boolean",
+					"description": "For workspace/views reads, include source snippets for resolved evidence."
 				}
 			},
 			"required": ["uri"],
@@ -110,6 +114,7 @@ struct ReadRequest {
 	uri: String,
 	depth: usize,
 	context_lines: usize,
+	include_code: bool,
 	moniker_display: MonikerDisplay,
 	scope: ScopeFilter,
 	paging: Paging,
@@ -133,6 +138,10 @@ impl ReadRequest {
 				.and_then(Value::as_u64)
 				.unwrap_or(2)
 				.min(20) as usize,
+			include_code: arguments
+				.get("include_code")
+				.and_then(Value::as_bool)
+				.unwrap_or(false),
 			moniker_display: MonikerDisplay::parse(
 				arguments.get("moniker_format").and_then(Value::as_str),
 			)?,
@@ -157,6 +166,7 @@ fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<
 			context,
 			&request.uri,
 			request.context_lines,
+			request.include_code,
 			request.moniker_display,
 		);
 	}
@@ -210,6 +220,7 @@ fn read_view(
 	context: &McpContext,
 	uri: &str,
 	context_lines: usize,
+	include_code: bool,
 	moniker_display: MonikerDisplay,
 ) -> anyhow::Result<String> {
 	let snapshot = context.index().index_snapshot()?;
@@ -221,6 +232,7 @@ fn read_view(
 		RenderOptions {
 			moniker_display,
 			context_lines,
+			include_code,
 		},
 	)
 }

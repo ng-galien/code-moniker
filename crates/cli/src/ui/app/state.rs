@@ -132,6 +132,7 @@ pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) focus_region: FocusRegion,
 	pub(in crate::ui) active_filter: ActiveFilter,
 	pub(in crate::ui) usage_lens: Option<UsageFocus>,
+	pub(in crate::ui) views_show_all: bool,
 	pub(in crate::ui) header_search: HeaderSearchState,
 	pub(in crate::ui) panel_navigation: PanelNavigationState,
 }
@@ -149,6 +150,7 @@ impl Default for ShellSlice {
 			focus_region: FocusRegion::Navigator,
 			active_filter: ActiveFilter::None,
 			usage_lens: None,
+			views_show_all: false,
 			header_search: HeaderSearchState::default(),
 			panel_navigation: PanelNavigationState::default(),
 		}
@@ -451,6 +453,13 @@ fn shell_set_focus_region(shell: &mut ShellSlice, region: FocusRegion) {
 	shell.focus_region = region;
 }
 
+fn shell_toggle_views_show_all(shell: &mut ShellSlice) {
+	if shell.view == View::Views {
+		shell.views_show_all = !shell.views_show_all;
+		shell.panel_navigation.scroll = 0;
+	}
+}
+
 fn shell_scroll_panel(shell: &mut ShellSlice, direction: i8) {
 	if direction > 0 {
 		shell.panel_navigation.scroll = shell
@@ -680,6 +689,10 @@ pub(in crate::ui) fn reduce_shell_action(state: &mut AppState, action: &ShellAct
 			update_shell(state, |shell| shell_set_focus_region(shell, *region));
 			Transition::changed()
 		}
+		ShellAction::ToggleViewsShowAll => {
+			update_shell(state, |shell| shell_toggle_views_show_all(shell));
+			Transition::changed()
+		}
 		ShellAction::SetPanelScroll(offset) => {
 			update_shell(state, |shell| shell.panel_navigation.scroll = *offset);
 			Transition::changed()
@@ -740,6 +753,7 @@ pub(in crate::ui) fn reduce_ui_msg(state: &mut AppState, msg: &Msg) -> Transitio
 		}
 		Msg::FocusUsages => Transition::unchanged(),
 		Msg::ToggleChangeMode => Transition::unchanged(),
+		Msg::ToggleViewRender => Transition::unchanged(),
 		Msg::CopyPanelSnapshot => emit_effect(Effect::CopyPanelSnapshot),
 		Msg::RunCheck => emit_effect(Effect::RunCheck),
 		Msg::MoveDown => Transition::unchanged(),

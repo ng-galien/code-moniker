@@ -96,6 +96,7 @@ impl MonikerDisplay {
 pub(crate) struct RenderOptions {
 	pub(crate) moniker_display: MonikerDisplay,
 	pub(crate) context_lines: usize,
+	pub(crate) include_code: bool,
 }
 
 fn default_scope() -> String {

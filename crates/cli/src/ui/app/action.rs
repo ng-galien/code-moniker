@@ -65,6 +65,7 @@ pub(in crate::ui) enum ShellAction {
 	ReplaceActiveFilter(ActiveFilter),
 	SetChangePanel(ChangePanelMode),
 	SetFocusRegion(FocusRegion),
+	ToggleViewsShowAll,
 	SetPanelScroll(usize),
 	SetPanelNavigation(PanelNavigationState),
 }

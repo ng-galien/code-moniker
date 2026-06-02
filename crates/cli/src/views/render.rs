@@ -239,8 +239,16 @@ fn render_symbol_evidence(
 		output.push_str(indent);
 		output.push_str("    code:\n");
 		for (line, text) in &evidence.code {
+			let marker = if evidence
+				.active_slice
+				.is_some_and(|(start, end)| start <= *line && *line <= end)
+			{
+				">"
+			} else {
+				" "
+			};
 			output.push_str(indent);
-			output.push_str(&format!("      {line:>4} | {text}\n"));
+			output.push_str(&format!("      {marker} {line:>4} | {text}\n"));
 		}
 	}
 }

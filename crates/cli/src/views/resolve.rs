@@ -18,6 +18,7 @@ pub(crate) struct SymbolEvidence {
 	pub(crate) moniker: String,
 	pub(crate) file: String,
 	pub(crate) slice: SourceSlice,
+	pub(crate) active_slice: SourceSlice,
 	pub(crate) code: CodeExcerpt,
 }
 
@@ -56,7 +57,7 @@ pub(crate) fn resolve_symbols(
 			});
 			continue;
 		}
-		let evidence = select_symbol_evidence(selector, matches, options.context_lines);
+		let evidence = select_symbol_evidence(selector, matches, options);
 		if evidence.is_empty() {
 			resolution.missing.push(MissingSymbol {
 				selector: selector.clone(),
@@ -117,7 +118,7 @@ fn matching_symbols<'a>(
 fn select_symbol_evidence(
 	selector: &str,
 	matches: Vec<(&SymbolRecord, &SourceFileRecord)>,
-	context_lines: usize,
+	options: RenderOptions,
 ) -> Vec<SymbolEvidence> {
 	const MAX_EVIDENCE_PER_SELECTOR: usize = 3;
 	let matches = exact_suffix_matches(selector, &matches).unwrap_or(matches);
@@ -139,7 +140,7 @@ fn select_symbol_evidence(
 	let mut seen_file = BTreeSet::new();
 	let mut seen_kind = BTreeSet::new();
 	for (symbol, source) in matches {
-		let evidence = symbol_evidence(selector, symbol, source, context_lines);
+		let evidence = symbol_evidence(selector, symbol, source, options);
 		if !seen_slice.insert(slice_key(&evidence)) {
 			continue;
 		}
@@ -213,16 +214,17 @@ fn symbol_evidence(
 	selector: &str,
 	symbol: &SymbolRecord,
 	source: &SourceFileRecord,
-	context_lines: usize,
+	options: RenderOptions,
 ) -> SymbolEvidence {
 	let source_text = std::fs::read_to_string(&source.path).unwrap_or_default();
-	let (slice, code) = code_slice(&source_text, symbol.line_range, context_lines);
+	let (slice, active_slice, code) = code_slice(&source_text, symbol.line_range, options);
 	SymbolEvidence {
 		selector: selector.to_string(),
 		label: format!("{} {}", symbol.kind, symbol.name),
 		moniker: symbol.identity.clone(),
 		file: source.rel_path.clone(),
 		slice,
+		active_slice,
 		code,
 	}
 }
@@ -230,16 +232,20 @@ fn symbol_evidence(
 fn code_slice(
 	source_text: &str,
 	line_range: Option<(u32, u32)>,
-	context_lines: usize,
-) -> (SourceSlice, CodeExcerpt) {
+	options: RenderOptions,
+) -> (SourceSlice, SourceSlice, CodeExcerpt) {
 	let total_lines = source_text.lines().count().max(1);
 	let Some((start, end)) = line_range else {
-		return (None, Vec::new());
+		return (None, None, Vec::new());
 	};
 	let start = start.max(1) as usize;
 	let end = end.max(start as u32) as usize;
-	let slice_start = start.saturating_sub(context_lines).max(1);
-	let slice_end = end.saturating_add(context_lines).min(total_lines);
+	let active_slice = Some((start, end));
+	let slice_start = start.saturating_sub(options.context_lines).max(1);
+	let slice_end = end.saturating_add(options.context_lines).min(total_lines);
+	if !options.include_code {
+		return (Some((slice_start, slice_end)), active_slice, Vec::new());
+	}
 	let lines = source_text
 		.lines()
 		.enumerate()
@@ -249,7 +255,7 @@ fn code_slice(
 				.then_some((line_number, line.to_string()))
 		})
 		.collect();
-	(Some((slice_start, slice_end)), lines)
+	(Some((slice_start, slice_end)), active_slice, lines)
 }
 
 fn compiled_rule_specs(

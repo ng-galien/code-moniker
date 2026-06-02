@@ -7,12 +7,12 @@ use crossterm::event::KeyEvent;
 use crate::session::StoreWatchRoot;
 use crate::ui::app::App;
 use crate::ui::app::{
-	AppAction, CheckState, Effect, FocusCycle, FocusRegion, PanelPolicy, TaskCompletion, View,
-	apply_file_catalog_store, apply_navigation, apply_reloaded_store, close_panel_tree_node,
-	close_selected_nav, copy_panel_snapshot, cycle_focus_region, ensure_active_panel_selection,
-	handle_store_event, handle_store_event_sync, has_clearable_scope, move_panel_selection,
-	move_panel_to_edge, open_panel_tree_node, open_selected_nav, set_view, sync_contextual_view,
-	toggle_panel_tree_node, toggle_selected_nav,
+	AppAction, CheckState, Effect, FocusCycle, FocusRegion, PanelPolicy, ShellAction,
+	TaskCompletion, View, apply_file_catalog_store, apply_navigation, apply_reloaded_store,
+	close_panel_tree_node, close_selected_nav, copy_panel_snapshot, cycle_focus_region,
+	dispatch_shell, ensure_active_panel_selection, handle_store_event, handle_store_event_sync,
+	has_clearable_scope, move_panel_selection, move_panel_to_edge, open_panel_tree_node,
+	open_selected_nav, set_view, sync_contextual_view, toggle_panel_tree_node, toggle_selected_nav,
 };
 use crate::ui::async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
 use crate::ui::clipboard;
@@ -282,6 +282,7 @@ fn handle_ui_transition_msg(app: &mut App, msg: &Msg) -> bool {
 		}
 		Msg::FocusUsages => app.focus_usages_of_selected(),
 		Msg::ToggleChangeMode => app.toggle_change_mode(),
+		Msg::ToggleViewRender => toggle_view_render(app),
 		Msg::MoveDown => apply_vertical_navigation(app, 1),
 		Msg::MoveUp => apply_vertical_navigation(app, -1),
 		Msg::Home => apply_positional_navigation(app, true),
@@ -308,6 +309,20 @@ fn handle_ui_transition_msg(app: &mut App, msg: &Msg) -> bool {
 		_ => return false,
 	}
 	true
+}
+
+fn toggle_view_render(app: &mut App) {
+	if crate::ui::app::view(app) != View::Views {
+		crate::ui::app::set_status(app, "view render toggle is available in views panel");
+		return;
+	}
+	dispatch_shell(app, ShellAction::ToggleViewsShowAll);
+	let mode = if crate::ui::app::views_show_all(app) {
+		"all"
+	} else {
+		"summary"
+	};
+	crate::ui::app::set_status(app, format!("views render: {mode}"));
 }
 
 fn apply_vertical_navigation(app: &mut App, direction: i8) {

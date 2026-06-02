@@ -161,6 +161,10 @@ pub(in crate::ui) fn usage_lens(app: &App) -> Option<&UsageFocus> {
 	app.app_store.shell().usage_lens.as_ref()
 }
 
+pub(in crate::ui) fn views_show_all(app: &App) -> bool {
+	app.app_store.shell().views_show_all
+}
+
 pub(in crate::ui) fn active_filter(app: &App) -> &ActiveFilter {
 	&app.app_store.shell().active_filter
 }

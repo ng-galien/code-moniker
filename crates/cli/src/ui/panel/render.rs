@@ -169,11 +169,27 @@ fn panel_lines(panel: &PanelVm, width: usize, state: PanelRenderState) -> Render
 			}
 			PanelSection::Message { text, tone } => rendered.push(match tone {
 				MessageTone::Muted => panel::muted(text.clone()),
+				MessageTone::Info => {
+					Line::styled(text.clone(), Style::default().fg(THEME.panel.section))
+				}
+				MessageTone::Warning => {
+					Line::styled(text.clone(), Style::default().fg(THEME.change_modified))
+				}
 				MessageTone::Danger => {
 					Line::styled(text.clone(), Style::default().fg(THEME.danger))
 				}
 			}),
 			PanelSection::Bullet { text } => rendered.push(panel::bullet(text.clone())),
+			PanelSection::Evidence {
+				label,
+				selector,
+				file,
+				slice,
+			} => {
+				for line in evidence_lines(label, selector, file, *slice, width) {
+					rendered.push(line);
+				}
+			}
 			PanelSection::TreeRows(rows) => {
 				for row in rows {
 					rendered.push_navigable(
@@ -278,6 +294,67 @@ fn split_leading_ws(text: &str) -> (&str, &str) {
 
 fn expand_indent(indent: &str) -> String {
 	indent.replace('\t', "    ")
+}
+
+fn evidence_lines(
+	label: &str,
+	selector: &str,
+	file: &str,
+	slice: Option<(usize, usize)>,
+	width: usize,
+) -> Vec<Line<'static>> {
+	let slice_text = slice
+		.map(|(start, end)| format!("L{start}-L{end}"))
+		.unwrap_or_else(|| "unknown".to_string());
+	vec![
+		Line::from(vec![
+			Span::styled("  evidence ", Style::default().fg(THEME.panel.label)),
+			Span::styled(
+				fit_text(label, width.saturating_sub(11), FitMode::Middle),
+				Style::default()
+					.fg(THEME.kind.fallback)
+					.add_modifier(Modifier::BOLD),
+			),
+		]),
+		evidence_attr_line("selector", selector, THEME.kind.reference, width),
+		evidence_location_line(file, &slice_text, width),
+	]
+}
+
+fn evidence_attr_line(
+	label: &'static str,
+	value: &str,
+	value_color: ratatui::style::Color,
+	width: usize,
+) -> Line<'static> {
+	let prefix = format!("    {label:<8} ");
+	let value_width = width.saturating_sub(visible_len(&prefix));
+	Line::from(vec![
+		Span::raw("    "),
+		Span::styled(
+			format!("{label:<8} "),
+			Style::default().fg(THEME.panel.label),
+		),
+		Span::styled(
+			fit_text(value, value_width, FitMode::Middle),
+			Style::default().fg(value_color),
+		),
+	])
+}
+
+fn evidence_location_line(file: &str, slice: &str, width: usize) -> Line<'static> {
+	let prefix = "    at       ";
+	let suffix = format!("  {slice}");
+	let value_width = width.saturating_sub(visible_len(prefix) + visible_len(&suffix));
+	Line::from(vec![
+		Span::raw("    "),
+		Span::styled("at       ", Style::default().fg(THEME.panel.label)),
+		Span::styled(
+			fit_text(file, value_width, FitMode::Tail),
+			Style::default().fg(THEME.nav.file),
+		),
+		Span::styled(suffix, Style::default().fg(THEME.status_label)),
+	])
 }
 
 fn push_ref_groups(

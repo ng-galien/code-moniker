@@ -511,10 +511,30 @@ fn read_views_lists_and_renders_fragment_view() {
 	assert!(detail.text.contains("method:run"), "{}", detail.text);
 	assert!(detail.text.contains("selector: count"), "{}", detail.text);
 	assert!(detail.text.contains("status: missing"), "{}", detail.text);
+	assert!(!detail.text.contains("code:"), "{}", detail.text);
 	assert!(
-		detail.text.contains("void run(int count)"),
+		!detail.text.contains("void run(int count)"),
 		"{}",
 		detail.text
+	);
+
+	let detail_with_code = registry
+		.call(
+			&context,
+			"code_moniker_read",
+			&json!({
+				"uri": "workspace/views/java-app",
+				"context_lines": 0,
+				"include_code": true
+			}),
+		)
+		.expect("view detail with code");
+	assert!(!detail_with_code.is_error);
+	assert!(detail_with_code.text.contains("code:"));
+	assert!(
+		detail_with_code.text.contains("void run(int count)"),
+		"{}",
+		detail_with_code.text
 	);
 }
 
