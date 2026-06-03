@@ -104,9 +104,7 @@ impl LinkageStore {
 					.reference_indexes
 					.contains_key(decision.reference())
 					|| decision.resolved_targets().is_some_and(|targets| {
-						targets
-							.iter()
-							.any(|target| !symbol_exists(material, target))
+						targets.iter().any(|target| !material.symbol_exists(target))
 					})
 			})
 			.map(|decision| decision.reference().clone())
@@ -357,7 +355,7 @@ impl LinkageStoreIndexes {
 			return;
 		};
 		for target in targets {
-			let Some(source) = symbol_source(material, target) else {
+			let Some(source) = material.symbol_source(target) else {
 				continue;
 			};
 			self.resolved_by_target_source
@@ -448,24 +446,6 @@ fn references_by_name(
 		}
 	}
 	index
-}
-
-fn symbol_source(material: &CodeIndexMaterial, symbol: &SymbolId) -> Option<SourceId> {
-	let (file_idx, _) = material.identity.symbol_location(symbol)?;
-	material
-		.files
-		.get(file_idx)
-		.map(|file| file.source_id.clone())
-}
-
-fn symbol_exists(material: &CodeIndexMaterial, symbol: &SymbolId) -> bool {
-	match material.identity.symbol_location(symbol) {
-		Some((file_idx, def_idx)) => material
-			.files
-			.get(file_idx)
-			.is_some_and(|file| def_idx < file.graph.def_count()),
-		None => false,
-	}
 }
 
 fn reference_source_root(

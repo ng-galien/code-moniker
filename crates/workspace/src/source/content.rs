@@ -236,6 +236,16 @@ impl CodeIndexMaterial {
 		(def_idx < graph.def_count()).then(|| &graph.def_at(def_idx).moniker)
 	}
 
+	pub fn symbol_source(&self, symbol: &SymbolId) -> Option<SourceId> {
+		let (file_idx, def_idx) = self.identity.symbol_location(symbol)?;
+		let file = self.files.get(file_idx)?;
+		(def_idx < file.graph.def_count()).then(|| file.source_id.clone())
+	}
+
+	pub fn symbol_exists(&self, symbol: &SymbolId) -> bool {
+		self.symbol_moniker(symbol).is_some()
+	}
+
 	pub fn reference_target(&self, reference: &ReferenceId) -> Option<&Moniker> {
 		let (file_idx, ref_idx) = self.identity.reference_location(reference)?;
 		let graph = &self.files.get(file_idx)?.graph;
