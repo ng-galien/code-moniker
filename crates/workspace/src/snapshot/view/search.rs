@@ -119,7 +119,7 @@ fn phrase_match_score(value: &str, phrase: &str, exact_score: u32) -> Option<u32
 mod tests {
 	use super::*;
 	use crate::snapshot::model::{
-		ChangeOverlay, CodeIndex, LinkageGraph, ResourceGeneration, SourceCatalog, SourceId,
+		ChangeOverlay, CodeIndex, LinkageSnapshot, ResourceGeneration, SourceCatalog, SourceId,
 		SymbolId, SymbolRecordFields, WorkspaceTimings,
 	};
 
@@ -155,7 +155,7 @@ mod tests {
 				ResourceGeneration::new(1),
 				symbols,
 			),
-			linkage: LinkageGraph::new(
+			linkage: LinkageSnapshot::new(
 				ResourceGeneration::new(1),
 				ResourceGeneration::new(1),
 				0,

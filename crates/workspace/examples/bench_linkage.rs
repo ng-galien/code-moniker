@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
 	let timed_linkage = linkage_port
 		.resolve_linkage_with_timings(&index)
 		.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
-	let linkage = timed_linkage.graph;
+	let linkage = timed_linkage.snapshot;
 	let linkage_elapsed = linkage_timer.elapsed();
 
 	println!("phase\tms");
@@ -70,8 +70,8 @@ fn main() -> anyhow::Result<()> {
 		millis(timed_linkage.timings.semantic_enhance)
 	);
 	println!(
-		"project_report\t{:.3}",
-		millis(timed_linkage.timings.project_report)
+		"project_snapshot\t{:.3}",
+		millis(timed_linkage.timings.project_snapshot)
 	);
 	println!();
 	println!("metric\tcount");
@@ -270,11 +270,11 @@ fn millis(duration: Duration) -> f64 {
 	duration.as_secs_f64() * 1000.0
 }
 
-fn eligible_refs(linkage: &code_moniker_workspace::snapshot::LinkageGraph) -> usize {
+fn eligible_refs(linkage: &code_moniker_workspace::snapshot::LinkageSnapshot) -> usize {
 	linkage.resolved_refs + linkage.manifest_blocked_refs + linkage.unresolved_refs
 }
 
-fn linkage_score_percent(linkage: &code_moniker_workspace::snapshot::LinkageGraph) -> f64 {
+fn linkage_score_percent(linkage: &code_moniker_workspace::snapshot::LinkageSnapshot) -> f64 {
 	let eligible = eligible_refs(linkage);
 	if eligible == 0 {
 		return 0.0;
@@ -282,7 +282,7 @@ fn linkage_score_percent(linkage: &code_moniker_workspace::snapshot::LinkageGrap
 	(linkage.resolved_refs as f64 * 100.0) / eligible as f64
 }
 
-fn single_target_score_percent(linkage: &code_moniker_workspace::snapshot::LinkageGraph) -> f64 {
+fn single_target_score_percent(linkage: &code_moniker_workspace::snapshot::LinkageSnapshot) -> f64 {
 	let eligible = eligible_refs(linkage);
 	if eligible == 0 {
 		return 0.0;
@@ -293,7 +293,7 @@ fn single_target_score_percent(linkage: &code_moniker_workspace::snapshot::Linka
 
 fn print_unresolved_groups(
 	index: &code_moniker_workspace::snapshot::CodeIndex,
-	linkage: &code_moniker_workspace::snapshot::LinkageGraph,
+	linkage: &code_moniker_workspace::snapshot::LinkageSnapshot,
 	limit: usize,
 ) {
 	let refs_by_id = index

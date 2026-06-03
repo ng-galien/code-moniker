@@ -8,7 +8,7 @@ use crate::check;
 use code_moniker_workspace::environment::{
 	self, IdentityResolver, IndexedSourceMaterial, ResourceCache,
 };
-use code_moniker_workspace::snapshot::{CodeIndex, LinkageGraph, ResourceGeneration, SymbolId};
+use code_moniker_workspace::snapshot::{CodeIndex, LinkageSnapshot, ResourceGeneration, SymbolId};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct WorkspaceCheckRunnerOptions {
@@ -40,7 +40,7 @@ impl WorkspaceCheckRunner {
 	pub fn run_check(
 		&mut self,
 		index: &CodeIndex,
-		_linkage: &LinkageGraph,
+		_linkage: &LinkageSnapshot,
 	) -> anyhow::Result<WorkspaceRuleDiagnostics> {
 		let material = environment::cached_index_material(&self.cache, index.generation)
 			.ok_or_else(|| anyhow::anyhow!("code index material is unavailable"))?;

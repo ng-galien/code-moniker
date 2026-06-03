@@ -3,27 +3,27 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 
 use crate::linkage::candidate::CandidateCatalog;
-use crate::linkage::decision::{
-	LinkageDecisionLog, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
-};
+use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope, UnknownReason};
 use crate::linkage::gc::{LinkageGarbageCollector, LinkageRefreshImpact};
 use crate::linkage::manifest::ManifestPolicy;
 use crate::linkage::query::LinkageQuery;
 use crate::linkage::scope::{GlobalScopeResolver, LocalScopeResolver};
 use crate::linkage::semantic::SemanticLinkage;
+use crate::linkage::store::LinkageStore;
 use crate::snapshot::{
-	CodeIndex, LinkageGraph, ReferenceRecord, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
+	CodeIndex, LinkageSnapshot, ReferenceRecord, WorkspaceFailure, WorkspaceResource,
+	WorkspaceResult,
 };
 use crate::source::{CodeIndexMaterial, LocalResourceCache};
 
 pub trait LinkagePort {
-	fn resolve_linkage(&mut self, index: &CodeIndex) -> WorkspaceResult<LinkageGraph>;
+	fn resolve_linkage(&mut self, index: &CodeIndex) -> WorkspaceResult<LinkageSnapshot>;
 	fn refresh_linkage(
 		&mut self,
-		current: &LinkageGraph,
+		current: &LinkageSnapshot,
 		index: &CodeIndex,
 		impact: LinkageRefreshImpact,
-	) -> WorkspaceResult<LinkageGraph>;
+	) -> WorkspaceResult<LinkageSnapshot>;
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -33,49 +33,57 @@ pub struct LinkageTimings {
 	pub resolve_references: Duration,
 	pub semantic_prepare: Duration,
 	pub semantic_enhance: Duration,
-	pub project_report: Duration,
+	pub project_snapshot: Duration,
 	pub total: Duration,
 }
 
-pub struct TimedLinkageGraph {
-	pub graph: LinkageGraph,
+pub struct TimedLinkageSnapshot {
+	pub snapshot: LinkageSnapshot,
 	pub timings: LinkageTimings,
 }
 
 pub struct LocalLinkage {
 	cache: LocalResourceCache,
+	store: Option<LinkageStore>,
 }
 
 impl LocalLinkage {
 	pub fn new(cache: LocalResourceCache) -> Self {
-		Self { cache }
+		Self { cache, store: None }
 	}
 }
 
 impl LinkagePort for LocalLinkage {
-	fn resolve_linkage(&mut self, index: &CodeIndex) -> WorkspaceResult<LinkageGraph> {
-		Ok(self.resolve_linkage_with_timings(index)?.graph)
+	fn resolve_linkage(&mut self, index: &CodeIndex) -> WorkspaceResult<LinkageSnapshot> {
+		Ok(self.resolve_linkage_with_timings(index)?.snapshot)
 	}
 
 	fn refresh_linkage(
 		&mut self,
-		current: &LinkageGraph,
+		current: &LinkageSnapshot,
 		index: &CodeIndex,
 		impact: LinkageRefreshImpact,
-	) -> WorkspaceResult<LinkageGraph> {
+	) -> WorkspaceResult<LinkageSnapshot> {
 		if impact.is_empty() {
-			let mut graph = current.clone();
-			graph.index_generation = index.generation;
-			return Ok(graph);
+			if let Some(store) = &mut self.store {
+				store.advance_index_generation(index.generation);
+			}
+			let mut snapshot = current.clone();
+			snapshot.index_generation = index.generation;
+			return Ok(snapshot);
 		}
 		let material = self.cache.index_material(index.generation).ok_or_else(|| {
 			WorkspaceFailure::new(
-				WorkspaceResource::LinkageGraph,
+				WorkspaceResource::LinkageSnapshot,
 				"code index material is unavailable",
 			)
 		})?;
 		let generation = self.cache.next_generation();
-		Ok(IncrementalLinkageRefresh::new(current, index, impact, &material, generation).run())
+		let store =
+			IncrementalLinkageRefresh::new(current, index, impact, &material, generation).run();
+		let snapshot = store.project_snapshot(&index.references, &material.identity);
+		self.store = Some(store);
+		Ok(snapshot)
 	}
 }
 
@@ -83,35 +91,28 @@ impl LocalLinkage {
 	pub fn resolve_linkage_with_timings(
 		&mut self,
 		index: &CodeIndex,
-	) -> WorkspaceResult<TimedLinkageGraph> {
+	) -> WorkspaceResult<TimedLinkageSnapshot> {
 		let total_timer = Instant::now();
 		let material = self.cache.index_material(index.generation).ok_or_else(|| {
 			WorkspaceFailure::new(
-				WorkspaceResource::LinkageGraph,
+				WorkspaceResource::LinkageSnapshot,
 				"code index material is unavailable",
 			)
 		})?;
 		let generation = self.cache.next_generation();
 		let resolver = LinkageResolver::new(&material);
-		let LinkageResolution {
-			decision_log,
-			mut timings,
-		} = resolver.resolve(index);
+		let LinkageResolution { store, mut timings } = resolver.resolve(index, generation);
 		let report_timer = Instant::now();
-		let graph = LinkageGraph::from_report(decision_log.project_report(
-			generation,
-			index.generation,
-			&index.references,
-			&material.identity,
-		));
-		timings.project_report = report_timer.elapsed();
+		let snapshot = store.project_snapshot(&index.references, &material.identity);
+		timings.project_snapshot = report_timer.elapsed();
 		timings.total = total_timer.elapsed();
-		Ok(TimedLinkageGraph { graph, timings })
+		self.store = Some(store);
+		Ok(TimedLinkageSnapshot { snapshot, timings })
 	}
 }
 
 struct IncrementalLinkageRefresh<'a> {
-	current: &'a LinkageGraph,
+	current: &'a LinkageSnapshot,
 	index: &'a CodeIndex,
 	impact: LinkageRefreshImpact,
 	material: &'a CodeIndexMaterial,
@@ -120,7 +121,7 @@ struct IncrementalLinkageRefresh<'a> {
 
 impl<'a> IncrementalLinkageRefresh<'a> {
 	fn new(
-		current: &'a LinkageGraph,
+		current: &'a LinkageSnapshot,
 		index: &'a CodeIndex,
 		impact: LinkageRefreshImpact,
 		material: &'a CodeIndexMaterial,
@@ -135,7 +136,7 @@ impl<'a> IncrementalLinkageRefresh<'a> {
 		}
 	}
 
-	fn run(&self) -> LinkageGraph {
+	fn run(&self) -> LinkageStore {
 		let candidates = CandidateCatalog::new(self.material);
 		let sweep = LinkageGarbageCollector::new(
 			self.current,
@@ -148,13 +149,12 @@ impl<'a> IncrementalLinkageRefresh<'a> {
 		let changed = self.resolve_reference_decisions(sweep.reference_indexes(), &candidates);
 		let mut decisions = sweep.into_decisions(changed);
 		SemanticLinkage::new(self.material).enhance(&mut decisions, &self.index.references);
-		let report = LinkageDecisionLog::new(decisions).project_report(
+		LinkageStore::new(
 			self.generation,
 			self.index.generation,
+			decisions,
 			&self.index.references,
-			&self.material.identity,
-		);
-		LinkageGraph::from_report(report)
+		)
 	}
 
 	fn resolve_reference_decisions(
@@ -200,7 +200,11 @@ impl<'a> LinkageResolver<'a> {
 		}
 	}
 
-	fn resolve(&self, index: &CodeIndex) -> LinkageResolution {
+	fn resolve(
+		&self,
+		index: &CodeIndex,
+		generation: crate::snapshot::ResourceGeneration,
+	) -> LinkageResolution {
 		let mut timings = LinkageTimings::default();
 		let candidate_timer = Instant::now();
 		let candidates = CandidateCatalog::new(self.material);
@@ -224,9 +228,8 @@ impl<'a> LinkageResolver<'a> {
 		let semantic_timer = Instant::now();
 		semantic_linkage.enhance(&mut decisions, &index.references);
 		timings.semantic_enhance = semantic_timer.elapsed();
-		let decision_log = LinkageDecisionLog::new(decisions);
 		LinkageResolution {
-			decision_log,
+			store: LinkageStore::new(generation, index.generation, decisions, &index.references),
 			timings,
 		}
 	}
@@ -262,6 +265,6 @@ impl<'a> LinkageResolver<'a> {
 }
 
 struct LinkageResolution {
-	decision_log: LinkageDecisionLog,
+	store: LinkageStore,
 	timings: LinkageTimings,
 }

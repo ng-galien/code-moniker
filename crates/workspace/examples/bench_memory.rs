@@ -13,7 +13,7 @@ use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndex
 use code_moniker_workspace::extract::{JavaExtractionPipeline, RustExtractionPipeline};
 use code_moniker_workspace::linkage::{LinkagePort, LocalLinkage};
 use code_moniker_workspace::snapshot::{
-	ChangeOverlay, ChangeRecord, ChangeResource, CodeIndex, LinkageEdge, LinkageGraph,
+	ChangeOverlay, ChangeRecord, ChangeResource, CodeIndex, LinkageEdge, LinkageSnapshot,
 	ReferenceRecord, SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord,
 	UnresolvedReference, WorkspaceRequest,
 };
@@ -270,7 +270,7 @@ struct MemorySample {
 struct WorkspaceMemoryRefs<'a> {
 	catalog: Option<&'a SourceCatalog>,
 	index: Option<&'a CodeIndex>,
-	linkage: Option<&'a LinkageGraph>,
+	linkage: Option<&'a LinkageSnapshot>,
 	changes: Option<&'a ChangeOverlay>,
 	material: Option<&'a CodeIndexMaterial>,
 }
@@ -437,7 +437,7 @@ fn estimate_index(index: &CodeIndex, estimate: &mut MemoryEstimate) {
 	);
 }
 
-fn estimate_linkage(linkage: &LinkageGraph, estimate: &mut MemoryEstimate) {
+fn estimate_linkage(linkage: &LinkageSnapshot, estimate: &mut MemoryEstimate) {
 	estimate.add_inline::<LinkageEdge>(
 		"snapshot.linkage.resolved_edges",
 		linkage.resolved.len(),
@@ -773,7 +773,7 @@ fn print_samples(
 	samples: &[MemorySample],
 	catalog: &SourceCatalog,
 	index: &CodeIndex,
-	linkage: &LinkageGraph,
+	linkage: &LinkageSnapshot,
 	changes: Option<&ChangeOverlay>,
 ) {
 	println!("summary\tcount");

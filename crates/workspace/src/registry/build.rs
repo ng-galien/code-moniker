@@ -7,7 +7,7 @@ use crate::code::CodeIndexPort;
 use crate::linkage::{LinkagePort, LinkageRefreshImpact};
 use crate::live::WorkspaceLiveRefreshPlan;
 use crate::snapshot::{
-	ChangeOverlay, CodeIndex, CodeIndexFields, LinkageGraph, ResourceGeneration, SourceCatalog,
+	ChangeOverlay, CodeIndex, CodeIndexFields, LinkageSnapshot, ResourceGeneration, SourceCatalog,
 	SourceFileRecord, SourceFileRecordFields, SourceId, SymbolId, WorkspaceFailure,
 	WorkspaceRequest, WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
 };
@@ -93,7 +93,7 @@ pub(crate) fn build_linkage_snapshot(
 ) -> WorkspaceResult<WorkspaceSnapshot> {
 	let current = current.ok_or_else(|| {
 		WorkspaceFailure::new(
-			WorkspaceResource::LinkageGraph,
+			WorkspaceResource::LinkageSnapshot,
 			format!("{} requires an indexed workspace snapshot", request.label),
 		)
 	})?;
@@ -411,8 +411,8 @@ fn catalog_source_records(catalog: &SourceCatalog) -> Vec<SourceFileRecord> {
 		.collect()
 }
 
-fn empty_linkage(catalog: &SourceCatalog, index: &CodeIndex) -> LinkageGraph {
-	LinkageGraph::new(catalog.generation, index.generation, 0, 0)
+fn empty_linkage(catalog: &SourceCatalog, index: &CodeIndex) -> LinkageSnapshot {
+	LinkageSnapshot::new(catalog.generation, index.generation, 0, 0)
 }
 
 fn empty_changes(catalog: &SourceCatalog, index: &CodeIndex) -> ChangeOverlay {

@@ -10,7 +10,7 @@ use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope, Unknow
 use crate::linkage::query::LinkageQuery;
 use crate::path_util::normalize_path;
 use crate::snapshot::{
-	LinkageEdge, LinkageGraph, ReferenceId, ReferenceRecord, SourceId, SymbolId,
+	LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord, SourceId, SymbolId,
 };
 use crate::source::CodeIndexMaterial;
 
@@ -34,7 +34,7 @@ impl LinkageRefreshImpact {
 }
 
 pub(super) struct LinkageGarbageCollector<'a> {
-	current: &'a LinkageGraph,
+	current: &'a LinkageSnapshot,
 	material: &'a CodeIndexMaterial,
 	index: LinkageGcIndex,
 }
@@ -59,7 +59,7 @@ pub(super) struct LinkageSweep {
 
 impl<'a> LinkageGarbageCollector<'a> {
 	pub(super) fn new(
-		current: &'a LinkageGraph,
+		current: &'a LinkageSnapshot,
 		references: &'a [ReferenceRecord],
 		material: &'a CodeIndexMaterial,
 		candidates: &'a CandidateCatalog<'a>,
@@ -135,7 +135,7 @@ impl<'a> LinkageGarbageCollector<'a> {
 }
 
 struct LinkageDecisionPreserver<'a> {
-	current: &'a LinkageGraph,
+	current: &'a LinkageSnapshot,
 	material: &'a CodeIndexMaterial,
 	index: &'a LinkageGcIndex,
 	stale_references: &'a BTreeSet<ReferenceId>,
@@ -143,7 +143,7 @@ struct LinkageDecisionPreserver<'a> {
 
 impl<'a> LinkageDecisionPreserver<'a> {
 	fn new(
-		current: &'a LinkageGraph,
+		current: &'a LinkageSnapshot,
 		material: &'a CodeIndexMaterial,
 		index: &'a LinkageGcIndex,
 		stale_references: &'a BTreeSet<ReferenceId>,
@@ -258,7 +258,7 @@ impl<'a> LinkageDecisionPreserver<'a> {
 
 impl LinkageGcIndex {
 	fn new(
-		current: &LinkageGraph,
+		current: &LinkageSnapshot,
 		references: &[ReferenceRecord],
 		material: &CodeIndexMaterial,
 		candidates: &CandidateCatalog<'_>,
@@ -393,7 +393,7 @@ fn symbol_sources(material: &CodeIndexMaterial) -> BTreeMap<SymbolId, SourceId> 
 }
 
 fn resolved_by_target_source(
-	current: &LinkageGraph,
+	current: &LinkageSnapshot,
 	symbol_sources: &BTreeMap<SymbolId, SourceId>,
 ) -> BTreeMap<SourceId, Vec<ReferenceId>> {
 	let mut index = BTreeMap::<SourceId, Vec<ReferenceId>>::new();
@@ -410,7 +410,7 @@ fn resolved_by_target_source(
 }
 
 fn missing_resolved_references(
-	current: &LinkageGraph,
+	current: &LinkageSnapshot,
 	reference_indexes: &BTreeMap<ReferenceId, usize>,
 	symbol_sources: &BTreeMap<SymbolId, SourceId>,
 ) -> Vec<ReferenceId> {

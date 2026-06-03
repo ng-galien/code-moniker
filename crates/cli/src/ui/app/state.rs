@@ -448,10 +448,10 @@ pub(in crate::ui) fn complete_task(state: &mut AppState, result: &TaskResult) ->
 		}
 		TaskOutcome::SymbolIndexLoaded { .. } => {
 			state.work.pending.remove(&WorkKind::GraphIndex);
-			state.work.pending.insert(WorkKind::LinkageGraph);
+			state.work.pending.insert(WorkKind::LinkageSnapshot);
 		}
 		TaskOutcome::LinkageResolved(_) | TaskOutcome::LiveWorkspaceRefreshed { .. } => {
-			state.work.pending.remove(&WorkKind::LinkageGraph);
+			state.work.pending.remove(&WorkKind::LinkageSnapshot);
 			state.work.pending.remove(&WorkKind::GitOverlay);
 			state.work.pending.remove(&WorkKind::ImpactIndex);
 			state.work.pending.remove(&WorkKind::PanelData);
@@ -498,10 +498,10 @@ fn invalidate_full_index(state: &mut AppState) {
 		WorkKind::ProjectLoad,
 		WorkKind::FileCatalog,
 		WorkKind::GraphIndex,
-		WorkKind::LinkageGraph,
+		WorkKind::LinkageSnapshot,
 		WorkKind::SearchIndex,
 		WorkKind::GitOverlay,
-		WorkKind::LinkageGraph,
+		WorkKind::LinkageSnapshot,
 		WorkKind::ImpactIndex,
 		WorkKind::PanelData,
 		WorkKind::CheckPanel,

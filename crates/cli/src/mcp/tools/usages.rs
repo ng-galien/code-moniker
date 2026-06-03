@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use code_moniker_workspace::snapshot::{
-	LinkageGraph, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId, SymbolRecord,
+	LinkageSnapshot, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId,
+	SymbolRecord,
 };
 use serde_json::{Value, json};
 
@@ -184,7 +185,7 @@ pub(in crate::mcp) struct UsageIndexView<'a> {
 	pub(in crate::mcp) sources: &'a [SourceFileRecord],
 	pub(in crate::mcp) symbols: &'a [SymbolRecord],
 	pub(in crate::mcp) references: &'a [ReferenceRecord],
-	pub(in crate::mcp) linkage: &'a LinkageGraph,
+	pub(in crate::mcp) linkage: &'a LinkageSnapshot,
 }
 
 pub(in crate::mcp) fn render_usages_lmnav(
@@ -695,7 +696,7 @@ struct UsageLookup<'a> {
 	symbols_by_identity: BTreeMap<&'a str, &'a SymbolRecord>,
 	references: BTreeMap<&'a str, &'a ReferenceRecord>,
 	reference_rows: &'a [ReferenceRecord],
-	linkage: &'a LinkageGraph,
+	linkage: &'a LinkageSnapshot,
 }
 
 impl<'a> UsageLookup<'a> {

@@ -6,7 +6,7 @@ use std::thread::{self, JoinHandle};
 
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 use code_moniker_workspace::snapshot::{
-	LinkageEdge, LinkageGraph, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
+	LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
 	SourceFileRecord, SourceFileRecordFields, SourceId, SourceUnit, SymbolId, SymbolRecord,
 	SymbolRecordFields, WorkspaceRequest, WorkspaceTransition,
 };
@@ -1089,7 +1089,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 			Some((7, 7)),
 		),
 	];
-	let linkage = LinkageGraph::with_refs(
+	let linkage = LinkageSnapshot::with_refs(
 		ResourceGeneration::new(2),
 		ResourceGeneration::new(1),
 		vec![
@@ -1201,7 +1201,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 			Some((345, 345)),
 		),
 	];
-	let linkage = LinkageGraph::with_refs(
+	let linkage = LinkageSnapshot::with_refs(
 		ResourceGeneration::new(2),
 		ResourceGeneration::new(1),
 		vec![

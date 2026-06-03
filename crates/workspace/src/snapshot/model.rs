@@ -447,7 +447,7 @@ impl UnresolvedReference {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LinkageGraph {
+pub struct LinkageSnapshot {
 	pub generation: ResourceGeneration,
 	pub index_generation: ResourceGeneration,
 	pub resolved_refs: usize,
@@ -461,7 +461,7 @@ pub struct LinkageGraph {
 	pub unresolved: Vec<UnresolvedReference>,
 }
 
-impl LinkageGraph {
+impl LinkageSnapshot {
 	pub fn new(
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
@@ -506,7 +506,7 @@ impl LinkageGraph {
 		}
 	}
 
-	pub fn from_report(mut report: LinkageGraphReport) -> Self {
+	pub fn from_report(mut report: LinkageSnapshotReport) -> Self {
 		report.resolved.shrink_to_fit();
 		report.external.shrink_to_fit();
 		report.manifest_blocked.shrink_to_fit();
@@ -527,7 +527,7 @@ impl LinkageGraph {
 	}
 }
 
-pub struct LinkageGraphReport {
+pub struct LinkageSnapshotReport {
 	pub generation: ResourceGeneration,
 	pub index_generation: ResourceGeneration,
 	pub resolved_refs: usize,
@@ -765,7 +765,7 @@ pub struct WorkspaceSnapshot {
 	pub generation: ResourceGeneration,
 	pub catalog: SourceCatalog,
 	pub index: CodeIndex,
-	pub linkage: LinkageGraph,
+	pub linkage: LinkageSnapshot,
 	pub changes: ChangeOverlay,
 	pub timings: WorkspaceTimings,
 }
@@ -785,7 +785,7 @@ pub struct WorkspaceTimings {
 pub enum WorkspaceResource {
 	SourceCatalog,
 	CodeIndex,
-	LinkageGraph,
+	LinkageSnapshot,
 	ChangeOverlay,
 }
 

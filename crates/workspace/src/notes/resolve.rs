@@ -126,7 +126,7 @@ fn symbol_by_identity(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SymbolRec
 #[cfg(test)]
 mod tests {
 	use crate::snapshot::{
-		ChangeOverlay, CodeIndex, CodeIndexFields, CodeIndexTimings, LinkageGraph,
+		ChangeOverlay, CodeIndex, CodeIndexFields, CodeIndexTimings, LinkageSnapshot,
 		ResourceGeneration, SourceCatalog, SourceFileRecord, SourceFileRecordFields, SourceId,
 		SymbolId, SymbolRecord, SymbolRecordFields, WorkspaceSnapshot, WorkspaceTimings,
 	};
@@ -237,7 +237,7 @@ mod tests {
 				references: Vec::new(),
 				timings: CodeIndexTimings::default(),
 			}),
-			linkage: LinkageGraph::new(
+			linkage: LinkageSnapshot::new(
 				ResourceGeneration::new(1),
 				ResourceGeneration::new(1),
 				0,
@@ -278,7 +278,7 @@ mod tests {
 				references: Vec::new(),
 				timings: CodeIndexTimings::default(),
 			}),
-			linkage: LinkageGraph::new(
+			linkage: LinkageSnapshot::new(
 				ResourceGeneration::new(1),
 				ResourceGeneration::new(1),
 				0,

@@ -7,6 +7,7 @@ mod query;
 mod resolver;
 mod scope;
 mod semantic;
+mod store;
 
 pub use gc::LinkageRefreshImpact;
-pub use resolver::{LinkagePort, LinkageTimings, LocalLinkage, TimedLinkageGraph};
+pub use resolver::{LinkagePort, LinkageTimings, LocalLinkage, TimedLinkageSnapshot};

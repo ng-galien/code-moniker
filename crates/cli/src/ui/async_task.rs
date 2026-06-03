@@ -24,7 +24,7 @@ pub(in crate::ui) enum WorkKind {
 	ProjectLoad,
 	FileCatalog,
 	GraphIndex,
-	LinkageGraph,
+	LinkageSnapshot,
 	SearchIndex,
 	GitOverlay,
 	ImpactIndex,
@@ -223,8 +223,8 @@ impl TaskKind {
 		match self {
 			Self::LoadFileCatalog { .. } => WorkKind::FileCatalog,
 			Self::LoadSymbolIndex { .. } => WorkKind::GraphIndex,
-			Self::ResolveLinkage { .. } => WorkKind::LinkageGraph,
-			Self::RefreshWorkspaceLivePlan { .. } => WorkKind::LinkageGraph,
+			Self::ResolveLinkage { .. } => WorkKind::LinkageSnapshot,
+			Self::RefreshWorkspaceLivePlan { .. } => WorkKind::LinkageSnapshot,
 			Self::RunCheck { .. } => WorkKind::CheckPanel,
 		}
 	}

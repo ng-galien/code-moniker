@@ -1,5 +1,5 @@
 use crate::snapshot::{
-	ExternalReference, LinkageEdge, LinkageGraphReport, ReferenceRecord, ResourceGeneration,
+	ExternalReference, LinkageEdge, LinkageSnapshotReport, ReferenceRecord, ResourceGeneration,
 	SymbolId, UnresolvedReference,
 };
 use crate::source::LocalIdentityResolver;
@@ -8,26 +8,12 @@ use std::sync::Arc;
 
 pub(super) use crate::snapshot::ExternalReferenceOrigin as ExternalOrigin;
 
-#[derive(Default)]
-pub(super) struct LinkageDecisionLog {
+pub(super) fn project_decisions(
 	decisions: Vec<ReferenceLinkageDecision>,
-}
-
-impl LinkageDecisionLog {
-	pub(super) fn new(decisions: Vec<ReferenceLinkageDecision>) -> Self {
-		Self { decisions }
-	}
-
-	pub(super) fn project_report(
-		self,
-		generation: ResourceGeneration,
-		index_generation: ResourceGeneration,
-		references: &[ReferenceRecord],
-		identity: &LocalIdentityResolver,
-	) -> LinkageGraphReport {
-		LinkageReportProjection::from_decisions(self.decisions, references, identity)
-			.into_report(generation, index_generation)
-	}
+	references: &[ReferenceRecord],
+	identity: &LocalIdentityResolver,
+) -> LinkageReportProjection {
+	LinkageReportProjection::from_decisions(decisions, references, identity)
 }
 
 #[derive(Clone)]
@@ -134,10 +120,17 @@ impl ReferenceLinkageDecision {
 			| Self::Unknown { reference_idx, .. } => *reference_idx,
 		}
 	}
+
+	pub(super) fn resolved_targets(&self) -> Option<&[SymbolId]> {
+		match self {
+			Self::Resolved { targets, .. } => Some(targets),
+			Self::External { .. } | Self::Blocked { .. } | Self::Unknown { .. } => None,
+		}
+	}
 }
 
 #[derive(Default)]
-struct LinkageReportProjection {
+pub(super) struct LinkageReportProjection {
 	resolved: ResolvedLinkProjection,
 	external: ExternalLinkProjection,
 	unresolved: UnresolvedLinkProjection,
@@ -178,12 +171,12 @@ impl LinkageReportProjection {
 		self
 	}
 
-	fn into_report(
+	pub(super) fn into_report(
 		self,
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
-	) -> LinkageGraphReport {
-		LinkageGraphReport {
+	) -> LinkageSnapshotReport {
+		LinkageSnapshotReport {
 			generation,
 			index_generation,
 			resolved_refs: self.resolved.resolved_refs,

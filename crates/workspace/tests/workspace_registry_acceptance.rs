@@ -246,7 +246,7 @@ fn registry_commands_report_failure_and_keep_scope_uri() {
 	else {
 		panic!("resolve linkage without index should fail");
 	};
-	assert_eq!(failure.resource, WorkspaceResource::LinkageGraph);
+	assert_eq!(failure.resource, WorkspaceResource::LinkageSnapshot);
 	assert!(preserved_generation.is_none());
 	assert!(workspace.queries().snapshot().is_none());
 	assert_eq!(workspace.queries().last_failure(), Some(&failure));
