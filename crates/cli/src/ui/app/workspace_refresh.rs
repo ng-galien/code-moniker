@@ -16,6 +16,7 @@ enum StoreChangeKind {
 	FileCatalog,
 	Reloaded,
 	GitOverlay,
+	Notes,
 }
 
 pub(in crate::ui) fn handle_store_event(app: &mut App, event: StoreEvent) {
@@ -28,6 +29,11 @@ pub(in crate::ui) fn handle_store_event(app: &mut App, event: StoreEvent) {
 fn queue_store_task(app: &mut App, event: StoreEvent) -> bool {
 	let task = match event {
 		StoreEvent::GitOverlay => linkage_or_index_task(app),
+		StoreEvent::GitOverlayAndNotes => {
+			let _ = crate::ui::app::reload_notes(app);
+			linkage_or_index_task(app)
+		}
+		StoreEvent::Notes => return false,
 		StoreEvent::FullIndex => TaskSpec::load_symbol_index(crate::ui::app::store_options(app)),
 	};
 	queue_task(app, task)
@@ -56,6 +62,29 @@ pub(in crate::ui) fn handle_store_event_sync(app: &mut App, event: StoreEvent) {
 			}
 			apply_refreshed_change_store(app, "git overlay refreshed".to_string());
 		}
+		StoreEvent::GitOverlayAndNotes => {
+			if crate::ui::workspace_read::refresh_workspace(crate::ui::app::store_mut(app)).is_ok()
+			{
+				crate::ui::app::publish_workspace_snapshot(app);
+			}
+			let notes_status = crate::ui::app::reload_notes(app).err();
+			apply_refreshed_change_store(app, "git overlay and notes refreshed".to_string());
+			if let Some(error) = notes_status {
+				crate::ui::app::set_status(app, format!("notes reload failed: {error:#}"));
+			}
+		}
+		StoreEvent::Notes => match crate::ui::app::reload_notes(app) {
+			Ok(()) => {
+				refresh_ui_after_store_change(
+					app,
+					StoreChangeKind::Notes,
+					"notes refreshed".to_string(),
+				);
+			}
+			Err(error) => {
+				crate::ui::app::set_status(app, format!("notes reload failed: {error:#}"));
+			}
+		},
 		StoreEvent::FullIndex => {
 			match crate::ui::workspace_read::refresh_workspace(crate::ui::app::store_mut(app)) {
 				Ok(()) => {

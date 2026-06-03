@@ -1,6 +1,5 @@
-use std::collections::BTreeMap;
-
 use code_moniker_core::lang::Lang;
+use code_moniker_workspace::notes::{NoteStatus, NotesDocument};
 
 use crate::ui::app::{
 	FocusRegion, HeaderSearchState, PanelNavigationState, VisualizationMode, display_filter,
@@ -115,7 +114,7 @@ pub(in crate::ui) struct NavChangeVm {
 
 #[derive(Clone, Debug, Default)]
 struct NoteIndex {
-	by_moniker: BTreeMap<String, NoteBadge>,
+	by_moniker: std::collections::BTreeMap<String, NoteBadge>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -125,17 +124,11 @@ struct NoteBadge {
 }
 
 impl NoteIndex {
-	fn load(paths: &[std::path::PathBuf]) -> Self {
-		let Ok(root) = crate::notes::store::notes_root_for_paths(paths) else {
-			return Self::default();
-		};
-		let Ok(store) = crate::notes::store::NotesStore::load(&root) else {
-			return Self::default();
-		};
-		let mut by_moniker = BTreeMap::<String, NoteBadge>::new();
-		for note in store.notes() {
+	fn from_notes(notes: &NotesDocument) -> Self {
+		let mut by_moniker = std::collections::BTreeMap::<String, NoteBadge>::new();
+		for note in notes.notes() {
 			let badge = by_moniker.entry(note.moniker.clone()).or_default();
-			if note.status == crate::notes::model::NoteStatus::Done {
+			if note.status == NoteStatus::Done {
 				badge.done += 1;
 			} else {
 				badge.active += 1;
@@ -175,6 +168,7 @@ pub(in crate::ui) struct ExplorerVmContext<'a> {
 	usage_lens: Option<&'a UsageFocus>,
 	filtered: bool,
 	workspace: &'a LocalWorkspaceRegistry,
+	scheme: &'a str,
 	status: &'a str,
 	show_component_markers: bool,
 	note_index: NoteIndex,
@@ -195,9 +189,10 @@ impl ExplorerVm {
 			usage_lens: crate::ui::app::usage_lens(app),
 			filtered: is_filtered(app),
 			workspace: crate::ui::app::store(app),
+			scheme: &app.config.scheme,
 			status: crate::ui::app::status(app),
 			show_component_markers: crate::ui::app::debug(app),
-			note_index: NoteIndex::load(&crate::ui::app::store_options(app).paths),
+			note_index: NoteIndex::from_notes(&crate::ui::app::notes(app)),
 		};
 		Self::from_context(ctx)
 	}
@@ -230,13 +225,14 @@ pub(in crate::ui) fn focus_region_visible(
 	region: FocusRegion,
 ) -> bool {
 	matches!(mode, UiMode::Normal) && current == region
+		|| matches!(mode, UiMode::Note) && region == FocusRegion::Panel
 }
 
 fn search_vm(ctx: &ExplorerVmContext<'_>) -> SearchBarVm {
 	let search = ctx.header_search;
 	let focus = match ctx.mode {
 		UiMode::HeaderSearch(focus) => Some(focus),
-		UiMode::Normal => None,
+		UiMode::Normal | UiMode::Note => None,
 	};
 	SearchBarVm {
 		focused: focus.is_some(),
@@ -381,22 +377,8 @@ fn nav_row_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow, pane: NavigationPaneVie
 }
 
 fn note_marker_for_row(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> Option<String> {
-	let moniker = match &row.kind {
-		NavNodeKind::File(file_idx) => source_moniker(ctx.workspace, *file_idx),
-		NavNodeKind::Def(loc) => Some(workspace_read::symbol_summary(ctx.workspace, loc).identity),
-		_ => None,
-	}?;
-	ctx.note_index.marker_for(&moniker)
-}
-
-fn source_moniker(workspace: &LocalWorkspaceRegistry, file_idx: usize) -> Option<String> {
-	workspace
-		.queries()
-		.snapshot()?
-		.index
-		.sources
-		.get(file_idx)
-		.map(|source| source.uri.clone())
+	let target = crate::ui::nav_notes::nav_row_note_target(ctx.workspace, row, ctx.scheme)?;
+	ctx.note_index.marker_for(&target.moniker)
 }
 
 fn nav_row_kind_vm(ctx: &ExplorerVmContext<'_>, row: &NavRow) -> NavRowVmKind {
@@ -449,6 +431,7 @@ fn footer_prefix(mode: UiMode) -> &'static str {
 		UiMode::HeaderSearch(HeaderSearchFocus::Lang) => "lang",
 		UiMode::HeaderSearch(HeaderSearchFocus::Kind) => "kind",
 		UiMode::Normal => "status",
+		UiMode::Note => "note",
 	}
 }
 

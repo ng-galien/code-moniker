@@ -7,8 +7,10 @@ use ratatui::backend::TestBackend;
 use crate::session::SessionOptions;
 use crate::ui::app::main_split_percent;
 use crate::ui::app::{
-	App, AppConfig, FocusRegion, focus_region, handle_key, new_app, toggle_selected_nav,
+	App, AppConfig, FocusRegion, focus_region, handle_key, handle_store_event_sync, new_app,
+	toggle_selected_nav,
 };
+use crate::ui::live::StoreEvent;
 use crate::ui::render::view;
 use crate::ui::workspace_read::{load_local_file_catalog, load_local_workspace};
 
@@ -300,9 +302,7 @@ fn notes_on_selected_symbol_are_visible_in_navigator_and_outline() {
 	harness.search("App");
 	let moniker = selected_symbol_identity(&harness.app);
 	write_note_fixture(&fixture, &moniker);
-	let notes = crate::notes::store::NotesStore::load(&fixture).expect("load notes");
-	assert_eq!(notes.notes().len(), 1);
-	assert_eq!(notes.notes()[0].moniker, moniker);
+	handle_store_event_sync(&mut harness.app, StoreEvent::Notes);
 
 	let screen = harness.render_text(120, 32);
 
@@ -312,6 +312,166 @@ fn notes_on_selected_symbol_are_visible_in_navigator_and_outline() {
 	assert_visible(&screen, "Agent should inspect App before editing.");
 	assert_visible(&screen, "selected");
 	assert_visible(&screen, "moniker");
+}
+
+#[test]
+fn note_editor_creates_updates_and_deletes_notes_from_tui() {
+	let (mut harness, fixture) = load_notes_fixture();
+	harness.search("App");
+
+	harness.press(KeyCode::Char('n'));
+	harness.press(KeyCode::Right);
+	harness.press(KeyCode::Down);
+	harness.type_text("Review App");
+	harness.press(KeyCode::Tab);
+	harness.type_text("Check constructor behavior.");
+	harness.press(KeyCode::Enter);
+	harness.type_text("Keep body multiline.");
+	press_with_modifiers(&mut harness.app, KeyCode::Char('o'), KeyModifiers::CONTROL);
+	press_with_modifiers(&mut harness.app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+
+	let notes_path = fixture.join(".code-moniker/notes.toml");
+	let notes = std::fs::read_to_string(&notes_path).expect("notes saved");
+	assert!(notes.contains("Review App"), "{notes}");
+	assert!(notes.contains("kind = \"gotcha\""), "{notes}");
+	assert!(notes.contains("Check constructor behavior."), "{notes}");
+	assert!(notes.contains("Keep body multiline."), "{notes}");
+	assert!(notes.contains("status = \"ongoing\""), "{notes}");
+
+	let screen = harness.render_text(120, 32);
+	assert_visible(&screen, "[!1]");
+	assert_visible(&screen, "Review App");
+
+	harness.press(KeyCode::Char('8'));
+	let screen = harness.render_text(120, 32);
+	assert_visible(&screen, "notes lens");
+	assert_visible(&screen, "ongoing");
+	assert_visible(&screen, "Review App");
+
+	harness.press(KeyCode::Char('n'));
+	harness.press(KeyCode::Down);
+	press_with_modifiers(&mut harness.app, KeyCode::Char('u'), KeyModifiers::CONTROL);
+	harness.type_text("Edited App note");
+	press_with_modifiers(&mut harness.app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+
+	let notes = std::fs::read_to_string(&notes_path).expect("notes updated");
+	assert!(notes.contains("Edited App note"), "{notes}");
+	assert!(!notes.contains("Review App"), "{notes}");
+
+	harness.press(KeyCode::Char('8'));
+	harness.press(KeyCode::Char('n'));
+	press_with_modifiers(&mut harness.app, KeyCode::Char('d'), KeyModifiers::CONTROL);
+	press_with_modifiers(&mut harness.app, KeyCode::Char('d'), KeyModifiers::CONTROL);
+
+	let notes = std::fs::read_to_string(&notes_path).expect("notes deleted");
+	assert!(!notes.contains("Edited App note"), "{notes}");
+	let screen = harness.render_text(120, 32);
+	assert_visible(&screen, "no notes");
+}
+
+#[test]
+fn note_editor_abandons_empty_draft_without_creating_note() {
+	let (mut harness, fixture) = load_notes_fixture();
+	harness.search("App");
+
+	harness.press(KeyCode::Char('N'));
+	harness.press(KeyCode::Esc);
+
+	assert!(
+		!fixture.join(".code-moniker/notes.toml").exists(),
+		"empty draft should not create notes file"
+	);
+	let screen = harness.render_text(120, 32);
+	assert_hidden(&screen, "[!1]");
+}
+
+#[test]
+fn note_editor_can_target_any_navigator_node() {
+	let (mut harness, fixture) = load_notes_fixture();
+
+	harness.press(KeyCode::Char('n'));
+	let editor = harness.render_text(140, 36);
+	assert_visible(&editor, "note editor");
+	assert_visible(&editor, "[x] todo");
+	assert_visible(&editor, "directory java/src/main/java");
+	harness.press(KeyCode::Down);
+	harness.type_text("Project note");
+	press_with_modifiers(&mut harness.app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+
+	let notes = std::fs::read_to_string(fixture.join(".code-moniker/notes.toml"))
+		.expect("navigation note saved");
+	assert!(notes.contains("Project note"), "{notes}");
+	assert!(notes.contains("workspace/navigation/"), "{notes}");
+
+	harness.press(KeyCode::Char('2'));
+	let outline = harness.render_text(160, 40);
+	assert_visible(&outline, "[!1]");
+	assert_visible(&outline, "notes");
+	assert_visible(&outline, "Project note");
+
+	harness.press(KeyCode::Char('8'));
+	let lens = harness.render_text(160, 40);
+	assert_visible(&lens, "notes lens");
+	assert_visible(&lens, "Project note");
+	assert_visible(&lens, "navigation explorer:dir:java:src/main/java");
+}
+
+#[test]
+fn malformed_notes_file_is_visible_in_notes_surfaces() {
+	let (mut harness, fixture) = load_notes_fixture();
+	harness.search("App");
+	write_under(&fixture, ".code-moniker/notes.toml", "[[notes]\n");
+	handle_store_event_sync(&mut harness.app, StoreEvent::Notes);
+
+	let outline = harness.render_text(140, 36);
+	assert_visible(&outline, "notes unavailable");
+
+	harness.press(KeyCode::Char('8'));
+	let lens = harness.render_text(140, 36);
+	assert_visible(&lens, "notes lens");
+	assert_visible(&lens, "notes unavailable");
+}
+
+#[test]
+fn malformed_notes_file_is_visible_after_workspace_replacement() {
+	let (mut harness, fixture) = load_notes_fixture();
+	write_under(&fixture, ".code-moniker/notes.toml", "[[notes]\n");
+	let options = crate::ui::app::store_options(&harness.app);
+	let (store, cache) = load_local_workspace(&options).expect("reload workspace");
+	crate::ui::app::replace_store(&mut harness.app, store, cache, options);
+
+	harness.press(KeyCode::Char('8'));
+	let screen = harness.render_text(140, 36);
+	assert_visible(&screen, "notes lens");
+	assert_visible(&screen, "notes unavailable");
+}
+
+#[test]
+fn notes_lens_flags_orphan_notes() {
+	let (mut harness, fixture) = load_notes_fixture();
+	write_under(
+		&fixture,
+		".code-moniker/notes.toml",
+		r#"
+		[[notes]]
+		id = "note_orphan"
+		moniker = "java:missing.type:Missing"
+		kind = "gotcha"
+		status = "pending"
+		title = "Missing target"
+		body = "The referenced moniker is gone."
+		created_by = "user"
+		created_at = "2026-06-02T00:00:00Z"
+		updated_at = "2026-06-02T00:00:00Z"
+		"#,
+	);
+	handle_store_event_sync(&mut harness.app, StoreEvent::Notes);
+
+	harness.press(KeyCode::Char('8'));
+	let screen = harness.render_text(160, 40);
+	assert_visible(&screen, "notes lens");
+	assert_visible(&screen, "orphan");
+	assert_visible(&screen, "Missing target");
 }
 
 #[test]

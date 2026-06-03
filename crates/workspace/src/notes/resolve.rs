@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
-use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord, WorkspaceSnapshot};
+use crate::snapshot::{SourceFileRecord, SymbolRecord, WorkspaceSnapshot};
 
 use super::model::{Note, NoteResolution, ResolvedNote};
 
-pub(crate) fn resolve_notes(notes: &[Note], snapshot: &WorkspaceSnapshot) -> Vec<ResolvedNote> {
+pub fn resolve_notes(notes: &[Note], snapshot: &WorkspaceSnapshot) -> Vec<ResolvedNote> {
 	let sources = source_by_id(snapshot);
 	let sources_by_uri = source_by_uri(snapshot);
 	let symbols = symbol_by_identity(snapshot);
@@ -24,6 +24,20 @@ fn resolve_note(
 	sources: &BTreeMap<&str, &SourceFileRecord>,
 	sources_by_uri: &BTreeMap<&str, &SourceFileRecord>,
 ) -> NoteResolution {
+	if let Some(target_label) = navigation_target_label(note.moniker.as_str()) {
+		return NoteResolution::Resolved {
+			target_label,
+			target_file: String::new(),
+			target_slice: None,
+		};
+	}
+	if let Some(target_label) = view_target_label(note.moniker.as_str()) {
+		return NoteResolution::Resolved {
+			target_label,
+			target_file: String::new(),
+			target_slice: None,
+		};
+	}
 	if let Some(source) = sources_by_uri.get(note.moniker.as_str()).copied() {
 		return NoteResolution::Resolved {
 			target_label: format!("file {}", source.rel_path),
@@ -42,6 +56,44 @@ fn resolve_note(
 		target_file: source.rel_path.clone(),
 		target_slice: symbol.line_range,
 	}
+}
+
+fn navigation_target_label(moniker: &str) -> Option<String> {
+	workspace_uri_suffix(moniker, "navigation/")
+		.map(|target| format!("navigation {}", decode_navigation_id(target)))
+}
+
+fn view_target_label(moniker: &str) -> Option<String> {
+	workspace_uri_suffix(moniker, "views/").map(|target| format!("view {target}"))
+}
+
+fn workspace_uri_suffix<'a>(moniker: &'a str, path: &str) -> Option<&'a str> {
+	let workspace_path = format!("workspace/{path}");
+	moniker.strip_prefix(&workspace_path).or_else(|| {
+		moniker
+			.split_once(&workspace_path)
+			.map(|(_, suffix)| suffix)
+	})
+}
+
+fn decode_navigation_id(value: &str) -> String {
+	let mut decoded = Vec::new();
+	let bytes = value.as_bytes();
+	let mut idx = 0;
+	while idx < bytes.len() {
+		if bytes[idx] == b'%' && idx + 2 < bytes.len() {
+			if let Ok(hex) = std::str::from_utf8(&bytes[idx + 1..idx + 3]) {
+				if let Ok(byte) = u8::from_str_radix(hex, 16) {
+					decoded.push(byte);
+					idx += 3;
+					continue;
+				}
+			}
+		}
+		decoded.push(bytes[idx]);
+		idx += 1;
+	}
+	String::from_utf8(decoded).unwrap_or_else(|_| value.to_string())
 }
 
 fn source_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SourceFileRecord> {
@@ -73,14 +125,14 @@ fn symbol_by_identity(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SymbolRec
 
 #[cfg(test)]
 mod tests {
-	use code_moniker_workspace::snapshot::{
+	use crate::snapshot::{
 		ChangeOverlay, CodeIndex, CodeIndexFields, CodeIndexTimings, LinkageGraph,
 		ResourceGeneration, SourceCatalog, SourceFileRecord, SourceFileRecordFields, SourceId,
 		SymbolId, SymbolRecord, SymbolRecordFields, WorkspaceSnapshot, WorkspaceTimings,
 	};
 
 	use super::*;
-	use crate::notes::model::{NoteAuthor, NoteId, NoteKind, NoteStatus};
+	use crate::notes::{NoteAuthor, NoteId, NoteKind, NoteStatus};
 
 	#[test]
 	fn resolves_matching_moniker_and_keeps_orphans() {
@@ -114,6 +166,26 @@ mod tests {
 		let resolved = resolve_notes(&notes, &snapshot);
 
 		assert!(resolved[0].resolution.is_orphan());
+	}
+
+	#[test]
+	fn resolves_navigation_note_targets() {
+		let notes = vec![sample_note(
+			"note_nav",
+			"code+moniker://workspace/navigation/root%3Aexplorer",
+		)];
+		let snapshot = snapshot_with_symbol("code+moniker://./lang:rs/module:example/fn:run()");
+
+		let resolved = resolve_notes(&notes, &snapshot);
+
+		assert_eq!(
+			resolved[0].resolution,
+			NoteResolution::Resolved {
+				target_label: "navigation root:explorer".to_string(),
+				target_file: String::new(),
+				target_slice: None,
+			}
+		);
 	}
 
 	fn sample_note(id: &str, moniker: &str) -> Note {

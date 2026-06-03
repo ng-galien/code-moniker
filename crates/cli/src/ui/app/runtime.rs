@@ -9,14 +9,17 @@ use crate::ui::app::App;
 use crate::ui::app::{
 	AppAction, CheckState, Effect, FocusCycle, FocusRegion, PanelPolicy, ShellAction,
 	TaskCompletion, View, apply_file_catalog_store, apply_navigation, apply_reloaded_store,
-	close_panel_tree_node, close_selected_nav, copy_panel_snapshot, cycle_focus_region,
-	dispatch_shell, ensure_active_panel_selection, handle_store_event, handle_store_event_sync,
-	has_clearable_scope, move_panel_selection, move_panel_to_edge, open_panel_tree_node,
-	open_selected_nav, set_view, sync_contextual_view, toggle_panel_tree_node, toggle_selected_nav,
+	close_note_editor, close_panel_tree_node, close_selected_nav, copy_panel_snapshot,
+	cycle_focus_region, cycle_note_editor_kind, cycle_note_editor_status, delete_note_from_editor,
+	dispatch_shell, edit_note_editor, ensure_active_panel_selection, handle_store_event,
+	handle_store_event_sync, has_clearable_scope, move_note_editor_field, move_panel_selection,
+	move_panel_to_edge, open_note_editor, open_panel_tree_node, open_selected_nav,
+	save_note_from_editor, set_view, show_notes_lens, sync_contextual_view, toggle_panel_tree_node,
+	toggle_selected_nav,
 };
 use crate::ui::async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
 use crate::ui::clipboard;
-use crate::ui::events::{HeaderSearchFocus, Msg, UiMode, key_to_msg};
+use crate::ui::events::{HeaderSearchFocus, Msg, NoteMsg, UiMode, key_to_msg};
 use crate::ui::live::StoreEvent;
 use crate::ui::shell::ShellEvent;
 use crate::ui::store::navigation::{NavigationAction, NavigationPane};
@@ -281,6 +284,7 @@ fn handle_ui_transition_msg(app: &mut App, msg: &Msg) -> bool {
 			}
 		}
 		Msg::FocusUsages => app.focus_usages_of_selected(),
+		Msg::Note(note_msg) => handle_note_msg(app, *note_msg),
 		Msg::ToggleChangeMode => app.toggle_change_mode(),
 		Msg::ToggleViewRender => toggle_view_render(app),
 		Msg::MoveDown => apply_vertical_navigation(app, 1),
@@ -309,6 +313,23 @@ fn handle_ui_transition_msg(app: &mut App, msg: &Msg) -> bool {
 		_ => return false,
 	}
 	true
+}
+
+fn handle_note_msg(app: &mut App, msg: NoteMsg) {
+	match msg {
+		NoteMsg::ShowLens => show_notes_lens(app),
+		NoteMsg::OpenExisting => open_note_editor(app, false),
+		NoteMsg::NewDraft => open_note_editor(app, true),
+		NoteMsg::NextField => move_note_editor_field(app, true),
+		NoteMsg::PreviousField => move_note_editor_field(app, false),
+		NoteMsg::Input(edit) => edit_note_editor(app, edit),
+		NoteMsg::CycleKind => cycle_note_editor_kind(app),
+		NoteMsg::CycleStatus => cycle_note_editor_status(app, true),
+		NoteMsg::PreviousStatus => cycle_note_editor_status(app, false),
+		NoteMsg::Save => save_note_from_editor(app),
+		NoteMsg::Delete => delete_note_from_editor(app),
+		NoteMsg::Close => close_note_editor(app),
+	}
 }
 
 fn toggle_view_render(app: &mut App) {

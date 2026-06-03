@@ -2,7 +2,8 @@ use code_moniker_core::lang::Lang;
 
 use crate::ui::app::HeaderKindFilter;
 use crate::ui::app::state::{
-	ActiveFilter, ChangePanelMode, CheckState, FocusRegion, PanelNavigationState, PanelPolicy, View,
+	ActiveFilter, ChangePanelMode, CheckState, FocusRegion, NoteEditorState, PanelNavigationState,
+	PanelPolicy, View,
 };
 use crate::ui::async_task::{TaskId, TaskResult, WorkKind};
 use crate::ui::clipboard::ClipboardResult;
@@ -31,6 +32,7 @@ pub(in crate::ui) enum AppAction {
 pub(in crate::ui) enum ShellAction {
 	SetStatus(String),
 	AppendStatus(String),
+	SetNotesError(Option<String>),
 	SetCheckState(CheckState),
 	SetView {
 		view: View,
@@ -61,6 +63,7 @@ pub(in crate::ui) enum ShellAction {
 	},
 	SetUsageLens(Option<UsageFocus>),
 	ReplaceUsageLens(UsageFocus),
+	SetNoteEditor(Option<NoteEditorState>),
 	EnterChangeMode,
 	ReplaceActiveFilter(ActiveFilter),
 	SetChangePanel(ChangePanelMode),

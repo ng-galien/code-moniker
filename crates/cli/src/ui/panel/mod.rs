@@ -11,8 +11,8 @@ mod render;
 pub(in crate::ui) use model::{
 	PanelRenderState, PanelVm, ReferenceGroupVm, SourceLineVm, panel_blank, panel_bullet,
 	panel_component_section, panel_danger, panel_evidence, panel_info, panel_kv, panel_muted,
-	panel_reference_groups, panel_section, panel_source_snippet, panel_table, panel_tree_rows,
-	panel_warning,
+	panel_reference_groups, panel_section, panel_selector, panel_source_snippet, panel_table,
+	panel_text_editor, panel_tree_rows, panel_warning,
 };
 pub(in crate::ui) use render::PanelSnapshot;
 

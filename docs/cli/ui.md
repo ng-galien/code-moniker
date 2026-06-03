@@ -116,6 +116,9 @@ Generated cache and build paths such as `.code-moniker-cache/`, `target/`,
 | `s` | search declarations with ranked symbol search |
 | `d` | toggle Git change mode (`HEAD..worktree`) |
 | `u` | focus usages; in change mode, toggle blast-radius details |
+| `8`, `m` | open the notes lens |
+| `n` | edit the selected note, or open a note draft for the selected navigator row |
+| `N` | open a new note draft for the selected navigator row |
 | `y` | copy a text snapshot of the active right panel to the clipboard |
 | `x` | clear the filter |
 | `c` | run the check view |
@@ -123,9 +126,24 @@ Generated cache and build paths such as `.code-moniker-cache/`, `target/`,
 | `Esc`, left | close navigation or clear the active filtered scope |
 | `q`, `Ctrl-C` | quit |
 
-The UI does not modify source or rules files. When `--cache DIR` is used,
+In note mode, `Up`/`Down` and `Tab`/`Shift+Tab` move between kind, title, and
+body. `Left`/`Right` change the active kind selector. In title and body fields,
+arrow keys, `Home`, and `End` move inside the active editor. `Enter` inserts a
+body line break, `Ctrl+s` saves, `Ctrl+d` deletes after a second confirmation
+press, `Ctrl+o`/`Ctrl+p` move status through allowed transitions, and `Esc`
+closes the editor. Closing an empty new draft creates nothing; closing an
+existing note never deletes it.
+
+Notes attach to the selected navigator row. Declarations and files keep their
+normal symbol or source URI. Structural rows such as workspace, language,
+directory, and change grouping rows use a stable
+`code+moniker://workspace/navigation/...` URI.
+
+The UI does not modify source or rules files. It can create or update
+project notes in `.code-moniker/notes.toml`. When `--cache DIR` is used,
 it may create or update cache entries under that directory; without
-`--cache`, it only reads project sources and the selected rules file.
+`--cache`, it reads project sources and the selected rules file, plus the
+project notes file when present.
 Panel snapshots are copied as plain text with the active component marker,
 mode, scope, and panel content lines so they can be pasted into an issue
 or an agent conversation. They are text-oriented debug payloads, not

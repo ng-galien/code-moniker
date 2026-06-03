@@ -16,9 +16,15 @@ crate_cli  = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 crate_pg   = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
 workspace_public_boundary_target = """
   target ~ '**/external_pkg:code_moniker_workspace'
-  OR target ~ '**/external_pkg:code_moniker_workspace/path:/^(cache|changes|code|environment|extract|facade|lang|lines|linkage|snapshot|source|sources|tsconfig|walk)$/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:/^(cache|changes|code|environment|extract|facade|lang|lines|linkage|notes|snapshot|source|sources|tsconfig|walk)$/**'
 """
 workspace_crate_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
+cli_workspace_index = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:workspace_index'"
+workspace_notes_persistence_target = """
+  target ~ '**/external_pkg:code_moniker_workspace/path:notes/path:/^(NotesStore|notes_dir|notes_path|notes_root_for_paths)$/'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:notes/path:store/**'
+"""
+workspace_notes_state_target = "target ~ '**/external_pkg:code_moniker_workspace/path:notes/path:WorkspaceNotes'"
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
@@ -78,6 +84,29 @@ The workspace crate exposes a reusable engine for CLI/TUI and future MCP adapter
 should consume the crate through explicit public boundary modules; importing any other
 workspace module creates an accidental API and makes internal workspace layout part of the
 CLI contract.
+"""
+
+[[refs.where]]
+id        = "notes-persistence-owned-by-workspace"
+severity  = "error"
+expr      = "NOT $crate_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT $workspace_notes_persistence_target"
+message   = "Notes persistence is owned by `code-moniker-workspace`; consumers must go through workspace note state."
+rationale = """
+Notes are workspace collaboration data. CLI, TUI, MCP, and future adapters may consume note
+read models, but they must not load the notes file, compute the notes root, or instantiate
+the workspace note state directly. This keeps persistence and live refresh behind the
+workspace boundary instead of duplicating file access in each consumer.
+"""
+
+[[refs.where]]
+id        = "notes-state-owned-by-workspace-index"
+severity  = "error"
+expr      = "NOT $crate_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module') AND $workspace_notes_state_target => $cli_workspace_index"
+message   = "`WorkspaceNotes` may only be held by the shared workspace index adapter."
+rationale = """
+`WorkspaceNotes` is the shared state handle for note reload, snapshots, and mutation. CLI
+features should not instantiate or hold it directly; they should consume the existing
+workspace index facade so live refresh and MCP/TUI behavior stay consistent.
 """
 
 [[refs.where]]

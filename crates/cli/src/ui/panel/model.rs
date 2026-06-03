@@ -1,6 +1,7 @@
 use super::super::render::component::ComponentId;
 use super::super::render::text::{Column, FitMode};
 use super::super::render::tree::TreeRowVm;
+use ratatui_textarea::TextArea;
 
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct SourceLineVm {
@@ -126,6 +127,36 @@ pub(in crate::ui) fn panel_source_snippet(vm: &mut PanelVm, lines: Vec<SourceLin
 	vm.sections.push(PanelSection::SourceSnippet(lines));
 }
 
+pub(in crate::ui) fn panel_text_editor(
+	vm: &mut PanelVm,
+	label: &'static str,
+	editor: TextArea<'static>,
+	height: u16,
+	active: bool,
+) {
+	vm.sections.push(PanelSection::TextEditor {
+		label,
+		editor,
+		height,
+		active,
+	});
+}
+
+pub(in crate::ui) fn panel_selector(
+	vm: &mut PanelVm,
+	label: &'static str,
+	options: Vec<String>,
+	selected: usize,
+	active: bool,
+) {
+	vm.sections.push(PanelSection::Selector {
+		label,
+		options,
+		selected,
+		active,
+	});
+}
+
 pub(in crate::ui) fn panel_evidence(
 	vm: &mut PanelVm,
 	label: impl Into<String>,
@@ -185,6 +216,18 @@ pub(super) enum PanelSection {
 	Bullet {
 		text: String,
 	},
+	TextEditor {
+		label: &'static str,
+		editor: TextArea<'static>,
+		height: u16,
+		active: bool,
+	},
+	Selector {
+		label: &'static str,
+		options: Vec<String>,
+		selected: usize,
+		active: bool,
+	},
 	Evidence {
 		label: String,
 		selector: String,
@@ -213,6 +256,8 @@ impl PanelSection {
 			| Self::KeyValue { .. }
 			| Self::Message { .. }
 			| Self::Bullet { .. }
+			| Self::TextEditor { .. }
+			| Self::Selector { .. }
 			| Self::Evidence { .. }
 			| Self::Blank => 0,
 		}

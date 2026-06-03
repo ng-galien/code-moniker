@@ -1,6 +1,7 @@
 use crate::session::SessionOptions;
 use crate::ui::workspace_read::LocalWorkspaceRegistry;
 use crate::workspace_index::SharedWorkspaceIndex;
+use code_moniker_workspace::notes::NotesDocument;
 use code_moniker_workspace::registry::WorkspaceSnapshotPublication;
 use code_moniker_workspace::snapshot::{WorkspaceRequest, WorkspaceTransition};
 use code_moniker_workspace::source::LocalResourceCache;
@@ -8,8 +9,8 @@ use code_moniker_workspace::source::LocalResourceCache;
 pub(in crate::ui) struct WorkspaceSession {
 	store: LocalWorkspaceRegistry,
 	cache: LocalResourceCache,
-	options: SessionOptions,
-	index: SharedWorkspaceIndex,
+	pub(in crate::ui) options: SessionOptions,
+	pub(in crate::ui) index: SharedWorkspaceIndex,
 }
 
 impl WorkspaceSession {
@@ -19,6 +20,7 @@ impl WorkspaceSession {
 		options: SessionOptions,
 	) -> Self {
 		let index = SharedWorkspaceIndex::new(store.queries().snapshot_arc());
+		let _ = index.reload_notes(&options.paths);
 		Self {
 			store,
 			cache,
@@ -41,6 +43,14 @@ impl WorkspaceSession {
 
 	pub(in crate::ui) fn options(&self) -> &SessionOptions {
 		&self.options
+	}
+
+	pub(in crate::ui) fn notes(&self) -> NotesDocument {
+		self.index.notes_snapshot().unwrap_or_default()
+	}
+
+	pub(in crate::ui) fn reload_notes(&self) -> anyhow::Result<()> {
+		self.index.reload_notes(&self.options.paths)
 	}
 
 	pub(in crate::ui) fn replace(

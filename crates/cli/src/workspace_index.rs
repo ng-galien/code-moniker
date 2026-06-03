@@ -1,16 +1,19 @@
 use std::sync::{Arc, RwLock};
 
+use code_moniker_workspace::notes::{NotesDocument, WorkspaceNotes};
 use code_moniker_workspace::snapshot::WorkspaceSnapshot;
 
 #[derive(Clone)]
 pub(crate) struct SharedWorkspaceIndex {
 	state: Arc<RwLock<Option<Arc<WorkspaceSnapshot>>>>,
+	notes: WorkspaceNotes,
 }
 
 impl SharedWorkspaceIndex {
 	pub(crate) fn new(snapshot: Option<Arc<WorkspaceSnapshot>>) -> Self {
 		Self {
 			state: Arc::new(RwLock::new(snapshot)),
+			notes: WorkspaceNotes::default(),
 		}
 	}
 
@@ -18,6 +21,25 @@ impl SharedWorkspaceIndex {
 		if let Ok(mut state) = self.state.write() {
 			*state = snapshot;
 		}
+	}
+
+	pub(crate) fn reload_notes(&self, paths: &[std::path::PathBuf]) -> anyhow::Result<()> {
+		self.notes.reload(paths)
+	}
+
+	pub(crate) fn notes_snapshot(&self) -> anyhow::Result<NotesDocument> {
+		self.notes.snapshot()
+	}
+
+	pub(crate) fn mutate_notes<F, T>(
+		&self,
+		paths: &[std::path::PathBuf],
+		mutate: F,
+	) -> anyhow::Result<T>
+	where
+		F: FnOnce(&mut NotesDocument) -> anyhow::Result<T>,
+	{
+		self.notes.mutate(paths, mutate)
 	}
 
 	pub(crate) fn catalog_snapshot(&self) -> anyhow::Result<Arc<WorkspaceSnapshot>> {

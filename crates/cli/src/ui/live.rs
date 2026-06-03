@@ -8,15 +8,23 @@ use crate::session::StoreWatchRoot;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum StoreEvent {
 	GitOverlay,
+	Notes,
+	GitOverlayAndNotes,
 	FullIndex,
 }
 
 impl StoreEvent {
 	pub(super) fn coalesce(self, other: Self) -> Self {
-		if matches!(self, Self::FullIndex) || matches!(other, Self::FullIndex) {
-			Self::FullIndex
-		} else {
-			Self::GitOverlay
+		match (self, other) {
+			(Self::FullIndex, _) | (_, Self::FullIndex) => Self::FullIndex,
+			(Self::GitOverlayAndNotes, _) | (_, Self::GitOverlayAndNotes) => {
+				Self::GitOverlayAndNotes
+			}
+			(Self::GitOverlay, Self::Notes) | (Self::Notes, Self::GitOverlay) => {
+				Self::GitOverlayAndNotes
+			}
+			(Self::GitOverlay, Self::GitOverlay) => Self::GitOverlay,
+			(Self::Notes, Self::Notes) => Self::Notes,
 		}
 	}
 }
@@ -139,6 +147,12 @@ impl EventClassifier {
 			if self.is_git_path(path) {
 				continue;
 			}
+			if self.is_notes_path(path) {
+				event = Some(event.map_or(StoreEvent::Notes, |current| {
+					current.coalesce(StoreEvent::Notes)
+				}));
+				continue;
+			}
 			if self.is_source_path(path) {
 				return Some(StoreEvent::FullIndex);
 			}
@@ -166,6 +180,22 @@ impl EventClassifier {
 				.as_ref()
 				.map(|git_root| path.starts_with(git_root.join(".git")))
 				.unwrap_or(false)
+		})
+	}
+
+	fn is_notes_path(&self, path: &Path) -> bool {
+		let path = normalize_path(path);
+		self.roots.iter().any(|root| {
+			let Some(notes_path) = root.notes_path.as_ref().map(|path| normalize_path(path)) else {
+				return false;
+			};
+			if path == notes_path {
+				return true;
+			}
+			let Some(notes_dir) = notes_path.parent() else {
+				return false;
+			};
+			path == notes_dir || path.parent().is_some_and(|parent| parent == notes_dir)
 		})
 	}
 
@@ -209,6 +239,53 @@ fn normalize_path(path: &Path) -> PathBuf {
 	path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
+#[cfg(test)]
+mod store_event_tests {
+	use std::path::PathBuf;
+
+	use super::{EventClassifier, StoreEvent};
+	use crate::session::StoreWatchRoot;
+
+	#[test]
+	fn coalesces_notes_and_git_overlay_without_dropping_either() {
+		assert_eq!(
+			StoreEvent::GitOverlay.coalesce(StoreEvent::Notes),
+			StoreEvent::GitOverlayAndNotes
+		);
+		assert_eq!(
+			StoreEvent::Notes.coalesce(StoreEvent::GitOverlay),
+			StoreEvent::GitOverlayAndNotes
+		);
+		assert_eq!(
+			StoreEvent::GitOverlayAndNotes.coalesce(StoreEvent::FullIndex),
+			StoreEvent::FullIndex
+		);
+	}
+
+	#[test]
+	fn classifies_atomic_notes_writes_as_notes_refresh() {
+		let classifier = EventClassifier::new(vec![StoreWatchRoot {
+			path: PathBuf::from("/repo"),
+			git_root: None,
+			ignored_paths: Vec::new(),
+			notes_path: Some(PathBuf::from("/repo/.code-moniker/notes.toml")),
+		}]);
+
+		assert_eq!(
+			classifier.classify_paths_with_git_signals(
+				&[PathBuf::from("/repo/.code-moniker/notes.toml.tmp")],
+				true,
+			),
+			Some(StoreEvent::Notes)
+		);
+		assert_eq!(
+			classifier
+				.classify_paths_with_git_signals(&[PathBuf::from("/repo/.code-moniker")], true),
+			Some(StoreEvent::Notes)
+		);
+	}
+}
+
 // Disabled during the UI architecture rebuild; rewrite against the new store/watch contracts later.
 #[cfg(any())]
 mod tests {
@@ -220,6 +297,16 @@ mod tests {
 			path: PathBuf::from(path),
 			git_root: git_root.map(PathBuf::from),
 			ignored_paths: Vec::new(),
+			notes_path: None,
+		}
+	}
+
+	fn root_with_notes(path: &str, notes_path: &str) -> StoreWatchRoot {
+		StoreWatchRoot {
+			path: PathBuf::from(path),
+			git_root: None,
+			ignored_paths: Vec::new(),
+			notes_path: Some(PathBuf::from(notes_path)),
 		}
 	}
 
@@ -350,6 +437,23 @@ mod tests {
 		assert_eq!(
 			classifier.classify_paths(&[PathBuf::from("/repo/.cm-cache/shard/graph")]),
 			None
+		);
+	}
+
+	#[test]
+	fn classifies_atomic_notes_writes_as_notes_refresh() {
+		let classifier = EventClassifier::new(vec![root_with_notes(
+			"/repo",
+			"/repo/.code-moniker/notes.toml",
+		)]);
+
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.code-moniker/notes.toml.tmp")]),
+			Some(StoreEvent::Notes)
+		);
+		assert_eq!(
+			classifier.classify_paths(&[PathBuf::from("/repo/.code-moniker")]),
+			Some(StoreEvent::Notes)
 		);
 	}
 

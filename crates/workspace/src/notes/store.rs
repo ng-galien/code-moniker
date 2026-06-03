@@ -1,38 +1,90 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 use super::model::{Note, NoteKind, NoteStatus};
 
-pub(crate) const NOTES_DIR: &str = ".code-moniker";
-pub(crate) const NOTES_FILE: &str = ".code-moniker/notes.toml";
+pub const NOTES_DIR: &str = ".code-moniker";
+pub const NOTES_FILE: &str = ".code-moniker/notes.toml";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct NotesDocument {
+pub struct NotesDocument {
 	#[serde(default)]
-	pub(crate) notes: Vec<Note>,
+	pub notes: Vec<Note>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct NoteChanges {
-	pub(crate) moniker: Option<String>,
-	pub(crate) kind: Option<NoteKind>,
-	pub(crate) title: Option<String>,
-	pub(crate) body: Option<String>,
+pub struct NoteChanges {
+	pub moniker: Option<String>,
+	pub kind: Option<NoteKind>,
+	pub title: Option<String>,
+	pub body: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NotesWatchTarget {
+	pub path: PathBuf,
+	pub notes_path: PathBuf,
+}
+
+#[derive(Clone, Default)]
+pub struct WorkspaceNotes {
+	state: Arc<RwLock<NotesDocument>>,
+}
+
+impl WorkspaceNotes {
+	pub fn new(document: NotesDocument) -> Self {
+		Self {
+			state: Arc::new(RwLock::new(document)),
+		}
+	}
+
+	pub fn reload(&self, paths: &[PathBuf]) -> anyhow::Result<()> {
+		let root = notes_root_for_paths(paths)?;
+		let store = NotesStore::load(&root)?;
+		self.publish(store.document().clone());
+		Ok(())
+	}
+
+	pub fn publish(&self, notes: NotesDocument) {
+		if let Ok(mut state) = self.state.write() {
+			*state = notes;
+		}
+	}
+
+	pub fn snapshot(&self) -> anyhow::Result<NotesDocument> {
+		self.state
+			.read()
+			.map(|notes| notes.clone())
+			.map_err(|_| anyhow::anyhow!("workspace notes snapshot is unavailable"))
+	}
+
+	pub fn mutate<F, T>(&self, paths: &[PathBuf], mutate: F) -> anyhow::Result<T>
+	where
+		F: FnOnce(&mut NotesDocument) -> anyhow::Result<T>,
+	{
+		let root = notes_root_for_paths(paths)?;
+		let mut store = NotesStore::load(&root)?;
+		let result = mutate(store.document_mut())?;
+		store.save()?;
+		self.publish(store.document().clone());
+		Ok(result)
+	}
 }
 
 impl NotesDocument {
-	pub(crate) fn notes(&self) -> &[Note] {
+	pub fn notes(&self) -> &[Note] {
 		&self.notes
 	}
 
-	pub(crate) fn get(&self, id: &str) -> Option<&Note> {
+	pub fn get(&self, id: &str) -> Option<&Note> {
 		self.notes.iter().find(|note| note.id.as_str() == id)
 	}
 
-	pub(crate) fn insert(&mut self, note: Note) -> anyhow::Result<()> {
+	pub fn insert(&mut self, note: Note) -> anyhow::Result<()> {
 		if self.notes.iter().any(|item| item.id == note.id) {
 			anyhow::bail!("note id `{}` already exists", note.id.0);
 		}
@@ -41,7 +93,7 @@ impl NotesDocument {
 		Ok(())
 	}
 
-	pub(crate) fn update(
+	pub fn update(
 		&mut self,
 		id: &str,
 		changes: NoteChanges,
@@ -70,7 +122,7 @@ impl NotesDocument {
 			.ok_or_else(|| anyhow::anyhow!("note id `{id}` does not exist after update"))
 	}
 
-	pub(crate) fn transition(
+	pub fn transition(
 		&mut self,
 		id: &str,
 		status: NoteStatus,
@@ -87,7 +139,7 @@ impl NotesDocument {
 			.ok_or_else(|| anyhow::anyhow!("note id `{id}` does not exist after transition"))
 	}
 
-	pub(crate) fn delete(&mut self, id: &str) -> anyhow::Result<Note> {
+	pub fn delete(&mut self, id: &str) -> anyhow::Result<Note> {
 		let Some(index) = self.notes.iter().position(|note| note.id.as_str() == id) else {
 			anyhow::bail!("note id `{id}` does not exist");
 		};
@@ -105,14 +157,14 @@ impl NotesDocument {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct NotesStore {
+pub struct NotesStore {
 	path: PathBuf,
 	loaded_modified: Option<SystemTime>,
 	document: NotesDocument,
 }
 
 impl NotesStore {
-	pub(crate) fn load(root: &Path) -> anyhow::Result<Self> {
+	pub fn load(root: &Path) -> anyhow::Result<Self> {
 		let path = notes_path(root);
 		let (document, loaded_modified) = if path.exists() {
 			let loaded_modified = std::fs::metadata(&path)?.modified().ok();
@@ -128,27 +180,27 @@ impl NotesStore {
 		})
 	}
 
-	pub(crate) fn path(&self) -> &Path {
+	pub fn path(&self) -> &Path {
 		&self.path
 	}
 
-	pub(crate) fn document(&self) -> &NotesDocument {
+	pub fn document(&self) -> &NotesDocument {
 		&self.document
 	}
 
-	pub(crate) fn document_mut(&mut self) -> &mut NotesDocument {
+	pub fn document_mut(&mut self) -> &mut NotesDocument {
 		&mut self.document
 	}
 
-	pub(crate) fn notes(&self) -> &[Note] {
+	pub fn notes(&self) -> &[Note] {
 		self.document.notes()
 	}
 
-	pub(crate) fn insert(&mut self, note: Note) -> anyhow::Result<()> {
+	pub fn insert(&mut self, note: Note) -> anyhow::Result<()> {
 		self.document.insert(note)
 	}
 
-	pub(crate) fn save(&mut self) -> anyhow::Result<()> {
+	pub fn save(&mut self) -> anyhow::Result<()> {
 		if let Some(parent) = self.path.parent() {
 			std::fs::create_dir_all(parent)?;
 		}
@@ -222,15 +274,34 @@ impl Drop for SaveLock {
 	}
 }
 
-pub(crate) fn notes_path(root: &Path) -> PathBuf {
+pub fn notes_path(root: &Path) -> PathBuf {
 	root.join(NOTES_FILE)
 }
 
-pub(crate) fn notes_dir(root: &Path) -> PathBuf {
+pub fn notes_dir(root: &Path) -> PathBuf {
 	root.join(NOTES_DIR)
 }
 
-pub(crate) fn notes_root_for_paths(paths: &[PathBuf]) -> anyhow::Result<PathBuf> {
+pub fn notes_watch_targets_for_paths(paths: &[PathBuf]) -> anyhow::Result<Vec<NotesWatchTarget>> {
+	let root = notes_root_for_paths(paths)?;
+	let notes_path = notes_path(&root);
+	let notes_watch_path = notes_path
+		.parent()
+		.map(Path::to_path_buf)
+		.filter(|path| path.exists())
+		.unwrap_or_else(|| notes_dir(&root));
+	let path = if notes_watch_path.exists() {
+		notes_watch_path
+	} else {
+		notes_watch_path
+			.parent()
+			.map(Path::to_path_buf)
+			.unwrap_or(notes_watch_path)
+	};
+	Ok(vec![NotesWatchTarget { path, notes_path }])
+}
+
+pub fn notes_root_for_paths(paths: &[PathBuf]) -> anyhow::Result<PathBuf> {
 	let roots = paths
 		.iter()
 		.map(|path| root_for_path(path.as_path()))
@@ -262,7 +333,7 @@ fn root_for_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::notes::model::{NoteAuthor, NoteId, NoteKind, NoteStatus};
+	use crate::notes::{NoteAuthor, NoteId, NoteKind, NoteStatus};
 
 	#[test]
 	fn missing_notes_file_loads_empty_document() {

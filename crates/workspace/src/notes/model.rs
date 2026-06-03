@@ -2,21 +2,21 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, Serialize)]
 #[serde(transparent)]
-pub(crate) struct NoteId(pub(crate) String);
+pub struct NoteId(pub String);
 
 impl NoteId {
-	pub(crate) fn new(value: impl Into<String>) -> Self {
+	pub fn new(value: impl Into<String>) -> Self {
 		Self(value.into())
 	}
 
-	pub(crate) fn as_str(&self) -> &str {
+	pub fn as_str(&self) -> &str {
 		&self.0
 	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum NoteKind {
+pub enum NoteKind {
 	Note,
 	Todo,
 	Gotcha,
@@ -25,14 +25,14 @@ pub(crate) enum NoteKind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum NoteStatus {
+pub enum NoteStatus {
 	Pending,
 	Ongoing,
 	Done,
 }
 
 impl NoteStatus {
-	pub(crate) fn parse(value: &str) -> anyhow::Result<Self> {
+	pub fn parse(value: &str) -> anyhow::Result<Self> {
 		match value {
 			"pending" => Ok(Self::Pending),
 			"ongoing" => Ok(Self::Ongoing),
@@ -41,7 +41,7 @@ impl NoteStatus {
 		}
 	}
 
-	pub(crate) fn as_str(self) -> &'static str {
+	pub fn as_str(self) -> &'static str {
 		match self {
 			Self::Pending => "pending",
 			Self::Ongoing => "ongoing",
@@ -49,7 +49,7 @@ impl NoteStatus {
 		}
 	}
 
-	pub(crate) fn can_transition_to(self, target: Self) -> bool {
+	pub fn can_transition_to(self, target: Self) -> bool {
 		matches!(
 			(self, target),
 			(Self::Pending, Self::Ongoing)
@@ -63,13 +63,13 @@ impl NoteStatus {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum NoteAuthor {
+pub enum NoteAuthor {
 	User,
 	Agent,
 }
 
 impl NoteKind {
-	pub(crate) fn parse(value: &str) -> anyhow::Result<Self> {
+	pub fn parse(value: &str) -> anyhow::Result<Self> {
 		match value {
 			"note" => Ok(Self::Note),
 			"todo" => Ok(Self::Todo),
@@ -79,7 +79,7 @@ impl NoteKind {
 		}
 	}
 
-	pub(crate) fn as_str(self) -> &'static str {
+	pub fn as_str(self) -> &'static str {
 		match self {
 			Self::Note => "note",
 			Self::Todo => "todo",
@@ -90,7 +90,7 @@ impl NoteKind {
 }
 
 impl NoteAuthor {
-	pub(crate) fn parse(value: &str) -> anyhow::Result<Self> {
+	pub fn parse(value: &str) -> anyhow::Result<Self> {
 		match value {
 			"user" => Ok(Self::User),
 			"agent" => Ok(Self::Agent),
@@ -98,7 +98,7 @@ impl NoteAuthor {
 		}
 	}
 
-	pub(crate) fn as_str(self) -> &'static str {
+	pub fn as_str(self) -> &'static str {
 		match self {
 			Self::User => "user",
 			Self::Agent => "agent",
@@ -108,20 +108,20 @@ impl NoteAuthor {
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Note {
-	pub(crate) id: NoteId,
-	pub(crate) moniker: String,
-	pub(crate) kind: NoteKind,
-	pub(crate) status: NoteStatus,
-	pub(crate) title: String,
-	pub(crate) body: String,
-	pub(crate) created_by: NoteAuthor,
-	pub(crate) created_at: String,
-	pub(crate) updated_at: String,
+pub struct Note {
+	pub id: NoteId,
+	pub moniker: String,
+	pub kind: NoteKind,
+	pub status: NoteStatus,
+	pub title: String,
+	pub body: String,
+	pub created_by: NoteAuthor,
+	pub created_at: String,
+	pub updated_at: String,
 }
 
 impl Note {
-	pub(crate) fn transition_to(
+	pub fn transition_to(
 		&mut self,
 		target: NoteStatus,
 		updated_at: impl Into<String>,
@@ -139,9 +139,9 @@ impl Note {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct TransitionError {
-	pub(crate) from: NoteStatus,
-	pub(crate) to: NoteStatus,
+pub struct TransitionError {
+	pub from: NoteStatus,
+	pub to: NoteStatus,
 }
 
 impl std::fmt::Display for TransitionError {
@@ -157,13 +157,13 @@ impl std::fmt::Display for TransitionError {
 impl std::error::Error for TransitionError {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedNote {
-	pub(crate) note: Note,
-	pub(crate) resolution: NoteResolution,
+pub struct ResolvedNote {
+	pub note: Note,
+	pub resolution: NoteResolution,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum NoteResolution {
+pub enum NoteResolution {
 	Resolved {
 		target_label: String,
 		target_file: String,
@@ -173,7 +173,7 @@ pub(crate) enum NoteResolution {
 }
 
 impl NoteResolution {
-	pub(crate) fn is_orphan(&self) -> bool {
+	pub fn is_orphan(&self) -> bool {
 		matches!(self, Self::Orphan)
 	}
 }

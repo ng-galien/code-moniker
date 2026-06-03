@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use code_moniker_core::lang::Lang;
+use code_moniker_workspace::notes::{Note, NoteId, NoteKind, NoteStatus};
+use ratatui::style::{Color, Style};
+use ratatui_textarea::{TextArea, WrapMode};
 
 use crate::session::CheckSummary;
 use crate::ui::app::action::ShellAction;
@@ -63,6 +66,7 @@ pub(in crate::ui) enum View {
 	Check,
 	Change,
 	Views,
+	Notes,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -110,6 +114,129 @@ pub(in crate::ui) struct PanelNavigationState {
 	pub(in crate::ui) expanded: BTreeSet<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::ui) enum NoteEditorField {
+	#[default]
+	Kind,
+	Title,
+	Body,
+}
+
+impl NoteEditorField {
+	pub(in crate::ui) fn next(self) -> Self {
+		match self {
+			Self::Kind => Self::Title,
+			Self::Title => Self::Body,
+			Self::Body => Self::Kind,
+		}
+	}
+
+	pub(in crate::ui) fn previous(self) -> Self {
+		match self {
+			Self::Kind => Self::Body,
+			Self::Title => Self::Kind,
+			Self::Body => Self::Title,
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::ui) struct NoteEditorState {
+	pub(in crate::ui) note_id: Option<NoteId>,
+	pub(in crate::ui) target_moniker: String,
+	pub(in crate::ui) target_label: String,
+	pub(in crate::ui) kind: NoteKind,
+	pub(in crate::ui) status: NoteStatus,
+	pub(in crate::ui) title: TextArea<'static>,
+	pub(in crate::ui) body: TextArea<'static>,
+	pub(in crate::ui) field: NoteEditorField,
+	pub(in crate::ui) dirty: bool,
+	pub(in crate::ui) confirm_delete: bool,
+}
+
+impl NoteEditorState {
+	pub(in crate::ui) fn draft(target_moniker: String, target_label: String) -> Self {
+		Self {
+			note_id: None,
+			target_moniker,
+			target_label,
+			kind: NoteKind::Todo,
+			status: NoteStatus::Pending,
+			title: title_editor(""),
+			body: body_editor(""),
+			field: NoteEditorField::Kind,
+			dirty: false,
+			confirm_delete: false,
+		}
+	}
+
+	pub(in crate::ui) fn existing(note: Note, target_label: String) -> Self {
+		Self {
+			note_id: Some(note.id),
+			target_moniker: note.moniker,
+			target_label,
+			kind: note.kind,
+			status: note.status,
+			title: title_editor(&note.title),
+			body: body_editor(&note.body),
+			field: NoteEditorField::Kind,
+			dirty: false,
+			confirm_delete: false,
+		}
+	}
+
+	pub(in crate::ui) fn is_empty_draft(&self) -> bool {
+		self.note_id.is_none()
+			&& self.title_text().trim().is_empty()
+			&& self.body_text().trim().is_empty()
+	}
+
+	pub(in crate::ui) fn title_text(&self) -> String {
+		textarea_text(&self.title)
+	}
+
+	pub(in crate::ui) fn body_text(&self) -> String {
+		textarea_text(&self.body)
+	}
+
+	pub(in crate::ui) fn clear_title(&mut self) {
+		self.title = title_editor("");
+	}
+
+	pub(in crate::ui) fn clear_body(&mut self) {
+		self.body = body_editor("");
+	}
+}
+
+fn title_editor(text: &str) -> TextArea<'static> {
+	let line = text.lines().next().unwrap_or("").to_string();
+	let mut editor = TextArea::new(vec![line]);
+	style_note_editor(&mut editor, "title");
+	editor
+}
+
+fn body_editor(text: &str) -> TextArea<'static> {
+	let mut editor = TextArea::new(text.lines().map(ToOwned::to_owned).collect());
+	style_note_editor(&mut editor, "body");
+	editor
+}
+
+fn style_note_editor(editor: &mut TextArea<'static>, placeholder: &'static str) {
+	editor.set_wrap_mode(WrapMode::WordOrGlyph);
+	editor.set_placeholder_text(placeholder);
+	editor.set_placeholder_style(Style::default().fg(Color::Rgb(156, 163, 175)));
+	editor.set_cursor_line_style(Style::default());
+	editor.set_cursor_style(
+		Style::default()
+			.fg(Color::Rgb(17, 24, 39))
+			.bg(Color::Rgb(219, 234, 254)),
+	);
+}
+
+fn textarea_text(editor: &TextArea<'_>) -> String {
+	editor.lines().join("\n")
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui) enum ActiveFilter {
 	#[default]
@@ -124,7 +251,7 @@ impl ActiveFilter {
 	}
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) generation: u64,
 	pub(in crate::ui) status: String,
@@ -137,6 +264,8 @@ pub(in crate::ui) struct ShellSlice {
 	pub(in crate::ui) active_filter: ActiveFilter,
 	pub(in crate::ui) usage_lens: Option<UsageFocus>,
 	pub(in crate::ui) views_show_all: bool,
+	pub(in crate::ui) note_editor: Option<NoteEditorState>,
+	pub(in crate::ui) notes_error: Option<String>,
 	pub(in crate::ui) main_split_percent: u16,
 	pub(in crate::ui) header_search: HeaderSearchState,
 	pub(in crate::ui) panel_navigation: PanelNavigationState,
@@ -156,6 +285,8 @@ impl Default for ShellSlice {
 			active_filter: ActiveFilter::None,
 			usage_lens: None,
 			views_show_all: false,
+			note_editor: None,
+			notes_error: None,
 			main_split_percent: MAIN_SPLIT_DEFAULT_PERCENT,
 			header_search: HeaderSearchState::default(),
 			panel_navigation: PanelNavigationState::default(),
@@ -191,7 +322,7 @@ pub(in crate::ui) struct NavigationSlice {
 	pub(in crate::ui) state: Option<NavigationState>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub(in crate::ui) struct AppState {
 	pub(in crate::ui) generation: u64,
 	pub(in crate::ui) shell: ShellSlice,
@@ -228,6 +359,12 @@ pub(in crate::ui) fn set_status(state: &mut AppState, status: impl Into<String>)
 	bump(state);
 	state.shell.generation += 1;
 	state.shell.status = status.into();
+}
+
+pub(in crate::ui) fn set_notes_error(state: &mut AppState, error: Option<String>) {
+	bump(state);
+	state.shell.generation += 1;
+	state.shell.notes_error = error;
 }
 
 pub(in crate::ui) fn append_status(state: &mut AppState, suffix: impl AsRef<str>) {
@@ -285,6 +422,8 @@ pub(in crate::ui) fn invalidate_for_store_event(state: &mut AppState, event: Sto
 	match event {
 		StoreEvent::FullIndex => invalidate_full_index(state),
 		StoreEvent::GitOverlay => invalidate_git_overlay(state),
+		StoreEvent::GitOverlayAndNotes => invalidate_git_overlay(state),
+		StoreEvent::Notes => {}
 	}
 }
 
@@ -396,7 +535,8 @@ fn shell_set_view(shell: &mut ShellSlice, view: View, policy: PanelPolicy) {
 	}
 	shell.view = view;
 	shell.panel_policy = policy;
-	if view == View::Views {
+	if matches!(view, View::Views | View::Notes) {
+		shell.mode = UiMode::Normal;
 		shell.focus_region = FocusRegion::Navigator;
 		shell.usage_lens = None;
 	}
@@ -459,6 +599,21 @@ fn shell_set_focus_region(shell: &mut ShellSlice, region: FocusRegion) {
 	shell.focus_region = region;
 }
 
+fn shell_set_note_editor(shell: &mut ShellSlice, editor: Option<NoteEditorState>) {
+	let opening = editor.is_some();
+	shell.mode = if opening {
+		UiMode::Note
+	} else {
+		UiMode::Normal
+	};
+	if opening {
+		shell.focus_region = FocusRegion::Panel;
+		shell.panel_policy = PanelPolicy::Manual;
+	}
+	shell.note_editor = editor;
+	shell.panel_navigation = PanelNavigationState::default();
+}
+
 fn shell_toggle_views_show_all(shell: &mut ShellSlice) {
 	if shell.view == View::Views {
 		shell.views_show_all = !shell.views_show_all;
@@ -484,6 +639,7 @@ fn shell_toggle_header_search(shell: &mut ShellSlice) {
 	let next = match shell.mode {
 		UiMode::Normal => UiMode::HeaderSearch(shell.header_search.focus),
 		UiMode::HeaderSearch(_) => UiMode::Normal,
+		UiMode::Note => UiMode::Note,
 	};
 	shell.mode = next;
 	shell.header_search.combo_open = false;
@@ -501,6 +657,7 @@ fn shell_toggle_header_search(shell: &mut ShellSlice) {
 		UiMode::HeaderSearch(HeaderSearchFocus::Kind) => {
 			"select kind; Tab returns to text, Shift+Tab selects lang".to_string()
 		}
+		UiMode::Note => "note editor active".to_string(),
 	};
 }
 
@@ -509,6 +666,7 @@ fn shell_focus_header_search_field(shell: &mut ShellSlice, forward: bool) {
 		UiMode::HeaderSearch(focus) if forward => focus.next(),
 		UiMode::HeaderSearch(focus) => focus.previous(),
 		UiMode::Normal => HeaderSearchFocus::Text,
+		UiMode::Note => HeaderSearchFocus::Text,
 	};
 	shell.header_search.focus = focus;
 	shell.header_search.combo_open = false;
@@ -590,6 +748,7 @@ fn shell_set_header_search_cursor(shell: &mut ShellSlice, focus: HeaderSearchFoc
 fn shell_toggle_header_search_combo(shell: &mut ShellSlice) {
 	match shell.mode {
 		UiMode::HeaderSearch(HeaderSearchFocus::Text) | UiMode::Normal => {}
+		UiMode::Note => {}
 		UiMode::HeaderSearch(HeaderSearchFocus::Lang | HeaderSearchFocus::Kind)
 			if shell.header_search.combo_open =>
 		{
@@ -609,6 +768,10 @@ pub(in crate::ui) fn reduce_shell_action(state: &mut AppState, action: &ShellAct
 		}
 		ShellAction::AppendStatus(status) => {
 			append_status(state, status);
+			Transition::changed()
+		}
+		ShellAction::SetNotesError(error) => {
+			set_notes_error(state, error.clone());
 			Transition::changed()
 		}
 		ShellAction::SetCheckState(check_state) => {
@@ -677,6 +840,10 @@ pub(in crate::ui) fn reduce_shell_action(state: &mut AppState, action: &ShellAct
 			update_shell(state, |shell| {
 				shell_replace_usage_lens(shell, focus.clone())
 			});
+			Transition::changed()
+		}
+		ShellAction::SetNoteEditor(editor) => {
+			update_shell(state, |shell| shell_set_note_editor(shell, editor.clone()));
 			Transition::changed()
 		}
 		ShellAction::EnterChangeMode => {
@@ -749,15 +916,17 @@ pub(in crate::ui) fn reduce_ui_msg(state: &mut AppState, msg: &Msg) -> Transitio
 				update_shell(state, shell_toggle_header_search_combo);
 				Transition::changed()
 			}
+			UiMode::Note => Transition::unchanged(),
 		},
 		Msg::Help => {
 			set_status(
 				state,
-				"keys: s search focus, Tab/Shift+Tab move focus, x reset filters, Enter/right open, Esc/left close, PgUp/PgDn scroll panel, d changes, u usages, y copy panel, 1-7 panels, c check, q quit",
+				"keys: s search, Tab/Shift+Tab focus, Enter/right open, Esc/left close, n note, 8 notes, d changes, u usages, y copy panel, 1-8 panels, c check, q quit",
 			);
 			Transition::changed()
 		}
 		Msg::FocusUsages => Transition::unchanged(),
+		Msg::Note(_) => Transition::unchanged(),
 		Msg::ToggleChangeMode => Transition::unchanged(),
 		Msg::ToggleViewRender => Transition::unchanged(),
 		Msg::ResizeMainSplit(direction) => {

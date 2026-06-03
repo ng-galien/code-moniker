@@ -6,6 +6,7 @@ use crate::ui::app::View;
 pub(super) enum UiMode {
 	Normal,
 	HeaderSearch(HeaderSearchFocus),
+	Note,
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
@@ -50,6 +51,7 @@ pub(super) enum Msg {
 	HeaderSearchApply,
 	HeaderSearchReset,
 	FocusUsages,
+	Note(NoteMsg),
 	ToggleChangeMode,
 	ToggleViewRender,
 	ResizeMainSplit(i8),
@@ -76,11 +78,28 @@ pub(super) enum FilterEdit {
 	Clear,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub(super) enum NoteMsg {
+	ShowLens,
+	OpenExisting,
+	NewDraft,
+	NextField,
+	PreviousField,
+	Input(KeyEvent),
+	CycleKind,
+	CycleStatus,
+	PreviousStatus,
+	Save,
+	Delete,
+	Close,
+}
+
 pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
 	if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
 		return Msg::Quit;
 	}
 	match mode {
+		UiMode::Note => note_key_to_msg(key),
 		UiMode::HeaderSearch(HeaderSearchFocus::Text) => match key.code {
 			KeyCode::Esc => Msg::ToggleHeaderSearch,
 			KeyCode::Enter => Msg::HeaderSearchApply,
@@ -114,6 +133,41 @@ pub(super) fn key_to_msg(mode: UiMode, key: KeyEvent) -> Msg {
 	}
 }
 
+fn note_key_to_msg(key: KeyEvent) -> Msg {
+	if key.modifiers.contains(KeyModifiers::CONTROL) {
+		return match key.code {
+			KeyCode::Char('s') => Msg::Note(NoteMsg::Save),
+			KeyCode::Char('d') => Msg::Note(NoteMsg::Delete),
+			KeyCode::Char('k') => Msg::Note(NoteMsg::CycleKind),
+			KeyCode::Char('o') => Msg::Note(NoteMsg::CycleStatus),
+			KeyCode::Char('p') => Msg::Note(NoteMsg::PreviousStatus),
+			KeyCode::Char('u') => Msg::Note(NoteMsg::Input(key)),
+			_ => Msg::Noop,
+		};
+	}
+	if key.modifiers.contains(KeyModifiers::ALT) {
+		return Msg::Noop;
+	}
+	match key.code {
+		KeyCode::Esc => Msg::Note(NoteMsg::Close),
+		KeyCode::Tab => Msg::Note(NoteMsg::NextField),
+		KeyCode::BackTab => Msg::Note(NoteMsg::PreviousField),
+		KeyCode::Enter
+		| KeyCode::Backspace
+		| KeyCode::Delete
+		| KeyCode::Left
+		| KeyCode::Right
+		| KeyCode::Up
+		| KeyCode::Down
+		| KeyCode::Home
+		| KeyCode::End
+		| KeyCode::PageUp
+		| KeyCode::PageDown
+		| KeyCode::Char(_) => Msg::Note(NoteMsg::Input(key)),
+		_ => Msg::Noop,
+	}
+}
+
 fn normal_key_to_msg(key: KeyEvent) -> Msg {
 	if key.modifiers.contains(KeyModifiers::CONTROL) {
 		return match key.code {
@@ -137,11 +191,14 @@ fn normal_key_to_msg(key: KeyEvent) -> Msg {
 		KeyCode::Char('5') => Msg::ShowView(View::Check),
 		KeyCode::Char('6') => Msg::ShowView(View::Change),
 		KeyCode::Char('7') | KeyCode::Char('v') => Msg::ShowView(View::Views),
+		KeyCode::Char('8') | KeyCode::Char('m') => Msg::Note(NoteMsg::ShowLens),
 		KeyCode::Char('q') => Msg::Quit,
 		KeyCode::Char('/') => Msg::Noop,
 		KeyCode::Char('s') => Msg::ToggleHeaderSearch,
 		KeyCode::Char('x') => Msg::HeaderSearchReset,
 		KeyCode::Char('u') => Msg::FocusUsages,
+		KeyCode::Char('n') => Msg::Note(NoteMsg::OpenExisting),
+		KeyCode::Char('N') => Msg::Note(NoteMsg::NewDraft),
 		KeyCode::Char('d') => Msg::ToggleChangeMode,
 		KeyCode::Char('a') => Msg::ToggleViewRender,
 		KeyCode::Char('[') => Msg::ResizeMainSplit(-1),

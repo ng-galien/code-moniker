@@ -171,6 +171,8 @@ impl Reduce<&AppAction> for AppState {
 				match event {
 					StoreEvent::FullIndex => Transition::changed(),
 					StoreEvent::GitOverlay => Transition::changed(),
+					StoreEvent::GitOverlayAndNotes => Transition::changed(),
+					StoreEvent::Notes => Transition::changed(),
 				}
 			}
 			AppAction::TaskStarted {

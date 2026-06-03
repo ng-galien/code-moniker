@@ -1,12 +1,13 @@
 use crate::session::SessionStats;
 use crate::ui::app::{
 	App, ChangePanelMode, CheckState, FocusRegion, View, app_profile_name, app_rules_path,
-	filter_label, is_filtered, selected, selected_change_detail,
+	filter_label, is_filtered, notes_error, selected, selected_change_detail, sort_notes_for_lens,
 };
 use crate::ui::panel::{
 	PanelVm, ReferenceGroupVm, SourceLineVm, panel_blank, panel_bullet, panel_component_section,
 	panel_danger, panel_evidence, panel_info, panel_kv, panel_muted, panel_reference_groups,
-	panel_section, panel_source_snippet, panel_table, panel_tree_rows, panel_warning,
+	panel_section, panel_selector, panel_source_snippet, panel_table, panel_text_editor,
+	panel_tree_rows, panel_warning,
 };
 use crate::ui::render::component::ComponentId;
 use crate::ui::render::text::{Column, FitMode};
@@ -16,6 +17,7 @@ use crate::ui::store::navigation_tree::NavNodeKind;
 use crate::ui::workspace_read::{
 	self, ReferenceGroup, ReferenceSet, UnresolvedLinkageReport, UsageFocus,
 };
+use code_moniker_workspace::notes::{NoteResolution, resolve_notes};
 use code_moniker_workspace::snapshot::SymbolId;
 
 type DefLocation = SymbolId;
@@ -27,6 +29,9 @@ pub(in crate::ui) struct ActivePanelNav {
 }
 
 pub(super) fn active_panel(app: &App) -> PanelVm {
+	if crate::ui::app::note_editor(app).is_some() {
+		return note_editor_panel(app);
+	}
 	match crate::ui::app::view(app) {
 		View::Overview => overview_panel(app),
 		View::Tree => outline_panel(app),
@@ -35,6 +40,7 @@ pub(super) fn active_panel(app: &App) -> PanelVm {
 		View::Check => check_panel(app),
 		View::Change => change_panel(app),
 		View::Views => views_panel(app),
+		View::Notes => notes_panel(app),
 	}
 }
 
@@ -53,7 +59,244 @@ pub(super) fn active_panel_nav(app: &App) -> ActivePanelNav {
 			component: ComponentId::PanelViews,
 			navigation_len: 0,
 		},
+		View::Notes => ActivePanelNav {
+			component: ComponentId::PanelNotes,
+			navigation_len: crate::ui::app::notes(app).notes().len(),
+		},
 	}
+}
+
+fn note_editor_panel(app: &App) -> PanelVm {
+	let Some(editor) = crate::ui::app::note_editor(app) else {
+		return PanelVm::new("note", ComponentId::PanelNotes);
+	};
+	let mut vm = PanelVm::new("note editor", ComponentId::PanelNotes).unwrapped();
+	panel_section(&mut vm, "note editor");
+	panel_kv(
+		&mut vm,
+		"target",
+		editor.target_label.clone(),
+		FitMode::Tail,
+	);
+	panel_kv(
+		&mut vm,
+		"moniker",
+		editor.target_moniker.clone(),
+		FitMode::Middle,
+	);
+	panel_kv(&mut vm, "kind", editor.kind.as_str(), FitMode::Tail);
+	panel_kv(&mut vm, "status", editor.status.as_str(), FitMode::Tail);
+	panel_kv(
+		&mut vm,
+		"field",
+		match editor.field {
+			crate::ui::app::NoteEditorField::Kind => "kind",
+			crate::ui::app::NoteEditorField::Title => "title",
+			crate::ui::app::NoteEditorField::Body => "body",
+		},
+		FitMode::Tail,
+	);
+	if editor.dirty {
+		panel_warning(&mut vm, "unsaved changes");
+	}
+	if editor.confirm_delete {
+		panel_danger(&mut vm, "press Ctrl+d again to delete this note");
+	}
+	panel_blank(&mut vm);
+	panel_selector(
+		&mut vm,
+		"kind",
+		note_kind_options(),
+		note_kind_index(editor.kind),
+		editor.field == crate::ui::app::NoteEditorField::Kind,
+	);
+	panel_blank(&mut vm);
+	panel_text_editor(
+		&mut vm,
+		"title",
+		editor.title.clone(),
+		3,
+		editor.field == crate::ui::app::NoteEditorField::Title,
+	);
+	panel_blank(&mut vm);
+	panel_text_editor(
+		&mut vm,
+		"body",
+		editor.body.clone(),
+		10,
+		editor.field == crate::ui::app::NoteEditorField::Body,
+	);
+	panel_blank(&mut vm);
+	panel_section(&mut vm, "controls");
+	panel_muted(
+		&mut vm,
+		"Up/Down field  Left/Right kind  Tab/Shift+Tab field  Enter newline in body  Ctrl+s save  Ctrl+d delete",
+	);
+	vm
+}
+
+fn note_kind_options() -> Vec<String> {
+	["note", "todo", "gotcha", "request"]
+		.into_iter()
+		.map(ToOwned::to_owned)
+		.collect()
+}
+
+fn note_kind_index(kind: code_moniker_workspace::notes::NoteKind) -> usize {
+	match kind {
+		code_moniker_workspace::notes::NoteKind::Note => 0,
+		code_moniker_workspace::notes::NoteKind::Todo => 1,
+		code_moniker_workspace::notes::NoteKind::Gotcha => 2,
+		code_moniker_workspace::notes::NoteKind::Request => 3,
+	}
+}
+
+fn notes_panel(app: &App) -> PanelVm {
+	let mut vm = PanelVm::new("notes", ComponentId::PanelNotes).unwrapped();
+	let resolved = resolved_notes_for_panel(app);
+	let counts = note_counts(&resolved);
+	panel_section(&mut vm, "notes lens");
+	panel_kv(
+		&mut vm,
+		"pending",
+		counts.pending.to_string(),
+		FitMode::Tail,
+	);
+	panel_kv(
+		&mut vm,
+		"ongoing",
+		counts.ongoing.to_string(),
+		FitMode::Tail,
+	);
+	panel_kv(&mut vm, "done", counts.done.to_string(), FitMode::Tail);
+	panel_kv(&mut vm, "orphan", counts.orphan.to_string(), FitMode::Tail);
+	if let Some(error) = notes_error(app) {
+		panel_blank(&mut vm);
+		panel_danger(&mut vm, "notes unavailable");
+		panel_muted(&mut vm, error.to_string());
+	}
+	panel_blank(&mut vm);
+	panel_table(
+		&mut vm,
+		vec![
+			Column::left("res", 7),
+			Column::left("status", 9),
+			Column::left("kind", 9),
+			Column::left("target", 28),
+			Column::left("title", 44),
+		],
+		resolved
+			.iter()
+			.map(|item| {
+				vec![
+					note_resolution_flag(item),
+					item.note.status.as_str().to_string(),
+					item.note.kind.as_str().to_string(),
+					note_target_label(item),
+					item.note.title.clone(),
+				]
+			})
+			.collect(),
+	);
+	if resolved.is_empty() {
+		panel_muted(&mut vm, "no notes");
+	}
+	if let Some(selected) = app
+		.app_store
+		.shell()
+		.panel_navigation
+		.selected
+		.or(Some(0))
+		.and_then(|idx| resolved.get(idx))
+	{
+		panel_blank(&mut vm);
+		push_note_detail(&mut vm, selected);
+	}
+	vm
+}
+
+fn resolved_notes_for_panel(app: &App) -> Vec<code_moniker_workspace::notes::ResolvedNote> {
+	let mut notes = crate::ui::app::notes(app).notes().to_vec();
+	sort_notes_for_lens(&mut notes);
+	if let Some(snapshot) = crate::ui::app::store(app).queries().snapshot() {
+		resolve_notes(&notes, snapshot)
+	} else {
+		notes
+			.into_iter()
+			.map(|note| code_moniker_workspace::notes::ResolvedNote {
+				note,
+				resolution: NoteResolution::Orphan,
+			})
+			.collect()
+	}
+}
+
+fn note_resolution_flag(note: &code_moniker_workspace::notes::ResolvedNote) -> String {
+	match &note.resolution {
+		NoteResolution::Resolved { .. } => "ok".to_string(),
+		NoteResolution::Orphan => "orphan".to_string(),
+	}
+}
+
+fn note_target_label(note: &code_moniker_workspace::notes::ResolvedNote) -> String {
+	match &note.resolution {
+		NoteResolution::Resolved { target_label, .. } => target_label.clone(),
+		NoteResolution::Orphan => "orphan".to_string(),
+	}
+}
+
+fn push_note_detail(vm: &mut PanelVm, note: &code_moniker_workspace::notes::ResolvedNote) {
+	panel_section(vm, "selected note");
+	panel_kv(vm, "id", note.note.id.as_str(), FitMode::Tail);
+	panel_kv(vm, "status", note.note.status.as_str(), FitMode::Tail);
+	panel_kv(vm, "kind", note.note.kind.as_str(), FitMode::Tail);
+	panel_kv(vm, "title", note.note.title.clone(), FitMode::Tail);
+	match &note.resolution {
+		NoteResolution::Resolved {
+			target_label,
+			target_file,
+			..
+		} => {
+			panel_kv(vm, "target", target_label.clone(), FitMode::Tail);
+			panel_kv(vm, "file", target_file.clone(), FitMode::Tail);
+			panel_kv(vm, "orphan", "no", FitMode::Tail);
+		}
+		NoteResolution::Orphan => {
+			panel_kv(vm, "target", "orphan", FitMode::Tail);
+			panel_kv(vm, "orphan", "yes", FitMode::Tail);
+		}
+	}
+	panel_kv(vm, "moniker", note.note.moniker.clone(), FitMode::Middle);
+	if !note.note.body.is_empty() {
+		panel_blank(vm);
+		panel_section(vm, "body");
+		for line in note.note.body.lines().take(12) {
+			panel_muted(vm, line.to_string());
+		}
+	}
+}
+
+#[derive(Default)]
+struct NoteCounts {
+	pending: usize,
+	ongoing: usize,
+	done: usize,
+	orphan: usize,
+}
+
+fn note_counts(notes: &[code_moniker_workspace::notes::ResolvedNote]) -> NoteCounts {
+	let mut counts = NoteCounts::default();
+	for note in notes {
+		match note.note.status {
+			code_moniker_workspace::notes::NoteStatus::Pending => counts.pending += 1,
+			code_moniker_workspace::notes::NoteStatus::Ongoing => counts.ongoing += 1,
+			code_moniker_workspace::notes::NoteStatus::Done => counts.done += 1,
+		}
+		if note.resolution.is_orphan() {
+			counts.orphan += 1;
+		}
+	}
+	counts
 }
 
 pub(super) fn active_panel_tree_rows(app: &App) -> Vec<TreeRowVm> {
@@ -479,6 +722,13 @@ fn outline_panel(app: &App) -> PanelVm {
 }
 
 fn push_selected_notes(vm: &mut PanelVm, app: &App, moniker: &str) {
+	if let Some(error) = notes_error(app) {
+		panel_section(vm, "notes");
+		panel_danger(vm, "notes unavailable");
+		panel_muted(vm, error.to_string());
+		panel_blank(vm);
+		return;
+	}
 	let notes = notes_for_moniker(app, moniker);
 	if notes.is_empty() {
 		return;
@@ -501,16 +751,9 @@ fn push_selected_notes(vm: &mut PanelVm, app: &App, moniker: &str) {
 	panel_blank(vm);
 }
 
-fn notes_for_moniker(app: &App, moniker: &str) -> Vec<crate::notes::model::Note> {
-	let Ok(root) =
-		crate::notes::store::notes_root_for_paths(&crate::ui::app::store_options(app).paths)
-	else {
-		return Vec::new();
-	};
-	let Ok(store) = crate::notes::store::NotesStore::load(&root) else {
-		return Vec::new();
-	};
-	let mut notes = store
+fn notes_for_moniker(app: &App, moniker: &str) -> Vec<code_moniker_workspace::notes::Note> {
+	let notes = crate::ui::app::notes(app);
+	let mut notes = notes
 		.notes()
 		.iter()
 		.filter(|note| note.moniker == moniker)
@@ -547,6 +790,13 @@ fn nav_selection_panel(app: &App) -> PanelVm {
 		return vm;
 	};
 	let row = selection.row;
+	if let Some(target) = crate::ui::nav_notes::nav_row_note_target(
+		crate::ui::app::store(app),
+		row,
+		&app.config.scheme,
+	) {
+		push_selected_notes(&mut vm, app, &target.moniker);
+	}
 	let kind = match row.kind {
 		NavNodeKind::Root => "root",
 		NavNodeKind::Lang => "language",

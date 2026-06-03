@@ -250,6 +250,7 @@ Ctrl+s   save
 Esc      close editor
 Ctrl+k   cycle kind
 Ctrl+o   transition status
+Ctrl+p   previous status transition
 Ctrl+d   delete existing note, with confirmation
 Tab      move field
 Shift+Tab previous field
@@ -320,15 +321,15 @@ mutating note operations belong only to `code_moniker_notes`.
 
 ## Architecture
 
-Introduce a shared note domain used by both TUI and MCP:
+Introduce a shared note domain in the workspace crate. Notes are collaboration
+data attached to workspace symbols, not a CLI-only concern:
 
 ```text
-crates/cli/src/notes/
+crates/workspace/src/notes/
   mod.rs
   model.rs
   store.rs
   resolve.rs
-  render.rs
 ```
 
 Responsibilities:
@@ -337,17 +338,24 @@ Responsibilities:
 - `store`: load/save TOML, atomic write, stable ordering;
 - `resolve`: join notes with `WorkspaceSnapshot` to compute resolved/orphan
   state;
-- `render`: small text helpers shared by MCP and TUI where appropriate.
+- `WorkspaceNotes`: shared note state with reload, snapshot, and mutation
+  operations.
 
-Do not make MCP runtime own notes. The MCP tool should decide when to read the
-notes store, consistent with the existing MCP tool boundary.
+Do not make MCP runtime own notes. MCP tools must go through the workspace
+state and must not read `.code-moniker/notes.toml` directly. The MCP surface can
+request a workspace notes reload before serving an action, then render from the
+workspace snapshot.
+
+Do not make the TUI own notes independently. The TUI should consume workspace
+read models and refresh its note-aware view models when the workspace reports a
+notes change.
 
 Do not make renderers read notes. TUI feature/view-model code should build
 note-aware VMs, and ratatui renderers should consume those VMs.
 
 Persistence policy:
 
-- read notes from the workspace config root;
+- workspace state reads notes from the workspace config root;
 - create `.code-moniker/notes.toml` on first save;
 - write atomically through a temp file and rename;
 - preserve unknown future fields only if the TOML layer can do so cleanly;
@@ -360,6 +368,16 @@ Concurrency:
 - if the file changed since load, reject with a conflict error and ask caller
   to reload;
 - later, introduce a small file lock if concurrent writes become common.
+
+Live refresh:
+
+- external changes to `.code-moniker/notes.toml` should refresh workspace notes;
+- MCP observes refreshed notes through the workspace state on the next notes
+  action;
+- TUI live classification emits a notes event and rebuilds note-aware view
+  models from the workspace state;
+- tests should exercise MCP/TUI public behavior, not require a specific
+  internal storage location.
 
 ## Implementation stages
 
@@ -390,7 +408,9 @@ Deliver:
 - filtering and paging;
 - `next:` output preserving filters;
 - created notes use `created_by = "agent"` when called through MCP unless
-  explicitly overridden by a trusted local caller.
+  explicitly overridden by a trusted local caller;
+- the tool reads and mutates notes through workspace state, not through direct
+  file access.
 
 Acceptance:
 
@@ -398,7 +418,8 @@ Acceptance:
 - list by moniker returns it;
 - transition follows the shared state machine;
 - list `orphan=true` returns unresolved monikers;
-- delete removes the note from the persisted file.
+- delete removes the note from the persisted file;
+- a note written after MCP context load is visible on the next notes action.
 
 ### Stage 3: Read-only TUI notes lens
 
@@ -424,7 +445,8 @@ Deliver:
 - note summary attached to navigation rows by moniker;
 - compact tree marker for nodes with active/done notes;
 - outline panel renders notes before selected symbol details;
-- notes are read-only from outline at this stage.
+- notes are read-only from outline at this stage;
+- note markers and outline data come from workspace note snapshots.
 
 Acceptance:
 
@@ -444,6 +466,10 @@ Deliver:
 - kind and status controls;
 - shared transition validation;
 - status messages after save/delete/transition.
+- selected keys: `n` edits or drafts for the current moniker, `N` forces a new
+  draft, `8`/`m` opens the notes lens, `Ctrl+s` saves, `Ctrl+d` confirms
+  delete, `Ctrl+k` cycles kind, and `Ctrl+o`/`Ctrl+p` move status through
+  allowed transitions.
 
 Acceptance:
 
@@ -499,8 +525,6 @@ removes only after confirmation.
 
 ## Open decisions
 
-- final TUI key for notes lens;
-- final TUI key for entering note mode;
 - exact visual marker text for tree notes;
 - whether `created_by` should be restricted to `user | agent` or allow a free
   local identity;

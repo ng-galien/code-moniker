@@ -332,7 +332,7 @@ fn toggle_header_kind_selection(header: &HeaderSearchState) -> HeaderSelectorDec
 fn header_focus(mode: UiMode) -> HeaderSearchFocus {
 	match mode {
 		UiMode::HeaderSearch(focus) => focus,
-		UiMode::Normal => HeaderSearchFocus::Text,
+		UiMode::Normal | UiMode::Note => HeaderSearchFocus::Text,
 	}
 }
 

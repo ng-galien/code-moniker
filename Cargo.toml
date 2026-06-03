@@ -54,6 +54,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 
 anstyle       = "1"
 ratatui       = "0.30"
+ratatui-textarea = "0.9.1"
 crossterm     = "0.29"
 notify        = "8.2"
 

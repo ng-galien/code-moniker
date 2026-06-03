@@ -85,14 +85,25 @@ pub(super) fn render_panel_vm(
 		selected_line,
 		viewport_comfort_margin(usize::from(inner.height)),
 	);
-	let paragraph = Paragraph::new(Text::from(lines.lines)).scroll((viewport.offset_u16(), 0));
 	frame.render_widget(block, area);
-	match panel.wrap {
-		WrapMode::Wrap => frame.render_widget(
-			paragraph.wrap(Wrap { trim: false }),
+	if panel_has_text_editor(panel) {
+		render_panel_sections(
+			frame,
 			viewport.content_area(inner),
-		),
-		WrapMode::NoWrap => frame.render_widget(paragraph, viewport.content_area(inner)),
+			panel,
+			&lines,
+			panel.wrap,
+			viewport.offset,
+		);
+	} else {
+		let paragraph = Paragraph::new(Text::from(lines.lines)).scroll((viewport.offset_u16(), 0));
+		match panel.wrap {
+			WrapMode::Wrap => frame.render_widget(
+				paragraph.wrap(Wrap { trim: false }),
+				viewport.content_area(inner),
+			),
+			WrapMode::NoWrap => frame.render_widget(paragraph, viewport.content_area(inner)),
+		}
 	}
 	render_vertical_scrollbar(frame, inner, viewport);
 }
@@ -179,6 +190,27 @@ fn panel_lines(panel: &PanelVm, width: usize, state: PanelRenderState) -> Render
 					Line::styled(text.clone(), Style::default().fg(THEME.danger))
 				}
 			}),
+			PanelSection::TextEditor {
+				label,
+				editor,
+				height,
+				active,
+			} => {
+				rendered.push(panel::section(*label));
+				rendered.push(editor_marker_line(editor, *height, *active));
+				for line in editor.lines() {
+					rendered.push(panel::muted(line.clone()));
+				}
+			}
+			PanelSection::Selector {
+				label,
+				options,
+				selected,
+				active,
+			} => {
+				rendered.push(panel::section(*label));
+				rendered.push(selector_line(options, *selected, *active));
+			}
 			PanelSection::Bullet { text } => rendered.push(panel::bullet(text.clone())),
 			PanelSection::Evidence {
 				label,
@@ -213,6 +245,168 @@ fn panel_lines(panel: &PanelVm, width: usize, state: PanelRenderState) -> Render
 		}
 	}
 	rendered
+}
+
+fn panel_has_text_editor(panel: &PanelVm) -> bool {
+	panel
+		.sections
+		.iter()
+		.any(|section| matches!(section, PanelSection::TextEditor { .. }))
+}
+
+fn render_panel_sections(
+	frame: &mut ratatui::Frame<'_>,
+	area: Rect,
+	panel: &PanelVm,
+	lines: &RenderedPanelLines,
+	wrap: WrapMode,
+	scroll_offset: usize,
+) {
+	let mut line_cursor = 0usize;
+	let mut y = area.y;
+	let mut skip = scroll_offset;
+	for section in &panel.sections {
+		let section_height = section_snapshot_height(section);
+		if skip >= section_height {
+			skip -= section_height;
+			line_cursor = line_cursor.saturating_add(section_height);
+			continue;
+		}
+		match section {
+			PanelSection::TextEditor {
+				label,
+				editor,
+				height,
+				active,
+			} => {
+				if skip == 0 {
+					let heading_area = Rect::new(area.x, y, area.width, 1);
+					let heading = panel::section(*label);
+					frame.render_widget(Paragraph::new(heading), heading_area);
+					y = y.saturating_add(1);
+				}
+				line_cursor = line_cursor.saturating_add(text_editor_snapshot_height(editor));
+				if y >= area.bottom() {
+					skip = 0;
+					continue;
+				}
+				let editor_height = (*height).min(area.bottom().saturating_sub(y));
+				let editor_area = Rect::new(area.x, y, area.width, editor_height);
+				let mut editor = editor.clone();
+				editor.set_block(
+					Block::default()
+						.borders(Borders::ALL)
+						.border_style(if *active {
+							Style::default().fg(THEME.focus.border)
+						} else {
+							Style::default()
+						}),
+				);
+				frame.render_widget(&editor, editor_area);
+				y = y.saturating_add(editor_height);
+				skip = 0;
+			}
+			_section => {
+				let height = section_height.saturating_sub(skip);
+				let start = line_cursor.saturating_add(skip);
+				let end = line_cursor
+					.saturating_add(section_height)
+					.min(lines.lines.len());
+				if end > line_cursor && y < area.bottom() {
+					let section_area =
+						Rect::new(area.x, y, area.width, area.bottom().saturating_sub(y));
+					let section_lines = lines.lines[start..end].to_vec();
+					let paragraph = Paragraph::new(Text::from(section_lines));
+					match wrap {
+						WrapMode::Wrap => {
+							frame.render_widget(paragraph.wrap(Wrap { trim: false }), section_area)
+						}
+						WrapMode::NoWrap => frame.render_widget(paragraph, section_area),
+					}
+				}
+				y = y.saturating_add(u16::try_from(height).unwrap_or(u16::MAX));
+				line_cursor = end;
+				skip = 0;
+			}
+		}
+	}
+}
+
+fn section_snapshot_height(section: &PanelSection) -> usize {
+	match section {
+		PanelSection::Heading { .. }
+		| PanelSection::ComponentHeading { .. }
+		| PanelSection::KeyValue { .. }
+		| PanelSection::Message { .. }
+		| PanelSection::Bullet { .. }
+		| PanelSection::Blank => 1,
+		PanelSection::Table { rows, .. } => rows.len() + 2,
+		PanelSection::Evidence { slice, .. } => {
+			if slice.is_some() {
+				4
+			} else {
+				3
+			}
+		}
+		PanelSection::TreeRows(rows) => rows.len(),
+		PanelSection::SourceSnippet(lines) => lines.len(),
+		PanelSection::ReferenceGroups { groups, limit } => {
+			if groups.is_empty() {
+				1
+			} else {
+				groups
+					.iter()
+					.take(*limit)
+					.enumerate()
+					.map(|(idx, group)| ref_group_lines(group, 80).len() + usize::from(idx > 0))
+					.sum::<usize>() + usize::from(groups.len() > *limit)
+			}
+		}
+		PanelSection::TextEditor { editor, .. } => text_editor_snapshot_height(editor),
+		PanelSection::Selector { .. } => 2,
+	}
+}
+
+fn selector_line(options: &[String], selected: usize, active: bool) -> Line<'static> {
+	let mut spans = Vec::new();
+	for (idx, option) in options.iter().enumerate() {
+		if idx > 0 {
+			spans.push(Span::raw("  "));
+		}
+		let mark = if idx == selected { "[x]" } else { "[ ]" };
+		let style = if idx == selected {
+			Style::default()
+				.fg(THEME.search.active)
+				.add_modifier(Modifier::BOLD)
+		} else {
+			Style::default().fg(THEME.panel.muted)
+		};
+		let style = if active && idx == selected {
+			style.bg(THEME.panel.selected_focus_bg)
+		} else {
+			style
+		};
+		spans.push(Span::styled(format!("{mark} {option}"), style));
+	}
+	Line::from(spans)
+}
+
+fn text_editor_snapshot_height(editor: &ratatui_textarea::TextArea<'_>) -> usize {
+	editor.lines().len() + 2
+}
+
+fn editor_marker_line(
+	editor: &ratatui_textarea::TextArea<'_>,
+	height: u16,
+	active: bool,
+) -> Line<'static> {
+	let state = if active { "active" } else { "inactive" };
+	let cursor = editor.cursor();
+	panel::muted(format!(
+		"  editor {state} cursor {}:{} height {height}",
+		cursor.0 + 1,
+		cursor.1 + 1
+	))
 }
 
 pub(in crate::ui) fn highlight_line(

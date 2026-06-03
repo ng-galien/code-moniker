@@ -356,6 +356,41 @@ fn notes_tool_flags_orphan_notes() {
 }
 
 #[test]
+fn notes_tool_reads_workspace_notes_refreshed_after_context_load() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {}\n");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let moniker = app_symbol_moniker(&context);
+	write_notes_toml(
+		temp.path(),
+		&format!(
+			r#"
+			[[notes]]
+			id = "note_external"
+			moniker = "{moniker}"
+			kind = "todo"
+			status = "pending"
+			title = "External note"
+			body = "This note was written after the MCP context loaded."
+			created_by = "user"
+			created_at = "2026-06-02T00:00:00Z"
+			updated_at = "2026-06-02T00:00:00Z"
+			"#
+		),
+	);
+
+	let list = registry
+		.call(&context, "code_moniker_notes", &json!({"action": "list"}))
+		.expect("list refreshed notes");
+
+	assert!(list.text.contains("notes: 1"), "{}", list.text);
+	assert!(list.text.contains("note_external"), "{}", list.text);
+	assert!(list.text.contains("External note"), "{}", list.text);
+	assert!(list.text.contains("resolution: resolved"), "{}", list.text);
+}
+
+#[test]
 fn notes_tool_rejects_status_update_without_persisting() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	write_java_app_fixture(temp.path(), "class App {}\n");
@@ -481,6 +516,11 @@ fn notes_tool_resolves_file_monikers() {
 fn write_java_app_fixture(root: &std::path::Path, source: &str) {
 	std::fs::create_dir_all(root.join("src/main/java")).expect("mkdir");
 	std::fs::write(root.join("src/main/java/App.java"), source).expect("write fixture");
+}
+
+fn write_notes_toml(root: &std::path::Path, contents: &str) {
+	std::fs::create_dir_all(root.join(".code-moniker")).expect("mkdir notes");
+	std::fs::write(root.join(".code-moniker/notes.toml"), contents).expect("write notes");
 }
 
 fn app_symbol_moniker(context: &McpContext) -> String {

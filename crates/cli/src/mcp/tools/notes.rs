@@ -1,16 +1,16 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use code_moniker_workspace::notes::{
+	Note, NoteAuthor, NoteChanges, NoteId, NoteKind, NoteResolution, NoteStatus, NotesDocument,
+	resolve_notes,
+};
 use code_moniker_workspace::snapshot::WorkspaceSnapshot;
 use serde_json::{Value, json};
 
 use super::scope::{Paging, append_call_bool_arg, append_call_number_arg, append_call_string_arg};
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
-use crate::notes::model::{Note, NoteAuthor, NoteId, NoteKind, NoteResolution, NoteStatus};
-use crate::notes::resolve::resolve_notes;
-use crate::notes::store::{NoteChanges, NotesStore, notes_root_for_paths};
 
 const DEFAULT_NOTES_URI: &str = "workspace/notes";
 
@@ -186,25 +186,20 @@ impl NoteAction {
 
 fn run_notes(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
 	ensure_notes_uri(&request.uri, context.scheme())?;
-	let root = notes_workspace_root(context)?;
-	let mut store = NotesStore::load(&root)?;
+	context.index().reload_notes(&context.opts().paths)?;
 	let result = match request.action {
-		NoteAction::List => render_note_list(context, request, &store)?,
-		NoteAction::Get => render_note_get(context, request, &store)?,
-		NoteAction::Create => create_note(context, request, &mut store)?,
-		NoteAction::Update => update_note(context, request, &mut store)?,
-		NoteAction::Transition => transition_note(context, request, &mut store)?,
-		NoteAction::Delete => delete_note(context, request, &mut store)?,
+		NoteAction::List => render_note_list(context, request)?,
+		NoteAction::Get => render_note_get(context, request)?,
+		NoteAction::Create => create_note(context, request)?,
+		NoteAction::Update => update_note(context, request)?,
+		NoteAction::Transition => transition_note(context, request)?,
+		NoteAction::Delete => delete_note(context, request)?,
 	};
 	Ok(result)
 }
 
-fn render_note_list(
-	context: &McpContext,
-	request: &NoteRequest,
-	store: &NotesStore,
-) -> anyhow::Result<String> {
-	let resolved = resolved_notes(context, store)?;
+fn render_note_list(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
+	let resolved = resolved_notes(context)?;
 	let mut rows = resolved
 		.into_iter()
 		.filter(|note| {
@@ -267,13 +262,9 @@ fn render_note_list(
 	Ok(output)
 }
 
-fn render_note_get(
-	context: &McpContext,
-	request: &NoteRequest,
-	store: &NotesStore,
-) -> anyhow::Result<String> {
+fn render_note_get(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
 	let id = required_id(request)?;
-	let mut rows = resolved_notes(context, store)?;
+	let mut rows = resolved_notes(context)?;
 	rows.retain(|note| note.note.id.as_str() == id);
 	let Some(note) = rows.first() else {
 		anyhow::bail!("note id `{id}` does not exist");
@@ -281,41 +272,40 @@ fn render_note_get(
 	Ok(render_single_note(context.scheme(), "get", note))
 }
 
-fn create_note(
-	context: &McpContext,
-	request: &NoteRequest,
-	store: &mut NotesStore,
-) -> anyhow::Result<String> {
+fn create_note(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
 	let snapshot = context.index().index_snapshot()?;
 	let moniker = required_string(request.moniker.as_deref(), "moniker")?.to_string();
 	let title = required_string(request.title.as_deref(), "title")?.to_string();
 	let now = current_timestamp();
-	let id = request
-		.id
-		.as_deref()
-		.map(NoteId::new)
-		.unwrap_or_else(|| generated_note_id(store.document()));
-	let note = Note {
-		id: id.clone(),
-		moniker,
-		kind: request.kind.unwrap_or(NoteKind::Note),
-		status: request.status.unwrap_or(NoteStatus::Pending),
-		title,
-		body: request.body.clone().unwrap_or_default(),
-		created_by: request.created_by,
-		created_at: now.clone(),
-		updated_at: now,
-	};
-	store.document_mut().insert(note)?;
-	store.save()?;
-	render_changed_note(context, "create", store, &snapshot, Some(id.as_str()))
+	let kind = request.kind.unwrap_or(NoteKind::Note);
+	let status = request.status.unwrap_or(NoteStatus::Pending);
+	let body = request.body.clone().unwrap_or_default();
+	let created_by = request.created_by;
+	let requested_id = request.id.clone();
+	let id = context
+		.index()
+		.mutate_notes(&context.opts().paths, |document| {
+			let id = requested_id
+				.as_deref()
+				.map(NoteId::new)
+				.unwrap_or_else(|| generated_note_id(document));
+			document.insert(Note {
+				id: id.clone(),
+				moniker,
+				kind,
+				status,
+				title,
+				body,
+				created_by,
+				created_at: now.clone(),
+				updated_at: now,
+			})?;
+			Ok(id)
+		})?;
+	render_changed_note(context, "create", &snapshot, Some(id.as_str()))
 }
 
-fn update_note(
-	context: &McpContext,
-	request: &NoteRequest,
-	store: &mut NotesStore,
-) -> anyhow::Result<String> {
+fn update_note(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
 	if request.status.is_some() {
 		anyhow::bail!("status changes require action=transition");
 	}
@@ -327,38 +317,35 @@ fn update_note(
 		title: request.title.clone(),
 		body: request.body.clone(),
 	};
-	store
-		.document_mut()
-		.update(id, changes, current_timestamp())?;
-	store.save()?;
-	render_changed_note(context, "update", store, &snapshot, Some(id))
+	context
+		.index()
+		.mutate_notes(&context.opts().paths, |document| {
+			document.update(id, changes, current_timestamp())?;
+			Ok(())
+		})?;
+	render_changed_note(context, "update", &snapshot, Some(id))
 }
 
-fn transition_note(
-	context: &McpContext,
-	request: &NoteRequest,
-	store: &mut NotesStore,
-) -> anyhow::Result<String> {
+fn transition_note(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
 	let snapshot = context.index().index_snapshot()?;
 	let id = required_id(request)?;
 	let status = request
 		.status
 		.ok_or_else(|| anyhow::anyhow!("status is required for action=transition"))?;
-	store
-		.document_mut()
-		.transition(id, status, current_timestamp())?;
-	store.save()?;
-	render_changed_note(context, "transition", store, &snapshot, Some(id))
+	context
+		.index()
+		.mutate_notes(&context.opts().paths, |document| {
+			document.transition(id, status, current_timestamp())?;
+			Ok(())
+		})?;
+	render_changed_note(context, "transition", &snapshot, Some(id))
 }
 
-fn delete_note(
-	context: &McpContext,
-	request: &NoteRequest,
-	store: &mut NotesStore,
-) -> anyhow::Result<String> {
+fn delete_note(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
 	let id = required_id(request)?;
-	let deleted = store.document_mut().delete(id)?;
-	store.save()?;
+	let deleted = context
+		.index()
+		.mutate_notes(&context.opts().paths, |document| document.delete(id))?;
 	let mut output = String::new();
 	output.push_str(&format!("uri: {}workspace/notes/{id}\n", context.scheme()));
 	output.push_str("completeness: full\n");
@@ -373,11 +360,11 @@ fn delete_note(
 fn render_changed_note(
 	context: &McpContext,
 	action: &str,
-	store: &NotesStore,
 	snapshot: &Arc<WorkspaceSnapshot>,
 	id: Option<&str>,
 ) -> anyhow::Result<String> {
-	let resolved = resolve_notes(store.notes(), snapshot);
+	let notes = context.index().notes_snapshot()?;
+	let resolved = resolve_notes(notes.notes(), snapshot);
 	let note = id
 		.and_then(|id| resolved.iter().find(|note| note.note.id.as_str() == id))
 		.or_else(|| resolved.first());
@@ -389,10 +376,10 @@ fn render_changed_note(
 
 fn resolved_notes(
 	context: &McpContext,
-	store: &NotesStore,
-) -> anyhow::Result<Vec<crate::notes::model::ResolvedNote>> {
+) -> anyhow::Result<Vec<code_moniker_workspace::notes::ResolvedNote>> {
 	let snapshot = context.index().index_snapshot()?;
-	Ok(resolve_notes(store.notes(), &snapshot))
+	let notes = context.index().notes_snapshot()?;
+	Ok(resolve_notes(notes.notes(), &snapshot))
 }
 
 fn render_notes_header(
@@ -418,7 +405,7 @@ fn render_notes_header(
 fn render_single_note(
 	scheme: &str,
 	action: &str,
-	note: &crate::notes::model::ResolvedNote,
+	note: &code_moniker_workspace::notes::ResolvedNote,
 ) -> String {
 	let mut output = String::new();
 	output.push_str(&format!(
@@ -433,7 +420,7 @@ fn render_single_note(
 	output
 }
 
-fn render_note_entry(output: &mut String, note: &crate::notes::model::ResolvedNote) {
+fn render_note_entry(output: &mut String, note: &code_moniker_workspace::notes::ResolvedNote) {
 	output.push_str(&format!("  - id: {}\n", note.note.id.as_str()));
 	output.push_str(&format!("    kind: {}\n", note.note.kind.as_str()));
 	output.push_str(&format!("    status: {}\n", note.note.status.as_str()));
@@ -481,7 +468,7 @@ fn render_note_entry(output: &mut String, note: &crate::notes::model::ResolvedNo
 	));
 }
 
-fn generated_note_id(document: &crate::notes::store::NotesDocument) -> NoteId {
+fn generated_note_id(document: &NotesDocument) -> NoteId {
 	for attempt in 0..1000_u32 {
 		let nanos = SystemTime::now()
 			.duration_since(UNIX_EPOCH)
@@ -501,10 +488,6 @@ fn current_timestamp() -> String {
 		.map(|duration| duration.as_secs())
 		.unwrap_or_default();
 	format!("unix:{seconds}")
-}
-
-fn notes_workspace_root(context: &McpContext) -> anyhow::Result<PathBuf> {
-	notes_root_for_paths(&context.opts().paths)
 }
 
 fn ensure_notes_uri(uri: &str, scheme: &str) -> anyhow::Result<()> {

@@ -18,6 +18,7 @@ pub(in crate::ui) enum ComponentId {
 	PanelCheck,
 	PanelChange,
 	PanelViews,
+	PanelNotes,
 	SourceSnippet,
 }
 
@@ -37,6 +38,7 @@ impl ComponentId {
 			Self::PanelCheck => "ui.panel.check",
 			Self::PanelChange => "ui.panel.change",
 			Self::PanelViews => "ui.panel.views",
+			Self::PanelNotes => "ui.panel.notes",
 			Self::SourceSnippet => "ui.source.snippet",
 		}
 	}

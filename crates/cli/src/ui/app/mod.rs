@@ -18,6 +18,7 @@ mod change_mode;
 mod effect;
 mod header_search;
 mod navigation;
+mod note_editor;
 mod panel_focus;
 mod runtime;
 mod state;
@@ -38,6 +39,11 @@ pub(in crate::ui) use navigation::{
 	select_first_change, selected, selected_change_detail, selected_nav_row, set_view,
 	sync_contextual_view, toggle_selected_nav,
 };
+pub(in crate::ui) use note_editor::{
+	close_note_editor, cycle_note_editor_kind, cycle_note_editor_status, delete_note_from_editor,
+	edit_note_editor, move_note_editor_field, open_note_editor, save_note_from_editor,
+	show_notes_lens, sort_notes_for_lens,
+};
 pub(in crate::ui) use panel_focus::{
 	FocusCycle, close_panel_tree_node, copy_panel_snapshot, cycle_focus_region,
 	ensure_active_panel_selection, move_panel_selection, move_panel_to_edge, open_panel_tree_node,
@@ -48,8 +54,8 @@ pub(in crate::ui) use runtime::{
 	set_event_sender, take_watch_roots_update, update,
 };
 pub(in crate::ui) use state::{
-	ActiveFilter, ChangePanelMode, CheckState, FocusRegion, PanelNavigationState, PanelPolicy,
-	TaskCompletion, View, VisualizationMode,
+	ActiveFilter, ChangePanelMode, CheckState, FocusRegion, NoteEditorField, NoteEditorState,
+	PanelNavigationState, PanelPolicy, TaskCompletion, View, VisualizationMode,
 };
 pub(in crate::ui) use store::AppStore;
 pub(in crate::ui) use workspace_refresh::{
@@ -165,6 +171,10 @@ pub(in crate::ui) fn views_show_all(app: &App) -> bool {
 	app.app_store.shell().views_show_all
 }
 
+pub(in crate::ui) fn note_editor(app: &App) -> Option<&NoteEditorState> {
+	app.app_store.shell().note_editor.as_ref()
+}
+
 pub(in crate::ui) fn main_split_percent(app: &App) -> u16 {
 	app.app_store.shell().main_split_percent
 }
@@ -187,6 +197,41 @@ pub(in crate::ui) fn store(app: &App) -> &LocalWorkspaceRegistry {
 
 pub(in crate::ui) fn store_mut(app: &mut App) -> &mut LocalWorkspaceRegistry {
 	app.workspace.store_mut()
+}
+
+pub(in crate::ui) fn notes(app: &App) -> code_moniker_workspace::notes::NotesDocument {
+	app.workspace.notes()
+}
+
+pub(in crate::ui) fn notes_error(app: &App) -> Option<&str> {
+	app.app_store.shell().notes_error.as_deref()
+}
+
+pub(in crate::ui) fn reload_notes(app: &mut App) -> anyhow::Result<()> {
+	match app.workspace.reload_notes() {
+		Ok(()) => {
+			app.app_store
+				.dispatch(&AppAction::Shell(ShellAction::SetNotesError(None)));
+			Ok(())
+		}
+		Err(error) => {
+			let message = format!("{error:#}");
+			app.app_store
+				.dispatch(&AppAction::Shell(ShellAction::SetNotesError(Some(
+					message.clone(),
+				))));
+			Err(anyhow::anyhow!(message))
+		}
+	}
+}
+
+pub(in crate::ui) fn mutate_notes<F, T>(app: &App, mutate: F) -> anyhow::Result<T>
+where
+	F: FnOnce(&mut code_moniker_workspace::notes::NotesDocument) -> anyhow::Result<T>,
+{
+	app.workspace
+		.index
+		.mutate_notes(&app.workspace.options.paths, mutate)
 }
 
 pub(in crate::ui) fn store_options(app: &App) -> SessionOptions {
@@ -218,6 +263,7 @@ pub(in crate::ui) fn replace_store(
 	options: SessionOptions,
 ) {
 	app.workspace.replace(store, cache, options);
+	let _ = reload_notes(app);
 }
 
 pub(in crate::ui) fn app_rules_path(app: &App) -> &std::path::Path {
@@ -258,10 +304,11 @@ pub(in crate::ui) fn new_app(
 			usage_lens_generation: 0,
 		},
 	};
+	let _ = reload_notes(&mut app);
 	app.refresh_header_search_options();
 	set_status(
 		&mut app,
-		"Enter opens nodes, Esc/left closes, PgUp/PgDn scroll panel, s focuses search, x resets filters, d changes, u usages, y copies panel, c checks, q quits",
+		"Enter opens, Esc closes, s search, n note, 8 notes, d changes, u usages, y copies panel, c checks, q quits",
 	);
 	refresh_results(&mut app, false);
 	perf::record("app.new.finish", started.elapsed(), status(&app));

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use code_moniker_workspace::registry::LocalWorkspaceOptions;
 use code_moniker_workspace::snapshot::{WorkspaceRequest, WorkspaceTransition};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::args::McpArgs;
 use crate::mcp::McpContext;
@@ -100,6 +100,9 @@ fn load_workspace_snapshots_inner(
 				.ok_or_else(|| anyhow::anyhow!("workspace index snapshot is unavailable"))?;
 			log_snapshot_ready("index", started.elapsed(), &snapshot);
 			index.publish(registry.queries().snapshot_arc());
+			if let Err(error) = index.reload_notes(&opts.paths) {
+				warn!(event = "notes_reload_failed", error = %error, "notes reload failed");
+			}
 		}
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 	}
@@ -121,6 +124,9 @@ fn load_workspace_snapshots_inner(
 				.ok_or_else(|| anyhow::anyhow!("workspace linkage snapshot is unavailable"))?;
 			log_snapshot_ready("linkage", started.elapsed(), &snapshot);
 			index.publish(registry.queries().snapshot_arc());
+			if let Err(error) = index.reload_notes(&opts.paths) {
+				warn!(event = "notes_reload_failed", error = %error, "notes reload failed");
+			}
 			Ok(())
 		}
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
@@ -160,4 +166,31 @@ fn path_list(opts: &SessionOptions) -> String {
 		.map(|path| path.display().to_string())
 		.collect::<Vec<_>>()
 		.join(",")
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn workspace_load_does_not_fail_on_malformed_notes_file() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		std::fs::create_dir_all(temp.path().join("src/main/java")).expect("mkdir source");
+		std::fs::write(temp.path().join("src/main/java/App.java"), "class App {}\n")
+			.expect("write source");
+		std::fs::create_dir_all(temp.path().join(".code-moniker")).expect("mkdir notes");
+		std::fs::write(temp.path().join(".code-moniker/notes.toml"), "[[notes]\n")
+			.expect("write malformed notes");
+		let opts = SessionOptions {
+			paths: vec![temp.path().to_path_buf()],
+			project: None,
+			cache_dir: None,
+		};
+		let index = SharedWorkspaceIndex::new(None);
+
+		load_workspace_snapshots_inner(&opts, &index).expect("workspace should still load");
+
+		assert!(index.index_snapshot().is_ok());
+		assert!(index.notes_snapshot().is_ok());
+	}
 }

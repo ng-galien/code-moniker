@@ -22,7 +22,7 @@ path = "src/main.rs"
 [features]
 default = ["pretty"]
 pretty  = ["dep:anstyle"]
-tui     = ["pretty", "dep:ratatui", "dep:crossterm", "dep:notify"]
+tui     = ["pretty", "dep:ratatui", "dep:ratatui-textarea", "dep:crossterm", "dep:notify"]
 mcp     = ["dep:axum", "dep:rmcp", "dep:tokio", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber"]
 
 [dependencies]
@@ -48,6 +48,7 @@ tracing-subscriber = { workspace = true, optional = true }
 
 anstyle       = { workspace = true, optional = true }
 ratatui       = { workspace = true, optional = true }
+ratatui-textarea = { workspace = true, optional = true }
 crossterm     = { workspace = true, optional = true }
 notify        = { workspace = true, optional = true }
 
