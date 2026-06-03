@@ -1,12 +1,13 @@
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::changes::ChangeOverlayPort;
 use crate::code::CodeIndexPort;
-use crate::linkage::LinkagePort;
+use crate::linkage::{LinkagePort, LinkageRefreshImpact};
 use crate::snapshot::{
 	ChangeOverlay, CodeIndex, CodeIndexFields, LinkageGraph, ResourceGeneration, SourceCatalog,
-	SourceFileRecord, SourceFileRecordFields, WorkspaceFailure, WorkspaceRequest,
-	WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
+	SourceFileRecord, SourceFileRecordFields, SourceId, SymbolId, WorkspaceFailure,
+	WorkspaceRequest, WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
 };
 use crate::source::SourceCatalogPort;
 
@@ -123,6 +124,95 @@ pub(crate) fn build_linkage_snapshot(
 	})
 }
 
+pub(crate) fn build_change_overlay_snapshot(
+	current: Option<&WorkspaceSnapshot>,
+	change_overlay: &mut impl ChangeOverlayPort,
+	request: WorkspaceRequest,
+	generation: ResourceGeneration,
+) -> WorkspaceResult<WorkspaceSnapshot> {
+	let current = current.ok_or_else(|| {
+		WorkspaceFailure::new(
+			WorkspaceResource::ChangeOverlay,
+			format!("{} requires a workspace snapshot", request.label),
+		)
+	})?;
+	let changes_timer = Instant::now();
+	let changes =
+		change_overlay.build_change_overlay(&current.catalog, &current.index, &current.linkage)?;
+	let changes_elapsed = changes_timer.elapsed();
+	let total = current.timings.source_catalog
+		+ current.timings.code_index
+		+ current.timings.linkage
+		+ changes_elapsed;
+	let timings = timings(
+		current.timings.source_catalog,
+		&current.index,
+		current.timings.code_index,
+		current.timings.linkage,
+		changes_elapsed,
+		total,
+	);
+	Ok(WorkspaceSnapshot {
+		generation,
+		catalog: current.catalog.clone(),
+		index: current.index.clone(),
+		linkage: current.linkage.clone(),
+		changes,
+		timings,
+	})
+}
+
+pub(crate) fn build_incremental_paths_snapshot(
+	current: Option<&WorkspaceSnapshot>,
+	code_index: &mut impl CodeIndexPort,
+	linkage: &mut impl LinkagePort,
+	request: WorkspaceRequest,
+	paths: &[PathBuf],
+	generation: ResourceGeneration,
+) -> WorkspaceResult<WorkspaceSnapshot> {
+	let current = current.ok_or_else(|| {
+		WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			format!("{} requires an indexed workspace snapshot", request.label),
+		)
+	})?;
+	let total_timer = Instant::now();
+	let index_timer = Instant::now();
+	let refresh = code_index.refresh_paths(&current.index, paths)?;
+	let changed_sources = refresh.changed_sources;
+	let index = refresh.index;
+	let index_elapsed = index_timer.elapsed();
+	let linkage_timer = Instant::now();
+	let linkage = linkage.refresh_linkage(
+		&current.linkage,
+		&index,
+		LinkageRefreshImpact::new(changed_sources.clone(), paths.to_vec()),
+	)?;
+	let linkage_elapsed = linkage_timer.elapsed();
+	let changes = ChangeOverlay::new(
+		generation,
+		current.catalog.generation,
+		index.generation,
+		changed_symbols(&index, &changed_sources),
+	);
+	let timings = timings(
+		current.timings.source_catalog,
+		&index,
+		index_elapsed,
+		linkage_elapsed,
+		Duration::ZERO,
+		total_timer.elapsed(),
+	);
+	Ok(WorkspaceSnapshot {
+		generation,
+		catalog: current.catalog.clone(),
+		index,
+		linkage,
+		changes,
+		timings,
+	})
+}
+
 pub(crate) fn build_catalog_snapshot(
 	source_catalog: &mut impl SourceCatalogPort,
 	request: WorkspaceRequest,
@@ -211,6 +301,15 @@ fn empty_changes(catalog: &SourceCatalog, index: &CodeIndex) -> ChangeOverlay {
 		index.generation,
 		Vec::new(),
 	)
+}
+
+fn changed_symbols(index: &CodeIndex, changed_sources: &[SourceId]) -> Vec<SymbolId> {
+	index
+		.symbols
+		.iter()
+		.filter(|symbol| changed_sources.contains(&symbol.source))
+		.map(|symbol| symbol.id.clone())
+		.collect()
 }
 
 fn timings(

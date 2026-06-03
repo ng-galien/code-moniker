@@ -38,6 +38,8 @@ pub enum WorkspaceCommandKind {
 	BuildIndex,
 	ResolveLinkage,
 	PublishSnapshot,
+	RefreshPaths,
+	RefreshChanges,
 	Refresh,
 }
 

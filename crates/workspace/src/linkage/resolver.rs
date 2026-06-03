@@ -6,6 +6,7 @@ use crate::linkage::candidate::CandidateCatalog;
 use crate::linkage::decision::{
 	LinkageDecisionLog, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
+use crate::linkage::gc::{LinkageGarbageCollector, LinkageRefreshImpact};
 use crate::linkage::manifest::ManifestPolicy;
 use crate::linkage::query::LinkageQuery;
 use crate::linkage::scope::{GlobalScopeResolver, LocalScopeResolver};
@@ -17,6 +18,12 @@ use crate::source::{CodeIndexMaterial, LocalResourceCache};
 
 pub trait LinkagePort {
 	fn resolve_linkage(&mut self, index: &CodeIndex) -> WorkspaceResult<LinkageGraph>;
+	fn refresh_linkage(
+		&mut self,
+		current: &LinkageGraph,
+		index: &CodeIndex,
+		impact: LinkageRefreshImpact,
+	) -> WorkspaceResult<LinkageGraph>;
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -49,6 +56,27 @@ impl LinkagePort for LocalLinkage {
 	fn resolve_linkage(&mut self, index: &CodeIndex) -> WorkspaceResult<LinkageGraph> {
 		Ok(self.resolve_linkage_with_timings(index)?.graph)
 	}
+
+	fn refresh_linkage(
+		&mut self,
+		current: &LinkageGraph,
+		index: &CodeIndex,
+		impact: LinkageRefreshImpact,
+	) -> WorkspaceResult<LinkageGraph> {
+		if impact.is_empty() {
+			let mut graph = current.clone();
+			graph.index_generation = index.generation;
+			return Ok(graph);
+		}
+		let material = self.cache.index_material(index.generation).ok_or_else(|| {
+			WorkspaceFailure::new(
+				WorkspaceResource::LinkageGraph,
+				"code index material is unavailable",
+			)
+		})?;
+		let generation = self.cache.next_generation();
+		Ok(IncrementalLinkageRefresh::new(current, index, impact, &material, generation).run())
+	}
 }
 
 impl LocalLinkage {
@@ -79,6 +107,81 @@ impl LocalLinkage {
 		timings.project_report = report_timer.elapsed();
 		timings.total = total_timer.elapsed();
 		Ok(TimedLinkageGraph { graph, timings })
+	}
+}
+
+struct IncrementalLinkageRefresh<'a> {
+	current: &'a LinkageGraph,
+	index: &'a CodeIndex,
+	impact: LinkageRefreshImpact,
+	material: &'a CodeIndexMaterial,
+	generation: crate::snapshot::ResourceGeneration,
+}
+
+impl<'a> IncrementalLinkageRefresh<'a> {
+	fn new(
+		current: &'a LinkageGraph,
+		index: &'a CodeIndex,
+		impact: LinkageRefreshImpact,
+		material: &'a CodeIndexMaterial,
+		generation: crate::snapshot::ResourceGeneration,
+	) -> Self {
+		Self {
+			current,
+			index,
+			impact,
+			material,
+			generation,
+		}
+	}
+
+	fn run(&self) -> LinkageGraph {
+		let candidates = CandidateCatalog::new(self.material);
+		let sweep = LinkageGarbageCollector::new(
+			self.current,
+			&self.index.references,
+			self.material,
+			&candidates,
+			&self.impact,
+		)
+		.collect();
+		let changed = self.resolve_reference_decisions(sweep.reference_indexes(), &candidates);
+		let mut decisions = sweep.into_decisions(changed);
+		SemanticLinkage::new(self.material).enhance(&mut decisions, &self.index.references);
+		let report = LinkageDecisionLog::new(decisions).project_report(
+			self.generation,
+			self.index.generation,
+			&self.index.references,
+			&self.material.identity,
+		);
+		LinkageGraph::from_report(report)
+	}
+
+	fn resolve_reference_decisions(
+		&self,
+		reference_indexes: &[usize],
+		candidates: &CandidateCatalog<'_>,
+	) -> Vec<ReferenceLinkageDecision> {
+		let resolver = LinkageResolver::new(self.material);
+		let manifests = ManifestPolicy::build(self.material);
+		self.indexes_to_references(reference_indexes)
+			.par_iter()
+			.map(|(reference_idx, reference)| {
+				resolver.resolve_reference(*reference_idx, reference, candidates, &manifests)
+			})
+			.collect::<Vec<_>>()
+	}
+
+	fn indexes_to_references(&self, reference_indexes: &[usize]) -> Vec<(usize, &ReferenceRecord)> {
+		reference_indexes
+			.iter()
+			.filter_map(|reference_idx| {
+				self.index
+					.references
+					.get(*reference_idx)
+					.map(|reference| (*reference_idx, reference))
+			})
+			.collect()
 	}
 }
 

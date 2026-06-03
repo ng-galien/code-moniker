@@ -33,10 +33,6 @@ impl WorkspaceSession {
 		&self.store
 	}
 
-	pub(in crate::ui) fn store_mut(&mut self) -> &mut LocalWorkspaceRegistry {
-		&mut self.store
-	}
-
 	pub(in crate::ui) fn cache(&self) -> &LocalResourceCache {
 		&self.cache
 	}

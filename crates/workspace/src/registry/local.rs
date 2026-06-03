@@ -70,6 +70,8 @@ pub(crate) fn local_workspace_ports(
 	options: LocalWorkspaceOptions,
 	cache: LocalResourceCache,
 ) -> WorkspacePorts<LocalSourceCatalog, LocalCodeIndex, LocalLinkage, LocalChangeOverlay> {
+	let watch_paths = options.paths.clone();
+	let watch_cache_dir = options.cache_dir.clone();
 	let mut source_options = LocalSourceCatalogOptions::new(options.paths, options.project)
 		.with_identity(options.identity)
 		.with_java_pipeline(options.java_pipeline);
@@ -82,4 +84,7 @@ pub(crate) fn local_workspace_ports(
 		LocalLinkage::new(cache.clone()),
 		LocalChangeOverlay::new(cache),
 	)
+	.with_live_watch_roots(move |_| {
+		crate::live::watch_roots_for_paths(&watch_paths, watch_cache_dir.as_deref())
+	})
 }

@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use crossterm::event::KeyEvent;
 
-use crate::session::StoreWatchRoot;
 use crate::ui::app::App;
 use crate::ui::app::{
 	AppAction, CheckState, Effect, FocusCycle, FocusRegion, PanelPolicy, ShellAction,
@@ -20,10 +19,10 @@ use crate::ui::app::{
 use crate::ui::async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
 use crate::ui::clipboard;
 use crate::ui::events::{HeaderSearchFocus, Msg, NoteMsg, UiMode, key_to_msg};
-use crate::ui::live::StoreEvent;
 use crate::ui::shell::ShellEvent;
 use crate::ui::store::navigation::{NavigationAction, NavigationPane};
 use crate::ui::store::tree_pane_action::TreePaneAction;
+use code_moniker_workspace::live::{WorkspaceLiveEvent, WorkspaceWatchRoot};
 
 const HEADER_SEARCH_DEBOUNCE_MS: u64 = 180;
 const USAGE_LENS_DEBOUNCE_MS: u64 = 120;
@@ -81,11 +80,11 @@ pub(in crate::ui) fn queue_startup_load(app: &mut App) {
 	) {
 		crate::ui::app::set_status(app, "loading file tree in background");
 	} else {
-		handle_store_event_sync(app, StoreEvent::FullIndex);
+		handle_store_event_sync(app, WorkspaceLiveEvent::RescanRequired);
 	}
 }
 
-pub(in crate::ui) fn take_watch_roots_update(app: &mut App) -> Option<Vec<StoreWatchRoot>> {
+pub(in crate::ui) fn take_watch_roots_update(app: &mut App) -> Option<Vec<WorkspaceWatchRoot>> {
 	app.runtime.watch_roots_update.take()
 }
 

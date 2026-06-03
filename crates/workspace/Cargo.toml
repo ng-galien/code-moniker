@@ -24,5 +24,11 @@ toml       = { workspace = true }
 rayon      = { workspace = true }
 dhat       = { version = "0.3", optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+notify = { workspace = true, features = ["macos_kqueue"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }

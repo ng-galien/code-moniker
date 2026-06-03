@@ -9,16 +9,17 @@ use crate::ui::async_task::{TaskId, TaskResult, WorkKind};
 use crate::ui::clipboard::ClipboardResult;
 use crate::ui::events::{HeaderSearchFocus, Msg};
 use crate::ui::explorer::HeaderSearchResults;
-use crate::ui::live::StoreEvent;
 use crate::ui::workspace_read::UsageFocus;
+use code_moniker_workspace::live::WorkspaceLiveEvent;
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub(in crate::ui) enum AppAction {
 	Ui(Msg),
 	HeaderSearchDebounced(u64),
 	UsageLensDebounced(u64),
 	Shell(ShellAction),
-	Store(StoreEvent),
+	Store(WorkspaceLiveEvent),
 	TaskStarted {
 		id: TaskId,
 		work: WorkKind,
@@ -29,6 +30,7 @@ pub(in crate::ui) enum AppAction {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub(in crate::ui) enum ShellAction {
 	SetStatus(String),
 	AppendStatus(String),

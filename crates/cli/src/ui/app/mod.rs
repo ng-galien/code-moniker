@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use crate::session::{SessionOptions, StoreWatchRoot};
+use crate::session::SessionOptions;
 use crate::ui::events::UiMode;
 use crate::ui::perf;
 use crate::ui::shell::ShellEvent;
@@ -11,6 +11,7 @@ use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator}
 use crate::ui::workspace_read::{
 	LocalWorkspaceRegistry, UsageFocus, new_local_workspace, workspace_check_context,
 };
+use code_moniker_workspace::live::WorkspaceWatchRoot;
 use code_moniker_workspace::source::LocalResourceCache;
 
 mod action;
@@ -80,7 +81,7 @@ pub(in crate::ui) struct App {
 pub(in crate::ui) struct AppRuntime {
 	event_tx: Option<Sender<ShellEvent>>,
 	startup_load_pending: bool,
-	watch_roots_update: Option<Vec<StoreWatchRoot>>,
+	watch_roots_update: Option<Vec<WorkspaceWatchRoot>>,
 	usage_lens_generation: u64,
 }
 
@@ -195,10 +196,6 @@ pub(in crate::ui) fn store(app: &App) -> &LocalWorkspaceRegistry {
 	app.workspace.store()
 }
 
-pub(in crate::ui) fn store_mut(app: &mut App) -> &mut LocalWorkspaceRegistry {
-	app.workspace.store_mut()
-}
-
 pub(in crate::ui) fn notes(app: &App) -> code_moniker_workspace::notes::NotesDocument {
 	app.workspace.notes()
 }
@@ -242,18 +239,14 @@ pub(in crate::ui) fn store_root_label(app: &App) -> String {
 	crate::session::root_label_for_options(app.workspace.options())
 }
 
-pub(in crate::ui) fn store_watch_roots(app: &App) -> Vec<StoreWatchRoot> {
-	crate::session::watch_roots_for_options(app.workspace.options())
+pub(in crate::ui) fn store_watch_roots(app: &App) -> Vec<WorkspaceWatchRoot> {
+	store(app).watch_roots()
 }
 
 pub(in crate::ui) fn store_check_context(
 	app: &App,
 ) -> anyhow::Result<crate::ui::workspace_read::WorkspaceCheckContext> {
 	workspace_check_context(store(app), app.workspace.cache())
-}
-
-pub(in crate::ui) fn publish_workspace_snapshot(app: &App) {
-	app.workspace.publish_current_snapshot();
 }
 
 pub(in crate::ui) fn replace_store(

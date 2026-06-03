@@ -3,14 +3,13 @@ use std::thread::{self, JoinHandle};
 
 use crossterm::event::{self, Event};
 
-use crate::session::StoreWatchRoot;
 use crate::ui::async_task::TaskResult;
 use crate::ui::clipboard::ClipboardResult;
-use crate::ui::live::{LiveStoreWatcher, StoreEvent};
+use code_moniker_workspace::live::{LiveWorkspaceWatcher, WorkspaceLiveEvent, WorkspaceWatchRoot};
 
 pub(in crate::ui) enum ShellEvent {
 	Terminal(Event),
-	Store(StoreEvent),
+	Store(WorkspaceLiveEvent),
 	TaskCompleted(TaskResult),
 	HeaderSearchDebounced(u64),
 	UsageLensDebounced(u64),
@@ -22,12 +21,12 @@ pub(in crate::ui) struct EventSource {
 	tx: Sender<ShellEvent>,
 	rx: Receiver<ShellEvent>,
 	_terminal_reader: JoinHandle<()>,
-	_live_watcher: Option<LiveStoreWatcher>,
+	_live_watcher: Option<LiveWorkspaceWatcher>,
 	pub(in crate::ui) status: Option<String>,
 }
 
 impl EventSource {
-	pub(in crate::ui) fn start(watch_roots: Vec<StoreWatchRoot>) -> Self {
+	pub(in crate::ui) fn start(watch_roots: Vec<WorkspaceWatchRoot>) -> Self {
 		let (tx, rx) = mpsc::channel();
 		let terminal_reader = spawn_terminal_reader(tx.clone());
 		let (live_watcher, status) = start_live_watcher(watch_roots, &tx);
@@ -46,7 +45,7 @@ impl EventSource {
 
 	pub(in crate::ui) fn replace_watch_roots(
 		&mut self,
-		watch_roots: Vec<StoreWatchRoot>,
+		watch_roots: Vec<WorkspaceWatchRoot>,
 	) -> Option<String> {
 		let (live_watcher, status) = start_live_watcher(watch_roots, &self.tx);
 		self._live_watcher = live_watcher;
@@ -68,11 +67,11 @@ impl EventSource {
 }
 
 fn start_live_watcher(
-	watch_roots: Vec<StoreWatchRoot>,
+	watch_roots: Vec<WorkspaceWatchRoot>,
 	tx: &Sender<ShellEvent>,
-) -> (Option<LiveStoreWatcher>, Option<String>) {
+) -> (Option<LiveWorkspaceWatcher>, Option<String>) {
 	let live_tx = tx.clone();
-	match LiveStoreWatcher::start(watch_roots, move |event| {
+	match LiveWorkspaceWatcher::start(watch_roots, move |event| {
 		let _ = live_tx.send(ShellEvent::Store(event));
 	}) {
 		Ok(watcher) => {

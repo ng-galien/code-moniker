@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -10,8 +10,8 @@ use crate::environment;
 use crate::lines::LineIndex;
 use crate::snapshot::{
 	CodeIndex, CodeIndexFields, CodeIndexTimings, ReferenceRecord, SourceCatalog, SourceFileRecord,
-	SourceFileRecordFields, SymbolRecord, SymbolRecordFields, WorkspaceFailure, WorkspaceResource,
-	WorkspaceResult,
+	SourceFileRecordFields, SourceId, SymbolRecord, SymbolRecordFields, WorkspaceFailure,
+	WorkspaceResource, WorkspaceResult,
 };
 use crate::source::{
 	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, SourceCatalogMaterial,
@@ -21,6 +21,17 @@ use crate::source::LocalIdentityResolver;
 
 pub trait CodeIndexPort {
 	fn build_index(&mut self, catalog: &SourceCatalog) -> WorkspaceResult<CodeIndex>;
+	fn refresh_paths(
+		&mut self,
+		current: &CodeIndex,
+		paths: &[PathBuf],
+	) -> WorkspaceResult<CodeIndexRefresh>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CodeIndexRefresh {
+	pub index: CodeIndex,
+	pub changed_sources: Vec<SourceId>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -48,6 +59,14 @@ impl LocalCodeIndex {
 impl CodeIndexPort for LocalCodeIndex {
 	fn build_index(&mut self, catalog: &SourceCatalog) -> WorkspaceResult<CodeIndex> {
 		build_local_code_index(&self.cache, &self.options, catalog)
+	}
+
+	fn refresh_paths(
+		&mut self,
+		current: &CodeIndex,
+		paths: &[PathBuf],
+	) -> WorkspaceResult<CodeIndexRefresh> {
+		refresh_local_code_index(&self.cache, &self.options, current, paths)
 	}
 }
 
@@ -83,6 +102,74 @@ fn build_local_code_index(
 	}))
 }
 
+fn refresh_local_code_index(
+	cache: &LocalResourceCache,
+	_options: &LocalCodeIndexOptions,
+	current: &CodeIndex,
+	paths: &[PathBuf],
+) -> WorkspaceResult<CodeIndexRefresh> {
+	let total_timer = Instant::now();
+	let current_material = cache.index_material(current.generation).ok_or_else(|| {
+		WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			"code index material is unavailable",
+		)
+	})?;
+	let mut files = current_material.files.clone();
+	let mut changed_sources = Vec::new();
+	let extract_timer = Instant::now();
+	for path in paths {
+		let Some(source) = current_material.source_catalog.resolve_source(path) else {
+			continue;
+		};
+		let Some(file_idx) = source.eager_index else {
+			continue;
+		};
+		let indexed = extract_source_file(
+			&current_material.source_catalog,
+			file_idx,
+			&source.path,
+			None,
+		)?;
+		if let Some(slot) = files.get_mut(file_idx) {
+			*slot = indexed.clone();
+			push_unique_source(&mut changed_sources, indexed.source_id);
+		}
+	}
+	let extract_sources = extract_timer.elapsed();
+	if changed_sources.is_empty() {
+		return Ok(CodeIndexRefresh {
+			index: current.clone(),
+			changed_sources,
+		});
+	}
+	let semantic_timer = Instant::now();
+	let material = material_from_files(current_material.source_catalog.clone(), files);
+	let sources = source_records(&material.files);
+	let symbols = replace_symbols(current, &changed_sources, &material);
+	let references = replace_references(current, &changed_sources, &material);
+	let semantic_index = semantic_timer.elapsed();
+	let generation = cache.next_generation();
+	let identity_scheme = material.identity.scheme().to_string();
+	cache.insert_index(generation, material);
+	Ok(CodeIndexRefresh {
+		index: CodeIndex::from_fields(CodeIndexFields {
+			generation,
+			catalog_generation: current.catalog_generation,
+			identity_scheme,
+			sources,
+			symbols,
+			references,
+			timings: CodeIndexTimings {
+				extract_sources,
+				semantic_index,
+				total: total_timer.elapsed(),
+			},
+		}),
+		changed_sources,
+	})
+}
+
 fn source_material(
 	cache: &LocalResourceCache,
 	catalog: &SourceCatalog,
@@ -105,57 +192,67 @@ fn extract_source_files(
 		.par_iter()
 		.enumerate()
 		.map(|(file_idx, file)| {
-			let ctx = &source_material.sources.roots[file.source].ctx;
-			let (graph, extracted_source) = environment::load_or_extract_source(
-				&file.path,
-				&file.anchor,
-				file.lang,
-				cache_dir,
-				ctx,
-			)
+			extract_source_file(source_material, file_idx, &file.path, cache_dir)
+		})
+		.collect()
+}
+
+fn extract_source_file(
+	source_material: &SourceCatalogMaterial,
+	file_idx: usize,
+	path: &Path,
+	cache_dir: Option<&Path>,
+) -> WorkspaceResult<IndexedSourceFile> {
+	let file = source_material.sources.files.get(file_idx).ok_or_else(|| {
+		WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			format!("source file index {file_idx} is unavailable"),
+		)
+	})?;
+	let ctx = &source_material.sources.roots[file.source].ctx;
+	let (graph, extracted_source) =
+		environment::load_or_extract_source(path, &file.anchor, file.lang, cache_dir, ctx)
 			.map_err(|err| {
 				WorkspaceFailure::new(
 					WorkspaceResource::CodeIndex,
-					format!("cannot extract {}: {err}", file.path.display()),
+					format!("cannot extract {}: {err}", path.display()),
 				)
 			})?;
-			let source = match extracted_source {
-				Some(source) => source,
-				None => std::fs::read_to_string(&file.path).map_err(|err| {
-					WorkspaceFailure::new(
-						WorkspaceResource::CodeIndex,
-						format!("cannot read {}: {err}", file.path.display()),
-					)
-				})?,
-			};
-			Ok(IndexedSourceFile {
-				source_root: file.source,
-				source_id: source_material
-					.source_id_for_file(file_idx)
-					.ok_or_else(|| {
-						WorkspaceFailure::new(
-							WorkspaceResource::CodeIndex,
-							format!("source id is unavailable for {}", file.rel_path.display()),
-						)
-					})?,
-				source_uri: source_material
-					.source_uri_for_path(&file.path)
-					.ok_or_else(|| {
-						WorkspaceFailure::new(
-							WorkspaceResource::CodeIndex,
-							format!("source uri is unavailable for {}", file.path.display()),
-						)
-					})?,
-				identity: source_material.identity.clone(),
-				path: file.path.clone(),
-				rel_path: file.rel_path.clone(),
-				anchor: file.anchor.clone(),
-				lang: file.lang,
-				graph,
-				source,
-			})
-		})
-		.collect()
+	let source = match extracted_source {
+		Some(source) => source,
+		None => std::fs::read_to_string(path).map_err(|err| {
+			WorkspaceFailure::new(
+				WorkspaceResource::CodeIndex,
+				format!("cannot read {}: {err}", path.display()),
+			)
+		})?,
+	};
+	Ok(IndexedSourceFile {
+		source_root: file.source,
+		source_id: source_material
+			.source_id_for_file(file_idx)
+			.ok_or_else(|| {
+				WorkspaceFailure::new(
+					WorkspaceResource::CodeIndex,
+					format!("source id is unavailable for {}", file.rel_path.display()),
+				)
+			})?,
+		source_uri: source_material
+			.source_uri_for_path(&file.path)
+			.ok_or_else(|| {
+				WorkspaceFailure::new(
+					WorkspaceResource::CodeIndex,
+					format!("source uri is unavailable for {}", file.path.display()),
+				)
+			})?,
+		identity: source_material.identity.clone(),
+		path: file.path.clone(),
+		rel_path: file.rel_path.clone(),
+		anchor: file.anchor.clone(),
+		lang: file.lang,
+		graph,
+		source,
+	})
 }
 
 fn build_semantic_index(
@@ -198,6 +295,112 @@ fn build_semantic_index(
 	(symbols, references, material)
 }
 
+fn material_from_files(
+	source_material: SourceCatalogMaterial,
+	mut files: Vec<IndexedSourceFile>,
+) -> CodeIndexMaterial {
+	let symbol_count = files.iter().map(|file| file.graph.def_count()).sum();
+	let mut symbols_by_moniker = rustc_hash::FxHashMap::default();
+	symbols_by_moniker.reserve(symbol_count);
+	for (file_idx, file) in files.iter().enumerate() {
+		for (def_idx, def) in file.graph.defs().enumerate() {
+			symbols_by_moniker.insert(
+				def.moniker.clone(),
+				file.graph_identity().symbol_id(file_idx, def_idx),
+			);
+		}
+	}
+	symbols_by_moniker.shrink_to_fit();
+	files.shrink_to_fit();
+	let identity = source_material.identity.clone();
+	CodeIndexMaterial {
+		source_catalog: source_material,
+		files,
+		identity,
+		symbols_by_moniker,
+	}
+}
+
+fn replace_symbols(
+	current: &CodeIndex,
+	changed_sources: &[SourceId],
+	material: &CodeIndexMaterial,
+) -> Vec<SymbolRecord> {
+	let mut symbols = current
+		.symbols
+		.iter()
+		.filter(|symbol| !changed_sources.contains(&symbol.source))
+		.cloned()
+		.collect::<Vec<_>>();
+	let mut changed = records_for_sources(changed_sources, &material.files, collect_file_symbols);
+	symbols.append(&mut changed);
+	symbols.shrink_to_fit();
+	symbols
+}
+
+fn replace_references(
+	current: &CodeIndex,
+	changed_sources: &[SourceId],
+	material: &CodeIndexMaterial,
+) -> Vec<ReferenceRecord> {
+	let mut references = current
+		.references
+		.iter()
+		.filter(|reference| !changed_sources.contains(&reference.source))
+		.cloned()
+		.collect::<Vec<_>>();
+	let mut changed =
+		records_for_sources(changed_sources, &material.files, collect_file_references);
+	references.append(&mut changed);
+	references.shrink_to_fit();
+	references
+}
+
+fn records_for_sources<T, F>(
+	changed_sources: &[SourceId],
+	files: &[IndexedSourceFile],
+	mut collect: F,
+) -> Vec<T>
+where
+	F: FnMut(usize, &IndexedSourceFile, &LineIndex, &mut Vec<T>),
+{
+	let mut out = Vec::new();
+	for (file_idx, file) in files.iter().enumerate() {
+		if !changed_sources.contains(&file.source_id) {
+			continue;
+		}
+		let line_index = LineIndex::new(&file.source);
+		collect(file_idx, file, &line_index, &mut out);
+	}
+	out
+}
+
+fn collect_file_symbols(
+	file_idx: usize,
+	file: &IndexedSourceFile,
+	line_index: &LineIndex,
+	symbols: &mut Vec<SymbolRecord>,
+) {
+	let mut symbols_by_moniker = rustc_hash::FxHashMap::default();
+	collect_symbols(file_idx, file, line_index, symbols, &mut symbols_by_moniker);
+}
+
+fn collect_file_references(
+	file_idx: usize,
+	file: &IndexedSourceFile,
+	line_index: &LineIndex,
+	references: &mut Vec<ReferenceRecord>,
+) {
+	let mut reference_identity_pool = TargetIdentityPool::default();
+	collect_references(
+		file_idx,
+		file,
+		line_index,
+		references,
+		&mut reference_identity_pool,
+	);
+}
+
 fn graph_record_counts(files: &[IndexedSourceFile]) -> (usize, usize) {
 	files.iter().fold((0usize, 0usize), |(defs, refs), file| {
 		(
@@ -205,6 +408,12 @@ fn graph_record_counts(files: &[IndexedSourceFile]) -> (usize, usize) {
 			refs + file.graph.refs().count(),
 		)
 	})
+}
+
+fn push_unique_source(sources: &mut Vec<SourceId>, source: SourceId) {
+	if !sources.iter().any(|existing| existing == &source) {
+		sources.push(source);
+	}
 }
 
 fn collect_symbols(

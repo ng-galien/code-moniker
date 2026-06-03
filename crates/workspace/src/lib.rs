@@ -6,6 +6,7 @@ pub mod extract;
 pub mod lang;
 pub mod lines;
 pub mod linkage;
+pub mod live;
 pub mod notes;
 pub mod registry;
 pub mod snapshot;

@@ -6,7 +6,6 @@ use crate::ui::app::state::{
 	status,
 };
 use crate::ui::async_task::{TaskResult, TaskSpec};
-use crate::ui::live::StoreEvent;
 use crate::ui::store::ids::NodeId;
 use crate::ui::store::navigation::{
 	NavigationAction, NavigationPane, NavigationState, navigation_last_notice,
@@ -14,6 +13,7 @@ use crate::ui::store::navigation::{
 };
 use crate::ui::store::reducer::{Reduce, ReducerStore, Reduction, Transition};
 use crate::ui::store::tree_pane_action::TreePaneNotice;
+use code_moniker_workspace::live::WorkspaceLiveEvent;
 
 pub(in crate::ui) struct AppStore {
 	inner: ReducerStore<AppState>,
@@ -167,13 +167,8 @@ impl Reduce<&AppAction> for AppState {
 			AppAction::UsageLensDebounced(_) => Transition::unchanged(),
 			AppAction::Shell(action) => reduce_shell_action(self, action),
 			AppAction::Store(event) => {
-				invalidate_for_store_event(self, *event);
-				match event {
-					StoreEvent::FullIndex => Transition::changed(),
-					StoreEvent::GitOverlay => Transition::changed(),
-					StoreEvent::GitOverlayAndNotes => Transition::changed(),
-					StoreEvent::Notes => Transition::changed(),
-				}
+				invalidate_for_store_event(self, event);
+				store_event_transition(event)
 			}
 			AppAction::TaskStarted {
 				id,
@@ -190,4 +185,8 @@ impl Reduce<&AppAction> for AppState {
 			AppAction::Clipboard(_) => Transition::unchanged(),
 		}
 	}
+}
+
+fn store_event_transition(_event: &WorkspaceLiveEvent) -> Transition {
+	Transition::changed()
 }

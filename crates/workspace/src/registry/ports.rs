@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::live::WorkspaceWatchRoot;
 use crate::snapshot::{
 	WorkspaceFailure, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
 };
@@ -12,7 +13,10 @@ pub struct WorkspacePorts<Sources, Index, Linkage, Changes> {
 	pub(crate) code_index: Index,
 	pub(crate) linkage: Linkage,
 	pub(crate) change_overlay: Changes,
+	live_watch_roots: Box<LiveWatchRoots>,
 }
+
+type LiveWatchRoots = dyn Fn(Option<&WorkspaceSnapshot>) -> Vec<WorkspaceWatchRoot> + Send + Sync;
 
 impl<Sources, Index, Linkage, Changes> WorkspacePorts<Sources, Index, Linkage, Changes> {
 	pub fn new(
@@ -26,7 +30,23 @@ impl<Sources, Index, Linkage, Changes> WorkspacePorts<Sources, Index, Linkage, C
 			code_index,
 			linkage,
 			change_overlay,
+			live_watch_roots: Box::new(|_| Vec::new()),
 		}
+	}
+
+	pub(crate) fn with_live_watch_roots<F>(mut self, live_watch_roots: F) -> Self
+	where
+		F: Fn(Option<&WorkspaceSnapshot>) -> Vec<WorkspaceWatchRoot> + Send + Sync + 'static,
+	{
+		self.live_watch_roots = Box::new(live_watch_roots);
+		self
+	}
+
+	pub(crate) fn live_watch_roots(
+		&self,
+		snapshot: Option<&WorkspaceSnapshot>,
+	) -> Vec<WorkspaceWatchRoot> {
+		(self.live_watch_roots)(snapshot)
 	}
 }
 

@@ -1,8 +1,10 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::changes::ChangeOverlayPort;
 use crate::code::CodeIndexPort;
 use crate::linkage::LinkagePort;
+use crate::live::WorkspaceWatchRoot;
 use crate::snapshot::{
 	ResourceGeneration, WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult,
 	WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
@@ -10,8 +12,8 @@ use crate::snapshot::{
 use crate::source::SourceCatalogPort;
 
 use super::build::{
-	build_catalog_snapshot, build_complete_snapshot, build_index_only_snapshot,
-	build_linkage_snapshot,
+	build_catalog_snapshot, build_change_overlay_snapshot, build_complete_snapshot,
+	build_incremental_paths_snapshot, build_index_only_snapshot, build_linkage_snapshot,
 };
 use super::command::{
 	WorkspaceCommand, WorkspaceCommandId, WorkspaceCommandKind, WorkspaceCommandSpec,
@@ -76,6 +78,12 @@ impl<Sources, Index, Linkage, Changes> WorkspaceRegistry<Sources, Index, Linkage
 		WorkspaceEvents {
 			events: &self.events,
 		}
+	}
+
+	pub fn watch_roots(&self) -> Vec<WorkspaceWatchRoot> {
+		self.runtime
+			.ports
+			.live_watch_roots(self.runtime.state.snapshot())
 	}
 }
 
@@ -177,6 +185,50 @@ where
 			WorkspaceScopeUri::workspace(),
 			request,
 		))
+	}
+
+	pub fn refresh_paths(
+		&mut self,
+		request: WorkspaceRequest,
+		paths: Vec<PathBuf>,
+	) -> WorkspaceTransition {
+		let command = WorkspaceCommand::new(
+			self.allocate_command_id(),
+			WorkspaceScopeUri::workspace(),
+			WorkspaceCommandKind::RefreshPaths,
+			request,
+		);
+		let generation = self.runtime.state.allocate_generation();
+		let context = WorkspaceEventContext::new(command.scope_uri, generation, command.id);
+		publish_command_started(self.events, &context);
+		let result = build_incremental_paths_snapshot(
+			self.runtime.state.snapshot(),
+			&mut self.runtime.ports.code_index,
+			&mut self.runtime.ports.linkage,
+			command.request,
+			&paths,
+			generation,
+		);
+		publish_command_finished(self.runtime, self.events, &context, result)
+	}
+
+	pub fn refresh_changes(&mut self, request: WorkspaceRequest) -> WorkspaceTransition {
+		let command = WorkspaceCommand::new(
+			self.allocate_command_id(),
+			WorkspaceScopeUri::workspace(),
+			WorkspaceCommandKind::RefreshChanges,
+			request,
+		);
+		let generation = self.runtime.state.allocate_generation();
+		let context = WorkspaceEventContext::new(command.scope_uri, generation, command.id);
+		publish_command_started(self.events, &context);
+		let result = build_change_overlay_snapshot(
+			self.runtime.state.snapshot(),
+			&mut self.runtime.ports.change_overlay,
+			command.request,
+			generation,
+		);
+		publish_command_finished(self.runtime, self.events, &context, result)
 	}
 
 	pub fn publish_snapshot(
@@ -334,6 +386,16 @@ where
 			request,
 			generation,
 		),
+		WorkspaceCommandKind::RefreshPaths => Err(WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			"RefreshPaths commands require changed paths",
+		)),
+		WorkspaceCommandKind::RefreshChanges => build_change_overlay_snapshot(
+			runtime.state.snapshot(),
+			&mut runtime.ports.change_overlay,
+			request,
+			generation,
+		),
 		WorkspaceCommandKind::PublishSnapshot => Err(WorkspaceFailure::new(
 			WorkspaceResource::CodeIndex,
 			"PublishSnapshot commands require a snapshot payload",
@@ -361,4 +423,89 @@ where
 		request,
 		generation,
 	)
+}
+
+#[cfg(test)]
+mod tests {
+	use std::fs;
+
+	use crate::LocalWorkspaceOptions;
+
+	use super::*;
+
+	#[test]
+	fn refresh_paths_publishes_symbols_from_modified_source() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let cache_dir = temp.path().join(".cache");
+		let source = temp.path().join("lib.rs");
+		fs::write(&source, "pub fn before_live_refresh() {}\n").expect("write source");
+		let mut registry = crate::LocalWorkspaceRegistry::local(
+			LocalWorkspaceOptions::new(vec![temp.path().to_path_buf()], None)
+				.with_cache_dir(Some(cache_dir)),
+		);
+
+		assert!(matches!(
+			registry
+				.commands()
+				.load_index(WorkspaceRequest::new("acceptance-index")),
+			WorkspaceTransition::Ready { .. }
+		));
+		assert!(snapshot_has_symbol(&registry, "before_live_refresh"));
+
+		fs::write(&source, "pub fn after_live_refresh() {}\n").expect("rewrite source");
+
+		assert!(matches!(
+			registry.commands().refresh_paths(
+				WorkspaceRequest::new("acceptance-live-refresh"),
+				vec![source]
+			),
+			WorkspaceTransition::Ready { .. }
+		));
+
+		assert!(snapshot_has_symbol(&registry, "after_live_refresh"));
+		assert!(!snapshot_has_symbol(&registry, "before_live_refresh"));
+	}
+
+	#[test]
+	fn live_watch_roots_cover_directories_without_indexed_sources() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let source_dir = temp.path().join("src");
+		let empty_source_dir = temp.path().join("tests");
+		fs::create_dir_all(&source_dir).expect("src dir");
+		fs::create_dir_all(&empty_source_dir).expect("tests dir");
+		fs::write(source_dir.join("lib.rs"), "pub fn indexed_source() {}\n").expect("write source");
+		let mut registry = crate::LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+			vec![temp.path().to_path_buf()],
+			None,
+		));
+
+		assert!(matches!(
+			registry
+				.commands()
+				.load_index(WorkspaceRequest::new("acceptance-index")),
+			WorkspaceTransition::Ready { .. }
+		));
+
+		let expected = empty_source_dir
+			.canonicalize()
+			.expect("canonical tests dir");
+		assert!(
+			registry
+				.watch_roots()
+				.iter()
+				.any(|root| root.path == expected),
+			"workspace live watch roots should include empty source directory {}",
+			expected.display()
+		);
+	}
+
+	fn snapshot_has_symbol(registry: &crate::LocalWorkspaceRegistry, name: &str) -> bool {
+		registry.queries().snapshot().is_some_and(|snapshot| {
+			snapshot
+				.index
+				.symbols
+				.iter()
+				.any(|symbol| symbol.name.contains(name))
+		})
+	}
 }

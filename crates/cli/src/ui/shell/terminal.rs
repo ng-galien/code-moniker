@@ -18,9 +18,9 @@ use crate::ui::app::{
 	App, AppAction, boot_app, handle_key, queue_startup_load, set_event_sender,
 	take_watch_roots_update, update,
 };
-use crate::ui::live::StoreEvent;
 use crate::ui::perf;
 use crate::ui::render::view;
+use code_moniker_workspace::live::WorkspaceLiveEvent;
 
 pub(crate) struct UiSession {
 	app: App,
@@ -69,11 +69,8 @@ fn app_loop<W: Write>(
 	terminal: &mut Terminal<CrosstermBackend<&mut W>>,
 	app: &mut App,
 ) -> anyhow::Result<()> {
-	let mut events = EventSource::start(crate::ui::app::store_watch_roots(app));
+	let mut events = EventSource::start(Vec::new());
 	set_event_sender(app, events.sender());
-	if let Some(status) = events.status.as_deref() {
-		crate::ui::app::set_status(app, status);
-	}
 	queue_startup_load(app);
 	draw_terminal(terminal, app, "initial")?;
 	loop {
@@ -119,7 +116,7 @@ fn draw_app(frame: &mut ratatui::Frame<'_>, app: &mut App) {
 }
 
 fn handle_app_events(events: Vec<ShellEvent>, app: &mut App) -> anyhow::Result<bool> {
-	let mut store_event: Option<StoreEvent> = None;
+	let mut store_event: Option<WorkspaceLiveEvent> = None;
 	for event in events {
 		match event {
 			ShellEvent::Terminal(Event::Key(key)) if key.kind == KeyEventKind::Press => {

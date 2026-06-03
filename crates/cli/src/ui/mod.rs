@@ -8,7 +8,6 @@ mod async_task;
 mod clipboard;
 mod events;
 mod explorer;
-mod live;
 mod nav_notes;
 mod panel;
 mod perf;

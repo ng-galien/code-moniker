@@ -10,9 +10,9 @@ use crate::ui::app::{
 	App, AppConfig, FocusRegion, focus_region, handle_key, handle_store_event_sync, new_app,
 	toggle_selected_nav,
 };
-use crate::ui::live::StoreEvent;
 use crate::ui::render::view;
 use crate::ui::workspace_read::{load_local_file_catalog, load_local_workspace};
+use code_moniker_workspace::live::WorkspaceLiveEvent;
 
 const MULTIPROJECT_FIXTURE: &str = "../workspace/tests/fixtures/projects/java/multiprojet";
 const RUST_MULTIPROJECT_FIXTURE: &str = "../workspace/tests/fixtures/projects/rust/multiproject";
@@ -302,7 +302,7 @@ fn notes_on_selected_symbol_are_visible_in_navigator_and_outline() {
 	harness.search("App");
 	let moniker = selected_symbol_identity(&harness.app);
 	write_note_fixture(&fixture, &moniker);
-	handle_store_event_sync(&mut harness.app, StoreEvent::Notes);
+	handle_store_event_sync(&mut harness.app, WorkspaceLiveEvent::Notes);
 
 	let screen = harness.render_text(120, 32);
 
@@ -421,7 +421,7 @@ fn malformed_notes_file_is_visible_in_notes_surfaces() {
 	let (mut harness, fixture) = load_notes_fixture();
 	harness.search("App");
 	write_under(&fixture, ".code-moniker/notes.toml", "[[notes]\n");
-	handle_store_event_sync(&mut harness.app, StoreEvent::Notes);
+	handle_store_event_sync(&mut harness.app, WorkspaceLiveEvent::Notes);
 
 	let outline = harness.render_text(140, 36);
 	assert_visible(&outline, "notes unavailable");
@@ -465,7 +465,7 @@ fn notes_lens_flags_orphan_notes() {
 		updated_at = "2026-06-02T00:00:00Z"
 		"#,
 	);
-	handle_store_event_sync(&mut harness.app, StoreEvent::Notes);
+	handle_store_event_sync(&mut harness.app, WorkspaceLiveEvent::Notes);
 
 	harness.press(KeyCode::Char('8'));
 	let screen = harness.render_text(160, 40);

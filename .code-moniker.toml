@@ -16,7 +16,8 @@ crate_cli  = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 crate_pg   = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
 workspace_public_boundary_target = """
   target ~ '**/external_pkg:code_moniker_workspace'
-  OR target ~ '**/external_pkg:code_moniker_workspace/path:/^(cache|changes|code|environment|extract|facade|lang|lines|linkage|notes|snapshot|source|sources|tsconfig|walk)$/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:LocalWorkspaceRegistry'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:/^(cache|changes|code|environment|extract|facade|lang|lines|linkage|live|notes|registry|snapshot|source|sources|tsconfig|walk)$/**'
 """
 workspace_crate_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
 cli_workspace_index = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:workspace_index'"
@@ -25,6 +26,11 @@ workspace_notes_persistence_target = """
   OR target ~ '**/external_pkg:code_moniker_workspace/path:notes/path:store/**'
 """
 workspace_notes_state_target = "target ~ '**/external_pkg:code_moniker_workspace/path:notes/path:WorkspaceNotes'"
+workspace_live_watch_roots_builder_target = "target ~ '**/external_pkg:code_moniker_workspace/path:live/path:watch_roots_for_paths'"
+workspace_live_public_contract_target = """
+  target ~ '**/external_pkg:code_moniker_workspace/path:live'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:live/path:/^(LiveWorkspaceWatcher|WorkspaceLiveEvent|WorkspaceLiveRefreshPlan|WorkspaceWatchRoot)$/'
+"""
 # Per-crate integration tests / examples.
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
@@ -37,9 +43,6 @@ uris = [
 
 [profiles.agent]
 enable = [".*"]
-disable = [
-  "^refs\\.cli-consumes-workspace-public-boundaries$",
-]
 
 [profiles.smells]
 enable = ["\\.smell-"]
@@ -107,6 +110,29 @@ rationale = """
 `WorkspaceNotes` is the shared state handle for note reload, snapshots, and mutation. CLI
 features should not instantiate or hold it directly; they should consume the existing
 workspace index facade so live refresh and MCP/TUI behavior stay consistent.
+"""
+
+[[refs.where]]
+id        = "live-watch-roots-owned-by-workspace"
+severity  = "error"
+expr      = "NOT $crate_workspace => NOT $workspace_live_watch_roots_builder_target"
+message   = "Live watch roots are owned by `code-moniker-workspace`; consumers must use the workspace registry surface."
+rationale = """
+TUI, MCP, and other adapters may run a watcher and handle live events, but the choice of
+filesystem, Git, cache, and notes roots is workspace policy. Keeping `watch_roots_for_paths`
+inside the workspace crate prevents adapters from duplicating or drifting from the shared
+live-refresh contract.
+"""
+
+[[refs.where]]
+id        = "consumers-use-workspace-live-contract"
+severity  = "error"
+expr      = "NOT $crate_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module') AND target ~ '**/external_pkg:code_moniker_workspace/path:live/**' => $workspace_live_public_contract_target"
+message   = "Consumers may only import the public live contract from `code-moniker-workspace`."
+rationale = """
+Workspace live policy owns watch root construction, event classification, and refresh planning.
+CLI/TUI/MCP adapters may run the watcher and react to public live events, but they must not
+consume classifier internals or helper functions that would duplicate workspace policy.
 """
 
 [[refs.where]]

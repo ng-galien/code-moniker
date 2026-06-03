@@ -8,8 +8,10 @@ use crate::session::{CheckSummary, SessionOptions};
 use crate::ui::perf;
 use crate::ui::workspace_read::{
 	self, LocalWorkspaceRegistry, WorkspaceCheckContext, load_local_file_catalog,
-	load_local_symbol_index, load_local_symbol_index_from_catalog, resolve_local_linkage,
+	load_local_symbol_index, load_local_symbol_index_from_catalog,
+	refresh_local_workspace_live_plan, resolve_local_linkage,
 };
+use code_moniker_workspace::live::WorkspaceLiveRefreshPlan;
 use code_moniker_workspace::snapshot::WorkspaceSnapshot;
 use code_moniker_workspace::source::LocalResourceCache;
 
@@ -110,6 +112,25 @@ impl TaskSpec {
 		}
 	}
 
+	pub(in crate::ui) fn refresh_workspace_live_plan(
+		opts: SessionOptions,
+		cache: LocalResourceCache,
+		snapshot: Arc<WorkspaceSnapshot>,
+		plan: WorkspaceLiveRefreshPlan,
+	) -> Self {
+		Self {
+			id: TaskId::next(),
+			generation: 0,
+			label: "refresh live workspace".to_string(),
+			kind: TaskKind::RefreshWorkspaceLivePlan {
+				opts,
+				cache,
+				snapshot,
+				plan,
+			},
+		}
+	}
+
 	pub(in crate::ui) fn run_check(
 		context: WorkspaceCheckContext,
 		rules: PathBuf,
@@ -162,6 +183,12 @@ enum TaskKind {
 		cache: LocalResourceCache,
 		snapshot: Arc<WorkspaceSnapshot>,
 	},
+	RefreshWorkspaceLivePlan {
+		opts: SessionOptions,
+		cache: LocalResourceCache,
+		snapshot: Arc<WorkspaceSnapshot>,
+		plan: WorkspaceLiveRefreshPlan,
+	},
 	RunCheck {
 		context: WorkspaceCheckContext,
 		rules: PathBuf,
@@ -187,6 +214,7 @@ impl TaskKind {
 			Self::LoadFileCatalog { .. } => "load_file_catalog",
 			Self::LoadSymbolIndex { .. } => "load_symbol_index",
 			Self::ResolveLinkage { .. } => "resolve_linkage",
+			Self::RefreshWorkspaceLivePlan { .. } => "refresh_workspace_live_plan",
 			Self::RunCheck { .. } => "run_check",
 		}
 	}
@@ -196,6 +224,7 @@ impl TaskKind {
 			Self::LoadFileCatalog { .. } => WorkKind::FileCatalog,
 			Self::LoadSymbolIndex { .. } => WorkKind::GraphIndex,
 			Self::ResolveLinkage { .. } => WorkKind::LinkageGraph,
+			Self::RefreshWorkspaceLivePlan { .. } => WorkKind::LinkageGraph,
 			Self::RunCheck { .. } => WorkKind::CheckPanel,
 		}
 	}
@@ -345,6 +374,15 @@ fn execute_task_kind(kind: TaskKind) -> TaskOutcome {
 			cache,
 			snapshot,
 		} => match resolve_local_linkage(&opts, cache, snapshot) {
+			Ok((store, cache)) => TaskOutcome::LinkageResolved(Box::new((store, cache, opts))),
+			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
+		},
+		TaskKind::RefreshWorkspaceLivePlan {
+			opts,
+			cache,
+			snapshot,
+			plan,
+		} => match refresh_local_workspace_live_plan(&opts, cache, snapshot, plan) {
 			Ok((store, cache)) => TaskOutcome::LinkageResolved(Box::new((store, cache, opts))),
 			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
 		},

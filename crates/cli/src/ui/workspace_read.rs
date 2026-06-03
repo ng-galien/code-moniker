@@ -9,6 +9,7 @@ use code_moniker_core::core::shape::{Shape, shape_of};
 use code_moniker_core::core::uri::{UriConfig, from_uri};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::code::compact_moniker;
+use code_moniker_workspace::live::WorkspaceLiveRefreshPlan;
 use code_moniker_workspace::registry::{LocalWorkspaceOptions, WorkspaceSnapshotPublication};
 use code_moniker_workspace::snapshot::{
 	ChangeId, ChangeStatus, ReferenceId, SourceFileRecord, SourceId, SymbolId, SymbolRecord,
@@ -206,12 +207,85 @@ pub(in crate::ui) fn resolve_local_linkage(
 	}
 }
 
+pub(in crate::ui) fn refresh_local_workspace_live_plan(
+	opts: &SessionOptions,
+	cache: LocalResourceCache,
+	snapshot: Arc<WorkspaceSnapshot>,
+	plan: WorkspaceLiveRefreshPlan,
+) -> anyhow::Result<(
+	code_moniker_workspace::LocalWorkspaceRegistry,
+	LocalResourceCache,
+)> {
+	let (mut registry, cache) = new_local_workspace_with_cache(opts, cache);
+	registry
+		.commands()
+		.publish_snapshot(WorkspaceSnapshotPublication::workspace(
+			WorkspaceRequest::new("live-refresh-seed"),
+			snapshot,
+		));
+	apply_live_refresh_plan(&mut registry, &plan)?;
+	Ok((registry, cache))
+}
+
+fn apply_live_refresh_plan(
+	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
+	plan: &WorkspaceLiveRefreshPlan,
+) -> anyhow::Result<()> {
+	if plan.requires_rescan() {
+		refresh_workspace_all(registry, "workspace-live-rescan")?;
+	} else if !plan.source_paths().is_empty()
+		&& refresh_workspace_paths(registry, plan.source_paths().to_vec()).is_err()
+	{
+		refresh_workspace_all(registry, "workspace-live-paths-fallback")?;
+	}
+	if plan.includes_git_base() {
+		refresh_workspace_changes(registry)?;
+	}
+	Ok(())
+}
+
+fn refresh_workspace_all(
+	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
+	label: &str,
+) -> anyhow::Result<()> {
+	match registry.commands().refresh(WorkspaceRequest::new(label)) {
+		WorkspaceTransition::Ready { .. } => Ok(()),
+		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
+	}
+}
+
+fn refresh_workspace_paths(
+	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
+	paths: Vec<PathBuf>,
+) -> anyhow::Result<()> {
+	match registry
+		.commands()
+		.refresh_paths(WorkspaceRequest::new("workspace-live-paths"), paths)
+	{
+		WorkspaceTransition::Ready { .. } => Ok(()),
+		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
+	}
+}
+
+#[cfg(test)]
 pub(in crate::ui) fn refresh_workspace(
 	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
 ) -> anyhow::Result<()> {
 	match registry
 		.commands()
 		.refresh(WorkspaceRequest::new("workspace"))
+	{
+		WorkspaceTransition::Ready { .. } => Ok(()),
+		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
+	}
+}
+
+fn refresh_workspace_changes(
+	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
+) -> anyhow::Result<()> {
+	match registry
+		.commands()
+		.refresh_changes(WorkspaceRequest::new("workspace-live-git-base"))
 	{
 		WorkspaceTransition::Ready { .. } => Ok(()),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
@@ -695,11 +769,41 @@ pub(in crate::ui) fn unresolved_linkage_report(
 			});
 		}
 	}
+	for blocked in &snapshot.linkage.manifest_blocked {
+		let Some(reference) = reference_by_id(store, &blocked.reference) else {
+			continue;
+		};
+		let Some(source) = source_file_by_id(store, &reference.source) else {
+			continue;
+		};
+		let entry = groups_by_file
+			.entry(reference.source.clone())
+			.or_insert_with(|| UnresolvedLinkageGroup {
+				lang: Lang::from_tag(&source.language).unwrap_or(Lang::Rs),
+				file_path: PathBuf::from(&source.rel_path),
+				unresolved_refs: 0,
+				manifest_blocked_refs: 0,
+				samples: Vec::new(),
+			});
+		entry.manifest_blocked_refs += 1;
+		if entry.samples.len() < samples_per_file {
+			entry.samples.push(UnresolvedLinkageSample {
+				reason: "manifest-blocked",
+				kind: reference.kind.clone(),
+				target: compact_identity(store, &reference.target_identity),
+				source: symbol_by_id(store, &reference.source_symbol)
+					.map(|symbol| symbol.name.clone())
+					.unwrap_or_else(|| reference.source_symbol.as_str().to_string()),
+				location: reference_location(store, reference),
+			});
+		}
+	}
 	let mut groups = groups_by_file.into_values().collect::<Vec<_>>();
 	groups.sort_by(|left, right| {
-		right
-			.unresolved_refs
-			.cmp(&left.unresolved_refs)
+		let left_total = left.unresolved_refs + left.manifest_blocked_refs;
+		let right_total = right.unresolved_refs + right.manifest_blocked_refs;
+		right_total
+			.cmp(&left_total)
 			.then_with(|| left.file_path.cmp(&right.file_path))
 	});
 	let files = groups.len();

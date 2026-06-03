@@ -19,6 +19,11 @@ impl<'a> LinkageView<'a> {
 				*sources.entry(source).or_default() += 1;
 			}
 		}
+		for blocked in &self.snapshot.linkage.manifest_blocked {
+			if let Some(source) = self.reference_source(&blocked.reference) {
+				*sources.entry(source).or_default() += 1;
+			}
+		}
 		UnresolvedLinkageReport {
 			unresolved_refs: self.snapshot.linkage.unresolved_refs,
 			sources,

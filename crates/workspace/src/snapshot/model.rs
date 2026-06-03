@@ -440,6 +440,7 @@ pub struct LinkageGraph {
 	pub ambiguous_refs: usize,
 	pub resolved: Vec<LinkageEdge>,
 	pub external: Vec<ExternalReference>,
+	pub manifest_blocked: Vec<UnresolvedReference>,
 	pub unresolved: Vec<UnresolvedReference>,
 }
 
@@ -460,6 +461,7 @@ impl LinkageGraph {
 			ambiguous_refs: 0,
 			resolved: Vec::new(),
 			external: Vec::new(),
+			manifest_blocked: Vec::new(),
 			unresolved: Vec::new(),
 		}
 	}
@@ -482,6 +484,7 @@ impl LinkageGraph {
 			ambiguous_refs: 0,
 			resolved,
 			external: Vec::new(),
+			manifest_blocked: Vec::new(),
 			unresolved,
 		}
 	}
@@ -489,6 +492,7 @@ impl LinkageGraph {
 	pub fn from_report(mut report: LinkageGraphReport) -> Self {
 		report.resolved.shrink_to_fit();
 		report.external.shrink_to_fit();
+		report.manifest_blocked.shrink_to_fit();
 		report.unresolved.shrink_to_fit();
 		Self {
 			generation: report.generation,
@@ -500,6 +504,7 @@ impl LinkageGraph {
 			ambiguous_refs: report.ambiguous_refs,
 			resolved: report.resolved,
 			external: report.external,
+			manifest_blocked: report.manifest_blocked,
 			unresolved: report.unresolved,
 		}
 	}
@@ -515,6 +520,7 @@ pub struct LinkageGraphReport {
 	pub ambiguous_refs: usize,
 	pub resolved: Vec<LinkageEdge>,
 	pub external: Vec<ExternalReference>,
+	pub manifest_blocked: Vec<UnresolvedReference>,
 	pub unresolved: Vec<UnresolvedReference>,
 }
 

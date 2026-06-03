@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use code_moniker_workspace::registry::{
@@ -10,6 +11,112 @@ fn fixture_path(path: impl AsRef<Path>) -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR"))
 		.join("tests/fixtures")
 		.join(path)
+}
+
+#[test]
+fn refresh_paths_garbage_collects_stale_unresolved_refs_when_provider_symbols_change() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let lib = src.join("lib.rs");
+	let consumer = src.join("consumer.rs");
+	let provider = src.join("provider.rs");
+	fs::write(&lib, "pub mod consumer;\npub mod provider;\n").expect("write lib");
+	fs::write(
+		&consumer,
+		"use crate::provider::provided;\npub fn call_provider() { provided(); }\n",
+	)
+	.expect("write consumer");
+	fs::write(&provider, "").expect("write provider");
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh(WorkspaceRequest::new("initial-refresh")),
+		WorkspaceTransition::Ready { .. }
+	));
+	let initial = workspace.queries().snapshot().expect("initial snapshot");
+	assert!(
+		!reference_resolves_to_symbol(initial, "provided", "provided"),
+		"`provided` should start unresolved before provider exports it"
+	);
+
+	fs::write(&provider, "pub fn provided() {}\n").expect("rewrite provider");
+	assert!(matches!(
+		workspace.commands().refresh_paths(
+			WorkspaceRequest::new("provider-live-refresh"),
+			vec![provider]
+		),
+		WorkspaceTransition::Ready { .. }
+	));
+	let refreshed = workspace.queries().snapshot().expect("refreshed snapshot");
+
+	assert!(
+		reference_resolves_to_symbol(refreshed, "provided", "provided"),
+		"`provided` reference from unchanged consumer should be resolved after provider refresh"
+	);
+}
+
+#[test]
+fn refresh_paths_garbage_collects_stale_manifest_policy_refs_when_manifest_changes() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let manifest = temp.path().join("package.json");
+	let app = src.join("app.ts");
+	fs::write(
+		&manifest,
+		r#"{"name":"manifest-live-refresh","version":"1.0.0","dependencies":{}}"#,
+	)
+	.expect("write manifest");
+	fs::write(
+		&app,
+		"import { create } from 'zustand';\nexport const store = create(() => ({ count: 0 }));\n",
+	)
+	.expect("write app");
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh(WorkspaceRequest::new("initial-refresh")),
+		WorkspaceTransition::Ready { .. }
+	));
+	let initial = workspace.queries().snapshot().expect("initial snapshot");
+	assert!(
+		!reference_is_external(initial, "external_pkg:zustand/function:create"),
+		"`zustand/create` should not be external before the manifest declares zustand"
+	);
+
+	fs::write(
+		&manifest,
+		r#"{"name":"manifest-live-refresh","version":"1.0.0","dependencies":{"zustand":"latest"}}"#,
+	)
+	.expect("rewrite manifest");
+	assert!(matches!(
+		workspace.commands().refresh_paths(
+			WorkspaceRequest::new("manifest-live-refresh"),
+			vec![manifest]
+		),
+		WorkspaceTransition::Ready { .. }
+	));
+	let refreshed = workspace.queries().snapshot().expect("refreshed snapshot");
+
+	assert!(
+		reference_is_external(refreshed, "external_pkg:zustand/function:create"),
+		"`zustand/create` should become external after manifest refresh"
+	);
+	assert!(
+		!reference_is_unresolved(refreshed, "external_pkg:zustand/function:create"),
+		"`zustand/create` stale unresolved projection should be garbage collected"
+	);
 }
 
 #[test]
@@ -189,4 +296,65 @@ fn assert_command_events(
 			.iter()
 			.all(|event| event.generation.value() == generation)
 	);
+}
+
+fn reference_resolves_to_symbol(
+	snapshot: &code_moniker_workspace::snapshot::WorkspaceSnapshot,
+	reference_target: &str,
+	symbol_identity: &str,
+) -> bool {
+	snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| reference.target_identity.contains(reference_target))
+		.any(|reference| {
+			snapshot
+				.linkage
+				.resolved
+				.iter()
+				.filter(|edge| edge.reference == reference.id)
+				.any(|edge| {
+					snapshot.index.symbols.iter().any(|symbol| {
+						symbol.id == edge.target && symbol.identity.contains(symbol_identity)
+					})
+				})
+		})
+}
+
+fn reference_is_external(
+	snapshot: &code_moniker_workspace::snapshot::WorkspaceSnapshot,
+	reference_target: &str,
+) -> bool {
+	snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| reference.target_identity.contains(reference_target))
+		.any(|reference| {
+			snapshot
+				.linkage
+				.external
+				.iter()
+				.any(|external| external.reference == reference.id)
+		})
+}
+
+fn reference_is_unresolved(
+	snapshot: &code_moniker_workspace::snapshot::WorkspaceSnapshot,
+	reference_target: &str,
+) -> bool {
+	snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| reference.target_identity.contains(reference_target))
+		.any(|reference| {
+			snapshot
+				.linkage
+				.unresolved
+				.iter()
+				.chain(snapshot.linkage.manifest_blocked.iter())
+				.any(|unresolved| unresolved.reference == reference.id)
+		})
 }

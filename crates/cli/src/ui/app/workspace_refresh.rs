@@ -5,97 +5,75 @@ use crate::ui::app::{
 	sync_contextual_view,
 };
 use crate::ui::async_task::TaskSpec;
-use crate::ui::live::StoreEvent;
 use crate::ui::perf;
 use crate::ui::store::navigation::{NavigationAction, navigation_primary_view};
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
 use crate::ui::workspace_read;
+use code_moniker_workspace::live::{WorkspaceLiveEvent, WorkspaceLiveRefreshPlan};
 
 #[derive(Clone, Copy)]
 enum StoreChangeKind {
 	FileCatalog,
 	Reloaded,
-	GitOverlay,
 	Notes,
 }
 
-pub(in crate::ui) fn handle_store_event(app: &mut App, event: StoreEvent) {
-	if queue_store_task(app, event) {
-		return;
-	}
+pub(in crate::ui) fn handle_store_event(app: &mut App, event: WorkspaceLiveEvent) {
 	handle_store_event_sync(app, event);
 }
 
-fn queue_store_task(app: &mut App, event: StoreEvent) -> bool {
-	let task = match event {
-		StoreEvent::GitOverlay => linkage_or_index_task(app),
-		StoreEvent::GitOverlayAndNotes => {
-			let _ = crate::ui::app::reload_notes(app);
-			linkage_or_index_task(app)
-		}
-		StoreEvent::Notes => return false,
-		StoreEvent::FullIndex => TaskSpec::load_symbol_index(crate::ui::app::store_options(app)),
-	};
-	queue_task(app, task)
+pub(in crate::ui) fn handle_store_event_sync(app: &mut App, event: WorkspaceLiveEvent) {
+	let plan = WorkspaceLiveRefreshPlan::from_event(event);
+	if should_queue_workspace_live_plan(&plan) {
+		queue_workspace_live_plan(app, plan);
+		return;
+	}
+	if plan.includes_notes() {
+		refresh_workspace_notes(app);
+	}
 }
 
-fn linkage_or_index_task(app: &App) -> TaskSpec {
-	let Some(snapshot) = crate::ui::app::store(app).queries().snapshot_arc() else {
-		return TaskSpec::load_symbol_index(crate::ui::app::store_options(app));
-	};
-	if snapshot.index.symbols.is_empty() {
-		return TaskSpec::load_symbol_index(crate::ui::app::store_options(app));
+fn should_queue_workspace_live_plan(plan: &WorkspaceLiveRefreshPlan) -> bool {
+	plan.requires_rescan() || !plan.source_paths().is_empty() || plan.includes_git_base()
+}
+
+fn refresh_workspace_notes(app: &mut App) {
+	match crate::ui::app::reload_notes(app) {
+		Ok(()) => {
+			refresh_ui_after_store_change(
+				app,
+				StoreChangeKind::Notes,
+				"notes refreshed".to_string(),
+			);
+		}
+		Err(error) => {
+			crate::ui::app::set_status(app, format!("notes reload failed: {error:#}"));
+		}
 	}
-	TaskSpec::resolve_linkage(
+}
+
+fn queue_workspace_live_plan(app: &mut App, plan: WorkspaceLiveRefreshPlan) {
+	let Some(snapshot) = crate::ui::app::store(app).queries().snapshot_arc() else {
+		queue_workspace_rescan(app);
+		return;
+	};
+	let task = TaskSpec::refresh_workspace_live_plan(
 		crate::ui::app::store_options(app),
 		app.workspace.cache().clone(),
 		snapshot,
-	)
+		plan,
+	);
+	if queue_task(app, task) {
+		crate::ui::app::set_status(app, "live workspace refresh queued in background");
+	}
 }
 
-pub(in crate::ui) fn handle_store_event_sync(app: &mut App, event: StoreEvent) {
-	match event {
-		StoreEvent::GitOverlay => {
-			if crate::ui::workspace_read::refresh_workspace(crate::ui::app::store_mut(app)).is_ok()
-			{
-				crate::ui::app::publish_workspace_snapshot(app);
-			}
-			apply_refreshed_change_store(app, "git overlay refreshed".to_string());
-		}
-		StoreEvent::GitOverlayAndNotes => {
-			if crate::ui::workspace_read::refresh_workspace(crate::ui::app::store_mut(app)).is_ok()
-			{
-				crate::ui::app::publish_workspace_snapshot(app);
-			}
-			let notes_status = crate::ui::app::reload_notes(app).err();
-			apply_refreshed_change_store(app, "git overlay and notes refreshed".to_string());
-			if let Some(error) = notes_status {
-				crate::ui::app::set_status(app, format!("notes reload failed: {error:#}"));
-			}
-		}
-		StoreEvent::Notes => match crate::ui::app::reload_notes(app) {
-			Ok(()) => {
-				refresh_ui_after_store_change(
-					app,
-					StoreChangeKind::Notes,
-					"notes refreshed".to_string(),
-				);
-			}
-			Err(error) => {
-				crate::ui::app::set_status(app, format!("notes reload failed: {error:#}"));
-			}
-		},
-		StoreEvent::FullIndex => {
-			match crate::ui::workspace_read::refresh_workspace(crate::ui::app::store_mut(app)) {
-				Ok(()) => {
-					crate::ui::app::publish_workspace_snapshot(app);
-					apply_reloaded_store(app, "store reloaded after filesystem change".to_string());
-				}
-				Err(error) => {
-					crate::ui::app::set_status(app, format!("store reload failed: {error:#}"));
-				}
-			}
-		}
+fn queue_workspace_rescan(app: &mut App) {
+	if queue_task(
+		app,
+		TaskSpec::load_symbol_index(crate::ui::app::store_options(app)),
+	) {
+		crate::ui::app::set_status(app, "workspace rescan queued in background");
 	}
 }
 
@@ -105,10 +83,6 @@ pub(in crate::ui) fn apply_file_catalog_store(app: &mut App, status: String) {
 
 pub(in crate::ui) fn apply_reloaded_store(app: &mut App, status: String) {
 	refresh_ui_after_store_change(app, StoreChangeKind::Reloaded, status);
-}
-
-fn apply_refreshed_change_store(app: &mut App, status: String) {
-	refresh_ui_after_store_change(app, StoreChangeKind::GitOverlay, status);
 }
 
 fn refresh_ui_after_store_change(app: &mut App, kind: StoreChangeKind, status: String) {

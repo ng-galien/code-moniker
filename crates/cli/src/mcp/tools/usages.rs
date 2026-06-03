@@ -147,7 +147,7 @@ fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<S
 		anyhow::bail!("usage reads require an exact symbol URI returned by code_moniker_symbols");
 	}
 	let snapshot = context.index().index_snapshot()?;
-	Ok(render_usages_lmnav(
+	render_usages_lmnav(
 		context.scheme(),
 		UsageQuery {
 			uri: &request.uri,
@@ -161,7 +161,7 @@ fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<S
 			references: &snapshot.index.references,
 			linkage: &snapshot.linkage,
 		},
-	)?)
+	)
 }
 
 fn is_workspace_uri(uri: &str, scheme: &str) -> bool {

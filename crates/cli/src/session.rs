@@ -2,9 +2,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-#[cfg(feature = "tui")]
-use code_moniker_workspace::notes::notes_watch_targets_for_paths;
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SessionOptions {
 	pub paths: Vec<PathBuf>,
@@ -53,53 +50,6 @@ pub(crate) struct CheckError {
 	pub error: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "tui")]
-pub(crate) struct StoreWatchRoot {
-	pub path: PathBuf,
-	pub git_root: Option<PathBuf>,
-	pub ignored_paths: Vec<PathBuf>,
-	pub notes_path: Option<PathBuf>,
-}
-
-#[cfg(feature = "tui")]
-pub(crate) fn watch_roots_for_options(opts: &SessionOptions) -> Vec<StoreWatchRoot> {
-	let ignored_paths = opts
-		.cache_dir
-		.as_ref()
-		.map(|path| vec![absolute_path(path)])
-		.unwrap_or_default();
-	let notes_watch_targets =
-		notes_watch_targets_for_paths(&opts.paths).unwrap_or_else(|_| Vec::new());
-	let workspace_notes_path = notes_watch_targets
-		.first()
-		.map(|target| target.notes_path.clone());
-	let mut roots = opts
-		.paths
-		.iter()
-		.map(|path| StoreWatchRoot {
-			path: watch_path(path),
-			git_root: None,
-			ignored_paths: ignored_paths.clone(),
-			notes_path: workspace_notes_path.clone(),
-		})
-		.collect::<Vec<_>>();
-	for target in notes_watch_targets {
-		if !roots
-			.iter()
-			.any(|root| target.notes_path.starts_with(&root.path))
-		{
-			roots.push(StoreWatchRoot {
-				path: target.path,
-				git_root: None,
-				ignored_paths: ignored_paths.clone(),
-				notes_path: Some(target.notes_path),
-			});
-		}
-	}
-	roots
-}
-
 #[cfg(feature = "tui")]
 pub(crate) fn root_label_for_options(opts: &SessionOptions) -> String {
 	match opts.paths.as_slice() {
@@ -122,27 +72,4 @@ fn sibling_parent(paths: &[PathBuf]) -> Option<&std::path::Path> {
 	let mut parents = paths.iter().map(|path| path.parent());
 	let first = parents.next()??;
 	parents.all(|parent| parent == Some(first)).then_some(first)
-}
-
-#[cfg(feature = "tui")]
-fn watch_path(path: &std::path::Path) -> PathBuf {
-	let path = absolute_path(path);
-	if path.is_file() {
-		path.parent()
-			.map(std::path::Path::to_path_buf)
-			.unwrap_or(path)
-	} else {
-		path
-	}
-}
-
-#[cfg(feature = "tui")]
-fn absolute_path(path: &std::path::Path) -> PathBuf {
-	if path.is_absolute() {
-		path.to_path_buf()
-	} else {
-		std::env::current_dir()
-			.map(|cwd| cwd.join(path))
-			.unwrap_or_else(|_| path.to_path_buf())
-	}
 }

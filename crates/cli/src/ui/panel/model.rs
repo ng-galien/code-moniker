@@ -192,6 +192,7 @@ pub(super) enum WrapMode {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub(super) enum PanelSection {
 	Heading {
 		label: String,

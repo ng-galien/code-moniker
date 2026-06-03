@@ -199,6 +199,7 @@ impl LinkageReportProjection {
 			ambiguous_refs: self.resolved.ambiguous_refs,
 			resolved: self.resolved.edges,
 			external: self.external.references,
+			manifest_blocked: self.unresolved.manifest_blocked_references,
 			unresolved: self.unresolved.references,
 		}
 	}
@@ -352,6 +353,7 @@ impl ExternalLinkProjection {
 struct UnresolvedLinkProjection {
 	manifest_blocked_refs: usize,
 	unresolved_refs: usize,
+	manifest_blocked_references: Vec<UnresolvedReference>,
 	references: Vec<UnresolvedReference>,
 }
 
@@ -360,13 +362,14 @@ impl UnresolvedLinkProjection {
 		Self {
 			manifest_blocked_refs: 0,
 			unresolved_refs: 0,
+			manifest_blocked_references: Vec::with_capacity(capacity),
 			references: Vec::with_capacity(capacity),
 		}
 	}
 
 	fn collect_manifest_blocked(&mut self, reference: UnresolvedReference) {
 		self.manifest_blocked_refs += 1;
-		self.references.push(reference);
+		self.manifest_blocked_references.push(reference);
 	}
 
 	fn collect(&mut self, reference: UnresolvedReference) {

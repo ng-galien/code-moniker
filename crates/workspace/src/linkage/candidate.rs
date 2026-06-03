@@ -1,6 +1,7 @@
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, Segment};
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::BTreeSet;
 
 use crate::linkage::query::LinkageQuery;
 use crate::snapshot::SymbolId;
@@ -62,6 +63,15 @@ impl<'a> CandidateCatalog<'a> {
 			.into_iter()
 			.filter(|candidate| query.matches(candidate))
 			.map(|candidate| candidate.symbol.clone())
+			.collect()
+	}
+
+	pub(super) fn matching_candidate_sources(&self, query: &LinkageQuery<'_>) -> BTreeSet<usize> {
+		self.lookup_global(query)
+			.into_iter()
+			.chain(self.lookup_local(query))
+			.filter(|candidate| query.matches(candidate))
+			.map(|candidate| candidate.source_file)
 			.collect()
 	}
 

@@ -11,11 +11,11 @@ use crate::ui::app::{HeaderKindFilter, HeaderSearchState};
 use crate::ui::async_task::{TaskId, TaskOutcome, TaskResult, WorkKind};
 use crate::ui::events::{FilterEdit, HeaderSearchFocus, Msg, UiMode};
 use crate::ui::explorer::HeaderSearchResults;
-use crate::ui::live::StoreEvent;
 use crate::ui::render::component::ComponentId;
 use crate::ui::store::navigation::NavigationState;
 use crate::ui::store::reducer::Transition;
 use crate::ui::workspace_read::UsageFocus;
+use code_moniker_workspace::live::WorkspaceLiveEvent;
 
 use super::Effect;
 
@@ -417,13 +417,20 @@ pub(in crate::ui) fn start_task(state: &mut AppState, id: TaskId, kind: WorkKind
 	}
 }
 
-pub(in crate::ui) fn invalidate_for_store_event(state: &mut AppState, event: StoreEvent) {
+pub(in crate::ui) fn invalidate_for_store_event(state: &mut AppState, event: &WorkspaceLiveEvent) {
 	bump(state);
 	match event {
-		StoreEvent::FullIndex => invalidate_full_index(state),
-		StoreEvent::GitOverlay => invalidate_git_overlay(state),
-		StoreEvent::GitOverlayAndNotes => invalidate_git_overlay(state),
-		StoreEvent::Notes => {}
+		WorkspaceLiveEvent::RescanRequired
+		| WorkspaceLiveEvent::RescanAndNotes
+		| WorkspaceLiveEvent::RescanAndGitBase
+		| WorkspaceLiveEvent::RescanGitBaseAndNotes
+		| WorkspaceLiveEvent::SourcesChanged(_)
+		| WorkspaceLiveEvent::SourcesAndNotes(_)
+		| WorkspaceLiveEvent::SourcesAndGitBase(_)
+		| WorkspaceLiveEvent::SourcesGitBaseAndNotes(_) => invalidate_full_index(state),
+		WorkspaceLiveEvent::GitBaseChanged => invalidate_git_overlay(state),
+		WorkspaceLiveEvent::GitBaseAndNotes => invalidate_git_overlay(state),
+		WorkspaceLiveEvent::Notes => {}
 	}
 }
 
@@ -863,7 +870,7 @@ pub(in crate::ui) fn reduce_shell_action(state: &mut AppState, action: &ShellAct
 			Transition::changed()
 		}
 		ShellAction::ToggleViewsShowAll => {
-			update_shell(state, |shell| shell_toggle_views_show_all(shell));
+			update_shell(state, shell_toggle_views_show_all);
 			Transition::changed()
 		}
 		ShellAction::SetPanelScroll(offset) => {
