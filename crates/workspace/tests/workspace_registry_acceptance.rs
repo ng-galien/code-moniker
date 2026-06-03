@@ -1,7 +1,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::time::Duration;
 
-use code_moniker_workspace::live::{WorkspaceLiveEvent, WorkspaceLiveRefreshPlan};
+use code_moniker_workspace::live::{
+	LiveWorkspaceWatcher, WorkspaceLiveEvent, WorkspaceLiveRefreshPlan,
+};
 use code_moniker_workspace::registry::{
 	LocalWorkspaceOptions, LocalWorkspaceRegistry, WorkspaceCommandKind, WorkspaceCommandSpec,
 	WorkspaceEventKind, WorkspaceScopeUri, WorkspaceSnapshotPublication,
@@ -222,6 +226,113 @@ fn live_plan_falls_back_to_workspace_rescan_and_reports_watcher_replacement() {
 			.symbols
 			.iter()
 			.any(|symbol| symbol.identity.contains("live_surface"))
+	);
+}
+
+#[test]
+fn workspace_live_watcher_tracks_startup_roots_recursively() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let source_dir = temp.path().join("src").join("nested");
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+
+	assert!(matches!(
+		workspace
+			.commands()
+			.load_index(WorkspaceRequest::new("acceptance-index")),
+		WorkspaceTransition::Ready { .. }
+	));
+
+	let watch_roots = workspace.watch_roots();
+	let expected_root = temp.path().canonicalize().expect("canonical root");
+	let unexpected_child = source_dir.clone();
+	assert!(
+		watch_roots.iter().any(|root| root.path == expected_root),
+		"workspace should expose the startup root {}",
+		expected_root.display()
+	);
+	assert!(
+		!watch_roots.iter().any(|root| root.path == unexpected_child),
+		"workspace should not expose recursively discovered child roots like {}",
+		unexpected_child.display()
+	);
+
+	let (tx, rx) = mpsc::channel();
+	let _watcher = LiveWorkspaceWatcher::start(watch_roots, move |event| {
+		let _ = tx.send(event);
+	})
+	.expect("watcher starts");
+	std::thread::sleep(Duration::from_millis(200));
+
+	fs::create_dir_all(&source_dir).expect("nested source dir");
+	let changed_source = source_dir.join("changed.rs");
+	fs::write(&changed_source, "pub fn changed() {}\n").expect("write changed source");
+
+	let event = rx
+		.recv_timeout(Duration::from_secs(5))
+		.expect("recursive watcher should publish nested source change");
+	assert!(
+		matches!(
+			event,
+			WorkspaceLiveEvent::SourcesChanged(_) | WorkspaceLiveEvent::RescanRequired
+		),
+		"unexpected live event for nested source change: {event:?}"
+	);
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_live_watcher_starts_when_git_contains_fsmonitor_socket() {
+	let temp = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).expect("tempdir");
+	let git_dir = temp.path().join(".git");
+	let source_dir = temp.path().join("src");
+	fs::create_dir_all(&git_dir).expect("git dir");
+	fs::create_dir_all(&source_dir).expect("source dir");
+	let source = source_dir.join("lib.rs");
+	fs::write(&source, "pub fn git_socket_root() {}\n").expect("write source");
+	let socket_path = git_dir.join("fsmonitor--daemon.ipc");
+	let _socket = std::os::unix::net::UnixListener::bind(&socket_path).expect("bind git socket");
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+
+	assert!(matches!(
+		workspace
+			.commands()
+			.load_index(WorkspaceRequest::new("acceptance-index")),
+		WorkspaceTransition::Ready { .. }
+	));
+
+	let (tx, rx) = mpsc::channel();
+	let watcher = LiveWorkspaceWatcher::start(workspace.watch_roots(), move |event| {
+		let _ = tx.send(event);
+	})
+	.expect("watcher should start for repository root");
+	let status = watcher.status().unwrap_or_default();
+	assert!(
+		!status.contains("disabled"),
+		"git fsmonitor socket should not disable live watcher: {status}"
+	);
+	std::thread::sleep(Duration::from_millis(200));
+
+	fs::write(
+		&source,
+		"pub fn git_socket_root() {}\npub fn git_socket_refresh() {}\n",
+	)
+	.expect("rewrite source");
+
+	let event = rx
+		.recv_timeout(Duration::from_secs(3))
+		.expect("recursive watcher should survive git socket and publish source change");
+	assert!(
+		matches!(
+			event,
+			WorkspaceLiveEvent::SourcesChanged(_) | WorkspaceLiveEvent::RescanRequired
+		),
+		"unexpected live event with git socket present: {event:?}"
 	);
 }
 

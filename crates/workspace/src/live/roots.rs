@@ -28,39 +28,7 @@ impl WorkspaceEventClassifier {
 		if event.need_rescan() {
 			return Some(WorkspaceLiveEvent::RescanRequired);
 		}
-		self.classify_event_kind(&event.kind, &event.paths)
-	}
-
-	fn classify_event_kind(
-		&self,
-		kind: &EventKind,
-		paths: &[PathBuf],
-	) -> Option<WorkspaceLiveEvent> {
-		match kind {
-			EventKind::Access(AccessKind::Close(AccessMode::Write)) => {
-				self.classify_paths_with_git_signals(paths, false)
-			}
-			EventKind::Access(_) | EventKind::Other => None,
-			EventKind::Any => self.classify_paths_with_git_signals(paths, false),
-			EventKind::Create(_) | EventKind::Remove(_) => {
-				if self.paths.requires_source_rescan(paths) {
-					return Some(WorkspaceLiveEvent::RescanRequired);
-				}
-				self.classify_paths_with_git_signals(paths, true)
-			}
-			EventKind::Modify(ModifyKind::Name(_)) => {
-				if self.paths.requires_source_rescan(paths) {
-					return Some(WorkspaceLiveEvent::RescanRequired);
-				}
-				self.classify_paths_with_git_signals(paths, true)
-			}
-			EventKind::Modify(_) => {
-				if self.paths.includes_missing_source(paths) {
-					return Some(WorkspaceLiveEvent::RescanRequired);
-				}
-				self.classify_paths_with_git_signals(paths, true)
-			}
-		}
+		self.classify_event_paths(event_path_policy(&event.kind), &event.paths)
 	}
 
 	pub(crate) fn classify_paths_with_git_signals(
@@ -87,6 +55,31 @@ impl WorkspaceEventClassifier {
 			event = coalesce_optional(event, WorkspaceLiveEvent::SourcesChanged(source_paths));
 		}
 		event
+	}
+
+	fn classify_event_paths(
+		&self,
+		policy: EventPathPolicy,
+		paths: &[PathBuf],
+	) -> Option<WorkspaceLiveEvent> {
+		match policy {
+			EventPathPolicy::Ignore => None,
+			EventPathPolicy::Classify { allow_git_signals } => {
+				self.classify_paths_with_git_signals(paths, allow_git_signals)
+			}
+			EventPathPolicy::RescanSourceChange => {
+				if self.paths.requires_source_rescan(paths) {
+					return Some(WorkspaceLiveEvent::RescanRequired);
+				}
+				self.classify_paths_with_git_signals(paths, true)
+			}
+			EventPathPolicy::RescanMissingSource => {
+				if self.paths.includes_missing_source(paths) {
+					return Some(WorkspaceLiveEvent::RescanRequired);
+				}
+				self.classify_paths_with_git_signals(paths, true)
+			}
+		}
 	}
 }
 
@@ -195,6 +188,33 @@ impl WorkspacePathClassifier {
 	}
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EventPathPolicy {
+	Ignore,
+	Classify { allow_git_signals: bool },
+	RescanSourceChange,
+	RescanMissingSource,
+}
+
+fn event_path_policy(kind: &EventKind) -> EventPathPolicy {
+	match kind {
+		EventKind::Access(AccessKind::Close(AccessMode::Write)) => EventPathPolicy::Classify {
+			allow_git_signals: false,
+		},
+		EventKind::Access(_) => EventPathPolicy::Ignore,
+		EventKind::Other => EventPathPolicy::Classify {
+			allow_git_signals: true,
+		},
+		EventKind::Any => EventPathPolicy::Classify {
+			allow_git_signals: false,
+		},
+		EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_)) => {
+			EventPathPolicy::RescanSourceChange
+		}
+		EventKind::Modify(_) => EventPathPolicy::RescanMissingSource,
+	}
+}
+
 #[derive(Clone, Debug)]
 struct WatchedPathRoot {
 	watch: WorkspaceWatchRoot,
@@ -290,38 +310,47 @@ pub(crate) fn watch_roots_for_paths(
 	for path in paths {
 		let watched_path = watch_path(path);
 		let git_root = nearest_git_root(&watched_path);
-		for dir in watch_paths_for_path(path, &ignored_paths) {
-			push_watch_root(
-				&mut roots,
-				dir,
-				git_root.clone(),
-				ignored_paths.clone(),
-				workspace_notes_path.clone(),
-			);
-		}
-		if let Some(git_root) = git_root {
-			for dir in git_watch_dirs(&git_root) {
-				push_git_watch_root(
-					&mut roots,
-					dir,
-					ignored_paths.clone(),
-					workspace_notes_path.clone(),
-					git_root.clone(),
-				);
-			}
-		}
-	}
-	for target in notes_watch_targets {
-		let git_root = nearest_git_root(&target.path);
 		push_watch_root(
 			&mut roots,
-			watch_path(&target.path),
+			watched_path,
+			git_root.clone(),
+			ignored_paths.clone(),
+			workspace_notes_path.clone(),
+		);
+	}
+	for target in notes_watch_targets {
+		let watched_path = watch_path(&target.path);
+		if attach_notes_path_to_covering_root(&mut roots, &watched_path, &target.notes_path) {
+			continue;
+		}
+		let git_root = nearest_git_root(&watched_path);
+		push_watch_root(
+			&mut roots,
+			watched_path,
 			git_root,
 			ignored_paths.clone(),
 			Some(target.notes_path),
 		);
 	}
 	roots
+}
+
+fn attach_notes_path_to_covering_root(
+	roots: &mut [WorkspaceWatchRoot],
+	watched_path: &Path,
+	notes_path: &Path,
+) -> bool {
+	let watched_path = normalize_path(watched_path);
+	let Some(root) = roots
+		.iter_mut()
+		.find(|root| watched_path.starts_with(normalize_path(&root.path)))
+	else {
+		return false;
+	};
+	if root.notes_path.is_none() {
+		root.notes_path = Some(notes_path.to_path_buf());
+	}
+	true
 }
 
 fn push_watch_root(
@@ -335,14 +364,11 @@ fn push_watch_root(
 	if ignored_path(&path)
 		|| ignored_paths
 			.iter()
-			.any(|ignored| normalize_path(&path).starts_with(normalize_path(ignored)))
+			.any(|ignored| path.starts_with(ignored))
 	{
 		return;
 	}
-	if let Some(existing) = roots
-		.iter_mut()
-		.find(|root| normalize_path(&root.path) == normalize_path(&path))
-	{
+	if let Some(existing) = roots.iter_mut().find(|root| root.path == path) {
 		if existing.git_root.is_none() {
 			existing.git_root = git_root;
 		}
@@ -359,116 +385,8 @@ fn push_watch_root(
 	});
 }
 
-fn push_git_watch_root(
-	roots: &mut Vec<WorkspaceWatchRoot>,
-	path: PathBuf,
-	ignored_paths: Vec<PathBuf>,
-	notes_path: Option<PathBuf>,
-	git_root: PathBuf,
-) {
-	let path = absolute_path(&path);
-	if let Some(existing) = roots
-		.iter_mut()
-		.find(|root| normalize_path(&root.path) == normalize_path(&path))
-	{
-		existing.git_root = Some(git_root);
-		if existing.notes_path.is_none() {
-			existing.notes_path = notes_path;
-		}
-		return;
-	}
-	roots.push(WorkspaceWatchRoot {
-		path,
-		git_root: Some(git_root),
-		ignored_paths,
-		notes_path,
-	});
-}
-
-fn watch_paths_for_path(path: &Path, ignored_paths: &[PathBuf]) -> Vec<PathBuf> {
-	let path = absolute_path(path);
-	let mut paths = Vec::new();
-	collect_watch_paths(&path, ignored_paths, &mut paths);
-	paths
-}
-
-fn collect_watch_paths(path: &Path, ignored_paths: &[PathBuf], paths: &mut Vec<PathBuf>) {
-	if ignored_path(path)
-		|| ignored_paths
-			.iter()
-			.any(|ignored| normalize_path(path).starts_with(normalize_path(ignored)))
-	{
-		return;
-	}
-	let path = absolute_path(path);
-	if path.is_file() {
-		if is_source_file(&path) {
-			push_unique(paths, path.clone());
-		}
-		if let Some(parent) = path.parent() {
-			push_unique(paths, parent.to_path_buf());
-		}
-		return;
-	}
-	if !path.is_dir() {
-		push_unique(paths, path);
-		return;
-	}
-	push_unique(paths, path.clone());
-	let Ok(entries) = std::fs::read_dir(&path) else {
-		return;
-	};
-	for entry in entries.flatten() {
-		let child = entry.path();
-		if child.is_dir() {
-			collect_watch_paths(&child, ignored_paths, paths);
-		} else if child.is_file() && is_source_file(&child) {
-			push_unique(paths, absolute_path(&child));
-		}
-	}
-}
-
 fn is_source_file(path: &Path) -> bool {
 	crate::environment::language_for_path(path).is_ok()
-}
-
-fn git_watch_dirs(git_root: &Path) -> Vec<PathBuf> {
-	let git_dir = git_root.join(".git");
-	let mut dirs = Vec::new();
-	collect_git_watch_dirs(&git_dir, &mut dirs);
-	dirs
-}
-
-fn collect_git_watch_dirs(path: &Path, dirs: &mut Vec<PathBuf>) {
-	let path = absolute_path(path);
-	if path.is_file() {
-		if let Some(parent) = path.parent() {
-			push_unique(dirs, parent.to_path_buf());
-		}
-		return;
-	}
-	if !path.is_dir() {
-		return;
-	}
-	push_unique(dirs, path.clone());
-	let refs = path.join("refs");
-	collect_git_refs_dirs(&refs, dirs);
-}
-
-fn collect_git_refs_dirs(path: &Path, dirs: &mut Vec<PathBuf>) {
-	if !path.is_dir() {
-		return;
-	}
-	push_unique(dirs, absolute_path(path));
-	let Ok(entries) = std::fs::read_dir(path) else {
-		return;
-	};
-	for entry in entries.flatten() {
-		let child = entry.path();
-		if child.is_dir() {
-			collect_git_refs_dirs(&child, dirs);
-		}
-	}
 }
 
 fn coalesce_optional(

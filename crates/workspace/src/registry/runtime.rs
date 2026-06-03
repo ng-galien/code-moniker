@@ -551,39 +551,6 @@ mod tests {
 		assert!(!snapshot_has_symbol(&registry, "before_live_refresh"));
 	}
 
-	#[test]
-	fn live_watch_roots_cover_directories_without_indexed_sources() {
-		let temp = tempfile::tempdir().expect("tempdir");
-		let source_dir = temp.path().join("src");
-		let empty_source_dir = temp.path().join("tests");
-		fs::create_dir_all(&source_dir).expect("src dir");
-		fs::create_dir_all(&empty_source_dir).expect("tests dir");
-		fs::write(source_dir.join("lib.rs"), "pub fn indexed_source() {}\n").expect("write source");
-		let mut registry = crate::LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
-			vec![temp.path().to_path_buf()],
-			None,
-		));
-
-		assert!(matches!(
-			registry
-				.commands()
-				.load_index(WorkspaceRequest::new("acceptance-index")),
-			WorkspaceTransition::Ready { .. }
-		));
-
-		let expected = empty_source_dir
-			.canonicalize()
-			.expect("canonical tests dir");
-		assert!(
-			registry
-				.watch_roots()
-				.iter()
-				.any(|root| root.path == expected),
-			"workspace live watch roots should include empty source directory {}",
-			expected.display()
-		);
-	}
-
 	fn snapshot_has_symbol(registry: &crate::LocalWorkspaceRegistry, name: &str) -> bool {
 		registry.queries().snapshot().is_some_and(|snapshot| {
 			snapshot

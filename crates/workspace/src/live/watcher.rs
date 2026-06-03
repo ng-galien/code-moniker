@@ -2,13 +2,13 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, Event, RecursiveMode, Watcher};
 
 use super::model::{WorkspaceLiveEvent, WorkspaceWatchRoot};
 use super::roots::WorkspaceEventClassifier;
 
 pub struct LiveWorkspaceWatcher {
-	_watcher: RecommendedWatcher,
+	_watcher: notify::RecommendedWatcher,
 	_worker: JoinHandle<()>,
 	watched_paths: usize,
 	warnings: Vec<String>,
@@ -36,6 +36,12 @@ impl LiveWorkspaceWatcher {
 
 	pub fn status(&self) -> Option<String> {
 		if self.watched_paths == 0 {
+			if !self.warnings.is_empty() {
+				return Some(format!(
+					"live store disabled: no source path could be watched ({})",
+					self.warnings.join("; ")
+				));
+			}
 			return Some("live store disabled: no source path could be watched".to_string());
 		}
 		if self.warnings.is_empty() {
@@ -64,8 +70,8 @@ where
 fn new_recommended_watcher(
 	classifier: WorkspaceEventClassifier,
 	tx: mpsc::Sender<WorkspaceLiveEvent>,
-) -> anyhow::Result<RecommendedWatcher> {
-	Ok(RecommendedWatcher::new(
+) -> anyhow::Result<notify::RecommendedWatcher> {
+	Ok(notify::RecommendedWatcher::new(
 		move |event: notify::Result<Event>| {
 			let Ok(event) = event else {
 				return;
@@ -79,13 +85,13 @@ fn new_recommended_watcher(
 }
 
 fn watch_classifier_paths(
-	watcher: &mut RecommendedWatcher,
+	watcher: &mut notify::RecommendedWatcher,
 	classifier: &WorkspaceEventClassifier,
 ) -> (usize, Vec<String>) {
 	let mut warnings = Vec::new();
 	let mut watched_paths = 0;
 	for path in classifier.watch_paths() {
-		match watcher.watch(&path, RecursiveMode::NonRecursive) {
+		match watcher.watch(&path, RecursiveMode::Recursive) {
 			Ok(()) => watched_paths += 1,
 			Err(error) => warnings.push(format!("{}: {error}", path.display())),
 		}
