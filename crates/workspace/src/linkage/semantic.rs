@@ -15,15 +15,12 @@ use crate::source::CodeIndexMaterial;
 
 pub(super) struct SemanticLinkage<'a> {
 	material: &'a CodeIndexMaterial,
-	callables: CallableIndex,
+	methods: &'a MethodTable,
 }
 
 impl<'a> SemanticLinkage<'a> {
-	pub(super) fn new(material: &'a CodeIndexMaterial) -> Self {
-		Self {
-			material,
-			callables: CallableIndex::build(material),
-		}
+	pub(super) fn new(material: &'a CodeIndexMaterial, methods: &'a MethodTable) -> Self {
+		Self { material, methods }
 	}
 
 	pub(super) fn enhance(
@@ -65,7 +62,7 @@ impl<'a> SemanticLinkage<'a> {
 				method_call.resolved_decision(ResolutionScope::Global, vec![symbol.clone()]),
 			);
 		}
-		let targets = self.callables.resolve(owner, &method_call)?;
+		let targets = self.methods.resolve(owner, &method_call)?;
 		Some(method_call.resolved_decision(ResolutionScope::Global, targets))
 	}
 
@@ -196,35 +193,79 @@ impl ReceiverCallIndex {
 	}
 }
 
-struct CallableIndex {
-	by_owner_name_arity: FxHashMap<(Moniker, Vec<u8>, usize), Vec<SymbolId>>,
+type MethodKey = (Moniker, Vec<u8>, usize);
+
+#[derive(Default)]
+pub(super) struct MethodTable {
+	by_owner_name_arity: FxHashMap<MethodKey, Vec<SymbolId>>,
+	keys_by_file: FxHashMap<usize, Vec<MethodKey>>,
 }
 
-impl CallableIndex {
-	fn build(material: &CodeIndexMaterial) -> Self {
-		let mut by_owner_name_arity =
-			FxHashMap::<(Moniker, Vec<u8>, usize), Vec<SymbolId>>::default();
-		for (file_idx, file) in material.files.iter().enumerate() {
-			for (def_idx, def) in file.graph.defs().enumerate() {
-				let Some(arity) = def.call_arity else {
-					continue;
-				};
-				if def.call_name.is_empty() {
-					continue;
-				}
-				let Some(parent_idx) = def.parent else {
-					continue;
-				};
-				let owner = file.graph.def_at(parent_idx).moniker.clone();
-				let symbol = file.identity.symbol_id(file_idx, def_idx);
-				by_owner_name_arity
-					.entry((owner, def.call_name.to_vec(), arity))
-					.or_default()
-					.push(symbol);
+impl MethodTable {
+	pub(super) fn build(material: &CodeIndexMaterial) -> Self {
+		let mut index = Self::default();
+		for file_idx in 0..material.files.len() {
+			index.insert_file(material, file_idx);
+		}
+		index
+	}
+
+	pub(super) fn refresh_files(
+		&mut self,
+		material: &CodeIndexMaterial,
+		file_indexes: &std::collections::BTreeSet<usize>,
+	) {
+		for &file_idx in file_indexes {
+			self.remove_file(material, file_idx);
+		}
+		for &file_idx in file_indexes {
+			self.insert_file(material, file_idx);
+		}
+	}
+
+	fn remove_file(&mut self, material: &CodeIndexMaterial, file_idx: usize) {
+		let Some(keys) = self.keys_by_file.remove(&file_idx) else {
+			return;
+		};
+		for key in keys {
+			let Some(symbols) = self.by_owner_name_arity.get_mut(&key) else {
+				continue;
+			};
+			symbols.retain(|symbol| {
+				material
+					.identity
+					.symbol_location(symbol)
+					.map(|(file, _)| file)
+					!= Some(file_idx)
+			});
+			if symbols.is_empty() {
+				self.by_owner_name_arity.remove(&key);
 			}
 		}
-		Self {
-			by_owner_name_arity,
+	}
+
+	fn insert_file(&mut self, material: &CodeIndexMaterial, file_idx: usize) {
+		let Some(file) = material.files.get(file_idx) else {
+			return;
+		};
+		for (def_idx, def) in file.graph.defs().enumerate() {
+			let Some(arity) = def.call_arity else {
+				continue;
+			};
+			if def.call_name.is_empty() {
+				continue;
+			}
+			let Some(parent_idx) = def.parent else {
+				continue;
+			};
+			let owner = file.graph.def_at(parent_idx).moniker.clone();
+			let symbol = file.identity.symbol_id(file_idx, def_idx);
+			let key = (owner, def.call_name.to_vec(), arity);
+			self.by_owner_name_arity
+				.entry(key.clone())
+				.or_default()
+				.push(symbol);
+			self.keys_by_file.entry(file_idx).or_default().push(key);
 		}
 	}
 

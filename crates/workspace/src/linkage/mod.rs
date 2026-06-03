@@ -3,6 +3,7 @@ mod decision;
 mod gc;
 mod language;
 mod manifest;
+mod method_indexer;
 mod query;
 mod resolver;
 mod scope;

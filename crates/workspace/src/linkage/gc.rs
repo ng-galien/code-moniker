@@ -114,6 +114,13 @@ impl<'a> LinkageGarbageCollector<'a> {
 	}
 }
 
+pub(super) fn changed_file_indexes(
+	material: &CodeIndexMaterial,
+	impact: &LinkageRefreshImpact,
+) -> BTreeSet<usize> {
+	changed_source_files(material, &changed_sources(impact))
+}
+
 fn changed_sources(impact: &LinkageRefreshImpact) -> BTreeSet<SourceId> {
 	impact.changed_sources.iter().cloned().collect()
 }
