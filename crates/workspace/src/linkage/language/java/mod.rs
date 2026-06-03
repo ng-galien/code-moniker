@@ -2,7 +2,6 @@ use code_moniker_core::core::moniker::{Moniker, Segment};
 use code_moniker_core::lang::{build_manifest::Manifest, kinds};
 use rayon::prelude::*;
 use rustc_hash::FxHashSet;
-use std::collections::BTreeSet;
 
 use crate::linkage::candidate::LinkageCandidate;
 use crate::linkage::decision::ReferenceLinkageDecision;
@@ -156,7 +155,7 @@ pub(super) fn enhance_reference_semantics(
 	material: &CodeIndexMaterial,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
-	changed_references: Option<&BTreeSet<ReferenceId>>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
 	let lombok = lombok::LombokSemantics::build(material, references);
 	let replacements = decisions

@@ -4,8 +4,7 @@ use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::kinds;
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
-use std::collections::BTreeSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::linkage::decision::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
@@ -42,7 +41,7 @@ impl<'a> SemanticLinkage<'a> {
 		&self,
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &[ReferenceRecord],
-		changed_references: &BTreeSet<ReferenceId>,
+		changed_references: &FxHashSet<ReferenceId>,
 	) {
 		language::enhance_reference_semantics(
 			self.material,
@@ -249,7 +248,7 @@ fn enhance_reexport_aliases(
 	linkage: &SemanticLinkage<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
-	changed_references: Option<&BTreeSet<ReferenceId>>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
 	let aliases = build_reexport_aliases(linkage.material, decisions, references);
 	if aliases.is_empty() {
@@ -555,7 +554,7 @@ fn immediate_receiver_read_idx(
 fn pending_receiver_chains(
 	decisions: &[ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
-	changed_references: Option<&BTreeSet<ReferenceId>>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) -> Vec<usize> {
 	decisions
 		.iter()

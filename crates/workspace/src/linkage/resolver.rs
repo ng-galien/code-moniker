@@ -291,7 +291,7 @@ fn resolve_reference_decisions(
 
 fn reference_indexes_for(
 	references: &[ReferenceRecord],
-	reference_ids: &std::collections::BTreeSet<ReferenceId>,
+	reference_ids: &rustc_hash::FxHashSet<ReferenceId>,
 ) -> Vec<usize> {
 	references
 		.iter()

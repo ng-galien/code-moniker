@@ -97,7 +97,7 @@ pub(super) fn enhance_reference_semantics(
 	material: &CodeIndexMaterial,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
-	changed_references: Option<&std::collections::BTreeSet<crate::snapshot::ReferenceId>>,
+	changed_references: Option<&rustc_hash::FxHashSet<crate::snapshot::ReferenceId>>,
 ) {
 	java::enhance_reference_semantics(material, decisions, references, changed_references);
 }

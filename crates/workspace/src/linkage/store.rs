@@ -1,7 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::hash::Hash;
 
-use crate::linkage::candidate::CandidateCatalog;
+use crate::linkage::candidate::{CandidateCatalog, query_keys};
 use crate::linkage::decision::{ReferenceLinkageDecision, UnknownReason};
 use crate::linkage::query::LinkageQuery;
 use crate::snapshot::{
@@ -9,7 +9,7 @@ use crate::snapshot::{
 };
 use crate::source::{CodeIndexMaterial, LocalIdentityResolver};
 use code_moniker_core::core::uri::{UriConfig, from_uri};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 #[derive(Clone)]
 pub(super) struct LinkageStore {
@@ -22,7 +22,7 @@ pub(super) struct LinkageStore {
 pub(super) struct LinkageStoreRefresh<'a> {
 	pub(super) generation: ResourceGeneration,
 	pub(super) index_generation: ResourceGeneration,
-	pub(super) stale_references: &'a BTreeSet<ReferenceId>,
+	pub(super) stale_references: &'a FxHashSet<ReferenceId>,
 	pub(super) changed_decisions: Vec<ReferenceLinkageDecision>,
 	pub(super) references: &'a [ReferenceRecord],
 	pub(super) material: &'a CodeIndexMaterial,
@@ -114,7 +114,7 @@ impl LinkageStore {
 			.collect()
 	}
 
-	fn remove_stale_references(&mut self, stale_references: &BTreeSet<ReferenceId>) {
+	fn remove_stale_references(&mut self, stale_references: &FxHashSet<ReferenceId>) {
 		if stale_references.is_empty() {
 			return;
 		}
@@ -164,6 +164,13 @@ impl LinkageStore {
 		let Some(query) = LinkageQuery::new(reference, material) else {
 			return;
 		};
+		for key in query_keys(&query) {
+			self.indexes
+				.references_by_name
+				.entry(key)
+				.or_default()
+				.push(reference.id.clone());
+		}
 		for source_file in candidates.matching_candidate_sources(&query) {
 			self.indexes
 				.references_by_candidate_source
@@ -177,7 +184,7 @@ impl LinkageStore {
 		&mut self.decisions
 	}
 
-	pub(super) fn refresh_resolved_target_index(&mut self, references: &BTreeSet<ReferenceId>) {
+	pub(super) fn refresh_resolved_target_index(&mut self, references: &FxHashSet<ReferenceId>) {
 		self.indexes.remove_resolved_references(references);
 		for decision in &self.decisions {
 			if references.contains(decision.reference()) {
@@ -296,6 +303,7 @@ pub(super) struct LinkageStoreIndexes {
 	reference_indexes: FxHashMap<ReferenceId, usize>,
 	pub(super) references_by_source_root: FxHashMap<usize, Vec<ReferenceId>>,
 	pub(super) references_by_candidate_source: FxHashMap<usize, Vec<ReferenceId>>,
+	pub(super) references_by_name: FxHashMap<Vec<u8>, Vec<ReferenceId>>,
 	pub(super) symbol_sources: FxHashMap<SymbolId, SourceId>,
 	pub(super) resolved_by_target_source: FxHashMap<SourceId, Vec<ReferenceId>>,
 }
@@ -323,6 +331,7 @@ impl LinkageStoreIndexes {
 			references_by_candidate_source: references_by_candidate_source(
 				references, material, candidates,
 			),
+			references_by_name: references_by_name(references, material),
 			symbol_sources: symbol_sources(material),
 			resolved_by_target_source: FxHashMap::default(),
 		}
@@ -349,13 +358,14 @@ impl LinkageStoreIndexes {
 		}
 	}
 
-	fn remove_stale_references(&mut self, stale_references: &BTreeSet<ReferenceId>) {
+	fn remove_stale_references(&mut self, stale_references: &FxHashSet<ReferenceId>) {
 		remove_references(&mut self.references_by_source_root, stale_references);
 		remove_references(&mut self.references_by_candidate_source, stale_references);
+		remove_references(&mut self.references_by_name, stale_references);
 		self.remove_resolved_references(stale_references);
 	}
 
-	fn remove_resolved_references(&mut self, stale_references: &BTreeSet<ReferenceId>) {
+	fn remove_resolved_references(&mut self, stale_references: &FxHashSet<ReferenceId>) {
 		remove_references(&mut self.resolved_by_target_source, stale_references);
 	}
 }
@@ -370,7 +380,7 @@ fn reference_indexes(references: &[ReferenceRecord]) -> FxHashMap<ReferenceId, u
 
 fn remove_references<K: Eq + Hash>(
 	index: &mut FxHashMap<K, Vec<ReferenceId>>,
-	references: &BTreeSet<ReferenceId>,
+	references: &FxHashSet<ReferenceId>,
 ) {
 	index.retain(|_, indexed_references| {
 		indexed_references.retain(|reference| !references.contains(reference));
@@ -410,6 +420,22 @@ fn references_by_candidate_source(
 				.entry(source_file)
 				.or_default()
 				.push(reference.id.clone());
+		}
+	}
+	index
+}
+
+fn references_by_name(
+	references: &[ReferenceRecord],
+	material: &CodeIndexMaterial,
+) -> FxHashMap<Vec<u8>, Vec<ReferenceId>> {
+	let mut index = FxHashMap::<Vec<u8>, Vec<ReferenceId>>::default();
+	for reference in references {
+		let Some(query) = LinkageQuery::new(reference, material) else {
+			continue;
+		};
+		for key in query_keys(&query) {
+			index.entry(key).or_default().push(reference.id.clone());
 		}
 	}
 	index

@@ -111,6 +111,15 @@ impl<'a> CandidateCatalog<'a> {
 		found
 	}
 
+	pub(super) fn source_candidate_keys(
+		&self,
+		source_file: usize,
+	) -> Option<impl Iterator<Item = &[u8]>> {
+		self.by_source_name
+			.get(&source_file)
+			.map(|keys| keys.keys().map(|key| key.as_slice()))
+	}
+
 	fn lookup_local(&self, query: &LinkageQuery<'_>) -> Vec<LinkageCandidate<'a>> {
 		let Some(source_candidates) = self.by_source_name.get(&query.source_file) else {
 			return Vec::new();
@@ -171,6 +180,12 @@ fn candidate<'a>(
 		call_arity: def.call_arity,
 		source_file,
 	})
+}
+
+pub(super) fn query_keys(query: &LinkageQuery<'_>) -> Vec<Vec<u8>> {
+	let mut keys = Vec::new();
+	for_query_key(query, |key| keys.push(key.to_vec()));
+	keys
 }
 
 fn for_query_key(query: &LinkageQuery<'_>, mut visit: impl FnMut(&[u8])) {

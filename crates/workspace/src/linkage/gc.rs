@@ -1,3 +1,4 @@
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -53,6 +54,7 @@ impl<'a> LinkageGarbageCollector<'a> {
 			store,
 			changed_source_references: changed_source_references(references, &changed_sources),
 			changed_candidate_references: changed_candidate_references(
+				store,
 				references,
 				material,
 				candidates,
@@ -65,8 +67,8 @@ impl<'a> LinkageGarbageCollector<'a> {
 		}
 	}
 
-	pub(super) fn collect(&self) -> BTreeSet<ReferenceId> {
-		let mut stale = BTreeSet::new();
+	pub(super) fn collect(&self) -> FxHashSet<ReferenceId> {
+		let mut stale = FxHashSet::default();
 		self.mark_changed_source_references(&mut stale);
 		self.mark_policy_references(&mut stale);
 		self.mark_candidate_references(&mut stale);
@@ -75,11 +77,11 @@ impl<'a> LinkageGarbageCollector<'a> {
 		stale
 	}
 
-	fn mark_changed_source_references(&self, stale: &mut BTreeSet<ReferenceId>) {
+	fn mark_changed_source_references(&self, stale: &mut FxHashSet<ReferenceId>) {
 		stale.extend(self.changed_source_references.iter().cloned());
 	}
 
-	fn mark_policy_references(&self, stale: &mut BTreeSet<ReferenceId>) {
+	fn mark_policy_references(&self, stale: &mut FxHashSet<ReferenceId>) {
 		for root in &self.policy_source_roots {
 			if let Some(references) = self.store.indexes.references_by_source_root.get(root) {
 				stale.extend(references.iter().cloned());
@@ -87,7 +89,7 @@ impl<'a> LinkageGarbageCollector<'a> {
 		}
 	}
 
-	fn mark_candidate_references(&self, stale: &mut BTreeSet<ReferenceId>) {
+	fn mark_candidate_references(&self, stale: &mut FxHashSet<ReferenceId>) {
 		stale.extend(self.changed_candidate_references.iter().cloned());
 		for source_file in &self.changed_source_files {
 			if let Some(references) = self
@@ -101,7 +103,7 @@ impl<'a> LinkageGarbageCollector<'a> {
 		}
 	}
 
-	fn mark_resolved_target_references(&self, stale: &mut BTreeSet<ReferenceId>) {
+	fn mark_resolved_target_references(&self, stale: &mut FxHashSet<ReferenceId>) {
 		for source in &self.changed_sources {
 			if let Some(references) = self.store.indexes.resolved_by_target_source.get(source) {
 				stale.extend(references.iter().cloned());
@@ -139,6 +141,7 @@ fn changed_source_files(
 }
 
 fn changed_candidate_references(
+	store: &LinkageStore,
 	references: &[ReferenceRecord],
 	material: &CodeIndexMaterial,
 	candidates: &CandidateCatalog<'_>,
@@ -147,16 +150,37 @@ fn changed_candidate_references(
 	if changed_source_files.is_empty() {
 		return Vec::new();
 	}
-	references
+	let record_by_id: FxHashMap<&ReferenceId, &ReferenceRecord> = references
 		.iter()
-		.filter(|reference| {
-			let Some(query) = LinkageQuery::new(reference, material) else {
-				return false;
+		.map(|record| (&record.id, record))
+		.collect();
+	let mut seen = FxHashSet::default();
+	let mut stale = Vec::new();
+	for source_file in changed_source_files {
+		let Some(keys) = candidates.source_candidate_keys(*source_file) else {
+			continue;
+		};
+		for key in keys {
+			let Some(ids) = store.indexes.references_by_name.get(key) else {
+				continue;
 			};
-			candidates.matches_any_source(&query, changed_source_files)
-		})
-		.map(|reference| reference.id.clone())
-		.collect()
+			for id in ids {
+				if !seen.insert(id) {
+					continue;
+				}
+				let Some(record) = record_by_id.get(id) else {
+					continue;
+				};
+				let Some(query) = LinkageQuery::new(record, material) else {
+					continue;
+				};
+				if candidates.matches_any_source(&query, changed_source_files) {
+					stale.push(id.clone());
+				}
+			}
+		}
+	}
+	stale
 }
 
 fn policy_source_roots(material: &CodeIndexMaterial, paths: &[PathBuf]) -> BTreeSet<usize> {
