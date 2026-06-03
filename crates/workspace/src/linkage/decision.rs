@@ -9,7 +9,7 @@ use std::sync::Arc;
 pub(super) use crate::snapshot::ExternalReferenceOrigin as ExternalOrigin;
 
 pub(super) fn project_decisions(
-	decisions: Vec<ReferenceLinkageDecision>,
+	decisions: &[ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
 	identity: &LocalIdentityResolver,
 ) -> LinkageReportProjection {
@@ -175,13 +175,13 @@ pub(super) struct LinkageReportProjection {
 
 impl LinkageReportProjection {
 	fn from_decisions(
-		decisions: Vec<ReferenceLinkageDecision>,
+		decisions: &[ReferenceLinkageDecision],
 		references: &[ReferenceRecord],
 		identity: &LocalIdentityResolver,
 	) -> Self {
-		let capacity = LinkageProjectionCapacity::from_decisions(&decisions);
+		let capacity = LinkageProjectionCapacity::from_decisions(decisions);
 		decisions
-			.into_iter()
+			.iter()
 			.map(|decision| {
 				LinkageDecisionProjection::from_decision(decision, references, identity)
 			})
@@ -271,43 +271,38 @@ enum LinkageDecisionProjection {
 
 impl LinkageDecisionProjection {
 	fn from_decision(
-		decision: ReferenceLinkageDecision,
+		decision: &ReferenceLinkageDecision,
 		references: &[ReferenceRecord],
 		identity: &LocalIdentityResolver,
 	) -> Self {
 		match decision {
 			ReferenceLinkageDecision::Resolved {
-				scope: _scope,
 				reference_idx,
 				targets,
 				..
 			} => Self::Resolved(ResolvedReferenceProjection::new(
-				&references[reference_idx],
-				targets,
+				&references[*reference_idx],
+				targets.clone(),
 			)),
 			ReferenceLinkageDecision::Blocked {
 				reason: BlockReason::ManifestPolicy,
 				reference_idx,
 				..
-			} => Self::ManifestBlocked(unresolved_reference(&references[reference_idx])),
-			ReferenceLinkageDecision::Blocked {
-				reason: _reason,
-				reference_idx,
-				..
-			} => Self::Unresolved(unresolved_reference(&references[reference_idx])),
-			ReferenceLinkageDecision::Unknown {
-				reason: _reason,
-				reference_idx,
-				..
-			} => Self::Unresolved(unresolved_reference(&references[reference_idx])),
+			} => Self::ManifestBlocked(unresolved_reference(&references[*reference_idx])),
+			ReferenceLinkageDecision::Blocked { reference_idx, .. } => {
+				Self::Unresolved(unresolved_reference(&references[*reference_idx]))
+			}
+			ReferenceLinkageDecision::Unknown { reference_idx, .. } => {
+				Self::Unresolved(unresolved_reference(&references[*reference_idx]))
+			}
 			ReferenceLinkageDecision::External {
 				origin,
 				reference_idx,
 				target,
 				..
 			} => Self::External(external_reference(
-				&references[reference_idx],
-				origin,
+				&references[*reference_idx],
+				*origin,
 				target.as_ref(),
 				identity,
 			)),

@@ -70,12 +70,8 @@ impl LinkageStore {
 		identity: &LocalIdentityResolver,
 	) -> LinkageSnapshot {
 		LinkageSnapshot::from_report(
-			crate::linkage::decision::project_decisions(
-				self.decisions.clone(),
-				references,
-				identity,
-			)
-			.into_report(self.generation, self.index_generation),
+			crate::linkage::decision::project_decisions(&self.decisions, references, identity)
+				.into_report(self.generation, self.index_generation),
 		)
 	}
 
