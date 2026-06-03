@@ -6,6 +6,8 @@ use crate::source::LocalIdentityResolver;
 use code_moniker_core::core::moniker::Moniker;
 use std::sync::Arc;
 
+pub(super) use crate::snapshot::ExternalReferenceOrigin as ExternalOrigin;
+
 #[derive(Default)]
 pub(super) struct LinkageDecisionLog {
 	decisions: Vec<ReferenceLinkageDecision>,
@@ -57,14 +59,6 @@ pub(super) enum ResolutionScope {
 	Global,
 	Builtin,
 	Injected,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
-pub(super) enum ExternalOrigin {
-	Dependency,
-	Injected,
-	UnknownExternal,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -393,14 +387,6 @@ fn external_reference(
 		target
 			.map(|target| identity.moniker_uri(target))
 			.unwrap_or_else(|| reference.target_identity.to_string()),
-		external_origin_label(origin),
+		origin,
 	)
-}
-
-fn external_origin_label(origin: ExternalOrigin) -> &'static str {
-	match origin {
-		ExternalOrigin::Dependency => "dependency",
-		ExternalOrigin::Injected => "injected",
-		ExternalOrigin::UnknownExternal => "unknown_external",
-	}
 }

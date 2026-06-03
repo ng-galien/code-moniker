@@ -1,9 +1,11 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::changes::ChangeOverlayPort;
 use crate::code::CodeIndexPort;
 use crate::linkage::{LinkagePort, LinkageRefreshImpact};
+use crate::live::WorkspaceLiveRefreshPlan;
 use crate::snapshot::{
 	ChangeOverlay, CodeIndex, CodeIndexFields, LinkageGraph, ResourceGeneration, SourceCatalog,
 	SourceFileRecord, SourceFileRecordFields, SourceId, SymbolId, WorkspaceFailure,
@@ -213,6 +215,109 @@ pub(crate) fn build_incremental_paths_snapshot(
 	})
 }
 
+pub(crate) struct LivePlanBuild<'a, Sources, Index, Linkage, Changes> {
+	pub(crate) current: Option<&'a WorkspaceSnapshot>,
+	pub(crate) source_catalog: &'a mut Sources,
+	pub(crate) code_index: &'a mut Index,
+	pub(crate) linkage: &'a mut Linkage,
+	pub(crate) change_overlay: &'a mut Changes,
+}
+
+pub(crate) struct LivePlanSnapshot {
+	pub(crate) snapshot: WorkspaceSnapshot,
+	pub(crate) replace_watcher: bool,
+}
+
+#[derive(Clone)]
+struct SnapshotBuildRequest {
+	request: WorkspaceRequest,
+	generation: ResourceGeneration,
+}
+
+impl<Sources, Index, Linkage, Changes> LivePlanBuild<'_, Sources, Index, Linkage, Changes>
+where
+	Sources: SourceCatalogPort,
+	Index: CodeIndexPort,
+	Linkage: LinkagePort,
+	Changes: ChangeOverlayPort,
+{
+	pub(crate) fn build(
+		mut self,
+		request: WorkspaceRequest,
+		plan: &WorkspaceLiveRefreshPlan,
+		generation: ResourceGeneration,
+	) -> WorkspaceResult<LivePlanSnapshot> {
+		let build = SnapshotBuildRequest {
+			request,
+			generation,
+		};
+		let code = self.build_code_snapshot(build.clone(), plan)?;
+		let mut snapshot = code.snapshot;
+		if plan.includes_git_base() && !plan.requires_rescan() {
+			snapshot = build_change_overlay_snapshot(
+				Some(&snapshot),
+				self.change_overlay,
+				build.request,
+				build.generation,
+			)?;
+		}
+		Ok(LivePlanSnapshot {
+			snapshot,
+			replace_watcher: code.replace_watcher,
+		})
+	}
+
+	fn build_code_snapshot(
+		&mut self,
+		build: SnapshotBuildRequest,
+		plan: &WorkspaceLiveRefreshPlan,
+	) -> WorkspaceResult<LivePlanSnapshot> {
+		if plan.requires_rescan() {
+			return self.build_complete(build, true);
+		}
+		if plan.source_paths().is_empty() {
+			return clone_current_snapshot(self.current, &build.request, build.generation).map(
+				|snapshot| LivePlanSnapshot {
+					snapshot,
+					replace_watcher: false,
+				},
+			);
+		}
+		build_incremental_paths_snapshot(
+			self.current,
+			self.code_index,
+			self.linkage,
+			build.request.clone(),
+			plan.source_paths(),
+			build.generation,
+		)
+		.map(|snapshot| LivePlanSnapshot {
+			snapshot,
+			replace_watcher: false,
+		})
+		.or_else(|_| self.build_complete(build, true))
+	}
+
+	fn build_complete(
+		&mut self,
+		build: SnapshotBuildRequest,
+		replace_watcher: bool,
+	) -> WorkspaceResult<LivePlanSnapshot> {
+		build_complete_snapshot(
+			self.source_catalog,
+			self.code_index,
+			self.linkage,
+			self.change_overlay,
+			build.request,
+			build.generation,
+		)
+		.map(|snapshot| LivePlanSnapshot {
+			snapshot,
+			replace_watcher,
+		})
+	}
+}
+
 pub(crate) fn build_catalog_snapshot(
 	source_catalog: &mut impl SourceCatalogPort,
 	request: WorkspaceRequest,
@@ -241,6 +346,22 @@ pub(crate) fn build_catalog_snapshot(
 		changes,
 		timings,
 	})
+}
+
+fn clone_current_snapshot(
+	current: Option<&WorkspaceSnapshot>,
+	request: &WorkspaceRequest,
+	generation: ResourceGeneration,
+) -> WorkspaceResult<WorkspaceSnapshot> {
+	let current = current.ok_or_else(|| {
+		WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			format!("{} requires a workspace snapshot", request.label),
+		)
+	})?;
+	let mut snapshot = current.clone();
+	snapshot.generation = generation;
+	Ok(snapshot)
 }
 
 fn load_catalog_for_index(
@@ -304,6 +425,7 @@ fn empty_changes(catalog: &SourceCatalog, index: &CodeIndex) -> ChangeOverlay {
 }
 
 fn changed_symbols(index: &CodeIndex, changed_sources: &[SourceId]) -> Vec<SymbolId> {
+	let changed_sources = changed_sources.iter().cloned().collect::<BTreeSet<_>>();
 	index
 		.symbols
 		.iter()

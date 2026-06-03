@@ -8,6 +8,7 @@ pub mod lines;
 pub mod linkage;
 pub mod live;
 pub mod notes;
+mod path_util;
 pub mod registry;
 pub mod snapshot;
 pub mod source;
@@ -19,5 +20,6 @@ pub const DEFAULT_IDENTITY_SCHEME: &str = "code+moniker://";
 
 pub use registry::{
 	LocalWorkspaceOptions, LocalWorkspaceRegistry, WorkspaceEvent, WorkspaceEventKind,
-	WorkspacePorts, WorkspaceRegistry, WorkspaceScopeUri,
+	WorkspaceLiveCommands, WorkspaceLivePlanTransition, WorkspacePorts, WorkspaceRegistry,
+	WorkspaceScopeUri,
 };

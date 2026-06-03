@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use code_moniker_workspace::live::{WorkspaceLiveEvent, WorkspaceLiveRefreshPlan};
 use code_moniker_workspace::registry::{
 	LocalWorkspaceOptions, LocalWorkspaceRegistry, WorkspaceCommandKind, WorkspaceCommandSpec,
 	WorkspaceEventKind, WorkspaceScopeUri, WorkspaceSnapshotPublication,
@@ -188,6 +189,39 @@ fn registry_commands_publish_queryable_snapshots_and_scoped_events() {
 			WorkspaceEventKind::SnapshotPublished,
 			WorkspaceEventKind::WorkCompleted,
 		],
+	);
+}
+
+#[test]
+fn live_plan_falls_back_to_workspace_rescan_and_reports_watcher_replacement() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let source = temp.path().join("src").join("lib.rs");
+	fs::create_dir_all(source.parent().expect("source parent")).expect("src dir");
+	fs::write(&source, "pub fn live_surface() {}\n").expect("write source");
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+	let plan =
+		WorkspaceLiveRefreshPlan::from_event(WorkspaceLiveEvent::SourcesChanged(vec![source]));
+
+	let live = workspace
+		.live_commands()
+		.apply_plan(WorkspaceRequest::new("live-plan"), plan);
+	let replace_watcher = live.replace_watcher();
+
+	assert!(matches!(
+		live.transition(),
+		WorkspaceTransition::Ready { .. }
+	));
+	assert!(replace_watcher);
+	let snapshot = workspace.queries().snapshot().expect("live snapshot");
+	assert!(
+		snapshot
+			.index
+			.symbols
+			.iter()
+			.any(|symbol| symbol.identity.contains("live_surface"))
 	);
 }
 

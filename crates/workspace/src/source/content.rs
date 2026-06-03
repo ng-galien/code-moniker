@@ -8,6 +8,7 @@ use code_moniker_core::lang::Lang;
 use rustc_hash::FxHashMap;
 
 use crate::environment::{self, SourceFileSet, SourceRoot};
+use crate::path_util::lexical_path;
 use crate::snapshot::{ReferenceId, SourceId, SymbolId};
 
 use super::identity::LocalIdentityResolver;
@@ -265,17 +266,7 @@ pub struct IndexedSourceFile {
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
-	let mut out = PathBuf::new();
-	for component in path.components() {
-		match component {
-			std::path::Component::CurDir => {}
-			std::path::Component::ParentDir => {
-				out.pop();
-			}
-			_ => out.push(component.as_os_str()),
-		}
-	}
-	out
+	lexical_path(path)
 }
 
 #[allow(dead_code)]

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::changes::ChangeOverlayPort;
 use crate::code::CodeIndexPort;
 use crate::linkage::LinkagePort;
-use crate::live::WorkspaceWatchRoot;
+use crate::live::{WorkspaceLiveRefreshPlan, WorkspaceWatchRoot};
 use crate::snapshot::{
 	ResourceGeneration, WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult,
 	WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
@@ -12,7 +12,7 @@ use crate::snapshot::{
 use crate::source::SourceCatalogPort;
 
 use super::build::{
-	build_catalog_snapshot, build_change_overlay_snapshot, build_complete_snapshot,
+	LivePlanBuild, build_catalog_snapshot, build_change_overlay_snapshot, build_complete_snapshot,
 	build_incremental_paths_snapshot, build_index_only_snapshot, build_linkage_snapshot,
 };
 use super::command::{
@@ -26,6 +26,21 @@ use super::event::{
 use super::ports::{WorkspaceCommandPort, WorkspaceEventPort, WorkspacePorts, WorkspaceQueryPort};
 use super::state::WorkspaceState;
 
+pub struct WorkspaceLivePlanTransition {
+	transition: WorkspaceTransition,
+	replace_watcher: bool,
+}
+
+impl WorkspaceLivePlanTransition {
+	pub fn transition(self) -> WorkspaceTransition {
+		self.transition
+	}
+
+	pub fn replace_watcher(&self) -> bool {
+		self.replace_watcher
+	}
+}
+
 pub struct WorkspaceRegistry<Sources, Index, Linkage, Changes> {
 	runtime: WorkspaceRuntime<Sources, Index, Linkage, Changes>,
 	events: WorkspaceEventLog,
@@ -33,6 +48,12 @@ pub struct WorkspaceRegistry<Sources, Index, Linkage, Changes> {
 }
 
 pub struct WorkspaceCommands<'a, Sources, Index, Linkage, Changes> {
+	runtime: &'a mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+	events: &'a mut WorkspaceEventLog,
+	next_command_id: &'a mut u64,
+}
+
+pub struct WorkspaceLiveCommands<'a, Sources, Index, Linkage, Changes> {
 	runtime: &'a mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
 	events: &'a mut WorkspaceEventLog,
 	next_command_id: &'a mut u64,
@@ -62,6 +83,14 @@ impl<Sources, Index, Linkage, Changes> WorkspaceRegistry<Sources, Index, Linkage
 
 	pub fn commands(&mut self) -> WorkspaceCommands<'_, Sources, Index, Linkage, Changes> {
 		WorkspaceCommands {
+			runtime: &mut self.runtime,
+			events: &mut self.events,
+			next_command_id: &mut self.next_command_id,
+		}
+	}
+
+	pub fn live_commands(&mut self) -> WorkspaceLiveCommands<'_, Sources, Index, Linkage, Changes> {
+		WorkspaceLiveCommands {
 			runtime: &mut self.runtime,
 			events: &mut self.events,
 			next_command_id: &mut self.next_command_id,
@@ -253,6 +282,58 @@ where
 	}
 }
 
+impl<Sources, Index, Linkage, Changes> WorkspaceLiveCommands<'_, Sources, Index, Linkage, Changes>
+where
+	Sources: SourceCatalogPort,
+	Index: CodeIndexPort,
+	Linkage: LinkagePort,
+	Changes: ChangeOverlayPort,
+{
+	pub fn apply_plan(
+		&mut self,
+		request: WorkspaceRequest,
+		plan: WorkspaceLiveRefreshPlan,
+	) -> WorkspaceLivePlanTransition {
+		let command = WorkspaceCommand::new(
+			self.allocate_command_id(),
+			WorkspaceScopeUri::workspace(),
+			WorkspaceCommandKind::RefreshLivePlan,
+			request,
+		);
+		let generation = self.runtime.state.allocate_generation();
+		let context = WorkspaceEventContext::new(command.scope_uri, generation, command.id);
+		publish_command_started(self.events, &context);
+		let result = LivePlanBuild {
+			current: self.runtime.state.snapshot(),
+			source_catalog: &mut self.runtime.ports.source_catalog,
+			code_index: &mut self.runtime.ports.code_index,
+			linkage: &mut self.runtime.ports.linkage,
+			change_overlay: &mut self.runtime.ports.change_overlay,
+		}
+		.build(command.request, &plan, generation);
+		let replace_watcher = result
+			.as_ref()
+			.map(|result| result.replace_watcher)
+			.unwrap_or_else(|_| plan.requires_rescan());
+		let transition = publish_command_finished(
+			self.runtime,
+			self.events,
+			&context,
+			result.map(|result| result.snapshot),
+		);
+		WorkspaceLivePlanTransition {
+			transition,
+			replace_watcher,
+		}
+	}
+
+	fn allocate_command_id(&mut self) -> WorkspaceCommandId {
+		let id = WorkspaceCommandId::new(*self.next_command_id);
+		*self.next_command_id += 1;
+		id
+	}
+}
+
 fn publish_command_started(events: &mut WorkspaceEventLog, context: &WorkspaceEventContext) {
 	events.publish(context.event(WorkspaceEventKind::CommandAccepted));
 	events.publish(context.event(WorkspaceEventKind::WorkStarted));
@@ -396,6 +477,10 @@ where
 			request,
 			generation,
 		),
+		WorkspaceCommandKind::RefreshLivePlan => Err(WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			"RefreshLivePlan commands require a live refresh plan",
+		)),
 		WorkspaceCommandKind::PublishSnapshot => Err(WorkspaceFailure::new(
 			WorkspaceResource::CodeIndex,
 			"PublishSnapshot commands require a snapshot payload",

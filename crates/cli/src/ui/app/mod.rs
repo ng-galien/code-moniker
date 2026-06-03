@@ -256,7 +256,6 @@ pub(in crate::ui) fn replace_store(
 	options: SessionOptions,
 ) {
 	app.workspace.replace(store, cache, options);
-	let _ = reload_notes(app);
 }
 
 pub(in crate::ui) fn app_rules_path(app: &App) -> &std::path::Path {

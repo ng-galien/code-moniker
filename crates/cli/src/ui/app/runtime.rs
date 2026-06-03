@@ -113,6 +113,7 @@ fn handle_task_result(app: &mut App, result: TaskResult) {
 			let symbol_options = options.clone();
 			let catalog_seed = store.queries().snapshot_arc();
 			crate::ui::app::replace_store(app, store, cache, options);
+			let _ = crate::ui::app::reload_notes(app);
 			apply_file_catalog_store(app, "file tree ready".to_string());
 			let task = catalog_seed.map_or_else(
 				|| TaskSpec::load_symbol_index(crate::ui::app::store_options(app)),
@@ -132,6 +133,7 @@ fn handle_task_result(app: &mut App, result: TaskResult) {
 			let linkage_cache = cache.clone();
 			let linkage_options = options.clone();
 			crate::ui::app::replace_store(app, store, cache, options);
+			let _ = crate::ui::app::reload_notes(app);
 			apply_reloaded_store(app, "symbols ready; linkage pending".to_string());
 			if queue_task(
 				app,
@@ -143,6 +145,18 @@ fn handle_task_result(app: &mut App, result: TaskResult) {
 		TaskOutcome::LinkageResolved(store) => {
 			let (store, cache, options) = *store;
 			crate::ui::app::replace_store(app, store, cache, options);
+			let _ = crate::ui::app::reload_notes(app);
+			apply_reloaded_store(app, format!("{} completed", result.label));
+		}
+		TaskOutcome::LiveWorkspaceRefreshed {
+			workspace,
+			reload_notes,
+		} => {
+			let (store, cache, options) = *workspace;
+			crate::ui::app::replace_store(app, store, cache, options);
+			if reload_notes {
+				let _ = crate::ui::app::reload_notes(app);
+			}
 			apply_reloaded_store(app, format!("{} completed", result.label));
 		}
 		TaskOutcome::CheckCompleted(summary) => {

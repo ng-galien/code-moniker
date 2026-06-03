@@ -246,6 +246,10 @@ pub(in crate::ui) enum TaskOutcome {
 		linkage_seed: Arc<WorkspaceSnapshot>,
 	},
 	LinkageResolved(Box<LoadedWorkspace>),
+	LiveWorkspaceRefreshed {
+		workspace: Box<LoadedWorkspace>,
+		reload_notes: bool,
+	},
 	CheckCompleted(Box<CheckSummary>),
 	Failed(String),
 }
@@ -256,6 +260,7 @@ impl fmt::Debug for TaskOutcome {
 			Self::FileCatalogLoaded(_) => f.write_str("FileCatalogLoaded(..)"),
 			Self::SymbolIndexLoaded { .. } => f.write_str("SymbolIndexLoaded(..)"),
 			Self::LinkageResolved(_) => f.write_str("LinkageResolved(..)"),
+			Self::LiveWorkspaceRefreshed { .. } => f.write_str("LiveWorkspaceRefreshed(..)"),
 			Self::CheckCompleted(_) => f.write_str("CheckCompleted(..)"),
 			Self::Failed(error) => f.debug_tuple("Failed").field(error).finish(),
 		}
@@ -268,6 +273,7 @@ impl TaskOutcome {
 			Self::FileCatalogLoaded(_) => "file_catalog_loaded",
 			Self::SymbolIndexLoaded { .. } => "symbol_index_loaded",
 			Self::LinkageResolved(_) => "linkage_resolved",
+			Self::LiveWorkspaceRefreshed { .. } => "live_workspace_refreshed",
 			Self::CheckCompleted(_) => "check_completed",
 			Self::Failed(_) => "failed",
 		}
@@ -278,6 +284,9 @@ impl TaskOutcome {
 			Self::FileCatalogLoaded(store)
 			| Self::LinkageResolved(store)
 			| Self::SymbolIndexLoaded {
+				workspace: store, ..
+			}
+			| Self::LiveWorkspaceRefreshed {
 				workspace: store, ..
 			} => {
 				let stats = workspace_read::stats(&store.0);
@@ -382,10 +391,16 @@ fn execute_task_kind(kind: TaskKind) -> TaskOutcome {
 			cache,
 			snapshot,
 			plan,
-		} => match refresh_local_workspace_live_plan(&opts, cache, snapshot, plan) {
-			Ok((store, cache)) => TaskOutcome::LinkageResolved(Box::new((store, cache, opts))),
-			Err(error) => TaskOutcome::Failed(format!("{error:#}")),
-		},
+		} => {
+			let reload_notes = plan.includes_notes();
+			match refresh_local_workspace_live_plan(&opts, cache, snapshot, plan) {
+				Ok((store, cache)) => TaskOutcome::LiveWorkspaceRefreshed {
+					workspace: Box::new((store, cache, opts)),
+					reload_notes,
+				},
+				Err(error) => TaskOutcome::Failed(format!("{error:#}")),
+			}
+		}
 		TaskKind::RunCheck {
 			context,
 			rules,

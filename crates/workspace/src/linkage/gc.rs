@@ -1,15 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::core::uri::{UriConfig, from_uri};
 use code_moniker_core::lang::build_manifest::Manifest;
 
 use crate::linkage::candidate::CandidateCatalog;
-use crate::linkage::decision::{
-	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
-};
+use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope, UnknownReason};
 use crate::linkage::query::LinkageQuery;
+use crate::path_util::normalize_path;
 use crate::snapshot::{
 	LinkageEdge, LinkageGraph, ReferenceId, ReferenceRecord, SourceId, SymbolId,
 };
@@ -200,13 +199,14 @@ impl<'a> LinkageDecisionPreserver<'a> {
 			.filter(|external| self.preserve_reference(&external.reference))
 			.filter_map(|external| {
 				let reference_idx = *self.index.reference_indexes.get(&external.reference)?;
-				let origin = external_origin(&external.origin);
 				let target = external_target(&external.target_identity, self.material);
 				Some(match target {
-					Some(target) => {
-						ReferenceLinkageDecision::external_target(origin, reference_idx, target)
-					}
-					None => ReferenceLinkageDecision::external(origin, reference_idx),
+					Some(target) => ReferenceLinkageDecision::external_target(
+						external.origin,
+						reference_idx,
+						target,
+					),
+					None => ReferenceLinkageDecision::external(external.origin, reference_idx),
 				})
 			})
 			.collect()
@@ -441,15 +441,6 @@ fn policy_source_roots(material: &CodeIndexMaterial, paths: &[PathBuf]) -> BTree
 		.collect()
 }
 
-fn external_origin(label: &str) -> ExternalOrigin {
-	match label {
-		"dependency" => ExternalOrigin::Dependency,
-		"injected" => ExternalOrigin::Injected,
-		"unknown_external" => ExternalOrigin::UnknownExternal,
-		_ => ExternalOrigin::UnknownExternal,
-	}
-}
-
 fn external_target(identity: &str, material: &CodeIndexMaterial) -> Option<Moniker> {
 	from_uri(
 		identity,
@@ -475,29 +466,4 @@ fn source_root_for_path(material: &CodeIndexMaterial, path: &Path) -> Option<usi
 		})
 		.max_by_key(|(_, depth)| *depth)
 		.map(|(root_idx, _)| root_idx)
-}
-
-fn normalize_path(path: &Path) -> PathBuf {
-	let path = if path.is_absolute() {
-		path.to_path_buf()
-	} else {
-		std::env::current_dir()
-			.map(|cwd| cwd.join(path))
-			.unwrap_or_else(|_| path.to_path_buf())
-	};
-	path.canonicalize().unwrap_or_else(|_| lexical_path(&path))
-}
-
-fn lexical_path(path: &Path) -> PathBuf {
-	let mut out = PathBuf::new();
-	for component in path.components() {
-		match component {
-			Component::CurDir => {}
-			Component::ParentDir => {
-				out.pop();
-			}
-			_ => out.push(component.as_os_str()),
-		}
-	}
-	out
 }

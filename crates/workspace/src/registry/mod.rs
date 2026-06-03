@@ -18,4 +18,7 @@ pub use command::{
 pub use event::{WorkspaceEvent, WorkspaceEventCursor, WorkspaceEventKind};
 pub use local::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 pub use ports::{WorkspaceCommandPort, WorkspaceEventPort, WorkspacePorts, WorkspaceQueryPort};
-pub use runtime::{WorkspaceCommands, WorkspaceEvents, WorkspaceQueries, WorkspaceRegistry};
+pub use runtime::{
+	WorkspaceCommands, WorkspaceEvents, WorkspaceLiveCommands, WorkspaceLivePlanTransition,
+	WorkspaceQueries, WorkspaceRegistry,
+};

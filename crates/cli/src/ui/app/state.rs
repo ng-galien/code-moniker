@@ -450,7 +450,7 @@ pub(in crate::ui) fn complete_task(state: &mut AppState, result: &TaskResult) ->
 			state.work.pending.remove(&WorkKind::GraphIndex);
 			state.work.pending.insert(WorkKind::LinkageGraph);
 		}
-		TaskOutcome::LinkageResolved(_) => {
+		TaskOutcome::LinkageResolved(_) | TaskOutcome::LiveWorkspaceRefreshed { .. } => {
 			state.work.pending.remove(&WorkKind::LinkageGraph);
 			state.work.pending.remove(&WorkKind::GitOverlay);
 			state.work.pending.remove(&WorkKind::ImpactIndex);
@@ -471,6 +471,7 @@ pub(in crate::ui) fn complete_task(state: &mut AppState, result: &TaskResult) ->
 			TaskOutcome::FileCatalogLoaded(_) => TaskStatus::Completed,
 			TaskOutcome::SymbolIndexLoaded { .. } => TaskStatus::Completed,
 			TaskOutcome::LinkageResolved(_) => TaskStatus::Completed,
+			TaskOutcome::LiveWorkspaceRefreshed { .. } => TaskStatus::Completed,
 			TaskOutcome::CheckCompleted(_) => TaskStatus::Completed,
 			TaskOutcome::Failed(_) => TaskStatus::Failed,
 		},

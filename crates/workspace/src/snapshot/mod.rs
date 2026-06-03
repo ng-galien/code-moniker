@@ -9,11 +9,11 @@ mod view;
 pub use model::{
 	ChangeId, ChangeOverlay, ChangeOverlayReport, ChangeRecord, ChangeRecordCoreFields,
 	ChangeRecordFields, ChangeResource, ChangeStatus, CodeIndex, CodeIndexFields, CodeIndexTimings,
-	ExternalReference, LinkageEdge, LinkageGraph, LinkageGraphReport, ReferenceId, ReferenceRecord,
-	ResourceGeneration, SourceCatalog, SourceFileRecord, SourceFileRecordFields, SourceId,
-	SourceUnit, SymbolId, SymbolLocation, SymbolRecord, SymbolRecordFields, UnresolvedReference,
-	WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult, WorkspaceSnapshot,
-	WorkspaceTimings, WorkspaceTransition,
+	ExternalReference, ExternalReferenceOrigin, LinkageEdge, LinkageGraph, LinkageGraphReport,
+	ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog, SourceFileRecord,
+	SourceFileRecordFields, SourceId, SourceUnit, SymbolId, SymbolLocation, SymbolRecord,
+	SymbolRecordFields, UnresolvedReference, WorkspaceFailure, WorkspaceRequest, WorkspaceResource,
+	WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings, WorkspaceTransition,
 };
 pub use view::{
 	ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet, ReferenceSetSummary,

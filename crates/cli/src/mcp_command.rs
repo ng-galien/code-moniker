@@ -88,7 +88,12 @@ fn run_live_workspace(opts: &SessionOptions, index: &SharedWorkspaceIndex) -> an
 	let mut watcher = start_live_watcher(&registry, tx.clone())?;
 	for event in rx {
 		if handle_live_event(opts, index, &mut registry, event) {
-			watcher = start_live_watcher(&registry, tx.clone())?;
+			match start_live_watcher(&registry, tx.clone()) {
+				Ok(next_watcher) => watcher = next_watcher,
+				Err(error) => {
+					warn!(event = "workspace_live_restart_failed", error = %format!("{error:#}"), "workspace live watcher restart failed");
+				}
+			}
 		}
 	}
 	drop(watcher);
@@ -183,79 +188,35 @@ fn handle_live_event(
 	event: WorkspaceLiveEvent,
 ) -> bool {
 	let plan = WorkspaceLiveRefreshPlan::from_event(event);
-	let mut replace_watcher = false;
-	let needs_rescan = plan.requires_rescan()
-		|| (!plan.source_paths().is_empty()
-			&& refresh_live_paths(index, registry, plan.source_paths().to_vec()));
-	if needs_rescan {
-		refresh_live_workspace(index, registry);
-		replace_watcher = true;
-	}
-	if plan.includes_git_base() {
-		refresh_live_changes(index, registry);
-	}
+	let replace_watcher = refresh_live_plan(index, registry, plan.clone());
 	if plan.includes_notes() {
 		reload_live_notes(opts, index);
 	}
 	replace_watcher
 }
 
-fn refresh_live_paths(
+fn refresh_live_plan(
 	index: &SharedWorkspaceIndex,
 	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
-	paths: Vec<std::path::PathBuf>,
+	plan: WorkspaceLiveRefreshPlan,
 ) -> bool {
 	let started = Instant::now();
-	match registry
-		.commands()
-		.refresh_paths(WorkspaceRequest::new("mcp-live-paths"), paths)
-	{
+	let live = registry
+		.live_commands()
+		.apply_plan(WorkspaceRequest::new("mcp-live-plan"), plan);
+	let replace_watcher = live.replace_watcher();
+	match live.transition() {
 		WorkspaceTransition::Ready { .. } => {
 			if let Some(snapshot) = registry.queries().snapshot_arc() {
-				log_snapshot_ready("live-paths", started.elapsed(), &snapshot);
+				log_snapshot_ready("live-plan", started.elapsed(), &snapshot);
 				index.publish(Some(snapshot));
 			}
-			false
 		}
 		WorkspaceTransition::Failed { failure, .. } => {
 			warn!(event = "workspace_live_failed", error = %failure.message, "workspace live refresh failed");
-			true
 		}
 	}
-}
-
-fn refresh_live_workspace(
-	index: &SharedWorkspaceIndex,
-	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
-) {
-	match registry
-		.commands()
-		.refresh(WorkspaceRequest::new("mcp-live-rescan"))
-	{
-		WorkspaceTransition::Ready { .. } => {
-			index.publish(registry.queries().snapshot_arc());
-		}
-		WorkspaceTransition::Failed { failure, .. } => {
-			warn!(event = "workspace_live_rescan_failed", error = %failure.message, "workspace live rescan failed");
-		}
-	}
-}
-
-fn refresh_live_changes(
-	index: &SharedWorkspaceIndex,
-	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
-) {
-	match registry
-		.commands()
-		.refresh_changes(WorkspaceRequest::new("mcp-live-git-base"))
-	{
-		WorkspaceTransition::Ready { .. } => {
-			index.publish(registry.queries().snapshot_arc());
-		}
-		WorkspaceTransition::Failed { failure, .. } => {
-			warn!(event = "workspace_live_changes_failed", error = %failure.message, "workspace live changes refresh failed");
-		}
-	}
+	replace_watcher
 }
 
 fn reload_live_notes(opts: &SessionOptions, index: &SharedWorkspaceIndex) {

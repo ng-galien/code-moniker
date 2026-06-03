@@ -223,46 +223,12 @@ pub(in crate::ui) fn refresh_local_workspace_live_plan(
 			WorkspaceRequest::new("live-refresh-seed"),
 			snapshot,
 		));
-	apply_live_refresh_plan(&mut registry, &plan)?;
-	Ok((registry, cache))
-}
-
-fn apply_live_refresh_plan(
-	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
-	plan: &WorkspaceLiveRefreshPlan,
-) -> anyhow::Result<()> {
-	if plan.requires_rescan() {
-		refresh_workspace_all(registry, "workspace-live-rescan")?;
-	} else if !plan.source_paths().is_empty()
-		&& refresh_workspace_paths(registry, plan.source_paths().to_vec()).is_err()
-	{
-		refresh_workspace_all(registry, "workspace-live-paths-fallback")?;
-	}
-	if plan.includes_git_base() {
-		refresh_workspace_changes(registry)?;
-	}
-	Ok(())
-}
-
-fn refresh_workspace_all(
-	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
-	label: &str,
-) -> anyhow::Result<()> {
-	match registry.commands().refresh(WorkspaceRequest::new(label)) {
-		WorkspaceTransition::Ready { .. } => Ok(()),
-		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
-	}
-}
-
-fn refresh_workspace_paths(
-	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
-	paths: Vec<PathBuf>,
-) -> anyhow::Result<()> {
 	match registry
-		.commands()
-		.refresh_paths(WorkspaceRequest::new("workspace-live-paths"), paths)
+		.live_commands()
+		.apply_plan(WorkspaceRequest::new("workspace-live-plan"), plan)
+		.transition()
 	{
-		WorkspaceTransition::Ready { .. } => Ok(()),
+		WorkspaceTransition::Ready { .. } => Ok((registry, cache)),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
 	}
 }
@@ -274,18 +240,6 @@ pub(in crate::ui) fn refresh_workspace(
 	match registry
 		.commands()
 		.refresh(WorkspaceRequest::new("workspace"))
-	{
-		WorkspaceTransition::Ready { .. } => Ok(()),
-		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),
-	}
-}
-
-fn refresh_workspace_changes(
-	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
-) -> anyhow::Result<()> {
-	match registry
-		.commands()
-		.refresh_changes(WorkspaceRequest::new("workspace-live-git-base"))
 	{
 		WorkspaceTransition::Ready { .. } => Ok(()),
 		WorkspaceTransition::Failed { failure, .. } => anyhow::bail!(failure.message),

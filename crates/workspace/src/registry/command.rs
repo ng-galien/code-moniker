@@ -40,6 +40,7 @@ pub enum WorkspaceCommandKind {
 	PublishSnapshot,
 	RefreshPaths,
 	RefreshChanges,
+	RefreshLivePlan,
 	Refresh,
 }
 

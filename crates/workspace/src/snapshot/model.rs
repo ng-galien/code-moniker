@@ -393,23 +393,40 @@ impl LinkageEdge {
 	}
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExternalReferenceOrigin {
+	Dependency,
+	Injected,
+	UnknownExternal,
+}
+
+impl ExternalReferenceOrigin {
+	pub fn label(self) -> &'static str {
+		match self {
+			Self::Dependency => "dependency",
+			Self::Injected => "injected",
+			Self::UnknownExternal => "unknown_external",
+		}
+	}
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExternalReference {
 	pub reference: ReferenceId,
 	pub target_identity: Arc<str>,
-	pub origin: String,
+	pub origin: ExternalReferenceOrigin,
 }
 
 impl ExternalReference {
 	pub fn new(
 		reference: ReferenceId,
 		target_identity: impl Into<Arc<str>>,
-		origin: impl Into<String>,
+		origin: ExternalReferenceOrigin,
 	) -> Self {
 		Self {
 			reference,
 			target_identity: target_identity.into(),
-			origin: origin.into(),
+			origin,
 		}
 	}
 }

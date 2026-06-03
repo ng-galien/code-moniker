@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -146,8 +147,9 @@ fn refresh_local_code_index(
 	let semantic_timer = Instant::now();
 	let material = material_from_files(current_material.source_catalog.clone(), files);
 	let sources = source_records(&material.files);
-	let symbols = replace_symbols(current, &changed_sources, &material);
-	let references = replace_references(current, &changed_sources, &material);
+	let changed_source_set = changed_sources.iter().cloned().collect::<BTreeSet<_>>();
+	let symbols = replace_symbols(current, &changed_source_set, &material);
+	let references = replace_references(current, &changed_source_set, &material);
 	let semantic_index = semantic_timer.elapsed();
 	let generation = cache.next_generation();
 	let identity_scheme = material.identity.scheme().to_string();
@@ -323,7 +325,7 @@ fn material_from_files(
 
 fn replace_symbols(
 	current: &CodeIndex,
-	changed_sources: &[SourceId],
+	changed_sources: &BTreeSet<SourceId>,
 	material: &CodeIndexMaterial,
 ) -> Vec<SymbolRecord> {
 	let mut symbols = current
@@ -340,7 +342,7 @@ fn replace_symbols(
 
 fn replace_references(
 	current: &CodeIndex,
-	changed_sources: &[SourceId],
+	changed_sources: &BTreeSet<SourceId>,
 	material: &CodeIndexMaterial,
 ) -> Vec<ReferenceRecord> {
 	let mut references = current
@@ -357,7 +359,7 @@ fn replace_references(
 }
 
 fn records_for_sources<T, F>(
-	changed_sources: &[SourceId],
+	changed_sources: &BTreeSet<SourceId>,
 	files: &[IndexedSourceFile],
 	mut collect: F,
 ) -> Vec<T>
