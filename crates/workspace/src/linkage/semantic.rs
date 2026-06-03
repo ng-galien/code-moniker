@@ -82,10 +82,14 @@ fn enhance_receiver_chains(
 	references: &[ReferenceRecord],
 	mut pending: Vec<usize>,
 ) {
-	let mut statuses = reference_statuses(linkage.material, decisions, references);
-	let return_types = collect_return_types(linkage.material, decisions, references);
 	let receiver_calls =
 		build_receiver_call_index(linkage.material, decisions, references, &pending);
+	let wanted = receiver_calls
+		.by_reference
+		.values()
+		.collect::<FxHashSet<_>>();
+	let mut statuses = reference_statuses(linkage.material, decisions, references, &wanted);
+	let return_types = collect_return_types(linkage.material, decisions, references);
 	loop {
 		let replacements = pending
 			.par_iter()
@@ -632,15 +636,12 @@ fn resolve_receiver_chain(
 		.reference_location(method_call.reference_id())?;
 	let receiver = receiver_calls.get(source_file, ref_idx)?;
 	let owner = match statuses.get(receiver)? {
-		ReferenceStatus::Resolved(symbols) if symbols.len() == 1 => {
-			linkage.resolved_return_owner(&symbols[0], return_types)?
-		}
+		ReferenceStatus::Resolved(symbol) => linkage.resolved_return_owner(symbol, return_types)?,
 		ReferenceStatus::External(target) => {
 			let owner = callable_owner(target)?;
 			let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
 			return Some(method_call.external_decision(target));
 		}
-		ReferenceStatus::Resolved(_) => return None,
 	};
 	if external_target_shape(&owner) {
 		let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
@@ -651,7 +652,7 @@ fn resolve_receiver_chain(
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ReferenceStatus {
-	Resolved(Vec<SymbolId>),
+	Resolved(SymbolId),
 	External(Moniker),
 }
 
@@ -710,9 +711,13 @@ fn reference_statuses(
 	material: &CodeIndexMaterial,
 	decisions: &[ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
+	wanted: &FxHashSet<&ReferenceId>,
 ) -> FxHashMap<ReferenceId, ReferenceStatus> {
 	let mut out = FxHashMap::default();
 	for decision in decisions {
+		if !wanted.contains(decision.reference()) {
+			continue;
+		}
 		if let Some((reference, status)) = reference_status(material, decision, references) {
 			out.insert(reference, status);
 		}
@@ -730,10 +735,15 @@ fn reference_status(
 			reference_idx,
 			targets,
 			..
-		} => Some((
-			references[*reference_idx].id.clone(),
-			ReferenceStatus::Resolved(targets.clone()),
-		)),
+		} => {
+			let [target] = targets.as_slice() else {
+				return None;
+			};
+			Some((
+				references[*reference_idx].id.clone(),
+				ReferenceStatus::Resolved(target.clone()),
+			))
+		}
 		ReferenceLinkageDecision::External {
 			reference_idx,
 			target,
