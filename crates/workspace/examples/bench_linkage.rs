@@ -62,10 +62,6 @@ fn main() -> anyhow::Result<()> {
 		millis(timed_linkage.timings.resolve_references)
 	);
 	println!(
-		"semantic_prepare\t{:.3}",
-		millis(timed_linkage.timings.semantic_prepare)
-	);
-	println!(
 		"semantic_enhance\t{:.3}",
 		millis(timed_linkage.timings.semantic_enhance)
 	);

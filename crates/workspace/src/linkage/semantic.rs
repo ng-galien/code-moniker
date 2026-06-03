@@ -82,6 +82,9 @@ fn enhance_receiver_chains(
 	references: &[ReferenceRecord],
 	mut pending: Vec<usize>,
 ) {
+	if pending.is_empty() {
+		return;
+	}
 	let receiver_calls =
 		build_receiver_call_index(linkage.material, decisions, references, &pending);
 	let wanted = receiver_calls

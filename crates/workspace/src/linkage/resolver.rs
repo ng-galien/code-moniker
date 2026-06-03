@@ -33,7 +33,6 @@ pub struct LinkageTimings {
 	pub candidate_index: Duration,
 	pub manifest_policy: Duration,
 	pub resolve_references: Duration,
-	pub semantic_prepare: Duration,
 	pub semantic_enhance: Duration,
 	pub project_snapshot: Duration,
 	pub total: Duration,
