@@ -46,6 +46,7 @@ impl<'a> LinkageGarbageCollector<'a> {
 		references: &'a [ReferenceRecord],
 		material: &'a CodeIndexMaterial,
 		candidates: &'a CandidateCatalog<'a>,
+		reference_indexes: &'a FxHashMap<ReferenceId, usize>,
 		impact: &LinkageRefreshImpact,
 	) -> Self {
 		let changed_sources = changed_sources(impact);
@@ -58,6 +59,7 @@ impl<'a> LinkageGarbageCollector<'a> {
 				references,
 				material,
 				candidates,
+				reference_indexes,
 				&changed_source_files,
 			),
 			changed_source_files,
@@ -145,15 +147,12 @@ fn changed_candidate_references(
 	references: &[ReferenceRecord],
 	material: &CodeIndexMaterial,
 	candidates: &CandidateCatalog<'_>,
+	reference_indexes: &FxHashMap<ReferenceId, usize>,
 	changed_source_files: &BTreeSet<usize>,
 ) -> Vec<ReferenceId> {
 	if changed_source_files.is_empty() {
 		return Vec::new();
 	}
-	let record_by_id: FxHashMap<&ReferenceId, &ReferenceRecord> = references
-		.iter()
-		.map(|record| (&record.id, record))
-		.collect();
 	let mut seen = FxHashSet::default();
 	let mut stale = Vec::new();
 	for source_file in changed_source_files {
@@ -168,7 +167,10 @@ fn changed_candidate_references(
 				if !seen.insert(id) {
 					continue;
 				}
-				let Some(record) = record_by_id.get(id) else {
+				let Some(record) = reference_indexes
+					.get(id)
+					.and_then(|idx| references.get(*idx))
+				else {
 					continue;
 				};
 				let Some(query) = LinkageQuery::new(record, material) else {

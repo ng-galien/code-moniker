@@ -10,7 +10,7 @@ use crate::linkage::manifest::ManifestPolicy;
 use crate::linkage::query::LinkageQuery;
 use crate::linkage::scope::{GlobalScopeResolver, LocalScopeResolver};
 use crate::linkage::semantic::SemanticLinkage;
-use crate::linkage::store::{LinkageStore, LinkageStoreRefresh};
+use crate::linkage::store::{LinkageStore, LinkageStoreRefresh, reference_indexes};
 use crate::snapshot::{
 	CodeIndex, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, WorkspaceFailure,
 	WorkspaceResource, WorkspaceResult,
@@ -234,21 +234,24 @@ fn refresh_incremental_linkage(
 	let candidate_timer = Instant::now();
 	let candidates = CandidateCatalog::new(input.material);
 	timings.candidate_index = candidate_timer.elapsed();
+	let reference_index_map = reference_indexes(&input.index.references);
 	let gc_timer = Instant::now();
 	let stale_references = LinkageGarbageCollector::new(
 		store,
 		&input.index.references,
 		input.material,
 		&candidates,
+		&reference_index_map,
 		&input.impact,
 	)
 	.collect();
 	timings.garbage_collect = gc_timer.elapsed();
 	timings.stale_refs = stale_references.len();
-	let reference_indexes = reference_indexes_for(&input.index.references, &stale_references);
-	timings.changed_refs = reference_indexes.len();
+	let changed_reference_indexes =
+		stale_reference_indexes(&reference_index_map, &stale_references);
+	timings.changed_refs = changed_reference_indexes.len();
 	let resolve_timer = Instant::now();
-	let changed = resolve_reference_decisions(input, &reference_indexes, &candidates);
+	let changed = resolve_reference_decisions(input, &changed_reference_indexes, &candidates);
 	timings.resolve_references = resolve_timer.elapsed();
 	let apply_timer = Instant::now();
 	store.apply_refresh(LinkageStoreRefresh {
@@ -256,6 +259,7 @@ fn refresh_incremental_linkage(
 		index_generation: input.index.generation,
 		stale_references: &stale_references,
 		changed_decisions: changed,
+		reference_indexes: reference_index_map,
 		references: &input.index.references,
 		material: input.material,
 		candidates: &candidates,
@@ -289,14 +293,13 @@ fn resolve_reference_decisions(
 		.collect::<Vec<_>>()
 }
 
-fn reference_indexes_for(
-	references: &[ReferenceRecord],
-	reference_ids: &rustc_hash::FxHashSet<ReferenceId>,
+fn stale_reference_indexes(
+	reference_indexes: &rustc_hash::FxHashMap<ReferenceId, usize>,
+	stale_references: &rustc_hash::FxHashSet<ReferenceId>,
 ) -> Vec<usize> {
-	references
+	stale_references
 		.iter()
-		.enumerate()
-		.filter_map(|(idx, reference)| reference_ids.contains(&reference.id).then_some(idx))
+		.filter_map(|reference| reference_indexes.get(reference).copied())
 		.collect()
 }
 

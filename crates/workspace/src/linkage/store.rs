@@ -24,6 +24,7 @@ pub(super) struct LinkageStoreRefresh<'a> {
 	pub(super) index_generation: ResourceGeneration,
 	pub(super) stale_references: &'a FxHashSet<ReferenceId>,
 	pub(super) changed_decisions: Vec<ReferenceLinkageDecision>,
+	pub(super) reference_indexes: FxHashMap<ReferenceId, usize>,
 	pub(super) references: &'a [ReferenceRecord],
 	pub(super) material: &'a CodeIndexMaterial,
 	pub(super) candidates: &'a CandidateCatalog<'a>,
@@ -85,7 +86,7 @@ impl LinkageStore {
 	pub(super) fn apply_refresh(&mut self, refresh: LinkageStoreRefresh<'_>) {
 		self.generation = refresh.generation;
 		self.index_generation = refresh.index_generation;
-		self.indexes.reference_indexes = reference_indexes(refresh.references);
+		self.indexes.reference_indexes = refresh.reference_indexes;
 		self.indexes.symbol_sources = symbol_sources(refresh.material);
 		self.remove_stale_references(refresh.stale_references);
 		self.add_changed_decisions(
@@ -370,7 +371,7 @@ impl LinkageStoreIndexes {
 	}
 }
 
-fn reference_indexes(references: &[ReferenceRecord]) -> FxHashMap<ReferenceId, usize> {
+pub(super) fn reference_indexes(references: &[ReferenceRecord]) -> FxHashMap<ReferenceId, usize> {
 	references
 		.iter()
 		.enumerate()
