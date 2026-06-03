@@ -251,7 +251,7 @@ fn refresh_incremental_linkage(
 	);
 	timings.semantic_enhance = semantic_timer.elapsed();
 	let rebuild_timer = Instant::now();
-	store.refresh_resolved_target_index(&stale_references);
+	store.refresh_resolved_target_index(&stale_references, input.material);
 	timings.rebuild_indexes = rebuild_timer.elapsed();
 	timings
 }

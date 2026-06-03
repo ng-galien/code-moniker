@@ -35,7 +35,7 @@ pub(super) struct LinkageGarbageCollector<'a> {
 	changed_sources: BTreeSet<SourceId>,
 	changed_source_files: BTreeSet<usize>,
 	changed_source_references: Vec<ReferenceId>,
-	changed_candidate_references: Vec<ReferenceId>,
+	references_matching_changed_defs: Vec<ReferenceId>,
 	policy_source_roots: BTreeSet<usize>,
 	missing_resolved_references: Vec<ReferenceId>,
 }
@@ -54,7 +54,7 @@ impl<'a> LinkageGarbageCollector<'a> {
 		Self {
 			store,
 			changed_source_references: changed_source_references(references, &changed_sources),
-			changed_candidate_references: changed_candidate_references(
+			references_matching_changed_defs: references_matching_changed_defs(
 				store,
 				references,
 				material,
@@ -64,7 +64,7 @@ impl<'a> LinkageGarbageCollector<'a> {
 			),
 			changed_source_files,
 			policy_source_roots: policy_source_roots(material, &impact.changed_paths),
-			missing_resolved_references: store.missing_resolved_references(),
+			missing_resolved_references: store.missing_resolved_references(material),
 			changed_sources,
 		}
 	}
@@ -73,7 +73,8 @@ impl<'a> LinkageGarbageCollector<'a> {
 		let mut stale = FxHashSet::default();
 		self.mark_changed_source_references(&mut stale);
 		self.mark_policy_references(&mut stale);
-		self.mark_candidate_references(&mut stale);
+		self.mark_references_matching_changed_defs(&mut stale);
+		self.mark_references_with_candidate_in_changed_files(&mut stale);
 		self.mark_resolved_target_references(&mut stale);
 		stale.extend(self.missing_resolved_references.iter().cloned());
 		stale
@@ -91,8 +92,11 @@ impl<'a> LinkageGarbageCollector<'a> {
 		}
 	}
 
-	fn mark_candidate_references(&self, stale: &mut FxHashSet<ReferenceId>) {
-		stale.extend(self.changed_candidate_references.iter().cloned());
+	fn mark_references_matching_changed_defs(&self, stale: &mut FxHashSet<ReferenceId>) {
+		stale.extend(self.references_matching_changed_defs.iter().cloned());
+	}
+
+	fn mark_references_with_candidate_in_changed_files(&self, stale: &mut FxHashSet<ReferenceId>) {
 		for source_file in &self.changed_source_files {
 			if let Some(references) = self
 				.store
@@ -149,7 +153,7 @@ fn changed_source_files(
 		.collect()
 }
 
-fn changed_candidate_references(
+fn references_matching_changed_defs(
 	store: &LinkageStore,
 	references: &[ReferenceRecord],
 	material: &CodeIndexMaterial,

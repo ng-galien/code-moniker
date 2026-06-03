@@ -83,7 +83,6 @@ impl LinkageStore {
 		self.generation = refresh.generation;
 		self.index_generation = refresh.index_generation;
 		self.indexes.reference_indexes = refresh.reference_indexes;
-		self.indexes.symbol_sources = symbol_sources(refresh.material);
 		self.remove_stale_references(refresh.stale_references);
 		self.add_changed_decisions(
 			refresh.changed_decisions,
@@ -93,7 +92,10 @@ impl LinkageStore {
 		);
 	}
 
-	pub(super) fn missing_resolved_references(&self) -> Vec<ReferenceId> {
+	pub(super) fn missing_resolved_references(
+		&self,
+		material: &CodeIndexMaterial,
+	) -> Vec<ReferenceId> {
 		self.decisions
 			.iter()
 			.filter(|decision| {
@@ -104,7 +106,7 @@ impl LinkageStore {
 					|| decision.resolved_targets().is_some_and(|targets| {
 						targets
 							.iter()
-							.any(|target| !self.indexes.symbol_sources.contains_key(target))
+							.any(|target| !symbol_exists(material, target))
 					})
 			})
 			.map(|decision| decision.reference().clone())
@@ -181,11 +183,15 @@ impl LinkageStore {
 		&mut self.decisions
 	}
 
-	pub(super) fn refresh_resolved_target_index(&mut self, references: &FxHashSet<ReferenceId>) {
+	pub(super) fn refresh_resolved_target_index(
+		&mut self,
+		references: &FxHashSet<ReferenceId>,
+		material: &CodeIndexMaterial,
+	) {
 		self.indexes.remove_resolved_references(references);
 		for decision in &self.decisions {
 			if references.contains(decision.reference()) {
-				self.indexes.add_resolved_target_indexes(decision);
+				self.indexes.add_resolved_target_indexes(decision, material);
 			}
 		}
 	}
@@ -301,7 +307,6 @@ pub(super) struct LinkageStoreIndexes {
 	pub(super) references_by_source_root: FxHashMap<usize, Vec<ReferenceId>>,
 	pub(super) references_by_candidate_source: FxHashMap<usize, Vec<ReferenceId>>,
 	pub(super) references_by_name: FxHashMap<Vec<u8>, Vec<ReferenceId>>,
-	pub(super) symbol_sources: FxHashMap<SymbolId, SourceId>,
 	pub(super) resolved_by_target_source: FxHashMap<SourceId, Vec<ReferenceId>>,
 }
 
@@ -313,7 +318,7 @@ impl LinkageStoreIndexes {
 		candidates: &CandidateCatalog<'_>,
 	) -> Self {
 		let mut indexes = Self::from_references(references, material, candidates);
-		indexes.collect_decisions(decisions);
+		indexes.collect_decisions(decisions, material);
 		indexes
 	}
 
@@ -329,27 +334,34 @@ impl LinkageStoreIndexes {
 				references, material, candidates,
 			),
 			references_by_name: references_by_name(references, material),
-			symbol_sources: symbol_sources(material),
 			resolved_by_target_source: FxHashMap::default(),
 		}
 	}
 
-	fn collect_decisions(&mut self, decisions: &[ReferenceLinkageDecision]) {
+	fn collect_decisions(
+		&mut self,
+		decisions: &[ReferenceLinkageDecision],
+		material: &CodeIndexMaterial,
+	) {
 		for decision in decisions {
-			self.add_resolved_target_indexes(decision);
+			self.add_resolved_target_indexes(decision, material);
 		}
 	}
 
-	fn add_resolved_target_indexes(&mut self, decision: &ReferenceLinkageDecision) {
+	fn add_resolved_target_indexes(
+		&mut self,
+		decision: &ReferenceLinkageDecision,
+		material: &CodeIndexMaterial,
+	) {
 		let Some(targets) = decision.resolved_targets() else {
 			return;
 		};
 		for target in targets {
-			let Some(source) = self.symbol_sources.get(target) else {
+			let Some(source) = symbol_source(material, target) else {
 				continue;
 			};
 			self.resolved_by_target_source
-				.entry(source.clone())
+				.entry(source)
 				.or_default()
 				.push(decision.reference().clone());
 		}
@@ -438,20 +450,22 @@ fn references_by_name(
 	index
 }
 
-fn symbol_sources(material: &CodeIndexMaterial) -> FxHashMap<SymbolId, SourceId> {
+fn symbol_source(material: &CodeIndexMaterial, symbol: &SymbolId) -> Option<SourceId> {
+	let (file_idx, _) = material.identity.symbol_location(symbol)?;
 	material
 		.files
-		.iter()
-		.enumerate()
-		.flat_map(|(file_idx, file)| {
-			file.graph.defs().enumerate().map(move |(def_idx, _)| {
-				(
-					file.identity.symbol_id(file_idx, def_idx),
-					file.source_id.clone(),
-				)
-			})
-		})
-		.collect()
+		.get(file_idx)
+		.map(|file| file.source_id.clone())
+}
+
+fn symbol_exists(material: &CodeIndexMaterial, symbol: &SymbolId) -> bool {
+	match material.identity.symbol_location(symbol) {
+		Some((file_idx, def_idx)) => material
+			.files
+			.get(file_idx)
+			.is_some_and(|file| def_idx < file.graph.def_count()),
+		None => false,
+	}
 }
 
 fn reference_source_root(
