@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
@@ -9,10 +10,10 @@ use crate::linkage::manifest::ManifestPolicy;
 use crate::linkage::query::LinkageQuery;
 use crate::linkage::scope::{GlobalScopeResolver, LocalScopeResolver};
 use crate::linkage::semantic::SemanticLinkage;
-use crate::linkage::store::LinkageStore;
+use crate::linkage::store::{LinkageStore, LinkageStoreRefresh};
 use crate::snapshot::{
-	CodeIndex, LinkageSnapshot, ReferenceRecord, WorkspaceFailure, WorkspaceResource,
-	WorkspaceResult,
+	CodeIndex, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, WorkspaceFailure,
+	WorkspaceResource, WorkspaceResult,
 };
 use crate::source::{CodeIndexMaterial, LocalResourceCache};
 
@@ -42,6 +43,25 @@ pub struct TimedLinkageSnapshot {
 	pub timings: LinkageTimings,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LinkageRefreshTimings {
+	pub candidate_index: Duration,
+	pub garbage_collect: Duration,
+	pub resolve_references: Duration,
+	pub apply_store: Duration,
+	pub semantic_enhance: Duration,
+	pub rebuild_indexes: Duration,
+	pub project_snapshot: Duration,
+	pub total: Duration,
+	pub stale_refs: usize,
+	pub changed_refs: usize,
+}
+
+pub struct TimedLinkageRefresh {
+	pub snapshot: LinkageSnapshot,
+	pub timings: LinkageRefreshTimings,
+}
+
 pub struct LocalLinkage {
 	cache: LocalResourceCache,
 	store: Option<LinkageStore>,
@@ -60,45 +80,80 @@ impl LinkagePort for LocalLinkage {
 
 	fn refresh_linkage(
 		&mut self,
-		current: &LinkageSnapshot,
-		index: &CodeIndex,
-		impact: LinkageRefreshImpact,
+		snapshot: &LinkageSnapshot,
+		indexed: &CodeIndex,
+		change: LinkageRefreshImpact,
 	) -> WorkspaceResult<LinkageSnapshot> {
-		if impact.is_empty() {
-			if let Some(store) = &mut self.store {
-				store.advance_index_generation(index.generation);
-			}
-			let mut snapshot = current.clone();
-			snapshot.index_generation = index.generation;
-			return Ok(snapshot);
-		}
-		let material = self.cache.index_material(index.generation).ok_or_else(|| {
-			WorkspaceFailure::new(
-				WorkspaceResource::LinkageSnapshot,
-				"code index material is unavailable",
-			)
-		})?;
-		let generation = self.cache.next_generation();
-		let store =
-			IncrementalLinkageRefresh::new(current, index, impact, &material, generation).run();
-		let snapshot = store.project_snapshot(&index.references, &material.identity);
-		self.store = Some(store);
-		Ok(snapshot)
+		Ok(self
+			.refresh_linkage_with_timings(snapshot, indexed, change)?
+			.snapshot)
 	}
 }
 
 impl LocalLinkage {
+	pub fn refresh_linkage_with_timings(
+		&mut self,
+		previous: &LinkageSnapshot,
+		code_index: &CodeIndex,
+		refresh_impact: LinkageRefreshImpact,
+	) -> WorkspaceResult<TimedLinkageRefresh> {
+		let total_timer = Instant::now();
+		if refresh_impact.is_empty() {
+			return Ok(refresh_empty_linkage(
+				&mut self.store,
+				previous,
+				code_index,
+				total_timer,
+			));
+		}
+		let material = self.linkage_material(code_index)?;
+		let generation = self.cache.next_generation();
+		let store = self.store_for_incremental(previous, code_index, &material);
+		Ok(LinkageRefreshRunner::new(
+			store,
+			IncrementalLinkageInput {
+				index: code_index,
+				impact: refresh_impact,
+				material: &material,
+				generation,
+			},
+			total_timer,
+		)
+		.run())
+	}
+
+	fn store_for_incremental(
+		&mut self,
+		previous: &LinkageSnapshot,
+		code_index: &CodeIndex,
+		index_material: &CodeIndexMaterial,
+	) -> &mut LinkageStore {
+		self.store.get_or_insert_with(|| {
+			let candidates = CandidateCatalog::new(index_material);
+			LinkageStore::from_snapshot(
+				previous,
+				&code_index.references,
+				index_material,
+				&candidates,
+			)
+		})
+	}
+
+	fn linkage_material(&self, index: &CodeIndex) -> WorkspaceResult<Arc<CodeIndexMaterial>> {
+		self.cache.index_material(index.generation).ok_or_else(|| {
+			WorkspaceFailure::new(
+				WorkspaceResource::LinkageSnapshot,
+				"code index material is unavailable",
+			)
+		})
+	}
+
 	pub fn resolve_linkage_with_timings(
 		&mut self,
 		index: &CodeIndex,
 	) -> WorkspaceResult<TimedLinkageSnapshot> {
 		let total_timer = Instant::now();
-		let material = self.cache.index_material(index.generation).ok_or_else(|| {
-			WorkspaceFailure::new(
-				WorkspaceResource::LinkageSnapshot,
-				"code index material is unavailable",
-			)
-		})?;
+		let material = self.linkage_material(index)?;
 		let generation = self.cache.next_generation();
 		let resolver = LinkageResolver::new(&material);
 		let LinkageResolution { store, mut timings } = resolver.resolve(index, generation);
@@ -111,78 +166,153 @@ impl LocalLinkage {
 	}
 }
 
-struct IncrementalLinkageRefresh<'a> {
-	current: &'a LinkageSnapshot,
+fn refresh_empty_linkage(
+	store: &mut Option<LinkageStore>,
+	previous: &LinkageSnapshot,
+	code_index: &CodeIndex,
+	total_timer: Instant,
+) -> TimedLinkageRefresh {
+	if let Some(store) = store {
+		store.advance_index_generation(code_index.generation);
+	}
+	let project_timer = Instant::now();
+	let mut snapshot = previous.clone();
+	snapshot.index_generation = code_index.generation;
+	TimedLinkageRefresh {
+		snapshot,
+		timings: LinkageRefreshTimings {
+			project_snapshot: project_timer.elapsed(),
+			total: total_timer.elapsed(),
+			..LinkageRefreshTimings::default()
+		},
+	}
+}
+
+struct IncrementalLinkageInput<'a> {
 	index: &'a CodeIndex,
 	impact: LinkageRefreshImpact,
 	material: &'a CodeIndexMaterial,
-	generation: crate::snapshot::ResourceGeneration,
+	generation: ResourceGeneration,
 }
 
-impl<'a> IncrementalLinkageRefresh<'a> {
+struct LinkageRefreshRunner<'a> {
+	store: &'a mut LinkageStore,
+	input: IncrementalLinkageInput<'a>,
+	total_timer: Instant,
+}
+
+impl<'a> LinkageRefreshRunner<'a> {
 	fn new(
-		current: &'a LinkageSnapshot,
-		index: &'a CodeIndex,
-		impact: LinkageRefreshImpact,
-		material: &'a CodeIndexMaterial,
-		generation: crate::snapshot::ResourceGeneration,
+		store: &'a mut LinkageStore,
+		input: IncrementalLinkageInput<'a>,
+		total_timer: Instant,
 	) -> Self {
 		Self {
-			current,
-			index,
-			impact,
-			material,
-			generation,
+			store,
+			input,
+			total_timer,
 		}
 	}
 
-	fn run(&self) -> LinkageStore {
-		let candidates = CandidateCatalog::new(self.material);
-		let sweep = LinkageGarbageCollector::new(
-			self.current,
-			&self.index.references,
-			self.material,
-			&candidates,
-			&self.impact,
-		)
-		.collect();
-		let changed = self.resolve_reference_decisions(sweep.reference_indexes(), &candidates);
-		let mut decisions = sweep.into_decisions(changed);
-		SemanticLinkage::new(self.material).enhance(&mut decisions, &self.index.references);
-		LinkageStore::new(
-			self.generation,
-			self.index.generation,
-			decisions,
-			&self.index.references,
-		)
+	fn run(self) -> TimedLinkageRefresh {
+		let mut timings = refresh_incremental_linkage(self.store, &self.input);
+		let project_timer = Instant::now();
+		let snapshot = self
+			.store
+			.project_snapshot(&self.input.index.references, &self.input.material.identity);
+		timings.project_snapshot = project_timer.elapsed();
+		timings.total = self.total_timer.elapsed();
+		TimedLinkageRefresh { snapshot, timings }
 	}
+}
 
-	fn resolve_reference_decisions(
-		&self,
-		reference_indexes: &[usize],
-		candidates: &CandidateCatalog<'_>,
-	) -> Vec<ReferenceLinkageDecision> {
-		let resolver = LinkageResolver::new(self.material);
-		let manifests = ManifestPolicy::build(self.material);
-		self.indexes_to_references(reference_indexes)
-			.par_iter()
-			.map(|(reference_idx, reference)| {
-				resolver.resolve_reference(*reference_idx, reference, candidates, &manifests)
-			})
-			.collect::<Vec<_>>()
-	}
+fn refresh_incremental_linkage(
+	store: &mut LinkageStore,
+	input: &IncrementalLinkageInput<'_>,
+) -> LinkageRefreshTimings {
+	let mut timings = LinkageRefreshTimings::default();
+	let candidate_timer = Instant::now();
+	let candidates = CandidateCatalog::new(input.material);
+	timings.candidate_index = candidate_timer.elapsed();
+	let gc_timer = Instant::now();
+	let stale_references = LinkageGarbageCollector::new(
+		store,
+		&input.index.references,
+		input.material,
+		&candidates,
+		&input.impact,
+	)
+	.collect();
+	timings.garbage_collect = gc_timer.elapsed();
+	timings.stale_refs = stale_references.len();
+	let reference_indexes = reference_indexes_for(&input.index.references, &stale_references);
+	timings.changed_refs = reference_indexes.len();
+	let resolve_timer = Instant::now();
+	let changed = resolve_reference_decisions(input, &reference_indexes, &candidates);
+	timings.resolve_references = resolve_timer.elapsed();
+	let apply_timer = Instant::now();
+	store.apply_refresh(LinkageStoreRefresh {
+		generation: input.generation,
+		index_generation: input.index.generation,
+		stale_references: &stale_references,
+		changed_decisions: changed,
+		references: &input.index.references,
+		material: input.material,
+		candidates: &candidates,
+	});
+	timings.apply_store = apply_timer.elapsed();
+	let semantic_timer = Instant::now();
+	SemanticLinkage::new(input.material).enhance_changed(
+		store.decisions_mut(),
+		&input.index.references,
+		&stale_references,
+	);
+	timings.semantic_enhance = semantic_timer.elapsed();
+	let rebuild_timer = Instant::now();
+	store.refresh_resolved_target_index(&stale_references);
+	timings.rebuild_indexes = rebuild_timer.elapsed();
+	timings
+}
 
-	fn indexes_to_references(&self, reference_indexes: &[usize]) -> Vec<(usize, &ReferenceRecord)> {
-		reference_indexes
-			.iter()
-			.filter_map(|reference_idx| {
-				self.index
-					.references
-					.get(*reference_idx)
-					.map(|reference| (*reference_idx, reference))
-			})
-			.collect()
-	}
+fn resolve_reference_decisions(
+	input: &IncrementalLinkageInput<'_>,
+	reference_indexes: &[usize],
+	candidates: &CandidateCatalog<'_>,
+) -> Vec<ReferenceLinkageDecision> {
+	let resolver = LinkageResolver::new(input.material);
+	let manifests = ManifestPolicy::build(input.material);
+	indexes_to_references(input.index, reference_indexes)
+		.par_iter()
+		.map(|(reference_idx, reference)| {
+			resolver.resolve_reference(*reference_idx, reference, candidates, &manifests)
+		})
+		.collect::<Vec<_>>()
+}
+
+fn reference_indexes_for(
+	references: &[ReferenceRecord],
+	reference_ids: &std::collections::BTreeSet<ReferenceId>,
+) -> Vec<usize> {
+	references
+		.iter()
+		.enumerate()
+		.filter_map(|(idx, reference)| reference_ids.contains(&reference.id).then_some(idx))
+		.collect()
+}
+
+fn indexes_to_references<'a>(
+	index: &'a CodeIndex,
+	reference_indexes: &[usize],
+) -> Vec<(usize, &'a ReferenceRecord)> {
+	reference_indexes
+		.iter()
+		.filter_map(|reference_idx| {
+			index
+				.references
+				.get(*reference_idx)
+				.map(|reference| (*reference_idx, reference))
+		})
+		.collect()
 }
 
 struct LinkageResolver<'a> {
@@ -229,7 +359,14 @@ impl<'a> LinkageResolver<'a> {
 		semantic_linkage.enhance(&mut decisions, &index.references);
 		timings.semantic_enhance = semantic_timer.elapsed();
 		LinkageResolution {
-			store: LinkageStore::new(generation, index.generation, decisions, &index.references),
+			store: LinkageStore::new(
+				generation,
+				index.generation,
+				decisions,
+				&index.references,
+				self.material,
+				&candidates,
+			),
 			timings,
 		}
 	}
@@ -242,7 +379,11 @@ impl<'a> LinkageResolver<'a> {
 		manifests: &ManifestPolicy,
 	) -> ReferenceLinkageDecision {
 		let Some(query) = LinkageQuery::new(reference, self.material) else {
-			return ReferenceLinkageDecision::unknown(UnknownReason::MissingQuery, reference_idx);
+			return ReferenceLinkageDecision::unknown(
+				UnknownReason::MissingQuery,
+				reference_idx,
+				reference.id.clone(),
+			);
 		};
 
 		let local_targets = self.local.resolve(&query, candidates);
@@ -250,17 +391,22 @@ impl<'a> LinkageResolver<'a> {
 			return ReferenceLinkageDecision::resolved(
 				ResolutionScope::Local,
 				reference_idx,
+				reference.id.clone(),
 				local_targets,
 			);
 		}
 
 		let global_targets = self.global.resolve(&query, candidates);
 		let global_decision = manifests.evaluate_global_targets(&query, global_targets);
-		if let Some(decision) = global_decision.for_reference(reference_idx) {
+		if let Some(decision) = global_decision.for_reference(reference_idx, reference) {
 			return decision;
 		}
 
-		ReferenceLinkageDecision::unknown(UnknownReason::NoCandidate, reference_idx)
+		ReferenceLinkageDecision::unknown(
+			UnknownReason::NoCandidate,
+			reference_idx,
+			reference.id.clone(),
+		)
 	}
 }
 

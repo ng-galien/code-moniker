@@ -2,12 +2,13 @@ use code_moniker_core::core::moniker::{Moniker, Segment};
 use code_moniker_core::lang::{build_manifest::Manifest, kinds};
 use rayon::prelude::*;
 use rustc_hash::FxHashSet;
+use std::collections::BTreeSet;
 
 use crate::linkage::candidate::LinkageCandidate;
 use crate::linkage::decision::ReferenceLinkageDecision;
 use crate::linkage::language::LanguageLinkageStrategy;
 use crate::linkage::query::LinkageQuery;
-use crate::snapshot::ReferenceRecord;
+use crate::snapshot::{ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
 mod lombok;
@@ -155,12 +156,16 @@ pub(super) fn enhance_reference_semantics(
 	material: &CodeIndexMaterial,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
+	changed_references: Option<&BTreeSet<ReferenceId>>,
 ) {
 	let lombok = lombok::LombokSemantics::build(material, references);
 	let replacements = decisions
 		.par_iter()
 		.enumerate()
 		.filter_map(|(idx, decision)| {
+			if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+				return None;
+			}
 			lombok
 				.resolve_reference(decision, references)
 				.map(|replacement| (idx, replacement))

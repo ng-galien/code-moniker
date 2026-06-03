@@ -37,6 +37,7 @@ impl<'a> LombokSemantics<'a> {
 			ReferenceLinkageDecision::Unknown {
 				reason: UnknownReason::NoCandidate,
 				reference_idx,
+				..
 			}
 			| ReferenceLinkageDecision::External { reference_idx, .. } => *reference_idx,
 			_ => return None,
@@ -67,6 +68,7 @@ impl<'a> LombokSemantics<'a> {
 		Some(ReferenceLinkageDecision::resolved(
 			ResolutionScope::Injected,
 			reference_idx,
+			reference.id.clone(),
 			vec![field.symbol.clone()],
 		))
 	}
@@ -108,6 +110,7 @@ impl<'a> LombokSemantics<'a> {
 		Some(ReferenceLinkageDecision::external_target(
 			ExternalOrigin::Injected,
 			reference_idx,
+			reference.id.clone(),
 			target,
 		))
 	}

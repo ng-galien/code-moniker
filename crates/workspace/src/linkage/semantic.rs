@@ -5,6 +5,7 @@ use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::kinds;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
+use std::collections::BTreeSet;
 
 use crate::linkage::decision::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
@@ -31,9 +32,27 @@ impl<'a> SemanticLinkage<'a> {
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &[ReferenceRecord],
 	) {
-		language::enhance_reference_semantics(self.material, decisions, references);
-		enhance_reexport_aliases(self, decisions, references);
-		enhance_receiver_chains(self, decisions, references);
+		language::enhance_reference_semantics(self.material, decisions, references, None);
+		enhance_reexport_aliases(self, decisions, references, None);
+		let pending = pending_receiver_chains(decisions, references, None);
+		enhance_receiver_chains(self, decisions, references, pending);
+	}
+
+	pub(super) fn enhance_changed(
+		&self,
+		decisions: &mut [ReferenceLinkageDecision],
+		references: &[ReferenceRecord],
+		changed_references: &BTreeSet<ReferenceId>,
+	) {
+		language::enhance_reference_semantics(
+			self.material,
+			decisions,
+			references,
+			Some(changed_references),
+		);
+		enhance_reexport_aliases(self, decisions, references, Some(changed_references));
+		let pending = pending_receiver_chains(decisions, references, Some(changed_references));
+		enhance_receiver_chains(self, decisions, references, pending);
 	}
 
 	fn resolved_method_decision(
@@ -65,10 +84,10 @@ fn enhance_receiver_chains(
 	linkage: &SemanticLinkage<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
+	mut pending: Vec<usize>,
 ) {
 	let mut statuses = reference_statuses(linkage.material, decisions, references);
 	let return_types = collect_return_types(linkage.material, decisions, references);
-	let mut pending = pending_receiver_chains(decisions, references);
 	let receiver_calls =
 		build_receiver_call_index(linkage.material, decisions, references, &pending);
 	loop {
@@ -78,6 +97,7 @@ fn enhance_receiver_chains(
 				ReferenceLinkageDecision::Unknown {
 					reason: UnknownReason::NoCandidate,
 					reference_idx,
+					..
 				} => resolve_receiver_chain(
 					linkage,
 					*reference_idx,
@@ -147,6 +167,7 @@ impl<'a> MethodCallReference<'a> {
 		ReferenceLinkageDecision::external_target(
 			ExternalOrigin::Dependency,
 			self.reference_idx,
+			self.reference.id.clone(),
 			target,
 		)
 	}
@@ -156,7 +177,12 @@ impl<'a> MethodCallReference<'a> {
 		scope: ResolutionScope,
 		targets: Vec<SymbolId>,
 	) -> ReferenceLinkageDecision {
-		ReferenceLinkageDecision::resolved(scope, self.reference_idx, targets)
+		ReferenceLinkageDecision::resolved(
+			scope,
+			self.reference_idx,
+			self.reference.id.clone(),
+			targets,
+		)
 	}
 }
 
@@ -223,6 +249,7 @@ fn enhance_reexport_aliases(
 	linkage: &SemanticLinkage<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
+	changed_references: Option<&BTreeSet<ReferenceId>>,
 ) {
 	let aliases = build_reexport_aliases(linkage.material, decisions, references);
 	if aliases.is_empty() {
@@ -233,9 +260,13 @@ fn enhance_reexport_aliases(
 			ReferenceLinkageDecision::Unknown {
 				reason: UnknownReason::NoCandidate,
 				reference_idx,
+				..
 			} => *reference_idx,
 			_ => continue,
 		};
+		if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+			continue;
+		}
 		let Some((owner, name)) =
 			reference_target_alias_key(linkage.material, &references[reference_idx])
 		else {
@@ -244,10 +275,9 @@ fn enhance_reexport_aliases(
 		let Some(alias) = aliases.get(&(owner, name)) else {
 			continue;
 		};
-		let requested_target = linkage
-			.material
-			.reference_target(&references[reference_idx].id);
-		*decision = alias.to_decision(reference_idx, requested_target);
+		let reference = &references[reference_idx];
+		let requested_target = linkage.material.reference_target(&reference.id);
+		*decision = alias.to_decision(reference_idx, reference, requested_target);
 	}
 }
 
@@ -286,15 +316,20 @@ impl ReexportAliasTarget {
 	fn to_decision(
 		&self,
 		reference_idx: usize,
+		reference: &ReferenceRecord,
 		requested_target: Option<&Moniker>,
 	) -> ReferenceLinkageDecision {
 		match self {
-			Self::Resolved { scope, targets } => {
-				ReferenceLinkageDecision::resolved(*scope, reference_idx, targets.clone())
-			}
+			Self::Resolved { scope, targets } => ReferenceLinkageDecision::resolved(
+				*scope,
+				reference_idx,
+				reference.id.clone(),
+				targets.clone(),
+			),
 			Self::External { origin, target } => ReferenceLinkageDecision::external_target(
 				*origin,
 				reference_idx,
+				reference.id.clone(),
 				reexport_external_target(target, requested_target),
 			),
 		}
@@ -520,14 +555,19 @@ fn immediate_receiver_read_idx(
 fn pending_receiver_chains(
 	decisions: &[ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
+	changed_references: Option<&BTreeSet<ReferenceId>>,
 ) -> Vec<usize> {
 	decisions
 		.iter()
 		.enumerate()
 		.filter_map(|(idx, decision)| {
+			if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+				return None;
+			}
 			let ReferenceLinkageDecision::Unknown {
 				reason: UnknownReason::NoCandidate,
 				reference_idx,
+				..
 			} = decision
 			else {
 				return None;

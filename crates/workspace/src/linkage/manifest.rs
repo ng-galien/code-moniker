@@ -7,7 +7,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope};
 use crate::linkage::language;
 use crate::linkage::query::LinkageQuery;
-use crate::snapshot::SymbolId;
+use crate::snapshot::{ReferenceRecord, SymbolId};
 use crate::source::CodeIndexMaterial;
 use crate::sources::SourceRoot;
 
@@ -332,21 +332,30 @@ pub(super) struct GlobalTargetPolicy {
 }
 
 impl GlobalTargetPolicy {
-	pub(super) fn for_reference(self, reference_idx: usize) -> Option<ReferenceLinkageDecision> {
+	pub(super) fn for_reference(
+		self,
+		reference_idx: usize,
+		reference: &ReferenceRecord,
+	) -> Option<ReferenceLinkageDecision> {
 		if !self.allowed.is_empty() {
 			return Some(ReferenceLinkageDecision::resolved(
 				ResolutionScope::Global,
 				reference_idx,
+				reference.id.clone(),
 				self.allowed,
 			));
 		}
 		if self.blocked && !self.unknown {
-			return Some(ReferenceLinkageDecision::manifest_blocked(reference_idx));
+			return Some(ReferenceLinkageDecision::manifest_blocked(
+				reference_idx,
+				reference.id.clone(),
+			));
 		}
 		if self.external_dependency {
 			return Some(ReferenceLinkageDecision::external(
 				crate::linkage::decision::ExternalOrigin::Dependency,
 				reference_idx,
+				reference.id.clone(),
 			));
 		}
 		None

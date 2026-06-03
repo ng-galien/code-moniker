@@ -1,6 +1,6 @@
 use crate::snapshot::{
-	ExternalReference, LinkageEdge, LinkageSnapshotReport, ReferenceRecord, ResourceGeneration,
-	SymbolId, UnresolvedReference,
+	ExternalReference, LinkageEdge, LinkageSnapshotReport, ReferenceId, ReferenceRecord,
+	ResourceGeneration, SymbolId, UnresolvedReference,
 };
 use crate::source::LocalIdentityResolver;
 use code_moniker_core::core::moniker::Moniker;
@@ -20,20 +20,24 @@ pub(super) fn project_decisions(
 pub(super) enum ReferenceLinkageDecision {
 	Resolved {
 		scope: ResolutionScope,
+		reference: ReferenceId,
 		reference_idx: usize,
 		targets: Vec<SymbolId>,
 	},
 	External {
 		origin: ExternalOrigin,
+		reference: ReferenceId,
 		reference_idx: usize,
 		target: Option<Moniker>,
 	},
 	Blocked {
 		reason: BlockReason,
+		reference: ReferenceId,
 		reference_idx: usize,
 	},
 	Unknown {
 		reason: UnknownReason,
+		reference: ReferenceId,
 		reference_idx: usize,
 	},
 }
@@ -69,32 +73,45 @@ impl ReferenceLinkageDecision {
 	pub(super) fn resolved(
 		scope: ResolutionScope,
 		reference_idx: usize,
+		reference: ReferenceId,
 		targets: Vec<SymbolId>,
 	) -> Self {
 		Self::Resolved {
 			scope,
+			reference,
 			reference_idx,
 			targets,
 		}
 	}
 
-	pub(super) fn unknown(reason: UnknownReason, reference_idx: usize) -> Self {
+	pub(super) fn unknown(
+		reason: UnknownReason,
+		reference_idx: usize,
+		reference: ReferenceId,
+	) -> Self {
 		Self::Unknown {
 			reason,
+			reference,
 			reference_idx,
 		}
 	}
 
-	pub(super) fn manifest_blocked(reference_idx: usize) -> Self {
+	pub(super) fn manifest_blocked(reference_idx: usize, reference: ReferenceId) -> Self {
 		Self::Blocked {
 			reason: BlockReason::ManifestPolicy,
+			reference,
 			reference_idx,
 		}
 	}
 
-	pub(super) fn external(origin: ExternalOrigin, reference_idx: usize) -> Self {
+	pub(super) fn external(
+		origin: ExternalOrigin,
+		reference_idx: usize,
+		reference: ReferenceId,
+	) -> Self {
 		Self::External {
 			origin,
+			reference,
 			reference_idx,
 			target: None,
 		}
@@ -103,10 +120,12 @@ impl ReferenceLinkageDecision {
 	pub(super) fn external_target(
 		origin: ExternalOrigin,
 		reference_idx: usize,
+		reference: ReferenceId,
 		target: Moniker,
 	) -> Self {
 		Self::External {
 			origin,
+			reference,
 			reference_idx,
 			target: Some(target),
 		}
@@ -121,10 +140,28 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
+	pub(super) fn reference(&self) -> &ReferenceId {
+		match self {
+			Self::Resolved { reference, .. }
+			| Self::External { reference, .. }
+			| Self::Blocked { reference, .. }
+			| Self::Unknown { reference, .. } => reference,
+		}
+	}
+
 	pub(super) fn resolved_targets(&self) -> Option<&[SymbolId]> {
 		match self {
 			Self::Resolved { targets, .. } => Some(targets),
 			Self::External { .. } | Self::Blocked { .. } | Self::Unknown { .. } => None,
+		}
+	}
+
+	pub(super) fn set_reference_idx(&mut self, next_reference_idx: usize) {
+		match &mut *self {
+			Self::Resolved { reference_idx, .. }
+			| Self::External { reference_idx, .. }
+			| Self::Blocked { reference_idx, .. }
+			| Self::Unknown { reference_idx, .. } => *reference_idx = next_reference_idx,
 		}
 	}
 }
@@ -243,6 +280,7 @@ impl LinkageDecisionProjection {
 				scope: _scope,
 				reference_idx,
 				targets,
+				..
 			} => Self::Resolved(ResolvedReferenceProjection::new(
 				&references[reference_idx],
 				targets,
@@ -250,19 +288,23 @@ impl LinkageDecisionProjection {
 			ReferenceLinkageDecision::Blocked {
 				reason: BlockReason::ManifestPolicy,
 				reference_idx,
+				..
 			} => Self::ManifestBlocked(unresolved_reference(&references[reference_idx])),
 			ReferenceLinkageDecision::Blocked {
 				reason: _reason,
 				reference_idx,
+				..
 			} => Self::Unresolved(unresolved_reference(&references[reference_idx])),
 			ReferenceLinkageDecision::Unknown {
 				reason: _reason,
 				reference_idx,
+				..
 			} => Self::Unresolved(unresolved_reference(&references[reference_idx])),
 			ReferenceLinkageDecision::External {
 				origin,
 				reference_idx,
 				target,
+				..
 			} => Self::External(external_reference(
 				&references[reference_idx],
 				origin,

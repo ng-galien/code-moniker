@@ -10,4 +10,7 @@ mod semantic;
 mod store;
 
 pub use gc::LinkageRefreshImpact;
-pub use resolver::{LinkagePort, LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
+pub use resolver::{
+	LinkagePort, LinkageRefreshTimings, LinkageTimings, LocalLinkage, TimedLinkageRefresh,
+	TimedLinkageSnapshot,
+};

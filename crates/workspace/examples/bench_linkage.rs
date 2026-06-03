@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
 use code_moniker_workspace::extract::{JavaExtractionPipeline, RustExtractionPipeline};
-use code_moniker_workspace::linkage::LocalLinkage;
+use code_moniker_workspace::linkage::{LinkageRefreshImpact, LocalLinkage};
 use code_moniker_workspace::snapshot::WorkspaceRequest;
 use code_moniker_workspace::source::{
 	LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions, SourceCatalogPort,
@@ -98,6 +98,15 @@ fn main() -> anyhow::Result<()> {
 	if let Some(limit) = options.unresolved_groups {
 		print_unresolved_groups(&index, &linkage, limit);
 	}
+	if !options.incremental_paths.is_empty() {
+		print_incremental_refresh(
+			&mut index_port,
+			&mut linkage_port,
+			&index,
+			&linkage,
+			&options.incremental_paths,
+		)?;
+	}
 	Ok(())
 }
 
@@ -110,6 +119,7 @@ struct BenchOptions {
 	rust_pipeline: RustExtractionPipeline,
 	java_pipeline: JavaExtractionPipeline,
 	exclude_path_fragments: Vec<String>,
+	incremental_paths: Vec<PathBuf>,
 	unresolved_groups: Option<usize>,
 	debug_calls: Vec<String>,
 }
@@ -137,6 +147,11 @@ impl BenchOptions {
 					options
 						.exclude_path_fragments
 						.push(next_value(&mut args, "--exclude")?);
+				}
+				"--incremental-path" => {
+					options
+						.incremental_paths
+						.push(PathBuf::from(next_value(&mut args, "--incremental-path")?));
 				}
 				"--rust-pipeline" => {
 					options.rust_pipeline =
@@ -233,6 +248,7 @@ impl Default for BenchOptions {
 			rust_pipeline: RustExtractionPipeline::Sdk,
 			java_pipeline: JavaExtractionPipeline::Sdk,
 			exclude_path_fragments: Vec::new(),
+			incremental_paths: Vec::new(),
 			unresolved_groups: None,
 			debug_calls: Vec::new(),
 		}
@@ -262,8 +278,83 @@ fn parse_java_pipeline(value: &str) -> anyhow::Result<JavaExtractionPipeline> {
 
 fn print_usage() {
 	println!(
-		"bench_linkage [--project NAME] [--cache-dir PATH] [--lang TAG] [--rust-pipeline legacy|sdk] [--java-pipeline legacy|sdk] [--exclude PATH_FRAGMENT] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
+		"bench_linkage [--project NAME] [--cache-dir PATH] [--lang TAG] [--rust-pipeline legacy|sdk] [--java-pipeline legacy|sdk] [--exclude PATH_FRAGMENT] [--incremental-path PATH] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
 	);
+}
+
+fn print_incremental_refresh(
+	index_port: &mut impl CodeIndexPort,
+	linkage_port: &mut LocalLinkage,
+	index: &code_moniker_workspace::snapshot::CodeIndex,
+	linkage: &code_moniker_workspace::snapshot::LinkageSnapshot,
+	paths: &[PathBuf],
+) -> anyhow::Result<()> {
+	let index_timer = Instant::now();
+	let refreshed = index_port
+		.refresh_paths(index, paths)
+		.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
+	let index_elapsed = index_timer.elapsed();
+	let impact = LinkageRefreshImpact::new(refreshed.changed_sources.clone(), paths.to_vec());
+	let linkage_timer = Instant::now();
+	let timed_refresh = linkage_port
+		.refresh_linkage_with_timings(linkage, &refreshed.index, impact)
+		.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
+	let linkage_elapsed = linkage_timer.elapsed();
+	let refreshed_linkage = timed_refresh.snapshot;
+	println!();
+	println!("incremental_phase\tms");
+	println!("index_refresh\t{:.3}", millis(index_elapsed));
+	println!("linkage_refresh\t{:.3}", millis(linkage_elapsed));
+	println!("total\t{:.3}", millis(index_elapsed + linkage_elapsed));
+	println!("incremental_linkage_pass\tms");
+	println!(
+		"candidate_index\t{:.3}",
+		millis(timed_refresh.timings.candidate_index)
+	);
+	println!(
+		"garbage_collect\t{:.3}",
+		millis(timed_refresh.timings.garbage_collect)
+	);
+	println!(
+		"resolve_references\t{:.3}",
+		millis(timed_refresh.timings.resolve_references)
+	);
+	println!(
+		"apply_store\t{:.3}",
+		millis(timed_refresh.timings.apply_store)
+	);
+	println!(
+		"semantic_enhance\t{:.3}",
+		millis(timed_refresh.timings.semantic_enhance)
+	);
+	println!(
+		"rebuild_indexes\t{:.3}",
+		millis(timed_refresh.timings.rebuild_indexes)
+	);
+	println!(
+		"project_snapshot\t{:.3}",
+		millis(timed_refresh.timings.project_snapshot)
+	);
+	println!("incremental_metric\tcount");
+	println!("paths\t{}", paths.len());
+	println!("changed_sources\t{}", refreshed.changed_sources.len());
+	println!("stale_refs\t{}", timed_refresh.timings.stale_refs);
+	println!("changed_refs\t{}", timed_refresh.timings.changed_refs);
+	println!("symbols\t{}", refreshed.index.symbols.len());
+	println!("references\t{}", refreshed.index.references.len());
+	println!("resolved_refs\t{}", refreshed_linkage.resolved_refs);
+	println!("external_refs\t{}", refreshed_linkage.external_refs);
+	println!(
+		"manifest_blocked_refs\t{}",
+		refreshed_linkage.manifest_blocked_refs
+	);
+	println!("unresolved_refs\t{}", refreshed_linkage.unresolved_refs);
+	println!("ambiguous_refs\t{}", refreshed_linkage.ambiguous_refs);
+	println!(
+		"linkage_score_percent\t{:.2}",
+		linkage_score_percent(&refreshed_linkage)
+	);
+	Ok(())
 }
 
 fn millis(duration: Duration) -> f64 {

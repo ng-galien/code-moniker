@@ -75,6 +75,42 @@ impl<'a> CandidateCatalog<'a> {
 			.collect()
 	}
 
+	pub(super) fn matches_any_source(
+		&self,
+		query: &LinkageQuery<'_>,
+		source_files: &BTreeSet<usize>,
+	) -> bool {
+		if source_files.is_empty() {
+			return false;
+		}
+		let mut seen = FxHashSet::default();
+		let mut found = false;
+		for_query_key(query, |key| {
+			if found {
+				return;
+			}
+			for source_file in source_files {
+				let Some(source_candidates) = self.by_source_name.get(source_file) else {
+					continue;
+				};
+				let Some(indexes) = source_candidates.get(key) else {
+					continue;
+				};
+				for idx in indexes {
+					if !seen.insert(*idx) {
+						continue;
+					}
+					let candidate = &self.candidates[*idx];
+					if query.matches(candidate) {
+						found = true;
+						return;
+					}
+				}
+			}
+		});
+		found
+	}
+
 	fn lookup_local(&self, query: &LinkageQuery<'_>) -> Vec<LinkageCandidate<'a>> {
 		let Some(source_candidates) = self.by_source_name.get(&query.source_file) else {
 			return Vec::new();
