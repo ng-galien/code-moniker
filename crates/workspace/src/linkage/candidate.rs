@@ -51,27 +51,29 @@ impl<'a> CandidateCatalog<'a> {
 	}
 
 	pub(super) fn local_symbols(&self, query: &LinkageQuery<'_>) -> Vec<SymbolId> {
-		self.lookup_local(query)
-			.into_iter()
-			.filter(|candidate| query.matches(candidate))
-			.map(|candidate| candidate.symbol.clone())
-			.collect()
+		self.matching_symbols(self.local_indexes(query), query)
 	}
 
 	pub(super) fn global_symbols(&self, query: &LinkageQuery<'_>) -> Vec<SymbolId> {
-		self.lookup_global(query)
-			.into_iter()
-			.filter(|candidate| query.matches(candidate))
-			.map(|candidate| candidate.symbol.clone())
-			.collect()
+		self.matching_symbols(self.global_indexes(query), query)
 	}
 
 	pub(super) fn matching_candidate_sources(&self, query: &LinkageQuery<'_>) -> BTreeSet<usize> {
-		self.lookup_global(query)
+		self.global_indexes(query)
 			.into_iter()
-			.chain(self.lookup_local(query))
+			.chain(self.local_indexes(query))
+			.map(|idx| &self.candidates[idx])
 			.filter(|candidate| query.matches(candidate))
 			.map(|candidate| candidate.source_file)
+			.collect()
+	}
+
+	fn matching_symbols(&self, indexes: Vec<usize>, query: &LinkageQuery<'_>) -> Vec<SymbolId> {
+		indexes
+			.into_iter()
+			.map(|idx| &self.candidates[idx])
+			.filter(|candidate| query.matches(candidate))
+			.map(|candidate| candidate.symbol.clone())
 			.collect()
 	}
 
@@ -120,48 +122,40 @@ impl<'a> CandidateCatalog<'a> {
 			.map(|keys| keys.keys().map(|key| key.as_slice()))
 	}
 
-	fn lookup_local(&self, query: &LinkageQuery<'_>) -> Vec<LinkageCandidate<'a>> {
+	fn local_indexes(&self, query: &LinkageQuery<'_>) -> Vec<usize> {
 		let Some(source_candidates) = self.by_source_name.get(&query.source_file) else {
 			return Vec::new();
 		};
 		let mut seen = FxHashSet::default();
-		let mut matches = Vec::new();
+		let mut indexes = Vec::new();
 		for_query_key(query, |key| {
-			if let Some(indexes) = source_candidates.get(key) {
-				self.push_candidates(indexes, &mut seen, &mut matches);
-			}
-		});
-		matches
-	}
-
-	fn lookup_global(&self, query: &LinkageQuery<'_>) -> Vec<LinkageCandidate<'a>> {
-		let mut seen = FxHashSet::default();
-		let mut matches = Vec::new();
-		for_query_key(query, |key| {
-			if let Some(indexes) = self.by_name.get(key) {
-				for idx in indexes {
-					let candidate = self.candidates[*idx].clone();
-					if candidate.source_file == query.source_file || !seen.insert(*idx) {
-						continue;
+			if let Some(candidate_indexes) = source_candidates.get(key) {
+				for idx in candidate_indexes {
+					if seen.insert(*idx) {
+						indexes.push(*idx);
 					}
-					matches.push(candidate);
 				}
 			}
 		});
-		matches
+		indexes
 	}
 
-	fn push_candidates(
-		&self,
-		indexes: &[usize],
-		seen: &mut FxHashSet<usize>,
-		matches: &mut Vec<LinkageCandidate<'a>>,
-	) {
-		for idx in indexes {
-			if seen.insert(*idx) {
-				matches.push(self.candidates[*idx].clone());
+	fn global_indexes(&self, query: &LinkageQuery<'_>) -> Vec<usize> {
+		let mut seen = FxHashSet::default();
+		let mut indexes = Vec::new();
+		for_query_key(query, |key| {
+			if let Some(candidate_indexes) = self.by_name.get(key) {
+				for idx in candidate_indexes {
+					if self.candidates[*idx].source_file == query.source_file {
+						continue;
+					}
+					if seen.insert(*idx) {
+						indexes.push(*idx);
+					}
+				}
 			}
-		}
+		});
+		indexes
 	}
 }
 
