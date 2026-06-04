@@ -110,16 +110,17 @@ impl SourceCatalogMaterial {
 	}
 
 	fn source_rel_path(&self, path: &Path) -> Option<&Path> {
+		self.normalized_file_index(path)
+			.map(|file_idx| self.sources.files[file_idx].rel_path.as_path())
+	}
+
+	fn normalized_file_index(&self, path: &Path) -> Option<usize> {
 		let normalized = normalize_path(path);
-		self.sources
-			.files
-			.iter()
-			.find(|file| {
-				normalize_path(&file.path) == normalized
-					|| normalize_path(&file.rel_path) == normalized
-					|| normalize_path(&file.anchor) == normalized
-			})
-			.map(|file| file.rel_path.as_path())
+		self.sources.files.iter().position(|file| {
+			normalize_path(&file.path) == normalized
+				|| normalize_path(&file.rel_path) == normalized
+				|| normalize_path(&file.anchor) == normalized
+		})
 	}
 
 	#[allow(dead_code)]
@@ -170,19 +171,15 @@ impl<'a> SourceResourceLookup<'a> {
 	}
 
 	fn match_indexed_file(&self, path: &Path) -> Option<usize> {
-		let files = &self.material.sources.files;
-		if let Some((file_idx, _)) = files
+		self.material
+			.sources
+			.files
 			.iter()
 			.enumerate()
 			.filter(|(_, file)| path.ends_with(&file.rel_path))
 			.max_by_key(|(_, file)| file.rel_path.components().count())
-		{
-			return Some(file_idx);
-		}
-		let normalized = normalize_path(path);
-		files.iter().position(|file| {
-			normalize_path(&file.path) == normalized || normalize_path(&file.rel_path) == normalized
-		})
+			.map(|(file_idx, _)| file_idx)
+			.or_else(|| self.material.normalized_file_index(path))
 	}
 
 	fn lazy(&self, path: &Path) -> Option<ResolvedSourceResource> {
