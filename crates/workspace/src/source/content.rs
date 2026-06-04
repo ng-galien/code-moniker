@@ -155,17 +155,8 @@ impl<'a> SourceResourceLookup<'a> {
 	}
 
 	fn indexed(&self, path: &Path) -> Option<ResolvedSourceResource> {
-		let normalized = normalize_path(path);
-		let (file_idx, file) =
-			self.material
-				.sources
-				.files
-				.iter()
-				.enumerate()
-				.find(|(_, file)| {
-					normalize_path(&file.path) == normalized
-						|| normalize_path(&file.rel_path) == normalized
-				})?;
+		let file_idx = self.match_indexed_file(path)?;
+		let file = self.material.sources.files.get(file_idx)?;
 		Some(ResolvedSourceResource {
 			source_root: file.source,
 			source_id: self.material.identity.source_id(file_idx, &file.rel_path),
@@ -175,6 +166,22 @@ impl<'a> SourceResourceLookup<'a> {
 			anchor: file.anchor.clone(),
 			lang: file.lang,
 			eager_index: Some(file_idx),
+		})
+	}
+
+	fn match_indexed_file(&self, path: &Path) -> Option<usize> {
+		let files = &self.material.sources.files;
+		if let Some((file_idx, _)) = files
+			.iter()
+			.enumerate()
+			.filter(|(_, file)| path.ends_with(&file.rel_path))
+			.max_by_key(|(_, file)| file.rel_path.components().count())
+		{
+			return Some(file_idx);
+		}
+		let normalized = normalize_path(path);
+		files.iter().position(|file| {
+			normalize_path(&file.path) == normalized || normalize_path(&file.rel_path) == normalized
 		})
 	}
 
