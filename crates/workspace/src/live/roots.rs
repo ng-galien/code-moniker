@@ -1,5 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::event::{AccessKind, AccessMode, ModifyKind};
 use notify::{Event, EventKind};
 
@@ -120,7 +121,11 @@ impl WorkspacePathClassifier {
 		if allow_git_signals && self.is_git_signal_path(&path) {
 			return PathLiveSignal::GitBaseChanged;
 		}
-		if ignored_path(&path) || self.is_ignored_root(&path) || self.is_git_path(&path) {
+		if ignored_path(&path)
+			|| self.is_ignored_root(&path)
+			|| self.is_ignored_by_gitignore(&path)
+			|| self.is_git_path(&path)
+		{
 			return PathLiveSignal::Ignore;
 		}
 		if self.is_notes_path(&path) {
@@ -186,6 +191,18 @@ impl WorkspacePathClassifier {
 				.any(|ignored| path.starts_with(ignored))
 		})
 	}
+
+	fn is_ignored_by_gitignore(&self, path: &Path) -> bool {
+		self.roots.iter().any(|root| {
+			if !path.starts_with(&root.path) {
+				return false;
+			}
+			let matched = root
+				.gitignore
+				.matched_path_or_any_parents(path, path.is_dir());
+			matched.is_ignore()
+		})
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -223,6 +240,7 @@ struct WatchedPathRoot {
 	ignored_paths: Vec<PathBuf>,
 	notes_path: Option<PathBuf>,
 	notes_dir: Option<PathBuf>,
+	gitignore: Gitignore,
 }
 
 impl WatchedPathRoot {
@@ -241,6 +259,13 @@ impl WatchedPathRoot {
 		let notes_dir = notes_path
 			.as_ref()
 			.and_then(|path| path.parent().map(Path::to_path_buf));
+
+		let mut gitignore_builder = GitignoreBuilder::new(&path);
+		add_gitignores(&mut gitignore_builder, &path);
+		let gitignore = gitignore_builder
+			.build()
+			.unwrap_or_else(|_| Gitignore::empty());
+
 		Self {
 			watch,
 			path,
@@ -248,6 +273,30 @@ impl WatchedPathRoot {
 			ignored_paths,
 			notes_path,
 			notes_dir,
+			gitignore,
+		}
+	}
+}
+
+fn add_gitignores(builder: &mut GitignoreBuilder, dir: &Path) {
+	if let Ok(entries) = std::fs::read_dir(dir) {
+		for entry in entries.flatten() {
+			let path = entry.path();
+			if path.is_dir() {
+				let name = path.file_name().and_then(|n| n.to_str());
+				if name != Some(".git")
+					&& name != Some("target")
+					&& name != Some("node_modules")
+					&& name != Some(".code-moniker-cache")
+				{
+					add_gitignores(builder, &path);
+				}
+			} else {
+				let name = path.file_name().and_then(|n| n.to_str());
+				if name == Some(".gitignore") || name == Some(".ignore") {
+					let _ = builder.add(path);
+				}
+			}
 		}
 	}
 }

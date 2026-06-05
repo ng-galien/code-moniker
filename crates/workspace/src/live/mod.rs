@@ -297,4 +297,32 @@ mod tests {
 			WorkspaceLiveEvent::RescanGitBaseAndNotes
 		);
 	}
+
+	#[test]
+	fn respects_gitignore_in_live_classifier() {
+		let temp = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).expect("temp workspace");
+		let root_path = temp.path().to_path_buf();
+
+		std::fs::write(root_path.join(".gitignore"), ".metals/\n*.log\n").expect("write gitignore");
+
+		let classifier =
+			WorkspaceEventClassifier::new(watch_roots_for_paths(&[root_path.clone()], None));
+
+		assert_eq!(
+			classifier
+				.classify_paths_with_git_signals(&[root_path.join(".metals/metals.log")], true),
+			None
+		);
+		assert_eq!(
+			classifier.classify_paths_with_git_signals(&[root_path.join("build.log")], true),
+			None
+		);
+
+		assert_eq!(
+			classifier.classify_paths_with_git_signals(&[root_path.join("src/lib.rs")], true),
+			Some(WorkspaceLiveEvent::SourcesChanged(vec![
+				root_path.join("src/lib.rs")
+			]))
+		);
+	}
 }
