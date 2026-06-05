@@ -9,6 +9,7 @@ pub(crate) mod glob;
 pub(crate) mod harness;
 pub(crate) mod langs;
 pub(crate) mod language_kinds;
+pub(crate) mod logger;
 pub(crate) mod manifest;
 #[cfg(feature = "mcp")]
 pub(crate) mod mcp;

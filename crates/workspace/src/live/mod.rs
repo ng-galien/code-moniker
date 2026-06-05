@@ -89,6 +89,7 @@ mod tests {
 			git_root: None,
 			ignored_paths: Vec::new(),
 			notes_path: Some(PathBuf::from("/repo/.code-moniker/notes.toml")),
+			is_source: true,
 		}]);
 
 		assert_eq!(
@@ -106,6 +107,7 @@ mod tests {
 			git_root: None,
 			ignored_paths: Vec::new(),
 			notes_path: None,
+			is_source: true,
 		}]);
 
 		assert_eq!(
@@ -128,6 +130,7 @@ mod tests {
 			git_root: None,
 			ignored_paths: Vec::new(),
 			notes_path: None,
+			is_source: true,
 		}]);
 
 		assert_eq!(
@@ -146,6 +149,7 @@ mod tests {
 			git_root: None,
 			ignored_paths: Vec::new(),
 			notes_path: None,
+			is_source: true,
 		}]);
 
 		assert_eq!(
@@ -171,6 +175,7 @@ mod tests {
 			git_root: None,
 			ignored_paths: Vec::new(),
 			notes_path: None,
+			is_source: true,
 		}]);
 
 		assert_eq!(
@@ -242,6 +247,7 @@ mod tests {
 			git_root: None,
 			ignored_paths: Vec::new(),
 			notes_path: Some(PathBuf::from("/repo/.code-moniker/notes.toml")),
+			is_source: true,
 		}]);
 
 		assert_eq!(
@@ -267,6 +273,7 @@ mod tests {
 			git_root: Some(PathBuf::from("/repo")),
 			ignored_paths: Vec::new(),
 			notes_path: None,
+			is_source: true,
 		}]);
 
 		assert_eq!(
@@ -305,8 +312,10 @@ mod tests {
 
 		std::fs::write(root_path.join(".gitignore"), ".metals/\n*.log\n").expect("write gitignore");
 
-		let classifier =
-			WorkspaceEventClassifier::new(watch_roots_for_paths(&[root_path.clone()], None));
+		let classifier = WorkspaceEventClassifier::new(watch_roots_for_paths(
+			std::slice::from_ref(&root_path),
+			None,
+		));
 
 		assert_eq!(
 			classifier

@@ -10,6 +10,7 @@ use crate::snapshot::{
 	WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
 };
 use crate::source::SourceCatalogPort;
+use code_moniker_core::core::logger::Logger;
 
 use super::build::{
 	LivePlanBuild, build_catalog_snapshot, build_change_overlay_snapshot, build_complete_snapshot,
@@ -79,6 +80,11 @@ impl<Sources, Index, Linkage, Changes> WorkspaceRegistry<Sources, Index, Linkage
 			events: WorkspaceEventLog::default(),
 			next_command_id: 1,
 		}
+	}
+
+	pub fn with_logger(mut self, logger: Arc<dyn Logger>) -> Self {
+		self.runtime.ports.logger = Some(logger);
+		self
 	}
 
 	pub fn commands(&mut self) -> WorkspaceCommands<'_, Sources, Index, Linkage, Changes> {
@@ -294,6 +300,18 @@ where
 		request: WorkspaceRequest,
 		plan: WorkspaceLiveRefreshPlan,
 	) -> WorkspaceLivePlanTransition {
+		if let Some(logger) = &self.runtime.ports.logger {
+			logger.info(
+				"workspace_registry",
+				&format!(
+					"Applying live refresh plan (rescan: {}, notes: {}, git_base: {}, source_paths: {})",
+					plan.requires_rescan(),
+					plan.includes_notes(),
+					plan.includes_git_base(),
+					plan.source_paths().len()
+				),
+			);
+		}
 		let command = WorkspaceCommand::new(
 			self.allocate_command_id(),
 			WorkspaceScopeUri::workspace(),

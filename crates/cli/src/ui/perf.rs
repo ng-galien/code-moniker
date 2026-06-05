@@ -24,7 +24,7 @@ pub(crate) fn record(event: &str, duration: Duration, detail: impl AsRef<str>) {
 fn trace_file() -> Option<&'static Mutex<File>> {
 	TRACE
 		.get_or_init(|| {
-			let target = std::env::var_os("CODE_MONIKER_UI_TIMINGS")?;
+			let target = std::env::var_os("CODE_MONIKER_UI_LOG")?;
 			let path = trace_path(target);
 			let mut file = OpenOptions::new()
 				.create(true)
@@ -39,7 +39,7 @@ fn trace_file() -> Option<&'static Mutex<File>> {
 
 fn trace_path(target: std::ffi::OsString) -> PathBuf {
 	if matches!(target.to_str(), Some("1" | "true" | "TRUE" | "yes" | "YES")) {
-		std::env::temp_dir().join("code-moniker-ui-timings.tsv")
+		std::env::temp_dir().join("code-moniker-ui.log")
 	} else {
 		PathBuf::from(target)
 	}

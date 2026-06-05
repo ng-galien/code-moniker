@@ -60,6 +60,10 @@ impl ServerHandler for CodeMonikerMcp {
 	) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
 		let started = Instant::now();
 		let tools = self.registry.tools();
+		self.context.logger().info(
+			"mcp_server",
+			&format!("Listing tools: {} tools found", tools.len()),
+		);
 		tracing::info!(
 			event = "tools_list",
 			tools = tools.len(),
@@ -77,10 +81,23 @@ impl ServerHandler for CodeMonikerMcp {
 		let started = Instant::now();
 		let name = request.name.to_string();
 		let arguments = Value::Object(request.arguments.unwrap_or_default());
+		self.context.logger().info(
+			"mcp_server",
+			&format!("Tool call started: {} with args: {}", name, arguments),
+		);
 		tracing::info!(event = "tool_call_started", tool = %name, "mcp tool call started");
 		let result = self.registry.call(&self.context, &name, &arguments);
 		let status = tool_result_status(&result);
 		let response = call_result(&name, &arguments, result);
+		self.context.logger().info(
+			"mcp_server",
+			&format!(
+				"Tool call finished: {} -> status: {} ({} ms)",
+				name,
+				status,
+				started.elapsed().as_millis()
+			),
+		);
 		tracing::info!(
 			event = "tool_call_finished",
 			tool = %name,

@@ -182,6 +182,8 @@ pub(in crate::ui) fn handle_key(app: &mut App, key: KeyEvent) -> anyhow::Result<
 }
 
 pub(in crate::ui) fn update(app: &mut App, action: AppAction) -> bool {
+	app.logger
+		.debug("tui_elm_loop", &format!("Handling action: {:?}", action));
 	let action = match action {
 		AppAction::TaskCompleted(result) => {
 			match app.app_store.complete_task(&result) {

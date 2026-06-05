@@ -56,7 +56,8 @@ async fn run_server(
 	tokio::task::spawn_blocking(move || load_workspace_snapshots(load_opts, load_index));
 	let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
 	let addr = listener.local_addr()?;
-	let router = mcp::router(McpContext::new(opts.clone(), scheme, index));
+	let logger = crate::logger::tracing_logger();
+	let router = mcp::router(McpContext::new(opts.clone(), scheme, index, logger));
 	info!(
 		event = "http_transport_ready",
 		endpoint = %format!("http://{addr}/mcp"),
@@ -131,7 +132,8 @@ fn load_initial_workspace(
 	let mut registry = code_moniker_workspace::LocalWorkspaceRegistry::local(
 		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
 			.with_cache_dir(opts.cache_dir.clone()),
-	);
+	)
+	.with_logger(crate::logger::tracing_logger());
 	info!(
 		event = "workspace_registry_ready",
 		paths = %path_list(opts),

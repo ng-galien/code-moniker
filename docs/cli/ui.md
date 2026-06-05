@@ -25,16 +25,16 @@ Use `--cache DIR` for repeated scans. The cache format is shared with
 `stats` and stores extracted `CodeGraph` records keyed by source metadata
 and moniker anchor.
 
-For startup profiling, set `CODE_MONIKER_UI_TIMINGS` to a TSV output path
+For startup profiling, set `CODE_MONIKER_UI_LOG` to a TSV output path
 before launching the UI:
 
 ```sh
-CODE_MONIKER_UI_TIMINGS=/tmp/code-moniker-ui-timings.tsv code-moniker ui .
+CODE_MONIKER_UI_LOG=/tmp/code-moniker-ui.log code-moniker ui .
 ```
 
 The trace records wall-clock timings for background tasks, workspace
 snapshot phases, UI model refreshes, terminal draws, and linkage score
-details. A value of `1` writes to `/tmp/code-moniker-ui-timings.tsv`.
+details. A value of `1` writes to `/tmp/code-moniker-ui.log`.
 The linkage score is `resolved / (resolved + unresolved + blocked)`;
 refs classified as external are reported but do not lower the score.
 

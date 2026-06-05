@@ -4,6 +4,7 @@ use crate::live::WorkspaceWatchRoot;
 use crate::snapshot::{
 	WorkspaceFailure, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
 };
+use code_moniker_core::core::logger::Logger;
 
 use super::command::{WorkspaceCommandKind, WorkspaceScopeUri, WorkspaceSnapshotPublication};
 use super::event::{WorkspaceEvent, WorkspaceEventCursor};
@@ -13,6 +14,7 @@ pub struct WorkspacePorts<Sources, Index, Linkage, Changes> {
 	pub(crate) code_index: Index,
 	pub(crate) linkage: Linkage,
 	pub(crate) change_overlay: Changes,
+	pub(crate) logger: Option<Arc<dyn Logger>>,
 	live_watch_roots: Box<LiveWatchRoots>,
 }
 
@@ -30,8 +32,14 @@ impl<Sources, Index, Linkage, Changes> WorkspacePorts<Sources, Index, Linkage, C
 			code_index,
 			linkage,
 			change_overlay,
+			logger: None,
 			live_watch_roots: Box::new(|_| Vec::new()),
 		}
+	}
+
+	pub fn with_logger(mut self, logger: Arc<dyn Logger>) -> Self {
+		self.logger = Some(logger);
+		self
 	}
 
 	pub(crate) fn with_live_watch_roots<F>(mut self, live_watch_roots: F) -> Self

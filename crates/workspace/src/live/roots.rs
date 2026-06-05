@@ -175,12 +175,16 @@ impl WorkspacePathClassifier {
 	}
 
 	fn is_source_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| path.starts_with(&root.path))
+		self.roots
+			.iter()
+			.any(|root| root.watch.is_source && path.starts_with(&root.path))
 			&& (path.is_dir() || is_source_file(path))
 	}
 
 	fn is_manifest_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| path.starts_with(&root.path))
+		self.roots
+			.iter()
+			.any(|root| root.watch.is_source && path.starts_with(&root.path))
 			&& Manifest::for_filename(path).is_some()
 	}
 
@@ -365,6 +369,7 @@ pub(crate) fn watch_roots_for_paths(
 			git_root.clone(),
 			ignored_paths.clone(),
 			workspace_notes_path.clone(),
+			true,
 		);
 	}
 	for target in notes_watch_targets {
@@ -379,6 +384,7 @@ pub(crate) fn watch_roots_for_paths(
 			git_root,
 			ignored_paths.clone(),
 			Some(target.notes_path),
+			false,
 		);
 	}
 	roots
@@ -408,6 +414,7 @@ fn push_watch_root(
 	git_root: Option<PathBuf>,
 	ignored_paths: Vec<PathBuf>,
 	notes_path: Option<PathBuf>,
+	is_source: bool,
 ) {
 	let path = absolute_path(&path);
 	if ignored_path(&path)
@@ -424,6 +431,9 @@ fn push_watch_root(
 		if existing.notes_path.is_none() {
 			existing.notes_path = notes_path;
 		}
+		if is_source {
+			existing.is_source = true;
+		}
 		return;
 	}
 	roots.push(WorkspaceWatchRoot {
@@ -431,6 +441,7 @@ fn push_watch_root(
 		git_root,
 		ignored_paths,
 		notes_path,
+		is_source,
 	});
 }
 

@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
@@ -11,6 +12,7 @@ use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator}
 use crate::ui::workspace_read::{
 	LocalWorkspaceRegistry, UsageFocus, new_local_workspace, workspace_check_context,
 };
+use code_moniker_core::core::logger::Logger;
 use code_moniker_workspace::live::WorkspaceWatchRoot;
 use code_moniker_workspace::source::LocalResourceCache;
 
@@ -76,6 +78,7 @@ pub(in crate::ui) struct App {
 	pub(in crate::ui) workspace: WorkspaceSession,
 	pub(in crate::ui) config: AppConfig,
 	pub(in crate::ui) runtime: AppRuntime,
+	pub(in crate::ui) logger: Arc<dyn Logger>,
 }
 
 pub(in crate::ui) struct AppRuntime {
@@ -255,6 +258,7 @@ pub(in crate::ui) fn replace_store(
 	cache: LocalResourceCache,
 	options: SessionOptions,
 ) {
+	let store = store.with_logger(app.logger.clone());
 	app.workspace.replace(store, cache, options);
 }
 
@@ -276,6 +280,8 @@ pub(in crate::ui) fn new_app(
 	options: SessionOptions,
 	config: AppConfig,
 ) -> App {
+	let logger = crate::logger::tracing_logger();
+	let store = store.with_logger(logger.clone());
 	let started = Instant::now();
 	let navigator = build_navigator(&store, &options.paths);
 	perf::record("app.new.build_navigator", started.elapsed(), "");
@@ -295,6 +301,7 @@ pub(in crate::ui) fn new_app(
 			watch_roots_update: None,
 			usage_lens_generation: 0,
 		},
+		logger,
 	};
 	let _ = reload_notes(&mut app);
 	app.refresh_header_search_options();

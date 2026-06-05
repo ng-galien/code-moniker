@@ -6,6 +6,7 @@ pub struct WorkspaceWatchRoot {
 	pub git_root: Option<PathBuf>,
 	pub ignored_paths: Vec<PathBuf>,
 	pub notes_path: Option<PathBuf>,
+	pub is_source: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
