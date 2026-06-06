@@ -1,5 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
+use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::event::{AccessKind, AccessMode, ModifyKind};
 use notify::{Event, EventKind};
@@ -19,10 +20,6 @@ impl WorkspaceEventClassifier {
 		Self {
 			paths: WorkspacePathClassifier::new(roots),
 		}
-	}
-
-	pub(crate) fn watch_paths(&self) -> Vec<PathBuf> {
-		self.paths.watch_paths()
 	}
 
 	pub(crate) fn classify_event(&self, event: &Event) -> Option<WorkspaceLiveEvent> {
@@ -84,6 +81,14 @@ impl WorkspaceEventClassifier {
 	}
 }
 
+pub(super) fn watch_paths_for(roots: &[WorkspaceWatchRoot]) -> Vec<PathBuf> {
+	let mut paths = Vec::new();
+	for root in roots {
+		push_unique(&mut paths, root.path.clone());
+	}
+	paths
+}
+
 #[derive(Clone, Debug)]
 struct WorkspacePathClassifier {
 	roots: Vec<WatchedPathRoot>,
@@ -96,24 +101,16 @@ impl WorkspacePathClassifier {
 		}
 	}
 
-	fn watch_paths(&self) -> Vec<PathBuf> {
-		let mut paths = Vec::new();
-		for root in &self.roots {
-			push_unique(&mut paths, root.watch.path.clone());
-		}
-		paths
-	}
-
 	fn requires_source_rescan(&self, paths: &[PathBuf]) -> bool {
 		paths
 			.iter()
-			.any(|path| matches!(self.classify(path, true), PathLiveSignal::Source))
+			.any(|path| self.classify(path, true) == PathLiveSignal::Source)
 	}
 
 	fn includes_missing_source(&self, paths: &[PathBuf]) -> bool {
-		paths.iter().any(|path| {
-			matches!(self.classify(path, true), PathLiveSignal::Source) && !path.exists()
-		})
+		paths
+			.iter()
+			.any(|path| self.classify(path, true) == PathLiveSignal::Source && !path.exists())
 	}
 
 	fn classify(&self, path: &Path, allow_git_signals: bool) -> PathLiveSignal {
@@ -180,8 +177,7 @@ impl WorkspacePathClassifier {
 	}
 
 	fn is_manifest_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| path.starts_with(&root.path))
-			&& Manifest::for_filename(path).is_some()
+		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_manifest_file(path)
 	}
 
 	fn is_ignored_root(&self, path: &Path) -> bool {
@@ -193,15 +189,7 @@ impl WorkspacePathClassifier {
 	}
 
 	fn is_ignored_by_gitignore(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| {
-			if !path.starts_with(&root.path) {
-				return false;
-			}
-			let matched = root
-				.gitignore
-				.matched_path_or_any_parents(path, path.is_dir());
-			matched.is_ignore()
-		})
+		self.roots.iter().any(|root| root.matches_gitignore(path))
 	}
 }
 
@@ -234,13 +222,12 @@ fn event_path_policy(kind: &EventKind) -> EventPathPolicy {
 
 #[derive(Clone, Debug)]
 struct WatchedPathRoot {
-	watch: WorkspaceWatchRoot,
 	path: PathBuf,
 	git_dir: Option<PathBuf>,
 	ignored_paths: Vec<PathBuf>,
 	notes_path: Option<PathBuf>,
 	notes_dir: Option<PathBuf>,
-	gitignore: Gitignore,
+	gitignores: Vec<Gitignore>,
 }
 
 impl WatchedPathRoot {
@@ -259,44 +246,64 @@ impl WatchedPathRoot {
 		let notes_dir = notes_path
 			.as_ref()
 			.and_then(|path| path.parent().map(Path::to_path_buf));
-
-		let mut gitignore_builder = GitignoreBuilder::new(&path);
-		add_gitignores(&mut gitignore_builder, &path);
-		let gitignore = gitignore_builder
-			.build()
-			.unwrap_or_else(|_| Gitignore::empty());
+		let gitignores = build_gitignores(&path);
 
 		Self {
-			watch,
 			path,
 			git_dir,
 			ignored_paths,
 			notes_path,
 			notes_dir,
-			gitignore,
+			gitignores,
 		}
+	}
+
+	fn matches_gitignore(&self, path: &Path) -> bool {
+		if !path.starts_with(&self.path) {
+			return false;
+		}
+		let is_dir = path.is_dir();
+		for gitignore in &self.gitignores {
+			if !path.starts_with(gitignore.path()) {
+				continue;
+			}
+			match gitignore.matched_path_or_any_parents(path, is_dir) {
+				Match::Ignore(_) => return true,
+				Match::Whitelist(_) => return false,
+				Match::None => {}
+			}
+		}
+		false
 	}
 }
 
-fn add_gitignores(builder: &mut GitignoreBuilder, dir: &Path) {
+fn build_gitignores(root: &Path) -> Vec<Gitignore> {
+	let mut gitignores = Vec::new();
+	collect_gitignores(root, &mut gitignores);
+	gitignores.sort_by_key(|gitignore| std::cmp::Reverse(gitignore.path().components().count()));
+	gitignores
+}
+
+fn collect_gitignores(dir: &Path, out: &mut Vec<Gitignore>) {
+	let mut builder = GitignoreBuilder::new(dir);
+	let mut has_rules = false;
 	if let Ok(entries) = std::fs::read_dir(dir) {
 		for entry in entries.flatten() {
 			let path = entry.path();
+			let name = path.file_name().and_then(|n| n.to_str());
 			if path.is_dir() {
-				let name = path.file_name().and_then(|n| n.to_str());
-				if name != Some(".git")
-					&& name != Some("target")
-					&& name != Some("node_modules")
-					&& name != Some(".code-moniker-cache")
-				{
-					add_gitignores(builder, &path);
+				if !name.is_some_and(is_ignored_dir_name) {
+					collect_gitignores(&path, out);
 				}
-			} else {
-				let name = path.file_name().and_then(|n| n.to_str());
-				if name == Some(".gitignore") || name == Some(".ignore") {
-					let _ = builder.add(path);
-				}
+			} else if matches!(name, Some(".gitignore") | Some(".ignore")) {
+				let _ = builder.add(&path);
+				has_rules = true;
 			}
+		}
+	}
+	if has_rules {
+		if let Ok(gitignore) = builder.build() {
+			out.push(gitignore);
 		}
 	}
 }
@@ -438,6 +445,17 @@ fn is_source_file(path: &Path) -> bool {
 	crate::environment::language_for_path(path).is_ok()
 }
 
+fn is_manifest_file(path: &Path) -> bool {
+	Manifest::for_filename(path).is_some()
+}
+
+fn is_ignored_dir_name(name: &str) -> bool {
+	matches!(
+		name,
+		".code-moniker-cache" | ".git" | ".gradle" | "target" | "node_modules" | "build" | "dist"
+	)
+}
+
 fn coalesce_optional(
 	current: Option<WorkspaceLiveEvent>,
 	next: WorkspaceLiveEvent,
@@ -446,18 +464,9 @@ fn coalesce_optional(
 }
 
 fn ignored_path(path: &Path) -> bool {
-	path.components().any(|component| {
-		matches!(
-			component,
-			Component::Normal(name)
-				if name == ".code-moniker-cache"
-					|| name == ".git"
-					|| name == ".gradle"
-					|| name == "target"
-					|| name == "node_modules"
-					|| name == "build"
-					|| name == "dist"
-		)
+	path.components().any(|component| match component {
+		Component::Normal(name) => name.to_str().is_some_and(is_ignored_dir_name),
+		_ => false,
 	})
 }
 

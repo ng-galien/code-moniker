@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -5,7 +6,7 @@ use std::time::Duration;
 use notify::{Config, Event, RecursiveMode, Watcher};
 
 use super::model::{WorkspaceLiveEvent, WorkspaceWatchRoot};
-use super::roots::WorkspaceEventClassifier;
+use super::roots::{WorkspaceEventClassifier, watch_paths_for};
 
 pub struct LiveWorkspaceWatcher {
 	_watcher: notify::RecommendedWatcher,
@@ -21,10 +22,11 @@ impl LiveWorkspaceWatcher {
 	where
 		F: Fn(WorkspaceLiveEvent) + Send + 'static,
 	{
+		let watch_targets = watch_paths_for(&roots);
 		let classifier = WorkspaceEventClassifier::new(roots);
 		let (tx, worker) = watcher_event_channel(publish);
 		let mut watcher = new_recommended_watcher(classifier.clone(), tx)?;
-		let (watched_paths, warnings) = watch_classifier_paths(&mut watcher, &classifier);
+		let (watched_paths, warnings) = watch_target_paths(&mut watcher, &watch_targets);
 
 		Ok(Self {
 			_watcher: watcher,
@@ -84,14 +86,14 @@ fn new_recommended_watcher(
 	)?)
 }
 
-fn watch_classifier_paths(
+fn watch_target_paths(
 	watcher: &mut notify::RecommendedWatcher,
-	classifier: &WorkspaceEventClassifier,
+	targets: &[PathBuf],
 ) -> (usize, Vec<String>) {
 	let mut warnings = Vec::new();
 	let mut watched_paths = 0;
-	for path in classifier.watch_paths() {
-		match watcher.watch(&path, RecursiveMode::Recursive) {
+	for path in targets {
+		match watcher.watch(path.as_path(), RecursiveMode::Recursive) {
 			Ok(()) => watched_paths += 1,
 			Err(error) => warnings.push(format!("{}: {error}", path.display())),
 		}

@@ -305,8 +305,10 @@ mod tests {
 
 		std::fs::write(root_path.join(".gitignore"), ".metals/\n*.log\n").expect("write gitignore");
 
-		let classifier =
-			WorkspaceEventClassifier::new(watch_roots_for_paths(&[root_path.clone()], None));
+		let classifier = WorkspaceEventClassifier::new(watch_roots_for_paths(
+			std::slice::from_ref(&root_path),
+			None,
+		));
 
 		assert_eq!(
 			classifier
@@ -322,6 +324,34 @@ mod tests {
 			classifier.classify_paths_with_git_signals(&[root_path.join("src/lib.rs")], true),
 			Some(WorkspaceLiveEvent::SourcesChanged(vec![
 				root_path.join("src/lib.rs")
+			]))
+		);
+	}
+
+	#[test]
+	fn anchors_nested_gitignore_patterns_to_their_directory() {
+		let temp = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).expect("temp workspace");
+		let root_path = temp.path().to_path_buf();
+
+		std::fs::write(root_path.join(".gitignore"), "*.log\n").expect("write root gitignore");
+		std::fs::create_dir_all(root_path.join("nested")).expect("nested dir");
+		std::fs::write(root_path.join("nested/.gitignore"), "/keep.rs\n")
+			.expect("write nested gitignore");
+
+		let classifier = WorkspaceEventClassifier::new(watch_roots_for_paths(
+			std::slice::from_ref(&root_path),
+			None,
+		));
+
+		assert_eq!(
+			classifier.classify_paths_with_git_signals(&[root_path.join("nested/keep.rs")], true),
+			None
+		);
+
+		assert_eq!(
+			classifier.classify_paths_with_git_signals(&[root_path.join("keep.rs")], true),
+			Some(WorkspaceLiveEvent::SourcesChanged(vec![
+				root_path.join("keep.rs")
 			]))
 		);
 	}
