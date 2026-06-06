@@ -7,7 +7,7 @@ use code_moniker_workspace::code::{
 };
 use code_moniker_workspace::extract::{JavaExtractionPipeline, RustExtractionPipeline};
 use code_moniker_workspace::linkage::{
-	LinkageMemoryMetrics, LinkageRefreshGraphDiff, LinkageRefreshImpact, LocalLinkage,
+	LinkageGraphDelta, LinkageMemoryMetrics, LinkageRefreshImpact, LocalLinkage,
 	TimedLinkageRefresh,
 };
 use code_moniker_workspace::snapshot::{LinkageSnapshot, WorkspaceRequest};
@@ -399,17 +399,10 @@ fn print_incremental_refresh(
 		.refresh_paths(index, paths)
 		.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
 	let index_elapsed = index_timer.elapsed();
-	let impact = LinkageRefreshImpact::with_graph_diff(
+	let impact = LinkageRefreshImpact::with_graph_delta(
 		refreshed.changed_sources.clone(),
 		paths.to_vec(),
-		LinkageRefreshGraphDiff {
-			changed_references: refreshed.graph_diff.changed_references.clone(),
-			removed_references: refreshed.graph_diff.removed_references.clone(),
-			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
-			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
-			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
-			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
-		},
+		LinkageGraphDelta::from_code_index(refreshed.graph_diff.clone()),
 	);
 	let linkage_timer = Instant::now();
 	let timed_refresh = linkage_port
@@ -428,8 +421,8 @@ fn print_incremental_refresh(
 		millis(timed_refresh.timings.candidate_index)
 	);
 	println!(
-		"garbage_collect\t{:.3}",
-		millis(timed_refresh.timings.garbage_collect)
+		"plan_invalidation\t{:.3}",
+		millis(timed_refresh.timings.plan_invalidation)
 	);
 	println!(
 		"resolve_references\t{:.3}",
@@ -472,6 +465,14 @@ fn print_incremental_metrics(
 	println!(
 		"graph_added_or_changed_symbols\t{}",
 		refreshed.graph_diff.changed_symbols.len()
+	);
+	println!(
+		"graph_added_symbols\t{}",
+		refreshed.graph_diff.added_symbols.len()
+	);
+	println!(
+		"graph_modified_symbols\t{}",
+		refreshed.graph_diff.modified_symbols.len()
 	);
 	println!(
 		"graph_removed_symbols\t{}",

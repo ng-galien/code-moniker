@@ -4,7 +4,9 @@ use std::hash::Hash;
 use crate::linkage::candidate::{CandidateCatalog, query_keys};
 use crate::linkage::decision::{ReferenceLinkageDecision, UnknownReason};
 use crate::linkage::metrics::LinkageMemoryMetrics;
-use crate::linkage::ordinals::{ReferenceOrdinal, ReferenceSet, SymbolOrdinalCatalog, SymbolSet};
+use crate::linkage::ordinals::{
+	ReferenceOrdinal, ReferenceSet, SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet,
+};
 use crate::linkage::query::LinkageQuery;
 use crate::snapshot::{
 	LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceId, SymbolId,
@@ -19,7 +21,7 @@ pub(super) struct LinkageStore {
 	generation: ResourceGeneration,
 	index_generation: ResourceGeneration,
 	decisions: Vec<ReferenceLinkageDecision>,
-	symbols: SymbolOrdinalCatalog,
+	pub(super) symbols: SymbolOrdinalCatalog,
 	pub(super) indexes: LinkageStoreIndexes,
 }
 
@@ -44,7 +46,12 @@ impl LinkageStore {
 		candidates: &CandidateCatalog<'_>,
 	) -> Self {
 		let symbols = candidates.symbols().clone();
-		let indexes = LinkageStoreIndexes::new(references, material);
+		let mut indexes = LinkageStoreIndexes::new(references, material);
+		indexes.rebuild_resolved_target_indexes(ResolvedTargetSourceBuild {
+			decisions: &decisions,
+			material,
+			symbols: &symbols,
+		});
 		Self {
 			generation,
 			index_generation,
@@ -105,8 +112,9 @@ impl LinkageStore {
 	pub(super) fn missing_resolved_references(
 		&self,
 		material: &CodeIndexMaterial,
+		candidates: &CandidateCatalog<'_>,
 	) -> Vec<ReferenceId> {
-		missing_resolved_references(self, material)
+		missing_resolved_references(self, material, candidates)
 	}
 
 	pub(super) fn decisions_mut(&mut self) -> &mut [ReferenceLinkageDecision] {
@@ -173,6 +181,7 @@ struct ChangedDecisionBatch<'a> {
 fn missing_resolved_references(
 	store: &LinkageStore,
 	material: &CodeIndexMaterial,
+	candidates: &CandidateCatalog<'_>,
 ) -> Vec<ReferenceId> {
 	store
 		.decisions
@@ -184,15 +193,37 @@ fn missing_resolved_references(
 				.contains_key(decision.reference())
 				|| decision.resolved_targets().is_some_and(|targets| {
 					targets.iter().any(|target| {
-						store
-							.symbols
-							.id(target)
-							.is_none_or(|id| !material.symbol_exists(id))
+						resolved_target_missing_or_retargeted(store, material, candidates, target)
 					})
 				})
 		})
 		.map(|decision| decision.reference().clone())
 		.collect()
+}
+
+fn resolved_target_missing_or_retargeted(
+	store: &LinkageStore,
+	material: &CodeIndexMaterial,
+	candidates: &CandidateCatalog<'_>,
+	target: SymbolOrdinal,
+) -> bool {
+	let Some(expected_identity) = store.symbols.identity(target) else {
+		return true;
+	};
+	if candidates
+		.symbols()
+		.ordinal_by_identity(expected_identity)
+		.is_some()
+	{
+		return false;
+	}
+	let Some(id) = store.symbols.id(target) else {
+		return true;
+	};
+	let Some(current_moniker) = material.symbol_moniker(id) else {
+		return true;
+	};
+	material.identity.moniker_uri(current_moniker) != expected_identity
 }
 
 fn rebase_store_reference_ordinals(
@@ -300,6 +331,9 @@ fn remap_symbol_ordinals(
 	store
 		.decisions
 		.retain_mut(|decision| decision.remap_resolved_targets(previous, next, &symbol_id_remaps));
+	store
+		.indexes
+		.rebase_symbol_ordinals(previous, next, &symbol_id_remaps);
 	store.symbols = next.clone();
 }
 
@@ -548,6 +582,17 @@ impl LinkageStoreIndexes {
 		}
 	}
 
+	fn rebase_symbol_ordinals(
+		&mut self,
+		previous: &SymbolOrdinalCatalog,
+		next: &SymbolOrdinalCatalog,
+		id_remaps: &FxHashMap<SymbolId, SymbolId>,
+	) {
+		if let Some(index) = &mut self.resolved_by_target_source {
+			index.rebase_symbol_ordinals(previous, next, id_remaps);
+		}
+	}
+
 	fn remove_stale_references(&mut self, stale_references: &ReferenceSet) {
 		remove_references(&mut self.references_by_source_root, stale_references);
 		remove_references(&mut self.references_by_name, stale_references);
@@ -592,6 +637,7 @@ struct ResolvedTargetSourceContext<'a> {
 #[derive(Clone, Default)]
 pub(super) struct ResolvedTargetSourceIndex {
 	references_by_source: FxHashMap<SourceId, ReferenceSet>,
+	references_by_symbol: FxHashMap<SymbolOrdinal, ReferenceSet>,
 }
 
 impl ResolvedTargetSourceIndex {
@@ -599,8 +645,13 @@ impl ResolvedTargetSourceIndex {
 		self.references_by_source.get(source)
 	}
 
+	pub(super) fn get_symbol(&self, symbol: SymbolOrdinal) -> Option<&ReferenceSet> {
+		self.references_by_symbol.get(&symbol)
+	}
+
 	fn record_memory(&self, metrics: &mut LinkageMemoryMetrics) {
 		record_reference_sets(self.references_by_source.values(), metrics);
+		record_reference_sets(self.references_by_symbol.values(), metrics);
 	}
 
 	fn collect_decisions(&mut self, input: ResolvedTargetSourceBuild<'_>) {
@@ -612,10 +663,32 @@ impl ResolvedTargetSourceIndex {
 
 	fn remove_references(&mut self, stale_references: &ReferenceSet) {
 		remove_references(&mut self.references_by_source, stale_references);
+		remove_references(&mut self.references_by_symbol, stale_references);
 	}
 
 	fn rebase_reference_ordinals(&mut self, rebase: &ReferenceOrdinalRebase) {
 		rebase_reference_maps(&mut self.references_by_source, rebase);
+		rebase_reference_maps(&mut self.references_by_symbol, rebase);
+	}
+
+	fn rebase_symbol_ordinals(
+		&mut self,
+		previous: &SymbolOrdinalCatalog,
+		next: &SymbolOrdinalCatalog,
+		id_remaps: &FxHashMap<SymbolId, SymbolId>,
+	) {
+		let mut rebased = FxHashMap::<SymbolOrdinal, ReferenceSet>::default();
+		for (symbol, references) in &self.references_by_symbol {
+			let Some(next_symbol) = previous.remap_ordinal_with_ids(*symbol, next, id_remaps)
+			else {
+				continue;
+			};
+			rebased
+				.entry(next_symbol)
+				.or_default()
+				.union_with(references);
+		}
+		self.references_by_symbol = rebased;
 	}
 }
 
@@ -628,6 +701,11 @@ fn add_resolved_target_decision(
 		return;
 	};
 	for target in targets.iter() {
+		index
+			.references_by_symbol
+			.entry(target)
+			.or_default()
+			.insert(ReferenceOrdinal::from_index(decision.reference_idx()));
 		let Some(symbol_id) = context.symbols.id(target) else {
 			continue;
 		};

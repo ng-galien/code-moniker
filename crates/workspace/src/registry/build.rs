@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use crate::changes::ChangeOverlayPort;
 use crate::code::{CodeIndexGraphDiff, CodeIndexPort};
-use crate::linkage::{LinkagePort, LinkageRefreshGraphDiff, LinkageRefreshImpact};
+use crate::linkage::{LinkageGraphDelta, LinkagePort, LinkageRefreshImpact};
 use crate::live::WorkspaceLiveRefreshPlan;
 use crate::snapshot::{
 	ChangeOverlay, CodeIndex, CodeIndexFields, LinkageSnapshot, ResourceGeneration, SourceCatalog,
@@ -429,17 +429,10 @@ fn linkage_impact(
 	changed_paths: Vec<PathBuf>,
 	graph_diff: &CodeIndexGraphDiff,
 ) -> LinkageRefreshImpact {
-	LinkageRefreshImpact::with_graph_diff(
+	LinkageRefreshImpact::with_graph_delta(
 		changed_sources,
 		changed_paths,
-		LinkageRefreshGraphDiff {
-			changed_references: graph_diff.changed_references.clone(),
-			removed_references: graph_diff.removed_references.clone(),
-			changed_symbols: graph_diff.changed_symbols.clone(),
-			removed_symbols: graph_diff.removed_symbols.clone(),
-			reference_id_remaps: graph_diff.reference_id_remaps.clone(),
-			symbol_id_remaps: graph_diff.symbol_id_remaps.clone(),
-		},
+		LinkageGraphDelta::from_code_index(graph_diff.clone()),
 	)
 }
 

@@ -6,9 +6,7 @@ use std::time::Duration;
 use code_moniker_workspace::code::{
 	CodeIndexPort, CodeIndexRefresh, LocalCodeIndex, LocalCodeIndexOptions,
 };
-use code_moniker_workspace::linkage::{
-	LinkageRefreshGraphDiff, LinkageRefreshImpact, LocalLinkage,
-};
+use code_moniker_workspace::linkage::{LinkageGraphDelta, LinkageRefreshImpact, LocalLinkage};
 use code_moniker_workspace::live::{
 	LiveWorkspaceWatcher, WorkspaceLiveEvent, WorkspaceLiveRefreshPlan,
 };
@@ -30,7 +28,7 @@ fn fixture_path(path: impl AsRef<Path>) -> PathBuf {
 }
 
 #[test]
-fn refresh_paths_garbage_collects_stale_unresolved_refs_when_provider_symbols_change() {
+fn refresh_paths_plans_stale_unresolved_refs_when_provider_symbols_change() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let src = temp.path().join("src");
 	fs::create_dir_all(&src).expect("src dir");
@@ -78,7 +76,7 @@ fn refresh_paths_garbage_collects_stale_unresolved_refs_when_provider_symbols_ch
 }
 
 #[test]
-fn refresh_paths_garbage_collects_stale_manifest_policy_refs_when_manifest_changes() {
+fn refresh_paths_plans_stale_manifest_policy_refs_when_manifest_changes() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let src = temp.path().join("src");
 	fs::create_dir_all(&src).expect("src dir");
@@ -131,7 +129,7 @@ fn refresh_paths_garbage_collects_stale_manifest_policy_refs_when_manifest_chang
 	);
 	assert!(
 		!reference_is_unresolved(refreshed, "external_pkg:zustand/function:create"),
-		"`zustand/create` stale unresolved projection should be garbage collected"
+		"`zustand/create` stale unresolved projection should be invalidated"
 	);
 }
 
@@ -186,17 +184,10 @@ fn refresh_paths_relinks_only_graph_diff_references_when_reference_ids_shift() {
 		"the unchanged `stable` reference should be remapped after inserting `missing` before it"
 	);
 
-	let impact = LinkageRefreshImpact::with_graph_diff(
+	let impact = LinkageRefreshImpact::with_graph_delta(
 		refreshed.changed_sources.clone(),
 		vec![consumer],
-		LinkageRefreshGraphDiff {
-			changed_references: refreshed.graph_diff.changed_references.clone(),
-			removed_references: refreshed.graph_diff.removed_references.clone(),
-			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
-			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
-			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
-			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
-		},
+		LinkageGraphDelta::from_code_index(refreshed.graph_diff.clone()),
 	);
 	let refreshed_linkage = linkage
 		.refresh_linkage_with_timings(&linked.snapshot, &refreshed.index, impact)
@@ -267,17 +258,10 @@ fn refresh_paths_drops_removed_references_without_relinking_unchanged_graph() {
 		"the deleted `stable` call should be carried as a removed reference"
 	);
 
-	let impact = LinkageRefreshImpact::with_graph_diff(
+	let impact = LinkageRefreshImpact::with_graph_delta(
 		refreshed.changed_sources.clone(),
 		vec![consumer],
-		LinkageRefreshGraphDiff {
-			changed_references: refreshed.graph_diff.changed_references.clone(),
-			removed_references: refreshed.graph_diff.removed_references.clone(),
-			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
-			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
-			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
-			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
-		},
+		LinkageGraphDelta::from_code_index(refreshed.graph_diff.clone()),
 	);
 	let refreshed_linkage = linkage
 		.refresh_linkage_with_timings(&linked.snapshot, &refreshed.index, impact)
@@ -344,17 +328,10 @@ fn refresh_paths_relinks_existing_references_when_target_symbol_is_removed() {
 		"the deleted provider function should be carried as a removed symbol"
 	);
 
-	let impact = LinkageRefreshImpact::with_graph_diff(
+	let impact = LinkageRefreshImpact::with_graph_delta(
 		refreshed.changed_sources.clone(),
 		vec![provider],
-		LinkageRefreshGraphDiff {
-			changed_references: refreshed.graph_diff.changed_references.clone(),
-			removed_references: refreshed.graph_diff.removed_references.clone(),
-			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
-			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
-			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
-			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
-		},
+		LinkageGraphDelta::from_code_index(refreshed.graph_diff.clone()),
 	);
 	let refreshed_linkage = linkage
 		.refresh_linkage_with_timings(&linked.snapshot, &refreshed.index, impact)
@@ -374,6 +351,140 @@ fn refresh_paths_relinks_existing_references_when_target_symbol_is_removed() {
 		&refreshed.index,
 		&refreshed_linkage.snapshot,
 		"stable"
+	));
+}
+
+#[test]
+fn refresh_paths_does_not_relink_existing_references_for_added_target_symbol() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let lib = src.join("lib.rs");
+	let consumer = src.join("consumer.rs");
+	let provider = src.join("provider.rs");
+	fs::write(&lib, "pub mod consumer;\npub mod provider;\n").expect("write lib");
+	fs::write(
+		&consumer,
+		"use crate::provider::stable;\npub fn call_provider() { stable(); }\n",
+	)
+	.expect("write consumer");
+	fs::write(&provider, "pub fn stable() {}\n").expect("write provider");
+
+	let cache = LocalResourceCache::default();
+	let mut source_catalog = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(vec![temp.path().to_path_buf()], None),
+		cache.clone(),
+	);
+	let catalog = source_catalog
+		.load_catalog(&WorkspaceRequest::new("added-symbol-catalog"))
+		.expect("catalog");
+	let mut code_index = LocalCodeIndex::new(LocalCodeIndexOptions::new(None), cache.clone());
+	let index = code_index.build_index(&catalog).expect("index");
+	let mut linkage = LocalLinkage::new(cache);
+	let linked = linkage
+		.resolve_linkage_with_timings(&index)
+		.expect("initial linkage");
+	assert!(index_reference_resolves_to_symbol(
+		&index,
+		&linked.snapshot,
+		"stable",
+		"stable"
+	));
+
+	fs::write(&provider, "pub fn stable() {}\npub fn added() {}\n").expect("rewrite provider");
+	let refreshed = code_index
+		.refresh_paths(&index, std::slice::from_ref(&provider))
+		.expect("refresh paths");
+
+	assert_eq!(refreshed.graph_diff.added_symbols.len(), 1);
+	assert_eq!(refreshed.graph_diff.modified_symbols.len(), 0);
+	assert_eq!(refreshed.graph_diff.removed_symbols.len(), 0);
+	assert_eq!(refreshed.graph_diff.changed_references.len(), 0);
+
+	let refreshed_linkage = linkage
+		.refresh_linkage_with_timings(
+			&linked.snapshot,
+			&refreshed.index,
+			linkage_impact(&refreshed, vec![provider]),
+		)
+		.expect("incremental linkage refresh");
+
+	assert_eq!(refreshed_linkage.timings.stale_refs, 0);
+	assert_eq!(refreshed_linkage.timings.changed_refs, 0);
+	assert!(index_reference_resolves_to_symbol(
+		&refreshed.index,
+		&refreshed_linkage.snapshot,
+		"stable",
+		"stable"
+	));
+}
+
+#[test]
+fn refresh_paths_rebases_target_symbols_by_identity_after_removed_earlier_def() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let lib = src.join("lib.rs");
+	let consumer = src.join("consumer.rs");
+	let provider = src.join("provider.rs");
+	fs::write(&lib, "pub mod consumer;\npub mod provider;\n").expect("write lib");
+	fs::write(
+		&consumer,
+		"use crate::provider::stable;\npub fn call_provider() { stable(); }\n",
+	)
+	.expect("write consumer");
+	fs::write(&provider, "pub fn removed() {}\npub fn stable() {}\n").expect("write provider");
+
+	let cache = LocalResourceCache::default();
+	let mut source_catalog = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(vec![temp.path().to_path_buf()], None),
+		cache.clone(),
+	);
+	let catalog = source_catalog
+		.load_catalog(&WorkspaceRequest::new("removed-earlier-symbol-catalog"))
+		.expect("catalog");
+	let mut code_index = LocalCodeIndex::new(LocalCodeIndexOptions::new(None), cache.clone());
+	let index = code_index.build_index(&catalog).expect("index");
+	let mut linkage = LocalLinkage::new(cache);
+	let linked = linkage
+		.resolve_linkage_with_timings(&index)
+		.expect("initial linkage");
+	assert!(index_reference_resolves_to_symbol(
+		&index,
+		&linked.snapshot,
+		"stable",
+		"stable"
+	));
+
+	fs::write(&provider, "pub fn stable() {}\n").expect("rewrite provider");
+	let refreshed = code_index
+		.refresh_paths(&index, std::slice::from_ref(&provider))
+		.expect("refresh paths");
+
+	assert_eq!(refreshed.graph_diff.removed_symbols.len(), 1);
+	assert!(
+		!refreshed.graph_diff.symbol_id_remaps.is_empty(),
+		"`stable` should keep identity while its positional SymbolId shifts"
+	);
+
+	let refreshed_linkage = linkage
+		.refresh_linkage_with_timings(
+			&linked.snapshot,
+			&refreshed.index,
+			linkage_impact(&refreshed, vec![provider]),
+		)
+		.expect("incremental linkage refresh");
+
+	assert_eq!(refreshed_linkage.timings.stale_refs, 0);
+	assert!(index_reference_resolves_to_symbol(
+		&refreshed.index,
+		&refreshed_linkage.snapshot,
+		"stable",
+		"stable"
+	));
+	assert!(linkage_edges_reference_existing_records(
+		&refreshed.index,
+		&refreshed_linkage.snapshot
 	));
 }
 
@@ -931,17 +1042,10 @@ fn index_unresolved_reference_count(
 }
 
 fn linkage_impact(refreshed: &CodeIndexRefresh, paths: Vec<PathBuf>) -> LinkageRefreshImpact {
-	LinkageRefreshImpact::with_graph_diff(
+	LinkageRefreshImpact::with_graph_delta(
 		refreshed.changed_sources.clone(),
 		paths,
-		LinkageRefreshGraphDiff {
-			changed_references: refreshed.graph_diff.changed_references.clone(),
-			removed_references: refreshed.graph_diff.removed_references.clone(),
-			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
-			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
-			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
-			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
-		},
+		LinkageGraphDelta::from_code_index(refreshed.graph_diff.clone()),
 	)
 }
 

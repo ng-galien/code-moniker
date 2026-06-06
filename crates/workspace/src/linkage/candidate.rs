@@ -1,6 +1,7 @@
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, Segment};
+use code_moniker_core::lang::kinds;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::BTreeSet;
 
@@ -40,6 +41,18 @@ impl<'a> CandidateCatalog<'a> {
 	pub(super) fn indexes(&self) -> &CandidateIndexes<'a> {
 		&self.indexes
 	}
+
+	pub(super) fn candidate_for_symbol_id(
+		&self,
+		id: &crate::snapshot::SymbolId,
+	) -> Option<(SymbolOrdinal, &LinkageCandidate<'a>)> {
+		let symbol = self.symbols.ordinal(id)?;
+		Some((symbol, self.candidate(symbol)?))
+	}
+
+	pub(super) fn query_keys_for_symbol(&self, symbol: SymbolOrdinal) -> Option<Vec<Vec<u8>>> {
+		self.candidate(symbol).map(candidate_keys)
+	}
 }
 
 pub(super) fn local_symbols(catalog: &CandidateCatalog<'_>, query: &LinkageQuery<'_>) -> SymbolSet {
@@ -61,8 +74,20 @@ pub(super) fn matches_any_source(
 	CandidateSourceMatcher::new(catalog, query, source_files).matches()
 }
 
+pub(super) fn matches_any_symbol(
+	catalog: &CandidateCatalog<'_>,
+	query: &LinkageQuery<'_>,
+	symbols: &SymbolSet,
+) -> bool {
+	symbols.iter().any(|symbol| {
+		catalog
+			.candidate(symbol)
+			.is_some_and(|candidate| query.matches(candidate))
+	})
+}
+
 pub(super) struct CandidateIndexes<'a> {
-	by_location: Vec<Vec<SymbolOrdinal>>,
+	by_location: Vec<Vec<Option<SymbolOrdinal>>>,
 	by_moniker: FxHashMap<&'a Moniker, SymbolOrdinal>,
 	by_name: FxHashMap<Vec<u8>, SymbolSet>,
 	by_source_name: FxHashMap<usize, FxHashMap<Vec<u8>, SymbolSet>>,
@@ -78,12 +103,16 @@ impl<'a> CandidateIndexes<'a> {
 		}
 	}
 
-	fn begin_file(&mut self) {
-		self.by_location.push(Vec::new());
+	fn begin_file(&mut self, def_count: usize) {
+		self.by_location.push(vec![None; def_count]);
 	}
 
-	fn push_location(&mut self, file_idx: usize, symbol: SymbolOrdinal) {
-		self.by_location[file_idx].push(symbol);
+	fn push_location(&mut self, file_idx: usize, def_idx: usize, symbol: SymbolOrdinal) {
+		if let Some(file) = self.by_location.get_mut(file_idx) {
+			if let Some(slot) = file.get_mut(def_idx) {
+				*slot = Some(symbol);
+			}
+		}
 	}
 
 	fn push_candidate(&mut self, symbol: SymbolOrdinal, candidate: &LinkageCandidate<'a>) {
@@ -100,7 +129,11 @@ impl<'a> CandidateIndexes<'a> {
 	}
 
 	pub(super) fn symbol_at(&self, file_idx: usize, def_idx: usize) -> Option<SymbolOrdinal> {
-		self.by_location.get(file_idx)?.get(def_idx).copied()
+		self.by_location
+			.get(file_idx)?
+			.get(def_idx)
+			.copied()
+			.flatten()
 	}
 
 	pub(super) fn symbol_by_moniker(&self, moniker: &Moniker) -> Option<SymbolOrdinal> {
@@ -252,11 +285,17 @@ impl<'a> CandidateCatalogBuilder<'a> {
 
 	fn build(mut self, material: &'a CodeIndexMaterial) -> CandidateCatalog<'a> {
 		for (file_idx, file) in material.files.iter().enumerate() {
-			self.catalog.indexes.begin_file();
+			self.catalog.indexes.begin_file(file.graph.def_count());
 			for (def_idx, def) in file.graph.defs().enumerate() {
+				if !is_linkage_candidate_def(def) {
+					continue;
+				}
 				let symbol_id = file.identity.symbol_id(file_idx, def_idx);
-				let symbol = self.catalog.symbols.push(symbol_id);
-				self.catalog.indexes.push_location(file_idx, symbol);
+				let symbol_identity = file.identity.moniker_uri(&def.moniker);
+				let symbol = self.catalog.symbols.push(symbol_id, symbol_identity);
+				self.catalog
+					.indexes
+					.push_location(file_idx, def_idx, symbol);
 				self.push_candidate(symbol, candidate(file_idx, def));
 			}
 		}
@@ -339,4 +378,19 @@ fn push_key(keys: &mut Vec<Vec<u8>>, key: &[u8]) {
 		return;
 	}
 	keys.push(key.to_vec());
+}
+
+fn is_linkage_candidate_def(def: &DefRecord) -> bool {
+	if matches!(def.kind.as_ref(), kinds::COMMENT) {
+		return false;
+	}
+	!has_position_backed_anonymous_name(&def.moniker)
+}
+
+fn has_position_backed_anonymous_name(moniker: &Moniker) -> bool {
+	moniker
+		.as_view()
+		.segments()
+		.last()
+		.is_some_and(|segment| segment.name.starts_with(b"__cb_"))
 }
