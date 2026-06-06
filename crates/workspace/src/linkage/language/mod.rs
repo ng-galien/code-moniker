@@ -3,7 +3,7 @@ use code_moniker_core::lang::Lang;
 use code_moniker_core::lang::build_manifest::Manifest;
 use rustc_hash::FxHashSet;
 
-use crate::linkage::candidate::LinkageCandidate;
+use crate::linkage::candidate::{CandidateCatalog, LinkageCandidate};
 use crate::linkage::decision::ReferenceLinkageDecision;
 use crate::linkage::query::LinkageQuery;
 use crate::snapshot::ReferenceRecord;
@@ -95,9 +95,16 @@ pub(super) fn proc_macro_annotation(query: &LinkageQuery<'_>) -> bool {
 
 pub(super) fn enhance_reference_semantics(
 	material: &CodeIndexMaterial,
+	candidates: &CandidateCatalog<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
 	changed_references: Option<&rustc_hash::FxHashSet<crate::snapshot::ReferenceId>>,
 ) {
-	java::enhance_reference_semantics(material, decisions, references, changed_references);
+	java::enhance_reference_semantics(
+		material,
+		candidates,
+		decisions,
+		references,
+		changed_references,
+	);
 }

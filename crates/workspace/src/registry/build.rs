@@ -1,15 +1,14 @@
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::changes::ChangeOverlayPort;
-use crate::code::CodeIndexPort;
-use crate::linkage::{LinkagePort, LinkageRefreshImpact};
+use crate::code::{CodeIndexGraphDiff, CodeIndexPort};
+use crate::linkage::{LinkagePort, LinkageRefreshGraphDiff, LinkageRefreshImpact};
 use crate::live::WorkspaceLiveRefreshPlan;
 use crate::snapshot::{
 	ChangeOverlay, CodeIndex, CodeIndexFields, LinkageSnapshot, ResourceGeneration, SourceCatalog,
-	SourceFileRecord, SourceFileRecordFields, SourceId, SymbolId, WorkspaceFailure,
-	WorkspaceRequest, WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
+	SourceFileRecord, SourceFileRecordFields, SourceId, WorkspaceFailure, WorkspaceRequest,
+	WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
 };
 use crate::source::SourceCatalogPort;
 
@@ -182,20 +181,21 @@ pub(crate) fn build_incremental_paths_snapshot(
 	let index_timer = Instant::now();
 	let refresh = code_index.refresh_paths(&current.index, paths)?;
 	let changed_sources = refresh.changed_sources;
+	let graph_diff = refresh.graph_diff;
 	let index = refresh.index;
 	let index_elapsed = index_timer.elapsed();
 	let linkage_timer = Instant::now();
 	let linkage = linkage.refresh_linkage(
 		&current.linkage,
 		&index,
-		LinkageRefreshImpact::new(changed_sources.clone(), paths.to_vec()),
+		linkage_impact(changed_sources.clone(), paths.to_vec(), &graph_diff),
 	)?;
 	let linkage_elapsed = linkage_timer.elapsed();
 	let changes = ChangeOverlay::new(
 		generation,
 		current.catalog.generation,
 		index.generation,
-		changed_symbols(&index, &changed_sources),
+		graph_diff.changed_symbols.clone(),
 	);
 	let timings = timings(
 		current.timings.source_catalog,
@@ -424,14 +424,23 @@ fn empty_changes(catalog: &SourceCatalog, index: &CodeIndex) -> ChangeOverlay {
 	)
 }
 
-fn changed_symbols(index: &CodeIndex, changed_sources: &[SourceId]) -> Vec<SymbolId> {
-	let changed_sources = changed_sources.iter().cloned().collect::<BTreeSet<_>>();
-	index
-		.symbols
-		.iter()
-		.filter(|symbol| changed_sources.contains(&symbol.source))
-		.map(|symbol| symbol.id.clone())
-		.collect()
+fn linkage_impact(
+	changed_sources: Vec<SourceId>,
+	changed_paths: Vec<PathBuf>,
+	graph_diff: &CodeIndexGraphDiff,
+) -> LinkageRefreshImpact {
+	LinkageRefreshImpact::with_graph_diff(
+		changed_sources,
+		changed_paths,
+		LinkageRefreshGraphDiff {
+			changed_references: graph_diff.changed_references.clone(),
+			removed_references: graph_diff.removed_references.clone(),
+			changed_symbols: graph_diff.changed_symbols.clone(),
+			removed_symbols: graph_diff.removed_symbols.clone(),
+			reference_id_remaps: graph_diff.reference_id_remaps.clone(),
+			symbol_id_remaps: graph_diff.symbol_id_remaps.clone(),
+		},
+	)
 }
 
 fn timings(

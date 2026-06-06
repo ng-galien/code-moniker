@@ -21,8 +21,7 @@ fn external_package_symbol_match(
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
 	if query
-		.target_segments
-		.first()
+		.target_first
 		.is_none_or(|segment| segment.kind != kinds::EXTERNAL_PKG)
 	{
 		return false;

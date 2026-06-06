@@ -8,7 +8,9 @@ use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope, Unknow
 use crate::linkage::gc::{LinkageGarbageCollector, LinkageRefreshImpact, changed_file_indexes};
 use crate::linkage::manifest::ManifestPolicy;
 use crate::linkage::method_indexer::MethodIndexer;
-use crate::linkage::query::LinkageQuery;
+use crate::linkage::metrics::LinkageMemoryMetrics;
+use crate::linkage::ordinals::{ReferenceOrdinal, ReferenceSet};
+use crate::linkage::query::{LinkageQuery, ReferenceLocation, ReferenceLocations};
 use crate::linkage::scope::{GlobalScopeResolver, LocalScopeResolver};
 use crate::linkage::semantic::{MethodTable, SemanticLinkage};
 use crate::linkage::store::{LinkageStore, LinkageStoreRefresh, reference_indexes};
@@ -34,6 +36,7 @@ pub struct LinkageTimings {
 	pub manifest_policy: Duration,
 	pub resolve_references: Duration,
 	pub semantic_enhance: Duration,
+	pub store_index: Duration,
 	pub project_snapshot: Duration,
 	pub total: Duration,
 }
@@ -41,6 +44,7 @@ pub struct LinkageTimings {
 pub struct TimedLinkageSnapshot {
 	pub snapshot: LinkageSnapshot,
 	pub timings: LinkageTimings,
+	pub memory: LinkageMemoryMetrics,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -60,6 +64,7 @@ pub struct LinkageRefreshTimings {
 pub struct TimedLinkageRefresh {
 	pub snapshot: LinkageSnapshot,
 	pub timings: LinkageRefreshTimings,
+	pub memory: LinkageMemoryMetrics,
 }
 
 pub struct LocalLinkage {
@@ -102,31 +107,7 @@ impl LocalLinkage {
 		code_index: &CodeIndex,
 		refresh_impact: LinkageRefreshImpact,
 	) -> WorkspaceResult<TimedLinkageRefresh> {
-		let total_timer = Instant::now();
-		if refresh_impact.is_empty() {
-			return Ok(refresh_empty_linkage(
-				&mut self.store,
-				previous,
-				code_index,
-				total_timer,
-			));
-		}
-		let material = self.linkage_material(code_index)?;
-		let generation = self.cache.next_generation();
-		let store = self.store.get_or_insert_with(|| {
-			let candidates = CandidateCatalog::new(&material);
-			LinkageStore::from_snapshot(previous, &code_index.references, &material, &candidates)
-		});
-		let indexer = self
-			.method_indexer
-			.get_or_insert_with(|| MethodIndexer::new(&material));
-		let input = IncrementalLinkageInput {
-			index: code_index,
-			impact: refresh_impact,
-			material: &material,
-			generation,
-		};
-		Ok(run_incremental_refresh(store, indexer, &input, total_timer))
+		run_refresh_linkage_with_timings(self, previous, code_index, refresh_impact)
 	}
 
 	fn linkage_material(&self, index: &CodeIndex) -> WorkspaceResult<Arc<CodeIndexMaterial>> {
@@ -142,20 +123,96 @@ impl LocalLinkage {
 		&mut self,
 		index: &CodeIndex,
 	) -> WorkspaceResult<TimedLinkageSnapshot> {
-		let total_timer = Instant::now();
-		let material = self.linkage_material(index)?;
-		let generation = self.cache.next_generation();
-		let method_indexer = MethodIndexer::new(&material);
-		let LinkageResolution { store, mut timings } =
-			resolve_full_linkage(&material, index, generation, method_indexer.methods());
-		let report_timer = Instant::now();
-		let snapshot = store.project_snapshot(&index.references, &material.identity);
-		timings.project_snapshot = report_timer.elapsed();
-		timings.total = total_timer.elapsed();
-		self.store = Some(store);
-		self.method_indexer = Some(method_indexer);
-		Ok(TimedLinkageSnapshot { snapshot, timings })
+		run_full_linkage_with_timings(self, index)
 	}
+}
+
+fn run_refresh_linkage_with_timings(
+	linkage: &mut LocalLinkage,
+	previous: &LinkageSnapshot,
+	code_index: &CodeIndex,
+	refresh_impact: LinkageRefreshImpact,
+) -> WorkspaceResult<TimedLinkageRefresh> {
+	let total_timer = Instant::now();
+	if refresh_impact.is_empty() {
+		return Ok(refresh_empty_linkage(
+			&mut linkage.store,
+			previous,
+			code_index,
+			total_timer,
+		));
+	}
+	let material = linkage.linkage_material(code_index)?;
+	let generation = linkage.cache.next_generation();
+	let candidate_timer = Instant::now();
+	let candidates = CandidateCatalog::new(&material);
+	let mut candidate_index = candidate_timer.elapsed();
+	if linkage.store.is_none() {
+		linkage.store = Some(LinkageStore::from_snapshot(
+			previous,
+			&code_index.references,
+			&material,
+			&candidates,
+		));
+	}
+	let store = linkage
+		.store
+		.as_mut()
+		.expect("linkage store is initialized before refresh");
+	let method_timer = Instant::now();
+	let indexer = linkage
+		.method_indexer
+		.get_or_insert_with(|| MethodIndexer::new(&material, &candidates));
+	candidate_index += method_timer.elapsed();
+	let input = IncrementalLinkageInput {
+		index: code_index,
+		impact: refresh_impact,
+		material: &material,
+		generation,
+	};
+	Ok(run_incremental_refresh(
+		store,
+		indexer,
+		&input,
+		candidates,
+		candidate_index,
+		total_timer,
+	))
+}
+
+fn run_full_linkage_with_timings(
+	linkage: &mut LocalLinkage,
+	index: &CodeIndex,
+) -> WorkspaceResult<TimedLinkageSnapshot> {
+	let total_timer = Instant::now();
+	let material = linkage.linkage_material(index)?;
+	let generation = linkage.cache.next_generation();
+	let candidate_timer = Instant::now();
+	let candidates = CandidateCatalog::new(&material);
+	let mut candidate_index = candidate_timer.elapsed();
+	let method_timer = Instant::now();
+	let method_indexer = MethodIndexer::new(&material, &candidates);
+	candidate_index += method_timer.elapsed();
+	let LinkageResolution { store, mut timings } = resolve_full_linkage(
+		&material,
+		index,
+		generation,
+		method_indexer.methods(),
+		candidates,
+		candidate_index,
+	);
+	let report_timer = Instant::now();
+	let snapshot = store.project_snapshot(&index.references, &material.identity);
+	let memory = store.memory_metrics();
+	timings.project_snapshot = report_timer.elapsed();
+	timings.total = total_timer.elapsed();
+	linkage.store = Some(store);
+	linkage.method_indexer = Some(method_indexer);
+	Ok(TimedLinkageSnapshot {
+		snapshot,
+		timings,
+		memory,
+	})
 }
 
 fn refresh_empty_linkage(
@@ -177,6 +234,10 @@ fn refresh_empty_linkage(
 			total: total_timer.elapsed(),
 			..LinkageRefreshTimings::default()
 		},
+		memory: store
+			.as_ref()
+			.map(LinkageStore::memory_metrics)
+			.unwrap_or_default(),
 	}
 }
 
@@ -191,45 +252,61 @@ fn run_incremental_refresh(
 	store: &mut LinkageStore,
 	indexer: &mut MethodIndexer,
 	input: &IncrementalLinkageInput<'_>,
+	candidates: CandidateCatalog<'_>,
+	candidate_index_elapsed: Duration,
 	total_timer: Instant,
 ) -> TimedLinkageRefresh {
+	let mut timings = LinkageRefreshTimings::default();
 	let changed_files = changed_file_indexes(input.material, &input.impact);
-	let methods = indexer.reindex(input.material, &changed_files);
-	let mut timings = refresh_incremental_linkage(store, methods, input);
+	let method_timer = Instant::now();
+	let methods = indexer.reindex(input.material, &candidates, &changed_files);
+	timings.candidate_index = candidate_index_elapsed + method_timer.elapsed();
+	refresh_incremental_linkage(store, methods, input, &candidates, &mut timings);
 	let project_timer = Instant::now();
 	let snapshot = store.project_snapshot(&input.index.references, &input.material.identity);
+	let memory = store.memory_metrics();
 	timings.project_snapshot = project_timer.elapsed();
 	timings.total = total_timer.elapsed();
-	TimedLinkageRefresh { snapshot, timings }
+	TimedLinkageRefresh {
+		snapshot,
+		timings,
+		memory,
+	}
 }
 
 fn refresh_incremental_linkage(
 	store: &mut LinkageStore,
 	methods: &MethodTable,
 	input: &IncrementalLinkageInput<'_>,
-) -> LinkageRefreshTimings {
-	let mut timings = LinkageRefreshTimings::default();
-	let candidate_timer = Instant::now();
-	let candidates = CandidateCatalog::new(input.material);
-	timings.candidate_index = candidate_timer.elapsed();
+	candidates: &CandidateCatalog<'_>,
+	timings: &mut LinkageRefreshTimings,
+) {
 	let reference_index_map = reference_indexes(&input.index.references);
 	let gc_timer = Instant::now();
+	store.rebase_reference_ordinals(reference_index_map, input.impact.reference_id_remaps());
+	store.ensure_resolved_target_index(input.material);
 	let stale_references = LinkageGarbageCollector::new(
 		store,
 		&input.index.references,
 		input.material,
-		&candidates,
-		&reference_index_map,
+		candidates,
+		&store.indexes.reference_indexes,
 		&input.impact,
 	)
 	.collect();
 	timings.garbage_collect = gc_timer.elapsed();
-	timings.stale_refs = stale_references.len();
-	let changed_reference_indexes =
-		stale_reference_indexes(&reference_index_map, &stale_references);
+	timings.stale_refs = stale_references.len() as usize;
+	let changed_reference_indexes = stale_reference_indexes(&stale_references);
 	timings.changed_refs = changed_reference_indexes.len();
+	let target_index_references = target_index_refresh_references(
+		&stale_references,
+		input.impact.reference_id_remaps(),
+		&store.indexes.reference_indexes,
+	);
+	let locations = ReferenceLocations::from_material(input.material);
 	let resolve_timer = Instant::now();
-	let changed = resolve_reference_decisions(input, &changed_reference_indexes, &candidates);
+	let changed =
+		resolve_reference_decisions(input, &changed_reference_indexes, candidates, &locations);
 	timings.resolve_references = resolve_timer.elapsed();
 	let apply_timer = Instant::now();
 	store.apply_refresh(LinkageStoreRefresh {
@@ -237,47 +314,76 @@ fn refresh_incremental_linkage(
 		index_generation: input.index.generation,
 		stale_references: &stale_references,
 		changed_decisions: changed,
-		reference_indexes: reference_index_map,
+		symbol_id_remaps: input.impact.symbol_id_remaps(),
 		references: &input.index.references,
 		material: input.material,
-		candidates: &candidates,
+		candidates,
 	});
 	timings.apply_store = apply_timer.elapsed();
 	let semantic_timer = Instant::now();
-	SemanticLinkage::new(input.material, methods).enhance_changed(
+	let stale_reference_ids = reference_ids_for_set(&stale_references, &input.index.references);
+	SemanticLinkage::new(input.material, methods, candidates, &locations).enhance_changed(
 		store.decisions_mut(),
 		&input.index.references,
-		&stale_references,
+		&stale_reference_ids,
 	);
 	timings.semantic_enhance = semantic_timer.elapsed();
 	let rebuild_timer = Instant::now();
-	store.refresh_resolved_target_index(&stale_references, input.material);
+	store.refresh_resolved_target_index(&target_index_references, input.material);
 	timings.rebuild_indexes = rebuild_timer.elapsed();
-	timings
 }
 
 fn resolve_reference_decisions(
 	input: &IncrementalLinkageInput<'_>,
 	reference_indexes: &[usize],
 	candidates: &CandidateCatalog<'_>,
+	locations: &ReferenceLocations,
 ) -> Vec<ReferenceLinkageDecision> {
 	let resolver = LinkageResolver::new(input.material);
 	let manifests = ManifestPolicy::build(input.material);
 	indexes_to_references(input.index, reference_indexes)
 		.par_iter()
 		.map(|(reference_idx, reference)| {
-			resolver.resolve_reference(*reference_idx, reference, candidates, &manifests)
+			resolver.resolve_reference(
+				*reference_idx,
+				reference,
+				locations.get(*reference_idx),
+				candidates,
+				&manifests,
+			)
 		})
 		.collect::<Vec<_>>()
 }
 
-fn stale_reference_indexes(
-	reference_indexes: &rustc_hash::FxHashMap<ReferenceId, usize>,
-	stale_references: &rustc_hash::FxHashSet<ReferenceId>,
-) -> Vec<usize> {
+fn stale_reference_indexes(stale_references: &ReferenceSet) -> Vec<usize> {
 	stale_references
 		.iter()
-		.filter_map(|reference| reference_indexes.get(reference).copied())
+		.map(ReferenceOrdinal::index)
+		.collect()
+}
+
+fn target_index_refresh_references(
+	stale_references: &ReferenceSet,
+	reference_id_remaps: &[(ReferenceId, ReferenceId)],
+	reference_indexes: &rustc_hash::FxHashMap<ReferenceId, ReferenceOrdinal>,
+) -> ReferenceSet {
+	let mut references = stale_references.clone();
+	for (_, next_reference) in reference_id_remaps {
+		if let Some(reference_idx) = reference_indexes.get(next_reference) {
+			references.insert(*reference_idx);
+		}
+	}
+	references
+}
+
+fn reference_ids_for_set(
+	references: &ReferenceSet,
+	records: &[ReferenceRecord],
+) -> rustc_hash::FxHashSet<ReferenceId> {
+	references
+		.iter()
+		.filter_map(|reference| records.get(reference.index()))
+		.map(|reference| reference.id.clone())
 		.collect()
 }
 
@@ -315,10 +421,18 @@ impl<'a> LinkageResolver<'a> {
 		&self,
 		reference_idx: usize,
 		reference: &ReferenceRecord,
+		location: Option<ReferenceLocation>,
 		candidates: &CandidateCatalog<'_>,
 		manifests: &ManifestPolicy,
 	) -> ReferenceLinkageDecision {
-		let Some(query) = LinkageQuery::new(reference, self.material) else {
+		let Some(location) = location else {
+			return ReferenceLinkageDecision::unknown(
+				UnknownReason::MissingQuery,
+				reference_idx,
+				reference.id.clone(),
+			);
+		};
+		let Some(query) = LinkageQuery::at(reference, self.material, location) else {
 			return ReferenceLinkageDecision::unknown(
 				UnknownReason::MissingQuery,
 				reference_idx,
@@ -337,7 +451,7 @@ impl<'a> LinkageResolver<'a> {
 		}
 
 		let global_targets = self.global.resolve(&query, candidates);
-		let global_decision = manifests.evaluate_global_targets(&query, global_targets);
+		let global_decision = manifests.evaluate_global_targets(&query, global_targets, candidates);
 		if let Some(decision) = global_decision.for_reference(reference_idx, reference) {
 			return decision;
 		}
@@ -355,28 +469,39 @@ fn resolve_full_linkage(
 	index: &CodeIndex,
 	generation: ResourceGeneration,
 	methods: &MethodTable,
+	candidates: CandidateCatalog<'_>,
+	candidate_index_elapsed: Duration,
 ) -> LinkageResolution {
 	let resolver = LinkageResolver::new(material);
-	let mut timings = LinkageTimings::default();
-	let candidate_timer = Instant::now();
-	let candidates = CandidateCatalog::new(material);
-	timings.candidate_index = candidate_timer.elapsed();
+	let mut timings = LinkageTimings {
+		candidate_index: candidate_index_elapsed,
+		..LinkageTimings::default()
+	};
 	let manifest_timer = Instant::now();
 	let manifests = ManifestPolicy::build(material);
 	timings.manifest_policy = manifest_timer.elapsed();
 	let resolve_timer = Instant::now();
+	let locations = ReferenceLocations::from_material(material);
 	let mut decisions = index
 		.references
 		.par_iter()
 		.enumerate()
 		.map(|(reference_idx, reference)| {
-			resolver.resolve_reference(reference_idx, reference, &candidates, &manifests)
+			resolver.resolve_reference(
+				reference_idx,
+				reference,
+				locations.get(reference_idx),
+				&candidates,
+				&manifests,
+			)
 		})
 		.collect::<Vec<_>>();
 	timings.resolve_references = resolve_timer.elapsed();
 	let semantic_timer = Instant::now();
-	SemanticLinkage::new(material, methods).enhance(&mut decisions, &index.references);
+	SemanticLinkage::new(material, methods, &candidates, &locations)
+		.enhance(&mut decisions, &index.references);
 	timings.semantic_enhance = semantic_timer.elapsed();
+	let store_timer = Instant::now();
 	let store = LinkageStore::new(
 		generation,
 		index.generation,
@@ -385,6 +510,7 @@ fn resolve_full_linkage(
 		material,
 		&candidates,
 	);
+	timings.store_index = store_timer.elapsed();
 	LinkageResolution { store, timings }
 }
 

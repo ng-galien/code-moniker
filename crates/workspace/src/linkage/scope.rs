@@ -1,6 +1,6 @@
-use crate::linkage::candidate::CandidateCatalog;
+use crate::linkage::candidate::{CandidateCatalog, global_symbols, local_symbols};
+use crate::linkage::ordinals::SymbolSet;
 use crate::linkage::query::LinkageQuery;
-use crate::snapshot::SymbolId;
 
 pub(super) struct LocalScopeResolver;
 
@@ -9,8 +9,8 @@ impl LocalScopeResolver {
 		&self,
 		query: &LinkageQuery<'_>,
 		candidates: &CandidateCatalog<'_>,
-	) -> Vec<SymbolId> {
-		candidates.local_symbols(query)
+	) -> SymbolSet {
+		local_symbols(candidates, query)
 	}
 }
 
@@ -21,7 +21,7 @@ impl GlobalScopeResolver {
 		&self,
 		query: &LinkageQuery<'_>,
 		candidates: &CandidateCatalog<'_>,
-	) -> Vec<SymbolId> {
-		candidates.global_symbols(query)
+	) -> SymbolSet {
+		global_symbols(candidates, query)
 	}
 }

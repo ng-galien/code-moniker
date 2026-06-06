@@ -3,7 +3,7 @@ use code_moniker_core::lang::{build_manifest::Manifest, kinds};
 use rayon::prelude::*;
 use rustc_hash::FxHashSet;
 
-use crate::linkage::candidate::LinkageCandidate;
+use crate::linkage::candidate::{CandidateCatalog, LinkageCandidate};
 use crate::linkage::decision::ReferenceLinkageDecision;
 use crate::linkage::language::LanguageLinkageStrategy;
 use crate::linkage::query::LinkageQuery;
@@ -26,16 +26,14 @@ fn java_path_target_matches_type_def(
 	query: &LinkageQuery<'_>,
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
-	let candidate_segments = candidate.moniker.as_view().segments().collect::<Vec<_>>();
-	if query.target_segments.len() != candidate_segments.len() || query.target_segments.is_empty() {
+	if query.target_segment_count != candidate.segment_count || query.target_segment_count == 0 {
 		return false;
 	}
 	query
-		.target_segments
-		.iter()
-		.zip(candidate_segments.iter())
+		.target_segments()
+		.zip(candidate.moniker.as_view().segments())
 		.all(|(target, candidate_segment)| {
-			java_segment_matches(query, candidate, *target, *candidate_segment)
+			java_segment_matches(query, candidate, target, candidate_segment)
 		})
 }
 
@@ -153,11 +151,15 @@ fn dependency_group(package: &str) -> Option<&str> {
 
 pub(super) fn enhance_reference_semantics(
 	material: &CodeIndexMaterial,
+	candidates: &CandidateCatalog<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
-	let lombok = lombok::LombokSemantics::build(material, references);
+	let lombok = lombok::LombokSemantics::build(material, candidates, references);
+	if lombok.is_empty() {
+		return;
+	}
 	let replacements = decisions
 		.par_iter()
 		.enumerate()

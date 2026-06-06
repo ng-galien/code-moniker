@@ -2,30 +2,44 @@ use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::{Lang, kinds};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::linkage::candidate::CandidateCatalog;
 use crate::linkage::decision::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
-use crate::snapshot::{ReferenceRecord, SymbolId};
+use crate::linkage::ordinals::{SymbolOrdinal, SymbolSet};
+use crate::snapshot::ReferenceRecord;
 use crate::source::{CodeIndexMaterial, IndexedSourceFile};
 
 pub(super) struct LombokSemantics<'a> {
 	material: &'a CodeIndexMaterial,
+	candidates: &'a CandidateCatalog<'a>,
 	annotated_types: FxHashMap<Moniker, TypeAnnotations>,
 	type_aliases: FxHashMap<Moniker, Moniker>,
 	fields: FxHashMap<(Moniker, Vec<u8>), FieldInfo>,
 }
 
 impl<'a> LombokSemantics<'a> {
-	pub(super) fn build(material: &'a CodeIndexMaterial, references: &[ReferenceRecord]) -> Self {
+	pub(super) fn build(
+		material: &'a CodeIndexMaterial,
+		candidates: &'a CandidateCatalog<'a>,
+		references: &[ReferenceRecord],
+	) -> Self {
 		let mut semantics = Self {
 			material,
+			candidates,
 			annotated_types: FxHashMap::default(),
 			type_aliases: FxHashMap::default(),
 			fields: FxHashMap::default(),
 		};
-		semantics.index_types_and_fields();
-		semantics.index_annotations(references);
+		let field_annotations = semantics.index_annotations(references);
+		if semantics.needs_accessor_index(&field_annotations) {
+			semantics.index_types_and_fields(field_annotations);
+		}
 		semantics
+	}
+
+	pub(super) fn is_empty(&self) -> bool {
+		self.annotated_types.is_empty() && self.fields.is_empty()
 	}
 
 	pub(super) fn resolve_reference(
@@ -69,7 +83,7 @@ impl<'a> LombokSemantics<'a> {
 			ResolutionScope::Injected,
 			reference_idx,
 			reference.id.clone(),
-			vec![field.symbol.clone()],
+			SymbolSet::from_symbol(field.symbol),
 		))
 	}
 
@@ -94,13 +108,7 @@ impl<'a> LombokSemantics<'a> {
 			return None;
 		}
 		let source = self.material.symbol_moniker(&reference.source_symbol)?;
-		let annotation = self
-			.annotated_types
-			.iter()
-			.find(|(owner, annotations)| {
-				owner.is_ancestor_of(source) && annotations.logger.is_some()
-			})
-			.and_then(|(_, annotations)| annotations.logger)?;
+		let annotation = self.logger_annotation_for(source)?;
 		let logger_type = annotation.logger_type()?;
 		let target = method_target(
 			&external_type_target(source.as_view().project(), logger_type),
@@ -115,15 +123,61 @@ impl<'a> LombokSemantics<'a> {
 		))
 	}
 
-	fn index_types_and_fields(&mut self) {
+	fn logger_annotation_for(&self, source: &Moniker) -> Option<LombokLogBackend> {
+		if let Some(logger) = self
+			.annotated_types
+			.get(source)
+			.and_then(|annotations| annotations.logger)
+		{
+			return Some(logger);
+		}
+		let mut owner = source.parent();
+		while let Some(current) = owner {
+			if let Some(logger) = self
+				.annotated_types
+				.get(&current)
+				.and_then(|annotations| annotations.logger)
+			{
+				return Some(logger);
+			}
+			owner = current.parent();
+		}
+		None
+	}
+
+	fn needs_accessor_index(
+		&self,
+		field_annotations: &FxHashMap<(Moniker, Vec<u8>), TypeAnnotations>,
+	) -> bool {
+		self.annotated_types
+			.values()
+			.any(TypeAnnotations::supports_any_accessor)
+			|| field_annotations
+				.values()
+				.any(TypeAnnotations::supports_any_accessor)
+	}
+
+	fn index_types_and_fields(
+		&mut self,
+		field_annotations: FxHashMap<(Moniker, Vec<u8>), TypeAnnotations>,
+	) {
 		for (file_idx, file) in self.material.files.iter().enumerate() {
-			let facts = JavaSymbolFacts::from_file(file_idx, file);
+			let facts = JavaSymbolFacts::from_file(file_idx, file, self.candidates);
 			self.type_aliases.extend(facts.type_aliases);
 			self.fields.extend(facts.fields);
 		}
+		for (key, annotations) in field_annotations {
+			if let Some(field) = self.fields.get_mut(&key) {
+				field.annotations.merge(annotations);
+			}
+		}
 	}
 
-	fn index_annotations(&mut self, references: &[ReferenceRecord]) {
+	fn index_annotations(
+		&mut self,
+		references: &[ReferenceRecord],
+	) -> FxHashMap<(Moniker, Vec<u8>), TypeAnnotations> {
+		let mut field_annotations = FxHashMap::<(Moniker, Vec<u8>), TypeAnnotations>::default();
 		for reference in references {
 			if reference.kind != "annotates" {
 				continue;
@@ -142,12 +196,11 @@ impl<'a> LombokSemantics<'a> {
 					.entry(source.clone())
 					.or_default()
 					.add(annotation);
-			} else if let Some((owner, field_name)) = field_key(source)
-				&& let Some(field) = self.fields.get_mut(&(owner, field_name))
-			{
-				field.annotations.add(annotation);
+			} else if let Some(key) = field_key(source) {
+				field_annotations.entry(key).or_default().add(annotation);
 			}
 		}
+		field_annotations
 	}
 }
 
@@ -158,7 +211,11 @@ struct JavaSymbolFacts {
 }
 
 impl JavaSymbolFacts {
-	fn from_file(file_idx: usize, file: &IndexedSourceFile) -> Self {
+	fn from_file(
+		file_idx: usize,
+		file: &IndexedSourceFile,
+		candidates: &CandidateCatalog<'_>,
+	) -> Self {
 		if file.lang != Lang::Java {
 			return Self::default();
 		}
@@ -170,13 +227,9 @@ impl JavaSymbolFacts {
 					facts.add_type_aliases(&def.moniker);
 				} else if def.kind == kinds::FIELD
 					&& let Some(owner) = field_owner(file, def.parent)
+					&& let Some(symbol) = candidates.indexes().symbol_at(file_idx, def_idx)
 				{
-					facts.add_field(
-						owner,
-						&def.moniker,
-						file.identity.symbol_id(file_idx, def_idx),
-						&def.signature,
-					);
+					facts.add_field(owner, &def.moniker, symbol, &def.signature);
 				}
 				facts
 			})
@@ -188,7 +241,13 @@ impl JavaSymbolFacts {
 			.insert(path_alias_for_type(owner), owner.clone());
 	}
 
-	fn add_field(&mut self, owner: &Moniker, field: &Moniker, symbol: SymbolId, signature: &[u8]) {
+	fn add_field(
+		&mut self,
+		owner: &Moniker,
+		field: &Moniker,
+		symbol: SymbolOrdinal,
+		signature: &[u8],
+	) {
 		if is_java_type_moniker(owner) {
 			self.fields.insert(
 				(owner.clone(), field_name(field).to_vec()),
@@ -199,13 +258,13 @@ impl JavaSymbolFacts {
 }
 
 struct FieldInfo {
-	symbol: SymbolId,
+	symbol: SymbolOrdinal,
 	annotations: TypeAnnotations,
 	facts: FieldFacts,
 }
 
 impl FieldInfo {
-	fn new(symbol: SymbolId, signature: &[u8]) -> Self {
+	fn new(symbol: SymbolOrdinal, signature: &[u8]) -> Self {
 		Self {
 			symbol,
 			annotations: TypeAnnotations::default(),
@@ -286,6 +345,21 @@ impl TypeAnnotations {
 				self.effects.insert(effect);
 			}
 		}
+	}
+
+	fn merge(&mut self, other: Self) {
+		if self.logger.is_none() {
+			self.logger = other.logger;
+		}
+		self.effects.extend(other.effects);
+	}
+
+	fn supports_any_accessor(&self) -> bool {
+		self.effects.contains(&LombokEffect::Getter)
+			|| self.effects.contains(&LombokEffect::Setter)
+			|| self.effects.contains(&LombokEffect::Data)
+			|| self.effects.contains(&LombokEffect::Value)
+			|| self.effects.contains(&LombokEffect::With)
 	}
 
 	fn supports(&self, accessor: AccessorKind) -> bool {

@@ -5,14 +5,15 @@ use std::time::Instant;
 
 use code_moniker_core::core::moniker::Moniker;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 
 use crate::code::{def_kind, is_navigable_def, last_name, ref_kind};
 use crate::environment;
 use crate::lines::LineIndex;
 use crate::snapshot::{
-	CodeIndex, CodeIndexFields, CodeIndexTimings, ReferenceRecord, SourceCatalog, SourceFileRecord,
-	SourceFileRecordFields, SourceId, SymbolRecord, SymbolRecordFields, WorkspaceFailure,
-	WorkspaceResource, WorkspaceResult,
+	CodeIndex, CodeIndexFields, CodeIndexTimings, ReferenceId, ReferenceRecord, SourceCatalog,
+	SourceFileRecord, SourceFileRecordFields, SourceId, SymbolId, SymbolRecord, SymbolRecordFields,
+	WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };
 use crate::source::{
 	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, SourceCatalogMaterial,
@@ -33,6 +34,29 @@ pub trait CodeIndexPort {
 pub struct CodeIndexRefresh {
 	pub index: CodeIndex,
 	pub changed_sources: Vec<SourceId>,
+	pub graph_diff: CodeIndexGraphDiff,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CodeIndexGraphDiff {
+	pub changed_symbols: Vec<SymbolId>,
+	pub removed_symbols: Vec<SymbolId>,
+	pub changed_references: Vec<ReferenceId>,
+	pub removed_references: Vec<ReferenceId>,
+	pub symbol_id_remaps: Vec<(SymbolId, SymbolId)>,
+	pub reference_id_remaps: Vec<(ReferenceId, ReferenceId)>,
+	pub unchanged_symbols: usize,
+	pub unchanged_references: usize,
+}
+
+impl CodeIndexGraphDiff {
+	pub fn changed_symbol_count(&self) -> usize {
+		self.changed_symbols.len() + self.removed_symbols.len()
+	}
+
+	pub fn changed_reference_count(&self) -> usize {
+		self.changed_references.len() + self.removed_references.len()
+	}
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -118,6 +142,7 @@ fn refresh_local_code_index(
 	})?;
 	let mut files = current_material.files.clone();
 	let mut changed_sources = Vec::new();
+	let mut changed_file_indexes = BTreeSet::new();
 	let extract_timer = Instant::now();
 	for path in paths {
 		let Some(source) = current_material.source_catalog.resolve_source(path) else {
@@ -135,6 +160,7 @@ fn refresh_local_code_index(
 		if let Some(slot) = files.get_mut(file_idx) {
 			*slot = indexed.clone();
 			push_unique_source(&mut changed_sources, indexed.source_id);
+			changed_file_indexes.insert(file_idx);
 		}
 	}
 	let extract_sources = extract_timer.elapsed();
@@ -142,14 +168,15 @@ fn refresh_local_code_index(
 		return Ok(CodeIndexRefresh {
 			index: current.clone(),
 			changed_sources,
+			graph_diff: CodeIndexGraphDiff::default(),
 		});
 	}
 	let semantic_timer = Instant::now();
 	let material = material_from_files(current_material.source_catalog.clone(), files);
 	let sources = source_records(&material.files);
-	let changed_source_set = changed_sources.iter().cloned().collect::<BTreeSet<_>>();
-	let symbols = replace_symbols(current, &changed_source_set, &material);
-	let references = replace_references(current, &changed_source_set, &material);
+	let graph_diff = graph_diff(current_material.as_ref(), &material, &changed_file_indexes);
+	let symbols = merge_symbols(current, &changed_file_indexes, &material);
+	let references = merge_references(current, &changed_file_indexes, &material);
 	let semantic_index = semantic_timer.elapsed();
 	let generation = cache.next_generation();
 	let identity_scheme = material.identity.scheme().to_string();
@@ -169,6 +196,7 @@ fn refresh_local_code_index(
 			},
 		}),
 		changed_sources,
+		graph_diff,
 	})
 }
 
@@ -323,84 +351,245 @@ fn material_from_files(
 	}
 }
 
-fn replace_symbols(
+fn graph_diff(
+	previous: &CodeIndexMaterial,
+	next: &CodeIndexMaterial,
+	changed_files: &BTreeSet<usize>,
+) -> CodeIndexGraphDiff {
+	let mut diff = CodeIndexGraphDiff::default();
+	for file_idx in changed_files {
+		let Some(previous_file) = previous.files.get(*file_idx) else {
+			continue;
+		};
+		let Some(next_file) = next.files.get(*file_idx) else {
+			continue;
+		};
+		diff_symbols(
+			&symbols_for_file(*file_idx, previous_file),
+			&symbols_for_file(*file_idx, next_file),
+			&mut diff,
+		);
+		diff_references(
+			&references_for_file(*file_idx, previous_file),
+			previous,
+			&references_for_file(*file_idx, next_file),
+			next,
+			&mut diff,
+		);
+	}
+	diff
+}
+
+fn merge_symbols(
 	current: &CodeIndex,
-	changed_sources: &BTreeSet<SourceId>,
+	changed_files: &BTreeSet<usize>,
 	material: &CodeIndexMaterial,
 ) -> Vec<SymbolRecord> {
-	let mut symbols = current
-		.symbols
-		.iter()
-		.filter(|symbol| !changed_sources.contains(&symbol.source))
-		.cloned()
-		.collect::<Vec<_>>();
-	let mut changed = records_for_sources(changed_sources, &material.files, collect_file_symbols);
-	symbols.append(&mut changed);
+	let current_by_source = records_by_source(&current.symbols, |symbol| &symbol.source);
+	let mut symbols = Vec::with_capacity(current.symbols.len());
+	for (file_idx, file) in material.files.iter().enumerate() {
+		if changed_files.contains(&file_idx) {
+			symbols.extend(symbols_for_file(file_idx, file));
+		} else if let Some(existing) = current_by_source.get(&file.source_id) {
+			symbols.extend(existing.iter().map(|symbol| (*symbol).clone()));
+		}
+	}
 	symbols.shrink_to_fit();
 	symbols
 }
 
-fn replace_references(
+fn merge_references(
 	current: &CodeIndex,
-	changed_sources: &BTreeSet<SourceId>,
+	changed_files: &BTreeSet<usize>,
 	material: &CodeIndexMaterial,
 ) -> Vec<ReferenceRecord> {
-	let mut references = current
-		.references
-		.iter()
-		.filter(|reference| !changed_sources.contains(&reference.source))
-		.cloned()
-		.collect::<Vec<_>>();
-	let mut changed =
-		records_for_sources(changed_sources, &material.files, collect_file_references);
-	references.append(&mut changed);
+	let current_by_source = records_by_source(&current.references, |reference| &reference.source);
+	let mut references = Vec::with_capacity(current.references.len());
+	for (file_idx, file) in material.files.iter().enumerate() {
+		if changed_files.contains(&file_idx) {
+			references.extend(references_for_file(file_idx, file));
+		} else if let Some(existing) = current_by_source.get(&file.source_id) {
+			references.extend(existing.iter().map(|reference| (*reference).clone()));
+		}
+	}
 	references.shrink_to_fit();
 	references
 }
 
-fn records_for_sources<T, F>(
-	changed_sources: &BTreeSet<SourceId>,
-	files: &[IndexedSourceFile],
-	mut collect: F,
-) -> Vec<T>
-where
-	F: FnMut(usize, &IndexedSourceFile, &LineIndex, &mut Vec<T>),
-{
-	let mut out = Vec::new();
-	for (file_idx, file) in files.iter().enumerate() {
-		if !changed_sources.contains(&file.source_id) {
-			continue;
-		}
-		let line_index = LineIndex::new(&file.source);
-		collect(file_idx, file, &line_index, &mut out);
+fn records_by_source<'a, T>(
+	records: &'a [T],
+	source: impl Fn(&'a T) -> &'a SourceId,
+) -> FxHashMap<SourceId, Vec<&'a T>> {
+	let mut by_source = FxHashMap::<SourceId, Vec<&T>>::default();
+	for record in records {
+		by_source
+			.entry(source(record).clone())
+			.or_default()
+			.push(record);
 	}
-	out
+	by_source
 }
 
-fn collect_file_symbols(
-	file_idx: usize,
-	file: &IndexedSourceFile,
-	line_index: &LineIndex,
-	symbols: &mut Vec<SymbolRecord>,
-) {
+fn symbols_for_file(file_idx: usize, file: &IndexedSourceFile) -> Vec<SymbolRecord> {
+	let line_index = LineIndex::new(&file.source);
 	let mut symbols_by_moniker = rustc_hash::FxHashMap::default();
-	collect_symbols(file_idx, file, line_index, symbols, &mut symbols_by_moniker);
+	let mut symbols = Vec::with_capacity(file.graph.def_count());
+	collect_symbols(
+		file_idx,
+		file,
+		&line_index,
+		&mut symbols,
+		&mut symbols_by_moniker,
+	);
+	symbols
 }
 
-fn collect_file_references(
-	file_idx: usize,
-	file: &IndexedSourceFile,
-	line_index: &LineIndex,
-	references: &mut Vec<ReferenceRecord>,
-) {
+fn references_for_file(file_idx: usize, file: &IndexedSourceFile) -> Vec<ReferenceRecord> {
+	let line_index = LineIndex::new(&file.source);
 	let mut reference_identity_pool = TargetIdentityPool::default();
+	let mut references = Vec::with_capacity(file.graph.ref_count());
 	collect_references(
 		file_idx,
 		file,
-		line_index,
-		references,
+		&line_index,
+		&mut references,
 		&mut reference_identity_pool,
 	);
+	references
+}
+
+fn diff_symbols(previous: &[SymbolRecord], next: &[SymbolRecord], diff: &mut CodeIndexGraphDiff) {
+	let mut next_by_key = symbol_record_indexes(next);
+	for previous_symbol in previous {
+		let key = symbol_key(previous_symbol);
+		let Some(next_idx) = pop_index(&mut next_by_key, &key) else {
+			diff.removed_symbols.push(previous_symbol.id.clone());
+			continue;
+		};
+		let next_symbol = &next[next_idx];
+		if symbol_linkage_fields_changed(previous_symbol, next_symbol) {
+			diff.changed_symbols.push(next_symbol.id.clone());
+			continue;
+		}
+		if previous_symbol.id != next_symbol.id {
+			diff.symbol_id_remaps
+				.push((previous_symbol.id.clone(), next_symbol.id.clone()));
+		}
+		diff.unchanged_symbols += 1;
+	}
+	for indexes in next_by_key.into_values() {
+		for idx in indexes {
+			diff.changed_symbols.push(next[idx].id.clone());
+		}
+	}
+}
+
+fn diff_references(
+	previous: &[ReferenceRecord],
+	previous_material: &CodeIndexMaterial,
+	next: &[ReferenceRecord],
+	next_material: &CodeIndexMaterial,
+	diff: &mut CodeIndexGraphDiff,
+) {
+	let mut next_by_key = reference_record_indexes(next, next_material);
+	for previous_reference in previous {
+		let Some(key) = reference_key(previous_reference, previous_material) else {
+			diff.removed_references.push(previous_reference.id.clone());
+			continue;
+		};
+		let Some(next_idx) = pop_index(&mut next_by_key, &key) else {
+			diff.removed_references.push(previous_reference.id.clone());
+			continue;
+		};
+		let next_reference = &next[next_idx];
+		if previous_reference.id != next_reference.id {
+			diff.reference_id_remaps
+				.push((previous_reference.id.clone(), next_reference.id.clone()));
+		}
+		diff.unchanged_references += 1;
+	}
+	for indexes in next_by_key.into_values() {
+		for idx in indexes {
+			diff.changed_references.push(next[idx].id.clone());
+		}
+	}
+}
+
+fn symbol_record_indexes(records: &[SymbolRecord]) -> FxHashMap<String, Vec<usize>> {
+	let mut by_key = FxHashMap::<String, Vec<usize>>::default();
+	for (idx, record) in records.iter().enumerate() {
+		by_key.entry(symbol_key(record)).or_default().push(idx);
+	}
+	by_key
+}
+
+fn reference_record_indexes(
+	records: &[ReferenceRecord],
+	material: &CodeIndexMaterial,
+) -> FxHashMap<ReferenceKey, Vec<usize>> {
+	let mut by_key = FxHashMap::<ReferenceKey, Vec<usize>>::default();
+	for (idx, record) in records.iter().enumerate() {
+		if let Some(key) = reference_key(record, material) {
+			by_key.entry(key).or_default().push(idx);
+		}
+	}
+	by_key
+}
+
+fn pop_index<K: Eq + std::hash::Hash>(
+	by_key: &mut FxHashMap<K, Vec<usize>>,
+	key: &K,
+) -> Option<usize> {
+	let indexes = by_key.get_mut(key)?;
+	let idx = indexes.remove(0);
+	if indexes.is_empty() {
+		by_key.remove(key);
+	}
+	Some(idx)
+}
+
+fn symbol_key(symbol: &SymbolRecord) -> String {
+	symbol.identity.clone()
+}
+
+fn symbol_linkage_fields_changed(previous: &SymbolRecord, next: &SymbolRecord) -> bool {
+	previous.identity != next.identity
+		|| previous.name != next.name
+		|| previous.kind != next.kind
+		|| previous.visibility != next.visibility
+		|| previous.signature != next.signature
+		|| previous.navigable != next.navigable
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ReferenceKey {
+	source_symbol_identity: String,
+	target_identity: String,
+	kind: String,
+	call_name: Option<String>,
+	call_arity: Option<usize>,
+	confidence: Option<String>,
+	receiver: Option<String>,
+	alias: Option<String>,
+}
+
+fn reference_key(
+	reference: &ReferenceRecord,
+	material: &CodeIndexMaterial,
+) -> Option<ReferenceKey> {
+	let source_symbol_identity = material
+		.symbol_moniker(&reference.source_symbol)
+		.map(|moniker| material.identity.moniker_uri(moniker))?;
+	Some(ReferenceKey {
+		source_symbol_identity,
+		target_identity: reference.target_identity.to_string(),
+		kind: reference.kind.clone(),
+		call_name: reference.call_name.clone(),
+		call_arity: reference.call_arity,
+		confidence: reference.confidence.clone(),
+		receiver: reference.receiver.clone(),
+		alias: reference.alias.clone(),
+	})
 }
 
 fn graph_record_counts(files: &[IndexedSourceFile]) -> (usize, usize) {

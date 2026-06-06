@@ -26,9 +26,8 @@ fn rust_path_target_matches_def(
 	{
 		return false;
 	}
-	let candidate_segments = candidate.moniker.as_view().segments().collect::<Vec<_>>();
-	let target_segments = normalized_rust_segments(&query.target_segments);
-	let candidate_segments = normalized_rust_segments(&candidate_segments);
+	let target_segments = normalized_rust_segments(query.target_segments());
+	let candidate_segments = normalized_rust_segments(candidate.moniker.as_view().segments());
 	if target_segments.len() != candidate_segments.len() || target_segments.is_empty() {
 		return false;
 	}
@@ -44,7 +43,10 @@ struct NormalizedSegment<'a> {
 	name: &'a [u8],
 }
 
-fn normalized_rust_segments<'a>(segments: &[Segment<'a>]) -> Vec<NormalizedSegment<'a>> {
+fn normalized_rust_segments<'a>(
+	segments: impl IntoIterator<Item = Segment<'a>>,
+) -> Vec<NormalizedSegment<'a>> {
+	let segments = segments.into_iter().collect::<Vec<_>>();
 	let mut normalized = Vec::with_capacity(segments.len());
 	let mut idx = 0;
 	while idx < segments.len() {

@@ -3,6 +3,12 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use code_moniker_workspace::code::{
+	CodeIndexPort, CodeIndexRefresh, LocalCodeIndex, LocalCodeIndexOptions,
+};
+use code_moniker_workspace::linkage::{
+	LinkageRefreshGraphDiff, LinkageRefreshImpact, LocalLinkage,
+};
 use code_moniker_workspace::live::{
 	LiveWorkspaceWatcher, WorkspaceLiveEvent, WorkspaceLiveRefreshPlan,
 };
@@ -10,7 +16,12 @@ use code_moniker_workspace::registry::{
 	LocalWorkspaceOptions, LocalWorkspaceRegistry, WorkspaceCommandKind, WorkspaceCommandSpec,
 	WorkspaceEventKind, WorkspaceScopeUri, WorkspaceSnapshotPublication,
 };
-use code_moniker_workspace::snapshot::{WorkspaceRequest, WorkspaceResource, WorkspaceTransition};
+use code_moniker_workspace::snapshot::{
+	CodeIndex, LinkageSnapshot, WorkspaceRequest, WorkspaceResource, WorkspaceTransition,
+};
+use code_moniker_workspace::source::{
+	LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions, SourceCatalogPort,
+};
 
 fn fixture_path(path: impl AsRef<Path>) -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -122,6 +133,368 @@ fn refresh_paths_garbage_collects_stale_manifest_policy_refs_when_manifest_chang
 		!reference_is_unresolved(refreshed, "external_pkg:zustand/function:create"),
 		"`zustand/create` stale unresolved projection should be garbage collected"
 	);
+}
+
+#[test]
+fn refresh_paths_relinks_only_graph_diff_references_when_reference_ids_shift() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let lib = src.join("lib.rs");
+	let consumer = src.join("consumer.rs");
+	let provider = src.join("provider.rs");
+	fs::write(&lib, "pub mod consumer;\npub mod provider;\n").expect("write lib");
+	fs::write(
+		&consumer,
+		"use crate::provider::stable;\npub fn call_provider() { stable(); }\n",
+	)
+	.expect("write consumer");
+	fs::write(&provider, "pub fn stable() {}\n").expect("write provider");
+
+	let cache = LocalResourceCache::default();
+	let mut source_catalog = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(vec![temp.path().to_path_buf()], None),
+		cache.clone(),
+	);
+	let catalog = source_catalog
+		.load_catalog(&WorkspaceRequest::new("incremental-diff-catalog"))
+		.expect("catalog");
+	let mut code_index = LocalCodeIndex::new(LocalCodeIndexOptions::new(None), cache.clone());
+	let index = code_index.build_index(&catalog).expect("index");
+	let mut linkage = LocalLinkage::new(cache);
+	let linked = linkage
+		.resolve_linkage_with_timings(&index)
+		.expect("initial linkage");
+	assert!(
+		index_reference_resolves_to_symbol(&index, &linked.snapshot, "stable", "stable"),
+		"`stable` should resolve before the incremental edit"
+	);
+
+	fs::write(
+		&consumer,
+		"use crate::provider::stable;\npub fn call_provider() { missing(); stable(); }\n",
+	)
+	.expect("rewrite consumer");
+	let refreshed = code_index
+		.refresh_paths(&index, std::slice::from_ref(&consumer))
+		.expect("refresh paths");
+
+	assert_eq!(refreshed.graph_diff.changed_symbol_count(), 0);
+	assert_eq!(refreshed.graph_diff.changed_reference_count(), 1);
+	assert!(
+		!refreshed.graph_diff.reference_id_remaps.is_empty(),
+		"the unchanged `stable` reference should be remapped after inserting `missing` before it"
+	);
+
+	let impact = LinkageRefreshImpact::with_graph_diff(
+		refreshed.changed_sources.clone(),
+		vec![consumer],
+		LinkageRefreshGraphDiff {
+			changed_references: refreshed.graph_diff.changed_references.clone(),
+			removed_references: refreshed.graph_diff.removed_references.clone(),
+			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
+			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
+			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
+			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
+		},
+	);
+	let refreshed_linkage = linkage
+		.refresh_linkage_with_timings(&linked.snapshot, &refreshed.index, impact)
+		.expect("incremental linkage refresh");
+
+	assert_eq!(refreshed_linkage.timings.changed_refs, 1);
+	assert!(
+		index_reference_resolves_to_symbol(
+			&refreshed.index,
+			&refreshed_linkage.snapshot,
+			"stable",
+			"stable"
+		),
+		"`stable` should stay resolved through reference id remapping"
+	);
+	assert!(
+		index_reference_is_unresolved(&refreshed.index, &refreshed_linkage.snapshot, "missing"),
+		"only the inserted `missing` call should be unresolved"
+	);
+}
+
+#[test]
+fn refresh_paths_drops_removed_references_without_relinking_unchanged_graph() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let lib = src.join("lib.rs");
+	let consumer = src.join("consumer.rs");
+	let provider = src.join("provider.rs");
+	fs::write(&lib, "pub mod consumer;\npub mod provider;\n").expect("write lib");
+	fs::write(
+		&consumer,
+		"use crate::provider::stable;\npub fn call_provider() { stable(); }\n",
+	)
+	.expect("write consumer");
+	fs::write(&provider, "pub fn stable() {}\n").expect("write provider");
+
+	let cache = LocalResourceCache::default();
+	let mut source_catalog = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(vec![temp.path().to_path_buf()], None),
+		cache.clone(),
+	);
+	let catalog = source_catalog
+		.load_catalog(&WorkspaceRequest::new("removed-reference-catalog"))
+		.expect("catalog");
+	let mut code_index = LocalCodeIndex::new(LocalCodeIndexOptions::new(None), cache.clone());
+	let index = code_index.build_index(&catalog).expect("index");
+	let mut linkage = LocalLinkage::new(cache);
+	let linked = linkage
+		.resolve_linkage_with_timings(&index)
+		.expect("initial linkage");
+	assert!(index_reference_resolves_to_symbol(
+		&index,
+		&linked.snapshot,
+		"stable",
+		"stable"
+	));
+
+	fs::write(&consumer, "pub fn call_provider() {}\n").expect("rewrite consumer");
+	let refreshed = code_index
+		.refresh_paths(&index, std::slice::from_ref(&consumer))
+		.expect("refresh paths");
+
+	assert_eq!(refreshed.graph_diff.changed_symbol_count(), 0);
+	assert_eq!(refreshed.graph_diff.changed_references.len(), 0);
+	assert!(
+		!refreshed.graph_diff.removed_references.is_empty(),
+		"the deleted `stable` call should be carried as a removed reference"
+	);
+
+	let impact = LinkageRefreshImpact::with_graph_diff(
+		refreshed.changed_sources.clone(),
+		vec![consumer],
+		LinkageRefreshGraphDiff {
+			changed_references: refreshed.graph_diff.changed_references.clone(),
+			removed_references: refreshed.graph_diff.removed_references.clone(),
+			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
+			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
+			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
+			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
+		},
+	);
+	let refreshed_linkage = linkage
+		.refresh_linkage_with_timings(&linked.snapshot, &refreshed.index, impact)
+		.expect("incremental linkage refresh");
+
+	assert_eq!(refreshed_linkage.timings.changed_refs, 0);
+	assert!(linkage_edges_reference_existing_records(
+		&refreshed.index,
+		&refreshed_linkage.snapshot
+	));
+	assert!(!index_reference_resolves_to_symbol(
+		&refreshed.index,
+		&refreshed_linkage.snapshot,
+		"stable",
+		"stable"
+	));
+}
+
+#[test]
+fn refresh_paths_relinks_existing_references_when_target_symbol_is_removed() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let lib = src.join("lib.rs");
+	let consumer = src.join("consumer.rs");
+	let provider = src.join("provider.rs");
+	fs::write(&lib, "pub mod consumer;\npub mod provider;\n").expect("write lib");
+	fs::write(
+		&consumer,
+		"use crate::provider::stable;\npub fn call_provider() { stable(); }\n",
+	)
+	.expect("write consumer");
+	fs::write(&provider, "pub fn stable() {}\n").expect("write provider");
+
+	let cache = LocalResourceCache::default();
+	let mut source_catalog = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(vec![temp.path().to_path_buf()], None),
+		cache.clone(),
+	);
+	let catalog = source_catalog
+		.load_catalog(&WorkspaceRequest::new("removed-symbol-catalog"))
+		.expect("catalog");
+	let mut code_index = LocalCodeIndex::new(LocalCodeIndexOptions::new(None), cache.clone());
+	let index = code_index.build_index(&catalog).expect("index");
+	let mut linkage = LocalLinkage::new(cache);
+	let linked = linkage
+		.resolve_linkage_with_timings(&index)
+		.expect("initial linkage");
+	assert!(index_reference_resolves_to_symbol(
+		&index,
+		&linked.snapshot,
+		"stable",
+		"stable"
+	));
+
+	fs::write(&provider, "").expect("rewrite provider");
+	let refreshed = code_index
+		.refresh_paths(&index, std::slice::from_ref(&provider))
+		.expect("refresh paths");
+
+	assert_eq!(refreshed.graph_diff.changed_references.len(), 0);
+	assert!(
+		!refreshed.graph_diff.removed_symbols.is_empty(),
+		"the deleted provider function should be carried as a removed symbol"
+	);
+
+	let impact = LinkageRefreshImpact::with_graph_diff(
+		refreshed.changed_sources.clone(),
+		vec![provider],
+		LinkageRefreshGraphDiff {
+			changed_references: refreshed.graph_diff.changed_references.clone(),
+			removed_references: refreshed.graph_diff.removed_references.clone(),
+			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
+			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
+			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
+			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
+		},
+	);
+	let refreshed_linkage = linkage
+		.refresh_linkage_with_timings(&linked.snapshot, &refreshed.index, impact)
+		.expect("incremental linkage refresh");
+
+	assert!(
+		refreshed_linkage.timings.changed_refs > 0,
+		"references already resolved to the removed provider symbol should be relinked"
+	);
+	assert!(!index_reference_resolves_to_symbol(
+		&refreshed.index,
+		&refreshed_linkage.snapshot,
+		"stable",
+		"stable"
+	));
+	assert!(index_reference_is_unresolved(
+		&refreshed.index,
+		&refreshed_linkage.snapshot,
+		"stable"
+	));
+}
+
+#[test]
+fn refresh_paths_rebases_roaring_ordinals_for_unchanged_later_files() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let lib = src.join("lib.rs");
+	let alpha = src.join("a_consumer.rs");
+	let beta = src.join("z_consumer.rs");
+	let provider = src.join("provider.rs");
+	fs::write(
+		&lib,
+		"pub mod a_consumer;\npub mod provider;\npub mod z_consumer;\n",
+	)
+	.expect("write lib");
+	fs::write(
+		&alpha,
+		"use crate::provider::stable;\npub fn alpha_call() { stable(); }\n",
+	)
+	.expect("write alpha");
+	fs::write(
+		&beta,
+		"use crate::provider::stable;\npub fn beta_call() { stable(); }\n",
+	)
+	.expect("write beta");
+	fs::write(&provider, "pub fn stable() {}\n").expect("write provider");
+
+	let cache = LocalResourceCache::default();
+	let mut source_catalog = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(vec![temp.path().to_path_buf()], None),
+		cache.clone(),
+	);
+	let catalog = source_catalog
+		.load_catalog(&WorkspaceRequest::new("ordinal-rebase-catalog"))
+		.expect("catalog");
+	let mut code_index = LocalCodeIndex::new(LocalCodeIndexOptions::new(None), cache.clone());
+	let index = code_index.build_index(&catalog).expect("index");
+	let mut linkage = LocalLinkage::new(cache);
+	let linked = linkage
+		.resolve_linkage_with_timings(&index)
+		.expect("initial linkage");
+	assert_eq!(
+		index_resolved_reference_count(&index, &linked.snapshot, "calls", "stable", "stable"),
+		2
+	);
+
+	fs::write(
+		&alpha,
+		"use crate::provider::stable;\npub fn alpha_call() { missing(); stable(); }\n",
+	)
+	.expect("rewrite alpha");
+	let first_refresh = code_index
+		.refresh_paths(&index, std::slice::from_ref(&alpha))
+		.expect("first refresh paths");
+	let first_linkage = linkage
+		.refresh_linkage_with_timings(
+			&linked.snapshot,
+			&first_refresh.index,
+			linkage_impact(&first_refresh, vec![alpha]),
+		)
+		.expect("first incremental linkage refresh");
+
+	assert_eq!(first_linkage.timings.changed_refs, 1);
+	assert_eq!(
+		index_resolved_reference_count(
+			&first_refresh.index,
+			&first_linkage.snapshot,
+			"calls",
+			"stable",
+			"stable"
+		),
+		2
+	);
+	assert_eq!(
+		index_unresolved_reference_count(
+			&first_refresh.index,
+			&first_linkage.snapshot,
+			"calls",
+			"missing"
+		),
+		1
+	);
+
+	fs::write(&provider, "").expect("rewrite provider");
+	let second_refresh = code_index
+		.refresh_paths(&first_refresh.index, std::slice::from_ref(&provider))
+		.expect("second refresh paths");
+	let second_linkage = linkage
+		.refresh_linkage_with_timings(
+			&first_linkage.snapshot,
+			&second_refresh.index,
+			linkage_impact(&second_refresh, vec![provider]),
+		)
+		.expect("second incremental linkage refresh");
+
+	assert!(second_linkage.timings.changed_refs >= 2);
+	assert_eq!(
+		index_resolved_reference_count(
+			&second_refresh.index,
+			&second_linkage.snapshot,
+			"calls",
+			"stable",
+			"stable"
+		),
+		0
+	);
+	assert_eq!(
+		index_unresolved_reference_count(
+			&second_refresh.index,
+			&second_linkage.snapshot,
+			"calls",
+			"stable"
+		),
+		2
+	);
+	assert!(linkage_edges_reference_existing_records(
+		&second_refresh.index,
+		&second_linkage.snapshot
+	));
 }
 
 #[test]
@@ -465,6 +838,135 @@ fn reference_resolves_to_symbol(
 					})
 				})
 		})
+}
+
+fn index_reference_resolves_to_symbol(
+	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
+	reference_target: &str,
+	symbol_identity: &str,
+) -> bool {
+	index
+		.references
+		.iter()
+		.filter(|reference| reference.target_identity.contains(reference_target))
+		.any(|reference| {
+			linkage
+				.resolved
+				.iter()
+				.filter(|edge| edge.reference == reference.id)
+				.any(|edge| {
+					index.symbols.iter().any(|symbol| {
+						symbol.id == edge.target && symbol.identity.contains(symbol_identity)
+					})
+				})
+		})
+}
+
+fn index_resolved_reference_count(
+	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
+	kind: &str,
+	reference_target: &str,
+	symbol_identity: &str,
+) -> usize {
+	index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == kind && reference.target_identity.contains(reference_target)
+		})
+		.filter(|reference| {
+			linkage
+				.resolved
+				.iter()
+				.filter(|edge| edge.reference == reference.id)
+				.any(|edge| {
+					index.symbols.iter().any(|symbol| {
+						symbol.id == edge.target && symbol.identity.contains(symbol_identity)
+					})
+				})
+		})
+		.count()
+}
+
+fn index_reference_is_unresolved(
+	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
+	reference_target: &str,
+) -> bool {
+	index
+		.references
+		.iter()
+		.filter(|reference| reference.target_identity.contains(reference_target))
+		.any(|reference| {
+			linkage
+				.unresolved
+				.iter()
+				.chain(linkage.manifest_blocked.iter())
+				.any(|unresolved| unresolved.reference == reference.id)
+		})
+}
+
+fn index_unresolved_reference_count(
+	index: &CodeIndex,
+	linkage: &LinkageSnapshot,
+	kind: &str,
+	reference_target: &str,
+) -> usize {
+	index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == kind && reference.target_identity.contains(reference_target)
+		})
+		.filter(|reference| {
+			linkage
+				.unresolved
+				.iter()
+				.chain(linkage.manifest_blocked.iter())
+				.any(|unresolved| unresolved.reference == reference.id)
+		})
+		.count()
+}
+
+fn linkage_impact(refreshed: &CodeIndexRefresh, paths: Vec<PathBuf>) -> LinkageRefreshImpact {
+	LinkageRefreshImpact::with_graph_diff(
+		refreshed.changed_sources.clone(),
+		paths,
+		LinkageRefreshGraphDiff {
+			changed_references: refreshed.graph_diff.changed_references.clone(),
+			removed_references: refreshed.graph_diff.removed_references.clone(),
+			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
+			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
+			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
+			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
+		},
+	)
+}
+
+fn linkage_edges_reference_existing_records(index: &CodeIndex, linkage: &LinkageSnapshot) -> bool {
+	linkage.resolved.iter().all(|edge| {
+		index
+			.references
+			.iter()
+			.any(|reference| reference.id == edge.reference)
+	}) && linkage.external.iter().all(|edge| {
+		index
+			.references
+			.iter()
+			.any(|reference| reference.id == edge.reference)
+	}) && linkage.manifest_blocked.iter().all(|edge| {
+		index
+			.references
+			.iter()
+			.any(|reference| reference.id == edge.reference)
+	}) && linkage.unresolved.iter().all(|edge| {
+		index
+			.references
+			.iter()
+			.any(|reference| reference.id == edge.reference)
+	})
 }
 
 fn reference_is_external(

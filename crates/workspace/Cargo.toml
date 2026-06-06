@@ -22,6 +22,7 @@ serde      = { workspace = true }
 serde_json = { workspace = true }
 toml       = { workspace = true }
 rayon      = { workspace = true }
+roaring    = { workspace = true }
 dhat       = { version = "0.3", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]

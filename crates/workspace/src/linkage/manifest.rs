@@ -4,10 +4,12 @@ use std::path::{Path, PathBuf};
 use code_moniker_core::lang::build_manifest::{Manifest, parse as parse_manifest};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::linkage::candidate::CandidateCatalog;
 use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope};
 use crate::linkage::language;
+use crate::linkage::ordinals::SymbolSet;
 use crate::linkage::query::LinkageQuery;
-use crate::snapshot::{ReferenceRecord, SymbolId};
+use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 use crate::sources::SourceRoot;
 
@@ -47,23 +49,27 @@ impl ManifestPolicy {
 	pub(super) fn evaluate_global_targets(
 		&self,
 		query: &LinkageQuery<'_>,
-		candidates: Vec<SymbolId>,
+		candidates: SymbolSet,
+		catalog: &CandidateCatalog<'_>,
 	) -> GlobalTargetPolicy {
 		let mut policy = GlobalTargetPolicy {
 			external_dependency: self.can_classify_as_declared_external(query),
 			..GlobalTargetPolicy::default()
 		};
-		for symbol in candidates {
-			let Some((target_file, _)) = query.material.identity.symbol_location(&symbol) else {
+		for symbol in candidates.iter() {
+			let Some(candidate) = catalog.candidate(symbol) else {
 				continue;
 			};
+			let target_file = candidate.source_file;
 			if let Some(import_root) = external_import_root(query)
 				&& !self.target_file_declares_import_root(query.material, target_file, import_root)
 			{
 				continue;
 			}
 			match self.source_can_link_to_file(query.material, query.source_file, target_file) {
-				LinkPermission::Allowed => policy.allowed.push(symbol),
+				LinkPermission::Allowed => {
+					policy.allowed.insert(symbol);
+				}
 				LinkPermission::Blocked => policy.blocked = true,
 				LinkPermission::Unknown => policy.unknown = true,
 			}
@@ -325,7 +331,7 @@ enum LinkPermission {
 
 #[derive(Default)]
 pub(super) struct GlobalTargetPolicy {
-	allowed: Vec<SymbolId>,
+	allowed: SymbolSet,
 	blocked: bool,
 	unknown: bool,
 	external_dependency: bool,

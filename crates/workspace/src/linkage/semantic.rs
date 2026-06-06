@@ -6,21 +6,36 @@ use code_moniker_core::lang::kinds;
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::linkage::candidate::CandidateCatalog;
 use crate::linkage::decision::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
 use crate::linkage::language;
-use crate::snapshot::{ReferenceId, ReferenceRecord, SymbolId};
+use crate::linkage::ordinals::{SymbolOrdinal, SymbolSet};
+use crate::linkage::query::ReferenceLocations;
+use crate::snapshot::{ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
 pub(super) struct SemanticLinkage<'a> {
 	material: &'a CodeIndexMaterial,
 	methods: &'a MethodTable,
+	candidates: &'a CandidateCatalog<'a>,
+	locations: &'a ReferenceLocations,
 }
 
 impl<'a> SemanticLinkage<'a> {
-	pub(super) fn new(material: &'a CodeIndexMaterial, methods: &'a MethodTable) -> Self {
-		Self { material, methods }
+	pub(super) fn new(
+		material: &'a CodeIndexMaterial,
+		methods: &'a MethodTable,
+		candidates: &'a CandidateCatalog<'a>,
+		locations: &'a ReferenceLocations,
+	) -> Self {
+		Self {
+			material,
+			methods,
+			candidates,
+			locations,
+		}
 	}
 
 	pub(super) fn enhance(
@@ -28,7 +43,13 @@ impl<'a> SemanticLinkage<'a> {
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &[ReferenceRecord],
 	) {
-		language::enhance_reference_semantics(self.material, decisions, references, None);
+		language::enhance_reference_semantics(
+			self.material,
+			self.candidates,
+			decisions,
+			references,
+			None,
+		);
 		enhance_reexport_aliases(self, decisions, references, None);
 		let pending = pending_receiver_chains(decisions, references, None);
 		enhance_receiver_chains(self, decisions, references, pending);
@@ -42,6 +63,7 @@ impl<'a> SemanticLinkage<'a> {
 	) {
 		language::enhance_reference_semantics(
 			self.material,
+			self.candidates,
 			decisions,
 			references,
 			Some(changed_references),
@@ -57,9 +79,10 @@ impl<'a> SemanticLinkage<'a> {
 		method_call: MethodCallReference<'_>,
 	) -> Option<ReferenceLinkageDecision> {
 		let target = method_target(owner, method_call.call_name(), method_call.call_arity());
-		if let Some(symbol) = self.material.symbols_by_moniker.get(&target) {
+		if let Some(symbol) = self.candidates.indexes().symbol_by_moniker(&target) {
 			return Some(
-				method_call.resolved_decision(ResolutionScope::Global, vec![symbol.clone()]),
+				method_call
+					.resolved_decision(ResolutionScope::Global, SymbolSet::from_symbol(symbol)),
 			);
 		}
 		let targets = self.methods.resolve(owner, &method_call)?;
@@ -68,10 +91,10 @@ impl<'a> SemanticLinkage<'a> {
 
 	fn resolved_return_owner(
 		&self,
-		symbol: &SymbolId,
+		symbol: SymbolOrdinal,
 		return_types: &FxHashMap<Moniker, Moniker>,
 	) -> Option<Moniker> {
-		let callable = self.material.symbol_moniker(symbol)?;
+		let callable = self.candidates.candidate(symbol)?.moniker;
 		return_types.get(callable).cloned()
 	}
 }
@@ -85,14 +108,15 @@ fn enhance_receiver_chains(
 	if pending.is_empty() {
 		return;
 	}
-	let receiver_calls =
-		build_receiver_call_index(linkage.material, decisions, references, &pending);
+	let receiver_calls = build_receiver_call_index(linkage, decisions, &pending);
 	let wanted = receiver_calls
 		.by_reference
 		.values()
+		.copied()
 		.collect::<FxHashSet<_>>();
 	let mut statuses = reference_statuses(linkage.material, decisions, references, &wanted);
-	let return_types = collect_return_types(linkage.material, decisions, references);
+	let return_types =
+		collect_return_types(linkage.material, linkage.candidates, decisions, references);
 	loop {
 		let replacements = pending
 			.par_iter()
@@ -117,10 +141,8 @@ fn enhance_receiver_chains(
 			break;
 		}
 		for (idx, replacement) in replacements {
-			if let Some((reference, status)) =
-				reference_status(linkage.material, &replacement, references)
-			{
-				statuses.insert(reference, status);
+			if let Some(status) = reference_status(linkage.material, &replacement, references) {
+				statuses.insert(replacement.reference_idx(), status);
 			}
 			decisions[idx] = replacement;
 		}
@@ -154,10 +176,6 @@ impl<'a> MethodCallReference<'a> {
 		})
 	}
 
-	fn reference_id(&self) -> &ReferenceId {
-		&self.reference.id
-	}
-
 	fn call_name(&self) -> &str {
 		self.call_name
 	}
@@ -178,7 +196,7 @@ impl<'a> MethodCallReference<'a> {
 	fn resolved_decision(
 		&self,
 		scope: ResolutionScope,
-		targets: Vec<SymbolId>,
+		targets: SymbolSet,
 	) -> ReferenceLinkageDecision {
 		ReferenceLinkageDecision::resolved(
 			scope,
@@ -191,12 +209,12 @@ impl<'a> MethodCallReference<'a> {
 
 #[derive(Default)]
 struct ReceiverCallIndex {
-	by_reference: FxHashMap<(usize, usize), ReferenceId>,
+	by_reference: FxHashMap<usize, usize>,
 }
 
 impl ReceiverCallIndex {
-	fn get(&self, file_idx: usize, ref_idx: usize) -> Option<&ReferenceId> {
-		self.by_reference.get(&(file_idx, ref_idx))
+	fn get(&self, reference_idx: usize) -> Option<usize> {
+		self.by_reference.get(&reference_idx).copied()
 	}
 }
 
@@ -204,54 +222,25 @@ type MethodKey = (Moniker, Vec<u8>, usize);
 
 #[derive(Default)]
 pub(super) struct MethodTable {
-	by_owner_name_arity: FxHashMap<MethodKey, Vec<SymbolId>>,
+	by_owner_name_arity: FxHashMap<MethodKey, Vec<SymbolOrdinal>>,
 	keys_by_file: FxHashMap<usize, Vec<MethodKey>>,
 }
 
 impl MethodTable {
-	pub(super) fn build(material: &CodeIndexMaterial) -> Self {
+	pub(super) fn build(material: &CodeIndexMaterial, candidates: &CandidateCatalog<'_>) -> Self {
 		let mut index = Self::default();
 		for file_idx in 0..material.files.len() {
-			index.insert_file(material, file_idx);
+			index.insert_file(material, candidates, file_idx);
 		}
 		index
 	}
 
-	pub(super) fn refresh_files(
+	fn insert_file(
 		&mut self,
 		material: &CodeIndexMaterial,
-		file_indexes: &std::collections::BTreeSet<usize>,
+		candidates: &CandidateCatalog<'_>,
+		file_idx: usize,
 	) {
-		for &file_idx in file_indexes {
-			self.remove_file(material, file_idx);
-		}
-		for &file_idx in file_indexes {
-			self.insert_file(material, file_idx);
-		}
-	}
-
-	fn remove_file(&mut self, material: &CodeIndexMaterial, file_idx: usize) {
-		let Some(keys) = self.keys_by_file.remove(&file_idx) else {
-			return;
-		};
-		for key in keys {
-			let Some(symbols) = self.by_owner_name_arity.get_mut(&key) else {
-				continue;
-			};
-			symbols.retain(|symbol| {
-				material
-					.identity
-					.symbol_location(symbol)
-					.map(|(file, _)| file)
-					!= Some(file_idx)
-			});
-			if symbols.is_empty() {
-				self.by_owner_name_arity.remove(&key);
-			}
-		}
-	}
-
-	fn insert_file(&mut self, material: &CodeIndexMaterial, file_idx: usize) {
 		let Some(file) = material.files.get(file_idx) else {
 			return;
 		};
@@ -266,7 +255,9 @@ impl MethodTable {
 				continue;
 			};
 			let owner = file.graph.def_at(parent_idx).moniker.clone();
-			let symbol = file.identity.symbol_id(file_idx, def_idx);
+			let Some(symbol) = candidates.indexes().symbol_at(file_idx, def_idx) else {
+				continue;
+			};
 			let key = (owner, def.call_name.to_vec(), arity);
 			self.by_owner_name_arity
 				.entry(key.clone())
@@ -276,11 +267,7 @@ impl MethodTable {
 		}
 	}
 
-	fn resolve(
-		&self,
-		owner: &Moniker,
-		method_call: &MethodCallReference<'_>,
-	) -> Option<Vec<SymbolId>> {
+	fn resolve(&self, owner: &Moniker, method_call: &MethodCallReference<'_>) -> Option<SymbolSet> {
 		let arity = method_call.call_arity()?;
 		let key = (
 			owner.clone(),
@@ -288,7 +275,7 @@ impl MethodTable {
 			arity,
 		);
 		let targets = self.by_owner_name_arity.get(&key)?;
-		(targets.len() == 1).then(|| targets.clone())
+		(targets.len() == 1).then(|| SymbolSet::from_symbol(targets[0]))
 	}
 }
 
@@ -332,7 +319,7 @@ fn enhance_reexport_aliases(
 enum ReexportAliasTarget {
 	Resolved {
 		scope: ResolutionScope,
-		targets: Vec<SymbolId>,
+		targets: SymbolSet,
 	},
 	External {
 		origin: ExternalOrigin,
@@ -467,44 +454,42 @@ fn reference_target_alias_key(
 }
 
 fn build_receiver_call_index(
-	material: &CodeIndexMaterial,
+	linkage: &SemanticLinkage<'_>,
 	decisions: &[ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
 	pending: &[usize],
 ) -> ReceiverCallIndex {
-	let mut pending_by_file = FxHashMap::<usize, Vec<usize>>::default();
+	let mut pending_by_file = FxHashMap::<usize, Vec<(usize, usize)>>::default();
 	for idx in pending {
 		let ReferenceLinkageDecision::Unknown { reference_idx, .. } = &decisions[*idx] else {
 			continue;
 		};
-		let reference = &references[*reference_idx];
-		let Some((file_idx, ref_idx)) = material.identity.reference_location(&reference.id) else {
+		let Some(location) = linkage.locations.get(*reference_idx) else {
 			continue;
 		};
 		pending_by_file
-			.entry(file_idx)
+			.entry(location.source_file)
 			.or_insert_with(Vec::new)
-			.push(ref_idx);
+			.push((*reference_idx, location.reference));
 	}
 
 	let mut index = ReceiverCallIndex::default();
 	for (file_idx, pending_refs) in pending_by_file {
-		index_file_receiver_calls(material, file_idx, &pending_refs, &mut index);
+		index_file_receiver_calls(linkage, file_idx, &pending_refs, &mut index);
 	}
 	index
 }
 
 fn index_file_receiver_calls(
-	material: &CodeIndexMaterial,
+	linkage: &SemanticLinkage<'_>,
 	file_idx: usize,
-	pending_refs: &[usize],
+	pending_refs: &[(usize, usize)],
 	index: &mut ReceiverCallIndex,
 ) {
-	let Some(file) = material.files.get(file_idx) else {
+	let Some(file) = linkage.material.files.get(file_idx) else {
 		return;
 	};
 	let calls_by_source = sorted_call_spans_by_source(file);
-	for ref_idx in pending_refs {
+	for (reference_idx, ref_idx) in pending_refs {
 		let current = file.graph.ref_at(*ref_idx);
 		let Some(calls) = calls_by_source.get(current.source) else {
 			continue;
@@ -514,10 +499,13 @@ fn index_file_receiver_calls(
 		else {
 			continue;
 		};
-		index.by_reference.insert(
-			(file_idx, *ref_idx),
-			material.identity.reference_id(file_idx, receiver_idx),
-		);
+		let Some(receiver_reference_idx) = linkage.locations.reference_idx(file_idx, receiver_idx)
+		else {
+			continue;
+		};
+		index
+			.by_reference
+			.insert(*reference_idx, receiver_reference_idx);
 	}
 }
 
@@ -628,18 +616,16 @@ fn resolve_receiver_chain(
 	linkage: &SemanticLinkage<'_>,
 	reference_idx: usize,
 	reference: &ReferenceRecord,
-	statuses: &FxHashMap<ReferenceId, ReferenceStatus>,
+	statuses: &FxHashMap<usize, ReferenceStatus>,
 	receiver_calls: &ReceiverCallIndex,
 	return_types: &FxHashMap<Moniker, Moniker>,
 ) -> Option<ReferenceLinkageDecision> {
 	let method_call = MethodCallReference::new(reference_idx, reference)?;
-	let (source_file, ref_idx) = linkage
-		.material
-		.identity
-		.reference_location(method_call.reference_id())?;
-	let receiver = receiver_calls.get(source_file, ref_idx)?;
-	let owner = match statuses.get(receiver)? {
-		ReferenceStatus::Resolved(symbol) => linkage.resolved_return_owner(symbol, return_types)?,
+	let receiver = receiver_calls.get(reference_idx)?;
+	let owner = match statuses.get(&receiver)? {
+		ReferenceStatus::Resolved(symbol) => {
+			linkage.resolved_return_owner(*symbol, return_types)?
+		}
 		ReferenceStatus::External(target) => {
 			let owner = callable_owner(target)?;
 			let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
@@ -655,12 +641,13 @@ fn resolve_receiver_chain(
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ReferenceStatus {
-	Resolved(SymbolId),
+	Resolved(SymbolOrdinal),
 	External(Moniker),
 }
 
 fn collect_return_types(
 	material: &CodeIndexMaterial,
+	candidates: &CandidateCatalog<'_>,
 	decisions: &[ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
 ) -> FxHashMap<Moniker, Moniker> {
@@ -673,7 +660,7 @@ fn collect_return_types(
 		let Some(source) = material.symbol_moniker(&reference.source_symbol) else {
 			continue;
 		};
-		let Some(target) = decision_target(material, decision, references) else {
+		let Some(target) = decision_target(material, candidates, decision, references) else {
 			continue;
 		};
 		out.insert(source.clone(), target);
@@ -690,13 +677,14 @@ fn decision_reference<'a>(
 
 fn decision_target(
 	material: &CodeIndexMaterial,
+	candidates: &CandidateCatalog<'_>,
 	decision: &ReferenceLinkageDecision,
 	references: &[ReferenceRecord],
 ) -> Option<Moniker> {
 	match decision {
-		ReferenceLinkageDecision::Resolved { targets, .. } if targets.len() == 1 => {
-			material.symbol_moniker(&targets[0]).cloned()
-		}
+		ReferenceLinkageDecision::Resolved { targets, .. } if targets.len() == 1 => candidates
+			.candidate(targets.single()?)
+			.map(|candidate| candidate.moniker.clone()),
 		ReferenceLinkageDecision::External {
 			reference_idx,
 			target,
@@ -714,15 +702,16 @@ fn reference_statuses(
 	material: &CodeIndexMaterial,
 	decisions: &[ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
-	wanted: &FxHashSet<&ReferenceId>,
-) -> FxHashMap<ReferenceId, ReferenceStatus> {
+	wanted: &FxHashSet<usize>,
+) -> FxHashMap<usize, ReferenceStatus> {
 	let mut out = FxHashMap::default();
 	for decision in decisions {
-		if !wanted.contains(decision.reference()) {
+		let reference_idx = decision.reference_idx();
+		if !wanted.contains(&reference_idx) {
 			continue;
 		}
-		if let Some((reference, status)) = reference_status(material, decision, references) {
-			out.insert(reference, status);
+		if let Some(status) = reference_status(material, decision, references) {
+			out.insert(reference_idx, status);
 		}
 	}
 	out
@@ -732,20 +721,10 @@ fn reference_status(
 	material: &CodeIndexMaterial,
 	decision: &ReferenceLinkageDecision,
 	references: &[ReferenceRecord],
-) -> Option<(ReferenceId, ReferenceStatus)> {
+) -> Option<ReferenceStatus> {
 	match decision {
-		ReferenceLinkageDecision::Resolved {
-			reference_idx,
-			targets,
-			..
-		} => {
-			let [target] = targets.as_slice() else {
-				return None;
-			};
-			Some((
-				references[*reference_idx].id.clone(),
-				ReferenceStatus::Resolved(target.clone()),
-			))
+		ReferenceLinkageDecision::Resolved { targets, .. } => {
+			targets.single().map(ReferenceStatus::Resolved)
 		}
 		ReferenceLinkageDecision::External {
 			reference_idx,
@@ -754,12 +733,7 @@ fn reference_status(
 		} => target
 			.as_ref()
 			.or_else(|| material.reference_target(&references[*reference_idx].id))
-			.map(|target| {
-				(
-					references[*reference_idx].id.clone(),
-					ReferenceStatus::External(target.clone()),
-				)
-			}),
+			.map(|target| ReferenceStatus::External(target.clone())),
 		_ => None,
 	}
 }

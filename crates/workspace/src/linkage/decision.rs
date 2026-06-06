@@ -1,9 +1,11 @@
+use crate::linkage::ordinals::{SymbolOrdinalCatalog, SymbolSet};
 use crate::snapshot::{
 	ExternalReference, LinkageEdge, LinkageSnapshotReport, ReferenceId, ReferenceRecord,
 	ResourceGeneration, SymbolId, UnresolvedReference,
 };
 use crate::source::LocalIdentityResolver;
 use code_moniker_core::core::moniker::Moniker;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 pub(super) use crate::snapshot::ExternalReferenceOrigin as ExternalOrigin;
@@ -12,8 +14,9 @@ pub(super) fn project_decisions(
 	decisions: &[ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
 	identity: &LocalIdentityResolver,
+	symbols: &SymbolOrdinalCatalog,
 ) -> LinkageReportProjection {
-	LinkageReportProjection::from_decisions(decisions, references, identity)
+	LinkageReportProjection::from_decisions(decisions, references, identity, symbols)
 }
 
 #[derive(Clone)]
@@ -22,7 +25,7 @@ pub(super) enum ReferenceLinkageDecision {
 		scope: ResolutionScope,
 		reference: ReferenceId,
 		reference_idx: usize,
-		targets: Vec<SymbolId>,
+		targets: SymbolSet,
 	},
 	External {
 		origin: ExternalOrigin,
@@ -74,7 +77,7 @@ impl ReferenceLinkageDecision {
 		scope: ResolutionScope,
 		reference_idx: usize,
 		reference: ReferenceId,
-		targets: Vec<SymbolId>,
+		targets: SymbolSet,
 	) -> Self {
 		Self::Resolved {
 			scope,
@@ -149,10 +152,25 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn resolved_targets(&self) -> Option<&[SymbolId]> {
+	pub(super) fn resolved_targets(&self) -> Option<&SymbolSet> {
 		match self {
 			Self::Resolved { targets, .. } => Some(targets),
 			Self::External { .. } | Self::Blocked { .. } | Self::Unknown { .. } => None,
+		}
+	}
+
+	pub(super) fn remap_resolved_targets(
+		&mut self,
+		previous: &SymbolOrdinalCatalog,
+		next: &SymbolOrdinalCatalog,
+		id_remaps: &FxHashMap<SymbolId, SymbolId>,
+	) -> bool {
+		match self {
+			Self::Resolved { targets, .. } => {
+				*targets = previous.remap_set_with_ids(targets, next, id_remaps);
+				!targets.is_empty()
+			}
+			Self::External { .. } | Self::Blocked { .. } | Self::Unknown { .. } => true,
 		}
 	}
 
@@ -162,6 +180,34 @@ impl ReferenceLinkageDecision {
 			| Self::External { reference_idx, .. }
 			| Self::Blocked { reference_idx, .. }
 			| Self::Unknown { reference_idx, .. } => *reference_idx = next_reference_idx,
+		}
+	}
+
+	pub(super) fn set_reference(&mut self, next_reference: ReferenceId, next_reference_idx: usize) {
+		match &mut *self {
+			Self::Resolved {
+				reference,
+				reference_idx,
+				..
+			}
+			| Self::External {
+				reference,
+				reference_idx,
+				..
+			}
+			| Self::Blocked {
+				reference,
+				reference_idx,
+				..
+			}
+			| Self::Unknown {
+				reference,
+				reference_idx,
+				..
+			} => {
+				*reference = next_reference;
+				*reference_idx = next_reference_idx;
+			}
 		}
 	}
 }
@@ -178,12 +224,13 @@ impl LinkageReportProjection {
 		decisions: &[ReferenceLinkageDecision],
 		references: &[ReferenceRecord],
 		identity: &LocalIdentityResolver,
+		symbols: &SymbolOrdinalCatalog,
 	) -> Self {
 		let capacity = LinkageProjectionCapacity::from_decisions(decisions);
 		decisions
 			.iter()
 			.map(|decision| {
-				LinkageDecisionProjection::from_decision(decision, references, identity)
+				LinkageDecisionProjection::from_decision(decision, references, identity, symbols)
 			})
 			.fold(Self::with_capacity(capacity), Self::collect)
 	}
@@ -274,6 +321,7 @@ impl LinkageDecisionProjection {
 		decision: &ReferenceLinkageDecision,
 		references: &[ReferenceRecord],
 		identity: &LocalIdentityResolver,
+		symbols: &SymbolOrdinalCatalog,
 	) -> Self {
 		match decision {
 			ReferenceLinkageDecision::Resolved {
@@ -282,7 +330,7 @@ impl LinkageDecisionProjection {
 				..
 			} => Self::Resolved(ResolvedReferenceProjection::new(
 				&references[*reference_idx],
-				targets.clone(),
+				symbols.ids(targets),
 			)),
 			ReferenceLinkageDecision::Blocked {
 				reason: BlockReason::ManifestPolicy,

@@ -2,16 +2,23 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use code_moniker_core::lang::Lang;
-use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
+use code_moniker_workspace::code::{
+	CodeIndexPort, CodeIndexRefresh, LocalCodeIndex, LocalCodeIndexOptions,
+};
 use code_moniker_workspace::extract::{JavaExtractionPipeline, RustExtractionPipeline};
-use code_moniker_workspace::linkage::{LinkageRefreshImpact, LocalLinkage};
-use code_moniker_workspace::snapshot::WorkspaceRequest;
+use code_moniker_workspace::linkage::{
+	LinkageMemoryMetrics, LinkageRefreshGraphDiff, LinkageRefreshImpact, LocalLinkage,
+	TimedLinkageRefresh,
+};
+use code_moniker_workspace::snapshot::{LinkageSnapshot, WorkspaceRequest};
 use code_moniker_workspace::source::{
 	LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions, SourceCatalogPort,
 };
 
 fn main() -> anyhow::Result<()> {
 	let options = BenchOptions::parse()?;
+	let mut symbol_edit =
+		SymbolEditBench::prepare(options.incremental_symbol_edit, &options.incremental_paths)?;
 	let cache = LocalResourceCache::default();
 	let source_options = options.source_options()?;
 	let mut catalog_port = LocalSourceCatalog::new(source_options, cache.clone());
@@ -66,6 +73,10 @@ fn main() -> anyhow::Result<()> {
 		millis(timed_linkage.timings.semantic_enhance)
 	);
 	println!(
+		"store_index\t{:.3}",
+		millis(timed_linkage.timings.store_index)
+	);
+	println!(
 		"project_snapshot\t{:.3}",
 		millis(timed_linkage.timings.project_snapshot)
 	);
@@ -88,11 +99,15 @@ fn main() -> anyhow::Result<()> {
 		"single_target_score_percent\t{:.2}",
 		single_target_score_percent(&linkage)
 	);
+	print_linkage_memory("linkage_memory", &timed_linkage.memory);
 	for call_name in &options.debug_calls {
 		print_call_defs(&index, &debug_cache, call_name);
 	}
 	if let Some(limit) = options.unresolved_groups {
 		print_unresolved_groups(&index, &linkage, limit);
+	}
+	if let Some(symbol_edit) = &mut symbol_edit {
+		symbol_edit.apply_refresh_edit()?;
 	}
 	if !options.incremental_paths.is_empty() {
 		print_incremental_refresh(
@@ -116,6 +131,7 @@ struct BenchOptions {
 	java_pipeline: JavaExtractionPipeline,
 	exclude_path_fragments: Vec<String>,
 	incremental_paths: Vec<PathBuf>,
+	incremental_symbol_edit: Option<IncrementalSymbolEdit>,
 	unresolved_groups: Option<usize>,
 	debug_calls: Vec<String>,
 }
@@ -148,6 +164,11 @@ impl BenchOptions {
 					options
 						.incremental_paths
 						.push(PathBuf::from(next_value(&mut args, "--incremental-path")?));
+				}
+				"--incremental-symbol-edit" => {
+					options.incremental_symbol_edit = Some(parse_incremental_symbol_edit(
+						&next_value(&mut args, "--incremental-symbol-edit")?,
+					)?);
 				}
 				"--rust-pipeline" => {
 					options.rust_pipeline =
@@ -245,6 +266,7 @@ impl Default for BenchOptions {
 			java_pipeline: JavaExtractionPipeline::Sdk,
 			exclude_path_fragments: Vec::new(),
 			incremental_paths: Vec::new(),
+			incremental_symbol_edit: None,
 			unresolved_groups: None,
 			debug_calls: Vec::new(),
 		}
@@ -272,9 +294,96 @@ fn parse_java_pipeline(value: &str) -> anyhow::Result<JavaExtractionPipeline> {
 	}
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IncrementalSymbolEdit {
+	Add,
+	Remove,
+}
+
+fn parse_incremental_symbol_edit(value: &str) -> anyhow::Result<IncrementalSymbolEdit> {
+	match value {
+		"add" => Ok(IncrementalSymbolEdit::Add),
+		"remove" => Ok(IncrementalSymbolEdit::Remove),
+		other => anyhow::bail!("unknown incremental symbol edit `{other}`; expected add or remove"),
+	}
+}
+
+struct SymbolEditBench {
+	path: PathBuf,
+	original: String,
+	edit: IncrementalSymbolEdit,
+}
+
+impl SymbolEditBench {
+	fn prepare(
+		edit: Option<IncrementalSymbolEdit>,
+		paths: &[PathBuf],
+	) -> anyhow::Result<Option<Self>> {
+		let Some(edit) = edit else {
+			return Ok(None);
+		};
+		let [path] = paths else {
+			anyhow::bail!("--incremental-symbol-edit requires exactly one --incremental-path");
+		};
+		let original = std::fs::read_to_string(path)?;
+		if original.contains(INCREMENTAL_SYMBOL_NAME) {
+			anyhow::bail!(
+				"{} already contains benchmark symbol `{}`",
+				path.display(),
+				INCREMENTAL_SYMBOL_NAME
+			);
+		}
+		let bench = Self {
+			path: path.clone(),
+			original,
+			edit,
+		};
+		if edit == IncrementalSymbolEdit::Remove {
+			std::fs::write(&bench.path, bench.content_with_added_symbol()?)?;
+		}
+		Ok(Some(bench))
+	}
+
+	fn apply_refresh_edit(&mut self) -> anyhow::Result<()> {
+		match self.edit {
+			IncrementalSymbolEdit::Add => {
+				std::fs::write(&self.path, self.content_with_added_symbol()?)?;
+			}
+			IncrementalSymbolEdit::Remove => {
+				std::fs::write(&self.path, &self.original)?;
+			}
+		}
+		Ok(())
+	}
+
+	fn content_with_added_symbol(&self) -> anyhow::Result<String> {
+		if self.path.extension().and_then(|ext| ext.to_str()) != Some("java") {
+			anyhow::bail!("--incremental-symbol-edit currently supports Java files only");
+		}
+		Ok(format!(
+			"{}{}",
+			self.original, INCREMENTAL_JAVA_SYMBOL_BLOCK
+		))
+	}
+}
+
+impl Drop for SymbolEditBench {
+	fn drop(&mut self) {
+		let _ = std::fs::write(&self.path, &self.original);
+	}
+}
+
+const INCREMENTAL_SYMBOL_NAME: &str = "CodeMonikerIncrementalSymbolBench";
+const INCREMENTAL_JAVA_SYMBOL_BLOCK: &str = r#"
+
+final class CodeMonikerIncrementalSymbolBench {
+	static void codeMonikerIncrementalSymbolBench() {}
+}
+"#;
+
 fn print_usage() {
 	println!(
-		"bench_linkage [--project NAME] [--cache-dir PATH] [--lang TAG] [--rust-pipeline legacy|sdk] [--java-pipeline legacy|sdk] [--exclude PATH_FRAGMENT] [--incremental-path PATH] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
+		"bench_linkage [--project NAME] [--cache-dir PATH] [--lang TAG] [--rust-pipeline legacy|sdk] [--java-pipeline legacy|sdk] [--exclude PATH_FRAGMENT] [--incremental-path PATH] [--incremental-symbol-edit add|remove] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
 	);
 }
 
@@ -290,13 +399,24 @@ fn print_incremental_refresh(
 		.refresh_paths(index, paths)
 		.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
 	let index_elapsed = index_timer.elapsed();
-	let impact = LinkageRefreshImpact::new(refreshed.changed_sources.clone(), paths.to_vec());
+	let impact = LinkageRefreshImpact::with_graph_diff(
+		refreshed.changed_sources.clone(),
+		paths.to_vec(),
+		LinkageRefreshGraphDiff {
+			changed_references: refreshed.graph_diff.changed_references.clone(),
+			removed_references: refreshed.graph_diff.removed_references.clone(),
+			changed_symbols: refreshed.graph_diff.changed_symbols.clone(),
+			removed_symbols: refreshed.graph_diff.removed_symbols.clone(),
+			reference_id_remaps: refreshed.graph_diff.reference_id_remaps.clone(),
+			symbol_id_remaps: refreshed.graph_diff.symbol_id_remaps.clone(),
+		},
+	);
 	let linkage_timer = Instant::now();
 	let timed_refresh = linkage_port
 		.refresh_linkage_with_timings(linkage, &refreshed.index, impact)
 		.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
 	let linkage_elapsed = linkage_timer.elapsed();
-	let refreshed_linkage = timed_refresh.snapshot;
+	let refreshed_linkage = &timed_refresh.snapshot;
 	println!();
 	println!("incremental_phase\tms");
 	println!("index_refresh\t{:.3}", millis(index_elapsed));
@@ -331,9 +451,60 @@ fn print_incremental_refresh(
 		"project_snapshot\t{:.3}",
 		millis(timed_refresh.timings.project_snapshot)
 	);
+	print_incremental_metrics(paths, &refreshed, &timed_refresh, refreshed_linkage);
+	print_linkage_memory("incremental_linkage_memory", &timed_refresh.memory);
+	Ok(())
+}
+
+fn print_incremental_metrics(
+	paths: &[PathBuf],
+	refreshed: &CodeIndexRefresh,
+	timed_refresh: &TimedLinkageRefresh,
+	refreshed_linkage: &LinkageSnapshot,
+) {
 	println!("incremental_metric\tcount");
 	println!("paths\t{}", paths.len());
 	println!("changed_sources\t{}", refreshed.changed_sources.len());
+	println!(
+		"graph_changed_symbols\t{}",
+		refreshed.graph_diff.changed_symbol_count()
+	);
+	println!(
+		"graph_added_or_changed_symbols\t{}",
+		refreshed.graph_diff.changed_symbols.len()
+	);
+	println!(
+		"graph_removed_symbols\t{}",
+		refreshed.graph_diff.removed_symbols.len()
+	);
+	println!(
+		"graph_changed_references\t{}",
+		refreshed.graph_diff.changed_reference_count()
+	);
+	println!(
+		"graph_added_or_changed_references\t{}",
+		refreshed.graph_diff.changed_references.len()
+	);
+	println!(
+		"graph_removed_references\t{}",
+		refreshed.graph_diff.removed_references.len()
+	);
+	println!(
+		"symbol_id_remaps\t{}",
+		refreshed.graph_diff.symbol_id_remaps.len()
+	);
+	println!(
+		"reference_id_remaps\t{}",
+		refreshed.graph_diff.reference_id_remaps.len()
+	);
+	println!(
+		"unchanged_symbols\t{}",
+		refreshed.graph_diff.unchanged_symbols
+	);
+	println!(
+		"unchanged_references\t{}",
+		refreshed.graph_diff.unchanged_references
+	);
 	println!("stale_refs\t{}", timed_refresh.timings.stale_refs);
 	println!("changed_refs\t{}", timed_refresh.timings.changed_refs);
 	println!("symbols\t{}", refreshed.index.symbols.len());
@@ -348,9 +519,27 @@ fn print_incremental_refresh(
 	println!("ambiguous_refs\t{}", refreshed_linkage.ambiguous_refs);
 	println!(
 		"linkage_score_percent\t{:.2}",
-		linkage_score_percent(&refreshed_linkage)
+		linkage_score_percent(refreshed_linkage)
 	);
-	Ok(())
+}
+
+fn print_linkage_memory(label: &str, memory: &LinkageMemoryMetrics) {
+	println!();
+	println!("{label}\tvalue");
+	println!("reference_sets\t{}", memory.reference_sets);
+	println!("reference_set_values\t{}", memory.reference_set_values);
+	println!(
+		"reference_set_serialized_bytes\t{}",
+		memory.reference_set_serialized_bytes
+	);
+	println!("symbol_sets\t{}", memory.symbol_sets);
+	println!("symbol_set_values\t{}", memory.symbol_set_values);
+	println!(
+		"symbol_set_serialized_bytes\t{}",
+		memory.symbol_set_serialized_bytes
+	);
+	println!("symbol_catalog_entries\t{}", memory.symbol_catalog_entries);
+	println!("decisions\t{}", memory.decisions);
 }
 
 fn millis(duration: Duration) -> f64 {
