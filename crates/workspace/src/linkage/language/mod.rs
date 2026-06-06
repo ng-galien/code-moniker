@@ -3,9 +3,9 @@ use code_moniker_core::lang::Lang;
 use code_moniker_core::lang::build_manifest::Manifest;
 use rustc_hash::FxHashSet;
 
-use crate::linkage::candidate::{CandidateCatalog, LinkageCandidate};
-use crate::linkage::decision::ReferenceLinkageDecision;
-use crate::linkage::query::LinkageQuery;
+use crate::linkage::resolution::LinkageQuery;
+use crate::linkage::resolution::ReferenceLinkageDecision;
+use crate::linkage::resolution::{CandidateCatalog, LinkageCandidate};
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 

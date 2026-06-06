@@ -2,18 +2,18 @@ use std::time::Instant;
 
 use rayon::prelude::*;
 
-use crate::linkage::candidate::CandidateCatalog;
-use crate::linkage::manifest::ManifestPolicy;
-use crate::linkage::method_indexer::MethodIndexer;
-use crate::linkage::query::ReferenceLocations;
-use crate::linkage::reference_resolver::ReferenceResolver;
+use crate::linkage::resolution::CandidateCatalog;
+use crate::linkage::resolution::ManifestPolicy;
+use crate::linkage::resolution::MethodIndexer;
+use crate::linkage::resolution::ReferenceLocations;
+use crate::linkage::resolution::ReferenceResolver;
+use crate::linkage::resolution::{MethodTable, SemanticLinkage};
 use crate::linkage::resolver::{LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
-use crate::linkage::semantic::{MethodTable, SemanticLinkage};
-use crate::linkage::store::LinkageStore;
+use crate::linkage::storage::LinkageStore;
 use crate::snapshot::{CodeIndex, ResourceGeneration, WorkspaceResult};
 use crate::source::CodeIndexMaterial;
 
-pub(super) fn run_full_linkage_with_timings(
+pub(in crate::linkage) fn run_full_linkage_with_timings(
 	linkage: &mut LocalLinkage,
 	index: &CodeIndex,
 ) -> WorkspaceResult<TimedLinkageSnapshot> {

@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 use std::hash::Hash;
 
-use crate::linkage::candidate::{CandidateCatalog, query_keys};
-use crate::linkage::decision::{ReferenceLinkageDecision, UnknownReason};
-use crate::linkage::metrics::LinkageMemoryMetrics;
-use crate::linkage::ordinals::{
+use crate::linkage::resolution::LinkageQuery;
+use crate::linkage::resolution::{CandidateCatalog, query_keys};
+use crate::linkage::resolution::{ReferenceLinkageDecision, UnknownReason};
+use crate::linkage::storage::LinkageMemoryMetrics;
+use crate::linkage::storage::{
 	ReferenceOrdinal, ReferenceSet, SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet,
 };
-use crate::linkage::query::LinkageQuery;
 use crate::snapshot::{
 	LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceId, SymbolId,
 };
@@ -17,27 +17,27 @@ use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 
 #[derive(Clone)]
-pub(super) struct LinkageStore {
+pub(in crate::linkage) struct LinkageStore {
 	generation: ResourceGeneration,
 	index_generation: ResourceGeneration,
 	decisions: Vec<ReferenceLinkageDecision>,
-	pub(super) symbols: SymbolOrdinalCatalog,
-	pub(super) indexes: LinkageStoreIndexes,
+	pub(in crate::linkage) symbols: SymbolOrdinalCatalog,
+	pub(in crate::linkage) indexes: LinkageStoreIndexes,
 }
 
-pub(super) struct LinkageStoreRefresh<'a> {
-	pub(super) generation: ResourceGeneration,
-	pub(super) index_generation: ResourceGeneration,
-	pub(super) stale_references: &'a ReferenceSet,
-	pub(super) changed_decisions: Vec<ReferenceLinkageDecision>,
-	pub(super) symbol_id_remaps: &'a [(SymbolId, SymbolId)],
-	pub(super) references: &'a [ReferenceRecord],
-	pub(super) material: &'a CodeIndexMaterial,
-	pub(super) candidates: &'a CandidateCatalog<'a>,
+pub(in crate::linkage) struct LinkageStoreRefresh<'a> {
+	pub(in crate::linkage) generation: ResourceGeneration,
+	pub(in crate::linkage) index_generation: ResourceGeneration,
+	pub(in crate::linkage) stale_references: &'a ReferenceSet,
+	pub(in crate::linkage) changed_decisions: Vec<ReferenceLinkageDecision>,
+	pub(in crate::linkage) symbol_id_remaps: &'a [(SymbolId, SymbolId)],
+	pub(in crate::linkage) references: &'a [ReferenceRecord],
+	pub(in crate::linkage) material: &'a CodeIndexMaterial,
+	pub(in crate::linkage) candidates: &'a CandidateCatalog<'a>,
 }
 
 impl LinkageStore {
-	pub(super) fn new(
+	pub(in crate::linkage) fn new(
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
 		decisions: Vec<ReferenceLinkageDecision>,
@@ -61,7 +61,7 @@ impl LinkageStore {
 		}
 	}
 
-	pub(super) fn from_snapshot(
+	pub(in crate::linkage) fn from_snapshot(
 		snapshot: &LinkageSnapshot,
 		references: &[ReferenceRecord],
 		material: &CodeIndexMaterial,
@@ -77,13 +77,13 @@ impl LinkageStore {
 		)
 	}
 
-	pub(super) fn project_snapshot(
+	pub(in crate::linkage) fn project_snapshot(
 		&self,
 		references: &[ReferenceRecord],
 		identity: &LocalIdentityResolver,
 	) -> LinkageSnapshot {
 		LinkageSnapshot::from_report(
-			crate::linkage::decision::project_decisions(
+			crate::linkage::resolution::project_decisions(
 				&self.decisions,
 				references,
 				identity,
@@ -93,15 +93,18 @@ impl LinkageStore {
 		)
 	}
 
-	pub(super) fn advance_index_generation(&mut self, index_generation: ResourceGeneration) {
+	pub(in crate::linkage) fn advance_index_generation(
+		&mut self,
+		index_generation: ResourceGeneration,
+	) {
 		self.index_generation = index_generation;
 	}
 
-	pub(super) fn apply_refresh(&mut self, refresh: LinkageStoreRefresh<'_>) {
+	pub(in crate::linkage) fn apply_refresh(&mut self, refresh: LinkageStoreRefresh<'_>) {
 		apply_store_refresh(self, refresh);
 	}
 
-	pub(super) fn rebase_reference_ordinals(
+	pub(in crate::linkage) fn rebase_reference_ordinals(
 		&mut self,
 		next_reference_indexes: FxHashMap<ReferenceId, ReferenceOrdinal>,
 		reference_id_remaps: &[(ReferenceId, ReferenceId)],
@@ -109,7 +112,7 @@ impl LinkageStore {
 		rebase_store_reference_ordinals(self, next_reference_indexes, reference_id_remaps);
 	}
 
-	pub(super) fn missing_resolved_references(
+	pub(in crate::linkage) fn missing_resolved_references(
 		&self,
 		material: &CodeIndexMaterial,
 		candidates: &CandidateCatalog<'_>,
@@ -117,15 +120,15 @@ impl LinkageStore {
 		missing_resolved_references(self, material, candidates)
 	}
 
-	pub(super) fn decisions_mut(&mut self) -> &mut [ReferenceLinkageDecision] {
+	pub(in crate::linkage) fn decisions_mut(&mut self) -> &mut [ReferenceLinkageDecision] {
 		&mut self.decisions
 	}
 
-	pub(super) fn memory_metrics(&self) -> LinkageMemoryMetrics {
+	pub(in crate::linkage) fn memory_metrics(&self) -> LinkageMemoryMetrics {
 		store_memory_metrics(self)
 	}
 
-	pub(super) fn refresh_resolved_target_index(
+	pub(in crate::linkage) fn refresh_resolved_target_index(
 		&mut self,
 		references: &ReferenceSet,
 		material: &CodeIndexMaterial,
@@ -133,7 +136,10 @@ impl LinkageStore {
 		refresh_resolved_target_index(self, references, material);
 	}
 
-	pub(super) fn ensure_resolved_target_index(&mut self, material: &CodeIndexMaterial) {
+	pub(in crate::linkage) fn ensure_resolved_target_index(
+		&mut self,
+		material: &CodeIndexMaterial,
+	) {
 		if self.indexes.resolved_by_target_source.is_some() {
 			return;
 		}
@@ -492,7 +498,7 @@ fn resolved_decisions_from_snapshot(
 		.filter_map(|(reference, targets)| {
 			reference_indexes.get(&reference).map(|reference_idx| {
 				ReferenceLinkageDecision::resolved(
-					crate::linkage::decision::ResolutionScope::Global,
+					crate::linkage::resolution::ResolutionScope::Global,
 					reference_idx.index(),
 					reference.clone(),
 					targets,
@@ -537,11 +543,11 @@ fn external_decisions_from_snapshot(
 }
 
 #[derive(Clone)]
-pub(super) struct LinkageStoreIndexes {
-	pub(super) reference_indexes: FxHashMap<ReferenceId, ReferenceOrdinal>,
-	pub(super) references_by_source_root: FxHashMap<usize, ReferenceSet>,
-	pub(super) references_by_name: FxHashMap<Vec<u8>, ReferenceSet>,
-	pub(super) resolved_by_target_source: Option<ResolvedTargetSourceIndex>,
+pub(in crate::linkage) struct LinkageStoreIndexes {
+	pub(in crate::linkage) reference_indexes: FxHashMap<ReferenceId, ReferenceOrdinal>,
+	pub(in crate::linkage) references_by_source_root: FxHashMap<usize, ReferenceSet>,
+	pub(in crate::linkage) references_by_name: FxHashMap<Vec<u8>, ReferenceSet>,
+	pub(in crate::linkage) resolved_by_target_source: Option<ResolvedTargetSourceIndex>,
 }
 
 impl LinkageStoreIndexes {
@@ -635,17 +641,17 @@ struct ResolvedTargetSourceContext<'a> {
 }
 
 #[derive(Clone, Default)]
-pub(super) struct ResolvedTargetSourceIndex {
+pub(in crate::linkage) struct ResolvedTargetSourceIndex {
 	references_by_source: FxHashMap<SourceId, ReferenceSet>,
 	references_by_symbol: FxHashMap<SymbolOrdinal, ReferenceSet>,
 }
 
 impl ResolvedTargetSourceIndex {
-	pub(super) fn get(&self, source: &SourceId) -> Option<&ReferenceSet> {
+	pub(in crate::linkage) fn get(&self, source: &SourceId) -> Option<&ReferenceSet> {
 		self.references_by_source.get(source)
 	}
 
-	pub(super) fn get_symbol(&self, symbol: SymbolOrdinal) -> Option<&ReferenceSet> {
+	pub(in crate::linkage) fn get_symbol(&self, symbol: SymbolOrdinal) -> Option<&ReferenceSet> {
 		self.references_by_symbol.get(&symbol)
 	}
 
@@ -720,7 +726,7 @@ fn add_resolved_target_decision(
 	}
 }
 
-pub(super) fn reference_indexes(
+pub(in crate::linkage) fn reference_indexes(
 	references: &[ReferenceRecord],
 ) -> FxHashMap<ReferenceId, ReferenceOrdinal> {
 	references

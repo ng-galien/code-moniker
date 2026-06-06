@@ -4,28 +4,28 @@ use std::path::{Path, PathBuf};
 
 use code_moniker_core::lang::build_manifest::Manifest;
 
-use crate::linkage::candidate::{CandidateCatalog, matches_any_source, matches_any_symbol};
-use crate::linkage::delta::{
+use crate::linkage::incremental::{
 	LinkageRefreshImpact, changed_reference_ids, changed_symbol_ids, primary_changed_symbol_ids,
 	reference_id_remaps, retargeted_symbol_identities,
 };
-use crate::linkage::ordinals::{ReferenceOrdinal, ReferenceSet, SymbolSet};
-use crate::linkage::query::LinkageQuery;
-use crate::linkage::store::LinkageStore;
+use crate::linkage::resolution::LinkageQuery;
+use crate::linkage::resolution::{CandidateCatalog, matches_any_source, matches_any_symbol};
+use crate::linkage::storage::LinkageStore;
+use crate::linkage::storage::{ReferenceOrdinal, ReferenceSet, SymbolSet};
 use crate::path_util::normalize_path;
 use crate::snapshot::{ReferenceId, ReferenceRecord, SourceId};
 use crate::source::CodeIndexMaterial;
 
-pub(super) struct LinkagePlanContext<'a> {
-	pub(super) store: &'a LinkageStore,
-	pub(super) references: &'a [ReferenceRecord],
-	pub(super) material: &'a CodeIndexMaterial,
-	pub(super) candidates: &'a CandidateCatalog<'a>,
-	pub(super) reference_indexes: &'a FxHashMap<ReferenceId, ReferenceOrdinal>,
-	pub(super) impact: &'a LinkageRefreshImpact,
+pub(in crate::linkage) struct LinkagePlanContext<'a> {
+	pub(in crate::linkage) store: &'a LinkageStore,
+	pub(in crate::linkage) references: &'a [ReferenceRecord],
+	pub(in crate::linkage) material: &'a CodeIndexMaterial,
+	pub(in crate::linkage) candidates: &'a CandidateCatalog<'a>,
+	pub(in crate::linkage) reference_indexes: &'a FxHashMap<ReferenceId, ReferenceOrdinal>,
+	pub(in crate::linkage) impact: &'a LinkageRefreshImpact,
 }
 
-pub(super) struct LinkagePlanExecution {
+pub(in crate::linkage) struct LinkagePlanExecution {
 	stale_references: ReferenceSet,
 	target_index_references: ReferenceSet,
 	changed_files: BTreeSet<usize>,
@@ -39,7 +39,9 @@ struct InvalidationPostings {
 	missing_targets: ReferenceSet,
 }
 
-pub(super) fn execute_linkage_plan(context: LinkagePlanContext<'_>) -> LinkagePlanExecution {
+pub(in crate::linkage) fn execute_linkage_plan(
+	context: LinkagePlanContext<'_>,
+) -> LinkagePlanExecution {
 	let changed_sources = changed_sources(context.impact);
 	let changed_files = changed_source_files(context.material, &changed_sources);
 	let postings = plan_invalidation_postings(&context, &changed_sources, &changed_files);
@@ -53,15 +55,15 @@ pub(super) fn execute_linkage_plan(context: LinkagePlanContext<'_>) -> LinkagePl
 }
 
 impl LinkagePlanExecution {
-	pub(super) fn stale_references(&self) -> &ReferenceSet {
+	pub(in crate::linkage) fn stale_references(&self) -> &ReferenceSet {
 		&self.stale_references
 	}
 
-	pub(super) fn target_index_references(&self) -> &ReferenceSet {
+	pub(in crate::linkage) fn target_index_references(&self) -> &ReferenceSet {
 		&self.target_index_references
 	}
 
-	pub(super) fn changed_files(&self) -> &BTreeSet<usize> {
+	pub(in crate::linkage) fn changed_files(&self) -> &BTreeSet<usize> {
 		&self.changed_files
 	}
 }

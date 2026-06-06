@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::linkage::delta::LinkageRefreshImpact;
-use crate::linkage::full::run_full_linkage_with_timings;
-use crate::linkage::method_indexer::MethodIndexer;
-use crate::linkage::metrics::LinkageMemoryMetrics;
-use crate::linkage::refresh::run_refresh_linkage_with_timings;
-use crate::linkage::store::LinkageStore;
+use crate::linkage::incremental::LinkageRefreshImpact;
+use crate::linkage::incremental::run_refresh_linkage_with_timings;
+use crate::linkage::resolution::MethodIndexer;
+use crate::linkage::resolution::run_full_linkage_with_timings;
+use crate::linkage::storage::LinkageMemoryMetrics;
+use crate::linkage::storage::LinkageStore;
 use crate::snapshot::{
 	CodeIndex, LinkageSnapshot, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };

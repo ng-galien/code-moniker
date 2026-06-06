@@ -2,11 +2,11 @@ use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
 use code_moniker_core::lang::{Lang, kinds};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::linkage::candidate::CandidateCatalog;
-use crate::linkage::decision::{
+use crate::linkage::resolution::CandidateCatalog;
+use crate::linkage::resolution::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
-use crate::linkage::ordinals::{SymbolOrdinal, SymbolSet};
+use crate::linkage::storage::{SymbolOrdinal, SymbolSet};
 use crate::snapshot::ReferenceRecord;
 use crate::source::{CodeIndexMaterial, IndexedSourceFile};
 

@@ -5,44 +5,47 @@ use code_moniker_core::lang::kinds;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::BTreeSet;
 
-use crate::linkage::ordinals::{SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet};
-use crate::linkage::query::LinkageQuery;
+use crate::linkage::resolution::LinkageQuery;
+use crate::linkage::storage::{SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet};
 use crate::source::CodeIndexMaterial;
 
 #[derive(Clone)]
-pub(super) struct LinkageCandidate<'a> {
-	pub(super) moniker: &'a Moniker,
-	pub(super) last_segment: Option<Segment<'a>>,
-	pub(super) segment_count: usize,
-	pub(super) call_name: Option<&'a [u8]>,
-	pub(super) call_arity: Option<usize>,
-	pub(super) source_file: usize,
+pub(in crate::linkage) struct LinkageCandidate<'a> {
+	pub(in crate::linkage) moniker: &'a Moniker,
+	pub(in crate::linkage) last_segment: Option<Segment<'a>>,
+	pub(in crate::linkage) segment_count: usize,
+	pub(in crate::linkage) call_name: Option<&'a [u8]>,
+	pub(in crate::linkage) call_arity: Option<usize>,
+	pub(in crate::linkage) source_file: usize,
 }
 
-pub(super) struct CandidateCatalog<'a> {
+pub(in crate::linkage) struct CandidateCatalog<'a> {
 	candidates: Vec<LinkageCandidate<'a>>,
 	symbols: SymbolOrdinalCatalog,
 	indexes: CandidateIndexes<'a>,
 }
 
 impl<'a> CandidateCatalog<'a> {
-	pub(super) fn new(material: &'a CodeIndexMaterial) -> Self {
+	pub(in crate::linkage) fn new(material: &'a CodeIndexMaterial) -> Self {
 		CandidateCatalogBuilder::new().build(material)
 	}
 
-	pub(super) fn symbols(&self) -> &SymbolOrdinalCatalog {
+	pub(in crate::linkage) fn symbols(&self) -> &SymbolOrdinalCatalog {
 		&self.symbols
 	}
 
-	pub(super) fn candidate(&self, symbol: SymbolOrdinal) -> Option<&LinkageCandidate<'a>> {
+	pub(in crate::linkage) fn candidate(
+		&self,
+		symbol: SymbolOrdinal,
+	) -> Option<&LinkageCandidate<'a>> {
 		self.candidates.get(symbol.index())
 	}
 
-	pub(super) fn indexes(&self) -> &CandidateIndexes<'a> {
+	pub(in crate::linkage) fn indexes(&self) -> &CandidateIndexes<'a> {
 		&self.indexes
 	}
 
-	pub(super) fn candidate_for_symbol_id(
+	pub(in crate::linkage) fn candidate_for_symbol_id(
 		&self,
 		id: &crate::snapshot::SymbolId,
 	) -> Option<(SymbolOrdinal, &LinkageCandidate<'a>)> {
@@ -50,23 +53,29 @@ impl<'a> CandidateCatalog<'a> {
 		Some((symbol, self.candidate(symbol)?))
 	}
 
-	pub(super) fn query_keys_for_symbol(&self, symbol: SymbolOrdinal) -> Option<Vec<Vec<u8>>> {
+	pub(in crate::linkage) fn query_keys_for_symbol(
+		&self,
+		symbol: SymbolOrdinal,
+	) -> Option<Vec<Vec<u8>>> {
 		self.candidate(symbol).map(candidate_keys)
 	}
 }
 
-pub(super) fn local_symbols(catalog: &CandidateCatalog<'_>, query: &LinkageQuery<'_>) -> SymbolSet {
+pub(in crate::linkage) fn local_symbols(
+	catalog: &CandidateCatalog<'_>,
+	query: &LinkageQuery<'_>,
+) -> SymbolSet {
 	matching_symbols(catalog, local_indexes(catalog.indexes(), query), query)
 }
 
-pub(super) fn global_symbols(
+pub(in crate::linkage) fn global_symbols(
 	catalog: &CandidateCatalog<'_>,
 	query: &LinkageQuery<'_>,
 ) -> SymbolSet {
 	matching_symbols(catalog, global_indexes(catalog, query), query)
 }
 
-pub(super) fn matches_any_source(
+pub(in crate::linkage) fn matches_any_source(
 	catalog: &CandidateCatalog<'_>,
 	query: &LinkageQuery<'_>,
 	source_files: &BTreeSet<usize>,
@@ -74,7 +83,7 @@ pub(super) fn matches_any_source(
 	CandidateSourceMatcher::new(catalog, query, source_files).matches()
 }
 
-pub(super) fn matches_any_symbol(
+pub(in crate::linkage) fn matches_any_symbol(
 	catalog: &CandidateCatalog<'_>,
 	query: &LinkageQuery<'_>,
 	symbols: &SymbolSet,
@@ -86,7 +95,7 @@ pub(super) fn matches_any_symbol(
 	})
 }
 
-pub(super) struct CandidateIndexes<'a> {
+pub(in crate::linkage) struct CandidateIndexes<'a> {
 	by_location: Vec<Vec<Option<SymbolOrdinal>>>,
 	by_moniker: FxHashMap<&'a Moniker, SymbolOrdinal>,
 	by_name: FxHashMap<Vec<u8>, SymbolSet>,
@@ -128,7 +137,11 @@ impl<'a> CandidateIndexes<'a> {
 		}
 	}
 
-	pub(super) fn symbol_at(&self, file_idx: usize, def_idx: usize) -> Option<SymbolOrdinal> {
+	pub(in crate::linkage) fn symbol_at(
+		&self,
+		file_idx: usize,
+		def_idx: usize,
+	) -> Option<SymbolOrdinal> {
 		self.by_location
 			.get(file_idx)?
 			.get(def_idx)
@@ -136,11 +149,11 @@ impl<'a> CandidateIndexes<'a> {
 			.flatten()
 	}
 
-	pub(super) fn symbol_by_moniker(&self, moniker: &Moniker) -> Option<SymbolOrdinal> {
+	pub(in crate::linkage) fn symbol_by_moniker(&self, moniker: &Moniker) -> Option<SymbolOrdinal> {
 		self.by_moniker.get(moniker).copied()
 	}
 
-	pub(super) fn source_candidate_keys(
+	pub(in crate::linkage) fn source_candidate_keys(
 		&self,
 		source_file: usize,
 	) -> Option<impl Iterator<Item = &[u8]>> {
@@ -337,7 +350,7 @@ fn candidate_segment_summary(moniker: &Moniker) -> CandidateSegmentSummary<'_> {
 	summary
 }
 
-pub(super) fn query_keys(query: &LinkageQuery<'_>) -> Vec<Vec<u8>> {
+pub(in crate::linkage) fn query_keys(query: &LinkageQuery<'_>) -> Vec<Vec<u8>> {
 	let mut keys = Vec::new();
 	for_query_key(query, |key| keys.push(key.to_vec()));
 	keys

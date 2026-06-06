@@ -3,9 +3,9 @@ use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::lang::{build_manifest::Manifest, kinds};
 use rustc_hash::FxHashSet;
 
-use crate::linkage::candidate::LinkageCandidate;
 use crate::linkage::language::{LanguageLinkageStrategy, generic::GenericLanguageLinkageStrategy};
-use crate::linkage::query::LinkageQuery;
+use crate::linkage::resolution::LinkageCandidate;
+use crate::linkage::resolution::LinkageQuery;
 
 pub(super) struct TsLanguageLinkageStrategy;
 

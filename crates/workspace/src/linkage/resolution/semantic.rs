@@ -6,17 +6,17 @@ use code_moniker_core::lang::kinds;
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::linkage::candidate::CandidateCatalog;
-use crate::linkage::decision::{
+use crate::linkage::language;
+use crate::linkage::resolution::CandidateCatalog;
+use crate::linkage::resolution::ReferenceLocations;
+use crate::linkage::resolution::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
-use crate::linkage::language;
-use crate::linkage::ordinals::{SymbolOrdinal, SymbolSet};
-use crate::linkage::query::ReferenceLocations;
+use crate::linkage::storage::{SymbolOrdinal, SymbolSet};
 use crate::snapshot::{ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
-pub(super) struct SemanticLinkage<'a> {
+pub(in crate::linkage) struct SemanticLinkage<'a> {
 	material: &'a CodeIndexMaterial,
 	methods: &'a MethodTable,
 	candidates: &'a CandidateCatalog<'a>,
@@ -24,7 +24,7 @@ pub(super) struct SemanticLinkage<'a> {
 }
 
 impl<'a> SemanticLinkage<'a> {
-	pub(super) fn new(
+	pub(in crate::linkage) fn new(
 		material: &'a CodeIndexMaterial,
 		methods: &'a MethodTable,
 		candidates: &'a CandidateCatalog<'a>,
@@ -38,7 +38,7 @@ impl<'a> SemanticLinkage<'a> {
 		}
 	}
 
-	pub(super) fn enhance(
+	pub(in crate::linkage) fn enhance(
 		&self,
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &[ReferenceRecord],
@@ -55,7 +55,7 @@ impl<'a> SemanticLinkage<'a> {
 		enhance_receiver_chains(self, decisions, references, pending);
 	}
 
-	pub(super) fn enhance_changed(
+	pub(in crate::linkage) fn enhance_changed(
 		&self,
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &[ReferenceRecord],
@@ -221,13 +221,16 @@ impl ReceiverCallIndex {
 type MethodKey = (Moniker, Vec<u8>, usize);
 
 #[derive(Default)]
-pub(super) struct MethodTable {
+pub(in crate::linkage) struct MethodTable {
 	by_owner_name_arity: FxHashMap<MethodKey, Vec<SymbolOrdinal>>,
 	keys_by_file: FxHashMap<usize, Vec<MethodKey>>,
 }
 
 impl MethodTable {
-	pub(super) fn build(material: &CodeIndexMaterial, candidates: &CandidateCatalog<'_>) -> Self {
+	pub(in crate::linkage) fn build(
+		material: &CodeIndexMaterial,
+		candidates: &CandidateCatalog<'_>,
+	) -> Self {
 		let mut index = Self::default();
 		for file_idx in 0..material.files.len() {
 			index.insert_file(material, candidates, file_idx);

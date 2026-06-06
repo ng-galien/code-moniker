@@ -1,6 +1,6 @@
-use crate::linkage::candidate::LinkageCandidate;
 use crate::linkage::language::LanguageLinkageStrategy;
-use crate::linkage::query::LinkageQuery;
+use crate::linkage::resolution::LinkageCandidate;
+use crate::linkage::resolution::LinkageQuery;
 
 pub(super) struct GenericLanguageLinkageStrategy;
 

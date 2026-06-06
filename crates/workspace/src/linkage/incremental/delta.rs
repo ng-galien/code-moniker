@@ -27,13 +27,13 @@ enum LinkageDiffPrecision {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct RefreshScope {
+pub(in crate::linkage) struct RefreshScope {
 	changed_sources: Vec<SourceId>,
 	changed_paths: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) enum ReferenceDelta {
+pub(in crate::linkage) enum ReferenceDelta {
 	#[default]
 	Unchanged,
 	Changed {
@@ -43,7 +43,7 @@ pub(super) enum ReferenceDelta {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) enum SymbolDelta {
+pub(in crate::linkage) enum SymbolDelta {
 	#[default]
 	Unchanged,
 	AdditiveOnly {
@@ -62,7 +62,7 @@ pub(super) enum SymbolDelta {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum LinkageRefreshShape<'a> {
+pub(in crate::linkage) enum LinkageRefreshShape<'a> {
 	Empty,
 	SourceLevel,
 	ManifestPolicy,
@@ -100,19 +100,19 @@ impl LinkageRefreshImpact {
 			&& symbol_delta_is_unchanged(&self.symbols)
 	}
 
-	pub(super) fn shape(&self) -> LinkageRefreshShape<'_> {
+	pub(in crate::linkage) fn shape(&self) -> LinkageRefreshShape<'_> {
 		classify_refresh_shape(self)
 	}
 
-	pub(super) fn changed_sources(&self) -> &[SourceId] {
+	pub(in crate::linkage) fn changed_sources(&self) -> &[SourceId] {
 		self.scope.changed_sources()
 	}
 
-	pub(super) fn changed_paths(&self) -> &[PathBuf] {
+	pub(in crate::linkage) fn changed_paths(&self) -> &[PathBuf] {
 		self.scope.changed_paths()
 	}
 
-	pub(super) fn has_precise_graph_diff(&self) -> bool {
+	pub(in crate::linkage) fn has_precise_graph_diff(&self) -> bool {
 		self.precision == LinkageDiffPrecision::Precise
 	}
 }
@@ -195,18 +195,18 @@ impl ReferenceDelta {
 		}
 	}
 
-	pub(super) fn is_empty(&self) -> bool {
+	pub(in crate::linkage) fn is_empty(&self) -> bool {
 		matches!(self, Self::Unchanged)
 	}
 
-	pub(super) fn changed(&self) -> &[ReferenceId] {
+	pub(in crate::linkage) fn changed(&self) -> &[ReferenceId] {
 		match self {
 			Self::Unchanged => &[],
 			Self::Changed { changed, .. } => changed,
 		}
 	}
 
-	pub(super) fn remaps(&self) -> &[(ReferenceId, ReferenceId)] {
+	pub(in crate::linkage) fn remaps(&self) -> &[(ReferenceId, ReferenceId)] {
 		match self {
 			Self::Unchanged => &[],
 			Self::Changed { remapped, .. } => remapped,
@@ -240,15 +240,17 @@ impl SymbolDelta {
 	}
 }
 
-pub(super) fn changed_reference_ids(impact: &LinkageRefreshImpact) -> &[ReferenceId] {
+pub(in crate::linkage) fn changed_reference_ids(impact: &LinkageRefreshImpact) -> &[ReferenceId] {
 	impact.references.changed()
 }
 
-pub(super) fn reference_id_remaps(impact: &LinkageRefreshImpact) -> &[(ReferenceId, ReferenceId)] {
+pub(in crate::linkage) fn reference_id_remaps(
+	impact: &LinkageRefreshImpact,
+) -> &[(ReferenceId, ReferenceId)] {
 	impact.references.remaps()
 }
 
-pub(super) fn primary_changed_symbol_ids(impact: &LinkageRefreshImpact) -> &[SymbolId] {
+pub(in crate::linkage) fn primary_changed_symbol_ids(impact: &LinkageRefreshImpact) -> &[SymbolId] {
 	match &impact.symbols {
 		SymbolDelta::AdditiveOnly { added } => added,
 		SymbolDelta::Mixed {
@@ -258,7 +260,7 @@ pub(super) fn primary_changed_symbol_ids(impact: &LinkageRefreshImpact) -> &[Sym
 	}
 }
 
-pub(super) fn changed_symbol_ids(impact: &LinkageRefreshImpact) -> &[SymbolId] {
+pub(in crate::linkage) fn changed_symbol_ids(impact: &LinkageRefreshImpact) -> &[SymbolId] {
 	match &impact.symbols {
 		SymbolDelta::AdditiveOnly { added } => added,
 		SymbolDelta::Mixed { changed, .. } => changed,
@@ -266,7 +268,7 @@ pub(super) fn changed_symbol_ids(impact: &LinkageRefreshImpact) -> &[SymbolId] {
 	}
 }
 
-pub(super) fn retargeted_symbol_identities(impact: &LinkageRefreshImpact) -> &[String] {
+pub(in crate::linkage) fn retargeted_symbol_identities(impact: &LinkageRefreshImpact) -> &[String] {
 	match &impact.symbols {
 		SymbolDelta::RemovedOnly {
 			retargeted_identities,
@@ -280,7 +282,9 @@ pub(super) fn retargeted_symbol_identities(impact: &LinkageRefreshImpact) -> &[S
 	}
 }
 
-pub(super) fn symbol_id_remaps(impact: &LinkageRefreshImpact) -> &[(SymbolId, SymbolId)] {
+pub(in crate::linkage) fn symbol_id_remaps(
+	impact: &LinkageRefreshImpact,
+) -> &[(SymbolId, SymbolId)] {
 	match &impact.symbols {
 		SymbolDelta::Mixed { remapped, .. } => remapped,
 		SymbolDelta::Unchanged

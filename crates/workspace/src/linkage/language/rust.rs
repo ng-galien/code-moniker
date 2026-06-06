@@ -2,9 +2,9 @@ use code_moniker_core::core::moniker::Segment;
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::lang::kinds;
 
-use crate::linkage::candidate::LinkageCandidate;
 use crate::linkage::language::LanguageLinkageStrategy;
-use crate::linkage::query::LinkageQuery;
+use crate::linkage::resolution::LinkageCandidate;
+use crate::linkage::resolution::LinkageQuery;
 
 pub(super) struct RustLanguageLinkageStrategy;
 

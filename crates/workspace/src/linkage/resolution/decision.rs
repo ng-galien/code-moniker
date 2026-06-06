@@ -1,4 +1,4 @@
-use crate::linkage::ordinals::{SymbolOrdinalCatalog, SymbolSet};
+use crate::linkage::storage::{SymbolOrdinalCatalog, SymbolSet};
 use crate::snapshot::{
 	ExternalReference, LinkageEdge, LinkageSnapshotReport, ReferenceId, ReferenceRecord,
 	ResourceGeneration, SymbolId, UnresolvedReference,
@@ -8,9 +8,9 @@ use code_moniker_core::core::moniker::Moniker;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
-pub(super) use crate::snapshot::ExternalReferenceOrigin as ExternalOrigin;
+pub(in crate::linkage) use crate::snapshot::ExternalReferenceOrigin as ExternalOrigin;
 
-pub(super) fn project_decisions(
+pub(in crate::linkage) fn project_decisions(
 	decisions: &[ReferenceLinkageDecision],
 	references: &[ReferenceRecord],
 	identity: &LocalIdentityResolver,
@@ -20,7 +20,7 @@ pub(super) fn project_decisions(
 }
 
 #[derive(Clone)]
-pub(super) enum ReferenceLinkageDecision {
+pub(in crate::linkage) enum ReferenceLinkageDecision {
 	Resolved {
 		scope: ResolutionScope,
 		reference: ReferenceId,
@@ -47,7 +47,7 @@ pub(super) enum ReferenceLinkageDecision {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(dead_code)]
-pub(super) enum ResolutionScope {
+pub(in crate::linkage) enum ResolutionScope {
 	Local,
 	Global,
 	Builtin,
@@ -56,7 +56,7 @@ pub(super) enum ResolutionScope {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(dead_code)]
-pub(super) enum BlockReason {
+pub(in crate::linkage) enum BlockReason {
 	ManifestPolicy,
 	Visibility,
 	LanguageBoundary,
@@ -64,7 +64,7 @@ pub(super) enum BlockReason {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(dead_code)]
-pub(super) enum UnknownReason {
+pub(in crate::linkage) enum UnknownReason {
 	MissingQuery,
 	NoCandidate,
 	Ambiguous(Vec<SymbolId>),
@@ -73,7 +73,7 @@ pub(super) enum UnknownReason {
 }
 
 impl ReferenceLinkageDecision {
-	pub(super) fn resolved(
+	pub(in crate::linkage) fn resolved(
 		scope: ResolutionScope,
 		reference_idx: usize,
 		reference: ReferenceId,
@@ -87,7 +87,7 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn unknown(
+	pub(in crate::linkage) fn unknown(
 		reason: UnknownReason,
 		reference_idx: usize,
 		reference: ReferenceId,
@@ -99,7 +99,10 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn manifest_blocked(reference_idx: usize, reference: ReferenceId) -> Self {
+	pub(in crate::linkage) fn manifest_blocked(
+		reference_idx: usize,
+		reference: ReferenceId,
+	) -> Self {
 		Self::Blocked {
 			reason: BlockReason::ManifestPolicy,
 			reference,
@@ -107,7 +110,7 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn external(
+	pub(in crate::linkage) fn external(
 		origin: ExternalOrigin,
 		reference_idx: usize,
 		reference: ReferenceId,
@@ -120,7 +123,7 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn external_target(
+	pub(in crate::linkage) fn external_target(
 		origin: ExternalOrigin,
 		reference_idx: usize,
 		reference: ReferenceId,
@@ -134,7 +137,7 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn reference_idx(&self) -> usize {
+	pub(in crate::linkage) fn reference_idx(&self) -> usize {
 		match self {
 			Self::Resolved { reference_idx, .. }
 			| Self::External { reference_idx, .. }
@@ -143,7 +146,7 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn reference(&self) -> &ReferenceId {
+	pub(in crate::linkage) fn reference(&self) -> &ReferenceId {
 		match self {
 			Self::Resolved { reference, .. }
 			| Self::External { reference, .. }
@@ -152,14 +155,14 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn resolved_targets(&self) -> Option<&SymbolSet> {
+	pub(in crate::linkage) fn resolved_targets(&self) -> Option<&SymbolSet> {
 		match self {
 			Self::Resolved { targets, .. } => Some(targets),
 			Self::External { .. } | Self::Blocked { .. } | Self::Unknown { .. } => None,
 		}
 	}
 
-	pub(super) fn remap_resolved_targets(
+	pub(in crate::linkage) fn remap_resolved_targets(
 		&mut self,
 		previous: &SymbolOrdinalCatalog,
 		next: &SymbolOrdinalCatalog,
@@ -174,7 +177,7 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn set_reference_idx(&mut self, next_reference_idx: usize) {
+	pub(in crate::linkage) fn set_reference_idx(&mut self, next_reference_idx: usize) {
 		match &mut *self {
 			Self::Resolved { reference_idx, .. }
 			| Self::External { reference_idx, .. }
@@ -183,7 +186,11 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(super) fn set_reference(&mut self, next_reference: ReferenceId, next_reference_idx: usize) {
+	pub(in crate::linkage) fn set_reference(
+		&mut self,
+		next_reference: ReferenceId,
+		next_reference_idx: usize,
+	) {
 		match &mut *self {
 			Self::Resolved {
 				reference,
@@ -213,7 +220,7 @@ impl ReferenceLinkageDecision {
 }
 
 #[derive(Default)]
-pub(super) struct LinkageReportProjection {
+pub(in crate::linkage) struct LinkageReportProjection {
 	resolved: ResolvedLinkProjection,
 	external: ExternalLinkProjection,
 	unresolved: UnresolvedLinkProjection,
@@ -255,7 +262,7 @@ impl LinkageReportProjection {
 		self
 	}
 
-	pub(super) fn into_report(
+	pub(in crate::linkage) fn into_report(
 		self,
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,

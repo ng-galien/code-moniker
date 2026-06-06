@@ -1,37 +1,37 @@
 use code_moniker_core::core::moniker::{Moniker, Segment};
 
-use crate::linkage::candidate::LinkageCandidate;
 use crate::linkage::language::{LanguageLinkageStrategy, language_strategy};
+use crate::linkage::resolution::LinkageCandidate;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 
-pub(super) struct LinkageQuery<'a> {
-	pub(super) material: &'a CodeIndexMaterial,
-	pub(super) target: &'a Moniker,
-	pub(super) target_first: Option<Segment<'a>>,
-	pub(super) target_last: Option<Segment<'a>>,
-	pub(super) target_segment_count: usize,
-	pub(super) reference_kind: &'a str,
-	pub(super) call_name: Option<&'a str>,
-	pub(super) call_arity: Option<usize>,
-	pub(super) confidence: Option<&'a str>,
-	pub(super) source_file: usize,
+pub(in crate::linkage) struct LinkageQuery<'a> {
+	pub(in crate::linkage) material: &'a CodeIndexMaterial,
+	pub(in crate::linkage) target: &'a Moniker,
+	pub(in crate::linkage) target_first: Option<Segment<'a>>,
+	pub(in crate::linkage) target_last: Option<Segment<'a>>,
+	pub(in crate::linkage) target_segment_count: usize,
+	pub(in crate::linkage) reference_kind: &'a str,
+	pub(in crate::linkage) call_name: Option<&'a str>,
+	pub(in crate::linkage) call_arity: Option<usize>,
+	pub(in crate::linkage) confidence: Option<&'a str>,
+	pub(in crate::linkage) source_file: usize,
 	strategy: &'static dyn LanguageLinkageStrategy,
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct ReferenceLocation {
-	pub(super) source_file: usize,
-	pub(super) reference: usize,
+pub(in crate::linkage) struct ReferenceLocation {
+	pub(in crate::linkage) source_file: usize,
+	pub(in crate::linkage) reference: usize,
 }
 
-pub(super) struct ReferenceLocations {
+pub(in crate::linkage) struct ReferenceLocations {
 	ordered: Vec<ReferenceLocation>,
 	by_file: Vec<Vec<usize>>,
 }
 
 impl ReferenceLocations {
-	pub(super) fn from_material(material: &CodeIndexMaterial) -> Self {
+	pub(in crate::linkage) fn from_material(material: &CodeIndexMaterial) -> Self {
 		let mut ordered = Vec::new();
 		let mut by_file = Vec::with_capacity(material.files.len());
 		for (source_file, file) in material.files.iter().enumerate() {
@@ -49,17 +49,21 @@ impl ReferenceLocations {
 		Self { ordered, by_file }
 	}
 
-	pub(super) fn get(&self, reference_idx: usize) -> Option<ReferenceLocation> {
+	pub(in crate::linkage) fn get(&self, reference_idx: usize) -> Option<ReferenceLocation> {
 		self.ordered.get(reference_idx).copied()
 	}
 
-	pub(super) fn reference_idx(&self, source_file: usize, reference: usize) -> Option<usize> {
+	pub(in crate::linkage) fn reference_idx(
+		&self,
+		source_file: usize,
+		reference: usize,
+	) -> Option<usize> {
 		self.by_file.get(source_file)?.get(reference).copied()
 	}
 }
 
 impl<'a> LinkageQuery<'a> {
-	pub(super) fn new(
+	pub(in crate::linkage) fn new(
 		reference: &'a ReferenceRecord,
 		material: &'a CodeIndexMaterial,
 	) -> Option<Self> {
@@ -74,7 +78,7 @@ impl<'a> LinkageQuery<'a> {
 		)
 	}
 
-	pub(super) fn at(
+	pub(in crate::linkage) fn at(
 		reference: &'a ReferenceRecord,
 		material: &'a CodeIndexMaterial,
 		location: ReferenceLocation,
@@ -100,11 +104,11 @@ impl<'a> LinkageQuery<'a> {
 		})
 	}
 
-	pub(super) fn matches(&self, candidate: &LinkageCandidate<'_>) -> bool {
+	pub(in crate::linkage) fn matches(&self, candidate: &LinkageCandidate<'_>) -> bool {
 		self.strategy.matches(self, candidate)
 	}
 
-	pub(super) fn target_segments(&self) -> impl Iterator<Item = Segment<'a>> + '_ {
+	pub(in crate::linkage) fn target_segments(&self) -> impl Iterator<Item = Segment<'a>> + '_ {
 		self.target.as_view().segments()
 	}
 }

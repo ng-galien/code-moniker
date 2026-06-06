@@ -3,27 +3,27 @@ use std::time::{Duration, Instant};
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use rayon::prelude::*;
 
-use crate::linkage::candidate::CandidateCatalog;
-use crate::linkage::decision::ReferenceLinkageDecision;
-use crate::linkage::delta::{
+use crate::linkage::incremental::{LinkagePlanContext, execute_linkage_plan};
+use crate::linkage::incremental::{
 	LinkageRefreshImpact, LinkageRefreshShape, reference_id_remaps, symbol_id_remaps,
 };
-use crate::linkage::manifest::ManifestPolicy;
-use crate::linkage::method_indexer::MethodIndexer;
-use crate::linkage::metrics::LinkageMemoryMetrics;
-use crate::linkage::ordinals::{ReferenceOrdinal, ReferenceSet};
-use crate::linkage::planner::{LinkagePlanContext, execute_linkage_plan};
-use crate::linkage::query::ReferenceLocations;
-use crate::linkage::reference_resolver::ReferenceResolver;
+use crate::linkage::resolution::CandidateCatalog;
+use crate::linkage::resolution::ManifestPolicy;
+use crate::linkage::resolution::MethodIndexer;
+use crate::linkage::resolution::ReferenceLinkageDecision;
+use crate::linkage::resolution::ReferenceLocations;
+use crate::linkage::resolution::ReferenceResolver;
+use crate::linkage::resolution::SemanticLinkage;
 use crate::linkage::resolver::{LinkageRefreshTimings, LocalLinkage, TimedLinkageRefresh};
-use crate::linkage::semantic::SemanticLinkage;
-use crate::linkage::store::{LinkageStore, LinkageStoreRefresh, reference_indexes};
+use crate::linkage::storage::LinkageMemoryMetrics;
+use crate::linkage::storage::{LinkageStore, LinkageStoreRefresh, reference_indexes};
+use crate::linkage::storage::{ReferenceOrdinal, ReferenceSet};
 use crate::snapshot::{
 	CodeIndex, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, WorkspaceResult,
 };
 use crate::source::CodeIndexMaterial;
 
-pub(super) fn run_refresh_linkage_with_timings(
+pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 	linkage: &mut LocalLinkage,
 	previous: &LinkageSnapshot,
 	code_index: &CodeIndex,

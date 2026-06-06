@@ -4,17 +4,17 @@ use std::path::{Path, PathBuf};
 use code_moniker_core::lang::build_manifest::{Manifest, parse as parse_manifest};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::linkage::candidate::CandidateCatalog;
-use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope};
 use crate::linkage::language;
-use crate::linkage::ordinals::SymbolSet;
-use crate::linkage::query::LinkageQuery;
+use crate::linkage::resolution::CandidateCatalog;
+use crate::linkage::resolution::LinkageQuery;
+use crate::linkage::resolution::{ReferenceLinkageDecision, ResolutionScope};
+use crate::linkage::storage::SymbolSet;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 use crate::sources::SourceRoot;
 
 #[derive(Default)]
-pub(super) struct ManifestPolicy {
+pub(in crate::linkage) struct ManifestPolicy {
 	entries_by_root: FxHashMap<usize, Vec<ManifestEntry>>,
 	entry_by_file: FxHashMap<usize, ManifestEntryLocation>,
 }
@@ -34,7 +34,7 @@ struct ManifestEntryLocation {
 }
 
 impl ManifestPolicy {
-	pub(super) fn build(material: &CodeIndexMaterial) -> Self {
+	pub(in crate::linkage) fn build(material: &CodeIndexMaterial) -> Self {
 		let mut policy = Self::default();
 		for (root_idx, root) in material.source_catalog.sources.roots.iter().enumerate() {
 			let entries = manifest_entries_for_root(root);
@@ -46,7 +46,7 @@ impl ManifestPolicy {
 		policy
 	}
 
-	pub(super) fn evaluate_global_targets(
+	pub(in crate::linkage) fn evaluate_global_targets(
 		&self,
 		query: &LinkageQuery<'_>,
 		candidates: SymbolSet,
@@ -330,7 +330,7 @@ enum LinkPermission {
 }
 
 #[derive(Default)]
-pub(super) struct GlobalTargetPolicy {
+pub(in crate::linkage) struct GlobalTargetPolicy {
 	allowed: SymbolSet,
 	blocked: bool,
 	unknown: bool,
@@ -338,7 +338,7 @@ pub(super) struct GlobalTargetPolicy {
 }
 
 impl GlobalTargetPolicy {
-	pub(super) fn for_reference(
+	pub(in crate::linkage) fn for_reference(
 		self,
 		reference_idx: usize,
 		reference: &ReferenceRecord,
@@ -359,7 +359,7 @@ impl GlobalTargetPolicy {
 		}
 		if self.external_dependency {
 			return Some(ReferenceLinkageDecision::external(
-				crate::linkage::decision::ExternalOrigin::Dependency,
+				crate::linkage::resolution::ExternalOrigin::Dependency,
 				reference_idx,
 				reference.id.clone(),
 			));

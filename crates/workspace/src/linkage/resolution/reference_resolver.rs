@@ -1,19 +1,19 @@
-use crate::linkage::candidate::CandidateCatalog;
-use crate::linkage::decision::{ReferenceLinkageDecision, ResolutionScope, UnknownReason};
-use crate::linkage::manifest::ManifestPolicy;
-use crate::linkage::query::{LinkageQuery, ReferenceLocation};
-use crate::linkage::scope::{GlobalScopeResolver, LocalScopeResolver};
+use crate::linkage::resolution::CandidateCatalog;
+use crate::linkage::resolution::ManifestPolicy;
+use crate::linkage::resolution::{GlobalScopeResolver, LocalScopeResolver};
+use crate::linkage::resolution::{LinkageQuery, ReferenceLocation};
+use crate::linkage::resolution::{ReferenceLinkageDecision, ResolutionScope, UnknownReason};
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 
-pub(super) struct ReferenceResolver<'a> {
+pub(in crate::linkage) struct ReferenceResolver<'a> {
 	material: &'a CodeIndexMaterial,
 	local: LocalScopeResolver,
 	global: GlobalScopeResolver,
 }
 
 impl<'a> ReferenceResolver<'a> {
-	pub(super) fn new(material: &'a CodeIndexMaterial) -> Self {
+	pub(in crate::linkage) fn new(material: &'a CodeIndexMaterial) -> Self {
 		Self {
 			material,
 			local: LocalScopeResolver,
@@ -21,7 +21,7 @@ impl<'a> ReferenceResolver<'a> {
 		}
 	}
 
-	pub(super) fn resolve_reference(
+	pub(in crate::linkage) fn resolve_reference(
 		&self,
 		reference_idx: usize,
 		reference: &ReferenceRecord,

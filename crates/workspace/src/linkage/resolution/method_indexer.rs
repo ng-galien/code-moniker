@@ -1,26 +1,29 @@
 use std::collections::BTreeSet;
 
-use crate::linkage::candidate::CandidateCatalog;
-use crate::linkage::semantic::MethodTable;
+use crate::linkage::resolution::CandidateCatalog;
+use crate::linkage::resolution::MethodTable;
 use crate::snapshot::SourceId;
 use crate::source::CodeIndexMaterial;
 
 /// Builds the [`MethodTable`] and keeps it aligned with the generation-local
 /// symbol ordinal catalog.
-pub(super) struct MethodIndexer {
+pub(in crate::linkage) struct MethodIndexer {
 	methods: MethodTable,
 	file_source_ids: Vec<SourceId>,
 }
 
 impl MethodIndexer {
-	pub(super) fn new(material: &CodeIndexMaterial, candidates: &CandidateCatalog<'_>) -> Self {
+	pub(in crate::linkage) fn new(
+		material: &CodeIndexMaterial,
+		candidates: &CandidateCatalog<'_>,
+	) -> Self {
 		Self {
 			methods: MethodTable::build(material, candidates),
 			file_source_ids: file_source_ids(material),
 		}
 	}
 
-	pub(super) fn reindex(
+	pub(in crate::linkage) fn reindex(
 		&mut self,
 		material: &CodeIndexMaterial,
 		candidates: &CandidateCatalog<'_>,
@@ -32,7 +35,7 @@ impl MethodIndexer {
 		&self.methods
 	}
 
-	pub(super) fn methods(&self) -> &MethodTable {
+	pub(in crate::linkage) fn methods(&self) -> &MethodTable {
 		&self.methods
 	}
 }
