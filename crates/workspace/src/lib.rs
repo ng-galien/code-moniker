@@ -3,6 +3,7 @@ pub mod changes;
 pub mod code;
 pub mod environment;
 pub mod extract;
+pub mod gitignore;
 pub mod lang;
 pub mod lines;
 pub mod linkage;

@@ -6,11 +6,11 @@ use std::process::Command;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::code::{def_kind, is_navigable_def, last_name};
 use crate::environment::{self, ExtractContext};
+use crate::gitignore::GitignoreStack;
 use crate::snapshot::SymbolLocation;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -245,7 +245,7 @@ struct SourceVisibility {
 
 struct DeletedSourceRoot {
 	path: PathBuf,
-	gitignore: Gitignore,
+	gitignore: GitignoreStack,
 }
 
 impl<'scan> ChangeScan<'scan> {
@@ -298,7 +298,7 @@ impl DeletedSourceRoot {
 	fn new(path: &Path) -> Self {
 		let path = normalize_path(path);
 		Self {
-			gitignore: root_gitignore(&path),
+			gitignore: GitignoreStack::for_root(&path),
 			path,
 		}
 	}
@@ -307,11 +307,7 @@ impl DeletedSourceRoot {
 		let Ok(rel) = path.strip_prefix(&self.path) else {
 			return false;
 		};
-		!has_hidden_component(rel)
-			&& !self
-				.gitignore
-				.matched_path_or_any_parents(path, false)
-				.is_ignore()
+		!has_hidden_component(rel) && !self.gitignore.is_ignored(path, false)
 	}
 }
 
@@ -319,15 +315,6 @@ impl<'a> RelevantDiffs<'a> {
 	fn for_file(&self, path: &Path) -> Option<&'a FileDiff> {
 		self.by_path.get(&normalize_path(path)).copied()
 	}
-}
-
-fn root_gitignore(root: &Path) -> Gitignore {
-	let mut builder = GitignoreBuilder::new(root);
-	let ignore_file = root.join(".gitignore");
-	if ignore_file.is_file() {
-		let _ = builder.add(ignore_file);
-	}
-	builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
 fn has_hidden_component(path: &Path) -> bool {

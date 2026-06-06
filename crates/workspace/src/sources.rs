@@ -3,6 +3,7 @@ use std::path::Component;
 use std::path::{Path, PathBuf};
 
 use crate::extract;
+use crate::gitignore::GitignoreStack;
 use crate::lang::path_to_lang;
 use crate::tsconfig::{self, TsResolution};
 use crate::walk::{self, WalkedFile};
@@ -99,6 +100,7 @@ pub fn discover_files(
 		.first()
 		.expect("discover_scopes returns one scope for one root");
 	let abs_root = normalize_absolute(&scope.root.path)?;
+	let ignore_rules = GitignoreStack::for_root(&abs_root);
 	let mut source_files = Vec::new();
 	let mut seen = HashSet::new();
 	for file in files {
@@ -110,7 +112,7 @@ pub fn discover_files(
 			if seen.contains(&abs_path) {
 				break;
 			}
-			if explicit_file_is_ignored(&abs_root, &abs_path) {
+			if ignore_rules.is_ignored(&abs_path, false) {
 				continue;
 			}
 			let Some(walked) = walk::explicit_lang_file(&path) else {
@@ -215,57 +217,6 @@ fn normalize_absolute(path: &Path) -> anyhow::Result<PathBuf> {
 		}
 	}
 	Ok(out)
-}
-
-fn explicit_file_is_ignored(abs_root: &Path, abs_path: &Path) -> bool {
-	let Some(parent) = abs_path.parent() else {
-		return false;
-	};
-	let ignore_root = nearest_git_root(abs_root).unwrap_or_else(|| abs_root.to_path_buf());
-	let mut ignored = false;
-	for dir in dirs_between(&ignore_root, parent) {
-		for name in [".ignore", ".gitignore"] {
-			if name == ".gitignore" && nearest_git_root(&dir).is_none() {
-				continue;
-			}
-			let file = dir.join(name);
-			if !file.is_file() {
-				continue;
-			}
-			let mut builder = ignore::gitignore::GitignoreBuilder::new(&dir);
-			let _ = builder.add(&file);
-			let Ok(matcher) = builder.build() else {
-				continue;
-			};
-			let matched = matcher.matched_path_or_any_parents(abs_path, false);
-			if matched.is_ignore() {
-				ignored = true;
-			} else if matched.is_whitelist() {
-				ignored = false;
-			}
-		}
-	}
-	ignored
-}
-
-fn nearest_git_root(path: &Path) -> Option<PathBuf> {
-	path.ancestors()
-		.find(|ancestor| ancestor.join(".git").exists())
-		.map(Path::to_path_buf)
-}
-
-fn dirs_between(root: &Path, leaf: &Path) -> Vec<PathBuf> {
-	let mut dirs = Vec::new();
-	let mut current = Some(leaf);
-	while let Some(dir) = current {
-		dirs.push(dir.to_path_buf());
-		if dir == root {
-			break;
-		}
-		current = dir.parent();
-	}
-	dirs.reverse();
-	dirs
 }
 
 fn filter_file_candidates(root: &Path, file: &Path) -> Vec<PathBuf> {

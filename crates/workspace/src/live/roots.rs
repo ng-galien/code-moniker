@@ -1,11 +1,10 @@
 use std::path::{Component, Path, PathBuf};
 
-use ignore::Match;
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::event::{AccessKind, AccessMode, ModifyKind};
 use notify::{Event, EventKind};
 
 use super::model::{WorkspaceLiveEvent, WorkspaceWatchRoot, push_unique};
+use crate::gitignore::{GitignoreStack, is_ignored_dir_name};
 use crate::notes::notes_watch_targets_for_paths;
 use crate::path_util::{absolute_path, normalize_path};
 use code_moniker_core::lang::build_manifest::Manifest;
@@ -227,7 +226,7 @@ struct WatchedPathRoot {
 	ignored_paths: Vec<PathBuf>,
 	notes_path: Option<PathBuf>,
 	notes_dir: Option<PathBuf>,
-	gitignores: Vec<Gitignore>,
+	gitignore: GitignoreStack,
 }
 
 impl WatchedPathRoot {
@@ -246,7 +245,7 @@ impl WatchedPathRoot {
 		let notes_dir = notes_path
 			.as_ref()
 			.and_then(|path| path.parent().map(Path::to_path_buf));
-		let gitignores = build_gitignores(&path);
+		let gitignore = GitignoreStack::for_root(&path);
 
 		Self {
 			path,
@@ -254,57 +253,12 @@ impl WatchedPathRoot {
 			ignored_paths,
 			notes_path,
 			notes_dir,
-			gitignores,
+			gitignore,
 		}
 	}
 
 	fn matches_gitignore(&self, path: &Path) -> bool {
-		if !path.starts_with(&self.path) {
-			return false;
-		}
-		let is_dir = path.is_dir();
-		for gitignore in &self.gitignores {
-			if !path.starts_with(gitignore.path()) {
-				continue;
-			}
-			match gitignore.matched_path_or_any_parents(path, is_dir) {
-				Match::Ignore(_) => return true,
-				Match::Whitelist(_) => return false,
-				Match::None => {}
-			}
-		}
-		false
-	}
-}
-
-fn build_gitignores(root: &Path) -> Vec<Gitignore> {
-	let mut gitignores = Vec::new();
-	collect_gitignores(root, &mut gitignores);
-	gitignores.sort_by_key(|gitignore| std::cmp::Reverse(gitignore.path().components().count()));
-	gitignores
-}
-
-fn collect_gitignores(dir: &Path, out: &mut Vec<Gitignore>) {
-	let mut builder = GitignoreBuilder::new(dir);
-	let mut has_rules = false;
-	if let Ok(entries) = std::fs::read_dir(dir) {
-		for entry in entries.flatten() {
-			let path = entry.path();
-			let name = path.file_name().and_then(|n| n.to_str());
-			if path.is_dir() {
-				if !name.is_some_and(is_ignored_dir_name) {
-					collect_gitignores(&path, out);
-				}
-			} else if matches!(name, Some(".gitignore") | Some(".ignore")) {
-				let _ = builder.add(&path);
-				has_rules = true;
-			}
-		}
-	}
-	if has_rules {
-		if let Ok(gitignore) = builder.build() {
-			out.push(gitignore);
-		}
+		self.gitignore.is_ignored(path, path.is_dir())
 	}
 }
 
@@ -447,13 +401,6 @@ fn is_source_file(path: &Path) -> bool {
 
 fn is_manifest_file(path: &Path) -> bool {
 	Manifest::for_filename(path).is_some()
-}
-
-fn is_ignored_dir_name(name: &str) -> bool {
-	matches!(
-		name,
-		".code-moniker-cache" | ".git" | ".gradle" | "target" | "node_modules" | "build" | "dist"
-	)
 }
 
 fn coalesce_optional(
