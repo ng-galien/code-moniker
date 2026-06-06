@@ -3,10 +3,10 @@ use code_moniker_core::lang::{build_manifest::Manifest, kinds};
 use rayon::prelude::*;
 use rustc_hash::FxHashSet;
 
+use crate::linkage::binding::ReferenceLinkageDecision;
+use crate::linkage::catalog::LinkageQuery;
+use crate::linkage::catalog::{CandidateCatalog, LinkageCandidate};
 use crate::linkage::language::LanguageLinkageStrategy;
-use crate::linkage::resolution::LinkageQuery;
-use crate::linkage::resolution::ReferenceLinkageDecision;
-use crate::linkage::resolution::{CandidateCatalog, LinkageCandidate};
 use crate::snapshot::{ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 

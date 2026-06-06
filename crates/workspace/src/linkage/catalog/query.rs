@@ -1,7 +1,5 @@
 use code_moniker_core::core::moniker::{Moniker, Segment};
 
-use crate::linkage::language::{LanguageLinkageStrategy, language_strategy};
-use crate::linkage::resolution::LinkageCandidate;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 
@@ -16,7 +14,6 @@ pub(in crate::linkage) struct LinkageQuery<'a> {
 	pub(in crate::linkage) call_arity: Option<usize>,
 	pub(in crate::linkage) confidence: Option<&'a str>,
 	pub(in crate::linkage) source_file: usize,
-	strategy: &'static dyn LanguageLinkageStrategy,
 }
 
 #[derive(Clone, Copy)]
@@ -100,12 +97,7 @@ impl<'a> LinkageQuery<'a> {
 			call_arity: reference.call_arity,
 			confidence: reference.confidence.as_deref(),
 			source_file: location.source_file,
-			strategy: language_strategy(file.lang),
 		})
-	}
-
-	pub(in crate::linkage) fn matches(&self, candidate: &LinkageCandidate<'_>) -> bool {
-		self.strategy.matches(self, candidate)
 	}
 
 	pub(in crate::linkage) fn target_segments(&self) -> impl Iterator<Item = Segment<'a>> + '_ {

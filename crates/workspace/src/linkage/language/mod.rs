@@ -3,9 +3,9 @@ use code_moniker_core::lang::Lang;
 use code_moniker_core::lang::build_manifest::Manifest;
 use rustc_hash::FxHashSet;
 
-use crate::linkage::resolution::LinkageQuery;
-use crate::linkage::resolution::ReferenceLinkageDecision;
-use crate::linkage::resolution::{CandidateCatalog, LinkageCandidate};
+use crate::linkage::binding::ReferenceLinkageDecision;
+use crate::linkage::catalog::LinkageQuery;
+use crate::linkage::catalog::{CandidateCatalog, LinkageCandidate};
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 
@@ -31,6 +31,17 @@ pub(super) fn language_strategy(lang: Lang) -> &'static dyn LanguageLinkageStrat
 		Lang::Ts => &TS_STRATEGY,
 		Lang::Python | Lang::Go | Lang::Cs | Lang::Sql => &GENERIC_STRATEGY,
 	}
+}
+
+pub(super) fn matches_candidate(
+	query: &LinkageQuery<'_>,
+	candidate: &LinkageCandidate<'_>,
+) -> bool {
+	query
+		.material
+		.files
+		.get(query.source_file)
+		.is_some_and(|file| language_strategy(file.lang).matches(query, candidate))
 }
 
 pub(super) fn manifest_for_lang(lang: Lang) -> Option<Manifest> {

@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 use std::hash::Hash;
 
-use crate::linkage::resolution::LinkageQuery;
-use crate::linkage::resolution::{CandidateCatalog, query_keys};
-use crate::linkage::resolution::{ReferenceLinkageDecision, UnknownReason};
-use crate::linkage::storage::LinkageMemoryMetrics;
-use crate::linkage::storage::{
+use crate::linkage::binding::LinkageMemoryMetrics;
+use crate::linkage::binding::{ReferenceLinkageDecision, UnknownReason};
+use crate::linkage::catalog::LinkageQuery;
+use crate::linkage::catalog::{CandidateCatalog, query_keys};
+use crate::linkage::catalog::{
 	ReferenceOrdinal, ReferenceSet, SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet,
 };
 use crate::snapshot::{
@@ -83,7 +83,7 @@ impl LinkageStore {
 		identity: &LocalIdentityResolver,
 	) -> LinkageSnapshot {
 		LinkageSnapshot::from_report(
-			crate::linkage::resolution::project_decisions(
+			crate::linkage::binding::project_decisions(
 				&self.decisions,
 				references,
 				identity,
@@ -498,7 +498,7 @@ fn resolved_decisions_from_snapshot(
 		.filter_map(|(reference, targets)| {
 			reference_indexes.get(&reference).map(|reference_idx| {
 				ReferenceLinkageDecision::resolved(
-					crate::linkage::resolution::ResolutionScope::Global,
+					crate::linkage::binding::ResolutionScope::Global,
 					reference_idx.index(),
 					reference.clone(),
 					targets,

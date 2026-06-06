@@ -6,13 +6,13 @@ use code_moniker_core::lang::kinds;
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::linkage::language;
-use crate::linkage::resolution::CandidateCatalog;
-use crate::linkage::resolution::ReferenceLocations;
-use crate::linkage::resolution::{
+use crate::linkage::binding::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
-use crate::linkage::storage::{SymbolOrdinal, SymbolSet};
+use crate::linkage::catalog::CandidateCatalog;
+use crate::linkage::catalog::ReferenceLocations;
+use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
+use crate::linkage::language;
 use crate::snapshot::{ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 

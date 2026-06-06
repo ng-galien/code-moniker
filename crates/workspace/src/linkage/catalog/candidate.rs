@@ -2,11 +2,10 @@ use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, Segment};
 use code_moniker_core::lang::kinds;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::BTreeSet;
+use rustc_hash::FxHashMap;
 
-use crate::linkage::resolution::LinkageQuery;
-use crate::linkage::storage::{SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet};
+use crate::linkage::catalog::LinkageQuery;
+use crate::linkage::catalog::{SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet};
 use crate::source::CodeIndexMaterial;
 
 #[derive(Clone)]
@@ -59,40 +58,6 @@ impl<'a> CandidateCatalog<'a> {
 	) -> Option<Vec<Vec<u8>>> {
 		self.candidate(symbol).map(candidate_keys)
 	}
-}
-
-pub(in crate::linkage) fn local_symbols(
-	catalog: &CandidateCatalog<'_>,
-	query: &LinkageQuery<'_>,
-) -> SymbolSet {
-	matching_symbols(catalog, local_indexes(catalog.indexes(), query), query)
-}
-
-pub(in crate::linkage) fn global_symbols(
-	catalog: &CandidateCatalog<'_>,
-	query: &LinkageQuery<'_>,
-) -> SymbolSet {
-	matching_symbols(catalog, global_indexes(catalog, query), query)
-}
-
-pub(in crate::linkage) fn matches_any_source(
-	catalog: &CandidateCatalog<'_>,
-	query: &LinkageQuery<'_>,
-	source_files: &BTreeSet<usize>,
-) -> bool {
-	CandidateSourceMatcher::new(catalog, query, source_files).matches()
-}
-
-pub(in crate::linkage) fn matches_any_symbol(
-	catalog: &CandidateCatalog<'_>,
-	query: &LinkageQuery<'_>,
-	symbols: &SymbolSet,
-) -> bool {
-	symbols.iter().any(|symbol| {
-		catalog
-			.candidate(symbol)
-			.is_some_and(|candidate| query.matches(candidate))
-	})
 }
 
 pub(in crate::linkage) struct CandidateIndexes<'a> {
@@ -161,123 +126,17 @@ impl<'a> CandidateIndexes<'a> {
 			.get(&source_file)
 			.map(|keys| keys.keys().map(|key| key.as_slice()))
 	}
-}
 
-fn local_indexes(indexes: &CandidateIndexes<'_>, query: &LinkageQuery<'_>) -> SymbolSet {
-	let Some(source_candidates) = indexes.by_source_name.get(&query.source_file) else {
-		return SymbolSet::new();
-	};
-	let mut symbols = SymbolSet::new();
-	for_query_key(query, |key| {
-		if let Some(candidate_indexes) = source_candidates.get(key) {
-			for symbol in candidate_indexes.iter() {
-				symbols.insert(symbol);
-			}
-		}
-	});
-	symbols
-}
-
-fn global_indexes(catalog: &CandidateCatalog<'_>, query: &LinkageQuery<'_>) -> SymbolSet {
-	let mut symbols = SymbolSet::new();
-	for_query_key(query, |key| {
-		if let Some(candidate_indexes) = catalog.indexes().by_name.get(key) {
-			for symbol in candidate_indexes.iter() {
-				let Some(candidate) = catalog.candidate(symbol) else {
-					continue;
-				};
-				if candidate.source_file == query.source_file {
-					continue;
-				}
-				symbols.insert(symbol);
-			}
-		}
-	});
-	symbols
-}
-
-fn matching_symbols<'a>(
-	catalog: &CandidateCatalog<'a>,
-	indexes: SymbolSet,
-	query: &LinkageQuery<'_>,
-) -> SymbolSet {
-	indexes
-		.iter()
-		.filter_map(|symbol| {
-			catalog
-				.candidate(symbol)
-				.map(|candidate| (symbol, candidate))
-		})
-		.filter(|(_, candidate)| query.matches(candidate))
-		.map(|(symbol, _)| symbol)
-		.collect()
-}
-
-struct CandidateSourceMatcher<'a, 'q> {
-	catalog: &'a CandidateCatalog<'a>,
-	query: &'q LinkageQuery<'q>,
-	source_files: &'q BTreeSet<usize>,
-	seen: FxHashSet<SymbolOrdinal>,
-	found: bool,
-}
-
-impl<'a, 'q> CandidateSourceMatcher<'a, 'q> {
-	fn new(
-		catalog: &'a CandidateCatalog<'a>,
-		query: &'q LinkageQuery<'q>,
-		source_files: &'q BTreeSet<usize>,
-	) -> Self {
-		Self {
-			catalog,
-			query,
-			source_files,
-			seen: FxHashSet::default(),
-			found: false,
-		}
+	pub(in crate::linkage) fn symbols_by_key(&self, key: &[u8]) -> Option<&SymbolSet> {
+		self.by_name.get(key)
 	}
 
-	fn matches(mut self) -> bool {
-		if self.source_files.is_empty() {
-			return false;
-		}
-		for_query_key(self.query, |key| self.visit_key(key));
-		self.found
-	}
-
-	fn visit_key(&mut self, key: &[u8]) {
-		if self.found {
-			return;
-		}
-		for source_file in self.source_files {
-			self.visit_source_key(*source_file, key);
-			if self.found {
-				return;
-			}
-		}
-	}
-
-	fn visit_source_key(&mut self, source_file: usize, key: &[u8]) {
-		let Some(source_candidates) = self.catalog.indexes.by_source_name.get(&source_file) else {
-			return;
-		};
-		let Some(indexes) = source_candidates.get(key) else {
-			return;
-		};
-		for symbol in indexes.iter() {
-			if self.matches_symbol(symbol) {
-				self.found = true;
-				return;
-			}
-		}
-	}
-
-	fn matches_symbol(&mut self, symbol: SymbolOrdinal) -> bool {
-		if !self.seen.insert(symbol) {
-			return false;
-		}
-		self.catalog
-			.candidate(symbol)
-			.is_some_and(|candidate| self.query.matches(candidate))
+	pub(in crate::linkage) fn symbols_by_source_key(
+		&self,
+		source_file: usize,
+		key: &[u8],
+	) -> Option<&SymbolSet> {
+		self.by_source_name.get(&source_file)?.get(key)
 	}
 }
 

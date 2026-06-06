@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 use code_moniker_core::lang::build_manifest::{Manifest, parse as parse_manifest};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::linkage::binding::{ReferenceLinkageDecision, ResolutionScope};
+use crate::linkage::catalog::CandidateCatalog;
+use crate::linkage::catalog::LinkageQuery;
+use crate::linkage::catalog::SymbolSet;
 use crate::linkage::language;
-use crate::linkage::resolution::CandidateCatalog;
-use crate::linkage::resolution::LinkageQuery;
-use crate::linkage::resolution::{ReferenceLinkageDecision, ResolutionScope};
-use crate::linkage::storage::SymbolSet;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 use crate::sources::SourceRoot;
@@ -359,7 +359,7 @@ impl GlobalTargetPolicy {
 		}
 		if self.external_dependency {
 			return Some(ReferenceLinkageDecision::external(
-				crate::linkage::resolution::ExternalOrigin::Dependency,
+				crate::linkage::binding::ExternalOrigin::Dependency,
 				reference_idx,
 				reference.id.clone(),
 			));

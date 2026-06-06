@@ -1,4 +1,4 @@
-use crate::linkage::storage::{SymbolOrdinalCatalog, SymbolSet};
+use crate::linkage::catalog::{SymbolOrdinalCatalog, SymbolSet};
 use crate::snapshot::{
 	ExternalReference, LinkageEdge, LinkageSnapshotReport, ReferenceId, ReferenceRecord,
 	ResourceGeneration, SymbolId, UnresolvedReference,

@@ -1,8 +1,8 @@
-use crate::linkage::resolution::CandidateCatalog;
-use crate::linkage::resolution::ManifestPolicy;
-use crate::linkage::resolution::{GlobalScopeResolver, LocalScopeResolver};
-use crate::linkage::resolution::{LinkageQuery, ReferenceLocation};
-use crate::linkage::resolution::{ReferenceLinkageDecision, ResolutionScope, UnknownReason};
+use crate::linkage::binding::{ReferenceLinkageDecision, ResolutionScope, UnknownReason};
+use crate::linkage::catalog::CandidateCatalog;
+use crate::linkage::catalog::{LinkageQuery, ReferenceLocation};
+use crate::linkage::resolve::ManifestPolicy;
+use crate::linkage::resolve::{GlobalScopeResolver, LocalScopeResolver};
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
-use crate::linkage::resolution::CandidateCatalog;
-use crate::linkage::resolution::MethodTable;
+use crate::linkage::catalog::CandidateCatalog;
+use crate::linkage::resolve::MethodTable;
 use crate::snapshot::SourceId;
 use crate::source::CodeIndexMaterial;
 

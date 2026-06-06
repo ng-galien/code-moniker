@@ -3,21 +3,19 @@ use std::time::{Duration, Instant};
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use rayon::prelude::*;
 
-use crate::linkage::incremental::{LinkagePlanContext, execute_linkage_plan};
-use crate::linkage::incremental::{
-	LinkageRefreshImpact, LinkageRefreshShape, reference_id_remaps, symbol_id_remaps,
-};
-use crate::linkage::resolution::CandidateCatalog;
-use crate::linkage::resolution::ManifestPolicy;
-use crate::linkage::resolution::MethodIndexer;
-use crate::linkage::resolution::ReferenceLinkageDecision;
-use crate::linkage::resolution::ReferenceLocations;
-use crate::linkage::resolution::ReferenceResolver;
-use crate::linkage::resolution::SemanticLinkage;
-use crate::linkage::resolver::{LinkageRefreshTimings, LocalLinkage, TimedLinkageRefresh};
-use crate::linkage::storage::LinkageMemoryMetrics;
-use crate::linkage::storage::{LinkageStore, LinkageStoreRefresh, reference_indexes};
-use crate::linkage::storage::{ReferenceOrdinal, ReferenceSet};
+use crate::linkage::binding::LinkageMemoryMetrics;
+use crate::linkage::binding::ReferenceLinkageDecision;
+use crate::linkage::binding::{LinkageStore, LinkageStoreRefresh, reference_indexes};
+use crate::linkage::catalog::CandidateCatalog;
+use crate::linkage::catalog::ReferenceLocations;
+use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
+use crate::linkage::change::{BindingReadModel, EditedGraph, RebindScope};
+use crate::linkage::change::{LinkageRefreshImpact, LinkageRefreshShape};
+use crate::linkage::resolve::ManifestPolicy;
+use crate::linkage::resolve::MethodIndexer;
+use crate::linkage::resolve::ReferenceResolver;
+use crate::linkage::resolve::SemanticLinkage;
+use crate::linkage::{LinkageRefreshTimings, LocalLinkage, TimedLinkageRefresh};
 use crate::snapshot::{
 	CodeIndex, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, WorkspaceResult,
 };
@@ -273,16 +271,20 @@ fn refresh_incremental_linkage(
 ) {
 	let reference_index_map = reference_indexes(&input.index.references);
 	let plan_timer = Instant::now();
-	store.rebase_reference_ordinals(reference_index_map, reference_id_remaps(&input.impact));
+	store.rebase_reference_ordinals(reference_index_map, input.impact.references().id_remaps());
 	store.ensure_resolved_target_index(input.material);
-	let execution = execute_linkage_plan(LinkagePlanContext {
-		store,
-		references: &input.index.references,
-		material: input.material,
-		candidates,
-		reference_indexes: &store.indexes.reference_indexes,
-		impact: &input.impact,
-	});
+	let execution = RebindScope::plan(
+		BindingReadModel {
+			store,
+			reference_indexes: &store.indexes.reference_indexes,
+		},
+		EditedGraph {
+			references: &input.index.references,
+			material: input.material,
+			candidates,
+		},
+		&input.impact,
+	);
 	timings.plan_invalidation = plan_timer.elapsed();
 	timings.stale_refs = execution.stale_references().len() as usize;
 	let changed_reference_indexes = stale_reference_indexes(execution.stale_references());
@@ -298,7 +300,7 @@ fn refresh_incremental_linkage(
 		index_generation: input.index.generation,
 		stale_references: execution.stale_references(),
 		changed_decisions: changed,
-		symbol_id_remaps: symbol_id_remaps(&input.impact),
+		symbol_id_remaps: input.impact.definitions().id_remaps(),
 		references: &input.index.references,
 		material: input.material,
 		candidates,

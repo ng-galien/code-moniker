@@ -2,14 +2,14 @@ use std::time::Instant;
 
 use rayon::prelude::*;
 
-use crate::linkage::resolution::CandidateCatalog;
-use crate::linkage::resolution::ManifestPolicy;
-use crate::linkage::resolution::MethodIndexer;
-use crate::linkage::resolution::ReferenceLocations;
-use crate::linkage::resolution::ReferenceResolver;
-use crate::linkage::resolution::{MethodTable, SemanticLinkage};
-use crate::linkage::resolver::{LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
-use crate::linkage::storage::LinkageStore;
+use crate::linkage::binding::LinkageStore;
+use crate::linkage::catalog::CandidateCatalog;
+use crate::linkage::catalog::ReferenceLocations;
+use crate::linkage::resolve::ManifestPolicy;
+use crate::linkage::resolve::MethodIndexer;
+use crate::linkage::resolve::ReferenceResolver;
+use crate::linkage::resolve::{MethodTable, SemanticLinkage};
+use crate::linkage::{LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
 use crate::snapshot::{CodeIndex, ResourceGeneration, WorkspaceResult};
 use crate::source::CodeIndexMaterial;
 
