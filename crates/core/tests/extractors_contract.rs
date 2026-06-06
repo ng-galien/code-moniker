@@ -458,6 +458,41 @@ fn rust_pub_crate_type_is_not_public_visibility() {
 }
 
 #[test]
+fn rust_common_std_methods_fold_and_contains_are_external() {
+	let source = r#"
+fn normalize(values: Vec<String>) -> bool {
+	let total = values.iter().fold(0usize, |sum, value| sum + value.len());
+	values.contains(&total.to_string())
+}
+"#;
+	let graph = lang::rs::Lang::extract(
+		"src/lib.rs",
+		source,
+		&anchor(),
+		false,
+		&<lang::rs::Lang as LangExtractor>::Presets::default(),
+	);
+	let refs = graph
+		.refs()
+		.filter(|reference| reference.kind == b"method_call")
+		.map(|reference| (render(&reference.target), reference.confidence.clone()))
+		.collect::<Vec<_>>();
+
+	assert!(
+		refs.iter().any(|(target, confidence)| {
+			confidence == b"external" && target.contains("/method:fold")
+		}),
+		"fold should be classified as a common external std method: {refs:#?}"
+	);
+	assert!(
+		refs.iter().any(|(target, confidence)| {
+			confidence == b"external" && target.contains("/method:contains")
+		}),
+		"contains should be classified as a common external std method: {refs:#?}"
+	);
+}
+
+#[test]
 fn rejects_unknown_expectation_fields() {
 	let spec_path = Path::new("bad.expect.toml");
 	let value = r#"
