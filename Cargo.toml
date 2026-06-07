@@ -4,7 +4,6 @@ members = [
 	"crates/core",
 	"crates/workspace",
 	"crates/cli",
-	"crates/pg",
 ]
 
 [workspace.package]
@@ -19,7 +18,6 @@ homepage      = "https://github.com/ng-galien/code-moniker"
 code-moniker-core = { path = "crates/core", version = "0.3.0" }
 code-moniker-workspace = { path = "crates/workspace", version = "0.3.0" }
 
-pgrx      = { version = "0.18" }
 serde     = { version = "1", features = ["derive"] }
 clap      = { version = "4", features = ["derive", "env"] }
 anyhow    = "1"

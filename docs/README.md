@@ -1,8 +1,7 @@
 # Documentation
 
 This tree is organized by task. Start with the surface you want to use,
-then drop into the reference pages only when you need exact grammar or SQL
-details.
+then drop into the reference pages only when you need exact grammar details.
 
 ## CLI
 
@@ -18,19 +17,10 @@ details.
 | Discover supported language tags, kinds, and shapes | [Discovery](cli/langs.md) |
 | Connect `check` to hooks, pre-commit, or CI | [Agent harness](cli/agent-harness.md) |
 
-## PostgreSQL
-
-| Need | Page |
-| ---- | ---- |
-| Create tables, populate graphs, and query them | [Usage](postgres/usage.md) |
-| Look up SQL types, functions, operators, and indexes | [Reference](postgres/reference.md) |
-| Validate declarative graph JSON | [Declare schema](postgres/declare-schema.json) |
-
 ## Design
 
 | Need | Page |
 | ---- | ---- |
-| Understand the model and extraction contract | [Spec](design/spec.md) |
 | Understand moniker URI grammar and matching | [Moniker URI](design/moniker-uri.md) |
 
 ## Project

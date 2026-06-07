@@ -1,15 +1,15 @@
 # Contributing to `code-moniker`
 
-Build, test, and extend the project. The conceptual model and SQL
-surface are documented in the [spec](docs/design/spec.md).
+Build, test, and extend the project. The moniker identity format is documented
+in [docs/design/moniker-uri.md](docs/design/moniker-uri.md).
 
 ## Layout
 
-Cargo workspace, three crates published independently:
+Cargo workspace, three crates:
 
-- `code-moniker-core` — pure-Rust foundation (core, lang, declare). No pgrx.
+- `code-moniker-core` — pure-Rust foundation, model, and language extractors.
+- `code-moniker-workspace` — reusable workspace scan, cache, linkage, changes, and read models.
 - `code-moniker` — standalone CLI / linter (`cargo install code-moniker`).
-- `code-moniker-pg` — pgrx cdylib (PostgreSQL extension).
 
 ```
 Cargo.toml                  workspace manifest
@@ -23,29 +23,18 @@ crates/
     examples/
       bench_codegraph.rs    CodeGraph add_def / add_ref scaling bench
       bench_extract.rs      full extractor on a real file
+  workspace/                reusable workspace engine
+    src/
+      source/               source catalog and content loading
+      code/                 graph indexing
+      linkage/              cross-file linkage indexes and binding store
+      registry/             runtime and local workspace registry
   cli/                      code-moniker (binary + lib)
     src/
       lib.rs main.rs args.rs check/ dir.rs extract.rs format.rs
       lang.rs lines.rs predicate.rs walk.rs
     tests/
       cli_e2e.rs cli_functional.rs
-  pg/                       code-moniker-pg
-    Cargo.toml              [lib] crate-type = ["cdylib", "rlib"]
-    code_moniker.control    extension manifest (filename = SQL extension name)
-    src/
-      lib.rs                pgrx::pg_module_magic!
-      moniker/              moniker SQL type + opclasses
-      code_graph/           code_graph SQL type + accessors
-      extract.rs            extract_<lang> SQL entries
-      build.rs              extract_cargo / extract_package_json / ...
-pgtap/
-  run.sh                    pgTAP harness against the pgrx-managed PG17
-  sql/                      pgTAP test files
-scripts/
-  dogfood/
-    run.sh                  ingest|baseline|check subcommands
-    panel.sh                pinned panel of representative open-source projects
-    baselines.tsv           regression floors
 ```
 
 Prefer small files with one responsibility and a clear suffix. Some legacy
@@ -56,29 +45,10 @@ the code under test.
 ## Workflow
 
 ```sh
-cargo check  --workspace --exclude code-moniker-pg --all-targets       # CLI + core
-cargo test   --workspace --exclude code-moniker-pg                     # unit + integration
-cargo clippy --workspace --exclude code-moniker-pg --all-targets --no-deps -- -D warnings
-cargo check  -p code-moniker-pg --features pg17                        # FFI / lifetime check on pg
-cargo clippy -p code-moniker-pg --features pg17 --no-deps -- -D warnings
-cargo pgrx install --manifest-path crates/pg/Cargo.toml --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config
-./pgtap/run.sh                                                          # pgTAP suite, ~5s
-./scripts/dogfood/run.sh ingest --only <project>                        # scaling validation
+cargo check  --workspace --all-targets
+cargo test   --workspace
+cargo clippy --workspace --all-targets --no-deps -- -D warnings
 cargo arch-check                                                        # workspace-wide rule lint
-```
-
-Initial pgrx setup (one-time, ~15 min):
-
-```sh
-cargo install --locked cargo-pgrx
-cargo pgrx init --pg17 download
-```
-
-pgTAP install against the pgrx PG17 (one-time):
-
-```sh
-git clone --depth 1 https://github.com/theory/pgtap.git /tmp/pgtap-build
-PG_CONFIG=$HOME/.pgrx/17.9/pgrx-install/bin/pg_config make -C /tmp/pgtap-build install
 ```
 
 ## Pre-commit hook
@@ -98,20 +68,11 @@ Project formatting convention: `hard_tabs = true` (`rustfmt.toml`).
 
 Cycle: red test → minimal impl → green.
 
-- **Pure-Rust**: `cargo test --workspace --exclude code-moniker-pg` for
-  the `code_moniker_core` lib (core / lang / declare) plus the CLI.
-  Tests inline in `#[cfg(test)] mod tests` next to the code under test.
-- **SQL surface**: `code-moniker-pg` is tested via **pgTAP**, files in
-  `pgtap/sql/*.sql`, runner `./pgtap/run.sh` against the pgrx-managed
-  PG17 instance. No `pgrx-tests` / `#[pg_test]`.
-- **Iteration loop**: `cargo check -p code-moniker-pg --features pg17`
-  before `cargo pgrx install`. The pgTAP runner does NOT reinstall the
-  extension — install first.
+- **Rust workspace**: `cargo test --workspace` covers the core,
+  workspace, and CLI crates. Tests live inline in `#[cfg(test)] mod tests`
+  next to focused units, with CLI integration tests under `crates/cli/tests/`.
 - **Cross-crate visibility**: items in `code_moniker_core` consumed by
-  the CLI or PG crates must be `pub` (not `pub(crate)`). Canonical
-  examples: `core::moniker::encoding` constants (`VERSION`,
-  `HEADER_FIXED_LEN`, `read_u16`, `write_u16`),
-  `Moniker::from_canonical_bytes`, `MonikerView::from_canonical_bytes`.
+  the workspace or CLI crates must be `pub` (not `pub(crate)`).
 
 ## Benchmarks
 
@@ -119,9 +80,6 @@ Cycle: red test → minimal impl → green.
 cargo run --release -p code-moniker-core --example bench_codegraph
 cargo run --release -p code-moniker-core --example bench_extract
 ```
-
-Dogfood runner clones the panel into `./dogfood/` (gitignored) on first
-use; reuses on subsequent runs unless `--reset` is passed.
 
 ## Adding a language
 
@@ -141,39 +99,14 @@ A new extractor under `crates/core/src/lang/<lang>/` mirrors the `ts/` skeleton:
   lookup tables. Use `RefAttrs { ..RefAttrs::default() }` when emitting refs;
   use `add_ref_attrs` when confidence, alias, binding, or receiver hints are
   known.
-- Optional `build.rs` (manifest parser yielding `Vec<Dep>` consumed by
-  `crates/pg/src/build.rs::extract_<system>`).
+- Optional manifest parser yielding `Vec<Dep>` for CLI and workspace manifest
+  commands.
 
 Adding a kind or visibility requires updating the trait constants
-**and** `docs/postgres/declare-schema.json` (enforced by the schema-sync test
-in `crates/core/src/lang/mod.rs`).
-
-Wire the SQL surface in `crates/pg/src/extract.rs` (`#[pg_extern] fn
-extract_<lang>(...)`); add a pgTAP file under `pgtap/sql/` and a panel
-entry to `scripts/dogfood/panel.sh`.
+and the tests that assert language discovery output.
 
 The allowed kinds and visibilities per language are enumerated in
-`crates/core/src/lang/<lang>/mod.rs` (the `LangExtractor` trait
-constants) and mirrored in `docs/postgres/declare-schema.json`.
-
-## pgrx 0.18 gotchas
-
-`moniker` ships bytes as a raw varlena, not cbor. Uses
-`#[bikeshed_postgres_type_manually_impl_from_into_datum]` with the
-five impls (`IntoDatum`, `FromDatum`, `BoxRet`, `UnboxDatum`, `ArgAbi`)
-written by hand. Reference shape: `pgrx-macros-0.18.0/src/lib.rs:902-973`.
-Varlena helpers: `pgrx::set_varsize_4b`, `pgrx::varlena_to_byte_slice`,
-`pg_sys::pg_detoast_datum_packed`.
-
-**GIN bulk-build trap.** `rust_regtypein("X")` raises `type "X" does not
-exist` under restricted search_path. Cache the OID in `OnceLock` and
-look it up via `get_extension_oid` → `get_extension_schema` →
-`get_namespace_name` → `regtypein("schema.X")`. See `moniker_type_oid`
-in `crates/pg/src/moniker/mod.rs`.
-
-**Adding a `#[pg_extern]` arg without breaking callers**: wrap the new
-param in `pgrx::default!(T, "sql_literal")`. Opt in via named arg
-(`fn extract_rust(..., deep := true)`).
+`crates/core/src/lang/<lang>/mod.rs` (the `LangExtractor` trait constants).
 
 ## License
 

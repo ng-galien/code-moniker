@@ -86,9 +86,8 @@ runs were around 7-8 s.
 
 ## Cache (`--cache <DIR>`)
 
-The cache stores `(path, mtime, size, anchor) → encoded graph` on
-disk. Same encoding as the PG extension's `code_graph` Datum (single
-source of truth: `core::code_graph::encoding`).
+The cache stores `(path, mtime, size, anchor) -> encoded graph` on
+disk. The single source of truth is `core::code_graph::encoding`.
 
 Measured on date-fns (1410 ts files, M1, warm CPU cache, best of 3):
 
@@ -149,6 +148,6 @@ feature or Instruments/heaptrack rather than guessing from record counts.
 
 ```sh
 cargo build --release -p code-moniker --bin code-moniker
-./scripts/dogfood/run.sh ingest --reset # clones the panel into ./dogfood/
-time ./target/release/code-moniker check dogfood/ts/date-fns
+git clone --depth 1 https://github.com/date-fns/date-fns.git /tmp/date-fns
+time ./target/release/code-moniker check /tmp/date-fns
 ```

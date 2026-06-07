@@ -8,7 +8,6 @@ anyhow = "1"
 clap = "4"
 common-model = { path = "../common-model" }
 insta = "1"
-pgrx = "0.12"
 proptest = "1"
 ratatui = "0.29"
 roxmltree = "0.20"

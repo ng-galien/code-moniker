@@ -16,19 +16,9 @@ text_mini_parser_call = """
 """
 
 [[refs.where]]
-id      = "core-no-pgrx"
-expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
-message = "Module `core` is parser-agnostic by contract; pgrx belongs to the `code-moniker-pg` crate."
-
-[[refs.where]]
 id      = "core-no-tree-sitter"
 expr    = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:tree_sitter/**'"
 message = "Module `core` is parser-agnostic; tree-sitter belongs under `crates/core/src/lang/`."
-
-[[refs.where]]
-id      = "lang-extractors-isolated"
-expr    = "$lang AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
-message = "Per-language extractors are pure Rust; pgrx belongs to the `code-moniker-pg` crate."
 
 [[rust.fn.where]]
 id       = "tree-sitter-extractor-no-text-mini-parser"

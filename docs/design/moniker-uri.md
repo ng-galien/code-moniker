@@ -43,13 +43,8 @@ suffix identifies the canonical typed moniker profile and must not
 encode the final kind — a moniker is a heterogeneous path, so
 `<base>+class://...` is redundant.
 
-The scheme is configured via the Postgres GUC `code_moniker.scheme`
-(default `code+moniker://`). The CLI accepts `--scheme <SCHEME>`
-with the same default.
-
-```sql
-ALTER DATABASE myapp SET code_moniker.scheme = 'myapp+moniker://';
-```
+The CLI accepts `--scheme <SCHEME>` to override the default
+`code+moniker://` scheme.
 
 ## Project regime / Language regime
 
@@ -99,13 +94,12 @@ predicates over binding columns at query time.
 
 Enum values and matching matrix: see [binding semantics](spec.md#binding-semantics) in the spec.
 
-## Operators
+## Matching
 
-The URI grammar feeds five operators: `=` (byte-strict equality),
-`?=` (`bind_match`, cross-file resolution), `<@` / `@>` (byte-prefix
-containment), `||` (child composition by typed segment). Conceptual
-semantics: [spec operators](spec.md#operators). SQL signatures:
-[SQL reference operators](../postgres/reference.md#operators).
+The URI grammar feeds identity and hierarchy matching: byte-strict equality
+on the full path, prefix containment for ancestor/descendant checks, and
+cross-file binding where refs and defs share the same project, parent path,
+and last segment name.
 
 ## Compact URI
 

@@ -1,7 +1,7 @@
 # Project-specific rules overlay. Merged on top of the embedded preset by
 # rule id (same id → replace, new id → append).
 #
-# Workspace layout: `crates/{core,cli,pg}/src/...`. A file at
+# Workspace layout: `crates/{core,cli,workspace}/src/...`. A file at
 # `crates/core/src/lang/ts/walker.rs` is scanned from the workspace root
 # and encoded as
 # `dir:crates/dir:core/dir:src/dir:lang/dir:ts/module:walker`.
@@ -13,7 +13,6 @@
 crate_core = "moniker ~ '**/dir:crates/dir:core/dir:src/**'"
 crate_workspace = "moniker ~ '**/dir:crates/dir:workspace/dir:src/**'"
 crate_cli  = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
-crate_pg   = "moniker ~ '**/dir:crates/dir:pg/dir:src/**'"
 workspace_public_boundary_target = """
   target ~ '**/external_pkg:code_moniker_workspace'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:LocalWorkspaceRegistry'
@@ -35,7 +34,7 @@ workspace_live_public_contract_target = """
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
 example           = "moniker ~ '**/dir:examples/**'"
-rust_production_source = "moniker ~ '**/dir:crates/dir:/^(cli|core|pg|workspace)$/dir:src/**'"
+rust_production_source = "moniker ~ '**/dir:crates/dir:/^(cli|core|workspace)$/dir:src/**'"
 
 [exclude]
 uris = [
@@ -59,24 +58,9 @@ expr    = "$crate_core AND kind = 'imports_symbol' => NOT target ~ '**/external_
 message = "`code-moniker-core` is the foundation library; it must not depend on the CLI crate."
 
 [[refs.where]]
-id      = "core-crate-no-pg"
-expr    = "$crate_core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
-message = "`code-moniker-core` is shared by CLI and PG; it must not depend on the PostgreSQL extension crate."
-
-[[refs.where]]
 id      = "workspace-crate-no-cli"
 expr    = "$crate_workspace AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
 message = "`code-moniker-workspace` is a reusable workspace engine; it must not depend on the CLI crate."
-
-[[refs.where]]
-id      = "workspace-crate-no-pg"
-expr    = "$crate_workspace AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
-message = "`code-moniker-workspace` is shared by CLI/TUI and future MCP adapters; it must not depend on the PostgreSQL extension crate."
-
-[[refs.where]]
-id      = "cli-no-pg"
-expr    = "$crate_cli AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
-message = "`cli` is the standalone binary; importing from `code-moniker-pg` pulls pgrx into the cli build."
 
 [[refs.where]]
 id        = "cli-consumes-workspace-public-boundaries"
@@ -135,11 +119,6 @@ Workspace live policy owns watch root construction, event classification, and re
 CLI/TUI/MCP adapters may run the watcher and react to public live events, but they must not
 consume classifier internals or helper functions that would duplicate workspace policy.
 """
-
-[[refs.where]]
-id      = "pg-no-cli"
-expr    = "$crate_pg AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
-message = "`code-moniker-pg` is the PostgreSQL extension; it must not depend on CLI/TUI code."
 
 # ─── Naming hygiene per layer ────────────────────────────────────────
 # These extend / refine the embedded preset that already enforces

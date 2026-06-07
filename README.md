@@ -12,16 +12,11 @@
 [![crates.io](https://img.shields.io/crates/v/code-moniker-core.svg?label=code-moniker-core)](https://crates.io/crates/code-moniker-core)
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 [![Rust](https://img.shields.io/badge/rust-1.86%2B-orange)](https://www.rust-lang.org)
-[![pgrx](https://img.shields.io/badge/pgrx-0.18-darkgreen)](https://github.com/pgcentralfoundation/pgrx)
-[![PostgreSQL](https://img.shields.io/badge/postgresql-17-336791)](https://www.postgresql.org)
 
 `code-moniker` extracts a symbol graph from source code.
 
-It turns source files into stable symbol identities, then exposes the
-same graph through two surfaces:
-
-- a CLI for inspecting code and enforcing architecture rules in hooks or CI;
-- a PostgreSQL extension for storing and querying symbol graphs with SQL.
+It turns source files into stable symbol identities for inspecting code and
+enforcing architecture rules in hooks or CI.
 
 Supported languages: TypeScript / JavaScript / TSX / JSX, Rust, Java,
 Python, Go, C#, SQL, and PL/pgSQL.
@@ -57,23 +52,19 @@ flowchart LR
 
   subgraph Tools["Tools"]
     C["CLI<br/>extract, check, manifest"]
-    P["PostgreSQL extension<br/>moniker + code_graph types,<br/>SQL extractors, indexes"]
   end
 
   subgraph Uses["Uses"]
     I["Inspection<br/>tree, json, tsv"]
     R["Architecture rules<br/>hooks, CI, agent harnesses"]
-    Q["SQL queries<br/>storage, joins, indexed lookup"]
   end
 
   S --> E --> G
   M --> D
   G --> C
-  G --> P
   D --> C
   C --> I
   C --> R
-  P --> Q
 
   classDef input fill:#eef6ff,stroke:#2f6f9f,color:#0b253a
   classDef model fill:#f1f8f4,stroke:#3a7d4f,color:#0f2a18
@@ -81,8 +72,8 @@ flowchart LR
   classDef use fill:#f7f1ff,stroke:#6f4aa1,color:#211232
   class S,M input
   class E,G,D model
-  class C,P tool
-  class I,R,Q use
+  class C tool
+  class I,R use
 ```
 
 First useful commands:
@@ -280,32 +271,6 @@ in doubt:
 code-moniker extract src/order.ts --format json
 ```
 
-## PostgreSQL extension
-
-The extension installs native `moniker` and `code_graph` types, extractors,
-accessors, and indexes. It owns no application tables.
-
-```sql
-CREATE EXTENSION code_moniker;
-SET search_path = code_moniker, public;
-
-SELECT extract_typescript(
-  'src/util.ts',
-  'export class Util { run() { return 1; } }',
-  'code+moniker://app'::moniker
-);
-```
-
-Example indexed query:
-
-```sql
-SELECT id
-FROM module
-WHERE graph_root(graph) <@ 'code+moniker://app/lang:ts/dir:domain'::moniker;
-```
-
-Install and usage details live in the PostgreSQL docs.
-
 ## Documentation
 
 Start with the page that matches the task:
@@ -316,10 +281,7 @@ Start with the page that matches the task:
 | Lint a repository with rules | [Check](docs/cli/check.md) |
 | Write rule expressions | [Rule DSL](docs/cli/check-dsl.md) |
 | Wire checks into agent hooks or CI | [Agent harness](docs/cli/agent-harness.md) |
-| Query graphs in PostgreSQL | [Postgres usage](docs/postgres/usage.md) |
-| Look up SQL functions and operators | [Postgres reference](docs/postgres/reference.md) |
 | Understand moniker URI syntax | [Moniker URI](docs/design/moniker-uri.md) |
-| Read the full model | [Design spec](docs/design/spec.md) |
 | Build or contribute | [Contributing](CONTRIBUTING.md) |
 
 Full index: [docs/](docs/README.md).

@@ -1548,7 +1548,7 @@ fn check_project_file_filter_keeps_absolute_tool_paths_project_anchored() {
 	write_under(
 		dir.path(),
 		"crates/cli/src/probe.rs",
-		"use code_moniker_pg::declare::DeclareSpec;\n",
+		"use code_moniker_forbidden::declare::DeclareSpec;\n",
 	);
 	let rules_path = dir.path().join("rules.toml");
 	std::fs::write(
@@ -1560,9 +1560,9 @@ fn check_project_file_filter_keeps_absolute_tool_paths_project_anchored() {
 		cli = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 
 		[[refs.where]]
-		id      = "cli-no-pg"
-		expr    = "$cli AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_pg/**'"
-		message = "CLI must not import PG."
+		id      = "cli-no-forbidden-adapter"
+		expr    = "$cli AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:code_moniker_forbidden/**'"
+		message = "CLI must not import forbidden adapters."
 		"#,
 	)
 	.unwrap();
@@ -1582,7 +1582,7 @@ fn check_project_file_filter_keeps_absolute_tool_paths_project_anchored() {
 		Exit::NoMatch,
 		"absolute tool path should violate: {out}"
 	);
-	assert!(out.contains("refs.cli-no-pg"), "{out}");
+	assert!(out.contains("refs.cli-no-forbidden-adapter"), "{out}");
 	assert!(
 		out.contains("dir:crates/dir:cli/dir:src/module:probe"),
 		"source moniker must stay project-relative: {out}"
@@ -1702,7 +1702,7 @@ fn check_project_cross_layer_import_violation() {
 	std::fs::create_dir_all(dir.path().join("src/core")).unwrap();
 	std::fs::write(
 		dir.path().join("src/core/bad.rs"),
-		"use pgrx::prelude::*;\npub fn foo() {}\n",
+		"use forbidden_adapter::prelude::*;\npub fn foo() {}\n",
 	)
 	.unwrap();
 	let rules_path = dir.path().join("rules.toml");
@@ -1713,8 +1713,8 @@ fn check_project_cross_layer_import_violation() {
 		core = "moniker ~ '**/dir:src/dir:core/**'"
 
 		[[refs.where]]
-		id   = "core-no-pgrx"
-		expr = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:pgrx/**'"
+		id   = "core-no-forbidden-adapter"
+		expr = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:forbidden_adapter/**'"
 		"#,
 	)
 	.unwrap();
@@ -1725,8 +1725,12 @@ fn check_project_cross_layer_import_violation() {
 		"--rules",
 		rules_path.to_str().unwrap(),
 	]);
-	assert_eq!(exit, Exit::NoMatch, "core/bad.rs imports pgrx: {out}");
-	assert!(out.contains("core-no-pgrx"), "{out}");
+	assert_eq!(
+		exit,
+		Exit::NoMatch,
+		"core/bad.rs imports forbidden_adapter: {out}"
+	);
+	assert!(out.contains("core-no-forbidden-adapter"), "{out}");
 	assert!(out.contains("bad.rs"), "{out}");
 }
 

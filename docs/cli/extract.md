@@ -19,7 +19,7 @@ code-moniker extract <PATH> [--where '<op> <uri>']... [--kind <name>]...
 | file      | matched graph records for that file     |
 | directory | matched graph records grouped by file   |
 
-The walker honors `.gitignore`. `--scheme` overrides the `code+moniker://` URI prefix (matches the PG GUC `code_moniker.scheme`). `--project <NAME>` sets the project component of every emitted moniker (default `.`); the cache shards by anchor hash, so caches keyed at different projects coexist on disk without collision.
+The walker honors `.gitignore`. `--scheme` overrides the `code+moniker://` URI prefix. `--project <NAME>` sets the project component of every emitted moniker (default `.`); the cache shards by anchor hash, so caches keyed at different projects coexist on disk without collision.
 
 | Extension                                | Language |
 | ---------------------------------------- | -------- |
@@ -99,7 +99,7 @@ TSV uses compact monikers by default, for example
 
 ### JSON
 
-CLI-specific shape: `{uri, lang, matches: {defs, refs}}`. Not the same shape as `code_graph_to_spec(graph)`; not directly consumable by `code_graph_declare(jsonb)`.
+CLI-specific shape: `{uri, lang, matches: {defs, refs}}`.
 
 ```json
 {
@@ -183,7 +183,7 @@ Layout:
 <DIR>/v{LAYOUT_VERSION}_{CACHE_FORMAT_VERSION}/<path-hash[0..2]>/<path-hash>_<anchor-hash>_<context-hash>.bin
 ```
 
-Body bytes are byte-identical to what the PG extension stores in a `code_graph` Datum. Typical 4× speedup on agent edit/hook cycles over a warm cache.
+Body bytes use the shared `core::code_graph::encoding` format. Typical 4x speedup on agent edit/hook cycles over a warm cache.
 
 ## Ordering
 
@@ -200,7 +200,7 @@ Deterministic for diffing across runs: `defs` sorted by moniker bytes; `refs` so
 ## Examples
 
 ```bash
-# Full graph as JSON, ready for code_graph_declare
+# Full graph as JSON
 code-moniker extract src/widget.ts --format json > widget.spec.json
 
 # All callables descending from a class (shape filter + ancestry predicate)
@@ -224,4 +224,3 @@ code-moniker stats src
 
 - [Check](check.md) — project-wide scan with a rule DSL.
 - [Discovery](langs.md) — `langs` and `shapes` commands.
-- [Postgres usage](../postgres/usage.md) — round-trip JSON into Postgres.

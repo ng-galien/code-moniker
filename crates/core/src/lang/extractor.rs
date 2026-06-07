@@ -11,7 +11,7 @@
 //! The trait also exposes `declare` / `to_spec` default impls that delegate
 //! to `declare::*` after validating the spec/graph carries this
 //! language's `LANG_TAG`. The dynamic-dispatch SQL entry points
-//! (`code_graph_declare`, `code_graph_to_spec`) keep using the free
+//! (`declare_from_json_value`, `graph_to_spec`) keep using the free
 //! functions in `declare`; the typed methods on the trait give Rust
 //! callers a compile-time-typed handle to the same lifecycle.
 

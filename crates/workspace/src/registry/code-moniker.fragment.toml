@@ -18,7 +18,6 @@ registry_local = """
 """
 consumer_target = """
   target ~ '**/external_pkg:code_moniker_cli/**'
-  OR target ~ '**/external_pkg:code_moniker_pg/**'
   OR target ~ '**/external_pkg:ratatui/**'
 """
 local_resource_impl_target = "target.name =~ ^(LocalSourceCatalog|LocalSourceCatalogOptions|LocalCodeIndex|LocalCodeIndexOptions|LocalLinkage|LocalChangeOverlay|LocalResourceCache)$"
@@ -43,7 +42,7 @@ message  = "`workspace::registry` is a workspace port catalog; it must not impor
 rationale = """
 WorkspaceRegistry is the public catalog of workspace ports. It is consumed by extract, stats,
 check, UI, MCP, and manifest, so it must not depend on any consumer representation such as
-terminal widgets, LMNAV, CLI command models, or PG adapter types.
+terminal widgets, LMNAV, or CLI command models.
 
 Topology:
 

@@ -34,7 +34,6 @@ changes_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:changes/**'"
 snapshot_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:snapshot/**'"
 test_module = "moniker ~ '**/module:tests/**'"
 cli_target = "target ~ '**/external_pkg:code_moniker_cli/**'"
-pg_target = "target ~ '**/external_pkg:code_moniker_pg/**'"
 compat_or_legacy_name = "moniker ~ '**/*:/^(compat|legacy)$/**'"
 
 [[rust.module.where]]
@@ -50,11 +49,11 @@ source, code, linkage, changes, snapshot, and registry contracts.
 [[refs.where]]
 id       = "workspace-crate-does-not-import-cli-or-pg"
 severity = "warn"
-expr     = "$workspace_crate AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT ($cli_target OR $pg_target)"
-message  = "`code-moniker-workspace` must stay independent from CLI and PG crates."
+expr     = "$workspace_crate AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT $cli_target"
+message  = "`code-moniker-workspace` must stay independent from CLI crates."
 rationale = """
-The crate is intended for CLI/TUI today and MCP later. Importing CLI or PG would make it an
-adapter implementation instead of the reusable workspace engine.
+The crate is intended for CLI/TUI today and MCP later. Importing CLI would make it an adapter
+implementation instead of the reusable workspace engine.
 """
 
 [[refs.where]]

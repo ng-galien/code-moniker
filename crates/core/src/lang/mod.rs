@@ -19,7 +19,7 @@ pub use extractor::assert_conformance;
 pub use extractor::{KindSpec, LangExtractor};
 
 /// Adding a row registers the language for `Lang::from_tag` / `tag` /
-/// `allowed_kinds` / `allowed_visibilities` and the schema-sync test.
+/// `allowed_kinds` / `allowed_visibilities` and the conformance tests.
 macro_rules! define_languages {
 	($($(#[$attr:meta])* $variant:ident => $module:ty),* $(,)?) => {
 		#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -98,7 +98,7 @@ macro_rules! define_languages {
 			use $crate::lang::LangExtractor;
 
 			/// Dispatches a closure that takes `(lang_tag, allowed_kinds, allowed_visibilities)`
-			/// over every registered language. Used by the JSON Schema sync test.
+			/// over every registered language. Used by language conformance tests.
 			pub(crate) fn for_each_language(
 				mut f: impl FnMut(
 					&'static str,
@@ -135,66 +135,18 @@ define_languages! {
 pub(crate) use _conformance_dispatch::for_each_language;
 
 #[cfg(test)]
-mod schema_sync_tests {
+mod language_registry_tests {
 	use super::for_each_language;
-	use serde_json::Value;
-
-	const SCHEMA_JSON: &str = include_str!("../../../../docs/postgres/declare-schema.json");
-
-	fn profile_name_for(tag: &str) -> String {
-		let mut chars = tag.chars();
-		let first = chars.next().unwrap().to_uppercase().collect::<String>();
-		format!("{first}{}Profile", chars.as_str())
-	}
-
-	fn enum_at<'a>(schema: &'a Value, profile: &str, field: &str) -> Vec<&'a str> {
-		schema
-			.get("$defs")
-			.and_then(|d| d.get(profile))
-			.and_then(|p| p.get("properties"))
-			.and_then(|p| p.get("symbols"))
-			.and_then(|s| s.get("items"))
-			.and_then(|i| i.get("properties"))
-			.and_then(|p| p.get(field))
-			.and_then(|f| f.get("enum"))
-			.and_then(|e| e.as_array())
-			.map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-			.unwrap_or_default()
-	}
 
 	#[test]
-	fn declare_schema_matches_trait_constants() {
-		let schema: Value = serde_json::from_str(SCHEMA_JSON)
-			.expect("docs/postgres/declare-schema.json must be valid JSON");
-
+	fn language_registry_matches_dispatch_table() {
 		let mut visited = 0usize;
 		for_each_language(|tag, kinds, visibilities, _| {
 			visited += 1;
-			let profile = profile_name_for(tag);
-
-			let schema_kinds = enum_at(&schema, &profile, "kind");
-			let trait_kinds: Vec<&str> = kinds.to_vec();
-			assert_eq!(
-				sort(&schema_kinds),
-				sort(&trait_kinds),
-				"declare-schema.json {profile}.kind enum drifted from `{tag}` trait ALLOWED_KINDS"
-			);
-
-			if visibilities.is_empty() {
-				let schema_vis = enum_at(&schema, &profile, "visibility");
-				assert!(
-					schema_vis.is_empty(),
-					"declare-schema.json {profile} declares visibilities but extractor profile is empty"
-				);
-			} else {
-				let schema_vis = enum_at(&schema, &profile, "visibility");
-				let trait_vis: Vec<&str> = visibilities.to_vec();
-				assert_eq!(
-					sort(&schema_vis),
-					sort(&trait_vis),
-					"declare-schema.json {profile}.visibility enum drifted from `{tag}` trait ALLOWED_VISIBILITIES"
-				);
-			}
+			let lang = super::Lang::from_tag(tag).expect("dispatch tag must resolve through Lang");
+			assert_eq!(lang.tag(), tag);
+			assert_eq!(lang.allowed_kinds(), kinds);
+			assert_eq!(lang.allowed_visibilities(), visibilities);
 		});
 
 		assert_eq!(
@@ -203,12 +155,6 @@ mod schema_sync_tests {
 			"for_each_language visited {visited} languages but Lang::ALL contains {}; the cfg gates of the dispatch table and the macro variants are out of sync",
 			super::Lang::ALL.len()
 		);
-	}
-
-	fn sort<'a>(xs: &[&'a str]) -> Vec<&'a str> {
-		let mut v: Vec<&str> = xs.to_vec();
-		v.sort_unstable();
-		v
 	}
 }
 
