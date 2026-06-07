@@ -76,6 +76,20 @@ fn rust_multiproject_canonicalizes_mod_rs_modules() {
 }
 
 #[test]
+fn rust_qualified_calls_do_not_match_unrelated_same_arity_callables() {
+	let snapshot = load_workspace("projects/rust/qualified-call-collision");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"fn:uses_qualified_path_matches",
+		"calls",
+		"matches",
+		2,
+		"module:check/module:path/fn:matches(pattern:&Pattern,m:&Moniker)",
+	);
+}
+
+#[test]
 fn java_sdk_multiproject_links_spring_and_platform_refs() {
 	let snapshot = load_workspace_with_options(
 		LocalWorkspaceOptions::new(vec![fixture_path("projects/java/multiprojet")], None)
@@ -741,6 +755,55 @@ fn assert_call_linked_to(
 				.any(|identity| identity.contains(symbol_identity))),
 		"no `{call_name}`/{call_arity} call from `{}` was linked to `{symbol_identity}`",
 		source.identity
+	);
+}
+
+fn assert_call_resolves_only_to(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	kind: &str,
+	call_name: &str,
+	call_arity: usize,
+	symbol_identity: &str,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == kind
+				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.collect::<Vec<_>>();
+	assert_eq!(
+		references.len(),
+		1,
+		"expected exactly one `{call_name}`/{call_arity} {kind} reference from `{}`, got {}",
+		source.identity,
+		references.len()
+	);
+	let target_identities = linked_symbol_identities(snapshot, references[0]);
+	assert_eq!(
+		target_identities.len(),
+		1,
+		"reference `{}` should resolve to exactly one target, got [{}]",
+		references[0].target_identity,
+		target_identities.join(", "),
+	);
+	assert!(
+		target_identities[0].contains(symbol_identity),
+		"reference `{}` was linked to `{}`, expected target containing `{}`",
+		references[0].target_identity,
+		target_identities[0],
+		symbol_identity
 	);
 }
 

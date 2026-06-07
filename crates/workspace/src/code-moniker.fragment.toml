@@ -5,8 +5,31 @@ workspace_crate = "moniker ~ '**/dir:crates/dir:workspace/dir:src/**'"
 source_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:source/**'"
 code_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:code/**'"
 linkage_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/**'"
+linkage_catalog_domain = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:catalog/**'"
+linkage_binding_domain = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:binding/**'"
+linkage_change_domain = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:change/**'"
+linkage_resolve_domain = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:resolve/**'"
+linkage_decision_pass_domain = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:resolve/*:/^(reference_resolver|scope|manifest|semantic|method_indexer)$/**'"
 linkage_language_domain = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:language/**'"
+linkage_catalog_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:catalog/**'"
+linkage_binding_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:binding/**'"
+linkage_change_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:change/**'"
+linkage_resolve_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:resolve/**'"
+linkage_language_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:language/**'"
+linkage_binding_store_api_target = """
+  target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:binding/*:store/**'
+  OR target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:binding/path:/^(LinkageStore|LinkageStoreRefresh|reference_indexes)$/'
+"""
 linkage_language_private_target = "target ~ '**/dir:crates/dir:workspace/dir:src/*:linkage/*:language/*:/^(java|rust|ts)$/**'"
+linkage_internal_ref = """
+  kind = 'imports_symbol'
+  OR kind = 'imports_module'
+  OR kind = 'uses_type'
+  OR kind = 'calls'
+  OR kind = 'method_call'
+  OR kind = 'implements'
+  OR kind = 'instantiates'
+"""
 changes_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:changes/**'"
 snapshot_layer = "moniker ~ '**/dir:crates/dir:workspace/dir:src/*:snapshot/**'"
 test_module = "moniker ~ '**/module:tests/**'"
@@ -52,16 +75,188 @@ only. Otherwise language-specific heuristics can leak back into generic orchestr
 recreate the coupling this module split removed.
 """
 
+[[refs.where]]
+id       = "workspace-linkage-catalog-is-pure-index-model"
+severity = "error"
+expr     = """
+  $linkage_catalog_domain
+  AND ($linkage_internal_ref)
+  => NOT ($linkage_binding_target OR $linkage_change_target OR $linkage_resolve_target OR $linkage_language_target)
+"""
+message  = "`workspace::linkage::catalog` must stay a pure candidate/query index model."
+rationale = """
+Catalog owns symbol/reference ordinals, query keys, and candidate lookup. It may know the
+workspace material it indexes, but it must not know decision storage, manifest policy,
+language-specific matching, or refresh invalidation. Keeping catalog below those layers lets
+full and incremental linkage rebuild lookup tables without pulling orchestration back into the
+index model.
+"""
+
+[[refs.where]]
+id       = "workspace-linkage-binding-stays-below-resolution"
+severity = "error"
+expr     = """
+  $linkage_binding_domain
+  AND ($linkage_internal_ref)
+  => NOT ($linkage_change_target OR $linkage_resolve_target OR $linkage_language_target)
+"""
+message  = "`workspace::linkage::binding` owns decisions and store indexes, not resolution policy."
+rationale = """
+Binding reduces decisions into snapshots and maintains store indexes. It may depend on catalog
+ordinals and query keys, but if it imports resolution, change planning, or language domains then
+the storage layer starts deciding why a reference links instead of only recording what was
+decided.
+"""
+
+[[refs.where]]
+id       = "workspace-linkage-language-domains-stay-policy-free"
+severity = "error"
+expr     = """
+  $linkage_language_domain
+  AND ($linkage_internal_ref)
+  => NOT ($linkage_change_target OR $linkage_resolve_target OR $linkage_binding_store_api_target)
+"""
+message  = "`workspace::linkage::language` may adapt matching semantics, but must not own store or pipeline policy."
+rationale = """
+Language domains can inspect queries, candidates, and decision constructors for language-specific
+matches or semantic enrichment. They must not mutate the linkage store, plan refreshes, or call
+resolver orchestration directly; those responsibilities belong to generic linkage phases.
+"""
+
+[[refs.where]]
+id       = "workspace-linkage-decision-passes-do-not-own-store"
+severity = "error"
+expr     = """
+  $linkage_decision_pass_domain
+  AND ($linkage_internal_ref)
+  => NOT $linkage_binding_store_api_target
+"""
+message  = "`workspace::linkage` decision passes return decisions; store ownership belongs to binding."
+rationale = """
+Reference, scope, manifest, method, and semantic passes form the decision pipeline. They can
+construct `ReferenceLinkageDecision` values or enrich an existing decision slice, but they must not
+depend on `LinkageStore` lifecycle, projection, or refresh APIs. The durable design split is
+decision production versus binding/storage projection; it is not a special privilege for whatever
+module currently orchestrates full linkage.
+"""
+
 [[views]]
 id = "workspace-linkage-semantic"
-title = "Workspace semantic linkage"
+title = "Workspace linkage pipeline"
 scope = "linkage"
-intent = "Understand the generic linkage pipeline before changing manifest policy or semantic enhancement."
+intent = "Understand full and incremental linkage boundaries before changing resolution, manifest policy, or semantic enhancement."
 summary = """
 The linkage layer turns extracted references into local, global, external, blocked, or unresolved
-decisions. Language-specific behavior stays behind `linkage::language`; generic semantic passes
-may enrich decisions, but they should not grow package-specific heuristics.
+decisions. `LocalLinkage` orchestrates full and incremental runs; `catalog` indexes candidates,
+`resolve` chooses targets, `binding` stores decisions, `change` plans rebind work, and
+`language` adapts language-specific matching behind one facade.
 """
+
+[[views.boundaries]]
+id = "public-port"
+owns = [
+  "LinkagePort contract",
+  "LocalLinkage orchestration state",
+  "timed full and refresh outputs",
+]
+forbids = [
+  "exposing catalog, binding, resolver, or language internals as public workspace API",
+]
+rationale = """
+The public boundary is `LinkagePort` plus `LocalLinkage` and timing/readout structs. Everything
+below it is `pub(in crate::linkage)` or private so callers consume snapshots, not intermediate
+candidate catalogs or mutable stores.
+"""
+symbols = [
+  "trait:LinkagePort",
+  "struct:LocalLinkage",
+  "struct:TimedLinkageSnapshot",
+  "struct:TimedLinkageRefresh",
+]
+
+[[views.boundaries]]
+id = "candidate-catalog"
+owns = [
+  "linkage candidates",
+  "symbol and reference ordinals",
+  "query-key lookup indexes",
+]
+forbids = [
+  "resolution policy",
+  "decision storage",
+  "refresh invalidation",
+  "language-specific package heuristics",
+]
+rationale = """
+Catalog turns indexed source material into compact lookup tables. It is intentionally below the
+rest of linkage: consumers ask it for possible symbols by key, source, moniker, or ordinal, then
+resolver and language layers decide whether those candidates are valid.
+"""
+symbols = [
+  "module:catalog/struct:CandidateCatalog",
+  "module:catalog/struct:CandidateIndexes",
+  "module:catalog/struct:SymbolOrdinalCatalog",
+  "module:catalog/struct:LinkageQuery",
+]
+rules = [
+  "workspace-linkage-catalog-is-pure-index-model",
+]
+
+[[views.boundaries]]
+id = "decision-store"
+owns = [
+  "ReferenceLinkageDecision model",
+  "LinkageStore lifecycle",
+  "snapshot projection",
+  "store memory metrics",
+]
+forbids = [
+  "manifest dependency decisions",
+  "language-specific matching",
+  "refresh invalidation planning",
+]
+rationale = """
+Binding records decisions and projects them into `LinkageSnapshot`. It can rebase ordinals and
+refresh target indexes, but the reason a candidate is allowed, blocked, external, or unknown is
+decided before the store sees it.
+"""
+symbols = [
+  "module:binding/enum:ReferenceLinkageDecision",
+  "module:binding/struct:LinkageReportProjection",
+  "module:binding/module:store/struct:LinkageStore",
+  "module:binding/struct:LinkageMemoryMetrics",
+]
+rules = [
+  "workspace-linkage-binding-stays-below-resolution",
+]
+
+[[views.boundaries]]
+id = "reference-resolution"
+owns = [
+  "local scope resolution",
+  "global scope resolution",
+  "manifest-filtered target decisions",
+]
+forbids = [
+  "store ownership inside decision passes",
+]
+rationale = """
+Resolution is a decision pipeline: build a `LinkageQuery`, try local candidates, try global
+candidates, then let manifest policy classify global candidates. Reference, scope, manifest,
+method, and semantic passes should return decisions, candidate sets, or decision enrichments.
+Fresh store creation and refresh application are binding/storage concerns, even when today's
+full-linkage orchestration calls that binding API from `resolve::full`.
+"""
+symbols = [
+  "module:resolve/module:reference_resolver/struct:ReferenceResolver",
+  "module:resolve/module:scope/struct:LocalScopeResolver",
+  "module:resolve/module:scope/struct:GlobalScopeResolver",
+  "module:resolve/module:manifest/struct:ManifestPolicy",
+  "module:resolve/module:semantic/struct:SemanticLinkage",
+]
+rules = [
+  "workspace-linkage-decision-passes-do-not-own-store",
+]
 
 [[views.boundaries]]
 id = "manifest-policy"
@@ -79,8 +274,9 @@ extractors may emit external-shaped refs, but dependency trust must be decided f
 and source-root context.
 """
 symbols = [
-  "module:manifest/struct:ManifestPolicy",
-  "module:manifest/fn:source_declares_language_package_target",
+  "module:resolve/module:manifest/struct:ManifestPolicy",
+  "module:resolve/module:manifest/struct:GlobalTargetPolicy",
+  "module:resolve/module:manifest/fn:source_declares_language_package_target",
   "module:language/module:ts/fn:source_declares_external_package",
 ]
 
@@ -100,12 +296,68 @@ reexport refs. Package-specific behavior belongs in manifests or language domain
 generic post-pass.
 """
 symbols = [
-  "module:semantic/struct:SemanticLinkage",
-  "module:semantic/fn:enhance_reexport_aliases",
-  "module:semantic/fn:enhance_receiver_chains",
+  "module:resolve/module:semantic/struct:SemanticLinkage",
+  "module:resolve/module:semantic/struct:MethodTable",
+  "module:resolve/module:semantic/fn:enhance_reexport_aliases",
+  "module:resolve/module:semantic/fn:enhance_receiver_chains",
 ]
 rules = [
   "workspace-linkage-language-domains-are-private",
+  "workspace-linkage-decision-passes-do-not-own-store",
+]
+
+[[views.boundaries]]
+id = "incremental-refresh"
+owns = [
+  "LinkageRefreshImpact classification",
+  "stale-reference planning",
+  "store refresh application",
+  "changed-reference semantic enhancement",
+]
+forbids = [
+  "re-resolving unchanged references",
+  "duplicating full-linkage orchestration outside refresh planning",
+]
+rationale = """
+Incremental refresh rebases existing decisions, plans the minimum stale reference set, resolves
+only that set, applies a store refresh, and rebuilds target indexes for affected references.
+The plan lives in `change::rebind`; execution lives in `change::refresh`.
+"""
+symbols = [
+  "module:change/struct:LinkageRefreshImpact",
+  "module:change/struct:RebindScope",
+  "module:change/module:refresh/fn:refresh_incremental_linkage",
+  "module:change/module:refresh/fn:run_incremental_refresh",
+]
+
+[[views.boundaries]]
+id = "language-facade"
+owns = [
+  "language strategy dispatch",
+  "language-specific candidate matching",
+  "language-specific external package recognition",
+  "language semantic enrichments such as Java Lombok",
+]
+forbids = [
+  "direct generic-layer imports of `language::{java,rust,ts}`",
+  "store mutation or refresh orchestration inside language domains",
+]
+rationale = """
+The generic pipeline calls `linkage::language` as a facade. Java, Rust, TS, and generic
+strategies stay below that facade so language heuristics do not leak into manifest policy,
+scope resolution, or store maintenance.
+"""
+symbols = [
+  "module:language/fn:matches_candidate",
+  "module:language/fn:source_declares_external_package",
+  "module:language/module:java/struct:JavaLanguageLinkageStrategy",
+  "module:language/module:rust/struct:RustLanguageLinkageStrategy",
+  "module:language/module:ts/struct:TsLanguageLinkageStrategy",
+  "module:language/module:java/module:lombok/struct:LombokSemantics",
+]
+rules = [
+  "workspace-linkage-language-domains-are-private",
+  "workspace-linkage-language-domains-stay-policy-free",
 ]
 
 [[views.gotchas]]
@@ -117,9 +369,28 @@ undeclared packages must stay unresolved so extractor confidence cannot bypass w
 symbols = [
   "module:language/module:ts/fn:builtin_external_root",
   "module:language/module:ts/fn:package_prefix",
-  "module:manifest/fn:source_root_declares_dependency",
+  "module:resolve/module:manifest/fn:source_root_declares_dependency",
 ]
 rules = [
   "workspace-linkage-language-domains-are-private",
 ]
 check = "cargo test -p code-moniker-workspace --test workspace_linkage_acceptance ts_manifest"
+
+[[views.gotchas]]
+id = "store-assembly-is-a-binding-boundary"
+rationale = """
+The design boundary is decision production versus binding projection, not the current
+`resolve::full` path. Full linkage currently creates a fresh `LinkageStore`, while refresh applies
+a `LinkageStoreRefresh`; if either path starts owning store invariants outside binding, the design
+should move that orchestration behind a binding/pipeline helper instead of widening resolver
+ownership.
+"""
+symbols = [
+  "module:resolve/module:full/fn:run_full_linkage_with_timings",
+  "module:change/module:refresh/fn:refresh_incremental_linkage",
+  "module:binding/module:store/struct:LinkageStore",
+  "module:binding/module:store/struct:LinkageStore/method:new",
+]
+rules = [
+  "workspace-linkage-decision-passes-do-not-own-store",
+]

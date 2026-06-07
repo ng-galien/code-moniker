@@ -50,6 +50,10 @@ fn normalized_rust_segments<'a>(
 	let mut normalized = Vec::with_capacity(segments.len());
 	let mut idx = 0;
 	while idx < segments.len() {
+		if is_implicit_rust_crate_root_module(&segments, idx) {
+			idx += 1;
+			continue;
+		}
 		if idx + 1 < segments.len()
 			&& segments[idx].kind == kinds::DIR
 			&& segments[idx + 1].kind == kinds::MODULE
@@ -71,6 +75,14 @@ fn normalized_rust_segments<'a>(
 	normalized
 }
 
+fn is_implicit_rust_crate_root_module(segments: &[Segment<'_>], idx: usize) -> bool {
+	idx > 0
+		&& segments[idx - 1].kind == kinds::DIR
+		&& segments[idx - 1].name == b"src"
+		&& segments[idx].kind == kinds::MODULE
+		&& matches!(segments[idx].name, b"lib" | b"main")
+}
+
 fn rust_path_segment_matches(
 	target: NormalizedSegment<'_>,
 	candidate: NormalizedSegment<'_>,
@@ -79,6 +91,9 @@ fn rust_path_segment_matches(
 		return bare_callable_name(target.name) == bare_callable_name(candidate.name);
 	}
 	if target.kind == kinds::MODULE && candidate.kind == kinds::DIR {
+		return bare_callable_name(target.name) == bare_callable_name(candidate.name);
+	}
+	if is_rust_callable_kind(target.kind) && is_rust_callable_kind(candidate.kind) {
 		return bare_callable_name(target.name) == bare_callable_name(candidate.name);
 	}
 	target.kind == kinds::PATH
@@ -106,6 +121,9 @@ fn rust_contextual_name_matches_def(
 }
 
 fn can_use_contextual_name_match(query: &LinkageQuery<'_>) -> bool {
+	if is_qualified_local_rust_call(query) {
+		return false;
+	}
 	if is_rust_call_ref(query.reference_kind.as_bytes()) {
 		return true;
 	}
@@ -116,6 +134,14 @@ fn can_use_contextual_name_match(query: &LinkageQuery<'_>) -> bool {
 	}
 	query.confidence == Some(confidence(kinds::CONF_EXTERNAL))
 		&& external_root(query).is_some_and(|root| !is_builtin_external_root(root))
+}
+
+fn is_qualified_local_rust_call(query: &LinkageQuery<'_>) -> bool {
+	query.reference_kind.as_bytes() == kinds::CALLS
+		&& query.target_segment_count > 1
+		&& query
+			.target_first
+			.is_some_and(|first| first.kind != kinds::EXTERNAL_PKG)
 }
 
 fn rust_name_matches(
