@@ -35,6 +35,7 @@ workspace_live_public_contract_target = """
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
 example           = "moniker ~ '**/dir:examples/**'"
+rust_production_source = "moniker ~ '**/dir:crates/dir:/^(cli|core|pg|workspace)$/dir:src/**'"
 
 [exclude]
 uris = [
@@ -354,6 +355,42 @@ rationale = """
 Clean Code G10 vertical separation signal: private helpers should live close to their first
 same-owner caller. The rule is intentionally a warning while thresholds and legitimate
 grouping exceptions are inspected.
+"""
+
+# ─── Rust idiom smells ──────────────────────────────────────────────────
+
+[[rust.shape.callable.where]]
+id        = "smell-unwrap-in-production"
+severity  = "warn"
+expr      = "NOT $rust_production_source OR $tests OR $rust_inline_tests OR $example OR kind = 'test' OR none(out_refs, kind = 'method_call' AND target.name =~ ^(unwrap|expect|unwrap_err|expect_err)$)"
+message   = "Production callable `{name}` calls `.unwrap()`/`.expect()`/`.unwrap_err()`/`.expect_err()`; propagate recoverable errors or isolate the invariant behind an explicit boundary."
+rationale = """
+Production code must not turn recoverable `Result`/`Option` failures into panics. Use
+typed errors, `?`, or explicit boundary handling instead; resolution code in particular
+must report typed failures rather than panic on missing state. `expect` is acceptable only
+for true invariants where failure means a programmer, build-time, or external contract
+breach. Tests, examples, and support harnesses are outside this policy.
+"""
+
+[[rust.shape.callable.where]]
+id        = "smell-clone-reflex"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR count(out_refs, kind = 'method_call' AND target.name = 'clone') <= 3"
+message   = "`{name}` clones repeatedly ({value} `.clone()` calls); reconsider borrowing (`&`/`&mut`) or `Cow` before cloning to satisfy the borrow checker."
+rationale = """
+A burst of `.clone()` calls is the classic way to silence the borrow checker instead of
+restructuring ownership; each clone is an allocation/copy. The threshold is heuristic and
+loose while the rule is in adoption.
+"""
+
+[[rust.shape.callable.where]]
+id        = "smell-box-leak"
+severity  = "warn"
+expr      = "$tests OR $rust_inline_tests OR $example OR none(out_refs, kind = 'method_call' AND target.name = 'leak')"
+message   = "`{name}` uses `leak()`; leaking to force a `'static` lifetime trades a compile error for a permanent leak — prefer `OnceLock`, an arena, or restructured ownership."
+rationale = """
+`Box::leak`/`leak()` is occasionally legitimate for process-lifetime globals, but it is
+frequently reached for to escape a lifetime error; the allocation then lives forever.
 """
 
 # ─── Comment hygiene ────────────────────────────────────────────────────
