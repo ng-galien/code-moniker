@@ -76,7 +76,7 @@ pub fn filter<'g>(
 				&& predicates.iter().all(|p| p.matches(&r.target))
 		})
 		.collect();
-	defs.sort_by(|a, b| a.moniker.as_bytes().cmp(b.moniker.as_bytes()));
+	defs.sort_by(|a, b| a.moniker.as_encoded().cmp(b.moniker.as_encoded()));
 	let mut keyed: Vec<RefMatch<'g>> = refs
 		.into_iter()
 		.map(|r| RefMatch {
@@ -86,13 +86,13 @@ pub fn filter<'g>(
 		.collect();
 	keyed.sort_by(|a, b| {
 		(
-			a.source.as_bytes(),
-			a.record.target.as_bytes(),
+			a.source.as_encoded(),
+			a.record.target.as_encoded(),
 			a.record.position,
 		)
 			.cmp(&(
-				b.source.as_bytes(),
-				b.record.target.as_bytes(),
+				b.source.as_encoded(),
+				b.record.target.as_encoded(),
 				b.record.position,
 			))
 	});
@@ -280,7 +280,7 @@ mod tests {
 		let r = filter(&g, &[], &[], &[], &[]);
 		let mut prev: Option<&[u8]> = None;
 		for d in &r.defs {
-			let cur = d.moniker.as_bytes();
+			let cur = d.moniker.as_encoded();
 			if let Some(p) = prev {
 				assert!(p <= cur, "defs not sorted: {p:?} then {cur:?}");
 			}

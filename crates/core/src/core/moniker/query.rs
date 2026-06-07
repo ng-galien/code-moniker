@@ -202,9 +202,9 @@ mod tests {
 		);
 		let sibling = mk(b"app", &[(b"class", b"Zoo")]);
 
-		assert!(m1.as_bytes() < descendant.as_bytes());
-		assert!(descendant.as_bytes() < deeper.as_bytes());
-		assert!(deeper.as_bytes() < sibling.as_bytes());
+		assert!(m1.as_encoded() < descendant.as_encoded());
+		assert!(descendant.as_encoded() < deeper.as_encoded());
+		assert!(deeper.as_encoded() < sibling.as_encoded());
 	}
 
 	#[test]
@@ -219,8 +219,8 @@ mod tests {
 		);
 		let next_sibling = mk(b"app", &[(b"class", b"Zoo")]);
 
-		assert!(parent.as_bytes() < child_long.as_bytes());
-		assert!(child_long.as_bytes() < next_sibling.as_bytes());
+		assert!(parent.as_encoded() < child_long.as_encoded());
+		assert!(child_long.as_encoded() < next_sibling.as_encoded());
 	}
 
 	#[test]

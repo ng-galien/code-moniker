@@ -289,8 +289,8 @@ fn paginate_rows(
 
 fn cmp_row_match_item(rows: &[FilterRow], a: &RowMatchItem, b: &RowMatchItem) -> Ordering {
 	a.cursor
-		.as_bytes()
-		.cmp(b.cursor.as_bytes())
+		.as_encoded()
+		.cmp(b.cursor.as_encoded())
 		.then_with(|| rows[a.record_ref.row].rel.cmp(&rows[b.record_ref.row].rel))
 }
 

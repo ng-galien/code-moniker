@@ -22,6 +22,7 @@ pub enum UriError {
 	TrailingAfterBacktick(usize),
 	NonUtf8Project,
 	NonUtf8Segment,
+	ComponentTooLong(&'static str, usize),
 }
 
 impl std::fmt::Display for UriError {
@@ -54,6 +55,12 @@ impl std::fmt::Display for UriError {
 			}
 			Self::NonUtf8Project => write!(f, "project authority must be valid UTF-8"),
 			Self::NonUtf8Segment => write!(f, "segment must be valid UTF-8"),
+			Self::ComponentTooLong(component, len) => {
+				write!(
+					f,
+					"{component} is too long for moniker encoding ({len} bytes)"
+				)
+			}
 		}
 	}
 }
@@ -93,21 +100,21 @@ mod tests {
 	fn roundtrip_simple() {
 		let original = "esac+moniker://my-app/path:main/path:com/path:acme/class:Foo/method:bar(2)";
 		let m = from_uri(original, &default_config()).unwrap();
-		assert_eq!(to_uri(&m, &default_config()).unwrap(), original);
+		assert_eq!(to_uri(&m, &default_config()), original);
 	}
 
 	#[test]
 	fn roundtrip_with_escapes() {
 		let original = "esac+moniker://app/path:`util/test.ts`/class:`weird``name`";
 		let m = from_uri(original, &default_config()).unwrap();
-		assert_eq!(to_uri(&m, &default_config()).unwrap(), original);
+		assert_eq!(to_uri(&m, &default_config()), original);
 	}
 
 	#[test]
 	fn roundtrip_project_only() {
 		let original = "esac+moniker://my-app";
 		let m = from_uri(original, &default_config()).unwrap();
-		assert_eq!(to_uri(&m, &default_config()).unwrap(), original);
+		assert_eq!(to_uri(&m, &default_config()), original);
 	}
 
 	#[test]
@@ -126,7 +133,7 @@ mod tests {
 				.segment(b"path", b"x")
 				.segment(b"function", name)
 				.build();
-			let s = to_uri(&m, &default_config()).expect("serialize");
+			let s = to_uri(&m, &default_config());
 			let parsed = from_uri(&s, &default_config())
 				.unwrap_or_else(|e| panic!("roundtrip failed on {s:?}: {e}"));
 			assert_eq!(parsed, m, "roundtrip mismatch for {s:?}");

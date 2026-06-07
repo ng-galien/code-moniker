@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 119
 expression: body
-input_file: crates/core/tests/fixtures/ts/accounts.ts
+input_file: crates/core/tests/fixtures/extractors/ts/accounts.ts
 ---
 {
   "defs": [
@@ -491,7 +492,20 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "reads",
+      "position": [
+        675,
+        676
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:zod/path:z"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts",
       "kind": "method_call",
       "position": [
@@ -499,7 +513,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         712
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:email"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:email"
     },
     {
       "alias": "",
@@ -517,7 +531,20 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "reads",
+      "position": [
+        694,
+        695
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:zod/path:z"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts",
       "kind": "method_call",
       "position": [
@@ -525,12 +552,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         747
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:max"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:max"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts",
       "kind": "method_call",
       "position": [
@@ -538,7 +565,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         738
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:min"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:min"
     },
     {
       "alias": "",
@@ -556,7 +583,20 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "reads",
+      "position": [
+        721,
+        722
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:zod/path:z"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts",
       "kind": "method_call",
       "position": [
@@ -564,7 +604,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         787
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:default"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:default"
     },
     {
       "alias": "",
@@ -584,6 +624,19 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "reads",
+      "position": [
+        756,
+        757
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:zod/path:z"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
       "kind": "method_call",
       "position": [
         764,
@@ -595,7 +648,46 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts",
+      "kind": "reads",
+      "position": [
+        764,
+        765
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:zod/path:z"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/type:CreateUserInput",
+      "kind": "uses_type",
+      "position": [
+        824,
+        856
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:infer"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:ts/module:accounts/type:CreateUserInput",
+      "kind": "uses_type",
+      "position": [
+        839,
+        855
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/const:CreateUserSchema"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:ValidationError",
       "kind": "extends",
       "position": [
@@ -603,12 +695,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         965
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:Error"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Error"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:ValidationError/constructor:constructor(fields:Record<string,string>)",
       "kind": "uses_type",
       "position": [
@@ -616,12 +708,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1027
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:Record"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Record"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:create(input:CreateUserInput)",
       "kind": "uses_type",
       "position": [
@@ -629,12 +721,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1180
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "imported",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:create(input:CreateUserInput)",
       "kind": "uses_type",
       "position": [
@@ -655,12 +747,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1161
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:CreateUserInput"
+      "to": "code+moniker://app/lang:ts/module:accounts/type:CreateUserInput"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:findById(id:string)",
       "kind": "uses_type",
       "position": [
@@ -668,12 +760,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1228
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "imported",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:findById(id:string)",
       "kind": "uses_type",
       "position": [
@@ -686,7 +778,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:withTag(tag:string)",
       "kind": "uses_type",
       "position": [
@@ -694,12 +786,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1275
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:AsyncIterable"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:AsyncIterable"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "imported",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/interface:UserService/method:withTag(tag:string)",
       "kind": "uses_type",
       "position": [
@@ -720,12 +812,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1437
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:UserService"
+      "to": "code+moniker://app/lang:ts/module:accounts/interface:UserService"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
       "kind": "uses_type",
       "position": [
@@ -733,7 +825,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1540
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
     },
     {
       "alias": "",
@@ -777,7 +869,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -785,12 +877,25 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1605
       ],
       "receiver_hint": "CreateUserSchema",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:safeParse"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:safeParse"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "reads",
+      "position": [
+        1569,
+        1585
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:ts/module:accounts/const:CreateUserSchema"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -798,12 +903,25 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1874
       ],
       "receiver_hint": "Object",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:fromEntries"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:fromEntries"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
+      "kind": "reads",
+      "position": [
+        1781,
+        1787
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/function:Object"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -811,12 +929,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1867
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:map"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:map"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -824,33 +942,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1854
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:join"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
-      "kind": "reads",
-      "position": [
-        1838,
-        1839
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/function:i"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
-      "kind": "reads",
-      "position": [
-        1856,
-        1857
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/function:i"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:join"
     },
     {
       "alias": "",
@@ -868,7 +960,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -876,12 +968,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1974
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:create"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:create"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -889,12 +981,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2005
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:json"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:json"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:create(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -902,12 +994,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         1994
       ],
       "receiver_hint": "res",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:status"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:status"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
       "kind": "uses_type",
       "position": [
@@ -915,7 +1007,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2144
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
     },
     {
       "alias": "",
@@ -959,7 +1051,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -967,12 +1059,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2236
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:json"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:json"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -980,12 +1072,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2206
       ],
       "receiver_hint": "res",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:status"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:status"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -993,12 +1085,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2308
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:findById"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:findById"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -1006,12 +1098,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2351
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:end"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:end"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -1019,12 +1111,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2345
       ],
       "receiver_hint": "res",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:status"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:status"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:get(req:Request,res:Response,next:NextFunction)",
       "kind": "method_call",
       "position": [
@@ -1032,12 +1124,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2387
       ],
       "receiver_hint": "res",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:json"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:json"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
       "kind": "uses_type",
       "position": [
@@ -1045,7 +1137,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2560
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:Promise"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
     },
     {
       "alias": "",
@@ -1076,7 +1168,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
       "kind": "calls",
       "position": [
@@ -1084,12 +1176,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2604
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/function:String"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/function:String"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "imported",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
       "kind": "uses_type",
       "position": [
@@ -1102,7 +1194,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
       "kind": "method_call",
       "position": [
@@ -1110,12 +1202,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2684
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:withTag"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:withTag"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
       "kind": "method_call",
       "position": [
@@ -1123,12 +1215,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2702
       ],
       "receiver_hint": "out",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:push"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:push"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/class:UserController/method:listByTag(req:Request,res:Response)",
       "kind": "method_call",
       "position": [
@@ -1136,7 +1228,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2723
       ],
       "receiver_hint": "res",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:json"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:json"
     },
     {
       "alias": "",
@@ -1149,12 +1241,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         2940
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:accounts/class:UserService"
+      "to": "code+moniker://app/lang:ts/module:accounts/interface:UserService"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "imported",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)",
       "kind": "uses_type",
       "position": [
@@ -1167,7 +1259,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)",
       "kind": "method_call",
       "position": [
@@ -1175,7 +1267,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         3167
       ],
       "receiver_hint": "repo",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:findByEmail"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:findByEmail"
     },
     {
       "alias": "",
@@ -1193,7 +1285,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:create(input)",
       "kind": "method_call",
       "position": [
@@ -1201,7 +1293,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         3313
       ],
       "receiver_hint": "repo",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:insert"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:insert"
     },
     {
       "alias": "",
@@ -1219,7 +1311,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:findById(id)",
       "kind": "method_call",
       "position": [
@@ -1227,12 +1319,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         3370
       ],
       "receiver_hint": "repo",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:findById"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:findById"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:withTag(tag)",
       "kind": "method_call",
       "position": [
@@ -1240,12 +1332,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         3511
       ],
       "receiver_hint": "repo",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:scan"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:scan"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:buildService(repo:UserRepository)/method:withTag(tag)",
       "kind": "method_call",
       "position": [
@@ -1253,12 +1345,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         3543
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:includes"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:includes"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)",
       "kind": "method_call",
       "position": [
@@ -1266,12 +1358,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         3808
       ],
       "receiver_hint": "email",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:indexOf"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:indexOf"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)",
       "kind": "method_call",
       "position": [
@@ -1279,12 +1371,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         3859
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:toLowerCase"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:toLowerCase"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)",
       "kind": "method_call",
       "position": [
@@ -1292,12 +1384,12 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         3845
       ],
       "receiver_hint": "email",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:slice"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:slice"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:accounts/function:makeId(email:string)",
       "kind": "method_call",
       "position": [
@@ -1305,7 +1397,7 @@ input_file: crates/core/tests/fixtures/ts/accounts.ts
         3881
       ],
       "receiver_hint": "email",
-      "to": "code+moniker://app/lang:ts/module:accounts/method:toLowerCase"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:toLowerCase"
     }
   ],
   "root": "code+moniker://app/lang:ts/module:accounts"

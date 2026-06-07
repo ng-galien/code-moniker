@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 136
 expression: body
-input_file: crates/core/tests/fixtures/cs/OrderWorkflow.cs
+input_file: crates/core/tests/fixtures/extractors/cs/OrderWorkflow.cs
 ---
 {
   "defs": [
@@ -30,6 +31,45 @@ input_file: crates/core/tests/fixtures/cs/OrderWorkflow.cs
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/enum:OrderStatus/enum_constant:Draft",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/enum:OrderStatus",
+      "position": [
+        194,
+        199
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/enum:OrderStatus/enum_constant:Paid",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/enum:OrderStatus",
+      "position": [
+        202,
+        206
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:cs/module:OrderWorkflow/enum:OrderStatus/enum_constant:Cancelled",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:cs/module:OrderWorkflow/enum:OrderStatus",
+      "position": [
+        209,
+        218
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "none",

@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 119
 expression: body
-input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
+input_file: crates/core/tests/fixtures/extractors/ts/jsx_legacy.jsx
 ---
 {
   "defs": [
@@ -109,7 +110,7 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
         374
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:Greeting"
+      "to": "code+moniker://app/lang:ts/module:greeting/path:Greeting"
     },
     {
       "alias": "",
@@ -127,7 +128,7 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:jsx_legacy",
       "kind": "reads",
       "position": [
@@ -135,12 +136,12 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
         481
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:App"
+      "to": "code+moniker://app/lang:ts/module:jsx_legacy/function:App()"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:jsx_legacy",
       "kind": "method_call",
       "position": [
@@ -148,7 +149,20 @@ input_file: crates/core/tests/fixtures/ts/jsx_legacy.jsx
         517
       ],
       "receiver_hint": "document",
-      "to": "code+moniker://app/lang:ts/module:jsx_legacy/method:getElementById"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:getElementById"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:jsx_legacy",
+      "kind": "reads",
+      "position": [
+        486,
+        494
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/function:document"
     }
   ],
   "root": "code+moniker://app/lang:ts/module:jsx_legacy"

@@ -203,7 +203,7 @@ impl<'g> MatchItem<'g> {
 	fn source_bytes(&self) -> &'g [u8] {
 		match &self.record {
 			MatchRecord::Def(_) => &[],
-			MatchRecord::Ref { source, .. } => source.as_bytes(),
+			MatchRecord::Ref { source, .. } => source.as_encoded(),
 		}
 	}
 
@@ -224,8 +224,8 @@ impl<'g> MatchItem<'g> {
 
 fn cmp_match_item(a: &MatchItem<'_>, b: &MatchItem<'_>) -> Ordering {
 	a.cursor_moniker()
-		.as_bytes()
-		.cmp(b.cursor_moniker().as_bytes())
+		.as_encoded()
+		.cmp(b.cursor_moniker().as_encoded())
 		.then_with(|| a.rank().cmp(&b.rank()))
 		.then_with(|| a.source_bytes().cmp(b.source_bytes()))
 		.then_with(|| a.kind().cmp(b.kind()))

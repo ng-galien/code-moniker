@@ -201,7 +201,7 @@ in `0.y.z`.
 - **CLI library** — `ExtractArgs` / `CheckArgs` rename `file` →
   `path` (the arg accepts directories too).
 - **Scripts** — cleanup pass.
-- **Docs** — refresh across `docs/cli/*`, `README.md`, `CLAUDE.md`,
+- **Docs** — refresh across `docs/cli/*`, `README.md`,
   `CONTRIBUTING.md`, `docs/perf.md`. Agent-harness guide ships
   end-to-end recipes for six scenarios. `~600-line file cap` relaxed
   to a preference.

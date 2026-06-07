@@ -276,7 +276,7 @@ fn extract_uri_adds_srcset_segment_for_common_source_layouts() {
 fn count_only_prints_an_integer() {
 	let dir = write_fixture("a.ts", TS_FIXTURE);
 	let path = dir.path().join("a.ts");
-	let (exit, out, _) = run_with(vec![
+	let (exit, out, _err) = run_with(vec![
 		"code-moniker",
 		"extract",
 		path.to_str().unwrap(),
@@ -866,7 +866,7 @@ fn check_project_walks_directory_and_aggregates() {
 	std::fs::write(dir.path().join("good.ts"), "class GoodName {}\n").unwrap();
 	std::fs::write(dir.path().join("bad.ts"), TS_BAD_NAMING).unwrap();
 	std::fs::write(dir.path().join("README.md"), "not a source file\n").unwrap();
-	let (exit, out, _) = run_with(vec![
+	let (exit, out, _err) = run_with(vec![
 		"code-moniker",
 		"check",
 		dir.path().to_str().unwrap(),
@@ -893,7 +893,7 @@ fn check_project_respects_gitignore() {
 	std::fs::write(dir.path().join("ignored.ts"), TS_BAD_NAMING).unwrap();
 	// `ignore` only honors .gitignore inside a git repo, so init one.
 	std::fs::create_dir(dir.path().join(".git")).unwrap();
-	let (exit, out, _) = run_with(vec![
+	let (exit, out, _err) = run_with(vec![
 		"code-moniker",
 		"check",
 		dir.path().to_str().unwrap(),
@@ -946,7 +946,7 @@ fn check_project_json_includes_errors_array() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	std::fs::write(dir.path().join("broken.ts"), [0xff, 0xfe, 0xff]).unwrap();
 	std::fs::write(dir.path().join("good.ts"), "class GoodName {}\n").unwrap();
-	let (exit, out, _) = run_with(vec![
+	let (exit, out, _err) = run_with(vec![
 		"code-moniker",
 		"check",
 		dir.path().to_str().unwrap(),
@@ -986,7 +986,7 @@ fn check_project_path_in_moniker_gates_a_rule() {
 		"#,
 	)
 	.unwrap();
-	let (exit, out, _) = run_with(vec![
+	let (exit, out, _err) = run_with(vec![
 		"code-moniker",
 		"check",
 		dir.path().to_str().unwrap(),
@@ -1205,7 +1205,7 @@ fn check_project_file_filter_checks_only_touched_files_with_project_anchors() {
 		"{out}"
 	);
 
-	let (exit, out, _) = run_with(vec![
+	let (exit, out, _err) = run_with(vec![
 		"code-moniker",
 		"check",
 		dir.path().to_str().unwrap(),
@@ -1548,7 +1548,7 @@ fn check_project_file_filter_keeps_absolute_tool_paths_project_anchored() {
 	write_under(
 		dir.path(),
 		"crates/cli/src/probe.rs",
-		"use code_moniker_forbidden::declare::DeclareSpec;\n",
+		"use code_moniker_forbidden::adapter::Probe;\n",
 	);
 	let rules_path = dir.path().join("rules.toml");
 	std::fs::write(
@@ -1710,15 +1710,15 @@ fn check_project_cross_layer_import_violation() {
 		&rules_path,
 		r#"
 		[aliases]
-		core = "moniker ~ '**/dir:src/dir:core/**'"
+		core = "source ~ '**/dir:src/module:core/**'"
 
 		[[refs.where]]
 		id   = "core-no-forbidden-adapter"
-		expr = "$core AND kind = 'imports_symbol' => NOT target ~ '**/external_pkg:forbidden_adapter/**'"
+		expr = "$core AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT target ~ '**/external_pkg:forbidden_adapter/**'"
 		"#,
 	)
 	.unwrap();
-	let (exit, out, _) = run_with(vec![
+	let (exit, out, err) = run_with(vec![
 		"code-moniker",
 		"check",
 		dir.path().to_str().unwrap(),
@@ -1728,7 +1728,7 @@ fn check_project_cross_layer_import_violation() {
 	assert_eq!(
 		exit,
 		Exit::NoMatch,
-		"core/bad.rs imports forbidden_adapter: {out}"
+		"core/bad.rs imports forbidden_adapter: stdout={out} stderr={err}"
 	);
 	assert!(out.contains("core-no-forbidden-adapter"), "{out}");
 	assert!(out.contains("bad.rs"), "{out}");
@@ -2333,7 +2333,7 @@ fn check_explanation_appears_in_text_and_json() {
 		[[ts.class.where]]
 		id      = "name-pascalcase"
 		expr    = "name =~ ^[A-Z][A-Za-z0-9]*$"
-		message = "Rename `{name}`. See CLAUDE.md §naming."
+		message = "Rename `{name}`. See naming policy."
 		"#,
 	)
 	.unwrap();
@@ -2348,7 +2348,7 @@ fn check_explanation_appears_in_text_and_json() {
 	]);
 	assert_eq!(exit, Exit::NoMatch);
 	assert!(
-		out.contains("  → Rename `lower_case_class`. See CLAUDE.md §naming."),
+		out.contains("  -> Rename `lower_case_class`. See naming policy."),
 		"text format missing indented explanation: {out}"
 	);
 
@@ -2366,7 +2366,7 @@ fn check_explanation_appears_in_text_and_json() {
 	let exp = arr[0]["explanation"]
 		.as_str()
 		.expect("json carries explanation");
-	assert!(exp.contains("CLAUDE.md"), "explanation in JSON: {exp}");
+	assert!(exp.contains("naming policy"), "explanation in JSON: {exp}");
 }
 
 #[test]

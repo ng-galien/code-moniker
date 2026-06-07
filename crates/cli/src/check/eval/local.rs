@@ -228,7 +228,7 @@ pub(super) fn domain_items<'a>(
 			})
 			.collect(),
 		Domain::InRefs => {
-			let key = ctx.graph.def_at(def_idx).moniker.as_bytes();
+			let key = ctx.graph.def_at(def_idx).moniker.as_encoded();
 			ctx.in_refs_by_target
 				.get(key)
 				.into_iter()
@@ -256,7 +256,7 @@ fn descendant_items<'a>(
 			*idx != def_idx && root.is_ancestor_of(&def.moniker) && def_matches_domain(inner, def)
 		})
 		.map(|(idx, def)| {
-			seen.insert(def.moniker.as_bytes().to_vec());
+			seen.insert(def.moniker.as_encoded().to_vec());
 			DomainItem::Def {
 				idx: Some(idx),
 				def,
@@ -266,7 +266,7 @@ fn descendant_items<'a>(
 	if let Some(requirements) = ctx.requirements {
 		let owner = ctx.graph.def_at(def_idx);
 		for def in requirements.descendant_defs(owner, inner) {
-			if seen.insert(def.moniker.as_bytes().to_vec()) && def_matches_domain(inner, def) {
+			if seen.insert(def.moniker.as_encoded().to_vec()) && def_matches_domain(inner, def) {
 				items.push(DomainItem::Def { idx: None, def });
 			}
 		}

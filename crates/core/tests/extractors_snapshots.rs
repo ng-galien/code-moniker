@@ -25,8 +25,7 @@ fn snap<L: LangExtractor>(path: &Path) -> String {
 fn dump(g: &CodeGraph) -> Value {
 	let cfg = UriConfig::default();
 	let defs: Vec<&DefRecord> = g.defs().collect();
-	let render =
-		|m: &Moniker| -> String { to_uri(m, &cfg).unwrap_or_else(|e| format!("<urierr:{e}>")) };
+	let render = |m: &Moniker| -> String { to_uri(m, &cfg) };
 
 	let defs_json: Vec<Value> = defs
 		.iter()

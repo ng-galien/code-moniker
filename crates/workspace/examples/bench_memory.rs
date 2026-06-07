@@ -567,7 +567,7 @@ fn estimate_material(material: &CodeIndexMaterial, estimate: &mut MemoryEstimate
 	for file in &material.files {
 		for def in file.graph.defs() {
 			def_payload += def_payload_bytes(def);
-			graph_index_payload += def.moniker.as_bytes().len();
+			graph_index_payload += def.moniker.as_encoded().len();
 		}
 		for reference in file.graph.refs() {
 			ref_payload += ref_payload_bytes(reference);
@@ -593,7 +593,7 @@ fn estimate_material(material: &CodeIndexMaterial, estimate: &mut MemoryEstimate
 		material
 			.symbols_by_moniker
 			.iter()
-			.map(|(moniker, symbol)| moniker.as_bytes().len() + symbol.as_str().len())
+			.map(|(moniker, symbol)| moniker.as_encoded().len() + symbol.as_str().len())
 			.sum(),
 		format!(
 			"{} moniker -> symbol entries",
@@ -667,7 +667,7 @@ fn indexed_source_payload(file: &IndexedSourceFile) -> usize {
 }
 
 fn def_payload_bytes(def: &DefRecord) -> usize {
-	def.moniker.as_bytes().len()
+	def.moniker.as_encoded().len()
 		+ def.kind.len()
 		+ def.visibility.len()
 		+ def.signature.len()
@@ -677,7 +677,7 @@ fn def_payload_bytes(def: &DefRecord) -> usize {
 }
 
 fn ref_payload_bytes(reference: &RefRecord) -> usize {
-	reference.target.as_bytes().len()
+	reference.target.as_encoded().len()
 		+ reference.kind.len()
 		+ reference.receiver_hint.len()
 		+ reference.alias.len()

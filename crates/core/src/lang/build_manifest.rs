@@ -245,7 +245,7 @@ mod tests {
 		let cfg = UriConfig {
 			scheme: "code+moniker://",
 		};
-		let uri = to_uri(&m, &cfg).expect("utf-8 segments");
+		let uri = to_uri(&m, &cfg);
 		assert_eq!(uri, "code+moniker://./external_pkg:react");
 	}
 
@@ -301,8 +301,7 @@ mod tests {
 			&UriConfig {
 				scheme: "code+moniker://",
 			},
-		)
-		.expect("utf-8");
+		);
 		assert_eq!(
 			uri,
 			"code+moniker://app/external_pkg:github.com/path:gorilla/path:mux"
@@ -318,8 +317,7 @@ mod tests {
 			&UriConfig {
 				scheme: "code+moniker://",
 			},
-		)
-		.expect("utf-8");
+		);
 		assert_eq!(uri, "code+moniker://app/external_pkg:Newtonsoft/path:Json");
 	}
 
@@ -484,8 +482,8 @@ go 1.21"#,
 				"lang={}: package_moniker({}) must be @>-ancestor of ref target (pkg={:?} target={:?})",
 				case.lang,
 				case.import_root,
-				pkg.as_bytes(),
-				target.as_bytes(),
+				pkg.as_encoded(),
+				target.as_encoded(),
 			);
 		}
 	}

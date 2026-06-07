@@ -1,5 +1,5 @@
 use super::{UriConfig, UriError};
-use crate::core::moniker::{Moniker, MonikerBuilder};
+use crate::core::moniker::{self, Moniker, MonikerBuilder};
 
 pub fn from_uri(uri: &str, config: &UriConfig<'_>) -> Result<Moniker, UriError> {
 	let rest = uri
@@ -37,7 +37,31 @@ pub fn from_uri(uri: &str, config: &UriConfig<'_>) -> Result<Moniker, UriError> 
 		i = name_end;
 	}
 
-	Ok(builder.build())
+	builder.try_build().map_err(uri_error_from_encoding)
+}
+
+fn uri_error_from_encoding(error: moniker::EncodingError) -> UriError {
+	match error {
+		moniker::EncodingError::EmptyProject => UriError::MissingProject,
+		moniker::EncodingError::NonUtf8Project => UriError::NonUtf8Project,
+		moniker::EncodingError::NonUtf8SegmentKind | moniker::EncodingError::NonUtf8SegmentName => {
+			UriError::NonUtf8Segment
+		}
+		moniker::EncodingError::InvalidSegmentKind => UriError::InvalidKind(String::new()),
+		moniker::EncodingError::ProjectTooLong(len) => UriError::ComponentTooLong("project", len),
+		moniker::EncodingError::SegmentKindTooLong(len) => {
+			UriError::ComponentTooLong("segment kind", len)
+		}
+		moniker::EncodingError::SegmentNameTooLong(len) => {
+			UriError::ComponentTooLong("segment name", len)
+		}
+		moniker::EncodingError::Truncated
+		| moniker::EncodingError::UnknownVersion(_)
+		| moniker::EncodingError::ProjectOverflow
+		| moniker::EncodingError::SegmentOverflow => {
+			unreachable!("URI parser builds encoded monikers from validated components")
+		}
+	}
 }
 
 fn read_kind(bytes: &[u8], start: usize, seg_start: usize) -> Result<(Vec<u8>, usize), UriError> {
@@ -211,6 +235,26 @@ mod tests {
 	fn from_uri_rejects_trailing_data_after_backtick() {
 		let r = from_uri("esac+moniker://`x`A", &default_config());
 		assert!(matches!(r.unwrap_err(), UriError::TrailingAfterBacktick(_)));
+	}
+
+	#[test]
+	fn from_uri_rejects_oversized_project_without_panic() {
+		let project = "a".repeat(u16::MAX as usize + 1);
+		let uri = format!("esac+moniker://{project}");
+		assert_eq!(
+			from_uri(&uri, &default_config()).unwrap_err(),
+			UriError::ComponentTooLong("project", project.len())
+		);
+	}
+
+	#[test]
+	fn from_uri_rejects_oversized_segment_name_without_panic() {
+		let name = "a".repeat(u16::MAX as usize + 1);
+		let uri = format!("esac+moniker://app/path:{name}");
+		assert_eq!(
+			from_uri(&uri, &default_config()).unwrap_err(),
+			UriError::ComponentTooLong("segment name", name.len())
+		);
 	}
 
 	use proptest::prelude::*;

@@ -1,10 +1,14 @@
-// code-moniker: ignore-file[smell-harmonious-method-size]
+// code-moniker: ignore-file[smell-feature-envy-local, smell-balanced-method-fanout, smell-harmonious-method-size]
 // TODO(smell): keep MonikerBuilder as the encoded-moniker construction boundary; revisit this suppression if parsing or query behavior moves here.
-use super::encoding::{HEADER_FIXED_LEN, VERSION, write_u16};
+use super::encoding::{EncodingError, HEADER_FIXED_LEN, VERSION, is_uri_kind, write_u16};
 use super::{Moniker, MonikerView};
 
 const MAX_COMPONENT_LEN: usize = u16::MAX as usize;
 
+/// Builder for the internal encoded `Moniker` value.
+///
+/// Use `try_build` for untrusted bytes. `build` is the trusted path for code
+/// that has already enforced the URI-safe moniker invariants.
 #[derive(Default, Debug)]
 pub struct MonikerBuilder {
 	project: Vec<u8>,
@@ -41,32 +45,40 @@ impl MonikerBuilder {
 	}
 
 	pub fn build(&self) -> Moniker {
-		assert!(
-			self.project.len() <= MAX_COMPONENT_LEN,
-			"moniker project longer than u16::MAX bytes ({})",
-			self.project.len()
-		);
+		self.try_build()
+			.unwrap_or_else(|error| panic!("invalid moniker builder input: {error}"))
+	}
+
+	pub fn try_build(&self) -> Result<Moniker, EncodingError> {
+		if self.project.is_empty() {
+			return Err(EncodingError::EmptyProject);
+		}
+		std::str::from_utf8(&self.project).map_err(|_| EncodingError::NonUtf8Project)?;
+		if self.project.len() > MAX_COMPONENT_LEN {
+			return Err(EncodingError::ProjectTooLong(self.project.len()));
+		}
 		let mut buf = Vec::with_capacity(self.estimated_size());
 		buf.push(VERSION);
 		write_u16(&mut buf, self.project.len() as u16);
 		buf.extend_from_slice(&self.project);
 		for (kind, name) in &self.segments {
-			assert!(
-				kind.len() <= MAX_COMPONENT_LEN,
-				"moniker segment kind longer than u16::MAX bytes ({})",
-				kind.len()
-			);
-			assert!(
-				name.len() <= MAX_COMPONENT_LEN,
-				"moniker segment name longer than u16::MAX bytes ({})",
-				name.len()
-			);
+			std::str::from_utf8(kind).map_err(|_| EncodingError::NonUtf8SegmentKind)?;
+			if !is_uri_kind(kind) {
+				return Err(EncodingError::InvalidSegmentKind);
+			}
+			std::str::from_utf8(name).map_err(|_| EncodingError::NonUtf8SegmentName)?;
+			if kind.len() > MAX_COMPONENT_LEN {
+				return Err(EncodingError::SegmentKindTooLong(kind.len()));
+			}
+			if name.len() > MAX_COMPONENT_LEN {
+				return Err(EncodingError::SegmentNameTooLong(name.len()));
+			}
 			write_u16(&mut buf, kind.len() as u16);
 			buf.extend_from_slice(kind);
 			write_u16(&mut buf, name.len() as u16);
 			buf.extend_from_slice(name);
 		}
-		Moniker::from_canonical_bytes(buf)
+		Ok(Moniker::from_encoded_unchecked(buf))
 	}
 
 	fn estimated_size(&self) -> usize {
@@ -86,12 +98,9 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn builder_empty() {
-		let m = MonikerBuilder::new().build();
-		let v = m.as_view();
-		assert_eq!(v.project(), b"");
-		assert_eq!(v.segment_count(), 0);
-		assert_eq!(v.segments().count(), 0);
+	#[should_panic(expected = "project must not be empty")]
+	fn builder_panics_on_empty_project() {
+		MonikerBuilder::new().build();
 	}
 
 	#[test]
@@ -157,14 +166,14 @@ mod tests {
 	}
 
 	#[test]
-	#[should_panic(expected = "moniker project longer than u16::MAX bytes")]
+	#[should_panic(expected = "project longer than u16::MAX bytes")]
 	fn builder_panics_on_oversized_project() {
 		let oversize = vec![b'a'; MAX_COMPONENT_LEN + 1];
 		MonikerBuilder::new().project(&oversize).build();
 	}
 
 	#[test]
-	#[should_panic(expected = "moniker segment kind longer than u16::MAX bytes")]
+	#[should_panic(expected = "segment kind longer than u16::MAX bytes")]
 	fn builder_panics_on_oversized_segment_kind() {
 		let oversize = vec![b'a'; MAX_COMPONENT_LEN + 1];
 		MonikerBuilder::new()
@@ -174,7 +183,7 @@ mod tests {
 	}
 
 	#[test]
-	#[should_panic(expected = "moniker segment name longer than u16::MAX bytes")]
+	#[should_panic(expected = "segment name longer than u16::MAX bytes")]
 	fn builder_panics_on_oversized_segment_name() {
 		let oversize = vec![b'a'; MAX_COMPONENT_LEN + 1];
 		MonikerBuilder::new()

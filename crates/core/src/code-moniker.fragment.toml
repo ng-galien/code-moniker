@@ -1,12 +1,10 @@
 fragment = "core"
 
-# `code_moniker_core` owns the pure model, declaration layer, and language
-# extractors. Keep these rules colocated with the crate-level architecture
-# they protect.
+# `code_moniker_core` owns the pure model and language extractors. Keep these
+# rules colocated with the crate-level architecture they protect.
 
 [aliases]
 core    = "moniker ~ '**/dir:src/*:core/**'"
-declare = "moniker ~ '**/dir:src/*:declare/**'"
 lang    = "moniker ~ '**/dir:src/*:lang/**'"
 canonical_walker = "moniker ~ '**/*:lang/*:canonical_walker'"
 tree_sitter_sdk_extractor = "moniker ~ '**/dir:src/*:lang/*/*:sdk_pipeline/**'"
@@ -48,13 +46,13 @@ opaque macro payload.
 id      = "core-no-upper"
 expr    = """
   $core AND kind = 'imports_symbol'
-  => NOT target ~ '**/*:/^(lang|declare)$/**'
+  => NOT target ~ '**/*:lang/**'
 """
-message = "`core` is the foundation submodule; it must not depend on sibling `lang` or `declare` internals."
+message = "`core` is the foundation submodule; it must not depend on sibling `lang` internals."
 rationale = """
 The core model must stay reusable by every extractor and surface. Letting it import language
-or declaration internals would invert the dependency graph and make later language additions
-affect the base model.
+internals would invert the dependency graph and make later language additions affect the base
+model.
 """
 
 # Shared extractor walker contract.

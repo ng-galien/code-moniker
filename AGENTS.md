@@ -3,13 +3,11 @@
 ## Structure
 
 - Workspace: Rust 2024.
-- `crates/core`: model, URI, declarations, language extractors.
+- `crates/core`: model, URI, language extractors.
 - `crates/workspace`: workspace scan, graph, linkage, changes.
 - `crates/cli`: `code-moniker`, CLI, rules, formatting, TUI/MCP.
-- `crates/pg`: `code-moniker-pg` pgrx extension.
 - `crates/cli/tests/`: CLI integration tests.
 - `docs/`: user and developer docs.
-- `pgtap/sql/`: SQL extension tests.
 - `scripts/dogfood/`: dogfood/regression tooling.
 - `proptest-regressions/`: property-test regressions.
 - `bug/`: confirmed bugs with minimal reproducers.
@@ -18,13 +16,10 @@
 
 ## Commands
 
-- Fast core/CLI check: `cargo check --workspace --exclude code-moniker-pg --all-targets`
-- Core/CLI tests: `cargo test --workspace --exclude code-moniker-pg`
+- Fast core/CLI check: `cargo check --workspace --all-targets`
+- Core/CLI tests: `cargo test --workspace`
 - Format gate: `cargo fmt --all -- --check`
-- CI clippy: `cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings`
-- CI lib tests: `cargo test --features pg17 --no-default-features --lib`
-- Install pg: `cargo pgrx install --manifest-path crates/pg/Cargo.toml --pg-config $HOME/.pgrx/17.9/pgrx-install/bin/pg_config`
-- pgTAP: `./pgtap/run.sh`
+- CI clippy: `cargo clippy --workspace --tests --no-deps -- -D warnings`
 - Agent guardrail: `cargo moniker-check`
 
 ## Build Latency
@@ -34,7 +29,6 @@
 - Debug profile: `--profile dev-debug`.
 - Cargo jobs: `.cargo/config.toml` `jobs = 10`.
 - macOS linker: `/opt/homebrew/opt/lld/bin/ld64.lld`.
-- pgrx flags: `-undefined dynamic_lookup`.
 - Cache wrapper: disabled by default.
 - Release speed profile: `release-lto`.
 - Keep one Cargo command active.
@@ -67,10 +61,8 @@ moniker and can produce symbol paths that differ from project/index checks.
   - focused test group
   - `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile agent --max-violations 50`
 - Full non-release gate:
-  - `cargo test --workspace --exclude code-moniker-pg --quiet`
-  - `cargo clippy --features pg17 --no-default-features --tests --no-deps -- -D warnings`
-  - `cargo test --features pg17 --no-default-features --lib`
-- pg gate: `cargo pgrx install ...`, then `./pgtap/run.sh`.
+  - `cargo test --workspace --quiet`
+  - `cargo clippy --workspace --tests --no-deps -- -D warnings`
 - CLI/TUI install gate: `cargo install --path crates/cli`.
 
 ## MCP Dogfood
@@ -207,11 +199,10 @@ code-moniker check <target> \
 ## CI & Release
 
 - CI workflow: `.github/workflows/ci.yml`.
-- CI gates: fmt, clippy, pg17 lib tests, pgrx install, pgTAP, `cargo moniker-check`.
+- CI gates: fmt, clippy, lib tests, `cargo moniker-check`.
 - Release workflow: `.github/workflows/release.yml`.
 - Release trigger: `v*.*.*` tag.
 - Publish order: `code-moniker-core`, then `code-moniker`.
-- `code-moniker-pg`: `publish = false`.
 - After release: bump `[workspace.package]` version on `main`.
 - Version suffix: no `-snapshot`.
 
@@ -222,7 +213,7 @@ code-moniker check <target> \
 - Extractor files: `mod.rs`, `kinds.rs`, `canonicalize.rs`, `strategy.rs`.
 - Shared public APIs: `pub`.
 - Module focus: one responsibility.
-- Tests: CLI in `crates/cli/tests/`; SQL in `pgtap/sql/*.sql`; extractor fixtures in `crates/core/tests/fixtures/`.
+- Tests: CLI in `crates/cli/tests/`; extractor fixtures in `crates/core/tests/fixtures/`.
 - Commits: Conventional Commit, short scope.
 - PR evidence: command outputs relevant to changed surface.
 - Screenshots: docs or visual assets only.
@@ -232,5 +223,4 @@ code-moniker check <target> \
 - Never commit `target/`.
 - Never commit local dogfood clones.
 - Never commit credentials.
-- Never commit machine-specific pgrx paths.
 - Config examples: `.code-moniker.toml` and documented defaults.

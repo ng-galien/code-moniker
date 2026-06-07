@@ -326,7 +326,7 @@ const ALLOWED_MATCHER_FIELDS: &[&str] = &[
 ];
 
 fn render(moniker: &Moniker) -> String {
-	to_uri(moniker, &UriConfig::default()).unwrap_or_else(|err| format!("<urierr:{err}>"))
+	to_uri(moniker, &UriConfig::default())
 }
 
 fn bytes(bytes: &[u8]) -> &str {

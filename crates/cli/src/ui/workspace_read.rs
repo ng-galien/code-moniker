@@ -653,8 +653,7 @@ pub(in crate::ui) fn usage_focus(
 	symbol: SymbolId,
 ) -> Option<UsageFocus> {
 	let record = symbol_by_id(store, &symbol)?;
-	let target = moniker_for_identity(store, &record.identity)
-		.unwrap_or_else(|| Moniker::from_canonical_bytes(record.identity.as_bytes().to_vec()));
+	let target = moniker_for_identity(store, &record.identity)?;
 	let refs = incoming_refs_for_symbol(store, &symbol);
 	Some(UsageFocus {
 		target,

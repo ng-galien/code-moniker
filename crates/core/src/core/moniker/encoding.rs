@@ -16,6 +16,14 @@ pub enum EncodingError {
 	UnknownVersion(u8),
 	ProjectOverflow,
 	SegmentOverflow,
+	EmptyProject,
+	NonUtf8Project,
+	NonUtf8SegmentKind,
+	NonUtf8SegmentName,
+	InvalidSegmentKind,
+	ProjectTooLong(usize),
+	SegmentKindTooLong(usize),
+	SegmentNameTooLong(usize),
 }
 
 impl fmt::Display for EncodingError {
@@ -25,6 +33,23 @@ impl fmt::Display for EncodingError {
 			Self::UnknownVersion(v) => write!(f, "unknown encoding version: {v}"),
 			Self::ProjectOverflow => write!(f, "project bytes extend past buffer"),
 			Self::SegmentOverflow => write!(f, "segment extends past buffer"),
+			Self::EmptyProject => write!(f, "project must not be empty"),
+			Self::NonUtf8Project => write!(f, "project must be valid UTF-8"),
+			Self::NonUtf8SegmentKind => write!(f, "segment kind must be valid UTF-8"),
+			Self::NonUtf8SegmentName => write!(f, "segment name must be valid UTF-8"),
+			Self::InvalidSegmentKind => write!(
+				f,
+				"segment kind must be a URI identifier ([A-Za-z][A-Za-z0-9_]*)"
+			),
+			Self::ProjectTooLong(len) => {
+				write!(f, "project longer than u16::MAX bytes ({len})")
+			}
+			Self::SegmentKindTooLong(len) => {
+				write!(f, "segment kind longer than u16::MAX bytes ({len})")
+			}
+			Self::SegmentNameTooLong(len) => {
+				write!(f, "segment name longer than u16::MAX bytes ({len})")
+			}
 		}
 	}
 }
@@ -37,4 +62,14 @@ pub fn read_u16(buf: &[u8], off: usize) -> u16 {
 
 pub fn write_u16(buf: &mut Vec<u8>, value: u16) {
 	buf.extend_from_slice(&value.to_le_bytes());
+}
+
+pub fn is_uri_kind(bytes: &[u8]) -> bool {
+	let Some((first, rest)) = bytes.split_first() else {
+		return false;
+	};
+	first.is_ascii_alphabetic()
+		&& rest
+			.iter()
+			.all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
 }

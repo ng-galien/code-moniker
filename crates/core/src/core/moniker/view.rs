@@ -1,6 +1,6 @@
 // code-moniker: ignore-file[smell-feature-envy-local, smell-balanced-method-fanout, smell-harmonious-method-size]
 // TODO(smell): split MonikerView parsing, segment traversal, and display/query helpers before enabling these guardrails here.
-use super::encoding::{EncodingError, HEADER_FIXED_LEN, VERSION, read_u16};
+use super::encoding::{EncodingError, HEADER_FIXED_LEN, VERSION, is_uri_kind, read_u16};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Segment<'a> {
@@ -17,7 +17,7 @@ pub struct MonikerView<'a> {
 }
 
 impl<'a> MonikerView<'a> {
-	pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, EncodingError> {
+	pub fn from_encoded(bytes: &'a [u8]) -> Result<Self, EncodingError> {
 		if bytes.len() < HEADER_FIXED_LEN {
 			return Err(EncodingError::Truncated);
 		}
@@ -31,21 +31,38 @@ impl<'a> MonikerView<'a> {
 		if bytes.len() < segs_off {
 			return Err(EncodingError::ProjectOverflow);
 		}
+		let project = &bytes[project_off..project_off + project_len];
+		if project.is_empty() {
+			return Err(EncodingError::EmptyProject);
+		}
+		std::str::from_utf8(project).map_err(|_| EncodingError::NonUtf8Project)?;
 		let mut cursor = segs_off;
 		while cursor < bytes.len() {
 			if bytes.len() < cursor + 2 {
 				return Err(EncodingError::SegmentOverflow);
 			}
 			let kind_len = read_u16(bytes, cursor) as usize;
-			cursor += 2 + kind_len;
+			let kind_start = cursor + 2;
+			cursor = kind_start + kind_len;
+			if bytes.len() < cursor {
+				return Err(EncodingError::SegmentOverflow);
+			}
+			let kind = &bytes[kind_start..cursor];
+			std::str::from_utf8(kind).map_err(|_| EncodingError::NonUtf8SegmentKind)?;
+			if !is_uri_kind(kind) {
+				return Err(EncodingError::InvalidSegmentKind);
+			}
 			if bytes.len() < cursor + 2 {
 				return Err(EncodingError::SegmentOverflow);
 			}
 			let name_len = read_u16(bytes, cursor) as usize;
-			cursor += 2 + name_len;
+			let name_start = cursor + 2;
+			cursor = name_start + name_len;
 			if bytes.len() < cursor {
 				return Err(EncodingError::SegmentOverflow);
 			}
+			let name = &bytes[name_start..cursor];
+			std::str::from_utf8(name).map_err(|_| EncodingError::NonUtf8SegmentName)?;
 		}
 		Ok(Self {
 			bytes,
@@ -56,7 +73,7 @@ impl<'a> MonikerView<'a> {
 	}
 
 	#[allow(clippy::missing_safety_doc)]
-	pub unsafe fn from_canonical_bytes(bytes: &'a [u8]) -> Self {
+	pub(crate) unsafe fn from_encoded_unchecked(bytes: &'a [u8]) -> Self {
 		debug_assert!(bytes.len() >= HEADER_FIXED_LEN && bytes[0] == VERSION);
 		let project_len = read_u16(bytes, 1) as usize;
 		let project_off = 3;
@@ -84,7 +101,7 @@ impl<'a> MonikerView<'a> {
 		}
 	}
 
-	pub fn as_bytes(&self) -> &'a [u8] {
+	pub fn as_encoded(&self) -> &'a [u8] {
 		self.bytes
 	}
 
@@ -128,7 +145,7 @@ mod tests {
 	#[test]
 	fn view_rejects_truncated_buffer() {
 		assert_eq!(
-			MonikerView::from_bytes(&[2, 0]).unwrap_err(),
+			MonikerView::from_encoded(&[2, 0]).unwrap_err(),
 			EncodingError::Truncated
 		);
 	}
@@ -137,7 +154,7 @@ mod tests {
 	fn view_rejects_unknown_version() {
 		let buf = [99, 0, 0];
 		assert_eq!(
-			MonikerView::from_bytes(&buf).unwrap_err(),
+			MonikerView::from_encoded(&buf).unwrap_err(),
 			EncodingError::UnknownVersion(99)
 		);
 	}
@@ -146,24 +163,42 @@ mod tests {
 	fn view_rejects_project_overflow() {
 		let buf: Vec<u8> = vec![2, 10, 0, 0];
 		assert_eq!(
-			MonikerView::from_bytes(&buf).unwrap_err(),
+			MonikerView::from_encoded(&buf).unwrap_err(),
 			EncodingError::ProjectOverflow
 		);
 	}
 
 	#[test]
-	fn view_rejects_segment_overflow() {
-		let buf: Vec<u8> = vec![2, 0, 0, 5, 0];
+	fn view_rejects_empty_project() {
+		let buf: Vec<u8> = vec![2, 0, 0];
 		assert_eq!(
-			MonikerView::from_bytes(&buf).unwrap_err(),
+			MonikerView::from_encoded(&buf).unwrap_err(),
+			EncodingError::EmptyProject
+		);
+	}
+
+	#[test]
+	fn view_rejects_segment_overflow() {
+		let buf: Vec<u8> = vec![2, 3, 0, b'a', b'p', b'p', 5, 0];
+		assert_eq!(
+			MonikerView::from_encoded(&buf).unwrap_err(),
 			EncodingError::SegmentOverflow
+		);
+	}
+
+	#[test]
+	fn view_rejects_invalid_segment_kind() {
+		let buf: Vec<u8> = vec![2, 3, 0, b'a', b'p', b'p', 1, 0, b'1', 1, 0, b'x'];
+		assert_eq!(
+			MonikerView::from_encoded(&buf).unwrap_err(),
+			EncodingError::InvalidSegmentKind
 		);
 	}
 
 	#[test]
 	fn view_accepts_project_only() {
 		let buf: Vec<u8> = vec![2, 3, 0, b'a', b'p', b'p'];
-		let v = MonikerView::from_bytes(&buf).unwrap();
+		let v = MonikerView::from_encoded(&buf).unwrap();
 		assert_eq!(v.project(), b"app");
 		assert_eq!(v.segment_count(), 0);
 	}

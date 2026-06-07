@@ -1,21 +1,24 @@
-use super::{UriConfig, UriError};
+use super::UriConfig;
 use crate::core::moniker::Moniker;
 
-pub fn to_uri(moniker: &Moniker, config: &UriConfig<'_>) -> Result<String, UriError> {
+pub fn to_uri(moniker: &Moniker, config: &UriConfig<'_>) -> String {
 	let view = moniker.as_view();
-	let mut out = String::with_capacity(config.scheme.len() + view.as_bytes().len() + 16);
+	let mut out = String::with_capacity(config.scheme.len() + view.as_encoded().len() + 16);
 	out.push_str(config.scheme);
 	write_name(&mut out, view.project());
 
 	for seg in view.segments() {
 		out.push('/');
-		let kind = std::str::from_utf8(seg.kind).map_err(|_| UriError::NonUtf8Segment)?;
+		let kind = match std::str::from_utf8(seg.kind) {
+			Ok(kind) => kind,
+			Err(_) => panic!("moniker segment kind must be UTF-8"),
+		};
 		out.push_str(kind);
 		out.push(':');
 		write_name(&mut out, seg.name);
 	}
 
-	Ok(out)
+	out
 }
 
 fn name_needs_escaping(bytes: &[u8]) -> bool {
@@ -26,7 +29,10 @@ fn name_needs_escaping(bytes: &[u8]) -> bool {
 }
 
 fn write_name(out: &mut String, bytes: &[u8]) {
-	let s = std::str::from_utf8(bytes).expect("segment names must be UTF-8");
+	let s = match std::str::from_utf8(bytes) {
+		Ok(s) => s,
+		Err(_) => panic!("moniker project and segment names must be UTF-8"),
+	};
 	if !name_needs_escaping(bytes) {
 		out.push_str(s);
 		return;
@@ -51,10 +57,7 @@ mod tests {
 	#[test]
 	fn to_uri_project_only() {
 		let m = MonikerBuilder::new().project(b"my-app").build();
-		assert_eq!(
-			to_uri(&m, &default_config()).unwrap(),
-			"esac+moniker://my-app"
-		);
+		assert_eq!(to_uri(&m, &default_config()), "esac+moniker://my-app");
 	}
 
 	#[test]
@@ -67,7 +70,7 @@ mod tests {
 			.segment(b"class", b"Foo")
 			.build();
 		assert_eq!(
-			to_uri(&m, &default_config()).unwrap(),
+			to_uri(&m, &default_config()),
 			"esac+moniker://my-app/path:main/path:com/path:acme/class:Foo"
 		);
 	}
@@ -81,7 +84,7 @@ mod tests {
 			.segment(b"method", b"bar()")
 			.build();
 		assert_eq!(
-			to_uri(&m, &default_config()).unwrap(),
+			to_uri(&m, &default_config()),
 			"esac+moniker://my-app/path:main/class:Foo/method:bar()"
 		);
 	}
@@ -94,7 +97,7 @@ mod tests {
 			.segment(b"method", b"bar(2)")
 			.build();
 		assert_eq!(
-			to_uri(&m, &default_config()).unwrap(),
+			to_uri(&m, &default_config()),
 			"esac+moniker://app/class:Foo/method:bar(2)"
 		);
 	}
@@ -106,7 +109,7 @@ mod tests {
 			.segment(b"path", b"util/test.ts")
 			.build();
 		assert_eq!(
-			to_uri(&m, &default_config()).unwrap(),
+			to_uri(&m, &default_config()),
 			"esac+moniker://app/path:`util/test.ts`"
 		);
 	}
@@ -118,7 +121,7 @@ mod tests {
 			.segment(b"class", b"weird`name")
 			.build();
 		assert_eq!(
-			to_uri(&m, &default_config()).unwrap(),
+			to_uri(&m, &default_config()),
 			"esac+moniker://app/class:`weird``name`"
 		);
 	}
@@ -149,7 +152,7 @@ mod tests {
 
 		#[test]
 		fn to_uri_from_uri_roundtrip(m in arb_moniker()) {
-			let s = to_uri(&m, &default_config()).expect("to_uri must succeed on builder output");
+			let s = to_uri(&m, &default_config());
 			let m2 = super::super::parse::from_uri(&s, &default_config())
 				.expect("from_uri must accept what to_uri produced");
 			prop_assert_eq!(m, m2);

@@ -32,7 +32,7 @@
 use std::fmt;
 
 use crate::core::code_graph::{Bytes, CodeGraph, DefRecord, Position, RefRecord};
-use crate::core::moniker::Moniker;
+use crate::core::moniker::{self, Moniker};
 
 pub const LAYOUT_VERSION: u16 = 3;
 const VERSION_BYTES: usize = 2;
@@ -49,6 +49,7 @@ pub enum EncodingError {
 	IndexOverflow,
 	LengthOverflow(&'static str),
 	InvalidIndex(&'static str),
+	InvalidMoniker(moniker::EncodingError),
 }
 
 impl fmt::Display for EncodingError {
@@ -61,6 +62,7 @@ impl fmt::Display for EncodingError {
 			Self::InvalidIndex(what) => {
 				write!(f, "code_graph: {what} points past the defs section")
 			}
+			Self::InvalidMoniker(error) => write!(f, "code_graph: invalid moniker: {error}"),
 		}
 	}
 }
@@ -224,7 +226,7 @@ fn boxed(bytes: &[u8]) -> Bytes {
 }
 
 fn write_moniker(out: &mut Vec<u8>, m: &Moniker) -> Result<(), EncodingError> {
-	let bytes = m.as_bytes();
+	let bytes = m.as_encoded();
 	let len: u32 = bytes
 		.len()
 		.try_into()
@@ -303,7 +305,7 @@ impl<'a> Cursor<'a> {
 	fn read_moniker(&mut self) -> Result<Moniker, EncodingError> {
 		let len = self.read_u32("moniker len")? as usize;
 		let bytes = self.take(len, "moniker bytes")?;
-		Ok(Moniker::from_canonical_bytes(bytes.to_vec()))
+		Moniker::from_encoded(bytes.to_vec()).map_err(EncodingError::InvalidMoniker)
 	}
 
 	fn read_u32(&mut self, what: &'static str) -> Result<u32, EncodingError> {

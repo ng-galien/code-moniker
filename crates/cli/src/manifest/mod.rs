@@ -163,7 +163,7 @@ fn enrich_cargo_workspace_members(entries: &mut [Entry], root: &Path) {
 }
 
 fn render(m: &code_moniker_core::core::moniker::Moniker, scheme: &str) -> String {
-	crate::moniker_render::render_uri(m, &UriConfig { scheme })
+	code_moniker_core::core::uri::to_uri(m, &UriConfig { scheme })
 }
 
 fn write_tsv<W: Write>(w: &mut W, entries: &[Entry], scheme: &str) -> std::io::Result<()> {

@@ -76,7 +76,6 @@ impl LocalIdentityResolver {
 				scheme: &self.scheme,
 			},
 		)
-		.unwrap_or_else(|_| String::from_utf8_lossy(moniker.as_bytes()).to_string())
 	}
 }
 

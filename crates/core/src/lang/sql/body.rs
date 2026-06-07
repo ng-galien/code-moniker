@@ -73,7 +73,7 @@ mod tests {
 
 	fn ref_targets(g: &CodeGraph) -> Vec<String> {
 		g.refs()
-			.map(|r| crate::core::uri::to_uri(&r.target, &Default::default()).unwrap())
+			.map(|r| crate::core::uri::to_uri(&r.target, &Default::default()))
 			.collect()
 	}
 

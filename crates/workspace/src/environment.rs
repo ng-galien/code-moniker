@@ -74,9 +74,7 @@ pub fn line_range(source: &str, start: u32, end: u32) -> (u32, u32) {
 }
 
 pub fn compact_moniker(moniker: &Moniker, scheme: &str) -> String {
-	render_compact_moniker(moniker).unwrap_or_else(|| {
-		to_uri(moniker, &UriConfig { scheme }).unwrap_or_else(|_| non_utf8(moniker))
-	})
+	render_compact_moniker(moniker).unwrap_or_else(|| to_uri(moniker, &UriConfig { scheme }))
 }
 
 fn render_compact_moniker(moniker: &Moniker) -> Option<String> {
@@ -134,8 +132,4 @@ fn render_compact_moniker(moniker: &Moniker) -> Option<String> {
 		out.push_str(name);
 	}
 	Some(out)
-}
-
-fn non_utf8(moniker: &Moniker) -> String {
-	format!("<non-utf8:{}b>", moniker.as_bytes().len())
 }

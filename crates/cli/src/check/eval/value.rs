@@ -79,7 +79,7 @@ pub(super) fn render_value(v: &Value) -> String {
 	match v {
 		Value::Str(s) => s.clone(),
 		Value::Number(n) => render_number(*n),
-		Value::Moniker(m) => format!("{}b moniker", m.as_bytes().len()),
+		Value::Moniker(m) => format!("{}b moniker", m.as_encoded().len()),
 	}
 }
 
@@ -99,7 +99,7 @@ fn render_rhs(r: &Rhs) -> String {
 		Rhs::Str(s) => s.clone(),
 		Rhs::Number(expr) => render_number_expr(expr),
 		Rhs::RegexStr(s) => s.clone(),
-		Rhs::Moniker(m) => format!("{}b moniker", m.as_bytes().len()),
+		Rhs::Moniker(m) => format!("{}b moniker", m.as_encoded().len()),
 		Rhs::PathPattern(p) => format!("path `{}`", p.raw),
 		Rhs::Projection(l) => l.as_str().to_string(),
 		Rhs::PairProjection(projection) => pair_projection_label(*projection),
@@ -249,7 +249,7 @@ fn collection_label(collection: &CollectionExpr) -> String {
 pub(super) enum ValueKey {
 	Str(String),
 	Number(u64),
-	Moniker(Vec<u8>),
+	Moniker(Moniker),
 }
 
 impl ValueKey {
@@ -257,7 +257,7 @@ impl ValueKey {
 		match value {
 			Value::Str(s) => Self::Str(s),
 			Value::Number(n) => Self::Number(n.to_bits()),
-			Value::Moniker(m) => Self::Moniker(m.as_bytes().to_vec()),
+			Value::Moniker(m) => Self::Moniker(m),
 		}
 	}
 
@@ -265,7 +265,7 @@ impl ValueKey {
 		match self {
 			Self::Str(s) => Value::Str(s),
 			Self::Number(bits) => Value::Number(f64::from_bits(bits)),
-			Self::Moniker(bytes) => Value::Moniker(Moniker::from_canonical_bytes(bytes)),
+			Self::Moniker(moniker) => Value::Moniker(moniker),
 		}
 	}
 }

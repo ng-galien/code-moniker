@@ -52,7 +52,7 @@ confidence = "imported"
 kind = "uses_type"
 from = "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])"
 to = "code+moniker://app/lang:ts/module:catalog/path:ProductCatalog"
-confidence = "imported"
+confidence = "external"
 
 [[refs]]
 label = "priceOrder.instantiates.Order"

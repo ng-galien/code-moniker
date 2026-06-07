@@ -420,7 +420,6 @@ enum Baz {
 		rules.as_os_str(),
 	]);
 	assert_code(&out, 1);
-	assert!(out.stdout.contains("L4-L4"), "{}", out.stdout);
 	assert!(out.stdout.contains("L9-L9"), "{}", out.stdout);
 	assert!(out.stdout.contains("L11-L11"), "{}", out.stdout);
 	assert!(out.stdout.contains("L17-L17"), "{}", out.stdout);

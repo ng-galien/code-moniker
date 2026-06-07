@@ -744,7 +744,7 @@ fn workspace_live_watcher_tracks_startup_roots_recursively() {
 	);
 
 	let (tx, rx) = mpsc::channel();
-	let _watcher = LiveWorkspaceWatcher::start(watch_roots, move |event| {
+	let _watcher = LiveWorkspaceWatcher::start_polling(watch_roots, move |event| {
 		let _ = tx.send(event);
 	})
 	.expect("watcher starts");
@@ -791,7 +791,7 @@ fn workspace_live_watcher_starts_when_git_contains_fsmonitor_socket() {
 	));
 
 	let (tx, rx) = mpsc::channel();
-	let watcher = LiveWorkspaceWatcher::start(workspace.watch_roots(), move |event| {
+	let watcher = LiveWorkspaceWatcher::start_polling(workspace.watch_roots(), move |event| {
 		let _ = tx.send(event);
 	})
 	.expect("watcher should start for repository root");

@@ -424,7 +424,7 @@ impl CodeGraph {
 			return Arc::clone(cached);
 		}
 		let mut v: Vec<Moniker> = self.defs.iter().map(|d| d.moniker.clone()).collect();
-		v.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+		v.sort_by(|a, b| a.as_encoded().cmp(b.as_encoded()));
 		let arc = Arc::new(v);
 		*self
 			.def_monikers_cache
@@ -443,7 +443,7 @@ impl CodeGraph {
 			return Arc::clone(cached);
 		}
 		let mut v: Vec<Moniker> = self.refs.iter().map(|r| r.target.clone()).collect();
-		v.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+		v.sort_by(|a, b| a.as_encoded().cmp(b.as_encoded()));
 		let arc = Arc::new(v);
 		*self
 			.ref_targets_cache
@@ -520,7 +520,7 @@ fn default_ref_binding(kind: &[u8]) -> &'static [u8] {
 pub fn assert_local_refs_closed(g: &CodeGraph) {
 	use crate::core::uri::{UriConfig, to_uri};
 	let cfg = UriConfig::default();
-	let render = |m: &Moniker| to_uri(m, &cfg).unwrap_or_else(|_| format!("{:?}", m.as_bytes()));
+	let render = |m: &Moniker| to_uri(m, &cfg);
 	let defs: Vec<&Moniker> = g.defs().map(|d| &d.moniker).collect();
 	for r in g.refs() {
 		if r.confidence.as_ref() != b"local" {
@@ -739,7 +739,7 @@ mod tests {
 		let monikers = g.def_monikers();
 		assert_eq!(monikers.len(), 3);
 		for w in monikers.windows(2) {
-			assert!(w[0].as_bytes() <= w[1].as_bytes());
+			assert!(w[0].as_encoded() <= w[1].as_encoded());
 		}
 		assert!(monikers.contains(&root));
 		assert!(monikers.contains(&a));
@@ -791,7 +791,7 @@ mod tests {
 		let targets = g.ref_targets();
 		assert_eq!(targets.len(), 3);
 		for w in targets.windows(2) {
-			assert!(w[0].as_bytes() <= w[1].as_bytes());
+			assert!(w[0].as_encoded() <= w[1].as_encoded());
 		}
 	}
 

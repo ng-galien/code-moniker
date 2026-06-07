@@ -9,7 +9,7 @@ use super::model::{WorkspaceLiveEvent, WorkspaceWatchRoot};
 use super::roots::{WorkspaceEventClassifier, watch_paths_for};
 
 pub struct LiveWorkspaceWatcher {
-	_watcher: notify::RecommendedWatcher,
+	_watcher: WorkspaceWatcherBackend,
 	_worker: JoinHandle<()>,
 	watched_paths: usize,
 	warnings: Vec<String>,
@@ -22,10 +22,28 @@ impl LiveWorkspaceWatcher {
 	where
 		F: Fn(WorkspaceLiveEvent) + Send + 'static,
 	{
+		Self::start_with_backend(roots, WorkspaceWatcherBackendKind::Recommended, publish)
+	}
+
+	pub fn start_polling<F>(roots: Vec<WorkspaceWatchRoot>, publish: F) -> anyhow::Result<Self>
+	where
+		F: Fn(WorkspaceLiveEvent) + Send + 'static,
+	{
+		Self::start_with_backend(roots, WorkspaceWatcherBackendKind::Polling, publish)
+	}
+
+	fn start_with_backend<F>(
+		roots: Vec<WorkspaceWatchRoot>,
+		backend: WorkspaceWatcherBackendKind,
+		publish: F,
+	) -> anyhow::Result<Self>
+	where
+		F: Fn(WorkspaceLiveEvent) + Send + 'static,
+	{
 		let watch_targets = watch_paths_for(&roots);
 		let classifier = WorkspaceEventClassifier::new(roots);
 		let (tx, worker) = watcher_event_channel(publish);
-		let mut watcher = new_recommended_watcher(classifier.clone(), tx)?;
+		let mut watcher = new_watcher(backend, classifier.clone(), tx)?;
 		let (watched_paths, warnings) = watch_target_paths(&mut watcher, &watch_targets);
 
 		Ok(Self {
@@ -60,6 +78,26 @@ impl LiveWorkspaceWatcher {
 	}
 }
 
+enum WorkspaceWatcherBackend {
+	Recommended(notify::RecommendedWatcher),
+	Polling(notify::PollWatcher),
+}
+
+impl WorkspaceWatcherBackend {
+	fn watch(&mut self, path: &std::path::Path, mode: RecursiveMode) -> notify::Result<()> {
+		match self {
+			Self::Recommended(watcher) => watcher.watch(path, mode),
+			Self::Polling(watcher) => watcher.watch(path, mode),
+		}
+	}
+}
+
+#[derive(Clone, Copy)]
+enum WorkspaceWatcherBackendKind {
+	Recommended,
+	Polling,
+}
+
 fn watcher_event_channel<F>(publish: F) -> (mpsc::Sender<WorkspaceLiveEvent>, JoinHandle<()>)
 where
 	F: Fn(WorkspaceLiveEvent) + Send + 'static,
@@ -69,25 +107,48 @@ where
 	(tx, worker)
 }
 
-fn new_recommended_watcher(
+fn new_watcher(
+	backend: WorkspaceWatcherBackendKind,
 	classifier: WorkspaceEventClassifier,
 	tx: mpsc::Sender<WorkspaceLiveEvent>,
-) -> anyhow::Result<notify::RecommendedWatcher> {
-	Ok(notify::RecommendedWatcher::new(
-		move |event: notify::Result<Event>| {
-			let Ok(event) = event else {
-				return;
-			};
-			if let Some(store_event) = classifier.classify_event(&event) {
-				let _ = tx.send(store_event);
-			}
-		},
-		Config::default(),
-	)?)
+) -> anyhow::Result<WorkspaceWatcherBackend> {
+	match backend {
+		WorkspaceWatcherBackendKind::Recommended => Ok(WorkspaceWatcherBackend::Recommended(
+			notify::RecommendedWatcher::new(
+				move |event| publish_classified_event(&classifier, &tx, event),
+				Config::default(),
+			)?,
+		)),
+		WorkspaceWatcherBackendKind::Polling => {
+			Ok(WorkspaceWatcherBackend::Polling(notify::PollWatcher::new(
+				move |event| publish_classified_event(&classifier, &tx, event),
+				polling_watcher_config(),
+			)?))
+		}
+	}
+}
+
+fn publish_classified_event(
+	classifier: &WorkspaceEventClassifier,
+	tx: &mpsc::Sender<WorkspaceLiveEvent>,
+	event: notify::Result<Event>,
+) {
+	let Ok(event) = event else {
+		return;
+	};
+	if let Some(store_event) = classifier.classify_event(&event) {
+		let _ = tx.send(store_event);
+	}
+}
+
+fn polling_watcher_config() -> Config {
+	Config::default()
+		.with_poll_interval(Duration::from_millis(50))
+		.with_compare_contents(true)
 }
 
 fn watch_target_paths(
-	watcher: &mut notify::RecommendedWatcher,
+	watcher: &mut WorkspaceWatcherBackend,
 	targets: &[PathBuf],
 ) -> (usize, Vec<String>) {
 	let mut warnings = Vec::new();

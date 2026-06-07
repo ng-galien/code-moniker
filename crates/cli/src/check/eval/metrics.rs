@@ -42,7 +42,7 @@ fn fan_out(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 }
 
 fn fan_in(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
-	let key = ctx.graph.def_at(def_idx).moniker.as_bytes();
+	let key = ctx.graph.def_at(def_idx).moniker.as_encoded();
 	ctx.in_refs_by_target
 		.get(key)
 		.map_or(0, |refs| refs.len() as u32)
@@ -56,7 +56,7 @@ fn rfc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 	let mut responses: HashSet<Vec<u8>> = HashSet::new();
 	for method_idx in direct_callable_idxs(def_idx, ctx) {
 		let method = ctx.graph.def_at(method_idx);
-		responses.insert(method.moniker.as_bytes().to_vec());
+		responses.insert(method.moniker.as_encoded().to_vec());
 		for ref_idx in ctx
 			.out_refs_by_source
 			.get(&method_idx)
@@ -67,7 +67,7 @@ fn rfc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 			if !is_call_ref_kind(&record.kind) {
 				continue;
 			}
-			responses.insert(record.target.as_bytes().to_vec());
+			responses.insert(record.target.as_encoded().to_vec());
 		}
 	}
 	responses.len() as u32
@@ -90,7 +90,7 @@ fn cbo(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 		let target = ctx.graph.def_at(*target_idx);
 		for ref_idx in ctx
 			.in_refs_by_target
-			.get(target.moniker.as_bytes())
+			.get(target.moniker.as_encoded())
 			.into_iter()
 			.flatten()
 		{
@@ -114,11 +114,11 @@ fn lcom4(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 	let method_pos: HashMap<Vec<u8>, usize> = methods
 		.iter()
 		.enumerate()
-		.map(|(pos, idx)| (ctx.graph.def_at(*idx).moniker.as_bytes().to_vec(), pos))
+		.map(|(pos, idx)| (ctx.graph.def_at(*idx).moniker.as_encoded().to_vec(), pos))
 		.collect();
 	let fields: HashSet<Vec<u8>> = direct_value_idxs(def_idx, ctx)
 		.into_iter()
-		.map(|idx| ctx.graph.def_at(idx).moniker.as_bytes().to_vec())
+		.map(|idx| ctx.graph.def_at(idx).moniker.as_encoded().to_vec())
 		.collect();
 	let mut graph: Vec<HashSet<usize>> = (0..methods.len()).map(|_| HashSet::new()).collect();
 	let mut field_users: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
@@ -130,7 +130,7 @@ fn lcom4(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 			.into_iter()
 			.flatten()
 		{
-			let target = ctx.graph.ref_at(*ref_idx).target.as_bytes();
+			let target = ctx.graph.ref_at(*ref_idx).target.as_encoded();
 			if let Some(other_pos) = method_pos.get(target).copied() {
 				connect(&mut graph, pos, other_pos);
 			}
@@ -177,7 +177,7 @@ fn dit_from(def_idx: usize, ctx: &EvalCtx<'_, '_>, visiting: &mut HashSet<usize>
 }
 
 fn noc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
-	let key = ctx.graph.def_at(def_idx).moniker.as_bytes();
+	let key = ctx.graph.def_at(def_idx).moniker.as_encoded();
 	let mut children = HashSet::new();
 	for ref_idx in ctx.in_refs_by_target.get(key).into_iter().flatten() {
 		let record = ctx.graph.ref_at(*ref_idx);
@@ -228,7 +228,7 @@ fn add_external_coupling(
 	}
 	let bucket = coupling_bucket(target, ctx);
 	if !owner.is_ancestor_of(&bucket) {
-		coupled.insert(bucket.as_bytes().to_vec());
+		coupled.insert(bucket.as_encoded().to_vec());
 	}
 }
 

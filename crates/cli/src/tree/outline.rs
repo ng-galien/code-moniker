@@ -8,10 +8,9 @@ use super::strategy::TreeStrategy;
 use super::style::{Palette, TreeOpts};
 use crate::args::ExtractArgs;
 use crate::extract::{MatchSet, RefMatch};
-use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::kinds::{KIND_COMMENT, KIND_LOCAL, KIND_PARAM};
-use code_moniker_core::core::uri::UriConfig;
+use code_moniker_core::core::uri::{UriConfig, to_uri};
 use code_moniker_workspace::lines::line_range;
 
 const NOISE_KINDS: &[&[u8]] = &[KIND_LOCAL, KIND_PARAM, KIND_COMMENT];
@@ -55,14 +54,11 @@ pub fn write_tree_with_prefix<W: Write>(
 		return Ok(());
 	}
 
-	let def_uris: Vec<String> = kept_defs
-		.iter()
-		.map(|d| render_uri(&d.moniker, &cfg))
-		.collect();
+	let def_uris: Vec<String> = kept_defs.iter().map(|d| to_uri(&d.moniker, &cfg)).collect();
 	let mut refs_by_src: FxHashMap<String, Vec<&RefMatch<'_>>> = FxHashMap::default();
 	for r in &kept_refs {
 		refs_by_src
-			.entry(render_uri(r.source, &cfg))
+			.entry(to_uri(r.source, &cfg))
 			.or_default()
 			.push(r);
 	}
@@ -383,7 +379,7 @@ fn write_close(out: &mut String, p: &Palette, tok: ArgTok) {
 
 fn format_ref_label(r: &RefMatch<'_>, cfg: &UriConfig<'_>, opts: &TreeOpts) -> String {
 	let kind = std::str::from_utf8(&r.record.kind).unwrap_or("?");
-	let target = render_uri(&r.record.target, cfg);
+	let target = to_uri(&r.record.target, cfg);
 	let last_seg = target.rsplit('/').next().unwrap_or(&target);
 	let target_name = last_seg.split_once(':').map_or(last_seg, |s| s.1);
 	let p = &opts.palette;

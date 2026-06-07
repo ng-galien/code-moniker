@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 124
 expression: body
-input_file: crates/core/tests/fixtures/rs/async_jobs.rs
+input_file: crates/core/tests/fixtures/extractors/rs/async_jobs.rs
 ---
 {
   "defs": [
@@ -30,6 +31,45 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/enum:JobStatus/enum_constant:Queued",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/enum:JobStatus",
+      "position": [
+        76,
+        82
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/enum:JobStatus/enum_constant:Running",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/enum:JobStatus",
+      "position": [
+        85,
+        92
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "enum_constant",
+      "moniker": "code+moniker://app/lang:rs/module:async_jobs/enum:JobStatus/enum_constant:Done",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:rs/module:async_jobs/enum:JobStatus",
+      "position": [
+        95,
+        99
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "none",
@@ -246,26 +286,26 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
       "binding": "import",
       "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs",
-      "kind": "imports_symbol",
+      "kind": "imports_module",
       "position": [
-        0,
-        31
+        4,
+        30
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
+      "to": "code+moniker://app/external_pkg:std/path:collections"
     },
     {
       "alias": "",
       "binding": "import",
       "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs",
-      "kind": "imports_module",
+      "kind": "imports_symbol",
       "position": [
-        0,
-        31
+        4,
+        30
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/external_pkg:std/path:collections"
+      "to": "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
     },
     {
       "alias": "",
@@ -283,7 +323,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore/method:reserve()",
       "kind": "uses_type",
       "position": [
@@ -291,7 +331,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
         282
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Option"
+      "to": "code+moniker://app/external_pkg:std/path:option/enum:Option"
     },
     {
       "alias": "",
@@ -309,7 +349,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
       "kind": "uses_type",
       "position": [
@@ -317,7 +357,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
         391
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:VecDeque"
+      "to": "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
     },
     {
       "alias": "",
@@ -335,7 +375,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
       "kind": "uses_type",
       "position": [
@@ -343,12 +383,12 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
         408
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Vec"
+      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:new(queue:VecDeque<Job>)",
       "kind": "uses_type",
       "position": [
@@ -356,7 +396,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
         495
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:VecDeque"
+      "to": "code+moniker://app/external_pkg:std/path:collections/path:VecDeque"
     },
     {
       "alias": "",
@@ -387,7 +427,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:new(queue:VecDeque<Job>)",
       "kind": "instantiates",
       "position": [
@@ -395,17 +435,17 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
         550
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Vec"
+      "to": "code+moniker://app/external_pkg:std/path:vec/struct:Vec"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore",
       "kind": "implements",
       "position": [
-        562,
-        737
+        567,
+        575
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:rs/module:async_jobs/trait:JobStore"
@@ -413,7 +453,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:reserve()",
       "kind": "uses_type",
       "position": [
@@ -421,7 +461,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
         626
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/struct:Option"
+      "to": "code+moniker://app/external_pkg:std/path:option/enum:Option"
     },
     {
       "alias": "",
@@ -452,7 +492,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:complete(id:&str)",
       "kind": "method_call",
       "position": [
@@ -460,12 +500,12 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
         731
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/method:push"
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:push"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "unresolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:rs/module:async_jobs/struct:MemoryStore/method:complete(id:&str)",
       "kind": "method_call",
       "position": [
@@ -473,7 +513,7 @@ input_file: crates/core/tests/fixtures/rs/async_jobs.rs
         730
       ],
       "receiver_hint": "id",
-      "to": "code+moniker://app/lang:rs/module:async_jobs/method:to_string"
+      "to": "code+moniker://app/external_pkg:std/path:prelude/method:to_string"
     },
     {
       "alias": "",

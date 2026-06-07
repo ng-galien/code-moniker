@@ -26,7 +26,7 @@ mod tests {
 		std::fs::create_dir_all(source.parent().expect("source parent")).expect("src dir");
 		std::fs::write(&source, "pub fn before() {}\n").expect("seed source");
 		let (tx, rx) = mpsc::channel();
-		let _watcher = LiveWorkspaceWatcher::start(
+		let _watcher = LiveWorkspaceWatcher::start_polling(
 			watch_roots_for_paths(&[temp.path().to_path_buf()], None),
 			move |event| {
 				let _ = tx.send(event);
@@ -56,7 +56,7 @@ mod tests {
 		std::fs::create_dir_all(source.parent().expect("source parent")).expect("src dir");
 		std::fs::write(&source, "pub fn before() {}\n").expect("seed source");
 		let (tx, rx) = mpsc::channel();
-		let _watcher = LiveWorkspaceWatcher::start(
+		let _watcher = LiveWorkspaceWatcher::start_polling(
 			watch_roots_for_paths(&[temp.path().to_path_buf()], None),
 			move |event| {
 				let _ = tx.send(event);

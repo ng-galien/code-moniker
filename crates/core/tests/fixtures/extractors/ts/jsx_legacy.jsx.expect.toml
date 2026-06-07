@@ -9,7 +9,7 @@ moniker = "code+moniker://app/lang:ts/module:jsx_legacy/function:App()"
 label = "app reads greeting"
 kind = "reads"
 from = "code+moniker://app/lang:ts/module:jsx_legacy/function:App()"
-to = "code+moniker://app/lang:ts/module:jsx_legacy/function:Greeting"
+to = "code+moniker://app/lang:ts/module:greeting/path:Greeting"
 confidence = "imported"
 
 [[refs]]

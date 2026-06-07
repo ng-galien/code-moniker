@@ -57,18 +57,18 @@ label = "client uses local shape"
 kind = "uses_type"
 from = "code+moniker://app/lang:ts/module:closures/function:makeShaper()/function:client(s:Shape)"
 to = "code+moniker://app/lang:ts/module:closures/function:makeShaper()/interface:Shape"
-confidence = "name_match"
+confidence = "external"
 
 [[refs]]
 label = "pick uses local enum"
 kind = "uses_type"
 from = "code+moniker://app/lang:ts/module:closures/function:makeMode()/function:pick(m:Mode)"
 to = "code+moniker://app/lang:ts/module:closures/function:makeMode()/enum:Mode"
-confidence = "name_match"
+confidence = "external"
 
 [[refs]]
 label = "build instantiates local class"
 kind = "instantiates"
 from = "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()"
 to = "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/class:Local"
-confidence = "resolved"
+confidence = "external"

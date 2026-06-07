@@ -7,10 +7,9 @@ use serde::Serialize;
 use super::{MatchSet, RefMatch};
 use crate::args::{ExtractArgs, MonikerFormat};
 use crate::color::resolve_color;
-use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::kinds::KIND_COMMENT;
-use code_moniker_core::core::uri::UriConfig;
+use code_moniker_core::core::uri::{UriConfig, to_uri};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::extract;
 use code_moniker_workspace::lines::line_range;
@@ -90,9 +89,9 @@ fn render_moniker(
 	color: bool,
 ) -> String {
 	match format {
-		MonikerFormat::Uri => render_uri(m, cfg),
+		MonikerFormat::Uri => to_uri(m, cfg),
 		MonikerFormat::Compact => {
-			render_compact_moniker(m, color).unwrap_or_else(|| render_uri(m, cfg))
+			render_compact_moniker(m, color).unwrap_or_else(|| to_uri(m, cfg))
 		}
 	}
 }
@@ -266,7 +265,7 @@ impl<'a> DefView<'a> {
 			None
 		};
 		Self {
-			moniker: render_uri(&d.moniker, cfg),
+			moniker: to_uri(&d.moniker, cfg),
 			kind: std::str::from_utf8(&d.kind).unwrap_or(""),
 			position: d.position.map(|(l, c)| [l, c]),
 			lines: d.position.map(|(s, e)| {
@@ -304,8 +303,8 @@ struct RefView<'a> {
 impl<'a> RefView<'a> {
 	fn from(r: &'a RefMatch<'a>, cfg: &UriConfig<'_>, source: &str) -> Self {
 		Self {
-			source: render_uri(r.source, cfg),
-			target: render_uri(&r.record.target, cfg),
+			source: to_uri(r.source, cfg),
+			target: to_uri(&r.record.target, cfg),
 			kind: std::str::from_utf8(&r.record.kind).unwrap_or(""),
 			position: r.record.position.map(|(l, c)| [l, c]),
 			lines: r.record.position.map(|(s, e)| {

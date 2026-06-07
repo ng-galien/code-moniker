@@ -12,12 +12,11 @@ use crate::check::expr::{
 	self, Atom, Domain, Lhs, LhsExpr, Node, NumberExpr, Op, QuantKind, Rhs, SegmentScope,
 	VerticalLayout,
 };
-use crate::moniker_render::render_uri;
 use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
 use code_moniker_core::core::kinds::{KIND_COMMENT, REF_CALLS, REF_METHOD_CALL};
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::shape::Shape;
-use code_moniker_core::core::uri::UriConfig;
+use code_moniker_core::core::uri::{UriConfig, to_uri};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::lines::line_range;
 
@@ -910,7 +909,7 @@ fn eval_rule_with_id(
 	let diagnostic_kind = std::str::from_utf8(&diagnostic.kind).unwrap_or(target.kind);
 	let name = def_name(diagnostic).unwrap_or_default();
 	let name_snake = to_snake_case(&name);
-	let moniker = render_uri(&diagnostic.moniker, &ctx.uri_cfg);
+	let moniker = to_uri(&diagnostic.moniker, &ctx.uri_cfg);
 	let (start_line, end_line) = lines_of(diagnostic, ctx.source);
 	let message = format!(
 		"{diagnostic_kind} `{name}` fails `{atom_raw}` ({lhs_label} = {actual}, expected {expected})",
@@ -975,8 +974,8 @@ fn eval_ref_rule(
 		NodeOutcome::Fail(f) => f,
 	};
 	let source_def = graph.def_at(r.source);
-	let source_uri = render_uri(&source_def.moniker, &ctx.uri_cfg);
-	let target_uri = render_uri(&r.target, &ctx.uri_cfg);
+	let source_uri = to_uri(&source_def.moniker, &ctx.uri_cfg);
+	let target_uri = to_uri(&r.target, &ctx.uri_cfg);
 	let ref_kind = std::str::from_utf8(&r.kind).unwrap_or_default();
 	let (start_line, end_line) = match r.position {
 		Some((s, e)) => line_range(ctx.source, s, e),
@@ -1806,7 +1805,7 @@ fn count_out_refs(
 }
 
 fn count_in_refs(d: &DefRecord, filter: Option<&Node>, ctx: &EvalCtx<'_, '_>) -> u32 {
-	let key = d.moniker.as_bytes();
+	let key = d.moniker.as_encoded();
 	let Some(ref_idxs) = ctx.in_refs_by_target.get(key) else {
 		return 0;
 	};
@@ -1872,7 +1871,7 @@ fn eval_quantifier_def(
 			}
 		}
 		Domain::InRefs => {
-			let key = scope.record.moniker.as_bytes();
+			let key = scope.record.moniker.as_encoded();
 			let empty = Vec::new();
 			let ref_idxs = ctx.in_refs_by_target.get(key).unwrap_or(&empty);
 			for &ri in ref_idxs {
@@ -2109,7 +2108,9 @@ fn out_refs_by_source(graph: &CodeGraph) -> HashMap<usize, Vec<usize>> {
 fn in_refs_by_target(graph: &CodeGraph) -> HashMap<Vec<u8>, Vec<usize>> {
 	let mut m: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
 	for (idx, r) in graph.refs().enumerate() {
-		m.entry(r.target.as_bytes().to_vec()).or_default().push(idx);
+		m.entry(r.target.as_encoded().to_vec())
+			.or_default()
+			.push(idx);
 	}
 	m
 }
@@ -2193,7 +2194,7 @@ fn check_require_doc_comment_with_id(
 		return;
 	}
 
-	let moniker = render_uri(&target.scope.record.moniker, &ctx.uri_cfg);
+	let moniker = to_uri(&target.scope.record.moniker, &ctx.uri_cfg);
 	let name = def_name(target.scope.record).unwrap_or_default();
 	let (start_line, end_line) = lines_of(target.scope.record, ctx.source);
 	out.push(Violation {

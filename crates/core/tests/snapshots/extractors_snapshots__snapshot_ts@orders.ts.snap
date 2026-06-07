@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 119
 expression: body
-input_file: crates/core/tests/fixtures/ts/orders.ts
+input_file: crates/core/tests/fixtures/extractors/ts/orders.ts
 ---
 {
   "defs": [
@@ -343,7 +344,7 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
         373
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:orders/class:Money"
+      "to": "code+moniker://app/lang:ts/module:orders/type:Money"
     },
     {
       "alias": "",
@@ -356,7 +357,7 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
         473
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:orders/class:OrderStatus"
+      "to": "code+moniker://app/lang:ts/module:orders/enum:OrderStatus"
     },
     {
       "alias": "",
@@ -382,7 +383,7 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
         541
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:orders/class:OrderLine"
+      "to": "code+moniker://app/lang:ts/module:orders/interface:OrderLine"
     },
     {
       "alias": "",
@@ -408,12 +409,12 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
         616
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:orders/class:Money"
+      "to": "code+moniker://app/lang:ts/module:orders/type:Money"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
       "kind": "method_call",
       "position": [
@@ -421,46 +422,7 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
         710
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:ts/module:orders/method:reduce"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
-      "kind": "reads",
-      "position": [
-        668,
-        671
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:orders/function:sum"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
-      "kind": "reads",
-      "position": [
-        674,
-        678
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:orders/function:line"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:ts/module:orders/class:Order/method:total()",
-      "kind": "reads",
-      "position": [
-        693,
-        697
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:orders/function:line"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:reduce"
     },
     {
       "alias": "",
@@ -478,7 +440,7 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
       "kind": "uses_type",
       "position": [
@@ -486,7 +448,7 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
         924
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:orders/class:Promise"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/class:Promise"
     },
     {
       "alias": "",
@@ -504,7 +466,7 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "imported",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
       "kind": "uses_type",
       "position": [
@@ -517,7 +479,7 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
       "kind": "method_call",
       "position": [
@@ -525,12 +487,25 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
         1100
       ],
       "receiver_hint": "Promise",
-      "to": "code+moniker://app/lang:ts/module:orders/method:all"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:all"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
+      "kind": "reads",
+      "position": [
+        948,
+        955
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/function:Promise"
+    },
+    {
+      "alias": "",
+      "binding": "local",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
       "kind": "method_call",
       "position": [
@@ -538,12 +513,12 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
         1096
       ],
       "receiver_hint": "skus",
-      "to": "code+moniker://app/lang:ts/module:orders/method:map"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:map"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
       "kind": "method_call",
       "position": [
@@ -551,20 +526,7 @@ input_file: crates/core/tests/fixtures/ts/orders.ts
         1036
       ],
       "receiver_hint": "catalog",
-      "to": "code+moniker://app/lang:ts/module:orders/method:findBySku"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:ts/module:orders/function:priceOrder(catalog:ProductCatalog,skus:string[])",
-      "kind": "reads",
-      "position": [
-        1050,
-        1053
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:orders/function:sku"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:findBySku"
     },
     {
       "alias": "",

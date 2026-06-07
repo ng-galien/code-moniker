@@ -206,7 +206,7 @@ fn first_local_use(
 	regions_by_idx: &HashMap<usize, LayoutRegion>,
 	ctx: &EvalCtx<'_, '_>,
 ) -> Option<FirstUse> {
-	let target = ctx.graph.def_at(item.idx).moniker.as_bytes();
+	let target = ctx.graph.def_at(item.idx).moniker.as_encoded();
 	let refs = ctx.in_refs_by_target.get(target)?;
 	refs.iter()
 		.filter_map(|ref_idx| {

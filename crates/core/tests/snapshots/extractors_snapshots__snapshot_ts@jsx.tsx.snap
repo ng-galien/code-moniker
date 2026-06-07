@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 119
 expression: body
-input_file: crates/core/tests/fixtures/ts/jsx.tsx
+input_file: crates/core/tests/fixtures/extractors/ts/jsx.tsx
 ---
 {
   "defs": [
@@ -200,7 +201,7 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
         398
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:jsx/class:CounterProps"
+      "to": "code+moniker://app/lang:ts/module:jsx/interface:CounterProps"
     },
     {
       "alias": "",
@@ -226,12 +227,12 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
         607
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:jsx/function:Button"
+      "to": "code+moniker://app/lang:ts/module:button/path:Button"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})",
       "kind": "method_call",
       "position": [
@@ -239,12 +240,12 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
         945
       ],
       "receiver_hint": "labels",
-      "to": "code+moniker://app/lang:ts/module:jsx/method:map"
+      "to": "code+moniker://app/external_pkg:code-moniker-ts-runtime/method:map"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:ts/module:jsx/function:CounterList({labels:string[]})",
       "kind": "reads",
       "position": [
@@ -252,7 +253,7 @@ input_file: crates/core/tests/fixtures/ts/jsx.tsx
         916
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:ts/module:jsx/function:Counter"
+      "to": "code+moniker://app/lang:ts/module:jsx/function:Counter(CounterProps)"
     }
   ],
   "root": "code+moniker://app/lang:ts/module:jsx"

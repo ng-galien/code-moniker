@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 119
 expression: body
-input_file: crates/core/tests/fixtures/ts/closures.ts
+input_file: crates/core/tests/fixtures/extractors/ts/closures.ts
 ---
 {
   "defs": [
@@ -387,7 +388,7 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/function:inner(x:Local)",
       "kind": "uses_type",
       "position": [
@@ -400,7 +401,7 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:closures/function:makeStringer()/function:inner(x:Local)",
       "kind": "uses_type",
       "position": [
@@ -426,7 +427,7 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/function:client(s:Shape)",
       "kind": "uses_type",
       "position": [
@@ -439,7 +440,7 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:closures/function:makeShaper()/function:client(s:Shape)",
       "kind": "uses_type",
       "position": [
@@ -465,7 +466,7 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:closures/function:makeMode()/function:pick(m:Mode)",
       "kind": "uses_type",
       "position": [
@@ -478,7 +479,7 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:closures/function:makeMode()/function:pick(m:Mode)",
       "kind": "uses_type",
       "position": [
@@ -504,7 +505,7 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()",
       "kind": "uses_type",
       "position": [
@@ -517,7 +518,7 @@ input_file: crates/core/tests/fixtures/ts/closures.ts
     {
       "alias": "",
       "binding": "local",
-      "confidence": "resolved",
+      "confidence": "external",
       "from": "code+moniker://app/lang:ts/module:closures/function:makeBuilder()/function:build()",
       "kind": "instantiates",
       "position": [

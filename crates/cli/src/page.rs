@@ -1,7 +1,6 @@
 use crate::args::ExtractArgs;
-use crate::moniker_render::render_uri;
 use code_moniker_core::core::moniker::{Moniker, MonikerBuilder};
-use code_moniker_core::core::uri::{UriConfig, from_uri};
+use code_moniker_core::core::uri::{UriConfig, from_uri, to_uri};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PageSpec {
@@ -28,7 +27,7 @@ impl PageSpec {
 	pub(crate) fn allows(&self, moniker: &Moniker) -> bool {
 		self.after
 			.as_ref()
-			.is_none_or(|after| moniker.as_bytes() > after.as_bytes())
+			.is_none_or(|after| moniker.as_encoded() > after.as_encoded())
 	}
 
 	pub(crate) fn page_len(&self, total: usize) -> usize {
@@ -44,7 +43,7 @@ impl PageSpec {
 	) -> PageInfo {
 		let remaining = total.saturating_sub(emitted);
 		let next_cursor = if remaining > 0 {
-			last.map(|moniker| render_uri(moniker, &UriConfig { scheme }))
+			last.map(|moniker| to_uri(moniker, &UriConfig { scheme }))
 		} else {
 			None
 		};
@@ -95,7 +94,7 @@ pub(crate) fn cursor_moniker(key: CursorKey<'_>) -> Moniker {
 	let mut builder = MonikerBuilder::new();
 	builder.project(b".");
 	builder.segment(b"cursor", b"v1");
-	builder.segment(b"moniker", hex(key.moniker.as_bytes()).as_bytes());
+	builder.segment(b"moniker", hex(key.moniker.as_encoded()).as_bytes());
 	builder.segment(b"rank", key.rank.to_string().as_bytes());
 	builder.segment(b"file", hex(key.rel).as_bytes());
 	builder.segment(b"source", hex(key.source).as_bytes());
@@ -135,7 +134,7 @@ pub(crate) fn ref_cursor_moniker(
 		moniker: target,
 		rank: 1,
 		rel,
-		source: source.as_bytes(),
+		source: source.as_encoded(),
 		kind,
 		position,
 		ordinal,

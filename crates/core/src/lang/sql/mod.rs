@@ -86,13 +86,13 @@ mod tests {
 
 	fn def_monikers(g: &CodeGraph) -> Vec<String> {
 		g.defs()
-			.map(|d| crate::core::uri::to_uri(&d.moniker, &Default::default()).unwrap())
+			.map(|d| crate::core::uri::to_uri(&d.moniker, &Default::default()))
 			.collect()
 	}
 
 	fn ref_targets(g: &CodeGraph) -> Vec<String> {
 		g.refs()
-			.map(|r| crate::core::uri::to_uri(&r.target, &Default::default()).unwrap())
+			.map(|r| crate::core::uri::to_uri(&r.target, &Default::default()))
 			.collect()
 	}
 
@@ -143,7 +143,7 @@ mod tests {
 		let defs: Vec<_> = g.defs().collect();
 		assert_eq!(defs.len(), 1);
 		assert_eq!(
-			crate::core::uri::to_uri(&defs[0].moniker, &Default::default()).unwrap(),
+			crate::core::uri::to_uri(&defs[0].moniker, &Default::default()),
 			"code+moniker://app/lang:sql/dir:db/dir:functions/dir:plan/module:create_plan"
 		);
 	}

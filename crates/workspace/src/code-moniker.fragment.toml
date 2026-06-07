@@ -47,7 +47,7 @@ source, code, linkage, changes, snapshot, and registry contracts.
 """
 
 [[refs.where]]
-id       = "workspace-crate-does-not-import-cli-or-pg"
+id       = "workspace-crate-does-not-import-cli"
 severity = "warn"
 expr     = "$workspace_crate AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT $cli_target"
 message  = "`code-moniker-workspace` must stay independent from CLI crates."
