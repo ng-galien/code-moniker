@@ -1,0 +1,28 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Code Moniker Rule (TOML)",
+	"scopeName": "source.cmrule-toml",
+	"patterns": [
+		{ "include": "#expr-value" },
+		{ "include": "source.toml" }
+	],
+	"repository": {
+		"expr-value": {
+			"comment": "Highlight the check-DSL inside `expr = \"...\"` of a TOML rule.",
+			"begin": "\\b(expr)\\s*(=)\\s*(\")",
+			"beginCaptures": {
+				"1": { "name": "keyword.key.toml" },
+				"2": { "name": "punctuation.eq.toml" },
+				"3": { "name": "string.quoted.double.toml punctuation.definition.string.begin.toml" }
+			},
+			"end": "(\")",
+			"endCaptures": {
+				"1": { "name": "string.quoted.double.toml punctuation.definition.string.end.toml" }
+			},
+			"contentName": "meta.embedded.cmrule",
+			"patterns": [
+				{ "include": "source.cmrule" }
+			]
+		}
+	}
+}

@@ -1,0 +1,124 @@
+default_rules = false
+
+[exclude]
+uris = [
+  "**/dist/**",
+  "**/node_modules/**",
+]
+
+[profiles.agent]
+enable = [".*"]
+
+[aliases]
+extension_def = """
+  moniker ~ '**/dir:src/**'
+  OR moniker ~ '**/dir:renderer/**'
+"""
+extension_ref = """
+  source ~ '**/dir:src/**'
+  OR source ~ '**/dir:renderer/**'
+"""
+cli_facade_source = "source ~ '**/dir:src/dir:cli/module:facade/**'"
+cli_facade_target = """
+  target ~ '**/dir:src/dir:cli/module:facade'
+  OR target ~ '**/dir:src/dir:cli/module:facade/**'
+"""
+cli_runner_source = "source ~ '**/dir:src/dir:cli/module:runner/**'"
+cli_runner_target = """
+  target ~ '**/dir:src/dir:cli/module:runner'
+  OR target ~ '**/dir:src/dir:cli/module:runner/**'
+"""
+controller_source = "source ~ '**/dir:src/dir:notebook/module:controller/**'"
+rules_commands_source = "source ~ '**/dir:src/dir:rules/module:commands/**'"
+rules_repository_source = "source ~ '**/dir:src/dir:rules/module:repository/**'"
+catalog_packs_source = "source ~ '**/dir:src/dir:catalog/module:packs/**'"
+tree_provider_source = """
+  source ~ '**/dir:src/dir:rules/module:tree/**'
+  OR source ~ '**/dir:src/dir:catalog/module:tree/**'
+"""
+node_child_process_target = "target ~ '**/external_pkg:node:child_process/**'"
+node_fs_target = "target ~ '**/external_pkg:node:fs/**'"
+notebook_generation_target = """
+  target ~ '**/dir:src/dir:notebook/module:factory'
+  OR target ~ '**/dir:src/dir:notebook/module:factory/**'
+"""
+
+[[ts.shape.callable.where]]
+id        = "extension-callable-budget"
+severity  = "error"
+expr      = "$extension_def => lines <= 80"
+message   = "Extension callable `{name}` is {value} lines (cap {expected}); split UI, IO, and mapping logic."
+rationale = """
+The extension is glue-heavy. Keeping callables short preserves readable boundaries between
+VS Code view code, notebook orchestration, and the code-moniker CLI adapter.
+"""
+
+[[ts.class.where]]
+id        = "extension-class-budget"
+severity  = "error"
+expr      = "$extension_def => count(method) <= 8 AND all(method, lines <= 45)"
+message   = "Extension class `{name}` is too large for a VS Code adapter boundary."
+rationale = """
+Classes in the extension should mostly be VS Code providers/controllers. Domain decisions and
+CLI orchestration belong in functions around them, not inside provider classes.
+"""
+
+[[refs.where]]
+id        = "child-process-owned-by-cli-runner"
+severity  = "error"
+expr      = "$extension_ref AND $node_child_process_target => $cli_runner_source"
+message   = "Only `src/cli/runner.ts` may spawn child processes."
+rationale = """
+Process management is the lowest-level CLI adapter concern. Features should consume typed
+operations from `src/cli/facade.ts` so binary lookup, stderr handling, and fallback behavior stay one
+contract.
+"""
+
+[[refs.where]]
+id        = "raw-cli-runner-hidden-behind-cli-facade"
+severity  = "error"
+expr      = "$extension_ref AND (kind = 'imports_symbol' OR kind = 'imports_module') AND $cli_runner_target => $cli_facade_source"
+message   = "Feature modules must not import `cli/runner`; use `src/cli/facade.ts`."
+rationale = """
+`cli/runner` is transport plumbing. `cli/facade.ts` owns the user-facing code-moniker operations and
+their JSON contracts.
+"""
+
+[[refs.where]]
+id        = "feature-cli-access-through-command-boundaries"
+severity  = "error"
+expr      = """
+  $extension_ref
+  AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  AND $cli_facade_target
+  => $controller_source OR $rules_commands_source OR $catalog_packs_source
+"""
+message   = "Only notebook execution, Rule Files commands, and catalog pack loading may call the CLI facade."
+rationale = """
+Providers and registrars should be presentation/cabling code. Running code-moniker belongs to
+explicit command or kernel boundaries so future UI evolution does not duplicate CLI behavior.
+"""
+
+[[refs.where]]
+id        = "tree-providers-are-presentation-only"
+severity  = "error"
+expr      = """
+  $tree_provider_source
+  AND (kind = 'imports_symbol' OR kind = 'imports_module')
+  => NOT ($cli_facade_target OR $notebook_generation_target)
+"""
+message   = "Tree providers must not run code-moniker or open notebooks; delegate to command modules."
+rationale = """
+VS Code tree providers should describe rows. Commands own actions, progress UI, diagnostics,
+and notebook creation.
+"""
+
+[[refs.where]]
+id        = "node-fs-is-adapter-only"
+severity  = "error"
+expr      = "$extension_ref AND $node_fs_target => $cli_facade_source OR $rules_repository_source"
+message   = "Node fs access must stay in CLI temp-file handling or rule-file repository code."
+rationale = """
+Filesystem reads/writes are adapter boundaries. UI modules should receive parsed models or
+typed CLI results rather than touching Node fs directly.
+"""

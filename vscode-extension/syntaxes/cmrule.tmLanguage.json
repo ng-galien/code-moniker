@@ -1,0 +1,99 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Code Moniker Rule",
+	"scopeName": "source.cmrule",
+	"patterns": [
+		{ "include": "#comment" },
+		{ "include": "#string" },
+		{ "include": "#regex-op" },
+		{ "include": "#logic" },
+		{ "include": "#word-op" },
+		{ "include": "#function" },
+		{ "include": "#metric" },
+		{ "include": "#shape" },
+		{ "include": "#dotted-field" },
+		{ "include": "#field" },
+		{ "include": "#binding" },
+		{ "include": "#operator" },
+		{ "include": "#number" },
+		{ "include": "#alias" }
+	],
+	"repository": {
+		"comment": {
+			"match": "#.*$",
+			"name": "comment.line.number-sign.cmrule"
+		},
+		"string": {
+			"patterns": [
+				{
+					"begin": "'",
+					"end": "'",
+					"name": "string.quoted.single.cmrule"
+				},
+				{
+					"begin": "\"",
+					"end": "\"",
+					"name": "string.quoted.double.cmrule"
+				}
+			]
+		},
+		"regex-op": {
+			"comment": "An unquoted regex literal following =~ or !~.",
+			"match": "(=~|!~)\\s*([^\\s()'\"]+)",
+			"captures": {
+				"1": { "name": "keyword.operator.cmrule" },
+				"2": { "name": "string.regexp.cmrule" }
+			}
+		},
+		"logic": {
+			"match": "\\b(AND|OR|NOT)\\b|(=>)",
+			"name": "keyword.control.cmrule"
+		},
+		"word-op": {
+			"match": "\\b(subset|intersect)\\b",
+			"name": "keyword.operator.word.cmrule"
+		},
+		"function": {
+			"comment": "Quantifiers, aggregates, collection ops, and predicate calls.",
+			"match": "\\b(any|all|none|count|max|min|avg|sum|entropy|mode|unique|require|vertical_layout|has_segment|pairs|descendants)\\b(?=\\s*\\()",
+			"name": "support.function.cmrule"
+		},
+		"metric": {
+			"match": "\\b(wmc|cbo|rfc|dit|noc|fan_in|fan_out|lcom4)\\b(?=\\s*\\()",
+			"name": "support.function.metric.cmrule"
+		},
+		"shape": {
+			"match": "\\b(shape)(:)(namespace|type|callable|value|annotation)\\b",
+			"captures": {
+				"1": { "name": "keyword.other.cmrule" },
+				"2": { "name": "punctuation.separator.cmrule" },
+				"3": { "name": "entity.name.type.cmrule" }
+			}
+		},
+		"dotted-field": {
+			"match": "\\b(parent|source|target|segment)(\\.)(name|kind|shape|visibility|parent)\\b",
+			"name": "variable.other.property.cmrule"
+		},
+		"field": {
+			"match": "\\b(name|lines|start_line|end_line|start_byte|end_byte|kind|shape|visibility|text|uri|moniker|depth|parent|confidence|source|target|segment)\\b",
+			"name": "variable.other.property.cmrule"
+		},
+		"binding": {
+			"comment": "Iteration domains and bindings used inside calls.",
+			"match": "\\b(self|each|param|method|field|out_refs|in_refs)\\b",
+			"name": "variable.language.cmrule"
+		},
+		"operator": {
+			"match": "(=>|=~|!~|@>|<@|\\?=|<=|>=|!=|=|<|>|~)",
+			"name": "keyword.operator.cmrule"
+		},
+		"number": {
+			"match": "\\b[0-9]+\\b",
+			"name": "constant.numeric.cmrule"
+		},
+		"alias": {
+			"match": "\\$[A-Za-z_][A-Za-z0-9_]*",
+			"name": "variable.other.constant.cmrule"
+		}
+	}
+}

@@ -1,0 +1,27 @@
+{
+	"iconDefinitions": {
+		"_cmnb": { "iconPath": "./notebook.svg" },
+		"_rule": { "iconPath": "./rule.svg" },
+		"_file": { "iconPath": "./file.svg" },
+		"_folder": { "iconPath": "./folder.svg" },
+		"_folderOpen": { "iconPath": "./folder-open.svg" }
+	},
+	"file": "_file",
+	"folder": "_folder",
+	"folderExpanded": "_folderOpen",
+	"languageIds": {
+		"cmnb": "_cmnb",
+		"cmrule-toml": "_rule"
+	},
+	"fileExtensions": {
+		"cmnb": "_cmnb"
+	},
+	"fileNames": {
+		".code-moniker.toml": "_rule"
+	},
+	"light": {
+		"file": "_file",
+		"folder": "_folder",
+		"folderExpanded": "_folderOpen"
+	}
+}

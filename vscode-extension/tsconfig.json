@@ -1,0 +1,25 @@
+{
+	"compilerOptions": {
+		"module": "Node16",
+		"moduleResolution": "Node16",
+		"target": "ES2022",
+		"lib": [
+			"ES2022",
+			"DOM"
+		],
+		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"noEmit": true,
+		"rootDir": ".",
+		"types": [
+			"node",
+			"vscode"
+		]
+	},
+	"include": [
+		"src/**/*.ts",
+		"renderer/**/*.ts"
+	]
+}

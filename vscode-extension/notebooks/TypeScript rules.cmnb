@@ -1,0 +1,51 @@
+{
+	"version": 1,
+	"cells": [
+		{
+			"kind": "markdown",
+			"value": "# TypeScript rule notebook\n\nEach **rule cell** is a real `.code-moniker.toml` fragment. Run the **sample cell** (▷) to check it against the rules below, and run a rule cell to validate the TOML before pasting it into your project."
+		},
+		{
+			"kind": "markdown",
+			"value": "## Classes are PascalCase"
+		},
+		{
+			"kind": "sample",
+			"language": "typescript",
+			"value": "class RiskPolicy {}\nclass userSession {}\n"
+		},
+		{
+			"kind": "rule",
+			"language": "typescript",
+			"value": "default_rules = false\n\n[[ts.class.where]]\nid        = \"pascal-class\"\nexpr      = \"name =~ ^[A-Z][A-Za-z0-9]*$\"\nmessage   = \"Class `{name}` should be PascalCase.\"\nrationale = \"Class names are PascalCase by convention.\"\n"
+		},
+		{
+			"kind": "markdown",
+			"value": "## Functions are camelCase"
+		},
+		{
+			"kind": "sample",
+			"language": "typescript",
+			"value": "function loadUser() {}\nfunction Load_User() {}\n"
+		},
+		{
+			"kind": "rule",
+			"language": "typescript",
+			"value": "default_rules = false\n\n[[ts.function.where]]\nid        = \"camel-fn\"\nexpr      = \"name =~ ^[a-z][A-Za-z0-9]*$\"\nmessage   = \"Function `{name}` should be camelCase.\"\nrationale = \"Functions and methods use camelCase.\"\n"
+		},
+		{
+			"kind": "markdown",
+			"value": "## Keep functions small\n\n`shape:callable` covers functions and methods at once."
+		},
+		{
+			"kind": "sample",
+			"language": "typescript",
+			"value": "function ok() {\n  return 1;\n}\n\nfunction big() {\n  const a = 1;\n  const b = 2;\n  const c = 3;\n  const d = 4;\n  const e = 5;\n  return a + b + c + d + e;\n}\n"
+		},
+		{
+			"kind": "rule",
+			"language": "typescript",
+			"value": "default_rules = false\n\n[[ts.shape.callable.where]]\nid        = \"max-lines\"\nexpr      = \"lines <= 6\"\nseverity  = \"warn\"\nmessage   = \"{kind} `{name}` is {value} lines (cap {expected}).\"\nrationale = \"Short callables are easier to read, test, and reuse.\"\n"
+		}
+	]
+}

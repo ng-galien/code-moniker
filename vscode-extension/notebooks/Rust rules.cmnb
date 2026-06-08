@@ -1,0 +1,65 @@
+{
+	"version": 1,
+	"cells": [
+		{
+			"kind": "markdown",
+			"value": "# Rust rule notebook\n\nEach **rule cell** is a real `.code-moniker.toml` fragment. Run the **sample cell** (▷) to check it against the rules below, and run a rule cell to validate the TOML before copying it into your project."
+		},
+		{
+			"kind": "markdown",
+			"value": "## Functions are snake_case"
+		},
+		{
+			"kind": "sample",
+			"language": "rust",
+			"value": "fn parse_header() {}\nfn doThing() {}\n"
+		},
+		{
+			"kind": "rule",
+			"language": "rust",
+			"value": "default_rules = false\n\n[[rust.fn.where]]\nid        = \"snake-case\"\nexpr      = \"name =~ ^[a-z][a-z0-9_]*$\"\nmessage   = \"Function `{name}` should be snake_case.\"\nrationale = \"Rust API guidelines: free functions use snake_case.\"\n"
+		},
+		{
+			"kind": "markdown",
+			"value": "## Public types are PascalCase\n\n`severity = \"warn\"` surfaces the issue without failing a gate — the adoption posture for a new rule."
+		},
+		{
+			"kind": "sample",
+			"language": "rust",
+			"value": "pub struct RiskPolicy {}\npub struct http_client {}\n"
+		},
+		{
+			"kind": "rule",
+			"language": "rust",
+			"value": "default_rules = false\n\n[[rust.struct.where]]\nid        = \"pascal-types\"\nexpr      = \"visibility = 'public' => name =~ ^[A-Z]\"\nseverity  = \"warn\"\nmessage   = \"Public struct `{name}` should be PascalCase.\"\nrationale = \"Type names are PascalCase across the public API.\"\n"
+		},
+		{
+			"kind": "markdown",
+			"value": "## Keep callables small"
+		},
+		{
+			"kind": "sample",
+			"language": "rust",
+			"value": "fn tidy() {\n    let _ = 1;\n}\n\nfn sprawling() {\n    let a = 1;\n    let b = 2;\n    let c = 3;\n    let d = 4;\n    let e = 5;\n    let _ = a + b + c + d + e;\n}\n"
+		},
+		{
+			"kind": "rule",
+			"language": "rust",
+			"value": "default_rules = false\n\n[[rust.shape.callable.where]]\nid        = \"max-lines\"\nexpr      = \"lines <= 6\"\nseverity  = \"warn\"\nmessage   = \"{kind} `{name}` is {value} lines (cap {expected}).\"\nrationale = \"Short callables are easier to read, test, and reuse.\"\n"
+		},
+		{
+			"kind": "markdown",
+			"value": "## No placeholder names\n\n`!~` is regex non-match. Flag names that don't say what they do."
+		},
+		{
+			"kind": "sample",
+			"language": "rust",
+			"value": "fn extract_symbols() {}\nfn helper() {}\nfn do_thing() {}\n"
+		},
+		{
+			"kind": "rule",
+			"language": "rust",
+			"value": "default_rules = false\n\n[[rust.fn.where]]\nid        = \"no-placeholders\"\nexpr      = \"name !~ ^(helper|helpers|do_thing|manage|process)$\"\nmessage   = \"`{name}` is a placeholder. Name the actual behaviour.\"\nrationale = \"Placeholder names hide intent and resist search.\"\n"
+		}
+	]
+}
