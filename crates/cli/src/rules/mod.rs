@@ -5,11 +5,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 
 use code_moniker_core::lang::Lang;
+use code_moniker_workspace::environment;
 use serde::Serialize;
 
 use crate::args::{
-	DefaultRules, RulesArgs, RulesCommand, RulesFileArgs, RulesLearnArgs, RulesLearnFormat,
-	RulesShowArgs, RulesShowFormat,
+	DefaultRules, RulesArgs, RulesCommand, RulesEvalArgs, RulesFileArgs, RulesLearnArgs,
+	RulesLearnFormat, RulesShowArgs, RulesShowFormat,
 };
 use crate::{Exit, check};
 
@@ -20,6 +21,7 @@ pub fn run<W1: Write, W2: Write>(args: &RulesArgs, stdout: &mut W1, stderr: &mut
 		RulesCommand::Enable(args) => set_default_rules(args, true, stdout),
 		RulesCommand::Show(args) => show(args, stdout),
 		RulesCommand::Learn(args) => learn(args, stdout),
+		RulesCommand::Eval(args) => eval(args, stdout),
 	};
 	match result {
 		Ok(()) => Exit::Match,
@@ -28,6 +30,121 @@ pub fn run<W1: Write, W2: Write>(args: &RulesArgs, stdout: &mut W1, stderr: &mut
 			Exit::UsageError
 		}
 	}
+}
+
+// Load a rules TOML fragment and apply an optional profile, the shared front of
+// the `eval` and `show` pipelines.
+fn load_rules(
+	rules: Option<&Path>,
+	default_rules: Option<DefaultRules>,
+	profile: Option<&str>,
+) -> anyhow::Result<check::Config> {
+	let mut cfg =
+		check::load_with_cli_default_rules(rules, default_rules.map(DefaultRules::enabled))?;
+	if let Some(profile) = profile {
+		cfg.apply_profile(profile)?;
+	}
+	Ok(cfg)
+}
+
+// Evaluate a real rules TOML fragment (a .code-moniker.toml) against one
+// in-memory sample, the same way `check` evaluates a file. The rule cell of the
+// VSCode notebook is exactly this fragment, so what a developer authors here is
+// what they paste into their project.
+fn eval<W: Write>(args: &RulesEvalArgs, stdout: &mut W) -> anyhow::Result<()> {
+	let lang = Lang::from_tag(&args.lang).with_context(|| {
+		format!(
+			"unknown language tag `{}` (known: {})",
+			args.lang,
+			Lang::ALL
+				.iter()
+				.map(|lang| lang.tag())
+				.collect::<Vec<_>>()
+				.join(", ")
+		)
+	})?;
+	let cfg = load_rules(
+		Some(&args.rules),
+		args.default_rules,
+		args.profile.as_deref(),
+	)?;
+	let compiled = check::compile_rules(&cfg, lang, crate::DEFAULT_SCHEME)?;
+	let source = read_source(args.source.as_deref())?;
+	let anchor = args
+		.source
+		.clone()
+		.unwrap_or_else(|| PathBuf::from(format!("sample.{}", lang.tag())));
+	let graph = environment::extract_source_with(
+		lang,
+		&source,
+		&anchor,
+		&environment::ExtractContext::default(),
+	);
+	let raw = check::evaluate_compiled(&graph, &source, lang, crate::DEFAULT_SCHEME, &compiled);
+	let violations = check::apply_suppressions(&graph, &source, raw);
+	let rules = compiled.specs(lang);
+	let report = EvalReport {
+		lang: lang.tag().to_string(),
+		rules_file: args.rules.display().to_string(),
+		total_rules: rules.len(),
+		total_violations: violations.len(),
+		rules,
+		violations,
+	};
+	match args.format {
+		RulesShowFormat::Text => write_eval_text(stdout, &report)?,
+		RulesShowFormat::Json => {
+			serde_json::to_writer_pretty(&mut *stdout, &report)?;
+			stdout.write_all(b"\n")?;
+		}
+	}
+	Ok(())
+}
+
+fn read_source(path: Option<&Path>) -> anyhow::Result<String> {
+	match path {
+		Some(path) => fs::read_to_string(path)
+			.with_context(|| format!("cannot read source `{}`", path.display())),
+		None => std::io::read_to_string(std::io::stdin()).context("cannot read source from stdin"),
+	}
+}
+
+#[derive(Serialize)]
+struct EvalReport {
+	lang: String,
+	rules_file: String,
+	total_rules: usize,
+	total_violations: usize,
+	rules: Vec<check::CompiledRuleSpec>,
+	violations: Vec<check::Violation>,
+}
+
+fn write_eval_text<W: Write>(w: &mut W, report: &EvalReport) -> std::io::Result<()> {
+	writeln!(
+		w,
+		"{} rule(s), {} violation(s) [{}]",
+		report.total_rules, report.total_violations, report.lang
+	)?;
+	for rule in &report.rules {
+		writeln!(w, "- {} ({})", rule.rule_id, rule.domain)?;
+		if let Some(rationale) = &rule.rationale {
+			writeln!(w, "    rationale: {}", one_line(rationale))?;
+		}
+	}
+	for violation in &report.violations {
+		writeln!(
+			w,
+			"L{}-L{} [{}] {}",
+			violation.lines.0,
+			violation.lines.1,
+			violation.rule_id,
+			one_line(&violation.message)
+		)?;
+		if let Some(explanation) = &violation.explanation {
+			writeln!(w, "  -> {}", one_line(explanation))?;
+		}
+	}
+	Ok(())
 }
 
 const LEARN_SAMPLES: &[LearnSample] = &[
@@ -152,13 +269,7 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 		.canonicalize()
 		.with_context(|| format!("cannot resolve project root `{}`", args.root.display()))?;
 	let path = resolve_from_root(&root, &args.rules);
-	let mut cfg = check::load_with_cli_default_rules(
-		Some(&path),
-		args.default_rules.map(DefaultRules::enabled),
-	)?;
-	if let Some(profile) = &args.profile {
-		cfg.apply_profile(profile)?;
-	}
+	let cfg = load_rules(Some(&path), args.default_rules, args.profile.as_deref())?;
 	let mut langs = Vec::new();
 	for lang in Lang::ALL {
 		let compiled = check::compile_rules(&cfg, *lang, crate::DEFAULT_SCHEME)?;
@@ -744,6 +855,201 @@ mod tests {
 			"ADR-002: the domain layer must stay independent from infrastructure details."
 		);
 		assert_eq!(rule["severity"], "error");
+	}
+
+	fn write_eval_inputs(
+		rules: &str,
+		sample_name: &str,
+		sample: &str,
+	) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+		let dir = tempdir().unwrap();
+		let rules_path = dir.path().join("rules.toml");
+		std::fs::write(&rules_path, rules).unwrap();
+		let sample_path = dir.path().join(sample_name);
+		std::fs::write(&sample_path, sample).unwrap();
+		(dir, rules_path, sample_path)
+	}
+
+	const SNAKE_RULE: &str = "default_rules = false\n\n\
+		[[rust.fn.where]]\n\
+		id = \"snake-case\"\n\
+		expr = \"name =~ ^[a-z][a-z0-9_]*$\"\n\
+		message = \"Function `{name}` should be snake_case.\"\n\
+		rationale = \"Rust API guidelines: free functions use snake_case.\"\n";
+
+	#[test]
+	fn rules_eval_reports_real_toml_rule_json() {
+		let (_dir, rules, sample) =
+			write_eval_inputs(SNAKE_RULE, "sample.rs", "fn DoThing() {}\nfn good() {}\n");
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"eval",
+			"--rules",
+			rules.to_str().unwrap(),
+			"--lang",
+			"rs",
+			"--format",
+			"json",
+			sample.to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(out["lang"], "rs");
+		assert_eq!(out["total_rules"], 1);
+		assert_eq!(out["rules"][0]["rule_id"], "rust.fn.snake-case");
+		assert_eq!(
+			out["rules"][0]["rationale"],
+			"Rust API guidelines: free functions use snake_case."
+		);
+		assert_eq!(out["total_violations"], 1);
+		let violations = out["violations"].as_array().unwrap();
+		assert_eq!(violations.len(), 1);
+		assert_eq!(violations[0]["rule_id"], "rust.fn.snake-case");
+		assert!(
+			violations[0]["explanation"]
+				.as_str()
+				.unwrap()
+				.contains("snake_case"),
+			"{out:#}"
+		);
+	}
+
+	#[test]
+	fn rules_eval_clean_source_has_no_violations() {
+		let (_dir, rules, sample) =
+			write_eval_inputs(SNAKE_RULE, "sample.rs", "fn good_name() {}\n");
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"eval",
+			"--rules",
+			rules.to_str().unwrap(),
+			"--lang",
+			"rs",
+			"--format",
+			"json",
+			sample.to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(out["total_violations"], 0);
+		assert!(out["violations"].as_array().unwrap().is_empty());
+	}
+
+	#[test]
+	fn rules_eval_text_shows_rationale_and_message() {
+		let (_dir, rules, sample) = write_eval_inputs(SNAKE_RULE, "sample.rs", "fn DoThing() {}\n");
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"eval",
+			"--rules",
+			rules.to_str().unwrap(),
+			"--lang",
+			"rs",
+			sample.to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out = String::from_utf8(stdout).unwrap();
+		assert!(out.contains("1 rule(s), 1 violation(s) [rs]"), "{out}");
+		assert!(
+			out.contains("rationale: Rust API guidelines: free functions use snake_case."),
+			"{out}"
+		);
+		assert!(
+			out.contains("-> Function `DoThing` should be snake_case."),
+			"{out}"
+		);
+	}
+
+	#[test]
+	fn rules_eval_supports_aliases_and_multiple_rules() {
+		let rules = "default_rules = false\n\n\
+			[aliases]\n\
+			public_fn = \"visibility = 'public'\"\n\n\
+			[[rust.fn.where]]\n\
+			id = \"snake\"\n\
+			expr = \"name =~ ^[a-z]\"\n\n\
+			[[rust.fn.where]]\n\
+			id = \"public-documented\"\n\
+			expr = \"$public_fn => name !~ ^_\"\n";
+		let (_dir, rules, sample) = write_eval_inputs(rules, "sample.rs", "pub fn _Bad() {}\n");
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"eval",
+			"--rules",
+			rules.to_str().unwrap(),
+			"--lang",
+			"rs",
+			"--format",
+			"json",
+			sample.to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+		assert_eq!(out["total_rules"], 2);
+		// `_Bad` breaks both the snake-case rule and the public-fn rule.
+		assert_eq!(out["total_violations"], 2);
+	}
+
+	#[test]
+	fn rules_eval_rejects_unknown_language() {
+		let (_dir, rules, sample) = write_eval_inputs(SNAKE_RULE, "sample.kt", "fun x() {}\n");
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"eval",
+			"--rules",
+			rules.to_str().unwrap(),
+			"--lang",
+			"kotlin",
+			sample.to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::UsageError);
+		let err = String::from_utf8(stderr).unwrap();
+		assert!(err.contains("unknown language tag `kotlin`"), "{err}");
+	}
+
+	#[test]
+	fn rules_eval_rejects_invalid_rules_toml() {
+		let (_dir, rules, sample) = write_eval_inputs(
+			"[[rust.fn.where]]\nid = \"bad\"\nexpr = \"name =~~ (\"\n",
+			"sample.rs",
+			"fn x() {}\n",
+		);
+		let cli = Cli::parse_from([
+			"code-moniker",
+			"rules",
+			"eval",
+			"--rules",
+			rules.to_str().unwrap(),
+			"--lang",
+			"rs",
+			sample.to_str().unwrap(),
+		]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::UsageError);
+		let err = String::from_utf8(stderr).unwrap();
+		assert!(err.contains("code-moniker:"), "{err}");
 	}
 
 	#[test]

@@ -10,6 +10,7 @@ code-moniker rules disable [ROOT] [--rules <PATH>]
 code-moniker rules enable [ROOT] [--rules <PATH>]
 code-moniker rules show [ROOT] [--rules <PATH>] [--profile <NAME>] [--default-rules on|off] [--format text|json]
 code-moniker rules learn [SAMPLE] [--format text|json]
+code-moniker rules eval --rules <PATH> --lang <TAG> [--profile <NAME>] [--default-rules on|off] [--format text|json] [FILE]
 code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
 code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
 code-moniker harness gemini [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
@@ -291,6 +292,38 @@ code-moniker rules learn architecture --format json
 
 Known samples are `architecture`, `csharp`, `go`, `java`, `python`,
 `rust`, `sql`, and `typescript`.
+
+### Evaluate a rules fragment against a snippet
+
+Use `rules eval` to try a real `.code-moniker.toml` fragment against one sample,
+without checking out a whole project. It is `check` applied to an in-memory
+source: it loads the rules the same way (defaults, overlay, profiles), compiles
+them for `--lang`, and evaluates them against the sample. This is the engine
+behind the [VSCode rule notebook](../../vscode-extension/README.md).
+
+The `--rules` file is an ordinary rules TOML — the same syntax you write in
+`.code-moniker.toml`, with `[[<lang>.<kind>.where]]` / `[[<lang>.shape.<shape>.where]]`
+/ `[[refs.where]]` blocks, `[aliases]`, `[profiles]`, and per-rule `id`, `expr`,
+`severity`, `message`, and `rationale`. The sample is read from `FILE`, or from
+stdin when `FILE` is omitted.
+
+```sh
+echo 'fn DoThing() {}' | code-moniker rules eval --rules naming.toml --lang rs
+code-moniker rules eval --rules policy.toml --lang ts --profile agent --format json sample.ts
+```
+
+- `--rules <PATH>` is the rules TOML fragment to evaluate.
+- `--lang <TAG>` is the sample's language tag (`rs`, `ts`, `python`, `go`,
+  `java`, `cs`, `sql`).
+- `--profile <NAME>` filters the fragment's rules through a named profile.
+- `--default-rules on|off` overrides whether embedded defaults are loaded first.
+- `--format json` prints `{ lang, rules_file, total_rules, total_violations,
+  rules, violations }`. `rules[]` are the compiled rules (id, severity, domain,
+  expr, message, rationale); each violation has the same shape as `check` JSON.
+
+A symbol *violates* a rule when its `expr` evaluates to `false` for that symbol.
+The command exits non-zero only on bad input (unknown language or malformed
+rules TOML); finding violations is a normal, successful result.
 
 The embedded defaults cover conservative naming rules. Project policies
 such as layer boundaries, maximum class size, or mandatory doc comments

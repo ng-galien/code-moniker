@@ -39,6 +39,7 @@ rust_production_source = "moniker ~ '**/dir:crates/dir:/^(cli|core|workspace)$/d
 [exclude]
 uris = [
   "**/crates/core/tests/fixtures/**",
+  "**/vscode-extension/**",
 ]
 
 [profiles.agent]

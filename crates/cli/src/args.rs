@@ -73,6 +73,10 @@ pub enum RulesCommand {
 	Show(RulesShowArgs),
 	#[command(about = "Print embedded check rule examples from the documentation.")]
 	Learn(RulesLearnArgs),
+	#[command(
+		about = "Evaluate a rules TOML fragment against a source file or stdin. Powers the VSCode rule notebook."
+	)]
+	Eval(RulesEvalArgs),
 }
 
 #[derive(Debug, ClapArgs)]
@@ -140,6 +144,51 @@ pub struct RulesLearnArgs {
 		help = "output format"
 	)]
 	pub format: RulesLearnFormat,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct RulesEvalArgs {
+	#[arg(
+		long,
+		value_name = "PATH",
+		help = "rules TOML to evaluate: a real .code-moniker.toml fragment (rules, aliases, profiles)"
+	)]
+	pub rules: PathBuf,
+
+	#[arg(
+		long,
+		value_name = "TAG",
+		help = "language tag of the sample, for example rs, ts, py, go, java, cs, sql"
+	)]
+	pub lang: String,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "filter rules through a named profile from the rules TOML"
+	)]
+	pub profile: Option<String>,
+
+	#[arg(
+		long = "default-rules",
+		value_enum,
+		help = "override whether embedded default rules are loaded before applying the rules TOML"
+	)]
+	pub default_rules: Option<DefaultRules>,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = RulesShowFormat::Text,
+		help = "output format"
+	)]
+	pub format: RulesShowFormat,
+
+	#[arg(
+		value_name = "FILE",
+		help = "sample source file to evaluate; reads stdin when omitted"
+	)]
+	pub source: Option<PathBuf>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
