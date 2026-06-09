@@ -183,40 +183,35 @@ project scans, file paths are anchored relative to the scanned root:
 
 ## Install
 
-Install the standalone CLI:
+Install the full CLI (terminal UI + MCP server):
 
 ```sh
-cargo install code-moniker
+cargo install code-moniker --features tui,mcp
 ```
 
 Or install the latest `main`:
 
 ```sh
-cargo install --git https://github.com/ng-galien/code-moniker code-moniker
+cargo install --git https://github.com/ng-galien/code-moniker code-moniker --features tui,mcp
 ```
 
 From a local checkout:
 
 ```sh
-cargo install --path crates/cli
+cargo install --path crates/cli --features tui,mcp
 ```
 
-### Optional features
-
-The default build ships the core CLI (`extract`, `check`, `rules`, …) with
-colored output. The terminal UI (`code-moniker ui`) and the MCP server
-(`code-moniker mcp`) are behind optional features:
+### Features
 
 - `pretty` (default) — colored output.
 - `tui` — the `ui` terminal explorer (implies `pretty`).
 - `mcp` — the `mcp` server.
 
-Append `--features tui,mcp` to any install command for the full build:
+Drop `--features tui,mcp` for a lighter core build — `extract`, `check`,
+`rules`, … with colored output but no terminal UI or MCP server:
 
 ```sh
-cargo install code-moniker --features tui,mcp
-cargo install --git https://github.com/ng-galien/code-moniker code-moniker --features tui,mcp
-cargo install --path crates/cli --features tui,mcp
+cargo install code-moniker
 ```
 
 ## First CLI run
