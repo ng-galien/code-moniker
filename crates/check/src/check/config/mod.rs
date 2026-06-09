@@ -1260,7 +1260,7 @@ mod tests {
 		.unwrap();
 		let fragment_path = write_fragment(
 			dir.path(),
-			"crates/cli/src/check",
+			"crates/check/src/check",
 			r#"
 			fragment = "check"
 

@@ -273,7 +273,6 @@ fn push_kind_rule_reports(
 					implication_premise(rule).map(|premise| eval_node(premise, d, idx, ctx));
 				report.record(eval_node(&rule.root, d, idx, ctx), premise);
 			}
-			report.finalize_warning();
 			out.push(report);
 		}
 		if rules.require_doc_for_vis.is_some() {
@@ -339,7 +338,6 @@ fn push_shape_rule_reports(
 					implication_premise(rule).map(|premise| eval_node(premise, d, idx, ctx));
 				report.record(eval_node(&rule.root, d, idx, ctx), premise);
 			}
-			report.finalize_warning();
 			out.push(report);
 		}
 		if let Some(rule_id) = &rules.require_doc_rule_id {
@@ -398,7 +396,6 @@ fn push_ref_rule_reports(
 			let premise = implication_premise(rule).map(|premise| eval_ref_node(premise, r, ctx));
 			report.record(eval_ref_node(&rule.root, r, ctx), premise);
 		}
-		report.finalize_warning();
 		out.push(report);
 	}
 }
@@ -442,12 +439,6 @@ impl RuleReport {
 			}
 			NodeOutcome::Fail(_) => self.violations += 1,
 			NodeOutcome::NotApplicable => {}
-		}
-	}
-
-	fn finalize_warning(&mut self) {
-		if self.evaluated > 0 && self.antecedent_matches == Some(0) {
-			self.warning = Some("antecedent never matched".to_string());
 		}
 	}
 }

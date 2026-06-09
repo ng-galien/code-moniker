@@ -22,7 +22,7 @@ path = "src/main.rs"
 [features]
 default = ["pretty"]
 pretty  = ["dep:anstyle"]
-tui     = ["pretty", "code-moniker-check/tui", "dep:ratatui", "dep:ratatui-textarea", "dep:crossterm"]
+tui     = ["pretty", "dep:ratatui", "dep:ratatui-textarea", "dep:crossterm"]
 mcp     = ["dep:axum", "dep:rmcp", "dep:tokio", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber"]
 
 [dependencies]

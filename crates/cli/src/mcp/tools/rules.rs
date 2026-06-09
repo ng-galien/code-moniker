@@ -9,9 +9,8 @@ use super::scope::{
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use code_moniker_check::{self as check, RuleSeverity};
 
-use crate::args::{CheckArgs, CheckFormat};
 use crate::mcp::context::McpContext;
-use crate::{DEFAULT_SCHEME, DefaultRules, Exit};
+use crate::{DEFAULT_SCHEME, Exit};
 
 const DEFAULT_RULES_URI: &str = "workspace";
 
@@ -193,15 +192,9 @@ fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<St
 	ensure_workspace_uri(&request.uri, context.scheme())?;
 	let langs = workspace_languages(context, &request.langs)?;
 	let rules_path = resolve_rules_path(context, &request.rules)?;
-	let mut config = check::load_with_cli_default_rules(Some(&rules_path), None)?;
-	if let Some(profile) = &request.profile {
-		config.apply_profile(profile)?;
-	}
-	let mut specs = Vec::new();
-	for lang in langs {
-		let compiled = check::compile_rules(&config, lang, DEFAULT_SCHEME)?;
-		specs.extend(compiled.specs(lang));
-	}
+	let mut specs = check::RuleSetRequest::with_rules(rules_path, DEFAULT_SCHEME)
+		.with_profile(request.profile.clone())
+		.compiled_specs_for_langs(langs)?;
 	specs.retain(|spec| {
 		request.severities.is_empty() || request.severities.contains(&spec.severity)
 	});
@@ -304,19 +297,20 @@ fn run_rules_for_roots(
 }
 
 fn run_rules_for_root(root: &Path, request: &RulesRequest, rules_path: &Path) -> RulesRunOutcome {
-	let args = CheckArgs {
-		path: root.to_path_buf(),
-		rules: rules_path.to_path_buf(),
-		format: CheckFormat::Text,
-		default_rules: None::<DefaultRules>,
-		report: request.report,
-		profile: request.profile.clone(),
-		max_violations: Some(request.paging.limit),
-		files: request.files.clone(),
-	};
+	let rules = check::RuleSetRequest::with_rules(rules_path, DEFAULT_SCHEME)
+		.with_profile(request.profile.clone());
+	let check_request = check::CheckRequest::new(root.to_path_buf(), rules)
+		.with_report(request.report)
+		.with_files(request.files.clone());
 	let mut stdout = Vec::new();
 	let mut stderr = Vec::new();
-	let exit = crate::check::run(&args, &mut stdout, &mut stderr);
+	let exit = crate::check::run_text_request(
+		check_request,
+		request.report,
+		Some(request.paging.limit),
+		&mut stdout,
+		&mut stderr,
+	);
 	RulesRunOutcome {
 		root: root.to_path_buf(),
 		exit,

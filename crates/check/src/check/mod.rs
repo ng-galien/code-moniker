@@ -7,7 +7,6 @@ pub(crate) mod exclude;
 pub(crate) mod expr;
 pub(crate) mod path;
 pub(crate) mod suppress;
-#[cfg(feature = "tui")]
 pub mod workspace;
 
 pub(crate) use config::Config;

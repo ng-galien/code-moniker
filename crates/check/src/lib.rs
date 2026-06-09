@@ -6,7 +6,10 @@
 mod check;
 
 pub use check::command::{
-	FileError, FileReport, check_one_file, check_project, check_project_files,
+	CheckRequest, CheckRun, CheckSkipReason, CheckSummary, DefaultRulesSelection,
+	FailedRuleSummary, FileError, FileReport, RuleSetRequest, SourceReport, ViolationCounts,
+	check_graph_with_config, check_one_file, check_project, check_project_files,
+	check_source_with_config, compiled_specs_with_config,
 };
 pub use check::config::{Config, RuleSeverity, load_with_cli_default_rules, load_with_overrides};
 pub use check::eval::{
@@ -16,5 +19,4 @@ pub use check::eval::{
 pub use check::exclude::UriExclusionMatcher;
 pub use check::suppress::apply as apply_suppressions;
 
-#[cfg(feature = "tui")]
 pub use check::workspace;

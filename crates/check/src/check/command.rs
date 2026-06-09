@@ -1,15 +1,20 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::Instant;
 
-use code_moniker_core::core::code_graph::DefRecord;
+use code_moniker_core::core::code_graph::{CodeGraph, DefRecord};
+use code_moniker_core::lang::Lang;
 use code_moniker_workspace::environment;
 use code_moniker_workspace::lang::path_to_lang;
 
 use crate::check;
+use crate::check::config::{self, RuleSeverity};
+use crate::check::eval::CompiledRuleSpec;
 use crate::check::expr::Domain;
 
 /// One scanned file's rule outcome: the suppression-filtered violations and,
 /// when `report` is requested, the per-rule observability counts.
+#[derive(Clone, Debug)]
 pub struct FileReport {
 	pub path: PathBuf,
 	pub violations: Vec<check::Violation>,
@@ -18,9 +23,356 @@ pub struct FileReport {
 
 /// A per-file I/O or extraction failure, accumulated rather than aborting a
 /// project scan.
+#[derive(Clone, Debug)]
 pub struct FileError {
 	pub path: PathBuf,
 	pub error: String,
+}
+
+/// How a consumer wants embedded default rules to participate in a ruleset.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum DefaultRulesSelection {
+	#[default]
+	Config,
+	Enabled,
+	Disabled,
+}
+
+impl DefaultRulesSelection {
+	pub fn from_override(value: Option<bool>) -> Self {
+		match value {
+			Some(true) => Self::Enabled,
+			Some(false) => Self::Disabled,
+			None => Self::Config,
+		}
+	}
+
+	pub fn as_override(self) -> Option<bool> {
+		match self {
+			Self::Config => None,
+			Self::Enabled => Some(true),
+			Self::Disabled => Some(false),
+		}
+	}
+}
+
+/// Ruleset construction contract shared by CLI, MCP, views, and harnesses.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuleSetRequest {
+	pub rules: Option<PathBuf>,
+	pub default_rules: DefaultRulesSelection,
+	pub profile: Option<String>,
+	pub scheme: String,
+}
+
+impl RuleSetRequest {
+	pub fn new(rules: Option<PathBuf>, scheme: impl Into<String>) -> Self {
+		Self {
+			rules,
+			default_rules: DefaultRulesSelection::Config,
+			profile: None,
+			scheme: scheme.into(),
+		}
+	}
+
+	pub fn with_rules(rules: impl Into<PathBuf>, scheme: impl Into<String>) -> Self {
+		Self::new(Some(rules.into()), scheme)
+	}
+
+	pub fn with_default_rules(mut self, default_rules: DefaultRulesSelection) -> Self {
+		self.default_rules = default_rules;
+		self
+	}
+
+	pub fn with_profile(mut self, profile: Option<String>) -> Self {
+		self.profile = profile;
+		self
+	}
+
+	pub fn rules_path(&self) -> Option<&Path> {
+		self.rules.as_deref()
+	}
+
+	pub fn scheme(&self) -> &str {
+		&self.scheme
+	}
+
+	pub fn load_config(&self) -> anyhow::Result<check::Config> {
+		let mut cfg = config::load_with_cli_default_rules(
+			self.rules_path(),
+			self.default_rules.as_override(),
+		)?;
+		if let Some(profile) = &self.profile {
+			cfg.apply_profile(profile)?;
+		}
+		Ok(cfg)
+	}
+
+	pub fn compiled_specs_for_langs(
+		&self,
+		langs: impl IntoIterator<Item = Lang>,
+	) -> anyhow::Result<Vec<CompiledRuleSpec>> {
+		let cfg = self.load_config()?;
+		compiled_specs_with_config(&cfg, langs, &self.scheme)
+	}
+
+	pub fn check_source(
+		&self,
+		source: &str,
+		anchor: &Path,
+		lang: Lang,
+		report: bool,
+	) -> anyhow::Result<SourceReport> {
+		let cfg = self.load_config()?;
+		check_source_with_config(&cfg, source, anchor, lang, &self.scheme, report)
+	}
+}
+
+/// Executable check request over either a file, a project root, or a filtered
+/// set of project-relative files.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckRequest {
+	pub path: PathBuf,
+	pub rules: RuleSetRequest,
+	pub report: bool,
+	pub files: Vec<PathBuf>,
+}
+
+impl CheckRequest {
+	pub fn new(path: impl Into<PathBuf>, rules: RuleSetRequest) -> Self {
+		Self {
+			path: path.into(),
+			rules,
+			report: false,
+			files: Vec::new(),
+		}
+	}
+
+	pub fn with_report(mut self, report: bool) -> Self {
+		self.report = report;
+		self
+	}
+
+	pub fn with_files(mut self, files: Vec<PathBuf>) -> Self {
+		self.files = files;
+		self
+	}
+
+	pub fn run(&self) -> anyhow::Result<CheckRun> {
+		let started = Instant::now();
+		let cfg = self.rules.load_config()?;
+		let meta = std::fs::metadata(&self.path)
+			.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", self.path.display()))?;
+		let (reports, errors, skip_reason) = if meta.is_dir() {
+			self.run_directory(&cfg)?
+		} else {
+			self.run_single_file(&cfg)?
+		};
+		Ok(CheckRun {
+			reports,
+			errors,
+			elapsed_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+			skip_reason,
+		})
+	}
+
+	fn run_directory(
+		&self,
+		cfg: &check::Config,
+	) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>, Option<CheckSkipReason>)> {
+		let (reports, errors) = if self.files.is_empty() {
+			check_project(&self.path, cfg, self.rules.scheme(), self.report)?
+		} else {
+			check_project_files(
+				&self.path,
+				&self.files,
+				cfg,
+				self.rules.scheme(),
+				self.report,
+			)?
+		};
+		let skip_reason = if !self.files.is_empty() && reports.is_empty() && errors.is_empty() {
+			Some(CheckSkipReason::NoMatchingFiles)
+		} else {
+			None
+		};
+		Ok((reports, errors, skip_reason))
+	}
+
+	fn run_single_file(
+		&self,
+		cfg: &check::Config,
+	) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>, Option<CheckSkipReason>)> {
+		if !self.files.is_empty() {
+			anyhow::bail!("--file can only be used when check PATH is a directory");
+		}
+		let excluded = path_excluded(&self.path, cfg);
+		match check_one_file(&self.path, cfg, self.rules.scheme(), self.report)? {
+			Some(report) => Ok((vec![report], Vec::new(), None)),
+			None if excluded => Ok((
+				Vec::new(),
+				Vec::new(),
+				Some(CheckSkipReason::ExcludedSingleFile),
+			)),
+			None => Ok((
+				Vec::new(),
+				Vec::new(),
+				Some(CheckSkipReason::UnsupportedSingleFile),
+			)),
+		}
+	}
+}
+
+/// Empty-scan reason. Renderers use it to preserve silent text hooks while
+/// still allowing structured JSON for intentionally empty scans.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckSkipReason {
+	ExcludedSingleFile,
+	UnsupportedSingleFile,
+	NoMatchingFiles,
+}
+
+/// Structured result of a check request. It contains no terminal formatting or
+/// process exit policy.
+#[derive(Clone, Debug)]
+pub struct CheckRun {
+	pub reports: Vec<FileReport>,
+	pub errors: Vec<FileError>,
+	pub elapsed_ms: u64,
+	pub skip_reason: Option<CheckSkipReason>,
+}
+
+impl CheckRun {
+	pub fn any_error_violation(&self) -> bool {
+		self.reports.iter().any(|report| {
+			report
+				.violations
+				.iter()
+				.any(|violation| violation.severity.is_error())
+		})
+	}
+
+	pub fn any_error(&self) -> bool {
+		!self.errors.is_empty()
+	}
+
+	pub fn violation_counts(&self) -> ViolationCounts {
+		violation_counts(&self.reports)
+	}
+
+	pub fn summary(&self) -> CheckSummary {
+		let counts = self.violation_counts();
+		CheckSummary {
+			files_scanned: self.reports.len(),
+			files_with_violations: counts.files_with,
+			total_violations: counts.total,
+			total_rule_errors: counts.errors,
+			total_warnings: counts.warnings,
+			files_with_errors: self.errors.len(),
+			total_errors: self.errors.len(),
+			elapsed_ms: self.elapsed_ms,
+			failed_rules: self.failed_rule_summary(),
+		}
+	}
+
+	pub fn failed_rule_summary(&self) -> Vec<FailedRuleSummary> {
+		failed_rule_summary(&self.reports)
+	}
+}
+
+/// Serializable aggregate counters for renderers and machine consumers.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct CheckSummary {
+	pub files_scanned: usize,
+	pub files_with_violations: usize,
+	pub total_violations: usize,
+	pub total_rule_errors: usize,
+	pub total_warnings: usize,
+	pub files_with_errors: usize,
+	pub total_errors: usize,
+	pub elapsed_ms: u64,
+	pub failed_rules: Vec<FailedRuleSummary>,
+}
+
+/// Per-rule failure count, sorted by severity and volume by [`CheckRun`].
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct FailedRuleSummary {
+	pub rule_id: String,
+	pub severity: RuleSeverity,
+	pub violations: usize,
+}
+
+/// Count of suppression-filtered violations in a check result.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ViolationCounts {
+	pub total: usize,
+	pub errors: usize,
+	pub warnings: usize,
+	pub files_with: usize,
+}
+
+/// Rules and violations from evaluating one in-memory source.
+#[derive(Clone, Debug)]
+pub struct SourceReport {
+	pub rules: Vec<CompiledRuleSpec>,
+	pub violations: Vec<check::Violation>,
+	pub rule_reports: Vec<check::RuleReport>,
+}
+
+pub fn check_source_with_config(
+	cfg: &check::Config,
+	source: &str,
+	anchor: &Path,
+	lang: Lang,
+	scheme: &str,
+	report: bool,
+) -> anyhow::Result<SourceReport> {
+	let graph = environment::extract_source_with(
+		lang,
+		source,
+		anchor,
+		&environment::ExtractContext::default(),
+	);
+	check_graph_with_config(cfg, &graph, source, lang, scheme, report)
+}
+
+pub fn check_graph_with_config(
+	cfg: &check::Config,
+	graph: &CodeGraph,
+	source: &str,
+	lang: Lang,
+	scheme: &str,
+	report: bool,
+) -> anyhow::Result<SourceReport> {
+	let compiled = check::compile_rules(cfg, lang, scheme)?;
+	let raw = check::evaluate_compiled(graph, source, lang, scheme, &compiled);
+	let violations = check::apply_suppressions(graph, source, raw);
+	let rule_reports = if report {
+		let mut rule_reports = check::rule_report_compiled(graph, source, lang, scheme, &compiled);
+		align_report_violations_with_suppressions(&mut rule_reports, &violations);
+		rule_reports
+	} else {
+		Vec::new()
+	};
+	Ok(SourceReport {
+		rules: compiled.specs(lang),
+		violations,
+		rule_reports,
+	})
+}
+
+pub fn compiled_specs_with_config(
+	cfg: &check::Config,
+	langs: impl IntoIterator<Item = Lang>,
+	scheme: &str,
+) -> anyhow::Result<Vec<CompiledRuleSpec>> {
+	let mut specs = Vec::new();
+	for lang in langs {
+		let compiled = check::compile_rules(cfg, lang, scheme)?;
+		specs.extend(compiled.specs(lang));
+	}
+	specs.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+	Ok(specs)
 }
 
 pub fn check_one_file(
@@ -229,11 +581,6 @@ impl FileRequirementResolver {
 			workspace_defs: OnceLock::new(),
 		}
 	}
-
-	fn workspace_defs(&self) -> &[DefRecord] {
-		self.workspace_defs
-			.get_or_init(|| collect_workspace_defs(self.source_set.as_ref()))
-	}
 }
 
 impl check::RequirementResolver for FileRequirementResolver {
@@ -279,6 +626,13 @@ impl check::RequirementResolver for FileRequirementResolver {
 					&& lazy_domain_matches(inner, def)
 			})
 			.collect()
+	}
+}
+
+impl FileRequirementResolver {
+	fn workspace_defs(&self) -> &[DefRecord] {
+		self.workspace_defs
+			.get_or_init(|| collect_workspace_defs(self.source_set.as_ref()))
 	}
 }
 
@@ -354,4 +708,54 @@ fn align_report_violations_with_suppressions(
 	for report in rule_reports {
 		report.violations = counts.get(report.rule_id.as_str()).copied().unwrap_or(0);
 	}
+}
+
+fn path_excluded(path: &Path, cfg: &check::Config) -> bool {
+	check::UriExclusionMatcher::new(&cfg.exclude.uris).matches_path(path)
+}
+
+fn violation_counts(reports: &[FileReport]) -> ViolationCounts {
+	let mut counts = ViolationCounts::default();
+	for report in reports {
+		if report.violations.is_empty() {
+			continue;
+		}
+		counts.files_with += 1;
+		for violation in &report.violations {
+			counts.total += 1;
+			if violation.severity.is_error() {
+				counts.errors += 1;
+			} else {
+				counts.warnings += 1;
+			}
+		}
+	}
+	counts
+}
+
+fn failed_rule_summary(reports: &[FileReport]) -> Vec<FailedRuleSummary> {
+	use std::collections::BTreeMap;
+	let mut by_rule: BTreeMap<(String, RuleSeverity), usize> = BTreeMap::new();
+	for report in reports {
+		for violation in &report.violations {
+			*by_rule
+				.entry((violation.rule_id.clone(), violation.severity))
+				.or_default() += 1;
+		}
+	}
+	let mut out: Vec<_> = by_rule
+		.into_iter()
+		.map(|((rule_id, severity), violations)| FailedRuleSummary {
+			rule_id,
+			severity,
+			violations,
+		})
+		.collect();
+	out.sort_by(|a, b| {
+		b.violations
+			.cmp(&a.violations)
+			.then_with(|| b.severity.cmp(&a.severity))
+			.then_with(|| a.rule_id.cmp(&b.rule_id))
+	});
+	out
 }

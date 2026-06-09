@@ -5,16 +5,26 @@
 
 use std::io::Write;
 use std::path::Path;
-use std::time::{Duration, Instant};
 
-use check::{FileError, FileReport};
+use check::{
+	CheckRequest, CheckRun, CheckSkipReason, DefaultRulesSelection, FileError, FileReport,
+	RuleSetRequest,
+};
 use code_moniker_check as check;
 
 use crate::args::{CheckArgs, CheckFormat, DefaultRules};
 use crate::{DEFAULT_SCHEME, Exit};
 
 pub fn run<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
-	match check_inner(args, stdout, stderr) {
+	let request = check_request_from_args(args);
+	match run_request_inner(
+		request,
+		args.format,
+		args.report,
+		args.max_violations,
+		stdout,
+		stderr,
+	) {
 		Ok(outcome) => {
 			if outcome.any_error
 				|| (outcome.any_error_violation && args.format != CheckFormat::CodexHook)
@@ -31,55 +41,49 @@ pub fn run<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut
 	}
 }
 
-fn check_inner<W: Write, E: Write>(
-	args: &CheckArgs,
+#[cfg(feature = "mcp")]
+pub(crate) fn run_text_request<W1: Write, W2: Write>(
+	request: CheckRequest,
+	report: bool,
+	max_violations: Option<usize>,
+	stdout: &mut W1,
+	stderr: &mut W2,
+) -> Exit {
+	match run_request_inner(
+		request,
+		CheckFormat::Text,
+		report,
+		max_violations,
+		stdout,
+		stderr,
+	) {
+		Ok(outcome) => {
+			if outcome.any_error || outcome.any_error_violation {
+				Exit::NoMatch
+			} else {
+				Exit::Match
+			}
+		}
+		Err(e) => {
+			let _ = writeln!(stderr, "code-moniker: {e:#}");
+			Exit::UsageError
+		}
+	}
+}
+
+fn run_request_inner<W: Write, E: Write>(
+	request: CheckRequest,
+	format: CheckFormat,
+	report: bool,
+	max_violations: Option<usize>,
 	stdout: &mut W,
 	stderr: &mut E,
 ) -> anyhow::Result<CheckOutcome> {
-	let started = Instant::now();
-	let path: &Path = &args.path;
-	let mut cfg = check::load_with_cli_default_rules(
-		Some(&args.rules),
-		args.default_rules.map(DefaultRules::enabled),
-	)?;
-	if let Some(name) = &args.profile {
-		cfg.apply_profile(name)?;
+	let run = request.run()?;
+	if !should_render(format, &run) {
+		return Ok(CheckOutcome::from_run(&run));
 	}
-	let meta = std::fs::metadata(path)
-		.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
-	let (reports, errors) = if meta.is_dir() {
-		if args.files.is_empty() {
-			check::check_project(path, &cfg, DEFAULT_SCHEME, args.report)?
-		} else {
-			check::check_project_files(path, &args.files, &cfg, DEFAULT_SCHEME, args.report)?
-		}
-	} else {
-		if !args.files.is_empty() {
-			anyhow::bail!("--file can only be used when check PATH is a directory");
-		}
-		let excluded = check::UriExclusionMatcher::new(&cfg.exclude.uris).matches_path(path);
-		match check::check_one_file(path, &cfg, DEFAULT_SCHEME, args.report)? {
-			Some(report) => (vec![report], Vec::new()),
-			None if excluded && args.format == CheckFormat::Json => (Vec::new(), Vec::new()),
-			None => {
-				return Ok(CheckOutcome {
-					any_error_violation: false,
-					any_error: false,
-				});
-			}
-		}
-	};
-	if !args.files.is_empty()
-		&& reports.is_empty()
-		&& errors.is_empty()
-		&& args.format != CheckFormat::Json
-	{
-		return Ok(CheckOutcome {
-			any_error_violation: false,
-			any_error: false,
-		});
-	}
-	for e in &errors {
+	for e in &run.errors {
 		let _ = writeln!(
 			stderr,
 			"code-moniker: error reading {}: {}",
@@ -87,30 +91,36 @@ fn check_inner<W: Write, E: Write>(
 			e.error
 		);
 	}
-	let any_error_violation = reports.iter().any(|r| {
-		r.violations
-			.iter()
-			.any(|violation| violation.severity.is_error())
-	});
-	let elapsed = started.elapsed();
-	match args.format {
-		CheckFormat::Text => write_reports_text(
-			stdout,
-			&reports,
-			&errors,
-			args.report,
-			elapsed,
-			args.max_violations,
-		)?,
-		CheckFormat::Json => write_reports_json(stdout, &reports, &errors, args.report, elapsed)?,
-		CheckFormat::CodexHook => {
-			write_reports_codex_hook(stdout, &reports, &errors, elapsed, args.max_violations)?
-		}
+	match format {
+		CheckFormat::Text => write_reports_text(stdout, &run, report, max_violations)?,
+		CheckFormat::Json => write_reports_json(stdout, &run, report)?,
+		CheckFormat::CodexHook => write_reports_codex_hook(stdout, &run, max_violations)?,
 	}
-	Ok(CheckOutcome {
-		any_error_violation,
-		any_error: !errors.is_empty(),
-	})
+	Ok(CheckOutcome::from_run(&run))
+}
+
+fn check_request_from_args(args: &CheckArgs) -> CheckRequest {
+	CheckRequest::new(args.path.clone(), ruleset_request_from_args(args))
+		.with_report(args.report)
+		.with_files(args.files.clone())
+}
+
+fn ruleset_request_from_args(args: &CheckArgs) -> RuleSetRequest {
+	RuleSetRequest::with_rules(args.rules.clone(), DEFAULT_SCHEME)
+		.with_default_rules(DefaultRulesSelection::from_override(
+			args.default_rules.map(DefaultRules::enabled),
+		))
+		.with_profile(args.profile.clone())
+}
+
+fn should_render(format: CheckFormat, run: &CheckRun) -> bool {
+	match run.skip_reason {
+		None => true,
+		Some(CheckSkipReason::ExcludedSingleFile | CheckSkipReason::NoMatchingFiles) => {
+			format == CheckFormat::Json
+		}
+		Some(CheckSkipReason::UnsupportedSingleFile) => false,
+	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,11 +129,13 @@ struct CheckOutcome {
 	any_error: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
-struct FailedRuleSummary {
-	rule_id: String,
-	severity: check::RuleSeverity,
-	violations: usize,
+impl CheckOutcome {
+	fn from_run(run: &CheckRun) -> Self {
+		Self {
+			any_error_violation: run.any_error_violation(),
+			any_error: run.any_error(),
+		}
+	}
 }
 
 struct ViolationEntry<'a> {
@@ -131,26 +143,18 @@ struct ViolationEntry<'a> {
 	violation: &'a check::Violation,
 }
 
-#[derive(Default)]
-struct ViolationCounts {
-	total: usize,
-	errors: usize,
-	warnings: usize,
-	files_with: usize,
-}
-
 /// Single-file clean runs (one report, zero violations, zero errors) skip the
 /// trailing summary so per-edit PostToolUse hooks stay silent. Every other
 /// shape emits the `N violation(s) across M file(s) (K scanned)` footer.
 fn write_reports_text<W: Write>(
 	w: &mut W,
-	reports: &[FileReport],
-	errors: &[FileError],
+	run: &CheckRun,
 	include_rule_report: bool,
-	elapsed: Duration,
 	max_violations: Option<usize>,
 ) -> std::io::Result<()> {
-	let counts = violation_counts(reports);
+	let reports = &run.reports;
+	let errors = &run.errors;
+	let counts = run.violation_counts();
 	let selected = max_violations.map(|max| largest_violation_group(reports, max));
 	if let Some(selected) = &selected {
 		if let Some(first) = selected.first() {
@@ -186,7 +190,7 @@ fn write_reports_text<W: Write>(
 			total = counts.total,
 			files_with = counts.files_with,
 			scanned = reports.len(),
-			elapsed_ms = duration_ms(elapsed)
+			elapsed_ms = run.elapsed_ms
 		)?;
 		if counts.warnings > 0 {
 			write!(
@@ -199,13 +203,13 @@ fn write_reports_text<W: Write>(
 			write!(w, ", {} file(s) errored", errors.len())?;
 		}
 		writeln!(w, ").")?;
-		write_failed_rules_text(w, reports)?;
+		write_failed_rules_text(w, run)?;
 		if !errors.is_empty() {
 			writeln!(w, "Read errors: {} file(s).", errors.len())?;
 		}
 	}
 	if include_rule_report {
-		write_rule_report_text(w, reports)?;
+		write_rule_report_text(w, run)?;
 	}
 	Ok(())
 }
@@ -238,23 +242,146 @@ fn write_violation_text<W: Write>(
 	Ok(())
 }
 
-fn violation_counts(reports: &[FileReport]) -> ViolationCounts {
-	let mut counts = ViolationCounts::default();
-	for report in reports {
-		if report.violations.is_empty() {
-			continue;
-		}
-		counts.files_with += 1;
-		for violation in &report.violations {
-			counts.total += 1;
-			if violation.severity.is_error() {
-				counts.errors += 1;
-			} else {
-				counts.warnings += 1;
-			}
+fn write_failed_rules_text<W: Write>(w: &mut W, run: &CheckRun) -> std::io::Result<()> {
+	let failed_rules = run.failed_rule_summary();
+	if failed_rules.is_empty() {
+		return Ok(());
+	}
+	writeln!(w, "Failed rules:")?;
+	for item in failed_rules {
+		if item.severity.is_warn() {
+			writeln!(w, "- {}: {} warning(s)", item.rule_id, item.violations)?;
+		} else {
+			writeln!(w, "- {}: {} violation(s)", item.rule_id, item.violations)?;
 		}
 	}
-	counts
+	Ok(())
+}
+
+fn write_rule_report_text<W: Write>(w: &mut W, run: &CheckRun) -> std::io::Result<()> {
+	let rule_reports = aggregate_rule_reports(&run.reports);
+	if rule_reports.is_empty() {
+		return Ok(());
+	}
+	writeln!(w, "\nRule report:")?;
+	for r in rule_reports {
+		write!(
+			w,
+			"- {}: domain={}, evaluated={}, matches={}, violations={}",
+			r.rule_id, r.domain, r.evaluated, r.matches, r.violations
+		)?;
+		if r.severity.is_warn() {
+			write!(w, ", severity=warn")?;
+		}
+		if let Some(n) = r.antecedent_matches {
+			write!(w, ", antecedent_matches={n}")?;
+		}
+		if let Some(warning) = r.warning {
+			write!(w, " warning: {warning}")?;
+		}
+		writeln!(w)?;
+	}
+	Ok(())
+}
+
+fn write_reports_json<W: Write>(
+	w: &mut W,
+	run: &CheckRun,
+	include_rule_report: bool,
+) -> anyhow::Result<()> {
+	#[derive(serde::Serialize)]
+	struct FileEntry<'a> {
+		file: String,
+		violations: &'a [check::Violation],
+	}
+	#[derive(serde::Serialize)]
+	struct ErrorEntry<'a> {
+		file: String,
+		error: &'a str,
+	}
+	#[derive(serde::Serialize)]
+	struct Out<'a> {
+		summary: check::CheckSummary,
+		files: Vec<FileEntry<'a>>,
+		#[serde(skip_serializing_if = "Vec::is_empty")]
+		errors: Vec<ErrorEntry<'a>>,
+		#[serde(skip_serializing_if = "Vec::is_empty")]
+		rule_report: Vec<check::RuleReport>,
+	}
+	let reports = &run.reports;
+	let errors = &run.errors;
+	let files: Vec<FileEntry> = reports
+		.iter()
+		.map(|r| FileEntry {
+			file: r.path.display().to_string(),
+			violations: &r.violations,
+		})
+		.collect();
+	let err_entries: Vec<ErrorEntry> = errors
+		.iter()
+		.map(|e| ErrorEntry {
+			file: e.path.display().to_string(),
+			error: &e.error,
+		})
+		.collect();
+	let out = Out {
+		summary: run.summary(),
+		files,
+		errors: err_entries,
+		rule_report: if include_rule_report {
+			aggregate_rule_reports(reports)
+		} else {
+			Vec::new()
+		},
+	};
+	serde_json::to_writer_pretty(&mut *w, &out)?;
+	w.write_all(b"\n")?;
+	Ok(())
+}
+
+fn write_reports_codex_hook<W: Write>(
+	w: &mut W,
+	run: &CheckRun,
+	max_violations: Option<usize>,
+) -> anyhow::Result<()> {
+	let error_reports = reports_with_severity(&run.reports, check::RuleSeverity::Error);
+	let any_error_violation = error_reports
+		.iter()
+		.any(|report| !report.violations.is_empty());
+	if !any_error_violation {
+		return Ok(());
+	}
+	let reason = codex_hook_reason(&error_reports, &run.errors, run.elapsed_ms, max_violations)?;
+	serde_json::to_writer(
+		&mut *w,
+		&serde_json::json!({
+			"decision": "block",
+			"reason": reason,
+		}),
+	)?;
+	w.write_all(b"\n")?;
+	Ok(())
+}
+
+fn codex_hook_reason(
+	reports: &[FileReport],
+	errors: &[FileError],
+	elapsed_ms: u64,
+	max_violations: Option<usize>,
+) -> anyhow::Result<String> {
+	let mut reason = Vec::new();
+	writeln!(
+		&mut reason,
+		"code-moniker architecture check failed. Fix the reported rule violation(s):"
+	)?;
+	let run = CheckRun {
+		reports: reports.to_vec(),
+		errors: errors.to_vec(),
+		elapsed_ms,
+		skip_reason: None,
+	};
+	write_reports_text(&mut reason, &run, false, max_violations)?;
+	Ok(String::from_utf8(reason)?)
 }
 
 fn largest_violation_group<'a>(reports: &'a [FileReport], max: usize) -> Vec<ViolationEntry<'a>> {
@@ -301,75 +428,6 @@ fn largest_violation_group<'a>(reports: &'a [FileReport], max: usize) -> Vec<Vio
 	group
 }
 
-fn write_failed_rules_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::io::Result<()> {
-	let failed_rules = failed_rule_summary(reports);
-	if failed_rules.is_empty() {
-		return Ok(());
-	}
-	writeln!(w, "Failed rules:")?;
-	for item in failed_rules {
-		if item.severity.is_warn() {
-			writeln!(w, "- {}: {} warning(s)", item.rule_id, item.violations)?;
-		} else {
-			writeln!(w, "- {}: {} violation(s)", item.rule_id, item.violations)?;
-		}
-	}
-	Ok(())
-}
-
-fn failed_rule_summary(reports: &[FileReport]) -> Vec<FailedRuleSummary> {
-	use std::collections::BTreeMap;
-	let mut by_rule: BTreeMap<(String, check::RuleSeverity), usize> = BTreeMap::new();
-	for report in reports {
-		for violation in &report.violations {
-			*by_rule
-				.entry((violation.rule_id.clone(), violation.severity))
-				.or_default() += 1;
-		}
-	}
-	let mut out: Vec<_> = by_rule
-		.into_iter()
-		.map(|((rule_id, severity), violations)| FailedRuleSummary {
-			rule_id,
-			severity,
-			violations,
-		})
-		.collect();
-	out.sort_by(|a, b| {
-		b.violations
-			.cmp(&a.violations)
-			.then_with(|| b.severity.cmp(&a.severity))
-			.then_with(|| a.rule_id.cmp(&b.rule_id))
-	});
-	out
-}
-
-fn write_rule_report_text<W: Write>(w: &mut W, reports: &[FileReport]) -> std::io::Result<()> {
-	let rule_reports = aggregate_rule_reports(reports);
-	if rule_reports.is_empty() {
-		return Ok(());
-	}
-	writeln!(w, "\nRule report:")?;
-	for r in rule_reports {
-		write!(
-			w,
-			"- {}: domain={}, evaluated={}, matches={}, violations={}",
-			r.rule_id, r.domain, r.evaluated, r.matches, r.violations
-		)?;
-		if r.severity.is_warn() {
-			write!(w, ", severity=warn")?;
-		}
-		if let Some(n) = r.antecedent_matches {
-			write!(w, ", antecedent_matches={n}")?;
-		}
-		if let Some(warning) = r.warning {
-			write!(w, " warning: {warning}")?;
-		}
-		writeln!(w)?;
-	}
-	Ok(())
-}
-
 fn aggregate_rule_reports(reports: &[FileReport]) -> Vec<check::RuleReport> {
 	use std::collections::BTreeMap;
 	let mut by_rule: BTreeMap<String, check::RuleReport> = BTreeMap::new();
@@ -389,133 +447,14 @@ fn aggregate_rule_reports(reports: &[FileReport]) -> Vec<check::RuleReport> {
 		}
 	}
 	let mut out: Vec<_> = by_rule.into_values().collect();
-	for r in &mut out {
-		if r.evaluated > 0 && r.antecedent_matches == Some(0) {
-			r.warning = Some("antecedent never matched".to_string());
+	for report in &mut out {
+		if report.evaluated > 0 && report.antecedent_matches == Some(0) {
+			report.warning = Some("antecedent never matched".to_string());
 		} else {
-			r.warning = None;
+			report.warning = None;
 		}
 	}
 	out
-}
-
-fn write_reports_json<W: Write>(
-	w: &mut W,
-	reports: &[FileReport],
-	errors: &[FileError],
-	include_rule_report: bool,
-	elapsed: Duration,
-) -> anyhow::Result<()> {
-	#[derive(serde::Serialize)]
-	struct FileEntry<'a> {
-		file: String,
-		violations: &'a [check::Violation],
-	}
-	#[derive(serde::Serialize)]
-	struct ErrorEntry<'a> {
-		file: String,
-		error: &'a str,
-	}
-	#[derive(serde::Serialize)]
-	struct Summary {
-		files_scanned: usize,
-		files_with_violations: usize,
-		total_violations: usize,
-		total_rule_errors: usize,
-		total_warnings: usize,
-		files_with_errors: usize,
-		total_errors: usize,
-		elapsed_ms: u64,
-		failed_rules: Vec<FailedRuleSummary>,
-	}
-	#[derive(serde::Serialize)]
-	struct Out<'a> {
-		summary: Summary,
-		files: Vec<FileEntry<'a>>,
-		#[serde(skip_serializing_if = "Vec::is_empty")]
-		errors: Vec<ErrorEntry<'a>>,
-		#[serde(skip_serializing_if = "Vec::is_empty")]
-		rule_report: Vec<check::RuleReport>,
-	}
-	let files: Vec<FileEntry> = reports
-		.iter()
-		.map(|r| FileEntry {
-			file: r.path.display().to_string(),
-			violations: &r.violations,
-		})
-		.collect();
-	let counts = violation_counts(reports);
-	let err_entries: Vec<ErrorEntry> = errors
-		.iter()
-		.map(|e| ErrorEntry {
-			file: e.path.display().to_string(),
-			error: &e.error,
-		})
-		.collect();
-	let out = Out {
-		summary: Summary {
-			files_scanned: files.len(),
-			files_with_violations: counts.files_with,
-			total_violations: counts.total,
-			total_rule_errors: counts.errors,
-			total_warnings: counts.warnings,
-			files_with_errors: err_entries.len(),
-			total_errors: err_entries.len(),
-			elapsed_ms: duration_ms(elapsed),
-			failed_rules: failed_rule_summary(reports),
-		},
-		files,
-		errors: err_entries,
-		rule_report: if include_rule_report {
-			aggregate_rule_reports(reports)
-		} else {
-			Vec::new()
-		},
-	};
-	serde_json::to_writer_pretty(&mut *w, &out)?;
-	w.write_all(b"\n")?;
-	Ok(())
-}
-
-fn write_reports_codex_hook<W: Write>(
-	w: &mut W,
-	reports: &[FileReport],
-	errors: &[FileError],
-	elapsed: Duration,
-	max_violations: Option<usize>,
-) -> anyhow::Result<()> {
-	let error_reports = reports_with_severity(reports, check::RuleSeverity::Error);
-	let any_error_violation = error_reports
-		.iter()
-		.any(|report| !report.violations.is_empty());
-	if !any_error_violation {
-		return Ok(());
-	}
-	let reason = codex_hook_reason(&error_reports, errors, elapsed, max_violations)?;
-	serde_json::to_writer(
-		&mut *w,
-		&serde_json::json!({
-			"decision": "block",
-			"reason": reason,
-		}),
-	)?;
-	w.write_all(b"\n")?;
-	Ok(())
-}
-
-fn codex_hook_reason(
-	reports: &[FileReport],
-	errors: &[FileError],
-	elapsed: Duration,
-	max_violations: Option<usize>,
-) -> anyhow::Result<String> {
-	let mut reason = Vec::new();
-	writeln!(
-		&mut reason,
-		"code-moniker architecture check failed. Fix the reported rule violation(s):"
-	)?;
-	write_reports_text(&mut reason, reports, errors, false, elapsed, max_violations)?;
-	Ok(String::from_utf8(reason)?)
 }
 
 fn reports_with_severity(reports: &[FileReport], severity: check::RuleSeverity) -> Vec<FileReport> {
@@ -532,8 +471,4 @@ fn reports_with_severity(reports: &[FileReport], severity: check::RuleSeverity) 
 			rule_reports: Vec::new(),
 		})
 		.collect()
-}
-
-fn duration_ms(duration: Duration) -> u64 {
-	duration.as_millis().try_into().unwrap_or(u64::MAX)
 }

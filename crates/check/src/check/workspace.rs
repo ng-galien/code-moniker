@@ -10,6 +10,8 @@ use code_moniker_workspace::environment::{
 };
 use code_moniker_workspace::snapshot::{CodeIndex, LinkageSnapshot, ResourceGeneration, SymbolId};
 
+use crate::{RuleSetRequest, RuleSeverity};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkspaceCheckRunnerOptions {
 	pub rules: PathBuf,
@@ -92,26 +94,18 @@ fn collect_diagnostics(
 }
 
 fn load_config(options: &WorkspaceCheckRunnerOptions) -> anyhow::Result<check::Config> {
-	let mut cfg = check::config::load_with_overrides(Some(&options.rules))
-		.map_err(|err| anyhow::anyhow!(err.to_string()))?;
-	if let Some(profile) = &options.profile {
-		cfg.apply_profile(profile)
-			.map_err(|err| anyhow::anyhow!(err.to_string()))?;
-	}
-	Ok(cfg)
+	RuleSetRequest::with_rules(options.rules.clone(), options.scheme.clone())
+		.with_profile(options.profile.clone())
+		.load_config()
 }
 
 fn diagnostic_from_violation(
 	violation: check::Violation,
 	symbol_by_identity: &std::collections::BTreeMap<String, SymbolId>,
 ) -> WorkspaceRuleDiagnostic {
-	let severity = match violation.severity {
-		check::config::RuleSeverity::Error => WorkspaceRuleDiagnosticSeverity::Error,
-		check::config::RuleSeverity::Warn => WorkspaceRuleDiagnosticSeverity::Warn,
-	};
 	WorkspaceRuleDiagnostic::new(
 		violation.rule_id,
-		severity,
+		violation.severity,
 		symbol_by_identity.get(&violation.moniker).cloned(),
 		violation.message,
 	)
@@ -134,11 +128,11 @@ impl WorkspaceRuleDiagnostics {
 	) -> Self {
 		let errors = diagnostics
 			.iter()
-			.filter(|diagnostic| diagnostic.severity == WorkspaceRuleDiagnosticSeverity::Error)
+			.filter(|diagnostic| diagnostic.severity.is_error())
 			.count();
 		let warnings = diagnostics
 			.iter()
-			.filter(|diagnostic| diagnostic.severity == WorkspaceRuleDiagnosticSeverity::Warn)
+			.filter(|diagnostic| diagnostic.severity.is_warn())
 			.count();
 		Self {
 			generation,
@@ -150,16 +144,10 @@ impl WorkspaceRuleDiagnostics {
 	}
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum WorkspaceRuleDiagnosticSeverity {
-	Error,
-	Warn,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkspaceRuleDiagnostic {
 	pub rule_id: String,
-	pub severity: WorkspaceRuleDiagnosticSeverity,
+	pub severity: RuleSeverity,
 	pub symbol: Option<SymbolId>,
 	pub message: String,
 }
@@ -167,7 +155,7 @@ pub struct WorkspaceRuleDiagnostic {
 impl WorkspaceRuleDiagnostic {
 	pub fn new(
 		rule_id: impl Into<String>,
-		severity: WorkspaceRuleDiagnosticSeverity,
+		severity: RuleSeverity,
 		symbol: Option<SymbolId>,
 		message: impl Into<String>,
 	) -> Self {
