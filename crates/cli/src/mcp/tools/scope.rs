@@ -4,7 +4,7 @@ use code_moniker_core::core::shape::Shape;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::glob::FilePathFilter;
+use code_moniker_workspace::glob::FilePathFilter;
 
 pub(super) const DEFAULT_LIMIT: usize = 80;
 pub(super) const MAX_LIMIT: usize = 500;

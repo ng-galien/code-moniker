@@ -1,0 +1,8 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `any(method)`: `any` requires a filter expression: `any(<domain>, <expr>)`",
+  "input": "any(method)"
+}

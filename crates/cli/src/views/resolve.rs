@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord, WorkspaceSnapshot};
 
+use code_moniker_check as check;
+
 use super::model::RenderOptions;
 use crate::DEFAULT_SCHEME;
-use crate::check;
 
 pub(crate) type SourceSlice = Option<(usize, usize)>;
 pub(crate) type CodeExcerpt = Vec<(usize, String)>;
@@ -263,21 +264,19 @@ fn compiled_rule_specs(
 	snapshot: &WorkspaceSnapshot,
 ) -> anyhow::Result<HashMap<String, RuleEvidence>> {
 	let rules_path = workspace_config_root(roots)?.join(".code-moniker.toml");
-	let config = check::load_with_cli_default_rules(Some(&rules_path), None)?;
+	let specs = check::RuleSetRequest::with_rules(rules_path, DEFAULT_SCHEME)
+		.compiled_specs_for_langs(workspace_languages(snapshot))?;
 	let mut out = HashMap::new();
-	for lang in workspace_languages(snapshot) {
-		let compiled = check::compile_rules(&config, lang, DEFAULT_SCHEME)?;
-		for spec in compiled.specs(lang) {
-			out.insert(
-				spec.rule_id.clone(),
-				RuleEvidence {
-					id: spec.rule_id,
-					severity: spec.severity.as_str().to_string(),
-					domain: spec.domain,
-					rationale: spec.rationale,
-				},
-			);
-		}
+	for spec in specs {
+		out.insert(
+			spec.rule_id.clone(),
+			RuleEvidence {
+				id: spec.rule_id,
+				severity: spec.severity.as_str().to_string(),
+				domain: spec.domain,
+				rationale: spec.rationale,
+			},
+		);
 	}
 	Ok(out)
 }

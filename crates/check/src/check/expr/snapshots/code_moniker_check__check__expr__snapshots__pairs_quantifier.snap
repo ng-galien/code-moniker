@@ -1,0 +1,36 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "domain": {
+      "domain": {
+        "kind": "field",
+        "type": "children"
+      },
+      "type": "pairs"
+    },
+    "filter": {
+      "lhs": {
+        "projection": {
+          "lhs": "kind",
+          "side": "a"
+        },
+        "type": "pair_projection"
+      },
+      "op": "eq",
+      "raw": "a.kind = b.kind",
+      "rhs": {
+        "projection": {
+          "lhs": "kind",
+          "side": "b"
+        },
+        "type": "pair_projection"
+      },
+      "type": "atom"
+    },
+    "kind": "all",
+    "type": "quantifier"
+  }
+}

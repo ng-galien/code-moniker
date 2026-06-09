@@ -983,13 +983,13 @@ mod tests {
 			"--path",
 			"crates/cli/src/mcp/**",
 			"--path",
-			"crates/cli/src/check/**",
+			"crates/check/src/check/**",
 		]);
 		assert_eq!(
 			a.path_filter,
 			vec![
 				"crates/cli/src/mcp/**".to_string(),
-				"crates/cli/src/check/**".to_string()
+				"crates/check/src/check/**".to_string()
 			]
 		);
 	}

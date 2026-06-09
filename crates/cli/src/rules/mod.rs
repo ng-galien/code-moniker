@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -5,14 +6,15 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 
 use code_moniker_core::lang::Lang;
-use code_moniker_workspace::environment;
 use serde::Serialize;
 
 use crate::args::{
 	DefaultRules, RulesArgs, RulesCommand, RulesEvalArgs, RulesFileArgs, RulesLearnArgs,
 	RulesLearnFormat, RulesShowArgs, RulesShowFormat,
 };
-use crate::{Exit, check};
+use code_moniker_check as check;
+
+use crate::Exit;
 
 pub fn run<W1: Write, W2: Write>(args: &RulesArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	let result = match &args.command {
@@ -39,12 +41,19 @@ fn load_rules(
 	default_rules: Option<DefaultRules>,
 	profile: Option<&str>,
 ) -> anyhow::Result<check::Config> {
-	let mut cfg =
-		check::load_with_cli_default_rules(rules, default_rules.map(DefaultRules::enabled))?;
-	if let Some(profile) = profile {
-		cfg.apply_profile(profile)?;
-	}
-	Ok(cfg)
+	ruleset_request(rules.map(Path::to_path_buf), default_rules, profile).load_config()
+}
+
+fn ruleset_request(
+	rules: Option<PathBuf>,
+	default_rules: Option<DefaultRules>,
+	profile: Option<&str>,
+) -> check::RuleSetRequest {
+	check::RuleSetRequest::new(rules, crate::DEFAULT_SCHEME)
+		.with_default_rules(check::DefaultRulesSelection::from_override(
+			default_rules.map(DefaultRules::enabled),
+		))
+		.with_profile(profile.map(str::to_string))
 }
 
 // Evaluate a real rules TOML fragment (a .code-moniker.toml) against one
@@ -63,33 +72,24 @@ fn eval<W: Write>(args: &RulesEvalArgs, stdout: &mut W) -> anyhow::Result<()> {
 				.join(", ")
 		)
 	})?;
-	let cfg = load_rules(
-		Some(&args.rules),
+	let rules = ruleset_request(
+		Some(args.rules.clone()),
 		args.default_rules,
 		args.profile.as_deref(),
-	)?;
-	let compiled = check::compile_rules(&cfg, lang, crate::DEFAULT_SCHEME)?;
+	);
 	let source = read_source(args.source.as_deref())?;
 	let anchor = args
 		.source
 		.clone()
 		.unwrap_or_else(|| PathBuf::from(format!("sample.{}", lang.tag())));
-	let graph = environment::extract_source_with(
-		lang,
-		&source,
-		&anchor,
-		&environment::ExtractContext::default(),
-	);
-	let raw = check::evaluate_compiled(&graph, &source, lang, crate::DEFAULT_SCHEME, &compiled);
-	let violations = check::apply_suppressions(&graph, &source, raw);
-	let rules = compiled.specs(lang);
+	let source_report = rules.check_source(&source, &anchor, lang, false)?;
 	let report = EvalReport {
 		lang: lang.tag().to_string(),
 		rules_file: args.rules.display().to_string(),
-		total_rules: rules.len(),
-		total_violations: violations.len(),
-		rules,
-		violations,
+		total_rules: source_report.rules.len(),
+		total_violations: source_report.violations.len(),
+		rules: source_report.rules,
+		violations: source_report.violations,
 	};
 	match args.format {
 		RulesShowFormat::Text => write_eval_text(stdout, &report)?,
@@ -270,34 +270,41 @@ fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {
 		.with_context(|| format!("cannot resolve project root `{}`", args.root.display()))?;
 	let path = resolve_from_root(&root, &args.rules);
 	let cfg = load_rules(Some(&path), args.default_rules, args.profile.as_deref())?;
-	let mut langs = Vec::new();
-	for lang in Lang::ALL {
-		let compiled = check::compile_rules(&cfg, *lang, crate::DEFAULT_SCHEME)?;
-		let rules = compiled.specs(*lang);
-		langs.push(ShowLang {
-			lang: lang.tag().to_string(),
-			rules,
-		});
+	let specs =
+		check::compiled_specs_with_config(&cfg, Lang::ALL.iter().copied(), crate::DEFAULT_SCHEME)?;
+	let mut rules_by_lang = BTreeMap::<String, Vec<check::CompiledRuleSpec>>::new();
+	for spec in specs {
+		rules_by_lang
+			.entry(spec.lang.clone())
+			.or_default()
+			.push(spec);
 	}
+	let langs = Lang::ALL
+		.iter()
+		.map(|lang| ShowLang {
+			lang: lang.tag().to_string(),
+			rules: rules_by_lang.remove(lang.tag()).unwrap_or_default(),
+		})
+		.collect::<Vec<_>>();
 	let total_rules = langs.iter().map(|lang| lang.rules.len()).sum();
 	let report = ShowReport {
 		rules_file: path.display().to_string(),
 		default_rules: cfg.default_rules.unwrap_or(true),
 		exclude: ShowExclude {
-			uris: cfg.exclude.uris.clone(),
+			uris: cfg.exclude.uris.to_vec(),
 		},
 		fragments: cfg
 			.fragments
 			.iter()
 			.map(|fragment| ShowFragment {
-				id: fragment.id.clone(),
+				id: fragment.id.to_owned(),
 				path: fragment.path.display().to_string(),
 				enabled: fragment.enabled,
 				declared_rules: fragment.declared_rules,
 				active_rules: fragment.active_rules,
 			})
 			.collect(),
-		profile: args.profile.clone(),
+		profile: args.profile.as_deref().map(str::to_owned),
 		total_rules,
 		langs,
 	};

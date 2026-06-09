@@ -383,6 +383,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "code-moniker-check",
  "code-moniker-core",
  "code-moniker-workspace",
  "crossterm",
@@ -404,6 +405,26 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "code-moniker-check"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "code-moniker-core",
+ "code-moniker-workspace",
+ "ignore",
+ "insta",
+ "proptest",
+ "rayon",
+ "regex",
+ "rustc-hash 2.1.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]
@@ -439,6 +460,7 @@ dependencies = [
  "ignore",
  "notify",
  "rayon",
+ "regex",
  "roaring",
  "rustc-hash 2.1.2",
  "serde",

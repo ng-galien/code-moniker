@@ -1,0 +1,27 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "domain": {
+          "type": "out_refs"
+        },
+        "expr": {
+          "name": "target.parent",
+          "type": "projection"
+        }
+      },
+      "type": "mode"
+    },
+    "op": "eq",
+    "raw": "mode(out_refs, target.parent) = source.parent",
+    "rhs": {
+      "name": "source.parent",
+      "type": "projection"
+    },
+    "type": "atom"
+  }
+}

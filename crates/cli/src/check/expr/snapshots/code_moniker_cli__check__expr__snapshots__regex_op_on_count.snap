@@ -1,8 +1,0 @@
----
-source: crates/cli/src/check/expr/snapshots.rs
-expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
----
-{
-  "error": "expression `count(method) =~ 2`: number expressions only accept numeric operators, got RegexMatch",
-  "input": "count(method) =~ 2"
-}

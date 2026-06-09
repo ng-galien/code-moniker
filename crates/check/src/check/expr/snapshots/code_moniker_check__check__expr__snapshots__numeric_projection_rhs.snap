@@ -1,0 +1,25 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "name": "lines",
+        "type": "projection"
+      },
+      "type": "number"
+    },
+    "op": "le",
+    "raw": "lines <= depth",
+    "rhs": {
+      "expr": {
+        "name": "depth",
+        "type": "projection"
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}

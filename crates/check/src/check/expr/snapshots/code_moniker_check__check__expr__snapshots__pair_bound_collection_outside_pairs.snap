@@ -1,0 +1,8 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `size(a.param.name) >= 1`: pair-bound collection projections are only valid inside `pairs(...)` filters",
+  "input": "size(a.param.name) >= 1"
+}

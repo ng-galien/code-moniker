@@ -4,8 +4,9 @@
 
 - Workspace: Rust 2024.
 - `crates/core`: model, URI, language extractors.
-- `crates/workspace`: workspace scan, graph, linkage, changes.
-- `crates/cli`: `code-moniker`, CLI, rules, formatting, TUI/MCP.
+- `crates/workspace`: workspace scan, graph, linkage, changes, glob.
+- `crates/check`: rules engine — DSL, rule config/profiles, evaluation, suppression, scan pipeline. Produces structured reports.
+- `crates/cli`: `code-moniker`, CLI, check rendering/dispatch, formatting, TUI/MCP.
 - `crates/cli/tests/`: CLI integration tests.
 - `docs/`: user and developer docs.
 - `scripts/dogfood/`: dogfood/regression tooling.
@@ -202,7 +203,7 @@ code-moniker check <target> \
 - CI gates: fmt, clippy, lib tests, `cargo moniker-check`.
 - Release workflow: `.github/workflows/release.yml`.
 - Release trigger: `v*.*.*` tag.
-- Publish order: `code-moniker-core`, then `code-moniker`.
+- Publish order: `code-moniker-core`, `code-moniker-workspace`, `code-moniker-check`, then `code-moniker`.
 - After release: bump `[workspace.package]` version on `main`.
 - Version suffix: no `-snapshot`.
 

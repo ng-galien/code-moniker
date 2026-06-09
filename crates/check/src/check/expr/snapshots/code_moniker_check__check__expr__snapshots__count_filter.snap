@@ -1,0 +1,41 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "domain": {
+          "kind": "method",
+          "type": "children"
+        },
+        "filter": {
+          "lhs": {
+            "name": "name",
+            "type": "attr"
+          },
+          "op": "regex_match",
+          "raw": "name =~ ^get",
+          "rhs": {
+            "pattern": "^get",
+            "type": "regex"
+          },
+          "type": "atom"
+        },
+        "type": "count"
+      },
+      "type": "number"
+    },
+    "op": "le",
+    "raw": "count(method, name =~ ^get) <= 5",
+    "rhs": {
+      "expr": {
+        "type": "literal",
+        "value": 5.0
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}

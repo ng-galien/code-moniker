@@ -1,0 +1,19 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "name": "shape",
+      "type": "attr"
+    },
+    "op": "eq",
+    "raw": "shape = 'callable'",
+    "rhs": {
+      "type": "string",
+      "value": "callable"
+    },
+    "type": "atom"
+  }
+}

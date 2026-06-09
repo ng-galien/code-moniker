@@ -1,8 +1,0 @@
----
-source: crates/cli/src/check/expr/snapshots.rs
-expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
----
-{
-  "error": "expression `lines = 'many'`: number expressions require numeric RHS",
-  "input": "lines = 'many'"
-}

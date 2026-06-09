@@ -1,0 +1,8 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `mode(pairs(method), name) = name`: `pairs(...)` domains are only supported by count/any/all/none, not domain value expressions",
+  "input": "mode(pairs(method), name) = name"
+}

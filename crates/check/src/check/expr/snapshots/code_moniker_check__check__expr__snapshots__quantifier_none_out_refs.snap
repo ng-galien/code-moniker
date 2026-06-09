@@ -1,0 +1,26 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "domain": {
+      "type": "out_refs"
+    },
+    "filter": {
+      "lhs": {
+        "name": "kind",
+        "type": "attr"
+      },
+      "op": "eq",
+      "raw": "kind = 'imports'",
+      "rhs": {
+        "type": "string",
+        "value": "imports"
+      },
+      "type": "atom"
+    },
+    "kind": "none",
+    "type": "quantifier"
+  }
+}

@@ -1,8 +1,0 @@
----
-source: crates/cli/src/check/expr/snapshots.rs
-expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
----
-{
-  "error": "expression `moniker ~ 'no-colon-step'`: path pattern `no-colon-step`: step `no-colon-step` is missing the `kind:name` separator",
-  "input": "moniker ~ 'no-colon-step'"
-}

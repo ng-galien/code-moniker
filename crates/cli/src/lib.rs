@@ -5,7 +5,6 @@ pub(crate) mod args;
 pub(crate) mod check;
 pub(crate) mod color;
 pub(crate) mod extract;
-pub(crate) mod glob;
 pub(crate) mod harness;
 pub(crate) mod langs;
 pub(crate) mod language_kinds;

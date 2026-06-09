@@ -1,0 +1,56 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "expr": {
+          "left": {
+            "expr": {
+              "domain": {
+                "kind": "field",
+                "type": "children"
+              },
+              "path": [
+                "in_refs",
+                "source",
+                "parent"
+              ],
+              "type": "projection"
+            },
+            "type": "unique"
+          },
+          "op": "diff",
+          "right": {
+            "expr": {
+              "domain": {
+                "kind": "method",
+                "type": "children"
+              },
+              "path": [
+                "parent"
+              ],
+              "type": "projection"
+            },
+            "type": "unique"
+          },
+          "type": "binary"
+        },
+        "type": "size"
+      },
+      "type": "number"
+    },
+    "op": "eq",
+    "raw": "size(unique(field.in_refs.source.parent) diff unique(method.parent)) = 0",
+    "rhs": {
+      "expr": {
+        "type": "literal",
+        "value": 0.0
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}
