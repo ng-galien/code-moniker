@@ -1,0 +1,36 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "expr": {
+          "expr": {
+            "domain": {
+              "type": "out_refs"
+            },
+            "path": [
+              "target"
+            ],
+            "type": "projection"
+          },
+          "type": "unique"
+        },
+        "type": "size"
+      },
+      "type": "number"
+    },
+    "op": "ge",
+    "raw": "size(unique(out_refs.target)) >= 3",
+    "rhs": {
+      "expr": {
+        "type": "literal",
+        "value": 3.0
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}

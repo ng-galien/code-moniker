@@ -1,0 +1,36 @@
+[package]
+name          = "code-moniker-check"
+version.workspace = true
+edition       = "2024"
+rust-version  = "1.86"
+license       = "MIT OR Apache-2.0"
+repository    = "https://github.com/ng-galien/code-moniker"
+homepage      = "https://github.com/ng-galien/code-moniker"
+description   = "Rules engine for code-moniker: DSL, rule config/profiles, evaluation over the symbol graph, and suppression."
+keywords      = ["linter", "rules", "ast", "code-search"]
+categories    = ["development-tools"]
+
+[lib]
+name = "code_moniker_check"
+
+[features]
+tui = []
+
+[dependencies]
+code-moniker-core = { workspace = true, features = ["serde"] }
+code-moniker-workspace = { workspace = true }
+
+serde      = { workspace = true }
+serde_json = { workspace = true }
+anyhow     = { workspace = true }
+thiserror  = { workspace = true }
+regex      = { workspace = true }
+rayon      = { workspace = true }
+rustc-hash = { workspace = true }
+ignore     = { workspace = true }
+toml       = { workspace = true }
+
+[dev-dependencies]
+insta    = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }

@@ -1,8 +1,0 @@
----
-source: crates/cli/src/check/expr/snapshots.rs
-expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
----
-{
-  "error": "expression `field.nmae subset method.name`: unknown collection projection `nmae`",
-  "input": "field.nmae subset method.name"
-}

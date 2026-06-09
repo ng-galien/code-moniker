@@ -1,0 +1,19 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "name": "target.shape",
+      "type": "attr"
+    },
+    "op": "regex_match",
+    "raw": "target.shape =~ ^(type|callable)$",
+    "rhs": {
+      "pattern": "^(type|callable)$",
+      "type": "regex"
+    },
+    "type": "atom"
+  }
+}

@@ -1,0 +1,26 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "binding": "self",
+        "kind": "lcom4",
+        "type": "metric"
+      },
+      "type": "number"
+    },
+    "op": "le",
+    "raw": "lcom4(self) <= 1",
+    "rhs": {
+      "expr": {
+        "type": "literal",
+        "value": 1.0
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}

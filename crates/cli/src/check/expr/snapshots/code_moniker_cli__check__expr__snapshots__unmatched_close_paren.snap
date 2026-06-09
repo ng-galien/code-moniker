@@ -1,8 +1,0 @@
----
-source: crates/cli/src/check/expr/snapshots.rs
-expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
----
-{
-  "error": "expression `name = 'X')`: trailing input at byte 10: `)`",
-  "input": "name = 'X')"
-}

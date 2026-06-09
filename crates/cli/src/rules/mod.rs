@@ -12,7 +12,9 @@ use crate::args::{
 	DefaultRules, RulesArgs, RulesCommand, RulesEvalArgs, RulesFileArgs, RulesLearnArgs,
 	RulesLearnFormat, RulesShowArgs, RulesShowFormat,
 };
-use crate::{Exit, check};
+use code_moniker_check as check;
+
+use crate::Exit;
 
 pub fn run<W1: Write, W2: Write>(args: &RulesArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	let result = match &args.command {

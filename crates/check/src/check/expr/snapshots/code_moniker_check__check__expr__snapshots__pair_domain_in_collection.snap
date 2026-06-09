@@ -1,0 +1,8 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `size(pairs(method)) > 0`: `pairs(...)` domains are only supported by count/any/all/none, not collection projections",
+  "input": "size(pairs(method)) > 0"
+}

@@ -1,8 +1,0 @@
----
-source: crates/cli/src/check/expr/snapshots.rs
-expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
----
-{
-  "error": "expression `name ~ 'foo'`: path pattern `foo`: step `foo` is missing the `kind:name` separator",
-  "input": "name ~ 'foo'"
-}

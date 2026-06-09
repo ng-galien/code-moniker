@@ -18,8 +18,8 @@ use code_moniker_workspace::snapshot::{
 use code_moniker_workspace::source::LocalResourceCache;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions};
 use crate::session::{CheckSummary, SessionOptions, SessionStats};
+use code_moniker_check::workspace::{WorkspaceCheckRunner, WorkspaceCheckRunnerOptions};
 
 pub(in crate::ui) use code_moniker_workspace::LocalWorkspaceRegistry;
 

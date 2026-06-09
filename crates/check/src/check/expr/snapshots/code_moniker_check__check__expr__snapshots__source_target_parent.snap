@@ -1,0 +1,19 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "name": "source.parent",
+      "type": "attr"
+    },
+    "op": "eq",
+    "raw": "source.parent = target.parent",
+    "rhs": {
+      "name": "target.parent",
+      "type": "projection"
+    },
+    "type": "atom"
+  }
+}

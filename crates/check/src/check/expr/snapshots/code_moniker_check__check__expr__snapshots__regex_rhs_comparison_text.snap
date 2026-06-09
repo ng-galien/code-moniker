@@ -1,0 +1,19 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "name": "text",
+      "type": "attr"
+    },
+    "op": "regex_match",
+    "raw": "text =~ ^count\\(.+\\) <= 20$",
+    "rhs": {
+      "pattern": "^count\\(.+\\) <= 20$",
+      "type": "regex"
+    },
+    "type": "atom"
+  }
+}

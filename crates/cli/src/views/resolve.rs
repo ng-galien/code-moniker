@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord, WorkspaceSnapshot};
 
+use code_moniker_check as check;
+
 use super::model::RenderOptions;
 use crate::DEFAULT_SCHEME;
-use crate::check;
 
 pub(crate) type SourceSlice = Option<(usize, usize)>;
 pub(crate) type CodeExcerpt = Vec<(usize, String)>;

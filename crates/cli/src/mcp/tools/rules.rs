@@ -7,8 +7,9 @@ use super::scope::{
 	Paging, append_call_bool_arg, append_call_number_arg, append_call_string_arg, string_list,
 };
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
+use code_moniker_check::{self as check, RuleSeverity};
+
 use crate::args::{CheckArgs, CheckFormat};
-use crate::check::{self, RuleSeverity};
 use crate::mcp::context::McpContext;
 use crate::{DEFAULT_SCHEME, DefaultRules, Exit};
 
@@ -315,7 +316,7 @@ fn run_rules_for_root(root: &Path, request: &RulesRequest, rules_path: &Path) ->
 	};
 	let mut stdout = Vec::new();
 	let mut stderr = Vec::new();
-	let exit = check::run(&args, &mut stdout, &mut stderr);
+	let exit = crate::check::run(&args, &mut stdout, &mut stderr);
 	RulesRunOutcome {
 		root: root.to_path_buf(),
 		exit,

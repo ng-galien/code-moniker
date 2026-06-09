@@ -1,7 +1,7 @@
 # Project-specific rules overlay. Merged on top of the embedded preset by
 # rule id (same id → replace, new id → append).
 #
-# Workspace layout: `crates/{core,cli,workspace}/src/...`. A file at
+# Workspace layout: `crates/{core,workspace,check,cli}/src/...`. A file at
 # `crates/core/src/lang/ts/walker.rs` is scanned from the workspace root
 # and encoded as
 # `dir:crates/dir:core/dir:src/dir:lang/dir:ts/module:walker`.
@@ -12,11 +12,12 @@
 # top-level names, so anchoring on `dir:crates/dir:<name>` is unambiguous.
 crate_core = "moniker ~ '**/dir:crates/dir:core/dir:src/**'"
 crate_workspace = "moniker ~ '**/dir:crates/dir:workspace/dir:src/**'"
+crate_check = "moniker ~ '**/dir:crates/dir:check/dir:src/**'"
 crate_cli  = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
 workspace_public_boundary_target = """
   target ~ '**/external_pkg:code_moniker_workspace'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:LocalWorkspaceRegistry'
-  OR target ~ '**/external_pkg:code_moniker_workspace/path:/^(cache|changes|code|environment|extract|facade|lang|lines|linkage|live|notes|registry|snapshot|source|sources|tsconfig|walk)$/**'
+  OR target ~ '**/external_pkg:code_moniker_workspace/path:/^(cache|changes|code|environment|extract|facade|glob|lang|lines|linkage|live|notes|registry|snapshot|source|sources|tsconfig|walk)$/**'
 """
 workspace_crate_target = "target ~ '**/external_pkg:code_moniker_workspace/**'"
 cli_workspace_index = "moniker ~ '**/dir:crates/dir:cli/dir:src/module:workspace_index'"
@@ -34,7 +35,7 @@ workspace_live_public_contract_target = """
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
 example           = "moniker ~ '**/dir:examples/**'"
-rust_production_source = "moniker ~ '**/dir:crates/dir:/^(cli|core|workspace)$/dir:src/**'"
+rust_production_source = "moniker ~ '**/dir:crates/dir:/^(check|cli|core|workspace)$/dir:src/**'"
 
 [exclude]
 uris = [

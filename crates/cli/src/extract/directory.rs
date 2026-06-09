@@ -6,8 +6,9 @@ use rayon::prelude::*;
 use regex::Regex;
 use serde::Serialize;
 
+use code_moniker_workspace::glob::FilePathFilter;
+
 use crate::args::{ExtractArgs, OutputFormat, OutputMode};
-use crate::glob::FilePathFilter;
 use crate::language_kinds;
 use crate::page::{PageInfo, PageSpec};
 use code_moniker_core::core::code_graph::{DefRecord, RefRecord};

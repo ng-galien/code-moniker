@@ -48,7 +48,7 @@ fn install<W: Write>(
 		.with_context(|| format!("cannot resolve project root `{}`", args.root.display()))?;
 	let rules = resolve_from_root(&root, &args.rules);
 	let scope = normalize_relative(&args.scope);
-	let cfg = crate::check::config::load_with_overrides(Some(&rules))?;
+	let cfg = code_moniker_check::load_with_overrides(Some(&rules))?;
 	if let Some(profile) = &args.profile
 		&& !cfg.profiles.contains_key(profile)
 	{

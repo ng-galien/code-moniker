@@ -3,6 +3,7 @@ resolver = "2"
 members = [
 	"crates/core",
 	"crates/workspace",
+	"crates/check",
 	"crates/cli",
 ]
 
@@ -17,6 +18,7 @@ homepage      = "https://github.com/ng-galien/code-moniker"
 [workspace.dependencies]
 code-moniker-core = { path = "crates/core", version = "0.3.0" }
 code-moniker-workspace = { path = "crates/workspace", version = "0.3.0" }
+code-moniker-check = { path = "crates/check", version = "0.3.0" }
 
 serde     = { version = "1", features = ["derive"] }
 clap      = { version = "4", features = ["derive", "env"] }

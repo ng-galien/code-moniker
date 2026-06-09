@@ -1,0 +1,8 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: "json!({ \"input\": input.trim(), \"error\": err.to_string(), })"
+---
+{
+  "error": "expression `lines =~ foo`: number expressions only accept numeric operators, got RegexMatch",
+  "input": "lines =~ foo"
+}

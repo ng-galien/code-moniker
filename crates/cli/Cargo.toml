@@ -22,12 +22,13 @@ path = "src/main.rs"
 [features]
 default = ["pretty"]
 pretty  = ["dep:anstyle"]
-tui     = ["pretty", "dep:ratatui", "dep:ratatui-textarea", "dep:crossterm"]
+tui     = ["pretty", "code-moniker-check/tui", "dep:ratatui", "dep:ratatui-textarea", "dep:crossterm"]
 mcp     = ["dep:axum", "dep:rmcp", "dep:tokio", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber"]
 
 [dependencies]
 code-moniker-core = { workspace = true, features = ["serde"] }
 code-moniker-workspace = { workspace = true }
+code-moniker-check = { workspace = true }
 
 clap      = { workspace = true }
 serde     = { workspace = true }

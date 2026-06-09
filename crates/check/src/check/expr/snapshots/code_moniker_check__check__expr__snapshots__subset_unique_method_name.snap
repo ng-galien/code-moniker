@@ -1,0 +1,40 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "domain": {
+          "kind": "method",
+          "type": "children"
+        },
+        "path": [
+          "name"
+        ],
+        "type": "projection"
+      },
+      "type": "collection"
+    },
+    "op": "subset",
+    "raw": "method.name subset unique(method.name)",
+    "rhs": {
+      "expr": {
+        "expr": {
+          "domain": {
+            "kind": "method",
+            "type": "children"
+          },
+          "path": [
+            "name"
+          ],
+          "type": "projection"
+        },
+        "type": "unique"
+      },
+      "type": "collection"
+    },
+    "type": "atom"
+  }
+}

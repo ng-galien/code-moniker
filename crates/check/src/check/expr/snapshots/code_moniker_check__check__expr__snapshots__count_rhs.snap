@@ -1,0 +1,33 @@
+---
+source: crates/check/src/check/expr/snapshots.rs
+expression: snapshot_expr(&expr)
+---
+{
+  "root": {
+    "lhs": {
+      "expr": {
+        "domain": {
+          "kind": "method",
+          "type": "children"
+        },
+        "filter": null,
+        "type": "count"
+      },
+      "type": "number"
+    },
+    "op": "le",
+    "raw": "count(method) <= count(function)",
+    "rhs": {
+      "expr": {
+        "domain": {
+          "kind": "function",
+          "type": "children"
+        },
+        "filter": null,
+        "type": "count"
+      },
+      "type": "number"
+    },
+    "type": "atom"
+  }
+}
