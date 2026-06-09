@@ -201,6 +201,24 @@ From a local checkout:
 cargo install --path crates/cli
 ```
 
+### Optional features
+
+The default build ships the core CLI (`extract`, `check`, `rules`, …) with
+colored output. The terminal UI (`code-moniker ui`) and the MCP server
+(`code-moniker mcp`) are behind optional features:
+
+- `pretty` (default) — colored output.
+- `tui` — the `ui` terminal explorer (implies `pretty`).
+- `mcp` — the `mcp` server.
+
+Append `--features tui,mcp` to any install command for the full build:
+
+```sh
+cargo install code-moniker --features tui,mcp
+cargo install --git https://github.com/ng-galien/code-moniker code-moniker --features tui,mcp
+cargo install --path crates/cli --features tui,mcp
+```
+
 ## First CLI run
 
 Inspect a file:
