@@ -169,20 +169,6 @@ export const LESSONS: LessonEntry[] = [
 	},
 ];
 
-// Sample packs embedded in the CLI (`code-moniker rules learn <name>`).
-export interface PackEntry {
-	name: string;
-	langId?: string;
-	blurb: string;
-}
-
-export const PACKS: PackEntry[] = [
-	{ name: "architecture", blurb: "Layer boundaries and dependency rules (refs)." },
-	{ name: "rust", langId: "rust", blurb: "Rust naming, visibility, and size rules." },
-	{ name: "typescript", langId: "typescript", blurb: "TypeScript naming and structure rules." },
-	{ name: "java", langId: "java", blurb: "Java naming and structure rules." },
-	{ name: "python", langId: "python", blurb: "Python naming and structure rules." },
-	{ name: "go", langId: "go", blurb: "Go naming and structure rules." },
-	{ name: "csharp", langId: "csharp", blurb: "C# naming and structure rules." },
-	{ name: "sql", langId: "sql", blurb: "SQL naming and structure rules." },
-];
+// Sample packs are served by the CLI (`code-moniker rules learn`); see
+// catalog/packs.ts. Their names, languages, and blurbs come from the scenario
+// documents in the main repository's `samples/` directory.

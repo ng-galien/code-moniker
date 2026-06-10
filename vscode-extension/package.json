@@ -22,7 +22,8 @@
 	"activationEvents": [
 		"onNotebook:code-moniker",
 		"onView:codeMoniker.ruleFiles",
-		"onView:codeMoniker.catalog"
+		"onView:codeMoniker.catalog",
+		"onNotebook:code-moniker-scenario"
 	],
 	"contributes": {
 		"notebooks": [
@@ -32,6 +33,16 @@
 				"selector": [
 					{
 						"filenamePattern": "*.cmnb"
+					}
+				]
+			},
+			{
+				"type": "code-moniker-scenario",
+				"displayName": "Code Moniker Scenario",
+				"priority": "option",
+				"selector": [
+					{
+						"filenamePattern": "*.md"
 					}
 				]
 			}
@@ -239,6 +250,12 @@
 				"command": "codeMoniker.revealRule",
 				"title": "Reveal Rule",
 				"category": "Code Moniker"
+			},
+			{
+				"command": "codeMoniker.openSampleScenario",
+				"title": "Open Sample Scenario",
+				"category": "Code Moniker",
+				"icon": "$(notebook)"
 			}
 		],
 		"menus": {

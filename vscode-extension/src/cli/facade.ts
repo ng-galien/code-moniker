@@ -87,8 +87,19 @@ export async function validateRuleFile(
 	return error ? { ok: false, error } : { ok: true };
 }
 
+export interface LearnSample {
+	name: string;
+	content: string;
+	/** TOML rule section tag of the scenario (e.g. "rust", "ts"). */
+	lang?: string;
+	blurb?: string;
+	published?: boolean;
+	/** Full scenario Markdown document. */
+	document?: string;
+}
+
 export interface LearnPackReport {
-	samples: { name: string; content: string }[];
+	samples: LearnSample[];
 }
 
 export type LearnPackResult =
@@ -98,6 +109,31 @@ export type LearnPackResult =
 export async function runLearnPack(name: string): Promise<LearnPackResult> {
 	const result = await runCli(["rules", "learn", name, "--format", "json"]);
 	return parseJson<LearnPackReport>(result);
+}
+
+export async function runLearnIndex(): Promise<LearnPackResult> {
+	const result = await runCli(["rules", "learn", "--format", "json"]);
+	return parseJson<LearnPackReport>(result);
+}
+
+export type ScenarioResult =
+	| { ok: true; output: string; matched: boolean }
+	| { ok: false; error: string };
+
+// Replays a scenario document through `check --scenario -`. Exit code 1 means
+// the expectations mismatched — still a successful run with useful output.
+export async function runScenario(document: string): Promise<ScenarioResult> {
+	const result = await runCli(["check", ".", "--scenario", "-"], document);
+	if (result.kind !== "done") {
+		return { ok: false, error: cliError(result) ?? "code-moniker did not run" };
+	}
+	if (result.code > 1) {
+		return {
+			ok: false,
+			error: result.stderr.trim() || `code-moniker exited with code ${result.code}`,
+		};
+	}
+	return { ok: true, output: result.stdout, matched: result.code === 0 };
 }
 
 // Maps any non-success CLI outcome to an error message, or undefined on success.

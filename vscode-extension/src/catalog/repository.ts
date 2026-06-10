@@ -7,22 +7,31 @@ import { lessonCells } from "../notebook/factory";
 import { parseRuleFile, RuleEntry } from "../rules/parse";
 import { sampleText } from "../notebook/samples";
 import { firstLine, workspaceLabel } from "../shared/workspace";
-import { CONCEPTS, LESSONS, PACKS } from "./data";
+import { CONCEPTS, LESSONS } from "./data";
 import { loadLessonCells } from "./lessons";
 import { CatalogDocument, CatalogEntry, CatalogRule } from "./model";
-import { loadPackContent } from "./packs";
+import { PackEntry, loadPackContent, loadPackIndex } from "./packs";
 
 const USER_CATALOG_FOLDER = ".code-moniker/catalog";
 
 export class CatalogRepository {
 	private readonly cellCache = new Map<string, CmnbCell[]>();
+	private packCache: PackEntry[] | undefined;
 
 	constructor(private readonly context: vscode.ExtensionContext) {}
 
 	async entries(): Promise<CatalogEntry[]> {
-		const builtin = builtinEntries();
+		const builtin = builtinEntries(await this.packs());
 		const user = await userEntries(await this.userCatalogFolder());
 		return [...builtin, ...user];
+	}
+
+	private async packs(): Promise<PackEntry[]> {
+		if (!this.packCache) {
+			const result = await loadPackIndex();
+			this.packCache = result.ok ? result.packs : [];
+		}
+		return this.packCache;
 	}
 
 	async findEntry(id: string): Promise<CatalogEntry | undefined> {
@@ -92,6 +101,7 @@ export class CatalogRepository {
 	}
 
 	refreshUserEntries(): void {
+		this.packCache = undefined;
 		for (const key of [...this.cellCache.keys()]) {
 			if (key.startsWith("user:")) {
 				this.cellCache.delete(key);
@@ -162,25 +172,22 @@ async function loadCells(
 		}
 		return loaded.cells;
 	}
-	const pack = PACKS.find((candidate) => `builtin:pack:${candidate.name}` === entry.id);
-	if (!pack) {
-		return [];
-	}
-	const content = await loadPackContent(pack.name);
+	const name = entry.id.replace(/^builtin:pack:/, "");
+	const content = await loadPackContent(name);
 	if (!content.ok) {
-		throw new Error(`Could not load pack "${pack.name}": ${content.error}`);
+		throw new Error(`Could not load pack "${name}": ${content.error}`);
 	}
-	const langId = pack.langId ?? "rust";
+	const langId = entry.langId ?? "rust";
 	return lessonCells(
-		`${pack.name} sample pack`,
-		`${pack.blurb}\n\nFrom \`code-moniker rules learn ${pack.name}\`.`,
+		entry.title,
+		`${entry.blurb}\n\nFrom \`code-moniker rules learn ${name}\`.`,
 		langId,
 		sampleText(langId),
 		content.content,
 	);
 }
 
-function builtinEntries(): CatalogEntry[] {
+function builtinEntries(packs: PackEntry[]): CatalogEntry[] {
 	return [
 		...LESSONS.map((entry): CatalogEntry => ({
 			id: `builtin:lesson:${entry.id}`,
@@ -204,7 +211,7 @@ function builtinEntries(): CatalogEntry[] {
 			level: "Basics",
 			tags: ["builtin", "concept", entry.id],
 		})),
-		...PACKS.map((entry): CatalogEntry => ({
+		...packs.map((entry): CatalogEntry => ({
 			id: `builtin:pack:${entry.name}`,
 			source: "builtin",
 			kind: "pack",
