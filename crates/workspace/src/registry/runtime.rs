@@ -144,7 +144,7 @@ impl<'a, Sources, Index, Linkage, Changes> WorkspaceQueries<'a, Sources, Index, 
 	}
 
 	pub fn staleness(&self) -> WorkspaceStaleness {
-		self.runtime.state.pending.staleness()
+		WorkspaceStaleness::from_plan(&self.runtime.state.pending)
 	}
 }
 
@@ -309,7 +309,7 @@ where
 	}
 
 	pub fn refresh_stale(&mut self, request: WorkspaceRequest) -> WorkspaceLivePlanTransition {
-		let plan = self.runtime.state.pending.take();
+		let plan = std::mem::take(&mut self.runtime.state.pending);
 		if plan.is_empty()
 			&& let Some(snapshot) = self.runtime.state.snapshot()
 		{
@@ -328,8 +328,7 @@ where
 		);
 		let live = run_live_plan(self.runtime, self.events, command, &plan);
 		if !plan.is_empty() && matches!(live.transition, WorkspaceTransition::Failed { .. }) {
-			let current = current_generation(self.runtime);
-			self.runtime.state.pending.coalesce(current, plan);
+			coalesce_pending(self.runtime, plan);
 		}
 		live
 	}
@@ -337,16 +336,18 @@ where
 	pub fn mark_stale(&mut self, plan: WorkspaceLiveRefreshPlan) -> WorkspaceStaleness {
 		let plan = plan.without_notes();
 		if plan.is_empty() {
-			return self.runtime.state.pending.staleness();
+			return WorkspaceStaleness::from_plan(&self.runtime.state.pending);
 		}
 		let command_id = self.allocate_command_id();
-		let current = current_generation(self.runtime);
-		let staleness = self.runtime.state.pending.coalesce(current, plan);
-		let context = WorkspaceEventContext::new(
-			WorkspaceScopeUri::workspace(),
-			current.unwrap_or_else(|| ResourceGeneration::new(0)),
-			command_id,
-		);
+		let staleness = coalesce_pending(self.runtime, plan);
+		let generation = self
+			.runtime
+			.state
+			.snapshot()
+			.map(|snapshot| snapshot.generation)
+			.unwrap_or_else(|| ResourceGeneration::new(0));
+		let context =
+			WorkspaceEventContext::new(WorkspaceScopeUri::workspace(), generation, command_id);
 		self.events
 			.publish(context.event(WorkspaceEventKind::StaleMarked));
 		staleness
@@ -398,10 +399,13 @@ where
 	}
 }
 
-fn current_generation<Sources, Index, Linkage, Changes>(
-	runtime: &WorkspaceRuntime<Sources, Index, Linkage, Changes>,
-) -> Option<ResourceGeneration> {
-	runtime.state.snapshot().map(|snapshot| snapshot.generation)
+fn coalesce_pending<Sources, Index, Linkage, Changes>(
+	runtime: &mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+	plan: WorkspaceLiveRefreshPlan,
+) -> WorkspaceStaleness {
+	let pending = std::mem::take(&mut runtime.state.pending);
+	runtime.state.pending = pending.coalesce(plan);
+	WorkspaceStaleness::from_plan(&runtime.state.pending)
 }
 
 fn publish_command_started(events: &mut WorkspaceEventLog, context: &WorkspaceEventContext) {
@@ -555,10 +559,6 @@ where
 			WorkspaceResource::CodeIndex,
 			"PublishSnapshot commands require a snapshot payload",
 		)),
-		WorkspaceCommandKind::MarkStale => Err(WorkspaceFailure::new(
-			WorkspaceResource::CodeIndex,
-			"MarkStale commands require a live refresh plan",
-		)),
 		WorkspaceCommandKind::RefreshStale => Err(WorkspaceFailure::new(
 			WorkspaceResource::CodeIndex,
 			"RefreshStale commands run through live refresh_stale",
@@ -644,7 +644,6 @@ mod tests {
 
 		assert!(staleness.is_stale());
 		assert_eq!(staleness.stale_paths, vec![source]);
-		assert!(staleness.since_generation.is_some());
 		assert!(snapshot_has_symbol(&registry, "before_stale"));
 		assert_eq!(
 			registry

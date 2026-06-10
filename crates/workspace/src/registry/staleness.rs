@@ -1,26 +1,20 @@
 use std::path::PathBuf;
 
 use crate::live::WorkspaceLiveRefreshPlan;
-use crate::snapshot::ResourceGeneration;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WorkspaceStaleness {
 	pub stale_paths: Vec<PathBuf>,
 	pub requires_rescan: bool,
 	pub git_base_stale: bool,
-	pub since_generation: Option<ResourceGeneration>,
 }
 
 impl WorkspaceStaleness {
-	pub(crate) fn from_pending(
-		pending: &WorkspaceLiveRefreshPlan,
-		since_generation: Option<ResourceGeneration>,
-	) -> Self {
+	pub fn from_plan(plan: &WorkspaceLiveRefreshPlan) -> Self {
 		Self {
-			stale_paths: pending.source_paths().to_vec(),
-			requires_rescan: pending.requires_rescan(),
-			git_base_stale: pending.includes_git_base(),
-			since_generation,
+			stale_paths: plan.source_paths().to_vec(),
+			requires_rescan: plan.requires_rescan(),
+			git_base_stale: plan.includes_git_base(),
 		}
 	}
 
@@ -29,49 +23,35 @@ impl WorkspaceStaleness {
 	}
 
 	pub fn summary(&self) -> String {
-		if self.requires_rescan {
-			return "rescan required".to_string();
-		}
-		let mut parts = Vec::new();
-		if !self.stale_paths.is_empty() {
-			parts.push(format!("{} stale path(s)", self.stale_paths.len()));
-		}
-		if self.git_base_stale {
-			parts.push("git base changed".to_string());
-		}
-		if parts.is_empty() {
-			return "fresh".to_string();
-		}
-		parts.join(", ")
+		summary_parts(
+			self.stale_paths.len(),
+			self.requires_rescan,
+			self.git_base_stale,
+		)
+	}
+
+	pub fn plan_summary(plan: &WorkspaceLiveRefreshPlan) -> String {
+		summary_parts(
+			plan.source_paths().len(),
+			plan.requires_rescan(),
+			plan.includes_git_base(),
+		)
 	}
 }
 
-#[derive(Default)]
-pub(crate) struct PendingStaleness {
-	plan: WorkspaceLiveRefreshPlan,
-	since: Option<ResourceGeneration>,
-}
-
-impl PendingStaleness {
-	pub(crate) fn coalesce(
-		&mut self,
-		current: Option<ResourceGeneration>,
-		plan: WorkspaceLiveRefreshPlan,
-	) -> WorkspaceStaleness {
-		if self.plan.is_empty() {
-			self.since = current;
-		}
-		let pending = std::mem::take(&mut self.plan);
-		self.plan = pending.coalesce(plan);
-		self.staleness()
+fn summary_parts(stale_paths: usize, requires_rescan: bool, git_base_stale: bool) -> String {
+	if requires_rescan {
+		return "rescan required".to_string();
 	}
-
-	pub(crate) fn take(&mut self) -> WorkspaceLiveRefreshPlan {
-		self.since = None;
-		std::mem::take(&mut self.plan)
+	let mut parts = Vec::new();
+	if stale_paths > 0 {
+		parts.push(format!("{stale_paths} stale path(s)"));
 	}
-
-	pub(crate) fn staleness(&self) -> WorkspaceStaleness {
-		WorkspaceStaleness::from_pending(&self.plan, self.since)
+	if git_base_stale {
+		parts.push("git base changed".to_string());
 	}
+	if parts.is_empty() {
+		return "fresh".to_string();
+	}
+	parts.join(", ")
 }

@@ -10,7 +10,9 @@ use code_moniker_workspace::snapshot::{WorkspaceRequest, WorkspaceTransition};
 use tracing::{error, info, warn};
 
 use crate::args::{LiveRefresh, McpArgs};
-use crate::live_control::{LiveControlHandle, LiveControlMessage, LiveRefreshOutcome};
+use crate::live_control::{
+	LiveControlHandle, LiveControlMessage, LiveRefreshOutcome, LiveRefreshResult,
+};
 use crate::mcp::McpContext;
 use crate::session::SessionOptions;
 use crate::workspace_index::SharedWorkspaceIndex;
@@ -250,7 +252,7 @@ fn mark_live_plan_stale(
 fn handle_refresh_request(
 	index: &SharedWorkspaceIndex,
 	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
-	reply: mpsc::Sender<LiveRefreshOutcome>,
+	reply: mpsc::Sender<LiveRefreshResult>,
 ) -> bool {
 	let started = Instant::now();
 	let live = registry
@@ -260,35 +262,30 @@ fn handle_refresh_request(
 	let outcome = match live.transition() {
 		WorkspaceTransition::Ready { generation } => {
 			let snapshot = registry.queries().snapshot_arc();
-			if let Some(snapshot) = &snapshot {
-				log_snapshot_ready("refresh-stale", started.elapsed(), snapshot);
-			}
 			index.publish(snapshot.clone());
 			index.publish_staleness(registry.queries().staleness());
-			LiveRefreshOutcome {
+			let (files, symbols, references) = snapshot
+				.as_ref()
+				.map(|snapshot| {
+					log_snapshot_ready("refresh-stale", started.elapsed(), snapshot);
+					(
+						snapshot.index.sources.len(),
+						snapshot.index.symbols.len(),
+						snapshot.index.references.len(),
+					)
+				})
+				.unwrap_or_default();
+			Ok(LiveRefreshOutcome {
 				generation: generation.value(),
-				files: snapshot
-					.as_ref()
-					.map(|snapshot| snapshot.index.sources.len())
-					.unwrap_or(0),
-				symbols: snapshot
-					.as_ref()
-					.map(|snapshot| snapshot.index.symbols.len())
-					.unwrap_or(0),
-				references: snapshot
-					.as_ref()
-					.map(|snapshot| snapshot.index.references.len())
-					.unwrap_or(0),
-				error: None,
-			}
+				files,
+				symbols,
+				references,
+			})
 		}
 		WorkspaceTransition::Failed { failure, .. } => {
 			warn!(event = "workspace_refresh_failed", error = %failure.message, "workspace refresh failed");
 			index.publish_staleness(registry.queries().staleness());
-			LiveRefreshOutcome {
-				error: Some(failure.message),
-				..LiveRefreshOutcome::default()
-			}
+			Err(failure.message)
 		}
 	};
 	let _ = reply.send(outcome);

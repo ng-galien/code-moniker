@@ -42,7 +42,6 @@ pub enum WorkspaceCommandKind {
 	RefreshChanges,
 	RefreshLivePlan,
 	Refresh,
-	MarkStale,
 	RefreshStale,
 }
 

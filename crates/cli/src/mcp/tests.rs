@@ -230,7 +230,6 @@ fn stale_workspace_gates_tools_with_refresh_hint() {
 		stale_paths: vec![temp.path().join("App.java")],
 		requires_rescan: false,
 		git_base_stale: false,
-		since_generation: None,
 	});
 
 	let error = registry
@@ -249,20 +248,18 @@ fn refresh_tool_requests_live_refresh_and_reports_generation() {
 		stale_paths: vec![PathBuf::from("lib.rs")],
 		requires_rescan: false,
 		git_base_stale: false,
-		since_generation: None,
 	});
 	let live_index = context.index().clone();
 	let responder = thread::spawn(move || match rx.recv().expect("refresh request") {
 		LiveControlMessage::Refresh(reply) => {
 			live_index.publish_staleness(WorkspaceStaleness::default());
 			reply
-				.send(LiveRefreshOutcome {
+				.send(Ok(LiveRefreshOutcome {
 					generation: 7,
 					files: 1,
 					symbols: 2,
 					references: 3,
-					error: None,
-				})
+				}))
 				.expect("reply");
 		}
 		LiveControlMessage::Event(_) => panic!("unexpected live event"),

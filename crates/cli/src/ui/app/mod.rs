@@ -284,7 +284,7 @@ pub(in crate::ui) fn pending_live_plan_summary(app: &App) -> Option<String> {
 	app.runtime
 		.pending_live_plan
 		.as_ref()
-		.map(workspace_refresh::live_plan_summary)
+		.map(code_moniker_workspace::registry::WorkspaceStaleness::plan_summary)
 }
 
 pub(in crate::ui) fn new_app(

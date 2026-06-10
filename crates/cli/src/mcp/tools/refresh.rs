@@ -45,11 +45,8 @@ impl McpTool for RefreshTool {
 		let outcome = live
 			.request_refresh(REFRESH_TIMEOUT)
 			.map_err(ToolError::failed)?;
-		if let Some(error) = outcome.error {
-			return Err(ToolError::failed(error));
-		}
 		let text = format!(
-			"uri: workspace\ncompleteness: complete\n\nrefreshed: generation {}\nfiles {} defs {} refs {}\nstale: {}\n",
+			"uri: workspace\ncompleteness: full\n\nrefreshed: generation {}\nfiles {} defs {} refs {}\nstale: {}\n",
 			outcome.generation,
 			outcome.files,
 			outcome.symbols,

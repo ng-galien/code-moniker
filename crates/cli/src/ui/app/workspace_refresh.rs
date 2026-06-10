@@ -51,17 +51,13 @@ fn mark_workspace_stale(app: &mut App, plan: WorkspaceLiveRefreshPlan) {
 	if plan.includes_notes() {
 		refresh_workspace_notes(app);
 	}
-	let plan = plan.without_notes();
-	if plan.is_empty() {
-		return;
-	}
 	let pending = app
 		.runtime
 		.pending_live_plan
 		.take()
 		.unwrap_or_default()
-		.coalesce(plan);
-	let summary = live_plan_summary(&pending);
+		.coalesce(plan.without_notes());
+	let summary = WorkspaceStaleness::plan_summary(&pending);
 	app.runtime.pending_live_plan = Some(pending);
 	crate::ui::app::set_status(app, format!("workspace stale ({summary}) — R refreshes"));
 }
@@ -74,16 +70,6 @@ pub(in crate::ui) fn refresh_workspace_on_demand(app: &mut App) {
 	if !queue_workspace_live_plan(app, plan.clone()) {
 		app.runtime.pending_live_plan = Some(plan);
 	}
-}
-
-pub(in crate::ui) fn live_plan_summary(plan: &WorkspaceLiveRefreshPlan) -> String {
-	WorkspaceStaleness {
-		stale_paths: plan.source_paths().to_vec(),
-		requires_rescan: plan.requires_rescan(),
-		git_base_stale: plan.includes_git_base(),
-		since_generation: None,
-	}
-	.summary()
 }
 
 fn refresh_workspace_notes(app: &mut App) {

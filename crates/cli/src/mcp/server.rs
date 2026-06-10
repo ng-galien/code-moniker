@@ -74,21 +74,7 @@ impl ServerHandler for CodeMonikerMcp {
 		request: CallToolRequestParams,
 		_context: RequestContext<RoleServer>,
 	) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
-		let started = Instant::now();
-		let name = request.name.to_string();
-		let arguments = Value::Object(request.arguments.unwrap_or_default());
-		tracing::info!(event = "tool_call_started", tool = %name, "mcp tool call started");
-		let result = self.registry.call(&self.context, &name, &arguments);
-		let status = tool_result_status(&result);
-		let response = call_result(&name, &arguments, result);
-		tracing::info!(
-			event = "tool_call_finished",
-			tool = %name,
-			status,
-			elapsed_ms = started.elapsed().as_millis(),
-			"mcp tool call finished"
-		);
-		std::future::ready(Ok(response))
+		dispatch_tool_call(self.registry.clone(), self.context.clone(), request)
 	}
 
 	fn get_tool(&self, name: &str) -> Option<Tool> {
@@ -97,6 +83,33 @@ impl ServerHandler for CodeMonikerMcp {
 			.into_iter()
 			.find(|tool| tool.name == name)
 	}
+}
+
+async fn dispatch_tool_call(
+	registry: Arc<ToolRegistry>,
+	context: McpContext,
+	request: CallToolRequestParams,
+) -> Result<CallToolResult, McpError> {
+	let started = Instant::now();
+	let name = request.name.to_string();
+	let arguments = Value::Object(request.arguments.unwrap_or_default());
+	tracing::info!(event = "tool_call_started", tool = %name, "mcp tool call started");
+	let (name, arguments, result) = tokio::task::spawn_blocking(move || {
+		let result = registry.call(&context, &name, &arguments);
+		(name, arguments, result)
+	})
+	.await
+	.map_err(|join_error| McpError::internal_error(join_error.to_string(), None))?;
+	let status = tool_result_status(&result);
+	let response = call_result(&name, &arguments, result);
+	tracing::info!(
+		event = "tool_call_finished",
+		tool = %name,
+		status,
+		elapsed_ms = started.elapsed().as_millis(),
+		"mcp tool call finished"
+	);
+	Ok(response)
 }
 
 fn tool_result_status(result: &Result<ToolResult, super::tools::ToolError>) -> &'static str {

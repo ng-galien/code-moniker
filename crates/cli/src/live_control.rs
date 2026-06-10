@@ -3,18 +3,19 @@ use std::time::Duration;
 
 use code_moniker_workspace::live::WorkspaceLiveEvent;
 
+pub(crate) type LiveRefreshResult = Result<LiveRefreshOutcome, String>;
+
 pub(crate) enum LiveControlMessage {
 	Event(WorkspaceLiveEvent),
-	Refresh(mpsc::Sender<LiveRefreshOutcome>),
+	Refresh(mpsc::Sender<LiveRefreshResult>),
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct LiveRefreshOutcome {
 	pub(crate) generation: u64,
 	pub(crate) files: usize,
 	pub(crate) symbols: usize,
 	pub(crate) references: usize,
-	pub(crate) error: Option<String>,
 }
 
 #[derive(Clone)]
@@ -34,6 +35,7 @@ impl LiveControlHandle {
 			.map_err(|_| anyhow::anyhow!("workspace live loop is not running"))?;
 		reply_rx
 			.recv_timeout(timeout)
-			.map_err(|_| anyhow::anyhow!("workspace refresh timed out after {timeout:?}"))
+			.map_err(|_| anyhow::anyhow!("workspace refresh timed out after {timeout:?}"))?
+			.map_err(|message| anyhow::anyhow!(message))
 	}
 }
