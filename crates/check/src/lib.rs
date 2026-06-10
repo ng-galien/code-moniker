@@ -4,6 +4,7 @@
 //! does not render output or own process exit codes — that is the CLI's job.
 
 mod check;
+pub mod scenario;
 
 pub use check::command::{
 	CheckRequest, CheckRun, CheckSkipReason, CheckSummary, DefaultRulesSelection,

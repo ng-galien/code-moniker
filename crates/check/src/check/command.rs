@@ -278,6 +278,31 @@ impl CheckRun {
 	pub fn failed_rule_summary(&self) -> Vec<FailedRuleSummary> {
 		failed_rule_summary(&self.reports)
 	}
+
+	pub fn file_violations(&self) -> impl Iterator<Item = (&Path, &check::eval::Violation)> {
+		self.reports.iter().flat_map(|report| {
+			report
+				.violations
+				.iter()
+				.map(move |violation| (report.path.as_path(), violation))
+		})
+	}
+
+	pub fn error_summaries(&self) -> impl Iterator<Item = (&Path, &str)> {
+		self.errors
+			.iter()
+			.map(|error| (error.path.as_path(), error.error.as_str()))
+	}
+
+	pub fn rule_violation_totals(&self) -> std::collections::BTreeMap<&str, usize> {
+		let mut totals = std::collections::BTreeMap::new();
+		for report in &self.reports {
+			for rule in &report.rule_reports {
+				*totals.entry(rule.rule_id.as_str()).or_insert(0usize) += rule.violations;
+			}
+		}
+		totals
+	}
 }
 
 /// Serializable aggregate counters for renderers and machine consumers.
