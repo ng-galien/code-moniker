@@ -57,9 +57,15 @@ fn check_sample(path: &Path) {
 	);
 	assert!(
 		run.silent_rules.is_empty(),
-		"{}: rules never fired: {}",
+		"{}: rules never fired (demonstrate them or add a `! <rule-id> <reason>` line): {}",
 		path.display(),
 		run.silent_rules.join(", ")
+	);
+	assert!(
+		run.stale_undemonstrated.is_empty(),
+		"{}: rules marked undemonstrated actually fire: {}",
+		path.display(),
+		run.stale_undemonstrated.join(", ")
 	);
 	assert!(
 		!run.actual.is_empty(),

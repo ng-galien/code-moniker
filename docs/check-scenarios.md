@@ -78,6 +78,17 @@ fence line is not part of the file). Blank lines and `#` comments are allowed.
 The comparison is an exact multiset: every expected violation must be observed
 and every observed violation must be expected.
 
+A rule that cannot be demonstrated in a small layout is excused explicitly,
+with a reason:
+
+```
+! <rule-id> <reason>
+```
+
+The contract harness rejects silent rules that are not excused, and excused
+rules that actually fire (a stale or misspelled marker). Bless preserves the
+directives.
+
 ## Running
 
 ```sh

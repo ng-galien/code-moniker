@@ -14,18 +14,21 @@ pub struct ScenarioRun {
 	pub unexpected: Vec<ExpectedViolation>,
 	pub errors: Vec<String>,
 	pub silent_rules: Vec<String>,
+	pub stale_undemonstrated: Vec<String>,
 }
 
 impl ScenarioRun {
-	fn from_check(run: &CheckRun, root: &Path, expects: &[ExpectedViolation]) -> Self {
+	fn from_check(run: &CheckRun, root: &Path, scenario: &Scenario) -> Self {
 		let actual = collect_actual(run, root);
-		let (missing, unexpected) = diff_expectations(expects, &actual);
+		let (missing, unexpected) = diff_expectations(&scenario.expects, &actual);
+		let (silent_rules, stale_undemonstrated) = coverage(run, scenario);
 		Self {
 			actual,
 			missing,
 			unexpected,
 			errors: collect_errors(run, root),
-			silent_rules: collect_silent_rules(run),
+			silent_rules,
+			stale_undemonstrated,
 		}
 	}
 
@@ -65,7 +68,7 @@ impl Scenario {
 
 	pub fn run(&self, root: &Path, scheme: &str) -> anyhow::Result<ScenarioRun> {
 		let run = self.check_request(root, scheme).run()?;
-		Ok(ScenarioRun::from_check(&run, root, &self.expects))
+		Ok(ScenarioRun::from_check(&run, root, self))
 	}
 
 	fn check_request(&self, root: &Path, scheme: &str) -> CheckRequest {
@@ -79,11 +82,13 @@ impl Scenario {
 	}
 
 	pub fn bless(&self, document: &str, actual: &[ExpectedViolation]) -> String {
-		let mut body = actual
+		let mut entries: Vec<String> = self
+			.undemonstrated
 			.iter()
-			.map(ToString::to_string)
-			.collect::<Vec<_>>()
-			.join("\n");
+			.map(|rule| format!("! {} {}", rule.rule_id, rule.reason))
+			.collect();
+		entries.extend(actual.iter().map(ToString::to_string));
+		let mut body = entries.join("\n");
 		if !body.is_empty() {
 			body.push('\n');
 		}
@@ -114,6 +119,25 @@ fn collect_errors(run: &CheckRun, root: &Path) -> Vec<String> {
 	run.error_summaries()
 		.map(|(path, error)| format!("{}: {error}", relative_display(path, root)))
 		.collect()
+}
+
+fn coverage(run: &CheckRun, scenario: &Scenario) -> (Vec<String>, Vec<String>) {
+	let excused: Vec<&str> = scenario
+		.undemonstrated
+		.iter()
+		.map(|rule| rule.rule_id.as_str())
+		.collect();
+	let silent = collect_silent_rules(run);
+	let stale = excused
+		.iter()
+		.filter(|rule_id| !silent.iter().any(|silent| silent == *rule_id))
+		.map(ToString::to_string)
+		.collect();
+	let silent = silent
+		.into_iter()
+		.filter(|rule_id| !excused.contains(&rule_id.as_str()))
+		.collect();
+	(silent, stale)
 }
 
 fn collect_silent_rules(run: &CheckRun) -> Vec<String> {

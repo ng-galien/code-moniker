@@ -29,11 +29,18 @@ pub struct ScenarioFile {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UndemonstratedRule {
+	pub rule_id: String,
+	pub reason: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Scenario {
 	pub meta: ScenarioMeta,
 	pub rules: Option<String>,
 	pub files: Vec<ScenarioFile>,
 	pub expects: Vec<ExpectedViolation>,
+	pub undemonstrated: Vec<UndemonstratedRule>,
 	pub(crate) expect_span: Option<(usize, usize)>,
 }
 

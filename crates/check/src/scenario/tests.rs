@@ -143,6 +143,34 @@ fn longer_fences_escape_embedded_backticks() {
 }
 
 #[test]
+fn undemonstrated_directives_excuse_silent_rules_and_flag_stale_markers() {
+	let document = DOCUMENT.replace(
+		"```cm:expect\n",
+		"```cm:expect\n! rust.fn.never-fires not expressible in a small layout\n! rust.fn.snake-case stale excuse\n",
+	);
+	let document = document.replace(
+		"expr = \"name =~ ^[a-z][a-z0-9_]*$\"\n```",
+		"expr = \"name =~ ^[a-z][a-z0-9_]*$\"\n\n[[rust.fn.where]]\nid   = \"never-fires\"\nexpr = \"name =~ .\"\n```",
+	);
+	assert!(document.contains("never-fires"), "fixture edit must apply");
+	let scenario = Scenario::parse(&document).expect("parse scenario");
+	assert_eq!(scenario.undemonstrated.len(), 2);
+	let temp = tempfile::tempdir().expect("tempdir");
+	scenario.materialize(temp.path()).expect("materialize");
+	let run = scenario
+		.run(temp.path(), "code+moniker://")
+		.expect("run scenario");
+	assert!(run.is_match(), "{}", run.mismatch_summary());
+	assert!(run.silent_rules.is_empty(), "{:?}", run.silent_rules);
+	assert_eq!(run.stale_undemonstrated, vec!["rust.fn.snake-case"]);
+
+	let blessed = scenario.bless(&document, &run.actual);
+	assert!(blessed.contains("! rust.fn.never-fires not expressible"));
+	assert!(blessed.contains("! rust.fn.snake-case stale excuse"));
+	Scenario::parse(&blessed).expect("blessed document still parses");
+}
+
+#[test]
 fn unknown_front_matter_keys_and_bad_expects_fail_with_line_numbers() {
 	let bad_meta = "---\nnom: x\n---\n";
 	let error = Scenario::parse(bad_meta).expect_err("unknown key");

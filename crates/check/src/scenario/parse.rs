@@ -1,5 +1,5 @@
 use super::expect::ExpectedViolation;
-use super::{Scenario, ScenarioFile, ScenarioMeta};
+use super::{Scenario, ScenarioFile, ScenarioMeta, UndemonstratedRule};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScenarioError {
@@ -35,6 +35,7 @@ pub(super) fn parse_document(document: &str) -> Result<Scenario, ScenarioError> 
 		rules: None,
 		files: Vec::new(),
 		expects: Vec::new(),
+		undemonstrated: Vec::new(),
 		expect_span: None,
 	};
 	let mut cursor = parse_front_matter(&lines, &mut scenario.meta)?;
@@ -74,7 +75,7 @@ fn collect_block(
 				return Err(block_error(opening, "duplicate cm:expect block"));
 			}
 			scenario.expect_span = Some(span);
-			scenario.expects = parse_expect_block(content, opening.no)?;
+			(scenario.expects, scenario.undemonstrated) = parse_expect_block(content, opening.no)?;
 		}
 		Block::File(path) => {
 			validate_relative_path(path, opening.no)?;
@@ -201,21 +202,45 @@ fn classify_info_string(text: &str) -> Block<'_> {
 fn parse_expect_block(
 	content: &str,
 	opening_line: usize,
-) -> Result<Vec<ExpectedViolation>, ScenarioError> {
+) -> Result<(Vec<ExpectedViolation>, Vec<UndemonstratedRule>), ScenarioError> {
 	let mut expects = Vec::new();
+	let mut undemonstrated = Vec::new();
 	for (offset, line) in content.lines().enumerate() {
 		let text = line.trim();
 		if text.is_empty() || text.starts_with('#') {
 			continue;
 		}
+		let line_no = opening_line + offset + 1;
+		if let Some(directive) = text.strip_prefix('!') {
+			undemonstrated.push(parse_undemonstrated(directive, line_no)?);
+			continue;
+		}
 		let expected = ExpectedViolation::parse(text).map_err(|message| ScenarioError {
-			line: opening_line + offset + 1,
+			line: line_no,
 			message,
 		})?;
 		expects.push(expected);
 	}
 	expects.sort();
-	Ok(expects)
+	undemonstrated.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+	Ok((expects, undemonstrated))
+}
+
+fn parse_undemonstrated(directive: &str, line: usize) -> Result<UndemonstratedRule, ScenarioError> {
+	let (rule_id, reason) = directive
+		.trim()
+		.split_once(char::is_whitespace)
+		.unwrap_or((directive.trim(), ""));
+	if rule_id.is_empty() || reason.trim().is_empty() {
+		return Err(ScenarioError {
+			line,
+			message: "expected `! <rule-id> <reason>` for an undemonstrated rule".to_string(),
+		});
+	}
+	Ok(UndemonstratedRule {
+		rule_id: rule_id.to_string(),
+		reason: reason.trim().to_string(),
+	})
 }
 
 fn validate_relative_path(path: &str, line: usize) -> Result<(), ScenarioError> {
