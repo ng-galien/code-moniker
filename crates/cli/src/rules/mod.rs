@@ -147,54 +147,79 @@ fn write_eval_text<W: Write>(w: &mut W, report: &EvalReport) -> std::io::Result<
 	Ok(())
 }
 
-const LEARN_SAMPLES: &[LearnSample] = &[
-	LearnSample {
-		name: "architecture",
-		path: "docs/cli/check-samples/architecture.toml",
-		content: include_str!("../../../../docs/cli/check-samples/architecture.toml"),
-	},
-	LearnSample {
-		name: "csharp",
-		path: "docs/cli/check-samples/csharp.toml",
-		content: include_str!("../../../../docs/cli/check-samples/csharp.toml"),
-	},
-	LearnSample {
-		name: "go",
-		path: "docs/cli/check-samples/go.toml",
-		content: include_str!("../../../../docs/cli/check-samples/go.toml"),
-	},
-	LearnSample {
-		name: "java",
-		path: "docs/cli/check-samples/java.toml",
-		content: include_str!("../../../../docs/cli/check-samples/java.toml"),
-	},
-	LearnSample {
-		name: "python",
-		path: "docs/cli/check-samples/python.toml",
-		content: include_str!("../../../../docs/cli/check-samples/python.toml"),
-	},
-	LearnSample {
-		name: "rust",
-		path: "docs/cli/check-samples/rust.toml",
-		content: include_str!("../../../../docs/cli/check-samples/rust.toml"),
-	},
-	LearnSample {
-		name: "sql",
-		path: "docs/cli/check-samples/sql.toml",
-		content: include_str!("../../../../docs/cli/check-samples/sql.toml"),
-	},
-	LearnSample {
-		name: "typescript",
-		path: "docs/cli/check-samples/typescript.toml",
-		content: include_str!("../../../../docs/cli/check-samples/typescript.toml"),
-	},
+const LEARN_SAMPLE_DOCUMENTS: &[(&str, &str)] = &[
+	(
+		"architecture",
+		include_str!("../../../../samples/architecture.md"),
+	),
+	(
+		"clean-architecture",
+		include_str!("../../../../samples/clean-architecture.md"),
+	),
+	("csharp", include_str!("../../../../samples/csharp.md")),
+	(
+		"fowler-eaa",
+		include_str!("../../../../samples/fowler-eaa.md"),
+	),
+	(
+		"fowler-refactoring",
+		include_str!("../../../../samples/fowler-refactoring.md"),
+	),
+	("go", include_str!("../../../../samples/go.md")),
+	("java", include_str!("../../../../samples/java.md")),
+	(
+		"java-layer-boundaries",
+		include_str!("../../../../samples/java-layer-boundaries.md"),
+	),
+	("python", include_str!("../../../../samples/python.md")),
+	("rust", include_str!("../../../../samples/rust.md")),
+	(
+		"rust-naming",
+		include_str!("../../../../samples/rust-naming.md"),
+	),
+	("sql", include_str!("../../../../samples/sql.md")),
+	(
+		"test-guardrails",
+		include_str!("../../../../samples/test-guardrails.md"),
+	),
+	(
+		"typescript",
+		include_str!("../../../../samples/typescript.md"),
+	),
 ];
 
 #[derive(Serialize)]
 struct LearnSample {
-	name: &'static str,
-	path: &'static str,
-	content: &'static str,
+	name: String,
+	lang: String,
+	blurb: String,
+	published: bool,
+	path: String,
+	content: String,
+	document: String,
+}
+
+fn learn_samples() -> &'static [LearnSample] {
+	static SAMPLES: std::sync::OnceLock<Vec<LearnSample>> = std::sync::OnceLock::new();
+	SAMPLES.get_or_init(|| {
+		LEARN_SAMPLE_DOCUMENTS
+			.iter()
+			.filter_map(|(name, document)| learn_sample(name, document))
+			.collect()
+	})
+}
+
+fn learn_sample(name: &str, document: &str) -> Option<LearnSample> {
+	let scenario = check::scenario::Scenario::parse(document).ok()?;
+	Some(LearnSample {
+		name: name.to_string(),
+		lang: scenario.meta.lang,
+		blurb: scenario.meta.blurb,
+		published: scenario.meta.published,
+		path: format!("samples/{name}.md"),
+		content: scenario.rules.unwrap_or_default(),
+		document: document.to_string(),
+	})
 }
 
 #[derive(Serialize)]
@@ -216,26 +241,33 @@ fn learn<W: Write>(args: &RulesLearnArgs, stdout: &mut W) -> anyhow::Result<()> 
 
 fn selected_learn_samples(sample: Option<&str>) -> anyhow::Result<Vec<&'static LearnSample>> {
 	let Some(sample) = sample else {
-		return Ok(LEARN_SAMPLES.iter().collect());
+		return Ok(learn_samples()
+			.iter()
+			.filter(|sample| sample.published)
+			.collect());
 	};
 	let normalized = sample
 		.strip_suffix(".toml")
+		.or_else(|| sample.strip_suffix(".md"))
 		.unwrap_or(sample)
 		.to_ascii_lowercase();
-	LEARN_SAMPLES
+	learn_samples()
 		.iter()
 		.find(|candidate| candidate.name == normalized)
 		.map(|sample| vec![sample])
 		.with_context(|| {
 			format!(
 				"unknown rules sample `{sample}` (known: {})",
-				LEARN_SAMPLES
-					.iter()
-					.map(|sample| sample.name)
-					.collect::<Vec<_>>()
-					.join(", ")
+				learn_sample_names().join(", ")
 			)
 		})
+}
+
+fn learn_sample_names() -> Vec<&'static str> {
+	learn_samples()
+		.iter()
+		.map(|sample| sample.name.as_str())
+		.collect()
 }
 
 fn write_learn_text<W: Write>(w: &mut W, samples: &[&'static LearnSample]) -> std::io::Result<()> {
@@ -245,13 +277,9 @@ fn write_learn_text<W: Write>(w: &mut W, samples: &[&'static LearnSample]) -> st
 	)?;
 	writeln!(
 		w,
-		"# Samples: {}",
-		LEARN_SAMPLES
-			.iter()
-			.map(|sample| sample.name)
-			.collect::<Vec<_>>()
-			.join(", ")
+		"# Each sample is an executable scenario document under samples/ (see docs/check-scenarios.md)."
 	)?;
+	writeln!(w, "# Samples: {}", learn_sample_names().join(", "))?;
 	for sample in samples {
 		writeln!(w)?;
 		writeln!(w, "# --- {} ({}) ---", sample.name, sample.path)?;
@@ -636,6 +664,7 @@ mod tests {
 	use clap::Parser;
 	use tempfile::tempdir;
 
+	use super::{LEARN_SAMPLE_DOCUMENTS, learn_sample_names, learn_samples};
 	use crate::args::Cli;
 	use crate::{Exit, run};
 
@@ -761,10 +790,39 @@ mod tests {
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let out = String::from_utf8(stdout).unwrap();
-		assert!(out.contains("# --- java (docs/cli/check-samples/java.toml) ---"));
+		assert!(out.contains("# --- java (samples/java.md) ---"), "{out}");
 		assert!(out.contains("[aliases]"), "{out}");
 		assert!(out.contains("[[java.class.where]]"), "{out}");
 		assert!(!out.contains("# --- typescript"), "{out}");
+	}
+
+	#[test]
+	fn rules_learn_embeds_every_sample_document() {
+		let samples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
+		let mut on_disk: Vec<String> = std::fs::read_dir(samples_dir)
+			.expect("samples directory")
+			.filter_map(|entry| {
+				let path = entry.expect("samples entry").path();
+				let name = path.file_stem()?.to_str()?.to_string();
+				(path.extension()? == "md" && name != "README").then_some(name)
+			})
+			.collect();
+		on_disk.sort();
+		assert_eq!(
+			learn_sample_names(),
+			on_disk.iter().map(String::as_str).collect::<Vec<_>>(),
+			"embedded learn samples must match samples/*.md"
+		);
+		assert_eq!(
+			learn_samples().len(),
+			LEARN_SAMPLE_DOCUMENTS.len(),
+			"every embedded sample document must parse as a scenario"
+		);
+		for sample in learn_samples() {
+			assert!(!sample.lang.is_empty(), "{}: missing lang", sample.name);
+			assert!(!sample.blurb.is_empty(), "{}: missing blurb", sample.name);
+			assert!(!sample.content.is_empty(), "{}: empty rules", sample.name);
+		}
 	}
 
 	#[test]
@@ -785,12 +843,22 @@ mod tests {
 		let samples = out["samples"].as_array().unwrap();
 		assert_eq!(samples.len(), 1);
 		assert_eq!(samples[0]["name"], "rust");
-		assert_eq!(samples[0]["path"], "docs/cli/check-samples/rust.toml");
+		assert_eq!(samples[0]["path"], "samples/rust.md");
+		assert_eq!(samples[0]["published"], true);
+		assert!(!samples[0]["lang"].as_str().unwrap().is_empty(), "{out:#}");
+		assert!(!samples[0]["blurb"].as_str().unwrap().is_empty(), "{out:#}");
 		assert!(
 			samples[0]["content"]
 				.as_str()
 				.unwrap()
 				.contains("[[rust.fn.where]]"),
+			"{out:#}"
+		);
+		assert!(
+			samples[0]["document"]
+				.as_str()
+				.unwrap()
+				.contains("cm:rules"),
 			"{out:#}"
 		);
 	}

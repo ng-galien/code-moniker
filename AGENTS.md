@@ -161,7 +161,7 @@ code-moniker check <target> \
 ## Rules Knowledge
 
 - Structural finding: prefer DSL rule.
-- Reusable example: `docs/cli/check-samples/`.
+- Reusable example: executable scenario in `samples/` (`docs/check-scenarios.md`).
 - Missing DSL/operator: `evolutions/`.
 - Behavior preservation: focused test.
 - Broad check output: always pass `--max-violations <N>`.

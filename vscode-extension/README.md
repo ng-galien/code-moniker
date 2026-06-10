@@ -129,7 +129,7 @@ lines highlighted, and diagnostics directly on the code cell.
 
 For the full DSL reference see [`docs/cli/check-dsl.md`](../docs/cli/check-dsl.md),
 and copy real-world rule sets from
-[`docs/cli/check-samples/`](../docs/cli/check-samples/).
+[`samples/`](../samples/).
 
 ## Commands
 

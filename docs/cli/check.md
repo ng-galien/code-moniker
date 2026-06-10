@@ -524,15 +524,15 @@ samples:
 
 | Language | Sample |
 | -------- | ------ |
-| Architecture patterns | [architecture.toml](check-samples/architecture.toml) |
-| Test guardrails | [test-guardrails.toml](check-samples/test-guardrails.toml) |
-| TypeScript / JavaScript | [typescript.toml](check-samples/typescript.toml) |
-| Rust | [rust.toml](check-samples/rust.toml) |
-| Java | [java.toml](check-samples/java.toml) |
-| Python | [python.toml](check-samples/python.toml) |
-| Go | [go.toml](check-samples/go.toml) |
-| C# | [csharp.toml](check-samples/csharp.toml) |
-| SQL / PL/pgSQL | [sql.toml](check-samples/sql.toml) |
+| Architecture patterns | [architecture.md](../../samples/architecture.md) |
+| Test guardrails | [test-guardrails.md](../../samples/test-guardrails.md) |
+| TypeScript / JavaScript | [typescript.md](../../samples/typescript.md) |
+| Rust | [rust.md](../../samples/rust.md) |
+| Java | [java.md](../../samples/java.md) |
+| Python | [python.md](../../samples/python.md) |
+| Go | [go.md](../../samples/go.md) |
+| C# | [csharp.md](../../samples/csharp.md) |
+| SQL / PL/pgSQL | [sql.md](../../samples/sql.md) |
 
 Literature-inspired samples encode structural rules from canonical software
 engineering literature. They are community-authored examples; attribution and
@@ -540,9 +540,9 @@ non-endorsement notes sit at the top of each file.
 
 | Source | Sample |
 | ------ | ------ |
-| Robert C. Martin, *Clean Architecture* (2017) | [clean-architecture.toml](check-samples/clean-architecture.toml) |
-| Martin Fowler, *Patterns of Enterprise Application Architecture* (2002) | [fowler-eaa.toml](check-samples/fowler-eaa.toml) |
-| Martin Fowler, *Refactoring* (1999/2018) | [fowler-refactoring.toml](check-samples/fowler-refactoring.toml) |
+| Robert C. Martin, *Clean Architecture* (2017) | [clean-architecture.md](../../samples/clean-architecture.md) |
+| Martin Fowler, *Patterns of Enterprise Application Architecture* (2002) | [fowler-eaa.md](../../samples/fowler-eaa.md) |
+| Martin Fowler, *Refactoring* (1999/2018) | [fowler-refactoring.md](../../samples/fowler-refactoring.md) |
 
 See [Code smell review](code-smell-review.md) for the executable local
 coverage model, current operator gaps, and the warning-first review
@@ -595,7 +595,7 @@ looks like an ordinary method call.
 
 This is a useful check example because the mistake is not local to one
 syntax node. The executable Java sample is the copy-paste source of truth:
-[check-samples/java.toml](check-samples/java.toml). It contains the
+[samples/java.md](../../samples/java.md). It contains the
 method-level and class-level proxy checks with the same annotation set.
 
 Those rules first select proxy-advised declarations from annotation refs,

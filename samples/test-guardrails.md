@@ -1,3 +1,18 @@
+---
+name: test-guardrails
+lang: python
+blurb: Production code stays isolated from test code and test names stay readable
+published: true
+---
+
+# Test guardrails
+
+Static guardrails around tests: production code must not depend on test code,
+test doubles must not ship in production source sets, and test functions must
+read like tests. The rules are language-agnostic moniker patterns; this
+scenario demonstrates them with a small Python layout.
+
+```toml cm:rules
 # Test guardrail check sample.
 #
 # These rules enforce static guardrails around tests. They do not validate a
@@ -52,3 +67,43 @@ enable = [
   "^default\\.class\\.test-doubles-live-in-tests$",
   "^default\\.function\\.test-functions-are-named-like-tests$",
 ]
+```
+
+`PaymentStub` is a test double living in production sources, and it reaches
+into the test tree for its gateway — both guardrails fire:
+
+```python cm:file=src/payment.py
+from tests.doubles import GatewayFake
+
+
+class PaymentStub:
+	def charge(self, amount):
+		return GatewayFake().send(amount)
+```
+
+The test double itself is fine where it is — `GatewayFake` lives under
+`tests/`, so the suffix rule stays quiet here:
+
+```python cm:file=tests/doubles.py
+class GatewayFake:
+	def send(self, amount):
+		return amount
+```
+
+One test function reads like a test, the other does not:
+
+```python cm:file=tests/test_payment.py
+def test_charge_succeeds():
+	assert True
+
+
+def charge_rejects_negative():
+	assert True
+```
+
+```cm:expect
+refs.test-production-does-not-depend-on-tests @ src/payment.py:L1
+python.class.test-doubles-live-in-tests @ src/payment.py:L4-L6
+refs.test-production-does-not-depend-on-tests @ src/payment.py:L6
+python.function.test-functions-are-named-like-tests @ tests/test_payment.py:L5-L6
+```
