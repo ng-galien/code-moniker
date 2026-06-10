@@ -16,6 +16,9 @@ use crate::args::{CheckArgs, CheckFormat, DefaultRules};
 use crate::{DEFAULT_SCHEME, Exit};
 
 pub fn run<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
+	if let Some(scenario) = &args.scenario {
+		return crate::check_scenario::run(scenario, stdout, stderr);
+	}
 	let request = check_request_from_args(args);
 	match run_request_inner(
 		request,

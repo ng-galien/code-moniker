@@ -341,6 +341,14 @@ pub struct CheckArgs {
 		help = "when PATH is a directory, check only this touched file; repeatable"
 	)]
 	pub files: Vec<PathBuf>,
+
+	#[arg(
+		long,
+		value_name = "PATH",
+		hide = true,
+		help = "unstable: run an executable scenario document (`-` reads stdin); PATH is ignored"
+	)]
+	pub scenario: Option<PathBuf>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]

@@ -3,6 +3,7 @@
 
 pub(crate) mod args;
 pub(crate) mod check;
+pub(crate) mod check_scenario;
 pub(crate) mod color;
 pub(crate) mod extract;
 pub(crate) mod harness;

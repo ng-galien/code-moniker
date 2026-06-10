@@ -2768,3 +2768,68 @@ fn project_flag_default_keeps_dot_anchor() {
 		"default project `.` expected in: {out}"
 	);
 }
+
+const SCENARIO_DOC: &str = r#"---
+name: rust-naming
+lang: rust
+blurb: Functions stay snake_case
+---
+
+```toml cm:rules
+[[rust.fn.where]]
+id   = "snake-case"
+expr = "name =~ ^[a-z][a-z0-9_]*$"
+```
+
+```rust cm:file=src/lib.rs
+pub fn tidy() {}
+
+pub fn DoThing() {}
+```
+
+```cm:expect
+rust.fn.snake-case @ src/lib.rs:L3
+```
+"#;
+
+#[test]
+fn check_scenario_matching_expectations_returns_match() {
+	let dir = write_fixture("scenario.md", SCENARIO_DOC);
+	let path = dir.path().join("scenario.md");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		".",
+		"--scenario",
+		path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out} stderr={err}");
+	assert!(out.contains("rust.fn.snake-case @ src/lib.rs:L3"), "{out}");
+	assert!(out.contains("scenario: ok"), "{out}");
+}
+
+#[test]
+fn check_scenario_mismatch_returns_no_match_with_diff() {
+	let dir = write_fixture(
+		"scenario.md",
+		&SCENARIO_DOC.replace("src/lib.rs:L3", "src/lib.rs:L1"),
+	);
+	let path = dir.path().join("scenario.md");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		".",
+		"--scenario",
+		path.to_str().unwrap(),
+	]);
+	assert_eq!(exit, Exit::NoMatch, "stdout={out} stderr={err}");
+	assert!(
+		out.contains("missing:    rust.fn.snake-case @ src/lib.rs:L1"),
+		"{out}"
+	);
+	assert!(
+		out.contains("unexpected: rust.fn.snake-case @ src/lib.rs:L3"),
+		"{out}"
+	);
+	assert!(out.contains("scenario: mismatch"), "{out}");
+}
