@@ -1,3 +1,4 @@
+use crate::live_control::LiveControlHandle;
 use crate::session::SessionOptions;
 use crate::workspace_index::SharedWorkspaceIndex;
 
@@ -6,6 +7,7 @@ pub(crate) struct McpContext {
 	opts: SessionOptions,
 	scheme: String,
 	index: SharedWorkspaceIndex,
+	live: Option<LiveControlHandle>,
 }
 
 impl McpContext {
@@ -14,7 +16,17 @@ impl McpContext {
 			opts,
 			scheme,
 			index,
+			live: None,
 		}
+	}
+
+	pub(crate) fn with_live(mut self, live: LiveControlHandle) -> Self {
+		self.live = Some(live);
+		self
+	}
+
+	pub(super) fn live(&self) -> Option<&LiveControlHandle> {
+		self.live.as_ref()
 	}
 
 	pub(super) fn opts(&self) -> &SessionOptions {

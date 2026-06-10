@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
-use code_moniker_workspace::registry::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
+use code_moniker_workspace::registry::{
+	LocalWorkspaceOptions, LocalWorkspaceRegistry, WorkspaceStaleness,
+};
 use code_moniker_workspace::snapshot::{
 	LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
 	SourceFileRecord, SourceFileRecordFields, SourceId, SourceUnit, SymbolId, SymbolRecord,
@@ -20,6 +22,7 @@ use super::tools::scope::{Paging, ScopeFilter, SymbolScopeFilter};
 use super::tools::symbols::{SymbolAction, SymbolIndexView, render_symbols_lmnav};
 use super::tools::usages::{UsageDirection, UsageIndexView, UsageQuery, render_usages_lmnav};
 use super::tools::{McpTool, ToolRegistry};
+use crate::live_control::{LiveControlHandle, LiveControlMessage, LiveRefreshOutcome};
 use crate::session::SessionOptions;
 use crate::workspace_index::SharedWorkspaceIndex;
 
@@ -200,12 +203,79 @@ fn tools_list_returns_mcp_shape() {
 	assert_eq!(tools[3]["name"], "code_moniker_symbols");
 	assert_eq!(tools[4]["name"], "code_moniker_usages");
 	assert_eq!(tools[5]["name"], "code_moniker_rules");
+	assert_eq!(tools[6]["name"], "code_moniker_refresh");
 	assert!(
 		tools[0]["description"]
 			.as_str()
 			.unwrap()
 			.starts_with("When to use:")
 	);
+}
+
+#[test]
+fn stale_workspace_gates_tools_with_refresh_hint() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	write_java_app_fixture(temp.path(), "class App {\n  void run() {}\n}\n");
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+	let arguments = json!({"uri": "workspace"});
+
+	assert!(
+		registry
+			.call(&context, "code_moniker_read", &arguments)
+			.is_ok()
+	);
+
+	context.index().publish_staleness(WorkspaceStaleness {
+		stale_paths: vec![temp.path().join("App.java")],
+		requires_rescan: false,
+		git_base_stale: false,
+		since_generation: None,
+	});
+
+	let error = registry
+		.call(&context, "code_moniker_read", &arguments)
+		.err()
+		.expect("stale gate error");
+	assert!(error.to_string().contains("stale"));
+	assert!(error.to_string().contains("code_moniker_refresh"));
+}
+
+#[test]
+fn refresh_tool_requests_live_refresh_and_reports_generation() {
+	let context = empty_context(vec![PathBuf::from(".")]);
+	let (tx, rx) = mpsc::channel();
+	let context = context.with_live(LiveControlHandle::new(tx));
+	context.index().publish_staleness(WorkspaceStaleness {
+		stale_paths: vec![PathBuf::from("lib.rs")],
+		requires_rescan: false,
+		git_base_stale: false,
+		since_generation: None,
+	});
+	let live_index = context.index().clone();
+	let responder = thread::spawn(move || match rx.recv().expect("refresh request") {
+		LiveControlMessage::Refresh(reply) => {
+			live_index.publish_staleness(WorkspaceStaleness::default());
+			reply
+				.send(LiveRefreshOutcome {
+					generation: 7,
+					files: 1,
+					symbols: 2,
+					references: 3,
+					error: None,
+				})
+				.expect("reply");
+		}
+		LiveControlMessage::Event(_) => panic!("unexpected live event"),
+	});
+
+	let result = ToolRegistry::new()
+		.call(&context, "code_moniker_refresh", &json!({}))
+		.expect("refresh result");
+	responder.join().expect("responder");
+
+	assert!(result.text.contains("refreshed: generation 7"));
+	assert!(result.text.contains("stale: fresh"));
 }
 
 #[test]

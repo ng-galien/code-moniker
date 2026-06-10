@@ -1,5 +1,6 @@
 pub(super) mod notes;
 pub(super) mod read;
+pub(super) mod refresh;
 pub(super) mod rules;
 pub(in crate::mcp) mod scope;
 pub(super) mod search;
@@ -11,6 +12,7 @@ use serde_json::Value;
 use super::context::McpContext;
 use notes::NotesTool;
 use read::ReadTool;
+use refresh::RefreshTool;
 use rmcp::model::{JsonObject, Tool};
 use rules::RulesTool;
 use search::SearchTool;
@@ -94,6 +96,7 @@ enum ToolErrorKind {
 pub(super) struct ToolRegistry {
 	read: ReadTool,
 	notes: NotesTool,
+	refresh: RefreshTool,
 	rules: RulesTool,
 	search: SearchTool,
 	symbols: SymbolsTool,
@@ -105,6 +108,7 @@ impl ToolRegistry {
 		Self {
 			read: ReadTool,
 			notes: NotesTool,
+			refresh: RefreshTool,
 			rules: RulesTool,
 			search: SearchTool,
 			symbols: SymbolsTool,
@@ -121,6 +125,7 @@ impl ToolRegistry {
 			self.symbols.descriptor().into_mcp_value(),
 			self.usages.descriptor().into_mcp_value(),
 			self.rules.descriptor().into_mcp_value(),
+			self.refresh.descriptor().into_mcp_value(),
 		]
 	}
 
@@ -132,6 +137,7 @@ impl ToolRegistry {
 			self.symbols.descriptor().into_rmcp_tool(),
 			self.usages.descriptor().into_rmcp_tool(),
 			self.rules.descriptor().into_rmcp_tool(),
+			self.refresh.descriptor().into_rmcp_tool(),
 		]
 	}
 
@@ -148,6 +154,7 @@ impl ToolRegistry {
 			SymbolsTool::NAME => self.symbols.call(context, arguments),
 			UsagesTool::NAME => self.usages.call(context, arguments),
 			RulesTool::NAME => self.rules.call(context, arguments),
+			RefreshTool::NAME => self.refresh.call(context, arguments),
 			_ => Err(ToolError::unknown_tool(name)),
 		}
 	}

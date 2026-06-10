@@ -27,6 +27,23 @@ impl WorkspaceStaleness {
 	pub fn is_stale(&self) -> bool {
 		self.requires_rescan || !self.stale_paths.is_empty() || self.git_base_stale
 	}
+
+	pub fn summary(&self) -> String {
+		if self.requires_rescan {
+			return "rescan required".to_string();
+		}
+		let mut parts = Vec::new();
+		if !self.stale_paths.is_empty() {
+			parts.push(format!("{} stale path(s)", self.stale_paths.len()));
+		}
+		if self.git_base_stale {
+			parts.push("git base changed".to_string());
+		}
+		if parts.is_empty() {
+			return "fresh".to_string();
+		}
+		parts.join(", ")
+	}
 }
 
 #[derive(Default)]

@@ -362,6 +362,21 @@ impl DefaultRules {
 	}
 }
 
+#[cfg(any(feature = "tui", feature = "mcp"))]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum LiveRefresh {
+	#[default]
+	OnDemand,
+	Auto,
+}
+
+#[cfg(any(feature = "tui", feature = "mcp"))]
+impl LiveRefresh {
+	pub fn is_on_demand(self) -> bool {
+		matches!(self, Self::OnDemand)
+	}
+}
+
 #[cfg(feature = "tui")]
 #[derive(Debug, ClapArgs)]
 pub struct UiArgs {
@@ -407,6 +422,14 @@ pub struct UiArgs {
 
 	#[arg(long, help = "show TUI component debug markers")]
 	pub debug: bool,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = LiveRefresh::OnDemand,
+		help = "live index policy: on-demand marks changes stale until a manual refresh; auto refreshes on every change"
+	)]
+	pub live_refresh: LiveRefresh,
 }
 
 #[cfg(feature = "mcp")]
@@ -445,6 +468,14 @@ pub struct McpArgs {
 		help = "TCP port for the MCP endpoint"
 	)]
 	pub port: u16,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = LiveRefresh::OnDemand,
+		help = "live index policy: on-demand marks changes stale until the refresh tool runs; auto refreshes on every change"
+	)]
+	pub live_refresh: LiveRefresh,
 }
 
 #[derive(Debug, ClapArgs)]

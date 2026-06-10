@@ -8,6 +8,8 @@ pub(crate) mod extract;
 pub(crate) mod harness;
 pub(crate) mod langs;
 pub(crate) mod language_kinds;
+#[cfg(feature = "mcp")]
+pub(crate) mod live_control;
 pub(crate) mod manifest;
 #[cfg(feature = "mcp")]
 pub(crate) mod mcp;
@@ -33,6 +35,8 @@ pub(crate) mod workspace_index;
 use std::io::Write;
 use std::process::ExitCode;
 
+#[cfg(any(feature = "tui", feature = "mcp"))]
+pub use args::LiveRefresh;
 #[cfg(feature = "mcp")]
 pub use args::McpArgs;
 #[cfg(feature = "tui")]

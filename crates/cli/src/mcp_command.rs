@@ -9,7 +9,8 @@ use code_moniker_workspace::registry::LocalWorkspaceOptions;
 use code_moniker_workspace::snapshot::{WorkspaceRequest, WorkspaceTransition};
 use tracing::{error, info, warn};
 
-use crate::args::McpArgs;
+use crate::args::{LiveRefresh, McpArgs};
+use crate::live_control::{LiveControlHandle, LiveControlMessage, LiveRefreshOutcome};
 use crate::mcp::McpContext;
 use crate::session::SessionOptions;
 use crate::workspace_index::SharedWorkspaceIndex;
@@ -42,7 +43,13 @@ fn run_inner<W1: Write, W2: Write>(
 		.enable_all()
 		.thread_name("code-moniker-mcp")
 		.build()?;
-	runtime.block_on(run_server(opts, scheme, args.port, index))
+	runtime.block_on(run_server(
+		opts,
+		scheme,
+		args.port,
+		index,
+		args.live_refresh,
+	))
 }
 
 async fn run_server(
@@ -50,25 +57,39 @@ async fn run_server(
 	scheme: String,
 	port: u16,
 	index: SharedWorkspaceIndex,
+	live_refresh: LiveRefresh,
 ) -> anyhow::Result<()> {
+	let (control_tx, control_rx) = mpsc::channel();
 	let load_opts = opts.clone();
 	let load_index = index.clone();
-	tokio::task::spawn_blocking(move || load_workspace_snapshots(load_opts, load_index));
+	let load_tx = control_tx.clone();
+	tokio::task::spawn_blocking(move || {
+		load_workspace_snapshots(load_opts, load_index, load_tx, control_rx, live_refresh)
+	});
 	let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
 	let addr = listener.local_addr()?;
-	let router = mcp::router(McpContext::new(opts.clone(), scheme, index));
+	let context =
+		McpContext::new(opts.clone(), scheme, index).with_live(LiveControlHandle::new(control_tx));
+	let router = mcp::router(context);
 	info!(
 		event = "http_transport_ready",
 		endpoint = %format!("http://{addr}/mcp"),
 		paths = %path_list(&opts),
+		live_refresh = ?live_refresh,
 		"mcp http transport ready"
 	);
 	axum::serve(listener, router).await?;
 	Ok(())
 }
 
-fn load_workspace_snapshots(opts: SessionOptions, index: SharedWorkspaceIndex) {
-	if let Err(error) = run_live_workspace(&opts, &index) {
+fn load_workspace_snapshots(
+	opts: SessionOptions,
+	index: SharedWorkspaceIndex,
+	control_tx: mpsc::Sender<LiveControlMessage>,
+	control_rx: mpsc::Receiver<LiveControlMessage>,
+	live_refresh: LiveRefresh,
+) {
+	if let Err(error) = run_live_workspace(&opts, &index, control_tx, control_rx, live_refresh) {
 		error!(event = "workspace_load_failed", error = %format!("{error:#}"), "workspace load failed");
 	}
 }
@@ -82,12 +103,25 @@ fn load_workspace_snapshots_inner(
 	Ok(())
 }
 
-fn run_live_workspace(opts: &SessionOptions, index: &SharedWorkspaceIndex) -> anyhow::Result<()> {
+fn run_live_workspace(
+	opts: &SessionOptions,
+	index: &SharedWorkspaceIndex,
+	tx: mpsc::Sender<LiveControlMessage>,
+	rx: mpsc::Receiver<LiveControlMessage>,
+	live_refresh: LiveRefresh,
+) -> anyhow::Result<()> {
 	let mut registry = load_initial_workspace(opts, index)?;
-	let (tx, rx) = mpsc::channel();
 	let mut watcher = start_live_watcher(&registry, tx.clone())?;
-	for event in rx {
-		if handle_live_event(opts, index, &mut registry, event) {
+	for message in rx {
+		let replace_watcher = match message {
+			LiveControlMessage::Event(event) => {
+				handle_live_event(opts, index, &mut registry, event, live_refresh)
+			}
+			LiveControlMessage::Refresh(reply) => {
+				handle_refresh_request(index, &mut registry, reply)
+			}
+		};
+		if replace_watcher {
 			match start_live_watcher(&registry, tx.clone()) {
 				Ok(next_watcher) => watcher = next_watcher,
 				Err(error) => {
@@ -102,11 +136,11 @@ fn run_live_workspace(opts: &SessionOptions, index: &SharedWorkspaceIndex) -> an
 
 fn start_live_watcher(
 	registry: &code_moniker_workspace::LocalWorkspaceRegistry,
-	tx: mpsc::Sender<WorkspaceLiveEvent>,
+	tx: mpsc::Sender<LiveControlMessage>,
 ) -> anyhow::Result<LiveWorkspaceWatcher> {
 	let watcher = LiveWorkspaceWatcher::start(registry.watch_roots(), move |event| {
 		info!(event = "workspace_live_event", kind = ?event, "workspace live event");
-		let _ = tx.send(event);
+		let _ = tx.send(LiveControlMessage::Event(event));
 	})?;
 	if let Some(status) = watcher.status() {
 		info!(
@@ -186,12 +220,78 @@ fn handle_live_event(
 	index: &SharedWorkspaceIndex,
 	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
 	event: WorkspaceLiveEvent,
+	live_refresh: LiveRefresh,
 ) -> bool {
 	let plan = WorkspaceLiveRefreshPlan::from_event(event);
-	let replace_watcher = refresh_live_plan(index, registry, plan.clone());
 	if plan.includes_notes() {
 		reload_live_notes(opts, index);
 	}
+	if live_refresh.is_on_demand() {
+		mark_live_plan_stale(index, registry, plan);
+		return false;
+	}
+	refresh_live_plan(index, registry, plan)
+}
+
+fn mark_live_plan_stale(
+	index: &SharedWorkspaceIndex,
+	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
+	plan: WorkspaceLiveRefreshPlan,
+) {
+	let staleness = registry.live_commands().mark_stale(plan);
+	info!(
+		event = "workspace_stale_marked",
+		summary = %staleness.summary(),
+		"workspace marked stale"
+	);
+	index.publish_staleness(staleness);
+}
+
+fn handle_refresh_request(
+	index: &SharedWorkspaceIndex,
+	registry: &mut code_moniker_workspace::LocalWorkspaceRegistry,
+	reply: mpsc::Sender<LiveRefreshOutcome>,
+) -> bool {
+	let started = Instant::now();
+	let live = registry
+		.live_commands()
+		.refresh_stale(WorkspaceRequest::new("mcp-refresh-stale"));
+	let replace_watcher = live.replace_watcher();
+	let outcome = match live.transition() {
+		WorkspaceTransition::Ready { generation } => {
+			let snapshot = registry.queries().snapshot_arc();
+			if let Some(snapshot) = &snapshot {
+				log_snapshot_ready("refresh-stale", started.elapsed(), snapshot);
+			}
+			index.publish(snapshot.clone());
+			index.publish_staleness(registry.queries().staleness());
+			LiveRefreshOutcome {
+				generation: generation.value(),
+				files: snapshot
+					.as_ref()
+					.map(|snapshot| snapshot.index.sources.len())
+					.unwrap_or(0),
+				symbols: snapshot
+					.as_ref()
+					.map(|snapshot| snapshot.index.symbols.len())
+					.unwrap_or(0),
+				references: snapshot
+					.as_ref()
+					.map(|snapshot| snapshot.index.references.len())
+					.unwrap_or(0),
+				error: None,
+			}
+		}
+		WorkspaceTransition::Failed { failure, .. } => {
+			warn!(event = "workspace_refresh_failed", error = %failure.message, "workspace refresh failed");
+			index.publish_staleness(registry.queries().staleness());
+			LiveRefreshOutcome {
+				error: Some(failure.message),
+				..LiveRefreshOutcome::default()
+			}
+		}
+	};
+	let _ = reply.send(outcome);
 	replace_watcher
 }
 
