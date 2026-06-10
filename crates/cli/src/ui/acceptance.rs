@@ -165,6 +165,56 @@ fn multiproject_catalog_phase_renders_file_tree_before_symbols() {
 }
 
 #[test]
+fn on_demand_store_event_marks_navigator_stale_until_refresh() {
+	let mut harness = TuiAcceptance::load_multiproject();
+	harness.app.config.live_refresh = crate::args::LiveRefresh::OnDemand;
+
+	handle_store_event_sync(
+		&mut harness.app,
+		WorkspaceLiveEvent::SourcesChanged(vec![multiproject_fixture().join("App.java")]),
+	);
+
+	let screen = harness.render_text(160, 45);
+	assert_visible(&screen, "stale: 1 stale path(s)");
+	assert_visible(&screen, "R refreshes");
+	assert!(
+		crate::ui::app::pending_live_plan_summary(&harness.app).is_some(),
+		"pending live plan should be recorded"
+	);
+
+	harness.press(KeyCode::Char('R'));
+	assert!(
+		crate::ui::app::status(&harness.app).contains("task runtime unavailable"),
+		"without a task runtime the refresh cannot run: {}",
+		crate::ui::app::status(&harness.app)
+	);
+	assert!(
+		crate::ui::app::pending_live_plan_summary(&harness.app).is_some(),
+		"pending live plan must survive a failed refresh queue"
+	);
+}
+
+#[test]
+fn auto_store_event_keeps_navigator_fresh() {
+	let mut harness = TuiAcceptance::load_multiproject();
+
+	handle_store_event_sync(
+		&mut harness.app,
+		WorkspaceLiveEvent::SourcesChanged(vec![multiproject_fixture().join("App.java")]),
+	);
+
+	assert!(
+		crate::ui::app::pending_live_plan_summary(&harness.app).is_none(),
+		"auto mode must not record staleness"
+	);
+	let screen = harness.render_text(160, 45);
+	assert!(
+		!screen.contains("stale:"),
+		"auto mode must not render a stale badge"
+	);
+}
+
+#[test]
 fn multiproject_multiple_paths_behave_like_virtual_parent() {
 	let mut harness = TuiAcceptance::load_multiproject_paths(multiproject_project_paths(), None);
 	toggle_selected_nav(&mut harness.app);
@@ -643,6 +693,7 @@ fn app_config(rules: PathBuf, profile: Option<String>, debug: bool) -> AppConfig
 		rules,
 		profile,
 		debug,
+		live_refresh: crate::args::LiveRefresh::Auto,
 	}
 }
 

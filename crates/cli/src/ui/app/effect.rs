@@ -9,4 +9,5 @@ pub(in crate::ui) enum Effect {
 	DebounceHeaderSearch(u64),
 	CopyPanelSnapshot,
 	RunCheck,
+	RefreshWorkspace,
 }

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
+use crate::args::LiveRefresh;
 use crate::session::SessionOptions;
 use crate::ui::events::UiMode;
 use crate::ui::perf;
@@ -11,7 +12,7 @@ use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator}
 use crate::ui::workspace_read::{
 	LocalWorkspaceRegistry, UsageFocus, new_local_workspace, workspace_check_context,
 };
-use code_moniker_workspace::live::WorkspaceWatchRoot;
+use code_moniker_workspace::live::{WorkspaceLiveRefreshPlan, WorkspaceWatchRoot};
 use code_moniker_workspace::source::LocalResourceCache;
 
 mod action;
@@ -61,6 +62,7 @@ pub(in crate::ui) use state::{
 pub(in crate::ui) use store::AppStore;
 pub(in crate::ui) use workspace_refresh::{
 	apply_file_catalog_store, apply_reloaded_store, handle_store_event, handle_store_event_sync,
+	refresh_workspace_on_demand,
 };
 use workspace_session::WorkspaceSession;
 
@@ -69,6 +71,7 @@ pub(in crate::ui) struct AppConfig {
 	pub(in crate::ui) rules: PathBuf,
 	pub(in crate::ui) profile: Option<String>,
 	pub(in crate::ui) debug: bool,
+	pub(in crate::ui) live_refresh: LiveRefresh,
 }
 
 pub(in crate::ui) struct App {
@@ -83,6 +86,7 @@ pub(in crate::ui) struct AppRuntime {
 	startup_load_pending: bool,
 	watch_roots_update: Option<Vec<WorkspaceWatchRoot>>,
 	usage_lens_generation: u64,
+	pending_live_plan: Option<WorkspaceLiveRefreshPlan>,
 }
 
 pub(in crate::ui) fn boot_app(
@@ -91,6 +95,7 @@ pub(in crate::ui) fn boot_app(
 	rules: PathBuf,
 	profile: Option<String>,
 	debug: bool,
+	live_refresh: LiveRefresh,
 ) -> App {
 	let (store, cache) = new_local_workspace(&opts);
 	let mut app = new_app(
@@ -102,6 +107,7 @@ pub(in crate::ui) fn boot_app(
 			rules,
 			profile,
 			debug,
+			live_refresh,
 		},
 	);
 	app.runtime.startup_load_pending = true;
@@ -270,6 +276,17 @@ pub(in crate::ui) fn debug(app: &App) -> bool {
 	app.config.debug
 }
 
+pub(in crate::ui) fn live_refresh_on_demand(app: &App) -> bool {
+	app.config.live_refresh.is_on_demand()
+}
+
+pub(in crate::ui) fn pending_live_plan_summary(app: &App) -> Option<String> {
+	app.runtime
+		.pending_live_plan
+		.as_ref()
+		.map(workspace_refresh::live_plan_summary)
+}
+
 pub(in crate::ui) fn new_app(
 	store: LocalWorkspaceRegistry,
 	cache: LocalResourceCache,
@@ -294,6 +311,7 @@ pub(in crate::ui) fn new_app(
 			startup_load_pending: false,
 			watch_roots_update: None,
 			usage_lens_generation: 0,
+			pending_live_plan: None,
 		},
 	};
 	let _ = reload_notes(&mut app);

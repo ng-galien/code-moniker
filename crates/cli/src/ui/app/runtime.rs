@@ -13,8 +13,8 @@ use crate::ui::app::{
 	dispatch_shell, edit_note_editor, ensure_active_panel_selection, handle_store_event,
 	handle_store_event_sync, has_clearable_scope, move_note_editor_field, move_panel_selection,
 	move_panel_to_edge, open_note_editor, open_panel_tree_node, open_selected_nav,
-	save_note_from_editor, set_view, show_notes_lens, sync_contextual_view, toggle_panel_tree_node,
-	toggle_selected_nav,
+	refresh_workspace_on_demand, save_note_from_editor, set_view, show_notes_lens,
+	sync_contextual_view, toggle_panel_tree_node, toggle_selected_nav,
 };
 use crate::ui::async_task::{TaskOutcome, TaskResult, TaskRunner, TaskSpec};
 use crate::ui::clipboard;
@@ -263,6 +263,7 @@ fn apply_effect(app: &mut App, effect: Effect) -> bool {
 		}
 		Effect::CopyPanelSnapshot => copy_panel_snapshot(app),
 		Effect::RunCheck => run_check(app),
+		Effect::RefreshWorkspace => refresh_workspace_on_demand(app),
 	}
 	false
 }

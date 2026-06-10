@@ -953,6 +953,7 @@ pub(in crate::ui) fn reduce_ui_msg(state: &mut AppState, msg: &Msg) -> Transitio
 		}
 		Msg::CopyPanelSnapshot => emit_effect(Effect::CopyPanelSnapshot),
 		Msg::RunCheck => emit_effect(Effect::RunCheck),
+		Msg::RefreshWorkspace => emit_effect(Effect::RefreshWorkspace),
 		Msg::MoveDown => Transition::unchanged(),
 		Msg::MoveUp => Transition::unchanged(),
 		Msg::Home => Transition::unchanged(),

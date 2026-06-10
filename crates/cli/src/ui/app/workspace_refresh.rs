@@ -10,6 +10,7 @@ use crate::ui::store::navigation::{NavigationAction, navigation_primary_view};
 use crate::ui::store::navigation_tree::{build_change_navigator, build_navigator};
 use crate::ui::workspace_read;
 use code_moniker_workspace::live::{WorkspaceLiveEvent, WorkspaceLiveRefreshPlan};
+use code_moniker_workspace::registry::WorkspaceStaleness;
 
 #[derive(Clone, Copy)]
 enum StoreChangeKind {
@@ -25,7 +26,11 @@ pub(in crate::ui) fn handle_store_event(app: &mut App, event: WorkspaceLiveEvent
 pub(in crate::ui) fn handle_store_event_sync(app: &mut App, event: WorkspaceLiveEvent) {
 	let plan = WorkspaceLiveRefreshPlan::from_event(event);
 	if should_queue_workspace_live_plan(&plan) {
-		queue_workspace_live_plan(app, plan);
+		if should_defer_workspace_live_plan(app) {
+			mark_workspace_stale(app, plan);
+		} else {
+			queue_workspace_live_plan(app, plan);
+		}
 		return;
 	}
 	if plan.includes_notes() {
@@ -35,6 +40,50 @@ pub(in crate::ui) fn handle_store_event_sync(app: &mut App, event: WorkspaceLive
 
 fn should_queue_workspace_live_plan(plan: &WorkspaceLiveRefreshPlan) -> bool {
 	plan.requires_rescan() || !plan.source_paths().is_empty() || plan.includes_git_base()
+}
+
+fn should_defer_workspace_live_plan(app: &App) -> bool {
+	crate::ui::app::live_refresh_on_demand(app)
+		&& crate::ui::app::store(app).queries().snapshot().is_some()
+}
+
+fn mark_workspace_stale(app: &mut App, plan: WorkspaceLiveRefreshPlan) {
+	if plan.includes_notes() {
+		refresh_workspace_notes(app);
+	}
+	let plan = plan.without_notes();
+	if plan.is_empty() {
+		return;
+	}
+	let pending = app
+		.runtime
+		.pending_live_plan
+		.take()
+		.unwrap_or_default()
+		.coalesce(plan);
+	let summary = live_plan_summary(&pending);
+	app.runtime.pending_live_plan = Some(pending);
+	crate::ui::app::set_status(app, format!("workspace stale ({summary}) — R refreshes"));
+}
+
+pub(in crate::ui) fn refresh_workspace_on_demand(app: &mut App) {
+	let Some(plan) = app.runtime.pending_live_plan.take() else {
+		crate::ui::app::set_status(app, "workspace index is fresh");
+		return;
+	};
+	if !queue_workspace_live_plan(app, plan.clone()) {
+		app.runtime.pending_live_plan = Some(plan);
+	}
+}
+
+pub(in crate::ui) fn live_plan_summary(plan: &WorkspaceLiveRefreshPlan) -> String {
+	WorkspaceStaleness {
+		stale_paths: plan.source_paths().to_vec(),
+		requires_rescan: plan.requires_rescan(),
+		git_base_stale: plan.includes_git_base(),
+		since_generation: None,
+	}
+	.summary()
 }
 
 fn refresh_workspace_notes(app: &mut App) {
@@ -52,10 +101,9 @@ fn refresh_workspace_notes(app: &mut App) {
 	}
 }
 
-fn queue_workspace_live_plan(app: &mut App, plan: WorkspaceLiveRefreshPlan) {
+fn queue_workspace_live_plan(app: &mut App, plan: WorkspaceLiveRefreshPlan) -> bool {
 	let Some(snapshot) = crate::ui::app::store(app).queries().snapshot_arc() else {
-		queue_workspace_rescan(app);
-		return;
+		return queue_workspace_rescan(app);
 	};
 	let task = TaskSpec::refresh_workspace_live_plan(
 		crate::ui::app::store_options(app),
@@ -65,16 +113,20 @@ fn queue_workspace_live_plan(app: &mut App, plan: WorkspaceLiveRefreshPlan) {
 	);
 	if queue_task(app, task) {
 		crate::ui::app::set_status(app, "live workspace refresh queued in background");
+		return true;
 	}
+	false
 }
 
-fn queue_workspace_rescan(app: &mut App) {
+fn queue_workspace_rescan(app: &mut App) -> bool {
 	if queue_task(
 		app,
 		TaskSpec::load_symbol_index(crate::ui::app::store_options(app)),
 	) {
 		crate::ui::app::set_status(app, "workspace rescan queued in background");
+		return true;
 	}
+	false
 }
 
 pub(in crate::ui) fn apply_file_catalog_store(app: &mut App, status: String) {

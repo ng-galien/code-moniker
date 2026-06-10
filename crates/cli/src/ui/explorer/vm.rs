@@ -172,6 +172,7 @@ pub(in crate::ui) struct ExplorerVmContext<'a> {
 	status: &'a str,
 	show_component_markers: bool,
 	note_index: NoteIndex,
+	stale: Option<String>,
 }
 
 impl ExplorerVm {
@@ -193,6 +194,7 @@ impl ExplorerVm {
 			status: crate::ui::app::status(app),
 			show_component_markers: crate::ui::app::debug(app),
 			note_index: NoteIndex::from_notes(&crate::ui::app::notes(app)),
+			stale: crate::ui::app::pending_live_plan_summary(app),
 		};
 		Self::from_context(ctx)
 	}
@@ -327,6 +329,10 @@ fn primary_nav_vm(ctx: &ExplorerVmContext<'_>) -> NavPaneVm {
 			workspace_read::stats(ctx.workspace).files,
 			navigation_explorer_def_count(ctx.navigation)
 		)
+	};
+	let title = match &ctx.stale {
+		Some(summary) => format!("{title}· stale: {summary} · R refreshes "),
+		None => title,
 	};
 	NavPaneVm {
 		title,

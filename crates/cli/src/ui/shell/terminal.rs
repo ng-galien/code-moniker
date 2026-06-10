@@ -39,6 +39,7 @@ pub(crate) fn boot(args: &UiArgs) -> UiSession {
 		args.rules.clone(),
 		args.profile.clone(),
 		args.debug,
+		args.live_refresh,
 	);
 	UiSession { app }
 }

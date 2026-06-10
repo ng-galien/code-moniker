@@ -1409,6 +1409,7 @@ mod tests {
 				rules: tmp.path().join("rules.toml"),
 				profile: None,
 				debug: false,
+				live_refresh: crate::args::LiveRefresh::Auto,
 			},
 		)
 	}
