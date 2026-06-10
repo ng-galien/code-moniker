@@ -23,5 +23,5 @@ pub const DEFAULT_IDENTITY_SCHEME: &str = "code+moniker://";
 pub use registry::{
 	LocalWorkspaceOptions, LocalWorkspaceRegistry, WorkspaceEvent, WorkspaceEventKind,
 	WorkspaceLiveCommands, WorkspaceLivePlanTransition, WorkspacePorts, WorkspaceRegistry,
-	WorkspaceScopeUri,
+	WorkspaceScopeUri, WorkspaceStaleness,
 };

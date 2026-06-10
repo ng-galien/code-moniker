@@ -110,9 +110,26 @@ impl WorkspaceLiveRefreshPlan {
 		self
 	}
 
+	pub fn is_empty(&self) -> bool {
+		refresh_plan_is_empty(self)
+	}
+
+	pub fn without_notes(self) -> Self {
+		refresh_plan_without_notes(self)
+	}
+
 	pub fn into_event(self) -> WorkspaceLiveEvent {
 		refresh_plan_into_event(self)
 	}
+}
+
+fn refresh_plan_is_empty(plan: &WorkspaceLiveRefreshPlan) -> bool {
+	!plan.rescan && plan.source_paths.is_empty() && !plan.git_base && !plan.notes
+}
+
+fn refresh_plan_without_notes(mut plan: WorkspaceLiveRefreshPlan) -> WorkspaceLiveRefreshPlan {
+	plan.notes = false;
+	plan
 }
 
 fn refresh_plan_from_event(event: WorkspaceLiveEvent) -> WorkspaceLiveRefreshPlan {

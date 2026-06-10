@@ -4,10 +4,13 @@ use crate::snapshot::{
 	ResourceGeneration, WorkspaceFailure, WorkspaceResult, WorkspaceSnapshot, WorkspaceTransition,
 };
 
+use super::staleness::PendingStaleness;
+
 pub(crate) struct WorkspaceState {
 	next_generation: u64,
 	snapshot: Option<Arc<WorkspaceSnapshot>>,
 	last_failure: Option<WorkspaceFailure>,
+	pub(crate) pending: PendingStaleness,
 }
 
 impl WorkspaceState {
@@ -16,6 +19,7 @@ impl WorkspaceState {
 			next_generation: 1,
 			snapshot: None,
 			last_failure: None,
+			pending: PendingStaleness::default(),
 		}
 	}
 

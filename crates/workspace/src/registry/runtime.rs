@@ -24,6 +24,7 @@ use super::event::{
 	WorkspaceEventLog,
 };
 use super::ports::{WorkspaceCommandPort, WorkspaceEventPort, WorkspacePorts, WorkspaceQueryPort};
+use super::staleness::WorkspaceStaleness;
 use super::state::WorkspaceState;
 
 pub struct WorkspaceLivePlanTransition {
@@ -140,6 +141,10 @@ impl<'a, Sources, Index, Linkage, Changes> WorkspaceQueries<'a, Sources, Index, 
 
 	pub fn last_failure(&self) -> Option<&'a WorkspaceFailure> {
 		self.runtime.state.last_failure()
+	}
+
+	pub fn staleness(&self) -> WorkspaceStaleness {
+		self.runtime.state.pending.staleness()
 	}
 }
 
@@ -300,31 +305,51 @@ where
 			WorkspaceCommandKind::RefreshLivePlan,
 			request,
 		);
-		let generation = self.runtime.state.allocate_generation();
-		let context = WorkspaceEventContext::new(command.scope_uri, generation, command.id);
-		publish_command_started(self.events, &context);
-		let result = LivePlanBuild {
-			current: self.runtime.state.snapshot(),
-			source_catalog: &mut self.runtime.ports.source_catalog,
-			code_index: &mut self.runtime.ports.code_index,
-			linkage: &mut self.runtime.ports.linkage,
-			change_overlay: &mut self.runtime.ports.change_overlay,
+		run_live_plan(self.runtime, self.events, command, &plan)
+	}
+
+	pub fn refresh_stale(&mut self, request: WorkspaceRequest) -> WorkspaceLivePlanTransition {
+		let plan = self.runtime.state.pending.take();
+		if plan.is_empty()
+			&& let Some(snapshot) = self.runtime.state.snapshot()
+		{
+			return WorkspaceLivePlanTransition {
+				transition: WorkspaceTransition::Ready {
+					generation: snapshot.generation,
+				},
+				replace_watcher: false,
+			};
 		}
-		.build(command.request, &plan, generation);
-		let replace_watcher = result
-			.as_ref()
-			.map(|result| result.replace_watcher)
-			.unwrap_or_else(|_| plan.requires_rescan());
-		let transition = publish_command_finished(
-			self.runtime,
-			self.events,
-			&context,
-			result.map(|result| result.snapshot),
+		let command = WorkspaceCommand::new(
+			self.allocate_command_id(),
+			WorkspaceScopeUri::workspace(),
+			WorkspaceCommandKind::RefreshStale,
+			request,
 		);
-		WorkspaceLivePlanTransition {
-			transition,
-			replace_watcher,
+		let live = run_live_plan(self.runtime, self.events, command, &plan);
+		if !plan.is_empty() && matches!(live.transition, WorkspaceTransition::Failed { .. }) {
+			let current = current_generation(self.runtime);
+			self.runtime.state.pending.coalesce(current, plan);
 		}
+		live
+	}
+
+	pub fn mark_stale(&mut self, plan: WorkspaceLiveRefreshPlan) -> WorkspaceStaleness {
+		let plan = plan.without_notes();
+		if plan.is_empty() {
+			return self.runtime.state.pending.staleness();
+		}
+		let command_id = self.allocate_command_id();
+		let current = current_generation(self.runtime);
+		let staleness = self.runtime.state.pending.coalesce(current, plan);
+		let context = WorkspaceEventContext::new(
+			WorkspaceScopeUri::workspace(),
+			current.unwrap_or_else(|| ResourceGeneration::new(0)),
+			command_id,
+		);
+		self.events
+			.publish(context.event(WorkspaceEventKind::StaleMarked));
+		staleness
 	}
 
 	fn allocate_command_id(&mut self) -> WorkspaceCommandId {
@@ -332,6 +357,51 @@ where
 		*self.next_command_id += 1;
 		id
 	}
+}
+
+fn run_live_plan<Sources, Index, Linkage, Changes>(
+	runtime: &mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+	events: &mut WorkspaceEventLog,
+	command: WorkspaceCommand,
+	plan: &WorkspaceLiveRefreshPlan,
+) -> WorkspaceLivePlanTransition
+where
+	Sources: SourceCatalogPort,
+	Index: CodeIndexPort,
+	Linkage: LinkagePort,
+	Changes: ChangeOverlayPort,
+{
+	let generation = runtime.state.allocate_generation();
+	let context = WorkspaceEventContext::new(command.scope_uri, generation, command.id);
+	publish_command_started(events, &context);
+	let result = LivePlanBuild {
+		current: runtime.state.snapshot(),
+		source_catalog: &mut runtime.ports.source_catalog,
+		code_index: &mut runtime.ports.code_index,
+		linkage: &mut runtime.ports.linkage,
+		change_overlay: &mut runtime.ports.change_overlay,
+	}
+	.build(command.request, plan, generation);
+	let replace_watcher = result
+		.as_ref()
+		.map(|result| result.replace_watcher)
+		.unwrap_or_else(|_| plan.requires_rescan());
+	let transition = publish_command_finished(
+		runtime,
+		events,
+		&context,
+		result.map(|result| result.snapshot),
+	);
+	WorkspaceLivePlanTransition {
+		transition,
+		replace_watcher,
+	}
+}
+
+fn current_generation<Sources, Index, Linkage, Changes>(
+	runtime: &WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+) -> Option<ResourceGeneration> {
+	runtime.state.snapshot().map(|snapshot| snapshot.generation)
 }
 
 fn publish_command_started(events: &mut WorkspaceEventLog, context: &WorkspaceEventContext) {
@@ -485,6 +555,14 @@ where
 			WorkspaceResource::CodeIndex,
 			"PublishSnapshot commands require a snapshot payload",
 		)),
+		WorkspaceCommandKind::MarkStale => Err(WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			"MarkStale commands require a live refresh plan",
+		)),
+		WorkspaceCommandKind::RefreshStale => Err(WorkspaceFailure::new(
+			WorkspaceResource::CodeIndex,
+			"RefreshStale commands run through live refresh_stale",
+		)),
 	}
 }
 
@@ -549,6 +627,131 @@ mod tests {
 
 		assert!(snapshot_has_symbol(&registry, "after_live_refresh"));
 		assert!(!snapshot_has_symbol(&registry, "before_live_refresh"));
+	}
+
+	#[test]
+	fn mark_stale_records_staleness_without_touching_snapshot() {
+		let (temp, source, mut registry) = indexed_registry("pub fn before_stale() {}\n");
+		let _ = &temp;
+		let cursor = registry.events().event_cursor();
+
+		fs::write(&source, "pub fn after_stale() {}\n").expect("rewrite source");
+		let staleness = registry
+			.live_commands()
+			.mark_stale(WorkspaceLiveRefreshPlan::from_event(
+				crate::live::WorkspaceLiveEvent::SourcesChanged(vec![source.clone()]),
+			));
+
+		assert!(staleness.is_stale());
+		assert_eq!(staleness.stale_paths, vec![source]);
+		assert!(staleness.since_generation.is_some());
+		assert!(snapshot_has_symbol(&registry, "before_stale"));
+		assert_eq!(
+			registry
+				.events()
+				.events_since(cursor)
+				.iter()
+				.map(|event| event.kind)
+				.collect::<Vec<_>>(),
+			vec![WorkspaceEventKind::StaleMarked]
+		);
+	}
+
+	#[test]
+	fn refresh_stale_applies_coalesced_pending_plan() {
+		let (temp, source, mut registry) = indexed_registry("pub fn before_stale() {}\n");
+		let _ = &temp;
+
+		fs::write(&source, "pub fn after_stale() {}\n").expect("rewrite source");
+		registry
+			.live_commands()
+			.mark_stale(WorkspaceLiveRefreshPlan::from_event(
+				crate::live::WorkspaceLiveEvent::SourcesChanged(vec![source.clone()]),
+			));
+		registry
+			.live_commands()
+			.mark_stale(WorkspaceLiveRefreshPlan::from_event(
+				crate::live::WorkspaceLiveEvent::SourcesChanged(vec![source]),
+			));
+
+		let live = registry
+			.live_commands()
+			.refresh_stale(WorkspaceRequest::new("acceptance-refresh-stale"));
+		assert!(!live.replace_watcher());
+		assert!(matches!(
+			live.transition(),
+			WorkspaceTransition::Ready { .. }
+		));
+		assert!(snapshot_has_symbol(&registry, "after_stale"));
+		assert!(!snapshot_has_symbol(&registry, "before_stale"));
+		assert!(!registry.queries().staleness().is_stale());
+	}
+
+	#[test]
+	fn refresh_stale_without_pending_is_a_noop() {
+		let (temp, _source, mut registry) = indexed_registry("pub fn untouched() {}\n");
+		let _ = &temp;
+		let generation = registry.queries().snapshot().expect("snapshot").generation;
+		let cursor = registry.events().event_cursor();
+
+		let live = registry
+			.live_commands()
+			.refresh_stale(WorkspaceRequest::new("acceptance-noop"));
+
+		assert!(matches!(
+			live.transition(),
+			WorkspaceTransition::Ready { generation: ready } if ready == generation
+		));
+		assert!(registry.events().events_since(cursor).is_empty());
+	}
+
+	#[test]
+	fn refresh_stale_with_rescan_runs_complete_build() {
+		let (temp, source, mut registry) = indexed_registry("pub fn before_stale() {}\n");
+		let _ = &temp;
+
+		fs::write(&source, "pub fn after_stale() {}\n").expect("rewrite source");
+		registry
+			.live_commands()
+			.mark_stale(WorkspaceLiveRefreshPlan::from_event(
+				crate::live::WorkspaceLiveEvent::RescanRequired,
+			));
+
+		let live = registry
+			.live_commands()
+			.refresh_stale(WorkspaceRequest::new("acceptance-rescan"));
+
+		assert!(live.replace_watcher());
+		assert!(matches!(
+			live.transition(),
+			WorkspaceTransition::Ready { .. }
+		));
+		assert!(snapshot_has_symbol(&registry, "after_stale"));
+		assert!(!registry.queries().staleness().is_stale());
+	}
+
+	fn indexed_registry(
+		body: &str,
+	) -> (
+		tempfile::TempDir,
+		std::path::PathBuf,
+		crate::LocalWorkspaceRegistry,
+	) {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let cache_dir = temp.path().join(".cache");
+		let source = temp.path().join("lib.rs");
+		fs::write(&source, body).expect("write source");
+		let mut registry = crate::LocalWorkspaceRegistry::local(
+			LocalWorkspaceOptions::new(vec![temp.path().to_path_buf()], None)
+				.with_cache_dir(Some(cache_dir)),
+		);
+		assert!(matches!(
+			registry
+				.commands()
+				.load_index(WorkspaceRequest::new("acceptance-index")),
+			WorkspaceTransition::Ready { .. }
+		));
+		(temp, source, registry)
 	}
 
 	fn snapshot_has_symbol(registry: &crate::LocalWorkspaceRegistry, name: &str) -> bool {

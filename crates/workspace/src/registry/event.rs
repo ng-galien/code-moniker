@@ -22,6 +22,7 @@ pub enum WorkspaceEventKind {
 	WorkCompleted,
 	WorkFailed,
 	SnapshotPublished,
+	StaleMarked,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -42,6 +42,8 @@ pub enum WorkspaceCommandKind {
 	RefreshChanges,
 	RefreshLivePlan,
 	Refresh,
+	MarkStale,
+	RefreshStale,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

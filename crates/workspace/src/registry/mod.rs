@@ -9,6 +9,7 @@ mod event;
 mod local;
 mod ports;
 mod runtime;
+mod staleness;
 mod state;
 
 pub use command::{
@@ -22,3 +23,4 @@ pub use runtime::{
 	WorkspaceCommands, WorkspaceEvents, WorkspaceLiveCommands, WorkspaceLivePlanTransition,
 	WorkspaceQueries, WorkspaceRegistry,
 };
+pub use staleness::WorkspaceStaleness;
