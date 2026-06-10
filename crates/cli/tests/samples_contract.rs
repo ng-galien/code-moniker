@@ -23,7 +23,9 @@ fn samples_match_their_expectations() {
 	let mut checked = 0;
 	for entry in std::fs::read_dir(samples_dir()).expect("samples directory") {
 		let path = entry.expect("samples entry").path();
-		if path.extension().is_none_or(|extension| extension != "md") {
+		if path.extension().is_none_or(|extension| extension != "md")
+			|| path.file_name().is_some_and(|name| name == "README.md")
+		{
 			continue;
 		}
 		check_sample(&path);

@@ -119,7 +119,8 @@ fn collect_errors(run: &CheckRun, root: &Path) -> Vec<String> {
 fn collect_silent_rules(run: &CheckRun) -> Vec<String> {
 	run.rule_violation_totals()
 		.into_iter()
-		.filter_map(|(rule_id, violations)| (violations == 0).then(|| rule_id.to_string()))
+		.filter(|(_, violations)| *violations == 0)
+		.map(|(rule_id, _)| rule_id.to_string())
 		.collect()
 }
 
