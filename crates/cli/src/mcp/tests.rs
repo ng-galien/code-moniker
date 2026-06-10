@@ -235,8 +235,7 @@ fn stale_workspace_gates_tools_with_refresh_hint() {
 
 	let error = registry
 		.call(&context, "code_moniker_read", &arguments)
-		.err()
-		.expect("stale gate error");
+		.expect_err("stale gate error");
 	assert!(error.to_string().contains("stale"));
 	assert!(error.to_string().contains("code_moniker_refresh"));
 }
