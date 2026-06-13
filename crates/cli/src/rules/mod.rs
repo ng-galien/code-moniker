@@ -152,7 +152,11 @@ const LEARN_TOPIC_DOCUMENTS: &[&str] = &[
 	include_str!("../../../../samples/learn/paths.cm.md"),
 	include_str!("../../../../samples/learn/refs.cm.md"),
 	include_str!("../../../../samples/learn/collections.cm.md"),
+	include_str!("../../../../samples/learn/domains.cm.md"),
 	include_str!("../../../../samples/learn/metrics.cm.md"),
+	include_str!("../../../../samples/learn/aggregates.cm.md"),
+	include_str!("../../../../samples/learn/relations.cm.md"),
+	include_str!("../../../../samples/learn/directives.cm.md"),
 	include_str!("../../../../samples/learn/profiles.cm.md"),
 ];
 
@@ -808,7 +812,9 @@ mod tests {
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let out = String::from_utf8(stdout).unwrap();
 		assert!(
-			out.contains("# Topics: basics, paths, refs, collections, metrics, profiles"),
+			out.contains(
+				"# Topics: basics, paths, refs, collections, domains, metrics, aggregates, relations, directives, profiles"
+			),
 			"{out}"
 		);
 		assert!(out.contains("# --- basics:"), "{out}");

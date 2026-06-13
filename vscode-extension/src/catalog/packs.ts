@@ -1,48 +1,5 @@
 import { langByTomlSection } from "../shared/languages";
-
-import architecture from "../../../samples/catalog/architecture.cm.md";
-import cleanArchitecture from "../../../samples/catalog/clean-architecture.cm.md";
-import csharp from "../../../samples/catalog/csharp.cm.md";
-import fowlerEaa from "../../../samples/catalog/fowler-eaa.cm.md";
-import fowlerRefactoring from "../../../samples/catalog/fowler-refactoring.cm.md";
-import go from "../../../samples/catalog/go.cm.md";
-import java from "../../../samples/catalog/java.cm.md";
-import javaLayerBoundaries from "../../../samples/catalog/java-layer-boundaries.cm.md";
-import python from "../../../samples/catalog/python.cm.md";
-import rust from "../../../samples/catalog/rust.cm.md";
-import rustNaming from "../../../samples/catalog/rust-naming.cm.md";
-import sql from "../../../samples/catalog/sql.cm.md";
-import testGuardrails from "../../../samples/catalog/test-guardrails.cm.md";
-import typescript from "../../../samples/catalog/typescript.cm.md";
-import learnBasics from "../../../samples/learn/basics.cm.md";
-import learnCollections from "../../../samples/learn/collections.cm.md";
-import learnMetrics from "../../../samples/learn/metrics.cm.md";
-import learnPaths from "../../../samples/learn/paths.cm.md";
-import learnProfiles from "../../../samples/learn/profiles.cm.md";
-import learnRefs from "../../../samples/learn/refs.cm.md";
-
-const CATALOG_DOCUMENTS = [
-	{ category: "sample" as const, document: architecture },
-	{ category: "sample" as const, document: cleanArchitecture },
-	{ category: "sample" as const, document: csharp },
-	{ category: "sample" as const, document: fowlerEaa },
-	{ category: "sample" as const, document: fowlerRefactoring },
-	{ category: "sample" as const, document: go },
-	{ category: "sample" as const, document: java },
-	{ category: "sample" as const, document: javaLayerBoundaries },
-	{ category: "sample" as const, document: python },
-	{ category: "sample" as const, document: rust },
-	{ category: "sample" as const, document: rustNaming },
-	{ category: "sample" as const, document: sql },
-	{ category: "sample" as const, document: testGuardrails },
-	{ category: "sample" as const, document: typescript },
-	{ category: "learn" as const, document: learnBasics },
-	{ category: "learn" as const, document: learnCollections },
-	{ category: "learn" as const, document: learnMetrics },
-	{ category: "learn" as const, document: learnPaths },
-	{ category: "learn" as const, document: learnProfiles },
-	{ category: "learn" as const, document: learnRefs },
-];
+import { CATALOG_DOCUMENTS } from "code-moniker-sample-packs";
 
 // Sample packs are built directly from the repository's scenario documents.
 // The CLI remains only the execution engine, not the catalog source.

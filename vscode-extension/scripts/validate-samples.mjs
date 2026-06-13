@@ -15,24 +15,14 @@ const learn = readdirSync(learnDir)
 	.filter((name) => name.endsWith(".cm.md"))
 	.sort();
 const source = readFileSync(packsSource, "utf8");
-const importedCatalog = [...source.matchAll(/samples\/catalog\/([^"]+\.cm\.md)"/g)]
-	.map((match) => match[1])
-	.sort();
-const importedLearn = [...source.matchAll(/samples\/learn\/([^"]+\.cm\.md)"/g)]
-	.map((match) => match[1])
-	.sort();
 
-if (JSON.stringify(importedCatalog) !== JSON.stringify(catalog)) {
-	console.error("Catalog sample imports do not match samples/catalog/*.cm.md");
-	console.error(`on disk:  ${catalog.join(", ")}`);
-	console.error(`imported: ${importedCatalog.join(", ")}`);
+if (!source.includes('from "code-moniker-sample-packs"')) {
+	console.error("Catalog packs must import the generated sample pack module.");
 	process.exit(1);
 }
 
-if (JSON.stringify(importedLearn) !== JSON.stringify(learn)) {
-	console.error("Learn sample imports do not match samples/learn/*.cm.md");
-	console.error(`on disk:  ${learn.join(", ")}`);
-	console.error(`imported: ${importedLearn.join(", ")}`);
+if (/samples\/(catalog|learn)\//.test(source)) {
+	console.error("Catalog packs must not manually import individual sample files.");
 	process.exit(1);
 }
 
