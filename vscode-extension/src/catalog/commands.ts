@@ -120,7 +120,13 @@ async function openEntry(
 			await openScenarioFile(entry.uri);
 			return;
 		}
-		if (entry.kind === "pack" && entry.document !== undefined) {
+		if (entry.kind === "pack") {
+			if (entry.document === undefined) {
+				void vscode.window.showWarningMessage(
+					"This sample needs a newer code-moniker binary. Reinstall it (`cargo install --path crates/cli`) and reload the window.",
+				);
+				return;
+			}
 			await openScenarioDocument(entry.document);
 			return;
 		}
