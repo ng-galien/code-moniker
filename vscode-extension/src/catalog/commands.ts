@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { LANGS, langById } from "../shared/languages";
+import { openScenarioDocument, openScenarioFile } from "../scenario/open";
 import { CatalogNode } from "./nodes";
 import { CatalogNotebookStore, catalogEntryIdFromUri } from "./notebooks";
 import { CatalogRepository } from "./repository";
@@ -112,12 +113,22 @@ async function openEntry(
 		void vscode.window.showErrorMessage(`Unknown catalog entry "${id}".`);
 		return;
 	}
-	if (entry.source === "user" && entry.uri) {
-		const notebook = await vscode.workspace.openNotebookDocument(entry.uri);
-		await vscode.window.showNotebookDocument(notebook, { preview: false });
-		return;
-	}
 	try {
+		// Scenarios (multi-file) open with the scenario notebook editor; user
+		// scenario files stay file-backed, builtin packs open from their document.
+		if (entry.kind === "scenario" && entry.uri) {
+			await openScenarioFile(entry.uri);
+			return;
+		}
+		if (entry.kind === "pack" && entry.document !== undefined) {
+			await openScenarioDocument(entry.document);
+			return;
+		}
+		if (entry.source === "user" && entry.uri) {
+			const notebook = await vscode.workspace.openNotebookDocument(entry.uri);
+			await vscode.window.showNotebookDocument(notebook, { preview: false });
+			return;
+		}
 		await notebooks.openBuiltin(await repository.readDocument(entry));
 	} catch (err) {
 		void vscode.window.showErrorMessage((err as Error).message);
@@ -148,6 +159,13 @@ async function resetEntry(
 		return;
 	}
 	try {
+		// Builtin scenarios are not edit-tracked (they open untitled); reset is a
+		// fresh open from the pristine document.
+		if (entry.kind === "pack" && entry.document !== undefined) {
+			await openScenarioDocument(entry.document);
+			void vscode.window.showInformationMessage(`Reopened "${entry.title}" from the catalog scenario.`);
+			return;
+		}
 		await notebooks.resetBuiltin(await repository.readDocument(entry));
 		void vscode.window.showInformationMessage(`Reset "${entry.title}" to the catalog sample.`);
 	} catch (err) {
@@ -184,8 +202,12 @@ async function copyToUserCatalog(
 			return;
 		}
 		provider.refresh();
-		const notebook = await vscode.workspace.openNotebookDocument(copied.uri);
-		await vscode.window.showNotebookDocument(notebook, { preview: false });
+		if (copied.uri.fsPath.endsWith(".md")) {
+			await openScenarioFile(copied.uri);
+		} else {
+			const notebook = await vscode.workspace.openNotebookDocument(copied.uri);
+			await vscode.window.showNotebookDocument(notebook, { preview: false });
+		}
 		void vscode.window.showInformationMessage(
 			`Copied "${entry.title}" to ${vscode.workspace.asRelativePath(copied.uri)}.`,
 		);

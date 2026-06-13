@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
 
 import { ScenarioController } from "./controller";
-import { ScenarioSerializer, scenarioToNotebook } from "./serializer";
-import { parseScenarioMarkdown } from "./markdown";
+import { ScenarioSerializer } from "./serializer";
+import { openScenarioDocument } from "./open";
 import { SCENARIO_NOTEBOOK_TYPE } from "./model";
 import { loadPackIndex, loadPackScenario } from "../catalog/packs";
 
@@ -43,9 +43,5 @@ async function openSampleScenario(): Promise<void> {
 		void vscode.window.showErrorMessage(scenario.error);
 		return;
 	}
-	const notebook = await vscode.workspace.openNotebookDocument(
-		SCENARIO_NOTEBOOK_TYPE,
-		scenarioToNotebook(parseScenarioMarkdown(scenario.document)),
-	);
-	await vscode.window.showNotebookDocument(notebook);
+	await openScenarioDocument(scenario.document);
 }

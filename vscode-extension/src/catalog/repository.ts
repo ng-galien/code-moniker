@@ -1,16 +1,15 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-import { langById, LANGS } from "../shared/languages";
+import { langById, langByTomlSection, LANGS } from "../shared/languages";
 import { CmnbCell, CmnbDocument } from "../notebook/model";
 import { lessonCells } from "../notebook/factory";
 import { parseRuleFile, RuleEntry } from "../rules/parse";
-import { sampleText } from "../notebook/samples";
 import { firstLine, workspaceLabel } from "../shared/workspace";
 import { CONCEPTS, LESSONS } from "./data";
 import { loadLessonCells } from "./lessons";
 import { CatalogDocument, CatalogEntry, CatalogRule } from "./model";
-import { PackEntry, loadPackContent, loadPackIndex } from "./packs";
+import { PackEntry, loadPackIndex } from "./packs";
 
 const USER_CATALOG_FOLDER = ".code-moniker/catalog";
 
@@ -86,15 +85,20 @@ export class CatalogRepository {
 				error: "Open a workspace folder before copying a catalog entry.",
 			};
 		}
+		await vscode.workspace.fs.createDirectory(folder);
+		if (entry.document !== undefined) {
+			const uri = await uniqueUri(folder, scenarioFileName(entry));
+			await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(entry.document));
+			return { ok: true, uri };
+		}
 		const cells = await this.readCells(entry);
-		const uri = await uniqueNotebookUri(folder, entry.fileName);
+		const uri = await uniqueUri(folder, entry.fileName);
 		const doc: CmnbDocument = {
 			version: 1,
 			title: entry.title,
 			catalog: { copiedFrom: entry.id },
 			cells,
 		};
-		await vscode.workspace.fs.createDirectory(folder);
 		await vscode.workspace.fs.writeFile(uri, encodeNotebook(doc));
 		this.cellCache.delete(`user:${uri.toString()}`);
 		return { ok: true, uri };
@@ -118,29 +122,60 @@ async function userEntries(folder: vscode.Uri | undefined): Promise<CatalogEntry
 	if (!workspace) {
 		return [];
 	}
-	const pattern = new vscode.RelativePattern(workspace, `${relativeGlob(workspace.uri, folder)}/**/*.cmnb`);
+	const root = relativeGlob(workspace.uri, folder);
+	const pattern = new vscode.RelativePattern(workspace, `${root}/**/*.{cmnb,md}`);
 	const uris = await vscode.workspace.findFiles(pattern);
 	const entries: CatalogEntry[] = [];
 	for (const uri of uris.sort((a, b) => a.fsPath.localeCompare(b.fsPath))) {
-		const doc = await readNotebook(uri);
-		if (!doc) {
-			continue;
+		const entry = uri.fsPath.endsWith(".md")
+			? await userScenarioEntry(uri)
+			: await userNotebookEntry(uri);
+		if (entry) {
+			entries.push(entry);
 		}
-		const title = doc.title ?? titleFromFile(uri);
-		entries.push({
-			id: `user:${uri.toString()}`,
-			source: "user",
-			kind: "notebook",
-			title,
-			fileName: path.basename(uri.fsPath),
-			blurb: blurbFromCells(doc.cells) ?? workspaceLabel(uri),
-			langId: dominantLanguage(doc.cells),
-			level: "Practice",
-			tags: ["user", ...languagesIn(doc.cells)],
-			uri,
-		});
 	}
 	return entries;
+}
+
+async function userNotebookEntry(uri: vscode.Uri): Promise<CatalogEntry | undefined> {
+	const doc = await readNotebook(uri);
+	if (!doc) {
+		return undefined;
+	}
+	const title = doc.title ?? titleFromFile(uri);
+	return {
+		id: `user:${uri.toString()}`,
+		source: "user",
+		kind: "notebook",
+		title,
+		fileName: path.basename(uri.fsPath),
+		blurb: blurbFromCells(doc.cells) ?? workspaceLabel(uri),
+		langId: dominantLanguage(doc.cells),
+		level: "Practice",
+		tags: ["user", ...languagesIn(doc.cells)],
+		uri,
+	};
+}
+
+async function userScenarioEntry(uri: vscode.Uri): Promise<CatalogEntry | undefined> {
+	const document = await readScenarioFile(uri);
+	if (document === undefined) {
+		return undefined;
+	}
+	const meta = scenarioFrontMatter(document);
+	return {
+		id: `user:${uri.toString()}`,
+		source: "user",
+		kind: "scenario",
+		title: meta.name ?? titleFromFile(uri),
+		fileName: path.basename(uri.fsPath),
+		blurb: meta.blurb ?? workspaceLabel(uri),
+		langId: meta.lang ? langByTomlSection(meta.lang)?.id : undefined,
+		level: "Practice",
+		tags: ["user", "scenario", ...(meta.lang ? [meta.lang] : [])],
+		uri,
+		document,
+	};
 }
 
 async function loadCells(
@@ -172,18 +207,12 @@ async function loadCells(
 		}
 		return loaded.cells;
 	}
-	const name = entry.id.replace(/^builtin:pack:/, "");
-	const content = await loadPackContent(name);
-	if (!content.ok) {
-		throw new Error(`Could not load pack "${name}": ${content.error}`);
-	}
-	const langId = entry.langId ?? "rust";
-	return lessonCells(
-		entry.title,
-		`${entry.blurb}\n\nFrom \`code-moniker rules learn ${name}\`.`,
-		langId,
-		sampleText(langId),
-		content.content,
+	// Packs are multi-file scenarios, not .cmnb notebooks. They are opened via
+	// the scenario notebook type (openScenarioDocument); reaching here means a
+	// caller tried to render a pack as a single-file .cmnb — fail loudly rather
+	// than silently flatten the layout.
+	throw new Error(
+		`Catalog entry "${entry.id}" is a scenario; open it with the scenario notebook, not as .cmnb.`,
 	);
 }
 
@@ -215,12 +244,13 @@ function builtinEntries(packs: PackEntry[]): CatalogEntry[] {
 			id: `builtin:pack:${entry.name}`,
 			source: "builtin",
 			kind: "pack",
-			title: `${entry.name} sample pack`,
-			fileName: `${entry.name} sample pack.cmnb`,
+			title: `${entry.name} scenario`,
+			fileName: `${entry.name}.md`,
 			blurb: entry.blurb,
 			langId: entry.langId,
 			level: "Reference",
-			tags: ["builtin", "pack", entry.name],
+			tags: ["builtin", "pack", "scenario", entry.name],
+			document: entry.document,
 		})),
 	];
 }
@@ -272,7 +302,7 @@ function blurbFromCells(cells: CmnbCell[]): string | undefined {
 }
 
 function titleFromFile(uri: vscode.Uri): string {
-	return path.basename(uri.fsPath, ".cmnb");
+	return path.basename(uri.fsPath).replace(/\.(cmnb|md)$/, "");
 }
 
 function relativeGlob(root: vscode.Uri, folder: vscode.Uri): string {
@@ -280,11 +310,12 @@ function relativeGlob(root: vscode.Uri, folder: vscode.Uri): string {
 	return relative || ".";
 }
 
-async function uniqueNotebookUri(folder: vscode.Uri, fileName: string): Promise<vscode.Uri> {
+async function uniqueUri(folder: vscode.Uri, fileName: string): Promise<vscode.Uri> {
 	const parsed = path.parse(safeFileName(fileName));
+	const ext = parsed.ext || ".cmnb";
 	for (let index = 0; ; index++) {
 		const suffix = index === 0 ? "" : ` ${index + 1}`;
-		const candidate = vscode.Uri.joinPath(folder, `${parsed.name}${suffix}${parsed.ext || ".cmnb"}`);
+		const candidate = vscode.Uri.joinPath(folder, `${parsed.name}${suffix}${ext}`);
 		if (!(await exists(candidate))) {
 			return candidate;
 		}
@@ -302,8 +333,37 @@ async function exists(uri: vscode.Uri): Promise<boolean> {
 
 function safeFileName(fileName: string): string {
 	const trimmed = fileName.replace(/[/:\\?%*"<>|]/g, "-").trim();
-	const name = trimmed.endsWith(".cmnb") ? trimmed : `${trimmed}.cmnb`;
-	return name || "Code Moniker sample.cmnb";
+	return trimmed || "code-moniker-sample.cmnb";
+}
+
+function scenarioFileName(entry: CatalogEntry): string {
+	const base = entry.fileName.endsWith(".md") ? entry.fileName : `${entry.title}.md`;
+	return safeFileName(base);
+}
+
+async function readScenarioFile(uri: vscode.Uri): Promise<string | undefined> {
+	try {
+		const bytes = await vscode.workspace.fs.readFile(uri);
+		const text = new TextDecoder().decode(bytes);
+		return text.includes("cm:rules") || text.includes("cm:file=") ? text : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function scenarioFrontMatter(document: string): { name?: string; lang?: string; blurb?: string } {
+	const match = /^---\n([\s\S]*?)\n---/.exec(document);
+	if (!match) {
+		return {};
+	}
+	const meta: { name?: string; lang?: string; blurb?: string } = {};
+	for (const line of match[1].split("\n")) {
+		const pair = /^(name|lang|blurb):\s*(.*)$/.exec(line.trim());
+		if (pair) {
+			meta[pair[1] as "name" | "lang" | "blurb"] = pair[2].trim();
+		}
+	}
+	return meta;
 }
 
 export function catalogLanguageLabel(langId: string | undefined): string {

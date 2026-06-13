@@ -4,7 +4,7 @@ import { CmnbCell } from "../notebook/model";
 import { RuleEntry } from "../rules/parse";
 
 export type CatalogSource = "builtin" | "user";
-export type CatalogKind = "lesson" | "concept" | "pack" | "notebook";
+export type CatalogKind = "lesson" | "concept" | "pack" | "notebook" | "scenario";
 export type CatalogLevel = "Basics" | "Practice" | "Reference";
 
 export interface CatalogEntry {
@@ -18,6 +18,8 @@ export interface CatalogEntry {
 	level: CatalogLevel;
 	tags: string[];
 	uri?: vscode.Uri;
+	/** Scenario Markdown document for multi-file scenario entries (packs). */
+	document?: string;
 }
 
 export interface CatalogRule {

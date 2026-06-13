@@ -8,6 +8,8 @@ export interface PackEntry {
 	name: string;
 	langId?: string;
 	blurb: string;
+	/** Full scenario Markdown document (multi-file layout + rules + expects). */
+	document?: string;
 }
 
 export type PackIndexResult =
@@ -25,20 +27,9 @@ export async function loadPackIndex(): Promise<PackIndexResult> {
 			name: sample.name,
 			langId: sample.lang ? langByTomlSection(sample.lang)?.id : undefined,
 			blurb: sample.blurb?.trim() || `Rule pack \`${sample.name}\`.`,
+			document: sample.document,
 		}));
 	return { ok: true, packs };
-}
-
-export type PackContentResult =
-	| { ok: true; content: string }
-	| { ok: false; error: string };
-
-export async function loadPackContent(name: string): Promise<PackContentResult> {
-	const result = await runLearnPack(name);
-	if (!result.ok) {
-		return { ok: false, error: result.error };
-	}
-	return { ok: true, content: result.report.samples[0]?.content ?? "" };
 }
 
 export type PackScenarioResult =
