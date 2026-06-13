@@ -3,7 +3,7 @@
 A scenario is a Markdown document that bundles a rules overlay, a file layout,
 and the violations that layout is expected to produce. One document is at the
 same time readable documentation, an acceptance fixture, and a CI-validated
-sample. The reference samples live in [`samples/`](../samples/).
+sample. The reference catalog samples live in [`samples/catalog/`](../samples/catalog/).
 
 ## Format
 
@@ -55,8 +55,8 @@ keys (anything else is an error):
 The info string is `<language> <attributes>`; the runner looks for one `cm:`
 token per fence:
 
-- `cm:rules` — the `.code-moniker.toml` overlay materialized at the workspace
-  root. At most one per document.
+- `cm:rules` — the `.code-moniker.toml` overlay mounted at the scenario
+  workspace root. At most one per document.
 - `cm:file=<relative/path>` — one workspace file. Paths must be clean relative
   paths: no `..`, no `.`, no absolute paths, no duplicates.
 - `cm:expect` — the expected violations, one per line. At most one per
@@ -92,19 +92,19 @@ directives.
 ## Running
 
 ```sh
-code-moniker check . --scenario samples/java-layer-boundaries.md
+code-moniker check . --scenario samples/catalog/java-layer-boundaries.cm.md
 ```
 
-The runner materializes the layout in a temporary directory, replays the real
-scan pipeline (project mode, so cross-file `refs` rules resolve), prints the
-observed violations, and exits non-zero on any mismatch. Rules that never fire
-are reported as `silent rules` — a sample whose rules are not demonstrated is
+The runner mounts the layout in an in-memory workspace, replays the real scan
+pipeline (project mode, so cross-file `refs` rules resolve), prints the observed
+violations, and exits non-zero on any mismatch. Rules that never fire are
+reported as `silent rules` — a sample whose rules are not demonstrated is
 rejected by the contract harness.
 
 ### Bless
 
 ```sh
-CM_SCENARIO_BLESS=1 code-moniker check . --scenario samples/java-layer-boundaries.md
+CM_SCENARIO_BLESS=1 code-moniker check . --scenario samples/catalog/java-layer-boundaries.cm.md
 CM_SCENARIO_BLESS=1 cargo test -p code-moniker --test samples_contract
 ```
 
@@ -114,6 +114,6 @@ update: an unexpected line shift is a signal, not noise.
 
 ## CI contract
 
-`crates/cli/tests/samples_contract.rs` replays every `samples/*.md` document
-and fails on: expectation mismatches, configured rules that never fire, and
-samples that demonstrate nothing.
+`crates/cli/tests/samples_contract.rs` replays every `samples/catalog/*.cm.md`
+document and fails on: expectation mismatches, configured rules that never
+fire, and samples that demonstrate nothing.

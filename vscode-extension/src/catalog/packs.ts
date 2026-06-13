@@ -1,9 +1,39 @@
-import { runLearnIndex, runLearnPack } from "../cli/facade";
 import { langByTomlSection } from "../shared/languages";
 
-// Sample packs served by the CLI (`code-moniker rules learn`). The CLI is the
-// single source of truth: names, blurbs, and languages come from the scenario
-// front matter, never from a hardcoded list.
+import architecture from "../../../samples/catalog/architecture.cm.md";
+import cleanArchitecture from "../../../samples/catalog/clean-architecture.cm.md";
+import csharp from "../../../samples/catalog/csharp.cm.md";
+import fowlerEaa from "../../../samples/catalog/fowler-eaa.cm.md";
+import fowlerRefactoring from "../../../samples/catalog/fowler-refactoring.cm.md";
+import go from "../../../samples/catalog/go.cm.md";
+import java from "../../../samples/catalog/java.cm.md";
+import javaLayerBoundaries from "../../../samples/catalog/java-layer-boundaries.cm.md";
+import python from "../../../samples/catalog/python.cm.md";
+import rust from "../../../samples/catalog/rust.cm.md";
+import rustNaming from "../../../samples/catalog/rust-naming.cm.md";
+import sql from "../../../samples/catalog/sql.cm.md";
+import testGuardrails from "../../../samples/catalog/test-guardrails.cm.md";
+import typescript from "../../../samples/catalog/typescript.cm.md";
+
+const CATALOG_DOCUMENTS = [
+	architecture,
+	cleanArchitecture,
+	csharp,
+	fowlerEaa,
+	fowlerRefactoring,
+	go,
+	java,
+	javaLayerBoundaries,
+	python,
+	rust,
+	rustNaming,
+	sql,
+	testGuardrails,
+	typescript,
+];
+
+// Sample packs are built directly from the repository's scenario documents.
+// The CLI remains only the execution engine, not the catalog source.
 export interface PackEntry {
 	name: string;
 	langId?: string;
@@ -17,36 +47,34 @@ export type PackIndexResult =
 	| { ok: false; error: string };
 
 export async function loadPackIndex(): Promise<PackIndexResult> {
-	const result = await runLearnIndex();
-	if (!result.ok) {
-		return result;
-	}
-	const packs = result.report.samples
-		.filter((sample) => sample.published !== false)
-		.map((sample) => ({
-			name: sample.name,
-			langId: sample.lang ? langByTomlSection(sample.lang)?.id : undefined,
-			blurb: sample.blurb?.trim() || `Rule pack \`${sample.name}\`.`,
-			document: sample.document,
-		}));
+	const packs = CATALOG_DOCUMENTS.map(packEntry).filter((pack) => pack !== undefined);
 	return { ok: true, packs };
 }
 
-export type PackScenarioResult =
-	| { ok: true; document: string }
-	| { ok: false; error: string };
+function packEntry(document: string): PackEntry | undefined {
+	const meta = frontMatter(document);
+	if (!meta.name || meta.published === "false") {
+		return undefined;
+	}
+	return {
+		name: meta.name,
+		langId: meta.lang ? langByTomlSection(meta.lang)?.id : undefined,
+		blurb: meta.blurb?.trim() || `Scenario \`${meta.name}\`.`,
+		document,
+	};
+}
 
-export async function loadPackScenario(name: string): Promise<PackScenarioResult> {
-	const result = await runLearnPack(name);
-	if (!result.ok) {
-		return { ok: false, error: result.error };
+function frontMatter(document: string): Record<string, string> {
+	const match = /^---\n([\s\S]*?)\n---/.exec(document);
+	if (!match) {
+		return {};
 	}
-	const document = result.report.samples[0]?.document;
-	if (!document) {
-		return {
-			ok: false,
-			error: `Sample \`${name}\` has no scenario document — update the code-moniker CLI.`,
-		};
+	const meta: Record<string, string> = {};
+	for (const line of match[1].split("\n")) {
+		const pair = /^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/.exec(line.trim());
+		if (pair) {
+			meta[pair[1]] = pair[2].trim();
+		}
 	}
-	return { ok: true, document };
+	return meta;
 }

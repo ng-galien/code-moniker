@@ -293,6 +293,26 @@ pub fn load_with_cli_default_rules(
 	load_with_project(project, include_defaults)
 }
 
+pub fn load_from_str(
+	raw: &str,
+	path: &str,
+	default_rules: Option<bool>,
+) -> Result<Config, ConfigError> {
+	let user: Config = toml::from_str(raw).map_err(|error| ConfigError::UserConfig {
+		path: path.to_string(),
+		error,
+	})?;
+	validate(&user, path)?;
+	let include_defaults = default_rules.unwrap_or_else(|| user.default_rules.unwrap_or(true));
+	load_with_project(
+		ProjectConfig {
+			root: Some(user),
+			fragments: Vec::new(),
+		},
+		include_defaults,
+	)
+}
+
 /// Load rule config, optionally starting from the embedded defaults.
 /// Missing user config is not an error: with defaults enabled they stand
 /// alone; with defaults disabled the resulting config is empty.

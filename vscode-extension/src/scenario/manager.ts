@@ -4,7 +4,7 @@ import { ScenarioController } from "./controller";
 import { ScenarioSerializer } from "./serializer";
 import { openScenarioDocument } from "./open";
 import { SCENARIO_NOTEBOOK_TYPE } from "./model";
-import { loadPackIndex, loadPackScenario } from "../catalog/packs";
+import { loadPackIndex } from "../catalog/packs";
 
 export function registerScenario(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
@@ -15,13 +15,13 @@ export function registerScenario(context: vscode.ExtensionContext): void {
 		new ScenarioController(),
 		vscode.commands.registerCommand(
 			"codeMoniker.openSampleScenario",
-			openSampleScenario,
+			() => openSampleScenario(context.globalStorageUri),
 		),
 	);
 }
 
-// Pick a published sample from the CLI and open it as a scenario notebook.
-async function openSampleScenario(): Promise<void> {
+// Pick a catalog sample and open it through the executable Markdown scenario view.
+async function openSampleScenario(storageUri: vscode.Uri): Promise<void> {
 	const index = await loadPackIndex();
 	if (!index.ok) {
 		void vscode.window.showErrorMessage(index.error);
@@ -38,10 +38,14 @@ async function openSampleScenario(): Promise<void> {
 	if (!pick) {
 		return;
 	}
-	const scenario = await loadPackScenario(pick.name);
-	if (!scenario.ok) {
-		void vscode.window.showErrorMessage(scenario.error);
+	const document = index.packs.find((pack) => pack.name === pick.name)?.document;
+	if (!document) {
+		void vscode.window.showErrorMessage(`Unknown sample scenario \`${pick.name}\`.`);
 		return;
 	}
-	await openScenarioDocument(scenario.document);
+	await openScenarioDocument(document, {
+		id: `builtin:pack:${pick.name}`,
+		fileName: `${pick.name}.cm.md`,
+		storageUri,
+	});
 }

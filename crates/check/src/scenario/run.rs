@@ -3,7 +3,13 @@ use std::path::Path;
 
 use super::Scenario;
 use super::expect::ExpectedViolation;
-use crate::check::command::{CheckRequest, CheckRun, DefaultRulesSelection, RuleSetRequest};
+use crate::check::command::{
+	CheckRun, FileError, FileReport, MemoryCheckWorkspace, check_project_files_workspace,
+	check_project_workspace,
+};
+use crate::check::config;
+use code_moniker_core::lang::Lang;
+use code_moniker_workspace::lang::path_to_lang;
 
 const RULES_FILE: &str = ".code-moniker.toml";
 
@@ -52,33 +58,42 @@ impl ScenarioRun {
 }
 
 impl Scenario {
-	pub fn materialize(&self, root: &Path) -> std::io::Result<()> {
-		for file in &self.files {
-			let path = root.join(&file.path);
-			if let Some(parent) = path.parent() {
-				std::fs::create_dir_all(parent)?;
-			}
-			std::fs::write(path, &file.body)?;
-		}
-		if let Some(rules) = &self.rules {
-			std::fs::write(root.join(RULES_FILE), rules)?;
-		}
-		Ok(())
-	}
-
 	pub fn run(&self, root: &Path, scheme: &str) -> anyhow::Result<ScenarioRun> {
-		let run = self.check_request(root, scheme).run()?;
+		let run = self.check(root, &[], scheme, true)?;
 		Ok(ScenarioRun::from_check(&run, root, self))
 	}
 
-	fn check_request(&self, root: &Path, scheme: &str) -> CheckRequest {
-		CheckRequest::new(
-			root.to_path_buf(),
-			RuleSetRequest::with_rules(root.join(RULES_FILE), scheme).with_default_rules(
-				DefaultRulesSelection::from_override(Some(self.effective_default_rules())),
-			),
-		)
-		.with_report(true)
+	pub fn check(
+		&self,
+		root: &Path,
+		files: &[std::path::PathBuf],
+		scheme: &str,
+		report: bool,
+	) -> anyhow::Result<CheckRun> {
+		let cfg = config::load_from_str(
+			self.rules.as_deref().unwrap_or(""),
+			RULES_FILE,
+			Some(self.effective_default_rules()),
+		)?;
+		let workspace = self.memory_workspace(root)?;
+		let (reports, errors) = check_scenario_workspace(&workspace, files, &cfg, scheme, report)?;
+		Ok(CheckRun {
+			reports,
+			errors,
+			elapsed_ms: 0,
+			skip_reason: None,
+		})
+	}
+
+	fn memory_workspace(&self, root: &Path) -> anyhow::Result<MemoryCheckWorkspace> {
+		let mut workspace = MemoryCheckWorkspace::new(root);
+		for file in &self.files {
+			let Some(lang) = scenario_file_lang(file)? else {
+				continue;
+			};
+			workspace = workspace.with_file(Path::new(&file.path), &file.body, lang);
+		}
+		Ok(workspace)
 	}
 
 	pub fn bless(&self, document: &str, actual: &[ExpectedViolation]) -> String {
@@ -99,6 +114,34 @@ impl Scenario {
 				format!("{document}{separator}\n```cm:expect\n{body}```\n")
 			}
 		}
+	}
+}
+
+fn check_scenario_workspace(
+	workspace: &MemoryCheckWorkspace,
+	files: &[std::path::PathBuf],
+	cfg: &crate::check::Config,
+	scheme: &str,
+	report: bool,
+) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
+	if files.is_empty() {
+		return check_project_workspace(workspace.root(), cfg, scheme, report, workspace);
+	}
+	check_project_files_workspace(workspace.root(), files, cfg, scheme, report, workspace)
+}
+
+fn scenario_file_lang(file: &super::ScenarioFile) -> anyhow::Result<Option<Lang>> {
+	match file.fence.as_str() {
+		"" => Ok(Some(path_to_lang(Path::new(&file.path))?)),
+		"rust" | "rs" => Ok(Some(Lang::Rs)),
+		"ts" | "typescript" => Ok(Some(Lang::Ts)),
+		"python" | "py" => Ok(Some(Lang::Python)),
+		"go" => Ok(Some(Lang::Go)),
+		"java" => Ok(Some(Lang::Java)),
+		"cs" | "csharp" => Ok(Some(Lang::Cs)),
+		"sql" | "plpgsql" => Ok(Some(Lang::Sql)),
+		"text" | "txt" | "md" | "markdown" => Ok(None),
+		_ => Ok(Some(path_to_lang(Path::new(&file.path))?)),
 	}
 }
 

@@ -11,7 +11,7 @@ export interface CatalogGroupNode {
 	id: string;
 	label: string;
 	description?: string;
-	groupKind: "builtin" | "user" | "language" | "rules" | "kind";
+	groupKind: "builtin" | "language" | "rules";
 	entries?: CatalogEntry[];
 	rules?: CatalogRule[];
 }
@@ -31,4 +31,3 @@ export interface CatalogInfoNode {
 	label: string;
 	description?: string;
 }
-

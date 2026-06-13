@@ -723,9 +723,10 @@ messages can use `{kind}`, `{source.name}`, `{source.kind}`, `{source.shape}`,
 
 Worked examples for layer boundaries, DDD contracts, adapters, test modules,
 and doc comments live in the [recipes section of check](check.md#recipes).
-Copyable, commented TOML samples live in
-[samples](../../samples/README.md), with one executable scenario per supported
-language.
+Executable catalog scenarios live in
+[samples/catalog](../../samples/catalog), with one scenario per supported
+language or rule family. Focused DSL learning snippets live in
+[samples/learn](../../samples/learn).
 Suppression directives live in [suppressions](check.md#suppressions). They
 use this grammar; no new construct is introduced.
 

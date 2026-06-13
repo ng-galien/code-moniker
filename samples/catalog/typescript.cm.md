@@ -14,53 +14,45 @@ infrastructure — neither through project imports nor through framework
 packages.
 
 ```toml cm:rules
-# TypeScript / JavaScript check sample.
-# Copy to `.code-moniker.toml` and delete rules that do not fit your repo.
-
-# Make this file the complete rule pack. Remove this line or set it to true
-# if you also want the embedded default naming rules.
 default_rules = false
 
 [aliases]
-# Def-scope aliases use `moniker`.
 src = "moniker ~ '**/dir:src/**'"
 tests = "moniker ~ '**/dir:/^tests?$/**'"
 domain = "moniker ~ '**/dir:domain/**'"
 infra = "moniker ~ '**/dir:infrastructure/**'"
 
-# Ref-scope aliases must name source/target explicitly.
 src_domain = "source ~ '**/dir:domain/**'"
 tgt_domain = "target ~ '**/dir:domain/**'"
 tgt_infra = "target ~ '**/dir:infrastructure/**'"
 
 [[ts.class.where]]
 id = "class-pascalcase"
-# Every TypeScript class should use PascalCase.
+rationale = "PascalCase helps classes read as named concepts instead of values or functions."
 expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
 message = "Class `{name}` must use PascalCase."
 
 [[ts.class.where]]
 id = "class-budget"
-# Keep classes small: at most 20 direct methods, and no direct method longer
-# than 60 lines.
+rationale = "Small classes are easier to explain, test, and review. This budget highlights classes that may be carrying too many responsibilities."
 expr = "count(method) <= 20 AND all(method, lines <= 60)"
 message = "Class `{name}` is too large."
 
 [[ts.interface.where]]
 id = "repository-lives-in-domain"
-# Interfaces named *Repository must live under the domain folder.
+rationale = "Repository interfaces describe what the domain needs. Keeping them in the domain prevents persistence details from owning the contract."
 expr = "name =~ Repository$ => $domain"
 message = "Repository interfaces must live in the domain layer."
 
 [[refs.where]]
 id = "domain-no-infra"
-# Direct refs from domain code to infrastructure code are forbidden.
+rationale = "Domain code should not import persistence or delivery code directly. That keeps business logic independent from adapters."
 expr = "$src_domain => NOT $tgt_infra"
 message = "Domain code must not depend directly on infrastructure."
 
 [[ts.refs.where]]
 id = "no-framework-imports-in-domain"
-# Domain files must not import framework packages directly.
+rationale = "Framework packages belong at the edge of the application. Domain files should stay usable without Express, Nest, or TypeORM."
 expr = """
   $src_domain AND kind = 'imports_symbol'
   => NOT target ~ '**/external_pkg:/^(express|nestjs|typeorm)$/**'

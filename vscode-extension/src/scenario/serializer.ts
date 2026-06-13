@@ -28,10 +28,17 @@ export class ScenarioSerializer implements vscode.NotebookSerializer {
 }
 
 export function scenarioToNotebook(document: ScenarioDocument): vscode.NotebookData {
-	const data = new vscode.NotebookData(document.cells.map(toCellData));
+	const visibleCells = document.cells.filter((cell) => cell.kind !== "expect");
+	const expectCells = document.cells.filter(
+		(cell): cell is Extract<ScenarioCell, { kind: "expect" }> => cell.kind === "expect",
+	);
+	const data = new vscode.NotebookData(visibleCells.map(toCellData));
 	const meta: ScenarioNotebookMeta = {};
 	if (document.frontMatter !== undefined) {
 		meta.frontMatter = document.frontMatter;
+	}
+	if (expectCells.length > 0) {
+		meta.expectCells = expectCells;
 	}
 	data.metadata = meta;
 	return data;
@@ -41,7 +48,7 @@ export function notebookToScenario(data: vscode.NotebookData): ScenarioDocument 
 	const meta = data.metadata as ScenarioNotebookMeta | undefined;
 	return {
 		...(meta?.frontMatter !== undefined ? { frontMatter: meta.frontMatter } : {}),
-		cells: data.cells.map(fromCellData),
+		cells: [...data.cells.map(fromCellData), ...(meta?.expectCells ?? [])],
 	};
 }
 
@@ -87,9 +94,6 @@ function fromCellData(cell: vscode.NotebookCellData): ScenarioCell {
 	const meta = cell.metadata as Partial<ScenarioCellMeta> | undefined;
 	if (meta?.cmType === "rules") {
 		return { kind: "rules", value };
-	}
-	if (meta?.cmType === "expect") {
-		return { kind: "expect", value };
 	}
 	return {
 		kind: "file",

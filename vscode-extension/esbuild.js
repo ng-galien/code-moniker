@@ -1,4 +1,4 @@
-// Bundles the extension host code (CommonJS) and the notebook renderer (ESM).
+// Bundles the extension host code (CommonJS) and the scenario output renderer (ESM).
 const esbuild = require("esbuild");
 
 const watch = process.argv.includes("--watch");
@@ -11,6 +11,7 @@ const extensionConfig = {
 	format: "cjs",
 	target: "node18",
 	external: ["vscode"],
+	loader: { ".md": "text" },
 	sourcemap: true,
 };
 

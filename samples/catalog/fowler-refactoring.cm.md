@@ -1,84 +1,53 @@
 ---
 name: fowler-refactoring
 lang: java
-blurb: Fowler's bad smells — long methods, large classes, data classes, feature envy
+blurb: Fowler's code smells explained with small Java examples
 published: true
 ---
 
 # Fowler — Refactoring (code smells)
 
 Ruleset inspired by Martin Fowler, *Refactoring*, chapter 3 "Bad Smells in
-Code". Six structurally-detectable smells are encoded: Long Method, Large
-Class, Long Parameter List, Data Class, Lazy Class and Feature Envy. Each
-demo class below exhibits exactly one smell.
+Code". Each rule introduces one smell that can be spotted from structure:
+long methods, large classes, long parameter lists, data classes, lazy classes,
+and feature envy.
 
 ```toml cm:rules
-# Fowler — Refactoring (code smells) check sample.
-#
-# Ruleset inspired by Martin Fowler, "Refactoring: Improving the Design of
-# Existing Code" (Addison-Wesley, 1999/2018), chapter 3 "Bad Smells in Code".
-# Community-authored encoding of the structurally-detectable smells from the
-# catalogue. Smells that require change-history analysis (Shotgun Surgery,
-# Divergent Change, Parallel Inheritance Hierarchies) are not encoded here.
-#
-# These rules are Java-scoped because they rely on Java class, method, field,
-# and parameter vocabulary. Thresholds are conventional and meant to be
-# adjusted per project.
-
 default_rules = false
-
-# Long Method ---------------------------------------------------------------
-# Fowler's rule of thumb: "more than a dozen lines of Java and the nose
-# twitches". The threshold below is more permissive; tighten as desired.
 
 [[java.method.where]]
 id   = "fowler-long-method"
+rationale = "A long method asks the reader to hold too much context at once. Extract smaller steps with names that explain the work."
 expr = "lines <= 30"
 message = "Long Method: `{name}` is too long; consider Extract Method."
 
-# Large Class ---------------------------------------------------------------
-# Cap the number of direct methods on a class.
-
 [[java.class.where]]
 id   = "fowler-large-class"
+rationale = "A large class often means several responsibilities live together. Splitting it can make changes safer."
 expr = "count(method) <= 20"
 message = "Large Class: `{name}` has too many methods; consider Extract Class."
 
-# Long Parameter List -------------------------------------------------------
-# Cap on the number of `param` defs nested under a callable.
-
 [[java.method.where]]
 id   = "fowler-long-parameter-list-method"
+rationale = "A long parameter list is hard to call correctly and hard to read. Group related values behind a clearer object."
 expr = "count(param) <= 5"
 message = "Long Parameter List: method `{name}` takes too many parameters; consider Introduce Parameter Object."
 
-# Data Class ----------------------------------------------------------------
-# A class with several fields but no behaviour beyond accessors. Heuristic:
-# at least three fields implies at least one non-accessor method.
-
 [[java.class.where]]
 id   = "fowler-data-class"
+rationale = "A data class with no behavior often means other objects are making its decisions for it."
 expr = "count(field) >= 3 => count(method, name !~ ^(get|set|is)[A-Z_].* AND name !~ ^(equals|hashCode|toString)$) >= 1"
 message = "Data Class: `{name}` has fields but no behaviour beyond accessors; consider Move Method."
 
-# Lazy Class ---------------------------------------------------------------
-# A class with too little going on no longer earns its keep.
-
 [[java.class.where]]
 id   = "fowler-lazy-class"
+rationale = "A class with almost no state or behavior may add indirection without helping the reader."
 expr = "count(method) >= 2 OR count(field) >= 2"
 message = "Lazy Class: `{name}` is too small; consider Inline Class."
 
-# Feature Envy --------------------------------------------------------------
-# A method calls more methods on other classes than on its own. Encoded by
-# partitioning the method's outgoing call refs by whether the call target's
-# parent moniker matches the method's parent moniker (same class) or not.
-# The volume guard (`< 3` calls) avoids flagging trivial delegates where one
-# external call would otherwise win the comparison against zero internal
-# calls.
-
 [[java.method.where]]
 id   = "fowler-feature-envy"
+rationale = "A method that mostly talks to another object may belong closer to that object."
 expr = """
   count(out_refs, kind = 'calls' OR kind = 'method_call') < 3
   OR count(out_refs, (kind = 'calls' OR kind = 'method_call') AND source.parent != target.parent)

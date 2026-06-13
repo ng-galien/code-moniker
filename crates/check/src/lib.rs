@@ -8,8 +8,9 @@ pub mod scenario;
 
 pub use check::command::{
 	CheckRequest, CheckRun, CheckSkipReason, CheckSummary, DefaultRulesSelection,
-	FailedRuleSummary, FileError, FileReport, RuleSetRequest, SourceReport, ViolationCounts,
-	check_graph_with_config, check_one_file, check_project, check_project_files,
+	FailedRuleSummary, FileError, FileReport, FsCheckWorkspace, MemoryCheckWorkspace,
+	RuleSetRequest, SourceReport, ViolationCounts, check_graph_with_config, check_one_file,
+	check_project, check_project_files, check_project_files_workspace, check_project_workspace,
 	check_source_with_config, compiled_specs_with_config,
 };
 pub use check::config::{Config, RuleSeverity, load_with_cli_default_rules, load_with_overrides};

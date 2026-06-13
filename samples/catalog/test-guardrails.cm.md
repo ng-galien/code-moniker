@@ -1,67 +1,45 @@
 ---
 name: test-guardrails
 lang: python
-blurb: Production code stays isolated from test code and test names stay readable
+blurb: Production code stays separate from test helpers, and tests read clearly
 published: true
 ---
 
 # Test guardrails
 
 Static guardrails around tests: production code must not depend on test code,
-test doubles must not ship in production source sets, and test functions must
-read like tests. The rules are language-agnostic moniker patterns; this
-scenario demonstrates them with a small Python layout.
+test doubles must not ship in production sources, and test functions should
+read like behavior claims. The scenario demonstrates those habits with a small
+Python layout.
 
 ```toml cm:rules
-# Test guardrail check sample.
-#
-# These rules enforce static guardrails around tests. They do not validate a
-# temporal workflow; `code-moniker check` only analyzes the current graph.
-#
-# Use this sample to keep production code isolated from test code, keep test
-# doubles out of production source sets, and keep test names easy to scan.
-
 default_rules = false
 
 [aliases]
-# Def-scope alias. Use inside [[<lang>.<kind>.where]] rules.
 test_src = "moniker ~ '**/*:/^tests?$/**'"
 
-# Ref-scope aliases. Use inside [[refs.where]] rules.
 src_test = "source ~ '**/*:/^tests?$/**'"
 tgt_test = "target ~ '**/*:/^tests?$/**'"
 
-# Production / test source separation ---------------------------------------
-
 [[refs.where]]
 id = "test-production-does-not-depend-on-tests"
-# Production code must never import/call test code. This catches accidental
-# coupling introduced while moving fast in an agent loop.
+rationale = "Production code should not rely on helpers that only exist for tests. This keeps shipped code independent from the test tree."
 expr = "NOT $src_test => NOT $tgt_test"
 message = "Production code must not depend on test code."
 
-# Test doubles ---------------------------------------------------------------
-
 [[default.class.where]]
 id = "test-doubles-live-in-tests"
-# Test doubles should not ship in production source sets. Tune the suffix list
-# if your project has production types named *Mock or *Fixture.
+rationale = "Names like Fake, Mock, and Fixture usually describe test doubles. Keeping them under tests prevents accidental production use."
 expr = "name =~ (Stub|Fake|Mock|Spy|Dummy|TestDouble|Fixture|Mother)$ => $test_src"
 message = "Test double `{name}` must live in test sources."
 
-# Test naming ----------------------------------------------------------------
-
 [[default.function.where]]
 id = "test-functions-are-named-like-tests"
-# For languages that expose test functions as `function`, keep test names
-# readable. Rust has a dedicated `test` kind; see rust.toml for Rust-specific
-# naming conventions.
+rationale = "A test function should read like a behavior claim, so failures are understandable in a report."
 expr = "$test_src => name =~ ^(test|should|it)(_|[A-Z0-9]).*"
 message = "Test function `{name}` should read like a test."
 
 [profiles.agent-test-guardrails]
-# Use this profile from an agent harness. It keeps only fast, local rules that
-# reduce common test hygiene regressions.
 enable = [
   "^refs\\.test-production-does-not-depend-on-tests$",
   "^default\\.class\\.test-doubles-live-in-tests$",

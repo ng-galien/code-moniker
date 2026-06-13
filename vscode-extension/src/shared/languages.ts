@@ -1,8 +1,8 @@
-// Maps a notebook sample language to its VSCode editor language id and the
+// Maps a scenario sample language to its VSCode editor language id and the
 // code-moniker CLI tag accepted by `rules eval --lang`.
 
 export interface LangDef {
-	/** Identifier stored in the .cmnb file and in cell metadata. */
+	/** Identifier stored in scenario cell metadata. */
 	id: string;
 	/** VSCode languageId used to syntax-highlight the sample cell. */
 	vscodeId: string;

@@ -17,6 +17,9 @@ use crate::{DEFAULT_SCHEME, Exit};
 
 pub fn run<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut W2) -> Exit {
 	if let Some(scenario) = &args.scenario {
+		if args.format == CheckFormat::Json {
+			return run_scenario_check(args, scenario, stdout, stderr);
+		}
 		return crate::check_scenario::run(scenario, stdout, stderr);
 	}
 	let request = check_request_from_args(args);
@@ -39,6 +42,34 @@ pub fn run<W1: Write, W2: Write>(args: &CheckArgs, stdout: &mut W1, stderr: &mut
 		}
 		Err(e) => {
 			let _ = writeln!(stderr, "code-moniker: {e:#}");
+			Exit::UsageError
+		}
+	}
+}
+
+fn run_scenario_check<W1: Write, W2: Write>(
+	args: &CheckArgs,
+	scenario: &Path,
+	stdout: &mut W1,
+	stderr: &mut W2,
+) -> Exit {
+	match crate::check_scenario::check_run(scenario, &args.files, args.report) {
+		Ok(run) => {
+			if should_render(args.format, &run)
+				&& let Err(error) = write_reports_json(stdout, &run, args.report)
+			{
+				let _ = writeln!(stderr, "code-moniker: {error:#}");
+				return Exit::UsageError;
+			}
+			let outcome = CheckOutcome::from_run(&run);
+			if outcome.any_error || outcome.any_error_violation {
+				Exit::NoMatch
+			} else {
+				Exit::Match
+			}
+		}
+		Err(error) => {
+			let _ = writeln!(stderr, "code-moniker: {error:#}");
 			Exit::UsageError
 		}
 	}

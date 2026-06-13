@@ -26,4 +26,6 @@ export interface ScenarioCellMeta {
 
 export interface ScenarioNotebookMeta {
 	frontMatter?: string;
+	/** `cm:expect` blocks are kept for CLI scenario tests, but hidden in the UI. */
+	expectCells?: Extract<ScenarioCell, { kind: "expect" }>[];
 }

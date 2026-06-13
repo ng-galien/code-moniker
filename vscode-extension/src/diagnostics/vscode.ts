@@ -7,7 +7,7 @@ export function toDiagnostic(violation: Violation): vscode.Diagnostic {
 	const range = new vscode.Range(Math.max(0, start - 1), 0, Math.max(0, end - 1), 4096);
 	const diag = new vscode.Diagnostic(
 		range,
-		violation.explanation ? `${violation.explanation}\n${violation.message}` : violation.message,
+		diagnosticMessage(violation),
 		violation.severity === "warn"
 			? vscode.DiagnosticSeverity.Warning
 			: vscode.DiagnosticSeverity.Error,
@@ -15,4 +15,12 @@ export function toDiagnostic(violation: Violation): vscode.Diagnostic {
 	diag.source = "code-moniker";
 	diag.code = violation.rule_id;
 	return diag;
+}
+
+function diagnosticMessage(violation: Violation): string {
+	const message = violation.explanation ?? violation.message;
+	if (!violation.explanation) {
+		return `[${violation.rule_id}] ${message}`;
+	}
+	return `[${violation.rule_id}] ${message}\n${violation.message}`;
 }

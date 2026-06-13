@@ -12,9 +12,6 @@ functions stay snake_case, classes stay within a method budget, and domain
 packages never import infrastructure packages directly.
 
 ```toml cm:rules
-# Python check sample.
-# Copy to `.code-moniker.toml` and adapt package names.
-
 default_rules = false
 
 [aliases]
@@ -28,31 +25,31 @@ tgt_infra = "target ~ '**/package:infrastructure/**'"
 
 [[python.class.where]]
 id = "class-pascalcase"
-# Python classes should use PascalCase.
+rationale = "PascalCase helps classes stand out from functions and modules, which makes Python code easier to scan."
 expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
 message = "Class `{name}` must use PascalCase."
 
 [[python.function.where]]
 id = "function-snakecase"
-# Module-level functions should use snake_case.
+rationale = "Snake case is the usual shape for Python functions. A consistent shape lets readers recognize callables quickly."
 expr = "name =~ ^[a-z_][a-z0-9_]*$"
 message = "Function `{name}` must use snake_case."
 
 [[python.method.where]]
 id = "private-methods-underscore"
-# Private methods should be visibly private by name too.
+rationale = "A leading underscore tells readers that a method is an implementation detail, not part of the class contract."
 expr = "visibility = 'private' => name =~ ^_"
 message = "Private method `{name}` must start with underscore."
 
 [[python.class.where]]
 id = "class-budget"
-# Avoid large classes.
+rationale = "A class with too many methods is hard to learn in one pass. Use this budget as a prompt to split responsibilities."
 expr = "count(method) <= 20 AND all(method, lines <= 60)"
 message = "Class `{name}` is too large."
 
 [[python.refs.where]]
 id = "domain-no-infra"
-# Direct refs from domain packages to infrastructure packages are forbidden.
+rationale = "Domain code should describe the business problem. Database and framework details belong in outer packages."
 expr = "$src_domain => NOT $tgt_infra"
 message = "Domain code must not depend directly on infrastructure."
 ```

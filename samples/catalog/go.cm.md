@@ -12,9 +12,6 @@ keep PascalCase names, exported functions and all methods stay short, and
 domain packages never import infrastructure packages directly.
 
 ```toml cm:rules
-# Go check sample.
-# Copy to `.code-moniker.toml` and adapt package names.
-
 default_rules = false
 
 [aliases]
@@ -27,31 +24,31 @@ tgt_infra = "target ~ '**/package:/^(infra|infrastructure)$/**'"
 
 [[go.interface.where]]
 id = "interface-small"
-# Go interfaces should stay focused.
+rationale = "Small Go interfaces are easier to satisfy and easier to mock. A wide interface often means one concept is doing too much."
 expr = "count(method) <= 5"
 message = "Interface `{name}` has too many methods."
 
 [[go.struct.where]]
 id = "exported-struct-pascalcase"
-# Public Go types are exported by PascalCase names.
+rationale = "In Go, PascalCase is how a type becomes exported. This rule keeps public types visibly public and idiomatic."
 expr = "visibility = 'public' => name =~ ^[A-Z][A-Za-z0-9]*$"
 message = "Exported struct `{name}` must use PascalCase."
 
 [[go.func.where]]
 id = "exported-func-small"
-# Exported functions should stay readable.
+rationale = "Exported functions are entry points for other packages. Keeping them short helps readers understand the package surface quickly."
 expr = "visibility = 'public' => lines <= 80"
 message = "Exported function `{name}` is too long."
 
 [[go.method.where]]
 id = "method-small"
-# Keep methods short regardless of export status.
+rationale = "Short methods keep receiver behavior local and make package code easier to review."
 expr = "lines <= 80"
 message = "Method `{name}` is too long."
 
 [[go.refs.where]]
 id = "domain-no-infra"
-# Direct refs from domain packages to infrastructure packages are forbidden.
+rationale = "Domain packages should not know storage or transport details. Keep infrastructure behind package boundaries."
 expr = "$src_domain => NOT $tgt_infra"
 message = "Domain code must not depend directly on infrastructure."
 ```

@@ -13,9 +13,6 @@ PascalCase, public functions stay short, test names announce themselves with a
 infrastructure directly.
 
 ```toml cm:rules
-# Rust check sample.
-# Copy to `.code-moniker.toml` and adapt the folder aliases to your crate.
-
 default_rules = false
 
 [aliases]
@@ -29,31 +26,31 @@ tgt_infra = "target ~ '**/dir:/^(infra|infrastructure)$/**'"
 
 [[rust.trait.where]]
 id = "trait-pascalcase"
-# Public traits should use PascalCase.
+rationale = "Public traits are part of the crate vocabulary. PascalCase makes them look like Rust types and keeps APIs easy to scan."
 expr = "visibility = 'public' => name =~ ^[A-Z][A-Za-z0-9]*$"
 message = "Public trait `{name}` must use PascalCase."
 
 [[rust.struct.where]]
 id = "struct-pascalcase"
-# Public structs should use PascalCase.
+rationale = "Public structs introduce named concepts. PascalCase helps readers recognize them as Rust types immediately."
 expr = "visibility = 'public' => name =~ ^[A-Z][A-Za-z0-9]*$"
 message = "Public struct `{name}` must use PascalCase."
 
 [[rust.fn.where]]
 id = "public-fn-small"
-# Public free functions should stay short.
+rationale = "A public function is harder to change once other code depends on it. Keeping it short makes its contract easier to understand."
 expr = "visibility = 'public' => lines <= 80"
 message = "Public function `{name}` is too long."
 
 [[rust.test.where]]
 id = "tests-start-with-describes-or_should"
-# Extracted Rust test functions can have their own kind: `test`.
+rationale = "A test name should say what behavior it protects before the reader opens the body."
 expr = "name =~ ^(test_|should_|it_)"
 message = "Rust test `{name}` should start with test_, should_, or it_."
 
 [[rust.refs.where]]
 id = "domain-no-infra"
-# Direct refs from domain Rust code to infrastructure Rust code are forbidden.
+rationale = "Domain code should express business decisions. Infrastructure details belong behind adapters so the domain stays easy to test and move."
 expr = "$src_domain => NOT $tgt_infra"
 message = "Domain code must not depend directly on infrastructure."
 ```

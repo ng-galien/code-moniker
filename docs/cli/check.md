@@ -9,7 +9,7 @@ code-moniker rules init [ROOT] [--rules <PATH>]
 code-moniker rules disable [ROOT] [--rules <PATH>]
 code-moniker rules enable [ROOT] [--rules <PATH>]
 code-moniker rules show [ROOT] [--rules <PATH>] [--profile <NAME>] [--default-rules on|off] [--format text|json]
-code-moniker rules learn [SAMPLE] [--format text|json]
+code-moniker rules learn [TOPIC] [--format text|json]
 code-moniker rules eval --rules <PATH> --lang <TAG> [--profile <NAME>] [--default-rules on|off] [--format text|json] [FILE]
 code-moniker harness codex [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
 code-moniker harness claude [ROOT] [--profile <NAME>] [--scope <PATH>] [--max-violations <N>]
@@ -279,27 +279,25 @@ rules or aliases. `rules show` lists every declared fragment and reports
 `active_rules` separately from `declared_rules`, so disabled fragments and
 profile-filtered rules do not disappear silently.
 
-Use `rules learn` to print the example rule packs embedded in the binary.
-This is intended for agents and local tooling: they can inspect language
-and architecture examples without fetching docs from GitHub or depending
-on a checkout of the repository.
+Use `rules learn` to print focused DSL learning topics. These are short,
+copyable rule snippets for learning the expression language; full executable
+catalog scenarios live under `samples/catalog/`.
 
 ```sh
 code-moniker rules learn
-code-moniker rules learn java
-code-moniker rules learn architecture --format json
+code-moniker rules learn refs
+code-moniker rules learn paths --format json
 ```
 
-Known samples are `architecture`, `csharp`, `go`, `java`, `python`,
-`rust`, `sql`, and `typescript`.
+Known topics are `basics`, `paths`, `refs`, `collections`, `metrics`, and
+`profiles`.
 
 ### Evaluate a rules fragment against a snippet
 
 Use `rules eval` to try a real `.code-moniker.toml` fragment against one sample,
 without checking out a whole project. It is `check` applied to an in-memory
 source: it loads the rules the same way (defaults, overlay, profiles), compiles
-them for `--lang`, and evaluates them against the sample. This is the engine
-behind the [VSCode rule notebook](../../vscode-extension/README.md).
+them for `--lang`, and evaluates them against the sample.
 
 The `--rules` file is an ordinary rules TOML — the same syntax you write in
 `.code-moniker.toml`, with `[[<lang>.<kind>.where]]` / `[[<lang>.shape.<shape>.where]]`
@@ -524,15 +522,15 @@ samples:
 
 | Language | Sample |
 | -------- | ------ |
-| Architecture patterns | [architecture.md](../../samples/architecture.md) |
-| Test guardrails | [test-guardrails.md](../../samples/test-guardrails.md) |
-| TypeScript / JavaScript | [typescript.md](../../samples/typescript.md) |
-| Rust | [rust.md](../../samples/rust.md) |
-| Java | [java.md](../../samples/java.md) |
-| Python | [python.md](../../samples/python.md) |
-| Go | [go.md](../../samples/go.md) |
-| C# | [csharp.md](../../samples/csharp.md) |
-| SQL / PL/pgSQL | [sql.md](../../samples/sql.md) |
+| Architecture patterns | [architecture.cm.md](../../samples/catalog/architecture.cm.md) |
+| Test guardrails | [test-guardrails.cm.md](../../samples/catalog/test-guardrails.cm.md) |
+| TypeScript / JavaScript | [typescript.cm.md](../../samples/catalog/typescript.cm.md) |
+| Rust | [rust.cm.md](../../samples/catalog/rust.cm.md) |
+| Java | [java.cm.md](../../samples/catalog/java.cm.md) |
+| Python | [python.cm.md](../../samples/catalog/python.cm.md) |
+| Go | [go.cm.md](../../samples/catalog/go.cm.md) |
+| C# | [csharp.cm.md](../../samples/catalog/csharp.cm.md) |
+| SQL / PL/pgSQL | [sql.cm.md](../../samples/catalog/sql.cm.md) |
 
 Literature-inspired samples encode structural rules from canonical software
 engineering literature. They are community-authored examples; attribution and
@@ -540,9 +538,9 @@ non-endorsement notes sit at the top of each file.
 
 | Source | Sample |
 | ------ | ------ |
-| Robert C. Martin, *Clean Architecture* (2017) | [clean-architecture.md](../../samples/clean-architecture.md) |
-| Martin Fowler, *Patterns of Enterprise Application Architecture* (2002) | [fowler-eaa.md](../../samples/fowler-eaa.md) |
-| Martin Fowler, *Refactoring* (1999/2018) | [fowler-refactoring.md](../../samples/fowler-refactoring.md) |
+| Robert C. Martin, *Clean Architecture* (2017) | [clean-architecture.cm.md](../../samples/catalog/clean-architecture.cm.md) |
+| Martin Fowler, *Patterns of Enterprise Application Architecture* (2002) | [fowler-eaa.cm.md](../../samples/catalog/fowler-eaa.cm.md) |
+| Martin Fowler, *Refactoring* (1999/2018) | [fowler-refactoring.cm.md](../../samples/catalog/fowler-refactoring.cm.md) |
 
 See [Code smell review](code-smell-review.md) for the executable local
 coverage model, current operator gaps, and the warning-first review
@@ -595,7 +593,7 @@ looks like an ordinary method call.
 
 This is a useful check example because the mistake is not local to one
 syntax node. The executable Java sample is the copy-paste source of truth:
-[samples/java.md](../../samples/java.md). It contains the
+[samples/catalog/java.cm.md](../../samples/catalog/java.cm.md). It contains the
 method-level and class-level proxy checks with the same annotation set.
 
 Those rules first select proxy-advised declarations from annotation refs,

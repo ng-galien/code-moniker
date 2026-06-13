@@ -1,43 +1,26 @@
 ---
 name: clean-architecture
 lang: java
-blurb: Dependencies point inward and inner rings stay framework-free
+blurb: Dependencies point inward and the core stays framework-free
 published: true
 ---
 
 # Clean Architecture
 
-Ruleset inspired by Robert C. Martin, *Clean Architecture* (2017). The rings,
-from inner to outer, are `entities -> usecases -> adapters -> frameworks`.
-The Dependency Rule says source dependencies point only inward; two annotation
-rules keep framework markers out of the inner rings; two structural heuristics
-encode the Stable Abstractions and Interface Segregation principles.
+Ruleset inspired by Robert C. Martin, *Clean Architecture* (2017). The sample
+uses four rings, from inner to outer: `entities -> usecases -> adapters ->
+frameworks`. The rules teach the main habit: inner code should not know outer
+details, and the core should stay free of framework annotations.
 
 ```toml cm:rules
-# Clean Architecture check sample.
-#
-# Ruleset inspired by Robert C. Martin, "Clean Architecture: A Craftsman's
-# Guide to Software Structure and Design" (Prentice Hall, 2017). Community-
-# authored encoding of structural principles from the book; not endorsed by
-# the author. Principles that require semantic judgement (SRP, OCP, LSP) and
-# whole-graph analyses (Acyclic Dependencies Principle) are not encoded here;
-# the latter belongs in a SQL query against an ingested code_graph.
-#
-# Layer convention used below, from inner to outer:
-#   entities -> use_cases -> adapters -> frameworks
-#
-# Adapt the package and directory names to match your repository before use.
-
 default_rules = false
 
 [aliases]
-# Def-scope aliases.
 entities    = "moniker ~ '**/*:/^(entities|domain)$/**'"
 use_cases   = "moniker ~ '**/*:/^(usecases|use_cases|application)$/**'"
 adapters    = "moniker ~ '**/*:/^(adapters|interface_adapters)$/**'"
 frameworks  = "moniker ~ '**/*:/^(frameworks|infrastructure)$/**'"
 
-# Ref-scope aliases.
 src_entities   = "source ~ '**/*:/^(entities|domain)$/**'"
 src_use_cases  = "source ~ '**/*:/^(usecases|use_cases|application)$/**'"
 src_adapters   = "source ~ '**/*:/^(adapters|interface_adapters)$/**'"
@@ -46,60 +29,47 @@ tgt_use_cases  = "target ~ '**/*:/^(usecases|use_cases|application)$/**'"
 tgt_adapters   = "target ~ '**/*:/^(adapters|interface_adapters)$/**'"
 tgt_frameworks = "target ~ '**/*:/^(frameworks|infrastructure)$/**'"
 
-# Framework annotations that should not bleed into inner rings. Extend the
-# list with framework markers used in your stack.
 framework_annotation = "target.name =~ ^(Component|Service|Repository|Controller|RestController|Configuration|Bean|Autowired|Entity|Table|Column|Inject|Path|GET|POST|PUT|DELETE)$"
-
-# The Dependency Rule -------------------------------------------------------
-# Chapter 22. Source code dependencies point only inward, from outer rings
-# to inner rings.
 
 [[refs.where]]
 id   = "clean-arch-entities-depend-on-nothing-outer"
+rationale = "Entities are the innermost policy. They should not know use cases, adapters, frameworks, or delivery details."
 expr = "$src_entities => NOT ($tgt_use_cases OR $tgt_adapters OR $tgt_frameworks)"
 message = "Clean Architecture: entities must not depend on outer rings."
 
 [[refs.where]]
 id   = "clean-arch-use-cases-depend-on-nothing-outer"
+rationale = "Use cases may coordinate entities, but they should not depend on adapters or frameworks."
 expr = "$src_use_cases => NOT ($tgt_adapters OR $tgt_frameworks)"
 message = "Clean Architecture: use cases must not depend on adapters or frameworks."
 
 [[refs.where]]
 id   = "clean-arch-adapters-depend-on-nothing-outer"
+rationale = "Adapters translate between the core and outside systems. Framework code should stay outside that boundary."
 expr = "$src_adapters => NOT $tgt_frameworks"
 message = "Clean Architecture: adapters must not depend on frameworks."
 
-# Independence from frameworks ---------------------------------------------
-# Chapter 20. Entities and use cases must not carry framework annotations.
-# The rule inspects annotation refs.
-
 [[refs.where]]
 id   = "clean-arch-entities-no-framework-annotation"
+rationale = "Entities should be usable without loading a framework. Framework annotations make the core harder to move and test."
 expr = "$src_entities AND kind = 'annotates' => NOT $framework_annotation"
 message = "Clean Architecture: entity must not carry framework annotations."
 
 [[refs.where]]
 id   = "clean-arch-use-cases-no-framework-annotation"
+rationale = "Use cases should describe application behavior, not framework wiring."
 expr = "$src_use_cases AND kind = 'annotates' => NOT $framework_annotation"
 message = "Clean Architecture: use case must not carry framework annotations."
 
-# Stable Abstractions Principle ---------------------------------------------
-# Chapter 14. A class with many incoming dependencies is stable and should be
-# depended on through an abstraction. The DSL does not expose abstract-class
-# modifiers portably, so this heuristic flags high fan-in classes. Threshold is
-# conventional. `code-moniker check` evaluates a source file graph at a time;
-# use SQL over an ingested code_graph for project-wide fan-in metrics.
-
 [[default.class.where]]
 id   = "clean-arch-stable-abstractions"
+rationale = "A class with many dependents becomes hard to change. Consider introducing an abstraction before it becomes a bottleneck."
 expr = "count(in_refs) < 20"
 message = "Clean Architecture (SAP): class `{name}` has many dependents; introduce or depend on an abstraction."
 
-# Interface Segregation -----------------------------------------------------
-# SOLID I. Threshold is conventional; tighten per project.
-
 [[default.interface.where]]
 id   = "clean-arch-interface-segregation"
+rationale = "A wide interface forces callers to depend on operations they may not need. Smaller interfaces keep dependencies precise."
 expr = "count(method) <= 8"
 message = "Clean Architecture (ISP): interface `{name}` exposes too many methods."
 

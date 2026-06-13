@@ -2,12 +2,12 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"name": "Run Rule Notebook Extension",
+			"name": "Run Code Moniker Extension",
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
 				"--extensionDevelopmentPath=${workspaceFolder}",
-				"${workspaceFolder}/notebooks/rust.cmnb"
+				"${workspaceFolder}/../samples/catalog/rust-naming.cm.md"
 			],
 			"outFiles": [
 				"${workspaceFolder}/dist/**/*.js"

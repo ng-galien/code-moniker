@@ -13,9 +13,6 @@ namespace-level layering rule: `Domain` code must never reference
 `Infrastructure` code directly.
 
 ```toml cm:rules
-# C# check sample.
-# Copy to `.code-moniker.toml` and adapt namespace names.
-
 default_rules = false
 
 [aliases]
@@ -28,31 +25,31 @@ tgt_infra = "target ~ '**/package:Infrastructure/**'"
 
 [[cs.class.where]]
 id = "class-pascalcase"
-# C# classes should use PascalCase.
+rationale = "PascalCase is the usual C# shape for types. It makes domain concepts stand out from variables and members."
 expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
 message = "Class `{name}` must use PascalCase."
 
 [[cs.interface.where]]
 id = "interface-starts-with-i"
-# C# interfaces often use the IName convention.
+rationale = "The I-prefix is a common .NET convention. It helps readers spot abstractions at a glance."
 expr = "name =~ ^I[A-Z][A-Za-z0-9]*$"
 message = "Interface `{name}` must start with I."
 
 [[cs.method.where]]
 id = "public-method-pascalcase"
-# Public methods should use PascalCase.
+rationale = "Public methods are part of the class API. PascalCase keeps that API consistent with normal C# usage."
 expr = "visibility = 'public' => name =~ ^[A-Z][A-Za-z0-9]*$"
 message = "Public method `{name}` must use PascalCase."
 
 [[cs.class.where]]
 id = "class-budget"
-# Limit class size through direct child methods and properties.
+rationale = "A class with many methods or properties is harder to understand. This budget points to types that may need splitting."
 expr = "count(method) <= 25 AND count(property) <= 20"
 message = "Class `{name}` is too large."
 
 [[cs.refs.where]]
 id = "domain-no-infra"
-# Direct refs from Domain namespaces to Infrastructure namespaces are forbidden.
+rationale = "Domain namespaces should not depend directly on persistence or framework code. Put those details behind application boundaries."
 expr = "$src_domain => NOT $tgt_infra"
 message = "Domain code must not depend directly on Infrastructure."
 ```

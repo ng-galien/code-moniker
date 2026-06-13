@@ -1,7 +1,7 @@
 {
-	"name": "code-moniker-notebook",
-	"displayName": "Code Moniker Rule Notebook",
-	"description": "Learn, author, and test code-moniker check rules interactively as a notebook.",
+	"name": "code-moniker",
+	"displayName": "Code Moniker",
+	"description": "Browse, validate, and run code-moniker check rules and executable samples.",
 	"version": "0.1.0",
 	"publisher": "code-moniker",
 	"license": "MIT",
@@ -11,16 +11,14 @@
 		"directory": "vscode-extension"
 	},
 	"engines": {
-		"vscode": "^1.85.0"
+		"vscode": "^1.120.0"
 	},
 	"categories": [
-		"Notebooks",
 		"Linters",
 		"Education"
 	],
 	"main": "./dist/extension.js",
 	"activationEvents": [
-		"onNotebook:code-moniker",
 		"onView:codeMoniker.ruleFiles",
 		"onView:codeMoniker.catalog",
 		"onNotebook:code-moniker-scenario"
@@ -28,21 +26,12 @@
 	"contributes": {
 		"notebooks": [
 			{
-				"type": "code-moniker",
-				"displayName": "Code Moniker Rule Notebook",
-				"selector": [
-					{
-						"filenamePattern": "*.cmnb"
-					}
-				]
-			},
-			{
 				"type": "code-moniker-scenario",
 				"displayName": "Code Moniker Scenario",
-				"priority": "option",
+				"priority": "default",
 				"selector": [
 					{
-						"filenamePattern": "*.md"
+						"filenamePattern": "**/*.cm.md"
 					}
 				]
 			}
@@ -50,14 +39,29 @@
 		"notebookRenderer": [
 			{
 				"id": "code-moniker-violations",
-				"displayName": "Code Moniker Violations",
+				"displayName": "Code Moniker Check Results",
 				"entrypoint": "./dist/renderer.js",
+				"requiresMessaging": "always",
 				"mimeTypes": [
 					"application/x-code-moniker-violations+json"
 				]
 			}
 		],
 		"languages": [
+			{
+				"id": "code-moniker-scenario-markdown",
+				"aliases": [
+					"Code Moniker Scenario Markdown"
+				],
+				"filenamePatterns": [
+					"**/*.cm.md"
+				],
+				"configuration": "./language-configuration.json",
+				"icon": {
+					"light": "./icons/notebook.svg",
+					"dark": "./icons/notebook.svg"
+				}
+			},
 			{
 				"id": "cmrule-toml",
 				"aliases": [
@@ -73,19 +77,6 @@
 				"icon": {
 					"light": "./icons/rule.svg",
 					"dark": "./icons/rule.svg"
-				}
-			},
-			{
-				"id": "cmnb",
-				"aliases": [
-					"Code Moniker Notebook"
-				],
-				"extensions": [
-					".cmnb"
-				],
-				"icon": {
-					"light": "./icons/notebook.svg",
-					"dark": "./icons/notebook.svg"
 				}
 			}
 		],
@@ -130,40 +121,10 @@
 		],
 		"commands": [
 			{
-				"command": "codeMoniker.newNotebook",
-				"title": "New Rule Notebook",
-				"category": "Code Moniker",
-				"icon": "$(notebook)"
-			},
-			{
-				"command": "codeMoniker.openLesson",
-				"title": "Open Learning Notebook",
-				"category": "Code Moniker",
-				"icon": "$(notebook)"
-			},
-			{
 				"command": "codeMoniker.catalog.openEntry",
 				"title": "Open Catalog Sample",
 				"category": "Code Moniker",
-				"icon": "$(notebook)"
-			},
-			{
-				"command": "codeMoniker.catalog.resetEntry",
-				"title": "Reset Catalog Sample",
-				"category": "Code Moniker",
-				"icon": "$(discard)"
-			},
-			{
-				"command": "codeMoniker.catalog.resetActiveEntry",
-				"title": "Reset Catalog Sample",
-				"category": "Code Moniker",
-				"icon": "$(discard)"
-			},
-			{
-				"command": "codeMoniker.catalog.copyToUserCatalog",
-				"title": "Copy to User Catalog",
-				"category": "Code Moniker",
-				"icon": "$(copy)"
+				"icon": "$(file-code)"
 			},
 			{
 				"command": "codeMoniker.catalog.changeView",
@@ -196,28 +157,6 @@
 				"icon": "$(refresh)"
 			},
 			{
-				"command": "codeMoniker.catalog.openUserFolder",
-				"title": "Open User Catalog Folder",
-				"category": "Code Moniker",
-				"icon": "$(folder-opened)"
-			},
-			{
-				"command": "codeMoniker.addSampleCell",
-				"title": "Add Sample Cell",
-				"category": "Code Moniker"
-			},
-			{
-				"command": "codeMoniker.addRuleCell",
-				"title": "Add Rule Cell",
-				"category": "Code Moniker"
-			},
-			{
-				"command": "codeMoniker.copyRuleToProjectConfig",
-				"title": "Copy Rule to Project Config",
-				"category": "Code Moniker",
-				"icon": "$(copy)"
-			},
-			{
 				"command": "codeMoniker.refreshRuleFiles",
 				"title": "Refresh",
 				"category": "Code Moniker",
@@ -241,12 +180,6 @@
 				"icon": "$(play)"
 			},
 			{
-				"command": "codeMoniker.testRuleInNotebook",
-				"title": "Test Rule in Notebook",
-				"category": "Code Moniker",
-				"icon": "$(beaker)"
-			},
-			{
 				"command": "codeMoniker.revealRule",
 				"title": "Reveal Rule",
 				"category": "Code Moniker"
@@ -255,7 +188,7 @@
 				"command": "codeMoniker.openSampleScenario",
 				"title": "Open Sample Scenario",
 				"category": "Code Moniker",
-				"icon": "$(notebook)"
+				"icon": "$(file-code)"
 			}
 		],
 		"menus": {
@@ -263,11 +196,6 @@
 				{
 					"command": "codeMoniker.refreshRuleFiles",
 					"when": "view == codeMoniker.ruleFiles",
-					"group": "navigation"
-				},
-				{
-					"command": "codeMoniker.newNotebook",
-					"when": "view == codeMoniker.catalog",
 					"group": "navigation"
 				},
 				{
@@ -294,36 +222,6 @@
 					"command": "codeMoniker.catalog.clearFilters",
 					"when": "view == codeMoniker.catalog",
 					"group": "navigation@5"
-				}
-			],
-			"notebook/title": [
-				{
-					"command": "codeMoniker.catalog.resetActiveEntry",
-					"when": "notebookType == code-moniker && resourceScheme == code-moniker-catalog",
-					"group": "navigation"
-				}
-			],
-			"commandPalette": [
-				{
-					"command": "codeMoniker.catalog.resetActiveEntry",
-					"when": "false"
-				}
-			],
-			"notebook/cell/title": [
-				{
-					"command": "codeMoniker.addRuleCell",
-					"when": "notebookType == code-moniker && notebookCellType == code && notebookCellLangId != cmrule-toml",
-					"group": "inline@1"
-				},
-				{
-					"command": "codeMoniker.addSampleCell",
-					"when": "notebookType == code-moniker && notebookCellType == code",
-					"group": "inline@2"
-				},
-				{
-					"command": "codeMoniker.copyRuleToProjectConfig",
-					"when": "notebookType == code-moniker && notebookCellLangId == cmrule-toml",
-					"group": "inline@3"
 				}
 			],
 			"view/item/context": [
@@ -353,29 +251,9 @@
 					"group": "1_cm"
 				},
 				{
-					"command": "codeMoniker.testRuleInNotebook",
-					"when": "view == codeMoniker.ruleFiles && viewItem == cmRule",
-					"group": "inline@1"
-				},
-				{
-					"command": "codeMoniker.testRuleInNotebook",
-					"when": "view == codeMoniker.ruleFiles && viewItem == cmRule",
-					"group": "1_cm"
-				},
-				{
 					"command": "codeMoniker.catalog.openEntry",
 					"when": "view == codeMoniker.catalog && viewItem =~ /^cmCatalog.*Entry$/",
 					"group": "inline@1"
-				},
-				{
-					"command": "codeMoniker.catalog.resetEntry",
-					"when": "view == codeMoniker.catalog && viewItem == cmCatalogBuiltinEntry",
-					"group": "inline@2"
-				},
-				{
-					"command": "codeMoniker.catalog.copyToUserCatalog",
-					"when": "view == codeMoniker.catalog && viewItem == cmCatalogBuiltinEntry",
-					"group": "inline@3"
 				},
 				{
 					"command": "codeMoniker.catalog.openEntry",
@@ -383,33 +261,13 @@
 					"group": "inline@1"
 				},
 				{
-					"command": "codeMoniker.catalog.copyToUserCatalog",
-					"when": "view == codeMoniker.catalog && viewItem == cmCatalogBuiltinRule",
-					"group": "inline@2"
-				},
-				{
-					"command": "codeMoniker.catalog.openUserFolder",
-					"when": "view == codeMoniker.catalog && viewItem == cmCatalogUserGroup",
-					"group": "inline@1"
-				},
-				{
 					"command": "codeMoniker.catalog.openEntry",
 					"when": "view == codeMoniker.catalog && viewItem =~ /^cmCatalog.*Entry$/",
 					"group": "1_cm"
 				},
 				{
-					"command": "codeMoniker.catalog.resetEntry",
-					"when": "view == codeMoniker.catalog && viewItem == cmCatalogBuiltinEntry",
-					"group": "1_cm"
-				},
-				{
-					"command": "codeMoniker.catalog.copyToUserCatalog",
-					"when": "view == codeMoniker.catalog && viewItem == cmCatalogBuiltinEntry",
-					"group": "1_cm"
-				},
-				{
-					"command": "codeMoniker.catalog.openUserFolder",
-					"when": "view == codeMoniker.catalog && viewItem == cmCatalogUserGroup",
+					"command": "codeMoniker.catalog.openEntry",
+					"when": "view == codeMoniker.catalog && viewItem =~ /^cmCatalog.*Rule$/",
 					"group": "1_cm"
 				}
 			]
@@ -421,11 +279,6 @@
 					"type": "string",
 					"default": "code-moniker",
 					"description": "Path to the code-moniker CLI binary. Defaults to `code-moniker` on PATH, with a fallback to ~/.cargo/bin/code-moniker."
-				},
-				"codeMoniker.catalog.userFolder": {
-					"type": "string",
-					"default": ".code-moniker/catalog",
-					"description": "Workspace-relative folder that stores editable user catalog notebooks."
 				}
 			}
 		}
@@ -434,13 +287,15 @@
 		"compile": "node esbuild.js",
 		"watch": "node esbuild.js --watch",
 		"typecheck": "tsc --noEmit",
-		"validate": "node scripts/validate-notebooks.mjs",
+		"validate": "node scripts/validate-samples.mjs",
+		"test:integration": "npm run compile && node test/run-integration.js",
 		"test": "npm run typecheck && npm run validate",
 		"vscode:prepublish": "npm run compile"
 	},
 	"devDependencies": {
 		"@types/node": "^20.11.0",
-		"@types/vscode": "^1.85.0",
+		"@types/vscode": "^1.120.0",
+		"@vscode/test-electron": "^3.0.0",
 		"esbuild": "^0.20.0",
 		"typescript": "^5.4.0"
 	}

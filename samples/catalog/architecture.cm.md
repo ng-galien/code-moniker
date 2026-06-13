@@ -1,34 +1,21 @@
 ---
 name: architecture
 lang: java
-blurb: MVC, DDD, and hexagonal boundaries from moniker path patterns
+blurb: MVC, DDD, and hexagonal boundaries explained with a small Java project
 published: true
 ---
 
 # Architecture boundaries
 
-Language-agnostic structural boundaries for three classic styles: MVC, DDD
-layering, and hexagonal ports & adapters. Every rule keys off moniker path
-patterns (`controller`, `domain`, `adapter`, ...), so the same overlay works
-for any language — this scenario demonstrates it with Java packages.
+This sample shows how to protect three common architecture styles: MVC, DDD
+layering, and hexagonal ports & adapters. The rules name familiar folders
+such as `controller`, `domain`, and `adapter`, then check that dependencies
+move in the expected direction.
 
 ```toml cm:rules
-# Architecture pattern check sample.
-#
-# This file is language-agnostic where possible. It uses moniker path
-# patterns, so adapt folder/package names to your repository before using it.
-#
-# It covers:
-# - MVC boundaries
-# - DDD boundaries
-# - Hexagonal architecture boundaries
-#
-# For test guardrails, see test-guardrails.toml.
-
 default_rules = false
 
 [aliases]
-# Def-scope aliases. Use these inside [[<lang>.<kind>.where]] rules.
 mvc_controller = "moniker ~ '**/*:/^(controller|api|web)$/**'"
 mvc_service = "moniker ~ '**/*:/^(service|application)$/**'"
 mvc_model = "moniker ~ '**/*:/^(model|domain)$/**'"
@@ -42,7 +29,6 @@ hex_core = "moniker ~ '**/*:/^(domain|application)$/**'"
 hex_port = "moniker ~ '**/*:port/**' OR name =~ Port$"
 hex_adapter = "moniker ~ '**/*:adapter/**' OR name =~ Adapter$"
 
-# Ref-scope aliases. Use these inside [[refs.where]] or [[<lang>.refs.where]].
 src_controller = "source ~ '**/*:/^(controller|api|web)$/**'"
 src_service = "source ~ '**/*:/^(service|application)$/**'"
 src_domain = "source ~ '**/*:domain/**'"
@@ -60,84 +46,73 @@ tgt_infrastructure = "target ~ '**/*:/^(infrastructure|infra)$/**'"
 tgt_port = "target ~ '**/*:port/**' OR target.name =~ Port$"
 tgt_adapter = "target ~ '**/*:adapter/**' OR target.name =~ Adapter$"
 
-# MVC -----------------------------------------------------------------------
-
 [[refs.where]]
 id = "mvc-controller-does-not-call-view"
-# Controllers should orchestrate application/services and return view models
-# or responses; direct controller -> view dependency is usually a smell.
+rationale = "Controllers should orchestrate a request and return a response model. Calling view code directly mixes routing with rendering."
 expr = "$src_controller => NOT $tgt_view"
 message = "MVC controller code must not depend directly on view code."
 
 [[refs.where]]
 id = "mvc-view-does-not-call-service"
-# Views should not call services directly. Route through controllers or
-# presentation models.
+rationale = "Views should present data, not start application workflows. Route behavior through controllers or presentation models."
 expr = "source ~ '**/*:/^(view|ui)$/**' => NOT $tgt_service"
 message = "MVC view code must not depend directly on service/application code."
 
 [[refs.where]]
 id = "mvc-model-does-not-depend-on-controller"
-# Model/domain code should not know presentation controllers.
+rationale = "Model and domain code should be reusable without the presentation layer. Controller dependencies point the wrong way."
 expr = "$tgt_controller => NOT ($src_domain OR source ~ '**/*:model/**')"
 message = "MVC model/domain code must not depend on controllers."
 
-# DDD -----------------------------------------------------------------------
-
 [[refs.where]]
 id = "ddd-domain-is-pure"
-# Domain code should not depend directly on application or infrastructure.
+rationale = "Domain code should express business rules. Application flows and infrastructure details belong outside it."
 expr = "$src_domain => NOT ($tgt_application OR $tgt_infrastructure)"
 message = "DDD domain code must not depend on application or infrastructure layers."
 
 [[refs.where]]
 id = "ddd-application-depends-inward"
-# Application services may depend on domain, but not directly on infrastructure.
+rationale = "Application code coordinates use cases. It should talk to domain contracts rather than concrete infrastructure."
 expr = "$src_application => NOT $tgt_infrastructure"
 message = "Application layer code must not depend directly on infrastructure."
 
 [[refs.where]]
 id = "ddd-infrastructure-may-depend-inward-only"
-# Infrastructure may implement ports and call domain/application APIs, but
-# should not depend on controllers/presentation.
+rationale = "Infrastructure may implement adapters, but it should not reach upward into presentation code."
 expr = "$src_infrastructure => NOT $tgt_controller"
 message = "Infrastructure code must not depend on presentation controllers."
 
 [[default.class.where]]
 id = "ddd-entity-name"
-# Entity classes should be visibly named. Adapt or delete if your project
-# does not use suffix conventions.
+rationale = "If your team uses an Entity suffix, this makes domain entities visible in reviews and search results."
 expr = "$ddd_domain AND name =~ Entity$ => $ddd_domain"
 message = "DDD entity `{name}` should live in the domain layer."
 
-# Hexagonal architecture ----------------------------------------------------
-
 [[refs.where]]
 id = "hex-core-does-not-depend-on-adapters"
-# Core domain/application code should depend on ports, not adapters.
+rationale = "The core should describe what it needs through ports. Concrete adapters belong outside the core."
 expr = "source ~ '**/*:/^(domain|application)$/**' => NOT $tgt_adapter"
 message = "Hexagonal core must not depend on adapters."
 
 [[refs.where]]
 id = "hex-adapter-depends-on-port-not-peer-adapter"
-# Adapters should not depend on other adapters directly.
+rationale = "Adapters should plug into ports, not coordinate with each other directly."
 expr = "$src_adapter => NOT $tgt_adapter"
 message = "Adapters must not depend directly on other adapters."
 
 [[default.interface.where]]
 id = "hex-port-interface-name"
-# Ports are usually interfaces named *Port.
+rationale = "A Port suffix makes the boundary between the core and adapters visible."
 expr = "$hex_port => name =~ Port$"
 message = "Hexagonal port interface `{name}` should end with Port."
 
 [[default.class.where]]
 id = "hex-adapter-class-name"
-# Adapter implementations should be visibly named *Adapter.
+rationale = "An Adapter suffix tells readers that the class connects the core to an outside technology or system."
 expr = "$hex_adapter => name =~ Adapter$"
 message = "Hexagonal adapter class `{name}` should end with Adapter."
 
 [profiles.architecture]
-# CI / pre-commit profile for structural boundaries.
 enable = [
   "^refs\\.mvc-",
   "^refs\\.ddd-",

@@ -1,6 +1,6 @@
 {
 	"iconDefinitions": {
-		"_cmnb": { "iconPath": "./notebook.svg" },
+		"_scenario": { "iconPath": "./notebook.svg" },
 		"_rule": { "iconPath": "./rule.svg" },
 		"_file": { "iconPath": "./file.svg" },
 		"_folder": { "iconPath": "./folder.svg" },
@@ -10,11 +10,11 @@
 	"folder": "_folder",
 	"folderExpanded": "_folderOpen",
 	"languageIds": {
-		"cmnb": "_cmnb",
+		"code-moniker-scenario-markdown": "_scenario",
 		"cmrule-toml": "_rule"
 	},
 	"fileExtensions": {
-		"cmnb": "_cmnb"
+		"cm.md": "_scenario"
 	},
 	"fileNames": {
 		".code-moniker.toml": "_rule"

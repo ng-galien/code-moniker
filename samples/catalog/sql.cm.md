@@ -12,9 +12,6 @@ procedures, a `v_` prefix for views, and a schema boundary: objects in the
 `public` schema must not reach into the `private` schema directly.
 
 ```toml cm:rules
-# SQL / PL/pgSQL check sample.
-# Copy to `.code-moniker.toml` and adapt schema names.
-
 default_rules = false
 
 [aliases]
@@ -27,31 +24,31 @@ tgt_private = "target ~ '**/schema:private/**'"
 
 [[sql.table.where]]
 id = "table-snakecase"
-# Tables should use snake_case.
+rationale = "Snake case keeps SQL object names readable without quoting, which makes migrations and queries easier to write."
 expr = "name =~ ^[a-z_][a-z0-9_]*$"
 message = "Table `{name}` must use snake_case."
 
 [[sql.view.where]]
 id = "view-prefix"
-# Views should be named with a v_ prefix.
+rationale = "A view prefix tells readers that they are looking at a projection, not a stored table."
 expr = "name =~ ^v_[a-z0-9_]+$"
 message = "View `{name}` must start with v_."
 
 [[sql.function.where]]
 id = "function-snakecase"
-# SQL functions should use snake_case and stay small.
+rationale = "Database functions are easier to review when their names are plain SQL identifiers and their bodies stay compact."
 expr = "name =~ ^[a-z_][a-z0-9_]*$ AND lines <= 120"
 message = "Function `{name}` must use snake_case and stay under 120 lines."
 
 [[sql.procedure.where]]
 id = "procedure-snakecase"
-# Procedures should use snake_case.
+rationale = "Procedures are called from scripts and applications. Snake case avoids quoting surprises."
 expr = "name =~ ^[a-z_][a-z0-9_]*$"
 message = "Procedure `{name}` must use snake_case."
 
 [[sql.refs.where]]
 id = "public-no-private"
-# Public schema objects must not depend directly on private schema objects.
+rationale = "The public schema is an API. Keep private schema details behind stable database objects."
 expr = "$src_public => NOT $tgt_private"
 message = "Public schema objects must not depend directly on private schema objects."
 ```

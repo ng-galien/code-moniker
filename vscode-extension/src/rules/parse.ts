@@ -2,7 +2,7 @@
 // blocks with their scope, id, severity, source line, and raw TOML. The CLI is
 // the source of truth for validity; this only powers the tree and navigation.
 
-import { langById, langByTomlSection } from "../shared/languages";
+import { langByTomlSection } from "../shared/languages";
 
 export interface RuleEntry {
 	/** Scope without the trailing `.where`, e.g. `rust.fn`, `ts.shape.callable`, `refs`. */
@@ -85,14 +85,4 @@ function field(block: string[], re: RegExp): string | undefined {
 		}
 	}
 	return undefined;
-}
-
-// Wraps a single rule block as a runnable fragment for the scratch notebook.
-export function ruleAsFragment(rule: RuleEntry): { langId: string; toml: string } {
-	const langId = rule.sampleLang ?? "rust";
-	const known = langById(langId) ? langId : "rust";
-	return {
-		langId: known,
-		toml: `default_rules = false\n\n${rule.blockText}`,
-	};
 }

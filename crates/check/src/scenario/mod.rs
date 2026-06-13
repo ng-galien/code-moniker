@@ -1,7 +1,7 @@
 //! Executable check scenarios: a Markdown document describing a file layout,
 //! an inline rules overlay, and the violations the layout is expected to
-//! produce. One document materializes into a workspace the scan pipeline can
-//! run against; see `docs/check-scenarios.md` for the format contract.
+//! produce. One document feeds an in-memory workspace the scan pipeline can run
+//! against; see `docs/check-scenarios.md` for the format contract.
 
 mod expect;
 mod parse;
@@ -25,6 +25,7 @@ pub struct ScenarioMeta {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScenarioFile {
 	pub path: String,
+	pub fence: String,
 	pub body: String,
 }
 

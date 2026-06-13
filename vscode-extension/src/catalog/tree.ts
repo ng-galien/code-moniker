@@ -26,10 +26,13 @@ export class CatalogProvider implements vscode.TreeDataProvider<CatalogNode> {
 	private filters: CatalogFilters = { ...DEFAULT_CATALOG_FILTERS };
 	private sortMode: CatalogSortMode = DEFAULT_CATALOG_SORT_MODE;
 
-	constructor(private readonly repository: CatalogRepository) {}
+	constructor(
+		private readonly repository: CatalogRepository,
+		private readonly extensionUri: vscode.Uri,
+	) {}
 
 	refresh(): void {
-		this.repository.refreshUserEntries();
+		this.repository.refresh();
 		this.emitter.fire(undefined);
 	}
 
@@ -89,6 +92,16 @@ export class CatalogProvider implements vscode.TreeDataProvider<CatalogNode> {
 		return [];
 	}
 
+	async getParent(node: CatalogNode): Promise<CatalogNode | undefined> {
+		if (node.kind === "entry") {
+			return this.parentForEntry(node.entry);
+		}
+		if (node.kind === "rule") {
+			return this.parentForRule(node.item);
+		}
+		return undefined;
+	}
+
 	getTreeItem(node: CatalogNode): vscode.TreeItem {
 		if (node.kind === "info") {
 			const item = new vscode.TreeItem(node.label);
@@ -101,16 +114,67 @@ export class CatalogProvider implements vscode.TreeDataProvider<CatalogNode> {
 				node.label,
 				vscode.TreeItemCollapsibleState.Expanded,
 			);
+			item.id = node.id;
 			item.description = node.description;
+			item.tooltip = groupTooltip(node.groupKind);
 			item.iconPath = groupIcon(node.groupKind);
-			item.contextValue = node.groupKind === "user" ? "cmCatalogUserGroup" : "cmCatalogGroup";
+			item.contextValue = "cmCatalogGroup";
 			return item;
 		}
 		if (node.kind === "entry") {
-			return entryTreeItem(node.entry);
+			return entryTreeItem(node.entry, this.extensionUri);
 		}
 		return ruleTreeItem(node.item);
 	}
+
+	async nodeForUri(uri: vscode.Uri): Promise<CatalogNode | undefined> {
+		const entry = await entryForUri(this.repository, uri);
+		return entry ? { kind: "entry", entry } : undefined;
+	}
+
+	private parentForEntry(entry: CatalogEntry): CatalogNode {
+		if (this.viewMode === "language") {
+			return {
+				kind: "group",
+				id: `language:${entry.langId ?? "multi"}`,
+				label: entry.langId ? langById(entry.langId)?.label ?? entry.langId : "Multi-language",
+				groupKind: "language",
+			};
+		}
+		return {
+			kind: "group",
+			id: "builtin:packs",
+			label: "Catalog samples",
+			groupKind: "builtin",
+		};
+	}
+
+	private parentForRule(item: CatalogRule): CatalogNode {
+		if (this.viewMode === "rule") {
+			return {
+				kind: "group",
+				id: `rule:${item.rule.id}`,
+				label: item.rule.id,
+				groupKind: "rules",
+			};
+		}
+		return { kind: "entry", entry: item.entry };
+	}
+}
+
+async function entryForUri(
+	repository: CatalogRepository,
+	uri: vscode.Uri,
+): Promise<CatalogEntry | undefined> {
+	const entries = await repository.entries();
+	return entries.find((entry) => entryMatchesUri(entry, uri));
+}
+
+function entryMatchesUri(entry: CatalogEntry, uri: vscode.Uri): boolean {
+	if (entry.uri?.toString() === uri.toString()) {
+		return true;
+	}
+	return false;
 }
 
 async function rootNodes(
@@ -183,9 +247,6 @@ function entryMatches(
 	filters: CatalogFilters,
 	query: string,
 ): boolean {
-	if (filters.source !== "all" && entry.source !== filters.source) {
-		return false;
-	}
 	if (
 		filters.language !== "all" &&
 		entry.langId !== filters.language &&
@@ -210,42 +271,16 @@ function entryMatches(
 }
 
 function groupByPath(entries: CatalogEntry[]): CatalogNode[] {
-	const groups: { id: string; label: string; groupKind: "builtin" | "user" | "kind"; entries: CatalogEntry[] }[] = [
+	return [
 		{
-			id: "builtin:lessons",
-			label: "Builtin lessons",
-			groupKind: "builtin",
-			entries: entries.filter((entry) => entry.source === "builtin" && entry.kind === "lesson"),
-		},
-		{
-			id: "builtin:concepts",
-			label: "Builtin concepts",
-			groupKind: "builtin",
-			entries: entries.filter((entry) => entry.source === "builtin" && entry.kind === "concept"),
-		},
-		{
+			kind: "group",
 			id: "builtin:packs",
-			label: "Builtin sample packs",
+			label: "Catalog samples",
+			description: `${entries.length} item(s)`,
 			groupKind: "builtin",
-			entries: entries.filter((entry) => entry.source === "builtin" && entry.kind === "pack"),
-		},
-		{
-			id: "user",
-			label: "User catalog",
-			groupKind: "user",
-			entries: entries.filter((entry) => entry.source === "user"),
+			entries,
 		},
 	];
-	return groups
-		.filter((group) => group.entries.length > 0 || group.id === "user")
-		.map((group) => ({
-			kind: "group",
-			id: group.id,
-			label: group.label,
-			description: `${group.entries.length} item(s)`,
-			groupKind: group.groupKind,
-			entries: group.entries,
-		}));
 }
 
 function groupByLanguage(entries: CatalogEntry[]): CatalogNode[] {
@@ -275,18 +310,18 @@ function groupByLanguage(entries: CatalogEntry[]): CatalogNode[] {
 	return nodes;
 }
 
-function entryTreeItem(entry: CatalogEntry): vscode.TreeItem {
+function entryTreeItem(entry: CatalogEntry, extensionUri: vscode.Uri): vscode.TreeItem {
 	const item = new vscode.TreeItem(entry.title, vscode.TreeItemCollapsibleState.Collapsed);
+	item.id = entry.id;
 	item.description = `${entry.level} · ${catalogLanguageLabel(entry.langId)}`;
-	item.tooltip = `${entry.blurb}\n\n${entry.tags.map((tag) => `#${tag}`).join(" ")}`;
-	item.iconPath = entryIcon(entry);
-	item.contextValue =
-		entry.source === "builtin" ? "cmCatalogBuiltinEntry" : "cmCatalogUserEntry";
+	item.tooltip = entryTooltip(entry);
+	item.iconPath = entryIcon(entry, extensionUri);
+	item.contextValue = "cmCatalogBuiltinEntry";
 	item.resourceUri = entry.uri;
 	item.command = {
 		command: "codeMoniker.catalog.openEntry",
-		title: "Open",
-		arguments: [entry.id],
+		title: "Open Catalog Sample",
+		arguments: [{ id: entry.id }],
 	};
 	return item;
 }
@@ -294,23 +329,47 @@ function entryTreeItem(entry: CatalogEntry): vscode.TreeItem {
 function ruleTreeItem(item: CatalogRule): vscode.TreeItem {
 	const rule = item.rule;
 	const treeItem = new vscode.TreeItem(rule.id, vscode.TreeItemCollapsibleState.None);
+	treeItem.id = `${item.entry.id}:rule:${rule.id}`;
 	treeItem.description = `${rule.scope} · ${item.entry.title}`;
-	treeItem.tooltip = rule.blockText;
+	treeItem.tooltip = ruleTooltip(item);
 	treeItem.iconPath = new vscode.ThemeIcon(rule.severity === "warn" ? "warning" : "shield");
-	treeItem.contextValue =
-		item.entry.source === "builtin" ? "cmCatalogBuiltinRule" : "cmCatalogUserRule";
+	treeItem.contextValue = "cmCatalogBuiltinRule";
 	treeItem.command = {
 		command: "codeMoniker.catalog.openEntry",
-		title: "Open sample",
-		arguments: [item.entry.id],
+		title: "Open Catalog Sample",
+		arguments: [{ id: item.entry.id }],
 	};
 	return treeItem;
 }
 
-function groupIcon(kind: "builtin" | "user" | "language" | "rules" | "kind"): vscode.ThemeIcon {
-	if (kind === "user") {
-		return new vscode.ThemeIcon("account");
+function groupTooltip(kind: "builtin" | "language" | "rules"): string {
+	if (kind === "builtin") {
+		return "Catalog samples open as editable unsaved scenarios. Save only when you want to keep changes.";
 	}
+	if (kind === "rules") {
+		return "Rules found in catalog samples. Open a rule to inspect the sample that demonstrates it.";
+	}
+	if (kind === "language") {
+		return "Catalog samples grouped by language.";
+	}
+	return "Catalog samples.";
+}
+
+function entryTooltip(entry: CatalogEntry): string {
+	return [
+		entry.blurb,
+		"",
+		"Opens as an editable unsaved scenario. Save it only if you want to keep changes.",
+		"",
+		entry.tags.map((tag) => `#${tag}`).join(" "),
+	].join("\n");
+}
+
+function ruleTooltip(item: CatalogRule): string {
+	return `This rule belongs to an editable unsaved catalog sample.\n\n${item.rule.blockText}`;
+}
+
+function groupIcon(kind: "builtin" | "language" | "rules"): vscode.ThemeIcon {
 	if (kind === "language") {
 		return new vscode.ThemeIcon("symbol-keyword");
 	}
@@ -320,17 +379,10 @@ function groupIcon(kind: "builtin" | "user" | "language" | "rules" | "kind"): vs
 	return new vscode.ThemeIcon("library");
 }
 
-function entryIcon(entry: CatalogEntry): vscode.ThemeIcon {
-	if (entry.source === "user") {
-		return new vscode.ThemeIcon("notebook");
-	}
-	if (entry.kind === "pack") {
-		return new vscode.ThemeIcon("package");
-	}
-	if (entry.kind === "concept") {
-		return new vscode.ThemeIcon("book");
-	}
-	return new vscode.ThemeIcon("notebook");
+function entryIcon(entry: CatalogEntry, extensionUri: vscode.Uri): vscode.IconPath {
+	void entry;
+	const uri = vscode.Uri.joinPath(extensionUri, "icons", "notebook.svg");
+	return { light: uri, dark: uri };
 }
 
 function compareEntries(
@@ -342,12 +394,6 @@ function compareEntries(
 		const byLevel = levelRank(left.level) - levelRank(right.level);
 		if (byLevel !== 0) {
 			return byLevel;
-		}
-	}
-	if (sortMode === "source") {
-		const bySource = left.source.localeCompare(right.source);
-		if (bySource !== 0) {
-			return bySource;
 		}
 	}
 	return left.title.localeCompare(right.title);
@@ -365,7 +411,6 @@ function levelRank(level: string): number {
 
 function filterDescription(filters: CatalogFilters): string {
 	const parts = [
-		filters.source === "all" ? undefined : filters.source,
 		filters.language === "all" ? undefined : filters.language,
 		filters.query.trim() ? `"${filters.query.trim()}"` : undefined,
 	].filter((part): part is string => Boolean(part));

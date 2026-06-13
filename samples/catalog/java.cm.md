@@ -14,14 +14,9 @@ placement, proxy self-invocation, test slices). The layout below is a small
 Maven-style project where each rule is broken exactly once.
 
 ```toml cm:rules
-# Java check sample.
-# Copy to `.code-moniker.toml` and adapt package/layer names.
-
 default_rules = false
 
 [aliases]
-# Java canonicalization uses package segments, so Maven/Gradle source roots
-# are represented with `srcset`.
 java_main = "moniker ~ '**/srcset:main/**'"
 java_test = "moniker ~ '**/srcset:test/**'"
 
@@ -37,14 +32,13 @@ tgt_infra = "target ~ '**/package:infrastructure/**'"
 
 [[java.class.where]]
 id = "class-pascalcase"
-# Java classes should use PascalCase.
+rationale = "PascalCase makes Java classes read as named types and keeps them aligned with the language's everyday conventions."
 expr = "name =~ ^[A-Z][A-Za-z0-9]*$"
 message = "Class `{name}` must use PascalCase."
 
 [[java.method.where]]
 id = "package-junit-methods-start-with-test"
-# In test source sets, package-visible JUnit methods annotated with @Test
-# should start with `test`.
+rationale = "A package-visible JUnit method is easiest to understand when its name clearly announces that it is a test."
 expr = """
   $java_test
   AND visibility = 'package'
@@ -55,32 +49,25 @@ message = "Package-visible JUnit method `{name}` must start with test."
 
 [[java.class.where]]
 id = "main-classes-not-test-suffixed"
-# Production classes should not look like test classes.
+rationale = "Production classes and test classes should be easy to tell apart from their names alone."
 expr = "$java_main => name !~ Test$"
 message = "Production class `{name}` must not end with Test."
 
 [[java.class.where]]
 id = "class-budget"
-# Limit class size through direct child methods.
+rationale = "A class with too many methods is hard to learn and hard to change safely. Use this as an early signal to split responsibilities."
 expr = "count(method) <= 25 AND all(method, lines <= 80)"
 message = "Class `{name}` is too large."
 
 [[java.refs.where]]
 id = "domain-no-infra"
-# Direct refs from domain packages to infrastructure packages are forbidden.
+rationale = "Domain code should not know persistence or delivery details. Keep infrastructure behind service or application boundaries."
 expr = "$src_domain => NOT $tgt_infra"
 message = "Domain code must not depend directly on infrastructure."
 
-# Spring examples -----------------------------------------------------------
-#
-# These examples encode common Spring layering conventions. They are useful as
-# starting points, but package names and suffixes should be adapted to your
-# application.
-
 [[java.class.where]]
 id = "spring-controller-suffix"
-# Classes annotated with @Controller or @RestController should be named
-# *Controller. The Java extractor emits annotations as `annotates` refs.
+rationale = "A controller suffix tells readers that the class handles web/API traffic."
 expr = """
   any(out_refs,
     kind = 'annotates'
@@ -92,7 +79,7 @@ message = "Spring controller `{name}` should end with Controller."
 
 [[java.class.where]]
 id = "spring-controller-package"
-# Controllers should live in an API/web/controller package.
+rationale = "Putting controllers in API or web packages keeps presentation code visible at the edge of the application."
 expr = """
   any(out_refs,
     kind = 'annotates'
@@ -104,7 +91,7 @@ message = "Spring controller `{name}` should live in an API, web, or controller 
 
 [[java.class.where]]
 id = "spring-service-suffix"
-# Classes annotated with @Service should be named *Service.
+rationale = "A service suffix makes orchestration classes easy to find and separates them from entities or adapters."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Service')
   => name =~ Service$
@@ -113,7 +100,7 @@ message = "Spring service `{name}` should end with Service."
 
 [[java.class.where]]
 id = "spring-service-package"
-# Services should live in a service, application, or domain package.
+rationale = "Service classes should live near application behavior, not inside web or persistence packages."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Service')
   => $service_pkg
@@ -122,7 +109,7 @@ message = "Spring service `{name}` should live in a service, application, or dom
 
 [[java.class.where]]
 id = "spring-repository-suffix"
-# Classes annotated with @Repository should be named *Repository.
+rationale = "A repository suffix makes persistence-facing components obvious to readers."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Repository')
   => name =~ Repository$
@@ -131,7 +118,7 @@ message = "Spring repository `{name}` should end with Repository."
 
 [[java.class.where]]
 id = "spring-repository-package"
-# Repositories should live in persistence-facing packages.
+rationale = "Repositories belong close to persistence concerns so storage details do not spread through feature packages."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Repository')
   => $repository_pkg
@@ -140,7 +127,7 @@ message = "Spring repository `{name}` should live in a repository, persistence, 
 
 [[java.class.where]]
 id = "spring-configuration-suffix"
-# Configuration classes should be named clearly.
+rationale = "Configuration classes wire the application together. A clear suffix helps readers distinguish wiring from feature code."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Configuration')
   => name =~ (Config|Configuration)$
@@ -149,7 +136,7 @@ message = "Spring configuration `{name}` should end with Config or Configuration
 
 [[java.class.where]]
 id = "spring-configuration-package"
-# Configuration classes should be isolated from feature code.
+rationale = "Keeping configuration in a dedicated package makes startup wiring easier to find and review."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Configuration')
   => $config_pkg
@@ -158,8 +145,7 @@ message = "Spring configuration `{name}` should live in a config or configuratio
 
 [[java.class.where]]
 id = "spring-transactional-not-controller"
-# Keep @Transactional away from presentation classes. Transaction boundaries
-# are usually easier to reason about in service-layer beans.
+rationale = "Transactions are easier to reason about in service-layer code than in presentation handlers."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
   => NOT any(out_refs,
@@ -171,8 +157,7 @@ message = "Spring controller `{name}` should not be annotated @Transactional."
 
 [[java.class.where]]
 id = "spring-controller-no-repository-direct"
-# Controllers should depend on application/service APIs, not repositories or
-# low-level persistence APIs directly.
+rationale = "Controllers should delegate work to application services instead of reaching straight into persistence."
 expr = """
   any(out_refs,
     kind = 'annotates'
@@ -187,7 +172,7 @@ message = "Spring controller `{name}` should not depend directly on repositories
 
 [[java.class.where]]
 id = "spring-service-no-web"
-# Services should not depend back on controllers or web adapters.
+rationale = "Services should be callable from more than one adapter. Depending on controllers pulls them back toward the web layer."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Service')
   => none(out_refs,
@@ -199,7 +184,7 @@ message = "Spring service `{name}` should not depend on controllers or web packa
 
 [[java.class.where]]
 id = "spring-repository-no-web"
-# Repositories should stay below the web layer.
+rationale = "Repositories are persistence components. They should not depend on controllers or web adapters."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Repository')
   => none(out_refs,
@@ -211,13 +196,13 @@ message = "Spring repository `{name}` should not depend on controllers or web pa
 
 [[java.field.where]]
 id = "spring-no-field-injection"
-# Prefer constructor injection over @Autowired fields.
+rationale = "Constructor injection makes dependencies explicit and keeps tests simpler."
 expr = "none(out_refs, kind = 'annotates' AND target.name = 'Autowired')"
 message = "Spring field `{name}` should not use @Autowired field injection; prefer constructor injection."
 
 [[java.method.where]]
 id = "spring-bean-methods-in-configuration"
-# @Bean factory methods should be grouped under configuration classes.
+rationale = "Bean factory methods are application wiring. Keeping them on configuration classes makes startup behavior easier to inspect."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Bean')
   => parent.name =~ (Config|Configuration)$
@@ -226,8 +211,7 @@ message = "Spring @Bean method `{name}` should live on a configuration class."
 
 [[java.method.where]]
 id = "spring-transactional-methods-in-service"
-# Method-level transaction boundaries should live in the service/application
-# layer rather than controllers or infrastructure helpers.
+rationale = "Method-level transactions should mark application work, not controller handling or low-level helpers."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'Transactional')
   => parent.name =~ Service$
@@ -237,8 +221,7 @@ message = "Spring @Transactional method `{name}` should live in the service/appl
 
 [[java.method.where]]
 id = "spring-proxy-method-no-self-invocation"
-# Rationale and source links:
-# docs/cli/check.md#spring-proxy-self-invocation
+rationale = "Spring proxy advice does not run on same-class calls. Move the advised call behind another bean or boundary."
 expr = """
   any(out_refs,
     kind = 'annotates'
@@ -253,8 +236,7 @@ message = "Spring proxy-advised method `{name}` should not be called from the sa
 
 [[java.class.where]]
 id = "spring-proxy-class-no-self-invocation"
-# Rationale and source links:
-# docs/cli/check.md#spring-proxy-self-invocation
+rationale = "A class with advised methods should avoid calling those methods through `this`, because Spring proxy behavior can be skipped."
 expr = """
   any(out_refs,
     kind = 'annotates'
@@ -271,7 +253,7 @@ message = "Spring proxy-advised class `{name}` should not make same-class calls 
 
 [[java.class.where]]
 id = "spring-webmvc-test-suffix"
-# MVC slice tests annotated with @WebMvcTest should use a clear test suffix.
+rationale = "A Web MVC slice test should say which web slice it exercises before the reader opens the class."
 expr = """
   $java_test
   AND any(out_refs, kind = 'annotates' AND target.name = 'WebMvcTest')
@@ -281,7 +263,7 @@ message = "Spring MVC slice test `{name}` should use an explicit controller/WebM
 
 [[java.class.where]]
 id = "spring-datajpa-test-suffix"
-# JPA slice tests should make the repository/persistence scope explicit.
+rationale = "A JPA slice test should make its repository or persistence focus visible in the class name."
 expr = """
   $java_test
   AND any(out_refs, kind = 'annotates' AND target.name = 'DataJpaTest')
@@ -291,7 +273,7 @@ message = "Spring Data JPA slice test `{name}` should use an explicit repository
 
 [[java.class.where]]
 id = "spring-boot-test-suffix"
-# Full application-context tests should be visibly test classes.
+rationale = "A full application-context test is heavier than a unit or slice test, so its name should make that role clear."
 expr = """
   $java_test
   AND any(out_refs, kind = 'annotates' AND target.name = 'SpringBootTest')
@@ -301,8 +283,7 @@ message = "Spring Boot test `{name}` should use a Test, Tests, or IT suffix."
 
 [[java.class.where]]
 id = "spring-boot-test-not-controller-slice"
-# @SpringBootTest loads a broader application context. Avoid mixing it with
-# @WebMvcTest on the same test class.
+rationale = "Use a broad Spring Boot test or a focused MVC slice test, not both on the same class."
 expr = """
   any(out_refs, kind = 'annotates' AND target.name = 'SpringBootTest')
   => NOT any(out_refs, kind = 'annotates' AND target.name = 'WebMvcTest')

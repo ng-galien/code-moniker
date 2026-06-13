@@ -147,144 +147,113 @@ fn write_eval_text<W: Write>(w: &mut W, report: &EvalReport) -> std::io::Result<
 	Ok(())
 }
 
-const LEARN_SAMPLE_DOCUMENTS: &[(&str, &str)] = &[
-	(
-		"architecture",
-		include_str!("../../../../samples/architecture.md"),
-	),
-	(
-		"clean-architecture",
-		include_str!("../../../../samples/clean-architecture.md"),
-	),
-	("csharp", include_str!("../../../../samples/csharp.md")),
-	(
-		"fowler-eaa",
-		include_str!("../../../../samples/fowler-eaa.md"),
-	),
-	(
-		"fowler-refactoring",
-		include_str!("../../../../samples/fowler-refactoring.md"),
-	),
-	("go", include_str!("../../../../samples/go.md")),
-	("java", include_str!("../../../../samples/java.md")),
-	(
-		"java-layer-boundaries",
-		include_str!("../../../../samples/java-layer-boundaries.md"),
-	),
-	("python", include_str!("../../../../samples/python.md")),
-	("rust", include_str!("../../../../samples/rust.md")),
-	(
-		"rust-naming",
-		include_str!("../../../../samples/rust-naming.md"),
-	),
-	("sql", include_str!("../../../../samples/sql.md")),
-	(
-		"test-guardrails",
-		include_str!("../../../../samples/test-guardrails.md"),
-	),
-	(
-		"typescript",
-		include_str!("../../../../samples/typescript.md"),
-	),
+const LEARN_TOPIC_DOCUMENTS: &[&str] = &[
+	include_str!("../../../../samples/learn/basics.cm.md"),
+	include_str!("../../../../samples/learn/paths.cm.md"),
+	include_str!("../../../../samples/learn/refs.cm.md"),
+	include_str!("../../../../samples/learn/collections.cm.md"),
+	include_str!("../../../../samples/learn/metrics.cm.md"),
+	include_str!("../../../../samples/learn/profiles.cm.md"),
 ];
 
 #[derive(Serialize)]
-struct LearnSample {
+struct LearnTopic {
 	name: String,
-	lang: String,
-	blurb: String,
-	published: bool,
-	path: String,
-	content: String,
-	document: String,
-}
-
-fn learn_samples() -> &'static [LearnSample] {
-	static SAMPLES: std::sync::OnceLock<Vec<LearnSample>> = std::sync::OnceLock::new();
-	SAMPLES.get_or_init(|| {
-		LEARN_SAMPLE_DOCUMENTS
-			.iter()
-			.filter_map(|(name, document)| learn_sample(name, document))
-			.collect()
-	})
-}
-
-fn learn_sample(name: &str, document: &str) -> Option<LearnSample> {
-	let scenario = check::scenario::Scenario::parse(document).ok()?;
-	Some(LearnSample {
-		name: name.to_string(),
-		lang: scenario.meta.lang,
-		blurb: scenario.meta.blurb,
-		published: scenario.meta.published,
-		path: format!("samples/{name}.md"),
-		content: scenario.rules.unwrap_or_default(),
-		document: document.to_string(),
-	})
+	title: String,
+	summary: String,
+	body: String,
 }
 
 #[derive(Serialize)]
 struct LearnReport {
-	samples: Vec<&'static LearnSample>,
+	topics: Vec<&'static LearnTopic>,
 }
 
 fn learn<W: Write>(args: &RulesLearnArgs, stdout: &mut W) -> anyhow::Result<()> {
-	let samples = selected_learn_samples(args.sample.as_deref())?;
+	let topics = selected_learn_topics(args.topic.as_deref())?;
 	match args.format {
-		RulesLearnFormat::Text => write_learn_text(stdout, &samples)?,
+		RulesLearnFormat::Text => write_learn_text(stdout, &topics)?,
 		RulesLearnFormat::Json => {
-			serde_json::to_writer_pretty(&mut *stdout, &LearnReport { samples })?;
+			serde_json::to_writer_pretty(&mut *stdout, &LearnReport { topics })?;
 			stdout.write_all(b"\n")?;
 		}
 	}
 	Ok(())
 }
 
-fn selected_learn_samples(sample: Option<&str>) -> anyhow::Result<Vec<&'static LearnSample>> {
-	let Some(sample) = sample else {
-		return Ok(learn_samples()
-			.iter()
-			.filter(|sample| sample.published)
-			.collect());
+fn selected_learn_topics(topic: Option<&str>) -> anyhow::Result<Vec<&'static LearnTopic>> {
+	let Some(topic) = topic else {
+		return Ok(learn_topics().iter().collect());
 	};
-	let normalized = sample
-		.strip_suffix(".toml")
-		.or_else(|| sample.strip_suffix(".md"))
-		.unwrap_or(sample)
-		.to_ascii_lowercase();
-	learn_samples()
+	let normalized = topic.to_ascii_lowercase();
+	learn_topics()
 		.iter()
 		.find(|candidate| candidate.name == normalized)
-		.map(|sample| vec![sample])
+		.map(|topic| vec![topic])
 		.with_context(|| {
 			format!(
-				"unknown rules sample `{sample}` (known: {})",
-				learn_sample_names().join(", ")
+				"unknown DSL topic `{topic}` (known: {})",
+				learn_topic_names().join(", ")
 			)
 		})
 }
 
-fn learn_sample_names() -> Vec<&'static str> {
-	learn_samples()
+fn learn_topics() -> &'static [LearnTopic] {
+	static TOPICS: std::sync::OnceLock<Vec<LearnTopic>> = std::sync::OnceLock::new();
+	TOPICS.get_or_init(|| {
+		LEARN_TOPIC_DOCUMENTS
+			.iter()
+			.map(|document| parse_learn_topic(document).expect("embedded learn topic parses"))
+			.collect()
+	})
+}
+
+fn parse_learn_topic(document: &str) -> anyhow::Result<LearnTopic> {
+	let (front_matter, body) = document
+		.strip_prefix("---\n")
+		.and_then(|rest| rest.split_once("\n---\n"))
+		.context("learn topic must start with front matter")?;
+	let mut name = String::new();
+	let mut title = String::new();
+	let mut summary = String::new();
+	for line in front_matter.lines() {
+		let Some((key, value)) = line.split_once(':') else {
+			continue;
+		};
+		match key.trim() {
+			"name" => name = value.trim().to_string(),
+			"title" => title = value.trim().to_string(),
+			"summary" => summary = value.trim().to_string(),
+			_ => {}
+		}
+	}
+	if name.is_empty() || title.is_empty() || summary.is_empty() {
+		bail!("learn topic front matter requires name, title, and summary");
+	}
+	Ok(LearnTopic {
+		name,
+		title,
+		summary,
+		body: body.to_string(),
+	})
+}
+
+fn learn_topic_names() -> Vec<&'static str> {
+	learn_topics()
 		.iter()
-		.map(|sample| sample.name.as_str())
+		.map(|topic| topic.name.as_str())
 		.collect()
 }
 
-fn write_learn_text<W: Write>(w: &mut W, samples: &[&'static LearnSample]) -> std::io::Result<()> {
-	writeln!(
-		w,
-		"# Embedded code-moniker check rule samples. Copy the relevant TOML blocks into .code-moniker.toml."
-	)?;
-	writeln!(
-		w,
-		"# Each sample is an executable scenario document under samples/ (see docs/check-scenarios.md)."
-	)?;
-	writeln!(w, "# Samples: {}", learn_sample_names().join(", "))?;
-	for sample in samples {
+fn write_learn_text<W: Write>(w: &mut W, topics: &[&'static LearnTopic]) -> std::io::Result<()> {
+	writeln!(w, "# code-moniker check DSL")?;
+	writeln!(w, "# Topics: {}", learn_topic_names().join(", "))?;
+	for topic in topics {
 		writeln!(w)?;
-		writeln!(w, "# --- {} ({}) ---", sample.name, sample.path)?;
-		write!(w, "{}", sample.content)?;
-		if !sample.content.ends_with('\n') {
+		writeln!(w, "# --- {}: {} ---", topic.name, topic.title)?;
+		writeln!(w, "# {}", topic.summary)?;
+		write!(w, "{}", topic.body)?;
+		if !topic.body.ends_with('\n') {
 			writeln!(w)?;
 		}
 	}
@@ -664,7 +633,6 @@ mod tests {
 	use clap::Parser;
 	use tempfile::tempdir;
 
-	use super::{LEARN_SAMPLE_DOCUMENTS, learn_sample_names, learn_samples};
 	use crate::args::Cli;
 	use crate::{Exit, run};
 
@@ -783,55 +751,70 @@ mod tests {
 	}
 
 	#[test]
-	fn rules_learn_prints_embedded_sample() {
-		let cli = Cli::parse_from(["code-moniker", "rules", "learn", "java"]);
+	fn rules_learn_prints_dsl_topic() {
+		let cli = Cli::parse_from(["code-moniker", "rules", "learn", "refs"]);
 		let mut stdout = Vec::new();
 		let mut stderr = Vec::new();
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let out = String::from_utf8(stdout).unwrap();
-		assert!(out.contains("# --- java (samples/java.md) ---"), "{out}");
-		assert!(out.contains("[aliases]"), "{out}");
-		assert!(out.contains("[[java.class.where]]"), "{out}");
-		assert!(!out.contains("# --- typescript"), "{out}");
+		assert!(out.contains("# --- refs: Reference rules ---"), "{out}");
+		assert!(out.contains("[[refs.where]]"), "{out}");
+		assert!(out.contains("source.*"), "{out}");
+		assert!(!out.contains("cm:file="), "{out}");
 	}
 
 	#[test]
-	fn rules_learn_embeds_every_sample_document() {
-		let samples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
-		let mut on_disk: Vec<String> = std::fs::read_dir(samples_dir)
-			.expect("samples directory")
+	fn rules_learn_prints_all_dsl_topics() {
+		let cli = Cli::parse_from(["code-moniker", "rules", "learn"]);
+		let mut stdout = Vec::new();
+		let mut stderr = Vec::new();
+
+		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
+		let out = String::from_utf8(stdout).unwrap();
+		assert!(
+			out.contains("# Topics: basics, paths, refs, collections, metrics, profiles"),
+			"{out}"
+		);
+		assert!(out.contains("# --- basics:"), "{out}");
+		assert!(out.contains("# --- profiles:"), "{out}");
+		assert!(!out.contains("cm:expect"), "{out}");
+	}
+
+	#[test]
+	fn rules_learn_embeds_every_learn_topic_document() {
+		let learn_dir =
+			std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/learn");
+		let mut on_disk: Vec<String> = std::fs::read_dir(learn_dir)
+			.expect("learn samples directory")
 			.filter_map(|entry| {
-				let path = entry.expect("samples entry").path();
-				let name = path.file_stem()?.to_str()?.to_string();
-				(path.extension()? == "md" && name != "README").then_some(name)
+				let path = entry.expect("learn sample entry").path();
+				let name = path.file_name()?.to_str()?;
+				name.strip_suffix(".cm.md").map(str::to_string)
 			})
 			.collect();
 		on_disk.sort();
+		let mut embedded = super::learn_topic_names();
+		embedded.sort();
 		assert_eq!(
-			learn_sample_names(),
+			embedded,
 			on_disk.iter().map(String::as_str).collect::<Vec<_>>(),
-			"embedded learn samples must match samples/*.md"
+			"`rules learn` must expose every samples/learn/*.cm.md document"
 		);
-		assert_eq!(
-			learn_samples().len(),
-			LEARN_SAMPLE_DOCUMENTS.len(),
-			"every embedded sample document must parse as a scenario"
-		);
-		for sample in learn_samples() {
-			assert!(!sample.lang.is_empty(), "{}: missing lang", sample.name);
-			assert!(!sample.blurb.is_empty(), "{}: missing blurb", sample.name);
-			assert!(!sample.content.is_empty(), "{}: empty rules", sample.name);
+		for topic in super::learn_topics() {
+			assert!(!topic.title.is_empty(), "{}: missing title", topic.name);
+			assert!(!topic.summary.is_empty(), "{}: missing summary", topic.name);
+			assert!(!topic.body.is_empty(), "{}: empty body", topic.name);
 		}
 	}
 
 	#[test]
-	fn rules_learn_json_reports_samples() {
+	fn rules_learn_json_reports_topics() {
 		let cli = Cli::parse_from([
 			"code-moniker",
 			"rules",
 			"learn",
-			"rust.toml",
+			"paths",
 			"--format",
 			"json",
 		]);
@@ -840,39 +823,26 @@ mod tests {
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::Match);
 		let out: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
-		let samples = out["samples"].as_array().unwrap();
-		assert_eq!(samples.len(), 1);
-		assert_eq!(samples[0]["name"], "rust");
-		assert_eq!(samples[0]["path"], "samples/rust.md");
-		assert_eq!(samples[0]["published"], true);
-		assert!(!samples[0]["lang"].as_str().unwrap().is_empty(), "{out:#}");
-		assert!(!samples[0]["blurb"].as_str().unwrap().is_empty(), "{out:#}");
+		let topics = out["topics"].as_array().unwrap();
+		assert_eq!(topics.len(), 1);
+		assert_eq!(topics[0]["name"], "paths");
+		assert_eq!(topics[0]["title"], "Moniker path patterns and aliases");
 		assert!(
-			samples[0]["content"]
-				.as_str()
-				.unwrap()
-				.contains("[[rust.fn.where]]"),
-			"{out:#}"
-		);
-		assert!(
-			samples[0]["document"]
-				.as_str()
-				.unwrap()
-				.contains("cm:rules"),
+			topics[0]["body"].as_str().unwrap().contains("[aliases]"),
 			"{out:#}"
 		);
 	}
 
 	#[test]
-	fn rules_learn_rejects_unknown_sample() {
+	fn rules_learn_rejects_unknown_topic() {
 		let cli = Cli::parse_from(["code-moniker", "rules", "learn", "kotlin"]);
 		let mut stdout = Vec::new();
 		let mut stderr = Vec::new();
 
 		assert_eq!(run(&cli, &mut stdout, &mut stderr), Exit::UsageError);
 		let err = String::from_utf8(stderr).unwrap();
-		assert!(err.contains("unknown rules sample `kotlin`"), "{err}");
-		assert!(err.contains("java"), "{err}");
+		assert!(err.contains("unknown DSL topic `kotlin`"), "{err}");
+		assert!(err.contains("refs"), "{err}");
 	}
 
 	#[test]

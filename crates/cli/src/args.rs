@@ -71,11 +71,9 @@ pub enum RulesCommand {
 	Enable(RulesFileArgs),
 	#[command(about = "Show the effective compiled rules after defaults, overlay, and profile.")]
 	Show(RulesShowArgs),
-	#[command(about = "Print embedded check rule examples from the documentation.")]
+	#[command(about = "Print focused DSL documentation and copyable rule snippets.")]
 	Learn(RulesLearnArgs),
-	#[command(
-		about = "Evaluate a rules TOML fragment against a source file or stdin. Powers the VSCode rule notebook."
-	)]
+	#[command(about = "Evaluate a rules TOML fragment against a source file or stdin.")]
 	Eval(RulesEvalArgs),
 }
 
@@ -132,10 +130,10 @@ pub struct RulesShowArgs {
 #[derive(Debug, ClapArgs)]
 pub struct RulesLearnArgs {
 	#[arg(
-		value_name = "SAMPLE",
-		help = "sample name to print, for example java, architecture, or typescript; omit to print every sample"
+		value_name = "TOPIC",
+		help = "DSL topic to print, for example basics, paths, refs, collections, or metrics; omit to print every topic"
 	)]
-	pub sample: Option<String>,
+	pub topic: Option<String>,
 
 	#[arg(
 		long,

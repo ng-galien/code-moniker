@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -27,6 +28,174 @@ pub struct FileReport {
 pub struct FileError {
 	pub path: PathBuf,
 	pub error: String,
+}
+
+pub trait CheckWorkspace: Sync {
+	fn is_dir(&self, path: &Path) -> anyhow::Result<bool>;
+	fn read_to_string(&self, path: &Path) -> anyhow::Result<String>;
+	fn source_set(
+		&self,
+		root: &Path,
+		files: &[PathBuf],
+	) -> anyhow::Result<environment::SourceFileSet>;
+	fn exists(&self, path: &Path) -> bool;
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FsCheckWorkspace;
+
+impl CheckWorkspace for FsCheckWorkspace {
+	fn is_dir(&self, path: &Path) -> anyhow::Result<bool> {
+		let meta = std::fs::metadata(path)
+			.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", path.display()))?;
+		Ok(meta.is_dir())
+	}
+
+	fn read_to_string(&self, path: &Path) -> anyhow::Result<String> {
+		std::fs::read_to_string(path)
+			.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
+	}
+
+	fn source_set(
+		&self,
+		root: &Path,
+		files: &[PathBuf],
+	) -> anyhow::Result<environment::SourceFileSet> {
+		if files.is_empty() {
+			environment::discover_sources(&[root.to_path_buf()], None)
+		} else {
+			environment::discover_source_files(root, files, None)
+		}
+	}
+
+	fn exists(&self, path: &Path) -> bool {
+		path.exists()
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct MemoryCheckWorkspace {
+	root: PathBuf,
+	files: BTreeMap<PathBuf, MemorySourceFile>,
+}
+
+#[derive(Clone, Debug)]
+struct MemorySourceFile {
+	body: String,
+	lang: Lang,
+}
+
+impl MemoryCheckWorkspace {
+	pub fn new(root: impl Into<PathBuf>) -> Self {
+		Self {
+			root: root.into(),
+			files: BTreeMap::new(),
+		}
+	}
+
+	pub fn with_file(
+		mut self,
+		path: impl Into<PathBuf>,
+		body: impl Into<String>,
+		lang: Lang,
+	) -> Self {
+		self.files.insert(
+			normalize_relative(path.into()),
+			MemorySourceFile {
+				body: body.into(),
+				lang,
+			},
+		);
+		self
+	}
+
+	pub fn root(&self) -> &Path {
+		&self.root
+	}
+
+	fn rel_path(&self, path: &Path) -> PathBuf {
+		normalize_relative(path.strip_prefix(&self.root).unwrap_or(path).to_path_buf())
+	}
+}
+
+impl CheckWorkspace for MemoryCheckWorkspace {
+	fn is_dir(&self, path: &Path) -> anyhow::Result<bool> {
+		Ok(path == self.root || path == Path::new("."))
+	}
+
+	fn read_to_string(&self, path: &Path) -> anyhow::Result<String> {
+		let rel = self.rel_path(path);
+		self.files
+			.get(&rel)
+			.map(|file| file.body.clone())
+			.ok_or_else(|| anyhow::anyhow!("cannot read {}: not found", path.display()))
+	}
+
+	fn source_set(
+		&self,
+		root: &Path,
+		files: &[PathBuf],
+	) -> anyhow::Result<environment::SourceFileSet> {
+		self.ensure_root(root)?;
+		Ok(environment::SourceFileSet {
+			roots: vec![memory_source_root(&self.root)],
+			files: memory_source_files(&self.root, &self.files, files),
+			multi: false,
+		})
+	}
+
+	fn exists(&self, path: &Path) -> bool {
+		let rel = self.rel_path(path);
+		self.files.contains_key(&rel)
+	}
+}
+
+impl MemoryCheckWorkspace {
+	fn ensure_root(&self, root: &Path) -> anyhow::Result<()> {
+		if root == self.root {
+			return Ok(());
+		}
+		anyhow::bail!(
+			"memory workspace root mismatch: expected {}, got {}",
+			self.root.display(),
+			root.display()
+		);
+	}
+}
+
+fn memory_source_root(root: &Path) -> environment::SourceRoot {
+	environment::SourceRoot {
+		input: root.to_path_buf(),
+		path: root.to_path_buf(),
+		label: ".".to_string(),
+		ctx: environment::ExtractContext::default(),
+	}
+}
+
+fn memory_source_files(
+	root: &Path,
+	files: &BTreeMap<PathBuf, MemorySourceFile>,
+	requested: &[PathBuf],
+) -> Vec<environment::SourceFile> {
+	files
+		.iter()
+		.filter(|(path, _)| memory_file_selected(root, path, requested))
+		.map(|(rel_path, file)| environment::SourceFile {
+			source: 0,
+			path: root.join(rel_path),
+			rel_path: rel_path.clone(),
+			anchor: rel_path.clone(),
+			lang: file.lang,
+		})
+		.collect()
+}
+
+fn memory_file_selected(root: &Path, path: &Path, requested: &[PathBuf]) -> bool {
+	requested.is_empty()
+		|| requested.iter().any(|candidate| {
+			let candidate = normalize_relative(candidate.clone());
+			candidate == path || normalize_relative(root.join(&candidate)) == path
+		})
 }
 
 /// How a consumer wants embedded default rules to participate in a ruleset.
@@ -159,14 +328,16 @@ impl CheckRequest {
 	}
 
 	pub fn run(&self) -> anyhow::Result<CheckRun> {
+		self.run_with_workspace(&FsCheckWorkspace)
+	}
+
+	pub fn run_with_workspace(&self, workspace: &dyn CheckWorkspace) -> anyhow::Result<CheckRun> {
 		let started = Instant::now();
 		let cfg = self.rules.load_config()?;
-		let meta = std::fs::metadata(&self.path)
-			.map_err(|e| anyhow::anyhow!("cannot stat {}: {e}", self.path.display()))?;
-		let (reports, errors, skip_reason) = if meta.is_dir() {
-			self.run_directory(&cfg)?
+		let (reports, errors, skip_reason) = if workspace.is_dir(&self.path)? {
+			self.run_directory(&cfg, workspace)?
 		} else {
-			self.run_single_file(&cfg)?
+			self.run_single_file(&cfg, workspace)?
 		};
 		Ok(CheckRun {
 			reports,
@@ -179,16 +350,18 @@ impl CheckRequest {
 	fn run_directory(
 		&self,
 		cfg: &check::Config,
+		workspace: &dyn CheckWorkspace,
 	) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>, Option<CheckSkipReason>)> {
 		let (reports, errors) = if self.files.is_empty() {
-			check_project(&self.path, cfg, self.rules.scheme(), self.report)?
+			check_project_workspace(&self.path, cfg, self.rules.scheme(), self.report, workspace)?
 		} else {
-			check_project_files(
+			check_project_files_workspace(
 				&self.path,
 				&self.files,
 				cfg,
 				self.rules.scheme(),
 				self.report,
+				workspace,
 			)?
 		};
 		let skip_reason = if !self.files.is_empty() && reports.is_empty() && errors.is_empty() {
@@ -202,12 +375,19 @@ impl CheckRequest {
 	fn run_single_file(
 		&self,
 		cfg: &check::Config,
+		workspace: &dyn CheckWorkspace,
 	) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>, Option<CheckSkipReason>)> {
 		if !self.files.is_empty() {
 			anyhow::bail!("--file can only be used when check PATH is a directory");
 		}
 		let excluded = path_excluded(&self.path, cfg);
-		match check_one_file(&self.path, cfg, self.rules.scheme(), self.report)? {
+		match check_one_file_workspace(
+			&self.path,
+			cfg,
+			self.rules.scheme(),
+			self.report,
+			workspace,
+		)? {
 			Some(report) => Ok((vec![report], Vec::new(), None)),
 			None if excluded => Ok((
 				Vec::new(),
@@ -406,6 +586,16 @@ pub fn check_one_file(
 	scheme: &str,
 	report: bool,
 ) -> anyhow::Result<Option<FileReport>> {
+	check_one_file_workspace(path, cfg, scheme, report, &FsCheckWorkspace)
+}
+
+pub fn check_one_file_workspace(
+	path: &Path,
+	cfg: &check::Config,
+	scheme: &str,
+	report: bool,
+	workspace: &dyn CheckWorkspace,
+) -> anyhow::Result<Option<FileReport>> {
 	let Ok(lang) = path_to_lang(path) else {
 		return Ok(None);
 	};
@@ -414,7 +604,22 @@ pub fn check_one_file(
 		return Ok(None);
 	}
 	let compiled = check::compile_rules(cfg, lang, scheme)?;
-	check_one_compiled(path, None, lang, scheme, &compiled, report).map(Some)
+	let ctx = CompiledCheck {
+		scheme,
+		compiled: &compiled,
+		report,
+		workspace,
+		requirements: None,
+	};
+	check_one_compiled(path, None, lang, &ctx).map(Some)
+}
+
+struct CompiledCheck<'a> {
+	scheme: &'a str,
+	compiled: &'a check::CompiledRules,
+	report: bool,
+	workspace: &'a dyn CheckWorkspace,
+	requirements: Option<&'a dyn check::RequirementResolver>,
 }
 
 /// `moniker_anchor` overrides the path passed to the extractor - used by
@@ -424,22 +629,20 @@ fn check_one_compiled(
 	fs_path: &Path,
 	moniker_anchor: Option<&Path>,
 	lang: code_moniker_core::lang::Lang,
-	scheme: &str,
-	compiled: &check::CompiledRules,
-	report: bool,
+	ctx: &CompiledCheck<'_>,
 ) -> anyhow::Result<FileReport> {
-	let source = std::fs::read_to_string(fs_path)
-		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", fs_path.display()))?;
+	let source = ctx.workspace.read_to_string(fs_path)?;
 	let graph = environment::extract_source_with(
 		lang,
 		&source,
 		moniker_anchor.unwrap_or(fs_path),
 		&environment::ExtractContext::default(),
 	);
-	let raw = check::evaluate_compiled(&graph, &source, lang, scheme, compiled);
+	let raw = check::evaluate_compiled(&graph, &source, lang, ctx.scheme, ctx.compiled);
 	let violations = check::apply_suppressions(&graph, &source, raw);
-	let rule_reports = if report {
-		let mut rule_reports = check::rule_report_compiled(&graph, &source, lang, scheme, compiled);
+	let rule_reports = if ctx.report {
+		let mut rule_reports =
+			check::rule_report_compiled(&graph, &source, lang, ctx.scheme, ctx.compiled);
 		align_report_violations_with_suppressions(&mut rule_reports, &violations);
 		rule_reports
 	} else {
@@ -455,31 +658,27 @@ fn check_one_compiled(
 fn check_source_file_compiled(
 	file: &environment::SourceFile,
 	ctx: &environment::ExtractContext,
-	scheme: &str,
-	compiled: &check::CompiledRules,
-	report: bool,
-	requirements: Option<&dyn check::RequirementResolver>,
+	check_ctx: &CompiledCheck<'_>,
 ) -> anyhow::Result<FileReport> {
-	let source = std::fs::read_to_string(&file.path)
-		.map_err(|e| anyhow::anyhow!("cannot read {}: {e}", file.path.display()))?;
+	let source = check_ctx.workspace.read_to_string(&file.path)?;
 	let graph = environment::extract_source_with(file.lang, &source, &file.anchor, ctx);
 	let raw = check::evaluate_compiled_with_requirements(
 		&graph,
 		&source,
 		file.lang,
-		scheme,
-		compiled,
-		requirements,
+		check_ctx.scheme,
+		check_ctx.compiled,
+		check_ctx.requirements,
 	);
 	let violations = check::apply_suppressions(&graph, &source, raw);
-	let rule_reports = if report {
+	let rule_reports = if check_ctx.report {
 		let mut rule_reports = check::rule_report_compiled_with_requirements(
 			&graph,
 			&source,
 			file.lang,
-			scheme,
-			compiled,
-			requirements,
+			check_ctx.scheme,
+			check_ctx.compiled,
+			check_ctx.requirements,
 		);
 		align_report_violations_with_suppressions(&mut rule_reports, &violations);
 		rule_reports
@@ -502,12 +701,30 @@ pub fn check_project(
 	scheme: &str,
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
-	let source_set = environment::discover_sources(&[root.to_path_buf()], None)?;
+	check_project_workspace(root, cfg, scheme, report, &FsCheckWorkspace)
+}
+
+pub fn check_project_workspace(
+	root: &Path,
+	cfg: &check::Config,
+	scheme: &str,
+	report: bool,
+	workspace: &dyn CheckWorkspace,
+) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
+	let source_set = workspace.source_set(root, &[])?;
 	let requirements = FileRequirementResolver::new(
 		root.to_path_buf(),
 		Some(filtered_source_set(&source_set, cfg)),
+		workspace,
 	);
-	check_source_set(&source_set, cfg, scheme, report, Some(&requirements))
+	check_source_set(
+		&source_set,
+		cfg,
+		scheme,
+		report,
+		Some(&requirements),
+		workspace,
+	)
 }
 
 pub fn check_project_files(
@@ -517,13 +734,32 @@ pub fn check_project_files(
 	scheme: &str,
 	report: bool,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
-	let source_set = environment::discover_source_files(root, files, None)?;
-	let resolver_source_set = environment::discover_sources(&[root.to_path_buf()], None)?;
+	check_project_files_workspace(root, files, cfg, scheme, report, &FsCheckWorkspace)
+}
+
+pub fn check_project_files_workspace(
+	root: &Path,
+	files: &[PathBuf],
+	cfg: &check::Config,
+	scheme: &str,
+	report: bool,
+	workspace: &dyn CheckWorkspace,
+) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
+	let source_set = workspace.source_set(root, files)?;
+	let resolver_source_set = workspace.source_set(root, &[])?;
 	let requirements = FileRequirementResolver::new(
 		root.to_path_buf(),
 		Some(filtered_source_set(&resolver_source_set, cfg)),
+		workspace,
 	);
-	check_source_set(&source_set, cfg, scheme, report, Some(&requirements))
+	check_source_set(
+		&source_set,
+		cfg,
+		scheme,
+		report,
+		Some(&requirements),
+		workspace,
+	)
 }
 
 fn filtered_source_set(
@@ -549,6 +785,7 @@ fn check_source_set(
 	scheme: &str,
 	report: bool,
 	requirements: Option<&dyn check::RequirementResolver>,
+	workspace: &dyn CheckWorkspace,
 ) -> anyhow::Result<(Vec<FileReport>, Vec<FileError>)> {
 	use rayon::prelude::*;
 	use std::collections::HashMap;
@@ -571,11 +808,16 @@ fn check_source_set(
 			let f = *f;
 			let rules = &compiled[&f.lang];
 			let ctx = &source_set.roots[f.source].ctx;
-			check_source_file_compiled(f, ctx, scheme, rules, report, requirements).map_err(|e| {
-				FileError {
-					path: f.path.clone(),
-					error: format!("{e:#}"),
-				}
+			let check_ctx = CompiledCheck {
+				scheme,
+				compiled: rules,
+				report,
+				workspace,
+				requirements,
+			};
+			check_source_file_compiled(f, ctx, &check_ctx).map_err(|e| FileError {
+				path: f.path.clone(),
+				error: format!("{e:#}"),
 			})
 		})
 		.collect();
@@ -592,23 +834,29 @@ fn check_source_set(
 	Ok((reports, errors))
 }
 
-struct FileRequirementResolver {
+struct FileRequirementResolver<'a> {
 	root: PathBuf,
 	source_set: Option<environment::SourceFileSet>,
 	workspace_defs: OnceLock<Vec<DefRecord>>,
+	workspace: &'a dyn CheckWorkspace,
 }
 
-impl FileRequirementResolver {
-	fn new(root: PathBuf, source_set: Option<environment::SourceFileSet>) -> Self {
+impl<'a> FileRequirementResolver<'a> {
+	fn new(
+		root: PathBuf,
+		source_set: Option<environment::SourceFileSet>,
+		workspace: &'a dyn CheckWorkspace,
+	) -> Self {
 		Self {
 			root,
 			source_set,
 			workspace_defs: OnceLock::new(),
+			workspace,
 		}
 	}
 }
 
-impl check::RequirementResolver for FileRequirementResolver {
+impl check::RequirementResolver for FileRequirementResolver<'_> {
 	fn exists(&self, pattern: &str, _source: &DefRecord, _scheme: &str) -> bool {
 		let Some(candidates) = source_candidates_from_requirement(&self.root, pattern) else {
 			return false;
@@ -617,13 +865,13 @@ impl check::RequirementResolver for FileRequirementResolver {
 			return false;
 		};
 		for path in candidates {
-			if !path.exists() {
+			if !self.workspace.exists(&path) {
 				continue;
 			}
 			let Ok(lang) = path_to_lang(&path) else {
 				continue;
 			};
-			let Ok(source) = std::fs::read_to_string(&path) else {
+			let Ok(source) = self.workspace.read_to_string(&path) else {
 				continue;
 			};
 			let graph = environment::extract_source_with(
@@ -654,20 +902,23 @@ impl check::RequirementResolver for FileRequirementResolver {
 	}
 }
 
-impl FileRequirementResolver {
+impl FileRequirementResolver<'_> {
 	fn workspace_defs(&self) -> &[DefRecord] {
 		self.workspace_defs
-			.get_or_init(|| collect_workspace_defs(self.source_set.as_ref()))
+			.get_or_init(|| collect_workspace_defs(self.source_set.as_ref(), self.workspace))
 	}
 }
 
-fn collect_workspace_defs(source_set: Option<&environment::SourceFileSet>) -> Vec<DefRecord> {
+fn collect_workspace_defs(
+	source_set: Option<&environment::SourceFileSet>,
+	workspace: &dyn CheckWorkspace,
+) -> Vec<DefRecord> {
 	let Some(source_set) = source_set else {
 		return Vec::new();
 	};
 	let mut defs = Vec::new();
 	for file in &source_set.files {
-		let Ok(source) = std::fs::read_to_string(&file.path) else {
+		let Ok(source) = workspace.read_to_string(&file.path) else {
 			continue;
 		};
 		let ctx = &source_set.roots[file.source].ctx;
@@ -675,6 +926,16 @@ fn collect_workspace_defs(source_set: Option<&environment::SourceFileSet>) -> Ve
 		defs.extend(graph.defs().cloned());
 	}
 	defs
+}
+
+fn normalize_relative(path: PathBuf) -> PathBuf {
+	path.components()
+		.filter_map(|component| match component {
+			std::path::Component::Normal(part) => Some(PathBuf::from(part)),
+			std::path::Component::CurDir => None,
+			_ => None,
+		})
+		.collect()
 }
 
 fn lazy_domain_matches(domain: &Domain, def: &DefRecord) -> bool {

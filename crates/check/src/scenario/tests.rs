@@ -43,6 +43,7 @@ fn parses_front_matter_rules_files_and_expects() {
 	);
 	assert_eq!(scenario.files.len(), 1);
 	assert_eq!(scenario.files[0].path, "src/lib.rs");
+	assert_eq!(scenario.files[0].fence, "rust");
 	assert_eq!(
 		scenario.files[0].body,
 		"pub fn tidy() {}\n\npub fn DoThing() {}\n"
@@ -59,12 +60,10 @@ fn parses_front_matter_rules_files_and_expects() {
 }
 
 #[test]
-fn scenario_runs_against_a_materialized_workspace() {
+fn scenario_runs_against_an_in_memory_workspace() {
 	let scenario = Scenario::parse(DOCUMENT).expect("parse scenario");
-	let temp = tempfile::tempdir().expect("tempdir");
-	scenario.materialize(temp.path()).expect("materialize");
 	let run = scenario
-		.run(temp.path(), "code+moniker://")
+		.run(std::path::Path::new("."), "code+moniker://")
 		.expect("run scenario");
 	assert!(run.is_match(), "mismatch:\n{}", run.mismatch_summary());
 	assert_eq!(run.actual.len(), 1);
@@ -75,10 +74,8 @@ fn scenario_runs_against_a_materialized_workspace() {
 fn mismatched_expectations_report_missing_and_unexpected() {
 	let document = DOCUMENT.replace("src/lib.rs:L3", "src/lib.rs:L1");
 	let scenario = Scenario::parse(&document).expect("parse scenario");
-	let temp = tempfile::tempdir().expect("tempdir");
-	scenario.materialize(temp.path()).expect("materialize");
 	let run = scenario
-		.run(temp.path(), "code+moniker://")
+		.run(std::path::Path::new("."), "code+moniker://")
 		.expect("run scenario");
 	assert!(!run.is_match());
 	assert_eq!(run.missing.len(), 1);
@@ -91,10 +88,8 @@ fn mismatched_expectations_report_missing_and_unexpected() {
 fn bless_rewrites_the_expect_block_in_place() {
 	let document = DOCUMENT.replace("src/lib.rs:L3", "src/lib.rs:L1");
 	let scenario = Scenario::parse(&document).expect("parse scenario");
-	let temp = tempfile::tempdir().expect("tempdir");
-	scenario.materialize(temp.path()).expect("materialize");
 	let run = scenario
-		.run(temp.path(), "code+moniker://")
+		.run(std::path::Path::new("."), "code+moniker://")
 		.expect("run scenario");
 	let blessed = scenario.bless(&document, &run.actual);
 	assert_eq!(blessed, DOCUMENT);
@@ -155,10 +150,8 @@ fn undemonstrated_directives_excuse_silent_rules_and_flag_stale_markers() {
 	assert!(document.contains("never-fires"), "fixture edit must apply");
 	let scenario = Scenario::parse(&document).expect("parse scenario");
 	assert_eq!(scenario.undemonstrated.len(), 2);
-	let temp = tempfile::tempdir().expect("tempdir");
-	scenario.materialize(temp.path()).expect("materialize");
 	let run = scenario
-		.run(temp.path(), "code+moniker://")
+		.run(std::path::Path::new("."), "code+moniker://")
 		.expect("run scenario");
 	assert!(run.is_match(), "{}", run.mismatch_summary());
 	assert!(run.silent_rules.is_empty(), "{:?}", run.silent_rules);

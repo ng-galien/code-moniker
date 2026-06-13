@@ -1,4 +1,4 @@
-//! Contract harness for the executable samples under `samples/`. Every
+//! Contract harness for the executable catalog samples under `samples/catalog/`. Every
 //! scenario document must replay exactly to its `cm:expect` block, every
 //! configured rule must fire at least once, and a sample that demonstrates
 //! nothing is rejected. `CM_SCENARIO_BLESS=1` rewrites the expect blocks from
@@ -11,7 +11,7 @@ use code_moniker_check::scenario::Scenario;
 const SCHEME: &str = "code+moniker://";
 
 fn samples_dir() -> PathBuf {
-	Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples")
+	Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/catalog")
 }
 
 fn bless_requested() -> bool {
@@ -23,8 +23,10 @@ fn samples_match_their_expectations() {
 	let mut checked = 0;
 	for entry in std::fs::read_dir(samples_dir()).expect("samples directory") {
 		let path = entry.expect("samples entry").path();
-		if path.extension().is_none_or(|extension| extension != "md")
-			|| path.file_name().is_some_and(|name| name == "README.md")
+		if !path
+			.file_name()
+			.and_then(|name| name.to_str())
+			.is_some_and(|name| name.ends_with(".cm.md"))
 		{
 			continue;
 		}
@@ -33,7 +35,7 @@ fn samples_match_their_expectations() {
 	}
 	assert!(
 		checked >= 2,
-		"expected scenario samples in {}",
+		"expected catalog scenario samples in {}",
 		samples_dir().display()
 	);
 }
@@ -42,9 +44,7 @@ fn check_sample(path: &Path) {
 	let document = std::fs::read_to_string(path).expect("read sample");
 	let scenario =
 		Scenario::parse(&document).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-	let temp = tempfile::tempdir().expect("tempdir");
-	scenario.materialize(temp.path()).expect("materialize");
-	let run = scenario.run(temp.path(), SCHEME).expect("run scenario");
+	let run = scenario.run(Path::new("."), SCHEME).expect("run scenario");
 	if bless_requested() {
 		std::fs::write(path, scenario.bless(&document, &run.actual)).expect("bless sample");
 		return;

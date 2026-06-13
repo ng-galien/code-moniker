@@ -19,6 +19,7 @@ tgt_infrastructure = "target ~ '**/*:/^(infrastructure|infra)$/**'"
 
 [[refs.where]]
 id      = "domain-depends-only-inward"
+rationale = "Domain code should model business rules without knowing how data is stored. Keep infrastructure behind an application boundary."
 expr    = "$src_domain => NOT $tgt_infrastructure"
 message = "Domain code must not depend on infrastructure."
 ```

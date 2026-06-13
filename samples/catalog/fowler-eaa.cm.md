@@ -1,43 +1,26 @@
 ---
 name: fowler-eaa
 lang: java
-blurb: PoEAA layering, repositories, DTOs and a non-anemic domain
+blurb: Enterprise layering, repositories, DTOs, and domain behavior
 published: true
 ---
 
 # Fowler — Patterns of Enterprise Application Architecture
 
 Ruleset inspired by Martin Fowler et al., *Patterns of Enterprise Application
-Architecture* (2002). The layering is `presentation -> service -> domain`,
-with the data source layer on the outside. Four `refs` rules police the layer
-edges; three Java class heuristics encode the Repository, Data Transfer
-Object and Domain Model patterns.
+Architecture* (2002). The sample teaches a practical enterprise shape:
+presentation calls services, services coordinate domain behavior, and data
+source code stays behind clear repository boundaries.
 
 ```toml cm:rules
-# Fowler — Patterns of Enterprise Application Architecture check sample.
-#
-# Ruleset inspired by Martin Fowler et al., "Patterns of Enterprise
-# Application Architecture" (Addison-Wesley, 2002). Community-authored
-# encoding of structural patterns from the book; not endorsed by the author.
-#
-# Layer convention used below: presentation -> service (application) ->
-# domain, with data (persistence/infrastructure) on the outside. This encodes
-# the common dependency-inverted variant where the domain may own repository
-# interfaces but does not depend on persistence implementations.
-#
-# Class heuristics are Java-scoped because they rely on Java method and field
-# vocabulary. Adapt the package names to match your repository before use.
-
 default_rules = false
 
 [aliases]
-# Def-scope aliases.
 presentation = "moniker ~ '**/package:/^(presentation|web|controller|api)$/**'"
 service      = "moniker ~ '**/package:/^(service|application)$/**'"
 domain       = "moniker ~ '**/package:/^(domain|model)$/**'"
 data         = "moniker ~ '**/package:/^(data|persistence|repository|infrastructure)$/**'"
 
-# Ref-scope aliases.
 src_presentation = "source ~ '**/package:/^(presentation|web|controller|api)$/**'"
 src_service      = "source ~ '**/package:/^(service|application)$/**'"
 src_domain       = "source ~ '**/package:/^(domain|model)$/**'"
@@ -48,64 +31,45 @@ tgt_service      = "target ~ '**/package:/^(service|application)$/**'"
 tgt_domain       = "target ~ '**/package:/^(domain|model)$/**'"
 tgt_data         = "target ~ '**/package:/^(data|persistence|repository|infrastructure)$/**'"
 
-# Layered Architecture ------------------------------------------------------
-# Chapter 1. Higher layers depend on lower; lower layers must not depend
-# back on higher. Annotation refs are excluded because persistence
-# annotations on domain entities (JPA `@Column`, `@Entity`) are descriptive
-# metadata, not behavioural coupling.
-
 [[refs.where]]
 id   = "fowler-layered-domain-no-presentation"
+rationale = "Domain code should not know how a request is presented. Keep presentation concerns outside the model."
 expr = "$src_domain AND kind != 'annotates' => NOT $tgt_presentation"
 message = "Layered Architecture: domain must not depend on presentation."
 
 [[refs.where]]
 id   = "fowler-layered-domain-no-data"
+rationale = "The domain may define repository contracts, but it should not depend on concrete data source code."
 expr = "$src_domain AND kind != 'annotates' => NOT $tgt_data"
 message = "Layered Architecture: domain must not depend on the data source layer."
 
 [[refs.where]]
 id   = "fowler-layered-data-no-presentation"
+rationale = "The data source layer should serve the application, not call back into controllers or views."
 expr = "$src_data AND kind != 'annotates' => NOT $tgt_presentation"
 message = "Layered Architecture: data source layer must not depend on presentation."
 
-# Service Layer -------------------------------------------------------------
-# Presentation talks to the service layer; the service layer orchestrates
-# domain logic and repositories. Presentation reaching the data layer
-# directly is the smell this rule catches.
-
 [[refs.where]]
 id   = "fowler-presentation-no-direct-data"
+rationale = "Presentation should ask the service layer to do work instead of reaching straight into persistence."
 expr = "$src_presentation AND kind != 'annotates' => NOT $tgt_data"
 message = "Service Layer: presentation should call the service layer, not the data source layer directly."
 
-# Repository ----------------------------------------------------------------
-# Repository implementations live in the data source layer. Repository
-# interfaces may live with the domain (the canonical Repository pattern in
-# DDD-influenced PoEAA).
-
 [[java.class.where]]
 id   = "fowler-repository-naming"
+rationale = "Repository types are persistence-facing contracts or implementations. Their package should make that role clear."
 expr = "name =~ Repository$ => ($data OR $domain)"
 message = "Repository: class `{name}` should live in a data source or domain package."
 
-# Data Transfer Object ------------------------------------------------------
-# DTOs are data carriers: accessors, constructor, equality. Business
-# behaviour belongs in a domain or service class. Detection is heuristic
-# based on name suffix + accessor pattern; builder-style or record-style
-# projects should tune this rule.
-
 [[java.class.where]]
 id   = "fowler-dto-only-accessors"
+rationale = "DTOs are meant to carry data across a boundary. Business behavior belongs in domain or service objects."
 expr = "name =~ (Dto|DTO|Request|Response)$ => all(method, name =~ ^(get|set|is)[A-Z_].* OR name =~ ^(equals|hashCode|toString)$)"
 message = "DTO `{name}` should only expose accessors; business logic belongs elsewhere."
 
-# Domain Model --------------------------------------------------------------
-# Related to Fowler's "AnemicDomainModel" bliki entry: a domain class with
-# zero behaviour is a smell. Excludes obvious value-only classes by name.
-
 [[java.class.where]]
 id   = "fowler-domain-not-anemic"
+rationale = "A domain model should carry behavior, not only data. Classes with no meaningful methods often push business logic elsewhere."
 expr = "$domain AND name !~ (Dto|DTO|Request|Response|Event|Command|Query|Id|Vo|VO)$ => count(method, name !~ ^(get|set|is)[A-Z_].* AND name !~ ^(equals|hashCode|toString)$) >= 1"
 message = "Anemic Domain Model: domain class `{name}` has no non-accessor methods."
 

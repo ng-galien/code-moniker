@@ -3,10 +3,8 @@ import * as vscode from "vscode";
 
 import { runCheckProject, validateRuleFile } from "../cli/facade";
 import { toDiagnostic } from "../diagnostics/vscode";
-import { openScratchNotebook } from "../notebook/factory";
 import { firstLine, rootOf, workspaceLabel } from "../shared/workspace";
 import { RuleFileNode, RuleNode } from "./nodes";
-import { ruleAsFragment } from "./parse";
 import { findRuleFiles } from "./repository";
 import { RuleFilesProvider } from "./tree";
 
@@ -22,9 +20,6 @@ export function registerRuleCommands(
 		),
 		vscode.commands.registerCommand("codeMoniker.revealRule", (node: RuleNode) =>
 			revealPickedRule(node),
-		),
-		vscode.commands.registerCommand("codeMoniker.testRuleInNotebook", (node: RuleNode) =>
-			testPickedRule(node),
 		),
 		vscode.commands.registerCommand("codeMoniker.validateRuleFile", (node: RuleFileNode) =>
 			validatePickedFile(node, diagnostics),
@@ -55,18 +50,6 @@ async function revealRule(node: RuleNode): Promise<void> {
 	const pos = new vscode.Position(node.rule.line, 0);
 	editor.selection = new vscode.Selection(pos, pos);
 	editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-}
-
-async function testPickedRule(node: RuleNode | undefined): Promise<void> {
-	const target = node ?? await pickRule("Test rule in notebook");
-	if (target) {
-		await testRule(target);
-	}
-}
-
-async function testRule(node: RuleNode): Promise<void> {
-	const { langId, toml } = ruleAsFragment(node.rule);
-	await openScratchNotebook(node.rule.id, langId, toml);
 }
 
 async function validatePickedFile(

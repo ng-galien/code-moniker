@@ -24,7 +24,7 @@ struct Line<'a> {
 enum Block<'a> {
 	Rules,
 	Expect,
-	File(&'a str),
+	File { path: &'a str, fence: &'a str },
 	Ignored,
 }
 
@@ -77,13 +77,14 @@ fn collect_block(
 			scenario.expect_span = Some(span);
 			(scenario.expects, scenario.undemonstrated) = parse_expect_block(content, opening.no)?;
 		}
-		Block::File(path) => {
+		Block::File { path, fence } => {
 			validate_relative_path(path, opening.no)?;
 			if scenario.files.iter().any(|file| file.path == path) {
 				return Err(block_error(opening, &format!("duplicate file `{path}`")));
 			}
 			scenario.files.push(ScenarioFile {
 				path: path.to_string(),
+				fence: fence.to_string(),
 				body: content.to_string(),
 			});
 		}
@@ -185,6 +186,10 @@ fn content_span(lines: &[Line<'_>], opening: usize, closing: usize) -> (usize, u
 
 fn classify_info_string(text: &str) -> Block<'_> {
 	let info = text.trim_start_matches('`').trim();
+	let fence = info
+		.split_whitespace()
+		.find(|token| !token.starts_with("cm:"))
+		.unwrap_or("");
 	for token in info.split_whitespace() {
 		if token == "cm:rules" {
 			return Block::Rules;
@@ -193,7 +198,7 @@ fn classify_info_string(text: &str) -> Block<'_> {
 			return Block::Expect;
 		}
 		if let Some(path) = token.strip_prefix("cm:file=") {
-			return Block::File(path);
+			return Block::File { path, fence };
 		}
 	}
 	Block::Ignored

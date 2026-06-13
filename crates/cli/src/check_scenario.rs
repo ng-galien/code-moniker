@@ -1,10 +1,11 @@
 //! CLI adapter for executable check scenarios (unstable surface). Reads a
-//! scenario document, replays it in a temporary workspace, and either verifies
-//! or blesses its expectations.
+//! scenario document into the in-memory check workspace and either verifies or
+//! blesses its expectations.
 
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use code_moniker_check::CheckRun;
 use code_moniker_check::scenario::{Scenario, ScenarioRun};
 
 use crate::{DEFAULT_SCHEME, Exit};
@@ -25,13 +26,19 @@ pub(crate) fn run<W1: Write, W2: Write>(path: &Path, stdout: &mut W1, stderr: &m
 fn run_inner<W: Write>(path: &Path, stdout: &mut W) -> anyhow::Result<bool> {
 	let document = read_document(path)?;
 	let scenario = Scenario::parse(&document)?;
-	let temp = tempfile::tempdir()?;
-	scenario.materialize(temp.path())?;
-	let run = scenario.run(temp.path(), DEFAULT_SCHEME)?;
+	let run = scenario.run(Path::new("."), DEFAULT_SCHEME)?;
 	if bless_requested() {
 		return bless_document(path, &document, &scenario, &run, stdout);
 	}
 	render_outcome(&run, stdout)
+}
+
+pub(crate) fn check_run(path: &Path, files: &[PathBuf], report: bool) -> anyhow::Result<CheckRun> {
+	let document = read_document(path)?;
+	let scenario = Scenario::parse(&document)?;
+	let mut run = scenario.check(Path::new("."), files, DEFAULT_SCHEME, report)?;
+	normalize_paths_for_catalog(&mut run);
+	Ok(run)
 }
 
 fn read_document(path: &Path) -> anyhow::Result<String> {
@@ -94,5 +101,22 @@ fn render_outcome<W: Write>(run: &ScenarioRun, stdout: &mut W) -> anyhow::Result
 		writeln!(stdout, "{}", run.mismatch_summary())?;
 		writeln!(stdout, "scenario: mismatch")?;
 		Ok(false)
+	}
+}
+
+fn normalize_paths_for_catalog(run: &mut CheckRun) {
+	for report in &mut run.reports {
+		report.path = report
+			.path
+			.strip_prefix(".")
+			.unwrap_or(&report.path)
+			.to_path_buf();
+	}
+	for error in &mut run.errors {
+		error.path = error
+			.path
+			.strip_prefix(".")
+			.unwrap_or(&error.path)
+			.to_path_buf();
 	}
 }
