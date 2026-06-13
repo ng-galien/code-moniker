@@ -6,6 +6,7 @@ use code_moniker_workspace::snapshot::{
 };
 use serde_json::{Value, json};
 
+use super::common::{is_workspace_uri, sorted_count_rows, symbol_line_suffix};
 use super::scope::{
 	Paging, ScopeFilter, append_call_number_arg, append_call_string_arg, path_prefix,
 };
@@ -144,7 +145,7 @@ impl UsageDirection {
 }
 
 fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<String> {
-	if is_workspace_uri(&request.uri, context.scheme()) {
+	if is_workspace_uri(&request.uri, context.scheme(), "workspace") {
 		anyhow::bail!("usage reads require an exact symbol URI returned by code_moniker_symbols");
 	}
 	let snapshot = context.index().index_snapshot()?;
@@ -163,15 +164,6 @@ fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<S
 			linkage: &snapshot.linkage,
 		},
 	)
-}
-
-fn is_workspace_uri(uri: &str, scheme: &str) -> bool {
-	let value = uri.trim();
-	value.is_empty()
-		|| value == "workspace"
-		|| value == format!("{scheme}workspace")
-		|| value == format!("{scheme}.")
-		|| value == scheme.trim_end_matches('/')
 }
 
 pub(in crate::mcp) struct UsageQuery<'a> {
@@ -273,7 +265,7 @@ pub(in crate::mcp) fn render_usages_lmnav(
 			},
 		);
 	}
-	append_read_call(&mut output, target, 3);
+	append_symbol_read_call(&mut output, target, 3);
 	append_usages_call(
 		&mut output,
 		UsageCall {
@@ -307,7 +299,7 @@ fn render_target(output: &mut String, lookup: &UsageLookup<'_>, target: &SymbolR
 		output.push_str(&format!(
 			"  file: {}{}\n",
 			source.rel_path,
-			line_suffix(target)
+			symbol_line_suffix(target)
 		));
 		output.push_str(&format!("  lang: {}\n", source.language));
 	}
@@ -520,14 +512,7 @@ fn reference_line_suffix(reference: &ReferenceRecord) -> String {
 		.unwrap_or_else(|| ":L?".to_string())
 }
 
-fn line_suffix(symbol: &SymbolRecord) -> String {
-	symbol
-		.line_range
-		.map(|(start, end)| format!(":{start}-{end}"))
-		.unwrap_or_default()
-}
-
-fn append_read_call(output: &mut String, target: &SymbolRecord, context_lines: usize) {
+fn append_symbol_read_call(output: &mut String, target: &SymbolRecord, context_lines: usize) {
 	output.push_str("  - code_moniker_read");
 	append_call_string_arg(output, "uri", &target.identity);
 	append_call_number_arg(output, "context_lines", context_lines);
@@ -631,7 +616,7 @@ impl UsageSummary {
 		output.push_str(&format!("  files: {}\n", self.files.len()));
 		output.push_str(&format!("  contexts: {}\n", self.contexts.len()));
 		output.push_str(&format!("  prefixes: {}\n", self.prefixes.len()));
-		if let Some((prefix, count)) = sorted_counts(&self.prefixes).first() {
+		if let Some((prefix, count)) = sorted_count_rows(&self.prefixes).first() {
 			output.push_str(&format!(
 				"  dominant_prefix: {prefix} ({count} refs, {}%)\n",
 				percent(*count, self.refs)
@@ -646,7 +631,7 @@ impl UsageSummary {
 		if self.refs == 0 {
 			return "unused_or_unresolved";
 		}
-		let dominant = sorted_counts(&self.prefixes)
+		let dominant = sorted_count_rows(&self.prefixes)
 			.first()
 			.map(|(_, count)| percent(*count, self.refs))
 			.unwrap_or(0);
@@ -667,7 +652,7 @@ fn render_top_counts(
 	limit: usize,
 ) {
 	output.push_str(&format!("  {label}:\n"));
-	let rows = sorted_counts(counts);
+	let rows = sorted_count_rows(counts);
 	if rows.is_empty() {
 		output.push_str("    <empty>\n");
 		return;
@@ -675,15 +660,6 @@ fn render_top_counts(
 	for (name, count) in rows.iter().take(limit) {
 		output.push_str(&format!("    {name}: {count}\n"));
 	}
-}
-
-fn sorted_counts(counts: &BTreeMap<String, usize>) -> Vec<(String, usize)> {
-	let mut rows = counts
-		.iter()
-		.map(|(name, count)| (name.clone(), *count))
-		.collect::<Vec<_>>();
-	rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-	rows
 }
 
 fn percent(count: usize, total: usize) -> usize {

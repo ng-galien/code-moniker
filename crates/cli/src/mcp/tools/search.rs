@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord, WorkspaceView};
 use serde_json::{Value, json};
 
+use super::common::symbol_line_suffix;
 use super::scope::{
 	Paging, SymbolMatch, SymbolScopeFilter, append_call_bool_arg, append_call_number_arg,
 	append_call_string_arg,
@@ -290,7 +291,7 @@ fn render_search_row(output: &mut String, row: &SearchRow<'_>) {
 		row.symbol.kind,
 		row.symbol.name,
 		row.source.rel_path,
-		line_suffix(row.symbol)
+		symbol_line_suffix(row.symbol)
 	));
 	output.push_str(&format!("    score: {}\n", row.score));
 	output.push_str(&format!("    reason: {}\n", row.reason));
@@ -321,11 +322,4 @@ fn append_search_next_call(
 		append_call_number_arg(output, "cursor", cursor);
 	}
 	output.push('\n');
-}
-
-fn line_suffix(symbol: &SymbolRecord) -> String {
-	symbol
-		.line_range
-		.map(|(start, end)| format!(":{start}-{end}"))
-		.unwrap_or_default()
 }

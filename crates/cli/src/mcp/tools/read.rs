@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use code_moniker_workspace::snapshot::{SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord};
 use serde_json::{Value, json};
 
+use super::common::{is_workspace_uri, normalize_workspace_uri};
 use super::scope::{
 	Paging, ScopeFilter, append_call_number_arg, append_call_string_arg, path_prefix,
 };
@@ -152,7 +153,7 @@ impl ReadRequest {
 }
 
 fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<String> {
-	if is_workspace_uri(&request.uri, context.scheme()) {
+	if is_workspace_uri(&request.uri, context.scheme(), DEFAULT_READ_URI) {
 		return read_workspace(
 			context,
 			&request.uri,
@@ -237,15 +238,6 @@ fn read_view(
 	)
 }
 
-fn is_workspace_uri(uri: &str, scheme: &str) -> bool {
-	let value = uri.trim();
-	value.is_empty()
-		|| value == DEFAULT_READ_URI
-		|| value == format!("{scheme}workspace")
-		|| value == format!("{scheme}.")
-		|| value == scheme.trim_end_matches('/')
-}
-
 pub(in crate::mcp) fn render_symbol_source_lmnav(
 	scheme: &str,
 	symbol: &SymbolRecord,
@@ -318,7 +310,7 @@ pub(in crate::mcp) fn render_explorer_lmnav(
 	for source in &scoped_sources {
 		tree.insert(source);
 	}
-	let uri = normalize_workspace_uri(scheme, request_uri);
+	let uri = normalize_workspace_uri(scheme, request_uri, DEFAULT_READ_URI);
 	let summary = WorkspaceSummary::from_sources(catalog.sources.len(), &scoped_sources);
 	let mut lines = Vec::new();
 	tree.render(depth, "", &mut lines);
@@ -393,15 +385,6 @@ fn append_symbols_call(output: &mut String, scheme: &str, scope: &ScopeFilter, l
 	scope.append_call_args(output);
 	append_call_number_arg(output, "limit", limit);
 	output.push('\n');
-}
-
-fn normalize_workspace_uri(scheme: &str, request_uri: &str) -> String {
-	let trimmed = request_uri.trim();
-	if trimmed.is_empty() || trimmed == DEFAULT_READ_URI {
-		format!("{scheme}workspace")
-	} else {
-		trimmed.to_string()
-	}
 }
 
 #[derive(Default)]

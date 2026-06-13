@@ -3,6 +3,9 @@ use std::collections::BTreeMap;
 use code_moniker_workspace::snapshot::{ReferenceRecord, SourceFileRecord, SourceId, SymbolRecord};
 use serde_json::{Value, json};
 
+use super::common::{
+	is_workspace_uri, normalize_workspace_uri, sorted_count_rows, symbol_line_suffix,
+};
 use super::scope::{
 	Paging, SymbolMatch, SymbolScopeFilter, append_call_number_arg, append_call_string_arg,
 };
@@ -156,7 +159,7 @@ impl SymbolAction {
 
 fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result<String> {
 	let uri = request.uri.as_str();
-	if !is_workspace_uri(uri, context.scheme()) {
+	if !is_workspace_uri(uri, context.scheme(), DEFAULT_SYMBOL_URI) {
 		anyhow::bail!(
 			"unsupported URI; use workspace or {}workspace",
 			context.scheme()
@@ -175,15 +178,6 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 		},
 		request.action,
 	))
-}
-
-fn is_workspace_uri(uri: &str, scheme: &str) -> bool {
-	let value = uri.trim();
-	value.is_empty()
-		|| value == DEFAULT_SYMBOL_URI
-		|| value == format!("{scheme}workspace")
-		|| value == format!("{scheme}.")
-		|| value == scheme.trim_end_matches('/')
 }
 
 pub(in crate::mcp) struct SymbolIndexView<'a> {
@@ -245,7 +239,7 @@ fn render_symbol_list_lmnav(
 			.then_with(|| a.0.identity.cmp(&b.0.identity))
 	});
 	let (start, end, next) = paging.window(&rows);
-	let uri = normalize_workspace_uri(scheme, request_uri);
+	let uri = normalize_workspace_uri(scheme, request_uri, DEFAULT_SYMBOL_URI);
 	let mut output = String::new();
 	output.push_str(&format!("uri: {uri}\n"));
 	if let Some(next) = next {
@@ -275,7 +269,7 @@ fn render_symbol_list_lmnav(
 				symbol.kind,
 				symbol.name,
 				source.rel_path,
-				line_suffix(symbol)
+				symbol_line_suffix(symbol)
 			));
 			output.push_str(&format!("    uri: {}\n", symbol.identity));
 			output.push_str("    usages: code_moniker_usages");
@@ -296,7 +290,7 @@ fn render_symbol_list_lmnav(
 		);
 	}
 	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::Insights, 20, None);
-	append_read_call(&mut output, scheme, scope, 2);
+	append_workspace_read_call(&mut output, scheme, scope, 2);
 	output
 }
 
@@ -338,7 +332,7 @@ fn render_symbol_insights_lmnav(
 		.filter(|reference| scoped_source_ids.contains(&reference.source))
 		.collect::<Vec<_>>();
 	let metrics = collect_symbol_insights(&scoped_sources, &scoped_symbols, &scoped_references);
-	let uri = normalize_workspace_uri(scheme, request_uri);
+	let uri = normalize_workspace_uri(scheme, request_uri, DEFAULT_SYMBOL_URI);
 	let mut output = String::new();
 	output.push_str(&format!("uri: {uri}\n"));
 	output.push_str("completeness: full\n");
@@ -355,7 +349,7 @@ fn render_symbol_insights_lmnav(
 	metrics.render(&mut output, paging.limit);
 	output.push_str("next:\n");
 	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::List, 50, None);
-	append_read_call(&mut output, scheme, scope, 3);
+	append_workspace_read_call(&mut output, scheme, scope, 3);
 	output
 }
 
@@ -386,7 +380,12 @@ fn append_symbols_next_call(
 	output.push('\n');
 }
 
-fn append_read_call(output: &mut String, scheme: &str, scope: &SymbolScopeFilter, depth: usize) {
+fn append_workspace_read_call(
+	output: &mut String,
+	scheme: &str,
+	scope: &SymbolScopeFilter,
+	depth: usize,
+) {
 	output.push_str(&format!("  - code_moniker_read uri=\"{scheme}workspace\""));
 	scope.files.append_call_args(output);
 	append_call_number_arg(output, "depth", depth);
@@ -446,9 +445,14 @@ impl SymbolInsights {
 			"  non_navigable_symbols: {}\n",
 			self.non_navigable_symbols
 		));
-		render_counts(output, "languages", &sorted_counts(&self.languages), limit);
-		render_counts(output, "kinds", &sorted_counts(&self.kinds), limit);
-		render_counts(output, "shapes", &sorted_counts(&self.shapes), limit);
+		render_counts(
+			output,
+			"languages",
+			&sorted_count_rows(&self.languages),
+			limit,
+		);
+		render_counts(output, "kinds", &sorted_count_rows(&self.kinds), limit);
+		render_counts(output, "shapes", &sorted_count_rows(&self.shapes), limit);
 		render_source_counts(
 			output,
 			"top_files_by_symbols",
@@ -514,18 +518,6 @@ fn render_source_counts(
 	}
 }
 
-fn sorted_counts<K>(counts: &BTreeMap<K, usize>) -> Vec<(String, usize)>
-where
-	K: ToString,
-{
-	let mut rows = counts
-		.iter()
-		.map(|(name, count)| (name.to_string(), *count))
-		.collect::<Vec<_>>();
-	rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-	rows
-}
-
 fn sorted_source_counts(
 	files_by_id: &BTreeMap<SourceId, String>,
 	counts_by_file: &BTreeMap<SourceId, usize>,
@@ -540,20 +532,4 @@ fn sorted_source_counts(
 		.collect::<Vec<_>>();
 	rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 	rows
-}
-
-fn line_suffix(symbol: &SymbolRecord) -> String {
-	symbol
-		.line_range
-		.map(|(start, end)| format!(":{start}-{end}"))
-		.unwrap_or_default()
-}
-
-fn normalize_workspace_uri(scheme: &str, request_uri: &str) -> String {
-	let trimmed = request_uri.trim();
-	if trimmed.is_empty() || trimmed == DEFAULT_SYMBOL_URI {
-		format!("{scheme}workspace")
-	} else {
-		trimmed.to_string()
-	}
 }

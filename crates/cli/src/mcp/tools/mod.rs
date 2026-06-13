@@ -1,3 +1,4 @@
+pub(in crate::mcp) mod common;
 pub(super) mod notes;
 pub(super) mod read;
 pub(super) mod refresh;
