@@ -11,7 +11,7 @@ export interface CatalogGroupNode {
 	id: string;
 	label: string;
 	description?: string;
-	groupKind: "builtin" | "language" | "rules";
+	groupKind: "builtin" | "learn" | "language" | "rules";
 	entries?: CatalogEntry[];
 	rules?: CatalogRule[];
 }

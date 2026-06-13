@@ -252,12 +252,47 @@ fn write_learn_text<W: Write>(w: &mut W, topics: &[&'static LearnTopic]) -> std:
 		writeln!(w)?;
 		writeln!(w, "# --- {}: {} ---", topic.name, topic.title)?;
 		writeln!(w, "# {}", topic.summary)?;
-		write!(w, "{}", topic.body)?;
-		if !topic.body.ends_with('\n') {
+		let body = learn_text_body(&topic.body);
+		write!(w, "{body}")?;
+		if !body.ends_with('\n') {
 			writeln!(w)?;
 		}
 	}
 	Ok(())
+}
+
+fn learn_text_body(body: &str) -> String {
+	let mut rendered = String::new();
+	let mut skipping = false;
+	for line in body.lines() {
+		if line.trim_start().starts_with("```") {
+			let info = line.trim_start().trim_start_matches('`').trim();
+			if skipping {
+				skipping = false;
+				continue;
+			}
+			if info
+				.split_whitespace()
+				.any(|token| token == "cm:expect" || token.starts_with("cm:file="))
+			{
+				skipping = true;
+				continue;
+			}
+			if info.split_whitespace().any(|token| token == "cm:rules") {
+				let language = info
+					.split_whitespace()
+					.find(|token| !token.starts_with("cm:"))
+					.unwrap_or("");
+				rendered.push_str("```");
+				rendered.push_str(language);
+				rendered.push('\n');
+				continue;
+			}
+		}
+		rendered.push_str(line);
+		rendered.push('\n');
+	}
+	rendered
 }
 
 fn show<W: Write>(args: &RulesShowArgs, stdout: &mut W) -> anyhow::Result<()> {

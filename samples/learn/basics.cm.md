@@ -10,7 +10,7 @@ Rules live in `[[<lang>.<kind>.where]]`, `[[<lang>.shape.<shape>.where]]`,
 or `[[refs.where]]` tables. `expr` is a boolean predicate over the current
 symbol or reference. A false predicate emits a violation.
 
-```toml
+```toml cm:rules
 default_rules = false
 
 [[rust.fn.where]]
@@ -21,5 +21,15 @@ message   = "Function `{name}` should be snake_case."
 rationale = "A familiar name shape lets Rust readers recognize functions without stopping to decode style differences."
 ```
 
+```rust cm:file=src/lib.rs
+pub fn tidy() {}
+
+pub fn DoThing() {}
+```
+
 Useful operators: `=`, `!=`, `=~`, `!~`, `<`, `<=`, `>`, `>=`, `AND`, `OR`,
 `NOT`, and implication with `=>`.
+
+```cm:expect
+rust.fn.function-snake-case @ src/lib.rs:L3
+```

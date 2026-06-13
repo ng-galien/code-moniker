@@ -725,7 +725,7 @@ Worked examples for layer boundaries, DDD contracts, adapters, test modules,
 and doc comments live in the [recipes section of check](check.md#recipes).
 Executable catalog scenarios live in
 [samples/catalog](../../samples/catalog), with one scenario per supported
-language or rule family. Focused DSL learning snippets live in
+language or rule family. Focused executable DSL learning scenarios live in
 [samples/learn](../../samples/learn).
 Suppression directives live in [suppressions](check.md#suppressions). They
 use this grammar; no new construct is introduced.

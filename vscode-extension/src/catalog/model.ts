@@ -4,12 +4,14 @@ import { RuleEntry } from "../rules/parse";
 
 export type CatalogSource = "builtin";
 export type CatalogKind = "pack" | "scenario";
-export type CatalogLevel = "Practice" | "Reference";
+export type CatalogLevel = "Learn" | "Practice" | "Reference";
+export type CatalogCategory = "learn" | "sample";
 
 export interface CatalogEntry {
 	id: string;
 	source: CatalogSource;
 	kind: CatalogKind;
+	category: CatalogCategory;
 	title: string;
 	fileName: string;
 	blurb: string;

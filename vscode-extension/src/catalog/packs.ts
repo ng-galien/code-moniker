@@ -14,28 +14,42 @@ import rustNaming from "../../../samples/catalog/rust-naming.cm.md";
 import sql from "../../../samples/catalog/sql.cm.md";
 import testGuardrails from "../../../samples/catalog/test-guardrails.cm.md";
 import typescript from "../../../samples/catalog/typescript.cm.md";
+import learnBasics from "../../../samples/learn/basics.cm.md";
+import learnCollections from "../../../samples/learn/collections.cm.md";
+import learnMetrics from "../../../samples/learn/metrics.cm.md";
+import learnPaths from "../../../samples/learn/paths.cm.md";
+import learnProfiles from "../../../samples/learn/profiles.cm.md";
+import learnRefs from "../../../samples/learn/refs.cm.md";
 
 const CATALOG_DOCUMENTS = [
-	architecture,
-	cleanArchitecture,
-	csharp,
-	fowlerEaa,
-	fowlerRefactoring,
-	go,
-	java,
-	javaLayerBoundaries,
-	python,
-	rust,
-	rustNaming,
-	sql,
-	testGuardrails,
-	typescript,
+	{ category: "sample" as const, document: architecture },
+	{ category: "sample" as const, document: cleanArchitecture },
+	{ category: "sample" as const, document: csharp },
+	{ category: "sample" as const, document: fowlerEaa },
+	{ category: "sample" as const, document: fowlerRefactoring },
+	{ category: "sample" as const, document: go },
+	{ category: "sample" as const, document: java },
+	{ category: "sample" as const, document: javaLayerBoundaries },
+	{ category: "sample" as const, document: python },
+	{ category: "sample" as const, document: rust },
+	{ category: "sample" as const, document: rustNaming },
+	{ category: "sample" as const, document: sql },
+	{ category: "sample" as const, document: testGuardrails },
+	{ category: "sample" as const, document: typescript },
+	{ category: "learn" as const, document: learnBasics },
+	{ category: "learn" as const, document: learnCollections },
+	{ category: "learn" as const, document: learnMetrics },
+	{ category: "learn" as const, document: learnPaths },
+	{ category: "learn" as const, document: learnProfiles },
+	{ category: "learn" as const, document: learnRefs },
 ];
 
 // Sample packs are built directly from the repository's scenario documents.
 // The CLI remains only the execution engine, not the catalog source.
 export interface PackEntry {
 	name: string;
+	title: string;
+	category: "learn" | "sample";
 	langId?: string;
 	blurb: string;
 	/** Full scenario Markdown document (multi-file layout + rules + expects). */
@@ -47,19 +61,23 @@ export type PackIndexResult =
 	| { ok: false; error: string };
 
 export async function loadPackIndex(): Promise<PackIndexResult> {
-	const packs = CATALOG_DOCUMENTS.map(packEntry).filter((pack) => pack !== undefined);
+	const packs = CATALOG_DOCUMENTS.map(({ category, document }) =>
+		packEntry(category, document),
+	).filter((pack) => pack !== undefined);
 	return { ok: true, packs };
 }
 
-function packEntry(document: string): PackEntry | undefined {
+function packEntry(category: "learn" | "sample", document: string): PackEntry | undefined {
 	const meta = frontMatter(document);
 	if (!meta.name || meta.published === "false") {
 		return undefined;
 	}
 	return {
 		name: meta.name,
+		title: meta.title?.trim() || `${meta.name} scenario`,
+		category,
 		langId: meta.lang ? langByTomlSection(meta.lang)?.id : undefined,
-		blurb: meta.blurb?.trim() || `Scenario \`${meta.name}\`.`,
+		blurb: meta.blurb?.trim() || meta.summary?.trim() || `Scenario \`${meta.name}\`.`,
 		document,
 	};
 }

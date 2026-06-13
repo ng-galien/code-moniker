@@ -49,15 +49,16 @@ export class CatalogRepository {
 
 function builtinEntries(packs: PackEntry[]): CatalogEntry[] {
 	return packs.map((entry): CatalogEntry => ({
-		id: `builtin:pack:${entry.name}`,
+		id: entry.category === "learn" ? `builtin:learn:${entry.name}` : `builtin:pack:${entry.name}`,
 		source: "builtin",
 		kind: "pack",
-		title: `${entry.name} scenario`,
+		category: entry.category,
+		title: entry.title,
 		fileName: `${entry.name}${SCENARIO_EXTENSION}`,
 		blurb: entry.blurb,
 		langId: entry.langId,
-		level: "Reference",
-		tags: ["builtin", "pack", "scenario", entry.name],
+		level: entry.category === "learn" ? "Learn" : "Reference",
+		tags: ["builtin", entry.category, "pack", "scenario", entry.name],
 		document: entry.document,
 	}));
 }

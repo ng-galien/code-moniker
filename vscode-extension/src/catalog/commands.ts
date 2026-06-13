@@ -285,7 +285,7 @@ function selectedEntryId(treeView: vscode.TreeView<CatalogNode> | undefined): st
 }
 
 function isCatalogEntryId(id: unknown): id is string {
-	return typeof id === "string" && id.startsWith("builtin:pack:");
+	return typeof id === "string" && (id.startsWith("builtin:pack:") || id.startsWith("builtin:learn:"));
 }
 
 export function entryLabel(id: string, entries: { id: string; title: string }[]): string {

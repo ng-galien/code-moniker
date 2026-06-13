@@ -280,7 +280,7 @@ rules or aliases. `rules show` lists every declared fragment and reports
 profile-filtered rules do not disappear silently.
 
 Use `rules learn` to print focused DSL learning topics. These are short,
-copyable rule snippets for learning the expression language; full executable
+copyable executable scenarios for learning the expression language; operational
 catalog scenarios live under `samples/catalog/`.
 
 ```sh

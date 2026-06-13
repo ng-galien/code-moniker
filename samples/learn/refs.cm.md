@@ -10,7 +10,9 @@ summary: Use refs rules for imports, calls, inheritance, annotations, and layer 
 domain for direct dependency boundaries, framework imports, call rules, and
 annotation relationships.
 
-```toml
+```toml cm:rules
+default_rules = false
+
 [[refs.where]]
 id        = "domain-imports-no-framework"
 rationale = "Reference rules can protect boundaries directly: domain code stays easier to reuse when framework imports remain outside."
@@ -21,5 +23,15 @@ expr      = """
 """
 ```
 
+```ts cm:file=src/domain/controller.ts
+import { Router } from "express";
+
+export const router = Router();
+```
+
 Use `source.*` for the referencing symbol and `target.*` for the referenced
 symbol when the target resolves.
+
+```cm:expect
+refs.domain-imports-no-framework @ src/domain/controller.ts:L1
+```

@@ -16,8 +16,10 @@ pub use run::ScenarioRun;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ScenarioMeta {
 	pub name: String,
+	pub title: String,
 	pub lang: String,
 	pub blurb: String,
+	pub summary: String,
 	pub published: bool,
 	pub default_rules: Option<bool>,
 }

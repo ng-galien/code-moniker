@@ -137,8 +137,10 @@ fn parse_meta_line(line: &Line<'_>, meta: &mut ScenarioMeta) -> Result<(), Scena
 	let value = value.trim();
 	match key.trim() {
 		"name" => meta.name = value.to_string(),
+		"title" => meta.title = value.to_string(),
 		"lang" => meta.lang = value.to_string(),
 		"blurb" => meta.blurb = value.to_string(),
+		"summary" => meta.summary = value.to_string(),
 		"published" => meta.published = parse_bool(value, line)?,
 		"default_rules" => meta.default_rules = Some(parse_bool(value, line)?),
 		key => {

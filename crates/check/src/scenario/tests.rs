@@ -2,8 +2,10 @@ use super::{ExpectedViolation, Scenario};
 
 const DOCUMENT: &str = r#"---
 name: rust-naming
+title: Rust naming
 lang: rust
 blurb: Functions stay snake_case
+summary: Functions should keep the naming shape readers expect.
 published: true
 ---
 
@@ -32,7 +34,12 @@ rust.fn.snake-case @ src/lib.rs:L3
 fn parses_front_matter_rules_files_and_expects() {
 	let scenario = Scenario::parse(DOCUMENT).expect("parse scenario");
 	assert_eq!(scenario.meta.name, "rust-naming");
+	assert_eq!(scenario.meta.title, "Rust naming");
 	assert_eq!(scenario.meta.lang, "rust");
+	assert_eq!(
+		scenario.meta.summary,
+		"Functions should keep the naming shape readers expect."
+	);
 	assert!(scenario.meta.published);
 	assert!(
 		scenario

@@ -141,10 +141,18 @@ export class CatalogProvider implements vscode.TreeDataProvider<CatalogNode> {
 				groupKind: "language",
 			};
 		}
+		if (entry.category === "learn") {
+			return {
+				kind: "group",
+				id: "builtin:learn",
+				label: "Learn syntax",
+				groupKind: "learn",
+			};
+		}
 		return {
 			kind: "group",
 			id: "builtin:packs",
-			label: "Catalog samples",
+			label: "Operational samples",
 			groupKind: "builtin",
 		};
 	}
@@ -271,16 +279,30 @@ function entryMatches(
 }
 
 function groupByPath(entries: CatalogEntry[]): CatalogNode[] {
-	return [
-		{
+	const learn = entries.filter((entry) => entry.category === "learn");
+	const samples = entries.filter((entry) => entry.category === "sample");
+	const nodes: CatalogNode[] = [];
+	if (learn.length > 0) {
+		nodes.push({
+			kind: "group",
+			id: "builtin:learn",
+			label: "Learn syntax",
+			description: `${learn.length} scenario(s)`,
+			groupKind: "learn",
+			entries: learn,
+		});
+	}
+	if (samples.length > 0) {
+		nodes.push({
 			kind: "group",
 			id: "builtin:packs",
-			label: "Catalog samples",
-			description: `${entries.length} item(s)`,
+			label: "Operational samples",
+			description: `${samples.length} scenario(s)`,
 			groupKind: "builtin",
-			entries,
-		},
-	];
+			entries: samples,
+		});
+	}
+	return nodes;
 }
 
 function groupByLanguage(entries: CatalogEntry[]): CatalogNode[] {
@@ -342,39 +364,45 @@ function ruleTreeItem(item: CatalogRule): vscode.TreeItem {
 	return treeItem;
 }
 
-function groupTooltip(kind: "builtin" | "language" | "rules"): string {
+function groupTooltip(kind: "builtin" | "learn" | "language" | "rules"): string {
 	if (kind === "builtin") {
-		return "Catalog samples open as editable unsaved scenarios. Save only when you want to keep changes.";
+		return "Operational scenario samples open as editable clean clones. Save only when you want to keep changes.";
+	}
+	if (kind === "learn") {
+		return "Executable learning scenarios for understanding the rule syntax by running short examples.";
 	}
 	if (kind === "rules") {
-		return "Rules found in catalog samples. Open a rule to inspect the sample that demonstrates it.";
+		return "Rules found in executable scenarios. Open a rule to inspect the scenario that demonstrates it.";
 	}
 	if (kind === "language") {
-		return "Catalog samples grouped by language.";
+		return "Executable scenarios grouped by language.";
 	}
-	return "Catalog samples.";
+	return "Executable scenarios.";
 }
 
 function entryTooltip(entry: CatalogEntry): string {
 	return [
 		entry.blurb,
 		"",
-		"Opens as an editable unsaved scenario. Save it only if you want to keep changes.",
+		"Opens as an editable clean scenario clone. Save it only if you want to keep changes.",
 		"",
 		entry.tags.map((tag) => `#${tag}`).join(" "),
 	].join("\n");
 }
 
 function ruleTooltip(item: CatalogRule): string {
-	return `This rule belongs to an editable unsaved catalog sample.\n\n${item.rule.blockText}`;
+	return `This rule belongs to an editable executable scenario.\n\n${item.rule.blockText}`;
 }
 
-function groupIcon(kind: "builtin" | "language" | "rules"): vscode.ThemeIcon {
+function groupIcon(kind: "builtin" | "learn" | "language" | "rules"): vscode.ThemeIcon {
 	if (kind === "language") {
 		return new vscode.ThemeIcon("symbol-keyword");
 	}
 	if (kind === "rules") {
 		return new vscode.ThemeIcon("law");
+	}
+	if (kind === "learn") {
+		return new vscode.ThemeIcon("book");
 	}
 	return new vscode.ThemeIcon("library");
 }

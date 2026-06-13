@@ -1,8 +1,8 @@
 # Code Moniker VSCode Extension
 
 A VSCode workbench for [code-moniker](../README.md) check rules: browse rule
-files, validate them, run them on a workspace, and open executable catalog
-samples from the repository's Markdown scenario corpus.
+files, validate them, run them on a workspace, and open executable learning and
+sample scenarios from the repository's Markdown scenario corpus.
 
 ## The Code Moniker Panel
 
@@ -16,12 +16,12 @@ workspace, expandable to the rules inside. Per file:
   diagnostics on real project files.
 - Clicking a rule reveals it in its source file.
 
-**Catalog** is built from [`samples/catalog/`](../samples/catalog/) and bundled
-into the extension. Opening a catalog entry creates an editable unsaved scenario
-notebook from that bundled template, named as an untitled `.cm.md` file such as
-`rust-naming.cm.md`. The builtin sample is never modified; if the user changes
-rules or code, VSCode marks the notebook dirty and regular Save / Save As
-chooses where to persist the `.cm.md` file.
+**Catalog** is built from [`samples/learn/`](../samples/learn/) and
+[`samples/catalog/`](../samples/catalog/) and bundled into the extension.
+Opening an entry creates an editable clean clone of that `.cm.md` scenario
+notebook, such as `basics.cm.md` or `rust-naming.cm.md`. The bundled scenario is
+never modified; if the user changes rules or code, VSCode marks the notebook
+dirty and regular Save / Save As chooses where to persist the `.cm.md` file.
 
 The catalog tree can be viewed by learning path, language, or rule, and filtered
 by language or text.
@@ -34,8 +34,8 @@ panel automatically. For the file Explorer, enable the bundled file icon theme:
 
 ## Scenario Samples
 
-Catalog samples are Markdown documents with fenced blocks tagged by the scenario
-DSL:
+Learn and catalog samples are Markdown documents with fenced blocks tagged by
+the scenario DSL:
 
 ````markdown
 ```toml cm:rules
@@ -61,18 +61,18 @@ Markdown.
 
 In the notebook UI, running a `cm:file` cell checks that scenario file with the
 scenario rules. Running a `cm:rules` cell, or running multiple cells, checks the
-whole in-memory scenario workspace. Catalog samples do not need to be saved
+whole in-memory scenario workspace. Bundled scenarios do not need to be saved
 before running: the extension sends the current notebook content to
 `code-moniker check --scenario -`. `cm:expect` is kept for CLI scenario tests and
 is ignored by the interactive notebook runner.
 
 For the DSL reference see [`docs/cli/check-dsl.md`](../docs/cli/check-dsl.md).
-For pedagogical CLI learning topics, use `code-moniker rules learn`, backed by
+`code-moniker rules learn` prints the same executable learning topics from
 [`samples/learn/`](../samples/learn/).
 
 ## Commands
 
-- **Code Moniker: Open Catalog Sample** — open a catalog scenario.
+- **Code Moniker: Open Catalog Sample** — open a bundled learn or sample scenario.
 - **Code Moniker: Open Sample Scenario** — pick a builtin scenario directly.
 - **Code Moniker: Catalog View** — switch the Catalog tree between path,
   language, and rule views.

@@ -1,8 +1,8 @@
-//! Contract harness for the executable catalog samples under `samples/catalog/`. Every
-//! scenario document must replay exactly to its `cm:expect` block, every
-//! configured rule must fire at least once, and a sample that demonstrates
-//! nothing is rejected. `CM_SCENARIO_BLESS=1` rewrites the expect blocks from
-//! the observed violations instead of asserting.
+//! Contract harness for executable samples under `samples/catalog/` and
+//! `samples/learn/`. Every scenario document must replay exactly to its
+//! `cm:expect` block, every configured rule must fire at least once, and a
+//! sample that demonstrates nothing is rejected. `CM_SCENARIO_BLESS=1` rewrites
+//! the expect blocks from the observed violations instead of asserting.
 
 use std::path::{Path, PathBuf};
 
@@ -10,8 +10,9 @@ use code_moniker_check::scenario::Scenario;
 
 const SCHEME: &str = "code+moniker://";
 
-fn samples_dir() -> PathBuf {
-	Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/catalog")
+fn samples_dirs() -> [PathBuf; 2] {
+	let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
+	[root.join("catalog"), root.join("learn")]
 }
 
 fn bless_requested() -> bool {
@@ -21,22 +22,25 @@ fn bless_requested() -> bool {
 #[test]
 fn samples_match_their_expectations() {
 	let mut checked = 0;
-	for entry in std::fs::read_dir(samples_dir()).expect("samples directory") {
-		let path = entry.expect("samples entry").path();
-		if !path
-			.file_name()
-			.and_then(|name| name.to_str())
-			.is_some_and(|name| name.ends_with(".cm.md"))
-		{
-			continue;
+	for dir in samples_dirs() {
+		for entry in std::fs::read_dir(&dir).unwrap_or_else(|error| {
+			panic!("samples directory {}: {error}", dir.display());
+		}) {
+			let path = entry.expect("samples entry").path();
+			if !path
+				.file_name()
+				.and_then(|name| name.to_str())
+				.is_some_and(|name| name.ends_with(".cm.md"))
+			{
+				continue;
+			}
+			check_sample(&path);
+			checked += 1;
 		}
-		check_sample(&path);
-		checked += 1;
 	}
 	assert!(
-		checked >= 2,
-		"expected catalog scenario samples in {}",
-		samples_dir().display()
+		checked >= 2 * samples_dirs().len(),
+		"expected executable scenario samples in samples/catalog and samples/learn"
 	);
 }
 

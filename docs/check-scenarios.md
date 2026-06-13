@@ -45,8 +45,10 @@ keys (anything else is an error):
 | Key | Meaning |
 | --- | --- |
 | `name` | Scenario identifier. |
+| `title` | Human-readable title for learning and catalog views. |
 | `lang` | Primary language tag (informative). |
 | `blurb` | One-line description for catalogs. |
+| `summary` | Short learning-oriented description. |
 | `published` | `true` to expose the scenario in user-facing catalogs. |
 | `default_rules` | Override the built-in rules; defaults to `false` when a `cm:rules` block is present, `true` otherwise. |
 
@@ -115,5 +117,5 @@ update: an unexpected line shift is a signal, not noise.
 ## CI contract
 
 `crates/cli/tests/samples_contract.rs` replays every `samples/catalog/*.cm.md`
-document and fails on: expectation mismatches, configured rules that never
-fire, and samples that demonstrate nothing.
+and `samples/learn/*.cm.md` document and fails on: expectation mismatches,
+configured rules that never fire, and samples that demonstrate nothing.
