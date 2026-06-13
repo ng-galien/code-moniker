@@ -8,15 +8,19 @@ export function registerRuleManager(context: vscode.ExtensionContext): void {
 	const provider = new RuleFilesProvider();
 	const diagnostics = vscode.languages.createDiagnosticCollection("code-moniker");
 	const watcher = vscode.workspace.createFileSystemWatcher(RULE_GLOB);
+	const treeView = vscode.window.createTreeView("codeMoniker.ruleFiles", {
+		treeDataProvider: provider,
+		showCollapseAll: false,
+	});
 
 	context.subscriptions.push(
 		diagnostics,
-		vscode.window.registerTreeDataProvider("codeMoniker.ruleFiles", provider),
+		treeView,
 		watcher,
 		watcher.onDidCreate(() => provider.refresh()),
 		watcher.onDidDelete(() => provider.refresh()),
 		watcher.onDidChange(() => provider.refresh()),
 	);
 
-	registerRuleCommands(context, provider, diagnostics);
+	registerRuleCommands(context, provider, treeView, diagnostics);
 }

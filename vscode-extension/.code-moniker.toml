@@ -28,7 +28,7 @@ cli_runner_target = """
   target ~ '**/dir:src/dir:cli/module:runner'
   OR target ~ '**/dir:src/dir:cli/module:runner/**'
 """
-controller_source = "source ~ '**/dir:src/dir:notebook/module:controller/**'"
+controller_source = "source ~ '**/dir:src/dir:scenario/module:controller/**'"
 rules_commands_source = "source ~ '**/dir:src/dir:rules/module:commands/**'"
 rules_repository_source = "source ~ '**/dir:src/dir:rules/module:repository/**'"
 catalog_packs_source = "source ~ '**/dir:src/dir:catalog/module:packs/**'"
@@ -56,11 +56,11 @@ VS Code view code, notebook orchestration, and the code-moniker CLI adapter.
 [[ts.class.where]]
 id        = "extension-class-budget"
 severity  = "error"
-expr      = "$extension_def => count(method) <= 8 AND all(method, lines <= 45)"
+expr      = "$extension_def => count(method) <= 12 AND all(method, lines <= 45)"
 message   = "Extension class `{name}` is too large for a VS Code adapter boundary."
 rationale = """
-Classes in the extension should mostly be VS Code providers/controllers. Domain decisions and
-CLI orchestration belong in functions around them, not inside provider classes.
+Classes in the extension should mostly be VS Code providers/controllers. They may own several
+small lifecycle and command methods, but long methods still signal mixed UI, IO, and mapping logic.
 """
 
 [[refs.where]]

@@ -2,7 +2,15 @@ import * as vscode from "vscode";
 
 import { ParsedRuleFile, RuleEntry } from "./parse";
 
-export type RuleTreeNode = RuleFileNode | RuleNode | InfoNode;
+export type RuleTreeNode = RuleFolderNode | RuleFileNode | RuleNode | InfoNode;
+
+export interface RuleFolderNode {
+	kind: "folder";
+	id: string;
+	label: string;
+	relativePath: string;
+	children: RuleTreeNode[];
+}
 
 export interface RuleFileNode {
 	kind: "file";
@@ -13,6 +21,7 @@ export interface RuleFileNode {
 export interface RuleNode {
 	kind: "rule";
 	uri: vscode.Uri;
+	fileFragment?: string;
 	rule: RuleEntry;
 }
 

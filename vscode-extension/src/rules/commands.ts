@@ -4,30 +4,73 @@ import * as vscode from "vscode";
 import { runCheckProject, validateRuleFile } from "../cli/facade";
 import { toDiagnostic } from "../diagnostics/vscode";
 import { firstLine, rootOf, workspaceLabel } from "../shared/workspace";
-import { RuleFileNode, RuleNode } from "./nodes";
-import { findRuleFiles } from "./repository";
+import { RuleFileNode, RuleNode, RuleTreeNode } from "./nodes";
+import { findRuleFiles, isFragmentFile, rulesEntrypoint } from "./repository";
 import { RuleFilesProvider } from "./tree";
 
 export function registerRuleCommands(
 	context: vscode.ExtensionContext,
 	provider: RuleFilesProvider,
+	treeView: vscode.TreeView<RuleTreeNode>,
 	diagnostics: vscode.DiagnosticCollection,
 ): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand("codeMoniker.refreshRuleFiles", () => provider.refresh()),
+		vscode.commands.registerCommand("codeMoniker.expandRuleFiles", () =>
+			expandRuleFiles(provider, treeView),
+		),
+		vscode.commands.registerCommand("codeMoniker.collapseRuleFiles", () =>
+			vscode.commands.executeCommand("workbench.actions.treeView.codeMoniker.ruleFiles.collapseAll"),
+		),
 		vscode.commands.registerCommand("codeMoniker.openRuleFile", (node: RuleFileNode) =>
 			openRuleFile(node),
+		),
+		vscode.commands.registerCommand("codeMoniker.copyRuleFileRelativePath", (node: RuleFileNode) =>
+			copyRelativePath(node),
 		),
 		vscode.commands.registerCommand("codeMoniker.revealRule", (node: RuleNode) =>
 			revealPickedRule(node),
 		),
 		vscode.commands.registerCommand("codeMoniker.validateRuleFile", (node: RuleFileNode) =>
-			validatePickedFile(node, diagnostics),
+			validatePickedFile(node, diagnostics, provider),
 		),
 		vscode.commands.registerCommand("codeMoniker.runRuleFileOnProject", (node: RuleFileNode) =>
-			runPickedFile(node, diagnostics),
+			runPickedFile(node, diagnostics, provider),
 		),
 	);
+}
+
+async function expandRuleFiles(
+	provider: RuleFilesProvider,
+	treeView: vscode.TreeView<RuleTreeNode>,
+): Promise<void> {
+	for (const node of await provider.getChildren()) {
+		await expandNode(provider, treeView, node);
+	}
+}
+
+async function expandNode(
+	provider: RuleFilesProvider,
+	treeView: vscode.TreeView<RuleTreeNode>,
+	node: RuleTreeNode,
+): Promise<void> {
+	if (node.kind !== "folder" && node.kind !== "file") {
+		return;
+	}
+	await treeView.reveal(node, { expand: true });
+	for (const child of await provider.getChildren(node)) {
+		await expandNode(provider, treeView, child);
+	}
+}
+
+async function copyRelativePath(node: RuleFileNode | undefined): Promise<void> {
+	const target = node ?? await pickRuleFile("Copy rule file relative path");
+	if (!target) {
+		return;
+	}
+	const relativePath = workspaceLabel(target.uri);
+	await vscode.env.clipboard.writeText(relativePath);
+	void vscode.window.showInformationMessage(`Copied ${relativePath}`);
 }
 
 async function openRuleFile(node: RuleFileNode | undefined): Promise<void> {
@@ -55,28 +98,37 @@ async function revealRule(node: RuleNode): Promise<void> {
 async function validatePickedFile(
 	node: RuleFileNode | undefined,
 	diagnostics: vscode.DiagnosticCollection,
+	provider?: RuleFilesProvider,
 ): Promise<void> {
 	const target = node ?? await pickRuleFile("Validate rules");
 	if (target) {
-		await validate(target, diagnostics);
+		await validate(target, diagnostics, provider);
 	}
 }
 
 async function validate(
 	node: RuleFileNode,
 	diagnostics: vscode.DiagnosticCollection,
+	provider?: RuleFilesProvider,
 ): Promise<void> {
 	const result = await vscode.window.withProgress(
 		{ location: vscode.ProgressLocation.Window, title: "Validating rules…" },
-		() => validateRuleFile(rootOf(node.uri), node.uri.fsPath),
+		async () => {
+			const entrypoint = rulesEntrypoint(node.uri, workspaceLabel(node.uri));
+			return entrypoint.ok
+				? validateRuleFile(rootOf(node.uri), entrypoint.uri.fsPath)
+				: entrypoint;
+		},
 	);
 	if (result.ok) {
 		diagnostics.delete(node.uri);
+		provider?.markValidation(node.uri, "clean");
 		void vscode.window.showInformationMessage(
-			`${workspaceLabel(node.uri)}: rules compile cleanly.`,
+			`${workspaceLabel(node.uri)}: rules compile cleanly${entrypointSuffix(node)}.`,
 		);
 		return;
 	}
+	provider?.markValidation(node.uri, "failed");
 	diagnostics.set(node.uri, [
 		new vscode.Diagnostic(
 			new vscode.Range(0, 0, 0, 1),
@@ -90,25 +142,36 @@ async function validate(
 async function runPickedFile(
 	node: RuleFileNode | undefined,
 	diagnostics: vscode.DiagnosticCollection,
+	provider?: RuleFilesProvider,
 ): Promise<void> {
 	const target = node ?? await pickRuleFile("Run rules on project");
 	if (target) {
-		await runOnProject(target, diagnostics);
+		await runOnProject(target, diagnostics, provider);
 	}
 }
 
 async function runOnProject(
 	node: RuleFileNode,
 	diagnostics: vscode.DiagnosticCollection,
+	provider?: RuleFilesProvider,
 ): Promise<void> {
 	const root = rootOf(node.uri);
 	const result = await vscode.window.withProgress(
 		{ location: vscode.ProgressLocation.Notification, title: "code-moniker check…" },
-		() => runCheckProject(root, node.uri.fsPath),
+		async () => {
+			const entrypoint = rulesEntrypoint(node.uri, workspaceLabel(node.uri));
+			return entrypoint.ok
+				? runCheckProject(root, entrypoint.uri.fsPath)
+				: entrypoint;
+		},
 	);
 	if (!result.ok) {
+		provider?.markRunFailed(node.uri);
 		void vscode.window.showErrorMessage(firstLine(result.error));
 		return;
+	}
+	if (provider) {
+		provider.markRunForFiles(await findRuleFiles(), result.report);
 	}
 	diagnostics.clear();
 	let total = 0;
@@ -125,6 +188,14 @@ async function runOnProject(
 	if (total > 0) {
 		void vscode.commands.executeCommand("workbench.panel.markers.view.focus");
 	}
+}
+
+function entrypointSuffix(node: RuleFileNode): string {
+	if (!isFragmentFile(node.uri)) {
+		return "";
+	}
+	const entrypoint = rulesEntrypoint(node.uri, workspaceLabel(node.uri));
+	return entrypoint.ok ? ` via ${workspaceLabel(entrypoint.uri)}` : "";
 }
 
 async function pickRuleFile(title: string): Promise<RuleFileNode | undefined> {

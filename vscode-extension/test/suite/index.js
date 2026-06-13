@@ -8,7 +8,7 @@ const TIMEOUT_MS = 15000;
 
 async function run() {
 	await activateExtension();
-	assertCatalogTreeMenusContributed();
+	assertTreeMenusContributed();
 	await assertRendererOutputLinks();
 	await configureBinary();
 	await rejectCatalogGroupAsEntry();
@@ -21,6 +21,13 @@ async function run() {
 	await verifyNavigationCommands(editor);
 	await runFileCell(editor);
 	await runRulesCell(editor);
+	const learnEditor = await openCatalogLearn();
+	assert.notStrictEqual(learnEditor.notebook.uri.scheme, "untitled");
+	assert.strictEqual(learnEditor.notebook.isUntitled, false);
+	assert.strictEqual(learnEditor.notebook.isDirty, false);
+	assert.match(path.basename(learnEditor.notebook.uri.path), /^basics(?:-\d+)?\.cm\.md$/);
+	assertNoExpectCells(learnEditor.notebook);
+	await runLearnRulesCell(learnEditor);
 }
 
 async function rejectCatalogGroupAsEntry() {
@@ -35,10 +42,33 @@ async function activateExtension() {
 	await extension.activate();
 }
 
-function assertCatalogTreeMenusContributed() {
+function assertTreeMenusContributed() {
 	const packageJSON = codeMonikerExtension().packageJSON;
 	const commands = packageJSON?.contributes?.commands || [];
 	const menus = packageJSON?.contributes?.menus?.["view/item/context"] || [];
+	const titleMenus = packageJSON?.contributes?.menus?.["view/title"] || [];
+	assert.ok(hasCommand(commands, "codeMoniker.expandRuleFiles"), "rule files should expose expand all");
+	assert.ok(hasCommand(commands, "codeMoniker.collapseRuleFiles"), "rule files should expose collapse all");
+	assert.ok(
+		hasMenuItem(titleMenus, "codeMoniker.expandRuleFiles", "view == codeMoniker.ruleFiles"),
+		"rule files title should expose expand all",
+	);
+	assert.ok(
+		hasMenuItem(titleMenus, "codeMoniker.collapseRuleFiles", "view == codeMoniker.ruleFiles"),
+		"rule files title should expose collapse all",
+	);
+	assert.ok(
+		hasCommand(commands, "codeMoniker.copyRuleFileRelativePath"),
+		"rule files should expose a copy relative path command",
+	);
+	assert.ok(
+		hasMenuItem(
+			menus,
+			"codeMoniker.copyRuleFileRelativePath",
+			"view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
+		),
+		"rule file rows should copy their relative path",
+	);
 	assert.ok(
 		hasMenuItem(
 			menus,
@@ -107,12 +137,30 @@ async function runRulesCell(editor) {
 	assert.deepStrictEqual(payload.files[0].violations[0].lines, [3, 3]);
 }
 
+async function runLearnRulesCell(editor) {
+	const rulesIndex = findCellIndex(editor.notebook, (meta) => meta.cmType === "rules");
+	await executeCell(editor.notebook, rulesIndex);
+	const output = await waitForCellOutput(editor.notebook, rulesIndex, "code-moniker check .");
+	assert.match(output, /1 violation\(s\)/);
+	assert.match(output, /src\/lib\.rs:L3/);
+	const payload = checkOutputPayload(editor.notebook.cellAt(rulesIndex));
+	assert.strictEqual(payload.files[0].violations[0].rule_id, "rust.fn.function-snake-case");
+}
+
 async function openCatalogSample() {
 	await vscode.commands.executeCommand(
 		"codeMoniker.catalog.openEntry",
 		{ id: "builtin:pack:rust-naming" },
 	);
 	return waitForScenarioEditor("editable catalog scenario notebook editor");
+}
+
+async function openCatalogLearn() {
+	await vscode.commands.executeCommand(
+		"codeMoniker.catalog.openEntry",
+		{ id: "builtin:learn:basics" },
+	);
+	return waitForScenarioEditor("editable learn scenario notebook editor");
 }
 
 async function verifyNavigationCommands(editor) {

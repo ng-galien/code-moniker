@@ -1,6 +1,7 @@
-// Lightweight scanner for .code-moniker.toml / *.fragment.toml: lists rule
-// blocks with their scope, id, severity, source line, and raw TOML. The CLI is
-// the source of truth for validity; this only powers the tree and navigation.
+// Lightweight TOML AST reader for .code-moniker.toml / *.fragment.toml. The CLI
+// remains the source of truth for validation; this extracts tree/navigation data.
+
+import { AST, parseTOML } from "toml-eslint-parser";
 
 import { langByTomlSection } from "../shared/languages";
 
@@ -21,68 +22,67 @@ export interface ParsedRuleFile {
 	rules: RuleEntry[];
 	aliases: string[];
 	profiles: string[];
+	fragment?: string;
 }
 
-const HEADER = /^\s*\[\[(.+?)\.where\]\]\s*$/;
-const TABLE = /^\s*\[/;
-const ALIASES = /^\s*\[aliases\]\s*$/;
-const PROFILE = /^\s*\[profiles\.([^\]]+)\]\s*$/;
-
 export function parseRuleFile(text: string): ParsedRuleFile {
-	const lines = text.split("\n");
+	const program = parseTOML(text);
+	const top = program.body[0];
 	const rules: RuleEntry[] = [];
 	const aliases: string[] = [];
 	const profiles: string[] = [];
+	let fragment: string | undefined;
 
-	for (let i = 0; i < lines.length; i++) {
-		const profileMatch = PROFILE.exec(lines[i]);
-		if (profileMatch) {
-			profiles.push(profileMatch[1]);
+	for (const node of top.body) {
+		if (node.type === "TOMLKeyValue" && keyPath(node.key).join(".") === "fragment") {
+			fragment = stringValue(node.value) ?? fragment;
 			continue;
 		}
-		if (ALIASES.test(lines[i])) {
-			for (let j = i + 1; j < lines.length && !TABLE.test(lines[j]); j++) {
-				const alias = /^\s*([A-Za-z0-9_]+)\s*=/.exec(lines[j]);
-				if (alias) {
-					aliases.push(alias[1]);
-				}
-			}
+		if (node.type !== "TOMLTable") {
 			continue;
 		}
-		const header = HEADER.exec(lines[i]);
-		if (!header) {
+		const path = keyPath(node.key);
+		if (path.length === 1 && path[0] === "aliases") {
+			aliases.push(...node.body.map((item) => keyPath(item.key).join(".")));
 			continue;
 		}
-		const scope = header[1];
-		let end = i + 1;
-		while (end < lines.length && !TABLE.test(lines[end])) {
-			end++;
+		if (path.length === 2 && path[0] === "profiles") {
+			profiles.push(path[1]);
+			continue;
 		}
-		const block = lines.slice(i, end);
-		const id = field(block, ID_FIELD) ?? `${scope}.where[${rules.length}]`;
-		const severity = field(block, SEVERITY_FIELD) ?? "error";
+		if (!isRuleTable(node, path)) {
+			continue;
+		}
+		const scope = path.slice(0, -1).join(".");
+		const id = tableStringField(node, "id") ?? `${scope}.where[${rules.length}]`;
+		const severity = tableStringField(node, "severity") ?? "error";
 		const section = scope.split(".")[0];
 		rules.push({
 			scope,
 			id,
 			severity,
-			line: i,
-			blockText: block.join("\n").trimEnd() + "\n",
+			line: node.loc.start.line - 1,
+			blockText: text.slice(node.range[0], node.range[1]).trimEnd() + "\n",
 			sampleLang: langByTomlSection(section)?.id,
 		});
 	}
-	return { rules, aliases, profiles };
+
+	return { rules, aliases, profiles, fragment };
 }
 
-const ID_FIELD = /^\s*id\s*=\s*["'](.+?)["']\s*$/;
-const SEVERITY_FIELD = /^\s*severity\s*=\s*["'](.+?)["']\s*$/;
+function isRuleTable(node: AST.TOMLTable, path: string[]): boolean {
+	return node.kind === "array" && path.length >= 2 && path[path.length - 1] === "where";
+}
 
-function field(block: string[], re: RegExp): string | undefined {
-	for (const line of block) {
-		const m = re.exec(line);
-		if (m) {
-			return m[1];
-		}
-	}
-	return undefined;
+function tableStringField(table: AST.TOMLTable, name: string): string | undefined {
+	const item = table.body.find((candidate) => keyPath(candidate.key).join(".") === name);
+	return item ? stringValue(item.value) : undefined;
+}
+
+function keyPath(key: AST.TOMLKey): string[] {
+	return key.keys.map((part) => part.type === "TOMLBare" ? part.name : part.value);
+}
+
+function stringValue(node: AST.TOMLContentNode): string | undefined {
+	return node.type === "TOMLValue" && node.kind === "string" ? node.value : undefined;
 }

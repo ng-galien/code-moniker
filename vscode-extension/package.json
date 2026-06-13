@@ -19,8 +19,6 @@
 	],
 	"main": "./dist/extension.js",
 	"activationEvents": [
-		"onView:codeMoniker.ruleFiles",
-		"onView:codeMoniker.catalog",
 		"onNotebook:code-moniker-scenario"
 	],
 	"contributes": {
@@ -104,11 +102,13 @@
 			"codeMoniker": [
 				{
 					"id": "codeMoniker.ruleFiles",
-					"name": "Rule Files"
+					"name": "Rule Files",
+					"icon": "./icons/rule.svg"
 				},
 				{
 					"id": "codeMoniker.catalog",
-					"name": "Catalog"
+					"name": "Catalog",
+					"icon": "./icons/notebook.svg"
 				}
 			]
 		},
@@ -163,9 +163,27 @@
 				"icon": "$(refresh)"
 			},
 			{
+				"command": "codeMoniker.expandRuleFiles",
+				"title": "Expand All",
+				"category": "Code Moniker",
+				"icon": "$(expand-all)"
+			},
+			{
+				"command": "codeMoniker.collapseRuleFiles",
+				"title": "Collapse All",
+				"category": "Code Moniker",
+				"icon": "$(collapse-all)"
+			},
+			{
 				"command": "codeMoniker.openRuleFile",
 				"title": "Open Rule File",
 				"category": "Code Moniker"
+			},
+			{
+				"command": "codeMoniker.copyRuleFileRelativePath",
+				"title": "Copy Relative Path",
+				"category": "Code Moniker",
+				"icon": "$(copy)"
 			},
 			{
 				"command": "codeMoniker.validateRuleFile",
@@ -197,6 +215,16 @@
 					"command": "codeMoniker.refreshRuleFiles",
 					"when": "view == codeMoniker.ruleFiles",
 					"group": "navigation"
+				},
+				{
+					"command": "codeMoniker.expandRuleFiles",
+					"when": "view == codeMoniker.ruleFiles",
+					"group": "navigation@1"
+				},
+				{
+					"command": "codeMoniker.collapseRuleFiles",
+					"when": "view == codeMoniker.ruleFiles",
+					"group": "navigation@2"
 				},
 				{
 					"command": "codeMoniker.catalog.refresh",
@@ -241,14 +269,19 @@
 					"group": "1_cm"
 				},
 				{
+					"command": "codeMoniker.copyRuleFileRelativePath",
+					"when": "view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
+					"group": "1_cm@2"
+				},
+				{
 					"command": "codeMoniker.validateRuleFile",
 					"when": "view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
-					"group": "1_cm"
+					"group": "1_cm@3"
 				},
 				{
 					"command": "codeMoniker.runRuleFileOnProject",
 					"when": "view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
-					"group": "1_cm"
+					"group": "1_cm@4"
 				},
 				{
 					"command": "codeMoniker.catalog.openEntry",
@@ -298,5 +331,8 @@
 		"@vscode/test-electron": "^3.0.0",
 		"esbuild": "^0.20.0",
 		"typescript": "^5.4.0"
+	},
+	"dependencies": {
+		"toml-eslint-parser": "^1.0.3"
 	}
 }
