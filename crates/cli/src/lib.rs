@@ -1,3 +1,4 @@
+#![cfg_attr(feature = "mcp", allow(dead_code))]
 //! Standalone CLI surface. See `docs/cli/extract.md` (per-file probe)
 //! and `docs/cli/check.md` (workspace linter).
 
@@ -5,6 +6,7 @@ pub(crate) mod args;
 pub(crate) mod check;
 pub(crate) mod check_scenario;
 pub(crate) mod color;
+pub(crate) mod daemon;
 pub(crate) mod extract;
 pub(crate) mod harness;
 pub(crate) mod langs;
@@ -17,6 +19,7 @@ pub(crate) mod mcp;
 #[cfg(feature = "mcp")]
 pub(crate) mod mcp_command;
 pub(crate) mod page;
+pub(crate) mod query;
 pub(crate) mod rules;
 #[cfg(any(feature = "tui", feature = "mcp"))]
 pub(crate) mod session;
@@ -43,11 +46,12 @@ pub use args::McpArgs;
 #[cfg(feature = "tui")]
 pub use args::UiArgs;
 pub use args::{
-	Charset, CheckArgs, CheckFormat, Cli, CodexHarnessArgs, ColorChoice, Command, DefaultRules,
-	ExtractArgs, HarnessArgs, HarnessCommand, HarnessToolBackend, HarnessToolFilesArgs, LangsArgs,
-	LangsFormat, ManifestArgs, ManifestFormat, MonikerFormat, OutputFormat, OutputMode, RulesArgs,
-	RulesCommand, RulesFileArgs, RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat,
-	ShapesArgs, StatsArgs, StatsFormat,
+	Charset, CheckArgs, CheckFormat, Cli, CodexHarnessArgs, ColorChoice, Command, DaemonArgs,
+	DaemonCommand, DaemonRootArgs, DefaultRules, ExtractArgs, HarnessArgs, HarnessCommand,
+	HarnessToolBackend, HarnessToolFilesArgs, LangsArgs, LangsFormat, ManifestArgs, ManifestFormat,
+	MonikerFormat, OutputFormat, OutputMode, QueryArgs, RulesArgs, RulesCommand, RulesFileArgs,
+	RulesLearnArgs, RulesLearnFormat, RulesShowArgs, RulesShowFormat, ShapesArgs, StatsArgs,
+	StatsFormat,
 };
 pub use code_moniker_workspace::lang::{LangError, path_to_lang};
 pub use extract::{MatchSet, Predicate, RefMatch};
@@ -77,6 +81,8 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Stats(args) => stats::run(args, stdout, stderr),
 		Command::Check(args) => check::run(args, stdout, stderr),
 		Command::Rules(args) => rules::run(args, stdout, stderr),
+		Command::Daemon(args) => daemon::run_daemon(args, stdout, stderr),
+		Command::Query(args) => query::run(args, stdout, stderr),
 		Command::Harness(args) => harness::run(args, stdout, stderr),
 		#[cfg(feature = "tui")]
 		Command::Ui(args) => ui_command::run(args, stdout, stderr),

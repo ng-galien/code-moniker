@@ -1,0 +1,28 @@
+[package]
+name          = "code-moniker-daemon"
+version.workspace = true
+edition       = "2024"
+rust-version  = "1.86"
+license       = "MIT OR Apache-2.0"
+repository    = "https://github.com/ng-galien/code-moniker"
+homepage      = "https://github.com/ng-galien/code-moniker"
+description   = "Autonomous workspace daemon for code-moniker."
+
+[dependencies]
+code-moniker-core = { workspace = true, features = ["serde"] }
+code-moniker-workspace = { workspace = true }
+code-moniker-check = { workspace = true }
+code-moniker-query = { workspace = true, features = ["rpc"] }
+
+anyhow     = { workspace = true }
+ignore     = { workspace = true }
+jsonrpsee  = { workspace = true }
+tokio      = { workspace = true }
+regex      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+toml       = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -40,7 +40,6 @@ workspace_runtime_target = """
   OR target ~ '**/external_pkg:code_moniker_workspace/path:snapshot/path:WorkspaceTransition'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:source/path:LocalResourceCache'
 """
-shared_index_contract_target = "target ~ '**/module:workspace_index/**'"
 http_runtime_target = "target ~ '**/path:/^(TcpListener|JoinHandle)$/'"
 
 [[rust.module.where]]
@@ -86,11 +85,12 @@ expr     = """
   AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
   => NOT $workspace_target
 """
-message  = "`cli::mcp` workspace access must be owned by concrete tools, not by server/dispatch/runtime modules."
+message  = "`cli::mcp` runtime modules must not access workspace internals; workspace facts come from the daemon contract."
 rationale = """
-MCP is a tool surface over code-moniker. The context and runtime can carry options, but only
-tools should decide whether they need catalog, index, linkage, checks, or future lazy
-resources. This keeps new tools additive instead of turning the server into another facade.
+MCP is a daemon client surface over code-moniker. Context and runtime may carry session
+options and daemon handles, but they must not construct workspace resources or recreate
+workspace read paths. Tool modules shape MCP presentation; workspace facts come from
+`code-moniker-query` requests answered by the workspace daemon.
 """
 
 [[refs.where]]
@@ -102,30 +102,30 @@ expr     = """
   AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
   => NOT $workspace_runtime_target
 """
-message  = "MCP must consume the shared workspace index contract; it must not construct or refresh workspace runtime resources."
+message  = "MCP must consume the daemon contract; it must not construct or refresh workspace runtime resources."
 rationale = """
-Standalone MCP loads a workspace snapshot once and publishes it through
-`SharedWorkspaceIndex`. MCP tools may read that shared index; they must not construct
-`LocalWorkspaceRegistry`, create source caches, or drive `WorkspaceRequest`, otherwise the same
-filesystem/index work is duplicated behind tool calls.
+The workspace daemon owns index lifecycle, refresh, linkage, notes, and rule execution for an
+attached workspace. MCP tools may issue typed query/command requests; they must not construct
+`LocalWorkspaceRegistry`, create source caches, or drive `WorkspaceRequest`, otherwise the
+daemon contract becomes optional and feature parity cannot be enforced.
 """
 
 [[refs.where]]
-id       = "mcp-shared-index-contract-is-context-only"
+id       = "mcp-daemon-contract-is-context-only"
 severity = "error"
 expr     = """
   $mcp_root
   AND NOT $mcp_tests
   AND (kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'uses_type' OR kind = 'calls' OR kind = 'method_call')
-  AND $shared_index_contract_target
+  AND ($daemon_client_target OR $daemon_target)
   => $mcp_server OR $mcp_context
 """
-message  = "`SharedWorkspaceIndex` is injected into MCP context; tools must use `context.index()` instead of wrapping the contract."
+message  = "The daemon handle is injected through MCP context; tools must use `context.query()`/`context.command()`."
 rationale = """
-The shared index is the boundary between UI-owned workspace loading and MCP reads. Server
-receives the contract from the UI shell and context exposes it to tools. If each tool imports
-or wraps `SharedWorkspaceIndex`, MCP grows local facades and recreates the coupling this
-contract exists to remove.
+The daemon contract is the boundary between MCP presentation and workspace runtime. The server
+creates or receives the daemon client, context exposes typed query/command helpers, and tools
+format daemon DTOs. If tools import daemon internals or clients directly, MCP grows local
+facades and bypasses the single protocol every consumer must eventually share.
 """
 
 [[views]]

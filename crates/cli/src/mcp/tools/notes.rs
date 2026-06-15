@@ -1,14 +1,14 @@
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use code_moniker_workspace::notes::{
-	Note, NoteAuthor, NoteChanges, NoteId, NoteKind, NoteResolution, NoteStatus, NotesDocument,
-	resolve_notes,
+use code_moniker_query::{
+	NoteDto, NoteResolutionDto, NotesAction as QueryNotesAction, NotesQuery, NotesResult, Query,
+	QueryRequest, QueryResult,
 };
-use code_moniker_workspace::snapshot::WorkspaceSnapshot;
+use code_moniker_workspace::notes::{NoteAuthor, NoteKind, NoteStatus};
 use serde_json::{Value, json};
 
-use super::scope::{Paging, append_call_bool_arg, append_call_number_arg, append_call_string_arg};
+use super::scope::{
+	Paging, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
+	append_call_string_arg,
+};
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
 
@@ -186,60 +186,98 @@ impl NoteAction {
 
 fn run_notes(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
 	ensure_notes_uri(&request.uri, context.scheme())?;
-	context.index().reload_notes(&context.opts().paths)?;
-	let result = match request.action {
-		NoteAction::List => render_note_list(context, request)?,
-		NoteAction::Get => render_note_get(context, request)?,
-		NoteAction::Create => create_note(context, request)?,
-		NoteAction::Update => update_note(context, request)?,
-		NoteAction::Transition => transition_note(context, request)?,
-		NoteAction::Delete => delete_note(context, request)?,
-	};
-	Ok(result)
+	let mut query_request = QueryRequest::new(Query::Notes(notes_query(request)));
+	query_request.page = request.paging.daemon_page();
+	let response = context.query(query_request)?;
+	match response.result {
+		QueryResult::Notes(result) => Ok(render_notes_result(
+			context.scheme(),
+			request,
+			&result,
+			response.next_cursor.as_ref(),
+		)),
+		other => anyhow::bail!("unexpected daemon notes result: {other:?}"),
+	}
 }
 
-fn render_note_list(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
-	let resolved = resolved_notes(context)?;
-	let mut rows = resolved
-		.into_iter()
-		.filter(|note| {
-			request
-				.moniker
-				.as_ref()
-				.is_none_or(|moniker| note.note.moniker == *moniker)
-		})
-		.filter(|note| request.include_done || note.note.status != NoteStatus::Done)
-		.filter(|note| {
-			request
-				.orphan
-				.is_none_or(|orphan| note.resolution.is_orphan() == orphan)
-		})
-		.collect::<Vec<_>>();
-	rows.sort_by(|left, right| {
-		left.note
-			.status
-			.cmp(&right.note.status)
-			.then_with(|| left.note.updated_at.cmp(&right.note.updated_at).reverse())
-			.then_with(|| left.note.id.cmp(&right.note.id))
-	});
-	let total = rows.len();
-	let (start, end, next) = request.paging.window(&rows);
-	let mut output = render_notes_header(context.scheme(), total, next, start, end);
-	output.push_str("scope:\n");
-	if let Some(moniker) = &request.moniker {
-		output.push_str(&format!("  moniker: {moniker}\n"));
+fn notes_query(request: &NoteRequest) -> NotesQuery {
+	NotesQuery {
+		action: request.action.into(),
+		id: request.id.clone(),
+		moniker: request.moniker.clone(),
+		kind: request.kind.map(|kind| kind.as_str().to_string()),
+		status: request.status.map(|status| status.as_str().to_string()),
+		title: request.title.clone(),
+		body: request.body.clone(),
+		created_by: Some(request.created_by.as_str().to_string()),
+		orphan: request.orphan,
+		include_done: request.include_done,
+	}
+}
+
+impl From<NoteAction> for QueryNotesAction {
+	fn from(action: NoteAction) -> Self {
+		match action {
+			NoteAction::List => Self::List,
+			NoteAction::Get => Self::Get,
+			NoteAction::Create => Self::Create,
+			NoteAction::Update => Self::Update,
+			NoteAction::Transition => Self::Transition,
+			NoteAction::Delete => Self::Delete,
+		}
+	}
+}
+
+fn render_notes_result(
+	scheme: &str,
+	request: &NoteRequest,
+	result: &NotesResult,
+	next: Option<&code_moniker_query::QueryCursor>,
+) -> String {
+	let mut output = String::new();
+	if let Some(id) = request
+		.id
+		.as_ref()
+		.filter(|_| request.action != NoteAction::List)
+	{
+		output.push_str(&format!("uri: {scheme}workspace/notes/{id}\n"));
 	} else {
-		output.push_str("  moniker: *\n");
+		output.push_str(&format!("uri: {scheme}workspace/notes\n"));
 	}
-	if let Some(orphan) = request.orphan {
-		output.push_str(&format!("  orphan: {orphan}\n"));
+	if let Some(next) = next {
+		output.push_str(&format!(
+			"completeness: partial (notes next cursor {})\n",
+			next.offset
+		));
+	} else {
+		output.push_str("completeness: full\n");
 	}
-	output.push_str(&format!("  include_done: {}\n\n", request.include_done));
-	output.push_str("results:\n");
-	if start == end {
+	output.push_str(&format!("action: {}\n", result.action));
+	output.push_str(&format!("notes: {}\n\n", result.total));
+	if let Some(deleted) = &result.deleted {
+		output.push_str("deleted:\n");
+		render_note_entry(&mut output, deleted);
+		return output;
+	}
+	if request.action == NoteAction::List {
+		output.push_str("scope:\n");
+		if let Some(moniker) = &request.moniker {
+			output.push_str(&format!("  moniker: {moniker}\n"));
+		} else {
+			output.push_str("  moniker: *\n");
+		}
+		if let Some(orphan) = request.orphan {
+			output.push_str(&format!("  orphan: {orphan}\n"));
+		}
+		output.push_str(&format!("  include_done: {}\n\n", request.include_done));
+		output.push_str("results:\n");
+	} else {
+		output.push_str("note:\n");
+	}
+	if result.rows.is_empty() {
 		output.push_str("  <empty>\n");
 	} else {
-		for note in &rows[start..end] {
+		for note in &result.rows {
 			render_note_entry(&mut output, note);
 		}
 	}
@@ -256,202 +294,41 @@ fn render_note_list(context: &McpContext, request: &NoteRequest) -> anyhow::Resu
 			append_call_bool_arg(&mut output, "include_done", true);
 		}
 		append_call_number_arg(&mut output, "limit", request.paging.limit);
-		append_call_number_arg(&mut output, "cursor", next);
+		append_call_cursor_arg(&mut output, "cursor", next);
 		output.push('\n');
 	}
-	Ok(output)
-}
-
-fn render_note_get(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
-	let id = required_id(request)?;
-	let mut rows = resolved_notes(context)?;
-	rows.retain(|note| note.note.id.as_str() == id);
-	let Some(note) = rows.first() else {
-		anyhow::bail!("note id `{id}` does not exist");
-	};
-	Ok(render_single_note(context.scheme(), "get", note))
-}
-
-fn create_note(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
-	let snapshot = context.index().index_snapshot()?;
-	let moniker = required_string(request.moniker.as_deref(), "moniker")?.to_string();
-	let title = required_string(request.title.as_deref(), "title")?.to_string();
-	let now = current_timestamp();
-	let kind = request.kind.unwrap_or(NoteKind::Note);
-	let status = request.status.unwrap_or(NoteStatus::Pending);
-	let body = request.body.clone().unwrap_or_default();
-	let created_by = request.created_by;
-	let requested_id = request.id.clone();
-	let id = context
-		.index()
-		.mutate_notes(&context.opts().paths, |document| {
-			let id = requested_id
-				.as_deref()
-				.map(NoteId::new)
-				.unwrap_or_else(|| generated_note_id(document));
-			document.insert(Note {
-				id: id.clone(),
-				moniker,
-				kind,
-				status,
-				title,
-				body,
-				created_by,
-				created_at: now.clone(),
-				updated_at: now,
-			})?;
-			Ok(id)
-		})?;
-	render_changed_note(context, "create", &snapshot, Some(id.as_str()))
-}
-
-fn update_note(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
-	if request.status.is_some() {
-		anyhow::bail!("status changes require action=transition");
-	}
-	let snapshot = context.index().index_snapshot()?;
-	let id = required_id(request)?;
-	let changes = NoteChanges {
-		moniker: request.moniker.clone(),
-		kind: request.kind,
-		title: request.title.clone(),
-		body: request.body.clone(),
-	};
-	context
-		.index()
-		.mutate_notes(&context.opts().paths, |document| {
-			document.update(id, changes, current_timestamp())?;
-			Ok(())
-		})?;
-	render_changed_note(context, "update", &snapshot, Some(id))
-}
-
-fn transition_note(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
-	let snapshot = context.index().index_snapshot()?;
-	let id = required_id(request)?;
-	let status = request
-		.status
-		.ok_or_else(|| anyhow::anyhow!("status is required for action=transition"))?;
-	context
-		.index()
-		.mutate_notes(&context.opts().paths, |document| {
-			document.transition(id, status, current_timestamp())?;
-			Ok(())
-		})?;
-	render_changed_note(context, "transition", &snapshot, Some(id))
-}
-
-fn delete_note(context: &McpContext, request: &NoteRequest) -> anyhow::Result<String> {
-	let id = required_id(request)?;
-	let deleted = context
-		.index()
-		.mutate_notes(&context.opts().paths, |document| document.delete(id))?;
-	let mut output = String::new();
-	output.push_str(&format!("uri: {}workspace/notes/{id}\n", context.scheme()));
-	output.push_str("completeness: full\n");
-	output.push_str("action: delete\n");
-	output.push_str("deleted:\n");
-	output.push_str(&format!("  id: {}\n", deleted.id.as_str()));
-	output.push_str(&format!("  moniker: {}\n", deleted.moniker));
-	output.push_str(&format!("  title: {}\n", deleted.title));
-	Ok(output)
-}
-
-fn render_changed_note(
-	context: &McpContext,
-	action: &str,
-	snapshot: &Arc<WorkspaceSnapshot>,
-	id: Option<&str>,
-) -> anyhow::Result<String> {
-	let notes = context.index().notes_snapshot()?;
-	let resolved = resolve_notes(notes.notes(), snapshot);
-	let note = id
-		.and_then(|id| resolved.iter().find(|note| note.note.id.as_str() == id))
-		.or_else(|| resolved.first());
-	let Some(note) = note else {
-		anyhow::bail!("note mutation did not produce a note");
-	};
-	Ok(render_single_note(context.scheme(), action, note))
-}
-
-fn resolved_notes(
-	context: &McpContext,
-) -> anyhow::Result<Vec<code_moniker_workspace::notes::ResolvedNote>> {
-	let snapshot = context.index().index_snapshot()?;
-	let notes = context.index().notes_snapshot()?;
-	Ok(resolve_notes(notes.notes(), &snapshot))
-}
-
-fn render_notes_header(
-	scheme: &str,
-	total: usize,
-	next: Option<usize>,
-	start: usize,
-	end: usize,
-) -> String {
-	let mut output = String::new();
-	output.push_str(&format!("uri: {scheme}workspace/notes\n"));
-	if let Some(next) = next {
-		output.push_str(&format!(
-			"completeness: partial (notes {start}-{end} of {total}, next cursor {next})\n"
-		));
-	} else {
-		output.push_str("completeness: full\n");
-	}
-	output.push_str(&format!("notes: {total}\n\n"));
 	output
 }
 
-fn render_single_note(
-	scheme: &str,
-	action: &str,
-	note: &code_moniker_workspace::notes::ResolvedNote,
-) -> String {
-	let mut output = String::new();
-	output.push_str(&format!(
-		"uri: {}workspace/notes/{}\n",
-		scheme,
-		note.note.id.as_str()
-	));
-	output.push_str("completeness: full\n");
-	output.push_str(&format!("action: {action}\n"));
-	output.push_str("note:\n");
-	render_note_entry(&mut output, note);
-	output
-}
-
-fn render_note_entry(output: &mut String, note: &code_moniker_workspace::notes::ResolvedNote) {
-	output.push_str(&format!("  - id: {}\n", note.note.id.as_str()));
-	output.push_str(&format!("    kind: {}\n", note.note.kind.as_str()));
-	output.push_str(&format!("    status: {}\n", note.note.status.as_str()));
-	output.push_str(&format!(
-		"    created_by: {}\n",
-		note.note.created_by.as_str()
-	));
-	output.push_str(&format!("    title: {}\n", note.note.title));
-	output.push_str(&format!("    moniker: {}\n", note.note.moniker));
+fn render_note_entry(output: &mut String, note: &NoteDto) {
+	output.push_str(&format!("  - id: {}\n", note.id));
+	output.push_str(&format!("    kind: {}\n", note.kind));
+	output.push_str(&format!("    status: {}\n", note.status));
+	output.push_str(&format!("    created_by: {}\n", note.created_by));
+	output.push_str(&format!("    title: {}\n", note.title));
+	output.push_str(&format!("    moniker: {}\n", note.moniker));
 	match &note.resolution {
-		NoteResolution::Resolved {
-			target_label,
-			target_file,
-			target_slice,
+		NoteResolutionDto::Resolved {
+			target,
+			file,
+			slice,
 		} => {
 			output.push_str("    resolution: resolved\n");
-			output.push_str(&format!("    target: {target_label}\n"));
-			if let Some((start, end)) = target_slice {
-				output.push_str(&format!("    file: {target_file}:{start}-{end}\n"));
+			output.push_str(&format!("    target: {target}\n"));
+			if let Some((start, end)) = slice {
+				output.push_str(&format!("    file: {file}:{start}-{end}\n"));
 			} else {
-				output.push_str(&format!("    file: {target_file}\n"));
+				output.push_str(&format!("    file: {file}\n"));
 			}
 		}
-		NoteResolution::Orphan => {
+		NoteResolutionDto::Orphan => {
 			output.push_str("    resolution: orphan\n");
 		}
 	}
-	output.push_str(&format!("    updated_at: {}\n", note.note.updated_at));
-	if !note.note.body.is_empty() {
+	output.push_str(&format!("    updated_at: {}\n", note.updated_at));
+	if !note.body.is_empty() {
 		output.push_str("    body:\n");
-		for line in note.note.body.lines() {
+		for line in note.body.lines() {
 			output.push_str("      ");
 			output.push_str(line);
 			output.push('\n');
@@ -460,34 +337,12 @@ fn render_note_entry(output: &mut String, note: &code_moniker_workspace::notes::
 	output.push_str("    commands:\n");
 	output.push_str(&format!(
 		"      get: code_moniker_notes action=\"get\" id=\"{}\"\n",
-		note.note.id.as_str()
+		note.id
 	));
 	output.push_str(&format!(
 		"      transition: code_moniker_notes action=\"transition\" id=\"{}\" status=\"ongoing\"\n",
-		note.note.id.as_str()
+		note.id
 	));
-}
-
-fn generated_note_id(document: &NotesDocument) -> NoteId {
-	for attempt in 0..1000_u32 {
-		let nanos = SystemTime::now()
-			.duration_since(UNIX_EPOCH)
-			.map(|duration| duration.as_nanos())
-			.unwrap_or_default();
-		let id = NoteId::new(format!("note_{nanos:x}_{attempt:x}"));
-		if document.get(id.as_str()).is_none() {
-			return id;
-		}
-	}
-	NoteId::new("note_exhausted")
-}
-
-fn current_timestamp() -> String {
-	let seconds = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.map(|duration| duration.as_secs())
-		.unwrap_or_default();
-	format!("unix:{seconds}")
 }
 
 fn ensure_notes_uri(uri: &str, scheme: &str) -> anyhow::Result<()> {

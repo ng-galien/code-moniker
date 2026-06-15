@@ -1,14 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use code_moniker_query::{
+	Query, QueryRequest, QueryResult, SymbolUsagesQuery, SymbolUsagesResult, UsageDto,
+	UsageSummaryDto,
+};
 use code_moniker_workspace::snapshot::{
 	LinkageSnapshot, ReferenceId, ReferenceRecord, SourceFileRecord, SourceId, SymbolId,
 	SymbolRecord,
 };
 use serde_json::{Value, json};
 
-use super::common::{is_workspace_uri, sorted_count_rows, symbol_line_suffix};
+use super::common::{is_workspace_uri, line_range_suffix, sorted_count_rows, symbol_line_suffix};
 use super::scope::{
-	Paging, ScopeFilter, append_call_number_arg, append_call_string_arg, path_prefix,
+	Paging, ScopeFilter, append_call_cursor_arg, append_call_number_arg, append_call_string_arg,
+	path_prefix,
 };
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
@@ -148,22 +153,31 @@ fn read_usages(context: &McpContext, request: &UsageRequest) -> anyhow::Result<S
 	if is_workspace_uri(&request.uri, context.scheme(), "workspace") {
 		anyhow::bail!("usage reads require an exact symbol URI returned by code_moniker_symbols");
 	}
-	let snapshot = context.index().index_snapshot()?;
-	render_usages_lmnav(
+	let response = context.query(QueryRequest {
+		query: Query::SymbolUsages(SymbolUsagesQuery {
+			workspace: None,
+			uri: request.uri.clone(),
+			direction: match request.direction {
+				UsageDirection::Incoming => code_moniker_query::UsageDirection::Incoming,
+				UsageDirection::Outgoing => code_moniker_query::UsageDirection::Outgoing,
+				UsageDirection::Both => code_moniker_query::UsageDirection::Both,
+			},
+			path: request.scope.paths.clone(),
+			lang: request.scope.langs.clone(),
+			projection: Vec::new(),
+		}),
+		consistency: code_moniker_query::Consistency::Current,
+		page: request.paging.daemon_page(),
+	})?;
+	let QueryResult::SymbolUsages(result) = response.result else {
+		anyhow::bail!("unexpected daemon response for usages");
+	};
+	Ok(render_daemon_usages_lmnav(
 		context.scheme(),
-		UsageQuery {
-			uri: &request.uri,
-			direction: request.direction,
-			scope: &request.scope,
-			paging: request.paging,
-		},
-		UsageIndexView {
-			sources: &snapshot.index.sources,
-			symbols: &snapshot.index.symbols,
-			references: &snapshot.index.references,
-			linkage: &snapshot.linkage,
-		},
-	)
+		request,
+		response.next_cursor.as_ref(),
+		&result,
+	))
 }
 
 pub(in crate::mcp) struct UsageQuery<'a> {
@@ -178,6 +192,206 @@ pub(in crate::mcp) struct UsageIndexView<'a> {
 	pub(in crate::mcp) symbols: &'a [SymbolRecord],
 	pub(in crate::mcp) references: &'a [ReferenceRecord],
 	pub(in crate::mcp) linkage: &'a LinkageSnapshot,
+}
+
+fn render_daemon_usages_lmnav(
+	scheme: &str,
+	request: &UsageRequest,
+	next_cursor: Option<&code_moniker_query::QueryCursor>,
+	result: &SymbolUsagesResult,
+) -> String {
+	let start = request.paging.cursor.min(result.total);
+	let end = start.saturating_add(result.rows.len()).min(result.total);
+	let mut output = String::new();
+	output.push_str(&format!("uri: {}\n", result.target.uri));
+	if let Some(next) = next_cursor {
+		output.push_str(&format!(
+			"completeness: partial (usages {start}-{end} of {}, next cursor {})\n",
+			result.total, next.offset
+		));
+	} else {
+		output.push_str("completeness: full\n");
+	}
+	output.push_str(&format!("direction: {}\n", request.direction.as_str()));
+	output.push_str(&format!("limit: {}\n", request.paging.limit));
+	output.push_str("target:\n");
+	output.push_str(&format!("  kind: {}\n", result.target.kind));
+	output.push_str(&format!("  name: {}\n", result.target.name));
+	output.push_str(&format!(
+		"  file: {}{}\n",
+		result.target.file,
+		line_range_suffix(result.target.line_range)
+	));
+	output.push_str(&format!("  lang: {}\n\n", result.target.language));
+	output.push_str("scope:\n");
+	for line in request.scope.describe() {
+		output.push_str(&line);
+		output.push('\n');
+	}
+	output.push('\n');
+	if matches!(
+		request.direction,
+		UsageDirection::Incoming | UsageDirection::Both
+	) {
+		render_daemon_usage_summary(
+			&mut output,
+			"incoming_summary",
+			result.incoming_summary.as_ref(),
+			true,
+		);
+		output.push('\n');
+	}
+	if matches!(
+		request.direction,
+		UsageDirection::Outgoing | UsageDirection::Both
+	) {
+		render_daemon_usage_summary(
+			&mut output,
+			"outgoing_summary",
+			result.outgoing_summary.as_ref(),
+			false,
+		);
+		output.push('\n');
+	}
+	render_daemon_usage_rows(&mut output, &result.rows);
+	output.push_str("\nnext:\n");
+	if let Some(next) = next_cursor {
+		append_daemon_usages_call(
+			&mut output,
+			DaemonUsageCall {
+				target_uri: &result.target.uri,
+				direction: request.direction,
+				scope: &request.scope,
+				limit: request.paging.limit,
+				cursor: Some(next),
+			},
+		);
+	}
+	output.push_str("  - code_moniker_read");
+	append_call_string_arg(&mut output, "uri", &result.target.uri);
+	append_call_number_arg(&mut output, "context_lines", 3);
+	output.push('\n');
+	append_daemon_usages_call(
+		&mut output,
+		DaemonUsageCall {
+			target_uri: &result.target.uri,
+			direction: UsageDirection::Incoming,
+			scope: &request.scope,
+			limit: 50,
+			cursor: None,
+		},
+	);
+	append_daemon_usages_call(
+		&mut output,
+		DaemonUsageCall {
+			target_uri: &result.target.uri,
+			direction: UsageDirection::Outgoing,
+			scope: &request.scope,
+			limit: 50,
+			cursor: None,
+		},
+	);
+	output.push_str(&format!(
+		"  - code_moniker_symbols uri=\"{scheme}workspace\""
+	));
+	request.scope.append_call_args(&mut output);
+	append_call_string_arg(&mut output, "name", &result.target.name);
+	append_call_number_arg(&mut output, "limit", 20);
+	output.push('\n');
+	output
+}
+
+fn render_daemon_usage_summary(
+	output: &mut String,
+	label: &str,
+	summary: Option<&UsageSummaryDto>,
+	shared_signal: bool,
+) {
+	output.push_str(&format!("{label}:\n"));
+	let Some(summary) = summary else {
+		output.push_str("  refs: 0\n");
+		return;
+	};
+	render_usage_summary_dto(output, summary);
+	if shared_signal {
+		output.push_str(&format!(
+			"  shared_helper_signal: {}\n",
+			summary.shared_helper_signal
+		));
+	}
+}
+
+fn render_usage_summary_dto(output: &mut String, summary: &UsageSummaryDto) {
+	output.push_str(&format!("  refs: {}\n", summary.refs));
+	output.push_str(&format!("  files: {}\n", summary.files));
+	output.push_str(&format!("  contexts: {}\n", summary.contexts));
+	output.push_str(&format!("  prefixes: {}\n", summary.prefixes));
+	if !summary.dominant_prefix.is_empty() {
+		output.push_str(&format!("  dominant_prefix: {}\n", summary.dominant_prefix));
+	}
+	render_count_dtos(output, "kinds", &summary.kinds, 8);
+	render_count_dtos(output, "top_actors", &summary.top_actors, 8);
+	render_count_dtos(output, "top_prefixes", &summary.top_prefixes, 8);
+}
+
+fn render_count_dtos(
+	output: &mut String,
+	label: &str,
+	rows: &[code_moniker_query::CountDto],
+	limit: usize,
+) {
+	if rows.is_empty() {
+		output.push_str(&format!("  {label}: <empty>\n"));
+		return;
+	}
+	output.push_str(&format!("  {label}:\n"));
+	for row in rows.iter().take(limit) {
+		output.push_str(&format!("    - {}: {}\n", row.name, row.count));
+	}
+}
+
+fn render_daemon_usage_rows(output: &mut String, rows: &[UsageDto]) {
+	output.push_str("usages:\n");
+	if rows.is_empty() {
+		output.push_str("  <empty>\n");
+		return;
+	}
+	for row in rows {
+		output.push_str(&format!(
+			"  - {} {} {} {}\n",
+			row.direction.as_str(),
+			row.kind,
+			row.actor,
+			row.location
+		));
+		output.push_str(&format!("    file: {}\n", row.file));
+		output.push_str(&format!("    context: {}\n", row.context));
+		output.push_str(&format!("    endpoint: {}\n", row.endpoint));
+		output.push_str(&format!("    reference: {}\n", row.reference));
+		if let Some(via) = &row.via {
+			output.push_str(&format!("    via: {via}\n"));
+		}
+	}
+}
+
+struct DaemonUsageCall<'a> {
+	target_uri: &'a str,
+	direction: UsageDirection,
+	scope: &'a ScopeFilter,
+	limit: usize,
+	cursor: Option<&'a code_moniker_query::QueryCursor>,
+}
+
+fn append_daemon_usages_call(output: &mut String, call: DaemonUsageCall<'_>) {
+	output.push_str("  - code_moniker_usages");
+	append_call_string_arg(output, "uri", call.target_uri);
+	append_call_string_arg(output, "direction", call.direction.as_str());
+	call.scope.append_call_args(output);
+	append_call_number_arg(output, "limit", call.limit);
+	if let Some(cursor) = call.cursor {
+		append_call_cursor_arg(output, "cursor", cursor);
+	}
+	output.push('\n');
 }
 
 pub(in crate::mcp) fn render_usages_lmnav(
@@ -461,11 +675,11 @@ fn usage_row(
 	}
 	let actor = lookup
 		.symbol(&reference.source_symbol)
-		.map(|symbol| symbol.name.clone())
+		.map(|symbol| symbol.name.to_string())
 		.unwrap_or_else(|| reference.source_symbol.as_str().to_string());
 	let context = lookup
 		.navigable_context(&reference.source_symbol)
-		.map(|symbol| symbol.identity.clone())
+		.map(|symbol| symbol.identity.to_string())
 		.unwrap_or_else(|| reference.source_symbol.as_str().to_string());
 	Some(UsageRow {
 		direction: match direction {
@@ -474,12 +688,12 @@ fn usage_row(
 			UsageDirection::Both => "both",
 		},
 		reference: reference.id.clone(),
-		file: source.rel_path.clone(),
+		file: source.rel_path.to_string(),
 		prefix: path_prefix(&source.rel_path),
 		actor,
 		context,
 		endpoint: endpoint_for_reference(lookup, reference),
-		kind: reference.kind.clone(),
+		kind: reference.kind.to_string(),
 		line_range: reference.line_range,
 		location: reference_location(source, reference),
 		via: None,
@@ -602,11 +816,11 @@ impl UsageSummary {
 		let mut summary = Self::default();
 		for row in rows {
 			summary.refs += 1;
-			summary.files.insert(row.file.clone());
-			summary.contexts.insert(row.context.clone());
-			*summary.prefixes.entry(row.prefix.clone()).or_default() += 1;
-			*summary.kinds.entry(row.kind.clone()).or_default() += 1;
-			*summary.actors.entry(row.actor.clone()).or_default() += 1;
+			summary.files.insert(row.file.to_string());
+			summary.contexts.insert(row.context.to_string());
+			*summary.prefixes.entry(row.prefix.to_string()).or_default() += 1;
+			*summary.kinds.entry(row.kind.to_string()).or_default() += 1;
+			*summary.actors.entry(row.actor.to_string()).or_default() += 1;
 		}
 		summary
 	}
@@ -714,10 +928,6 @@ impl<'a> UsageLookup<'a> {
 		self.sources.get(id.as_str()).copied()
 	}
 
-	fn symbol(&self, id: &SymbolId) -> Option<&'a SymbolRecord> {
-		self.symbols.get(id.as_str()).copied()
-	}
-
 	fn reference(&self, id: &ReferenceId) -> Option<&'a ReferenceRecord> {
 		self.references.get(id.as_str()).copied()
 	}
@@ -747,5 +957,9 @@ impl<'a> UsageLookup<'a> {
 			let parent = current.parent.as_ref()?;
 			current = self.symbol(parent)?;
 		}
+	}
+
+	fn symbol(&self, id: &SymbolId) -> Option<&'a SymbolRecord> {
+		self.symbols.get(id.as_str()).copied()
 	}
 }

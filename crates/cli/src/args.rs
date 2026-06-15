@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::builder::{PossibleValuesParser, TypedValueParser};
-use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args as ClapArgs, Parser, Subcommand, ValueEnum};
 
 use crate::extract::Predicate;
 use code_moniker_core::core::moniker::Moniker;
@@ -37,6 +37,10 @@ pub enum Command {
 	#[cfg(feature = "mcp")]
 	#[command(about = "Start a local stateless MCP HTTP endpoint.")]
 	Mcp(McpArgs),
+	#[command(about = "Manage a code-moniker workspace daemon.")]
+	Daemon(DaemonArgs),
+	#[command(about = "Send a human-readable query DSL request to a workspace daemon.")]
+	Query(QueryArgs),
 	#[command(about = "Install live agent harness configuration.")]
 	Harness(HarnessArgs),
 	#[command(about = "List supported languages, or kinds of one.")]
@@ -47,6 +51,96 @@ pub enum Command {
 		about = "Extract declared dependencies from a build manifest (auto-detected by filename) or every manifest under a directory."
 	)]
 	Manifest(ManifestArgs),
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct DaemonArgs {
+	#[command(subcommand)]
+	pub command: DaemonCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DaemonCommand {
+	#[command(about = "Start a foreground daemon for a workspace root.")]
+	Start(DaemonRootArgs),
+	#[command(about = "Print daemon status for a workspace root.")]
+	Status(DaemonRootArgs),
+	#[command(about = "Ask a workspace daemon to shut down.")]
+	Stop(DaemonRootArgs),
+	#[command(about = "List daemon registry entries.")]
+	List,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct DaemonRootArgs {
+	#[arg(value_name = "WORKSPACE_ROOT", default_value = ".", num_args = 1..)]
+	pub workspace_roots: Vec<PathBuf>,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "project component of the anchor moniker; defaults to '.'"
+	)]
+	pub project: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "DIR",
+		env = "CODE_MONIKER_CACHE_DIR",
+		help = "enable on-disk cache of extracted graphs at DIR (empty = disabled)"
+	)]
+	pub cache: Option<PathBuf>,
+
+	#[cfg(any(feature = "tui", feature = "mcp"))]
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = LiveRefresh::OnDemand,
+		help = "live index policy attached to this daemon identity"
+	)]
+	pub live_refresh: LiveRefresh,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct QueryArgs {
+	#[arg(
+		short = 'r',
+		long = "root",
+		value_name = "WORKSPACE_ROOT",
+		action = ArgAction::Append,
+		help = "Workspace root attached to the daemon. Repeat for multi-root sessions."
+	)]
+	pub workspace_roots: Vec<PathBuf>,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "project component of the daemon identity; defaults to '.'"
+	)]
+	pub project: Option<String>,
+
+	#[arg(
+		long,
+		value_name = "DIR",
+		env = "CODE_MONIKER_CACHE_DIR",
+		help = "on-disk cache directory attached to the daemon identity"
+	)]
+	pub cache: Option<PathBuf>,
+
+	#[cfg(any(feature = "tui", feature = "mcp"))]
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = LiveRefresh::OnDemand,
+		help = "live index policy attached to the daemon identity"
+	)]
+	pub live_refresh: LiveRefresh,
+
+	#[arg(value_name = "QUERY")]
+	pub query: String,
+
+	#[arg(long, help = "Print the structured query response DTO as JSON.")]
+	pub json: bool,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -800,8 +894,11 @@ impl ExtractArgs {
 
 fn shape_parser() -> impl TypedValueParser<Value = Shape> {
 	PossibleValuesParser::new(Shape::ALL.iter().map(|s| s.as_str())).map(|s| {
-		s.parse::<Shape>()
-			.expect("PossibleValuesParser pre-validated")
+		Shape::ALL
+			.iter()
+			.copied()
+			.find(|shape| shape.as_str() == s)
+			.unwrap_or(Shape::Ref)
 	})
 }
 

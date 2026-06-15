@@ -1,15 +1,12 @@
-mod config;
-mod model;
-mod render;
-mod resolve;
-
-#[cfg(feature = "tui")]
-pub(crate) use config::load as load_views;
-#[cfg(feature = "tui")]
-pub(crate) use model::ViewDocument;
 #[cfg(any(feature = "mcp", feature = "tui"))]
-pub(crate) use model::{MonikerDisplay, RenderOptions};
-#[cfg(feature = "mcp")]
-pub(crate) use render::{is_views_uri, render_lmnav};
+pub(crate) use code_moniker_daemon::views::MonikerDisplay;
 #[cfg(feature = "tui")]
-pub(crate) use resolve::{SymbolResolution, resolve_symbols};
+pub(crate) use code_moniker_daemon::views::RenderOptions;
+#[cfg(feature = "tui")]
+pub(crate) use code_moniker_daemon::views::ViewDocument;
+#[cfg(feature = "mcp")]
+pub(crate) use code_moniker_daemon::views::is_views_uri;
+#[cfg(feature = "tui")]
+pub(crate) use code_moniker_daemon::views::load as load_views;
+#[cfg(feature = "tui")]
+pub(crate) use code_moniker_daemon::views::{SymbolResolution, resolve_symbols};

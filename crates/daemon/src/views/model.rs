@@ -3,71 +3,71 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
-pub(crate) struct ViewDocument {
-	pub(crate) fragment: String,
-	pub(crate) anchor: PathBuf,
-	pub(crate) scope_path: String,
-	pub(crate) spec: ViewSpec,
+pub struct ViewDocument {
+	pub fragment: String,
+	pub anchor: PathBuf,
+	pub scope_path: String,
+	pub spec: ViewSpec,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ViewSpec {
-	pub(crate) id: String,
+pub struct ViewSpec {
+	pub id: String,
 	#[serde(default)]
-	pub(crate) title: Option<String>,
+	pub title: Option<String>,
 	#[serde(default = "default_scope")]
-	pub(crate) scope: String,
+	pub scope: String,
 	#[serde(default)]
-	pub(crate) intent: Option<String>,
+	pub intent: Option<String>,
 	#[serde(default)]
-	pub(crate) summary: Option<String>,
+	pub summary: Option<String>,
 	#[serde(default)]
-	pub(crate) boundaries: Vec<BoundarySpec>,
+	pub boundaries: Vec<BoundarySpec>,
 	#[serde(default)]
-	pub(crate) gotchas: Vec<GotchaSpec>,
+	pub gotchas: Vec<GotchaSpec>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct BoundarySpec {
-	pub(crate) id: String,
+pub struct BoundarySpec {
+	pub id: String,
 	#[serde(default)]
-	pub(crate) owns: Vec<String>,
+	pub owns: Vec<String>,
 	#[serde(default)]
-	pub(crate) forbids: Vec<String>,
+	pub forbids: Vec<String>,
 	#[serde(default)]
-	pub(crate) forbid_rules: Vec<String>,
+	pub forbid_rules: Vec<String>,
 	#[serde(default)]
-	pub(crate) rationale: Option<String>,
+	pub rationale: Option<String>,
 	#[serde(default)]
-	pub(crate) symbols: Vec<String>,
+	pub symbols: Vec<String>,
 	#[serde(default)]
-	pub(crate) rules: Vec<String>,
+	pub rules: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct GotchaSpec {
-	pub(crate) id: String,
-	pub(crate) rationale: String,
+pub struct GotchaSpec {
+	pub id: String,
+	pub rationale: String,
 	#[serde(default)]
-	pub(crate) symbols: Vec<String>,
+	pub symbols: Vec<String>,
 	#[serde(default)]
-	pub(crate) rules: Vec<String>,
+	pub rules: Vec<String>,
 	#[serde(default)]
-	pub(crate) check: Option<String>,
+	pub check: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MonikerDisplay {
+pub enum MonikerDisplay {
 	None,
 	Compact,
 	Uri,
 }
 
 impl MonikerDisplay {
-	pub(crate) fn parse(value: Option<&str>) -> anyhow::Result<Self> {
+	pub fn parse(value: Option<&str>) -> anyhow::Result<Self> {
 		match value.unwrap_or("none") {
 			"none" => Ok(Self::None),
 			"compact" => Ok(Self::Compact),
@@ -78,7 +78,7 @@ impl MonikerDisplay {
 		}
 	}
 
-	pub(crate) fn render(self, uri: &str) -> Option<String> {
+	pub fn render(self, uri: &str) -> Option<String> {
 		match self {
 			Self::None => None,
 			Self::Uri => Some(uri.to_string()),
@@ -93,10 +93,10 @@ impl MonikerDisplay {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct RenderOptions {
-	pub(crate) moniker_display: MonikerDisplay,
-	pub(crate) context_lines: usize,
-	pub(crate) include_code: bool,
+pub struct RenderOptions {
+	pub moniker_display: MonikerDisplay,
+	pub context_lines: usize,
+	pub include_code: bool,
 }
 
 fn default_scope() -> String {

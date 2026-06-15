@@ -1,0 +1,1334 @@
+use std::fmt::{self, Write};
+use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
+
+mod discovery;
+pub use discovery::*;
+
+#[cfg(feature = "rpc")]
+pub mod rpc {
+	use jsonrpsee::core::SubscriptionResult;
+	use jsonrpsee::proc_macros::rpc;
+	use jsonrpsee::types::ErrorObjectOwned;
+
+	use crate::{
+		CommandRequest, CommandResponse, HandshakeResponse, QueryRequest, QueryResponse,
+		WorkspaceEventDto,
+	};
+
+	pub const RPC_NAMESPACE: &str = "moniker";
+
+	#[rpc(server, client, namespace = "moniker")]
+	pub trait DaemonRpc {
+		#[method(name = "handshake")]
+		async fn handshake(&self, client: String) -> Result<HandshakeResponse, ErrorObjectOwned>;
+
+		#[method(name = "query")]
+		async fn query(&self, request: QueryRequest) -> Result<QueryResponse, ErrorObjectOwned>;
+
+		#[method(name = "command")]
+		async fn command(
+			&self,
+			request: CommandRequest,
+		) -> Result<CommandResponse, ErrorObjectOwned>;
+
+		#[method(name = "shutdown")]
+		async fn shutdown(&self) -> Result<(), ErrorObjectOwned>;
+
+		#[subscription(name = "subscribeEvents" => "events", unsubscribe = "unsubscribeEvents", item = WorkspaceEventDto)]
+		async fn subscribe_events(&self) -> SubscriptionResult;
+	}
+}
+
+#[cfg(feature = "rpc")]
+pub use rpc::*;
+
+pub const PROTOCOL_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ProtocolRequest {
+	Query(Box<QueryRequest>),
+	Command(CommandRequest),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ProtocolResponse {
+	Query(Box<QueryResponse>),
+	Command(CommandResponse),
+	Error(QueryError),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HandshakeResponse {
+	pub protocol_version: u32,
+	pub daemon_version: String,
+	pub workspace_root: String,
+	pub workspace_roots: Vec<String>,
+	pub capabilities: CapabilitySet,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct DaemonWorkspaceConfig {
+	pub roots: Vec<String>,
+	pub project: Option<String>,
+	pub cache_dir: Option<String>,
+	pub live_refresh: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CapabilitySet {
+	pub queries: Vec<String>,
+	pub commands: Vec<String>,
+	pub events: Vec<String>,
+}
+
+impl Default for CapabilitySet {
+	fn default() -> Self {
+		Self {
+			queries: vec![
+				"workspace.status".to_string(),
+				"tree.children".to_string(),
+				"symbol.search".to_string(),
+				"symbol.insights".to_string(),
+				"symbol.detail".to_string(),
+				"symbol.usages".to_string(),
+				"view.read".to_string(),
+				"rules.list".to_string(),
+				"rules.check".to_string(),
+				"notes".to_string(),
+			],
+			commands: vec!["workspace.refresh".to_string()],
+			events: Vec::new(),
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct QueryRequest {
+	pub query: Query,
+	pub consistency: Consistency,
+	pub page: Page,
+}
+
+impl QueryRequest {
+	pub fn new(query: Query) -> Self {
+		Self {
+			query,
+			consistency: Consistency::Current,
+			page: Page::default(),
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum Query {
+	WorkspaceStatus,
+	TreeChildren(TreeChildrenQuery),
+	SymbolSearch(SymbolSearchQuery),
+	SymbolInsights(SymbolSearchQuery),
+	SymbolDetail(SymbolDetailQuery),
+	SymbolUsages(SymbolUsagesQuery),
+	ViewRead(ViewReadQuery),
+	RulesList(RulesListQuery),
+	RulesCheck(RulesCheckQuery),
+	Notes(NotesQuery),
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TreeChildrenQuery {
+	pub workspace: Option<String>,
+	pub path: Vec<String>,
+	pub depth: usize,
+	pub lang: Vec<String>,
+	pub projection: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SymbolSearchQuery {
+	pub workspace: Option<String>,
+	pub text: Option<String>,
+	pub path: Vec<String>,
+	pub lang: Vec<String>,
+	pub kind: Vec<String>,
+	pub shape: Vec<String>,
+	pub name: Option<String>,
+	pub include_non_navigable: bool,
+	pub include_code: bool,
+	pub context_lines: usize,
+	pub projection: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SymbolDetailQuery {
+	pub workspace: Option<String>,
+	pub uri: String,
+	pub context_lines: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SymbolUsagesQuery {
+	pub workspace: Option<String>,
+	pub uri: String,
+	pub direction: UsageDirection,
+	pub path: Vec<String>,
+	pub lang: Vec<String>,
+	pub projection: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViewReadQuery {
+	pub uri: String,
+	pub scheme: Option<String>,
+	pub context_lines: usize,
+	pub include_code: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageDirection {
+	#[default]
+	Incoming,
+	Outgoing,
+	Both,
+}
+
+impl UsageDirection {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Incoming => "incoming",
+			Self::Outgoing => "outgoing",
+			Self::Both => "both",
+		}
+	}
+}
+
+impl FromStr for UsageDirection {
+	type Err = QueryParseError;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		match value {
+			"incoming" => Ok(Self::Incoming),
+			"outgoing" => Ok(Self::Outgoing),
+			"both" => Ok(Self::Both),
+			_ => Err(QueryParseError::InvalidValue {
+				key: "direction".to_string(),
+				value: value.to_string(),
+			}),
+		}
+	}
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RulesListQuery {
+	pub workspace: Option<String>,
+	pub profile: Option<String>,
+	pub rules: Option<String>,
+	pub lang: Vec<String>,
+	pub severity: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RulesCheckQuery {
+	pub workspace: Option<String>,
+	pub profile: Option<String>,
+	pub rules: Option<String>,
+	pub file: Vec<String>,
+	pub report: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct NotesQuery {
+	pub action: NotesAction,
+	pub id: Option<String>,
+	pub moniker: Option<String>,
+	pub kind: Option<String>,
+	pub status: Option<String>,
+	pub title: Option<String>,
+	pub body: Option<String>,
+	pub created_by: Option<String>,
+	pub orphan: Option<bool>,
+	pub include_done: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotesAction {
+	#[default]
+	List,
+	Get,
+	Create,
+	Update,
+	Transition,
+	Delete,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CommandRequest {
+	pub command: Command,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum Command {
+	WorkspaceRefresh,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Consistency {
+	#[default]
+	Current,
+	RefreshIfStale,
+	StaleOk,
+}
+
+impl FromStr for Consistency {
+	type Err = QueryParseError;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		match value {
+			"current" => Ok(Self::Current),
+			"refresh-if-stale" => Ok(Self::RefreshIfStale),
+			"stale-ok" => Ok(Self::StaleOk),
+			_ => Err(QueryParseError::InvalidValue {
+				key: "consistency".to_string(),
+				value: value.to_string(),
+			}),
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Page {
+	pub cursor: Option<QueryCursor>,
+	pub limit: usize,
+}
+
+impl Default for Page {
+	fn default() -> Self {
+		Self {
+			cursor: None,
+			limit: 80,
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct QueryCursor {
+	pub offset: usize,
+	pub generation: Option<WorkspaceGeneration>,
+}
+
+impl QueryCursor {
+	pub fn new(offset: usize, generation: Option<WorkspaceGeneration>) -> Self {
+		Self { offset, generation }
+	}
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceGeneration(pub u64);
+
+/// A workspace change pushed to attached clients over a daemon subscription.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceEventDto {
+	pub kind: WorkspaceEventKind,
+	pub generation: Option<WorkspaceGeneration>,
+	pub stale_summary: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceEventKind {
+	Stale,
+	Refreshed,
+	Notes,
+	GitBase,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct QueryResponse {
+	pub generation: Option<WorkspaceGeneration>,
+	pub result: QueryResult,
+	pub next_cursor: Option<QueryCursor>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum QueryResult {
+	WorkspaceStatus(WorkspaceStatus),
+	TreeChildren(TreeChildrenResult),
+	SymbolList(SymbolListResult),
+	SymbolInsights(SymbolInsightsResult),
+	SymbolDetail(SymbolDetailResult),
+	SymbolUsages(Box<SymbolUsagesResult>),
+	ViewRead(ViewReadResult),
+	RulesList(RulesListResult),
+	RulesCheck(RulesCheckResult),
+	Notes(NotesResult),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CommandResponse {
+	pub generation: Option<WorkspaceGeneration>,
+	pub message: String,
+	pub status: Option<WorkspaceStatus>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ViewReadResult {
+	List(ViewListResult),
+	Detail(Box<ViewDetailResult>),
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViewListResult {
+	pub views: Vec<ViewSummaryDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViewSummaryDto {
+	pub id: String,
+	pub title: Option<String>,
+	pub fragment: String,
+	pub anchor: String,
+	pub scope: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViewDetailResult {
+	pub id: String,
+	pub title: Option<String>,
+	pub fragment: String,
+	pub anchor: String,
+	pub scope: String,
+	pub intent: Option<String>,
+	pub summary: Option<String>,
+	pub rules: Vec<ViewRuleDto>,
+	pub boundaries: Vec<ViewBoundaryDto>,
+	pub gotchas: Vec<ViewGotchaDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViewRuleDto {
+	pub id: String,
+	pub severity: String,
+	pub domain: String,
+	pub rationale: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViewRuleRefDto {
+	pub id: String,
+	pub present: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViewBoundaryDto {
+	pub id: String,
+	pub owns: Vec<String>,
+	pub forbids: Vec<String>,
+	pub forbid_rules: Vec<String>,
+	pub rationale: Option<String>,
+	pub rule_refs: Vec<ViewRuleRefDto>,
+	pub evidence: Vec<ViewEvidenceDto>,
+	pub missing: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViewGotchaDto {
+	pub id: String,
+	pub rationale: String,
+	pub check: Option<String>,
+	pub rule_refs: Vec<ViewRuleRefDto>,
+	pub evidence: Vec<ViewEvidenceDto>,
+	pub missing: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViewEvidenceDto {
+	pub selector: String,
+	pub label: String,
+	pub moniker: String,
+	pub file: String,
+	pub slice: Option<(u32, u32)>,
+	pub active_slice: Option<(u32, u32)>,
+	pub code: Vec<SourceLine>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceStatus {
+	pub root: String,
+	pub roots: Vec<WorkspaceRootStatus>,
+	pub generation: Option<WorkspaceGeneration>,
+	pub files: usize,
+	pub symbols: usize,
+	pub references: usize,
+	pub stale: bool,
+	pub stale_summary: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceRootStatus {
+	pub root: String,
+	pub generation: Option<WorkspaceGeneration>,
+	pub files: usize,
+	pub symbols: usize,
+	pub references: usize,
+	pub stale: bool,
+	pub stale_summary: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TreeChildrenResult {
+	pub root: String,
+	pub roots: Vec<String>,
+	pub rows: Vec<TreeNode>,
+	pub total: usize,
+	pub total_files: usize,
+	pub scoped_files: usize,
+	pub languages: Vec<CountDto>,
+	pub prefixes: Vec<CountDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TreeNode {
+	pub root: String,
+	pub path: String,
+	pub kind: TreeNodeKind,
+	pub language: Option<String>,
+	pub defs: usize,
+	pub refs: usize,
+	pub change_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeNodeKind {
+	File,
+	Directory,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SymbolListResult {
+	pub rows: Vec<SymbolDto>,
+	pub total: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SymbolDto {
+	pub root: String,
+	pub uri: String,
+	pub id: String,
+	pub name: String,
+	pub kind: String,
+	pub visibility: String,
+	pub signature: String,
+	pub file: String,
+	pub language: String,
+	pub line_range: Option<(u32, u32)>,
+	pub navigable: bool,
+	pub score: Option<u32>,
+	pub match_reason: Option<String>,
+	pub source: Option<SourceSnippet>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SymbolInsightsResult {
+	pub files: usize,
+	pub symbols: usize,
+	pub references: usize,
+	pub navigable_symbols: usize,
+	pub non_navigable_symbols: usize,
+	pub languages: Vec<CountDto>,
+	pub kinds: Vec<CountDto>,
+	pub shapes: Vec<CountDto>,
+	pub top_files_by_symbols: Vec<CountDto>,
+	pub top_files_by_refs: Vec<CountDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SymbolDetailResult {
+	pub symbol: SymbolDto,
+	pub source: Option<SourceSnippet>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SourceSnippet {
+	pub file: String,
+	pub first_line: u32,
+	pub last_line: u32,
+	pub lines: Vec<SourceLine>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SourceLine {
+	pub number: u32,
+	pub text: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SymbolUsagesResult {
+	pub target: SymbolDto,
+	pub direction: UsageDirection,
+	pub rows: Vec<UsageDto>,
+	pub total: usize,
+	pub incoming_summary: Option<UsageSummaryDto>,
+	pub outgoing_summary: Option<UsageSummaryDto>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UsageSummaryDto {
+	pub refs: usize,
+	pub files: usize,
+	pub contexts: usize,
+	pub prefixes: usize,
+	pub dominant_prefix: String,
+	pub kinds: Vec<CountDto>,
+	pub top_actors: Vec<CountDto>,
+	pub top_prefixes: Vec<CountDto>,
+	pub shared_helper_signal: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UsageDto {
+	pub root: String,
+	pub direction: UsageDirection,
+	pub reference: String,
+	pub kind: String,
+	pub actor: String,
+	pub context: String,
+	pub endpoint: String,
+	pub file: String,
+	pub prefix: String,
+	pub location: String,
+	pub line_range: Option<(u32, u32)>,
+	pub via: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RulesListResult {
+	pub roots: Vec<String>,
+	pub rows: Vec<RuleDto>,
+	pub total: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RuleDto {
+	pub root: String,
+	pub id: String,
+	pub severity: String,
+	pub lang: String,
+	pub domain: String,
+	pub kind: Option<String>,
+	pub expr: String,
+	pub expanded_expr: String,
+	pub message: Option<String>,
+	pub rationale: Option<String>,
+	pub require_doc_comment: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RulesCheckResult {
+	pub exit: String,
+	pub summary: CheckSummaryDto,
+	pub roots: Vec<RulesCheckRootResult>,
+	pub violations: Vec<ViolationDto>,
+	pub errors: Vec<FileErrorDto>,
+	pub rule_reports: Vec<RuleReportDto>,
+	pub skip_reasons: Vec<CheckSkipReasonDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RulesCheckRootResult {
+	pub root: String,
+	pub exit: String,
+	pub summary: CheckSummaryDto,
+	pub violations: Vec<ViolationDto>,
+	pub errors: Vec<FileErrorDto>,
+	pub rule_reports: Vec<RuleReportDto>,
+	pub skip_reason: Option<CheckSkipReasonDto>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CheckSummaryDto {
+	pub files_scanned: usize,
+	pub files_with_violations: usize,
+	pub total_violations: usize,
+	pub total_rule_errors: usize,
+	pub total_warnings: usize,
+	pub files_with_errors: usize,
+	pub total_errors: usize,
+	pub elapsed_ms: u64,
+	pub failed_rules: Vec<FailedRuleDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FailedRuleDto {
+	pub rule_id: String,
+	pub severity: String,
+	pub violations: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ViolationDto {
+	pub root: String,
+	pub path: String,
+	pub rule_id: String,
+	pub severity: String,
+	pub moniker: String,
+	pub kind: String,
+	pub lines: (u32, u32),
+	pub message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FileErrorDto {
+	pub root: String,
+	pub path: String,
+	pub error: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RuleReportDto {
+	pub root: String,
+	pub path: Option<String>,
+	pub rule_id: String,
+	pub severity: String,
+	pub domain: String,
+	pub evaluated: usize,
+	pub matches: usize,
+	pub violations: usize,
+	pub antecedent_matches: Option<usize>,
+	pub warning: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CheckSkipReasonDto {
+	pub root: String,
+	pub reason: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct NotesResult {
+	pub action: String,
+	pub total: usize,
+	pub rows: Vec<NoteDto>,
+	pub deleted: Option<NoteDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct NoteDto {
+	pub id: String,
+	pub moniker: String,
+	pub kind: String,
+	pub status: String,
+	pub title: String,
+	pub body: String,
+	pub created_by: String,
+	pub updated_at: String,
+	pub resolution: NoteResolutionDto,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum NoteResolutionDto {
+	Resolved {
+		target: String,
+		file: String,
+		slice: Option<(u32, u32)>,
+	},
+	Orphan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CountDto {
+	pub name: String,
+	pub count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum DaemonEvent {
+	WorkspaceStale {
+		generation: Option<WorkspaceGeneration>,
+		summary: String,
+	},
+	WorkspaceRefreshed {
+		generation: WorkspaceGeneration,
+	},
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct QueryError {
+	pub code: String,
+	pub message: String,
+}
+
+impl QueryError {
+	pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+		Self {
+			code: code.into(),
+			message: message.into(),
+		}
+	}
+}
+
+impl fmt::Display for QueryError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{}: {}", self.code, self.message)
+	}
+}
+
+impl std::error::Error for QueryError {}
+
+#[derive(Debug, thiserror::Error)]
+pub enum QueryParseError {
+	#[error("empty query")]
+	Empty,
+	#[error("unknown query operation `{0}`")]
+	UnknownOperation(String),
+	#[error("invalid token `{0}`")]
+	InvalidToken(String),
+	#[error("invalid value for `{key}`: `{value}`")]
+	InvalidValue { key: String, value: String },
+	#[error("missing required `{0}`")]
+	MissingRequired(&'static str),
+}
+
+pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
+	let mut lines = input.lines().map(str::trim).filter(|line| !line.is_empty());
+	let first = lines.next().ok_or(QueryParseError::Empty)?;
+	let mut tokens = tokenize(first)?;
+	let op = tokens.first().cloned().ok_or(QueryParseError::Empty)?;
+	tokens.remove(0);
+	let mut fields = FieldBag::default();
+	let mut positional = Vec::new();
+	collect_tokens(&tokens, &mut fields, &mut positional)?;
+	for line in lines {
+		let mut tokens = tokenize(line)?;
+		if tokens.is_empty() {
+			continue;
+		}
+		let section = tokens.remove(0);
+		if section.contains(':') {
+			let mut all = vec![section];
+			all.extend(tokens);
+			collect_tokens(&all, &mut fields, &mut positional)?;
+			continue;
+		}
+		match section.as_str() {
+			"filter" | "page" => collect_tokens(&tokens, &mut fields, &mut positional)?,
+			"project" => {
+				fields.projection.extend(
+					tokens
+						.into_iter()
+						.map(|token| token.trim_end_matches(',').to_string())
+						.filter(|token| !token.is_empty()),
+				);
+			}
+			"consistency" => {
+				let value = tokens
+					.first()
+					.ok_or(QueryParseError::MissingRequired("consistency value"))?;
+				fields.consistency = value.parse()?;
+			}
+			"direction" => {
+				let value = tokens
+					.first()
+					.ok_or(QueryParseError::MissingRequired("direction value"))?;
+				fields.values.push(("direction".to_string(), value.clone()));
+			}
+			_ => return Err(QueryParseError::InvalidToken(section)),
+		}
+	}
+	fields.positional = positional;
+	let page = fields.page()?;
+	let consistency = fields.consistency;
+	let query = match op.as_str() {
+		"workspace.status" => Query::WorkspaceStatus,
+		"tree.children" => Query::TreeChildren(TreeChildrenQuery {
+			workspace: fields.one("workspace"),
+			path: fields.many("path"),
+			depth: fields.usize("depth")?.unwrap_or(1),
+			lang: fields.many("lang"),
+			projection: fields.projection,
+		}),
+		"symbol.search" => Query::SymbolSearch(symbol_search_query(&fields)?),
+		"symbol.insights" => Query::SymbolInsights(symbol_insights_query(&fields)?),
+		"symbol.detail" => Query::SymbolDetail(SymbolDetailQuery {
+			workspace: fields.one("workspace"),
+			uri: fields
+				.one("uri")
+				.or_else(|| fields.positional.first().cloned())
+				.ok_or(QueryParseError::MissingRequired("uri"))?,
+			context_lines: fields.usize("context_lines")?.unwrap_or(2),
+		}),
+		"symbol.usages" => Query::SymbolUsages(SymbolUsagesQuery {
+			workspace: fields.one("workspace"),
+			uri: fields
+				.one("uri")
+				.or_else(|| fields.positional.first().cloned())
+				.ok_or(QueryParseError::MissingRequired("uri"))?,
+			direction: fields
+				.one("direction")
+				.unwrap_or_else(|| "incoming".to_string())
+				.parse()?,
+			path: fields.many("path"),
+			lang: fields.many("lang"),
+			projection: fields.projection,
+		}),
+		"view.read" => Query::ViewRead(ViewReadQuery {
+			uri: fields
+				.one("uri")
+				.or_else(|| fields.positional.first().cloned())
+				.ok_or(QueryParseError::MissingRequired("uri"))?,
+			scheme: fields.one("scheme"),
+			context_lines: fields.usize("context_lines")?.unwrap_or(2),
+			include_code: fields.bool("include_code")?.unwrap_or(false),
+		}),
+		"rules.list" => Query::RulesList(RulesListQuery {
+			workspace: fields.one("workspace"),
+			profile: fields.one("profile"),
+			rules: fields.one("rules"),
+			lang: fields.many("lang"),
+			severity: fields.many("severity"),
+		}),
+		"rules.check" => Query::RulesCheck(RulesCheckQuery {
+			workspace: fields.one("workspace"),
+			profile: fields.one("profile"),
+			rules: fields.one("rules"),
+			file: fields.many("file"),
+			report: fields.bool("report")?.unwrap_or(true),
+		}),
+		"notes" => Query::Notes(notes_query(&fields)?),
+		_ => return Err(QueryParseError::UnknownOperation(op)),
+	};
+	Ok(QueryRequest {
+		query,
+		consistency,
+		page,
+	})
+}
+
+fn symbol_search_query(fields: &FieldBag) -> Result<SymbolSearchQuery, QueryParseError> {
+	Ok(SymbolSearchQuery {
+		workspace: fields.one("workspace"),
+		text: fields.positional.first().cloned(),
+		path: fields.many("path"),
+		lang: fields.many("lang"),
+		kind: fields.many("kind"),
+		shape: fields.many("shape"),
+		name: fields.one("name"),
+		include_non_navigable: fields.bool("include_non_navigable")?.unwrap_or(false),
+		include_code: fields.bool("include_code")?.unwrap_or(false),
+		context_lines: fields.usize("context_lines")?.unwrap_or(0),
+		projection: fields.projection.clone(),
+	})
+}
+
+fn symbol_insights_query(fields: &FieldBag) -> Result<SymbolSearchQuery, QueryParseError> {
+	let mut query = symbol_search_query(fields)?;
+	query.text = None;
+	query.include_code = false;
+	query.context_lines = 0;
+	Ok(query)
+}
+
+fn notes_query(fields: &FieldBag) -> Result<NotesQuery, QueryParseError> {
+	Ok(NotesQuery {
+		action: parse_notes_action(fields.one("action").as_deref().unwrap_or("list"))?,
+		id: fields.one("id"),
+		moniker: fields.one("moniker"),
+		kind: fields.one("kind"),
+		status: fields.one("status"),
+		title: fields.one("title"),
+		body: fields.one("body"),
+		created_by: fields.one("created_by"),
+		orphan: fields.bool("orphan")?,
+		include_done: fields.bool("include_done")?.unwrap_or(false),
+	})
+}
+
+fn parse_notes_action(value: &str) -> Result<NotesAction, QueryParseError> {
+	match value {
+		"list" => Ok(NotesAction::List),
+		"get" => Ok(NotesAction::Get),
+		"create" => Ok(NotesAction::Create),
+		"update" => Ok(NotesAction::Update),
+		"transition" => Ok(NotesAction::Transition),
+		"delete" => Ok(NotesAction::Delete),
+		_ => Err(QueryParseError::InvalidValue {
+			key: "action".to_string(),
+			value: value.to_string(),
+		}),
+	}
+}
+
+pub fn format_query_response(response: &QueryResponse) -> String {
+	let mut out = String::new();
+	if let Some(generation) = response.generation {
+		let _ = writeln!(out, "generation: {}", generation.0);
+	}
+	if let Some(cursor) = &response.next_cursor {
+		if let Some(generation) = cursor.generation {
+			let _ = writeln!(out, "next_cursor: {}:{}", generation.0, cursor.offset);
+		} else {
+			let _ = writeln!(out, "next_cursor: {}", cursor.offset);
+		}
+	}
+	match &response.result {
+		QueryResult::WorkspaceStatus(status) => {
+			let _ = writeln!(out, "workspace: {}", status.root);
+			let _ = writeln!(
+				out,
+				"files: {} symbols: {} references: {}",
+				status.files, status.symbols, status.references
+			);
+			let _ = writeln!(out, "stale: {} ({})", status.stale, status.stale_summary);
+			if status.roots.len() > 1 {
+				let _ = writeln!(out, "roots:");
+				for root in &status.roots {
+					let _ = writeln!(
+						out,
+						"- {} files:{} symbols:{} references:{} stale:{}",
+						root.root, root.files, root.symbols, root.references, root.stale
+					);
+				}
+			}
+		}
+		QueryResult::TreeChildren(result) => {
+			let _ = writeln!(out, "tree: {}", result.root);
+			for row in &result.rows {
+				let kind = match row.kind {
+					TreeNodeKind::File => "file",
+					TreeNodeKind::Directory => "dir",
+				};
+				let _ = writeln!(
+					out,
+					"- {kind} {} defs:{} refs:{}",
+					row.path, row.defs, row.refs
+				);
+			}
+		}
+		QueryResult::SymbolList(result) => {
+			let _ = writeln!(out, "symbols: {}", result.total);
+			for row in &result.rows {
+				let _ = writeln!(out, "- {} {} {} {}", row.kind, row.name, row.file, row.uri);
+			}
+		}
+		QueryResult::SymbolInsights(result) => format_symbol_insights(&mut out, result),
+		QueryResult::SymbolDetail(result) => {
+			let symbol = &result.symbol;
+			let _ = writeln!(out, "symbol: {} {}", symbol.kind, symbol.name);
+			let _ = writeln!(out, "uri: {}", symbol.uri);
+			let _ = writeln!(out, "file: {}", symbol.file);
+			if let Some(source) = &result.source {
+				for line in &source.lines {
+					let _ = writeln!(out, "{:>6} | {}", line.number, line.text);
+				}
+			}
+		}
+		QueryResult::SymbolUsages(result) => {
+			let _ = writeln!(out, "uri: {}", result.target.uri);
+			let _ = writeln!(out, "direction: {}", result.direction.as_str());
+			let _ = writeln!(out, "usages: {}", result.total);
+			for row in &result.rows {
+				let _ = writeln!(
+					out,
+					"- {} {} {} {}",
+					row.direction.as_str(),
+					row.kind,
+					row.actor,
+					row.file
+				);
+			}
+		}
+		QueryResult::ViewRead(result) => match result {
+			ViewReadResult::List(list) => {
+				let _ = writeln!(out, "views: {}", list.views.len());
+				for view in &list.views {
+					let _ = writeln!(out, "- {} ({})", view.id, view.scope);
+				}
+			}
+			ViewReadResult::Detail(detail) => {
+				let _ = writeln!(out, "view: {}", detail.id);
+				let _ = writeln!(out, "fragment: {}", detail.fragment);
+				let _ = writeln!(out, "scope: {}", detail.scope);
+				let _ = writeln!(
+					out,
+					"rules: {} boundaries: {} gotchas: {}",
+					detail.rules.len(),
+					detail.boundaries.len(),
+					detail.gotchas.len()
+				);
+			}
+		},
+		QueryResult::RulesList(result) => {
+			let _ = writeln!(out, "rules: {}", result.total);
+			for row in &result.rows {
+				let _ = writeln!(
+					out,
+					"- {} [{}] root={} lang={} domain={}",
+					row.id, row.severity, row.root, row.lang, row.domain
+				);
+				if let Some(message) = &row.message {
+					let _ = writeln!(out, "  message: {message}");
+				}
+			}
+		}
+		QueryResult::RulesCheck(result) => format_rules_check(&mut out, result),
+		QueryResult::Notes(result) => format_notes(&mut out, result),
+	}
+	out
+}
+
+fn format_symbol_insights(out: &mut String, result: &SymbolInsightsResult) {
+	let _ = writeln!(out, "files: {}", result.files);
+	let _ = writeln!(out, "symbols: {}", result.symbols);
+	let _ = writeln!(out, "refs: {}", result.references);
+	let _ = writeln!(out, "languages:");
+	for row in &result.languages {
+		let _ = writeln!(out, "- {}: {}", row.name, row.count);
+	}
+}
+
+fn format_notes(out: &mut String, result: &NotesResult) {
+	let _ = writeln!(out, "action: {}", result.action);
+	let _ = writeln!(out, "notes: {}", result.total);
+	for row in &result.rows {
+		let _ = writeln!(out, "- {} [{}] {}", row.id, row.status, row.title);
+	}
+}
+
+fn format_rules_check(out: &mut String, result: &RulesCheckResult) {
+	let _ = writeln!(out, "exit: {}", result.exit);
+	let _ = writeln!(
+		out,
+		"violations: {} errors: {} elapsed_ms: {}",
+		result.summary.total_violations, result.summary.total_errors, result.summary.elapsed_ms
+	);
+	for violation in &result.violations {
+		let _ = writeln!(
+			out,
+			"- {} {}:{}-{} [{}] {}",
+			violation.root,
+			violation.path,
+			violation.lines.0,
+			violation.lines.1,
+			violation.rule_id,
+			violation.message
+		);
+	}
+	if !result.rule_reports.is_empty() {
+		let _ = writeln!(out, "rule_reports: {}", result.rule_reports.len());
+	}
+}
+
+#[derive(Default)]
+struct FieldBag {
+	values: Vec<(String, String)>,
+	positional: Vec<String>,
+	projection: Vec<String>,
+	consistency: Consistency,
+}
+
+impl FieldBag {
+	fn bool(&self, key: &str) -> Result<Option<bool>, QueryParseError> {
+		self.one(key)
+			.map(|value| match value.as_str() {
+				"true" => Ok(true),
+				"false" => Ok(false),
+				_ => Err(QueryParseError::InvalidValue {
+					key: key.to_string(),
+					value,
+				}),
+			})
+			.transpose()
+	}
+
+	fn page(&self) -> Result<Page, QueryParseError> {
+		let limit = self.usize("limit")?.unwrap_or(80);
+		let cursor = self
+			.one("cursor")
+			.map(|value| parse_cursor(&value))
+			.transpose()?;
+		Ok(Page { cursor, limit })
+	}
+
+	fn usize(&self, key: &str) -> Result<Option<usize>, QueryParseError> {
+		self.one(key)
+			.map(|value| {
+				value
+					.parse::<usize>()
+					.map_err(|_| QueryParseError::InvalidValue {
+						key: key.to_string(),
+						value,
+					})
+			})
+			.transpose()
+	}
+
+	fn one(&self, key: &str) -> Option<String> {
+		self.many(key).into_iter().next()
+	}
+
+	fn many(&self, key: &str) -> Vec<String> {
+		self.values
+			.iter()
+			.filter(|(candidate, _)| candidate == key)
+			.flat_map(|(_, value)| split_csv(value))
+			.collect()
+	}
+}
+
+fn collect_tokens(
+	tokens: &[String],
+	fields: &mut FieldBag,
+	positional: &mut Vec<String>,
+) -> Result<(), QueryParseError> {
+	for token in tokens {
+		if let Some((key, value)) = token.split_once(':') {
+			fields.values.push((key.to_string(), value.to_string()));
+		} else {
+			positional.push(token.trim_end_matches(',').to_string());
+		}
+	}
+	Ok(())
+}
+
+fn parse_cursor(value: &str) -> Result<QueryCursor, QueryParseError> {
+	let Some((generation, offset)) = value.split_once(':') else {
+		return Err(QueryParseError::InvalidValue {
+			key: "cursor".to_string(),
+			value: value.to_string(),
+		});
+	};
+	let generation = generation
+		.parse::<u64>()
+		.map_err(|_| QueryParseError::InvalidValue {
+			key: "cursor".to_string(),
+			value: value.to_string(),
+		})?;
+	let offset = offset
+		.parse::<usize>()
+		.map_err(|_| QueryParseError::InvalidValue {
+			key: "cursor".to_string(),
+			value: value.to_string(),
+		})?;
+	Ok(QueryCursor::new(
+		offset,
+		Some(WorkspaceGeneration(generation)),
+	))
+}
+
+fn tokenize(input: &str) -> Result<Vec<String>, QueryParseError> {
+	let mut tokens = Vec::new();
+	let mut current = String::new();
+	let mut chars = input.chars().peekable();
+	let mut quoted = false;
+	while let Some(ch) = chars.next() {
+		match ch {
+			'"' => {
+				quoted = !quoted;
+			}
+			'\\' if quoted => {
+				if let Some(next) = chars.next() {
+					current.push(next);
+				}
+			}
+			ch if ch.is_whitespace() && !quoted => {
+				if !current.is_empty() {
+					tokens.push(std::mem::take(&mut current));
+				}
+			}
+			ch => current.push(ch),
+		}
+	}
+	if quoted {
+		return Err(QueryParseError::InvalidToken(input.to_string()));
+	}
+	if !current.is_empty() {
+		tokens.push(current);
+	}
+	Ok(tokens)
+}
+
+fn split_csv(value: &str) -> Vec<String> {
+	value
+		.split(',')
+		.map(str::trim)
+		.filter(|entry| !entry.is_empty())
+		.map(ToOwned::to_owned)
+		.collect()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn parses_human_symbol_search() {
+		let query = parse_query(
+			r#"symbol.search "SharedWorkspaceIndex"
+  filter path:"crates/**" shape:type
+  project name, kind, uri
+  page limit:20 cursor:7:40"#,
+		)
+		.expect("query");
+		assert_eq!(query.page.limit, 20);
+		assert_eq!(
+			query.page.cursor,
+			Some(QueryCursor::new(40, Some(WorkspaceGeneration(7))))
+		);
+		match query.query {
+			Query::SymbolSearch(search) => {
+				assert_eq!(search.text.as_deref(), Some("SharedWorkspaceIndex"));
+				assert_eq!(search.path, vec!["crates/**"]);
+				assert_eq!(search.shape, vec!["type"]);
+				assert_eq!(search.projection, vec!["name", "kind", "uri"]);
+			}
+			other => panic!("unexpected query {other:?}"),
+		}
+	}
+
+	#[test]
+	fn parses_rules_check_consistency() {
+		let query = parse_query(
+			r#"rules.check profile:"agent"
+  consistency refresh-if-stale
+  page limit:50"#,
+		)
+		.expect("query");
+		assert_eq!(query.consistency, Consistency::RefreshIfStale);
+		assert_eq!(query.page.limit, 50);
+	}
+
+	#[test]
+	fn rejects_offset_only_human_cursor() {
+		let error =
+			parse_query("symbol.search Customer\npage cursor:40").expect_err("offset-only cursor");
+		assert!(matches!(
+			error,
+			QueryParseError::InvalidValue { ref key, .. } if key == "cursor"
+		));
+	}
+
+	#[test]
+	fn formats_generation_aware_cursor() {
+		let response = QueryResponse {
+			generation: Some(WorkspaceGeneration(7)),
+			result: QueryResult::SymbolList(SymbolListResult {
+				rows: Vec::new(),
+				total: 0,
+			}),
+			next_cursor: Some(QueryCursor::new(40, Some(WorkspaceGeneration(7)))),
+		};
+		let formatted = format_query_response(&response);
+		assert!(formatted.contains("next_cursor: 7:40"));
+	}
+}

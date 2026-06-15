@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use code_moniker_core::core::shape::Shape;
+use code_moniker_query::{Page, QueryCursor, WorkspaceGeneration};
 use regex::Regex;
 use serde_json::Value;
 
@@ -11,8 +12,8 @@ pub(super) const MAX_LIMIT: usize = 500;
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::mcp) struct ScopeFilter {
-	pub(super) paths: Vec<String>,
-	pub(super) langs: Vec<String>,
+	pub(in crate::mcp) paths: Vec<String>,
+	pub(in crate::mcp) langs: Vec<String>,
 	path_filter: FilePathFilter,
 }
 
@@ -60,11 +61,11 @@ impl ScopeFilter {
 
 #[derive(Clone, Debug)]
 pub(in crate::mcp) struct SymbolScopeFilter {
-	pub(super) files: ScopeFilter,
-	pub(super) kinds: Vec<String>,
-	pub(super) shapes: Vec<Shape>,
-	name: Option<Regex>,
-	include_non_navigable: bool,
+	pub(in crate::mcp) files: ScopeFilter,
+	pub(in crate::mcp) kinds: Vec<String>,
+	pub(in crate::mcp) shapes: Vec<Shape>,
+	pub(in crate::mcp) name: Option<Regex>,
+	pub(in crate::mcp) include_non_navigable: bool,
 }
 
 impl SymbolScopeFilter {
@@ -175,16 +176,21 @@ pub(super) struct SymbolMatch<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::mcp) struct Paging {
 	pub(in crate::mcp) cursor: usize,
+	pub(in crate::mcp) generation: Option<WorkspaceGeneration>,
 	pub(in crate::mcp) limit: usize,
 }
 
 impl Paging {
 	pub(super) fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
-		let cursor = number_argument(arguments, "cursor")?.unwrap_or(0);
+		let (cursor, generation) = cursor_argument(arguments, "cursor")?.unwrap_or((0, None));
 		let limit = positive_number_argument(arguments, "limit")?
 			.unwrap_or(DEFAULT_LIMIT)
 			.min(MAX_LIMIT);
-		Ok(Self { cursor, limit })
+		Ok(Self {
+			cursor,
+			generation,
+			limit,
+		})
 	}
 
 	pub(super) fn window<T>(&self, items: &[T]) -> (usize, usize, Option<usize>) {
@@ -192,6 +198,13 @@ impl Paging {
 		let end = start.saturating_add(self.limit).min(items.len());
 		let next = (end < items.len()).then_some(end);
 		(start, end, next)
+	}
+
+	pub(super) fn daemon_page(&self) -> Page {
+		Page {
+			cursor: (self.cursor > 0).then(|| QueryCursor::new(self.cursor, self.generation)),
+			limit: self.limit,
+		}
 	}
 }
 
@@ -252,6 +265,14 @@ pub(super) fn append_call_number_arg(output: &mut String, key: &str, value: usiz
 	output.push_str(&value.to_string());
 }
 
+pub(super) fn append_call_cursor_arg(output: &mut String, key: &str, cursor: &QueryCursor) {
+	if let Some(generation) = cursor.generation {
+		append_call_string_arg(output, key, &format!("{}:{}", generation.0, cursor.offset));
+	} else {
+		append_call_number_arg(output, key, cursor.offset);
+	}
+}
+
 pub(super) fn append_call_bool_arg(output: &mut String, key: &str, value: bool) {
 	output.push(' ');
 	output.push_str(key);
@@ -288,6 +309,40 @@ fn number_argument(arguments: &Value, key: &str) -> anyhow::Result<Option<usize>
 			.map(Some)
 			.map_err(|err| anyhow::anyhow!("invalid `{key}` value `{raw}`: {err}")),
 		_ => anyhow::bail!("`{key}` must be an integer"),
+	}
+}
+
+fn cursor_argument(
+	arguments: &Value,
+	key: &str,
+) -> anyhow::Result<Option<(usize, Option<WorkspaceGeneration>)>> {
+	let Some(value) = arguments.get(key) else {
+		return Ok(None);
+	};
+	match value {
+		Value::Number(number) => number
+			.as_u64()
+			.map(|n| Some((n as usize, None)))
+			.ok_or_else(|| anyhow::anyhow!("`{key}` must be a positive integer")),
+		Value::String(raw) => parse_cursor(raw).map(Some),
+		_ => anyhow::bail!("`{key}` must be an integer or generation cursor"),
+	}
+}
+
+fn parse_cursor(raw: &str) -> anyhow::Result<(usize, Option<WorkspaceGeneration>)> {
+	if let Some((generation, offset)) = raw.split_once(':') {
+		let generation = generation
+			.parse::<u64>()
+			.map_err(|err| anyhow::anyhow!("invalid `cursor` generation `{generation}`: {err}"))?;
+		let offset = offset
+			.parse::<usize>()
+			.map_err(|err| anyhow::anyhow!("invalid `cursor` offset `{offset}`: {err}"))?;
+		Ok((offset, Some(WorkspaceGeneration(generation))))
+	} else {
+		let offset = raw
+			.parse::<usize>()
+			.map_err(|err| anyhow::anyhow!("invalid `cursor` value `{raw}`: {err}"))?;
+		Ok((offset, None))
 	}
 }
 

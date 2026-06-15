@@ -1,16 +1,22 @@
 use std::collections::BTreeMap;
 
+use code_moniker_query::{
+	Query, QueryRequest, QueryResult, SymbolDetailResult, TreeChildrenQuery, TreeChildrenResult,
+	ViewBoundaryDto, ViewDetailResult, ViewEvidenceDto, ViewGotchaDto, ViewListResult,
+	ViewReadQuery, ViewReadResult, ViewRuleDto, ViewRuleRefDto,
+};
 use code_moniker_workspace::snapshot::{SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord};
 use serde_json::{Value, json};
 
 use super::common::{is_workspace_uri, normalize_workspace_uri};
 use super::scope::{
-	Paging, ScopeFilter, append_call_number_arg, append_call_string_arg, path_prefix,
+	Paging, ScopeFilter, append_call_cursor_arg, append_call_number_arg, append_call_string_arg,
+	path_prefix,
 };
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::language_kinds;
 use crate::mcp::context::McpContext;
-use crate::views::{self, MonikerDisplay, RenderOptions};
+use crate::views::{self, MonikerDisplay};
 
 const DEFAULT_READ_URI: &str = "workspace";
 const MAX_DEPTH: usize = 20;
@@ -181,40 +187,43 @@ fn read_workspace(
 	scope: &ScopeFilter,
 	paging: Paging,
 ) -> anyhow::Result<String> {
-	let snapshot = context.index().catalog_snapshot()?;
-	Ok(render_explorer_lmnav(
-		context.scheme(),
-		uri,
+	let response = context.query(QueryRequest {
+		query: Query::TreeChildren(TreeChildrenQuery {
+			workspace: None,
+			path: scope.paths.clone(),
+			depth,
+			lang: scope.langs.clone(),
+			projection: Vec::new(),
+		}),
+		consistency: code_moniker_query::Consistency::Current,
+		page: paging.daemon_page(),
+	})?;
+	let QueryResult::TreeChildren(result) = response.result else {
+		anyhow::bail!("unexpected daemon response for workspace read");
+	};
+	Ok(render_daemon_explorer_lmnav(DaemonExplorerRender {
+		scheme: context.scheme(),
+		request_uri: uri,
 		depth,
-		&snapshot.catalog,
 		scope,
 		paging,
-	))
+		next_cursor: response.next_cursor.as_ref(),
+		result: &result,
+	}))
 }
 
 fn read_symbol(context: &McpContext, uri: &str, context_lines: usize) -> anyhow::Result<String> {
-	let snapshot = context.index().index_snapshot()?;
-	let symbol = snapshot
-		.index
-		.symbols
-		.iter()
-		.find(|symbol| symbol.identity == uri || symbol.id.as_str() == uri)
-		.ok_or_else(|| anyhow::anyhow!("symbol URI not found: {uri}"))?;
-	let source = snapshot
-		.index
-		.sources
-		.iter()
-		.find(|source| source.id == symbol.source)
-		.ok_or_else(|| anyhow::anyhow!("source not found for symbol: {uri}"))?;
-	let source_text = std::fs::read_to_string(&source.path)
-		.map_err(|err| anyhow::anyhow!("cannot read {}: {err}", source.path))?;
-	Ok(render_symbol_source_lmnav(
-		context.scheme(),
-		symbol,
-		source,
-		&source_text,
-		context_lines,
-	))
+	let response = context.query(QueryRequest::new(Query::SymbolDetail(
+		code_moniker_query::SymbolDetailQuery {
+			workspace: None,
+			uri: uri.to_string(),
+			context_lines,
+		},
+	)))?;
+	let QueryResult::SymbolDetail(result) = response.result else {
+		anyhow::bail!("unexpected daemon response for symbol read");
+	};
+	Ok(render_daemon_symbol_source_lmnav(context.scheme(), &result))
 }
 
 fn read_view(
@@ -224,18 +233,472 @@ fn read_view(
 	include_code: bool,
 	moniker_display: MonikerDisplay,
 ) -> anyhow::Result<String> {
-	let snapshot = context.index().index_snapshot()?;
-	views::render_lmnav(
-		uri,
-		&context.opts().paths,
+	let response = context.query(QueryRequest::new(Query::ViewRead(ViewReadQuery {
+		uri: uri.to_string(),
+		scheme: Some(context.scheme().to_string()),
+		context_lines,
+		include_code,
+	})))?;
+	let QueryResult::ViewRead(result) = response.result else {
+		anyhow::bail!("unexpected daemon response for view read");
+	};
+	Ok(render_daemon_view_lmnav(
 		context.scheme(),
-		&snapshot,
-		RenderOptions {
-			moniker_display,
-			context_lines,
-			include_code,
-		},
-	)
+		&result,
+		moniker_display,
+	))
+}
+
+const VIEWS_URI: &str = "workspace/views";
+
+fn render_daemon_view_lmnav(
+	scheme: &str,
+	result: &ViewReadResult,
+	moniker_display: MonikerDisplay,
+) -> String {
+	match result {
+		ViewReadResult::List(list) => render_view_list(scheme, list),
+		ViewReadResult::Detail(detail) => render_view_detail(scheme, detail, moniker_display),
+	}
+}
+
+fn render_view_list(scheme: &str, list: &ViewListResult) -> String {
+	let mut output = String::new();
+	output.push_str(&format!("uri: {scheme}{VIEWS_URI}\n"));
+	output.push_str("completeness: full\n");
+	output.push_str(&format!("views: {}\n\n", list.views.len()));
+	output.push_str("views:\n");
+	if list.views.is_empty() {
+		output.push_str("  <empty>\n");
+	} else {
+		for view in &list.views {
+			output.push_str(&format!("  - {}\n", view.id));
+			if let Some(title) = &view.title {
+				output.push_str(&format!("    title: {title}\n"));
+			}
+			output.push_str(&format!("    fragment: {}\n", view.fragment));
+			output.push_str(&format!("    anchor: {}\n", view.anchor));
+			output.push_str(&format!("    scope: {}\n", view_scope_label(&view.scope)));
+		}
+	}
+	output.push_str("\nnext:\n");
+	for view in list.views.iter().take(12) {
+		output.push_str(&format!(
+			"  - code_moniker_read uri=\"{scheme}{VIEWS_URI}/{}\"\n",
+			view.id
+		));
+	}
+	output
+}
+
+fn render_view_detail(
+	scheme: &str,
+	detail: &ViewDetailResult,
+	moniker_display: MonikerDisplay,
+) -> String {
+	let mut output = String::new();
+	render_view_header(&mut output, scheme, detail);
+	render_view_rule_catalog(&mut output, &detail.rules);
+	render_view_boundaries(&mut output, detail, moniker_display);
+	render_view_gotchas(&mut output, detail, moniker_display);
+	render_view_next(&mut output, scheme, detail);
+	output
+}
+
+fn render_view_header(output: &mut String, scheme: &str, detail: &ViewDetailResult) {
+	output.push_str(&format!("uri: {scheme}{VIEWS_URI}/{}\n", detail.id));
+	output.push_str("completeness: full\n");
+	output.push_str(&format!("view: {}\n", detail.id));
+	if let Some(title) = &detail.title {
+		output.push_str(&format!("title: {title}\n"));
+	}
+	output.push_str(&format!("fragment: {}\n", detail.fragment));
+	output.push_str(&format!("anchor: {}\n", detail.anchor));
+	output.push_str(&format!("scope: {}\n", view_scope_label(&detail.scope)));
+	if let Some(intent) = &detail.intent {
+		output.push_str(&format!("intent: {intent}\n"));
+	}
+	if let Some(summary) = &detail.summary {
+		output.push_str("\nsummary:\n");
+		render_view_text_block(output, summary, "  ");
+	}
+}
+
+fn render_view_rule_catalog(output: &mut String, rules: &[ViewRuleDto]) {
+	if rules.is_empty() {
+		return;
+	}
+	output.push_str("\nrules:\n");
+	for rule in rules {
+		output.push_str(&format!(
+			"  - {} [{}] domain={}\n",
+			rule.id, rule.severity, rule.domain
+		));
+		if let Some(rationale) = &rule.rationale {
+			output.push_str("    rationale:\n");
+			render_view_text_block(output, rationale, "      ");
+		}
+	}
+}
+
+fn render_view_boundaries(
+	output: &mut String,
+	detail: &ViewDetailResult,
+	moniker_display: MonikerDisplay,
+) {
+	output.push_str("\nboundaries:\n");
+	if detail.boundaries.is_empty() {
+		output.push_str("  <empty>\n");
+		return;
+	}
+	for boundary in &detail.boundaries {
+		render_view_boundary(output, boundary, moniker_display);
+	}
+}
+
+fn render_view_boundary(
+	output: &mut String,
+	boundary: &ViewBoundaryDto,
+	moniker_display: MonikerDisplay,
+) {
+	output.push_str(&format!("  - {}\n", boundary.id));
+	render_view_list_block(output, "owns", &boundary.owns, "    ");
+	render_view_forbids(output, boundary, "    ");
+	if let Some(rationale) = &boundary.rationale {
+		output.push_str("    rationale:\n");
+		render_view_text_block(output, rationale, "      ");
+	}
+	render_view_rule_refs(output, "rules", &boundary.rule_refs, "    ");
+	render_view_evidence(
+		output,
+		&boundary.evidence,
+		&boundary.missing,
+		moniker_display,
+		"    ",
+	);
+}
+
+fn render_view_gotchas(
+	output: &mut String,
+	detail: &ViewDetailResult,
+	moniker_display: MonikerDisplay,
+) {
+	output.push_str("\ngotchas:\n");
+	if detail.gotchas.is_empty() {
+		output.push_str("  <empty>\n");
+		return;
+	}
+	for gotcha in &detail.gotchas {
+		render_view_gotcha(output, gotcha, moniker_display);
+	}
+}
+
+fn render_view_gotcha(
+	output: &mut String,
+	gotcha: &ViewGotchaDto,
+	moniker_display: MonikerDisplay,
+) {
+	output.push_str(&format!("  - {}\n", gotcha.id));
+	output.push_str("    rationale:\n");
+	render_view_text_block(output, &gotcha.rationale, "      ");
+	if let Some(check) = &gotcha.check {
+		output.push_str(&format!("    check: {check}\n"));
+	}
+	render_view_rule_refs(output, "rules", &gotcha.rule_refs, "    ");
+	render_view_evidence(
+		output,
+		&gotcha.evidence,
+		&gotcha.missing,
+		moniker_display,
+		"    ",
+	);
+}
+
+fn render_view_evidence(
+	output: &mut String,
+	evidence: &[ViewEvidenceDto],
+	missing: &[String],
+	moniker_display: MonikerDisplay,
+	indent: &str,
+) {
+	if evidence.is_empty() && missing.is_empty() {
+		return;
+	}
+	output.push_str(indent);
+	output.push_str("evidence:\n");
+	for item in evidence {
+		render_view_evidence_item(output, item, moniker_display, indent);
+	}
+	for selector in missing {
+		output.push_str(indent);
+		output.push_str(&format!("  - selector: {selector}\n"));
+		output.push_str(indent);
+		output.push_str("    status: missing\n");
+	}
+}
+
+fn render_view_evidence_item(
+	output: &mut String,
+	item: &ViewEvidenceDto,
+	moniker_display: MonikerDisplay,
+	indent: &str,
+) {
+	output.push_str(indent);
+	output.push_str(&format!("  - selector: {}\n", item.selector));
+	output.push_str(indent);
+	output.push_str(&format!("    label: {}\n", item.label));
+	if let Some(moniker) = moniker_display.render(&item.moniker) {
+		output.push_str(indent);
+		output.push_str(&format!("    moniker: {moniker}\n"));
+	}
+	output.push_str(indent);
+	output.push_str(&format!("    file: {}\n", item.file));
+	if let Some((start, end)) = item.slice {
+		output.push_str(indent);
+		output.push_str(&format!("    slice: L{start}-L{end}\n"));
+	}
+	if !item.code.is_empty() {
+		output.push_str(indent);
+		output.push_str("    code:\n");
+		for line in &item.code {
+			let marker = if item
+				.active_slice
+				.is_some_and(|(start, end)| start <= line.number && line.number <= end)
+			{
+				">"
+			} else {
+				" "
+			};
+			output.push_str(indent);
+			output.push_str(&format!(
+				"      {marker} {:>4} | {}\n",
+				line.number, line.text
+			));
+		}
+	}
+}
+
+fn render_view_rule_refs(
+	output: &mut String,
+	label: &str,
+	rule_refs: &[ViewRuleRefDto],
+	indent: &str,
+) {
+	if rule_refs.is_empty() {
+		return;
+	}
+	output.push_str(indent);
+	output.push_str(label);
+	output.push_str(":\n");
+	for rule_ref in rule_refs {
+		output.push_str(indent);
+		if rule_ref.present {
+			output.push_str(&format!("  - {}\n", rule_ref.id));
+		} else {
+			output.push_str(&format!("  - {} [missing]\n", rule_ref.id));
+		}
+	}
+}
+
+fn render_view_forbids(output: &mut String, boundary: &ViewBoundaryDto, indent: &str) {
+	if boundary.forbids.is_empty() {
+		return;
+	}
+	output.push_str(indent);
+	output.push_str("forbids:\n");
+	for value in &boundary.forbids {
+		output.push_str(indent);
+		output.push_str(&format!("  - {value}\n"));
+	}
+	output.push_str(indent);
+	if boundary.forbid_rules.is_empty() {
+		output.push_str("forbids_status: advisory\n");
+	} else {
+		output.push_str("forbids_status: enforced_by_rules\n");
+		render_view_list_block(output, "forbid_rules", &boundary.forbid_rules, indent);
+	}
+}
+
+fn render_view_list_block(output: &mut String, label: &str, values: &[String], indent: &str) {
+	if values.is_empty() {
+		return;
+	}
+	output.push_str(indent);
+	output.push_str(label);
+	output.push_str(":\n");
+	for value in values {
+		output.push_str(indent);
+		output.push_str(&format!("  - {value}\n"));
+	}
+}
+
+fn render_view_text_block(output: &mut String, text: &str, indent: &str) {
+	for line in text.trim().lines() {
+		output.push_str(indent);
+		output.push_str(line.trim());
+		output.push('\n');
+	}
+}
+
+fn render_view_next(output: &mut String, scheme: &str, detail: &ViewDetailResult) {
+	output.push_str("\nnext:\n");
+	output.push_str(&format!(
+		"  - code_moniker_symbols uri=\"{scheme}workspace\" path=\"{}**\" limit=50\n",
+		view_next_scope_path(&detail.scope)
+	));
+	output.push_str(&format!(
+		"  - code_moniker_rules uri=\"{scheme}workspace\" action=\"list\" limit=50\n"
+	));
+}
+
+fn view_scope_label(scope: &str) -> &str {
+	if scope.is_empty() { "." } else { scope }
+}
+
+fn view_next_scope_path(scope: &str) -> String {
+	if scope.is_empty() {
+		String::new()
+	} else {
+		format!("{scope}/")
+	}
+}
+
+fn render_daemon_symbol_source_lmnav(scheme: &str, result: &SymbolDetailResult) -> String {
+	let symbol = &result.symbol;
+	let mut output = String::new();
+	output.push_str(&format!("uri: {}\n", symbol.uri));
+	if result.source.is_some() {
+		output.push_str("completeness: full\n");
+	} else {
+		output.push_str(
+			"completeness: partial (symbol has no line range; showing first available lines)\n",
+		);
+	}
+	output.push_str(&format!("file: {}\n", symbol.file));
+	output.push_str(&format!("language: {}\n", symbol.language));
+	output.push_str(&format!("kind: {}\n", symbol.kind));
+	output.push_str(&format!("name: {}\n", symbol.name));
+	if let Some((start, end)) = symbol.line_range {
+		output.push_str(&format!("range: {start}-{end}\n"));
+	}
+	if let Some(source) = &result.source {
+		output.push_str(&format!(
+			"slice: {}-{}\n\n",
+			source.first_line, source.last_line
+		));
+		output.push_str("code:\n");
+		for line in &source.lines {
+			output.push_str(&format!("  {:>4} | {}\n", line.number, line.text));
+		}
+	}
+	output.push_str("\nnext:\n");
+	output.push_str(&format!(
+		"  - code_moniker_symbols uri=\"{scheme}workspace\""
+	));
+	append_call_string_arg(&mut output, "name", &symbol.name);
+	append_call_number_arg(&mut output, "limit", 20);
+	output.push('\n');
+	output.push_str(&format!(
+		"  - code_moniker_symbols uri=\"{scheme}workspace\""
+	));
+	append_call_string_arg(&mut output, "path", &symbol.file);
+	append_call_number_arg(&mut output, "limit", 50);
+	output.push('\n');
+	output
+}
+
+struct DaemonExplorerRender<'a> {
+	scheme: &'a str,
+	request_uri: &'a str,
+	depth: usize,
+	scope: &'a ScopeFilter,
+	paging: Paging,
+	next_cursor: Option<&'a code_moniker_query::QueryCursor>,
+	result: &'a TreeChildrenResult,
+}
+
+fn render_daemon_explorer_lmnav(render: DaemonExplorerRender<'_>) -> String {
+	let uri = normalize_workspace_uri(render.scheme, render.request_uri, DEFAULT_READ_URI);
+	let mut output = String::new();
+	output.push_str(&format!("uri: {uri}\n"));
+	if let Some(next) = render.next_cursor {
+		output.push_str(&format!(
+			"completeness: partial (explorer rows {}-{} of {}, next cursor {})\n",
+			render.paging.cursor,
+			render.paging.cursor + render.result.rows.len(),
+			render.result.total,
+			next.offset
+		));
+	} else {
+		output.push_str("completeness: full\n");
+	}
+	output.push_str(&format!("files: {}\n", render.result.scoped_files));
+	output.push_str(&format!("files_total: {}\n", render.result.total_files));
+	output.push_str(&format!("depth: {}\n\n", render.depth));
+	output.push_str("scope:\n");
+	for line in render.scope.describe() {
+		output.push_str(&line);
+		output.push('\n');
+	}
+	output.push('\n');
+	output.push_str("summary:\n");
+	output.push_str("  languages:\n");
+	for language in &render.result.languages {
+		output.push_str(&format!("    {}: {}\n", language.name, language.count));
+	}
+	output.push_str("  concentration:\n");
+	for prefix in &render.result.prefixes {
+		output.push_str(&format!("    {}: {} files\n", prefix.name, prefix.count));
+	}
+	output.push_str("  hints:\n");
+	output.push_str("    start with code_moniker_symbols using path/lang/kind/shape filters before broad symbol reads\n\n");
+	output.push_str("explorer:\n");
+	if render.result.rows.is_empty() {
+		output.push_str("  <empty>\n");
+	} else {
+		for row in &render.result.rows {
+			output.push_str("  ");
+			output.push_str(&explorer_row_label(row));
+			output.push('\n');
+		}
+	}
+	output.push_str("\nnext:\n");
+	if let Some(next) = render.next_cursor {
+		output.push_str(&format!(
+			"  - code_moniker_read uri=\"{}workspace\"",
+			render.scheme
+		));
+		render.scope.append_call_args(&mut output);
+		append_call_number_arg(&mut output, "depth", render.depth);
+		append_call_number_arg(&mut output, "limit", render.paging.limit);
+		append_call_cursor_arg(&mut output, "cursor", next);
+		output.push('\n');
+	}
+	append_read_next_call(
+		&mut output,
+		render.scheme,
+		render.scope,
+		(render.depth + 1).min(MAX_DEPTH),
+		render.paging.limit,
+		None,
+	);
+	append_symbols_call(&mut output, render.scheme, render.scope, 50);
+	output
+}
+
+fn explorer_row_label(row: &code_moniker_query::TreeNode) -> String {
+	match row.kind {
+		code_moniker_query::TreeNodeKind::Directory => {
+			format!("{}/ defs {} refs {}", row.path, row.defs, row.refs)
+		}
+		code_moniker_query::TreeNodeKind::File => {
+			let language = row.language.as_deref().unwrap_or("?");
+			format!(
+				"{} [{}] defs {} refs {}",
+				row.path, language, row.defs, row.refs
+			)
+		}
+	}
 }
 
 pub(in crate::mcp) fn render_symbol_source_lmnav(

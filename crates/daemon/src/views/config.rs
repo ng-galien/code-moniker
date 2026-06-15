@@ -22,7 +22,7 @@ fn default_enabled() -> bool {
 	true
 }
 
-pub(crate) fn load(roots: &[PathBuf]) -> anyhow::Result<Vec<ViewDocument>> {
+pub fn load(roots: &[PathBuf]) -> anyhow::Result<Vec<ViewDocument>> {
 	let mut files = discover_view_files(roots);
 	let mut views = Vec::new();
 	for (root, path) in files.drain(..) {

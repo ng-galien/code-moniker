@@ -1,13 +1,19 @@
 use std::collections::BTreeMap;
 
+use code_moniker_query::{
+	Query, QueryRequest, QueryResult, SymbolDto, SymbolInsightsResult, SymbolListResult,
+	SymbolSearchQuery,
+};
 use code_moniker_workspace::snapshot::{ReferenceRecord, SourceFileRecord, SourceId, SymbolRecord};
 use serde_json::{Value, json};
 
 use super::common::{
-	is_workspace_uri, normalize_workspace_uri, sorted_count_rows, symbol_line_suffix,
+	is_workspace_uri, line_range_suffix, normalize_workspace_uri, sorted_count_rows,
+	symbol_line_suffix,
 };
 use super::scope::{
-	Paging, SymbolMatch, SymbolScopeFilter, append_call_number_arg, append_call_string_arg,
+	Paging, SymbolMatch, SymbolScopeFilter, append_call_cursor_arg, append_call_number_arg,
+	append_call_string_arg,
 };
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
@@ -165,19 +171,192 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 			context.scheme()
 		);
 	}
-	let snapshot = context.index().index_snapshot()?;
-	Ok(render_symbols_lmnav(
-		context.scheme(),
-		uri,
-		&request.scope,
-		request.paging,
-		SymbolIndexView {
-			sources: &snapshot.index.sources,
-			symbols: &snapshot.index.symbols,
-			references: &snapshot.index.references,
-		},
-		request.action,
-	))
+	match request.action {
+		SymbolAction::List => {
+			let response = context.query(QueryRequest {
+				query: Query::SymbolSearch(symbol_query(&request.scope)),
+				consistency: code_moniker_query::Consistency::Current,
+				page: request.paging.daemon_page(),
+			})?;
+			let QueryResult::SymbolList(result) = response.result else {
+				anyhow::bail!("unexpected daemon response for symbols list");
+			};
+			Ok(render_daemon_symbol_list_lmnav(
+				context.scheme(),
+				uri,
+				&request.scope,
+				request.paging,
+				response.next_cursor.as_ref(),
+				&result,
+			))
+		}
+		SymbolAction::Insights => {
+			let response = context.query(QueryRequest::new(Query::SymbolInsights(
+				symbol_query(&request.scope),
+			)))?;
+			let QueryResult::SymbolInsights(result) = response.result else {
+				anyhow::bail!("unexpected daemon response for symbols insights");
+			};
+			Ok(render_daemon_symbol_insights_lmnav(
+				context.scheme(),
+				uri,
+				&request.scope,
+				request.paging,
+				&result,
+			))
+		}
+	}
+}
+
+fn render_daemon_symbol_list_lmnav(
+	scheme: &str,
+	request_uri: &str,
+	scope: &SymbolScopeFilter,
+	paging: Paging,
+	next_cursor: Option<&code_moniker_query::QueryCursor>,
+	result: &SymbolListResult,
+) -> String {
+	let uri = normalize_workspace_uri(scheme, request_uri, DEFAULT_SYMBOL_URI);
+	let start = paging.cursor.min(result.total);
+	let end = start.saturating_add(result.rows.len()).min(result.total);
+	let mut output = String::new();
+	output.push_str(&format!("uri: {uri}\n"));
+	if let Some(next) = next_cursor {
+		output.push_str(&format!(
+			"completeness: partial (symbols {start}-{end} of {}, next cursor {})\n",
+			result.total, next.offset
+		));
+	} else {
+		output.push_str("completeness: full\n");
+	}
+	output.push_str(&format!("symbols: {}\n", result.total));
+	output.push_str(&format!("limit: {}\n\n", paging.limit));
+	output.push_str("scope:\n");
+	for line in scope.describe() {
+		output.push_str(&line);
+		output.push('\n');
+	}
+	output.push('\n');
+	output.push_str("results:\n");
+	if result.rows.is_empty() {
+		output.push_str("  <empty>\n");
+	} else {
+		for symbol in &result.rows {
+			render_daemon_symbol_row(&mut output, symbol);
+		}
+	}
+	output.push_str("\nnext:\n");
+	if let Some(next) = next_cursor {
+		output.push_str(&format!(
+			"  - code_moniker_symbols uri=\"{scheme}workspace\""
+		));
+		append_call_string_arg(&mut output, "action", "list");
+		scope.append_call_args(&mut output);
+		append_call_number_arg(&mut output, "limit", paging.limit);
+		append_call_cursor_arg(&mut output, "cursor", next);
+		output.push('\n');
+	}
+	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::Insights, 20, None);
+	append_workspace_read_call(&mut output, scheme, scope, 2);
+	output
+}
+
+fn render_daemon_symbol_row(output: &mut String, symbol: &SymbolDto) {
+	output.push_str(&format!(
+		"  - {} {} {}{}\n",
+		symbol.kind,
+		symbol.name,
+		symbol.file,
+		line_range_suffix(symbol.line_range)
+	));
+	output.push_str(&format!("    uri: {}\n", symbol.uri));
+	output.push_str("    usages: code_moniker_usages");
+	append_call_string_arg(output, "uri", &symbol.uri);
+	append_call_number_arg(output, "limit", 50);
+	output.push('\n');
+}
+
+fn render_daemon_symbol_insights_lmnav(
+	scheme: &str,
+	request_uri: &str,
+	scope: &SymbolScopeFilter,
+	paging: Paging,
+	result: &SymbolInsightsResult,
+) -> String {
+	let uri = normalize_workspace_uri(scheme, request_uri, DEFAULT_SYMBOL_URI);
+	let mut output = String::new();
+	output.push_str(&format!("uri: {uri}\n"));
+	output.push_str("completeness: full\n");
+	output.push_str(&format!("files: {}\n", result.files));
+	output.push_str(&format!("symbols: {}\n", result.symbols));
+	output.push_str(&format!("refs: {}\n", result.references));
+	output.push_str(&format!("limit: {}\n\n", paging.limit));
+	output.push_str("scope:\n");
+	for line in scope.describe() {
+		output.push_str(&line);
+		output.push('\n');
+	}
+	output.push('\n');
+	output.push_str("insights:\n");
+	output.push_str(&format!(
+		"  navigable_symbols: {}\n",
+		result.navigable_symbols
+	));
+	output.push_str(&format!(
+		"  non_navigable_symbols: {}\n",
+		result.non_navigable_symbols
+	));
+	render_daemon_counts(&mut output, "languages", &result.languages, paging.limit);
+	render_daemon_counts(&mut output, "kinds", &result.kinds, paging.limit);
+	render_daemon_counts(&mut output, "shapes", &result.shapes, paging.limit);
+	render_daemon_counts(
+		&mut output,
+		"top_files_by_symbols",
+		&result.top_files_by_symbols,
+		paging.limit,
+	);
+	render_daemon_counts(
+		&mut output,
+		"top_files_by_refs",
+		&result.top_files_by_refs,
+		paging.limit,
+	);
+	output.push_str("\nnext:\n");
+	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::List, 50, None);
+	append_workspace_read_call(&mut output, scheme, scope, 3);
+	output
+}
+
+fn render_daemon_counts(
+	output: &mut String,
+	label: &str,
+	rows: &[code_moniker_query::CountDto],
+	limit: usize,
+) {
+	output.push_str(&format!("  {label}:\n"));
+	for row in rows.iter().take(limit) {
+		output.push_str(&format!("    {}: {}\n", row.name, row.count));
+	}
+}
+
+fn symbol_query(scope: &SymbolScopeFilter) -> SymbolSearchQuery {
+	SymbolSearchQuery {
+		workspace: None,
+		text: None,
+		path: scope.files.paths.clone(),
+		lang: scope.files.langs.clone(),
+		kind: scope.kinds.clone(),
+		shape: scope
+			.shapes
+			.iter()
+			.map(|shape| shape.as_str().to_string())
+			.collect(),
+		name: scope.name.as_ref().map(|regex| regex.as_str().to_string()),
+		include_non_navigable: scope.include_non_navigable,
+		include_code: false,
+		context_lines: 0,
+		projection: Vec::new(),
+	}
 }
 
 pub(in crate::mcp) struct SymbolIndexView<'a> {

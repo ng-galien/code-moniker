@@ -13,7 +13,22 @@
 crate_core = "moniker ~ '**/dir:crates/dir:core/dir:src/**'"
 crate_workspace = "moniker ~ '**/dir:crates/dir:workspace/dir:src/**'"
 crate_check = "moniker ~ '**/dir:crates/dir:check/dir:src/**'"
+crate_query = "moniker ~ '**/dir:crates/dir:query/dir:src/**'"
+crate_daemon = "moniker ~ '**/dir:crates/dir:daemon/dir:src/**'"
+crate_daemon_client = "moniker ~ '**/dir:crates/dir:daemon-client/dir:src/**'"
 crate_cli  = "moniker ~ '**/dir:crates/dir:cli/dir:src/**'"
+daemon_target = """
+  target ~ '**/external_pkg:code_moniker_daemon'
+  OR target ~ '**/external_pkg:code_moniker_daemon/**'
+"""
+daemon_client_target = """
+  target ~ '**/external_pkg:code_moniker_daemon_client'
+  OR target ~ '**/external_pkg:code_moniker_daemon_client/**'
+"""
+query_target = """
+  target ~ '**/external_pkg:code_moniker_query'
+  OR target ~ '**/external_pkg:code_moniker_query/**'
+"""
 workspace_public_boundary_target = """
   target ~ '**/external_pkg:code_moniker_workspace'
   OR target ~ '**/external_pkg:code_moniker_workspace/path:LocalWorkspaceRegistry'
@@ -35,7 +50,7 @@ workspace_live_public_contract_target = """
 tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
 example           = "moniker ~ '**/dir:examples/**'"
-rust_production_source = "moniker ~ '**/dir:crates/dir:/^(check|cli|core|workspace)$/dir:src/**'"
+rust_production_source = "moniker ~ '**/dir:crates/dir:/^(check|cli|core|workspace|query|daemon|daemon-client)$/dir:src/**'"
 
 [exclude]
 uris = [
@@ -91,12 +106,13 @@ workspace boundary instead of duplicating file access in each consumer.
 [[refs.where]]
 id        = "notes-state-owned-by-workspace-index"
 severity  = "error"
-expr      = "NOT $crate_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module') AND $workspace_notes_state_target => $cli_workspace_index"
-message   = "`WorkspaceNotes` may only be held by the shared workspace index adapter."
+expr      = "NOT $crate_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module') AND $workspace_notes_state_target => ($cli_workspace_index OR $crate_daemon)"
+message   = "`WorkspaceNotes` may only be held by the shared workspace index adapter or the workspace daemon."
 rationale = """
 `WorkspaceNotes` is the shared state handle for note reload, snapshots, and mutation. CLI
-features should not instantiate or hold it directly; they should consume the existing
-workspace index facade so live refresh and MCP/TUI behavior stay consistent.
+features should not instantiate or hold it directly; they should consume the daemon-backed
+contract (or the legacy workspace index while it still exists) so live refresh and MCP/TUI
+behavior stay consistent.
 """
 
 [[refs.where]]
@@ -120,6 +136,61 @@ rationale = """
 Workspace live policy owns watch root construction, event classification, and refresh planning.
 CLI/TUI/MCP adapters may run the watcher and react to public live events, but they must not
 consume classifier internals or helper functions that would duplicate workspace policy.
+"""
+
+[[refs.where]]
+id        = "query-crate-contract-only"
+severity  = "error"
+expr      = "$crate_query AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT ($workspace_crate_target OR target ~ '**/external_pkg:code_moniker_check/**' OR target ~ '**/external_pkg:code_moniker_cli/**' OR $daemon_target OR $daemon_client_target)"
+message   = "`code-moniker-query` owns only the daemon query contract and must not depend on workspace, check, CLI, daemon, or daemon-client."
+rationale = """
+The query crate is the compatibility contract shared by Rust and non-Rust clients. Keeping
+it free of workspace/check/CLI/daemon dependencies prevents protocol DTOs from drifting into
+implementation or presentation models.
+"""
+
+[[refs.where]]
+id        = "daemon-client-stays-consumer-free"
+severity  = "error"
+expr      = "$crate_daemon_client AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT ($daemon_target OR $workspace_crate_target OR target ~ '**/external_pkg:code_moniker_check/**' OR target ~ '**/external_pkg:code_moniker_cli/**')"
+message   = "`code-moniker-daemon-client` must not depend on daemon internals, workspace/check, CLI, MCP, TUI, or renderer code."
+rationale = """
+The daemon client is the reusable transport helper for every product surface. It should know
+the daemon protocol and discovery mechanics, not the daemon implementation, workspace/check
+runtime, or any individual consumer.
+"""
+
+[[refs.where]]
+id        = "check-does-not-consume-daemon"
+severity  = "error"
+expr      = "$crate_check AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT ($daemon_target OR $daemon_client_target)"
+message   = "`code-moniker-check` consumes workspace input directly; it must not depend on daemon lifecycle or daemon clients."
+rationale = """
+Batch `code-moniker check` is a workspace-domain command. The daemon may expose `rules.check`
+for attached clients, but the check engine itself must stay independent of sockets,
+daemon discovery, subscriptions, and client state.
+"""
+
+[[refs.where]]
+id        = "workspace-does-not-consume-daemon-or-query"
+severity  = "error"
+expr      = "$crate_workspace AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT ($query_target OR $daemon_target OR $daemon_client_target)"
+message   = "`code-moniker-workspace` owns domain facts and must not depend on query protocol or daemon lifecycle crates."
+rationale = """
+Workspace is the domain boundary. Query protocol, daemon hosting, and client discovery are
+outer layers; importing them into workspace would invert the target daemon/workspace design.
+"""
+
+[[refs.where]]
+id        = "daemon-does-not-render-consumer-formats"
+severity  = "error"
+expr      = "$crate_daemon AND (kind = 'imports_symbol' OR kind = 'imports_module') => NOT target ~ '**/external_pkg:code_moniker_cli/**'"
+message   = "`code-moniker-daemon` must not depend on CLI, MCP, TUI, or other consumer implementation crates."
+rationale = """
+The daemon is the resident workspace host. Its main contract is query DTOs, while legacy
+agent views are exposed as a daemon query during the MCP migration to preserve feature
+parity. Even then, the daemon must not import consumer implementation crates; shared
+presentation behavior must either live in daemon-owned code or move to a neutral crate.
 """
 
 # ─── Naming hygiene per layer ────────────────────────────────────────

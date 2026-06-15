@@ -1,11 +1,8 @@
-use std::time::Duration;
-
+use code_moniker_query::{Command, CommandRequest};
 use serde_json::{Value, json};
 
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
-
-const REFRESH_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub(in crate::mcp) struct RefreshTool;
 
@@ -37,24 +34,27 @@ impl McpTool for RefreshTool {
 	}
 
 	fn call(&self, context: &McpContext, _arguments: &Value) -> Result<ToolResult, ToolError> {
-		let Some(live) = context.live() else {
-			return Err(ToolError::failed(
-				"live refresh is not available in this session",
-			));
-		};
-		let outcome = live
-			.request_refresh(REFRESH_TIMEOUT)
+		let response = context
+			.command(CommandRequest {
+				command: Command::WorkspaceRefresh,
+			})
 			.map_err(ToolError::failed)?;
-		let text = format!(
-			"uri: workspace\ncompleteness: full\n\nrefreshed: generation {}\nfiles {} defs {} refs {}\nstale: {}\n",
-			outcome.generation,
-			outcome.files,
-			outcome.symbols,
-			outcome.references,
-			context.index().staleness().summary(),
-		);
+		let generation = response
+			.generation
+			.map(|generation| generation.0.to_string())
+			.unwrap_or_else(|| "<unknown>".to_string());
+		let status = response.status.as_ref().ok_or_else(|| {
+			ToolError::failed("daemon refresh response did not include workspace status")
+		})?;
 		Ok(ToolResult {
-			text,
+			text: format!(
+				"uri: workspace\ncompleteness: full\n\nrefreshed: generation {generation}\nfiles: {}\ndefs: {}\nrefs: {}\nstale: {}\n{}\n",
+				status.files,
+				status.symbols,
+				status.references,
+				if status.stale { "stale" } else { "fresh" },
+				response.message
+			),
 			is_error: false,
 		})
 	}

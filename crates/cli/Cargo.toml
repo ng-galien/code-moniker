@@ -29,6 +29,9 @@ mcp     = ["dep:axum", "dep:rmcp", "dep:tokio", "dep:tokio-util", "dep:tracing",
 code-moniker-core = { workspace = true, features = ["serde"] }
 code-moniker-workspace = { workspace = true }
 code-moniker-check = { workspace = true }
+code-moniker-query = { workspace = true }
+code-moniker-daemon = { workspace = true }
+code-moniker-daemon-client = { workspace = true }
 
 clap      = { workspace = true }
 serde     = { workspace = true }

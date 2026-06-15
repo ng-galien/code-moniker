@@ -4,6 +4,9 @@ members = [
 	"crates/core",
 	"crates/workspace",
 	"crates/check",
+	"crates/query",
+	"crates/daemon",
+	"crates/daemon-client",
 	"crates/cli",
 ]
 
@@ -19,6 +22,9 @@ homepage      = "https://github.com/ng-galien/code-moniker"
 code-moniker-core = { path = "crates/core", version = "0.3.0" }
 code-moniker-workspace = { path = "crates/workspace", version = "0.3.0" }
 code-moniker-check = { path = "crates/check", version = "0.3.0" }
+code-moniker-query = { path = "crates/query", version = "0.3.0" }
+code-moniker-daemon = { path = "crates/daemon", version = "0.3.0" }
+code-moniker-daemon-client = { path = "crates/daemon-client", version = "0.3.0" }
 
 serde     = { version = "1", features = ["derive"] }
 clap      = { version = "4", features = ["derive", "env"] }
@@ -48,8 +54,9 @@ tempfile   = "3"
 insta      = { version = "1", features = ["glob", "json"] }
 axum       = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 rmcp       = { version = "1.7", default-features = false, features = ["server", "transport-streamable-http-server"] }
-tokio      = { version = "1", features = ["rt-multi-thread", "net"] }
+tokio      = { version = "1", features = ["rt-multi-thread", "rt", "net", "sync", "time", "macros"] }
 tokio-util = "0.7"
+jsonrpsee  = { version = "0.26", features = ["server", "client", "macros"] }
 tracing    = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 

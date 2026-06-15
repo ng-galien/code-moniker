@@ -9,40 +9,40 @@ use code_moniker_check as check;
 use super::model::RenderOptions;
 use crate::DEFAULT_SCHEME;
 
-pub(crate) type SourceSlice = Option<(usize, usize)>;
-pub(crate) type CodeExcerpt = Vec<(usize, String)>;
+pub type SourceSlice = Option<(usize, usize)>;
+pub type CodeExcerpt = Vec<(usize, String)>;
 
 #[derive(Clone, Debug)]
-pub(crate) struct SymbolEvidence {
-	pub(crate) selector: String,
-	pub(crate) label: String,
-	pub(crate) moniker: String,
-	pub(crate) file: String,
-	pub(crate) slice: SourceSlice,
-	pub(crate) active_slice: SourceSlice,
-	pub(crate) code: CodeExcerpt,
+pub struct SymbolEvidence {
+	pub selector: String,
+	pub label: String,
+	pub moniker: String,
+	pub file: String,
+	pub slice: SourceSlice,
+	pub active_slice: SourceSlice,
+	pub code: CodeExcerpt,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct MissingSymbol {
-	pub(crate) selector: String,
+pub struct MissingSymbol {
+	pub selector: String,
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct SymbolResolution {
-	pub(crate) evidence: Vec<SymbolEvidence>,
-	pub(crate) missing: Vec<MissingSymbol>,
+pub struct SymbolResolution {
+	pub evidence: Vec<SymbolEvidence>,
+	pub missing: Vec<MissingSymbol>,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct RuleEvidence {
-	pub(crate) id: String,
-	pub(crate) severity: String,
-	pub(crate) domain: String,
-	pub(crate) rationale: Option<String>,
+pub struct RuleEvidence {
+	pub id: String,
+	pub severity: String,
+	pub domain: String,
+	pub rationale: Option<String>,
 }
 
-pub(crate) fn resolve_symbols(
+pub fn resolve_symbols(
 	snapshot: &WorkspaceSnapshot,
 	scope_path: &str,
 	selectors: &[String],
@@ -72,7 +72,7 @@ pub(crate) fn resolve_symbols(
 	resolution
 }
 
-pub(crate) fn resolve_rules(
+pub fn resolve_rules(
 	roots: &[PathBuf],
 	snapshot: &WorkspaceSnapshot,
 	rule_ids: &[String],

@@ -1,12 +1,11 @@
-use std::collections::BTreeMap;
-
-use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord, WorkspaceView};
+use code_moniker_query::{Query, QueryRequest, QueryResult, SymbolDto, SymbolSearchQuery};
+use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord};
 use serde_json::{Value, json};
 
-use super::common::symbol_line_suffix;
+use super::common::{line_range_suffix, symbol_line_suffix};
 use super::scope::{
-	Paging, SymbolMatch, SymbolScopeFilter, append_call_bool_arg, append_call_number_arg,
-	append_call_string_arg,
+	Paging, SymbolScopeFilter, append_call_bool_arg, append_call_cursor_arg,
+	append_call_number_arg, append_call_string_arg,
 };
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
@@ -159,92 +158,42 @@ struct SearchRow<'a> {
 }
 
 fn search_symbols(context: &McpContext, request: &SearchRequest) -> anyhow::Result<String> {
-	let snapshot = context.index().index_snapshot()?;
-	let source_by_id = snapshot
-		.index
-		.sources
-		.iter()
-		.map(|source| (source.id.clone(), source))
-		.collect::<BTreeMap<_, _>>();
-	let symbol_by_id = snapshot
-		.index
-		.symbols
-		.iter()
-		.map(|symbol| (symbol.id.clone(), symbol))
-		.collect::<BTreeMap<_, _>>();
-	let mut rows = Vec::new();
-	for hit in WorkspaceView::new(snapshot.as_ref())
-		.search()
-		.search_symbols_matching(&request.query, search_candidate_limit(request), |symbol| {
-			let Some(source) = source_by_id.get(&symbol.source) else {
-				return false;
-			};
-			request
+	let response = context.query(QueryRequest {
+		query: Query::SymbolSearch(SymbolSearchQuery {
+			workspace: None,
+			text: Some(request.query.clone()),
+			path: request.scope.files.paths.to_owned(),
+			lang: request.scope.files.langs.to_owned(),
+			kind: request.scope.kinds.to_owned(),
+			shape: request
 				.scope
-				.files
-				.matches_file(&source.rel_path, Some(&source.language))
-				&& request.scope.matches_tui_search_symbol(SymbolMatch {
-					name: &symbol.name,
-					kind: &symbol.kind,
-					navigable: symbol.navigable,
-				})
-		}) {
-		let Some(symbol) = symbol_by_id.get(&hit.symbol) else {
-			continue;
-		};
-		let Some(source) = source_by_id.get(&symbol.source) else {
-			continue;
-		};
-		rows.push(SearchRow {
-			symbol,
-			source,
-			score: hit.score,
-			reason: hit.reason,
-			code_lines: if request.include_code {
-				symbol_source_lines(source, symbol, request.context_lines)
-			} else {
-				Vec::new()
-			},
-		});
-	}
-	Ok(render_search_lmnav(context.scheme(), request, &rows))
-}
-
-fn search_candidate_limit(request: &SearchRequest) -> usize {
-	request
-		.paging
-		.cursor
-		.saturating_add(request.paging.limit)
-		.saturating_add(1)
-}
-
-fn symbol_source_lines(
-	source: &SourceFileRecord,
-	symbol: &SymbolRecord,
-	context_lines: usize,
-) -> Vec<(usize, String)> {
-	let Some((start, end)) = symbol.line_range else {
-		return Vec::new();
+				.shapes
+				.iter()
+				.map(|shape| shape.as_str().to_string())
+				.collect(),
+			name: request
+				.scope
+				.name
+				.as_ref()
+				.map(|regex| regex.as_str().to_string()),
+			include_non_navigable: false,
+			include_code: request.include_code,
+			context_lines: request.context_lines,
+			projection: Vec::new(),
+		}),
+		consistency: code_moniker_query::Consistency::Current,
+		page: request.paging.daemon_page(),
+	})?;
+	let QueryResult::SymbolList(result) = response.result else {
+		anyhow::bail!("unexpected daemon response for search");
 	};
-	let source_text = if source.text.is_empty() {
-		match std::fs::read_to_string(&source.path) {
-			Ok(text) => text,
-			Err(_) => return Vec::new(),
-		}
-	} else {
-		source.text.clone()
-	};
-	let lines = source_text.lines().collect::<Vec<_>>();
-	if lines.is_empty() {
-		return Vec::new();
-	}
-	let slice_start = (start as usize).saturating_sub(context_lines).max(1);
-	let slice_end = (end as usize)
-		.saturating_add(context_lines)
-		.min(lines.len());
-	(slice_start..=slice_end)
-		.map(|number| (number, lines[number - 1].to_string()))
-		.collect()
+	Ok(render_daemon_search_lmnav(
+		context.scheme(),
+		request,
+		response.next_cursor.as_ref(),
+		&result.rows,
+		result.total,
+	))
 }
 
 fn render_search_lmnav(scheme: &str, request: &SearchRequest, rows: &[SearchRow<'_>]) -> String {
@@ -283,6 +232,90 @@ fn render_search_lmnav(scheme: &str, request: &SearchRequest, rows: &[SearchRow<
 	}
 	append_search_next_call(&mut output, request, 50, None);
 	output
+}
+
+fn render_daemon_search_lmnav(
+	scheme: &str,
+	request: &SearchRequest,
+	next_cursor: Option<&code_moniker_query::QueryCursor>,
+	rows: &[SymbolDto],
+	total: usize,
+) -> String {
+	let start = request.paging.cursor.min(total);
+	let end = start.saturating_add(rows.len()).min(total);
+	let mut output = String::new();
+	output.push_str(&format!("uri: {scheme}workspace/search\n"));
+	if let Some(next) = next_cursor {
+		output.push_str(&format!(
+			"completeness: partial (hits {start}-{end} of {total}, next cursor {})\n",
+			next.offset
+		));
+	} else {
+		output.push_str("completeness: full\n");
+	}
+	output.push_str(&format!("hits: {total}\n"));
+	output.push_str(&format!("limit: {}\n\n", request.paging.limit));
+	output.push_str("scope:\n");
+	for line in request.scope.describe() {
+		output.push_str(&line);
+		output.push('\n');
+	}
+	output.push_str(&format!("  query: {}\n\n", request.query));
+	output.push_str("results:\n");
+	if rows.is_empty() {
+		output.push_str("  <empty>\n");
+	} else {
+		for row in rows {
+			render_daemon_search_row(&mut output, row);
+		}
+	}
+	output.push_str("\nnext:\n");
+	if let Some(next) = next_cursor {
+		append_daemon_search_next_call(&mut output, request, request.paging.limit, next);
+	}
+	append_search_next_call(&mut output, request, 50, None);
+	output
+}
+
+fn render_daemon_search_row(output: &mut String, row: &SymbolDto) {
+	output.push_str(&format!(
+		"  - {} {} {}{}\n",
+		row.kind,
+		row.name,
+		row.file,
+		line_range_suffix(row.line_range)
+	));
+	if let Some(score) = row.score {
+		output.push_str(&format!("    score: {score}\n"));
+	}
+	if let Some(reason) = &row.match_reason {
+		output.push_str(&format!("    reason: {reason}\n"));
+	}
+	output.push_str(&format!("    uri: {}\n", row.uri));
+	if let Some(source) = &row.source {
+		output.push_str("    code:\n");
+		for line in &source.lines {
+			output.push_str(&format!("      {:>4} | {}\n", line.number, line.text));
+		}
+	}
+}
+
+fn append_daemon_search_next_call(
+	output: &mut String,
+	request: &SearchRequest,
+	limit: usize,
+	cursor: &code_moniker_query::QueryCursor,
+) {
+	output.push_str("  - code_moniker_search");
+	append_call_string_arg(output, "query", &request.query);
+	request.scope.append_call_args(output);
+	if request.include_code {
+		append_call_bool_arg(output, "include_code", true);
+		append_call_number_arg(output, "context_lines", request.context_lines);
+	}
+	append_call_number_arg(output, "limit", limit);
+	append_call_cursor_arg(output, "cursor", cursor);
+	output.push('\n');
 }
 
 fn render_search_row(output: &mut String, row: &SearchRow<'_>) {

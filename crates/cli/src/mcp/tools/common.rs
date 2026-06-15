@@ -24,11 +24,14 @@ pub(in crate::mcp) fn normalize_workspace_uri(
 	}
 }
 
-pub(in crate::mcp) fn symbol_line_suffix(symbol: &SymbolRecord) -> String {
-	symbol
-		.line_range
+pub(in crate::mcp) fn line_range_suffix(range: Option<(u32, u32)>) -> String {
+	range
 		.map(|(start, end)| format!(":{start}-{end}"))
 		.unwrap_or_default()
+}
+
+pub(in crate::mcp) fn symbol_line_suffix(symbol: &SymbolRecord) -> String {
+	line_range_suffix(symbol.line_range)
 }
 
 pub(in crate::mcp) fn sorted_count_rows<K>(counts: &BTreeMap<K, usize>) -> Vec<(String, usize)>

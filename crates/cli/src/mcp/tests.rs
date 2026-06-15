@@ -4,67 +4,44 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
-use code_moniker_workspace::registry::{
-	LocalWorkspaceOptions, LocalWorkspaceRegistry, WorkspaceStaleness,
-};
+use code_moniker_daemon::WorkspaceDaemon;
+use code_moniker_query::{Query, QueryRequest, QueryResult, SymbolSearchQuery};
 use code_moniker_workspace::snapshot::{
 	LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
 	SourceFileRecord, SourceFileRecordFields, SourceId, SourceUnit, SymbolId, SymbolRecord,
-	SymbolRecordFields, WorkspaceRequest, WorkspaceTransition,
+	SymbolRecordFields,
 };
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use super::context::McpContext;
+use super::context::{DaemonRuntime, McpContext};
 use super::tools;
 use super::tools::read::{render_explorer_lmnav, render_symbol_source_lmnav};
 use super::tools::scope::{Paging, ScopeFilter, SymbolScopeFilter};
 use super::tools::symbols::{SymbolAction, SymbolIndexView, render_symbols_lmnav};
 use super::tools::usages::{UsageDirection, UsageIndexView, UsageQuery, render_usages_lmnav};
 use super::tools::{McpTool, ToolRegistry};
-use crate::live_control::{LiveControlHandle, LiveControlMessage, LiveRefreshOutcome};
 use crate::session::SessionOptions;
-use crate::workspace_index::SharedWorkspaceIndex;
 
 fn empty_context(paths: Vec<PathBuf>) -> McpContext {
+	daemon_context(paths)
+}
+
+fn loaded_context(paths: Vec<PathBuf>) -> McpContext {
+	daemon_context(paths)
+}
+
+fn daemon_context(paths: Vec<PathBuf>) -> McpContext {
 	let opts = SessionOptions {
-		paths,
+		paths: paths.clone(),
 		project: None,
 		cache_dir: None,
 	};
 	McpContext::new(
 		opts,
 		"code+moniker://".to_string(),
-		SharedWorkspaceIndex::new(None),
+		DaemonRuntime::in_process(WorkspaceDaemon::new(paths).expect("daemon")),
 	)
-}
-
-fn loaded_context(paths: Vec<PathBuf>) -> McpContext {
-	let opts = SessionOptions {
-		paths,
-		project: None,
-		cache_dir: None,
-	};
-	let index = loaded_index(&opts);
-	McpContext::new(opts, "code+moniker://".to_string(), index)
-}
-
-fn loaded_index(opts: &SessionOptions) -> SharedWorkspaceIndex {
-	let mut workspace = LocalWorkspaceRegistry::local(
-		LocalWorkspaceOptions::new(opts.paths.clone(), opts.project.clone())
-			.with_cache_dir(opts.cache_dir.clone()),
-	);
-	match workspace
-		.commands()
-		.refresh(WorkspaceRequest::new("mcp-test"))
-	{
-		WorkspaceTransition::Ready { .. } => {
-			SharedWorkspaceIndex::new(workspace.queries().snapshot_arc())
-		}
-		WorkspaceTransition::Failed { failure, .. } => {
-			panic!("mcp test workspace failed: {}", failure.message)
-		}
-	}
 }
 
 struct HttpTestServer {
@@ -82,8 +59,8 @@ impl Drop for HttpTestServer {
 	}
 }
 
-fn start_http_test_server(opts: SessionOptions, index: SharedWorkspaceIndex) -> HttpTestServer {
-	let context = McpContext::new(opts, "code+moniker://".to_string(), index);
+fn start_http_test_server(opts: SessionOptions) -> HttpTestServer {
+	let context = daemon_context(opts.paths);
 	let shutdown = CancellationToken::new();
 	let thread_shutdown = shutdown.child_token();
 	let (ready_tx, ready_rx) = mpsc::channel();
@@ -176,6 +153,7 @@ fn read_root_summarizes_workspace_and_limits_explorer() {
 		&ScopeFilter::from_arguments(&json!({"path": "root/src/**", "lang": "java"})).unwrap(),
 		Paging {
 			cursor: 0,
+			generation: None,
 			limit: 1,
 		},
 	);
@@ -213,65 +191,17 @@ fn tools_list_returns_mcp_shape() {
 }
 
 #[test]
-fn stale_workspace_gates_tools_with_refresh_hint() {
+fn refresh_tool_requests_daemon_refresh_and_reports_generation() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	write_java_app_fixture(temp.path(), "class App {\n  void run() {}\n}\n");
-	let registry = ToolRegistry::new();
-	let context = loaded_context(vec![temp.path().to_path_buf()]);
-	let arguments = json!({"uri": "workspace"});
-
-	assert!(
-		registry
-			.call(&context, "code_moniker_read", &arguments)
-			.is_ok()
-	);
-
-	context.index().publish_staleness(WorkspaceStaleness {
-		stale_paths: vec![temp.path().join("App.java")],
-		requires_rescan: false,
-		git_base_stale: false,
-	});
-
-	let error = registry
-		.call(&context, "code_moniker_read", &arguments)
-		.expect_err("stale gate error");
-	assert!(error.to_string().contains("stale"));
-	assert!(error.to_string().contains("code_moniker_refresh"));
-}
-
-#[test]
-fn refresh_tool_requests_live_refresh_and_reports_generation() {
-	let context = empty_context(vec![PathBuf::from(".")]);
-	let (tx, rx) = mpsc::channel();
-	let context = context.with_live(LiveControlHandle::new(tx));
-	context.index().publish_staleness(WorkspaceStaleness {
-		stale_paths: vec![PathBuf::from("lib.rs")],
-		requires_rescan: false,
-		git_base_stale: false,
-	});
-	let live_index = context.index().clone();
-	let responder = thread::spawn(move || match rx.recv().expect("refresh request") {
-		LiveControlMessage::Refresh(reply) => {
-			live_index.publish_staleness(WorkspaceStaleness::default());
-			reply
-				.send(Ok(LiveRefreshOutcome {
-					generation: 7,
-					files: 1,
-					symbols: 2,
-					references: 3,
-				}))
-				.expect("reply");
-		}
-		LiveControlMessage::Event(_) => panic!("unexpected live event"),
-	});
+	let context = empty_context(vec![temp.path().to_path_buf()]);
 
 	let result = ToolRegistry::new()
 		.call(&context, "code_moniker_refresh", &json!({}))
 		.expect("refresh result");
-	responder.join().expect("responder");
 
-	assert!(result.text.contains("refreshed: generation 7"));
-	assert!(result.text.contains("stale: fresh"));
+	assert!(result.text.contains("refreshed: generation"));
+	assert!(result.text.contains("workspace refreshed"));
 }
 
 #[test]
@@ -508,12 +438,12 @@ fn notes_tool_rejects_status_update_without_persisting() {
 }
 
 #[test]
-fn notes_tool_does_not_persist_create_when_index_is_unavailable() {
+fn notes_tool_persists_create_after_daemon_refresh() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let registry = ToolRegistry::new();
 	let context = empty_context(vec![temp.path().to_path_buf()]);
 
-	let error = registry
+	let created = registry
 		.call(
 			&context,
 			"code_moniker_notes",
@@ -524,51 +454,38 @@ fn notes_tool_does_not_persist_create_when_index_is_unavailable() {
 				"title": "No index"
 			}),
 		)
-		.unwrap_err();
+		.expect("create note after daemon refresh");
 
+	assert!(created.text.contains("action: create"), "{}", created.text);
 	assert!(
-		error.to_string().contains("snapshot is not ready"),
-		"{error}"
-	);
-	assert!(
-		!temp.path().join(".code-moniker/notes.toml").exists(),
-		"failed create must not persist notes"
+		temp.path().join(".code-moniker/notes.toml").exists(),
+		"daemon-backed create must persist notes"
 	);
 }
 
 #[test]
-fn notes_tool_resolves_file_monikers() {
+fn notes_tool_resolves_file_module_monikers() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	write_java_app_fixture(temp.path(), "class App {}\n");
 	let registry = ToolRegistry::new();
 	let context = loaded_context(vec![temp.path().to_path_buf()]);
-	let file_moniker = context
-		.index()
-		.index_snapshot()
-		.expect("snapshot")
-		.index
-		.sources
-		.iter()
-		.find(|source| source.rel_path == "src/main/java/App.java")
-		.expect("app source")
-		.uri
-		.clone();
+	let file_moniker = "code+moniker://./srcset:main/lang:java/module:App";
 
 	let created = registry
 		.call(
 			&context,
 			"code_moniker_notes",
 			&json!({
-				"action": "create",
-				"id": "note_file",
-				"moniker": file_moniker,
+					"action": "create",
+					"id": "note_file",
+					"moniker": file_moniker,
 				"title": "File target"
 			}),
 		)
 		.expect("create file note");
 
 	assert!(
-		created.text.contains("target: file src/main/java/App.java"),
+		created.text.contains("target: module App"),
 		"{}",
 		created.text
 	);
@@ -590,16 +507,21 @@ fn write_notes_toml(root: &std::path::Path, contents: &str) {
 }
 
 fn app_symbol_moniker(context: &McpContext) -> String {
-	context
-		.index()
-		.index_snapshot()
-		.expect("snapshot")
-		.index
-		.symbols
+	let response = context
+		.query(QueryRequest::new(Query::SymbolSearch(SymbolSearchQuery {
+			name: Some("^App$".to_string()),
+			..Default::default()
+		})))
+		.expect("symbol search");
+	let QueryResult::SymbolList(result) = response.result else {
+		panic!("unexpected symbol query response");
+	};
+	result
+		.rows
 		.iter()
 		.find(|symbol| symbol.name == "App")
 		.expect("app symbol")
-		.identity
+		.uri
 		.clone()
 }
 
@@ -665,7 +587,7 @@ fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
 	assert!(result.text.contains("lang=\"java\""));
 	assert!(result.text.contains("kind=\"interface\""));
 	assert!(result.text.contains("shape=\"callable\""));
-	assert!(result.text.contains("cursor=1"));
+	assert!(result.text.contains("cursor="));
 
 	let detail = registry
 		.call(
@@ -782,8 +704,14 @@ fn rules_tool_runs_check_on_multi_root_workspace() {
 		.expect("rules run");
 	assert!(!result.is_error);
 	assert!(result.text.contains("exit: match"));
-	assert!(result.text.contains(&format!("root: {}", first.display())));
-	assert!(result.text.contains(&format!("root: {}", second.display())));
+	assert!(result.text.contains(&format!(
+		"root: {}",
+		first.canonicalize().expect("canonical first").display()
+	)));
+	assert!(result.text.contains(&format!(
+		"root: {}",
+		second.canonicalize().expect("canonical second").display()
+	)));
 }
 
 #[test]
@@ -836,7 +764,7 @@ fn rules_tool_lists_project_rules() {
 	assert!(result.text.contains("next:"));
 	assert!(result.text.contains("lang=\"java\""));
 	assert!(result.text.contains("severity=\"error\""));
-	assert!(result.text.contains("cursor=1"));
+	assert!(result.text.contains("cursor="));
 }
 
 #[test]
@@ -1059,6 +987,7 @@ fn symbols_tool_filters_and_pages_symbols() {
 		&scope,
 		Paging {
 			cursor: 0,
+			generation: None,
 			limit: 1,
 		},
 		SymbolIndexView {
@@ -1174,6 +1103,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 			scope: &ScopeFilter::from_arguments(&json!({"lang": "java"})).unwrap(),
 			paging: Paging {
 				cursor: 0,
+				generation: None,
 				limit: 10,
 			},
 		},
@@ -1286,6 +1216,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 			scope: &ScopeFilter::from_arguments(&json!({"lang": "ts"})).unwrap(),
 			paging: Paging {
 				cursor: 0,
+				generation: None,
 				limit: 20,
 			},
 		},
@@ -1398,6 +1329,7 @@ fn symbols_insights_summarize_index() {
 		&SymbolScopeFilter::from_arguments(&json!({"lang": "java"})).unwrap(),
 		Paging {
 			cursor: 0,
+			generation: None,
 			limit: 5,
 		},
 		SymbolIndexView {
@@ -1426,7 +1358,7 @@ fn http_tool_call_reads_workspace_explorer() {
 		project: None,
 		cache_dir: None,
 	};
-	let server = start_http_test_server(opts.clone(), loaded_index(&opts));
+	let server = start_http_test_server(opts.clone());
 	let body = json!({
 		"jsonrpc": "2.0",
 		"id": 7,
@@ -1461,7 +1393,7 @@ fn http_initialized_notification_is_accepted_without_json_response() {
 		project: None,
 		cache_dir: None,
 	};
-	let server = start_http_test_server(opts.clone(), loaded_index(&opts));
+	let server = start_http_test_server(opts.clone());
 	let response = post_rpc(
 		server.addr,
 		&json!({
