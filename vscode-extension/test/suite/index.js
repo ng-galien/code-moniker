@@ -6,7 +6,7 @@ const vscode = require("vscode");
 const { testDaemonView } = require("./daemon.test");
 const { testSymbolTree } = require("./symbols.test");
 const { testRulesDaemon } = require("./rules-daemon.test");
-const { getApi } = require("./helpers");
+const { getApi, delay, codeMonikerExtension } = require("./helpers");
 
 const NOTEBOOK_TYPE = "code-moniker-scenario";
 const TIMEOUT_MS = 15000;
@@ -124,12 +124,6 @@ function hasMenuItem(menus, command, when) {
 
 function hasCommand(commands, command) {
 	return commands.some((item) => item.command === command);
-}
-
-function codeMonikerExtension() {
-	const extension = vscode.extensions.all.find((candidate) => candidate.packageJSON?.name === "code-moniker");
-	assert.ok(extension, "Code Moniker extension should be installed in the test host");
-	return extension;
 }
 
 async function configureBinary() {
@@ -354,10 +348,6 @@ async function waitFor(probe, label, details = () => "") {
 	const detail = details();
 	const detailSuffix = detail ? ` Last output:\n${detail}` : "";
 	throw new Error(`Timed out waiting for ${label}.${suffix}${detailSuffix}`);
-}
-
-function delay(ms) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const rendererPayload = {

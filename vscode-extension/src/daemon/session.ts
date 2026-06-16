@@ -239,7 +239,9 @@ function tryLaunch(candidates: string[], index: number, root: string): void {
 }
 
 function isLoadingError(error: unknown): boolean {
-	return error instanceof Error && /workspace_loading|loading/i.test(error.message);
+	// The daemon's Display is "{code}: {message}", so the structured code lands at
+	// the start of the message. Match the code token only — not any "loading" text.
+	return error instanceof Error && error.message.includes("workspace_loading");
 }
 
 function delay(ms: number): Promise<void> {

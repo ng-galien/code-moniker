@@ -1,6 +1,6 @@
-import * as path from "node:path";
 import * as vscode from "vscode";
 
+import { toFsPath } from "../daemon/paths";
 import { DetailWebview, SourceTarget } from "./detail/panel";
 import { SymbolTreeNode } from "./nodes";
 import { SymbolTreeProvider } from "./tree";
@@ -28,7 +28,7 @@ async function openSource(arg: SymbolTreeNode | SourceTarget): Promise<void> {
 	if (!target) {
 		return;
 	}
-	const fsPath = path.isAbsolute(target.file) ? target.file : path.join(target.root, target.file);
+	const fsPath = toFsPath(target.root, target.file);
 	const document = await vscode.workspace.openTextDocument(vscode.Uri.file(fsPath));
 	const editor = await vscode.window.showTextDocument(document, {
 		viewColumn: vscode.ViewColumn.One,

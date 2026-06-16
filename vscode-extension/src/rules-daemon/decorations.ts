@@ -1,16 +1,16 @@
-import * as path from "node:path";
 import * as vscode from "vscode";
 
-import { SymbolDto, ViolationDto } from "../daemon/model";
+import { LineRange, SymbolDto, ViolationDto } from "../daemon/model";
+import { toFsPath, toRelative } from "../daemon/paths";
 import { ViolationIndex } from "../symbols/tree";
 
 // Holds the latest check violations and projects them three ways: symbol-tree
 // overlay (ViolationIndex), file badges (FileDecorationProvider), and the Problems
-// panel (DiagnosticCollection).
+// panel (DiagnosticCollection). All lookup maps are built once per update.
 export class ViolationModel implements ViolationIndex, vscode.FileDecorationProvider {
-	private violations: ViolationDto[] = [];
 	private byRelPath = new Map<string, number>();
 	private byAbsPath = new Map<string, number>();
+	private rangesByRelPath = new Map<string, LineRange[]>();
 
 	private readonly decorationEmitter = new vscode.EventEmitter<vscode.Uri[] | undefined>();
 	readonly onDidChangeFileDecorations = this.decorationEmitter.event;
@@ -19,10 +19,15 @@ export class ViolationModel implements ViolationIndex, vscode.FileDecorationProv
 
 	update(violations: ViolationDto[]): void {
 		const previous = [...this.byAbsPath.keys()];
-		this.violations = violations;
-		this.byRelPath = countBy(violations, violationRelPath);
-		this.byAbsPath = countBy(violations, (v) => absPath(v));
-		this.publishDiagnostics();
+		this.byRelPath = new Map();
+		this.byAbsPath = new Map();
+		this.rangesByRelPath = new Map();
+		for (const violation of violations) {
+			bump(this.byRelPath, toRelative(violation.root, violation.path));
+			bump(this.byAbsPath, toFsPath(violation.root, violation.path));
+			push(this.rangesByRelPath, toRelative(violation.root, violation.path), violation.lines);
+		}
+		this.publishDiagnostics(violations);
 		const affected = new Set<string>([...previous, ...this.byAbsPath.keys()]);
 		this.decorationEmitter.fire([...affected].map((p) => vscode.Uri.file(p)));
 	}
@@ -40,9 +45,8 @@ export class ViolationModel implements ViolationIndex, vscode.FileDecorationProv
 			return 0;
 		}
 		const [start, end] = symbol.line_range;
-		return this.violations.filter(
-			(v) => violationRelPath(v) === symbol.file && v.lines[0] <= end && v.lines[1] >= start,
-		).length;
+		const ranges = this.rangesByRelPath.get(symbol.file) ?? [];
+		return ranges.filter(([vs, ve]) => vs <= end && ve >= start).length;
 	}
 
 	provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
@@ -57,11 +61,11 @@ export class ViolationModel implements ViolationIndex, vscode.FileDecorationProv
 		);
 	}
 
-	private publishDiagnostics(): void {
+	private publishDiagnostics(violations: ViolationDto[]): void {
 		this.diagnostics.clear();
 		const byFile = new Map<string, vscode.Diagnostic[]>();
-		for (const violation of this.violations) {
-			const key = absPath(violation);
+		for (const violation of violations) {
+			const key = toFsPath(violation.root, violation.path);
 			const list = byFile.get(key) ?? [];
 			list.push(toDiagnostic(violation));
 			byFile.set(key, list);
@@ -89,25 +93,15 @@ function toDiagnostic(violation: ViolationDto): vscode.Diagnostic {
 	return diagnostic;
 }
 
-function absPath(violation: ViolationDto): string {
-	return path.isAbsolute(violation.path)
-		? violation.path
-		: path.join(violation.root, violation.path);
+function bump(map: Map<string, number>, key: string): void {
+	map.set(key, (map.get(key) ?? 0) + 1);
 }
 
-// The daemon reports violation paths as absolute; the symbol tree and SymbolDto use
-// workspace-relative paths, so normalise to relative for cross-referencing.
-export function violationRelPath(violation: ViolationDto): string {
-	return path.isAbsolute(violation.path)
-		? path.relative(violation.root, violation.path)
-		: violation.path;
-}
-
-function countBy<T>(items: T[], key: (item: T) => string): Map<string, number> {
-	const map = new Map<string, number>();
-	for (const item of items) {
-		const k = key(item);
-		map.set(k, (map.get(k) ?? 0) + 1);
+function push(map: Map<string, LineRange[]>, key: string, value: LineRange): void {
+	const list = map.get(key);
+	if (list) {
+		list.push(value);
+	} else {
+		map.set(key, [value]);
 	}
-	return map;
 }

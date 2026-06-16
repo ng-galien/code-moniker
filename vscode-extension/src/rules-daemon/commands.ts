@@ -36,7 +36,8 @@ async function runCheck(
 	);
 	provider.setCheck(result.summary, result.violations);
 	model.update(result.violations);
-	symbolTree.setViolations(model);
+	// The symbol tree already holds this model (registered once); just re-render.
+	symbolTree.refresh();
 	const total = result.summary.total_violations;
 	void vscode.window.showInformationMessage(
 		total === 0

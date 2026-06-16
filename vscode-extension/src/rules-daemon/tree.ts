@@ -2,8 +2,8 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 
 import { CheckSummaryDto, RuleDto, ViolationDto } from "../daemon/model";
+import { toRelative } from "../daemon/paths";
 import { DaemonSession } from "../daemon/session";
-import { violationRelPath } from "./decorations";
 import { GroupNode, RuleNode, RulesTreeNode, SectionNode, ViolationNode } from "./nodes";
 import { RulesRepository } from "./repository";
 
@@ -14,7 +14,6 @@ export class RulesProvider implements vscode.TreeDataProvider<RulesTreeNode> {
 	readonly onDidChangeTreeData = this.emitter.event;
 
 	private rulesCache?: RuleDto[];
-	private checkRan = false;
 	private summary?: CheckSummaryDto;
 	private violations: ViolationDto[] = [];
 
@@ -29,7 +28,6 @@ export class RulesProvider implements vscode.TreeDataProvider<RulesTreeNode> {
 	}
 
 	setCheck(summary: CheckSummaryDto, violations: ViolationDto[]): void {
-		this.checkRan = true;
 		this.summary = summary;
 		this.violations = violations;
 		this.emitter.fire(undefined);
@@ -83,7 +81,7 @@ export class RulesProvider implements vscode.TreeDataProvider<RulesTreeNode> {
 	}
 
 	private checkChildren(): RulesTreeNode[] {
-		if (!this.checkRan) {
+		if (!this.summary) {
 			return [{ kind: "info", label: "Run check to populate findings" }];
 		}
 		if (this.violations.length === 0) {
@@ -91,7 +89,7 @@ export class RulesProvider implements vscode.TreeDataProvider<RulesTreeNode> {
 		}
 		const groups = new Map<string, GroupNode>();
 		for (const violation of this.violations) {
-			const relPath = violationRelPath(violation);
+			const relPath = toRelative(violation.root, violation.path);
 			const key = `${violation.root}\0${relPath}`;
 			const group = groups.get(key);
 			if (group) {
@@ -121,7 +119,7 @@ export class RulesProvider implements vscode.TreeDataProvider<RulesTreeNode> {
 	}
 
 	private checkSummaryLabel(): string {
-		if (!this.checkRan || !this.summary) {
+		if (!this.summary) {
 			return "not run";
 		}
 		const { total_violations, files_scanned } = this.summary;
@@ -136,7 +134,7 @@ function ruleItem(node: RuleNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(rule.id, vscode.TreeItemCollapsibleState.None);
 	item.description = [rule.severity, rule.lang, rule.domain].filter(Boolean).join(" · ");
 	item.iconPath = rule.severity === "warn"
-		? new vscode.ThemeIcon("warning", new vscode.ThemeColor("list.warningForeground"))
+		? warnIcon()
 		: new vscode.ThemeIcon("shield", new vscode.ThemeColor("charts.blue"));
 	item.contextValue = "cmDaemonRule";
 	item.tooltip = ruleTooltip(rule);
@@ -162,7 +160,7 @@ function groupItem(node: GroupNode): vscode.TreeItem {
 		vscode.TreeItemCollapsibleState.Collapsed,
 	);
 	item.description = `${node.violations.length} · ${path.dirname(node.file)}`;
-	item.iconPath = new vscode.ThemeIcon("warning", new vscode.ThemeColor("list.warningForeground"));
+	item.iconPath = warnIcon();
 	item.resourceUri = vscode.Uri.file(path.join(node.root, node.file));
 	item.contextValue = "cmCheckGroup";
 	return item;
@@ -173,7 +171,7 @@ function violationItem(node: ViolationNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(violation.rule_id, vscode.TreeItemCollapsibleState.None);
 	item.description = `L${violation.lines[0]} · ${violation.message}`;
 	item.iconPath = violation.severity === "warn"
-		? new vscode.ThemeIcon("warning", new vscode.ThemeColor("list.warningForeground"))
+		? warnIcon()
 		: new vscode.ThemeIcon("error", new vscode.ThemeColor("errorForeground"));
 	item.contextValue = "cmViolation";
 	item.tooltip = `${violation.moniker}\n${violation.message}`;
@@ -183,4 +181,8 @@ function violationItem(node: ViolationNode): vscode.TreeItem {
 		arguments: [{ root: violation.root, file: violation.path, line: violation.lines[0] }],
 	};
 	return item;
+}
+
+function warnIcon(): vscode.ThemeIcon {
+	return new vscode.ThemeIcon("warning", new vscode.ThemeColor("list.warningForeground"));
 }
