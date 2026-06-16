@@ -8,7 +8,7 @@ use code_moniker_query::{
 use code_moniker_workspace::snapshot::WorkspaceSnapshot;
 
 use super::config;
-use super::model::{BoundarySpec, GotchaSpec, MonikerDisplay, RenderOptions, ViewDocument};
+use super::model::{BoundarySpec, GotchaSpec, RenderOptions, ViewDocument};
 use super::resolve::{self, RuleEvidence, SymbolEvidence, SymbolResolution};
 
 const VIEWS_URI: &str = "workspace/views";
@@ -81,7 +81,6 @@ fn build_detail(
 		.ok_or_else(|| anyhow::anyhow!("view `{id}` not found"))?;
 	let rules = rule_map(roots, snapshot, view)?;
 	let options = RenderOptions {
-		moniker_display: MonikerDisplay::None,
 		context_lines,
 		include_code,
 	};
@@ -125,7 +124,7 @@ fn build_boundary(
 		rationale: boundary.rationale.clone(),
 		rule_refs: rule_refs(&boundary.rules, rules),
 		evidence: evidence_dtos(resolution.evidence),
-		missing: resolution.missing.into_iter().map(|m| m.selector).collect(),
+		missing: resolution.missing,
 	}
 }
 
@@ -143,7 +142,7 @@ fn build_gotcha(
 		check: gotcha.check.clone(),
 		rule_refs: rule_refs(&gotcha.rules, rules),
 		evidence: evidence_dtos(resolution.evidence),
-		missing: resolution.missing.into_iter().map(|m| m.selector).collect(),
+		missing: resolution.missing,
 	}
 }
 

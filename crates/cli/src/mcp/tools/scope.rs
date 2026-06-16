@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use code_moniker_core::core::shape::Shape;
-use code_moniker_query::{Page, QueryCursor, WorkspaceGeneration};
+use code_moniker_query::{Page, QueryCursor, WorkspaceGeneration, split_csv};
 use regex::Regex;
 use serde_json::Value;
 
@@ -284,15 +284,6 @@ pub(super) fn append_repeated_call_args(output: &mut String, key: &str, values: 
 	for value in values {
 		append_call_string_arg(output, key, value);
 	}
-}
-
-fn split_csv(value: &str) -> Vec<String> {
-	value
-		.split(',')
-		.map(str::trim)
-		.filter(|part| !part.is_empty())
-		.map(ToOwned::to_owned)
-		.collect()
 }
 
 fn number_argument(arguments: &Value, key: &str) -> anyhow::Result<Option<usize>> {

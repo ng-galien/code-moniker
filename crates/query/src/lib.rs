@@ -463,6 +463,7 @@ pub struct ViewEvidenceDto {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceStatus {
 	pub root: String,
+	pub phase: String,
 	pub roots: Vec<WorkspaceRootStatus>,
 	pub generation: Option<WorkspaceGeneration>,
 	pub files: usize,
@@ -984,6 +985,7 @@ pub fn format_query_response(response: &QueryResponse) -> String {
 	match &response.result {
 		QueryResult::WorkspaceStatus(status) => {
 			let _ = writeln!(out, "workspace: {}", status.root);
+			let _ = writeln!(out, "phase: {}", status.phase);
 			let _ = writeln!(
 				out,
 				"files: {} symbols: {} references: {}",
@@ -1258,7 +1260,7 @@ fn tokenize(input: &str) -> Result<Vec<String>, QueryParseError> {
 	Ok(tokens)
 }
 
-fn split_csv(value: &str) -> Vec<String> {
+pub fn split_csv(value: &str) -> Vec<String> {
 	value
 		.split(',')
 		.map(str::trim)

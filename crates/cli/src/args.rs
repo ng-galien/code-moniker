@@ -91,7 +91,6 @@ pub struct DaemonRootArgs {
 	)]
 	pub cache: Option<PathBuf>,
 
-	#[cfg(any(feature = "tui", feature = "mcp"))]
 	#[arg(
 		long,
 		value_enum,
@@ -127,7 +126,6 @@ pub struct QueryArgs {
 	)]
 	pub cache: Option<PathBuf>,
 
-	#[cfg(any(feature = "tui", feature = "mcp"))]
 	#[arg(
 		long,
 		value_enum,
@@ -462,7 +460,6 @@ impl DefaultRules {
 	}
 }
 
-#[cfg(any(feature = "tui", feature = "mcp"))]
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum LiveRefresh {
 	#[default]
@@ -470,7 +467,6 @@ pub enum LiveRefresh {
 	Auto,
 }
 
-#[cfg(any(feature = "tui", feature = "mcp"))]
 impl LiveRefresh {
 	pub fn is_on_demand(self) -> bool {
 		matches!(self, Self::OnDemand)

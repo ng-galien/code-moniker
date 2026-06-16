@@ -94,7 +94,6 @@ impl MonikerDisplay {
 
 #[derive(Clone, Copy, Debug)]
 pub struct RenderOptions {
-	pub moniker_display: MonikerDisplay,
 	pub context_lines: usize,
 	pub include_code: bool,
 }

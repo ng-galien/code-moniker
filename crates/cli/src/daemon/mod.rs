@@ -113,18 +113,12 @@ fn daemon_config(args: &DaemonRootArgs) -> anyhow::Result<DaemonWorkspaceConfig>
 	)
 }
 
-#[cfg(any(feature = "tui", feature = "mcp"))]
 fn live_refresh_label(args: &DaemonRootArgs) -> String {
 	match args.live_refresh {
 		crate::args::LiveRefresh::OnDemand => "on-demand",
 		crate::args::LiveRefresh::Auto => "auto",
 	}
 	.to_string()
-}
-
-#[cfg(not(any(feature = "tui", feature = "mcp")))]
-fn live_refresh_label(_args: &DaemonRootArgs) -> String {
-	"on-demand".to_string()
 }
 
 fn root_label(roots: &[PathBuf]) -> String {

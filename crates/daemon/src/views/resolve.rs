@@ -23,15 +23,10 @@ pub struct SymbolEvidence {
 	pub code: CodeExcerpt,
 }
 
-#[derive(Clone, Debug)]
-pub struct MissingSymbol {
-	pub selector: String,
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct SymbolResolution {
 	pub evidence: Vec<SymbolEvidence>,
-	pub missing: Vec<MissingSymbol>,
+	pub missing: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -53,16 +48,12 @@ pub fn resolve_symbols(
 	for selector in selectors {
 		let matches = matching_symbols(snapshot, &source_by_id, scope_path, selector);
 		if matches.is_empty() {
-			resolution.missing.push(MissingSymbol {
-				selector: selector.clone(),
-			});
+			resolution.missing.push(selector.clone());
 			continue;
 		}
 		let evidence = select_symbol_evidence(selector, matches, options);
 		if evidence.is_empty() {
-			resolution.missing.push(MissingSymbol {
-				selector: selector.clone(),
-			});
+			resolution.missing.push(selector.clone());
 			continue;
 		}
 		for item in evidence {

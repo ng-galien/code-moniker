@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, TryLockError, mpsc};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use code_moniker_check::{
@@ -83,8 +83,10 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 	let workspace_root = workspace_label(&daemon.roots);
 	let workspace_roots = root_labels(&daemon.roots);
 	let shutdown = Arc::new(tokio::sync::Notify::new());
+	let daemon = Arc::new(Mutex::new(daemon));
 	let service = DaemonRpcService {
-		daemon: Arc::new(Mutex::new(daemon)),
+		daemon: daemon.clone(),
+		roots: Arc::from(config_roots(&config)),
 		events,
 		shutdown: shutdown.clone(),
 		handshake: HandshakeResponse {
@@ -111,6 +113,14 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 	write_registry_entry(&config, &entry)?;
 
 	let handle = server.start(service.into_rpc());
+	let preload_daemon = daemon.clone();
+	tokio::task::spawn_blocking(move || {
+		let mut daemon = preload_daemon.lock().unwrap_or_else(|err| err.into_inner());
+		if daemon.registry.queries().snapshot().is_none() {
+			let _ = refresh_full(&mut daemon);
+			let _ = restart_live_watcher(&mut daemon);
+		}
+	});
 	tokio::select! {
 		_ = shutdown.notified() => {}
 		_ = handle.clone().stopped() => {}
@@ -125,6 +135,7 @@ const EVENT_BUFFER: usize = 256;
 
 struct DaemonRpcService {
 	daemon: Arc<Mutex<WorkspaceDaemon>>,
+	roots: Arc<[PathBuf]>,
 	events: tokio::sync::broadcast::Sender<WorkspaceEventDto>,
 	shutdown: Arc<tokio::sync::Notify>,
 	handshake: HandshakeResponse,
@@ -136,9 +147,14 @@ impl DaemonRpcService {
 		request: ProtocolRequest,
 	) -> Result<ProtocolResponse, ErrorObjectOwned> {
 		let daemon = self.daemon.clone();
-		tokio::task::spawn_blocking(move || {
-			let mut guard = daemon.lock().unwrap_or_else(|err| err.into_inner());
-			guard.handle_protocol(request)
+		let roots = self.roots.clone();
+		tokio::task::spawn_blocking(move || match daemon.try_lock() {
+			Ok(mut guard) => guard.handle_protocol(request),
+			Err(TryLockError::WouldBlock) => workspace_loading_response(request, &roots),
+			Err(TryLockError::Poisoned(err)) => {
+				let mut guard = err.into_inner();
+				guard.handle_protocol(request)
+			}
 		})
 		.await
 		.map_err(|err| internal_error(err.to_string()))
@@ -323,12 +339,6 @@ impl WorkspaceDaemon {
 			live: init.live,
 		};
 		daemon.live.events = events;
-		daemon.restart_live_watcher().map_err(|err| {
-			anyhow::anyhow!(
-				"cannot start daemon live watcher for {}: {err}",
-				workspace_label(&daemon.roots)
-			)
-		})?;
 		Ok(daemon)
 	}
 
@@ -445,18 +455,22 @@ fn handle_query(
 	request: QueryRequest,
 ) -> Result<QueryResponse, QueryError> {
 	drain_live_events(daemon)?;
+	if matches!(&request.query, Query::WorkspaceStatus) {
+		return workspace_status(&daemon.roots, &daemon.registry);
+	}
 	if request.consistency == Consistency::RefreshIfStale
 		&& daemon.registry.queries().staleness().is_stale()
 	{
 		refresh_stale(daemon)?;
 	}
 	if daemon.registry.queries().snapshot().is_none() {
-		refresh_full(daemon)?;
-		restart_live_watcher(daemon)?;
+		return Err(QueryError::new(
+			"workspace_loading",
+			"workspace snapshot is still loading; retry after workspace.status reports phase ready",
+		));
 	}
 	if request.consistency == Consistency::Current
 		&& daemon.registry.queries().staleness().is_stale()
-		&& !matches!(&request.query, Query::WorkspaceStatus)
 	{
 		return Err(QueryError::new(
 			"workspace_stale",
@@ -471,7 +485,7 @@ fn handle_query(
 		generation: current_generation,
 	};
 	match request.query {
-		Query::WorkspaceStatus => workspace_status(&daemon.roots, &daemon.registry),
+		Query::WorkspaceStatus => unreachable!("workspace status handled before snapshot load"),
 		Query::TreeChildren(query) => tree_children_response(
 			&snapshot,
 			&daemon.roots,
@@ -535,6 +549,18 @@ fn handle_query(
 		Query::Notes(query) => {
 			notes_response(daemon, &snapshot, query, request.page, current_generation)
 		}
+	}
+}
+
+fn workspace_loading_response(request: ProtocolRequest, roots: &[PathBuf]) -> ProtocolResponse {
+	match request {
+		ProtocolRequest::Query(request) if matches!(&request.query, Query::WorkspaceStatus) => {
+			ProtocolResponse::Query(Box::new(workspace_status_loading(roots)))
+		}
+		_ => ProtocolResponse::Error(QueryError::new(
+			"workspace_loading",
+			"workspace daemon is busy loading; retry after workspace.status reports phase ready",
+		)),
 	}
 }
 
@@ -641,6 +667,36 @@ fn workspace_status(
 	})
 }
 
+fn workspace_status_loading(roots: &[PathBuf]) -> QueryResponse {
+	let status = WorkspaceStatus {
+		root: workspace_label(roots),
+		phase: "loading".to_string(),
+		roots: roots
+			.iter()
+			.map(|root| WorkspaceRootStatus {
+				root: root.display().to_string(),
+				generation: None,
+				files: 0,
+				symbols: 0,
+				references: 0,
+				stale: false,
+				stale_summary: "loading".to_string(),
+			})
+			.collect(),
+		generation: None,
+		files: 0,
+		symbols: 0,
+		references: 0,
+		stale: false,
+		stale_summary: "loading".to_string(),
+	};
+	QueryResponse {
+		generation: None,
+		result: QueryResult::WorkspaceStatus(status),
+		next_cursor: None,
+	}
+}
+
 fn workspace_status_result(
 	roots: &[PathBuf],
 	registry: &LocalWorkspaceRegistry,
@@ -686,6 +742,11 @@ fn workspace_status_result(
 	let references = root_statuses.iter().map(|root| root.references).sum();
 	WorkspaceStatus {
 		root: workspace_label(roots),
+		phase: if generation.is_some() {
+			"ready".to_string()
+		} else {
+			"loading".to_string()
+		},
 		roots: root_statuses,
 		generation,
 		files,
@@ -2381,12 +2442,7 @@ mod helpers {
 		for value in values {
 			*counts.entry(value).or_default() += 1;
 		}
-		let mut rows = counts
-			.into_iter()
-			.map(|(name, count)| CountDto { name, count })
-			.collect::<Vec<_>>();
-		rows.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
-		rows
+		count_rows(counts)
 	}
 
 	pub(super) fn count_rows(counts: BTreeMap<String, usize>) -> Vec<CountDto> {
@@ -2591,6 +2647,13 @@ mod tests {
 			}
 			other => panic!("unexpected response: {other:?}"),
 		}
+		let refresh = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(
+			matches!(refresh, ProtocolResponse::Command(_)),
+			"unexpected response: {refresh:?}"
+		);
 		let search = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest::new(
 			Query::SymbolSearch(code_moniker_query::SymbolSearchQuery {
 				text: Some("Customer".to_string()),
@@ -2620,6 +2683,7 @@ mod tests {
 		let (events, _) = tokio::sync::broadcast::channel(16);
 		let service = DaemonRpcService {
 			daemon: Arc::new(Mutex::new(daemon)),
+			roots: Arc::from(vec![temp.path().to_path_buf()]),
 			events: events.clone(),
 			shutdown: Arc::new(tokio::sync::Notify::new()),
 			handshake: HandshakeResponse {

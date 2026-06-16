@@ -53,16 +53,10 @@ fn query_daemon_config(
 	)
 }
 
-#[cfg(any(feature = "tui", feature = "mcp"))]
 fn live_refresh_label(args: &QueryArgs) -> String {
 	match args.live_refresh {
 		crate::args::LiveRefresh::OnDemand => "on-demand",
 		crate::args::LiveRefresh::Auto => "auto",
 	}
 	.to_string()
-}
-
-#[cfg(not(any(feature = "tui", feature = "mcp")))]
-fn live_refresh_label(_args: &QueryArgs) -> String {
-	"on-demand".to_string()
 }
