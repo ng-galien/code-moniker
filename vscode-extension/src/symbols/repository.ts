@@ -96,7 +96,7 @@ function compareEntries(a: TreeNode, b: TreeNode): number {
 // parent is the tightest enclosing symbol by line range.
 export function nestSymbols(rows: SymbolDto[]): SymbolNode[] {
 	const ranged = rows
-		.filter((row) => row.line_range !== null)
+		.filter((row) => row.line_range != null)
 		.sort((a, b) => {
 			const [as, ae] = a.line_range as [number, number];
 			const [bs, be] = b.line_range as [number, number];
@@ -118,7 +118,7 @@ export function nestSymbols(rows: SymbolDto[]): SymbolNode[] {
 	}
 	// Symbols without a line range cannot nest; surface them at the top level.
 	for (const row of rows) {
-		if (row.line_range === null) {
+		if (row.line_range == null) {
 			roots.push({ kind: "symbol", symbol: row, children: [] });
 		}
 	}

@@ -20,7 +20,12 @@
 	"main": "./dist/extension.js",
 	"activationEvents": [
 		"onNotebook:code-moniker-scenario",
-		"onStartupFinished"
+		"onView:codeMoniker.daemons",
+		"onView:codeMoniker.symbols",
+		"onView:codeMoniker.rulesDaemon",
+		"onCommand:codeMoniker.daemon.connect",
+		"onCommand:codeMoniker.symbols.refresh",
+		"onCommand:codeMoniker.rulesDaemon.runCheck"
 	],
 	"contributes": {
 		"notebooks": [
@@ -455,6 +460,7 @@
 		"compile": "node esbuild.js",
 		"watch": "node esbuild.js --watch",
 		"typecheck": "tsc --noEmit",
+		"generate:daemon-types": "json2ts --no-additionalProperties -i ../docs/schema/daemon.schema.json -o src/daemon/generated.ts",
 		"validate": "node scripts/validate-samples.mjs",
 		"test:integration": "npm run compile && node test/run-integration.js",
 		"test": "npm run typecheck && npm run validate",
@@ -466,6 +472,7 @@
 		"@types/ws": "^8.5.10",
 		"@vscode/test-electron": "^3.0.0",
 		"esbuild": "^0.20.0",
+		"json-schema-to-typescript": "^15.0.0",
 		"typescript": "^5.4.0"
 	},
 	"dependencies": {

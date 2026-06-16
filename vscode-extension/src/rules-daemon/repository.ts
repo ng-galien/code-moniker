@@ -47,5 +47,6 @@ function emptySummary(): RulesCheckResult["summary"] {
 		files_with_errors: 0,
 		total_errors: 0,
 		elapsed_ms: 0,
+		failed_rules: [],
 	};
 }
