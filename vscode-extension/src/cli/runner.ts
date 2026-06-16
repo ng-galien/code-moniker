@@ -24,6 +24,14 @@ function cargoFallback(): string {
 	return path.join(os.homedir(), ".cargo", "bin", "code-moniker");
 }
 
+// Ordered binary candidates: the configured/PATH binary first, then the cargo
+// install fallback. Shared by the CLI runner and the detached daemon launcher.
+export function binaryCandidates(): string[] {
+	const primary = configuredBinary();
+	const fallback = cargoFallback();
+	return primary === fallback ? [primary] : [primary, fallback];
+}
+
 export function missingBinaryMessage(tried: string): string {
 	return (
 		`Could not find the code-moniker binary (\`${tried}\`). ` +

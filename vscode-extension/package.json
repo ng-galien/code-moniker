@@ -19,7 +19,8 @@
 	],
 	"main": "./dist/extension.js",
 	"activationEvents": [
-		"onNotebook:code-moniker-scenario"
+		"onNotebook:code-moniker-scenario",
+		"onStartupFinished"
 	],
 	"contributes": {
 		"notebooks": [
@@ -100,6 +101,21 @@
 		},
 		"views": {
 			"codeMoniker": [
+				{
+					"id": "codeMoniker.daemons",
+					"name": "Daemons",
+					"icon": "./icons/activity.svg"
+				},
+				{
+					"id": "codeMoniker.symbols",
+					"name": "Symbols",
+					"icon": "./icons/activity.svg"
+				},
+				{
+					"id": "codeMoniker.rulesDaemon",
+					"name": "Rules",
+					"icon": "./icons/rule.svg"
+				},
 				{
 					"id": "codeMoniker.ruleFiles",
 					"name": "Rule Files",
@@ -207,6 +223,60 @@
 				"title": "Open Sample Scenario",
 				"category": "Code Moniker",
 				"icon": "$(file-code)"
+			},
+			{
+				"command": "codeMoniker.daemon.refresh",
+				"title": "Refresh Daemons",
+				"category": "Code Moniker",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "codeMoniker.daemon.connect",
+				"title": "Connect Workspace Daemon",
+				"category": "Code Moniker",
+				"icon": "$(plug)"
+			},
+			{
+				"command": "codeMoniker.daemon.stop",
+				"title": "Stop Daemon",
+				"category": "Code Moniker",
+				"icon": "$(debug-stop)"
+			},
+			{
+				"command": "codeMoniker.daemon.openWorkspace",
+				"title": "Open Workspace",
+				"category": "Code Moniker",
+				"icon": "$(folder-opened)"
+			},
+			{
+				"command": "codeMoniker.symbols.refresh",
+				"title": "Refresh Symbols",
+				"category": "Code Moniker",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "codeMoniker.symbols.revealDetail",
+				"title": "Show Symbol Details",
+				"category": "Code Moniker",
+				"icon": "$(open-preview)"
+			},
+			{
+				"command": "codeMoniker.symbols.openSource",
+				"title": "Open Source",
+				"category": "Code Moniker",
+				"icon": "$(go-to-file)"
+			},
+			{
+				"command": "codeMoniker.rulesDaemon.refresh",
+				"title": "Refresh Rules",
+				"category": "Code Moniker",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "codeMoniker.rulesDaemon.runCheck",
+				"title": "Run Check",
+				"category": "Code Moniker",
+				"icon": "$(play)"
 			}
 		],
 		"menus": {
@@ -250,6 +320,31 @@
 					"command": "codeMoniker.catalog.clearFilters",
 					"when": "view == codeMoniker.catalog",
 					"group": "navigation@5"
+				},
+				{
+					"command": "codeMoniker.daemon.refresh",
+					"when": "view == codeMoniker.daemons",
+					"group": "navigation@1"
+				},
+				{
+					"command": "codeMoniker.daemon.connect",
+					"when": "view == codeMoniker.daemons",
+					"group": "navigation@2"
+				},
+				{
+					"command": "codeMoniker.symbols.refresh",
+					"when": "view == codeMoniker.symbols",
+					"group": "navigation@1"
+				},
+				{
+					"command": "codeMoniker.rulesDaemon.runCheck",
+					"when": "view == codeMoniker.rulesDaemon",
+					"group": "navigation@1"
+				},
+				{
+					"command": "codeMoniker.rulesDaemon.refresh",
+					"when": "view == codeMoniker.rulesDaemon",
+					"group": "navigation@2"
 				}
 			],
 			"view/item/context": [
@@ -302,6 +397,41 @@
 					"command": "codeMoniker.catalog.openEntry",
 					"when": "view == codeMoniker.catalog && viewItem =~ /^cmCatalog.*Rule$/",
 					"group": "1_cm"
+				},
+				{
+					"command": "codeMoniker.daemon.stop",
+					"when": "view == codeMoniker.daemons && viewItem == cmDaemonCurrent",
+					"group": "inline@1"
+				},
+				{
+					"command": "codeMoniker.daemon.openWorkspace",
+					"when": "view == codeMoniker.daemons && viewItem == cmDaemon",
+					"group": "inline@1"
+				},
+				{
+					"command": "codeMoniker.daemon.stop",
+					"when": "view == codeMoniker.daemons && viewItem == cmDaemon",
+					"group": "1_cm@1"
+				},
+				{
+					"command": "codeMoniker.symbols.revealDetail",
+					"when": "view == codeMoniker.symbols && viewItem == cmSymbol",
+					"group": "inline@1"
+				},
+				{
+					"command": "codeMoniker.symbols.openSource",
+					"when": "view == codeMoniker.symbols && viewItem == cmSymbol",
+					"group": "inline@2"
+				},
+				{
+					"command": "codeMoniker.symbols.openSource",
+					"when": "view == codeMoniker.symbols && viewItem == cmEntryFile",
+					"group": "inline@1"
+				},
+				{
+					"command": "codeMoniker.rulesDaemon.runCheck",
+					"when": "view == codeMoniker.rulesDaemon && viewItem == cmCheckSection",
+					"group": "inline@1"
 				}
 			]
 		},
@@ -312,6 +442,11 @@
 					"type": "string",
 					"default": "code-moniker",
 					"description": "Path to the code-moniker CLI binary. Defaults to `code-moniker` on PATH, with a fallback to ~/.cargo/bin/code-moniker."
+				},
+				"codeMoniker.daemon.autoConnect": {
+					"type": "boolean",
+					"default": true,
+					"description": "Automatically connect to (or start) the workspace daemon when a folder is opened."
 				}
 			}
 		}
@@ -328,11 +463,13 @@
 	"devDependencies": {
 		"@types/node": "^20.11.0",
 		"@types/vscode": "^1.120.0",
+		"@types/ws": "^8.5.10",
 		"@vscode/test-electron": "^3.0.0",
 		"esbuild": "^0.20.0",
 		"typescript": "^5.4.0"
 	},
 	"dependencies": {
-		"toml-eslint-parser": "^1.0.3"
+		"toml-eslint-parser": "^1.0.3",
+		"ws": "^8.18.0"
 	}
 }

@@ -3,6 +3,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vscode = require("vscode");
 
+const { testDaemonView } = require("./daemon.test");
+const { testSymbolTree } = require("./symbols.test");
+const { testRulesDaemon } = require("./rules-daemon.test");
+const { getApi } = require("./helpers");
+
 const NOTEBOOK_TYPE = "code-moniker-scenario";
 const TIMEOUT_MS = 15000;
 
@@ -28,6 +33,24 @@ async function run() {
 	assert.match(path.basename(learnEditor.notebook.uri.path), /^basics(?:-\d+)?\.cm\.md$/);
 	assertNoExpectCells(learnEditor.notebook);
 	await runLearnRulesCell(learnEditor);
+
+	// Daemon-backed navigation features (acceptance / end-to-end).
+	await testDaemonView();
+	await testSymbolTree();
+	await testRulesDaemon();
+	await teardownDaemon();
+}
+
+// Stops the workspace daemon started during the run and asserts it deregisters.
+async function teardownDaemon() {
+	const api = await getApi();
+	await api.session.stop();
+	assert.strictEqual(api.session.status, "disconnected", "daemon session should disconnect");
+	await waitFor(
+		() => !api.daemons.getChildren().some((node) => node.current),
+		"the stopped daemon to leave the registry",
+	);
+	console.log("daemon teardown: ok");
 }
 
 async function rejectCatalogGroupAsEntry() {

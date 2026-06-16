@@ -65,7 +65,7 @@ const extensionConfig = {
 	platform: "node",
 	format: "cjs",
 	target: "node18",
-	external: ["vscode"],
+	external: ["vscode", "bufferutil", "utf-8-validate"],
 	loader: { ".md": "text" },
 	plugins: [samplePackPlugin()],
 	sourcemap: true,
