@@ -47,6 +47,7 @@ pub use rpc::*;
 pub const PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProtocolRequest {
 	Query(Box<QueryRequest>),
@@ -54,6 +55,7 @@ pub enum ProtocolRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProtocolResponse {
 	Query(Box<QueryResponse>),
@@ -62,6 +64,7 @@ pub enum ProtocolResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct HandshakeResponse {
 	pub protocol_version: u32,
 	pub daemon_version: String,
@@ -71,6 +74,7 @@ pub struct HandshakeResponse {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct DaemonWorkspaceConfig {
 	pub roots: Vec<String>,
 	pub project: Option<String>,
@@ -79,6 +83,7 @@ pub struct DaemonWorkspaceConfig {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CapabilitySet {
 	pub queries: Vec<String>,
 	pub commands: Vec<String>,
@@ -107,6 +112,7 @@ impl Default for CapabilitySet {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct QueryRequest {
 	pub query: Query,
 	pub consistency: Consistency,
@@ -124,6 +130,7 @@ impl QueryRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Query {
 	WorkspaceStatus,
@@ -139,6 +146,7 @@ pub enum Query {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TreeChildrenQuery {
 	pub workspace: Option<String>,
 	pub path: Vec<String>,
@@ -148,6 +156,7 @@ pub struct TreeChildrenQuery {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolSearchQuery {
 	pub workspace: Option<String>,
 	pub text: Option<String>,
@@ -163,6 +172,7 @@ pub struct SymbolSearchQuery {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolDetailQuery {
 	pub workspace: Option<String>,
 	pub uri: String,
@@ -170,6 +180,7 @@ pub struct SymbolDetailQuery {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolUsagesQuery {
 	pub workspace: Option<String>,
 	pub uri: String,
@@ -180,6 +191,7 @@ pub struct SymbolUsagesQuery {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViewReadQuery {
 	pub uri: String,
 	pub scheme: Option<String>,
@@ -188,6 +200,7 @@ pub struct ViewReadQuery {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum UsageDirection {
 	#[default]
@@ -223,6 +236,7 @@ impl FromStr for UsageDirection {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RulesListQuery {
 	pub workspace: Option<String>,
 	pub profile: Option<String>,
@@ -232,6 +246,7 @@ pub struct RulesListQuery {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RulesCheckQuery {
 	pub workspace: Option<String>,
 	pub profile: Option<String>,
@@ -241,6 +256,7 @@ pub struct RulesCheckQuery {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NotesQuery {
 	pub action: NotesAction,
 	pub id: Option<String>,
@@ -255,6 +271,7 @@ pub struct NotesQuery {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum NotesAction {
 	#[default]
@@ -267,17 +284,20 @@ pub enum NotesAction {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CommandRequest {
 	pub command: Command,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Command {
 	WorkspaceRefresh,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Consistency {
 	#[default]
@@ -303,6 +323,7 @@ impl FromStr for Consistency {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Page {
 	pub cursor: Option<QueryCursor>,
 	pub limit: usize,
@@ -318,6 +339,7 @@ impl Default for Page {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct QueryCursor {
 	pub offset: usize,
 	pub generation: Option<WorkspaceGeneration>,
@@ -330,10 +352,12 @@ impl QueryCursor {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct WorkspaceGeneration(pub u64);
 
 /// A workspace change pushed to attached clients over a daemon subscription.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct WorkspaceEventDto {
 	pub kind: WorkspaceEventKind,
 	pub generation: Option<WorkspaceGeneration>,
@@ -341,6 +365,7 @@ pub struct WorkspaceEventDto {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceEventKind {
 	Stale,
@@ -350,6 +375,7 @@ pub enum WorkspaceEventKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct QueryResponse {
 	pub generation: Option<WorkspaceGeneration>,
 	pub result: QueryResult,
@@ -357,6 +383,7 @@ pub struct QueryResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum QueryResult {
 	WorkspaceStatus(WorkspaceStatus),
@@ -372,6 +399,7 @@ pub enum QueryResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CommandResponse {
 	pub generation: Option<WorkspaceGeneration>,
 	pub message: String,
@@ -379,6 +407,7 @@ pub struct CommandResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViewReadResult {
 	List(ViewListResult),
@@ -386,11 +415,13 @@ pub enum ViewReadResult {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViewListResult {
 	pub views: Vec<ViewSummaryDto>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViewSummaryDto {
 	pub id: String,
 	pub title: Option<String>,
@@ -400,6 +431,7 @@ pub struct ViewSummaryDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViewDetailResult {
 	pub id: String,
 	pub title: Option<String>,
@@ -414,6 +446,7 @@ pub struct ViewDetailResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViewRuleDto {
 	pub id: String,
 	pub severity: String,
@@ -422,12 +455,14 @@ pub struct ViewRuleDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViewRuleRefDto {
 	pub id: String,
 	pub present: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViewBoundaryDto {
 	pub id: String,
 	pub owns: Vec<String>,
@@ -440,6 +475,7 @@ pub struct ViewBoundaryDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViewGotchaDto {
 	pub id: String,
 	pub rationale: String,
@@ -450,6 +486,7 @@ pub struct ViewGotchaDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViewEvidenceDto {
 	pub selector: String,
 	pub label: String,
@@ -461,6 +498,7 @@ pub struct ViewEvidenceDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct WorkspaceStatus {
 	pub root: String,
 	pub phase: String,
@@ -474,6 +512,7 @@ pub struct WorkspaceStatus {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct WorkspaceRootStatus {
 	pub root: String,
 	pub generation: Option<WorkspaceGeneration>,
@@ -485,6 +524,7 @@ pub struct WorkspaceRootStatus {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TreeChildrenResult {
 	pub root: String,
 	pub roots: Vec<String>,
@@ -497,6 +537,7 @@ pub struct TreeChildrenResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TreeNode {
 	pub root: String,
 	pub path: String,
@@ -508,6 +549,7 @@ pub struct TreeNode {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum TreeNodeKind {
 	File,
@@ -515,12 +557,14 @@ pub enum TreeNodeKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolListResult {
 	pub rows: Vec<SymbolDto>,
 	pub total: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolDto {
 	pub root: String,
 	pub uri: String,
@@ -539,6 +583,7 @@ pub struct SymbolDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolInsightsResult {
 	pub files: usize,
 	pub symbols: usize,
@@ -553,12 +598,14 @@ pub struct SymbolInsightsResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolDetailResult {
 	pub symbol: SymbolDto,
 	pub source: Option<SourceSnippet>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SourceSnippet {
 	pub file: String,
 	pub first_line: u32,
@@ -567,12 +614,14 @@ pub struct SourceSnippet {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SourceLine {
 	pub number: u32,
 	pub text: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolUsagesResult {
 	pub target: SymbolDto,
 	pub direction: UsageDirection,
@@ -583,6 +632,7 @@ pub struct SymbolUsagesResult {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct UsageSummaryDto {
 	pub refs: usize,
 	pub files: usize,
@@ -596,6 +646,7 @@ pub struct UsageSummaryDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct UsageDto {
 	pub root: String,
 	pub direction: UsageDirection,
@@ -612,6 +663,7 @@ pub struct UsageDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RulesListResult {
 	pub roots: Vec<String>,
 	pub rows: Vec<RuleDto>,
@@ -619,6 +671,7 @@ pub struct RulesListResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RuleDto {
 	pub root: String,
 	pub id: String,
@@ -634,6 +687,7 @@ pub struct RuleDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RulesCheckResult {
 	pub exit: String,
 	pub summary: CheckSummaryDto,
@@ -645,6 +699,7 @@ pub struct RulesCheckResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RulesCheckRootResult {
 	pub root: String,
 	pub exit: String,
@@ -656,6 +711,7 @@ pub struct RulesCheckRootResult {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CheckSummaryDto {
 	pub files_scanned: usize,
 	pub files_with_violations: usize,
@@ -669,6 +725,7 @@ pub struct CheckSummaryDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct FailedRuleDto {
 	pub rule_id: String,
 	pub severity: String,
@@ -676,6 +733,7 @@ pub struct FailedRuleDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ViolationDto {
 	pub root: String,
 	pub path: String,
@@ -688,6 +746,7 @@ pub struct ViolationDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct FileErrorDto {
 	pub root: String,
 	pub path: String,
@@ -695,6 +754,7 @@ pub struct FileErrorDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RuleReportDto {
 	pub root: String,
 	pub path: Option<String>,
@@ -709,12 +769,14 @@ pub struct RuleReportDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CheckSkipReasonDto {
 	pub root: String,
 	pub reason: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NotesResult {
 	pub action: String,
 	pub total: usize,
@@ -723,6 +785,7 @@ pub struct NotesResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NoteDto {
 	pub id: String,
 	pub moniker: String,
@@ -736,6 +799,7 @@ pub struct NoteDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum NoteResolutionDto {
 	Resolved {
@@ -747,12 +811,14 @@ pub enum NoteResolutionDto {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CountDto {
 	pub name: String,
 	pub count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum DaemonEvent {
 	WorkspaceStale {
@@ -765,6 +831,7 @@ pub enum DaemonEvent {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct QueryError {
 	pub code: String,
 	pub message: String,
@@ -1332,5 +1399,91 @@ mod tests {
 		};
 		let formatted = format_query_response(&response);
 		assert!(formatted.contains("next_cursor: 7:40"));
+	}
+}
+
+/// Umbrella over every root RPC type, used only to emit a single JSON Schema
+/// document (`export-schema`) whose definitions cover the whole wire contract.
+#[cfg(feature = "schema")]
+#[derive(schemars::JsonSchema)]
+#[allow(dead_code)]
+pub struct DaemonProtocol {
+	pub handshake: HandshakeResponse,
+	pub registry_entry: DaemonRegistryEntry,
+	pub workspace_config: DaemonWorkspaceConfig,
+	pub query_request: QueryRequest,
+	pub query: Query,
+	pub query_response: QueryResponse,
+	pub query_result: QueryResult,
+	pub command_request: CommandRequest,
+	pub command_response: CommandResponse,
+	pub event: WorkspaceEventDto,
+	pub error: QueryError,
+}
+
+#[cfg(test)]
+mod contract_tests {
+	//! Lock the serde wire shapes the JSON Schema (and every generated client)
+	//! depends on. These guard the contract, not the Rust layout.
+	use super::*;
+	use serde_json::json;
+
+	#[test]
+	fn query_is_op_tagged() {
+		let query = Query::SymbolSearch(SymbolSearchQuery {
+			text: Some("widget".to_string()),
+			..Default::default()
+		});
+		let value = serde_json::to_value(&query).unwrap();
+		assert_eq!(value["op"], "symbol_search");
+		assert_eq!(value["text"], "widget");
+	}
+
+	#[test]
+	fn query_result_is_kind_and_data_tagged() {
+		let result = QueryResult::SymbolList(SymbolListResult {
+			rows: Vec::new(),
+			total: 0,
+		});
+		assert_eq!(
+			serde_json::to_value(&result).unwrap(),
+			json!({ "kind": "symbol_list", "data": { "rows": [], "total": 0 } }),
+		);
+	}
+
+	#[test]
+	fn generation_serializes_as_scalar() {
+		assert_eq!(
+			serde_json::to_value(WorkspaceGeneration(7)).unwrap(),
+			json!(7)
+		);
+	}
+
+	#[test]
+	fn line_range_is_a_two_element_array() {
+		let range: Option<(u32, u32)> = Some((3, 9));
+		assert_eq!(serde_json::to_value(range).unwrap(), json!([3, 9]));
+		assert_eq!(
+			serde_json::to_value(Option::<(u32, u32)>::None).unwrap(),
+			json!(null)
+		);
+	}
+
+	#[test]
+	fn consistency_is_snake_case() {
+		assert_eq!(
+			serde_json::to_value(Consistency::RefreshIfStale).unwrap(),
+			json!("refresh_if_stale"),
+		);
+	}
+
+	#[test]
+	fn event_kind_is_snake_case() {
+		let event = WorkspaceEventDto {
+			kind: WorkspaceEventKind::GitBase,
+			generation: None,
+			stale_summary: None,
+		};
+		assert_eq!(serde_json::to_value(&event).unwrap()["kind"], "git_base");
 	}
 }

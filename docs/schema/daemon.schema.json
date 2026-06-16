@@ -1,0 +1,2670 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DaemonProtocol",
+  "description": "Umbrella over every root RPC type, used only to emit a single JSON Schema document (`export-schema`) whose definitions cover the whole wire contract.",
+  "type": "object",
+  "required": [
+    "command_request",
+    "command_response",
+    "error",
+    "event",
+    "handshake",
+    "query",
+    "query_request",
+    "query_response",
+    "query_result",
+    "registry_entry",
+    "workspace_config"
+  ],
+  "properties": {
+    "command_request": {
+      "$ref": "#/definitions/CommandRequest"
+    },
+    "command_response": {
+      "$ref": "#/definitions/CommandResponse"
+    },
+    "error": {
+      "$ref": "#/definitions/QueryError"
+    },
+    "event": {
+      "$ref": "#/definitions/WorkspaceEventDto"
+    },
+    "handshake": {
+      "$ref": "#/definitions/HandshakeResponse"
+    },
+    "query": {
+      "$ref": "#/definitions/Query"
+    },
+    "query_request": {
+      "$ref": "#/definitions/QueryRequest"
+    },
+    "query_response": {
+      "$ref": "#/definitions/QueryResponse"
+    },
+    "query_result": {
+      "$ref": "#/definitions/QueryResult"
+    },
+    "registry_entry": {
+      "$ref": "#/definitions/DaemonRegistryEntry"
+    },
+    "workspace_config": {
+      "$ref": "#/definitions/DaemonWorkspaceConfig"
+    }
+  },
+  "definitions": {
+    "CapabilitySet": {
+      "type": "object",
+      "required": [
+        "commands",
+        "events",
+        "queries"
+      ],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "queries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "CheckSkipReasonDto": {
+      "type": "object",
+      "required": [
+        "reason",
+        "root"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      }
+    },
+    "CheckSummaryDto": {
+      "type": "object",
+      "required": [
+        "elapsed_ms",
+        "failed_rules",
+        "files_scanned",
+        "files_with_errors",
+        "files_with_violations",
+        "total_errors",
+        "total_rule_errors",
+        "total_violations",
+        "total_warnings"
+      ],
+      "properties": {
+        "elapsed_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "failed_rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FailedRuleDto"
+          }
+        },
+        "files_scanned": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "files_with_errors": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "files_with_violations": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "total_errors": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "total_rule_errors": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "total_violations": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "total_warnings": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "Command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "workspace_refresh"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "CommandRequest": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "properties": {
+        "command": {
+          "$ref": "#/definitions/Command"
+        }
+      }
+    },
+    "CommandResponse": {
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkspaceGeneration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkspaceStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "Consistency": {
+      "type": "string",
+      "enum": [
+        "current",
+        "refresh_if_stale",
+        "stale_ok"
+      ]
+    },
+    "CountDto": {
+      "type": "object",
+      "required": [
+        "count",
+        "name"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "DaemonRegistryEntry": {
+      "type": "object",
+      "required": [
+        "endpoint",
+        "pid",
+        "token",
+        "workspace_root",
+        "workspace_roots"
+      ],
+      "properties": {
+        "cache_dir": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "live_refresh": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pid": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token": {
+          "type": "string"
+        },
+        "workspace_root": {
+          "type": "string"
+        },
+        "workspace_roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "DaemonWorkspaceConfig": {
+      "type": "object",
+      "required": [
+        "roots"
+      ],
+      "properties": {
+        "cache_dir": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "live_refresh": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "FailedRuleDto": {
+      "type": "object",
+      "required": [
+        "rule_id",
+        "severity",
+        "violations"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "violations": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "FileErrorDto": {
+      "type": "object",
+      "required": [
+        "error",
+        "path",
+        "root"
+      ],
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      }
+    },
+    "HandshakeResponse": {
+      "type": "object",
+      "required": [
+        "capabilities",
+        "daemon_version",
+        "protocol_version",
+        "workspace_root",
+        "workspace_roots"
+      ],
+      "properties": {
+        "capabilities": {
+          "$ref": "#/definitions/CapabilitySet"
+        },
+        "daemon_version": {
+          "type": "string"
+        },
+        "protocol_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "workspace_root": {
+          "type": "string"
+        },
+        "workspace_roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "NoteDto": {
+      "type": "object",
+      "required": [
+        "body",
+        "created_by",
+        "id",
+        "kind",
+        "moniker",
+        "resolution",
+        "status",
+        "title",
+        "updated_at"
+      ],
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "moniker": {
+          "type": "string"
+        },
+        "resolution": {
+          "$ref": "#/definitions/NoteResolutionDto"
+        },
+        "status": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "NoteResolutionDto": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "status",
+            "target"
+          ],
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "slice": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": [
+                {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0.0
+                },
+                {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0.0
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "resolved"
+              ]
+            },
+            "target": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "orphan"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "NotesAction": {
+      "type": "string",
+      "enum": [
+        "list",
+        "get",
+        "create",
+        "update",
+        "transition",
+        "delete"
+      ]
+    },
+    "NotesResult": {
+      "type": "object",
+      "required": [
+        "action",
+        "rows",
+        "total"
+      ],
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "deleted": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/NoteDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NoteDto"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "Page": {
+      "type": "object",
+      "required": [
+        "limit"
+      ],
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/QueryCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "Query": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "workspace_status"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "depth",
+            "lang",
+            "op",
+            "path",
+            "projection"
+          ],
+          "properties": {
+            "depth": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "lang": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "tree_children"
+              ]
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "projection": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "context_lines",
+            "include_code",
+            "include_non_navigable",
+            "kind",
+            "lang",
+            "op",
+            "path",
+            "projection",
+            "shape"
+          ],
+          "properties": {
+            "context_lines": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "include_code": {
+              "type": "boolean"
+            },
+            "include_non_navigable": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "lang": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "symbol_search"
+              ]
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "projection": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "shape": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "context_lines",
+            "include_code",
+            "include_non_navigable",
+            "kind",
+            "lang",
+            "op",
+            "path",
+            "projection",
+            "shape"
+          ],
+          "properties": {
+            "context_lines": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "include_code": {
+              "type": "boolean"
+            },
+            "include_non_navigable": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "lang": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "symbol_insights"
+              ]
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "projection": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "shape": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "context_lines",
+            "op",
+            "uri"
+          ],
+          "properties": {
+            "context_lines": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "symbol_detail"
+              ]
+            },
+            "uri": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "direction",
+            "lang",
+            "op",
+            "path",
+            "projection",
+            "uri"
+          ],
+          "properties": {
+            "direction": {
+              "$ref": "#/definitions/UsageDirection"
+            },
+            "lang": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "symbol_usages"
+              ]
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "projection": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "uri": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "context_lines",
+            "include_code",
+            "op",
+            "uri"
+          ],
+          "properties": {
+            "context_lines": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "include_code": {
+              "type": "boolean"
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "view_read"
+              ]
+            },
+            "scheme": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "uri": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "lang",
+            "op",
+            "severity"
+          ],
+          "properties": {
+            "lang": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "rules_list"
+              ]
+            },
+            "profile": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rules": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "severity": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "file",
+            "op",
+            "report"
+          ],
+          "properties": {
+            "file": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "rules_check"
+              ]
+            },
+            "profile": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "report": {
+              "type": "boolean"
+            },
+            "rules": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "action",
+            "include_done",
+            "op"
+          ],
+          "properties": {
+            "action": {
+              "$ref": "#/definitions/NotesAction"
+            },
+            "body": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_by": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "include_done": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "moniker": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "notes"
+              ]
+            },
+            "orphan": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "QueryCursor": {
+      "type": "object",
+      "required": [
+        "offset"
+      ],
+      "properties": {
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkspaceGeneration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "QueryError": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "QueryRequest": {
+      "type": "object",
+      "required": [
+        "consistency",
+        "page",
+        "query"
+      ],
+      "properties": {
+        "consistency": {
+          "$ref": "#/definitions/Consistency"
+        },
+        "page": {
+          "$ref": "#/definitions/Page"
+        },
+        "query": {
+          "$ref": "#/definitions/Query"
+        }
+      }
+    },
+    "QueryResponse": {
+      "type": "object",
+      "required": [
+        "result"
+      ],
+      "properties": {
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkspaceGeneration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/QueryCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "$ref": "#/definitions/QueryResult"
+        }
+      }
+    },
+    "QueryResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/WorkspaceStatus"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "workspace_status"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/TreeChildrenResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "tree_children"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/SymbolListResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "symbol_list"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/SymbolInsightsResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "symbol_insights"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/SymbolDetailResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "symbol_detail"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/SymbolUsagesResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "symbol_usages"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/ViewReadResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "view_read"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/RulesListResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "rules_list"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/RulesCheckResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "rules_check"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/NotesResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "notes"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "RuleDto": {
+      "type": "object",
+      "required": [
+        "domain",
+        "expanded_expr",
+        "expr",
+        "id",
+        "lang",
+        "root",
+        "severity"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "expanded_expr": {
+          "type": "string"
+        },
+        "expr": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lang": {
+          "type": "string"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rationale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "require_doc_comment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        }
+      }
+    },
+    "RuleReportDto": {
+      "type": "object",
+      "required": [
+        "domain",
+        "evaluated",
+        "matches",
+        "root",
+        "rule_id",
+        "severity",
+        "violations"
+      ],
+      "properties": {
+        "antecedent_matches": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "domain": {
+          "type": "string"
+        },
+        "evaluated": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "matches": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": "string"
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "violations": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "warning": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "RulesCheckResult": {
+      "type": "object",
+      "required": [
+        "errors",
+        "exit",
+        "roots",
+        "rule_reports",
+        "skip_reasons",
+        "summary",
+        "violations"
+      ],
+      "properties": {
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FileErrorDto"
+          }
+        },
+        "exit": {
+          "type": "string"
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RulesCheckRootResult"
+          }
+        },
+        "rule_reports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RuleReportDto"
+          }
+        },
+        "skip_reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CheckSkipReasonDto"
+          }
+        },
+        "summary": {
+          "$ref": "#/definitions/CheckSummaryDto"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ViolationDto"
+          }
+        }
+      }
+    },
+    "RulesCheckRootResult": {
+      "type": "object",
+      "required": [
+        "errors",
+        "exit",
+        "root",
+        "rule_reports",
+        "summary",
+        "violations"
+      ],
+      "properties": {
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FileErrorDto"
+          }
+        },
+        "exit": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "rule_reports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RuleReportDto"
+          }
+        },
+        "skip_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CheckSkipReasonDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summary": {
+          "$ref": "#/definitions/CheckSummaryDto"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ViolationDto"
+          }
+        }
+      }
+    },
+    "RulesListResult": {
+      "type": "object",
+      "required": [
+        "roots",
+        "rows",
+        "total"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RuleDto"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "SourceLine": {
+      "type": "object",
+      "required": [
+        "number",
+        "text"
+      ],
+      "properties": {
+        "number": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "SourceSnippet": {
+      "type": "object",
+      "required": [
+        "file",
+        "first_line",
+        "last_line",
+        "lines"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "first_line": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "last_line": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SourceLine"
+          }
+        }
+      }
+    },
+    "SymbolDetailResult": {
+      "type": "object",
+      "required": [
+        "symbol"
+      ],
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SourceSnippet"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "symbol": {
+          "$ref": "#/definitions/SymbolDto"
+        }
+      }
+    },
+    "SymbolDto": {
+      "type": "object",
+      "required": [
+        "file",
+        "id",
+        "kind",
+        "language",
+        "name",
+        "navigable",
+        "root",
+        "signature",
+        "uri",
+        "visibility"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "line_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "match_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "navigable": {
+          "type": "boolean"
+        },
+        "root": {
+          "type": "string"
+        },
+        "score": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "signature": {
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SourceSnippet"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uri": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string"
+        }
+      }
+    },
+    "SymbolInsightsResult": {
+      "type": "object",
+      "required": [
+        "files",
+        "kinds",
+        "languages",
+        "navigable_symbols",
+        "non_navigable_symbols",
+        "references",
+        "shapes",
+        "symbols",
+        "top_files_by_refs",
+        "top_files_by_symbols"
+      ],
+      "properties": {
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        },
+        "navigable_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "non_navigable_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "shapes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        },
+        "symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "top_files_by_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        },
+        "top_files_by_symbols": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        }
+      }
+    },
+    "SymbolListResult": {
+      "type": "object",
+      "required": [
+        "rows",
+        "total"
+      ],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SymbolDto"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "SymbolUsagesResult": {
+      "type": "object",
+      "required": [
+        "direction",
+        "rows",
+        "target",
+        "total"
+      ],
+      "properties": {
+        "direction": {
+          "$ref": "#/definitions/UsageDirection"
+        },
+        "incoming_summary": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/UsageSummaryDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outgoing_summary": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/UsageSummaryDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UsageDto"
+          }
+        },
+        "target": {
+          "$ref": "#/definitions/SymbolDto"
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "TreeChildrenResult": {
+      "type": "object",
+      "required": [
+        "languages",
+        "prefixes",
+        "root",
+        "roots",
+        "rows",
+        "scoped_files",
+        "total",
+        "total_files"
+      ],
+      "properties": {
+        "languages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        },
+        "prefixes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        },
+        "root": {
+          "type": "string"
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TreeNode"
+          }
+        },
+        "scoped_files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "total_files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "TreeNode": {
+      "type": "object",
+      "required": [
+        "change_count",
+        "defs",
+        "kind",
+        "path",
+        "refs",
+        "root"
+      ],
+      "properties": {
+        "change_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "defs": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "kind": {
+          "$ref": "#/definitions/TreeNodeKind"
+        },
+        "language": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "refs": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "root": {
+          "type": "string"
+        }
+      }
+    },
+    "TreeNodeKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "directory"
+      ]
+    },
+    "UsageDirection": {
+      "type": "string",
+      "enum": [
+        "incoming",
+        "outgoing",
+        "both"
+      ]
+    },
+    "UsageDto": {
+      "type": "object",
+      "required": [
+        "actor",
+        "context",
+        "direction",
+        "endpoint",
+        "file",
+        "kind",
+        "location",
+        "prefix",
+        "reference",
+        "root"
+      ],
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "context": {
+          "type": "string"
+        },
+        "direction": {
+          "$ref": "#/definitions/UsageDirection"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "line_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "location": {
+          "type": "string"
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "via": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "UsageSummaryDto": {
+      "type": "object",
+      "required": [
+        "contexts",
+        "dominant_prefix",
+        "files",
+        "kinds",
+        "prefixes",
+        "refs",
+        "shared_helper_signal",
+        "top_actors",
+        "top_prefixes"
+      ],
+      "properties": {
+        "contexts": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "dominant_prefix": {
+          "type": "string"
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        },
+        "prefixes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "refs": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "shared_helper_signal": {
+          "type": "string"
+        },
+        "top_actors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        },
+        "top_prefixes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CountDto"
+          }
+        }
+      }
+    },
+    "ViewBoundaryDto": {
+      "type": "object",
+      "required": [
+        "evidence",
+        "forbid_rules",
+        "forbids",
+        "id",
+        "missing",
+        "owns",
+        "rule_refs"
+      ],
+      "properties": {
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ViewEvidenceDto"
+          }
+        },
+        "forbid_rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "owns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rationale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rule_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ViewRuleRefDto"
+          }
+        }
+      }
+    },
+    "ViewEvidenceDto": {
+      "type": "object",
+      "required": [
+        "code",
+        "file",
+        "label",
+        "moniker",
+        "selector"
+      ],
+      "properties": {
+        "active_slice": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "code": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SourceLine"
+          }
+        },
+        "file": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "moniker": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "slice": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        }
+      }
+    },
+    "ViewGotchaDto": {
+      "type": "object",
+      "required": [
+        "evidence",
+        "id",
+        "missing",
+        "rationale",
+        "rule_refs"
+      ],
+      "properties": {
+        "check": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ViewEvidenceDto"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "rule_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ViewRuleRefDto"
+          }
+        }
+      }
+    },
+    "ViewReadResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "views"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "list"
+              ]
+            },
+            "views": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ViewSummaryDto"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "anchor",
+            "boundaries",
+            "fragment",
+            "gotchas",
+            "id",
+            "kind",
+            "rules",
+            "scope"
+          ],
+          "properties": {
+            "anchor": {
+              "type": "string"
+            },
+            "boundaries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ViewBoundaryDto"
+              }
+            },
+            "fragment": {
+              "type": "string"
+            },
+            "gotchas": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ViewGotchaDto"
+              }
+            },
+            "id": {
+              "type": "string"
+            },
+            "intent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "detail"
+              ]
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ViewRuleDto"
+              }
+            },
+            "scope": {
+              "type": "string"
+            },
+            "summary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ViewRuleDto": {
+      "type": "object",
+      "required": [
+        "domain",
+        "id",
+        "severity"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "severity": {
+          "type": "string"
+        }
+      }
+    },
+    "ViewRuleRefDto": {
+      "type": "object",
+      "required": [
+        "id",
+        "present"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "present": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ViewSummaryDto": {
+      "type": "object",
+      "required": [
+        "anchor",
+        "fragment",
+        "id",
+        "scope"
+      ],
+      "properties": {
+        "anchor": {
+          "type": "string"
+        },
+        "fragment": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ViolationDto": {
+      "type": "object",
+      "required": [
+        "kind",
+        "lines",
+        "message",
+        "moniker",
+        "path",
+        "root",
+        "rule_id",
+        "severity"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "array",
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "message": {
+          "type": "string"
+        },
+        "moniker": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        }
+      }
+    },
+    "WorkspaceEventDto": {
+      "description": "A workspace change pushed to attached clients over a daemon subscription.",
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkspaceGeneration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "$ref": "#/definitions/WorkspaceEventKind"
+        },
+        "stale_summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "WorkspaceEventKind": {
+      "type": "string",
+      "enum": [
+        "stale",
+        "refreshed",
+        "notes",
+        "git_base"
+      ]
+    },
+    "WorkspaceGeneration": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "WorkspaceRootStatus": {
+      "type": "object",
+      "required": [
+        "files",
+        "references",
+        "root",
+        "stale",
+        "stale_summary",
+        "symbols"
+      ],
+      "properties": {
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkspaceGeneration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "root": {
+          "type": "string"
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "stale_summary": {
+          "type": "string"
+        },
+        "symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "WorkspaceStatus": {
+      "type": "object",
+      "required": [
+        "files",
+        "phase",
+        "references",
+        "root",
+        "roots",
+        "stale",
+        "stale_summary",
+        "symbols"
+      ],
+      "properties": {
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkspaceGeneration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "phase": {
+          "type": "string"
+        },
+        "references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "root": {
+          "type": "string"
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkspaceRootStatus"
+          }
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "stale_summary": {
+          "type": "string"
+        },
+        "symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

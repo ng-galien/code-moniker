@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::DaemonWorkspaceConfig;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct DaemonRegistryEntry {
 	pub workspace_root: String,
 	pub workspace_roots: Vec<String>,
