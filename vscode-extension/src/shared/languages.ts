@@ -36,3 +36,29 @@ export function langByVscodeId(id: string): LangDef | undefined {
 export function langByTomlSection(section: string): LangDef | undefined {
 	return LANGS.find((lang) => lang.tomlSection === section);
 }
+
+export function vscodeLanguageForScenarioFence(fence: string | undefined): string {
+	switch (fence) {
+		case "tsx":
+			return "typescriptreact";
+		case "jsx":
+			return "javascriptreact";
+		case "ts":
+			return "typescript";
+		case "js":
+			return "javascript";
+		default:
+			return langByTomlSection(fence ?? "")?.vscodeId ?? fence ?? "plaintext";
+	}
+}
+
+export function scenarioControllerLanguages(): string[] {
+	return [
+		"cmrule-toml",
+		"plaintext",
+		"javascript",
+		"javascriptreact",
+		"typescriptreact",
+		...LANGS.map((lang) => lang.vscodeId),
+	];
+}

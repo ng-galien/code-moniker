@@ -14,6 +14,18 @@ export interface RpcSubscription {
 	dispose(): void;
 }
 
+// A rejected RPC call. `code` carries the daemon's structured QueryError.code
+// (from the JSON-RPC error `data`) so callers branch on it, not the message.
+export class DaemonRpcError extends Error {
+	constructor(
+		message: string,
+		readonly code?: string,
+	) {
+		super(message);
+		this.name = "DaemonRpcError";
+	}
+}
+
 const CALL_TIMEOUT_MS = 15000;
 
 export class RpcConnection {
@@ -99,6 +111,8 @@ export class RpcConnection {
 			return;
 		}
 		this.closed = true;
+		this.rejectPending("daemon connection closed");
+		this.subscriptions.clear();
 		try {
 			this.socket.close();
 		} catch {
@@ -136,7 +150,7 @@ export class RpcConnection {
 			return;
 		}
 		if (message?.error) {
-			entry.reject(new Error(rpcErrorMessage(message.error)));
+			entry.reject(rpcError(message.error));
 			return;
 		}
 		entry.resolve(message?.result);
@@ -147,14 +161,18 @@ export class RpcConnection {
 			return;
 		}
 		this.closed = true;
-		for (const [id, entry] of this.pending) {
-			clearTimeout(entry.timer);
-			entry.reject(new Error("daemon connection closed"));
-			this.pending.delete(id);
-		}
+		this.rejectPending("daemon connection closed");
 		this.subscriptions.clear();
 		for (const listener of this.closeListeners) {
 			listener();
+		}
+	}
+
+	private rejectPending(message: string): void {
+		for (const [id, entry] of this.pending) {
+			clearTimeout(entry.timer);
+			entry.reject(new Error(message));
+			this.pending.delete(id);
 		}
 	}
 }
@@ -172,12 +190,17 @@ interface SubscriptionParams {
 	result: unknown;
 }
 
-function rpcErrorMessage(error: { message?: string; data?: unknown }): string {
-	if (error.data && typeof error.data === "object" && "message" in error.data) {
-		const inner = (error.data as { message?: unknown }).message;
-		if (typeof inner === "string") {
-			return inner;
-		}
+// Builds a DaemonRpcError from a JSON-RPC error object. The daemon serializes its
+// QueryError into `data` as `{ code, message }`; prefer those, falling back to the
+// envelope message.
+function rpcError(error: { message?: string; data?: unknown }): DaemonRpcError {
+	const data = error.data;
+	if (data && typeof data === "object") {
+		const { code, message } = data as { code?: unknown; message?: unknown };
+		return new DaemonRpcError(
+			typeof message === "string" ? message : (error.message ?? "daemon error"),
+			typeof code === "string" ? code : undefined,
+		);
 	}
-	return error.message ?? "daemon error";
+	return new DaemonRpcError(error.message ?? "daemon error");
 }

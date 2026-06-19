@@ -49,6 +49,12 @@ body {
 	font-size: var(--vscode-editor-font-size);
 }
 
+.description {
+	margin-top: 8px;
+	color: var(--vscode-descriptionForeground);
+	line-height: 1.4;
+}
+
 .meta {
 	display: grid;
 	grid-template-columns: max-content 1fr;
@@ -162,4 +168,20 @@ button.open:hover {
 
 .empty-row {
 	color: var(--vscode-descriptionForeground);
+}
+
+.detail-row {
+	display: grid;
+	grid-template-columns: minmax(8em, max-content) 1fr;
+	gap: 12px;
+	padding: 3px 0;
+}
+
+.detail-label {
+	color: var(--vscode-descriptionForeground);
+}
+
+.detail-value {
+	font-family: var(--vscode-editor-font-family);
+	word-break: break-word;
 }

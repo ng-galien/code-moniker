@@ -10,6 +10,9 @@ import { registerScenario } from "./scenario/manager";
 import { registerSymbols } from "./symbols/manager";
 import { DetailWebview } from "./symbols/detail/panel";
 import { SymbolTreeProvider } from "./symbols/tree";
+import { registerViews } from "./views/manager";
+import { registerWorkspace } from "./workbench/manager";
+import { WorkspaceTreeProvider } from "./workbench/workspaceTree";
 import * as vscode from "vscode";
 
 // Surface the feature internals so the e2e acceptance suite can drive and inspect
@@ -21,16 +24,27 @@ export interface CodeMonikerApi {
 	detail: DetailWebview;
 	rules: RulesProvider;
 	violations: ViolationModel;
+	workspace: WorkspaceTreeProvider;
 }
 
 export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
-	registerRuleManager(context);
+	const ruleFiles = registerRuleManager(context);
 	registerCatalog(context);
 	registerScenario(context);
 
 	const daemon = registerDaemon(context);
 	const symbols = registerSymbols(context, daemon.session);
+	const views = registerViews(context, daemon.session);
 	const rules = registerRulesDaemon(context, daemon.session, symbols);
+	const workspace = registerWorkspace(context, {
+		session: daemon.session,
+		daemons: daemon.provider,
+		symbols: symbols.tree,
+		views: views.provider,
+		detail: symbols.detail,
+		rules: rules.provider,
+		ruleFiles: ruleFiles.provider,
+	});
 
 	return {
 		session: daemon.session,
@@ -39,6 +53,7 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 		detail: symbols.detail,
 		rules: rules.provider,
 		violations: rules.model,
+		workspace: workspace.tree,
 	};
 }
 

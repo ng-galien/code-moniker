@@ -1,9 +1,13 @@
-import { CliOutcome, missingBinaryMessage, runCli } from "./runner";
+import { CliOutcome, launchDetached, missingBinaryMessage, runCli } from "./runner";
 import { CheckReport } from "./model";
 
 export type CheckResult =
 	| { ok: true; report: CheckReport }
 	| { ok: false; error: string };
+
+export function launchWorkspaceDaemon(root: string): void {
+	launchDetached(["daemon", "start", root]);
+}
 
 // Runs `code-moniker check <root> --rules <file> [--profile p]` over the project.
 export async function runCheckProject(

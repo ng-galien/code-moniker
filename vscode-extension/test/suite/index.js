@@ -1,5 +1,6 @@
 const assert = require("node:assert");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const vscode = require("vscode");
 
@@ -10,8 +11,10 @@ const { getApi, delay, codeMonikerExtension } = require("./helpers");
 
 const NOTEBOOK_TYPE = "code-moniker-scenario";
 const TIMEOUT_MS = 15000;
+const STALE_DAEMON_ENDPOINT = "127.0.0.1:9";
 
 async function run() {
+	seedStaleDaemonRegistry();
 	await activateExtension();
 	assertTreeMenusContributed();
 	await assertRendererOutputLinks();
@@ -26,6 +29,13 @@ async function run() {
 	await verifyNavigationCommands(editor);
 	await runFileCell(editor);
 	await runRulesCell(editor);
+	const reactEditor = await openCatalogReact();
+	assert.notStrictEqual(reactEditor.notebook.uri.scheme, "untitled");
+	assert.strictEqual(reactEditor.notebook.isUntitled, false);
+	assert.strictEqual(reactEditor.notebook.isDirty, false);
+	assert.match(path.basename(reactEditor.notebook.uri.path), /^react(?:-\d+)?\.cm\.md$/);
+	assertNoExpectCells(reactEditor.notebook);
+	await runReactNotebook(reactEditor);
 	const learnEditor = await openCatalogLearn();
 	assert.notStrictEqual(learnEditor.notebook.uri.scheme, "untitled");
 	assert.strictEqual(learnEditor.notebook.isUntitled, false);
@@ -39,6 +49,27 @@ async function run() {
 	await testSymbolTree();
 	await testRulesDaemon();
 	await teardownDaemon();
+}
+
+function seedStaleDaemonRegistry() {
+	const workspaceRoot = process.env.CODE_MONIKER_TEST_WORKSPACE;
+	assert.ok(workspaceRoot, "CODE_MONIKER_TEST_WORKSPACE must point to the test workspace");
+	const registryDir = path.join(os.tmpdir(), "code-moniker-daemons");
+	fs.mkdirSync(registryDir, { recursive: true });
+	fs.writeFileSync(
+		path.join(registryDir, `stale-vscode-test-${Date.now()}.json`),
+		JSON.stringify({
+			workspace_root: workspaceRoot,
+			workspace_roots: [workspaceRoot],
+			project: null,
+			cache_dir: null,
+			live_refresh: "on-demand",
+			endpoint: STALE_DAEMON_ENDPOINT,
+			token: "stale-test-token",
+			pid: 424242,
+		}),
+	);
+	process.env.CODE_MONIKER_STALE_DAEMON_ENDPOINT = STALE_DAEMON_ENDPOINT;
 }
 
 // Stops the workspace daemon started during the run and asserts it deregisters.
@@ -67,18 +98,24 @@ async function activateExtension() {
 
 function assertTreeMenusContributed() {
 	const packageJSON = codeMonikerExtension().packageJSON;
+	const views = packageJSON?.contributes?.views?.codeMoniker || [];
 	const commands = packageJSON?.contributes?.commands || [];
 	const menus = packageJSON?.contributes?.menus?.["view/item/context"] || [];
 	const titleMenus = packageJSON?.contributes?.menus?.["view/title"] || [];
+	assert.deepStrictEqual(
+		views.map((view) => view.id),
+		["codeMoniker.workspace", "codeMoniker.catalog"],
+		"activity should expose only Workspace and Catalog trees",
+	);
 	assert.ok(hasCommand(commands, "codeMoniker.expandRuleFiles"), "rule files should expose expand all");
 	assert.ok(hasCommand(commands, "codeMoniker.collapseRuleFiles"), "rule files should expose collapse all");
 	assert.ok(
-		hasMenuItem(titleMenus, "codeMoniker.expandRuleFiles", "view == codeMoniker.ruleFiles"),
-		"rule files title should expose expand all",
+		!hasMenuItem(titleMenus, "codeMoniker.expandRuleFiles", "view == codeMoniker.workspace"),
+		"workspace title should not expose rule-file-only expand all",
 	);
 	assert.ok(
-		hasMenuItem(titleMenus, "codeMoniker.collapseRuleFiles", "view == codeMoniker.ruleFiles"),
-		"rule files title should expose collapse all",
+		!hasMenuItem(titleMenus, "codeMoniker.collapseRuleFiles", "view == codeMoniker.workspace"),
+		"workspace title should rely on the native collapse-all control",
 	);
 	assert.ok(
 		hasCommand(commands, "codeMoniker.copyRuleFileRelativePath"),
@@ -88,7 +125,7 @@ function assertTreeMenusContributed() {
 		hasMenuItem(
 			menus,
 			"codeMoniker.copyRuleFileRelativePath",
-			"view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
+			"view == codeMoniker.workspace && viewItem == cmRuleFile",
 		),
 		"rule file rows should copy their relative path",
 	);
@@ -178,6 +215,40 @@ async function openCatalogLearn() {
 		{ id: "builtin:learn:basics" },
 	);
 	return waitForScenarioEditor("editable learn scenario notebook editor");
+}
+
+async function openCatalogReact() {
+	await vscode.commands.executeCommand(
+		"codeMoniker.catalog.openEntry",
+		{ id: "builtin:pack:react" },
+	);
+	return waitForScenarioEditor("editable React scenario notebook editor");
+}
+
+async function runReactNotebook(editor) {
+	const mainIndex = findCellIndex(
+		editor.notebook,
+		(meta) => meta.cmType === "file" && meta.path === "src/main.tsx",
+	);
+	assert.strictEqual(
+		editor.notebook.cellAt(mainIndex).document.languageId,
+		"typescriptreact",
+		"TSX scenario files should open as React TypeScript notebook cells",
+	);
+	await executeCell(editor.notebook, mainIndex);
+	const fileOutput = await waitForCellOutput(editor.notebook, mainIndex, "code-moniker check src/main.tsx");
+	assert.match(fileOutput, /0 violation\(s\)/);
+
+	const rulesIndex = findCellIndex(editor.notebook, (meta) => meta.cmType === "rules");
+	await executeCell(editor.notebook, rulesIndex);
+	const rulesOutput = await waitForCellOutput(editor.notebook, rulesIndex, "code-moniker check .");
+	assert.match(rulesOutput, /5 violation\(s\)/);
+	assert.match(rulesOutput, /src\/components\/save_button\.tsx:L1-L3/);
+	assert.match(rulesOutput, /src\/pages\/home\.tsx:L1/);
+	const payload = checkOutputPayload(editor.notebook.cellAt(rulesIndex));
+	assert.strictEqual(payload.kind, "check");
+	assert.strictEqual(payload.summary.total_violations, 5);
+	console.log("react notebook: ok");
 }
 
 async function verifyNavigationCommands(editor) {

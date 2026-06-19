@@ -13,12 +13,15 @@ Build and install the Code Moniker VS Code extension from source.
 Options:
   --skip-cli  Do not install the code-moniker CLI with cargo.
   --no-deps   Do not install npm dependencies when node_modules is missing.
+  --skip-tests
+             Do not run sample/notebook validation before packaging.
   -h, --help  Show this help.
 EOF
 }
 
 skip_cli=false
 install_deps=true
+run_tests=true
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -28,6 +31,10 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--no-deps)
 			install_deps=false
+			shift
+			;;
+		--skip-tests)
+			run_tests=false
 			shift
 			;;
 		-h|--help)
@@ -68,6 +75,21 @@ if [[ ! -d "$EXT_DIR/node_modules" ]]; then
 	(cd "$EXT_DIR" && npm ci)
 fi
 
+if [[ "$run_tests" == true ]]; then
+	need_command cargo
+	echo "Validating executable sample catalog..."
+	(cd "$ROOT_DIR" && cargo test -p code-moniker --test samples_contract)
+
+	echo "Validating VS Code extension catalog metadata..."
+	(cd "$EXT_DIR" && npm run validate)
+
+	echo "Typechecking VS Code extension..."
+	(cd "$EXT_DIR" && npm run typecheck)
+
+	echo "Running VS Code notebook integration tests..."
+	(cd "$EXT_DIR" && npm run test:integration)
+fi
+
 echo "Compiling VS Code extension..."
 (cd "$EXT_DIR" && npm run compile)
 
@@ -82,3 +104,4 @@ echo "Installing $vsix_path..."
 code --install-extension "$vsix_path" --force
 
 echo "Installed Code Moniker VS Code extension."
+echo "Reload VS Code windows that already had Code Moniker loaded: run 'Developer: Reload Window'."

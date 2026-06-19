@@ -21,24 +21,13 @@ export function registerSymbols(
 	const repository = new SymbolRepository(session);
 	const provider = new SymbolTreeProvider(session, repository);
 	const detail = new DetailWebview(context.extensionUri, repository);
-	const treeView = vscode.window.createTreeView("codeMoniker.symbols", {
-		treeDataProvider: provider,
-		showCollapseAll: true,
-	});
 
 	context.subscriptions.push(
-		treeView,
 		detail,
-		treeView.onDidChangeSelection((event) => {
-			const selected = event.selection[0];
-			if (selected?.kind === "symbol") {
-				void detail.showForSymbol(selected.symbol);
-			}
-		}),
 		session.onDidChangeStatus(() => provider.refresh()),
 	);
 
-	registerSymbolCommands(context, provider, detail);
+	registerSymbolCommands(context, session, provider, detail);
 
 	return { tree: provider, detail };
 }

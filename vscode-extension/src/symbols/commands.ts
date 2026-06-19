@@ -1,26 +1,42 @@
 import * as vscode from "vscode";
 
 import { toFsPath } from "../daemon/paths";
+import { DaemonSession } from "../daemon/session";
 import { DetailWebview, SourceTarget } from "./detail/panel";
 import { SymbolTreeNode } from "./nodes";
 import { SymbolTreeProvider } from "./tree";
 
 export function registerSymbolCommands(
 	context: vscode.ExtensionContext,
+	session: DaemonSession,
 	provider: SymbolTreeProvider,
 	detail: DetailWebview,
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("codeMoniker.symbols.refresh", () => provider.refresh()),
+		vscode.commands.registerCommand("codeMoniker.symbols.refresh", () =>
+			refreshSymbols(session, provider),
+		),
 		vscode.commands.registerCommand("codeMoniker.symbols.revealDetail", (node?: SymbolTreeNode) => {
-			if (node?.kind === "symbol") {
-				void detail.showForSymbol(node.symbol);
+			const target = unwrapWorkspaceNode(node) as SymbolTreeNode | undefined;
+			if (target?.kind === "symbol") {
+				void detail.showForSymbol(target.symbol);
 			}
 		}),
 		vscode.commands.registerCommand("codeMoniker.symbols.openSource", (arg: SymbolTreeNode | SourceTarget) =>
 			openSource(arg),
 		),
 	);
+}
+
+async function refreshSymbols(
+	session: DaemonSession,
+	provider: SymbolTreeProvider,
+): Promise<void> {
+	if (!(await session.connectOrStart())) {
+		return;
+	}
+	await session.refresh();
+	provider.refresh();
 }
 
 async function openSource(arg: SymbolTreeNode | SourceTarget): Promise<void> {
@@ -41,15 +57,30 @@ async function openSource(arg: SymbolTreeNode | SourceTarget): Promise<void> {
 }
 
 function normalizeTarget(arg: SymbolTreeNode | SourceTarget): SourceTarget | undefined {
-	if ("kind" in arg && arg.kind === "symbol") {
+	const targetArg = unwrapWorkspaceNode(arg) as SymbolTreeNode | SourceTarget;
+	if ("kind" in targetArg && targetArg.kind === "symbol") {
 		return {
-			root: arg.symbol.root,
-			file: arg.symbol.file,
-			line: arg.symbol.line_range ? arg.symbol.line_range[0] : 1,
+			root: targetArg.symbol.root,
+			file: targetArg.symbol.file,
+			line: targetArg.symbol.line_range ? targetArg.symbol.line_range[0] : 1,
 		};
 	}
-	if ("file" in arg && "root" in arg) {
-		return arg;
+	if ("kind" in targetArg && targetArg.kind === "entry" && targetArg.tree.kind === "file") {
+		return {
+			root: targetArg.tree.root,
+			file: targetArg.tree.path,
+			line: 1,
+		};
+	}
+	if ("file" in targetArg && "root" in targetArg) {
+		return targetArg;
 	}
 	return undefined;
+}
+
+function unwrapWorkspaceNode(arg: unknown): unknown {
+	if (arg && typeof arg === "object" && "node" in arg) {
+		return (arg as { node?: unknown }).node;
+	}
+	return arg;
 }

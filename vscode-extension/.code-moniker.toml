@@ -36,6 +36,11 @@ tree_provider_source = """
   source ~ '**/dir:src/dir:rules/module:tree/**'
   OR source ~ '**/dir:src/dir:catalog/module:tree/**'
 """
+daemon_session_source = "source ~ '**/dir:src/dir:daemon/module:session/**'"
+daemon_adapter_source = """
+  source ~ '**/dir:src/dir:daemon/module:registry/**'
+  OR source ~ '**/dir:src/dir:daemon/module:manager/**'
+"""
 node_child_process_target = "target ~ '**/external_pkg:node:child_process/**'"
 node_fs_target = "target ~ '**/external_pkg:node:fs/**'"
 notebook_generation_target = """
@@ -91,7 +96,7 @@ expr      = """
   $extension_ref
   AND (kind = 'imports_symbol' OR kind = 'imports_module')
   AND $cli_facade_target
-  => $controller_source OR $rules_commands_source OR $catalog_packs_source
+  => $controller_source OR $rules_commands_source OR $catalog_packs_source OR $daemon_session_source
 """
 message   = "Only notebook execution, Rule Files commands, and catalog pack loading may call the CLI facade."
 rationale = """
@@ -116,7 +121,7 @@ and notebook creation.
 [[refs.where]]
 id        = "node-fs-is-adapter-only"
 severity  = "error"
-expr      = "$extension_ref AND $node_fs_target => $cli_facade_source OR $rules_repository_source"
+expr      = "$extension_ref AND $node_fs_target => $cli_facade_source OR $rules_repository_source OR $daemon_adapter_source"
 message   = "Node fs access must stay in CLI temp-file handling or rule-file repository code."
 rationale = """
 Filesystem reads/writes are adapter boundaries. UI modules should receive parsed models or

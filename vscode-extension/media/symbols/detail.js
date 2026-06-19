@@ -9,8 +9,11 @@
 		const message = event.data;
 		if (message && message.type === "detail") {
 			render(message.payload);
+		} else if (message && message.type === "document") {
+			renderDocument(message.payload);
 		}
 	});
+	vscode.postMessage({ type: "ready" });
 
 	function render(payload) {
 		root.className = "";
@@ -25,6 +28,37 @@
 		root.appendChild(
 			usagesSection("Outgoing usages", payload.outgoing, payload.outgoingSummary),
 		);
+	}
+
+	function renderDocument(payload) {
+		root.className = "";
+		root.replaceChildren();
+		const box = el("div", "header");
+		const title = el("div", "title");
+		title.appendChild(el("span", "kind", payload.kind));
+		title.appendChild(el("span", "name", payload.title));
+		box.appendChild(title);
+		if (payload.description) {
+			box.appendChild(el("div", "description", payload.description));
+		}
+		if (payload.meta && payload.meta.length > 0) {
+			const meta = el("div", "meta");
+			for (const row of payload.meta) {
+				meta.appendChild(metaRow(row.label, row.value));
+			}
+			box.appendChild(meta);
+		}
+		root.appendChild(box);
+		for (const sectionPayload of payload.sections || []) {
+			const box = section(sectionPayload.title);
+			if (sectionPayload.text) {
+				box.body.appendChild(el("pre", "signature", sectionPayload.text));
+			}
+			for (const row of sectionPayload.rows || []) {
+				box.body.appendChild(detailRow(row.label, row.value));
+			}
+			root.appendChild(box.root);
+		}
 	}
 
 	function header(symbol) {
@@ -120,6 +154,13 @@
 		const row = el("div", "meta-row");
 		row.appendChild(el("span", "meta-label", label));
 		row.appendChild(el("span", "meta-value", value || "—"));
+		return row;
+	}
+
+	function detailRow(label, value) {
+		const row = el("div", "detail-row");
+		row.appendChild(el("span", "detail-label", label));
+		row.appendChild(el("span", "detail-value", value || "—"));
 		return row;
 	}
 

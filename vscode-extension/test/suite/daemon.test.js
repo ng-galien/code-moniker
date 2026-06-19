@@ -1,4 +1,6 @@
 const assert = require("node:assert");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const { getApi, waitFor, waitForReady } = require("./helpers");
 
@@ -9,10 +11,20 @@ async function testDaemonView() {
 	await waitForReady(api);
 
 	assert.ok(api.session.endpoint, "session should expose the daemon endpoint");
+	assert.notStrictEqual(
+		api.session.endpoint,
+		process.env.CODE_MONIKER_STALE_DAEMON_ENDPOINT,
+		"session should ignore and replace a stale registry entry",
+	);
 
 	const currentNode = await waitFor(
 		() => api.daemons.getChildren().find((node) => node.current),
 		"the current workspace daemon to appear in the list",
+	);
+	assert.notStrictEqual(
+		currentNode.entry.endpoint,
+		process.env.CODE_MONIKER_STALE_DAEMON_ENDPOINT,
+		"daemon list should show the relaunched daemon, not the stale entry",
 	);
 	assert.ok(currentNode.entry.pid > 0, "daemon entry should carry a pid");
 	assert.ok(
@@ -26,7 +38,24 @@ async function testDaemonView() {
 	assert.ok(status.files >= 1, "seeded workspace should report at least one file");
 	assert.ok(status.symbols >= 1, "seeded workspace should report symbols");
 
+	await assertStaleWorkspaceQueriesRefresh(api);
+
 	console.log("daemon view: ok");
+}
+
+async function assertStaleWorkspaceQueriesRefresh(api) {
+	const libPath = path.join(api.session.workspaceRoots[0], "src", "lib.rs");
+	fs.appendFileSync(libPath, "\n// force daemon staleness\n");
+	await waitFor(async () => {
+		const status = await api.session.workspaceStatus();
+		return status?.stale ? status : undefined;
+	}, "workspace to become stale after file edit");
+
+	const topLevel = await api.symbols.getChildren();
+	assert.ok(
+		topLevel.some((node) => node.kind === "entry"),
+		"symbol tree should refresh stale daemon snapshots instead of surfacing workspace_stale",
+	);
 }
 
 module.exports = { testDaemonView };

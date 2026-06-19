@@ -1,8 +1,7 @@
-import { spawn } from "node:child_process";
 import * as vscode from "vscode";
 
-import { binaryCandidates } from "../cli/runner";
-import { RpcSubscription } from "./client";
+import { launchWorkspaceDaemon } from "../cli/facade";
+import { DaemonRpcError, RpcSubscription } from "./client";
 import {
 	DaemonRegistryEntry,
 	PROTOCOL_VERSION,
@@ -12,7 +11,7 @@ import {
 	WorkspaceStatus,
 } from "./model";
 import { DaemonRpc, QueryOptions } from "./rpc";
-import { findDaemonForRoots } from "./registry";
+import { findDaemonForRoots, forgetDaemonsForRoots } from "./registry";
 
 // The single live connection to the workspace daemon. Every feature (symbols,
 // rules) talks to the daemon through this session, never to the raw client —
@@ -30,36 +29,21 @@ const QUERY_RETRY_INTERVAL_MS = 200;
 export class DaemonSession implements vscode.Disposable {
 	private rpc?: DaemonRpc;
 	private subscription?: RpcSubscription;
-	private entry?: DaemonRegistryEntry;
-	private _status: DaemonStatus = "disconnected";
-	private errorMessage?: string;
 	private connecting?: Promise<boolean>;
+
+	status: DaemonStatus = "disconnected";
+	ready = false;
+	lastError?: string;
+	endpoint?: string;
+	readonly workspaceRoots: string[];
 
 	private readonly statusEmitter = new vscode.EventEmitter<DaemonStatus>();
 	readonly onDidChangeStatus = this.statusEmitter.event;
 	private readonly eventEmitter = new vscode.EventEmitter<WorkspaceEventDto>();
 	readonly onWorkspaceEvent = this.eventEmitter.event;
 
-	constructor(private readonly roots: string[]) {}
-
-	get status(): DaemonStatus {
-		return this._status;
-	}
-
-	get ready(): boolean {
-		return this._status === "ready";
-	}
-
-	get lastError(): string | undefined {
-		return this.errorMessage;
-	}
-
-	get endpoint(): string | undefined {
-		return this.entry?.endpoint;
-	}
-
-	get workspaceRoots(): string[] {
-		return this.roots;
+	constructor(private readonly roots: string[]) {
+		this.workspaceRoots = roots;
 	}
 
 	connectOrStart(): Promise<boolean> {
@@ -79,17 +63,24 @@ export class DaemonSession implements vscode.Disposable {
 		if (!this.rpc) {
 			throw new Error("daemon not connected");
 		}
+		const queryOptions = {
+			...options,
+			consistency: options?.consistency ?? "refresh_if_stale" as const,
+		};
 		// The daemon answers `workspace.status` even while indexing, but other queries
 		// return a transient `workspace_loading` error while the snapshot builds or the
-		// daemon lock is held mid-refresh. Honour its "retry once ready" contract here
-		// so features never see the transient error.
+		// daemon lock is held mid-refresh. Stale snapshots can also surface if an old
+		// caller omitted consistency; refresh once instead of making the UI unusable.
 		for (let attempt = 0; ; attempt++) {
 			try {
-				return await this.rpc.query(query, options);
+				return await this.rpc.query(query, queryOptions);
 			} catch (error) {
 				if (attempt < QUERY_RETRY_ATTEMPTS && isLoadingError(error)) {
 					await delay(QUERY_RETRY_INTERVAL_MS);
 					continue;
+				}
+				if (attempt === 0 && isStaleError(error)) {
+					return await this.rpc.query(query, { ...queryOptions, consistency: "refresh_if_stale" });
 				}
 				throw error;
 			}
@@ -135,41 +126,39 @@ export class DaemonSession implements vscode.Disposable {
 		try {
 			let entry = findDaemonForRoots(this.roots);
 			if (!entry) {
-				launchDaemon(this.roots[0]);
-				entry = await this.waitForEntry();
+				launchWorkspaceDaemon(this.roots[0]);
+				entry = await waitForEntry(this.roots);
 			}
 			if (!entry) {
-				throw new Error("daemon did not register for this workspace");
+				throw daemonRegistrationError("starting");
 			}
-			const rpc = await DaemonRpc.connect(entry.endpoint);
-			const handshake = await rpc.handshake("vscode-extension");
-			if (handshake.protocol_version !== PROTOCOL_VERSION) {
-				rpc.close();
-				throw new Error(`unsupported daemon protocol ${handshake.protocol_version}`);
+			let rpc: DaemonRpc;
+			try {
+				rpc = await connectEntry(entry);
+			} catch (error) {
+				if (isProtocolError(error)) {
+					throw error;
+				}
+				forgetDaemonsForRoots(this.roots);
+				launchWorkspaceDaemon(this.roots[0]);
+				entry = await waitForEntry(this.roots);
+				if (!entry) {
+					throw daemonRegistrationError("restarting after a stale registry entry");
+				}
+				rpc = await connectEntry(entry);
 			}
 			rpc.onDidClose(() => this.onConnectionClosed());
 			this.rpc = rpc;
-			this.entry = entry;
+			this.endpoint = entry.endpoint;
 			this.subscription = await rpc.subscribeEvents((event) => this.handleEvent(event));
 			await this.waitUntilReady();
 			return true;
 		} catch (error) {
-			this.errorMessage = (error as Error).message;
+			this.lastError = (error as Error).message;
 			this.teardown();
 			this.setStatus("error");
 			return false;
 		}
-	}
-
-	private async waitForEntry(): Promise<DaemonRegistryEntry | undefined> {
-		for (let attempt = 0; attempt < ENTRY_POLL_ATTEMPTS; attempt++) {
-			const entry = findDaemonForRoots(this.roots);
-			if (entry) {
-				return entry;
-			}
-			await delay(ENTRY_POLL_INTERVAL_MS);
-		}
-		return undefined;
 	}
 
 	private async waitUntilReady(): Promise<void> {
@@ -186,7 +175,7 @@ export class DaemonSession implements vscode.Disposable {
 	}
 
 	private handleEvent(event: WorkspaceEventDto): void {
-		if (event.kind === "refreshed" && this._status === "loading") {
+		if (event.kind === "refreshed" && this.status === "loading") {
 			this.setStatus("ready");
 		}
 		this.eventEmitter.fire(event);
@@ -202,46 +191,63 @@ export class DaemonSession implements vscode.Disposable {
 		this.subscription = undefined;
 		this.rpc?.close();
 		this.rpc = undefined;
-		this.entry = undefined;
+		this.endpoint = undefined;
 	}
 
 	private setStatus(status: DaemonStatus): void {
-		if (this._status === status) {
+		if (this.status === status) {
 			return;
 		}
-		this._status = status;
+		this.status = status;
+		this.ready = status === "ready";
 		if (status !== "error") {
-			this.errorMessage = undefined;
+			this.lastError = undefined;
 		}
 		this.statusEmitter.fire(status);
 	}
 }
 
-function launchDaemon(root: string): void {
-	const candidates = binaryCandidates();
-	tryLaunch(candidates, 0, root);
+async function connectEntry(entry: DaemonRegistryEntry): Promise<DaemonRpc> {
+	const rpc = await DaemonRpc.connect(entry.endpoint);
+	const handshake = await rpc.handshake("vscode-extension");
+	if (handshake.protocol_version !== PROTOCOL_VERSION) {
+		rpc.close();
+		throw new Error(`unsupported daemon protocol ${handshake.protocol_version}`);
+	}
+	return rpc;
 }
 
-function tryLaunch(candidates: string[], index: number, root: string): void {
-	if (index >= candidates.length) {
-		return;
-	}
-	const child = spawn(candidates[index], ["daemon", "start", root], {
-		detached: true,
-		stdio: "ignore",
-	});
-	child.once("error", (err: NodeJS.ErrnoException) => {
-		if (err.code === "ENOENT") {
-			tryLaunch(candidates, index + 1, root);
+async function waitForEntry(roots: string[]): Promise<DaemonRegistryEntry | undefined> {
+	for (let attempt = 0; attempt < ENTRY_POLL_ATTEMPTS; attempt++) {
+		const entry = findDaemonForRoots(roots);
+		if (entry) {
+			return entry;
 		}
-	});
-	child.unref();
+		await delay(ENTRY_POLL_INTERVAL_MS);
+	}
+	return undefined;
 }
 
 function isLoadingError(error: unknown): boolean {
-	// The daemon's Display is "{code}: {message}", so the structured code lands at
-	// the start of the message. Match the code token only — not any "loading" text.
-	return error instanceof Error && error.message.includes("workspace_loading");
+	// The daemon returns the snapshot-still-loading signal as a structured
+	// QueryError code, surfaced on DaemonRpcError.code.
+	return error instanceof DaemonRpcError && error.code === "workspace_loading";
+}
+
+function isStaleError(error: unknown): boolean {
+	return error instanceof DaemonRpcError && error.code === "workspace_stale";
+}
+
+function isProtocolError(error: unknown): boolean {
+	return error instanceof Error && error.message.startsWith("unsupported daemon protocol ");
+}
+
+function daemonRegistrationError(action: string): Error {
+	const waitedMs = ENTRY_POLL_ATTEMPTS * ENTRY_POLL_INTERVAL_MS;
+	return new Error(
+		`daemon did not register for this workspace after ${action} ` +
+			`within ${waitedMs}ms; check codeMoniker.binaryPath and daemon startup logs`,
+	);
 }
 
 function delay(ms: number): Promise<void> {

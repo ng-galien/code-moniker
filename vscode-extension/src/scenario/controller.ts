@@ -9,7 +9,7 @@ import {
 } from "../cli/presentation";
 import { runScenarioCheck } from "../cli/facade";
 import { toDiagnostic } from "../diagnostics/vscode";
-import { LANGS } from "../shared/languages";
+import { scenarioControllerLanguages } from "../shared/languages";
 import { serializeScenarioMarkdown } from "./markdown";
 import { notebookToScenario } from "./serializer";
 import { SCENARIO_NOTEBOOK_TYPE, ScenarioCellMeta } from "./model";
@@ -42,11 +42,7 @@ export class ScenarioController {
 			SCENARIO_NOTEBOOK_TYPE,
 			"Code Moniker Scenario",
 		);
-		this.controller.supportedLanguages = [
-			"cmrule-toml",
-			"plaintext",
-			...LANGS.map((lang) => lang.vscodeId),
-		];
+		this.controller.supportedLanguages = scenarioControllerLanguages();
 		this.controller.description = "Run code-moniker check on the current scenario file or workspace.";
 		this.controller.executeHandler = this.execute.bind(this);
 		for (const notebook of vscode.workspace.notebookDocuments) {

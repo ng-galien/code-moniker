@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { langByTomlSection } from "../shared/languages";
+import { vscodeLanguageForScenarioFence } from "../shared/languages";
 import { parseScenarioMarkdown, serializeScenarioMarkdown } from "./markdown";
 import {
 	ScenarioCell,
@@ -74,7 +74,7 @@ function cellLanguage(cell: ScenarioCell): string {
 		return RULE_LANGUAGE_ID;
 	}
 	if (cell.kind === "file") {
-		return langByTomlSection(cell.fence)?.vscodeId ?? cell.fence ?? "plaintext";
+		return vscodeLanguageForScenarioFence(cell.fence);
 	}
 	return "plaintext";
 }

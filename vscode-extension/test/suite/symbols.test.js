@@ -54,6 +54,16 @@ async function testSymbolTree() {
 		"selecting a symbol must not open an editor",
 	);
 
+	await vscode.commands.executeCommand("codeMoniker.symbols.openSource", libFile);
+	await waitFor(
+		() =>
+			vscode.window.activeTextEditor &&
+			vscode.window.activeTextEditor.document.uri.fsPath.endsWith(path.join("src", "lib.rs"))
+				? vscode.window.activeTextEditor
+				: undefined,
+		"openSource to reveal a file tree row",
+	);
+
 	// Opening source is an explicit action.
 	await vscode.commands.executeCommand("codeMoniker.symbols.openSource", doThing);
 	const editor = await waitFor(

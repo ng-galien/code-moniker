@@ -11,7 +11,7 @@ import { RuleFilesProvider } from "./tree";
 export function registerRuleCommands(
 	context: vscode.ExtensionContext,
 	provider: RuleFilesProvider,
-	treeView: vscode.TreeView<RuleTreeNode>,
+	treeView: vscode.TreeView<RuleTreeNode> | undefined,
 	diagnostics: vscode.DiagnosticCollection,
 ): void {
 	context.subscriptions.push(
@@ -20,30 +20,34 @@ export function registerRuleCommands(
 			expandRuleFiles(provider, treeView),
 		),
 		vscode.commands.registerCommand("codeMoniker.collapseRuleFiles", () =>
-			vscode.commands.executeCommand("workbench.actions.treeView.codeMoniker.ruleFiles.collapseAll"),
+			vscode.commands.executeCommand("workbench.actions.treeView.codeMoniker.workspace.collapseAll"),
 		),
 		vscode.commands.registerCommand("codeMoniker.openRuleFile", (node: RuleFileNode) =>
-			openRuleFile(node),
+			openRuleFile(ruleFileNode(node)),
 		),
 		vscode.commands.registerCommand("codeMoniker.copyRuleFileRelativePath", (node: RuleFileNode) =>
-			copyRelativePath(node),
+			copyRelativePath(ruleFileNode(node)),
 		),
 		vscode.commands.registerCommand("codeMoniker.revealRule", (node: RuleNode) =>
-			revealPickedRule(node),
+			revealPickedRule(ruleNode(node)),
 		),
 		vscode.commands.registerCommand("codeMoniker.validateRuleFile", (node: RuleFileNode) =>
-			validatePickedFile(node, diagnostics, provider),
+			validatePickedFile(ruleFileNode(node), diagnostics, provider),
 		),
 		vscode.commands.registerCommand("codeMoniker.runRuleFileOnProject", (node: RuleFileNode) =>
-			runPickedFile(node, diagnostics, provider),
+			runPickedFile(ruleFileNode(node), diagnostics, provider),
 		),
 	);
 }
 
 async function expandRuleFiles(
 	provider: RuleFilesProvider,
-	treeView: vscode.TreeView<RuleTreeNode>,
+	treeView: vscode.TreeView<RuleTreeNode> | undefined,
 ): Promise<void> {
+	if (!treeView) {
+		provider.refresh();
+		return;
+	}
 	for (const node of await provider.getChildren()) {
 		await expandNode(provider, treeView, node);
 	}
@@ -231,4 +235,29 @@ async function pickRule(title: string): Promise<RuleNode | undefined> {
 	}
 	const pick = await vscode.window.showQuickPick(rules, { title });
 	return pick?.node;
+}
+
+function ruleFileNode(node: unknown): RuleFileNode | undefined {
+	const candidate = unwrapWorkspaceNode(node);
+	return isRuleFileNode(candidate) ? candidate : undefined;
+}
+
+function ruleNode(node: unknown): RuleNode | undefined {
+	const candidate = unwrapWorkspaceNode(node);
+	return isRuleNode(candidate) ? candidate : undefined;
+}
+
+function unwrapWorkspaceNode(node: unknown): unknown {
+	if (node && typeof node === "object" && "node" in node) {
+		return (node as { node?: unknown }).node;
+	}
+	return node;
+}
+
+function isRuleFileNode(node: unknown): node is RuleFileNode {
+	return Boolean(node && typeof node === "object" && (node as { kind?: unknown }).kind === "file");
+}
+
+function isRuleNode(node: unknown): node is RuleNode {
+	return Boolean(node && typeof node === "object" && (node as { kind?: unknown }).kind === "rule");
 }

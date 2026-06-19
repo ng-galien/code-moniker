@@ -173,7 +173,7 @@ impl DaemonRpcServer for DaemonRpcService {
 			.await?
 		{
 			ProtocolResponse::Query(response) => Ok(*response),
-			ProtocolResponse::Error(error) => Err(internal_error(error.to_string())),
+			ProtocolResponse::Error(error) => Err(query_error(error)),
 			other => Err(internal_error(format!(
 				"unexpected query response: {other:?}"
 			))),
@@ -183,7 +183,7 @@ impl DaemonRpcServer for DaemonRpcService {
 	async fn command(&self, request: CommandRequest) -> Result<CommandResponse, ErrorObjectOwned> {
 		match self.dispatch(ProtocolRequest::Command(request)).await? {
 			ProtocolResponse::Command(response) => Ok(response),
-			ProtocolResponse::Error(error) => Err(internal_error(error.to_string())),
+			ProtocolResponse::Error(error) => Err(query_error(error)),
 			other => Err(internal_error(format!(
 				"unexpected command response: {other:?}"
 			))),
@@ -222,6 +222,17 @@ fn internal_error(message: String) -> ErrorObjectOwned {
 		jsonrpsee::types::error::INTERNAL_ERROR_CODE,
 		message,
 		None::<()>,
+	)
+}
+
+/// Maps a structured `QueryError` to a JSON-RPC error, preserving the stable
+/// `code` in `data` so clients can branch on it instead of parsing the message.
+fn query_error(error: QueryError) -> ErrorObjectOwned {
+	let message = error.message.clone();
+	ErrorObjectOwned::owned(
+		jsonrpsee::types::error::INTERNAL_ERROR_CODE,
+		message,
+		Some(error),
 	)
 }
 
@@ -2543,6 +2554,16 @@ mod tests {
 	};
 
 	use super::*;
+
+	#[test]
+	fn query_error_carries_structured_code_in_data() {
+		let error = query_error(QueryError::new("workspace_loading", "still loading"));
+		assert_eq!(error.message(), "still loading");
+		let data = error.data().expect("error should carry structured data");
+		let value: serde_json::Value = serde_json::from_str(data.get()).unwrap();
+		assert_eq!(value["code"], "workspace_loading");
+		assert_eq!(value["message"], "still loading");
+	}
 
 	#[test]
 	fn rules_config_root_searches_above_common_multi_root() {

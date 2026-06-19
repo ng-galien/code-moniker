@@ -19,6 +19,25 @@ export interface DetailPayload {
 	outgoingSummary: UsageSummaryDto | null;
 }
 
+export interface DetailDocument {
+	title: string;
+	kind: string;
+	description?: string;
+	meta?: DetailRow[];
+	sections?: DetailSection[];
+}
+
+export interface DetailSection {
+	title: string;
+	rows?: DetailRow[];
+	text?: string;
+}
+
+export interface DetailRow {
+	label: string;
+	value: string;
+}
+
 // A single reactive webview that mirrors the TUI's right-hand panel: it re-renders
 // from the selected symbol without ever opening a file. Opening source is an
 // explicit message from the view.
@@ -26,6 +45,8 @@ export class DetailWebview implements vscode.Disposable {
 	private panel?: vscode.WebviewPanel;
 	private seq = 0;
 	private rendered?: DetailPayload;
+	private renderedDocument?: DetailDocument;
+	private lastMessage?: { type: "detail"; payload: DetailPayload } | { type: "document"; payload: DetailDocument };
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -36,6 +57,10 @@ export class DetailWebview implements vscode.Disposable {
 	// panel is live. The webview DOM itself is rendered from `lastPayload`.
 	get lastPayload(): DetailPayload | undefined {
 		return this.rendered;
+	}
+
+	get lastDocument(): DetailDocument | undefined {
+		return this.renderedDocument;
 	}
 
 	get visible(): boolean {
@@ -62,7 +87,25 @@ export class DetailWebview implements vscode.Disposable {
 			outgoingSummary: usages?.outgoing_summary ?? null,
 		};
 		this.rendered = payload;
-		void panel.webview.postMessage({ type: "detail", payload });
+		this.renderedDocument = undefined;
+		this.post(panel, { type: "detail", payload });
+	}
+
+	showDocument(document: DetailDocument): void {
+		const panel = this.ensurePanel();
+		this.seq++;
+		panel.title = document.title;
+		this.renderedDocument = document;
+		this.rendered = undefined;
+		this.post(panel, { type: "document", payload: document });
+	}
+
+	private post(
+		panel: vscode.WebviewPanel,
+		message: { type: "detail"; payload: DetailPayload } | { type: "document"; payload: DetailDocument },
+	): void {
+		this.lastMessage = message;
+		void panel.webview.postMessage(message);
 	}
 
 	private ensurePanel(): vscode.WebviewPanel {
@@ -86,6 +129,8 @@ export class DetailWebview implements vscode.Disposable {
 		panel.webview.onDidReceiveMessage((message: { type?: string; target?: SourceTarget }) => {
 			if (message?.type === "openSource" && message.target) {
 				void vscode.commands.executeCommand("codeMoniker.symbols.openSource", message.target);
+			} else if (message?.type === "ready" && this.lastMessage) {
+				void panel.webview.postMessage(this.lastMessage);
 			}
 		});
 		this.panel = panel;

@@ -1,0 +1,196 @@
+import * as vscode from "vscode";
+
+import { DaemonNode } from "../daemon/nodes";
+import { DaemonListProvider } from "../daemon/tree";
+import { RuleTreeNode } from "../rules/nodes";
+import { RuleFilesProvider } from "../rules/tree";
+import { RulesTreeNode } from "../rules-daemon/nodes";
+import { RulesProvider } from "../rules-daemon/tree";
+import { SymbolTreeNode } from "../symbols/nodes";
+import { SymbolTreeProvider } from "../symbols/tree";
+import { ViewTreeNode } from "../views/nodes";
+import { ViewsProvider } from "../views/tree";
+
+type SectionId = "daemon" | "symbols" | "views" | "check" | "ruleFiles";
+
+interface SectionNode {
+	kind: "section";
+	id: SectionId;
+	label: string;
+}
+
+export interface WorkspaceDaemonNode {
+	kind: "daemon";
+	node: DaemonNode;
+}
+
+export interface WorkspaceSymbolNode {
+	kind: "symbols";
+	node: SymbolTreeNode;
+}
+
+export interface WorkspaceRulesNode {
+	kind: "check";
+	node: RulesTreeNode;
+}
+
+export interface WorkspaceViewNode {
+	kind: "views";
+	node: ViewTreeNode;
+}
+
+export interface WorkspaceRuleFileNode {
+	kind: "ruleFiles";
+	node: RuleTreeNode;
+}
+
+export type WorkspaceNode =
+	| SectionNode
+	| WorkspaceDaemonNode
+	| WorkspaceSymbolNode
+	| WorkspaceViewNode
+	| WorkspaceRulesNode
+	| WorkspaceRuleFileNode;
+
+export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceNode>, vscode.Disposable {
+	private readonly emitter = new vscode.EventEmitter<WorkspaceNode | undefined>();
+	readonly onDidChangeTreeData = this.emitter.event;
+	private readonly subscriptions: vscode.Disposable[] = [];
+
+	constructor(
+		private readonly daemons: DaemonListProvider,
+		private readonly symbols: SymbolTreeProvider,
+		private readonly views: ViewsProvider,
+		private readonly rules: RulesProvider,
+		private readonly ruleFiles: RuleFilesProvider,
+	) {
+		this.subscriptions.push(
+			this.daemons.onDidChangeTreeData(() => this.refresh()),
+			this.symbols.onDidChangeTreeData(() => this.refresh()),
+			this.views.onDidChangeTreeData(() => this.refresh()),
+			this.rules.onDidChangeTreeData(() => this.refresh()),
+			this.ruleFiles.onDidChangeTreeData(() => this.refresh()),
+		);
+	}
+
+	refresh(): void {
+		this.emitter.fire(undefined);
+	}
+
+	async getChildren(node?: WorkspaceNode): Promise<WorkspaceNode[]> {
+		if (!node) {
+			return sections();
+		}
+		if (node.kind === "section") {
+			return this.sectionChildren(node.id);
+		}
+		switch (node.kind) {
+			case "daemon":
+				return wrapDaemons(await this.daemons.getChildren(node.node));
+			case "symbols":
+				return wrapSymbols(await this.symbols.getChildren(node.node));
+			case "views":
+				return wrapViews(await this.views.getChildren(node.node));
+			case "check":
+				return wrapRules(await this.rules.getChildren(node.node));
+			case "ruleFiles":
+				return wrapRuleFiles(await this.ruleFiles.getChildren(node.node));
+		}
+	}
+
+	getTreeItem(node: WorkspaceNode): vscode.TreeItem {
+		if (node.kind === "section") {
+			return sectionItem(node);
+		}
+		switch (node.kind) {
+			case "daemon":
+				return this.daemons.getTreeItem(node.node);
+			case "symbols":
+				return this.symbols.getTreeItem(node.node);
+			case "views":
+				return this.views.getTreeItem(node.node);
+			case "check":
+				return this.rules.getTreeItem(node.node);
+			case "ruleFiles":
+				return this.ruleFiles.getTreeItem(node.node);
+		}
+	}
+
+	dispose(): void {
+		this.emitter.dispose();
+		for (const subscription of this.subscriptions) {
+			subscription.dispose();
+		}
+	}
+
+	private async sectionChildren(id: SectionId): Promise<WorkspaceNode[]> {
+		switch (id) {
+			case "daemon":
+				return wrapDaemons(await this.daemons.getChildren());
+			case "symbols":
+				return wrapSymbols(await this.symbols.getChildren());
+			case "views":
+				return wrapViews(await this.views.getChildren());
+			case "check":
+				return wrapRules(await this.rules.getChildren(checkSection()));
+			case "ruleFiles":
+				return wrapRuleFiles(await this.ruleFiles.getChildren());
+		}
+	}
+}
+
+function sections(): SectionNode[] {
+	return [
+		{ kind: "section", id: "daemon", label: "Daemon" },
+		{ kind: "section", id: "symbols", label: "Symbols" },
+		{ kind: "section", id: "views", label: "Views" },
+		{ kind: "section", id: "check", label: "Check" },
+		{ kind: "section", id: "ruleFiles", label: "Rule Files" },
+	];
+}
+
+function sectionItem(node: SectionNode): vscode.TreeItem {
+	const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Expanded);
+	item.contextValue = `cmWorkspace.${node.id}`;
+	item.iconPath = new vscode.ThemeIcon(sectionIcon(node.id));
+	return item;
+}
+
+function sectionIcon(id: SectionId): string {
+	switch (id) {
+		case "daemon":
+			return "server-process";
+		case "symbols":
+			return "symbol-misc";
+		case "views":
+			return "references";
+		case "check":
+			return "law";
+		case "ruleFiles":
+			return "files";
+	}
+}
+
+function wrapDaemons(nodes: DaemonNode[]): WorkspaceDaemonNode[] {
+	return nodes.map((node) => ({ kind: "daemon", node }));
+}
+
+function wrapSymbols(nodes: SymbolTreeNode[]): WorkspaceSymbolNode[] {
+	return nodes.map((node) => ({ kind: "symbols", node }));
+}
+
+function wrapViews(nodes: ViewTreeNode[]): WorkspaceViewNode[] {
+	return nodes.map((node) => ({ kind: "views", node }));
+}
+
+function wrapRules(nodes: RulesTreeNode[]): WorkspaceRulesNode[] {
+	return nodes.map((node) => ({ kind: "check", node }));
+}
+
+function wrapRuleFiles(nodes: RuleTreeNode[]): WorkspaceRuleFileNode[] {
+	return nodes.map((node) => ({ kind: "ruleFiles", node }));
+}
+
+function checkSection(): RulesTreeNode {
+	return { kind: "section", id: "check", label: "Check" };
+}

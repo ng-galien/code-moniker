@@ -14,17 +14,17 @@ export function registerDaemonCommands(
 		vscode.commands.registerCommand("codeMoniker.daemon.refresh", () => provider.refresh()),
 		vscode.commands.registerCommand("codeMoniker.daemon.connect", () => connect(session, provider)),
 		vscode.commands.registerCommand("codeMoniker.daemon.stop", (node?: DaemonNode) =>
-			stop(session, provider, node),
+			stop(session, provider, daemonNode(node)),
 		),
 		vscode.commands.registerCommand("codeMoniker.daemon.openWorkspace", (node?: DaemonNode) =>
-			openWorkspace(node),
+			openWorkspace(daemonNode(node)),
 		),
 	);
 }
 
 async function connect(session: DaemonSession, provider: DaemonListProvider): Promise<void> {
 	const ok = await vscode.window.withProgress(
-		{ location: { viewId: "codeMoniker.daemons" }, title: "Connecting to daemon…" },
+		{ location: { viewId: "codeMoniker.workspace" }, title: "Connecting to daemon…" },
 		() => session.connectOrStart(),
 	);
 	provider.refresh();
@@ -61,5 +61,21 @@ async function openWorkspace(node?: DaemonNode): Promise<void> {
 		"vscode.openFolder",
 		vscode.Uri.file(node.entry.workspace_root),
 		{ forceNewWindow: true },
+	);
+}
+
+function daemonNode(node: unknown): DaemonNode | undefined {
+	const candidate = node && typeof node === "object" && "node" in node
+		? (node as { node?: unknown }).node
+		: node;
+	return isDaemonNode(candidate) ? candidate : undefined;
+}
+
+function isDaemonNode(node: unknown): node is DaemonNode {
+	return Boolean(
+		node &&
+			typeof node === "object" &&
+			"entry" in node &&
+			"current" in node,
 	);
 }

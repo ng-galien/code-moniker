@@ -1,23 +1,38 @@
 import * as vscode from "vscode";
 
+import { DaemonSession } from "../daemon/session";
+import { SymbolTreeProvider } from "../symbols/tree";
 import { ViolationModel } from "./decorations";
 import { RulesRepository } from "./repository";
 import { RulesProvider } from "./tree";
-import { SymbolTreeProvider } from "../symbols/tree";
 
 export function registerRulesDaemonCommands(
 	context: vscode.ExtensionContext,
+	session: DaemonSession,
 	repository: RulesRepository,
 	provider: RulesProvider,
 	model: ViolationModel,
 	symbolTree: SymbolTreeProvider,
 ): void {
 	context.subscriptions.push(
-		vscode.commands.registerCommand("codeMoniker.rulesDaemon.refresh", () => provider.refresh()),
+		vscode.commands.registerCommand("codeMoniker.rulesDaemon.refresh", () =>
+			refreshRules(session, provider),
+		),
 		vscode.commands.registerCommand("codeMoniker.rulesDaemon.runCheck", () =>
 			runCheck(repository, provider, model, symbolTree),
 		),
 	);
+}
+
+async function refreshRules(
+	session: DaemonSession,
+	provider: RulesProvider,
+): Promise<void> {
+	if (!(await session.connectOrStart())) {
+		return;
+	}
+	await session.refresh();
+	provider.refresh();
 }
 
 async function runCheck(

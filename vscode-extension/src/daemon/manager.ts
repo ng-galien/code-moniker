@@ -18,9 +18,6 @@ export function registerDaemon(context: vscode.ExtensionContext): DaemonContext 
 	const roots = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
 	const session = new DaemonSession(roots);
 	const provider = new DaemonListProvider(session, roots);
-	const treeView = vscode.window.createTreeView("codeMoniker.daemons", {
-		treeDataProvider: provider,
-	});
 
 	const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 	statusItem.command = "codeMoniker.daemon.connect";
@@ -30,7 +27,6 @@ export function registerDaemon(context: vscode.ExtensionContext): DaemonContext 
 	const watcher = watchRegistry(() => provider.refresh());
 
 	context.subscriptions.push(
-		treeView,
 		statusItem,
 		watcher,
 		session,

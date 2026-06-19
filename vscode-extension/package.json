@@ -20,9 +20,7 @@
 	"main": "./dist/extension.js",
 	"activationEvents": [
 		"onNotebook:code-moniker-scenario",
-		"onView:codeMoniker.daemons",
-		"onView:codeMoniker.symbols",
-		"onView:codeMoniker.rulesDaemon",
+		"onView:codeMoniker.workspace",
 		"onCommand:codeMoniker.daemon.connect",
 		"onCommand:codeMoniker.symbols.refresh",
 		"onCommand:codeMoniker.rulesDaemon.runCheck"
@@ -107,24 +105,9 @@
 		"views": {
 			"codeMoniker": [
 				{
-					"id": "codeMoniker.daemons",
-					"name": "Daemons",
+					"id": "codeMoniker.workspace",
+					"name": "Workspace",
 					"icon": "./icons/activity.svg"
-				},
-				{
-					"id": "codeMoniker.symbols",
-					"name": "Symbols",
-					"icon": "./icons/activity.svg"
-				},
-				{
-					"id": "codeMoniker.rulesDaemon",
-					"name": "Rules",
-					"icon": "./icons/rule.svg"
-				},
-				{
-					"id": "codeMoniker.ruleFiles",
-					"name": "Rule Files",
-					"icon": "./icons/rule.svg"
 				},
 				{
 					"id": "codeMoniker.catalog",
@@ -273,7 +256,7 @@
 			},
 			{
 				"command": "codeMoniker.rulesDaemon.refresh",
-				"title": "Refresh Rules",
+				"title": "Refresh Check",
 				"category": "Code Moniker",
 				"icon": "$(refresh)"
 			},
@@ -288,18 +271,8 @@
 			"view/title": [
 				{
 					"command": "codeMoniker.refreshRuleFiles",
-					"when": "view == codeMoniker.ruleFiles",
-					"group": "navigation"
-				},
-				{
-					"command": "codeMoniker.expandRuleFiles",
-					"when": "view == codeMoniker.ruleFiles",
-					"group": "navigation@1"
-				},
-				{
-					"command": "codeMoniker.collapseRuleFiles",
-					"when": "view == codeMoniker.ruleFiles",
-					"group": "navigation@2"
+					"when": "view == codeMoniker.workspace",
+					"group": "navigation@5"
 				},
 				{
 					"command": "codeMoniker.catalog.refresh",
@@ -328,59 +301,59 @@
 				},
 				{
 					"command": "codeMoniker.daemon.refresh",
-					"when": "view == codeMoniker.daemons",
+					"when": "view == codeMoniker.workspace",
 					"group": "navigation@1"
 				},
 				{
 					"command": "codeMoniker.daemon.connect",
-					"when": "view == codeMoniker.daemons",
+					"when": "view == codeMoniker.workspace",
 					"group": "navigation@2"
 				},
 				{
 					"command": "codeMoniker.symbols.refresh",
-					"when": "view == codeMoniker.symbols",
-					"group": "navigation@1"
+					"when": "view == codeMoniker.workspace",
+					"group": "navigation@3"
 				},
 				{
 					"command": "codeMoniker.rulesDaemon.runCheck",
-					"when": "view == codeMoniker.rulesDaemon",
-					"group": "navigation@1"
+					"when": "view == codeMoniker.workspace",
+					"group": "navigation@4"
 				},
 				{
 					"command": "codeMoniker.rulesDaemon.refresh",
-					"when": "view == codeMoniker.rulesDaemon",
-					"group": "navigation@2"
+					"when": "view == codeMoniker.workspace",
+					"group": "navigation@6"
 				}
 			],
 			"view/item/context": [
 				{
 					"command": "codeMoniker.runRuleFileOnProject",
-					"when": "view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
+					"when": "view == codeMoniker.workspace && viewItem == cmRuleFile",
 					"group": "inline@1"
 				},
 				{
 					"command": "codeMoniker.validateRuleFile",
-					"when": "view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
+					"when": "view == codeMoniker.workspace && viewItem == cmRuleFile",
 					"group": "inline@2"
 				},
 				{
 					"command": "codeMoniker.openRuleFile",
-					"when": "view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
+					"when": "view == codeMoniker.workspace && viewItem == cmRuleFile",
 					"group": "1_cm"
 				},
 				{
 					"command": "codeMoniker.copyRuleFileRelativePath",
-					"when": "view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
+					"when": "view == codeMoniker.workspace && viewItem == cmRuleFile",
 					"group": "1_cm@2"
 				},
 				{
 					"command": "codeMoniker.validateRuleFile",
-					"when": "view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
+					"when": "view == codeMoniker.workspace && viewItem == cmRuleFile",
 					"group": "1_cm@3"
 				},
 				{
 					"command": "codeMoniker.runRuleFileOnProject",
-					"when": "view == codeMoniker.ruleFiles && viewItem == cmRuleFile",
+					"when": "view == codeMoniker.workspace && viewItem == cmRuleFile",
 					"group": "1_cm@4"
 				},
 				{
@@ -405,37 +378,37 @@
 				},
 				{
 					"command": "codeMoniker.daemon.stop",
-					"when": "view == codeMoniker.daemons && viewItem == cmDaemonCurrent",
+					"when": "view == codeMoniker.workspace && viewItem == cmDaemonCurrent",
 					"group": "inline@1"
 				},
 				{
 					"command": "codeMoniker.daemon.openWorkspace",
-					"when": "view == codeMoniker.daemons && viewItem == cmDaemon",
+					"when": "view == codeMoniker.workspace && viewItem == cmDaemon",
 					"group": "inline@1"
 				},
 				{
 					"command": "codeMoniker.daemon.stop",
-					"when": "view == codeMoniker.daemons && viewItem == cmDaemon",
+					"when": "view == codeMoniker.workspace && viewItem == cmDaemon",
 					"group": "1_cm@1"
 				},
 				{
 					"command": "codeMoniker.symbols.revealDetail",
-					"when": "view == codeMoniker.symbols && viewItem == cmSymbol",
+					"when": "view == codeMoniker.workspace && viewItem == cmSymbol",
 					"group": "inline@1"
 				},
 				{
 					"command": "codeMoniker.symbols.openSource",
-					"when": "view == codeMoniker.symbols && viewItem == cmSymbol",
+					"when": "view == codeMoniker.workspace && viewItem == cmSymbol",
 					"group": "inline@2"
 				},
 				{
 					"command": "codeMoniker.symbols.openSource",
-					"when": "view == codeMoniker.symbols && viewItem == cmEntryFile",
+					"when": "view == codeMoniker.workspace && viewItem == cmEntryFile",
 					"group": "inline@1"
 				},
 				{
 					"command": "codeMoniker.rulesDaemon.runCheck",
-					"when": "view == codeMoniker.rulesDaemon && viewItem == cmCheckSection",
+					"when": "view == codeMoniker.workspace && viewItem == cmCheckSection",
 					"group": "inline@1"
 				}
 			]

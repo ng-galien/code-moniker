@@ -32,6 +32,10 @@ export function binaryCandidates(): string[] {
 	return primary === fallback ? [primary] : [primary, fallback];
 }
 
+export function launchDetached(args: string[]): void {
+	tryLaunchDetached(binaryCandidates(), 0, args);
+}
+
 export function missingBinaryMessage(tried: string): string {
 	return (
 		`Could not find the code-moniker binary (\`${tried}\`). ` +
@@ -90,4 +94,20 @@ function spawnOnce(binary: string, args: string[], input?: string): Promise<CliO
 			child.stdin.end();
 		}
 	});
+}
+
+function tryLaunchDetached(candidates: string[], index: number, args: string[]): void {
+	if (index >= candidates.length) {
+		return;
+	}
+	const child = spawn(candidates[index], args, {
+		detached: true,
+		stdio: "ignore",
+	});
+	child.once("error", (err: NodeJS.ErrnoException) => {
+		if (err.code === "ENOENT") {
+			tryLaunchDetached(candidates, index + 1, args);
+		}
+	});
+	child.unref();
 }
