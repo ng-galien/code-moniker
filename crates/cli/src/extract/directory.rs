@@ -362,13 +362,13 @@ fn write_filter_json<W: Write>(
 		.iter()
 		.map(|row| {
 			let matches = row.match_set();
-			Entry {
+			Ok(Entry {
 				file: row.rel.display().to_string(),
 				lang: row.lang.tag(),
-				matches: format::build_matches_value(&matches, &row.source, args, scheme),
-			}
+				matches: format::build_matches_value(&matches, &row.source, args, scheme)?,
+			})
 		})
-		.collect();
+		.collect::<anyhow::Result<_>>()?;
 	let total_defs: usize = rows.iter().map(|r| r.defs.len()).sum();
 	let total_refs: usize = rows.iter().map(|r| r.refs.len()).sum();
 	#[derive(Serialize)]

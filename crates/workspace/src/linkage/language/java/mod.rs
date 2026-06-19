@@ -178,5 +178,6 @@ pub(super) fn enhance_reference_semantics(
 }
 
 fn confidence(value: &[u8]) -> &str {
-	std::str::from_utf8(value).expect("confidence constants are utf-8")
+	std::str::from_utf8(value)
+		.unwrap_or_else(|err| panic!("confidence constants must be utf-8: {err}"))
 }

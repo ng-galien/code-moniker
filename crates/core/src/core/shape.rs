@@ -30,7 +30,14 @@ impl Shape {
 	}
 
 	pub fn as_str(self) -> &'static str {
-		std::str::from_utf8(self.as_bytes()).unwrap()
+		match self {
+			Shape::Namespace => "namespace",
+			Shape::Type => "type",
+			Shape::Callable => "callable",
+			Shape::Value => "value",
+			Shape::Annotation => "annotation",
+			Shape::Ref => "ref",
+		}
 	}
 
 	pub fn for_kind(kind: &[u8]) -> Shape {

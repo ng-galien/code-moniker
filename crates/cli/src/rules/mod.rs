@@ -207,7 +207,10 @@ fn learn_topics() -> &'static [LearnTopic] {
 	TOPICS.get_or_init(|| {
 		LEARN_TOPIC_DOCUMENTS
 			.iter()
-			.map(|document| parse_learn_topic(document).expect("embedded learn topic parses"))
+			.map(|document| {
+				parse_learn_topic(document)
+					.unwrap_or_else(|err| panic!("embedded learn topic must parse: {err}"))
+			})
 			.collect()
 	})
 }

@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Snapshot views are owned read-model projections from borrowed reference records.
 use std::collections::BTreeSet;
 
 use super::model::{

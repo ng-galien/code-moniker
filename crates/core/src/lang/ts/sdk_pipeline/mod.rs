@@ -37,5 +37,6 @@ pub fn extract(
 		ScopeTree::new(discovered_parts.root),
 		ImportTable::default(),
 	);
-	GraphEmitter::emit(&discovered, &discovered_parts.refs).expect("TypeScript SDK graph emission")
+	GraphEmitter::emit(&discovered, &discovered_parts.refs)
+		.unwrap_or_else(|err| panic!("TypeScript SDK graph emission failed: {err}"))
 }

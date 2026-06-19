@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Java extractor definitions clone monikers into multiple graph indexes by design.
 use tree_sitter::Node;
 
 use crate::core::code_graph::Position;

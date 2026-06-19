@@ -51,6 +51,10 @@ tests             = "moniker ~ '**/dir:tests/**'"
 rust_inline_tests = "moniker ~ '**/module:tests/**'"
 example           = "moniker ~ '**/dir:examples/**'"
 rust_production_source = "moniker ~ '**/dir:crates/dir:/^(check|cli|core|workspace|query|daemon|daemon-client)$/dir:src/**'"
+rust_test_support = """
+  moniker ~ '**/dir:crates/dir:cli/dir:src/module:ui/module:acceptance/**'
+  OR moniker ~ '**/dir:crates/dir:check/dir:src/module:check/module:expr/module:/^(snapshots|fuzz)$/**'
+"""
 
 [exclude]
 uris = [
@@ -414,7 +418,7 @@ grouping exceptions are inspected.
 [[rust.shape.callable.where]]
 id        = "smell-unwrap-in-production"
 severity  = "warn"
-expr      = "NOT $rust_production_source OR $tests OR $rust_inline_tests OR $example OR kind = 'test' OR none(out_refs, kind = 'method_call' AND target.name =~ ^(unwrap|expect|unwrap_err|expect_err)$)"
+expr      = "NOT $rust_production_source OR $tests OR $rust_inline_tests OR $example OR $rust_test_support OR kind = 'test' OR none(out_refs, kind = 'method_call' AND target.name =~ ^(unwrap|expect|unwrap_err|expect_err)$)"
 message   = "Production callable `{name}` calls `.unwrap()`/`.expect()`/`.unwrap_err()`/`.expect_err()`; propagate recoverable errors or isolate the invariant behind an explicit boundary."
 rationale = """
 Production code must not turn recoverable `Result`/`Option` failures into panics. Use
@@ -426,7 +430,7 @@ breach. Tests, examples, and support harnesses are outside this policy.
 
 [[rust.shape.callable.where]]
 id        = "smell-clone-reflex"
-severity  = "warn"
+severity  = "error"
 expr      = "$tests OR $rust_inline_tests OR $example OR count(out_refs, kind = 'method_call' AND target.name = 'clone') <= 3"
 message   = "`{name}` clones repeatedly ({value} `.clone()` calls); reconsider borrowing (`&`/`&mut`) or `Cow` before cloning to satisfy the borrow checker."
 rationale = """

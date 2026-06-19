@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Workspace read adapters convert borrowed snapshots into owned UI read models.
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::io::BufRead;

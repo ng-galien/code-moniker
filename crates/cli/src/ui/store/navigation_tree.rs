@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Navigation tree filtering clones owned node identities into filtered trees.
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 

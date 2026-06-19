@@ -25,7 +25,9 @@ pub(super) fn new_sql_parser() -> Parser {
 	let mut parser = Parser::new();
 	parser
 		.set_language(&tree_sitter_postgres::LANGUAGE.into())
-		.expect("failed to load tree-sitter-postgres SQL grammar");
+		.unwrap_or_else(|err| {
+			panic!("failed to load tree-sitter-postgres SQL grammar: {err}");
+		});
 	parser
 }
 
@@ -34,9 +36,9 @@ pub(super) fn parse(source: &str) -> Tree {
 }
 
 pub(super) fn parse_with(parser: &mut Parser, source: &str) -> Tree {
-	parser
-		.parse(source, None)
-		.expect("tree-sitter parse returned None on a non-cancelled call")
+	parser.parse(source, None).unwrap_or_else(|| {
+		panic!("tree-sitter parse returned None on a non-cancelled call");
+	})
 }
 
 pub(super) type CallableTable = std::collections::HashMap<(Moniker, Vec<u8>), Moniker>;

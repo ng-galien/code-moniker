@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Explorer VM construction owns labels, badges, and compact monikers for rendering.
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::notes::{NoteStatus, NotesDocument};
 

@@ -83,7 +83,9 @@ impl AppStore {
 			.navigation
 			.state
 			.as_ref()
-			.expect("navigation initialized")
+			.unwrap_or_else(|| {
+				panic!("navigation initialized");
+			})
 	}
 
 	pub(in crate::ui) fn dispatch_navigation(

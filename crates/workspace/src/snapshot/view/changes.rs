@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Snapshot views are owned read-model projections from borrowed workspace records.
 use super::model::{ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet};
 use super::references::ReferenceView;
 use crate::snapshot::model::{ChangeId, ChangeRecord, SymbolId, WorkspaceSnapshot};

@@ -195,9 +195,10 @@ pub fn build_matches_value(
 	source: &str,
 	args: &ExtractArgs,
 	scheme: &str,
-) -> serde_json::Value {
-	serde_json::to_value(build_matches(matches, source, args, scheme))
-		.expect("Matches<'_> is always serializable")
+) -> anyhow::Result<serde_json::Value> {
+	Ok(serde_json::to_value(build_matches(
+		matches, source, args, scheme,
+	))?)
 }
 
 fn build_matches<'a>(

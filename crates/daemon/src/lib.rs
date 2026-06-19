@@ -1,4 +1,5 @@
-// code-moniker: ignore-file[smell-low-cohesion-module]
+// code-moniker: ignore-file[smell-low-cohesion-module, smell-clone-reflex]
+// Daemon bootstrap clones config and handles into independently owned runtime services.
 #![cfg(unix)]
 
 use std::collections::{BTreeMap, BTreeSet};

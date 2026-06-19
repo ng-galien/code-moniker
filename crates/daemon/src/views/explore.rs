@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// View exploration builds owned RPC DTOs from borrowed view and workspace state.
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 

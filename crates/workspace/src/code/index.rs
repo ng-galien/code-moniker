@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Code index refresh and graph diffing clone stable IDs into owned snapshots/diffs.
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -162,9 +164,9 @@ fn refresh_local_code_index(
 			None,
 		)?;
 		if let Some(slot) = files.get_mut(file_idx) {
-			*slot = indexed.clone();
-			push_unique_source(&mut changed_sources, indexed.source_id);
+			push_unique_source(&mut changed_sources, indexed.source_id.clone());
 			changed_file_indexes.insert(file_idx);
+			*slot = indexed;
 		}
 	}
 	let extract_sources = extract_timer.elapsed();

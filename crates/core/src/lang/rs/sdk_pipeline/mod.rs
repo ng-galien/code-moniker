@@ -31,7 +31,8 @@ pub fn extract(
 		ScopeTree::new(discovered_parts.root),
 		ImportTable::default(),
 	);
-	GraphEmitter::emit(&discovered, &discovered_parts.refs).expect("Rust SDK graph emission")
+	GraphEmitter::emit(&discovered, &discovered_parts.refs)
+		.unwrap_or_else(|err| panic!("Rust SDK graph emission failed: {err}"))
 }
 
 fn compute_module_moniker(anchor: &Moniker, uri: &str) -> Moniker {

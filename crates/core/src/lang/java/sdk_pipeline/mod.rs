@@ -40,7 +40,8 @@ pub fn extract(
 		ScopeTree::new(discovered_parts.root),
 		ImportTable::default(),
 	);
-	GraphEmitter::emit(&discovered, &discovered_parts.refs).expect("Java SDK graph emission")
+	GraphEmitter::emit(&discovered, &discovered_parts.refs)
+		.unwrap_or_else(|err| panic!("Java SDK graph emission failed: {err}"))
 }
 
 fn compute_module_moniker(anchor: &Moniker, uri: &str, package_pieces: &[&str]) -> Moniker {

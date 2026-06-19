@@ -350,9 +350,9 @@ fn module_def(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	};
 	let module = def.moniker.clone();
 	state.push_def(def);
-	let body = node
-		.child_by_field_name("body")
-		.expect("module body checked before emitting inline module def");
+	let Some(body) = node.child_by_field_name("body") else {
+		return;
+	};
 	walk_items(state, body, &module, false);
 }
 

@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Source discovery clones paths and labels into durable workspace source records.
 use std::collections::{BTreeMap, HashSet};
 use std::path::Component;
 use std::path::{Path, PathBuf};
@@ -96,9 +98,12 @@ pub fn discover_files(
 		));
 	}
 	let scopes = discover_scopes(&[root.to_path_buf()], project)?;
-	let scope = scopes
-		.first()
-		.expect("discover_scopes returns one scope for one root");
+	let Some(scope) = scopes.first() else {
+		return Err(anyhow::anyhow!(
+			"discover_scopes returned no scope for {}",
+			root.display()
+		));
+	};
 	let abs_root = normalize_absolute(&scope.root.path)?;
 	let ignore_rules = GitignoreStack::for_root(&abs_root);
 	let mut source_files = Vec::new();

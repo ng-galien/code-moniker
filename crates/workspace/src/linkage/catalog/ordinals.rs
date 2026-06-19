@@ -8,7 +8,11 @@ pub(in crate::linkage) struct ReferenceOrdinal(u32);
 
 impl ReferenceOrdinal {
 	pub(in crate::linkage) fn from_index(index: usize) -> Self {
-		Self(u32::try_from(index).expect("reference index exceeds u32 range"))
+		assert!(
+			u32::try_from(index).is_ok(),
+			"reference index exceeds u32 range"
+		);
+		Self(index as u32)
 	}
 
 	pub(in crate::linkage) fn index(self) -> usize {
@@ -25,7 +29,11 @@ pub(in crate::linkage) struct SymbolOrdinal(u32);
 
 impl SymbolOrdinal {
 	pub(in crate::linkage) fn from_index(index: usize) -> Self {
-		Self(u32::try_from(index).expect("symbol index exceeds u32 range"))
+		assert!(
+			u32::try_from(index).is_ok(),
+			"symbol index exceeds u32 range"
+		);
+		Self(index as u32)
 	}
 
 	pub(in crate::linkage) fn index(self) -> usize {
@@ -118,20 +126,25 @@ impl SymbolSet {
 		self.bitmap.is_empty()
 	}
 
-	pub(in crate::linkage) fn len(&self) -> usize {
-		usize::try_from(self.bitmap.len()).expect("symbol set length exceeds usize")
-	}
-
 	pub(in crate::linkage) fn serialized_size(&self) -> usize {
 		self.bitmap.serialized_size()
 	}
 
-	pub(in crate::linkage) fn iter(&self) -> impl Iterator<Item = SymbolOrdinal> + '_ {
-		self.bitmap.iter().map(SymbolOrdinal)
-	}
-
 	pub(in crate::linkage) fn single(&self) -> Option<SymbolOrdinal> {
 		(self.len() == 1).then(|| self.iter().next()).flatten()
+	}
+
+	pub(in crate::linkage) fn len(&self) -> usize {
+		let len = self.bitmap.len();
+		assert!(
+			usize::try_from(len).is_ok(),
+			"symbol set length exceeds usize"
+		);
+		len as usize
+	}
+
+	pub(in crate::linkage) fn iter(&self) -> impl Iterator<Item = SymbolOrdinal> + '_ {
+		self.bitmap.iter().map(SymbolOrdinal)
 	}
 }
 
@@ -161,10 +174,6 @@ impl SymbolOrdinalCatalog {
 		self.ids.push(id);
 		self.identities.push(identity);
 		ordinal
-	}
-
-	pub(in crate::linkage) fn id(&self, ordinal: SymbolOrdinal) -> Option<&SymbolId> {
-		self.ids.get(ordinal.index())
 	}
 
 	pub(in crate::linkage) fn identity(&self, ordinal: SymbolOrdinal) -> Option<&str> {
@@ -210,6 +219,10 @@ impl SymbolOrdinalCatalog {
 			.iter()
 			.filter_map(|symbol| self.id(symbol).cloned())
 			.collect()
+	}
+
+	pub(in crate::linkage) fn id(&self, ordinal: SymbolOrdinal) -> Option<&SymbolId> {
+		self.ids.get(ordinal.index())
 	}
 }
 

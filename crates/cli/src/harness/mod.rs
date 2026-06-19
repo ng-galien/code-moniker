@@ -532,7 +532,9 @@ struct ToolHookUpsert<'a> {
 }
 
 fn upsert_tool_hook(mut settings: Value, request: ToolHookUpsert<'_>) -> anyhow::Result<Value> {
-	let root = settings.as_object_mut().expect("settings object");
+	let Some(root) = settings.as_object_mut() else {
+		bail!("`{}` must contain a JSON object", request.path.display());
+	};
 	let hooks = root
 		.entry("hooks")
 		.or_insert_with(|| Value::Object(Map::new()))

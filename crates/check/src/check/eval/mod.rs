@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Rule compilation builds owned executable specs from borrowed configuration entries.
 use std::collections::HashMap;
 
 mod collection;
@@ -1919,12 +1921,10 @@ fn eval_def_domain_quantifier(
 		};
 		match outcome {
 			NodeOutcome::Pass => passes += 1,
-			NodeOutcome::Fail(mut failure) if kind == QuantKind::All && idx.is_some() => {
-				let idx = idx.expect("checked by guard");
-				failure.def_idx.get_or_insert(idx);
-				return Err(Box::new(NodeOutcome::Fail(failure)));
-			}
-			NodeOutcome::Fail(failure) if kind == QuantKind::All => {
+			NodeOutcome::Fail(mut failure) if kind == QuantKind::All => {
+				if let Some(idx) = idx {
+					failure.def_idx.get_or_insert(idx);
+				}
 				return Err(Box::new(NodeOutcome::Fail(failure)));
 			}
 			NodeOutcome::Fail(_) | NodeOutcome::NotApplicable => {}

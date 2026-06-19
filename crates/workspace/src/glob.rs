@@ -4,7 +4,8 @@ use std::path::Path;
 use regex::Regex;
 
 pub fn compile_glob(pattern: &str) -> Regex {
-	Regex::new(&glob_to_regex(pattern)).expect("glob compiler emits valid regex")
+	Regex::new(&glob_to_regex(pattern))
+		.unwrap_or_else(|err| panic!("glob compiler emitted invalid regex: {err}"))
 }
 
 fn glob_to_regex(pattern: &str) -> String {

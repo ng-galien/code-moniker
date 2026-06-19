@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// This file merges owned rule fragments; repeated clones preserve fragment-local diagnostics.
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 

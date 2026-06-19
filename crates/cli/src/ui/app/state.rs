@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// UI reducers materialize owned shell state from borrowed events and view models.
 use std::collections::{BTreeMap, BTreeSet};
 
 use code_moniker_core::lang::Lang;

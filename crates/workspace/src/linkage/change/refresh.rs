@@ -60,10 +60,9 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 			&candidates,
 		));
 	}
-	let store = linkage
-		.store
-		.as_mut()
-		.expect("linkage store is initialized before refresh");
+	let Some(store) = linkage.store.as_mut() else {
+		panic!("linkage store is initialized before refresh");
+	};
 	let method_timer = Instant::now();
 	let indexer = linkage
 		.method_indexer

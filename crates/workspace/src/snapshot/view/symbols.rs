@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Snapshot views are owned read-model projections from borrowed symbol records.
 use super::model::{SymbolDetail, SymbolSummary};
 use crate::snapshot::model::{ChangeStatus, SymbolId, SymbolRecord, WorkspaceSnapshot};
 

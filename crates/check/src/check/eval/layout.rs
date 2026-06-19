@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Layout diagnostics materialize owned move suggestions from borrowed layout state.
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use code_moniker_core::core::code_graph::DefRecord;

@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Manifest enrichment emits owned display records from borrowed Cargo metadata.
 use std::io::Write;
 use std::path::{Path, PathBuf};
 

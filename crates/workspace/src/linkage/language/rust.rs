@@ -237,5 +237,6 @@ fn is_rust_path_target_kind(kind: &[u8]) -> bool {
 }
 
 fn confidence(value: &[u8]) -> &str {
-	std::str::from_utf8(value).expect("confidence constants are utf-8")
+	std::str::from_utf8(value)
+		.unwrap_or_else(|err| panic!("confidence constants must be utf-8: {err}"))
 }

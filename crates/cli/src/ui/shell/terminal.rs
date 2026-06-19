@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Terminal bootstrapping clones handles/configuration into long-lived shell state.
 use std::io::Write;
 use std::time::Instant;
 

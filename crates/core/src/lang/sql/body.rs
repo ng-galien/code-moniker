@@ -18,7 +18,9 @@ pub(super) fn walk_plpgsql_body(
 	let mut plpgsql_parser = Parser::new();
 	plpgsql_parser
 		.set_language(&tree_sitter_postgres::LANGUAGE_PLPGSQL.into())
-		.expect("failed to load tree-sitter-postgres PL/pgSQL grammar");
+		.unwrap_or_else(|err| {
+			panic!("failed to load tree-sitter-postgres PL/pgSQL grammar: {err}");
+		});
 	let Some(tree) = plpgsql_parser.parse(body, None) else {
 		return;
 	};

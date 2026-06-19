@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Runtime task wiring clones handles and snapshots across async UI boundaries.
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;

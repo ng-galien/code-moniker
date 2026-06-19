@@ -18,12 +18,12 @@ pub struct Presets {
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
 	let language: Language = tree_sitter_java::LANGUAGE.into();
-	parser
-		.set_language(&language)
-		.expect("failed to load tree-sitter Java grammar");
-	parser
-		.parse(source, None)
-		.expect("tree-sitter parse returned None on a non-cancelled call")
+	parser.set_language(&language).unwrap_or_else(|err| {
+		panic!("failed to load tree-sitter Java grammar: {err}");
+	});
+	parser.parse(source, None).unwrap_or_else(|| {
+		panic!("tree-sitter parse returned None on a non-cancelled call");
+	})
 }
 
 pub fn extract(

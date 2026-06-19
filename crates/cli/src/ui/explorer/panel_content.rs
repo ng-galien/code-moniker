@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Panel content builds owned render view models from borrowed app/workspace state.
 use crate::session::SessionStats;
 use crate::ui::app::{
 	App, ChangePanelMode, CheckState, FocusRegion, View, app_profile_name, app_rules_path,

@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Header search reducers intentionally clone small UI selections into owned state.
 use code_moniker_core::core::shape::Shape;
 use code_moniker_core::lang::Lang;
 

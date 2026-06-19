@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Local registry wiring clones cache/options into independently owned workspace ports.
 use std::path::PathBuf;
 
 use crate::changes::LocalChangeOverlay;

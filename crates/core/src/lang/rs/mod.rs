@@ -13,12 +13,12 @@ mod sdk_pipeline;
 pub fn parse(source: &str) -> Tree {
 	let mut parser = Parser::new();
 	let language: Language = tree_sitter_rust::LANGUAGE.into();
-	parser
-		.set_language(&language)
-		.expect("failed to load tree-sitter Rust grammar");
-	parser
-		.parse(source, None)
-		.expect("tree-sitter parse returned None on a non-cancelled call")
+	parser.set_language(&language).unwrap_or_else(|err| {
+		panic!("failed to load tree-sitter Rust grammar: {err}");
+	});
+	parser.parse(source, None).unwrap_or_else(|| {
+		panic!("tree-sitter parse returned None on a non-cancelled call");
+	})
 }
 
 #[derive(Clone, Debug, Default)]

@@ -21,7 +21,9 @@ fn split_path(uri: &str) -> (Vec<&str>, &str) {
 	if pieces.is_empty() {
 		return (Vec::new(), "");
 	}
-	let (last, head) = pieces.split_last().expect("non-empty");
+	let Some((last, head)) = pieces.split_last() else {
+		return (Vec::new(), "");
+	};
 	(head.to_vec(), strip_py_suffix(last))
 }
 

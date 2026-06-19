@@ -30,7 +30,10 @@ pub const CROSS_LANG_KINDS: &[&[u8]] = &[
 pub fn known_kinds<'a>(langs: impl IntoIterator<Item = &'a Lang>) -> BTreeSet<&'static str> {
 	let mut out: BTreeSet<&'static str> = BTreeSet::new();
 	for k in CROSS_LANG_KINDS {
-		out.insert(std::str::from_utf8(k).expect("kind constants are ASCII"));
+		out.insert(
+			std::str::from_utf8(k)
+				.unwrap_or_else(|err| panic!("kind constants must be ASCII: {err}")),
+		);
 	}
 	for lang in langs {
 		for k in lang.allowed_kinds() {

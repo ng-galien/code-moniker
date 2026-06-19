@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Watch root planning clones normalized paths into durable live-refresh state.
 use std::path::{Component, Path, PathBuf};
 
 use notify::event::{AccessKind, AccessMode, ModifyKind};
@@ -28,6 +30,31 @@ impl WorkspaceEventClassifier {
 		self.classify_event_paths(event_path_policy(&event.kind), &event.paths)
 	}
 
+	fn classify_event_paths(
+		&self,
+		policy: EventPathPolicy,
+		paths: &[PathBuf],
+	) -> Option<WorkspaceLiveEvent> {
+		match policy {
+			EventPathPolicy::Ignore => None,
+			EventPathPolicy::Classify { allow_git_signals } => {
+				self.classify_paths_with_git_signals(paths, allow_git_signals)
+			}
+			EventPathPolicy::RescanSourceChange => {
+				if self.paths.requires_source_rescan(paths) {
+					return Some(WorkspaceLiveEvent::RescanRequired);
+				}
+				self.classify_paths_with_git_signals(paths, true)
+			}
+			EventPathPolicy::RescanMissingSource => {
+				if self.paths.includes_missing_source(paths) {
+					return Some(WorkspaceLiveEvent::RescanRequired);
+				}
+				self.classify_paths_with_git_signals(paths, true)
+			}
+		}
+	}
+
 	pub(crate) fn classify_paths_with_git_signals(
 		&self,
 		paths: &[PathBuf],
@@ -52,31 +79,6 @@ impl WorkspaceEventClassifier {
 			event = coalesce_optional(event, WorkspaceLiveEvent::SourcesChanged(source_paths));
 		}
 		event
-	}
-
-	fn classify_event_paths(
-		&self,
-		policy: EventPathPolicy,
-		paths: &[PathBuf],
-	) -> Option<WorkspaceLiveEvent> {
-		match policy {
-			EventPathPolicy::Ignore => None,
-			EventPathPolicy::Classify { allow_git_signals } => {
-				self.classify_paths_with_git_signals(paths, allow_git_signals)
-			}
-			EventPathPolicy::RescanSourceChange => {
-				if self.paths.requires_source_rescan(paths) {
-					return Some(WorkspaceLiveEvent::RescanRequired);
-				}
-				self.classify_paths_with_git_signals(paths, true)
-			}
-			EventPathPolicy::RescanMissingSource => {
-				if self.paths.includes_missing_source(paths) {
-					return Some(WorkspaceLiveEvent::RescanRequired);
-				}
-				self.classify_paths_with_git_signals(paths, true)
-			}
-		}
 	}
 }
 
@@ -136,6 +138,22 @@ impl WorkspacePathClassifier {
 		PathLiveSignal::Ignore
 	}
 
+	fn is_manifest_path(&self, path: &Path) -> bool {
+		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_manifest_file(path)
+	}
+
+	fn is_ignored_root(&self, path: &Path) -> bool {
+		self.roots.iter().any(|root| {
+			root.ignored_paths
+				.iter()
+				.any(|ignored| path.starts_with(ignored))
+		})
+	}
+
+	fn is_ignored_by_gitignore(&self, path: &Path) -> bool {
+		self.roots.iter().any(|root| root.matches_gitignore(path))
+	}
+
 	fn is_git_signal_path(&self, path: &Path) -> bool {
 		self.roots.iter().any(|root| {
 			let Some(git_dir) = &root.git_dir else {
@@ -173,22 +191,6 @@ impl WorkspacePathClassifier {
 	fn is_source_path(&self, path: &Path) -> bool {
 		self.roots.iter().any(|root| path.starts_with(&root.path))
 			&& (path.is_dir() || is_source_file(path))
-	}
-
-	fn is_manifest_path(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| path.starts_with(&root.path)) && is_manifest_file(path)
-	}
-
-	fn is_ignored_root(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| {
-			root.ignored_paths
-				.iter()
-				.any(|ignored| path.starts_with(ignored))
-		})
-	}
-
-	fn is_ignored_by_gitignore(&self, path: &Path) -> bool {
-		self.roots.iter().any(|root| root.matches_gitignore(path))
 	}
 }
 
@@ -323,7 +325,7 @@ pub(crate) fn watch_roots_for_paths(
 		push_watch_root(
 			&mut roots,
 			watched_path,
-			git_root.clone(),
+			git_root,
 			ignored_paths.clone(),
 			workspace_notes_path.clone(),
 		);

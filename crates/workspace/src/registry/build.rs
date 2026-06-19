@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Registry build steps clone source/index records into published workspace snapshots.
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 

@@ -271,7 +271,7 @@ impl CodeGraph {
 		let new_idx = self.defs.len();
 		self.index
 			.write()
-			.expect("code graph index lock poisoned")
+			.unwrap_or_else(|err| panic!("code graph index lock poisoned: {err}"))
 			.insert(moniker.clone(), new_idx);
 		let binding = if attrs.binding.is_empty() {
 			default_def_binding(kind, attrs.visibility)
@@ -297,7 +297,7 @@ impl CodeGraph {
 		});
 		self.def_monikers_cache
 			.write()
-			.expect("code graph def cache lock poisoned")
+			.unwrap_or_else(|err| panic!("code graph def cache lock poisoned: {err}"))
 			.take();
 		Ok(())
 	}
@@ -314,12 +314,18 @@ impl CodeGraph {
 
 	fn find_def(&self, m: &Moniker) -> Option<usize> {
 		{
-			let idx = self.index.read().expect("code graph index lock poisoned");
+			let idx = self
+				.index
+				.read()
+				.unwrap_or_else(|err| panic!("code graph index lock poisoned: {err}"));
 			if idx.len() == self.defs.len() {
 				return idx.get(m).copied();
 			}
 		}
-		let mut idx = self.index.write().expect("code graph index lock poisoned");
+		let mut idx = self
+			.index
+			.write()
+			.unwrap_or_else(|err| panic!("code graph index lock poisoned: {err}"));
 		if idx.len() != self.defs.len() {
 			idx.clear();
 			idx.reserve(self.defs.len());
@@ -358,7 +364,7 @@ impl CodeGraph {
 		});
 		self.ref_targets_cache
 			.write()
-			.expect("code graph ref cache lock poisoned")
+			.unwrap_or_else(|err| panic!("code graph ref cache lock poisoned: {err}"))
 			.take();
 		Ok(())
 	}
@@ -386,7 +392,7 @@ impl CodeGraph {
 		self.refs.shrink_to_fit();
 		self.index
 			.write()
-			.expect("code graph index lock poisoned")
+			.unwrap_or_else(|err| panic!("code graph index lock poisoned: {err}"))
 			.shrink_to_fit();
 	}
 
@@ -418,7 +424,7 @@ impl CodeGraph {
 		if let Some(cached) = self
 			.def_monikers_cache
 			.read()
-			.expect("code graph def cache lock poisoned")
+			.unwrap_or_else(|err| panic!("code graph def cache lock poisoned: {err}"))
 			.as_ref()
 		{
 			return Arc::clone(cached);
@@ -429,7 +435,8 @@ impl CodeGraph {
 		*self
 			.def_monikers_cache
 			.write()
-			.expect("code graph def cache lock poisoned") = Some(Arc::clone(&arc));
+			.unwrap_or_else(|err| panic!("code graph def cache lock poisoned: {err}")) =
+			Some(Arc::clone(&arc));
 		arc
 	}
 
@@ -437,7 +444,7 @@ impl CodeGraph {
 		if let Some(cached) = self
 			.ref_targets_cache
 			.read()
-			.expect("code graph ref cache lock poisoned")
+			.unwrap_or_else(|err| panic!("code graph ref cache lock poisoned: {err}"))
 			.as_ref()
 		{
 			return Arc::clone(cached);
@@ -448,7 +455,8 @@ impl CodeGraph {
 		*self
 			.ref_targets_cache
 			.write()
-			.expect("code graph ref cache lock poisoned") = Some(Arc::clone(&arc));
+			.unwrap_or_else(|err| panic!("code graph ref cache lock poisoned: {err}")) =
+			Some(Arc::clone(&arc));
 		arc
 	}
 

@@ -53,7 +53,7 @@ fn parse_or<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
 		state = next_state;
 	}
 	let root = if nodes.len() == 1 {
-		nodes.pop().unwrap()
+		nodes.remove(0)
 	} else {
 		Node::Or(nodes)
 	};
@@ -75,7 +75,7 @@ fn parse_and<'a>(state: ParserState<'a>) -> ParseResult<'a, Node> {
 		state = next_state;
 	}
 	let root = if nodes.len() == 1 {
-		nodes.pop().unwrap()
+		nodes.remove(0)
 	} else {
 		Node::And(nodes)
 	};

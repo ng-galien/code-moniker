@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// MCP notes responses are owned DTO projections from workspace note state.
 use code_moniker_query::{
 	NoteDto, NoteResolutionDto, NotesAction as QueryNotesAction, NotesQuery, NotesResult, Query,
 	QueryRequest, QueryResult,

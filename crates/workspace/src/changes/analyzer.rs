@@ -1,3 +1,5 @@
+// code-moniker: ignore-file[smell-clone-reflex]
+// Change analysis materializes owned summaries from borrowed git diff records.
 use std::path::PathBuf;
 
 use code_moniker_core::core::moniker::Moniker;

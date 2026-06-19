@@ -20,10 +20,16 @@ pub struct LocalResourceCache {
 
 impl LocalResourceCache {
 	pub fn next_generation(&self) -> crate::snapshot::ResourceGeneration {
-		let mut inner = self.inner.lock().expect("local resource cache poisoned");
+		let mut inner = self.lock_material();
 		let generation = crate::snapshot::ResourceGeneration::new(inner.next_generation);
 		inner.next_generation += 1;
 		generation
+	}
+
+	fn lock_material(&self) -> std::sync::MutexGuard<'_, LocalResourceMaterial> {
+		self.inner
+			.lock()
+			.unwrap_or_else(|poisoned| poisoned.into_inner())
 	}
 
 	pub fn insert_sources(
@@ -31,7 +37,7 @@ impl LocalResourceCache {
 		generation: crate::snapshot::ResourceGeneration,
 		material: SourceCatalogMaterial,
 	) {
-		let mut inner = self.inner.lock().expect("local resource cache poisoned");
+		let mut inner = self.lock_material();
 		inner.sources.clear();
 		inner.sources.insert(generation.value(), material);
 	}
@@ -40,9 +46,7 @@ impl LocalResourceCache {
 		&self,
 		generation: crate::snapshot::ResourceGeneration,
 	) -> Option<SourceCatalogMaterial> {
-		self.inner
-			.lock()
-			.expect("local resource cache poisoned")
+		self.lock_material()
 			.sources
 			.get(&generation.value())
 			.cloned()
@@ -53,7 +57,7 @@ impl LocalResourceCache {
 		generation: crate::snapshot::ResourceGeneration,
 		material: CodeIndexMaterial,
 	) {
-		let mut inner = self.inner.lock().expect("local resource cache poisoned");
+		let mut inner = self.lock_material();
 		inner.indexes.clear();
 		inner.indexes.insert(generation.value(), Arc::new(material));
 	}
@@ -62,9 +66,7 @@ impl LocalResourceCache {
 		&self,
 		generation: crate::snapshot::ResourceGeneration,
 	) -> Option<Arc<CodeIndexMaterial>> {
-		self.inner
-			.lock()
-			.expect("local resource cache poisoned")
+		self.lock_material()
 			.indexes
 			.get(&generation.value())
 			.cloned()
