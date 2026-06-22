@@ -1,5 +1,6 @@
 // code-moniker: ignore-file[smell-clone-reflex]
 // Rule compilation builds owned executable specs from borrowed configuration entries.
+use std::cell::OnceCell;
 use std::collections::HashMap;
 
 mod collection;
@@ -130,6 +131,7 @@ pub(in crate::check) fn evaluate_compiled_with_requirements(
 		} else {
 			HashMap::new()
 		},
+		def_index: OnceCell::new(),
 	};
 	let mut out = Vec::new();
 
@@ -247,6 +249,7 @@ pub(in crate::check) fn rule_report_compiled_with_requirements(
 		} else {
 			HashMap::new()
 		},
+		def_index: OnceCell::new(),
 	};
 	let mut out = Vec::new();
 	push_kind_rule_reports(&mut out, graph, lang, &ctx, compiled);
@@ -464,6 +467,7 @@ struct EvalCtx<'g, 'src> {
 	in_refs_by_target: HashMap<Vec<u8>, Vec<usize>>,
 	comment_ends: Vec<u32>,
 	doc_anchors: HashMap<usize, u32>,
+	def_index: OnceCell<HashMap<Vec<u8>, usize>>,
 }
 
 #[derive(Debug)]

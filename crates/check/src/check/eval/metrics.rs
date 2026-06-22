@@ -291,10 +291,18 @@ fn is_inheritance_kind(kind: &[u8]) -> bool {
 }
 
 fn find_def_idx(target: &Moniker, ctx: &EvalCtx<'_, '_>) -> Option<usize> {
-	ctx.graph
-		.defs()
-		.enumerate()
-		.find_map(|(idx, def)| (def.moniker == *target).then_some(idx))
+	ctx.def_index
+		.get_or_init(|| {
+			let mut index = std::collections::HashMap::new();
+			for (idx, def) in ctx.graph.defs().enumerate() {
+				index
+					.entry(def.moniker.as_encoded().to_vec())
+					.or_insert(idx);
+			}
+			index
+		})
+		.get(target.as_encoded())
+		.copied()
 }
 
 fn connect(graph: &mut [FxHashSet<usize>], a: usize, b: usize) {
