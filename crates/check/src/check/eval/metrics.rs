@@ -49,7 +49,7 @@ fn fan_in(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 }
 
 fn wmc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
-	direct_callable_idxs(def_idx, ctx).len() as u32
+	direct_callable_idxs(def_idx, ctx).count() as u32
 }
 
 fn rfc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
@@ -106,7 +106,7 @@ fn cbo(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 }
 
 fn lcom4(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
-	let methods = direct_callable_idxs(def_idx, ctx);
+	let methods: Vec<usize> = direct_callable_idxs(def_idx, ctx).collect();
 	if methods.is_empty() {
 		return 0;
 	}
@@ -117,7 +117,6 @@ fn lcom4(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 		.map(|(pos, idx)| (ctx.graph.def_at(*idx).moniker.as_encoded(), pos))
 		.collect();
 	let fields: FxHashSet<&[u8]> = direct_value_idxs(def_idx, ctx)
-		.into_iter()
 		.map(|idx| ctx.graph.def_at(idx).moniker.as_encoded())
 		.collect();
 	let mut graph: Vec<FxHashSet<usize>> =
@@ -189,25 +188,31 @@ fn noc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 	children.len() as u32
 }
 
-fn direct_callable_idxs(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> Vec<usize> {
+fn direct_callable_idxs<'a>(
+	def_idx: usize,
+	ctx: &'a EvalCtx<'_, '_>,
+) -> impl Iterator<Item = usize> + 'a {
 	direct_child_idxs(def_idx, ctx)
-		.into_iter()
-		.filter(|idx| has_shape(ctx.graph.def_at(*idx), Shape::Callable))
-		.collect()
+		.filter(move |idx| has_shape(ctx.graph.def_at(*idx), Shape::Callable))
 }
 
-fn direct_value_idxs(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> Vec<usize> {
+fn direct_value_idxs<'a>(
+	def_idx: usize,
+	ctx: &'a EvalCtx<'_, '_>,
+) -> impl Iterator<Item = usize> + 'a {
 	direct_child_idxs(def_idx, ctx)
-		.into_iter()
-		.filter(|idx| has_shape(ctx.graph.def_at(*idx), Shape::Value))
-		.collect()
+		.filter(move |idx| has_shape(ctx.graph.def_at(*idx), Shape::Value))
 }
 
-fn direct_child_idxs(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> Vec<usize> {
+fn direct_child_idxs<'a>(
+	def_idx: usize,
+	ctx: &'a EvalCtx<'_, '_>,
+) -> impl Iterator<Item = usize> + 'a {
 	ctx.children_by_parent
 		.get(&def_idx)
-		.cloned()
-		.unwrap_or_default()
+		.into_iter()
+		.flatten()
+		.copied()
 }
 
 fn descendant_idxs(root: &Moniker, ctx: &EvalCtx<'_, '_>) -> Vec<usize> {
@@ -228,8 +233,12 @@ fn add_external_coupling(
 		return;
 	}
 	let bucket = coupling_bucket(target, ctx);
-	if !owner.is_ancestor_of(&bucket) {
-		coupled.insert(bucket.as_encoded().to_vec());
+	if owner.is_ancestor_of(&bucket) {
+		return;
+	}
+	let encoded = bucket.as_encoded();
+	if !coupled.contains(encoded) {
+		coupled.insert(encoded.to_vec());
 	}
 }
 
