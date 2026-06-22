@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::check::expr::{Binding, MetricKind};
 use code_moniker_core::core::code_graph::DefRecord;
@@ -53,10 +53,10 @@ fn wmc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 }
 
 fn rfc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
-	let mut responses: HashSet<Vec<u8>> = HashSet::new();
+	let mut responses: FxHashSet<&[u8]> = FxHashSet::default();
 	for method_idx in direct_callable_idxs(def_idx, ctx) {
 		let method = ctx.graph.def_at(method_idx);
-		responses.insert(method.moniker.as_encoded().to_vec());
+		responses.insert(method.moniker.as_encoded());
 		for ref_idx in ctx
 			.out_refs_by_source
 			.get(&method_idx)
@@ -67,7 +67,7 @@ fn rfc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 			if !is_call_ref_kind(&record.kind) {
 				continue;
 			}
-			responses.insert(record.target.as_encoded().to_vec());
+			responses.insert(record.target.as_encoded());
 		}
 	}
 	responses.len() as u32
@@ -76,8 +76,8 @@ fn rfc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 fn cbo(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 	let owner = &ctx.graph.def_at(def_idx).moniker;
 	let scope = descendant_idxs(owner, ctx);
-	let scope_set: HashSet<usize> = scope.iter().copied().collect();
-	let mut coupled: HashSet<Vec<u8>> = HashSet::new();
+	let scope_set: FxHashSet<usize> = scope.iter().copied().collect();
+	let mut coupled: FxHashSet<Vec<u8>> = FxHashSet::default();
 
 	for source_idx in &scope {
 		for ref_idx in ctx.out_refs_by_source.get(source_idx).into_iter().flatten() {
@@ -111,17 +111,18 @@ fn lcom4(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 		return 0;
 	}
 
-	let method_pos: HashMap<Vec<u8>, usize> = methods
+	let method_pos: FxHashMap<&[u8], usize> = methods
 		.iter()
 		.enumerate()
-		.map(|(pos, idx)| (ctx.graph.def_at(*idx).moniker.as_encoded().to_vec(), pos))
+		.map(|(pos, idx)| (ctx.graph.def_at(*idx).moniker.as_encoded(), pos))
 		.collect();
-	let fields: HashSet<Vec<u8>> = direct_value_idxs(def_idx, ctx)
+	let fields: FxHashSet<&[u8]> = direct_value_idxs(def_idx, ctx)
 		.into_iter()
-		.map(|idx| ctx.graph.def_at(idx).moniker.as_encoded().to_vec())
+		.map(|idx| ctx.graph.def_at(idx).moniker.as_encoded())
 		.collect();
-	let mut graph: Vec<HashSet<usize>> = (0..methods.len()).map(|_| HashSet::new()).collect();
-	let mut field_users: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
+	let mut graph: Vec<FxHashSet<usize>> =
+		(0..methods.len()).map(|_| FxHashSet::default()).collect();
+	let mut field_users: FxHashMap<&[u8], Vec<usize>> = FxHashMap::default();
 
 	for (pos, method_idx) in methods.iter().copied().enumerate() {
 		for ref_idx in ctx
@@ -135,7 +136,7 @@ fn lcom4(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 				connect(&mut graph, pos, other_pos);
 			}
 			if fields.contains(target) {
-				field_users.entry(target.to_vec()).or_default().push(pos);
+				field_users.entry(target).or_default().push(pos);
 			}
 		}
 	}
@@ -152,11 +153,11 @@ fn lcom4(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 }
 
 fn dit(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
-	let mut visiting = HashSet::new();
+	let mut visiting = FxHashSet::default();
 	dit_from(def_idx, ctx, &mut visiting)
 }
 
-fn dit_from(def_idx: usize, ctx: &EvalCtx<'_, '_>, visiting: &mut HashSet<usize>) -> u32 {
+fn dit_from(def_idx: usize, ctx: &EvalCtx<'_, '_>, visiting: &mut FxHashSet<usize>) -> u32 {
 	if !visiting.insert(def_idx) {
 		return 0;
 	}
@@ -178,7 +179,7 @@ fn dit_from(def_idx: usize, ctx: &EvalCtx<'_, '_>, visiting: &mut HashSet<usize>
 
 fn noc(def_idx: usize, ctx: &EvalCtx<'_, '_>) -> u32 {
 	let key = ctx.graph.def_at(def_idx).moniker.as_encoded();
-	let mut children = HashSet::new();
+	let mut children = FxHashSet::default();
 	for ref_idx in ctx.in_refs_by_target.get(key).into_iter().flatten() {
 		let record = ctx.graph.ref_at(*ref_idx);
 		if is_inheritance_kind(&record.kind) {
@@ -221,7 +222,7 @@ fn add_external_coupling(
 	owner: &Moniker,
 	target: &Moniker,
 	ctx: &EvalCtx<'_, '_>,
-	coupled: &mut HashSet<Vec<u8>>,
+	coupled: &mut FxHashSet<Vec<u8>>,
 ) {
 	if owner.is_ancestor_of(target) {
 		return;
@@ -287,7 +288,7 @@ fn find_def_idx(target: &Moniker, ctx: &EvalCtx<'_, '_>) -> Option<usize> {
 		.find_map(|(idx, def)| (def.moniker == *target).then_some(idx))
 }
 
-fn connect(graph: &mut [HashSet<usize>], a: usize, b: usize) {
+fn connect(graph: &mut [FxHashSet<usize>], a: usize, b: usize) {
 	if a == b {
 		return;
 	}
@@ -295,7 +296,7 @@ fn connect(graph: &mut [HashSet<usize>], a: usize, b: usize) {
 	graph[b].insert(a);
 }
 
-fn connected_components(graph: &[HashSet<usize>]) -> usize {
+fn connected_components(graph: &[FxHashSet<usize>]) -> usize {
 	let mut seen = vec![false; graph.len()];
 	let mut components = 0;
 	for start in 0..graph.len() {
