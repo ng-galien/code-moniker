@@ -11,6 +11,7 @@ use crate::source::CodeIndexMaterial;
 
 mod generic;
 mod java;
+mod python;
 mod rust;
 mod ts;
 
@@ -21,15 +22,18 @@ pub(super) trait LanguageLinkageStrategy: Sync {
 static GENERIC_STRATEGY: generic::GenericLanguageLinkageStrategy =
 	generic::GenericLanguageLinkageStrategy;
 static JAVA_STRATEGY: java::JavaLanguageLinkageStrategy = java::JavaLanguageLinkageStrategy;
+static PYTHON_STRATEGY: python::PythonLanguageLinkageStrategy =
+	python::PythonLanguageLinkageStrategy;
 static RUST_STRATEGY: rust::RustLanguageLinkageStrategy = rust::RustLanguageLinkageStrategy;
 static TS_STRATEGY: ts::TsLanguageLinkageStrategy = ts::TsLanguageLinkageStrategy;
 
 pub(super) fn language_strategy(lang: Lang) -> &'static dyn LanguageLinkageStrategy {
 	match lang {
 		Lang::Java => &JAVA_STRATEGY,
+		Lang::Python => &PYTHON_STRATEGY,
 		Lang::Rs => &RUST_STRATEGY,
 		Lang::Ts => &TS_STRATEGY,
-		Lang::Python | Lang::Go | Lang::Cs | Lang::Sql => &GENERIC_STRATEGY,
+		Lang::Go | Lang::Cs | Lang::Sql => &GENERIC_STRATEGY,
 	}
 }
 

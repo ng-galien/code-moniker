@@ -1,6 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-
 use tree_sitter::{Language, Parser, Tree};
 
 use crate::core::code_graph::CodeGraph;
@@ -8,18 +5,11 @@ use crate::core::moniker::Moniker;
 use crate::core::shape::Shape;
 
 use crate::lang::KindSpec;
-use crate::lang::canonical_walker::CanonicalWalker;
 
 pub mod build;
 mod canonicalize;
 mod kinds;
-mod strategy;
-
-use canonicalize::compute_module_moniker;
-use strategy::{
-	CallableEntry, Strategy, collect_callable_table, collect_instance_attr_types,
-	collect_type_table,
-};
+mod sdk_pipeline;
 
 #[derive(Clone, Debug, Default)]
 pub struct Presets {}
@@ -40,55 +30,9 @@ pub fn extract(
 	source: &str,
 	anchor: &Moniker,
 	deep: bool,
-	_presets: &Presets,
+	presets: &Presets,
 ) -> CodeGraph {
-	let tree = parse(source);
-	let module = compute_module_moniker(anchor, uri);
-	let (def_cap, ref_cap) = CodeGraph::capacity_for_source(source.len());
-	let mut graph = CodeGraph::with_capacity(module.clone(), kinds::MODULE, def_cap, ref_cap);
-	let mut type_table: strategy::TypeTable = HashMap::new();
-	collect_type_table(
-		tree.root_node(),
-		source.as_bytes(),
-		&module,
-		false,
-		&mut type_table,
-	);
-	let mut callable_table: HashMap<(Moniker, Vec<u8>), CallableEntry> = HashMap::new();
-	collect_callable_table(
-		tree.root_node(),
-		source.as_bytes(),
-		&module,
-		false,
-		&mut callable_table,
-	);
-	let mut instance_attr_types: HashMap<(Moniker, Vec<u8>), Moniker> = HashMap::new();
-	collect_instance_attr_types(
-		tree.root_node(),
-		source.as_bytes(),
-		&module,
-		false,
-		&type_table,
-		&mut instance_attr_types,
-	);
-	let strat = Strategy {
-		module: module.clone(),
-		source_bytes: source.as_bytes(),
-		deep,
-		imports: RefCell::new(HashMap::<Vec<u8>, &'static [u8]>::new()),
-		import_targets: RefCell::new(HashMap::<Vec<u8>, _>::new()),
-		local_scope: RefCell::new(Vec::new()),
-		local_types: RefCell::new(Vec::new()),
-		instance_attr_types: RefCell::new(instance_attr_types),
-		type_table,
-		callable_table,
-	};
-	let walker = CanonicalWalker::new(&strat, source.as_bytes());
-	walker.walk(tree.root_node(), &module, &mut graph);
-	if let Some(docstring) = strategy::first_docstring(tree.root_node()) {
-		strategy::emit_docstring_def(docstring, &module, &mut graph);
-	}
-	graph
+	sdk_pipeline::extract(uri, source, anchor, deep, presets)
 }
 
 pub struct Lang;

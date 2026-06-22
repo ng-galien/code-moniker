@@ -110,6 +110,15 @@ struct ImportTargetResolver<'ctx, 'src> {
 	ctx: &'ctx TsImportContext<'ctx, 'src>,
 }
 
+struct TsImportClauseContext<'a, 'ctx, 'src> {
+	raw_spec: &'src str,
+	confidence: &'static [u8],
+	pos: Position,
+	scope: &'a Moniker,
+	import: &'a TsImportContext<'ctx, 'src>,
+	resolver: &'a ImportTargetResolver<'ctx, 'src>,
+}
+
 impl<'ctx, 'src> ImportTargetResolver<'ctx, 'src> {
 	fn new(ctx: &'ctx TsImportContext<'ctx, 'src>) -> Self {
 		Self { ctx }
@@ -431,55 +440,64 @@ impl TsImports {
 		};
 
 		let mut cursor = clause.walk();
+		let clause_ctx = TsImportClauseContext {
+			raw_spec,
+			confidence,
+			pos,
+			scope,
+			import: &ctx,
+			resolver: &resolver,
+		};
 		for child in clause.children(&mut cursor) {
-			self.handle_import_clause_child(
-				child, raw_spec, confidence, pos, scope, graph, &ctx, &resolver,
-			);
+			self.handle_import_clause_child(child, graph, &clause_ctx);
 		}
 	}
 
 	fn handle_import_clause_child(
 		&self,
 		child: Node<'_>,
-		raw_spec: &str,
-		confidence: &'static [u8],
-		pos: Position,
-		scope: &Moniker,
 		graph: &mut SdkBuilder,
-		ctx: &TsImportContext<'_, '_>,
-		resolver: &ImportTargetResolver<'_, '_>,
+		ctx: &TsImportClauseContext<'_, '_, '_>,
 	) {
 		match child.kind() {
 			"identifier" => {
-				let local_name = node_slice(child, ctx.source);
-				let target = resolver.symbol_target(raw_spec, b"default");
+				let local_name = node_slice(child, ctx.import.source);
+				let target = ctx.resolver.symbol_target(ctx.raw_spec, b"default");
 				self.bindings
-					.record_binding(local_name, confidence, target.clone());
+					.record_binding(local_name, ctx.confidence, target.clone());
 				let attrs = RefAttrs {
 					alias: local_name,
-					confidence,
+					confidence: ctx.confidence,
 					..RefAttrs::default()
 				};
-				let _ =
-					graph.add_ref_attrs(scope, target, kinds::IMPORTS_SYMBOL, Some(pos), &attrs);
+				let _ = graph.add_ref_attrs(
+					ctx.scope,
+					target,
+					kinds::IMPORTS_SYMBOL,
+					Some(ctx.pos),
+					&attrs,
+				);
 			}
 			"namespace_import" => {
-				let alias = first_identifier_text(child, ctx.source);
-				let target = resolver.module_target(raw_spec);
+				let alias = first_identifier_text(child, ctx.import.source);
+				let target = ctx.resolver.module_target(ctx.raw_spec);
 				self.bindings
-					.record_binding(alias, confidence, target.clone());
+					.record_binding(alias, ctx.confidence, target.clone());
 				let attrs = RefAttrs {
 					alias,
-					confidence,
+					confidence: ctx.confidence,
 					..RefAttrs::default()
 				};
-				let _ =
-					graph.add_ref_attrs(scope, target, kinds::IMPORTS_MODULE, Some(pos), &attrs);
+				let _ = graph.add_ref_attrs(
+					ctx.scope,
+					target,
+					kinds::IMPORTS_MODULE,
+					Some(ctx.pos),
+					&attrs,
+				);
 			}
 			"named_imports" => {
-				self.handle_named_imports(
-					child, raw_spec, confidence, pos, scope, graph, ctx, resolver,
-				);
+				self.handle_named_imports(child, graph, ctx);
 			}
 			_ => {}
 		}
@@ -488,13 +506,8 @@ impl TsImports {
 	fn handle_named_imports(
 		&self,
 		node: Node<'_>,
-		raw_spec: &str,
-		confidence: &'static [u8],
-		pos: Position,
-		scope: &Moniker,
 		graph: &mut SdkBuilder,
-		ctx: &TsImportContext<'_, '_>,
-		resolver: &ImportTargetResolver<'_, '_>,
+		ctx: &TsImportClauseContext<'_, '_, '_>,
 	) {
 		let mut cursor = node.walk();
 		for spec in node.children(&mut cursor) {
@@ -503,25 +516,31 @@ impl TsImports {
 			}
 			let Some(name) = spec
 				.child_by_field_name("name")
-				.map(|n| node_slice(n, ctx.source))
+				.map(|n| node_slice(n, ctx.import.source))
 				.filter(|n| !n.is_empty())
 			else {
 				continue;
 			};
 			let alias = spec
 				.child_by_field_name("alias")
-				.map(|n| node_slice(n, ctx.source))
+				.map(|n| node_slice(n, ctx.import.source))
 				.unwrap_or(b"");
 			let local = if alias.is_empty() { name } else { alias };
-			let target = resolver.symbol_target(raw_spec, name);
+			let target = ctx.resolver.symbol_target(ctx.raw_spec, name);
 			self.bindings
-				.record_binding(local, confidence, target.clone());
+				.record_binding(local, ctx.confidence, target.clone());
 			let attrs = RefAttrs {
 				alias,
-				confidence,
+				confidence: ctx.confidence,
 				..RefAttrs::default()
 			};
-			let _ = graph.add_ref_attrs(scope, target, kinds::IMPORTS_SYMBOL, Some(pos), &attrs);
+			let _ = graph.add_ref_attrs(
+				ctx.scope,
+				target,
+				kinds::IMPORTS_SYMBOL,
+				Some(ctx.pos),
+				&attrs,
+			);
 		}
 	}
 

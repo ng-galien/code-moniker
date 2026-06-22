@@ -169,6 +169,52 @@ fn ts_manifest_undeclared_package_imports_are_not_external() {
 	assert_not_external_reference(&snapshot, "calls", "external_pkg:zustand/function:create");
 }
 
+#[test]
+fn python_project_links_imported_types_constructors_and_methods() {
+	let snapshot = load_workspace("projects/python/analytics-service");
+
+	assert_linked_to(
+		&snapshot,
+		"imports_symbol",
+		"package:analytics_service/module:models/path:Customer",
+		"package:analytics_service/module:models/class:Customer",
+	);
+	assert_linked_to(
+		&snapshot,
+		"imports_symbol",
+		"package:analytics_service/module:policies/path:RiskPolicy",
+		"package:analytics_service/module:policies/class:RiskPolicy",
+	);
+	assert_linked_to(
+		&snapshot,
+		"uses_type",
+		"package:analytics_service/module:models/path:Customer",
+		"package:analytics_service/module:models/class:Customer",
+	);
+	assert_linked_to(
+		&snapshot,
+		"uses_type",
+		"package:analytics_service/module:models/path:RiskScore",
+		"package:analytics_service/module:models/class:RiskScore",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:analytics_service/module:service/function:build_default_service()",
+		"calls",
+		"RiskPolicy",
+		0,
+		"package:analytics_service/module:policies/class:RiskPolicy",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"package:analytics_service/module:service/class:AnalyticsService/method:score(customer:Customer,features:dict[str,int])",
+		"method_call",
+		"evaluate",
+		2,
+		"package:analytics_service/module:policies/class:RiskPolicy/method:evaluate(customer:Customer,features:dict[str,int])",
+	);
+}
+
 fn assert_java_platform_refs(snapshot: &WorkspaceSnapshot) {
 	assert_external_reference(
 		snapshot,
@@ -753,8 +799,17 @@ fn assert_call_linked_to(
 			.any(|reference| linked_symbol_identities(snapshot, reference)
 				.iter()
 				.any(|identity| identity.contains(symbol_identity))),
-		"no `{call_name}`/{call_arity} call from `{}` was linked to `{symbol_identity}`",
-		source.identity
+		"no `{call_name}`/{call_arity} call from `{}` was linked to `{symbol_identity}`; matching refs: [{}]",
+		source.identity,
+		references
+			.iter()
+			.map(|reference| format!(
+				"target={} linked=[{}]",
+				reference.target_identity,
+				linked_symbol_identities(snapshot, reference).join(", ")
+			))
+			.collect::<Vec<_>>()
+			.join("; ")
 	);
 }
 
