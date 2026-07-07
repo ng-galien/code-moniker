@@ -19,6 +19,7 @@ camel     = "name =~ ^[a-z_][A-Za-z0-9]*$"
 snake     = "name =~ ^[a-z_][a-z0-9_]*$"
 screaming = "name =~ ^[A-Z][A-Z0-9_]*$"
 go_id     = "name =~ ^([A-Z][a-zA-Z0-9_]*|[a-z][a-zA-Z0-9_]*)$"
+ts_callback = "name =~ ^__cb_[0-9]+_[0-9]+$"
 
 # ─── TypeScript / JavaScript ──────────────────────────────────────────────
 [[ts.class.where]]
@@ -36,7 +37,7 @@ expr = "$pascal"
 
 [[ts.function.where]]
 id      = "name-camelcase"
-expr    = "$camel"
+expr    = "$camel OR $ts_callback"
 message = "Function names use camelCase. Rename `{name}`."
 
 [[ts.function.where]]

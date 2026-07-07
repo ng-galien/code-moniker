@@ -1977,6 +1977,26 @@ fn check_default_preset_flags_helper_function_name() {
 }
 
 #[test]
+fn check_default_preset_allows_synthetic_ts_js_callback_names() {
+	for name in ["a.ts", "a.js"] {
+		let dir = write_fixture(name, "[1].map(x => x);\n");
+		let path = dir.path().join(name);
+		let (exit, out, err) = run_with(vec![
+			"code-moniker",
+			"check",
+			path.to_str().unwrap(),
+			"--rules",
+			"/no/such/file.toml",
+		]);
+		assert_eq!(exit, Exit::Match, "{name}: stdout={out}\nstderr={err}");
+		assert!(
+			!out.contains("ts.function.name-camelcase"),
+			"synthetic callback names should be accepted by default naming rules for {name}: {out}"
+		);
+	}
+}
+
+#[test]
 fn check_default_rules_can_be_disabled() {
 	let dir = write_fixture("a.ts", "function helper() {}\n");
 	let path = dir.path().join("a.ts");
