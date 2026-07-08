@@ -180,19 +180,22 @@ fn discover_scopes(paths: &[PathBuf], project: Option<String>) -> anyhow::Result
 
 pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Option<SourceFile> {
 	let lang = path_to_lang(path).ok()?;
-	let abs = normalize_absolute(path).ok()?;
+	let abs = path
+		.canonicalize()
+		.or_else(|_| normalize_absolute(path))
+		.ok()?;
 	let (source, root) = sources
 		.roots
 		.iter()
 		.enumerate()
 		.filter_map(|(idx, root)| {
-			let root_path = normalize_absolute(&root.path).ok()?;
+			let root_path = canonical_root_path(&root.path)?;
 			abs.starts_with(&root_path)
 				.then(|| (idx, root, root_path.components().count()))
 		})
 		.max_by_key(|(_, _, depth)| *depth)
 		.map(|(idx, root, _)| (idx, root))?;
-	let root_path = normalize_absolute(&root.path).unwrap_or_else(|_| root.path.clone());
+	let root_path = canonical_root_path(&root.path)?;
 	let rel = abs.strip_prefix(&root_path).ok()?.to_path_buf();
 	let rel_path = if sources.multi {
 		PathBuf::from(&root.label).join(&rel)
@@ -213,6 +216,12 @@ pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Opti
 		anchor,
 		lang,
 	})
+}
+
+fn canonical_root_path(root: &Path) -> Option<PathBuf> {
+	root.canonicalize()
+		.or_else(|_| normalize_absolute(root))
+		.ok()
 }
 
 fn source_file_from_walked(scope: &SourceScope, walked: WalkedFile, multi: bool) -> SourceFile {

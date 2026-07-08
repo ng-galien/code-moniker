@@ -111,6 +111,7 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 		token: generate_token()?,
 		pid: std::process::id(),
 	};
+	reject_conflicting_daemons(&config)?;
 	write_registry_entry(&config, &entry)?;
 
 	let handle = server.start(service.into_rpc());
@@ -574,6 +575,32 @@ fn workspace_loading_response(request: ProtocolRequest, roots: &[PathBuf]) -> Pr
 			"workspace daemon is busy loading; retry after workspace.status reports phase ready",
 		)),
 	}
+}
+
+fn reject_conflicting_daemons(config: &DaemonWorkspaceConfig) -> anyhow::Result<()> {
+	let own_path = registry_path_for_config(config)?;
+	for (path, entry) in code_moniker_query::list_registry_files()? {
+		if path == own_path {
+			continue;
+		}
+		let shares_root = entry
+			.workspace_roots
+			.iter()
+			.any(|root| config.roots.contains(root));
+		if !shares_root {
+			continue;
+		}
+		if code_moniker_query::pid_is_alive(entry.pid) {
+			anyhow::bail!(
+				"a daemon already serves {} (pid {}, endpoint {}); stop it before starting another",
+				entry.workspace_root,
+				entry.pid,
+				entry.endpoint
+			);
+		}
+		let _ = fs::remove_file(&path);
+	}
+	Ok(())
 }
 
 fn drain_live_events(daemon: &mut WorkspaceDaemon) -> Result<(), QueryError> {
@@ -2555,6 +2582,92 @@ mod tests {
 	};
 
 	use super::*;
+
+	fn search_symbols(daemon: &mut WorkspaceDaemon, text: &str) -> QueryResult {
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::SymbolSearch(code_moniker_query::SymbolSearchQuery {
+				workspace: None,
+				text: Some(text.to_string()),
+				path: Vec::new(),
+				lang: Vec::new(),
+				kind: Vec::new(),
+				shape: Vec::new(),
+				name: None,
+				include_non_navigable: false,
+				include_code: false,
+				context_lines: 0,
+				projection: Vec::new(),
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		})));
+		match response {
+			ProtocolResponse::Query(query) => query.result,
+			other => panic!("expected query response, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn auto_policy_applies_live_edits_before_plain_queries() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src = temp.path().join("src");
+		fs::create_dir_all(&src).expect("src dir");
+		let lib = src.join("lib.rs");
+		fs::write(&lib, "pub fn before_auto_edit() {}\n").expect("write lib");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: Some("auto".to_string()),
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+
+		fs::write(&lib, "pub fn after_auto_edit() {}\n").expect("rewrite lib");
+		daemon
+			.live
+			.tx
+			.send(WorkspaceLiveEvent::SourcesChanged(vec![lib.clone()]))
+			.expect("send live event");
+
+		match search_symbols(&mut daemon, "after_auto_edit") {
+			QueryResult::SymbolList(symbols) => {
+				assert_eq!(
+					symbols.rows.len(),
+					1,
+					"auto policy should apply the edit before a plain query"
+				);
+			}
+			other => panic!("expected symbols result, got {other:?}"),
+		}
+
+		fs::write(
+			src.join("fresh_auto.rs"),
+			"pub fn fresh_auto_created() {}\n",
+		)
+		.expect("create file");
+		daemon
+			.live
+			.tx
+			.send(WorkspaceLiveEvent::SourcesChanged(vec![
+				src.join("fresh_auto.rs"),
+			]))
+			.expect("send create event");
+
+		match search_symbols(&mut daemon, "fresh_auto_created") {
+			QueryResult::SymbolList(symbols) => {
+				assert_eq!(
+					symbols.rows.len(),
+					1,
+					"auto policy should index created files before a plain query"
+				);
+			}
+			other => panic!("expected symbols result, got {other:?}"),
+		}
+	}
 
 	#[test]
 	fn query_error_carries_structured_code_in_data() {

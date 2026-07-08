@@ -123,40 +123,65 @@ impl SourceCatalogPort for LocalSourceCatalog {
 		current: &SourceCatalog,
 		paths: &[PathBuf],
 	) -> WorkspaceResult<Option<SourceCatalog>> {
-		let Some(mut material) = self.cache.source_material(current.generation) else {
-			return Ok(None);
-		};
-		let mut added = Vec::new();
-		for path in paths {
-			if !path.is_file() || material.normalized_file_index(path).is_some() {
-				continue;
-			}
-			if let Some(file) = crate::sources::source_file_for_new_path(&material.sources, path) {
-				added.push(file);
-			}
-		}
-		if added.is_empty() {
-			return Ok(None);
-		}
-		material.sources.files.extend(added);
-		let generation = self.cache.next_generation();
-		let units = material
-			.sources
-			.files
-			.iter()
-			.enumerate()
-			.map(|(file_idx, file)| {
-				SourceUnit::with_language(
-					material
-						.identity
-						.source_id(file_idx, &file.rel_path)
-						.as_str(),
-					file.rel_path.display().to_string(),
-					file.lang.tag(),
-				)
-			})
-			.collect::<Vec<_>>();
-		self.cache.insert_sources(generation, material);
-		Ok(Some(SourceCatalog::new(generation, units)))
+		extend_local_catalog(&self.cache, current, paths)
 	}
+}
+
+fn extend_local_catalog(
+	cache: &LocalResourceCache,
+	current: &SourceCatalog,
+	paths: &[PathBuf],
+) -> WorkspaceResult<Option<SourceCatalog>> {
+	let Some(mut material) = cache.source_material(current.generation) else {
+		return Ok(None);
+	};
+	let added = new_source_files(&material, paths);
+	if added.is_empty() {
+		return Ok(None);
+	}
+	material.sources.files.extend(added);
+	let generation = cache.next_generation();
+	let units = catalog_units(&material);
+	cache.insert_sources(generation, material);
+	Ok(Some(SourceCatalog::new(generation, units)))
+}
+
+fn new_source_files(
+	material: &SourceCatalogMaterial,
+	paths: &[PathBuf],
+) -> Vec<crate::sources::SourceFile> {
+	let mut added: Vec<crate::sources::SourceFile> = Vec::new();
+	for path in paths {
+		if !path.is_file() || material.normalized_file_index(path).is_some() {
+			continue;
+		}
+		let Some(file) = crate::sources::source_file_for_new_path(&material.sources, path) else {
+			continue;
+		};
+		let duplicate = material.normalized_file_index(&file.path).is_some()
+			|| added.iter().any(|existing| existing.path == file.path);
+		if !duplicate {
+			added.push(file);
+		}
+	}
+	added
+}
+
+fn catalog_units(material: &SourceCatalogMaterial) -> Vec<SourceUnit> {
+	material
+		.sources
+		.files
+		.iter()
+		.enumerate()
+		.map(|(file_idx, file)| {
+			SourceUnit::with_language(
+				material
+					.identity
+					.source_id(file_idx, &file.rel_path)
+					.as_str(),
+				file.rel_path.display().to_string(),
+				file.lang.tag(),
+			)
+		})
+		.collect()
 }

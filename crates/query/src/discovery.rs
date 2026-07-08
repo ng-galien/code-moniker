@@ -130,6 +130,42 @@ pub fn write_registry_entry(
 	Ok(())
 }
 
+pub fn list_registry_files() -> anyhow::Result<Vec<(PathBuf, DaemonRegistryEntry)>> {
+	let dir = registry_dir();
+	if !dir.exists() {
+		return Ok(Vec::new());
+	}
+	let mut entries = Vec::new();
+	for entry in fs::read_dir(&dir)? {
+		let entry = entry?;
+		if entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
+			continue;
+		}
+		let text = fs::read_to_string(entry.path())?;
+		if let Ok(registry) = serde_json::from_str::<DaemonRegistryEntry>(&text) {
+			entries.push((entry.path(), registry));
+		}
+	}
+	entries.sort_by(|(_, a), (_, b)| a.workspace_root.cmp(&b.workspace_root));
+	Ok(entries)
+}
+
+pub fn pid_is_alive(pid: u32) -> bool {
+	#[cfg(unix)]
+	{
+		std::process::Command::new("kill")
+			.args(["-0", &pid.to_string()])
+			.status()
+			.map(|status| status.success())
+			.unwrap_or(true)
+	}
+	#[cfg(not(unix))]
+	{
+		let _ = pid;
+		true
+	}
+}
+
 pub fn list_registry_entries() -> anyhow::Result<Vec<DaemonRegistryEntry>> {
 	let dir = registry_dir();
 	if !dir.exists() {
