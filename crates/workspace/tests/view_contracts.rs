@@ -3,8 +3,7 @@
 //! These freeze the observable output of `SymbolView`, `ReferenceView` and
 //! `SearchView` on a small fixture, so index-side refactors (record shards,
 //! nav/search indexes) must preserve view behavior bit-for-bit. The camelCase
-//! search golden documents today's miss and is flipped intentionally when the
-//! camelCase-aware search index lands.
+//! search golden asserts camelCase queries match snake_case symbols.
 
 use std::fs;
 use std::path::Path;
@@ -158,7 +157,7 @@ fn multiword_search_finds_camelcase_and_snake_case_symbols() {
 }
 
 #[test]
-fn camelcase_query_currently_misses_snake_case_symbols() {
+fn camelcase_query_matches_snake_case_symbols() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	seed(temp.path());
 	let snapshot = indexed_snapshot(temp.path());
@@ -181,9 +180,8 @@ fn camelcase_query_currently_misses_snake_case_symbols() {
 		"exact camelCase name should match, got {names:?}"
 	);
 	assert!(
-		!names.contains(&"widget_probe()".to_string()),
-		"documents today's gap: a concatenated camelCase query does not match \
-		 snake_case symbols; flip this assertion when the camelCase-aware \
-		 search index lands"
+		names.contains(&"widget_probe()".to_string()),
+		"a camelCase query splits on case boundaries and matches snake_case \
+		 symbols, got {names:?}"
 	);
 }

@@ -20,8 +20,9 @@ impl<'a> SearchView<'a> {
 		limit: usize,
 		mut matches: impl FnMut(&SymbolRecord) -> bool,
 	) -> Vec<SearchHit> {
-		let raw = query.trim().to_ascii_lowercase();
-		let terms = search_terms(&raw);
+		let trimmed = query.trim();
+		let raw = trimmed.to_ascii_lowercase();
+		let terms = search_terms(trimmed);
 		if raw.is_empty() || terms.is_empty() || limit == 0 {
 			return Vec::new();
 		}
@@ -34,41 +35,53 @@ impl<'a> SearchView<'a> {
 			.filter(|symbol| matches(symbol))
 			.filter_map(|symbol| {
 				let (score, reason) = score_symbol(symbol, &raw, &terms)?;
-				Some(SearchHit {
-					symbol: symbol.id.clone(),
-					score,
-					reason,
-				})
+				Some((
+					SearchHit {
+						symbol: symbol.id.clone(),
+						score,
+						reason,
+					},
+					symbol.identity.as_str(),
+				))
 			})
 			.collect::<Vec<_>>();
-		hits.sort_by(|left, right| {
-			right.score.cmp(&left.score).then_with(|| {
-				let left_symbol = self.symbol_identity(left);
-				let right_symbol = self.symbol_identity(right);
-				left_symbol.cmp(&right_symbol)
-			})
+		hits.sort_by(|(left, left_identity), (right, right_identity)| {
+			right
+				.score
+				.cmp(&left.score)
+				.then_with(|| left_identity.cmp(right_identity))
 		});
 		hits.truncate(limit);
-		hits
-	}
-
-	fn symbol_identity(&self, hit: &SearchHit) -> String {
-		self.snapshot
-			.index
-			.symbols
-			.iter()
-			.find(|symbol| symbol.id == hit.symbol)
-			.map(|symbol| symbol.identity.clone())
-			.unwrap_or_else(|| hit.symbol.as_str().to_string())
+		hits.into_iter().map(|(hit, _)| hit).collect()
 	}
 }
 
 fn search_terms(query: &str) -> Vec<String> {
 	query
 		.split(|c: char| !c.is_alphanumeric())
+		.flat_map(split_camel_case)
 		.filter(|term| !term.is_empty())
-		.map(ToOwned::to_owned)
+		.map(|term| term.to_ascii_lowercase())
 		.collect()
+}
+
+fn split_camel_case(word: &str) -> Vec<&str> {
+	let mut parts = Vec::new();
+	let mut start = 0;
+	let bytes = word.as_bytes();
+	for idx in 1..bytes.len() {
+		let boundary = bytes[idx].is_ascii_uppercase()
+			&& (bytes[idx - 1].is_ascii_lowercase()
+				|| bytes
+					.get(idx + 1)
+					.is_some_and(|next| next.is_ascii_lowercase()));
+		if boundary {
+			parts.push(&word[start..idx]);
+			start = idx;
+		}
+	}
+	parts.push(&word[start..]);
+	parts
 }
 
 fn score_symbol(symbol: &SymbolRecord, phrase: &str, terms: &[String]) -> Option<(u32, String)> {
