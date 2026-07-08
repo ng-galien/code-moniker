@@ -33,7 +33,7 @@ pub(crate) fn build_complete_snapshot(
 	let linkage = linkage.resolve_linkage(&index)?;
 	let linkage_elapsed = linkage_timer.elapsed();
 	let changes_timer = Instant::now();
-	let changes = change_overlay.build_change_overlay(&catalog, &index, &linkage)?;
+	let changes = change_overlay.build_change_overlay(&catalog, &index)?;
 	let changes_elapsed = changes_timer.elapsed();
 	let timings = timings(
 		catalog_elapsed,
@@ -102,8 +102,7 @@ pub(crate) fn build_linkage_snapshot(
 	let linkage = linkage.resolve_linkage(&current.index)?;
 	let linkage_elapsed = linkage_timer.elapsed();
 	let changes_timer = Instant::now();
-	let changes =
-		change_overlay.build_change_overlay(&current.catalog, &current.index, &linkage)?;
+	let changes = change_overlay.build_change_overlay(&current.catalog, &current.index)?;
 	let changes_elapsed = changes_timer.elapsed();
 	let total = current.timings.source_catalog
 		+ current.timings.code_index
@@ -140,8 +139,7 @@ pub(crate) fn build_change_overlay_snapshot(
 		)
 	})?;
 	let changes_timer = Instant::now();
-	let changes =
-		change_overlay.build_change_overlay(&current.catalog, &current.index, &current.linkage)?;
+	let changes = change_overlay.build_change_overlay(&current.catalog, &current.index)?;
 	let changes_elapsed = changes_timer.elapsed();
 	let total = current.timings.source_catalog
 		+ current.timings.code_index

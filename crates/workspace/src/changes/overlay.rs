@@ -1,7 +1,7 @@
 use crate::code::CodeIndexSymbolProvider;
 use crate::snapshot::{
-	ChangeOverlay, ChangeOverlayReport, ChangeResource, CodeIndex, LinkageSnapshot, SourceCatalog,
-	WorkspaceFailure, WorkspaceResource, WorkspaceResult,
+	ChangeOverlay, ChangeOverlayReport, ChangeResource, CodeIndex, SourceCatalog, WorkspaceFailure,
+	WorkspaceResource, WorkspaceResult,
 };
 use crate::source::{CodeIndexMaterial, LocalResourceCache};
 
@@ -13,7 +13,6 @@ pub trait ChangeOverlayPort {
 		&mut self,
 		catalog: &SourceCatalog,
 		index: &CodeIndex,
-		linkage: &LinkageSnapshot,
 	) -> WorkspaceResult<ChangeOverlay>;
 }
 
@@ -32,7 +31,6 @@ impl ChangeOverlayPort for LocalChangeOverlay {
 		&mut self,
 		catalog: &SourceCatalog,
 		index: &CodeIndex,
-		_linkage: &LinkageSnapshot,
 	) -> WorkspaceResult<ChangeOverlay> {
 		let material = self.cache.index_material(index.generation).ok_or_else(|| {
 			WorkspaceFailure::new(

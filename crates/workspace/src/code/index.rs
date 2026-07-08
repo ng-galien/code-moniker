@@ -135,7 +135,7 @@ fn build_local_code_index(
 
 fn refresh_local_code_index(
 	cache: &LocalResourceCache,
-	_options: &LocalCodeIndexOptions,
+	options: &LocalCodeIndexOptions,
 	current: &CodeIndex,
 	paths: &[PathBuf],
 ) -> WorkspaceResult<CodeIndexRefresh> {
@@ -161,7 +161,7 @@ fn refresh_local_code_index(
 			&current_material.source_catalog,
 			file_idx,
 			&source.path,
-			None,
+			options.cache_dir.as_deref(),
 		)?;
 		if let Some(slot) = files.get_mut(file_idx) {
 			push_unique_source(&mut changed_sources, indexed.source_id.clone());

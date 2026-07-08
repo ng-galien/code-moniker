@@ -99,7 +99,7 @@ fn main() -> anyhow::Result<()> {
 	} else {
 		let changes_timer = Instant::now();
 		let changes = change_port
-			.build_change_overlay(&catalog, &index, &linkage)
+			.build_change_overlay(&catalog, &index)
 			.map_err(|failure| anyhow::anyhow!("{:?}: {}", failure.resource, failure.message))?;
 		let material = cache.index_material(index.generation);
 		samples.push(MemorySample::capture(

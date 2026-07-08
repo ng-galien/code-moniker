@@ -210,6 +210,63 @@ fn refresh_paths_relinks_only_graph_diff_references_when_reference_ids_shift() {
 }
 
 #[test]
+fn refresh_paths_writes_changed_graphs_through_the_disk_cache() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	let lib = src.join("lib.rs");
+	fs::write(&lib, "pub fn original() {}\n").expect("write lib");
+	let cache_dir = tempfile::tempdir().expect("cache dir");
+
+	let cache = LocalResourceCache::default();
+	let mut source_catalog = LocalSourceCatalog::new(
+		LocalSourceCatalogOptions::new(vec![temp.path().to_path_buf()], None),
+		cache.clone(),
+	);
+	let catalog = source_catalog
+		.load_catalog(&WorkspaceRequest::new("refresh-cache-catalog"))
+		.expect("catalog");
+	let mut code_index = LocalCodeIndex::new(
+		LocalCodeIndexOptions::new(Some(cache_dir.path().to_path_buf())),
+		cache,
+	);
+	let index = code_index.build_index(&catalog).expect("index");
+	let entries_after_build = disk_cache_entries(cache_dir.path());
+	assert!(
+		!entries_after_build.is_empty(),
+		"initial build should populate the disk cache"
+	);
+
+	fs::write(&lib, "pub fn original() {}\npub fn appended() {}\n").expect("rewrite lib");
+	code_index
+		.refresh_paths(&index, std::slice::from_ref(&lib))
+		.expect("refresh paths");
+	assert_ne!(
+		disk_cache_entries(cache_dir.path()),
+		entries_after_build,
+		"refreshing a changed file should write its new graph through the disk cache"
+	);
+}
+
+fn disk_cache_entries(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+	let mut entries = Vec::new();
+	let Ok(dir_entries) = fs::read_dir(dir) else {
+		return entries;
+	};
+	for entry in dir_entries.flatten() {
+		let path = entry.path();
+		if path.is_dir() {
+			entries.extend(disk_cache_entries(&path));
+		} else {
+			let bytes = fs::read(&path).unwrap_or_default();
+			entries.push((path, bytes));
+		}
+	}
+	entries.sort();
+	entries
+}
+
+#[test]
 fn refresh_paths_drops_removed_references_without_relinking_unchanged_graph() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let src = temp.path().join("src");
