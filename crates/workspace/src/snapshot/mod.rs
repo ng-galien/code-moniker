@@ -12,10 +12,11 @@ pub use records::RecordTable;
 pub use model::{
 	ChangeId, ChangeOverlay, ChangeOverlayReport, ChangeRecord, ChangeRecordCoreFields,
 	ChangeResource, ChangeStatus, CodeIndex, CodeIndexTimings, ExternalReference,
-	ExternalReferenceOrigin, LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord,
-	ResourceGeneration, SourceCatalog, SourceFileRecord, SourceId, SourceUnit, SymbolId,
-	SymbolLocation, SymbolRecord, UnresolvedReference, WorkspaceFailure, WorkspaceRequest,
-	WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings, WorkspaceTransition,
+	ExternalReferenceOrigin, LinkageEdge, LinkageReadIndex, LinkageReadIndexHandle,
+	LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
+	SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolLocation, SymbolRecord,
+	UnresolvedReference, WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult,
+	WorkspaceSnapshot, WorkspaceTimings, WorkspaceTransition,
 };
 pub use view::{
 	ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet, ReferenceSetSummary,

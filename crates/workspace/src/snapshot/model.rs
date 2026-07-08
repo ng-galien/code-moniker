@@ -370,7 +370,56 @@ pub struct LinkageSnapshot {
 	pub external: Vec<ExternalReference>,
 	pub manifest_blocked: Vec<UnresolvedReference>,
 	pub unresolved: Vec<UnresolvedReference>,
+	pub read_index: LinkageReadIndexHandle,
 }
+
+#[derive(Debug)]
+pub struct LinkageReadIndex {
+	pub(crate) incoming: rustc_hash::FxHashMap<SymbolId, Vec<ReferenceId>>,
+	pub(crate) targets: rustc_hash::FxHashMap<ReferenceId, SymbolId>,
+}
+
+impl LinkageReadIndex {
+	pub fn from_edges(edges: &[LinkageEdge]) -> Self {
+		let mut incoming = rustc_hash::FxHashMap::<SymbolId, Vec<ReferenceId>>::default();
+		let mut targets = rustc_hash::FxHashMap::<ReferenceId, SymbolId>::default();
+		for edge in edges {
+			let LinkageEdge { reference, target } = edge.clone();
+			targets.entry(reference.clone()).or_insert(target.clone());
+			incoming.entry(target).or_default().push(reference);
+		}
+		Self { incoming, targets }
+	}
+
+	pub fn incoming(&self, symbol: &SymbolId) -> &[ReferenceId] {
+		self.incoming.get(symbol).map(Vec::as_slice).unwrap_or(&[])
+	}
+
+	pub fn resolved_target(&self, reference: &ReferenceId) -> Option<&SymbolId> {
+		self.targets.get(reference)
+	}
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LinkageReadIndexHandle(Option<Arc<LinkageReadIndex>>);
+
+impl LinkageReadIndexHandle {
+	pub fn from_edges(edges: &[LinkageEdge]) -> Self {
+		Self(Some(Arc::new(LinkageReadIndex::from_edges(edges))))
+	}
+
+	pub fn get(&self) -> Option<&LinkageReadIndex> {
+		self.0.as_deref()
+	}
+}
+
+impl PartialEq for LinkageReadIndexHandle {
+	fn eq(&self, _other: &Self) -> bool {
+		true
+	}
+}
+
+impl Eq for LinkageReadIndexHandle {}
 
 impl LinkageSnapshot {
 	pub fn new(
@@ -391,6 +440,7 @@ impl LinkageSnapshot {
 			external: Vec::new(),
 			manifest_blocked: Vec::new(),
 			unresolved: Vec::new(),
+			read_index: LinkageReadIndexHandle::default(),
 		}
 	}
 
@@ -402,6 +452,7 @@ impl LinkageSnapshot {
 	) -> Self {
 		resolved.shrink_to_fit();
 		unresolved.shrink_to_fit();
+		let read_index = LinkageReadIndexHandle::from_edges(&resolved);
 		Self {
 			generation,
 			index_generation,
@@ -414,6 +465,7 @@ impl LinkageSnapshot {
 			external: Vec::new(),
 			manifest_blocked: Vec::new(),
 			unresolved,
+			read_index,
 		}
 	}
 }

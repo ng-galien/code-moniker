@@ -93,6 +93,14 @@ impl<'a> SymbolView<'a> {
 	}
 
 	pub(super) fn find(&self, id: &SymbolId) -> Option<&SymbolRecord> {
+		if let Some((slot, idx)) = super::parse_positional_id(id.as_str(), "symbol") {
+			let record = self.snapshot.index.symbols.file_records(slot).get(idx);
+			if let Some(record) = record
+				&& &record.id == id
+			{
+				return Some(record);
+			}
+		}
 		self.snapshot
 			.index
 			.symbols
