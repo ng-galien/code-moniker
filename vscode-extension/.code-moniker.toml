@@ -9,6 +9,12 @@ uris = [
 [profiles.agent]
 enable = [".*"]
 
+[profiles.smells]
+enable = ["^smell-"]
+
+[profiles.smells_experimental]
+enable = ["^smell-", "^experimental-smell-"]
+
 [aliases]
 extension_def = """
   moniker ~ '**/dir:src/**'
@@ -46,6 +52,36 @@ node_fs_target = "target ~ '**/external_pkg:node:fs/**'"
 notebook_generation_target = """
   target ~ '**/dir:src/dir:notebook/module:factory'
   OR target ~ '**/dir:src/dir:notebook/module:factory/**'
+"""
+app_icons_source = """
+  source ~ '**/dir:src/dir:shared/module:appIcons'
+  OR source ~ '**/dir:src/dir:shared/module:appIcons/**'
+"""
+vscode_theme_visual_target = """
+  target.name = 'ThemeIcon'
+  OR target.name = 'ThemeColor'
+"""
+feature_envy_local_target = """
+  target ~ '**/dir:src/**'
+  OR target ~ '**/dir:renderer/**'
+"""
+feature_envy_semantic_ref = """
+  $feature_envy_local_target
+  AND target.shape != 'annotation'
+  AND target.kind != 'local'
+  AND target.kind != 'param'
+  AND NOT (
+    kind = 'imports_symbol'
+    OR kind = 'imports_module'
+    OR kind = 'uses_type'
+    OR kind = 'returns_type'
+    OR kind = 'annotates'
+  )
+"""
+feature_envy_adapter_source = """
+  moniker ~ '**/dir:renderer/**'
+  OR moniker ~ '**/module:/^(catalogView|commands|extension|manager|render|tree|workspaceTree)$/**'
+  OR moniker ~ '**/dir:detail/module:panel/**'
 """
 
 [[ts.shape.callable.where]]
@@ -127,3 +163,103 @@ rationale = """
 Filesystem reads/writes are adapter boundaries. UI modules should receive parsed models or
 typed CLI results rather than touching Node fs directly.
 """
+
+[[refs.where]]
+id        = "vscode-theme-visuals-owned-by-app-icons"
+severity  = "error"
+expr      = "$extension_ref AND kind = 'instantiates' AND $vscode_theme_visual_target => $app_icons_source"
+message   = "VS Code theme icons and colors must be constructed in `src/shared/appIcons.ts`."
+rationale = """
+Tree rows, status indicators, and decorations should consume named visual helpers instead of
+hard-coding `ThemeIcon` or `ThemeColor` construction in feature modules. This keeps icon choices,
+theme color tokens, and accessibility review in one place.
+"""
+
+# ─── TypeScript smell review ────────────────────────────────────────────
+# These rules are heuristic review signals for the VS Code extension. Keep them
+# as warnings while the profile is calibrated:
+#
+#   code-moniker check vscode-extension \
+#     --rules vscode-extension/.code-moniker.toml \
+#     --profile smells \
+#     --report \
+#     --max-violations 80
+
+[[ts.shape.callable.where]]
+id        = "smell-long-callable"
+severity  = "warn"
+rationale = "Long functions in the extension usually mix VS Code UI concerns, CLI transport, and model mapping. Split the callable into named steps before it becomes the only safe edit point."
+expr      = "$extension_def => lines <= 90"
+message   = "Long callable candidate: `{name}` spans more than 90 lines."
+
+[[ts.shape.callable.where]]
+id        = "smell-long-parameter-list"
+severity  = "warn"
+rationale = "Wide function signatures make command and provider call sites brittle. Prefer a named options object or a small request model."
+expr      = "$extension_def => count(param) <= 6"
+message   = "Long parameter list candidate: `{name}` has more than 6 parameters."
+
+[[ts.shape.type.where]]
+id        = "smell-large-type"
+severity  = "warn"
+rationale = "Large extension classes tend to accumulate provider lifecycle, command wiring, rendering, and IO. Keep controllers and providers narrow."
+expr      = "$extension_def => count(shape:callable) <= 18 AND count(shape:value) <= 30"
+message   = "Large type candidate: `{name}` has many direct callables or values."
+
+[[ts.shape.type.where]]
+id        = "smell-method-size-disharmony"
+severity  = "warn"
+rationale = "A class with one dominant method and many small methods usually hides a workflow that wants named collaborators."
+expr      = "$extension_def => count(shape:callable) < 6 OR cv(shape:callable, lines) <= 1.1"
+message   = "Method-size disharmony candidate: `{name}` has an uneven method-size distribution."
+
+[[ts.shape.type.where]]
+id        = "smell-balanced-method-fanout"
+severity  = "warn"
+rationale = "A few methods carrying most outgoing calls are likely hidden orchestration hubs."
+expr      = "$extension_def => count(shape:callable) < 6 OR gini(shape:callable, fan_out(each)) <= 0.7"
+message   = "Method fan-out concentration candidate under `{name}`."
+
+[[ts.shape.type.where]]
+id        = "smell-duplicate-callable-names"
+severity  = "warn"
+rationale = "Duplicate callable names inside one local owner make symbol queries and review output harder to interpret."
+expr      = "$extension_def => size(unique(shape:callable.name)) = size(shape:callable.name)"
+message   = "Duplicate callable names under `{name}`."
+
+[[shape.annotation.where]]
+id        = "smell-comment-inside-callable"
+severity  = "warn"
+rationale = "Comments inside functions often narrate implementation steps that should be expressed through names, extraction, or clearer structure."
+expr      = "$extension_def => parent.shape != 'callable'"
+message   = "Comment inside callable: remove the narrative comment or extract a named step."
+
+[[ts.shape.callable.where]]
+id        = "experimental-smell-feature-envy-local"
+severity  = "warn"
+rationale = """
+Feature Envy should look at semantic coupling to other local owners, not every
+outgoing edge. VS Code adapters legitimately call framework, DOM, type, import,
+local variable, parameter, and renderer helpers a lot. Tree/render/command/manager
+modules are also explicit adapter seams: their job is to translate between VS Code
+UI objects and feature models, so their outward coupling is intentional and
+covered by architecture rules above. This rule counts only local non-type/non-import
+refs to non-local/non-param targets. It treats the callable's direct parent and
+private helpers in the same module as the owner side, then warns only when enough
+semantic coupling points outside that owner.
+"""
+expr      = """
+  $extension_def AND NOT $feature_envy_adapter_source AND name !~ ^__cb_
+  => count(out_refs, $feature_envy_semantic_ref) < 12
+    OR count(out_refs, $feature_envy_semantic_ref
+      AND target.parent != source.parent
+      AND source.segment('module') != target.segment('module')
+    ) < 9
+    OR count(out_refs, $feature_envy_semantic_ref
+      AND (
+        target.parent = source.parent
+        OR source.segment('module') = target.segment('module')
+      )
+    ) >= 3
+"""
+message   = "Feature envy candidate: `{name}` has heavy semantic coupling to another local owner."

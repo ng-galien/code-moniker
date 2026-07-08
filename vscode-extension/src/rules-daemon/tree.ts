@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { CheckSummaryDto, RuleDto, ViolationDto } from "../daemon/model";
 import { toRelative } from "../daemon/paths";
 import { DaemonSession } from "../daemon/session";
+import { checkSectionIcon, ruleFileIcon, ruleIcon, statusIcon } from "../shared/appIcons";
 import { GroupNode, RuleNode, RulesTreeNode, SectionNode, ViolationNode } from "./nodes";
 import { RulesRepository } from "./repository";
 
@@ -110,9 +111,9 @@ export class RulesProvider implements vscode.TreeDataProvider<RulesTreeNode> {
 		const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Expanded);
 		item.contextValue = node.id === "rules" ? "cmRulesSection" : "cmCheckSection";
 		if (node.id === "rules") {
-			item.iconPath = new vscode.ThemeIcon("law");
+			item.iconPath = ruleFileIcon();
 		} else {
-			item.iconPath = new vscode.ThemeIcon("checklist");
+			item.iconPath = checkSectionIcon();
 			item.description = this.checkSummaryLabel();
 		}
 		return item;
@@ -133,9 +134,7 @@ function ruleItem(node: RuleNode): vscode.TreeItem {
 	const rule = node.rule;
 	const item = new vscode.TreeItem(rule.id, vscode.TreeItemCollapsibleState.None);
 	item.description = [rule.severity, rule.lang, rule.domain].filter(Boolean).join(" · ");
-	item.iconPath = rule.severity === "warn"
-		? warnIcon()
-		: new vscode.ThemeIcon("shield", new vscode.ThemeColor("charts.blue"));
+	item.iconPath = ruleIcon(rule.severity);
 	item.contextValue = "cmDaemonRule";
 	item.tooltip = ruleTooltip(rule);
 	return item;
@@ -160,7 +159,7 @@ function groupItem(node: GroupNode): vscode.TreeItem {
 		vscode.TreeItemCollapsibleState.Collapsed,
 	);
 	item.description = `${node.violations.length} · ${path.dirname(node.file)}`;
-	item.iconPath = warnIcon();
+	item.iconPath = statusIcon("warning");
 	item.resourceUri = vscode.Uri.file(path.join(node.root, node.file));
 	item.contextValue = "cmCheckGroup";
 	return item;
@@ -171,8 +170,8 @@ function violationItem(node: ViolationNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(violation.rule_id, vscode.TreeItemCollapsibleState.None);
 	item.description = `L${violation.lines[0]} · ${violation.message}`;
 	item.iconPath = violation.severity === "warn"
-		? warnIcon()
-		: new vscode.ThemeIcon("error", new vscode.ThemeColor("errorForeground"));
+		? statusIcon("warning")
+		: statusIcon("error");
 	item.contextValue = "cmViolation";
 	item.tooltip = `${violation.moniker}\n${violation.message}`;
 	item.command = {
@@ -181,8 +180,4 @@ function violationItem(node: ViolationNode): vscode.TreeItem {
 		arguments: [{ root: violation.root, file: violation.path, line: violation.lines[0] }],
 	};
 	return item;
-}
-
-function warnIcon(): vscode.ThemeIcon {
-	return new vscode.ThemeIcon("warning", new vscode.ThemeColor("list.warningForeground"));
 }

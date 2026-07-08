@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 
 import { SymbolDto, TreeNode } from "../daemon/model";
 import { DaemonSession } from "../daemon/session";
+import { sourceFileIcon, sourceFolderIcon, statusIcon, symbolIcon } from "../shared/appIcons";
 import { EntryNode, InfoNode, SymbolNode, SymbolTreeNode } from "./nodes";
 import { SymbolRepository } from "./repository";
 
@@ -70,11 +71,13 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 		const item = new vscode.TreeItem(label, collapsible);
 		const fileViolations = isDir ? 0 : this.violations?.fileViolations(node.tree.path) ?? 0;
 		item.description = entryDescription(node, fileViolations);
-		item.iconPath = isDir
-			? new vscode.ThemeIcon("folder")
-			: fileViolations > 0
-				? warningIcon()
-				: new vscode.ThemeIcon("file-code");
+		if (isDir) {
+			item.iconPath = sourceFolderIcon();
+		} else if (fileViolations > 0) {
+			item.iconPath = statusIcon("warning");
+		} else {
+			item.iconPath = sourceFileIcon();
+		}
 		item.contextValue = isDir ? "cmEntryDir" : "cmEntryFile";
 		item.tooltip = node.tree.path;
 		if (!isDir) {
@@ -91,11 +94,9 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 		const item = new vscode.TreeItem(symbol.name, collapsible);
 		const violations = this.violations?.symbolViolations(symbol) ?? 0;
 		item.description = symbolDescription(symbol, violations);
-		item.iconPath = violations > 0 ? warningIcon() : symbolIcon(symbol.kind);
+		item.iconPath = violations > 0 ? statusIcon("warning") : symbolIcon(symbol.kind);
 		item.contextValue = "cmSymbol";
 		item.tooltip = symbolTooltip(symbol);
-		// No `command`: selection drives the detail webview; opening the file is an
-		// explicit action so navigation never forces an editor open.
 		return item;
 	}
 
@@ -130,7 +131,7 @@ function entryDescription(node: EntryNode, violations: number): string {
 		parts.push(`${node.tree.refs} refs`);
 	}
 	if (violations > 0) {
-		parts.push(`⚠ ${violations}`);
+		parts.push(`${violations} violation(s)`);
 	}
 	return parts.join(" · ");
 }
@@ -144,7 +145,7 @@ function symbolDescription(symbol: SymbolDto, violations: number): string {
 		parts.push(`L${symbol.line_range[0]}`);
 	}
 	if (violations > 0) {
-		parts.push(`⚠ ${violations}`);
+		parts.push(`${violations} violation(s)`);
 	}
 	return parts.join(" · ");
 }
@@ -158,32 +159,4 @@ function symbolTooltip(symbol: SymbolDto): vscode.MarkdownString {
 	md.appendMarkdown(`\n- file: \`${symbol.file}\`\n`);
 	md.appendMarkdown(`- moniker: \`${symbol.uri}\`\n`);
 	return md;
-}
-
-function symbolIcon(kind: string): vscode.ThemeIcon {
-	const map: Record<string, string> = {
-		function: "symbol-function",
-		fn: "symbol-function",
-		method: "symbol-method",
-		struct: "symbol-structure",
-		class: "symbol-class",
-		interface: "symbol-interface",
-		trait: "symbol-interface",
-		enum: "symbol-enum",
-		field: "symbol-field",
-		property: "symbol-property",
-		constant: "symbol-constant",
-		const: "symbol-constant",
-		variable: "symbol-variable",
-		module: "symbol-namespace",
-		mod: "symbol-namespace",
-		namespace: "symbol-namespace",
-		type: "symbol-type-parameter",
-		impl: "symbol-misc",
-	};
-	return new vscode.ThemeIcon(map[kind] ?? "symbol-misc");
-}
-
-function warningIcon(): vscode.ThemeIcon {
-	return new vscode.ThemeIcon("warning", new vscode.ThemeColor("list.warningForeground"));
 }

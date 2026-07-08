@@ -50,6 +50,5 @@ async function revealActiveCatalogEditor(
 	try {
 		await treeView.reveal(node, { select: true, focus: false, expand: true });
 	} catch {
-		// Reveal is best-effort; it can fail while the tree is rebuilding.
 	}
 }

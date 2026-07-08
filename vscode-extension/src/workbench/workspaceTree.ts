@@ -6,6 +6,7 @@ import { RuleTreeNode } from "../rules/nodes";
 import { RuleFilesProvider } from "../rules/tree";
 import { RulesTreeNode } from "../rules-daemon/nodes";
 import { RulesProvider } from "../rules-daemon/tree";
+import { workspaceSectionIcon } from "../shared/appIcons";
 import { SymbolTreeNode } from "../symbols/nodes";
 import { SymbolTreeProvider } from "../symbols/tree";
 import { ViewTreeNode } from "../views/nodes";
@@ -152,23 +153,8 @@ function sections(): SectionNode[] {
 function sectionItem(node: SectionNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Expanded);
 	item.contextValue = `cmWorkspace.${node.id}`;
-	item.iconPath = new vscode.ThemeIcon(sectionIcon(node.id));
+	item.iconPath = workspaceSectionIcon(node.id);
 	return item;
-}
-
-function sectionIcon(id: SectionId): string {
-	switch (id) {
-		case "daemon":
-			return "server-process";
-		case "symbols":
-			return "symbol-misc";
-		case "views":
-			return "references";
-		case "check":
-			return "law";
-		case "ruleFiles":
-			return "files";
-	}
 }
 
 function wrapDaemons(nodes: DaemonNode[]): WorkspaceDaemonNode[] {

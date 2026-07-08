@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 
+import { daemonIcon } from "../shared/appIcons";
 import { DaemonNode } from "./nodes";
 import { entryMatchesRoots, listDaemons } from "./registry";
 import { DaemonSession } from "./session";
@@ -53,19 +54,9 @@ export class DaemonListProvider implements vscode.TreeDataProvider<DaemonNode> {
 
 	private icon(node: DaemonNode): vscode.ThemeIcon {
 		if (!node.current) {
-			return new vscode.ThemeIcon("server-process");
+			return daemonIcon();
 		}
-		switch (this.session.status) {
-			case "ready":
-				return new vscode.ThemeIcon("server-process", new vscode.ThemeColor("testing.iconPassed"));
-			case "loading":
-			case "connecting":
-				return new vscode.ThemeIcon("loading~spin");
-			case "error":
-				return new vscode.ThemeIcon("server-process", new vscode.ThemeColor("errorForeground"));
-			default:
-				return new vscode.ThemeIcon("server-process");
-		}
+		return daemonIcon(this.session.status);
 	}
 
 	private tooltip(node: DaemonNode): vscode.MarkdownString {

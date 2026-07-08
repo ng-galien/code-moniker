@@ -67,19 +67,15 @@ export class DaemonSession implements vscode.Disposable {
 			...options,
 			consistency: options?.consistency ?? "refresh_if_stale" as const,
 		};
-		// The daemon answers `workspace.status` even while indexing, but other queries
-		// return a transient `workspace_loading` error while the snapshot builds or the
-		// daemon lock is held mid-refresh. Stale snapshots can also surface if an old
-		// caller omitted consistency; refresh once instead of making the UI unusable.
 		for (let attempt = 0; ; attempt++) {
 			try {
 				return await this.rpc.query(query, queryOptions);
 			} catch (error) {
-				if (attempt < QUERY_RETRY_ATTEMPTS && isLoadingError(error)) {
+				if (shouldRetryLoadingQuery(error, attempt)) {
 					await delay(QUERY_RETRY_INTERVAL_MS);
 					continue;
 				}
-				if (attempt === 0 && isStaleError(error)) {
+				if (shouldRefreshStaleSnapshot(error, attempt)) {
 					return await this.rpc.query(query, { ...queryOptions, consistency: "refresh_if_stale" });
 				}
 				throw error;
@@ -105,7 +101,6 @@ export class DaemonSession implements vscode.Disposable {
 			try {
 				await this.rpc.shutdown();
 			} catch {
-				// daemon may already be gone
 			}
 		}
 		this.teardown();
@@ -171,7 +166,6 @@ export class DaemonSession implements vscode.Disposable {
 			}
 			await delay(READY_POLL_INTERVAL_MS);
 		}
-		// Stay in "loading"; events will flip us to ready once the scan completes.
 	}
 
 	private handleEvent(event: WorkspaceEventDto): void {
@@ -229,13 +223,19 @@ async function waitForEntry(roots: string[]): Promise<DaemonRegistryEntry | unde
 }
 
 function isLoadingError(error: unknown): boolean {
-	// The daemon returns the snapshot-still-loading signal as a structured
-	// QueryError code, surfaced on DaemonRpcError.code.
 	return error instanceof DaemonRpcError && error.code === "workspace_loading";
 }
 
 function isStaleError(error: unknown): boolean {
 	return error instanceof DaemonRpcError && error.code === "workspace_stale";
+}
+
+function shouldRetryLoadingQuery(error: unknown, attempt: number): boolean {
+	return attempt < QUERY_RETRY_ATTEMPTS && isLoadingError(error);
+}
+
+function shouldRefreshStaleSnapshot(error: unknown, attempt: number): boolean {
+	return attempt === 0 && isStaleError(error);
 }
 
 function isProtocolError(error: unknown): boolean {

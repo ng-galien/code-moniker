@@ -30,7 +30,6 @@ export function forgetDaemonsForRoots(roots: string[]): void {
 			try {
 				fs.unlinkSync(file);
 			} catch {
-				// Already gone; nothing to forget.
 			}
 		}
 	}
@@ -63,7 +62,6 @@ function readRegistry(): RegistryFile[] {
 		try {
 			files.push({ file, entry: JSON.parse(fs.readFileSync(file, "utf8")) as DaemonRegistryEntry });
 		} catch {
-			// Skip partially-written or corrupt entries.
 		}
 	}
 	return files;

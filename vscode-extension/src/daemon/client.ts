@@ -116,7 +116,6 @@ export class RpcConnection {
 		try {
 			this.socket.close();
 		} catch {
-			// ignore
 		}
 	}
 

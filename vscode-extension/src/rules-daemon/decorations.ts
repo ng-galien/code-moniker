@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import { LineRange, SymbolDto, ViolationDto } from "../daemon/model";
 import { toFsPath, toRelative } from "../daemon/paths";
+import { themeColor } from "../shared/appIcons";
 import { ViolationIndex } from "../symbols/tree";
 
 // Holds the latest check violations and projects them three ways: symbol-tree
@@ -57,7 +58,7 @@ export class ViolationModel implements ViolationIndex, vscode.FileDecorationProv
 		return new vscode.FileDecoration(
 			"⚠",
 			`${count} code-moniker violation(s)`,
-			new vscode.ThemeColor("list.warningForeground"),
+			themeColor("list.warningForeground"),
 		);
 	}
 

@@ -2,6 +2,14 @@ import * as vscode from "vscode";
 
 import { ViewBoundaryDto, ViewGotchaDto } from "../daemon/model";
 import {
+	boundaryIcon,
+	evidenceIcon,
+	gotchaIcon,
+	ruleIcon,
+	ruleFileIcon,
+	viewIcon,
+} from "../shared/appIcons";
+import {
 	ViewDetail,
 	ViewBoundaryNode,
 	ViewEvidenceNode,
@@ -120,7 +128,7 @@ function viewItem(node: ViewSummaryNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.Collapsed);
 	item.description = [node.view.fragment, node.view.scope].filter(Boolean).join(" · ");
 	item.tooltip = `${node.view.id}\n${node.view.anchor}`;
-	item.iconPath = new vscode.ThemeIcon("references");
+	item.iconPath = viewIcon();
 	item.contextValue = "cmView";
 	return item;
 }
@@ -128,7 +136,7 @@ function viewItem(node: ViewSummaryNode): vscode.TreeItem {
 function sectionItem(node: ViewSectionNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Collapsed);
 	item.description = sectionCount(node);
-	item.iconPath = new vscode.ThemeIcon(sectionIcon(node.id));
+	item.iconPath = sectionIcon(node.id);
 	return item;
 }
 
@@ -143,21 +151,21 @@ function sectionCount(node: ViewSectionNode): string {
 	}
 }
 
-function sectionIcon(id: ViewSectionNode["id"]): string {
+function sectionIcon(id: ViewSectionNode["id"]): vscode.ThemeIcon {
 	switch (id) {
 		case "rules":
-			return "law";
+			return ruleFileIcon();
 		case "boundaries":
-			return "symbol-interface";
+			return boundaryIcon();
 		case "gotchas":
-			return "warning";
+			return gotchaIcon();
 	}
 }
 
 function boundaryItem(node: ViewBoundaryNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(node.boundary.id, vscode.TreeItemCollapsibleState.Collapsed);
 	item.description = `${node.boundary.evidence.length} evidence`;
-	item.iconPath = new vscode.ThemeIcon("symbol-interface");
+	item.iconPath = boundaryIcon();
 	item.tooltip = node.boundary.rationale ?? undefined;
 	return item;
 }
@@ -165,7 +173,7 @@ function boundaryItem(node: ViewBoundaryNode): vscode.TreeItem {
 function gotchaItem(node: ViewGotchaNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(node.gotcha.id, vscode.TreeItemCollapsibleState.Collapsed);
 	item.description = node.gotcha.check ?? `${node.gotcha.evidence.length} evidence`;
-	item.iconPath = new vscode.ThemeIcon("warning");
+	item.iconPath = gotchaIcon();
 	item.tooltip = node.gotcha.rationale;
 	return item;
 }
@@ -173,7 +181,7 @@ function gotchaItem(node: ViewGotchaNode): vscode.TreeItem {
 function evidenceItem(node: ViewEvidenceNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(node.evidence.label, vscode.TreeItemCollapsibleState.None);
 	item.description = node.evidence.file;
-	item.iconPath = new vscode.ThemeIcon("symbol-misc");
+	item.iconPath = evidenceIcon();
 	item.tooltip = node.evidence.moniker;
 	return item;
 }
@@ -181,7 +189,7 @@ function evidenceItem(node: ViewEvidenceNode): vscode.TreeItem {
 function ruleItem(node: ViewRuleNode): vscode.TreeItem {
 	const item = new vscode.TreeItem(node.rule.id, vscode.TreeItemCollapsibleState.None);
 	item.description = [node.rule.severity, node.rule.domain].filter(Boolean).join(" · ");
-	item.iconPath = new vscode.ThemeIcon("shield");
+	item.iconPath = ruleIcon(node.rule.severity);
 	item.tooltip = node.rule.rationale ?? undefined;
 	return item;
 }

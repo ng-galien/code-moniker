@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 
-import { SourceSnippet, SymbolDto, UsageDto, UsageSummaryDto } from "../../daemon/model";
+import { SymbolDto, UsageDto, UsageSummaryDto } from "../../daemon/model";
+import { codeMonikerIcon } from "../../shared/appIcons";
 import { SymbolRepository } from "../repository";
+import { HighlightedSourceSnippet, highlightSource } from "./highlight";
 import { renderDetailHtml } from "./html";
 
 export interface SourceTarget {
@@ -12,11 +14,15 @@ export interface SourceTarget {
 
 export interface DetailPayload {
 	symbol: SymbolDto;
-	source: SourceSnippet | null;
-	incoming: UsageDto[];
-	outgoing: UsageDto[];
+	source: HighlightedSourceSnippet | null;
+	incoming: HighlightedUsageDto[];
+	outgoing: HighlightedUsageDto[];
 	incomingSummary: UsageSummaryDto | null;
 	outgoingSummary: UsageSummaryDto | null;
+}
+
+export interface HighlightedUsageDto extends UsageDto {
+	snippet?: HighlightedSourceSnippet | null;
 }
 
 export interface DetailDocument {
@@ -75,14 +81,23 @@ export class DetailWebview implements vscode.Disposable {
 			this.repository.symbolDetail(symbol.uri),
 			this.repository.symbolUsages(symbol.uri),
 		]);
-		if (token !== this.seq || !this.panel) {
-			return; // a newer selection won; drop this stale render
+		if (token !== this.seq || this.panel !== panel) {
+			return;
 		}
+		const renderedSymbol = detail?.symbol ?? symbol;
+		const source = detail?.source
+			? await highlightSource(detail.source, renderedSymbol.language)
+			: null;
+		if (token !== this.seq || this.panel !== panel) {
+			return;
+		}
+		const incoming = usages?.rows.filter((row) => row.direction === "incoming") ?? [];
+		const outgoing = usages?.rows.filter((row) => row.direction === "outgoing") ?? [];
 		const payload: DetailPayload = {
-			symbol: detail?.symbol ?? symbol,
-			source: detail?.source ?? null,
-			incoming: usages?.rows.filter((row) => row.direction === "incoming") ?? [],
-			outgoing: usages?.rows.filter((row) => row.direction === "outgoing") ?? [],
+			symbol: renderedSymbol,
+			source,
+			incoming,
+			outgoing,
 			incomingSummary: usages?.incoming_summary ?? null,
 			outgoingSummary: usages?.outgoing_summary ?? null,
 		};
@@ -118,17 +133,19 @@ export class DetailWebview implements vscode.Disposable {
 			{ viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
 			{
 				enableScripts: true,
-				retainContextWhenHidden: true,
 				localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "media")],
 			},
 		);
+		panel.iconPath = codeMonikerIcon(this.extensionUri);
 		panel.webview.html = renderDetailHtml(panel.webview, this.extensionUri);
 		panel.onDidDispose(() => {
 			this.panel = undefined;
 		});
-		panel.webview.onDidReceiveMessage((message: { type?: string; target?: SourceTarget }) => {
+		panel.webview.onDidReceiveMessage((message: DetailWebviewMessage) => {
 			if (message?.type === "openSource" && message.target) {
 				void vscode.commands.executeCommand("codeMoniker.symbols.openSource", message.target);
+			} else if (message?.type === "loadUsageSnippet") {
+				void this.loadUsageSnippet(panel, message);
 			} else if (message?.type === "ready" && this.lastMessage) {
 				void panel.webview.postMessage(this.lastMessage);
 			}
@@ -140,4 +157,50 @@ export class DetailWebview implements vscode.Disposable {
 	dispose(): void {
 		this.panel?.dispose();
 	}
+
+	private async loadUsageSnippet(
+		panel: vscode.WebviewPanel,
+		message: UsageSnippetRequest,
+	): Promise<void> {
+		const token = this.seq;
+		const snippet = await usageSnippet(message.target);
+		if (token !== this.seq || this.panel !== panel) {
+			return;
+		}
+		await panel.webview.postMessage({
+			type: "usageSnippet",
+			requestId: message.requestId,
+			snippet,
+		});
+	}
+}
+
+type DetailWebviewMessage =
+	| { type?: "ready" }
+	| { type: "openSource"; target: SourceTarget }
+	| UsageSnippetRequest;
+
+interface UsageSnippetRequest {
+	type: "loadUsageSnippet";
+	requestId: string;
+	target: UsageDto;
+}
+
+async function usageSnippet(row: UsageDto): Promise<HighlightedSourceSnippet | null> {
+	if (isImportUsage(row) || !row.line_range) {
+		return null;
+	}
+	try {
+		const snippet = await SymbolRepository.sourceSnippet(row, 4);
+		if (!snippet) {
+			return null;
+		}
+		return await highlightSource(snippet, "");
+	} catch {
+		return null;
+	}
+}
+
+function isImportUsage(row: UsageDto): boolean {
+	return row.kind.toLowerCase().startsWith("imports_");
 }

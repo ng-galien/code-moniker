@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as vscode from "vscode";
 
 import { registerDaemonCommands } from "./commands";
+import { themeColor } from "../shared/appIcons";
 import { registryDir } from "./registry";
 import { DaemonSession, DaemonStatus } from "./session";
 import { DaemonListProvider } from "./tree";
@@ -70,7 +71,7 @@ function updateStatusItem(item: vscode.StatusBarItem, status: DaemonStatus): voi
 		case "error":
 			item.text = "$(warning) Moniker: error";
 			item.tooltip = "Daemon connection failed — click to retry";
-			item.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+			item.backgroundColor = themeColor("statusBarItem.warningBackground");
 			break;
 		default:
 			item.text = "$(plug) Moniker: connect";

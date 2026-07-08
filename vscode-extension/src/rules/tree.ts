@@ -1,6 +1,12 @@
 import * as vscode from "vscode";
 
 import { CheckReport } from "../cli/model";
+import {
+	ruleFileIcon,
+	ruleFolderIcon,
+	ruleIcon as severityRuleIcon,
+	statusIcon,
+} from "../shared/appIcons";
 import { workspaceLabel } from "../shared/workspace";
 import { RuleFileNode, RuleFolderNode, RuleNode, RuleTreeNode } from "./nodes";
 import { RuleEntry } from "./parse";
@@ -273,7 +279,7 @@ function folderIcon(node: RuleFolderNode, feedback: Map<string, FileFeedback>): 
 	if (folderHasCleanRun(node, feedback)) {
 		return statusIcon("pass");
 	}
-	return new vscode.ThemeIcon("folder");
+	return ruleFolderIcon();
 }
 
 function folderTooltip(node: RuleFolderNode, feedback: Map<string, FileFeedback>): string {
@@ -362,7 +368,7 @@ function fileIcon(feedback: FileFeedback | undefined): vscode.ThemeIcon {
 	if (feedback?.validation === "clean" || feedback?.run?.status === "clean") {
 		return statusIcon("pass");
 	}
-	return new vscode.ThemeIcon("law");
+	return ruleFileIcon();
 }
 
 function fileTooltip(node: RuleFileNode, feedback: FileFeedback | undefined): string {
@@ -397,9 +403,7 @@ function ruleIcon(rule: RuleEntry, hits: number | undefined): vscode.ThemeIcon {
 	if (hits === 0) {
 		return statusIcon("pass");
 	}
-	return rule.severity === "warn"
-		? statusIcon("warning")
-		: new vscode.ThemeIcon("shield", new vscode.ThemeColor("charts.blue"));
+	return severityRuleIcon(rule.severity);
 }
 
 function ruleTooltip(node: RuleNode, hits: number | undefined): string {
@@ -410,14 +414,4 @@ function ruleTooltip(node: RuleNode, hits: number | undefined): string {
 	}
 	lines.push(node.rule.blockText);
 	return lines.join("\n");
-}
-
-function statusIcon(status: "error" | "pass" | "warning"): vscode.ThemeIcon {
-	if (status === "error") {
-		return new vscode.ThemeIcon("error", new vscode.ThemeColor("errorForeground"));
-	}
-	if (status === "warning") {
-		return new vscode.ThemeIcon("warning", new vscode.ThemeColor("list.warningForeground"));
-	}
-	return new vscode.ThemeIcon("pass", new vscode.ThemeColor("testing.iconPassed"));
 }

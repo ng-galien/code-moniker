@@ -1,4 +1,4 @@
-// Bundles the extension host code (CommonJS) and the scenario output renderer (ESM).
+// Bundles the extension host code, notebook renderer and symbol detail webview.
 const esbuild = require("esbuild");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -81,16 +81,27 @@ const rendererConfig = {
 	sourcemap: true,
 };
 
+const detailWebviewConfig = {
+	entryPoints: ["src/symbols/detail/webview.ts"],
+	bundle: true,
+	outfile: "media/symbols/detail.js",
+	platform: "browser",
+	format: "iife",
+	target: "es2022",
+};
+
 async function main() {
 	if (watch) {
 		const a = await esbuild.context(extensionConfig);
 		const b = await esbuild.context(rendererConfig);
-		await Promise.all([a.watch(), b.watch()]);
+		const c = await esbuild.context(detailWebviewConfig);
+		await Promise.all([a.watch(), b.watch(), c.watch()]);
 		console.log("esbuild watching…");
 	} else {
 		await Promise.all([
 			esbuild.build(extensionConfig),
 			esbuild.build(rendererConfig),
+			esbuild.build(detailWebviewConfig),
 		]);
 		console.log("esbuild build complete");
 	}

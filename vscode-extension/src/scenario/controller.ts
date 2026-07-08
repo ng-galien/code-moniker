@@ -10,6 +10,7 @@ import {
 import { runScenarioCheck } from "../cli/facade";
 import { toDiagnostic } from "../diagnostics/vscode";
 import { scenarioControllerLanguages } from "../shared/languages";
+import { themeColor } from "../shared/appIcons";
 import { serializeScenarioMarkdown } from "./markdown";
 import { notebookToScenario } from "./serializer";
 import { SCENARIO_NOTEBOOK_TYPE, ScenarioCellMeta } from "./model";
@@ -345,7 +346,7 @@ function setStatusBarColor(
 	color: string,
 ): void {
 	(item as vscode.NotebookCellStatusBarItem & { color?: vscode.ThemeColor }).color =
-		new vscode.ThemeColor(color);
+		themeColor(color);
 }
 
 function resultStatusText(result: CellResultStatus): string {

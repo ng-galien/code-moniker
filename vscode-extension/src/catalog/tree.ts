@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { langById } from "../shared/languages";
+import { catalogEntryIcon, catalogGroupIcon, infoIcon, ruleIcon } from "../shared/appIcons";
 import {
 	CatalogEntry,
 	CatalogFilters,
@@ -106,7 +107,7 @@ export class CatalogProvider implements vscode.TreeDataProvider<CatalogNode> {
 		if (node.kind === "info") {
 			const item = new vscode.TreeItem(node.label);
 			item.description = node.description;
-			item.iconPath = new vscode.ThemeIcon("info");
+			item.iconPath = infoIcon();
 			return item;
 		}
 		if (node.kind === "group") {
@@ -354,7 +355,7 @@ function ruleTreeItem(item: CatalogRule): vscode.TreeItem {
 	treeItem.id = `${item.entry.id}:rule:${rule.id}`;
 	treeItem.description = `${rule.scope} · ${item.entry.title}`;
 	treeItem.tooltip = ruleTooltip(item);
-	treeItem.iconPath = new vscode.ThemeIcon(rule.severity === "warn" ? "warning" : "shield");
+	treeItem.iconPath = ruleIcon(rule.severity);
 	treeItem.contextValue = "cmCatalogBuiltinRule";
 	treeItem.command = {
 		command: "codeMoniker.catalog.openEntry",
@@ -395,22 +396,13 @@ function ruleTooltip(item: CatalogRule): string {
 }
 
 function groupIcon(kind: "builtin" | "learn" | "language" | "rules"): vscode.ThemeIcon {
-	if (kind === "language") {
-		return new vscode.ThemeIcon("symbol-keyword");
-	}
-	if (kind === "rules") {
-		return new vscode.ThemeIcon("law");
-	}
-	if (kind === "learn") {
-		return new vscode.ThemeIcon("book");
-	}
-	return new vscode.ThemeIcon("library");
+	return catalogGroupIcon(kind);
 }
 
-function entryIcon(entry: CatalogEntry, extensionUri: vscode.Uri): vscode.IconPath {
+function entryIcon(entry: CatalogEntry, extensionUri: vscode.Uri): vscode.ThemeIcon {
 	void entry;
-	const uri = vscode.Uri.joinPath(extensionUri, "icons", "notebook.svg");
-	return { light: uri, dark: uri };
+	void extensionUri;
+	return catalogEntryIcon();
 }
 
 function compareEntries(

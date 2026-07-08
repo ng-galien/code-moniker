@@ -1,9 +1,14 @@
+import * as vscode from "vscode";
+
 import {
+	SourceLine,
+	SourceSnippet,
 	SymbolDetailResult,
 	SymbolDto,
 	SymbolUsagesResult,
 	TreeNode,
 } from "../daemon/model";
+import { toFsPath } from "../daemon/paths";
 import { DaemonSession } from "../daemon/session";
 import { SymbolNode } from "./nodes";
 
@@ -69,6 +74,23 @@ export class SymbolRepository {
 		return response.result.kind === "symbol_usages" ? response.result.data : undefined;
 	}
 
+	static async sourceSnippet(
+		target: { root: string; file: string; line_range?: [number, number] | null },
+		contextLines: number,
+	): Promise<SourceSnippet | null> {
+		if (!target.line_range) {
+			return null;
+		}
+		try {
+			const uri = vscode.Uri.file(toFsPath(target.root, target.file));
+			const content = await vscode.workspace.fs.readFile(uri);
+			const text = new TextDecoder().decode(content);
+			return sourceSnippetFromText(target.file, text, target.line_range, contextLines);
+		} catch {
+			return null;
+		}
+	}
+
 	private async entriesUnder(path: string[]): Promise<TreeNode[]> {
 		const response = await this.session.query({
 			op: "tree_children",
@@ -83,6 +105,27 @@ export class SymbolRepository {
 		}
 		return [...response.result.data.rows].sort(compareEntries);
 	}
+}
+
+function sourceSnippetFromText(
+	file: string,
+	text: string,
+	range: [number, number],
+	contextLines: number,
+): SourceSnippet {
+	const all = text.split(/\r?\n/);
+	const first = Math.max(1, range[0] - contextLines);
+	const last = Math.min(all.length, range[1] + contextLines);
+	const lines: SourceLine[] = [];
+	for (let line = first; line <= last; line++) {
+		lines.push({ number: line, text: all[line - 1] ?? "" });
+	}
+	return {
+		file,
+		first_line: first,
+		last_line: last,
+		lines,
+	};
 }
 
 function compareEntries(a: TreeNode, b: TreeNode): number {
@@ -116,7 +159,6 @@ export function nestSymbols(rows: SymbolDto[]): SymbolNode[] {
 		}
 		stack.push(node);
 	}
-	// Symbols without a line range cannot nest; surface them at the top level.
 	for (const row of rows) {
 		if (row.line_range == null) {
 			roots.push({ kind: "symbol", symbol: row, children: [] });

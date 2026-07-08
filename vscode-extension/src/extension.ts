@@ -58,5 +58,4 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 }
 
 export function deactivate(): void {
-	// Controllers and serializers are disposed via context.subscriptions.
 }
