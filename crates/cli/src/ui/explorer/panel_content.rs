@@ -469,7 +469,6 @@ fn push_view_symbols(
 		&view.scope_path,
 		selectors,
 		crate::views::RenderOptions {
-			moniker_display: crate::views::MonikerDisplay::None,
 			context_lines: 2,
 			include_code: true,
 		},
@@ -499,7 +498,7 @@ fn push_symbol_resolution(vm: &mut PanelVm, resolution: crate::views::SymbolReso
 		}
 	}
 	for missing in resolution.missing {
-		panel_danger(vm, format!("  missing selector {}", missing.selector));
+		panel_danger(vm, format!("  missing selector {missing}"));
 	}
 }
 
