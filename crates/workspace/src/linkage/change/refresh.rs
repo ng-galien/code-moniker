@@ -311,10 +311,15 @@ fn refresh_incremental_linkage(
 	timings.stale_refs = execution.stale_references().len() as usize;
 	let changed_reference_indexes = stale_reference_indexes(execution.stale_references());
 	timings.changed_refs = changed_reference_indexes.len();
-	let locations = ReferenceLocations::from_material(input.material);
+	let locations = (!changed_reference_indexes.is_empty())
+		.then(|| ReferenceLocations::from_material(input.material));
 	let resolve_timer = Instant::now();
-	let changed =
-		resolve_reference_decisions(input, &changed_reference_indexes, candidates, &locations);
+	let changed = match &locations {
+		Some(locations) => {
+			resolve_reference_decisions(input, &changed_reference_indexes, candidates, locations)
+		}
+		None => Vec::new(),
+	};
 	timings.resolve_references = resolve_timer.elapsed();
 	let apply_timer = Instant::now();
 	store.apply_refresh(LinkageStoreRefresh {
@@ -336,6 +341,7 @@ fn refresh_incremental_linkage(
 	let semantic_timer = Instant::now();
 	let stale_reference_ids =
 		reference_ids_for_set(execution.stale_references(), &input.index.references);
+	let locations = locations.unwrap_or_else(|| ReferenceLocations::from_material(input.material));
 	SemanticLinkage::new(input.material, methods, candidates, &locations).enhance_changed(
 		store.decisions_mut(),
 		&input.index.references,
