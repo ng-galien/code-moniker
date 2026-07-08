@@ -231,6 +231,36 @@ fn resolved_target_missing_or_retargeted(
 	material.identity.moniker_uri(current_moniker) != expected_identity
 }
 
+pub(in crate::linkage) fn insert_reference_ordinals(
+	store: &mut LinkageStore,
+	changed_references: &[ReferenceId],
+	references: &RecordTable<ReferenceRecord>,
+	material: &CodeIndexMaterial,
+) {
+	if changed_references.is_empty() {
+		return;
+	}
+	let mut prefix = Vec::with_capacity(material.files.len() + 1);
+	let mut total = 0usize;
+	prefix.push(0usize);
+	for slot in 0..material.files.len() {
+		total += references.file_records(slot).len();
+		prefix.push(total);
+	}
+	for reference in changed_references {
+		let Some((slot, ref_idx)) = material.identity.reference_location(reference) else {
+			continue;
+		};
+		let Some(base) = prefix.get(slot) else {
+			continue;
+		};
+		store.indexes.reference_indexes.insert(
+			reference.clone(),
+			ReferenceOrdinal::from_index(base + ref_idx),
+		);
+	}
+}
+
 fn rebase_store_reference_ordinals(
 	store: &mut LinkageStore,
 	next_reference_indexes: FxHashMap<ReferenceId, ReferenceOrdinal>,

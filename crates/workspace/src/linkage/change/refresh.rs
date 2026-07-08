@@ -5,7 +5,9 @@ use rayon::prelude::*;
 
 use crate::linkage::binding::LinkageMemoryMetrics;
 use crate::linkage::binding::ReferenceLinkageDecision;
-use crate::linkage::binding::{LinkageStore, LinkageStoreRefresh, reference_indexes};
+use crate::linkage::binding::{
+	LinkageStore, LinkageStoreRefresh, insert_reference_ordinals, reference_indexes,
+};
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
@@ -286,13 +288,24 @@ fn refresh_incremental_linkage(
 	candidates: &CandidateCatalog,
 	timings: &mut LinkageRefreshTimings,
 ) {
-	let reference_index_map = reference_indexes(&input.index.references);
 	let plan_timer = Instant::now();
-	store.rebase_reference_ordinals(
-		reference_index_map,
-		input.impact.references().id_remaps(),
-		input.impact.references().removed_ids(),
-	);
+	let positions_stable = input.impact.references().id_remaps().is_empty()
+		&& input.impact.references().removed_ids().is_empty()
+		&& store.indexes.reference_indexes.len() == input.index.references.len();
+	if positions_stable {
+		insert_reference_ordinals(
+			store,
+			input.impact.references().changed_ids(),
+			&input.index.references,
+			input.material,
+		);
+	} else {
+		store.rebase_reference_ordinals(
+			reference_indexes(&input.index.references),
+			input.impact.references().id_remaps(),
+			input.impact.references().removed_ids(),
+		);
+	}
 	store.ensure_resolved_target_index(input.material, candidates.symbols());
 	let execution = RebindScope::plan(
 		BindingReadModel {
