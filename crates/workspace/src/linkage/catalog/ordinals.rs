@@ -116,6 +116,10 @@ impl SymbolSet {
 		self.bitmap.insert(symbol.raw())
 	}
 
+	pub(in crate::linkage) fn remove(&mut self, symbol: SymbolOrdinal) -> bool {
+		self.bitmap.remove(symbol.raw())
+	}
+
 	pub(in crate::linkage) fn from_symbol(symbol: SymbolOrdinal) -> Self {
 		let mut set = Self::new();
 		set.insert(symbol);
@@ -160,28 +164,65 @@ impl FromIterator<SymbolOrdinal> for SymbolSet {
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::linkage) struct SymbolOrdinalCatalog {
-	ids: Vec<SymbolId>,
-	identities: Vec<String>,
+	ids: Vec<Option<SymbolId>>,
+	identities: Vec<Option<String>>,
 	ordinals_by_id: FxHashMap<SymbolId, SymbolOrdinal>,
 	ordinals_by_identity: FxHashMap<String, SymbolOrdinal>,
 }
 
 impl SymbolOrdinalCatalog {
 	pub(in crate::linkage) fn push(&mut self, id: SymbolId, identity: String) -> SymbolOrdinal {
+		if let Some(ordinal) = self.ordinals_by_identity.get(&identity).copied() {
+			self.rebind_id(ordinal, id);
+			return ordinal;
+		}
 		let ordinal = SymbolOrdinal::from_index(self.ids.len());
 		self.ordinals_by_id.insert(id.clone(), ordinal);
 		self.ordinals_by_identity.insert(identity.clone(), ordinal);
-		self.ids.push(id);
-		self.identities.push(identity);
+		self.ids.push(Some(id));
+		self.identities.push(Some(identity));
 		ordinal
 	}
 
+	fn rebind_id(&mut self, ordinal: SymbolOrdinal, id: SymbolId) {
+		if let Some(Some(previous_id)) = self.ids.get(ordinal.index()) {
+			if previous_id == &id {
+				return;
+			}
+			if self.ordinals_by_id.get(previous_id) == Some(&ordinal) {
+				self.ordinals_by_id.remove(&previous_id.clone());
+			}
+		}
+		self.ordinals_by_id.insert(id.clone(), ordinal);
+		self.ids[ordinal.index()] = Some(id);
+	}
+
+	pub(in crate::linkage) fn unbind_id(&mut self, ordinal: SymbolOrdinal) {
+		if let Some(slot) = self.ids.get_mut(ordinal.index())
+			&& let Some(previous_id) = slot.take()
+			&& self.ordinals_by_id.get(&previous_id) == Some(&ordinal)
+		{
+			self.ordinals_by_id.remove(&previous_id);
+		}
+	}
+
+	pub(in crate::linkage) fn retire(&mut self, ordinal: SymbolOrdinal) {
+		self.unbind_id(ordinal);
+		if let Some(slot) = self.identities.get_mut(ordinal.index())
+			&& let Some(identity) = slot.take()
+		{
+			self.ordinals_by_identity.remove(&identity);
+		}
+	}
+
 	pub(in crate::linkage) fn identity(&self, ordinal: SymbolOrdinal) -> Option<&str> {
-		self.identities.get(ordinal.index()).map(String::as_str)
+		self.identities
+			.get(ordinal.index())
+			.and_then(|slot| slot.as_deref())
 	}
 
 	pub(in crate::linkage) fn len(&self) -> usize {
-		self.ids.len()
+		self.ordinals_by_identity.len()
 	}
 
 	pub(in crate::linkage) fn ordinal(&self, id: &SymbolId) -> Option<SymbolOrdinal> {
@@ -192,22 +233,6 @@ impl SymbolOrdinalCatalog {
 		self.ordinals_by_identity.get(identity).copied()
 	}
 
-	pub(in crate::linkage) fn has_same_order(&self, other: &Self) -> bool {
-		self.ids == other.ids && self.identities == other.identities
-	}
-
-	pub(in crate::linkage) fn remap_set(&self, symbols: &SymbolSet, next: &Self) -> SymbolSet {
-		SymbolOrdinalRemap::new(self, next).remap_set(symbols)
-	}
-
-	pub(in crate::linkage) fn remap_ordinal(
-		&self,
-		symbol: SymbolOrdinal,
-		next: &Self,
-	) -> Option<SymbolOrdinal> {
-		SymbolOrdinalRemap::new(self, next).remap_symbol(symbol)
-	}
-
 	pub(in crate::linkage) fn ids(&self, symbols: &SymbolSet) -> Vec<SymbolId> {
 		symbols
 			.iter()
@@ -216,34 +241,6 @@ impl SymbolOrdinalCatalog {
 	}
 
 	pub(in crate::linkage) fn id(&self, ordinal: SymbolOrdinal) -> Option<&SymbolId> {
-		self.ids.get(ordinal.index())
-	}
-}
-
-struct SymbolOrdinalRemap<'a> {
-	previous: &'a SymbolOrdinalCatalog,
-	next: &'a SymbolOrdinalCatalog,
-}
-
-impl<'a> SymbolOrdinalRemap<'a> {
-	fn new(previous: &'a SymbolOrdinalCatalog, next: &'a SymbolOrdinalCatalog) -> Self {
-		Self { previous, next }
-	}
-
-	fn remap_set(&self, symbols: &SymbolSet) -> SymbolSet {
-		symbols
-			.iter()
-			.filter_map(|symbol| self.remap_symbol(symbol))
-			.collect()
-	}
-
-	fn remap_symbol(&self, symbol: SymbolOrdinal) -> Option<SymbolOrdinal> {
-		self.by_identity(symbol)
-	}
-
-	fn by_identity(&self, symbol: SymbolOrdinal) -> Option<SymbolOrdinal> {
-		self.previous
-			.identity(symbol)
-			.and_then(|identity| self.next.ordinal_by_identity(identity))
+		self.ids.get(ordinal.index()).and_then(|slot| slot.as_ref())
 	}
 }

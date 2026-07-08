@@ -50,7 +50,7 @@ impl ManifestPolicy {
 		&self,
 		query: &LinkageQuery<'_>,
 		candidates: SymbolSet,
-		catalog: &CandidateCatalog<'_>,
+		catalog: &CandidateCatalog,
 	) -> GlobalTargetPolicy {
 		let mut policy = GlobalTargetPolicy {
 			external_dependency: self.can_classify_as_declared_external(query),

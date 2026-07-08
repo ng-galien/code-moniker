@@ -7,7 +7,7 @@ use code_moniker_core::lang::build_manifest::Manifest;
 use crate::linkage::binding::LinkageStore;
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet, SymbolSet};
+use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet, SymbolOrdinalCatalog, SymbolSet};
 use crate::linkage::change::LinkageRefreshImpact;
 use crate::linkage::resolve::{matches_any_source, matches_any_symbol};
 use crate::path_util::normalize_path;
@@ -16,13 +16,14 @@ use crate::source::CodeIndexMaterial;
 
 pub(in crate::linkage) struct BindingReadModel<'a> {
 	pub(in crate::linkage) store: &'a LinkageStore,
+	pub(in crate::linkage) symbols: &'a SymbolOrdinalCatalog,
 	pub(in crate::linkage) reference_indexes: &'a FxHashMap<ReferenceId, ReferenceOrdinal>,
 }
 
 pub(in crate::linkage) struct EditedGraph<'a> {
 	pub(in crate::linkage) references: &'a RecordTable<ReferenceRecord>,
 	pub(in crate::linkage) material: &'a CodeIndexMaterial,
-	pub(in crate::linkage) candidates: &'a CandidateCatalog<'a>,
+	pub(in crate::linkage) candidates: &'a CandidateCatalog,
 }
 
 pub(in crate::linkage) struct RebindScope {
@@ -350,7 +351,7 @@ fn references_resolved_to_identities(
 		return references;
 	};
 	for identity in identities {
-		let Some(ordinal) = bindings.store.symbols.ordinal_by_identity(identity) else {
+		let Some(ordinal) = bindings.symbols.ordinal_by_identity(identity) else {
 			continue;
 		};
 		if let Some(symbol_references) = index.get_symbol(ordinal) {
@@ -391,7 +392,7 @@ fn references_needing_target_index_refresh(
 }
 
 fn changed_candidate_keys(
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	changed_symbols: &SymbolSet,
 ) -> Vec<Vec<u8>> {
 	let mut keys = Vec::new();

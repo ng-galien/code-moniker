@@ -30,35 +30,49 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 ) -> WorkspaceResult<TimedLinkageRefresh> {
 	let total_timer = Instant::now();
 	if refresh_impact.is_empty() {
+		let memory = linkage.memory;
 		return Ok(refresh_empty_linkage(
 			&mut linkage.store,
 			previous,
 			code_index,
+			memory,
 			total_timer,
 		));
 	}
 	let material = linkage.linkage_material(code_index)?;
-	if let Some(refresh) = refresh_symbol_only_without_linkage_work(FastRefreshInput {
-		store: &mut linkage.store,
-		previous,
-		code_index,
-		material: &material,
-		impact: &refresh_impact,
-		memory: linkage.memory,
-		total_timer,
-	}) {
+	if let Some(refresh) = refresh_symbol_only_without_linkage_work(
+		FastRefreshInput {
+			store: &mut linkage.store,
+			previous,
+			code_index,
+			material: &material,
+			impact: &refresh_impact,
+			memory: linkage.memory,
+			total_timer,
+		},
+		linkage.candidates.as_ref(),
+	) {
 		return Ok(refresh);
 	}
 	let generation = linkage.cache.next_generation();
 	let candidate_timer = Instant::now();
-	let candidates = CandidateCatalog::new(&material);
+	let candidates = match linkage.candidates.as_mut() {
+		Some(candidates) => {
+			candidates.refresh_files(&material);
+			candidates
+		}
+		None => linkage
+			.candidates
+			.get_or_insert_with(|| CandidateCatalog::new(&material)),
+	};
+	let candidates = &*candidates;
 	let mut candidate_index = candidate_timer.elapsed();
 	if linkage.store.is_none() {
 		linkage.store = Some(LinkageStore::from_snapshot(
 			previous,
 			&code_index.references,
 			&material,
-			&candidates,
+			candidates,
 		));
 	}
 	let Some(store) = linkage.store.as_mut() else {
@@ -67,7 +81,7 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 	let method_timer = Instant::now();
 	let indexer = linkage
 		.method_indexer
-		.get_or_insert_with(|| MethodIndexer::new(&material, &candidates));
+		.get_or_insert_with(|| MethodIndexer::new(&material, candidates));
 	candidate_index += method_timer.elapsed();
 	let input = IncrementalLinkageInput {
 		index: code_index,
@@ -91,6 +105,7 @@ fn refresh_empty_linkage(
 	store: &mut Option<LinkageStore>,
 	previous: &LinkageSnapshot,
 	code_index: &CodeIndex,
+	memory: LinkageMemoryMetrics,
 	total_timer: Instant,
 ) -> TimedLinkageRefresh {
 	if let Some(store) = store {
@@ -106,10 +121,7 @@ fn refresh_empty_linkage(
 			total: total_timer.elapsed(),
 			..LinkageRefreshTimings::default()
 		},
-		memory: store
-			.as_ref()
-			.map(LinkageStore::memory_metrics)
-			.unwrap_or_default(),
+		memory,
 	}
 }
 
@@ -125,6 +137,7 @@ struct FastRefreshInput<'a> {
 
 fn refresh_symbol_only_without_linkage_work(
 	input: FastRefreshInput<'_>,
+	candidates: Option<&CandidateCatalog>,
 ) -> Option<TimedLinkageRefresh> {
 	let store = input.store.as_mut()?;
 	let can_skip = match input.impact.shape() {
@@ -132,9 +145,9 @@ fn refresh_symbol_only_without_linkage_work(
 			let added_keys = symbol_query_keys(input.material, symbols);
 			!added_keys.is_empty() && !references_contain_any_key(store, &added_keys)
 		}
-		LinkageRefreshShape::RemovedSymbolsOnly(symbols) => {
-			!resolved_references_contain_any_symbol(store, symbols)
-		}
+		LinkageRefreshShape::RemovedSymbolsOnly(symbols) => candidates.is_some_and(|candidates| {
+			!resolved_references_contain_any_symbol(store, candidates.symbols(), symbols)
+		}),
 		_ => false,
 	};
 	can_skip.then(|| {
@@ -170,14 +183,14 @@ fn refresh_without_linkage_work(
 
 fn resolved_references_contain_any_symbol(
 	store: &LinkageStore,
+	catalog: &crate::linkage::catalog::SymbolOrdinalCatalog,
 	symbols: &[crate::snapshot::SymbolId],
 ) -> bool {
 	let Some(index) = &store.indexes.resolved_by_target_source else {
 		return true;
 	};
 	symbols.iter().any(|symbol| {
-		store
-			.symbols
+		catalog
 			.ordinal(symbol)
 			.and_then(|ordinal| index.get_symbol(ordinal))
 			.is_some_and(|references| !references.is_empty())
@@ -241,7 +254,7 @@ fn run_incremental_refresh(
 	store: &mut LinkageStore,
 	indexer: &mut MethodIndexer,
 	input: &IncrementalLinkageInput<'_>,
-	candidates: CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	candidate_index_elapsed: Duration,
 	total_timer: Instant,
 ) -> TimedLinkageRefresh {
@@ -249,10 +262,14 @@ fn run_incremental_refresh(
 		candidate_index: candidate_index_elapsed,
 		..LinkageRefreshTimings::default()
 	};
-	refresh_incremental_linkage(store, indexer, input, &candidates, &mut timings);
+	refresh_incremental_linkage(store, indexer, input, candidates, &mut timings);
 	let project_timer = Instant::now();
-	let snapshot = store.project_snapshot(&input.index.references, &input.material.identity);
-	let memory = store.memory_metrics();
+	let snapshot = store.project_snapshot(
+		&input.index.references,
+		&input.material.identity,
+		candidates.symbols(),
+	);
+	let memory = store.memory_metrics(candidates.symbols());
 	timings.project_snapshot = project_timer.elapsed();
 	timings.total = total_timer.elapsed();
 	TimedLinkageRefresh {
@@ -266,7 +283,7 @@ fn refresh_incremental_linkage(
 	store: &mut LinkageStore,
 	indexer: &mut MethodIndexer,
 	input: &IncrementalLinkageInput<'_>,
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	timings: &mut LinkageRefreshTimings,
 ) {
 	let reference_index_map = reference_indexes(&input.index.references);
@@ -276,10 +293,11 @@ fn refresh_incremental_linkage(
 		input.impact.references().id_remaps(),
 		input.impact.references().removed_ids(),
 	);
-	store.ensure_resolved_target_index(input.material);
+	store.ensure_resolved_target_index(input.material, candidates.symbols());
 	let execution = RebindScope::plan(
 		BindingReadModel {
 			store,
+			symbols: candidates.symbols(),
 			reference_indexes: &store.indexes.reference_indexes,
 		},
 		EditedGraph {
@@ -325,14 +343,18 @@ fn refresh_incremental_linkage(
 	);
 	timings.semantic_enhance = semantic_timer.elapsed();
 	let rebuild_timer = Instant::now();
-	store.refresh_resolved_target_index(execution.target_index_references(), input.material);
+	store.refresh_resolved_target_index(
+		execution.target_index_references(),
+		input.material,
+		candidates.symbols(),
+	);
 	timings.rebuild_indexes = rebuild_timer.elapsed();
 }
 
 fn resolve_reference_decisions(
 	input: &IncrementalLinkageInput<'_>,
 	reference_indexes: &[usize],
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	locations: &ReferenceLocations,
 ) -> Vec<ReferenceLinkageDecision> {
 	let resolver = ReferenceResolver::new(input.material);

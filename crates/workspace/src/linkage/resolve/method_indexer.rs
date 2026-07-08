@@ -15,7 +15,7 @@ pub(in crate::linkage) struct MethodIndexer {
 impl MethodIndexer {
 	pub(in crate::linkage) fn new(
 		material: &CodeIndexMaterial,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 	) -> Self {
 		Self {
 			methods: MethodTable::build(material, candidates),
@@ -26,7 +26,7 @@ impl MethodIndexer {
 	pub(in crate::linkage) fn reindex(
 		&mut self,
 		material: &CodeIndexMaterial,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 		_changed_file_indexes: &BTreeSet<usize>,
 	) -> &MethodTable {
 		let next_source_ids = file_source_ids(material);

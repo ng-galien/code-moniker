@@ -19,7 +19,7 @@ use crate::source::CodeIndexMaterial;
 pub(in crate::linkage) struct SemanticLinkage<'a> {
 	material: &'a CodeIndexMaterial,
 	methods: &'a MethodTable,
-	candidates: &'a CandidateCatalog<'a>,
+	candidates: &'a CandidateCatalog,
 	locations: &'a ReferenceLocations,
 }
 
@@ -27,7 +27,7 @@ impl<'a> SemanticLinkage<'a> {
 	pub(in crate::linkage) fn new(
 		material: &'a CodeIndexMaterial,
 		methods: &'a MethodTable,
-		candidates: &'a CandidateCatalog<'a>,
+		candidates: &'a CandidateCatalog,
 		locations: &'a ReferenceLocations,
 	) -> Self {
 		Self {
@@ -229,7 +229,7 @@ pub(in crate::linkage) struct MethodTable {
 impl MethodTable {
 	pub(in crate::linkage) fn build(
 		material: &CodeIndexMaterial,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 	) -> Self {
 		let mut index = Self::default();
 		for file_idx in 0..material.files.len() {
@@ -241,7 +241,7 @@ impl MethodTable {
 	fn insert_file(
 		&mut self,
 		material: &CodeIndexMaterial,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 		file_idx: usize,
 	) {
 		let Some(file) = material.files.get(file_idx) else {
@@ -258,7 +258,7 @@ impl MethodTable {
 				continue;
 			};
 			let owner = file.graph.def_at(parent_idx).moniker.clone();
-			let Some(symbol) = candidates.indexes().symbol_at(file_idx, def_idx) else {
+			let Some(symbol) = candidates.symbol_at(file_idx, def_idx) else {
 				continue;
 			};
 			let key = (owner, def.call_name.to_vec(), arity);
@@ -650,7 +650,7 @@ enum ReferenceStatus {
 
 fn collect_return_types(
 	material: &CodeIndexMaterial,
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	decisions: &[ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 ) -> FxHashMap<Moniker, Moniker> {
@@ -680,7 +680,7 @@ fn decision_reference<'a>(
 
 fn decision_target(
 	material: &CodeIndexMaterial,
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	decision: &ReferenceLinkageDecision,
 	references: &RecordTable<ReferenceRecord>,
 ) -> Option<Moniker> {

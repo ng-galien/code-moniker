@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use code_moniker_core::core::code_graph::DefRecord;
 use code_moniker_core::core::moniker::query::bare_callable_name;
 use code_moniker_core::core::moniker::{Moniker, Segment};
@@ -6,7 +8,7 @@ use rustc_hash::FxHashMap;
 
 use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet};
-use crate::source::CodeIndexMaterial;
+use crate::source::{CodeIndexMaterial, IndexedSourceFile};
 
 #[derive(Clone)]
 pub(in crate::linkage) struct LinkageCandidate<'a> {
@@ -18,15 +20,42 @@ pub(in crate::linkage) struct LinkageCandidate<'a> {
 	pub(in crate::linkage) source_file: usize,
 }
 
-pub(in crate::linkage) struct CandidateCatalog<'a> {
-	candidates: Vec<LinkageCandidate<'a>>,
-	symbols: SymbolOrdinalCatalog,
-	indexes: CandidateIndexes<'a>,
+struct CandidateFileShard {
+	file: Arc<IndexedSourceFile>,
+	by_location: Vec<Option<SymbolOrdinal>>,
 }
 
-impl<'a> CandidateCatalog<'a> {
-	pub(in crate::linkage) fn new(material: &'a CodeIndexMaterial) -> Self {
-		CandidateCatalogBuilder::new().build(material)
+pub(in crate::linkage) struct CandidateCatalog {
+	files: Vec<CandidateFileShard>,
+	symbols: SymbolOrdinalCatalog,
+	locations: Vec<Option<(u32, u32)>>,
+	indexes: CandidateIndexes,
+}
+
+impl CandidateCatalog {
+	pub(in crate::linkage) fn new(material: &CodeIndexMaterial) -> Self {
+		let mut catalog = Self {
+			files: Vec::with_capacity(material.files.len()),
+			symbols: SymbolOrdinalCatalog::default(),
+			locations: Vec::new(),
+			indexes: CandidateIndexes::new(),
+		};
+		for (file_idx, file) in material.files.iter().enumerate() {
+			push_file(&mut catalog, file_idx, Arc::clone(file));
+		}
+		catalog
+	}
+
+	pub(in crate::linkage) fn refresh_files(&mut self, material: &CodeIndexMaterial) {
+		for (file_idx, file) in material.files.iter().enumerate() {
+			if file_idx >= self.files.len() {
+				push_file(self, file_idx, Arc::clone(file));
+				continue;
+			}
+			if !Arc::ptr_eq(&self.files[file_idx].file, file) {
+				refresh_file(self, file_idx, Arc::clone(file));
+			}
+		}
 	}
 
 	pub(in crate::linkage) fn symbols(&self) -> &SymbolOrdinalCatalog {
@@ -36,18 +65,21 @@ impl<'a> CandidateCatalog<'a> {
 	pub(in crate::linkage) fn candidate(
 		&self,
 		symbol: SymbolOrdinal,
-	) -> Option<&LinkageCandidate<'a>> {
-		self.candidates.get(symbol.index())
+	) -> Option<LinkageCandidate<'_>> {
+		let (file_idx, def_idx) = self.locations.get(symbol.index()).copied().flatten()?;
+		let shard = self.files.get(file_idx as usize)?;
+		let def = shard.file.graph.def_at(def_idx as usize);
+		Some(candidate(file_idx as usize, def))
 	}
 
-	pub(in crate::linkage) fn indexes(&self) -> &CandidateIndexes<'a> {
+	pub(in crate::linkage) fn indexes(&self) -> &CandidateIndexes {
 		&self.indexes
 	}
 
 	pub(in crate::linkage) fn candidate_for_symbol_id(
 		&self,
 		id: &crate::snapshot::SymbolId,
-	) -> Option<(SymbolOrdinal, &LinkageCandidate<'a>)> {
+	) -> Option<(SymbolOrdinal, LinkageCandidate<'_>)> {
 		let symbol = self.symbols.ordinal(id)?;
 		Some((symbol, self.candidate(symbol)?))
 	}
@@ -56,41 +88,41 @@ impl<'a> CandidateCatalog<'a> {
 		&self,
 		symbol: SymbolOrdinal,
 	) -> Option<Vec<Vec<u8>>> {
-		self.candidate(symbol).map(candidate_keys)
+		self.candidate(symbol)
+			.map(|candidate| candidate_keys(&candidate))
+	}
+
+	pub(in crate::linkage) fn symbol_at(
+		&self,
+		file_idx: usize,
+		def_idx: usize,
+	) -> Option<SymbolOrdinal> {
+		self.files
+			.get(file_idx)?
+			.by_location
+			.get(def_idx)
+			.copied()
+			.flatten()
 	}
 }
 
-pub(in crate::linkage) struct CandidateIndexes<'a> {
-	by_location: Vec<Vec<Option<SymbolOrdinal>>>,
-	by_moniker: FxHashMap<&'a Moniker, SymbolOrdinal>,
+pub(in crate::linkage) struct CandidateIndexes {
+	by_moniker: FxHashMap<Moniker, SymbolOrdinal>,
 	by_name: FxHashMap<Vec<u8>, SymbolSet>,
 	by_source_name: FxHashMap<usize, FxHashMap<Vec<u8>, SymbolSet>>,
 }
 
-impl<'a> CandidateIndexes<'a> {
+impl CandidateIndexes {
 	fn new() -> Self {
 		Self {
-			by_location: Vec::new(),
 			by_moniker: FxHashMap::default(),
 			by_name: FxHashMap::default(),
 			by_source_name: FxHashMap::default(),
 		}
 	}
 
-	fn begin_file(&mut self, def_count: usize) {
-		self.by_location.push(vec![None; def_count]);
-	}
-
-	fn push_location(&mut self, file_idx: usize, def_idx: usize, symbol: SymbolOrdinal) {
-		if let Some(file) = self.by_location.get_mut(file_idx) {
-			if let Some(slot) = file.get_mut(def_idx) {
-				*slot = Some(symbol);
-			}
-		}
-	}
-
-	fn push_candidate(&mut self, symbol: SymbolOrdinal, candidate: &LinkageCandidate<'a>) {
-		self.by_moniker.insert(candidate.moniker, symbol);
+	fn push_candidate(&mut self, symbol: SymbolOrdinal, candidate: &LinkageCandidate<'_>) {
+		self.by_moniker.insert(candidate.moniker.clone(), symbol);
 		for key in candidate_keys(candidate) {
 			self.by_name.entry(key.clone()).or_default().insert(symbol);
 			self.by_source_name
@@ -102,16 +134,33 @@ impl<'a> CandidateIndexes<'a> {
 		}
 	}
 
-	pub(in crate::linkage) fn symbol_at(
-		&self,
-		file_idx: usize,
-		def_idx: usize,
-	) -> Option<SymbolOrdinal> {
-		self.by_location
-			.get(file_idx)?
-			.get(def_idx)
-			.copied()
-			.flatten()
+	fn remove_candidate(&mut self, symbol: SymbolOrdinal, candidate: &LinkageCandidate<'_>) {
+		if self
+			.by_moniker
+			.get(candidate.moniker)
+			.is_some_and(|existing| *existing == symbol)
+		{
+			self.by_moniker.remove(candidate.moniker);
+		}
+		for key in candidate_keys(candidate) {
+			if let Some(set) = self.by_name.get_mut(&key) {
+				set.remove(symbol);
+				if set.is_empty() {
+					self.by_name.remove(&key);
+				}
+			}
+			if let Some(source) = self.by_source_name.get_mut(&candidate.source_file) {
+				if let Some(set) = source.get_mut(&key) {
+					set.remove(symbol);
+					if set.is_empty() {
+						source.remove(&key);
+					}
+				}
+				if source.is_empty() {
+					self.by_source_name.remove(&candidate.source_file);
+				}
+			}
+		}
 	}
 
 	pub(in crate::linkage) fn symbol_by_moniker(&self, moniker: &Moniker) -> Option<SymbolOrdinal> {
@@ -140,44 +189,84 @@ impl<'a> CandidateIndexes<'a> {
 	}
 }
 
-struct CandidateCatalogBuilder<'a> {
-	catalog: CandidateCatalog<'a>,
+fn push_file(catalog: &mut CandidateCatalog, file_idx: usize, file: Arc<IndexedSourceFile>) {
+	let mut shard = CandidateFileShard {
+		by_location: vec![None; file.graph.def_count()],
+		file,
+	};
+	index_shard(catalog, file_idx, &mut shard);
+	catalog.files.push(shard);
 }
 
-impl<'a> CandidateCatalogBuilder<'a> {
-	fn new() -> Self {
-		Self {
-			catalog: CandidateCatalog {
-				candidates: Vec::new(),
-				symbols: SymbolOrdinalCatalog::default(),
-				indexes: CandidateIndexes::new(),
-			},
-		}
-	}
-
-	fn build(mut self, material: &'a CodeIndexMaterial) -> CandidateCatalog<'a> {
-		for (file_idx, file) in material.files.iter().enumerate() {
-			self.catalog.indexes.begin_file(file.graph.def_count());
-			for (def_idx, def) in file.graph.defs().enumerate() {
-				if !is_linkage_candidate_def(def) {
-					continue;
-				}
-				let symbol_id = file.identity.symbol_id(file_idx, def_idx);
-				let symbol_identity = file.identity.moniker_uri(&def.moniker);
-				let symbol = self.catalog.symbols.push(symbol_id, symbol_identity);
-				self.catalog
-					.indexes
-					.push_location(file_idx, def_idx, symbol);
-				self.push_candidate(symbol, candidate(file_idx, def));
+fn refresh_file(catalog: &mut CandidateCatalog, file_idx: usize, file: Arc<IndexedSourceFile>) {
+	let old_shard = std::mem::replace(
+		&mut catalog.files[file_idx],
+		CandidateFileShard {
+			file: Arc::clone(&file),
+			by_location: Vec::new(),
+		},
+	);
+	let old_ordinals = unindex_shard(catalog, file_idx, &old_shard);
+	let mut shard = CandidateFileShard {
+		by_location: vec![None; file.graph.def_count()],
+		file,
+	};
+	index_shard(catalog, file_idx, &mut shard);
+	catalog.files[file_idx] = shard;
+	for ordinal in old_ordinals {
+		let rebound_here = catalog
+			.locations
+			.get(ordinal.index())
+			.copied()
+			.flatten()
+			.is_some_and(|(slot, _)| slot as usize == file_idx);
+		if !rebound_here {
+			catalog.symbols.retire(ordinal);
+			if let Some(slot) = catalog.locations.get_mut(ordinal.index()) {
+				*slot = None;
 			}
 		}
-		self.catalog
 	}
+}
 
-	fn push_candidate(&mut self, symbol: SymbolOrdinal, candidate: LinkageCandidate<'a>) {
-		self.catalog.indexes.push_candidate(symbol, &candidate);
-		self.catalog.candidates.push(candidate);
+fn index_shard(catalog: &mut CandidateCatalog, file_idx: usize, shard: &mut CandidateFileShard) {
+	let file = Arc::clone(&shard.file);
+	for (def_idx, def) in file.graph.defs().enumerate() {
+		if !is_linkage_candidate_def(def) {
+			continue;
+		}
+		let symbol_id = file.identity.symbol_id(file_idx, def_idx);
+		let symbol_identity = file.identity.moniker_uri(&def.moniker);
+		let symbol = catalog.symbols.push(symbol_id, symbol_identity);
+		if catalog.locations.len() <= symbol.index() {
+			catalog.locations.resize(symbol.index() + 1, None);
+		}
+		catalog.locations[symbol.index()] = Some((file_idx as u32, def_idx as u32));
+		shard.by_location[def_idx] = Some(symbol);
+		catalog
+			.indexes
+			.push_candidate(symbol, &candidate(file_idx, def));
 	}
+}
+
+fn unindex_shard(
+	catalog: &mut CandidateCatalog,
+	file_idx: usize,
+	shard: &CandidateFileShard,
+) -> Vec<SymbolOrdinal> {
+	let mut old_ordinals = Vec::new();
+	for (def_idx, slot) in shard.by_location.iter().enumerate() {
+		let Some(symbol) = *slot else {
+			continue;
+		};
+		old_ordinals.push(symbol);
+		catalog.symbols.unbind_id(symbol);
+		let def = shard.file.graph.def_at(def_idx);
+		catalog
+			.indexes
+			.remove_candidate(symbol, &candidate(file_idx, def));
+	}
+	old_ordinals
 }
 
 fn candidate(file_idx: usize, def: &DefRecord) -> LinkageCandidate<'_> {

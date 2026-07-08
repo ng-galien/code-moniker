@@ -21,7 +21,6 @@ pub(in crate::linkage) struct LinkageStore {
 	generation: ResourceGeneration,
 	index_generation: ResourceGeneration,
 	decisions: Vec<ReferenceLinkageDecision>,
-	pub(in crate::linkage) symbols: SymbolOrdinalCatalog,
 	pub(in crate::linkage) indexes: LinkageStoreIndexes,
 }
 
@@ -32,7 +31,7 @@ pub(in crate::linkage) struct LinkageStoreRefresh<'a> {
 	pub(in crate::linkage) changed_decisions: Vec<ReferenceLinkageDecision>,
 	pub(in crate::linkage) references: &'a RecordTable<ReferenceRecord>,
 	pub(in crate::linkage) material: &'a CodeIndexMaterial,
-	pub(in crate::linkage) candidates: &'a CandidateCatalog<'a>,
+	pub(in crate::linkage) candidates: &'a CandidateCatalog,
 }
 
 impl LinkageStore {
@@ -42,20 +41,18 @@ impl LinkageStore {
 		decisions: Vec<ReferenceLinkageDecision>,
 		references: &RecordTable<ReferenceRecord>,
 		material: &CodeIndexMaterial,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 	) -> Self {
-		let symbols = candidates.symbols().clone();
 		let mut indexes = LinkageStoreIndexes::new(references, material);
 		indexes.rebuild_resolved_target_indexes(ResolvedTargetSourceBuild {
 			decisions: &decisions,
 			material,
-			symbols: &symbols,
+			symbols: candidates.symbols(),
 		});
 		Self {
 			generation,
 			index_generation,
 			decisions,
-			symbols,
 			indexes,
 		}
 	}
@@ -64,7 +61,7 @@ impl LinkageStore {
 		snapshot: &LinkageSnapshot,
 		references: &RecordTable<ReferenceRecord>,
 		material: &CodeIndexMaterial,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 	) -> Self {
 		Self::new(
 			snapshot.generation,
@@ -80,14 +77,10 @@ impl LinkageStore {
 		&self,
 		references: &RecordTable<ReferenceRecord>,
 		identity: &LocalIdentityResolver,
+		symbols: &SymbolOrdinalCatalog,
 	) -> LinkageSnapshot {
-		crate::linkage::binding::project_decisions(
-			&self.decisions,
-			references,
-			identity,
-			&self.symbols,
-		)
-		.into_snapshot(self.generation, self.index_generation)
+		crate::linkage::binding::project_decisions(&self.decisions, references, identity, symbols)
+			.into_snapshot(self.generation, self.index_generation)
 	}
 
 	pub(in crate::linkage) fn advance_index_generation(
@@ -118,7 +111,7 @@ impl LinkageStore {
 	pub(in crate::linkage) fn missing_resolved_references(
 		&self,
 		material: &CodeIndexMaterial,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 	) -> Vec<ReferenceId> {
 		missing_resolved_references(self, material, candidates)
 	}
@@ -127,21 +120,26 @@ impl LinkageStore {
 		&mut self.decisions
 	}
 
-	pub(in crate::linkage) fn memory_metrics(&self) -> LinkageMemoryMetrics {
-		store_memory_metrics(self)
+	pub(in crate::linkage) fn memory_metrics(
+		&self,
+		symbols: &SymbolOrdinalCatalog,
+	) -> LinkageMemoryMetrics {
+		store_memory_metrics(self, symbols)
 	}
 
 	pub(in crate::linkage) fn refresh_resolved_target_index(
 		&mut self,
 		references: &ReferenceSet,
 		material: &CodeIndexMaterial,
+		symbols: &SymbolOrdinalCatalog,
 	) {
-		refresh_resolved_target_index(self, references, material);
+		refresh_resolved_target_index(self, references, material, symbols);
 	}
 
 	pub(in crate::linkage) fn ensure_resolved_target_index(
 		&mut self,
 		material: &CodeIndexMaterial,
+		symbols: &SymbolOrdinalCatalog,
 	) {
 		if self.indexes.resolved_by_target_source.is_some() {
 			return;
@@ -150,7 +148,7 @@ impl LinkageStore {
 			.rebuild_resolved_target_indexes(ResolvedTargetSourceBuild {
 				decisions: &self.decisions,
 				material,
-				symbols: &self.symbols,
+				symbols,
 			});
 	}
 }
@@ -169,7 +167,7 @@ fn apply_store_refresh(store: &mut LinkageStore, refresh: LinkageStoreRefresh<'_
 	store.index_generation = index_generation;
 	store.indexes.remove_stale_references(stale_references);
 	remove_stale_decisions(store, stale_references);
-	remap_symbol_ordinals(store, candidates.symbols());
+	let _ = candidates;
 	add_changed_decisions(
 		store,
 		ChangedDecisionBatch {
@@ -189,7 +187,7 @@ struct ChangedDecisionBatch<'a> {
 fn missing_resolved_references(
 	store: &LinkageStore,
 	material: &CodeIndexMaterial,
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 ) -> Vec<ReferenceId> {
 	store
 		.decisions
@@ -201,7 +199,7 @@ fn missing_resolved_references(
 				.contains_key(decision.reference())
 				|| decision.resolved_targets().is_some_and(|targets| {
 					targets.iter().any(|target| {
-						resolved_target_missing_or_retargeted(store, material, candidates, target)
+						resolved_target_missing_or_retargeted(material, candidates, target)
 					})
 				})
 		})
@@ -210,12 +208,11 @@ fn missing_resolved_references(
 }
 
 fn resolved_target_missing_or_retargeted(
-	store: &LinkageStore,
 	material: &CodeIndexMaterial,
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	target: SymbolOrdinal,
 ) -> bool {
-	let Some(expected_identity) = store.symbols.identity(target) else {
+	let Some(expected_identity) = candidates.symbols().identity(target) else {
 		return true;
 	};
 	if candidates
@@ -225,7 +222,7 @@ fn resolved_target_missing_or_retargeted(
 	{
 		return false;
 	}
-	let Some(id) = store.symbols.id(target) else {
+	let Some(id) = candidates.symbols().id(target) else {
 		return true;
 	};
 	let Some(current_moniker) = material.symbol_moniker(id) else {
@@ -341,18 +338,6 @@ fn remove_stale_decisions(store: &mut LinkageStore, stale_references: &Reference
 	});
 }
 
-fn remap_symbol_ordinals(store: &mut LinkageStore, next: &SymbolOrdinalCatalog) {
-	if store.symbols.has_same_order(next) {
-		return;
-	}
-	let previous = &store.symbols;
-	store
-		.decisions
-		.retain_mut(|decision| decision.remap_resolved_targets(previous, next));
-	store.indexes.rebase_symbol_ordinals(previous, next);
-	store.symbols = next.clone();
-}
-
 fn add_changed_decisions(store: &mut LinkageStore, batch: ChangedDecisionBatch<'_>) {
 	for decision in batch.decisions {
 		let Some(reference) = batch.references.get(decision.reference_idx()) else {
@@ -394,8 +379,9 @@ fn refresh_resolved_target_index(
 	store: &mut LinkageStore,
 	references: &ReferenceSet,
 	material: &CodeIndexMaterial,
+	symbols: &SymbolOrdinalCatalog,
 ) {
-	store.ensure_resolved_target_index(material);
+	store.ensure_resolved_target_index(material, symbols);
 	store.indexes.remove_resolved_references(references);
 	for decision in &store.decisions {
 		if store
@@ -406,14 +392,17 @@ fn refresh_resolved_target_index(
 		{
 			store
 				.indexes
-				.add_resolved_target_indexes(decision, material, &store.symbols);
+				.add_resolved_target_indexes(decision, material, symbols);
 		}
 	}
 }
 
-fn store_memory_metrics(store: &LinkageStore) -> LinkageMemoryMetrics {
+fn store_memory_metrics(
+	store: &LinkageStore,
+	symbols: &SymbolOrdinalCatalog,
+) -> LinkageMemoryMetrics {
 	let mut metrics = LinkageMemoryMetrics {
-		symbol_catalog_entries: store.symbols.len(),
+		symbol_catalog_entries: symbols.len(),
 		decisions: store.decisions.len(),
 		..LinkageMemoryMetrics::default()
 	};
@@ -446,7 +435,7 @@ fn decisions_from_snapshot(
 	snapshot: &LinkageSnapshot,
 	references: &RecordTable<ReferenceRecord>,
 	material: &CodeIndexMaterial,
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 ) -> Vec<ReferenceLinkageDecision> {
 	let reference_indexes = reference_indexes(references);
 	let mut decisions = Vec::new();
@@ -601,16 +590,6 @@ impl LinkageStoreIndexes {
 		}
 	}
 
-	fn rebase_symbol_ordinals(
-		&mut self,
-		previous: &SymbolOrdinalCatalog,
-		next: &SymbolOrdinalCatalog,
-	) {
-		if let Some(index) = &mut self.resolved_by_target_source {
-			index.rebase_symbol_ordinals(previous, next);
-		}
-	}
-
 	fn remove_stale_references(&mut self, stale_references: &ReferenceSet) {
 		remove_references(&mut self.references_by_source_root, stale_references);
 		remove_references(&mut self.references_by_name, stale_references);
@@ -687,24 +666,6 @@ impl ResolvedTargetSourceIndex {
 	fn rebase_reference_ordinals(&mut self, rebase: &ReferenceOrdinalRebase) {
 		rebase_reference_maps(&mut self.references_by_source, rebase);
 		rebase_reference_maps(&mut self.references_by_symbol, rebase);
-	}
-
-	fn rebase_symbol_ordinals(
-		&mut self,
-		previous: &SymbolOrdinalCatalog,
-		next: &SymbolOrdinalCatalog,
-	) {
-		let mut rebased = FxHashMap::<SymbolOrdinal, ReferenceSet>::default();
-		for (symbol, references) in &self.references_by_symbol {
-			let Some(next_symbol) = previous.remap_ordinal(*symbol, next) else {
-				continue;
-			};
-			rebased
-				.entry(next_symbol)
-				.or_default()
-				.union_with(references);
-		}
-		self.references_by_symbol = rebased;
 	}
 }
 

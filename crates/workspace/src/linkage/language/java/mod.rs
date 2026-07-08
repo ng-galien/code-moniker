@@ -151,7 +151,7 @@ fn dependency_group(package: &str) -> Option<&str> {
 
 pub(super) fn enhance_reference_semantics(
 	material: &CodeIndexMaterial,
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,

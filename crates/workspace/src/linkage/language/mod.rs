@@ -110,7 +110,7 @@ pub(super) fn proc_macro_annotation(query: &LinkageQuery<'_>) -> bool {
 
 pub(super) fn enhance_reference_semantics(
 	material: &CodeIndexMaterial,
-	candidates: &CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&rustc_hash::FxHashSet<crate::snapshot::ReferenceId>>,

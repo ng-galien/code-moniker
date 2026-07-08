@@ -26,7 +26,7 @@ impl<'a> ReferenceResolver<'a> {
 		reference_idx: usize,
 		reference: &ReferenceRecord,
 		location: Option<ReferenceLocation>,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 		manifests: &ManifestPolicy,
 	) -> ReferenceLinkageDecision {
 		let Some(location) = location else {

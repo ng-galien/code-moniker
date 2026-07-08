@@ -12,14 +12,14 @@ impl LocalScopeResolver {
 	pub(in crate::linkage) fn resolve(
 		&self,
 		query: &LinkageQuery<'_>,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 	) -> SymbolSet {
 		local_symbols(candidates, query)
 	}
 }
 
 pub(in crate::linkage) fn matches_any_source(
-	catalog: &CandidateCatalog<'_>,
+	catalog: &CandidateCatalog,
 	query: &LinkageQuery<'_>,
 	source_files: &BTreeSet<usize>,
 ) -> bool {
@@ -27,26 +27,26 @@ pub(in crate::linkage) fn matches_any_source(
 }
 
 pub(in crate::linkage) fn matches_any_symbol(
-	catalog: &CandidateCatalog<'_>,
+	catalog: &CandidateCatalog,
 	query: &LinkageQuery<'_>,
 	symbols: &SymbolSet,
 ) -> bool {
 	symbols.iter().any(|symbol| {
 		catalog
 			.candidate(symbol)
-			.is_some_and(|candidate| language::matches_candidate(query, candidate))
+			.is_some_and(|candidate| language::matches_candidate(query, &candidate))
 	})
 }
 
-fn local_symbols(catalog: &CandidateCatalog<'_>, query: &LinkageQuery<'_>) -> SymbolSet {
+fn local_symbols(catalog: &CandidateCatalog, query: &LinkageQuery<'_>) -> SymbolSet {
 	matching_symbols(catalog, local_indexes(catalog, query), query)
 }
 
-fn global_symbols(catalog: &CandidateCatalog<'_>, query: &LinkageQuery<'_>) -> SymbolSet {
+fn global_symbols(catalog: &CandidateCatalog, query: &LinkageQuery<'_>) -> SymbolSet {
 	matching_symbols(catalog, global_indexes(catalog, query), query)
 }
 
-fn local_indexes(catalog: &CandidateCatalog<'_>, query: &LinkageQuery<'_>) -> SymbolSet {
+fn local_indexes(catalog: &CandidateCatalog, query: &LinkageQuery<'_>) -> SymbolSet {
 	let mut symbols = SymbolSet::new();
 	for key in query_keys(query) {
 		if let Some(candidate_indexes) = catalog
@@ -61,7 +61,7 @@ fn local_indexes(catalog: &CandidateCatalog<'_>, query: &LinkageQuery<'_>) -> Sy
 	symbols
 }
 
-fn global_indexes(catalog: &CandidateCatalog<'_>, query: &LinkageQuery<'_>) -> SymbolSet {
+fn global_indexes(catalog: &CandidateCatalog, query: &LinkageQuery<'_>) -> SymbolSet {
 	let mut symbols = SymbolSet::new();
 	for key in query_keys(query) {
 		if let Some(candidate_indexes) = catalog.indexes().symbols_by_key(&key) {
@@ -79,8 +79,8 @@ fn global_indexes(catalog: &CandidateCatalog<'_>, query: &LinkageQuery<'_>) -> S
 	symbols
 }
 
-fn matching_symbols<'a>(
-	catalog: &CandidateCatalog<'a>,
+fn matching_symbols(
+	catalog: &CandidateCatalog,
 	indexes: SymbolSet,
 	query: &LinkageQuery<'_>,
 ) -> SymbolSet {
@@ -97,7 +97,7 @@ fn matching_symbols<'a>(
 }
 
 struct CandidateSourceMatcher<'a, 'q> {
-	catalog: &'a CandidateCatalog<'a>,
+	catalog: &'a CandidateCatalog,
 	query: &'q LinkageQuery<'q>,
 	source_files: &'q BTreeSet<usize>,
 	seen: FxHashSet<SymbolOrdinal>,
@@ -106,7 +106,7 @@ struct CandidateSourceMatcher<'a, 'q> {
 
 impl<'a, 'q> CandidateSourceMatcher<'a, 'q> {
 	fn new(
-		catalog: &'a CandidateCatalog<'a>,
+		catalog: &'a CandidateCatalog,
 		query: &'q LinkageQuery<'q>,
 		source_files: &'q BTreeSet<usize>,
 	) -> Self {
@@ -163,7 +163,7 @@ impl<'a, 'q> CandidateSourceMatcher<'a, 'q> {
 		}
 		self.catalog
 			.candidate(symbol)
-			.is_some_and(|candidate| language::matches_candidate(self.query, candidate))
+			.is_some_and(|candidate| language::matches_candidate(self.query, &candidate))
 	}
 }
 
@@ -173,7 +173,7 @@ impl GlobalScopeResolver {
 	pub(in crate::linkage) fn resolve(
 		&self,
 		query: &LinkageQuery<'_>,
-		candidates: &CandidateCatalog<'_>,
+		candidates: &CandidateCatalog,
 	) -> SymbolSet {
 		global_symbols(candidates, query)
 	}

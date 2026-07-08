@@ -31,15 +31,17 @@ pub(in crate::linkage) fn run_full_linkage_with_timings(
 		index,
 		generation,
 		method_indexer.methods(),
-		candidates,
+		&candidates,
 		candidate_index,
 	);
 	let report_timer = Instant::now();
-	let snapshot = store.project_snapshot(&index.references, &material.identity);
-	let memory = store.memory_metrics();
+	let snapshot =
+		store.project_snapshot(&index.references, &material.identity, candidates.symbols());
+	let memory = store.memory_metrics(candidates.symbols());
 	timings.project_snapshot = report_timer.elapsed();
 	timings.total = total_timer.elapsed();
 	linkage.store = Some(store);
+	linkage.candidates = Some(candidates);
 	linkage.method_indexer = Some(method_indexer);
 	linkage.memory = memory;
 	Ok(TimedLinkageSnapshot {
@@ -54,7 +56,7 @@ fn resolve_full_linkage(
 	index: &CodeIndex,
 	generation: ResourceGeneration,
 	methods: &MethodTable,
-	candidates: CandidateCatalog<'_>,
+	candidates: &CandidateCatalog,
 	candidate_index_elapsed: std::time::Duration,
 ) -> LinkageResolution {
 	let resolver = ReferenceResolver::new(material);
@@ -74,14 +76,14 @@ fn resolve_full_linkage(
 				reference_idx,
 				&index.references[reference_idx],
 				locations.get(reference_idx),
-				&candidates,
+				candidates,
 				&manifests,
 			)
 		})
 		.collect::<Vec<_>>();
 	timings.resolve_references = resolve_timer.elapsed();
 	let semantic_timer = Instant::now();
-	SemanticLinkage::new(material, methods, &candidates, &locations)
+	SemanticLinkage::new(material, methods, candidates, &locations)
 		.enhance(&mut decisions, &index.references);
 	timings.semantic_enhance = semantic_timer.elapsed();
 	let store_timer = Instant::now();
@@ -91,7 +93,7 @@ fn resolve_full_linkage(
 		decisions,
 		&index.references,
 		material,
-		&candidates,
+		candidates,
 	);
 	timings.store_index = store_timer.elapsed();
 	LinkageResolution { store, timings }

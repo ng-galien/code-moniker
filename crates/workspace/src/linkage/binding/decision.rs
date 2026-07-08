@@ -161,20 +161,6 @@ impl ReferenceLinkageDecision {
 		}
 	}
 
-	pub(in crate::linkage) fn remap_resolved_targets(
-		&mut self,
-		previous: &SymbolOrdinalCatalog,
-		next: &SymbolOrdinalCatalog,
-	) -> bool {
-		match self {
-			Self::Resolved { targets, .. } => {
-				*targets = previous.remap_set(targets, next);
-				!targets.is_empty()
-			}
-			Self::External { .. } | Self::Blocked { .. } | Self::Unknown { .. } => true,
-		}
-	}
-
 	pub(in crate::linkage) fn set_reference_idx(&mut self, next_reference_idx: usize) {
 		match &mut *self {
 			Self::Resolved { reference_idx, .. }

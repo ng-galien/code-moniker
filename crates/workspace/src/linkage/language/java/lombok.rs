@@ -12,7 +12,7 @@ use crate::source::{CodeIndexMaterial, IndexedSourceFile};
 
 pub(super) struct LombokSemantics<'a> {
 	material: &'a CodeIndexMaterial,
-	candidates: &'a CandidateCatalog<'a>,
+	candidates: &'a CandidateCatalog,
 	annotated_types: FxHashMap<Moniker, TypeAnnotations>,
 	type_aliases: FxHashMap<Moniker, Moniker>,
 	fields: FxHashMap<(Moniker, Vec<u8>), FieldInfo>,
@@ -21,7 +21,7 @@ pub(super) struct LombokSemantics<'a> {
 impl<'a> LombokSemantics<'a> {
 	pub(super) fn build(
 		material: &'a CodeIndexMaterial,
-		candidates: &'a CandidateCatalog<'a>,
+		candidates: &'a CandidateCatalog,
 		references: &RecordTable<ReferenceRecord>,
 	) -> Self {
 		let mut semantics = Self {
@@ -211,11 +211,7 @@ struct JavaSymbolFacts {
 }
 
 impl JavaSymbolFacts {
-	fn from_file(
-		file_idx: usize,
-		file: &IndexedSourceFile,
-		candidates: &CandidateCatalog<'_>,
-	) -> Self {
+	fn from_file(file_idx: usize, file: &IndexedSourceFile, candidates: &CandidateCatalog) -> Self {
 		if file.lang != Lang::Java {
 			return Self::default();
 		}
@@ -227,7 +223,7 @@ impl JavaSymbolFacts {
 					facts.add_type_aliases(&def.moniker);
 				} else if def.kind == kinds::FIELD
 					&& let Some(owner) = field_owner(file, def.parent)
-					&& let Some(symbol) = candidates.indexes().symbol_at(file_idx, def_idx)
+					&& let Some(symbol) = candidates.symbol_at(file_idx, def_idx)
 				{
 					facts.add_field(owner, &def.moniker, symbol, &def.signature);
 				}

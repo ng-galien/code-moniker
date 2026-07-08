@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::linkage::binding::LinkageStore;
+use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::change::run_refresh_linkage_with_timings;
 use crate::linkage::resolve::{MethodIndexer, run_full_linkage_with_timings};
 use crate::snapshot::{
@@ -68,6 +69,7 @@ pub struct TimedLinkageRefresh {
 pub struct LocalLinkage {
 	pub(in crate::linkage) cache: LocalResourceCache,
 	pub(in crate::linkage) store: Option<LinkageStore>,
+	pub(in crate::linkage) candidates: Option<CandidateCatalog>,
 	pub(in crate::linkage) method_indexer: Option<MethodIndexer>,
 	pub(in crate::linkage) memory: LinkageMemoryMetrics,
 }
@@ -77,6 +79,7 @@ impl LocalLinkage {
 		Self {
 			cache,
 			store: None,
+			candidates: None,
 			method_indexer: None,
 			memory: LinkageMemoryMetrics::default(),
 		}
