@@ -15,6 +15,8 @@ use code_moniker_query::{
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use tokio::runtime::Runtime;
 
+use code_moniker_query::{list_registry_files, pid_is_alive};
+
 pub use code_moniker_query::{
 	DaemonRegistryEntry, canonical_workspace_config, canonical_workspace_root,
 	canonical_workspace_roots, config_from_roots, config_roots, daemon_workspace_config,
@@ -150,6 +152,24 @@ fn connect_entry(
 	Ok(client)
 }
 
+fn registry_entry_for(
+	config: &DaemonWorkspaceConfig,
+) -> anyhow::Result<Option<DaemonRegistryEntry>> {
+	if let Some(entry) = read_registry_entry(config)? {
+		return Ok(Some(entry));
+	}
+	for (_, entry) in list_registry_files()? {
+		let serves_all_roots = config
+			.roots
+			.iter()
+			.all(|root| entry.workspace_roots.contains(root));
+		if serves_all_roots && pid_is_alive(entry.pid) {
+			return Ok(Some(entry));
+		}
+	}
+	Ok(None)
+}
+
 fn build_runtime() -> anyhow::Result<Runtime> {
 	Ok(tokio::runtime::Builder::new_multi_thread()
 		.worker_threads(2)
@@ -160,7 +180,7 @@ fn build_runtime() -> anyhow::Result<Runtime> {
 
 fn wait_for_daemon(config: DaemonWorkspaceConfig) -> anyhow::Result<DaemonClient> {
 	for _ in 0..50 {
-		if let Some(entry) = read_registry_entry(&config)?
+		if let Some(entry) = registry_entry_for(&config)?
 			&& let Ok(client) = connect_entry(config.clone(), entry)
 		{
 			return Ok(client);
