@@ -437,6 +437,7 @@
 		"validate": "node scripts/validate-samples.mjs",
 		"test:integration": "npm run compile && node test/run-integration.js",
 		"test": "npm run typecheck && npm run validate",
+		"package": "vsce package",
 		"vscode:prepublish": "npm run compile"
 	},
 	"devDependencies": {
@@ -444,6 +445,7 @@
 		"@types/vscode": "^1.120.0",
 		"@types/ws": "^8.5.10",
 		"@vscode/test-electron": "^3.0.0",
+		"@vscode/vsce": "^3.9.2",
 		"esbuild": "^0.20.0",
 		"json-schema-to-typescript": "^15.0.0",
 		"typescript": "^5.4.0"

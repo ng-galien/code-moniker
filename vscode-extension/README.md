@@ -4,6 +4,9 @@ A VSCode workbench for [code-moniker](../README.md) check rules: browse rule
 files, validate them, run them on a workspace, and open executable learning and
 sample scenarios from the repository's Markdown scenario corpus.
 
+For source installation, user settings, and packaged `.vsix` instructions, see
+the dedicated [VS Code extension guide](../docs/vscode-extension.md).
+
 ## The Code Moniker Panel
 
 Open it from the activity bar.
@@ -82,20 +85,40 @@ For the DSL reference see [`docs/cli/check-dsl.md`](../docs/cli/check-dsl.md).
 - **Code Moniker: Validate Rules** / **Run on Project** — operate on a rule
   file from the Rule Files view.
 - **Code Moniker: Refresh** — refresh the Rule Files or Catalog view.
+- **Code Moniker: Connect Workspace Daemon** / **Refresh Daemons** — manage the
+  daemon session used by workspace features.
+- **Code Moniker: Refresh Symbols** — reload the daemon-backed symbol outline.
+- **Code Moniker: Run Check** — run the daemon-backed workspace check.
 
 ## Settings
 
 - `codeMoniker.binaryPath` — path to the `code-moniker` binary
   (default `code-moniker`, falling back to `~/.cargo/bin/code-moniker`).
+- `codeMoniker.daemon.autoConnect` — connect to or start the workspace daemon
+  when a folder opens.
 
 ## Development
 
+Install the CLI first when running the extension against a local checkout:
+
 ```sh
+cargo install --path ../crates/cli --features tui,mcp
+```
+
+```sh
+npm ci
 npm run typecheck   # tsc --noEmit
 npm run validate    # catalog sample import/shape checks
 npm test            # typecheck + validate
 npm run compile     # bundle extension + renderer into dist/
 npm run watch       # rebuild on change
+```
+
+Package and install the extension from this directory:
+
+```sh
+npm run package
+code --install-extension code-moniker-0.1.0.vsix
 ```
 
 ## Structure
@@ -106,6 +129,9 @@ npm run watch       # rebuild on change
 - `src/catalog/` — catalog tree, commands, repository, and sample imports.
 - `src/cli/` — binary discovery plus `rules eval`, `check`, validate, and
   scenario execution wrappers.
+- `src/daemon/` — daemon discovery, startup, JSON-RPC session, and tree nodes.
+- `src/symbols/` — daemon-backed symbol outline and detail panel.
+- `src/rules-daemon/` — daemon-backed check execution and diagnostics.
 - `src/rules/` — Rule Files view, parser, validation, and diagnostics.
 - `src/shared/` — language registry and workspace URI helpers.
 - `src/diagnostics/` — VSCode diagnostic mapping for CLI violations.

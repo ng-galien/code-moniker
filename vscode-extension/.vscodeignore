@@ -2,7 +2,12 @@
 src/**
 renderer/**
 node_modules/**
+test/**
+scripts/**
 esbuild.js
 tsconfig.json
+package-lock.json
+.code-moniker.toml
+*.vsix
 **/*.map
 .gitignore

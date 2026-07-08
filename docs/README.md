@@ -13,6 +13,7 @@ then drop into the reference pages only when you need exact grammar details.
 | List declared deps with their package moniker | [Manifest](cli/manifest.md) |
 | Run architecture and naming rules | [Check](cli/check.md) |
 | Write rule expressions | [Rule DSL](cli/check-dsl.md) |
+| Use the VS Code workbench extension | [VS Code extension](vscode-extension.md) |
 | Review local code smell warnings | [Code smell review](cli/code-smell-review.md) |
 | Discover supported language tags, kinds, and shapes | [Discovery](cli/langs.md) |
 | Connect `check` to hooks, pre-commit, or CI | [Agent harness](cli/agent-harness.md) |

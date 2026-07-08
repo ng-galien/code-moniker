@@ -52,6 +52,7 @@ flowchart LR
 
   subgraph Tools["Tools"]
     C["CLI & services<br/>extract, check, rules,<br/>ui, manifest, mcp/daemon"]
+    V["VS Code extension<br/>rules, catalog, symbols,<br/>daemon-backed checks"]
   end
 
   subgraph Uses["Uses"]
@@ -64,9 +65,12 @@ flowchart LR
   M --> D
   G --> C
   D --> C
+  C --> V
   C --> I
   C --> R
   C --> N
+  V --> R
+  V --> N
 
   classDef input fill:#eef6ff,stroke:#2f6f9f,color:#0b253a
   classDef model fill:#f1f8f4,stroke:#3a7d4f,color:#0f2a18
@@ -74,7 +78,7 @@ flowchart LR
   classDef use fill:#f7f1ff,stroke:#6f4aa1,color:#211232
   class S,M input
   class E,G,D model
-  class C tool
+  class C,V tool
   class I,R,N use
 ```
 
@@ -218,6 +222,27 @@ Drop `--features tui,mcp` for a lighter core build — `extract`, `check`,
 cargo install code-moniker
 ```
 
+## VS Code extension
+
+The repository also ships a VS Code extension for day-to-day rule work:
+workspace rule files, daemon-backed symbols, check diagnostics, and bundled
+`.cm.md` learning scenarios are available from the **Code Moniker** activity
+bar.
+
+Install it from this checkout by building the CLI, packaging the extension, and
+installing the generated `.vsix`:
+
+```sh
+cargo install --path crates/cli --features tui,mcp
+cd vscode-extension
+npm ci
+npm run package
+code --install-extension code-moniker-0.1.0.vsix
+```
+
+See [VS Code extension](docs/vscode-extension.md) for requirements, settings,
+source installation, and development workflow.
+
 ## First CLI run
 
 Inspect a file:
@@ -316,6 +341,7 @@ Start with the page that matches the task:
 | List manifest dependencies | [Manifest](docs/cli/manifest.md) |
 | Lint a repository with rules | [Check](docs/cli/check.md) |
 | Write rule expressions | [Rule DSL](docs/cli/check-dsl.md) |
+| Use the VS Code workbench extension | [VS Code extension](docs/vscode-extension.md) |
 | Wire checks into agent hooks or CI | [Agent harness](docs/cli/agent-harness.md) |
 | Run or query resident workspaces | [Daemon](docs/daemon.md) |
 | Understand moniker URI syntax | [Moniker URI](docs/design/moniker-uri.md) |
