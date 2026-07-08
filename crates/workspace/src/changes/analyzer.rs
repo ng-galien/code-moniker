@@ -5,22 +5,19 @@ use std::path::PathBuf;
 use code_moniker_core::core::moniker::Moniker;
 use code_moniker_core::lang::Lang;
 
-use crate::code::{NormalizedSource, NormalizedSymbol, SymbolProvider};
+use crate::code::{CodeIndexSymbolProvider, NormalizedSource, NormalizedSymbol};
 use crate::snapshot::{
 	ChangeId, ChangeRecord, ChangeRecordCoreFields, ChangeStatus, SymbolLocation,
 };
 
 use super::diff;
 
-pub struct ChangeAnalyzer<'a, P> {
-	symbols: &'a P,
+pub struct ChangeAnalyzer<'a, 'm> {
+	symbols: &'a CodeIndexSymbolProvider<'m>,
 }
 
-impl<'a, P> ChangeAnalyzer<'a, P>
-where
-	P: SymbolProvider,
-{
-	pub fn new(symbols: &'a P) -> Self {
+impl<'a, 'm> ChangeAnalyzer<'a, 'm> {
+	pub fn new(symbols: &'a CodeIndexSymbolProvider<'m>) -> Self {
 		Self { symbols }
 	}
 
@@ -46,10 +43,7 @@ struct PendingChange {
 }
 
 impl PendingChange {
-	fn record<P>(&self, idx: usize, symbols: &P) -> ChangeRecord
-	where
-		P: SymbolProvider,
-	{
+	fn record(&self, idx: usize, symbols: &CodeIndexSymbolProvider<'_>) -> ChangeRecord {
 		let symbol = self.symbol(symbols);
 		let source = self.source(symbols, symbol.as_ref());
 		let mut record = ChangeRecord::new(ChangeRecordCoreFields {
@@ -72,28 +66,27 @@ impl PendingChange {
 		record
 	}
 
-	fn symbol<P>(&self, symbols: &P) -> Option<NormalizedSymbol>
-	where
-		P: SymbolProvider,
-	{
+	fn symbol(&self, symbols: &CodeIndexSymbolProvider<'_>) -> Option<NormalizedSymbol> {
 		self.loc
 			.and_then(|loc| symbols.symbol_at(loc))
 			.or_else(|| symbols.symbol_for_moniker(&self.moniker))
 	}
 
-	fn source<P>(&self, symbols: &P, symbol: Option<&NormalizedSymbol>) -> Option<NormalizedSource>
-	where
-		P: SymbolProvider,
-	{
+	fn source(
+		&self,
+		symbols: &CodeIndexSymbolProvider<'_>,
+		symbol: Option<&NormalizedSymbol>,
+	) -> Option<NormalizedSource> {
 		self.loc
 			.and_then(|loc| symbols.source_at(loc.file))
 			.or_else(|| symbol.map(|symbol| symbol.source.clone()))
 	}
 
-	fn identity<P>(&self, symbols: &P, symbol: Option<&NormalizedSymbol>) -> String
-	where
-		P: SymbolProvider,
-	{
+	fn identity(
+		&self,
+		symbols: &CodeIndexSymbolProvider<'_>,
+		symbol: Option<&NormalizedSymbol>,
+	) -> String {
 		symbol
 			.map(|symbol| symbol.identity.clone())
 			.unwrap_or_else(|| symbols.identity_for_moniker(&self.moniker))
