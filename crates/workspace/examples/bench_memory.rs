@@ -532,7 +532,11 @@ fn estimate_material(material: &CodeIndexMaterial, estimate: &mut MemoryEstimate
 	);
 	estimate.add(
 		"material.files.metadata_strings",
-		material.files.iter().map(indexed_source_payload).sum(),
+		material
+			.files
+			.iter()
+			.map(|file| indexed_source_payload(file))
+			.sum(),
 		format!("{} indexed source files", material.files.len()),
 	);
 	let def_count = material

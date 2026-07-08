@@ -230,7 +230,7 @@ pub struct ResolvedSourceResource {
 #[derive(Clone)]
 pub struct CodeIndexMaterial {
 	pub source_catalog: SourceCatalogMaterial,
-	pub files: Vec<IndexedSourceFile>,
+	pub files: Vec<Arc<IndexedSourceFile>>,
 	pub identity: LocalIdentityResolver,
 	pub symbols_by_moniker: FxHashMap<Moniker, SymbolId>,
 }
@@ -366,7 +366,7 @@ mod tests {
 				},
 				identity: identity.clone(),
 			},
-			files: vec![file],
+			files: vec![Arc::new(file)],
 			identity,
 			symbols_by_moniker: FxHashMap::default(),
 		};

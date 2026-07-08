@@ -168,7 +168,7 @@ fn refresh_local_code_index(
 		if let Some(slot) = files.get_mut(file_idx) {
 			push_unique_source(&mut changed_sources, indexed.source_id.clone());
 			changed_file_indexes.insert(file_idx);
-			*slot = indexed;
+			*slot = Arc::new(indexed);
 		}
 	}
 	let extract_sources = extract_timer.elapsed();
@@ -226,14 +226,14 @@ fn source_material(
 fn extract_source_files(
 	source_material: &SourceCatalogMaterial,
 	cache_dir: Option<&std::path::Path>,
-) -> WorkspaceResult<Vec<IndexedSourceFile>> {
+) -> WorkspaceResult<Vec<Arc<IndexedSourceFile>>> {
 	source_material
 		.sources
 		.files
 		.par_iter()
 		.enumerate()
 		.map(|(file_idx, file)| {
-			extract_source_file(source_material, file_idx, &file.path, cache_dir)
+			extract_source_file(source_material, file_idx, &file.path, cache_dir).map(Arc::new)
 		})
 		.collect()
 }
@@ -298,7 +298,7 @@ fn extract_source_file(
 
 fn build_semantic_index(
 	source_material: SourceCatalogMaterial,
-	files: Vec<IndexedSourceFile>,
+	files: Vec<Arc<IndexedSourceFile>>,
 ) -> (Vec<SymbolRecord>, Vec<ReferenceRecord>, CodeIndexMaterial) {
 	let (symbol_count, reference_count) = graph_record_counts(&files);
 	let mut symbols = Vec::with_capacity(symbol_count);
@@ -338,7 +338,7 @@ fn build_semantic_index(
 
 fn material_from_files(
 	source_material: SourceCatalogMaterial,
-	mut files: Vec<IndexedSourceFile>,
+	mut files: Vec<Arc<IndexedSourceFile>>,
 ) -> CodeIndexMaterial {
 	let symbol_count = files.iter().map(|file| file.graph.def_count()).sum();
 	let mut symbols_by_moniker = rustc_hash::FxHashMap::default();
@@ -609,7 +609,7 @@ fn reference_key(
 	})
 }
 
-fn graph_record_counts(files: &[IndexedSourceFile]) -> (usize, usize) {
+fn graph_record_counts(files: &[Arc<IndexedSourceFile>]) -> (usize, usize) {
 	files.iter().fold((0usize, 0usize), |(defs, refs), file| {
 		(
 			defs + file.graph.defs().count(),
@@ -709,7 +709,7 @@ impl TargetIdentityPool {
 	}
 }
 
-fn source_records(files: &[IndexedSourceFile]) -> Vec<SourceFileRecord> {
+fn source_records(files: &[Arc<IndexedSourceFile>]) -> Vec<SourceFileRecord> {
 	files
 		.iter()
 		.map(|file| SourceFileRecord {
