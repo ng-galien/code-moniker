@@ -12,7 +12,7 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
 use crate::linkage::change::{BindingReadModel, EditedGraph, RebindScope};
-use crate::linkage::change::{LinkageRefreshImpact, LinkageRefreshShape};
+use crate::linkage::change::{LinkageRefreshImpact, LinkageRefreshShape, SymbolDelta};
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::ReferenceResolver;
@@ -92,10 +92,13 @@ pub(in crate::linkage) fn run_refresh_linkage_with_timings(
 		generation,
 	};
 	let refresh = run_incremental_refresh(
-		store,
-		indexer,
+		RefreshExecution {
+			store,
+			indexer,
+			candidates,
+			previous,
+		},
 		&input,
-		candidates,
 		candidate_index,
 		total_timer,
 	);
@@ -252,25 +255,44 @@ struct IncrementalLinkageInput<'a> {
 	generation: ResourceGeneration,
 }
 
+struct RefreshExecution<'a> {
+	store: &'a mut LinkageStore,
+	indexer: &'a mut MethodIndexer,
+	candidates: &'a CandidateCatalog,
+	previous: &'a LinkageSnapshot,
+}
+
 fn run_incremental_refresh(
-	store: &mut LinkageStore,
-	indexer: &mut MethodIndexer,
+	execution: RefreshExecution<'_>,
 	input: &IncrementalLinkageInput<'_>,
-	candidates: &CandidateCatalog,
 	candidate_index_elapsed: Duration,
 	total_timer: Instant,
 ) -> TimedLinkageRefresh {
+	let RefreshExecution {
+		store,
+		indexer,
+		candidates,
+		previous,
+	} = execution;
 	let mut timings = LinkageRefreshTimings {
 		candidate_index: candidate_index_elapsed,
 		..LinkageRefreshTimings::default()
 	};
-	refresh_incremental_linkage(store, indexer, input, candidates, &mut timings);
+	let decisions_unchanged =
+		refresh_incremental_linkage(store, indexer, input, candidates, &mut timings);
 	let project_timer = Instant::now();
-	let snapshot = store.project_snapshot(
-		&input.index.references,
-		&input.material.identity,
-		candidates.symbols(),
-	);
+	let snapshot = if decisions_unchanged {
+		let mut snapshot = previous.clone();
+		snapshot.generation = input.generation;
+		snapshot.index_generation = input.index.generation;
+		snapshot
+	} else {
+		store.project_snapshot(
+			&input.index.references,
+			&input.material.identity,
+			candidates.symbols(),
+		)
+	};
 	let memory = store.memory_metrics(candidates.symbols());
 	timings.project_snapshot = project_timer.elapsed();
 	timings.total = total_timer.elapsed();
@@ -287,7 +309,7 @@ fn refresh_incremental_linkage(
 	input: &IncrementalLinkageInput<'_>,
 	candidates: &CandidateCatalog,
 	timings: &mut LinkageRefreshTimings,
-) {
+) -> bool {
 	let plan_timer = Instant::now();
 	let positions_stable = input.impact.references().id_remaps().is_empty()
 		&& input.impact.references().removed_ids().is_empty()
@@ -346,7 +368,11 @@ fn refresh_incremental_linkage(
 	});
 	timings.apply_store = apply_timer.elapsed();
 	if changed_reference_indexes.is_empty() {
-		return;
+		let symbol_ids_stable = matches!(
+			input.impact.definitions(),
+			SymbolDelta::Unchanged | SymbolDelta::AdditiveOnly { .. }
+		);
+		return positions_stable && symbol_ids_stable && execution.stale_references().is_empty();
 	}
 	let method_timer = Instant::now();
 	let methods = indexer.reindex(input.material, candidates, execution.changed_files());
@@ -368,6 +394,7 @@ fn refresh_incremental_linkage(
 		candidates.symbols(),
 	);
 	timings.rebuild_indexes = rebuild_timer.elapsed();
+	false
 }
 
 fn resolve_reference_decisions(
