@@ -1,5 +1,7 @@
 // code-moniker: ignore-file[smell-clone-reflex]
 // Snapshot views are owned read-model projections from borrowed symbol records.
+use rustc_hash::FxHashMap;
+
 use super::model::{SymbolDetail, SymbolSummary};
 use crate::snapshot::model::{ChangeStatus, SymbolId, SymbolRecord, WorkspaceSnapshot};
 
@@ -13,13 +15,14 @@ impl<'a> SymbolView<'a> {
 	}
 
 	pub fn all(&self) -> Vec<SymbolSummary> {
+		let counts = self.navigable_child_counts();
 		let mut symbols = self
 			.snapshot
 			.index
 			.symbols
 			.iter()
 			.filter(|symbol| symbol.navigable)
-			.map(|symbol| self.summary(symbol))
+			.map(|symbol| self.summary_with_children(symbol, &counts))
 			.collect::<Vec<_>>();
 		symbols.sort_by(|left, right| {
 			left.source
@@ -28,6 +31,35 @@ impl<'a> SymbolView<'a> {
 				.then_with(|| left.identity.cmp(&right.identity))
 		});
 		symbols
+	}
+
+	fn navigable_child_counts(&self) -> FxHashMap<&SymbolId, usize> {
+		let mut counts = FxHashMap::default();
+		for symbol in self.snapshot.index.symbols.iter() {
+			if symbol.navigable
+				&& let Some(parent) = symbol.parent.as_ref()
+			{
+				*counts.entry(parent).or_default() += 1;
+			}
+		}
+		counts
+	}
+
+	fn summary_with_children(
+		&self,
+		symbol: &SymbolRecord,
+		counts: &FxHashMap<&SymbolId, usize>,
+	) -> SymbolSummary {
+		SymbolSummary {
+			id: symbol.id.clone(),
+			source: symbol.source.clone(),
+			identity: symbol.identity.clone(),
+			name: symbol.name.clone(),
+			kind: symbol.kind.clone(),
+			line_range: symbol.line_range,
+			child_count: counts.get(&symbol.id).copied().unwrap_or(0),
+			change: self.change_status_for_symbol(&symbol.id),
+		}
 	}
 
 	pub fn roots_for_source(&self, source: &crate::snapshot::SourceId) -> Vec<SymbolSummary> {
