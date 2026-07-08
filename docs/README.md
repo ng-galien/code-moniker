@@ -16,6 +16,7 @@ then drop into the reference pages only when you need exact grammar details.
 | Review local code smell warnings | [Code smell review](cli/code-smell-review.md) |
 | Discover supported language tags, kinds, and shapes | [Discovery](cli/langs.md) |
 | Connect `check` to hooks, pre-commit, or CI | [Agent harness](cli/agent-harness.md) |
+| Run or query a resident workspace service | [Daemon](daemon.md) |
 
 ## Design
 

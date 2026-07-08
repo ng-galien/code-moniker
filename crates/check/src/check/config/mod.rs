@@ -282,15 +282,59 @@ pub fn load_with_cli_default_rules(
 	user_path: Option<&Path>,
 	default_rules: Option<bool>,
 ) -> Result<Config, ConfigError> {
+	load_with_cli_sources(user_path, &[], default_rules)
+}
+
+/// Load project rules plus command-line inline TOML overlays with explicit CLI
+/// precedence for `--default-rules`. Inline overlays merge after root config
+/// and fragments, so command invocations can temporarily refine project rules.
+pub fn load_with_cli_sources(
+	user_path: Option<&Path>,
+	inline_sources: &[String],
+	default_rules: Option<bool>,
+) -> Result<Config, ConfigError> {
 	let project = read_project_config(user_path)?;
+	let inline = parse_inline_configs(inline_sources)?;
 	let include_defaults = default_rules.unwrap_or_else(|| {
-		project
+		inline
+			.iter()
+			.rev()
+			.find_map(|cfg| cfg.default_rules)
+			.or_else(|| project.root.as_ref().and_then(|cfg| cfg.default_rules))
+			.unwrap_or(true)
+	});
+	load_with_project(project, include_defaults, inline)
+}
+
+fn parse_inline_configs(inline_sources: &[String]) -> Result<Vec<Config>, ConfigError> {
+	inline_sources
+		.iter()
+		.enumerate()
+		.map(|(index, raw)| parse_inline_config(raw, index))
+		.collect()
+}
+
+fn parse_inline_config(raw: &str, index: usize) -> Result<Config, ConfigError> {
+	let path = inline_rules_label(index);
+	let user: Config = toml::from_str(raw).map_err(|error| ConfigError::UserConfig {
+		path: path.clone(),
+		error,
+	})?;
+	validate(&user, &path)?;
+	Ok(user)
+}
+
+fn inline_rules_label(index: usize) -> String {
+	format!("<inline rules #{}>", index + 1)
+}
+
+fn include_defaults_from_project(project: &ProjectConfig, include_defaults: bool) -> bool {
+	include_defaults
+		&& project
 			.root
 			.as_ref()
 			.and_then(|cfg| cfg.default_rules)
 			.unwrap_or(true)
-	});
-	load_with_project(project, include_defaults)
 }
 
 pub fn load_from_str(
@@ -310,6 +354,7 @@ pub fn load_from_str(
 			fragments: Vec::new(),
 		},
 		include_defaults,
+		Vec::new(),
 	)
 }
 
@@ -321,13 +366,8 @@ pub(crate) fn load_with_options(
 	include_defaults: bool,
 ) -> Result<Config, ConfigError> {
 	let project = read_project_config(user_path)?;
-	let include_defaults = include_defaults
-		&& project
-			.root
-			.as_ref()
-			.and_then(|cfg| cfg.default_rules)
-			.unwrap_or(true);
-	load_with_project(project, include_defaults)
+	let include_defaults = include_defaults_from_project(&project, include_defaults);
+	load_with_project(project, include_defaults, Vec::new())
 }
 
 struct ProjectConfig {
@@ -338,6 +378,7 @@ struct ProjectConfig {
 fn load_with_project(
 	project: ProjectConfig,
 	include_defaults: bool,
+	inline: Vec<Config>,
 ) -> Result<Config, ConfigError> {
 	let mut cfg = if include_defaults {
 		load_default()?
@@ -349,6 +390,9 @@ fn load_with_project(
 		merge_into(&mut cfg, user);
 	}
 	fragments::merge_into(&mut cfg, project.fragments)?;
+	for inline in inline {
+		merge_into(&mut cfg, inline);
+	}
 	Ok(cfg)
 }
 
@@ -1243,6 +1287,97 @@ mod tests {
 		assert!(cfg.refs.rules.is_empty());
 		assert!(cfg.ts.kinds.is_empty());
 		assert_eq!(cfg.default_rules, Some(false));
+	}
+
+	#[test]
+	fn inline_default_rules_flag_can_disable_embedded_default_rules() {
+		let inline = vec!["default_rules = false\n".to_string()];
+
+		let cfg = load_with_cli_sources(Some(Path::new("/no/such/file.toml")), &inline, None)
+			.expect("inline config loads");
+
+		assert!(cfg.refs.rules.is_empty());
+		assert!(cfg.ts.kinds.is_empty());
+		assert_eq!(cfg.default_rules, Some(false));
+	}
+
+	#[test]
+	fn command_line_default_rules_on_wins_over_inline_flag() {
+		let inline = vec!["default_rules = false\n".to_string()];
+
+		let cfg = load_with_cli_sources(Some(Path::new("/no/such/file.toml")), &inline, Some(true))
+			.expect("inline config loads");
+
+		assert!(cfg.ts.kinds.contains_key("class"));
+		assert_eq!(cfg.default_rules, Some(true));
+	}
+
+	#[test]
+	fn inline_rules_override_project_rule_by_same_id() {
+		let dir = tempfile::tempdir().unwrap();
+		let p = dir.path().join(".code-moniker.toml");
+		std::fs::write(
+			&p,
+			r#"
+			default_rules = false
+
+			[[ts.class.where]]
+			id   = "name-policy"
+			expr = "name =~ ^Good"
+			"#,
+		)
+		.unwrap();
+		let inline = vec![
+			r#"
+			[[ts.class.where]]
+			id   = "name-policy"
+			expr = "name =~ ^Inline"
+			"#
+			.to_string(),
+		];
+
+		let cfg = load_with_cli_sources(Some(&p), &inline, None).expect("inline config loads");
+		let rule = cfg
+			.rules_for(Lang::Ts, "class")
+			.unwrap()
+			.rules
+			.iter()
+			.find(|rule| rule.id.as_deref() == Some("name-policy"))
+			.unwrap();
+
+		assert_eq!(rule.expr, "name =~ ^Inline");
+	}
+
+	#[test]
+	fn repeated_inline_rules_merge_in_order() {
+		let inline = vec![
+			r#"
+			default_rules = false
+
+			[[ts.class.where]]
+			id   = "inline-name"
+			expr = "name =~ ^First"
+			"#
+			.to_string(),
+			r#"
+			[[ts.class.where]]
+			id   = "inline-name"
+			expr = "name =~ ^Second"
+			"#
+			.to_string(),
+		];
+
+		let cfg = load_with_cli_sources(Some(Path::new("/no/such/file.toml")), &inline, None)
+			.expect("inline config loads");
+		let rule = cfg
+			.rules_for(Lang::Ts, "class")
+			.unwrap()
+			.rules
+			.iter()
+			.find(|rule| rule.id.as_deref() == Some("inline-name"))
+			.unwrap();
+
+		assert_eq!(rule.expr, "name =~ ^Second");
 	}
 
 	#[test]

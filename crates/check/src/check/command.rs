@@ -229,6 +229,7 @@ impl DefaultRulesSelection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuleSetRequest {
 	pub rules: Option<PathBuf>,
+	pub inline_rules: Vec<String>,
 	pub default_rules: DefaultRulesSelection,
 	pub profile: Option<String>,
 	pub scheme: String,
@@ -238,6 +239,7 @@ impl RuleSetRequest {
 	pub fn new(rules: Option<PathBuf>, scheme: impl Into<String>) -> Self {
 		Self {
 			rules,
+			inline_rules: Vec::new(),
 			default_rules: DefaultRulesSelection::Config,
 			profile: None,
 			scheme: scheme.into(),
@@ -250,6 +252,11 @@ impl RuleSetRequest {
 
 	pub fn with_default_rules(mut self, default_rules: DefaultRulesSelection) -> Self {
 		self.default_rules = default_rules;
+		self
+	}
+
+	pub fn with_inline_rules(mut self, inline_rules: Vec<String>) -> Self {
+		self.inline_rules = inline_rules;
 		self
 	}
 
@@ -267,8 +274,9 @@ impl RuleSetRequest {
 	}
 
 	pub fn load_config(&self) -> anyhow::Result<check::Config> {
-		let mut cfg = config::load_with_cli_default_rules(
+		let mut cfg = config::load_with_cli_sources(
 			self.rules_path(),
+			&self.inline_rules,
 			self.default_rules.as_override(),
 		)?;
 		if let Some(profile) = &self.profile {

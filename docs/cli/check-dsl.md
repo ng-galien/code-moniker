@@ -212,8 +212,8 @@ to override.
 : A domain plus the value extracted from each item. `mode` returns the most
   frequent value and `entropy` returns the normalized entropy of the value
   distribution. The preferred spelling is `mode(out_refs, target.parent)`;
-  legacy projection spelling such as `mode(out_refs.target.parent)` is also
-  accepted.
+  older projection spelling such as `mode(out_refs.target.parent)` is still
+  accepted for compatibility.
 
 `<collection_expr>`
 : A multiset expression. A projection such as `method.name` evaluates the
@@ -683,7 +683,9 @@ Merge: with `--default-rules on`, user TOML overrides the embedded preset
 by rule id (replace in place) or appends new rules. `require_doc_comment`
 overrides if set. Aliases from the user merge on top of embedded ones with
 the same replace-by-name rule. With `--default-rules off`, the user TOML is
-loaded as the complete config.
+loaded as the complete config. `check --rules-inline <TOML>` accepts the
+same TOML shape as a command-line overlay; inline overlays merge after the
+project file and discovered fragments, in command-line order.
 
 Fragments use the file name `code-moniker.fragment.toml` below the root
 rules file directory:

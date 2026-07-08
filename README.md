@@ -51,12 +51,13 @@ flowchart LR
   end
 
   subgraph Tools["Tools"]
-    C["CLI<br/>extract, check, manifest"]
+    C["CLI & services<br/>extract, check, rules,<br/>ui, manifest, mcp/daemon"]
   end
 
   subgraph Uses["Uses"]
     I["Inspection<br/>tree, json, tsv"]
     R["Architecture rules<br/>hooks, CI, agent harnesses"]
+    N["Interactive navigation<br/>TUI, MCP, daemon query"]
   end
 
   S --> E --> G
@@ -65,6 +66,7 @@ flowchart LR
   D --> C
   C --> I
   C --> R
+  C --> N
 
   classDef input fill:#eef6ff,stroke:#2f6f9f,color:#0b253a
   classDef model fill:#f1f8f4,stroke:#3a7d4f,color:#0f2a18
@@ -73,13 +75,14 @@ flowchart LR
   class S,M input
   class E,G,D model
   class C tool
-  class I,R use
+  class I,R,N use
 ```
 
 First useful commands:
 
 ```sh
 code-moniker extract src/order.ts --format tree
+code-moniker rules show .
 code-moniker ui . --cache .code-moniker-cache
 code-moniker check src/ --report
 code-moniker manifest .
@@ -183,7 +186,8 @@ project scans, file paths are anchored relative to the scanned root:
 
 ## Install
 
-Install the full CLI (terminal UI + MCP server):
+Install the full CLI with the optional interactive surfaces (terminal UI +
+MCP server):
 
 ```sh
 cargo install code-moniker --features tui,mcp
@@ -258,7 +262,23 @@ Exit codes:
 ## Configure rules
 
 `code-moniker check` loads embedded defaults first. If a
-`.code-moniker.toml` file exists, it is merged on top.
+`.code-moniker.toml` file exists, it is merged on top. Command-line
+overlays can add or replace rules for one run without changing the repo:
+
+```sh
+code-moniker check src/ --rules-inline '
+default_rules = false
+
+[[ts.function.where]]
+id      = "no-helper"
+expr    = "name != '\''helper'\''"
+message = "Pick a function name that describes the behavior."
+'
+```
+
+The merge order is defaults, project rules, discovered fragments, then each
+`--rules-inline` overlay in command-line order. `--default-rules on|off`
+still wins over `default_rules` in files or inline TOML.
 
 ```toml
 [[refs.where]]
@@ -291,9 +311,13 @@ Start with the page that matches the task:
 | Task | Page |
 | ---- | ---- |
 | Inspect symbols from the CLI | [Extract](docs/cli/extract.md) |
+| Browse a graph interactively | [UI and MCP](docs/cli/ui.md) |
+| Measure extraction coverage and scan time | [Stats](docs/cli/stats.md) |
+| List manifest dependencies | [Manifest](docs/cli/manifest.md) |
 | Lint a repository with rules | [Check](docs/cli/check.md) |
 | Write rule expressions | [Rule DSL](docs/cli/check-dsl.md) |
 | Wire checks into agent hooks or CI | [Agent harness](docs/cli/agent-harness.md) |
+| Run or query resident workspaces | [Daemon](docs/daemon.md) |
 | Understand moniker URI syntax | [Moniker URI](docs/design/moniker-uri.md) |
 | Build or contribute | [Contributing](CONTRIBUTING.md) |
 

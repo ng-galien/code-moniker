@@ -78,7 +78,7 @@ code-moniker check .
 | Make the agent split oversized TypeScript classes immediately | [Enforce small TypeScript classes after each edit](#enforce-small-typescript-classes-after-each-edit) | `.code-moniker.toml`, `.claude/settings.json` |
 | Run a smaller rule set in edit hooks than in CI | [Run only fast edit-time rules for the agent](#run-only-fast-edit-time-rules-for-the-agent) | `.code-moniker.toml`, `.claude/settings.json`, CI command |
 | Check the whole tree before commit | [Gate commits on agent guardrail rules](#gate-commits-on-agent-guardrail-rules) | `.code-moniker.toml`, `cargo moniker-check`, `.githooks/pre-commit` |
-| Introduce rules in a legacy repo without blocking everything | [Roll out rules in a legacy repository](#roll-out-rules-in-a-legacy-repository) | `.code-moniker.toml`, `.claude/settings.json`, non-blocking CI |
+| Introduce rules in an existing repo without blocking everything | [Roll out rules in an existing repository](#roll-out-rules-in-an-existing-repository) | `.code-moniker.toml`, `.claude/settings.json`, non-blocking CI |
 
 ### Install a Codex live harness
 
@@ -176,11 +176,9 @@ It also accepts JSON operation shapes that expose `operation.path`.
 Only the extracted touched files are passed as `--file`; if the payload does
 not expose a source file path, the hook stays silent and exits `0`.
 
-Publish hook overhead before enabling it for a team:
-
-| Date | Machine | Scope | Command | p50 | p95 | Notes |
-| ---- | ------- | ----- | ------- | --- | --- | ----- |
-| 2026-05-14 | M3 Pro | `src` | `code-moniker check --profile agent src --file src/order.ts` | 35 ms | 44 ms | warm cache |
+Measure hook overhead on the target repository before enabling it for a team.
+For a warm-cache edit hook, record at least the machine, scope, command, p50,
+and p95 latency.
 
 ### Install a Claude Code live harness
 
@@ -553,7 +551,7 @@ Enable it once:
 git config core.hooksPath .githooks
 ```
 
-### Roll out rules in a legacy repository
+### Roll out rules in an existing repository
 
 Use this when existing code violates the full policy, but new agent edits
 should still obey a small subset.
@@ -604,7 +602,7 @@ Local audit command:
 code-moniker check src/ --profile report-only --format json
 ```
 
-Non-blocking CI audit while the legacy cleanup is in progress:
+Non-blocking CI audit while the cleanup is in progress:
 
 ```yaml
 - name: code-moniker report

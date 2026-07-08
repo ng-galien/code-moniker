@@ -4,7 +4,7 @@
 one directory.
 
 ```sh
-code-moniker check <PATH> [--file <PATH>]... [--rules <PATH>] [--default-rules on|off] [--format text|json|codex-hook] [--profile <NAME>] [--report] [--max-violations <N>]
+code-moniker check <PATH> [--file <PATH>]... [--rules <PATH>] [--rules-inline <TOML>]... [--default-rules on|off] [--format text|json|codex-hook] [--profile <NAME>] [--report] [--max-violations <N>]
 code-moniker rules init [ROOT] [--rules <PATH>]
 code-moniker rules disable [ROOT] [--rules <PATH>]
 code-moniker rules enable [ROOT] [--rules <PATH>]
@@ -95,6 +95,19 @@ Run only the rules from your project file:
 code-moniker check src/ --rules arch.toml --default-rules off
 ```
 
+Run an ad-hoc TOML overlay without writing it to disk:
+
+```sh
+code-moniker check src/ --rules-inline '
+default_rules = false
+
+[[ts.function.where]]
+id      = "no-helper"
+expr    = "name != '\''helper'\''"
+message = "Pick a function name that describes the behavior."
+'
+```
+
 Machine-readable output:
 
 ```sh
@@ -154,7 +167,9 @@ output. This keeps edit hooks quiet for docs, configs, and generated files.
 
 By default, `check` starts with the embedded default rule pack. If the
 rules file exists, it is merged on top. The default path is
-`.code-moniker.toml`.
+`.code-moniker.toml`. Repeated `--rules-inline <TOML>` arguments are parsed
+as ordinary rule TOML overlays and merged after the project file and any
+discovered fragments, in command-line order.
 
 Use `code-moniker rules init` to create `.code-moniker.toml` at the project
 root. It detects common project manifests such as `pom.xml`, `Cargo.toml`,
@@ -176,6 +191,11 @@ binary. It does not enable or disable rules written in your
 
 Use `--default-rules off` when the TOML file should be the complete rule
 set. If the rules file is missing in that mode, no rules run.
+
+Inline overlays can also set `default_rules = false` for that invocation.
+When several sources set it, the last inline overlay wins over the project
+file. An explicit `--default-rules on` or `--default-rules off` still wins
+over both project and inline TOML.
 
 The same behavior can be stored in the rules file:
 

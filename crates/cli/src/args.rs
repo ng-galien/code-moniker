@@ -395,6 +395,14 @@ pub struct CheckArgs {
 	)]
 	pub rules: PathBuf,
 
+	#[arg(
+		long = "rules-inline",
+		value_name = "TOML",
+		action = ArgAction::Append,
+		help = "inline TOML rules overlay; repeatable and merged after --rules fragments"
+	)]
+	pub rules_inline: Vec<String>,
+
 	#[arg(long, value_enum, default_value_t = CheckFormat::Text)]
 	pub format: CheckFormat,
 

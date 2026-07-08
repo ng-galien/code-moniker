@@ -141,6 +141,7 @@ fn check_request_from_args(args: &CheckArgs) -> CheckRequest {
 
 fn ruleset_request_from_args(args: &CheckArgs) -> RuleSetRequest {
 	RuleSetRequest::with_rules(args.rules.clone(), DEFAULT_SCHEME)
+		.with_inline_rules(args.rules_inline.clone())
 		.with_default_rules(DefaultRulesSelection::from_override(
 			args.default_rules.map(DefaultRules::enabled),
 		))

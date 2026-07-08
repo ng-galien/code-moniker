@@ -2056,6 +2056,123 @@ fn check_default_rules_on_overrides_disabled_config() {
 }
 
 #[test]
+fn check_accepts_inline_rules_overlay() {
+	let dir = write_fixture("a.ts", "class GoodName {}\n");
+	let path = dir.path().join("a.ts");
+	let inline = r#"
+		default_rules = false
+
+		[[ts.class.where]]
+		id      = "inline-prefix"
+		expr    = "name =~ ^X"
+		message = "Inline class names must start with X."
+		"#;
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--rules-inline",
+		inline,
+	]);
+	assert_eq!(exit, Exit::NoMatch, "stdout={out}\nstderr={err}");
+	assert!(out.contains("ts.class.inline-prefix"), "{out}");
+	assert!(
+		out.contains("Inline class names must start with X."),
+		"{out}"
+	);
+}
+
+#[test]
+fn check_inline_default_rules_flag_can_disable_defaults() {
+	let dir = write_fixture("a.ts", "function helper() {}\n");
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--rules-inline",
+		"default_rules = false\n",
+	]);
+	assert_eq!(exit, Exit::Match, "stdout={out}\nstderr={err}");
+	assert!(
+		out.trim().is_empty(),
+		"inline default_rules=false should disable embedded defaults: {out}"
+	);
+}
+
+#[test]
+fn check_cli_default_rules_override_wins_over_inline_flag() {
+	let dir = write_fixture("a.ts", "function helper() {}\n");
+	let path = dir.path().join("a.ts");
+	let (exit, out, _) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		"/no/such/file.toml",
+		"--rules-inline",
+		"default_rules = false\n",
+		"--default-rules",
+		"on",
+	]);
+	assert_eq!(exit, Exit::NoMatch);
+	assert!(out.contains("ts.function.no-placeholder-names"), "{out}");
+}
+
+#[test]
+fn check_inline_rules_override_project_rule_by_same_id() {
+	let dir = write_fixture("a.ts", "class GoodName {}\n");
+	let rules_path = dir.path().join("rules.toml");
+	std::fs::write(
+		&rules_path,
+		r#"
+		default_rules = false
+
+		[[ts.class.where]]
+		id   = "project-name"
+		expr = "name =~ ^Good"
+		"#,
+	)
+	.unwrap();
+	let inline = r#"
+		[[ts.class.where]]
+		id   = "project-name"
+		expr = "name =~ ^X"
+		"#;
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules",
+		rules_path.to_str().unwrap(),
+		"--rules-inline",
+		inline,
+	]);
+	assert_eq!(exit, Exit::NoMatch, "stdout={out}\nstderr={err}");
+	assert!(out.contains("ts.class.project-name"), "{out}");
+}
+
+#[test]
+fn check_inline_rules_reports_toml_errors_with_inline_label() {
+	let dir = write_fixture("a.ts", "class GoodName {}\n");
+	let path = dir.path().join("a.ts");
+	let (exit, out, err) = run_with(vec![
+		"code-moniker",
+		"check",
+		path.to_str().unwrap(),
+		"--rules-inline",
+		"[[ts.class.where]]\nid = \"missing-expr\"\n",
+	]);
+	assert_eq!(exit, Exit::UsageError, "stdout={out}\nstderr={err}");
+	assert!(err.contains("user config `<inline rules #1>`"), "{err}");
+}
+
+#[test]
 fn check_loads_enabled_fragment_rules_from_rules_root() {
 	let dir = tempfile::tempdir().expect("tmpdir");
 	write_under(dir.path(), "src/a.ts", "class Foo {}\n");
