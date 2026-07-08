@@ -116,6 +116,7 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 
 struct IncrementalSession {
 	root: PathBuf,
+	source_catalog: LocalSourceCatalog,
 	code_index: LocalCodeIndex,
 	linkage: LocalLinkage,
 	catalog: SourceCatalog,
@@ -142,6 +143,7 @@ impl IncrementalSession {
 			.snapshot;
 		Self {
 			root: root.to_path_buf(),
+			source_catalog,
 			code_index,
 			linkage,
 			catalog,
@@ -169,6 +171,32 @@ impl IncrementalSession {
 			.snapshot;
 		self.index = refreshed.index;
 		let _ = &self.catalog;
+	}
+
+	fn create(&mut self, rel_path: &str, content: &str) {
+		let path = self.root.join(rel_path);
+		fs::write(&path, content).expect("write new file");
+		let extended = self
+			.source_catalog
+			.extend_catalog(&self.catalog, std::slice::from_ref(&path))
+			.expect("extend catalog")
+			.expect("path should extend the catalog");
+		let refreshed = self
+			.code_index
+			.refresh_catalog_paths(&self.index, &extended, std::slice::from_ref(&path))
+			.expect("refresh catalog paths");
+		let impact = LinkageRefreshImpact::with_graph_delta(
+			refreshed.changed_sources.clone(),
+			vec![path],
+			LinkageGraphDelta::from_code_index(refreshed.graph_diff.clone()),
+		);
+		self.snapshot = self
+			.linkage
+			.refresh_linkage_with_timings(&self.snapshot, &refreshed.index, impact)
+			.expect("refresh linkage")
+			.snapshot;
+		self.index = refreshed.index;
+		self.catalog = extended;
 	}
 
 	fn normal_form(&self) -> NormalForm {
@@ -279,6 +307,63 @@ fn repeated_edits_of_the_same_file_match_full_rebuild() {
 			"pub fn renamed() {}\npub fn helper() { renamed(); }\n",
 		),
 	]);
+}
+
+#[test]
+fn creating_a_file_matches_full_rebuild() {
+	let temp = seed_workspace();
+	let mut session = IncrementalSession::open(temp.path());
+	session.create(
+		"src/gamma.rs",
+		"use crate::alpha::shared;
+pub fn gamma_caller() { shared(); }
+",
+	);
+	assert_eq!(
+		session.normal_form(),
+		full_build_normal_form(temp.path()),
+		"created file should index and link like a full rebuild"
+	);
+	session.edit(
+		"src/gamma.rs",
+		"use crate::alpha::shared;
+pub fn gamma_caller() { shared(); shared(); }
+",
+	);
+	assert_eq!(
+		session.normal_form(),
+		full_build_normal_form(temp.path()),
+		"editing a created file should stay equivalent"
+	);
+}
+
+#[test]
+fn creating_a_file_that_targets_pending_references_matches_full_rebuild() {
+	let temp = seed_workspace();
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit(
+		"src/beta.rs",
+		"use crate::gamma::fresh;
+pub fn caller() { fresh(); }
+",
+	);
+	session.create(
+		"src/gamma.rs",
+		"pub fn fresh() {}
+",
+	);
+	session.edit(
+		"src/lib.rs",
+		"pub mod alpha;
+pub mod beta;
+pub mod gamma;
+",
+	);
+	assert_eq!(
+		session.normal_form(),
+		full_build_normal_form(temp.path()),
+		"a created file should satisfy previously unresolved references"
+	);
 }
 
 const ALPHA_VARIANTS: &[&str] = &[

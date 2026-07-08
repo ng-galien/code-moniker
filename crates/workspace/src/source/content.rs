@@ -116,7 +116,7 @@ impl SourceCatalogMaterial {
 			.map(|file_idx| self.sources.files[file_idx].rel_path.as_path())
 	}
 
-	fn normalized_file_index(&self, path: &Path) -> Option<usize> {
+	pub(crate) fn normalized_file_index(&self, path: &Path) -> Option<usize> {
 		let normalized = normalize_path(path);
 		self.sources.files.iter().position(|file| {
 			normalize_path(&file.path) == normalized

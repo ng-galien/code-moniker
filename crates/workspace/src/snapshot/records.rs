@@ -56,6 +56,8 @@ impl<T> RecordTable<T> {
 	pub(crate) fn replace(&mut self, slot: usize, records: Arc<[T]>) {
 		if let Some(shard) = self.shards.get_mut(slot) {
 			*shard = records;
+		} else if slot == self.shards.len() {
+			self.shards.push(records);
 		}
 		self.rebuild_offsets();
 	}

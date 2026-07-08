@@ -267,6 +267,82 @@ fn disk_cache_entries(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 }
 
 #[test]
+fn live_plan_indexes_created_files_without_a_rescan() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	fs::write(src.join("lib.rs"), "pub mod alpha;\npub mod fresh;\n").expect("lib");
+	fs::write(src.join("alpha.rs"), "pub fn existing() {}\n").expect("alpha");
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh(WorkspaceRequest::new("create-file-setup")),
+		WorkspaceTransition::Ready { .. }
+	));
+	let baseline_symbols = workspace
+		.queries()
+		.snapshot()
+		.expect("baseline snapshot")
+		.index
+		.symbols
+		.len();
+
+	let fresh = src.join("fresh.rs");
+	fs::write(
+		&fresh,
+		"pub fn freshly_created() { crate::alpha::existing(); }\n",
+	)
+	.expect("fresh file");
+	let plan =
+		WorkspaceLiveRefreshPlan::from_event(WorkspaceLiveEvent::SourcesChanged(vec![fresh]));
+	assert!(
+		!plan.requires_rescan(),
+		"a created source file should stay on the incremental plan"
+	);
+	let transition = workspace
+		.live_commands()
+		.apply_plan(WorkspaceRequest::new("create-file-live"), plan);
+	assert!(matches!(
+		transition.transition(),
+		WorkspaceTransition::Ready { .. }
+	));
+
+	let snapshot = workspace.queries().snapshot().expect("snapshot");
+	assert!(
+		snapshot
+			.index
+			.symbols
+			.iter()
+			.any(|symbol| symbol.name == "freshly_created()"),
+		"created file symbols should be indexed"
+	);
+	assert!(
+		snapshot.index.symbols.len() > baseline_symbols,
+		"symbol count should grow after the create"
+	);
+	assert!(
+		snapshot
+			.catalog
+			.sources
+			.iter()
+			.any(|unit| unit.display_name.contains("fresh.rs")),
+		"catalog should list the created file"
+	);
+	assert!(
+		snapshot.linkage.resolved.iter().any(|edge| {
+			snapshot.index.references.iter().any(|reference| {
+				reference.id == edge.reference && reference.target_identity.contains("existing")
+			})
+		}),
+		"the created file's call should resolve against the existing symbol"
+	);
+}
+
+#[test]
 fn refresh_paths_drops_removed_references_without_relinking_unchanged_graph() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let src = temp.path().join("src");

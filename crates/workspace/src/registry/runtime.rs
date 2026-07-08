@@ -8,8 +8,9 @@ use crate::snapshot::{
 };
 
 use super::build::{
-	LivePlanBuild, build_catalog_snapshot, build_change_overlay_snapshot, build_complete_snapshot,
-	build_incremental_paths_snapshot, build_index_only_snapshot, build_linkage_snapshot,
+	LivePlanBuild, RefreshPorts, build_catalog_snapshot, build_change_overlay_snapshot,
+	build_complete_snapshot, build_incremental_paths_snapshot, build_index_only_snapshot,
+	build_linkage_snapshot,
 };
 use super::command::{
 	WorkspaceCommand, WorkspaceCommandId, WorkspaceCommandKind, WorkspaceCommandSpec,
@@ -227,8 +228,11 @@ impl WorkspaceCommands<'_> {
 		publish_command_started(self.events, &context);
 		let result = build_incremental_paths_snapshot(
 			self.runtime.state.snapshot(),
-			&mut *self.runtime.ports.code_index,
-			&mut *self.runtime.ports.linkage,
+			RefreshPorts {
+				source_catalog: &mut *self.runtime.ports.source_catalog,
+				code_index: &mut *self.runtime.ports.code_index,
+				linkage: &mut *self.runtime.ports.linkage,
+			},
 			command.request,
 			&paths,
 			generation,

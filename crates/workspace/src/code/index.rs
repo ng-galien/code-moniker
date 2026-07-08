@@ -30,6 +30,12 @@ pub trait CodeIndexPort {
 		current: &CodeIndex,
 		paths: &[PathBuf],
 	) -> WorkspaceResult<CodeIndexRefresh>;
+	fn refresh_catalog_paths(
+		&mut self,
+		current: &CodeIndex,
+		catalog: &SourceCatalog,
+		paths: &[PathBuf],
+	) -> WorkspaceResult<CodeIndexRefresh>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -97,7 +103,16 @@ impl CodeIndexPort for LocalCodeIndex {
 		current: &CodeIndex,
 		paths: &[PathBuf],
 	) -> WorkspaceResult<CodeIndexRefresh> {
-		refresh_local_code_index(&self.cache, &self.options, current, paths)
+		refresh_local_code_index(&self.cache, &self.options, current, None, paths)
+	}
+
+	fn refresh_catalog_paths(
+		&mut self,
+		current: &CodeIndex,
+		catalog: &SourceCatalog,
+		paths: &[PathBuf],
+	) -> WorkspaceResult<CodeIndexRefresh> {
+		refresh_local_code_index(&self.cache, &self.options, current, Some(catalog), paths)
 	}
 }
 
@@ -138,6 +153,7 @@ fn refresh_local_code_index(
 	cache: &LocalResourceCache,
 	options: &LocalCodeIndexOptions,
 	current: &CodeIndex,
+	extended_catalog: Option<&SourceCatalog>,
 	paths: &[PathBuf],
 ) -> WorkspaceResult<CodeIndexRefresh> {
 	let total_timer = Instant::now();
@@ -147,19 +163,43 @@ fn refresh_local_code_index(
 			"code index material is unavailable",
 		)
 	})?;
+	let source_catalog = match extended_catalog {
+		Some(catalog) => cache.source_material(catalog.generation).ok_or_else(|| {
+			WorkspaceFailure::new(
+				WorkspaceResource::CodeIndex,
+				"extended source catalog material is unavailable",
+			)
+		})?,
+		None => current_material.source_catalog.clone(),
+	};
 	let mut files = current_material.files.clone();
 	let mut changed_sources = Vec::new();
 	let mut changed_file_indexes = BTreeSet::new();
 	let extract_timer = Instant::now();
+	for file_idx in files.len()..source_catalog.sources.files.len() {
+		let file = &source_catalog.sources.files[file_idx];
+		let indexed = extract_source_file(
+			&source_catalog,
+			file_idx,
+			&file.path.clone(),
+			options.cache_dir.as_deref(),
+		)?;
+		push_unique_source(&mut changed_sources, indexed.source_id.clone());
+		changed_file_indexes.insert(file_idx);
+		files.push(Arc::new(indexed));
+	}
 	for path in paths {
-		let Some(source) = current_material.source_catalog.resolve_source(path) else {
+		let Some(source) = source_catalog.resolve_source(path) else {
 			continue;
 		};
 		let Some(file_idx) = source.eager_index else {
 			continue;
 		};
+		if changed_file_indexes.contains(&file_idx) {
+			continue;
+		}
 		let indexed = extract_source_file(
-			&current_material.source_catalog,
+			&source_catalog,
 			file_idx,
 			&source.path,
 			options.cache_dir.as_deref(),
@@ -179,7 +219,7 @@ fn refresh_local_code_index(
 		});
 	}
 	let semantic_timer = Instant::now();
-	let material = material_from_files(current_material.source_catalog.clone(), files);
+	let material = material_from_files(source_catalog, files);
 	let sources = source_records(&material.files);
 	let graph_diff = graph_diff(current_material.as_ref(), &material, &changed_file_indexes);
 	let mut symbols = current.symbols.clone();
@@ -197,7 +237,9 @@ fn refresh_local_code_index(
 	Ok(CodeIndexRefresh {
 		index: CodeIndex {
 			generation,
-			catalog_generation: current.catalog_generation,
+			catalog_generation: extended_catalog
+				.map(|catalog| catalog.generation)
+				.unwrap_or(current.catalog_generation),
 			identity_scheme,
 			sources,
 			symbols,
@@ -354,13 +396,13 @@ fn graph_diff(
 ) -> CodeIndexGraphDiff {
 	let mut diff = CodeIndexGraphDiff::default();
 	for file_idx in changed_files {
-		let Some(previous_file) = previous.files.get(*file_idx) else {
-			continue;
-		};
 		let Some(next_file) = next.files.get(*file_idx) else {
 			continue;
 		};
-		let (previous_symbols, previous_references) = records_for_file(*file_idx, previous_file);
+		let (previous_symbols, previous_references) = match previous.files.get(*file_idx) {
+			Some(previous_file) => records_for_file(*file_idx, previous_file),
+			None => (Vec::new(), Vec::new()),
+		};
 		let (next_symbols, next_references) = records_for_file(*file_idx, next_file);
 		diff_symbols(&previous_symbols, &next_symbols, &mut diff);
 		diff_references(

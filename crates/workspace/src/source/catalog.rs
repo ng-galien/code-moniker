@@ -12,6 +12,12 @@ use super::identity::LocalIdentityResolver;
 
 pub trait SourceCatalogPort {
 	fn load_catalog(&mut self, request: &WorkspaceRequest) -> WorkspaceResult<SourceCatalog>;
+
+	fn extend_catalog(
+		&mut self,
+		current: &SourceCatalog,
+		paths: &[PathBuf],
+	) -> WorkspaceResult<Option<SourceCatalog>>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -110,5 +116,47 @@ impl SourceCatalogPort for LocalSourceCatalog {
 			},
 		);
 		Ok(SourceCatalog::new(generation, units))
+	}
+
+	fn extend_catalog(
+		&mut self,
+		current: &SourceCatalog,
+		paths: &[PathBuf],
+	) -> WorkspaceResult<Option<SourceCatalog>> {
+		let Some(mut material) = self.cache.source_material(current.generation) else {
+			return Ok(None);
+		};
+		let mut added = Vec::new();
+		for path in paths {
+			if !path.is_file() || material.normalized_file_index(path).is_some() {
+				continue;
+			}
+			if let Some(file) = crate::sources::source_file_for_new_path(&material.sources, path) {
+				added.push(file);
+			}
+		}
+		if added.is_empty() {
+			return Ok(None);
+		}
+		material.sources.files.extend(added);
+		let generation = self.cache.next_generation();
+		let units = material
+			.sources
+			.files
+			.iter()
+			.enumerate()
+			.map(|(file_idx, file)| {
+				SourceUnit::with_language(
+					material
+						.identity
+						.source_id(file_idx, &file.rel_path)
+						.as_str(),
+					file.rel_path.display().to_string(),
+					file.lang.tag(),
+				)
+			})
+			.collect::<Vec<_>>();
+		self.cache.insert_sources(generation, material);
+		Ok(Some(SourceCatalog::new(generation, units)))
 	}
 }

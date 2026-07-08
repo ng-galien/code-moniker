@@ -86,7 +86,9 @@ fn refresh_create_and_remove_file(c: &mut Criterion) {
 			fs::write(&extra, "pub fn extra_probe() -> u32 {\n\t42\n}\n").expect("create");
 			let create = registry.live_commands().apply_plan(
 				WorkspaceRequest::new("bench-create"),
-				WorkspaceLiveRefreshPlan::from_event(WorkspaceLiveEvent::RescanRequired),
+				WorkspaceLiveRefreshPlan::from_event(WorkspaceLiveEvent::SourcesChanged(vec![
+					extra.clone(),
+				])),
 			);
 			assert!(matches!(
 				create.transition(),

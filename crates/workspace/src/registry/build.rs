@@ -163,14 +163,24 @@ pub(crate) fn build_change_overlay_snapshot(
 	})
 }
 
+pub(crate) struct RefreshPorts<'a> {
+	pub(crate) source_catalog: &'a mut (dyn SourceCatalogPort + Send),
+	pub(crate) code_index: &'a mut (dyn CodeIndexPort + Send),
+	pub(crate) linkage: &'a mut (dyn LinkagePort + Send),
+}
+
 pub(crate) fn build_incremental_paths_snapshot(
 	current: Option<&WorkspaceSnapshot>,
-	code_index: &mut (impl CodeIndexPort + ?Sized),
-	linkage: &mut (impl LinkagePort + ?Sized),
+	ports: RefreshPorts<'_>,
 	request: WorkspaceRequest,
 	paths: &[PathBuf],
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
+	let RefreshPorts {
+		source_catalog,
+		code_index,
+		linkage,
+	} = ports;
 	let current = current.ok_or_else(|| {
 		WorkspaceFailure::new(
 			WorkspaceResource::CodeIndex,
@@ -178,8 +188,14 @@ pub(crate) fn build_incremental_paths_snapshot(
 		)
 	})?;
 	let total_timer = Instant::now();
+	let catalog_timer = Instant::now();
+	let extended_catalog = source_catalog.extend_catalog(&current.catalog, paths)?;
+	let catalog_elapsed = catalog_timer.elapsed();
 	let index_timer = Instant::now();
-	let refresh = code_index.refresh_paths(&current.index, paths)?;
+	let refresh = match &extended_catalog {
+		Some(catalog) => code_index.refresh_catalog_paths(&current.index, catalog, paths)?,
+		None => code_index.refresh_paths(&current.index, paths)?,
+	};
 	let changed_sources = refresh.changed_sources;
 	let graph_diff = refresh.graph_diff;
 	let index = refresh.index;
@@ -191,14 +207,15 @@ pub(crate) fn build_incremental_paths_snapshot(
 		linkage_impact(changed_sources.clone(), paths.to_vec(), &graph_diff),
 	)?;
 	let linkage_elapsed = linkage_timer.elapsed();
+	let catalog = extended_catalog.unwrap_or_else(|| current.catalog.clone());
 	let changes = ChangeOverlay::new(
 		generation,
-		current.catalog.generation,
+		catalog.generation,
 		index.generation,
 		graph_diff.changed_symbols.clone(),
 	);
 	let timings = timings(
-		current.timings.source_catalog,
+		current.timings.source_catalog + catalog_elapsed,
 		&index,
 		index_elapsed,
 		linkage_elapsed,
@@ -207,7 +224,7 @@ pub(crate) fn build_incremental_paths_snapshot(
 	);
 	Ok(WorkspaceSnapshot {
 		generation,
-		catalog: current.catalog.clone(),
+		catalog,
 		index,
 		linkage,
 		changes,
@@ -279,8 +296,11 @@ impl LivePlanBuild<'_> {
 		}
 		build_incremental_paths_snapshot(
 			self.current,
-			self.code_index,
-			self.linkage,
+			RefreshPorts {
+				source_catalog: &mut *self.source_catalog,
+				code_index: &mut *self.code_index,
+				linkage: &mut *self.linkage,
+			},
 			build.request.clone(),
 			plan.source_paths(),
 			build.generation,

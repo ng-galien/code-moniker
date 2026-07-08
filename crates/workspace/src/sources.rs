@@ -178,6 +178,43 @@ fn discover_scopes(paths: &[PathBuf], project: Option<String>) -> anyhow::Result
 	Ok(scopes)
 }
 
+pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Option<SourceFile> {
+	let lang = path_to_lang(path).ok()?;
+	let abs = normalize_absolute(path).ok()?;
+	let (source, root) = sources
+		.roots
+		.iter()
+		.enumerate()
+		.filter_map(|(idx, root)| {
+			let root_path = normalize_absolute(&root.path).ok()?;
+			abs.starts_with(&root_path)
+				.then(|| (idx, root, root_path.components().count()))
+		})
+		.max_by_key(|(_, _, depth)| *depth)
+		.map(|(idx, root, _)| (idx, root))?;
+	let root_path = normalize_absolute(&root.path).unwrap_or_else(|_| root.path.clone());
+	let rel = abs.strip_prefix(&root_path).ok()?.to_path_buf();
+	let rel_path = if sources.multi {
+		PathBuf::from(&root.label).join(&rel)
+	} else {
+		rel.clone()
+	};
+	let anchor = if sources.multi {
+		rel_path.clone()
+	} else if root_path.is_dir() {
+		anchor_with_source_context(&root_path, &rel)
+	} else {
+		abs.clone()
+	};
+	Some(SourceFile {
+		source,
+		path: abs,
+		rel_path,
+		anchor,
+		lang,
+	})
+}
+
 fn source_file_from_walked(scope: &SourceScope, walked: WalkedFile, multi: bool) -> SourceFile {
 	let root = normalize_absolute(&scope.root.path).unwrap_or_else(|_| scope.root.path.clone());
 	let path = normalize_absolute(&walked.path).unwrap_or_else(|_| walked.path.clone());
