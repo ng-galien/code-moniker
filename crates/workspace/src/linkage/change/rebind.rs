@@ -11,7 +11,7 @@ use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet, SymbolSet};
 use crate::linkage::change::LinkageRefreshImpact;
 use crate::linkage::resolve::{matches_any_source, matches_any_symbol};
 use crate::path_util::normalize_path;
-use crate::snapshot::{ReferenceId, ReferenceRecord, SourceId};
+use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord, SourceId};
 use crate::source::CodeIndexMaterial;
 
 pub(in crate::linkage) struct BindingReadModel<'a> {
@@ -20,7 +20,7 @@ pub(in crate::linkage) struct BindingReadModel<'a> {
 }
 
 pub(in crate::linkage) struct EditedGraph<'a> {
-	pub(in crate::linkage) references: &'a [ReferenceRecord],
+	pub(in crate::linkage) references: &'a RecordTable<ReferenceRecord>,
 	pub(in crate::linkage) material: &'a CodeIndexMaterial,
 	pub(in crate::linkage) candidates: &'a CandidateCatalog<'a>,
 }

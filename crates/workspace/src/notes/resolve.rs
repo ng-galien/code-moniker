@@ -126,9 +126,9 @@ fn symbol_by_identity(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SymbolRec
 #[cfg(test)]
 mod tests {
 	use crate::snapshot::{
-		ChangeOverlay, CodeIndex, CodeIndexTimings, LinkageSnapshot, ResourceGeneration,
-		SourceCatalog, SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceSnapshot,
-		WorkspaceTimings,
+		ChangeOverlay, CodeIndex, CodeIndexTimings, LinkageSnapshot, RecordTable,
+		ResourceGeneration, SourceCatalog, SourceFileRecord, SourceId, SymbolId, SymbolRecord,
+		WorkspaceSnapshot, WorkspaceTimings,
 	};
 
 	use super::*;
@@ -233,8 +233,8 @@ mod tests {
 				catalog_generation: ResourceGeneration::new(1),
 				identity_scheme: "code+moniker://".to_string(),
 				sources: vec![source],
-				symbols: vec![symbol],
-				references: Vec::new(),
+				symbols: RecordTable::from_records(vec![symbol]),
+				references: RecordTable::from_records(Vec::new()),
 				timings: CodeIndexTimings::default(),
 			},
 			linkage: LinkageSnapshot::new(
@@ -274,8 +274,8 @@ mod tests {
 				catalog_generation: ResourceGeneration::new(1),
 				identity_scheme: "code+moniker://".to_string(),
 				sources: Vec::new(),
-				symbols: vec![symbol],
-				references: Vec::new(),
+				symbols: RecordTable::from_records(vec![symbol]),
+				references: RecordTable::from_records(Vec::new()),
 				timings: CodeIndexTimings::default(),
 			},
 			linkage: LinkageSnapshot::new(

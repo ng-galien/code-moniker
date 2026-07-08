@@ -657,7 +657,7 @@ fn print_call_defs(
 			}
 		}
 	}
-	for symbol in &index.symbols {
+	for symbol in index.symbols.iter() {
 		if symbol.name == name || symbol.identity.contains(&format!(":{name}")) {
 			println!(
 				"symbol\tkind={}\tname={}\tidentity={}",
@@ -665,7 +665,7 @@ fn print_call_defs(
 			);
 		}
 	}
-	for reference in &index.references {
+	for reference in index.references.iter() {
 		if reference.call_name.as_deref() == Some(name) || reference.target_identity.contains(name)
 		{
 			println!(

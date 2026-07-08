@@ -6,7 +6,7 @@ use rustc_hash::FxHashSet;
 use crate::linkage::binding::ReferenceLinkageDecision;
 use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::catalog::{CandidateCatalog, LinkageCandidate};
-use crate::snapshot::ReferenceRecord;
+use crate::snapshot::{RecordTable, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
 mod generic;
@@ -112,7 +112,7 @@ pub(super) fn enhance_reference_semantics(
 	material: &CodeIndexMaterial,
 	candidates: &CandidateCatalog<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&rustc_hash::FxHashSet<crate::snapshot::ReferenceId>>,
 ) {
 	java::enhance_reference_semantics(

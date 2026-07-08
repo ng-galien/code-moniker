@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::records::RecordTable;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct ResourceGeneration(u64);
 
@@ -251,8 +253,8 @@ pub struct CodeIndex {
 	pub catalog_generation: ResourceGeneration,
 	pub identity_scheme: String,
 	pub sources: Vec<SourceFileRecord>,
-	pub symbols: Vec<SymbolRecord>,
-	pub references: Vec<ReferenceRecord>,
+	pub symbols: RecordTable<SymbolRecord>,
+	pub references: RecordTable<ReferenceRecord>,
 	pub timings: CodeIndexTimings,
 }
 
@@ -267,35 +269,24 @@ impl CodeIndex {
 	pub fn new(
 		generation: ResourceGeneration,
 		catalog_generation: ResourceGeneration,
-		mut symbols: Vec<SymbolRecord>,
+		symbols: Vec<SymbolRecord>,
 	) -> Self {
-		symbols.shrink_to_fit();
-		Self {
-			generation,
-			catalog_generation,
-			identity_scheme: crate::DEFAULT_IDENTITY_SCHEME.to_string(),
-			sources: Vec::new(),
-			symbols,
-			references: Vec::new(),
-			timings: CodeIndexTimings::default(),
-		}
+		Self::with_references(generation, catalog_generation, symbols, Vec::new())
 	}
 
 	pub fn with_references(
 		generation: ResourceGeneration,
 		catalog_generation: ResourceGeneration,
-		mut symbols: Vec<SymbolRecord>,
-		mut references: Vec<ReferenceRecord>,
+		symbols: Vec<SymbolRecord>,
+		references: Vec<ReferenceRecord>,
 	) -> Self {
-		symbols.shrink_to_fit();
-		references.shrink_to_fit();
 		Self {
 			generation,
 			catalog_generation,
 			identity_scheme: crate::DEFAULT_IDENTITY_SCHEME.to_string(),
 			sources: Vec::new(),
-			symbols,
-			references,
+			symbols: RecordTable::from_records(symbols),
+			references: RecordTable::from_records(references),
 			timings: CodeIndexTimings::default(),
 		}
 	}

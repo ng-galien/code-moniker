@@ -9,7 +9,7 @@ use crate::linkage::catalog::{
 	ReferenceOrdinal, ReferenceSet, SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet,
 };
 use crate::snapshot::{
-	LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceId,
+	LinkageSnapshot, RecordTable, ReferenceId, ReferenceRecord, ResourceGeneration, SourceId,
 };
 use crate::source::{CodeIndexMaterial, LocalIdentityResolver};
 use code_moniker_core::core::uri::{UriConfig, from_uri};
@@ -30,7 +30,7 @@ pub(in crate::linkage) struct LinkageStoreRefresh<'a> {
 	pub(in crate::linkage) index_generation: ResourceGeneration,
 	pub(in crate::linkage) stale_references: &'a ReferenceSet,
 	pub(in crate::linkage) changed_decisions: Vec<ReferenceLinkageDecision>,
-	pub(in crate::linkage) references: &'a [ReferenceRecord],
+	pub(in crate::linkage) references: &'a RecordTable<ReferenceRecord>,
 	pub(in crate::linkage) material: &'a CodeIndexMaterial,
 	pub(in crate::linkage) candidates: &'a CandidateCatalog<'a>,
 }
@@ -40,7 +40,7 @@ impl LinkageStore {
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
 		decisions: Vec<ReferenceLinkageDecision>,
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 		material: &CodeIndexMaterial,
 		candidates: &CandidateCatalog<'_>,
 	) -> Self {
@@ -62,7 +62,7 @@ impl LinkageStore {
 
 	pub(in crate::linkage) fn from_snapshot(
 		snapshot: &LinkageSnapshot,
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 		material: &CodeIndexMaterial,
 		candidates: &CandidateCatalog<'_>,
 	) -> Self {
@@ -78,7 +78,7 @@ impl LinkageStore {
 
 	pub(in crate::linkage) fn project_snapshot(
 		&self,
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 		identity: &LocalIdentityResolver,
 	) -> LinkageSnapshot {
 		crate::linkage::binding::project_decisions(
@@ -182,7 +182,7 @@ fn apply_store_refresh(store: &mut LinkageStore, refresh: LinkageStoreRefresh<'_
 
 struct ChangedDecisionBatch<'a> {
 	decisions: Vec<ReferenceLinkageDecision>,
-	references: &'a [ReferenceRecord],
+	references: &'a RecordTable<ReferenceRecord>,
 	material: &'a CodeIndexMaterial,
 }
 
@@ -444,7 +444,7 @@ fn record_reference_sets<'a>(
 
 fn decisions_from_snapshot(
 	snapshot: &LinkageSnapshot,
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	material: &CodeIndexMaterial,
 	candidates: &CandidateCatalog<'_>,
 ) -> Vec<ReferenceLinkageDecision> {
@@ -561,11 +561,14 @@ pub(in crate::linkage) struct LinkageStoreIndexes {
 }
 
 impl LinkageStoreIndexes {
-	fn new(references: &[ReferenceRecord], material: &CodeIndexMaterial) -> Self {
+	fn new(references: &RecordTable<ReferenceRecord>, material: &CodeIndexMaterial) -> Self {
 		Self::from_references(references, material)
 	}
 
-	fn from_references(references: &[ReferenceRecord], material: &CodeIndexMaterial) -> Self {
+	fn from_references(
+		references: &RecordTable<ReferenceRecord>,
+		material: &CodeIndexMaterial,
+	) -> Self {
 		Self {
 			reference_indexes: reference_indexes(references),
 			references_by_source_root: references_by_source_root(references, material),
@@ -734,7 +737,7 @@ fn add_resolved_target_decision(
 }
 
 pub(in crate::linkage) fn reference_indexes(
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 ) -> FxHashMap<ReferenceId, ReferenceOrdinal> {
 	references
 		.iter()
@@ -767,12 +770,12 @@ fn rebase_reference_maps<K: Eq + Hash>(
 }
 
 fn references_by_source_root(
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	material: &CodeIndexMaterial,
 ) -> FxHashMap<usize, ReferenceSet> {
-	references
-		.par_iter()
-		.enumerate()
+	(0..references.len())
+		.into_par_iter()
+		.map(|reference_idx| (reference_idx, &references[reference_idx]))
 		.fold(
 			FxHashMap::<usize, ReferenceSet>::default,
 			|mut index, item| {
@@ -793,12 +796,12 @@ fn references_by_source_root(
 }
 
 fn references_by_name(
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	material: &CodeIndexMaterial,
 ) -> FxHashMap<Vec<u8>, ReferenceSet> {
-	references
-		.par_iter()
-		.enumerate()
+	(0..references.len())
+		.into_par_iter()
+		.map(|reference_idx| (reference_idx, &references[reference_idx]))
 		.fold(
 			FxHashMap::<Vec<u8>, ReferenceSet>::default,
 			|mut index, item| {

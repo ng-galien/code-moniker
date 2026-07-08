@@ -1,6 +1,6 @@
 use crate::linkage::catalog::{SymbolOrdinalCatalog, SymbolSet};
 use crate::snapshot::{
-	ExternalReference, LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord,
+	ExternalReference, LinkageEdge, LinkageSnapshot, RecordTable, ReferenceId, ReferenceRecord,
 	ResourceGeneration, SymbolId, UnresolvedReference,
 };
 use crate::source::LocalIdentityResolver;
@@ -11,7 +11,7 @@ pub(in crate::linkage) use crate::snapshot::ExternalReferenceOrigin as ExternalO
 
 pub(in crate::linkage) fn project_decisions(
 	decisions: &[ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	identity: &LocalIdentityResolver,
 	symbols: &SymbolOrdinalCatalog,
 ) -> LinkageReportProjection {
@@ -227,7 +227,7 @@ pub(in crate::linkage) struct LinkageReportProjection {
 impl LinkageReportProjection {
 	fn from_decisions(
 		decisions: &[ReferenceLinkageDecision],
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 		identity: &LocalIdentityResolver,
 		symbols: &SymbolOrdinalCatalog,
 	) -> Self {
@@ -332,7 +332,7 @@ enum LinkageDecisionProjection {
 impl LinkageDecisionProjection {
 	fn from_decision(
 		decision: &ReferenceLinkageDecision,
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 		identity: &LocalIdentityResolver,
 		symbols: &SymbolOrdinalCatalog,
 	) -> Self {

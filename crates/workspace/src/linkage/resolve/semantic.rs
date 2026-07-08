@@ -13,7 +13,7 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::linkage::language;
-use crate::snapshot::{ReferenceId, ReferenceRecord};
+use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
 pub(in crate::linkage) struct SemanticLinkage<'a> {
@@ -41,7 +41,7 @@ impl<'a> SemanticLinkage<'a> {
 	pub(in crate::linkage) fn enhance(
 		&self,
 		decisions: &mut [ReferenceLinkageDecision],
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 	) {
 		language::enhance_reference_semantics(
 			self.material,
@@ -58,7 +58,7 @@ impl<'a> SemanticLinkage<'a> {
 	pub(in crate::linkage) fn enhance_changed(
 		&self,
 		decisions: &mut [ReferenceLinkageDecision],
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 		changed_references: &FxHashSet<ReferenceId>,
 	) {
 		language::enhance_reference_semantics(
@@ -102,7 +102,7 @@ impl<'a> SemanticLinkage<'a> {
 fn enhance_receiver_chains(
 	linkage: &SemanticLinkage<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	mut pending: Vec<usize>,
 ) {
 	if pending.is_empty() {
@@ -285,7 +285,7 @@ impl MethodTable {
 fn enhance_reexport_aliases(
 	linkage: &SemanticLinkage<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
 	let aliases = build_reexport_aliases(linkage.material, decisions, references);
@@ -397,7 +397,7 @@ fn reexport_external_target(alias_target: &Moniker, requested_target: Option<&Mo
 fn build_reexport_aliases(
 	material: &CodeIndexMaterial,
 	decisions: &[ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 ) -> FxHashMap<(Moniker, Vec<u8>), ReexportAliasTarget> {
 	let mut aliases = FxHashMap::default();
 	for decision in decisions {
@@ -592,7 +592,7 @@ fn immediate_receiver_read_idx(
 
 fn pending_receiver_chains(
 	decisions: &[ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) -> Vec<usize> {
 	decisions
@@ -652,7 +652,7 @@ fn collect_return_types(
 	material: &CodeIndexMaterial,
 	candidates: &CandidateCatalog<'_>,
 	decisions: &[ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 ) -> FxHashMap<Moniker, Moniker> {
 	let mut out = FxHashMap::default();
 	for decision in decisions {
@@ -673,7 +673,7 @@ fn collect_return_types(
 
 fn decision_reference<'a>(
 	decision: &ReferenceLinkageDecision,
-	references: &'a [ReferenceRecord],
+	references: &'a RecordTable<ReferenceRecord>,
 ) -> &'a ReferenceRecord {
 	&references[decision.reference_idx()]
 }
@@ -682,7 +682,7 @@ fn decision_target(
 	material: &CodeIndexMaterial,
 	candidates: &CandidateCatalog<'_>,
 	decision: &ReferenceLinkageDecision,
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 ) -> Option<Moniker> {
 	match decision {
 		ReferenceLinkageDecision::Resolved { targets, .. } if targets.len() == 1 => candidates
@@ -704,7 +704,7 @@ fn decision_target(
 fn reference_statuses(
 	material: &CodeIndexMaterial,
 	decisions: &[ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	wanted: &FxHashSet<usize>,
 ) -> FxHashMap<usize, ReferenceStatus> {
 	let mut out = FxHashMap::default();
@@ -723,7 +723,7 @@ fn reference_statuses(
 fn reference_status(
 	material: &CodeIndexMaterial,
 	decision: &ReferenceLinkageDecision,
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 ) -> Option<ReferenceStatus> {
 	match decision {
 		ReferenceLinkageDecision::Resolved { targets, .. } => {

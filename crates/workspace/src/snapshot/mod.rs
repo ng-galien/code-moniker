@@ -4,7 +4,10 @@
 //! defines the target orchestration model and tests it through semantic ports.
 
 mod model;
+mod records;
 mod view;
+
+pub use records::RecordTable;
 
 pub use model::{
 	ChangeId, ChangeOverlay, ChangeOverlayReport, ChangeRecord, ChangeRecordCoreFields,

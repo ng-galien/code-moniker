@@ -7,7 +7,7 @@ use crate::linkage::binding::{
 };
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
-use crate::snapshot::ReferenceRecord;
+use crate::snapshot::{RecordTable, ReferenceRecord};
 use crate::source::{CodeIndexMaterial, IndexedSourceFile};
 
 pub(super) struct LombokSemantics<'a> {
@@ -22,7 +22,7 @@ impl<'a> LombokSemantics<'a> {
 	pub(super) fn build(
 		material: &'a CodeIndexMaterial,
 		candidates: &'a CandidateCatalog<'a>,
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 	) -> Self {
 		let mut semantics = Self {
 			material,
@@ -45,7 +45,7 @@ impl<'a> LombokSemantics<'a> {
 	pub(super) fn resolve_reference(
 		&self,
 		decision: &ReferenceLinkageDecision,
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 	) -> Option<ReferenceLinkageDecision> {
 		let reference_idx = match decision {
 			ReferenceLinkageDecision::Unknown {
@@ -175,10 +175,10 @@ impl<'a> LombokSemantics<'a> {
 
 	fn index_annotations(
 		&mut self,
-		references: &[ReferenceRecord],
+		references: &RecordTable<ReferenceRecord>,
 	) -> FxHashMap<(Moniker, Vec<u8>), TypeAnnotations> {
 		let mut field_annotations = FxHashMap::<(Moniker, Vec<u8>), TypeAnnotations>::default();
-		for reference in references {
+		for reference in references.iter() {
 			if reference.kind != "annotates" {
 				continue;
 			}

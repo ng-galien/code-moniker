@@ -7,7 +7,7 @@ use crate::linkage::binding::ReferenceLinkageDecision;
 use crate::linkage::catalog::LinkageQuery;
 use crate::linkage::catalog::{CandidateCatalog, LinkageCandidate};
 use crate::linkage::language::LanguageLinkageStrategy;
-use crate::snapshot::{ReferenceId, ReferenceRecord};
+use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
 mod lombok;
@@ -153,7 +153,7 @@ pub(super) fn enhance_reference_semantics(
 	material: &CodeIndexMaterial,
 	candidates: &CandidateCatalog<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
-	references: &[ReferenceRecord],
+	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
 	let lombok = lombok::LombokSemantics::build(material, candidates, references);

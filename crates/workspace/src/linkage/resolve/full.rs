@@ -67,14 +67,12 @@ fn resolve_full_linkage(
 	timings.manifest_policy = manifest_timer.elapsed();
 	let resolve_timer = Instant::now();
 	let locations = ReferenceLocations::from_material(material);
-	let mut decisions = index
-		.references
-		.par_iter()
-		.enumerate()
-		.map(|(reference_idx, reference)| {
+	let mut decisions = (0..index.references.len())
+		.into_par_iter()
+		.map(|reference_idx| {
 			resolver.resolve_reference(
 				reference_idx,
-				reference,
+				&index.references[reference_idx],
 				locations.get(reference_idx),
 				&candidates,
 				&manifests,

@@ -17,7 +17,8 @@ use crate::linkage::resolve::ReferenceResolver;
 use crate::linkage::resolve::SemanticLinkage;
 use crate::linkage::{LinkageRefreshTimings, LocalLinkage, TimedLinkageRefresh};
 use crate::snapshot::{
-	CodeIndex, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, WorkspaceResult,
+	CodeIndex, LinkageSnapshot, RecordTable, ReferenceId, ReferenceRecord, ResourceGeneration,
+	WorkspaceResult,
 };
 use crate::source::CodeIndexMaterial;
 
@@ -359,7 +360,7 @@ fn stale_reference_indexes(stale_references: &ReferenceSet) -> Vec<usize> {
 
 fn reference_ids_for_set(
 	references: &ReferenceSet,
-	records: &[ReferenceRecord],
+	records: &RecordTable<ReferenceRecord>,
 ) -> rustc_hash::FxHashSet<ReferenceId> {
 	references
 		.iter()

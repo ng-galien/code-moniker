@@ -399,12 +399,12 @@ fn estimate_index(index: &CodeIndex, estimate: &mut MemoryEstimate) {
 	estimate.add_inline::<SymbolRecord>(
 		"snapshot.index.symbol_records",
 		index.symbols.len(),
-		index.symbols.capacity(),
+		index.symbols.len(),
 	);
 	estimate.add_inline::<ReferenceRecord>(
 		"snapshot.index.reference_records",
 		index.references.len(),
-		index.references.capacity(),
+		index.references.len(),
 	);
 	estimate.add(
 		"snapshot.index.source_strings",

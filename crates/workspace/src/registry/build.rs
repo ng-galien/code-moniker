@@ -8,9 +8,9 @@ use crate::code::{CodeIndexGraphDiff, CodeIndexPort};
 use crate::linkage::{LinkageGraphDelta, LinkagePort, LinkageRefreshImpact};
 use crate::live::WorkspaceLiveRefreshPlan;
 use crate::snapshot::{
-	ChangeOverlay, CodeIndex, LinkageSnapshot, ResourceGeneration, SourceCatalog, SourceFileRecord,
-	SourceId, WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult,
-	WorkspaceSnapshot, WorkspaceTimings,
+	ChangeOverlay, CodeIndex, LinkageSnapshot, RecordTable, ResourceGeneration, SourceCatalog,
+	SourceFileRecord, SourceId, WorkspaceFailure, WorkspaceRequest, WorkspaceResource,
+	WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
 };
 use crate::source::SourceCatalogPort;
 
@@ -379,8 +379,8 @@ fn catalog_index(catalog: &SourceCatalog) -> CodeIndex {
 		catalog_generation: catalog.generation,
 		identity_scheme: crate::DEFAULT_IDENTITY_SCHEME.to_string(),
 		sources: catalog_source_records(catalog),
-		symbols: Vec::new(),
-		references: Vec::new(),
+		symbols: RecordTable::from_records(Vec::new()),
+		references: RecordTable::from_records(Vec::new()),
 		timings: Default::default(),
 	}
 }
