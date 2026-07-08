@@ -299,7 +299,6 @@ fn refresh_incremental_linkage(
 		index_generation: input.index.generation,
 		stale_references: execution.stale_references(),
 		changed_decisions: changed,
-		symbol_id_remaps: input.impact.definitions().id_remaps(),
 		references: &input.index.references,
 		material: input.material,
 		candidates,

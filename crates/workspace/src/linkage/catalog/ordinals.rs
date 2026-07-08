@@ -196,20 +196,14 @@ impl SymbolOrdinalCatalog {
 		self.ids == other.ids && self.identities == other.identities
 	}
 
-	pub(in crate::linkage) fn remap_set_with_ids(
-		&self,
-		symbols: &SymbolSet,
-		next: &Self,
-		_id_remaps: &FxHashMap<SymbolId, SymbolId>,
-	) -> SymbolSet {
+	pub(in crate::linkage) fn remap_set(&self, symbols: &SymbolSet, next: &Self) -> SymbolSet {
 		SymbolOrdinalRemap::new(self, next).remap_set(symbols)
 	}
 
-	pub(in crate::linkage) fn remap_ordinal_with_ids(
+	pub(in crate::linkage) fn remap_ordinal(
 		&self,
 		symbol: SymbolOrdinal,
 		next: &Self,
-		_id_remaps: &FxHashMap<SymbolId, SymbolId>,
 	) -> Option<SymbolOrdinal> {
 		SymbolOrdinalRemap::new(self, next).remap_symbol(symbol)
 	}

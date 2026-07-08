@@ -9,7 +9,7 @@ use crate::linkage::catalog::{
 	ReferenceOrdinal, ReferenceSet, SymbolOrdinal, SymbolOrdinalCatalog, SymbolSet,
 };
 use crate::snapshot::{
-	LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceId, SymbolId,
+	LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceId,
 };
 use crate::source::{CodeIndexMaterial, LocalIdentityResolver};
 use code_moniker_core::core::uri::{UriConfig, from_uri};
@@ -30,7 +30,6 @@ pub(in crate::linkage) struct LinkageStoreRefresh<'a> {
 	pub(in crate::linkage) index_generation: ResourceGeneration,
 	pub(in crate::linkage) stale_references: &'a ReferenceSet,
 	pub(in crate::linkage) changed_decisions: Vec<ReferenceLinkageDecision>,
-	pub(in crate::linkage) symbol_id_remaps: &'a [(SymbolId, SymbolId)],
 	pub(in crate::linkage) references: &'a [ReferenceRecord],
 	pub(in crate::linkage) material: &'a CodeIndexMaterial,
 	pub(in crate::linkage) candidates: &'a CandidateCatalog<'a>,
@@ -158,7 +157,6 @@ fn apply_store_refresh(store: &mut LinkageStore, refresh: LinkageStoreRefresh<'_
 		index_generation,
 		stale_references,
 		changed_decisions,
-		symbol_id_remaps,
 		references,
 		material,
 		candidates,
@@ -167,7 +165,7 @@ fn apply_store_refresh(store: &mut LinkageStore, refresh: LinkageStoreRefresh<'_
 	store.index_generation = index_generation;
 	store.indexes.remove_stale_references(stale_references);
 	remove_stale_decisions(store, stale_references);
-	remap_symbol_ordinals(store, candidates.symbols(), symbol_id_remaps);
+	remap_symbol_ordinals(store, candidates.symbols());
 	add_changed_decisions(
 		store,
 		ChangedDecisionBatch {
@@ -321,25 +319,15 @@ fn remove_stale_decisions(store: &mut LinkageStore, stale_references: &Reference
 	});
 }
 
-fn remap_symbol_ordinals(
-	store: &mut LinkageStore,
-	next: &SymbolOrdinalCatalog,
-	symbol_id_remaps: &[(SymbolId, SymbolId)],
-) {
+fn remap_symbol_ordinals(store: &mut LinkageStore, next: &SymbolOrdinalCatalog) {
 	if store.symbols.has_same_order(next) {
 		return;
 	}
 	let previous = &store.symbols;
-	let symbol_id_remaps = symbol_id_remaps
-		.iter()
-		.cloned()
-		.collect::<FxHashMap<SymbolId, SymbolId>>();
 	store
 		.decisions
-		.retain_mut(|decision| decision.remap_resolved_targets(previous, next, &symbol_id_remaps));
-	store
-		.indexes
-		.rebase_symbol_ordinals(previous, next, &symbol_id_remaps);
+		.retain_mut(|decision| decision.remap_resolved_targets(previous, next));
+	store.indexes.rebase_symbol_ordinals(previous, next);
 	store.symbols = next.clone();
 }
 
@@ -592,10 +580,9 @@ impl LinkageStoreIndexes {
 		&mut self,
 		previous: &SymbolOrdinalCatalog,
 		next: &SymbolOrdinalCatalog,
-		id_remaps: &FxHashMap<SymbolId, SymbolId>,
 	) {
 		if let Some(index) = &mut self.resolved_by_target_source {
-			index.rebase_symbol_ordinals(previous, next, id_remaps);
+			index.rebase_symbol_ordinals(previous, next);
 		}
 	}
 
@@ -681,12 +668,10 @@ impl ResolvedTargetSourceIndex {
 		&mut self,
 		previous: &SymbolOrdinalCatalog,
 		next: &SymbolOrdinalCatalog,
-		id_remaps: &FxHashMap<SymbolId, SymbolId>,
 	) {
 		let mut rebased = FxHashMap::<SymbolOrdinal, ReferenceSet>::default();
 		for (symbol, references) in &self.references_by_symbol {
-			let Some(next_symbol) = previous.remap_ordinal_with_ids(*symbol, next, id_remaps)
-			else {
+			let Some(next_symbol) = previous.remap_ordinal(*symbol, next) else {
 				continue;
 			};
 			rebased

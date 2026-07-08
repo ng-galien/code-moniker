@@ -5,7 +5,6 @@ use crate::snapshot::{
 };
 use crate::source::LocalIdentityResolver;
 use code_moniker_core::core::moniker::Moniker;
-use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 pub(in crate::linkage) use crate::snapshot::ExternalReferenceOrigin as ExternalOrigin;
@@ -166,11 +165,10 @@ impl ReferenceLinkageDecision {
 		&mut self,
 		previous: &SymbolOrdinalCatalog,
 		next: &SymbolOrdinalCatalog,
-		id_remaps: &FxHashMap<SymbolId, SymbolId>,
 	) -> bool {
 		match self {
 			Self::Resolved { targets, .. } => {
-				*targets = previous.remap_set_with_ids(targets, next, id_remaps);
+				*targets = previous.remap_set(targets, next);
 				!targets.is_empty()
 			}
 			Self::External { .. } | Self::Blocked { .. } | Self::Unknown { .. } => true,

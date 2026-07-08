@@ -57,7 +57,6 @@ pub(in crate::linkage) enum SymbolDelta {
 		candidate_changed: Vec<SymbolId>,
 		changed: Vec<SymbolId>,
 		retargeted_identities: Vec<String>,
-		remapped: Vec<(SymbolId, SymbolId)>,
 	},
 }
 
@@ -243,7 +242,6 @@ impl SymbolDelta {
 			candidate_changed: candidate_changed_symbols(&graph_diff),
 			changed: graph_diff.changed_symbols,
 			retargeted_identities,
-			remapped: graph_diff.symbol_id_remaps,
 		}
 	}
 
@@ -276,13 +274,6 @@ impl SymbolDelta {
 				..
 			} => retargeted_identities,
 			Self::Unchanged | Self::AdditiveOnly { .. } => &[],
-		}
-	}
-
-	pub(in crate::linkage) fn id_remaps(&self) -> &[(SymbolId, SymbolId)] {
-		match self {
-			Self::Mixed { remapped, .. } => remapped,
-			Self::Unchanged | Self::AdditiveOnly { .. } | Self::RemovedOnly { .. } => &[],
 		}
 	}
 }
