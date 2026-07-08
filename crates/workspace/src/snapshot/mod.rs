@@ -8,11 +8,10 @@ mod view;
 
 pub use model::{
 	ChangeId, ChangeOverlay, ChangeOverlayReport, ChangeRecord, ChangeRecordCoreFields,
-	ChangeRecordFields, ChangeResource, ChangeStatus, CodeIndex, CodeIndexFields, CodeIndexTimings,
-	ExternalReference, ExternalReferenceOrigin, LinkageEdge, LinkageSnapshot,
-	LinkageSnapshotReport, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
-	SourceFileRecord, SourceFileRecordFields, SourceId, SourceUnit, SymbolId, SymbolLocation,
-	SymbolRecord, SymbolRecordFields, UnresolvedReference, WorkspaceFailure, WorkspaceRequest,
+	ChangeResource, ChangeStatus, CodeIndex, CodeIndexTimings, ExternalReference,
+	ExternalReferenceOrigin, LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord,
+	ResourceGeneration, SourceCatalog, SourceFileRecord, SourceId, SourceUnit, SymbolId,
+	SymbolLocation, SymbolRecord, UnresolvedReference, WorkspaceFailure, WorkspaceRequest,
 	WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings, WorkspaceTransition,
 };
 pub use view::{

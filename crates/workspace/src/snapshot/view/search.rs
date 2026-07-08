@@ -120,11 +120,11 @@ mod tests {
 	use super::*;
 	use crate::snapshot::model::{
 		ChangeOverlay, CodeIndex, LinkageSnapshot, ResourceGeneration, SourceCatalog, SourceId,
-		SymbolId, SymbolRecordFields, WorkspaceTimings,
+		SymbolId, WorkspaceTimings,
 	};
 
 	fn symbol(id: &str, name: &str, kind: &str, identity: &str) -> SymbolRecord {
-		SymbolRecord::from_fields(SymbolRecordFields {
+		SymbolRecord {
 			id: SymbolId::new(id),
 			source: SourceId::new("source:test"),
 			identity: identity.to_string(),
@@ -135,7 +135,7 @@ mod tests {
 			navigable: true,
 			line_range: None,
 			parent: None,
-		})
+		}
 	}
 
 	fn score(symbol: &SymbolRecord, query: &str) -> u32 {

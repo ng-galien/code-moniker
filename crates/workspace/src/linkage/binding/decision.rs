@@ -1,6 +1,6 @@
 use crate::linkage::catalog::{SymbolOrdinalCatalog, SymbolSet};
 use crate::snapshot::{
-	ExternalReference, LinkageEdge, LinkageSnapshotReport, ReferenceId, ReferenceRecord,
+	ExternalReference, LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord,
 	ResourceGeneration, SymbolId, UnresolvedReference,
 };
 use crate::source::LocalIdentityResolver;
@@ -260,12 +260,20 @@ impl LinkageReportProjection {
 		self
 	}
 
-	pub(in crate::linkage) fn into_report(
+	pub(in crate::linkage) fn into_snapshot(
 		self,
 		generation: ResourceGeneration,
 		index_generation: ResourceGeneration,
-	) -> LinkageSnapshotReport {
-		LinkageSnapshotReport {
+	) -> LinkageSnapshot {
+		let mut resolved = self.resolved.edges;
+		let mut external = self.external.references;
+		let mut manifest_blocked = self.unresolved.manifest_blocked_references;
+		let mut unresolved = self.unresolved.references;
+		resolved.shrink_to_fit();
+		external.shrink_to_fit();
+		manifest_blocked.shrink_to_fit();
+		unresolved.shrink_to_fit();
+		LinkageSnapshot {
 			generation,
 			index_generation,
 			resolved_refs: self.resolved.resolved_refs,
@@ -273,10 +281,10 @@ impl LinkageReportProjection {
 			manifest_blocked_refs: self.unresolved.manifest_blocked_refs,
 			unresolved_refs: self.unresolved.unresolved_refs,
 			ambiguous_refs: self.resolved.ambiguous_refs,
-			resolved: self.resolved.edges,
-			external: self.external.references,
-			manifest_blocked: self.unresolved.manifest_blocked_references,
-			unresolved: self.unresolved.references,
+			resolved,
+			external,
+			manifest_blocked,
+			unresolved,
 		}
 	}
 }

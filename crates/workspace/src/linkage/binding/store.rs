@@ -81,15 +81,13 @@ impl LinkageStore {
 		references: &[ReferenceRecord],
 		identity: &LocalIdentityResolver,
 	) -> LinkageSnapshot {
-		LinkageSnapshot::from_report(
-			crate::linkage::binding::project_decisions(
-				&self.decisions,
-				references,
-				identity,
-				&self.symbols,
-			)
-			.into_report(self.generation, self.index_generation),
+		crate::linkage::binding::project_decisions(
+			&self.decisions,
+			references,
+			identity,
+			&self.symbols,
 		)
+		.into_snapshot(self.generation, self.index_generation)
 	}
 
 	pub(in crate::linkage) fn advance_index_generation(

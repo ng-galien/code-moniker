@@ -13,9 +13,8 @@ use crate::code::{def_kind, is_navigable_def, last_name, ref_kind};
 use crate::environment;
 use crate::lines::LineIndex;
 use crate::snapshot::{
-	CodeIndex, CodeIndexFields, CodeIndexTimings, ReferenceId, ReferenceRecord, SourceCatalog,
-	SourceFileRecord, SourceFileRecordFields, SourceId, SymbolId, SymbolRecord, SymbolRecordFields,
-	WorkspaceFailure, WorkspaceResource, WorkspaceResult,
+	CodeIndex, CodeIndexTimings, ReferenceId, ReferenceRecord, SourceCatalog, SourceFileRecord,
+	SourceId, SymbolId, SymbolRecord, WorkspaceFailure, WorkspaceResource, WorkspaceResult,
 };
 use crate::source::{
 	CodeIndexMaterial, IndexedSourceFile, LocalResourceCache, SourceCatalogMaterial,
@@ -113,12 +112,15 @@ fn build_local_code_index(
 	let files = extract_source_files(&source_material, options.cache_dir.as_deref())?;
 	let extract_sources = extract_timer.elapsed();
 	let semantic_timer = Instant::now();
-	let (symbols, references, material) = build_semantic_index(source_material, files);
+	let (mut symbols, mut references, material) = build_semantic_index(source_material, files);
 	let semantic_index = semantic_timer.elapsed();
-	let sources = source_records(&material.files);
+	let mut sources = source_records(&material.files);
 	let identity_scheme = material.identity.scheme().to_string();
 	cache.insert_index(generation, material);
-	Ok(CodeIndex::from_fields(CodeIndexFields {
+	sources.shrink_to_fit();
+	symbols.shrink_to_fit();
+	references.shrink_to_fit();
+	Ok(CodeIndex {
 		generation,
 		catalog_generation: catalog.generation,
 		identity_scheme,
@@ -130,7 +132,7 @@ fn build_local_code_index(
 			semantic_index,
 			total: total_timer.elapsed(),
 		},
-	}))
+	})
 }
 
 fn refresh_local_code_index(
@@ -179,16 +181,19 @@ fn refresh_local_code_index(
 	}
 	let semantic_timer = Instant::now();
 	let material = material_from_files(current_material.source_catalog.clone(), files);
-	let sources = source_records(&material.files);
+	let mut sources = source_records(&material.files);
 	let graph_diff = graph_diff(current_material.as_ref(), &material, &changed_file_indexes);
-	let symbols = merge_symbols(current, &changed_file_indexes, &material);
-	let references = merge_references(current, &changed_file_indexes, &material);
+	let mut symbols = merge_symbols(current, &changed_file_indexes, &material);
+	let mut references = merge_references(current, &changed_file_indexes, &material);
+	sources.shrink_to_fit();
+	symbols.shrink_to_fit();
+	references.shrink_to_fit();
 	let semantic_index = semantic_timer.elapsed();
 	let generation = cache.next_generation();
 	let identity_scheme = material.identity.scheme().to_string();
 	cache.insert_index(generation, material);
 	Ok(CodeIndexRefresh {
-		index: CodeIndex::from_fields(CodeIndexFields {
+		index: CodeIndex {
 			generation,
 			catalog_generation: current.catalog_generation,
 			identity_scheme,
@@ -200,7 +205,7 @@ fn refresh_local_code_index(
 				semantic_index,
 				total: total_timer.elapsed(),
 			},
-		}),
+		},
 		changed_sources,
 		graph_diff,
 	})
@@ -632,7 +637,7 @@ fn collect_symbols(
 			.parent
 			.map(|parent_idx| file.graph_identity().symbol_id(file_idx, parent_idx));
 		symbols_by_moniker.insert(def.moniker.clone(), id.clone());
-		symbols.push(SymbolRecord::from_fields(SymbolRecordFields {
+		symbols.push(SymbolRecord {
 			id,
 			source: file.source_id.clone(),
 			identity: file.graph_identity().moniker_uri(&def.moniker),
@@ -645,7 +650,7 @@ fn collect_symbols(
 				.position
 				.map(|(start, end)| line_index.line_range(start, end)),
 			parent,
-		}));
+		});
 	}
 }
 
@@ -707,17 +712,15 @@ impl TargetIdentityPool {
 fn source_records(files: &[IndexedSourceFile]) -> Vec<SourceFileRecord> {
 	files
 		.iter()
-		.map(|file| {
-			SourceFileRecord::from_fields(SourceFileRecordFields {
-				id: file.source_id.clone(),
-				uri: file.source_uri.clone(),
-				source_root: file.source_root,
-				path: file.path.display().to_string(),
-				rel_path: file.rel_path.display().to_string(),
-				anchor: file.anchor.display().to_string(),
-				language: file.lang.tag().to_string(),
-				text: String::new(),
-			})
+		.map(|file| SourceFileRecord {
+			id: file.source_id.clone(),
+			uri: file.source_uri.clone(),
+			source_root: file.source_root,
+			path: file.path.display().to_string(),
+			rel_path: file.rel_path.display().to_string(),
+			anchor: file.anchor.display().to_string(),
+			language: file.lang.tag().to_string(),
+			text: String::new(),
 		})
 		.collect()
 }

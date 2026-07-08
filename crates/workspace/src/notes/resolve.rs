@@ -126,9 +126,9 @@ fn symbol_by_identity(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SymbolRec
 #[cfg(test)]
 mod tests {
 	use crate::snapshot::{
-		ChangeOverlay, CodeIndex, CodeIndexFields, CodeIndexTimings, LinkageSnapshot,
-		ResourceGeneration, SourceCatalog, SourceFileRecord, SourceFileRecordFields, SourceId,
-		SymbolId, SymbolRecord, SymbolRecordFields, WorkspaceSnapshot, WorkspaceTimings,
+		ChangeOverlay, CodeIndex, CodeIndexTimings, LinkageSnapshot, ResourceGeneration,
+		SourceCatalog, SourceFileRecord, SourceId, SymbolId, SymbolRecord, WorkspaceSnapshot,
+		WorkspaceTimings,
 	};
 
 	use super::*;
@@ -203,7 +203,7 @@ mod tests {
 	}
 
 	fn snapshot_with_symbol(moniker: &str) -> WorkspaceSnapshot {
-		let source = SourceFileRecord::from_fields(SourceFileRecordFields {
+		let source = SourceFileRecord {
 			id: SourceId::new("source:1"),
 			uri: "code+moniker://./lang:rs/path:src/path:lib.rs".to_string(),
 			source_root: 0,
@@ -212,8 +212,8 @@ mod tests {
 			anchor: ".".to_string(),
 			language: "rs".to_string(),
 			text: "pub fn run() {}\n".to_string(),
-		});
-		let symbol = SymbolRecord::from_fields(SymbolRecordFields {
+		};
+		let symbol = SymbolRecord {
 			id: SymbolId::new("symbol:1"),
 			source: source.id.clone(),
 			identity: moniker.to_string(),
@@ -224,11 +224,11 @@ mod tests {
 			navigable: true,
 			line_range: Some((3, 7)),
 			parent: None,
-		});
+		};
 		WorkspaceSnapshot {
 			generation: ResourceGeneration::new(1),
 			catalog: SourceCatalog::new(ResourceGeneration::new(1), Vec::new()),
-			index: CodeIndex::from_fields(CodeIndexFields {
+			index: CodeIndex {
 				generation: ResourceGeneration::new(1),
 				catalog_generation: ResourceGeneration::new(1),
 				identity_scheme: "code+moniker://".to_string(),
@@ -236,7 +236,7 @@ mod tests {
 				symbols: vec![symbol],
 				references: Vec::new(),
 				timings: CodeIndexTimings::default(),
-			}),
+			},
 			linkage: LinkageSnapshot::new(
 				ResourceGeneration::new(1),
 				ResourceGeneration::new(1),
@@ -254,7 +254,7 @@ mod tests {
 	}
 
 	fn snapshot_with_orphaned_symbol(moniker: &str) -> WorkspaceSnapshot {
-		let symbol = SymbolRecord::from_fields(SymbolRecordFields {
+		let symbol = SymbolRecord {
 			id: SymbolId::new("symbol:1"),
 			source: SourceId::new("missing-source"),
 			identity: moniker.to_string(),
@@ -265,11 +265,11 @@ mod tests {
 			navigable: true,
 			line_range: Some((3, 7)),
 			parent: None,
-		});
+		};
 		WorkspaceSnapshot {
 			generation: ResourceGeneration::new(1),
 			catalog: SourceCatalog::new(ResourceGeneration::new(1), Vec::new()),
-			index: CodeIndex::from_fields(CodeIndexFields {
+			index: CodeIndex {
 				generation: ResourceGeneration::new(1),
 				catalog_generation: ResourceGeneration::new(1),
 				identity_scheme: "code+moniker://".to_string(),
@@ -277,7 +277,7 @@ mod tests {
 				symbols: vec![symbol],
 				references: Vec::new(),
 				timings: CodeIndexTimings::default(),
-			}),
+			},
 			linkage: LinkageSnapshot::new(
 				ResourceGeneration::new(1),
 				ResourceGeneration::new(1),

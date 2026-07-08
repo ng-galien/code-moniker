@@ -8,9 +8,9 @@ use crate::code::{CodeIndexGraphDiff, CodeIndexPort};
 use crate::linkage::{LinkageGraphDelta, LinkagePort, LinkageRefreshImpact};
 use crate::live::WorkspaceLiveRefreshPlan;
 use crate::snapshot::{
-	ChangeOverlay, CodeIndex, CodeIndexFields, LinkageSnapshot, ResourceGeneration, SourceCatalog,
-	SourceFileRecord, SourceFileRecordFields, SourceId, WorkspaceFailure, WorkspaceRequest,
-	WorkspaceResource, WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings,
+	ChangeOverlay, CodeIndex, LinkageSnapshot, ResourceGeneration, SourceCatalog, SourceFileRecord,
+	SourceId, WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult,
+	WorkspaceSnapshot, WorkspaceTimings,
 };
 use crate::source::SourceCatalogPort;
 
@@ -380,7 +380,7 @@ fn load_catalog_for_index(
 }
 
 fn catalog_index(catalog: &SourceCatalog) -> CodeIndex {
-	CodeIndex::from_fields(CodeIndexFields {
+	CodeIndex {
 		generation: catalog.generation,
 		catalog_generation: catalog.generation,
 		identity_scheme: crate::DEFAULT_IDENTITY_SCHEME.to_string(),
@@ -388,7 +388,7 @@ fn catalog_index(catalog: &SourceCatalog) -> CodeIndex {
 		symbols: Vec::new(),
 		references: Vec::new(),
 		timings: Default::default(),
-	})
+	}
 }
 
 fn catalog_source_records(catalog: &SourceCatalog) -> Vec<SourceFileRecord> {
@@ -396,17 +396,15 @@ fn catalog_source_records(catalog: &SourceCatalog) -> Vec<SourceFileRecord> {
 		.sources
 		.iter()
 		.enumerate()
-		.map(|(idx, source)| {
-			SourceFileRecord::from_fields(SourceFileRecordFields {
-				id: source.id.clone(),
-				uri: source.id.as_str().to_string(),
-				source_root: idx,
-				path: source.display_name.clone(),
-				rel_path: source.display_name.clone(),
-				anchor: source.display_name.clone(),
-				language: source.language.clone().unwrap_or_default(),
-				text: String::new(),
-			})
+		.map(|(idx, source)| SourceFileRecord {
+			id: source.id.clone(),
+			uri: source.id.as_str().to_string(),
+			source_root: idx,
+			path: source.display_name.clone(),
+			rel_path: source.display_name.clone(),
+			anchor: source.display_name.clone(),
+			language: source.language.clone().unwrap_or_default(),
+			text: String::new(),
 		})
 		.collect()
 }

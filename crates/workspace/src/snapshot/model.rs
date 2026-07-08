@@ -135,20 +135,6 @@ pub struct SymbolRecord {
 	pub parent: Option<SymbolId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SymbolRecordFields {
-	pub id: SymbolId,
-	pub source: SourceId,
-	pub identity: String,
-	pub name: String,
-	pub kind: String,
-	pub visibility: String,
-	pub signature: String,
-	pub navigable: bool,
-	pub line_range: Option<(u32, u32)>,
-	pub parent: Option<SymbolId>,
-}
-
 impl SymbolRecord {
 	pub fn new(
 		id: impl Into<String>,
@@ -168,21 +154,6 @@ impl SymbolRecord {
 			navigable: true,
 			line_range: None,
 			parent: None,
-		}
-	}
-
-	pub fn from_fields(fields: SymbolRecordFields) -> Self {
-		Self {
-			id: fields.id,
-			source: fields.source,
-			identity: fields.identity,
-			name: fields.name,
-			kind: fields.kind,
-			visibility: fields.visibility,
-			signature: fields.signature,
-			navigable: fields.navigable,
-			line_range: fields.line_range,
-			parent: fields.parent,
 		}
 	}
 }
@@ -274,44 +245,8 @@ pub struct SourceFileRecord {
 	pub text: String,
 }
 
-pub struct SourceFileRecordFields {
-	pub id: SourceId,
-	pub uri: String,
-	pub source_root: usize,
-	pub path: String,
-	pub rel_path: String,
-	pub anchor: String,
-	pub language: String,
-	pub text: String,
-}
-
-impl SourceFileRecord {
-	pub fn from_fields(fields: SourceFileRecordFields) -> Self {
-		Self {
-			id: fields.id,
-			uri: fields.uri,
-			source_root: fields.source_root,
-			path: fields.path,
-			rel_path: fields.rel_path,
-			anchor: fields.anchor,
-			language: fields.language,
-			text: fields.text,
-		}
-	}
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodeIndex {
-	pub generation: ResourceGeneration,
-	pub catalog_generation: ResourceGeneration,
-	pub identity_scheme: String,
-	pub sources: Vec<SourceFileRecord>,
-	pub symbols: Vec<SymbolRecord>,
-	pub references: Vec<ReferenceRecord>,
-	pub timings: CodeIndexTimings,
-}
-
-pub struct CodeIndexFields {
 	pub generation: ResourceGeneration,
 	pub catalog_generation: ResourceGeneration,
 	pub identity_scheme: String,
@@ -362,21 +297,6 @@ impl CodeIndex {
 			symbols,
 			references,
 			timings: CodeIndexTimings::default(),
-		}
-	}
-
-	pub fn from_fields(mut fields: CodeIndexFields) -> Self {
-		fields.sources.shrink_to_fit();
-		fields.symbols.shrink_to_fit();
-		fields.references.shrink_to_fit();
-		Self {
-			generation: fields.generation,
-			catalog_generation: fields.catalog_generation,
-			identity_scheme: fields.identity_scheme,
-			sources: fields.sources,
-			symbols: fields.symbols,
-			references: fields.references,
-			timings: fields.timings,
 		}
 	}
 }
@@ -505,40 +425,6 @@ impl LinkageSnapshot {
 			unresolved,
 		}
 	}
-
-	pub fn from_report(mut report: LinkageSnapshotReport) -> Self {
-		report.resolved.shrink_to_fit();
-		report.external.shrink_to_fit();
-		report.manifest_blocked.shrink_to_fit();
-		report.unresolved.shrink_to_fit();
-		Self {
-			generation: report.generation,
-			index_generation: report.index_generation,
-			resolved_refs: report.resolved_refs,
-			external_refs: report.external_refs,
-			manifest_blocked_refs: report.manifest_blocked_refs,
-			unresolved_refs: report.unresolved_refs,
-			ambiguous_refs: report.ambiguous_refs,
-			resolved: report.resolved,
-			external: report.external,
-			manifest_blocked: report.manifest_blocked,
-			unresolved: report.unresolved,
-		}
-	}
-}
-
-pub struct LinkageSnapshotReport {
-	pub generation: ResourceGeneration,
-	pub index_generation: ResourceGeneration,
-	pub resolved_refs: usize,
-	pub external_refs: usize,
-	pub manifest_blocked_refs: usize,
-	pub unresolved_refs: usize,
-	pub ambiguous_refs: usize,
-	pub resolved: Vec<LinkageEdge>,
-	pub external: Vec<ExternalReference>,
-	pub manifest_blocked: Vec<UnresolvedReference>,
-	pub unresolved: Vec<UnresolvedReference>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -685,22 +571,6 @@ pub struct ChangeRecord {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChangeRecordFields {
-	pub id: ChangeId,
-	pub status: ChangeStatus,
-	pub source: Option<SourceId>,
-	pub source_uri: Option<String>,
-	pub symbol: Option<SymbolId>,
-	pub identity: String,
-	pub language: String,
-	pub file_path: String,
-	pub name: String,
-	pub kind: String,
-	pub line_range: Option<(u32, u32)>,
-	pub hunk_count: usize,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChangeRecordCoreFields {
 	pub id: ChangeId,
 	pub status: ChangeStatus,
@@ -740,23 +610,6 @@ impl ChangeRecord {
 	pub fn with_symbol(mut self, symbol: SymbolId) -> Self {
 		self.symbol = Some(symbol);
 		self
-	}
-
-	pub fn from_fields(fields: ChangeRecordFields) -> Self {
-		Self {
-			id: fields.id,
-			status: fields.status,
-			source: fields.source,
-			source_uri: fields.source_uri,
-			symbol: fields.symbol,
-			identity: fields.identity,
-			language: fields.language,
-			file_path: fields.file_path,
-			name: fields.name,
-			kind: fields.kind,
-			line_range: fields.line_range,
-			hunk_count: fields.hunk_count,
-		}
 	}
 }
 

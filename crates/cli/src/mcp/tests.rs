@@ -8,8 +8,7 @@ use code_moniker_daemon::WorkspaceDaemon;
 use code_moniker_query::{Query, QueryRequest, QueryResult, SymbolSearchQuery};
 use code_moniker_workspace::snapshot::{
 	LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
-	SourceFileRecord, SourceFileRecordFields, SourceId, SourceUnit, SymbolId, SymbolRecord,
-	SymbolRecordFields,
+	SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolRecord,
 };
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -91,7 +90,7 @@ fn start_http_test_server(opts: SessionOptions) -> HttpTestServer {
 }
 
 fn source_file(id: SourceId, rel_path: &str, language: &str) -> SourceFileRecord {
-	SourceFileRecord::from_fields(SourceFileRecordFields {
+	SourceFileRecord {
 		id,
 		uri: format!("code+moniker://./file:{rel_path}"),
 		source_root: 0,
@@ -100,7 +99,7 @@ fn source_file(id: SourceId, rel_path: &str, language: &str) -> SourceFileRecord
 		anchor: rel_path.to_string(),
 		language: language.to_string(),
 		text: String::new(),
-	})
+	}
 }
 
 fn symbol_record(
@@ -111,7 +110,7 @@ fn symbol_record(
 	kind: &str,
 	line_range: Option<(u32, u32)>,
 ) -> SymbolRecord {
-	SymbolRecord::from_fields(SymbolRecordFields {
+	SymbolRecord {
 		id: SymbolId::new(id),
 		source,
 		identity: identity.to_string(),
@@ -122,7 +121,7 @@ fn symbol_record(
 		navigable: true,
 		line_range,
 		parent: None,
-	})
+	}
 }
 
 #[test]
@@ -926,7 +925,7 @@ fn write_fragment_view_fixture(root: &std::path::Path, source_dir: &std::path::P
 #[test]
 fn symbols_tool_filters_and_pages_symbols() {
 	let source_id = SourceId::new("source:1:src/App.java");
-	let sources = vec![SourceFileRecord::from_fields(SourceFileRecordFields {
+	let sources = vec![SourceFileRecord {
 		id: source_id.clone(),
 		uri: "code+moniker://./file:src/App.java".to_string(),
 		source_root: 0,
@@ -935,9 +934,9 @@ fn symbols_tool_filters_and_pages_symbols() {
 		anchor: "src/App.java".to_string(),
 		language: "java".to_string(),
 		text: String::new(),
-	})];
+	}];
 	let symbols = vec![
-		SymbolRecord::from_fields(SymbolRecordFields {
+		SymbolRecord {
 			id: SymbolId::new("symbol:1"),
 			source: source_id.clone(),
 			identity: "code+moniker://./lang:java/package:src/class:App".to_string(),
@@ -948,8 +947,8 @@ fn symbols_tool_filters_and_pages_symbols() {
 			navigable: true,
 			line_range: Some((1, 3)),
 			parent: None,
-		}),
-		SymbolRecord::from_fields(SymbolRecordFields {
+		},
+		SymbolRecord {
 			id: SymbolId::new("symbol:2"),
 			source: source_id.clone(),
 			identity: "code+moniker://./lang:java/package:src/class:App/method:run()".to_string(),
@@ -960,8 +959,8 @@ fn symbols_tool_filters_and_pages_symbols() {
 			navigable: true,
 			line_range: Some((4, 5)),
 			parent: None,
-		}),
-		SymbolRecord::from_fields(SymbolRecordFields {
+		},
+		SymbolRecord {
 			id: SymbolId::new("symbol:3"),
 			source: source_id,
 			identity: "code+moniker://./lang:java/package:src/class:App/method:retry()".to_string(),
@@ -972,7 +971,7 @@ fn symbols_tool_filters_and_pages_symbols() {
 			navigable: true,
 			line_range: Some((6, 7)),
 			parent: None,
-		}),
+		},
 	];
 	let scope = SymbolScopeFilter::from_arguments(&json!({
 		"path": "src/**",
@@ -1242,7 +1241,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 #[test]
 fn read_symbol_source_renders_source_slice() {
 	let source_id = SourceId::new("source:1:src/App.java");
-	let source = SourceFileRecord::from_fields(SourceFileRecordFields {
+	let source = SourceFileRecord {
 		id: source_id.clone(),
 		uri: "code+moniker://./file:src/App.java".to_string(),
 		source_root: 0,
@@ -1251,8 +1250,8 @@ fn read_symbol_source_renders_source_slice() {
 		anchor: "src/App.java".to_string(),
 		language: "java".to_string(),
 		text: String::new(),
-	});
-	let symbol = SymbolRecord::from_fields(SymbolRecordFields {
+	};
+	let symbol = SymbolRecord {
 		id: SymbolId::new("symbol:1"),
 		source: source_id,
 		identity: "code+moniker://./lang:java/package:src/class:App/method:run()".to_string(),
@@ -1263,7 +1262,7 @@ fn read_symbol_source_renders_source_slice() {
 		navigable: true,
 		line_range: Some((3, 5)),
 		parent: None,
-	});
+	};
 	let text = render_symbol_source_lmnav(
 		"code+moniker://",
 		&symbol,
@@ -1281,7 +1280,7 @@ fn read_symbol_source_renders_source_slice() {
 #[test]
 fn symbols_insights_summarize_index() {
 	let source_id = SourceId::new("source:1:src/App.java");
-	let sources = vec![SourceFileRecord::from_fields(SourceFileRecordFields {
+	let sources = vec![SourceFileRecord {
 		id: source_id.clone(),
 		uri: "code+moniker://./file:src/App.java".to_string(),
 		source_root: 0,
@@ -1290,8 +1289,8 @@ fn symbols_insights_summarize_index() {
 		anchor: "src/App.java".to_string(),
 		language: "java".to_string(),
 		text: String::new(),
-	})];
-	let class = SymbolRecord::from_fields(SymbolRecordFields {
+	}];
+	let class = SymbolRecord {
 		id: SymbolId::new("symbol:class"),
 		source: source_id.clone(),
 		identity: "code+moniker://./lang:java/package:src/class:App".to_string(),
@@ -1302,8 +1301,8 @@ fn symbols_insights_summarize_index() {
 		navigable: true,
 		line_range: Some((1, 6)),
 		parent: None,
-	});
-	let method = SymbolRecord::from_fields(SymbolRecordFields {
+	};
+	let method = SymbolRecord {
 		id: SymbolId::new("symbol:method"),
 		source: source_id.clone(),
 		identity: "code+moniker://./lang:java/package:src/class:App/method:run()".to_string(),
@@ -1314,7 +1313,7 @@ fn symbols_insights_summarize_index() {
 		navigable: true,
 		line_range: Some((3, 5)),
 		parent: Some(SymbolId::new("symbol:class")),
-	});
+	};
 	let references = vec![ReferenceRecord::new(
 		"ref:1",
 		source_id,
