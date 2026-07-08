@@ -12,8 +12,7 @@ use crate::source::{
 
 use super::{WorkspacePorts, WorkspaceRegistry};
 
-pub type LocalWorkspaceRegistry =
-	WorkspaceRegistry<LocalSourceCatalog, LocalCodeIndex, LocalLinkage, LocalChangeOverlay>;
+pub type LocalWorkspaceRegistry = WorkspaceRegistry;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LocalWorkspaceOptions {
@@ -71,7 +70,7 @@ impl LocalWorkspaceRegistry {
 pub(crate) fn local_workspace_ports(
 	options: LocalWorkspaceOptions,
 	cache: LocalResourceCache,
-) -> WorkspacePorts<LocalSourceCatalog, LocalCodeIndex, LocalLinkage, LocalChangeOverlay> {
+) -> WorkspacePorts {
 	let watch_paths = options.paths.clone();
 	let watch_cache_dir = options.cache_dir.clone();
 	let mut source_options = LocalSourceCatalogOptions::new(options.paths, options.project)

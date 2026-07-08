@@ -1,35 +1,39 @@
 use std::sync::Arc;
 
+use crate::changes::ChangeOverlayPort;
+use crate::code::CodeIndexPort;
+use crate::linkage::LinkagePort;
 use crate::live::WorkspaceWatchRoot;
 use crate::snapshot::{
 	WorkspaceFailure, WorkspaceRequest, WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
 };
+use crate::source::SourceCatalogPort;
 
 use super::command::{WorkspaceCommandKind, WorkspaceScopeUri, WorkspaceSnapshotPublication};
 use super::event::{WorkspaceEvent, WorkspaceEventCursor};
 
-pub struct WorkspacePorts<Sources, Index, Linkage, Changes> {
-	pub(crate) source_catalog: Sources,
-	pub(crate) code_index: Index,
-	pub(crate) linkage: Linkage,
-	pub(crate) change_overlay: Changes,
+pub struct WorkspacePorts {
+	pub(crate) source_catalog: Box<dyn SourceCatalogPort + Send>,
+	pub(crate) code_index: Box<dyn CodeIndexPort + Send>,
+	pub(crate) linkage: Box<dyn LinkagePort + Send>,
+	pub(crate) change_overlay: Box<dyn ChangeOverlayPort + Send>,
 	live_watch_roots: Box<LiveWatchRoots>,
 }
 
 type LiveWatchRoots = dyn Fn(Option<&WorkspaceSnapshot>) -> Vec<WorkspaceWatchRoot> + Send + Sync;
 
-impl<Sources, Index, Linkage, Changes> WorkspacePorts<Sources, Index, Linkage, Changes> {
+impl WorkspacePorts {
 	pub fn new(
-		source_catalog: Sources,
-		code_index: Index,
-		linkage: Linkage,
-		change_overlay: Changes,
+		source_catalog: impl SourceCatalogPort + Send + 'static,
+		code_index: impl CodeIndexPort + Send + 'static,
+		linkage: impl LinkagePort + Send + 'static,
+		change_overlay: impl ChangeOverlayPort + Send + 'static,
 	) -> Self {
 		Self {
-			source_catalog,
-			code_index,
-			linkage,
-			change_overlay,
+			source_catalog: Box::new(source_catalog),
+			code_index: Box::new(code_index),
+			linkage: Box::new(linkage),
+			change_overlay: Box::new(change_overlay),
 			live_watch_roots: Box::new(|_| Vec::new()),
 		}
 	}

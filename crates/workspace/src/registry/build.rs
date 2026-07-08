@@ -15,10 +15,10 @@ use crate::snapshot::{
 use crate::source::SourceCatalogPort;
 
 pub(crate) fn build_complete_snapshot(
-	source_catalog: &mut impl SourceCatalogPort,
-	code_index: &mut impl CodeIndexPort,
-	linkage: &mut impl LinkagePort,
-	change_overlay: &mut impl ChangeOverlayPort,
+	source_catalog: &mut (impl SourceCatalogPort + ?Sized),
+	code_index: &mut (impl CodeIndexPort + ?Sized),
+	linkage: &mut (impl LinkagePort + ?Sized),
+	change_overlay: &mut (impl ChangeOverlayPort + ?Sized),
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
@@ -55,8 +55,8 @@ pub(crate) fn build_complete_snapshot(
 
 pub(crate) fn build_index_only_snapshot(
 	current: Option<&WorkspaceSnapshot>,
-	source_catalog: &mut impl SourceCatalogPort,
-	code_index: &mut impl CodeIndexPort,
+	source_catalog: &mut (impl SourceCatalogPort + ?Sized),
+	code_index: &mut (impl CodeIndexPort + ?Sized),
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
@@ -87,8 +87,8 @@ pub(crate) fn build_index_only_snapshot(
 
 pub(crate) fn build_linkage_snapshot(
 	current: Option<&WorkspaceSnapshot>,
-	linkage: &mut impl LinkagePort,
-	change_overlay: &mut impl ChangeOverlayPort,
+	linkage: &mut (impl LinkagePort + ?Sized),
+	change_overlay: &mut (impl ChangeOverlayPort + ?Sized),
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
@@ -128,7 +128,7 @@ pub(crate) fn build_linkage_snapshot(
 
 pub(crate) fn build_change_overlay_snapshot(
 	current: Option<&WorkspaceSnapshot>,
-	change_overlay: &mut impl ChangeOverlayPort,
+	change_overlay: &mut (impl ChangeOverlayPort + ?Sized),
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
@@ -165,8 +165,8 @@ pub(crate) fn build_change_overlay_snapshot(
 
 pub(crate) fn build_incremental_paths_snapshot(
 	current: Option<&WorkspaceSnapshot>,
-	code_index: &mut impl CodeIndexPort,
-	linkage: &mut impl LinkagePort,
+	code_index: &mut (impl CodeIndexPort + ?Sized),
+	linkage: &mut (impl LinkagePort + ?Sized),
 	request: WorkspaceRequest,
 	paths: &[PathBuf],
 	generation: ResourceGeneration,
@@ -215,12 +215,12 @@ pub(crate) fn build_incremental_paths_snapshot(
 	})
 }
 
-pub(crate) struct LivePlanBuild<'a, Sources, Index, Linkage, Changes> {
+pub(crate) struct LivePlanBuild<'a> {
 	pub(crate) current: Option<&'a WorkspaceSnapshot>,
-	pub(crate) source_catalog: &'a mut Sources,
-	pub(crate) code_index: &'a mut Index,
-	pub(crate) linkage: &'a mut Linkage,
-	pub(crate) change_overlay: &'a mut Changes,
+	pub(crate) source_catalog: &'a mut (dyn SourceCatalogPort + Send),
+	pub(crate) code_index: &'a mut (dyn CodeIndexPort + Send),
+	pub(crate) linkage: &'a mut (dyn LinkagePort + Send),
+	pub(crate) change_overlay: &'a mut (dyn ChangeOverlayPort + Send),
 }
 
 pub(crate) struct LivePlanSnapshot {
@@ -234,13 +234,7 @@ struct SnapshotBuildRequest {
 	generation: ResourceGeneration,
 }
 
-impl<Sources, Index, Linkage, Changes> LivePlanBuild<'_, Sources, Index, Linkage, Changes>
-where
-	Sources: SourceCatalogPort,
-	Index: CodeIndexPort,
-	Linkage: LinkagePort,
-	Changes: ChangeOverlayPort,
-{
+impl LivePlanBuild<'_> {
 	pub(crate) fn build(
 		mut self,
 		request: WorkspaceRequest,
@@ -319,7 +313,7 @@ where
 }
 
 pub(crate) fn build_catalog_snapshot(
-	source_catalog: &mut impl SourceCatalogPort,
+	source_catalog: &mut (impl SourceCatalogPort + ?Sized),
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
 ) -> WorkspaceResult<WorkspaceSnapshot> {
@@ -366,7 +360,7 @@ fn clone_current_snapshot(
 
 fn load_catalog_for_index(
 	current: Option<&WorkspaceSnapshot>,
-	source_catalog: &mut impl SourceCatalogPort,
+	source_catalog: &mut (impl SourceCatalogPort + ?Sized),
 	request: &WorkspaceRequest,
 ) -> WorkspaceResult<(SourceCatalog, Duration)> {
 	match current {

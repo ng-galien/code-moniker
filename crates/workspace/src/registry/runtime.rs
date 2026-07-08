@@ -1,15 +1,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::changes::ChangeOverlayPort;
-use crate::code::CodeIndexPort;
-use crate::linkage::LinkagePort;
 use crate::live::{WorkspaceLiveRefreshPlan, WorkspaceWatchRoot};
 use crate::snapshot::{
 	ResourceGeneration, WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult,
 	WorkspaceSnapshot, WorkspaceTransition, WorkspaceView,
 };
-use crate::source::SourceCatalogPort;
 
 use super::build::{
 	LivePlanBuild, build_catalog_snapshot, build_change_overlay_snapshot, build_complete_snapshot,
@@ -42,39 +38,39 @@ impl WorkspaceLivePlanTransition {
 	}
 }
 
-pub struct WorkspaceRegistry<Sources, Index, Linkage, Changes> {
-	runtime: WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+pub struct WorkspaceRegistry {
+	runtime: WorkspaceRuntime,
 	events: WorkspaceEventLog,
 	next_command_id: u64,
 }
 
-pub struct WorkspaceCommands<'a, Sources, Index, Linkage, Changes> {
-	runtime: &'a mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+pub struct WorkspaceCommands<'a> {
+	runtime: &'a mut WorkspaceRuntime,
 	events: &'a mut WorkspaceEventLog,
 	next_command_id: &'a mut u64,
 }
 
-pub struct WorkspaceLiveCommands<'a, Sources, Index, Linkage, Changes> {
-	runtime: &'a mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+pub struct WorkspaceLiveCommands<'a> {
+	runtime: &'a mut WorkspaceRuntime,
 	events: &'a mut WorkspaceEventLog,
 	next_command_id: &'a mut u64,
 }
 
-pub struct WorkspaceQueries<'a, Sources, Index, Linkage, Changes> {
-	runtime: &'a WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+pub struct WorkspaceQueries<'a> {
+	runtime: &'a WorkspaceRuntime,
 }
 
 pub struct WorkspaceEvents<'a> {
 	events: &'a WorkspaceEventLog,
 }
 
-pub struct WorkspaceRuntime<Sources, Index, Linkage, Changes> {
-	ports: WorkspacePorts<Sources, Index, Linkage, Changes>,
+pub struct WorkspaceRuntime {
+	ports: WorkspacePorts,
 	state: WorkspaceState,
 }
 
-impl<Sources, Index, Linkage, Changes> WorkspaceRegistry<Sources, Index, Linkage, Changes> {
-	pub fn new(ports: WorkspacePorts<Sources, Index, Linkage, Changes>) -> Self {
+impl WorkspaceRegistry {
+	pub fn new(ports: WorkspacePorts) -> Self {
 		Self {
 			runtime: WorkspaceRuntime::new(ports),
 			events: WorkspaceEventLog::default(),
@@ -82,7 +78,7 @@ impl<Sources, Index, Linkage, Changes> WorkspaceRegistry<Sources, Index, Linkage
 		}
 	}
 
-	pub fn commands(&mut self) -> WorkspaceCommands<'_, Sources, Index, Linkage, Changes> {
+	pub fn commands(&mut self) -> WorkspaceCommands<'_> {
 		WorkspaceCommands {
 			runtime: &mut self.runtime,
 			events: &mut self.events,
@@ -90,7 +86,7 @@ impl<Sources, Index, Linkage, Changes> WorkspaceRegistry<Sources, Index, Linkage
 		}
 	}
 
-	pub fn live_commands(&mut self) -> WorkspaceLiveCommands<'_, Sources, Index, Linkage, Changes> {
+	pub fn live_commands(&mut self) -> WorkspaceLiveCommands<'_> {
 		WorkspaceLiveCommands {
 			runtime: &mut self.runtime,
 			events: &mut self.events,
@@ -98,7 +94,7 @@ impl<Sources, Index, Linkage, Changes> WorkspaceRegistry<Sources, Index, Linkage
 		}
 	}
 
-	pub fn queries(&self) -> WorkspaceQueries<'_, Sources, Index, Linkage, Changes> {
+	pub fn queries(&self) -> WorkspaceQueries<'_> {
 		WorkspaceQueries {
 			runtime: &self.runtime,
 		}
@@ -117,8 +113,8 @@ impl<Sources, Index, Linkage, Changes> WorkspaceRegistry<Sources, Index, Linkage
 	}
 }
 
-impl<Sources, Index, Linkage, Changes> WorkspaceRuntime<Sources, Index, Linkage, Changes> {
-	fn new(ports: WorkspacePorts<Sources, Index, Linkage, Changes>) -> Self {
+impl WorkspaceRuntime {
+	fn new(ports: WorkspacePorts) -> Self {
 		Self {
 			ports,
 			state: WorkspaceState::new(),
@@ -126,7 +122,7 @@ impl<Sources, Index, Linkage, Changes> WorkspaceRuntime<Sources, Index, Linkage,
 	}
 }
 
-impl<'a, Sources, Index, Linkage, Changes> WorkspaceQueries<'a, Sources, Index, Linkage, Changes> {
+impl<'a> WorkspaceQueries<'a> {
 	pub fn snapshot(&self) -> Option<&'a WorkspaceSnapshot> {
 		self.runtime.state.snapshot()
 	}
@@ -158,13 +154,7 @@ impl WorkspaceEvents<'_> {
 	}
 }
 
-impl<Sources, Index, Linkage, Changes> WorkspaceCommands<'_, Sources, Index, Linkage, Changes>
-where
-	Sources: SourceCatalogPort,
-	Index: CodeIndexPort,
-	Linkage: LinkagePort,
-	Changes: ChangeOverlayPort,
-{
+impl WorkspaceCommands<'_> {
 	pub fn execute(&mut self, spec: WorkspaceCommandSpec) -> WorkspaceTransition {
 		let command = WorkspaceCommand::new(
 			self.allocate_command_id(),
@@ -237,8 +227,8 @@ where
 		publish_command_started(self.events, &context);
 		let result = build_incremental_paths_snapshot(
 			self.runtime.state.snapshot(),
-			&mut self.runtime.ports.code_index,
-			&mut self.runtime.ports.linkage,
+			&mut *self.runtime.ports.code_index,
+			&mut *self.runtime.ports.linkage,
 			command.request,
 			&paths,
 			generation,
@@ -258,7 +248,7 @@ where
 		publish_command_started(self.events, &context);
 		let result = build_change_overlay_snapshot(
 			self.runtime.state.snapshot(),
-			&mut self.runtime.ports.change_overlay,
+			&mut *self.runtime.ports.change_overlay,
 			command.request,
 			generation,
 		);
@@ -287,13 +277,7 @@ where
 	}
 }
 
-impl<Sources, Index, Linkage, Changes> WorkspaceLiveCommands<'_, Sources, Index, Linkage, Changes>
-where
-	Sources: SourceCatalogPort,
-	Index: CodeIndexPort,
-	Linkage: LinkagePort,
-	Changes: ChangeOverlayPort,
-{
+impl WorkspaceLiveCommands<'_> {
 	pub fn apply_plan(
 		&mut self,
 		request: WorkspaceRequest,
@@ -360,27 +344,21 @@ where
 	}
 }
 
-fn run_live_plan<Sources, Index, Linkage, Changes>(
-	runtime: &mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+fn run_live_plan(
+	runtime: &mut WorkspaceRuntime,
 	events: &mut WorkspaceEventLog,
 	command: WorkspaceCommand,
 	plan: &WorkspaceLiveRefreshPlan,
-) -> WorkspaceLivePlanTransition
-where
-	Sources: SourceCatalogPort,
-	Index: CodeIndexPort,
-	Linkage: LinkagePort,
-	Changes: ChangeOverlayPort,
-{
+) -> WorkspaceLivePlanTransition {
 	let generation = runtime.state.allocate_generation();
 	let context = WorkspaceEventContext::new(command.scope_uri, generation, command.id);
 	publish_command_started(events, &context);
 	let result = LivePlanBuild {
 		current: runtime.state.snapshot(),
-		source_catalog: &mut runtime.ports.source_catalog,
-		code_index: &mut runtime.ports.code_index,
-		linkage: &mut runtime.ports.linkage,
-		change_overlay: &mut runtime.ports.change_overlay,
+		source_catalog: &mut *runtime.ports.source_catalog,
+		code_index: &mut *runtime.ports.code_index,
+		linkage: &mut *runtime.ports.linkage,
+		change_overlay: &mut *runtime.ports.change_overlay,
 	}
 	.build(command.request, plan, generation);
 	let replace_watcher = result
@@ -399,8 +377,8 @@ where
 	}
 }
 
-fn coalesce_pending<Sources, Index, Linkage, Changes>(
-	runtime: &mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+fn coalesce_pending(
+	runtime: &mut WorkspaceRuntime,
 	plan: WorkspaceLiveRefreshPlan,
 ) -> WorkspaceStaleness {
 	let pending = std::mem::take(&mut runtime.state.pending);
@@ -413,8 +391,8 @@ fn publish_command_started(events: &mut WorkspaceEventLog, context: &WorkspaceEv
 	events.publish(context.event(WorkspaceEventKind::WorkStarted));
 }
 
-fn publish_command_finished<Sources, Index, Linkage, Changes>(
-	runtime: &mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+fn publish_command_finished(
+	runtime: &mut WorkspaceRuntime,
 	events: &mut WorkspaceEventLog,
 	context: &WorkspaceEventContext,
 	result: WorkspaceResult<WorkspaceSnapshot>,
@@ -454,9 +432,7 @@ fn events_for_ready_transition(
 	}
 }
 
-impl<Sources, Index, Linkage, Changes> WorkspaceQueryPort
-	for WorkspaceQueries<'_, Sources, Index, Linkage, Changes>
-{
+impl WorkspaceQueryPort for WorkspaceQueries<'_> {
 	fn snapshot(&self) -> Option<&WorkspaceSnapshot> {
 		self.runtime.state.snapshot()
 	}
@@ -484,14 +460,7 @@ impl WorkspaceEventPort for WorkspaceEvents<'_> {
 	}
 }
 
-impl<Sources, Index, Linkage, Changes> WorkspaceCommandPort
-	for WorkspaceCommands<'_, Sources, Index, Linkage, Changes>
-where
-	Sources: SourceCatalogPort,
-	Index: CodeIndexPort,
-	Linkage: LinkagePort,
-	Changes: ChangeOverlayPort,
-{
+impl WorkspaceCommandPort for WorkspaceCommands<'_> {
 	fn execute_command(
 		&mut self,
 		kind: WorkspaceCommandKind,
@@ -509,35 +478,29 @@ where
 	}
 }
 
-fn run_workspace_command<Sources, Index, Linkage, Changes>(
-	runtime: &mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+fn run_workspace_command(
+	runtime: &mut WorkspaceRuntime,
 	kind: WorkspaceCommandKind,
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
-) -> WorkspaceResult<WorkspaceSnapshot>
-where
-	Sources: SourceCatalogPort,
-	Index: CodeIndexPort,
-	Linkage: LinkagePort,
-	Changes: ChangeOverlayPort,
-{
+) -> WorkspaceResult<WorkspaceSnapshot> {
 	match kind {
 		WorkspaceCommandKind::Refresh => build_complete_snapshot(
-			&mut runtime.ports.source_catalog,
-			&mut runtime.ports.code_index,
-			&mut runtime.ports.linkage,
-			&mut runtime.ports.change_overlay,
+			&mut *runtime.ports.source_catalog,
+			&mut *runtime.ports.code_index,
+			&mut *runtime.ports.linkage,
+			&mut *runtime.ports.change_overlay,
 			request,
 			generation,
 		),
 		WorkspaceCommandKind::LoadSources => {
-			build_catalog_snapshot(&mut runtime.ports.source_catalog, request, generation)
+			build_catalog_snapshot(&mut *runtime.ports.source_catalog, request, generation)
 		}
 		WorkspaceCommandKind::BuildIndex => run_build_index_command(runtime, request, generation),
 		WorkspaceCommandKind::ResolveLinkage => build_linkage_snapshot(
 			runtime.state.snapshot(),
-			&mut runtime.ports.linkage,
-			&mut runtime.ports.change_overlay,
+			&mut *runtime.ports.linkage,
+			&mut *runtime.ports.change_overlay,
 			request,
 			generation,
 		),
@@ -547,7 +510,7 @@ where
 		)),
 		WorkspaceCommandKind::RefreshChanges => build_change_overlay_snapshot(
 			runtime.state.snapshot(),
-			&mut runtime.ports.change_overlay,
+			&mut *runtime.ports.change_overlay,
 			request,
 			generation,
 		),
@@ -566,23 +529,19 @@ where
 	}
 }
 
-fn run_build_index_command<Sources, Index, Linkage, Changes>(
-	runtime: &mut WorkspaceRuntime<Sources, Index, Linkage, Changes>,
+fn run_build_index_command(
+	runtime: &mut WorkspaceRuntime,
 	request: WorkspaceRequest,
 	generation: ResourceGeneration,
-) -> WorkspaceResult<WorkspaceSnapshot>
-where
-	Sources: SourceCatalogPort,
-	Index: CodeIndexPort,
-{
+) -> WorkspaceResult<WorkspaceSnapshot> {
 	let catalog_source = request
 		.should_reuse_current_catalog()
 		.then_some(runtime.state.snapshot())
 		.flatten();
 	build_index_only_snapshot(
 		catalog_source,
-		&mut runtime.ports.source_catalog,
-		&mut runtime.ports.code_index,
+		&mut *runtime.ports.source_catalog,
+		&mut *runtime.ports.code_index,
 		request,
 		generation,
 	)
