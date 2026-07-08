@@ -38,6 +38,7 @@ pub(in crate::linkage) enum ReferenceDelta {
 	Unchanged,
 	Changed {
 		changed: Vec<ReferenceId>,
+		removed: Vec<ReferenceId>,
 		remapped: Vec<(ReferenceId, ReferenceId)>,
 	},
 }
@@ -198,6 +199,7 @@ impl ReferenceDelta {
 		}
 		Self::Changed {
 			changed: graph_diff.changed_references.clone(),
+			removed: graph_diff.removed_references.clone(),
 			remapped: graph_diff.reference_id_remaps.clone(),
 		}
 	}
@@ -217,6 +219,13 @@ impl ReferenceDelta {
 		match self {
 			Self::Unchanged => &[],
 			Self::Changed { remapped, .. } => remapped,
+		}
+	}
+
+	pub(in crate::linkage) fn removed_ids(&self) -> &[ReferenceId] {
+		match self {
+			Self::Unchanged => &[],
+			Self::Changed { removed, .. } => removed,
 		}
 	}
 }

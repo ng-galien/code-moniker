@@ -33,4 +33,5 @@ notify = { workspace = true, features = ["macos_fsevent"] }
 notify = { workspace = true }
 
 [dev-dependencies]
+proptest = { workspace = true }
 tempfile = { workspace = true }

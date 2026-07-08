@@ -270,7 +270,11 @@ fn refresh_incremental_linkage(
 ) {
 	let reference_index_map = reference_indexes(&input.index.references);
 	let plan_timer = Instant::now();
-	store.rebase_reference_ordinals(reference_index_map, input.impact.references().id_remaps());
+	store.rebase_reference_ordinals(
+		reference_index_map,
+		input.impact.references().id_remaps(),
+		input.impact.references().removed_ids(),
+	);
 	store.ensure_resolved_target_index(input.material);
 	let execution = RebindScope::plan(
 		BindingReadModel {

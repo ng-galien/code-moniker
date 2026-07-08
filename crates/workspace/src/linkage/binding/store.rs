@@ -105,8 +105,14 @@ impl LinkageStore {
 		&mut self,
 		next_reference_indexes: FxHashMap<ReferenceId, ReferenceOrdinal>,
 		reference_id_remaps: &[(ReferenceId, ReferenceId)],
+		removed_references: &[ReferenceId],
 	) {
-		rebase_store_reference_ordinals(self, next_reference_indexes, reference_id_remaps);
+		rebase_store_reference_ordinals(
+			self,
+			next_reference_indexes,
+			reference_id_remaps,
+			removed_references,
+		);
 	}
 
 	pub(in crate::linkage) fn missing_resolved_references(
@@ -232,14 +238,24 @@ fn rebase_store_reference_ordinals(
 	store: &mut LinkageStore,
 	next_reference_indexes: FxHashMap<ReferenceId, ReferenceOrdinal>,
 	reference_id_remaps: &[(ReferenceId, ReferenceId)],
+	removed_references: &[ReferenceId],
 ) {
+	let removed_references = removed_references
+		.iter()
+		.collect::<std::collections::HashSet<_>>();
 	let rebase = ReferenceOrdinalRebase::new(
 		&store.indexes.reference_indexes,
 		&next_reference_indexes,
 		reference_id_remaps,
+		&removed_references,
 	);
 	store.indexes.rebase_reference_ordinals(&rebase);
-	rebase_decision_references(store, &next_reference_indexes, reference_id_remaps);
+	rebase_decision_references(
+		store,
+		&next_reference_indexes,
+		reference_id_remaps,
+		&removed_references,
+	);
 	store.indexes.reference_indexes = next_reference_indexes;
 }
 
@@ -252,6 +268,7 @@ impl ReferenceOrdinalRebase {
 		previous: &FxHashMap<ReferenceId, ReferenceOrdinal>,
 		next: &FxHashMap<ReferenceId, ReferenceOrdinal>,
 		reference_id_remaps: &[(ReferenceId, ReferenceId)],
+		removed_references: &std::collections::HashSet<&ReferenceId>,
 	) -> Self {
 		let max_old = previous
 			.values()
@@ -264,6 +281,9 @@ impl ReferenceOrdinalRebase {
 			.cloned()
 			.collect::<FxHashMap<ReferenceId, ReferenceId>>();
 		for (reference, previous_ordinal) in previous {
+			if removed_references.contains(reference) {
+				continue;
+			}
 			let next_reference = reference_id_remaps.get(reference).unwrap_or(reference);
 			if let Some(next_ordinal) = next.get(next_reference) {
 				next_by_old[previous_ordinal.index()] = Some(*next_ordinal);
@@ -281,6 +301,7 @@ fn rebase_decision_references(
 	store: &mut LinkageStore,
 	next_reference_indexes: &FxHashMap<ReferenceId, ReferenceOrdinal>,
 	reference_id_remaps: &[(ReferenceId, ReferenceId)],
+	removed_references: &std::collections::HashSet<&ReferenceId>,
 ) {
 	let reference_id_remaps = reference_id_remaps
 		.iter()
@@ -288,6 +309,9 @@ fn rebase_decision_references(
 		.collect::<FxHashMap<ReferenceId, ReferenceId>>();
 	store.decisions.retain_mut(|decision| {
 		let current_reference = decision.reference().clone();
+		if removed_references.contains(&current_reference) {
+			return false;
+		}
 		let next_reference = reference_id_remaps
 			.get(&current_reference)
 			.unwrap_or(&current_reference);
