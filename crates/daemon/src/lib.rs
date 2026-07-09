@@ -45,6 +45,11 @@ use jsonrpsee::types::ErrorObjectOwned;
 
 const DEFAULT_SCHEME: &str = "code+moniker://";
 
+use code_moniker_query::{
+	ChangeReviewFile, ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide,
+	ChangeReviewSummary, ChangeReviewSymbol,
+};
+
 use helpers::*;
 
 pub mod views;
@@ -559,9 +564,150 @@ fn handle_query(
 				page: request.page,
 			},
 		),
+		Query::ChangeReview(query) => {
+			change_review_response(&snapshot, &daemon.roots, query, current_generation)
+		}
 		Query::Notes(query) => {
 			notes_response(daemon, &snapshot, query, request.page, current_generation)
 		}
+	}
+}
+
+fn change_review_response(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	query: ChangeReviewQuery,
+	current_generation: Option<WorkspaceGeneration>,
+) -> Result<QueryResponse, QueryError> {
+	let _ = selected_roots(roots, query.workspace.as_deref())?;
+	let result = match snapshot.changes.semantic.as_deref() {
+		Some(review) => change_review_dto(review),
+		None => ChangeReviewResult {
+			scope: snapshot.changes.scope.clone(),
+			summary: ChangeReviewSummary::default(),
+			files: Vec::new(),
+			symbol_changes: Vec::new(),
+			ref_changes: Vec::new(),
+			diagnostics: vec!["semantic change review is unavailable in this snapshot".to_string()],
+		},
+	};
+	Ok(QueryResponse {
+		generation: current_generation,
+		result: QueryResult::ChangeReview(Box::new(result)),
+		next_cursor: None,
+	})
+}
+
+fn change_review_dto(
+	review: &code_moniker_workspace::changes::semantic::review::SemanticReview,
+) -> ChangeReviewResult {
+	ChangeReviewResult {
+		scope: review.scope.clone(),
+		summary: ChangeReviewSummary {
+			files: review.files.len(),
+			analyzable_files: review.files.iter().filter(|facts| facts.analyzable).count(),
+			symbol_changes: review.symbol_changes.len(),
+			ref_changes: review.ref_changes.len(),
+			retargeted_refs: review
+				.ref_changes
+				.iter()
+				.filter(|change| change.kind.is_retarget())
+				.count(),
+			residual_files: review
+				.files
+				.iter()
+				.filter(|facts| !facts.coverage.explained())
+				.count(),
+		},
+		files: review.files.iter().map(change_review_file).collect(),
+		symbol_changes: review
+			.symbol_changes
+			.iter()
+			.map(change_review_symbol)
+			.collect(),
+		ref_changes: review.ref_changes.iter().map(change_review_ref).collect(),
+		diagnostics: review.diagnostics.clone(),
+	}
+}
+
+fn change_review_file(
+	facts: &code_moniker_workspace::changes::semantic::review::FileFacts,
+) -> ChangeReviewFile {
+	ChangeReviewFile {
+		old_path: facts
+			.rollup
+			.old_path
+			.as_ref()
+			.map(|path| path.display().to_string()),
+		new_path: facts
+			.rollup
+			.new_path
+			.as_ref()
+			.map(|path| path.display().to_string()),
+		disposition: facts.rollup.disposition.label().to_string(),
+		analyzable: facts.analyzable,
+		symbol_changes: facts.rollup.symbol_changes,
+		moved_symbols: facts.rollup.moved_symbols,
+		coverage_explained: facts.coverage.explained(),
+		old_residual: facts.coverage.old_residual.clone(),
+		new_residual: facts.coverage.new_residual.clone(),
+	}
+}
+
+fn change_review_symbol(
+	change: &code_moniker_workspace::changes::semantic::model::SymbolChange,
+) -> ChangeReviewSymbol {
+	ChangeReviewSymbol {
+		kind: change.kind.label().to_string(),
+		confidence: change.confidence.label().to_string(),
+		body_changed: change.facets.body_changed,
+		signature_changed: change.facets.signature_changed,
+		visibility_changed: change.facets.visibility_changed,
+		header_changed: change.facets.header_changed,
+		file_moved: change.facets.file_moved,
+		old: change.old.as_ref().map(change_review_side),
+		new: change.new.as_ref().map(change_review_side),
+	}
+}
+
+fn change_review_side(
+	side: &code_moniker_workspace::changes::semantic::model::SymbolSide,
+) -> ChangeReviewSide {
+	ChangeReviewSide {
+		identity: code_moniker_core::core::uri::to_uri(
+			&side.moniker,
+			&code_moniker_core::core::uri::UriConfig {
+				scheme: DEFAULT_SCHEME,
+			},
+		),
+		file: side.file_path.display().to_string(),
+		kind: side.kind.clone(),
+		name: side.name.clone(),
+		visibility: side.visibility.clone(),
+		lines: side.line_range,
+	}
+}
+
+fn change_review_ref(
+	change: &code_moniker_workspace::changes::semantic::model::RefChange,
+) -> ChangeReviewRef {
+	let config = code_moniker_core::core::uri::UriConfig {
+		scheme: DEFAULT_SCHEME,
+	};
+	ChangeReviewRef {
+		kind: change.kind.label().to_string(),
+		file: change.file_path.display().to_string(),
+		ref_kind: change.ref_kind.clone(),
+		old_target: change
+			.old_target
+			.as_ref()
+			.map(|target| code_moniker_core::core::uri::to_uri(target, &config)),
+		new_target: change
+			.new_target
+			.as_ref()
+			.map(|target| code_moniker_core::core::uri::to_uri(target, &config)),
+		old_lines: change.old_line_range,
+		new_lines: change.new_line_range,
 	}
 }
 
@@ -2603,6 +2749,76 @@ mod tests {
 			ProtocolResponse::Query(query) => query.result,
 			other => panic!("expected query response, got {other:?}"),
 		}
+	}
+
+	#[test]
+	fn change_review_query_serves_semantic_facts_from_the_snapshot() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let git = |args: &[&str]| {
+			let output = std::process::Command::new("git")
+				.arg("-C")
+				.arg(temp.path())
+				.args(args)
+				.output()
+				.expect("run git");
+			assert!(
+				output.status.success(),
+				"git {args:?}: {}",
+				String::from_utf8_lossy(&output.stderr)
+			);
+		};
+		git(&["init"]);
+		git(&["config", "user.email", "cm@example.test"]);
+		git(&["config", "user.name", "Code Moniker"]);
+		let src = temp.path().join("src");
+		fs::create_dir_all(&src).expect("src dir");
+		fs::write(
+			src.join("util.rs"),
+			"pub fn assist() { work(); }\npub fn sidekick() { rest(); }\n",
+		)
+		.expect("write util");
+		git(&["add", "."]);
+		git(&["commit", "-m", "initial"]);
+		git(&["mv", "src/util.rs", "src/support.rs"]);
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::ChangeReview(code_moniker_query::ChangeReviewQuery { workspace: None }),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		})));
+
+		let ProtocolResponse::Query(query) = response else {
+			panic!("expected query response");
+		};
+		let QueryResult::ChangeReview(result) = query.result else {
+			panic!("expected change review result, got {:?}", query.result);
+		};
+		assert_eq!(result.scope, "HEAD..worktree");
+		assert!(
+			result
+				.files
+				.iter()
+				.any(|file| file.disposition == "moved" && file.coverage_explained),
+			"{result:?}"
+		);
+		assert!(
+			result
+				.symbol_changes
+				.iter()
+				.all(|change| change.kind == "moved" && change.file_moved),
+			"{result:?}"
+		);
 	}
 
 	#[test]

@@ -103,6 +103,7 @@ impl Default for CapabilitySet {
 				"view.read".to_string(),
 				"rules.list".to_string(),
 				"rules.check".to_string(),
+				"change.review".to_string(),
 				"notes".to_string(),
 			],
 			commands: vec!["workspace.refresh".to_string()],
@@ -142,6 +143,7 @@ pub enum Query {
 	ViewRead(ViewReadQuery),
 	RulesList(RulesListQuery),
 	RulesCheck(RulesCheckQuery),
+	ChangeReview(ChangeReviewQuery),
 	Notes(NotesQuery),
 }
 
@@ -253,6 +255,12 @@ pub struct RulesCheckQuery {
 	pub rules: Option<String>,
 	pub file: Vec<String>,
 	pub report: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeReviewQuery {
+	pub workspace: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -395,7 +403,81 @@ pub enum QueryResult {
 	ViewRead(ViewReadResult),
 	RulesList(RulesListResult),
 	RulesCheck(RulesCheckResult),
+	ChangeReview(Box<ChangeReviewResult>),
 	Notes(NotesResult),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeReviewResult {
+	pub scope: String,
+	pub summary: ChangeReviewSummary,
+	pub files: Vec<ChangeReviewFile>,
+	pub symbol_changes: Vec<ChangeReviewSymbol>,
+	pub ref_changes: Vec<ChangeReviewRef>,
+	pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeReviewSummary {
+	pub files: usize,
+	pub analyzable_files: usize,
+	pub symbol_changes: usize,
+	pub ref_changes: usize,
+	pub retargeted_refs: usize,
+	pub residual_files: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeReviewFile {
+	pub old_path: Option<String>,
+	pub new_path: Option<String>,
+	pub disposition: String,
+	pub analyzable: bool,
+	pub symbol_changes: usize,
+	pub moved_symbols: usize,
+	pub coverage_explained: bool,
+	pub old_residual: Vec<(u32, u32)>,
+	pub new_residual: Vec<(u32, u32)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeReviewSymbol {
+	pub kind: String,
+	pub confidence: String,
+	pub body_changed: bool,
+	pub signature_changed: bool,
+	pub visibility_changed: bool,
+	pub header_changed: bool,
+	pub file_moved: bool,
+	pub old: Option<ChangeReviewSide>,
+	pub new: Option<ChangeReviewSide>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeReviewSide {
+	pub identity: String,
+	pub file: String,
+	pub kind: String,
+	pub name: String,
+	pub visibility: String,
+	pub lines: Option<(u32, u32)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ChangeReviewRef {
+	pub kind: String,
+	pub file: String,
+	pub ref_kind: String,
+	pub old_target: Option<String>,
+	pub new_target: Option<String>,
+	pub old_lines: Option<(u32, u32)>,
+	pub new_lines: Option<(u32, u32)>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -973,6 +1055,9 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 			file: fields.many("file"),
 			report: fields.bool("report")?.unwrap_or(true),
 		}),
+		"change.review" => Query::ChangeReview(ChangeReviewQuery {
+			workspace: fields.one("workspace"),
+		}),
 		"notes" => Query::Notes(notes_query(&fields)?),
 		_ => return Err(QueryParseError::UnknownOperation(op)),
 	};
@@ -1151,6 +1236,7 @@ pub fn format_query_response(response: &QueryResponse) -> String {
 			}
 		}
 		QueryResult::RulesCheck(result) => format_rules_check(&mut out, result),
+		QueryResult::ChangeReview(result) => format_change_review(&mut out, result),
 		QueryResult::Notes(result) => format_notes(&mut out, result),
 	}
 	out
@@ -1171,6 +1257,55 @@ fn format_notes(out: &mut String, result: &NotesResult) {
 	let _ = writeln!(out, "notes: {}", result.total);
 	for row in &result.rows {
 		let _ = writeln!(out, "- {} [{}] {}", row.id, row.status, row.title);
+	}
+}
+
+fn format_change_review(out: &mut String, result: &ChangeReviewResult) {
+	let _ = writeln!(out, "scope: {}", result.scope);
+	let _ = writeln!(
+		out,
+		"files: {} ({} analyzable) symbols: {} refs: {} ({} retargeted) residual: {}",
+		result.summary.files,
+		result.summary.analyzable_files,
+		result.summary.symbol_changes,
+		result.summary.ref_changes,
+		result.summary.retargeted_refs,
+		result.summary.residual_files
+	);
+	for file in &result.files {
+		let path = match (&file.old_path, &file.new_path) {
+			(Some(old), Some(new)) if old != new => format!("{old} -> {new}"),
+			(_, Some(new)) => new.clone(),
+			(Some(old), None) => old.clone(),
+			(None, None) => "<unknown>".to_string(),
+		};
+		let _ = writeln!(
+			out,
+			"- {path} {}{}{}",
+			file.disposition,
+			if file.analyzable {
+				""
+			} else {
+				" (not analyzable)"
+			},
+			if file.coverage_explained {
+				""
+			} else {
+				" [residual]"
+			}
+		);
+	}
+	for change in &result.symbol_changes {
+		let side = change.new.as_ref().or(change.old.as_ref());
+		let Some(side) = side else { continue };
+		let _ = writeln!(
+			out,
+			"  {} {} {} [{}]",
+			change.kind, side.kind, side.name, change.confidence
+		);
+	}
+	for diagnostic in &result.diagnostics {
+		let _ = writeln!(out, "diagnostic: {diagnostic}");
 	}
 }
 

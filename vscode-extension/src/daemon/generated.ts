@@ -89,6 +89,10 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      op: "change_review";
+      workspace?: string | null;
+    }
+  | {
       action: NotesAction;
       body?: string | null;
       created_by?: string | null;
@@ -140,6 +144,10 @@ export type QueryResult =
   | {
       data: RulesCheckResult;
       kind: "rules_check";
+    }
+  | {
+      data: ChangeReviewResult;
+      kind: "change_review";
     }
   | {
       data: NotesResult;
@@ -513,6 +521,73 @@ export interface ViolationDto {
   root: string;
   rule_id: string;
   severity: string;
+}
+export interface ChangeReviewResult {
+  diagnostics: string[];
+  files: ChangeReviewFile[];
+  ref_changes: ChangeReviewRef[];
+  scope: string;
+  summary: ChangeReviewSummary;
+  symbol_changes: ChangeReviewSymbol[];
+}
+export interface ChangeReviewFile {
+  analyzable: boolean;
+  coverage_explained: boolean;
+  disposition: string;
+  moved_symbols: number;
+  new_path?: string | null;
+  new_residual: [number, number][];
+  old_path?: string | null;
+  old_residual: [number, number][];
+  symbol_changes: number;
+}
+export interface ChangeReviewRef {
+  file: string;
+  kind: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  new_lines?: [number, number] | null;
+  new_target?: string | null;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  old_lines?: [number, number] | null;
+  old_target?: string | null;
+  ref_kind: string;
+}
+export interface ChangeReviewSummary {
+  analyzable_files: number;
+  files: number;
+  ref_changes: number;
+  residual_files: number;
+  retargeted_refs: number;
+  symbol_changes: number;
+}
+export interface ChangeReviewSymbol {
+  body_changed: boolean;
+  confidence: string;
+  file_moved: boolean;
+  header_changed: boolean;
+  kind: string;
+  new?: ChangeReviewSide | null;
+  old?: ChangeReviewSide | null;
+  signature_changed: boolean;
+  visibility_changed: boolean;
+}
+export interface ChangeReviewSide {
+  file: string;
+  identity: string;
+  kind: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  lines?: [number, number] | null;
+  name: string;
+  visibility: string;
 }
 export interface NotesResult {
   action: string;

@@ -80,6 +80,350 @@
         }
       }
     },
+    "ChangeReviewFile": {
+      "type": "object",
+      "required": [
+        "analyzable",
+        "coverage_explained",
+        "disposition",
+        "moved_symbols",
+        "new_residual",
+        "old_residual",
+        "symbol_changes"
+      ],
+      "properties": {
+        "analyzable": {
+          "type": "boolean"
+        },
+        "coverage_explained": {
+          "type": "boolean"
+        },
+        "disposition": {
+          "type": "string"
+        },
+        "moved_symbols": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "new_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "new_residual": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": [
+              {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              },
+              {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2
+          }
+        },
+        "old_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_residual": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": [
+              {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              },
+              {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0.0
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2
+          }
+        },
+        "symbol_changes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ChangeReviewRef": {
+      "type": "object",
+      "required": [
+        "file",
+        "kind",
+        "ref_kind"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "new_lines": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "new_target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_lines": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "old_target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ref_kind": {
+          "type": "string"
+        }
+      }
+    },
+    "ChangeReviewResult": {
+      "type": "object",
+      "required": [
+        "diagnostics",
+        "files",
+        "ref_changes",
+        "scope",
+        "summary",
+        "symbol_changes"
+      ],
+      "properties": {
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ChangeReviewFile"
+          }
+        },
+        "ref_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ChangeReviewRef"
+          }
+        },
+        "scope": {
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "#/definitions/ChangeReviewSummary"
+        },
+        "symbol_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ChangeReviewSymbol"
+          }
+        }
+      }
+    },
+    "ChangeReviewSide": {
+      "type": "object",
+      "required": [
+        "file",
+        "identity",
+        "kind",
+        "name",
+        "visibility"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "identity": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "lines": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": [
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "name": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string"
+        }
+      }
+    },
+    "ChangeReviewSummary": {
+      "type": "object",
+      "required": [
+        "analyzable_files",
+        "files",
+        "ref_changes",
+        "residual_files",
+        "retargeted_refs",
+        "symbol_changes"
+      ],
+      "properties": {
+        "analyzable_files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "ref_changes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "residual_files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "retargeted_refs": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "symbol_changes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ChangeReviewSymbol": {
+      "type": "object",
+      "required": [
+        "body_changed",
+        "confidence",
+        "file_moved",
+        "header_changed",
+        "kind",
+        "signature_changed",
+        "visibility_changed"
+      ],
+      "properties": {
+        "body_changed": {
+          "type": "boolean"
+        },
+        "confidence": {
+          "type": "string"
+        },
+        "file_moved": {
+          "type": "boolean"
+        },
+        "header_changed": {
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "new": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ChangeReviewSide"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "old": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ChangeReviewSide"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signature_changed": {
+          "type": "boolean"
+        },
+        "visibility_changed": {
+          "type": "boolean"
+        }
+      }
+    },
     "CheckSkipReasonDto": {
       "type": "object",
       "required": [
@@ -997,6 +1341,26 @@
         {
           "type": "object",
           "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "change_review"
+              ]
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "action",
             "include_done",
             "op"
@@ -1314,6 +1678,24 @@
               "type": "string",
               "enum": [
                 "rules_check"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/ChangeReviewResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "change_review"
               ]
             }
           }
