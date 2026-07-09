@@ -104,6 +104,7 @@ impl Default for CapabilitySet {
 				"rules.list".to_string(),
 				"rules.check".to_string(),
 				"change.review".to_string(),
+				"symbol.graph".to_string(),
 				"notes".to_string(),
 			],
 			commands: vec!["workspace.refresh".to_string()],
@@ -144,6 +145,7 @@ pub enum Query {
 	RulesList(RulesListQuery),
 	RulesCheck(RulesCheckQuery),
 	ChangeReview(ChangeReviewQuery),
+	SymbolGraph(SymbolGraphQuery),
 	Notes(NotesQuery),
 }
 
@@ -261,6 +263,13 @@ pub struct RulesCheckQuery {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ChangeReviewQuery {
 	pub workspace: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct SymbolGraphQuery {
+	pub workspace: Option<String>,
+	pub focus: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -404,7 +413,44 @@ pub enum QueryResult {
 	RulesList(RulesListResult),
 	RulesCheck(RulesCheckResult),
 	ChangeReview(Box<ChangeReviewResult>),
+	SymbolGraph(Box<SymbolGraphResult>),
 	Notes(NotesResult),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct SymbolGraphResult {
+	pub focus: SymbolGraphFocus,
+	pub members: Vec<SymbolDto>,
+	pub internal_edges: Vec<SymbolGraphEdge>,
+	pub callers: Vec<SymbolGraphNeighbor>,
+	pub callees: Vec<SymbolGraphNeighbor>,
+	pub unresolved_refs: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SymbolGraphFocus {
+	Symbol { symbol: Box<SymbolDto> },
+	File { path: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct SymbolGraphNeighbor {
+	pub symbol: SymbolDto,
+	pub kinds: Vec<String>,
+	pub count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct SymbolGraphEdge {
+	pub source: String,
+	pub target: String,
+	pub kinds: Vec<String>,
+	pub count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1058,6 +1104,13 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 		"change.review" => Query::ChangeReview(ChangeReviewQuery {
 			workspace: fields.one("workspace"),
 		}),
+		"symbol.graph" => Query::SymbolGraph(SymbolGraphQuery {
+			workspace: fields.one("workspace"),
+			focus: fields
+				.one("focus")
+				.or_else(|| fields.positional.first().cloned())
+				.ok_or(QueryParseError::MissingRequired("focus"))?,
+		}),
 		"notes" => Query::Notes(notes_query(&fields)?),
 		_ => return Err(QueryParseError::UnknownOperation(op)),
 	};
@@ -1237,6 +1290,7 @@ pub fn format_query_response(response: &QueryResponse) -> String {
 		}
 		QueryResult::RulesCheck(result) => format_rules_check(&mut out, result),
 		QueryResult::ChangeReview(result) => format_change_review(&mut out, result),
+		QueryResult::SymbolGraph(result) => format_symbol_graph(&mut out, result),
 		QueryResult::Notes(result) => format_notes(&mut out, result),
 	}
 	out
@@ -1257,6 +1311,50 @@ fn format_notes(out: &mut String, result: &NotesResult) {
 	let _ = writeln!(out, "notes: {}", result.total);
 	for row in &result.rows {
 		let _ = writeln!(out, "- {} [{}] {}", row.id, row.status, row.title);
+	}
+}
+
+fn format_symbol_graph(out: &mut String, result: &SymbolGraphResult) {
+	match &result.focus {
+		SymbolGraphFocus::Symbol { symbol } => {
+			let _ = writeln!(
+				out,
+				"focus: {} {} ({})",
+				symbol.kind, symbol.name, symbol.file
+			);
+		}
+		SymbolGraphFocus::File { path } => {
+			let _ = writeln!(out, "focus: file {path}");
+		}
+	}
+	let _ = writeln!(
+		out,
+		"members: {} internal edges: {} unresolved refs: {}",
+		result.members.len(),
+		result.internal_edges.len(),
+		result.unresolved_refs
+	);
+	for caller in &result.callers {
+		let _ = writeln!(
+			out,
+			"< {} {} ({}) x{} [{}]",
+			caller.symbol.kind,
+			caller.symbol.name,
+			caller.symbol.file,
+			caller.count,
+			caller.kinds.join(",")
+		);
+	}
+	for callee in &result.callees {
+		let _ = writeln!(
+			out,
+			"> {} {} ({}) x{} [{}]",
+			callee.symbol.kind,
+			callee.symbol.name,
+			callee.symbol.file,
+			callee.count,
+			callee.kinds.join(",")
+		);
 	}
 }
 

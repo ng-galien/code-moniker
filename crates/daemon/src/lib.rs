@@ -47,7 +47,8 @@ const DEFAULT_SCHEME: &str = "code+moniker://";
 
 use code_moniker_query::{
 	ChangeReviewFile, ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide,
-	ChangeReviewSummary, ChangeReviewSymbol,
+	ChangeReviewSummary, ChangeReviewSymbol, SymbolGraphEdge, SymbolGraphFocus,
+	SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult,
 };
 
 use helpers::*;
@@ -566,10 +567,253 @@ fn handle_query(
 		Query::ChangeReview(query) => {
 			change_review_response(&snapshot, &daemon.roots, query, current_generation)
 		}
+		Query::SymbolGraph(query) => {
+			symbol_graph_response(&snapshot, &daemon.roots, query, current_generation)
+		}
 		Query::Notes(query) => {
 			notes_response(daemon, &snapshot, query, request.page, current_generation)
 		}
 	}
+}
+
+enum UnitBoundary {
+	IdentityPrefix { prefix: String, slot: usize },
+	File { source: SourceId, slot: usize },
+}
+
+impl UnitBoundary {
+	fn slot(&self) -> usize {
+		match self {
+			Self::IdentityPrefix { slot, .. } | Self::File { slot, .. } => *slot,
+		}
+	}
+
+	fn contains(&self, symbol: &SymbolRecord) -> bool {
+		match self {
+			Self::IdentityPrefix { prefix, .. } => {
+				let identity = symbol.identity.as_ref();
+				identity == prefix
+					|| (identity.len() > prefix.len()
+						&& identity.starts_with(prefix.as_str())
+						&& identity.as_bytes()[prefix.len()] == b'/')
+			}
+			Self::File { source, .. } => &symbol.source == source,
+		}
+	}
+}
+
+struct NeighborBag {
+	entries: BTreeMap<SymbolId, (BTreeSet<String>, usize)>,
+}
+
+impl NeighborBag {
+	fn new() -> Self {
+		Self {
+			entries: BTreeMap::new(),
+		}
+	}
+
+	fn add(&mut self, symbol: SymbolId, kind: &str) {
+		let entry = self.entries.entry(symbol).or_default();
+		entry.0.insert(kind.to_string());
+		entry.1 += 1;
+	}
+
+	fn into_neighbors(
+		self,
+		snapshot: &WorkspaceSnapshot,
+		roots: &[PathBuf],
+	) -> Vec<SymbolGraphNeighbor> {
+		let symbols = WorkspaceView::new(snapshot).symbols();
+		let sources = WorkspaceView::new(snapshot).sources();
+		let mut neighbors: Vec<SymbolGraphNeighbor> = self
+			.entries
+			.into_iter()
+			.filter_map(|(id, (kinds, count))| {
+				let symbol = symbols.find(&id)?;
+				let source = sources.record(&symbol.source)?;
+				Some(SymbolGraphNeighbor {
+					symbol: symbol_dto(symbol, source, roots),
+					kinds: kinds.into_iter().collect(),
+					count,
+				})
+			})
+			.collect();
+		neighbors.sort_by(|a, b| {
+			(&a.symbol.file, a.symbol.line_range).cmp(&(&b.symbol.file, b.symbol.line_range))
+		});
+		neighbors
+	}
+}
+
+fn symbol_graph_response(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	query: SymbolGraphQuery,
+	current_generation: Option<WorkspaceGeneration>,
+) -> Result<QueryResponse, QueryError> {
+	let _ = selected_roots(roots, query.workspace.as_deref())?;
+	let (boundary, focus) = resolve_unit_boundary(snapshot, roots, &query.focus)?;
+	let symbols_view = WorkspaceView::new(snapshot).symbols();
+	let sources_view = WorkspaceView::new(snapshot).sources();
+	let slot = boundary.slot();
+	let members: Vec<&SymbolRecord> = snapshot
+		.index
+		.symbols
+		.file_records(slot)
+		.iter()
+		.filter(|symbol| symbol.navigable && boundary.contains(symbol))
+		.collect();
+	let mut internal: BTreeMap<(SymbolId, SymbolId), (BTreeSet<String>, usize)> = BTreeMap::new();
+	let mut callees = NeighborBag::new();
+	let mut callers = NeighborBag::new();
+	let mut unresolved_refs = 0usize;
+	for reference in snapshot.index.references.file_records(slot).iter() {
+		let Some(source) = navigable_anchor(&symbols_view, reference.source_symbol) else {
+			continue;
+		};
+		if !boundary.contains(source) {
+			continue;
+		}
+		let Some(target_id) = resolved_reference_target(snapshot, &reference.id) else {
+			unresolved_refs += 1;
+			continue;
+		};
+		let Some(target) = navigable_anchor(&symbols_view, target_id) else {
+			continue;
+		};
+		let kind = reference.kind.as_str();
+		if boundary.contains(target) {
+			let entry = internal.entry((source.id, target.id)).or_default();
+			entry.0.insert(kind.to_string());
+			entry.1 += 1;
+		} else {
+			callees.add(target.id, kind);
+		}
+	}
+	for member in &members {
+		for reference_id in incoming_reference_ids(snapshot, &member.id) {
+			let Some(reference) = WorkspaceView::new(snapshot)
+				.references()
+				.reference(&reference_id)
+			else {
+				continue;
+			};
+			let Some(source) = navigable_anchor(&symbols_view, reference.source_symbol) else {
+				continue;
+			};
+			if boundary.contains(source) {
+				continue;
+			}
+			callers.add(source.id, reference.kind.as_str());
+		}
+	}
+	let mut member_dtos: Vec<SymbolDto> = members
+		.iter()
+		.filter_map(|symbol| {
+			let source = sources_view.record(&symbol.source)?;
+			Some(symbol_dto(symbol, source, roots))
+		})
+		.collect();
+	member_dtos.sort_by_key(|dto| dto.line_range);
+	let result = SymbolGraphResult {
+		focus,
+		members: member_dtos,
+		internal_edges: internal
+			.into_iter()
+			.map(|((source, target), (kinds, count))| SymbolGraphEdge {
+				source: source.to_string(),
+				target: target.to_string(),
+				kinds: kinds.into_iter().collect(),
+				count,
+			})
+			.collect(),
+		callers: callers.into_neighbors(snapshot, roots),
+		callees: callees.into_neighbors(snapshot, roots),
+		unresolved_refs,
+	};
+	Ok(QueryResponse {
+		generation: current_generation,
+		result: QueryResult::SymbolGraph(Box::new(result)),
+		next_cursor: None,
+	})
+}
+
+fn resolve_unit_boundary(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	focus: &str,
+) -> Result<(UnitBoundary, SymbolGraphFocus), QueryError> {
+	if let Ok(symbol) = find_symbol(snapshot, focus) {
+		let source = WorkspaceView::new(snapshot)
+			.sources()
+			.record(&symbol.source)
+			.ok_or_else(|| QueryError::new("source_not_found", "focus source not found"))?;
+		return Ok((
+			UnitBoundary::IdentityPrefix {
+				prefix: symbol.identity.to_string(),
+				slot: symbol.id.file(),
+			},
+			SymbolGraphFocus::Symbol {
+				symbol: Box::new(symbol_dto(symbol, source, roots)),
+			},
+		));
+	}
+	let source = snapshot
+		.index
+		.sources
+		.iter()
+		.find(|source| source.rel_path == focus)
+		.ok_or_else(|| {
+			QueryError::new(
+				"focus_not_found",
+				format!("no symbol or file matches focus `{focus}`"),
+			)
+		})?;
+	Ok((
+		UnitBoundary::File {
+			source: source.id,
+			slot: source.id.file(),
+		},
+		SymbolGraphFocus::File {
+			path: source.rel_path.clone(),
+		},
+	))
+}
+
+fn navigable_anchor<'a>(
+	symbols: &code_moniker_workspace::snapshot::SymbolView<'a>,
+	id: SymbolId,
+) -> Option<&'a SymbolRecord> {
+	let mut current = symbols.find(&id)?;
+	loop {
+		if current.navigable {
+			return Some(current);
+		}
+		let parent = current.parent?;
+		current = symbols.find(&parent)?;
+	}
+}
+
+fn resolved_reference_target(
+	snapshot: &WorkspaceSnapshot,
+	reference: &ReferenceId,
+) -> Option<SymbolId> {
+	if let Some(index) = snapshot.linkage.read_index.get() {
+		return index.resolved_target(reference).copied();
+	}
+	snapshot
+		.linkage
+		.resolved
+		.iter()
+		.find(|edge| &edge.reference == reference)
+		.map(|edge| edge.target)
+}
+
+fn incoming_reference_ids(snapshot: &WorkspaceSnapshot, symbol: &SymbolId) -> Vec<ReferenceId> {
+	WorkspaceView::new(snapshot)
+		.references()
+		.incoming_ids(symbol)
 }
 
 fn change_review_response(
@@ -2791,6 +3035,109 @@ mod tests {
 			"tree rows must carry the change count: {:?}",
 			tree.rows
 		);
+	}
+
+	#[test]
+	fn symbol_graph_partitions_unit_boundary_edges() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src_dir = temp.path().join("src");
+		fs::create_dir_all(&src_dir).expect("src dir");
+		fs::write(src_dir.join("lib.rs"), "pub mod engine;\npub mod driver;\n").expect("write lib");
+		fs::write(
+			src_dir.join("engine.rs"),
+			"pub fn entry() { helper(); helper(); crate::driver::remote(); }\nfn helper() { helper(); }\n",
+		)
+		.expect("write engine");
+		fs::write(
+			src_dir.join("driver.rs"),
+			"pub fn remote() {}\npub fn boss() { crate::engine::entry(); }\n",
+		)
+		.expect("write driver");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let mut graph = |focus: &str| {
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+				query: Query::SymbolGraph(code_moniker_query::SymbolGraphQuery {
+					workspace: None,
+					focus: focus.to_string(),
+				}),
+				consistency: code_moniker_query::Consistency::Current,
+				page: Page::default(),
+			})));
+			let ProtocolResponse::Query(query) = response else {
+				panic!("expected query response");
+			};
+			let QueryResult::SymbolGraph(result) = query.result else {
+				panic!("expected symbol graph, got {:?}", query.result);
+			};
+			result
+		};
+
+		let file = graph("src/engine.rs");
+		assert_eq!(file.members.len(), 2, "{file:?}");
+		assert!(
+			file.internal_edges.iter().any(|edge| edge.count == 2),
+			"entry -> helper twice: {file:?}"
+		);
+		assert!(
+			file.internal_edges
+				.iter()
+				.any(|edge| edge.source == edge.target),
+			"helper recursion stays internal: {file:?}"
+		);
+		assert!(
+			file.callers
+				.iter()
+				.any(|caller| caller.symbol.name.starts_with("boss")),
+			"{file:?}"
+		);
+		assert!(
+			file.callees
+				.iter()
+				.any(|callee| callee.symbol.name.starts_with("remote")),
+			"{file:?}"
+		);
+
+		let entry_uri = file
+			.members
+			.iter()
+			.find(|member| member.name.starts_with("entry"))
+			.expect("entry member")
+			.uri
+			.clone();
+		let unit = graph(&entry_uri);
+		assert!(
+			matches!(&unit.focus, code_moniker_query::SymbolGraphFocus::Symbol { symbol } if symbol.name.starts_with("entry")),
+			"{unit:?}"
+		);
+		assert!(
+			unit.callees
+				.iter()
+				.any(|callee| callee.symbol.name.starts_with("helper") && callee.count == 2),
+			"same-file helper is OUTSIDE the fn unit: {unit:?}"
+		);
+		assert!(
+			unit.callees
+				.iter()
+				.any(|callee| callee.symbol.name.starts_with("remote")),
+			"{unit:?}"
+		);
+		assert!(
+			unit.callers
+				.iter()
+				.any(|caller| caller.symbol.name.starts_with("boss")),
+			"{unit:?}"
+		);
+		assert!(unit.internal_edges.is_empty(), "{unit:?}");
 	}
 
 	#[test]

@@ -20,6 +20,6 @@ pub use model::{
 };
 pub use view::{
 	ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet, ReferenceSetSummary,
-	ReferenceSummary, SearchHit, SourceSummary, SymbolDetail, SymbolReferences, SymbolSummary,
-	UnresolvedLinkageReport, WorkspaceView,
+	ReferenceSummary, ReferenceView, SearchHit, SourceSummary, SourceView, SymbolDetail,
+	SymbolReferences, SymbolSummary, SymbolView, UnresolvedLinkageReport, WorkspaceView,
 };

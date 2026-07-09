@@ -93,6 +93,11 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      focus: string;
+      op: "symbol_graph";
+      workspace?: string | null;
+    }
+  | {
       action: NotesAction;
       body?: string | null;
       created_by?: string | null;
@@ -150,6 +155,10 @@ export type QueryResult =
       kind: "change_review";
     }
   | {
+      data: SymbolGraphResult;
+      kind: "symbol_graph";
+    }
+  | {
       data: NotesResult;
       kind: "notes";
     };
@@ -171,6 +180,15 @@ export type ViewReadResult =
       scope: string;
       summary?: string | null;
       title?: string | null;
+    };
+export type SymbolGraphFocus =
+  | {
+      kind: "symbol";
+      symbol: SymbolDto;
+    }
+  | {
+      kind: "file";
+      path: string;
     };
 export type NoteResolutionDto =
   | {
@@ -588,6 +606,25 @@ export interface ChangeReviewSide {
   lines?: [number, number] | null;
   name: string;
   visibility: string;
+}
+export interface SymbolGraphResult {
+  callees: SymbolGraphNeighbor[];
+  callers: SymbolGraphNeighbor[];
+  focus: SymbolGraphFocus;
+  internal_edges: SymbolGraphEdge[];
+  members: SymbolDto[];
+  unresolved_refs: number;
+}
+export interface SymbolGraphNeighbor {
+  count: number;
+  kinds: string[];
+  symbol: SymbolDto;
+}
+export interface SymbolGraphEdge {
+  count: number;
+  kinds: string[];
+  source: string;
+  target: string;
 }
 export interface NotesResult {
   action: string;

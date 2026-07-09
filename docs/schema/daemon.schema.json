@@ -1361,6 +1361,30 @@
         {
           "type": "object",
           "required": [
+            "focus",
+            "op"
+          ],
+          "properties": {
+            "focus": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "symbol_graph"
+              ]
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "action",
             "include_done",
             "op"
@@ -1696,6 +1720,24 @@
               "type": "string",
               "enum": [
                 "change_review"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/SymbolGraphResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "symbol_graph"
               ]
             }
           }
@@ -2123,6 +2165,143 @@
         },
         "visibility": {
           "type": "string"
+        }
+      }
+    },
+    "SymbolGraphEdge": {
+      "type": "object",
+      "required": [
+        "count",
+        "kinds",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      }
+    },
+    "SymbolGraphFocus": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "symbol"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "symbol"
+              ]
+            },
+            "symbol": {
+              "$ref": "#/definitions/SymbolDto"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "file"
+              ]
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SymbolGraphNeighbor": {
+      "type": "object",
+      "required": [
+        "count",
+        "kinds",
+        "symbol"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "symbol": {
+          "$ref": "#/definitions/SymbolDto"
+        }
+      }
+    },
+    "SymbolGraphResult": {
+      "type": "object",
+      "required": [
+        "callees",
+        "callers",
+        "focus",
+        "internal_edges",
+        "members",
+        "unresolved_refs"
+      ],
+      "properties": {
+        "callees": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SymbolGraphNeighbor"
+          }
+        },
+        "callers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SymbolGraphNeighbor"
+          }
+        },
+        "focus": {
+          "$ref": "#/definitions/SymbolGraphFocus"
+        },
+        "internal_edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SymbolGraphEdge"
+          }
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SymbolDto"
+          }
+        },
+        "unresolved_refs": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
         }
       }
     },
