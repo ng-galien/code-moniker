@@ -16,16 +16,18 @@ in `0.y.z`.
 Indexing-core overhaul: the incremental refresh is now proportional to
 the change, file creations index without a rescan, and read-model
 queries stop scanning the workspace. Measured on this repository:
-single-file refresh 11.8 ms -> 2.0 ms, file creation visible in ~0.3 s
-end-to-end (was 3.4 s), usages query 176 us -> 26 us, `symbols` listing
-6.3 ms -> 0.34 ms, estimated snapshot memory -17%.
+single-file refresh 11.8 ms -> 1.4 ms, file creation or removal
+visible in ~0.2 s end-to-end (was 3.4 s), usages query 176 us -> 16 us,
+`symbols` listing 6.3 ms -> 0.15 ms, estimated snapshot memory -17%.
 
 ### Added
 
-- **Incremental file creation** — created source files (including
-  editor atomic-save renames) extend the catalog and index in place via
-  new `SourceCatalogPort::extend_catalog` / `CodeIndexPort::
-  refresh_catalog_paths` port methods; removals still trigger a rescan.
+- **Incremental file creation and removal** — created source files
+  (including editor atomic-save renames) extend the catalog and index
+  in place via new `SourceCatalogPort::extend_catalog` /
+  `CodeIndexPort::refresh_catalog_paths` port methods; removed files
+  retire their slot to an empty tombstone shard and recreations reuse
+  it. The create+remove benchmark drops from 93 ms to 1.4 ms.
 - **camelCase-aware search** — query terms split on case boundaries, so
   `BindingStore` matches `binding_store`-style symbols and vice versa.
 - **Linkage read index** — `LinkageSnapshot.read_index` exposes
