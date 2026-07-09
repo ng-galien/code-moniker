@@ -607,6 +607,11 @@ fn drain_live_events(daemon: &mut WorkspaceDaemon) -> Result<(), QueryError> {
 	while let Ok(event) = daemon.live.rx.try_recv() {
 		apply_live_event(daemon, event)?;
 	}
+	if daemon.live.policy == DaemonLiveRefreshPolicy::Auto
+		&& daemon.registry.queries().staleness().is_stale()
+	{
+		refresh_stale(daemon)?;
+	}
 	Ok(())
 }
 
