@@ -40,13 +40,24 @@ export function registerWorkspace(
 		showCollapseAll: true,
 	});
 
+	let pendingSelection: NodeJS.Timeout | undefined;
+	const SELECTION_DEBOUNCE_MS = 180;
+
 	context.subscriptions.push(
 		provider,
 		treeView,
 		treeView.onDidChangeSelection((event) => {
 			const node = event.selection[0];
+			if (pendingSelection) {
+				clearTimeout(pendingSelection);
+				pendingSelection = undefined;
+			}
 			if (node?.kind === "symbols" && node.node.kind === "symbol") {
-				void inputs.detail.showForSymbol(node.node.symbol);
+				const symbol = node.node.symbol;
+				pendingSelection = setTimeout(() => {
+					pendingSelection = undefined;
+					void inputs.detail.showForSymbol(symbol);
+				}, SELECTION_DEBOUNCE_MS);
 				return;
 			}
 			if (node) {
@@ -54,6 +65,11 @@ export function registerWorkspace(
 				if (document) {
 					inputs.detail.showDocument(document);
 				}
+			}
+		}),
+		new vscode.Disposable(() => {
+			if (pendingSelection) {
+				clearTimeout(pendingSelection);
 			}
 		}),
 		inputs.session.onWorkspaceEvent((event) => {

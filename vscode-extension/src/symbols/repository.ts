@@ -11,7 +11,7 @@ import {
 import { GenerationCache } from "../daemon/cache";
 import { toFsPath } from "../daemon/paths";
 import { DaemonSession } from "../daemon/session";
-import { SymbolNode } from "./nodes";
+import { InfoNode, SymbolNode, SymbolTreeNode } from "./nodes";
 
 // Data access for the symbol tree and detail panel, all over the shared session.
 // The daemon has no symbol-hierarchy query, so file symbols come back flat and we
@@ -37,26 +37,30 @@ export class SymbolRepository {
 		return this.entriesUnder([dirPath]);
 	}
 
-	async fileSymbols(filePath: string): Promise<SymbolNode[]> {
+	async fileSymbols(filePath: string): Promise<SymbolTreeNode[]> {
 		return this.cache.fetch(`file:${filePath}`, async () => {
-			const response = await this.session.query({
-				op: "symbol_search",
-				workspace: null,
-				text: null,
-				path: [filePath],
-				lang: [],
-				kind: [],
-				shape: [],
-				name: null,
-				include_non_navigable: false,
-				include_code: false,
-				context_lines: 0,
-				projection: [],
-			});
+			const response = await this.session.query(
+				{
+					op: "symbol_search",
+					workspace: null,
+					text: null,
+					path: [filePath],
+					lang: [],
+					kind: [],
+					shape: [],
+					name: null,
+					include_non_navigable: false,
+					include_code: false,
+					context_lines: 0,
+					projection: [],
+				},
+				{ limit: PAGE_LIMIT },
+			);
 			if (response.result.kind !== "symbol_list") {
 				return [];
 			}
-			return nestSymbols(response.result.data.rows);
+			const nodes: SymbolTreeNode[] = nestSymbols(response.result.data.rows);
+			return withTruncationNotice(nodes, response.next_cursor != null);
 		});
 	}
 
@@ -106,20 +110,36 @@ export class SymbolRepository {
 
 	private async entriesUnder(path: string[]): Promise<TreeNode[]> {
 		return this.cache.fetch(`tree:${path.join("/")}`, async () => {
-			const response = await this.session.query({
-				op: "tree_children",
-				workspace: null,
-				path,
-				depth: 1,
-				lang: [],
-				projection: [],
-			});
+			const response = await this.session.query(
+				{
+					op: "tree_children",
+					workspace: null,
+					path,
+					depth: 1,
+					lang: [],
+					projection: [],
+				},
+				{ limit: PAGE_LIMIT },
+			);
 			if (response.result.kind !== "tree_children") {
 				return [];
 			}
 			return [...response.result.data.rows].sort(compareEntries);
 		});
 	}
+}
+
+const PAGE_LIMIT = 1000;
+
+function withTruncationNotice(nodes: SymbolTreeNode[], truncated: boolean): SymbolTreeNode[] {
+	if (!truncated) {
+		return nodes;
+	}
+	const notice: InfoNode = {
+		kind: "info",
+		label: `only the first ${PAGE_LIMIT} symbols are shown`,
+	};
+	return [...nodes, notice];
 }
 
 function sourceSnippetFromText(

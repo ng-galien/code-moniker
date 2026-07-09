@@ -425,6 +425,17 @@
 					"type": "boolean",
 					"default": true,
 					"description": "Automatically connect to (or start) the workspace daemon when a folder is opened."
+				},
+				"codeMoniker.daemon.consistency": {
+					"type": "string",
+					"enum": ["fresh", "hybrid", "current"],
+					"enumDescriptions": [
+						"Every query refreshes a stale index before answering. Always up to date, navigation can lag behind reindexing.",
+						"Navigation reads the current snapshot instantly; a stale index triggers one background refresh whose completion updates the trees.",
+						"Navigation always reads the current snapshot and never triggers a refresh; use the refresh command to reindex."
+					],
+					"default": "hybrid",
+					"description": "How navigation queries balance freshness against latency."
 				}
 			}
 		}

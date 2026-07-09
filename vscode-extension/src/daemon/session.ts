@@ -19,17 +19,35 @@ import { findDaemonForRoots, forgetDaemonsForRoots } from "./registry";
 
 export type DaemonStatus = "disconnected" | "connecting" | "loading" | "ready" | "error";
 
+// User-facing freshness policy (codeMoniker.daemon.consistency):
+// - fresh: every query carries refresh_if_stale, so answers never lag the
+//   files but navigation waits for reindexing.
+// - hybrid (default): navigation reads the current snapshot instantly
+//   (stale_ok); a stale event schedules one background workspace_refresh
+//   whose refreshed event rolls the generation and re-fills the trees.
+// - current: stale_ok reads only; reindexing happens on explicit command.
+export type ConsistencyMode = "fresh" | "hybrid" | "current";
+
 const ENTRY_POLL_ATTEMPTS = 50;
 const ENTRY_POLL_INTERVAL_MS = 100;
 const READY_POLL_ATTEMPTS = 300;
 const READY_POLL_INTERVAL_MS = 200;
 const QUERY_RETRY_ATTEMPTS = 60;
 const QUERY_RETRY_INTERVAL_MS = 200;
+const HYBRID_REFRESH_DEBOUNCE_MS = 300;
+
+function consistencyMode(): ConsistencyMode {
+	const value = vscode.workspace
+		.getConfiguration("codeMoniker")
+		.get<string>("daemon.consistency");
+	return value === "fresh" || value === "current" ? value : "hybrid";
+}
 
 export class DaemonSession implements vscode.Disposable {
 	private rpc?: DaemonRpc;
 	private subscription?: RpcSubscription;
 	private connecting?: Promise<boolean>;
+	private hybridRefresh?: NodeJS.Timeout;
 
 	status: DaemonStatus = "disconnected";
 	ready = false;
@@ -64,9 +82,11 @@ export class DaemonSession implements vscode.Disposable {
 		if (!this.rpc) {
 			throw new Error("daemon not connected");
 		}
+		const mode = consistencyMode();
 		const queryOptions = {
 			...options,
-			consistency: options?.consistency ?? "refresh_if_stale" as const,
+			consistency:
+				options?.consistency ?? (mode === "fresh" ? ("refresh_if_stale" as const) : ("stale_ok" as const)),
 		};
 		for (let attempt = 0; ; attempt++) {
 			try {
@@ -178,10 +198,26 @@ export class DaemonSession implements vscode.Disposable {
 
 	private handleEvent(event: WorkspaceEventDto): void {
 		this.noteGeneration(event.generation);
+		if (event.kind === "refreshed") {
+			this.generation = undefined;
+		}
 		if (event.kind === "refreshed" && this.status === "loading") {
 			this.setStatus("ready");
 		}
+		if (event.kind === "stale" && this.ready && consistencyMode() === "hybrid") {
+			this.scheduleHybridRefresh();
+		}
 		this.eventEmitter.fire(event);
+	}
+
+	private scheduleHybridRefresh(): void {
+		if (this.hybridRefresh) {
+			return;
+		}
+		this.hybridRefresh = setTimeout(() => {
+			this.hybridRefresh = undefined;
+			void this.refresh().catch(() => {});
+		}, HYBRID_REFRESH_DEBOUNCE_MS);
 	}
 
 	private noteGeneration(generation: number | null | undefined): void {
@@ -196,6 +232,10 @@ export class DaemonSession implements vscode.Disposable {
 	}
 
 	private teardown(): void {
+		if (this.hybridRefresh) {
+			clearTimeout(this.hybridRefresh);
+			this.hybridRefresh = undefined;
+		}
 		this.subscription?.dispose();
 		this.subscription = undefined;
 		this.rpc?.close();
