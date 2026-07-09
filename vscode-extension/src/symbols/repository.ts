@@ -37,8 +37,8 @@ export class SymbolRepository {
 		return this.entriesUnder([dirPath]);
 	}
 
-	async fileSymbols(filePath: string): Promise<SymbolTreeNode[]> {
-		return this.cache.fetch(`file:${filePath}`, async () => {
+	async fileSymbols(filePath: string, shapes: string[] = []): Promise<SymbolTreeNode[]> {
+		return this.cache.fetch(`file:${shapes.join(",")}:${filePath}`, async () => {
 			const response = await this.session.query(
 				{
 					op: "symbol_search",
@@ -47,7 +47,7 @@ export class SymbolRepository {
 					path: [filePath],
 					lang: [],
 					kind: [],
-					shape: [],
+					shape: shapes,
 					name: null,
 					include_non_navigable: false,
 					include_code: false,

@@ -25,7 +25,28 @@ export function registerSymbolCommands(
 		vscode.commands.registerCommand("codeMoniker.symbols.openSource", (arg: SymbolTreeNode | SourceTarget) =>
 			openSource(arg),
 		),
+		vscode.commands.registerCommand("codeMoniker.symbols.filterShape", () =>
+			pickShapeFilter(provider),
+		),
 	);
+}
+
+const SHAPES = ["namespace", "type", "callable", "value", "annotation"];
+
+async function pickShapeFilter(provider: SymbolTreeProvider): Promise<void> {
+	const active = new Set(provider.shapes);
+	const picked = await vscode.window.showQuickPick(
+		SHAPES.map((shape) => ({ label: shape, picked: active.has(shape) })),
+		{
+			canPickMany: true,
+			title: "Filter symbols by shape",
+			placeHolder: "Empty selection clears the filter",
+		},
+	);
+	if (!picked) {
+		return;
+	}
+	provider.setShapeFilter(picked.map((item) => item.label));
 }
 
 async function refreshSymbols(

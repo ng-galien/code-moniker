@@ -125,6 +125,12 @@
 		],
 		"commands": [
 			{
+				"command": "codeMoniker.symbols.filterShape",
+				"title": "Filter Symbols by Shape",
+				"category": "Code Moniker",
+				"icon": "$(filter)"
+			},
+			{
 				"command": "codeMoniker.catalog.openEntry",
 				"title": "Open Catalog Sample",
 				"category": "Code Moniker",

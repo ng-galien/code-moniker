@@ -18,6 +18,7 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 	private readonly emitter = new vscode.EventEmitter<SymbolTreeNode | undefined>();
 	readonly onDidChangeTreeData = this.emitter.event;
 	private violations?: ViolationIndex;
+	private shapeFilter: string[] = [];
 
 	constructor(
 		private readonly session: DaemonSession,
@@ -33,12 +34,25 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 		this.emitter.fire(undefined);
 	}
 
+	get shapes(): string[] {
+		return this.shapeFilter;
+	}
+
+	setShapeFilter(shapes: string[]): void {
+		this.shapeFilter = shapes;
+		this.emitter.fire(undefined);
+	}
+
 	async getChildren(node?: SymbolTreeNode): Promise<SymbolTreeNode[]> {
 		if (!node) {
 			if (!this.session.ready) {
 				return [info(this.notReadyLabel())];
 			}
-			return wrapEntries(await this.repository.topLevelEntries());
+			const entries = wrapEntries(await this.repository.topLevelEntries());
+			if (this.shapeFilter.length > 0) {
+				return [info(`filter: shape = ${this.shapeFilter.join(", ")}`), ...entries];
+			}
+			return entries;
 		}
 		if (node.kind === "info") {
 			return [];
@@ -49,7 +63,7 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 		if (node.tree.kind === "directory") {
 			return wrapEntries(await this.repository.childEntries(node.tree.path));
 		}
-		return this.repository.fileSymbols(node.tree.path);
+		return this.repository.fileSymbols(node.tree.path, this.shapeFilter);
 	}
 
 	getTreeItem(node: SymbolTreeNode): vscode.TreeItem {
