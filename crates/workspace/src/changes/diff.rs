@@ -151,8 +151,15 @@ impl ChangeIndex {
 struct FileDiff {
 	repo_root: PathBuf,
 	repo_rel: PathBuf,
+	origin: Option<RenameOrigin>,
 	status: FileDiffStatus,
 	hunks: Vec<DiffHunk>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RenameOrigin {
+	repo_rel: PathBuf,
+	score: u8,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -160,6 +167,7 @@ enum FileDiffStatus {
 	Tracked,
 	Added,
 	Deleted,
+	Renamed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -263,7 +271,7 @@ impl<'scan> ChangeScan<'scan> {
 						deleted.push(diff);
 					}
 				}
-				FileDiffStatus::Tracked | FileDiffStatus::Added => {
+				FileDiffStatus::Tracked | FileDiffStatus::Added | FileDiffStatus::Renamed => {
 					if visibility.current_paths.contains(&path) {
 						by_path.insert(path, diff);
 					}
@@ -367,7 +375,7 @@ fn changed_entries_for_file(
 			})
 		})
 		.collect();
-	let keep_ancestors = diff.status == FileDiffStatus::Added;
+	let keep_ancestors = matches!(diff.status, FileDiffStatus::Added | FileDiffStatus::Renamed);
 	let mut entries: Vec<_> = candidates
 		.iter()
 		.copied()
@@ -399,9 +407,11 @@ fn changed_entries_for_file(
 			}
 		})
 		.collect();
+	let base_removals_delegated_to_synthetic_delete = diff.status == FileDiffStatus::Renamed;
 	entries.extend(
 		base.defs
 			.iter()
+			.filter(|_| !base_removals_delegated_to_synthetic_delete)
 			.filter(|def| !current_monikers.contains(&def.moniker))
 			.filter(|def| old_span_intersects_hunks(def.line_range, diff))
 			.map(|def| ChangeEntry {
@@ -473,9 +483,10 @@ fn base_file(
 	file: &ChangeFile<'_>,
 	diff: &FileDiff,
 ) -> anyhow::Result<BaseFile> {
-	let source = git_show(&diff.repo_root, &diff.repo_rel)?;
+	let (blob_rel, anchor) = base_blob_location(scan, file, diff)?;
+	let source = git_show(&diff.repo_root, &blob_rel)?;
 	let root = &scan.roots[file.source_root];
-	let graph = environment::extract_source_with(file.lang, &source, file.anchor, root.ctx);
+	let graph = environment::extract_source_with(file.lang, &source, &anchor, root.ctx);
 	Ok(BaseFile {
 		defs: graph
 			.defs()
@@ -491,6 +502,24 @@ fn base_file(
 			})
 			.collect(),
 	})
+}
+
+fn base_blob_location(
+	scan: &ChangeScan<'_>,
+	file: &ChangeFile<'_>,
+	diff: &FileDiff,
+) -> anyhow::Result<(PathBuf, PathBuf)> {
+	let Some(origin) = &diff.origin else {
+		return Ok((diff.repo_rel.clone(), file.anchor.to_path_buf()));
+	};
+	let old_path = diff.repo_root.join(&origin.repo_rel);
+	let Some((_, root, rel_path)) = source_root_for_path(scan, &old_path) else {
+		anyhow::bail!(
+			"rename origin {} is outside the scanned source roots",
+			origin.repo_rel.display()
+		);
+	};
+	Ok((origin.repo_rel.clone(), anchor_for(scan, root, &rel_path)))
 }
 
 fn removed_entries_for_deleted_file(
@@ -569,22 +598,30 @@ fn collect_changed_files(git_root: &Path, source_root: &Path) -> Result<Vec<File
 		&[
 			"diff",
 			"--name-status",
+			"--find-renames",
 			"--diff-filter=ACMRD",
 			"HEAD",
 			"--",
 			&pathspec,
 		],
 	)? {
-		let (status, repo_rel) = parse_name_status(&row)?;
-		let diff = git_cli_text(
-			git_root,
-			&["diff", "--unified=0", "HEAD", "--", &path_to_git(&repo_rel)],
-		)?;
+		let (status, repo_rel, origin) = parse_name_status(&row)?;
+		let hunks = parse_diff_hunks(&hunk_diff_text(git_root, &repo_rel, origin.as_ref())?);
+		if let Some(origin) = &origin {
+			out.push(FileDiff {
+				repo_root: git_root.to_path_buf(),
+				repo_rel: origin.repo_rel.clone(),
+				origin: None,
+				status: FileDiffStatus::Deleted,
+				hunks: Vec::new(),
+			});
+		}
 		out.push(FileDiff {
 			repo_root: git_root.to_path_buf(),
 			repo_rel,
+			origin,
 			status,
-			hunks: parse_diff_hunks(&diff),
+			hunks,
 		});
 	}
 	for rel in git_cli_lines(
@@ -600,6 +637,7 @@ fn collect_changed_files(git_root: &Path, source_root: &Path) -> Result<Vec<File
 		out.push(FileDiff {
 			repo_root: git_root.to_path_buf(),
 			repo_rel: PathBuf::from(rel),
+			origin: None,
 			status: FileDiffStatus::Added,
 			hunks: Vec::new(),
 		});
@@ -607,23 +645,58 @@ fn collect_changed_files(git_root: &Path, source_root: &Path) -> Result<Vec<File
 	Ok(out)
 }
 
-fn parse_name_status(row: &str) -> Result<(FileDiffStatus, PathBuf), String> {
+fn hunk_diff_text(
+	git_root: &Path,
+	repo_rel: &Path,
+	origin: Option<&RenameOrigin>,
+) -> Result<String, String> {
+	let new_path = path_to_git(repo_rel);
+	let Some(origin) = origin else {
+		return git_cli_text(git_root, &["diff", "--unified=0", "HEAD", "--", &new_path]);
+	};
+	let old_path = path_to_git(&origin.repo_rel);
+	git_cli_text(
+		git_root,
+		&[
+			"diff",
+			"--unified=0",
+			"--find-renames",
+			"HEAD",
+			"--",
+			&old_path,
+			&new_path,
+		],
+	)
+}
+
+type ParsedNameStatus = (FileDiffStatus, PathBuf, Option<RenameOrigin>);
+
+fn parse_name_status(row: &str) -> Result<ParsedNameStatus, String> {
 	let parts: Vec<&str> = row.split('\t').collect();
-	let Some(status) = parts.first().and_then(|part| part.chars().next()) else {
+	let Some(raw_status) = parts.first().copied().filter(|part| !part.is_empty()) else {
 		return Err(format!("cannot parse git name-status row {row:?}"));
 	};
-	let path = match status {
-		'R' => parts.get(2).copied(),
-		_ => parts.get(1).copied(),
+	let malformed = || format!("cannot parse git name-status row {row:?}");
+	if let Some(raw_score) = raw_status.strip_prefix('R') {
+		let old = parts.get(1).copied().ok_or_else(malformed)?;
+		let new = parts.get(2).copied().ok_or_else(malformed)?;
+		let score = raw_score.parse::<u8>().unwrap_or(0);
+		return Ok((
+			FileDiffStatus::Renamed,
+			PathBuf::from(new),
+			Some(RenameOrigin {
+				repo_rel: PathBuf::from(old),
+				score,
+			}),
+		));
 	}
-	.ok_or_else(|| format!("cannot parse git name-status row {row:?}"))?;
-	let status = match status {
-		'A' => FileDiffStatus::Added,
-		'D' => FileDiffStatus::Deleted,
-		'M' | 'C' | 'R' => FileDiffStatus::Tracked,
+	let path = parts.get(1).copied().ok_or_else(malformed)?;
+	let status = match raw_status.chars().next() {
+		Some('A') => FileDiffStatus::Added,
+		Some('D') => FileDiffStatus::Deleted,
 		_ => FileDiffStatus::Tracked,
 	};
-	Ok((status, PathBuf::from(path)))
+	Ok((status, PathBuf::from(path), None))
 }
 
 struct GitWorktree {
@@ -971,6 +1044,96 @@ mod tests {
 				.all(|entry| !entry.name.starts_with("unchanged")),
 			"unexpected changes: {:?}",
 			index.entries
+		);
+	}
+
+	#[test]
+	fn build_change_index_reports_renamed_file_as_added_and_removed() {
+		let tmp = tempfile::tempdir().unwrap();
+		init_git(tmp.path());
+		write(tmp.path(), "src/lib.rs", "fn moved_fn() {}\n");
+		git(tmp.path(), &["add", "."]);
+		git(tmp.path(), &["commit", "-m", "initial"]);
+		git(tmp.path(), &["mv", "src/lib.rs", "src/renamed.rs"]);
+		let source = "fn moved_fn() {}\n";
+		let path = tmp.path().join("src/renamed.rs");
+		let ctx = ExtractContext::default();
+		let graph = environment::extract_source(Lang::Rs, source, Path::new("src/renamed.rs"));
+
+		let index = build_change_index(rust_scan(
+			tmp.path(),
+			&ctx,
+			&path,
+			"src/renamed.rs",
+			source,
+			&graph,
+		));
+
+		assert!(
+			index.entries.iter().any(|entry| {
+				entry.status == ChangeStatus::Added
+					&& entry.name.starts_with("moved_fn")
+					&& entry.file_path == Path::new("src/renamed.rs")
+			}),
+			"missing added entry at new path: {:?}",
+			index.entries
+		);
+		assert!(
+			index.entries.iter().any(|entry| {
+				entry.status == ChangeStatus::Removed
+					&& entry.name.starts_with("moved_fn")
+					&& entry.file_path == Path::new("src/lib.rs")
+			}),
+			"missing removed entry at old path: {:?}",
+			index.entries
+		);
+	}
+
+	#[test]
+	fn base_file_resolves_rename_origin_blob() {
+		let tmp = tempfile::tempdir().unwrap();
+		init_git(tmp.path());
+		write(
+			tmp.path(),
+			"src/lib.rs",
+			"fn moved_fn() {}\nfn dropped_fn() {}\nfn kept_one() {}\nfn kept_two() {}\n",
+		);
+		git(tmp.path(), &["add", "."]);
+		git(tmp.path(), &["commit", "-m", "initial"]);
+		git(tmp.path(), &["mv", "src/lib.rs", "src/renamed.rs"]);
+		let source = "fn moved_fn() { let _grown = 1; }\nfn dropped_fn() {}\nfn kept_one() {}\nfn kept_two() {}\n";
+		write(tmp.path(), "src/renamed.rs", source);
+		let path = tmp.path().join("src/renamed.rs");
+		let ctx = ExtractContext::default();
+		let graph = environment::extract_source(Lang::Rs, source, Path::new("src/renamed.rs"));
+		let scan = rust_scan(tmp.path(), &ctx, &path, "src/renamed.rs", source, &graph);
+		let git_root = normalize_path(tmp.path());
+
+		let diffs = collect_changed_files(&git_root, tmp.path()).unwrap();
+		let renamed = diffs
+			.iter()
+			.find(|diff| diff.status == FileDiffStatus::Renamed)
+			.expect("renamed diff present");
+		let base = base_file(&scan, &scan.files[0], renamed).unwrap();
+
+		assert_eq!(
+			renamed
+				.origin
+				.as_ref()
+				.map(|origin| origin.repo_rel.clone()),
+			Some(PathBuf::from("src/lib.rs"))
+		);
+		assert!(
+			diffs.iter().any(|diff| {
+				diff.status == FileDiffStatus::Deleted && diff.repo_rel == Path::new("src/lib.rs")
+			}),
+			"missing synthetic deleted diff: {diffs:?}"
+		);
+		let names: Vec<_> = base.defs.iter().map(|def| def.name.clone()).collect();
+		assert!(
+			names.iter().any(|name| name.starts_with("moved_fn"))
+				&& names.iter().any(|name| name.starts_with("dropped_fn")),
+			"base blob defs not extracted from HEAD origin: {names:?}"
 		);
 	}
 
