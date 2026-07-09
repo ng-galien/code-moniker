@@ -46,8 +46,15 @@ code-moniker query [-r root] "<DSL>" [--json]
 ### Query verbs (DSL)
 
 `workspace.status`, `tree.children`, `symbol.search`, `symbol.insights`,
-`symbol.detail`, `symbol.usages`, `view.read`, `rules.list`, `rules.check`,
-`notes`. Command verbs: `workspace.refresh`.
+`symbol.detail`, `symbol.usages`, `symbol.graph`, `view.read`, `rules.list`,
+`rules.check`, `change.review`, `notes`. Command verbs: `workspace.refresh`.
+
+`symbol.graph focus:"<symbol URI or rel path>"` returns the ego-centric
+neighborhood of a unit: the focus defines a boundary on the identity tree,
+and resolved references partition into internal edges, callers (outside-in)
+and callees (inside-out), aggregated per neighbor with relation kinds and
+call counts; unresolved references are counted, never dropped. This feeds
+the IDE Graph Explorer triptych and the `code_moniker_graph` MCP tool.
 
 ## Discovery
 

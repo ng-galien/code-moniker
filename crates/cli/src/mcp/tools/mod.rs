@@ -1,5 +1,6 @@
 pub(in crate::mcp) mod common;
 pub(super) mod diff;
+pub(super) mod graph;
 pub(super) mod notes;
 pub(super) mod read;
 pub(super) mod refresh;
@@ -13,6 +14,7 @@ use serde_json::Value;
 
 use super::context::McpContext;
 use diff::DiffTool;
+use graph::GraphTool;
 use notes::NotesTool;
 use read::ReadTool;
 use refresh::RefreshTool;
@@ -99,6 +101,7 @@ enum ToolErrorKind {
 pub(super) struct ToolRegistry {
 	read: ReadTool,
 	diff: DiffTool,
+	graph: GraphTool,
 	notes: NotesTool,
 	refresh: RefreshTool,
 	rules: RulesTool,
@@ -112,6 +115,7 @@ impl ToolRegistry {
 		Self {
 			read: ReadTool,
 			diff: DiffTool,
+			graph: GraphTool,
 			notes: NotesTool,
 			refresh: RefreshTool,
 			rules: RulesTool,
@@ -121,7 +125,7 @@ impl ToolRegistry {
 		}
 	}
 
-	fn all(&self) -> [&dyn McpTool; 8] {
+	fn all(&self) -> [&dyn McpTool; 9] {
 		[
 			&self.read,
 			&self.notes,
@@ -130,6 +134,7 @@ impl ToolRegistry {
 			&self.usages,
 			&self.rules,
 			&self.diff,
+			&self.graph,
 			&self.refresh,
 		]
 	}

@@ -9,6 +9,7 @@ import { SymbolTreeProvider } from "./tree";
 export interface SymbolFeature {
 	tree: SymbolTreeProvider;
 	detail: DetailWebview;
+	repository: SymbolRepository;
 }
 
 // Wires the symbol tree to the shared session and drives the detail webview from
@@ -29,5 +30,5 @@ export function registerSymbols(
 
 	registerSymbolCommands(context, session, provider, detail);
 
-	return { tree: provider, detail };
+	return { tree: provider, detail, repository };
 }

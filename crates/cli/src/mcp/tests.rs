@@ -189,7 +189,8 @@ fn tools_list_returns_mcp_shape() {
 	assert_eq!(tools[4]["name"], "code_moniker_usages");
 	assert_eq!(tools[5]["name"], "code_moniker_rules");
 	assert_eq!(tools[6]["name"], "code_moniker_diff");
-	assert_eq!(tools[7]["name"], "code_moniker_refresh");
+	assert_eq!(tools[7]["name"], "code_moniker_graph");
+	assert_eq!(tools[8]["name"], "code_moniker_refresh");
 	assert!(
 		tools[0]["description"]
 			.as_str()

@@ -125,6 +125,12 @@
 		],
 		"commands": [
 			{
+				"command": "codeMoniker.explorer.focusAtCursor",
+				"title": "Focus Symbol at Cursor in Graph Explorer",
+				"category": "Code Moniker",
+				"icon": "$(type-hierarchy)"
+			},
+			{
 				"command": "codeMoniker.explorer.focus",
 				"title": "Open in Graph Explorer",
 				"category": "Code Moniker",
