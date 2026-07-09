@@ -148,22 +148,22 @@ impl ChangeIndex {
 }
 
 #[derive(Clone, Debug)]
-struct FileDiff {
-	repo_root: PathBuf,
-	repo_rel: PathBuf,
-	origin: Option<RenameOrigin>,
-	status: FileDiffStatus,
-	hunks: Vec<DiffHunk>,
+pub(in crate::changes) struct FileDiff {
+	pub(in crate::changes) repo_root: PathBuf,
+	pub(in crate::changes) repo_rel: PathBuf,
+	pub(in crate::changes) origin: Option<RenameOrigin>,
+	pub(in crate::changes) status: FileDiffStatus,
+	pub(in crate::changes) hunks: Vec<DiffHunk>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct RenameOrigin {
-	repo_rel: PathBuf,
-	score: u8,
+pub(in crate::changes) struct RenameOrigin {
+	pub(in crate::changes) repo_rel: PathBuf,
+	pub(in crate::changes) score: u8,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FileDiffStatus {
+pub(in crate::changes) enum FileDiffStatus {
 	Tracked,
 	Added,
 	Deleted,
@@ -171,15 +171,15 @@ enum FileDiffStatus {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct DiffHunk {
-	old: Option<LineSpan>,
-	new: Option<LineSpan>,
+pub(in crate::changes) struct DiffHunk {
+	pub(in crate::changes) old: Option<LineSpan>,
+	pub(in crate::changes) new: Option<LineSpan>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct LineSpan {
-	start: u32,
-	end: u32,
+pub(in crate::changes) struct LineSpan {
+	pub(in crate::changes) start: u32,
+	pub(in crate::changes) end: u32,
 }
 
 impl LineSpan {
@@ -243,9 +243,9 @@ pub fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 	changes
 }
 
-struct RelevantDiffs<'a> {
-	by_path: FxHashMap<PathBuf, &'a FileDiff>,
-	deleted: Vec<&'a FileDiff>,
+pub(in crate::changes) struct RelevantDiffs<'a> {
+	pub(in crate::changes) by_path: FxHashMap<PathBuf, &'a FileDiff>,
+	pub(in crate::changes) deleted: Vec<&'a FileDiff>,
 }
 
 struct SourceVisibility {
@@ -259,7 +259,10 @@ struct DeletedSourceRoot {
 }
 
 impl<'scan> ChangeScan<'scan> {
-	fn relevant_diffs<'diff>(&self, diffs: &'diff [FileDiff]) -> RelevantDiffs<'diff> {
+	pub(in crate::changes) fn relevant_diffs<'diff>(
+		&self,
+		diffs: &'diff [FileDiff],
+	) -> RelevantDiffs<'diff> {
 		let visibility = self.source_visibility();
 		let mut by_path = FxHashMap::default();
 		let mut deleted = Vec::new();
@@ -555,7 +558,7 @@ fn removed_entries_for_deleted_file(
 	Ok(entries)
 }
 
-fn source_root_for_path<'a>(
+pub(in crate::changes) fn source_root_for_path<'a>(
 	scan: &'a ChangeScan<'_>,
 	path: &Path,
 ) -> Option<(usize, &'a ChangeRoot<'a>, PathBuf)> {
@@ -568,7 +571,11 @@ fn source_root_for_path<'a>(
 	})
 }
 
-fn anchor_for(scan: &ChangeScan<'_>, root: &ChangeRoot<'_>, rel_path: &Path) -> PathBuf {
+pub(in crate::changes) fn anchor_for(
+	scan: &ChangeScan<'_>,
+	root: &ChangeRoot<'_>,
+	rel_path: &Path,
+) -> PathBuf {
 	if scan.roots.len() > 1 {
 		PathBuf::from(root.label).join(rel_path)
 	} else {
@@ -576,7 +583,7 @@ fn anchor_for(scan: &ChangeScan<'_>, root: &ChangeRoot<'_>, rel_path: &Path) -> 
 	}
 }
 
-fn display_rel_path(
+pub(in crate::changes) fn display_rel_path(
 	scan: &ChangeScan<'_>,
 	source_root: usize,
 	root: &ChangeRoot<'_>,
@@ -590,7 +597,10 @@ fn display_rel_path(
 	}
 }
 
-fn collect_changed_files(git_root: &Path, source_root: &Path) -> Result<Vec<FileDiff>, String> {
+pub(in crate::changes) fn collect_changed_files(
+	git_root: &Path,
+	source_root: &Path,
+) -> Result<Vec<FileDiff>, String> {
 	let pathspec = git_pathspec(git_root, source_root);
 	let mut out = Vec::new();
 	for row in git_cli_lines(
@@ -699,12 +709,12 @@ fn parse_name_status(row: &str) -> Result<ParsedNameStatus, String> {
 	Ok((status, PathBuf::from(path), None))
 }
 
-struct GitWorktree {
+pub(in crate::changes) struct GitWorktree {
 	root: PathBuf,
 }
 
 impl GitWorktree {
-	fn discover(path: &Path) -> Result<Self, String> {
+	pub(in crate::changes) fn discover(path: &Path) -> Result<Self, String> {
 		let output = git_cli_command(path)
 			.args(["rev-parse", "--show-toplevel"])
 			.output()
@@ -721,7 +731,7 @@ impl GitWorktree {
 		})
 	}
 
-	fn root(&self) -> &Path {
+	pub(in crate::changes) fn root(&self) -> &Path {
 		&self.root
 	}
 }
@@ -735,7 +745,7 @@ fn git_cli_lines(git_root: &Path, args: &[&str]) -> Result<Vec<String>, String> 
 		.collect())
 }
 
-fn git_show(git_root: &Path, repo_rel: &Path) -> anyhow::Result<String> {
+pub(in crate::changes) fn git_show(git_root: &Path, repo_rel: &Path) -> anyhow::Result<String> {
 	git_cli_text(
 		git_root,
 		&["show", &format!("HEAD:{}", path_to_git(repo_rel))],
@@ -775,11 +785,11 @@ fn git_pathspec(git_root: &Path, source_root: &Path) -> String {
 	}
 }
 
-fn diff_path(diff: &FileDiff) -> PathBuf {
+pub(in crate::changes) fn diff_path(diff: &FileDiff) -> PathBuf {
 	diff.repo_root.join(&diff.repo_rel)
 }
 
-fn normalize_path(path: &Path) -> PathBuf {
+pub(in crate::changes) fn normalize_path(path: &Path) -> PathBuf {
 	path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
