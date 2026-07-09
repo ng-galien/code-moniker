@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::snapshot::{
-	SourceFileRecord, SourceId, SymbolRecord, WorkspaceSnapshot,
+	SourceFileRecord, SymbolRecord, WorkspaceSnapshot, WorkspaceView,
 };
 
 use code_moniker_check as check;
@@ -45,10 +45,9 @@ pub fn resolve_symbols(
 	selectors: &[String],
 	options: RenderOptions,
 ) -> SymbolResolution {
-	let source_by_id = source_by_id(snapshot);
 	let mut resolution = SymbolResolution::default();
 	for selector in selectors {
-		let matches = matching_symbols(snapshot, &source_by_id, scope_path, selector);
+		let matches = matching_symbols(snapshot, scope_path, selector);
 		if matches.is_empty() {
 			resolution.missing.push(selector.clone());
 			continue;
@@ -80,29 +79,20 @@ pub fn resolve_rules(
 		.collect())
 }
 
-fn source_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<SourceId, &SourceFileRecord> {
-	snapshot
-		.index
-		.sources
-		.iter()
-		.map(|source| (source.id, source))
-		.collect()
-}
-
 fn matching_symbols<'a>(
 	snapshot: &'a WorkspaceSnapshot,
-	source_by_id: &'a BTreeMap<SourceId, &'a SourceFileRecord>,
 	scope_path: &str,
 	selector: &str,
 ) -> Vec<(&'a SymbolRecord, &'a SourceFileRecord)> {
+	let sources = WorkspaceView::new(snapshot).sources();
 	let mut matches = snapshot
 		.index
 		.symbols
 		.iter()
 		.filter_map(|symbol| {
-			let source = source_by_id.get(&symbol.source)?;
+			let source = sources.record(&symbol.source)?;
 			(source_in_scope(source, scope_path) && selector_matches(symbol, selector))
-				.then_some((symbol, *source))
+				.then_some((symbol, source))
 		})
 		.collect::<Vec<_>>();
 	matches.sort_by(|a, b| a.0.identity.cmp(&b.0.identity));

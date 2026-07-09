@@ -1013,15 +1013,15 @@ fn tree_children_response(
 		entry.defs += snapshot
 			.index
 			.symbols
+			.file_records(source.id.file())
 			.iter()
-			.filter(|symbol| symbol.source == source.id && symbol.navigable)
+			.filter(|symbol| symbol.navigable)
 			.count();
 		entry.refs += snapshot
 			.index
 			.references
-			.iter()
-			.filter(|reference| reference.source == source.id)
-			.count();
+			.file_records(source.id.file())
+			.len();
 	}
 	let total_files = snapshot
 		.index
@@ -1095,9 +1095,9 @@ fn symbol_search_response(
 		.map(|pattern| regex::Regex::new(pattern))
 		.transpose()
 		.map_err(|err| QueryError::new("invalid_name_filter", err.to_string()))?;
-	let source_by_id = source_by_id(snapshot);
+	let sources = WorkspaceView::new(snapshot).sources();
 	let matches_query = |symbol: &SymbolRecord| {
-		let Some(source) = source_by_id.get(&symbol.source).copied() else {
+		let Some(source) = sources.record(&symbol.source) else {
 			return false;
 		};
 		source_root(roots, &selected_roots, source).is_some()
@@ -1111,16 +1111,16 @@ fn symbol_search_response(
 	let mut rows = if let Some(text) = query.text.as_deref().filter(|text| !text.trim().is_empty())
 		&& !query.include_non_navigable
 	{
-		let symbol_by_id = symbol_by_id(snapshot);
+		let symbols = WorkspaceView::new(snapshot).symbols();
 		WorkspaceView::new(snapshot)
 			.search()
 			.search_symbols_matching(text, usize::MAX, matches_query)
 			.into_iter()
 			.map(|hit| {
-				let Some(symbol) = symbol_by_id.get(&hit.symbol).copied() else {
+				let Some(symbol) = symbols.find(&hit.symbol) else {
 					return Ok(None);
 				};
-				let Some(source) = source_by_id.get(&symbol.source).copied() else {
+				let Some(source) = sources.record(&symbol.source) else {
 					return Ok(None);
 				};
 				let mut row = symbol_search_dto(symbol, source, roots, hit.score, hit.reason);
@@ -1141,7 +1141,7 @@ fn symbol_search_response(
 			.filter(|symbol| query.include_non_navigable || symbol.navigable)
 			.filter(|symbol| matches_query(symbol))
 			.filter_map(|symbol| {
-				let source = source_by_id.get(&symbol.source).copied()?;
+				let source = sources.record(&symbol.source)?;
 				Some((symbol, source))
 			})
 			.map(|(symbol, source)| {
@@ -1210,7 +1210,7 @@ fn symbol_insights_response(
 		.map(|pattern| regex::Regex::new(pattern))
 		.transpose()
 		.map_err(|err| QueryError::new("invalid_name_filter", err.to_string()))?;
-	let source_by_id = source_by_id(snapshot);
+	let sources = WorkspaceView::new(snapshot).sources();
 	let scoped_sources = snapshot
 		.index
 		.sources
@@ -1256,12 +1256,12 @@ fn symbol_insights_response(
 	let mut symbol_counts = BTreeMap::<String, usize>::new();
 	let mut ref_counts = BTreeMap::<String, usize>::new();
 	for symbol in &scoped_symbols {
-		if let Some(source) = source_by_id.get(&symbol.source) {
+		if let Some(source) = sources.record(&symbol.source) {
 			*symbol_counts.entry(source.rel_path.to_owned()).or_default() += 1;
 		}
 	}
 	for reference in &scoped_refs {
-		if let Some(source) = source_by_id.get(&reference.source) {
+		if let Some(source) = sources.record(&reference.source) {
 			*ref_counts.entry(source.rel_path.to_owned()).or_default() += 1;
 		}
 	}
@@ -1307,10 +1307,10 @@ fn symbol_detail_response(
 	current_generation: Option<WorkspaceGeneration>,
 ) -> Result<QueryResponse, QueryError> {
 	let selected_roots = selected_roots(roots, workspace)?;
-	let source_by_id = source_by_id(snapshot);
 	let symbol = find_symbol(snapshot, uri)?;
-	let source = source_by_id
-		.get(&symbol.source)
+	let source = WorkspaceView::new(snapshot)
+		.sources()
+		.record(&symbol.source)
 		.ok_or_else(|| QueryError::new("source_not_found", "symbol source not found"))?;
 	if source_root(roots, &selected_roots, source).is_none() {
 		return Err(QueryError::new(
@@ -2097,37 +2097,6 @@ fn page_rows<T>(
 
 mod helpers {
 	use super::*;
-
-	pub(super) fn source_by_id(
-		snapshot: &WorkspaceSnapshot,
-	) -> BTreeMap<SourceId, &SourceFileRecord> {
-		snapshot
-			.index
-			.sources
-			.iter()
-			.map(|source| (source.id, source))
-			.collect()
-	}
-
-	pub(super) fn symbol_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<SymbolId, &SymbolRecord> {
-		snapshot
-			.index
-			.symbols
-			.iter()
-			.map(|symbol| (symbol.id, symbol))
-			.collect()
-	}
-
-	pub(super) fn reference_by_id(
-		snapshot: &WorkspaceSnapshot,
-	) -> BTreeMap<ReferenceId, &ReferenceRecord> {
-		snapshot
-			.index
-			.references
-			.iter()
-			.map(|reference| (reference.id, reference))
-			.collect()
-	}
 
 	pub(super) fn find_symbol<'a>(
 		snapshot: &'a WorkspaceSnapshot,
