@@ -15,14 +15,7 @@ export function registerViews(
 	const repository = new ViewsRepository(session);
 	const provider = new ViewsProvider(repository);
 
-	context.subscriptions.push(
-		session.onDidChangeStatus(() => provider.refresh()),
-		session.onWorkspaceEvent((event) => {
-			if (event.kind === "stale" || event.kind === "refreshed") {
-				provider.refresh();
-			}
-		}),
-	);
+	context.subscriptions.push(session.onDidChangeStatus(() => provider.refresh()));
 
 	return { provider };
 }

@@ -11,6 +11,7 @@ import { SymbolTreeNode } from "../symbols/nodes";
 import { SymbolTreeProvider } from "../symbols/tree";
 import { ViewTreeNode } from "../views/nodes";
 import { ViewsProvider } from "../views/tree";
+import { workspaceNodeId } from "./nodeIds";
 
 type SectionId = "daemon" | "symbols" | "views" | "check" | "ruleFiles";
 
@@ -53,10 +54,13 @@ export type WorkspaceNode =
 	| WorkspaceRulesNode
 	| WorkspaceRuleFileNode;
 
+const REFRESH_COALESCE_MS = 50;
+
 export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceNode>, vscode.Disposable {
 	private readonly emitter = new vscode.EventEmitter<WorkspaceNode | undefined>();
 	readonly onDidChangeTreeData = this.emitter.event;
 	private readonly subscriptions: vscode.Disposable[] = [];
+	private pendingRefresh?: NodeJS.Timeout;
 
 	constructor(
 		private readonly daemons: DaemonListProvider,
@@ -74,8 +78,17 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 		);
 	}
 
+	// Child providers fire in bursts (a daemon event refreshes four of them at
+	// once); coalescing into one tree invalidation per window keeps VS Code
+	// from re-querying every expanded node once per provider.
 	refresh(): void {
-		this.emitter.fire(undefined);
+		if (this.pendingRefresh) {
+			return;
+		}
+		this.pendingRefresh = setTimeout(() => {
+			this.pendingRefresh = undefined;
+			this.emitter.fire(undefined);
+		}, REFRESH_COALESCE_MS);
 	}
 
 	async getChildren(node?: WorkspaceNode): Promise<WorkspaceNode[]> {
@@ -100,6 +113,23 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 	}
 
 	getTreeItem(node: WorkspaceNode): vscode.TreeItem {
+		const item = this.rawTreeItem(node);
+		item.id ??= workspaceNodeId(node);
+		return item;
+	}
+
+	dispose(): void {
+		if (this.pendingRefresh) {
+			clearTimeout(this.pendingRefresh);
+			this.pendingRefresh = undefined;
+		}
+		this.emitter.dispose();
+		for (const subscription of this.subscriptions) {
+			subscription.dispose();
+		}
+	}
+
+	private rawTreeItem(node: WorkspaceNode): vscode.TreeItem {
 		if (node.kind === "section") {
 			return sectionItem(node);
 		}
@@ -114,13 +144,6 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 				return this.rules.getTreeItem(node.node);
 			case "ruleFiles":
 				return this.ruleFiles.getTreeItem(node.node);
-		}
-	}
-
-	dispose(): void {
-		this.emitter.dispose();
-		for (const subscription of this.subscriptions) {
-			subscription.dispose();
 		}
 	}
 
