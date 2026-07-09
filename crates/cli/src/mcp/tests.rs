@@ -103,7 +103,7 @@ fn source_file(id: SourceId, rel_path: &str, language: &str) -> SourceFileRecord
 }
 
 fn symbol_record(
-	id: &str,
+	id: SymbolId,
 	source: SourceId,
 	identity: &str,
 	name: &str,
@@ -111,7 +111,7 @@ fn symbol_record(
 	line_range: Option<(u32, u32)>,
 ) -> SymbolRecord {
 	SymbolRecord {
-		id: SymbolId::new(id),
+		id,
 		source,
 		identity: identity.to_string(),
 		name: name.to_string(),
@@ -937,7 +937,7 @@ fn symbols_tool_filters_and_pages_symbols() {
 	}];
 	let symbols = vec![
 		SymbolRecord {
-			id: SymbolId::new("symbol:1"),
+			id: SymbolId::at(0, 1),
 			source: source_id.clone(),
 			identity: "code+moniker://./lang:java/package:src/class:App".to_string(),
 			name: "App".to_string(),
@@ -949,7 +949,7 @@ fn symbols_tool_filters_and_pages_symbols() {
 			parent: None,
 		},
 		SymbolRecord {
-			id: SymbolId::new("symbol:2"),
+			id: SymbolId::at(0, 2),
 			source: source_id.clone(),
 			identity: "code+moniker://./lang:java/package:src/class:App/method:run()".to_string(),
 			name: "run".to_string(),
@@ -961,7 +961,7 @@ fn symbols_tool_filters_and_pages_symbols() {
 			parent: None,
 		},
 		SymbolRecord {
-			id: SymbolId::new("symbol:3"),
+			id: SymbolId::at(0, 3),
 			source: source_id,
 			identity: "code+moniker://./lang:java/package:src/class:App/method:retry()".to_string(),
 			name: "retry".to_string(),
@@ -1026,7 +1026,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 		source_file(api_source.clone(), "src/api/Controller.java", "java"),
 	];
 	let helper = symbol_record(
-		"symbol:helper",
+		SymbolId::at(0, 20),
 		helper_source,
 		"code+moniker://./lang:java/package:shared/class:Helper",
 		"Helper",
@@ -1034,7 +1034,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 		Some((1, 12)),
 	);
 	let app = symbol_record(
-		"symbol:app",
+		SymbolId::at(1, 0),
 		app_source.clone(),
 		"code+moniker://./lang:java/package:app/class:App/method:run()",
 		"run",
@@ -1042,7 +1042,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 		Some((3, 5)),
 	);
 	let batch = symbol_record(
-		"symbol:batch",
+		SymbolId::at(2, 0),
 		batch_source.clone(),
 		"code+moniker://./lang:java/package:batch/class:Job/method:run()",
 		"run",
@@ -1050,7 +1050,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 		Some((4, 6)),
 	);
 	let api = symbol_record(
-		"symbol:api",
+		SymbolId::at(3, 0),
 		api_source.clone(),
 		"code+moniker://./lang:java/package:api/class:Controller/method:handle()",
 		"handle",
@@ -1061,7 +1061,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 		ReferenceRecord::new(
 			"ref:app",
 			app_source,
-			SymbolId::new("symbol:app"),
+			SymbolId::at(1, 0),
 			helper.identity.as_str(),
 			"uses_type",
 			Some((4, 4)),
@@ -1069,7 +1069,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 		ReferenceRecord::new(
 			"ref:batch",
 			batch_source,
-			SymbolId::new("symbol:batch"),
+			SymbolId::at(2, 0),
 			helper.identity.as_str(),
 			"calls",
 			Some((5, 5)),
@@ -1077,7 +1077,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 		ReferenceRecord::new(
 			"ref:api",
 			api_source,
-			SymbolId::new("symbol:api"),
+			SymbolId::at(3, 0),
 			helper.identity.as_str(),
 			"method_call",
 			Some((7, 7)),
@@ -1139,7 +1139,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 		source_file(app_source.clone(), "packages/client/src/store/ws.ts", "ts"),
 	];
 	let member = symbol_record(
-		"symbol:member",
+		SymbolId::at(0, 21),
 		shared_source.clone(),
 		"code+moniker://./lang:ts/dir:packages/dir:shared/dir:src/module:ws/interface:WsStateMessage",
 		"WsStateMessage",
@@ -1147,7 +1147,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 		Some((27, 36)),
 	);
 	let union = symbol_record(
-		"symbol:union",
+		SymbolId::at(0, 22),
 		shared_source.clone(),
 		"code+moniker://./lang:ts/dir:packages/dir:shared/dir:src/module:ws/type:WsServerMessage",
 		"WsServerMessage",
@@ -1155,7 +1155,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 		Some((97, 108)),
 	);
 	let handler = symbol_record(
-		"symbol:handler",
+		SymbolId::at(0, 23),
 		app_source.clone(),
 		"code+moniker://./lang:ts/dir:packages/dir:client/dir:src/module:ws/function:connect()",
 		"connect()",
@@ -1163,7 +1163,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 		Some((280, 320)),
 	);
 	let caller = symbol_record(
-		"symbol:caller",
+		SymbolId::at(0, 24),
 		app_source.clone(),
 		"code+moniker://./lang:ts/dir:packages/dir:client/dir:src/module:ws/function:start()",
 		"start()",
@@ -1252,7 +1252,7 @@ fn read_symbol_source_renders_source_slice() {
 		text: String::new(),
 	};
 	let symbol = SymbolRecord {
-		id: SymbolId::new("symbol:1"),
+		id: SymbolId::at(0, 1),
 		source: source_id,
 		identity: "code+moniker://./lang:java/package:src/class:App/method:run()".to_string(),
 		name: "run".to_string(),
@@ -1291,7 +1291,7 @@ fn symbols_insights_summarize_index() {
 		text: String::new(),
 	}];
 	let class = SymbolRecord {
-		id: SymbolId::new("symbol:class"),
+		id: SymbolId::at(0, 10),
 		source: source_id.clone(),
 		identity: "code+moniker://./lang:java/package:src/class:App".to_string(),
 		name: "App".to_string(),
@@ -1303,7 +1303,7 @@ fn symbols_insights_summarize_index() {
 		parent: None,
 	};
 	let method = SymbolRecord {
-		id: SymbolId::new("symbol:method"),
+		id: SymbolId::at(0, 11),
 		source: source_id.clone(),
 		identity: "code+moniker://./lang:java/package:src/class:App/method:run()".to_string(),
 		name: "run".to_string(),
@@ -1312,12 +1312,12 @@ fn symbols_insights_summarize_index() {
 		signature: String::new(),
 		navigable: true,
 		line_range: Some((3, 5)),
-		parent: Some(SymbolId::new("symbol:class")),
+		parent: Some(SymbolId::at(0, 10)),
 	};
 	let references = vec![ReferenceRecord::new(
 		"ref:1",
 		source_id,
-		SymbolId::new("symbol:method"),
+		SymbolId::at(0, 11),
 		"class:Other",
 		"calls",
 		Some((4, 4)),

@@ -743,7 +743,7 @@ fn assert_linked_once_from_symbol(
 		.iter()
 		.find(|reference| {
 			reference.kind == kind
-				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.source_symbol == source.id
 				&& reference.target_identity.contains(reference_target)
 		})
 		.unwrap_or_else(|| {
@@ -788,7 +788,7 @@ fn assert_call_linked_to(
 		.iter()
 		.filter(|reference| {
 			reference.kind == "method_call"
-				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.source_symbol == source.id
 				&& reference.call_name.as_deref() == Some(call_name)
 				&& reference.call_arity == Some(call_arity)
 		})
@@ -833,7 +833,7 @@ fn assert_call_resolves_only_to(
 		.iter()
 		.filter(|reference| {
 			reference.kind == kind
-				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.source_symbol == source.id
 				&& reference.call_name.as_deref() == Some(call_name)
 				&& reference.call_arity == Some(call_arity)
 		})
@@ -880,7 +880,7 @@ fn assert_external_call(
 		.iter()
 		.filter(|reference| {
 			reference.kind == "method_call"
-				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.source_symbol == source.id
 				&& reference.call_name.as_deref() == Some(call_name)
 				&& reference.call_arity == Some(call_arity)
 		})
@@ -913,7 +913,7 @@ fn assert_external_call_target(
 		.iter()
 		.filter(|reference| {
 			reference.kind == "method_call"
-				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.source_symbol == source.id
 				&& reference.call_name.as_deref() == Some(call_name)
 				&& reference.call_arity == Some(call_arity)
 		})
@@ -970,7 +970,7 @@ fn assert_call_unresolved(
 		.iter()
 		.filter(|reference| {
 			reference.kind == "method_call"
-				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.source_symbol == source.id
 				&& reference.call_name.as_deref() == Some(call_name)
 				&& reference.call_arity == Some(call_arity)
 		})
@@ -1030,7 +1030,7 @@ fn assert_external_reference_from_symbol(
 		.iter()
 		.find(|reference| {
 			reference.kind == kind
-				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.source_symbol == source.id
 				&& external_target_identities(snapshot, reference)
 					.iter()
 					.any(|identity| identity.contains(reference_target))
@@ -1098,7 +1098,7 @@ fn assert_reference_from_symbol(
 		.iter()
 		.find(|reference| {
 			reference.kind == kind
-				&& reference.source_symbol.as_str() == source.id.as_str()
+				&& reference.source_symbol == source.id
 				&& reference.target_identity.contains(target_identity)
 		})
 		.unwrap_or_else(|| {
@@ -1172,7 +1172,7 @@ fn linked_symbol_identities(
 				.index
 				.symbols
 				.iter()
-				.find(|symbol| symbol.id.as_str() == edge.target.as_str())
+				.find(|symbol| symbol.id == edge.target)
 		})
 		.map(|symbol| symbol.identity.clone())
 		.collect()

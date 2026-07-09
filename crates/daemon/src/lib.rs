@@ -306,7 +306,7 @@ struct RulesCheckEval {
 
 struct UsageDtoContext<'a> {
 	source_by_id: &'a BTreeMap<&'a str, &'a SourceFileRecord>,
-	symbol_by_id: &'a BTreeMap<&'a str, &'a SymbolRecord>,
+	symbol_by_id: &'a BTreeMap<SymbolId, &'a SymbolRecord>,
 	roots: &'a [PathBuf],
 	selected_roots: &'a [&'a PathBuf],
 	path_filter: &'a FilePathFilter,
@@ -972,7 +972,7 @@ fn symbol_search_response(
 			.search_symbols_matching(text, usize::MAX, matches_query)
 			.into_iter()
 			.map(|hit| {
-				let Some(symbol) = symbol_by_id.get(hit.symbol.as_str()).copied() else {
+				let Some(symbol) = symbol_by_id.get(&hit.symbol).copied() else {
 					return Ok(None);
 				};
 				let Some(source) = source_by_id.get(symbol.source.as_str()).copied() else {
@@ -1298,7 +1298,7 @@ fn collect_incoming_usages(
 	snapshot: &WorkspaceSnapshot,
 	target: &SymbolRecord,
 	reference_by_id: &BTreeMap<&str, &ReferenceRecord>,
-	symbol_by_id: &BTreeMap<&str, &SymbolRecord>,
+	symbol_by_id: &BTreeMap<SymbolId, &SymbolRecord>,
 	context: &UsageDtoContext<'_>,
 ) -> Vec<UsageDto> {
 	let mut rows = snapshot
@@ -1313,7 +1313,7 @@ fn collect_incoming_usages(
 		.iter()
 		.map(|row| ReferenceId::new(row.reference.clone()))
 		.collect::<BTreeSet<_>>();
-	let mut visited = BTreeSet::from([target.id.clone()]);
+	let mut visited = BTreeSet::from([target.id]);
 	collect_indirect_incoming_usages(
 		snapshot,
 		&target.id,
@@ -1334,7 +1334,7 @@ fn collect_incoming_usages(
 
 struct IndirectUsageContext<'a> {
 	reference_by_id: &'a BTreeMap<&'a str, &'a ReferenceRecord>,
-	symbol_by_id: &'a BTreeMap<&'a str, &'a SymbolRecord>,
+	symbol_by_id: &'a BTreeMap<SymbolId, &'a SymbolRecord>,
 	usage_context: &'a UsageDtoContext<'a>,
 }
 
@@ -1367,9 +1367,9 @@ fn collect_indirect_incoming_usages(
 				.copied()
 		})
 		.filter(|reference| reference.kind == "uses_type")
-		.filter_map(|reference| context.symbol_by_id.get(reference.source_symbol.as_str()))
+		.filter_map(|reference| context.symbol_by_id.get(&reference.source_symbol))
 		.filter(|symbol| symbol.kind == "type")
-		.filter(|symbol| state.visited.insert(symbol.id.clone()))
+		.filter(|symbol| state.visited.insert(symbol.id))
 		.copied()
 		.collect::<Vec<_>>();
 	for alias in aliases {
@@ -2004,12 +2004,12 @@ mod helpers {
 			.collect()
 	}
 
-	pub(super) fn symbol_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SymbolRecord> {
+	pub(super) fn symbol_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<SymbolId, &SymbolRecord> {
 		snapshot
 			.index
 			.symbols
 			.iter()
-			.map(|symbol| (symbol.id.as_str(), symbol))
+			.map(|symbol| (symbol.id, symbol))
 			.collect()
 	}
 
@@ -2032,7 +2032,7 @@ mod helpers {
 			.index
 			.symbols
 			.iter()
-			.find(|symbol| symbol.identity == uri || symbol.id.as_str() == uri)
+			.find(|symbol| symbol.identity == uri || symbol.id.to_string() == uri)
 			.ok_or_else(|| QueryError::new("symbol_not_found", format!("symbol not found: {uri}")))
 	}
 
@@ -2044,7 +2044,7 @@ mod helpers {
 		SymbolDto {
 			root: source_root_label(roots, source),
 			uri: symbol.identity.to_string(),
-			id: symbol.id.as_str().to_string(),
+			id: symbol.id.to_string(),
 			name: symbol.name.to_string(),
 			kind: symbol.kind.to_string(),
 			visibility: symbol.visibility.to_string(),
@@ -2087,14 +2087,14 @@ mod helpers {
 		}
 		let actor = context
 			.symbol_by_id
-			.get(reference.source_symbol.as_str())
+			.get(&reference.source_symbol)
 			.map(|symbol| symbol.name.to_string())
-			.unwrap_or_else(|| reference.source_symbol.as_str().to_string());
+			.unwrap_or_else(|| reference.source_symbol.to_string());
 		let source_context = context
 			.symbol_by_id
-			.get(reference.source_symbol.as_str())
+			.get(&reference.source_symbol)
 			.map(|symbol| symbol.identity.to_string())
-			.unwrap_or_else(|| reference.source_symbol.as_str().to_string());
+			.unwrap_or_else(|| reference.source_symbol.to_string());
 		Some(UsageDto {
 			root: source_root_label(context.roots, source),
 			direction,

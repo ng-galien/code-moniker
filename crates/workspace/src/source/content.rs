@@ -304,15 +304,8 @@ mod tests {
 	fn symbol_moniker_returns_none_for_out_of_range_symbol_id() {
 		let (material, root, _) = material_with_one_reference();
 
-		assert_eq!(
-			material.symbol_moniker(&SymbolId::new("symbol:0:0")),
-			Some(&root)
-		);
-		assert!(
-			material
-				.symbol_moniker(&SymbolId::new("symbol:0:999999"))
-				.is_none()
-		);
+		assert_eq!(material.symbol_moniker(&SymbolId::at(0, 0)), Some(&root));
+		assert!(material.symbol_moniker(&SymbolId::at(0, 999999)).is_none());
 	}
 
 	#[test]

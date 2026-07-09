@@ -44,7 +44,7 @@ fn symbol_id_by_name(snapshot: &WorkspaceSnapshot, name: &str) -> SymbolId {
 		.symbols
 		.iter()
 		.find(|symbol| symbol.name == name)
-		.map(|symbol| symbol.id.clone())
+		.map(|symbol| symbol.id)
 		.unwrap_or_else(|| panic!("symbol named {name} in fixture"))
 }
 

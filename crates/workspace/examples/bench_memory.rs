@@ -453,7 +453,7 @@ fn estimate_linkage(linkage: &LinkageSnapshot, estimate: &mut MemoryEstimate) {
 		linkage
 			.resolved
 			.iter()
-			.map(|edge| edge.reference.as_str().len() + edge.target.as_str().len())
+			.map(|edge| edge.reference.as_str().len() + std::mem::size_of_val(&edge.target))
 			.sum(),
 		format!("{} resolved edges", linkage.resolved.len()),
 	);
@@ -494,7 +494,7 @@ fn estimate_changes(changes: &ChangeOverlay, estimate: &mut MemoryEstimate) {
 		changes
 			.changed_symbols
 			.iter()
-			.map(|symbol| symbol.as_str().len())
+			.map(|symbol| std::mem::size_of_val(symbol))
 			.sum(),
 		format!("{} changed symbols", changes.changed_symbols.len()),
 	);
@@ -597,7 +597,7 @@ fn estimate_material(material: &CodeIndexMaterial, estimate: &mut MemoryEstimate
 		material
 			.symbols_by_moniker
 			.iter()
-			.map(|(moniker, symbol)| moniker.as_encoded().len() + symbol.as_str().len())
+			.map(|(moniker, symbol)| moniker.as_encoded().len() + std::mem::size_of_val(symbol))
 			.sum(),
 		format!(
 			"{} moniker -> symbol entries",
@@ -617,22 +617,19 @@ fn source_record_payload(source: &SourceFileRecord) -> usize {
 }
 
 fn symbol_payload(symbol: &SymbolRecord) -> usize {
-	symbol.id.as_str().len()
+	std::mem::size_of_val(&symbol.id)
 		+ symbol.source.as_str().len()
 		+ symbol.identity.capacity()
 		+ symbol.name.capacity()
 		+ symbol.kind.capacity()
 		+ symbol.signature.capacity()
-		+ symbol
-			.parent
-			.as_ref()
-			.map_or(0, |parent| parent.as_str().len())
+		+ symbol.parent.as_ref().map_or(0, std::mem::size_of_val)
 }
 
 fn reference_owned_payload(reference: &ReferenceRecord) -> usize {
 	reference.id.as_str().len()
 		+ reference.source.as_str().len()
-		+ reference.source_symbol.as_str().len()
+		+ std::mem::size_of_val(&reference.source_symbol)
 		+ reference.kind.capacity()
 		+ reference.call_name.as_ref().map_or(0, String::capacity)
 		+ reference.confidence.as_ref().map_or(0, String::capacity)
@@ -651,10 +648,7 @@ fn change_payload(change: &ChangeRecord) -> usize {
 			.as_ref()
 			.map_or(0, |source| source.as_str().len())
 		+ change.source_uri.as_ref().map_or(0, String::capacity)
-		+ change
-			.symbol
-			.as_ref()
-			.map_or(0, |symbol| symbol.as_str().len())
+		+ change.symbol.as_ref().map_or(0, std::mem::size_of_val)
 		+ change.identity.capacity()
 		+ change.language.capacity()
 		+ change.file_path.capacity()

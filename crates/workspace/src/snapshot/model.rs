@@ -104,16 +104,41 @@ impl SourceCatalog {
 	}
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct SymbolId(String);
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct SymbolId {
+	file: u32,
+	def: u32,
+}
 
 impl SymbolId {
-	pub fn new(value: impl Into<String>) -> Self {
-		Self(value.into())
+	pub fn at(file: usize, def: usize) -> Self {
+		Self {
+			file: file as u32,
+			def: def as u32,
+		}
 	}
 
-	pub fn as_str(&self) -> &str {
-		&self.0
+	pub fn parse(value: &str) -> Option<Self> {
+		let rest = value.strip_prefix("symbol:")?;
+		let (file, def) = rest.split_once(':')?;
+		Some(Self {
+			file: file.parse().ok()?,
+			def: def.parse().ok()?,
+		})
+	}
+
+	pub fn file(self) -> usize {
+		self.file as usize
+	}
+
+	pub fn def(self) -> usize {
+		self.def as usize
+	}
+}
+
+impl std::fmt::Display for SymbolId {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(formatter, "symbol:{}:{}", self.file, self.def)
 	}
 }
 
@@ -139,14 +164,13 @@ pub struct SymbolRecord {
 
 impl SymbolRecord {
 	pub fn new(
-		id: impl Into<String>,
+		id: SymbolId,
 		source: SourceId,
 		name: impl Into<String>,
 		kind: impl Into<String>,
 	) -> Self {
-		let id = SymbolId::new(id);
 		Self {
-			identity: id.as_str().to_string(),
+			identity: id.to_string(),
 			id,
 			source,
 			name: name.into(),
@@ -385,7 +409,7 @@ impl LinkageReadIndex {
 		let mut targets = rustc_hash::FxHashMap::<ReferenceId, SymbolId>::default();
 		for edge in edges {
 			let LinkageEdge { reference, target } = edge.clone();
-			targets.entry(reference.clone()).or_insert(target.clone());
+			targets.entry(reference.clone()).or_insert(target);
 			incoming.entry(target).or_default().push(reference);
 		}
 		Self { incoming, targets }
@@ -519,15 +543,15 @@ impl ChangeOverlay {
 		mut changes: Vec<ChangeRecord>,
 	) -> Self {
 		changes.shrink_to_fit();
-		let changed_symbols = changes
-			.iter()
-			.filter_map(|change| change.symbol.clone())
-			.fold(Vec::new(), |mut out, symbol| {
+		let changed_symbols = changes.iter().filter_map(|change| change.symbol).fold(
+			Vec::new(),
+			|mut out, symbol| {
 				if !out.contains(&symbol) {
 					out.push(symbol);
 				}
 				out
-			});
+			},
+		);
 		let mut changed_symbols = changed_symbols;
 		changed_symbols.shrink_to_fit();
 		Self {

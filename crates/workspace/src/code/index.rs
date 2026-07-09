@@ -440,29 +440,29 @@ fn diff_symbols(previous: &[SymbolRecord], next: &[SymbolRecord], diff: &mut Cod
 	for previous_symbol in previous {
 		let key = symbol_key(previous_symbol);
 		let Some(next_idx) = pop_index(&mut next_by_key, &key) else {
-			diff.removed_symbols.push(previous_symbol.id.clone());
+			diff.removed_symbols.push(previous_symbol.id);
 			diff.removed_symbol_identities
 				.push(previous_symbol.identity.clone());
 			continue;
 		};
 		let next_symbol = &next[next_idx];
 		if symbol_linkage_fields_changed(previous_symbol, next_symbol) {
-			diff.modified_symbols.push(next_symbol.id.clone());
+			diff.modified_symbols.push(next_symbol.id);
 			diff.modified_symbol_identities
 				.push(next_symbol.identity.clone());
-			diff.changed_symbols.push(next_symbol.id.clone());
+			diff.changed_symbols.push(next_symbol.id);
 			continue;
 		}
 		if previous_symbol.id != next_symbol.id {
 			diff.symbol_id_remaps
-				.push((previous_symbol.id.clone(), next_symbol.id.clone()));
+				.push((previous_symbol.id, next_symbol.id));
 		}
 		diff.unchanged_symbols += 1;
 	}
 	for indexes in next_by_key.into_values() {
 		for idx in indexes {
-			diff.added_symbols.push(next[idx].id.clone());
-			diff.changed_symbols.push(next[idx].id.clone());
+			diff.added_symbols.push(next[idx].id);
+			diff.changed_symbols.push(next[idx].id);
 		}
 	}
 }

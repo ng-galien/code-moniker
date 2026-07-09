@@ -214,7 +214,7 @@ mod tests {
 			text: "pub fn run() {}\n".to_string(),
 		};
 		let symbol = SymbolRecord {
-			id: SymbolId::new("symbol:1"),
+			id: SymbolId::at(0, 1),
 			source: source.id.clone(),
 			identity: moniker.to_string(),
 			name: "run()".to_string(),
@@ -255,7 +255,7 @@ mod tests {
 
 	fn snapshot_with_orphaned_symbol(moniker: &str) -> WorkspaceSnapshot {
 		let symbol = SymbolRecord {
-			id: SymbolId::new("symbol:1"),
+			id: SymbolId::at(0, 1),
 			source: SourceId::new("missing-source"),
 			identity: moniker.to_string(),
 			name: "run()".to_string(),

@@ -51,7 +51,7 @@ impl<'a> SymbolView<'a> {
 		counts: &FxHashMap<&SymbolId, usize>,
 	) -> SymbolSummary {
 		SymbolSummary {
-			id: symbol.id.clone(),
+			id: symbol.id,
 			source: symbol.source.clone(),
 			identity: symbol.identity.clone(),
 			name: symbol.name.clone(),
@@ -93,13 +93,16 @@ impl<'a> SymbolView<'a> {
 	}
 
 	pub(super) fn find(&self, id: &SymbolId) -> Option<&SymbolRecord> {
-		if let Some((slot, idx)) = super::parse_positional_id(id.as_str(), "symbol") {
-			let record = self.snapshot.index.symbols.file_records(slot).get(idx);
-			if let Some(record) = record
-				&& &record.id == id
-			{
-				return Some(record);
-			}
+		let record = self
+			.snapshot
+			.index
+			.symbols
+			.file_records(id.file())
+			.get(id.def());
+		if let Some(record) = record
+			&& &record.id == id
+		{
+			return Some(record);
 		}
 		self.snapshot
 			.index
@@ -110,7 +113,7 @@ impl<'a> SymbolView<'a> {
 
 	pub(super) fn summary(&self, symbol: &SymbolRecord) -> SymbolSummary {
 		SymbolSummary {
-			id: symbol.id.clone(),
+			id: symbol.id,
 			source: symbol.source.clone(),
 			identity: symbol.identity.clone(),
 			name: symbol.name.clone(),

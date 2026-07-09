@@ -177,7 +177,7 @@ impl SymbolOrdinalCatalog {
 			return ordinal;
 		}
 		let ordinal = SymbolOrdinal::from_index(self.ids.len());
-		self.ordinals_by_id.insert(id.clone(), ordinal);
+		self.ordinals_by_id.insert(id, ordinal);
 		self.ordinals_by_identity.insert(identity.clone(), ordinal);
 		self.ids.push(Some(id));
 		self.identities.push(Some(identity));
@@ -193,7 +193,7 @@ impl SymbolOrdinalCatalog {
 				self.ordinals_by_id.remove(&previous_id.clone());
 			}
 		}
-		self.ordinals_by_id.insert(id.clone(), ordinal);
+		self.ordinals_by_id.insert(id, ordinal);
 		self.ids[ordinal.index()] = Some(id);
 	}
 

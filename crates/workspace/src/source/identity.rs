@@ -42,17 +42,11 @@ impl LocalIdentityResolver {
 	}
 
 	pub fn symbol_id(&self, file_idx: usize, def_idx: usize) -> SymbolId {
-		SymbolId::new(format!("symbol:{file_idx}:{def_idx}"))
+		SymbolId::at(file_idx, def_idx)
 	}
 
 	pub fn symbol_location(&self, id: &SymbolId) -> Option<(usize, usize)> {
-		let mut parts = id.as_str().split(':');
-		match (parts.next(), parts.next(), parts.next(), parts.next()) {
-			(Some("symbol"), Some(file), Some(def), None) => {
-				Some((file.parse().ok()?, def.parse().ok()?))
-			}
-			_ => None,
-		}
+		Some((id.file(), id.def()))
 	}
 
 	pub fn reference_id(&self, file_idx: usize, ref_idx: usize) -> ReferenceId {

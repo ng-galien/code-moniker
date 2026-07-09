@@ -676,11 +676,11 @@ fn usage_row(
 	let actor = lookup
 		.symbol(&reference.source_symbol)
 		.map(|symbol| symbol.name.to_string())
-		.unwrap_or_else(|| reference.source_symbol.as_str().to_string());
+		.unwrap_or_else(|| reference.source_symbol.to_string());
 	let context = lookup
 		.navigable_context(&reference.source_symbol)
 		.map(|symbol| symbol.identity.to_string())
-		.unwrap_or_else(|| reference.source_symbol.as_str().to_string());
+		.unwrap_or_else(|| reference.source_symbol.to_string());
 	Some(UsageRow {
 		direction: match direction {
 			UsageDirection::Incoming => "incoming",
@@ -882,7 +882,7 @@ fn percent(count: usize, total: usize) -> usize {
 
 struct UsageLookup<'a> {
 	sources: BTreeMap<&'a str, &'a SourceFileRecord>,
-	symbols: BTreeMap<&'a str, &'a SymbolRecord>,
+	symbols: BTreeMap<SymbolId, &'a SymbolRecord>,
 	symbols_by_identity: BTreeMap<&'a str, &'a SymbolRecord>,
 	references: BTreeMap<&'a str, &'a ReferenceRecord>,
 	reference_rows: &'a [ReferenceRecord],
@@ -900,7 +900,7 @@ impl<'a> UsageLookup<'a> {
 			symbols: index
 				.symbols
 				.iter()
-				.map(|symbol| (symbol.id.as_str(), symbol))
+				.map(|symbol| (symbol.id, symbol))
 				.collect(),
 			symbols_by_identity: index
 				.symbols
@@ -918,10 +918,10 @@ impl<'a> UsageLookup<'a> {
 	}
 
 	fn find_symbol(&self, uri: &str) -> Option<&'a SymbolRecord> {
-		self.symbols_by_identity
-			.get(uri)
-			.or_else(|| self.symbols.get(uri))
-			.copied()
+		self.symbols_by_identity.get(uri).copied().or_else(|| {
+			let id = SymbolId::parse(uri)?;
+			self.symbols.get(&id).copied()
+		})
 	}
 
 	fn source(&self, id: &SourceId) -> Option<&'a SourceFileRecord> {
@@ -960,6 +960,6 @@ impl<'a> UsageLookup<'a> {
 	}
 
 	fn symbol(&self, id: &SymbolId) -> Option<&'a SymbolRecord> {
-		self.symbols.get(id.as_str()).copied()
+		self.symbols.get(id).copied()
 	}
 }

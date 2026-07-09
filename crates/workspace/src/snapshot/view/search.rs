@@ -37,7 +37,7 @@ impl<'a> SearchView<'a> {
 				let (score, reason) = score_symbol(symbol, &raw, &terms)?;
 				Some((
 					SearchHit {
-						symbol: symbol.id.clone(),
+						symbol: symbol.id,
 						score,
 						reason,
 					},
@@ -136,9 +136,9 @@ mod tests {
 		SymbolId, WorkspaceTimings,
 	};
 
-	fn symbol(id: &str, name: &str, kind: &str, identity: &str) -> SymbolRecord {
+	fn symbol(id: usize, name: &str, kind: &str, identity: &str) -> SymbolRecord {
 		SymbolRecord {
-			id: SymbolId::new(id),
+			id: SymbolId::at(0, id),
 			source: SourceId::new("source:test"),
 			identity: identity.to_string(),
 			name: name.to_string(),
@@ -186,9 +186,9 @@ mod tests {
 
 	#[test]
 	fn exact_name_match_still_beats_partial_match() {
-		let exact = symbol("exact", "parse", "fn", "code+moniker://./fn:parse");
+		let exact = symbol(0, "parse", "fn", "code+moniker://./fn:parse");
 		let partial = symbol(
-			"partial",
+			1,
 			"parse_fragment",
 			"fn",
 			"code+moniker://./fn:parse_fragment",
@@ -199,9 +199,9 @@ mod tests {
 
 	#[test]
 	fn shorter_prefix_match_beats_longer_prefix_match() {
-		let short = symbol("short", "parse_ast", "fn", "code+moniker://./fn:parse_ast");
+		let short = symbol(0, "parse_ast", "fn", "code+moniker://./fn:parse_ast");
 		let long = symbol(
-			"long",
+			1,
 			"parse_fragment_from_source",
 			"fn",
 			"code+moniker://./fn:parse_fragment_from_source",
@@ -212,9 +212,9 @@ mod tests {
 
 	#[test]
 	fn filtered_search_ranks_after_filtering() {
-		let unfiltered_best = symbol("best", "parse", "fn", "code+moniker://./fn:parse");
+		let unfiltered_best = symbol(0, "parse", "fn", "code+moniker://./fn:parse");
 		let filtered_hit = symbol(
-			"target",
+			1,
 			"parse_fragment",
 			"fn",
 			"code+moniker://./module:target/fn:parse_fragment",
@@ -226,6 +226,6 @@ mod tests {
 		});
 
 		assert_eq!(hits.len(), 1);
-		assert_eq!(hits[0].symbol.as_str(), "target");
+		assert_eq!(hits[0].symbol, SymbolId::at(0, 1));
 	}
 }

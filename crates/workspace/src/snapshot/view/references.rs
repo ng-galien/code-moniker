@@ -67,7 +67,7 @@ impl<'a> ReferenceView<'a> {
 			.len();
 		let contexts = groups
 			.iter()
-			.filter_map(|group| group.context.clone())
+			.filter_map(|group| group.context)
 			.collect::<BTreeSet<_>>()
 			.len();
 		ReferenceSet {
@@ -109,10 +109,10 @@ fn reference_summary(
 	ReferenceSummary {
 		reference: reference.id.clone(),
 		source: Some(reference.source.clone()),
-		context: source_symbol.map(|symbol| symbol.id.clone()),
+		context: source_symbol.map(|symbol| symbol.id),
 		actor: source_symbol
 			.map(|symbol| symbol.name.clone())
-			.unwrap_or_else(|| reference.source_symbol.as_str().to_string()),
+			.unwrap_or_else(|| reference.source_symbol.to_string()),
 		endpoint_label: match direction {
 			ReferenceDirection::Incoming => "source",
 			ReferenceDirection::Outgoing => "target",
@@ -137,7 +137,7 @@ fn resolved_target(snapshot: &WorkspaceSnapshot, reference: &ReferenceId) -> Opt
 		.resolved
 		.iter()
 		.find(|edge| &edge.reference == reference)
-		.map(|edge| edge.target.clone())
+		.map(|edge| edge.target)
 }
 
 fn external_target(snapshot: &WorkspaceSnapshot, reference: &ReferenceId) -> Option<String> {
