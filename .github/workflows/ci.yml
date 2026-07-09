@@ -73,6 +73,22 @@ jobs:
       - name: Bench smoke (single iteration, no measurement)
         run: cargo bench -p code-moniker-workspace --benches -- --test
 
+  tui-tests:
+    name: tui feature tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy on the tui feature surface
+        run: cargo clippy -p code-moniker --features tui,mcp --no-default-features --lib --no-deps -- -D warnings
+
+      - name: Test the tui feature surface
+        run: cargo test -p code-moniker --features tui,mcp --no-default-features --lib
+
   mcp-tests:
     name: mcp feature tests
     runs-on: ubuntu-latest
