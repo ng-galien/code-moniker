@@ -147,6 +147,80 @@ impl ChangeIndex {
 	}
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiffScope {
+	pub base: BaseRev,
+	pub head: HeadSide,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BaseRev {
+	Rev(String),
+	MergeBase(String, String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum HeadSide {
+	Worktree,
+	Rev(String),
+}
+
+impl DiffScope {
+	pub fn worktree() -> Self {
+		Self {
+			base: BaseRev::Rev("HEAD".to_string()),
+			head: HeadSide::Worktree,
+		}
+	}
+
+	pub fn parse_range(range: &str) -> Result<Self, String> {
+		let (base, head, merge) = match range.split_once("...") {
+			Some((base, head)) => (base, head, true),
+			None => match range.split_once("..") {
+				Some((base, head)) => (base, head, false),
+				None => return Err(format!("`{range}` is not a <base>..<head> range")),
+			},
+		};
+		if base.is_empty() || head.is_empty() {
+			return Err(format!("`{range}` is missing a base or head revision"));
+		}
+		let base_rev = if merge {
+			BaseRev::MergeBase(base.to_string(), head.to_string())
+		} else {
+			BaseRev::Rev(base.to_string())
+		};
+		Ok(Self {
+			base: base_rev,
+			head: HeadSide::Rev(head.to_string()),
+		})
+	}
+
+	pub fn label(&self) -> String {
+		let base = match &self.base {
+			BaseRev::Rev(rev) => rev.clone(),
+			BaseRev::MergeBase(a, b) => format!("merge-base({a},{b})"),
+		};
+		match &self.head {
+			HeadSide::Worktree => format!("{base}..worktree"),
+			HeadSide::Rev(rev) => format!("{base}..{rev}"),
+		}
+	}
+}
+
+pub(in crate::changes) fn resolve_base_rev(
+	git_root: &Path,
+	base: &BaseRev,
+) -> Result<String, String> {
+	match base {
+		BaseRev::Rev(rev) => git_cli_text(git_root, &["rev-parse", "--verify", "--quiet", rev])
+			.map(|_| rev.clone())
+			.map_err(|_| format!("cannot resolve revision `{rev}`")),
+		BaseRev::MergeBase(a, b) => git_cli_text(git_root, &["merge-base", a, b])
+			.map(|out| out.trim().to_string())
+			.map_err(|error| format!("cannot resolve merge-base of `{a}` and `{b}`: {error}")),
+	}
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::changes) struct FileDiff {
 	pub(in crate::changes) repo_root: PathBuf,
@@ -200,7 +274,7 @@ pub fn build_change_index(scan: ChangeScan<'_>) -> ChangeIndex {
 					git_root: Some(git_root.clone()),
 					message: format!("git root {}", git_root.display()),
 				});
-				match collect_changed_files(&git_root, root.path) {
+				match collect_changed_files(&git_root, root.path, "HEAD", &HeadSide::Worktree) {
 					Ok(mut root_diffs) => diffs.append(&mut root_diffs),
 					Err(error) => changes.diagnostics.push(format!(
 						"{}: cannot inspect git changes: {error}",
@@ -487,7 +561,7 @@ fn base_file(
 	diff: &FileDiff,
 ) -> anyhow::Result<BaseFile> {
 	let (blob_rel, anchor) = base_blob_location(scan, file, diff)?;
-	let source = git_show(&diff.repo_root, &blob_rel)?;
+	let source = git_show(&diff.repo_root, "HEAD", &blob_rel)?;
 	let root = &scan.roots[file.source_root];
 	let graph = environment::extract_source_with(file.lang, &source, &anchor, root.ctx);
 	Ok(BaseFile {
@@ -529,7 +603,7 @@ fn removed_entries_for_deleted_file(
 	scan: &ChangeScan<'_>,
 	diff: &FileDiff,
 ) -> anyhow::Result<Vec<ChangeEntry>> {
-	let source = git_show(&diff.repo_root, &diff.repo_rel)?;
+	let source = git_show(&diff.repo_root, "HEAD", &diff.repo_rel)?;
 	let path = diff_path(diff);
 	let Some((source_root, root, rel_path)) = source_root_for_path(scan, &path) else {
 		return Ok(Vec::new());
@@ -600,23 +674,31 @@ pub(in crate::changes) fn display_rel_path(
 pub(in crate::changes) fn collect_changed_files(
 	git_root: &Path,
 	source_root: &Path,
+	base_rev: &str,
+	head: &HeadSide,
 ) -> Result<Vec<FileDiff>, String> {
 	let pathspec = git_pathspec(git_root, source_root);
+	let mut name_status_args = vec![
+		"diff",
+		"--name-status",
+		"--find-renames",
+		"--diff-filter=ACMRD",
+		base_rev,
+	];
+	if let HeadSide::Rev(head_rev) = head {
+		name_status_args.push(head_rev);
+	}
+	name_status_args.extend(["--", &pathspec]);
 	let mut out = Vec::new();
-	for row in git_cli_lines(
-		git_root,
-		&[
-			"diff",
-			"--name-status",
-			"--find-renames",
-			"--diff-filter=ACMRD",
-			"HEAD",
-			"--",
-			&pathspec,
-		],
-	)? {
+	for row in git_cli_lines(git_root, &name_status_args)? {
 		let (status, repo_rel, origin) = parse_name_status(&row)?;
-		let hunks = parse_diff_hunks(&hunk_diff_text(git_root, &repo_rel, origin.as_ref())?);
+		let scope_refs = HunkScope {
+			base_rev,
+			head,
+			repo_rel: &repo_rel,
+			origin: origin.as_ref(),
+		};
+		let hunks = parse_diff_hunks(&hunk_diff_text(git_root, &scope_refs)?);
 		if let Some(origin) = &origin {
 			out.push(FileDiff {
 				repo_root: git_root.to_path_buf(),
@@ -634,49 +716,53 @@ pub(in crate::changes) fn collect_changed_files(
 			hunks,
 		});
 	}
-	for rel in git_cli_lines(
-		git_root,
-		&[
-			"ls-files",
-			"--others",
-			"--exclude-standard",
-			"--",
-			&pathspec,
-		],
-	)? {
-		out.push(FileDiff {
-			repo_root: git_root.to_path_buf(),
-			repo_rel: PathBuf::from(rel),
-			origin: None,
-			status: FileDiffStatus::Added,
-			hunks: Vec::new(),
-		});
+	if *head == HeadSide::Worktree {
+		for rel in git_cli_lines(
+			git_root,
+			&[
+				"ls-files",
+				"--others",
+				"--exclude-standard",
+				"--",
+				&pathspec,
+			],
+		)? {
+			out.push(FileDiff {
+				repo_root: git_root.to_path_buf(),
+				repo_rel: PathBuf::from(rel),
+				origin: None,
+				status: FileDiffStatus::Added,
+				hunks: Vec::new(),
+			});
+		}
 	}
 	Ok(out)
 }
 
-fn hunk_diff_text(
-	git_root: &Path,
-	repo_rel: &Path,
-	origin: Option<&RenameOrigin>,
-) -> Result<String, String> {
-	let new_path = path_to_git(repo_rel);
-	let Some(origin) = origin else {
-		return git_cli_text(git_root, &["diff", "--unified=0", "HEAD", "--", &new_path]);
-	};
-	let old_path = path_to_git(&origin.repo_rel);
-	git_cli_text(
-		git_root,
-		&[
-			"diff",
-			"--unified=0",
-			"--find-renames",
-			"HEAD",
-			"--",
-			&old_path,
-			&new_path,
-		],
-	)
+struct HunkScope<'a> {
+	base_rev: &'a str,
+	head: &'a HeadSide,
+	repo_rel: &'a Path,
+	origin: Option<&'a RenameOrigin>,
+}
+
+fn hunk_diff_text(git_root: &Path, scope: &HunkScope<'_>) -> Result<String, String> {
+	let new_path = path_to_git(scope.repo_rel);
+	let mut args = vec!["diff", "--unified=0"];
+	if scope.origin.is_some() {
+		args.push("--find-renames");
+	}
+	args.push(scope.base_rev);
+	if let HeadSide::Rev(head_rev) = scope.head {
+		args.push(head_rev);
+	}
+	args.push("--");
+	let old_path = scope.origin.map(|origin| path_to_git(&origin.repo_rel));
+	if let Some(old_path) = &old_path {
+		args.push(old_path);
+	}
+	args.push(&new_path);
+	git_cli_text(git_root, &args)
 }
 
 type ParsedNameStatus = (FileDiffStatus, PathBuf, Option<RenameOrigin>);
@@ -745,10 +831,14 @@ fn git_cli_lines(git_root: &Path, args: &[&str]) -> Result<Vec<String>, String> 
 		.collect())
 }
 
-pub(in crate::changes) fn git_show(git_root: &Path, repo_rel: &Path) -> anyhow::Result<String> {
+pub(in crate::changes) fn git_show(
+	git_root: &Path,
+	rev: &str,
+	repo_rel: &Path,
+) -> anyhow::Result<String> {
 	git_cli_text(
 		git_root,
-		&["show", &format!("HEAD:{}", path_to_git(repo_rel))],
+		&["show", &format!("{rev}:{}", path_to_git(repo_rel))],
 	)
 	.map_err(anyhow::Error::msg)
 }
@@ -924,7 +1014,7 @@ mod tests {
 		let tmp = committed_repo();
 		write(tmp.path(), "src/Foo.java", "class Foo { int changed; }\n");
 
-		let text = git_show(tmp.path(), Path::new("src/Foo.java")).unwrap();
+		let text = git_show(tmp.path(), "HEAD", Path::new("src/Foo.java")).unwrap();
 
 		assert_eq!(text, "class Foo {}\n");
 	}
@@ -1119,7 +1209,8 @@ mod tests {
 		let scan = rust_scan(tmp.path(), &ctx, &path, "src/renamed.rs", source, &graph);
 		let git_root = normalize_path(tmp.path());
 
-		let diffs = collect_changed_files(&git_root, tmp.path()).unwrap();
+		let diffs =
+			collect_changed_files(&git_root, tmp.path(), "HEAD", &HeadSide::Worktree).unwrap();
 		let renamed = diffs
 			.iter()
 			.find(|diff| diff.status == FileDiffStatus::Renamed)

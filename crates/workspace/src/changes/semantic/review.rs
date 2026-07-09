@@ -2,14 +2,14 @@ use std::path::{Path, PathBuf};
 
 use code_moniker_core::core::code_graph::CodeGraph;
 use code_moniker_core::lang::Lang;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::environment;
 
 use super::super::diff::{
-	ChangeFile, ChangeScan, DiffHunk, FileDiff, FileDiffStatus, GitWorktree, anchor_for,
-	collect_changed_files, diff_path, display_rel_path, git_show, normalize_path,
-	source_root_for_path,
+	ChangeFile, ChangeScan, DiffHunk, DiffScope, FileDiff, FileDiffStatus, GitWorktree, HeadSide,
+	anchor_for, collect_changed_files, diff_path, display_rel_path, git_show, normalize_path,
+	resolve_base_rev, source_root_for_path,
 };
 use super::model::{HunkCoverage, RefChange, SymbolChange};
 use super::pairing::{FilePairing, FileSide, PairInputs, finish_files, pair_file};
@@ -35,6 +35,9 @@ pub struct FileFacts {
 pub struct ReviewDiffs {
 	diffs: Vec<FileDiff>,
 	pub diagnostics: Vec<String>,
+	scope_label: String,
+	head_rev: Option<String>,
+	base_by_root: FxHashMap<PathBuf, String>,
 }
 
 impl ReviewDiffs {
@@ -45,25 +48,78 @@ impl ReviewDiffs {
 			.map(|diff| normalize_path(&diff_path(diff)))
 			.collect()
 	}
+
+	pub fn current_rows(&self) -> Vec<(&Path, &Path)> {
+		self.diffs
+			.iter()
+			.filter(|diff| diff.status != FileDiffStatus::Deleted)
+			.map(|diff| (diff.repo_root.as_path(), diff.repo_rel.as_path()))
+			.collect()
+	}
+
+	pub fn head_rev(&self) -> Option<&str> {
+		self.head_rev.as_deref()
+	}
+
+	pub fn any_root_resolved(&self) -> bool {
+		!self.base_by_root.is_empty()
+	}
+
+	fn base_rev_for(&self, repo_root: &Path) -> &str {
+		self.base_by_root
+			.get(repo_root)
+			.map(String::as_str)
+			.unwrap_or("HEAD")
+	}
+}
+
+pub fn read_blob(repo_root: &Path, rev: &str, repo_rel: &Path) -> anyhow::Result<String> {
+	git_show(repo_root, rev, repo_rel)
 }
 
 pub fn collect_review_diffs(roots: &[(String, PathBuf)]) -> ReviewDiffs {
+	collect_review_diffs_scoped(roots, &DiffScope::worktree())
+}
+
+pub fn collect_review_diffs_scoped(roots: &[(String, PathBuf)], scope: &DiffScope) -> ReviewDiffs {
 	let mut review_diffs = ReviewDiffs {
 		diffs: Vec::new(),
 		diagnostics: Vec::new(),
+		scope_label: scope.label(),
+		head_rev: match &scope.head {
+			HeadSide::Rev(rev) => Some(rev.clone()),
+			HeadSide::Worktree => None,
+		},
+		base_by_root: FxHashMap::default(),
 	};
 	for (label, path) in roots {
-		match GitWorktree::discover(path) {
-			Ok(repo) => match collect_changed_files(repo.root(), path) {
-				Ok(mut root_diffs) => review_diffs.diffs.append(&mut root_diffs),
-				Err(error) => review_diffs
-					.diagnostics
-					.push(format!("{label}: cannot inspect git changes: {error}")),
-			},
-			Err(message) => review_diffs.diagnostics.push(message),
-		}
+		collect_root_diffs(&mut review_diffs, label, path, scope);
 	}
 	review_diffs
+}
+
+fn collect_root_diffs(out: &mut ReviewDiffs, label: &str, path: &Path, scope: &DiffScope) {
+	let repo = match GitWorktree::discover(path) {
+		Ok(repo) => repo,
+		Err(message) => {
+			out.diagnostics.push(message);
+			return;
+		}
+	};
+	let base_rev = match resolve_base_rev(repo.root(), &scope.base) {
+		Ok(base_rev) => base_rev,
+		Err(message) => {
+			out.diagnostics.push(format!("{label}: {message}"));
+			return;
+		}
+	};
+	match collect_changed_files(repo.root(), path, &base_rev, &scope.head) {
+		Ok(mut root_diffs) => out.diffs.append(&mut root_diffs),
+		Err(error) => out
+			.diagnostics
+			.push(format!("{label}: cannot inspect git changes: {error}")),
+	}
+	out.base_by_root.insert(repo.root().to_path_buf(), base_rev);
 }
 
 pub fn build_semantic_review(scan: &ChangeScan<'_>) -> SemanticReview {
@@ -77,11 +133,11 @@ pub fn build_semantic_review(scan: &ChangeScan<'_>) -> SemanticReview {
 
 pub fn build_semantic_review_from(scan: &ChangeScan<'_>, diffs: &ReviewDiffs) -> SemanticReview {
 	let mut review = SemanticReview {
-		scope: "HEAD..worktree".to_string(),
+		scope: diffs.scope_label.clone(),
 		diagnostics: diffs.diagnostics.clone(),
 		..SemanticReview::default()
 	};
-	let pairs = review_pairs(scan, &diffs.diffs, &mut review);
+	let pairs = review_pairs(scan, diffs, &mut review);
 	let pairings: Vec<FilePairing> = pairs
 		.iter()
 		.map(|pair| {
@@ -166,9 +222,10 @@ impl SidePair<'_> {
 
 fn review_pairs<'scan>(
 	scan: &'scan ChangeScan<'scan>,
-	diffs: &[FileDiff],
+	review_diffs: &ReviewDiffs,
 	review: &mut SemanticReview,
 ) -> Vec<SidePair<'scan>> {
+	let diffs = &review_diffs.diffs;
 	let relevant = scan.relevant_diffs(diffs);
 	let matched: FxHashSet<PathBuf> = relevant.by_path.keys().cloned().collect();
 	let deleted: FxHashSet<PathBuf> = relevant
@@ -187,12 +244,13 @@ fn review_pairs<'scan>(
 			continue;
 		}
 		let path = normalize_path(&diff_path(diff));
+		let base_rev = review_diffs.base_rev_for(&diff.repo_root);
 		let outcome = if matched.contains(&path) {
 			scan_file_for(scan, &path)
 				.ok_or_else(|| format!("changed file left the catalog: {}", path.display()))
-				.and_then(|file| matched_pair(scan, diff, file))
+				.and_then(|file| matched_pair(scan, diff, file, base_rev))
 		} else if deleted.contains(&path) {
-			deleted_pair(scan, diff)
+			deleted_pair(scan, diff, base_rev)
 		} else {
 			Err(String::new())
 		};
@@ -222,6 +280,7 @@ fn matched_pair<'scan>(
 	scan: &ChangeScan<'_>,
 	diff: &FileDiff,
 	file: &'scan ChangeFile<'scan>,
+	base_rev: &str,
 ) -> Result<SidePair<'scan>, String> {
 	let (old_hunks, new_hunks) = hunk_spans(&diff.hunks);
 	match diff.status {
@@ -237,14 +296,15 @@ fn matched_pair<'scan>(
 			file_moved: false,
 			disposition: FileDisposition::Added,
 		}),
-		FileDiffStatus::Renamed => renamed_pair(scan, diff, file, (old_hunks, new_hunks)),
+		FileDiffStatus::Renamed => renamed_pair(scan, diff, file, (old_hunks, new_hunks), base_rev),
 		_ => {
-			let base_source = git_show(&diff.repo_root, &diff.repo_rel).map_err(|error| {
-				format!(
-					"{}: cannot read base blob: {error}",
-					file.rel_path.display()
-				)
-			})?;
+			let base_source =
+				git_show(&diff.repo_root, base_rev, &diff.repo_rel).map_err(|error| {
+					format!(
+						"{}: cannot read base blob: {error}",
+						file.rel_path.display()
+					)
+				})?;
 			let base_graph = extract_at(scan, file, file.anchor, &base_source);
 			Ok(SidePair {
 				old_rel: file.rel_path.to_path_buf(),
@@ -267,6 +327,7 @@ fn renamed_pair<'scan>(
 	diff: &FileDiff,
 	file: &'scan ChangeFile<'scan>,
 	hunks: (LineSpans, LineSpans),
+	base_rev: &str,
 ) -> Result<SidePair<'scan>, String> {
 	let origin = diff.origin.as_ref().expect("renamed rows carry an origin");
 	let old_abs = diff.repo_root.join(&origin.repo_rel);
@@ -281,7 +342,7 @@ fn renamed_pair<'scan>(
 	let base_source = if origin.score == 100 {
 		file.source.to_string()
 	} else {
-		git_show(&diff.repo_root, &origin.repo_rel)
+		git_show(&diff.repo_root, base_rev, &origin.repo_rel)
 			.map_err(|error| format!("{}: cannot read base blob: {error}", old_display.display()))?
 	};
 	let base_graph =
@@ -300,7 +361,11 @@ fn renamed_pair<'scan>(
 	})
 }
 
-fn deleted_pair<'scan>(scan: &ChangeScan<'_>, diff: &FileDiff) -> Result<SidePair<'scan>, String> {
+fn deleted_pair<'scan>(
+	scan: &ChangeScan<'_>,
+	diff: &FileDiff,
+	base_rev: &str,
+) -> Result<SidePair<'scan>, String> {
 	let path = diff_path(diff);
 	let lang = environment::language_for_path(&path).map_err(|error| error.to_string())?;
 	let Some((source_root, root, old_rel)) = source_root_for_path(scan, &path) else {
@@ -311,7 +376,7 @@ fn deleted_pair<'scan>(scan: &ChangeScan<'_>, diff: &FileDiff) -> Result<SidePai
 	};
 	let anchor = anchor_for(scan, root, &old_rel);
 	let old_display = display_rel_path(scan, source_root, root, &old_rel);
-	let base_source = git_show(&diff.repo_root, &diff.repo_rel)
+	let base_source = git_show(&diff.repo_root, base_rev, &diff.repo_rel)
 		.map_err(|error| format!("{}: cannot read base blob: {error}", old_display.display()))?;
 	let base_graph = environment::extract_source_with(lang, &base_source, &anchor, root.ctx);
 	let empty_graph = environment::extract_source_with(lang, "", &anchor, root.ctx);
@@ -652,6 +717,70 @@ mod tests {
 		assert!(
 			consumer.coverage.explained(),
 			"import retarget and body edit must explain every hunk: {consumer:?}"
+		);
+	}
+
+	#[test]
+	fn scoped_review_classifies_a_committed_rename_between_revisions() {
+		let tmp = tempfile::tempdir().unwrap();
+		git(tmp.path(), &["init"]);
+		git(tmp.path(), &["config", "user.email", "cm@example.test"]);
+		git(tmp.path(), &["config", "user.name", "Code Moniker"]);
+		write(
+			tmp.path(),
+			"src/util.rs",
+			"pub fn assist() { work(); }\npub fn sidekick() { rest(); }\n",
+		);
+		git(tmp.path(), &["add", "."]);
+		git(tmp.path(), &["commit", "-m", "initial"]);
+		git(tmp.path(), &["mv", "src/util.rs", "src/support.rs"]);
+		git(tmp.path(), &["commit", "-am", "move"]);
+		let fixture = ScanFixture::new(tmp.path(), &["src/support.rs"]);
+		let ctx = ExtractContext::default();
+		let roots = vec![("repo".to_string(), tmp.path().to_path_buf())];
+
+		for range in ["HEAD~1..HEAD", "HEAD~1...HEAD"] {
+			let scope = DiffScope::parse_range(range).unwrap();
+			let diffs = collect_review_diffs_scoped(&roots, &scope);
+			assert!(diffs.any_root_resolved(), "{:?}", diffs.diagnostics);
+			let review = build_semantic_review_from(&fixture.scan(&ctx), &diffs);
+
+			assert!(review.scope.contains(".."), "{}", review.scope);
+			let moved = review
+				.files
+				.iter()
+				.find(|facts| facts.rollup.old_path.as_deref() == Some(Path::new("src/util.rs")))
+				.unwrap_or_else(|| panic!("moved facts for {range}: {:?}", review.files));
+			assert_eq!(
+				moved.rollup.disposition,
+				FileDisposition::Moved { pure: true },
+				"{range}: {moved:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn scoped_review_reports_unresolvable_revisions() {
+		let tmp = tempfile::tempdir().unwrap();
+		git(tmp.path(), &["init"]);
+		git(tmp.path(), &["config", "user.email", "cm@example.test"]);
+		git(tmp.path(), &["config", "user.name", "Code Moniker"]);
+		write(tmp.path(), "src/lib.rs", "fn lone() {}\n");
+		git(tmp.path(), &["add", "."]);
+		git(tmp.path(), &["commit", "-m", "initial"]);
+		let roots = vec![("repo".to_string(), tmp.path().to_path_buf())];
+
+		let scope = DiffScope::parse_range("no-such-rev..HEAD").unwrap();
+		let diffs = collect_review_diffs_scoped(&roots, &scope);
+
+		assert!(!diffs.any_root_resolved());
+		assert!(
+			diffs
+				.diagnostics
+				.iter()
+				.any(|message| message.contains("no-such-rev")),
+			"{:?}",
+			diffs.diagnostics
 		);
 	}
 
