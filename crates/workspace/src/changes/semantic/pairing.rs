@@ -31,6 +31,7 @@ struct SideDef {
 	params: Option<Vec<u8>>,
 	has_body: bool,
 	text_hash: u64,
+	full_hash: u64,
 	side: SymbolSide,
 }
 
@@ -41,7 +42,13 @@ struct PairingState {
 	file_moved: bool,
 }
 
-pub fn pair_file(inputs: PairInputs<'_>) -> Vec<SymbolChange> {
+pub struct FilePairing {
+	changes: Vec<SymbolChange>,
+	unpaired_old: Vec<SideDef>,
+	unpaired_new: Vec<SideDef>,
+}
+
+pub fn pair_file(inputs: PairInputs<'_>) -> FilePairing {
 	let mut state = PairingState {
 		old: collect_side_defs(&inputs.base),
 		new: collect_side_defs(&inputs.current),
@@ -52,9 +59,68 @@ pub fn pair_file(inputs: PairInputs<'_>) -> Vec<SymbolChange> {
 	let mut renames = pair_signature_changes(&mut state);
 	renames.extend(pair_renames(&mut state));
 	propagate_container_renames(&mut state, renames);
-	finalize_unpaired(&mut state);
-	sort_changes(&mut state.changes);
-	state.changes
+	FilePairing {
+		unpaired_old: collapsed_roots(&mut state.old),
+		unpaired_new: collapsed_roots(&mut state.new),
+		changes: state.changes,
+	}
+}
+
+pub fn finish_files(pairings: Vec<FilePairing>) -> Vec<SymbolChange> {
+	let mut changes = Vec::new();
+	let mut old_pool = Vec::new();
+	let mut new_pool = Vec::new();
+	for pairing in pairings {
+		changes.extend(pairing.changes);
+		old_pool.extend(pairing.unpaired_old);
+		new_pool.extend(pairing.unpaired_new);
+	}
+	changes.extend(pair_across_containers(&mut old_pool, &mut new_pool));
+	changes.extend(
+		old_pool
+			.into_iter()
+			.map(|def| unpaired_change(def, SemanticKind::Removed)),
+	);
+	changes.extend(
+		new_pool
+			.into_iter()
+			.map(|def| unpaired_change(def, SemanticKind::Added)),
+	);
+	sort_changes(&mut changes);
+	changes
+}
+
+fn pair_across_containers(
+	old_pool: &mut Vec<SideDef>,
+	new_pool: &mut Vec<SideDef>,
+) -> Vec<SymbolChange> {
+	let mut old_slots: Vec<Option<SideDef>> = old_pool.drain(..).map(Some).collect();
+	let mut new_slots: Vec<Option<SideDef>> = new_pool.drain(..).map(Some).collect();
+	let mut groups: SlotGroups<(String, Vec<u8>, u64)> = FxHashMap::default();
+	collect_groups(&old_slots, &mut groups, 0, container_move_key);
+	collect_groups(&new_slots, &mut groups, 1, container_move_key);
+	let mut changes = Vec::new();
+	for (olds, news) in groups.into_values() {
+		let [old_idx] = olds.as_slice() else { continue };
+		let [new_idx] = news.as_slice() else { continue };
+		let old = old_slots[*old_idx].take().expect("grouped old");
+		let new = new_slots[*new_idx].take().expect("grouped new");
+		let facets = ChangeFacets {
+			file_moved: old.side.file_path != new.side.file_path,
+			..ChangeFacets::default()
+		};
+		changes.push(paired_change(SemanticKind::Moved, facets, old, new));
+	}
+	old_pool.extend(old_slots.into_iter().flatten());
+	new_pool.extend(new_slots.into_iter().flatten());
+	changes
+}
+
+fn container_move_key(def: &SideDef) -> Option<(String, Vec<u8>, u64)> {
+	if !def.has_body {
+		return None;
+	}
+	Some((def.side.kind.clone(), def.base_name.clone(), def.full_hash))
 }
 
 fn collect_side_defs(file: &FileSide<'_>) -> Vec<Option<SideDef>> {
@@ -107,6 +173,7 @@ fn side_def(file: &FileSide<'_>, def: &DefRecord, nested_spans: &[(u32, u32)]) -
 		params,
 		has_body: def.position.is_some(),
 		text_hash: prints.text,
+		full_hash: prints.full,
 		side,
 	})
 }
@@ -295,18 +362,7 @@ fn rewrite_tails(slots: &mut [Option<SideDef>], renames: &RenameMap) -> bool {
 	rewrote
 }
 
-fn finalize_unpaired(state: &mut PairingState) {
-	let removed = unpaired_changes(&mut state.old, SemanticKind::Removed, state.file_moved);
-	let added = unpaired_changes(&mut state.new, SemanticKind::Added, state.file_moved);
-	state.changes.extend(removed);
-	state.changes.extend(added);
-}
-
-fn unpaired_changes(
-	slots: &mut [Option<SideDef>],
-	kind: SemanticKind,
-	file_moved: bool,
-) -> Vec<SymbolChange> {
+fn collapsed_roots(slots: &mut [Option<SideDef>]) -> Vec<SideDef> {
 	let defs: Vec<SideDef> = slots.iter_mut().filter_map(Option::take).collect();
 	let tails: Vec<IdentityTail> = defs.iter().map(|def| def.tail.clone()).collect();
 	defs.into_iter()
@@ -315,44 +371,41 @@ fn unpaired_changes(
 				.iter()
 				.any(|tail| tail != &def.tail && def.tail.starts_with(tail))
 		})
-		.map(|def| {
-			let facets = ChangeFacets {
-				file_moved,
-				..ChangeFacets::default()
-			};
-			let (old, new) = match kind {
-				SemanticKind::Removed => (Some(def.side), None),
-				_ => (None, Some(def.side)),
-			};
-			SymbolChange {
-				kind,
-				confidence: Confidence::Certain,
-				facets,
-				old,
-				new,
-			}
-		})
 		.collect()
+}
+
+fn unpaired_change(def: SideDef, kind: SemanticKind) -> SymbolChange {
+	let (old, new) = match kind {
+		SemanticKind::Removed => (Some(def.side), None),
+		_ => (None, Some(def.side)),
+	};
+	SymbolChange {
+		kind,
+		confidence: Confidence::Certain,
+		facets: ChangeFacets::default(),
+		old,
+		new,
+	}
 }
 
 fn sort_changes(changes: &mut [SymbolChange]) {
 	changes.sort_by(|a, b| change_order(a).cmp(&change_order(b)));
 }
 
-fn change_order(change: &SymbolChange) -> (u32, &str) {
+fn change_order(change: &SymbolChange) -> (&Path, u32, &str) {
 	let side = change
 		.new
 		.as_ref()
 		.or(change.old.as_ref())
 		.expect("a change has at least one side");
 	let line = side.line_range.map(|(start, _)| start).unwrap_or(u32::MAX);
-	(line, side.name.as_str())
+	(side.file_path.as_path(), line, side.name.as_str())
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::path::Path;
+	use std::path::{Path, PathBuf};
 
 	fn pair_rust(base: &str, current: &str) -> Vec<SymbolChange> {
 		pair_lang(Lang::Rs, base, current, "src/lib.rs")
@@ -361,7 +414,7 @@ mod tests {
 	fn pair_lang(lang: Lang, base: &str, current: &str, rel: &str) -> Vec<SymbolChange> {
 		let base_graph = environment::extract_source(lang, base, Path::new(rel));
 		let current_graph = environment::extract_source(lang, current, Path::new(rel));
-		pair_file(PairInputs {
+		finish_files(vec![pair_file(PairInputs {
 			base: FileSide {
 				lang,
 				graph: &base_graph,
@@ -375,7 +428,72 @@ mod tests {
 				file_path: Path::new(rel),
 			},
 			file_moved: false,
-		})
+		})])
+	}
+
+	fn pair_moved_rust(
+		base: &str,
+		old_rel: &str,
+		current: &str,
+		new_rel: &str,
+	) -> Vec<SymbolChange> {
+		let base_graph = environment::extract_source(Lang::Rs, base, Path::new(old_rel));
+		let current_graph = environment::extract_source(Lang::Rs, current, Path::new(new_rel));
+		finish_files(vec![pair_file(PairInputs {
+			base: FileSide {
+				lang: Lang::Rs,
+				graph: &base_graph,
+				source: base,
+				file_path: Path::new(old_rel),
+			},
+			current: FileSide {
+				lang: Lang::Rs,
+				graph: &current_graph,
+				source: current,
+				file_path: Path::new(new_rel),
+			},
+			file_moved: true,
+		})])
+	}
+
+	struct EditedFile<'a> {
+		rel: &'a str,
+		base: &'a str,
+		current: &'a str,
+	}
+
+	fn pair_many_rust(files: &[EditedFile<'_>]) -> Vec<SymbolChange> {
+		let graphs: Vec<_> = files
+			.iter()
+			.map(|file| {
+				(
+					environment::extract_source(Lang::Rs, file.base, Path::new(file.rel)),
+					environment::extract_source(Lang::Rs, file.current, Path::new(file.rel)),
+				)
+			})
+			.collect();
+		let pairings = files
+			.iter()
+			.zip(&graphs)
+			.map(|(file, (base_graph, current_graph))| {
+				pair_file(PairInputs {
+					base: FileSide {
+						lang: Lang::Rs,
+						graph: base_graph,
+						source: file.base,
+						file_path: Path::new(file.rel),
+					},
+					current: FileSide {
+						lang: Lang::Rs,
+						graph: current_graph,
+						source: file.current,
+						file_path: Path::new(file.rel),
+					},
+					file_moved: false,
+				})
+			})
+			.collect();
+		finish_files(pairings)
 	}
 
 	fn kinds(changes: &[SymbolChange]) -> Vec<SemanticKind> {
@@ -534,6 +652,153 @@ mod tests {
 				.as_ref()
 				.is_some_and(|side| side.name == "Fresh")
 		);
+	}
+
+	#[test]
+	fn pure_file_move_reports_only_moved_facts() {
+		let source = "fn alpha() { work(); }\nfn beta() { rest(); }\n";
+		let changes = pair_moved_rust(source, "src/old_spot.rs", source, "src/new_spot.rs");
+
+		assert_eq!(
+			kinds(&changes),
+			vec![SemanticKind::Moved, SemanticKind::Moved],
+			"{changes:?}"
+		);
+		assert!(changes.iter().all(|change| {
+			change.facets.file_moved
+				&& !change.facets.body_changed
+				&& change.confidence == Confidence::Certain
+		}));
+	}
+
+	#[test]
+	fn file_move_with_one_edit_isolates_the_edited_symbol() {
+		let changes = pair_moved_rust(
+			"fn alpha() { work(); }\nfn beta() { rest(); }\n",
+			"src/old_spot.rs",
+			"fn alpha() { work(); }\nfn beta() { rest(); rest(); }\n",
+			"src/new_spot.rs",
+		);
+
+		let edited: Vec<_> = changes
+			.iter()
+			.filter(|change| change.facets.body_changed)
+			.collect();
+		assert_eq!(edited.len(), 1, "{changes:?}");
+		assert_eq!(edited[0].kind, SemanticKind::Moved);
+		assert!(
+			edited[0]
+				.new
+				.as_ref()
+				.is_some_and(|side| side.name.starts_with("beta"))
+		);
+		assert!(changes.iter().all(|change| change.facets.file_moved));
+	}
+
+	#[test]
+	fn moved_file_pairs_identical_twins_by_tail() {
+		let source = "fn twin_a() { work(); }\nfn twin_b() { work(); }\n";
+		let changes = pair_moved_rust(source, "src/old_spot.rs", source, "src/new_spot.rs");
+
+		assert_eq!(
+			kinds(&changes),
+			vec![SemanticKind::Moved, SemanticKind::Moved],
+			"{changes:?}"
+		);
+	}
+
+	#[test]
+	fn cross_file_extraction_pairs_as_moved() {
+		let changes = pair_many_rust(&[
+			EditedFile {
+				rel: "src/a.rs",
+				base: "fn stay() {}\nfn traveler(x: u32) -> u32 { x + 1 }\n",
+				current: "fn stay() {}\n",
+			},
+			EditedFile {
+				rel: "src/b.rs",
+				base: "fn other() {}\n",
+				current: "fn other() {}\nfn traveler(x: u32) -> u32 { x + 1 }\n",
+			},
+		]);
+
+		assert_eq!(kinds(&changes), vec![SemanticKind::Moved], "{changes:?}");
+		let change = &changes[0];
+		assert!(change.facets.file_moved);
+		assert_eq!(
+			change.old.as_ref().map(|side| side.file_path.clone()),
+			Some(PathBuf::from("src/a.rs"))
+		);
+		assert_eq!(
+			change.new.as_ref().map(|side| side.file_path.clone()),
+			Some(PathBuf::from("src/b.rs"))
+		);
+	}
+
+	#[test]
+	fn cross_file_twins_with_the_same_name_pair_one_to_one() {
+		let changes = pair_many_rust(&[
+			EditedFile {
+				rel: "src/a.rs",
+				base: "fn twin_a() { work(); }\nfn twin_b() { work(); }\n",
+				current: "",
+			},
+			EditedFile {
+				rel: "src/b.rs",
+				base: "",
+				current: "fn twin_a() { work(); }\nfn twin_b() { work(); }\n",
+			},
+		]);
+
+		assert_eq!(
+			kinds(&changes),
+			vec![SemanticKind::Moved, SemanticKind::Moved],
+			"same-name twins map unambiguously across files: {changes:?}"
+		);
+	}
+
+	#[test]
+	fn ambiguous_cross_file_destinations_stay_removed_plus_added() {
+		let changes = pair_many_rust(&[
+			EditedFile {
+				rel: "src/a.rs",
+				base: "fn helper() { work(); }\n",
+				current: "",
+			},
+			EditedFile {
+				rel: "src/b.rs",
+				base: "fn helper() { work(); }\n",
+				current: "",
+			},
+			EditedFile {
+				rel: "src/c.rs",
+				base: "",
+				current: "fn helper() { work(); }\n",
+			},
+		]);
+
+		let mut sorted = kinds(&changes);
+		sorted.sort_by_key(|kind| kind.label());
+		assert_eq!(
+			sorted,
+			vec![
+				SemanticKind::Added,
+				SemanticKind::Removed,
+				SemanticKind::Removed
+			],
+			"two possible origins must refuse to pair: {changes:?}"
+		);
+	}
+
+	#[test]
+	fn same_file_container_move_reports_moved_without_file_facet() {
+		let changes = pair_rust(
+			"struct Holder;\nstruct Keeper;\nimpl Holder {\n\tfn helper(&self) -> u32 { 2 }\n}\nimpl Keeper {}\n",
+			"struct Holder;\nstruct Keeper;\nimpl Holder {}\nimpl Keeper {\n\tfn helper(&self) -> u32 { 2 }\n}\n",
+		);
+
+		assert_eq!(kinds(&changes), vec![SemanticKind::Moved], "{changes:?}");
+		assert!(!changes[0].facets.file_moved);
 	}
 
 	#[test]

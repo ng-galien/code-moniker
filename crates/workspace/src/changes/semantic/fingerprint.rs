@@ -68,6 +68,7 @@ pub fn split_callable_name(name: &[u8]) -> (&[u8], Option<&[u8]>) {
 pub struct DefFingerprints {
 	pub text: u64,
 	pub body: u64,
+	pub full: u64,
 }
 
 pub struct FingerprintScope<'a> {
@@ -92,7 +93,12 @@ pub fn def_fingerprints(scope: FingerprintScope<'_>) -> DefFingerprints {
 		}
 		_ => text,
 	};
-	DefFingerprints { text, body }
+	let full = if holes.is_empty() {
+		text
+	} else {
+		masked_hash(bytes, scope.name, &[])
+	};
+	DefFingerprints { text, body, full }
 }
 
 fn relative_holes(span: (u32, u32), nested: &[(u32, u32)], len: usize) -> Vec<(usize, usize)> {
