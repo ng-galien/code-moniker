@@ -139,9 +139,9 @@ fn read_root_summarizes_workspace_and_limits_explorer() {
 	let catalog = SourceCatalog::new(
 		ResourceGeneration::new(1),
 		vec![
-			SourceUnit::with_language("source:1", "root/src/main/java/App.java", "java"),
-			SourceUnit::with_language("source:3", "root/src/main/java/Other.java", "java"),
-			SourceUnit::with_language("source:2", "root/pom.xml", "xml"),
+			SourceUnit::with_language(SourceId::at(1), "root/src/main/java/App.java", "java"),
+			SourceUnit::with_language(SourceId::at(3), "root/src/main/java/Other.java", "java"),
+			SourceUnit::with_language(SourceId::at(2), "root/pom.xml", "xml"),
 		],
 	);
 	let text = render_explorer_lmnav(
@@ -924,7 +924,7 @@ fn write_fragment_view_fixture(root: &std::path::Path, source_dir: &std::path::P
 
 #[test]
 fn symbols_tool_filters_and_pages_symbols() {
-	let source_id = SourceId::new("source:1:src/App.java");
+	let source_id = SourceId::at(1);
 	let sources = vec![SourceFileRecord {
 		id: source_id.clone(),
 		uri: "code+moniker://./file:src/App.java".to_string(),
@@ -1015,10 +1015,10 @@ fn symbols_tool_filters_and_pages_symbols() {
 
 #[test]
 fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
-	let helper_source = SourceId::new("source:helper");
-	let app_source = SourceId::new("source:app");
-	let batch_source = SourceId::new("source:batch");
-	let api_source = SourceId::new("source:api");
+	let helper_source = SourceId::at(0);
+	let app_source = SourceId::at(1);
+	let batch_source = SourceId::at(2);
+	let api_source = SourceId::at(3);
 	let sources = vec![
 		source_file(helper_source.clone(), "src/shared/Helper.java", "java"),
 		source_file(app_source.clone(), "src/app/App.java", "java"),
@@ -1132,8 +1132,8 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 
 #[test]
 fn usages_roll_up_indirect_type_alias_consumers() {
-	let shared_source = SourceId::new("source:shared");
-	let app_source = SourceId::new("source:app");
+	let shared_source = SourceId::at(0);
+	let app_source = SourceId::at(1);
 	let sources = vec![
 		source_file(shared_source.clone(), "packages/shared/src/ws.ts", "ts"),
 		source_file(app_source.clone(), "packages/client/src/store/ws.ts", "ts"),
@@ -1240,7 +1240,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 
 #[test]
 fn read_symbol_source_renders_source_slice() {
-	let source_id = SourceId::new("source:1:src/App.java");
+	let source_id = SourceId::at(1);
 	let source = SourceFileRecord {
 		id: source_id.clone(),
 		uri: "code+moniker://./file:src/App.java".to_string(),
@@ -1279,7 +1279,7 @@ fn read_symbol_source_renders_source_slice() {
 
 #[test]
 fn symbols_insights_summarize_index() {
-	let source_id = SourceId::new("source:1:src/App.java");
+	let source_id = SourceId::at(1);
 	let sources = vec![SourceFileRecord {
 		id: source_id.clone(),
 		uri: "code+moniker://./file:src/App.java".to_string(),

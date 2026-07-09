@@ -99,10 +99,7 @@ impl SourceCatalogPort for LocalSourceCatalog {
 			.enumerate()
 			.map(|(file_idx, file)| {
 				SourceUnit::with_language(
-					self.options
-						.identity
-						.source_id(file_idx, &file.rel_path)
-						.as_str(),
+					self.options.identity.source_id(file_idx, &file.rel_path),
 					file.rel_path.display().to_string(),
 					file.lang.tag(),
 				)
@@ -175,10 +172,7 @@ fn catalog_units(material: &SourceCatalogMaterial) -> Vec<SourceUnit> {
 		.enumerate()
 		.map(|(file_idx, file)| {
 			SourceUnit::with_language(
-				material
-					.identity
-					.source_id(file_idx, &file.rel_path)
-					.as_str(),
+				material.identity.source_id(file_idx, &file.rel_path),
 				file.rel_path.display().to_string(),
 				file.lang.tag(),
 			)

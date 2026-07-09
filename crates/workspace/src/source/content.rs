@@ -195,7 +195,7 @@ impl<'a> SourceResourceLookup<'a> {
 		let rel_path = self.rel_path(root, &rel);
 		Some(ResolvedSourceResource {
 			source_root,
-			source_id: SourceId::new(format!("source:lazy:{}", rel_path.display())),
+			source_id: SourceId::at(u32::MAX as usize),
 			source_uri: self.material.identity.source_uri(&rel_path),
 			path: abs_path,
 			rel_path,
@@ -245,7 +245,7 @@ impl CodeIndexMaterial {
 	pub fn symbol_source(&self, symbol: &SymbolId) -> Option<SourceId> {
 		let (file_idx, def_idx) = self.identity.symbol_location(symbol)?;
 		let file = self.files.get(file_idx)?;
-		(def_idx < file.graph.def_count()).then(|| file.source_id.clone())
+		(def_idx < file.graph.def_count()).then(|| file.source_id)
 	}
 
 	pub fn symbol_exists(&self, symbol: &SymbolId) -> bool {

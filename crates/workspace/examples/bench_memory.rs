@@ -378,7 +378,7 @@ fn estimate_catalog(catalog: &SourceCatalog, estimate: &mut MemoryEstimate) {
 		.sources
 		.iter()
 		.map(|source| {
-			source.id.as_str().len()
+			std::mem::size_of_val(&source.id)
 				+ source.display_name.capacity()
 				+ source.language.as_ref().map_or(0, String::capacity)
 		})
@@ -453,9 +453,7 @@ fn estimate_linkage(linkage: &LinkageSnapshot, estimate: &mut MemoryEstimate) {
 		linkage
 			.resolved
 			.iter()
-			.map(|edge| {
-				edge.reference.to_string().as_str().len() + std::mem::size_of_val(&edge.target)
-			})
+			.map(|edge| std::mem::size_of_val(edge))
 			.sum(),
 		format!("{} resolved edges", linkage.resolved.len()),
 	);
@@ -609,7 +607,7 @@ fn estimate_material(material: &CodeIndexMaterial, estimate: &mut MemoryEstimate
 }
 
 fn source_record_payload(source: &SourceFileRecord) -> usize {
-	source.id.as_str().len()
+	std::mem::size_of_val(&source.id)
 		+ source.uri.capacity()
 		+ source.path.capacity()
 		+ source.rel_path.capacity()
@@ -620,7 +618,7 @@ fn source_record_payload(source: &SourceFileRecord) -> usize {
 
 fn symbol_payload(symbol: &SymbolRecord) -> usize {
 	std::mem::size_of_val(&symbol.id)
-		+ symbol.source.as_str().len()
+		+ std::mem::size_of_val(&symbol.source)
 		+ symbol.identity.capacity()
 		+ symbol.name.capacity()
 		+ symbol.kind.capacity()
@@ -630,7 +628,7 @@ fn symbol_payload(symbol: &SymbolRecord) -> usize {
 
 fn reference_owned_payload(reference: &ReferenceRecord) -> usize {
 	std::mem::size_of_val(&reference.id)
-		+ reference.source.as_str().len()
+		+ std::mem::size_of_val(&reference.source)
 		+ std::mem::size_of_val(&reference.source_symbol)
 		+ reference.kind.capacity()
 		+ reference.call_name.as_ref().map_or(0, String::capacity)
@@ -644,11 +642,11 @@ fn change_resource_payload(resource: &ChangeResource) -> usize {
 }
 
 fn change_payload(change: &ChangeRecord) -> usize {
-	change.id.as_str().len()
+	std::mem::size_of_val(&change.id)
 		+ change
 			.source
 			.as_ref()
-			.map_or(0, |source| source.as_str().len())
+			.map_or(0, |source| std::mem::size_of_val(source))
 		+ change.source_uri.as_ref().map_or(0, String::capacity)
 		+ change.symbol.as_ref().map_or(0, std::mem::size_of_val)
 		+ change.identity.capacity()
@@ -659,7 +657,7 @@ fn change_payload(change: &ChangeRecord) -> usize {
 }
 
 fn indexed_source_payload(file: &IndexedSourceFile) -> usize {
-	file.source_id.as_str().len()
+	std::mem::size_of_val(&file.source_id)
 		+ file.source_uri.capacity()
 		+ file.path.as_os_str().len()
 		+ file.rel_path.as_os_str().len()

@@ -36,6 +36,6 @@ impl<'a> LinkageView<'a> {
 			.references
 			.iter()
 			.find(|candidate| &candidate.id == reference)
-			.map(|candidate| candidate.source.clone())
+			.map(|candidate| candidate.source)
 	}
 }

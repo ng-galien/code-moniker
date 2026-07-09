@@ -26,8 +26,7 @@ impl<'a> SymbolView<'a> {
 			.collect::<Vec<_>>();
 		symbols.sort_by(|left, right| {
 			left.source
-				.as_str()
-				.cmp(right.source.as_str())
+				.cmp(&right.source)
 				.then_with(|| left.identity.cmp(&right.identity))
 		});
 		symbols
@@ -52,7 +51,7 @@ impl<'a> SymbolView<'a> {
 	) -> SymbolSummary {
 		SymbolSummary {
 			id: symbol.id,
-			source: symbol.source.clone(),
+			source: symbol.source,
 			identity: symbol.identity.clone(),
 			name: symbol.name.clone(),
 			kind: symbol.kind.clone(),
@@ -114,7 +113,7 @@ impl<'a> SymbolView<'a> {
 	pub(super) fn summary(&self, symbol: &SymbolRecord) -> SymbolSummary {
 		SymbolSummary {
 			id: symbol.id,
-			source: symbol.source.clone(),
+			source: symbol.source,
 			identity: symbol.identity.clone(),
 			name: symbol.name.clone(),
 			kind: symbol.kind.clone(),

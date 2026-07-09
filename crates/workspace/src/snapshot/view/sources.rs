@@ -16,7 +16,7 @@ impl<'a> SourceView<'a> {
 			.sources
 			.iter()
 			.map(|source| SourceSummary {
-				id: source.id.clone(),
+				id: source.id,
 				display_name: source.display_name.clone(),
 				language: source.language.clone(),
 				change_count: self.change_count_for_source(&source.id),

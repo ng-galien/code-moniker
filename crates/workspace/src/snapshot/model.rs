@@ -46,16 +46,32 @@ impl WorkspaceRequest {
 	}
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct SourceId(String);
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct SourceId {
+	file: u32,
+}
 
 impl SourceId {
-	pub fn new(value: impl Into<String>) -> Self {
-		Self(value.into())
+	pub fn at(file: usize) -> Self {
+		Self { file: file as u32 }
 	}
 
-	pub fn as_str(&self) -> &str {
-		&self.0
+	pub fn parse(value: &str) -> Option<Self> {
+		let rest = value.strip_prefix("source:")?;
+		let file = rest.split(':').next()?;
+		Some(Self {
+			file: file.parse().ok()?,
+		})
+	}
+
+	pub fn file(self) -> usize {
+		self.file as usize
+	}
+}
+
+impl std::fmt::Display for SourceId {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(formatter, "source:{}", self.file)
 	}
 }
 
@@ -67,21 +83,21 @@ pub struct SourceUnit {
 }
 
 impl SourceUnit {
-	pub fn new(id: impl Into<String>, display_name: impl Into<String>) -> Self {
+	pub fn new(id: SourceId, display_name: impl Into<String>) -> Self {
 		Self {
-			id: SourceId::new(id),
+			id,
 			display_name: display_name.into(),
 			language: None,
 		}
 	}
 
 	pub fn with_language(
-		id: impl Into<String>,
+		id: SourceId,
 		display_name: impl Into<String>,
 		language: impl Into<String>,
 	) -> Self {
 		Self {
-			id: SourceId::new(id),
+			id,
 			display_name: display_name.into(),
 			language: Some(language.into()),
 		}

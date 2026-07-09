@@ -184,7 +184,7 @@ fn refresh_local_code_index(
 			&file.path.clone(),
 			options.cache_dir.as_deref(),
 		)?;
-		push_unique_source(&mut changed_sources, indexed.source_id.clone());
+		push_unique_source(&mut changed_sources, indexed.source_id);
 		changed_file_indexes.insert(file_idx);
 		files.push(Arc::new(indexed));
 	}
@@ -205,7 +205,7 @@ fn refresh_local_code_index(
 			options.cache_dir.as_deref(),
 		)?;
 		if let Some(slot) = files.get_mut(file_idx) {
-			push_unique_source(&mut changed_sources, indexed.source_id.clone());
+			push_unique_source(&mut changed_sources, indexed.source_id);
 			changed_file_indexes.insert(file_idx);
 			*slot = Arc::new(indexed);
 		}
@@ -594,7 +594,7 @@ fn collect_symbols(
 			.map(|parent_idx| file.graph_identity().symbol_id(file_idx, parent_idx));
 		symbols.push(SymbolRecord {
 			id,
-			source: file.source_id.clone(),
+			source: file.source_id,
 			identity: file.graph_identity().moniker_uri(&def.moniker),
 			name: last_name(&def.moniker),
 			kind: def_kind(def),
@@ -630,7 +630,7 @@ fn collect_references(
 		references.push(
 			ReferenceRecord::new(
 				id,
-				file.source_id.clone(),
+				file.source_id,
 				source_symbol,
 				target_identity,
 				ref_kind(reference),
@@ -668,7 +668,7 @@ fn source_records(files: &[Arc<IndexedSourceFile>]) -> Vec<SourceFileRecord> {
 	files
 		.iter()
 		.map(|file| SourceFileRecord {
-			id: file.source_id.clone(),
+			id: file.source_id,
 			uri: file.source_uri.clone(),
 			source_root: file.source_root,
 			path: file.path.display().to_string(),

@@ -881,7 +881,7 @@ fn percent(count: usize, total: usize) -> usize {
 }
 
 struct UsageLookup<'a> {
-	sources: BTreeMap<&'a str, &'a SourceFileRecord>,
+	sources: BTreeMap<SourceId, &'a SourceFileRecord>,
 	symbols: BTreeMap<SymbolId, &'a SymbolRecord>,
 	symbols_by_identity: BTreeMap<&'a str, &'a SymbolRecord>,
 	references: BTreeMap<ReferenceId, &'a ReferenceRecord>,
@@ -895,7 +895,7 @@ impl<'a> UsageLookup<'a> {
 			sources: index
 				.sources
 				.iter()
-				.map(|source| (source.id.as_str(), source))
+				.map(|source| (source.id, source))
 				.collect(),
 			symbols: index
 				.symbols
@@ -925,7 +925,7 @@ impl<'a> UsageLookup<'a> {
 	}
 
 	fn source(&self, id: &SourceId) -> Option<&'a SourceFileRecord> {
-		self.sources.get(id.as_str()).copied()
+		self.sources.get(id).copied()
 	}
 
 	fn reference(&self, id: &ReferenceId) -> Option<&'a ReferenceRecord> {

@@ -391,13 +391,13 @@ fn render_symbol_list_lmnav(
 	let source_by_id = index
 		.sources
 		.iter()
-		.map(|source| (source.id.as_str(), source))
+		.map(|source| (source.id, source))
 		.collect::<BTreeMap<_, _>>();
 	let mut rows = index
 		.symbols
 		.iter()
 		.filter_map(|symbol| {
-			let source = source_by_id.get(symbol.source.as_str())?;
+			let source = source_by_id.get(&symbol.source)?;
 			scope
 				.files
 				.matches_file(&source.rel_path, Some(&source.language))

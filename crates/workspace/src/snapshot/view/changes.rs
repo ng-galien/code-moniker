@@ -44,7 +44,7 @@ impl<'a> ChangeView<'a> {
 		ChangeSummary {
 			id: change.id.clone(),
 			status: change.status,
-			source: change.source.clone(),
+			source: change.source,
 			symbol: change.symbol,
 			identity: change.identity.clone(),
 			name: change.name.clone(),

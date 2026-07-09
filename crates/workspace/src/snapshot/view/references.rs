@@ -62,7 +62,7 @@ impl<'a> ReferenceView<'a> {
 			.collect::<Vec<_>>();
 		let files = groups
 			.iter()
-			.filter_map(|group| group.source.clone())
+			.filter_map(|group| group.source)
 			.collect::<BTreeSet<_>>()
 			.len();
 		let contexts = groups
@@ -111,7 +111,7 @@ fn reference_summary(
 	let external_target = external_target(snapshot, &reference.id);
 	ReferenceSummary {
 		reference: reference.id,
-		source: Some(reference.source.clone()),
+		source: Some(reference.source),
 		context: source_symbol.map(|symbol| symbol.id),
 		actor: source_symbol
 			.map(|symbol| symbol.name.clone())

@@ -411,8 +411,8 @@ fn catalog_source_records(catalog: &SourceCatalog) -> Vec<SourceFileRecord> {
 		.iter()
 		.enumerate()
 		.map(|(idx, source)| SourceFileRecord {
-			id: source.id.clone(),
-			uri: source.id.as_str().to_string(),
+			id: source.id,
+			uri: source.id.to_string(),
 			source_root: idx,
 			path: source.display_name.clone(),
 			rel_path: source.display_name.clone(),

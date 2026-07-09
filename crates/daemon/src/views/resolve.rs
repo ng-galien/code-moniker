@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use code_moniker_core::lang::Lang;
-use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord, WorkspaceSnapshot};
+use code_moniker_workspace::snapshot::{
+	SourceFileRecord, SourceId, SymbolRecord, WorkspaceSnapshot,
+};
 
 use code_moniker_check as check;
 
@@ -78,18 +80,18 @@ pub fn resolve_rules(
 		.collect())
 }
 
-fn source_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SourceFileRecord> {
+fn source_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<SourceId, &SourceFileRecord> {
 	snapshot
 		.index
 		.sources
 		.iter()
-		.map(|source| (source.id.as_str(), source))
+		.map(|source| (source.id, source))
 		.collect()
 }
 
 fn matching_symbols<'a>(
 	snapshot: &'a WorkspaceSnapshot,
-	source_by_id: &'a BTreeMap<&str, &'a SourceFileRecord>,
+	source_by_id: &'a BTreeMap<SourceId, &'a SourceFileRecord>,
 	scope_path: &str,
 	selector: &str,
 ) -> Vec<(&'a SymbolRecord, &'a SourceFileRecord)> {
@@ -98,7 +100,7 @@ fn matching_symbols<'a>(
 		.symbols
 		.iter()
 		.filter_map(|symbol| {
-			let source = source_by_id.get(symbol.source.as_str())?;
+			let source = source_by_id.get(&symbol.source)?;
 			(source_in_scope(source, scope_path) && selector_matches(symbol, selector))
 				.then_some((symbol, *source))
 		})

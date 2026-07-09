@@ -22,15 +22,12 @@ impl LocalIdentityResolver {
 	}
 
 	pub fn source_id(&self, file_idx: usize, rel_path: &Path) -> SourceId {
-		SourceId::new(format!("source:{file_idx}:{}", rel_path.display()))
+		let _ = rel_path;
+		SourceId::at(file_idx)
 	}
 
 	pub fn source_index(&self, id: &SourceId) -> Option<usize> {
-		let mut parts = id.as_str().split(':');
-		match (parts.next(), parts.next()) {
-			(Some("source"), Some(file)) => file.parse().ok(),
-			_ => None,
-		}
+		Some(id.file())
 	}
 
 	pub fn source_uri(&self, rel_path: &Path) -> String {

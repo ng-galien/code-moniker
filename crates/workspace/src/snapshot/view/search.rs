@@ -139,7 +139,7 @@ mod tests {
 	fn symbol(id: usize, name: &str, kind: &str, identity: &str) -> SymbolRecord {
 		SymbolRecord {
 			id: SymbolId::at(0, id),
-			source: SourceId::new("source:test"),
+			source: SourceId::at(0),
 			identity: identity.to_string(),
 			name: name.to_string(),
 			kind: kind.to_string(),

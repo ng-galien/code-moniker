@@ -35,7 +35,7 @@ impl<'a> CodeIndexSymbolProvider<'a> {
 	pub fn source_at(&self, file_idx: usize) -> Option<NormalizedSource> {
 		let file = self.material.files.get(file_idx)?;
 		Some(NormalizedSource {
-			id: file.source_id.clone(),
+			id: file.source_id,
 			uri: file.source_uri.clone(),
 			language: file.lang,
 			rel_path: file.rel_path.clone(),

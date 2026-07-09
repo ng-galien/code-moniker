@@ -305,7 +305,7 @@ struct RulesCheckEval {
 }
 
 struct UsageDtoContext<'a> {
-	source_by_id: &'a BTreeMap<&'a str, &'a SourceFileRecord>,
+	source_by_id: &'a BTreeMap<SourceId, &'a SourceFileRecord>,
 	symbol_by_id: &'a BTreeMap<SymbolId, &'a SymbolRecord>,
 	roots: &'a [PathBuf],
 	selected_roots: &'a [&'a PathBuf],
@@ -952,7 +952,7 @@ fn symbol_search_response(
 		.map_err(|err| QueryError::new("invalid_name_filter", err.to_string()))?;
 	let source_by_id = source_by_id(snapshot);
 	let matches_query = |symbol: &SymbolRecord| {
-		let Some(source) = source_by_id.get(symbol.source.as_str()).copied() else {
+		let Some(source) = source_by_id.get(&symbol.source).copied() else {
 			return false;
 		};
 		source_root(roots, &selected_roots, source).is_some()
@@ -975,7 +975,7 @@ fn symbol_search_response(
 				let Some(symbol) = symbol_by_id.get(&hit.symbol).copied() else {
 					return Ok(None);
 				};
-				let Some(source) = source_by_id.get(symbol.source.as_str()).copied() else {
+				let Some(source) = source_by_id.get(&symbol.source).copied() else {
 					return Ok(None);
 				};
 				let mut row = symbol_search_dto(symbol, source, roots, hit.score, hit.reason);
@@ -996,7 +996,7 @@ fn symbol_search_response(
 			.filter(|symbol| query.include_non_navigable || symbol.navigable)
 			.filter(|symbol| matches_query(symbol))
 			.filter_map(|symbol| {
-				let source = source_by_id.get(symbol.source.as_str()).copied()?;
+				let source = source_by_id.get(&symbol.source).copied()?;
 				Some((symbol, source))
 			})
 			.map(|(symbol, source)| {
@@ -1078,13 +1078,13 @@ fn symbol_insights_response(
 		.collect::<Vec<_>>();
 	let scoped_source_ids = scoped_sources
 		.iter()
-		.map(|source| source.id.as_str())
+		.map(|source| source.id)
 		.collect::<BTreeSet<_>>();
 	let scoped_symbols = snapshot
 		.index
 		.symbols
 		.iter()
-		.filter(|symbol| scoped_source_ids.contains(symbol.source.as_str()))
+		.filter(|symbol| scoped_source_ids.contains(&symbol.source))
 		.filter(|symbol| query.include_non_navigable || symbol.navigable)
 		.filter(|symbol| {
 			query.kind.is_empty() || query.kind.iter().any(|kind| kind == &symbol.kind)
@@ -1106,17 +1106,17 @@ fn symbol_insights_response(
 		.index
 		.references
 		.iter()
-		.filter(|reference| scoped_source_ids.contains(reference.source.as_str()))
+		.filter(|reference| scoped_source_ids.contains(&reference.source))
 		.collect::<Vec<_>>();
 	let mut symbol_counts = BTreeMap::<String, usize>::new();
 	let mut ref_counts = BTreeMap::<String, usize>::new();
 	for symbol in &scoped_symbols {
-		if let Some(source) = source_by_id.get(symbol.source.as_str()) {
+		if let Some(source) = source_by_id.get(&symbol.source) {
 			*symbol_counts.entry(source.rel_path.to_owned()).or_default() += 1;
 		}
 	}
 	for reference in &scoped_refs {
-		if let Some(source) = source_by_id.get(reference.source.as_str()) {
+		if let Some(source) = source_by_id.get(&reference.source) {
 			*ref_counts.entry(source.rel_path.to_owned()).or_default() += 1;
 		}
 	}
@@ -1165,7 +1165,7 @@ fn symbol_detail_response(
 	let source_by_id = source_by_id(snapshot);
 	let symbol = find_symbol(snapshot, uri)?;
 	let source = source_by_id
-		.get(symbol.source.as_str())
+		.get(&symbol.source)
 		.ok_or_else(|| QueryError::new("source_not_found", "symbol source not found"))?;
 	if source_root(roots, &selected_roots, source).is_none() {
 		return Err(QueryError::new(
@@ -1198,7 +1198,7 @@ fn symbol_usages_response(
 		.map_err(|err| QueryError::new("invalid_path_filter", err.to_string()))?;
 	let target = find_symbol(snapshot, &query.uri)?;
 	let target_source = source_by_id
-		.get(target.source.as_str())
+		.get(&target.source)
 		.ok_or_else(|| QueryError::new("source_not_found", "target source not found"))?;
 	if source_root(roots, &selected_roots, target_source).is_none() {
 		return Err(QueryError::new(
@@ -1986,12 +1986,14 @@ fn page_rows<T>(
 mod helpers {
 	use super::*;
 
-	pub(super) fn source_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SourceFileRecord> {
+	pub(super) fn source_by_id(
+		snapshot: &WorkspaceSnapshot,
+	) -> BTreeMap<SourceId, &SourceFileRecord> {
 		snapshot
 			.index
 			.sources
 			.iter()
-			.map(|source| (source.id.as_str(), source))
+			.map(|source| (source.id, source))
 			.collect()
 	}
 
@@ -2068,7 +2070,7 @@ mod helpers {
 		direction: UsageDirection,
 		context: &UsageDtoContext<'_>,
 	) -> Option<UsageDto> {
-		let source = context.source_by_id.get(reference.source.as_str())?;
+		let source = context.source_by_id.get(&reference.source)?;
 		source_root(context.roots, context.selected_roots, source)?;
 		if !context.path_filter.matches(&source.rel_path)
 			|| (!context.langs.is_empty()
@@ -2378,7 +2380,7 @@ mod helpers {
 			.collect::<Vec<_>>();
 		let source_ids = sources
 			.iter()
-			.map(|source| source.id.clone())
+			.map(|source| source.id)
 			.collect::<std::collections::BTreeSet<_>>();
 		WorkspaceRootStatus {
 			root: root.display().to_string(),
@@ -2717,7 +2719,7 @@ mod tests {
 		let roots = canonical_workspace_roots([&parent, &child]).expect("roots");
 		let canonical_child = child.canonicalize().expect("canonical child");
 		let source_owned_by_parent = SourceFileRecord {
-			id: SourceId::new("source"),
+			id: SourceId::at(0),
 			uri: String::new(),
 			source_root: 0,
 			path: canonical_child.join("src/lib.rs").display().to_string(),

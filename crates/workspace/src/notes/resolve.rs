@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::snapshot::{SourceFileRecord, SymbolRecord, WorkspaceSnapshot};
+use crate::snapshot::{SourceFileRecord, SourceId, SymbolRecord, WorkspaceSnapshot};
 
 use super::model::{Note, NoteResolution, ResolvedNote};
 
@@ -21,7 +21,7 @@ pub fn resolve_notes(notes: &[Note], snapshot: &WorkspaceSnapshot) -> Vec<Resolv
 fn resolve_note(
 	note: &Note,
 	symbols: &BTreeMap<&str, &SymbolRecord>,
-	sources: &BTreeMap<&str, &SourceFileRecord>,
+	sources: &BTreeMap<SourceId, &SourceFileRecord>,
 	sources_by_uri: &BTreeMap<&str, &SourceFileRecord>,
 ) -> NoteResolution {
 	if let Some(target_label) = navigation_target_label(note.moniker.as_str()) {
@@ -48,7 +48,7 @@ fn resolve_note(
 	let Some(symbol) = symbols.get(note.moniker.as_str()).copied() else {
 		return NoteResolution::Orphan;
 	};
-	let Some(source) = sources.get(symbol.source.as_str()) else {
+	let Some(source) = sources.get(&symbol.source) else {
 		return NoteResolution::Orphan;
 	};
 	NoteResolution::Resolved {
@@ -96,12 +96,12 @@ fn decode_navigation_id(value: &str) -> String {
 	String::from_utf8(decoded).unwrap_or_else(|_| value.to_string())
 }
 
-fn source_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SourceFileRecord> {
+fn source_by_id(snapshot: &WorkspaceSnapshot) -> BTreeMap<SourceId, &SourceFileRecord> {
 	snapshot
 		.index
 		.sources
 		.iter()
-		.map(|source| (source.id.as_str(), source))
+		.map(|source| (source.id, source))
 		.collect()
 }
 
@@ -204,7 +204,7 @@ mod tests {
 
 	fn snapshot_with_symbol(moniker: &str) -> WorkspaceSnapshot {
 		let source = SourceFileRecord {
-			id: SourceId::new("source:1"),
+			id: SourceId::at(1),
 			uri: "code+moniker://./lang:rs/path:src/path:lib.rs".to_string(),
 			source_root: 0,
 			path: "/tmp/src/lib.rs".to_string(),
@@ -215,7 +215,7 @@ mod tests {
 		};
 		let symbol = SymbolRecord {
 			id: SymbolId::at(0, 1),
-			source: source.id.clone(),
+			source: source.id,
 			identity: moniker.to_string(),
 			name: "run()".to_string(),
 			kind: "fn".to_string(),
@@ -256,7 +256,7 @@ mod tests {
 	fn snapshot_with_orphaned_symbol(moniker: &str) -> WorkspaceSnapshot {
 		let symbol = SymbolRecord {
 			id: SymbolId::at(0, 1),
-			source: SourceId::new("missing-source"),
+			source: SourceId::at(9999),
 			identity: moniker.to_string(),
 			name: "run()".to_string(),
 			kind: "fn".to_string(),

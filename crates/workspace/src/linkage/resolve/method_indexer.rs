@@ -41,9 +41,5 @@ impl MethodIndexer {
 }
 
 fn file_source_ids(material: &CodeIndexMaterial) -> Vec<SourceId> {
-	material
-		.files
-		.iter()
-		.map(|file| file.source_id.clone())
-		.collect()
+	material.files.iter().map(|file| file.source_id).collect()
 }
