@@ -138,6 +138,78 @@ fn diff_json_carries_the_versioned_fact_schema() {
 }
 
 #[test]
+fn diff_between_revisions_ignores_later_worktree_changes() {
+	let tmp = moved_repo();
+	git(tmp.path(), &["add", "-A"]);
+	git(tmp.path(), &["commit", "-m", "move and edit"]);
+	write(
+		tmp.path(),
+		"src/consumer.rs",
+		"use crate::support::assist;\n\npub fn caller() { assist(); }\npub fn edited() -> u32 { 99 }\nfn later_noise() {}\n",
+	);
+	let root = tmp.path().to_str().unwrap();
+
+	for range in ["HEAD~1..HEAD", "HEAD~1...HEAD"] {
+		let (exit, out, err) = run_with(vec!["code-moniker", "diff", range, root]);
+
+		assert_eq!(exit, Exit::Match, "{range} stderr: {err}");
+		assert!(
+			out.contains("src/util.rs -> src/support.rs  moved"),
+			"{range}: missing move heading:\n{out}"
+		);
+		assert!(
+			out.contains("~ fn edited()  body-modified"),
+			"{range}: committed edit missing:\n{out}"
+		);
+		assert!(
+			!out.contains("later_noise"),
+			"{range}: worktree-only change must stay out of the window:\n{out}"
+		);
+	}
+}
+
+#[test]
+fn diff_base_compares_a_revision_against_the_worktree() {
+	let tmp = moved_repo();
+	git(tmp.path(), &["add", "-A"]);
+	git(tmp.path(), &["commit", "-m", "move and edit"]);
+	write(
+		tmp.path(),
+		"src/consumer.rs",
+		"use crate::support::assist;\n\npub fn caller() { assist(); }\npub fn edited() -> u32 { 99 }\nfn later_noise() {}\n",
+	);
+	let root = tmp.path().to_str().unwrap();
+
+	let (exit, out, err) = run_with(vec!["code-moniker", "diff", root, "--base", "HEAD~1"]);
+
+	assert_eq!(exit, Exit::Match, "stderr: {err}");
+	assert!(
+		out.contains("src/util.rs -> src/support.rs  moved"),
+		"missing move heading:\n{out}"
+	);
+	assert!(
+		out.contains("later_noise"),
+		"worktree change must be part of base..worktree:\n{out}"
+	);
+}
+
+#[test]
+fn diff_rejects_an_unresolvable_revision() {
+	let tmp = moved_repo();
+	git(tmp.path(), &["add", "-A"]);
+	git(tmp.path(), &["commit", "-m", "move and edit"]);
+	let root = tmp.path().to_str().unwrap();
+
+	let (exit, _out, err) = run_with(vec!["code-moniker", "diff", "no-such..HEAD", root]);
+
+	assert_eq!(exit, Exit::UsageError, "stderr: {err}");
+	assert!(
+		err.contains("no-such"),
+		"stderr must name the revision: {err}"
+	);
+}
+
+#[test]
 fn diff_outside_a_git_repository_reports_a_diagnostic() {
 	let tmp = tempfile::tempdir().unwrap();
 	write(tmp.path(), "src/lib.rs", "fn lone() {}\n");

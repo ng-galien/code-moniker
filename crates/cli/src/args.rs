@@ -466,8 +466,25 @@ pub enum DefaultRules {
 
 #[derive(Debug, ClapArgs)]
 pub struct DiffArgs {
-	#[arg(value_name = "PATH", default_value = ".")]
-	pub path: PathBuf,
+	#[arg(
+		value_name = "RANGE_OR_PATH",
+		default_value = ".",
+		help = "a <base>..<head> / <base>...<head> revision range, or the workspace path"
+	)]
+	pub target: String,
+
+	#[arg(
+		value_name = "PATH",
+		help = "workspace path when the first argument is a range"
+	)]
+	pub path: Option<PathBuf>,
+
+	#[arg(
+		long,
+		value_name = "REV",
+		help = "base revision compared against the worktree (conflicts with a range)"
+	)]
+	pub base: Option<String>,
 
 	#[arg(long, value_enum, default_value_t = DiffFormat::Text)]
 	pub(crate) format: DiffFormat,
