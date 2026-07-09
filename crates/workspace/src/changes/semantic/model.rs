@@ -81,3 +81,49 @@ pub struct SymbolChange {
 	pub old: Option<SymbolSide>,
 	pub new: Option<SymbolSide>,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RefChangeKind {
+	ImportRetargeted,
+	CallSiteRetargeted,
+	Added,
+	Removed,
+}
+
+impl RefChangeKind {
+	pub fn label(self) -> &'static str {
+		match self {
+			Self::ImportRetargeted => "import-retargeted",
+			Self::CallSiteRetargeted => "call-site-retargeted",
+			Self::Added => "ref-added",
+			Self::Removed => "ref-removed",
+		}
+	}
+
+	pub fn is_retarget(self) -> bool {
+		matches!(self, Self::ImportRetargeted | Self::CallSiteRetargeted)
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefChange {
+	pub kind: RefChangeKind,
+	pub file_path: PathBuf,
+	pub ref_kind: String,
+	pub old_target: Option<Moniker>,
+	pub new_target: Option<Moniker>,
+	pub old_line_range: Option<(u32, u32)>,
+	pub new_line_range: Option<(u32, u32)>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct HunkCoverage {
+	pub old_residual: Vec<(u32, u32)>,
+	pub new_residual: Vec<(u32, u32)>,
+}
+
+impl HunkCoverage {
+	pub fn explained(&self) -> bool {
+		self.old_residual.is_empty() && self.new_residual.is_empty()
+	}
+}
