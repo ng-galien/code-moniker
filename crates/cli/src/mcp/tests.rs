@@ -188,7 +188,8 @@ fn tools_list_returns_mcp_shape() {
 	assert_eq!(tools[3]["name"], "code_moniker_symbols");
 	assert_eq!(tools[4]["name"], "code_moniker_usages");
 	assert_eq!(tools[5]["name"], "code_moniker_rules");
-	assert_eq!(tools[6]["name"], "code_moniker_refresh");
+	assert_eq!(tools[6]["name"], "code_moniker_diff");
+	assert_eq!(tools[7]["name"], "code_moniker_refresh");
 	assert!(
 		tools[0]["description"]
 			.as_str()
@@ -644,6 +645,51 @@ fn tool_limit_zero_is_rejected() {
 		.unwrap_err();
 	assert!(error.to_string().contains("limit"));
 	assert!(error.to_string().contains("greater than zero"));
+}
+
+#[test]
+fn diff_tool_reports_symbol_level_change_facts() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let git = |args: &[&str]| {
+		let output = std::process::Command::new("git")
+			.arg("-C")
+			.arg(temp.path())
+			.args(args)
+			.output()
+			.expect("run git");
+		assert!(
+			output.status.success(),
+			"git {args:?}: {}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+	};
+	git(&["init"]);
+	git(&["config", "user.email", "cm@example.test"]);
+	git(&["config", "user.name", "Code Moniker"]);
+	std::fs::create_dir_all(temp.path().join("src")).expect("mkdir");
+	std::fs::write(
+		temp.path().join("src/util.rs"),
+		"pub fn assist() { work(); }\n",
+	)
+	.expect("write fixture");
+	git(&["add", "."]);
+	git(&["commit", "-m", "initial"]);
+	git(&["mv", "src/util.rs", "src/support.rs"]);
+	let registry = ToolRegistry::new();
+	let context = loaded_context(vec![temp.path().to_path_buf()]);
+
+	let result = registry
+		.call(&context, "code_moniker_diff", &json!({}))
+		.expect("diff call");
+
+	assert!(!result.is_error);
+	assert!(
+		result.text.contains("src/util.rs -> src/support.rs moved"),
+		"{}",
+		result.text
+	);
+	assert!(result.text.contains("moved fn assist()"), "{}", result.text);
+	assert!(result.text.contains("[certain]"), "{}", result.text);
 }
 
 #[test]

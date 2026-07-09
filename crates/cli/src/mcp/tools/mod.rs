@@ -1,4 +1,5 @@
 pub(in crate::mcp) mod common;
+pub(super) mod diff;
 pub(super) mod notes;
 pub(super) mod read;
 pub(super) mod refresh;
@@ -11,6 +12,7 @@ pub(in crate::mcp) mod usages;
 use serde_json::Value;
 
 use super::context::McpContext;
+use diff::DiffTool;
 use notes::NotesTool;
 use read::ReadTool;
 use refresh::RefreshTool;
@@ -96,6 +98,7 @@ enum ToolErrorKind {
 
 pub(super) struct ToolRegistry {
 	read: ReadTool,
+	diff: DiffTool,
 	notes: NotesTool,
 	refresh: RefreshTool,
 	rules: RulesTool,
@@ -108,6 +111,7 @@ impl ToolRegistry {
 	pub(super) fn new() -> Self {
 		Self {
 			read: ReadTool,
+			diff: DiffTool,
 			notes: NotesTool,
 			refresh: RefreshTool,
 			rules: RulesTool,
@@ -126,6 +130,7 @@ impl ToolRegistry {
 			self.symbols.descriptor().into_mcp_value(),
 			self.usages.descriptor().into_mcp_value(),
 			self.rules.descriptor().into_mcp_value(),
+			self.diff.descriptor().into_mcp_value(),
 			self.refresh.descriptor().into_mcp_value(),
 		]
 	}
@@ -138,6 +143,7 @@ impl ToolRegistry {
 			self.symbols.descriptor().into_rmcp_tool(),
 			self.usages.descriptor().into_rmcp_tool(),
 			self.rules.descriptor().into_rmcp_tool(),
+			self.diff.descriptor().into_rmcp_tool(),
 			self.refresh.descriptor().into_rmcp_tool(),
 		]
 	}
@@ -150,6 +156,7 @@ impl ToolRegistry {
 	) -> Result<ToolResult, ToolError> {
 		match name {
 			ReadTool::NAME => self.read.call(context, arguments),
+			DiffTool::NAME => self.diff.call(context, arguments),
 			NotesTool::NAME => self.notes.call(context, arguments),
 			SearchTool::NAME => self.search.call(context, arguments),
 			SymbolsTool::NAME => self.symbols.call(context, arguments),
