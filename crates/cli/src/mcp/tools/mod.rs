@@ -121,31 +121,32 @@ impl ToolRegistry {
 		}
 	}
 
-	#[cfg(test)]
-	pub(super) fn descriptors(&self) -> Vec<Value> {
-		vec![
-			self.read.descriptor().into_mcp_value(),
-			self.notes.descriptor().into_mcp_value(),
-			self.search.descriptor().into_mcp_value(),
-			self.symbols.descriptor().into_mcp_value(),
-			self.usages.descriptor().into_mcp_value(),
-			self.rules.descriptor().into_mcp_value(),
-			self.diff.descriptor().into_mcp_value(),
-			self.refresh.descriptor().into_mcp_value(),
+	fn all(&self) -> [&dyn McpTool; 8] {
+		[
+			&self.read,
+			&self.notes,
+			&self.search,
+			&self.symbols,
+			&self.usages,
+			&self.rules,
+			&self.diff,
+			&self.refresh,
 		]
 	}
 
+	#[cfg(test)]
+	pub(super) fn descriptors(&self) -> Vec<Value> {
+		self.all()
+			.into_iter()
+			.map(|tool| tool.descriptor().into_mcp_value())
+			.collect()
+	}
+
 	pub(super) fn tools(&self) -> Vec<Tool> {
-		vec![
-			self.read.descriptor().into_rmcp_tool(),
-			self.notes.descriptor().into_rmcp_tool(),
-			self.search.descriptor().into_rmcp_tool(),
-			self.symbols.descriptor().into_rmcp_tool(),
-			self.usages.descriptor().into_rmcp_tool(),
-			self.rules.descriptor().into_rmcp_tool(),
-			self.diff.descriptor().into_rmcp_tool(),
-			self.refresh.descriptor().into_rmcp_tool(),
-		]
+		self.all()
+			.into_iter()
+			.map(|tool| tool.descriptor().into_rmcp_tool())
+			.collect()
 	}
 
 	pub(super) fn call(
@@ -154,17 +155,14 @@ impl ToolRegistry {
 		name: &str,
 		arguments: &Value,
 	) -> Result<ToolResult, ToolError> {
-		match name {
-			ReadTool::NAME => self.read.call(context, arguments),
-			DiffTool::NAME => self.diff.call(context, arguments),
-			NotesTool::NAME => self.notes.call(context, arguments),
-			SearchTool::NAME => self.search.call(context, arguments),
-			SymbolsTool::NAME => self.symbols.call(context, arguments),
-			UsagesTool::NAME => self.usages.call(context, arguments),
-			RulesTool::NAME => self.rules.call(context, arguments),
-			RefreshTool::NAME => self.refresh.call(context, arguments),
-			_ => Err(ToolError::unknown_tool(name)),
-		}
+		let Some(tool) = self
+			.all()
+			.into_iter()
+			.find(|tool| tool.descriptor().name == name)
+		else {
+			return Err(ToolError::unknown_tool(name));
+		};
+		tool.call(context, arguments)
 	}
 }
 
