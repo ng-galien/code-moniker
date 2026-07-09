@@ -64,6 +64,9 @@ moniker and can produce symbol paths that differ from project/index checks.
 - Full non-release gate:
   - `cargo test --workspace --quiet`
   - `cargo clippy --workspace --tests --no-deps -- -D warnings`
+  - `cargo test -p code-moniker --features mcp --no-default-features --lib`
+- MCP surface gate (after touching `crates/cli/src/mcp/`):
+  - `cargo clippy -p code-moniker --features mcp --no-default-features --lib --no-deps -- -D warnings`
 - CLI/TUI install gate: `cargo install --path crates/cli`.
 
 ## MCP Dogfood

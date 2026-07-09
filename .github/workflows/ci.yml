@@ -83,5 +83,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Clippy on the mcp feature surface
+        run: cargo clippy -p code-moniker --features mcp --no-default-features --lib --no-deps -- -D warnings
+
       - name: Test the mcp feature surface
         run: cargo test -p code-moniker --features mcp --no-default-features --lib
