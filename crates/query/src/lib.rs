@@ -1104,13 +1104,7 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 		"change.review" => Query::ChangeReview(ChangeReviewQuery {
 			workspace: fields.one("workspace"),
 		}),
-		"symbol.graph" => Query::SymbolGraph(SymbolGraphQuery {
-			workspace: fields.one("workspace"),
-			focus: fields
-				.one("focus")
-				.or_else(|| fields.positional.first().cloned())
-				.ok_or(QueryParseError::MissingRequired("focus"))?,
-		}),
+		"symbol.graph" => Query::SymbolGraph(symbol_graph_query(&fields)?),
 		"notes" => Query::Notes(notes_query(&fields)?),
 		_ => return Err(QueryParseError::UnknownOperation(op)),
 	};
@@ -1157,6 +1151,16 @@ fn notes_query(fields: &FieldBag) -> Result<NotesQuery, QueryParseError> {
 		created_by: fields.one("created_by"),
 		orphan: fields.bool("orphan")?,
 		include_done: fields.bool("include_done")?.unwrap_or(false),
+	})
+}
+
+fn symbol_graph_query(fields: &FieldBag) -> Result<SymbolGraphQuery, QueryParseError> {
+	Ok(SymbolGraphQuery {
+		workspace: fields.one("workspace"),
+		focus: fields
+			.one("focus")
+			.or_else(|| fields.positional.first().cloned())
+			.ok_or(QueryParseError::MissingRequired("focus"))?,
 	})
 }
 
