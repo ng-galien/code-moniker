@@ -30,6 +30,17 @@
 		const forward = navButton("→", unit.canForward, () => vscode.postMessage({ type: "forward" }));
 		bar.appendChild(back);
 		bar.appendChild(forward);
+		if (unit.focus.kind === "symbol") {
+			const crumb = el("span", "crumb link");
+			crumb.textContent = unit.focus.symbol.file;
+			crumb.addEventListener("click", () => {
+				vscode.postMessage({ type: "focus", uri: unit.focus.symbol.file });
+			});
+			bar.appendChild(crumb);
+			const sep = el("span", "crumb-sep");
+			sep.textContent = "▸";
+			bar.appendChild(sep);
+		}
 		const label = el("span", "focus-label");
 		label.textContent = unit.focus.kind === "symbol"
 			? `${unit.focus.symbol.kind} ${unit.focus.symbol.name}`
@@ -107,10 +118,68 @@
 		}
 		column.appendChild(heading(`members (${unit.members.length})`));
 		const counts = internalCounts(unit.internalEdges);
-		for (const member of unit.members) {
-			column.appendChild(memberRow(member, counts.get(member.id) ?? 0));
+		const focusUri = unit.focus.kind === "symbol" ? unit.focus.symbol.uri : null;
+		for (const node of nestMembers(unit.members, focusUri)) {
+			column.appendChild(surfaceBox(node, counts));
 		}
 		return column;
+	}
+
+	// Line-range containment nesting: a member's parent is the tightest
+	// enclosing member. Mirrors the symbol tree's outline reconstruction.
+	function nestMembers(members, focusUri) {
+		const ranged = members
+			.filter((member) => member.line_range != null && member.uri !== focusUri)
+			.slice()
+			.sort((a, b) => a.line_range[0] - b.line_range[0] || b.line_range[1] - a.line_range[1]);
+		const roots = [];
+		const stack = [];
+		for (const member of ranged) {
+			const node = { member, children: [] };
+			while (stack.length > 0 && !contains(stack[stack.length - 1].member, member)) {
+				stack.pop();
+			}
+			if (stack.length === 0) {
+				roots.push(node);
+			} else {
+				stack[stack.length - 1].children.push(node);
+			}
+			stack.push(node);
+		}
+		for (const member of members) {
+			if (member.line_range == null && member.uri !== focusUri) {
+				roots.push({ member, children: [] });
+			}
+		}
+		return roots;
+	}
+
+	function contains(outer, inner) {
+		const [os, oe] = outer.line_range;
+		const [is, ie] = inner.line_range;
+		return os <= is && oe >= ie && (os < is || oe > ie);
+	}
+
+	function surfaceBox(node, counts) {
+		const box = el("div", "surface");
+		const row = el("div", "surface-row");
+		const name = el("span", "name");
+		name.textContent = `${node.member.kind} ${node.member.name}`;
+		row.appendChild(name);
+		const meta = el("span", "meta");
+		const line = node.member.line_range ? `L${node.member.line_range[0]}` : "";
+		const internal = counts.get(node.member.id) ?? 0;
+		meta.textContent = internal > 0 ? `${line} · ${internal} edge(s)` : line;
+		row.appendChild(meta);
+		row.addEventListener("click", (event) => {
+			event.stopPropagation();
+			vscode.postMessage({ type: "focus", uri: node.member.uri });
+		});
+		box.appendChild(row);
+		for (const child of node.children) {
+			box.appendChild(surfaceBox(child, counts));
+		}
+		return box;
 	}
 
 	function symbolHeader(symbol) {
@@ -131,21 +200,6 @@
 		location.addEventListener("click", () => openNeighbor(symbol));
 		header.appendChild(location);
 		return header;
-	}
-
-	function memberRow(member, internalCount) {
-		const row = el("div", "neighbor member");
-		const name = el("div", "name");
-		name.textContent = `${member.kind} ${member.name}`;
-		row.appendChild(name);
-		const meta = el("div", "meta");
-		const line = member.line_range ? `L${member.line_range[0]}` : "";
-		meta.textContent = internalCount > 0 ? `${line} · ${internalCount} internal edge(s)` : line;
-		row.appendChild(meta);
-		row.addEventListener("click", () => {
-			vscode.postMessage({ type: "focus", uri: member.uri });
-		});
-		return row;
 	}
 
 	function internalCounts(edges) {
