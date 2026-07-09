@@ -125,6 +125,12 @@
 		],
 		"commands": [
 			{
+				"command": "codeMoniker.explorer.focus",
+				"title": "Open in Graph Explorer",
+				"category": "Code Moniker",
+				"icon": "$(type-hierarchy)"
+			},
+			{
 				"command": "codeMoniker.symbols.filterShape",
 				"title": "Filter Symbols by Shape",
 				"category": "Code Moniker",
@@ -416,6 +422,11 @@
 					"command": "codeMoniker.rulesDaemon.runCheck",
 					"when": "view == codeMoniker.workspace && viewItem == cmCheckSection",
 					"group": "inline@1"
+				},
+				{
+					"command": "codeMoniker.explorer.focus",
+					"when": "view == codeMoniker.workspace && viewItem == cmSymbol",
+					"group": "navigation@1"
 				}
 			]
 		},
@@ -434,7 +445,11 @@
 				},
 				"codeMoniker.daemon.consistency": {
 					"type": "string",
-					"enum": ["fresh", "hybrid", "current"],
+					"enum": [
+						"fresh",
+						"hybrid",
+						"current"
+					],
 					"enumDescriptions": [
 						"Every query refreshes a stale index before answering. Always up to date, navigation can lag behind reindexing.",
 						"Navigation reads the current snapshot instantly; a stale index triggers one background refresh whose completion updates the trees.",
