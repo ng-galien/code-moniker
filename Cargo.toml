@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version       = "0.3.0"
+version       = "0.4.0"
 edition       = "2024"
 rust-version  = "1.86"
 license       = "MIT OR Apache-2.0"
@@ -19,12 +19,12 @@ repository    = "https://github.com/ng-galien/code-moniker"
 homepage      = "https://github.com/ng-galien/code-moniker"
 
 [workspace.dependencies]
-code-moniker-core = { path = "crates/core", version = "0.3.0" }
-code-moniker-workspace = { path = "crates/workspace", version = "0.3.0" }
-code-moniker-check = { path = "crates/check", version = "0.3.0" }
-code-moniker-query = { path = "crates/query", version = "0.3.0" }
-code-moniker-daemon = { path = "crates/daemon", version = "0.3.0" }
-code-moniker-daemon-client = { path = "crates/daemon-client", version = "0.3.0" }
+code-moniker-core = { path = "crates/core", version = "0.4.0" }
+code-moniker-workspace = { path = "crates/workspace", version = "0.4.0" }
+code-moniker-check = { path = "crates/check", version = "0.4.0" }
+code-moniker-query = { path = "crates/query", version = "0.4.0" }
+code-moniker-daemon = { path = "crates/daemon", version = "0.4.0" }
+code-moniker-daemon-client = { path = "crates/daemon-client", version = "0.4.0" }
 
 serde     = { version = "1", features = ["derive"] }
 clap      = { version = "4", features = ["derive", "env"] }

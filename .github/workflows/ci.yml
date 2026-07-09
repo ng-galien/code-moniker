@@ -59,3 +59,16 @@ jobs:
 
       - name: Generated types match the schema
         run: git diff --exit-code vscode-extension/src/daemon/generated.ts
+
+  bench-smoke:
+    name: criterion benches compile and run once
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Bench smoke (single iteration, no measurement)
+        run: cargo bench -p code-moniker-workspace --benches -- --test

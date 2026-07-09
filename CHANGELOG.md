@@ -11,6 +11,57 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-09
+
+Indexing-core overhaul: the incremental refresh is now proportional to
+the change, file creations index without a rescan, and read-model
+queries stop scanning the workspace. Measured on this repository:
+single-file refresh 11.8 ms -> 2.0 ms, file creation visible in ~0.3 s
+end-to-end (was 3.4 s), usages query 176 us -> 26 us, `symbols` listing
+6.3 ms -> 0.34 ms, estimated snapshot memory -17%.
+
+### Added
+
+- **Incremental file creation** — created source files (including
+  editor atomic-save renames) extend the catalog and index in place via
+  new `SourceCatalogPort::extend_catalog` / `CodeIndexPort::
+  refresh_catalog_paths` port methods; removals still trigger a rescan.
+- **camelCase-aware search** — query terms split on case boundaries, so
+  `BindingStore` matches `binding_store`-style symbols and vice versa.
+- **Linkage read index** — `LinkageSnapshot.read_index` exposes
+  incoming-references-per-target and resolved-target-per-reference maps
+  (Arc-shared, equality-neutral) that back O(result) usages queries.
+- **Criterion benchmark suite** (`crates/workspace/benches`) over a
+  deterministic synthetic workspace, plus an incremental-vs-full
+  equivalence oracle and view golden contracts in the test suite.
+
+### Changed (breaking)
+
+- `SymbolId`, `ReferenceId` and `SourceId` are compact `Copy` structs
+  (`at(...)`, `parse(...)`, accessors, `Display`) instead of `String`
+  newtypes; `SourceId` strings no longer embed the relative path.
+- `CodeIndex.symbols` / `CodeIndex.references` are slot-aligned
+  `RecordTable<T>` shard tables instead of flat `Vec<T>`.
+- `WorkspaceRegistry` / `WorkspacePorts` are no longer generic; ports
+  are boxed trait objects and `LocalWorkspaceRegistry` stays as alias.
+- `SymbolRecord::new` / `ReferenceRecord::new` / `SourceUnit` builders
+  take typed ids; `SymbolRecord.identity` is `Arc<str>`.
+- The `*Fields`/`LinkageSnapshotReport` twin constructor structs are
+  gone; records are built with struct literals.
+
+### Fixed
+
+- Ghost resolved edges after removing a reference whose positional id
+  aliased a surviving neighbour.
+- The incremental refresh honours the on-disk graph cache (`cache_dir`).
+- Auto live-refresh: created files were silently dropped when watcher
+  paths and daemon roots differed in symlink form (macOS `/var` vs
+  `/private/var`); a failed live apply now retries instead of leaving
+  the workspace stale; duplicate daemons on one root are rejected and
+  dead registry entries purged; client discovery falls back to
+  root-based lookup.
+
+
 ### Added
 
 - **`code-moniker ui`** — adds a read-only terminal architecture explorer
