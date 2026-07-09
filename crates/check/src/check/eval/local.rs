@@ -218,7 +218,7 @@ pub(super) fn domain_items<'a>(
 				name: seg.name,
 			})
 			.collect(),
-		Domain::OutRefs => ctx
+		Domain::OutRefs | Domain::SourceOutRefs => ctx
 			.out_refs_by_source
 			.get(&def_idx)
 			.into_iter()
@@ -227,7 +227,7 @@ pub(super) fn domain_items<'a>(
 				record: ctx.graph.ref_at(*idx),
 			})
 			.collect(),
-		Domain::InRefs => {
+		Domain::InRefs | Domain::SourceInRefs => {
 			let key = ctx.graph.def_at(def_idx).moniker.as_encoded();
 			ctx.in_refs_by_target
 				.get(key)
@@ -238,7 +238,36 @@ pub(super) fn domain_items<'a>(
 				})
 				.collect()
 		}
+		Domain::SourceAncestorOutRefs => ancestor_ref_items(def_idx, ctx, true),
+		Domain::SourceAncestorInRefs => ancestor_ref_items(def_idx, ctx, false),
 	}
+}
+
+fn ancestor_ref_items<'a>(
+	def_idx: usize,
+	ctx: &'a EvalCtx<'_, '_>,
+	outgoing: bool,
+) -> Vec<DomainItem<'a>> {
+	let mut items = Vec::new();
+	let mut parent = ctx.graph.def_at(def_idx).parent;
+	while let Some(idx) = parent {
+		if outgoing {
+			if let Some(refs) = ctx.out_refs_by_source.get(&idx) {
+				items.extend(refs.iter().map(|ref_idx| DomainItem::Ref {
+					record: ctx.graph.ref_at(*ref_idx),
+				}));
+			}
+		} else {
+			let key = ctx.graph.def_at(idx).moniker.as_encoded();
+			if let Some(refs) = ctx.in_refs_by_target.get(key) {
+				items.extend(refs.iter().map(|ref_idx| DomainItem::Ref {
+					record: ctx.graph.ref_at(*ref_idx),
+				}));
+			}
+		}
+		parent = ctx.graph.def_at(idx).parent;
+	}
+	items
 }
 
 fn descendant_items<'a>(
@@ -278,6 +307,7 @@ fn def_matches_domain(domain: &Domain, def: &DefRecord) -> bool {
 	match domain {
 		Domain::Children(kind) => def.kind.as_ref() == kind.as_bytes(),
 		Domain::ChildrenByShape(shape) => def_has_shape(def, shape),
+		Domain::Descendants(inner) => def_matches_domain(inner, def),
 		_ => false,
 	}
 }

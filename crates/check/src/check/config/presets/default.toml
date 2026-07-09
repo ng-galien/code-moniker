@@ -93,6 +93,12 @@ expr = "$camel OR $screaming"
 id   = "name-screaming"
 expr = "$screaming"
 
+[[java.refs.where]]
+id       = "no-unnecessary-qualified-type-name"
+severity = "warn"
+expr     = "kind != 'uses_type' OR text = target.name OR any(source.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target)"
+message  = "Qualified Java type reference can use simple name `{target.name}` here; keep fully qualified names for real ambiguity."
+
 # ─── Python ───────────────────────────────────────────────────────────────
 [[python.function.where]]
 id   = "name-snakecase"

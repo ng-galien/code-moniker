@@ -332,6 +332,10 @@ pub(in crate::check) enum Domain {
 	Segments,
 	OutRefs,
 	InRefs,
+	SourceOutRefs,
+	SourceInRefs,
+	SourceAncestorOutRefs,
+	SourceAncestorInRefs,
 }
 
 #[derive(Debug, Clone)]
@@ -375,6 +379,7 @@ pub(in crate::check) enum Rhs {
 	Str(String),
 	PathPattern(crate::check::path::Pattern),
 	Projection(Lhs),
+	CurrentProjection(Lhs),
 	PairProjection(PairProjection),
 	Collection(CollectionExpr),
 }

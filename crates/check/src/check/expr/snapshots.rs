@@ -264,6 +264,10 @@ fn snapshot_rhs(rhs: &Rhs) -> Value {
 			"type": "projection",
 			"name": lhs.as_str(),
 		}),
+		Rhs::CurrentProjection(lhs) => json!({
+			"type": "current_projection",
+			"name": lhs.as_str(),
+		}),
 		Rhs::PairProjection(projection) => json!({
 			"type": "pair_projection",
 			"projection": snapshot_pair_projection(projection),
@@ -301,6 +305,18 @@ fn snapshot_domain(domain: &Domain) -> Value {
 		}),
 		Domain::InRefs => json!({
 			"type": "in_refs",
+		}),
+		Domain::SourceOutRefs => json!({
+			"type": "source_out_refs",
+		}),
+		Domain::SourceInRefs => json!({
+			"type": "source_in_refs",
+		}),
+		Domain::SourceAncestorOutRefs => json!({
+			"type": "source_ancestor_out_refs",
+		}),
+		Domain::SourceAncestorInRefs => json!({
+			"type": "source_ancestor_in_refs",
 		}),
 	}
 }

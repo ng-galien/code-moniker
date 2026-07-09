@@ -1995,6 +1995,230 @@ fn refs_filtered_by_kind() {
 }
 
 #[test]
+fn ref_text_projection_uses_reference_span() {
+	let cfg = cfg_from(
+		r#"
+		[[refs.where]]
+		id   = "no-qualified-java-time"
+		expr = "kind != 'uses_type' OR text !~ '^java\\.time\\.'"
+		"#,
+	);
+	let source = "java.time.Instant capturedAt;\n";
+	let root = build_root();
+	let mut g = CodeGraph::new(root.clone(), b"module");
+	let cls = child(&root, b"class", b"ClockReader");
+	g.add_def(cls.clone(), b"class", &root, Some(line_span(source, 1)))
+		.unwrap();
+	let target = {
+		let mut b = MonikerBuilder::from_view(root.as_view());
+		b.segment(b"external_pkg", b"java");
+		b.segment(b"path", b"time");
+		b.segment(b"path", b"Instant");
+		b.build()
+	};
+	let start = source.find("java.time.Instant").unwrap() as u32;
+	let end = start + "java.time.Instant".len() as u32;
+	g.add_ref(&cls, target, b"uses_type", Some((start, end)))
+		.unwrap();
+	let v = evaluate(&g, source, Lang::Java, &cfg, SCHEME).unwrap();
+	assert_eq!(v.len(), 1, "qualified ref text should violate: {v:?}");
+	assert_eq!(v[0].lines, (1, 1));
+}
+
+#[test]
+fn current_projection_compares_ref_to_ancestor_refs() {
+	let cfg = cfg_from(
+		r#"
+		[[refs.where]]
+		id   = "qualified-type-needs-alternative"
+		expr = """
+		  kind != 'uses_type'
+		  OR text !~ '^java\\.time\\.'
+		  OR any(source.ancestors.out_refs,
+		    kind = 'imports_symbol'
+		    AND target.name = current.target.name
+		    AND target != current.target
+		  )
+		"""
+		"#,
+	);
+	let source = "import com.acme.other.Instant;\njava.time.Instant capturedAt;\n";
+	let root = build_root();
+	let mut g = CodeGraph::new(root.clone(), b"module");
+	let cls = child(&root, b"class", b"AuditClock");
+	g.add_def(cls.clone(), b"class", &root, Some(line_span(source, 2)))
+		.unwrap();
+	let imported = {
+		let mut b = MonikerBuilder::from_view(root.as_view());
+		b.segment(b"external_pkg", b"com");
+		b.segment(b"path", b"acme");
+		b.segment(b"path", b"other");
+		b.segment(b"path", b"Instant");
+		b.build()
+	};
+	let qualified = {
+		let mut b = MonikerBuilder::from_view(root.as_view());
+		b.segment(b"external_pkg", b"java");
+		b.segment(b"path", b"time");
+		b.segment(b"path", b"Instant");
+		b.build()
+	};
+	g.add_ref(
+		&root,
+		imported,
+		b"imports_symbol",
+		Some(line_span(source, 1)),
+	)
+	.unwrap();
+	let start = source.find("java.time.Instant").unwrap() as u32;
+	let end = start + "java.time.Instant".len() as u32;
+	g.add_ref(&cls, qualified, b"uses_type", Some((start, end)))
+		.unwrap();
+	let v = evaluate(&g, source, Lang::Java, &cfg, SCHEME).unwrap();
+	assert!(
+		v.is_empty(),
+		"ancestor import with same simple name should justify FQN: {v:?}"
+	);
+}
+
+#[test]
+fn current_projection_rejects_unrelated_imports() {
+	let cfg = cfg_from(
+		r#"
+		[[refs.where]]
+		id   = "qualified-type-needs-alternative"
+		expr = """
+		  kind != 'uses_type'
+		  OR text = target.name
+		  OR any(source.ancestors.out_refs,
+		    kind = 'imports_symbol'
+		    AND target.name = current.target.name
+		    AND target != current.target
+		  )
+		"""
+		"#,
+	);
+	let source = "import com.acme.other.Foo;\njava.time.Instant capturedAt;\n";
+	let root = build_root();
+	let mut g = CodeGraph::new(root.clone(), b"module");
+	let cls = child(&root, b"class", b"AuditClock");
+	g.add_def(cls.clone(), b"class", &root, Some(line_span(source, 2)))
+		.unwrap();
+	let imported = {
+		let mut b = MonikerBuilder::from_view(root.as_view());
+		b.segment(b"external_pkg", b"com");
+		b.segment(b"path", b"acme");
+		b.segment(b"path", b"other");
+		b.segment(b"path", b"Foo");
+		b.build()
+	};
+	let qualified = {
+		let mut b = MonikerBuilder::from_view(root.as_view());
+		b.segment(b"external_pkg", b"java");
+		b.segment(b"path", b"time");
+		b.segment(b"path", b"Instant");
+		b.build()
+	};
+	g.add_ref(
+		&root,
+		imported,
+		b"imports_symbol",
+		Some(line_span(source, 1)),
+	)
+	.unwrap();
+	let start = source.find("java.time.Instant").unwrap() as u32;
+	let end = start + "java.time.Instant".len() as u32;
+	g.add_ref(&cls, qualified, b"uses_type", Some((start, end)))
+		.unwrap();
+	let v = evaluate(&g, source, Lang::Java, &cfg, SCHEME).unwrap();
+	assert_eq!(
+		v.len(),
+		1,
+		"unrelated import must not justify qualified use: {v:?}"
+	);
+}
+
+#[test]
+fn current_projection_tracks_immediate_ref_quantifier_parent() {
+	let cfg = cfg_from(
+		r#"
+		[[refs.where]]
+		id   = "nested-current"
+		expr = """
+		  kind != 'uses_type'
+		  OR target.name != 'LocalDate'
+		  OR any(source.out_refs,
+		    kind = 'imports_symbol'
+		    AND any(source.out_refs,
+		      kind = 'uses_type'
+		      AND target.name = current.target.name
+		      AND target != current.target
+		    )
+		  )
+		"""
+		"#,
+	);
+	let source = "java.time.LocalDate businessDate;\nimport com.acme.other.Instant;\njava.time.Instant capturedAt;\n";
+	let root = build_root();
+	let mut g = CodeGraph::new(root.clone(), b"module");
+	let cls = child(&root, b"class", b"AuditClock");
+	g.add_def(cls.clone(), b"class", &root, Some(line_span(source, 1)))
+		.unwrap();
+	let local_date = {
+		let mut b = MonikerBuilder::from_view(root.as_view());
+		b.segment(b"external_pkg", b"java");
+		b.segment(b"path", b"time");
+		b.segment(b"path", b"LocalDate");
+		b.build()
+	};
+	let imported_instant = {
+		let mut b = MonikerBuilder::from_view(root.as_view());
+		b.segment(b"external_pkg", b"com");
+		b.segment(b"path", b"acme");
+		b.segment(b"path", b"other");
+		b.segment(b"path", b"Instant");
+		b.build()
+	};
+	let qualified_instant = {
+		let mut b = MonikerBuilder::from_view(root.as_view());
+		b.segment(b"external_pkg", b"java");
+		b.segment(b"path", b"time");
+		b.segment(b"path", b"Instant");
+		b.build()
+	};
+	let local_date_start = source.find("java.time.LocalDate").unwrap() as u32;
+	let local_date_end = local_date_start + "java.time.LocalDate".len() as u32;
+	g.add_ref(
+		&cls,
+		local_date,
+		b"uses_type",
+		Some((local_date_start, local_date_end)),
+	)
+	.unwrap();
+	g.add_ref(
+		&cls,
+		imported_instant,
+		b"imports_symbol",
+		Some(line_span(source, 2)),
+	)
+	.unwrap();
+	let instant_start = source.rfind("java.time.Instant").unwrap() as u32;
+	let instant_end = instant_start + "java.time.Instant".len() as u32;
+	g.add_ref(
+		&cls,
+		qualified_instant,
+		b"uses_type",
+		Some((instant_start, instant_end)),
+	)
+	.unwrap();
+	let v = evaluate(&g, source, Lang::Java, &cfg, SCHEME).unwrap();
+	assert!(
+		v.is_empty(),
+		"nested current.* should bind to the immediate imports_symbol ref: {v:?}"
+	);
+}
+
+#[test]
 fn alias_expands_in_rule_expr() {
 	let cfg = cfg_from(
 		r#"

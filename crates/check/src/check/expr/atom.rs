@@ -228,8 +228,19 @@ fn check_type(lhs: &LhsExpr, op: Op, full: &str) -> Result<(), ParseError> {
 }
 
 fn check_rhs_type(lhs: &LhsExpr, rhs: &Rhs, full: &str) -> Result<(), ParseError> {
-	if matches!(lhs, LhsExpr::Number(_)) && !matches!(rhs, Rhs::Number(_) | Rhs::PairProjection(_))
+	if matches!(lhs, LhsExpr::Number(_))
+		&& matches!(rhs, Rhs::CurrentProjection(projection) if !projection.is_number_projection())
 	{
+		return Err(ParseError::BadExpr {
+			expr: full.to_string(),
+			msg: "number expressions require numeric current projections".to_string(),
+		});
+	}
+	if matches!(lhs, LhsExpr::Number(_))
+		&& !matches!(
+			rhs,
+			Rhs::Number(_) | Rhs::PairProjection(_) | Rhs::CurrentProjection(_)
+		) {
 		return Err(ParseError::BadExpr {
 			expr: full.to_string(),
 			msg: "number expressions require numeric RHS".to_string(),
@@ -276,6 +287,8 @@ pub(super) fn parse_rhs(
 		Op::Lt | Op::Le | Op::Gt | Op::Ge => {
 			if let Some(projection) = parse_pair_projection(s, full, pair_bindings_allowed)? {
 				Rhs::PairProjection(projection)
+			} else if let Some(lhs) = parse_current_projection(s) {
+				Rhs::CurrentProjection(lhs)
 			} else {
 				Rhs::Number(parse_number_rhs(
 					s,
@@ -299,6 +312,8 @@ pub(super) fn parse_rhs(
 			} else if let Some(projection) = parse_pair_projection(s, full, pair_bindings_allowed)?
 			{
 				Rhs::PairProjection(projection)
+			} else if let Some(lhs) = parse_current_projection(s) {
+				Rhs::CurrentProjection(lhs)
 			} else if let Ok(expr) =
 				parse_number_rhs(s, scheme, allowed_kinds, full, pair_bindings_allowed)
 			{
@@ -317,4 +332,9 @@ pub(super) fn parse_rhs(
 			}
 		}
 	})
+}
+
+fn parse_current_projection(s: &str) -> Option<Lhs> {
+	s.strip_prefix("current.")
+		.and_then(Lhs::from_projection_name)
 }

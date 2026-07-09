@@ -149,13 +149,18 @@ Expressions are written in the `expr = "..."` string of a `where` rule.
   | segment
   | out_refs
   | in_refs
+  | source.out_refs
+  | source.in_refs
+  | source.ancestors.out_refs
+  | source.ancestors.in_refs
 
 <metric_name> ::=
     lcom4 | cbo | rfc | wmc | dit | noc | fan_in | fan_out
 
-<string_value_or_projection>  ::= <string_value> | <string_projection> | <pair_projection>
-<moniker_value_or_projection> ::= <moniker_uri> | <moniker_projection> | <pair_projection>
-<value_or_projection>         ::= <string_value> | <string_projection> | <moniker_projection> | <pair_projection>
+<current_projection>          ::= current.<string_projection> | current.<moniker_projection> | current.<number_projection>
+<string_value_or_projection>  ::= <string_value> | <string_projection> | <pair_projection> | <current_projection>
+<moniker_value_or_projection> ::= <moniker_uri> | <moniker_projection> | <pair_projection> | <current_projection>
+<value_or_projection>         ::= <string_value> | <string_projection> | <moniker_projection> | <pair_projection> | <current_projection>
 
 <number_operator>            ::= = | != | < | <= | > | >=
 <moniker_relation_operator>  ::= @> | <@ | ?=
@@ -194,8 +199,9 @@ to override.
   `parent.*`, and `segment.*` are def-scope projections. Unprefixed
   `kind` is the current def kind in def scope and the ref kind in ref
   scope. Unprefixed `shape` is the current def shape in def scope and the
-  source def shape in ref scope. `confidence`, `source.*`, and `target.*`
-  are ref-scope projections.
+  source def shape in ref scope. `text` is available in def and ref scope
+  when extraction provides a source span. `confidence`, `source.*`, and
+  `target.*` are ref-scope projections.
 
 `<number_projection>`
 : A numeric projection. `lines` is the 1-indexed line span of the current
@@ -256,9 +262,16 @@ to override.
   nested scopes. In project checks, descendant domains may ask the existing lazy
   resolver for matching defs outside the current file graph. `segment` means
   moniker segments. `out_refs` and `in_refs` mean refs whose source or target is
-  the current def. Aggregates, domain-value expressions, and collection
-  projections use item domains; `pairs(D)` is only valid for `count`, `any`,
-  `all`, and `none`.
+  the current def. In ref scope, `source.out_refs` and `source.in_refs` inspect
+  refs attached to the current ref source def; `source.ancestors.out_refs` and
+  `source.ancestors.in_refs` inspect refs attached to ancestor defs of that
+  source. Aggregates, domain-value expressions, and collection projections use
+  item domains; `pairs(D)` is only valid for `count`, `any`, `all`, and `none`.
+
+`<current_projection>`
+: Inside nested domain filters, `current.<projection>` refers to the item from
+  the outer evaluation context. This lets a rule compare each iterated candidate
+  with the item that opened the quantifier.
 
 `<metric_name>`
 : One of the local named metrics. `self` binds to the rule's owner def.
@@ -365,11 +378,16 @@ Domains:
 | `segment`   | segments of the moniker (top-down)              |
 | `out_refs`  | refs whose source is the current def            |
 | `in_refs`   | refs whose target is the current def            |
+| `source.out_refs` | refs whose source is the current ref source def |
+| `source.in_refs` | refs whose target is the current ref source def |
+| `source.ancestors.out_refs` | refs emitted by ancestor defs of the current ref source |
+| `source.ancestors.in_refs` | refs targeting ancestor defs of the current ref source |
 
 The optional `<expr>` is evaluated with **the iterated item** as context,
 so its projections refer to that item's attributes. For `segment`, only
-`segment.kind` and `segment.name` are available. For `out_refs` / `in_refs`,
-the full ref scope (`kind`, `source.*`, `target.*`) is in scope.
+`segment.kind` and `segment.name` are available. For ref domains, the full ref
+scope (`kind`, `source.*`, `target.*`, `text`) is in scope. Use `current.*` to
+compare that iterated item to the outer item that opened the domain filter.
 
 ### Numeric analytics
 

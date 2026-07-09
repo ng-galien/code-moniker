@@ -953,7 +953,14 @@ fn lazy_domain_matches(domain: &Domain, def: &DefRecord) -> bool {
 			def.shape().is_some_and(|actual| actual.as_str() == shape)
 		}
 		Domain::Descendants(inner) => lazy_domain_matches(inner, def),
-		Domain::Pairs(_) | Domain::Segments | Domain::OutRefs | Domain::InRefs => false,
+		Domain::Pairs(_)
+		| Domain::Segments
+		| Domain::OutRefs
+		| Domain::InRefs
+		| Domain::SourceOutRefs
+		| Domain::SourceInRefs
+		| Domain::SourceAncestorOutRefs
+		| Domain::SourceAncestorInRefs => false,
 	}
 }
 

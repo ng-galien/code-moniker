@@ -74,6 +74,16 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 	if cursor::starts_with(&state, "descendants(") {
 		return parse_descendants_domain(state);
 	}
+	for (name, domain) in [
+		("source.ancestors.out_refs", Domain::SourceAncestorOutRefs),
+		("source.ancestors.in_refs", Domain::SourceAncestorInRefs),
+		("source.out_refs", Domain::SourceOutRefs),
+		("source.in_refs", Domain::SourceInRefs),
+	] {
+		if cursor::starts_with(&state, name) {
+			return Ok((domain, cursor::advance(state, name.len())));
+		}
+	}
 	let start = cursor::position(&state);
 	let (domain_ident, state) = cursor::take_domain_ident(state);
 	if domain_ident.is_empty() {
@@ -86,6 +96,10 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 		"segment" => Domain::Segments,
 		"out_refs" => Domain::OutRefs,
 		"in_refs" => Domain::InRefs,
+		"source.out_refs" => Domain::SourceOutRefs,
+		"source.in_refs" => Domain::SourceInRefs,
+		"source.ancestors.out_refs" => Domain::SourceAncestorOutRefs,
+		"source.ancestors.in_refs" => Domain::SourceAncestorInRefs,
 		shape if shape.starts_with("shape:") => {
 			let shape_name = shape.trim_start_matches("shape:");
 			if !is_def_shape_name(shape_name) {
@@ -104,7 +118,7 @@ pub(super) fn parse_domain_ident<'a>(state: ParserState<'a>) -> ParseResult<'a, 
 				return Err(ParseError::BadExpr {
 					expr: cursor::raw(&state).to_string(),
 					msg: format!(
-						"unknown domain `{other}` (allowed: segment, out_refs, in_refs, or one of {})",
+						"unknown domain `{other}` (allowed: segment, out_refs, in_refs, source.out_refs, source.in_refs, source.ancestors.out_refs, source.ancestors.in_refs, or one of {})",
 						cursor::allowed_kinds(&state).join(", ")
 					),
 				});
@@ -161,6 +175,14 @@ fn contains_pair_domain(domain: &Domain) -> bool {
 	match domain {
 		Domain::Pairs(_) => true,
 		Domain::Descendants(inner) => contains_pair_domain(inner),
-		_ => false,
+		Domain::Children(_)
+		| Domain::ChildrenByShape(_)
+		| Domain::Segments
+		| Domain::OutRefs
+		| Domain::InRefs
+		| Domain::SourceOutRefs
+		| Domain::SourceInRefs
+		| Domain::SourceAncestorOutRefs
+		| Domain::SourceAncestorInRefs => false,
 	}
 }

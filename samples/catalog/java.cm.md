@@ -65,6 +65,12 @@ rationale = "Domain code should not know persistence or delivery details. Keep i
 expr = "$src_domain => NOT $tgt_infra"
 message = "Domain code must not depend directly on infrastructure."
 
+[[java.refs.where]]
+id = "no-unnecessary-qualified-type-name"
+rationale = "A fully qualified Java type name is useful when the simple name is ambiguous. Otherwise, imports keep code shorter and easier to scan."
+expr = "kind != 'uses_type' OR text = target.name OR any(source.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target) OR any(source.ancestors.out_refs, kind = 'imports_symbol' AND target.name = current.target.name AND target != current.target)"
+message = "Qualified Java type reference can use simple name `{target.name}` here."
+
 [[java.class.where]]
 id = "spring-controller-suffix"
 rationale = "A controller suffix tells readers that the class handles web/API traffic."
@@ -372,6 +378,18 @@ public class OrderTable {
 	public String key() {
 		return "order";
 	}
+}
+```
+
+## Qualified type names
+
+Fully qualified type names are reserved for real simple-name ambiguity:
+
+```java cm:file=src/main/java/com/acme/billing/BillingClock.java
+package com.acme.billing;
+
+public class BillingClock {
+	private java.time.LocalDate businessDate;
 }
 ```
 
@@ -711,6 +729,7 @@ public class MixedWebMvcTest {
 
 ```cm:expect
 java.method.spring-bean-methods-in-configuration @ src/main/java/com/acme/billing/Beans.java:L6-L9
+java.refs.no-unnecessary-qualified-type-name @ src/main/java/com/acme/billing/BillingClock.java:L4
 java.class.spring-configuration-package @ src/main/java/com/acme/billing/BillingConfig.java:L5-L7
 java.class.spring-repository-package @ src/main/java/com/acme/billing/BillingRepository.java:L5-L10
 java.class.spring-service-package @ src/main/java/com/acme/billing/BillingService.java:L5-L10

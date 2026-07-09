@@ -1029,10 +1029,19 @@ fn eval_ref_node(
 	r: &code_moniker_core::core::code_graph::RefRecord,
 	ctx: &EvalCtx<'_, '_>,
 ) -> NodeOutcome {
+	eval_ref_node_with_current(node, r, r, ctx)
+}
+
+fn eval_ref_node_with_current(
+	node: &Node,
+	r: &code_moniker_core::core::code_graph::RefRecord,
+	current: &code_moniker_core::core::code_graph::RefRecord,
+	ctx: &EvalCtx<'_, '_>,
+) -> NodeOutcome {
 	walk_node(
 		node,
-		&|a| eval_ref_atom(a, r, ctx),
-		&|_, _, _| NodeOutcome::NotApplicable,
+		&|a| eval_ref_atom(a, r, current, ctx),
+		&|kind, domain, filter| eval_quantifier_ref(kind, domain, filter, r, ctx),
 		&|_| NodeOutcome::NotApplicable,
 		&|_| NodeOutcome::NotApplicable,
 	)
@@ -1041,102 +1050,20 @@ fn eval_ref_node(
 fn eval_ref_atom(
 	atom: &Atom,
 	r: &code_moniker_core::core::code_graph::RefRecord,
+	current: &code_moniker_core::core::code_graph::RefRecord,
 	ctx: &EvalCtx<'_, '_>,
 ) -> AtomOutcome {
-	let graph = ctx.graph;
-	let source_def = graph.def_at(r.source);
-	let value: Value = match &atom.lhs {
-		LhsExpr::Attr(Lhs::Kind) => {
-			Value::Str(std::str::from_utf8(&r.kind).unwrap_or_default().to_string())
-		}
-		LhsExpr::Attr(Lhs::Confidence) => Value::Str(
-			std::str::from_utf8(&r.confidence)
-				.unwrap_or_default()
-				.to_string(),
-		),
-		LhsExpr::Attr(Lhs::Moniker) | LhsExpr::Attr(Lhs::SourceMoniker) => {
-			Value::Moniker(source_def.moniker.clone())
-		}
-		LhsExpr::Attr(Lhs::ParentMoniker) | LhsExpr::Attr(Lhs::SourceParentMoniker) => {
-			match source_def.moniker.parent() {
-				Some(parent) => Value::Moniker(parent),
-				None => return AtomOutcome::NotApplicable,
-			}
-		}
-		LhsExpr::Attr(Lhs::TargetMoniker) => Value::Moniker(r.target.clone()),
-		LhsExpr::Attr(Lhs::TargetParentMoniker) => match r.target.parent() {
-			Some(parent) => Value::Moniker(parent),
-			None => return AtomOutcome::NotApplicable,
-		},
-		LhsExpr::Attr(Lhs::SourceName) => match name_of(&source_def.moniker) {
-			Some(n) => Value::Str(n),
-			None => return AtomOutcome::NotApplicable,
-		},
-		LhsExpr::Attr(Lhs::TargetName) => match name_of(&r.target) {
-			Some(n) => Value::Str(n),
-			None => return AtomOutcome::NotApplicable,
-		},
-		LhsExpr::Attr(Lhs::SourceKind) => match last_segment_kind(&source_def.moniker) {
-			Some(k) => Value::Str(k),
-			None => return AtomOutcome::NotApplicable,
-		},
-		LhsExpr::Attr(Lhs::TargetKind) => match last_segment_kind(&r.target) {
-			Some(k) => Value::Str(k),
-			None => return AtomOutcome::NotApplicable,
-		},
-		LhsExpr::Attr(Lhs::Shape) | LhsExpr::Attr(Lhs::SourceShape) => {
-			match shape_of_last_segment(&source_def.moniker) {
-				Some(s) => Value::Str(s.as_str().to_string()),
-				None => return AtomOutcome::NotApplicable,
-			}
-		}
-		LhsExpr::Attr(Lhs::TargetShape) => match shape_of_last_segment(&r.target) {
-			Some(s) => Value::Str(s.as_str().to_string()),
-			None => return AtomOutcome::NotApplicable,
-		},
-		LhsExpr::Attr(Lhs::ParentShape) => {
-			let segs: Vec<_> = source_def.moniker.as_view().segments().collect();
-			if segs.len() < 2 {
-				return AtomOutcome::NotApplicable;
-			}
-			let parent_kind = segs[segs.len() - 2].kind;
-			match code_moniker_core::core::shape::shape_of(parent_kind) {
-				Some(s) => Value::Str(s.as_str().to_string()),
-				None => return AtomOutcome::NotApplicable,
-			}
-		}
-		LhsExpr::Attr(Lhs::SourceVisibility) => Value::Str(
-			std::str::from_utf8(&source_def.visibility)
-				.unwrap_or_default()
-				.to_string(),
-		),
-		LhsExpr::Attr(Lhs::TargetVisibility) => match resolve_local_def(graph, &r.target) {
-			Some(def) => Value::Str(
-				std::str::from_utf8(&def.visibility)
-					.unwrap_or_default()
-					.to_string(),
-			),
-			None => return AtomOutcome::NotApplicable,
-		},
-		LhsExpr::SegmentOf { scope, kind } => match scope {
-			SegmentScope::Def => {
-				return AtomOutcome::NotApplicable;
-			}
-			SegmentScope::Source => {
-				Value::Str(first_segment_name(&source_def.moniker, kind.as_bytes()))
-			}
-			SegmentScope::Target => Value::Str(first_segment_name(&r.target, kind.as_bytes())),
-		},
-		LhsExpr::Number(expr) => {
-			let Some(n) = eval_number_expr_ref(expr, r, ctx) else {
-				return AtomOutcome::NotApplicable;
-			};
-			Value::Number(n)
-		}
-		_ => return AtomOutcome::NotApplicable,
+	let Some(value) = eval_ref_lhs_expr_value(&atom.lhs, r, ctx) else {
+		return AtomOutcome::NotApplicable;
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
 		let Some(rhs_val) = resolve_ref_lhs(*other, r, ctx) else {
+			return AtomOutcome::NotApplicable;
+		};
+		return apply_op_values(&value, atom.op, &rhs_val);
+	}
+	if let Rhs::CurrentProjection(other) = &atom.rhs {
+		let Some(rhs_val) = resolve_ref_lhs(*other, current, ctx) else {
 			return AtomOutcome::NotApplicable;
 		};
 		return apply_op_values(&value, atom.op, &rhs_val);
@@ -1148,6 +1075,189 @@ fn eval_ref_atom(
 		return apply_op_values(&value, atom.op, &rhs_val);
 	}
 	apply_op(&value, atom)
+}
+
+fn eval_ref_lhs_expr_value(
+	lhs: &LhsExpr,
+	r: &code_moniker_core::core::code_graph::RefRecord,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<Value> {
+	match lhs {
+		LhsExpr::Attr(lhs) => resolve_ref_lhs(*lhs, r, ctx),
+		LhsExpr::SegmentOf { scope, kind } => match scope {
+			SegmentScope::Def => None,
+			SegmentScope::Source => {
+				let source_def = ctx.graph.def_at(r.source);
+				Some(Value::Str(first_segment_name(
+					&source_def.moniker,
+					kind.as_bytes(),
+				)))
+			}
+			SegmentScope::Target => {
+				Some(Value::Str(first_segment_name(&r.target, kind.as_bytes())))
+			}
+		},
+		LhsExpr::Number(expr) => eval_number_expr_ref(expr, r, ctx).map(Value::Number),
+		LhsExpr::Collection(_) | LhsExpr::Mode(_) | LhsExpr::PairProjection(_) => None,
+	}
+}
+
+fn eval_quantifier_ref(
+	kind: QuantKind,
+	domain: &Domain,
+	filter: &Node,
+	r: &code_moniker_core::core::code_graph::RefRecord,
+	ctx: &EvalCtx<'_, '_>,
+) -> NodeOutcome {
+	let items = ref_domain_items(domain, r, ctx);
+	if items.is_empty() {
+		return match kind {
+			QuantKind::All | QuantKind::None => NodeOutcome::Pass,
+			QuantKind::Any => NodeOutcome::Fail(Failure {
+				atom_raw: format!("any({})", domain_debug_label(domain)),
+				lhs_label: "any".to_string(),
+				actual: "0 matches".to_string(),
+				expected: "at least one".to_string(),
+				def_idx: None,
+				details: None,
+			}),
+		};
+	}
+	let mut matched = 0usize;
+	for item in items {
+		let outcome = match item {
+			DomainItem::Ref { record } => eval_ref_node_with_current(filter, record, r, ctx),
+			DomainItem::Def {
+				idx: Some(idx),
+				def,
+			} => eval_node_with_self(filter, def, idx, r.source, ctx),
+			DomainItem::Def { idx: None, def } => eval_external_def_node(filter, def, ctx),
+			DomainItem::Segment { kind, name } => eval_node_segment(filter, kind, name),
+		};
+		if matches!(outcome, NodeOutcome::Pass) {
+			matched += 1;
+			if kind == QuantKind::Any {
+				return NodeOutcome::Pass;
+			}
+		} else if matches!(outcome, NodeOutcome::Fail(_)) && kind == QuantKind::All {
+			return outcome;
+		}
+	}
+	match kind {
+		QuantKind::Any => NodeOutcome::Fail(Failure {
+			atom_raw: format!("any({})", domain_debug_label(domain)),
+			lhs_label: "any".to_string(),
+			actual: format!("{matched} matches"),
+			expected: "at least one".to_string(),
+			def_idx: None,
+			details: None,
+		}),
+		QuantKind::All => NodeOutcome::Pass,
+		QuantKind::None if matched == 0 => NodeOutcome::Pass,
+		QuantKind::None => NodeOutcome::Fail(Failure {
+			atom_raw: format!("none({})", domain_debug_label(domain)),
+			lhs_label: "none".to_string(),
+			actual: format!("{matched} matches"),
+			expected: "0 matches".to_string(),
+			def_idx: None,
+			details: None,
+		}),
+	}
+}
+
+fn ref_domain_items<'a>(
+	domain: &Domain,
+	r: &code_moniker_core::core::code_graph::RefRecord,
+	ctx: &'a EvalCtx<'_, '_>,
+) -> Vec<DomainItem<'a>> {
+	match domain {
+		Domain::SourceOutRefs | Domain::OutRefs => ctx
+			.out_refs_by_source
+			.get(&r.source)
+			.into_iter()
+			.flatten()
+			.map(|idx| DomainItem::Ref {
+				record: ctx.graph.ref_at(*idx),
+			})
+			.collect(),
+		Domain::SourceInRefs | Domain::InRefs => {
+			let source = ctx.graph.def_at(r.source);
+			let key = source.moniker.as_encoded();
+			ctx.in_refs_by_target
+				.get(key)
+				.into_iter()
+				.flatten()
+				.map(|idx| DomainItem::Ref {
+					record: ctx.graph.ref_at(*idx),
+				})
+				.collect()
+		}
+		Domain::SourceAncestorOutRefs => ancestor_ref_items(r.source, ctx, true),
+		Domain::SourceAncestorInRefs => ancestor_ref_items(r.source, ctx, false),
+		Domain::Segments => ctx
+			.graph
+			.def_at(r.source)
+			.moniker
+			.as_view()
+			.segments()
+			.map(|seg| DomainItem::Segment {
+				kind: seg.kind,
+				name: seg.name,
+			})
+			.collect(),
+		Domain::Children(_) | Domain::ChildrenByShape(_) | Domain::Descendants(_) => {
+			domain_items(domain, r.source, ctx)
+		}
+		Domain::Pairs(_) => Vec::new(),
+	}
+}
+
+fn domain_debug_label(domain: &Domain) -> &'static str {
+	match domain {
+		Domain::Children(_) => "children",
+		Domain::ChildrenByShape(_) => "shape",
+		Domain::Descendants(_) => "descendants",
+		Domain::Pairs(_) => "pairs",
+		Domain::Segments => "segment",
+		Domain::OutRefs => "out_refs",
+		Domain::InRefs => "in_refs",
+		Domain::SourceOutRefs => "source.out_refs",
+		Domain::SourceInRefs => "source.in_refs",
+		Domain::SourceAncestorOutRefs => "source.ancestors.out_refs",
+		Domain::SourceAncestorInRefs => "source.ancestors.in_refs",
+	}
+}
+
+fn ancestor_ref_items<'a>(
+	def_idx: usize,
+	ctx: &'a EvalCtx<'_, '_>,
+	outgoing: bool,
+) -> Vec<DomainItem<'a>> {
+	ancestor_ref_indexes(def_idx, ctx, outgoing)
+		.into_iter()
+		.map(|ref_idx| DomainItem::Ref {
+			record: ctx.graph.ref_at(ref_idx),
+		})
+		.collect()
+}
+
+fn ancestor_ref_indexes(def_idx: usize, ctx: &EvalCtx<'_, '_>, outgoing: bool) -> Vec<usize> {
+	let mut items = Vec::new();
+	let mut parent = ctx.graph.def_at(def_idx).parent;
+	while let Some(idx) = parent {
+		if outgoing {
+			if let Some(refs) = ctx.out_refs_by_source.get(&idx) {
+				items.extend(refs.iter().copied());
+			}
+		} else {
+			let key = ctx.graph.def_at(idx).moniker.as_encoded();
+			if let Some(refs) = ctx.in_refs_by_target.get(key) {
+				items.extend(refs.iter().copied());
+			}
+		}
+		parent = ctx.graph.def_at(idx).parent;
+	}
+	items
 }
 
 fn resolve_ref_lhs(
@@ -1178,9 +1288,12 @@ fn resolve_ref_lhs(
 			let (_, e) = r.position?;
 			Value::Number(e as f64)
 		}
+		Lhs::Text => Value::Str(ref_text(r, ctx)?),
 		Lhs::Moniker | Lhs::SourceMoniker => Value::Moniker(source_def.moniker.clone()),
 		Lhs::ParentMoniker => Value::Moniker(source_def.moniker.parent()?),
 		Lhs::SourceParentMoniker => Value::Moniker(source_def.moniker.parent()?),
+		Lhs::ParentName => Value::Str(name_of(&source_def.moniker.parent()?)?),
+		Lhs::ParentKind => Value::Str(last_segment_kind(&source_def.moniker.parent()?)?),
 		Lhs::TargetMoniker => Value::Moniker(r.target.clone()),
 		Lhs::TargetParentMoniker => Value::Moniker(r.target.parent()?),
 		Lhs::SourceName => Value::Str(name_of(&source_def.moniker)?),
@@ -1214,8 +1327,23 @@ fn resolve_ref_lhs(
 			let def = resolve_local_def(graph, &r.target)?;
 			Value::Str(std::str::from_utf8(&def.visibility).ok()?.to_string())
 		}
-		_ => return None,
+		Lhs::Name
+		| Lhs::Visibility
+		| Lhs::Lines
+		| Lhs::Depth
+		| Lhs::SegmentName
+		| Lhs::SegmentKind => return None,
 	})
+}
+
+fn ref_text(
+	r: &code_moniker_core::core::code_graph::RefRecord,
+	ctx: &EvalCtx<'_, '_>,
+) -> Option<String> {
+	let (start, end) = r.position?;
+	ctx.source
+		.get(start as usize..end as usize)
+		.map(ToString::to_string)
 }
 
 fn name_of(m: &code_moniker_core::core::moniker::Moniker) -> Option<String> {
@@ -1585,8 +1713,11 @@ fn eval_count(
 		Domain::Descendants(_) => count_domain_items(domain, filter, def_idx, self_idx, ctx),
 		Domain::Pairs(inner) => eval_pair_count(inner, filter, def_idx, self_idx, ctx),
 		Domain::Segments => count_segments(d, filter),
-		Domain::OutRefs => count_out_refs(d, def_idx, filter, ctx),
-		Domain::InRefs => count_in_refs(d, filter, ctx),
+		Domain::OutRefs | Domain::SourceOutRefs => count_out_refs(d, def_idx, filter, ctx),
+		Domain::InRefs | Domain::SourceInRefs => count_in_refs(d, filter, ctx),
+		Domain::SourceAncestorOutRefs | Domain::SourceAncestorInRefs => {
+			count_domain_items(domain, filter, def_idx, self_idx, ctx)
+		}
 	}
 }
 
@@ -1682,12 +1813,51 @@ fn eval_number_expr_ref(
 			Value::Number(n) => Some(n),
 			_ => None,
 		},
-		NumberExpr::Count { .. }
-		| NumberExpr::Aggregate { .. }
+		NumberExpr::Count { domain, filter } => {
+			Some(eval_count_ref(domain, filter.as_deref(), r, ctx) as f64)
+		}
+		NumberExpr::Aggregate { .. }
 		| NumberExpr::Metric { .. }
 		| NumberExpr::Entropy(_)
 		| NumberExpr::Size(_) => None,
 	}
+}
+
+fn eval_count_ref(
+	domain: &Domain,
+	filter: Option<&Node>,
+	r: &code_moniker_core::core::code_graph::RefRecord,
+	ctx: &EvalCtx<'_, '_>,
+) -> u32 {
+	ref_domain_items(domain, r, ctx)
+		.into_iter()
+		.filter(|item| {
+			let Some(filter) = filter else {
+				return true;
+			};
+			match item {
+				DomainItem::Ref { record } => {
+					matches!(
+						eval_ref_node_with_current(filter, record, r, ctx),
+						NodeOutcome::Pass
+					)
+				}
+				DomainItem::Def {
+					idx: Some(idx),
+					def,
+				} => matches!(
+					eval_node_with_self(filter, def, *idx, r.source, ctx),
+					NodeOutcome::Pass
+				),
+				DomainItem::Def { idx: None, def } => {
+					matches!(eval_external_def_node(filter, def, ctx), NodeOutcome::Pass)
+				}
+				DomainItem::Segment { kind, name } => {
+					matches!(eval_node_segment(filter, kind, name), NodeOutcome::Pass)
+				}
+			}
+		})
+		.count() as u32
 }
 
 fn eval_number_expr_segment(expr: &NumberExpr) -> Option<f64> {
@@ -1852,9 +2022,15 @@ fn eval_quantifier_def(
 				}
 			}
 		}
-		Domain::OutRefs => {
+		Domain::OutRefs | Domain::SourceOutRefs | Domain::SourceAncestorOutRefs => {
 			let empty = Vec::new();
-			let ref_idxs = ctx.out_refs_by_source.get(&scope.idx).unwrap_or(&empty);
+			let ancestor_refs;
+			let ref_idxs: &[usize] = if matches!(domain, Domain::SourceAncestorOutRefs) {
+				ancestor_refs = ancestor_ref_indexes(scope.idx, ctx, true);
+				&ancestor_refs
+			} else {
+				ctx.out_refs_by_source.get(&scope.idx).unwrap_or(&empty)
+			};
 			for &ri in ref_idxs {
 				let r = ctx.graph.ref_at(ri);
 				total += 1;
@@ -1863,10 +2039,16 @@ fn eval_quantifier_def(
 				}
 			}
 		}
-		Domain::InRefs => {
-			let key = scope.record.moniker.as_encoded();
+		Domain::InRefs | Domain::SourceInRefs | Domain::SourceAncestorInRefs => {
 			let empty = Vec::new();
-			let ref_idxs = ctx.in_refs_by_target.get(key).unwrap_or(&empty);
+			let ancestor_refs;
+			let ref_idxs: &[usize] = if matches!(domain, Domain::SourceAncestorInRefs) {
+				ancestor_refs = ancestor_ref_indexes(scope.idx, ctx, false);
+				&ancestor_refs
+			} else {
+				let key = scope.record.moniker.as_encoded();
+				ctx.in_refs_by_target.get(key).unwrap_or(&empty)
+			};
 			for &ri in ref_idxs {
 				let r = ctx.graph.ref_at(ri);
 				total += 1;
@@ -2063,6 +2245,12 @@ fn eval_atom(
 	};
 	if let Rhs::Projection(other) = &atom.rhs {
 		let Some(rhs_val) = resolve_def_lhs(*other, d, ctx) else {
+			return AtomOutcome::NotApplicable;
+		};
+		return apply_op_values(&value, atom.op, &rhs_val);
+	}
+	if let Rhs::CurrentProjection(other) = &atom.rhs {
+		let Some(rhs_val) = resolve_def_lhs(*other, ctx.graph.def_at(self_idx), ctx) else {
 			return AtomOutcome::NotApplicable;
 		};
 		return apply_op_values(&value, atom.op, &rhs_val);

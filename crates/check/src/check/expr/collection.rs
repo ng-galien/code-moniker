@@ -218,7 +218,12 @@ fn validate_collection_projection_path(
 		Domain::Children(_) | Domain::ChildrenByShape(_) | Domain::Descendants(_) => {
 			valid_def_collection_path(path)
 		}
-		Domain::OutRefs | Domain::InRefs => valid_ref_collection_path(path),
+		Domain::OutRefs
+		| Domain::InRefs
+		| Domain::SourceOutRefs
+		| Domain::SourceInRefs
+		| Domain::SourceAncestorOutRefs
+		| Domain::SourceAncestorInRefs => valid_ref_collection_path(path),
 		Domain::Segments => valid_segment_collection_path(path),
 		Domain::Pairs(_) => false,
 	};

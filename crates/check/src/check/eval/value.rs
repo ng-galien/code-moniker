@@ -102,6 +102,7 @@ fn render_rhs(r: &Rhs) -> String {
 		Rhs::Moniker(m) => format!("{}b moniker", m.as_encoded().len()),
 		Rhs::PathPattern(p) => format!("path `{}`", p.raw),
 		Rhs::Projection(l) => l.as_str().to_string(),
+		Rhs::CurrentProjection(l) => format!("current.{}", l.as_str()),
 		Rhs::PairProjection(projection) => pair_projection_label(*projection),
 		Rhs::Collection(collection) => collection_label(collection),
 	}
@@ -131,6 +132,10 @@ pub(super) fn render_number_expr(expr: &NumberExpr) -> String {
 			Domain::Segments => "count(segment)".to_string(),
 			Domain::OutRefs => "count(out_refs)".to_string(),
 			Domain::InRefs => "count(in_refs)".to_string(),
+			Domain::SourceOutRefs => "count(source.out_refs)".to_string(),
+			Domain::SourceInRefs => "count(source.in_refs)".to_string(),
+			Domain::SourceAncestorOutRefs => "count(source.ancestors.out_refs)".to_string(),
+			Domain::SourceAncestorInRefs => "count(source.ancestors.in_refs)".to_string(),
 		},
 		NumberExpr::Aggregate { kind, domain, .. } => {
 			format!("{}({})", aggregate_label(*kind), domain_label(domain))
@@ -190,6 +195,10 @@ fn domain_label(domain: &Domain) -> String {
 		Domain::Segments => "segment".to_string(),
 		Domain::OutRefs => "out_refs".to_string(),
 		Domain::InRefs => "in_refs".to_string(),
+		Domain::SourceOutRefs => "source.out_refs".to_string(),
+		Domain::SourceInRefs => "source.in_refs".to_string(),
+		Domain::SourceAncestorOutRefs => "source.ancestors.out_refs".to_string(),
+		Domain::SourceAncestorInRefs => "source.ancestors.in_refs".to_string(),
 	}
 }
 
