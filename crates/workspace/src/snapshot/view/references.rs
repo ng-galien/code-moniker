@@ -81,7 +81,7 @@ impl<'a> ReferenceView<'a> {
 		}
 	}
 
-	pub fn reference(&self, id: &ReferenceId) -> Option<&ReferenceRecord> {
+	pub fn reference(&self, id: &ReferenceId) -> Option<&'a ReferenceRecord> {
 		let record = self
 			.snapshot
 			.index

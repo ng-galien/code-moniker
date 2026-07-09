@@ -310,8 +310,7 @@ struct RulesCheckEval {
 }
 
 struct UsageDtoContext<'a> {
-	source_by_id: &'a BTreeMap<SourceId, &'a SourceFileRecord>,
-	symbol_by_id: &'a BTreeMap<SymbolId, &'a SymbolRecord>,
+	snapshot: &'a WorkspaceSnapshot,
 	roots: &'a [PathBuf],
 	selected_roots: &'a [&'a PathBuf],
 	path_filter: &'a FilePathFilter,
@@ -1337,14 +1336,12 @@ fn symbol_usages_response(
 	current_generation: Option<WorkspaceGeneration>,
 ) -> Result<QueryResponse, QueryError> {
 	let selected_roots = selected_roots(roots, query.workspace.as_deref())?;
-	let source_by_id = source_by_id(snapshot);
-	let symbol_by_id = symbol_by_id(snapshot);
-	let reference_by_id = reference_by_id(snapshot);
 	let path_filter = FilePathFilter::compile(&query.path)
 		.map_err(|err| QueryError::new("invalid_path_filter", err.to_string()))?;
 	let target = find_symbol(snapshot, &query.uri)?;
-	let target_source = source_by_id
-		.get(&target.source)
+	let target_source = WorkspaceView::new(snapshot)
+		.sources()
+		.record(&target.source)
 		.ok_or_else(|| QueryError::new("source_not_found", "target source not found"))?;
 	if source_root(roots, &selected_roots, target_source).is_none() {
 		return Err(QueryError::new(
@@ -1355,8 +1352,7 @@ fn symbol_usages_response(
 	let mut incoming_rows = Vec::new();
 	let mut outgoing_rows = Vec::new();
 	let usage_context = UsageDtoContext {
-		source_by_id: &source_by_id,
-		symbol_by_id: &symbol_by_id,
+		snapshot,
 		roots,
 		selected_roots: &selected_roots,
 		path_filter: &path_filter,
@@ -1366,24 +1362,17 @@ fn symbol_usages_response(
 		query.direction,
 		UsageDirection::Incoming | UsageDirection::Both
 	) {
-		incoming_rows = collect_incoming_usages(
-			snapshot,
-			target,
-			&reference_by_id,
-			&symbol_by_id,
-			&usage_context,
-		);
+		incoming_rows = collect_incoming_usages(snapshot, target, &usage_context);
 	}
 	if matches!(
 		query.direction,
 		UsageDirection::Outgoing | UsageDirection::Both
 	) {
-		for reference in snapshot
-			.index
-			.references
-			.iter()
-			.filter(|reference| reference.source_symbol == target.id)
-		{
+		let references = WorkspaceView::new(snapshot).references();
+		for id in references.outgoing_ids(&target.id) {
+			let Some(reference) = references.reference(&id) else {
+				continue;
+			};
 			if let Some(row) = usage_dto(reference, UsageDirection::Outgoing, &usage_context) {
 				outgoing_rows.push(row);
 			}
@@ -1443,16 +1432,13 @@ fn view_read_response(
 fn collect_incoming_usages(
 	snapshot: &WorkspaceSnapshot,
 	target: &SymbolRecord,
-	reference_by_id: &BTreeMap<ReferenceId, &ReferenceRecord>,
-	symbol_by_id: &BTreeMap<SymbolId, &SymbolRecord>,
 	context: &UsageDtoContext<'_>,
 ) -> Vec<UsageDto> {
-	let mut rows = snapshot
-		.linkage
-		.resolved
-		.iter()
-		.filter(|edge| edge.target == target.id)
-		.filter_map(|edge| reference_by_id.get(&edge.reference).copied())
+	let references = WorkspaceView::new(snapshot).references();
+	let mut rows = references
+		.incoming_ids(&target.id)
+		.into_iter()
+		.filter_map(|id| references.reference(&id))
 		.filter_map(|reference| usage_dto(reference, UsageDirection::Incoming, context))
 		.collect::<Vec<_>>();
 	let mut seen = rows
@@ -1463,11 +1449,7 @@ fn collect_incoming_usages(
 	collect_indirect_incoming_usages(
 		snapshot,
 		&target.id,
-		IndirectUsageContext {
-			reference_by_id,
-			symbol_by_id,
-			usage_context: context,
-		},
+		context,
 		IndirectUsageState {
 			depth: 0,
 			visited: &mut visited,
@@ -1476,12 +1458,6 @@ fn collect_incoming_usages(
 		},
 	);
 	rows
-}
-
-struct IndirectUsageContext<'a> {
-	reference_by_id: &'a BTreeMap<ReferenceId, &'a ReferenceRecord>,
-	symbol_by_id: &'a BTreeMap<SymbolId, &'a SymbolRecord>,
-	usage_context: &'a UsageDtoContext<'a>,
 }
 
 struct IndirectUsageState<'a> {
@@ -1494,35 +1470,30 @@ struct IndirectUsageState<'a> {
 fn collect_indirect_incoming_usages(
 	snapshot: &WorkspaceSnapshot,
 	target: &SymbolId,
-	context: IndirectUsageContext<'_>,
+	context: &UsageDtoContext<'_>,
 	state: IndirectUsageState<'_>,
 ) {
 	const MAX_INDIRECT_USAGE_DEPTH: usize = 4;
 	if state.depth >= MAX_INDIRECT_USAGE_DEPTH {
 		return;
 	}
-	let aliases = snapshot
-		.linkage
-		.resolved
-		.iter()
-		.filter(|edge| &edge.target == target)
-		.filter_map(|edge| context.reference_by_id.get(&edge.reference).copied())
+	let references = WorkspaceView::new(snapshot).references();
+	let symbols = WorkspaceView::new(snapshot).symbols();
+	let aliases = references
+		.incoming_ids(target)
+		.into_iter()
+		.filter_map(|id| references.reference(&id))
 		.filter(|reference| reference.kind == "uses_type")
-		.filter_map(|reference| context.symbol_by_id.get(&reference.source_symbol))
+		.filter_map(|reference| symbols.find(&reference.source_symbol))
 		.filter(|symbol| symbol.kind == "type")
 		.filter(|symbol| state.visited.insert(symbol.id))
-		.copied()
 		.collect::<Vec<_>>();
 	for alias in aliases {
-		collect_direct_usages_via(snapshot, alias, &context, state.seen, state.rows);
+		collect_direct_usages_via(snapshot, alias, context, state.seen, state.rows);
 		collect_indirect_incoming_usages(
 			snapshot,
 			&alias.id,
-			IndirectUsageContext {
-				reference_by_id: context.reference_by_id,
-				symbol_by_id: context.symbol_by_id,
-				usage_context: context.usage_context,
-			},
+			context,
 			IndirectUsageState {
 				depth: state.depth + 1,
 				visited: state.visited,
@@ -1536,24 +1507,19 @@ fn collect_indirect_incoming_usages(
 fn collect_direct_usages_via(
 	snapshot: &WorkspaceSnapshot,
 	alias: &SymbolRecord,
-	context: &IndirectUsageContext<'_>,
+	context: &UsageDtoContext<'_>,
 	seen: &mut BTreeSet<ReferenceId>,
 	rows: &mut Vec<UsageDto>,
 ) {
-	for edge in snapshot
-		.linkage
-		.resolved
-		.iter()
-		.filter(|edge| edge.target == alias.id)
-	{
-		let Some(reference) = context.reference_by_id.get(&edge.reference).copied() else {
+	let references = WorkspaceView::new(snapshot).references();
+	for id in references.incoming_ids(&alias.id) {
+		let Some(reference) = references.reference(&id) else {
 			continue;
 		};
 		if reference.source_symbol == alias.id || !seen.insert(reference.id) {
 			continue;
 		}
-		let Some(mut row) = usage_dto(reference, UsageDirection::Incoming, context.usage_context)
-		else {
+		let Some(mut row) = usage_dto(reference, UsageDirection::Incoming, context) else {
 			continue;
 		};
 		row.via = Some(format!("{} ({})", alias.name, alias.identity));
@@ -2216,7 +2182,9 @@ mod helpers {
 		direction: UsageDirection,
 		context: &UsageDtoContext<'_>,
 	) -> Option<UsageDto> {
-		let source = context.source_by_id.get(&reference.source)?;
+		let source = WorkspaceView::new(context.snapshot)
+			.sources()
+			.record(&reference.source)?;
 		source_root(context.roots, context.selected_roots, source)?;
 		if !context.path_filter.matches(&source.rel_path)
 			|| (!context.langs.is_empty()
@@ -2224,14 +2192,13 @@ mod helpers {
 		{
 			return None;
 		}
-		let actor = context
-			.symbol_by_id
-			.get(&reference.source_symbol)
+		let source_symbol = WorkspaceView::new(context.snapshot)
+			.symbols()
+			.find(&reference.source_symbol);
+		let actor = source_symbol
 			.map(|symbol| symbol.name.to_string())
 			.unwrap_or_else(|| reference.source_symbol.to_string());
-		let source_context = context
-			.symbol_by_id
-			.get(&reference.source_symbol)
+		let source_context = source_symbol
 			.map(|symbol| symbol.identity.to_string())
 			.unwrap_or_else(|| reference.source_symbol.to_string());
 		Some(UsageDto {

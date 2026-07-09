@@ -91,7 +91,7 @@ impl<'a> SymbolView<'a> {
 		})
 	}
 
-	pub fn find(&self, id: &SymbolId) -> Option<&SymbolRecord> {
+	pub fn find(&self, id: &SymbolId) -> Option<&'a SymbolRecord> {
 		let record = self
 			.snapshot
 			.index
