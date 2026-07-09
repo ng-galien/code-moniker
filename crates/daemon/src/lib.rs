@@ -946,6 +946,17 @@ fn workspace_status_result(
 	}
 }
 
+fn change_counts_by_source(snapshot: &WorkspaceSnapshot) -> BTreeMap<SourceId, usize> {
+	let mut counts = BTreeMap::new();
+	for change in &snapshot.changes.changes {
+		let Some(source) = change.source else {
+			continue;
+		};
+		*counts.entry(source).or_insert(0) += 1;
+	}
+	counts
+}
+
 fn tree_children_response(
 	snapshot: &WorkspaceSnapshot,
 	roots: &[PathBuf],
@@ -960,6 +971,7 @@ fn tree_children_response(
 	let prefix = plain_scope.as_deref().unwrap_or_default();
 	let mut map = BTreeMap::<String, TreeNode>::new();
 	let mut scoped_sources = Vec::new();
+	let change_counts = change_counts_by_source(snapshot);
 	for source in &snapshot.index.sources {
 		let Some(root) = source_root(roots, &selected_roots, source) else {
 			continue;
@@ -1022,6 +1034,7 @@ fn tree_children_response(
 			.references
 			.file_records(source.id.file())
 			.len();
+		entry.change_count += change_counts.get(&source.id).copied().unwrap_or(0);
 	}
 	let total_files = snapshot
 		.index
@@ -2754,6 +2767,29 @@ mod tests {
 				.iter()
 				.all(|change| change.kind == "moved" && change.file_moved),
 			"{result:?}"
+		);
+
+		let tree = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::TreeChildren(code_moniker_query::TreeChildrenQuery {
+				workspace: None,
+				path: Vec::new(),
+				depth: 1,
+				lang: Vec::new(),
+				projection: Vec::new(),
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		})));
+		let ProtocolResponse::Query(tree) = tree else {
+			panic!("expected tree response");
+		};
+		let QueryResult::TreeChildren(tree) = tree.result else {
+			panic!("expected tree children, got {:?}", tree.result);
+		};
+		assert!(
+			tree.rows.iter().any(|row| row.change_count > 0),
+			"tree rows must carry the change count: {:?}",
+			tree.rows
 		);
 	}
 
