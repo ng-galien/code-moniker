@@ -199,6 +199,32 @@ impl IncrementalSession {
 		self.catalog = extended;
 	}
 
+	fn remove(&mut self, rel_path: &str) {
+		let path = self.root.join(rel_path);
+		fs::remove_file(&path).expect("remove file");
+		let extended = self
+			.source_catalog
+			.extend_catalog(&self.catalog, std::slice::from_ref(&path))
+			.expect("extend catalog")
+			.expect("removal should produce a catalog delta");
+		let refreshed = self
+			.code_index
+			.refresh_catalog_paths(&self.index, &extended, std::slice::from_ref(&path))
+			.expect("refresh catalog paths");
+		let impact = LinkageRefreshImpact::with_graph_delta(
+			refreshed.changed_sources.clone(),
+			vec![path],
+			LinkageGraphDelta::from_code_index(refreshed.graph_diff.clone()),
+		);
+		self.snapshot = self
+			.linkage
+			.refresh_linkage_with_timings(&self.snapshot, &refreshed.index, impact)
+			.expect("refresh linkage")
+			.snapshot;
+		self.index = refreshed.index;
+		self.catalog = extended;
+	}
+
 	fn normal_form(&self) -> NormalForm {
 		normal_form(&self.index, &self.snapshot)
 	}
@@ -363,6 +389,48 @@ pub mod gamma;
 		session.normal_form(),
 		full_build_normal_form(temp.path()),
 		"a created file should satisfy previously unresolved references"
+	);
+}
+
+#[test]
+fn removing_a_file_matches_full_rebuild() {
+	let temp = seed_workspace();
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit("src/lib.rs", "pub mod alpha;\n");
+	session.remove("src/beta.rs");
+	assert_eq!(
+		session.normal_form(),
+		full_build_normal_form(temp.path()),
+		"removing a file should match a full rebuild"
+	);
+}
+
+#[test]
+fn removing_a_referenced_target_file_matches_full_rebuild() {
+	let temp = seed_workspace();
+	let mut session = IncrementalSession::open(temp.path());
+	session.edit("src/lib.rs", "pub mod beta;\n");
+	session.remove("src/alpha.rs");
+	assert_eq!(
+		session.normal_form(),
+		full_build_normal_form(temp.path()),
+		"references into the removed file should become unresolved like a full rebuild"
+	);
+}
+
+#[test]
+fn removing_then_recreating_a_file_matches_full_rebuild() {
+	let temp = seed_workspace();
+	let mut session = IncrementalSession::open(temp.path());
+	session.remove("src/beta.rs");
+	session.create(
+		"src/beta.rs",
+		"use crate::alpha::shared;\npub fn caller_reborn() { shared(); }\n",
+	);
+	assert_eq!(
+		session.normal_form(),
+		full_build_normal_form(temp.path()),
+		"a recreated file should re-index in its original slot"
 	);
 }
 

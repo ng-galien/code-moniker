@@ -309,7 +309,10 @@ impl LivePlanBuild<'_> {
 			snapshot,
 			replace_watcher: false,
 		})
-		.or_else(|_| self.build_complete(build, true))
+		.or_else(|error| {
+			eprintln!("code-moniker: incremental refresh failed ({error:?}); rebuilding workspace");
+			self.build_complete(build, true)
+		})
 	}
 
 	fn build_complete(

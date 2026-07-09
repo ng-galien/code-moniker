@@ -140,7 +140,7 @@ mod tests {
 	}
 
 	#[test]
-	fn classifies_source_create_remove_as_rescan_required() {
+	fn classifies_source_create_remove_as_incremental_source_changes() {
 		let classifier = WorkspaceEventClassifier::new(vec![WorkspaceWatchRoot {
 			path: PathBuf::from("/repo"),
 			git_root: None,
@@ -153,19 +153,23 @@ mod tests {
 				&notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::File))
 					.add_path(PathBuf::from("/repo/src/new.rs"))
 			),
-			Some(WorkspaceLiveEvent::RescanRequired)
+			Some(WorkspaceLiveEvent::SourcesChanged(vec![PathBuf::from(
+				"/repo/src/new.rs"
+			)]))
 		);
 		assert_eq!(
 			classifier.classify_event(
 				&notify::Event::new(notify::EventKind::Remove(notify::event::RemoveKind::File))
 					.add_path(PathBuf::from("/repo/src/old.rs"))
 			),
-			Some(WorkspaceLiveEvent::RescanRequired)
+			Some(WorkspaceLiveEvent::SourcesChanged(vec![PathBuf::from(
+				"/repo/src/old.rs"
+			)]))
 		);
 	}
 
 	#[test]
-	fn classifies_source_rename_as_rescan_required() {
+	fn classifies_source_rename_as_incremental_source_changes() {
 		let classifier = WorkspaceEventClassifier::new(vec![WorkspaceWatchRoot {
 			path: PathBuf::from("/repo"),
 			git_root: None,
@@ -181,12 +185,15 @@ mod tests {
 				.add_path(PathBuf::from("/repo/src/old.rs"))
 				.add_path(PathBuf::from("/repo/src/new.rs"))
 			),
-			Some(WorkspaceLiveEvent::RescanRequired)
+			Some(WorkspaceLiveEvent::SourcesChanged(vec![
+				PathBuf::from("/repo/src/old.rs"),
+				PathBuf::from("/repo/src/new.rs"),
+			]))
 		);
 	}
 
 	#[test]
-	fn classifies_missing_source_modify_as_rescan_required() {
+	fn classifies_missing_source_modify_as_incremental_source_changes() {
 		let temp = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).expect("temp workspace");
 		let missing = temp.path().join("src").join("deleted.rs");
 		let classifier = WorkspaceEventClassifier::new(watch_roots_for_paths(
@@ -199,9 +206,9 @@ mod tests {
 				&notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Data(
 					notify::event::DataChange::Content,
 				)))
-				.add_path(missing)
+				.add_path(missing.clone())
 			),
-			Some(WorkspaceLiveEvent::RescanRequired)
+			Some(WorkspaceLiveEvent::SourcesChanged(vec![missing]))
 		);
 	}
 

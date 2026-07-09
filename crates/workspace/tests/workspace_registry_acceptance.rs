@@ -343,6 +343,78 @@ fn live_plan_indexes_created_files_without_a_rescan() {
 }
 
 #[test]
+fn live_plan_retires_removed_files_without_a_rescan() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	fs::write(src.join("lib.rs"), "pub mod alpha;\npub mod doomed;\n").expect("lib");
+	fs::write(src.join("alpha.rs"), "pub fn keeper() {}\n").expect("alpha");
+	let doomed = src.join("doomed.rs");
+	fs::write(&doomed, "pub fn doomed_symbol() {}\n").expect("doomed");
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh(WorkspaceRequest::new("remove-file-setup")),
+		WorkspaceTransition::Ready { .. }
+	));
+	assert!(
+		workspace
+			.queries()
+			.snapshot()
+			.expect("baseline snapshot")
+			.index
+			.symbols
+			.iter()
+			.any(|symbol| symbol.name == "doomed_symbol()")
+	);
+
+	fs::remove_file(&doomed).expect("remove doomed");
+	let plan =
+		WorkspaceLiveRefreshPlan::from_event(WorkspaceLiveEvent::SourcesChanged(vec![doomed]));
+	assert!(
+		!plan.requires_rescan(),
+		"a removed source file should stay on the incremental plan"
+	);
+	let transition = workspace
+		.live_commands()
+		.apply_plan(WorkspaceRequest::new("remove-file-live"), plan);
+	assert!(matches!(
+		transition.transition(),
+		WorkspaceTransition::Ready { .. }
+	));
+
+	let snapshot = workspace.queries().snapshot().expect("snapshot");
+	assert!(
+		!snapshot
+			.index
+			.symbols
+			.iter()
+			.any(|symbol| symbol.name == "doomed_symbol()"),
+		"removed file symbols should leave the index"
+	);
+	assert!(
+		snapshot
+			.index
+			.symbols
+			.iter()
+			.any(|symbol| symbol.name == "keeper()"),
+		"unrelated symbols should survive the removal"
+	);
+	assert!(
+		!snapshot
+			.catalog
+			.sources
+			.iter()
+			.any(|unit| unit.display_name.contains("doomed.rs")),
+		"catalog should stop listing the removed file"
+	);
+}
+
+#[test]
 fn refresh_paths_drops_removed_references_without_relinking_unchanged_graph() {
 	let temp = tempfile::tempdir().expect("tempdir");
 	let src = temp.path().join("src");

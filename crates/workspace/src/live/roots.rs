@@ -41,17 +41,12 @@ impl WorkspaceEventClassifier {
 				self.classify_paths_with_git_signals(paths, allow_git_signals)
 			}
 			EventPathPolicy::RescanSourceChange => {
-				if self.paths.requires_directory_rescan(paths)
-					|| self.paths.includes_missing_source(paths)
-				{
+				if self.paths.requires_directory_rescan(paths) {
 					return Some(WorkspaceLiveEvent::RescanRequired);
 				}
 				self.classify_paths_with_git_signals(paths, true)
 			}
 			EventPathPolicy::RescanMissingSource => {
-				if self.paths.includes_missing_source(paths) {
-					return Some(WorkspaceLiveEvent::RescanRequired);
-				}
 				self.classify_paths_with_git_signals(paths, true)
 			}
 		}
@@ -108,12 +103,6 @@ impl WorkspacePathClassifier {
 		paths
 			.iter()
 			.any(|path| self.classify(path, true) == PathLiveSignal::Source && path.is_dir())
-	}
-
-	fn includes_missing_source(&self, paths: &[PathBuf]) -> bool {
-		paths
-			.iter()
-			.any(|path| self.classify(path, true) == PathLiveSignal::Source && !path.exists())
 	}
 
 	fn classify(&self, path: &Path, allow_git_signals: bool) -> PathLiveSignal {

@@ -97,7 +97,9 @@ fn refresh_create_and_remove_file(c: &mut Criterion) {
 			fs::remove_file(&extra).expect("remove");
 			let remove = registry.live_commands().apply_plan(
 				WorkspaceRequest::new("bench-remove"),
-				WorkspaceLiveRefreshPlan::from_event(WorkspaceLiveEvent::RescanRequired),
+				WorkspaceLiveRefreshPlan::from_event(WorkspaceLiveEvent::SourcesChanged(vec![
+					extra.clone(),
+				])),
 			);
 			assert!(matches!(
 				remove.transition(),

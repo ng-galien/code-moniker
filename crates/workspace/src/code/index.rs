@@ -176,6 +176,14 @@ fn refresh_local_code_index(
 	let mut changed_sources = Vec::new();
 	let mut changed_file_indexes = BTreeSet::new();
 	let extract_timer = Instant::now();
+	refresh_retired_slots(RetiredSlotRefresh {
+		previous_catalog: &current_material.source_catalog,
+		source_catalog: &source_catalog,
+		cache_dir: options.cache_dir.as_deref(),
+		files: &mut files,
+		changed_sources: &mut changed_sources,
+		changed_file_indexes: &mut changed_file_indexes,
+	})?;
 	for file_idx in files.len()..source_catalog.sources.files.len() {
 		let file = &source_catalog.sources.files[file_idx];
 		let indexed = extract_source_file(
@@ -253,6 +261,58 @@ fn refresh_local_code_index(
 		changed_sources,
 		graph_diff,
 	})
+}
+
+struct RetiredSlotRefresh<'a> {
+	previous_catalog: &'a SourceCatalogMaterial,
+	source_catalog: &'a SourceCatalogMaterial,
+	cache_dir: Option<&'a Path>,
+	files: &'a mut Vec<Arc<IndexedSourceFile>>,
+	changed_sources: &'a mut Vec<SourceId>,
+	changed_file_indexes: &'a mut BTreeSet<usize>,
+}
+
+fn refresh_retired_slots(refresh: RetiredSlotRefresh<'_>) -> WorkspaceResult<()> {
+	let slots = refresh
+		.files
+		.len()
+		.min(refresh.source_catalog.sources.files.len());
+	for file_idx in 0..slots {
+		let was_retired = refresh.previous_catalog.sources.files[file_idx].retired;
+		let is_retired = refresh.source_catalog.sources.files[file_idx].retired;
+		if was_retired == is_retired {
+			continue;
+		}
+		let indexed = if is_retired {
+			tombstone_file(&refresh.files[file_idx])
+		} else {
+			extract_source_file(
+				refresh.source_catalog,
+				file_idx,
+				&refresh.source_catalog.sources.files[file_idx].path.clone(),
+				refresh.cache_dir,
+			)?
+		};
+		push_unique_source(refresh.changed_sources, indexed.source_id);
+		refresh.changed_file_indexes.insert(file_idx);
+		refresh.files[file_idx] = Arc::new(indexed);
+	}
+	Ok(())
+}
+
+fn tombstone_file(previous: &IndexedSourceFile) -> IndexedSourceFile {
+	IndexedSourceFile {
+		source_root: previous.source_root,
+		source_id: previous.source_id,
+		source_uri: previous.source_uri.clone(),
+		identity: previous.identity.clone(),
+		path: previous.path.clone(),
+		rel_path: previous.rel_path.clone(),
+		anchor: previous.anchor.clone(),
+		lang: previous.lang,
+		graph: code_moniker_core::core::code_graph::CodeGraph::from_records(Vec::new(), Vec::new()),
+		source: String::new(),
+	}
 }
 
 fn source_material(

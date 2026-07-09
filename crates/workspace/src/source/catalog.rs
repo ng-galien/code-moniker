@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::environment;
 use crate::extract::{JavaExtractionPipeline, RustExtractionPipeline};
@@ -133,7 +133,8 @@ fn extend_local_catalog(
 		return Ok(None);
 	};
 	let added = new_source_files(&material, paths);
-	if added.is_empty() {
+	let flipped = flip_retired_slots(&mut material, paths);
+	if added.is_empty() && !flipped {
 		return Ok(None);
 	}
 	material.sources.files.extend(added);
@@ -141,6 +142,38 @@ fn extend_local_catalog(
 	let units = catalog_units(&material);
 	cache.insert_sources(generation, material);
 	Ok(Some(SourceCatalog::new(generation, units)))
+}
+
+fn flip_retired_slots(material: &mut SourceCatalogMaterial, paths: &[PathBuf]) -> bool {
+	let mut flipped = false;
+	for path in paths {
+		let file_idx = material
+			.normalized_file_index(path)
+			.or_else(|| material.normalized_file_index(&canonical_lookup_path(path)));
+		let Some(file_idx) = file_idx else {
+			continue;
+		};
+		let exists = material.sources.files[file_idx].path.is_file();
+		let file = &mut material.sources.files[file_idx];
+		if file.retired != exists {
+			continue;
+		}
+		file.retired = !exists;
+		flipped = true;
+	}
+	flipped
+}
+
+fn canonical_lookup_path(path: &Path) -> PathBuf {
+	if let Ok(canonical) = path.canonicalize() {
+		return canonical;
+	}
+	if let (Some(parent), Some(name)) = (path.parent(), path.file_name())
+		&& let Ok(parent) = parent.canonicalize()
+	{
+		return parent.join(name);
+	}
+	path.to_path_buf()
 }
 
 fn new_source_files(
@@ -170,6 +203,7 @@ fn catalog_units(material: &SourceCatalogMaterial) -> Vec<SourceUnit> {
 		.files
 		.iter()
 		.enumerate()
+		.filter(|(_, file)| !file.retired)
 		.map(|(file_idx, file)| {
 			SourceUnit::with_language(
 				material.identity.source_id(file_idx, &file.rel_path),

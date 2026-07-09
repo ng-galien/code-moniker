@@ -32,6 +32,7 @@ pub struct SourceFile {
 	pub rel_path: PathBuf,
 	pub anchor: PathBuf,
 	pub lang: code_moniker_core::lang::Lang,
+	pub retired: bool,
 }
 
 struct SourceScope {
@@ -215,6 +216,7 @@ pub(crate) fn source_file_for_new_path(sources: &SourceSet, path: &Path) -> Opti
 		rel_path,
 		anchor,
 		lang,
+		retired: false,
 	})
 }
 
@@ -245,6 +247,7 @@ fn source_file_from_walked(scope: &SourceScope, walked: WalkedFile, multi: bool)
 		path: walked.path,
 		rel_path,
 		anchor,
+		retired: false,
 		lang: walked.lang,
 	}
 }

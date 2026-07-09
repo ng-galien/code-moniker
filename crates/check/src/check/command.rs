@@ -186,6 +186,7 @@ fn memory_source_files(
 			rel_path: rel_path.clone(),
 			anchor: rel_path.clone(),
 			lang: file.lang,
+			retired: false,
 		})
 		.collect()
 }
