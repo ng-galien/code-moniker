@@ -491,7 +491,7 @@ fn render_symbol_insights_lmnav(
 		.collect::<Vec<_>>();
 	let scoped_source_ids = scoped_sources
 		.iter()
-		.map(|source| source.id.clone())
+		.map(|source| source.id)
 		.collect::<std::collections::BTreeSet<_>>();
 	let scoped_symbols = index
 		.symbols
@@ -586,8 +586,7 @@ struct SymbolInsights {
 impl SymbolInsights {
 	fn add_source(&mut self, source: &SourceFileRecord) {
 		*self.languages.entry(source.language.clone()).or_default() += 1;
-		self.files_by_id
-			.insert(source.id.clone(), source.rel_path.clone());
+		self.files_by_id.insert(source.id, source.rel_path.clone());
 	}
 
 	fn add_symbol(&mut self, symbol: &SymbolRecord) {
@@ -596,10 +595,7 @@ impl SymbolInsights {
 			.shapes
 			.entry(code_moniker_core::core::shape::Shape::for_kind(symbol.kind.as_bytes()).as_str())
 			.or_default() += 1;
-		*self
-			.symbols_by_file
-			.entry(symbol.source.clone())
-			.or_default() += 1;
+		*self.symbols_by_file.entry(symbol.source).or_default() += 1;
 		if symbol.navigable {
 			self.navigable_symbols += 1;
 		} else {
@@ -608,10 +604,7 @@ impl SymbolInsights {
 	}
 
 	fn add_reference(&mut self, reference: &ReferenceRecord) {
-		*self
-			.refs_by_file
-			.entry(reference.source.clone())
-			.or_default() += 1;
+		*self.refs_by_file.entry(reference.source).or_default() += 1;
 	}
 
 	fn render(&self, output: &mut String, limit: usize) {

@@ -5,7 +5,9 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
 use code_moniker_daemon::WorkspaceDaemon;
-use code_moniker_query::{Query, QueryRequest, QueryResult, SymbolSearchQuery};
+use code_moniker_query::{
+	Command, CommandRequest, Query, QueryRequest, QueryResult, SymbolSearchQuery,
+};
 use code_moniker_workspace::snapshot::{
 	LinkageEdge, LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
 	SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolRecord,
@@ -36,11 +38,17 @@ fn daemon_context(paths: Vec<PathBuf>) -> McpContext {
 		project: None,
 		cache_dir: None,
 	};
-	McpContext::new(
+	let context = McpContext::new(
 		opts,
 		"code+moniker://".to_string(),
 		DaemonRuntime::in_process(WorkspaceDaemon::new(paths).expect("daemon")),
-	)
+	);
+	context
+		.command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		})
+		.expect("initial workspace refresh");
+	context
 }
 
 struct HttpTestServer {

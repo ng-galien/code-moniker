@@ -571,9 +571,9 @@ fn collect_incoming_rows(
 		.collect::<Vec<_>>();
 	let mut seen = rows
 		.iter()
-		.map(|row| row.reference.clone())
+		.map(|row| row.reference)
 		.collect::<BTreeSet<_>>();
-	let mut visited = BTreeSet::from([target.id.clone()]);
+	let mut visited = BTreeSet::from([target.id]);
 	let mut collector = IndirectUsageCollector {
 		lookup,
 		scope,
@@ -609,7 +609,7 @@ impl IndirectUsageCollector<'_, '_> {
 			.filter(|reference| reference.kind == "uses_type")
 			.filter_map(|reference| self.lookup.symbol(&reference.source_symbol))
 			.filter(|symbol| is_indirect_usage_alias(symbol))
-			.filter(|symbol| self.visited.insert(symbol.id.clone()))
+			.filter(|symbol| self.visited.insert(symbol.id))
 			.cloned()
 			.collect::<Vec<_>>();
 		for alias in aliases {
@@ -639,7 +639,7 @@ fn collect_direct_rows_via(
 		let Some(reference) = lookup.reference(&edge.reference) else {
 			continue;
 		};
-		if reference.source_symbol == alias.id || !seen.insert(reference.id.clone()) {
+		if reference.source_symbol == alias.id || !seen.insert(reference.id) {
 			continue;
 		}
 		let Some(mut row) = usage_row(lookup, reference, UsageDirection::Incoming, scope) else {
@@ -687,7 +687,7 @@ fn usage_row(
 			UsageDirection::Outgoing => "outgoing",
 			UsageDirection::Both => "both",
 		},
-		reference: reference.id.clone(),
+		reference: reference.id,
 		file: source.rel_path.to_string(),
 		prefix: path_prefix(&source.rel_path),
 		actor,
@@ -937,7 +937,7 @@ impl<'a> UsageLookup<'a> {
 			.resolved
 			.iter()
 			.find(|edge| &edge.reference == reference)
-			.map(|edge| edge.target.clone())
+			.map(|edge| edge.target)
 	}
 
 	fn external_target(&self, reference: &ReferenceId) -> Option<String> {
