@@ -32,13 +32,56 @@ pub struct FileFacts {
 	pub analyzable: bool,
 }
 
+pub struct ReviewDiffs {
+	diffs: Vec<FileDiff>,
+	pub diagnostics: Vec<String>,
+}
+
+impl ReviewDiffs {
+	pub fn current_paths(&self) -> Vec<PathBuf> {
+		self.diffs
+			.iter()
+			.filter(|diff| diff.status != FileDiffStatus::Deleted)
+			.map(|diff| normalize_path(&diff_path(diff)))
+			.collect()
+	}
+}
+
+pub fn collect_review_diffs(roots: &[(String, PathBuf)]) -> ReviewDiffs {
+	let mut review_diffs = ReviewDiffs {
+		diffs: Vec::new(),
+		diagnostics: Vec::new(),
+	};
+	for (label, path) in roots {
+		match GitWorktree::discover(path) {
+			Ok(repo) => match collect_changed_files(repo.root(), path) {
+				Ok(mut root_diffs) => review_diffs.diffs.append(&mut root_diffs),
+				Err(error) => review_diffs
+					.diagnostics
+					.push(format!("{label}: cannot inspect git changes: {error}")),
+			},
+			Err(message) => review_diffs.diagnostics.push(message),
+		}
+	}
+	review_diffs
+}
+
 pub fn build_semantic_review(scan: &ChangeScan<'_>) -> SemanticReview {
+	let roots: Vec<(String, PathBuf)> = scan
+		.roots
+		.iter()
+		.map(|root| (root.label.to_string(), root.path.to_path_buf()))
+		.collect();
+	build_semantic_review_from(scan, &collect_review_diffs(&roots))
+}
+
+pub fn build_semantic_review_from(scan: &ChangeScan<'_>, diffs: &ReviewDiffs) -> SemanticReview {
 	let mut review = SemanticReview {
 		scope: "HEAD..worktree".to_string(),
+		diagnostics: diffs.diagnostics.clone(),
 		..SemanticReview::default()
 	};
-	let diffs = collect_scan_diffs(scan, &mut review.diagnostics);
-	let pairs = review_pairs(scan, &diffs, &mut review);
+	let pairs = review_pairs(scan, &diffs.diffs, &mut review);
 	let pairings: Vec<FilePairing> = pairs
 		.iter()
 		.map(|pair| {
@@ -73,23 +116,6 @@ fn facts_order(facts: &FileFacts) -> (Option<PathBuf>, Option<PathBuf>) {
 			.or(facts.rollup.old_path.clone()),
 		facts.rollup.old_path.clone(),
 	)
-}
-
-fn collect_scan_diffs(scan: &ChangeScan<'_>, diagnostics: &mut Vec<String>) -> Vec<FileDiff> {
-	let mut diffs = Vec::new();
-	for root in &scan.roots {
-		match GitWorktree::discover(root.path) {
-			Ok(repo) => match collect_changed_files(repo.root(), root.path) {
-				Ok(mut root_diffs) => diffs.append(&mut root_diffs),
-				Err(error) => diagnostics.push(format!(
-					"{}: cannot inspect git changes: {error}",
-					root.label
-				)),
-			},
-			Err(message) => diagnostics.push(message),
-		}
-	}
-	diffs
 }
 
 enum CurrentRef<'scan> {

@@ -7,6 +7,7 @@ pub(crate) mod check;
 pub(crate) mod check_scenario;
 pub(crate) mod color;
 pub(crate) mod daemon;
+pub(crate) mod diff;
 pub(crate) mod extract;
 pub(crate) mod harness;
 pub(crate) mod langs;
@@ -80,6 +81,7 @@ pub fn run<W1: Write, W2: Write>(cli: &Cli, stdout: &mut W1, stderr: &mut W2) ->
 		Command::Extract(args) => extract::run(args, stdout, stderr),
 		Command::Stats(args) => stats::run(args, stdout, stderr),
 		Command::Check(args) => check::run(args, stdout, stderr),
+		Command::Diff(args) => diff::run(args, stdout, stderr),
 		Command::Rules(args) => rules::run(args, stdout, stderr),
 		Command::Daemon(args) => daemon::run_daemon(args, stdout, stderr),
 		Command::Query(args) => query::run(args, stdout, stderr),

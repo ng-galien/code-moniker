@@ -29,6 +29,8 @@ pub enum Command {
 	Stats(StatsArgs),
 	#[command(about = "Lint a path against .code-moniker.toml rules.")]
 	Check(CheckArgs),
+	#[command(about = "Report git changes as symbol-level facts instead of lines.")]
+	Diff(DiffArgs),
 	#[command(about = "Create and toggle the project rules file.")]
 	Rules(RulesArgs),
 	#[cfg(feature = "tui")]
@@ -460,6 +462,34 @@ pub enum CheckFormat {
 pub enum DefaultRules {
 	On,
 	Off,
+}
+
+#[derive(Debug, ClapArgs)]
+pub struct DiffArgs {
+	#[arg(value_name = "PATH", default_value = ".")]
+	pub path: PathBuf,
+
+	#[arg(long, value_enum, default_value_t = DiffFormat::Text)]
+	pub(crate) format: DiffFormat,
+
+	#[arg(
+		long,
+		help = "detail retargeted references instead of the collapsed per-file count"
+	)]
+	pub refs: bool,
+
+	#[arg(
+		long,
+		value_name = "NAME",
+		help = "project name for moniker anchors (defaults to the directory name)"
+	)]
+	pub project: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub(crate) enum DiffFormat {
+	Text,
+	Json,
 }
 
 impl DefaultRules {
