@@ -174,7 +174,7 @@ fn is_view_evidence_symbol(symbol: &SymbolRecord) -> bool {
 }
 
 fn symbol_rank(selector: &str, symbol: &SymbolRecord) -> (u8, u8, u8) {
-	let exact = (symbol.identity != selector) as u8;
+	let exact = (symbol.identity.as_ref() != selector) as u8;
 	let kind_mismatch = selector_kind_hint(selector)
 		.as_deref()
 		.is_some_and(|kind| kind != symbol.kind.as_str()) as u8;
@@ -199,7 +199,7 @@ fn source_in_scope(source: &SourceFileRecord, scope_path: &str) -> bool {
 fn selector_matches(symbol: &SymbolRecord, selector: &str) -> bool {
 	let selector = selector.trim();
 	if selector.starts_with("code+moniker://") {
-		return symbol.identity == selector;
+		return symbol.identity.as_ref() == selector;
 	}
 	symbol.identity.contains(selector)
 }
@@ -215,7 +215,7 @@ fn symbol_evidence(
 	SymbolEvidence {
 		selector: selector.to_string(),
 		label: format!("{} {}", symbol.kind, symbol.name),
-		moniker: symbol.identity.clone(),
+		moniker: symbol.identity.to_string(),
 		file: source.rel_path.clone(),
 		slice,
 		active_slice,

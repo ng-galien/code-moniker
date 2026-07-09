@@ -236,7 +236,7 @@ fn index_shard(catalog: &mut CandidateCatalog, file_idx: usize, shard: &mut Cand
 			continue;
 		}
 		let symbol_id = file.identity.symbol_id(file_idx, def_idx);
-		let symbol_identity = file.identity.moniker_uri(&def.moniker);
+		let symbol_identity: Arc<str> = Arc::from(file.identity.moniker_uri(&def.moniker));
 		let symbol = catalog.symbols.push(symbol_id, symbol_identity);
 		if catalog.locations.len() <= symbol.index() {
 			catalog.locations.resize(symbol.index() + 1, None);

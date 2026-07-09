@@ -41,7 +41,7 @@ impl<'a> SearchView<'a> {
 						score,
 						reason,
 					},
-					symbol.identity.as_str(),
+					symbol.identity.as_ref(),
 				))
 			})
 			.collect::<Vec<_>>();
@@ -140,7 +140,7 @@ mod tests {
 		SymbolRecord {
 			id: SymbolId::at(0, id),
 			source: SourceId::at(0),
-			identity: identity.to_string(),
+			identity: std::sync::Arc::from(identity),
 			name: name.to_string(),
 			kind: kind.to_string(),
 			visibility: String::new(),

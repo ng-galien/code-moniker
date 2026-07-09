@@ -2025,7 +2025,7 @@ mod helpers {
 			.index
 			.symbols
 			.iter()
-			.find(|symbol| symbol.identity == uri || symbol.id.to_string() == uri)
+			.find(|symbol| symbol.identity.as_ref() == uri || symbol.id.to_string() == uri)
 			.ok_or_else(|| QueryError::new("symbol_not_found", format!("symbol not found: {uri}")))
 	}
 

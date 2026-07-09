@@ -34,7 +34,7 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 	let identity_by_symbol: BTreeMap<&SymbolId, &str> = index
 		.symbols
 		.iter()
-		.map(|symbol| (&symbol.id, symbol.identity.as_str()))
+		.map(|symbol| (&symbol.id, symbol.identity.as_ref()))
 		.collect();
 	let symbol_identity =
 		|id: &SymbolId| identity_by_symbol.get(id).copied().unwrap_or("<unknown>");
@@ -47,7 +47,7 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 			.map(symbol_identity)
 			.unwrap_or_default();
 		symbols
-			.entry(symbol.identity.clone())
+			.entry(symbol.identity.to_string())
 			.or_default()
 			.push(format!(
 				"name={} kind={} vis={} sig={} nav={} lines={:?} parent={parent}",

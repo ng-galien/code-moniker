@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use roaring::RoaringBitmap;
 use rustc_hash::FxHashMap;
 
@@ -165,20 +167,21 @@ impl FromIterator<SymbolOrdinal> for SymbolSet {
 #[derive(Clone, Debug, Default)]
 pub(in crate::linkage) struct SymbolOrdinalCatalog {
 	ids: Vec<Option<SymbolId>>,
-	identities: Vec<Option<String>>,
+	identities: Vec<Option<Arc<str>>>,
 	ordinals_by_id: FxHashMap<SymbolId, SymbolOrdinal>,
-	ordinals_by_identity: FxHashMap<String, SymbolOrdinal>,
+	ordinals_by_identity: FxHashMap<Arc<str>, SymbolOrdinal>,
 }
 
 impl SymbolOrdinalCatalog {
-	pub(in crate::linkage) fn push(&mut self, id: SymbolId, identity: String) -> SymbolOrdinal {
+	pub(in crate::linkage) fn push(&mut self, id: SymbolId, identity: Arc<str>) -> SymbolOrdinal {
 		if let Some(ordinal) = self.ordinals_by_identity.get(&identity).copied() {
 			self.rebind_id(ordinal, id);
 			return ordinal;
 		}
 		let ordinal = SymbolOrdinal::from_index(self.ids.len());
 		self.ordinals_by_id.insert(id, ordinal);
-		self.ordinals_by_identity.insert(identity.clone(), ordinal);
+		self.ordinals_by_identity
+			.insert(Arc::clone(&identity), ordinal);
 		self.ids.push(Some(id));
 		self.identities.push(Some(identity));
 		ordinal

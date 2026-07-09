@@ -442,14 +442,14 @@ fn diff_symbols(previous: &[SymbolRecord], next: &[SymbolRecord], diff: &mut Cod
 		let Some(next_idx) = pop_index(&mut next_by_key, &key) else {
 			diff.removed_symbols.push(previous_symbol.id);
 			diff.removed_symbol_identities
-				.push(previous_symbol.identity.clone());
+				.push(previous_symbol.identity.to_string());
 			continue;
 		};
 		let next_symbol = &next[next_idx];
 		if symbol_linkage_fields_changed(previous_symbol, next_symbol) {
 			diff.modified_symbols.push(next_symbol.id);
 			diff.modified_symbol_identities
-				.push(next_symbol.identity.clone());
+				.push(next_symbol.identity.to_string());
 			diff.changed_symbols.push(next_symbol.id);
 			continue;
 		}
@@ -498,8 +498,8 @@ fn diff_references(
 	}
 }
 
-fn symbol_record_indexes(records: &[SymbolRecord]) -> FxHashMap<String, Vec<usize>> {
-	let mut by_key = FxHashMap::<String, Vec<usize>>::default();
+fn symbol_record_indexes(records: &[SymbolRecord]) -> FxHashMap<Arc<str>, Vec<usize>> {
+	let mut by_key = FxHashMap::<Arc<str>, Vec<usize>>::default();
 	for (idx, record) in records.iter().enumerate() {
 		by_key.entry(symbol_key(record)).or_default().push(idx);
 	}
@@ -531,8 +531,8 @@ fn pop_index<K: Eq + std::hash::Hash>(
 	Some(idx)
 }
 
-fn symbol_key(symbol: &SymbolRecord) -> String {
-	symbol.identity.clone()
+fn symbol_key(symbol: &SymbolRecord) -> Arc<str> {
+	Arc::clone(&symbol.identity)
 }
 
 fn symbol_linkage_fields_changed(previous: &SymbolRecord, next: &SymbolRecord) -> bool {
@@ -595,7 +595,7 @@ fn collect_symbols(
 		symbols.push(SymbolRecord {
 			id,
 			source: file.source_id,
-			identity: file.graph_identity().moniker_uri(&def.moniker),
+			identity: Arc::from(file.graph_identity().moniker_uri(&def.moniker)),
 			name: last_name(&def.moniker),
 			kind: def_kind(def),
 			visibility: def_visibility(def),

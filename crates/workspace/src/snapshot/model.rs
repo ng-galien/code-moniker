@@ -168,7 +168,7 @@ pub struct SymbolLocation {
 pub struct SymbolRecord {
 	pub id: SymbolId,
 	pub source: SourceId,
-	pub identity: String,
+	pub identity: Arc<str>,
 	pub name: String,
 	pub kind: String,
 	pub visibility: String,
@@ -186,7 +186,7 @@ impl SymbolRecord {
 		kind: impl Into<String>,
 	) -> Self {
 		Self {
-			identity: id.to_string(),
+			identity: Arc::from(id.to_string()),
 			id,
 			source,
 			name: name.into(),

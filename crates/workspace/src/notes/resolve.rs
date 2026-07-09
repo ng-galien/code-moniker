@@ -119,7 +119,7 @@ fn symbol_by_identity(snapshot: &WorkspaceSnapshot) -> BTreeMap<&str, &SymbolRec
 		.index
 		.symbols
 		.iter()
-		.map(|symbol| (symbol.identity.as_str(), symbol))
+		.map(|symbol| (symbol.identity.as_ref(), symbol))
 		.collect()
 }
 
@@ -216,7 +216,7 @@ mod tests {
 		let symbol = SymbolRecord {
 			id: SymbolId::at(0, 1),
 			source: source.id,
-			identity: moniker.to_string(),
+			identity: std::sync::Arc::from(moniker.to_string()),
 			name: "run()".to_string(),
 			kind: "fn".to_string(),
 			visibility: "public".to_string(),
@@ -257,7 +257,7 @@ mod tests {
 		let symbol = SymbolRecord {
 			id: SymbolId::at(0, 1),
 			source: SourceId::at(9999),
-			identity: moniker.to_string(),
+			identity: std::sync::Arc::from(moniker.to_string()),
 			name: "run()".to_string(),
 			kind: "fn".to_string(),
 			visibility: "public".to_string(),

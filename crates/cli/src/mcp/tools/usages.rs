@@ -704,7 +704,7 @@ fn endpoint_for_reference(lookup: &UsageLookup<'_>, reference: &ReferenceRecord)
 	lookup
 		.resolved_target(&reference.id)
 		.and_then(|target| lookup.symbol(&target))
-		.map(|symbol| symbol.identity.clone())
+		.map(|symbol| symbol.identity.to_string())
 		.or_else(|| lookup.external_target(&reference.id))
 		.unwrap_or_else(|| reference.target_identity.to_string())
 }
@@ -905,7 +905,7 @@ impl<'a> UsageLookup<'a> {
 			symbols_by_identity: index
 				.symbols
 				.iter()
-				.map(|symbol| (symbol.identity.as_str(), symbol))
+				.map(|symbol| (symbol.identity.as_ref(), symbol))
 				.collect(),
 			references: index
 				.references

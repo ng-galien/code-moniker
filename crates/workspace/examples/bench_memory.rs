@@ -619,7 +619,7 @@ fn source_record_payload(source: &SourceFileRecord) -> usize {
 fn symbol_payload(symbol: &SymbolRecord) -> usize {
 	std::mem::size_of_val(&symbol.id)
 		+ std::mem::size_of_val(&symbol.source)
-		+ symbol.identity.capacity()
+		+ symbol.identity.len()
 		+ symbol.name.capacity()
 		+ symbol.kind.capacity()
 		+ symbol.signature.capacity()

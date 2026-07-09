@@ -123,7 +123,7 @@ fn reference_summary(
 		endpoint: resolved_target
 			.as_ref()
 			.and_then(|symbol| symbols.find(symbol))
-			.map(|symbol| symbol.identity.clone())
+			.map(|symbol| symbol.identity.to_string())
 			.or(external_target)
 			.unwrap_or_else(|| reference.target_identity.to_string()),
 		kind: reference.kind.clone(),

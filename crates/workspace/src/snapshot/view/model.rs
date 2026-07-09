@@ -14,7 +14,7 @@ pub struct SourceSummary {
 pub struct SymbolSummary {
 	pub id: SymbolId,
 	pub source: SourceId,
-	pub identity: String,
+	pub identity: std::sync::Arc<str>,
 	pub name: String,
 	pub kind: String,
 	pub line_range: Option<(u32, u32)>,

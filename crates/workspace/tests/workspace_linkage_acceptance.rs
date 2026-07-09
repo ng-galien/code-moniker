@@ -1174,7 +1174,7 @@ fn linked_symbol_identities(
 				.iter()
 				.find(|symbol| symbol.id == edge.target)
 		})
-		.map(|symbol| symbol.identity.clone())
+		.map(|symbol| symbol.identity.to_string())
 		.collect()
 }
 
