@@ -1297,7 +1297,7 @@ fn view_read_response(
 fn collect_incoming_usages(
 	snapshot: &WorkspaceSnapshot,
 	target: &SymbolRecord,
-	reference_by_id: &BTreeMap<&str, &ReferenceRecord>,
+	reference_by_id: &BTreeMap<ReferenceId, &ReferenceRecord>,
 	symbol_by_id: &BTreeMap<SymbolId, &SymbolRecord>,
 	context: &UsageDtoContext<'_>,
 ) -> Vec<UsageDto> {
@@ -1306,12 +1306,12 @@ fn collect_incoming_usages(
 		.resolved
 		.iter()
 		.filter(|edge| edge.target == target.id)
-		.filter_map(|edge| reference_by_id.get(edge.reference.as_str()).copied())
+		.filter_map(|edge| reference_by_id.get(&edge.reference).copied())
 		.filter_map(|reference| usage_dto(reference, UsageDirection::Incoming, context))
 		.collect::<Vec<_>>();
 	let mut seen = rows
 		.iter()
-		.map(|row| ReferenceId::new(row.reference.clone()))
+		.filter_map(|row| ReferenceId::parse(&row.reference))
 		.collect::<BTreeSet<_>>();
 	let mut visited = BTreeSet::from([target.id]);
 	collect_indirect_incoming_usages(
@@ -1333,7 +1333,7 @@ fn collect_incoming_usages(
 }
 
 struct IndirectUsageContext<'a> {
-	reference_by_id: &'a BTreeMap<&'a str, &'a ReferenceRecord>,
+	reference_by_id: &'a BTreeMap<ReferenceId, &'a ReferenceRecord>,
 	symbol_by_id: &'a BTreeMap<SymbolId, &'a SymbolRecord>,
 	usage_context: &'a UsageDtoContext<'a>,
 }
@@ -1360,12 +1360,7 @@ fn collect_indirect_incoming_usages(
 		.resolved
 		.iter()
 		.filter(|edge| &edge.target == target)
-		.filter_map(|edge| {
-			context
-				.reference_by_id
-				.get(edge.reference.as_str())
-				.copied()
-		})
+		.filter_map(|edge| context.reference_by_id.get(&edge.reference).copied())
 		.filter(|reference| reference.kind == "uses_type")
 		.filter_map(|reference| context.symbol_by_id.get(&reference.source_symbol))
 		.filter(|symbol| symbol.kind == "type")
@@ -1405,14 +1400,10 @@ fn collect_direct_usages_via(
 		.iter()
 		.filter(|edge| edge.target == alias.id)
 	{
-		let Some(reference) = context
-			.reference_by_id
-			.get(edge.reference.as_str())
-			.copied()
-		else {
+		let Some(reference) = context.reference_by_id.get(&edge.reference).copied() else {
 			continue;
 		};
-		if reference.source_symbol == alias.id || !seen.insert(reference.id.clone()) {
+		if reference.source_symbol == alias.id || !seen.insert(reference.id) {
 			continue;
 		}
 		let Some(mut row) = usage_dto(reference, UsageDirection::Incoming, context.usage_context)
@@ -2015,12 +2006,12 @@ mod helpers {
 
 	pub(super) fn reference_by_id(
 		snapshot: &WorkspaceSnapshot,
-	) -> BTreeMap<&str, &ReferenceRecord> {
+	) -> BTreeMap<ReferenceId, &ReferenceRecord> {
 		snapshot
 			.index
 			.references
 			.iter()
-			.map(|reference| (reference.id.as_str(), reference))
+			.map(|reference| (reference.id, reference))
 			.collect()
 	}
 
@@ -2098,7 +2089,7 @@ mod helpers {
 		Some(UsageDto {
 			root: source_root_label(context.roots, source),
 			direction,
-			reference: reference.id.as_str().to_string(),
+			reference: reference.id.to_string(),
 			kind: reference.kind.to_string(),
 			actor,
 			context: source_context,

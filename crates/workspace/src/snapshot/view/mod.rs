@@ -53,9 +53,3 @@ impl<'a> WorkspaceView<'a> {
 		LinkageView::new(self.snapshot)
 	}
 }
-
-pub(super) fn parse_positional_id(id: &str, prefix: &str) -> Option<(usize, usize)> {
-	let rest = id.strip_prefix(prefix)?.strip_prefix(':')?;
-	let (slot, idx) = rest.split_once(':')?;
-	Some((slot.parse().ok()?, idx.parse().ok()?))
-}

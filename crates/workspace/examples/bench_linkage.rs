@@ -576,11 +576,11 @@ fn print_unresolved_groups(
 	let refs_by_id = index
 		.references
 		.iter()
-		.map(|reference| (reference.id.as_str(), reference))
+		.map(|reference| (reference.id, reference))
 		.collect::<std::collections::BTreeMap<_, _>>();
 	let mut groups = std::collections::BTreeMap::<String, UnresolvedGroup>::new();
 	for unresolved in &linkage.unresolved {
-		let Some(reference) = refs_by_id.get(unresolved.reference.as_str()) else {
+		let Some(reference) = refs_by_id.get(&unresolved.reference) else {
 			continue;
 		};
 		let key = format!(

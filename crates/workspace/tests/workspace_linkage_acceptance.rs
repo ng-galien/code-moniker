@@ -981,7 +981,7 @@ fn assert_call_unresolved(
 				.linkage
 				.unresolved
 				.iter()
-				.any(|item| item.reference.as_str() == reference.id.as_str())
+				.any(|item| item.reference == reference.id)
 		}),
 		"`{call_name}`/{call_arity} from `{}` should remain unresolved",
 		source.identity
@@ -1064,7 +1064,7 @@ fn reference_is_external(snapshot: &WorkspaceSnapshot, reference: &ReferenceReco
 		.linkage
 		.external
 		.iter()
-		.any(|item| item.reference.as_str() == reference.id.as_str())
+		.any(|item| item.reference == reference.id)
 }
 
 fn external_target_identities(
@@ -1075,7 +1075,7 @@ fn external_target_identities(
 		.linkage
 		.external
 		.iter()
-		.filter(|item| item.reference.as_str() == reference.id.as_str())
+		.filter(|item| item.reference == reference.id)
 		.map(|item| item.target_identity.to_string())
 		.collect()
 }
@@ -1112,7 +1112,7 @@ fn assert_reference_from_symbol(
 			.linkage
 			.unresolved
 			.iter()
-			.all(|item| item.reference.as_str() != reference.id.as_str()),
+			.all(|item| item.reference != reference.id),
 		"reference `{}` should not be unresolved",
 		reference.target_identity
 	);
@@ -1166,7 +1166,7 @@ fn linked_symbol_identities(
 		.linkage
 		.resolved
 		.iter()
-		.filter(|edge| edge.reference.as_str() == reference.id.as_str())
+		.filter(|edge| edge.reference == reference.id)
 		.filter_map(|edge| {
 			snapshot
 				.index
@@ -1188,7 +1188,7 @@ fn unresolved_report(snapshot: &WorkspaceSnapshot) -> String {
 				.index
 				.references
 				.iter()
-				.find(|reference| reference.id.as_str() == unresolved.reference.as_str());
+				.find(|reference| reference.id == unresolved.reference);
 			let meta = reference.map_or_else(
 				|| "missing reference".to_string(),
 				|reference| {

@@ -453,7 +453,9 @@ fn estimate_linkage(linkage: &LinkageSnapshot, estimate: &mut MemoryEstimate) {
 		linkage
 			.resolved
 			.iter()
-			.map(|edge| edge.reference.as_str().len() + std::mem::size_of_val(&edge.target))
+			.map(|edge| {
+				edge.reference.to_string().as_str().len() + std::mem::size_of_val(&edge.target)
+			})
 			.sum(),
 		format!("{} resolved edges", linkage.resolved.len()),
 	);
@@ -462,7 +464,7 @@ fn estimate_linkage(linkage: &LinkageSnapshot, estimate: &mut MemoryEstimate) {
 		linkage
 			.unresolved
 			.iter()
-			.map(|reference| reference.reference.as_str().len())
+			.map(|reference| std::mem::size_of_val(&reference.reference))
 			.sum(),
 		format!("{} unresolved refs", linkage.unresolved.len()),
 	);
@@ -627,7 +629,7 @@ fn symbol_payload(symbol: &SymbolRecord) -> usize {
 }
 
 fn reference_owned_payload(reference: &ReferenceRecord) -> usize {
-	reference.id.as_str().len()
+	std::mem::size_of_val(&reference.id)
 		+ reference.source.as_str().len()
 		+ std::mem::size_of_val(&reference.source_symbol)
 		+ reference.kind.capacity()

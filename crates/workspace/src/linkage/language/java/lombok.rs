@@ -82,7 +82,7 @@ impl<'a> LombokSemantics<'a> {
 		Some(ReferenceLinkageDecision::resolved(
 			ResolutionScope::Injected,
 			reference_idx,
-			reference.id.clone(),
+			reference.id,
 			SymbolSet::from_symbol(field.symbol),
 		))
 	}
@@ -118,7 +118,7 @@ impl<'a> LombokSemantics<'a> {
 		Some(ReferenceLinkageDecision::external_target(
 			ExternalOrigin::Injected,
 			reference_idx,
-			reference.id.clone(),
+			reference.id,
 			target,
 		))
 	}

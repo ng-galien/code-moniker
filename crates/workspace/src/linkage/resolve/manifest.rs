@@ -347,21 +347,21 @@ impl GlobalTargetPolicy {
 			return Some(ReferenceLinkageDecision::resolved(
 				ResolutionScope::Global,
 				reference_idx,
-				reference.id.clone(),
+				reference.id,
 				self.allowed,
 			));
 		}
 		if self.blocked && !self.unknown {
 			return Some(ReferenceLinkageDecision::manifest_blocked(
 				reference_idx,
-				reference.id.clone(),
+				reference.id,
 			));
 		}
 		if self.external_dependency {
 			return Some(ReferenceLinkageDecision::external(
 				crate::linkage::binding::ExternalOrigin::Dependency,
 				reference_idx,
-				reference.id.clone(),
+				reference.id,
 			));
 		}
 		None

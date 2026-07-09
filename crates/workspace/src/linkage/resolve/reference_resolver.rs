@@ -33,14 +33,14 @@ impl<'a> ReferenceResolver<'a> {
 			return ReferenceLinkageDecision::unknown(
 				UnknownReason::MissingQuery,
 				reference_idx,
-				reference.id.clone(),
+				reference.id,
 			);
 		};
 		let Some(query) = LinkageQuery::at(reference, self.material, location) else {
 			return ReferenceLinkageDecision::unknown(
 				UnknownReason::MissingQuery,
 				reference_idx,
-				reference.id.clone(),
+				reference.id,
 			);
 		};
 
@@ -49,7 +49,7 @@ impl<'a> ReferenceResolver<'a> {
 			return ReferenceLinkageDecision::resolved(
 				ResolutionScope::Local,
 				reference_idx,
-				reference.id.clone(),
+				reference.id,
 				local_targets,
 			);
 		}
@@ -60,10 +60,6 @@ impl<'a> ReferenceResolver<'a> {
 			return decision;
 		}
 
-		ReferenceLinkageDecision::unknown(
-			UnknownReason::NoCandidate,
-			reference_idx,
-			reference.id.clone(),
-		)
+		ReferenceLinkageDecision::unknown(UnknownReason::NoCandidate, reference_idx, reference.id)
 	}
 }

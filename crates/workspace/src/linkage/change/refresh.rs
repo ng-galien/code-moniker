@@ -433,7 +433,7 @@ fn reference_ids_for_set(
 	references
 		.iter()
 		.filter_map(|reference| records.get(reference.index()))
-		.map(|reference| reference.id.clone())
+		.map(|reference| reference.id)
 		.collect()
 }
 

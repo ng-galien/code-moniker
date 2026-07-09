@@ -477,23 +477,23 @@ fn diff_references(
 	let mut next_by_key = reference_record_indexes(next, next_material);
 	for previous_reference in previous {
 		let Some(key) = reference_key(previous_reference, previous_material) else {
-			diff.removed_references.push(previous_reference.id.clone());
+			diff.removed_references.push(previous_reference.id);
 			continue;
 		};
 		let Some(next_idx) = pop_index(&mut next_by_key, &key) else {
-			diff.removed_references.push(previous_reference.id.clone());
+			diff.removed_references.push(previous_reference.id);
 			continue;
 		};
 		let next_reference = &next[next_idx];
 		if previous_reference.id != next_reference.id {
 			diff.reference_id_remaps
-				.push((previous_reference.id.clone(), next_reference.id.clone()));
+				.push((previous_reference.id, next_reference.id));
 		}
 		diff.unchanged_references += 1;
 	}
 	for indexes in next_by_key.into_values() {
 		for idx in indexes {
-			diff.changed_references.push(next[idx].id.clone());
+			diff.changed_references.push(next[idx].id);
 		}
 	}
 }
@@ -629,7 +629,7 @@ fn collect_references(
 			reference_identity_pool.intern(file.graph_identity(), &reference.target);
 		references.push(
 			ReferenceRecord::new(
-				id.as_str(),
+				id,
 				file.source_id.clone(),
 				source_symbol,
 				target_identity,

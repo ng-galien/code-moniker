@@ -1059,7 +1059,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 	);
 	let references = vec![
 		ReferenceRecord::new(
-			"ref:app",
+			ReferenceId::at(1, 0),
 			app_source,
 			SymbolId::at(1, 0),
 			helper.identity.as_str(),
@@ -1067,7 +1067,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 			Some((4, 4)),
 		),
 		ReferenceRecord::new(
-			"ref:batch",
+			ReferenceId::at(2, 0),
 			batch_source,
 			SymbolId::at(2, 0),
 			helper.identity.as_str(),
@@ -1075,7 +1075,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 			Some((5, 5)),
 		),
 		ReferenceRecord::new(
-			"ref:api",
+			ReferenceId::at(3, 0),
 			api_source,
 			SymbolId::at(3, 0),
 			helper.identity.as_str(),
@@ -1087,9 +1087,9 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 		ResourceGeneration::new(2),
 		ResourceGeneration::new(1),
 		vec![
-			LinkageEdge::new(ReferenceId::new("ref:app"), helper.id.clone()),
-			LinkageEdge::new(ReferenceId::new("ref:batch"), helper.id.clone()),
-			LinkageEdge::new(ReferenceId::new("ref:api"), helper.id.clone()),
+			LinkageEdge::new(ReferenceId::at(1, 0), helper.id.clone()),
+			LinkageEdge::new(ReferenceId::at(2, 0), helper.id.clone()),
+			LinkageEdge::new(ReferenceId::at(3, 0), helper.id.clone()),
 		],
 		Vec::new(),
 	);
@@ -1172,7 +1172,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 	);
 	let references = vec![
 		ReferenceRecord::new(
-			"ref:union-member",
+			ReferenceId::at(0, 0),
 			shared_source,
 			union.id.clone(),
 			member.identity.as_str(),
@@ -1180,7 +1180,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 			Some((98, 98)),
 		),
 		ReferenceRecord::new(
-			"ref:consumer",
+			ReferenceId::at(0, 1),
 			app_source.clone(),
 			handler.id.clone(),
 			union.identity.as_str(),
@@ -1188,7 +1188,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 			Some((287, 287)),
 		),
 		ReferenceRecord::new(
-			"ref:caller",
+			ReferenceId::at(0, 2),
 			app_source,
 			caller.id.clone(),
 			handler.identity.as_str(),
@@ -1200,9 +1200,9 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 		ResourceGeneration::new(2),
 		ResourceGeneration::new(1),
 		vec![
-			LinkageEdge::new(ReferenceId::new("ref:union-member"), member.id.clone()),
-			LinkageEdge::new(ReferenceId::new("ref:consumer"), union.id.clone()),
-			LinkageEdge::new(ReferenceId::new("ref:caller"), handler.id.clone()),
+			LinkageEdge::new(ReferenceId::at(0, 0), member.id.clone()),
+			LinkageEdge::new(ReferenceId::at(0, 1), union.id.clone()),
+			LinkageEdge::new(ReferenceId::at(0, 2), handler.id.clone()),
 		],
 		Vec::new(),
 	);
@@ -1315,7 +1315,7 @@ fn symbols_insights_summarize_index() {
 		parent: Some(SymbolId::at(0, 10)),
 	};
 	let references = vec![ReferenceRecord::new(
-		"ref:1",
+		ReferenceId::at(0, 0),
 		source_id,
 		SymbolId::at(0, 11),
 		"class:Other",

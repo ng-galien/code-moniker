@@ -188,7 +188,7 @@ impl<'a> MethodCallReference<'a> {
 		ReferenceLinkageDecision::external_target(
 			ExternalOrigin::Dependency,
 			self.reference_idx,
-			self.reference.id.clone(),
+			self.reference.id,
 			target,
 		)
 	}
@@ -198,12 +198,7 @@ impl<'a> MethodCallReference<'a> {
 		scope: ResolutionScope,
 		targets: SymbolSet,
 	) -> ReferenceLinkageDecision {
-		ReferenceLinkageDecision::resolved(
-			scope,
-			self.reference_idx,
-			self.reference.id.clone(),
-			targets,
-		)
+		ReferenceLinkageDecision::resolved(scope, self.reference_idx, self.reference.id, targets)
 	}
 }
 
@@ -360,13 +355,13 @@ impl ReexportAliasTarget {
 			Self::Resolved { scope, targets } => ReferenceLinkageDecision::resolved(
 				*scope,
 				reference_idx,
-				reference.id.clone(),
+				reference.id,
 				targets.clone(),
 			),
 			Self::External { origin, target } => ReferenceLinkageDecision::external_target(
 				*origin,
 				reference_idx,
-				reference.id.clone(),
+				reference.id,
 				reexport_external_target(target, requested_target),
 			),
 		}

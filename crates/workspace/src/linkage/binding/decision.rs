@@ -371,7 +371,7 @@ impl ResolvedReferenceProjection {
 		edges.extend(
 			targets
 				.into_iter()
-				.map(|target| LinkageEdge::new(reference.id.clone(), target)),
+				.map(|target| LinkageEdge::new(reference.id, target)),
 		);
 		Self { ambiguous, edges }
 	}
@@ -452,7 +452,7 @@ impl UnresolvedLinkProjection {
 }
 
 fn unresolved_reference(reference: &ReferenceRecord) -> UnresolvedReference {
-	UnresolvedReference::new(reference.id.clone(), Arc::clone(&reference.target_identity))
+	UnresolvedReference::new(reference.id, Arc::clone(&reference.target_identity))
 }
 
 fn external_reference(
@@ -462,7 +462,7 @@ fn external_reference(
 	identity: &LocalIdentityResolver,
 ) -> ExternalReference {
 	ExternalReference::new(
-		reference.id.clone(),
+		reference.id,
 		target
 			.map(|target| identity.moniker_uri(target))
 			.unwrap_or_else(|| reference.target_identity.to_string()),

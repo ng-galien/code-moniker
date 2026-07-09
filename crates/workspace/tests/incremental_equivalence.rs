@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
 use code_moniker_workspace::linkage::{LinkageGraphDelta, LinkageRefreshImpact, LocalLinkage};
 use code_moniker_workspace::snapshot::{
-	CodeIndex, LinkageSnapshot, SourceCatalog, SymbolId, WorkspaceRequest,
+	CodeIndex, LinkageSnapshot, ReferenceId, SourceCatalog, SymbolId, WorkspaceRequest,
 };
 use code_moniker_workspace::source::{
 	LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions, SourceCatalogPort,
@@ -61,7 +61,7 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 	}
 	symbols.values_mut().for_each(|entries| entries.sort());
 
-	let mut reference_keys: BTreeMap<&str, String> = BTreeMap::new();
+	let mut reference_keys: BTreeMap<ReferenceId, String> = BTreeMap::new();
 	let mut references: BTreeMap<String, usize> = BTreeMap::new();
 	for reference in index.references.iter() {
 		let key = format!(
@@ -72,12 +72,12 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 			reference.call_name,
 			reference.line_range,
 		);
-		reference_keys.insert(reference.id.as_str(), key.clone());
+		reference_keys.insert(reference.id, key.clone());
 		*references.entry(key).or_default() += 1;
 	}
-	let reference_key = |id: &str| {
+	let reference_key = |id: ReferenceId| {
 		reference_keys
-			.get(id)
+			.get(&id)
 			.cloned()
 			.unwrap_or_else(|| format!("<missing reference {id}>"))
 	};
@@ -91,7 +91,7 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 			.map(|edge| {
 				format!(
 					"{} -> {}",
-					reference_key(edge.reference.as_str()),
+					reference_key(edge.reference),
 					symbol_identity(&edge.target)
 				)
 			})
@@ -99,17 +99,17 @@ fn normal_form(index: &CodeIndex, linkage: &LinkageSnapshot) -> NormalForm {
 		external: linkage
 			.external
 			.iter()
-			.map(|external| reference_key(external.reference.as_str()))
+			.map(|external| reference_key(external.reference))
 			.collect(),
 		manifest_blocked: linkage
 			.manifest_blocked
 			.iter()
-			.map(|blocked| reference_key(blocked.reference.as_str()))
+			.map(|blocked| reference_key(blocked.reference))
 			.collect(),
 		unresolved: linkage
 			.unresolved
 			.iter()
-			.map(|unresolved| reference_key(unresolved.reference.as_str()))
+			.map(|unresolved| reference_key(unresolved.reference))
 			.collect(),
 	}
 }

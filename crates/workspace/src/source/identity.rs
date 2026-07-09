@@ -50,17 +50,11 @@ impl LocalIdentityResolver {
 	}
 
 	pub fn reference_id(&self, file_idx: usize, ref_idx: usize) -> ReferenceId {
-		ReferenceId::new(format!("reference:{file_idx}:{ref_idx}"))
+		ReferenceId::at(file_idx, ref_idx)
 	}
 
 	pub fn reference_location(&self, id: &ReferenceId) -> Option<(usize, usize)> {
-		let mut parts = id.as_str().split(':');
-		match (parts.next(), parts.next(), parts.next(), parts.next()) {
-			(Some("reference"), Some(file), Some(reference), None) => {
-				Some((file.parse().ok()?, reference.parse().ok()?))
-			}
-			_ => None,
-		}
+		Some((id.file(), id.reference()))
 	}
 
 	pub fn moniker_uri(&self, moniker: &Moniker) -> String {

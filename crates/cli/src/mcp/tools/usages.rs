@@ -549,7 +549,7 @@ fn render_usage_rows(output: &mut String, rows: &[UsageRow]) {
 		output.push_str(&format!("    file: {}\n", row.file));
 		output.push_str(&format!("    context: {}\n", row.context));
 		output.push_str(&format!("    endpoint: {}\n", row.endpoint));
-		output.push_str(&format!("    reference: {}\n", row.reference.as_str()));
+		output.push_str(&format!("    reference: {}\n", row.reference));
 		if let Some(via) = &row.via {
 			output.push_str(&format!("    via: {via}\n"));
 		}
@@ -884,7 +884,7 @@ struct UsageLookup<'a> {
 	sources: BTreeMap<&'a str, &'a SourceFileRecord>,
 	symbols: BTreeMap<SymbolId, &'a SymbolRecord>,
 	symbols_by_identity: BTreeMap<&'a str, &'a SymbolRecord>,
-	references: BTreeMap<&'a str, &'a ReferenceRecord>,
+	references: BTreeMap<ReferenceId, &'a ReferenceRecord>,
 	reference_rows: &'a [ReferenceRecord],
 	linkage: &'a LinkageSnapshot,
 }
@@ -910,7 +910,7 @@ impl<'a> UsageLookup<'a> {
 			references: index
 				.references
 				.iter()
-				.map(|reference| (reference.id.as_str(), reference))
+				.map(|reference| (reference.id, reference))
 				.collect(),
 			reference_rows: index.references,
 			linkage: index.linkage,
@@ -929,7 +929,7 @@ impl<'a> UsageLookup<'a> {
 	}
 
 	fn reference(&self, id: &ReferenceId) -> Option<&'a ReferenceRecord> {
-		self.references.get(id.as_str()).copied()
+		self.references.get(id).copied()
 	}
 
 	fn resolved_target(&self, reference: &ReferenceId) -> Option<SymbolId> {

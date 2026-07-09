@@ -203,7 +203,7 @@ fn missing_resolved_references(
 					})
 				})
 		})
-		.map(|decision| decision.reference().clone())
+		.map(|decision| *decision.reference())
 		.collect()
 }
 
@@ -254,10 +254,10 @@ pub(in crate::linkage) fn insert_reference_ordinals(
 		let Some(base) = prefix.get(slot) else {
 			continue;
 		};
-		store.indexes.reference_indexes.insert(
-			reference.clone(),
-			ReferenceOrdinal::from_index(base + ref_idx),
-		);
+		store
+			.indexes
+			.reference_indexes
+			.insert(*reference, ReferenceOrdinal::from_index(base + ref_idx));
 	}
 }
 
@@ -335,7 +335,7 @@ fn rebase_decision_references(
 		.cloned()
 		.collect::<FxHashMap<ReferenceId, ReferenceId>>();
 	store.decisions.retain_mut(|decision| {
-		let current_reference = decision.reference().clone();
+		let current_reference = *decision.reference();
 		if removed_references.contains(&current_reference) {
 			return false;
 		}
@@ -348,7 +348,7 @@ fn rebase_decision_references(
 		if next_reference == &current_reference {
 			decision.set_reference_idx(next_reference_idx.index());
 		} else {
-			decision.set_reference(next_reference.clone(), next_reference_idx.index());
+			decision.set_reference(*next_reference, next_reference_idx.index());
 		}
 		true
 	});
@@ -487,7 +487,7 @@ fn decisions_from_snapshot(
 			.map(|reference_idx| {
 				ReferenceLinkageDecision::manifest_blocked(
 					reference_idx.index(),
-					references[reference_idx.index()].id.clone(),
+					references[reference_idx.index()].id,
 				)
 			}),
 	);
@@ -500,7 +500,7 @@ fn decisions_from_snapshot(
 				ReferenceLinkageDecision::unknown(
 					UnknownReason::NoCandidate,
 					reference_idx.index(),
-					references[reference_idx.index()].id.clone(),
+					references[reference_idx.index()].id,
 				)
 			}),
 	);
@@ -518,7 +518,7 @@ fn resolved_decisions_from_snapshot(
 			continue;
 		};
 		targets_by_reference
-			.entry(edge.reference.clone())
+			.entry(edge.reference)
 			.or_default()
 			.insert(target);
 	}
@@ -529,7 +529,7 @@ fn resolved_decisions_from_snapshot(
 				ReferenceLinkageDecision::resolved(
 					crate::linkage::binding::ResolutionScope::Global,
 					reference_idx.index(),
-					reference.clone(),
+					reference,
 					targets,
 				)
 			})
@@ -558,13 +558,13 @@ fn external_decisions_from_snapshot(
 				Some(target) => ReferenceLinkageDecision::external_target(
 					external.origin,
 					reference_idx,
-					external.reference.clone(),
+					external.reference,
 					target,
 				),
 				None => ReferenceLinkageDecision::external(
 					external.origin,
 					reference_idx,
-					external.reference.clone(),
+					external.reference,
 				),
 			})
 		})
@@ -733,7 +733,7 @@ pub(in crate::linkage) fn reference_indexes(
 	references
 		.iter()
 		.enumerate()
-		.map(|(idx, reference)| (reference.id.clone(), ReferenceOrdinal::from_index(idx)))
+		.map(|(idx, reference)| (reference.id, ReferenceOrdinal::from_index(idx)))
 		.collect()
 }
 

@@ -313,12 +313,12 @@ mod tests {
 		let (material, _, target) = material_with_one_reference();
 
 		assert_eq!(
-			material.reference_target(&ReferenceId::new("reference:0:0")),
+			material.reference_target(&ReferenceId::at(0, 0)),
 			Some(&target)
 		);
 		assert!(
 			material
-				.reference_target(&ReferenceId::new("reference:0:999999"))
+				.reference_target(&ReferenceId::at(0, 999999))
 				.is_none()
 		);
 	}

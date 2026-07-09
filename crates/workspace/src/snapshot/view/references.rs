@@ -36,7 +36,7 @@ impl<'a> ReferenceView<'a> {
 			.resolved
 			.iter()
 			.filter(|edge| &edge.target == symbol)
-			.map(|edge| edge.reference.clone())
+			.map(|edge| edge.reference)
 			.collect()
 	}
 
@@ -46,7 +46,7 @@ impl<'a> ReferenceView<'a> {
 			.references
 			.iter()
 			.filter(|reference| &reference.source_symbol == symbol)
-			.map(|reference| reference.id.clone())
+			.map(|reference| reference.id)
 			.collect()
 	}
 
@@ -81,13 +81,16 @@ impl<'a> ReferenceView<'a> {
 	}
 
 	pub(super) fn reference(&self, id: &ReferenceId) -> Option<&ReferenceRecord> {
-		if let Some((slot, idx)) = super::parse_positional_id(id.as_str(), "reference") {
-			let record = self.snapshot.index.references.file_records(slot).get(idx);
-			if let Some(record) = record
-				&& &record.id == id
-			{
-				return Some(record);
-			}
+		let record = self
+			.snapshot
+			.index
+			.references
+			.file_records(id.file())
+			.get(id.reference());
+		if let Some(record) = record
+			&& &record.id == id
+		{
+			return Some(record);
 		}
 		self.snapshot
 			.index
@@ -107,7 +110,7 @@ fn reference_summary(
 	let resolved_target = resolved_target(snapshot, &reference.id);
 	let external_target = external_target(snapshot, &reference.id);
 	ReferenceSummary {
-		reference: reference.id.clone(),
+		reference: reference.id,
 		source: Some(reference.source.clone()),
 		context: source_symbol.map(|symbol| symbol.id),
 		actor: source_symbol

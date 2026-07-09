@@ -184,16 +184,41 @@ impl SymbolRecord {
 	}
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct ReferenceId(String);
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct ReferenceId {
+	file: u32,
+	reference: u32,
+}
 
 impl ReferenceId {
-	pub fn new(value: impl Into<String>) -> Self {
-		Self(value.into())
+	pub fn at(file: usize, reference: usize) -> Self {
+		Self {
+			file: file as u32,
+			reference: reference as u32,
+		}
 	}
 
-	pub fn as_str(&self) -> &str {
-		&self.0
+	pub fn parse(value: &str) -> Option<Self> {
+		let rest = value.strip_prefix("reference:")?;
+		let (file, reference) = rest.split_once(':')?;
+		Some(Self {
+			file: file.parse().ok()?,
+			reference: reference.parse().ok()?,
+		})
+	}
+
+	pub fn file(self) -> usize {
+		self.file as usize
+	}
+
+	pub fn reference(self) -> usize {
+		self.reference as usize
+	}
+}
+
+impl std::fmt::Display for ReferenceId {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(formatter, "reference:{}:{}", self.file, self.reference)
 	}
 }
 
@@ -214,7 +239,7 @@ pub struct ReferenceRecord {
 
 impl ReferenceRecord {
 	pub fn new(
-		id: impl Into<String>,
+		id: ReferenceId,
 		source: SourceId,
 		source_symbol: SymbolId,
 		target_identity: impl Into<Arc<str>>,
@@ -222,7 +247,7 @@ impl ReferenceRecord {
 		line_range: Option<(u32, u32)>,
 	) -> Self {
 		Self {
-			id: ReferenceId::new(id),
+			id,
 			source,
 			source_symbol,
 			target_identity: target_identity.into(),
@@ -409,7 +434,7 @@ impl LinkageReadIndex {
 		let mut targets = rustc_hash::FxHashMap::<ReferenceId, SymbolId>::default();
 		for edge in edges {
 			let LinkageEdge { reference, target } = edge.clone();
-			targets.entry(reference.clone()).or_insert(target);
+			targets.entry(reference).or_insert(target);
 			incoming.entry(target).or_default().push(reference);
 		}
 		Self { incoming, targets }
