@@ -40,13 +40,16 @@ impl ChangeOverlayPort for LocalChangeOverlay {
 		})?;
 		let generation = self.cache.next_generation();
 		let change_index = diff::build_change_index(change_scan(&material));
-		Ok(ChangeOverlay::from_report(change_report(
+		let semantic = super::semantic::review::build_semantic_review(&change_scan(&material));
+		let mut overlay = ChangeOverlay::from_report(change_report(
 			generation,
 			catalog.generation,
 			index.generation,
 			change_index,
 			&material,
-		)))
+		));
+		overlay.semantic = Some(std::sync::Arc::new(semantic));
+		Ok(overlay)
 	}
 }
 

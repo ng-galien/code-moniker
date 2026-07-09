@@ -1314,3 +1314,68 @@ fn reference_is_unresolved(
 				.any(|unresolved| unresolved.reference == reference.id)
 		})
 }
+
+#[test]
+fn change_overlay_carries_semantic_move_facts_after_a_git_mv() {
+	let temp = tempfile::tempdir().expect("tempdir");
+	let git = |args: &[&str]| {
+		let output = std::process::Command::new("git")
+			.arg("-C")
+			.arg(temp.path())
+			.args(args)
+			.output()
+			.expect("run git");
+		assert!(
+			output.status.success(),
+			"git {args:?}: {}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+	};
+	git(&["init"]);
+	git(&["config", "user.email", "cm@example.test"]);
+	git(&["config", "user.name", "Code Moniker"]);
+	let src = temp.path().join("src");
+	fs::create_dir_all(&src).expect("src dir");
+	fs::write(
+		src.join("util.rs"),
+		"pub fn assist() { work(); }\npub fn sidekick() { rest(); }\n",
+	)
+	.expect("write util");
+	git(&["add", "."]);
+	git(&["commit", "-m", "initial"]);
+	git(&["mv", "src/util.rs", "src/support.rs"]);
+	let mut workspace = LocalWorkspaceRegistry::local(LocalWorkspaceOptions::new(
+		vec![temp.path().to_path_buf()],
+		None,
+	));
+
+	assert!(matches!(
+		workspace
+			.commands()
+			.refresh(WorkspaceRequest::new("initial-refresh")),
+		WorkspaceTransition::Ready { .. }
+	));
+	let snapshot = workspace.queries().snapshot().expect("snapshot");
+
+	let semantic = snapshot
+		.changes
+		.semantic
+		.as_ref()
+		.expect("overlay carries the semantic review");
+	assert!(
+		semantic
+			.files
+			.iter()
+			.any(|facts| facts.rollup.disposition.label() == "moved"),
+		"expected a moved disposition: {:?}",
+		semantic.files
+	);
+	assert!(
+		semantic
+			.symbol_changes
+			.iter()
+			.all(|change| change.kind.label() == "moved"),
+		"a pure git mv must classify every symbol as moved: {:?}",
+		semantic.symbol_changes
+	);
+}

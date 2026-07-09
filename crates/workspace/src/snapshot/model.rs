@@ -545,6 +545,7 @@ pub struct ChangeOverlay {
 	pub diagnostics: Vec<String>,
 	pub changed_symbols: Vec<SymbolId>,
 	pub changes: Vec<ChangeRecord>,
+	pub semantic: Option<std::sync::Arc<crate::changes::semantic::review::SemanticReview>>,
 }
 
 pub struct ChangeOverlayReport {
@@ -574,6 +575,7 @@ impl ChangeOverlay {
 			diagnostics: Vec::new(),
 			changed_symbols,
 			changes: Vec::new(),
+			semantic: None,
 		}
 	}
 
@@ -604,6 +606,7 @@ impl ChangeOverlay {
 			diagnostics: Vec::new(),
 			changed_symbols,
 			changes,
+			semantic: None,
 		}
 	}
 

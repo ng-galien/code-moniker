@@ -16,7 +16,7 @@ use super::pairing::{FilePairing, FileSide, PairInputs, finish_files, pair_file}
 use super::refpairs::{CoverageInputs, RenameContext, hunk_coverage, pair_refs};
 use super::rollup::{FileDisposition, FileRollup, moved_file_rollup};
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SemanticReview {
 	pub scope: String,
 	pub symbol_changes: Vec<SymbolChange>,
