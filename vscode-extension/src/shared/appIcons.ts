@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 export type CheckStatus = "error" | "pass" | "warning";
 
-export type WorkspaceSection = "daemon" | "symbols" | "views" | "check" | "ruleFiles";
+export type WorkspaceSection = "daemon" | "symbols" | "views" | "changes" | "check" | "ruleFiles";
 
 export type CatalogGroup = "builtin" | "learn" | "language" | "rules";
 
@@ -57,10 +57,32 @@ export function workspaceSectionIcon(id: WorkspaceSection): vscode.ThemeIcon {
 			return themed("symbol-misc", "charts.purple");
 		case "views":
 			return themed("references", "charts.purple");
+		case "changes":
+			return themed("git-compare", "charts.green");
 		case "check":
 			return themed("checklist", "charts.orange");
 		case "ruleFiles":
 			return themed("files", "charts.blue");
+	}
+}
+
+export function changeSymbolIcon(kind: string): vscode.ThemeIcon {
+	switch (kind) {
+		case "added":
+			return themed("diff-added", "gitDecoration.addedResourceForeground");
+		case "removed":
+			return themed("diff-removed", "gitDecoration.deletedResourceForeground");
+		case "renamed":
+		case "moved":
+			return themed("diff-renamed", "gitDecoration.renamedResourceForeground");
+		case "moved-and-modified":
+			return themed("diff-renamed", "gitDecoration.modifiedResourceForeground");
+		case "modified":
+		case "body-modified":
+		case "signature-changed":
+		case "attribute-changed":
+		default:
+			return themed("diff-modified", "gitDecoration.modifiedResourceForeground");
 	}
 }
 

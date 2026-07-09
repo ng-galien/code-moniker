@@ -130,6 +130,9 @@ function entryDescription(node: EntryNode, violations: number): string {
 	if (node.tree.refs > 0) {
 		parts.push(`${node.tree.refs} refs`);
 	}
+	if (node.tree.change_count > 0) {
+		parts.push(`±${node.tree.change_count}`);
+	}
 	if (violations > 0) {
 		parts.push(`${violations} violation(s)`);
 	}

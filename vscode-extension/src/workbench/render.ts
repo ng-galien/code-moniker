@@ -1,3 +1,4 @@
+import { ChangeTreeNode, changeSymbolName } from "../changes/nodes";
 import { DaemonNode } from "../daemon/nodes";
 import { RuleTreeNode } from "../rules/nodes";
 import { RulesTreeNode } from "../rules-daemon/nodes";
@@ -13,6 +14,8 @@ export function renderWorkspaceNode(node: WorkspaceNode): DetailDocument | undef
 			return renderDaemon(node.node);
 		case "views":
 			return renderViewNode(node.node);
+		case "changes":
+			return renderChangeNode(node.node);
 		case "check":
 			return renderCheckNode(node.node);
 		case "ruleFiles":
@@ -27,6 +30,69 @@ function renderSection(label: string): DetailDocument {
 		title: label,
 		kind: "Workspace",
 		description: "Select a row inside this section to inspect its details.",
+	};
+}
+
+function renderChangeNode(node: ChangeTreeNode): DetailDocument | undefined {
+	switch (node.kind) {
+		case "file":
+			return {
+				title: node.file.new_path ?? node.file.old_path ?? "<unknown>",
+				kind: `Changed file (${node.file.disposition})`,
+				description: node.file.coverage_explained
+					? "Every changed line is attributed to a symbolic fact."
+					: "Some changed lines are not attributed to any symbolic fact (residual).",
+				meta: rows({
+					"old path": node.file.old_path ?? "-",
+					"new path": node.file.new_path ?? "-",
+					analyzable: String(node.file.analyzable),
+					"symbol changes": String(node.file.symbol_changes),
+					"moved symbols": String(node.file.moved_symbols),
+					scope: node.review.scope,
+				}),
+			};
+		case "symbolChange": {
+			const change = node.change;
+			return {
+				title: changeSymbolName(change),
+				kind: `Symbol change (${change.kind})`,
+				description: `confidence: ${change.confidence}`,
+				sections: [
+					changeSideSection("Old", change.old),
+					changeSideSection("New", change.new),
+					{
+						title: "Facets",
+						rows: rows({
+							body_changed: String(change.body_changed),
+							signature_changed: String(change.signature_changed),
+							visibility_changed: String(change.visibility_changed),
+							header_changed: String(change.header_changed),
+							file_moved: String(change.file_moved),
+						}),
+					},
+				],
+			};
+		}
+		case "info":
+			return undefined;
+	}
+}
+
+function changeSideSection(
+	title: string,
+	side: { identity: string; file: string; kind: string; name: string; lines?: [number, number] | null } | null | undefined,
+): { title: string; rows?: DetailRow[]; text?: string } {
+	if (!side) {
+		return { title, text: "absent on this side" };
+	}
+	return {
+		title,
+		rows: rows({
+			name: `${side.kind} ${side.name}`,
+			file: side.file,
+			lines: side.lines ? `${side.lines[0]}-${side.lines[1]}` : "-",
+			identity: side.identity,
+		}),
 	};
 }
 

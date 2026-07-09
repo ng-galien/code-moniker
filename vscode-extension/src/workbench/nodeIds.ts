@@ -1,3 +1,4 @@
+import { ChangeTreeNode } from "../changes/nodes";
 import { RulesTreeNode } from "../rules-daemon/nodes";
 import { SymbolTreeNode } from "../symbols/nodes";
 import { ViewTreeNode } from "../views/nodes";
@@ -17,6 +18,8 @@ export function workspaceNodeId(node: WorkspaceNode): string | undefined {
 			return symbolNodeId(node.node);
 		case "views":
 			return viewNodeId(node.node);
+		case "changes":
+			return changeNodeId(node.node);
 		case "check":
 			return rulesNodeId(node.node);
 		case "ruleFiles":
@@ -51,6 +54,17 @@ function viewNodeId(node: ViewTreeNode): string {
 			return `views:rule:${node.rule.id}`;
 		case "info":
 			return `views:info:${node.label}`;
+	}
+}
+
+function changeNodeId(node: ChangeTreeNode): string {
+	switch (node.kind) {
+		case "file":
+			return `changes:file:${node.file.old_path ?? ""}:${node.file.new_path ?? ""}`;
+		case "symbolChange":
+			return `changes:sym:${node.change.kind}:${node.change.old?.identity ?? ""}:${node.change.new?.identity ?? ""}`;
+		case "info":
+			return `changes:info:${node.label}`;
 	}
 }
 

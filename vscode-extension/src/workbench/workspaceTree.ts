@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 
+import { ChangeTreeNode } from "../changes/nodes";
+import { ChangesProvider } from "../changes/tree";
 import { DaemonNode } from "../daemon/nodes";
 import { DaemonListProvider } from "../daemon/tree";
 import { RuleTreeNode } from "../rules/nodes";
@@ -13,7 +15,7 @@ import { ViewTreeNode } from "../views/nodes";
 import { ViewsProvider } from "../views/tree";
 import { workspaceNodeId } from "./nodeIds";
 
-type SectionId = "daemon" | "symbols" | "views" | "check" | "ruleFiles";
+type SectionId = "daemon" | "symbols" | "views" | "changes" | "check" | "ruleFiles";
 
 interface SectionNode {
 	kind: "section";
@@ -36,6 +38,11 @@ export interface WorkspaceRulesNode {
 	node: RulesTreeNode;
 }
 
+export interface WorkspaceChangeNode {
+	kind: "changes";
+	node: ChangeTreeNode;
+}
+
 export interface WorkspaceViewNode {
 	kind: "views";
 	node: ViewTreeNode;
@@ -51,6 +58,7 @@ export type WorkspaceNode =
 	| WorkspaceDaemonNode
 	| WorkspaceSymbolNode
 	| WorkspaceViewNode
+	| WorkspaceChangeNode
 	| WorkspaceRulesNode
 	| WorkspaceRuleFileNode;
 
@@ -66,6 +74,7 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 		private readonly daemons: DaemonListProvider,
 		private readonly symbols: SymbolTreeProvider,
 		private readonly views: ViewsProvider,
+		private readonly changes: ChangesProvider,
 		private readonly rules: RulesProvider,
 		private readonly ruleFiles: RuleFilesProvider,
 	) {
@@ -73,6 +82,7 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 			this.daemons.onDidChangeTreeData(() => this.refresh()),
 			this.symbols.onDidChangeTreeData(() => this.refresh()),
 			this.views.onDidChangeTreeData(() => this.refresh()),
+			this.changes.onDidChangeTreeData(() => this.refresh()),
 			this.rules.onDidChangeTreeData(() => this.refresh()),
 			this.ruleFiles.onDidChangeTreeData(() => this.refresh()),
 		);
@@ -105,6 +115,8 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 				return wrapSymbols(await this.symbols.getChildren(node.node));
 			case "views":
 				return wrapViews(await this.views.getChildren(node.node));
+			case "changes":
+				return wrapChanges(await this.changes.getChildren(node.node));
 			case "check":
 				return wrapRules(await this.rules.getChildren(node.node));
 			case "ruleFiles":
@@ -140,6 +152,8 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 				return this.symbols.getTreeItem(node.node);
 			case "views":
 				return this.views.getTreeItem(node.node);
+			case "changes":
+				return this.changes.getTreeItem(node.node);
 			case "check":
 				return this.rules.getTreeItem(node.node);
 			case "ruleFiles":
@@ -155,6 +169,8 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceN
 				return wrapSymbols(await this.symbols.getChildren());
 			case "views":
 				return wrapViews(await this.views.getChildren());
+			case "changes":
+				return wrapChanges(await this.changes.getChildren());
 			case "check":
 				return wrapRules(await this.rules.getChildren(checkSection()));
 			case "ruleFiles":
@@ -168,6 +184,7 @@ function sections(): SectionNode[] {
 		{ kind: "section", id: "daemon", label: "Daemon" },
 		{ kind: "section", id: "symbols", label: "Symbols" },
 		{ kind: "section", id: "views", label: "Views" },
+		{ kind: "section", id: "changes", label: "Changes" },
 		{ kind: "section", id: "check", label: "Check" },
 		{ kind: "section", id: "ruleFiles", label: "Rule Files" },
 	];
@@ -190,6 +207,10 @@ function wrapSymbols(nodes: SymbolTreeNode[]): WorkspaceSymbolNode[] {
 
 function wrapViews(nodes: ViewTreeNode[]): WorkspaceViewNode[] {
 	return nodes.map((node) => ({ kind: "views", node }));
+}
+
+function wrapChanges(nodes: ChangeTreeNode[]): WorkspaceChangeNode[] {
+	return nodes.map((node) => ({ kind: "changes", node }));
 }
 
 function wrapRules(nodes: RulesTreeNode[]): WorkspaceRulesNode[] {

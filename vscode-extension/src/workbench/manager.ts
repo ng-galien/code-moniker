@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 
+import { ChangesProvider } from "../changes/tree";
 import { DaemonSession } from "../daemon/session";
 import { DaemonListProvider } from "../daemon/tree";
 import { RuleFilesProvider } from "../rules/tree";
@@ -19,6 +20,7 @@ export interface WorkspaceInputs {
 	daemons: DaemonListProvider;
 	symbols: SymbolTreeProvider;
 	views: ViewsProvider;
+	changes: ChangesProvider;
 	detail: DetailWebview;
 	rules: RulesProvider;
 	ruleFiles: RuleFilesProvider;
@@ -32,6 +34,7 @@ export function registerWorkspace(
 		inputs.daemons,
 		inputs.symbols,
 		inputs.views,
+		inputs.changes,
 		inputs.rules,
 		inputs.ruleFiles,
 	);
@@ -77,7 +80,11 @@ export function registerWorkspace(
 				inputs.daemons.refresh();
 				inputs.symbols.refresh();
 				inputs.views.refresh();
+				inputs.changes.refresh();
 				inputs.rules.refresh();
+			}
+			if (event.kind === "git_base") {
+				inputs.changes.refresh();
 			}
 		}),
 	);
