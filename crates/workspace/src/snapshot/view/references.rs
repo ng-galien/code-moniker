@@ -44,6 +44,7 @@ impl<'a> ReferenceView<'a> {
 		self.snapshot
 			.index
 			.references
+			.file_records(symbol.file())
 			.iter()
 			.filter(|reference| &reference.source_symbol == symbol)
 			.map(|reference| reference.id)
@@ -80,7 +81,7 @@ impl<'a> ReferenceView<'a> {
 		}
 	}
 
-	pub(super) fn reference(&self, id: &ReferenceId) -> Option<&ReferenceRecord> {
+	pub fn reference(&self, id: &ReferenceId) -> Option<&ReferenceRecord> {
 		let record = self
 			.snapshot
 			.index

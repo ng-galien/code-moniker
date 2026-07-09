@@ -24,6 +24,20 @@ impl<'a> SourceView<'a> {
 			.collect()
 	}
 
+	pub fn record(&self, id: &SourceId) -> Option<&'a crate::snapshot::model::SourceFileRecord> {
+		let record = self.snapshot.index.sources.get(id.file());
+		if let Some(record) = record
+			&& &record.id == id
+		{
+			return Some(record);
+		}
+		self.snapshot
+			.index
+			.sources
+			.iter()
+			.find(|source| &source.id == id)
+	}
+
 	pub fn find(&self, source: &SourceId) -> Option<SourceSummary> {
 		self.all()
 			.into_iter()
