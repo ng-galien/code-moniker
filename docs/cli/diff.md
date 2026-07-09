@@ -1,8 +1,21 @@
 # `code-moniker diff` — symbol-level change facts
 
-`code-moniker diff [PATH]` reports the git changes of a workspace as
-**symbol-level facts** instead of line-by-line hunks. The scope is
-`HEAD..worktree`.
+`code-moniker diff` reports git changes as **symbol-level facts** instead of
+line-by-line hunks.
+
+Scopes:
+
+- `code-moniker diff [PATH]` — `HEAD..worktree` (default).
+- `code-moniker diff --base <REV> [PATH]` — `<REV>..worktree`.
+- `code-moniker diff <A>..<B> [PATH]` — two committed revisions; the head
+  side is read from git blobs, the worktree never leaks into the window.
+- `code-moniker diff <A>...<B> [PATH]` — merge-base form for PR review.
+
+Unresolvable revisions exit 2 with the revision named on stderr.
+
+The same facts are served live by the daemon (`code-moniker query
+'change.review'`, capability `change.review`, HEAD..worktree only) and to
+agents through the MCP tool `code_moniker_diff`.
 
 The output carries facts only — no importance judgment. Business-level
 qualification (importance filtering, review auto-acceptance) is planned as a

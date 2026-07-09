@@ -43,6 +43,7 @@
 - Inspect stats: `/Users/alexandreboyer/.cargo/bin/code-moniker stats <file>`
 - Format touched Rust: `rustfmt --edition 2024 --config-path rustfmt.toml <files>`
 - Check rules: `/Users/alexandreboyer/.cargo/bin/code-moniker check . --profile <name> --max-violations <N>`
+- Symbolic diff: `/Users/alexandreboyer/.cargo/bin/code-moniker diff [A..B] .` (facts: moves/renames/bodies/refs; `docs/cli/diff.md`)
 - Show rules: `/Users/alexandreboyer/.cargo/bin/code-moniker rules show . --profile <name>`
 - DSL tests: `cargo test -p code-moniker check::expr --lib`
 - UI tests: `cargo test -p code-moniker ui::tests::<test_name> --lib`

@@ -11,6 +11,25 @@ in `0.y.z`.
 
 ## [Unreleased]
 
+### Added
+
+- **Semantic diff (`code-moniker diff`)** — git changes reported as
+  symbol-level facts instead of line hunks: added/removed symbols,
+  modified bodies (whitespace-insensitive, own-name-masked
+  fingerprints), signature changes, renames and file/container moves
+  paired with certain confidence only, retargeted imports and call
+  sites, per-file dispositions and hunk coverage with residual
+  (unattributed) spans. Scopes: `HEAD..worktree` (default),
+  `--base <REV>`, `<A>..<B>` and merge-base `<A>...<B>`; text and
+  versioned JSON (`code-moniker.diff/1`) outputs. The live snapshot
+  overlay carries the same facts (`ChangeOverlay.semantic`), served by
+  the daemon query `change.review` and the MCP tool
+  `code_moniker_diff`. Fixed in passing: git rename rows previously
+  lost their base blob and reported moved files as fully added. The
+  business exploitation (importance filtering, review auto-accept) is
+  specified as a rules-engine evolution in
+  `evolutions/rules-on-change.md`.
+
 ## [0.4.0] - 2026-07-09
 
 Indexing-core overhaul: the incremental refresh is now proportional to
