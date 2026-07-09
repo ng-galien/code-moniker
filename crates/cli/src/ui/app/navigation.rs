@@ -32,14 +32,14 @@ fn primary_tree_selection(target: NavigationSelection) -> NavigationAction {
 
 pub(in crate::ui) fn selected(app: &App) -> Option<DefLocation> {
 	selected_nav_row(app).and_then(|row| match &row.kind {
-		NavNodeKind::Def(loc) => Some(loc.clone()),
+		NavNodeKind::Def(loc) => Some(*loc),
 		_ => None,
 	})
 }
 
 pub(in crate::ui) fn primary_selected(app: &App) -> Option<DefLocation> {
 	primary_selected_nav_row(app).and_then(|row| match &row.kind {
-		NavNodeKind::Def(loc) => Some(loc.clone()),
+		NavNodeKind::Def(loc) => Some(*loc),
 		_ => None,
 	})
 }

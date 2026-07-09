@@ -80,7 +80,7 @@ impl WorkspaceCheckContext {
 					.iter()
 					.find(|candidate| &candidate.id == symbol)
 			})
-			.map(|symbol| symbol.source.clone())
+			.map(|symbol| symbol.source)
 			.collect::<BTreeSet<_>>()
 			.len();
 		Ok(CheckSummary {
@@ -300,7 +300,7 @@ pub(in crate::ui) fn navigable_defs_filtered(
 		.filter(|symbol| {
 			symbol.navigable && symbol_matches_filters(symbol, &source_langs, langs, kinds, shapes)
 		})
-		.map(|symbol| symbol.id.clone())
+		.map(|symbol| symbol.id)
 		.collect()
 }
 
@@ -330,7 +330,7 @@ pub(in crate::ui) fn available_kinds_for_lang(
 	};
 	let source_langs = source_lang_index(snapshot);
 	let mut kinds = BTreeSet::new();
-	for symbol in &snapshot.index.symbols {
+	for symbol in snapshot.index.symbols.iter() {
 		if symbol.navigable && source_langs.get(&symbol.source) == Some(&lang) {
 			kinds.insert(symbol.kind.clone());
 		}
@@ -348,7 +348,7 @@ pub(in crate::ui) fn available_shapes(
 	let source_langs = source_lang_index(snapshot);
 	let selected = langs.iter().copied().collect::<FxHashSet<_>>();
 	let mut present = Vec::new();
-	for symbol in &snapshot.index.symbols {
+	for symbol in snapshot.index.symbols.iter() {
 		if !symbol.navigable {
 			continue;
 		}
@@ -379,9 +379,9 @@ pub(in crate::ui) fn child_defs(
 		.queries()
 		.snapshot()
 		.into_iter()
-		.flat_map(|snapshot| &snapshot.index.symbols)
+		.flat_map(|snapshot| snapshot.index.symbols.iter())
 		.filter(|symbol| symbol.navigable && symbol.parent.as_ref() == Some(parent))
-		.map(|symbol| symbol.id.clone())
+		.map(|symbol| symbol.id)
 		.collect::<Vec<_>>();
 	sort_defs_for_navigation(store, &mut children);
 	children
@@ -402,7 +402,7 @@ pub(in crate::ui) fn compare_defs_for_navigation(
 			))
 			.then_with(|| left.line_range.cmp(&right.line_range))
 			.then_with(|| left.name.cmp(&right.name)),
-		_ => left.as_str().cmp(right.as_str()),
+		_ => left.cmp(right),
 	}
 }
 
@@ -411,16 +411,16 @@ pub(in crate::ui) fn symbol_summary(
 	symbol: &SymbolId,
 ) -> SymbolSummary {
 	let Some(record) = symbol_by_id(store, symbol) else {
-		return SymbolSummary::missing(symbol.clone());
+		return SymbolSummary::missing(*symbol);
 	};
 	SymbolSummary {
-		id: record.id.clone(),
+		id: record.id,
 		lang: symbol_lang(store, record),
 		kind: record.kind.clone(),
 		visibility: record.visibility.clone(),
 		name: record.name.clone(),
 		file_path: symbol_source_path(store, record),
-		identity: record.identity.clone(),
+		identity: record.identity.to_string(),
 		compact_moniker: compact_identity(store, &record.identity),
 		line_range: record.line_range,
 		child_count: child_defs(store, &record.id).len(),
@@ -679,7 +679,7 @@ pub(in crate::ui) fn usage_focus_for_target(
 		.symbols
 		.iter()
 		.find(|symbol| moniker_for_identity(store, &symbol.identity).as_ref() == Some(&target))
-		.map(|symbol| symbol.id.clone())?;
+		.map(|symbol| symbol.id)?;
 	let mut focus = usage_focus(store, symbol)?;
 	focus.target = target;
 	focus.label = label;
@@ -702,15 +702,16 @@ pub(in crate::ui) fn unresolved_linkage_report(
 		let Some(source) = source_file_by_id(store, &reference.source) else {
 			continue;
 		};
-		let entry = groups_by_file
-			.entry(reference.source.clone())
-			.or_insert_with(|| UnresolvedLinkageGroup {
-				lang: Lang::from_tag(&source.language).unwrap_or(Lang::Rs),
-				file_path: PathBuf::from(&source.rel_path),
-				unresolved_refs: 0,
-				manifest_blocked_refs: 0,
-				samples: Vec::new(),
-			});
+		let entry =
+			groups_by_file
+				.entry(reference.source)
+				.or_insert_with(|| UnresolvedLinkageGroup {
+					lang: Lang::from_tag(&source.language).unwrap_or(Lang::Rs),
+					file_path: PathBuf::from(&source.rel_path),
+					unresolved_refs: 0,
+					manifest_blocked_refs: 0,
+					samples: Vec::new(),
+				});
 		entry.unresolved_refs += 1;
 		if entry.samples.len() < samples_per_file {
 			entry.samples.push(UnresolvedLinkageSample {
@@ -719,7 +720,7 @@ pub(in crate::ui) fn unresolved_linkage_report(
 				target: compact_identity(store, &reference.target_identity),
 				source: symbol_by_id(store, &reference.source_symbol)
 					.map(|symbol| symbol.name.clone())
-					.unwrap_or_else(|| reference.source_symbol.as_str().to_string()),
+					.unwrap_or_else(|| reference.source_symbol.to_string()),
 				location: reference_location(store, reference),
 			});
 		}
@@ -731,15 +732,16 @@ pub(in crate::ui) fn unresolved_linkage_report(
 		let Some(source) = source_file_by_id(store, &reference.source) else {
 			continue;
 		};
-		let entry = groups_by_file
-			.entry(reference.source.clone())
-			.or_insert_with(|| UnresolvedLinkageGroup {
-				lang: Lang::from_tag(&source.language).unwrap_or(Lang::Rs),
-				file_path: PathBuf::from(&source.rel_path),
-				unresolved_refs: 0,
-				manifest_blocked_refs: 0,
-				samples: Vec::new(),
-			});
+		let entry =
+			groups_by_file
+				.entry(reference.source)
+				.or_insert_with(|| UnresolvedLinkageGroup {
+					lang: Lang::from_tag(&source.language).unwrap_or(Lang::Rs),
+					file_path: PathBuf::from(&source.rel_path),
+					unresolved_refs: 0,
+					manifest_blocked_refs: 0,
+					samples: Vec::new(),
+				});
 		entry.manifest_blocked_refs += 1;
 		if entry.samples.len() < samples_per_file {
 			entry.samples.push(UnresolvedLinkageSample {
@@ -748,7 +750,7 @@ pub(in crate::ui) fn unresolved_linkage_report(
 				target: compact_identity(store, &reference.target_identity),
 				source: symbol_by_id(store, &reference.source_symbol)
 					.map(|symbol| symbol.name.clone())
-					.unwrap_or_else(|| reference.source_symbol.as_str().to_string()),
+					.unwrap_or_else(|| reference.source_symbol.to_string()),
 				location: reference_location(store, reference),
 			});
 		}
@@ -837,7 +839,7 @@ fn incoming_refs_for_symbol(store: &LocalWorkspaceRegistry, symbol: &SymbolId) -
 				.resolved
 				.iter()
 				.filter(|edge| &edge.target == symbol)
-				.map(|edge| edge.reference.clone())
+				.map(|edge| edge.reference)
 				.collect()
 		})
 		.unwrap_or_default()
@@ -853,7 +855,7 @@ fn outgoing_refs_for_symbol(store: &LocalWorkspaceRegistry, symbol: &SymbolId) -
 				.references
 				.iter()
 				.filter(|reference| &reference.source_symbol == symbol)
-				.map(|reference| reference.id.clone())
+				.map(|reference| reference.id)
 				.collect()
 		})
 		.unwrap_or_default()
@@ -908,7 +910,7 @@ fn reference_group(
 		kinds: vec![reference.kind.clone()],
 		actor: source
 			.map(|symbol| symbol.name.clone())
-			.unwrap_or_else(|| reference.source_symbol.as_str().to_string()),
+			.unwrap_or_else(|| reference.source_symbol.to_string()),
 		location: reference_location(store, reference),
 		endpoint_label,
 		endpoint: compact_identity(store, &reference.target_identity),
@@ -980,7 +982,7 @@ fn navigable_context_symbol(store: &LocalWorkspaceRegistry, symbol: &SymbolId) -
 	let mut current = symbol_by_id(store, symbol)?;
 	loop {
 		if current.navigable {
-			return Some(current.id.clone());
+			return Some(current.id);
 		}
 		let parent = current.parent.as_ref()?;
 		current = symbol_by_id(store, parent)?;
@@ -1257,7 +1259,7 @@ fn build_stats(snapshot: &WorkspaceSnapshot) -> SessionStats {
 	for lang in source_langs.values() {
 		stats.by_lang.entry(lang.tag()).or_default().files += 1;
 	}
-	for symbol in &snapshot.index.symbols {
+	for symbol in snapshot.index.symbols.iter() {
 		if let Some(lang) = source_langs.get(&symbol.source) {
 			stats.by_lang.entry(lang.tag()).or_default().defs += 1;
 		}
@@ -1266,7 +1268,7 @@ fn build_stats(snapshot: &WorkspaceSnapshot) -> SessionStats {
 			*stats.by_shape.entry(shape.as_str()).or_default() += 1;
 		}
 	}
-	for reference in &snapshot.index.references {
+	for reference in snapshot.index.references.iter() {
 		if let Some(lang) = source_langs.get(&reference.source) {
 			stats.by_lang.entry(lang.tag()).or_default().refs += 1;
 		}
@@ -1280,7 +1282,7 @@ fn source_lang_index(snapshot: &WorkspaceSnapshot) -> FxHashMap<SourceId, Lang> 
 		.index
 		.sources
 		.iter()
-		.filter_map(|source| Lang::from_tag(&source.language).map(|lang| (source.id.clone(), lang)))
+		.filter_map(|source| Lang::from_tag(&source.language).map(|lang| (source.id, lang)))
 		.collect()
 }
 

@@ -348,24 +348,22 @@ struct SymbolNavIndex<'a> {
 
 impl<'a> SymbolNavIndex<'a> {
 	fn new(snapshot: &'a WorkspaceSnapshot) -> Self {
-		let by_id = symbols_by_id(&snapshot.index.symbols);
+		let by_id = symbols_by_id(snapshot);
 		let source_langs = source_langs(snapshot);
 		let mut by_parent = FxHashMap::default();
 		let mut reexports_by_source = FxHashMap::default();
-		for reference in &snapshot.index.references {
+		for reference in snapshot.index.references.iter() {
 			if is_reexport(reference) {
-				*reexports_by_source
-					.entry(reference.source.clone())
-					.or_insert(0) += 1;
+				*reexports_by_source.entry(reference.source).or_insert(0) += 1;
 			}
 		}
-		for symbol in &snapshot.index.symbols {
+		for symbol in snapshot.index.symbols.iter() {
 			if !symbol.navigable {
 				continue;
 			}
 			let parent = navigable_parent(symbol, &by_id);
 			by_parent
-				.entry((symbol.source.clone(), parent))
+				.entry((symbol.source, parent))
 				.or_insert_with(Vec::new)
 				.push(symbol);
 		}
@@ -377,7 +375,7 @@ impl<'a> SymbolNavIndex<'a> {
 	}
 
 	fn children_for(&self, source: &SourceId, parent: Option<&SymbolId>) -> Vec<NavNode> {
-		let key = (source.clone(), parent.cloned());
+		let key = (*source, parent.cloned());
 		self.by_parent
 			.get(&key)
 			.into_iter()
@@ -401,18 +399,20 @@ fn symbol_nav_node(
 	symbol: &SymbolRecord,
 ) -> NavNode {
 	let mut node = NavNode::new(
-		NodeId::def(symbol.id.as_str()),
+		NodeId::def(&symbol.id.to_string()),
 		symbol.name.clone(),
-		NavNodeKind::Def(symbol.id.clone()),
+		NavNodeKind::Def(symbol.id),
 	);
 	node.children = index.children_for(source, Some(&symbol.id));
 	node
 }
 
-fn symbols_by_id(symbols: &[SymbolRecord]) -> FxHashMap<SymbolId, &SymbolRecord> {
-	symbols
+fn symbols_by_id(snapshot: &WorkspaceSnapshot) -> FxHashMap<SymbolId, &SymbolRecord> {
+	snapshot
+		.index
+		.symbols
 		.iter()
-		.map(|symbol| (symbol.id.clone(), symbol))
+		.map(|symbol| (symbol.id, symbol))
 		.collect()
 }
 
@@ -423,7 +423,7 @@ fn source_langs(snapshot: &WorkspaceSnapshot) -> FxHashMap<SourceId, Lang> {
 		.iter()
 		.map(|source| {
 			(
-				source.id.clone(),
+				source.id,
 				Lang::from_tag(&source.language).unwrap_or(Lang::Rs),
 			)
 		})
@@ -436,7 +436,7 @@ fn navigable_parent(
 ) -> Option<SymbolId> {
 	let parent_id = symbol.parent.as_ref()?;
 	let parent = by_id.get(parent_id)?;
-	(parent.navigable && parent.source == symbol.source).then(|| parent_id.clone())
+	(parent.navigable && parent.source == symbol.source).then_some(*parent_id)
 }
 
 fn sort_symbol_groups(
