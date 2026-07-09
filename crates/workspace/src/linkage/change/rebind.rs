@@ -262,7 +262,14 @@ fn references_matching_symbols(
 		let Some(ids) = bindings.store.indexes.references_by_name.get(&key) else {
 			continue;
 		};
-		collect_matching_symbol_references(bindings, graph, ids, symbols, &mut seen, &mut stale);
+		let mut key_symbols = symbols.clone();
+		if let Some(key_candidates) = graph.candidates.indexes().symbols_by_key(&key) {
+			key_symbols.intersect_with(key_candidates);
+		}
+		if key_symbols.is_empty() {
+			continue;
+		}
+		collect_matching_symbol_references(graph, ids, &key_symbols, &mut seen, &mut stale);
 	}
 	stale
 }
@@ -286,24 +293,23 @@ fn references_matching_definitions_in_files(
 			let Some(ids) = bindings.store.indexes.references_by_name.get(key) else {
 				continue;
 			};
-			collect_matching_source_references(bindings, graph, ids, files, &mut seen, &mut stale);
+			collect_matching_source_references(graph, ids, files, &mut seen, &mut stale);
 		}
 	}
 	stale
 }
 
 fn collect_matching_symbol_references(
-	_bindings: &BindingReadModel<'_>,
 	graph: &EditedGraph<'_>,
 	ids: &ReferenceSet,
 	symbols: &SymbolSet,
 	seen: &mut ReferenceSet,
 	stale: &mut ReferenceSet,
 ) {
-	for reference_ordinal in ids.iter() {
-		if !seen.insert(reference_ordinal) {
-			continue;
-		}
+	let mut fresh = ids.clone();
+	fresh.remove_all(seen);
+	seen.union_with(&fresh);
+	for reference_ordinal in fresh.iter() {
 		let Some(query) = query_for_reference(graph, reference_ordinal) else {
 			continue;
 		};
@@ -314,17 +320,16 @@ fn collect_matching_symbol_references(
 }
 
 fn collect_matching_source_references(
-	_bindings: &BindingReadModel<'_>,
 	graph: &EditedGraph<'_>,
 	ids: &ReferenceSet,
 	files: &BTreeSet<usize>,
 	seen: &mut ReferenceSet,
 	stale: &mut ReferenceSet,
 ) {
-	for reference_ordinal in ids.iter() {
-		if !seen.insert(reference_ordinal) {
-			continue;
-		}
+	let mut fresh = ids.clone();
+	fresh.remove_all(seen);
+	seen.union_with(&fresh);
+	for reference_ordinal in fresh.iter() {
 		let Some(query) = query_for_reference(graph, reference_ordinal) else {
 			continue;
 		};

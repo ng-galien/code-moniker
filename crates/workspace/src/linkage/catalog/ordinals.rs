@@ -122,6 +122,10 @@ impl SymbolSet {
 		self.bitmap.remove(symbol.raw())
 	}
 
+	pub(in crate::linkage) fn intersect_with(&mut self, other: &Self) {
+		self.bitmap &= &other.bitmap;
+	}
+
 	pub(in crate::linkage) fn from_symbol(symbol: SymbolOrdinal) -> Self {
 		let mut set = Self::new();
 		set.insert(symbol);
