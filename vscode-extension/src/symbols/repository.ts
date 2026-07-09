@@ -8,15 +8,22 @@ import {
 	SymbolUsagesResult,
 	TreeNode,
 } from "../daemon/model";
+import { GenerationCache } from "../daemon/cache";
 import { toFsPath } from "../daemon/paths";
 import { DaemonSession } from "../daemon/session";
 import { SymbolNode } from "./nodes";
 
 // Data access for the symbol tree and detail panel, all over the shared session.
 // The daemon has no symbol-hierarchy query, so file symbols come back flat and we
-// nest them here by line-range containment.
+// nest them here by line-range containment. Results are cached per workspace
+// generation, so refresh cascades and re-selections cost no RPC while the
+// snapshot is unchanged.
 export class SymbolRepository {
-	constructor(private readonly session: DaemonSession) {}
+	private readonly cache: GenerationCache;
+
+	constructor(private readonly session: DaemonSession) {
+		this.cache = new GenerationCache(session);
+	}
 
 	get ready(): boolean {
 		return this.session.ready;
@@ -31,47 +38,53 @@ export class SymbolRepository {
 	}
 
 	async fileSymbols(filePath: string): Promise<SymbolNode[]> {
-		const response = await this.session.query({
-			op: "symbol_search",
-			workspace: null,
-			text: null,
-			path: [filePath],
-			lang: [],
-			kind: [],
-			shape: [],
-			name: null,
-			include_non_navigable: false,
-			include_code: false,
-			context_lines: 0,
-			projection: [],
+		return this.cache.fetch(`file:${filePath}`, async () => {
+			const response = await this.session.query({
+				op: "symbol_search",
+				workspace: null,
+				text: null,
+				path: [filePath],
+				lang: [],
+				kind: [],
+				shape: [],
+				name: null,
+				include_non_navigable: false,
+				include_code: false,
+				context_lines: 0,
+				projection: [],
+			});
+			if (response.result.kind !== "symbol_list") {
+				return [];
+			}
+			return nestSymbols(response.result.data.rows);
 		});
-		if (response.result.kind !== "symbol_list") {
-			return [];
-		}
-		return nestSymbols(response.result.data.rows);
 	}
 
 	async symbolDetail(uri: string, contextLines = 3): Promise<SymbolDetailResult | undefined> {
-		const response = await this.session.query({
-			op: "symbol_detail",
-			workspace: null,
-			uri,
-			context_lines: contextLines,
+		return this.cache.fetch(`detail:${contextLines}:${uri}`, async () => {
+			const response = await this.session.query({
+				op: "symbol_detail",
+				workspace: null,
+				uri,
+				context_lines: contextLines,
+			});
+			return response.result.kind === "symbol_detail" ? response.result.data : undefined;
 		});
-		return response.result.kind === "symbol_detail" ? response.result.data : undefined;
 	}
 
 	async symbolUsages(uri: string): Promise<SymbolUsagesResult | undefined> {
-		const response = await this.session.query({
-			op: "symbol_usages",
-			workspace: null,
-			uri,
-			direction: "both",
-			path: [],
-			lang: [],
-			projection: [],
+		return this.cache.fetch(`usages:${uri}`, async () => {
+			const response = await this.session.query({
+				op: "symbol_usages",
+				workspace: null,
+				uri,
+				direction: "both",
+				path: [],
+				lang: [],
+				projection: [],
+			});
+			return response.result.kind === "symbol_usages" ? response.result.data : undefined;
 		});
-		return response.result.kind === "symbol_usages" ? response.result.data : undefined;
 	}
 
 	static async sourceSnippet(
@@ -92,18 +105,20 @@ export class SymbolRepository {
 	}
 
 	private async entriesUnder(path: string[]): Promise<TreeNode[]> {
-		const response = await this.session.query({
-			op: "tree_children",
-			workspace: null,
-			path,
-			depth: 1,
-			lang: [],
-			projection: [],
+		return this.cache.fetch(`tree:${path.join("/")}`, async () => {
+			const response = await this.session.query({
+				op: "tree_children",
+				workspace: null,
+				path,
+				depth: 1,
+				lang: [],
+				projection: [],
+			});
+			if (response.result.kind !== "tree_children") {
+				return [];
+			}
+			return [...response.result.data.rows].sort(compareEntries);
 		});
-		if (response.result.kind !== "tree_children") {
-			return [];
-		}
-		return [...response.result.data.rows].sort(compareEntries);
 	}
 }
 

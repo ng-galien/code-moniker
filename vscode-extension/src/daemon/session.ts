@@ -35,6 +35,7 @@ export class DaemonSession implements vscode.Disposable {
 	ready = false;
 	lastError?: string;
 	endpoint?: string;
+	generation?: number;
 	readonly workspaceRoots: string[];
 
 	private readonly statusEmitter = new vscode.EventEmitter<DaemonStatus>();
@@ -69,14 +70,21 @@ export class DaemonSession implements vscode.Disposable {
 		};
 		for (let attempt = 0; ; attempt++) {
 			try {
-				return await this.rpc.query(query, queryOptions);
+				const response = await this.rpc.query(query, queryOptions);
+				this.noteGeneration(response.generation);
+				return response;
 			} catch (error) {
 				if (shouldRetryLoadingQuery(error, attempt)) {
 					await delay(QUERY_RETRY_INTERVAL_MS);
 					continue;
 				}
 				if (shouldRefreshStaleSnapshot(error, attempt)) {
-					return await this.rpc.query(query, { ...queryOptions, consistency: "refresh_if_stale" });
+					const response = await this.rpc.query(query, {
+						...queryOptions,
+						consistency: "refresh_if_stale",
+					});
+					this.noteGeneration(response.generation);
+					return response;
 				}
 				throw error;
 			}
@@ -169,10 +177,17 @@ export class DaemonSession implements vscode.Disposable {
 	}
 
 	private handleEvent(event: WorkspaceEventDto): void {
+		this.noteGeneration(event.generation);
 		if (event.kind === "refreshed" && this.status === "loading") {
 			this.setStatus("ready");
 		}
 		this.eventEmitter.fire(event);
+	}
+
+	private noteGeneration(generation: number | null | undefined): void {
+		if (typeof generation === "number") {
+			this.generation = generation;
+		}
 	}
 
 	private onConnectionClosed(): void {
@@ -186,6 +201,7 @@ export class DaemonSession implements vscode.Disposable {
 		this.rpc?.close();
 		this.rpc = undefined;
 		this.endpoint = undefined;
+		this.generation = undefined;
 	}
 
 	private setStatus(status: DaemonStatus): void {
