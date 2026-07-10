@@ -433,3 +433,126 @@ body {
 	opacity: 0.6;
 	flex-shrink: 0;
 }
+
+/* ---- the canonical symbol card as header: one vocabulary with the graph ---- */
+
+.symbol-card .header-top {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+}
+
+.glyph {
+	color: var(--vscode-charts-orange);
+	font-family: var(--vscode-editor-font-family);
+	font-weight: 700;
+	flex-shrink: 0;
+}
+
+.glyph.method {
+	color: var(--vscode-charts-blue);
+}
+
+.glyph.type {
+	color: var(--vscode-charts-purple);
+}
+
+.symbol-name {
+	font-family: var(--vscode-editor-font-family);
+	font-weight: 700;
+	font-size: 1.18em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pub {
+	font-size: 0.68em;
+	color: var(--vscode-charts-green);
+	border: 1px solid var(--vscode-charts-green);
+	border-radius: 6px;
+	padding: 0 5px;
+	opacity: 0.85;
+	flex-shrink: 0;
+}
+
+.header-actions {
+	margin-left: auto;
+	display: inline-flex;
+	gap: 6px;
+	flex-shrink: 0;
+}
+
+.fncard-args {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-top: 6px;
+}
+
+.argchip {
+	display: inline-flex;
+	gap: 4px;
+	background: var(--vscode-editor-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 4px;
+	padding: 1px 6px;
+	font-family: var(--vscode-editor-font-family);
+	font-size: 0.78em;
+}
+
+.argname {
+	opacity: 0.75;
+}
+
+.argtype {
+	color: var(--vscode-charts-purple);
+}
+
+/* the moniker is data, not prose: single line, click to copy */
+.moniker-row {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	background: none;
+	border: none;
+	color: var(--vscode-foreground);
+	padding: 0;
+	cursor: copy;
+	font-size: inherit;
+	font-family: var(--vscode-font-family);
+	max-width: 100%;
+	text-align: left;
+}
+
+.moniker-value {
+	font-family: var(--vscode-editor-font-family);
+	font-size: 0.82em;
+	opacity: 0.55;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.moniker-row:hover .moniker-value {
+	opacity: 0.85;
+}
+
+.member-row .member-kind {
+	margin-left: auto;
+	font-size: 0.75em;
+	opacity: 0.55;
+	flex-shrink: 0;
+}
+
+/* quality floor */
+button:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	* {
+		transition: none !important;
+	}
+}

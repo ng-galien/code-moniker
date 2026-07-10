@@ -1,16 +1,8 @@
 import { Handle, Position } from "@xyflow/react";
 
+import { parseCallableName } from "../../../webview-lib/parse";
+import { symbolGlyph } from "../../../webview-lib/symbolGlyph";
 import type { GraphNodeModel } from "./model";
-import { parseCallableName } from "./parse";
-
-const KIND_GLYPHS: Record<string, string> = {
-	fn: "ƒ",
-	function: "ƒ",
-	method: "m",
-	constructor: "c",
-	macro: "!",
-	test: "⚗",
-};
 
 // The canonical function card: kind as glyph, dominant name, one typed badge
 // per argument, degrees instead of line numbers. Line ranges stay in the data
@@ -19,7 +11,7 @@ export function FunctionCard({ data }: { data: { node: GraphNodeModel } }) {
 	const node = data.node;
 	const symbol = node.symbol;
 	const parsed = parseCallableName(symbol.name);
-	const glyph = KIND_GLYPHS[symbol.kind] ?? symbol.kind.charAt(0);
+	const glyph = symbolGlyph(symbol.kind);
 	const classes = ["fncard", node.entry ? "entry" : "", node.test ? "test" : ""]
 		.filter(Boolean)
 		.join(" ");
