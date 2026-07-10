@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import { SymbolDto, UsageDto, UsageSummaryDto } from "../../daemon/model";
 import { codeMonikerIcon } from "../../shared/appIcons";
+import { SymbolNode, SymbolTreeNode } from "../nodes";
 import { SymbolRepository } from "../repository";
 import { HighlightedSourceSnippet, highlightSource } from "./highlight";
 import { renderDetailHtml } from "./html";
@@ -15,6 +16,7 @@ export interface SourceTarget {
 export interface DetailPayload {
 	symbol: SymbolDto;
 	source: HighlightedSourceSnippet | null;
+	members: SymbolDto[];
 	incoming: HighlightedUsageDto[];
 	outgoing: HighlightedUsageDto[];
 	incomingSummary: UsageSummaryDto | null;
@@ -91,11 +93,16 @@ export class DetailWebview implements vscode.Disposable {
 		if (token !== this.seq || this.panel !== panel) {
 			return;
 		}
+		const members = await this.memberSymbols(renderedSymbol);
+		if (token !== this.seq || this.panel !== panel) {
+			return;
+		}
 		const incoming = usages?.rows.filter((row) => row.direction === "incoming") ?? [];
 		const outgoing = usages?.rows.filter((row) => row.direction === "outgoing") ?? [];
 		const payload: DetailPayload = {
 			symbol: renderedSymbol,
 			source,
+			members,
 			incoming,
 			outgoing,
 			incomingSummary: usages?.incoming_summary ?? null,
@@ -146,6 +153,10 @@ export class DetailWebview implements vscode.Disposable {
 				void vscode.commands.executeCommand("codeMoniker.symbols.openSource", message.target);
 			} else if (message?.type === "loadUsageSnippet") {
 				void this.loadUsageSnippet(panel, message);
+			} else if (message?.type === "showSymbol" && message.uri) {
+				void this.showForUri(message.uri);
+			} else if (message?.type === "openExplorer" && message.uri) {
+				void vscode.commands.executeCommand("codeMoniker.explorer.focus", message.uri);
 			} else if (message?.type === "ready" && this.lastMessage) {
 				void panel.webview.postMessage(this.lastMessage);
 			}
@@ -156,6 +167,24 @@ export class DetailWebview implements vscode.Disposable {
 
 	dispose(): void {
 		this.panel?.dispose();
+	}
+
+	private async showForUri(uri: string): Promise<void> {
+		const detail = await this.repository.symbolDetail(uri);
+		if (detail?.symbol) {
+			await this.showForSymbol(detail.symbol);
+		}
+	}
+
+	// Direct members of a container symbol (class, module, …), read from the
+	// file's line-range nesting; leaf symbols simply get an empty list.
+	private async memberSymbols(symbol: SymbolDto): Promise<SymbolDto[]> {
+		if (!CONTAINER_KINDS.has(symbol.kind) || !symbol.line_range) {
+			return [];
+		}
+		const nodes = await this.repository.fileSymbols(symbol.file);
+		const container = findSymbolNode(nodes, symbol.uri);
+		return container ? container.children.map((child) => child.symbol) : [];
 	}
 
 	private async loadUsageSnippet(
@@ -178,7 +207,38 @@ export class DetailWebview implements vscode.Disposable {
 type DetailWebviewMessage =
 	| { type?: "ready" }
 	| { type: "openSource"; target: SourceTarget }
+	| { type: "showSymbol"; uri: string }
+	| { type: "openExplorer"; uri: string }
 	| UsageSnippetRequest;
+
+const CONTAINER_KINDS = new Set([
+	"class",
+	"struct",
+	"enum",
+	"interface",
+	"trait",
+	"module",
+	"union",
+	"impl",
+	"object",
+	"namespace",
+]);
+
+function findSymbolNode(nodes: SymbolTreeNode[], uri: string): SymbolNode | undefined {
+	for (const node of nodes) {
+		if (node.kind !== "symbol") {
+			continue;
+		}
+		if (node.symbol.uri === uri) {
+			return node;
+		}
+		const nested = findSymbolNode(node.children, uri);
+		if (nested) {
+			return nested;
+		}
+	}
+	return undefined;
+}
 
 interface UsageSnippetRequest {
 	type: "loadUsageSnippet";

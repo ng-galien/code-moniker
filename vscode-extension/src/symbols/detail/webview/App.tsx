@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import type { HighlightedSourceSnippet } from "../highlight";
 import type { DetailDocument, DetailPayload } from "../panel";
-import { groupUsages, usageBuckets, type UsageOccurrence } from "../usageModel";
+import { groupUsages, isTypeSymbolKind, usageBuckets, type UsageOccurrence } from "../usageModel";
 import { DetailView, DocumentView } from "./DetailView";
 import { vscode } from "./vscodeApi";
 import { ViewContext, type ViewActions } from "./viewContext";
@@ -158,9 +158,10 @@ function defaultOpenDetails(view: ViewModel): Set<string> {
 	if (view.kind !== "detail") {
 		return open;
 	}
+	const typeTarget = isTypeSymbolKind(view.payload.symbol.kind);
 	for (const scope of ["incoming", "outgoing"] as const) {
 		const rows = scope === "incoming" ? view.payload.incoming : view.payload.outgoing;
-		for (const bucket of usageBuckets(rows)) {
+		for (const bucket of usageBuckets(rows, typeTarget)) {
 			if (bucket.rows.length === 0) {
 				continue;
 			}

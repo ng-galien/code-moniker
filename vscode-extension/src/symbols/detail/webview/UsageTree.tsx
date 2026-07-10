@@ -28,24 +28,38 @@ export function UsagesSection({
 	rows,
 	summary,
 	scope,
+	typeTarget,
 }: {
 	title: string;
 	rows: HighlightedUsageDto[];
 	summary: UsageSummaryDto | null;
 	scope: UsageDirectionScope;
+	typeTarget: boolean;
 }) {
 	return (
 		<Section title={`${title} (${rows.length})`}>
 			{summary?.dominant_prefix && (
 				<div className="summary">{summary.shared_helper_signal + " · " + summary.dominant_prefix}</div>
 			)}
-			{rows.length === 0 ? <div className="empty-row">none</div> : <UsageTree rows={rows} scope={scope} />}
+			{rows.length === 0 ? (
+				<div className="empty-row">none</div>
+			) : (
+				<UsageTree rows={rows} scope={scope} typeTarget={typeTarget} />
+			)}
 		</Section>
 	);
 }
 
-function UsageTree({ rows, scope }: { rows: HighlightedUsageDto[]; scope: UsageDirectionScope }) {
-	const buckets = useMemo(() => usageBuckets(rows), [rows]);
+function UsageTree({
+	rows,
+	scope,
+	typeTarget,
+}: {
+	rows: HighlightedUsageDto[];
+	scope: UsageDirectionScope;
+	typeTarget: boolean;
+}) {
+	const buckets = useMemo(() => usageBuckets(rows, typeTarget), [rows, typeTarget]);
 	return (
 		<div className="usage-tree">
 			{buckets

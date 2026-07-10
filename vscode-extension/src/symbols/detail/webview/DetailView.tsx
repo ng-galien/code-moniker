@@ -1,10 +1,14 @@
+import type { SymbolDto } from "../../../daemon/model";
 import { CodeBlock } from "../../../webview-lib/CodeBlock";
 import type { DetailDocument, DetailPayload } from "../panel";
+import { isTypeSymbolKind } from "../usageModel";
 import { DetailRow, MetaRow, OpenSourceButton, Section } from "./common";
 import { UsagesSection } from "./UsageTree";
+import { vscode } from "./vscodeApi";
 
 export function DetailView({ payload }: { payload: DetailPayload }) {
 	const symbol = payload.symbol;
+	const typeTarget = isTypeSymbolKind(symbol.kind);
 	return (
 		<>
 			<div className="header">
@@ -13,6 +17,13 @@ export function DetailView({ payload }: { payload: DetailPayload }) {
 						<span className="kind">{symbol.kind}</span>
 						<span className="name">{symbol.name}</span>
 					</div>
+					<button
+						type="button"
+						className="source-link"
+						onClick={() => vscode.postMessage({ type: "openExplorer", uri: symbol.uri })}
+					>
+						Open graph
+					</button>
 					<OpenSourceButton source={symbol} text="Open source" />
 				</div>
 				{symbol.signature && <pre className="signature">{symbol.signature}</pre>}
@@ -25,6 +36,7 @@ export function DetailView({ payload }: { payload: DetailPayload }) {
 					<MetaRow label="moniker" value={symbol.uri} />
 				</div>
 			</div>
+			{payload.members.length > 0 && <MembersSection members={payload.members} />}
 			{payload.source && (
 				<Section title="Source">
 					<CodeBlock source={payload.source} active={symbol.line_range} />
@@ -35,14 +47,42 @@ export function DetailView({ payload }: { payload: DetailPayload }) {
 				rows={payload.incoming}
 				summary={payload.incomingSummary}
 				scope="incoming"
+				typeTarget={typeTarget}
 			/>
 			<UsagesSection
 				title="Outgoing usages"
 				rows={payload.outgoing}
 				summary={payload.outgoingSummary}
 				scope="outgoing"
+				typeTarget={typeTarget}
 			/>
 		</>
+	);
+}
+
+// Direct members of a container symbol; a click walks the detail panel to
+// that member, mirroring an IDE's structure pane.
+function MembersSection({ members }: { members: SymbolDto[] }) {
+	return (
+		<Section title={`Members (${members.length})`}>
+			<div className="members">
+				{members.map((member) => (
+					<button
+						key={member.uri}
+						type="button"
+						className="member-row"
+						title={member.uri}
+						onClick={() => vscode.postMessage({ type: "showSymbol", uri: member.uri })}
+					>
+						<span className="member-kind">{member.kind}</span>
+						<span className="member-name">{member.name}</span>
+						{member.visibility && member.visibility !== "default" && (
+							<span className="member-vis">{member.visibility}</span>
+						)}
+					</button>
+				))}
+			</div>
+		</Section>
 	);
 }
 

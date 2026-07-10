@@ -35,20 +35,23 @@ export interface UsageOccurrence {
 	sample: HighlightedUsageDto;
 }
 
-export function usageBuckets(rows: HighlightedUsageDto[]): UsageBucket[] {
+// For a type-shaped target (class, struct, …) being used as a type IS the
+// primary usage, so uses_type/returns_type stay in production; only imports
+// and annotations remain technical noise.
+export function usageBuckets(rows: HighlightedUsageDto[], typeTarget = false): UsageBucket[] {
 	const buckets: UsageBucket[] = [
 		{ kind: "production", label: "Production", rows: [] },
 		{ kind: "test", label: "Tests", rows: [] },
-		{ kind: "technical", label: "Type-only and imports", rows: [] },
+		{ kind: "technical", label: typeTarget ? "Imports" : "Type-only and imports", rows: [] },
 	];
 	for (const usage of rows) {
-		buckets[bucketIndex(usage)].rows.push(usage);
+		buckets[bucketIndex(usage, typeTarget)].rows.push(usage);
 	}
 	return buckets;
 }
 
-function bucketIndex(usage: HighlightedUsageDto): 0 | 1 | 2 {
-	if (isTechnicalUsage(usage)) {
+function bucketIndex(usage: HighlightedUsageDto, typeTarget: boolean): 0 | 1 | 2 {
+	if (isTechnicalUsage(usage, typeTarget)) {
 		return 2;
 	}
 	if (isTestFile(usage.file)) {
@@ -57,15 +60,31 @@ function bucketIndex(usage: HighlightedUsageDto): 0 | 1 | 2 {
 	return 0;
 }
 
-export function isTechnicalUsage(usage: HighlightedUsageDto): boolean {
+export function isTechnicalUsage(usage: HighlightedUsageDto, typeTarget = false): boolean {
 	const kind = usage.kind.toLowerCase();
-	return (
-		kind.startsWith("imports_") ||
-		kind === "uses_type" ||
-		kind === "returns_type" ||
-		kind === "annotates"
-	);
+	if (kind.startsWith("imports_") || kind === "annotates") {
+		return true;
+	}
+	if (typeTarget) {
+		return false;
+	}
+	return kind === "uses_type" || kind === "returns_type";
 }
+
+export function isTypeSymbolKind(kind: string): boolean {
+	return TYPE_SYMBOL_KINDS.has(kind.toLowerCase());
+}
+
+const TYPE_SYMBOL_KINDS = new Set([
+	"class",
+	"struct",
+	"enum",
+	"interface",
+	"trait",
+	"type",
+	"union",
+	"object",
+]);
 
 export function isTestFile(file: string): boolean {
 	return (

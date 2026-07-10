@@ -11,6 +11,8 @@ export interface PersistedViewState {
 export type DetailOutboundMessage =
 	| { type: "ready" }
 	| { type: "openSource"; target: SourceTarget }
+	| { type: "showSymbol"; uri: string }
+	| { type: "openExplorer"; uri: string }
 	| { type: "loadUsageSnippet"; requestId: string; target: UsageDto };
 
 interface WebviewApi {
