@@ -48,8 +48,8 @@ const DEFAULT_SCHEME: &str = "code+moniker://";
 use code_moniker_query::{
 	ChangeReviewFile, ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide,
 	ChangeReviewSummary, ChangeReviewSymbol, IdentityChildrenQuery, IdentityChildrenResult,
-	IdentitySegmentDto, SymbolGraphEdge, SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery,
-	SymbolGraphResult,
+	IdentityGraphEdge, IdentityGraphPort, IdentityGraphResult, IdentitySegmentDto, SymbolGraphEdge,
+	SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult,
 };
 
 use helpers::*;
@@ -574,6 +574,9 @@ fn handle_query(
 		Query::IdentityChildren(query) => {
 			identity_children_response(&snapshot, &daemon.roots, query, current_generation)
 		}
+		Query::IdentityGraph(query) => {
+			identity_graph_response(&snapshot, &daemon.roots, query, current_generation)
+		}
 		Query::Notes(query) => {
 			notes_response(daemon, &snapshot, query, request.page, current_generation)
 		}
@@ -760,6 +763,21 @@ fn identity_children_response(
 ) -> Result<QueryResponse, QueryError> {
 	let _ = selected_roots(roots, query.workspace.as_deref())?;
 	let prefix = identity_path(query.prefix.trim_matches('/')).trim_matches('/');
+	Ok(QueryResponse {
+		generation: current_generation,
+		result: QueryResult::IdentityChildren(IdentityChildrenResult {
+			prefix: prefix.to_string(),
+			children: identity_segments(snapshot, roots, prefix),
+		}),
+		next_cursor: None,
+	})
+}
+
+fn identity_segments(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	prefix: &str,
+) -> Vec<IdentitySegmentDto> {
 	let sources_view = WorkspaceView::new(snapshot).sources();
 	let mut groups: BTreeMap<&str, SegmentAgg> = BTreeMap::new();
 	for symbol in snapshot.index.symbols.iter() {
@@ -789,18 +807,127 @@ fn identity_children_response(
 			}
 		}
 	}
-	let children = groups
+	groups
 		.into_iter()
 		.map(|(segment, agg)| identity_segment_dto(segment, agg, prefix, &sources_view, roots))
-		.collect();
+		.collect()
+}
+
+// The scoped exploration graph: the prefix's children as nodes, every
+// resolved reference rolled up to the pair of child segments it connects,
+// and boundary crossings aggregated into ports at the scope's own depth.
+fn identity_graph_response(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	query: IdentityChildrenQuery,
+	current_generation: Option<WorkspaceGeneration>,
+) -> Result<QueryResponse, QueryError> {
+	let _ = selected_roots(roots, query.workspace.as_deref())?;
+	let prefix = identity_path(query.prefix.trim_matches('/'))
+		.trim_matches('/')
+		.to_string();
+	let nodes = identity_segments(snapshot, roots, &prefix);
+	let symbols_view = WorkspaceView::new(snapshot).symbols();
+	let mut edges: BTreeMap<(String, String), (BTreeSet<String>, usize)> = BTreeMap::new();
+	let mut ports_in: BTreeMap<String, (BTreeSet<String>, usize)> = BTreeMap::new();
+	let mut ports_out: BTreeMap<String, (BTreeSet<String>, usize)> = BTreeMap::new();
+	let mut unresolved_refs = 0usize;
+	let port_depth = if prefix.is_empty() {
+		1
+	} else {
+		prefix.split('/').count() + 1
+	};
+	for reference in snapshot.index.references.iter() {
+		let Some(source) = navigable_anchor(&symbols_view, reference.source_symbol) else {
+			continue;
+		};
+		let source_segment = scope_segment(source, &prefix);
+		let Some(target_id) = resolved_reference_target(snapshot, &reference.id) else {
+			if source_segment.is_some() {
+				unresolved_refs += 1;
+			}
+			continue;
+		};
+		let Some(target) = navigable_anchor(&symbols_view, target_id) else {
+			continue;
+		};
+		let kind = reference.kind.as_str();
+		match (source_segment, scope_segment(target, &prefix)) {
+			(Some(from), Some(to)) => {
+				if from != to {
+					let entry = edges.entry((from, to)).or_default();
+					entry.0.insert(kind.to_string());
+					entry.1 += 1;
+				}
+			}
+			(Some(_), None) => bump_port(
+				&mut ports_out,
+				truncate_identity(identity_path(target.identity.as_ref()), port_depth),
+				kind,
+			),
+			(None, Some(_)) => bump_port(
+				&mut ports_in,
+				truncate_identity(identity_path(source.identity.as_ref()), port_depth),
+				kind,
+			),
+			(None, None) => {}
+		}
+	}
+	let result = IdentityGraphResult {
+		prefix,
+		nodes,
+		edges: edges
+			.into_iter()
+			.map(|((source, target), (kinds, count))| IdentityGraphEdge {
+				source,
+				target,
+				kinds: kinds.into_iter().collect(),
+				count,
+			})
+			.collect(),
+		ports_in: into_ports(ports_in),
+		ports_out: into_ports(ports_out),
+		unresolved_refs,
+	};
 	Ok(QueryResponse {
 		generation: current_generation,
-		result: QueryResult::IdentityChildren(IdentityChildrenResult {
-			prefix: prefix.to_string(),
-			children,
-		}),
+		result: QueryResult::IdentityGraph(Box::new(result)),
 		next_cursor: None,
 	})
+}
+
+// The child identity of the scope that contains this symbol, if any.
+fn scope_segment(symbol: &SymbolRecord, prefix: &str) -> Option<String> {
+	let rest = identity_rest(identity_path(symbol.identity.as_ref()), prefix)?;
+	let segment = rest
+		.split('/')
+		.next()
+		.filter(|segment| !segment.is_empty())?;
+	Some(if prefix.is_empty() {
+		segment.to_string()
+	} else {
+		format!("{prefix}/{segment}")
+	})
+}
+
+fn truncate_identity(path: &str, segments: usize) -> String {
+	path.split('/').take(segments).collect::<Vec<_>>().join("/")
+}
+
+fn bump_port(map: &mut BTreeMap<String, (BTreeSet<String>, usize)>, key: String, kind: &str) {
+	let entry = map.entry(key).or_default();
+	entry.0.insert(kind.to_string());
+	entry.1 += 1;
+}
+
+fn into_ports(map: BTreeMap<String, (BTreeSet<String>, usize)>) -> Vec<IdentityGraphPort> {
+	map.into_iter()
+		.map(|(identity, (kinds, count))| IdentityGraphPort {
+			identity,
+			kinds: kinds.into_iter().collect(),
+			count,
+		})
+		.collect()
 }
 
 fn identity_segment_dto(
@@ -3332,6 +3459,92 @@ mod tests {
 			functions.iter().any(|row| row.name.starts_with("helper")),
 			"{functions:?}"
 		);
+	}
+
+	#[test]
+	fn identity_graph_rolls_up_cross_module_calls() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src_dir = temp.path().join("src");
+		fs::create_dir_all(&src_dir).expect("src dir");
+		fs::write(src_dir.join("lib.rs"), "pub mod engine;\npub mod driver;\n").expect("write lib");
+		fs::write(
+			src_dir.join("engine.rs"),
+			"pub fn entry() { crate::driver::remote(); crate::driver::remote(); helper(); }\nfn helper() {}\n",
+		)
+		.expect("write engine");
+		fs::write(src_dir.join("driver.rs"), "pub fn remote() {}\n").expect("write driver");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let mut graph = |prefix: &str| {
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+				query: Query::IdentityGraph(code_moniker_query::IdentityChildrenQuery {
+					workspace: None,
+					prefix: prefix.to_string(),
+				}),
+				consistency: code_moniker_query::Consistency::Current,
+				page: Page::default(),
+			})));
+			let ProtocolResponse::Query(query) = response else {
+				panic!("expected query response");
+			};
+			let QueryResult::IdentityGraph(result) = query.result else {
+				panic!("expected identity graph, got {:?}", query.result);
+			};
+			result
+		};
+
+		// At the level that holds both modules, the two calls roll up into one
+		// aggregated engine -> driver edge.
+		let modules = graph("lang:rs/dir:src");
+		assert!(
+			modules.nodes.iter().any(|node| node.name == "engine"),
+			"{modules:?}"
+		);
+		let rollup = modules
+			.edges
+			.iter()
+			.find(|edge| {
+				edge.source.ends_with("module:engine") && edge.target.ends_with("module:driver")
+			})
+			.unwrap_or_else(|| panic!("engine -> driver rollup: {modules:?}"));
+		assert_eq!(rollup.count, 2, "{rollup:?}");
+		assert!(
+			rollup.kinds.iter().any(|kind| kind == "calls"),
+			"{rollup:?}"
+		);
+		// entry -> helper stays inside module:engine: not an edge at this level.
+		assert!(
+			!modules.edges.iter().any(|edge| edge.source == edge.target),
+			"{modules:?}"
+		);
+
+		// One level deeper the boundary crossing becomes an outgoing port.
+		let engine = graph("lang:rs/dir:src/module:engine");
+		assert!(
+			engine
+				.edges
+				.iter()
+				.any(|edge| edge.source.ends_with("fn:entry()")
+					&& edge.target.ends_with("fn:helper()")),
+			"{engine:?}"
+		);
+		let port = engine
+			.ports_out
+			.iter()
+			.find(|port| {
+				port.identity.ends_with("module:driver") || port.identity.contains("driver")
+			})
+			.unwrap_or_else(|| panic!("outgoing port toward driver: {engine:?}"));
+		assert_eq!(port.count, 2, "{port:?}");
 	}
 
 	#[test]

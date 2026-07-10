@@ -106,6 +106,7 @@ impl Default for CapabilitySet {
 				"change.review".to_string(),
 				"symbol.graph".to_string(),
 				"identity.children".to_string(),
+				"identity.graph".to_string(),
 				"notes".to_string(),
 			],
 			commands: vec!["workspace.refresh".to_string()],
@@ -148,6 +149,7 @@ pub enum Query {
 	ChangeReview(ChangeReviewQuery),
 	SymbolGraph(SymbolGraphQuery),
 	IdentityChildren(IdentityChildrenQuery),
+	IdentityGraph(IdentityChildrenQuery),
 	Notes(NotesQuery),
 }
 
@@ -427,6 +429,7 @@ pub enum QueryResult {
 	ChangeReview(Box<ChangeReviewResult>),
 	SymbolGraph(Box<SymbolGraphResult>),
 	IdentityChildren(IdentityChildrenResult),
+	IdentityGraph(Box<IdentityGraphResult>),
 	Notes(NotesResult),
 }
 
@@ -486,6 +489,41 @@ pub struct IdentitySegmentDto {
 	pub defs: usize,
 	pub has_children: bool,
 	pub symbol: Option<Box<SymbolDto>>,
+}
+
+// The scoped exploration graph: one level of the identity tree projected as
+// a graph. Nodes are the prefix's children; edges are resolved references
+// rolled up to the pair of child segments they connect; ports aggregate what
+// crosses the scope boundary.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct IdentityGraphResult {
+	pub prefix: String,
+	pub nodes: Vec<IdentitySegmentDto>,
+	pub edges: Vec<IdentityGraphEdge>,
+	pub ports_in: Vec<IdentityGraphPort>,
+	pub ports_out: Vec<IdentityGraphPort>,
+	pub unresolved_refs: usize,
+}
+
+// source/target are child segment identities of the requested prefix.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct IdentityGraphEdge {
+	pub source: String,
+	pub target: String,
+	pub kinds: Vec<String>,
+	pub count: usize,
+}
+
+// Aggregated boundary crossing: `identity` is the nearest out-of-scope
+// segment (rolled up to the scope's own depth in the identity tree).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct IdentityGraphPort {
+	pub identity: String,
+	pub kinds: Vec<String>,
+	pub count: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1141,6 +1179,7 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 		}),
 		"symbol.graph" => Query::SymbolGraph(symbol_graph_query(&fields)?),
 		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
+		"identity.graph" => Query::IdentityGraph(identity_children_query(&fields)),
 		"notes" => Query::Notes(notes_query(&fields)?),
 		_ => return Err(QueryParseError::UnknownOperation(op)),
 	};
@@ -1333,6 +1372,7 @@ pub fn format_query_response(response: &QueryResponse) -> String {
 		QueryResult::ChangeReview(result) => format_change_review(&mut out, result),
 		QueryResult::SymbolGraph(result) => format_symbol_graph(&mut out, result),
 		QueryResult::IdentityChildren(result) => format_identity_children(&mut out, result),
+		QueryResult::IdentityGraph(result) => format_identity_graph(&mut out, result),
 		QueryResult::Notes(result) => format_notes(&mut out, result),
 	}
 	out
@@ -1383,6 +1423,50 @@ fn format_identity_children(out: &mut String, result: &IdentityChildrenResult) {
 			out,
 			"- {} [{}] defs={} {}",
 			child.segment, marker, child.defs, child.identity
+		);
+	}
+}
+
+fn format_identity_graph(out: &mut String, result: &IdentityGraphResult) {
+	let prefix = if result.prefix.is_empty() {
+		"<root>"
+	} else {
+		&result.prefix
+	};
+	let _ = writeln!(out, "scope: {prefix}");
+	let _ = writeln!(
+		out,
+		"nodes: {} edges: {} unresolved refs: {}",
+		result.nodes.len(),
+		result.edges.len(),
+		result.unresolved_refs
+	);
+	for edge in &result.edges {
+		let _ = writeln!(
+			out,
+			"- {} -> {} x{} [{}]",
+			edge.source,
+			edge.target,
+			edge.count,
+			edge.kinds.join(",")
+		);
+	}
+	for port in &result.ports_in {
+		let _ = writeln!(
+			out,
+			"< {} x{} [{}]",
+			port.identity,
+			port.count,
+			port.kinds.join(",")
+		);
+	}
+	for port in &result.ports_out {
+		let _ = writeln!(
+			out,
+			"> {} x{} [{}]",
+			port.identity,
+			port.count,
+			port.kinds.join(",")
 		);
 	}
 }

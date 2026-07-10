@@ -47,8 +47,8 @@ code-moniker query [-r root] "<DSL>" [--json]
 
 `workspace.status`, `tree.children`, `symbol.search`, `symbol.insights`,
 `symbol.detail`, `symbol.usages`, `symbol.graph`, `identity.children`,
-`view.read`, `rules.list`, `rules.check`, `change.review`, `notes`. Command
-verbs: `workspace.refresh`.
+`identity.graph`, `view.read`, `rules.list`, `rules.check`, `change.review`,
+`notes`. Command verbs: `workspace.refresh`.
 
 `symbol.graph focus:"<symbol URI or rel path>"` returns the ego-centric
 neighborhood of a unit: the focus defines a boundary on the identity tree,
@@ -63,6 +63,13 @@ child segment carries its kind/name (`package:acme`, `module:pairing`,
 `fn:pair_file(...)`), aggregate def counts, and the full `SymbolDto` when the
 segment itself is a navigable definition. An empty prefix lists the roots
 (`srcset:*`, `lang:*`); full moniker URIs are accepted and normalized.
+
+`identity.graph prefix:"<identity prefix>"` projects that level as a graph:
+nodes are the prefix's children, edges are resolved references rolled up to
+the pair of child segments they connect (kinds + counts), and boundary
+crossings aggregate into `ports_in`/`ports_out` at the scope's own depth.
+Unresolved references from inside the scope are counted. This feeds the
+scoped exploration canvas of the IDE Graph Explorer.
 
 ## Discovery
 

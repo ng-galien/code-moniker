@@ -103,6 +103,11 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      op: "identity_graph";
+      prefix: string;
+      workspace?: string | null;
+    }
+  | {
       action: NotesAction;
       body?: string | null;
       created_by?: string | null;
@@ -166,6 +171,10 @@ export type QueryResult =
   | {
       data: IdentityChildrenResult;
       kind: "identity_children";
+    }
+  | {
+      data: IdentityGraphResult;
+      kind: "identity_graph";
     }
   | {
       data: NotesResult;
@@ -647,6 +656,25 @@ export interface IdentitySegmentDto {
   name: string;
   segment: string;
   symbol?: SymbolDto | null;
+}
+export interface IdentityGraphResult {
+  edges: IdentityGraphEdge[];
+  nodes: IdentitySegmentDto[];
+  ports_in: IdentityGraphPort[];
+  ports_out: IdentityGraphPort[];
+  prefix: string;
+  unresolved_refs: number;
+}
+export interface IdentityGraphEdge {
+  count: number;
+  kinds: string[];
+  source: string;
+  target: string;
+}
+export interface IdentityGraphPort {
+  count: number;
+  identity: string;
+  kinds: string[];
 }
 export interface NotesResult {
   action: string;

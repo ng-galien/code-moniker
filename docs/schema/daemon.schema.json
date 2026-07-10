@@ -758,6 +758,103 @@
         }
       }
     },
+    "IdentityGraphEdge": {
+      "type": "object",
+      "required": [
+        "count",
+        "kinds",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      }
+    },
+    "IdentityGraphPort": {
+      "type": "object",
+      "required": [
+        "count",
+        "identity",
+        "kinds"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "identity": {
+          "type": "string"
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "IdentityGraphResult": {
+      "type": "object",
+      "required": [
+        "edges",
+        "nodes",
+        "ports_in",
+        "ports_out",
+        "prefix",
+        "unresolved_refs"
+      ],
+      "properties": {
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IdentityGraphEdge"
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IdentitySegmentDto"
+          }
+        },
+        "ports_in": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IdentityGraphPort"
+          }
+        },
+        "ports_out": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IdentityGraphPort"
+          }
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "unresolved_refs": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
     "IdentitySegmentDto": {
       "type": "object",
       "required": [
@@ -1470,6 +1567,30 @@
         {
           "type": "object",
           "required": [
+            "op",
+            "prefix"
+          ],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "identity_graph"
+              ]
+            },
+            "prefix": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "action",
             "include_done",
             "op"
@@ -1841,6 +1962,24 @@
               "type": "string",
               "enum": [
                 "identity_children"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/IdentityGraphResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "identity_graph"
               ]
             }
           }
