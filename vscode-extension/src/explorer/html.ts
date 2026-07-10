@@ -26,7 +26,7 @@ export function renderExplorerHtml(webview: vscode.Webview, extensionUri: vscode
 	<title>Graph Explorer</title>
 </head>
 <body>
-	<div id="root" class="empty">Focus a symbol to explore its call graph.</div>
+	<div id="root"></div>
 	<script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

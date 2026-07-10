@@ -8,6 +8,7 @@
 			"DOM"
 		],
 		"strict": true,
+		"jsx": "react-jsx",
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
@@ -20,6 +21,7 @@
 	},
 	"include": [
 		"src/**/*.ts",
+		"src/**/*.tsx",
 		"renderer/**/*.ts"
 	]
 }

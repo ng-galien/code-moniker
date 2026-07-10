@@ -1,13 +1,8 @@
 import * as vscode from "vscode";
 
-import {
-	SymbolDto,
-	SymbolGraphEdge,
-	SymbolGraphFocus,
-	SymbolGraphNeighbor,
-} from "../daemon/model";
 import { HighlightedSourceSnippet, highlightSource } from "../symbols/detail/highlight";
 import { renderExplorerHtml } from "./html";
+import { ExplorerMessage, UnitMessage, UnitPayload } from "./protocol";
 import { ExplorerRepository } from "./repository";
 
 // The ego-centric graph explorer: an editor-area webview showing the focused
@@ -15,30 +10,13 @@ import { ExplorerRepository } from "./repository";
 // code) in the center, external callees on the right. Clicking a neighbor
 // translates the focus; history supports walking back and forward. Facts are
 // shown verbatim: relation kinds, call counts, recursion, unresolved refs.
-export interface UnitPayload {
-	focus: SymbolGraphFocus;
-	members: SymbolDto[];
-	internalEdges: SymbolGraphEdge[];
-	callers: SymbolGraphNeighbor[];
-	callees: SymbolGraphNeighbor[];
-	unresolvedRefs: number;
-	source: HighlightedSourceSnippet | null;
-	canBack: boolean;
-	canForward: boolean;
-}
-
-interface ExplorerMessage {
-	type: "focus" | "back" | "forward" | "openSource" | "ready";
-	uri?: string;
-	target?: { root: string; file: string; line: number };
-}
 
 export class ExplorerPanel implements vscode.Disposable {
 	private panel?: vscode.WebviewPanel;
 	private history: string[] = [];
 	private index = -1;
 	private seq = 0;
-	private lastMessage?: { type: "unit"; payload: UnitPayload };
+	private lastMessage?: UnitMessage;
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,

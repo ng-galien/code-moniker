@@ -1,4 +1,5 @@
-// Bundles the extension host code, notebook renderer and symbol detail webview.
+// Bundles the extension host code, notebook renderer and webviews (symbol
+// detail, graph explorer).
 const esbuild = require("esbuild");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -90,18 +91,35 @@ const detailWebviewConfig = {
 	target: "es2022",
 };
 
+// React webview: JSX via the automatic runtime, NODE_ENV pinned so react-dom
+// bundles its production build, minified because the artifact is committed.
+// The CSS imported from the entry point lands in media/explorer/explorer.css.
+const explorerWebviewConfig = {
+	entryPoints: ["src/explorer/webview/index.tsx"],
+	bundle: true,
+	outfile: "media/explorer/explorer.js",
+	platform: "browser",
+	format: "iife",
+	target: "es2022",
+	jsx: "automatic",
+	define: { "process.env.NODE_ENV": '"production"' },
+	minify: true,
+};
+
 async function main() {
 	if (watch) {
 		const a = await esbuild.context(extensionConfig);
 		const b = await esbuild.context(rendererConfig);
 		const c = await esbuild.context(detailWebviewConfig);
-		await Promise.all([a.watch(), b.watch(), c.watch()]);
+		const d = await esbuild.context(explorerWebviewConfig);
+		await Promise.all([a.watch(), b.watch(), c.watch(), d.watch()]);
 		console.log("esbuild watching…");
 	} else {
 		await Promise.all([
 			esbuild.build(extensionConfig),
 			esbuild.build(rendererConfig),
 			esbuild.build(detailWebviewConfig),
+			esbuild.build(explorerWebviewConfig),
 		]);
 		console.log("esbuild build complete");
 	}
