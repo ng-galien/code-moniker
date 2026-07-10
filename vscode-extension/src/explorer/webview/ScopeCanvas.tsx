@@ -26,10 +26,12 @@ export function ScopeCanvas({
 	graph,
 	filters,
 	onSelectEdge,
+	onInspect,
 }: {
 	graph: IdentityGraphResult;
 	filters: ScopeFilters;
 	onSelectEdge: (edge: IdentityGraphEdge | null) => void;
+	onInspect: (uri: string) => void;
 }) {
 	const model = useMemo(() => buildScopeGraph(graph, filters), [graph, filters]);
 	const [nodes, setNodes] = useState<Node[] | null>(null);
@@ -96,6 +98,12 @@ export function ScopeCanvas({
 					panOnScroll
 					nodesConnectable={false}
 					onNodeDoubleClick={(_, node) => postFocus(node.id)}
+					onNodeClick={(_, node) => {
+						const model = nodeModel(node);
+						if (model.def) {
+							onInspect(model.def.symbol.uri);
+						}
+					}}
 					onNodeContextMenu={(event, node) => {
 						event.preventDefault();
 						const model = nodeModel(node);

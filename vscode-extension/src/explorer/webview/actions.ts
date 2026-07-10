@@ -5,6 +5,10 @@ export function postFocus(prefix: string): void {
 	vscode.postMessage({ type: "focus", prefix });
 }
 
+export function postInspect(uri: string): void {
+	vscode.postMessage({ type: "inspect", uri });
+}
+
 export function postOpenSource(symbol: SymbolDto): void {
 	vscode.postMessage({
 		type: "openSource",

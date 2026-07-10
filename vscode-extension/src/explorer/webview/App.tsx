@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 
 import type { IdentityGraphEdge } from "../../daemon/model";
-import type { ScopePayload } from "../protocol";
-import { postFocus } from "./actions";
+import type { InsetMessage, ScopePayload } from "../protocol";
+import { postFocus, postInspect } from "./actions";
+import { CodeInset, type InsetState } from "./CodeInset";
 import { DepthBar } from "./DepthBar";
 import { EdgePanel } from "./EdgePanel";
 import { ScopeCanvas } from "./ScopeCanvas";
@@ -16,6 +17,7 @@ export function App() {
 	const [scope, setScope] = useState<ScopePayload | null>(null);
 	const [filters, setFilters] = useState<ScopeFilters>({ instantiates: false, types: false });
 	const [selectedEdge, setSelectedEdge] = useState<IdentityGraphEdge | null>(null);
+	const [inset, setInset] = useState<InsetState | null>(null);
 	const [error, setError] = useState<{ prefix: string; message: string } | null>(null);
 
 	useEffect(() => {
@@ -24,7 +26,15 @@ export function App() {
 			if (message?.type === "scope") {
 				setScope(message.payload as ScopePayload);
 				setSelectedEdge(null);
+				setInset(null);
 				setError(null);
+			} else if (message?.type === "inset") {
+				const payload = message as InsetMessage;
+				setInset((current) =>
+					current && current.uri === payload.uri
+						? { uri: payload.uri, symbol: payload.symbol, source: payload.source, loading: false }
+						: current,
+				);
 			} else if (message?.type === "scopeError") {
 				setError({ prefix: message.prefix as string, message: message.message as string });
 			}
@@ -130,10 +140,19 @@ export function App() {
 			<div className="scope-layout">
 				<DepthBar prefix={graph.prefix} />
 				<div className="canvas-zone">
-					<ScopeCanvas graph={graph} filters={filters} onSelectEdge={setSelectedEdge} />
+					<ScopeCanvas
+						graph={graph}
+						filters={filters}
+						onSelectEdge={setSelectedEdge}
+						onInspect={(uri) => {
+							setInset({ uri, symbol: null, source: null, loading: true });
+							postInspect(uri);
+						}}
+					/>
 					{selectedEdge && (
 						<EdgePanel edge={selectedEdge} onClose={() => setSelectedEdge(null)} />
 					)}
+					{inset && <CodeInset inset={inset} onClose={() => setInset(null)} />}
 				</div>
 			</div>
 		</>

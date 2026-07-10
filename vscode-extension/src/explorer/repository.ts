@@ -1,5 +1,5 @@
 import { GenerationCache } from "../daemon/cache";
-import { IdentityGraphResult } from "../daemon/model";
+import { IdentityGraphResult, SymbolDetailResult } from "../daemon/model";
 import { DaemonSession } from "../daemon/session";
 
 // Data access for the scoped exploration graph: one identity level projected
@@ -13,6 +13,18 @@ export class ExplorerRepository {
 
 	get ready(): boolean {
 		return this.session.ready;
+	}
+
+	async symbolDetail(uri: string, contextLines = 4): Promise<SymbolDetailResult | undefined> {
+		return this.cache.fetch(`detail:${contextLines}:${uri}`, async () => {
+			const response = await this.session.query({
+				op: "symbol_detail",
+				workspace: null,
+				uri,
+				context_lines: contextLines,
+			});
+			return response.result.kind === "symbol_detail" ? response.result.data : undefined;
+		});
 	}
 
 	async scopeGraph(prefix: string): Promise<IdentityGraphResult | undefined> {

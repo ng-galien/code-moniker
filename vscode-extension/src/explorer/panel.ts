@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 
+import { highlightSource } from "../symbols/detail/highlight";
 import { renderExplorerHtml } from "./html";
-import { ExplorerMessage, ScopeMessage, ScopePayload } from "./protocol";
+import { ExplorerMessage, InsetMessage, ScopeMessage, ScopePayload } from "./protocol";
 import { ExplorerRepository } from "./repository";
 
 // The scoped exploration graph: an editor-area webview where the focus is an
@@ -118,6 +119,8 @@ export class ExplorerPanel implements vscode.Disposable {
 				void this.step(-1);
 			} else if (message?.type === "forward") {
 				void this.step(1);
+			} else if (message?.type === "inspect" && message.uri) {
+				void this.sendInset(panel, message.uri);
 			} else if (message?.type === "openSource" && message.target) {
 				void vscode.commands.executeCommand("codeMoniker.symbols.openSource", message.target);
 			} else if (message?.type === "ready" && this.lastMessage) {
@@ -126,6 +129,27 @@ export class ExplorerPanel implements vscode.Disposable {
 		});
 		this.panel = panel;
 		return panel;
+	}
+
+	// The code zone of one definition, highlighted host-side. Failures fall
+	// back to a null source; the webview says so instead of staying silent.
+	private async sendInset(panel: vscode.WebviewPanel, uri: string): Promise<void> {
+		try {
+			const detail = await this.repository.symbolDetail(uri);
+			if (this.panel !== panel || !detail?.symbol) {
+				return;
+			}
+			const source = detail.source
+				? await highlightSource(detail.source, detail.symbol.language)
+				: null;
+			if (this.panel !== panel) {
+				return;
+			}
+			const message: InsetMessage = { type: "inset", uri, symbol: detail.symbol, source };
+			void panel.webview.postMessage(message);
+		} catch {
+			void panel.webview.postMessage({ type: "inset", uri, symbol: null, source: null });
+		}
 	}
 
 	private async step(delta: number): Promise<void> {
