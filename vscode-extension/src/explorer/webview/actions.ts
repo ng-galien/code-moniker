@@ -1,8 +1,8 @@
 import type { SymbolDto } from "../../daemon/model";
 import { vscode } from "./vscodeApi";
 
-export function postFocus(uri: string): void {
-	vscode.postMessage({ type: "focus", uri });
+export function postFocus(prefix: string): void {
+	vscode.postMessage({ type: "focus", prefix });
 }
 
 export function postOpenSource(symbol: SymbolDto): void {

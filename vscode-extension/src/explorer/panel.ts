@@ -1,36 +1,33 @@
 import * as vscode from "vscode";
 
-import { HighlightedSourceSnippet, highlightSource } from "../symbols/detail/highlight";
 import { renderExplorerHtml } from "./html";
-import { ExplorerMessage, UnitMessage, UnitPayload } from "./protocol";
+import { ExplorerMessage, ScopeMessage, ScopePayload } from "./protocol";
 import { ExplorerRepository } from "./repository";
 
-// The ego-centric graph explorer: an editor-area webview showing the focused
-// functional unit as a triptych - callers on the left, the unit (header +
-// code) in the center, external callees on the right. Clicking a neighbor
-// translates the focus; history supports walking back and forward. Facts are
-// shown verbatim: relation kinds, call counts, recursion, unresolved refs.
-
+// The scoped exploration graph: an editor-area webview where the focus is an
+// identity prefix. Nodes are the scope's children, edges are rolled-up
+// references, ports cross the boundary. Diving pushes a deeper prefix;
+// history supports walking back and forward.
 export class ExplorerPanel implements vscode.Disposable {
 	private panel?: vscode.WebviewPanel;
 	private history: string[] = [];
 	private index = -1;
 	private seq = 0;
-	private lastMessage?: UnitMessage;
+	private lastMessage?: ScopeMessage;
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,
 		private readonly repository: ExplorerRepository,
 	) {}
 
-	async focus(focus: string): Promise<void> {
-		this.pushHistory(focus);
-		await this.show(focus);
+	async focus(prefix: string): Promise<void> {
+		this.pushHistory(prefix);
+		await this.show(prefix);
 	}
 
 	async refreshCurrent(): Promise<void> {
 		const current = this.history[this.index];
-		if (current && this.panel) {
+		if (current !== undefined && this.panel) {
 			await this.show(current);
 		}
 	}
@@ -39,64 +36,42 @@ export class ExplorerPanel implements vscode.Disposable {
 		this.panel?.dispose();
 	}
 
-	private pushHistory(focus: string): void {
-		if (this.history[this.index] === focus) {
+	private pushHistory(prefix: string): void {
+		if (this.history[this.index] === prefix) {
 			return;
 		}
 		this.history.splice(this.index + 1);
-		this.history.push(focus);
+		this.history.push(prefix);
 		this.index = this.history.length - 1;
 	}
 
-	private async step(delta: number): Promise<void> {
-		const next = this.index + delta;
-		if (next < 0 || next >= this.history.length) {
-			return;
-		}
-		this.index = next;
-		await this.show(this.history[this.index]);
-	}
-
-	private async show(focus: string): Promise<void> {
+	private async show(prefix: string): Promise<void> {
 		const token = ++this.seq;
 		const panel = this.ensurePanel();
-		const graph = await this.repository.unitGraph(focus);
+		let graph = await this.repository.scopeGraph(prefix);
 		if (token !== this.seq || this.panel !== panel) {
 			return;
+		}
+		// A leaf scope (a plain function) has nothing to draw: climb to the
+		// parent level so the leaf appears as a node among its siblings.
+		if (graph && graph.nodes.length === 0 && graph.prefix.includes("/")) {
+			const parent = graph.prefix.slice(0, graph.prefix.lastIndexOf("/"));
+			this.history[this.index] = parent;
+			graph = await this.repository.scopeGraph(parent);
+			if (token !== this.seq || this.panel !== panel) {
+				return;
+			}
 		}
 		if (!graph) {
 			return;
 		}
-		let source: HighlightedSourceSnippet | null = null;
-		let title = "Graph Explorer";
-		if (graph.focus.kind === "symbol") {
-			title = graph.focus.symbol.name;
-			const detail = await this.repository.symbolDetail(graph.focus.symbol.uri);
-			if (token !== this.seq || this.panel !== panel) {
-				return;
-			}
-			source = detail?.source
-				? await highlightSource(detail.source, graph.focus.symbol.language)
-				: null;
-			if (token !== this.seq || this.panel !== panel) {
-				return;
-			}
-		} else {
-			title = graph.focus.path;
-		}
-		panel.title = title;
-		const payload: UnitPayload = {
-			focus: graph.focus,
-			members: graph.members,
-			internalEdges: graph.internal_edges,
-			callers: graph.callers,
-			callees: graph.callees,
-			unresolvedRefs: graph.unresolved_refs,
-			source,
+		panel.title = scopeTitle(graph.prefix);
+		const payload: ScopePayload = {
+			graph,
 			canBack: this.index > 0,
 			canForward: this.index < this.history.length - 1,
 		};
-		this.lastMessage = { type: "unit", payload };
+		this.lastMessage = { type: "scope", payload };
 		void panel.webview.postMessage(this.lastMessage);
 	}
 
@@ -119,8 +94,8 @@ export class ExplorerPanel implements vscode.Disposable {
 			this.panel = undefined;
 		});
 		panel.webview.onDidReceiveMessage((message: ExplorerMessage) => {
-			if (message?.type === "focus" && message.uri) {
-				void this.focus(message.uri);
+			if (message?.type === "focus" && message.prefix !== undefined) {
+				void this.focus(message.prefix);
 			} else if (message?.type === "back") {
 				void this.step(-1);
 			} else if (message?.type === "forward") {
@@ -134,4 +109,21 @@ export class ExplorerPanel implements vscode.Disposable {
 		this.panel = panel;
 		return panel;
 	}
+
+	private async step(delta: number): Promise<void> {
+		const next = this.index + delta;
+		if (next < 0 || next >= this.history.length) {
+			return;
+		}
+		this.index = next;
+		await this.show(this.history[this.index]);
+	}
+}
+
+function scopeTitle(prefix: string): string {
+	if (!prefix) {
+		return "Graph Explorer";
+	}
+	const segment = prefix.split("/").pop() ?? prefix;
+	return segment.split(":")[1] ?? segment;
 }

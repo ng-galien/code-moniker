@@ -1,10 +1,8 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 
-import type { GraphEdgeModel, GraphNodeModel } from "./model";
-
 // Layered layout, top-down: entry points end up on the first rank because
-// they have no incoming call edge; ELK breaks the cycles (re-entry waves)
-// on its own. Positions are computed off-DOM from estimated card sizes.
+// they have no incoming edge; ELK breaks cycles on its own. Positions are
+// computed off-DOM from fixed card sizes.
 export interface PositionedNode {
 	id: string;
 	x: number;
@@ -19,11 +17,11 @@ export const CARD_WIDTH = 190;
 export const CARD_HEIGHT = 64;
 
 export async function layoutGraph(
-	nodes: GraphNodeModel[],
-	edges: GraphEdgeModel[],
+	nodeIds: string[],
+	edges: { id: string; source: string; target: string }[],
 ): Promise<Map<string, PositionedNode>> {
 	const graph = {
-		id: "unit",
+		id: "scope",
 		layoutOptions: {
 			"elk.algorithm": "layered",
 			"elk.direction": "DOWN",
@@ -32,8 +30,8 @@ export async function layoutGraph(
 			"elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
 			"elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
 		},
-		children: nodes.map((node) => ({
-			id: node.symbol.id,
+		children: nodeIds.map((id) => ({
+			id,
 			width: CARD_WIDTH,
 			height: CARD_HEIGHT,
 		})),

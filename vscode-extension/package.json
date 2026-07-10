@@ -420,9 +420,9 @@
 					"group": "inline@2"
 				},
 				{
-					"command": "codeMoniker.symbols.openSource",
-					"when": "view == codeMoniker.workspace && viewItem == cmEntryFile",
-					"group": "inline@1"
+					"command": "codeMoniker.explorer.focus",
+					"when": "view == codeMoniker.workspace && viewItem == cmIdentity",
+					"group": "navigation@1"
 				},
 				{
 					"command": "codeMoniker.rulesDaemon.runCheck",

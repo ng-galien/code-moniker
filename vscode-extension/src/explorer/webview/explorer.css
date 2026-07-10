@@ -376,3 +376,173 @@ body.vscode-light .tok {
 	opacity: 0.55;
 	margin-left: auto;
 }
+
+/* ---- scoped exploration ---- */
+
+.scope-layout {
+	display: flex;
+	gap: 8px;
+	flex: 1;
+	min-height: 0;
+	padding: 8px 0;
+}
+
+.depthbar {
+	width: 140px;
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	overflow-y: auto;
+}
+
+.depthbar-label {
+	font-size: 0.7em;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	opacity: 0.6;
+	margin-bottom: 2px;
+}
+
+.depth-step {
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 4px;
+	padding: 5px 8px;
+	font-size: 0.85em;
+	cursor: pointer;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.depth-step:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.depth-step.current {
+	border-color: var(--vscode-charts-orange);
+	font-weight: 600;
+	cursor: default;
+}
+
+.depth-step.root {
+	opacity: 0.75;
+}
+
+.containercard {
+	background: var(--vscode-editorWidget-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 6px;
+	padding: 6px 9px;
+	width: 190px;
+	box-sizing: border-box;
+	cursor: pointer;
+}
+
+.containercard-head {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.containercard-mark {
+	opacity: 0.5;
+}
+
+.containercard-name {
+	font-family: var(--vscode-editor-font-family);
+	font-weight: 700;
+	font-size: 0.95em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.containercard-meta {
+	font-size: 0.72em;
+	opacity: 0.65;
+	margin-top: 3px;
+}
+
+.filterchip {
+	font-size: 0.78em;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 8px;
+	padding: 1px 8px;
+	opacity: 0.6;
+}
+
+.filterchip.toggle {
+	cursor: pointer;
+}
+
+.filterchip.on {
+	border-color: var(--vscode-charts-orange);
+	color: var(--vscode-charts-orange);
+	opacity: 1;
+}
+
+.portchip {
+	font-family: var(--vscode-editor-font-family);
+	font-size: 0.75em;
+	border: 1px dashed var(--vscode-panel-border);
+	border-radius: 4px;
+	padding: 1px 6px;
+	cursor: pointer;
+	opacity: 0.85;
+}
+
+.portchip.in {
+	color: var(--vscode-charts-blue);
+}
+
+.portchip.out {
+	color: var(--vscode-charts-orange);
+}
+
+.portchip:hover {
+	text-decoration: underline;
+}
+
+.edgepanel {
+	width: 200px;
+	flex-shrink: 0;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 4px;
+	padding: 8px 10px;
+	align-self: flex-start;
+}
+
+.edgepanel-title {
+	font-family: var(--vscode-editor-font-family);
+	font-weight: 600;
+	font-size: 0.9em;
+}
+
+.edgepanel-count {
+	color: var(--vscode-charts-orange);
+	margin-left: 6px;
+}
+
+.edgepanel-kinds {
+	font-size: 0.78em;
+	opacity: 0.7;
+	margin: 5px 0;
+}
+
+.edgepanel-actions {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.edgepanel-actions button {
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border: none;
+	border-radius: 3px;
+	padding: 3px 8px;
+	cursor: pointer;
+	text-align: left;
+	font-size: 0.8em;
+}

@@ -1,21 +1,26 @@
 import { useEffect, useState } from "react";
 
-import type { UnitPayload } from "../protocol";
-import { Center } from "./Center";
-import { NeighborColumn } from "./NeighborColumn";
-import { Toolbar } from "./Toolbar";
+import type { IdentityGraphEdge } from "../../daemon/model";
+import type { ScopePayload } from "../protocol";
+import { DepthBar } from "./DepthBar";
+import { EdgePanel } from "./EdgePanel";
+import { ScopeCanvas } from "./ScopeCanvas";
+import type { ScopeFilters } from "./graph/model";
 import { vscode } from "./vscodeApi";
 
-// Graph explorer webview: renders the ego-centric triptych from posted
-// "unit" messages. Facts only; clicks post focus/openSource messages back.
+// Scoped exploration of the identity graph: depth ladder on the left, the
+// current level's rolled-up graph on the canvas, edge facts on demand.
 export function App() {
-	const [unit, setUnit] = useState<UnitPayload | null>(null);
+	const [scope, setScope] = useState<ScopePayload | null>(null);
+	const [filters, setFilters] = useState<ScopeFilters>({ instantiates: false, types: false });
+	const [selectedEdge, setSelectedEdge] = useState<IdentityGraphEdge | null>(null);
 
 	useEffect(() => {
 		const onMessage = (event: MessageEvent) => {
 			const message = event.data;
-			if (message?.type === "unit") {
-				setUnit(message.payload as UnitPayload);
+			if (message?.type === "scope") {
+				setScope(message.payload as ScopePayload);
+				setSelectedEdge(null);
 			}
 		};
 		window.addEventListener("message", onMessage);
@@ -23,16 +28,51 @@ export function App() {
 		return () => window.removeEventListener("message", onMessage);
 	}, []);
 
-	if (!unit) {
-		return <div className="empty">Focus a symbol to explore its call graph.</div>;
+	if (!scope) {
+		return <div className="empty">Open a scope to explore its graph.</div>;
 	}
+	const graph = scope.graph;
 	return (
 		<>
-			<Toolbar unit={unit} />
-			<div className="triptych">
-				<NeighborColumn title="Callers" side="left" neighbors={unit.callers} unit={unit} />
-				<Center unit={unit} />
-				<NeighborColumn title="Callees" side="right" neighbors={unit.callees} unit={unit} />
+			<div className="toolbar">
+				<button
+					type="button"
+					className="nav"
+					disabled={!scope.canBack}
+					onClick={() => vscode.postMessage({ type: "back" })}
+				>
+					←
+				</button>
+				<button
+					type="button"
+					className="nav"
+					disabled={!scope.canForward}
+					onClick={() => vscode.postMessage({ type: "forward" })}
+				>
+					→
+				</button>
+				<span className="focus-label">{graph.prefix || "workspace"}</span>
+				<span className="filterchip on">calls</span>
+				<span
+					className={filters.instantiates ? "filterchip on toggle" : "filterchip toggle"}
+					onClick={() => setFilters({ ...filters, instantiates: !filters.instantiates })}
+				>
+					instantiates
+				</span>
+				<span
+					className={filters.types ? "filterchip on toggle" : "filterchip toggle"}
+					onClick={() => setFilters({ ...filters, types: !filters.types })}
+				>
+					types
+				</span>
+				{graph.unresolved_refs > 0 && (
+					<span className="unresolved">{graph.unresolved_refs} unresolved ref(s)</span>
+				)}
+			</div>
+			<div className="scope-layout">
+				<DepthBar prefix={graph.prefix} />
+				<ScopeCanvas graph={graph} filters={filters} onSelectEdge={setSelectedEdge} />
+				{selectedEdge && <EdgePanel edge={selectedEdge} />}
 			</div>
 		</>
 	);

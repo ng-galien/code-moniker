@@ -1,10 +1,9 @@
 import { GenerationCache } from "../daemon/cache";
-import { SymbolDetailResult, SymbolGraphResult } from "../daemon/model";
+import { IdentityGraphResult } from "../daemon/model";
 import { DaemonSession } from "../daemon/session";
 
-// Data access for the ego-centric graph explorer: the unit neighborhood
-// (symbol.graph) plus the focused symbol's source snippet, both cached per
-// workspace generation.
+// Data access for the scoped exploration graph: one identity level projected
+// as nodes/edges/ports (identity.graph), cached per workspace generation.
 export class ExplorerRepository {
 	private readonly cache: GenerationCache;
 
@@ -16,26 +15,14 @@ export class ExplorerRepository {
 		return this.session.ready;
 	}
 
-	async unitGraph(focus: string): Promise<SymbolGraphResult | undefined> {
-		return this.cache.fetch(`graph:${focus}`, async () => {
+	async scopeGraph(prefix: string): Promise<IdentityGraphResult | undefined> {
+		return this.cache.fetch(`scope:${prefix}`, async () => {
 			const response = await this.session.query({
-				op: "symbol_graph",
+				op: "identity_graph",
 				workspace: null,
-				focus,
+				prefix,
 			});
-			return response.result.kind === "symbol_graph" ? response.result.data : undefined;
-		});
-	}
-
-	async symbolDetail(uri: string, contextLines = 40): Promise<SymbolDetailResult | undefined> {
-		return this.cache.fetch(`detail:${contextLines}:${uri}`, async () => {
-			const response = await this.session.query({
-				op: "symbol_detail",
-				workspace: null,
-				uri,
-				context_lines: contextLines,
-			});
-			return response.result.kind === "symbol_detail" ? response.result.data : undefined;
+			return response.result.kind === "identity_graph" ? response.result.data : undefined;
 		});
 	}
 }

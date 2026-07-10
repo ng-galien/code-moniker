@@ -42,23 +42,32 @@ export function registerExplorer(
 	return { panel };
 }
 
+// Accepts a raw prefix/URI string, a symbol row, or an identity segment row
+// from the workspace tree; the daemon normalizes full URIs to identity paths.
 function focusFromArgument(arg: unknown): string | undefined {
 	if (typeof arg === "string") {
 		return arg;
 	}
-	const symbol = symbolFromNode(arg);
-	return symbol?.uri;
-}
-
-function symbolFromNode(arg: unknown): SymbolDto | undefined {
 	if (!arg || typeof arg !== "object") {
 		return undefined;
 	}
-	let node = arg as { kind?: string; node?: unknown; symbol?: SymbolDto };
+	let node = arg as {
+		kind?: string;
+		node?: unknown;
+		symbol?: SymbolDto;
+		identity?: string;
+		row?: { identity?: string };
+	};
 	if (node.kind === "symbols" && node.node) {
-		node = node.node as { kind?: string; symbol?: SymbolDto };
+		node = node.node as typeof node;
 	}
-	return node.kind === "symbol" ? node.symbol : undefined;
+	if (node.kind === "identity") {
+		return node.row?.identity;
+	}
+	if (node.kind === "symbol") {
+		return node.identity ?? node.symbol?.uri;
+	}
+	return undefined;
 }
 
 async function focusAtCursor(
@@ -80,7 +89,7 @@ async function focusAtCursor(
 	const line = editor.selection.active.line + 1;
 	const nodes = await symbols.fileSymbols(rel);
 	const uri = tightestSymbolAt(nodes, line);
-	await panel.focus(uri ?? rel);
+	await panel.focus(uri ?? "");
 }
 
 function workspaceRelative(session: DaemonSession, fsPath: string): string | undefined {

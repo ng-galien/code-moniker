@@ -1,29 +1,17 @@
-import type {
-	SymbolDto,
-	SymbolGraphEdge,
-	SymbolGraphFocus,
-	SymbolGraphNeighbor,
-} from "../daemon/model";
-import type { HighlightedSourceSnippet } from "../symbols/detail/highlight";
+import type { IdentityGraphResult } from "../daemon/model";
 
 // Message contract between the explorer panel (extension host) and its
 // webview. Types only — this module is imported from both sides of the
 // bridge, so it must stay free of vscode and DOM value imports.
-export interface UnitPayload {
-	focus: SymbolGraphFocus;
-	members: SymbolDto[];
-	internalEdges: SymbolGraphEdge[];
-	callers: SymbolGraphNeighbor[];
-	callees: SymbolGraphNeighbor[];
-	unresolvedRefs: number;
-	source: HighlightedSourceSnippet | null;
+export interface ScopePayload {
+	graph: IdentityGraphResult;
 	canBack: boolean;
 	canForward: boolean;
 }
 
-export interface UnitMessage {
-	type: "unit";
-	payload: UnitPayload;
+export interface ScopeMessage {
+	type: "scope";
+	payload: ScopePayload;
 }
 
 export interface OpenSourceTarget {
@@ -33,7 +21,7 @@ export interface OpenSourceTarget {
 }
 
 export type ExplorerMessage =
-	| { type: "focus"; uri: string }
+	| { type: "focus"; prefix: string }
 	| { type: "back" }
 	| { type: "forward" }
 	| { type: "openSource"; target: OpenSourceTarget }
