@@ -1,7 +1,20 @@
+html,
+body,
+#root {
+	height: 100%;
+}
+
 body {
 	font-family: var(--vscode-font-family);
 	color: var(--vscode-foreground);
+	margin: 0;
 	padding: 0 8px;
+	box-sizing: border-box;
+}
+
+#root {
+	display: flex;
+	flex-direction: column;
 }
 
 .empty {
@@ -43,10 +56,23 @@ body {
 
 .triptych {
 	display: grid;
-	grid-template-columns: minmax(180px, 1fr) minmax(300px, 2.2fr) minmax(180px, 1fr);
+	grid-template-columns: minmax(180px, 1fr) minmax(300px, 2.6fr) minmax(180px, 1fr);
 	gap: 10px;
-	padding-top: 8px;
-	align-items: start;
+	padding: 8px 0;
+	flex: 1;
+	min-height: 0;
+	align-items: stretch;
+}
+
+.column {
+	overflow-y: auto;
+	min-height: 0;
+}
+
+.column.center {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
 }
 
 .column .heading {
@@ -161,27 +187,186 @@ body.vscode-light .tok {
 	opacity: 0.5;
 }
 
-.surface {
+/* ---- structural center: layered call DAG ---- */
+
+.unit-graph {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
 	border: 1px solid var(--vscode-panel-border);
 	border-radius: 4px;
-	padding: 4px 6px;
-	margin: 4px 0;
-	background: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-foreground) 12%);
+	overflow: hidden;
 }
 
-.surface .surface {
-	background: color-mix(in srgb, var(--vscode-editor-background) 94%, var(--vscode-foreground) 6%);
-	margin-left: 8px;
+.unit-graph .react-flow {
+	flex: 1;
+	min-height: 0;
+	background: var(--vscode-editor-background);
 }
 
-.surface-row {
-	display: flex;
-	justify-content: space-between;
-	gap: 8px;
+.graph-empty {
+	padding: 16px;
+}
+
+/* canonical function card */
+.fncard {
+	background: var(--vscode-editorWidget-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 6px;
+	padding: 6px 9px;
+	width: 190px;
+	box-sizing: border-box;
 	cursor: pointer;
-	font-size: 0.9em;
 }
 
-.surface-row:hover .name {
+.fncard.entry {
+	border-color: var(--vscode-charts-green);
+}
+
+.fncard.test {
+	opacity: 0.65;
+	border-style: dashed;
+}
+
+.fncard-head {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.glyph {
+	color: var(--vscode-charts-orange);
+	font-family: var(--vscode-editor-font-family);
+	font-weight: 700;
+	flex-shrink: 0;
+}
+
+.glyph.method {
+	color: var(--vscode-charts-blue);
+}
+
+.fnname {
+	font-family: var(--vscode-editor-font-family);
+	font-weight: 600;
+	font-size: 0.92em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.recursion {
+	color: var(--vscode-charts-red);
+	font-weight: 700;
+}
+
+.pub {
+	margin-left: auto;
+	font-size: 0.68em;
+	color: var(--vscode-charts-green);
+	border: 1px solid var(--vscode-charts-green);
+	border-radius: 6px;
+	padding: 0 5px;
+	opacity: 0.85;
+	flex-shrink: 0;
+}
+
+.fncard-args {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 3px;
+	margin-top: 4px;
+}
+
+.argchip {
+	display: inline-flex;
+	gap: 4px;
+	background: var(--vscode-editor-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 4px;
+	padding: 1px 5px;
+	font-family: var(--vscode-editor-font-family);
+	font-size: 0.72em;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.argname {
+	opacity: 0.75;
+}
+
+.argtype {
+	color: var(--vscode-charts-purple);
+}
+
+.fncard-degrees {
+	display: flex;
+	gap: 10px;
+	margin-top: 4px;
+	font-size: 0.72em;
+	opacity: 0.85;
+}
+
+.deg-in {
+	color: var(--vscode-charts-blue);
+}
+
+.deg-out {
+	color: var(--vscode-charts-orange);
+}
+
+.port {
+	opacity: 0;
+}
+
+/* call edges */
+.call-edge path.react-flow__edge-path {
+	stroke: var(--vscode-charts-orange);
+}
+
+.react-flow__edge-text {
+	fill: var(--vscode-foreground);
+	font-size: 10px;
+}
+
+.react-flow__edge-textbg {
+	fill: var(--vscode-editor-background);
+}
+
+.react-flow__attribution {
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+}
+
+/* types stay off the canvas: a badge rail below the graph */
+.type-rail {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	align-items: center;
+	padding: 6px 8px;
+	border-top: 1px solid var(--vscode-panel-border);
+}
+
+.typechip {
+	font-family: var(--vscode-editor-font-family);
+	font-size: 0.75em;
+	color: var(--vscode-charts-purple);
+	background: var(--vscode-editor-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 4px;
+	padding: 1px 6px;
+	cursor: pointer;
+}
+
+.typechip:hover {
 	text-decoration: underline;
+}
+
+.rail-note {
+	font-size: 0.72em;
+	opacity: 0.55;
+	margin-left: auto;
 }
