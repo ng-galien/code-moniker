@@ -48,6 +48,24 @@ export class ExplorerPanel implements vscode.Disposable {
 	private async show(prefix: string): Promise<void> {
 		const token = ++this.seq;
 		const panel = this.ensurePanel();
+		try {
+			await this.render(panel, token, prefix);
+		} catch (error) {
+			if (token === this.seq && this.panel === panel) {
+				void panel.webview.postMessage({
+					type: "scopeError",
+					prefix,
+					message: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+	}
+
+	private async render(
+		panel: vscode.WebviewPanel,
+		token: number,
+		prefix: string,
+	): Promise<void> {
 		let graph = await this.repository.scopeGraph(prefix);
 		if (token !== this.seq || this.panel !== panel) {
 			return;

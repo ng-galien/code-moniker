@@ -14,6 +14,7 @@ export function App() {
 	const [scope, setScope] = useState<ScopePayload | null>(null);
 	const [filters, setFilters] = useState<ScopeFilters>({ instantiates: false, types: false });
 	const [selectedEdge, setSelectedEdge] = useState<IdentityGraphEdge | null>(null);
+	const [error, setError] = useState<{ prefix: string; message: string } | null>(null);
 
 	useEffect(() => {
 		const onMessage = (event: MessageEvent) => {
@@ -21,6 +22,9 @@ export function App() {
 			if (message?.type === "scope") {
 				setScope(message.payload as ScopePayload);
 				setSelectedEdge(null);
+				setError(null);
+			} else if (message?.type === "scopeError") {
+				setError({ prefix: message.prefix as string, message: message.message as string });
 			}
 		};
 		window.addEventListener("message", onMessage);
@@ -28,6 +32,21 @@ export function App() {
 		return () => window.removeEventListener("message", onMessage);
 	}, []);
 
+	if (error) {
+		return (
+			<div className="empty">
+				<div>scope query failed: {error.message}</div>
+				<button
+					type="button"
+					className="nav"
+					style={{ marginTop: 8 }}
+					onClick={() => vscode.postMessage({ type: "focus", prefix: error.prefix })}
+				>
+					retry
+				</button>
+			</div>
+		);
+	}
 	if (!scope) {
 		return <div className="empty">Open a scope to explore its graph.</div>;
 	}

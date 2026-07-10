@@ -14,6 +14,12 @@ export interface ScopeMessage {
 	payload: ScopePayload;
 }
 
+export interface ScopeErrorMessage {
+	type: "scopeError";
+	prefix: string;
+	message: string;
+}
+
 export interface OpenSourceTarget {
 	root: string;
 	file: string;

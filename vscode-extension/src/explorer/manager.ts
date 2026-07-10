@@ -21,9 +21,13 @@ export function registerExplorer(
 
 	context.subscriptions.push(
 		panel,
-		vscode.commands.registerCommand("codeMoniker.explorer.focus", (arg?: unknown) => {
+		vscode.commands.registerCommand("codeMoniker.explorer.focus", async (arg?: unknown) => {
+			if (!(await session.connectOrStart())) {
+				void vscode.window.showWarningMessage("Code Moniker: no workspace daemon available.");
+				return;
+			}
 			const focus = focusFromArgument(arg);
-			if (focus) {
+			if (focus !== undefined) {
 				void panel.focus(focus);
 			} else {
 				void promptFocus(panel);
@@ -76,7 +80,7 @@ async function focusAtCursor(
 	panel: ExplorerPanel,
 ): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
-	if (!editor) {
+	if (!editor || !(await session.connectOrStart())) {
 		return;
 	}
 	const rel = workspaceRelative(session, editor.document.uri.fsPath);
