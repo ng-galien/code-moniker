@@ -11,7 +11,7 @@ import {
 import { GenerationCache } from "../daemon/cache";
 import { toFsPath } from "../daemon/paths";
 import { DaemonSession } from "../daemon/session";
-import { InfoNode, SymbolNode, SymbolTreeNode } from "./nodes";
+import { EntryNode, InfoNode, SymbolNode, SymbolTreeNode } from "./nodes";
 
 // Data access for the symbol tree and detail panel, all over the shared session.
 // The daemon has no symbol-hierarchy query, so file symbols come back flat and we
@@ -29,12 +29,48 @@ export class SymbolRepository {
 		return this.session.ready;
 	}
 
-	async topLevelEntries(): Promise<TreeNode[]> {
-		return this.entriesUnder([]);
+	async topLevelEntries(): Promise<EntryNode[]> {
+		return this.compactedEntries([], "");
 	}
 
-	async childEntries(dirPath: string): Promise<TreeNode[]> {
-		return this.entriesUnder([dirPath]);
+	async childEntries(dirPath: string): Promise<EntryNode[]> {
+		return this.compactedEntries([dirPath], dirPath);
+	}
+
+	// IDE-style tree unrolling: single-child directory chains compact into one
+	// row labelled with the joined path, and a row that is its parent's only
+	// child is flagged so the tree expands it automatically down to the leaf.
+	private async compactedEntries(path: string[], base: string): Promise<EntryNode[]> {
+		const rows = await this.entriesUnder(path);
+		const entries: EntryNode[] = [];
+		for (const row of rows) {
+			entries.push(
+				row.kind === "directory"
+					? await this.compactDirectory(row, base)
+					: { kind: "entry", tree: row },
+			);
+		}
+		if (entries.length === 1) {
+			entries[0].expand = true;
+		}
+		return entries;
+	}
+
+	private async compactDirectory(row: TreeNode, base: string): Promise<EntryNode> {
+		let tree = row;
+		for (;;) {
+			const children = await this.entriesUnder([tree.path]);
+			if (children.length !== 1 || children[0].kind !== "directory") {
+				break;
+			}
+			tree = children[0];
+		}
+		if (tree === row) {
+			return { kind: "entry", tree };
+		}
+		const label =
+			base && tree.path.startsWith(`${base}/`) ? tree.path.slice(base.length + 1) : tree.path;
+		return { kind: "entry", tree, label };
 	}
 
 	async fileSymbols(filePath: string, shapes: string[] = []): Promise<SymbolTreeNode[]> {

@@ -48,7 +48,7 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 			if (!this.session.ready) {
 				return [info(this.notReadyLabel())];
 			}
-			const entries = wrapEntries(await this.repository.topLevelEntries());
+			const entries = await this.repository.topLevelEntries();
 			if (this.shapeFilter.length > 0) {
 				return [info(`filter: shape = ${this.shapeFilter.join(", ")}`), ...entries];
 			}
@@ -58,12 +58,12 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 			return [];
 		}
 		if (node.kind === "symbol") {
-			return node.children;
+			return markLoneChild(node.children);
 		}
 		if (node.tree.kind === "directory") {
-			return wrapEntries(await this.repository.childEntries(node.tree.path));
+			return this.repository.childEntries(node.tree.path);
 		}
-		return this.repository.fileSymbols(node.tree.path, this.shapeFilter);
+		return markLoneChild(await this.repository.fileSymbols(node.tree.path, this.shapeFilter));
 	}
 
 	getTreeItem(node: SymbolTreeNode): vscode.TreeItem {
@@ -77,10 +77,12 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 	}
 
 	private entryItem(node: EntryNode): vscode.TreeItem {
-		const label = path.basename(node.tree.path) || node.tree.path;
+		const label = node.label ?? (path.basename(node.tree.path) || node.tree.path);
 		const isDir = node.tree.kind === "directory";
 		const collapsible = isDir || node.tree.defs > 0
-			? vscode.TreeItemCollapsibleState.Collapsed
+			? node.expand
+				? vscode.TreeItemCollapsibleState.Expanded
+				: vscode.TreeItemCollapsibleState.Collapsed
 			: vscode.TreeItemCollapsibleState.None;
 		const item = new vscode.TreeItem(label, collapsible);
 		const fileViolations = isDir ? 0 : this.violations?.fileViolations(node.tree.path) ?? 0;
@@ -103,7 +105,9 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 	private symbolItem(node: SymbolNode): vscode.TreeItem {
 		const symbol = node.symbol;
 		const collapsible = node.children.length > 0
-			? vscode.TreeItemCollapsibleState.Collapsed
+			? node.expand
+				? vscode.TreeItemCollapsibleState.Expanded
+				: vscode.TreeItemCollapsibleState.Collapsed
 			: vscode.TreeItemCollapsibleState.None;
 		const item = new vscode.TreeItem(symbol.name, collapsible);
 		const violations = this.violations?.symbolViolations(symbol) ?? 0;
@@ -128,8 +132,13 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 	}
 }
 
-function wrapEntries(entries: TreeNode[]): EntryNode[] {
-	return entries.map((tree) => ({ kind: "entry", tree }));
+// A lone child unrolls automatically, so single-symbol files and single-member
+// containers open down to the leaf without repeated clicks.
+function markLoneChild(nodes: SymbolTreeNode[]): SymbolTreeNode[] {
+	if (nodes.length === 1 && nodes[0].kind === "symbol") {
+		nodes[0].expand = true;
+	}
+	return nodes;
 }
 
 function info(label: string): InfoNode {
