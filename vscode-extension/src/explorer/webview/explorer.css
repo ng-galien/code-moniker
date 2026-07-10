@@ -138,8 +138,9 @@ body {
 	border: 1px solid var(--vscode-panel-border);
 	border-radius: 4px;
 	padding: 6px 0;
-	overflow-x: auto;
+	overflow: auto;
 	margin: 0;
+	min-height: 0;
 }
 
 .code-line {
@@ -147,7 +148,11 @@ body {
 	line-height: 1.45;
 }
 
-.line-number {
+.code-line.active {
+	background: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-foreground) 12%);
+}
+
+.gutter {
 	width: 44px;
 	text-align: right;
 	padding-right: 12px;
@@ -156,16 +161,17 @@ body {
 	flex-shrink: 0;
 }
 
-.line-content {
+.src {
 	white-space: pre;
+	font-family: inherit;
 }
 
 .tok {
-	color: var(--dark);
+	color: var(--tok-dark, var(--vscode-editor-foreground, var(--vscode-foreground)));
 }
 
 body.vscode-light .tok {
-	color: var(--light);
+	color: var(--tok-light, var(--vscode-editor-foreground, var(--vscode-foreground)));
 }
 
 .muted {

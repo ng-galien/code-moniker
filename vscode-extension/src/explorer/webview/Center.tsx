@@ -1,7 +1,7 @@
 import type { SymbolDto } from "../../daemon/model";
+import { CodeBlock } from "../../webview-lib/CodeBlock";
 import type { UnitPayload } from "../protocol";
 import { postOpenSource } from "./actions";
-import { CodeBlock } from "./CodeBlock";
 import { CALLABLE_KINDS } from "./graph/model";
 import { UnitGraph } from "./graph/UnitGraph";
 
@@ -12,7 +12,7 @@ export function Center({ unit }: { unit: UnitPayload }) {
 		return (
 			<div className="column center">
 				<UnitHeader symbol={unit.focus.symbol} />
-				{unit.source && <CodeBlock source={unit.source} />}
+				{unit.source && <CodeBlock source={unit.source} active={unit.focus.symbol.line_range} />}
 			</div>
 		);
 	}

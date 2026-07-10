@@ -26,7 +26,7 @@ export function renderDetailHtml(webview: vscode.Webview, extensionUri: vscode.U
 	<title>Symbol</title>
 </head>
 <body>
-	<div id="root" class="empty">Select a symbol to inspect it.</div>
+	<div id="root"></div>
 	<script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

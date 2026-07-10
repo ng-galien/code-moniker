@@ -82,29 +82,32 @@ const rendererConfig = {
 	sourcemap: true,
 };
 
-const detailWebviewConfig = {
-	entryPoints: ["src/symbols/detail/webview.ts"],
-	bundle: true,
-	outfile: "media/symbols/detail.js",
-	platform: "browser",
-	format: "iife",
-	target: "es2022",
-};
+// React webviews: JSX via the automatic runtime, NODE_ENV pinned so react-dom
+// bundles its production build, minified because the artifacts are committed.
+// The CSS imported from each entry point lands next to its JS output.
+function reactWebviewConfig(entry, outfile) {
+	return {
+		entryPoints: [entry],
+		bundle: true,
+		outfile,
+		platform: "browser",
+		format: "iife",
+		target: "es2022",
+		jsx: "automatic",
+		define: { "process.env.NODE_ENV": '"production"' },
+		minify: true,
+	};
+}
 
-// React webview: JSX via the automatic runtime, NODE_ENV pinned so react-dom
-// bundles its production build, minified because the artifact is committed.
-// The CSS imported from the entry point lands in media/explorer/explorer.css.
-const explorerWebviewConfig = {
-	entryPoints: ["src/explorer/webview/index.tsx"],
-	bundle: true,
-	outfile: "media/explorer/explorer.js",
-	platform: "browser",
-	format: "iife",
-	target: "es2022",
-	jsx: "automatic",
-	define: { "process.env.NODE_ENV": '"production"' },
-	minify: true,
-};
+const detailWebviewConfig = reactWebviewConfig(
+	"src/symbols/detail/webview/index.tsx",
+	"media/symbols/detail.js",
+);
+
+const explorerWebviewConfig = reactWebviewConfig(
+	"src/explorer/webview/index.tsx",
+	"media/explorer/explorer.js",
+);
 
 async function main() {
 	if (watch) {
