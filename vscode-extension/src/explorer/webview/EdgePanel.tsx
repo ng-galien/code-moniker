@@ -2,24 +2,36 @@ import type { IdentityGraphEdge } from "../../daemon/model";
 import { postFocus } from "./actions";
 import { segmentName } from "./graph/model";
 
-// Facts of a selected rolled-up edge: endpoints, relation kinds, volume, and
-// dive shortcuts. Constituent pairs come one level deeper.
-export function EdgePanel({ edge }: { edge: IdentityGraphEdge }) {
+// Facts of a selected rolled-up edge, floating over the canvas so selection
+// never reflows the graph: endpoints, relation kinds, volume, dive shortcuts.
+export function EdgePanel({
+	edge,
+	onClose,
+}: {
+	edge: IdentityGraphEdge;
+	onClose: () => void;
+}) {
 	return (
-		<div className="edgepanel">
+		<aside className="edgepanel" aria-label="Edge facts">
 			<div className="edgepanel-title">
-				{segmentName(edge.source)} ⟶ {segmentName(edge.target)}
+				<span>
+					{segmentName(edge.source)} <span className="edgepanel-arrow">⟶</span>{" "}
+					{segmentName(edge.target)}
+				</span>
 				<span className="edgepanel-count">×{edge.count}</span>
+				<button type="button" className="edgepanel-close" title="Close" onClick={onClose}>
+					✕
+				</button>
 			</div>
 			<div className="edgepanel-kinds">{edge.kinds.join(" · ")}</div>
 			<div className="edgepanel-actions">
 				<button type="button" onClick={() => postFocus(edge.source)}>
-					dive into {segmentName(edge.source)}
+					Dive into {segmentName(edge.source)}
 				</button>
 				<button type="button" onClick={() => postFocus(edge.target)}>
-					dive into {segmentName(edge.target)}
+					Dive into {segmentName(edge.target)}
 				</button>
 			</div>
-		</div>
+		</aside>
 	);
 }

@@ -81,9 +81,11 @@ export function ScopeCanvas({
 	return (
 		<div className="unit-graph">
 			{model.nodes.length === 0 ? (
-				<div className="muted graph-empty">nothing to draw in this scope</div>
+				<div className="muted graph-empty">
+					This scope has no members to draw. Press Backspace to climb up a level.
+				</div>
 			) : nodes == null ? (
-				<div className="muted graph-empty">layout…</div>
+				<div className="muted graph-empty">Laying out…</div>
 			) : (
 				<ReactFlow
 					nodes={nodes}
@@ -113,25 +115,39 @@ export function ScopeCanvas({
 				</ReactFlow>
 			)}
 			{(graph.ports_in.length > 0 || graph.ports_out.length > 0 || model.hiddenEdges > 0) && (
-				<div className="type-rail">
-					{graph.ports_in.map((port) => (
-						<span
-							key={`in:${port.identity}`}
-							className="portchip in"
-							onClick={() => postFocus(port.identity)}
-						>
-							⟵ {shortIdentity(port.identity)} ×{port.count}
+				<div className="port-rail">
+					{graph.ports_in.length > 0 && (
+						<span className="port-rail-group">
+							<span className="port-rail-label">from outside</span>
+							{graph.ports_in.map((port) => (
+								<button
+									key={`in:${port.identity}`}
+									type="button"
+									className="portchip in"
+									title={`${port.identity} — ${port.kinds.join(", ")}`}
+									onClick={() => postFocus(port.identity)}
+								>
+									⟵ {shortIdentity(port.identity)} ×{port.count}
+								</button>
+							))}
 						</span>
-					))}
-					{graph.ports_out.map((port) => (
-						<span
-							key={`out:${port.identity}`}
-							className="portchip out"
-							onClick={() => postFocus(port.identity)}
-						>
-							⟶ {shortIdentity(port.identity)} ×{port.count}
+					)}
+					{graph.ports_out.length > 0 && (
+						<span className="port-rail-group">
+							<span className="port-rail-label">to outside</span>
+							{graph.ports_out.map((port) => (
+								<button
+									key={`out:${port.identity}`}
+									type="button"
+									className="portchip out"
+									title={`${port.identity} — ${port.kinds.join(", ")}`}
+									onClick={() => postFocus(port.identity)}
+								>
+									⟶ {shortIdentity(port.identity)} ×{port.count}
+								</button>
+							))}
 						</span>
-					))}
+					)}
 					{model.hiddenEdges > 0 && (
 						<span className="rail-note">{model.hiddenEdges} edge(s) hidden by filters</span>
 					)}

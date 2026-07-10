@@ -2,14 +2,16 @@ import { useEffect, useState } from "react";
 
 import type { IdentityGraphEdge } from "../../daemon/model";
 import type { ScopePayload } from "../protocol";
+import { postFocus } from "./actions";
 import { DepthBar } from "./DepthBar";
 import { EdgePanel } from "./EdgePanel";
 import { ScopeCanvas } from "./ScopeCanvas";
-import type { ScopeFilters } from "./graph/model";
+import { segmentName, type ScopeFilters } from "./graph/model";
 import { vscode } from "./vscodeApi";
 
 // Scoped exploration of the identity graph: depth ladder on the left, the
 // current level's rolled-up graph on the canvas, edge facts on demand.
+// Keyboard: Backspace climbs to the parent scope, Alt+←/→ walk history.
 export function App() {
 	const [scope, setScope] = useState<ScopePayload | null>(null);
 	const [filters, setFilters] = useState<ScopeFilters>({ instantiates: false, types: false });
@@ -32,23 +34,45 @@ export function App() {
 		return () => window.removeEventListener("message", onMessage);
 	}, []);
 
+	useEffect(() => {
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Backspace" && scope) {
+				const prefix = scope.graph.prefix;
+				if (prefix) {
+					postFocus(prefix.includes("/") ? prefix.slice(0, prefix.lastIndexOf("/")) : "");
+				}
+			} else if (event.altKey && event.key === "ArrowLeft") {
+				vscode.postMessage({ type: "back" });
+			} else if (event.altKey && event.key === "ArrowRight") {
+				vscode.postMessage({ type: "forward" });
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [scope]);
+
 	if (error) {
 		return (
 			<div className="empty">
-				<div>scope query failed: {error.message}</div>
+				<div>Scope query failed: {error.message}</div>
 				<button
 					type="button"
 					className="nav"
 					style={{ marginTop: 8 }}
 					onClick={() => vscode.postMessage({ type: "focus", prefix: error.prefix })}
 				>
-					retry
+					Retry
 				</button>
 			</div>
 		);
 	}
 	if (!scope) {
-		return <div className="empty">Open a scope to explore its graph.</div>;
+		return (
+			<div className="empty">
+				Open a scope from the Symbols tree (right-click → Open in Graph Explorer) or place the
+				cursor in code and run “Focus Symbol at Cursor”.
+			</div>
+		);
 	}
 	const graph = scope.graph;
 	return (
@@ -57,6 +81,7 @@ export function App() {
 				<button
 					type="button"
 					className="nav"
+					title="Back (Alt+←)"
 					disabled={!scope.canBack}
 					onClick={() => vscode.postMessage({ type: "back" })}
 				>
@@ -65,33 +90,51 @@ export function App() {
 				<button
 					type="button"
 					className="nav"
+					title="Forward (Alt+→)"
 					disabled={!scope.canForward}
 					onClick={() => vscode.postMessage({ type: "forward" })}
 				>
 					→
 				</button>
-				<span className="focus-label">{graph.prefix || "workspace"}</span>
-				<span className="filterchip on">calls</span>
-				<span
-					className={filters.instantiates ? "filterchip on toggle" : "filterchip toggle"}
-					onClick={() => setFilters({ ...filters, instantiates: !filters.instantiates })}
-				>
-					instantiates
+				<span className="focus-label">{graph.prefix ? segmentName(graph.prefix) : "workspace"}</span>
+				<span className="scope-facts">
+					{graph.nodes.length} nodes · {graph.edges.length} edges
 				</span>
-				<span
-					className={filters.types ? "filterchip on toggle" : "filterchip toggle"}
-					onClick={() => setFilters({ ...filters, types: !filters.types })}
-				>
-					types
+				<span className="filter-group" role="group" aria-label="Relations">
+					<span className="filterchip fixed" title="Calls always draw">
+						calls
+					</span>
+					<button
+						type="button"
+						className={filters.instantiates ? "filterchip on toggle" : "filterchip toggle"}
+						aria-pressed={filters.instantiates}
+						onClick={() => setFilters({ ...filters, instantiates: !filters.instantiates })}
+					>
+						instantiates
+					</button>
+					<button
+						type="button"
+						className={filters.types ? "filterchip on toggle" : "filterchip toggle"}
+						aria-pressed={filters.types}
+						onClick={() => setFilters({ ...filters, types: !filters.types })}
+					>
+						types
+					</button>
 				</span>
 				{graph.unresolved_refs > 0 && (
-					<span className="unresolved">{graph.unresolved_refs} unresolved ref(s)</span>
+					<span className="unresolved" title="References the index could not resolve">
+						{graph.unresolved_refs} unresolved
+					</span>
 				)}
 			</div>
 			<div className="scope-layout">
 				<DepthBar prefix={graph.prefix} />
-				<ScopeCanvas graph={graph} filters={filters} onSelectEdge={setSelectedEdge} />
-				{selectedEdge && <EdgePanel edge={selectedEdge} />}
+				<div className="canvas-zone">
+					<ScopeCanvas graph={graph} filters={filters} onSelectEdge={setSelectedEdge} />
+					{selectedEdge && (
+						<EdgePanel edge={selectedEdge} onClose={() => setSelectedEdge(null)} />
+					)}
+				</div>
 			</div>
 		</>
 	);

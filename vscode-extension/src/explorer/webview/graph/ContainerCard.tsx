@@ -3,17 +3,18 @@ import { Handle, Position } from "@xyflow/react";
 import type { ScopeNodeModel } from "./model";
 import { segmentName } from "./model";
 
-// A scope-level container (package, dir, module, srcset): name dominant,
-// kind and def count as facts, in/out rolled-up call volumes. Double-click
-// dives into it.
+// A scope-level container (package, dir, module, srcset): it reads as
+// enterable — stacked outline, and a dive hint surfaces on hover.
 export function ContainerCard({ data }: { data: { node: ScopeNodeModel } }) {
 	const node = data.node;
 	return (
-		<div className="containercard">
+		<div className="containercard" title="Double-click to dive in">
 			<Handle type="target" position={Position.Top} className="port" />
 			<div className="containercard-head">
-				<span className="containercard-mark">▸</span>
 				<span className="containercard-name">{segmentName(node.id)}</span>
+				<span className="containercard-dive" aria-hidden="true">
+					⤵
+				</span>
 			</div>
 			<div className="containercard-meta">
 				{node.row.kind} · {node.row.defs} defs
