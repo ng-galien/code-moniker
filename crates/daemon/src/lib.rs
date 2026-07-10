@@ -47,8 +47,9 @@ const DEFAULT_SCHEME: &str = "code+moniker://";
 
 use code_moniker_query::{
 	ChangeReviewFile, ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide,
-	ChangeReviewSummary, ChangeReviewSymbol, SymbolGraphEdge, SymbolGraphFocus,
-	SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult,
+	ChangeReviewSummary, ChangeReviewSymbol, IdentityChildrenQuery, IdentityChildrenResult,
+	IdentitySegmentDto, SymbolGraphEdge, SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery,
+	SymbolGraphResult,
 };
 
 use helpers::*;
@@ -570,6 +571,9 @@ fn handle_query(
 		Query::SymbolGraph(query) => {
 			symbol_graph_response(&snapshot, &daemon.roots, query, current_generation)
 		}
+		Query::IdentityChildren(query) => {
+			identity_children_response(&snapshot, &daemon.roots, query, current_generation)
+		}
 		Query::Notes(query) => {
 			notes_response(daemon, &snapshot, query, request.page, current_generation)
 		}
@@ -737,6 +741,121 @@ fn symbol_graph_response(
 		result: QueryResult::SymbolGraph(Box::new(result)),
 		next_cursor: None,
 	})
+}
+
+struct SegmentAgg<'a> {
+	defs: usize,
+	grandchildren: bool,
+	direct: Option<&'a SymbolRecord>,
+}
+
+// One level of the identity tree: group every navigable definition under the
+// prefix by its next identity segment. Segments that are definitions attach
+// their SymbolDto; organizational segments only aggregate.
+fn identity_children_response(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	query: IdentityChildrenQuery,
+	current_generation: Option<WorkspaceGeneration>,
+) -> Result<QueryResponse, QueryError> {
+	let _ = selected_roots(roots, query.workspace.as_deref())?;
+	let prefix = identity_path(query.prefix.trim_matches('/')).trim_matches('/');
+	let sources_view = WorkspaceView::new(snapshot).sources();
+	let mut groups: BTreeMap<&str, SegmentAgg> = BTreeMap::new();
+	for symbol in snapshot.index.symbols.iter() {
+		if !symbol.navigable {
+			continue;
+		}
+		let Some(rest) = identity_rest(identity_path(symbol.identity.as_ref()), prefix) else {
+			continue;
+		};
+		let (segment, tail) = match rest.split_once('/') {
+			Some((segment, tail)) => (segment, Some(tail)),
+			None => (rest, None),
+		};
+		if segment.is_empty() {
+			continue;
+		}
+		let entry = groups.entry(segment).or_insert(SegmentAgg {
+			defs: 0,
+			grandchildren: false,
+			direct: None,
+		});
+		match tail {
+			None => entry.direct = Some(symbol),
+			Some(_) => {
+				entry.defs += 1;
+				entry.grandchildren = true;
+			}
+		}
+	}
+	let children = groups
+		.into_iter()
+		.map(|(segment, agg)| identity_segment_dto(segment, agg, prefix, &sources_view, roots))
+		.collect();
+	Ok(QueryResponse {
+		generation: current_generation,
+		result: QueryResult::IdentityChildren(IdentityChildrenResult {
+			prefix: prefix.to_string(),
+			children,
+		}),
+		next_cursor: None,
+	})
+}
+
+fn identity_segment_dto(
+	segment: &str,
+	agg: SegmentAgg<'_>,
+	prefix: &str,
+	sources_view: &code_moniker_workspace::snapshot::SourceView<'_>,
+	roots: &[PathBuf],
+) -> IdentitySegmentDto {
+	let (kind, name) = segment.split_once(':').unwrap_or(("", segment));
+	let identity = if prefix.is_empty() {
+		segment.to_string()
+	} else {
+		format!("{prefix}/{segment}")
+	};
+	let symbol = agg.direct.and_then(|record| {
+		let source = sources_view.record(&record.source)?;
+		Some(Box::new(symbol_dto(record, source, roots)))
+	});
+	IdentitySegmentDto {
+		segment: segment.to_string(),
+		kind: kind.to_string(),
+		name: name.to_string(),
+		identity,
+		defs: agg.defs,
+		has_children: agg.grandchildren,
+		symbol,
+	}
+}
+
+// Record identities are full moniker URIs; the identity tree navigates the
+// path AFTER the scheme and root anchor (`code+moniker://./`). Full URIs are
+// accepted as prefixes and normalized to the same space.
+fn identity_path(identity: &str) -> &str {
+	let Some(rest) = identity.strip_prefix(DEFAULT_SCHEME) else {
+		return identity;
+	};
+	match rest.split_once('/') {
+		Some((_, path)) => path,
+		None => "",
+	}
+}
+
+fn identity_rest<'a>(identity: &'a str, prefix: &str) -> Option<&'a str> {
+	if prefix.is_empty() {
+		return Some(identity);
+	}
+	if identity.len() > prefix.len()
+		&& identity.starts_with(prefix)
+		&& identity.as_bytes()[prefix.len()] == b'/'
+	{
+		Some(&identity[prefix.len() + 1..])
+	} else {
+		None
+	}
 }
 
 fn resolve_unit_boundary(
@@ -3138,6 +3257,81 @@ mod tests {
 			"{unit:?}"
 		);
 		assert!(unit.internal_edges.is_empty(), "{unit:?}");
+	}
+
+	#[test]
+	fn identity_children_walks_the_symbolic_tree() {
+		let temp = tempfile::tempdir().expect("tempdir");
+		let src_dir = temp.path().join("src");
+		fs::create_dir_all(&src_dir).expect("src dir");
+		fs::write(src_dir.join("lib.rs"), "pub mod engine;\n").expect("write lib");
+		fs::write(
+			src_dir.join("engine.rs"),
+			"pub fn entry() { helper(); }\nfn helper() {}\n",
+		)
+		.expect("write engine");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![temp.path().display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let mut children = |prefix: &str| {
+			let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+				query: Query::IdentityChildren(code_moniker_query::IdentityChildrenQuery {
+					workspace: None,
+					prefix: prefix.to_string(),
+				}),
+				consistency: code_moniker_query::Consistency::Current,
+				page: Page::default(),
+			})));
+			let ProtocolResponse::Query(query) = response else {
+				panic!("expected query response");
+			};
+			let QueryResult::IdentityChildren(result) = query.result else {
+				panic!("expected identity children, got {:?}", query.result);
+			};
+			result.children
+		};
+
+		// Walk organizational segments (lang, dir, module wrappers) down to
+		// the level that holds the engine module.
+		let mut prefix = String::new();
+		let engine = loop {
+			let rows = children(&prefix);
+			assert!(!rows.is_empty(), "no children under `{prefix}`");
+			if let Some(engine) = rows.iter().find(|row| row.name == "engine") {
+				break engine.clone();
+			}
+			let next = rows
+				.iter()
+				.find(|row| row.has_children)
+				.unwrap_or_else(|| panic!("no descent from `{prefix}`: {rows:?}"));
+			assert!(next.symbol.is_none(), "organizational segment: {next:?}");
+			assert!(next.defs > 0, "{next:?}");
+			prefix = next.identity.clone();
+		};
+		assert!(engine.defs >= 2, "entry + helper below engine: {engine:?}");
+
+		let functions = children(&engine.identity);
+		let entry = functions
+			.iter()
+			.find(|row| row.name.starts_with("entry"))
+			.unwrap_or_else(|| panic!("entry under engine: {functions:?}"));
+		assert_eq!(entry.kind, "fn");
+		let symbol = entry.symbol.as_ref().expect("entry is a definition");
+		assert_eq!(symbol.kind, "fn");
+		assert!(symbol.file.ends_with("engine.rs"), "{symbol:?}");
+		assert!(!entry.has_children, "{entry:?}");
+		assert!(
+			functions.iter().any(|row| row.name.starts_with("helper")),
+			"{functions:?}"
+		);
 	}
 
 	#[test]

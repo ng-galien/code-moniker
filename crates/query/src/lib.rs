@@ -105,6 +105,7 @@ impl Default for CapabilitySet {
 				"rules.check".to_string(),
 				"change.review".to_string(),
 				"symbol.graph".to_string(),
+				"identity.children".to_string(),
 				"notes".to_string(),
 			],
 			commands: vec!["workspace.refresh".to_string()],
@@ -146,6 +147,7 @@ pub enum Query {
 	RulesCheck(RulesCheckQuery),
 	ChangeReview(ChangeReviewQuery),
 	SymbolGraph(SymbolGraphQuery),
+	IdentityChildren(IdentityChildrenQuery),
 	Notes(NotesQuery),
 }
 
@@ -270,6 +272,16 @@ pub struct ChangeReviewQuery {
 pub struct SymbolGraphQuery {
 	pub workspace: Option<String>,
 	pub focus: String,
+}
+
+// One level of the identity tree: children of a moniker identity prefix
+// (`""` = the workspace root). The symbolic navigation surface - no
+// filesystem involved.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct IdentityChildrenQuery {
+	pub workspace: Option<String>,
+	pub prefix: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -414,6 +426,7 @@ pub enum QueryResult {
 	RulesCheck(RulesCheckResult),
 	ChangeReview(Box<ChangeReviewResult>),
 	SymbolGraph(Box<SymbolGraphResult>),
+	IdentityChildren(IdentityChildrenResult),
 	Notes(NotesResult),
 }
 
@@ -451,6 +464,28 @@ pub struct SymbolGraphEdge {
 	pub target: String,
 	pub kinds: Vec<String>,
 	pub count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct IdentityChildrenResult {
+	pub prefix: String,
+	pub children: Vec<IdentitySegmentDto>,
+}
+
+// One child segment under the requested prefix. `symbol` is attached when the
+// segment itself is a navigable definition; organizational segments (package,
+// dir, srcset, lang, module wrappers) only aggregate what lives below.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct IdentitySegmentDto {
+	pub segment: String,
+	pub kind: String,
+	pub name: String,
+	pub identity: String,
+	pub defs: usize,
+	pub has_children: bool,
+	pub symbol: Option<Box<SymbolDto>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1105,6 +1140,7 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 			workspace: fields.one("workspace"),
 		}),
 		"symbol.graph" => Query::SymbolGraph(symbol_graph_query(&fields)?),
+		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
 		"notes" => Query::Notes(notes_query(&fields)?),
 		_ => return Err(QueryParseError::UnknownOperation(op)),
 	};
@@ -1152,6 +1188,16 @@ fn notes_query(fields: &FieldBag) -> Result<NotesQuery, QueryParseError> {
 		orphan: fields.bool("orphan")?,
 		include_done: fields.bool("include_done")?.unwrap_or(false),
 	})
+}
+
+fn identity_children_query(fields: &FieldBag) -> IdentityChildrenQuery {
+	IdentityChildrenQuery {
+		workspace: fields.one("workspace"),
+		prefix: fields
+			.one("prefix")
+			.or_else(|| fields.positional.first().cloned())
+			.unwrap_or_default(),
+	}
 }
 
 fn symbol_graph_query(fields: &FieldBag) -> Result<SymbolGraphQuery, QueryParseError> {
@@ -1281,20 +1327,12 @@ pub fn format_query_response(response: &QueryResponse) -> String {
 		},
 		QueryResult::RulesList(result) => {
 			let _ = writeln!(out, "rules: {}", result.total);
-			for row in &result.rows {
-				let _ = writeln!(
-					out,
-					"- {} [{}] root={} lang={} domain={}",
-					row.id, row.severity, row.root, row.lang, row.domain
-				);
-				if let Some(message) = &row.message {
-					let _ = writeln!(out, "  message: {message}");
-				}
-			}
+			format_rules_list_rows(&mut out, result);
 		}
 		QueryResult::RulesCheck(result) => format_rules_check(&mut out, result),
 		QueryResult::ChangeReview(result) => format_change_review(&mut out, result),
 		QueryResult::SymbolGraph(result) => format_symbol_graph(&mut out, result),
+		QueryResult::IdentityChildren(result) => format_identity_children(&mut out, result),
 		QueryResult::Notes(result) => format_notes(&mut out, result),
 	}
 	out
@@ -1315,6 +1353,37 @@ fn format_notes(out: &mut String, result: &NotesResult) {
 	let _ = writeln!(out, "notes: {}", result.total);
 	for row in &result.rows {
 		let _ = writeln!(out, "- {} [{}] {}", row.id, row.status, row.title);
+	}
+}
+
+fn format_rules_list_rows(out: &mut String, result: &RulesListResult) {
+	for row in &result.rows {
+		let _ = writeln!(
+			out,
+			"- {} [{}] root={} lang={} domain={}",
+			row.id, row.severity, row.root, row.lang, row.domain
+		);
+		if let Some(message) = &row.message {
+			let _ = writeln!(out, "  message: {message}");
+		}
+	}
+}
+
+fn format_identity_children(out: &mut String, result: &IdentityChildrenResult) {
+	let prefix = if result.prefix.is_empty() {
+		"<root>"
+	} else {
+		&result.prefix
+	};
+	let _ = writeln!(out, "prefix: {prefix}");
+	let _ = writeln!(out, "children: {}", result.children.len());
+	for child in &result.children {
+		let marker = if child.symbol.is_some() { "def" } else { "…" };
+		let _ = writeln!(
+			out,
+			"- {} [{}] defs={} {}",
+			child.segment, marker, child.defs, child.identity
+		);
 	}
 }
 

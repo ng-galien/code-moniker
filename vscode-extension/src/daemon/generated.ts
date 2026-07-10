@@ -98,6 +98,11 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      op: "identity_children";
+      prefix: string;
+      workspace?: string | null;
+    }
+  | {
       action: NotesAction;
       body?: string | null;
       created_by?: string | null;
@@ -157,6 +162,10 @@ export type QueryResult =
   | {
       data: SymbolGraphResult;
       kind: "symbol_graph";
+    }
+  | {
+      data: IdentityChildrenResult;
+      kind: "identity_children";
     }
   | {
       data: NotesResult;
@@ -625,6 +634,19 @@ export interface SymbolGraphEdge {
   kinds: string[];
   source: string;
   target: string;
+}
+export interface IdentityChildrenResult {
+  children: IdentitySegmentDto[];
+  prefix: string;
+}
+export interface IdentitySegmentDto {
+  defs: number;
+  has_children: boolean;
+  identity: string;
+  kind: string;
+  name: string;
+  segment: string;
+  symbol?: SymbolDto | null;
 }
 export interface NotesResult {
   action: string;

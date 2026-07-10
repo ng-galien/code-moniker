@@ -740,6 +740,67 @@
         }
       }
     },
+    "IdentityChildrenResult": {
+      "type": "object",
+      "required": [
+        "children",
+        "prefix"
+      ],
+      "properties": {
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IdentitySegmentDto"
+          }
+        },
+        "prefix": {
+          "type": "string"
+        }
+      }
+    },
+    "IdentitySegmentDto": {
+      "type": "object",
+      "required": [
+        "defs",
+        "has_children",
+        "identity",
+        "kind",
+        "name",
+        "segment"
+      ],
+      "properties": {
+        "defs": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "has_children": {
+          "type": "boolean"
+        },
+        "identity": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "segment": {
+          "type": "string"
+        },
+        "symbol": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SymbolDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "NoteDto": {
       "type": "object",
       "required": [
@@ -1385,6 +1446,30 @@
         {
           "type": "object",
           "required": [
+            "op",
+            "prefix"
+          ],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "identity_children"
+              ]
+            },
+            "prefix": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "action",
             "include_done",
             "op"
@@ -1738,6 +1823,24 @@
               "type": "string",
               "enum": [
                 "symbol_graph"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/IdentityChildrenResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "identity_children"
               ]
             }
           }
