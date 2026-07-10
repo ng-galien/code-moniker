@@ -11,23 +11,14 @@ async function testSymbolTree() {
 	await waitForReady(api);
 	api.symbols.refresh();
 
-	const topLevel = await waitFor(async () => {
+	await waitFor(async () => {
 		const nodes = await api.symbols.getChildren();
-		return nodes.some((node) => node.kind === "entry") ? nodes : undefined;
-	}, "top-level tree entries");
+		return nodes.some((node) => node.kind === "identity" || node.kind === "symbol")
+			? nodes
+			: undefined;
+	}, "top-level identity segments");
 
-	const srcDir = topLevel.find(
-		(node) => node.kind === "entry" && node.tree.kind === "directory" && node.tree.path === "src",
-	);
-	assert.ok(srcDir, "the seeded `src` directory should be listed");
-
-	const srcChildren = await api.symbols.getChildren(srcDir);
-	const libFile = srcChildren.find(
-		(node) => node.kind === "entry" && node.tree.path === "src/lib.rs",
-	);
-	assert.ok(libFile, "`src/lib.rs` should be listed under src");
-
-	const symbols = await collectSymbols(api.symbols, libFile);
+	const symbols = await collectSymbols(api.symbols, undefined);
 	const names = symbols.map((node) => node.symbol.name);
 	// Function symbol names carry a trailing "()"; match on the base name.
 	const starts = (prefix) => names.some((name) => name.startsWith(prefix));
@@ -52,16 +43,6 @@ async function testSymbolTree() {
 		vscode.window.visibleTextEditors.length,
 		editorsBefore,
 		"selecting a symbol must not open an editor",
-	);
-
-	await vscode.commands.executeCommand("codeMoniker.symbols.openSource", libFile);
-	await waitFor(
-		() =>
-			vscode.window.activeTextEditor &&
-			vscode.window.activeTextEditor.document.uri.fsPath.endsWith(path.join("src", "lib.rs"))
-				? vscode.window.activeTextEditor
-				: undefined,
-		"openSource to reveal a file tree row",
 	);
 
 	// Opening source is an explicit action.

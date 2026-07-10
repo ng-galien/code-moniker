@@ -1,10 +1,9 @@
-import * as path from "node:path";
 import * as vscode from "vscode";
 
-import { SymbolDto, TreeNode } from "../daemon/model";
+import { IdentitySegmentDto, SymbolDto } from "../daemon/model";
 import { DaemonSession } from "../daemon/session";
-import { sourceFileIcon, sourceFolderIcon, statusIcon, symbolIcon } from "../shared/appIcons";
-import { EntryNode, InfoNode, SymbolNode, SymbolTreeNode } from "./nodes";
+import { sourceFolderIcon, statusIcon, symbolIcon } from "../shared/appIcons";
+import { IdentityNode, InfoNode, SymbolNode, SymbolTreeNode } from "./nodes";
 import { SymbolRepository } from "./repository";
 
 // Optional violation overlay supplied by the rules feature so symbol/file rows can
@@ -48,7 +47,7 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 			if (!this.session.ready) {
 				return [info(this.notReadyLabel())];
 			}
-			const entries = await this.repository.topLevelEntries();
+			const entries = await this.repository.identityChildren("");
 			if (this.shapeFilter.length > 0) {
 				return [info(`filter: shape = ${this.shapeFilter.join(", ")}`), ...entries];
 			}
@@ -57,54 +56,29 @@ export class SymbolTreeProvider implements vscode.TreeDataProvider<SymbolTreeNod
 		if (node.kind === "info") {
 			return [];
 		}
-		if (node.kind === "symbol") {
-			return markLoneChild(node.children);
+		if (node.kind === "identity") {
+			return this.repository.identityChildren(node.row.identity);
 		}
-		if (node.tree.kind === "directory") {
-			return this.repository.childEntries(node.tree.path);
+		if (node.identity && node.hasChildren) {
+			return this.repository.identityChildren(node.identity);
 		}
-		return markLoneChild(await this.repository.fileSymbols(node.tree.path, this.shapeFilter));
+		return markLoneChild(node.children);
 	}
 
 	getTreeItem(node: SymbolTreeNode): vscode.TreeItem {
 		if (node.kind === "info") {
 			return new vscode.TreeItem(node.label);
 		}
-		if (node.kind === "entry") {
-			return this.entryItem(node);
+		if (node.kind === "identity") {
+			return identityItem(node);
 		}
 		return this.symbolItem(node);
 	}
 
-	private entryItem(node: EntryNode): vscode.TreeItem {
-		const label = node.label ?? (path.basename(node.tree.path) || node.tree.path);
-		const isDir = node.tree.kind === "directory";
-		const collapsible = isDir || node.tree.defs > 0
-			? node.expand
-				? vscode.TreeItemCollapsibleState.Expanded
-				: vscode.TreeItemCollapsibleState.Collapsed
-			: vscode.TreeItemCollapsibleState.None;
-		const item = new vscode.TreeItem(label, collapsible);
-		const fileViolations = isDir ? 0 : this.violations?.fileViolations(node.tree.path) ?? 0;
-		item.description = entryDescription(node, fileViolations);
-		if (isDir) {
-			item.iconPath = sourceFolderIcon();
-		} else if (fileViolations > 0) {
-			item.iconPath = statusIcon("warning");
-		} else {
-			item.iconPath = sourceFileIcon();
-		}
-		item.contextValue = isDir ? "cmEntryDir" : "cmEntryFile";
-		item.tooltip = node.tree.path;
-		if (!isDir) {
-			item.resourceUri = vscode.Uri.file(path.join(node.tree.root, node.tree.path));
-		}
-		return item;
-	}
-
 	private symbolItem(node: SymbolNode): vscode.TreeItem {
 		const symbol = node.symbol;
-		const collapsible = node.children.length > 0
+		const hasChildren = node.children.length > 0 || Boolean(node.hasChildren);
+		const collapsible = hasChildren
 			? node.expand
 				? vscode.TreeItemCollapsibleState.Expanded
 				: vscode.TreeItemCollapsibleState.Collapsed
@@ -141,25 +115,28 @@ function markLoneChild(nodes: SymbolTreeNode[]): SymbolTreeNode[] {
 	return nodes;
 }
 
-function info(label: string): InfoNode {
-	return { kind: "info", label };
+function identityItem(node: IdentityNode): vscode.TreeItem {
+	const collapsible = node.expand
+		? vscode.TreeItemCollapsibleState.Expanded
+		: vscode.TreeItemCollapsibleState.Collapsed;
+	const item = new vscode.TreeItem(node.label ?? node.row.name, collapsible);
+	item.description = identityDescription(node.row);
+	item.iconPath = sourceFolderIcon();
+	item.contextValue = "cmIdentity";
+	item.tooltip = node.row.identity;
+	return item;
 }
 
-function entryDescription(node: EntryNode, violations: number): string {
-	const parts: string[] = [];
-	if (node.tree.defs > 0) {
-		parts.push(`${node.tree.defs} defs`);
-	}
-	if (node.tree.refs > 0) {
-		parts.push(`${node.tree.refs} refs`);
-	}
-	if (node.tree.change_count > 0) {
-		parts.push(`±${node.tree.change_count}`);
-	}
-	if (violations > 0) {
-		parts.push(`${violations} violation(s)`);
+function identityDescription(row: IdentitySegmentDto): string {
+	const parts = [row.kind];
+	if (row.defs > 0) {
+		parts.push(`${row.defs} defs`);
 	}
 	return parts.join(" · ");
+}
+
+function info(label: string): InfoNode {
+	return { kind: "info", label };
 }
 
 function symbolDescription(symbol: SymbolDto, violations: number): string {

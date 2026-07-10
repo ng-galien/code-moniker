@@ -29,8 +29,8 @@ export function workspaceNodeId(node: WorkspaceNode): string | undefined {
 
 function symbolNodeId(node: SymbolTreeNode): string {
 	switch (node.kind) {
-		case "entry":
-			return `symbols:entry:${node.tree.root}:${node.tree.path}`;
+		case "identity":
+			return `symbols:id:${node.row.identity}`;
 		case "symbol":
 			return `symbols:sym:${node.symbol.file}:${node.symbol.uri}`;
 		case "info":

@@ -1,17 +1,17 @@
 import * as vscode from "vscode";
 
 import {
+	IdentitySegmentDto,
 	SourceLine,
 	SourceSnippet,
 	SymbolDetailResult,
 	SymbolDto,
 	SymbolUsagesResult,
-	TreeNode,
 } from "../daemon/model";
 import { GenerationCache } from "../daemon/cache";
 import { toFsPath } from "../daemon/paths";
 import { DaemonSession } from "../daemon/session";
-import { EntryNode, InfoNode, SymbolNode, SymbolTreeNode } from "./nodes";
+import { InfoNode, SymbolNode, SymbolTreeNode } from "./nodes";
 
 // Data access for the symbol tree and detail panel, all over the shared session.
 // The daemon has no symbol-hierarchy query, so file symbols come back flat and we
@@ -29,48 +29,53 @@ export class SymbolRepository {
 		return this.session.ready;
 	}
 
-	async topLevelEntries(): Promise<EntryNode[]> {
-		return this.compactedEntries([], "");
-	}
-
-	async childEntries(dirPath: string): Promise<EntryNode[]> {
-		return this.compactedEntries([dirPath], dirPath);
-	}
-
-	// IDE-style tree unrolling: single-child directory chains compact into one
-	// row labelled with the joined path, and a row that is its parent's only
-	// child is flagged so the tree expands it automatically down to the leaf.
-	private async compactedEntries(path: string[], base: string): Promise<EntryNode[]> {
-		const rows = await this.entriesUnder(path);
-		const entries: EntryNode[] = [];
+	// One level of the purely symbolic tree, IDE-style unrolled: chains of
+	// single-child organizational segments (packages, dirs, module wrappers)
+	// compact into one row, a wrapper whose only child is a definition is
+	// elided entirely, and a lone child is flagged for auto-expansion.
+	async identityChildren(prefix: string): Promise<SymbolTreeNode[]> {
+		const rows = await this.identityRows(prefix);
+		const nodes: SymbolTreeNode[] = [];
 		for (const row of rows) {
-			entries.push(
-				row.kind === "directory"
-					? await this.compactDirectory(row, base)
-					: { kind: "entry", tree: row },
-			);
+			nodes.push(await this.identityNode(row, prefix));
 		}
-		if (entries.length === 1) {
-			entries[0].expand = true;
+		if (nodes.length === 1 && nodes[0].kind !== "info") {
+			nodes[0].expand = true;
 		}
-		return entries;
+		return nodes;
 	}
 
-	private async compactDirectory(row: TreeNode, base: string): Promise<EntryNode> {
-		let tree = row;
+	private async identityNode(row: IdentitySegmentDto, base: string): Promise<SymbolTreeNode> {
+		if (row.symbol) {
+			return defNode(row);
+		}
+		let current = row;
 		for (;;) {
-			const children = await this.entriesUnder([tree.path]);
-			if (children.length !== 1 || children[0].kind !== "directory") {
+			const children = await this.identityRows(current.identity);
+			if (children.length !== 1) {
 				break;
 			}
-			tree = children[0];
+			if (children[0].symbol) {
+				return defNode(children[0]);
+			}
+			current = children[0];
 		}
-		if (tree === row) {
-			return { kind: "entry", tree };
-		}
-		const label =
-			base && tree.path.startsWith(`${base}/`) ? tree.path.slice(base.length + 1) : tree.path;
-		return { kind: "entry", tree, label };
+		return {
+			kind: "identity",
+			row: current,
+			label: current === row ? undefined : chainLabel(base, current.identity),
+		};
+	}
+
+	private async identityRows(prefix: string): Promise<IdentitySegmentDto[]> {
+		return this.cache.fetch(`identity:${prefix}`, async () => {
+			const response = await this.session.query({
+				op: "identity_children",
+				workspace: null,
+				prefix,
+			});
+			return response.result.kind === "identity_children" ? response.result.data.children : [];
+		});
 	}
 
 	async fileSymbols(filePath: string, shapes: string[] = []): Promise<SymbolTreeNode[]> {
@@ -144,25 +149,6 @@ export class SymbolRepository {
 		}
 	}
 
-	private async entriesUnder(path: string[]): Promise<TreeNode[]> {
-		return this.cache.fetch(`tree:${path.join("/")}`, async () => {
-			const response = await this.session.query(
-				{
-					op: "tree_children",
-					workspace: null,
-					path,
-					depth: 1,
-					lang: [],
-					projection: [],
-				},
-				{ limit: PAGE_LIMIT },
-			);
-			if (response.result.kind !== "tree_children") {
-				return [];
-			}
-			return [...response.result.data.rows].sort(compareEntries);
-		});
-	}
 }
 
 const PAGE_LIMIT = 1000;
@@ -199,11 +185,25 @@ function sourceSnippetFromText(
 	};
 }
 
-function compareEntries(a: TreeNode, b: TreeNode): number {
-	if (a.kind !== b.kind) {
-		return a.kind === "directory" ? -1 : 1;
-	}
-	return a.path.localeCompare(b.path);
+function defNode(row: IdentitySegmentDto): SymbolNode {
+	return {
+		kind: "symbol",
+		symbol: row.symbol as SymbolDto,
+		children: [],
+		identity: row.identity,
+		hasChildren: row.has_children,
+	};
+}
+
+// Compacted chains display segment names only: `com/acme/billing`, not the
+// kind-tagged identity path.
+function chainLabel(base: string, identity: string): string {
+	const relative =
+		base && identity.startsWith(`${base}/`) ? identity.slice(base.length + 1) : identity;
+	return relative
+		.split("/")
+		.map((segment) => segment.split(":")[1] ?? segment)
+		.join("/");
 }
 
 // Rebuilds the symbol outline from a flat list using interval nesting: a symbol's

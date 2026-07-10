@@ -47,16 +47,19 @@ async function waitForReady(api) {
 	return api;
 }
 
-// Flattens a symbol subtree into the list of nodes (depth-first), pulling children
-// lazily through the provider.
-async function collectSymbols(provider, fileNode) {
+// Flattens the identity tree into its definition nodes (breadth-first),
+// pulling every level lazily through the provider. Pass `undefined` to start
+// from the root.
+async function collectSymbols(provider, startNode) {
 	const result = [];
-	const stack = [...(await provider.getChildren(fileNode))];
+	const stack = [...(await provider.getChildren(startNode))];
 	while (stack.length > 0) {
 		const node = stack.shift();
 		if (node.kind === "symbol") {
 			result.push(node);
-			stack.push(...node.children);
+			stack.push(...(await provider.getChildren(node)));
+		} else if (node.kind === "identity") {
+			stack.push(...(await provider.getChildren(node)));
 		}
 	}
 	return result;

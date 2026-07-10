@@ -1,24 +1,26 @@
-import { SymbolDto, TreeNode } from "../daemon/model";
+import { IdentitySegmentDto, SymbolDto } from "../daemon/model";
 
-export type SymbolTreeNode = EntryNode | SymbolNode | InfoNode;
+export type SymbolTreeNode = IdentityNode | SymbolNode | InfoNode;
 
-// A file or directory row sourced from `tree.children`. `label` overrides the
-// basename when a single-child directory chain was compacted into one row;
-// `expand` asks the tree to unroll the row because it is its parent's only
-// child.
-export interface EntryNode {
-	kind: "entry";
-	tree: TreeNode;
+// An organizational segment of the identity tree (srcset, lang, package, dir,
+// module wrapper): it groups definitions but is not one itself. `label`
+// overrides the segment name when a single-child chain was compacted.
+export interface IdentityNode {
+	kind: "identity";
+	row: IdentitySegmentDto;
 	label?: string;
 	expand?: boolean;
 }
 
-// A symbol row. Children are reconstructed client-side from line-range nesting
-// because the daemon returns a flat symbol list per file.
+// A definition row. In the identity tree `identity`/`hasChildren` drive lazy
+// children; in file-outline contexts (cursor lookups) `children` is prebuilt
+// from line-range nesting.
 export interface SymbolNode {
 	kind: "symbol";
 	symbol: SymbolDto;
 	children: SymbolNode[];
+	identity?: string;
+	hasChildren?: boolean;
 	expand?: boolean;
 }
 

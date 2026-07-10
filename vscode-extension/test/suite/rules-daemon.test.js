@@ -46,10 +46,7 @@ async function testRulesDaemon() {
 	// The violation overlays the symbol tree and the affected symbol.
 	assert.ok(api.violations.fileViolations("src/lib.rs") >= 1, "file should carry a violation count");
 
-	const symbols = await collectSymbols(api.symbols, {
-		kind: "entry",
-		tree: { root: api.session.workspaceRoots[0], path: "src/lib.rs", kind: "file", language: "rust", defs: 0, refs: 0, change_count: 0 },
-	});
+	const symbols = await collectSymbols(api.symbols, undefined);
 	const doThing = symbols.find((node) => node.symbol.name.startsWith("DoThing"));
 	assert.ok(doThing, "DoThing symbol should be present");
 	assert.ok(

@@ -53,7 +53,7 @@ async function assertStaleWorkspaceQueriesRefresh(api) {
 
 	const topLevel = await api.symbols.getChildren();
 	assert.ok(
-		topLevel.some((node) => node.kind === "entry"),
+		topLevel.some((node) => node.kind === "identity" || node.kind === "symbol"),
 		"symbol tree should refresh stale daemon snapshots instead of surfacing workspace_stale",
 	);
 }

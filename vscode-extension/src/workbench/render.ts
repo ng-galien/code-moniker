@@ -245,16 +245,18 @@ function renderRuleFileNode(node: RuleTreeNode): DetailDocument {
 	}
 }
 
-function renderSymbolEntry(node: { kind: string; tree?: { path: string; defs: number; refs: number } }): DetailDocument {
-	if (node.kind !== "entry" || !node.tree) {
+function renderSymbolEntry(node: {
+	kind: string;
+	row?: { identity: string; kind: string; defs: number };
+}): DetailDocument {
+	if (node.kind !== "identity" || !node.row) {
 		return { title: "Symbols", kind: "Info" };
 	}
 	return {
-		title: node.tree.path,
-		kind: "Source entry",
+		title: node.row.identity,
+		kind: node.row.kind || "identity",
 		meta: rows({
-			defs: String(node.tree.defs),
-			refs: String(node.tree.refs),
+			defs: String(node.row.defs),
 		}),
 	};
 }

@@ -86,13 +86,6 @@ function normalizeTarget(arg: SymbolTreeNode | SourceTarget): SourceTarget | und
 			line: targetArg.symbol.line_range ? targetArg.symbol.line_range[0] : 1,
 		};
 	}
-	if ("kind" in targetArg && targetArg.kind === "entry" && targetArg.tree.kind === "file") {
-		return {
-			root: targetArg.tree.root,
-			file: targetArg.tree.path,
-			line: 1,
-		};
-	}
 	if ("file" in targetArg && "root" in targetArg) {
 		return targetArg;
 	}
