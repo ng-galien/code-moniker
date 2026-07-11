@@ -1,6 +1,6 @@
 ---
 name: code-moniker
-description: Explore and understand any codebase symbolically, and diagnose architecture, dependency or refactoring problems, using code-moniker (CLI, workspace daemon queries, MCP tools). Use when mapping an unfamiliar repository, tracing callers/callees of a symbol, measuring coupling between modules, finding code smells and refactor hotspots, reviewing git changes as symbol-level facts, or auditing declared dependencies. Works on any project in its supported languages (ts, rs, java, python, go, cs, sql) with zero configuration.
+description: Explore and diagnose any codebase through code-moniker's symbolic index instead of manual file reading. ALWAYS use this before grep/Glob/Read exploration when the question involves architecture, module structure, coupling or dependencies between parts, call graphs, callers/callees, impact of a change, code smells, refactor targets, or project health — manual exploration produces impressions, code-moniker produces counted facts (coupling edges with counts, ranked violations) in fewer calls. Triggers on requests like "map/cartographie the architecture", "strongest couplings", "who calls X", "is this module healthy", "review this diff structurally". Zero configuration on any ts/rs/java/python/go/cs/sql project.
 ---
 
 # code-moniker
