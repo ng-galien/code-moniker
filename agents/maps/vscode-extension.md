@@ -1,4 +1,31 @@
-# VS Code Extension Testing
+# Map — VS Code Extension
+
+Operational map for agents working under `vscode-extension/`. All commands
+run from that directory. Human-facing reference lives in
+`docs/vscode-extension.md`; this map is how to act on the system.
+
+## Cartography
+
+- `src/daemon/`: session (connect-or-start, consistency, capabilities), WebSocket RPC, registry reader, `generated.ts` (regenerated from the daemon JSON schema — never hand-edited).
+- `src/symbols/`: identity tree (Symbols section) + detail webview host (`detail/panel.ts`, `detail/webview/`).
+- `src/explorer/`: Graph Explorer — scoped exploration webview (host `panel.ts`/`manager.ts`/`repository.ts`, React app under `webview/`).
+- `src/webview-lib/`: shared React pieces (`CodeBlock` + `code.css`, `parse.ts`, `symbolGlyph.ts`). Shared components own their styles here — duplicated CSS *will* diverge.
+- `src/workbench/`: unified workspace tree wrapping the feature providers.
+- `media/`: committed webview bundles (esbuild output). `test/`: integration harness and suites.
+- Webviews are pure React (no hybrid); host↔webview contracts live in `protocol.ts` modules.
+
+## Ship Routine
+
+```sh
+npm test && npm run compile && npm run test:integration
+npx vsce package -o code-moniker.vsix
+code --install-extension code-moniker.vsix     # then Reload Window
+```
+
+If Rust surfaces changed too: reinstall the binary (check the exit code) and
+restart stale daemons plus the `cm-mcp` tmux session.
+
+## Verification
 
 How the extension's UI is verified, from fast unit checks to pixel-level
 inspection of the webviews. Two complementary harnesses matter: the VS Code
