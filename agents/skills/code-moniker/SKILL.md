@@ -46,8 +46,9 @@ Then go by need:
 - **Never guess a URI or a focus path.** Get URIs from `symbol.search` /
   `code_moniker_symbols` and paste them exactly; a guessed one returns
   `symbol_not_found` / `focus_not_found`.
-- **`workspace is stale`** on `query` → the daemon needs a refresh cycle:
-  `code-moniker daemon stop <root>` then restart with `--live-refresh auto`.
+- `query` defaults to `--consistency stale-ok` and waits (bounded) for a
+  loading daemon: first calls do not fail on state. Force freshness with
+  `--consistency refresh-if-stale` when you just changed files.
 - **Filter syntax**: `shape:callable`, or OR-combine with `shape:callable,type`
   / `shape:[callable,type]`. Unknown fields are parse errors with a
   suggestion — read them, they name the valid fields.

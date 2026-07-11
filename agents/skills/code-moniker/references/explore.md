@@ -125,8 +125,8 @@ For quantitative JSON analysis over many files, pass `--all`: the default
 
 ## 7. When something misbehaves
 
-- `workspace is stale` → `code-moniker daemon stop .` then
-  `code-moniker daemon start --live-refresh auto . &`.
+- Queries answer from the current snapshot (`stale-ok` default) and wait for
+  a loading daemon; pass `--consistency refresh-if-stale` to reindex first.
 - `no daemon` errors → `code-moniker daemon list` shows the registry; every
   workspace root registers its own daemon, and an old daemon may predate a
   query verb while reporting the same version (`daemon status` lists the

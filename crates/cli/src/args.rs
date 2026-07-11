@@ -141,6 +141,21 @@ pub struct QueryArgs {
 
 	#[arg(long, help = "Print the structured query response DTO as JSON.")]
 	pub json: bool,
+
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = QueryConsistency::StaleOk,
+		help = "Snapshot freshness: stale-ok answers immediately, refresh-if-stale reindexes first, current fails on a stale workspace. A `consistency` field in the query text wins."
+	)]
+	pub(crate) consistency: QueryConsistency,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub(crate) enum QueryConsistency {
+	StaleOk,
+	RefreshIfStale,
+	Current,
 }
 
 #[derive(Debug, ClapArgs)]
