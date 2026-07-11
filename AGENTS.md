@@ -72,6 +72,7 @@ moniker and can produce symbol paths that differ from project/index checks.
 - TUI surface gate (after touching `crates/cli/src/ui/` or `crates/workspace/src/snapshot/`):
   - `cargo clippy -p code-moniker --features tui,mcp --no-default-features --lib --no-deps -- -D warnings`
 - CLI/TUI install gate: `cargo install --path crates/cli --features tui,mcp --no-default-features` and check the exit code; `-q` piped through `tail` hides failures.
+- VS Code extension gate (after touching `vscode-extension/`): `npm test` + `npm run compile` + `npm run test:integration`; UI claims require a webview ack or a browser-harness screenshot (`docs/vscode-testing.md`).
 
 ## MCP Dogfood
 
