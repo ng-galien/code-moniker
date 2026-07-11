@@ -1,5 +1,10 @@
 :root {
 	color-scheme: light dark;
+	/* Chart colors are stroke colors; as text they wash out on light themes.
+	   Mixed with the theme foreground they keep the hue, earn the contrast. */
+	--cm-accent-text: color-mix(in srgb, var(--vscode-charts-orange) 55%, var(--vscode-foreground));
+	--cm-in-text: color-mix(in srgb, var(--vscode-charts-blue) 60%, var(--vscode-foreground));
+	--cm-type-text: color-mix(in srgb, var(--vscode-charts-purple) 60%, var(--vscode-foreground));
 }
 
 body {
@@ -443,18 +448,18 @@ body {
 }
 
 .glyph {
-	color: var(--vscode-charts-orange);
+	color: var(--cm-accent-text);
 	font-family: var(--vscode-editor-font-family);
 	font-weight: 700;
 	flex-shrink: 0;
 }
 
 .glyph.method {
-	color: var(--vscode-charts-blue);
+	color: var(--cm-in-text);
 }
 
 .glyph.type {
-	color: var(--vscode-charts-purple);
+	color: var(--cm-type-text);
 }
 
 .symbol-name {
@@ -506,7 +511,7 @@ body {
 }
 
 .argtype {
-	color: var(--vscode-charts-purple);
+	color: var(--cm-type-text);
 }
 
 /* the moniker is data, not prose: single line, click to copy */
