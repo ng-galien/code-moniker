@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/Users/alexandreboyer/dev/projects/code-moniker/.codex/hooks/code-moniker-agent.sh codex",
+            "type": "command"
+          }
+        ],
+        "matcher": "apply_patch|Write|Edit|MultiEdit"
+      }
+    ]
+  }
+}

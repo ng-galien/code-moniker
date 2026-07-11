@@ -26,8 +26,11 @@ TODO.md
 
 # ESAC bridge token — never commit
 .esac/
-.codex/
-.claude/
 .code-moniker/
 .code-moniker-cache/
 cc/
+
+# Agent layer: agents/ is the canonical, versioned source; .claude/ and
+# .codex/ are versioned symlink projections. Only local state stays out.
+.claude/scheduled_tasks.lock
+.codex/config.toml

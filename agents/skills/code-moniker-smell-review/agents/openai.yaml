@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Moniker Smell Review"
+  short_description: "Review local DSL code smells as warnings"
+  default_prompt: "Use $code-moniker-smell-review to review this repository for local code smells with warning-severity code-moniker rules."
