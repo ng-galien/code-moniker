@@ -12,7 +12,6 @@ body,
 	--cm-accent: var(--vscode-charts-orange);
 	--cm-accent-text: color-mix(in srgb, var(--vscode-charts-orange) 55%, var(--vscode-foreground));
 	--cm-in-text: color-mix(in srgb, var(--vscode-charts-blue) 60%, var(--vscode-foreground));
-	--cm-type-text: color-mix(in srgb, var(--vscode-charts-purple) 60%, var(--vscode-foreground));
 }
 
 body {
@@ -197,7 +196,7 @@ body {
 }
 
 .fncard.entry {
-	border-color: var(--vscode-charts-green);
+	border-color: color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
 }
 
 .fncard.test {
@@ -212,14 +211,11 @@ body {
 }
 
 .glyph {
-	color: var(--cm-accent-text);
+	color: var(--vscode-foreground);
+	opacity: 0.8;
 	font-family: var(--vscode-editor-font-family);
 	font-weight: 700;
 	flex-shrink: 0;
-}
-
-.glyph.method {
-	color: var(--cm-in-text);
 }
 
 .fnname {
@@ -238,9 +234,9 @@ body {
 
 .pub {
 	margin-left: auto;
-	font-size: 0.68em;
-	color: var(--vscode-charts-green);
-	border: 1px solid var(--vscode-charts-green);
+	font-size: 0.78em;
+	color: var(--vscode-descriptionForeground);
+	border: 1px solid var(--vscode-panel-border);
 	border-radius: 6px;
 	padding: 0 5px;
 	opacity: 0.85;
@@ -274,7 +270,7 @@ body {
 }
 
 .argtype {
-	color: var(--cm-type-text);
+	color: var(--vscode-foreground);
 }
 
 .fncard-degrees {
@@ -329,7 +325,7 @@ body {
 .typechip {
 	font-family: var(--vscode-editor-font-family);
 	font-size: 0.82em;
-	color: var(--cm-type-text);
+	color: var(--vscode-foreground);
 	background: var(--vscode-editor-background);
 	border: 1px solid var(--vscode-panel-border);
 	border-radius: 4px;
@@ -782,6 +778,4 @@ button:focus-visible,
 	opacity: 0.6;
 }
 
-.glyph.type {
-	color: var(--cm-type-text);
-}
+

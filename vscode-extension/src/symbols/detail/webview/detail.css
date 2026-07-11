@@ -4,7 +4,6 @@
 	   Mixed with the theme foreground they keep the hue, earn the contrast. */
 	--cm-accent-text: color-mix(in srgb, var(--vscode-charts-orange) 55%, var(--vscode-foreground));
 	--cm-in-text: color-mix(in srgb, var(--vscode-charts-blue) 60%, var(--vscode-foreground));
-	--cm-type-text: color-mix(in srgb, var(--vscode-charts-purple) 60%, var(--vscode-foreground));
 }
 
 body {
@@ -191,7 +190,7 @@ body {
 	border: 1px solid var(--vscode-panel-border);
 	border-radius: 999px;
 	color: var(--vscode-descriptionForeground);
-	font-size: 0.72em;
+	font-size: 0.8em;
 	line-height: 1.6;
 	padding: 0 7px;
 	text-align: center;
@@ -274,7 +273,7 @@ body {
 
 .usage-action {
 	color: var(--vscode-descriptionForeground);
-	font-size: 0.76em;
+	font-size: 0.82em;
 	letter-spacing: 0.02em;
 	text-transform: uppercase;
 	white-space: nowrap;
@@ -367,7 +366,7 @@ body {
 
 .member-vis {
 	margin-left: auto;
-	font-size: 0.75em;
+	font-size: 0.8em;
 	opacity: 0.6;
 	flex-shrink: 0;
 }
@@ -381,18 +380,11 @@ body {
 }
 
 .glyph {
-	color: var(--cm-accent-text);
+	color: var(--vscode-foreground);
+	opacity: 0.8;
 	font-family: var(--vscode-editor-font-family);
 	font-weight: 700;
 	flex-shrink: 0;
-}
-
-.glyph.method {
-	color: var(--cm-in-text);
-}
-
-.glyph.type {
-	color: var(--cm-type-text);
 }
 
 .symbol-name {
@@ -405,9 +397,9 @@ body {
 }
 
 .pub {
-	font-size: 0.68em;
-	color: var(--vscode-charts-green);
-	border: 1px solid var(--vscode-charts-green);
+	font-size: 0.78em;
+	color: var(--vscode-descriptionForeground);
+	border: 1px solid var(--vscode-panel-border);
 	border-radius: 6px;
 	padding: 0 5px;
 	opacity: 0.85;
@@ -444,7 +436,7 @@ body {
 }
 
 .argtype {
-	color: var(--cm-type-text);
+	color: var(--vscode-foreground);
 }
 
 /* the moniker is data, not prose: single line, click to copy */
@@ -483,7 +475,7 @@ body {
 
 .member-row .member-kind {
 	margin-left: auto;
-	font-size: 0.75em;
+	font-size: 0.8em;
 	opacity: 0.55;
 	flex-shrink: 0;
 }
