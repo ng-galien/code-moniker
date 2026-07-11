@@ -119,6 +119,10 @@ Symbol-level table of contents of a file: kinds, names, visibility, nesting.
 Cheaper than reading the file when you only need its shape. Always anchor on
 `.` and filter with `--path`.
 
+For quantitative JSON analysis over many files, pass `--all`: the default
+`--limit 1000` caps emitted monikers silently (check `emitted_refs` against
+`stats` if in doubt).
+
 ## 7. When something misbehaves
 
 - `workspace is stale` → `code-moniker daemon stop .` then
