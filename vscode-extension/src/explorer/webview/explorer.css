@@ -142,48 +142,7 @@ body {
 	text-decoration: underline;
 }
 
-.code {
-	font-family: var(--vscode-editor-font-family);
-	font-size: var(--vscode-editor-font-size);
-	background: var(--vscode-editor-background);
-	border: 1px solid var(--vscode-panel-border);
-	border-radius: 4px;
-	padding: 6px 0;
-	overflow: auto;
-	margin: 0;
-	min-height: 0;
-}
-
-.code-line {
-	display: flex;
-	line-height: 1.45;
-}
-
-.code-line.active {
-	background: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-foreground) 12%);
-}
-
-.gutter {
-	width: 44px;
-	text-align: right;
-	padding-right: 12px;
-	opacity: 0.45;
-	user-select: none;
-	flex-shrink: 0;
-}
-
-.src {
-	white-space: pre;
-	font-family: inherit;
-}
-
-.tok {
-	color: var(--tok-dark, var(--vscode-editor-foreground, var(--vscode-foreground)));
-}
-
-body.vscode-light .tok {
-	color: var(--tok-light, var(--vscode-editor-foreground, var(--vscode-foreground)));
-}
+/* code blocks: shared rules live in webview-lib/code.css */
 
 .muted {
 	opacity: 0.6;

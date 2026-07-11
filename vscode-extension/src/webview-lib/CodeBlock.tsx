@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 
+import "./code.css";
+
 import type {
 	HighlightedSourceLine,
 	HighlightedSourceSnippet,

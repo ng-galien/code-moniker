@@ -125,69 +125,7 @@ body {
 	font-size: 0.9em;
 }
 
-.code {
-	font-family: var(--vscode-editor-font-family);
-	font-size: var(--vscode-editor-font-size);
-	background: var(--vscode-editor-background);
-	border: 1px solid var(--vscode-panel-border);
-	border-radius: 4px;
-	overflow-x: auto;
-	padding: 6px 0;
-}
-
-.code-line {
-	display: flex;
-	border-left: 2px solid transparent;
-	white-space: pre;
-}
-
-.code-line.active {
-	border-left-color: var(--vscode-focusBorder);
-}
-
-.code-line.active .src,
-.code-line.active .src * {
-	background: transparent !important;
-	border-radius: 0 !important;
-	box-shadow: none !important;
-}
-
-.code-line.active .gutter {
-	color: var(--vscode-editorLineNumber-activeForeground, var(--vscode-editorLineNumber-foreground));
-}
-
-.code-line .gutter {
-	min-width: 3.5em;
-	padding: 0 8px 0 6px;
-	text-align: right;
-	color: var(--vscode-editorLineNumber-foreground);
-	user-select: none;
-}
-
-.code-line .src {
-	padding-right: 12px;
-}
-
-.tok {
-	background: transparent;
-	color: var(--vscode-editor-foreground, var(--vscode-foreground));
-	border-radius: 0;
-	box-shadow: none;
-}
-
-.vscode-light .tok {
-	color: var(--tok-light, var(--vscode-editor-foreground, var(--vscode-foreground)));
-}
-
-.vscode-dark .tok {
-	color: var(--tok-dark, var(--vscode-editor-foreground, var(--vscode-foreground)));
-}
-
-.vscode-high-contrast .tok,
-.vscode-high-contrast-light .tok {
-	color: var(--vscode-editor-foreground, var(--vscode-foreground));
-}
-
+/* code blocks: shared rules live in webview-lib/code.css */
 .usage-tree {
 	display: flex;
 	flex-direction: column;
@@ -366,11 +304,6 @@ body {
 	margin-top: 7px;
 }
 
-.code-compact {
-	border-color: var(--vscode-panel-border);
-	max-height: 15em;
-}
-
 .empty-row {
 	color: var(--vscode-descriptionForeground);
 }
@@ -516,6 +449,10 @@ body {
 
 /* the moniker is data, not prose: single line, click to copy */
 .moniker-row {
+	/* Spans the whole meta grid: as a single column-1 item its long URI
+	   would inflate the label column's max-content to the full row width
+	   and crush the value column into a one-character sliver. */
+	grid-column: 1 / -1;
 	display: flex;
 	gap: 8px;
 	align-items: baseline;
@@ -527,6 +464,7 @@ body {
 	font-size: inherit;
 	font-family: var(--vscode-font-family);
 	max-width: 100%;
+	min-width: 0;
 	text-align: left;
 }
 

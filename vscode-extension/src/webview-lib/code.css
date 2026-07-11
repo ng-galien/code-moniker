@@ -1,0 +1,76 @@
+/* Canonical styles for the shared CodeBlock renderer. Imported by the
+   component itself so every webview renders code identically — the active
+   zone is marked by the left bar and gutter emphasis, never by a slab. */
+
+.code {
+	font-family: var(--vscode-editor-font-family);
+	font-size: var(--vscode-editor-font-size);
+	background: var(--vscode-editor-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 4px;
+	overflow: auto;
+	padding: 6px 0;
+	margin: 0;
+	min-height: 0;
+}
+
+.code-compact {
+	max-height: 15em;
+}
+
+.code-line {
+	display: flex;
+	border-left: 2px solid transparent;
+	white-space: pre;
+	line-height: 1.45;
+}
+
+.code-line.active {
+	border-left-color: var(--vscode-focusBorder);
+}
+
+.code-line.active .src,
+.code-line.active .src * {
+	background: transparent !important;
+	border-radius: 0 !important;
+	box-shadow: none !important;
+}
+
+.code-line.active .gutter {
+	color: var(--vscode-editorLineNumber-activeForeground, var(--vscode-editorLineNumber-foreground));
+	opacity: 1;
+}
+
+.code-line .gutter {
+	min-width: 3.5em;
+	padding: 0 8px 0 6px;
+	text-align: right;
+	color: var(--vscode-editorLineNumber-foreground);
+	user-select: none;
+	flex-shrink: 0;
+}
+
+.code-line .src {
+	padding-right: 12px;
+	font-family: inherit;
+}
+
+.tok {
+	background: transparent;
+	color: var(--vscode-editor-foreground, var(--vscode-foreground));
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.vscode-light .tok {
+	color: var(--tok-light, var(--vscode-editor-foreground, var(--vscode-foreground)));
+}
+
+.vscode-dark .tok {
+	color: var(--tok-dark, var(--vscode-editor-foreground, var(--vscode-foreground)));
+}
+
+.vscode-high-contrast .tok,
+.vscode-high-contrast-light .tok {
+	color: var(--vscode-editor-foreground, var(--vscode-foreground));
+}
