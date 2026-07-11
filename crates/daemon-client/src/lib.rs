@@ -75,6 +75,29 @@ impl DaemonClient {
 		wait_for_daemon(config)
 	}
 
+	pub fn connect_or_start_supporting(
+		config: DaemonWorkspaceConfig,
+		capability: &str,
+	) -> anyhow::Result<Self> {
+		let client = Self::connect_or_start_config(config.clone())?;
+		if client.supports_query(capability)? {
+			return Ok(client);
+		}
+		let _ = client.shutdown();
+		drop(client);
+		let config = canonical_workspace_config(config)?;
+		wait_for_deregistration(&config);
+		let _ = cleanup_stale_config(&config);
+		start_daemon_process(&config)?;
+		let client = wait_for_daemon(config)?;
+		if !client.supports_query(capability)? {
+			anyhow::bail!(
+				"the code-moniker daemon binary predates `{capability}`; update code-moniker and retry"
+			);
+		}
+		Ok(client)
+	}
+
 	pub fn root(&self) -> &Path {
 		&self.endpoint.roots[0]
 	}
@@ -104,6 +127,15 @@ impl DaemonConnection {
 	pub fn handshake(&self, client: &str) -> anyhow::Result<HandshakeResponse> {
 		self.block(self.ws.handshake(client.to_string()))
 			.map_err(|err| anyhow::anyhow!("{err}"))
+	}
+
+	pub fn supports_query(&self, capability: &str) -> anyhow::Result<bool> {
+		let handshake = self.handshake("daemon-client")?;
+		Ok(handshake
+			.capabilities
+			.queries
+			.iter()
+			.any(|verb| verb == capability))
 	}
 
 	pub fn query(&self, request: QueryRequest) -> anyhow::Result<QueryResponse> {
@@ -176,6 +208,19 @@ fn build_runtime() -> anyhow::Result<Runtime> {
 		.enable_all()
 		.thread_name("code-moniker-daemon-client")
 		.build()?)
+}
+
+// After asking an outdated daemon to shut down, give it a moment to leave
+// the registry so the fresh start does not race its guarded removal.
+fn wait_for_deregistration(config: &DaemonWorkspaceConfig) {
+	for _ in 0..30 {
+		match read_registry_entry(config) {
+			Ok(Some(entry)) if pid_is_alive(entry.pid) => {
+				thread::sleep(Duration::from_millis(100));
+			}
+			_ => return,
+		}
+	}
 }
 
 fn wait_for_daemon(config: DaemonWorkspaceConfig) -> anyhow::Result<DaemonClient> {

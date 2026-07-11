@@ -154,6 +154,27 @@ pub enum Query {
 	Notes(NotesQuery),
 }
 
+impl Query {
+	pub fn capability(&self) -> &'static str {
+		match self {
+			Self::WorkspaceStatus => "workspace.status",
+			Self::TreeChildren(_) => "tree.children",
+			Self::SymbolSearch(_) => "symbol.search",
+			Self::SymbolInsights(_) => "symbol.insights",
+			Self::SymbolDetail(_) => "symbol.detail",
+			Self::SymbolUsages(_) => "symbol.usages",
+			Self::ViewRead(_) => "view.read",
+			Self::RulesList(_) => "rules.list",
+			Self::RulesCheck(_) => "rules.check",
+			Self::ChangeReview(_) => "change.review",
+			Self::SymbolGraph(_) => "symbol.graph",
+			Self::IdentityChildren(_) => "identity.children",
+			Self::IdentityGraph(_) => "identity.graph",
+			Self::Notes(_) => "notes",
+		}
+	}
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TreeChildrenQuery {

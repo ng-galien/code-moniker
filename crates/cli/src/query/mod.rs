@@ -34,7 +34,10 @@ fn run_inner<W1: Write, W2: Write>(
 	if !args.query.contains("consistency") {
 		request.consistency = flag_consistency(args.consistency);
 	}
-	let client = daemon_client::DaemonClient::connect_or_start_config(query_daemon_config(args)?)?;
+	let client = daemon_client::DaemonClient::connect_or_start_supporting(
+		query_daemon_config(args)?,
+		request.query.capability(),
+	)?;
 	let response = query_waiting_for_load(&client, request, stderr)?;
 	if args.json {
 		serde_json::to_writer_pretty(&mut *stdout, &response)?;
