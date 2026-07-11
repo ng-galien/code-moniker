@@ -71,11 +71,23 @@ export function ScopeCanvas({
 				id: `${edge.source}->${edge.target}`,
 				source: edge.source,
 				target: edge.target,
-				type: "smoothstep",
+				// Bezier fan-in: orthogonal (smoothstep) edges into one target
+				// share their horizontal runs and read as a single collapsed
+				// pipe; curves keep each rolled-up edge visually separate.
+				type: "default",
 				className: "call-edge",
 				label: edge.count > 1 ? `×${edge.count}` : undefined,
-				style: { strokeWidth: 1 + Math.log2(edge.count) },
-				markerEnd: { type: MarkerType.ArrowClosed },
+				style: { strokeWidth: edgeWidth(edge.count) },
+				// The default marker scales with the stroke (markerUnits =
+				// strokeWidth): on a heavy rollup it becomes a giant triangle.
+				// Fixed user-space size keeps the arrowhead an arrowhead.
+				markerEnd: {
+					type: MarkerType.ArrowClosed,
+					width: 14,
+					height: 14,
+					markerUnits: "userSpaceOnUse",
+					color: "var(--cm-accent)",
+				},
 			})),
 		[model],
 	);
@@ -163,6 +175,12 @@ export function ScopeCanvas({
 			)}
 		</div>
 	);
+}
+
+// Sub-linear width: the eye compares "thin / medium / heavy", not 179 vs 84.
+// Uncapped log2 turned heavy rollups into 9px pipes that dwarfed the cards.
+function edgeWidth(count: number): number {
+	return Math.min(1.25 + Math.log2(count) * 0.35, 4);
 }
 
 function nodeModel(node: Node): ScopeNodeModel {

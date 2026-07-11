@@ -25,8 +25,9 @@ export async function layoutGraph(
 		layoutOptions: {
 			"elk.algorithm": "layered",
 			"elk.direction": "DOWN",
-			"elk.layered.spacing.nodeNodeBetweenLayers": "56",
-			"elk.spacing.nodeNode": "28",
+			"elk.layered.spacing.nodeNodeBetweenLayers": "72",
+			"elk.spacing.nodeNode": "36",
+			"elk.layered.spacing.edgeNodeBetweenLayers": "24",
 			"elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
 			"elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
 		},
