@@ -49,8 +49,23 @@ impl ServerHandler for CodeMonikerMcp {
 	fn get_info(&self) -> ServerInfo {
 		tracing::info!(event = "initialize_info", "mcp server info requested");
 		ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-			.with_server_info(Implementation::new("code-moniker", env!("CARGO_PKG_VERSION")))
-			.with_instructions("Use code_moniker_read with an LMNAV URI. Responses are compact text with uri, completeness, body, and next sections.")
+			.with_server_info(Implementation::new(
+				"code-moniker",
+				env!("CARGO_PKG_VERSION"),
+			))
+			.with_instructions(concat!(
+				"code-moniker serves a symbolic index of the workspace: every definition ",
+				"has a stable moniker URI (scheme code+moniker://) and relations between ",
+				"symbols (calls, uses_type, extends…) are counted facts. ",
+				"Start with code_moniker_read uri:\"workspace\" for an overview, or ",
+				"code_moniker_symbols to find a symbol and obtain its exact URI. ",
+				"Never guess a URI: take it verbatim from a previous result. ",
+				"Then code_moniker_usages for callers/callees, code_moniker_graph for ",
+				"coupling between scopes, code_moniker_rules for architecture checks, ",
+				"code_moniker_diff for structural change review. ",
+				"Responses are compact text with uri, completeness, body, and next ",
+				"sections; next lists ready-made follow-up calls."
+			))
 	}
 
 	fn list_tools(
