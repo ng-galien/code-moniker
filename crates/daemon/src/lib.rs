@@ -120,6 +120,13 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 	};
 	reject_conflicting_daemons(&config)?;
 	write_registry_entry(&config, &entry)?;
+	println!(
+		"code-moniker daemon: serving {} endpoint={} pid={} live_refresh={}",
+		entry.workspace_root,
+		entry.endpoint,
+		entry.pid,
+		entry.live_refresh.as_deref().unwrap_or("on-demand")
+	);
 
 	let handle = server.start(service.into_rpc());
 	let preload_daemon = daemon.clone();
@@ -128,6 +135,11 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 		if daemon.registry.queries().snapshot().is_none() {
 			let _ = refresh_full(&mut daemon);
 			let _ = restart_live_watcher(&mut daemon);
+			let status = workspace_status_result(&daemon.roots, &daemon.registry);
+			println!(
+				"code-moniker daemon: index ready — files={} symbols={} references={}",
+				status.files, status.symbols, status.references
+			);
 		}
 	});
 	tokio::select! {
@@ -1265,12 +1277,11 @@ fn workspace_loading_response(request: ProtocolRequest, roots: &[PathBuf]) -> Pr
 	}
 }
 
+// A second start for the same workspace must be refused while the first
+// lives, own registry slot included — overwriting it silently orphans the
+// running daemon.
 fn reject_conflicting_daemons(config: &DaemonWorkspaceConfig) -> anyhow::Result<()> {
-	let own_path = registry_path_for_config(config)?;
 	for (path, entry) in code_moniker_query::list_registry_files()? {
-		if path == own_path {
-			continue;
-		}
 		let shares_root = entry
 			.workspace_roots
 			.iter()

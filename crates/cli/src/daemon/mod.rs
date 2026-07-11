@@ -29,7 +29,9 @@ pub(crate) fn run_daemon<W1: Write, W2: Write>(
 }
 
 fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Result<()> {
-	let client = daemon_client::DaemonClient::connect_config(daemon_config(args)?)?;
+	let config = daemon_config(args)?;
+	let entry = daemon_client::read_registry_entry(&config)?;
+	let client = daemon_client::DaemonClient::connect_config(config)?;
 	let handshake = client.handshake("code-moniker-cli")?;
 	writeln!(stdout, "workspace: {}", handshake.workspace_root)?;
 	for root in &handshake.workspace_roots {
@@ -42,8 +44,11 @@ fn daemon_status<W: Write>(args: &DaemonRootArgs, stdout: &mut W) -> anyhow::Res
 	if let Some(cache_dir) = &client.config().cache_dir {
 		writeln!(stdout, "cache: {cache_dir}")?;
 	}
-	if let Some(live_refresh) = &client.config().live_refresh {
-		writeln!(stdout, "live_refresh: {live_refresh}")?;
+	if let Some(entry) = &entry {
+		writeln!(stdout, "pid: {}", entry.pid)?;
+		if let Some(live_refresh) = &entry.live_refresh {
+			writeln!(stdout, "live_refresh: {live_refresh}")?;
+		}
 	}
 	writeln!(stdout, "protocol: {}", handshake.protocol_version)?;
 	writeln!(stdout, "daemon: {}", handshake.daemon_version)?;

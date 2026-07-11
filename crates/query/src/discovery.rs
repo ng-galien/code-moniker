@@ -225,6 +225,10 @@ fn normalize_path(path: PathBuf) -> anyhow::Result<PathBuf> {
 	}
 }
 
+// The registry key is the workspace identity: what gets indexed (roots,
+// project, cache), never how it refreshes. Hashing live_refresh here once
+// split one workspace across two registry slots — a daemon started with
+// `--live-refresh auto` was invisible to a default-mode `daemon status`.
 fn stable_config_hash(config: &DaemonWorkspaceConfig) -> String {
 	let mut hasher = StableHasher::default();
 	for root in &config.roots {
@@ -234,8 +238,6 @@ fn stable_config_hash(config: &DaemonWorkspaceConfig) -> String {
 	config.project.hash(&mut hasher);
 	0xfe_u8.hash(&mut hasher);
 	config.cache_dir.hash(&mut hasher);
-	0xfd_u8.hash(&mut hasher);
-	config.live_refresh.hash(&mut hasher);
 	format!("{:016x}", hasher.finish())
 }
 
@@ -276,6 +278,31 @@ mod tests {
 			token: token.to_string(),
 			pid,
 		}
+	}
+
+	#[test]
+	fn registry_identity_ignores_the_refresh_mode() {
+		let base = DaemonWorkspaceConfig {
+			roots: vec!["/tmp/ws".to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: Some("auto".to_string()),
+		};
+		let mut on_demand = base.clone();
+		on_demand.live_refresh = Some("on-demand".to_string());
+		assert_eq!(
+			stable_config_hash(&base),
+			stable_config_hash(&on_demand),
+			"one workspace must map to one registry slot, whatever the refresh mode"
+		);
+
+		let mut other_project = base.clone();
+		other_project.project = Some("api".to_string());
+		assert_ne!(
+			stable_config_hash(&base),
+			stable_config_hash(&other_project),
+			"what gets indexed still separates registry slots"
+		);
 	}
 
 	#[test]
