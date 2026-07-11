@@ -25,12 +25,12 @@ Discover what a daemon supports with `code-moniker daemon status <root>`
 
 - Strings quoted: `prefix:"lang:ts/dir:src"`, `name:"ChangeService"`.
 - Numbers bare: `limit:10`.
-- `shape:callable` — one bare word. **`shape:[callable]` parses but matches
-  nothing** (silent empty result); repeat the field to OR values.
+- Multi-value fields OR-combine: `shape:callable,type`, `shape:[callable,type]`
+  (bracket list sugar on `lang`/`kind`/`shape`/`severity`), or repeat the field.
+  No spaces inside an unquoted list; an unclosed `[` is a parse error.
 - `symbol.search` filters AND-combine: `name:"change" shape:callable path:"src/**"`.
-- `name:` is substring; there is no `text:` field (an unknown field is
-  ignored and the query returns everything — if a filter seems ignored,
-  the field name is wrong).
+- Fields are validated per verb: an unknown field (e.g. `text:`) is a parse
+  error with a suggestion (`did you mean \`name\`?`) or the valid-field list.
 
 ## Identity prefixes
 
@@ -42,11 +42,11 @@ prefix is and get normalized.
 
 ## Consistency and staleness
 
-The CLI `query` has no consistency flag; a stale workspace answers
+A stale workspace answers
 `workspace is stale; request consistency refresh-if-stale or stale-ok`.
-Fix: restart the daemon with `--live-refresh auto`, or accept the hint and
-use a client that passes consistency (the MCP tools and the VS Code
-extension use `stale_ok`).
+Fix: add `consistency:refresh-if-stale` (or `consistency:stale-ok`) inline to
+the query, or restart the daemon with `--live-refresh auto`. The MCP tools and
+the VS Code extension pass `stale_ok` themselves.
 
 ## Chaining pattern
 

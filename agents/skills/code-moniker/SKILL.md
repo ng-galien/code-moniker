@@ -48,8 +48,9 @@ Then go by need:
   `symbol_not_found` / `focus_not_found`.
 - **`workspace is stale`** on `query` → the daemon needs a refresh cycle:
   `code-moniker daemon stop <root>` then restart with `--live-refresh auto`.
-- **Filter syntax**: `shape:callable`, not `shape:[callable]` — the bracket
-  form silently matches nothing.
+- **Filter syntax**: `shape:callable`, or OR-combine with `shape:callable,type`
+  / `shape:[callable,type]`. Unknown fields are parse errors with a
+  suggestion — read them, they name the valid fields.
 - **Always bound output**: `limit:` on queries, `--max-violations` on checks.
 - **Anchor extraction on the root**: `code-moniker extract . --path <file>`,
   never `extract <file>` — anchoring on the file changes every moniker.

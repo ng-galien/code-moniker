@@ -1067,6 +1067,16 @@ pub enum QueryParseError {
 	InvalidValue { key: String, value: String },
 	#[error("missing required `{0}`")]
 	MissingRequired(&'static str),
+	#[error("unknown field `{key}` for `{op}`{hint}")]
+	UnknownField {
+		op: String,
+		key: String,
+		hint: String,
+	},
+	#[error("unexpected argument `{value}` for `{op}`")]
+	UnexpectedArgument { op: String, value: String },
+	#[error("`project` is not supported by `{op}`")]
+	UnsupportedProjection { op: String },
 }
 
 pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
@@ -1079,46 +1089,68 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 	let mut positional = Vec::new();
 	collect_tokens(&tokens, &mut fields, &mut positional)?;
 	for line in lines {
-		let mut tokens = tokenize(line)?;
-		if tokens.is_empty() {
-			continue;
-		}
-		let section = tokens.remove(0);
-		if section.contains(':') {
-			let mut all = vec![section];
-			all.extend(tokens);
-			collect_tokens(&all, &mut fields, &mut positional)?;
-			continue;
-		}
-		match section.as_str() {
-			"filter" | "page" => collect_tokens(&tokens, &mut fields, &mut positional)?,
-			"project" => {
-				fields.projection.extend(
-					tokens
-						.into_iter()
-						.map(|token| token.trim_end_matches(',').to_string())
-						.filter(|token| !token.is_empty()),
-				);
-			}
-			"consistency" => {
-				let value = tokens
-					.first()
-					.ok_or(QueryParseError::MissingRequired("consistency value"))?;
-				fields.consistency = value.parse()?;
-			}
-			"direction" => {
-				let value = tokens
-					.first()
-					.ok_or(QueryParseError::MissingRequired("direction value"))?;
-				fields.values.push(("direction".to_string(), value.clone()));
-			}
-			_ => return Err(QueryParseError::InvalidToken(section)),
-		}
+		collect_line(line, &mut fields, &mut positional)?;
 	}
 	fields.positional = positional;
+	let spec = verb_spec(&op).ok_or_else(|| QueryParseError::UnknownOperation(op.clone()))?;
+	validate_fields(&op, &spec, &fields)?;
+	if let Some(value) = fields.one("consistency") {
+		fields.consistency = value.parse()?;
+	}
 	let page = fields.page()?;
 	let consistency = fields.consistency;
-	let query = match op.as_str() {
+	let query = build_query(&op, fields)?;
+	Ok(QueryRequest {
+		query,
+		consistency,
+		page,
+	})
+}
+
+fn collect_line(
+	line: &str,
+	fields: &mut FieldBag,
+	positional: &mut Vec<String>,
+) -> Result<(), QueryParseError> {
+	let mut tokens = tokenize(line)?;
+	if tokens.is_empty() {
+		return Ok(());
+	}
+	let section = tokens.remove(0);
+	if section.contains(':') {
+		let mut all = vec![section];
+		all.extend(tokens);
+		return collect_tokens(&all, fields, positional);
+	}
+	match section.as_str() {
+		"filter" | "page" => collect_tokens(&tokens, fields, positional)?,
+		"project" => {
+			fields.projection.extend(
+				tokens
+					.into_iter()
+					.map(|token| token.trim_end_matches(',').to_string())
+					.filter(|token| !token.is_empty()),
+			);
+		}
+		"consistency" => {
+			let value = tokens
+				.first()
+				.ok_or(QueryParseError::MissingRequired("consistency value"))?;
+			fields.consistency = value.parse()?;
+		}
+		"direction" => {
+			let value = tokens
+				.first()
+				.ok_or(QueryParseError::MissingRequired("direction value"))?;
+			fields.values.push(("direction".to_string(), value.clone()));
+		}
+		_ => return Err(QueryParseError::InvalidToken(section)),
+	}
+	Ok(())
+}
+
+fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
+	let query = match op {
 		"workspace.status" => Query::WorkspaceStatus,
 		"tree.children" => Query::TreeChildren(TreeChildrenQuery {
 			workspace: fields.one("workspace"),
@@ -1181,13 +1213,189 @@ pub fn parse_query(input: &str) -> Result<QueryRequest, QueryParseError> {
 		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
 		"identity.graph" => Query::IdentityGraph(identity_children_query(&fields)),
 		"notes" => Query::Notes(notes_query(&fields)?),
-		_ => return Err(QueryParseError::UnknownOperation(op)),
+		_ => return Err(QueryParseError::UnknownOperation(op.to_string())),
 	};
-	Ok(QueryRequest {
-		query,
-		consistency,
-		page,
-	})
+	Ok(query)
+}
+
+struct VerbSpec {
+	fields: &'static [&'static str],
+	positionals: usize,
+	projection: bool,
+}
+
+const COMMON_FIELDS: &[&str] = &["limit", "cursor", "consistency"];
+const BRACKET_LIST_FIELDS: &[&str] = &["lang", "kind", "shape", "severity"];
+
+fn verb_spec(op: &str) -> Option<VerbSpec> {
+	let spec = match op {
+		"workspace.status" => VerbSpec {
+			fields: &[],
+			positionals: 0,
+			projection: false,
+		},
+		"tree.children" => VerbSpec {
+			fields: &["workspace", "path", "depth", "lang"],
+			positionals: 0,
+			projection: true,
+		},
+		"symbol.search" => VerbSpec {
+			fields: &[
+				"workspace",
+				"path",
+				"lang",
+				"kind",
+				"shape",
+				"name",
+				"include_non_navigable",
+				"include_code",
+				"context_lines",
+			],
+			positionals: 1,
+			projection: true,
+		},
+		"symbol.insights" => VerbSpec {
+			fields: &[
+				"workspace",
+				"path",
+				"lang",
+				"kind",
+				"shape",
+				"name",
+				"include_non_navigable",
+			],
+			positionals: 0,
+			projection: true,
+		},
+		"symbol.detail" => VerbSpec {
+			fields: &["workspace", "uri", "context_lines"],
+			positionals: 1,
+			projection: false,
+		},
+		"symbol.usages" => VerbSpec {
+			fields: &["workspace", "uri", "direction", "path", "lang"],
+			positionals: 1,
+			projection: true,
+		},
+		"view.read" => VerbSpec {
+			fields: &["uri", "scheme", "context_lines", "include_code"],
+			positionals: 1,
+			projection: false,
+		},
+		"rules.list" => VerbSpec {
+			fields: &["workspace", "profile", "rules", "lang", "severity"],
+			positionals: 0,
+			projection: false,
+		},
+		"rules.check" => VerbSpec {
+			fields: &["workspace", "profile", "rules", "file", "report"],
+			positionals: 0,
+			projection: false,
+		},
+		"change.review" => VerbSpec {
+			fields: &["workspace"],
+			positionals: 0,
+			projection: false,
+		},
+		"symbol.graph" => VerbSpec {
+			fields: &["workspace", "focus"],
+			positionals: 1,
+			projection: false,
+		},
+		"identity.children" | "identity.graph" => VerbSpec {
+			fields: &["workspace", "prefix"],
+			positionals: 1,
+			projection: false,
+		},
+		"notes" => VerbSpec {
+			fields: &[
+				"action",
+				"id",
+				"moniker",
+				"kind",
+				"status",
+				"title",
+				"body",
+				"created_by",
+				"orphan",
+				"include_done",
+			],
+			positionals: 0,
+			projection: false,
+		},
+		_ => return None,
+	};
+	Some(spec)
+}
+
+fn validate_fields(op: &str, spec: &VerbSpec, fields: &FieldBag) -> Result<(), QueryParseError> {
+	for (key, value) in &fields.values {
+		let key = key.as_str();
+		if !COMMON_FIELDS.contains(&key) && !spec.fields.contains(&key) {
+			return Err(QueryParseError::UnknownField {
+				op: op.to_string(),
+				key: key.to_string(),
+				hint: field_hint(key, spec.fields),
+			});
+		}
+		if BRACKET_LIST_FIELDS.contains(&key) && value.starts_with('[') != value.ends_with(']') {
+			return Err(QueryParseError::InvalidValue {
+				key: key.to_string(),
+				value: value.clone(),
+			});
+		}
+	}
+	if let Some(extra) = fields.positional.get(spec.positionals) {
+		return Err(QueryParseError::UnexpectedArgument {
+			op: op.to_string(),
+			value: extra.clone(),
+		});
+	}
+	if !spec.projection && !fields.projection.is_empty() {
+		return Err(QueryParseError::UnsupportedProjection { op: op.to_string() });
+	}
+	Ok(())
+}
+
+fn field_hint(key: &str, allowed: &'static [&'static str]) -> String {
+	if let Some(suggestion) = suggest_field(key, allowed) {
+		return format!(", did you mean `{suggestion}`?");
+	}
+	let mut valid: Vec<&str> = allowed.iter().chain(COMMON_FIELDS).copied().collect();
+	valid.sort_unstable();
+	format!(" (valid fields: {})", valid.join(", "))
+}
+
+fn suggest_field(key: &str, allowed: &'static [&'static str]) -> Option<&'static str> {
+	const ALIASES: &[(&str, &str)] = &[("text", "name"), ("query", "name"), ("filename", "path")];
+	for (alias, target) in ALIASES {
+		if *alias == key && allowed.contains(target) {
+			return Some(target);
+		}
+	}
+	allowed
+		.iter()
+		.chain(COMMON_FIELDS)
+		.copied()
+		.map(|candidate| (candidate, levenshtein(key, candidate)))
+		.filter(|(_, distance)| *distance <= 2)
+		.min_by_key(|(_, distance)| *distance)
+		.map(|(candidate, _)| candidate)
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+	let b: Vec<char> = b.chars().collect();
+	let mut row: Vec<usize> = (0..=b.len()).collect();
+	for (i, ca) in a.chars().enumerate() {
+		let mut previous = row[0];
+		row[0] = i + 1;
+		for (j, cb) in b.iter().enumerate() {
+			let substitution = previous + usize::from(ca != *cb);
+			previous = row[j + 1];
+			row[j + 1] = substitution.min(previous + 1).min(row[j] + 1);
+		}
+	}
+	row[b.len()]
 }
 
 fn symbol_search_query(fields: &FieldBag) -> Result<SymbolSearchQuery, QueryParseError> {
@@ -1640,7 +1848,7 @@ impl FieldBag {
 		self.values
 			.iter()
 			.filter(|(candidate, _)| candidate == key)
-			.flat_map(|(_, value)| split_csv(value))
+			.flat_map(|(_, value)| split_csv(strip_bracket_list(key, value)))
 			.collect()
 	}
 }
@@ -1717,6 +1925,18 @@ fn tokenize(input: &str) -> Result<Vec<String>, QueryParseError> {
 	Ok(tokens)
 }
 
+// `shape:[callable,type]` list sugar, restricted to enum-like fields so glob
+// character classes in `path:`/`file:` values stay untouched.
+fn strip_bracket_list<'a>(key: &str, value: &'a str) -> &'a str {
+	if !BRACKET_LIST_FIELDS.contains(&key) {
+		return value;
+	}
+	value
+		.strip_prefix('[')
+		.and_then(|inner| inner.strip_suffix(']'))
+		.unwrap_or(value)
+}
+
 pub fn split_csv(value: &str) -> Vec<String> {
 	value
 		.split(',')
@@ -1775,6 +1995,77 @@ mod tests {
 			error,
 			QueryParseError::InvalidValue { ref key, .. } if key == "cursor"
 		));
+	}
+
+	#[test]
+	fn parses_bracket_list_shape() {
+		let query = parse_query("symbol.search shape:[callable,type] limit:5").expect("query");
+		match query.query {
+			Query::SymbolSearch(search) => assert_eq!(search.shape, vec!["callable", "type"]),
+			other => panic!("unexpected query {other:?}"),
+		}
+	}
+
+	#[test]
+	fn rejects_unterminated_bracket_list() {
+		let error = parse_query("symbol.search shape:[callable").expect_err("unterminated list");
+		assert!(matches!(
+			error,
+			QueryParseError::InvalidValue { ref key, .. } if key == "shape"
+		));
+	}
+
+	#[test]
+	fn rejects_unknown_field_with_alias_suggestion() {
+		let error = parse_query(r#"symbol.search text:"foo""#).expect_err("unknown field");
+		let message = error.to_string();
+		assert!(
+			message.contains("unknown field `text` for `symbol.search`"),
+			"{message}"
+		);
+		assert!(message.contains("did you mean `name`?"), "{message}");
+	}
+
+	#[test]
+	fn rejects_typo_field_with_suggestion() {
+		let error = parse_query("rules.check profil:agent").expect_err("typo field");
+		let message = error.to_string();
+		assert!(message.contains("did you mean `profile`?"), "{message}");
+	}
+
+	#[test]
+	fn lists_valid_fields_without_close_match() {
+		let error = parse_query("change.review foobarbaz:1").expect_err("unknown field");
+		let message = error.to_string();
+		assert!(
+			message.contains("valid fields: consistency, cursor, limit, workspace"),
+			"{message}"
+		);
+	}
+
+	#[test]
+	fn rejects_unexpected_positional() {
+		let error = parse_query("workspace.status extra").expect_err("positional");
+		assert!(matches!(
+			error,
+			QueryParseError::UnexpectedArgument { ref value, .. } if value == "extra"
+		));
+	}
+
+	#[test]
+	fn rejects_projection_on_unsupported_verb() {
+		let error = parse_query("rules.list\nproject name").expect_err("projection");
+		assert!(matches!(
+			error,
+			QueryParseError::UnsupportedProjection { .. }
+		));
+	}
+
+	#[test]
+	fn parses_inline_consistency() {
+		let query =
+			parse_query("rules.check profile:agent consistency:refresh-if-stale").expect("query");
+		assert_eq!(query.consistency, Consistency::RefreshIfStale);
 	}
 
 	#[test]
