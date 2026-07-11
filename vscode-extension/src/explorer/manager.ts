@@ -22,8 +22,7 @@ export function registerExplorer(
 	context.subscriptions.push(
 		panel,
 		vscode.commands.registerCommand("codeMoniker.explorer.focus", async (arg?: unknown) => {
-			if (!(await session.connectOrStart())) {
-				void vscode.window.showWarningMessage("Code Moniker: no workspace daemon available.");
+			if (!(await ensureGraphCapable(session))) {
 				return;
 			}
 			const focus = focusFromArgument(arg);
@@ -44,6 +43,35 @@ export function registerExplorer(
 	);
 
 	return { panel };
+}
+
+// A long-running daemon may predate the graph verb while reporting the same
+// version string; the handshake capability set is the only honest signal.
+// Offer the restart instead of letting the query fail with a wire error.
+async function ensureGraphCapable(session: DaemonSession): Promise<boolean> {
+	if (!(await session.connectOrStart())) {
+		void vscode.window.showWarningMessage("Code Moniker: no workspace daemon available.");
+		return false;
+	}
+	if (session.supportsQuery("identity.graph")) {
+		return true;
+	}
+	const restart = "Restart daemon";
+	const choice = await vscode.window.showWarningMessage(
+		"Code Moniker: the running workspace daemon predates the graph view.",
+		restart,
+	);
+	if (choice !== restart) {
+		return false;
+	}
+	await session.stop();
+	if (!(await session.connectOrStart()) || !session.supportsQuery("identity.graph")) {
+		void vscode.window.showWarningMessage(
+			"Code Moniker: the restarted daemon still lacks the graph view — update the code-moniker binary.",
+		);
+		return false;
+	}
+	return true;
 }
 
 // Accepts a raw prefix/URI string, a symbol row, or an identity segment row
@@ -80,7 +108,7 @@ async function focusAtCursor(
 	panel: ExplorerPanel,
 ): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
-	if (!editor || !(await session.connectOrStart())) {
+	if (!editor || !(await ensureGraphCapable(session))) {
 		return;
 	}
 	const rel = workspaceRelative(session, editor.document.uri.fsPath);

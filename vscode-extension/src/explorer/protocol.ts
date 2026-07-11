@@ -36,10 +36,19 @@ export interface InsetMessage {
 	source: HighlightedSourceSnippet | null;
 }
 
+// The webview acknowledges every scope it applies. This closes the loop for
+// the e2e suite: an ack proves the React bundle loaded, received the message
+// and rendered the level — not merely that the host posted it.
+export interface ScopeAck {
+	prefix: string;
+	nodes: number;
+}
+
 export type ExplorerMessage =
 	| { type: "focus"; prefix: string }
 	| { type: "back" }
 	| { type: "forward" }
 	| { type: "inspect"; uri: string }
 	| { type: "openSource"; target: OpenSourceTarget }
-	| { type: "ready" };
+	| { type: "ready" }
+	| ({ type: "ack" } & ScopeAck);

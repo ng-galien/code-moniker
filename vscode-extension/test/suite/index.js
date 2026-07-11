@@ -5,6 +5,7 @@ const path = require("node:path");
 const vscode = require("vscode");
 
 const { testDaemonView } = require("./daemon.test");
+const { testExplorer } = require("./explorer.test");
 const { testSymbolTree } = require("./symbols.test");
 const { testRulesDaemon } = require("./rules-daemon.test");
 const { getApi, delay, codeMonikerExtension } = require("./helpers");
@@ -47,6 +48,7 @@ async function run() {
 	// Daemon-backed navigation features (acceptance / end-to-end).
 	await testDaemonView();
 	await testSymbolTree();
+	await testExplorer();
 	await testRulesDaemon();
 	await teardownDaemon();
 }

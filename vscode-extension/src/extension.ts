@@ -1,5 +1,5 @@
 import { registerCatalog } from "./catalog/catalogView";
-import { registerExplorer } from "./explorer/manager";
+import { ExplorerFeature, registerExplorer } from "./explorer/manager";
 import { registerChanges } from "./changes/manager";
 import { ChangesProvider } from "./changes/tree";
 import { DaemonListProvider } from "./daemon/tree";
@@ -29,6 +29,7 @@ export interface CodeMonikerApi {
 	changes: ChangesProvider;
 	violations: ViolationModel;
 	workspace: WorkspaceTreeProvider;
+	explorer: ExplorerFeature;
 }
 
 export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
@@ -41,7 +42,7 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 	const views = registerViews(context, daemon.session);
 	const rules = registerRulesDaemon(context, daemon.session, symbols);
 	const changes = registerChanges(context, daemon.session);
-	registerExplorer(context, daemon.session, symbols.repository);
+	const explorer = registerExplorer(context, daemon.session, symbols.repository);
 	const workspace = registerWorkspace(context, {
 		session: daemon.session,
 		daemons: daemon.provider,
@@ -62,6 +63,7 @@ export function activate(context: vscode.ExtensionContext): CodeMonikerApi {
 		changes: changes.provider,
 		violations: rules.model,
 		workspace: workspace.tree,
+		explorer,
 	};
 }
 

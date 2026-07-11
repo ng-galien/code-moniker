@@ -2,7 +2,14 @@ import * as vscode from "vscode";
 
 import { highlightSource } from "../symbols/detail/highlight";
 import { renderExplorerHtml } from "./html";
-import { ExplorerMessage, InsetMessage, ScopeMessage, ScopePayload } from "./protocol";
+import {
+	ExplorerMessage,
+	InsetMessage,
+	ScopeAck,
+	ScopeErrorMessage,
+	ScopeMessage,
+	ScopePayload,
+} from "./protocol";
 import { ExplorerRepository } from "./repository";
 
 // The scoped exploration graph: an editor-area webview where the focus is an
@@ -14,7 +21,18 @@ export class ExplorerPanel implements vscode.Disposable {
 	private history: string[] = [];
 	private index = -1;
 	private seq = 0;
-	private lastMessage?: ScopeMessage;
+	private lastMessage?: ScopeMessage | ScopeErrorMessage;
+	private acks: ScopeAck[] = [];
+
+	// Test observability: the last message the host decided to show, and the
+	// acks the webview sent back after actually applying a scope.
+	get current(): ScopeMessage | ScopeErrorMessage | undefined {
+		return this.lastMessage;
+	}
+
+	get webviewAcks(): readonly ScopeAck[] {
+		return this.acks;
+	}
 
 	constructor(
 		private readonly extensionUri: vscode.Uri,
@@ -53,11 +71,15 @@ export class ExplorerPanel implements vscode.Disposable {
 			await this.render(panel, token, prefix);
 		} catch (error) {
 			if (token === this.seq && this.panel === panel) {
-				void panel.webview.postMessage({
+				// Store the error like a scope: if it fires before the webview
+				// has mounted, the ready handshake replays it instead of
+				// leaving the user on a silent empty state.
+				this.lastMessage = {
 					type: "scopeError",
 					prefix,
 					message: error instanceof Error ? error.message : String(error),
-				});
+				};
+				void panel.webview.postMessage(this.lastMessage);
 			}
 		}
 	}
@@ -82,7 +104,9 @@ export class ExplorerPanel implements vscode.Disposable {
 			}
 		}
 		if (!graph) {
-			return;
+			throw new Error(
+				"the daemon returned no scope graph — reconnect or refresh the workspace daemon",
+			);
 		}
 		panel.title = scopeTitle(graph.prefix);
 		const payload: ScopePayload = {
@@ -125,6 +149,8 @@ export class ExplorerPanel implements vscode.Disposable {
 				void vscode.commands.executeCommand("codeMoniker.symbols.openSource", message.target);
 			} else if (message?.type === "ready" && this.lastMessage) {
 				void panel.webview.postMessage(this.lastMessage);
+			} else if (message?.type === "ack") {
+				this.acks.push({ prefix: message.prefix, nodes: message.nodes });
 			}
 		});
 		this.panel = panel;

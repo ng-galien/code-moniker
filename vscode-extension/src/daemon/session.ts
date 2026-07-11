@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { launchWorkspaceDaemon } from "../cli/facade";
 import { DaemonRpcError, RpcSubscription } from "./client";
 import {
+	CapabilitySet,
 	DaemonRegistryEntry,
 	PROTOCOL_VERSION,
 	Query,
@@ -54,7 +55,14 @@ export class DaemonSession implements vscode.Disposable {
 	lastError?: string;
 	endpoint?: string;
 	generation?: number;
+	capabilities?: CapabilitySet;
 	readonly workspaceRoots: string[];
+
+	// The daemon version string alone cannot tell an outdated long-running
+	// process from a current one; the handshake capability set can.
+	supportsQuery(name: string): boolean {
+		return this.capabilities?.queries.includes(name) ?? false;
+	}
 
 	private readonly statusEmitter = new vscode.EventEmitter<DaemonStatus>();
 	readonly onDidChangeStatus = this.statusEmitter.event;
@@ -155,9 +163,9 @@ export class DaemonSession implements vscode.Disposable {
 			if (!entry) {
 				throw daemonRegistrationError("starting");
 			}
-			let rpc: DaemonRpc;
+			let link: DaemonLink;
 			try {
-				rpc = await connectEntry(entry);
+				link = await connectEntry(entry);
 			} catch (error) {
 				if (isProtocolError(error)) {
 					throw error;
@@ -168,10 +176,12 @@ export class DaemonSession implements vscode.Disposable {
 				if (!entry) {
 					throw daemonRegistrationError("restarting after a stale registry entry");
 				}
-				rpc = await connectEntry(entry);
+				link = await connectEntry(entry);
 			}
+			const rpc = link.rpc;
 			rpc.onDidClose(() => this.onConnectionClosed());
 			this.rpc = rpc;
+			this.capabilities = link.capabilities;
 			this.endpoint = entry.endpoint;
 			this.subscription = await rpc.subscribeEvents((event) => this.handleEvent(event));
 			await this.waitUntilReady();
@@ -242,6 +252,7 @@ export class DaemonSession implements vscode.Disposable {
 		this.rpc = undefined;
 		this.endpoint = undefined;
 		this.generation = undefined;
+		this.capabilities = undefined;
 	}
 
 	private setStatus(status: DaemonStatus): void {
@@ -257,14 +268,19 @@ export class DaemonSession implements vscode.Disposable {
 	}
 }
 
-async function connectEntry(entry: DaemonRegistryEntry): Promise<DaemonRpc> {
+interface DaemonLink {
+	rpc: DaemonRpc;
+	capabilities: CapabilitySet;
+}
+
+async function connectEntry(entry: DaemonRegistryEntry): Promise<DaemonLink> {
 	const rpc = await DaemonRpc.connect(entry.endpoint);
 	const handshake = await rpc.handshake("vscode-extension");
 	if (handshake.protocol_version !== PROTOCOL_VERSION) {
 		rpc.close();
 		throw new Error(`unsupported daemon protocol ${handshake.protocol_version}`);
 	}
-	return rpc;
+	return { rpc, capabilities: handshake.capabilities };
 }
 
 async function waitForEntry(roots: string[]): Promise<DaemonRegistryEntry | undefined> {

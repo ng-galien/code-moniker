@@ -24,10 +24,16 @@ export function App() {
 		const onMessage = (event: MessageEvent) => {
 			const message = event.data;
 			if (message?.type === "scope") {
-				setScope(message.payload as ScopePayload);
+				const payload = message.payload as ScopePayload;
+				setScope(payload);
 				setSelectedEdge(null);
 				setInset(null);
 				setError(null);
+				vscode.postMessage({
+					type: "ack",
+					prefix: payload.graph.prefix,
+					nodes: payload.graph.nodes.length,
+				});
 			} else if (message?.type === "inset") {
 				const payload = message as InsetMessage;
 				setInset((current) =>
