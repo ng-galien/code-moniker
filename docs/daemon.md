@@ -54,8 +54,10 @@ code-moniker query [-r root] "<DSL>" [--json]
 neighborhood of a unit: the focus defines a boundary on the identity tree,
 and resolved references partition into internal edges, callers (outside-in)
 and callees (inside-out), aggregated per neighbor with relation kinds and
-call counts; unresolved references are counted, never dropped. This feeds
-the IDE Graph Explorer triptych and the `code_moniker_graph` MCP tool.
+call counts. References without an in-workspace target are decomposed in
+`unlinked` (`external`, `manifest_blocked`, `unresolved` with a by-reason
+ventilation) so external-by-design links never read as resolution gaps. This
+feeds the IDE Graph Explorer and the `code_moniker_graph` MCP tool.
 
 `identity.children prefix:"<identity prefix>"` returns one level of the
 identity tree - the purely symbolic navigation surface, no filesystem. Each
@@ -68,8 +70,9 @@ segment itself is a navigable definition. An empty prefix lists the roots
 nodes are the prefix's children, edges are resolved references rolled up to
 the pair of child segments they connect (kinds + counts), and boundary
 crossings aggregate into `ports_in`/`ports_out` at the scope's own depth.
-Unresolved references from inside the scope are counted. This feeds the
-scoped exploration canvas of the IDE Graph Explorer.
+References from inside the scope without an in-workspace target are
+decomposed in `unlinked` (external / manifest_blocked / unresolved by
+reason). This feeds the scoped exploration canvas of the IDE Graph Explorer.
 
 ## Discovery
 

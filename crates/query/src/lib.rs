@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::{self, Write};
 use std::str::FromStr;
 
@@ -433,6 +434,19 @@ pub enum QueryResult {
 	Notes(NotesResult),
 }
 
+// Refs without an in-workspace target, decomposed so external-by-design
+// never masquerades as a resolution gap: `external` links to declared
+// packages, `manifest_blocked` hit the manifest policy, `unresolved` are the
+// real misses, ventilated by reason.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct UnlinkedRefsDto {
+	pub external: usize,
+	pub manifest_blocked: usize,
+	pub unresolved: usize,
+	pub unresolved_reasons: BTreeMap<String, usize>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SymbolGraphResult {
@@ -441,7 +455,7 @@ pub struct SymbolGraphResult {
 	pub internal_edges: Vec<SymbolGraphEdge>,
 	pub callers: Vec<SymbolGraphNeighbor>,
 	pub callees: Vec<SymbolGraphNeighbor>,
-	pub unresolved_refs: usize,
+	pub unlinked: UnlinkedRefsDto,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -503,7 +517,7 @@ pub struct IdentityGraphResult {
 	pub edges: Vec<IdentityGraphEdge>,
 	pub ports_in: Vec<IdentityGraphPort>,
 	pub ports_out: Vec<IdentityGraphPort>,
-	pub unresolved_refs: usize,
+	pub unlinked: UnlinkedRefsDto,
 }
 
 // source/target are child segment identities of the requested prefix.
@@ -1635,6 +1649,23 @@ fn format_identity_children(out: &mut String, result: &IdentityChildrenResult) {
 	}
 }
 
+fn format_unlinked(out: &mut String, unlinked: &UnlinkedRefsDto) {
+	let _ = writeln!(
+		out,
+		"unlinked refs: external {} · manifest-blocked {} · unresolved {}",
+		unlinked.external, unlinked.manifest_blocked, unlinked.unresolved
+	);
+	if !unlinked.unresolved_reasons.is_empty() {
+		let reasons = unlinked
+			.unresolved_reasons
+			.iter()
+			.map(|(reason, count)| format!("{reason} {count}"))
+			.collect::<Vec<_>>()
+			.join(" · ");
+		let _ = writeln!(out, "unresolved by reason: {reasons}");
+	}
+}
+
 fn format_identity_graph(out: &mut String, result: &IdentityGraphResult) {
 	let prefix = if result.prefix.is_empty() {
 		"<root>"
@@ -1644,11 +1675,11 @@ fn format_identity_graph(out: &mut String, result: &IdentityGraphResult) {
 	let _ = writeln!(out, "scope: {prefix}");
 	let _ = writeln!(
 		out,
-		"nodes: {} edges: {} unresolved refs: {}",
+		"nodes: {} edges: {}",
 		result.nodes.len(),
-		result.edges.len(),
-		result.unresolved_refs
+		result.edges.len()
 	);
+	format_unlinked(out, &result.unlinked);
 	for edge in &result.edges {
 		let _ = writeln!(
 			out,
@@ -1694,11 +1725,11 @@ fn format_symbol_graph(out: &mut String, result: &SymbolGraphResult) {
 	}
 	let _ = writeln!(
 		out,
-		"members: {} internal edges: {} unresolved refs: {}",
+		"members: {} internal edges: {}",
 		result.members.len(),
-		result.internal_edges.len(),
-		result.unresolved_refs
+		result.internal_edges.len()
 	);
+	format_unlinked(out, &result.unlinked);
 	for caller in &result.callers {
 		let _ = writeln!(
 			out,

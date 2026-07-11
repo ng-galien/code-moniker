@@ -631,7 +631,7 @@ export interface SymbolGraphResult {
   focus: SymbolGraphFocus;
   internal_edges: SymbolGraphEdge[];
   members: SymbolDto[];
-  unresolved_refs: number;
+  unlinked: UnlinkedRefsDto;
 }
 export interface SymbolGraphNeighbor {
   count: number;
@@ -643,6 +643,14 @@ export interface SymbolGraphEdge {
   kinds: string[];
   source: string;
   target: string;
+}
+export interface UnlinkedRefsDto {
+  external: number;
+  manifest_blocked: number;
+  unresolved: number;
+  unresolved_reasons: {
+    [k: string]: number;
+  };
 }
 export interface IdentityChildrenResult {
   children: IdentitySegmentDto[];
@@ -663,7 +671,7 @@ export interface IdentityGraphResult {
   ports_in: IdentityGraphPort[];
   ports_out: IdentityGraphPort[];
   prefix: string;
-  unresolved_refs: number;
+  unlinked: UnlinkedRefsDto;
 }
 export interface IdentityGraphEdge {
   count: number;

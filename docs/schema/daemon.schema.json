@@ -818,7 +818,7 @@
         "ports_in",
         "ports_out",
         "prefix",
-        "unresolved_refs"
+        "unlinked"
       ],
       "properties": {
         "edges": {
@@ -848,10 +848,8 @@
         "prefix": {
           "type": "string"
         },
-        "unresolved_refs": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0.0
+        "unlinked": {
+          "$ref": "#/definitions/UnlinkedRefsDto"
         }
       }
     },
@@ -2510,7 +2508,7 @@
         "focus",
         "internal_edges",
         "members",
-        "unresolved_refs"
+        "unlinked"
       ],
       "properties": {
         "callees": {
@@ -2540,10 +2538,8 @@
             "$ref": "#/definitions/SymbolDto"
           }
         },
-        "unresolved_refs": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0.0
+        "unlinked": {
+          "$ref": "#/definitions/UnlinkedRefsDto"
         }
       }
     },
@@ -2793,6 +2789,40 @@
         "file",
         "directory"
       ]
+    },
+    "UnlinkedRefsDto": {
+      "type": "object",
+      "required": [
+        "external",
+        "manifest_blocked",
+        "unresolved",
+        "unresolved_reasons"
+      ],
+      "properties": {
+        "external": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "manifest_blocked": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "unresolved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "unresolved_reasons": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
+        }
+      }
     },
     "UsageDirection": {
       "type": "string",

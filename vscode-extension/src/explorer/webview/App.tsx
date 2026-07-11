@@ -142,9 +142,12 @@ export function App() {
 						types
 					</button>
 				</span>
-				{graph.unresolved_refs > 0 && (
-					<span className="unresolved" title="References the index could not resolve">
-						{graph.unresolved_refs} unresolved
+				{graph.unlinked.unresolved > 0 && (
+					<span
+						className="unresolved"
+						title={`References the index could not resolve (external: ${graph.unlinked.external} · manifest-blocked: ${graph.unlinked.manifest_blocked})`}
+					>
+						{graph.unlinked.unresolved} unresolved
 					</span>
 				)}
 			</div>

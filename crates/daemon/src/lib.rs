@@ -2,7 +2,7 @@
 // Daemon bootstrap clones config and handles into independently owned runtime services.
 #![cfg(unix)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, TryLockError, mpsc};
@@ -49,7 +49,7 @@ use code_moniker_query::{
 	ChangeReviewFile, ChangeReviewQuery, ChangeReviewRef, ChangeReviewResult, ChangeReviewSide,
 	ChangeReviewSummary, ChangeReviewSymbol, IdentityChildrenQuery, IdentityChildrenResult,
 	IdentityGraphEdge, IdentityGraphPort, IdentityGraphResult, IdentitySegmentDto, SymbolGraphEdge,
-	SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult,
+	SymbolGraphFocus, SymbolGraphNeighbor, SymbolGraphQuery, SymbolGraphResult, UnlinkedRefsDto,
 };
 
 use helpers::*;
@@ -674,7 +674,8 @@ fn symbol_graph_response(
 	let mut internal: BTreeMap<(SymbolId, SymbolId), (BTreeSet<String>, usize)> = BTreeMap::new();
 	let mut callees = NeighborBag::new();
 	let mut callers = NeighborBag::new();
-	let mut unresolved_refs = 0usize;
+	let classifier = UnlinkedClassifier::new(snapshot);
+	let mut unlinked = UnlinkedRefsDto::default();
 	for reference in snapshot.index.references.file_records(slot).iter() {
 		let Some(source) = navigable_anchor(&symbols_view, reference.source_symbol) else {
 			continue;
@@ -683,7 +684,7 @@ fn symbol_graph_response(
 			continue;
 		}
 		let Some(target_id) = resolved_reference_target(snapshot, &reference.id) else {
-			unresolved_refs += 1;
+			classifier.tally(&reference.id, &mut unlinked);
 			continue;
 		};
 		let Some(target) = navigable_anchor(&symbols_view, target_id) else {
@@ -737,7 +738,7 @@ fn symbol_graph_response(
 			.collect(),
 		callers: callers.into_neighbors(snapshot, roots),
 		callees: callees.into_neighbors(snapshot, roots),
-		unresolved_refs,
+		unlinked,
 	};
 	Ok(QueryResponse {
 		generation: current_generation,
@@ -831,7 +832,8 @@ fn identity_graph_response(
 	let mut edges: BTreeMap<(String, String), (BTreeSet<String>, usize)> = BTreeMap::new();
 	let mut ports_in: BTreeMap<String, (BTreeSet<String>, usize)> = BTreeMap::new();
 	let mut ports_out: BTreeMap<String, (BTreeSet<String>, usize)> = BTreeMap::new();
-	let mut unresolved_refs = 0usize;
+	let classifier = UnlinkedClassifier::new(snapshot);
+	let mut unlinked = UnlinkedRefsDto::default();
 	let port_depth = if prefix.is_empty() {
 		1
 	} else {
@@ -844,7 +846,7 @@ fn identity_graph_response(
 		let source_segment = scope_segment(source, &prefix);
 		let Some(target_id) = resolved_reference_target(snapshot, &reference.id) else {
 			if source_segment.is_some() {
-				unresolved_refs += 1;
+				classifier.tally(&reference.id, &mut unlinked);
 			}
 			continue;
 		};
@@ -887,13 +889,64 @@ fn identity_graph_response(
 			.collect(),
 		ports_in: into_ports(ports_in),
 		ports_out: into_ports(ports_out),
-		unresolved_refs,
+		unlinked,
 	};
 	Ok(QueryResponse {
 		generation: current_generation,
 		result: QueryResult::IdentityGraph(Box::new(result)),
 		next_cursor: None,
 	})
+}
+
+// Classifies references without an in-workspace target so external-by-design
+// links never masquerade as resolution gaps in graph outputs.
+struct UnlinkedClassifier {
+	external: HashSet<ReferenceId>,
+	manifest_blocked: HashSet<ReferenceId>,
+	unresolved: HashMap<ReferenceId, code_moniker_workspace::snapshot::UnresolvedReason>,
+}
+
+impl UnlinkedClassifier {
+	fn new(snapshot: &WorkspaceSnapshot) -> Self {
+		Self {
+			external: snapshot
+				.linkage
+				.external
+				.iter()
+				.map(|reference| reference.reference)
+				.collect(),
+			manifest_blocked: snapshot
+				.linkage
+				.manifest_blocked
+				.iter()
+				.map(|reference| reference.reference)
+				.collect(),
+			unresolved: snapshot
+				.linkage
+				.unresolved
+				.iter()
+				.map(|reference| (reference.reference, reference.reason))
+				.collect(),
+		}
+	}
+
+	fn tally(&self, reference: &ReferenceId, unlinked: &mut UnlinkedRefsDto) {
+		if self.external.contains(reference) {
+			unlinked.external += 1;
+		} else if self.manifest_blocked.contains(reference) {
+			unlinked.manifest_blocked += 1;
+		} else {
+			unlinked.unresolved += 1;
+			let reason = self
+				.unresolved
+				.get(reference)
+				.map_or("unclassified", |reason| reason.as_str());
+			*unlinked
+				.unresolved_reasons
+				.entry(reason.to_string())
+				.or_default() += 1;
+		}
+	}
 }
 
 // The child identity of the scope that contains this symbol, if any.
@@ -3545,6 +3598,46 @@ mod tests {
 			})
 			.unwrap_or_else(|| panic!("outgoing port toward driver: {engine:?}"));
 		assert_eq!(port.count, 2, "{port:?}");
+	}
+
+	#[test]
+	fn identity_graph_separates_external_from_unresolved() {
+		let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+			.join("../workspace/tests/fixtures/projects/java/multiprojet");
+		let mut daemon = WorkspaceDaemon::new_with_config(DaemonWorkspaceConfig {
+			roots: vec![fixture.display().to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+		})
+		.expect("daemon");
+		let refreshed = daemon.handle_protocol(ProtocolRequest::Command(CommandRequest {
+			command: Command::WorkspaceRefresh,
+		}));
+		assert!(matches!(refreshed, ProtocolResponse::Command(_)));
+		let response = daemon.handle_protocol(ProtocolRequest::Query(Box::new(QueryRequest {
+			query: Query::IdentityGraph(code_moniker_query::IdentityChildrenQuery {
+				workspace: None,
+				prefix: String::new(),
+			}),
+			consistency: code_moniker_query::Consistency::Current,
+			page: Page::default(),
+		})));
+		let ProtocolResponse::Query(query) = response else {
+			panic!("expected query response");
+		};
+		let QueryResult::IdentityGraph(result) = query.result else {
+			panic!("expected identity graph, got {:?}", query.result);
+		};
+		// The fixture resolves every project-internal reference: what has no
+		// in-workspace target is external by design, never a resolution gap.
+		assert!(result.unlinked.external > 0, "{:?}", result.unlinked);
+		assert_eq!(result.unlinked.unresolved, 0, "{:?}", result.unlinked);
+		assert!(
+			result.unlinked.unresolved_reasons.is_empty(),
+			"{:?}",
+			result.unlinked
+		);
 	}
 
 	#[test]
