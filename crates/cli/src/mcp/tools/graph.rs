@@ -107,11 +107,25 @@ fn render_graph(result: &SymbolGraphResult, max_items: usize) -> String {
 	}
 	let _ = writeln!(
 		out,
-		"members: {} internal edges: {} unresolved refs: {}",
+		"members: {} internal edges: {}",
 		result.members.len(),
-		result.internal_edges.len(),
-		result.unresolved_refs
+		result.internal_edges.len()
 	);
+	let _ = writeln!(
+		out,
+		"unlinked refs: external {} · manifest-blocked {} · unresolved {}",
+		result.unlinked.external, result.unlinked.manifest_blocked, result.unlinked.unresolved
+	);
+	if !result.unlinked.unresolved_reasons.is_empty() {
+		let reasons = result
+			.unlinked
+			.unresolved_reasons
+			.iter()
+			.map(|(reason, count)| format!("{reason} {count}"))
+			.collect::<Vec<_>>()
+			.join(" · ");
+		let _ = writeln!(out, "unresolved by reason: {reasons}");
+	}
 	render_neighbors(&mut out, "callers", &result.callers, max_items);
 	render_neighbors(&mut out, "callees", &result.callees, max_items);
 	out
