@@ -84,6 +84,40 @@ it is generated and polyglot. It produced 29383 supported files, about 40 MB
 of recognised source, and 4.36 M graph records. Repeated warm-cache `stats`
 runs were around 7-8 s.
 
+## Daemon lifecycle at scale — Apache Pulsar fork
+
+The tables above are the parser/extractor path (`stats`/`check`, no daemon).
+This section measures the daemon lifecycle an agent actually depends on:
+cold start, incremental refresh, and query latency, on a real multi-module
+Maven monorepo — local fork of Apache Pulsar (`~/dev/projects/fork/pulsar`).
+Same machine as above, release binary (`cargo install`), warm OS cache.
+4193 recognised files (mostly Java, some Go/Python/TS), 215 343 symbols,
+1 066 335 references.
+
+| Measurement | Value |
+|---|---|
+| Full census, no daemon (`code-moniker stats .`) | 3.64 s |
+| Daemon cold start → initial index ready | ~13-14 s |
+| Daemon RSS after initial index | ~208 MB |
+| `identity.graph` on the largest scope (43 386-def `srcset:main/lang:java`) | 0.36 s |
+| `workspace.status` round-trip (warm) | ~0.1 s |
+| Incremental refresh after touching 1 file (`--live-refresh auto`) | ~0.5-0.8 s |
+
+No wall is visible at this scale: query and incremental-refresh latency stay
+sub-second at roughly 5x the reference/symbol count of the other corpora in
+this document. Cold start is the only cost that scales with workspace size —
+still under 15 s for a 1M-reference monorepo.
+
+Resolution coverage is scope-dependent, not a flat number. On
+`srcset:main/lang:java`, unlinked decomposition shows ~93 951 unresolved
+(`no_candidate`) refs against ~92 468 external and 110 932 correctly-resolved
+incoming test→main edges — a materially higher unresolved rate than the
+`trust` corpus (0.44%, see `evolutions/resolution-coverage-diagnostic.md`,
+local). This fork makes heavy use of Lombok (1730 files import it, 1601
+`@Data`/`@Builder`/`@Getter`/`@Setter`/`@Slf4j` usages), which is strong
+empirical evidence for the R4 backlog item (Java untyped receiver + Lombok
+accessor synthesis).
+
 ## Cache (`--cache <DIR>`)
 
 The cache stores `(path, mtime, size, anchor) -> encoded graph` on
