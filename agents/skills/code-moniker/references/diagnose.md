@@ -25,7 +25,9 @@ code-moniker query 'identity.graph prefix:"lang:ts/dir:apps/dir:trust/dir:src"'
 ```
 
 ```text
-scope: …/dir:src   nodes: 4  edges: 2  unresolved refs: 6359
+scope: …/dir:src   nodes: 4  edges: 2
+unlinked refs: external 4701 · manifest-blocked 0 · unresolved 179
+unresolved by reason: no_candidate 179
 - dir:client  -> dir:shared x179 [implements,uses_type]
 - dir:plugins -> dir:shared x84  [uses_type]
 ```
@@ -131,11 +133,11 @@ honesty, not failure.
 
 ## 8. Reading the health signals
 
-- **Unresolved refs** (printed by every graph verb): the share of references
-  the index could not bind. High and stable across scopes = imports of
-  external packages (normal). Concentrated in one subtree = generated code,
-  unusual dynamism, or an extraction gap — do not over-interpret coupling
-  counts there.
+- **Unlinked refs** (printed by every graph verb) decompose honestly:
+  `external` and `manifest-blocked` are by design, only `unresolved` (with
+  its by-reason ventilation) measures real resolution gaps. A healthy
+  project runs well under 1% unresolved; concentration of no_candidate in
+  one subtree = generated code, unusual dynamism, or an extraction gap.
 - **Concentration** (`stats`, insights): a few files holding a large share of
   defs/refs = where reviews and refactors pay off first.
 - **shared_helper_signal** (usages diagnostics via MCP): `localized_not_shared`
