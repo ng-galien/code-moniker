@@ -32,7 +32,7 @@ fn run_inner<W1: Write, W2: Write>(
 		args.cache.to_owned(),
 		Some(live_refresh_label(args).to_string()),
 	)?;
-	let client = DaemonClient::connect_or_start_config(daemon_config)?;
+	let client = DaemonClient::connect_or_start_config(daemon_config.clone())?;
 	let opts = SessionOptions {
 		paths,
 		project: args.project.to_owned(),
@@ -46,7 +46,7 @@ fn run_inner<W1: Write, W2: Write>(
 		opts,
 		scheme,
 		args.port,
-		DaemonRuntime::client(client),
+		DaemonRuntime::client(client, daemon_config),
 	))
 }
 

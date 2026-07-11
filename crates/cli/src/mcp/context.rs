@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use code_moniker_daemon::WorkspaceDaemon;
 use code_moniker_daemon_client::DaemonClient;
 use code_moniker_query::{
-	CommandRequest, CommandResponse, ProtocolRequest, ProtocolResponse, QueryError, QueryRequest,
-	QueryResponse,
+	CommandRequest, CommandResponse, DaemonWorkspaceConfig, ProtocolRequest, ProtocolResponse,
+	QueryError, QueryRequest, QueryResponse,
 };
 
 use crate::session::SessionOptions;
@@ -44,13 +44,19 @@ impl McpContext {
 
 #[derive(Clone)]
 pub(crate) enum DaemonRuntime {
-	Client(DaemonClient),
+	Client {
+		client: Arc<Mutex<DaemonClient>>,
+		config: DaemonWorkspaceConfig,
+	},
 	InProcess(Arc<Mutex<WorkspaceDaemon>>),
 }
 
 impl DaemonRuntime {
-	pub(crate) fn client(client: DaemonClient) -> Self {
-		Self::Client(client)
+	pub(crate) fn client(client: DaemonClient, config: DaemonWorkspaceConfig) -> Self {
+		Self::Client {
+			client: Arc::new(Mutex::new(client)),
+			config,
+		}
 	}
 
 	#[cfg(test)]
@@ -60,7 +66,9 @@ impl DaemonRuntime {
 
 	fn query(&self, request: QueryRequest) -> anyhow::Result<QueryResponse> {
 		match self {
-			Self::Client(client) => client.query(request),
+			Self::Client { client, config } => {
+				with_reconnect(client, config, |client| client.query(request.clone()))
+			}
 			Self::InProcess(daemon) => {
 				let response = daemon
 					.lock()
@@ -77,7 +85,9 @@ impl DaemonRuntime {
 
 	fn command(&self, request: CommandRequest) -> anyhow::Result<CommandResponse> {
 		match self {
-			Self::Client(client) => client.command_response(request),
+			Self::Client { client, config } => with_reconnect(client, config, |client| {
+				client.command_response(request.clone())
+			}),
 			Self::InProcess(daemon) => {
 				let response = daemon
 					.lock()
@@ -91,6 +101,38 @@ impl DaemonRuntime {
 			}
 		}
 	}
+}
+
+// The MCP server outlives its daemon (binary swaps, restarts, crashes). A
+// dropped connection is repaired by reconnecting-or-starting from the same
+// config and replaying the request once, instead of demanding a restart.
+fn with_reconnect<T>(
+	client: &Arc<Mutex<DaemonClient>>,
+	config: &DaemonWorkspaceConfig,
+	call: impl Fn(&DaemonClient) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+	let first = {
+		let client = client
+			.lock()
+			.map_err(|_| anyhow::anyhow!("client lock poisoned"))?;
+		call(&client)
+	};
+	match first {
+		Err(error) if connection_lost(&error) => {
+			let fresh = DaemonClient::connect_or_start_config(config.clone())?;
+			let mut slot = client
+				.lock()
+				.map_err(|_| anyhow::anyhow!("client lock poisoned"))?;
+			*slot = fresh;
+			call(&slot)
+		}
+		result => result,
+	}
+}
+
+fn connection_lost(error: &anyhow::Error) -> bool {
+	let text = format!("{error:#}");
+	text.contains("closed") || text.contains("restart required") || text.contains("Networking")
 }
 
 fn query_error(error: QueryError) -> anyhow::Error {
