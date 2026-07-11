@@ -15,8 +15,8 @@ pub use model::{
 	ExternalReferenceOrigin, LinkageEdge, LinkageReadIndex, LinkageReadIndexHandle,
 	LinkageSnapshot, ReferenceId, ReferenceRecord, ResourceGeneration, SourceCatalog,
 	SourceFileRecord, SourceId, SourceUnit, SymbolId, SymbolLocation, SymbolRecord,
-	UnresolvedReference, WorkspaceFailure, WorkspaceRequest, WorkspaceResource, WorkspaceResult,
-	WorkspaceSnapshot, WorkspaceTimings, WorkspaceTransition,
+	UnresolvedReason, UnresolvedReference, WorkspaceFailure, WorkspaceRequest, WorkspaceResource,
+	WorkspaceResult, WorkspaceSnapshot, WorkspaceTimings, WorkspaceTransition,
 };
 pub use view::{
 	ChangeDetail, ChangeSummary, ReferenceDirection, ReferenceSet, ReferenceSetSummary,

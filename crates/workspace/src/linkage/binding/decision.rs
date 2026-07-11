@@ -1,7 +1,7 @@
 use crate::linkage::catalog::{SymbolOrdinalCatalog, SymbolSet};
 use crate::snapshot::{
 	ExternalReference, LinkageEdge, LinkageSnapshot, RecordTable, ReferenceId, ReferenceRecord,
-	ResourceGeneration, SymbolId, UnresolvedReference,
+	ResourceGeneration, SymbolId, UnresolvedReason, UnresolvedReference,
 };
 use crate::source::LocalIdentityResolver;
 use code_moniker_core::core::moniker::Moniker;
@@ -69,6 +69,28 @@ pub(in crate::linkage) enum UnknownReason {
 	Ambiguous(Vec<SymbolId>),
 	UnsupportedLanguageRule,
 	IncompleteExtractorMetadata,
+}
+
+impl BlockReason {
+	fn unresolved_reason(&self) -> UnresolvedReason {
+		match self {
+			Self::ManifestPolicy => UnresolvedReason::ManifestBlocked,
+			Self::Visibility => UnresolvedReason::Visibility,
+			Self::LanguageBoundary => UnresolvedReason::LanguageBoundary,
+		}
+	}
+}
+
+impl UnknownReason {
+	fn unresolved_reason(&self) -> UnresolvedReason {
+		match self {
+			Self::MissingQuery => UnresolvedReason::MissingQuery,
+			Self::NoCandidate => UnresolvedReason::NoCandidate,
+			Self::Ambiguous(_) => UnresolvedReason::Ambiguous,
+			Self::UnsupportedLanguageRule => UnresolvedReason::UnsupportedLanguageRule,
+			Self::IncompleteExtractorMetadata => UnresolvedReason::IncompleteExtractorMetadata,
+		}
+	}
 }
 
 impl ReferenceLinkageDecision {
@@ -337,13 +359,26 @@ impl LinkageDecisionProjection {
 				reason: BlockReason::ManifestPolicy,
 				reference_idx,
 				..
-			} => Self::ManifestBlocked(unresolved_reference(&references[*reference_idx])),
-			ReferenceLinkageDecision::Blocked { reference_idx, .. } => {
-				Self::Unresolved(unresolved_reference(&references[*reference_idx]))
-			}
-			ReferenceLinkageDecision::Unknown { reference_idx, .. } => {
-				Self::Unresolved(unresolved_reference(&references[*reference_idx]))
-			}
+			} => Self::ManifestBlocked(unresolved_reference(
+				&references[*reference_idx],
+				UnresolvedReason::ManifestBlocked,
+			)),
+			ReferenceLinkageDecision::Blocked {
+				reason,
+				reference_idx,
+				..
+			} => Self::Unresolved(unresolved_reference(
+				&references[*reference_idx],
+				reason.unresolved_reason(),
+			)),
+			ReferenceLinkageDecision::Unknown {
+				reason,
+				reference_idx,
+				..
+			} => Self::Unresolved(unresolved_reference(
+				&references[*reference_idx],
+				reason.unresolved_reason(),
+			)),
 			ReferenceLinkageDecision::External {
 				origin,
 				reference_idx,
@@ -451,8 +486,11 @@ impl UnresolvedLinkProjection {
 	}
 }
 
-fn unresolved_reference(reference: &ReferenceRecord) -> UnresolvedReference {
-	UnresolvedReference::new(reference.id, Arc::clone(&reference.target_identity))
+fn unresolved_reference(
+	reference: &ReferenceRecord,
+	reason: UnresolvedReason,
+) -> UnresolvedReference {
+	UnresolvedReference::new(reference.id, Arc::clone(&reference.target_identity), reason)
 }
 
 fn external_reference(

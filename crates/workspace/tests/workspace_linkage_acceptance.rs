@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use code_moniker_workspace::extract::JavaExtractionPipeline;
-use code_moniker_workspace::snapshot::{ReferenceRecord, WorkspaceRequest, WorkspaceSnapshot};
+use code_moniker_workspace::snapshot::{
+	ReferenceRecord, UnresolvedReason, WorkspaceRequest, WorkspaceSnapshot,
+};
 use code_moniker_workspace::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 
 fn fixture_path(path: impl AsRef<Path>) -> PathBuf {
@@ -131,6 +133,44 @@ fn java_lombok_boundaries_do_not_invent_accessors() {
 		"package:com/package:acme/package:lombokboundary/module:LombokValueBoundary/class:LombokValueBoundary/method:exercise()",
 		"withCode",
 		1,
+	);
+	assert_unresolved_reasons_recorded(&snapshot);
+}
+
+fn assert_unresolved_reasons_recorded(snapshot: &WorkspaceSnapshot) {
+	assert!(
+		snapshot.linkage.unresolved_refs > 0,
+		"fixture should keep truly unresolved references"
+	);
+	assert!(
+		snapshot
+			.linkage
+			.unresolved
+			.iter()
+			.all(|unresolved| unresolved.reason != UnresolvedReason::ManifestBlocked),
+		"truly unresolved references must carry a non-manifest reason"
+	);
+	assert!(
+		snapshot
+			.linkage
+			.unresolved
+			.iter()
+			.any(|unresolved| unresolved.reason == UnresolvedReason::NoCandidate),
+		"lombok accessor calls should be recorded as no_candidate, got: {:?}",
+		snapshot
+			.linkage
+			.unresolved
+			.iter()
+			.map(|unresolved| unresolved.reason)
+			.collect::<Vec<_>>()
+	);
+	assert!(
+		snapshot
+			.linkage
+			.manifest_blocked
+			.iter()
+			.all(|blocked| blocked.reason == UnresolvedReason::ManifestBlocked),
+		"manifest-blocked references must carry the manifest_blocked reason"
 	);
 }
 

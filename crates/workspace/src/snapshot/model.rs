@@ -407,17 +407,53 @@ impl ExternalReference {
 	}
 }
 
+/// Why linkage could not bind a reference. The taxonomy is part of the
+/// resolution contract: consumers can split external-by-design from real
+/// resolution gaps instead of reading one opaque count.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum UnresolvedReason {
+	ManifestBlocked,
+	Visibility,
+	LanguageBoundary,
+	MissingQuery,
+	NoCandidate,
+	Ambiguous,
+	UnsupportedLanguageRule,
+	IncompleteExtractorMetadata,
+}
+
+impl UnresolvedReason {
+	pub fn as_str(&self) -> &'static str {
+		match self {
+			Self::ManifestBlocked => "manifest_blocked",
+			Self::Visibility => "visibility",
+			Self::LanguageBoundary => "language_boundary",
+			Self::MissingQuery => "missing_query",
+			Self::NoCandidate => "no_candidate",
+			Self::Ambiguous => "ambiguous",
+			Self::UnsupportedLanguageRule => "unsupported_language_rule",
+			Self::IncompleteExtractorMetadata => "incomplete_extractor_metadata",
+		}
+	}
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnresolvedReference {
 	pub reference: ReferenceId,
 	pub target_identity: Arc<str>,
+	pub reason: UnresolvedReason,
 }
 
 impl UnresolvedReference {
-	pub fn new(reference: ReferenceId, target_identity: impl Into<Arc<str>>) -> Self {
+	pub fn new(
+		reference: ReferenceId,
+		target_identity: impl Into<Arc<str>>,
+		reason: UnresolvedReason,
+	) -> Self {
 		Self {
 			reference,
 			target_identity: target_identity.into(),
+			reason,
 		}
 	}
 }

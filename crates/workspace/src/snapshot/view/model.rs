@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use super::super::model::{ChangeId, ChangeStatus, ReferenceId, SourceId, SymbolId};
+use super::super::model::{
+	ChangeId, ChangeStatus, ReferenceId, SourceId, SymbolId, UnresolvedReason,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceSummary {
@@ -97,4 +99,5 @@ pub struct ChangeDetail {
 pub struct UnresolvedLinkageReport {
 	pub unresolved_refs: usize,
 	pub sources: BTreeMap<SourceId, usize>,
+	pub reasons: BTreeMap<UnresolvedReason, usize>,
 }
