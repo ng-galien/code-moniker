@@ -60,7 +60,7 @@ pub use code_moniker_query::{
 	DaemonRegistryEntry, canonical_workspace_config, canonical_workspace_root,
 	canonical_workspace_roots, config_from_roots, config_roots, daemon_workspace_config,
 	list_registry_entries, registry_dir, registry_path_for_config, registry_path_for_root,
-	registry_path_for_roots, workspace_label, write_registry_entry,
+	registry_path_for_roots, remove_registry_entry_if_own, workspace_label, write_registry_entry,
 };
 
 pub fn serve_foreground<I, P>(roots: I) -> anyhow::Result<()>
@@ -136,7 +136,7 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 	}
 	let _ = handle.stop();
 	handle.stopped().await;
-	let _ = fs::remove_file(&registry_path);
+	remove_registry_entry_if_own(&registry_path, &entry);
 	Ok(())
 }
 

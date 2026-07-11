@@ -130,6 +130,21 @@ pub fn write_registry_entry(
 	Ok(())
 }
 
+// Shutdown-time removal: a successor daemon may have overwritten this path
+// with its own entry while we were stopping. Only unlink what is still ours,
+// or the new daemon stays alive but invisible to the registry.
+pub fn remove_registry_entry_if_own(path: &Path, own: &DaemonRegistryEntry) {
+	let current = fs::read_to_string(path)
+		.ok()
+		.and_then(|text| serde_json::from_str::<DaemonRegistryEntry>(&text).ok());
+	let owned = current
+		.map(|entry| entry.token == own.token && entry.pid == own.pid)
+		.unwrap_or(false);
+	if owned {
+		let _ = fs::remove_file(path);
+	}
+}
+
 pub fn list_registry_files() -> anyhow::Result<Vec<(PathBuf, DaemonRegistryEntry)>> {
 	let dir = registry_dir();
 	if !dir.exists() {
@@ -243,5 +258,40 @@ impl Hasher for StableHasher {
 			hash = hash.wrapping_mul(0x100000001b3);
 		}
 		self.0 = hash;
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn entry(token: &str, pid: u32) -> DaemonRegistryEntry {
+		DaemonRegistryEntry {
+			workspace_root: "/tmp/ws".to_string(),
+			workspace_roots: vec!["/tmp/ws".to_string()],
+			project: None,
+			cache_dir: None,
+			live_refresh: None,
+			endpoint: "127.0.0.1:1".to_string(),
+			token: token.to_string(),
+			pid,
+		}
+	}
+
+	#[test]
+	fn shutdown_removal_spares_a_successor_entry() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let path = dir.path().join("ws.json");
+		let old = entry("old-token", 111);
+		let new = entry("new-token", 222);
+
+		fs::write(&path, serde_json::to_string(&new).expect("json")).expect("write");
+		remove_registry_entry_if_own(&path, &old);
+		assert!(path.exists(), "the successor's entry must survive");
+
+		remove_registry_entry_if_own(&path, &new);
+		assert!(!path.exists(), "the owner removes its own entry");
+
+		remove_registry_entry_if_own(&path, &new);
 	}
 }
