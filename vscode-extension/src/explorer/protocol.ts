@@ -44,6 +44,13 @@ export interface ScopeAck {
 	nodes: number;
 }
 
+// Posted by the webview after it renders a code inset: `lines` counts the
+// highlighted source lines actually shown (0 = "no source zone" fallback).
+export interface InsetAck {
+	uri: string;
+	lines: number;
+}
+
 export type ExplorerMessage =
 	| { type: "focus"; prefix: string }
 	| { type: "back" }
@@ -51,4 +58,5 @@ export type ExplorerMessage =
 	| { type: "inspect"; uri: string }
 	| { type: "openSource"; target: OpenSourceTarget }
 	| { type: "ready" }
-	| ({ type: "ack" } & ScopeAck);
+	| ({ type: "ack" } & ScopeAck)
+	| ({ type: "insetAck" } & InsetAck);

@@ -17,7 +17,17 @@ import { FunctionCard } from "./graph/FunctionCard";
 import { layoutGraph } from "./graph/layout";
 import { buildScopeGraph, type ScopeFilters, type ScopeNodeModel } from "./graph/model";
 
-const NODE_TYPES = { functionCard: FunctionCard, containerCard: ContainerCard };
+// Every canvas node carries the same data shape ({ node: ScopeNodeModel });
+// the def card unwraps it here. Click handlers and cards reading one shape is
+// what keeps "renders fine but clicks dead" drifts impossible.
+function ScopeFunctionCard({ data }: { data: { node: ScopeNodeModel } }) {
+	if (!data.node.def) {
+		return null;
+	}
+	return <FunctionCard data={{ node: data.node.def }} />;
+}
+
+const NODE_TYPES = { functionCard: ScopeFunctionCard, containerCard: ContainerCard };
 
 // The scoped canvas: the prefix's children as cards, rolled-up references as
 // weighted edges. Double-click dives into a node; right-click opens source
@@ -56,7 +66,7 @@ export function ScopeCanvas({
 					id: node.id,
 					type: node.def ? "functionCard" : "containerCard",
 					position: positions.get(node.id) ?? { x: 0, y: 0 },
-					data: node.def ? { node: node.def } : { node },
+					data: { node },
 				})),
 			);
 		});

@@ -4,6 +4,7 @@ import { highlightSource } from "../symbols/detail/highlight";
 import { renderExplorerHtml } from "./html";
 import {
 	ExplorerMessage,
+	InsetAck,
 	InsetMessage,
 	ScopeAck,
 	ScopeErrorMessage,
@@ -23,15 +24,28 @@ export class ExplorerPanel implements vscode.Disposable {
 	private seq = 0;
 	private lastMessage?: ScopeMessage | ScopeErrorMessage;
 	private acks: ScopeAck[] = [];
+	private insetAckList: InsetAck[] = [];
 
 	// Test observability: the last message the host decided to show, and the
-	// acks the webview sent back after actually applying a scope.
+	// acks the webview sent back after actually rendering scopes and insets.
 	get current(): ScopeMessage | ScopeErrorMessage | undefined {
 		return this.lastMessage;
 	}
 
 	get webviewAcks(): readonly ScopeAck[] {
 		return this.acks;
+	}
+
+	get insetAcks(): readonly InsetAck[] {
+		return this.insetAckList;
+	}
+
+	// Same path as the webview's inspect message; lets the e2e suite drive
+	// the inset flow, since the harness cannot click inside a webview.
+	async inspect(uri: string): Promise<void> {
+		if (this.panel) {
+			await this.sendInset(this.panel, uri);
+		}
 	}
 
 	constructor(
@@ -151,6 +165,8 @@ export class ExplorerPanel implements vscode.Disposable {
 				void panel.webview.postMessage(this.lastMessage);
 			} else if (message?.type === "ack") {
 				this.acks.push({ prefix: message.prefix, nodes: message.nodes });
+			} else if (message?.type === "insetAck") {
+				this.insetAckList.push({ uri: message.uri, lines: message.lines });
 			}
 		});
 		this.panel = panel;

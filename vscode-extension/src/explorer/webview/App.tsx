@@ -41,6 +41,11 @@ export function App() {
 						? { uri: payload.uri, symbol: payload.symbol, source: payload.source, loading: false }
 						: current,
 				);
+				vscode.postMessage({
+					type: "insetAck",
+					uri: payload.uri,
+					lines: payload.source ? payload.source.lines.length : 0,
+				});
 			} else if (message?.type === "scopeError") {
 				setError({ prefix: message.prefix as string, message: message.message as string });
 			}

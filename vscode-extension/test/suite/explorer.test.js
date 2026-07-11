@@ -65,6 +65,25 @@ async function testExplorer() {
 	console.log(
 		`explorer cursor focus: ok (${cursorAck.nodes} nodes at "${cursorAck.prefix}")`,
 	);
+
+	// Gesture 3: click a definition card -> code inset. The harness cannot
+	// click inside a webview, so the test drives the same host path the
+	// inspect message takes (panel.inspect) and requires the webview to ack
+	// an inset carrying highlighted source lines.
+	const scopeMessage = explorer.panel.current;
+	assert.strictEqual(scopeMessage?.type, "scope", "panel should hold the last scope");
+	const def = scopeMessage.payload.graph.nodes.find((node) => node.symbol);
+	assert.ok(def, "the cursor-focused scope should contain definition nodes");
+	await explorer.panel.inspect(def.symbol.uri);
+	const insetAck = await waitFor(
+		() => explorer.panel.insetAcks[0],
+		"the explorer webview to ack a code inset",
+	);
+	assert.ok(
+		insetAck.lines > 0,
+		`the inset should carry source lines, got ${JSON.stringify(insetAck)}`,
+	);
+	console.log(`explorer code inset: ok (${insetAck.lines} lines for ${def.symbol.name})`);
 }
 
 module.exports = { testExplorer };
