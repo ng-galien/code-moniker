@@ -582,19 +582,35 @@ fn infer_call_type(
 	{
 		return Some(TypeExpr::external_opaque(target));
 	}
-	let receiver = call
-		.child_by_field_name("object")
-		.and_then(|object| receiver_owner(state, object, owner, env))
-		.or_else(|| enclosing_type(owner))?;
+	let object = call.child_by_field_name("object");
+	let receiver_expr = object
+		.and_then(|object| receiver_type_expr(state, object, owner, env))
+		.or_else(|| enclosing_type(owner).map(TypeExpr::resolved));
+	let receiver = receiver_expr.as_ref().and_then(TypeExpr::receiver_owner)?;
 	state
 		.return_types
 		.get(&(receiver.clone(), name.to_vec(), arity))
 		.cloned()
 		.or_else(|| {
-			(java_external_target_shape(&receiver)).then(|| {
-				TypeExpr::external_opaque(extend_arity_call(&receiver, kinds::METHOD, name, arity))
+			(java_external_target_shape(receiver)).then(|| {
+				TypeExpr::external_opaque(extend_arity_call(receiver, kinds::METHOD, name, arity))
 			})
 		})
+		.or_else(|| fluent_chain_continuation(receiver_expr.as_ref(), receiver, name))
+}
+
+// Builder-style codegen (Lombok `@Builder`, AutoValue, protobuf builders, …) has no
+// declared signature to follow. Rather than modeling the synthesized builder type,
+// we alias the whole fluent chain back to the type `.builder()`/`.toBuilder()` was
+// called on, so usage of that project type through the chain stays visible.
+fn fluent_chain_continuation(
+	receiver_expr: Option<&TypeExpr>,
+	receiver: &Moniker,
+	name: &[u8],
+) -> Option<TypeExpr> {
+	let already_chaining = matches!(receiver_expr, Some(TypeExpr::ExternalOpaque { .. }));
+	let starts_chain = matches!(name, b"builder" | b"toBuilder");
+	(already_chaining || starts_chain).then(|| TypeExpr::external_opaque(receiver.clone()))
 }
 
 fn lambda_argument_input_type(

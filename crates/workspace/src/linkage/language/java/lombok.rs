@@ -16,6 +16,7 @@ pub(super) struct LombokSemantics<'a> {
 	annotated_types: FxHashMap<Moniker, TypeAnnotations>,
 	type_aliases: FxHashMap<Moniker, Moniker>,
 	fields: FxHashMap<(Moniker, Vec<u8>), FieldInfo>,
+	class_symbols: FxHashMap<Moniker, SymbolOrdinal>,
 }
 
 impl<'a> LombokSemantics<'a> {
@@ -30,6 +31,7 @@ impl<'a> LombokSemantics<'a> {
 			annotated_types: FxHashMap::default(),
 			type_aliases: FxHashMap::default(),
 			fields: FxHashMap::default(),
+			class_symbols: FxHashMap::default(),
 		};
 		let field_annotations = semantics.index_annotations(references);
 		if semantics.needs_accessor_index(&field_annotations) {
@@ -58,7 +60,38 @@ impl<'a> LombokSemantics<'a> {
 		};
 		let reference = &references[reference_idx];
 		self.resolve_logger_call(reference_idx, reference)
+			.or_else(|| self.resolve_builder_entry_call(reference_idx, reference))
 			.or_else(|| self.resolve_accessor_call(reference_idx, reference))
+	}
+
+	fn resolve_builder_entry_call(
+		&self,
+		reference_idx: usize,
+		reference: &ReferenceRecord,
+	) -> Option<ReferenceLinkageDecision> {
+		if !matches!(reference.kind.as_str(), "method_call" | "calls") {
+			return None;
+		}
+		let call_name = reference.call_name.as_deref()?;
+		if !matches!(call_name, "builder" | "toBuilder" | "build") {
+			return None;
+		}
+		let owner = callable_owner(self.material.reference_target(&reference.id)?)?;
+		let owner = self.type_aliases.get(&owner)?;
+		if !self
+			.annotated_types
+			.get(owner)
+			.is_some_and(TypeAnnotations::supports_builder)
+		{
+			return None;
+		}
+		let symbol = *self.class_symbols.get(owner)?;
+		Some(ReferenceLinkageDecision::resolved(
+			ResolutionScope::Injected,
+			reference_idx,
+			reference.id,
+			SymbolSet::from_symbol(symbol),
+		))
 	}
 
 	fn resolve_accessor_call(
@@ -165,6 +198,7 @@ impl<'a> LombokSemantics<'a> {
 			let facts = JavaSymbolFacts::from_file(file_idx, file, self.candidates);
 			self.type_aliases.extend(facts.type_aliases);
 			self.fields.extend(facts.fields);
+			self.class_symbols.extend(facts.class_symbols);
 		}
 		for (key, annotations) in field_annotations {
 			if let Some(field) = self.fields.get_mut(&key) {
@@ -208,6 +242,7 @@ impl<'a> LombokSemantics<'a> {
 struct JavaSymbolFacts {
 	type_aliases: FxHashMap<Moniker, Moniker>,
 	fields: FxHashMap<(Moniker, Vec<u8>), FieldInfo>,
+	class_symbols: FxHashMap<Moniker, SymbolOrdinal>,
 }
 
 impl JavaSymbolFacts {
@@ -221,6 +256,9 @@ impl JavaSymbolFacts {
 			.fold(Self::default(), |mut facts, (def_idx, def)| {
 				if is_java_type_kind(&def.kind) {
 					facts.add_type_aliases(&def.moniker);
+					if let Some(symbol) = candidates.symbol_at(file_idx, def_idx) {
+						facts.class_symbols.insert(def.moniker.clone(), symbol);
+					}
 				} else if def.kind == kinds::FIELD
 					&& let Some(owner) = field_owner(file, def.parent)
 					&& let Some(symbol) = candidates.symbol_at(file_idx, def_idx)
@@ -274,7 +312,7 @@ impl FieldInfo {
 				!boolean_prefix || self.facts.primitive_boolean
 			}
 			AccessorKind::Setter => !self.facts.final_field,
-			AccessorKind::Wither => true,
+			AccessorKind::Wither | AccessorKind::FluentSetter => true,
 		}
 	}
 }
@@ -356,6 +394,7 @@ impl TypeAnnotations {
 			|| self.effects.contains(&LombokEffect::Data)
 			|| self.effects.contains(&LombokEffect::Value)
 			|| self.effects.contains(&LombokEffect::With)
+			|| self.effects.contains(&LombokEffect::Builder)
 	}
 
 	fn supports(&self, accessor: AccessorKind) -> bool {
@@ -370,7 +409,12 @@ impl TypeAnnotations {
 					|| self.effects.contains(&LombokEffect::Data)
 			}
 			AccessorKind::Wither => self.effects.contains(&LombokEffect::With),
+			AccessorKind::FluentSetter => self.effects.contains(&LombokEffect::Builder),
 		}
+	}
+
+	fn supports_builder(&self) -> bool {
+		self.effects.contains(&LombokEffect::Builder)
 	}
 }
 
@@ -409,7 +453,8 @@ impl AccessorCall {
 				.or_else(|| {
 					call.strip_prefix("with")
 						.map(|name| (AccessorKind::Wither, name))
-				})?
+				})
+				.or_else(|| (!call.is_empty()).then_some((AccessorKind::FluentSetter, call)))?
 		} else {
 			return None;
 		};
@@ -428,6 +473,7 @@ enum AccessorKind {
 	Getter { boolean_prefix: bool },
 	Setter,
 	Wither,
+	FluentSetter,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

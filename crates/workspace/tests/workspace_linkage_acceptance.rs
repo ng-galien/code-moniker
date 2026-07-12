@@ -546,6 +546,26 @@ fn assert_java_lombok_refs(snapshot: &WorkspaceSnapshot) {
 		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/method:getFieldOnly()",
 		"package:com/package:acme/package:order/module:LombokFieldAccessors/class:LombokFieldAccessors/field:fieldOnly",
 	);
+	for call in ["builder", "build"] {
+		assert_call_linked_to(
+			snapshot,
+			"package:com/package:acme/package:order/module:LombokOrderBuilderUsage/class:LombokOrderBuilderUsage/method:assemble()",
+			call,
+			0,
+			"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder",
+		);
+	}
+	for (call, field) in [("reference", "field:reference"), ("status", "field:status")] {
+		assert_call_linked_to(
+			snapshot,
+			"package:com/package:acme/package:order/module:LombokOrderBuilderUsage/class:LombokOrderBuilderUsage/method:assemble()",
+			call,
+			1,
+			&format!(
+				"package:com/package:acme/package:order/module:LombokBuildableOrder/class:LombokBuildableOrder/{field}"
+			),
+		);
+	}
 }
 
 fn assert_java_cross_project_interface_implementations(snapshot: &WorkspaceSnapshot) {
