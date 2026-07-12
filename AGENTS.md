@@ -68,6 +68,7 @@
 ## MCP Dogfood
 
 - Session tmux: `cm-mcp`. Keep MCP up while working on this repo; treat it as the navigation compass.
+- Structural questions (who calls X, module map, impact of a change, hierarchy of a type) go through code-moniker FIRST — load the `code-moniker` skill before the first such query of a session, never type query syntax from memory. Grep is for exact strings in files you already know.
 - Rebuild and restart `cm-mcp` after MCP/TUI/CLI changes or crashes.
 - Normal use: MCP client tools only (`code_moniker_read`, `code_moniker_symbols`, `code_moniker_usages`, `code_moniker_rules`). No JSON-RPC/curl for code exploration.
 - Post-restart probes: `agents/maps/rust-server.md`.
