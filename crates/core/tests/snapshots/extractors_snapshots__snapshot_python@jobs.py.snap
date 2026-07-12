@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 125
 expression: body
-input_file: crates/core/tests/fixtures/python/jobs.py
+input_file: crates/core/tests/fixtures/extractors/python/jobs.py
 ---
 {
   "defs": [
@@ -17,6 +18,32 @@ input_file: crates/core/tests/fixtures/python/jobs.py
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Job/path:id",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:Job",
+      "position": [
+        213,
+        215
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:jobs/class:Job/path:payload",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:jobs/class:Job",
+      "position": [
+        225,
+        232
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "none",
@@ -322,7 +349,7 @@ input_file: crates/core/tests/fixtures/python/jobs.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
       "kind": "calls",
       "position": [
@@ -330,12 +357,12 @@ input_file: crates/core/tests/fixtures/python/jobs.py
         525
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:jobs/function:print"
+      "to": "code+moniker://app/external_pkg:builtins/path:print"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:python/module:jobs/async_function:worker_span(job:Job)",
       "kind": "calls",
       "position": [
@@ -343,7 +370,7 @@ input_file: crates/core/tests/fixtures/python/jobs.py
         590
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:jobs/function:print"
+      "to": "code+moniker://app/external_pkg:builtins/path:print"
     },
     {
       "alias": "",

@@ -65,6 +65,7 @@ pub(super) fn builtin_external_root(lang: Lang, root: &str) -> bool {
 		Lang::Rs => rust::builtin_external_root(root),
 		Lang::Java => java::builtin_external_root(root),
 		Lang::Ts => ts::builtin_external_root(root),
+		Lang::Python => code_moniker_core::lang::python::builtin_external_root(root),
 		_ => false,
 	}
 }

@@ -402,6 +402,24 @@ fn ts_manifest_undeclared_package_imports_are_not_external() {
 }
 
 #[test]
+fn python_module_constants_and_builtins_resolve() {
+	let snapshot = load_workspace("projects/python/analytics-service");
+
+	assert_linked_to(
+		&snapshot,
+		"imports_symbol",
+		"package:analytics_service/module:constants/path:DEFAULT_LIMIT",
+		"package:analytics_service/module:constants/path:DEFAULT_LIMIT",
+	);
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"calls",
+		"module:limits/function:effective_limit",
+		"external_pkg:builtins/path:print",
+	);
+}
+
+#[test]
 fn python_project_links_imported_types_constructors_and_methods() {
 	let snapshot = load_workspace("projects/python/analytics-service");
 

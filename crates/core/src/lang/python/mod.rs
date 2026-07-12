@@ -37,7 +37,14 @@ pub fn extract(
 
 pub struct Lang;
 
-const DEF_KINDS: &[&str] = &["class", "type", "function", "method", "async_function"];
+const DEF_KINDS: &[&str] = &[
+	"class",
+	"type",
+	"function",
+	"method",
+	"async_function",
+	"path",
+];
 
 const DEF_KIND_SPECS: &[KindSpec] = &[
 	KindSpec::new("class", Shape::Type, 20, "class"),
@@ -45,6 +52,7 @@ const DEF_KIND_SPECS: &[KindSpec] = &[
 	KindSpec::new("function", Shape::Callable, 40, "function"),
 	KindSpec::new("async_function", Shape::Callable, 41, "async_function"),
 	KindSpec::new("method", Shape::Callable, 42, "method"),
+	KindSpec::new("path", Shape::Value, 63, "path"),
 ];
 
 impl crate::lang::LangExtractor for Lang {
@@ -63,6 +71,10 @@ impl crate::lang::LangExtractor for Lang {
 	) -> CodeGraph {
 		extract(uri, source, anchor, deep, presets)
 	}
+}
+
+pub fn builtin_external_root(root: &str) -> bool {
+	root == "builtins" || sdk_pipeline::STDLIB_PACKAGES.binary_search(&root).is_ok()
 }
 
 #[cfg(test)]

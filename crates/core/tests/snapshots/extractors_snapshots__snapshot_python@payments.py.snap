@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 125
 expression: body
-input_file: crates/core/tests/fixtures/python/payments.py
+input_file: crates/core/tests/fixtures/extractors/python/payments.py
 ---
 {
   "defs": [
@@ -84,6 +85,32 @@ input_file: crates/core/tests/fixtures/python/payments.py
       "visibility": "public"
     },
     {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentStatus/path:PENDING",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentStatus",
+      "position": [
+        486,
+        493
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentStatus/path:CAPTURED",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentStatus",
+      "position": [
+        510,
+        518
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
       "binding": "none",
       "kind": "comment",
       "moniker": "code+moniker://app/lang:python/module:payments/comment:534",
@@ -110,6 +137,45 @@ input_file: crates/core/tests/fixtures/python/payments.py
       "visibility": "public"
     },
     {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentEvent/path:id",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentEvent",
+      "position": [
+        605,
+        607
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentEvent/path:amount",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentEvent",
+      "position": [
+        617,
+        623
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:PaymentEvent/path:metadata",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:PaymentEvent",
+      "position": [
+        633,
+        641
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
       "binding": "export",
       "kind": "class",
       "moniker": "code+moniker://app/lang:python/module:payments/class:Payment",
@@ -121,6 +187,58 @@ input_file: crates/core/tests/fixtures/python/payments.py
       ],
       "signature": "",
       "visibility": "public"
+    },
+    {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:Payment/path:id",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "position": [
+        714,
+        716
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:Payment/path:amount",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "position": [
+        726,
+        732
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:Payment/path:status",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "position": [
+        746,
+        752
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "path",
+      "moniker": "code+moniker://app/lang:python/module:payments/class:Payment/path:metadata",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:python/module:payments/class:Payment",
+      "position": [
+        772,
+        780
+      ],
+      "signature": "",
+      "visibility": ""
     },
     {
       "binding": "none",
@@ -803,7 +921,7 @@ input_file: crates/core/tests/fixtures/python/payments.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:python/module:payments/class:PaymentService/method:authorize_order(order_id:str,amount:Decimal,tags:Sequence[str])",
       "kind": "calls",
       "position": [
@@ -811,7 +929,7 @@ input_file: crates/core/tests/fixtures/python/payments.py
         1678
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:payments/function:list"
+      "to": "code+moniker://app/external_pkg:builtins/path:list"
     },
     {
       "alias": "",
