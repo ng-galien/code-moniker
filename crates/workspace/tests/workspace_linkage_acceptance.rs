@@ -407,6 +407,18 @@ fn ts_manifest_declared_zustand_store_api_methods_are_external() {
 }
 
 #[test]
+fn ts_namespace_import_calls_resolve_to_module_functions() {
+	let snapshot = load_workspace("projects/ts/namespace-import");
+
+	assert_named_call_linked_to(
+		&snapshot,
+		"module:index/function:kinds",
+		"arrayToEnum",
+		"module:util/function:arrayToEnum",
+	);
+}
+
+#[test]
 fn ts_manifest_undeclared_package_imports_are_not_external() {
 	let snapshot = load_workspace("projects/ts/undeclared-manifest");
 
@@ -1035,6 +1047,48 @@ fn assert_linked_once_from_symbol(
 		reference.target_identity,
 		target_identities[0],
 		symbol_identity
+	);
+}
+
+fn assert_named_call_linked_to(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	symbol_identity: &str,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call"
+				&& reference.source_symbol == source.id
+				&& reference.call_name.as_deref() == Some(call_name)
+		})
+		.collect::<Vec<_>>();
+	assert!(
+		references
+			.iter()
+			.any(|reference| linked_symbol_identities(snapshot, reference)
+				.iter()
+				.any(|identity| identity.contains(symbol_identity))),
+		"no `{call_name}` call from `{}` was linked to `{symbol_identity}`; matching refs: [{}]",
+		source.identity,
+		references
+			.iter()
+			.map(|reference| format!(
+				"target={} linked=[{}]",
+				reference.target_identity,
+				linked_symbol_identities(snapshot, reference).join(", ")
+			))
+			.collect::<Vec<_>>()
+			.join("; ")
 	);
 }
 
