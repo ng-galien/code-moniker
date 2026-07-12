@@ -137,6 +137,25 @@ fn java_lombok_boundaries_do_not_invent_accessors() {
 	assert_unresolved_reasons_recorded(&snapshot);
 }
 
+#[test]
+fn java_declared_source_group_connects_manifest_less_modules() {
+	let snapshot = load_workspace_with_options(
+		LocalWorkspaceOptions::new(
+			vec![fixture_path("projects/java/no-manifest-declared")],
+			None,
+		)
+		.with_java_pipeline(JavaExtractionPipeline::Sdk),
+	);
+
+	assert_call_linked_to(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/package:caller/module:MainCaller/class:MainCaller/method:readLabel(SharedRecord)",
+		"getLabel",
+		0,
+		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/field:label",
+	);
+}
+
 fn assert_unresolved_reasons_recorded(snapshot: &WorkspaceSnapshot) {
 	assert!(
 		snapshot.linkage.unresolved_refs > 0,

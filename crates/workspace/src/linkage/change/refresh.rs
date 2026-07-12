@@ -13,10 +13,12 @@ use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
 use crate::linkage::change::{BindingReadModel, EditedGraph, RebindScope};
 use crate::linkage::change::{LinkageRefreshImpact, LinkageRefreshShape, SymbolDelta};
+use crate::linkage::resolve::LinkagePolicies;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::ReferenceResolver;
 use crate::linkage::resolve::SemanticLinkage;
+use crate::linkage::resolve::SourceGroupPolicy;
 use crate::linkage::{LinkageRefreshTimings, LocalLinkage, TimedLinkageRefresh};
 use crate::snapshot::{
 	CodeIndex, LinkageSnapshot, RecordTable, ReferenceId, ReferenceRecord, ResourceGeneration,
@@ -405,6 +407,12 @@ fn resolve_reference_decisions(
 ) -> Vec<ReferenceLinkageDecision> {
 	let resolver = ReferenceResolver::new(input.material);
 	let manifests = ManifestPolicy::build(input.material);
+	let source_groups = SourceGroupPolicy::build(input.material);
+	let policies = LinkagePolicies {
+		candidates,
+		manifests: &manifests,
+		source_groups: &source_groups,
+	};
 	indexes_to_references(input.index, reference_indexes)
 		.par_iter()
 		.map(|(reference_idx, reference)| {
@@ -412,8 +420,7 @@ fn resolve_reference_decisions(
 				*reference_idx,
 				reference,
 				locations.get(*reference_idx),
-				candidates,
-				&manifests,
+				&policies,
 			)
 		})
 		.collect::<Vec<_>>()

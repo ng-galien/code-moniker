@@ -7,7 +7,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::linkage::binding::{ReferenceLinkageDecision, ResolutionScope};
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::catalog::SymbolSet;
+use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::linkage::language;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
@@ -338,6 +338,10 @@ pub(in crate::linkage) struct GlobalTargetPolicy {
 }
 
 impl GlobalTargetPolicy {
+	pub(in crate::linkage) fn allow(&mut self, symbol: SymbolOrdinal) {
+		self.allowed.insert(symbol);
+	}
+
 	pub(in crate::linkage) fn for_reference(
 		self,
 		reference_idx: usize,

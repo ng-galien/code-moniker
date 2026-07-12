@@ -1,0 +1,2 @@
+[[workspace.source_group]]
+roots = ["lib", "caller"]

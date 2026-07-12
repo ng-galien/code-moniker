@@ -7,7 +7,8 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
-use crate::linkage::resolve::ReferenceResolver;
+use crate::linkage::resolve::SourceGroupPolicy;
+use crate::linkage::resolve::{LinkagePolicies, ReferenceResolver};
 use crate::linkage::resolve::{MethodTable, SemanticLinkage};
 use crate::linkage::{LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
 use crate::snapshot::{CodeIndex, ResourceGeneration, WorkspaceResult};
@@ -66,7 +67,13 @@ fn resolve_full_linkage(
 	};
 	let manifest_timer = Instant::now();
 	let manifests = ManifestPolicy::build(material);
+	let source_groups = SourceGroupPolicy::build(material);
 	timings.manifest_policy = manifest_timer.elapsed();
+	let policies = LinkagePolicies {
+		candidates,
+		manifests: &manifests,
+		source_groups: &source_groups,
+	};
 	let resolve_timer = Instant::now();
 	let locations = ReferenceLocations::from_material(material);
 	let mut decisions = (0..index.references.len())
@@ -76,8 +83,7 @@ fn resolve_full_linkage(
 				reference_idx,
 				&index.references[reference_idx],
 				locations.get(reference_idx),
-				candidates,
-				&manifests,
+				&policies,
 			)
 		})
 		.collect::<Vec<_>>();
