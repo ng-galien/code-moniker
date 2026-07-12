@@ -1,10 +1,8 @@
 use crate::linkage::binding::{ReferenceLinkageDecision, ResolutionScope, UnknownReason};
 use crate::linkage::catalog::CandidateCatalog;
-use crate::linkage::catalog::SymbolSet;
 use crate::linkage::catalog::{LinkageQuery, ReferenceLocation};
-use crate::linkage::resolve::manifest::GlobalTargetPolicy;
-use crate::linkage::resolve::source_groups::SourceGroupPolicy;
 use crate::linkage::resolve::{GlobalScopeResolver, LocalScopeResolver, ManifestPolicy};
+use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 
@@ -83,40 +81,18 @@ impl<'a> ReferenceResolver<'a> {
 		policies: &LinkagePolicies<'_>,
 	) -> Option<ReferenceLinkageDecision> {
 		let global_targets = self.global.resolve(query, policies.candidates);
-		let mut global_decision = policies.manifests.evaluate_global_targets(
+		let global_decision = policies.manifests.evaluate_global_targets(
 			query,
-			global_targets.clone(),
+			global_targets,
 			policies.candidates,
-		);
-		self.allow_declared_group_targets(
-			query.source_file,
-			&global_targets,
-			policies,
-			&mut global_decision,
+			|target_file| {
+				policies.source_groups.link_permission(
+					self.material,
+					query.source_file,
+					target_file,
+				)
+			},
 		);
 		global_decision.for_reference(site.reference_idx, site.reference)
-	}
-
-	fn allow_declared_group_targets(
-		&self,
-		source_file: usize,
-		global_targets: &SymbolSet,
-		policies: &LinkagePolicies<'_>,
-		global_decision: &mut GlobalTargetPolicy,
-	) {
-		let Some(source_group) = policies.source_groups.group_of(self.material, source_file) else {
-			return;
-		};
-		for symbol in global_targets.iter() {
-			let Some(candidate) = policies.candidates.candidate(symbol) else {
-				continue;
-			};
-			let target_group = policies
-				.source_groups
-				.group_of(self.material, candidate.source_file);
-			if target_group == Some(source_group) {
-				global_decision.allow(symbol);
-			}
-		}
 	}
 }

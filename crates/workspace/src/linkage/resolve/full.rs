@@ -7,9 +7,9 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
-use crate::linkage::resolve::SourceGroupPolicy;
 use crate::linkage::resolve::{LinkagePolicies, ReferenceResolver};
 use crate::linkage::resolve::{MethodTable, SemanticLinkage};
+use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::linkage::{LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
 use crate::snapshot::{CodeIndex, ResourceGeneration, WorkspaceResult};
 use crate::source::CodeIndexMaterial;
@@ -89,7 +89,7 @@ fn resolve_full_linkage(
 		.collect::<Vec<_>>();
 	timings.resolve_references = resolve_timer.elapsed();
 	let semantic_timer = Instant::now();
-	SemanticLinkage::new(material, methods, candidates, &locations)
+	SemanticLinkage::new(material, methods, candidates, &locations, &source_groups)
 		.enhance(&mut decisions, &index.references);
 	timings.semantic_enhance = semantic_timer.elapsed();
 	let store_timer = Instant::now();

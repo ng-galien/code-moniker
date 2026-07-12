@@ -3,6 +3,7 @@ mod catalog;
 mod change;
 mod language;
 mod resolve;
+mod source_groups;
 
 use std::sync::Arc;
 use std::time::Duration;

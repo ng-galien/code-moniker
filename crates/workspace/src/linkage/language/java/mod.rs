@@ -4,11 +4,10 @@ use rayon::prelude::*;
 use rustc_hash::FxHashSet;
 
 use crate::linkage::binding::ReferenceLinkageDecision;
+use crate::linkage::catalog::LinkageCandidate;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::catalog::{CandidateCatalog, LinkageCandidate};
 use crate::linkage::language::LanguageLinkageStrategy;
 use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord};
-use crate::source::CodeIndexMaterial;
 
 mod lombok;
 
@@ -150,13 +149,12 @@ fn dependency_group(package: &str) -> Option<&str> {
 }
 
 pub(super) fn enhance_reference_semantics(
-	material: &CodeIndexMaterial,
-	candidates: &CandidateCatalog,
+	context: &super::SemanticContext<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
-	let lombok = lombok::LombokSemantics::build(material, candidates, references);
+	let lombok = lombok::LombokSemantics::build(context.material, context.candidates, references);
 	if lombok.is_empty() {
 		return;
 	}
@@ -169,12 +167,41 @@ pub(super) fn enhance_reference_semantics(
 			}
 			lombok
 				.resolve_reference(decision, references)
+				.filter(|replacement| declared_groups_permit(context, replacement))
 				.map(|replacement| (idx, replacement))
 		})
 		.collect::<Vec<_>>();
 	for (idx, replacement) in replacements {
 		decisions[idx] = replacement;
 	}
+}
+
+// Semantic rescue must not undo declared connectivity: a Lombok accessor has
+// no structural candidate, so a cross-group call arrives here as NoCandidate
+// instead of manifest-blocked — this is the only spot where the declared
+// verdict can still be enforced for it.
+fn declared_groups_permit(
+	context: &super::SemanticContext<'_>,
+	replacement: &ReferenceLinkageDecision,
+) -> bool {
+	let ReferenceLinkageDecision::Resolved { targets, .. } = replacement else {
+		return true;
+	};
+	let Some(location) = context.locations.get(replacement.reference_idx()) else {
+		return true;
+	};
+	targets.iter().all(|symbol| {
+		context
+			.candidates
+			.candidate(symbol)
+			.is_none_or(|candidate| {
+				context.source_groups.link_permission(
+					context.material,
+					location.source_file,
+					candidate.source_file,
+				) != Some(crate::linkage::source_groups::LinkPermission::Blocked)
+			})
+	})
 }
 
 fn confidence(value: &[u8]) -> &str {

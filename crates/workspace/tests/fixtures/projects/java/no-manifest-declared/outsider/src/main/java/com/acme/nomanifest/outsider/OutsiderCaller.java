@@ -1,8 +1,8 @@
-package com.acme.nomanifest.caller;
+package com.acme.nomanifest.outsider;
 
 import com.acme.nomanifest.SharedRecord;
 
-public class MainCaller {
+public class OutsiderCaller {
     public String readLabel(SharedRecord record) {
         return record.getLabel();
     }

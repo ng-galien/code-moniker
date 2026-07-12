@@ -18,7 +18,7 @@ use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::ReferenceResolver;
 use crate::linkage::resolve::SemanticLinkage;
-use crate::linkage::resolve::SourceGroupPolicy;
+use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::linkage::{LinkageRefreshTimings, LocalLinkage, TimedLinkageRefresh};
 use crate::snapshot::{
 	CodeIndex, LinkageSnapshot, RecordTable, ReferenceId, ReferenceRecord, ResourceGeneration,
@@ -383,7 +383,15 @@ fn refresh_incremental_linkage(
 	let stale_reference_ids =
 		reference_ids_for_set(execution.stale_references(), &input.index.references);
 	let locations = locations.unwrap_or_else(|| ReferenceLocations::from_material(input.material));
-	SemanticLinkage::new(input.material, methods, candidates, &locations).enhance_changed(
+	let source_groups = SourceGroupPolicy::build(input.material);
+	SemanticLinkage::new(
+		input.material,
+		methods,
+		candidates,
+		&locations,
+		&source_groups,
+	)
+	.enhance_changed(
 		store.decisions_mut(),
 		&input.index.references,
 		&stale_reference_ids,

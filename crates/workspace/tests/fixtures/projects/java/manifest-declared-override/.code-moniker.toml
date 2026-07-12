@@ -1,5 +1,2 @@
 [[workspace.source_group]]
 roots = ["lib", "caller"]
-
-[[workspace.source_group]]
-roots = ["outsider"]

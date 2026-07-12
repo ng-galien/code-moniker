@@ -7,8 +7,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::linkage::binding::{ReferenceLinkageDecision, ResolutionScope};
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::LinkageQuery;
-use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
+use crate::linkage::catalog::SymbolSet;
 use crate::linkage::language;
+use crate::linkage::source_groups::LinkPermission;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
 use crate::sources::SourceRoot;
@@ -51,6 +52,7 @@ impl ManifestPolicy {
 		query: &LinkageQuery<'_>,
 		candidates: SymbolSet,
 		catalog: &CandidateCatalog,
+		declared: impl Fn(usize) -> Option<LinkPermission>,
 	) -> GlobalTargetPolicy {
 		let mut policy = GlobalTargetPolicy {
 			external_dependency: self.can_classify_as_declared_external(query),
@@ -60,13 +62,12 @@ impl ManifestPolicy {
 			let Some(candidate) = catalog.candidate(symbol) else {
 				continue;
 			};
-			let target_file = candidate.source_file;
-			if let Some(import_root) = external_import_root(query)
-				&& !self.target_file_declares_import_root(query.material, target_file, import_root)
-			{
+			let Some(permission) =
+				candidate_permission(self, query, &declared, candidate.source_file)
+			else {
 				continue;
-			}
-			match self.source_can_link_to_file(query.material, query.source_file, target_file) {
+			};
+			match permission {
 				LinkPermission::Allowed => {
 					policy.allowed.insert(symbol);
 				}
@@ -230,6 +231,22 @@ impl ManifestPolicy {
 	}
 }
 
+fn candidate_permission(
+	policy: &ManifestPolicy,
+	query: &LinkageQuery<'_>,
+	declared: &impl Fn(usize) -> Option<LinkPermission>,
+	target_file: usize,
+) -> Option<LinkPermission> {
+	if let Some(import_root) = external_import_root(query)
+		&& !policy.target_file_declares_import_root(query.material, target_file, import_root)
+	{
+		return None;
+	}
+	Some(declared(target_file).unwrap_or_else(|| {
+		policy.source_can_link_to_file(query.material, query.source_file, target_file)
+	}))
+}
+
 fn source_declares_language_package_target(
 	policy: &ManifestPolicy,
 	query: &LinkageQuery<'_>,
@@ -322,13 +339,6 @@ fn manifest_entry(root: &SourceRoot, manifest_path: &Path) -> Option<ManifestEnt
 	Some(entry)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LinkPermission {
-	Allowed,
-	Blocked,
-	Unknown,
-}
-
 #[derive(Default)]
 pub(in crate::linkage) struct GlobalTargetPolicy {
 	allowed: SymbolSet,
@@ -338,10 +348,6 @@ pub(in crate::linkage) struct GlobalTargetPolicy {
 }
 
 impl GlobalTargetPolicy {
-	pub(in crate::linkage) fn allow(&mut self, symbol: SymbolOrdinal) {
-		self.allowed.insert(symbol);
-	}
-
 	pub(in crate::linkage) fn for_reference(
 		self,
 		reference_idx: usize,

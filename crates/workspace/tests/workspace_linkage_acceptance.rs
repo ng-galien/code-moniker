@@ -161,6 +161,56 @@ fn java_declared_source_group_connects_manifest_less_modules() {
 		0,
 		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/field:label",
 	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/package:caller/module:MainCaller/class:MainCaller/method:readDescription(SharedRecord)",
+		"describe",
+		0,
+		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/method:describe()",
+	);
+}
+
+#[test]
+fn java_declared_source_groups_block_cross_group_calls() {
+	let snapshot = load_workspace_with_options(
+		LocalWorkspaceOptions::new(
+			vec![fixture_path("projects/java/no-manifest-declared")],
+			None,
+		)
+		.with_java_pipeline(JavaExtractionPipeline::Sdk),
+	);
+
+	assert_call_unresolved(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/package:outsider/module:OutsiderCaller/class:OutsiderCaller/method:readLabel(SharedRecord)",
+		"getLabel",
+		0,
+	);
+	assert_call_blocked(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/package:outsider/module:OutsiderCaller/class:OutsiderCaller/method:readDescription(SharedRecord)",
+		"describe",
+		0,
+	);
+}
+
+#[test]
+fn java_declared_source_group_overrides_manifest_block() {
+	let snapshot = load_workspace_with_options(
+		LocalWorkspaceOptions::new(
+			vec![fixture_path("projects/java/manifest-declared-override")],
+			None,
+		)
+		.with_java_pipeline(JavaExtractionPipeline::Sdk),
+	);
+
+	assert_call_linked_to(
+		&snapshot,
+		"package:com/package:acme/package:override/package:caller/module:PlainCaller/class:PlainCaller/method:readLabel(PlainRecord)",
+		"label",
+		0,
+		"package:com/package:acme/package:override/module:PlainRecord/class:PlainRecord/method:label()",
+	);
 }
 
 fn assert_unresolved_reasons_recorded(snapshot: &WorkspaceSnapshot) {
@@ -1070,6 +1120,49 @@ fn assert_call_unresolved(
 				.any(|item| item.reference == reference.id)
 		}),
 		"`{call_name}`/{call_arity} from `{}` should remain unresolved",
+		source.identity
+	);
+	assert!(
+		references
+			.iter()
+			.all(|reference| linked_symbol_identities(snapshot, reference).is_empty()),
+		"`{call_name}`/{call_arity} from `{}` should not be linked",
+		source.identity
+	);
+}
+
+fn assert_call_blocked(
+	snapshot: &WorkspaceSnapshot,
+	source_identity: &str,
+	call_name: &str,
+	call_arity: usize,
+) {
+	let source = snapshot
+		.index
+		.symbols
+		.iter()
+		.find(|symbol| symbol.identity.contains(source_identity))
+		.unwrap_or_else(|| panic!("missing source symbol containing `{source_identity}`"));
+	let references = snapshot
+		.index
+		.references
+		.iter()
+		.filter(|reference| {
+			reference.kind == "method_call"
+				&& reference.source_symbol == source.id
+				&& reference.call_name.as_deref() == Some(call_name)
+				&& reference.call_arity == Some(call_arity)
+		})
+		.collect::<Vec<_>>();
+	assert!(
+		references.iter().any(|reference| {
+			snapshot
+				.linkage
+				.manifest_blocked
+				.iter()
+				.any(|item| item.reference == reference.id)
+		}),
+		"`{call_name}`/{call_arity} from `{}` should be blocked by declared source groups",
 		source.identity
 	);
 	assert!(

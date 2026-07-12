@@ -13,6 +13,7 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::linkage::language;
+use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
@@ -21,6 +22,7 @@ pub(in crate::linkage) struct SemanticLinkage<'a> {
 	methods: &'a MethodTable,
 	candidates: &'a CandidateCatalog,
 	locations: &'a ReferenceLocations,
+	source_groups: &'a SourceGroupPolicy,
 }
 
 impl<'a> SemanticLinkage<'a> {
@@ -29,12 +31,14 @@ impl<'a> SemanticLinkage<'a> {
 		methods: &'a MethodTable,
 		candidates: &'a CandidateCatalog,
 		locations: &'a ReferenceLocations,
+		source_groups: &'a SourceGroupPolicy,
 	) -> Self {
 		Self {
 			material,
 			methods,
 			candidates,
 			locations,
+			source_groups,
 		}
 	}
 
@@ -44,8 +48,7 @@ impl<'a> SemanticLinkage<'a> {
 		references: &RecordTable<ReferenceRecord>,
 	) {
 		language::enhance_reference_semantics(
-			self.material,
-			self.candidates,
+			&self.semantic_context(),
 			decisions,
 			references,
 			None,
@@ -62,8 +65,7 @@ impl<'a> SemanticLinkage<'a> {
 		changed_references: &FxHashSet<ReferenceId>,
 	) {
 		language::enhance_reference_semantics(
-			self.material,
-			self.candidates,
+			&self.semantic_context(),
 			decisions,
 			references,
 			Some(changed_references),
@@ -71,6 +73,15 @@ impl<'a> SemanticLinkage<'a> {
 		enhance_reexport_aliases(self, decisions, references, Some(changed_references));
 		let pending = pending_receiver_chains(decisions, references, Some(changed_references));
 		enhance_receiver_chains(self, decisions, references, pending);
+	}
+
+	fn semantic_context(&self) -> language::SemanticContext<'a> {
+		language::SemanticContext {
+			material: self.material,
+			candidates: self.candidates,
+			locations: self.locations,
+			source_groups: self.source_groups,
+		}
 	}
 
 	fn resolved_method_decision(

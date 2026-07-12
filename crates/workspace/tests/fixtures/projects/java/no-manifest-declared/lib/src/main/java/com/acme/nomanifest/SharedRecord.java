@@ -5,4 +5,8 @@ import lombok.Data;
 @Data
 public class SharedRecord {
     private String label;
+
+    public String describe() {
+        return "record " + label;
+    }
 }

@@ -108,18 +108,18 @@ pub(super) fn proc_macro_annotation(query: &LinkageQuery<'_>) -> bool {
 	rust::proc_macro_annotation(query)
 }
 
+pub(super) struct SemanticContext<'a> {
+	pub(super) material: &'a CodeIndexMaterial,
+	pub(super) candidates: &'a CandidateCatalog,
+	pub(super) locations: &'a crate::linkage::catalog::ReferenceLocations,
+	pub(super) source_groups: &'a crate::linkage::source_groups::SourceGroupPolicy,
+}
+
 pub(super) fn enhance_reference_semantics(
-	material: &CodeIndexMaterial,
-	candidates: &CandidateCatalog,
+	context: &SemanticContext<'_>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&rustc_hash::FxHashSet<crate::snapshot::ReferenceId>>,
 ) {
-	java::enhance_reference_semantics(
-		material,
-		candidates,
-		decisions,
-		references,
-		changed_references,
-	);
+	java::enhance_reference_semantics(context, decisions, references, changed_references);
 }
