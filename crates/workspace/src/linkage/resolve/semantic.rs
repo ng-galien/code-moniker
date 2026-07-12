@@ -291,9 +291,6 @@ fn enhance_receiver_fields(
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
-	if tables.field_types.is_empty() {
-		return;
-	}
 	let replacements = decisions
 		.par_iter()
 		.enumerate()
@@ -391,8 +388,30 @@ fn resolve_imported_method_call(
 		return None;
 	}
 	let owner_raw = raw_target.parent()?;
-	let owner = tables.type_aliases.get(&owner_raw).unwrap_or(&owner_raw);
-	resolve_method_through_supers(linkage, tables, owner, method_call)
+	let owner = canonical_type_owner(tables, &owner_raw);
+	resolve_method_through_supers(linkage, tables, &owner, method_call)
+}
+
+fn canonical_type_owner(tables: &ReceiverFieldTables, owner: &Moniker) -> Moniker {
+	if let Some(alias) = tables.type_aliases.get(owner) {
+		return alias.clone();
+	}
+	let Some(stripped) = strip_self_path_echo(owner) else {
+		return owner.clone();
+	};
+	tables
+		.type_aliases
+		.get(&stripped)
+		.cloned()
+		.unwrap_or(stripped)
+}
+
+fn strip_self_path_echo(owner: &Moniker) -> Option<Moniker> {
+	let segments = owner.as_view().segments().collect::<Vec<_>>();
+	let [.., before, last] = segments.as_slice() else {
+		return None;
+	};
+	(last.kind == kinds::PATH && last.name == before.name).then(|| owner.parent())?
 }
 
 fn resolve_method_through_supers(
@@ -513,6 +532,7 @@ type MethodKey = (Moniker, Vec<u8>, usize);
 #[derive(Default)]
 pub(in crate::linkage) struct MethodTable {
 	by_owner_name_arity: FxHashMap<MethodKey, Vec<SymbolOrdinal>>,
+	by_owner_name: FxHashMap<(Moniker, Vec<u8>), Vec<SymbolOrdinal>>,
 	keys_by_file: FxHashMap<usize, Vec<MethodKey>>,
 }
 
@@ -552,11 +572,7 @@ impl MethodTable {
 				continue;
 			};
 			let key = (owner, def.call_name.to_vec(), arity);
-			self.by_owner_name_arity
-				.entry(key.clone())
-				.or_default()
-				.push(symbol);
-			self.keys_by_file.entry(file_idx).or_default().push(key);
+			insert_method_key(self, file_idx, key, symbol);
 		}
 	}
 
@@ -566,11 +582,37 @@ impl MethodTable {
 		call_name: &str,
 		call_arity: Option<usize>,
 	) -> Option<SymbolSet> {
-		let arity = call_arity?;
-		let key = (owner.clone(), call_name.as_bytes().to_vec(), arity);
-		let targets = self.by_owner_name_arity.get(&key)?;
+		let targets = match call_arity {
+			Some(arity) => self.by_owner_name_arity.get(&(
+				owner.clone(),
+				call_name.as_bytes().to_vec(),
+				arity,
+			))?,
+			None => self
+				.by_owner_name
+				.get(&(owner.clone(), call_name.as_bytes().to_vec()))?,
+		};
 		(targets.len() == 1).then(|| SymbolSet::from_symbol(targets[0]))
 	}
+}
+
+fn insert_method_key(
+	table: &mut MethodTable,
+	file_idx: usize,
+	key: MethodKey,
+	symbol: SymbolOrdinal,
+) {
+	table
+		.by_owner_name
+		.entry((key.0.clone(), key.1.clone()))
+		.or_default()
+		.push(symbol);
+	table
+		.by_owner_name_arity
+		.entry(key.clone())
+		.or_default()
+		.push(symbol);
+	table.keys_by_file.entry(file_idx).or_default().push(key);
 }
 
 fn enhance_reexport_aliases(

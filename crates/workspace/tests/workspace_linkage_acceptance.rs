@@ -416,6 +416,12 @@ fn ts_namespace_import_calls_resolve_to_module_functions() {
 		"arrayToEnum",
 		"module:util/function:arrayToEnum",
 	);
+	assert_named_call_linked_to(
+		&snapshot,
+		"module:index/function:first",
+		"pickFirst",
+		"module:bag/function:pickFirst",
+	);
 }
 
 #[test]
