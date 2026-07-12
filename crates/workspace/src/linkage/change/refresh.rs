@@ -18,6 +18,7 @@ use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::ReferenceResolver;
 use crate::linkage::resolve::SemanticLinkage;
+use crate::linkage::resolve::WorkspacePackageIndex;
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::linkage::{LinkageRefreshTimings, LocalLinkage, TimedLinkageRefresh};
 use crate::snapshot::{
@@ -416,10 +417,12 @@ fn resolve_reference_decisions(
 	let resolver = ReferenceResolver::new(input.material);
 	let manifests = ManifestPolicy::build(input.material);
 	let source_groups = SourceGroupPolicy::build(input.material);
+	let packages = WorkspacePackageIndex::build(input.material);
 	let policies = LinkagePolicies {
 		candidates,
 		manifests: &manifests,
 		source_groups: &source_groups,
+		packages: &packages,
 	};
 	indexes_to_references(input.index, reference_indexes)
 		.par_iter()

@@ -8,7 +8,7 @@ use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
 use crate::linkage::resolve::{LinkagePolicies, ReferenceResolver};
-use crate::linkage::resolve::{MethodTable, SemanticLinkage};
+use crate::linkage::resolve::{MethodTable, SemanticLinkage, WorkspacePackageIndex};
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::linkage::{LinkageTimings, LocalLinkage, TimedLinkageSnapshot};
 use crate::snapshot::{CodeIndex, ResourceGeneration, WorkspaceResult};
@@ -68,11 +68,13 @@ fn resolve_full_linkage(
 	let manifest_timer = Instant::now();
 	let manifests = ManifestPolicy::build(material);
 	let source_groups = SourceGroupPolicy::build(material);
+	let packages = WorkspacePackageIndex::build(material);
 	timings.manifest_policy = manifest_timer.elapsed();
 	let policies = LinkagePolicies {
 		candidates,
 		manifests: &manifests,
 		source_groups: &source_groups,
+		packages: &packages,
 	};
 	let resolve_timer = Instant::now();
 	let locations = ReferenceLocations::from_material(material);

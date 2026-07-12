@@ -1,7 +1,11 @@
-use crate::linkage::binding::{ReferenceLinkageDecision, ResolutionScope, UnknownReason};
+use crate::linkage::binding::{
+	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
+};
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{LinkageQuery, ReferenceLocation};
-use crate::linkage::resolve::{GlobalScopeResolver, LocalScopeResolver, ManifestPolicy};
+use crate::linkage::resolve::{
+	GlobalScopeResolver, LocalScopeResolver, ManifestPolicy, WorkspacePackageIndex,
+};
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::snapshot::ReferenceRecord;
 use crate::source::CodeIndexMaterial;
@@ -10,6 +14,7 @@ pub(in crate::linkage) struct LinkagePolicies<'a> {
 	pub(in crate::linkage) candidates: &'a CandidateCatalog,
 	pub(in crate::linkage) manifests: &'a ManifestPolicy,
 	pub(in crate::linkage) source_groups: &'a SourceGroupPolicy,
+	pub(in crate::linkage) packages: &'a WorkspacePackageIndex,
 }
 
 #[derive(Clone, Copy)]
@@ -69,6 +74,14 @@ impl<'a> ReferenceResolver<'a> {
 
 		if let Some(decision) = self.resolve_global(&query, site, policies) {
 			return decision;
+		}
+
+		if policies.packages.is_foreign(&query) {
+			return ReferenceLinkageDecision::external(
+				ExternalOrigin::Dependency,
+				reference_idx,
+				reference.id,
+			);
 		}
 
 		site.unknown(UnknownReason::NoCandidate)

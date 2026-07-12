@@ -195,6 +195,29 @@ fn java_declared_source_groups_block_cross_group_calls() {
 }
 
 #[test]
+fn java_foreign_package_imports_classify_external_without_manifest() {
+	let snapshot = load_workspace_with_options(
+		LocalWorkspaceOptions::new(
+			vec![fixture_path("projects/java/no-manifest-declared")],
+			None,
+		)
+		.with_java_pipeline(JavaExtractionPipeline::Sdk),
+	);
+
+	assert_external_reference(
+		&snapshot,
+		"method_call",
+		"package:com/package:thirdparty/package:util/module:Helper/path:Helper/method:help()",
+	);
+	assert_call_unresolved(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/module:ThirdPartyUser/class:ThirdPartyUser/method:describeMissing()",
+		"getLabel",
+		0,
+	);
+}
+
+#[test]
 fn java_declared_source_group_overrides_manifest_block() {
 	let snapshot = load_workspace_with_options(
 		LocalWorkspaceOptions::new(
