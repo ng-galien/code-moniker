@@ -410,11 +410,13 @@ fn field_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 		if name.is_empty() {
 			continue;
 		}
+		let field = extend_segment(scope, kinds::FIELD, name);
 		if let Some(ty) = ty.clone() {
+			push_typed_as_ref(state, &field, &ty, declarator);
 			state.field_types.insert((scope.clone(), name.to_vec()), ty);
 		}
 		state.push_def(def_record(DefInput {
-			moniker: extend_segment(scope, kinds::FIELD, name),
+			moniker: field,
 			parent: scope.clone(),
 			namespace: Namespace::Value,
 			name: name.to_vec(),
@@ -426,6 +428,20 @@ fn field_defs(state: &mut JavaDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 			call_arity: None,
 		}));
 	}
+}
+
+fn push_typed_as_ref(state: &mut JavaDiscover<'_>, field: &Moniker, ty: &TypeExpr, node: Node<'_>) {
+	let Some(target) = ty.receiver_owner().cloned() else {
+		return;
+	};
+	state.push_ref(ResolvedRef {
+		source: field.clone(),
+		target,
+		kind: kinds::TYPED_AS,
+		position: Some(node_position(node)),
+		confidence: kinds::CONF_RESOLVED,
+		hints: RefHints::default(),
+	});
 }
 
 fn field_declaration_signature(node: Node<'_>, source: &[u8]) -> Vec<u8> {

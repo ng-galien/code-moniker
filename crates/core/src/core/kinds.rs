@@ -26,6 +26,7 @@ pub const REF_METHOD_CALL: &[u8] = b"method_call";
 pub const REF_READS: &[u8] = b"reads";
 pub const REF_USES_TYPE: &[u8] = b"uses_type";
 pub const REF_RETURNS_TYPE: &[u8] = b"returns_type";
+pub const REF_TYPED_AS: &[u8] = b"typed_as";
 pub const REF_INSTANTIATES: &[u8] = b"instantiates";
 pub const REF_EXTENDS: &[u8] = b"extends";
 pub const REF_IMPLEMENTS: &[u8] = b"implements";

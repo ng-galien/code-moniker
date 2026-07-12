@@ -374,6 +374,32 @@ input_file: crates/core/tests/fixtures/extractors/java/OrderWorkflow.java
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/field:repository",
+      "kind": "typed_as",
+      "position": [
+        205,
+        215
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/interface:OrderRepository"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/field:clock",
+      "kind": "typed_as",
+      "position": [
+        238,
+        243
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:time/path:Clock"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:java/package:app/package:order/module:OrderWorkflow/class:OrderWorkflow/record:Order/method:id()",

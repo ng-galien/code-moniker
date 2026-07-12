@@ -738,6 +738,32 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/field:field",
+      "kind": "typed_as",
+      "position": [
+        1131,
+        1136
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/field:value",
+      "kind": "typed_as",
+      "position": [
+        1161,
+        1166
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:lang/path:String"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:ConflictException/method:field()",
@@ -816,6 +842,19 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/field:byId",
+      "kind": "typed_as",
+      "position": [
+        2000,
+        2032
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:java/path:util/path:concurrent/path:ConcurrentHashMap"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/class:InMemoryRepository/method:findById(String)",
@@ -865,6 +904,19 @@ input_file: crates/core/tests/fixtures/extractors/java/UserService.java
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:java/path:util/path:stream/path:Stream"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/field:repo",
+      "kind": "typed_as",
+      "position": [
+        2822,
+        2826
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:java/package:app/package:user/module:UserService/class:UserService/interface:UserRepository"
     },
     {
       "alias": "",

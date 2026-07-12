@@ -71,5 +71,6 @@ refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L3
 refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L6
 refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L6
 refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L6
+refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L6
 refs.domain-depends-only-inward @ src/main/java/com/acme/domain/Order.java:L9
 ```
