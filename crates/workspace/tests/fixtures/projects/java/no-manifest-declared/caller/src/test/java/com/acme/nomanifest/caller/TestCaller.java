@@ -6,4 +6,8 @@ public class TestCaller {
     public String readLabel(SharedRecord record) {
         return record.getLabel();
     }
+
+    public String readDescription(SharedRecord record) {
+        return record.describe();
+    }
 }

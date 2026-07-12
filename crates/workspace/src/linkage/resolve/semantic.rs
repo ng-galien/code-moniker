@@ -105,15 +105,22 @@ impl<'a> SemanticLinkage<'a> {
 		owner: &Moniker,
 		method_call: MethodCallReference<'_>,
 	) -> Option<ReferenceLinkageDecision> {
-		let target = method_target(owner, method_call.call_name(), method_call.call_arity());
-		if let Some(symbol) = self.candidates.indexes().symbol_by_moniker(&target) {
-			return Some(
-				method_call
-					.resolved_decision(ResolutionScope::Global, SymbolSet::from_symbol(symbol)),
-			);
-		}
-		let targets = self.methods.resolve(owner, &method_call)?;
+		let targets =
+			self.resolved_method_targets(owner, method_call.call_name(), method_call.call_arity())?;
 		Some(method_call.resolved_decision(ResolutionScope::Global, targets))
+	}
+
+	fn resolved_method_targets(
+		&self,
+		owner: &Moniker,
+		call_name: &str,
+		call_arity: Option<usize>,
+	) -> Option<SymbolSet> {
+		let target = method_target(owner, call_name, call_arity);
+		if let Some(symbol) = self.candidates.indexes().symbol_by_moniker(&target) {
+			return Some(SymbolSet::from_symbol(symbol));
+		}
+		self.methods.resolve_by_name(owner, call_name, call_arity)
 	}
 
 	fn resolved_return_owner(
@@ -188,6 +195,8 @@ fn enhance_receiver_chains(
 struct ReceiverFieldTables {
 	field_types: FxHashMap<Moniker, FxHashMap<Vec<u8>, Moniker>>,
 	extends_of: FxHashMap<Moniker, Moniker>,
+	supers: FxHashMap<Moniker, Vec<Moniker>>,
+	type_aliases: FxHashMap<Moniker, Moniker>,
 }
 
 fn build_receiver_field_tables(
@@ -198,36 +207,71 @@ fn build_receiver_field_tables(
 	let mut tables = ReceiverFieldTables {
 		field_types: FxHashMap::default(),
 		extends_of: FxHashMap::default(),
+		supers: FxHashMap::default(),
+		type_aliases: FxHashMap::default(),
 	};
 	for decision in decisions {
 		let reference = decision_reference(decision, references);
 		let table_kind = reference.kind.as_bytes();
-		if table_kind != kinds::TYPED_AS && table_kind != kinds::EXTENDS {
+		if !is_type_level_kind(table_kind) {
 			continue;
 		}
-		let Some(source) = linkage.material.symbol_moniker(&reference.source_symbol) else {
-			continue;
-		};
 		let Some(target) =
 			decision_target(linkage.material, linkage.candidates, decision, references)
 				.or_else(|| linkage.material.reference_target(&reference.id).cloned())
 		else {
 			continue;
 		};
-		if table_kind == kinds::EXTENDS {
-			tables.extends_of.insert(source.clone(), target);
-			continue;
+		if let Some(raw) = linkage.material.reference_target(&reference.id)
+			&& raw != &target
+		{
+			tables.type_aliases.insert(raw.clone(), target.clone());
 		}
-		let Some((owner, name)) = field_owner_and_name(source) else {
+		let Some(source) = linkage.material.symbol_moniker(&reference.source_symbol) else {
 			continue;
 		};
-		tables
-			.field_types
-			.entry(owner)
-			.or_default()
-			.insert(name, target);
+		insert_type_fact(&mut tables, table_kind, source.clone(), target);
 	}
 	tables
+}
+
+fn insert_type_fact(
+	tables: &mut ReceiverFieldTables,
+	kind: &[u8],
+	source: Moniker,
+	target: Moniker,
+) {
+	match kind {
+		kinds::EXTENDS => {
+			tables.extends_of.insert(source.clone(), target.clone());
+			tables.supers.entry(source).or_default().push(target);
+		}
+		kinds::IMPLEMENTS => {
+			tables.supers.entry(source).or_default().push(target);
+		}
+		kinds::TYPED_AS => {
+			if let Some((owner, name)) = field_owner_and_name(&source) {
+				tables
+					.field_types
+					.entry(owner)
+					.or_default()
+					.insert(name, target);
+			}
+		}
+		_ => {}
+	}
+}
+
+fn is_type_level_kind(kind: &[u8]) -> bool {
+	matches!(
+		kind,
+		kinds::TYPED_AS
+			| kinds::EXTENDS
+			| kinds::IMPLEMENTS
+			| kinds::USES_TYPE
+			| kinds::IMPORTS_SYMBOL
+			| kinds::INSTANTIATES
+	)
 }
 
 fn field_owner_and_name(field: &Moniker) -> Option<(Moniker, Vec<u8>)> {
@@ -263,13 +307,12 @@ fn enhance_receiver_fields(
 			else {
 				return None;
 			};
-			resolve_receiver_field_call(
-				linkage,
-				tables,
-				*reference_idx,
-				&references[*reference_idx],
-			)
-			.map(|replacement| (idx, replacement))
+			let reference = &references[*reference_idx];
+			resolve_receiver_field_call(linkage, tables, *reference_idx, reference)
+				.or_else(|| {
+					resolve_imported_method_call(linkage, tables, *reference_idx, reference)
+				})
+				.map(|replacement| (idx, replacement))
 		})
 		.collect::<Vec<_>>();
 	for (idx, replacement) in replacements {
@@ -292,7 +335,7 @@ fn resolve_receiver_field_call(
 	let mut owner = source.parent();
 	while let Some(current) = owner {
 		if let Some(ty) = field_type_through_extends(tables, &current, receiver.as_bytes()) {
-			return typed_receiver_decision(linkage, ty, method_call);
+			return typed_receiver_decision(linkage, tables, ty, method_call);
 		}
 		owner = current.parent();
 	}
@@ -325,16 +368,63 @@ fn field_type_through_extends<'a>(
 
 fn typed_receiver_decision(
 	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
 	ty: &Moniker,
 	method_call: MethodCallReference<'_>,
 ) -> Option<ReferenceLinkageDecision> {
 	let owner = callable_owner(ty)?;
-	if external_target_shape(&owner) || linkage.packages.is_foreign_moniker(&owner) {
-		let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
-		return Some(method_call.external_decision(target));
+	resolve_method_through_supers(linkage, tables, &owner, method_call)
+}
+
+fn resolve_imported_method_call(
+	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
+) -> Option<ReferenceLinkageDecision> {
+	let method_call = MethodCallReference::new(reference_idx, reference)?;
+	let raw_target = linkage.material.reference_target(&reference.id)?;
+	let last = raw_target.as_view().segments().last()?;
+	if !matches!(last.kind, kinds::METHOD | kinds::CONSTRUCTOR) {
+		return None;
 	}
-	let decision = linkage.resolved_method_decision(&owner, method_call)?;
-	declared_groups_permit_decision(linkage, &decision).then_some(decision)
+	let owner_raw = raw_target.parent()?;
+	let owner = tables.type_aliases.get(&owner_raw).unwrap_or(&owner_raw);
+	resolve_method_through_supers(linkage, tables, owner, method_call)
+}
+
+fn resolve_method_through_supers(
+	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
+	owner: &Moniker,
+	method_call: MethodCallReference<'_>,
+) -> Option<ReferenceLinkageDecision> {
+	let mut stack = vec![owner.clone()];
+	let mut seen = FxHashSet::default();
+	while let Some(current) = stack.pop() {
+		if seen.len() > 32 || !seen.insert(current.clone()) {
+			continue;
+		}
+		if let Some(targets) = linkage.resolved_method_targets(
+			&current,
+			method_call.call_name(),
+			method_call.call_arity(),
+		) {
+			let decision = method_call.resolved_decision(ResolutionScope::Global, targets);
+			return declared_groups_permit_decision(linkage, &decision).then_some(decision);
+		}
+		if external_target_shape(&current) || linkage.packages.is_foreign_moniker(&current) {
+			let target = method_target(&current, method_call.call_name(), method_call.call_arity());
+			return Some(method_call.external_decision(target));
+		}
+		if let Some(parents) = tables.supers.get(&current) {
+			for parent in parents {
+				let parent = tables.type_aliases.get(parent).unwrap_or(parent);
+				stack.push(parent.clone());
+			}
+		}
+	}
+	None
 }
 
 fn declared_groups_permit_decision(
@@ -468,13 +558,14 @@ impl MethodTable {
 		}
 	}
 
-	fn resolve(&self, owner: &Moniker, method_call: &MethodCallReference<'_>) -> Option<SymbolSet> {
-		let arity = method_call.call_arity()?;
-		let key = (
-			owner.clone(),
-			method_call.call_name().as_bytes().to_vec(),
-			arity,
-		);
+	fn resolve_by_name(
+		&self,
+		owner: &Moniker,
+		call_name: &str,
+		call_arity: Option<usize>,
+	) -> Option<SymbolSet> {
+		let arity = call_arity?;
+		let key = (owner.clone(), call_name.as_bytes().to_vec(), arity);
 		let targets = self.by_owner_name_arity.get(&key)?;
 		(targets.len() == 1).then(|| SymbolSet::from_symbol(targets[0]))
 	}
