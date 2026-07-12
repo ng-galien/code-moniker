@@ -149,6 +149,11 @@ fn enhance_receiver_chains(
 	let return_types =
 		collect_return_types(linkage.material, linkage.candidates, decisions, references);
 	loop {
+		let context = ChainContext {
+			statuses: &statuses,
+			receiver_calls: &receiver_calls,
+			return_types: &return_types,
+		};
 		let replacements = pending
 			.par_iter()
 			.filter_map(|idx| match &decisions[*idx] {
@@ -159,11 +164,9 @@ fn enhance_receiver_chains(
 				} => resolve_receiver_chain(
 					linkage,
 					tables,
+					&context,
 					*reference_idx,
 					&references[*reference_idx],
-					&statuses,
-					&receiver_calls,
-					&return_types,
 				)
 				.map(|replacement| (*idx, replacement)),
 				_ => None,
@@ -905,20 +908,24 @@ fn pending_receiver_chains(
 		.collect()
 }
 
+struct ChainContext<'a> {
+	statuses: &'a FxHashMap<usize, ReferenceStatus>,
+	receiver_calls: &'a ReceiverCallIndex,
+	return_types: &'a FxHashMap<Moniker, Moniker>,
+}
+
 fn resolve_receiver_chain(
 	linkage: &SemanticLinkage<'_>,
 	tables: &ReceiverFieldTables,
+	context: &ChainContext<'_>,
 	reference_idx: usize,
 	reference: &ReferenceRecord,
-	statuses: &FxHashMap<usize, ReferenceStatus>,
-	receiver_calls: &ReceiverCallIndex,
-	return_types: &FxHashMap<Moniker, Moniker>,
 ) -> Option<ReferenceLinkageDecision> {
 	let method_call = MethodCallReference::new(reference_idx, reference)?;
-	let receiver = receiver_calls.get(reference_idx)?;
-	let owner = match statuses.get(&receiver)? {
+	let receiver = context.receiver_calls.get(reference_idx)?;
+	let owner = match context.statuses.get(&receiver)? {
 		ReferenceStatus::Resolved(symbol) => {
-			linkage.resolved_return_owner(*symbol, return_types)?
+			linkage.resolved_return_owner(*symbol, context.return_types)?
 		}
 		ReferenceStatus::External(target) => {
 			let owner = callable_owner(target)?;
