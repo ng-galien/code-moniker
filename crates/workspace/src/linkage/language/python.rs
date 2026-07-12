@@ -19,15 +19,43 @@ fn python_path_target_matches_def(
 	query: &LinkageQuery<'_>,
 	candidate: &LinkageCandidate<'_>,
 ) -> bool {
-	if query.target_segment_count != candidate.segment_count || query.target_segment_count == 0 {
+	let target_segments = query.target_segments().collect::<Vec<_>>();
+	let candidate_segments =
+		normalized_python_segments(candidate.moniker.as_view().segments().collect::<Vec<_>>());
+	if target_segments.len() != candidate_segments.len() || target_segments.is_empty() {
 		return false;
 	}
-	query
-		.target_segments()
-		.zip(candidate.moniker.as_view().segments())
+	target_segments
+		.iter()
+		.zip(candidate_segments.iter())
 		.all(|(target, candidate_segment)| {
-			python_segment_matches(query, candidate, target, candidate_segment)
+			python_segment_matches(query, candidate, *target, *candidate_segment)
 		})
+}
+
+// A Python package is imported by its bare name, but its definitions live in
+// package:X/module:__init__ — collapse that pair to module:X so `import
+// httpx` and `httpx.get(...)` line up with the __init__ reexports.
+fn normalized_python_segments(segments: Vec<Segment<'_>>) -> Vec<Segment<'_>> {
+	let mut normalized: Vec<Segment<'_>> = Vec::with_capacity(segments.len());
+	let mut idx = 0;
+	while idx < segments.len() {
+		if segments[idx].kind == kinds::PACKAGE
+			&& idx + 1 < segments.len()
+			&& segments[idx + 1].kind == kinds::MODULE
+			&& segments[idx + 1].name == b"__init__"
+		{
+			normalized.push(Segment {
+				kind: kinds::MODULE,
+				name: segments[idx].name,
+			});
+			idx += 2;
+			continue;
+		}
+		normalized.push(segments[idx]);
+		idx += 1;
+	}
+	normalized
 }
 
 fn python_segment_matches(

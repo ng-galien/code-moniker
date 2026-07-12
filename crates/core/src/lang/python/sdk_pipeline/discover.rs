@@ -2919,6 +2919,7 @@ const TYPING_CONTAINER_NAMES: &[&[u8]] = &[
 ];
 
 pub(crate) const STDLIB_PACKAGES: &[&str] = &[
+	"__future__",
 	"abc",
 	"aifc",
 	"antigravity",

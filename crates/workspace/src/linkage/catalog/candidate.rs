@@ -331,7 +331,24 @@ fn candidate_keys(candidate: &LinkageCandidate<'_>) -> Vec<Vec<u8>> {
 	if let Some(segment) = candidate.last_segment {
 		push_key(&mut keys, bare_callable_name(segment.name));
 	}
+	if let Some(package) = python_init_package_name(candidate) {
+		push_key(&mut keys, package);
+	}
 	keys
+}
+
+// A Python package's __init__ module answers to the package name: `import
+// httpx` must find package:httpx/module:__init__ in the name index.
+fn python_init_package_name<'a>(candidate: &'a LinkageCandidate<'_>) -> Option<&'a [u8]> {
+	let last = candidate.last_segment?;
+	if last.kind != kinds::MODULE || last.name != b"__init__" {
+		return None;
+	}
+	let segments = candidate.moniker.as_view().segments().collect::<Vec<_>>();
+	let [.., before, _] = segments.as_slice() else {
+		return None;
+	};
+	(before.kind == kinds::PACKAGE).then_some(before.name)
 }
 
 fn push_key(keys: &mut Vec<Vec<u8>>, key: &[u8]) {

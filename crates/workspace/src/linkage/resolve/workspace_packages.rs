@@ -18,7 +18,11 @@ impl WorkspacePackageIndex {
 		let mut packages = FxHashSet::default();
 		for file in material.files.iter() {
 			for def_idx in 0..file.graph.def_count() {
-				if let Some(key) = package_key(&file.graph.def_at(def_idx).moniker) {
+				let moniker = &file.graph.def_at(def_idx).moniker;
+				if let Some(key) = package_key(moniker) {
+					packages.insert(key);
+				}
+				if let Some(key) = python_package_head_key(moniker) {
 					packages.insert(key);
 				}
 			}
@@ -54,10 +58,49 @@ fn package_key(moniker: &Moniker) -> Option<Vec<u8>> {
 		}
 	}
 	if !has_package {
-		return None;
+		return python_module_key(moniker, lang);
 	}
 	let mut full = lang.to_vec();
 	full.extend_from_slice(&key);
+	Some(full)
+}
+
+// Python addresses third-party imports as bare `module:X` chains with no
+// package segment; key those on the head module name so the foreign test
+// covers them. The workspace side registers both its top-level modules and
+// its package names under the same shape (import httpx == package httpx).
+fn python_package_head_key(moniker: &Moniker) -> Option<Vec<u8>> {
+	let view = moniker.as_view();
+	let mut lang: &[u8] = b"";
+	for segment in view.segments() {
+		if segment.kind == kinds::LANG {
+			lang = segment.name;
+		} else if segment.kind == kinds::PACKAGE {
+			if lang != b"python" {
+				return None;
+			}
+			let mut full = lang.to_vec();
+			full.push(0);
+			full.extend_from_slice(segment.name);
+			return Some(full);
+		} else {
+			break;
+		}
+	}
+	None
+}
+
+fn python_module_key(moniker: &Moniker, lang: &[u8]) -> Option<Vec<u8>> {
+	if lang != b"python" {
+		return None;
+	}
+	let head = moniker
+		.as_view()
+		.segments()
+		.find(|segment| segment.kind == kinds::MODULE)?;
+	let mut full = lang.to_vec();
+	full.push(0);
+	full.extend_from_slice(head.name);
 	Some(full)
 }
 
