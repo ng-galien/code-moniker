@@ -92,6 +92,26 @@ fn rust_qualified_calls_do_not_match_unrelated_same_arity_callables() {
 }
 
 #[test]
+fn rust_qualified_calls_resolve_through_module_reexports() {
+	let snapshot = load_workspace("projects/rust/reexport-qualified");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:app/fn:run()",
+		"calls",
+		"version",
+		0,
+		"module:store/path:version",
+	);
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"calls",
+		"module:app/fn:run()",
+		"external_pkg:unknown_vendored",
+	);
+}
+
+#[test]
 fn java_sdk_multiproject_links_spring_and_platform_refs() {
 	let snapshot = load_workspace_with_options(
 		LocalWorkspaceOptions::new(vec![fixture_path("projects/java/multiprojet")], None)

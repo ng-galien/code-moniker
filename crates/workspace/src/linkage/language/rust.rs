@@ -196,7 +196,7 @@ fn is_builtin_external_root(root: &[u8]) -> bool {
 }
 
 pub(super) fn builtin_external_root(root: &str) -> bool {
-	matches!(root, "std" | "core" | "alloc" | "proc_macro")
+	matches!(root, "std" | "core" | "alloc" | "proc_macro" | "test")
 }
 
 pub(super) fn proc_macro_annotation(query: &LinkageQuery<'_>) -> bool {

@@ -76,7 +76,7 @@ impl<'a> ReferenceResolver<'a> {
 			return decision;
 		}
 
-		if policies.packages.is_foreign(&query) {
+		if external_fallthrough(&query, policies) {
 			return ReferenceLinkageDecision::external(
 				ExternalOrigin::Dependency,
 				reference_idx,
@@ -108,4 +108,23 @@ impl<'a> ReferenceResolver<'a> {
 		);
 		global_decision.for_reference(site.reference_idx, site.reference)
 	}
+}
+
+// The extractor already committed to "this import root is not part of the
+// project" by anchoring the target on external_pkg. When nothing internal
+// matched and no manifest could confirm it, honour that claim instead of
+// reporting a hole: the reference is external, whatever the build system.
+fn external_fallthrough(query: &LinkageQuery<'_>, policies: &LinkagePolicies<'_>) -> bool {
+	policies.packages.is_foreign(query)
+		|| (external_tagged(query)
+			&& !crate::linkage::resolve::manifest::source_has_manifest_entry(
+				policies.manifests,
+				query.source_file,
+			))
+}
+
+fn external_tagged(query: &LinkageQuery<'_>) -> bool {
+	query
+		.target_first
+		.is_some_and(|segment| segment.kind == code_moniker_core::lang::kinds::EXTERNAL_PKG)
 }

@@ -60,7 +60,7 @@ impl<'a> SemanticLinkage<'a> {
 			None,
 		);
 		enhance_receiver_fields(self, &tables, decisions, references, None);
-		enhance_reexport_aliases(self, decisions, references, None);
+		enhance_reexport_aliases(self, &tables, decisions, references, None);
 		let pending = pending_receiver_chains(decisions, references, None);
 		enhance_receiver_chains(self, decisions, references, pending);
 	}
@@ -86,7 +86,13 @@ impl<'a> SemanticLinkage<'a> {
 			references,
 			Some(changed_references),
 		);
-		enhance_reexport_aliases(self, decisions, references, Some(changed_references));
+		enhance_reexport_aliases(
+			self,
+			&tables,
+			decisions,
+			references,
+			Some(changed_references),
+		);
 		let pending = pending_receiver_chains(decisions, references, Some(changed_references));
 		enhance_receiver_chains(self, decisions, references, pending);
 	}
@@ -270,6 +276,7 @@ fn is_type_level_kind(kind: &[u8]) -> bool {
 			| kinds::IMPLEMENTS
 			| kinds::USES_TYPE
 			| kinds::IMPORTS_SYMBOL
+			| kinds::IMPORTS_MODULE
 			| kinds::INSTANTIATES
 	)
 }
@@ -573,6 +580,7 @@ impl MethodTable {
 
 fn enhance_reexport_aliases(
 	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
@@ -598,6 +606,7 @@ fn enhance_reexport_aliases(
 		else {
 			continue;
 		};
+		let owner = tables.type_aliases.get(&owner).cloned().unwrap_or(owner);
 		let Some(alias) = aliases.get(&(owner, name)) else {
 			continue;
 		};

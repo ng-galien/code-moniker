@@ -231,6 +231,13 @@ impl ManifestPolicy {
 	}
 }
 
+pub(in crate::linkage) fn source_has_manifest_entry(
+	policy: &ManifestPolicy,
+	source_file: usize,
+) -> bool {
+	policy.entry_for_file(source_file).is_some()
+}
+
 fn candidate_permission(
 	policy: &ManifestPolicy,
 	query: &LinkageQuery<'_>,
