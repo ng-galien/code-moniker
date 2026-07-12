@@ -92,6 +92,20 @@ fn rust_qualified_calls_do_not_match_unrelated_same_arity_callables() {
 }
 
 #[test]
+fn rust_facade_wildcard_reexports_forward_crate_references() {
+	let snapshot = load_workspace("projects/rust/facade-crate");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:use_facade/test:spins()",
+		"calls",
+		"spin_widget",
+		0,
+		"dir:inner/dir:src/module:lib/fn:spin_widget()",
+	);
+}
+
+#[test]
 fn rust_qualified_calls_resolve_through_module_reexports() {
 	let snapshot = load_workspace("projects/rust/reexport-qualified");
 

@@ -13,6 +13,7 @@ use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{ReferenceOrdinal, ReferenceSet};
 use crate::linkage::change::{BindingReadModel, EditedGraph, RebindScope};
 use crate::linkage::change::{LinkageRefreshImpact, LinkageRefreshShape, SymbolDelta};
+use crate::linkage::resolve::CrateForwards;
 use crate::linkage::resolve::LinkagePolicies;
 use crate::linkage::resolve::ManifestPolicy;
 use crate::linkage::resolve::MethodIndexer;
@@ -420,11 +421,13 @@ fn resolve_reference_decisions(
 	let manifests = ManifestPolicy::build(input.material);
 	let source_groups = SourceGroupPolicy::build(input.material);
 	let packages = WorkspacePackageIndex::build(input.material);
+	let forwards = CrateForwards::build(input.material, &manifests);
 	let policies = LinkagePolicies {
 		candidates,
 		manifests: &manifests,
 		source_groups: &source_groups,
 		packages: &packages,
+		forwards: &forwards,
 	};
 	indexes_to_references(input.index, reference_indexes)
 		.par_iter()

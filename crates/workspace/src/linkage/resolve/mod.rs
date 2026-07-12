@@ -1,3 +1,4 @@
+mod crate_forwards;
 mod full;
 mod manifest;
 mod method_indexer;
@@ -6,6 +7,7 @@ mod scope;
 mod semantic;
 mod workspace_packages;
 
+pub(in crate::linkage) use crate_forwards::CrateForwards;
 pub(in crate::linkage) use full::run_full_linkage_with_timings;
 pub(in crate::linkage) use manifest::ManifestPolicy;
 pub(in crate::linkage) use method_indexer::MethodIndexer;

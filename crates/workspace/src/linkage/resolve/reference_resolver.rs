@@ -4,7 +4,7 @@ use crate::linkage::binding::{
 use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::{LinkageQuery, ReferenceLocation};
 use crate::linkage::resolve::{
-	GlobalScopeResolver, LocalScopeResolver, ManifestPolicy, WorkspacePackageIndex,
+	CrateForwards, GlobalScopeResolver, LocalScopeResolver, ManifestPolicy, WorkspacePackageIndex,
 };
 use crate::linkage::source_groups::SourceGroupPolicy;
 use crate::snapshot::ReferenceRecord;
@@ -15,6 +15,7 @@ pub(in crate::linkage) struct LinkagePolicies<'a> {
 	pub(in crate::linkage) manifests: &'a ManifestPolicy,
 	pub(in crate::linkage) source_groups: &'a SourceGroupPolicy,
 	pub(in crate::linkage) packages: &'a WorkspacePackageIndex,
+	pub(in crate::linkage) forwards: &'a CrateForwards,
 }
 
 #[derive(Clone, Copy)]
@@ -62,29 +63,7 @@ impl<'a> ReferenceResolver<'a> {
 			return site.unknown(UnknownReason::MissingQuery);
 		};
 
-		let local_targets = self.local.resolve(&query, policies.candidates);
-		if !local_targets.is_empty() {
-			return ReferenceLinkageDecision::resolved(
-				ResolutionScope::Local,
-				reference_idx,
-				reference.id,
-				local_targets,
-			);
-		}
-
-		if let Some(decision) = self.resolve_global(&query, site, policies) {
-			return decision;
-		}
-
-		if external_fallthrough(&query, policies) {
-			return ReferenceLinkageDecision::external(
-				ExternalOrigin::Dependency,
-				reference_idx,
-				reference.id,
-			);
-		}
-
-		site.unknown(UnknownReason::NoCandidate)
+		resolve_scopes(self, &query, site, policies)
 	}
 
 	fn resolve_global(
@@ -114,6 +93,40 @@ impl<'a> ReferenceResolver<'a> {
 // project" by anchoring the target on external_pkg. When nothing internal
 // matched and no manifest could confirm it, honour that claim instead of
 // reporting a hole: the reference is external, whatever the build system.
+fn resolve_scopes(
+	resolver: &ReferenceResolver<'_>,
+	query: &LinkageQuery<'_>,
+	site: ReferenceSite<'_>,
+	policies: &LinkagePolicies<'_>,
+) -> ReferenceLinkageDecision {
+	let local_targets = resolver.local.resolve(query, policies.candidates);
+	if !local_targets.is_empty() {
+		return ReferenceLinkageDecision::resolved(
+			ResolutionScope::Local,
+			site.reference_idx,
+			site.reference.id,
+			local_targets,
+		);
+	}
+	if let Some(decision) = resolver.resolve_global(query, site, policies) {
+		return decision;
+	}
+	if let Some(forwarded) = policies.forwards.rewrite(query.target) {
+		let forwarded_query = query.with_target(&forwarded);
+		if let Some(decision) = resolver.resolve_global(&forwarded_query, site, policies) {
+			return decision;
+		}
+	}
+	if external_fallthrough(query, policies) {
+		return ReferenceLinkageDecision::external(
+			ExternalOrigin::Dependency,
+			site.reference_idx,
+			site.reference.id,
+		);
+	}
+	site.unknown(UnknownReason::NoCandidate)
+}
+
 fn external_fallthrough(query: &LinkageQuery<'_>, policies: &LinkagePolicies<'_>) -> bool {
 	policies.packages.is_foreign(query)
 		|| (external_tagged(query)

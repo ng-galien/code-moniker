@@ -238,6 +238,24 @@ pub(in crate::linkage) fn source_has_manifest_entry(
 	policy.entry_for_file(source_file).is_some()
 }
 
+pub(in crate::linkage) fn source_package_roots(
+	policy: &ManifestPolicy,
+	source_file: usize,
+) -> Vec<Vec<u8>> {
+	let Some(entry) = policy.entry_for_file(source_file) else {
+		return Vec::new();
+	};
+	entry
+		.packages
+		.iter()
+		.filter_map(|package| {
+			package
+				.split_once('\0')
+				.map(|(_, root)| root.as_bytes().to_vec())
+		})
+		.collect()
+}
+
 fn candidate_permission(
 	policy: &ManifestPolicy,
 	query: &LinkageQuery<'_>,

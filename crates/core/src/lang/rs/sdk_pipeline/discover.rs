@@ -666,7 +666,13 @@ fn collect_use_refs(state: &mut RustDiscover<'_>, node: Node<'_>, scope: &Monike
 	let mut expansion = expand_import(state.ref_env(), argument, scope);
 	if has_public_visibility(node, state.source) {
 		for reference in &mut expansion.refs {
-			if reference.kind == kinds::IMPORTS_SYMBOL {
+			let wildcard_module = reference.kind == kinds::IMPORTS_MODULE
+				&& expansion
+					.macro_wildcard_modules
+					.iter()
+					.chain(expansion.wildcard_modules.iter())
+					.any(|module| *module == reference.target);
+			if reference.kind == kinds::IMPORTS_SYMBOL || wildcard_module {
 				reference.kind = kinds::REEXPORTS;
 			}
 		}

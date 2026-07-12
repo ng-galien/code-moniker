@@ -100,6 +100,17 @@ impl<'a> LinkageQuery<'a> {
 		})
 	}
 
+	pub(in crate::linkage) fn with_target(&self, target: &'a Moniker) -> Self {
+		let segment_summary = segment_summary(target);
+		Self {
+			target,
+			target_first: segment_summary.first,
+			target_last: segment_summary.last,
+			target_segment_count: segment_summary.count,
+			..*self
+		}
+	}
+
 	pub(in crate::linkage) fn target_segments(&self) -> impl Iterator<Item = Segment<'a>> + '_ {
 		self.target.as_view().segments()
 	}
