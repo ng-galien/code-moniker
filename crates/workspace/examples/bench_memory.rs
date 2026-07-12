@@ -10,7 +10,6 @@ use code_moniker_core::core::code_graph::{DefRecord, RefRecord};
 use code_moniker_core::lang::Lang;
 use code_moniker_workspace::changes::{ChangeOverlayPort, LocalChangeOverlay};
 use code_moniker_workspace::code::{CodeIndexPort, LocalCodeIndex, LocalCodeIndexOptions};
-use code_moniker_workspace::extract::{JavaExtractionPipeline, RustExtractionPipeline};
 use code_moniker_workspace::linkage::{LinkagePort, LocalLinkage};
 use code_moniker_workspace::snapshot::{
 	ChangeOverlay, ChangeRecord, ChangeResource, CodeIndex, LinkageEdge, LinkageSnapshot,
@@ -136,8 +135,6 @@ struct BenchOptions {
 	project: Option<String>,
 	cache_dir: Option<PathBuf>,
 	lang: Option<Lang>,
-	rust_pipeline: RustExtractionPipeline,
-	java_pipeline: JavaExtractionPipeline,
 	exclude_path_fragments: Vec<String>,
 	skip_changes: bool,
 }
@@ -166,14 +163,6 @@ impl BenchOptions {
 						.exclude_path_fragments
 						.push(next_value(&mut args, "--exclude")?);
 				}
-				"--rust-pipeline" => {
-					options.rust_pipeline =
-						parse_rust_pipeline(&next_value(&mut args, "--rust-pipeline")?)?;
-				}
-				"--java-pipeline" => {
-					options.java_pipeline =
-						parse_java_pipeline(&next_value(&mut args, "--java-pipeline")?)?;
-				}
 				"--skip-changes" => {
 					options.skip_changes = true;
 				}
@@ -194,9 +183,7 @@ impl BenchOptions {
 	}
 
 	fn source_options(&self) -> anyhow::Result<LocalSourceCatalogOptions> {
-		let mut options = LocalSourceCatalogOptions::new(self.paths.clone(), self.project.clone())
-			.with_rust_pipeline(self.rust_pipeline)
-			.with_java_pipeline(self.java_pipeline);
+		let mut options = LocalSourceCatalogOptions::new(self.paths.clone(), self.project.clone());
 		if self.lang.is_some() || !self.exclude_path_fragments.is_empty() {
 			options = options.with_files(self.filtered_files()?);
 		}
@@ -251,8 +238,6 @@ impl Default for BenchOptions {
 			project: None,
 			cache_dir: None,
 			lang: None,
-			rust_pipeline: RustExtractionPipeline::Sdk,
-			java_pipeline: JavaExtractionPipeline::Sdk,
 			exclude_path_fragments: Vec::new(),
 			skip_changes: false,
 		}
@@ -838,25 +823,9 @@ fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> anyhow::Re
 		.ok_or_else(|| anyhow::anyhow!("{flag} expects a value"))
 }
 
-fn parse_rust_pipeline(value: &str) -> anyhow::Result<RustExtractionPipeline> {
-	match value {
-		"legacy" => Ok(RustExtractionPipeline::Legacy),
-		"sdk" => Ok(RustExtractionPipeline::Sdk),
-		other => anyhow::bail!("unknown Rust pipeline `{other}`; expected legacy or sdk"),
-	}
-}
-
-fn parse_java_pipeline(value: &str) -> anyhow::Result<JavaExtractionPipeline> {
-	match value {
-		"legacy" => Ok(JavaExtractionPipeline::Legacy),
-		"sdk" => Ok(JavaExtractionPipeline::Sdk),
-		other => anyhow::bail!("unknown Java pipeline `{other}`; expected legacy or sdk"),
-	}
-}
-
 fn print_usage() {
 	println!(
-		"bench_memory [--project NAME] [--cache-dir PATH] [--lang TAG] [--rust-pipeline legacy|sdk] [--java-pipeline legacy|sdk] [--exclude PATH_FRAGMENT] [--skip-changes] [PATH]..."
+		"bench_memory [--project NAME] [--cache-dir PATH] [--lang TAG] [--exclude PATH_FRAGMENT] [--skip-changes] [PATH]..."
 	);
 }
 

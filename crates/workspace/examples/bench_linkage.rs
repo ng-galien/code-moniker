@@ -5,7 +5,6 @@ use code_moniker_core::lang::Lang;
 use code_moniker_workspace::code::{
 	CodeIndexPort, CodeIndexRefresh, LocalCodeIndex, LocalCodeIndexOptions,
 };
-use code_moniker_workspace::extract::{JavaExtractionPipeline, RustExtractionPipeline};
 use code_moniker_workspace::linkage::{
 	LinkageGraphDelta, LinkageMemoryMetrics, LinkageRefreshImpact, LocalLinkage,
 	TimedLinkageRefresh,
@@ -127,8 +126,6 @@ struct BenchOptions {
 	project: Option<String>,
 	cache_dir: Option<PathBuf>,
 	lang: Option<Lang>,
-	rust_pipeline: RustExtractionPipeline,
-	java_pipeline: JavaExtractionPipeline,
 	exclude_path_fragments: Vec<String>,
 	incremental_paths: Vec<PathBuf>,
 	incremental_symbol_edit: Option<IncrementalSymbolEdit>,
@@ -170,14 +167,6 @@ impl BenchOptions {
 						&next_value(&mut args, "--incremental-symbol-edit")?,
 					)?);
 				}
-				"--rust-pipeline" => {
-					options.rust_pipeline =
-						parse_rust_pipeline(&next_value(&mut args, "--rust-pipeline")?)?;
-				}
-				"--java-pipeline" => {
-					options.java_pipeline =
-						parse_java_pipeline(&next_value(&mut args, "--java-pipeline")?)?;
-				}
 				"--unresolved-groups" => {
 					options.unresolved_groups =
 						Some(next_value(&mut args, "--unresolved-groups")?.parse()?);
@@ -204,9 +193,7 @@ impl BenchOptions {
 	}
 
 	fn source_options(&self) -> anyhow::Result<LocalSourceCatalogOptions> {
-		let mut options = LocalSourceCatalogOptions::new(self.paths.clone(), self.project.clone())
-			.with_rust_pipeline(self.rust_pipeline)
-			.with_java_pipeline(self.java_pipeline);
+		let mut options = LocalSourceCatalogOptions::new(self.paths.clone(), self.project.clone());
 		if self.lang.is_some() || !self.exclude_path_fragments.is_empty() {
 			let files = self.filtered_files()?;
 			options = options.with_files(files);
@@ -262,8 +249,6 @@ impl Default for BenchOptions {
 			project: None,
 			cache_dir: None,
 			lang: None,
-			rust_pipeline: RustExtractionPipeline::Sdk,
-			java_pipeline: JavaExtractionPipeline::Sdk,
 			exclude_path_fragments: Vec::new(),
 			incremental_paths: Vec::new(),
 			incremental_symbol_edit: None,
@@ -276,22 +261,6 @@ impl Default for BenchOptions {
 fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> anyhow::Result<String> {
 	args.next()
 		.ok_or_else(|| anyhow::anyhow!("{flag} expects a value"))
-}
-
-fn parse_rust_pipeline(value: &str) -> anyhow::Result<RustExtractionPipeline> {
-	match value {
-		"legacy" => Ok(RustExtractionPipeline::Legacy),
-		"sdk" => Ok(RustExtractionPipeline::Sdk),
-		other => anyhow::bail!("unknown Rust pipeline `{other}`; expected legacy or sdk"),
-	}
-}
-
-fn parse_java_pipeline(value: &str) -> anyhow::Result<JavaExtractionPipeline> {
-	match value {
-		"legacy" => Ok(JavaExtractionPipeline::Legacy),
-		"sdk" => Ok(JavaExtractionPipeline::Sdk),
-		other => anyhow::bail!("unknown Java pipeline `{other}`; expected legacy or sdk"),
-	}
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -383,7 +352,7 @@ final class CodeMonikerIncrementalSymbolBench {
 
 fn print_usage() {
 	println!(
-		"bench_linkage [--project NAME] [--cache-dir PATH] [--lang TAG] [--rust-pipeline legacy|sdk] [--java-pipeline legacy|sdk] [--exclude PATH_FRAGMENT] [--incremental-path PATH] [--incremental-symbol-edit add|remove] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
+		"bench_linkage [--project NAME] [--cache-dir PATH] [--lang TAG] [--exclude PATH_FRAGMENT] [--incremental-path PATH] [--incremental-symbol-edit add|remove] [--unresolved-groups N] [--debug-call NAME] [PATH]..."
 	);
 }
 

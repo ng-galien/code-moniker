@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use code_moniker_workspace::extract::JavaExtractionPipeline;
 use code_moniker_workspace::snapshot::{
 	ReferenceRecord, UnresolvedReason, WorkspaceRequest, WorkspaceSnapshot,
 };
@@ -127,10 +126,7 @@ fn rust_qualified_calls_resolve_through_module_reexports() {
 
 #[test]
 fn java_sdk_multiproject_links_spring_and_platform_refs() {
-	let snapshot = load_workspace_with_options(
-		LocalWorkspaceOptions::new(vec![fixture_path("projects/java/multiprojet")], None)
-			.with_java_pipeline(JavaExtractionPipeline::Sdk),
-	);
+	let snapshot = load_workspace("projects/java/multiprojet");
 
 	assert_no_unresolved(&snapshot);
 	assert_java_platform_refs(&snapshot);
@@ -145,10 +141,7 @@ fn java_sdk_multiproject_links_spring_and_platform_refs() {
 
 #[test]
 fn java_lombok_boundaries_do_not_invent_accessors() {
-	let snapshot = load_workspace_with_options(
-		LocalWorkspaceOptions::new(vec![fixture_path("projects/java/lombok-boundaries")], None)
-			.with_java_pipeline(JavaExtractionPipeline::Sdk),
-	);
+	let snapshot = load_workspace("projects/java/lombok-boundaries");
 
 	assert_call_unresolved(
 		&snapshot,
@@ -173,13 +166,7 @@ fn java_lombok_boundaries_do_not_invent_accessors() {
 
 #[test]
 fn java_declared_source_group_connects_manifest_less_modules() {
-	let snapshot = load_workspace_with_options(
-		LocalWorkspaceOptions::new(
-			vec![fixture_path("projects/java/no-manifest-declared")],
-			None,
-		)
-		.with_java_pipeline(JavaExtractionPipeline::Sdk),
-	);
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
 
 	assert_call_linked_to(
 		&snapshot,
@@ -213,13 +200,7 @@ fn java_declared_source_group_connects_manifest_less_modules() {
 
 #[test]
 fn java_declared_source_groups_block_cross_group_calls() {
-	let snapshot = load_workspace_with_options(
-		LocalWorkspaceOptions::new(
-			vec![fixture_path("projects/java/no-manifest-declared")],
-			None,
-		)
-		.with_java_pipeline(JavaExtractionPipeline::Sdk),
-	);
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
 
 	assert_call_unresolved(
 		&snapshot,
@@ -237,13 +218,7 @@ fn java_declared_source_groups_block_cross_group_calls() {
 
 #[test]
 fn java_fluent_chains_resolve_through_return_types() {
-	let snapshot = load_workspace_with_options(
-		LocalWorkspaceOptions::new(
-			vec![fixture_path("projects/java/no-manifest-declared")],
-			None,
-		)
-		.with_java_pipeline(JavaExtractionPipeline::Sdk),
-	);
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
 
 	assert_call_linked_to(
 		&snapshot,
@@ -270,13 +245,7 @@ fn java_fluent_chains_resolve_through_return_types() {
 
 #[test]
 fn java_method_calls_resolve_through_type_hierarchy() {
-	let snapshot = load_workspace_with_options(
-		LocalWorkspaceOptions::new(
-			vec![fixture_path("projects/java/no-manifest-declared")],
-			None,
-		)
-		.with_java_pipeline(JavaExtractionPipeline::Sdk),
-	);
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
 
 	assert_call_linked_to(
 		&snapshot,
@@ -289,13 +258,7 @@ fn java_method_calls_resolve_through_type_hierarchy() {
 
 #[test]
 fn java_inherited_fields_type_receivers_across_files() {
-	let snapshot = load_workspace_with_options(
-		LocalWorkspaceOptions::new(
-			vec![fixture_path("projects/java/no-manifest-declared")],
-			None,
-		)
-		.with_java_pipeline(JavaExtractionPipeline::Sdk),
-	);
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
 
 	assert_call_linked_to(
 		&snapshot,
@@ -320,13 +283,7 @@ fn java_inherited_fields_type_receivers_across_files() {
 
 #[test]
 fn java_foreign_package_imports_classify_external_without_manifest() {
-	let snapshot = load_workspace_with_options(
-		LocalWorkspaceOptions::new(
-			vec![fixture_path("projects/java/no-manifest-declared")],
-			None,
-		)
-		.with_java_pipeline(JavaExtractionPipeline::Sdk),
-	);
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
 
 	assert_external_reference(
 		&snapshot,
@@ -343,13 +300,7 @@ fn java_foreign_package_imports_classify_external_without_manifest() {
 
 #[test]
 fn java_declared_source_group_overrides_manifest_block() {
-	let snapshot = load_workspace_with_options(
-		LocalWorkspaceOptions::new(
-			vec![fixture_path("projects/java/manifest-declared-override")],
-			None,
-		)
-		.with_java_pipeline(JavaExtractionPipeline::Sdk),
-	);
+	let snapshot = load_workspace("projects/java/manifest-declared-override");
 
 	assert_call_linked_to(
 		&snapshot,

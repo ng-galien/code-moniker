@@ -10,6 +10,17 @@
         ],
         "matcher": "Edit|Write|MultiEdit"
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'root=\"${CLAUDE_PROJECT_DIR:-$(pwd)}\"; exec \"$root/.claude/hooks/no-symbol-grep.sh\"'"
+          }
+        ]
+      }
     ]
   }
 }

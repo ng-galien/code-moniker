@@ -234,7 +234,6 @@ fn hash_path(p: &Path) -> u64 {
 fn hash_context(ctx: &extract::Context) -> u64 {
 	let mut h = FxHasher::default();
 	ctx.project.hash(&mut h);
-	ctx.rust_pipeline.hash(&mut h);
 	ctx.ts.aliases.len().hash(&mut h);
 	for alias in &ctx.ts.aliases {
 		alias.pattern.hash(&mut h);
@@ -329,33 +328,6 @@ mod tests {
 		assert!(load(tmp.path(), &key1).is_some());
 		assert!(load(tmp.path(), &key2).is_none());
 		assert_ne!(key1.full_path(tmp.path()), key2.full_path(tmp.path()));
-	}
-
-	#[test]
-	fn load_misses_when_rust_pipeline_changes() {
-		let tmp = tempfile::tempdir().unwrap();
-		let src = tmp.path().join("src.rs");
-		std::fs::write(&src, b"fn main() {}\n").unwrap();
-		let anchor = tmp.path().join("anchor");
-		let legacy_ctx = extract::Context {
-			rust_pipeline: extract::RustExtractionPipeline::Legacy,
-			..extract::Context::default()
-		};
-		let sdk_ctx = extract::Context {
-			rust_pipeline: extract::RustExtractionPipeline::Sdk,
-			..extract::Context::default()
-		};
-		let legacy_key = CacheKey::from_path_with_context(&src, &anchor, &legacy_ctx).unwrap();
-		let sdk_key = CacheKey::from_path_with_context(&src, &anchor, &sdk_ctx).unwrap();
-
-		store(tmp.path(), &legacy_key, &graph_with_one_def());
-
-		assert!(load(tmp.path(), &legacy_key).is_some());
-		assert!(load(tmp.path(), &sdk_key).is_none());
-		assert_ne!(
-			legacy_key.full_path(tmp.path()),
-			sdk_key.full_path(tmp.path())
-		);
 	}
 
 	#[test]

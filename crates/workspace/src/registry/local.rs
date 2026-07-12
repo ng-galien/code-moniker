@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use crate::changes::LocalChangeOverlay;
 use crate::code::{LocalCodeIndex, LocalCodeIndexOptions};
-use crate::extract::JavaExtractionPipeline;
 use crate::linkage::LocalLinkage;
 use crate::source::{
 	LocalIdentityResolver, LocalResourceCache, LocalSourceCatalog, LocalSourceCatalogOptions,
@@ -21,7 +20,6 @@ pub struct LocalWorkspaceOptions {
 	pub cache_dir: Option<PathBuf>,
 	pub files: Option<Vec<PathBuf>>,
 	pub identity: LocalIdentityResolver,
-	pub java_pipeline: JavaExtractionPipeline,
 }
 
 impl LocalWorkspaceOptions {
@@ -32,7 +30,6 @@ impl LocalWorkspaceOptions {
 			cache_dir: None,
 			files: None,
 			identity: LocalIdentityResolver::default(),
-			java_pipeline: JavaExtractionPipeline::default(),
 		}
 	}
 
@@ -48,11 +45,6 @@ impl LocalWorkspaceOptions {
 
 	pub fn with_identity(mut self, identity: LocalIdentityResolver) -> Self {
 		self.identity = identity;
-		self
-	}
-
-	pub fn with_java_pipeline(mut self, java_pipeline: JavaExtractionPipeline) -> Self {
-		self.java_pipeline = java_pipeline;
 		self
 	}
 }
@@ -74,8 +66,7 @@ pub(crate) fn local_workspace_ports(
 	let watch_paths = options.paths.clone();
 	let watch_cache_dir = options.cache_dir.clone();
 	let mut source_options = LocalSourceCatalogOptions::new(options.paths, options.project)
-		.with_identity(options.identity)
-		.with_java_pipeline(options.java_pipeline);
+		.with_identity(options.identity);
 	if let Some(files) = options.files {
 		source_options = source_options.with_files(files);
 	}

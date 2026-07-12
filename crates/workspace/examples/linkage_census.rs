@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 
-use code_moniker_workspace::extract::JavaExtractionPipeline;
 use code_moniker_workspace::snapshot::{WorkspaceRequest, WorkspaceSnapshot};
 use code_moniker_workspace::{LocalWorkspaceOptions, LocalWorkspaceRegistry};
 
@@ -30,8 +29,7 @@ fn main() {
 }
 
 fn load(root: PathBuf) -> WorkspaceSnapshot {
-	let options = LocalWorkspaceOptions::new(vec![root], None)
-		.with_java_pipeline(JavaExtractionPipeline::Sdk);
+	let options = LocalWorkspaceOptions::new(vec![root], None);
 	let mut workspace = LocalWorkspaceRegistry::local(options);
 	let transition = workspace
 		.commands()
