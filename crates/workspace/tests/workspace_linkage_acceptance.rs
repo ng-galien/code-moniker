@@ -222,6 +222,39 @@ fn java_declared_source_groups_block_cross_group_calls() {
 }
 
 #[test]
+fn java_fluent_chains_resolve_through_return_types() {
+	let snapshot = load_workspace_with_options(
+		LocalWorkspaceOptions::new(
+			vec![fixture_path("projects/java/no-manifest-declared")],
+			None,
+		)
+		.with_java_pipeline(JavaExtractionPipeline::Sdk),
+	);
+
+	assert_call_linked_to(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/package:caller/module:ChainCaller/class:ChainCaller/method:chainThrough()",
+		"make",
+		0,
+		"package:com/package:acme/package:nomanifest/module:RecordFactory/class:RecordFactory/method:make()",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/package:caller/module:ChainCaller/class:ChainCaller/method:chainThrough()",
+		"describe",
+		0,
+		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/method:describe()",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/package:caller/module:ChainCaller/class:ChainCaller/method:ackViaChain(ChannelFactory)",
+		"ack",
+		0,
+		"package:com/package:acme/package:nomanifest/module:Acknowledger/interface:Acknowledger/method:ack()",
+	);
+}
+
+#[test]
 fn java_method_calls_resolve_through_type_hierarchy() {
 	let snapshot = load_workspace_with_options(
 		LocalWorkspaceOptions::new(

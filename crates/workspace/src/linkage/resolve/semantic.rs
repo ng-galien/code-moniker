@@ -62,7 +62,7 @@ impl<'a> SemanticLinkage<'a> {
 		enhance_receiver_fields(self, &tables, decisions, references, None);
 		enhance_reexport_aliases(self, &tables, decisions, references, None);
 		let pending = pending_receiver_chains(decisions, references, None);
-		enhance_receiver_chains(self, decisions, references, pending);
+		enhance_receiver_chains(self, &tables, decisions, references, pending);
 	}
 
 	pub(in crate::linkage) fn enhance_changed(
@@ -94,7 +94,7 @@ impl<'a> SemanticLinkage<'a> {
 			Some(changed_references),
 		);
 		let pending = pending_receiver_chains(decisions, references, Some(changed_references));
-		enhance_receiver_chains(self, decisions, references, pending);
+		enhance_receiver_chains(self, &tables, decisions, references, pending);
 	}
 
 	fn semantic_context(&self) -> language::SemanticContext<'a> {
@@ -104,16 +104,6 @@ impl<'a> SemanticLinkage<'a> {
 			locations: self.locations,
 			source_groups: self.source_groups,
 		}
-	}
-
-	fn resolved_method_decision(
-		&self,
-		owner: &Moniker,
-		method_call: MethodCallReference<'_>,
-	) -> Option<ReferenceLinkageDecision> {
-		let targets =
-			self.resolved_method_targets(owner, method_call.call_name(), method_call.call_arity())?;
-		Some(method_call.resolved_decision(ResolutionScope::Global, targets))
 	}
 
 	fn resolved_method_targets(
@@ -141,6 +131,7 @@ impl<'a> SemanticLinkage<'a> {
 
 fn enhance_receiver_chains(
 	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	mut pending: Vec<usize>,
@@ -167,6 +158,7 @@ fn enhance_receiver_chains(
 					..
 				} => resolve_receiver_chain(
 					linkage,
+					tables,
 					*reference_idx,
 					&references[*reference_idx],
 					&statuses,
@@ -915,6 +907,7 @@ fn pending_receiver_chains(
 
 fn resolve_receiver_chain(
 	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
 	reference_idx: usize,
 	reference: &ReferenceRecord,
 	statuses: &FxHashMap<usize, ReferenceStatus>,
@@ -933,11 +926,8 @@ fn resolve_receiver_chain(
 			return Some(method_call.external_decision(target));
 		}
 	};
-	if external_target_shape(&owner) {
-		let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
-		return Some(method_call.external_decision(target));
-	}
-	linkage.resolved_method_decision(&owner, method_call)
+	let owner = tables.type_aliases.get(&owner).cloned().unwrap_or(owner);
+	resolve_method_through_supers(linkage, tables, &owner, method_call)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
