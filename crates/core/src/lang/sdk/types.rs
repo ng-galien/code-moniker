@@ -19,6 +19,7 @@ pub enum TypeExpr {
 	ExternalOpaque {
 		origin: Moniker,
 	},
+	ChainContinuation(Moniker),
 	Unknown,
 }
 
@@ -29,6 +30,10 @@ impl TypeExpr {
 
 	pub fn external_opaque(origin: Moniker) -> Self {
 		Self::ExternalOpaque { origin }
+	}
+
+	pub fn chain_continuation(alias: Moniker) -> Self {
+		Self::ChainContinuation(alias)
 	}
 
 	pub fn carrier(&self) -> &Self {
@@ -59,6 +64,7 @@ impl TypeExpr {
 		match self.carrier() {
 			Self::Resolved(target) => Some(target),
 			Self::ExternalOpaque { origin } => Some(origin),
+			Self::ChainContinuation(alias) => Some(alias),
 			_ => None,
 		}
 	}

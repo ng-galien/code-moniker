@@ -10,13 +10,29 @@ use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::snapshot::{RecordTable, ReferenceRecord};
 use crate::source::{CodeIndexMaterial, IndexedSourceFile};
 
+struct MethodCallSite<'a> {
+	reference_idx: usize,
+	reference: &'a ReferenceRecord,
+	owner: &'a Moniker,
+}
+
+impl MethodCallSite<'_> {
+	fn resolved(&self, symbols: SymbolSet) -> ReferenceLinkageDecision {
+		ReferenceLinkageDecision::resolved(
+			ResolutionScope::Injected,
+			self.reference_idx,
+			self.reference.id,
+			symbols,
+		)
+	}
+}
+
 pub(super) struct LombokSemantics<'a> {
 	material: &'a CodeIndexMaterial,
 	candidates: &'a CandidateCatalog,
 	annotated_types: FxHashMap<Moniker, TypeAnnotations>,
 	type_aliases: FxHashMap<Moniker, Moniker>,
 	fields: FxHashMap<(Moniker, Vec<u8>), FieldInfo>,
-	class_symbols: FxHashMap<Moniker, SymbolOrdinal>,
 }
 
 impl<'a> LombokSemantics<'a> {
@@ -31,7 +47,6 @@ impl<'a> LombokSemantics<'a> {
 			annotated_types: FxHashMap::default(),
 			type_aliases: FxHashMap::default(),
 			fields: FxHashMap::default(),
-			class_symbols: FxHashMap::default(),
 		};
 		let field_annotations = semantics.index_annotations(references);
 		if semantics.needs_accessor_index(&field_annotations) {
@@ -59,65 +74,60 @@ impl<'a> LombokSemantics<'a> {
 			_ => return None,
 		};
 		let reference = &references[reference_idx];
-		self.resolve_logger_call(reference_idx, reference)
-			.or_else(|| self.resolve_builder_entry_call(reference_idx, reference))
-			.or_else(|| self.resolve_accessor_call(reference_idx, reference))
+		if let Some(decision) = self.resolve_logger_call(reference_idx, reference) {
+			return Some(decision);
+		}
+		if !matches!(reference.kind.as_str(), "method_call" | "calls") {
+			return None;
+		}
+		let owner = callable_owner(self.material.reference_target(&reference.id)?)?;
+		let owner = self.type_aliases.get(&owner)?;
+		let call_site = MethodCallSite {
+			reference_idx,
+			reference,
+			owner,
+		};
+		self.resolve_builder_entry_call(&call_site)
+			.or_else(|| self.resolve_accessor_call(&call_site))
 	}
 
 	fn resolve_builder_entry_call(
 		&self,
-		reference_idx: usize,
-		reference: &ReferenceRecord,
+		call_site: &MethodCallSite<'_>,
 	) -> Option<ReferenceLinkageDecision> {
-		if !matches!(reference.kind.as_str(), "method_call" | "calls") {
-			return None;
-		}
-		let call_name = reference.call_name.as_deref()?;
+		let call_name = call_site.reference.call_name.as_deref()?;
 		if !matches!(call_name, "builder" | "toBuilder" | "build") {
 			return None;
 		}
-		let owner = callable_owner(self.material.reference_target(&reference.id)?)?;
-		let owner = self.type_aliases.get(&owner)?;
 		if !self
 			.annotated_types
-			.get(owner)
+			.get(call_site.owner)
 			.is_some_and(TypeAnnotations::supports_builder)
 		{
 			return None;
 		}
-		let symbol = *self.class_symbols.get(owner)?;
-		Some(ReferenceLinkageDecision::resolved(
-			ResolutionScope::Injected,
-			reference_idx,
-			reference.id,
-			SymbolSet::from_symbol(symbol),
-		))
+		let symbol = self
+			.candidates
+			.indexes()
+			.symbol_by_moniker(call_site.owner)?;
+		Some(call_site.resolved(SymbolSet::from_symbol(symbol)))
 	}
 
 	fn resolve_accessor_call(
 		&self,
-		reference_idx: usize,
-		reference: &ReferenceRecord,
+		call_site: &MethodCallSite<'_>,
 	) -> Option<ReferenceLinkageDecision> {
-		if !matches!(reference.kind.as_str(), "method_call" | "calls") {
-			return None;
-		}
-		let owner = callable_owner(self.material.reference_target(&reference.id)?)?;
-		let owner = self.type_aliases.get(&owner)?;
-		let accessor = AccessorCall::from_reference(reference)?;
-		let field = self.fields.get(&(owner.clone(), accessor.field_name))?;
-		if !self.supports_accessor(owner, field, accessor.kind) {
+		let accessor = AccessorCall::from_reference(call_site.reference)?;
+		let field = self
+			.fields
+			.get(&(call_site.owner.clone(), accessor.field_name))?;
+		if !self.supports_accessor(call_site.owner, field, accessor.kind) {
 			return None;
 		}
 		if !field.supports_accessor(accessor.kind) {
 			return None;
 		}
-		Some(ReferenceLinkageDecision::resolved(
-			ResolutionScope::Injected,
-			reference_idx,
-			reference.id,
-			SymbolSet::from_symbol(field.symbol),
-		))
+		Some(call_site.resolved(SymbolSet::from_symbol(field.symbol)))
 	}
 
 	fn supports_accessor(
@@ -198,7 +208,6 @@ impl<'a> LombokSemantics<'a> {
 			let facts = JavaSymbolFacts::from_file(file_idx, file, self.candidates);
 			self.type_aliases.extend(facts.type_aliases);
 			self.fields.extend(facts.fields);
-			self.class_symbols.extend(facts.class_symbols);
 		}
 		for (key, annotations) in field_annotations {
 			if let Some(field) = self.fields.get_mut(&key) {
@@ -242,7 +251,6 @@ impl<'a> LombokSemantics<'a> {
 struct JavaSymbolFacts {
 	type_aliases: FxHashMap<Moniker, Moniker>,
 	fields: FxHashMap<(Moniker, Vec<u8>), FieldInfo>,
-	class_symbols: FxHashMap<Moniker, SymbolOrdinal>,
 }
 
 impl JavaSymbolFacts {
@@ -256,9 +264,6 @@ impl JavaSymbolFacts {
 			.fold(Self::default(), |mut facts, (def_idx, def)| {
 				if is_java_type_kind(&def.kind) {
 					facts.add_type_aliases(&def.moniker);
-					if let Some(symbol) = candidates.symbol_at(file_idx, def_idx) {
-						facts.class_symbols.insert(def.moniker.clone(), symbol);
-					}
 				} else if def.kind == kinds::FIELD
 					&& let Some(owner) = field_owner(file, def.parent)
 					&& let Some(symbol) = candidates.symbol_at(file_idx, def_idx)

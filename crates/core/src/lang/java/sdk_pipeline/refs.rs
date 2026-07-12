@@ -608,9 +608,9 @@ fn fluent_chain_continuation(
 	receiver: &Moniker,
 	name: &[u8],
 ) -> Option<TypeExpr> {
-	let already_chaining = matches!(receiver_expr, Some(TypeExpr::ExternalOpaque { .. }));
+	let already_chaining = matches!(receiver_expr, Some(TypeExpr::ChainContinuation(_)));
 	let starts_chain = matches!(name, b"builder" | b"toBuilder");
-	(already_chaining || starts_chain).then(|| TypeExpr::external_opaque(receiver.clone()))
+	(already_chaining || starts_chain).then(|| TypeExpr::chain_continuation(receiver.clone()))
 }
 
 fn lambda_argument_input_type(
