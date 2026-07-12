@@ -81,7 +81,7 @@ impl<'a> LombokSemantics<'a> {
 			return None;
 		}
 		let owner = callable_owner(self.material.reference_target(&reference.id)?)?;
-		let owner = self.type_aliases.get(&owner)?;
+		let owner = resolve_owner(&self.type_aliases, &owner)?;
 		let call_site = MethodCallSite {
 			reference_idx,
 			reference,
@@ -586,6 +586,33 @@ fn is_java_type_moniker(moniker: &Moniker) -> bool {
 		.segments()
 		.last()
 		.is_some_and(|segment| is_java_type_kind(segment.kind))
+}
+
+fn resolve_owner<'a>(
+	type_aliases: &'a FxHashMap<Moniker, Moniker>,
+	owner: &Moniker,
+) -> Option<&'a Moniker> {
+	if let Some(resolved) = type_aliases.get(owner) {
+		return Some(resolved);
+	}
+	let fallback = read_as_main(owner)?;
+	type_aliases.get(&fallback)
+}
+
+fn read_as_main(owner: &Moniker) -> Option<Moniker> {
+	let view = owner.as_view();
+	let mut segments = view.segments();
+	let first = segments.next()?;
+	if first.kind != b"srcset" || first.name != b"test" {
+		return None;
+	}
+	let mut builder = MonikerBuilder::new();
+	builder.project(view.project());
+	builder.segment(first.kind, b"main");
+	for segment in segments {
+		builder.segment(segment.kind, segment.name);
+	}
+	Some(builder.build())
 }
 
 fn path_alias_for_type(moniker: &Moniker) -> Moniker {

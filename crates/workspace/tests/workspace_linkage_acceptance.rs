@@ -154,6 +154,13 @@ fn java_declared_source_group_connects_manifest_less_modules() {
 		0,
 		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/field:label",
 	);
+	assert_call_linked_to(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/package:caller/module:TestCaller/class:TestCaller/method:readLabel(SharedRecord)",
+		"getLabel",
+		0,
+		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/field:label",
+	);
 }
 
 fn assert_unresolved_reasons_recorded(snapshot: &WorkspaceSnapshot) {
