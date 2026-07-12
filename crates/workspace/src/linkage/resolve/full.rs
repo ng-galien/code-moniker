@@ -91,8 +91,15 @@ fn resolve_full_linkage(
 		.collect::<Vec<_>>();
 	timings.resolve_references = resolve_timer.elapsed();
 	let semantic_timer = Instant::now();
-	SemanticLinkage::new(material, methods, candidates, &locations, &source_groups)
-		.enhance(&mut decisions, &index.references);
+	SemanticLinkage::new(
+		material,
+		methods,
+		candidates,
+		&locations,
+		&source_groups,
+		&packages,
+	)
+	.enhance(&mut decisions, &index.references);
 	timings.semantic_enhance = semantic_timer.elapsed();
 	let store_timer = Instant::now();
 	let store = LinkageStore::new(

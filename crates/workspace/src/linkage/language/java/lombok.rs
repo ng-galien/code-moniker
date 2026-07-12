@@ -33,6 +33,7 @@ pub(super) struct LombokSemantics<'a> {
 	annotated_types: FxHashMap<Moniker, TypeAnnotations>,
 	type_aliases: FxHashMap<Moniker, Moniker>,
 	fields: FxHashMap<(Moniker, Vec<u8>), FieldInfo>,
+	extends_of: &'a FxHashMap<Moniker, Moniker>,
 }
 
 impl<'a> LombokSemantics<'a> {
@@ -40,6 +41,7 @@ impl<'a> LombokSemantics<'a> {
 		material: &'a CodeIndexMaterial,
 		candidates: &'a CandidateCatalog,
 		references: &RecordTable<ReferenceRecord>,
+		extends_of: &'a FxHashMap<Moniker, Moniker>,
 	) -> Self {
 		let mut semantics = Self {
 			material,
@@ -47,6 +49,7 @@ impl<'a> LombokSemantics<'a> {
 			annotated_types: FxHashMap::default(),
 			type_aliases: FxHashMap::default(),
 			fields: FxHashMap::default(),
+			extends_of,
 		};
 		let field_annotations = semantics.index_annotations(references);
 		if semantics.needs_accessor_index(&field_annotations) {
@@ -167,19 +170,14 @@ impl<'a> LombokSemantics<'a> {
 	}
 
 	fn logger_annotation_for(&self, source: &Moniker) -> Option<LombokLogBackend> {
-		if let Some(logger) = self
-			.annotated_types
-			.get(source)
-			.and_then(|annotations| annotations.logger)
+		if let Some(logger) = logger_through_extends(&self.annotated_types, self.extends_of, source)
 		{
 			return Some(logger);
 		}
 		let mut owner = source.parent();
 		while let Some(current) = owner {
-			if let Some(logger) = self
-				.annotated_types
-				.get(&current)
-				.and_then(|annotations| annotations.logger)
+			if let Some(logger) =
+				logger_through_extends(&self.annotated_types, self.extends_of, &current)
 			{
 				return Some(logger);
 			}
@@ -586,6 +584,29 @@ fn is_java_type_moniker(moniker: &Moniker) -> bool {
 		.segments()
 		.last()
 		.is_some_and(|segment| is_java_type_kind(segment.kind))
+}
+
+fn logger_through_extends(
+	annotated_types: &FxHashMap<Moniker, TypeAnnotations>,
+	extends_of: &FxHashMap<Moniker, Moniker>,
+	ty: &Moniker,
+) -> Option<LombokLogBackend> {
+	let mut current = ty;
+	let mut seen = FxHashSet::default();
+	for _ in 0..16 {
+		if let Some(logger) = annotated_types
+			.get(current)
+			.and_then(|annotations| annotations.logger)
+		{
+			return Some(logger);
+		}
+		let next = extends_of.get(current)?;
+		if !seen.insert(next) {
+			return None;
+		}
+		current = next;
+	}
+	None
 }
 
 fn resolve_owner<'a>(

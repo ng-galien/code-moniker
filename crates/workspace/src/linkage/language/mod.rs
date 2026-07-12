@@ -117,9 +117,19 @@ pub(super) struct SemanticContext<'a> {
 
 pub(super) fn enhance_reference_semantics(
 	context: &SemanticContext<'_>,
+	extends_of: &rustc_hash::FxHashMap<
+		code_moniker_core::core::moniker::Moniker,
+		code_moniker_core::core::moniker::Moniker,
+	>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&rustc_hash::FxHashSet<crate::snapshot::ReferenceId>>,
 ) {
-	java::enhance_reference_semantics(context, decisions, references, changed_references);
+	java::enhance_reference_semantics(
+		context,
+		extends_of,
+		decisions,
+		references,
+		changed_references,
+	);
 }

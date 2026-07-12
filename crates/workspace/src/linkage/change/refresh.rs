@@ -385,12 +385,14 @@ fn refresh_incremental_linkage(
 		reference_ids_for_set(execution.stale_references(), &input.index.references);
 	let locations = locations.unwrap_or_else(|| ReferenceLocations::from_material(input.material));
 	let source_groups = SourceGroupPolicy::build(input.material);
+	let packages = WorkspacePackageIndex::build(input.material);
 	SemanticLinkage::new(
 		input.material,
 		methods,
 		candidates,
 		&locations,
 		&source_groups,
+		&packages,
 	)
 	.enhance_changed(
 		store.decisions_mut(),

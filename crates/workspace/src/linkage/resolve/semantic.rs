@@ -13,7 +13,8 @@ use crate::linkage::catalog::CandidateCatalog;
 use crate::linkage::catalog::ReferenceLocations;
 use crate::linkage::catalog::{SymbolOrdinal, SymbolSet};
 use crate::linkage::language;
-use crate::linkage::source_groups::SourceGroupPolicy;
+use crate::linkage::resolve::WorkspacePackageIndex;
+use crate::linkage::source_groups::{LinkPermission, SourceGroupPolicy};
 use crate::snapshot::{RecordTable, ReferenceId, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
@@ -23,6 +24,7 @@ pub(in crate::linkage) struct SemanticLinkage<'a> {
 	candidates: &'a CandidateCatalog,
 	locations: &'a ReferenceLocations,
 	source_groups: &'a SourceGroupPolicy,
+	packages: &'a WorkspacePackageIndex,
 }
 
 impl<'a> SemanticLinkage<'a> {
@@ -32,6 +34,7 @@ impl<'a> SemanticLinkage<'a> {
 		candidates: &'a CandidateCatalog,
 		locations: &'a ReferenceLocations,
 		source_groups: &'a SourceGroupPolicy,
+		packages: &'a WorkspacePackageIndex,
 	) -> Self {
 		Self {
 			material,
@@ -39,6 +42,7 @@ impl<'a> SemanticLinkage<'a> {
 			candidates,
 			locations,
 			source_groups,
+			packages,
 		}
 	}
 
@@ -47,12 +51,15 @@ impl<'a> SemanticLinkage<'a> {
 		decisions: &mut [ReferenceLinkageDecision],
 		references: &RecordTable<ReferenceRecord>,
 	) {
+		let tables = build_receiver_field_tables(self, decisions, references);
 		language::enhance_reference_semantics(
 			&self.semantic_context(),
+			&tables.extends_of,
 			decisions,
 			references,
 			None,
 		);
+		enhance_receiver_fields(self, &tables, decisions, references, None);
 		enhance_reexport_aliases(self, decisions, references, None);
 		let pending = pending_receiver_chains(decisions, references, None);
 		enhance_receiver_chains(self, decisions, references, pending);
@@ -64,8 +71,17 @@ impl<'a> SemanticLinkage<'a> {
 		references: &RecordTable<ReferenceRecord>,
 		changed_references: &FxHashSet<ReferenceId>,
 	) {
+		let tables = build_receiver_field_tables(self, decisions, references);
 		language::enhance_reference_semantics(
 			&self.semantic_context(),
+			&tables.extends_of,
+			decisions,
+			references,
+			Some(changed_references),
+		);
+		enhance_receiver_fields(
+			self,
+			&tables,
 			decisions,
 			references,
 			Some(changed_references),
@@ -167,6 +183,182 @@ fn enhance_receiver_chains(
 			)
 		});
 	}
+}
+
+struct ReceiverFieldTables {
+	field_types: FxHashMap<Moniker, FxHashMap<Vec<u8>, Moniker>>,
+	extends_of: FxHashMap<Moniker, Moniker>,
+}
+
+fn build_receiver_field_tables(
+	linkage: &SemanticLinkage<'_>,
+	decisions: &[ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+) -> ReceiverFieldTables {
+	let mut tables = ReceiverFieldTables {
+		field_types: FxHashMap::default(),
+		extends_of: FxHashMap::default(),
+	};
+	for decision in decisions {
+		let reference = decision_reference(decision, references);
+		let table_kind = reference.kind.as_bytes();
+		if table_kind != kinds::TYPED_AS && table_kind != kinds::EXTENDS {
+			continue;
+		}
+		let Some(source) = linkage.material.symbol_moniker(&reference.source_symbol) else {
+			continue;
+		};
+		let Some(target) =
+			decision_target(linkage.material, linkage.candidates, decision, references)
+				.or_else(|| linkage.material.reference_target(&reference.id).cloned())
+		else {
+			continue;
+		};
+		if table_kind == kinds::EXTENDS {
+			tables.extends_of.insert(source.clone(), target);
+			continue;
+		}
+		let Some((owner, name)) = field_owner_and_name(source) else {
+			continue;
+		};
+		tables
+			.field_types
+			.entry(owner)
+			.or_default()
+			.insert(name, target);
+	}
+	tables
+}
+
+fn field_owner_and_name(field: &Moniker) -> Option<(Moniker, Vec<u8>)> {
+	let last = field.as_view().segments().last()?;
+	if last.kind != kinds::FIELD {
+		return None;
+	}
+	Some((field.parent()?, last.name.to_vec()))
+}
+
+fn enhance_receiver_fields(
+	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
+	decisions: &mut [ReferenceLinkageDecision],
+	references: &RecordTable<ReferenceRecord>,
+	changed_references: Option<&FxHashSet<ReferenceId>>,
+) {
+	if tables.field_types.is_empty() {
+		return;
+	}
+	let replacements = decisions
+		.par_iter()
+		.enumerate()
+		.filter_map(|(idx, decision)| {
+			if changed_references.is_some_and(|changed| !changed.contains(decision.reference())) {
+				return None;
+			}
+			let ReferenceLinkageDecision::Unknown {
+				reason: UnknownReason::NoCandidate,
+				reference_idx,
+				..
+			} = decision
+			else {
+				return None;
+			};
+			resolve_receiver_field_call(
+				linkage,
+				tables,
+				*reference_idx,
+				&references[*reference_idx],
+			)
+			.map(|replacement| (idx, replacement))
+		})
+		.collect::<Vec<_>>();
+	for (idx, replacement) in replacements {
+		decisions[idx] = replacement;
+	}
+}
+
+fn resolve_receiver_field_call(
+	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
+) -> Option<ReferenceLinkageDecision> {
+	let method_call = MethodCallReference::new(reference_idx, reference)?;
+	let receiver = reference
+		.receiver
+		.as_deref()
+		.filter(|name| !name.is_empty())?;
+	let source = linkage.material.symbol_moniker(&reference.source_symbol)?;
+	let mut owner = source.parent();
+	while let Some(current) = owner {
+		if let Some(ty) = field_type_through_extends(tables, &current, receiver.as_bytes()) {
+			return typed_receiver_decision(linkage, ty, method_call);
+		}
+		owner = current.parent();
+	}
+	None
+}
+
+fn field_type_through_extends<'a>(
+	tables: &'a ReceiverFieldTables,
+	class: &Moniker,
+	name: &[u8],
+) -> Option<&'a Moniker> {
+	let mut current = class;
+	let mut seen = FxHashSet::default();
+	for _ in 0..16 {
+		if let Some(ty) = tables
+			.field_types
+			.get(current)
+			.and_then(|fields| fields.get(name))
+		{
+			return Some(ty);
+		}
+		let next = tables.extends_of.get(current)?;
+		if !seen.insert(next) {
+			return None;
+		}
+		current = next;
+	}
+	None
+}
+
+fn typed_receiver_decision(
+	linkage: &SemanticLinkage<'_>,
+	ty: &Moniker,
+	method_call: MethodCallReference<'_>,
+) -> Option<ReferenceLinkageDecision> {
+	let owner = callable_owner(ty)?;
+	if external_target_shape(&owner) || linkage.packages.is_foreign_moniker(&owner) {
+		let target = method_target(&owner, method_call.call_name(), method_call.call_arity());
+		return Some(method_call.external_decision(target));
+	}
+	let decision = linkage.resolved_method_decision(&owner, method_call)?;
+	declared_groups_permit_decision(linkage, &decision).then_some(decision)
+}
+
+fn declared_groups_permit_decision(
+	linkage: &SemanticLinkage<'_>,
+	decision: &ReferenceLinkageDecision,
+) -> bool {
+	let ReferenceLinkageDecision::Resolved { targets, .. } = decision else {
+		return true;
+	};
+	let Some(location) = linkage.locations.get(decision.reference_idx()) else {
+		return true;
+	};
+	targets.iter().all(|symbol| {
+		linkage
+			.candidates
+			.candidate(symbol)
+			.is_none_or(|candidate| {
+				linkage.source_groups.link_permission(
+					linkage.material,
+					location.source_file,
+					candidate.source_file,
+				) != Some(LinkPermission::Blocked)
+			})
+	})
 }
 
 struct MethodCallReference<'a> {

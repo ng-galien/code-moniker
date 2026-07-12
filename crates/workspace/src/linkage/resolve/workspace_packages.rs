@@ -27,7 +27,11 @@ impl WorkspacePackageIndex {
 	}
 
 	pub(in crate::linkage) fn is_foreign(&self, query: &LinkageQuery<'_>) -> bool {
-		match package_key(query.target) {
+		self.is_foreign_moniker(query.target)
+	}
+
+	pub(in crate::linkage) fn is_foreign_moniker(&self, target: &Moniker) -> bool {
+		match package_key(target) {
 			Some(key) => !self.packages.contains(&key),
 			None => false,
 		}

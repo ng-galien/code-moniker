@@ -195,6 +195,37 @@ fn java_declared_source_groups_block_cross_group_calls() {
 }
 
 #[test]
+fn java_inherited_fields_type_receivers_across_files() {
+	let snapshot = load_workspace_with_options(
+		LocalWorkspaceOptions::new(
+			vec![fixture_path("projects/java/no-manifest-declared")],
+			None,
+		)
+		.with_java_pipeline(JavaExtractionPipeline::Sdk),
+	);
+
+	assert_call_linked_to(
+		&snapshot,
+		"package:com/package:acme/package:nomanifest/module:HolderChild/class:HolderChild/method:useRecord()",
+		"describe",
+		0,
+		"package:com/package:acme/package:nomanifest/module:SharedRecord/class:SharedRecord/method:describe()",
+	);
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"method_call",
+		"class:HolderChild/method:useHelper()",
+		"module:Helper",
+	);
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"method_call",
+		"class:LoggedChild/method:run()",
+		"Logger",
+	);
+}
+
+#[test]
 fn java_foreign_package_imports_classify_external_without_manifest() {
 	let snapshot = load_workspace_with_options(
 		LocalWorkspaceOptions::new(

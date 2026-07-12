@@ -150,11 +150,17 @@ fn dependency_group(package: &str) -> Option<&str> {
 
 pub(super) fn enhance_reference_semantics(
 	context: &super::SemanticContext<'_>,
+	extends_of: &rustc_hash::FxHashMap<Moniker, Moniker>,
 	decisions: &mut [ReferenceLinkageDecision],
 	references: &RecordTable<ReferenceRecord>,
 	changed_references: Option<&FxHashSet<ReferenceId>>,
 ) {
-	let lombok = lombok::LombokSemantics::build(context.material, context.candidates, references);
+	let lombok = lombok::LombokSemantics::build(
+		context.material,
+		context.candidates,
+		references,
+		extends_of,
+	);
 	if lombok.is_empty() {
 		return;
 	}
