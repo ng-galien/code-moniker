@@ -108,6 +108,7 @@ impl Default for CapabilitySet {
 				"symbol.graph".to_string(),
 				"identity.children".to_string(),
 				"identity.graph".to_string(),
+				"resolution.audit".to_string(),
 				"notes".to_string(),
 			],
 			commands: vec!["workspace.refresh".to_string()],
@@ -151,6 +152,7 @@ pub enum Query {
 	SymbolGraph(SymbolGraphQuery),
 	IdentityChildren(IdentityChildrenQuery),
 	IdentityGraph(IdentityChildrenQuery),
+	ResolutionAudit(ResolutionAuditQuery),
 	Notes(NotesQuery),
 }
 
@@ -170,6 +172,7 @@ impl Query {
 			Self::SymbolGraph(_) => "symbol.graph",
 			Self::IdentityChildren(_) => "identity.children",
 			Self::IdentityGraph(_) => "identity.graph",
+			Self::ResolutionAudit(_) => "resolution.audit",
 			Self::Notes(_) => "notes",
 		}
 	}
@@ -227,6 +230,14 @@ pub struct ViewReadQuery {
 	pub scheme: Option<String>,
 	pub context_lines: usize,
 	pub include_code: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ResolutionAuditQuery {
+	pub workspace: Option<String>,
+	pub prefix: String,
+	pub limit: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -452,6 +463,7 @@ pub enum QueryResult {
 	SymbolGraph(Box<SymbolGraphResult>),
 	IdentityChildren(IdentityChildrenResult),
 	IdentityGraph(Box<IdentityGraphResult>),
+	ResolutionAudit(Box<ResolutionAuditResult>),
 	Notes(NotesResult),
 }
 
@@ -526,11 +538,60 @@ pub struct IdentitySegmentDto {
 	pub symbol: Option<Box<SymbolDto>>,
 }
 
+// The embedded resolution audit: unresolved references (and name-match
+// resolutions, the false-link candidates) clustered under mechanical pattern
+// keys, with samples and per-zone rollups — the daemon's own diagnosis
+// surface, so agents stop rebuilding external harnesses.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ResolutionAuditResult {
+	pub prefix: String,
+	pub totals: AuditTotalsDto,
+	pub clusters: Vec<AuditClusterDto>,
+	pub zones: Vec<AuditZoneDto>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct AuditTotalsDto {
+	pub references: usize,
+	pub resolved: usize,
+	pub external: usize,
+	pub blocked: usize,
+	pub unresolved: usize,
+	pub name_match_resolved: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct AuditClusterDto {
+	pub pattern: String,
+	pub count: usize,
+	pub samples: Vec<AuditSampleDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct AuditSampleDto {
+	pub source: String,
+	pub call_name: String,
+	pub receiver: String,
+	pub target: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct AuditZoneDto {
+	pub zone: String,
+	pub unresolved: usize,
+	pub dominant_pattern: String,
+}
+
 // The scoped exploration graph: one level of the identity tree projected as
 // a graph. Nodes are the prefix's children; edges are resolved references
 // rolled up to the pair of child segments they connect; ports aggregate what
 // crosses the scope boundary.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct IdentityGraphResult {
 	pub prefix: String,
@@ -1247,6 +1308,14 @@ fn build_query(op: &str, fields: FieldBag) -> Result<Query, QueryParseError> {
 		"symbol.graph" => Query::SymbolGraph(symbol_graph_query(&fields)?),
 		"identity.children" => Query::IdentityChildren(identity_children_query(&fields)),
 		"identity.graph" => Query::IdentityGraph(identity_children_query(&fields)),
+		"resolution.audit" => Query::ResolutionAudit(ResolutionAuditQuery {
+			workspace: fields.one("workspace"),
+			prefix: fields.one("prefix").unwrap_or_default(),
+			limit: fields
+				.one("limit")
+				.and_then(|value| value.parse().ok())
+				.unwrap_or(20),
+		}),
 		"notes" => Query::Notes(notes_query(&fields)?),
 		_ => return Err(QueryParseError::UnknownOperation(op.to_string())),
 	};
@@ -1334,6 +1403,11 @@ fn verb_spec(op: &str) -> Option<VerbSpec> {
 		},
 		"symbol.graph" => VerbSpec {
 			fields: &["workspace", "focus"],
+			positionals: 1,
+			projection: false,
+		},
+		"resolution.audit" => VerbSpec {
+			fields: &["workspace", "prefix", "limit", "consistency"],
 			positionals: 1,
 			projection: false,
 		},
@@ -1616,9 +1690,41 @@ pub fn format_query_response(response: &QueryResponse) -> String {
 		QueryResult::SymbolGraph(result) => format_symbol_graph(&mut out, result),
 		QueryResult::IdentityChildren(result) => format_identity_children(&mut out, result),
 		QueryResult::IdentityGraph(result) => format_identity_graph(&mut out, result),
+		QueryResult::ResolutionAudit(result) => format_resolution_audit(&mut out, result),
 		QueryResult::Notes(result) => format_notes(&mut out, result),
 	}
 	out
+}
+
+fn format_resolution_audit(out: &mut String, result: &ResolutionAuditResult) {
+	let t = &result.totals;
+	if !result.prefix.is_empty() {
+		let _ = writeln!(out, "prefix: {}", result.prefix);
+	}
+	let _ = writeln!(
+		out,
+		"refs: {} resolved: {} external: {} blocked: {} unresolved: {} name_match_resolved: {}",
+		t.references, t.resolved, t.external, t.blocked, t.unresolved, t.name_match_resolved
+	);
+	let _ = writeln!(out, "clusters:");
+	for cluster in &result.clusters {
+		let _ = writeln!(out, "- [{:>6}] {}", cluster.count, cluster.pattern);
+		if let Some(sample) = cluster.samples.first() {
+			let _ = writeln!(
+				out,
+				"           ex: {} {} -> {}",
+				sample.call_name, sample.receiver, sample.target
+			);
+		}
+	}
+	let _ = writeln!(out, "zones:");
+	for zone in &result.zones {
+		let _ = writeln!(
+			out,
+			"- [{:>5}] {} — {}",
+			zone.unresolved, zone.zone, zone.dominant_pattern
+		);
+	}
 }
 
 fn format_symbol_insights(out: &mut String, result: &SymbolInsightsResult) {

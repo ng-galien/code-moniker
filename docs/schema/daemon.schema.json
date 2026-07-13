@@ -52,6 +52,117 @@
     }
   },
   "definitions": {
+    "AuditClusterDto": {
+      "type": "object",
+      "required": [
+        "count",
+        "pattern",
+        "samples"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "samples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AuditSampleDto"
+          }
+        }
+      }
+    },
+    "AuditSampleDto": {
+      "type": "object",
+      "required": [
+        "call_name",
+        "receiver",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "call_name": {
+          "type": "string"
+        },
+        "receiver": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      }
+    },
+    "AuditTotalsDto": {
+      "type": "object",
+      "required": [
+        "blocked",
+        "external",
+        "name_match_resolved",
+        "references",
+        "resolved",
+        "unresolved"
+      ],
+      "properties": {
+        "blocked": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "external": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "name_match_resolved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "references": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "resolved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "unresolved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "AuditZoneDto": {
+      "type": "object",
+      "required": [
+        "dominant_pattern",
+        "unresolved",
+        "zone"
+      ],
+      "properties": {
+        "dominant_pattern": {
+          "type": "string"
+        },
+        "unresolved": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "zone": {
+          "type": "string"
+        }
+      }
+    },
     "CapabilitySet": {
       "type": "object",
       "required": [
@@ -1589,6 +1700,36 @@
         {
           "type": "object",
           "required": [
+            "limit",
+            "op",
+            "prefix"
+          ],
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0.0
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "resolution_audit"
+              ]
+            },
+            "prefix": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "action",
             "include_done",
             "op"
@@ -1990,6 +2131,24 @@
           ],
           "properties": {
             "data": {
+              "$ref": "#/definitions/ResolutionAuditResult"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "resolution_audit"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "data",
+            "kind"
+          ],
+          "properties": {
+            "data": {
               "$ref": "#/definitions/NotesResult"
             },
             "kind": {
@@ -2001,6 +2160,35 @@
           }
         }
       ]
+    },
+    "ResolutionAuditResult": {
+      "type": "object",
+      "required": [
+        "clusters",
+        "prefix",
+        "totals",
+        "zones"
+      ],
+      "properties": {
+        "clusters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AuditClusterDto"
+          }
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "totals": {
+          "$ref": "#/definitions/AuditTotalsDto"
+        },
+        "zones": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AuditZoneDto"
+          }
+        }
+      }
     },
     "RuleDto": {
       "type": "object",

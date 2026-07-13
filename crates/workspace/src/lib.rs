@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod cache;
 pub mod changes;
 pub mod code;

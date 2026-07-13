@@ -15,16 +15,17 @@ use code_moniker_check::{
 use code_moniker_core::core::shape::Shape;
 use code_moniker_core::lang::Lang;
 use code_moniker_query::{
-	CapabilitySet, CheckSummaryDto, Command, CommandRequest, CommandResponse, Consistency,
-	CountDto, DaemonRpcServer, DaemonWorkspaceConfig, FailedRuleDto, FileErrorDto,
-	HandshakeResponse, NoteDto, NoteResolutionDto, NotesAction, NotesQuery, NotesResult, Page,
-	ProtocolRequest, ProtocolResponse, Query, QueryCursor, QueryError, QueryRequest, QueryResponse,
-	QueryResult, RuleDto, RuleReportDto, RulesCheckResult, RulesCheckRootResult, RulesListResult,
-	SourceLine, SourceSnippet, SymbolDetailResult, SymbolDto, SymbolInsightsResult,
-	SymbolListResult, SymbolSearchQuery, SymbolUsagesQuery, SymbolUsagesResult, TreeChildrenQuery,
-	TreeChildrenResult, TreeNode, TreeNodeKind, UsageDirection, UsageDto, UsageSummaryDto,
-	ViewReadQuery, ViolationDto, WorkspaceEventDto, WorkspaceEventKind, WorkspaceGeneration,
-	WorkspaceRootStatus, WorkspaceStatus,
+	AuditClusterDto, AuditSampleDto, AuditTotalsDto, AuditZoneDto, CapabilitySet, CheckSummaryDto,
+	Command, CommandRequest, CommandResponse, Consistency, CountDto, DaemonRpcServer,
+	DaemonWorkspaceConfig, FailedRuleDto, FileErrorDto, HandshakeResponse, NoteDto,
+	NoteResolutionDto, NotesAction, NotesQuery, NotesResult, Page, ProtocolRequest,
+	ProtocolResponse, Query, QueryCursor, QueryError, QueryRequest, QueryResponse, QueryResult,
+	ResolutionAuditResult, RuleDto, RuleReportDto, RulesCheckResult, RulesCheckRootResult,
+	RulesListResult, SourceLine, SourceSnippet, SymbolDetailResult, SymbolDto,
+	SymbolInsightsResult, SymbolListResult, SymbolSearchQuery, SymbolUsagesQuery,
+	SymbolUsagesResult, TreeChildrenQuery, TreeChildrenResult, TreeNode, TreeNodeKind,
+	UsageDirection, UsageDto, UsageSummaryDto, ViewReadQuery, ViolationDto, WorkspaceEventDto,
+	WorkspaceEventKind, WorkspaceGeneration, WorkspaceRootStatus, WorkspaceStatus,
 };
 use code_moniker_workspace::glob::FilePathFilter;
 use code_moniker_workspace::live::{
@@ -589,6 +590,9 @@ fn handle_query(
 		Query::IdentityGraph(query) => {
 			identity_graph_response(&snapshot, &daemon.roots, query, current_generation)
 		}
+		Query::ResolutionAudit(query) => {
+			resolution_audit_response(&snapshot, &daemon.roots, query, current_generation)
+		}
 		Query::Notes(query) => {
 			notes_response(daemon, &snapshot, query, request.page, current_generation)
 		}
@@ -906,6 +910,66 @@ fn identity_graph_response(
 	Ok(QueryResponse {
 		generation: current_generation,
 		result: QueryResult::IdentityGraph(Box::new(result)),
+		next_cursor: None,
+	})
+}
+
+fn resolution_audit_response(
+	snapshot: &WorkspaceSnapshot,
+	roots: &[PathBuf],
+	query: code_moniker_query::ResolutionAuditQuery,
+	current_generation: Option<WorkspaceGeneration>,
+) -> Result<QueryResponse, QueryError> {
+	let _ = selected_roots(roots, query.workspace.as_deref())?;
+	let prefix = identity_path(query.prefix.trim_matches('/'))
+		.trim_matches('/')
+		.to_string();
+	let options = code_moniker_workspace::audit::AuditOptions {
+		cluster_limit: query.limit.clamp(1, 200),
+		..code_moniker_workspace::audit::AuditOptions::default()
+	};
+	let audit = code_moniker_workspace::audit::resolution_audit(snapshot, &prefix, options);
+	let result = ResolutionAuditResult {
+		prefix,
+		totals: AuditTotalsDto {
+			references: audit.totals.references,
+			resolved: audit.totals.resolved,
+			external: audit.totals.external,
+			blocked: audit.totals.blocked,
+			unresolved: audit.totals.unresolved,
+			name_match_resolved: audit.totals.name_match_resolved,
+		},
+		clusters: audit
+			.clusters
+			.iter()
+			.map(|cluster| AuditClusterDto {
+				pattern: code_moniker_workspace::audit::pattern_label(&cluster.pattern),
+				count: cluster.count,
+				samples: cluster
+					.samples
+					.iter()
+					.map(|sample| AuditSampleDto {
+						source: sample.source.clone(),
+						call_name: sample.call_name.clone(),
+						receiver: sample.receiver.clone(),
+						target: sample.target.clone(),
+					})
+					.collect(),
+			})
+			.collect(),
+		zones: audit
+			.zones
+			.iter()
+			.map(|zone| AuditZoneDto {
+				zone: zone.zone.clone(),
+				unresolved: zone.unresolved,
+				dominant_pattern: zone.dominant_pattern.clone(),
+			})
+			.collect(),
+	};
+	Ok(QueryResponse {
+		generation: current_generation,
+		result: QueryResult::ResolutionAudit(Box::new(result)),
 		next_cursor: None,
 	})
 }
