@@ -416,6 +416,59 @@ fn ts_manifest_undeclared_package_imports_are_not_external() {
 }
 
 #[test]
+fn go_same_package_cross_file_calls_resolve() {
+	let snapshot = load_workspace("projects/go/module-workspace");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:app/func:Build()",
+		"calls",
+		"NewRouter",
+		0,
+		"module:router/func:NewRouter()",
+	);
+}
+
+#[test]
+fn go_short_var_receivers_link_methods_across_files() {
+	let snapshot = load_workspace("projects/go/module-workspace");
+
+	assert_call_linked_to(
+		&snapshot,
+		"module:app/func:Build()",
+		"HandleFunc",
+		1,
+		"module:router/struct:Router/method:HandleFunc(path:string)",
+	);
+	assert_call_linked_to(
+		&snapshot,
+		"module:app/func:Build()",
+		"Path",
+		0,
+		"module:route/struct:Route/method:Path()",
+	);
+}
+
+#[test]
+fn go_stdlib_imports_classify_external_with_manifest() {
+	let snapshot = load_workspace("projects/go/module-workspace");
+
+	assert_external_reference(&snapshot, "imports_module", "external_pkg:fmt");
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"calls",
+		"module:app/func:Build()",
+		"external_pkg:strings/func:ToUpper",
+	);
+	assert_external_reference_from_symbol(
+		&snapshot,
+		"calls",
+		"module:app/func:Build()",
+		"external_pkg:fmt/func:Println",
+	);
+}
+
+#[test]
 fn python_module_constants_and_builtins_resolve() {
 	let snapshot = load_workspace("projects/python/analytics-service");
 

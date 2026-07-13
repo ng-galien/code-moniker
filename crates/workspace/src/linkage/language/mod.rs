@@ -10,6 +10,7 @@ use crate::snapshot::{RecordTable, ReferenceRecord};
 use crate::source::CodeIndexMaterial;
 
 mod generic;
+mod go;
 mod java;
 mod python;
 mod rust;
@@ -21,6 +22,7 @@ pub(super) trait LanguageLinkageStrategy: Sync {
 
 static GENERIC_STRATEGY: generic::GenericLanguageLinkageStrategy =
 	generic::GenericLanguageLinkageStrategy;
+static GO_STRATEGY: go::GoLanguageLinkageStrategy = go::GoLanguageLinkageStrategy;
 static JAVA_STRATEGY: java::JavaLanguageLinkageStrategy = java::JavaLanguageLinkageStrategy;
 static PYTHON_STRATEGY: python::PythonLanguageLinkageStrategy =
 	python::PythonLanguageLinkageStrategy;
@@ -33,7 +35,8 @@ pub(super) fn language_strategy(lang: Lang) -> &'static dyn LanguageLinkageStrat
 		Lang::Python => &PYTHON_STRATEGY,
 		Lang::Rs => &RUST_STRATEGY,
 		Lang::Ts => &TS_STRATEGY,
-		Lang::Go | Lang::Cs | Lang::Sql => &GENERIC_STRATEGY,
+		Lang::Go => &GO_STRATEGY,
+		Lang::Cs | Lang::Sql => &GENERIC_STRATEGY,
 	}
 }
 
@@ -66,6 +69,7 @@ pub(super) fn builtin_external_root(lang: Lang, root: &str) -> bool {
 		Lang::Java => java::builtin_external_root(root),
 		Lang::Ts => ts::builtin_external_root(root),
 		Lang::Python => code_moniker_core::lang::python::builtin_external_root(root),
+		Lang::Go => code_moniker_core::lang::go::builtin_external_root(root),
 		_ => false,
 	}
 }
