@@ -1051,19 +1051,6 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
-      "kind": "reads",
-      "position": [
-        3239,
-        3240
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:accounts/function:u"
-    },
-    {
-      "alias": "",
-      "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
       "kind": "method_call",
@@ -1073,19 +1060,6 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "member",
       "to": "code+moniker://app/lang:python/module:accounts/class:UserRepository/method:scan()"
-    },
-    {
-      "alias": "",
-      "binding": "local",
-      "confidence": "name_match",
-      "from": "code+moniker://app/lang:python/module:accounts/class:UserService/method:with_tag(tag:str)",
-      "kind": "reads",
-      "position": [
-        3272,
-        3273
-      ],
-      "receiver_hint": "",
-      "to": "code+moniker://app/lang:python/module:accounts/function:u"
     },
     {
       "alias": "",

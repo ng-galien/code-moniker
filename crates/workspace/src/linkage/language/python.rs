@@ -67,8 +67,20 @@ fn python_segment_matches(
 	if target.kind == candidate_segment.kind {
 		return python_segment_name_matches(query, candidate, target, candidate_segment);
 	}
-	target.kind == kinds::PATH
+	if target.kind == kinds::PATH
 		&& is_python_path_target_kind(candidate_segment.kind)
+		&& target.name == candidate_segment.name
+	{
+		return true;
+	}
+	if is_python_callable_kind(target.kind)
+		&& candidate_segment.kind == kinds::PATH
+		&& bare_callable_name(target.name) == candidate_segment.name
+	{
+		return true;
+	}
+	target.kind == kinds::LOCAL
+		&& candidate_segment.kind == kinds::PARAM
 		&& target.name == candidate_segment.name
 }
 
@@ -79,6 +91,9 @@ fn python_segment_name_matches(
 	candidate_segment: Segment<'_>,
 ) -> bool {
 	if is_python_callable_kind(target.kind) && is_python_callable_kind(candidate_segment.kind) {
+		if query.call_name.is_none() {
+			return bare_callable_name(target.name) == bare_callable_name(candidate_segment.name);
+		}
 		return query
 			.call_name
 			.is_some_and(|name| Some(name.as_bytes()) == candidate.call_name)

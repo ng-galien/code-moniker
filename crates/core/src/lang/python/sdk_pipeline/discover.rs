@@ -1002,6 +1002,10 @@ fn classify_node<'src>(
 			handle_for(discover, node, scope, graph);
 			NodeShape::Skip
 		}
+		"for_in_clause" => {
+			handle_for(discover, node, scope, graph);
+			NodeShape::Skip
+		}
 		_ => NodeShape::Recurse,
 	}
 }
@@ -1509,7 +1513,9 @@ fn infer_assignment_value_type(
 				"identifier" => {
 					let name = node_slice(callee, discover.source_bytes);
 					lookup_discovered_type(discover, scope, name)
+						.or_else(|| external_callee_type(discover, name))
 				}
+				"attribute" => attribute_callee_type(discover, callee),
 				_ => None,
 			}
 		}
@@ -1520,6 +1526,34 @@ fn infer_assignment_value_type(
 		}
 		_ => None,
 	}
+}
+
+fn external_callee_type(discover: &PyDiscover<'_>, name: &[u8]) -> Option<Moniker> {
+	let target = discover.imports.target_for(name)?;
+	is_external_shaped(&target).then_some(target)
+}
+
+fn attribute_callee_type(discover: &PyDiscover<'_>, callee: Node<'_>) -> Option<Moniker> {
+	let object = callee.child_by_field_name("object")?;
+	if object.kind() != "identifier" {
+		return None;
+	}
+	let object_name = node_slice(object, discover.source_bytes);
+	let module_target = discover.imports.target_for(object_name)?;
+	if !is_external_shaped(&module_target) {
+		return None;
+	}
+	let attr = callee.child_by_field_name("attribute")?;
+	let name = node_slice(attr, discover.source_bytes);
+	Some(extend_segment(&module_target, kinds::PATH, name))
+}
+
+fn is_external_shaped(target: &Moniker) -> bool {
+	target
+		.as_view()
+		.segments()
+		.next()
+		.is_some_and(|segment| segment.kind == kinds::EXTERNAL_PKG)
 }
 
 fn self_attr_key(
