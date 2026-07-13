@@ -2,7 +2,7 @@ use crate::linkage::binding::{
 	ExternalOrigin, ReferenceLinkageDecision, ResolutionScope, UnknownReason,
 };
 use crate::linkage::catalog::CandidateCatalog;
-use crate::linkage::catalog::{LinkageQuery, ReferenceLocation};
+use crate::linkage::catalog::{LinkageQuery, ReferenceLocation, SymbolSet};
 use crate::linkage::resolve::{
 	CrateForwards, GlobalScopeResolver, LocalScopeResolver, ManifestPolicy, WorkspacePackageIndex,
 };
@@ -73,6 +73,7 @@ impl<'a> ReferenceResolver<'a> {
 		policies: &LinkagePolicies<'_>,
 	) -> Option<ReferenceLinkageDecision> {
 		let global_targets = self.global.resolve(query, policies.candidates);
+		let global_targets = confirm_name_match_targets(policies.candidates, query, global_targets);
 		let global_decision = policies.manifests.evaluate_global_targets(
 			query,
 			global_targets,
@@ -125,6 +126,114 @@ fn resolve_scopes(
 		);
 	}
 	site.unknown(UnknownReason::NoCandidate)
+}
+
+// A name-match resolution is only trustworthy when the language semantics
+// back it: a candidate in the SAME package as the source wins outright
+// (Java resolves the current package before any import), and outside that a
+// single candidate is acceptable. Several cross-package homonyms are a coin
+// flip — better an honest unresolved than a fabricated link.
+fn confirm_name_match_targets(
+	candidates: &CandidateCatalog,
+	query: &LinkageQuery<'_>,
+	targets: SymbolSet,
+) -> SymbolSet {
+	if targets.len() <= 1 {
+		return targets;
+	}
+	let targets = match query.confidence {
+		Some("name_match") => restrict_to_source_package(candidates, query, targets),
+		Some("imported") => targets,
+		_ => return targets,
+	};
+	let source_srcset = file_srcset(query.material, query.source_file);
+	prefer_same_srcset(candidates, &source_srcset, targets)
+}
+
+fn restrict_to_source_package(
+	candidates: &CandidateCatalog,
+	query: &LinkageQuery<'_>,
+	targets: SymbolSet,
+) -> SymbolSet {
+	let source_packages = file_package_chain(query.material, query.source_file);
+	if source_packages.is_empty() {
+		return targets;
+	}
+	let mut same_package = SymbolSet::new();
+	for symbol in targets.iter() {
+		let Some(candidate) = candidates.candidate(symbol) else {
+			continue;
+		};
+		if moniker_package_chain(candidate.moniker) == source_packages {
+			same_package.insert(symbol);
+		}
+	}
+	same_package
+}
+
+// Same package and several candidates left: an identically named class in
+// main and in test of the same package (a common test idiom) — the source's
+// own source set is the closer compilation scope, pick it when it answers.
+fn prefer_same_srcset(
+	candidates: &CandidateCatalog,
+	source_srcset: &[u8],
+	targets: SymbolSet,
+) -> SymbolSet {
+	if source_srcset.is_empty() || targets.len() <= 1 {
+		return targets;
+	}
+	let mut same_srcset = SymbolSet::new();
+	for symbol in targets.iter() {
+		let Some(candidate) = candidates.candidate(symbol) else {
+			continue;
+		};
+		if moniker_srcset(candidate.moniker) == source_srcset {
+			same_srcset.insert(symbol);
+		}
+	}
+	if same_srcset.is_empty() {
+		targets
+	} else {
+		same_srcset
+	}
+}
+
+fn file_srcset(material: &CodeIndexMaterial, file_idx: usize) -> Vec<u8> {
+	let Some(file) = material.files.get(file_idx) else {
+		return Vec::new();
+	};
+	if file.graph.def_count() == 0 {
+		return Vec::new();
+	}
+	moniker_srcset(&file.graph.def_at(0).moniker)
+}
+
+fn moniker_srcset(moniker: &code_moniker_core::core::moniker::Moniker) -> Vec<u8> {
+	moniker
+		.as_view()
+		.segments()
+		.find(|segment| segment.kind == b"srcset")
+		.map(|segment| segment.name.to_vec())
+		.unwrap_or_default()
+}
+
+fn file_package_chain(material: &CodeIndexMaterial, file_idx: usize) -> Vec<Vec<u8>> {
+	let Some(file) = material.files.get(file_idx) else {
+		return Vec::new();
+	};
+	if file.graph.def_count() == 0 {
+		return Vec::new();
+	}
+	moniker_package_chain(&file.graph.def_at(0).moniker)
+}
+
+fn moniker_package_chain(moniker: &code_moniker_core::core::moniker::Moniker) -> Vec<Vec<u8>> {
+	moniker
+		.as_view()
+		.segments()
+		.filter(|segment| segment.kind == code_moniker_core::lang::kinds::PACKAGE)
+		.map(|segment| segment.name.to_vec())
+		.collect()
 }
 
 fn external_fallthrough(query: &LinkageQuery<'_>, policies: &LinkagePolicies<'_>) -> bool {

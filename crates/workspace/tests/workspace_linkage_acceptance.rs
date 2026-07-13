@@ -217,6 +217,20 @@ fn java_declared_source_groups_block_cross_group_calls() {
 }
 
 #[test]
+fn java_same_package_homonyms_prefer_the_source_srcset() {
+	let snapshot = load_workspace("projects/java/no-manifest-declared");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:ClockUser/class:ClockUser/method:read(Clock)",
+		"method_call",
+		"now",
+		0,
+		"srcset:test/lang:java/package:com/package:acme/package:nomanifest/module:Clock/class:Clock/method:now()",
+	);
+}
+
+#[test]
 fn java_fluent_chains_resolve_through_return_types() {
 	let snapshot = load_workspace("projects/java/no-manifest-declared");
 
