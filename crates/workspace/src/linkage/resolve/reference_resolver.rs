@@ -128,11 +128,10 @@ fn resolve_scopes(
 	site.unknown(UnknownReason::NoCandidate)
 }
 
-// A name-match resolution is only trustworthy when the language semantics
-// back it: a candidate in the SAME package as the source wins outright
-// (Java resolves the current package before any import), and outside that a
-// single candidate is acceptable. Several cross-package homonyms are a coin
-// flip — better an honest unresolved than a fabricated link.
+// A name-backed resolution is only trustworthy when language semantics back
+// it: the source's own package wins outright (Java resolves it before any
+// import), then the source's own srcset breaks main/test homonym ties —
+// better an honest narrowing than a coin-flip multi-link.
 fn confirm_name_match_targets(
 	candidates: &CandidateCatalog,
 	query: &LinkageQuery<'_>,
