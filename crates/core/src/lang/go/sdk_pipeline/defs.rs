@@ -271,7 +271,7 @@ fn function_def(state: &mut GoDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	let name = node_slice(name_node, state.source);
 	let slots = function_param_slots(node, state.source);
 	let moniker = extend_callable_slots(scope, kinds::FUNC, name, &slots);
-	callable_tables(state, node, scope.clone(), name, &slots);
+	callable_tables(state, node, scope, name, &slots);
 	state.push_def(DiscoveredDef {
 		moniker: moniker.clone(),
 		parent: scope.clone(),
@@ -287,6 +287,9 @@ fn function_def(state: &mut GoDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	callable_scope_defs(state, node, &moniker);
 }
 
+// A receiver type declared in a sibling file still nests the method moniker
+// under the same-package fallback owner, but only a file-local type def can
+// serve as the graph parent; otherwise the module root does.
 fn method_def(state: &mut GoDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	let Some(name_node) = node.child_by_field_name("name") else {
 		return;
@@ -297,18 +300,17 @@ fn method_def(state: &mut GoDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 	let Some(receiver_name) = receiver_type_name(receiver, state.source) else {
 		return;
 	};
-	let owner = state
-		.type_table
-		.get(receiver_name)
-		.cloned()
+	let local_owner = state.type_table.get(receiver_name).cloned();
+	let owner = local_owner
+		.clone()
 		.unwrap_or_else(|| extend_segment(scope, kinds::STRUCT, receiver_name));
 	let name = node_slice(name_node, state.source);
 	let slots = function_param_slots(node, state.source);
 	let moniker = extend_callable_slots(&owner, kinds::METHOD, name, &slots);
-	callable_tables(state, node, owner.clone(), name, &slots);
+	callable_tables(state, node, &owner, name, &slots);
 	state.push_def(DiscoveredDef {
 		moniker: moniker.clone(),
-		parent: owner,
+		parent: local_owner.unwrap_or_else(|| scope.clone()),
 		namespace: Namespace::Value,
 		name: name.to_vec(),
 		kind: kinds::METHOD,
@@ -324,7 +326,7 @@ fn method_def(state: &mut GoDiscover<'_>, node: Node<'_>, scope: &Moniker) {
 fn callable_tables(
 	state: &mut GoDiscover<'_>,
 	node: Node<'_>,
-	owner: Moniker,
+	owner: &Moniker,
 	name: &[u8],
 	slots: &[CallableSlot],
 ) {
@@ -336,7 +338,9 @@ fn callable_tables(
 		.child_by_field_name("result")
 		.and_then(|result| result_type_expr(state, result))
 	{
-		state.return_types.insert((owner, name.to_vec()), ty);
+		state
+			.return_types
+			.insert((owner.clone(), name.to_vec()), ty);
 	}
 }
 

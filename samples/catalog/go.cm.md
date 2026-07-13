@@ -274,11 +274,6 @@ func (o Order_record) Reconcile() int {
 }
 ```
 
-Note on `interface-small`: the Go extractor records interface method
-elements only as `uses_type` references — it never emits `method` defs under
-an interface — so `count(method)` evaluates to 0 for every interface and the
-rule can never fire. The six-method `OrderRepo` above documents the intent.
-
 Note on `domain-no-infra`: extracted Go import targets are spelled with
 `external_pkg:`/`path:` segments (`package:` segments only appear on the
 source side, mirroring the importing file's directory), so the `tgt_infra`
@@ -286,8 +281,8 @@ alias — `target ~ '**/package:/^(infra|infrastructure)$/**'` — can never
 match a Go ref target and the rule stays silent in any layout.
 
 ```cm:expect
-! go.interface.interface-small the Go extractor emits no method defs under interfaces (method_elem only yields uses_type refs), so count(method) is always 0
 ! go.refs.domain-no-infra extracted Go ref targets use external_pkg:/path: segments, never package:, so the tgt_infra package pattern cannot match
+go.interface.interface-small @ domain/order.go:L6-L13
 go.struct.exported-struct-pascalcase @ domain/order.go:L15-L17
 go.func.exported-func-small @ domain/order.go:L24-L107
 go.method.method-small @ domain/order.go:L109-L192
