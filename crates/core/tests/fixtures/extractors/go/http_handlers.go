@@ -15,11 +15,14 @@ type User struct {
 
 // cm: def UserStore
 type UserStore interface {
+	// cm: def UserStore.Find interface method
 	Find(ctx context.Context, id int64) (User, error)
 }
 
 // cm: def UserHandler
 type UserHandler struct {
+	// cm: def UserHandler.store field
+	// cm: ref store field typed as UserStore
 	store UserStore
 }
 
@@ -35,6 +38,7 @@ func (h *UserHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return
 	}
+	// cm: ref typed field receiver resolves interface method
 	user, err := h.store.Find(r.Context(), id)
 	if err != nil {
 		http.Error(w, "missing", http.StatusNotFound)

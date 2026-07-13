@@ -56,5 +56,31 @@ from = "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/metho
 to = "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)"
 confidence = "resolved"
 
+[[defs]]
+label = "UserHandler.store field"
+kind = "field"
+moniker = "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/field:store"
+parent = "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler"
+
+[[defs]]
+label = "UserStore.Find interface method"
+kind = "method"
+moniker = "code+moniker://app/lang:go/module:http_handlers/interface:UserStore/method:Find(ctx:context.Context,id:int64)"
+parent = "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
+
+[[refs]]
+label = "store field typed as UserStore"
+kind = "typed_as"
+from = "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/field:store"
+to = "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
+confidence = "resolved"
+
+[[refs]]
+label = "typed field receiver resolves interface method"
+kind = "method_call"
+from = "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)"
+to = "code+moniker://app/lang:go/module:http_handlers/interface:UserStore/method:Find(ctx:context.Context,id:int64)"
+confidence = "resolved"
+
 [[absent.defs]]
 kind = "local"

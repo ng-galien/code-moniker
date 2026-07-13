@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 130
 expression: body
-input_file: crates/core/tests/fixtures/go/accounts.go
+input_file: crates/core/tests/fixtures/extractors/go/accounts.go
 ---
 {
   "defs": [
@@ -85,15 +86,54 @@ input_file: crates/core/tests/fixtures/go/accounts.go
     },
     {
       "binding": "export",
-      "kind": "var",
-      "moniker": "code+moniker://app/lang:go/module:accounts/var:ErrNotFound",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:User/field:ID",
       "origin": "extracted",
-      "parent": "code+moniker://app/lang:go/module:accounts",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:User",
       "position": [
-        702,
-        713
+        522,
+        524
       ],
-      "signature": "",
+      "signature": "string",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:User/field:Email",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:User",
+      "position": [
+        536,
+        541
+      ],
+      "signature": "string",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:User/field:Name",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:User",
+      "position": [
+        550,
+        554
+      ],
+      "signature": "string",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:User/field:Tags",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:User",
+      "position": [
+        564,
+        568
+      ],
+      "signature": "[]string",
       "visibility": "public"
     },
     {
@@ -110,6 +150,19 @@ input_file: crates/core/tests/fixtures/go/accounts.go
       "visibility": ""
     },
     {
+      "binding": "export",
+      "kind": "var",
+      "moniker": "code+moniker://app/lang:go/module:accounts/var:ErrNotFound",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts",
+      "position": [
+        702,
+        713
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
       "binding": "none",
       "kind": "comment",
       "moniker": "code+moniker://app/lang:go/module:accounts/comment:741",
@@ -121,6 +174,32 @@ input_file: crates/core/tests/fixtures/go/accounts.go
       ],
       "signature": "",
       "visibility": ""
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:ConflictError/field:Field",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:ConflictError",
+      "position": [
+        899,
+        904
+      ],
+      "signature": "string",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:ConflictError/field:Value",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:ConflictError",
+      "position": [
+        913,
+        918
+      ],
+      "signature": "string",
+      "visibility": "public"
     },
     {
       "binding": "none",
@@ -162,6 +241,58 @@ input_file: crates/core/tests/fixtures/go/accounts.go
       "visibility": ""
     },
     {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:accounts/interface:UserRepository/method:FindByID(id:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "position": [
+        1290,
+        1324
+      ],
+      "signature": "id:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:accounts/interface:UserRepository/method:FindByEmail(email:string)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "position": [
+        1326,
+        1366
+      ],
+      "signature": "email:string",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:accounts/interface:UserRepository/method:Insert(user:User)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "position": [
+        1368,
+        1400
+      ],
+      "signature": "user:User",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:accounts/interface:UserRepository/method:Scan()",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/interface:UserRepository",
+      "position": [
+        1459,
+        1477
+      ],
+      "signature": "",
+      "visibility": "public"
+    },
+    {
       "binding": "none",
       "kind": "comment",
       "moniker": "code+moniker://app/lang:go/module:accounts/comment:1481",
@@ -173,6 +304,32 @@ input_file: crates/core/tests/fixtures/go/accounts.go
       ],
       "signature": "",
       "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/field:mu",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:InMemory",
+      "position": [
+        1654,
+        1656
+      ],
+      "signature": "sync.RWMutex",
+      "visibility": "module"
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:accounts/struct:InMemory/field:users",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:accounts/struct:InMemory",
+      "position": [
+        1674,
+        1679
+      ],
+      "signature": "map[string]User",
+      "visibility": "module"
     },
     {
       "binding": "none",
@@ -399,6 +556,19 @@ input_file: crates/core/tests/fixtures/go/accounts.go
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/field:mu",
+      "kind": "typed_as",
+      "position": [
+        1654,
+        1656
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts",
@@ -543,7 +713,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/func:NewInMemory()",
       "kind": "calls",
       "position": [
@@ -551,7 +721,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         1814
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:go/module:accounts/func:make"
+      "to": "code+moniker://app/external_pkg:builtin/func:make"
     },
     {
       "alias": "",
@@ -569,7 +739,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByID(id:string)",
       "kind": "method_call",
       "position": [
@@ -577,12 +747,12 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         1888
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:accounts/method:RLock"
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RLock()"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByID(id:string)",
       "kind": "method_call",
       "position": [
@@ -590,7 +760,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         1910
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:accounts/method:RUnlock"
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RUnlock()"
     },
     {
       "alias": "",
@@ -608,7 +778,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByEmail(email:string)",
       "kind": "method_call",
       "position": [
@@ -616,12 +786,12 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         2128
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:accounts/method:RLock"
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RLock()"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:FindByEmail(email:string)",
       "kind": "method_call",
       "position": [
@@ -629,7 +799,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         2150
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:accounts/method:RUnlock"
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RUnlock()"
     },
     {
       "alias": "",
@@ -660,7 +830,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
       "kind": "method_call",
       "position": [
@@ -668,12 +838,12 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         2323
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:accounts/method:Lock"
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:Lock()"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Insert(user:User)",
       "kind": "method_call",
       "position": [
@@ -681,7 +851,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         2344
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:accounts/method:Unlock"
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:Unlock()"
     },
     {
       "alias": "",
@@ -712,7 +882,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
       "kind": "calls",
       "position": [
@@ -720,12 +890,12 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         2928
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:go/module:accounts/func:make"
+      "to": "code+moniker://app/external_pkg:builtin/func:make"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
       "kind": "calls",
       "position": [
@@ -733,12 +903,12 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         2960
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:go/module:accounts/func:close"
+      "to": "code+moniker://app/external_pkg:builtin/func:close"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
       "kind": "method_call",
       "position": [
@@ -746,12 +916,12 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         2975
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:accounts/method:RLock"
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RLock()"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/struct:InMemory/method:Scan()",
       "kind": "method_call",
       "position": [
@@ -759,7 +929,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         2998
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:accounts/method:RUnlock"
+      "to": "code+moniker://app/external_pkg:sync/struct:RWMutex/method:RUnlock()"
     },
     {
       "alias": "",
@@ -803,7 +973,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:go/module:accounts/func:WithTag(repo:UserRepository,tag:string)",
       "kind": "method_call",
       "position": [
@@ -811,12 +981,12 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         3344
       ],
       "receiver_hint": "repo",
-      "to": "code+moniker://app/lang:go/module:accounts/method:Scan"
+      "to": "code+moniker://app/lang:go/module:accounts/interface:UserRepository/method:Scan()"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:accounts/func:WithTag(repo:UserRepository,tag:string)",
       "kind": "calls",
       "position": [
@@ -824,7 +994,7 @@ input_file: crates/core/tests/fixtures/go/accounts.go
         3423
       ],
       "receiver_hint": "",
-      "to": "code+moniker://app/lang:go/module:accounts/func:append"
+      "to": "code+moniker://app/external_pkg:builtin/func:append"
     },
     {
       "alias": "",

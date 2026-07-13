@@ -63,3 +63,17 @@ kind = "calls"
 from = "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)"
 to = "code+moniker://app/lang:go/module:metrics/func:newSampler(p:*Pipeline)"
 confidence = "resolved"
+
+[[refs]]
+label = "len goes to the builtin universe block"
+kind = "calls"
+from = "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)"
+to = "code+moniker://app/external_pkg:builtin/func:len"
+confidence = "external"
+
+[[refs]]
+label = "chained call through local return type resolves labels"
+kind = "method_call"
+from = "code+moniker://app/lang:go/module:metrics/struct:Pipeline/method:Push(ctx:context.Context,name:string,...)"
+to = "code+moniker://app/lang:go/module:metrics/struct:Sampler/method:labels()"
+confidence = "resolved"

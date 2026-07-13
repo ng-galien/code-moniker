@@ -76,8 +76,10 @@ func (p *Pipeline) Push(ctx context.Context, name string, vals ...float64) (Coun
 	id := ToUpper(name)
 	// cm: ref push instantiates bucket
 	bucket := &BucketSpec{Lower: 0, Upper: 1}
+	// cm: ref len goes to the builtin universe block
 	p.cfg[id] = Counter(len(vals))
 	// cm: ref push calls new sampler
+	// cm: ref chained call through local return type resolves labels
 	merged := newSampler(p).labels()
 	_ = merged
 	return p.cfg[id], bucket, nil

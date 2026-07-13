@@ -1,7 +1,8 @@
 ---
-source: crates/core/tests/extractor_snapshots.rs
+source: crates/core/tests/extractors_snapshots.rs
+assertion_line: 130
 expression: body
-input_file: crates/core/tests/fixtures/go/http_handlers.go
+input_file: crates/core/tests/fixtures/extractors/go/http_handlers.go
 ---
 {
   "defs": [
@@ -26,7 +27,7 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "parent": "code+moniker://app/lang:go/module:http_handlers",
       "position": [
         200,
-        274
+        318
       ],
       "signature": "",
       "visibility": "public"
@@ -38,8 +39,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:http_handlers",
       "position": [
-        304,
-        343
+        348,
+        466
       ],
       "signature": "",
       "visibility": "public"
@@ -58,6 +59,32 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "visibility": ""
     },
     {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:User/field:ID",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers/struct:User",
+      "position": [
+        117,
+        119
+      ],
+      "signature": "int64",
+      "visibility": "public"
+    },
+    {
+      "binding": "export",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:User/field:Email",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers/struct:User",
+      "position": [
+        143,
+        148
+      ],
+      "signature": "string",
+      "visibility": "public"
+    },
+    {
       "binding": "none",
       "kind": "comment",
       "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:174",
@@ -71,17 +98,43 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "visibility": ""
     },
     {
+      "binding": "export",
+      "kind": "method",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore/method:Find(ctx:context.Context,id:int64)",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore",
+      "position": [
+        267,
+        316
+      ],
+      "signature": "ctx:context.Context,id:int64",
+      "visibility": "public"
+    },
+    {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:276",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:320",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:http_handlers",
       "position": [
-        276,
-        298
+        320,
+        342
       ],
       "signature": "",
       "visibility": ""
+    },
+    {
+      "binding": "local",
+      "kind": "field",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/field:store",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler",
+      "position": [
+        449,
+        454
+      ],
+      "signature": "UserStore",
+      "visibility": "module"
     },
     {
       "binding": "export",
@@ -90,8 +143,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:http_handlers",
       "position": [
-        345,
-        433
+        468,
+        556
       ],
       "signature": "store:UserStore",
       "visibility": "public"
@@ -99,12 +152,12 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
     {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:435",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:558",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:http_handlers",
       "position": [
-        435,
-        467
+        558,
+        590
       ],
       "signature": "",
       "visibility": ""
@@ -116,8 +169,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler",
       "position": [
-        468,
-        850
+        591,
+        1032
       ],
       "signature": "w:http.ResponseWriter,r:*http.Request",
       "visibility": "public"
@@ -125,12 +178,12 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
     {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)/comment:543",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)/comment:666",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "position": [
-        543,
-        589
+        666,
+        712
       ],
       "signature": "",
       "visibility": ""
@@ -138,12 +191,25 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
     {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:852",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)/comment:815",
+      "origin": "extracted",
+      "parent": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
+      "position": [
+        815,
+        872
+      ],
+      "signature": "",
+      "visibility": ""
+    },
+    {
+      "binding": "none",
+      "kind": "comment",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/comment:1034",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:http_handlers",
       "position": [
-        852,
-        870
+        1034,
+        1052
       ],
       "signature": "",
       "visibility": ""
@@ -155,8 +221,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:http_handlers",
       "position": [
-        871,
-        1032
+        1053,
+        1214
       ],
       "signature": "r:*http.Request",
       "visibility": "module"
@@ -164,12 +230,12 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
     {
       "binding": "none",
       "kind": "comment",
-      "moniker": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)/comment:951",
+      "moniker": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)/comment:1133",
       "origin": "extracted",
       "parent": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
       "position": [
-        951,
-        992
+        1133,
+        1174
       ],
       "signature": "",
       "visibility": ""
@@ -230,13 +296,26 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/field:store",
+      "kind": "typed_as",
+      "position": [
+        449,
+        454
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore",
       "kind": "uses_type",
       "position": [
-        232,
-        247
+        276,
+        291
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:context/struct:Context"
@@ -248,8 +327,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore",
       "kind": "uses_type",
       "position": [
-        260,
-        264
+        304,
+        308
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:http_handlers/struct:User"
@@ -261,8 +340,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler",
       "kind": "uses_type",
       "position": [
-        332,
-        341
+        455,
+        464
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
@@ -274,8 +353,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/func:NewUserHandler(store:UserStore)",
       "kind": "uses_type",
       "position": [
-        371,
-        380
+        494,
+        503
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore"
@@ -287,8 +366,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/func:NewUserHandler(store:UserStore)",
       "kind": "uses_type",
       "position": [
-        383,
-        394
+        506,
+        517
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler"
@@ -300,8 +379,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/func:NewUserHandler(store:UserStore)",
       "kind": "instantiates",
       "position": [
-        406,
-        431
+        529,
+        554
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler"
@@ -313,8 +392,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "kind": "uses_type",
       "position": [
-        502,
-        521
+        625,
+        644
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:net/path:http/struct:ResponseWriter"
@@ -326,8 +405,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "kind": "uses_type",
       "position": [
-        526,
-        538
+        649,
+        661
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:net/path:http/struct:Request"
@@ -339,8 +418,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "kind": "calls",
       "position": [
-        602,
-        612
+        725,
+        735
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)"
@@ -352,8 +431,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "kind": "calls",
       "position": [
-        632,
-        678
+        755,
+        801
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:net/path:http/func:Error"
@@ -361,28 +440,28 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "resolved",
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "kind": "method_call",
       "position": [
-        705,
-        734
+        887,
+        916
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:http_handlers/method:Find"
+      "to": "code+moniker://app/lang:go/module:http_handlers/interface:UserStore/method:Find(ctx:context.Context,id:int64)"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "kind": "method_call",
       "position": [
-        718,
-        729
+        900,
+        911
       ],
       "receiver_hint": "r",
-      "to": "code+moniker://app/lang:go/module:http_handlers/method:Context"
+      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request/method:Context()"
     },
     {
       "alias": "",
@@ -391,8 +470,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "kind": "calls",
       "position": [
-        754,
-        799
+        936,
+        981
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:net/path:http/func:Error"
@@ -400,15 +479,15 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "kind": "method_call",
       "position": [
-        817,
-        848
+        999,
+        1030
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:go/module:http_handlers/method:Encode"
+      "to": "code+moniker://app/external_pkg:encoding/path:json/func:NewEncoder/method:Encode(_)"
     },
     {
       "alias": "",
@@ -417,8 +496,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/struct:UserHandler/method:ServeHTTP(w:http.ResponseWriter,r:*http.Request)",
       "kind": "calls",
       "position": [
-        817,
-        835
+        999,
+        1017
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:encoding/path:json/func:NewEncoder"
@@ -430,8 +509,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
       "kind": "uses_type",
       "position": [
-        887,
-        899
+        1069,
+        1081
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:net/path:http/struct:Request"
@@ -439,28 +518,28 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
       "kind": "method_call",
       "position": [
-        926,
-        949
+        1108,
+        1131
       ],
       "receiver_hint": "call",
-      "to": "code+moniker://app/lang:go/module:http_handlers/method:Get"
+      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request/path:URL/method:Query()/method:Get(_)"
     },
     {
       "alias": "",
       "binding": "local",
-      "confidence": "name_match",
+      "confidence": "external",
       "from": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
       "kind": "method_call",
       "position": [
-        926,
-        939
+        1108,
+        1121
       ],
       "receiver_hint": "member",
-      "to": "code+moniker://app/lang:go/module:http_handlers/method:Query"
+      "to": "code+moniker://app/external_pkg:net/path:http/struct:Request/path:URL/method:Query()"
     },
     {
       "alias": "",
@@ -469,8 +548,8 @@ input_file: crates/core/tests/fixtures/go/http_handlers.go
       "from": "code+moniker://app/lang:go/module:http_handlers/func:parseID(r:*http.Request)",
       "kind": "calls",
       "position": [
-        1001,
-        1030
+        1183,
+        1212
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:strconv/func:ParseInt"
