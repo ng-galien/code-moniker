@@ -228,19 +228,24 @@ pub fn list_registry_files() -> anyhow::Result<Vec<(PathBuf, DaemonRegistryEntry
 pub fn pid_is_alive(pid: u32) -> bool {
 	#[cfg(unix)]
 	{
-		std::process::Command::new("kill")
-			.args(["-0", &pid.to_string()])
-			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::null())
-			.status()
-			.map(|status| status.success())
-			.unwrap_or(true)
+		// SAFETY: signal 0 never delivers a signal; it only asks the kernel
+		// whether the PID exists and whether this process may signal it.
+		let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+		let errno = (result != 0)
+			.then(|| std::io::Error::last_os_error().raw_os_error())
+			.flatten();
+		kill_result_means_alive(result, errno)
 	}
 	#[cfg(not(unix))]
 	{
 		let _ = pid;
 		true
 	}
+}
+
+#[cfg(unix)]
+fn kill_result_means_alive(result: i32, errno: Option<i32>) -> bool {
+	result == 0 || errno != Some(libc::ESRCH)
 }
 
 pub fn list_registry_entries() -> anyhow::Result<Vec<DaemonRegistryEntry>> {
@@ -403,5 +408,13 @@ mod tests {
 		let read: DaemonRegistryEntry =
 			serde_json::from_str(&fs::read_to_string(path).expect("read entry")).expect("json");
 		assert_eq!(read, ready);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn permission_denied_pid_is_alive_but_missing_pid_is_dead() {
+		assert!(kill_result_means_alive(-1, Some(libc::EPERM)));
+		assert!(!kill_result_means_alive(-1, Some(libc::ESRCH)));
+		assert!(kill_result_means_alive(0, None));
 	}
 }

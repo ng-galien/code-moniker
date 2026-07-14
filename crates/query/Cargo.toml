@@ -11,6 +11,7 @@ description   = "Shared daemon query DSL and protocol DTOs for code-moniker."
 [dependencies]
 anyhow     = { workspace = true }
 jsonrpsee  = { workspace = true, optional = true }
+libc       = { workspace = true }
 schemars   = { workspace = true, optional = true }
 serde      = { workspace = true }
 serde_json = { workspace = true }

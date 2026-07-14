@@ -29,6 +29,7 @@ code-moniker-daemon-client = { path = "crates/daemon-client", version = "0.4.0" 
 serde     = { version = "1", features = ["derive"] }
 clap      = { version = "4", features = ["derive", "env"] }
 anyhow    = "1"
+libc      = "0.2"
 thiserror = "2"
 regex     = "1"
 ignore    = "0.4"
