@@ -58,10 +58,11 @@ use helpers::*;
 pub mod views;
 
 pub use code_moniker_query::{
-	DaemonRegistryEntry, canonical_workspace_config, canonical_workspace_root,
-	canonical_workspace_roots, config_from_roots, config_roots, daemon_workspace_config,
-	list_registry_entries, registry_dir, registry_path_for_config, registry_path_for_root,
-	registry_path_for_roots, remove_registry_entry_if_own, workspace_label, write_registry_entry,
+	DaemonRegistryEntry, DaemonRegistryState, canonical_workspace_config, canonical_workspace_root,
+	canonical_workspace_roots, claim_registry_entry, config_from_roots, config_roots,
+	daemon_workspace_config, list_registry_entries, registry_dir, registry_path_for_config,
+	registry_path_for_root, registry_path_for_roots, remove_registry_entry_if_own,
+	update_registry_entry_if_own, workspace_label, write_registry_entry,
 };
 
 pub fn serve_foreground<I, P>(roots: I) -> anyhow::Result<()>
@@ -110,7 +111,7 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 	let server = Server::builder().build("127.0.0.1:0").await?;
 	let addr = server.local_addr()?;
 	let entry = DaemonRegistryEntry {
-		workspace_root,
+		workspace_root: workspace_root.clone(),
 		workspace_roots,
 		project: registry_project,
 		cache_dir: registry_cache_dir,
@@ -118,31 +119,54 @@ async fn serve_async(config: DaemonWorkspaceConfig) -> anyhow::Result<()> {
 		endpoint: addr.to_string(),
 		token: generate_token()?,
 		pid: std::process::id(),
+		state: DaemonRegistryState::Indexing,
 	};
 	reject_conflicting_daemons(&config)?;
-	write_registry_entry(&config, &entry)?;
+	if !claim_registry_entry(&config, &entry)? {
+		let existing = code_moniker_query::read_registry_entry(&config)?;
+		if let Some(existing) = existing {
+			anyhow::bail!(
+				"a daemon already claims {} (pid {}, endpoint {}); wait for it or stop it before starting another",
+				existing.workspace_root,
+				existing.pid,
+				existing.endpoint
+			);
+		}
+		anyhow::bail!("a daemon registry claim appeared while starting {workspace_root}");
+	}
+	let handle = server.start(service.into_rpc());
 	println!(
-		"code-moniker daemon: serving {} endpoint={} pid={} live_refresh={}",
+		"code-moniker daemon: indexing {} endpoint={} pid={} live_refresh={}",
 		entry.workspace_root,
 		entry.endpoint,
 		entry.pid,
 		entry.live_refresh.as_deref().unwrap_or("on-demand")
 	);
 
-	let handle = server.start(service.into_rpc());
 	let preload_daemon = daemon.clone();
-	tokio::task::spawn_blocking(move || {
+	let status = tokio::task::spawn_blocking(move || -> anyhow::Result<WorkspaceStatus> {
 		let mut daemon = preload_daemon.lock().unwrap_or_else(|err| err.into_inner());
 		if daemon.registry.queries().snapshot().is_none() {
-			let _ = refresh_full(&mut daemon);
-			let _ = restart_live_watcher(&mut daemon);
-			let status = workspace_status_result(&daemon.roots, &daemon.registry);
-			println!(
-				"code-moniker daemon: index ready — files={} symbols={} references={}",
-				status.files, status.symbols, status.references
-			);
+			refresh_full(&mut daemon).map_err(|error| anyhow::anyhow!(error.to_string()))?;
+			restart_live_watcher(&mut daemon)
+				.map_err(|error| anyhow::anyhow!(error.to_string()))?;
 		}
-	});
+		Ok(workspace_status_result(&daemon.roots, &daemon.registry))
+	})
+	.await??;
+	let ready_entry = DaemonRegistryEntry {
+		state: DaemonRegistryState::Ready,
+		..entry.clone()
+	};
+	if !update_registry_entry_if_own(&config, &ready_entry)? {
+		let _ = handle.stop();
+		handle.stopped().await;
+		anyhow::bail!("daemon registry claim disappeared while indexing {workspace_root}");
+	}
+	println!(
+		"code-moniker daemon: index ready — files={} symbols={} references={}",
+		status.files, status.symbols, status.references
+	);
 	tokio::select! {
 		_ = shutdown.notified() => {}
 		_ = handle.clone().stopped() => {}

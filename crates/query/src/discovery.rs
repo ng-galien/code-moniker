@@ -1,5 +1,7 @@
 use std::fs;
+use std::fs::OpenOptions;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -17,6 +19,17 @@ pub struct DaemonRegistryEntry {
 	pub endpoint: String,
 	pub token: String,
 	pub pid: u32,
+	#[serde(default)]
+	pub state: DaemonRegistryState,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum DaemonRegistryState {
+	Indexing,
+	#[default]
+	Ready,
 }
 
 pub fn registry_dir() -> PathBuf {
@@ -123,10 +136,57 @@ pub fn write_registry_entry(
 	entry: &DaemonRegistryEntry,
 ) -> anyhow::Result<()> {
 	fs::create_dir_all(registry_dir())?;
-	fs::write(
-		registry_path_for_config(config)?,
-		serde_json::to_string_pretty(entry)?,
-	)?;
+	atomic_write_registry_entry(&registry_path_for_config(config)?, entry)?;
+	Ok(())
+}
+
+pub fn claim_registry_entry(
+	config: &DaemonWorkspaceConfig,
+	entry: &DaemonRegistryEntry,
+) -> anyhow::Result<bool> {
+	fs::create_dir_all(registry_dir())?;
+	let path = registry_path_for_config(config)?;
+	let text = serde_json::to_vec_pretty(entry)?;
+	match OpenOptions::new().write(true).create_new(true).open(path) {
+		Ok(mut file) => {
+			file.write_all(&text)?;
+			file.sync_all()?;
+			Ok(true)
+		}
+		Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+		Err(error) => Err(error.into()),
+	}
+}
+
+pub fn update_registry_entry_if_own(
+	config: &DaemonWorkspaceConfig,
+	entry: &DaemonRegistryEntry,
+) -> anyhow::Result<bool> {
+	let path = registry_path_for_config(config)?;
+	let current = fs::read_to_string(&path)
+		.ok()
+		.and_then(|text| serde_json::from_str::<DaemonRegistryEntry>(&text).ok());
+	let owned = current
+		.map(|current| current.token == entry.token && current.pid == entry.pid)
+		.unwrap_or(false);
+	if owned {
+		atomic_write_registry_entry(&path, entry)?;
+	}
+	Ok(owned)
+}
+
+fn atomic_write_registry_entry(path: &Path, entry: &DaemonRegistryEntry) -> anyhow::Result<()> {
+	let temp = path.with_extension(format!("{}.tmp", entry.token));
+	let text = serde_json::to_vec_pretty(entry)?;
+	{
+		let mut file = OpenOptions::new()
+			.write(true)
+			.create_new(true)
+			.open(&temp)?;
+		file.write_all(&text)?;
+		file.sync_all()?;
+	}
+	fs::rename(temp, path)?;
 	Ok(())
 }
 
@@ -170,6 +230,8 @@ pub fn pid_is_alive(pid: u32) -> bool {
 	{
 		std::process::Command::new("kill")
 			.args(["-0", &pid.to_string()])
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null())
 			.status()
 			.map(|status| status.success())
 			.unwrap_or(true)
@@ -182,19 +244,12 @@ pub fn pid_is_alive(pid: u32) -> bool {
 }
 
 pub fn list_registry_entries() -> anyhow::Result<Vec<DaemonRegistryEntry>> {
-	let dir = registry_dir();
-	if !dir.exists() {
-		return Ok(Vec::new());
-	}
 	let mut entries = Vec::new();
-	for entry in fs::read_dir(&dir)? {
-		let entry = entry?;
-		if entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
-			continue;
-		}
-		let text = fs::read_to_string(entry.path())?;
-		if let Ok(registry) = serde_json::from_str::<DaemonRegistryEntry>(&text) {
-			entries.push(registry);
+	for (path, entry) in list_registry_files()? {
+		if pid_is_alive(entry.pid) {
+			entries.push(entry);
+		} else {
+			remove_registry_entry_if_own(&path, &entry);
 		}
 	}
 	entries.sort_by(|a, b| a.workspace_root.cmp(&b.workspace_root));
@@ -277,6 +332,7 @@ mod tests {
 			endpoint: "127.0.0.1:1".to_string(),
 			token: token.to_string(),
 			pid,
+			state: DaemonRegistryState::Ready,
 		}
 	}
 
@@ -320,5 +376,32 @@ mod tests {
 		assert!(!path.exists(), "the owner removes its own entry");
 
 		remove_registry_entry_if_own(&path, &new);
+	}
+
+	#[test]
+	fn legacy_registry_entries_default_to_ready() {
+		let mut value = serde_json::to_value(entry("legacy", 111)).expect("json");
+		value.as_object_mut().expect("object").remove("state");
+		let decoded: DaemonRegistryEntry = serde_json::from_value(value).expect("legacy entry");
+		assert_eq!(decoded.state, DaemonRegistryState::Ready);
+	}
+
+	#[test]
+	fn atomic_registry_update_replaces_a_complete_entry() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let path = dir.path().join("workspace.json");
+		let indexing = DaemonRegistryEntry {
+			state: DaemonRegistryState::Indexing,
+			..entry("same-daemon", 111)
+		};
+		atomic_write_registry_entry(&path, &indexing).expect("write indexing entry");
+		let ready = DaemonRegistryEntry {
+			state: DaemonRegistryState::Ready,
+			..indexing.clone()
+		};
+		atomic_write_registry_entry(&path, &ready).expect("write ready entry");
+		let read: DaemonRegistryEntry =
+			serde_json::from_str(&fs::read_to_string(path).expect("read entry")).expect("json");
+		assert_eq!(read, ready);
 	}
 }

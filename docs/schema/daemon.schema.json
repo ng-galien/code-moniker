@@ -733,6 +733,14 @@
             "null"
           ]
         },
+        "state": {
+          "default": "ready",
+          "allOf": [
+            {
+              "$ref": "#/definitions/DaemonRegistryState"
+            }
+          ]
+        },
         "token": {
           "type": "string"
         },
@@ -746,6 +754,13 @@
           }
         }
       }
+    },
+    "DaemonRegistryState": {
+      "type": "string",
+      "enum": [
+        "indexing",
+        "ready"
+      ]
     },
     "DaemonWorkspaceConfig": {
       "type": "object",

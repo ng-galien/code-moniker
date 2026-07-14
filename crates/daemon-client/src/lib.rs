@@ -15,13 +15,13 @@ use code_moniker_query::{
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use tokio::runtime::Runtime;
 
-use code_moniker_query::{list_registry_files, pid_is_alive};
+use code_moniker_query::{DaemonRegistryState, list_registry_files, pid_is_alive};
 
 pub use code_moniker_query::{
 	DaemonRegistryEntry, canonical_workspace_config, canonical_workspace_root,
 	canonical_workspace_roots, config_from_roots, config_roots, daemon_workspace_config,
 	list_registry_entries, read_registry_entry, registry_dir, registry_path_for_config,
-	registry_path_for_root, registry_path_for_roots, workspace_label,
+	registry_path_for_root, registry_path_for_roots, remove_registry_entry_if_own, workspace_label,
 };
 
 #[derive(Clone)]
@@ -65,12 +65,9 @@ impl DaemonClient {
 
 	pub fn connect_or_start_config(config: DaemonWorkspaceConfig) -> anyhow::Result<Self> {
 		let config = canonical_workspace_config(config)?;
-		if let Some(entry) = read_registry_entry(&config)?
-			&& let Ok(client) = connect_entry(config.clone(), entry)
-		{
-			return Ok(client);
+		if registry_entry_for(&config)?.is_some() {
+			return wait_for_daemon(config);
 		}
-		let _ = cleanup_stale_config(&config);
 		start_daemon_process(&config)?;
 		wait_for_daemon(config)
 	}
@@ -188,9 +185,17 @@ fn registry_entry_for(
 	config: &DaemonWorkspaceConfig,
 ) -> anyhow::Result<Option<DaemonRegistryEntry>> {
 	if let Some(entry) = read_registry_entry(config)? {
-		return Ok(Some(entry));
+		if pid_is_alive(entry.pid) {
+			return Ok(Some(entry));
+		}
+		let path = registry_path_for_config(config)?;
+		remove_registry_entry_if_own(&path, &entry);
 	}
-	for (_, entry) in list_registry_files()? {
+	for (path, entry) in list_registry_files()? {
+		if !pid_is_alive(entry.pid) {
+			remove_registry_entry_if_own(&path, &entry);
+			continue;
+		}
 		let serves_all_roots = config
 			.roots
 			.iter()
@@ -226,6 +231,7 @@ fn wait_for_deregistration(config: &DaemonWorkspaceConfig) {
 fn wait_for_daemon(config: DaemonWorkspaceConfig) -> anyhow::Result<DaemonClient> {
 	for _ in 0..50 {
 		if let Some(entry) = registry_entry_for(&config)?
+			&& entry.state == DaemonRegistryState::Ready
 			&& let Ok(client) = connect_entry(config.clone(), entry)
 		{
 			return Ok(client);
@@ -244,8 +250,10 @@ pub fn cleanup_stale_entry(roots: Vec<PathBuf>) -> anyhow::Result<()> {
 
 pub fn cleanup_stale_config(config: &DaemonWorkspaceConfig) -> anyhow::Result<()> {
 	let path = registry_path_for_config(config)?;
-	if path.exists() {
-		let _ = std::fs::remove_file(path);
+	if let Some(entry) = read_registry_entry(config)?
+		&& !pid_is_alive(entry.pid)
+	{
+		remove_registry_entry_if_own(&path, &entry);
 	}
 	Ok(())
 }

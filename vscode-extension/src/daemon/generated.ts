@@ -232,6 +232,7 @@ export type NoteResolutionDto =
   | {
       status: "orphan";
     };
+export type DaemonRegistryState = "indexing" | "ready";
 
 /**
  * Umbrella over every root RPC type, used only to emit a single JSON Schema document (`export-schema`) whose definitions cover the whole wire contract.
@@ -747,6 +748,7 @@ export interface DaemonRegistryEntry {
   live_refresh?: string | null;
   pid: number;
   project?: string | null;
+  state?: DaemonRegistryState & string;
   token: string;
   workspace_root: string;
   workspace_roots: string[];

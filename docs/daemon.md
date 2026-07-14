@@ -27,8 +27,10 @@ code-moniker daemon list
 code-moniker query [-r root] "<DSL>" [--json]
 ```
 
-`daemon start` runs in the foreground; clients auto-spawn a background daemon via
-`connect_or_start`. `query` field syntax is positional for the URI, e.g.
+`daemon start` runs in the foreground and does not report `index ready` until
+the workspace is registered and available for queries. Clients auto-spawn a
+background daemon via `connect_or_start`; concurrent clients share its atomic
+registry claim rather than creating competing processes. `query` field syntax is positional for the URI, e.g.
 `code-moniker query "view.read workspace/views"`.
 
 ## Transport: JSON-RPC over loopback WebSocket
@@ -77,10 +79,16 @@ reason). This feeds the scoped exploration canvas of the IDE Graph Explorer.
 ## Discovery
 
 A registry directory under `$TMPDIR/code-moniker-daemons/` holds one `<hash>.json`
-per workspace config (hash of roots/project/cache/live-refresh). Each entry
-records `endpoint` (`127.0.0.1:port`), `token`, `pid`, and the roots. Clients read
-the entry for their config hash and connect to the endpoint. On exit the daemon
-removes its registry file.
+per workspace identity (roots/project/cache; refresh policy does not create a
+second daemon). Each entry records `endpoint` (`127.0.0.1:port`), `token`, `pid`,
+roots, and a state: `indexing` or `ready`. Entries are written atomically; on
+exit the daemon removes only its own entry.
+
+`daemon status` distinguishes a daemon that is `indexing`, a `ready` daemon, a
+live PID with an unreachable endpoint (`stale registry`), and a dead PID (whose
+registry entry is removed). `daemon list` also purges dead-PID entries. A status
+for a workspace reports any concurrent daemon rooted at an ancestor or child
+directory, such as `/trust` and `/trust/apps/trust`.
 
 ## Live refresh
 
