@@ -10,13 +10,35 @@ checks on the opened workspace, inspect extracted symbols, and open executable
 ## Requirements
 
 - VS Code `1.120.0` or newer.
-- Rust and Cargo, to build the local `code-moniker` CLI.
-- Node.js and npm, to build and package the extension.
-- The VS Code `code` command on `PATH`, for command-line installation.
 
-The extension runs the `code-moniker` binary. It first tries the
-`codeMoniker.binaryPath` setting, then `code-moniker` on `PATH`, then
+The beta extension runs the `code-moniker` binary. A platform-specific VSIX
+embeds the matching CLI, so Rust, Cargo, Node.js, and npm are not end-user
+requirements. An explicit `codeMoniker.binaryPath` overrides that bundled CLI;
+source builds otherwise fall back to `code-moniker` on `PATH` and
 `~/.cargo/bin/code-moniker`.
+
+## Install a Beta VSIX
+
+Download the VSIX matching the machine from the GitHub release assets:
+
+- `darwin-arm64` or `darwin-x64` for macOS;
+- `linux-x64` for Linux;
+- `win32-x64` for Windows.
+
+Each release also ships `SHA256SUMS` and GitHub build attestations. Verify a
+download before installing it (use `shasum -a 256 -c SHA256SUMS` on macOS, or
+`Get-FileHash` in PowerShell on Windows):
+
+```sh
+sha256sum -c SHA256SUMS
+gh attestation verify code-moniker-<extension-version>-<platform>.vsix \
+  --repo ng-galien/code-moniker
+code --install-extension code-moniker-<extension-version>-<platform>.vsix
+```
+
+The platform VSIX is beta: it provides the current daemon-backed workflows,
+while extractor maturity remains language-specific as documented in the root
+README.
 
 ## Install From Sources
 
@@ -65,7 +87,8 @@ To use the bundled file icons for rule files, select
 
 ## Configure The CLI Path
 
-If VS Code cannot find the binary, set the extension setting:
+To override the embedded binary with a development or troubleshooting build,
+set the extension setting:
 
 ```json
 {
@@ -73,7 +96,7 @@ If VS Code cannot find the binary, set the extension setting:
 }
 ```
 
-For a checkout install, the default Cargo location is usually:
+For a checkout install, the Cargo location is usually:
 
 ```json
 {

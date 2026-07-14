@@ -222,15 +222,16 @@ Drop `--features tui,mcp` for a lighter core build — `extract`, `check`,
 cargo install code-moniker
 ```
 
-## VS Code extension
+## VS Code extension (beta)
 
-The repository also ships a VS Code extension for day-to-day rule work:
+The repository also ships a beta VS Code extension for day-to-day rule work:
 workspace rule files, daemon-backed symbols, check diagnostics, and bundled
 `.cm.md` learning scenarios are available from the **Code Moniker** activity
-bar.
+bar. The extension evolves independently from the CLI; use the platform-specific
+VSIX that embeds a compatible `code-moniker` binary.
 
-Install it from this checkout by building the CLI, packaging the extension, and
-installing the generated `.vsix`:
+For source development, build the CLI, package the extension, and install the
+generated `.vsix`:
 
 ```sh
 cargo install --path crates/cli --features tui,mcp

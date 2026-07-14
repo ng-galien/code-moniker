@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -11,25 +12,35 @@ export type CliOutcome =
 	| { kind: "missing"; tried: string }
 	| { kind: "spawnError"; message: string };
 
-function configuredBinary(): string {
-	return (
-		vscode.workspace
-			.getConfiguration("codeMoniker")
-			.get<string>("binaryPath")
-			?.trim() || "code-moniker"
-	);
+function configuredBinary(): string | undefined {
+	const setting = vscode.workspace.getConfiguration("codeMoniker");
+	const inspected = setting.inspect<string>("binaryPath");
+	const explicit =
+		inspected?.workspaceFolderValue ?? inspected?.workspaceValue ?? inspected?.globalValue;
+	return typeof explicit === "string" && explicit.trim() ? explicit.trim() : undefined;
 }
 
 function cargoFallback(): string {
 	return path.join(os.homedir(), ".cargo", "bin", "code-moniker");
 }
 
-// Ordered binary candidates: the configured/PATH binary first, then the cargo
-// install fallback. Shared by the CLI runner and the detached daemon launcher.
+function bundledBinary(): string | undefined {
+	const executable = process.platform === "win32" ? "code-moniker.exe" : "code-moniker";
+	const binary = path.join(__dirname, "..", "bin", executable);
+	return existsSync(binary) ? binary : undefined;
+}
+
+// An explicit path is an override. Otherwise, a platform-specific VSIX uses
+// its bundled CLI before falling back to development installations on PATH or
+// in Cargo's default bin directory.
 export function binaryCandidates(): string[] {
-	const primary = configuredBinary();
-	const fallback = cargoFallback();
-	return primary === fallback ? [primary] : [primary, fallback];
+	const configured = configuredBinary();
+	if (configured) {
+		return [configured];
+	}
+	return [bundledBinary(), "code-moniker", cargoFallback()].filter(
+		(candidate): candidate is string => candidate !== undefined,
+	);
 }
 
 export function launchDetached(args: string[]): void {
@@ -38,22 +49,22 @@ export function launchDetached(args: string[]): void {
 
 export function missingBinaryMessage(tried: string): string {
 	return (
-		`Could not find the code-moniker binary (\`${tried}\`). ` +
-		"Install it with `cargo install --path crates/cli` or set `codeMoniker.binaryPath`."
+		`Could not find the code-moniker binary (tried: \`${tried}\`). ` +
+		"Install a platform-specific Code Moniker VSIX, install `code-moniker` with Cargo, or set `codeMoniker.binaryPath`."
 	);
 }
 
-// Runs the CLI, retrying the cargo path if `code-moniker` is not on PATH.
+// Runs the CLI through the ordered candidates. Every CLI surface and detached
+// daemon launch shares the same resolver.
 export async function runCli(args: string[], input?: string): Promise<CliOutcome> {
-	const primary = configuredBinary();
-	let result = await spawnOnce(primary, args, input);
-	if (result.kind === "missing" && primary === "code-moniker") {
-		result = await spawnOnce(cargoFallback(), args, input);
-		if (result.kind === "missing") {
-			return { kind: "missing", tried: primary };
+	const candidates = binaryCandidates();
+	for (const binary of candidates) {
+		const result = await spawnOnce(binary, args, input);
+		if (result.kind !== "missing") {
+			return result;
 		}
 	}
-	return result;
+	return { kind: "missing", tried: candidates.join(", ") };
 }
 
 function spawnOnce(binary: string, args: string[], input?: string): Promise<CliOutcome> {

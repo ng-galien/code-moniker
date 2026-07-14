@@ -5,7 +5,12 @@ export type CheckResult =
 	| { ok: true; report: CheckReport }
 	| { ok: false; error: string };
 
-export function launchWorkspaceDaemon(root: string): void {
+export async function launchWorkspaceDaemon(root: string): Promise<void> {
+	const probe = await runCli(["--version"]);
+	const error = cliError(probe);
+	if (error) {
+		throw new Error(error);
+	}
 	launchDetached(["daemon", "start", root]);
 }
 

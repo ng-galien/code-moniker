@@ -1,7 +1,7 @@
 {
 	"name": "code-moniker",
 	"displayName": "Code Moniker",
-	"description": "Browse, validate, and run code-moniker check rules and executable samples.",
+	"description": "Beta VS Code workbench for the Code Moniker CLI: rules, symbol navigation, checks, and executable samples.",
 	"version": "0.1.0",
 	"publisher": "code-moniker",
 	"license": "MIT",
@@ -442,7 +442,7 @@
 				"codeMoniker.binaryPath": {
 					"type": "string",
 					"default": "code-moniker",
-					"description": "Path to the code-moniker CLI binary. Defaults to `code-moniker` on PATH, with a fallback to ~/.cargo/bin/code-moniker."
+					"description": "Optional override for the code-moniker CLI binary. Packaged platform-specific VSIX files use their bundled binary by default."
 				},
 				"codeMoniker.daemon.autoConnect": {
 					"type": "boolean",

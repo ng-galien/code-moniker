@@ -109,6 +109,16 @@ const explorerWebviewConfig = reactWebviewConfig(
 	"media/explorer/explorer.js",
 );
 
+// ELK's generated bundle currently ends one minified line with whitespace.
+// Normalize it after every build so tracked webview assets pass git diff --check.
+function normalizeTrailingWhitespace(output) {
+	const source = fs.readFileSync(output, "utf8");
+	const normalized = source.replace(/[ \t]+$/gm, "");
+	if (normalized !== source) {
+		fs.writeFileSync(output, normalized);
+	}
+}
+
 async function main() {
 	if (watch) {
 		const a = await esbuild.context(extensionConfig);
@@ -124,6 +134,7 @@ async function main() {
 			esbuild.build(detailWebviewConfig),
 			esbuild.build(explorerWebviewConfig),
 		]);
+		normalizeTrailingWhitespace(explorerWebviewConfig.outfile);
 		console.log("esbuild build complete");
 	}
 }

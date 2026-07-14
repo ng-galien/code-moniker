@@ -60,6 +60,51 @@ jobs:
       - name: Generated types match the schema
         run: git diff --exit-code vscode-extension/src/daemon/generated.ts
 
+  vscode-extension:
+    name: VS Code extension tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2.9.1
+        with:
+          shared-key: vscode-extension
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install extension dependencies
+        run: npm ci
+        working-directory: vscode-extension
+
+      - name: Test and compile the extension
+        run: |
+          npm test
+          npm run compile
+        working-directory: vscode-extension
+
+      - name: Run extension integration tests with the bundled CLI
+        run: xvfb-run -a npm run test:integration
+        working-directory: vscode-extension
+
+      - name: Package and inspect an autonomous Linux VSIX
+        run: |
+          cargo build --release -p code-moniker --bin code-moniker
+          mkdir -p vscode-extension/bin
+          cp target/release/code-moniker vscode-extension/bin/code-moniker
+          chmod +x vscode-extension/bin/code-moniker
+          cd vscode-extension
+          npm run package -- --target linux-x64 --out /tmp/code-moniker-linux-x64.vsix
+          unzip -Z1 /tmp/code-moniker-linux-x64.vsix | grep -Fx extension/bin/code-moniker
+
   bench-smoke:
     name: criterion benches compile and run once
     runs-on: ubuntu-latest

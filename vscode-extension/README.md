@@ -1,8 +1,10 @@
-# Code Moniker VSCode Extension
+# Code Moniker VSCode Extension (Beta)
 
-A VSCode workbench for [code-moniker](../README.md) check rules: browse rule
-files, validate them, run them on a workspace, and open executable learning and
-sample scenarios from the repository's Markdown scenario corpus.
+A beta VSCode workbench for [code-moniker](../README.md) check rules: browse
+rule files, validate them, run them on a workspace, and open executable
+learning and sample scenarios from the repository's Markdown scenario corpus.
+It is an extension surface for the CLI, not a claim that every supported source
+language has the same extractor maturity.
 
 For source installation, user settings, and packaged `.vsix` instructions, see
 the dedicated [VS Code extension guide](../docs/vscode-extension.md).
@@ -92,8 +94,9 @@ For the DSL reference see [`docs/cli/check-dsl.md`](../docs/cli/check-dsl.md).
 
 ## Settings
 
-- `codeMoniker.binaryPath` — path to the `code-moniker` binary
-  (default `code-moniker`, falling back to `~/.cargo/bin/code-moniker`).
+- `codeMoniker.binaryPath` — explicit path to a `code-moniker` binary. This
+  overrides the bundled binary in a platform-specific VSIX and is intended for
+  development or troubleshooting.
 - `codeMoniker.daemon.autoConnect` — connect to or start the workspace daemon
   when a folder opens.
 

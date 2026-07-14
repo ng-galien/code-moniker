@@ -157,7 +157,7 @@ export class DaemonSession implements vscode.Disposable {
 		try {
 			let entry = findDaemonForRoots(this.roots);
 			if (!entry) {
-				launchWorkspaceDaemon(this.roots[0]);
+				await launchWorkspaceDaemon(this.roots[0]);
 				entry = await waitForEntry(this.roots);
 			}
 			if (!entry) {
@@ -171,7 +171,7 @@ export class DaemonSession implements vscode.Disposable {
 					throw error;
 				}
 				forgetDaemonsForRoots(this.roots);
-				launchWorkspaceDaemon(this.roots[0]);
+				await launchWorkspaceDaemon(this.roots[0]);
 				entry = await waitForEntry(this.roots);
 				if (!entry) {
 					throw daemonRegistrationError("restarting after a stale registry entry");
