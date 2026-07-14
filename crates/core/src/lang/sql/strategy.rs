@@ -361,18 +361,15 @@ fn collect_qualified_parts<'src>(node: Node<'src>, src: &'src [u8], out: &mut Ve
 	let mut cur = node.walk();
 	for c in node.named_children(&mut cur) {
 		match c.kind() {
-			"ColId" | "ColLabel" | "type_function_name" => {
-				if let Some(id) = find_descendant(c, "identifier") {
+			"ColId" | "ColLabel" | "type_function_name" | "attr_name" => {
+				if let Some(id) = find_descendant(c, "identifier")
+					.or_else(|| find_descendant(c, "quoted_identifier"))
+				{
 					out.push(node_slice(id, src));
 				}
 			}
 			"indirection" | "indirection_el" => collect_qualified_parts(c, src, out),
-			"attr_name" => {
-				if let Some(id) = find_descendant(c, "identifier") {
-					out.push(node_slice(id, src));
-				}
-			}
-			"identifier" => out.push(node_slice(c, src)),
+			"identifier" | "quoted_identifier" => out.push(node_slice(c, src)),
 			_ => collect_qualified_parts(c, src, out),
 		}
 	}

@@ -20,6 +20,11 @@ CREATE TABLE app.users (
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Quoted names remain distinct SQL identifiers and must stay in the graph.
+CREATE TABLE app."UserAccounts" (
+    id text PRIMARY KEY
+);
+
 -- M:N tags. CASCADE on delete so removing a user wipes the join rows.
 CREATE TABLE app.user_tags (
     user_id  text NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,

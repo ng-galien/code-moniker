@@ -6,6 +6,11 @@ moniker = "code+moniker://app/lang:sql/module:users/schema:app/table:users"
 binding = "local"
 
 [[defs]]
+kind = "table"
+moniker = "code+moniker://app/lang:sql/module:users/schema:app/table:\"UserAccounts\""
+binding = "local"
+
+[[defs]]
 kind = "function"
 moniker = "code+moniker://app/lang:sql/module:users/schema:app/function:create_user(p_email:text,p_name:text)"
 signature = "p_email:text,p_name:text"
