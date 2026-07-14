@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to resume
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,14 +17,17 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   publish:
-    name: cargo publish on tag
+    name: publish crates on tag
     runs-on: ubuntu-latest
     environment: release
     steps:
       - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -30,7 +39,7 @@ jobs:
 
       - name: Verify tag matches crates.io package versions
         run: |
-          tag="${GITHUB_REF#refs/tags/v}"
+          tag="${RELEASE_TAG#v}"
           versions=$(cargo metadata --no-deps --format-version 1 \
                     | jq -r '.packages[]
                       | select(.name == "code-moniker-core" or .name == "code-moniker")
@@ -51,21 +60,31 @@ jobs:
         id: auth
         uses: rust-lang/crates-io-auth-action@v1.0.4
 
-      - name: Publish code-moniker-core
-        run: cargo publish -p code-moniker-core
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-
-      - name: Publish code-moniker
+      - name: Publish crates in dependency order
         run: |
-          for attempt in 1 2 3 4 5; do
-            if cargo publish -p code-moniker; then
-              exit 0
+          version="${RELEASE_TAG#v}"
+          publish_crate() {
+            crate="$1"
+            if curl --fail --silent --show-error "https://crates.io/api/v1/crates/${crate}/${version}" >/dev/null; then
+              echo "${crate} ${version} is already published"
+              return 0
             fi
-            echo "code-moniker publish failed on attempt ${attempt}; waiting for crates.io index propagation"
-            sleep 30
-          done
-          exit 1
+            for attempt in 1 2 3 4 5; do
+              if cargo publish -p "$crate"; then
+                return 0
+              fi
+              echo "${crate} publish failed on attempt ${attempt}; waiting for crates.io index propagation"
+              sleep 30
+            done
+            return 1
+          }
+          publish_crate code-moniker-core
+          publish_crate code-moniker-query
+          publish_crate code-moniker-workspace
+          publish_crate code-moniker-daemon-client
+          publish_crate code-moniker-check
+          publish_crate code-moniker-daemon
+          publish_crate code-moniker
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
@@ -94,6 +113,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -111,7 +132,7 @@ jobs:
 
       - name: Archive the standalone CLI and write checksums
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${RELEASE_TAG#v}"
           tar -C "release/${{ matrix.platform }}" -czf "release/code-moniker-${tag}-${{ matrix.platform }}.tar.gz" "${{ matrix.binary }}"
           (
             cd release
@@ -158,8 +179,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" *.tar.gz SHA256SUMS --clobber
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" *.tar.gz SHA256SUMS --clobber
           else
-            gh release create "$GITHUB_REF_NAME" *.tar.gz SHA256SUMS --title "Code Moniker $GITHUB_REF_NAME" --generate-notes
+            gh release create "$RELEASE_TAG" *.tar.gz SHA256SUMS --title "Code Moniker $RELEASE_TAG" --generate-notes
           fi
