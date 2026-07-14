@@ -65,7 +65,9 @@ jobs:
           version="${RELEASE_TAG#v}"
           publish_crate() {
             crate="$1"
-            if curl --fail --silent --show-error "https://crates.io/api/v1/crates/${crate}/${version}" >/dev/null; then
+            if curl --user-agent "code-moniker-release-workflow/${version}" \
+              --fail --silent --show-error \
+              "https://crates.io/api/v1/crates/${crate}/${version}" >/dev/null; then
               echo "${crate} ${version} is already published"
               return 0
             fi
