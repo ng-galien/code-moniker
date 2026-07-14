@@ -24,14 +24,11 @@ jobs:
             runner: macos-14
             binary: code-moniker
           - platform: darwin-x64
-            runner: macos-13
+            runner: macos-15-intel
             binary: code-moniker
           - platform: linux-x64
             runner: ubuntu-latest
             binary: code-moniker
-          - platform: win32-x64
-            runner: windows-latest
-            binary: code-moniker.exe
     defaults:
       run:
         shell: bash
@@ -65,9 +62,7 @@ jobs:
         run: |
           mkdir -p vscode-extension/bin release
           cp target/release/${{ matrix.binary }} vscode-extension/bin/${{ matrix.binary }}
-          if [ "${{ matrix.platform }}" != "win32-x64" ]; then
-            chmod +x vscode-extension/bin/${{ matrix.binary }}
-          fi
+          chmod +x vscode-extension/bin/${{ matrix.binary }}
 
       - name: Package the platform-specific VSIX
         working-directory: vscode-extension

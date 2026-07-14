@@ -102,14 +102,11 @@ jobs:
             runner: macos-14
             binary: code-moniker
           - platform: darwin-x64
-            runner: macos-13
+            runner: macos-15-intel
             binary: code-moniker
           - platform: linux-x64
             runner: ubuntu-latest
             binary: code-moniker
-          - platform: win32-x64
-            runner: windows-latest
-            binary: code-moniker.exe
     defaults:
       run:
         shell: bash
@@ -128,9 +125,7 @@ jobs:
         run: |
           mkdir -p release/${{ matrix.platform }}
           cp target/release/${{ matrix.binary }} release/${{ matrix.platform }}/${{ matrix.binary }}
-          if [ "${{ matrix.platform }}" != "win32-x64" ]; then
-            chmod +x release/${{ matrix.platform }}/${{ matrix.binary }}
-          fi
+          chmod +x release/${{ matrix.platform }}/${{ matrix.binary }}
 
       - name: Archive the standalone CLI and write checksums
         run: |

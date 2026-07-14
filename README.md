@@ -190,6 +190,9 @@ project scans, file paths are anchored relative to the scanned root:
 
 ## Install
 
+Code Moniker 0.4 supports macOS and Linux. Its workspace daemon is currently
+Unix-only, so Windows packages are not published yet.
+
 Install the full CLI with the optional interactive surfaces (terminal UI +
 MCP server):
 
@@ -230,7 +233,8 @@ workspace rule files, daemon-backed symbols, check diagnostics, and bundled
 bar. The extension evolves independently from the CLI; use the platform-specific
 VSIX that embeds a compatible `code-moniker` binary. Its beta releases use
 separate `extension-v<version>` GitHub tags; the CLI `v<version>` releases only
-contain the standalone binary archives.
+contain the standalone binary archives. The current beta is available for
+macOS and Linux; Windows support depends on porting the workspace daemon.
 
 For source development, build the CLI, package the extension, and install the
 generated `.vsix`:

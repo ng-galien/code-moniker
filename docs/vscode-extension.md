@@ -10,6 +10,7 @@ checks on the opened workspace, inspect extracted symbols, and open executable
 ## Requirements
 
 - VS Code `1.120.0` or newer.
+- macOS or Linux. The daemon-backed extension is not yet available on Windows.
 
 The beta extension runs the `code-moniker` binary. A platform-specific VSIX
 embeds the matching CLI, so Rust, Cargo, Node.js, and npm are not end-user
@@ -23,14 +24,15 @@ Download the VSIX matching the machine from the GitHub prerelease tagged
 `extension-v<extension-version>` (not from a CLI `v<version>` release):
 
 - `darwin-arm64` or `darwin-x64` for macOS;
-- `linux-x64` for Linux;
-- `win32-x64` for Windows.
+- `linux-x64` for Linux.
 
 Each release also ships `SHA256SUMS` and GitHub build attestations. Verify a
-download before installing it (use `shasum -a 256 -c SHA256SUMS` on macOS, or
-`Get-FileHash` in PowerShell on Windows):
+download before installing it (use `shasum -a 256 -c SHA256SUMS` on macOS):
 
 ```sh
+# macOS
+shasum -a 256 -c SHA256SUMS
+# Linux
 sha256sum -c SHA256SUMS
 gh attestation verify code-moniker-<extension-version>-<platform>.vsix \
   --repo ng-galien/code-moniker
