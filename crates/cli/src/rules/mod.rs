@@ -148,16 +148,16 @@ fn write_eval_text<W: Write>(w: &mut W, report: &EvalReport) -> std::io::Result<
 }
 
 const LEARN_TOPIC_DOCUMENTS: &[&str] = &[
-	include_str!("../../../../samples/learn/basics.cm.md"),
-	include_str!("../../../../samples/learn/paths.cm.md"),
-	include_str!("../../../../samples/learn/refs.cm.md"),
-	include_str!("../../../../samples/learn/collections.cm.md"),
-	include_str!("../../../../samples/learn/domains.cm.md"),
-	include_str!("../../../../samples/learn/metrics.cm.md"),
-	include_str!("../../../../samples/learn/aggregates.cm.md"),
-	include_str!("../../../../samples/learn/relations.cm.md"),
-	include_str!("../../../../samples/learn/directives.cm.md"),
-	include_str!("../../../../samples/learn/profiles.cm.md"),
+	include_str!("../../assets/learn/basics.cm.md"),
+	include_str!("../../assets/learn/paths.cm.md"),
+	include_str!("../../assets/learn/refs.cm.md"),
+	include_str!("../../assets/learn/collections.cm.md"),
+	include_str!("../../assets/learn/domains.cm.md"),
+	include_str!("../../assets/learn/metrics.cm.md"),
+	include_str!("../../assets/learn/aggregates.cm.md"),
+	include_str!("../../assets/learn/relations.cm.md"),
+	include_str!("../../assets/learn/directives.cm.md"),
+	include_str!("../../assets/learn/profiles.cm.md"),
 ];
 
 #[derive(Serialize)]
@@ -829,22 +829,45 @@ mod tests {
 	fn rules_learn_embeds_every_learn_topic_document() {
 		let learn_dir =
 			std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/learn");
-		let mut on_disk: Vec<String> = std::fs::read_dir(learn_dir)
-			.expect("learn samples directory")
-			.filter_map(|entry| {
-				let path = entry.expect("learn sample entry").path();
-				let name = path.file_name()?.to_str()?;
-				name.strip_suffix(".cm.md").map(str::to_string)
-			})
-			.collect();
-		on_disk.sort();
+		let embedded_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/learn");
+		let topic_names_in = |dir: &std::path::Path| {
+			let mut names: Vec<String> = std::fs::read_dir(dir)
+				.expect("learn samples directory")
+				.filter_map(|entry| {
+					let path = entry.expect("learn sample entry").path();
+					let name = path.file_name()?.to_str()?;
+					name.strip_suffix(".cm.md").map(str::to_string)
+				})
+				.collect();
+			names.sort();
+			names
+		};
+		let packaged = topic_names_in(&embedded_dir);
 		let mut embedded = super::learn_topic_names();
 		embedded.sort();
 		assert_eq!(
 			embedded,
-			on_disk.iter().map(String::as_str).collect::<Vec<_>>(),
-			"`rules learn` must expose every samples/learn/*.cm.md document"
+			packaged.iter().map(String::as_str).collect::<Vec<_>>(),
+			"`rules learn` must expose every packaged learn document"
 		);
+		if learn_dir.is_dir() {
+			let source_topics = topic_names_in(&learn_dir);
+			assert_eq!(
+				packaged, source_topics,
+				"packaged learn topics drifted from the repository corpus"
+			);
+			for name in &packaged {
+				let file_name = format!("{name}.cm.md");
+				let source = std::fs::read_to_string(learn_dir.join(&file_name))
+					.expect("repository learn sample");
+				let embedded = std::fs::read_to_string(embedded_dir.join(&file_name))
+					.expect("packaged learn sample");
+				assert_eq!(
+					embedded, source,
+					"packaged learn sample {file_name} drifted from its repository source"
+				);
+			}
+		}
 		for topic in super::learn_topics() {
 			assert!(!topic.title.is_empty(), "{}: missing title", topic.name);
 			assert!(!topic.summary.is_empty(), "{}: missing summary", topic.name);

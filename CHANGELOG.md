@@ -4,8 +4,8 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The workspace crates share a single version; only `code-moniker-core`
-and `code-moniker` are published to crates.io by the release workflow.
+The runtime workspace crates share a single version and are published to
+crates.io in dependency order by the release workflow.
 Breaking changes are allowed in minor releases as long as the project is
 in `0.y.z`.
 
@@ -30,7 +30,7 @@ in `0.y.z`.
   specified as a rules-engine evolution in
   `evolutions/rules-on-change.md`.
 
-## [0.4.0] - 2026-07-09
+## [0.4.0] - 2026-07-14
 
 Indexing-core overhaul: the incremental refresh is now proportional to
 the change, file creations index without a rescan, and read-model
