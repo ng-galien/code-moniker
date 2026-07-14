@@ -19,7 +19,7 @@ detail you only need when acting on a specific surface.
 
 - Default profile `dev`: `debug = false`, `debug-assertions = false`, `overflow-checks = false`, `panic = "abort"`, `incremental = true`, `codegen-units = 256`.
 - Debug profile: `--profile dev-debug`. Release speed: `release-lto`.
-- Cargo jobs: `.cargo/config.toml` `jobs = 10`; macOS linker `/opt/homebrew/opt/lld/bin/ld64.lld`.
+- Cargo jobs: `.cargo/config.toml` `jobs = 10`; macOS uses the system linker so CI and local builds share a portable configuration.
 - Keep one Cargo command active; keep feature/profile/target flags stable per session; reuse warm command shapes; avoid broad gates in tight loops.
 
 ## Extract Anchoring
