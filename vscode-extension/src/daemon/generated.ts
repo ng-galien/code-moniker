@@ -108,6 +108,12 @@ export type Query =
       workspace?: string | null;
     }
   | {
+      limit: number;
+      op: "resolution_audit";
+      prefix: string;
+      workspace?: string | null;
+    }
+  | {
       action: NotesAction;
       body?: string | null;
       created_by?: string | null;
@@ -175,6 +181,10 @@ export type QueryResult =
   | {
       data: IdentityGraphResult;
       kind: "identity_graph";
+    }
+  | {
+      data: ResolutionAuditResult;
+      kind: "resolution_audit";
     }
   | {
       data: NotesResult;
@@ -683,6 +693,36 @@ export interface IdentityGraphPort {
   count: number;
   identity: string;
   kinds: string[];
+}
+export interface ResolutionAuditResult {
+  clusters: AuditClusterDto[];
+  prefix: string;
+  totals: AuditTotalsDto;
+  zones: AuditZoneDto[];
+}
+export interface AuditClusterDto {
+  count: number;
+  pattern: string;
+  samples: AuditSampleDto[];
+}
+export interface AuditSampleDto {
+  call_name: string;
+  receiver: string;
+  source: string;
+  target: string;
+}
+export interface AuditTotalsDto {
+  blocked: number;
+  external: number;
+  name_match_resolved: number;
+  references: number;
+  resolved: number;
+  unresolved: number;
+}
+export interface AuditZoneDto {
+  dominant_pattern: string;
+  unresolved: number;
+  zone: string;
 }
 export interface NotesResult {
   action: string;

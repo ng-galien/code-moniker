@@ -1660,14 +1660,14 @@ fn base_class_name(node: Node<'_>, source: &[u8]) -> Option<Vec<u8>> {
 	let name = match node.kind() {
 		"identifier" => node_slice(node, source).to_vec(),
 		"attribute" => last_attribute(node, source).as_bytes().to_vec(),
-		"subscript" => match node.child_by_field_name("value") {
-			Some(value) => match value.kind() {
+		"subscript" => {
+			let value = node.child_by_field_name("value")?;
+			match value.kind() {
 				"identifier" => node_slice(value, source).to_vec(),
 				"attribute" => last_attribute(value, source).as_bytes().to_vec(),
 				_ => return None,
-			},
-			None => return None,
-		},
+			}
+		}
 		"keyword_argument" => return None,
 		_ => return None,
 	};
