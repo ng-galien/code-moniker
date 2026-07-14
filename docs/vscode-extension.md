@@ -19,7 +19,8 @@ source builds otherwise fall back to `code-moniker` on `PATH` and
 
 ## Install a Beta VSIX
 
-Download the VSIX matching the machine from the GitHub release assets:
+Download the VSIX matching the machine from the GitHub prerelease tagged
+`extension-v<extension-version>` (not from a CLI `v<version>` release):
 
 - `darwin-arm64` or `darwin-x64` for macOS;
 - `linux-x64` for Linux;

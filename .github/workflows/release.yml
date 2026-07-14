@@ -69,8 +69,8 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
-  package-vsix:
-    name: package CLI and VS Code beta (${{ matrix.platform }})
+  package-cli:
+    name: package CLI (${{ matrix.platform }})
     needs: publish
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -98,35 +98,16 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Node.js
-        uses: actions/setup-node@v7.0.0
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: vscode-extension/package-lock.json
-
       - name: Build the release CLI
         run: cargo build --release -p code-moniker --bin code-moniker
 
-      - name: Stage the platform CLI in the VSIX
+      - name: Stage the platform CLI
         run: |
-          mkdir -p vscode-extension/bin release/${{ matrix.platform }}
-          cp target/release/${{ matrix.binary }} vscode-extension/bin/${{ matrix.binary }}
+          mkdir -p release/${{ matrix.platform }}
           cp target/release/${{ matrix.binary }} release/${{ matrix.platform }}/${{ matrix.binary }}
           if [ "${{ matrix.platform }}" != "win32-x64" ]; then
-            chmod +x vscode-extension/bin/${{ matrix.binary }} release/${{ matrix.platform }}/${{ matrix.binary }}
+            chmod +x release/${{ matrix.platform }}/${{ matrix.binary }}
           fi
-
-      - name: Package the platform-specific VSIX
-        working-directory: vscode-extension
-        run: |
-          npm ci
-          extension_version=$(node -p "require('./package.json').version")
-          npm run package -- --target "${{ matrix.platform }}" --out "../release/code-moniker-${extension_version}-${{ matrix.platform }}.vsix"
-
-      - name: Verify the VSIX contains its CLI
-        run: |
-          unzip -Z1 release/*.vsix | grep -Fx "extension/bin/${{ matrix.binary }}"
 
       - name: Archive the standalone CLI and write checksums
         run: |
@@ -135,9 +116,9 @@ jobs:
           (
             cd release
             if command -v sha256sum >/dev/null; then
-              sha256sum "code-moniker-${tag}-${{ matrix.platform }}.tar.gz" "code-moniker-"*"-${{ matrix.platform }}.vsix" > "${{ matrix.platform }}.sha256"
+              sha256sum "code-moniker-${tag}-${{ matrix.platform }}.tar.gz" > "${{ matrix.platform }}.sha256"
             else
-              shasum -a 256 "code-moniker-${tag}-${{ matrix.platform }}.tar.gz" "code-moniker-"*"-${{ matrix.platform }}.vsix" > "${{ matrix.platform }}.sha256"
+              shasum -a 256 "code-moniker-${tag}-${{ matrix.platform }}.tar.gz" > "${{ matrix.platform }}.sha256"
             fi
           )
 
@@ -145,11 +126,6 @@ jobs:
         uses: actions/attest@v4.1.1
         with:
           subject-path: release/*.tar.gz
-
-      - name: Attest the platform VSIX
-        uses: actions/attest@v4.1.1
-        with:
-          subject-path: release/*.vsix
 
       - name: Upload platform release assets
         uses: actions/upload-artifact@v7.0.1
@@ -160,8 +136,8 @@ jobs:
           retention-days: 5
 
   release-assets:
-    name: publish verified binaries and VSIX files
-    needs: package-vsix
+    name: publish verified CLI binaries
+    needs: package-cli
     runs-on: ubuntu-latest
     steps:
       - name: Download platform release assets
@@ -183,7 +159,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" *.tar.gz *.vsix SHA256SUMS --clobber
+            gh release upload "$GITHUB_REF_NAME" *.tar.gz SHA256SUMS --clobber
           else
-            gh release create "$GITHUB_REF_NAME" *.tar.gz *.vsix SHA256SUMS --title "Code Moniker $GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" *.tar.gz SHA256SUMS --title "Code Moniker $GITHUB_REF_NAME" --generate-notes
           fi

@@ -228,7 +228,9 @@ The repository also ships a beta VS Code extension for day-to-day rule work:
 workspace rule files, daemon-backed symbols, check diagnostics, and bundled
 `.cm.md` learning scenarios are available from the **Code Moniker** activity
 bar. The extension evolves independently from the CLI; use the platform-specific
-VSIX that embeds a compatible `code-moniker` binary.
+VSIX that embeds a compatible `code-moniker` binary. Its beta releases use
+separate `extension-v<version>` GitHub tags; the CLI `v<version>` releases only
+contain the standalone binary archives.
 
 For source development, build the CLI, package the extension, and install the
 generated `.vsix`:
