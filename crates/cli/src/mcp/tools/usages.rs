@@ -10,10 +10,13 @@ use code_moniker_workspace::snapshot::{
 };
 use serde_json::{Value, json};
 
-use super::common::{is_workspace_uri, line_range_suffix, sorted_count_rows, symbol_line_suffix};
+use super::common::{
+	apply_response_aliases, compact_argument, is_workspace_uri, line_range_suffix,
+	sorted_count_rows, symbol_line_suffix,
+};
 use super::scope::{
-	Paging, ScopeFilter, append_call_cursor_arg, append_call_number_arg, append_call_string_arg,
-	path_prefix,
+	Paging, ScopeFilter, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
+	append_call_string_arg, path_prefix,
 };
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
@@ -31,7 +34,8 @@ impl UsagesTool {
 		"  direction=incoming — consumers of the target symbol\n",
 		"  direction=outgoing — dependencies used by the target symbol\n",
 		"  direction=both     — both sections\n",
-		"Incoming usage diagnostics include file, context, prefix concentration, reference kinds, and a shared-helper signal."
+		"Incoming usage diagnostics include file, context, prefix concentration, reference kinds, and a shared-helper signal. ",
+		"Compact output uses response-local aliases and one-line usage facts by default."
 	);
 
 	fn input_schema() -> Value {
@@ -46,6 +50,11 @@ impl UsagesTool {
 					"type": "string",
 					"enum": ["incoming", "outgoing", "both"],
 					"description": "Usage direction to render."
+				},
+				"compact": {
+					"type": "boolean",
+					"default": true,
+					"description": "Use response-local moniker aliases, one-line facts, and minimal next calls. Defaults true; false preserves canonical verbose output."
 				},
 				"path": {
 					"oneOf": [
@@ -102,10 +111,12 @@ struct UsageRequest {
 	direction: UsageDirection,
 	scope: ScopeFilter,
 	paging: Paging,
+	compact: bool,
 }
 
 impl UsageRequest {
 	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		let compact = compact_argument(arguments)?;
 		Ok(Self {
 			uri: arguments
 				.get("uri")
@@ -114,7 +125,8 @@ impl UsageRequest {
 				.to_string(),
 			direction: UsageDirection::from_arguments(arguments)?,
 			scope: ScopeFilter::from_arguments(arguments)?,
-			paging: Paging::from_arguments(arguments)?,
+			paging: Paging::from_arguments_for_output(arguments, compact)?,
+			compact,
 		})
 	}
 }
@@ -253,7 +265,7 @@ fn render_daemon_usages_lmnav(
 		);
 		output.push('\n');
 	}
-	render_daemon_usage_rows(&mut output, &result.rows);
+	render_daemon_usage_rows(&mut output, &result.rows, request.compact);
 	output.push_str("\nnext:\n");
 	if let Some(next) = next_cursor {
 		append_daemon_usages_call(
@@ -264,41 +276,51 @@ fn render_daemon_usages_lmnav(
 				scope: &request.scope,
 				limit: request.paging.limit,
 				cursor: Some(next),
+				compact: request.compact,
 			},
 		);
 	}
 	output.push_str("  - code_moniker_read");
 	append_call_string_arg(&mut output, "uri", &result.target.uri);
 	append_call_number_arg(&mut output, "context_lines", 3);
+	if !request.compact {
+		append_call_bool_arg(&mut output, "compact", false);
+	}
 	output.push('\n');
-	append_daemon_usages_call(
-		&mut output,
-		DaemonUsageCall {
-			target_uri: &result.target.uri,
-			direction: UsageDirection::Incoming,
-			scope: &request.scope,
-			limit: 50,
-			cursor: None,
-		},
-	);
-	append_daemon_usages_call(
-		&mut output,
-		DaemonUsageCall {
-			target_uri: &result.target.uri,
-			direction: UsageDirection::Outgoing,
-			scope: &request.scope,
-			limit: 50,
-			cursor: None,
-		},
-	);
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\""
-	));
-	request.scope.append_call_args(&mut output);
-	append_call_string_arg(&mut output, "name", &result.target.name);
-	append_call_number_arg(&mut output, "limit", 20);
-	output.push('\n');
-	output
+	if !request.compact {
+		append_daemon_usages_call(
+			&mut output,
+			DaemonUsageCall {
+				target_uri: &result.target.uri,
+				direction: UsageDirection::Incoming,
+				scope: &request.scope,
+				limit: 50,
+				cursor: None,
+				compact: request.compact,
+			},
+		);
+		append_daemon_usages_call(
+			&mut output,
+			DaemonUsageCall {
+				target_uri: &result.target.uri,
+				direction: UsageDirection::Outgoing,
+				scope: &request.scope,
+				limit: 50,
+				cursor: None,
+				compact: request.compact,
+			},
+		);
+		output.push_str(&format!(
+			"  - code_moniker_symbols uri=\"{scheme}workspace\""
+		));
+		request.scope.append_call_args(&mut output);
+		append_call_string_arg(&mut output, "name", &result.target.name);
+		append_call_number_arg(&mut output, "limit", 20);
+		append_call_bool_arg(&mut output, "compact", false);
+		output.push('\n');
+	}
+	let candidates = usage_dto_alias_candidates(&result.target.uri, &result.rows);
+	apply_response_aliases(output, request.compact, candidates)
 }
 
 fn render_daemon_usage_summary(
@@ -350,13 +372,17 @@ fn render_count_dtos(
 	}
 }
 
-fn render_daemon_usage_rows(output: &mut String, rows: &[UsageDto]) {
+fn render_daemon_usage_rows(output: &mut String, rows: &[UsageDto], compact: bool) {
 	output.push_str("usages:\n");
 	if rows.is_empty() {
 		output.push_str("  <empty>\n");
 		return;
 	}
 	for row in rows {
+		if compact {
+			render_compact_daemon_usage_row(output, row);
+			continue;
+		}
 		output.push_str(&format!(
 			"  - {} {} {} {}\n",
 			row.direction.as_str(),
@@ -374,12 +400,60 @@ fn render_daemon_usage_rows(output: &mut String, rows: &[UsageDto]) {
 	}
 }
 
+fn render_compact_daemon_usage_row(output: &mut String, row: &UsageDto) {
+	match row.direction {
+		code_moniker_query::UsageDirection::Incoming => {
+			output.push_str(&format!(
+				"  - in {} {} {} context={} ref={} ",
+				row.kind, row.actor, row.location, row.context, row.reference
+			));
+		}
+		code_moniker_query::UsageDirection::Outgoing => {
+			output.push_str(&format!(
+				"  - out {} {} {} ref={} ",
+				row.kind, row.endpoint, row.location, row.reference
+			));
+		}
+		code_moniker_query::UsageDirection::Both => {
+			output.push_str(&format!(
+				"  - both {} {} {} context={} endpoint={} ref={} ",
+				row.kind, row.actor, row.location, row.context, row.endpoint, row.reference
+			));
+		}
+	}
+	if let Some(via) = &row.via {
+		output.push_str(&format!("via={via}"));
+	}
+	while output.ends_with(' ') {
+		output.pop();
+	}
+	output.push('\n');
+}
+
+fn usage_dto_alias_candidates<'a>(target: &'a str, rows: &'a [UsageDto]) -> Vec<&'a str> {
+	let mut candidates = vec![target];
+	for row in rows {
+		candidates.push(&row.context);
+		candidates.push(&row.endpoint);
+		if let Some(via) = row.via.as_deref().and_then(via_moniker) {
+			candidates.push(via);
+		}
+	}
+	candidates
+}
+
+fn via_moniker(via: &str) -> Option<&str> {
+	let start = via.rfind("(code+moniker://")?.saturating_add(1);
+	via.get(start..via.len().checked_sub(1)?)
+}
+
 struct DaemonUsageCall<'a> {
 	target_uri: &'a str,
 	direction: UsageDirection,
 	scope: &'a ScopeFilter,
 	limit: usize,
 	cursor: Option<&'a code_moniker_query::QueryCursor>,
+	compact: bool,
 }
 
 fn append_daemon_usages_call(output: &mut String, call: DaemonUsageCall<'_>) {
@@ -391,6 +465,9 @@ fn append_daemon_usages_call(output: &mut String, call: DaemonUsageCall<'_>) {
 	if let Some(cursor) = call.cursor {
 		append_call_cursor_arg(output, "cursor", cursor);
 	}
+	if !call.compact {
+		append_call_bool_arg(output, "compact", false);
+	}
 	output.push('\n');
 }
 
@@ -398,6 +475,15 @@ pub(in crate::mcp) fn render_usages_lmnav(
 	scheme: &str,
 	query: UsageQuery<'_>,
 	index: UsageIndexView<'_>,
+) -> anyhow::Result<String> {
+	render_usages_lmnav_mode(scheme, query, index, true)
+}
+
+pub(in crate::mcp) fn render_usages_lmnav_mode(
+	scheme: &str,
+	query: UsageQuery<'_>,
+	index: UsageIndexView<'_>,
+	compact: bool,
 ) -> anyhow::Result<String> {
 	let lookup = UsageLookup::new(index);
 	let target = lookup
@@ -464,7 +550,7 @@ pub(in crate::mcp) fn render_usages_lmnav(
 		render_outgoing_summary(&mut output, &outgoing);
 		output.push('\n');
 	}
-	render_usage_rows(&mut output, &rows[start..end]);
+	render_usage_rows(&mut output, &rows[start..end], compact);
 	output.push_str("\nnext:\n");
 	if let Some(next) = next {
 		append_usages_call(
@@ -476,33 +562,39 @@ pub(in crate::mcp) fn render_usages_lmnav(
 				scope: query.scope,
 				limit: query.paging.limit,
 				cursor: Some(next),
+				compact,
 			},
 		);
 	}
-	append_symbol_read_call(&mut output, target, 3);
-	append_usages_call(
-		&mut output,
-		UsageCall {
-			scheme,
-			target,
-			direction: UsageDirection::Incoming,
-			scope: query.scope,
-			limit: 50,
-			cursor: None,
-		},
-	);
-	append_usages_call(
-		&mut output,
-		UsageCall {
-			scheme,
-			target,
-			direction: UsageDirection::Outgoing,
-			scope: query.scope,
-			limit: 50,
-			cursor: None,
-		},
-	);
-	Ok(output)
+	append_symbol_read_call(&mut output, target, 3, compact);
+	if !compact {
+		append_usages_call(
+			&mut output,
+			UsageCall {
+				scheme,
+				target,
+				direction: UsageDirection::Incoming,
+				scope: query.scope,
+				limit: 50,
+				cursor: None,
+				compact,
+			},
+		);
+		append_usages_call(
+			&mut output,
+			UsageCall {
+				scheme,
+				target,
+				direction: UsageDirection::Outgoing,
+				scope: query.scope,
+				limit: 50,
+				cursor: None,
+				compact,
+			},
+		);
+	}
+	let candidates = usage_row_alias_candidates(target.identity.as_ref(), &rows[start..end]);
+	Ok(apply_response_aliases(output, compact, candidates))
 }
 
 fn render_target(output: &mut String, lookup: &UsageLookup<'_>, target: &SymbolRecord) {
@@ -535,13 +627,17 @@ fn render_outgoing_summary(output: &mut String, rows: &[UsageRow]) {
 	summary.render(output);
 }
 
-fn render_usage_rows(output: &mut String, rows: &[UsageRow]) {
+fn render_usage_rows(output: &mut String, rows: &[UsageRow], compact: bool) {
 	output.push_str("usages:\n");
 	if rows.is_empty() {
 		output.push_str("  <empty>\n");
 		return;
 	}
 	for row in rows {
+		if compact {
+			render_compact_usage_row(output, row);
+			continue;
+		}
 		output.push_str(&format!(
 			"  - {} {} {} {}\n",
 			row.direction, row.kind, row.actor, row.location
@@ -554,6 +650,48 @@ fn render_usage_rows(output: &mut String, rows: &[UsageRow]) {
 			output.push_str(&format!("    via: {via}\n"));
 		}
 	}
+}
+
+fn render_compact_usage_row(output: &mut String, row: &UsageRow) {
+	match row.direction {
+		"incoming" => output.push_str(&format!(
+			"  - in {} {} {} context={} ref={} ",
+			row.kind, row.actor, row.location, row.context, row.reference
+		)),
+		"outgoing" => output.push_str(&format!(
+			"  - out {} {} {} ref={} ",
+			row.kind, row.endpoint, row.location, row.reference
+		)),
+		_ => output.push_str(&format!(
+			"  - {} {} {} {} context={} endpoint={} ref={} ",
+			row.direction,
+			row.kind,
+			row.actor,
+			row.location,
+			row.context,
+			row.endpoint,
+			row.reference
+		)),
+	}
+	if let Some(via) = &row.via {
+		output.push_str(&format!("via={via}"));
+	}
+	while output.ends_with(' ') {
+		output.pop();
+	}
+	output.push('\n');
+}
+
+fn usage_row_alias_candidates<'a>(target: &'a str, rows: &'a [UsageRow]) -> Vec<&'a str> {
+	let mut candidates = vec![target];
+	for row in rows {
+		candidates.push(&row.context);
+		candidates.push(&row.endpoint);
+		if let Some(via) = row.via.as_deref().and_then(via_moniker) {
+			candidates.push(via);
+		}
+	}
+	candidates
 }
 
 fn collect_incoming_rows(
@@ -726,10 +864,18 @@ fn reference_line_suffix(reference: &ReferenceRecord) -> String {
 		.unwrap_or_else(|| ":L?".to_string())
 }
 
-fn append_symbol_read_call(output: &mut String, target: &SymbolRecord, context_lines: usize) {
+fn append_symbol_read_call(
+	output: &mut String,
+	target: &SymbolRecord,
+	context_lines: usize,
+	compact: bool,
+) {
 	output.push_str("  - code_moniker_read");
 	append_call_string_arg(output, "uri", &target.identity);
 	append_call_number_arg(output, "context_lines", context_lines);
+	if !compact {
+		append_call_bool_arg(output, "compact", false);
+	}
 	output.push('\n');
 }
 
@@ -740,6 +886,7 @@ struct UsageCall<'a> {
 	scope: &'a ScopeFilter,
 	limit: usize,
 	cursor: Option<usize>,
+	compact: bool,
 }
 
 fn append_usages_call(output: &mut String, call: UsageCall<'_>) {
@@ -751,8 +898,11 @@ fn append_usages_call(output: &mut String, call: UsageCall<'_>) {
 	if let Some(cursor) = call.cursor {
 		append_call_number_arg(output, "cursor", cursor);
 	}
+	if !call.compact {
+		append_call_bool_arg(output, "compact", false);
+	}
 	output.push('\n');
-	if matches!(call.direction, UsageDirection::Incoming) {
+	if matches!(call.direction, UsageDirection::Incoming) && !call.compact {
 		output.push_str(&format!(
 			"  - code_moniker_symbols uri=\"{}workspace\"",
 			call.scheme
@@ -760,6 +910,7 @@ fn append_usages_call(output: &mut String, call: UsageCall<'_>) {
 		call.scope.append_call_args(output);
 		append_call_string_arg(output, "name", &call.target.name);
 		append_call_number_arg(output, "limit", 20);
+		append_call_bool_arg(output, "compact", false);
 		output.push('\n');
 	}
 }

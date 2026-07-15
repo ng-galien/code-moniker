@@ -8,12 +8,12 @@ use code_moniker_workspace::snapshot::{ReferenceRecord, SourceFileRecord, Source
 use serde_json::{Value, json};
 
 use super::common::{
-	is_workspace_uri, line_range_suffix, normalize_workspace_uri, sorted_count_rows,
-	symbol_line_suffix,
+	apply_response_aliases, compact_argument, is_workspace_uri, line_range_suffix,
+	normalize_workspace_uri, sorted_count_rows, symbol_line_suffix,
 };
 use super::scope::{
-	Paging, SymbolMatch, SymbolScopeFilter, append_call_cursor_arg, append_call_number_arg,
-	append_call_string_arg,
+	Paging, SymbolMatch, SymbolScopeFilter, append_call_bool_arg, append_call_cursor_arg,
+	append_call_number_arg, append_call_string_arg,
 };
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::mcp::context::McpContext;
@@ -33,7 +33,7 @@ impl SymbolsTool {
 		"  action=list     — list navigable symbols in the workspace\n",
 		"  action=insights — summarize languages, kinds, shapes, refs, and concentrated files\n",
 		"Filters are AND-combined: path/lang limit the files, kind/shape/name limit symbols. ",
-		"Use limit and cursor for paging; the next section returns the follow-up call."
+		"Use limit and cursor for paging; compact output uses response-local aliases by default."
 	);
 
 	fn input_schema() -> Value {
@@ -85,6 +85,11 @@ impl SymbolsTool {
 					"type": "boolean",
 					"description": "Include locals, params, and other non-navigation symbols."
 				},
+				"compact": {
+					"type": "boolean",
+					"default": true,
+					"description": "Use response-local moniker aliases and minimal next calls. Defaults true; false preserves canonical URIs and guided navigation."
+				},
 				"limit": {
 					"type": "integer",
 					"minimum": 1,
@@ -126,10 +131,12 @@ struct SymbolRequest {
 	uri: String,
 	scope: SymbolScopeFilter,
 	paging: Paging,
+	compact: bool,
 }
 
 impl SymbolRequest {
 	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		let compact = compact_argument(arguments)?;
 		Ok(Self {
 			action: SymbolAction::from_arguments(arguments)?,
 			uri: arguments
@@ -138,7 +145,8 @@ impl SymbolRequest {
 				.unwrap_or(DEFAULT_SYMBOL_URI)
 				.to_string(),
 			scope: SymbolScopeFilter::from_arguments(arguments)?,
-			paging: Paging::from_arguments(arguments)?,
+			paging: Paging::from_arguments_for_output(arguments, compact)?,
+			compact,
 		})
 	}
 }
@@ -185,7 +193,7 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 				context.scheme(),
 				uri,
 				&request.scope,
-				request.paging,
+				(request.paging, request.compact),
 				response.next_cursor.as_ref(),
 				&result,
 			))
@@ -203,6 +211,7 @@ fn read_symbols(context: &McpContext, request: &SymbolRequest) -> anyhow::Result
 				&request.scope,
 				request.paging,
 				&result,
+				request.compact,
 			))
 		}
 	}
@@ -212,10 +221,11 @@ fn render_daemon_symbol_list_lmnav(
 	scheme: &str,
 	request_uri: &str,
 	scope: &SymbolScopeFilter,
-	paging: Paging,
+	render: (Paging, bool),
 	next_cursor: Option<&code_moniker_query::QueryCursor>,
 	result: &SymbolListResult,
 ) -> String {
+	let (paging, compact) = render;
 	let uri = normalize_workspace_uri(scheme, request_uri, DEFAULT_SYMBOL_URI);
 	let start = paging.cursor.min(result.total);
 	let end = start.saturating_add(result.rows.len()).min(result.total);
@@ -242,10 +252,12 @@ fn render_daemon_symbol_list_lmnav(
 		output.push_str("  <empty>\n");
 	} else {
 		for symbol in &result.rows {
-			render_daemon_symbol_row(&mut output, symbol);
+			render_daemon_symbol_row(&mut output, symbol, compact);
 		}
 	}
-	output.push_str("\nnext:\n");
+	if next_cursor.is_some() || !compact {
+		output.push_str("\nnext:\n");
+	}
 	if let Some(next) = next_cursor {
 		output.push_str(&format!(
 			"  - code_moniker_symbols uri=\"{scheme}workspace\""
@@ -254,14 +266,33 @@ fn render_daemon_symbol_list_lmnav(
 		scope.append_call_args(&mut output);
 		append_call_number_arg(&mut output, "limit", paging.limit);
 		append_call_cursor_arg(&mut output, "cursor", next);
+		if !compact {
+			append_call_bool_arg(&mut output, "compact", false);
+		}
 		output.push('\n');
 	}
-	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::Insights, 20, None);
-	append_workspace_read_call(&mut output, scheme, scope, 2);
-	output
+	if !compact {
+		append_symbols_next_call(
+			&mut output,
+			scheme,
+			scope,
+			SymbolNextCall {
+				action: SymbolAction::Insights,
+				limit: 20,
+				cursor: None,
+				compact,
+			},
+		);
+		append_workspace_read_call(&mut output, scheme, scope, 2, compact);
+	}
+	apply_response_aliases(
+		output,
+		compact,
+		result.rows.iter().map(|symbol| symbol.uri.as_str()),
+	)
 }
 
-fn render_daemon_symbol_row(output: &mut String, symbol: &SymbolDto) {
+fn render_daemon_symbol_row(output: &mut String, symbol: &SymbolDto, compact: bool) {
 	output.push_str(&format!(
 		"  - {} {} {}{}\n",
 		symbol.kind,
@@ -270,10 +301,12 @@ fn render_daemon_symbol_row(output: &mut String, symbol: &SymbolDto) {
 		line_range_suffix(symbol.line_range)
 	));
 	output.push_str(&format!("    uri: {}\n", symbol.uri));
-	output.push_str("    usages: code_moniker_usages");
-	append_call_string_arg(output, "uri", &symbol.uri);
-	append_call_number_arg(output, "limit", 50);
-	output.push('\n');
+	if !compact {
+		output.push_str("    usages: code_moniker_usages");
+		append_call_string_arg(output, "uri", &symbol.uri);
+		append_call_number_arg(output, "limit", 50);
+		output.push('\n');
+	}
 }
 
 fn render_daemon_symbol_insights_lmnav(
@@ -282,6 +315,7 @@ fn render_daemon_symbol_insights_lmnav(
 	scope: &SymbolScopeFilter,
 	paging: Paging,
 	result: &SymbolInsightsResult,
+	compact: bool,
 ) -> String {
 	let uri = normalize_workspace_uri(scheme, request_uri, DEFAULT_SYMBOL_URI);
 	let mut output = String::new();
@@ -322,8 +356,20 @@ fn render_daemon_symbol_insights_lmnav(
 		paging.limit,
 	);
 	output.push_str("\nnext:\n");
-	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::List, 50, None);
-	append_workspace_read_call(&mut output, scheme, scope, 3);
+	append_symbols_next_call(
+		&mut output,
+		scheme,
+		scope,
+		SymbolNextCall {
+			action: SymbolAction::List,
+			limit: if compact { 20 } else { 50 },
+			cursor: None,
+			compact,
+		},
+	);
+	if !compact {
+		append_workspace_read_call(&mut output, scheme, scope, 3, compact);
+	}
 	output
 }
 
@@ -373,10 +419,24 @@ pub(in crate::mcp) fn render_symbols_lmnav(
 	index: SymbolIndexView<'_>,
 	action: SymbolAction,
 ) -> String {
+	render_symbols_lmnav_mode(scheme, request_uri, scope, paging, index, (action, true))
+}
+
+pub(in crate::mcp) fn render_symbols_lmnav_mode(
+	scheme: &str,
+	request_uri: &str,
+	scope: &SymbolScopeFilter,
+	paging: Paging,
+	index: SymbolIndexView<'_>,
+	mode: (SymbolAction, bool),
+) -> String {
+	let (action, compact) = mode;
 	match action {
-		SymbolAction::List => render_symbol_list_lmnav(scheme, request_uri, scope, paging, index),
+		SymbolAction::List => {
+			render_symbol_list_lmnav(scheme, request_uri, scope, paging, index, compact)
+		}
 		SymbolAction::Insights => {
-			render_symbol_insights_lmnav(scheme, request_uri, scope, paging, index)
+			render_symbol_insights_lmnav(scheme, request_uri, scope, paging, index, compact)
 		}
 	}
 }
@@ -387,6 +447,7 @@ fn render_symbol_list_lmnav(
 	scope: &SymbolScopeFilter,
 	paging: Paging,
 	index: SymbolIndexView<'_>,
+	compact: bool,
 ) -> String {
 	let source_by_id = index
 		.sources
@@ -451,26 +512,52 @@ fn render_symbol_list_lmnav(
 				symbol_line_suffix(symbol)
 			));
 			output.push_str(&format!("    uri: {}\n", symbol.identity));
-			output.push_str("    usages: code_moniker_usages");
-			append_call_string_arg(&mut output, "uri", &symbol.identity);
-			append_call_number_arg(&mut output, "limit", 50);
-			output.push('\n');
+			if !compact {
+				output.push_str("    usages: code_moniker_usages");
+				append_call_string_arg(&mut output, "uri", &symbol.identity);
+				append_call_number_arg(&mut output, "limit", 50);
+				output.push('\n');
+			}
 		}
 	}
-	output.push_str("\nnext:\n");
+	if next.is_some() || !compact {
+		output.push_str("\nnext:\n");
+	}
 	if let Some(next) = next {
 		append_symbols_next_call(
 			&mut output,
 			scheme,
 			scope,
-			SymbolAction::List,
-			paging.limit,
-			Some(next),
+			SymbolNextCall {
+				action: SymbolAction::List,
+				limit: paging.limit,
+				cursor: Some(next),
+				compact,
+			},
 		);
 	}
-	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::Insights, 20, None);
-	append_workspace_read_call(&mut output, scheme, scope, 2);
-	output
+	if !compact {
+		append_symbols_next_call(
+			&mut output,
+			scheme,
+			scope,
+			SymbolNextCall {
+				action: SymbolAction::Insights,
+				limit: 20,
+				cursor: None,
+				compact,
+			},
+		);
+		append_workspace_read_call(&mut output, scheme, scope, 2, compact);
+	}
+	apply_response_aliases(
+		output,
+		compact,
+		rows.iter()
+			.take(end)
+			.skip(start)
+			.map(|(symbol, _)| symbol.identity.as_ref()),
+	)
 }
 
 fn render_symbol_insights_lmnav(
@@ -479,6 +566,7 @@ fn render_symbol_insights_lmnav(
 	scope: &SymbolScopeFilter,
 	paging: Paging,
 	index: SymbolIndexView<'_>,
+	compact: bool,
 ) -> String {
 	let scoped_sources = index
 		.sources
@@ -527,18 +615,35 @@ fn render_symbol_insights_lmnav(
 	output.push('\n');
 	metrics.render(&mut output, paging.limit);
 	output.push_str("next:\n");
-	append_symbols_next_call(&mut output, scheme, scope, SymbolAction::List, 50, None);
-	append_workspace_read_call(&mut output, scheme, scope, 3);
+	append_symbols_next_call(
+		&mut output,
+		scheme,
+		scope,
+		SymbolNextCall {
+			action: SymbolAction::List,
+			limit: if compact { 20 } else { 50 },
+			cursor: None,
+			compact,
+		},
+	);
+	if !compact {
+		append_workspace_read_call(&mut output, scheme, scope, 3, compact);
+	}
 	output
+}
+
+struct SymbolNextCall {
+	action: SymbolAction,
+	limit: usize,
+	cursor: Option<usize>,
+	compact: bool,
 }
 
 fn append_symbols_next_call(
 	output: &mut String,
 	scheme: &str,
 	scope: &SymbolScopeFilter,
-	action: SymbolAction,
-	limit: usize,
-	cursor: Option<usize>,
+	call: SymbolNextCall,
 ) {
 	output.push_str(&format!(
 		"  - code_moniker_symbols uri=\"{scheme}workspace\""
@@ -546,15 +651,18 @@ fn append_symbols_next_call(
 	append_call_string_arg(
 		output,
 		"action",
-		match action {
+		match call.action {
 			SymbolAction::List => "list",
 			SymbolAction::Insights => "insights",
 		},
 	);
 	scope.append_call_args(output);
-	append_call_number_arg(output, "limit", limit);
-	if let Some(cursor) = cursor {
+	append_call_number_arg(output, "limit", call.limit);
+	if let Some(cursor) = call.cursor {
 		append_call_number_arg(output, "cursor", cursor);
+	}
+	if !call.compact {
+		append_call_bool_arg(output, "compact", false);
 	}
 	output.push('\n');
 }
@@ -564,10 +672,14 @@ fn append_workspace_read_call(
 	scheme: &str,
 	scope: &SymbolScopeFilter,
 	depth: usize,
+	compact: bool,
 ) {
 	output.push_str(&format!("  - code_moniker_read uri=\"{scheme}workspace\""));
 	scope.files.append_call_args(output);
 	append_call_number_arg(output, "depth", depth);
+	if !compact {
+		append_call_bool_arg(output, "compact", false);
+	}
 	output.push('\n');
 }
 

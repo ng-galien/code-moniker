@@ -2,7 +2,7 @@ use code_moniker_query::{Query, QueryRequest, QueryResult, SymbolDto, SymbolSear
 use code_moniker_workspace::snapshot::{SourceFileRecord, SymbolRecord};
 use serde_json::{Value, json};
 
-use super::common::{line_range_suffix, symbol_line_suffix};
+use super::common::{compact_argument, line_range_suffix, symbol_line_suffix};
 use super::scope::{
 	Paging, SymbolScopeFilter, append_call_bool_arg, append_call_cursor_arg,
 	append_call_number_arg, append_call_string_arg,
@@ -26,7 +26,7 @@ impl SearchTool {
 		"  query — fuzzy symbol search text, scored like the TUI search\n",
 		"  path/lang/kind/shape — same filters as code_moniker_symbols\n",
 		"  include_code/context_lines — opt into source lines around each symbol range\n",
-		"Use limit and cursor for paging; next calls preserve the search query and scope."
+		"Use limit and cursor for paging; compact output keeps only the cursor follow-up by default."
 	);
 
 	fn input_schema() -> Value {
@@ -72,6 +72,11 @@ impl SearchTool {
 				"include_code": {
 					"type": "boolean",
 					"description": "Include source lines for each hit. Defaults false for terse search results."
+				},
+				"compact": {
+					"type": "boolean",
+					"default": true,
+					"description": "Use minimal navigation output. Defaults true; false preserves guided next calls."
 				},
 				"context_lines": {
 					"type": "integer",
@@ -121,6 +126,7 @@ struct SearchRequest {
 	paging: Paging,
 	include_code: bool,
 	context_lines: usize,
+	compact: bool,
 }
 
 impl SearchRequest {
@@ -128,6 +134,7 @@ impl SearchRequest {
 		if arguments.get("include_non_navigable").is_some() {
 			anyhow::bail!("`include_non_navigable` is unsupported by TUI-style search");
 		}
+		let compact = compact_argument(arguments)?;
 		Ok(Self {
 			query: arguments
 				.get("query")
@@ -135,7 +142,7 @@ impl SearchRequest {
 				.ok_or_else(|| anyhow::anyhow!("`query` is required"))?
 				.to_string(),
 			scope: SymbolScopeFilter::from_arguments(arguments)?,
-			paging: Paging::from_arguments(arguments)?,
+			paging: Paging::from_arguments_for_output(arguments, compact)?,
 			include_code: arguments
 				.get("include_code")
 				.and_then(Value::as_bool)
@@ -145,6 +152,7 @@ impl SearchRequest {
 				.and_then(Value::as_u64)
 				.unwrap_or(DEFAULT_CONTEXT_LINES as u64)
 				.min(MAX_CONTEXT_LINES as u64) as usize,
+			compact,
 		})
 	}
 }
@@ -226,11 +234,15 @@ fn render_search_lmnav(scheme: &str, request: &SearchRequest, rows: &[SearchRow<
 			render_search_row(&mut output, row);
 		}
 	}
-	output.push_str("\nnext:\n");
+	if next.is_some() || !request.compact {
+		output.push_str("\nnext:\n");
+	}
 	if let Some(next) = next {
 		append_search_next_call(&mut output, request, request.paging.limit, Some(next));
 	}
-	append_search_next_call(&mut output, request, 50, None);
+	if !request.compact {
+		append_search_next_call(&mut output, request, 50, None);
+	}
 	output
 }
 
@@ -269,11 +281,15 @@ fn render_daemon_search_lmnav(
 			render_daemon_search_row(&mut output, row);
 		}
 	}
-	output.push_str("\nnext:\n");
+	if next_cursor.is_some() || !request.compact {
+		output.push_str("\nnext:\n");
+	}
 	if let Some(next) = next_cursor {
 		append_daemon_search_next_call(&mut output, request, request.paging.limit, next);
 	}
-	append_search_next_call(&mut output, request, 50, None);
+	if !request.compact {
+		append_search_next_call(&mut output, request, 50, None);
+	}
 	output
 }
 
@@ -315,6 +331,9 @@ fn append_daemon_search_next_call(
 	}
 	append_call_number_arg(output, "limit", limit);
 	append_call_cursor_arg(output, "cursor", cursor);
+	if !request.compact {
+		append_call_bool_arg(output, "compact", false);
+	}
 	output.push('\n');
 }
 
@@ -353,6 +372,9 @@ fn append_search_next_call(
 	append_call_number_arg(output, "limit", limit);
 	if let Some(cursor) = cursor {
 		append_call_number_arg(output, "cursor", cursor);
+	}
+	if !request.compact {
+		append_call_bool_arg(output, "compact", false);
 	}
 	output.push('\n');
 }

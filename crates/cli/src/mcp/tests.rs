@@ -19,7 +19,9 @@ use super::context::{DaemonRuntime, McpContext};
 use super::tools;
 use super::tools::read::{render_explorer_lmnav, render_symbol_source_lmnav};
 use super::tools::scope::{Paging, ScopeFilter, SymbolScopeFilter};
-use super::tools::symbols::{SymbolAction, SymbolIndexView, render_symbols_lmnav};
+use super::tools::symbols::{
+	SymbolAction, SymbolIndexView, render_symbols_lmnav, render_symbols_lmnav_mode,
+};
 use super::tools::usages::{UsageDirection, UsageIndexView, UsageQuery, render_usages_lmnav};
 use super::tools::{McpTool, ToolRegistry};
 use crate::session::SessionOptions;
@@ -175,7 +177,7 @@ fn read_root_summarizes_workspace_and_limits_explorer() {
 	assert!(text.contains("path=\"root/src/**\""));
 	assert!(text.contains("lang=\"java\""));
 	assert!(
-		text.contains("code_moniker_symbols uri=\"code+moniker://workspace\" path=\"root/src/**\" lang=\"java\" limit=50")
+		text.contains("code_moniker_symbols uri=\"code+moniker://workspace\" path=\"root/src/**\" lang=\"java\" limit=20")
 	);
 }
 
@@ -196,6 +198,38 @@ fn tools_list_returns_mcp_shape() {
 			.as_str()
 			.unwrap()
 			.starts_with("When to use:")
+	);
+	for index in [0, 2, 3, 4, 5] {
+		assert_eq!(
+			tools[index]["inputSchema"]["properties"]["compact"]["type"],
+			"boolean"
+		);
+		assert_eq!(
+			tools[index]["inputSchema"]["properties"]["compact"]["default"],
+			true
+		);
+	}
+}
+
+#[test]
+fn compact_mode_uses_a_smaller_default_page_without_changing_explicit_limits() {
+	assert_eq!(
+		Paging::from_arguments_for_output(&json!({}), true)
+			.unwrap()
+			.limit,
+		20
+	);
+	assert_eq!(
+		Paging::from_arguments_for_output(&json!({}), false)
+			.unwrap()
+			.limit,
+		80
+	);
+	assert_eq!(
+		Paging::from_arguments_for_output(&json!({"limit": 7}), true)
+			.unwrap()
+			.limit,
+		7
 	);
 }
 
@@ -609,7 +643,8 @@ fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
 				"kind": "method",
 				"include_code": true,
 				"context_lines": 0,
-				"limit": 1
+				"limit": 1,
+				"compact": false
 			}),
 		)
 		.expect("search with code");
@@ -617,6 +652,7 @@ fn search_tool_uses_tui_symbol_search_with_existing_scope_filters() {
 	assert!(detail.text.contains("   2 |   void run() {"));
 	assert!(detail.text.contains("include_code=true"));
 	assert!(detail.text.contains("context_lines=0"));
+	assert!(detail.text.contains("compact=false"));
 }
 
 #[test]
@@ -1057,19 +1093,41 @@ fn symbols_tool_filters_and_pages_symbols() {
 	);
 	assert!(text.contains("symbols: 2"), "{text}");
 	assert!(text.contains("method run src/App.java:4-5"), "{text}");
-	assert!(text.contains("usages: code_moniker_usages"), "{text}");
-	assert!(!text.contains("class App"), "{text}");
-	assert!(text.contains("path=\"src/**\""), "{text}");
-	assert!(text.contains("lang=\"java\""), "{text}");
-	assert!(text.contains("kind=\"method\""), "{text}");
-	assert!(text.contains("name=\"^r\""), "{text}");
-	assert!(text.contains("cursor=1"), "{text}");
+	assert!(!text.contains("usages: code_moniker_usages"), "{text}");
 	assert!(
-		text.contains(
-			"code_moniker_read uri=\"code+moniker://workspace\" path=\"src/**\" lang=\"java\" depth=2"
-		),
+		text.contains("uri: code+moniker://./lang:java/package:src/class:App/method:run()"),
 		"{text}"
 	);
+	assert!(!text.contains("class App"), "{text}");
+	assert!(text.contains("name=\"^r\""), "{text}");
+	assert!(text.contains("cursor=1"), "{text}");
+	assert!(!text.contains("code_moniker_read"), "{text}");
+
+	let verbose = render_symbols_lmnav_mode(
+		"code+moniker://",
+		"workspace",
+		&scope,
+		Paging {
+			cursor: 0,
+			generation: None,
+			limit: 1,
+		},
+		SymbolIndexView {
+			sources: &sources,
+			symbols: &symbols,
+			references: &[],
+		},
+		(SymbolAction::List, false),
+	);
+	assert!(!verbose.starts_with("aliases:\n"), "{verbose}");
+	assert!(
+		verbose.contains("uri: code+moniker://./lang:java/package:src/class:App/method:run()"),
+		"{verbose}"
+	);
+	assert!(verbose.contains("limit=50"), "{verbose}");
+	assert!(verbose.contains("compact=false"), "{verbose}");
+	assert!(verbose.contains("usages: code_moniker_usages"), "{verbose}");
+	assert!(verbose.contains("code_moniker_read"), "{verbose}");
 }
 
 #[test]
@@ -1182,9 +1240,7 @@ fn usages_render_shared_helper_signal_from_cross_prefix_consumers() {
 	);
 	assert!(text.contains("src/app/App.java:L4"), "{text}");
 	assert!(
-		text.contains(
-			"code_moniker_read uri=\"code+moniker://./lang:java/package:shared/class:Helper\""
-		),
+		text.contains(&format!("code_moniker_read uri=\"{helper_identity}\"")),
 		"{text}"
 	);
 }
@@ -1292,7 +1348,7 @@ fn usages_roll_up_indirect_type_alias_consumers() {
 		text.contains("packages/client/src/store/ws.ts:L287"),
 		"{text}"
 	);
-	assert!(text.contains("via: WsServerMessage"), "{text}");
+	assert!(text.contains("via=WsServerMessage"), "{text}");
 	assert!(!text.contains("ref:caller"), "{text}");
 	assert!(!text.contains("start()"), "{text}");
 }

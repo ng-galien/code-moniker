@@ -8,10 +8,10 @@ use code_moniker_query::{
 use code_moniker_workspace::snapshot::{SourceCatalog, SourceFileRecord, SourceUnit, SymbolRecord};
 use serde_json::{Value, json};
 
-use super::common::{is_workspace_uri, normalize_workspace_uri};
+use super::common::{compact_argument, is_workspace_uri, normalize_workspace_uri};
 use super::scope::{
-	Paging, ScopeFilter, append_call_cursor_arg, append_call_number_arg, append_call_string_arg,
-	path_prefix,
+	Paging, ScopeFilter, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
+	append_call_string_arg, path_prefix,
 };
 use super::{McpTool, ToolDescriptor, ToolError, ToolResult};
 use crate::language_kinds;
@@ -90,6 +90,11 @@ impl ReadTool {
 				"include_code": {
 					"type": "boolean",
 					"description": "For workspace/views reads, include source snippets for resolved evidence."
+				},
+				"compact": {
+					"type": "boolean",
+					"default": true,
+					"description": "Use minimal navigation output. Defaults true; false preserves guided next calls."
 				}
 			},
 			"required": ["uri"],
@@ -125,37 +130,47 @@ struct ReadRequest {
 	moniker_display: MonikerDisplay,
 	scope: ScopeFilter,
 	paging: Paging,
+	compact: bool,
 }
 
 impl ReadRequest {
 	fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		let compact = compact_argument(arguments)?;
 		Ok(Self {
-			uri: arguments
-				.get("uri")
-				.and_then(Value::as_str)
+			uri: read_string_argument(arguments, "uri")
 				.unwrap_or(DEFAULT_READ_URI)
 				.to_string(),
-			depth: arguments
-				.get("depth")
-				.and_then(Value::as_u64)
-				.unwrap_or(2)
-				.min(MAX_DEPTH as u64) as usize,
-			context_lines: arguments
-				.get("context_lines")
-				.and_then(Value::as_u64)
-				.unwrap_or(2)
-				.min(20) as usize,
-			include_code: arguments
-				.get("include_code")
-				.and_then(Value::as_bool)
-				.unwrap_or(false),
-			moniker_display: MonikerDisplay::parse(
-				arguments.get("moniker_format").and_then(Value::as_str),
-			)?,
+			depth: bounded_usize_argument(arguments, "depth", 2, MAX_DEPTH),
+			context_lines: bounded_usize_argument(arguments, "context_lines", 2, 20),
+			include_code: read_bool_argument(arguments, "include_code", false),
+			moniker_display: MonikerDisplay::parse(read_string_argument(
+				arguments,
+				"moniker_format",
+			))?,
 			scope: ScopeFilter::from_arguments(arguments)?,
-			paging: Paging::from_arguments(arguments)?,
+			paging: Paging::from_arguments_for_output(arguments, compact)?,
+			compact,
 		})
 	}
+}
+
+fn read_string_argument<'a>(arguments: &'a Value, key: &str) -> Option<&'a str> {
+	arguments.get(key).and_then(Value::as_str)
+}
+
+fn bounded_usize_argument(arguments: &Value, key: &str, default: usize, max: usize) -> usize {
+	arguments
+		.get(key)
+		.and_then(Value::as_u64)
+		.unwrap_or(default as u64)
+		.min(max as u64) as usize
+}
+
+fn read_bool_argument(arguments: &Value, key: &str, default: bool) -> bool {
+	arguments
+		.get(key)
+		.and_then(Value::as_bool)
+		.unwrap_or(default)
 }
 
 fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<String> {
@@ -166,6 +181,7 @@ fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<
 			request.depth,
 			&request.scope,
 			request.paging,
+			request.compact,
 		);
 	}
 	if views::is_views_uri(&request.uri, context.scheme()) {
@@ -175,9 +191,15 @@ fn read_resource(context: &McpContext, request: &ReadRequest) -> anyhow::Result<
 			request.context_lines,
 			request.include_code,
 			request.moniker_display,
+			request.compact,
 		);
 	}
-	read_symbol(context, &request.uri, request.context_lines)
+	read_symbol(
+		context,
+		&request.uri,
+		request.context_lines,
+		request.compact,
+	)
 }
 
 fn read_workspace(
@@ -186,6 +208,7 @@ fn read_workspace(
 	depth: usize,
 	scope: &ScopeFilter,
 	paging: Paging,
+	compact: bool,
 ) -> anyhow::Result<String> {
 	let response = context.query(QueryRequest {
 		query: Query::TreeChildren(TreeChildrenQuery {
@@ -209,10 +232,16 @@ fn read_workspace(
 		paging,
 		next_cursor: response.next_cursor.as_ref(),
 		result: &result,
+		compact,
 	}))
 }
 
-fn read_symbol(context: &McpContext, uri: &str, context_lines: usize) -> anyhow::Result<String> {
+fn read_symbol(
+	context: &McpContext,
+	uri: &str,
+	context_lines: usize,
+	compact: bool,
+) -> anyhow::Result<String> {
 	let response = context.query(QueryRequest::new(Query::SymbolDetail(
 		code_moniker_query::SymbolDetailQuery {
 			workspace: None,
@@ -223,7 +252,11 @@ fn read_symbol(context: &McpContext, uri: &str, context_lines: usize) -> anyhow:
 	let QueryResult::SymbolDetail(result) = response.result else {
 		anyhow::bail!("unexpected daemon response for symbol read");
 	};
-	Ok(render_daemon_symbol_source_lmnav(context.scheme(), &result))
+	Ok(render_daemon_symbol_source_lmnav(
+		context.scheme(),
+		&result,
+		compact,
+	))
 }
 
 fn read_view(
@@ -232,6 +265,7 @@ fn read_view(
 	context_lines: usize,
 	include_code: bool,
 	moniker_display: MonikerDisplay,
+	compact: bool,
 ) -> anyhow::Result<String> {
 	let response = context.query(QueryRequest::new(Query::ViewRead(ViewReadQuery {
 		uri: uri.to_string(),
@@ -246,6 +280,7 @@ fn read_view(
 		context.scheme(),
 		&result,
 		moniker_display,
+		compact,
 	))
 }
 
@@ -255,14 +290,17 @@ fn render_daemon_view_lmnav(
 	scheme: &str,
 	result: &ViewReadResult,
 	moniker_display: MonikerDisplay,
+	compact: bool,
 ) -> String {
 	match result {
-		ViewReadResult::List(list) => render_view_list(scheme, list),
-		ViewReadResult::Detail(detail) => render_view_detail(scheme, detail, moniker_display),
+		ViewReadResult::List(list) => render_view_list(scheme, list, compact),
+		ViewReadResult::Detail(detail) => {
+			render_view_detail(scheme, detail, moniker_display, compact)
+		}
 	}
 }
 
-fn render_view_list(scheme: &str, list: &ViewListResult) -> String {
+fn render_view_list(scheme: &str, list: &ViewListResult, compact: bool) -> String {
 	let mut output = String::new();
 	output.push_str(&format!("uri: {scheme}{VIEWS_URI}\n"));
 	output.push_str("completeness: full\n");
@@ -282,11 +320,17 @@ fn render_view_list(scheme: &str, list: &ViewListResult) -> String {
 		}
 	}
 	output.push_str("\nnext:\n");
-	for view in list.views.iter().take(12) {
-		output.push_str(&format!(
-			"  - code_moniker_read uri=\"{scheme}{VIEWS_URI}/{}\"\n",
-			view.id
-		));
+	for view in list.views.iter().take(if compact { 5 } else { 12 }) {
+		output.push_str("  - code_moniker_read");
+		append_call_string_arg(
+			&mut output,
+			"uri",
+			&format!("{scheme}{VIEWS_URI}/{}", view.id),
+		);
+		if !compact {
+			append_call_bool_arg(&mut output, "compact", false);
+		}
+		output.push('\n');
 	}
 	output
 }
@@ -295,13 +339,14 @@ fn render_view_detail(
 	scheme: &str,
 	detail: &ViewDetailResult,
 	moniker_display: MonikerDisplay,
+	compact: bool,
 ) -> String {
 	let mut output = String::new();
 	render_view_header(&mut output, scheme, detail);
 	render_view_rule_catalog(&mut output, &detail.rules);
 	render_view_boundaries(&mut output, detail, moniker_display);
 	render_view_gotchas(&mut output, detail, moniker_display);
-	render_view_next(&mut output, scheme, detail);
+	render_view_next(&mut output, scheme, detail, compact);
 	output
 }
 
@@ -540,15 +585,26 @@ fn render_view_text_block(output: &mut String, text: &str, indent: &str) {
 	}
 }
 
-fn render_view_next(output: &mut String, scheme: &str, detail: &ViewDetailResult) {
+fn render_view_next(output: &mut String, scheme: &str, detail: &ViewDetailResult, compact: bool) {
 	output.push_str("\nnext:\n");
 	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\" path=\"{}**\" limit=50\n",
-		view_next_scope_path(&detail.scope)
+		"  - code_moniker_symbols uri=\"{scheme}workspace\""
 	));
-	output.push_str(&format!(
-		"  - code_moniker_rules uri=\"{scheme}workspace\" action=\"list\" limit=50\n"
-	));
+	append_call_string_arg(
+		output,
+		"path",
+		&format!("{}**", view_next_scope_path(&detail.scope)),
+	);
+	append_call_number_arg(output, "limit", if compact { 20 } else { 50 });
+	if !compact {
+		append_call_bool_arg(output, "compact", false);
+	}
+	output.push('\n');
+	if !compact {
+		output.push_str(&format!(
+			"  - code_moniker_rules uri=\"{scheme}workspace\" action=\"list\" limit=50 compact=false\n"
+		));
+	}
 }
 
 fn view_scope_label(scope: &str) -> &str {
@@ -563,7 +619,11 @@ fn view_next_scope_path(scope: &str) -> String {
 	}
 }
 
-fn render_daemon_symbol_source_lmnav(scheme: &str, result: &SymbolDetailResult) -> String {
+fn render_daemon_symbol_source_lmnav(
+	scheme: &str,
+	result: &SymbolDetailResult,
+	compact: bool,
+) -> String {
 	let symbol = &result.symbol;
 	let mut output = String::new();
 	output.push_str(&format!("uri: {}\n", symbol.uri));
@@ -592,17 +652,23 @@ fn render_daemon_symbol_source_lmnav(scheme: &str, result: &SymbolDetailResult) 
 		}
 	}
 	output.push_str("\nnext:\n");
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\""
-	));
-	append_call_string_arg(&mut output, "name", &symbol.name);
-	append_call_number_arg(&mut output, "limit", 20);
-	output.push('\n');
+	if !compact {
+		output.push_str(&format!(
+			"  - code_moniker_symbols uri=\"{scheme}workspace\""
+		));
+		append_call_string_arg(&mut output, "name", &symbol.name);
+		append_call_number_arg(&mut output, "limit", 20);
+		append_call_bool_arg(&mut output, "compact", false);
+		output.push('\n');
+	}
 	output.push_str(&format!(
 		"  - code_moniker_symbols uri=\"{scheme}workspace\""
 	));
 	append_call_string_arg(&mut output, "path", &symbol.file);
-	append_call_number_arg(&mut output, "limit", 50);
+	append_call_number_arg(&mut output, "limit", if compact { 20 } else { 50 });
+	if !compact {
+		append_call_bool_arg(&mut output, "compact", false);
+	}
 	output.push('\n');
 	output
 }
@@ -615,6 +681,7 @@ struct DaemonExplorerRender<'a> {
 	paging: Paging,
 	next_cursor: Option<&'a code_moniker_query::QueryCursor>,
 	result: &'a TreeChildrenResult,
+	compact: bool,
 }
 
 fn render_daemon_explorer_lmnav(render: DaemonExplorerRender<'_>) -> String {
@@ -672,17 +739,29 @@ fn render_daemon_explorer_lmnav(render: DaemonExplorerRender<'_>) -> String {
 		append_call_number_arg(&mut output, "depth", render.depth);
 		append_call_number_arg(&mut output, "limit", render.paging.limit);
 		append_call_cursor_arg(&mut output, "cursor", next);
+		if !render.compact {
+			append_call_bool_arg(&mut output, "compact", false);
+		}
 		output.push('\n');
 	}
 	append_read_next_call(
 		&mut output,
 		render.scheme,
 		render.scope,
-		(render.depth + 1).min(MAX_DEPTH),
-		render.paging.limit,
-		None,
+		ReadNextCall {
+			depth: (render.depth + 1).min(MAX_DEPTH),
+			limit: render.paging.limit,
+			cursor: None,
+			compact: render.compact,
+		},
 	);
-	append_symbols_call(&mut output, render.scheme, render.scope, 50);
+	append_symbols_call(
+		&mut output,
+		render.scheme,
+		render.scope,
+		if render.compact { 20 } else { 50 },
+		render.compact,
+	);
 	output
 }
 
@@ -707,6 +786,17 @@ pub(in crate::mcp) fn render_symbol_source_lmnav(
 	source: &SourceFileRecord,
 	source_text: &str,
 	context_lines: usize,
+) -> String {
+	render_symbol_source_lmnav_mode(scheme, symbol, source, source_text, context_lines, true)
+}
+
+fn render_symbol_source_lmnav_mode(
+	scheme: &str,
+	symbol: &SymbolRecord,
+	source: &SourceFileRecord,
+	source_text: &str,
+	context_lines: usize,
+	compact: bool,
 ) -> String {
 	let total_lines = source_text.lines().count().max(1);
 	let (raw_start, raw_end) = symbol
@@ -741,17 +831,23 @@ pub(in crate::mcp) fn render_symbol_source_lmnav(
 		output.push_str(&format!("  {line_number:>4} | {line}\n"));
 	}
 	output.push_str("\nnext:\n");
-	output.push_str(&format!(
-		"  - code_moniker_symbols uri=\"{scheme}workspace\""
-	));
-	append_call_string_arg(&mut output, "name", &symbol.name);
-	append_call_number_arg(&mut output, "limit", 20);
-	output.push('\n');
+	if !compact {
+		output.push_str(&format!(
+			"  - code_moniker_symbols uri=\"{scheme}workspace\""
+		));
+		append_call_string_arg(&mut output, "name", &symbol.name);
+		append_call_number_arg(&mut output, "limit", 20);
+		append_call_bool_arg(&mut output, "compact", false);
+		output.push('\n');
+	}
 	output.push_str(&format!(
 		"  - code_moniker_symbols uri=\"{scheme}workspace\""
 	));
 	append_call_string_arg(&mut output, "path", &source.rel_path);
-	append_call_number_arg(&mut output, "limit", 50);
+	append_call_number_arg(&mut output, "limit", if compact { 20 } else { 50 });
+	if !compact {
+		append_call_bool_arg(&mut output, "compact", false);
+	}
 	output.push('\n');
 	output
 }
@@ -764,6 +860,17 @@ pub(in crate::mcp) fn render_explorer_lmnav(
 	scope: &ScopeFilter,
 	paging: Paging,
 ) -> String {
+	render_explorer_lmnav_mode(scheme, request_uri, catalog, scope, (depth, paging, true))
+}
+
+fn render_explorer_lmnav_mode(
+	scheme: &str,
+	request_uri: &str,
+	catalog: &SourceCatalog,
+	scope: &ScopeFilter,
+	render: (usize, Paging, bool),
+) -> String {
+	let (depth, paging, compact) = render;
 	let scoped_sources = catalog
 		.sources
 		.iter()
@@ -809,44 +916,80 @@ pub(in crate::mcp) fn render_explorer_lmnav(
 	}
 	output.push_str("\nnext:\n");
 	if let Some(next) = next {
-		append_read_next_call(&mut output, scheme, scope, depth, paging.limit, Some(next));
+		append_read_next_call(
+			&mut output,
+			scheme,
+			scope,
+			ReadNextCall {
+				depth,
+				limit: paging.limit,
+				cursor: Some(next),
+				compact,
+			},
+		);
 	}
 	append_read_next_call(
 		&mut output,
 		scheme,
 		scope,
-		(depth + 1).min(MAX_DEPTH),
-		paging.limit,
-		None,
+		ReadNextCall {
+			depth: (depth + 1).min(MAX_DEPTH),
+			limit: paging.limit,
+			cursor: None,
+			compact,
+		},
 	);
-	append_symbols_call(&mut output, scheme, scope, 50);
+	append_symbols_call(
+		&mut output,
+		scheme,
+		scope,
+		if compact { 20 } else { 50 },
+		compact,
+	);
 	output
+}
+
+struct ReadNextCall {
+	depth: usize,
+	limit: usize,
+	cursor: Option<usize>,
+	compact: bool,
 }
 
 fn append_read_next_call(
 	output: &mut String,
 	scheme: &str,
 	scope: &ScopeFilter,
-	depth: usize,
-	limit: usize,
-	cursor: Option<usize>,
+	call: ReadNextCall,
 ) {
 	output.push_str(&format!("  - code_moniker_read uri=\"{scheme}workspace\""));
 	scope.append_call_args(output);
-	append_call_number_arg(output, "depth", depth);
-	append_call_number_arg(output, "limit", limit);
-	if let Some(cursor) = cursor {
+	append_call_number_arg(output, "depth", call.depth);
+	append_call_number_arg(output, "limit", call.limit);
+	if let Some(cursor) = call.cursor {
 		append_call_number_arg(output, "cursor", cursor);
+	}
+	if !call.compact {
+		append_call_bool_arg(output, "compact", false);
 	}
 	output.push('\n');
 }
 
-fn append_symbols_call(output: &mut String, scheme: &str, scope: &ScopeFilter, limit: usize) {
+fn append_symbols_call(
+	output: &mut String,
+	scheme: &str,
+	scope: &ScopeFilter,
+	limit: usize,
+	compact: bool,
+) {
 	output.push_str(&format!(
 		"  - code_moniker_symbols uri=\"{scheme}workspace\""
 	));
 	scope.append_call_args(output);
 	append_call_number_arg(output, "limit", limit);
+	if !compact {
+		append_call_bool_arg(output, "compact", false);
+	}
 	output.push('\n');
 }
 

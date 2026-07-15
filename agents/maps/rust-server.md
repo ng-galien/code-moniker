@@ -34,7 +34,12 @@ from project/index checks.
 After rebuilding or restarting `cm-mcp`, validate the surface:
 
 - TUI capture: file tree, then symbol/linkage completion.
-- MCP text: `uri`, `completeness`, `summary`/`explorer` or `results`; page with `next`.
+- MCP text: `uri`, `completeness`, `summary`/`explorer` or `results`; partial
+  pages expose an optional `next` cursor call.
+- Compact contract: default responses may declare response-local `@N` moniker
+  aliases in descriptive data; generated calls must retain canonical URIs.
+  Verify `compact:false` returns canonical verbose output and pagination keeps
+  that mode.
 - Required probes: scoped read, cursor follow-up, `action:"insights"`, symbol URI read.
 - Rules probes: `action:"list"`, bounded `action:"run"`.
 

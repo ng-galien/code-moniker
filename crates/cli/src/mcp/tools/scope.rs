@@ -8,6 +8,7 @@ use serde_json::Value;
 use code_moniker_workspace::glob::FilePathFilter;
 
 pub(super) const DEFAULT_LIMIT: usize = 80;
+const COMPACT_DEFAULT_LIMIT: usize = 20;
 pub(super) const MAX_LIMIT: usize = 500;
 
 #[derive(Clone, Debug, Default)]
@@ -182,9 +183,30 @@ pub(in crate::mcp) struct Paging {
 
 impl Paging {
 	pub(super) fn from_arguments(arguments: &Value) -> anyhow::Result<Self> {
+		Self::from_arguments_with_default(arguments, DEFAULT_LIMIT)
+	}
+
+	pub(in crate::mcp) fn from_arguments_for_output(
+		arguments: &Value,
+		compact: bool,
+	) -> anyhow::Result<Self> {
+		Self::from_arguments_with_default(
+			arguments,
+			if compact {
+				COMPACT_DEFAULT_LIMIT
+			} else {
+				DEFAULT_LIMIT
+			},
+		)
+	}
+
+	fn from_arguments_with_default(
+		arguments: &Value,
+		default_limit: usize,
+	) -> anyhow::Result<Self> {
 		let (cursor, generation) = cursor_argument(arguments, "cursor")?.unwrap_or((0, None));
 		let limit = positive_number_argument(arguments, "limit")?
-			.unwrap_or(DEFAULT_LIMIT)
+			.unwrap_or(default_limit)
 			.min(MAX_LIMIT);
 		Ok(Self {
 			cursor,

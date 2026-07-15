@@ -59,12 +59,21 @@ impl ServerHandler for CodeMonikerMcp {
 				"symbols (calls, uses_type, extends…) are counted facts. ",
 				"Start with code_moniker_read uri:\"workspace\" for an overview, or ",
 				"code_moniker_symbols to find a symbol and obtain its exact URI. ",
-				"Never guess a URI: take it verbatim from a previous result. ",
+				"Never guess a URI. By default compact=true: repeated canonical monikers ",
+				"in descriptive data may be declared once under aliases and referenced ",
+				"as @N. Each alias is local to that single response: it is not stored by ",
+				"the server, is invalid as a tool argument, and must never be reused in a ",
+				"later response. Generated tool calls always keep canonical URIs and can ",
+				"be copied verbatim. When composing a call from aliased data, resolve @N ",
+				"through that response's aliases section first. Set compact=false for ",
+				"canonical verbose data and additional guided follow-up calls. ",
+				"Compact symbol rows omit duplicated per-row usages calls; pass the row's ",
+				"canonical URI to code_moniker_usages when needed. ",
 				"Then code_moniker_usages for callers/callees, code_moniker_graph for ",
 				"coupling between scopes, code_moniker_rules for architecture checks, ",
 				"code_moniker_diff for structural change review. ",
-				"Responses are compact text with uri, completeness, body, and next ",
-				"sections; next lists ready-made follow-up calls."
+				"Responses contain uri, completeness, and a body; next is optional and ",
+				"appears only when a useful follow-up exists."
 			))
 	}
 

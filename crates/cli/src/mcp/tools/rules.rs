@@ -6,6 +6,7 @@ use code_moniker_query::{
 };
 use serde_json::{Value, json};
 
+use super::common::compact_argument;
 use super::scope::{
 	Paging, append_call_bool_arg, append_call_cursor_arg, append_call_number_arg,
 	append_call_string_arg, string_list,
@@ -78,6 +79,11 @@ impl RulesTool {
 					"type": "boolean",
 					"description": "Include per-rule observability when action=run. Defaults true."
 				},
+				"compact": {
+					"type": "boolean",
+					"default": true,
+					"description": "Use minimal navigation output. Defaults true; false preserves guided next calls."
+				},
 				"limit": {
 					"type": "integer",
 					"minimum": 1,
@@ -128,10 +134,12 @@ struct RulesRequest {
 	files: Vec<PathBuf>,
 	report: bool,
 	paging: Paging,
+	compact: bool,
 }
 
 fn rules_request_from_arguments(arguments: &Value) -> anyhow::Result<RulesRequest> {
 	let action = rules_action_from_arguments(arguments)?;
+	let compact = compact_argument(arguments)?;
 	let langs = string_list(arguments, "lang")?
 		.into_iter()
 		.map(|lang| lang.to_ascii_lowercase())
@@ -169,7 +177,8 @@ fn rules_request_from_arguments(arguments: &Value) -> anyhow::Result<RulesReques
 			.get("report")
 			.and_then(Value::as_bool)
 			.unwrap_or(true),
-		paging: Paging::from_arguments(arguments)?,
+		paging: Paging::from_arguments_for_output(arguments, compact)?,
+		compact,
 	})
 }
 
@@ -234,7 +243,9 @@ fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<St
 			render_rule_dto(&mut output, spec);
 		}
 	}
-	output.push_str("\nnext:\n");
+	if response.next_cursor.is_some() || !request.compact {
+		output.push_str("\nnext:\n");
+	}
 	if let Some(next) = response.next_cursor.as_ref() {
 		append_rules_next_call(
 			&mut output,
@@ -245,14 +256,16 @@ fn list_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<St
 			Some(next),
 		);
 	}
-	append_rules_next_call(
-		&mut output,
-		context.scheme(),
-		request,
-		RulesAction::Run,
-		20,
-		None,
-	);
+	if !request.compact {
+		append_rules_next_call(
+			&mut output,
+			context.scheme(),
+			request,
+			RulesAction::Run,
+			20,
+			None,
+		);
+	}
 	Ok(output)
 }
 
@@ -302,17 +315,19 @@ fn run_rules(context: &McpContext, request: &RulesRequest) -> anyhow::Result<Str
 			request.paging.limit,
 			Some(next),
 		);
-	} else {
+	} else if !request.compact {
 		output.push_str("\nnext:\n");
 	}
-	append_rules_next_call(
-		&mut output,
-		context.scheme(),
-		request,
-		RulesAction::List,
-		50,
-		None,
-	);
+	if !request.compact {
+		append_rules_next_call(
+			&mut output,
+			context.scheme(),
+			request,
+			RulesAction::List,
+			50,
+			None,
+		);
+	}
 	Ok(output)
 }
 
@@ -414,6 +429,9 @@ fn append_rules_next_call(
 	append_call_number_arg(output, "limit", limit);
 	if let Some(cursor) = cursor {
 		append_call_cursor_arg(output, "cursor", cursor);
+	}
+	if !request.compact {
+		append_call_bool_arg(output, "compact", false);
 	}
 	output.push('\n');
 }
