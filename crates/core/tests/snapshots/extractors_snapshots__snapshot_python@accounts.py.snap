@@ -582,6 +582,19 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/path:log",
+      "kind": "typed_as",
+      "position": [
+        633,
+        636
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:logging/path:getLogger"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:python/module:accounts",
@@ -631,6 +644,19 @@ input_file: crates/core/tests/fixtures/extractors/python/accounts.py
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/external_pkg:dataclasses/function:dataclass"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:accounts/class:User/path:tags",
+      "kind": "typed_as",
+      "position": [
+        1053,
+        1057
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:dataclasses/function:field"
     },
     {
       "alias": "",

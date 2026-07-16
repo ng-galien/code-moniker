@@ -612,6 +612,28 @@ fn python_package_init_reexports_forward_symbols_and_inheritance() {
 }
 
 #[test]
+fn python_module_level_values_type_their_imported_method_calls() {
+	let snapshot = load_workspace("projects/python/orders-service");
+
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:setup/function:register_defaults()",
+		"calls",
+		"register",
+		1,
+		"package:orders_service/module:registry/class:RepositoryRegistry/method:register(name:str)",
+	);
+	assert_call_resolves_only_to(
+		&snapshot,
+		"module:setup/function:register_defaults()",
+		"calls",
+		"count",
+		0,
+		"package:orders_service/module:registry/class:RepositoryRegistry/method:count()",
+	);
+}
+
+#[test]
 fn python_from_imports_of_submodules_link_to_their_modules() {
 	let snapshot = load_workspace("projects/python/orders-service");
 

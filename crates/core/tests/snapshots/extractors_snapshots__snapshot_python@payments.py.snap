@@ -660,6 +660,19 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:PaymentEvent/path:metadata",
+      "kind": "typed_as",
+      "position": [
+        633,
+        641
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/type:Metadata"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "external",
       "from": "code+moniker://app/lang:python/module:payments/class:Payment",
@@ -686,6 +699,19 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "external",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment/path:amount",
+      "kind": "typed_as",
+      "position": [
+        726,
+        732
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/external_pkg:decimal/function:Decimal"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:python/module:payments/class:Payment",
@@ -699,6 +725,19 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
     },
     {
       "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment/path:status",
+      "kind": "typed_as",
+      "position": [
+        746,
+        752
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/class:PaymentStatus"
+    },
+    {
+      "alias": "",
       "binding": "local",
       "confidence": "resolved",
       "from": "code+moniker://app/lang:python/module:payments/class:Payment",
@@ -706,6 +745,19 @@ input_file: crates/core/tests/fixtures/extractors/python/payments.py
       "position": [
         782,
         790
+      ],
+      "receiver_hint": "",
+      "to": "code+moniker://app/lang:python/module:payments/type:Metadata"
+    },
+    {
+      "alias": "",
+      "binding": "none",
+      "confidence": "resolved",
+      "from": "code+moniker://app/lang:python/module:payments/class:Payment/path:metadata",
+      "kind": "typed_as",
+      "position": [
+        772,
+        780
       ],
       "receiver_hint": "",
       "to": "code+moniker://app/lang:python/module:payments/type:Metadata"

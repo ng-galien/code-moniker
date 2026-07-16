@@ -1272,7 +1272,7 @@ fn handle_assignment(
 			scope,
 			left,
 			node.child_by_field_name("right"),
-			inferred_type,
+			inferred_type.clone(),
 		);
 		if discover.deep {
 			emit_local_pattern(discover, left, scope, graph);
@@ -1280,6 +1280,14 @@ fn handle_assignment(
 	}
 	if !inside_callable && let Some(left) = node.child_by_field_name("left") {
 		emit_binding_pattern(discover, left, scope, graph);
+		emit_binding_type(
+			discover,
+			left,
+			node.child_by_field_name("right"),
+			inferred_type,
+			scope,
+			graph,
+		);
 	}
 	if let Some(right) = node.child_by_field_name("right") {
 		discover.recurse_subtree(right, scope, graph);
@@ -1457,6 +1465,45 @@ fn emit_binding_pattern(
 		}
 		_ => {}
 	}
+}
+
+fn emit_binding_type(
+	discover: &PyDiscover<'_>,
+	left: Node<'_>,
+	right: Option<Node<'_>>,
+	inferred_type: Option<Moniker>,
+	scope: &Moniker,
+	graph: &mut SdkBuilder,
+) {
+	if left.kind() != "identifier" {
+		return;
+	}
+	let name = node_slice(left, discover.source_bytes);
+	if name.is_empty() {
+		return;
+	}
+	let Some(target) = inferred_type
+		.or_else(|| right.and_then(|node| infer_assignment_value_type(discover, node, scope)))
+	else {
+		return;
+	};
+	let confidence = if is_external_shaped(&target) {
+		kinds::CONF_EXTERNAL
+	} else {
+		kinds::CONF_RESOLVED
+	};
+	let source = extend_segment(scope, kinds::PATH, name);
+	let attrs = RefAttrs {
+		confidence,
+		..RefAttrs::default()
+	};
+	let _ = graph.add_ref_attrs(
+		&source,
+		target,
+		kinds::TYPED_AS,
+		Some(node_position(left)),
+		&attrs,
+	);
 }
 
 fn emit_local_pattern(

@@ -192,6 +192,7 @@ struct ReceiverFieldTables {
 	extends_of: FxHashMap<Moniker, Moniker>,
 	supers: FxHashMap<Moniker, Vec<Moniker>>,
 	type_aliases: FxHashMap<Moniker, Moniker>,
+	value_types: FxHashMap<Moniker, Moniker>,
 }
 
 fn build_receiver_field_tables(
@@ -204,6 +205,7 @@ fn build_receiver_field_tables(
 		extends_of: FxHashMap::default(),
 		supers: FxHashMap::default(),
 		type_aliases: FxHashMap::default(),
+		value_types: FxHashMap::default(),
 	};
 	for decision in decisions {
 		let reference = decision_reference(decision, references);
@@ -251,6 +253,13 @@ fn insert_type_fact(
 					.entry(owner)
 					.or_default()
 					.insert(name, target);
+			} else if source
+				.as_view()
+				.segments()
+				.last()
+				.is_some_and(|segment| segment.kind == kinds::PATH)
+			{
+				tables.value_types.insert(source, target);
 			}
 		}
 		_ => {}
@@ -306,6 +315,7 @@ fn enhance_receiver_fields(
 					resolve_imported_method_call(linkage, tables, *reference_idx, reference)
 				})
 				.or_else(|| resolve_self_method_call(linkage, tables, *reference_idx, reference))
+				.or_else(|| resolve_typed_value_call(linkage, tables, *reference_idx, reference))
 				.map(|replacement| (idx, replacement))
 		})
 		.collect::<Vec<_>>();
@@ -385,6 +395,27 @@ fn resolve_imported_method_call(
 	let owner_raw = raw_target.parent()?;
 	let owner = canonical_type_owner(tables, &owner_raw);
 	resolve_method_through_supers(linkage, tables, &owner, method_call)
+}
+
+fn resolve_typed_value_call(
+	linkage: &SemanticLinkage<'_>,
+	tables: &ReceiverFieldTables,
+	reference_idx: usize,
+	reference: &ReferenceRecord,
+) -> Option<ReferenceLinkageDecision> {
+	let method_call = MethodCallReference::new(reference_idx, reference)?;
+	let raw_target = linkage.material.reference_target(&reference.id)?;
+	let last = raw_target.as_view().segments().last()?;
+	if !matches!(last.kind, kinds::FUNCTION | kinds::METHOD) {
+		return None;
+	}
+	let value = raw_target.parent()?;
+	if value.as_view().segments().last()?.kind != kinds::PATH {
+		return None;
+	}
+	let value = tables.type_aliases.get(&value).cloned().unwrap_or(value);
+	let ty = tables.value_types.get(&value)?;
+	typed_receiver_decision(linkage, tables, ty, method_call)
 }
 
 fn resolve_self_method_call(
@@ -501,7 +532,7 @@ struct MethodCallReference<'a> {
 
 impl<'a> MethodCallReference<'a> {
 	fn new(reference_idx: usize, reference: &'a ReferenceRecord) -> Option<Self> {
-		if reference.kind != "method_call" {
+		if reference.kind != "method_call" && reference.kind != "calls" {
 			return None;
 		}
 		Some(Self {
